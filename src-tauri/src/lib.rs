@@ -2819,6 +2819,10 @@ pub fn run() {
             });
             app.manage(AppState { db: db.clone() });
             migrate_secrets(&db);
+            // settings and rows that still point at an account that no longer exists are removed
+            if let Err(e) = db::prune_orphans(&lock(&db)) {
+                eprintln!("could not clean up leftovers of removed accounts: {e}");
+            }
             let pending_app = app.handle().clone();
             std::thread::spawn(move || pending_worker(pending_app));
             let cal_app = app.handle().clone();

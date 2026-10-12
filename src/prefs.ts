@@ -211,6 +211,27 @@ export function mergePrefs(raw: string | null): Prefs {
   }
 }
 
+const UUID_LIKE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+/** The preferences that still refer to an account that exists: a removed account's default, overrides, favorites and
+ *  collapsed groups are dropped. Returns the keys that changed (empty = nothing to clean). The backend does the same
+ *  for the stored copy (`clean_prefs` in db.rs) when the app starts and when an account is removed. */
+export function staleAccountPrefs(prefs: Prefs, accountIds: string[]): Partial<Prefs> {
+  const known = new Set(accountIds);
+  const out: Partial<Prefs> = {};
+  if (prefs.defaultAccount && !known.has(prefs.defaultAccount)) out.defaultAccount = "";
+  const ap = Object.entries(prefs.accountPrefs ?? {});
+  if (ap.some(([id]) => !known.has(id))) out.accountPrefs = Object.fromEntries(ap.filter(([id]) => known.has(id)));
+  const favs = (prefs.favorites ?? []).filter((f) => {
+    const acct = f.split("|")[0];
+    return acct === "*" || known.has(acct);
+  });
+  if (favs.length !== (prefs.favorites ?? []).length) out.favorites = favs;
+  const col = Object.entries(prefs.collapsed ?? {});
+  if (col.some(([k]) => UUID_LIKE.test(k) && !known.has(k))) out.collapsed = Object.fromEntries(col.filter(([k]) => !UUID_LIKE.test(k) || known.has(k)));
+  return out;
+}
+
 export const ROLE_LABELS: Record<string, string> = {
   inbox: "Inbox",
   drafts: "Drafts",

@@ -1,7 +1,7 @@
 import { create } from "zustand";
 import { api, Account, Att, CalendarInfo, CalEvent, DraftSecurity, FolderInfo, Meeting, MessageFull, OutboxItem, SearchScope, ThreadSummary } from "./api";
 import { calTz, CalView, Day, rangeFor, systemTz, today } from "./calendar";
-import { accentText, accountColor, buttonAccent, DEFAULT_PREFS, lightened, mergePrefs, Prefs, readableOn, topBar, validHex } from "./prefs";
+import { accentText, accountColor, buttonAccent, DEFAULT_PREFS, lightened, mergePrefs, Prefs, readableOn, staleAccountPrefs, topBar, validHex } from "./prefs";
 
 export interface ComposeInit {
   accountId?: string;
@@ -328,7 +328,13 @@ export const useStore = create<State>((set, get) => ({
 
   init: async () => {
     const [rawAccounts, rawPrefs] = await Promise.all([api.listAccounts(), api.getSetting("prefs")]);
-    const prefs = mergePrefs(rawPrefs);
+    let prefs = mergePrefs(rawPrefs);
+    // settings that point at an account that was removed (default account, overrides, favorites) are dropped
+    const stale = staleAccountPrefs(prefs, rawAccounts.map((a) => a.id));
+    if (Object.keys(stale).length) {
+      prefs = { ...prefs, ...stale };
+      void api.setSetting("prefs", JSON.stringify(prefs)).catch(() => undefined);
+    }
     const accounts = storeMissingColors(rawAccounts, prefs.accent);
     applyPrefs(prefs);
     mirrorSettings(prefs);

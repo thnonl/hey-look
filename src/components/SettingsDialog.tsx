@@ -2,7 +2,7 @@ import { KeyRound, Lock, Plus, Trash2, Upload } from "lucide-react";
 import { openUrl } from "@tauri-apps/plugin-opener";
 import { Fragment, ReactNode, useEffect, useRef, useState } from "react";
 import { Account, api, Discovered, PgpKey, PROVIDERS, Rule, Signature, Template } from "../api";
-import { ACCENT_PRESETS, ACCOUNT_PALETTE, accountColor, DEFAULT_PREFS, eff, folderLabel, isOverridden, NOTIFY_ACTIONS, NOTIFY_SOUNDS, Overridable, Prefs, validHex } from "../prefs";
+import { ACCENT_PRESETS, ACCOUNT_PALETTE, accountColor, DEFAULT_PREFS, eff, folderLabel, isOverridden, NOTIFY_ACTIONS, NOTIFY_SOUNDS, Overridable, Prefs, staleAccountPrefs, validHex } from "../prefs";
 import { friendlyError, useStore } from "../store";
 import { systemTz } from "../calendar";
 import { fmtDay, fmtFpr, shortKey } from "../util";
@@ -986,6 +986,9 @@ function ServerPanel({ account, close }: { account: Account; close: () => void }
     if (!ok) return;
     await api.removeAccount(account.id);
     useStore.setState((s) => ({ accounts: s.accounts.filter((x) => x.id !== account.id) }));
+    const st = useStore.getState();
+    const stale = staleAccountPrefs(st.prefs, st.accounts.map((x) => x.id));
+    if (Object.keys(stale).length) st.setPrefs(stale);
     await useStore.getState().refresh();
     close();
   };

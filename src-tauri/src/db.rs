@@ -231,12 +231,108 @@ pub fn insert_account(c: &Connection, a: &Account) -> R<()> {
 }
 
 pub fn remove_account(c: &Connection, id: &str) -> R<()> {
+    // pins and snoozes of this account's conversations go with the conversations
+    c.execute("DELETE FROM thread_meta WHERE thread_id IN (SELECT thread_id FROM messages WHERE account_id=?1)", [id]).map_err(err)?;
     c.execute("DELETE FROM messages WHERE account_id=?1", [id]).map_err(err)?;
     c.execute("DELETE FROM outbox WHERE account_id=?1", [id]).map_err(err)?;
     c.execute("DELETE FROM pgp_default WHERE account_id=?1", [id]).map_err(err)?;
     c.execute("DELETE FROM events WHERE account_id=?1 OR calendar_id=?2", params![id, format!("invites:{id}")]).map_err(err)?;
     c.execute("DELETE FROM accounts WHERE id=?1", [id]).map_err(err)?;
+    // the account's rules / signatures / templates, folder map, hidden-calendar mark and preferences
+    prune_orphans(c)?;
     Ok(())
+}
+
+/// Delete everything that still refers to an account that is not in `accounts`: its mail, outbox, key defaults, events,
+/// rules / signatures / templates, folder map (`fmap:<id>`), hidden-calendar marks and the preferences that name it
+/// (default account, per-account overrides, favorites, collapsed groups). Runs when the app starts and after a removal, so
+/// leftovers of an interrupted removal or of an older version do not pile up. PGP keys are not touched: they belong to the
+/// person, not to the mailbox. Returns how many rows / settings were removed or changed.
+pub fn prune_orphans(c: &Connection) -> R<usize> {
+    let ids: std::collections::HashSet<String> = list_accounts(c)?.into_iter().map(|a| a.id).collect();
+    let mut n = 0usize;
+    let gone = "NOT IN (SELECT id FROM accounts)";
+    for sql in [
+        format!("DELETE FROM thread_meta WHERE thread_id IN (SELECT thread_id FROM messages WHERE account_id {gone})"),
+        format!("DELETE FROM messages WHERE account_id {gone}"),
+        format!("DELETE FROM outbox WHERE account_id {gone}"),
+        format!("DELETE FROM pgp_default WHERE account_id {gone}"),
+        format!("DELETE FROM events WHERE (account_id IS NOT NULL AND account_id {gone}) OR (calendar_id LIKE 'invites:%' AND substr(calendar_id, 9) {gone})"),
+        format!("DELETE FROM rules WHERE account_id IS NOT NULL AND account_id != '' AND account_id {gone}"),
+        format!("DELETE FROM signatures WHERE account_id IS NOT NULL AND account_id != '' AND account_id {gone}"),
+        format!("DELETE FROM templates WHERE account_id IS NOT NULL AND account_id != '' AND account_id {gone}"),
+    ] {
+        n += c.execute(&sql, []).map_err(err)?;
+    }
+    // folder maps of removed accounts
+    let keys: Vec<String> = {
+        let mut st = c.prepare("SELECT key FROM settings WHERE key LIKE 'fmap:%'").map_err(err)?;
+        let rows = st.query_map([], |r| r.get::<_, String>(0)).map_err(err)?.collect::<Result<Vec<_>, _>>().map_err(err)?;
+        rows
+    };
+    for k in keys {
+        if !ids.contains(k.trim_start_matches("fmap:")) {
+            n += c.execute("DELETE FROM settings WHERE key=?1", [&k]).map_err(err)?;
+        }
+    }
+    // calendars hidden by the user: "invites:<account>" of a removed account
+    if let Some(raw) = get_setting(c, "cal_hidden") {
+        if let Ok(list) = serde_json::from_str::<Vec<String>>(&raw) {
+            let kept: Vec<String> = list.iter().filter(|k| k.strip_prefix("invites:").map(|a| ids.contains(a)).unwrap_or(true)).cloned().collect();
+            if kept.len() != list.len() {
+                set_setting(c, "cal_hidden", &serde_json::to_string(&kept).map_err(err)?)?;
+                n += 1;
+            }
+        }
+    }
+    if let Some(raw) = get_setting(c, "prefs") {
+        if let Some(clean) = clean_prefs(&raw, &ids) {
+            set_setting(c, "prefs", &clean)?;
+            n += 1;
+        }
+    }
+    Ok(n)
+}
+
+fn looks_like_account_id(k: &str) -> bool {
+    k.len() == 36 && k.bytes().enumerate().all(|(i, b)| if matches!(i, 8 | 13 | 18 | 23) { b == b'-' } else { b.is_ascii_hexdigit() })
+}
+
+/// The stored preferences (JSON) without references to accounts that are not in `valid`; `None` when nothing needed to change
+/// (or the text is not a JSON object). Same rules as `staleAccountPrefs` in src/prefs.ts.
+pub fn clean_prefs(raw: &str, valid: &std::collections::HashSet<String>) -> Option<String> {
+    let mut v: serde_json::Value = serde_json::from_str(raw).ok()?;
+    let o = v.as_object_mut()?;
+    let mut changed = false;
+    if let Some(d) = o.get("defaultAccount").and_then(|d| d.as_str()) {
+        if !d.is_empty() && !valid.contains(d) {
+            o.insert("defaultAccount".into(), serde_json::Value::String(String::new()));
+            changed = true;
+        }
+    }
+    if let Some(m) = o.get_mut("accountPrefs").and_then(|m| m.as_object_mut()) {
+        let before = m.len();
+        m.retain(|k, _| valid.contains(k));
+        changed |= m.len() != before;
+    }
+    if let Some(a) = o.get_mut("favorites").and_then(|a| a.as_array_mut()) {
+        let before = a.len();
+        a.retain(|f| {
+            f.as_str()
+                .map(|s| {
+                    let acct = s.split('|').next().unwrap_or("");
+                    acct == "*" || valid.contains(acct)
+                })
+                .unwrap_or(true)
+        });
+        changed |= a.len() != before;
+    }
+    if let Some(m) = o.get_mut("collapsed").and_then(|m| m.as_object_mut()) {
+        let before = m.len();
+        m.retain(|k, _| !looks_like_account_id(k) || valid.contains(k));
+        changed |= m.len() != before;
+    }
+    changed.then(|| v.to_string())
 }
 
 pub fn get_setting(c: &Connection, key: &str) -> Option<String> {
@@ -321,5 +417,103 @@ mod tests {
         add_column(&c, "ALTER TABLE t ADD COLUMN b TEXT").unwrap();
         add_column(&c, "ALTER TABLE t ADD COLUMN b TEXT").unwrap();
         assert!(add_column(&c, "ALTER TABLE missing ADD COLUMN b TEXT").is_err());
+    }
+
+    fn put_account(c: &Connection, id: &str) {
+        c.execute(
+            "INSERT INTO accounts(id,email,display_name,imap_host,imap_port,imap_ssl,smtp_host,smtp_port,smtp_security,username) VALUES(?1,?2,'N','h',993,1,'s',465,'ssl','u')",
+            params![id, format!("{id}@x.example")],
+        )
+        .unwrap();
+    }
+
+    fn count(c: &Connection, sql: &str) -> i64 {
+        c.query_row(sql, [], |r| r.get(0)).unwrap()
+    }
+
+    const GONE: &str = "e079e7e1-42ea-4a5b-bddc-c68316d66182";
+    const LIVE: &str = "11111111-2222-4333-8444-555555555555";
+
+    fn seed_for(c: &Connection, id: &str) {
+        c.execute("INSERT INTO messages(id,account_id,folder,uid,thread_id,subject,from_name,from_email,to_addrs,cc_addrs,date,snippet) VALUES(?1,?2,'inbox',1,?3,'s','n','e@x.y','','',0,'')", params![format!("{id}:m"), id, format!("t-{id}")]).unwrap();
+        c.execute("INSERT INTO thread_meta(thread_id,pinned) VALUES(?1,1)", [format!("t-{id}")]).unwrap();
+        c.execute("INSERT INTO outbox(id,account_id,payload,send_at) VALUES(?1,?2,'{}',1)", params![format!("o-{id}"), id]).unwrap();
+        c.execute("INSERT INTO pgp_default(account_id,fingerprint) VALUES(?1,'ABCD')", [id]).unwrap();
+        c.execute("INSERT INTO events(id,uid,calendar_id,account_id,summary,starts_at,ends_at) VALUES(?1,?1,?2,?3,'e',1,2)", params![format!("ev-{id}"), format!("invites:{id}"), id]).unwrap();
+        c.execute("INSERT INTO rules(id,name,field,op,value,action,account_id) VALUES(?1,'r','from','is','x','archive',?2)", params![format!("r-{id}"), id]).unwrap();
+        c.execute("INSERT INTO signatures(id,name,html,account_id) VALUES(?1,'s','<p>x</p>',?2)", params![format!("s-{id}"), id]).unwrap();
+        c.execute("INSERT INTO templates(id,name,subject,body,account_id) VALUES(?1,'t','s','b',?2)", params![format!("tp-{id}"), id]).unwrap();
+        set_setting(c, &format!("fmap:{id}"), "{\"inbox\":\"INBOX\"}").unwrap();
+    }
+
+    /// Rows and settings that name `id`, over every table that has per-account data.
+    fn rows_for(c: &Connection, id: &str) -> i64 {
+        let tables = ["messages", "outbox", "pgp_default", "events", "rules", "signatures", "templates"];
+        tables.iter().map(|t| count(c, &format!("SELECT COUNT(*) FROM {t} WHERE account_id='{id}'"))).sum::<i64>()
+            + count(c, &format!("SELECT COUNT(*) FROM settings WHERE key='fmap:{id}'"))
+            + count(c, &format!("SELECT COUNT(*) FROM thread_meta WHERE thread_id='t-{id}'"))
+            + count(c, &format!("SELECT COUNT(*) FROM events WHERE calendar_id='invites:{id}'"))
+    }
+
+    #[test]
+    fn removing_an_account_removes_every_row_and_setting_that_names_it() {
+        let c = Connection::open_in_memory().unwrap();
+        migrate(&c).unwrap();
+        put_account(&c, GONE);
+        put_account(&c, LIVE);
+        seed_for(&c, GONE);
+        seed_for(&c, LIVE);
+        set_setting(&c, "cal_hidden", &format!("[\"local\",\"invites:{GONE}\",\"invites:{LIVE}\"]")).unwrap();
+        set_setting(
+            &c,
+            "prefs",
+            &format!(r#"{{"theme":"dark","defaultAccount":"{GONE}","accountPrefs":{{"{GONE}":{{"autoCc":"x"}},"{LIVE}":{{"autoCc":"y"}}}},"favorites":["*|inbox","{GONE}|sent","{LIVE}|sent"],"collapsed":{{"fav":true,"{GONE}":true,"{LIVE}":true}}}}"#),
+        )
+        .unwrap();
+        assert!(rows_for(&c, GONE) > 0);
+        remove_account(&c, GONE).unwrap();
+        assert_eq!(rows_for(&c, GONE), 0, "nothing of the removed account is left");
+        assert!(rows_for(&c, LIVE) >= 9, "the other account keeps everything");
+        let hidden: Vec<String> = serde_json::from_str(&get_setting(&c, "cal_hidden").unwrap()).unwrap();
+        assert_eq!(hidden, vec!["local".to_string(), format!("invites:{LIVE}")]);
+        let p: serde_json::Value = serde_json::from_str(&get_setting(&c, "prefs").unwrap()).unwrap();
+        assert_eq!(p["defaultAccount"], "");
+        assert_eq!(p["theme"], "dark");
+        assert!(p["accountPrefs"].get(GONE).is_none() && p["accountPrefs"].get(LIVE).is_some());
+        assert_eq!(p["favorites"], serde_json::json!(["*|inbox", format!("{LIVE}|sent")]));
+        assert!(p["collapsed"].get(GONE).is_none() && p["collapsed"].get(LIVE).is_some() && p["collapsed"].get("fav").is_some());
+    }
+
+    #[test]
+    fn leftovers_of_an_account_removed_earlier_are_cleaned_on_start() {
+        // a database where the account row is already gone (older version, interrupted removal): orphans + a stale default
+        let c = Connection::open_in_memory().unwrap();
+        migrate(&c).unwrap();
+        put_account(&c, LIVE);
+        seed_for(&c, GONE); // no account row for GONE
+        set_setting(&c, "prefs", &format!(r#"{{"defaultAccount":"{GONE}"}}"#)).unwrap();
+        assert!(rows_for(&c, GONE) > 0);
+        assert!(prune_orphans(&c).unwrap() > 0);
+        assert_eq!(rows_for(&c, GONE), 0);
+        assert_eq!(serde_json::from_str::<serde_json::Value>(&get_setting(&c, "prefs").unwrap()).unwrap()["defaultAccount"], "");
+        // a second run finds nothing, and a valid default account is left alone
+        assert_eq!(prune_orphans(&c).unwrap(), 0);
+        set_setting(&c, "prefs", &format!(r#"{{"defaultAccount":"{LIVE}"}}"#)).unwrap();
+        assert_eq!(prune_orphans(&c).unwrap(), 0);
+        assert!(get_setting(&c, "prefs").unwrap().contains(LIVE));
+        // events without an account (a plain local event) survive
+        c.execute("INSERT INTO events(id,uid,calendar_id,summary,starts_at,ends_at) VALUES('solo','solo','local','e',1,2)", []).unwrap();
+        prune_orphans(&c).unwrap();
+        assert_eq!(count(&c, "SELECT COUNT(*) FROM events WHERE id='solo'"), 1);
+    }
+
+    #[test]
+    fn clean_prefs_ignores_garbage_and_valid_prefs() {
+        let valid: std::collections::HashSet<String> = [LIVE.to_string()].into_iter().collect();
+        assert!(clean_prefs("not json", &valid).is_none());
+        assert!(clean_prefs("[1,2]", &valid).is_none());
+        assert!(clean_prefs("{}", &valid).is_none());
+        assert!(clean_prefs(&format!(r#"{{"defaultAccount":"{LIVE}","favorites":["*|inbox"],"accountPrefs":{{}}}}"#), &valid).is_none());
+        assert!(clean_prefs(r#"{"defaultAccount":""}"#, &valid).is_none());
     }
 }
