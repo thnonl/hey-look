@@ -451,6 +451,16 @@ fn event_from_ics(ev: &IcsEvent, calendar: &str, account: Option<&Account>, mess
     }
 }
 
+/// An address as compared between a message sender and an organizer or attendee: trimmed, lower case, no `mailto:`.
+fn sender_key(addr: &str) -> String {
+    let a = addr.trim();
+    let a = match a.get(..7) {
+        Some(p) if p.eq_ignore_ascii_case("mailto:") => a.get(7..).unwrap_or(""),
+        _ => a,
+    };
+    a.trim().to_ascii_lowercase()
+}
+
 fn add_exdate(c: &Connection, calendar: &str, uid: &str, at: i64) -> bool {
     let Some(mut parent) = find(c, calendar, uid, "") else { return false };
     if parent.exdates.contains(&at) {
@@ -463,12 +473,19 @@ fn add_exdate(c: &Connection, calendar: &str, uid: &str, at: i64) -> bool {
 /// Apply the calendar data of a received message. REQUEST / PUBLISH add or update an event (an update with a higher
 /// SEQUENCE resets your answer), CANCEL marks it cancelled, REPLY updates attendee answers on events you organized.
 /// `force` adds the event even when "add invitations automatically" is off (the Add to calendar button).
-pub fn ingest(c: &Connection, acc: &Account, message_id: &str, text: &str, force: bool) -> R<Ingested> {
+///
+/// Changes to an event that is already stored are applied only when the message comes from the right person:
+/// updates and cancellations from the stored organizer, an answer (REPLY) from the attendee it speaks for.
+/// `from_email` is the sender of the message.
+pub fn ingest(c: &Connection, acc: &Account, message_id: &str, from_email: &str, text: &str, force: bool) -> R<Ingested> {
     let cal = ical::parse(text)?;
     let method = cal.method.clone().unwrap_or_else(|| "PUBLISH".into());
     let calendar = format!("invites:{}", acc.id);
     let auto = setting_bool(c, "auto_add_invites", true);
     let mut out = Ingested { changed: false, event_id: None };
+    let sender = sender_key(from_email);
+    // true when the sender is the organizer recorded for the stored event (no stored organizer: nobody may change it)
+    let from_organizer = |ex: &CalEvent| ex.organizer.as_ref().map(|o| !sender.is_empty() && sender_key(&o.email) == sender).unwrap_or(false);
     for ev in &cal.events {
         let rid = ev.recurrence_id.map(|r| r.to_string()).unwrap_or_default();
         match method.as_str() {
@@ -481,7 +498,7 @@ pub fn ingest(c: &Connection, acc: &Account, message_id: &str, text: &str, force
                 match existing {
                     Some(mut ex) => {
                         out.event_id = Some(ex.id.clone());
-                        if ev.sequence <= ex.sequence {
+                        if ev.sequence <= ex.sequence || !from_organizer(&ex) {
                             continue;
                         }
                         // a newer version: remember what changed and reset the answer
@@ -516,8 +533,11 @@ pub fn ingest(c: &Connection, acc: &Account, message_id: &str, text: &str, force
                         }
                         let e = event_from_ics(ev, &calendar, Some(acc), message_id, &method, default_reminder(c));
                         save_row(c, &e)?;
-                        if ev.recurrence_id.is_some() {
-                            add_exdate(c, &calendar, &ev.uid, ev.recurrence_id.unwrap());
+                        if let Some(at) = ev.recurrence_id {
+                            // the moved occurrence leaves the series, if the organizer of the series sent it
+                            if find(c, &calendar, &ev.uid, "").map(|parent| from_organizer(&parent)).unwrap_or(false) {
+                                add_exdate(c, &calendar, &ev.uid, at);
+                            }
                         }
                         out.event_id = Some(e.id);
                         out.changed = true;
@@ -526,7 +546,7 @@ pub fn ingest(c: &Connection, acc: &Account, message_id: &str, text: &str, force
             }
             "CANCEL" => {
                 if let Some(mut ex) = find(c, &calendar, &ev.uid, &rid) {
-                    if ev.sequence >= ex.sequence && ex.status != "cancelled" {
+                    if ev.sequence >= ex.sequence && ex.status != "cancelled" && from_organizer(&ex) {
                         ex.status = "cancelled".into();
                         ex.sequence = ev.sequence.max(ex.sequence);
                         save_row(c, &ex)?;
@@ -535,7 +555,8 @@ pub fn ingest(c: &Connection, acc: &Account, message_id: &str, text: &str, force
                     }
                 } else if let Some(at) = ev.recurrence_id {
                     // one occurrence of a series was cancelled
-                    if add_exdate(c, &calendar, &ev.uid, at) {
+                    let allowed = find(c, &calendar, &ev.uid, "").map(|parent| from_organizer(&parent)).unwrap_or(false);
+                    if allowed && add_exdate(c, &calendar, &ev.uid, at) {
                         out.changed = true;
                     }
                 }
@@ -545,6 +566,10 @@ pub fn ingest(c: &Connection, acc: &Account, message_id: &str, text: &str, force
                 let target = find(c, LOCAL, &ev.uid, "").filter(|e| e.account_id.as_deref() == Some(acc.id.as_str()) || e.account_id.is_none());
                 if let Some(mut ex) = target {
                     for a in &ev.attendees {
+                        // an answer counts only when it comes from the person it speaks for
+                        if sender.is_empty() || sender_key(&a.email) != sender {
+                            continue;
+                        }
                         match ex.attendees.iter_mut().find(|x| x.email == a.email) {
                             Some(x) => {
                                 if x.status != a.status {
@@ -595,7 +620,7 @@ pub fn invite_for(c: &Connection, account_id: &str, message_id: &str, folder: &s
     let acc = db::get_account(c, account_id).ok();
     if decrypted && !matches!(folder, "sent" | "drafts" | "trash" | "junk") {
         if let Some(a) = &acc {
-            if ingest(c, a, message_id, text, false).map(|o| o.changed).unwrap_or(false) {
+            if ingest(c, a, message_id, from_email, text, false).map(|o| o.changed).unwrap_or(false) {
                 mark_dirty();
             }
         }
@@ -967,7 +992,7 @@ pub fn respond(db: &Db, message_id: &str, response: &str, comment: Option<String
         let listed = |a: &Account| ev.attendees.iter().any(|x| x.email == a.email.to_ascii_lowercase());
         let who = if listed(&acc) { acc.clone() } else { accounts.iter().find(|a| listed(a)).cloned().unwrap_or_else(|| acc.clone()) };
         // make sure the event exists, then record the answer locally first (it survives a failed send)
-        ingest(&c, &acc, message_id, &text, true)?;
+        ingest(&c, &acc, message_id, &from_email, &text, true)?;
         let calendar = format!("invites:{}", acc.id);
         let rid = ev.recurrence_id.map(|r| r.to_string()).unwrap_or_default();
         if let Some(mut row) = find(&c, &calendar, &ev.uid, &rid) {
@@ -1149,10 +1174,10 @@ pub async fn calendar_respond(app: tauri::AppHandle, state: tauri::State<'_, cra
 pub async fn calendar_add_from_message(app: tauri::AppHandle, state: tauri::State<'_, crate::AppState>, message_id: String) -> R<CalEvent> {
     let db = state.db.clone();
     let out = crate::blocking(move || {
-        let (account_id, _, _, text) = message_ics(&db, &message_id)?;
+        let (account_id, _, from_email, text) = message_ics(&db, &message_id)?;
         let c = lock(&db);
         let acc = db::get_account(&c, &account_id)?;
-        let got = ingest(&c, &acc, &message_id, &text, true)?;
+        let got = ingest(&c, &acc, &message_id, &from_email, &text, true)?;
         let id = got.event_id.ok_or("CAL_NO_DATA: nothing to add from this message")?;
         get_event(&c, &id)
     })
@@ -1328,14 +1353,14 @@ ATTENDEE;CN=Bao Tran;PARTSTAT=ACCEPTED:mailto:bao@contoso.com\r\n{extra}END:VEVE
         let (c, a) = setup();
         let ics = request(0, 8, "REQUEST", "");
         put_message(&c, "m1", &ics);
-        let got = ingest(&c, &a, "m1", &ics, false).unwrap();
+        let got = ingest(&c, &a, "m1", "mai@contoso.com", &ics, false).unwrap();
         assert!(got.changed);
         let e = get_event(&c, &got.event_id.unwrap()).unwrap();
         assert_eq!(e.calendar_id, "invites:a1");
         assert_eq!(e.my_status.as_deref(), Some("needs-action"));
         assert_eq!(e.reminder_min, Some(15));
         // the same message again changes nothing
-        assert!(!ingest(&c, &a, "m1", &ics, false).unwrap().changed);
+        assert!(!ingest(&c, &a, "m1", "mai@contoso.com", &ics, false).unwrap().changed);
         let inv = invite_for(&c, "a1", "m1", "inbox", "mai@contoso.com", &ics, false);
         assert_eq!(inv.method, "REQUEST");
         assert_eq!(inv.summary, "Product sync");
@@ -1367,7 +1392,7 @@ ATTENDEE;CN=Bao Tran;PARTSTAT=ACCEPTED:mailto:bao@contoso.com\r\n{extra}END:VEVE
         let req = ical::to_ics(Some("REQUEST"), &[to_ics_event(&e)]);
         put_message(&c, "m7", &req);
         // the copy that comes back to your own inbox
-        assert!(!ingest(&c, &a, "m7", &req, false).unwrap().changed);
+        assert!(!ingest(&c, &a, "m7", "mai@contoso.com", &req, false).unwrap().changed);
         assert_eq!(list_range(&c, 0, i64::MAX / 4).unwrap().len(), 1);
         let inv = invite_for(&c, "a1", "m7", "inbox", "nam@example.com", &req, false);
         assert_eq!(inv.you.as_ref().unwrap().status, "organizer");
@@ -1380,9 +1405,9 @@ ATTENDEE;CN=Bao Tran;PARTSTAT=ACCEPTED:mailto:bao@contoso.com\r\n{extra}END:VEVE
         let (c, a) = setup();
         db::set_setting(&c, "auto_add_invites", "0").unwrap();
         let ics = request(0, 8, "REQUEST", "");
-        assert!(!ingest(&c, &a, "m1", &ics, false).unwrap().changed);
+        assert!(!ingest(&c, &a, "m1", "mai@contoso.com", &ics, false).unwrap().changed);
         assert!(list_range(&c, 0, i64::MAX / 4).unwrap().is_empty());
-        assert!(ingest(&c, &a, "m1", &ics, true).unwrap().changed);
+        assert!(ingest(&c, &a, "m1", "mai@contoso.com", &ics, true).unwrap().changed);
         assert_eq!(list_range(&c, 0, i64::MAX / 4).unwrap().len(), 1);
     }
 
@@ -1391,18 +1416,18 @@ ATTENDEE;CN=Bao Tran;PARTSTAT=ACCEPTED:mailto:bao@contoso.com\r\n{extra}END:VEVE
         let (c, a) = setup();
         let v0 = request(0, 8, "REQUEST", "");
         put_message(&c, "m1", &v0);
-        let id = ingest(&c, &a, "m1", &v0, false).unwrap().event_id.unwrap();
+        let id = ingest(&c, &a, "m1", "mai@contoso.com", &v0, false).unwrap().event_id.unwrap();
         let mut e = get_event(&c, &id).unwrap();
         e.my_status = Some("accepted".into());
         e.responded_at = Some(100);
         save_row(&c, &e).unwrap();
         // an older or equal SEQUENCE never overwrites the answer
-        assert!(!ingest(&c, &a, "m1", &v0, false).unwrap().changed);
+        assert!(!ingest(&c, &a, "m1", "mai@contoso.com", &v0, false).unwrap().changed);
         assert_eq!(get_event(&c, &id).unwrap().my_status.as_deref(), Some("accepted"));
         // SEQUENCE 1 moves the meeting by two hours
         let v1 = request(1, 10, "REQUEST", "");
         put_message(&c, "m2", &v1);
-        assert!(ingest(&c, &a, "m2", &v1, false).unwrap().changed);
+        assert!(ingest(&c, &a, "m2", "mai@contoso.com", &v1, false).unwrap().changed);
         let e = get_event(&c, &id).unwrap();
         assert_eq!(e.start, ts(2026, 10, 14, 10, 0));
         assert_eq!(e.sequence, 1);
@@ -1423,17 +1448,76 @@ ATTENDEE;CN=Bao Tran;PARTSTAT=ACCEPTED:mailto:bao@contoso.com\r\n{extra}END:VEVE
     fn cancel_marks_the_event_and_the_card() {
         let (c, a) = setup();
         let v0 = request(0, 8, "REQUEST", "");
-        let id = ingest(&c, &a, "m1", &v0, false).unwrap().event_id.unwrap();
+        let id = ingest(&c, &a, "m1", "mai@contoso.com", &v0, false).unwrap().event_id.unwrap();
         let cancel = request(1, 8, "CANCEL", "STATUS:CANCELLED\r\n");
         put_message(&c, "m2", &cancel);
-        assert!(ingest(&c, &a, "m2", &cancel, false).unwrap().changed);
+        assert!(ingest(&c, &a, "m2", "mai@contoso.com", &cancel, false).unwrap().changed);
         assert_eq!(get_event(&c, &id).unwrap().status, "cancelled");
         let inv = invite_for(&c, "a1", "m2", "inbox", "mai@contoso.com", &cancel, false);
         assert_eq!(inv.method, "CANCEL");
         assert!(inv.cancelled);
         // a cancellation for an event we never had does nothing
         let (c2, a2) = setup();
-        assert!(!ingest(&c2, &a2, "m9", &cancel, false).unwrap().changed);
+        assert!(!ingest(&c2, &a2, "m9", "mai@contoso.com", &cancel, false).unwrap().changed);
+    }
+
+    #[test]
+    fn updates_and_cancellations_need_the_organizer_as_sender() {
+        // F5: any sender with the UID used to be able to rewrite or cancel a stored invitation
+        let (c, a) = setup();
+        let v0 = request(0, 8, "REQUEST", "");
+        let id = ingest(&c, &a, "m1", "mai@contoso.com", &v0, false).unwrap().event_id.unwrap();
+        // a forged update (higher SEQUENCE, new time) from a stranger changes nothing
+        let forged = request(5, 20, "REQUEST", "");
+        assert!(!ingest(&c, &a, "m2", "eve@evil.example", &forged, false).unwrap().changed);
+        assert!(!ingest(&c, &a, "m2", "", &forged, false).unwrap().changed);
+        let e = get_event(&c, &id).unwrap();
+        assert_eq!(e.start, ts(2026, 10, 14, 8, 0));
+        assert_eq!(e.sequence, 0);
+        // a forged cancellation likewise
+        let cancel = request(1, 8, "CANCEL", "STATUS:CANCELLED
+");
+        assert!(!ingest(&c, &a, "m3", "eve@evil.example", &cancel, false).unwrap().changed);
+        assert_eq!(get_event(&c, &id).unwrap().status, "confirmed");
+        // the organizer (any case, with a display-name style address) can do both
+        assert!(ingest(&c, &a, "m4", " Mai@Contoso.com ", &request(1, 10, "REQUEST", ""), false).unwrap().changed);
+        assert_eq!(get_event(&c, &id).unwrap().start, ts(2026, 10, 14, 10, 0));
+        assert!(ingest(&c, &a, "m5", "MAI@contoso.com", &request(2, 10, "CANCEL", "STATUS:CANCELLED
+"), false).unwrap().changed);
+        assert_eq!(get_event(&c, &id).unwrap().status, "cancelled");
+        // one cancelled occurrence of a series is also organizer-only
+        let (c, a) = setup();
+        let series = "BEGIN:VCALENDAR
+METHOD:REQUEST
+BEGIN:VEVENT
+UID:ser@x
+SEQUENCE:0
+DTSTART:20261014T090000Z
+DTEND:20261014T100000Z
+RRULE:FREQ=WEEKLY
+SUMMARY:Series
+ORGANIZER:mailto:mai@contoso.com
+ATTENDEE:mailto:nam@example.com
+END:VEVENT
+END:VCALENDAR
+";
+        let id = ingest(&c, &a, "m1", "mai@contoso.com", series, false).unwrap().event_id.unwrap();
+        let one = "BEGIN:VCALENDAR
+METHOD:CANCEL
+BEGIN:VEVENT
+UID:ser@x
+SEQUENCE:1
+DTSTART:20261021T090000Z
+RECURRENCE-ID:20261021T090000Z
+STATUS:CANCELLED
+ORGANIZER:mailto:mai@contoso.com
+END:VEVENT
+END:VCALENDAR
+";
+        assert!(!ingest(&c, &a, "m2", "eve@evil.example", one, false).unwrap().changed);
+        assert!(get_event(&c, &id).unwrap().exdates.is_empty());
+        assert!(ingest(&c, &a, "m3", "mai@contoso.com", one, false).unwrap().changed);
+        assert_eq!(get_event(&c, &id).unwrap().exdates.len(), 1);
     }
 
     #[test]
@@ -1467,7 +1551,14 @@ ATTENDEE;CN=Bao Tran;PARTSTAT=ACCEPTED:mailto:bao@contoso.com\r\n{extra}END:VEVE
         let reply = ical::to_ics(Some("REPLY"), &[ical::reply_event(&to_ics_event(&e), &Person { email: "bao@contoso.com".into(), name: None }, "declined", Some("Out of office"), 1)]);
         put_message(&c, "m5", &reply);
         let a1 = db::get_account(&c, "a1").unwrap();
-        assert!(ingest(&c, &a1, "m5", &reply, false).unwrap().changed);
+        // F5: the same answer from someone else's address is ignored, and so is an answer on behalf of another person
+        assert!(!ingest(&c, &a1, "m5", "eve@evil.example", &reply, false).unwrap().changed, "REPLY from a stranger");
+        assert!(!ingest(&c, &a1, "m5", "", &reply, false).unwrap().changed, "REPLY without a sender");
+        assert_eq!(get_event(&c, &e.id).unwrap().attendees[1].status, "needs-action");
+        let for_other = ical::to_ics(Some("REPLY"), &[ical::reply_event(&to_ics_event(&e), &Person { email: "carol@contoso.com".into(), name: None }, "accepted", None, 1)]);
+        assert!(!ingest(&c, &a1, "m6", "bao@contoso.com", &for_other, false).unwrap().changed, "Bao cannot answer for Carol");
+        assert_eq!(get_event(&c, &e.id).unwrap().attendees.len(), 2, "no attendee was added");
+        assert!(ingest(&c, &a1, "m5", "bao@contoso.com", &reply, false).unwrap().changed);
         let after = get_event(&c, &e.id).unwrap();
         assert_eq!(after.attendees[1].status, "declined");
         let inv = invite_for(&c, "a1", "m5", "inbox", "bao@contoso.com", &reply, false);
@@ -1541,11 +1632,11 @@ ATTENDEE;CN=Bao Tran;PARTSTAT=ACCEPTED:mailto:bao@contoso.com\r\n{extra}END:VEVE
     fn occurrence_override_and_cancel_of_one_occurrence_use_exdates() {
         let (c, a) = setup();
         let series = "BEGIN:VCALENDAR\r\nMETHOD:REQUEST\r\nBEGIN:VEVENT\r\nUID:ser@x\r\nSEQUENCE:0\r\nDTSTART:20261014T090000Z\r\nDTEND:20261014T100000Z\r\nRRULE:FREQ=WEEKLY\r\nSUMMARY:Series\r\nORGANIZER:mailto:mai@contoso.com\r\nATTENDEE:mailto:nam@example.com\r\nEND:VEVENT\r\nEND:VCALENDAR\r\n";
-        assert!(ingest(&c, &a, "m1", series, false).unwrap().changed);
+        assert!(ingest(&c, &a, "m1", "mai@contoso.com", series, false).unwrap().changed);
         let cancel_one = "BEGIN:VCALENDAR\r\nMETHOD:CANCEL\r\nBEGIN:VEVENT\r\nUID:ser@x\r\nSEQUENCE:1\r\nDTSTART:20261021T090000Z\r\nRECURRENCE-ID:20261021T090000Z\r\nSUMMARY:Series\r\nEND:VEVENT\r\nEND:VCALENDAR\r\n";
-        assert!(ingest(&c, &a, "m2", cancel_one, false).unwrap().changed);
+        assert!(ingest(&c, &a, "m2", "mai@contoso.com", cancel_one, false).unwrap().changed);
         let moved = "BEGIN:VCALENDAR\r\nMETHOD:REQUEST\r\nBEGIN:VEVENT\r\nUID:ser@x\r\nSEQUENCE:1\r\nDTSTART:20261029T140000Z\r\nDTEND:20261029T150000Z\r\nRECURRENCE-ID:20261028T090000Z\r\nSUMMARY:Series (moved)\r\nORGANIZER:mailto:mai@contoso.com\r\nATTENDEE:mailto:nam@example.com\r\nEND:VEVENT\r\nEND:VCALENDAR\r\n";
-        assert!(ingest(&c, &a, "m3", moved, false).unwrap().changed);
+        assert!(ingest(&c, &a, "m3", "mai@contoso.com", moved, false).unwrap().changed);
         let got = list_range(&c, ts(2026, 10, 13, 0, 0), ts(2026, 11, 5, 0, 0)).unwrap();
         let mut seen: Vec<(String, i64)> = got.iter().map(|e| (e.summary.clone(), e.start)).collect();
         seen.sort_by_key(|x| x.1);

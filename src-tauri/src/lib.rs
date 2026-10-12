@@ -458,7 +458,7 @@ fn insert_parsed(c: &Connection, acc: &Account, role: &str, p: &mail::Parsed) ->
     if let Some(ics) = &p.ics {
         if !matches!(role, "sent" | "drafts" | "trash" | "junk") {
             let id = format!("{}:{}:{}", acc.id, role, p.uid);
-            if calendar::ingest(c, acc, &id, ics, false).map(|o| o.changed).unwrap_or(false) {
+            if calendar::ingest(c, acc, &id, &p.from_email, ics, false).map(|o| o.changed).unwrap_or(false) {
                 calendar::mark_dirty();
             }
         }
