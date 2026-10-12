@@ -287,6 +287,12 @@ export async function applyDemoHash() {
   for (let i = 0; i < 100 && !useStore.getState().loaded; i++) await wait(50);
   await wait(300);
   const st = () => useStore.getState();
+  // dev self-check of the dark mail rendering: `await __darkCheck()` in the console (see devDarkCheck.ts); `#darkcheck` runs it and prints the report on the page
+  const runCheck = async (ids?: string[]) => {
+    const { darkCheck } = await import("./devDarkCheck");
+    return darkCheck((id) => st().select(id), ids ?? ["dk1", "dk2", "dk3", "dk4", "dk5", "dk7", "dk8", "dk9", "dk10", "nl1", "nl2"]);
+  };
+  (window as unknown as { __darkCheck: typeof runCheck }).__darkCheck = runCheck;
   const tokens = window.location.hash.slice(1).split("&").filter(Boolean);
   for (const tok of tokens) {
     const [k, v = ""] = tok.split("=");
@@ -303,7 +309,13 @@ export async function applyDemoHash() {
       if (d) st().setCalDate(d);
     } else if (k === "folder") await st().setView(val, val === "scheduled" ? null : "a1");
     else if (k === "thread") await st().select(val);
-    else if (k === "slowsync") syncDelay = 60000;
+    else if (k === "darkcheck") {
+      const rep = await runCheck();
+      const pre = document.createElement("pre");
+      pre.style.cssText = "position:fixed;inset:60px 20px 20px 20px;z-index:9999;overflow:auto;background:#000;color:#0f0;padding:10px;font:12px/1.35 monospace;white-space:pre-wrap";
+      pre.textContent = rep.map((r) => `${r.id}: ${r.elements} elements, paper=${r.paper.length} kept=${r.kept.length} text<AA=${r.text.length}${[...r.paper, ...r.kept, ...r.text].map((x) => "\n    " + x).join("")}`).join("\n");
+      document.body.appendChild(pre);
+    } else if (k === "slowsync") syncDelay = 60000;
     else if (k === "addacct") {
       // `addacct=imap` / `addacct=google` / `addacct=microsoft`: adds an account the way the Settings dialog does (then opens its Inbox)
       const { api } = await import("./api");

@@ -1,4 +1,4 @@
-// Dev-only fixtures for the dark mail background (Dark A..F). Open them with the app in the dark theme and use the
+// Dev-only fixtures for the dark mail background (Dark A..J). Open them with the app in the dark theme and use the
 // Sun / Moon button of the message to compare with the original colours.
 
 const darkA = "<h2>Plain HTML</h2><p>No colours at all: a <a href='https://example.com'>link</a>, <b>bold</b>, <i>italic</i> and a list:</p><ul><li>one</li><li>two</li></ul><blockquote>Quoted text</blockquote><hr><table border='1'><tr><td>cell</td><td>cell</td></tr></table>";
@@ -56,6 +56,34 @@ const darkG = `<p>Dark logo, transparent background (gets a light chip): <img sr
 
 const darkF = "Plain text mail.\n\nSecond paragraph with a link https://example.com and an indented line:\n    indented\n\n> quoted line\n-- \nSignature";
 
+// ---- Dark H..J: the three user cases (anonymized). Neutral white / near-white / light-grey wrappers must end up exactly on the app surface.
+const iconWarn = dataSvg(48, 48, '<circle cx="24" cy="24" r="22" fill="#f4a21e"/><rect x="21.5" y="11" width="5" height="17" rx="2.5" fill="#ffffff"/><circle cx="24" cy="35" r="3" fill="#ffffff"/>');
+// H: a mail-server bounce: grey outer wrapper, white box with a 1px border, orange icon, monospace server response
+const darkH = `<table border="0" cellpadding="0" cellspacing="0" width="100%" bgcolor="#f1f1f1" style="background-color:#f1f1f1"><tr><td align="center" style="padding:24px 12px">
+<table border="0" cellpadding="0" cellspacing="0" width="560" bgcolor="#ffffff" style="background-color:#ffffff;border:1px solid #dadce0;max-width:100%"><tr><td style="padding:28px 32px 8px">
+<table border="0" cellpadding="0" cellspacing="0"><tr><td valign="middle" style="padding-right:14px"><img src="${iconWarn}" width="40" height="40" alt="warning"></td><td valign="middle"><div style="font-family:Arial,sans-serif;font-size:22px;color:#202124">Address not found</div></td></tr></table></td></tr>
+<tr><td style="padding:8px 32px 8px;font-family:Arial,sans-serif;font-size:14px;line-height:1.5;color:#3c4043">Your message wasn't delivered to <b>missing.person@example.org</b> because the address couldn't be found, or is unable to receive mail.</td></tr>
+<tr><td style="padding:8px 32px 28px"><div style="font-family:Arial,sans-serif;font-size:13px;color:#5f6368;margin-bottom:6px">The response was:</div>
+<div style="background-color:#ffffff;border:1px solid #dadce0;padding:10px 12px;font-family:'Courier New',Courier,monospace;font-size:12px;color:#202124">550 5.1.1 The email account that you tried to reach does not exist.<br>Please try double-checking the recipient's email address for typos.</div></td></tr></table>
+<div style="font-family:Arial,sans-serif;font-size:11px;color:#70757a;padding:14px 0 0">Mail Delivery Subsystem</div></td></tr></table>`;
+
+// I: an airline-style newsletter: grey page, white centered wrapper, big banner picture, blue / teal headings, coloured cards
+const banner = dataSvg(640, 220, '<defs><linearGradient id="g" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#0b4f8a"/><stop offset="1" stop-color="#14a3a1"/></linearGradient></defs><rect width="640" height="220" fill="url(#g)"/><circle cx="520" cy="60" r="70" fill="#ffffff" fill-opacity=".14"/><text x="32" y="112" font-size="38" font-family="Georgia" fill="#ffffff">Your October statement</text><text x="32" y="150" font-size="18" font-family="Arial" fill="#d7f2f1">Miles earned, activity and offers</text>');
+const darkI = `<table width="100%" border="0" cellpadding="0" cellspacing="0" bgcolor="#f4f4f4" style="background-color:#f4f4f4"><tr><td align="center" style="padding:20px 8px">
+<table width="640" border="0" cellpadding="0" cellspacing="0" bgcolor="#ffffff" style="width:640px;max-width:100%;background-color:#ffffff"><tr><td style="padding:0;line-height:0"><img src="${banner}" width="640" height="220" alt="banner" style="display:block;width:100%;height:auto"></td></tr>
+<tr><td bgcolor="#ffffff" style="padding:24px 32px 8px;font-family:Arial,sans-serif;color:#333333"><h1 style="margin:0 0 8px;font-size:24px;color:#0b4f8a">Hello Nam,</h1><p style="margin:0;font-size:15px;line-height:1.55">Here is your account summary for October. Your tier status is secure until the end of next year.</p></td></tr>
+<tr><td style="padding:12px 32px"><table width="100%" border="0" cellpadding="0" cellspacing="0"><tr>
+<td width="48%" bgcolor="#e6f2fb" style="background-color:#e6f2fb;padding:16px;font-family:Arial,sans-serif;color:#0b3d6b"><div style="font-size:12px;text-transform:uppercase">Miles balance</div><div style="font-size:28px;font-weight:bold">24,350</div></td><td width="4%"></td>
+<td width="48%" bgcolor="#e3f5f3" style="background-color:#e3f5f3;padding:16px;font-family:Arial,sans-serif;color:#0b5c58"><div style="font-size:12px;text-transform:uppercase">Qualifying miles</div><div style="font-size:28px;font-weight:bold">6,120</div></td></tr></table></td></tr>
+<tr><td style="padding:8px 32px;font-family:Arial,sans-serif;color:#333333"><h2 style="margin:12px 0 6px;font-size:19px;color:#00857c">Latest activity</h2>
+<table width="100%" border="0" cellpadding="8" cellspacing="0" style="font-size:14px;font-family:Arial,sans-serif"><tr bgcolor="#f2f2f2" style="background-color:#f2f2f2"><td>03 Oct</td><td>Flight SGN - HAN</td><td align="right">+1,240</td></tr><tr><td>11 Oct</td><td>Partner purchase</td><td align="right">+310</td></tr><tr bgcolor="#f2f2f2" style="background-color:#f2f2f2"><td>19 Oct</td><td>Bonus promotion</td><td align="right">+500</td></tr></table></td></tr>
+<tr><td align="center" style="padding:20px 32px"><a href="https://example.com" style="display:inline-block;background-color:#f5a300;color:#1a1a1a;font-family:Arial,sans-serif;font-weight:bold;font-size:15px;padding:12px 28px;text-decoration:none;border-radius:4px">View full statement</a></td></tr>
+<tr><td bgcolor="#00857c" style="background-color:#00857c;padding:14px 32px;font-family:Arial,sans-serif;font-size:13px;color:#ffffff">Miles expire after 36 months without activity.</td></tr>
+<tr><td bgcolor="#ffffff" style="padding:16px 32px;font-family:Arial,sans-serif;font-size:11px;color:#777777">You receive this because you are a member. <a href="https://example.com" style="color:#0b4f8a">Unsubscribe</a></td></tr></table></td></tr></table>`;
+
+// J: plain mail composed in a web mail and pasted from a web page: white blocks on the heading and the paragraph, serif text
+const darkJ = `<div dir="ltr"><div style='background-color:rgb(255,255,255);margin:0px;padding:0px;color:rgb(0,0,0);font-family:"Times New Roman",Times,serif'><h2 style='background-color:#fff;margin:0px 0px 15px;padding:0px;font-family:"Times New Roman",Times,serif;font-size:24px;font-weight:700;line-height:1.2;color:rgb(0,0,0)'>What is Lorem Ipsum?</h2><p style='background-color:rgb(255,255,255);margin:0px 0px 15px;padding:0px;text-align:justify;font-size:16px;line-height:1.5;color:rgb(0,0,0)'><strong style='background-color:rgb(255,255,255)'>Lorem Ipsum</strong> is simply dummy text of the printing and typesetting industry. Lorem Ipsum has been the industry's standard dummy text ever since the 1500s, when an unknown printer took a galley of type and scrambled it to make a type specimen book.</p></div><div><br></div><div>Sent from my phone</div></div>`;
+
 /** Thread rows for the list (same shape as the mock's `t`). */
 export const darkThreadRows = [
   ["dk1", "Dark A: plain simple HTML", "Plain HTML without any colour.", 8],
@@ -65,6 +93,9 @@ export const darkThreadRows = [
   ["dk5", "Dark E: image and text overlay", "Background image with a fallback colour and text on it.", 12],
   ["dk6", "Dark F: plain text only", "Plain text mail without html.", 13],
   ["dk7", "Dark G: logos and signature images", "Transparent PNG/SVG images with dark artwork.", 14],
+  ["dk8", "Delivery Status Notification (Failure)", "Bounce: grey wrapper, white box with a border, orange icon, monospace response.", 15],
+  ["dk9", "Skyline Rewards: October account statement", "Newsletter: grey page, white 640px wrapper, banner picture, coloured cards.", 16],
+  ["dk10", "What is Lorem Ipsum?", "Mail from a web mail: white blocks behind the heading and the paragraph.", 17],
 ] as const;
 
 /** Messages by thread id; `base` is a complete message to copy the other fields from. */
@@ -77,6 +108,9 @@ export function darkMessages(base: Record<string, unknown>, svg: (w: number, h: 
     dk4: mk("d", "md4", darkThreadRows[3][1], darkD, "Low contrast"),
     dk5: mk("e", "md5", darkThreadRows[4][1], darkE(svg), "Overlay"),
     dk7: mk("g", "md7", darkThreadRows[6][1], darkG, "Logos"),
+    dk8: mk("h", "md8", darkThreadRows[7][1], darkH, "Address not found"),
+    dk9: mk("i", "md9", darkThreadRows[8][1], darkI, "Statement"),
+    dk10: mk("j", "md10", darkThreadRows[9][1], darkJ, "Lorem ipsum"),
     dk6: mk("f", "md6", darkThreadRows[5][1], null, darkF),
   };
 }
