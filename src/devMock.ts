@@ -50,10 +50,13 @@ const body = (n: string) =>
   `<p>Hi Nam,</p><p>${n}</p><p>Best regards,<br>Linh</p><blockquote>Earlier message quoted here.</blockquote>`;
 
 const fpr = (seed: string) => {
+  // the whole seed goes into the hash (two keys whose names start alike must not share a fingerprint)
   let h = 0x811c9dc5;
+  for (let i = 0; i < seed.length; i++) h = Math.imul(h ^ seed.charCodeAt(i), 16777619) >>> 0;
   let out = "";
   for (let i = 0; out.length < 40; i++) {
-    h = Math.imul(h ^ (seed.charCodeAt(i % seed.length) + i), 16777619) >>> 0;
+    h = Math.imul(h ^ (i + 1), 16777619) >>> 0;
+    h = (h ^ (h >>> 15)) >>> 0;
     out += h.toString(16).toUpperCase().padStart(8, "0");
   }
   return out.slice(0, 40);
@@ -62,8 +65,8 @@ type MockKey = {
   fingerprint: string; keyId: string; userIds: string[]; algo: string; created: number; expires: number | null; expired: boolean; revoked: boolean;
   hasSecret: boolean; verified: boolean; source: string; passphraseRemembered: boolean; unlocked: boolean; defaultFor: string[]; protected: boolean;
 };
-const mkKey = (uid: string, over: Partial<MockKey> = {}): MockKey => {
-  const f = fpr(uid);
+const mkKey = (uid: string, over: Partial<MockKey> = {}, salt = ""): MockKey => {
+  const f = fpr(uid + salt);
   return { fingerprint: f, keyId: f.slice(-16), userIds: [uid], algo: "Ed25519 / Curve25519", created: now - 40 * 86400, expires: now + 700 * 86400, expired: false, revoked: false, hasSecret: false, verified: false, source: "paste", passphraseRemembered: false, unlocked: false, defaultFor: [], protected: true, ...over };
 };
 // keys: your own (a1 has one, a2 has none, so Encrypt is unavailable there) and other people's
@@ -76,6 +79,7 @@ let pgpKeys: MockKey[] = [
 ];
 const keyFor = (addr: string) => pgpKeys.find((k) => !k.hasSecret && k.userIds.some((u) => u.toLowerCase().includes(`<${addr}>`) || u.toLowerCase() === addr));
 let pgpAttempts = 0;
+let keySeq = 0; // a newly generated key never shares a fingerprint with an existing one
 const OWN_FPR = pgpKeys[0].fingerprint;
 let ownLocked = true; // starts locked; the passphrase of the mock key is "secret123"
 
@@ -361,8 +365,8 @@ export function installMock() {
       case "pgp_generate_key": return new Promise((res, rej) => setTimeout(() => {
         const acct = accounts.find((x) => x.id === a.accountId);
         if (!acct) return rej("account not found");
-        const k = mkKey(`${acct.displayName} <${acct.email}>`, { hasSecret: true, verified: true, source: "generated", algo: a.algo === "rsa3072" ? "RSA 3072" : "Ed25519 / Curve25519", defaultFor: [acct.id], expires: a.expiresDays ? now + (a.expiresDays as number) * 86400 : null, created: now });
-        pgpKeys = [k, ...pgpKeys.filter((x) => x.fingerprint !== k.fingerprint)];
+        const k = mkKey(`${acct.displayName} <${acct.email}>`, { hasSecret: true, verified: true, source: "generated", algo: a.algo === "rsa3072" ? "RSA 3072" : "Ed25519 / Curve25519", defaultFor: [acct.id], expires: a.expiresDays ? now + (a.expiresDays as number) * 86400 : null, created: now }, `#${++keySeq}`);
+        pgpKeys = [k, ...pgpKeys.map((x) => ({ ...x, defaultFor: x.defaultFor.filter((d) => d !== acct.id) }))];
         res(k);
       }, 1400));
       case "pgp_inspect_key": {
@@ -492,7 +496,14 @@ export function installMock() {
       case "calendar_save_ics": return "C:/Users/Me/Documents/invite.ics";
       case "calendar_import_ics": return { added: 2, updated: 1 };
       case "calendar_open_message": return { threadId: "t15", folder: "inbox", accountId: "a1" };
-      case "send_message": return a.sendAt ? `scheduled:mock-${Math.random().toString(36).slice(2, 8)}` : "sent";
+      case "send_message": {
+        if (!a.sendAt) return "sent";
+        // a scheduled message shows up in the Scheduled list
+        const d = a.draft as { accountId: string; to: string[]; cc: string[]; subject: string; text?: string; attachments?: unknown[] };
+        const id = `mock-${Math.random().toString(36).slice(2, 8)}`;
+        mockOutbox.push({ id, accountId: d.accountId, to: d.to, cc: d.cc ?? [], subject: d.subject, snippet: (d.text ?? "").slice(0, 120), hasAttachments: !!d.attachments?.length, createdAt: now, attempts: 0, sendAt: a.sendAt as number, status: "pending", error: null });
+        return `scheduled:${id}`;
+      }
       case "suggest_contacts": return [{ name: "Linh Tran", email: "linh@example.com" }];
       case "ai_list_models": {
         if (String(a.endpoint).includes("bad")) throw "Models request failed (404 Not Found)"; // lets the error state be tried in the browser
@@ -500,8 +511,30 @@ export function installMock() {
       }
       case "ai_complete": return "• Linh shared the Q4 roadmap\n• Review requested before Thursday";
       case "get_autostart": return false;
-      case "outbox_to_draft": case "cancel_outbox": case "outbox_release": case "outbox_update": case "outbox_reschedule":
-      case "outbox_retry": case "outbox_send_now": case "quit_now": return null;
+      case "cancel_outbox": case "outbox_send_now": case "outbox_to_draft": {
+        const i = mockOutbox.findIndex((x) => x.id === a.id);
+        if (i >= 0) mockOutbox.splice(i, 1);
+        return null;
+      }
+      case "outbox_update": case "outbox_reschedule": {
+        const o = mockOutbox.find((x) => x.id === a.id);
+        if (o) {
+          o.sendAt = a.sendAt as number;
+          o.status = "pending";
+          o.error = null;
+          const d = a.draft as { to?: string[]; cc?: string[]; subject?: string } | undefined;
+          if (d?.subject !== undefined) o.subject = d.subject;
+          if (d?.to) o.to = d.to;
+          if (d?.cc) o.cc = d.cc;
+        }
+        return null;
+      }
+      case "outbox_retry": {
+        const o = mockOutbox.find((x) => x.id === a.id);
+        if (o) (o.status = "pending", o.error = null);
+        return null;
+      }
+      case "outbox_release": case "quit_now": return null;
       default: return null;
     }
   });
