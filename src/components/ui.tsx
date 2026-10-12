@@ -1,6 +1,7 @@
 import { Check, ChevronDown } from "lucide-react";
 import { ReactNode, useCallback, useEffect, useId, useRef, useState } from "react";
 import { createPortal } from "react-dom";
+import { accountColor } from "../prefs";
 import { useStore } from "../store";
 import { hue, initials } from "../util";
 
@@ -266,12 +267,13 @@ export function AccountPicker({
   none?: string;
   className?: string;
 }) {
+  const accent = useStore((s) => s.prefs.accent);
   const name = (a: PickerAccount) => a.displayName || a.email;
   const cur = accounts.find((a) => a.id === value);
   const body = (a?: PickerAccount) =>
     a ? (
       <>
-        <span className="dot" style={{ background: a.color || "var(--accent)" }} />
+        <span className="dot" style={{ background: accountColor(a, accent) }} />
         <span className="ap-name ellipsis">{name(a)}</span>
         {a.displayName && <span className="ap-addr ellipsis">{a.email}</span>}
       </>
@@ -284,7 +286,7 @@ export function AccountPicker({
   }
   const items: MenuItem[] = [
     ...(none !== undefined ? [{ label: none, checked: value === "", onClick: () => onChange("") }] : []),
-    ...accounts.map((a) => ({ label: name(a), hint: a.displayName ? a.email : undefined, dot: a.color || "var(--accent)", checked: a.id === value, onClick: () => onChange(a.id) })),
+    ...accounts.map((a) => ({ label: name(a), hint: a.displayName ? a.email : undefined, dot: accountColor(a, accent), checked: a.id === value, onClick: () => onChange(a.id) })),
   ];
   return (
     <Dropdown className={`acct-pick ${className}`} wrapClass="acct-pick-wrap" matchWidth title={`${label}: ${cur ? cur.email : none ?? ""}`} items={items}>

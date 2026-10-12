@@ -2,7 +2,7 @@ import { KeyRound, Lock, Plus, Trash2, Upload } from "lucide-react";
 import { openUrl } from "@tauri-apps/plugin-opener";
 import { Fragment, ReactNode, useEffect, useRef, useState } from "react";
 import { Account, api, Discovered, PgpKey, PROVIDERS, Rule, Signature, Template } from "../api";
-import { ACCENT_PRESETS, DEFAULT_PREFS, eff, folderLabel, isOverridden, NOTIFY_ACTIONS, NOTIFY_SOUNDS, Overridable, Prefs, validHex } from "../prefs";
+import { ACCENT_PRESETS, ACCOUNT_PALETTE, accountColor, DEFAULT_PREFS, eff, folderLabel, isOverridden, NOTIFY_ACTIONS, NOTIFY_SOUNDS, Overridable, Prefs, validHex } from "../prefs";
 import { friendlyError, useStore } from "../store";
 import { systemTz } from "../calendar";
 import { fmtDay, fmtFpr, shortKey } from "../util";
@@ -941,6 +941,8 @@ function FoldersPanel({ scope }: { scope: string | null }) {
 }
 
 function ProfilePanel({ account }: { account: Account }) {
+  const accent = useStore((s) => s.prefs.accent);
+  const color = accountColor(account, accent);
   const upd = async (patch: Partial<Account>) => {
     const n = { ...account, ...patch };
     await api.updateAccount(account.id, n.displayName, n.color ?? null);
@@ -949,7 +951,25 @@ function ProfilePanel({ account }: { account: Account }) {
   return (
     <>
       <Row label="Display name" hint="Shown to recipients as the sender name"><input defaultValue={account.displayName} placeholder="Your name" onBlur={(e) => void upd({ displayName: e.target.value })} /></Row>
-      <Row label="Color" hint="Marks this account in the folder pane and in combined lists"><input type="color" aria-label="Mailbox color" value={account.color ?? "#0f6cbd"} onChange={(e) => void upd({ color: e.target.value })} /></Row>
+      <Row label="Color" hint="Marks this account in the folder pane and in combined lists">
+        <div className="accents" role="radiogroup" aria-label="Mailbox color" style={{ margin: 0, gap: 8, justifyContent: "flex-end" }}>
+          {ACCOUNT_PALETTE.map((hex) => (
+            <button
+              key={hex}
+              role="radio"
+              aria-checked={color === hex}
+              aria-label={hex}
+              title={hex}
+              className={`swatch small ${color === hex ? "on" : ""}`}
+              style={{ background: hex }}
+              onClick={() => void upd({ color: hex })}
+            />
+          ))}
+          <label className="swatch-custom">
+            <input type="color" aria-label="Custom mailbox color" value={color} onChange={(e) => void upd({ color: e.target.value })} />
+          </label>
+        </div>
+      </Row>
     </>
   );
 }
@@ -1051,14 +1071,14 @@ function mailboxSections(scope: string | null): [MbTab, string][] {
 const activeSection = (scope: string | null, tab: MbTab): MbTab => (mailboxSections(scope).some(([k]) => k === tab) ? tab : "composing");
 
 function MailboxPage({ scope, tab, close }: { scope: string | null; tab: MbTab; close: () => void }) {
-  const { accounts } = useStore();
+  const { accounts, prefs } = useStore();
   const account = scope ? accounts.find((a) => a.id === scope) : undefined;
   if (scope && !account) return <div className="muted">Account not found.</div>;
   const active = activeSection(scope, tab);
   return (
     <div>
       <div className="mb-head">
-        {account ? <Avatar name={account.displayName || account.email} size={36} color={account.color ?? undefined} /> : <div className="mb-all">∗</div>}
+        {account ? <Avatar name={account.displayName || account.email} size={36} color={accountColor(account, prefs.accent)} /> : <div className="mb-all">∗</div>}
         <div>
           <h3>{account ? account.email : "All accounts"}</h3>
           <div className="muted small">
@@ -1411,7 +1431,7 @@ const MORE: [string, string][] = [
 ];
 
 export function Settings({ initial, focus }: { initial?: string; focus?: string }) {
-  const { setDialog, accounts } = useStore();
+  const { setDialog, accounts, prefs } = useStore();
   const start = initial === "accounts" ? "mb:all" : initial === "notifications" ? "tray" : initial;
   const [tab, setTab] = useState<string>(start || (accounts.length === 0 ? "add-account" : "general"));
   const [mbTab, setMbTab] = useState<MbTab>(focus === "loadRemote" ? "reading" : focus === "security" ? "security" : "composing");
@@ -1474,7 +1494,7 @@ export function Settings({ initial, focus }: { initial?: string; focus?: string 
           {item("appearance", "Appearance")}
           <div className="nav-label">Mailboxes</div>
           {item("mb:all", "All accounts")}
-          {accounts.map((a) => item(`mb:${a.id}`, <><span className="dot" style={{ background: a.color || "var(--accent)" }} />{a.email}</>, true))}
+          {accounts.map((a) => item(`mb:${a.id}`, <><span className="dot" style={{ background: accountColor(a, prefs.accent) }} />{a.email}</>, true))}
           {item("add-account", "+ Add account", true)}
           <div className="nav-label">More</div>
           {MORE.map(([k, l]) => item(k, l))}

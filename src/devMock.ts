@@ -1,6 +1,7 @@
 // Dev-only: lets the UI run in a plain browser (npm run dev) with fake data, no Tauri backend.
 import { mockIPC } from "@tauri-apps/api/mocks";
 import { darkMessages, darkThreadRows } from "./devMockDark";
+import { ACCOUNT_PALETTE, accountColor, pickAccountColor } from "./prefs";
 import { setSimulatedWindow } from "./winframe";
 
 const now = Math.floor(Date.now() / 1000);
@@ -362,7 +363,6 @@ function simulateWindowFrame(): boolean {
 
 // ---- adding accounts (Settings > Add account, Welcome): the mock backend creates the account after a short delay.
 // Failures to try: password `wrong` (IMAP), client id `fail` (Google / Microsoft). Its first sync takes 2.5 s, then three messages appear.
-const NEW_COLORS = ["#2e7d32", "#6a1b9a", "#ef6c00", "#00838f"];
 const synced = new Set<string>();
 let syncDelay = 2500; // `#slowsync` holds the first sync open (to screenshot the loading state)
 let newSeq = 0;
@@ -370,7 +370,7 @@ function mockNewAccount(email: string, displayName: string, auth: string, imapHo
   if (accounts.some((x) => x.email.toLowerCase() === email.toLowerCase())) throw new Error("ACCOUNT_EXISTS: this account is already added");
   const acc = {
     id: `n${++newSeq}`, email, displayName, imapHost, imapPort: 993, imapSsl: true, smtpHost, smtpPort: 465, smtpSecurity: "ssl",
-    username: email, smtpUsername: "", tlsInsecure: false, auth, color: NEW_COLORS[(newSeq - 1) % NEW_COLORS.length],
+    username: email, smtpUsername: "", tlsInsecure: false, auth, color: pickAccountColor(accounts.map((x) => x.color)),
   };
   accounts.push(acc);
   for (const [i, k] of ["inbox", "drafts", "sent", "archive", "junk", "trash"].entries()) folders.push({ accountId: acc.id, key: k, name: k, unread: k === "inbox" ? 3 : 0, total: k === "inbox" ? 3 : i });
@@ -387,6 +387,25 @@ export function installMock() {
     accounts.length = 0; // first-run: the Welcome screen
     folders.length = 0;
   }
+  // `#legacycolor=<hex>`: accounts as an older version stored them (no color) and that primary color: shows the one-time migration
+  const legacy = /(^|&)legacycolor=(%23)?([0-9a-f]{6})(&|$)/i.exec(window.location.hash.slice(1));
+  if (legacy) {
+    settings.prefs = JSON.stringify({ accent: "#" + legacy[3] });
+    for (const x of accounts) (x as { color: string | null }).color = null;
+  }
+  // `__colorCheck()` in the console: dev self-check of the picker and the resolver
+  (window as unknown as { __colorCheck: () => string[] }).__colorCheck = () => {
+    const out: string[] = [], ok = (c: boolean, m: string) => out.push((c ? "ok   " : "FAIL ") + m);
+    ok(pickAccountColor([]) === ACCOUNT_PALETTE[0], "empty -> first");
+    ok(pickAccountColor([ACCOUNT_PALETTE[0], "#123456", null]) === ACCOUNT_PALETTE[1], "custom/null ignored, next unused");
+    ok(pickAccountColor([ACCOUNT_PALETTE[0].toUpperCase(), ACCOUNT_PALETTE[1]]) === ACCOUNT_PALETTE[2], "case-insensitive");
+    const all = [...ACCOUNT_PALETTE, ACCOUNT_PALETTE[0], ACCOUNT_PALETTE[1]];
+    ok(pickAccountColor(all) === ACCOUNT_PALETTE[2], "all used -> least used, earliest");
+    ok(accountColor({ color: "#ABCDEF" }, "#6d4aff") === "#abcdef", "stored color wins (lowercased)");
+    ok(accountColor({ color: null }, "#0f6cbd") === accountColor(undefined, "#0f6cbd"), "no stored color -> primary color");
+    ok(accountColor({ color: "red" }, "#0f6cbd").startsWith("#"), "invalid stored value -> primary color");
+    return out;
+  };
   mockIPC((cmd, args) => {
     const a = (args ?? {}) as Record<string, unknown>;
     switch (cmd) {
@@ -450,7 +469,12 @@ export function installMock() {
       case "list_rules": return [{ id: "r1", accountId: null, name: "Move newsletters", field: "from", op: "contains", value: "newsletter@example.com", action: "archive", arg: null, enabled: true }, { id: "r2", accountId: null, name: "", field: "subject", op: "contains", value: "a very long rule text that should be truncated in the list row", action: "trash", arg: null, enabled: false }];
       case "list_blocked": return [];
       case "thread_action": return new Promise((r) => setTimeout(() => r(null), 600)); // slow like IMAP
-      case "save_draft": case "update_account": return null;
+      case "update_account": {
+        const x = accounts.find((y) => y.id === a.accountId);
+        if (x) { x.displayName = a.displayName as string; (x as { color: string | null }).color = (a.color as string | null) ?? null; }
+        return null;
+      }
+      case "save_draft": return null;
       case "queue_action": return "token-" + Math.random().toString(36).slice(2);
       case "cancel_action": return true;
       case "load_older": return 0;

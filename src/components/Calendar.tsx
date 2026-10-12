@@ -10,6 +10,7 @@ import {
   fmtClockRange, fmtDayLong, fmtDayShort, fmtRange, fmtTime, fromInputs, isUrl, joinLabel, layoutDay, monthGrid, monthTitle, myStatusLabel, partsOf, personName, repeatKind,
   repeatRule, sameDay, today, toInputs, tzOffsetLabel, tzShortName, weekDays, weekStartOf, weekTitle, WD_SHORT, WEEKDAYS, MONTHS_SHORT, CalView, MY_EVENTS_COLOR,
 } from "../calendar";
+import { accountColor } from "../prefs";
 import { friendlyError, EventInit, useStore } from "../store";
 import { RecipientField } from "./Compose";
 import { EmptyState } from "./overlays";
@@ -37,7 +38,8 @@ function useTz() {
 
 function useAccountColor() {
   const accounts = useStore((s) => s.accounts);
-  return useCallback((id: string) => accounts.find((a) => a.id === id)?.color ?? undefined, [accounts]);
+  const accent = useStore((s) => s.prefs.accent);
+  return useCallback((id: string) => { const a = accounts.find((x) => x.id === id); return a ? accountColor(a, accent) : undefined; }, [accounts, accent]);
 }
 
 // =============================================================== invitation card (reading pane)
@@ -974,7 +976,7 @@ export function CalSidebar() {
         <div className="cal-list">
           {cals.map((c) => {
             const acct = accounts.find((a) => a.id === c.accountId);
-            const col = c.id === "local" ? MY_EVENTS_COLOR : acct?.color || c.color || "var(--accent)";
+            const col = c.id === "local" ? MY_EVENTS_COLOR : acct ? accountColor(acct, prefs.accent) : c.color || "var(--accent)";
             return (
               <label key={c.id}>
                 <input

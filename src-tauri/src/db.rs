@@ -190,6 +190,21 @@ fn row_account(r: &rusqlite::Row) -> rusqlite::Result<Account> {
     })
 }
 
+/// Curated mailbox colors: ten clearly different hues, each with a relative luminance that keeps a flat 16x4 mark at >= 3:1 on a
+/// white row and on the dark surface (#1b1c20). Keep in sync with `ACCOUNT_PALETTE` in src/prefs.ts (a test compares them).
+pub const ACCOUNT_PALETTE: [&str; 10] = [
+    "#0f6cbd", "#ca5010", "#13803c", "#8764b8", "#d13438", "#038387", "#e3008c", "#b8860b", "#5c7e9e", "#6b8e23",
+];
+
+/// The color for a new account: the first palette color no existing account uses; when all are used, the least used one
+/// (the earliest in the palette on a tie). Comparison ignores case; colors outside the palette (custom) count for nothing.
+pub fn pick_account_color<'a, I: IntoIterator<Item = Option<&'a str>>>(used: I) -> String {
+    let used: Vec<String> = used.into_iter().flatten().map(|c| c.trim().to_ascii_lowercase()).collect();
+    let uses = |p: &str| used.iter().filter(|u| u.as_str() == p).count();
+    let best = ACCOUNT_PALETTE.iter().min_by_key(|p| uses(p)).copied().unwrap_or(ACCOUNT_PALETTE[0]);
+    best.to_string()
+}
+
 pub fn insert_account(c: &Connection, a: &Account) -> R<()> {
     c.execute(
         "INSERT OR REPLACE INTO accounts(id,email,display_name,imap_host,imap_port,imap_ssl,smtp_host,smtp_port,smtp_security,username,auth,color,smtp_username,tls_insecure)
@@ -242,6 +257,54 @@ pub fn set_setting(c: &Connection, key: &str, value: &str) -> R<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn lum(h: &str) -> f64 {
+        let v = |i: usize| {
+            let c = u8::from_str_radix(&h[i..i + 2], 16).unwrap() as f64 / 255.0;
+            if c <= 0.03928 { c / 12.92 } else { ((c + 0.055) / 1.055).powf(2.4) }
+        };
+        0.2126 * v(1) + 0.7152 * v(3) + 0.0722 * v(5)
+    }
+
+    #[test]
+    fn palette_is_distinct_and_readable_on_light_and_dark() {
+        for (i, a) in ACCOUNT_PALETTE.iter().enumerate() {
+            assert!(!ACCOUNT_PALETTE[..i].contains(a), "duplicate {a}");
+            let l = lum(a);
+            assert!(1.05 / (l + 0.05) >= 3.0, "{a} too light for a white row");
+            assert!((l + 0.05) / (lum("#1b1c20") + 0.05) >= 3.0, "{a} too dark for the dark surface");
+        }
+    }
+
+    #[test]
+    fn palette_matches_the_frontend_list() {
+        let ts = include_str!("../../src/prefs.ts");
+        let start = ts.find("ACCOUNT_PALETTE").expect("ACCOUNT_PALETTE in prefs.ts");
+        let block = &ts[start..ts[start..].find("];").unwrap() + start];
+        let found: Vec<&str> = block.split('"').skip(1).step_by(2).collect();
+        assert_eq!(found, ACCOUNT_PALETTE.to_vec());
+    }
+
+    #[test]
+    fn new_account_gets_first_unused_color() {
+        assert_eq!(pick_account_color([]), ACCOUNT_PALETTE[0]);
+        assert_eq!(pick_account_color([Some(ACCOUNT_PALETTE[0])]), ACCOUNT_PALETTE[1]);
+        // order of use does not matter; a gap is filled, case and spaces are ignored, custom colors and None are ignored
+        let used = [Some("#0F6CBD"), None, Some("#123456"), Some(" #13803c "), Some(ACCOUNT_PALETTE[3])];
+        assert_eq!(pick_account_color(used), ACCOUNT_PALETTE[1]);
+    }
+
+    #[test]
+    fn all_used_picks_least_used_then_earliest() {
+        let mut used: Vec<Option<&str>> = ACCOUNT_PALETTE.iter().map(|c| Some(*c)).collect();
+        assert_eq!(pick_account_color(used.clone()), ACCOUNT_PALETTE[0]); // all once: earliest
+        used.push(Some(ACCOUNT_PALETTE[0]));
+        used.push(Some(ACCOUNT_PALETTE[1]));
+        assert_eq!(pick_account_color(used.clone()), ACCOUNT_PALETTE[2]); // 0 and 1 used twice
+        used.extend(ACCOUNT_PALETTE.iter().skip(2).map(|c| Some(*c)));
+        used.retain(|c| *c != Some(ACCOUNT_PALETTE[7]));
+        assert_eq!(pick_account_color(used), ACCOUNT_PALETTE[7]);
+    }
 
     #[test]
     fn migrate_is_idempotent() {

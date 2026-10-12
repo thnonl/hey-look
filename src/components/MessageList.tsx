@@ -1,7 +1,7 @@
 import { Archive, BadgeCheck, Calendar, CalendarCheck, CalendarX, Check, CheckCheck, Clock, Flag, FolderOpen, Lock, Mail, MailOpen, Paperclip, Pin, SearchX, Trash2 } from "lucide-react";
 import { Fragment, ReactNode } from "react";
 import { api, ThreadSummary } from "../api";
-import { folderLabel, Prefs } from "../prefs";
+import { accountColor, folderLabel, Prefs } from "../prefs";
 import { friendlyError, useStore } from "../store";
 import { dateGroup, fmtDate, snoozePresets } from "../util";
 import { messageToEditor } from "./Compose";
@@ -134,7 +134,7 @@ export function MessageList() {
   const scopeNote = searching ? (searchScope === "all" ? "All mailboxes" : searchScope === "account" ? "Whole mailbox" : `In ${folderLabel(folder)}`) : "";
   const showTabs = folder === "inbox" && prefs.focused && !searching;
   const multi = checked.size > 0;
-  const colors = new Map(accounts.map((a) => [a.id, a.color || null]));
+  const colors = new Map(accounts.map((a) => [a.id, accountColor(a, prefs.accent)]));
   const labels = new Map(accounts.map((a) => [a.id, a.email]));
   const mixed = accounts.length > 1 && (!accountId || (searching && searchScope === "all"));
   const firstHere = !!firstSync && (!accountId || accountId === firstSync) && !searching && folder === "inbox";
@@ -270,7 +270,7 @@ export function MessageList() {
                     selected={selected === t.threadId}
                     checked={checked.has(t.threadId)}
                     showFolder={searching}
-                    accountColor={mixed ? colors.get(t.accountId) ?? "var(--accent)" : null}
+                    accountColor={mixed ? colors.get(t.accountId) ?? accountColor(null, prefs.accent) : null}
                     accountLabel={labels.get(t.accountId)}
                     hover={<HoverActions t={t} />}
                     onOpen={() => openThread(t)}

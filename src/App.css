@@ -291,7 +291,7 @@ button:focus-visible, [role="option"]:focus-visible, [role="treeitem"]:focus-vis
 .ml-main { flex: 1; min-width: 0; }
 .ml-top { display: flex; align-items: center; gap: 6px; }
 .unread-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--accent); flex: none; }
-.acct-dot { width: 7px; height: 7px; border-radius: 2px; flex: none; box-shadow: 0 0 0 1px color-mix(in srgb, var(--fg) 60%, transparent); } /* thin neutral edge: the marker stays >= 3:1 against the row whatever colour the mailbox has */
+.acct-dot { width: 7px; height: 7px; border-radius: 2px; flex: none; } /* flat fill, no edge: the palette colors keep >= 3:1 on the light and the dark surface */
 /* mailbox marker: a small bar under the avatar (absolute, so the row never changes height); Compact has no avatar and keeps the dot before the name */
 .acct-dot.under { position: absolute; left: 50%; top: calc(100% + 3px); width: 16px; height: 4px; transform: translateX(-50%); }
 .who { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
@@ -576,6 +576,7 @@ button.ov-tag:hover { background: color-mix(in srgb, var(--accent), transparent 
 .swatch.on { box-shadow: inset 0 0 0 2px var(--bg), 0 0 0 2px var(--fg); }
 .swatch-custom { display: inline-flex; align-items: center; gap: 8px; margin-left: 6px; }
 .swatch-custom input[type="color"] { width: 38px; height: 30px; padding: 2px; border-radius: var(--r-sm); cursor: pointer; }
+.swatch.small { width: 26px; height: 26px; }
 
 /* ===== Inline pictures, attachments and scheduled sends (from reports/feat/design/proposed-styles.css) ===== */
 /* ---------- shared bits ---------- */

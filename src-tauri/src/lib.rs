@@ -264,7 +264,11 @@ async fn add_account(
             .and_then(|e| e.set_password(sp))
             .map_err(|e| format!("cannot store SMTP password: {e}"))?;
     }
-    db::insert_account(&lock(&state.db), &acc)?;
+    // the color is chosen and stored here, so every window shows the same one from the first moment
+    let c = lock(&state.db);
+    let mut acc = acc;
+    acc.color = Some(db::pick_account_color(db::list_accounts(&c)?.iter().map(|a| a.color.as_deref())));
+    db::insert_account(&c, &acc)?;
     Ok(acc)
 }
 
@@ -346,7 +350,7 @@ async fn oauth_sign_in(
         smtp_security: smtp_security.into(),
         username: signed.email.clone(),
         auth: provider.auth().into(),
-        color: existing.and_then(|a| a.color),
+        color: existing.as_ref().and_then(|a| a.color.clone()),
         smtp_username: String::new(),
         tls_insecure: false,
     };
@@ -372,6 +376,10 @@ async fn oauth_sign_in(
         if !client_secret.trim().is_empty() {
             secret_set(client_secret_key(provider), client_secret.trim())?;
         }
+    }
+    let mut acc = acc;
+    if acc.color.is_none() {
+        acc.color = Some(db::pick_account_color(db::list_accounts(&c)?.iter().map(|a| a.color.as_deref())));
     }
     db::insert_account(&c, &acc)?;
     Ok(acc)

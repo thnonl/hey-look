@@ -4,7 +4,7 @@ import {
 import { ReactNode, useEffect } from "react";
 import { CalSidebar } from "./Calendar";
 import { FolderInfo } from "../api";
-import { folderDepth, folderLabel } from "../prefs";
+import { accountColor, folderDepth, folderLabel } from "../prefs";
 import { useStore } from "../store";
 
 const ICONS: Record<string, ReactNode> = {
@@ -139,7 +139,7 @@ export function FolderPane() {
             {head(
               a.id,
               <>
-                <span className="dot" style={{ background: a.color || "var(--accent)" }} />
+                <span className="dot" style={{ background: accountColor(a, prefs.accent) }} />
                 <span className="ellipsis fp-acct">{a.email}</span>
                 {error && (
                   <span

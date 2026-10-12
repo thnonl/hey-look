@@ -310,3 +310,29 @@ export function accentText(accent: string, dark: boolean): string {
   return dark ? "#ffffff" : "#000000";
 }
 export const validHex = (v: string) => /^#[0-9a-fA-F]{6}$/.test(v);
+
+// ---- mailbox (account) colors: ONE resolver for every place that shows one -------------------------------------------------
+/** Curated mailbox colors (distinct hues, >= 3:1 as a flat mark on white and on the dark surface). Same list as db.rs. */
+export const ACCOUNT_PALETTE = [
+  "#0f6cbd", "#ca5010", "#13803c", "#8764b8", "#d13438", "#038387", "#e3008c", "#b8860b", "#5c7e9e", "#6b8e23",
+];
+const HEX6 = /^#[0-9a-f]{6}$/i;
+/**
+ * The colour of a mailbox: its stored colour, or - for an account that has none yet (before the one-time migration has stored it) -
+ * the colour it was shown in until now, the primary colour. Always a #rrggbb string, so it works for dots, avatars and <input type=color>.
+ */
+export function accountColor(a: { color?: string | null } | null | undefined, accent: string): string {
+  const c = a?.color?.trim();
+  if (c && HEX6.test(c)) return c.toLowerCase();
+  return buttonAccent(validHex(accent) ? accent : DEFAULT_PREFS.accent).toLowerCase();
+}
+/** Same rule as the backend (`pick_account_color` in db.rs): first palette colour no account uses, else the least used one. */
+export function pickAccountColor(used: (string | null | undefined)[]): string {
+  const u = used.filter((c): c is string => !!c).map((c) => c.trim().toLowerCase());
+  let best = ACCOUNT_PALETTE[0], n = Infinity;
+  for (const p of ACCOUNT_PALETTE) {
+    const k = u.filter((c) => c === p).length;
+    if (k < n) { best = p; n = k; }
+  }
+  return best;
+}

@@ -1,7 +1,7 @@
 import { create } from "zustand";
 import { api, Account, Att, CalendarInfo, CalEvent, DraftSecurity, FolderInfo, Meeting, MessageFull, OutboxItem, SearchScope, ThreadSummary } from "./api";
 import { calTz, CalView, Day, rangeFor, systemTz, today } from "./calendar";
-import { accentText, buttonAccent, DEFAULT_PREFS, lightened, mergePrefs, Prefs, readableOn, topBar, validHex } from "./prefs";
+import { accentText, accountColor, buttonAccent, DEFAULT_PREFS, lightened, mergePrefs, Prefs, readableOn, topBar, validHex } from "./prefs";
 
 export interface ComposeInit {
   accountId?: string;
@@ -272,6 +272,19 @@ function applyOptimistic(ids: string[], action: string) {
   useStore.setState({ threads, folders, messages });
 }
 
+/**
+ * One-time migration: an account without a stored color has always been drawn in the primary color, so that exact color is stored
+ * for it now (what the user sees does not change) and every place - dots, avatars, Settings > Profile - reads the stored value.
+ */
+export function storeMissingColors(accounts: Account[], accent: string): Account[] {
+  return accounts.map((a) => {
+    if (a.color) return a;
+    const color = accountColor(a, accent);
+    void api.updateAccount(a.id, a.displayName, color).catch(() => {});
+    return { ...a, color };
+  });
+}
+
 export const useStore = create<State>((set, get) => ({
   accounts: [],
   accountId: null,
@@ -314,8 +327,9 @@ export const useStore = create<State>((set, get) => ({
   calRev: 0,
 
   init: async () => {
-    const [accounts, rawPrefs] = await Promise.all([api.listAccounts(), api.getSetting("prefs")]);
+    const [rawAccounts, rawPrefs] = await Promise.all([api.listAccounts(), api.getSetting("prefs")]);
     const prefs = mergePrefs(rawPrefs);
+    const accounts = storeMissingColors(rawAccounts, prefs.accent);
     applyPrefs(prefs);
     mirrorSettings(prefs);
     set({ accounts, prefs, loaded: true, module: prefs.lastModule === "calendar" ? "calendar" : "mail", calDate: today(calTz(prefs)) });
@@ -479,6 +493,7 @@ export const useStore = create<State>((set, get) => ({
     // the backend list is the truth (it also assigns the colour); fall back to what we were given
     let accounts = await api.listAccounts().catch(() => get().accounts);
     if (!accounts.some((a) => a.id === acc.id)) accounts = [...accounts.filter((a) => a.email !== acc.email), acc];
+    accounts = storeMissingColors(accounts, get().prefs.accent);
     // the selection moves to the new mailbox: a stale search / filter of the old view must not hide it
     set({ accounts, dialog: null, firstSync: acc.id, filter: "all" });
     get().showToast(`Account ${acc.email} added`, undefined, "success");
