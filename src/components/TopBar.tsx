@@ -9,7 +9,7 @@ import { SearchBox } from "./SearchBox";
 import { WindowControls } from "./WindowControls";
 
 export function TopBar() {
-  const { sync, syncing, setDialog, setPrefs } = useStore();
+  const { sync, syncing, firstSync, setDialog, setPrefs } = useStore();
   const dark = useAppDark();
 
   const custom = useFrame((f) => f.custom);
@@ -31,7 +31,7 @@ export function TopBar() {
       <SearchBox />
       <div className="top-actions" data-tauri-drag-region="false">
         <button className="icon-btn" title="Sync now (F5)" onClick={() => void sync()}>
-          <RefreshCw size={16} className={syncing ? "spin" : ""} />
+          <RefreshCw size={16} className={syncing || firstSync ? "spin" : ""} />
         </button>
         <button className="icon-btn" title={dark ? "Light mode" : "Dark mode"} onClick={() => setPrefs({ theme: dark ? "light" : "dark" })}>
           {dark ? <Sun size={16} /> : <Moon size={16} />}

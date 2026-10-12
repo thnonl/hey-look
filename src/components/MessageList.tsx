@@ -127,7 +127,7 @@ function HoverActions({ t }: { t: ThreadSummary }) {
 export function MessageList() {
   const {
     threads, folder, accountId, selected, select, checked, toggleCheck, setChecked, search, searchScope, setSearchScope,
-    prefs, focus, setFocus, filter, setFilter, accounts, openCompose, loading, loadOlder, loadingOlder,
+    prefs, focus, setFocus, filter, setFilter, accounts, openCompose, loading, loadOlder, loadingOlder, firstSync,
   } = useStore();
   const searching = search.trim().length > 0;
   const title = searching ? "Search results" : folderLabel(folder);
@@ -137,6 +137,7 @@ export function MessageList() {
   const colors = new Map(accounts.map((a) => [a.id, a.color || null]));
   const labels = new Map(accounts.map((a) => [a.id, a.email]));
   const mixed = accounts.length > 1 && (!accountId || (searching && searchScope === "all"));
+  const firstHere = !!firstSync && (!accountId || accountId === firstSync) && !searching && folder === "inbox";
   const canPageBack = !searching && !["starred", "pinned", "snoozed", "all", "scheduled"].includes(folder) && threads.length > 0;
 
   const openThread = (t: ThreadSummary) => {
@@ -230,8 +231,15 @@ export function MessageList() {
       <div className="ml-body" role="listbox" aria-label={title} aria-multiselectable onKeyDown={onKeyNav}>
         {folder === "scheduled" ? (
           <ScheduledList />
-        ) : loading && threads.length === 0 ? (
-          <SkeletonRows />
+        ) : (loading || firstHere) && threads.length === 0 ? (
+          <>
+            {firstHere && (
+              <div className="ml-firstsync" role="status">
+                <span className="spin" aria-hidden /> Syncing {labels.get(firstSync!) ?? "your account"}… the first download can take a minute.
+              </div>
+            )}
+            <SkeletonRows />
+          </>
         ) : threads.length === 0 ? (
           searching ? (
             <EmptyState

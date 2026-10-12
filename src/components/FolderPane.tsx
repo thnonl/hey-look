@@ -1,7 +1,7 @@
 import {
   AlertTriangle, Archive, CalendarClock, CalendarDays, ChevronDown, ChevronRight, Clock, FileText, Flag, Folder, Inbox, MailOpen, OctagonAlert, Pin, Send, Star, Trash2,
 } from "lucide-react";
-import { ReactNode } from "react";
+import { ReactNode, useEffect } from "react";
 import { CalSidebar } from "./Calendar";
 import { FolderInfo } from "../api";
 import { folderDepth, folderLabel } from "../prefs";
@@ -24,7 +24,11 @@ const ICONS: Record<string, ReactNode> = {
 const VIRTUAL_VIEWS = ["unread", "starred", "pinned", "snoozed", "scheduled"];
 
 export function FolderPane() {
-  const { accounts, folders, folder, accountId, setView, prefs, setPrefs, syncErrors, sync, outbox, module, setModule } = useStore();
+  const { accounts, folders, folder, accountId, setView, prefs, setPrefs, syncErrors, sync, outbox, module, setModule, firstSync } = useStore();
+  // a new account's group sits at the bottom of a long tree: bring its (selected) Inbox into view
+  useEffect(() => {
+    if (firstSync && accountId === firstSync) document.querySelector(".fp-tree .fp-row.active")?.scrollIntoView({ block: "nearest" });
+  }, [firstSync, accountId]);
 
   const isFav = (acct: string | null, key: string) => prefs.favorites.includes(`${acct ?? "*"}|${key}`);
   const toggleFav = (acct: string | null, key: string) => {

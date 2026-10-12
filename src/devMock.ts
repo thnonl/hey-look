@@ -303,6 +303,13 @@ export async function applyDemoHash() {
       if (d) st().setCalDate(d);
     } else if (k === "folder") await st().setView(val, val === "scheduled" ? null : "a1");
     else if (k === "thread") await st().select(val);
+    else if (k === "slowsync") syncDelay = 60000;
+    else if (k === "addacct") {
+      // `addacct=imap` / `addacct=google` / `addacct=microsoft`: adds an account the way the Settings dialog does (then opens its Inbox)
+      const { api } = await import("./api");
+      const acc = val === "google" ? await api.googleSignIn("id", "", "") : val === "microsoft" ? await api.microsoftSignIn("id", "", "", "") : await api.addAccount({ email: "sam@fastmail.test", displayName: "Sam", imapHost: "imap.fastmail.test", imapPort: 993, imapSsl: true, smtpHost: "smtp.fastmail.test", smtpPort: 465, smtpSecurity: "ssl", username: "sam@fastmail.test", smtpUsername: "", tlsInsecure: false }, "pw");
+      void st().accountAdded(acc);
+    }
     else if (k === "event") st().setDialog({ type: "event", eventId: val === "new" ? undefined : val });
     else if (k === "compose") await st().openCompose({ accountId: "a1", to: ["alice@fabrikam.com"], cc: ["bob@northwind.io"], subject: "Q4 contract call", meeting: { on: true } });
     else if (k === "chip") {
@@ -341,8 +348,33 @@ function simulateWindowFrame(): boolean {
   return true;
 }
 
+// ---- adding accounts (Settings > Add account, Welcome): the mock backend creates the account after a short delay.
+// Failures to try: password `wrong` (IMAP), client id `fail` (Google / Microsoft). Its first sync takes 2.5 s, then three messages appear.
+const NEW_COLORS = ["#2e7d32", "#6a1b9a", "#ef6c00", "#00838f"];
+const synced = new Set<string>();
+let syncDelay = 2500; // `#slowsync` holds the first sync open (to screenshot the loading state)
+let newSeq = 0;
+function mockNewAccount(email: string, displayName: string, auth: string, imapHost: string, smtpHost: string) {
+  if (accounts.some((x) => x.email.toLowerCase() === email.toLowerCase())) throw new Error("ACCOUNT_EXISTS: this account is already added");
+  const acc = {
+    id: `n${++newSeq}`, email, displayName, imapHost, imapPort: 993, imapSsl: true, smtpHost, smtpPort: 465, smtpSecurity: "ssl",
+    username: email, smtpUsername: "", tlsInsecure: false, auth, color: NEW_COLORS[(newSeq - 1) % NEW_COLORS.length],
+  };
+  accounts.push(acc);
+  for (const [i, k] of ["inbox", "drafts", "sent", "archive", "junk", "trash"].entries()) folders.push({ accountId: acc.id, key: k, name: k, unread: k === "inbox" ? 3 : 0, total: k === "inbox" ? 3 : i });
+  return acc;
+}
+const later = <T,>(ms: number, f: () => T) => new Promise<T>((res, rej) => setTimeout(() => { try { res(f()); } catch (e) { rej(e); } }, ms));
+const newThreads = (accountId: string) =>
+  [["Welcome to your new mailbox", "Mail Team", "Your account is connected. Everything arrives here.", 0.2 * H, 1], ["Getting started", "Mail Team", "Three quick tips for your inbox.", 3 * H, 0], ["Your first newsletter", "Digest", "Nothing to read yet, but this is how it looks.", 20 * H, 0]]
+    .map(([subject, who, snippet, ago, unread], i) => t(`${accountId}-t${i}`, subject as string, [who as string], snippet as string, ago as number, { accountId, unread }));
+
 export function installMock() {
   const frame = simulateWindowFrame();
+  if (/(^|&)noaccounts(&|$)/.test(window.location.hash.slice(1))) {
+    accounts.length = 0; // first-run: the Welcome screen
+    folders.length = 0;
+  }
   mockIPC((cmd, args) => {
     const a = (args ?? {}) as Record<string, unknown>;
     switch (cmd) {
@@ -364,6 +396,8 @@ export function installMock() {
             return words.every((w) => hay.includes(w));
           });
         }
+        const own = (a.filter as { accountId?: string | null }).accountId;
+        if (own && own.startsWith("n")) return f.folder === "inbox" && synced.has(own) ? newThreads(own) : []; // an added account: empty until its first sync is done
         return f.folder === "inbox" || f.folder === "unread" || f.folder === "all" ? list : [];
       }
       case "get_thread":
@@ -377,7 +411,21 @@ export function installMock() {
         return a.threadId === "t7" ? [m4] : a.threadId === "t1" ? messages : a.threadId === "t4"
         ? [{ ...messages[0], id: "mt", subject: "Tall newsletter", html: "<html><head><style>html,body{height:100%;margin:0}</style></head><body><table width='100%' height='100%'><tr><td style='background:#f4f4f8'><div style='height:900px;background:linear-gradient(#e8a317,#2aa)'>tall block</div><p id='endmark'>THE END</p></td></tr></table></body></html>", attachments: [] }]
         : [{ ...messages[0], id: "mx", subject: "Hello", html: "<p>Hello from the mock backend.</p>", attachments: [] }];
-      case "sync_account": return { added: 0, newInbox: [] };
+      case "sync_account": {
+        const id = String(a.accountId ?? a.id ?? "");
+        if (id.startsWith("n") && !synced.has(id)) return later(syncDelay, () => (synced.add(id), { added: 3, newInbox: [] }));
+        return { added: 0, newInbox: [] };
+      }
+      case "add_account": {
+        const inp = a.input as { email: string; displayName: string; imapHost: string; smtpHost: string };
+        if (a.passwordValue === "wrong") return later(900, () => { throw new Error("AUTH: login failed: invalid credentials"); });
+        return later(1200, () => mockNewAccount(inp.email, inp.displayName || inp.email.split("@")[0], "password", inp.imapHost, inp.smtpHost));
+      }
+      case "google_sign_in": case "microsoft_sign_in": {
+        const g = cmd === "google_sign_in";
+        if (a.clientId === "fail") return later(900, () => { throw new Error("OAUTH: sign-in was cancelled in the browser"); });
+        return later(1200, () => mockNewAccount(g ? `new.user${newSeq + 1}@gmail.com` : `new.user${newSeq + 1}@outlook.com`, String(a.displayName || "New User"), g ? "oauth_google" : "oauth_microsoft", g ? "imap.gmail.com" : "outlook.office365.com", g ? "smtp.gmail.com" : "smtp.office365.com"));
+      }
       case "list_outbox": return mockOutbox;
       case "outbox_pending_count": return { count: mockOutbox.filter((o) => o.status !== "failed").length, next: now + 3 * H };
       case "outbox_open_for_edit": {

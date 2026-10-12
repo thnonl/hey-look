@@ -132,6 +132,8 @@ interface State {
   loading: boolean;
   loadingOlder: boolean;
   syncing: boolean;
+  /** account whose first sync runs right now (after it was added): its empty Inbox says so instead of "all caught up" */
+  firstSync: string | null;
   syncErrors: Record<string, string>;
   toasts: Toast[];
   ask: AskState | null;
@@ -167,6 +169,8 @@ interface State {
   setFilter: (f: "all" | "unread" | "flagged") => Promise<void>;
   refresh: () => Promise<void>;
   sync: () => Promise<void>;
+  /** A new account was added: close the dialogs, show its Inbox, start its first sync with a visible loading state. */
+  accountAdded: (acc: Account) => Promise<void>;
   loadOlder: () => Promise<void>;
   select: (id: string | null) => Promise<void>;
   toggleCheck: (id: string) => void;
@@ -285,6 +289,7 @@ export const useStore = create<State>((set, get) => ({
   loading: true,
   loadingOlder: false,
   syncing: false,
+  firstSync: null,
   syncErrors: {},
   toasts: [],
   ask: null,
@@ -466,6 +471,27 @@ export const useStore = create<State>((set, get) => ({
       }
     } finally {
       set({ syncing: false });
+      await get().refresh();
+    }
+  },
+
+  accountAdded: async (acc) => {
+    // the backend list is the truth (it also assigns the colour); fall back to what we were given
+    let accounts = await api.listAccounts().catch(() => get().accounts);
+    if (!accounts.some((a) => a.id === acc.id)) accounts = [...accounts.filter((a) => a.email !== acc.email), acc];
+    // the selection moves to the new mailbox: a stale search / filter of the old view must not hide it
+    set({ accounts, dialog: null, firstSync: acc.id, filter: "all" });
+    get().showToast(`Account ${acc.email} added`, undefined, "success");
+    await get().setView("inbox", acc.id);
+    try {
+      await api.syncAccount(acc.id);
+      set((s) => ({ syncErrors: Object.fromEntries(Object.entries(s.syncErrors).filter(([k]) => k !== acc.id)) }));
+    } catch (e) {
+      const msg = friendlyError(e);
+      set((s) => ({ syncErrors: { ...s.syncErrors, [acc.id]: msg } }));
+      get().showToast(`${acc.email}: ${msg}`, undefined, "error");
+    } finally {
+      set({ firstSync: null });
       await get().refresh();
     }
   },

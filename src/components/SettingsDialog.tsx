@@ -371,6 +371,7 @@ function OAuthBlock({ kind }: { kind: OAuthKind }) {
   const [busy, setBusy] = useState(false);
   const [fromEnv, setFromEnv] = useState(false);
   const [tenant, setTenant] = useState("");
+  const [error, setError] = useState("");
   useEffect(() => {
     const envCheck = kind === "google" ? api.googleEnvConfigured() : api.microsoftEnvConfigured();
     void envCheck.then(setFromEnv).catch(() => undefined);
@@ -383,15 +384,15 @@ function OAuthBlock({ kind }: { kind: OAuthKind }) {
   }, [kind, cfg]);
   const go = async () => {
     setBusy(true);
+    setError("");
     try {
       const acc = kind === "google"
         ? await api.googleSignIn(cid, sec, name)
         : await api.microsoftSignIn(cid, "", tenant, name);
-      const accounts = await api.listAccounts();
-      useStore.setState({ accounts });
-      showToast(`Signed in as ${acc.email}. Syncing…`, undefined, "success");
-      void useStore.getState().sync();
+      // closes this dialog, opens the new account's Inbox and starts its first sync
+      void useStore.getState().accountAdded(acc);
     } catch (e) {
+      setError(friendlyError(e)); // stay here: the message is next to the button, and in a toast
       showToast(friendlyError(e), undefined, "error");
     } finally {
       setBusy(false);
@@ -427,6 +428,7 @@ function OAuthBlock({ kind }: { kind: OAuthKind }) {
         )}
         <label>Display name (optional)</label>
         <input aria-label="Display name (optional)" placeholder="Your name" value={name} onChange={(e) => setName(e.target.value)} />
+        {error && <div className="notice bad" role="alert">{error}</div>}
         <button className="btn primary" disabled={busy || (!fromEnv && !cid)} onClick={() => void go()}>
           {busy ? `Waiting for ${cfg.label}…` : `Sign in with ${cfg.label}`}
         </button>
@@ -460,6 +462,7 @@ function ImapForm() {
   const [busy, setBusy] = useState(false);
   const [detecting, setDetecting] = useState(false);
   const [found, setFound] = useState<Discovered | null>(null);
+  const [error, setError] = useState("");
   const showAdv = provider === "custom" || provider === "bridge";
   const pick = (p: string) => {
     setProvider(p);
@@ -492,6 +495,7 @@ function ImapForm() {
   };
   const add = async () => {
     setBusy(true);
+    setError("");
     try {
       const acc = await api.addAccount(
         {
@@ -502,11 +506,11 @@ function ImapForm() {
         pw,
         sepSmtp ? smtpPw : undefined,
       );
-      useStore.setState((s) => ({ accounts: [...s.accounts, acc] }));
-      setEmail(""); setPw(""); setName(""); setSmtpPw(""); setFound(null);
-      showToast(`Added ${acc.email}. Syncing…`, undefined, "success");
-      void useStore.getState().sync();
+      setPw(""); setSmtpPw("");
+      // closes this dialog, opens the new account's Inbox and starts its first sync
+      void useStore.getState().accountAdded(acc);
     } catch (e) {
+      setError(friendlyError(e)); // stay here with what was typed: the message is next to the button, and in a toast
       showToast(friendlyError(e), undefined, "error");
     } finally {
       setBusy(false);
@@ -580,6 +584,7 @@ function ImapForm() {
             )}
           </>
         )}
+        {error && <div className="notice bad" role="alert">{error}</div>}
         <button className="btn primary" disabled={busy || !email || !pw} onClick={() => void add()}>
           <Plus size={14} /> {busy ? "Connecting…" : "Add account"}
         </button>
