@@ -1,9 +1,12 @@
 import {
-  Archive, BrushCleaning, Clock, Command, FolderInput, Flag, Forward, Info, Keyboard, MailOpen, MailPlus, Mail, OctagonAlert, Pin, Reply, ReplyAll, Trash2,
+  Archive, BrushCleaning, CalendarDays, CalendarPlus, CalendarRange, Clock, List as ListIcon, Upload, Command, FolderInput, Flag, Forward, Info, Keyboard, MailOpen, MailPlus, Mail, OctagonAlert, Pin, Reply, ReplyAll, Trash2,
 } from "lucide-react";
 import { ReactNode } from "react";
 import { forwardLast, replyLast, targets } from "../actions";
-import { useStore, scopeOf } from "../store";
+import { api } from "../api";
+import { calTz, today } from "../calendar";
+import { friendlyError, useStore, scopeOf } from "../store";
+import { newEvent } from "./Calendar";
 import { folderLabel } from "../prefs";
 import { snoozePresets } from "../util";
 import { Dropdown, MenuItem } from "./ui";
@@ -93,6 +96,40 @@ function HomeTab() {
   );
 }
 
+function CalendarHomeTab() {
+  const { prefs, setCalView, setCalDate, bumpCal, showToast } = useStore();
+  const importIcs = async () => {
+    try {
+      const r = await api.calendarImportIcs();
+      if (!r) return;
+      showToast(`Imported ${r.added} new and ${r.updated} updated event${r.added + r.updated === 1 ? "" : "s"}`, undefined, "success");
+      bumpCal();
+    } catch (e) {
+      showToast(`Couldn’t import the file: ${friendlyError(e)}`, undefined, "error");
+    }
+  };
+  const view = prefs.calView;
+  return (
+    <div className="ribbon-row home">
+      <div className="rg">
+        <button className="rb primary" onClick={() => newEvent()} title="New event (c)">
+          <CalendarPlus size={18} />
+          <span>New event</span>
+        </button>
+      </div>
+      <div className="rg">
+        <Btn icon={<Upload size={16} />} label="Import .ics" title="Import a calendar file (.ics)" onClick={() => void importIcs()} />
+        <Btn icon={<Clock size={16} />} label="Today" title="Go to today (t)" onClick={() => setCalDate(today(calTz(prefs)))} />
+      </div>
+      <div className="rg">
+        <button className={`rb ${view === "month" ? "on" : ""}`} aria-pressed={view === "month"} onClick={() => setCalView("month")} title="Month (m)"><CalendarDays size={16} /><span>Month</span></button>
+        <button className={`rb ${view === "week" ? "on" : ""}`} aria-pressed={view === "week"} onClick={() => setCalView("week")} title="Week (w)"><CalendarRange size={16} /><span>Week</span></button>
+        <button className={`rb ${view === "agenda" ? "on" : ""}`} aria-pressed={view === "agenda"} onClick={() => setCalView("agenda")} title="Agenda (a)"><ListIcon size={16} /><span>Agenda</span></button>
+      </div>
+    </div>
+  );
+}
+
 function ViewTab() {
   const { prefs, setPrefs } = useStore();
   const dd = (label: string, items: MenuItem[]) => (
@@ -152,7 +189,7 @@ function HelpTab() {
 }
 
 export function Ribbon() {
-  const { ribbonTab, setRibbonTab } = useStore();
+  const { ribbonTab, setRibbonTab, module } = useStore();
   const tabs: ["home" | "view" | "help", string][] = [["home", "Home"], ["view", "View"], ["help", "Help"]];
   return (
     <div className="ribbon">
@@ -163,7 +200,7 @@ export function Ribbon() {
           </button>
         ))}
       </div>
-      {ribbonTab === "home" && <HomeTab />}
+      {ribbonTab === "home" && (module === "calendar" ? <CalendarHomeTab /> : <HomeTab />)}
       {ribbonTab === "view" && <ViewTab />}
       {ribbonTab === "help" && <HelpTab />}
     </div>

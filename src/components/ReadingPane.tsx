@@ -7,6 +7,7 @@ import { eff } from "../prefs";
 import { friendlyError, useStore } from "../store";
 import { fmtFull, fmtSize, plainToHtml, sanitizeHtml, snoozePresets } from "../util";
 import { AttachmentStrip, Lightbox, LbItem } from "./Attachments";
+import { InviteCard } from "./Calendar";
 import { EmptyState } from "./overlays";
 import { EncCard, importKeyFromMessage, isKeyAttachment, needsCard, SecBadges } from "./Pgp";
 import { Avatar, Dropdown } from "./ui";
@@ -373,6 +374,10 @@ function MessageCard({ m, open, onToggle }: { m: MessageFull; open: boolean; onT
               items={[
                 { label: "Show original", onClick: () => setDialog({ type: "original", messageId: m.id }) },
                 { label: "Print", onClick: () => frameRef.current?.contentWindow?.print() },
+                {
+                  label: "Create event from this email…",
+                  onClick: () => setDialog({ type: "event", init: { summary: m.subject.replace(/^((re|fwd?):\s*)+/i, ""), description: (m.text ?? "").trim().slice(0, 1500) } }),
+                },
                 { label: "Copy sender email", onClick: () => void navigator.clipboard.writeText(m.fromEmail).then(() => showToast("Copied")) },
                 { divider: true },
                 ...LANGS.map((l) => ({ label: `Translate to ${l}`, onClick: () => void translate(l), disabled: needsCard(m) })),
@@ -389,6 +394,7 @@ function MessageCard({ m, open, onToggle }: { m: MessageFull; open: boolean; onT
       {open && (
         <div className="rp-msg-body">
           <SecBadges m={m} />
+          {m.invite && <InviteCard m={m} />}
           {m.canUnsubscribe && (
             <div className="notice">
               This looks like a newsletter. <button className="link" onClick={unsub}>Unsubscribe</button>
@@ -401,7 +407,7 @@ function MessageCard({ m, open, onToggle }: { m: MessageFull; open: boolean; onT
               <button className="link small" onClick={() => setTranslated(null)}>Dismiss</button>
             </div>
           )}
-          {needsCard(m) ? <EncCard m={m} /> : <MessageBody m={m} frameRef={frameRef} onPictures={(items, index) => setLightbox({ items, index })} />}
+          {needsCard(m) ? <EncCard m={m} /> : m.invite && !m.html?.trim() && !m.text?.trim() ? null : <MessageBody m={m} frameRef={frameRef} onPictures={(items, index) => setLightbox({ items, index })} />}
           <AttachmentStrip m={m} />
           {lightbox && (
             <Lightbox

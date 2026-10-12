@@ -4,6 +4,7 @@ import { ReactNode, useEffect, useRef, useState } from "react";
 import { Account, api, Discovered, PgpKey, PROVIDERS, Rule, Signature, Template } from "../api";
 import { ACCENT_PRESETS, DEFAULT_PREFS, eff, folderLabel, isOverridden, NOTIFY_ACTIONS, NOTIFY_SOUNDS, Overridable, Prefs, validHex } from "../prefs";
 import { friendlyError, useStore } from "../store";
+import { systemTz } from "../calendar";
 import { fmtDay, fmtFpr, shortKey } from "../util";
 import { AppearancePreview } from "./AppearancePreview";
 import { RichEditor } from "./RichEditor";
@@ -92,6 +93,18 @@ const SoundSelect = ({ value, onChange }: { value: string; onChange: (v: Prefs["
 );
 
 // ---------------------------------------------------------------- General
+/** IANA zone names the browser knows (a short fallback list when it can't enumerate them). */
+function zoneList(): string[] {
+  try {
+    const f = (Intl as unknown as { supportedValuesOf?: (k: string) => string[] }).supportedValuesOf;
+    const list = f?.("timeZone");
+    if (list?.length) return list;
+  } catch {
+    /* fall through */
+  }
+  return ["UTC", "Europe/London", "Europe/Berlin", "America/New_York", "America/Los_Angeles", "Asia/Ho_Chi_Minh", "Asia/Tokyo", "Australia/Sydney"];
+}
+
 function GeneralTab() {
   const { prefs, setPrefs, accounts } = useStore();
   const set = <K extends keyof Prefs>(k: K, v: Prefs[K]) => setPrefs({ [k]: v } as Partial<Prefs>);
@@ -133,6 +146,27 @@ function GeneralTab() {
       <Row label="Time format">
         <select value={prefs.timeFormat} onChange={(e) => set("timeFormat", e.target.value as Prefs["timeFormat"])}>
           <option value="24">24-hour</option><option value="12">12-hour</option>
+        </select>
+      </Row>
+      <h4>Calendar</h4>
+      <Row label="First day of the week">
+        <select value={prefs.weekStart} onChange={(e) => set("weekStart", Number(e.target.value) as Prefs["weekStart"])}>
+          <option value={1}>Monday</option><option value={0}>Sunday</option><option value={6}>Saturday</option>
+        </select>
+      </Row>
+      <Row label="Time zone" hint="Used to show event times">
+        <select value={prefs.calTz} onChange={(e) => set("calTz", e.target.value)}>
+          <option value="auto">Automatic ({systemTz()})</option>
+          {zoneList().map((z) => <option key={z} value={z}>{z}</option>)}
+        </select>
+      </Row>
+      <Row label="Add invitations to my calendar when they arrive" hint="Shown as “Not responded” until you answer">
+        <Switch checked={prefs.autoAddInvites} onChange={(v) => set("autoAddInvites", v)} />
+      </Row>
+      <Row label="Event reminders" hint="Desktop notification before events start">
+        <select value={prefs.eventReminderMin === null ? "" : String(prefs.eventReminderMin)} onChange={(e) => set("eventReminderMin", e.target.value === "" ? null : Number(e.target.value))}>
+          <option value="">No reminder</option>
+          {[0, 5, 10, 15, 30, 60].map((n) => <option key={n} value={n}>{n === 0 ? "At the start" : n === 60 ? "1 hour before" : `${n} minutes before`}</option>)}
         </select>
       </Row>
       <h4>Attachments</h4>
@@ -1357,6 +1391,7 @@ function ShortcutsTab() {
     ["s", "Snooze"], ["p", "Pin"], ["*", "Flag"], ["u", "Mark as unread"], ["r", "Reply"], ["a", "Reply all"], ["f", "Forward"],
     ["Ctrl+Enter", "Send (while writing)"], ["Ctrl+Shift+Enter", "Send later (while writing)"], ["Ctrl+Shift+P", "Insert picture (while writing)"], ["Ctrl+Shift+E", "Encrypt (while writing)"], ["Ctrl+Shift+G", "Sign (while writing)"],
     ["Space / Enter", "Preview / open attachment"], ["Ctrl+S", "Save attachment as…"], ["Ctrl+Shift+S", "Save all attachments"],
+    ["Ctrl+1 / Ctrl+2", "Mail / Calendar"], ["c · t · ← / → · m / w / a", "Calendar: new event, today, previous / next, Month / Week / Agenda"],
     ["Ctrl+A", "Select all"], ["Ctrl+K", "Command bar"], ["F5", "Sync now"], ["Esc", "Close / deselect"],
   ];
   return (

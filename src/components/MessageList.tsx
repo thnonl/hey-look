@@ -1,4 +1,4 @@
-import { Archive, BadgeCheck, Check, CheckCheck, Clock, Flag, FolderOpen, Lock, Mail, MailOpen, Paperclip, Pin, SearchX, Trash2 } from "lucide-react";
+import { Archive, BadgeCheck, Calendar, CalendarCheck, CalendarX, Check, CheckCheck, Clock, Flag, FolderOpen, Lock, Mail, MailOpen, Paperclip, Pin, SearchX, Trash2 } from "lucide-react";
 import { Fragment, ReactNode } from "react";
 import { api, ThreadSummary } from "../api";
 import { folderLabel, Prefs } from "../prefs";
@@ -74,6 +74,9 @@ export function ThreadRow({ t, selected, checked, prefs, showFolder, accountColo
             {t.count > 1 && prefs.conversations && <span className="count">{t.count}</span>}
             {t.encrypted && <Lock size={12} aria-label="Encrypted" />}
             {t.signed && !t.encrypted && <BadgeCheck size={12} aria-label="Signed" />}
+            {t.invite === "request" && <Calendar size={12} aria-label="Meeting invitation" />}
+            {t.invite === "reply" && <CalendarCheck size={12} aria-label="Meeting reply" />}
+            {t.invite === "cancel" && <CalendarX size={12} aria-label="Meeting cancelled" />}
             {t.hasAttach && <Paperclip size={12} aria-label="Has attachment" />}
             {t.pinned && <Pin size={12} aria-label="Pinned" />}
             {t.flagged && <Flag size={12} fill="currentColor" className="flag-on" aria-label="Flagged" />}

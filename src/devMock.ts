@@ -31,6 +31,20 @@ const threads = [
   t("t14", "Weekly sync notes", ["Bao Tran"], "Notes from today are below. Signed inline.", 9 * H, { signed: true }),
 ];
 
+// calendar invitations in every state (the messages are built further down)
+threads.push(
+  t("t15", "Invitation: Product sync", ["Mai Khanh"], "Wed 14 Oct 10:00–11:00 · Room 4B", 1.2 * H, { unread: 1, invite: "request" }),
+  t("t16", "Canceled: Vendor demo", ["Vendor Ops"], "This event has been cancelled", 1.6 * H, { invite: "cancel" }),
+  t("t17", "Updated invitation: Kick-off", ["Mai Khanh"], "Thu 15 Oct 14:00–15:00", 1.8 * H, { unread: 1, invite: "request", count: 2 }),
+  t("t18", "Accepted: 1:1 with Bao", ["Bao Tran"], "Bao Tran accepted your invitation", 2.2 * H, { invite: "reply" }),
+  t("t19", "Company holiday", ["HR"], "Published event", 9 * H, { invite: "request" }),
+  t("t20", "Invitation (damaged calendar data)", ["Eve Park"], "Calendar data could not be read", 9.5 * H),
+  t("t21", "Invitation: Team offsite", ["Mai Khanh"], "14 – 16 Oct · All day", 10 * H, { invite: "request" }),
+  t("t22", "Invitation: Q4 planning (forwarded)", ["Duc Pham"], "Fri 16 Oct 09:00–10:00", 11 * H, { invite: "request" }),
+  t("t23", "Invitation: Kick-off (last month)", ["Mai Khanh"], "Wed 30 Sep 09:00–10:00", 12 * H, { invite: "request" }),
+  t("t24", "Invitation: Server check (sending fails once)", ["Linh Tran"], "Sat 17 Oct 11:00–12:00", 13 * H, { invite: "request" }),
+);
+
 const body = (n: string) =>
   `<p>Hi Nam,</p><p>${n}</p><p>Best regards,<br>Linh</p><blockquote>Earlier message quoted here.</blockquote>`;
 
@@ -131,6 +145,136 @@ const mockDraftOf = (o: (typeof mockOutbox)[number]) => ({
   references: [] as string[], attachments: [], inline: [],
 });
 
+// ---- calendar mock: events relative to today, invitations whose answers change in memory
+const dayStart = (offset: number) => {
+  const d = new Date();
+  d.setHours(0, 0, 0, 0);
+  d.setDate(d.getDate() + offset);
+  return Math.floor(d.getTime() / 1000);
+};
+const at = (offset: number, h: number, m = 0) => dayStart(offset) + h * 3600 + m * 60;
+const utcDay = (offset: number) => {
+  const d = new Date();
+  return Date.UTC(d.getFullYear(), d.getMonth(), d.getDate() + offset) / 1000;
+};
+const sysTz = Intl.DateTimeFormat().resolvedOptions().timeZone;
+type MockEvent = Record<string, unknown> & { id: string; start: number; end: number; calendarId: string; rrule: string | null; allDay: boolean };
+const ev = (id: string, summary: string, start: number, end: number, over: Record<string, unknown> = {}): MockEvent => ({
+  id, uid: `${id}@mock`, calendarId: "local", accountId: null, summary, start, end, allDay: false, tzid: sysTz, location: null, joinUrl: null, description: null,
+  organizer: null, attendees: [], rrule: null, recurrenceText: null, status: "confirmed", myStatus: null, respondedAt: null, reminderMin: 15, sourceMessageId: null, sequence: 0, ...over,
+});
+const you = { email: "nam@example.com", name: "Nam Hoang", role: "required", status: "needs-action", isYou: true };
+const people = (list: [string, string][]) => list.map(([name, status]) => ({ email: `${name.split(" ")[0].toLowerCase()}@contoso.com`, name, role: "required", status, isYou: false }));
+let calEvents: MockEvent[] = [
+  ev("e1", "Standup", at(0, 9, 30), at(0, 10), { calendarId: "invites:a1", accountId: "a1", myStatus: "accepted", rrule: "FREQ=WEEKLY;BYDAY=MO,TU,WE,TH,FR", recurrenceText: "Every Monday, Tuesday, Wednesday, Thursday and Friday", location: "https://teams.microsoft.com/l/meetup-join/xyz", joinUrl: "https://teams.microsoft.com/l/meetup-join/xyz" }),
+  ev("e2", "Design review", at(1, 10, 30), at(1, 11, 30), { calendarId: "invites:a1", accountId: "a1", myStatus: "tentative", location: "Room 2", organizer: { email: "mai@contoso.com", name: "Mai Khanh" }, attendees: people([["Mai Khanh", "accepted"], ["Bao Tran", "accepted"]]).concat([you as never]), sourceMessageId: "m-inv-req" }),
+  ev("e3", "Q4 contract call", at(0, 15), at(0, 16), { myStatus: "organizer", accountId: "a1", organizer: { email: "nam@example.com", name: "Nam Hoang" }, attendees: [{ ...you, role: "chair", status: "accepted" }, ...people([["Alice Lin", "accepted"], ["Bao Tran", "needs-action"]])] }),
+  ev("e4", "Lunch with Alice", at(1, 12), at(1, 13, 30), { location: "Pho 24" }),
+  ev("e5", "Product sync", at(2, 10), at(2, 11), { calendarId: "invites:a1", accountId: "a1", myStatus: "needs-action", location: "Room 4B", rrule: "FREQ=WEEKLY;BYDAY=WE", recurrenceText: "Every Wednesday", joinUrl: "https://teams.microsoft.com/l/meetup-join/abc", organizer: { email: "mai@contoso.com", name: "Mai Khanh" }, attendees: people([["Mai Khanh", "accepted"], ["Bao Tran", "accepted"], ["Alice Lin", "accepted"], ["Duc Pham", "declined"], ["Linh Vo", "tentative"]]).concat([you as never]), sourceMessageId: "m-inv-req" }),
+  ev("e6", "Retro", at(2, 10, 30), at(2, 11), { myStatus: "accepted", calendarId: "invites:a1", accountId: "a1" }),
+  ev("e7", "Vendor demo", at(3, 11), at(3, 12), { calendarId: "invites:a2", accountId: "a2", status: "cancelled", myStatus: "needs-action", sourceMessageId: "m-inv-cancel" }),
+  ev("e8", "Release 1.4", utcDay(4), utcDay(5), { allDay: true, tzid: null }),
+  ev("e9", "Team offsite", utcDay(6), utcDay(9), { allDay: true, tzid: null, calendarId: "invites:a1", accountId: "a1", myStatus: "needs-action", sourceMessageId: "m-inv-allday" }),
+  ev("e10", "Focus time", at(5, 14), at(5, 17), {}),
+  ev("e11", "Board prep", at(7, 13), at(7, 14)),
+  ev("e12", "Hiring panel", at(7, 16), at(7, 17), { calendarId: "invites:a2", accountId: "a2", myStatus: "accepted" }),
+  ev("e13", "Gym", at(7, 18), at(7, 19)),
+  ev("e14", "Dentist", at(7, 8), at(7, 9)),
+  ev("e15", "Flight SGN → HAN", at(8, 7, 15), at(8, 9, 30), { location: "Tan Son Nhat", description: "Gate to be announced." }),
+  ev("e16", "Kick-off", at(-12, 9), at(-12, 10), { calendarId: "invites:a1", accountId: "a1", myStatus: "accepted" }),
+  ev("e17", "Yesterday's 1:1", at(-1, 14), at(-1, 14, 30), {}),
+];
+const hiddenCals = new Set<string>();
+const dayOf = (sec: number) => Math.floor(sec / 86400);
+/** Repeats for the mock: daily / weekly with BYDAY, from the event's own start. */
+function expandMock(e: MockEvent, from: number, to: number): MockEvent[] {
+  if (!e.rrule) return e.end > from && e.start < to ? [e] : [];
+  const days = (/BYDAY=([A-Z,]+)/.exec(e.rrule)?.[1] ?? "").split(",").filter(Boolean);
+  const map = ["SU", "MO", "TU", "WE", "TH", "FR", "SA"];
+  const out: MockEvent[] = [];
+  const startDay = new Date(e.start * 1000);
+  for (let d = Math.floor(from / 86400) - 1; d <= Math.floor(to / 86400) + 1; d++) {
+    const base = new Date(d * 86400 * 1000);
+    const dow = base.getDay();
+    const hit = e.rrule.includes("FREQ=DAILY") || (days.length ? days.includes(map[dow]) : dow === startDay.getDay());
+    if (!hit) continue;
+    const s = new Date(base);
+    s.setHours(startDay.getHours(), startDay.getMinutes(), 0, 0);
+    const st = Math.floor(s.getTime() / 1000);
+    if (st < e.start || st >= to || st + (e.end - e.start) <= from) continue;
+    out.push({ ...e, start: st, end: st + (e.end - e.start), instanceStart: st });
+  }
+  return out;
+}
+void dayOf;
+
+const mkInvite = (over: Record<string, unknown>) => ({
+  method: "REQUEST", uid: "inv@mock", sequence: 0, summary: "Product sync", start: at(2, 10), end: at(2, 11), allDay: false, tzid: "Europe/Berlin",
+  location: "Room 4B", joinUrl: "https://teams.microsoft.com/l/meetup-join/abc", description: null, organizer: { email: "mai@contoso.com", name: "Mai Khanh" },
+  attendees: people([["Mai Khanh", "accepted"], ["Bao Tran", "accepted"], ["Alice Lin", "accepted"], ["Duc Pham", "declined"], ["Linh Vo", "tentative"]]).map((a, i) => (i === 0 ? { ...a, role: "chair" } : a)).concat([you as never]),
+  rrule: "FREQ=WEEKLY;BYDAY=WE", recurrenceText: "Every Wednesday", you: { email: "nam@example.com", status: "needs-action", onList: true }, responded: null, changed: null, reply: null,
+  eventId: "e5", ended: false, cancelled: false, outdated: false, conflicts: [{ eventId: "e6", summary: "Retro", start: at(2, 10, 30), end: at(2, 11) }], parseError: null, ...over,
+});
+const inviteMsg = (id: string, subject: string, fromName: string, fromEmail: string, invite: Record<string, unknown> | null, ago = 2 * H, extra: Record<string, unknown> = {}) => ({
+  id, accountId: "a1", folder: "inbox", messageId: `<${id}@x>`, subject, fromName, fromEmail, to: "nam@example.com", cc: "", date: now - ago, seen: false, flagged: false,
+  html: `<p>Weekly product sync. Agenda is in the shared doc.</p>`, text: "Weekly product sync. Agenda is in the shared doc.", attachments: [{ index: 0, name: "invite.ics", mime: "application/ics", size: 1850 }],
+  canUnsubscribe: false, invite, ...extra,
+});
+const inviteMsgs: Record<string, ReturnType<typeof inviteMsg>> = {
+  "m-inv-req": inviteMsg("m-inv-req", "Invitation: Product sync", "Mai Khanh", "mai@contoso.com", mkInvite({}), 1.2 * H),
+  "m-inv-cancel": inviteMsg("m-inv-cancel", "Canceled: Vendor demo", "Vendor Ops", "ops@vendor.com", mkInvite({ method: "CANCEL", summary: "Vendor demo", cancelled: true, start: at(3, 11), end: at(3, 12), rrule: null, recurrenceText: null, eventId: "e7", location: null, joinUrl: null, tzid: sysTz, conflicts: [], organizer: { email: "ops@vendor.com", name: "Vendor Ops" }, attendees: [], you: { email: "nam@example.com", status: "needs-action", onList: true } }), 1.6 * H, { html: null, text: null }),
+  "m-inv-upd0": inviteMsg("m-inv-upd0", "Invitation: Kick-off", "Mai Khanh", "mai@contoso.com", mkInvite({ summary: "Kick-off", start: at(3, 14), end: at(3, 15), rrule: null, recurrenceText: null, eventId: "e20", outdated: true, conflicts: [], joinUrl: null, tzid: sysTz }), 20 * H),
+  "m-inv-upd1": inviteMsg("m-inv-upd1", "Updated invitation: Kick-off", "Mai Khanh", "mai@contoso.com", mkInvite({ summary: "Kick-off", sequence: 1, start: at(4, 14), end: at(4, 15), rrule: null, recurrenceText: null, eventId: "e20", conflicts: [], joinUrl: null, tzid: sysTz, changed: { fields: ["time"], previous: { start: at(3, 14), end: at(3, 15), location: "Room 4B" } } }), 1.8 * H),
+  "m-reply": inviteMsg("m-reply", "Accepted: 1:1 with Bao", "Bao Tran", "bao@contoso.com", mkInvite({ method: "REPLY", summary: "1:1 with Bao", start: at(-1, 14), end: at(-1, 14, 30), rrule: null, recurrenceText: null, eventId: "e3", reply: { from: { email: "bao@contoso.com", name: "Bao Tran" }, status: "accepted", comment: "See you there — I’ll bring the numbers." }, attendees: [{ ...you, role: "chair", status: "accepted" }, ...people([["Bao Tran", "accepted"], ["Alice Lin", "tentative"], ["Duc Pham", "needs-action"]])], you: null, conflicts: [], joinUrl: null, location: null }), 2.2 * H, { html: null, text: null, attachments: [] }),
+  "m-publish": inviteMsg("m-publish", "Company holiday", "HR", "hr@example.com", mkInvite({ method: "PUBLISH", summary: "Company holiday", allDay: true, start: utcDay(20), end: utcDay(21), tzid: null, location: null, joinUrl: null, rrule: null, recurrenceText: null, eventId: null, attendees: [], you: null, conflicts: [], organizer: { email: "hr@example.com", name: "HR" } }), 9 * H),
+  "m-broken": inviteMsg("m-broken", "Invitation (damaged calendar data)", "Eve Park", "eve@example.org", mkInvite({ method: "OTHER", parseError: "no event", attendees: [], conflicts: [], eventId: null }), 9.5 * H),
+  "m-inv-allday": inviteMsg("m-inv-allday", "Invitation: Team offsite", "Mai Khanh", "mai@contoso.com", mkInvite({ summary: "Team offsite", allDay: true, start: utcDay(6), end: utcDay(9), tzid: null, location: "Da Lat", joinUrl: null, rrule: null, recurrenceText: null, eventId: "e9", conflicts: [] }), 10 * H),
+  "m-inv-fwd": inviteMsg("m-inv-fwd", "Invitation: Q4 planning (forwarded)", "Duc Pham", "duc@contoso.com", mkInvite({ summary: "Q4 planning", start: at(5, 9), end: at(5, 10), rrule: null, recurrenceText: null, eventId: null, you: { email: "nam@example.com", status: "needs-action", onList: false }, attendees: people([["Mai Khanh", "accepted"], ["Duc Pham", "accepted"]]), conflicts: [], joinUrl: null, organizer: { email: "mai@contoso.com", name: "Mai Khanh" } }), 11 * H),
+  "m-inv-old": inviteMsg("m-inv-old", "Invitation: Kick-off (last month)", "Mai Khanh", "mai@contoso.com", mkInvite({ summary: "Kick-off", start: at(-12, 9), end: at(-12, 10), rrule: null, recurrenceText: null, eventId: "e16", ended: true, conflicts: [], joinUrl: null, tzid: sysTz, you: { email: "nam@example.com", status: "accepted", onList: true }, responded: { status: "accepted", sentAt: at(-14, 9) } }), 12 * H),
+  "m-inv-flaky": inviteMsg("m-inv-flaky", "Invitation: Server check (sending fails once)", "Linh Tran", "linh@example.com", mkInvite({ summary: "Server check", start: at(6, 11), end: at(6, 12), rrule: null, recurrenceText: null, eventId: "e21", conflicts: [], joinUrl: null, tzid: sysTz, attendees: people([["Linh Tran", "accepted"]]).concat([you as never]), organizer: { email: "linh@example.com", name: "Linh Tran" } }), 13 * H),
+};
+const threadInvite: Record<string, string[]> = {
+  t15: ["m-inv-req"], t16: ["m-inv-cancel"], t17: ["m-inv-upd0", "m-inv-upd1"], t18: ["m-reply"], t19: ["m-publish"], t20: ["m-broken"],
+  t21: ["m-inv-allday"], t22: ["m-inv-fwd"], t23: ["m-inv-old"], t24: ["m-inv-flaky"],
+};
+let flakyFailed = false;
+let eventSeq = 100;
+
+/**
+ * Dev preview only. `#dark&cal=week&date=2026-10-14&thread=t15&event=new&chip=Standup&compose=meeting` drives the mock app
+ * into a state once it has loaded, so a screenshot of that state can be taken from a plain URL.
+ */
+export async function applyDemoHash() {
+  const { useStore } = await import("./store");
+  const { parseDate } = await import("./calendar");
+  const wait = (ms: number) => new Promise((r) => setTimeout(r, ms));
+  for (let i = 0; i < 100 && !useStore.getState().loaded; i++) await wait(50);
+  await wait(300);
+  const st = () => useStore.getState();
+  const tokens = window.location.hash.slice(1).split("&").filter(Boolean);
+  for (const tok of tokens) {
+    const [k, v = ""] = tok.split("=");
+    const val = decodeURIComponent(v);
+    if (k === "dark" || k === "light") st().setPrefs({ theme: k });
+    else if (k === "density") st().setPrefs({ density: val as "full" | "medium" | "compact" });
+    else if (k === "cal") {
+      st().setPrefs({ calView: (val || "month") as "month" | "week" | "agenda" });
+      st().setModule("calendar");
+    } else if (k === "date") {
+      const d = parseDate(val);
+      if (d) st().setCalDate(d);
+    } else if (k === "thread") await st().select(val);
+    else if (k === "event") st().setDialog({ type: "event", eventId: val === "new" ? undefined : val });
+    else if (k === "compose") await st().openCompose({ accountId: "a1", to: ["alice@fabrikam.com"], cc: ["bob@northwind.io"], subject: "Q4 contract call", meeting: { on: true } });
+    else if (k === "chip") {
+      await wait(600);
+      const el = [...document.querySelectorAll<HTMLElement>(".ev-chip, .wk-ev, .ag-row")].find((x) => x.textContent?.includes(val));
+      el?.click();
+    } else if (k === "wait") await wait(Number(val) || 300);
+    await wait(250);
+  }
+}
+
 export function installMock() {
   mockIPC((cmd, args) => {
     const a = (args ?? {}) as Record<string, unknown>;
@@ -157,6 +301,7 @@ export function installMock() {
       }
       case "get_thread":
         if (a.threadId === "t9") return [ownLocked ? lockedMsg() : openedMsg()];
+        if (threadInvite[a.threadId as string]) return threadInvite[a.threadId as string].map((id) => inviteMsgs[id]);
         if (mockThreadMsgs[a.threadId as string]) return mockThreadMsgs[a.threadId as string];
         return a.threadId === "t7" ? [m4] : a.threadId === "t1" ? messages : a.threadId === "t4"
         ? [{ ...messages[0], id: "mt", subject: "Tall newsletter", html: "<html><head><style>html,body{height:100%;margin:0}</style></head><body><table width='100%' height='100%'><tr><td style='background:#f4f4f8'><div style='height:900px;background:linear-gradient(#e8a317,#2aa)'>tall block</div><p id='endmark'>THE END</p></td></tr></table></body></html>", attachments: [] }]
@@ -273,6 +418,69 @@ export function installMock() {
         if (a.passphrase) ownLocked = false;
         return openedMsg();
       }
+      case "calendar_list_calendars":
+        return [
+          { id: "local", name: "My events", color: "#8764b8", accountId: null, visible: !hiddenCals.has("local") },
+          ...accounts.map((x) => ({ id: `invites:${x.id}`, name: `Invitations · ${x.email}`, color: x.color ?? "", accountId: x.id, visible: !hiddenCals.has(`invites:${x.id}`) })),
+        ];
+      case "calendar_set_visible": if (a.visible) hiddenCals.delete(a.calendarId as string); else hiddenCals.add(a.calendarId as string); return null;
+      case "calendar_list_events": {
+        const from = a.from as number, to = a.to as number;
+        return calEvents
+          .filter((e) => !hiddenCals.has(e.calendarId))
+          .flatMap((e) => (e.allDay ? (e.end > from - 86400 && e.start < to + 86400 ? [e] : []) : expandMock(e, from, to)))
+          .sort((x, y) => x.start - y.start);
+      }
+      case "calendar_get_event": {
+        const e = calEvents.find((x) => x.id === a.id);
+        if (!e) throw "event not found";
+        return e;
+      }
+      case "calendar_save_event": {
+        const inp = a.event as Record<string, unknown> & { id?: string | null; attendees: { email: string; name?: string }[]; accountId?: string };
+        const guests = inp.attendees ?? [];
+        const prev = inp.id ? calEvents.find((x) => x.id === inp.id) : undefined;
+        const acct = accounts.find((x) => x.id === inp.accountId);
+        const saved = ev(prev?.id ?? `e${++eventSeq}`, String(inp.summary), inp.start as number, inp.end as number, {
+          allDay: inp.allDay, tzid: inp.tzid ?? null, location: inp.location ?? null, description: inp.description ?? null, rrule: inp.rrule ?? null, reminderMin: inp.reminderMin ?? null,
+          accountId: inp.accountId ?? null, recurrenceText: inp.rrule ? "Repeats" : null, sequence: (prev?.sequence as number ?? 0) + (guests.length ? 1 : 0),
+          myStatus: guests.length ? "organizer" : null,
+          organizer: guests.length && acct ? { email: acct.email, name: acct.displayName } : null,
+          attendees: guests.length && acct ? [{ email: acct.email, name: acct.displayName, role: "chair", status: "accepted", isYou: true }, ...guests.map((g) => ({ ...g, role: "required", status: "needs-action", isYou: false }))] : [],
+        });
+        if (guests.some((g) => g.email.includes("fail")) && a.notify) {
+          calEvents = [...calEvents.filter((x) => x.id !== saved.id), saved];
+          throw "CAL_SEND_FAILED: The event was saved, but the invitations weren't sent: SMTP send failed: connection timed out";
+        }
+        calEvents = [...calEvents.filter((x) => x.id !== saved.id), saved];
+        return saved;
+      }
+      case "calendar_delete_event": calEvents = calEvents.filter((x) => x.id !== a.id); return null;
+      case "calendar_respond": {
+        const m = inviteMsgs[a.messageId as string];
+        if (!m) throw "message not found";
+        if (a.messageId === "m-inv-flaky" && a.send && !flakyFailed) {
+          flakyFailed = true;
+          throw "CAL_SEND_FAILED: SMTP send failed: authentication failed";
+        }
+        const inv = m.invite as Record<string, unknown>;
+        const status = a.response as string;
+        inv.responded = { status, sentAt: a.send ? Math.floor(Date.now() / 1000) : null };
+        inv.you = { ...(inv.you as object), status };
+        const row = calEvents.find((x) => x.id === inv.eventId);
+        if (row) row.myStatus = status;
+        return inv;
+      }
+      case "calendar_add_from_message": {
+        const inv = inviteMsgs[a.messageId as string].invite as Record<string, unknown>;
+        const e = ev(`e${++eventSeq}`, String(inv.summary), inv.start as number, inv.end as number, { allDay: inv.allDay, tzid: inv.tzid, calendarId: "invites:a1", accountId: "a1", sourceMessageId: a.messageId as string });
+        calEvents = [...calEvents, e];
+        inv.eventId = e.id;
+        return e;
+      }
+      case "calendar_save_ics": return "C:/Users/Me/Documents/invite.ics";
+      case "calendar_import_ics": return { added: 2, updated: 1 };
+      case "calendar_open_message": return { threadId: "t15", folder: "inbox", accountId: "a1" };
       case "send_message": return a.sendAt ? `scheduled:mock-${Math.random().toString(36).slice(2, 8)}` : "sent";
       case "suggest_contacts": return [{ name: "Linh Tran", email: "linh@example.com" }];
       case "ai_list_models": {

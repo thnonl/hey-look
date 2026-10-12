@@ -4,7 +4,7 @@ import { NodeSelection } from "@tiptap/pm/state";
 import { EditorContent, useEditor, type Editor } from "@tiptap/react";
 import StarterKit from "@tiptap/starter-kit";
 import {
-  BadgeCheck, Bold, CalendarClock, ChevronDown, FileText, ImagePlus, Info, Italic, Link2, List, ListOrdered, Lock, LockOpen, Paperclip, Save, Send, ShieldCheck, Sparkles, Trash2,
+  BadgeCheck, Bold, CalendarClock, CalendarPlus, ChevronDown, FileText, ImagePlus, Info, Italic, Link2, List, ListOrdered, Lock, LockOpen, Paperclip, Save, Send, ShieldCheck, Sparkles, Trash2,
   TriangleAlert, Underline as UIcon, X,
 } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
@@ -12,6 +12,8 @@ import { api, Att, Contact, Draft, DraftSecurity, errorCode, InlineImage, Messag
 import { eff } from "../prefs";
 import { ComposeInit, friendlyError, useStore } from "../store";
 import { dataUriBytes, fileToBase64, fmtIn, fmtSize, fmtWhen, htmlToText, imageSize, PICTURE_TYPES, playSent, resizeImage, shortKey, userName } from "../util";
+import { calTz } from "../calendar";
+import { defaultMeeting, MeetingState, MeetingStrip, meetingToDraft } from "./Calendar";
 import { askUnlock } from "./Pgp";
 import { SchedulePicker } from "./SchedulePicker";
 import { Dropdown, MenuList, useOutside } from "./ui";
@@ -44,10 +46,12 @@ const PictureNode = Image.extend({
 }).configure({ inline: false, allowBase64: true });
 
 /** Recipient input with chips, address validation and keyboard-friendly suggestions. */
-function RecipientField({
-  label, values, onChange, autoFocus, onTouch, keys, onKeyAction,
+export function RecipientField({
+  label, values, onChange, autoFocus, onTouch, keys, onKeyAction, hideLabel,
 }: {
   label: string;
+  /** the label is only for screen readers (the caller shows its own) */
+  hideLabel?: boolean;
   values: string[];
   onChange: (v: string[]) => void;
   autoFocus?: boolean;
@@ -88,7 +92,7 @@ function RecipientField({
 
   return (
     <div className="cf-field rcpt" onClick={() => input.current?.focus()}>
-      <label>{label}</label>
+      {!hideLabel && <label>{label}</label>}
       <div className="chips">
         {values.map((v) => {
           const addr = bareAddress(v).toLowerCase();
@@ -257,6 +261,8 @@ export function Compose({ init }: { init: ComposeInit }) {
   const [aiPrompt, setAiPrompt] = useState("");
   const [aiBusy, setAiBusy] = useState(false);
   const [busy, setBusy] = useState(false);
+  // a meeting: To = required attendees, Cc = optional; sent as a calendar invitation
+  const [meeting, setMeeting] = useState<MeetingState | null>(init.meeting ? defaultMeeting(calTz(prefs), init.meeting) : null);
   const [schedOpen, setSchedOpen] = useState(!!init.openSchedule);
   const [dragging, setDragging] = useState(false);
   const [dragImages, setDragImages] = useState(false);
@@ -474,6 +480,7 @@ export function Compose({ init }: { init: ComposeInit }) {
       img.removeAttribute("data-name");
     });
     const body = doc.body.innerHTML;
+    const md = meeting ? meetingToDraft(meeting, calTz(prefs)) : null;
     return {
       accountId,
       to,
@@ -487,6 +494,7 @@ export function Compose({ init }: { init: ComposeInit }) {
       attachments: atts,
       inline,
       security: currentSecurity(),
+      meeting: md && "meeting" in md ? md.meeting : undefined,
     };
   };
 
@@ -505,6 +513,7 @@ export function Compose({ init }: { init: ComposeInit }) {
       replaces: init.replaces,
       isReply: false,
       security: d.security,
+      meeting: d.meeting ? { ...d.meeting, on: true } : undefined,
     });
   };
 
@@ -583,6 +592,12 @@ export function Compose({ init }: { init: ComposeInit }) {
     if (d.to.length === 0) return showToast("Add at least one recipient", undefined, "error");
     const bad = [...d.to, ...d.cc, ...d.bcc].filter((a) => !EMAIL.test(bareAddress(a)));
     if (bad.length) return showToast(`Check the address: ${bad[0]}`, undefined, "error");
+    if (meeting) {
+      const md = meetingToDraft(meeting, calTz(prefs));
+      if ("error" in md) return showToast(md.error, undefined, "error");
+      if (d.bcc.length) return showToast("Bcc isn’t used for meetings. Remove the Bcc recipients or turn off Meeting.", undefined, "error");
+      if (!d.subject.trim()) return showToast("Add a subject: it becomes the title of the event.", undefined, "error");
+    }
     if (!accountId) return showToast("No account selected", undefined, "error");
     if (totalBytes > MAX_ATTACH_BYTES) return showToast(`Attachments and pictures are ${fmtSize(totalBytes)}; most servers accept at most 25 MB`, undefined, "error");
     if (!d.subject && !(await confirm({ title: "Send without a subject?", confirmLabel: "Send anyway" }))) return;
@@ -1004,7 +1019,7 @@ export function Compose({ init }: { init: ComposeInit }) {
       <div className="cp-bar">
         <div className="split-btn" ref={schedRef}>
           <button className="btn primary" disabled={busy} onClick={() => void (init.outboxId ? send(init.sendAt) : send())} title={init.outboxId ? "Schedule (keeps the time)" : "Send (Ctrl+Enter)"}>
-            {init.outboxId ? <><CalendarClock size={14} /> Schedule</> : <><Send size={14} /> Send</>}
+            {init.outboxId ? <><CalendarClock size={14} /> Schedule</> : meeting ? <><CalendarPlus size={14} /> Send invite</> : <><Send size={14} /> Send</>}
           </button>
           <button
             className="btn primary split-caret"
@@ -1044,6 +1059,24 @@ export function Compose({ init }: { init: ComposeInit }) {
           hidden
           onChange={(e) => (e.target.files && void insertPictures(Array.from(e.target.files)), (e.target.value = ""))}
         />
+        <button
+          className={`rb ${meeting ? "on" : ""}`}
+          aria-pressed={!!meeting}
+          title="Meeting: send this message as a calendar invitation"
+          onClick={() => {
+            if (meeting) setMeeting(null);
+            else {
+              if (bcc.length) {
+                setBcc([]);
+                showToast("Bcc recipients were removed: Bcc isn’t used for meetings.", undefined, "info");
+              }
+              setMeeting(defaultMeeting(calTz(prefs)));
+            }
+            touch();
+          }}
+        >
+          <CalendarPlus size={15} /><span>Meeting</span>
+        </button>
         <button
           className={`rb ${encOn && noKeyAddrs.length === 0 && canEnc ? "on" : encOn ? "warn" : ""}`}
           aria-pressed={encOn}
@@ -1138,12 +1171,12 @@ export function Compose({ init }: { init: ComposeInit }) {
         {showCc ? (
           <>
             <RecipientField label="Cc" values={cc} onChange={setCc} onTouch={() => ((ccTouched.current = true), touch())} keys={encOn && ks ? ks.recipients : undefined} onKeyAction={keyAction} />
-            <RecipientField label="Bcc" values={bcc} onChange={setBcc} onTouch={() => ((ccTouched.current = true), touch())} keys={encOn && ks ? ks.recipients : undefined} onKeyAction={keyAction} />
+            {!meeting && <RecipientField label="Bcc" values={bcc} onChange={setBcc} onTouch={() => ((ccTouched.current = true), touch())} keys={encOn && ks ? ks.recipients : undefined} onKeyAction={keyAction} />}
           </>
         ) : (
           <div className="cf-links">
             <button className="link" onClick={() => setShowCc(true)}>Cc</button>
-            <button className="link" onClick={() => setShowCc(true)}>Bcc</button>
+            {!meeting && <button className="link" onClick={() => setShowCc(true)}>Bcc</button>}
           </div>
         )}
         <div className="cf-field">
@@ -1152,6 +1185,14 @@ export function Compose({ init }: { init: ComposeInit }) {
         </div>
       </div>
 
+      {meeting && (
+        <>
+          <MeetingStrip value={meeting} onChange={(m) => (setMeeting(m), touch())} tz={calTz(prefs)} />
+          <div className="note" style={{ padding: "6px 20px 0" }}>
+            <Info size={13} aria-hidden /> <span>Recipients in To are required attendees, Cc are optional. Bcc isn’t used for meetings. The event is also added to My events.</span>
+          </div>
+        </>
+      )}
       {strip && (
         <div className={`sec-strip ${strip.cls}`} role="status" aria-live="polite">
           <span className="sec-ico">{strip.icon}</span>

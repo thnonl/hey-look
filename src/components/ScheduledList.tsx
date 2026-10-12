@@ -62,6 +62,7 @@ export function ScheduledList() {
         bodyHtml: picturesToEditor(d.html, d.inline ?? []),
         attachments: d.attachments,
         security: d.security,
+        meeting: d.meeting ? { ...d.meeting, on: true } : undefined,
         outboxId: o.id,
         sendAt: e.sendAt,
         outboxError: o.status === "failed" ? o.error ?? "The server refused it." : undefined,

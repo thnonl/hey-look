@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { folderLabel } from "../prefs";
+import { newEvent } from "./Calendar";
 import { useStore } from "../store";
 
 interface Cmd {
@@ -20,6 +21,12 @@ export function CommandBar() {
     const list: Cmd[] = [
       { label: "New mail", run: () => s.openCompose({}) },
       { label: "Sync now", run: () => void s.sync() },
+      { label: "New event", run: () => newEvent() },
+      { label: "Go to Calendar", run: () => s.setModule("calendar") },
+      { label: "Go to Mail", run: () => s.setModule("mail") },
+      { label: "Calendar: Month view", run: () => (s.setModule("calendar"), s.setCalView("month")) },
+      { label: "Calendar: Week view", run: () => (s.setModule("calendar"), s.setCalView("week")) },
+      { label: "Calendar: Agenda view", run: () => (s.setModule("calendar"), s.setCalView("agenda")) },
       { label: "Open settings", run: () => s.setDialog({ type: "settings" }) },
       { label: "Sweep: clean up by sender", run: () => s.setDialog({ type: "cleaner" }) },
       { label: "Theme: light", run: () => s.setPrefs({ theme: "light" }) },

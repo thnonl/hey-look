@@ -1,8 +1,10 @@
 import { listen } from "@tauri-apps/api/event";
+import { openUrl } from "@tauri-apps/plugin-opener";
 import { useEffect, useRef, useState } from "react";
 import "./App.css";
 import { forwardLast, replyLast, targets } from "./actions";
 import { api } from "./api";
+import { CalendarView, EventDialog, newEvent } from "./components/Calendar";
 import { CommandBar } from "./components/CommandBar";
 import { Compose } from "./components/Compose";
 import { BulkCleaner, ShowOriginal } from "./components/Dialogs";
@@ -16,6 +18,7 @@ import { Settings } from "./components/SettingsDialog";
 import { TopBar } from "./components/TopBar";
 import { Welcome } from "./components/Welcome";
 import { useStore } from "./store";
+import { calTz, configureCalendar, addDays, addMonths, today as todayDay } from "./calendar";
 import { configureDates, fmtWhen } from "./util";
 
 const clamp = (n: number, lo: number, hi: number) => Math.max(lo, Math.min(hi, n));
@@ -57,10 +60,12 @@ function App() {
   const prefs = useStore((s) => s.prefs);
   const loaded = useStore((s) => s.loaded);
   const hasAccounts = useStore((s) => s.accounts.length > 0);
+  const module = useStore((s) => s.module);
   const setPrefs = useStore((s) => s.setPrefs);
   const [live, setLive] = useState<{ f?: number; l?: number }>({});
 
   configureDates(prefs);
+  configureCalendar(prefs);
 
   useEffect(() => {
     void useStore.getState().init();
@@ -99,6 +104,19 @@ function App() {
         st.showToast(`Scheduled message “${subject}” failed to send.`, undefined, "error", [
           { label: "Retry", run: () => void api.outboxRetry(e.payload.id).then(() => useStore.getState().refresh()) },
           { label: "Open", run: () => void useStore.getState().setView("scheduled") },
+        ]);
+      }),
+      // the calendar changed behind the view's back: sync processed an invitation, a reply or a cancellation
+      listen("calendar-changed", () => {
+        const st = useStore.getState();
+        st.bumpCal();
+        if (st.messages.some((m) => m.invite)) void st.reloadMessages();
+      }),
+      listen<{ eventId: string; title: string; line: string; joinUrl?: string | null }>("event-reminder", (e) => {
+        const st = useStore.getState();
+        st.showToast(`${e.payload.title}${e.payload.line ? ` · ${e.payload.line}` : ""}`, undefined, "info", [
+          { label: "Open", run: () => st.setModule("calendar") },
+          ...(e.payload.joinUrl ? [{ label: "Join", run: () => void openUrl(e.payload.joinUrl as string).catch(() => undefined) }] : []),
         ]);
       }),
       listen<{ count: number }>("outbox-catchup", (e) => {
@@ -150,7 +168,34 @@ function App() {
       const t = e.target;
       if (!(t instanceof Element)) return;
       if (t.closest("input,textarea,select,[contenteditable=true]")) return;
+      if (!st.dialog && !st.commandOpen && !st.ask && (e.ctrlKey || e.metaKey) && !e.shiftKey && !e.altKey && (e.key === "1" || e.key === "2")) {
+        e.preventDefault();
+        st.setModule(e.key === "2" ? "calendar" : "mail");
+        return;
+      }
       if (st.compose || st.dialog || st.commandOpen || st.ask) return;
+      if (st.module === "calendar" && !e.ctrlKey && !e.metaKey && !e.altKey) {
+        // Calendar: c new event, t today, ←/→ previous/next period, m / w / a Month / Week / Agenda
+        const tz = calTz(st.prefs);
+        const v = st.prefs.calView;
+        const step = (dir: 1 | -1) => st.setCalDate(v === "month" ? addMonths(st.calDate, dir) : addDays(st.calDate, (v === "week" ? 7 : 30) * dir));
+        const handled = ((): boolean => {
+          switch (e.key) {
+            case "c": newEvent(); return true;
+            case "t": st.setCalDate(todayDay(tz)); return true;
+            case "ArrowLeft": step(-1); return true;
+            case "ArrowRight": step(1); return true;
+            case "m": st.setCalView("month"); return true;
+            case "w": st.setCalView("week"); return true;
+            case "a": st.setCalView("agenda"); return true;
+            default: return false;
+          }
+        })();
+        if (handled) {
+          e.preventDefault();
+          return;
+        }
+      }
       if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "a") {
         e.preventDefault();
         st.setChecked(st.threads.map((x) => x.threadId));
@@ -195,13 +240,26 @@ function App() {
           <div className="workspace" style={{ ["--fw" as string]: `${fw}px`, ["--lw" as string]: `${lw}px` }}>
             <FolderPane />
             <Splitter label="Folder pane width" value={fw} min={180} max={360} onLive={(w) => setLive((s) => ({ ...s, f: w }))} onCommit={(w) => (setLive((s) => ({ ...s, f: undefined })), setPrefs({ folderW: w }))} />
-            <MessageList />
-            {prefs.readingPane === "right" && (
-              <Splitter label="Message list width" value={lw} min={300} max={680} onLive={(w) => setLive((s) => ({ ...s, l: w }))} onCommit={(w) => (setLive((s) => ({ ...s, l: undefined })), setPrefs({ listW: w }))} />
+            {module === "calendar" ? (
+              <>
+                <CalendarView />
+                {compose && (
+                  <div className="reading-region cal-overlay">
+                    <Compose key={composeKey} init={compose} />
+                  </div>
+                )}
+              </>
+            ) : (
+              <>
+                <MessageList />
+                {prefs.readingPane === "right" && (
+                  <Splitter label="Message list width" value={lw} min={300} max={680} onLive={(w) => setLive((s) => ({ ...s, l: w }))} onCommit={(w) => (setLive((s) => ({ ...s, l: undefined })), setPrefs({ listW: w }))} />
+                )}
+                <div className="reading-region">
+                  {compose ? <Compose key={composeKey} init={compose} /> : <ReadingPane />}
+                </div>
+              </>
             )}
-            <div className="reading-region">
-              {compose ? <Compose key={composeKey} init={compose} /> : <ReadingPane />}
-            </div>
           </div>
         </>
       ) : (
@@ -212,6 +270,7 @@ function App() {
       {dialog?.type === "original" && <ShowOriginal messageId={dialog.messageId} />}
       {dialog?.type === "pgp-generate" && <GenerateKeyDialog accountId={dialog.accountId} back={dialog.back} />}
       {dialog?.type === "pgp-import" && <ImportKeyDialog armored={dialog.armored} paste={dialog.paste} back={dialog.back} />}
+      {dialog?.type === "event" && <EventDialog key={dialog.eventId ?? `new-${dialog.init?.start ?? 0}`} eventId={dialog.eventId} init={dialog.init} />}
       {dialog?.type === "pgp-key" && <KeyDetailsDialog fingerprint={dialog.fingerprint} back={dialog.back} />}
       {commandOpen && <CommandBar />}
       <AskHost />

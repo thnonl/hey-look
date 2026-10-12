@@ -2,9 +2,10 @@ import React from "react";
 import ReactDOM from "react-dom/client";
 import App from "./App";
 
-async function boot() {
+async function boot(): Promise<boolean> {
   // `npm run dev` in a plain browser has no Tauri backend: use fake data so the UI can be previewed.
-  if (import.meta.env.DEV && !("__TAURI_INTERNALS__" in window)) {
+  const mock = import.meta.env.DEV && !("__TAURI_INTERNALS__" in window);
+  if (mock) {
     (await import("./devMock")).installMock();
   }
   ReactDOM.createRoot(document.getElementById("root") as HTMLElement).render(
@@ -12,6 +13,12 @@ async function boot() {
       <App />
     </React.StrictMode>,
   );
+  return mock;
 }
 
-void boot();
+void boot().then(async (mock) => {
+  // dev preview only: `#dark&cal=week&thread=t15` puts the mock app into a state (handy for screenshots)
+  if (mock && window.location.hash.length > 1) {
+    (await import("./devMock")).applyDemoHash();
+  }
+});

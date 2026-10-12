@@ -1,7 +1,8 @@
 import {
-  AlertTriangle, Archive, CalendarClock, ChevronDown, ChevronRight, Clock, FileText, Flag, Folder, Inbox, MailOpen, OctagonAlert, Pin, Send, Star, Trash2,
+  AlertTriangle, Archive, CalendarClock, CalendarDays, ChevronDown, ChevronRight, Clock, FileText, Flag, Folder, Inbox, MailOpen, OctagonAlert, Pin, Send, Star, Trash2,
 } from "lucide-react";
 import { ReactNode } from "react";
+import { CalSidebar } from "./Calendar";
 import { FolderInfo } from "../api";
 import { folderDepth, folderLabel } from "../prefs";
 import { useStore } from "../store";
@@ -23,7 +24,7 @@ const ICONS: Record<string, ReactNode> = {
 const VIRTUAL_VIEWS = ["unread", "starred", "pinned", "snoozed", "scheduled"];
 
 export function FolderPane() {
-  const { accounts, folders, folder, accountId, setView, prefs, setPrefs, syncErrors, sync, outbox } = useStore();
+  const { accounts, folders, folder, accountId, setView, prefs, setPrefs, syncErrors, sync, outbox, module, setModule } = useStore();
 
   const isFav = (acct: string | null, key: string) => prefs.favorites.includes(`${acct ?? "*"}|${key}`);
   const toggleFav = (acct: string | null, key: string) => {
@@ -109,7 +110,11 @@ export function FolderPane() {
   );
 
   return (
-    <aside className="folder-pane" aria-label="Folders" role="tree">
+    <aside className="folder-pane" aria-label={module === "calendar" ? "Calendars" : "Folders"}>
+      {module === "calendar" ? (
+        <CalSidebar />
+      ) : (
+      <div className="fp-tree" role="tree" aria-label="Folders">
       <div className="fp-group">
         {head("fav", "Favorites")}
         {!collapsed("fav") && favs.map((f) => row(f.acct, f.key, labelFor(f.acct, f.key)))}
@@ -157,6 +162,16 @@ export function FolderPane() {
           </div>
         );
       })}
+      </div>
+      )}
+      <nav className="fp-modules" aria-label="Switch between Mail and Calendar">
+        <button aria-current={module === "mail" ? "page" : undefined} title="Mail (Ctrl+1)" onClick={() => setModule("mail")}>
+          <Inbox size={15} aria-hidden /> Mail
+        </button>
+        <button aria-current={module === "calendar" ? "page" : undefined} title="Calendar (Ctrl+2)" onClick={() => setModule("calendar")}>
+          <CalendarDays size={15} aria-hidden /> Calendar
+        </button>
+      </nav>
     </aside>
   );
 }
