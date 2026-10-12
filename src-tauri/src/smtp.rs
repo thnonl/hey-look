@@ -47,13 +47,20 @@ pub struct Draft {
     pub attachments: Vec<Att>,
     #[serde(default)]
     pub inline: Vec<InlineImage>,
+    /// Encrypt / sign / attach the public key (PGP/MIME). `None` = plain message.
+    #[serde(default)]
+    pub security: Option<crate::pgpstore::Security>,
+    /// Finished message (base64 of the raw MIME) made at schedule time for encrypted/signed sends. When set, it
+    /// is sent as is and the other content fields are not used (encrypted ones are emptied).
+    #[serde(default)]
+    pub prebuilt: Option<String>,
 }
 
 fn mailbox(s: &str) -> R<Mailbox> {
     s.trim().parse::<Mailbox>().map_err(|e| format!("bad address '{s}': {e}"))
 }
 
-pub fn build(acc: &Account, d: &Draft) -> R<Message> {
+fn headers(acc: &Account, d: &Draft) -> R<lettre::message::MessageBuilder> {
     let from = Mailbox::new(
         Some(acc.display_name.clone()).filter(|n| !n.is_empty()),
         acc.email.parse::<Address>().map_err(err)?,
@@ -74,7 +81,11 @@ pub fn build(acc: &Account, d: &Draft) -> R<Message> {
     if !d.references.is_empty() {
         b = b.references(d.references.join(" "));
     }
-    // text/plain + text/html (+ related pictures), then the real attachments
+    Ok(b)
+}
+
+/// The content: text/plain + text/html (+ related pictures), then the real attachments.
+fn body(d: &Draft) -> R<MultiPart> {
     let html = SinglePart::html(d.html.clone());
     let alt = if d.inline.is_empty() {
         MultiPart::alternative().singlepart(SinglePart::plain(d.text.clone())).singlepart(html)
@@ -87,21 +98,58 @@ pub fn build(acc: &Account, d: &Draft) -> R<Message> {
         }
         MultiPart::alternative().singlepart(SinglePart::plain(d.text.clone())).multipart(related)
     };
-    let msg = if d.attachments.is_empty() {
-        b.multipart(alt)
-    } else {
-        let mut mixed = MultiPart::mixed().multipart(alt);
-        for a in &d.attachments {
-            let bytes = base64::engine::general_purpose::STANDARD
-                .decode(&a.data_base64)
-                .map_err(err)?;
-            let ct = ContentType::parse(&a.mime)
-                .unwrap_or_else(|_| ContentType::parse("application/octet-stream").unwrap());
-            mixed = mixed.singlepart(Attachment::new(a.filename.clone()).body(bytes, ct));
-        }
-        b.multipart(mixed)
-    };
-    msg.map_err(err)
+    if d.attachments.is_empty() {
+        return Ok(alt);
+    }
+    let mut mixed = MultiPart::mixed().multipart(alt);
+    for a in &d.attachments {
+        let bytes = base64::engine::general_purpose::STANDARD.decode(&a.data_base64).map_err(err)?;
+        let ct = ContentType::parse(&a.mime).unwrap_or_else(|_| ContentType::parse("application/octet-stream").unwrap());
+        mixed = mixed.singlepart(Attachment::new(a.filename.clone()).body(bytes, ct));
+    }
+    Ok(mixed)
+}
+
+pub fn build(acc: &Account, d: &Draft) -> R<Message> {
+    headers(acc, d)?.multipart(body(d)?).map_err(err)
+}
+
+/// multipart/signed (RFC 3156): the signature covers the content entity exactly as it is written, without the
+/// line break that belongs to the next boundary line.
+pub fn build_signed(acc: &Account, d: &Draft, sign: &dyn Fn(&[u8]) -> R<(String, String)>) -> R<Message> {
+    let inner = body(d)?;
+    let mut bytes = inner.formatted();
+    if bytes.ends_with(b"\r\n") {
+        bytes.truncate(bytes.len() - 2);
+    }
+    let (armored, micalg) = sign(&bytes)?;
+    let sig = SinglePart::builder()
+        .header(ContentType::parse("application/pgp-signature; name=\"signature.asc\"").map_err(err)?)
+        .body(armored);
+    let outer = MultiPart::signed("application/pgp-signature".to_string(), micalg).multipart(inner).singlepart(sig);
+    headers(acc, d)?.multipart(outer).map_err(err)
+}
+
+/// multipart/encrypted (RFC 3156): a control part and the armored OpenPGP message.
+pub fn build_encrypted(acc: &Account, d: &Draft, encrypt: &dyn Fn(&[u8]) -> R<String>) -> R<Message> {
+    let armored = encrypt(&body(d)?.formatted())?;
+    let control = SinglePart::builder().header(ContentType::parse("application/pgp-encrypted").map_err(err)?).body(String::from("Version: 1"));
+    let data = SinglePart::builder()
+        .header(ContentType::parse("application/octet-stream; name=\"encrypted.asc\"").map_err(err)?)
+        .header(lettre::message::header::ContentDisposition::inline_with_name("encrypted.asc"))
+        .body(armored);
+    let outer = MultiPart::encrypted("application/pgp-encrypted".to_string()).singlepart(control).singlepart(data);
+    headers(acc, d)?.multipart(outer).map_err(err)
+}
+
+/// Addresses of every recipient (To, Cc, Bcc) of a draft, for sending a prebuilt message.
+pub fn envelope(acc: &Account, d: &Draft) -> R<lettre::address::Envelope> {
+    let from: Address = acc.email.parse().map_err(err)?;
+    let mut to: Vec<Address> = vec![];
+    for r in d.to.iter().chain(d.cc.iter()).chain(d.bcc.iter()) {
+        to.push(mailbox(r)?.email);
+    }
+    lettre::address::Envelope::new(Some(from), to).map_err(err)
 }
 
 /// SMTP login name: the account email for OAuth, else the separate SMTP user, else the IMAP user.
@@ -134,8 +182,9 @@ fn transport(acc: &Account, secret: &str) -> R<SmtpTransport> {
     Ok((if acc.auth.starts_with("oauth_") { b.authentication(vec![Mechanism::Xoauth2]) } else { b }).build())
 }
 
-pub fn send(acc: &Account, secret: &str, msg: &Message) -> R<()> {
-    transport(acc, secret)?.send(msg).map_err(|e| format!("SMTP send failed: {e}"))?;
+/// Send an already finished message (encrypted/signed ones are built once, at schedule time).
+pub fn send_raw(acc: &Account, secret: &str, env: &lettre::address::Envelope, raw: &[u8]) -> R<()> {
+    transport(acc, secret)?.send_raw(env, raw).map_err(|e| format!("SMTP send failed: {e}"))?;
     Ok(())
 }
 
@@ -189,6 +238,8 @@ mod tests {
             references: vec![],
             attachments,
             inline,
+            security: None,
+            prebuilt: None,
         }
     }
 

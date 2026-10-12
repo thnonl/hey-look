@@ -4,6 +4,9 @@ mod db;
 mod discover;
 mod mail;
 mod oauth;
+mod openpgp;
+mod pgpmail;
+mod pgpstore;
 use oauth::Provider;
 mod schedule;
 mod shell;
@@ -417,8 +420,8 @@ fn insert_parsed(c: &Connection, acc: &Account, role: &str, p: &mail::Parsed) ->
     let thread_id = fnv(&format!("{}|{}", acc.id, root));
     c.execute(
         "INSERT OR REPLACE INTO messages(id,account_id,folder,uid,message_id,thread_id,subject,from_name,from_email,
-           to_addrs,cc_addrs,date,snippet,body_html,body_text,seen,flagged,has_attach,attachments,list_unsub,list_unsub_post)
-         VALUES(?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,?13,?14,?15,?16,?17,?18,?19,?20,?21)",
+           to_addrs,cc_addrs,date,snippet,body_html,body_text,seen,flagged,has_attach,attachments,list_unsub,list_unsub_post,pgp,pgp_raw)
+         VALUES(?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,?13,?14,?15,?16,?17,?18,?19,?20,?21,?22,?23)",
         params![
             format!("{}:{}:{}", acc.id, role, p.uid),
             acc.id,
@@ -441,7 +444,9 @@ fn insert_parsed(c: &Connection, acc: &Account, role: &str, p: &mail::Parsed) ->
             p.attachments.iter().any(|a| !(a.inline && a.referenced)) as i64,
             serde_json::to_string(&p.attachments).unwrap_or_else(|_| "[]".into()),
             p.list_unsub,
-            p.list_unsub_post as i64
+            p.list_unsub_post as i64,
+            p.pgp as i64,
+            p.pgp_raw
         ],
     )
     .map_err(err)?;
@@ -805,7 +810,7 @@ struct AttData {
 async fn attachment_data(state: tauri::State<'_, AppState>, message_id: String, index: usize) -> R<AttData> {
     let db = state.db.clone();
     blocking(move || {
-        let (raw, att_json) = fetch_raw_for(&db, &message_id)?;
+        let (raw, att_json) = fetch_view_for(&db, &message_id)?;
         let metas: Vec<mail::AttMeta> = serde_json::from_str(&att_json).unwrap_or_default();
         let (name, bytes) = mail::attachment_bytes(&raw, index)?;
         let mime = metas.iter().find(|m| m.index == index).map(|m| m.mime.clone()).unwrap_or_else(|| "application/octet-stream".into());
@@ -1031,6 +1036,8 @@ struct ThreadSummary {
     snoozed_until: Option<i64>,
     has_attach: bool,
     bulk: bool,
+    encrypted: bool,
+    signed: bool,
 }
 
 #[tauri::command]
@@ -1153,7 +1160,7 @@ fn list_threads(state: tauri::State<AppState>, filter: ThreadFilter) -> R<Vec<Th
     }
     let sql = format!(
         "SELECT m.thread_id,m.id,m.account_id,m.folder,m.subject,m.from_name,m.from_email,m.snippet,m.date,m.seen,m.flagged,m.has_attach,
-                COALESCE(tm.pinned,0), tm.snoozed_until, m.list_unsub IS NOT NULL
+                COALESCE(tm.pinned,0), tm.snoozed_until, m.list_unsub IS NOT NULL, m.pgp
          FROM messages m LEFT JOIN thread_meta tm ON tm.thread_id=m.thread_id
          WHERE {} ORDER BY m.date {} LIMIT 4000",
         w.join(" AND "),
@@ -1178,13 +1185,14 @@ fn list_threads(state: tauri::State<AppState>, filter: ThreadFilter) -> R<Vec<Th
                 r.get::<_, i64>(12)? != 0,
                 r.get::<_, Option<i64>>(13)?,
                 r.get::<_, i64>(14)? != 0,
+                r.get::<_, i64>(15)?,
             ))
         })
         .map_err(err)?;
     let mut order: Vec<String> = vec![];
     let mut map: HashMap<String, ThreadSummary> = HashMap::new();
     for row in rows {
-        let (tid, mid, acct, folder, subject, fname, femail, snippet, date, seen, flagged, att, pinned, snooze, bulk) =
+        let (tid, mid, acct, folder, subject, fname, femail, snippet, date, seen, flagged, att, pinned, snooze, bulk, pgp) =
             row.map_err(err)?;
         let who = if fname.is_empty() { femail } else { fname };
         let key = if filter.flat { mid } else { tid.clone() };
@@ -1206,6 +1214,8 @@ fn list_threads(state: tauri::State<AppState>, filter: ThreadFilter) -> R<Vec<Th
                 snoozed_until: snooze,
                 has_attach: false,
                 bulk: false,
+                encrypted: false,
+                signed: false,
             }
         });
         e.count += 1;
@@ -1215,6 +1225,8 @@ fn list_threads(state: tauri::State<AppState>, filter: ThreadFilter) -> R<Vec<Th
         e.flagged |= flagged;
         e.has_attach |= att;
         e.bulk |= bulk;
+        e.encrypted |= pgp & 1 != 0;
+        e.signed |= pgp & 2 != 0;
         if e.participants.len() < 3 && !e.participants.contains(&who) {
             e.participants.push(who);
         }
@@ -1232,7 +1244,7 @@ fn list_threads(state: tauri::State<AppState>, filter: ThreadFilter) -> R<Vec<Th
 
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
-struct MessageFull {
+pub(crate) struct MessageFull {
     id: String,
     account_id: String,
     folder: String,
@@ -1249,44 +1261,103 @@ struct MessageFull {
     flagged: bool,
     attachments: Vec<mail::AttMeta>,
     can_unsubscribe: bool,
+    /// PGP state (encryption, signature); `None` for ordinary mail
+    security: Option<pgpmail::Security>,
+}
+
+const MESSAGE_COLS: &str = "id,account_id,folder,message_id,subject,from_name,from_email,to_addrs,cc_addrs,date,body_html,body_text,
+                    seen,flagged,attachments,list_unsub,pgp,pgp_raw";
+
+fn row_message(r: &rusqlite::Row) -> rusqlite::Result<(MessageFull, i64, Option<Vec<u8>>)> {
+    let att: String = r.get(14)?;
+    Ok((
+        MessageFull {
+            id: r.get(0)?,
+            account_id: r.get(1)?,
+            folder: r.get(2)?,
+            message_id: r.get(3)?,
+            subject: r.get(4)?,
+            from_name: r.get(5)?,
+            from_email: r.get(6)?,
+            to: r.get(7)?,
+            cc: r.get(8)?,
+            date: r.get(9)?,
+            html: r.get(10)?,
+            text: r.get(11)?,
+            seen: r.get::<_, i64>(12)? != 0,
+            flagged: r.get::<_, i64>(13)? != 0,
+            attachments: serde_json::from_str(&att).unwrap_or_default(),
+            can_unsubscribe: r.get::<_, Option<String>>(15)?.is_some(),
+            security: None,
+        },
+        r.get(16)?,
+        r.get(17)?,
+    ))
+}
+
+/// Decrypt / verify a PGP message for display. The decrypted content only lives in the returned value (and the
+/// in-memory session cache); it is never written to the database.
+fn apply_pgp(c: &Connection, m: &mut MessageFull, pgp: i64, raw: Option<Vec<u8>>) {
+    if pgp == 0 {
+        return;
+    }
+    let encrypted = pgp & pgpmail::FLAG_ENCRYPTED as i64 != 0;
+    let Some(raw) = raw else {
+        if encrypted {
+            m.security = Some(pgpmail::Security {
+                encrypted: true,
+                decryption: "error".into(),
+                error: Some("the message data is not on this computer".into()),
+                ..Default::default()
+            });
+        }
+        return;
+    };
+    match pgpstore::open_message(c, &m.id, &raw) {
+        Ok(o) => {
+            m.security = Some(o.security.clone());
+            if let Some(plain) = &o.plain {
+                if let Some(p) = mail::parse(0, plain, true, false, 0) {
+                    m.html = p.html;
+                    m.text = p.text;
+                    m.attachments = p.attachments;
+                }
+            }
+        }
+        Err(e) => {
+            m.security = Some(pgpmail::Security { encrypted, decryption: "error".into(), error: Some(e), ..Default::default() });
+        }
+    }
+}
+
+pub(crate) fn message_full(c: &Connection, message_id: &str) -> R<MessageFull> {
+    let (mut m, pgp, raw) = c
+        .query_row(&format!("SELECT {MESSAGE_COLS} FROM messages WHERE id=?1"), [message_id], row_message)
+        .map_err(|_| "message not found".to_string())?;
+    apply_pgp(c, &mut m, pgp, raw);
+    Ok(m)
 }
 
 #[tauri::command]
 fn get_thread(state: tauri::State<AppState>, thread_id: String, scope: Option<String>) -> R<Vec<MessageFull>> {
     let c = lock(&state.db);
     let mut st = c
-        .prepare(
-            "SELECT id,account_id,folder,message_id,subject,from_name,from_email,to_addrs,cc_addrs,date,body_html,body_text,
-                    seen,flagged,attachments,list_unsub
-             FROM messages WHERE thread_id=?1 AND (folder NOT IN ('trash','junk') OR folder=?2) ORDER BY date ASC",
-        )
+        .prepare(&format!(
+            "SELECT {MESSAGE_COLS} FROM messages WHERE thread_id=?1 AND (folder NOT IN ('trash','junk') OR folder=?2) ORDER BY date ASC"
+        ))
         .map_err(err)?;
     let rows = st
-        .query_map(params![thread_id, scope.unwrap_or_default()], |r| {
-            let att: String = r.get(14)?;
-            Ok(MessageFull {
-                id: r.get(0)?,
-                account_id: r.get(1)?,
-                folder: r.get(2)?,
-                message_id: r.get(3)?,
-                subject: r.get(4)?,
-                from_name: r.get(5)?,
-                from_email: r.get(6)?,
-                to: r.get(7)?,
-                cc: r.get(8)?,
-                date: r.get(9)?,
-                html: r.get(10)?,
-                text: r.get(11)?,
-                seen: r.get::<_, i64>(12)? != 0,
-                flagged: r.get::<_, i64>(13)? != 0,
-                attachments: serde_json::from_str(&att).unwrap_or_default(),
-                can_unsubscribe: r.get::<_, Option<String>>(15)?.is_some(),
-            })
-        })
+        .query_map(params![thread_id, scope.unwrap_or_default()], row_message)
         .map_err(err)?
         .collect::<Result<Vec<_>, _>>()
         .map_err(err)?;
-    Ok(rows)
+    Ok(rows
+        .into_iter()
+        .map(|(mut m, pgp, raw)| {
+            apply_pgp(&c, &mut m, pgp, raw);
+            m
+        })
+        .collect())
 }
 
 // ---------- thread actions ----------
@@ -1598,14 +1669,18 @@ fn delete_rule(state: tauri::State<AppState>, id: String) -> R<()> {
 
 // ---------- raw message / attachments ----------
 
+/// The message exactly as stored on the server (for PGP mail: the encrypted form), plus its attachment list.
 fn fetch_raw_for(db: &Db, message_id: &str) -> R<(Vec<u8>, String)> {
-    let (acct, role, uid, att): (String, String, u32, String) = lock(db)
+    let (acct, role, uid, att, kept): (String, String, u32, String, Option<Vec<u8>>) = lock(db)
         .query_row(
-            "SELECT account_id,folder,uid,attachments FROM messages WHERE id=?1",
+            "SELECT account_id,folder,uid,attachments,pgp_raw FROM messages WHERE id=?1",
             [message_id],
-            |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?)),
+            |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?, r.get(4)?)),
         )
         .map_err(err)?;
+    if let Some(raw) = kept {
+        return Ok((raw, att));
+    }
     let acc = db::get_account(&lock(db), &acct)?;
     let sec = secret(db, &acc)?;
     let name = fmap(db, &acct).get(&role).cloned().ok_or("folder unknown")?;
@@ -1613,6 +1688,27 @@ fn fetch_raw_for(db: &Db, message_id: &str) -> R<(Vec<u8>, String)> {
     let raw = mail::fetch_raw(&mut s, &name, uid)?;
     let _ = s.logout();
     Ok((raw, att))
+}
+
+/// The message as it is read: encrypted PGP mail is decrypted (in memory), so attachment indexes and the
+/// attachment list match what get_thread shows. Fails with `PGP_LOCKED:<fingerprint>` while the key is locked.
+pub(crate) fn fetch_view_for(db: &Db, message_id: &str) -> R<(Vec<u8>, String)> {
+    let (raw, att) = fetch_raw_for(db, message_id)?;
+    let pgp: i64 = lock(db).query_row("SELECT pgp FROM messages WHERE id=?1", [message_id], |r| r.get(0)).unwrap_or(0);
+    if pgp & pgpmail::FLAG_ENCRYPTED as i64 == 0 {
+        return Ok((raw, att));
+    }
+    let opened = pgpstore::open_message(&lock(db), message_id, &raw)?;
+    match &opened.plain {
+        Some(plain) => {
+            let metas = mail::parse(0, plain, true, false, 0).map(|p| p.attachments).unwrap_or_default();
+            Ok((plain.clone(), serde_json::to_string(&metas).unwrap_or_else(|_| "[]".into())))
+        }
+        None => match &opened.security.locked_key {
+            Some(f) => Err(format!("PGP_LOCKED:{f}")),
+            None => Err(format!("PGP_FAILED: {}", opened.security.error.clone().unwrap_or_else(|| "this message can't be decrypted".into()))),
+        },
+    }
 }
 
 #[tauri::command]
@@ -1652,7 +1748,7 @@ async fn save_attachments(
     let db = state.db.clone();
     blocking(move || {
         let dir = download_folder(&app, &db)?;
-        let (raw, att_json) = fetch_raw_for(&db, &message_id)?;
+        let (raw, att_json) = fetch_view_for(&db, &message_id)?;
         let metas: Vec<mail::AttMeta> = serde_json::from_str(&att_json).unwrap_or_default();
         let wanted: Vec<usize> = match index {
             Some(i) => vec![i],
@@ -1674,7 +1770,7 @@ async fn attachment_save_as(app: tauri::AppHandle, state: tauri::State<'_, AppSt
     let db = state.db.clone();
     blocking(move || {
         let dir = download_folder(&app, &db)?;
-        let (raw, _) = fetch_raw_for(&db, &message_id)?;
+        let (raw, _) = fetch_view_for(&db, &message_id)?;
         let (name, bytes) = mail::attachment_bytes(&raw, index)?;
         let Some(picked) = app.dialog().file().set_file_name(attach::clean_name(&name)).set_directory(&dir).blocking_save_file() else {
             return Ok(None);
@@ -1714,7 +1810,7 @@ async fn attachment_save_all(
 ) -> R<Option<SaveAllResult>> {
     let db = state.db.clone();
     blocking(move || {
-        let (raw, att_json) = fetch_raw_for(&db, &message_id)?;
+        let (raw, att_json) = fetch_view_for(&db, &message_id)?;
         let metas: Vec<mail::AttMeta> = serde_json::from_str(&att_json).unwrap_or_default();
         let dir = if ask {
             let Some(p) = app.dialog().file().set_title("Save attachments to").blocking_pick_folder() else {
@@ -1747,7 +1843,7 @@ async fn attachment_save_all(
 async fn attachment_open(app: tauri::AppHandle, state: tauri::State<'_, AppState>, message_id: String, index: usize, confirmed: bool) -> R<String> {
     let db = state.db.clone();
     blocking(move || {
-        let (raw, _) = fetch_raw_for(&db, &message_id)?;
+        let (raw, _) = fetch_view_for(&db, &message_id)?;
         let (name, bytes) = mail::attachment_bytes(&raw, index)?;
         let warn = setting(&db, "warn_executables").map(|v| v != "0").unwrap_or(true);
         if warn && !confirmed && attach::is_risky(&name) {
@@ -1804,7 +1900,7 @@ struct InlineData {
 async fn inline_image(state: tauri::State<'_, AppState>, message_id: String, cid: String) -> R<InlineData> {
     let db = state.db.clone();
     blocking(move || {
-        let (raw, _) = fetch_raw_for(&db, &message_id)?;
+        let (raw, _) = fetch_view_for(&db, &message_id)?;
         let (mime, bytes, name) = mail::inline_part(&raw, &cid)?;
         Ok(InlineData { mime, data_base64: base64::engine::general_purpose::STANDARD.encode(bytes), name })
     })
@@ -1816,19 +1912,43 @@ async fn inline_image(state: tauri::State<'_, AppState>, message_id: String, cid
 fn send_now(db: &Db, d: &smtp::Draft) -> R<()> {
     let acc = db::get_account(&lock(db), &d.account_id)?;
     let sec = secret(db, &acc)?;
-    let msg = smtp::build(&acc, d)?;
-    smtp::send(&acc, &smtp_secret(db, &acc)?, &msg)?;
+    let (raw, env) = finished_message(db, &acc, d)?;
+    smtp::send_raw(&acc, &smtp_secret(db, &acc)?, &env, &raw)?;
     let h = acc.smtp_host.to_lowercase();
     let auto_saves = h.contains("gmail") || h.contains("googlemail") || h.contains("office365") || h.contains("outlook");
     if !auto_saves {
         if let Some(sent) = fmap(db, &acc.id).get("sent").cloned() {
             if let Ok(mut s) = mail::connect(&acc, &sec) {
-                let _ = mail::append(&mut s, &sent, &msg.formatted(), false);
+                let _ = mail::append(&mut s, &sent, &raw, false);
                 let _ = s.logout();
             }
         }
     }
     Ok(())
+}
+
+/// The bytes to send and their envelope. Encrypted or signed messages (PGP/MIME) are built here, or were built
+/// when they were scheduled (`prebuilt`), so they are never sent in the clear by accident.
+fn finished_message(db: &Db, acc: &Account, d: &smtp::Draft) -> R<(Vec<u8>, lettre::address::Envelope)> {
+    if let Some(pre) = &d.prebuilt {
+        let raw = base64::engine::general_purpose::STANDARD.decode(pre).map_err(err)?;
+        return Ok((raw, smtp::envelope(acc, d)?));
+    }
+    let sec = d.security.clone().unwrap_or_default();
+    let msg = if sec.encrypt || sec.sign { pgpstore::build_secure(&lock(db), acc, d, false)? } else { smtp::build(acc, d)? };
+    Ok((msg.formatted(), msg.envelope().clone()))
+}
+
+/// What goes into the Drafts folder: encrypted to the account's own key when the draft is encrypted.
+fn draft_bytes(db: &Db, acc: &Account, d: &smtp::Draft) -> R<Vec<u8>> {
+    let sec = d.security.clone().unwrap_or_default();
+    if sec.encrypt {
+        if let Some(pre) = &d.prebuilt {
+            return base64::engine::general_purpose::STANDARD.decode(pre).map_err(err);
+        }
+        return Ok(pgpstore::build_secure(&lock(db), acc, d, true)?.formatted());
+    }
+    Ok(smtp::build_draft(acc, d)?.formatted())
 }
 
 /// Queue a finished message (MIME is built at send time from the stored draft) for `send_at`.
@@ -1867,6 +1987,9 @@ async fn send_message(
     if schedule::should_queue(send_at, t) {
         let at = send_at.unwrap_or(t);
         let id = blocking(move || {
+            // encrypt / sign now (decision: the key is only needed at schedule time) and keep just the result
+            let acc = db::get_account(&lock(&db), &draft.account_id)?;
+            let draft = pgpstore::seal_for_outbox(&lock(&db), &acc, &draft)?;
             let id = insert_outbox(&db, &draft, at)?;
             drop_replaced_draft(&db, replaces);
             Ok(id)
@@ -1892,9 +2015,9 @@ async fn save_draft(state: tauri::State<'_, AppState>, draft: smtp::Draft, repla
         let sec = secret(&db, &acc)?;
         let map = fmap(&db, &acc.id);
         let folder = map.get("drafts").cloned().ok_or("this account has no Drafts folder")?;
-        let msg = smtp::build_draft(&acc, &draft)?;
+        let raw = draft_bytes(&db, &acc, &draft)?;
         let mut s = mail::connect(&acc, &sec)?;
-        mail::append(&mut s, &folder, &msg.formatted(), true)?;
+        mail::append(&mut s, &folder, &raw, true)?;
         let _ = s.logout();
         if let Some(t) = replaces {
             let _ = action_impl(&db, vec![t], "delete_forever".into(), None, Some("drafts".into()));
@@ -2040,11 +2163,15 @@ fn outbox_open_for_edit(state: tauri::State<AppState>, id: String) -> R<OutboxEd
     if status == "sending" {
         return Err("This message is being sent right now.".into());
     }
+    // an encrypted message is read back with the account's key (PGP_LOCKED:<fpr> while it is locked)
+    let stored: smtp::Draft = serde_json::from_str(&payload).map_err(err)?;
+    let acc = db::get_account(&c, &stored.account_id)?;
+    let draft = pgpstore::unseal_from_outbox(&c, &acc, &stored)?;
     if status == "pending" || status == "overdue" {
         c.execute("UPDATE outbox SET status='held' WHERE id=?1", [&id]).map_err(err)?;
     }
     let shown = if status == "pending" || status == "overdue" { "held".to_string() } else { status };
-    Ok(OutboxEdit { draft: serde_json::from_str(&payload).map_err(err)?, send_at, status: shown })
+    Ok(OutboxEdit { draft, send_at, status: shown })
 }
 
 /// Leave Compose without saving: a paused message goes back to the queue (or to Overdue when its time passed).
@@ -2063,6 +2190,11 @@ fn outbox_release(state: tauri::State<AppState>, id: String) -> R<()> {
 #[tauri::command]
 fn outbox_update(app: tauri::AppHandle, state: tauri::State<AppState>, id: String, draft: smtp::Draft, send_at: i64) -> R<()> {
     schedule::validate_send_at(send_at, now())?;
+    let draft = {
+        let c = lock(&state.db);
+        let acc = db::get_account(&c, &draft.account_id)?;
+        pgpstore::seal_for_outbox(&c, &acc, &draft)?
+    };
     let payload = serde_json::to_string(&draft).map_err(err)?;
     let n = lock(&state.db)
         .execute(
@@ -2117,9 +2249,9 @@ async fn outbox_to_draft(app: tauri::AppHandle, state: tauri::State<'_, AppState
         let acc = db::get_account(&lock(&db), &d.account_id)?;
         let sec = secret(&db, &acc)?;
         let folder = fmap(&db, &acc.id).get("drafts").cloned().ok_or("this account has no Drafts folder")?;
-        let msg = smtp::build_draft(&acc, &d)?;
+        let raw = draft_bytes(&db, &acc, &d)?;
         let mut s = mail::connect(&acc, &sec)?;
-        mail::append(&mut s, &folder, &msg.formatted(), true)?;
+        mail::append(&mut s, &folder, &raw, true)?;
         let _ = s.logout();
         lock(&db).execute("DELETE FROM outbox WHERE id=?1", [&id]).map_err(err)?;
         Ok(())
@@ -2615,6 +2747,24 @@ pub fn run() {
             outbox_reschedule,
             outbox_retry,
             outbox_to_draft,
+            pgpstore::pgp_list_keys,
+            pgpstore::pgp_generate_key,
+            pgpstore::pgp_inspect_key,
+            pgpstore::pgp_import_key,
+            pgpstore::pgp_import_from_message,
+            pgpstore::pgp_pick_key_file,
+            pgpstore::pgp_public_armored,
+            pgpstore::pgp_export_public,
+            pgpstore::pgp_export_secret,
+            pgpstore::pgp_delete_key,
+            pgpstore::pgp_set_verified,
+            pgpstore::pgp_set_default,
+            pgpstore::pgp_change_passphrase,
+            pgpstore::pgp_set_expiry,
+            pgpstore::pgp_unlock,
+            pgpstore::pgp_lock_all,
+            pgpstore::pgp_recipient_status,
+            pgpstore::pgp_decrypt_message,
             outbox_send_now,
             quit_now,
             list_templates,

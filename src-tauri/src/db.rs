@@ -10,6 +10,12 @@ pub fn err<E: std::fmt::Display>(e: E) -> String {
 
 pub fn open(path: &Path) -> R<Connection> {
     let conn = Connection::open(path).map_err(err)?;
+    migrate(&conn)?;
+    Ok(conn)
+}
+
+/// Create missing tables and columns (safe to run on every start).
+pub fn migrate(conn: &Connection) -> R<()> {
     conn.execute_batch(
         "PRAGMA journal_mode=WAL;
          PRAGMA foreign_keys=ON;
@@ -52,7 +58,14 @@ pub fn open(path: &Path) -> R<Connection> {
          CREATE TABLE IF NOT EXISTS rules(
            id TEXT PRIMARY KEY, name TEXT NOT NULL, field TEXT NOT NULL, op TEXT NOT NULL,
            value TEXT NOT NULL, action TEXT NOT NULL, arg TEXT, enabled INTEGER NOT NULL DEFAULT 1
-         );",
+         );
+         CREATE TABLE IF NOT EXISTS pgp_keys(
+           fingerprint TEXT PRIMARY KEY, key_id TEXT NOT NULL, user_ids TEXT NOT NULL, emails TEXT NOT NULL,
+           algo TEXT NOT NULL, created INTEGER NOT NULL, expires INTEGER, revoked INTEGER NOT NULL DEFAULT 0,
+           public_armored TEXT NOT NULL, secret_armored TEXT, verified INTEGER NOT NULL DEFAULT 0,
+           source TEXT NOT NULL DEFAULT 'paste', added_at INTEGER NOT NULL
+         );
+         CREATE TABLE IF NOT EXISTS pgp_default(account_id TEXT PRIMARY KEY, fingerprint TEXT NOT NULL);",
     )
     .map_err(err)?;
     // migrations: ignore "duplicate column" errors on already-migrated DBs
@@ -64,11 +77,14 @@ pub fn open(path: &Path) -> R<Connection> {
     // scheduled sends: when it was queued and how many delivery attempts failed so far
     let _ = conn.execute("ALTER TABLE outbox ADD COLUMN created_at INTEGER NOT NULL DEFAULT 0", []);
     let _ = conn.execute("ALTER TABLE outbox ADD COLUMN attempts INTEGER NOT NULL DEFAULT 0", []);
+    // PGP: 1 = encrypted, 2 = signed; the raw message is kept for those (ciphertext only, never decrypted text)
+    let _ = conn.execute("ALTER TABLE messages ADD COLUMN pgp INTEGER NOT NULL DEFAULT 0", []);
+    let _ = conn.execute("ALTER TABLE messages ADD COLUMN pgp_raw BLOB", []);
     // signatures / templates / filter rules can apply to one account (NULL = every account)
     for t in ["rules", "signatures", "templates"] {
         let _ = conn.execute(&format!("ALTER TABLE {t} ADD COLUMN account_id TEXT"), []);
     }
-    Ok(conn)
+    Ok(())
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug)]
@@ -175,6 +191,7 @@ pub fn insert_account(c: &Connection, a: &Account) -> R<()> {
 pub fn remove_account(c: &Connection, id: &str) -> R<()> {
     c.execute("DELETE FROM messages WHERE account_id=?1", [id]).map_err(err)?;
     c.execute("DELETE FROM outbox WHERE account_id=?1", [id]).map_err(err)?;
+    c.execute("DELETE FROM pgp_default WHERE account_id=?1", [id]).map_err(err)?;
     c.execute("DELETE FROM accounts WHERE id=?1", [id]).map_err(err)?;
     Ok(())
 }

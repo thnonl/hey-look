@@ -159,6 +159,10 @@ pub struct Parsed {
     pub attachments: Vec<AttMeta>,
     pub list_unsub: Option<String>,
     pub list_unsub_post: bool,
+    /// pgpmail::FLAG_ENCRYPTED | FLAG_SIGNED
+    pub pgp: u8,
+    /// the raw message, kept only for PGP messages (decrypted at view time, never stored decrypted)
+    pub pgp_raw: Option<Vec<u8>>,
 }
 
 pub struct FolderFetch {
@@ -210,7 +214,7 @@ pub fn parse(uid: u32, raw: &[u8], seen: bool, flagged: bool, fallback_date: i64
         })
         .unwrap_or_default();
     let mut html = m.body_html(0).map(|s| s.to_string());
-    let text = m.body_text(0).map(|s| s.to_string());
+    let mut text = m.body_text(0).map(|s| s.to_string());
 
     // Every part is kept (never silently dropped). Referenced inline pictures up to INLINE_SYNC_MAX are embedded
     // as data: URIs; the rest keep their cid: reference and are loaded on demand.
@@ -231,8 +235,20 @@ pub fn parse(uid: u32, raw: &[u8], seen: bool, flagged: bool, fallback_date: i64
         attachments.push(AttMeta { index: i, name, mime, size, inline: cid.is_some(), cid, referenced });
     }
 
+    // PGP: encrypted mail keeps no readable body in the database; signed mail drops its signature part
+    let (pgp, keep) = crate::pgpmail::flags_for(raw, text.as_deref());
+    let mut snippet_override = None;
+    if pgp & crate::pgpmail::FLAG_ENCRYPTED != 0 {
+        html = None;
+        text = None;
+        attachments.clear();
+        snippet_override = Some("Encrypted message".to_string());
+    } else if pgp & crate::pgpmail::FLAG_SIGNED != 0 {
+        attachments.retain(|a| a.mime != "application/pgp-signature");
+    }
+
     let basis = text.clone().unwrap_or_else(|| html.as_deref().map(strip_html).unwrap_or_default());
-    let snippet: String = basis.split_whitespace().collect::<Vec<_>>().join(" ").chars().take(200).collect();
+    let snippet: String = snippet_override.unwrap_or_else(|| basis.split_whitespace().collect::<Vec<_>>().join(" ").chars().take(200).collect());
     let mut refs = m.header_raw("References").map(ids_in).unwrap_or_default();
     if let Some(r) = m.header_raw("In-Reply-To") {
         refs.extend(ids_in(r));
@@ -255,6 +271,8 @@ pub fn parse(uid: u32, raw: &[u8], seen: bool, flagged: bool, fallback_date: i64
         attachments,
         list_unsub: m.header_raw("List-Unsubscribe").map(|s| s.trim().to_string()),
         list_unsub_post: m.header_raw("List-Unsubscribe-Post").is_some(),
+        pgp,
+        pgp_raw: keep.then(|| raw.to_vec()),
     })
 }
 
