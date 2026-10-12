@@ -302,8 +302,28 @@ fn transport(acc: &Account, secret: &str) -> R<SmtpTransport> {
 
 /// Send an already finished message (encrypted/signed ones are built once, at schedule time).
 pub fn send_raw(acc: &Account, secret: &str, env: &lettre::address::Envelope, raw: &[u8]) -> R<()> {
-    transport(acc, secret)?.send_raw(env, raw).map_err(|e| format!("SMTP send failed: {e}"))?;
+    transport(acc, secret)?.send_raw(env, raw).map_err(|e| explain_send_error(e.status().map(|c| c.to_string()).as_deref(), &e.to_string()))?;
     Ok(())
+}
+
+/// The text of a failed send. Replies that a person can act on get a plain sentence (with a code the interface strips);
+/// everything else keeps the server's own words.
+pub fn explain_send_error(code: Option<&str>, detail: &str) -> String {
+    let d = detail.to_lowercase();
+    let rejected = matches!(code, Some("552" | "554" | "550" | "553")) || d.contains("(552)") || d.contains("(554)") || d.contains("(550)");
+    // Gmail: "552 5.7.0 ... blocked because its content presents a potential security issue"; others name the attachment or the file type
+    let blocked = rejected
+        && ["attachment", "executable", "file type", "security issue", "malware", "virus", "blocked because", "contents rejected", "5.7.0"].iter().any(|k| d.contains(k));
+    if blocked && !d.contains("too large") && !d.contains("5.3.4") {
+        return format!(
+            "SMTP_ATTACHMENT_BLOCKED: The server rejected the attachment type. Gmail, Outlook and Yahoo refuse programs and scripts such as .exe, .bat, .js or .msi, even inside a zip file. Remove the attachment or share it as a link instead. (Server reply: {})",
+            detail.trim().trim_start_matches("permanent error ").trim()
+        );
+    }
+    if code == Some("552") && (d.contains("too large") || d.contains("5.3.4") || d.contains("size")) {
+        return format!("SMTP_TOO_LARGE: The message is larger than this server accepts. Remove attachments or shrink pictures. (Server reply: {})", detail.trim());
+    }
+    format!("SMTP send failed: {detail}")
 }
 
 /// Connect and authenticate without sending anything.
@@ -467,5 +487,24 @@ mod tests {
         assert!(parse_mailbox("Ann <nope>").is_err());
         assert!(parse_mailbox("").is_err());
         assert!(parse_mailbox("a@b.c, d@e.f").is_err(), "one recipient per entry");
+    }
+
+    #[test]
+    fn blocked_attachment_replies_get_a_plain_message() {
+        let gmail = explain_send_error(Some("552"), "permanent error (552): 5.7.0 This message was blocked because its content presents a potential security issue. For more information go to https://support.google.com/mail/?p=BlockedMessage");
+        assert!(gmail.starts_with("SMTP_ATTACHMENT_BLOCKED: The server rejected the attachment type"), "{gmail}");
+        assert!(gmail.contains(".exe"));
+        assert!(gmail.contains("5.7.0"), "the server's words are kept: {gmail}");
+        let other = explain_send_error(Some("554"), "permanent error (554): 5.7.1 attachment type not allowed");
+        assert!(other.starts_with("SMTP_ATTACHMENT_BLOCKED:"));
+        // a size error is not an attachment-type error
+        let big = explain_send_error(Some("552"), "permanent error (552): 5.3.4 Message size exceeds fixed limit");
+        assert!(big.starts_with("SMTP_TOO_LARGE:"), "{big}");
+        // other failures keep the old text
+        assert_eq!(explain_send_error(Some("535"), "permanent error (535): bad credentials"), "SMTP send failed: permanent error (535): bad credentials");
+        assert_eq!(explain_send_error(None, "connection timed out"), "SMTP send failed: connection timed out");
+        // a blocked-attachment failure is permanent for the scheduled-send retry rules
+        assert!(!crate::schedule::is_transient(&gmail));
+        assert!(!crate::schedule::is_transient(&other));
     }
 }

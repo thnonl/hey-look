@@ -600,6 +600,8 @@ button.pill:hover { filter: brightness(.95); }
 .mono { font: 12.5px/1.5 "Cascadia Mono", Consolas, monospace; }
 .fpr { font: 12.5px/1.6 "Cascadia Mono", Consolas, monospace; letter-spacing: .02em; word-spacing: .3em; }
 .field-err { color: var(--danger); font-size: .86em; display: flex; align-items: center; gap: 5px; }
+.att-chip.blocked { border-color: var(--warn); }
+.att-warn { display: flex; align-items: center; gap: 6px; flex-basis: 100%; color: var(--warn); font-size: .9em; padding: 2px 0; }
 .inline-err { display: flex; align-items: center; gap: 8px; color: var(--danger); font-size: .9em; padding: 6px 0; }
 .note { display: flex; gap: 8px; align-items: flex-start; font-size: .86em; color: var(--muted); line-height: 1.45; }
 .note svg { flex: none; margin-top: 2px; }

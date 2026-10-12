@@ -1,5 +1,6 @@
 import DOMPurify from "dompurify";
 import { format, isThisYear, isThisWeek, isToday, isYesterday, subWeeks, isSameWeek } from "date-fns";
+import blockedExt from "./blockedExt.json";
 import type { Prefs } from "./prefs";
 
 let timePat = "HH:mm";
@@ -238,6 +239,15 @@ export async function resizeImage(dataUrl: string, mime: string, maxW: number): 
 export function dataUriBytes(uri: string): number {
   const b64 = uri.slice(uri.indexOf(",") + 1);
   return Math.floor((b64.length * 3) / 4);
+}
+
+/** File extensions that mail providers (Gmail, Outlook, Yahoo) refuse as attachments; the list is src/blockedExt.json. */
+const BLOCKED = new Set<string>(blockedExt);
+/** The extension (".exe") of a file name when providers block it as an attachment, else null. */
+export function blockedAttachmentExt(filename: string): string | null {
+  const m = /\.([^.\s\/]+)\s*$/.exec(filename.trim());
+  const ext = m?.[1].toLowerCase();
+  return ext && BLOCKED.has(ext) ? `.${ext}` : null;
 }
 
 export const PICTURE_TYPES = ["image/png", "image/jpeg", "image/gif", "image/webp"];

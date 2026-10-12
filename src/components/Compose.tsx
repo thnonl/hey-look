@@ -13,7 +13,7 @@ import { api, Att, Contact, Draft, DraftSecurity, errorCode, InlineImage, Messag
 import { eff } from "../prefs";
 import { ComposeInit, friendlyError, useStore } from "../store";
 import { extractSignature, fillSignature, normalizeHtml, SIG_MARK } from "../signature";
-import { dataUriBytes, fileToBase64, fmtIn, fmtSize, fmtWhen, htmlToText, imageSize, PICTURE_TYPES, playSent, resizeImage, sanitizeHtml, shortKey, userName } from "../util";
+import { blockedAttachmentExt, dataUriBytes, fileToBase64, fmtIn, fmtSize, fmtWhen, htmlToText, imageSize, PICTURE_TYPES, playSent, resizeImage, sanitizeHtml, shortKey, userName } from "../util";
 import { calTz } from "../calendar";
 import { defaultMeeting, MeetingState, MeetingStrip, meetingToDraft } from "./Calendar";
 import { askUnlock } from "./Pgp";
@@ -627,6 +627,8 @@ export function Compose({ init }: { init: ComposeInit }) {
 
   const attBytes = atts.reduce((n, a) => n + approxBytes(a), 0);
   const totalBytes = attBytes + pics.bytes;
+  /** attachments whose type Gmail, Outlook and Yahoo reject */
+  const blockedAtts = atts.map((a) => ({ name: a.filename, ext: blockedAttachmentExt(a.filename) })).filter((a) => a.ext);
 
   /** A scheduled message opened for editing keeps its pause until it is saved, moved, sent or released. */
   useEffect(
@@ -672,6 +674,15 @@ export function Compose({ init }: { init: ComposeInit }) {
     if (!accountId) return showToast("No account selected", undefined, "error");
     if (totalBytes > MAX_ATTACH_BYTES) return showToast(`Attachments and pictures are ${fmtSize(totalBytes)}; most servers accept at most 25 MB`, undefined, "error");
     if (!d.subject && !(await confirm({ title: "Send without a subject?", confirmLabel: "Send anyway" }))) return;
+    if (
+      blockedAtts.length &&
+      !(await confirm({
+        title: `Send with ${blockedAtts.length === 1 ? "an attachment" : "attachments"} that mail servers block?`,
+        body: `${[...new Set(blockedAtts.map((a) => a.name))].slice(0, 3).join(", ")}: Gmail, Outlook and Yahoo reject programs and scripts (${[...new Set(blockedAtts.map((a) => a.ext))].join(", ")}), even inside a zip file. The message will most likely not be delivered. Remove the file or share it as a link instead.`,
+        confirmLabel: "Send anyway",
+      }))
+    )
+      return;
     const secured = await secureDraft(d);
     if (!secured) return;
     d = secured;
@@ -1362,7 +1373,7 @@ export function Compose({ init }: { init: ComposeInit }) {
       {atts.length > 0 && (
         <div className="atts cp-atts">
           {atts.map((a, i) => (
-            <span key={i} className="att-chip">
+            <span key={i} className={`att-chip ${blockedAttachmentExt(a.filename) ? "blocked" : ""}`} title={blockedAttachmentExt(a.filename) ? "Mail servers block this file type" : undefined}>
               <Paperclip size={13} /> <span className="ellipsis">{a.filename}</span> <span className="muted small">{fmtSize(approxBytes(a))}</span>
               {a.mime.startsWith("image/") && (
                 <button
@@ -1382,6 +1393,11 @@ export function Compose({ init }: { init: ComposeInit }) {
             </span>
           ))}
           <span className={`muted small ${attBytes > MAX_ATTACH_BYTES ? "err" : ""}`}>{fmtSize(attBytes)} attached of 25 MB</span>
+          {blockedAtts.length > 0 && (
+            <span className="att-warn" role="alert">
+              <TriangleAlert size={14} aria-hidden /> Gmail, Outlook and Yahoo reject {[...new Set(blockedAtts.map((a) => a.ext))].join(", ")} files, even inside a zip. This message will probably be refused: remove {blockedAtts.length === 1 ? "it" : "them"} or share a link instead.
+            </span>
+          )}
         </div>
       )}
       {draftsHint && !init.outboxId && <div className="muted small cp-foot">Editing a draft. Sending or saving replaces the original.</div>}
