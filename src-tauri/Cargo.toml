@@ -48,6 +48,9 @@ smallvec = "1"
 
 [target.'cfg(windows)'.dependencies]
 tauri-winrt-notification = "0.8"
+# custom window frame: caption-button hit-testing (Snap Layouts) + system menu, see src/winframe.rs
+windows = { version = "0.62", features = ["Win32_Foundation", "Win32_Graphics_Gdi", "Win32_System_LibraryLoader", "Win32_UI_Input_KeyboardAndMouse", "Win32_UI_Shell", "Win32_UI_WindowsAndMessaging"] }
+windows-version = "0.1"
 keyring = { version = "3", features = ["windows-native"] }
 
 [target.'cfg(target_os = "macos")'.dependencies]

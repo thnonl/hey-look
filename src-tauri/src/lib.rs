@@ -13,6 +13,7 @@ use oauth::Provider;
 mod schedule;
 mod shell;
 mod smtp;
+mod winframe;
 
 use base64::Engine;
 use db::{err, Account, R};
@@ -2765,6 +2766,7 @@ pub fn run() {
             let cal_db = db.clone();
             std::thread::spawn(move || calendar::reminder_worker(cal_app, cal_db));
 
+            winframe::setup(app);
             shell::register_aumid(app.handle());
             shell::setup_tray(app.handle(), &db)?;
             shell::update_badge(app.handle(), &db);
@@ -2792,6 +2794,9 @@ pub fn run() {
             }
         })
         .invoke_handler(tauri::generate_handler![
+            winframe::frame_info,
+            winframe::frame_caption_rect,
+            winframe::frame_system_menu,
             list_accounts,
             add_account,
             google_sign_in,

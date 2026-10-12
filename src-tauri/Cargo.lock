@@ -2375,6 +2375,8 @@ dependencies = [
  "tauri-winrt-notification",
  "urlencoding",
  "uuid",
+ "windows",
+ "windows-version",
 ]
 
 [[package]]
