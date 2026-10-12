@@ -210,20 +210,6 @@ fn addrs(a: Option<&Address>) -> Vec<String> {
         .unwrap_or_default()
 }
 
-fn strip_html(h: &str) -> String {
-    let mut out = String::with_capacity(h.len() / 2);
-    let mut in_tag = false;
-    for ch in h.chars() {
-        match ch {
-            '<' => in_tag = true,
-            '>' => in_tag = false,
-            c if !in_tag => out.push(c),
-            _ => {}
-        }
-    }
-    out
-}
-
 pub fn parse(uid: u32, raw: &[u8], seen: bool, flagged: bool, fallback_date: i64) -> Option<Parsed> {
     let m = MessageParser::default().parse(raw)?;
     let (from_name, from_email) = m
@@ -275,13 +261,22 @@ pub fn parse(uid: u32, raw: &[u8], seen: bool, flagged: bool, fallback_date: i64
     let cal = ics.as_deref().and_then(|t| crate::ical::parse(t).ok());
     let cal_method = cal.as_ref().map(|c| c.method.clone().unwrap_or_else(|| "PUBLISH".into()).to_ascii_lowercase());
 
-    let mut basis = text.clone().unwrap_or_else(|| html.as_deref().map(strip_html).unwrap_or_default());
+    // the snippet comes from a real text/plain part, else from the visible text of the HTML (never from the HTML-to-text
+    // conversion of the parser, which can let style sheet text through)
+    let real_text = m.text_body.first().and_then(|i| m.parts.get(*i as usize)).and_then(|p| match &p.body {
+        PartType::Text(t) => Some(t.to_string()),
+        _ => None,
+    });
+    let mut basis = crate::snippet::make(real_text.as_deref(), html.as_deref());
+    if basis.is_empty() {
+        basis = text.as_deref().map(crate::snippet::clean_text).unwrap_or_default();
+    }
     if basis.trim().is_empty() {
         if let Some(ev) = cal.as_ref().and_then(|c| c.events.first()) {
             basis = invite_snippet(ev);
         }
     }
-    let snippet: String = snippet_override.unwrap_or_else(|| basis.split_whitespace().collect::<Vec<_>>().join(" ").chars().take(200).collect());
+    let snippet: String = snippet_override.unwrap_or_else(|| crate::snippet::truncate_words(&basis));
     let mut refs = m.header_raw("References").map(ids_in).unwrap_or_default();
     if let Some(r) = m.header_raw("In-Reply-To") {
         refs.extend(ids_in(r));
@@ -674,5 +669,54 @@ MIME-Version: 1.0\r\nContent-Type: multipart/mixed; boundary=\"MIX\"\r\n\r\n\
         assert!(p.ics.is_none() && p.cal_method.is_none());
         let raw = "From: a@b.c\r\nSubject: x\r\nMIME-Version: 1.0\r\nContent-Type: multipart/mixed; boundary=\"M\"\r\n\r\n--M\r\nContent-Type: text/plain\r\n\r\nhi\r\n--M\r\nContent-Type: text/calendar; name=\"x.ics\"\r\n\r\nthis is not ical\r\n--M--\r\n";
         assert!(parse(4, raw.as_bytes(), true, false, 0).unwrap().ics.is_none());
+    }
+
+    #[test]
+    fn html_only_newsletter_snippet_has_no_style_sheet_text() {
+        let html = "<html><head><title>News</title><!--[if mso]><style>td{x:y}</style><![endif]--><style type=\"text/css\">#outlook a { padding: 0; } body{margin:0}</style></head><body><div style=\"display:none\">Preview words &zwnj;&nbsp;&zwnj;&nbsp;&#8199;</div><p>Main   content</p></body></html>";
+        let raw = format!("From: a@b.c
+Subject: News
+MIME-Version: 1.0
+Content-Type: text/html; charset=utf-8
+
+{html}
+");
+        let p = parse(10, raw.as_bytes(), false, false, 0).unwrap();
+        assert_eq!(p.snippet, "Preview words Main content");
+        // with a real text/plain alternative that one is used
+        let alt = format!("From: a@b.c
+Subject: News
+MIME-Version: 1.0
+Content-Type: multipart/alternative; boundary=\"B\"
+
+--B
+Content-Type: text/plain; charset=utf-8
+
+Plain   version
+here
+--B
+Content-Type: text/html; charset=utf-8
+
+{html}
+--B--
+");
+        assert_eq!(parse(11, alt.as_bytes(), false, false, 0).unwrap().snippet, "Plain version here");
+        // an empty text/plain part falls back to the HTML
+        let empty = format!("From: a@b.c
+Subject: News
+MIME-Version: 1.0
+Content-Type: multipart/alternative; boundary=\"B\"
+
+--B
+Content-Type: text/plain; charset=utf-8
+
+ 
+--B
+Content-Type: text/html; charset=utf-8
+
+{html}
+--B--
+");
+        assert_eq!(parse(12, empty.as_bytes(), false, false, 0).unwrap().snippet, "Preview words Main content");
     }
 }

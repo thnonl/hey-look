@@ -101,6 +101,8 @@ pub fn migrate(conn: &Connection) -> R<()> {
     for t in ["rules", "signatures", "templates"] {
         add_column(conn, &format!("ALTER TABLE {t} ADD COLUMN account_id TEXT"))?;
     }
+    // snippets stored with style sheet / markup text get a readable one (once; a failure is retried at the next start)
+    let _ = crate::snippet::fix_stored(conn);
     Ok(())
 }
 

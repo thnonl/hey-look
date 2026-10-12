@@ -15,6 +15,7 @@ use oauth::Provider;
 mod schedule;
 mod shell;
 mod smtp;
+mod snippet;
 mod winframe;
 
 use base64::Engine;
