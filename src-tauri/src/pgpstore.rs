@@ -734,6 +734,8 @@ pub fn pgp_set_verified(state: tauri::State<AppState>, fingerprint: String, veri
 #[tauri::command]
 pub fn pgp_set_default(state: tauri::State<AppState>, account_id: String, fingerprint: Option<String>) -> R<()> {
     let c = lock(&state.db);
+    // the account has to exist (a default for an unknown account would never be used)
+    crate::db::get_account(&c, &account_id)?;
     match fingerprint {
         Some(f) => {
             let store = load_store(&c)?;
@@ -757,13 +759,14 @@ pub async fn pgp_change_passphrase(state: tauri::State<'_, AppState>, fingerprin
         if new_passphrase.chars().count() < 8 {
             return Err("Use at least 8 characters.".into());
         }
-        let c = lock(&db);
-        let store = load_store(&c)?;
+        // the slow key derivation runs without the database lock, so other commands keep working
+        let store = load_store(&lock(&db))?;
         let k = store.by_fpr(&fingerprint).ok_or("Key not found.")?;
         let s = k.secret.as_ref().ok_or("This key has no secret part on this computer.")?;
         check_attempts(&fingerprint)?;
         let changed = openpgp::change_passphrase(s, &old_passphrase, &new_passphrase).inspect_err(|_| record_attempt(&fingerprint, false))?;
         record_attempt(&fingerprint, true);
+        let c = lock(&db);
         c.execute("UPDATE pgp_keys SET secret_armored=?2 WHERE fingerprint=?1", params![fingerprint, openpgp::armor_secret(&changed)?]).map_err(err)?;
         with_unlocked(|m| {
             m.remove(&fingerprint);
@@ -778,8 +781,7 @@ pub async fn pgp_change_passphrase(state: tauri::State<'_, AppState>, fingerprin
 pub async fn pgp_set_expiry(state: tauri::State<'_, AppState>, fingerprint: String, passphrase: String, expires_days: Option<u32>) -> R<PgpKey> {
     let db = state.db.clone();
     blocking(move || {
-        let c = lock(&db);
-        let store = load_store(&c)?;
+        let store = load_store(&lock(&db))?;
         let k = store.by_fpr(&fingerprint).ok_or("Key not found.")?;
         let mut s = k.secret.clone().ok_or("Only your own keys can be extended.")?;
         check_attempts(&fingerprint)?;
@@ -787,6 +789,7 @@ pub async fn pgp_set_expiry(state: tauri::State<'_, AppState>, fingerprint: Stri
         record_attempt(&fingerprint, true);
         openpgp::set_expiry(&mut s, &passphrase, expires_days)?;
         let pk = s.to_public_key();
+        let c = lock(&db);
         save_key(&c, &pk, Some(&s), k.verified, &k.source.clone())?;
         clear_views();
         let store = load_store(&c)?;
@@ -817,10 +820,16 @@ pub async fn pgp_decrypt_message(state: tauri::State<'_, AppState>, message_id: 
     blocking(move || {
         let (raw, _) = crate::fetch_raw_for(&db, &message_id)?;
         if let Some(p) = passphrase.filter(|p| !p.is_empty()) {
-            let c = lock(&db);
-            let opened = open_message(&c, &message_id, &raw)?;
-            if let Some(f) = locked_key_of(&opened) {
-                let store = load_store(&c)?;
+            let locked = {
+                let c = lock(&db);
+                let opened = open_message(&c, &message_id, &raw)?;
+                match locked_key_of(&opened) {
+                    Some(f) => Some((f, load_store(&c)?)),
+                    None => None,
+                }
+            };
+            // the slow key derivation runs without the database lock
+            if let Some((f, store)) = locked {
                 unlock_key(&store, &f, &p, remember.unwrap_or(false))?;
             }
         }
