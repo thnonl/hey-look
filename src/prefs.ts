@@ -74,6 +74,17 @@ export interface Prefs extends Overridable {
   scheduledCatchUp: "send" | "ask";
   /** retry network failures of scheduled messages 3 times, 5 minutes apart */
   retryScheduled: boolean;
+  /** calendar: first day of the week (1 = Monday, 0 = Sunday, 6 = Saturday) */
+  weekStart: 1 | 0 | 6;
+  /** calendar: "auto" = this computer's zone, or an IANA zone id */
+  calTz: string;
+  /** add invitations to the calendar when they arrive (the answer shows as "Not responded") */
+  autoAddInvites: boolean;
+  /** desktop reminder before events, in minutes; null = none */
+  eventReminderMin: number | null;
+  lastModule: "mail" | "calendar";
+  calView: "month" | "week" | "agenda";
+  calShowDeclined: boolean;
   trayBadge: "number" | "dot" | "off"; // unread badge on the tray icon
   taskbarBadge: "number" | "off"; // unread badge on the taskbar button
   countOtherMail: boolean; // include "Other" (bulk) mail in unread counts
@@ -112,6 +123,13 @@ export const DEFAULT_PREFS: Prefs = {
   scheduledCatchUp: "send",
   retryScheduled: true,
   pgpRemember: "session",
+  weekStart: 1,
+  calTz: "auto",
+  autoAddInvites: true,
+  eventReminderMin: 15,
+  lastModule: "mail",
+  calView: "month",
+  calShowDeclined: false,
   trayBadge: "number",
   taskbarBadge: "number",
   countOtherMail: false,

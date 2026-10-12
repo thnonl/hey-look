@@ -1,5 +1,6 @@
 import { create } from "zustand";
-import { api, Account, Att, DraftSecurity, FolderInfo, MessageFull, OutboxItem, SearchScope, ThreadSummary } from "./api";
+import { api, Account, Att, CalendarInfo, CalEvent, DraftSecurity, FolderInfo, Meeting, MessageFull, OutboxItem, SearchScope, ThreadSummary } from "./api";
+import { calTz, CalView, Day, rangeFor, systemTz, today } from "./calendar";
 import { accentText, buttonAccent, DEFAULT_PREFS, lightened, mergePrefs, Prefs, readableOn, topBar, validHex } from "./prefs";
 
 export interface ComposeInit {
@@ -24,6 +25,19 @@ export interface ComposeInit {
   outboxError?: string;
   /** encryption / signing of a reopened draft or scheduled message */
   security?: DraftSecurity;
+  /** start Compose as a meeting invitation ("Meeting" switched on) */
+  meeting?: Partial<Meeting> & { on?: boolean };
+}
+
+/** What the New / Edit event dialog starts with. */
+export interface EventInit {
+  summary?: string;
+  start?: number;
+  end?: number;
+  allDay?: boolean;
+  location?: string;
+  description?: string;
+  attendees?: string[];
 }
 
 export type Dialog =
@@ -33,7 +47,8 @@ export type Dialog =
   | { type: "original"; messageId: string }
   | { type: "pgp-generate"; accountId?: string; back?: string }
   | { type: "pgp-import"; armored?: string; paste?: boolean; back?: string }
-  | { type: "pgp-key"; fingerprint: string; back?: string };
+  | { type: "pgp-key"; fingerprint: string; back?: string }
+  | { type: "event"; eventId?: string; init?: EventInit };
 
 /** Why a PGP key has to be unlocked right now (the title of the passphrase prompt). */
 export type UnlockReason = "sign" | "decrypt" | "draft" | "schedule";
@@ -133,6 +148,16 @@ interface State {
   prefs: Prefs;
   aiConfigured: boolean;
   loaded: boolean;
+  /** Mail or Calendar */
+  module: "mail" | "calendar";
+  /** the day the calendar is centred on */
+  calDate: Day;
+  calEvents: CalEvent[];
+  calendars: CalendarInfo[];
+  calLoading: boolean;
+  calError: string | null;
+  /** bumps when the calendar changed behind the view's back (sync, respond, save) */
+  calRev: number;
 
   init: () => Promise<void>;
   setView: (folder: string, accountId?: string | null) => Promise<void>;
@@ -166,6 +191,13 @@ interface State {
   replaceMessage: (m: MessageFull) => void;
   setPrefs: (p: Partial<Prefs>) => void;
   refreshAi: () => Promise<void>;
+  setModule: (m: "mail" | "calendar") => void;
+  setCalView: (v: CalView) => void;
+  setCalDate: (d: Day) => void;
+  loadCalendar: () => Promise<void>;
+  bumpCal: () => void;
+  /** Re-read the open conversation without clearing it (an invitation's state changed). */
+  reloadMessages: () => Promise<void>;
 }
 
 let toastSeq = 0;
@@ -177,6 +209,8 @@ const BACKEND_SETTINGS: [keyof Prefs, string, (v: unknown) => string][] = [
   ["warnExecutables", "warn_executables", (v) => (v ? "1" : "0")],
   ["scheduledCatchUp", "scheduled_catchup", (v) => String(v)],
   ["retryScheduled", "scheduled_retry", (v) => (v ? "1" : "0")],
+  ["autoAddInvites", "auto_add_invites", (v) => (v ? "1" : "0")],
+  ["eventReminderMin", "event_reminder_min", (v) => (typeof v === "number" ? String(v) : "")],
 ];
 
 function mirrorSettings(p: Partial<Prefs>) {
@@ -266,13 +300,21 @@ export const useStore = create<State>((set, get) => ({
   prefs: { ...DEFAULT_PREFS },
   aiConfigured: false,
   loaded: false,
+  module: "mail",
+  calDate: today(systemTz()),
+  calEvents: [],
+  calendars: [],
+  calLoading: false,
+  calError: null,
+  calRev: 0,
 
   init: async () => {
     const [accounts, rawPrefs] = await Promise.all([api.listAccounts(), api.getSetting("prefs")]);
     const prefs = mergePrefs(rawPrefs);
     applyPrefs(prefs);
     mirrorSettings(prefs);
-    set({ accounts, prefs, loaded: true });
+    set({ accounts, prefs, loaded: true, module: prefs.lastModule === "calendar" ? "calendar" : "mail", calDate: today(calTz(prefs)) });
+    if (prefs.lastModule === "calendar") void get().loadCalendar();
     void get().refreshAi();
     await get().refresh();
     void get().sync();
@@ -287,8 +329,60 @@ export const useStore = create<State>((set, get) => ({
     }
   },
 
+  setModule: (module) => {
+    if (get().module === module) return;
+    set({ module });
+    get().setPrefs({ lastModule: module });
+    if (module === "calendar") void get().loadCalendar();
+  },
+
+  setCalView: (v) => {
+    get().setPrefs({ calView: v });
+    void get().loadCalendar();
+  },
+
+  setCalDate: (calDate) => {
+    set({ calDate });
+    void get().loadCalendar();
+  },
+
+  bumpCal: () => {
+    set((s) => ({ calRev: s.calRev + 1 }));
+    if (get().module === "calendar") void get().loadCalendar();
+  },
+
+  loadCalendar: async () => {
+    const { prefs, calDate } = get();
+    const tz = calTz(prefs);
+    const { from, to } = rangeFor(prefs.calView, calDate, prefs.weekStart, tz);
+    set({ calLoading: true });
+    try {
+      const [events, calendars] = await Promise.all([api.calendarListEvents(from, to), api.calendarListCalendars()]);
+      // ignore a slow answer for a range the user already left
+      const now = get();
+      const cur = rangeFor(now.prefs.calView, now.calDate, now.prefs.weekStart, calTz(now.prefs));
+      if (cur.from === from && cur.to === to) set({ calEvents: events, calendars, calError: null });
+    } catch (e) {
+      set({ calError: friendlyError(e) });
+    } finally {
+      set({ calLoading: false });
+    }
+  },
+
+  reloadMessages: async () => {
+    const { selected, folder } = get();
+    if (!selected) return;
+    try {
+      const messages = await api.getThread(selected, scopeOf(folder));
+      if (get().selected === selected) set({ messages });
+    } catch {
+      /* keep what is shown */
+    }
+  },
+
   setView: async (folder, accountId = null) => {
-    set({ folder, accountId, selected: null, messages: [], threads: [], loading: true, checked: new Set(), search: "" });
+    set({ folder, accountId, selected: null, messages: [], threads: [], loading: true, checked: new Set(), search: "", module: "mail" });
+    if (get().prefs.lastModule !== "mail") get().setPrefs({ lastModule: "mail" });
     await get().refresh();
   },
 

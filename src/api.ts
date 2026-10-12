@@ -39,6 +39,8 @@ export interface ThreadSummary {
   /** PGP: at least one message of the conversation is encrypted / signed */
   encrypted?: boolean;
   signed?: boolean;
+  /** a message of the conversation carries a calendar invitation / reply / cancellation */
+  invite?: "request" | "reply" | "cancel" | null;
 }
 
 export interface MessageFull {
@@ -60,6 +62,8 @@ export interface MessageFull {
   canUnsubscribe: boolean;
   /** PGP state; null for ordinary mail */
   security?: MessageSecurity | null;
+  /** calendar invitation, update, cancellation or reply carried by this message */
+  invite?: CalInvite | null;
 }
 
 export type SigStatus = "valid" | "invalid" | "unknown_key" | "expired_key" | "revoked_key";
@@ -85,6 +89,96 @@ export interface MessageSecurity {
   error?: string | null;
   cipher?: string | null;
   signature?: SigInfo | null;
+}
+
+// ---- calendar
+export type Rsvp = "accepted" | "tentative" | "declined";
+export type PartStat = Rsvp | "needs-action" | "delegated";
+export interface CalPerson { email: string; name?: string | null }
+export interface CalAttendee extends CalPerson {
+  role: "chair" | "required" | "optional";
+  status: PartStat;
+  isYou?: boolean;
+}
+export interface CalInvite {
+  method: "REQUEST" | "CANCEL" | "REPLY" | "PUBLISH" | "COUNTER" | "OTHER";
+  uid: string;
+  sequence: number;
+  summary: string;
+  /** epoch seconds (UTC). All-day events: UTC midnight of the date. */
+  start: number;
+  end: number;
+  allDay: boolean;
+  /** IANA zone the organizer wrote the time in */
+  tzid: string | null;
+  location: string | null;
+  joinUrl: string | null;
+  description: string | null;
+  organizer: CalPerson | null;
+  attendees: CalAttendee[];
+  rrule: string | null;
+  recurrenceText: string | null;
+  you: { email: string; status: PartStat | "organizer"; onList: boolean } | null;
+  responded: { status: Rsvp; sentAt: number | null } | null;
+  changed: null | { fields: ("time" | "location" | "details")[]; previous: { start: number; end: number; location: string | null } };
+  reply: null | { from: CalPerson; status: PartStat; comment: string | null };
+  eventId: string | null;
+  ended: boolean;
+  cancelled: boolean;
+  /** a newer version of this invitation arrived */
+  outdated: boolean;
+  conflicts: { eventId: string; summary: string; start: number; end: number }[];
+  parseError: string | null;
+}
+export interface CalEvent {
+  id: string;
+  uid: string;
+  /** "local" | "invites:<accountId>" */
+  calendarId: string;
+  accountId: string | null;
+  summary: string;
+  start: number;
+  end: number;
+  allDay: boolean;
+  tzid: string | null;
+  location: string | null;
+  joinUrl: string | null;
+  description: string | null;
+  organizer: CalPerson | null;
+  attendees: CalAttendee[];
+  rrule: string | null;
+  recurrenceText: string | null;
+  status: "confirmed" | "tentative" | "cancelled";
+  myStatus: PartStat | "organizer" | null;
+  respondedAt: number | null;
+  reminderMin: number | null;
+  sourceMessageId: string | null;
+  sequence: number;
+  /** set on expanded occurrences of a repeating event */
+  instanceStart?: number | null;
+}
+export interface CalEventInput {
+  id?: string | null;
+  accountId?: string | null;
+  summary: string;
+  start: number;
+  end: number;
+  allDay: boolean;
+  tzid?: string | null;
+  location?: string | null;
+  description?: string | null;
+  attendees: { email: string; name?: string | null; role: "required" | "optional" }[];
+  rrule?: string | null;
+  reminderMin?: number | null;
+}
+export interface CalendarInfo { id: string; name: string; color: string; accountId: string | null; visible: boolean }
+export interface Meeting {
+  start: number;
+  end: number;
+  allDay: boolean;
+  tzid: string | null;
+  location: string | null;
+  rrule?: string | null;
 }
 
 export type KeyAlgo = "cv25519" | "rsa3072";
@@ -237,6 +331,8 @@ export interface Draft {
   inline?: InlineImage[];
   /** Encrypt / sign (PGP/MIME). Errors: PGP_MISSING_KEYS:<a,b> / PGP_LOCKED:<fpr> / PGP_NO_KEY / PGP_FAILED */
   security?: DraftSecurity;
+  /** a meeting made in Compose: the backend creates the event and adds the calendar invitation */
+  meeting?: Meeting;
 }
 
 export type OutboxStatus = "pending" | "held" | "sending" | "failed" | "overdue";
@@ -381,6 +477,21 @@ export const api = {
   outboxToDraft: (id: string) => invoke<void>("outbox_to_draft", { id }),
   outboxSendNow: (id: string) => invoke<void>("outbox_send_now", { id }),
   quitNow: () => invoke<void>("quit_now"),
+  // calendar
+  calendarListCalendars: () => invoke<CalendarInfo[]>("calendar_list_calendars"),
+  calendarSetVisible: (calendarId: string, visible: boolean) => invoke<void>("calendar_set_visible", { calendarId, visible }),
+  /** Events touching [from, to) (epoch seconds), repeats expanded. All-day events come with a day of slack. */
+  calendarListEvents: (from: number, to: number) => invoke<CalEvent[]>("calendar_list_events", { from, to }),
+  calendarGetEvent: (id: string) => invoke<CalEvent>("calendar_get_event", { id }),
+  calendarSaveEvent: (event: CalEventInput, notify: boolean) => invoke<CalEvent>("calendar_save_event", { event, notify }),
+  calendarDeleteEvent: (id: string, notify: boolean) => invoke<void>("calendar_delete_event", { id, notify }),
+  calendarRespond: (messageId: string, response: Rsvp, comment: string | null, send: boolean) =>
+    invoke<CalInvite>("calendar_respond", { messageId, response, comment, send }),
+  calendarAddFromMessage: (messageId: string) => invoke<CalEvent>("calendar_add_from_message", { messageId }),
+  calendarSaveIcs: (target: { messageId?: string; eventId?: string }) =>
+    invoke<string | null>("calendar_save_ics", { messageId: target.messageId ?? null, eventId: target.eventId ?? null }),
+  calendarImportIcs: () => invoke<{ added: number; updated: number } | null>("calendar_import_ics"),
+  calendarOpenMessage: (messageId: string) => invoke<{ threadId: string; folder: string; accountId: string }>("calendar_open_message", { messageId }),
   // PGP
   pgpListKeys: () => invoke<PgpKey[]>("pgp_list_keys"),
   pgpGenerateKey: (accountId: string, algo: KeyAlgo, expiresDays: number | null, passphrase: string, remember: "never" | "session") =>
