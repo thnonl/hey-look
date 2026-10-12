@@ -42,6 +42,7 @@ threads.push(
   t("t21", "Invitation: Team offsite", ["Mai Khanh"], "14 – 16 Oct · All day", 10 * H, { invite: "request" }),
   t("t22", "Invitation: Q4 planning (forwarded)", ["Duc Pham"], "Fri 16 Oct 09:00–10:00", 11 * H, { invite: "request" }),
   t("t23", "Invitation: Kick-off (last month)", ["Mai Khanh"], "Wed 30 Sep 09:00–10:00", 12 * H, { invite: "request" }),
+  t("t25", "Invitation: Salary review meeting (encrypted)", ["Linh Tran"], "Encrypted message", 14 * H, { encrypted: true }),
   t("t24", "Invitation: Server check (sending fails once)", ["Linh Tran"], "Sat 17 Oct 11:00–12:00", 13 * H, { invite: "request" }),
 );
 
@@ -237,6 +238,13 @@ const threadInvite: Record<string, string[]> = {
   t15: ["m-inv-req"], t16: ["m-inv-cancel"], t17: ["m-inv-upd0", "m-inv-upd1"], t18: ["m-reply"], t19: ["m-publish"], t20: ["m-broken"],
   t21: ["m-inv-allday"], t22: ["m-inv-fwd"], t23: ["m-inv-old"], t24: ["m-inv-flaky"],
 };
+// an encrypted invitation: locked until the key is unlocked, then it shows the same card
+const encInvite = (locked: boolean) => ({
+  ...inviteMsg("m-enc-inv", "Invitation: Salary review meeting (encrypted)", "Linh Tran", "linh@example.com", locked ? null : mkInvite({ summary: "Salary review meeting", start: at(3, 16), end: at(3, 17), rrule: null, recurrenceText: null, eventId: "e22", conflicts: [], joinUrl: null, location: "HR room", tzid: sysTz, organizer: { email: "linh@example.com", name: "Linh Tran" } }), 14 * H, locked ? { html: null, text: null, attachments: [] } : {}),
+  security: locked
+    ? { encrypted: true, partial: false, decryption: "locked", lockedKey: pgpKeys[0].fingerprint, lockedLabel: "nam@example.com", encryptedFor: [pgpKeys[0].fingerprint.slice(-16)], signature: null }
+    : { encrypted: true, partial: false, decryption: "ok", encryptedFor: [pgpKeys[0].fingerprint.slice(-16)], signature: null },
+});
 let flakyFailed = false;
 let eventSeq = 100;
 
@@ -256,6 +264,8 @@ export async function applyDemoHash() {
     const [k, v = ""] = tok.split("=");
     const val = decodeURIComponent(v);
     if (k === "dark" || k === "light") st().setPrefs({ theme: k });
+    else if (k === "pane") st().setPrefs({ readingPane: val as "right" | "bottom" });
+    else if (k === "settings") st().setDialog({ type: "settings", tab: val });
     else if (k === "density") st().setPrefs({ density: val as "full" | "medium" | "compact" });
     else if (k === "cal") {
       st().setPrefs({ calView: (val || "month") as "month" | "week" | "agenda" });
@@ -301,6 +311,7 @@ export function installMock() {
       }
       case "get_thread":
         if (a.threadId === "t9") return [ownLocked ? lockedMsg() : openedMsg()];
+        if (a.threadId === "t25") return [encInvite(ownLocked)];
         if (threadInvite[a.threadId as string]) return threadInvite[a.threadId as string].map((id) => inviteMsgs[id]);
         if (mockThreadMsgs[a.threadId as string]) return mockThreadMsgs[a.threadId as string];
         return a.threadId === "t7" ? [m4] : a.threadId === "t1" ? messages : a.threadId === "t4"
@@ -416,7 +427,7 @@ export function installMock() {
         }
         pgpAttempts = 0;
         if (a.passphrase) ownLocked = false;
-        return openedMsg();
+        return a.messageId === "m-enc-inv" ? encInvite(false) : openedMsg();
       }
       case "calendar_list_calendars":
         return [

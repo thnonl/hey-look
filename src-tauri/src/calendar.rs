@@ -473,6 +473,10 @@ pub fn ingest(c: &Connection, acc: &Account, message_id: &str, text: &str, force
         let rid = ev.recurrence_id.map(|r| r.to_string()).unwrap_or_default();
         match method.as_str() {
             "REQUEST" | "PUBLISH" => {
+                // a copy of an invitation you sent yourself (Cc to yourself, a shared mailbox) is not a second event
+                if find(c, LOCAL, &ev.uid, &rid).is_some() {
+                    continue;
+                }
                 let existing = find(c, &calendar, &ev.uid, &rid);
                 match existing {
                     Some(mut ex) => {
@@ -650,9 +654,20 @@ pub fn invite_for(c: &Connection, account_id: &str, message_id: &str, folder: &s
             }
         }
         _ => {
-            let on_list = me.is_some();
+            let organizer_is_me = ev.organizer.as_ref().map(|o| mine.contains(&o.email.to_ascii_lowercase())).unwrap_or(false);
+            let on_list = me.is_some() || organizer_is_me;
             let status = row.as_ref().and_then(|r| r.my_status.clone()).or_else(|| me.as_ref().map(|m| m.status.clone())).unwrap_or_else(|| "needs-action".into());
-            inv.you = Some(You { email: own.clone(), status: if status == "organizer" { "accepted".into() } else { status.clone() }, on_list });
+            inv.you = Some(You { email: own.clone(), status: if organizer_is_me { "organizer".into() } else { status.clone() }, on_list });
+            if organizer_is_me {
+                // your own invitation: its event is the one in "My events"
+                if let Some(local) = find(c, LOCAL, &ev.uid, "") {
+                    inv.event_id = Some(local.id.clone());
+                    inv.attendees = local.attendees.clone();
+                    for a in inv.attendees.iter_mut() {
+                        a.is_you = mine.contains(&a.email.to_ascii_lowercase());
+                    }
+                }
+            }
             if let Some(r) = &row {
                 inv.event_id = Some(r.id.clone());
                 if let Some(s) = r.my_status.as_deref().and_then(status_of) {
@@ -1329,6 +1344,35 @@ ATTENDEE;CN=Bao Tran;PARTSTAT=ACCEPTED:mailto:bao@contoso.com\r\n{extra}END:VEVE
         assert!(inv.responded.is_none());
         assert!(inv.attendees.iter().any(|x| x.is_you));
         assert!(inv.event_id.is_some());
+    }
+
+    #[test]
+    fn your_own_invitation_is_not_added_twice_and_has_no_rsvp() {
+        let (c, a) = setup();
+        let input = CalEventInput {
+            id: None,
+            account_id: Some("a1".into()),
+            summary: "Kick-off".into(),
+            start: ts(2026, 10, 20, 9, 0),
+            end: ts(2026, 10, 20, 10, 0),
+            all_day: false,
+            tzid: None,
+            location: None,
+            description: None,
+            attendees: vec![CalAttendee { email: "bao@contoso.com".into(), name: None, role: "required".into(), status: "needs-action".into(), is_you: false }],
+            rrule: None,
+            reminder_min: None,
+        };
+        let (e, _) = save_local(&c, &input).unwrap();
+        let req = ical::to_ics(Some("REQUEST"), &[to_ics_event(&e)]);
+        put_message(&c, "m7", &req);
+        // the copy that comes back to your own inbox
+        assert!(!ingest(&c, &a, "m7", &req, false).unwrap().changed);
+        assert_eq!(list_range(&c, 0, i64::MAX / 4).unwrap().len(), 1);
+        let inv = invite_for(&c, "a1", "m7", "inbox", "nam@example.com", &req, false);
+        assert_eq!(inv.you.as_ref().unwrap().status, "organizer");
+        assert!(inv.you.as_ref().unwrap().on_list);
+        assert_eq!(inv.event_id.as_deref(), Some(e.id.as_str()));
     }
 
     #[test]

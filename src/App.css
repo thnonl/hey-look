@@ -850,6 +850,7 @@ span.spin { display: inline-block; width: 13px; height: 13px; border: 2px solid 
 .ag-row { outline-offset: -2px; }
 
 /* popover */
+.ev-pop:focus { outline: none; }
 .ev-pop { width: 392px; max-width: calc(100vw - 16px); }
 .ev-pop h4 { align-items: flex-start; }
 .ev-pop .inv-row { align-items: flex-start; }

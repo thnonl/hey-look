@@ -387,6 +387,8 @@ export const useStore = create<State>((set, get) => ({
   },
 
   setSearch: async (search, remember = false) => {
+    // searching is a mail thing: leave the calendar
+    if (get().module !== "mail") get().setModule("mail");
     set({ search, selected: null, messages: [], loading: true });
     if (remember && search.trim()) {
       const recent = [search.trim(), ...get().prefs.recentSearches.filter((r) => r !== search.trim())].slice(0, 8);

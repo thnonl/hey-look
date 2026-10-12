@@ -220,6 +220,7 @@ export function InviteCard({ m }: { m: MessageFull }) {
     );
   };
 
+  const mine = inv.you?.status === "organizer";
   const needsPermission = isReq && method === "REQUEST" && inv.you && !inv.you.onList && !forced && !inv.responded;
   const prev = inv.changed?.previous;
 
@@ -238,6 +239,9 @@ export function InviteCard({ m }: { m: MessageFull }) {
       )}
       {!inv.cancelled && !inv.outdated && ended && (
         <div className="invite-banner muted" role="status"><History size={15} aria-hidden /> This event has ended</div>
+      )}
+      {mine && !inv.cancelled && !ended && (
+        <div className="invite-banner" role="status"><CalendarCheck size={15} aria-hidden /> You organized this event</div>
       )}
       {!inv.cancelled && !inv.outdated && !ended && inv.responded && (
         <div className="invite-banner" role="status">
@@ -337,7 +341,7 @@ export function InviteCard({ m }: { m: MessageFull }) {
       )}
 
       <div className="invite-actions" role="group" aria-label="Respond to invitation">
-        {method === "REQUEST" && !closed && !needsPermission && (
+        {method === "REQUEST" && !closed && !needsPermission && !mine && (
           inv.responded && busy === null ? (
             <Dropdown
               className="btn"
@@ -360,7 +364,7 @@ export function InviteCard({ m }: { m: MessageFull }) {
         )}
         {closed && !inv.cancelled && <span className="muted small">Responses are closed.</span>}
         {inv.cancelled && inv.eventId && <button className="btn" onClick={() => void removeFromCalendar()}>Remove from calendar</button>}
-        {method === "REQUEST" && !inv.eventId && !inv.cancelled && (
+        {method === "REQUEST" && !inv.eventId && !inv.cancelled && !mine && (
           <button className="btn" disabled={adding} onClick={() => void addToCalendar()}><CalendarPlus size={14} /> {adding ? "Adding…" : "Add to calendar"}</button>
         )}
         <span className="grow" />
@@ -564,7 +568,7 @@ function MonthView({
               }}
             >
               <span className="mnum">{day.d === 1 ? `${day.d} ${MONTHS_SHORT[day.m - 1]}` : day.d}</span>
-              {loading && list.length === 0 && !other ? null : shown.map((ev) => <Chip key={`${ev.id}:${ev.start}`} ev={ev} tz={tz} color={eventColor(ev, color)} openPop={openPop} />)}
+              {loading && events.length === 0 ? (!other && day.d % 3 === 0 ? <div className="sk" style={{ height: 16, margin: "2px 2px" }} aria-hidden="true" /> : null) : shown.map((ev) => <Chip key={`${ev.id}:${ev.start}`} ev={ev} tz={tz} color={eventColor(ev, color)} openPop={openPop} />)}
               {more > 0 && (
                 <button type="button" className="ev-more" onClick={(e) => (e.stopPropagation(), setCalDate(day), setCalView("agenda"))}>
                   +{more} more
@@ -748,6 +752,12 @@ function EventPopover({ state, tz, color, onClose }: { state: PopState; tz: stri
   const [busy, setBusy] = useState<Rsvp | null>(null);
   const [err, setErr] = useState<string | null>(null);
   const [pos, setPos] = useState<{ top: number; left: number }>({ top: 0, left: 0 });
+  // keyboard users land in the popover and return to the event they came from
+  useEffect(() => {
+    const back = document.activeElement as HTMLElement | null;
+    ref.current?.focus({ preventScroll: true });
+    return () => back?.focus?.({ preventScroll: true });
+  }, []);
   const mine = ev.calendarId === "local";
   const invite = ev.calendarId.startsWith("invites:");
   const canRsvp = invite && !!ev.sourceMessageId && ev.myStatus !== "organizer" && ev.myStatus !== null && ev.status !== "cancelled";
@@ -837,7 +847,7 @@ function EventPopover({ state, tz, color, onClose }: { state: PopState; tz: stri
 
   const others = ev.attendees.length;
   return (
-    <div ref={ref} className="popover ev-pop" role="dialog" aria-label={`Event: ${ev.summary}`} style={{ position: "fixed", top: pos.top, left: pos.left, zIndex: 40 }}>
+    <div ref={ref} tabIndex={-1} className="popover ev-pop" role="dialog" aria-label={`Event: ${ev.summary}`} style={{ position: "fixed", top: pos.top, left: pos.left, zIndex: 40 }}>
       <h4 style={{ textDecoration: ev.status === "cancelled" ? "line-through" : undefined }}>
         <span style={{ width: 10, height: 10, borderRadius: 3, background: color, marginTop: 6, flex: "none" }} aria-hidden />
         <span className="grow">{ev.summary}</span>

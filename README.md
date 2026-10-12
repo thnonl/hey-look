@@ -55,6 +55,14 @@ account, and every feature is available.
 - **Undo send**, **Send later** (presets or any date and time) and draft saving to the server
 - Ctrl+Enter sends; opening another message while you are writing asks before it replaces your draft
 
+### Calendar
+- **Invitations** (iMIP, `text/calendar` and `.ics` files) show a card in the reading pane: time in your zone, place, organizer,
+  attendees and conflicts. **Accept / Tentative / Decline** send a proper reply from the right account (with an optional note);
+  updated and cancelled invitations are recognised, and a reply to your own invitation updates the attendee list.
+- A local calendar (Mail | Calendar switch, `Ctrl+1` / `Ctrl+2`) with **Month, Week and Agenda** views, repeating events
+  (read-only series), reminders, import and export of `.ics`. New events can invite people (sent as a calendar invitation), and the
+  **Meeting** switch in the composer turns a message into an invitation. No CalDAV or Exchange sync.
+
 ### Organizing
 - Archive, delete, move to any folder, junk, block sender, pin, flag, mark read/unread, **snooze** with your own times
 - **Filters** (rules) that run on new mail, per mailbox or for all
@@ -114,6 +122,7 @@ App-wide options (appearance, tray, shortcuts, AI Assistant, blocked senders) li
 | `u` | Mark unread | `Ctrl+A` | Select all |
 | `Ctrl+K` | Command bar | `Ctrl+Enter` | Send (while writing) |
 | `F5` | Sync now | `Esc` | Close, deselect |
+| `Ctrl+1` / `Ctrl+2` | Mail / Calendar | `c` `t` `m` `w` `a` `←` `→` | Calendar: new event, today, month / week / agenda, previous / next |
 
 ---
 
@@ -213,6 +222,7 @@ src-tauri/src/           Rust backend
   lib.rs                 commands, sync workers, search, threading, delayed actions
   mail.rs                IMAP: folders, fetch, flags, move, parsing (MIME, attachments, inline images)
   smtp.rs                message building and sending
+  ical.rs, calendar.rs   iCalendar parsing and writing, repeat rules, events, invitations and replies
   oauth.rs               Google and Microsoft OAuth 2.0 (PKCE, loopback redirect) and token refresh
   discover.rs            server-settings lookup (presets, autoconfig, ISPDB, DNS SRV / MX)
   shell.rs               tray icon, badges, native notifications, snooze reminders
@@ -233,5 +243,5 @@ src-tauri/src/           Rust backend
 - Windows is the supported platform; tray, notifications and badges use Windows APIs
 - Mail is fetched by polling (default every 2 minutes), not IMAP IDLE push
 - Search covers mail downloaded to this computer
-- No end-to-end encryption (PGP), calendar or shared inboxes yet
+- No shared inboxes; the calendar is local (no CalDAV / Exchange sync, single occurrences of a repeating event can't be edited)
 - The interface is English only
