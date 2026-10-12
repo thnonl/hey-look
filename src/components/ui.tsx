@@ -111,10 +111,10 @@ export function Switch({ checked, onChange, label }: { checked: boolean; onChang
   );
 }
 
-export function Modal({ title, onClose, children, wide }: { title: string; onClose: () => void; children: ReactNode; wide?: boolean }) {
+export function Modal({ title, onClose, children, wide, width }: { title: string; onClose: () => void; children: ReactNode; wide?: boolean; width?: number }) {
   return (
     <div className="modal-back" onMouseDown={onClose}>
-      <div className={`modal ${wide ? "wide" : ""}`} onMouseDown={(e) => e.stopPropagation()}>
+      <div className={`modal ${wide ? "wide" : ""}`} style={width ? { width } : undefined} onMouseDown={(e) => e.stopPropagation()}>
         <div className="modal-head">
           <b>{title}</b>
           <button className="icon-btn" onClick={onClose} aria-label="Close">
