@@ -56,10 +56,12 @@ impl RawCache {
         }
     }
 
+    #[cfg(test)]
     pub fn len(&self) -> usize {
         self.items.len()
     }
 
+    #[cfg(test)]
     pub fn bytes(&self) -> usize {
         self.bytes
     }
@@ -81,6 +83,7 @@ pub fn put(id: &str, raw: Arc<Vec<u8>>) {
     with_cache(|c| c.put(id, raw))
 }
 
+#[cfg(test)]
 pub fn forget(id: &str) {
     with_cache(|c| c.remove(id))
 }
