@@ -310,13 +310,18 @@ pub fn get_event(c: &Connection, id: &str) -> R<CalEvent> {
     c.query_row(&format!("SELECT {COLS} FROM events WHERE id=?1"), [id], row_event).map_err(|_| "event not found".to_string())
 }
 
-fn account_emails(c: &Connection) -> Vec<String> {
-    db::list_accounts(c).map(|a| a.into_iter().map(|x| x.email.to_ascii_lowercase()).collect()).unwrap_or_default()
+/// Account id -> its address (lower case), for deciding who "you" are in an event.
+fn account_emails(c: &Connection) -> std::collections::HashMap<String, String> {
+    db::list_accounts(c).map(|a| a.into_iter().map(|x| (x.id, x.email.to_ascii_lowercase())).collect()).unwrap_or_default()
 }
 
-fn mark_you(e: &mut CalEvent, mine: &[String]) {
+/// Flag the attendee that is you. "You" is the account the event belongs to (the one that organized it, or the one that
+/// received the invitation), never another account that happens to be in the same app: with two mailboxes in one app, the
+/// invitation in the recipient's mailbox is not "organized by you".
+fn mark_you(e: &mut CalEvent, accounts: &std::collections::HashMap<String, String>) {
+    let own = e.account_id.as_ref().and_then(|id| accounts.get(id)).cloned().unwrap_or_default();
     for a in e.attendees.iter_mut() {
-        a.is_you = mine.contains(&a.email.to_ascii_lowercase());
+        a.is_you = !own.is_empty() && a.email.to_ascii_lowercase() == own;
     }
 }
 
@@ -473,6 +478,14 @@ fn sender_key(addr: &str) -> String {
     a.trim().to_ascii_lowercase()
 }
 
+/// True when `uid` is an event this very account organized (a "My events" row filed under it) and the message was sent by
+/// this account: the copy of its own invitation, not a new invitation.
+fn own_copy(c: &Connection, acc: &Account, sender: &str, uid: &str, rid: &str) -> bool {
+    !sender.is_empty()
+        && sender == acc.email.trim().to_ascii_lowercase()
+        && find(c, LOCAL, uid, rid).map(|e| e.account_id.as_deref() == Some(acc.id.as_str())).unwrap_or(false)
+}
+
 fn add_exdate(c: &Connection, calendar: &str, uid: &str, at: i64) -> bool {
     let Some(mut parent) = find(c, calendar, uid, "") else { return false };
     if parent.exdates.contains(&at) {
@@ -505,8 +518,10 @@ pub fn ingest(c: &Connection, acc: &Account, message_id: &str, from_email: &str,
         let rid = ev.recurrence_id.map(|r| r.to_string()).unwrap_or_default();
         match method.as_str() {
             "REQUEST" | "PUBLISH" => {
-                // a copy of an invitation you sent yourself (Cc to yourself, a shared mailbox) is not a second event
-                if find(c, LOCAL, &ev.uid, &rid).is_some() {
+                // a copy of an invitation this account sent itself (Cc to yourself, a shared mailbox) is not a second event.
+                // Only when the same account organized it (events are per account) and the message really comes from that
+                // account: the same invitation delivered to another account of this app is that account's own event.
+                if own_copy(c, acc, &sender, &ev.uid, &rid) {
                     continue;
                 }
                 let existing = find(c, &calendar, &ev.uid, &rid);
@@ -577,7 +592,7 @@ pub fn ingest(c: &Connection, acc: &Account, message_id: &str, from_email: &str,
                 }
             }
             "REPLY" => {
-                // an answer to an event you organized (it lives in "My events", filed under the sending account)
+                // an answer to an event you organized (it lives in "My events", filed under the account that received the answer)
                 let target = find(c, LOCAL, &ev.uid, "").filter(|e| e.account_id.as_deref() == Some(acc.id.as_str()) || e.account_id.is_none());
                 if let Some(mut ex) = target {
                     for a in &ev.attendees {
@@ -663,13 +678,16 @@ pub fn invite_for(c: &Connection, account_id: &str, message_id: &str, folder: &s
     inv.trimmed = ev.trimmed;
     inv.cancelled = ev.status == "cancelled" || method == "CANCEL";
     inv.ended = ev.rrule.is_none() && ev.end.max(ev.start) < now();
-    let mine = account_emails(c);
+    // "you" = the account that received this message, not every account in the app
+    let own = acc.as_ref().map(|a| a.email.trim().to_ascii_lowercase()).unwrap_or_default();
+    let is_own = |email: &str| !own.is_empty() && email.trim().to_ascii_lowercase() == own;
     inv.attendees = ev.attendees.iter().map(to_att).collect();
     for a in inv.attendees.iter_mut() {
-        a.is_you = mine.contains(&a.email.to_ascii_lowercase());
+        a.is_you = is_own(&a.email);
     }
-    let own = acc.as_ref().map(|a| a.email.to_ascii_lowercase()).unwrap_or_default();
-    let me = inv.attendees.iter().find(|a| a.email == own).or_else(|| inv.attendees.iter().find(|a| a.is_you)).cloned();
+    let me = inv.attendees.iter().find(|a| a.is_you).cloned();
+    // the "My events" row of an event this account organized
+    let own_event = |uid: &str| find(c, LOCAL, uid, "").filter(|e| e.account_id.as_deref() == Some(account_id));
     let row = find(c, &format!("invites:{account_id}"), &ev.uid, &ev.recurrence_id.map(|r| r.to_string()).unwrap_or_default());
 
     match method.as_str() {
@@ -684,26 +702,26 @@ pub fn invite_for(c: &Connection, account_id: &str, message_id: &str, folder: &s
                 inv.reply = Some(ReplyInfo { from: CalPerson { email: from_email.to_string(), name: None }, status: "needs-action".into(), comment: ev.comment.clone() });
             }
             // the local event, with the current answers of everyone
-            if let Some(local) = find(c, LOCAL, &ev.uid, "") {
+            if let Some(local) = own_event(&ev.uid) {
                 inv.event_id = Some(local.id.clone());
                 inv.attendees = local.attendees.clone();
                 for a in inv.attendees.iter_mut() {
-                    a.is_you = mine.contains(&a.email.to_ascii_lowercase());
+                    a.is_you = is_own(&a.email);
                 }
             }
         }
         _ => {
-            let organizer_is_me = ev.organizer.as_ref().map(|o| mine.contains(&o.email.to_ascii_lowercase())).unwrap_or(false);
+            let organizer_is_me = ev.organizer.as_ref().map(|o| is_own(&o.email)).unwrap_or(false);
             let on_list = me.is_some() || organizer_is_me;
             let status = row.as_ref().and_then(|r| r.my_status.clone()).or_else(|| me.as_ref().map(|m| m.status.clone())).unwrap_or_else(|| "needs-action".into());
             inv.you = Some(You { email: own.clone(), status: if organizer_is_me { "organizer".into() } else { status.clone() }, on_list });
             if organizer_is_me {
                 // your own invitation: its event is the one in "My events"
-                if let Some(local) = find(c, LOCAL, &ev.uid, "") {
+                if let Some(local) = own_event(&ev.uid) {
                     inv.event_id = Some(local.id.clone());
                     inv.attendees = local.attendees.clone();
                     for a in inv.attendees.iter_mut() {
-                        a.is_you = mine.contains(&a.email.to_ascii_lowercase());
+                        a.is_you = is_own(&a.email);
                     }
                 }
             }
@@ -830,10 +848,7 @@ fn mailto_list(addrs: &[CalAttendee], skip: &str) -> Vec<String> {
     addrs
         .iter()
         .filter(|a| a.email != skip.to_ascii_lowercase())
-        .map(|a| match a.name.as_deref().filter(|n| !n.is_empty()) {
-            Some(n) => format!("{} <{}>", n.replace(['<', '>', '"', ','], ""), a.email),
-            None => a.email.clone(),
-        })
+        .map(|a| crate::smtp::format_mailbox(a.name.as_deref(), &a.email))
         .collect()
 }
 
@@ -944,8 +959,8 @@ pub fn prepare_meeting(c: &Connection, d: &mut crate::smtp::Draft) -> R<()> {
         .map(|a| (a, "required"))
         .chain(d.cc.iter().map(|a| (a, "optional")))
         .filter_map(|(a, role)| {
-            let email = a.split('<').last().unwrap_or(a).trim_end_matches('>').trim().to_ascii_lowercase();
-            let name = a.split('<').next().map(|n| n.trim().trim_matches('"').to_string()).filter(|n| !n.is_empty() && a.contains('<'));
+            let (name, email) = crate::smtp::split_mailbox(a);
+            let email = email.to_ascii_lowercase();
             (!email.is_empty()).then(|| CalAttendee { email, name, role: role.into(), status: "needs-action".into(), is_you: false })
         })
         .collect();
@@ -999,13 +1014,11 @@ pub fn respond(db: &Db, message_id: &str, response: &str, comment: Option<String
     if method != "REQUEST" && method != "PUBLISH" {
         return Err("CAL_NOT_AN_INVITATION: This message is not an invitation you can respond to.".into());
     }
-    // the account answering: the one named in the attendee list, preferring the account that got the message
-    let (acc, who_acc) = {
+    // the answer is stored for, and sent from, the account that received the invitation (with several accounts in one app,
+    // another account named in the attendee list got its own copy of the message and answers that one)
+    let acc = {
         let c = lock(db);
         let acc = db::get_account(&c, &account_id)?;
-        let accounts = db::list_accounts(&c)?;
-        let listed = |a: &Account| ev.attendees.iter().any(|x| x.email == a.email.to_ascii_lowercase());
-        let who = if listed(&acc) { acc.clone() } else { accounts.iter().find(|a| listed(a)).cloned().unwrap_or_else(|| acc.clone()) };
         // make sure the event exists, then record the answer locally first (it survives a failed send)
         ingest(&c, &acc, message_id, &from_email, &text, true)?;
         let calendar = format!("invites:{}", acc.id);
@@ -1015,8 +1028,9 @@ pub fn respond(db: &Db, message_id: &str, response: &str, comment: Option<String
             row.responded_at = None;
             save_row(&c, &row)?;
         }
-        (acc, who)
+        acc
     };
+    let who_acc = acc.clone();
     mark_dirty();
     if send {
         let to = ev.organizer.as_ref().map(|o| o.email.clone()).unwrap_or(from_email.clone());
@@ -1406,8 +1420,8 @@ ATTENDEE;CN=Bao Tran;PARTSTAT=ACCEPTED:mailto:bao@contoso.com\r\n{extra}END:VEVE
         let (e, _) = save_local(&c, &input).unwrap();
         let req = ical::to_ics(Some("REQUEST"), &[to_ics_event(&e)]);
         put_message(&c, "m7", &req);
-        // the copy that comes back to your own inbox
-        assert!(!ingest(&c, &a, "m7", "mai@contoso.com", &req, false).unwrap().changed);
+        // the copy that comes back to your own inbox (sent by this very account)
+        assert!(!ingest(&c, &a, "m7", "nam@example.com", &req, false).unwrap().changed);
         assert_eq!(list_range(&c, 0, i64::MAX / 4).unwrap().len(), 1);
         let inv = invite_for(&c, "a1", "m7", "inbox", "nam@example.com", &req, false);
         assert_eq!(inv.you.as_ref().unwrap().status, "organizer");
@@ -1778,5 +1792,297 @@ END:VCALENDAR
         let raw = String::from_utf8_lossy(&crate::smtp::build(&acc, &d).unwrap().formatted()).into_owned();
         assert!(raw.contains("multipart/mixed") && raw.contains("multipart/alternative") && raw.to_lowercase().contains("method=request") && raw.contains("invite.ics"));
         assert!(raw.contains("<p>Agenda</p>"), "the body is still there");
+    }
+
+    // ---- two accounts in one app: A organizes, B is invited (both live in the same database)
+
+    const A_ID: &str = "acc-a";
+    const B_ID: &str = "acc-b";
+    const C_ID: &str = "acc-c";
+    const A_MAIL: &str = "a.owner@gmail.example";
+    const B_MAIL: &str = "b.guest@gmail.example";
+    const C_MAIL: &str = "c.guest@gmail.example";
+
+    fn two_accounts() -> Connection {
+        let c = Connection::open_in_memory().unwrap();
+        db::migrate(&c).unwrap();
+        for (id, mail, name) in [(A_ID, A_MAIL, "Nam Thái (namth.onl)"), (B_ID, B_MAIL, "Nam Thái (thnonline)"), (C_ID, C_MAIL, "Cee, \"C\"")] {
+            let mut a = account(id, mail);
+            a.display_name = name.into();
+            db::insert_account(&c, &a).unwrap();
+        }
+        c
+    }
+
+    fn acct(c: &Connection, id: &str) -> Account {
+        db::get_account(c, id).unwrap()
+    }
+
+    /// A message as it is stored for one account.
+    fn put_for(c: &Connection, id: &str, account: &str, folder: &str, from: &str, ics: &str) {
+        c.execute(
+            "INSERT INTO messages(id,account_id,folder,uid,thread_id,subject,from_name,from_email,to_addrs,cc_addrs,date,snippet,ics) VALUES(?1,?2,?3,(SELECT COUNT(*)+1 FROM messages),'t','s','x',?4,'','',0,'',?5)",
+            params![id, account, folder, from, ics],
+        )
+        .unwrap();
+    }
+
+    fn att(email: &str, name: Option<&str>) -> CalAttendee {
+        CalAttendee { email: email.into(), name: name.map(|n| n.into()), role: "required".into(), status: "needs-action".into(), is_you: false }
+    }
+
+    fn organize(c: &Connection, attendees: Vec<CalAttendee>) -> CalEvent {
+        let input = CalEventInput {
+            id: None,
+            account_id: Some(A_ID.into()),
+            summary: "Planning".into(),
+            start: ts(2026, 10, 20, 9, 0),
+            end: ts(2026, 10, 20, 10, 0),
+            all_day: false,
+            tzid: None,
+            location: None,
+            description: None,
+            attendees,
+            rrule: None,
+            reminder_min: None,
+        };
+        save_local(c, &input).unwrap().0
+    }
+
+    fn request_ics(e: &CalEvent) -> String {
+        ical::to_ics(Some("REQUEST"), &[to_ics_event(e)])
+    }
+
+    #[test]
+    fn invitee_in_the_same_app_is_not_the_organizer() {
+        let c = two_accounts();
+        let (a, b) = (acct(&c, A_ID), acct(&c, B_ID));
+        let e = organize(&c, vec![att(B_MAIL, Some("Nam Thái (thnonline)"))]);
+        let req = request_ics(&e);
+        put_for(&c, "a-copy", A_ID, "inbox", A_MAIL, &req); // Cc / copy in the organizer's own mailbox
+        put_for(&c, "b-msg", B_ID, "inbox", A_MAIL, &req); // the delivery to the guest
+        // the organizer's own copy is not a second event
+        assert!(!ingest(&c, &a, "a-copy", A_MAIL, &req, false).unwrap().changed);
+        // the guest's mailbox gets its own event
+        let got = ingest(&c, &b, "b-msg", A_MAIL, &req, false).unwrap();
+        assert!(got.changed, "the invitation reaches the second account of the app");
+        let row = get_event(&c, &got.event_id.clone().unwrap()).unwrap();
+        assert_eq!(row.calendar_id, format!("invites:{B_ID}"));
+        assert_eq!(row.account_id.as_deref(), Some(B_ID));
+        assert_eq!(row.my_status.as_deref(), Some("needs-action"));
+        assert_ne!(row.id, e.id, "independent of the organizer's event");
+
+        // the guest's card: not the organizer, only the guest is "you"
+        let inv = invite_for(&c, B_ID, "b-msg", "inbox", A_MAIL, &req, false);
+        let you = inv.you.clone().unwrap();
+        assert_eq!(you.status, "needs-action", "not 'organizer'");
+        assert_eq!(you.email, B_MAIL);
+        assert!(you.on_list);
+        assert_eq!(inv.event_id.as_deref(), Some(row.id.as_str()), "points at the guest's own row");
+        let mine: Vec<&str> = inv.attendees.iter().filter(|x| x.is_you).map(|x| x.email.as_str()).collect();
+        assert_eq!(mine, vec![B_MAIL]);
+
+        // the organizer's card for its copy
+        let inv_a = invite_for(&c, A_ID, "a-copy", "inbox", A_MAIL, &req, false);
+        assert_eq!(inv_a.you.clone().unwrap().status, "organizer");
+        assert_eq!(inv_a.event_id.as_deref(), Some(e.id.as_str()));
+        let mine: Vec<&str> = inv_a.attendees.iter().filter(|x| x.is_you).map(|x| x.email.as_str()).collect();
+        assert_eq!(mine, vec![A_MAIL]);
+
+        // the calendar views: each event only flags its own account
+        let list = list_range(&c, 0, i64::MAX / 4).unwrap();
+        assert_eq!(list.len(), 2);
+        for ev in list {
+            let flagged: Vec<&str> = ev.attendees.iter().filter(|x| x.is_you).map(|x| x.email.as_str()).collect();
+            let want = if ev.calendar_id == LOCAL { A_MAIL } else { B_MAIL };
+            assert_eq!(flagged, vec![want], "{}", ev.calendar_id);
+        }
+    }
+
+    #[test]
+    fn one_invitation_delivered_to_two_local_accounts_makes_two_independent_events() {
+        let c = two_accounts();
+        let (b, cc) = (acct(&c, B_ID), acct(&c, C_ID));
+        let e = organize(&c, vec![att(B_MAIL, None), att(C_MAIL, None)]);
+        let req = request_ics(&e);
+        put_for(&c, "mb", B_ID, "inbox", A_MAIL, &req);
+        put_for(&c, "mc", C_ID, "inbox", A_MAIL, &req);
+        let eb = ingest(&c, &b, "mb", A_MAIL, &req, false).unwrap().event_id.unwrap();
+        let ec = ingest(&c, &cc, "mc", A_MAIL, &req, false).unwrap().event_id.unwrap();
+        assert_ne!(eb, ec);
+        // B accepts, C is still undecided
+        let db: crate::Db = std::sync::Arc::new(std::sync::Mutex::new(c));
+        let after = respond(&db, "mb", "accepted", None, false).unwrap();
+        assert_eq!(after.responded.as_ref().map(|r| r.status.as_str()), Some("accepted"));
+        let c = lock(&db);
+        assert_eq!(get_event(&c, &eb).unwrap().my_status.as_deref(), Some("accepted"));
+        assert_eq!(get_event(&c, &ec).unwrap().my_status.as_deref(), Some("needs-action"));
+        let inv_c = invite_for(&c, C_ID, "mc", "inbox", A_MAIL, &req, false);
+        assert!(inv_c.responded.is_none());
+        assert_eq!(inv_c.you.unwrap().email, C_MAIL);
+        // deleting one guest's copy leaves the other
+        c.execute("DELETE FROM events WHERE id=?1", [&eb]).unwrap();
+        assert!(get_event(&c, &ec).is_ok());
+        assert!(get_event(&c, &e.id).is_ok());
+    }
+
+    #[test]
+    fn answer_from_a_local_account_updates_the_organizers_event() {
+        let c = two_accounts();
+        let (a, b) = (acct(&c, A_ID), acct(&c, B_ID));
+        let e = organize(&c, vec![att(B_MAIL, None)]);
+        let req = request_ics(&e);
+        put_for(&c, "mb", B_ID, "inbox", A_MAIL, &req);
+        ingest(&c, &b, "mb", A_MAIL, &req, false).unwrap();
+        // B answers (the reply message is built from B's account, as respond() does)
+        let parsed = ical::parse(&req).unwrap();
+        let me = Person { email: B_MAIL.into(), name: Some("B".into()) };
+        let reply = ical::to_ics(Some("REPLY"), &[ical::reply_event(&parsed.events[0], &me, "accepted", None, now())]);
+        // ... and it arrives in A's inbox, from B
+        put_for(&c, "a-reply", A_ID, "inbox", B_MAIL, &reply);
+        let got = ingest(&c, &a, "a-reply", B_MAIL, &reply, false).unwrap();
+        assert!(got.changed, "a REPLY from the other local account is not treated as an own copy");
+        assert_eq!(got.event_id.as_deref(), Some(e.id.as_str()));
+        let ev = get_event(&c, &e.id).unwrap();
+        assert_eq!(ev.attendees.iter().find(|x| x.email == B_MAIL).unwrap().status, "accepted");
+        // the card in A's mailbox shows the organizer's event, and only A is "you"
+        let inv = invite_for(&c, A_ID, "a-reply", "inbox", B_MAIL, &reply, false);
+        assert_eq!(inv.method, "REPLY");
+        assert_eq!(inv.event_id.as_deref(), Some(e.id.as_str()));
+        assert_eq!(inv.attendees.iter().filter(|x| x.is_you).map(|x| x.email.as_str()).collect::<Vec<_>>(), vec![A_MAIL]);
+        // the same answer read in B's own Sent folder never touches anything
+        put_for(&c, "b-sent", B_ID, "sent", B_MAIL, &reply);
+        let own = invite_for(&c, B_ID, "b-sent", "sent", B_MAIL, &reply, false);
+        assert!(own.event_id.is_none());
+        // a stranger's answer for B does nothing
+        let again = ical::to_ics(Some("REPLY"), &[ical::reply_event(&parsed.events[0], &me, "declined", None, now())]);
+        assert!(!ingest(&c, &a, "forged", "eve@evil.example", &again, false).unwrap().changed);
+        assert_eq!(get_event(&c, &e.id).unwrap().attendees.iter().find(|x| x.email == B_MAIL).unwrap().status, "accepted");
+    }
+
+    #[test]
+    fn own_copy_rule_needs_same_account_and_same_sender() {
+        let c = two_accounts();
+        let (a, b) = (acct(&c, A_ID), acct(&c, B_ID));
+        let e = organize(&c, vec![att(B_MAIL, None)]);
+        let req = request_ics(&e);
+        // A's own copy: skipped
+        assert!(!ingest(&c, &a, "x1", A_MAIL, &req, false).unwrap().changed);
+        // the same invitation in A that is not from A (somebody forwarded it back): a regular invitation row
+        assert!(ingest(&c, &a, "x2", "forwarder@example.com", &req, false).unwrap().changed);
+        // an event organized by A is not B's own even when B is the sender
+        assert!(ingest(&c, &b, "x4", B_MAIL, &req, false).unwrap().changed);
+    }
+
+    #[test]
+    fn reschedule_shows_what_changed_for_the_guest_account() {
+        let c = two_accounts();
+        let b = acct(&c, B_ID);
+        let e = organize(&c, vec![att(B_MAIL, None)]);
+        let v0 = request_ics(&e);
+        put_for(&c, "m0", B_ID, "inbox", A_MAIL, &v0);
+        ingest(&c, &b, "m0", A_MAIL, &v0, false).unwrap();
+        // A moves the event by two hours: SEQUENCE 0 -> 1
+        let (moved, _) = save_local(
+            &c,
+            &CalEventInput {
+                id: Some(e.id.clone()),
+                account_id: Some(A_ID.into()),
+                summary: e.summary.clone(),
+                start: e.start + 7200,
+                end: e.end + 7200,
+                all_day: false,
+                tzid: None,
+                location: None,
+                description: None,
+                attendees: vec![att(B_MAIL, None)],
+                rrule: None,
+                reminder_min: None,
+            },
+        )
+        .unwrap();
+        assert_eq!(moved.sequence, 1);
+        let v1 = request_ics(&moved);
+        put_for(&c, "m1", B_ID, "inbox", A_MAIL, &v1);
+        assert!(ingest(&c, &b, "m1", A_MAIL, &v1, false).unwrap().changed);
+        let inv = invite_for(&c, B_ID, "m1", "inbox", A_MAIL, &v1, false);
+        let ch = inv.changed.expect("the update card shows the previous time");
+        assert_eq!(ch.fields, vec!["time".to_string()]);
+        assert_eq!(ch.previous.start, e.start);
+        assert_eq!(ch.previous.end, e.end);
+        assert_eq!(inv.start, e.start + 7200);
+        assert!(!inv.outdated);
+        assert_eq!(inv.you.unwrap().status, "needs-action", "answer reset by the update");
+    }
+
+    #[test]
+    fn invitation_mail_survives_hostile_display_names() {
+        let c = two_accounts();
+        let a = acct(&c, A_ID);
+        let names = [
+            "Nam Thái (thnonline)",
+            "Tran, Bao",
+            "He said \"hi\"",
+            "Back\\slash <b@x.y>",
+            "semi;colon: ok",
+            "Đỗ Văn Ánh",
+            "a\r\nBcc: evil@x.y",
+        ];
+        for n in names {
+            let e = organize(&c, vec![att(B_MAIL, Some(n)), att(C_MAIL, Some(n))]);
+            let to = mailto_list(&e.attendees, &a.email);
+            assert_eq!(to.len(), 2, "organizer skipped for {n:?}");
+            let ev = to_ics_event(&e);
+            let msg = crate::smtp::build_calendar_mail(&a, &to, &[], "Invitation: x", "body", &iso_part("REQUEST", &ev)).unwrap_or_else(|er| panic!("{n:?}: {er}"));
+            let raw = msg.formatted();
+            let parsed = mail_parser::MessageParser::default().parse(&raw[..]).unwrap();
+            let rcpt: Vec<String> = parsed.to().unwrap().iter().filter_map(|x| x.address.as_ref().map(|s| s.to_string())).collect();
+            assert_eq!(rcpt, vec![B_MAIL.to_string(), C_MAIL.to_string()], "{n:?}");
+            assert!(parsed.bcc().is_none(), "no injected Bcc for {n:?}");
+            let shown = parsed.to().unwrap().first().unwrap().name.as_ref().map(|s| s.to_string()).unwrap_or_default();
+            let want = n.split_whitespace().collect::<Vec<_>>().join(" ");
+            assert_eq!(shown, want, "display name survives for {n:?}");
+            assert_eq!(msg.envelope().to().len(), 2);
+        }
+        // the sending account's own display name is just as hostile and still builds
+        let mut hostile = a.clone();
+        hostile.display_name = "Nam Thái (namth), \"Boss\"; <x@y.z>".into();
+        let e = organize(&c, vec![att(B_MAIL, None)]);
+        let msg = crate::smtp::build_calendar_mail(&hostile, &mailto_list(&e.attendees, &a.email), &[], "s", "b", &iso_part("REQUEST", &to_ics_event(&e))).unwrap();
+        let raw = msg.formatted();
+        let parsed = mail_parser::MessageParser::default().parse(&raw[..]).unwrap();
+        assert_eq!(parsed.from().unwrap().first().unwrap().address.as_ref().unwrap().to_string(), A_MAIL);
+    }
+
+    #[test]
+    fn meeting_recipients_with_hostile_names_become_attendees() {
+        let c = two_accounts();
+        let mut d = crate::smtp::Draft {
+            account_id: A_ID.into(),
+            to: vec![crate::smtp::format_mailbox(Some("Nam Thái (thnonline), Esq."), B_MAIL)],
+            cc: vec![format!("\"Cee, \\\"C\\\"\" <{C_MAIL}>")],
+            bcc: vec![],
+            subject: "Sync".into(),
+            html: "<p>x</p>".into(),
+            text: "x".into(),
+            in_reply_to: None,
+            references: vec![],
+            attachments: vec![],
+            inline: vec![],
+            security: None,
+            prebuilt: None,
+            meeting: Some(crate::smtp::Meeting { start: ts(2026, 10, 21, 9, 0), end: ts(2026, 10, 21, 10, 0), all_day: false, tzid: None, location: None, rrule: None }),
+            calendar: None,
+        };
+        prepare_meeting(&c, &mut d).unwrap();
+        let ev = d.calendar.as_ref().unwrap().ics.clone();
+        let back = ical::parse(&ev).unwrap();
+        let at = &back.events[0].attendees;
+        let b = at.iter().find(|x| x.email == B_MAIL).expect("B invited");
+        assert_eq!(b.name.as_deref(), Some("Nam Thái (thnonline), Esq."));
+        let cc = at.iter().find(|x| x.email == C_MAIL).expect("C invited");
+        assert_eq!(cc.name.as_deref(), Some("Cee, 'C'"));
+        // and the draft itself still builds into a message
+        assert!(crate::smtp::build(&acct(&c, A_ID), &d).is_ok());
     }
 }
