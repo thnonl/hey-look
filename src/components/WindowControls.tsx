@@ -48,14 +48,26 @@ export function WindowControls() {
     ro.observe(el);
     ro.observe(document.documentElement);
     window.addEventListener("resize", soon);
-    const dpr = window.matchMedia(`(resolution: ${window.devicePixelRatio}dppx)`);
-    dpr.addEventListener("change", soon);
+    // A media query on the current scale fires once when the scale changes (window moved to another monitor, display
+    // scaling changed); a new one is armed for the new scale each time.
+    let dpr: MediaQueryList | null = null;
+    const onScale = () => {
+      soon();
+      arm();
+    };
+    const arm = () => {
+      dpr?.removeEventListener("change", onScale);
+      if (!alive) return;
+      dpr = window.matchMedia(`(resolution: ${window.devicePixelRatio}dppx)`);
+      dpr.addEventListener("change", onScale);
+    };
+    arm();
     return () => {
       alive = false;
       cancelAnimationFrame(raf);
       ro.disconnect();
       window.removeEventListener("resize", soon);
-      dpr.removeEventListener("change", soon);
+      dpr?.removeEventListener("change", onScale);
     };
   }, [custom, fullscreen, maximized]);
 

@@ -26,6 +26,7 @@ use serde::Serialize;
 // ---------- pure logic (unit tested) ----------
 
 /// One of the three caption buttons.
+#[cfg_attr(not(any(windows, test)), allow(dead_code))]
 #[derive(Clone, Copy, PartialEq, Eq, Debug, Serialize)]
 #[serde(rename_all = "lowercase")]
 pub enum Zone {
@@ -35,10 +36,15 @@ pub enum Zone {
 }
 
 /// Win32 non-client hit-test codes (`HTMINBUTTON`, `HTMAXBUTTON`, `HTCLOSE`).
+// (items below are used by the Windows module and the tests only; other targets compile them without warnings)
+#[cfg_attr(not(any(windows, test)), allow(dead_code))]
 const HT_MIN: u32 = 8;
+#[cfg_attr(not(any(windows, test)), allow(dead_code))]
 const HT_MAX: u32 = 9;
+#[cfg_attr(not(any(windows, test)), allow(dead_code))]
 const HT_CLOSE: u32 = 20;
 
+#[cfg_attr(not(any(windows, test)), allow(dead_code))]
 pub fn hit_code(z: Zone) -> u32 {
     match z {
         Zone::Min => HT_MIN,
@@ -47,6 +53,7 @@ pub fn hit_code(z: Zone) -> u32 {
     }
 }
 
+#[cfg_attr(not(any(windows, test)), allow(dead_code))]
 pub fn zone_from_hit(code: u32) -> Option<Zone> {
     match code {
         HT_MIN => Some(Zone::Min),
@@ -57,6 +64,7 @@ pub fn zone_from_hit(code: u32) -> Option<Zone> {
 }
 
 /// The button under `x` (relative to the group's left edge) in a group `width` pixels wide: three equal buttons.
+#[cfg_attr(not(any(windows, test)), allow(dead_code))]
 pub fn zone_at(x: i32, width: i32) -> Option<Zone> {
     if width <= 0 || x < 0 || x >= width {
         return None;
@@ -92,17 +100,20 @@ pub fn device_rect(css: (f64, f64, f64, f64), dpr: f64) -> Option<Rect> {
 }
 
 /// Windows 11 (build 22000+) has Snap Layouts; Windows 10 only gets the plain buttons.
+#[cfg_attr(not(any(windows, test)), allow(dead_code))]
 pub fn snap_layouts_supported(build: u32) -> bool {
     build >= 22000
 }
 
 /// What the pointer is doing over the caption buttons.
+#[cfg_attr(not(any(windows, test)), allow(dead_code))]
 #[derive(Default, Clone, Copy, PartialEq, Eq, Debug, Serialize)]
 pub struct Pointer {
     pub hot: Option<Zone>,
     pub down: Option<Zone>,
 }
 
+#[cfg_attr(not(any(windows, test)), allow(dead_code))]
 impl Pointer {
     /// Moved over `z` (None = not over a button). True when the visual state changed.
     pub fn moved(&mut self, z: Option<Zone>) -> bool {
@@ -155,13 +166,16 @@ pub fn frame_info() -> FrameInfo {
 /// natively; false means "keep using the DOM buttons".
 #[tauri::command]
 pub async fn frame_caption_rect(app: tauri::AppHandle, x: f64, y: f64, w: f64, h: f64, dpr: f64) -> bool {
-    imp::set_caption_rect(&app, device_rect((x, y, w, h), dpr))
+    let rect = device_rect((x, y, w, h), dpr);
+    // the call waits for the UI thread: keep that wait off the async runtime's worker threads
+    tauri::async_runtime::spawn_blocking(move || imp::set_caption_rect(&app, rect)).await.unwrap_or(false)
 }
 
 /// Shows the window's system menu at a point of the client area (CSS px).
 #[tauri::command]
 pub async fn frame_system_menu(app: tauri::AppHandle, x: f64, y: f64, dpr: f64) {
-    imp::system_menu(&app, (x * dpr).round() as i32, (y * dpr).round() as i32);
+    // the menu is modal on the UI thread and can stay open a long time: wait for it on the blocking pool
+    let _ = tauri::async_runtime::spawn_blocking(move || imp::system_menu(&app, (x * dpr).round() as i32, (y * dpr).round() as i32)).await;
 }
 
 /// Called once from `setup`: removes the OS frame on Windows.
@@ -292,6 +306,7 @@ mod imp {
             match msg {
                 WM_SIZE => raise_overlay(),
                 WM_NCDESTROY => {
+                    OVERLAY.store(0, Ordering::Relaxed); // the child window is destroyed with its parent
                     let _ = RemoveWindowSubclass(hwnd, Some(parent_proc), SUBCLASS_ID);
                 }
                 _ => {}
@@ -371,7 +386,7 @@ mod imp {
                 WINDOW_EX_STYLE::default(),
                 CLASS,
                 w!("Window controls"),
-                WS_CHILD | WS_VISIBLE | WS_CLIPSIBLINGS,
+                WS_CHILD | WS_CLIPSIBLINGS, // hidden until `place` sizes it (SWP_SHOWWINDOW)
                 0,
                 0,
                 1,
