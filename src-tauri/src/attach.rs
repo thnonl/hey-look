@@ -122,6 +122,7 @@ mod tests {
         assert!(is_risky("Setup.EXE"));
         assert!(is_risky("install.ps1"));
         assert!(is_risky("disk.iso"));
+        assert!(is_risky("KB5001.msu") && is_risky("page.mhtml") && is_risky("style.xslt"));
         assert!(!is_risky("report.pdf"));
         assert!(!is_risky("exe"), "a bare name is not an extension");
         assert!(!is_risky(".bashrc"));

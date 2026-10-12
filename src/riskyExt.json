@@ -6,5 +6,5 @@
   "search-ms", "wsc", "docm", "dotm", "xlsm", "xltm", "xlam", "xlsb", "pptm", "potm", "ppam", "ppsm", "sldm", "iqy",
   "slk", "xla", "xlw", "xll", "rdp", "one", "onepkg", "jnlp", "xbap", "website", "ps2", "ps2xml", "msh", "msh1", "msh2",
   "mshxml", "msh1xml", "msh2xml", "job", "shs", "shb", "bas", "py", "pyw", "pyz", "pl", "sh", "command", "xnk", "vhd",
-  "vhdx", "dmg", "wim", "iso", "img"
+  "vhdx", "dmg", "wim", "iso", "img", "msu", "mht", "mhtml", "xsl", "xslt"
 ]
