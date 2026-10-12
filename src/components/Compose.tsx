@@ -152,6 +152,8 @@ export function Compose({ init }: { init: ComposeInit }) {
 
   const editor = useEditor({
     extensions: [StarterKit, Placeholder.configure({ placeholder: "Write your message…" })],
+    // the accessible name belongs on the contenteditable node ProseMirror renders
+    editorProps: { attributes: { "aria-label": "Message body" } },
     content: init.bodyHtml ? (init.replaces ? init.bodyHtml : `<p></p>${init.bodyHtml}`) : "<p></p>",
     autofocus: (init.to?.length ?? 0) > 0 ? "start" : false,
     onUpdate: () => touch(),

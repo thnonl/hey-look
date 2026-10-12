@@ -4,9 +4,10 @@ import Placeholder from "@tiptap/extension-placeholder";
 import { Bold, Italic, Link2, List, ListOrdered, Underline as UIcon } from "lucide-react";
 
 /** Small rich-text editor (signatures, templates): the user never has to write HTML. */
-export function RichEditor({ value, onChange, placeholder, minHeight = 140 }: { value: string; onChange: (html: string) => void; placeholder?: string; minHeight?: number }) {
+export function RichEditor({ value, onChange, placeholder, minHeight = 140, label }: { value: string; onChange: (html: string) => void; placeholder?: string; minHeight?: number; label?: string }) {
   const editor = useEditor({
     extensions: [StarterKit, Placeholder.configure({ placeholder: placeholder ?? "" })],
+    editorProps: { attributes: { "aria-label": label ?? "Text" } },
     content: value || "<p></p>",
     onUpdate: ({ editor }) => onChange(editor.isEmpty ? "" : editor.getHTML()),
   });

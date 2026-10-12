@@ -37,7 +37,7 @@ export function BulkCleaner() {
   return (
     <Modal title="Sweep: clean up by sender" onClose={() => setDialog(null)} wide>
       <div className="muted small">Inbox senders ordered by message count.{accountId ? "" : " Showing all accounts."}</div>
-      <input className="sweep-search" placeholder="Filter senders" value={q} onChange={(e) => setQ(e.target.value)} />
+      <input className="sweep-search" aria-label="Filter senders" placeholder="Filter senders" value={q} onChange={(e) => setQ(e.target.value)} />
       {list === null && <div className="muted">Loading…</div>}
       <div className="sweep-list">
         {shown.map((s) => (

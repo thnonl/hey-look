@@ -2,6 +2,7 @@ mod ai;
 mod db;
 mod mail;
 mod oauth;
+use oauth::Provider;
 mod shell;
 mod smtp;
 
@@ -38,19 +39,42 @@ fn password(account_id: &str) -> R<String> {
         .map_err(|e| format!("no stored password: {e}"))
 }
 
-/// Google OAuth client from the environment: a runtime variable wins over the value embedded at build
+/// OAuth client from the environment: a runtime variable wins over the value embedded at build
 /// time (from the build environment or a `.env` file, see build.rs).
-fn google_env() -> Option<(String, String)> {
+fn oauth_env(p: Provider) -> Option<(String, String)> {
     let pick = |runtime: Option<String>, built: Option<&'static str>| {
         runtime.filter(|v| !v.trim().is_empty()).or_else(|| built.map(String::from)).filter(|v| !v.trim().is_empty())
     };
-    let id = pick(std::env::var("GOOGLE_CLIENT_ID").ok(), option_env!("GOOGLE_CLIENT_ID"))?;
-    let secret = pick(std::env::var("GOOGLE_CLIENT_SECRET").ok(), option_env!("GOOGLE_CLIENT_SECRET")).unwrap_or_default();
-    Some((id.trim().to_string(), secret.trim().to_string()))
+    let (id, secret) = match p {
+        Provider::Google => (
+            pick(std::env::var("GOOGLE_CLIENT_ID").ok(), option_env!("GOOGLE_CLIENT_ID")),
+            pick(std::env::var("GOOGLE_CLIENT_SECRET").ok(), option_env!("GOOGLE_CLIENT_SECRET")),
+        ),
+        Provider::Microsoft => (
+            pick(std::env::var("MICROSOFT_CLIENT_ID").ok(), option_env!("MICROSOFT_CLIENT_ID")),
+            pick(std::env::var("MICROSOFT_CLIENT_SECRET").ok(), option_env!("MICROSOFT_CLIENT_SECRET")),
+        ),
+    };
+    Some((id?.trim().to_string(), secret.unwrap_or_default().trim().to_string()))
 }
 
-// Secrets (AI key, Google client secret) live in the Windows Credential Manager, not in the SQLite file.
-const SECRET_NAMES: [&str; 2] = ["ai_key", "google_client_secret"];
+/// Settings / credential-manager names for a provider's client id and secret.
+fn client_id_key(p: Provider) -> &'static str {
+    match p {
+        Provider::Google => "google_client_id",
+        Provider::Microsoft => "microsoft_client_id",
+    }
+}
+
+fn client_secret_key(p: Provider) -> &'static str {
+    match p {
+        Provider::Google => "google_client_secret",
+        Provider::Microsoft => "microsoft_client_secret",
+    }
+}
+
+// Secrets (AI key, OAuth client secrets) live in the Windows Credential Manager, not in the SQLite file.
+const SECRET_NAMES: [&str; 3] = ["ai_key", "google_client_secret", "microsoft_client_secret"];
 
 fn secret_get(name: &str) -> Option<String> {
     keyring::Entry::new("hey-look", &format!("secret:{name}"))
@@ -96,25 +120,31 @@ fn has_secret(name: String) -> bool {
 }
 
 /// Client id/secret to use: environment first, then what the user typed in Settings.
-fn google_creds(db: &Db) -> (String, String) {
-    google_env().unwrap_or_else(|| {
+fn oauth_creds(db: &Db, p: Provider) -> (String, String) {
+    oauth_env(p).unwrap_or_else(|| {
         let c = lock(db);
-        (db::get_setting(&c, "google_client_id").unwrap_or_default(), secret_get("google_client_secret").unwrap_or_default())
+        (db::get_setting(&c, client_id_key(p)).unwrap_or_default(), secret_get(client_secret_key(p)).unwrap_or_default())
     })
 }
 
 #[tauri::command]
 fn google_env_configured() -> bool {
-    google_env().is_some()
+    oauth_env(Provider::Google).is_some()
 }
 
-/// Password, or a fresh OAuth access token for Google accounts.
+#[tauri::command]
+fn microsoft_env_configured() -> bool {
+    oauth_env(Provider::Microsoft).is_some()
+}
+
+/// Password, or a fresh OAuth access token for Google / Microsoft accounts.
 fn secret(db: &Db, acc: &Account) -> R<String> {
-    if acc.auth == "oauth_google" {
-        let (id, sec) = google_creds(db);
-        oauth::access_token(&acc.id, &id, &sec)
-    } else {
-        password(&acc.id)
+    match Provider::from_auth(&acc.auth) {
+        Some(p) => {
+            let (id, sec) = oauth_creds(db, p);
+            oauth::access_token(p, &acc.id, &id, &sec)
+        }
+        None => password(&acc.id),
     }
 }
 
@@ -187,18 +217,44 @@ async fn google_sign_in(
     client_secret: String,
     display_name: String,
 ) -> R<Account> {
-    let from_env = google_env();
+    oauth_sign_in(app, state, Provider::Google, client_id, client_secret, display_name).await
+}
+
+#[tauri::command]
+async fn microsoft_sign_in(
+    app: tauri::AppHandle,
+    state: tauri::State<'_, AppState>,
+    client_id: String,
+    client_secret: String,
+    display_name: String,
+) -> R<Account> {
+    oauth_sign_in(app, state, Provider::Microsoft, client_id, client_secret, display_name).await
+}
+
+async fn oauth_sign_in(
+    app: tauri::AppHandle,
+    state: tauri::State<'_, AppState>,
+    provider: Provider,
+    client_id: String,
+    client_secret: String,
+    display_name: String,
+) -> R<Account> {
+    let label = provider.label();
+    let from_env = oauth_env(provider);
     let (client_id, client_secret) = match &from_env {
         Some((i, s)) => (i.clone(), s.clone()),
         None => {
-            let secret = if client_secret.trim().is_empty() { secret_get("google_client_secret").unwrap_or_default() } else { client_secret };
+            let secret = if client_secret.trim().is_empty() { secret_get(client_secret_key(provider)).unwrap_or_default() } else { client_secret };
             (client_id, secret)
         }
     };
     if client_id.trim().is_empty() {
-        return Err("No Google OAuth client configured: set GOOGLE_CLIENT_ID / GOOGLE_CLIENT_SECRET, or enter them in Settings > Accounts".into());
+        return Err(format!(
+            "No {label} OAuth client configured: set {}_CLIENT_ID, or enter it in Settings > Accounts",
+            label.to_uppercase()
+        ));
     }
-    let pending = oauth::begin(client_id.trim())?;
+    let pending = oauth::begin(provider, client_id.trim())?;
     app.opener().open_url(pending.url.clone(), None::<&str>).map_err(err)?;
     let (cid, csec) = (client_id.trim().to_string(), client_secret.trim().to_string());
     let signed = blocking(move || pending.finish(&cid, &csec)).await?;
@@ -206,6 +262,10 @@ async fn google_sign_in(
     let existing = db::list_accounts(&lock(&state.db))?
         .into_iter()
         .find(|a| a.email.eq_ignore_ascii_case(&signed.email));
+    let (imap_host, smtp_host, smtp_port, smtp_security) = match provider {
+        Provider::Google => ("imap.gmail.com", "smtp.gmail.com", 465, "ssl"),
+        Provider::Microsoft => ("outlook.office365.com", "smtp.office365.com", 587, "starttls"),
+    };
     let acc = Account {
         id: existing.as_ref().map(|a| a.id.clone()).unwrap_or_else(|| uuid::Uuid::new_v4().to_string()),
         email: signed.email.clone(),
@@ -216,14 +276,14 @@ async fn google_sign_in(
         } else {
             signed.name.clone()
         },
-        imap_host: "imap.gmail.com".into(),
+        imap_host: imap_host.into(),
         imap_port: 993,
         imap_ssl: true,
-        smtp_host: "smtp.gmail.com".into(),
-        smtp_port: 465,
-        smtp_security: "ssl".into(),
+        smtp_host: smtp_host.into(),
+        smtp_port,
+        smtp_security: smtp_security.into(),
         username: signed.email.clone(),
-        auth: "oauth_google".into(),
+        auth: provider.auth().into(),
         color: existing.and_then(|a| a.color),
     };
     keyring::Entry::new("hey-look", &acc.id)
@@ -240,9 +300,9 @@ async fn google_sign_in(
     .await?;
     let c = lock(&state.db);
     if from_env.is_none() {
-        db::set_setting(&c, "google_client_id", client_id.trim())?;
+        db::set_setting(&c, client_id_key(provider), client_id.trim())?;
         if !client_secret.trim().is_empty() {
-            secret_set("google_client_secret", client_secret.trim())?;
+            secret_set(client_secret_key(provider), client_secret.trim())?;
         }
     }
     db::insert_account(&c, &acc)?;
@@ -1928,6 +1988,13 @@ async fn ai_complete(state: tauri::State<'_, AppState>, system: String, prompt: 
     ai::complete(&ep, &key, &model, &system, &prompt).await
 }
 
+#[tauri::command]
+async fn ai_list_models(endpoint: String, key: Option<String>) -> R<Vec<String>> {
+    // a key typed in Settings but not saved yet wins over the saved one
+    let key = key.filter(|k| !k.trim().is_empty()).unwrap_or_else(|| secret_get("ai_key").unwrap_or_default());
+    ai::list_models(&endpoint, key.trim()).await
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
@@ -1974,6 +2041,8 @@ pub fn run() {
             add_account,
             google_sign_in,
             google_env_configured,
+            microsoft_sign_in,
+            microsoft_env_configured,
             update_account,
             remove_account,
             sync_account,
@@ -2015,7 +2084,8 @@ pub fn run() {
             attachment_data,
             set_secret,
             has_secret,
-            ai_complete
+            ai_complete,
+            ai_list_models
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

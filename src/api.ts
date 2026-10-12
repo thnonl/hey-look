@@ -11,7 +11,7 @@ export interface Account {
   smtpPort: number;
   smtpSecurity: "ssl" | "starttls" | "none";
   username: string;
-  auth: "password" | "oauth_google";
+  auth: "password" | "oauth_google" | "oauth_microsoft";
   color?: string | null;
 }
 export type AccountInput = Omit<Account, "id" | "auth" | "color">;
@@ -167,6 +167,8 @@ export interface Contact {
 
 export type FolderKey = string;
 
+export type SecretName = "ai_key" | "google_client_secret" | "microsoft_client_secret";
+
 export const api = {
   listAccounts: () => invoke<Account[]>("list_accounts"),
   addAccount: (input: AccountInput, passwordValue: string) =>
@@ -174,6 +176,9 @@ export const api = {
   googleEnvConfigured: () => invoke<boolean>("google_env_configured"),
   googleSignIn: (clientId: string, clientSecret: string, displayName: string) =>
     invoke<Account>("google_sign_in", { clientId, clientSecret, displayName }),
+  microsoftEnvConfigured: () => invoke<boolean>("microsoft_env_configured"),
+  microsoftSignIn: (clientId: string, clientSecret: string, displayName: string) =>
+    invoke<Account>("microsoft_sign_in", { clientId, clientSecret, displayName }),
   updateAccount: (accountId: string, displayName: string, color: string | null) =>
     invoke<void>("update_account", { accountId, displayName, color }),
   removeAccount: (accountId: string) => invoke<void>("remove_account", { accountId }),
@@ -194,8 +199,8 @@ export const api = {
   loadOlder: (accountId: string, role: string) => invoke<number>("load_older", { accountId, role }),
   attachmentData: (messageId: string, index: number) =>
     invoke<{ name: string; mime: string; dataBase64: string }>("attachment_data", { messageId, index }),
-  setSecret: (name: "ai_key" | "google_client_secret", value: string) => invoke<void>("set_secret", { name, value }),
-  hasSecret: (name: "ai_key" | "google_client_secret") => invoke<boolean>("has_secret", { name }),
+  setSecret: (name: SecretName, value: string) => invoke<void>("set_secret", { name, value }),
+  hasSecret: (name: SecretName) => invoke<boolean>("has_secret", { name }),
   listSenders: (accountId?: string | null) => invoke<SenderInfo[]>("list_senders", { accountId: accountId ?? null }),
   senderAction: (accountId: string | null, email: string, action: string, arg?: string) =>
     invoke<number>("sender_action", { accountId, email, action, arg: arg ?? null }),
@@ -226,6 +231,7 @@ export const api = {
     invoke<{ kind: "done" | "open" | "mailto"; target: string }>("unsubscribe", { messageId }),
   fetchRemoteImages: (urls: string[]) => invoke<Record<string, string>>("fetch_remote_images", { urls }),
   aiComplete: (system: string, prompt: string) => invoke<string>("ai_complete", { system, prompt }),
+  aiListModels: (endpoint: string, key?: string) => invoke<string[]>("ai_list_models", { endpoint, key: key ?? null }),
 };
 
 export const PROVIDERS: Record<
@@ -248,7 +254,7 @@ export const PROVIDERS: Record<
     smtpHost: "smtp.office365.com",
     smtpPort: 587,
     smtpSecurity: "starttls",
-    hint: "Basic auth must be enabled on the tenant; personal accounts need an app password.",
+    hint: "Prefer the Microsoft tab (OAuth). Password sign-in only works if basic auth is enabled; personal accounts then need an app password.",
   },
   icloud: {
     label: "iCloud",
@@ -257,7 +263,7 @@ export const PROVIDERS: Record<
     smtpHost: "smtp.mail.me.com",
     smtpPort: 587,
     smtpSecurity: "starttls",
-    hint: "Use an app-specific password from appleid.apple.com.",
+    hint: "Apple has no OAuth for mail apps. Create an app-specific password at account.apple.com (Sign-In and Security) and use it here, with your full iCloud address as the email.",
   },
   yahoo: {
     label: "Yahoo",

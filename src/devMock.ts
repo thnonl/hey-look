@@ -47,11 +47,19 @@ export function installMock() {
       case "set_setting": settings[a.key as string] = a.value as string; return null;
       case "list_folders": return folders;
       case "list_threads": {
-        const f = a.filter as { folder: string; focus?: string; unreadOnly?: boolean };
+        const f = a.filter as { folder: string; focus?: string; unreadOnly?: boolean; search?: string };
         let list = threads;
         if (f.focus === "other") list = threads.filter((x) => x.bulk);
         else if (f.focus === "focused") list = threads.filter((x) => !x.bulk);
         if (f.unreadOnly) list = list.filter((x) => x.unread);
+        // mirror the Rust backend: every free word must appear in subject, snippet or participants
+        const words = (f.search ?? "").toLowerCase().split(/\s+/).filter(Boolean);
+        if (words.length) {
+          list = list.filter((x) => {
+            const hay = [x.subject, x.snippet, ...x.participants].join(" ").toLowerCase();
+            return words.every((w) => hay.includes(w));
+          });
+        }
         return f.folder === "inbox" || f.folder === "unread" || f.folder === "all" ? list : [];
       }
       case "get_thread":
@@ -75,6 +83,10 @@ export function installMock() {
       case "attachment_data": return { name: "file.pdf", mime: "application/pdf", dataBase64: "" };
       case "send_message": return "sent";
       case "suggest_contacts": return [{ name: "Linh Tran", email: "linh@example.com" }];
+      case "ai_list_models": {
+        if (String(a.endpoint).includes("bad")) throw "Models request failed (404 Not Found)"; // lets the error state be tried in the browser
+        return new Promise((r) => setTimeout(() => r(["gpt-4o", "gpt-4o-mini", "gpt-4.1", "o3-mini", "text-embedding-3-small"]), 500));
+      }
       case "ai_complete": return "• Linh shared the Q4 roadmap\n• Review requested before Thursday";
       case "get_autostart": return false;
       default: return null;

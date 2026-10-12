@@ -21,7 +21,7 @@ impl imap::Authenticator for XOAuth2<'_> {
     }
 }
 
-/// `secret` is the password, or the OAuth access token when `acc.auth == "oauth_google"`.
+/// `secret` is the password, or the OAuth access token when `acc.auth` is an `oauth_*` method.
 pub fn connect(acc: &Account, secret: &str) -> R<Sess> {
     let tls = native_tls::TlsConnector::builder().build().map_err(err)?;
     let host = acc.imap_host.as_str();
@@ -31,7 +31,7 @@ pub fn connect(acc: &Account, secret: &str) -> R<Sess> {
     } else {
         imap::connect_starttls(addr, host, &tls).map_err(err)?
     };
-    if acc.auth == "oauth_google" {
+    if acc.auth.starts_with("oauth_") {
         client
             .authenticate("XOAUTH2", &XOAuth2 { user: &acc.email, token: secret })
             .map_err(|e| format!("IMAP OAuth login failed: {}", e.0))

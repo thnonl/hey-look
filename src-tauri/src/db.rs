@@ -80,7 +80,7 @@ pub struct Account {
     /// "ssl" | "starttls" | "none"
     pub smtp_security: String,
     pub username: String,
-    /// "password" | "oauth_google"
+    /// "password" | "oauth_google" | "oauth_microsoft"
     #[serde(default = "default_auth")]
     pub auth: String,
     #[serde(default)]

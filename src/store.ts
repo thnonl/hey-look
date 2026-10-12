@@ -1,6 +1,6 @@
 import { create } from "zustand";
 import { api, Account, Att, FolderInfo, MessageFull, OutboxItem, SearchScope, ThreadSummary } from "./api";
-import { DEFAULT_PREFS, lightened, mergePrefs, Prefs, readableOn, validHex } from "./prefs";
+import { accentText, buttonAccent, DEFAULT_PREFS, lightened, mergePrefs, Prefs, readableOn, topBar, validHex } from "./prefs";
 
 export interface ComposeInit {
   accountId?: string;
@@ -58,7 +58,7 @@ export function friendlyError(e: unknown): string {
   const raw = String(e instanceof Error ? e.message : e).replace(/^Error:\s*/, "").trim();
   if (/login failed|authenticationfailed|invalid credentials|auth.*fail/i.test(raw))
     return "Sign-in failed. Check the password (Gmail, iCloud and Yahoo need an app password) or sign in again.";
-  if (/no stored (password|google token)/i.test(raw)) return "The saved credentials for this account are missing. Remove the account and add it again.";
+  if (/no stored (password|\w+ token)/i.test(raw)) return "The saved credentials for this account are missing. Remove the account and add it again.";
   if (/timed out|timeout|10060|did not properly respond/i.test(raw)) return "The mail server did not respond. Check your connection and try again.";
   if (/lookup|dns|no such host|name or service not known|11001/i.test(raw)) return "Cannot reach the mail server. Check the server name and your connection.";
   if (/certificate|tls|ssl/i.test(raw) && /invalid|verify|unknown|expired/i.test(raw)) return "The server's security certificate was rejected.";
@@ -133,10 +133,18 @@ function applyPrefs(p: Prefs) {
   else root.setAttribute("data-theme", p.theme);
   root.setAttribute("data-density", p.density);
   root.style.setProperty("--fs", `${p.fontSize}px`);
-  const accent = validHex(p.accent) ? p.accent : DEFAULT_PREFS.accent;
+  const accent = buttonAccent(validHex(p.accent) ? p.accent : DEFAULT_PREFS.accent);
   root.style.setProperty("--accent-base", accent);
   root.style.setProperty("--accent-fg-lt", readableOn(accent));
   root.style.setProperty("--accent-fg-dk", readableOn(lightened(accent)));
+  root.style.setProperty("--accent-text-lt", accentText(accent, false));
+  root.style.setProperty("--accent-text-dk", accentText(accent, true));
+  const top = topBar(accent);
+  root.style.setProperty("--top-lt", top.bg);
+  root.style.setProperty("--top-fg-lt", top.fg);
+  root.style.setProperty("--top-field-lt", top.field);
+  root.style.setProperty("--top-field-h-lt", top.fieldHover);
+  root.style.setProperty("--top-hover-lt", top.hover);
 }
 
 /** Apply read/unread/flag/pin changes to the lists right away; the backend call (IMAP) follows. */

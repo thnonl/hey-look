@@ -57,7 +57,7 @@ export function CommandBar() {
       <div className="modal cmd" onMouseDown={(e) => e.stopPropagation()}>
         <input
           ref={ref}
-          placeholder="Type a command…"
+          aria-label="Command" placeholder="Type a command…"
           value={q}
           onChange={(e) => {
             setQ(e.target.value);

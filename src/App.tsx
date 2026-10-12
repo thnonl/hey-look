@@ -107,7 +107,8 @@ function App() {
         void st.sync();
         return;
       }
-      const t = e.target as HTMLElement;
+      const t = e.target;
+      if (!(t instanceof Element)) return;
       if (t.closest("input,textarea,select,[contenteditable=true]")) return;
       if (st.compose || st.dialog || st.commandOpen || st.ask) return;
       if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "a") {

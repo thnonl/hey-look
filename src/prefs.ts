@@ -192,12 +192,59 @@ function luminance(hex: string): number {
 }
 /** Readable text color on top of `hex` (the accent as a button background). */
 export function readableOn(hex: string): string {
-  return luminance(hex) > 0.4 ? "#0b1220" : "#ffffff";
+  // pick whichever of near-black / white has the higher WCAG contrast (they tie at luminance ~0.19)
+  return luminance(hex) > 0.19 ? "#0b1220" : "#ffffff";
 }
-/** The accent as it appears in dark mode (lightened 28%), and the text color that goes on it. */
-export function lightened(hex: string, amount = 0.28): string {
+/** The accent as it appears in dark mode (lightened 40%), and the text color that goes on it. */
+export function lightened(hex: string, amount = 0.4): string {
   const n = parseInt(hex.slice(1), 16);
   const m = (v: number) => Math.round(v * (1 - amount) + 255 * amount).toString(16).padStart(2, "0");
   return `#${m((n >> 16) & 255)}${m((n >> 8) & 255)}${m(n & 255)}`;
+}
+const rgbOf = (hex: string) => { const n = parseInt(hex.slice(1), 16); return [(n >> 16) & 255, (n >> 8) & 255, n & 255]; };
+const hexOf = (c: number[]) => `#${c.map((v) => Math.round(v).toString(16).padStart(2, "0")).join("")}`;
+/** `a` blended `t` (0..1) of the way towards `b`. */
+const blend = (a: string, b: string, t: number) => { const x = rgbOf(a), y = rgbOf(b); return hexOf(x.map((v, i) => v * (1 - t) + y[i] * t)); };
+const ratio = (a: string, b: string) => { const x = luminance(a), y = luminance(b); return (Math.max(x, y) + 0.05) / (Math.min(x, y) + 0.05); };
+const SURFACES = { light: ["#ffffff", "#f6f7f9", "#eceef2"], dark: ["#1b1c20", "#232429", "#2d2f36"] };
+/**
+ * The accent as TEXT / link colour (--accent-text): keeps the hue, but darkens it (light theme) or lightens it (dark theme)
+ * until it reads at >= 4.5:1 on the app surfaces and on the accent-tinted selection background. --accent itself stays the brand colour.
+ */
+/** Darkens an accent just enough that its button label (white or near-black) reaches 4.5:1; colours that already pass are returned unchanged. */
+export function buttonAccent(hex: string): string {
+  const best = (c: string) => Math.max(ratio(c, "#ffffff"), ratio(c, "#0b1220"));
+  for (let t = 0; t <= 0.5; t += 0.01) {
+    const c = blend(hex, "#000000", t);
+    if (best(c) >= 4.5) return c;
+  }
+  return hex;
+}
+export interface TopBarColors { bg: string; fg: string; field: string; fieldHover: string; hover: string }
+/**
+ * Light-theme top bar: gradient from the accent (22% darker) to the accent, with text/icon colour and search-field tint chosen so
+ * everything on it reads at >= 4.5:1 at BOTH gradient ends. White text on accents that allow it, near-black on light accents,
+ * otherwise the gradient is darkened until white works.
+ */
+export function topBar(accent: string): TopBarColors {
+  const WHITE = "#ffffff", INK = "#0b1220";
+  let s = blend(accent, "#000000", 0.22), e = accent;
+  const grad = (a: string, b: string) => `linear-gradient(135deg, ${a} 0%, ${b} 100%)`;
+  if (ratio(WHITE, e) < 4.5 && ratio(INK, s) >= 4.5) {
+    return { bg: grad(s, e), fg: INK, field: "rgba(255,255,255,.35)", fieldHover: "rgba(255,255,255,.5)", hover: "rgba(0,0,0,.12)" };
+  }
+  for (let k = 0; ratio(WHITE, e) < 4.5 && k < 1; k += 0.02) { s = blend(accent, "#000000", 0.22 + k); e = blend(accent, "#000000", k); }
+  return { bg: grad(s, e), fg: WHITE, field: "rgba(0,0,0,.2)", fieldHover: "rgba(0,0,0,.3)", hover: "rgba(255,255,255,.18)" };
+}
+export function accentText(accent: string, dark: boolean): string {
+  const bg = SURFACES[dark ? "dark" : "light"];
+  const base = dark ? lightened(accent) : accent;
+  const soft = blend(bg[0], base, dark ? 0.14 : 0.12);
+  const surfaces = [...bg, soft];
+  for (let t = 0; t <= 1.0001; t += 0.02) {
+    const c = blend(base, dark ? "#ffffff" : "#000000", t);
+    if (surfaces.every((s) => ratio(c, s) >= 4.55)) return c;
+  }
+  return dark ? "#ffffff" : "#000000";
 }
 export const validHex = (v: string) => /^#[0-9a-fA-F]{6}$/.test(v);

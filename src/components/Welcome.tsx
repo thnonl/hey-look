@@ -19,11 +19,18 @@ export function Welcome() {
               <small>Gmail and Google Workspace, no password stored</small>
             </span>
           </button>
+          <button className="wcard primary" onClick={() => setDialog({ type: "settings", tab: "add-account" })}>
+            <Globe size={22} />
+            <span>
+              <b>Sign in with Microsoft</b>
+              <small>Outlook.com, Hotmail and Microsoft 365, no password stored</small>
+            </span>
+          </button>
           <button className="wcard" onClick={() => setDialog({ type: "settings", tab: "add-account" })}>
             <Mail size={22} />
             <span>
               <b>Other email account</b>
-              <small>Outlook, iCloud, Yahoo or any IMAP / SMTP server</small>
+              <small>iCloud (app password), Yahoo or any IMAP / SMTP server</small>
             </span>
           </button>
         </div>

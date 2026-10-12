@@ -80,7 +80,7 @@ pub fn build(acc: &Account, d: &Draft) -> R<Message> {
 }
 
 pub fn send(acc: &Account, secret: &str, msg: &Message) -> R<()> {
-    let creds = Credentials::new(if acc.auth == "oauth_google" { acc.email.clone() } else { acc.username.clone() }, secret.to_string());
+    let creds = Credentials::new(if acc.auth.starts_with("oauth_") { acc.email.clone() } else { acc.username.clone() }, secret.to_string());
     let host = acc.smtp_host.as_str();
     let t = match acc.smtp_security.as_str() {
         "ssl" => SmtpTransport::relay(host).map_err(err)?.port(acc.smtp_port),
@@ -88,7 +88,7 @@ pub fn send(acc: &Account, secret: &str, msg: &Message) -> R<()> {
         _ => SmtpTransport::builder_dangerous(host).port(acc.smtp_port),
     }
     .credentials(creds);
-    let t = (if acc.auth == "oauth_google" { t.authentication(vec![Mechanism::Xoauth2]) } else { t }).build();
+    let t = (if acc.auth.starts_with("oauth_") { t.authentication(vec![Mechanism::Xoauth2]) } else { t }).build();
     t.send(msg).map_err(|e| format!("SMTP send failed: {e}"))?;
     Ok(())
 }

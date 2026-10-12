@@ -1,5 +1,6 @@
 import { Plus, Trash2 } from "lucide-react";
-import { ReactNode, useEffect, useState } from "react";
+import { openUrl } from "@tauri-apps/plugin-opener";
+import { ReactNode, useEffect, useRef, useState } from "react";
 import { Account, api, PROVIDERS, Rule, Signature, Template } from "../api";
 import { ACCENT_PRESETS, DEFAULT_PREFS, eff, folderLabel, isOverridden, NOTIFY_ACTIONS, NOTIFY_SOUNDS, Overridable, Prefs, validHex } from "../prefs";
 import { friendlyError, useStore } from "../store";
@@ -7,15 +8,25 @@ import { AppearancePreview } from "./AppearancePreview";
 import { RichEditor } from "./RichEditor";
 import { Avatar, Modal, Switch } from "./ui";
 
-const Row = ({ label, hint, children, id }: { label: string; hint?: string; children: ReactNode; id?: string }) => (
-  <div className="set-row" id={id ? `set-${id}` : undefined}>
-    <div className="set-lbl">
-      <div>{label}</div>
-      {hint && <div className="muted small">{hint}</div>}
+const Row = ({ label, hint, children, id }: { label: string; hint?: string; children: ReactNode; id?: string }) => {
+  const ctl = useRef<HTMLDivElement>(null);
+  // the label is a sibling <div>, not a <label for>: give the unnamed inputs/selects in this row the label as accessible name
+  useEffect(() => {
+    const els = [...(ctl.current?.querySelectorAll<HTMLInputElement>("input,select,textarea") ?? [])].filter(
+      (e) => !e.getAttribute("aria-label") && !e.getAttribute("aria-labelledby") && ![...(e.labels ?? [])].some((l) => l.textContent?.trim()),
+    );
+    els.forEach((e, i) => e.setAttribute("aria-label", els.length > 1 ? `${label} (${i + 1})` : label));
+  });
+  return (
+    <div className="set-row" id={id ? `set-${id}` : undefined}>
+      <div className="set-lbl">
+        <div>{label}</div>
+        {hint && <div className="muted small">{hint}</div>}
+      </div>
+      <div className="set-ctl" ref={ctl}>{children}</div>
     </div>
-    <div className="set-ctl">{children}</div>
-  </div>
-);
+  );
+};
 
 function Seg<T extends string>({ value, options, onChange }: { value: T; options: [T, string][]; onChange: (v: T) => void }) {
   return (
@@ -255,8 +266,30 @@ function AppearanceTab() {
 }
 
 // ---------------------------------------------------------------- Adding accounts
-function GoogleBlock() {
+type OAuthKind = "google" | "microsoft";
+
+const OAUTH = {
+  google: {
+    label: "Google",
+    secretName: "google_client_secret" as const,
+    idSetting: "google_client_id",
+    envVars: "GOOGLE_CLIENT_ID / GOOGLE_CLIENT_SECRET",
+    idPlaceholder: "1234-abc.apps.googleusercontent.com",
+    secretRequired: true,
+  },
+  microsoft: {
+    label: "Microsoft",
+    secretName: "microsoft_client_secret" as const,
+    idSetting: "microsoft_client_id",
+    envVars: "MICROSOFT_CLIENT_ID",
+    idPlaceholder: "00000000-0000-0000-0000-000000000000",
+    secretRequired: false,
+  },
+};
+
+function OAuthBlock({ kind }: { kind: OAuthKind }) {
   const { showToast } = useStore();
+  const cfg = OAUTH[kind];
   const [cid, setCid] = useState("");
   const [sec, setSec] = useState("");
   const [secSaved, setSecSaved] = useState(false);
@@ -264,14 +297,16 @@ function GoogleBlock() {
   const [busy, setBusy] = useState(false);
   const [fromEnv, setFromEnv] = useState(false);
   useEffect(() => {
-    void api.googleEnvConfigured().then(setFromEnv).catch(() => undefined);
-    void api.getSetting("google_client_id").then((a) => setCid(a ?? ""));
-    void api.hasSecret("google_client_secret").then(setSecSaved).catch(() => undefined);
-  }, []);
+    const envCheck = kind === "google" ? api.googleEnvConfigured() : api.microsoftEnvConfigured();
+    void envCheck.then(setFromEnv).catch(() => undefined);
+    void api.getSetting(cfg.idSetting).then((a) => setCid(a ?? ""));
+    void api.hasSecret(cfg.secretName).then(setSecSaved).catch(() => undefined);
+  }, [kind, cfg]);
   const go = async () => {
     setBusy(true);
     try {
-      const acc = await api.googleSignIn(cid, sec, name);
+      const signIn = kind === "google" ? api.googleSignIn : api.microsoftSignIn;
+      const acc = await signIn(cid, sec, name);
       const accounts = await api.listAccounts();
       useStore.setState({ accounts });
       showToast(`Signed in as ${acc.email}. Syncing…`, undefined, "success");
@@ -284,33 +319,49 @@ function GoogleBlock() {
   };
   return (
     <div className="set-card">
-      <h4>Sign in with Google (OAuth)</h4>
-      <div className="muted small">
-        No password is stored. A browser window opens for the Google consent screen; the redirect stays on <code>127.0.0.1</code>.
-        If the OAuth consent screen is in "Testing" mode Google expires refresh tokens after 7 days.
-      </div>
+      <h4>Sign in with {cfg.label} (OAuth)</h4>
+      {kind === "google" ? (
+        <div className="muted small">
+          No password is stored. A browser window opens for the Google consent screen; the redirect stays on <code>127.0.0.1</code>.
+          If the OAuth consent screen is in "Testing" mode Google expires refresh tokens after 7 days.
+        </div>
+      ) : (
+        <div className="muted small">
+          For Outlook.com, Hotmail, Live and Microsoft 365 accounts. No password is stored. A browser window opens for the Microsoft
+          consent screen; the redirect stays on <code>localhost</code>. Microsoft 365 tenants may need an admin to allow IMAP / SMTP AUTH.
+        </div>
+      )}
       <div className="form">
         {fromEnv ? (
           <div className="notice">
-            Using the Google OAuth client from the <code>GOOGLE_CLIENT_ID</code> / <code>GOOGLE_CLIENT_SECRET</code> environment variables
+            Using the {cfg.label} OAuth client from the <code>{cfg.envVars}</code> environment variable(s)
             (or the <code>.env</code> file this build was made with).
           </div>
         ) : (
           <>
-            <div className="muted small">
-              Create an OAuth client of type <b>Desktop app</b> in Google Cloud Console (Gmail API enabled) and paste it here, or set the
-              environment variables above.
-            </div>
+            {kind === "google" ? (
+              <div className="muted small">
+                Create an OAuth client of type <b>Desktop app</b> in Google Cloud Console (Gmail API enabled) and paste it here, or set the
+                environment variables above.
+              </div>
+            ) : (
+              <div className="muted small">
+                In Microsoft Entra (portal.azure.com, App registrations) register an app that supports <b>personal and work accounts</b>,
+                add a <b>Mobile and desktop applications</b> platform with redirect URI <code>http://localhost</code>, and paste the
+                Application (client) ID here. API permissions: <code>IMAP.AccessAsUser.All</code>, <code>SMTP.Send</code>,{" "}
+                <code>offline_access</code> (Office 365 Exchange Online). No secret is needed.
+              </div>
+            )}
             <label>Client ID</label>
-            <input value={cid} onChange={(e) => setCid(e.target.value)} placeholder="1234-abc.apps.googleusercontent.com" />
-            <label>Client secret</label>
-            <input type="password" value={sec} onChange={(e) => setSec(e.target.value)} placeholder={secSaved ? "Saved in Windows Credential Manager" : ""} />
+            <input aria-label="Client ID" value={cid} onChange={(e) => setCid(e.target.value)} placeholder={cfg.idPlaceholder} />
+            <label>Client secret{cfg.secretRequired ? "" : " (optional)"}</label>
+            <input aria-label="Client secret" type="password" value={sec} onChange={(e) => setSec(e.target.value)} placeholder={secSaved ? "Saved in Windows Credential Manager" : ""} />
           </>
         )}
         <label>Display name (optional)</label>
-        <input value={name} onChange={(e) => setName(e.target.value)} />
+        <input aria-label="Display name (optional)" value={name} onChange={(e) => setName(e.target.value)} />
         <button className="btn primary" disabled={busy || (!fromEnv && !cid)} onClick={() => void go()}>
-          {busy ? "Waiting for Google…" : "Sign in with Google"}
+          {busy ? `Waiting for ${cfg.label}…` : `Sign in with ${cfg.label}`}
         </button>
       </div>
     </div>
@@ -355,30 +406,30 @@ function ImapForm() {
       <h4>Other account (IMAP / SMTP)</h4>
       <div className="form">
         <label>Provider</label>
-        <select value={provider} onChange={(e) => pick(e.target.value)}>
+        <select aria-label="Provider" value={provider} onChange={(e) => pick(e.target.value)}>
           {Object.entries(PROVIDERS).map(([k, v]) => <option key={k} value={k}>{v.label}</option>)}
         </select>
         {PROVIDERS[provider].hint && <div className="notice">{PROVIDERS[provider].hint}</div>}
         <label>Email</label>
-        <input value={email} onChange={(e) => setEmail(e.target.value)} />
+        <input aria-label="Email" value={email} onChange={(e) => setEmail(e.target.value)} />
         <label>Display name</label>
-        <input value={name} onChange={(e) => setName(e.target.value)} />
+        <input aria-label="Display name" value={name} onChange={(e) => setName(e.target.value)} />
         <label>Password / app password</label>
-        <input type="password" value={pw} onChange={(e) => setPw(e.target.value)} />
+        <input aria-label="Password / app password" type="password" value={pw} onChange={(e) => setPw(e.target.value)} />
         {provider === "custom" && (
           <>
             <label>Username (if different from email)</label>
-            <input value={username} onChange={(e) => setUsername(e.target.value)} />
+            <input aria-label="Username (if different from email)" value={username} onChange={(e) => setUsername(e.target.value)} />
             <label>IMAP host / port</label>
             <div className="row-inline">
-              <input value={adv.imapHost} onChange={(e) => setAdv({ ...adv, imapHost: e.target.value })} />
-              <input type="number" value={adv.imapPort} onChange={(e) => setAdv({ ...adv, imapPort: Number(e.target.value) })} />
+              <input aria-label="IMAP host" value={adv.imapHost} onChange={(e) => setAdv({ ...adv, imapHost: e.target.value })} />
+              <input type="number" aria-label="IMAP port" value={adv.imapPort} onChange={(e) => setAdv({ ...adv, imapPort: Number(e.target.value) })} />
             </div>
             <label>SMTP host / port / security</label>
             <div className="row-inline">
-              <input value={adv.smtpHost} onChange={(e) => setAdv({ ...adv, smtpHost: e.target.value })} />
-              <input type="number" value={adv.smtpPort} onChange={(e) => setAdv({ ...adv, smtpPort: Number(e.target.value) })} />
-              <select value={adv.smtpSecurity} onChange={(e) => setAdv({ ...adv, smtpSecurity: e.target.value as "ssl" | "starttls" })}>
+              <input aria-label="SMTP host" value={adv.smtpHost} onChange={(e) => setAdv({ ...adv, smtpHost: e.target.value })} />
+              <input type="number" aria-label="SMTP port" value={adv.smtpPort} onChange={(e) => setAdv({ ...adv, smtpPort: Number(e.target.value) })} />
+              <select aria-label="SMTP security" value={adv.smtpSecurity} onChange={(e) => setAdv({ ...adv, smtpSecurity: e.target.value as "ssl" | "starttls" })}>
                 <option value="ssl">SSL/TLS</option><option value="starttls">STARTTLS</option>
               </select>
             </div>
@@ -394,12 +445,12 @@ function ImapForm() {
 }
 
 function AddAccountTab() {
-  const [kind, setKind] = useState<"google" | "imap">("google");
+  const [kind, setKind] = useState<OAuthKind | "imap">("google");
   return (
     <div>
       <h3>Add account</h3>
-      <Seg value={kind} onChange={setKind} options={[["google", "Google"], ["imap", "Other (IMAP/SMTP)"]]} />
-      {kind === "google" ? <GoogleBlock /> : <ImapForm />}
+      <Seg value={kind} onChange={setKind} options={[["google", "Google"], ["microsoft", "Microsoft"], ["imap", "iCloud, Yahoo, other"]]} />
+      {kind === "imap" ? <ImapForm /> : <OAuthBlock kind={kind} />}
     </div>
   );
 }
@@ -513,9 +564,9 @@ function SignaturesPanel({ scope }: { scope: string | null }) {
       {cur && (
         <div className="form set-card">
           <label>Name</label>
-          <input value={cur.name} onChange={(e) => setCur({ ...cur, name: e.target.value })} />
+          <input aria-label="Name" value={cur.name} onChange={(e) => setCur({ ...cur, name: e.target.value })} />
           <label>Signature</label>
-          <RichEditor key={cur.id} value={cur.html} onChange={(html) => setCur((c) => (c ? { ...c, html } : c))} placeholder="Your name, title, phone…" />
+          <RichEditor key={cur.id} label="Signature" value={cur.html} onChange={(html) => setCur((c) => (c ? { ...c, html } : c))} placeholder="Your name, title, phone…" />
           <Switch checked={cur.isDefault} onChange={(v) => setCur({ ...cur, isDefault: v })} label={scope ? "Default for this account" : "Default for all accounts"} />
           <div className="row-inline">
             <button className="btn primary" onClick={async () => { await api.saveSignature(cur); setCur(null); void load(); }}>Save</button>
@@ -554,11 +605,11 @@ function TemplatesPanel({ scope }: { scope: string | null }) {
       {cur && (
         <div className="form set-card">
           <label>Name</label>
-          <input value={cur.name} onChange={(e) => setCur({ ...cur, name: e.target.value })} />
+          <input aria-label="Name" value={cur.name} onChange={(e) => setCur({ ...cur, name: e.target.value })} />
           <label>Subject (optional)</label>
-          <input value={cur.subject} onChange={(e) => setCur({ ...cur, subject: e.target.value })} />
+          <input aria-label="Subject (optional)" value={cur.subject} onChange={(e) => setCur({ ...cur, subject: e.target.value })} />
           <label>Message</label>
-          <RichEditor key={cur.id} value={cur.body} onChange={(body) => setCur((c) => (c ? { ...c, body } : c))} minHeight={180} />
+          <RichEditor key={cur.id} label="Message" value={cur.body} onChange={(body) => setCur((c) => (c ? { ...c, body } : c))} minHeight={180} />
           <div className="row-inline">
             <button className="btn primary" onClick={async () => { await api.saveTemplate(cur); setCur(null); void load(); }}>Save</button>
             <button className="btn" onClick={() => setCur(null)}>Cancel</button>
@@ -599,25 +650,25 @@ function FiltersPanel({ scope }: { scope: string | null }) {
       {cur && (
         <div className="form set-card">
           <label>Name</label>
-          <input value={cur.name} onChange={(e) => setCur({ ...cur, name: e.target.value })} />
+          <input aria-label="Name" value={cur.name} onChange={(e) => setCur({ ...cur, name: e.target.value })} />
           <label>When</label>
           <div className="row-inline">
-            <select value={cur.field} onChange={(e) => setCur({ ...cur, field: e.target.value as Rule["field"] })}>
+            <select aria-label="Rule field" value={cur.field} onChange={(e) => setCur({ ...cur, field: e.target.value as Rule["field"] })}>
               <option value="from">From</option><option value="to">To</option><option value="subject">Subject</option><option value="any">Any field</option>
             </select>
-            <select value={cur.op} onChange={(e) => setCur({ ...cur, op: e.target.value as Rule["op"] })}>
+            <select aria-label="Rule condition" value={cur.op} onChange={(e) => setCur({ ...cur, op: e.target.value as Rule["op"] })}>
               <option value="contains">contains</option><option value="equals">equals</option>
             </select>
-            <input value={cur.value} onChange={(e) => setCur({ ...cur, value: e.target.value })} />
+            <input aria-label="Rule text" value={cur.value} onChange={(e) => setCur({ ...cur, value: e.target.value })} />
           </div>
           <label>Then</label>
           <div className="row-inline">
-            <select value={cur.action} onChange={(e) => setCur({ ...cur, action: e.target.value as Rule["action"] })}>
+            <select aria-label="Rule action" value={cur.action} onChange={(e) => setCur({ ...cur, action: e.target.value as Rule["action"] })}>
               <option value="archive">Archive</option><option value="trash">Delete</option><option value="junk">Move to Junk</option>
               <option value="read">Mark as read</option><option value="star">Flag</option><option value="pin">Pin</option><option value="move">Move to folder…</option>
             </select>
             {cur.action === "move" && (
-              <select value={cur.arg ?? ""} onChange={(e) => setCur({ ...cur, arg: e.target.value })}>
+              <select aria-label="Target folder" value={cur.arg ?? ""} onChange={(e) => setCur({ ...cur, arg: e.target.value })}>
                 <option value="">Choose folder</option>
                 {roles.map((k) => <option key={k} value={k}>{folderLabel(k, folders.find((f) => f.key === k)?.name)}</option>)}
               </select>
@@ -723,7 +774,7 @@ function ProfilePanel({ account }: { account: Account }) {
   return (
     <>
       <Row label="Display name" hint="Shown to recipients as the sender name"><input defaultValue={account.displayName} onBlur={(e) => void upd({ displayName: e.target.value })} /></Row>
-      <Row label="Color" hint="Marks this account in the folder pane and in combined lists"><input type="color" value={account.color ?? "#0f6cbd"} onChange={(e) => void upd({ color: e.target.value })} /></Row>
+      <Row label="Color" hint="Marks this account in the folder pane and in combined lists"><input type="color" aria-label="Mailbox color" value={account.color ?? "#0f6cbd"} onChange={(e) => void upd({ color: e.target.value })} /></Row>
     </>
   );
 }
@@ -745,7 +796,7 @@ function ServerPanel({ account, close }: { account: Account; close: () => void }
   };
   return (
     <>
-      <Row label="Sign-in method">{account.auth === "oauth_google" ? "Google (OAuth 2.0)" : "Password (stored in Windows Credential Manager)"}</Row>
+      <Row label="Sign-in method">{account.auth === "oauth_google" ? "Google (OAuth 2.0)" : account.auth === "oauth_microsoft" ? "Microsoft (OAuth 2.0)" : "Password (stored in Windows Credential Manager)"}</Row>
       <Row label="Incoming (IMAP)">{account.imapHost}:{account.imapPort}</Row>
       <Row label="Outgoing (SMTP)">{account.smtpHost}:{account.smtpPort} ({account.smtpSecurity})</Row>
       <Row label="Remove account" hint="Deletes the local cache and stored credentials.">
@@ -911,10 +962,44 @@ function AiTab() {
   const [key, setKey] = useState("");
   const [hasKey, setHasKey] = useState(false);
   const { showToast, refreshAi } = useStore();
+  // model ids offered by {Base URL}/models (fetched by the backend: no CORS, Bearer key); refetched when URL or key change
+  const [models, setModels] = useState<string[]>([]);
+  const [modelsState, setModelsState] = useState<"idle" | "loading" | "error">("idle");
+  const [modelsErr, setModelsErr] = useState("");
+  const [ready, setReady] = useState(false);
+  useEffect(() => {
+    if (!ready) return;
+    if (!v.ai_endpoint.trim()) {
+      setModels([]);
+      setModelsState("idle");
+      return;
+    }
+    let stale = false;
+    setModelsState("loading");
+    const timer = setTimeout(() => {
+      api.aiListModels(v.ai_endpoint.trim(), key.trim() || undefined)
+        .then((ids) => {
+          if (stale) return;
+          setModels(ids);
+          setModelsState("idle");
+        })
+        .catch((e) => {
+          if (stale) return;
+          setModels([]);
+          setModelsErr(friendlyError(e));
+          setModelsState("error");
+        });
+    }, 600);
+    return () => {
+      stale = true;
+      clearTimeout(timer);
+    };
+  }, [ready, v.ai_endpoint, key, hasKey]);
   useEffect(() => {
     void Promise.all([api.getSetting("ai_endpoint"), api.getSetting("ai_model"), api.hasSecret("ai_key")]).then(([a, c, h]) => {
       setV({ ai_endpoint: a ?? "", ai_model: c ?? "" });
       setHasKey(h);
+      setReady(true);
     });
   }, []);
   const save = async () => {
@@ -933,14 +1018,26 @@ function AiTab() {
       <div className="muted small">Any OpenAI-compatible endpoint (OpenAI, a local server, a gateway). Used for summaries, translation and writing help.</div>
       <div className="form">
         <label>Base URL (ending in /v1)</label>
-        <input placeholder="https://api.openai.com/v1" value={v.ai_endpoint} onChange={(e) => setV({ ...v, ai_endpoint: e.target.value })} />
+        <input aria-label="Base URL (ending in /v1)" placeholder="https://api.openai.com/v1" value={v.ai_endpoint} onChange={(e) => setV({ ...v, ai_endpoint: e.target.value })} />
         <label>API key</label>
-        <input type="password" value={key} onChange={(e) => setKey(e.target.value)} placeholder={hasKey ? "Saved in Windows Credential Manager" : "Optional for local servers"} />
+        <input aria-label="API key" type="password" value={key} onChange={(e) => setKey(e.target.value)} placeholder={hasKey ? "Saved in Windows Credential Manager" : "Optional for local servers"} />
         {hasKey && (
           <button className="link small" onClick={async () => { await api.setSecret("ai_key", ""); setHasKey(false); }}>Remove the saved key</button>
         )}
         <label>Model</label>
-        <input value={v.ai_model} onChange={(e) => setV({ ...v, ai_model: e.target.value })} />
+        {models.length > 0 ? (
+          <select aria-label="Model" value={v.ai_model} onChange={(e) => setV({ ...v, ai_model: e.target.value })}>
+            {!v.ai_model && <option value="">Choose a model…</option>}
+            {/* the saved model stays selectable even when the endpoint does not list it */}
+            {v.ai_model && !models.includes(v.ai_model) && <option value={v.ai_model}>{v.ai_model} (saved)</option>}
+            {models.map((m) => <option key={m} value={m}>{m}</option>)}
+          </select>
+        ) : (
+          <input aria-label="Model" value={v.ai_model} placeholder="Model id, e.g. gpt-4o-mini" onChange={(e) => setV({ ...v, ai_model: e.target.value })} />
+        )}
+        {modelsState === "loading" && <div className="muted small" role="status">Loading models…</div>}
+        {modelsState === "error" && <div className="muted small" role="status">Could not load the model list ({modelsErr}). Type a model id instead.</div>}
+        {modelsState === "idle" && models.length === 0 && v.ai_endpoint.trim() && <div className="muted small" role="status">The endpoint returned no models. Type a model id instead.</div>}
         <button className="btn primary" onClick={() => void save()}>Save</button>
       </div>
     </div>
@@ -969,6 +1066,10 @@ function AboutTab() {
       <h3>About</h3>
       <p><b>Hey Look!</b> — a desktop mail client built with Tauri, React and Rust.</p>
       <p className="muted small">All features are always enabled. No license, no subscription, no cloud account. Mail goes directly between this app and your mail servers; AI features use only the endpoint you configure.</p>
+      <div className="about-links">
+        <button className="link about-link" title="https://github.com/thnonl/hey-look" onClick={() => void openUrl("https://github.com/thnonl/hey-look")}>GitHub repository (thnonl/hey-look)</button>
+        <button className="link about-link" title="https://github.com/thnonl" onClick={() => void openUrl("https://github.com/thnonl")}>GitHub profile (thnonl)</button>
+      </div>
     </div>
   );
 }

@@ -75,7 +75,7 @@ export function Dropdown({
   useOutside(ref, () => setOpen(false), open);
   return (
     <div className="dd" ref={ref}>
-      <button className={className} title={title} onClick={() => setOpen((o) => !o)}>
+      <button className={className} title={title} aria-label={title} onClick={() => setOpen((o) => !o)}>
         {children}
         {caret && <ChevronDown size={12} className="caret" />}
       </button>
@@ -92,7 +92,7 @@ export function Avatar({ name, size = 36, color }: { name: string; size?: number
   return (
     <div
       className="avatar"
-      style={{ width: size, height: size, fontSize: size * 0.38, background: color ?? `hsl(${hue(name)} 50% 42%)` }}
+      style={{ width: size, height: size, fontSize: size * 0.38, background: color ?? `hsl(${hue(name)} 50% 31%)` }}
     >
       {initials(name)}
     </div>

@@ -315,7 +315,7 @@ function MessageCard({ m, open, onToggle }: { m: MessageFull; open: boolean; onT
 }
 
 export function ReadingPane() {
-  const { selected, messages, threads, act, showToast, prefs, aiConfigured, setDialog, confirm } = useStore();
+  const { selected, messages, threads, act, showToast, prefs, aiConfigured, setDialog, confirm, checked } = useStore();
   const [openIds, setOpenIds] = useState<Set<string>>(new Set());
   const [summary, setSummary] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
@@ -329,7 +329,11 @@ export function ReadingPane() {
   if (!selected || !summ) {
     return (
       <section className="reading-pane empty" aria-label="Reading pane">
-        <EmptyState icon={<Mail size={44} />} title="Select an item to read" text="Nothing is selected" />
+        <EmptyState
+          icon={<Mail size={44} />}
+          title="Select an item to read"
+          text={checked.size > 1 ? `${checked.size} items selected` : "Nothing is selected"}
+        />
       </section>
     );
   }

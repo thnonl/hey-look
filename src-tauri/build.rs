@@ -1,7 +1,7 @@
 use std::path::Path;
 
 /// Variables read from the environment (or a `.env` file) at build time and embedded in the binary.
-const ENV_KEYS: [&str; 2] = ["GOOGLE_CLIENT_ID", "GOOGLE_CLIENT_SECRET"];
+const ENV_KEYS: [&str; 4] = ["GOOGLE_CLIENT_ID", "GOOGLE_CLIENT_SECRET", "MICROSOFT_CLIENT_ID", "MICROSOFT_CLIENT_SECRET"];
 
 fn main() {
     for key in ENV_KEYS {

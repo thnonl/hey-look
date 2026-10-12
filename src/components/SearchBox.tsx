@@ -104,6 +104,7 @@ export function SearchBox() {
         <Search size={16} />
         <input
           id="search-input"
+          aria-label="Search mail"
           placeholder="Search mail  ( / )"
           value={q}
           onFocus={() => setOpen(true)}
@@ -112,7 +113,12 @@ export function SearchBox() {
             if (e.key === "Enter") {
               run(q, true);
               setOpen(false);
-            } else if (e.key === "Escape") setOpen(false);
+            } else if (e.key === "Escape") {
+              // first Escape clears the query; with an empty box it leaves the field
+              setOpen(false);
+              if (q) change("", true);
+              else e.currentTarget.blur();
+            }
           }}
         />
         {q && (

@@ -9,7 +9,7 @@ account, and every feature is available.
 
 - Windows 10 / 11 desktop app, built with Tauri 2 (Rust) and React
 - Your mail goes directly between the app and your mail provider, nothing passes through a Hey Look! server
-- Open design: IMAP and SMTP, OAuth for Google, any OpenAI-compatible endpoint for the optional AI Assistant
+- Open design: IMAP and SMTP, OAuth for Google and Microsoft, any OpenAI-compatible endpoint for the optional AI Assistant
 
 ---
 
@@ -17,7 +17,7 @@ account, and every feature is available.
 
 | | |
 |---|---|
-| **Many mailboxes, one place** | Google (OAuth), iCloud, Yahoo, Microsoft and any IMAP/SMTP server. A combined view or one mailbox at a time. |
+| **Many mailboxes, one place** | Google and Microsoft (OAuth), iCloud, Yahoo and any IMAP/SMTP server. A combined view or one mailbox at a time. |
 | **Conversations** | Messages are threaded; read, flag, pin and snooze whole conversations. |
 | **Undo everywhere** | Archive, delete and junk wait a few seconds on the server so you can take them back. Undo send is built in. |
 | **Settings that follow you** | One set of defaults for **All accounts**, and any mailbox can override any of them. |
@@ -30,7 +30,7 @@ account, and every feature is available.
 ## Features
 
 ### Mailboxes and sync
-- Add Google accounts with OAuth 2.0 (no password stored) or any account with IMAP/SMTP and an app password
+- Add Google and Microsoft (Outlook.com, Hotmail, Microsoft 365) accounts with OAuth 2.0 (no password stored), or any account with IMAP/SMTP and an app password
 - A background worker keeps syncing while the window is hidden in the tray; each mailbox can have its own interval
 - Standard folders (Inbox, Sent, Drafts, Archive, Junk, Deleted) and your own folders, with nesting shown
 - **Load older messages** pages further back than the first download
@@ -118,19 +118,21 @@ App-wide options (appearance, tray, shortcuts, AI Assistant, blocked senders) li
 ## Getting started
 
 1. Run `Hey Look!.exe` (or install a build, see below).
-2. On the welcome screen choose **Sign in with Google** or **Other email account**.
-   - Google: the app needs an OAuth client, see [Configuration](#configuration).
-   - Gmail, iCloud and Yahoo with a password need an **app password**; Microsoft accounts may require OAuth on their side.
+2. On the welcome screen choose **Sign in with Google**, **Sign in with Microsoft** or **Other email account**.
+   - Google and Microsoft: the app needs an OAuth client, see [Configuration](#configuration).
+   - iCloud and Yahoo need an **app password**. Apple offers no OAuth for third-party mail apps, so iCloud cannot use a sign-in window.
 3. Your mail downloads in the background. Closing the window keeps Hey Look! running in the tray; use **Quit** in the tray menu to exit.
 
 ### Where your data lives
 - Mail cache and settings: `%APPDATA%\thnonl.heylook\heylook.db` (SQLite)
-- Passwords, OAuth tokens, the AI key and the Google client secret: Windows Credential Manager (entries named `hey-look…`)
-- Nothing is sent anywhere except to your mail servers, Google's sign-in service, and the AI endpoint you configure.
+- Passwords, OAuth tokens, the AI key and the OAuth client secrets: Windows Credential Manager (entries named `hey-look…`)
+- Nothing is sent anywhere except to your mail servers, Google's and Microsoft's sign-in services, and the AI endpoint you configure.
 
 ---
 
 ## Configuration
+
+### Google
 
 Google sign-in needs an OAuth client of type **Desktop app** (Google Cloud Console, Gmail API enabled).
 Provide it in any of these ways, in this order of priority:
@@ -144,8 +146,32 @@ Provide it in any of these ways, in this order of priority:
 | `GOOGLE_CLIENT_ID` | OAuth client id |
 | `GOOGLE_CLIENT_SECRET` | OAuth client secret |
 
-Copy `.env.example` to `.env` (it is git-ignored) and fill the two values. While the OAuth consent screen is in
+Copy `.env.example` to `.env` (it is git-ignored) and fill in the values. While the OAuth consent screen is in
 *Testing* mode Google expires refresh tokens after 7 days; publish the app to avoid that.
+
+### Microsoft
+
+Microsoft sign-in (Outlook.com, Hotmail, Live, Microsoft 365) needs an app registration in Microsoft Entra
+(portal.azure.com → App registrations):
+
+1. Supported account types: **personal Microsoft accounts and accounts in any organizational directory**.
+2. Authentication → add platform **Mobile and desktop applications** with redirect URI `http://localhost` (the port is ignored), and allow public client flows.
+3. API permissions → Office 365 Exchange Online (delegated): `IMAP.AccessAsUser.All`, `SMTP.Send`, plus `offline_access`.
+4. Copy the Application (client) ID. No secret is needed.
+
+Provide it the same three ways as Google:
+
+| Variable | Meaning |
+|---|---|
+| `MICROSOFT_CLIENT_ID` | Application (client) ID |
+| `MICROSOFT_CLIENT_SECRET` | Optional, only for confidential clients |
+
+Work and school tenants may block IMAP / SMTP AUTH until an admin enables it for the mailbox.
+
+### iCloud
+
+Apple does not provide OAuth for IMAP / SMTP. In **Settings → Add account → iCloud, Yahoo, other** pick iCloud and enter an
+app-specific password from account.apple.com (Sign-In and Security → App-Specific Passwords).
 
 ---
 
@@ -176,7 +202,7 @@ src-tauri/src/           Rust backend
   lib.rs                 commands, sync workers, search, threading, delayed actions
   mail.rs                IMAP: folders, fetch, flags, move, parsing (MIME, attachments, inline images)
   smtp.rs                message building and sending
-  oauth.rs               Google OAuth 2.0 (PKCE, loopback redirect) and token refresh
+  oauth.rs               Google and Microsoft OAuth 2.0 (PKCE, loopback redirect) and token refresh
   shell.rs               tray icon, badges, native notifications, snooze reminders
   ai.rs                  OpenAI-compatible chat client
   db.rs                  SQLite schema and settings storage

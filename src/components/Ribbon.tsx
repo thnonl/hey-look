@@ -1,5 +1,5 @@
 import {
-  Archive, BrushCleaning, Clock, FolderInput, Flag, Forward, HelpCircle, MailOpen, MailPlus, Mail, OctagonAlert, Pin, Reply, ReplyAll, Trash2,
+  Archive, BrushCleaning, Clock, Command, FolderInput, Flag, Forward, Info, Keyboard, MailOpen, MailPlus, Mail, OctagonAlert, Pin, Reply, ReplyAll, Trash2,
 } from "lucide-react";
 import { ReactNode } from "react";
 import { forwardLast, replyLast, targets } from "../actions";
@@ -10,7 +10,7 @@ import { Dropdown, MenuItem } from "./ui";
 
 function Btn({ icon, label, onClick, disabled, title }: { icon: ReactNode; label: string; onClick?: () => void; disabled?: boolean; title?: string }) {
   return (
-    <button className="rb" onClick={onClick} disabled={disabled} title={title ?? label}>
+    <button className="rb" onClick={onClick} disabled={disabled} title={title ?? label} aria-label={title ?? label}>
       {icon}
       <span>{label}</span>
     </button>
@@ -43,7 +43,7 @@ function HomeTab() {
   const pinned = cur?.pinned;
   const canReply = messages.length > 0;
   return (
-    <div className="ribbon-row">
+    <div className="ribbon-row home">
       <div className="rg">
         <button className="rb primary" onClick={() => openCompose({ accountId: prefs.defaultAccount || accountId || undefined })}>
           <MailPlus size={18} />
@@ -96,7 +96,7 @@ function HomeTab() {
 function ViewTab() {
   const { prefs, setPrefs } = useStore();
   const dd = (label: string, items: MenuItem[]) => (
-    <Dropdown className="rb" items={items}>
+    <Dropdown className="rb" items={items} title={label}>
       <span>{label}</span>
     </Dropdown>
   );
@@ -143,9 +143,9 @@ function HelpTab() {
   return (
     <div className="ribbon-row">
       <div className="rg">
-        <Btn icon={<HelpCircle size={16} />} label="Shortcuts" onClick={() => setDialog({ type: "settings", tab: "shortcuts" })} />
-        <Btn icon={<HelpCircle size={16} />} label="Command bar" onClick={() => setCommandOpen(true)} />
-        <Btn icon={<HelpCircle size={16} />} label="About" onClick={() => setDialog({ type: "settings", tab: "about" })} />
+        <Btn icon={<Keyboard size={16} />} label="Shortcuts" onClick={() => setDialog({ type: "settings", tab: "shortcuts" })} />
+        <Btn icon={<Command size={16} />} label="Command bar" onClick={() => setCommandOpen(true)} />
+        <Btn icon={<Info size={16} />} label="About" onClick={() => setDialog({ type: "settings", tab: "about" })} />
       </div>
     </div>
   );
