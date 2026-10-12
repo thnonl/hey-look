@@ -96,8 +96,13 @@ pub fn cleanup_older_than(root: &Path, max_age_secs: u64, now: std::time::System
         return Ok(0);
     }
     for entry in std::fs::read_dir(root)? {
-        let path = entry?.path();
-        if path.is_dir() {
+        let entry = entry?;
+        let path = entry.path();
+        let kind = entry.file_type()?;
+        if kind.is_symlink() {
+            continue; // never follow a link (or junction) out of the temp folder
+        }
+        if kind.is_dir() {
             removed += cleanup_older_than(&path, max_age_secs, now)?;
             let _ = std::fs::remove_dir(&path); // only succeeds when empty
             continue;
