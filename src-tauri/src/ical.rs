@@ -1103,11 +1103,19 @@ fn fmt_dt(prop: &str, ts: i64, all_day: bool, tz: Option<Tz>) -> String {
     }
 }
 
+/// The `CN=` parameter (RFC 5545 3.2.2). The value is always written as a quoted-string, which is what allows `,` `;` `:`
+/// and parentheses; a DQUOTE cannot appear inside one, so it becomes an apostrophe, and control characters (a line break
+/// would start a new property) are dropped.
 fn cn(name: &Option<String>) -> String {
-    match name.as_deref().filter(|n| !n.is_empty()) {
-        Some(n) => format!(";CN=\"{}\"", n.replace('"', "'")),
-        None => String::new(),
-    }
+    let n: String = name.as_deref().unwrap_or("").chars().map(|c| if c == '"' { '\'' } else { c }).filter(|c| !c.is_control()).collect();
+    let n = n.trim();
+    if n.is_empty() { String::new() } else { format!(";CN=\"{n}\"") }
+}
+
+/// A calendar address for `mailto:`: no white space or control characters, so it cannot end the property value early or
+/// start a new line.
+fn cal_addr(email: &str) -> String {
+    email.chars().filter(|c| !c.is_control() && !c.is_whitespace()).collect()
 }
 
 /// Serialize events as an iCalendar document. `method` = REQUEST / REPLY / CANCEL / PUBLISH, or None for a plain file.
@@ -1161,7 +1169,7 @@ pub fn to_ics(method: Option<&str>, events: &[IcsEvent]) -> String {
             l(format!("COMMENT:{}", escape(c)));
         }
         if let Some(o) = &ev.organizer {
-            l(format!("ORGANIZER{}:mailto:{}", cn(&o.name), o.email));
+            l(format!("ORGANIZER{}:mailto:{}", cn(&o.name), cal_addr(&o.email)));
         }
         for a in &ev.attendees {
             let role = match a.role.as_str() {
@@ -1176,7 +1184,7 @@ pub fn to_ics(method: Option<&str>, events: &[IcsEvent]) -> String {
                 "delegated" => "DELEGATED",
                 _ => "NEEDS-ACTION",
             };
-            l(format!("ATTENDEE{};ROLE={role};PARTSTAT={ps};RSVP={}:mailto:{}", cn(&a.name), if a.rsvp { "TRUE" } else { "FALSE" }, a.email));
+            l(format!("ATTENDEE{};ROLE={role};PARTSTAT={ps};RSVP={}:mailto:{}", cn(&a.name), if a.rsvp { "TRUE" } else { "FALSE" }, cal_addr(&a.email)));
         }
         l("END:VEVENT".into());
     }
@@ -1774,5 +1782,67 @@ END:VCALENDAR
         assert_eq!(b.comment.as_deref(), Some("See you there"));
         assert_eq!(b.organizer.as_ref().unwrap().email, "mai@contoso.com");
         assert!(b.rrule.is_none(), "a reply never carries the rule");
+    }
+
+    #[test]
+    fn hostile_common_names_are_written_as_valid_cn_parameters() {
+        let names = [
+            "Nam Thái (thnonline)",
+            "Tran, Bao; Jr.: \"the Boss\"",
+            "a=b;c:d,e",
+            "Line
+
+ATTENDEE;CN=Evil:mailto:evil@x.y",
+            "Đỗ Văn \\ back",
+            "  ",
+        ];
+        for n in names {
+            let ev = IcsEvent {
+                uid: "h@x".into(),
+                summary: "s".into(),
+                start: ts(2026, 10, 14, 3, 0),
+                end: ts(2026, 10, 14, 4, 0),
+                organizer: Some(Person { email: "o@x.y".into(), name: Some(n.into()) }),
+                attendees: vec![Attendee { email: "a@x.y".into(), name: Some(n.into()), role: "required".into(), status: "needs-action".into(), rsvp: true }],
+                status: "confirmed".into(),
+                dtstamp: ts(2026, 10, 1, 0, 0),
+                ..Default::default()
+            };
+            let text = to_ics(Some("REQUEST"), &[ev]);
+            // every CN value is a quoted-string with no DQUOTE inside, and no property was injected
+            for l in unfold(&text) {
+                if l.starts_with("ATTENDEE") || l.starts_with("ORGANIZER") {
+                    assert_eq!(l.matches('"').count() % 2, 0, "balanced quotes: {l}");
+                    assert!(l.matches('"').count() <= 2, "no DQUOTE inside the value: {l}");
+                }
+            }
+            assert_eq!(unfold(&text).iter().filter(|l| l.starts_with("ATTENDEE")).count(), 1, "no injected property for {n:?}: {text}");
+            let back = parse(&text).unwrap();
+            let b = &back.events[0];
+            assert_eq!(b.attendees.len(), 1);
+            assert_eq!(b.attendees[0].email, "a@x.y", "{n:?}");
+            assert_eq!(b.organizer.as_ref().unwrap().email, "o@x.y");
+            let want: String = n.replace('"', "'").chars().filter(|c| !c.is_control()).collect::<String>().trim().to_string();
+            let got = b.attendees[0].name.clone().unwrap_or_default();
+            assert_eq!(got, want, "CN round trip for {n:?}");
+        }
+    }
+
+    #[test]
+    fn hostile_addresses_cannot_break_the_property() {
+        let ev = IcsEvent {
+            uid: "h@x".into(),
+            summary: "s".into(),
+            start: ts(2026, 10, 14, 3, 0),
+            end: ts(2026, 10, 14, 4, 0),
+            attendees: vec![Attendee { email: "a@x.y
+
+ATTENDEE:mailto:evil@x.y".into(), name: None, role: "required".into(), status: "needs-action".into(), rsvp: true }],
+            status: "confirmed".into(),
+            dtstamp: ts(2026, 10, 1, 0, 0),
+            ..Default::default()
+        };
+        let text = to_ics(Some("REQUEST"), &[ev]);
+        assert_eq!(unfold(&text).iter().filter(|l| l.starts_with("ATTENDEE")).count(), 1, "{text}");
     }
 }

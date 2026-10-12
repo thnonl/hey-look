@@ -87,8 +87,61 @@ pub struct Draft {
     pub calendar: Option<CalendarPart>,
 }
 
+/// A display name made safe to put in front of an address: control characters (header injection) are dropped and runs of
+/// white space collapse to one space.
+fn clean_name(n: &str) -> String {
+    n.chars().filter(|c| !c.is_control() || c.is_whitespace()).map(|c| if c.is_whitespace() { ' ' } else { c }).collect::<String>().split_whitespace().collect::<Vec<_>>().join(" ")
+}
+
+/// `Name <address>` as one RFC 5322 mailbox string that survives any display name: the name is always a quoted-string
+/// (`"` and `\` escaped), so parentheses, commas, colons, semicolons, angle brackets, quotes and non-ASCII text are all fine.
+/// Without a name (or with a blank one) it is just the address.
+pub fn format_mailbox(name: Option<&str>, email: &str) -> String {
+    let email = email.trim();
+    match name.map(clean_name).filter(|n| !n.is_empty()) {
+        Some(n) => format!("\"{}\" <{email}>", n.replace('\\', "\\\\").replace('"', "\\\"")),
+        None => email.to_string(),
+    }
+}
+
+/// Undo the quoting of a display name: `"a \"b\""` -> `a "b"`. An unquoted name is taken as written.
+fn unquote_name(raw: &str) -> String {
+    let t = raw.trim();
+    let Some(inner) = t.strip_prefix('"').and_then(|x| x.strip_suffix('"')).filter(|_| t.len() >= 2) else { return clean_name(t) };
+    let mut out = String::with_capacity(inner.len());
+    let mut it = inner.chars();
+    while let Some(c) = it.next() {
+        match c {
+            '\\' => out.extend(it.next()),
+            c => out.push(c),
+        }
+    }
+    clean_name(&out)
+}
+
+/// Split `Name <address>` / `"Name" <address>` / `address` into (display name, address). The address is the part in the last
+/// angle brackets, so a name that contains `<`, `>`, `,`, parentheses or quotes does not matter.
+pub fn split_mailbox(s: &str) -> (Option<String>, String) {
+    let t = s.trim();
+    if t.ends_with('>') {
+        if let Some(lt) = t.rfind('<') {
+            let name = unquote_name(&t[..lt]);
+            return (Some(name).filter(|n| !n.is_empty()), t[lt + 1..t.len() - 1].trim().to_string());
+        }
+    }
+    (None, t.to_string())
+}
+
+/// Parse a recipient as the interface writes it. Unlike a strict RFC 5322 parse this accepts any display name, and still
+/// rejects an address that is not one.
+pub fn parse_mailbox(s: &str) -> R<Mailbox> {
+    let (name, email) = split_mailbox(s);
+    let addr = email.parse::<Address>().map_err(|e| format!("bad address '{s}': {e}"))?;
+    Ok(Mailbox::new(name, addr))
+}
+
 fn mailbox(s: &str) -> R<Mailbox> {
-    s.trim().parse::<Mailbox>().map_err(|e| format!("bad address '{s}': {e}"))
+    parse_mailbox(s)
 }
 
 fn headers(acc: &Account, d: &Draft) -> R<lettre::message::MessageBuilder> {
@@ -365,5 +418,54 @@ mod tests {
         let json = r#"{"accountId":"a1","to":["a@b.c"],"subject":"s","html":"<p>x</p>","text":"x"}"#;
         let d: Draft = serde_json::from_str(json).unwrap();
         assert!(d.inline.is_empty());
+    }
+
+    #[test]
+    fn display_names_with_specials_round_trip_through_format_and_parse() {
+        let names = [
+            "Nam Thái (thnonline)",
+            "Tran, Bao",
+            "He said \"hi\"",
+            "Back\\slash",
+            "semi;colon: <angle>",
+            "Đỗ Văn Ánh",
+            "[brackets] @ at",
+            "a\r\nBcc: evil@x.y",
+        ];
+        for n in names {
+            let s = format_mailbox(Some(n), "to@example.com");
+            let (name, email) = split_mailbox(&s);
+            assert_eq!(email, "to@example.com", "{n:?}");
+            assert_eq!(name.as_deref(), Some(n.split_whitespace().collect::<Vec<_>>().join(" ").as_str()), "{n:?}");
+            let m = parse_mailbox(&s).unwrap_or_else(|e| panic!("{n:?}: {e}"));
+            assert_eq!(m.email.to_string(), "to@example.com");
+            // the finished message carries exactly one To address and no injected header
+            let mut d = draft("<p>x</p>", vec![], vec![]);
+            d.to = vec![s.clone()];
+            let out = build(&account(), &d).unwrap();
+            let raw = out.formatted();
+            let parsed = mail_parser::MessageParser::default().parse(&raw[..]).unwrap();
+            assert_eq!(parsed.to().unwrap().iter().count(), 1, "{n:?}");
+            assert!(parsed.bcc().is_none(), "{n:?}");
+            assert_eq!(out.envelope().to().len(), 1);
+            assert_eq!(envelope(&account(), &d).unwrap().to().len(), 1);
+        }
+        assert_eq!(format_mailbox(None, " a@b.c "), "a@b.c");
+        assert_eq!(format_mailbox(Some("  "), "a@b.c"), "a@b.c");
+    }
+
+    #[test]
+    fn plain_recipients_still_parse_and_garbage_is_rejected() {
+        assert_eq!(parse_mailbox("ann@example.com").unwrap().email.to_string(), "ann@example.com");
+        let m = parse_mailbox("Ann Lee <ann@example.com>").unwrap();
+        assert_eq!(m.name.as_deref(), Some("Ann Lee"));
+        let m = parse_mailbox("\"Lee, Ann\" <ann@example.com>").unwrap();
+        assert_eq!(m.name.as_deref(), Some("Lee, Ann"));
+        let m = parse_mailbox("<ann@example.com>").unwrap();
+        assert!(m.name.is_none());
+        assert!(parse_mailbox("not an address").is_err());
+        assert!(parse_mailbox("Ann <nope>").is_err());
+        assert!(parse_mailbox("").is_err());
+        assert!(parse_mailbox("a@b.c, d@e.f").is_err(), "one recipient per entry");
     }
 }
