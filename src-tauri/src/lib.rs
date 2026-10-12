@@ -1788,9 +1788,34 @@ async fn get_raw(state: tauri::State<'_, AppState>, message_id: String) -> R<Str
 
 /// Folder for "Save" (Settings → Attachments), falling back to the system Downloads folder.
 fn download_folder(app: &tauri::AppHandle, db: &Db) -> R<std::path::PathBuf> {
-    match setting(db, "download_dir").filter(|s| !s.trim().is_empty()) {
-        Some(p) if std::path::Path::new(&p).is_dir() => Ok(p.into()),
-        _ => app.path().download_dir().map_err(err),
+    let system = app.path().download_dir().map_err(err)?;
+    let (dir, replaced) = resolve_download_dir(setting(db, "download_dir").as_deref(), system);
+    // a chosen folder that is gone is no secret: say so (once per folder and session) instead of quietly saving elsewhere
+    if let Some(bad) = replaced.filter(|b| first_time_for(&DOWNLOAD_WARNED, b)) {
+        let _ = app.emit("download-dir-fallback", serde_json::json!({ "configured": bad, "used": dir.to_string_lossy() }));
+    }
+    Ok(dir)
+}
+
+static DOWNLOAD_WARNED: Mutex<Vec<String>> = Mutex::new(Vec::new());
+
+/// True the first time `key` is seen in `seen`.
+fn first_time_for(seen: &Mutex<Vec<String>>, key: &str) -> bool {
+    let mut g = seen.lock().unwrap_or_else(|p| p.into_inner());
+    if g.iter().any(|k| k == key) {
+        return false;
+    }
+    g.push(key.to_string());
+    true
+}
+
+/// The folder attachments are saved to: the configured one when it is an existing folder, else the system Downloads folder.
+/// The second value is the configured path when it had to be replaced (so the user can be told).
+fn resolve_download_dir(configured: Option<&str>, system: std::path::PathBuf) -> (std::path::PathBuf, Option<String>) {
+    match configured.map(str::trim).filter(|s| !s.is_empty()) {
+        Some(p) if std::path::Path::new(p).is_dir() => (p.into(), None),
+        Some(p) => (system, Some(p.to_string())),
+        None => (system, None),
     }
 }
 
@@ -3013,5 +3038,38 @@ mod signed_flag_tests {
         note_signed(&c, "m1", &sig());
         let bits: i64 = c.query_row("SELECT pgp FROM messages WHERE id='m1'", [], |r| r.get(0)).unwrap();
         assert_eq!(bits, 3);
+    }
+}
+
+#[cfg(test)]
+mod download_dir_tests {
+    use super::*;
+
+    #[test]
+    fn a_missing_download_folder_falls_back_and_says_so() {
+        let sys = std::env::temp_dir().join("hl-system-downloads");
+        let ok = std::env::temp_dir();
+        // not set, or blank: the system folder, nothing to report
+        assert_eq!(resolve_download_dir(None, sys.clone()), (sys.clone(), None));
+        assert_eq!(resolve_download_dir(Some("  "), sys.clone()), (sys.clone(), None));
+        // an existing folder is used as written
+        assert_eq!(resolve_download_dir(Some(ok.to_str().unwrap()), sys.clone()), (ok.clone(), None));
+        // a folder that is gone (or a file) falls back and reports the configured path
+        let gone = ok.join("hl-folder-that-does-not-exist-9f2c");
+        let (dir, note) = resolve_download_dir(Some(gone.to_str().unwrap()), sys.clone());
+        assert_eq!(dir, sys);
+        assert_eq!(note.as_deref(), gone.to_str());
+        let file = ok.join("hl-a-file-not-a-folder.txt");
+        std::fs::write(&file, b"x").unwrap();
+        assert!(resolve_download_dir(file.to_str(), sys.clone()).1.is_some());
+        let _ = std::fs::remove_file(&file);
+    }
+
+    #[test]
+    fn the_notice_is_given_once_per_folder() {
+        let seen = Mutex::new(Vec::new());
+        assert!(first_time_for(&seen, "C:/Gone"));
+        assert!(!first_time_for(&seen, "C:/Gone"));
+        assert!(first_time_for(&seen, "D:/Other"));
     }
 }

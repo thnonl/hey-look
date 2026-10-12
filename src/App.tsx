@@ -122,6 +122,13 @@ function App() {
           ...(e.payload.joinUrl ? [{ label: "Join", run: () => void openUrl(e.payload.joinUrl as string).catch(() => undefined) }] : []),
         ]);
       }),
+      // the chosen save folder is gone: attachments went to Downloads instead (said once per session and folder)
+      listen<{ configured: string; used: string }>("download-dir-fallback", (e) => {
+        const st = useStore.getState();
+        st.showToast(`The attachment folder “${e.payload.configured}” isn’t available, so files are saved to ${e.payload.used} instead.`, undefined, "info", [
+          { label: "Change folder", run: () => st.setDialog({ type: "settings", tab: "general" }) },
+        ]);
+      }),
       listen<{ count: number }>("outbox-catchup", (e) => {
         const st = useStore.getState();
         st.showToast(`Sent ${e.payload.count} scheduled message${e.payload.count === 1 ? "" : "s"} that were due while Hey Look! was closed.`, undefined, "success", [
