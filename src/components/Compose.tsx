@@ -272,8 +272,9 @@ interface PictureSel {
 export function Compose({ init }: { init: ComposeInit }) {
   const { accounts, openCompose, showToast, prefs, refresh, confirm, choose, setComposeDirty, setComposeSaver, aiConfigured, setDialog } = useStore();
   const [accountId, setAccountId] = useState(accounts.some((a) => a.id === init.accountId) ? init.accountId! : accounts.some((a) => a.id === prefs.defaultAccount) ? prefs.defaultAccount : accounts[0]?.id || init.accountId || "");
-  const isFresh = !init.replaces && !init.isReply && !init.outboxId;
-  const editing = !!(init.replaces || init.outboxId);
+  const isFresh = !init.replaces && !init.isReply && !init.outboxId && !init.restore;
+  // an opened draft / scheduled message / message that failed to send: its body already holds the signature, shown as the region again
+  const editing = !!(init.replaces || init.outboxId || init.restore);
   const autoCc = (id: string) => (isFresh ? eff(prefs, id, "autoCc").trim() : "");
   const autoBcc = (id: string) => (isFresh ? eff(prefs, id, "autoBcc").trim() : "");
   const [to, setTo] = useState<string[]>(init.to ?? []);
@@ -312,9 +313,9 @@ export function Compose({ init }: { init: ComposeInit }) {
   // PGP: Encrypt is "on", "off", or "auto" (on while every recipient has a key); Sign is a plain switch
   const keysRev = useStore((s) => s.keysRev);
   const startMode = eff(prefs, accountId, "pgpEncrypt");
-  const [encIntent, setEncIntent] = useState<"on" | "off" | "auto">(init.security ? (init.security.encrypt ? "on" : "off") : startMode === "always" ? "on" : startMode === "possible" ? "auto" : "off");
-  const [signOn, setSignOn] = useState(init.security ? init.security.sign : eff(prefs, accountId, "pgpSign"));
-  const [attachKey, setAttachKey] = useState(init.security ? init.security.attachPublicKey : eff(prefs, accountId, "pgpAttachKey"));
+  const [encIntent, setEncIntent] = useState<"on" | "off" | "auto">(init.restore ? init.restore.encrypt : init.security ? (init.security.encrypt ? "on" : "off") : startMode === "always" ? "on" : startMode === "possible" ? "auto" : "off");
+  const [signOn, setSignOn] = useState(init.restore ? init.restore.sign : init.security ? init.security.sign : eff(prefs, accountId, "pgpSign"));
+  const [attachKey, setAttachKey] = useState(init.restore ? init.restore.attachKey : init.security ? init.security.attachPublicKey : eff(prefs, accountId, "pgpAttachKey"));
   const [signMenu, setSignMenu] = useState(false);
   const [secDetails, setSecDetails] = useState(false);
   const [ks, setKs] = useState<{ own: OwnKeyStatus | null; recipients: Record<string, RecipientStatus> } | null>(null);
@@ -584,6 +585,8 @@ export function Compose({ init }: { init: ComposeInit }) {
       replaces: init.replaces,
       isReply: false,
       security: d.security,
+      // the toggles as they were when Send was pressed (the draft only knows what is active), the body with its one signature region
+      restore: { encrypt: encIntent, sign: signOn, attachKey },
       meeting: d.meeting ? { ...d.meeting, on: true } : undefined,
     });
   };

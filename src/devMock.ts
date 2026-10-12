@@ -278,6 +278,60 @@ const encInvite = (locked: boolean) => ({
 let flakyFailed = false;
 let eventSeq = 100;
 
+/** The editor of the open Compose as plain facts: the typed text, how many signature regions, which signature, the Encrypt / Sign toggles. */
+function composeFacts() {
+  const ed = document.querySelector<HTMLElement>(".editor .tiptap");
+  const regions = ed ? [...ed.querySelectorAll<HTMLElement>(".sig-block")] : [];
+  return {
+    open: !!ed,
+    text: ed ? [...ed.children].filter((x) => !x.classList.contains("sig-block")).map((x) => x.textContent ?? "").join("|") : "",
+    regions: regions.length,
+    sigText: regions.map((r) => r.querySelector(".sig-body")?.textContent ?? "").join("|"),
+    signatureTextInBody: (ed?.textContent ?? "").split("-- ").length - 1,
+    // the toolbar buttons are named "Encrypt…" / "Sign…" and carry aria-pressed
+    pressed: [...document.querySelectorAll<HTMLElement>(".cp-bar [aria-pressed]")].map((b) => `${b.getAttribute("aria-label") ?? b.title}=${b.getAttribute("aria-pressed")}`).join(";"),
+    order: ed ? [...ed.children].map((x) => (x.classList.contains("sig-block") ? "SIG" : x.localName)).join(",") : "",
+  };
+}
+
+async function failedSendCheck(wait: (ms: number) => Promise<unknown>) {
+  const { useStore } = await import("./store");
+  const st = () => useStore.getState();
+  const out: string[] = [];
+  const ok = (c: boolean, m: string) => out.push((c ? "ok   " : "FAIL ") + m);
+  st().setPrefs({ undoSeconds: 0 });
+  await st().openCompose({ accountId: "a1", to: ["alice@fabrikam.com"], subject: "Report [fail]" });
+  await wait(900);
+  const ed = () => document.querySelector<HTMLElement>(".editor .tiptap");
+  ed()?.focus();
+  document.execCommand("insertText", false, "Hello body line one");
+  await wait(300);
+  // flip Encrypt (and Sign) so a reset to the default after a failure would show
+  [...document.querySelectorAll<HTMLElement>(".cp-bar [aria-pressed]")].find((b) => (b.title || b.getAttribute("aria-label") || "").startsWith("Encrypt"))?.click();
+  await wait(300);
+  const before = composeFacts();
+  ok(before.regions === 1 && before.sigText.includes("Hey Look!"), "new message: one signature region with the default signature");
+  for (let i = 1; i <= 3; i++) {
+    const key = st().composeKey;
+    [...document.querySelectorAll<HTMLButtonElement>(".cp-bar button")].find((b) => b.title.startsWith("Send ("))?.click();
+    await wait(400);
+    // Encrypt is on and the recipient has no key: Send asks; the person sends it unencrypted anyway
+    if (st().ask) st().resolveAsk("plain");
+    await wait(1200);
+    ok(st().composeKey >= key + 2, `send ${i}: Compose really closed and was opened again (key ${key} -> ${st().composeKey})`);
+    const f = composeFacts();
+    ok(f.open, `send ${i}: Compose is back after the failure`);
+    ok(f.regions === 1, `reopen ${i}: one signature region (${f.regions})`);
+    ok(f.signatureTextInBody === 0, `reopen ${i}: no signature text in the body`);
+    ok(f.text === before.text, `reopen ${i}: body unchanged (${JSON.stringify(f.text)})`);
+    ok(f.sigText === before.sigText, `reopen ${i}: same signature (${JSON.stringify(f.sigText)})`);
+    ok(f.order === before.order, `reopen ${i}: same block order (${f.order})`);
+    ok(f.pressed === before.pressed, `reopen ${i}: toggles as they were (${f.pressed})`);
+  }
+  await st().openCompose(null);
+  return out;
+}
+
 /**
  * Dev preview only. `#dark&cal=week&date=2026-10-14&thread=t15&event=new&chip=Standup&compose=meeting` drives the mock app
  * into a state once it has loaded, so a screenshot of that state can be taken from a plain URL.
@@ -295,6 +349,8 @@ export async function applyDemoHash() {
     return darkCheck((id) => st().select(id), ids ?? ["dk1", "dk2", "dk3", "dk4", "dk5", "dk7", "dk8", "dk9", "dk10", "nl1", "nl2"]);
   };
   (window as unknown as { __darkCheck: typeof runCheck }).__darkCheck = runCheck;
+  // `await __failedSendCheck()`: types a message, sends it three times against a server that rejects it, and reports what Compose looks like each time it reopens
+  (window as unknown as { __failedSendCheck: typeof failedSendCheck }).__failedSendCheck = () => failedSendCheck(wait);
   const tokens = window.location.hash.slice(1).split("&").filter(Boolean);
   for (const tok of tokens) {
     const [k, v = ""] = tok.split("=");
@@ -311,7 +367,14 @@ export async function applyDemoHash() {
       if (d) st().setCalDate(d);
     } else if (k === "folder") await st().setView(val, val === "scheduled" ? null : "a1");
     else if (k === "thread") await st().select(val);
-    else if (k === "darkcheck") {
+    else if (k === "failcheck") {
+      const rep = await failedSendCheck(wait);
+      const pre = document.createElement("pre");
+      pre.id = "failcheck";
+      pre.style.cssText = "position:fixed;inset:60px 20px 20px 20px;z-index:9999;overflow:auto;background:#000;color:#0f0;padding:10px;font:12px/1.35 monospace;white-space:pre-wrap";
+      pre.textContent = rep.join("\n");
+      document.body.appendChild(pre);
+    } else if (k === "darkcheck") {
       const rep = await runCheck();
       const pre = document.createElement("pre");
       pre.style.cssText = "position:fixed;inset:60px 20px 20px 20px;z-index:9999;overflow:auto;background:#000;color:#0f0;padding:10px;font:12px/1.35 monospace;white-space:pre-wrap";
@@ -408,6 +471,26 @@ export function installMock() {
     ok(accountColor({ color: "red" }, "#0f6cbd").startsWith("#"), "invalid stored value -> primary color");
     return out;
   };
+  // `await __textCheck()`: dev self-check of the catch-up toast grammar and of how long error texts are shortened
+  (window as unknown as { __textCheck: () => Promise<string[]> }).__textCheck = async () => {
+    const { catchupText } = await import("./util");
+    const { cutAtWord, friendlyError, fullErrorFor, shortenError } = await import("./store");
+    const out: string[] = [], ok = (c: boolean, m: string) => out.push((c ? "ok   " : "FAIL ") + m);
+    ok(catchupText(1) === "Sent 1 scheduled message that was due while Hey Look! was closed.", "catch-up toast, one message: was");
+    ok(catchupText(2) === "Sent 2 scheduled messages that were due while Hey Look! was closed.", "catch-up toast, several: were");
+    const advice = "The server rejected the attachment type. Gmail, Outlook and Yahoo refuse programs and scripts such as .exe, .bat, .js or .msi, even inside a zip file. Remove the attachment or share it as a link instead.";
+    const reply = "Server reply: 5.7.0 This message was blocked because its content presents a potential security issue. Please visit https://support.google.com/mail/?p=BlockedMessage to review our guidelines. gsmtp";
+    const shown = friendlyError(`SMTP_ATTACHMENT_BLOCKED: ${advice} (${reply})`);
+    ok(shown.startsWith(advice + " (Server reply: 5.7.0"), "friendly advice is shown whole");
+    const cut = shown.slice(shown.indexOf("(Server reply: ") + 1, -1).replace(/…$/, "");
+    ok(shown.endsWith("…)") && cut.length <= 120 && reply.startsWith(cut), "server text is cut with an ellipsis, a prefix of the original, at most 120 characters");
+    ok(reply.charAt(cut.length) === " ", "the cut falls on a word boundary");
+    ok(fullErrorFor(`Send failed: ${shown}`) === `Send failed: ${advice} (${reply})`, "the whole text is kept for the tooltip");
+    ok(shortenError("short error") === "short error" && fullErrorFor("short error") === undefined, "short texts are untouched");
+    ok(cutAtWord("alpha beta gamma delta", 14) === "alpha beta…", "cut at a word");
+    ok(friendlyError("x ".repeat(300)).length <= 221, "other long errors are cut at 220");
+    return out;
+  };
   // `__sigCheck()`: dev self-check of the signature region <-> stored HTML conversion
   (window as unknown as { __sigCheck: () => string[] }).__sigCheck = () => {
     const out: string[] = [], ok = (c: boolean, m: string) => out.push((c ? "ok   " : "FAIL ") + m);
@@ -421,6 +504,20 @@ export function installMock() {
     ok(fillSignatureHtml(`<p>Hi</p>${SIG_MARK}<p></p>`, null) === "<p>Hi</p>", "no signature: nothing added");
     const reply = fillSignatureHtml(`<p>Thanks</p>${SIG_MARK}<br><br><div>On Mon wrote:</div><blockquote>q</blockquote>`, sig);
     ok(reply.indexOf('class="sig"') > reply.indexOf("Thanks") && reply.indexOf('class="sig"') < reply.indexOf("<blockquote"), "reply: signature sits between the answer and the quote");
+    // a reply whose quoted message has a signature of its own: only the writer's region is the signature
+    const quoted = `<p>Thanks</p><br><div class="sig">-- <br>${sig}</div><br><br><div>On Mon wrote:</div><blockquote><p>q</p><div class="sig">-- <br>Other</div></blockquote>`;
+    const q = extractSignature(quoted);
+    ok(q.sig === sig && q.html.includes("Other") && q.html.split("data-sig-block").length === 2, "reply: the quoted message's signature stays quoted text");
+    // a failed send reopens the draft again and again: one signature, the same body every time
+    const html = `<p>Hi</p><p>second paragraph</p>${SIG_MARK}<br><br><div>On Mon wrote:</div><blockquote><p>q</p></blockquote>`;
+    const first = fillSignatureHtml(html, sig);
+    let cur = first;
+    for (let i = 1; i <= 3; i++) {
+      const re = extractSignature(cur);
+      ok(re.sig === sig && re.html.split("data-sig-block").length === 2, `reopen ${i}: one signature region`);
+      cur = fillSignatureHtml(re.html, re.sig);
+      ok(cur === first && cur.split("class=\"sig\"").length === 2, `reopen ${i}: stored body unchanged, one signature`);
+    }
     const none = extractSignature("<p>Old draft</p>");
     ok(none.sig === null && none.html.includes(SIG_MARK), "draft without signature gets an empty region");
     return out;
@@ -656,6 +753,8 @@ export function installMock() {
       case "calendar_import_ics": return { added: 2, updated: 1 };
       case "calendar_open_message": return { threadId: "t15", folder: "inbox", accountId: "a1" };
       case "send_message": {
+        // a subject with [fail] is rejected like Gmail rejects a program file (dev check of the failed-send path: __failedSendCheck)
+        if (!a.sendAt && String((a.draft as { subject?: string }).subject).includes("[fail]")) throw "SMTP_ATTACHMENT_BLOCKED: The server rejected the attachment type. Gmail, Outlook and Yahoo refuse programs and scripts such as .exe, .bat, .js or .msi, even inside a zip file. Remove the attachment or share it as a link instead. (Server reply: (5.7.0 This message was blocked because its content presents a potential security issue. Please visit https://support.google.com/mail/?p=BlockedMessage to review our message content and attachment content guidelines. gsmtp)";
         if (!a.sendAt) return "sent";
         // a scheduled message shows up in the Scheduled list
         const d = a.draft as { accountId: string; to: string[]; cc: string[]; subject: string; text?: string; attachments?: unknown[] };

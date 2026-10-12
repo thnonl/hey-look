@@ -21,7 +21,8 @@ export function normalizeHtml(html: string): string {
  */
 export function extractSignature(html: string): { html: string; sig: string | null } {
   const doc = parse(html);
-  const sigs = doc.querySelectorAll("div.sig");
+  // the signature of the message being written, not one inside the quoted message of a reply
+  const sigs = [...doc.querySelectorAll("div.sig")].filter((d) => !d.closest("blockquote"));
   const el = sigs.length ? sigs[sigs.length - 1] : null;
   if (!el) return { html: html + SIG_MARK + "<p></p>", sig: null };
   const sig = el.innerHTML.replace(LEAD, "").trim();

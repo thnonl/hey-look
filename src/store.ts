@@ -25,6 +25,11 @@ export interface ComposeInit {
   outboxError?: string;
   /** encryption / signing of a reopened draft or scheduled message */
   security?: DraftSecurity;
+  /**
+   * Compose reopened after a send failed or was undone: `bodyHtml` is the exact HTML that was built (the signature region included,
+   * as in a stored draft), and Encrypt / Sign / public key are as the user had set them.
+   */
+  restore?: { encrypt: "on" | "off" | "auto"; sign: boolean; attachKey: boolean };
   /** start Compose as a meeting invitation ("Meeting" switched on) */
   meeting?: Partial<Meeting> & { on?: boolean };
 }
@@ -112,7 +117,36 @@ export function friendlyError(e: unknown): string {
   if (/timed out|timeout|10060|did not properly respond/i.test(raw)) return "The mail server did not respond. Check your connection and try again.";
   if (/lookup|dns|no such host|name or service not known|11001/i.test(raw)) return "Cannot reach the mail server. Check the server name and your connection.";
   if (/certificate|tls|ssl/i.test(raw) && /invalid|verify|unknown|expired/i.test(raw)) return "The server's security certificate was rejected. For a self-signed or private-CA server, remove the account and add it again with \"Trust this server's certificate\" turned on.";
-  return raw.length > 220 ? `${raw.slice(0, 220)}…` : raw;
+  return shortenError(raw);
+}
+
+/** Longer texts are cut for the toast; the whole text is kept here so the toast can show it as a tooltip. */
+const fullErrors = new Map<string, string>();
+export const fullErrorFor = (shown: string): string | undefined => {
+  for (const [k, v] of fullErrors) if (shown.includes(k)) return shown.replace(k, v);
+  return undefined;
+};
+
+/** `text` cut to at most `max` characters at a word boundary, with an ellipsis. */
+export function cutAtWord(text: string, max: number): string {
+  if (text.length <= max) return text;
+  const head = text.slice(0, max);
+  const sp = head.search(/\s\S*$/);
+  return `${(sp > max * 0.5 ? head.slice(0, sp) : head).replace(/[\s,;:.(\-]+$/, "")}…`;
+}
+
+/**
+ * The words we wrote ("CODE: advice (Server reply: …)") are shown whole; only what the server said is cut, at a word, and
+ * the complete text stays available (tooltip). Any other long error is cut at a word at 220 characters.
+ */
+export function shortenError(raw: string): string {
+  const m = raw.match(/^([\s\S]*?)\s*\((Server reply: [\s\S]*?)\)\s*$/);
+  const shown = m ? `${m[1]} (${cutAtWord(m[2], 120)})` : cutAtWord(raw, 220);
+  if (shown !== raw) {
+    if (fullErrors.size > 20) fullErrors.delete(fullErrors.keys().next().value as string);
+    fullErrors.set(shown, raw);
+  }
+  return shown;
 }
 
 interface State {

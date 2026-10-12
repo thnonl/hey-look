@@ -1,6 +1,6 @@
 import { AlertTriangle, CheckCircle2, Info, X } from "lucide-react";
 import { useEffect, useRef } from "react";
-import { useStore } from "../store";
+import { fullErrorFor, useStore } from "../store";
 
 /** Stack of toasts; a toast with Undo stays until its window ends. */
 export function Toasts() {
@@ -13,7 +13,7 @@ export function Toasts() {
           <span className="toast-ico">
             {t.kind === "error" ? <AlertTriangle size={16} /> : t.kind === "success" ? <CheckCircle2 size={16} /> : <Info size={16} />}
           </span>
-          <span className="toast-text">{t.text}</span>
+          <span className="toast-text" title={fullErrorFor(t.text)}>{t.text}</span>
           {t.undo && (
             <button
               className="toast-undo"
