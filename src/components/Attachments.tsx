@@ -464,13 +464,16 @@ export function PreviewDialog({ m, items, start, onClose }: { m: MessageFull; it
   );
 
   useEffect(() => {
+    // capture phase + stopPropagation: Escape and the arrows belong to this preview, not to the mail shortcuts behind it
     const onKey = (e: KeyboardEvent) => {
       if (e.key === "Escape") onClose();
       else if (e.key === "ArrowLeft") setI((x) => Math.max(0, x - 1));
       else if (e.key === "ArrowRight") setI((x) => Math.min(list.length - 1, x + 1));
+      else return;
+      e.stopPropagation();
     };
-    window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
+    window.addEventListener("keydown", onKey, true);
+    return () => window.removeEventListener("keydown", onKey, true);
   }, [list.length, onClose]);
 
   const [zoom, setZoom] = useState<"fit" | 1 | 2>("fit");
@@ -552,6 +555,7 @@ export function Lightbox({ items, index, onClose, onIndex }: { items: LbItem[]; 
 
   useEffect(() => {
     closeRef.current?.focus();
+    // capture phase + stopPropagation: Escape closes only the lightbox and does not clear the open message behind it
     const onKey = (e: KeyboardEvent) => {
       if (e.key === "Escape") onClose();
       else if (e.key === "ArrowLeft" && index > 0) onIndex(index - 1);
@@ -559,9 +563,11 @@ export function Lightbox({ items, index, onClose, onIndex }: { items: LbItem[]; 
       else if (e.key === "+" || e.key === "=") setZoom((z) => Math.min(4, (z || 1) * 1.25));
       else if (e.key === "-") setZoom((z) => Math.max(0.25, (z || 1) / 1.25));
       else if (e.key === "0") setZoom(0);
+      else return;
+      e.stopPropagation();
     };
-    window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
+    window.addEventListener("keydown", onKey, true);
+    return () => window.removeEventListener("keydown", onKey, true);
   }, [index, items.length, onClose, onIndex]);
 
   if (!cur) return null;
