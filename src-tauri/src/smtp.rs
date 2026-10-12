@@ -1,7 +1,8 @@
 use crate::db::{err, Account, R};
 use base64::Engine;
 use lettre::message::header::ContentType;
-use lettre::message::{Attachment, Mailbox, MultiPart, SinglePart};
+use lettre::message::header::ContentTransferEncoding;
+use lettre::message::{Attachment, Body, Mailbox, MultiPart, SinglePart};
 use lettre::transport::smtp::authentication::{Credentials, Mechanism};
 use lettre::transport::smtp::client::{Tls, TlsParameters};
 use lettre::{Address, Message, SmtpTransport, Transport};
@@ -168,6 +169,12 @@ fn headers(acc: &Account, d: &Draft) -> R<lettre::message::MessageBuilder> {
     Ok(b)
 }
 
+/// An attachment's bytes as they are, whatever the type. Without this lettre sends text files as 7bit / 8bit text and the
+/// line endings become CRLF on the wire, so the saved file would differ from the original (checksum, diff, signatures).
+fn exact_body(bytes: Vec<u8>) -> Body {
+    Body::new_with_encoding(bytes, ContentTransferEncoding::Base64).unwrap_or_else(|b| Body::new(b))
+}
+
 /// The content: text/plain + text/html (+ related pictures), then the real attachments.
 fn body(d: &Draft) -> R<MultiPart> {
     let html = SinglePart::html(d.html.clone());
@@ -198,7 +205,7 @@ fn body(d: &Draft) -> R<MultiPart> {
     for a in &d.attachments {
         let bytes = base64::engine::general_purpose::STANDARD.decode(&a.data_base64).map_err(err)?;
         let ct = ContentType::parse(&a.mime).unwrap_or_else(|_| ContentType::parse("application/octet-stream").unwrap());
-        mixed = mixed.singlepart(Attachment::new(a.filename.clone()).body(bytes, ct));
+        mixed = mixed.singlepart(Attachment::new(a.filename.clone()).body(exact_body(bytes), ct));
     }
     Ok(mixed)
 }
@@ -419,6 +426,32 @@ mod tests {
         assert!(out.contains("Content-ID: <logo@heylook>"));
     }
 
+
+    #[test]
+    fn text_attachments_arrive_byte_for_byte() {
+        // LF-only text, CRLF text, a lone CR, Latin-1 bytes that are not valid UTF-8, no final newline, a very long line
+        let files: Vec<(&str, &str, Vec<u8>)> = vec![
+            ("lf.txt", "text/plain", b"first line\nsecond line\n".to_vec()),
+            ("crlf.txt", "text/plain", b"a\r\nb\r\n".to_vec()),
+            ("mixed.csv", "text/csv", b"a,b\rc,d\ne,f".to_vec()),
+            ("latin1.txt", "text/plain; charset=iso-8859-1", vec![b'c', b'a', b'f', 0xE9, b'\n']),
+            ("page.html", "text/html", b"<p>x</p>\n<p>\xff\xfe</p>\n".to_vec()),
+            ("long.txt", "text/plain", format!("{}\n", "x".repeat(5000)).into_bytes()),
+        ];
+        let atts: Vec<Att> = files.iter().map(|(n, m, b)| Att { filename: (*n).into(), mime: (*m).into(), data_base64: base64::engine::general_purpose::STANDARD.encode(b) }).collect();
+        let d = draft("<p>x</p>", vec![], atts);
+        let raw = build(&account(), &d).unwrap().formatted();
+        let out = String::from_utf8_lossy(&raw).into_owned();
+        assert!(!out.contains("Content-Transfer-Encoding: 7bit\r\n\r\nfirst line"), "attachments are not sent as plain text");
+        let metas = crate::mail::parse(0, &raw, true, false, 0).unwrap().attachments;
+        assert_eq!(metas.len(), files.len());
+        for (i, (name, _, bytes)) in files.iter().enumerate() {
+            let (got_name, got) = crate::mail::attachment_bytes(&raw, i).unwrap();
+            assert_eq!(&got_name, name);
+            assert_eq!(&got, bytes, "{name} unchanged");
+            assert_eq!(metas[i].size, bytes.len(), "{name} size");
+        }
+    }
     #[test]
     fn draft_without_pictures_has_no_related_part() {
         let out = text(&build(&account(), &draft("<p>plain</p>", vec![], vec![])).unwrap());

@@ -1,6 +1,6 @@
 use crate::db::{err, Account, R};
 use base64::Engine;
-use mail_parser::{Address, MessageParser, MimeHeaders};
+use mail_parser::{Address, MessageParser, MimeHeaders, PartType};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 
@@ -133,6 +133,25 @@ fn part_mime(part: &mail_parser::MessagePart) -> String {
         .unwrap_or_else(|| "application/octet-stream".into())
 }
 
+/// The bytes of an attachment part as they were sent. mail-parser turns text/* parts into UTF-8 text (charset conversion, lossy
+/// for bytes that are not valid in it), so a text attachment is decoded from its raw body again (base64 and quoted-printable);
+/// every other part is returned as parsed.
+fn part_data<'a>(raw: &'a [u8], part: &'a mail_parser::MessagePart<'_>) -> std::borrow::Cow<'a, [u8]> {
+    if matches!(part.body, PartType::Text(_) | PartType::Html(_)) {
+        if let Some(body) = raw.get(part.raw_body_offset() as usize..part.raw_end_offset() as usize) {
+            let decoded = match part.content_transfer_encoding().map(|e| e.to_ascii_lowercase()).as_deref() {
+                Some("base64") => mail_parser::decoders::base64::base64_decode(body),
+                Some("quoted-printable") => mail_parser::decoders::quoted_printable::quoted_printable_decode(body),
+                _ => None,
+            };
+            if let Some(d) = decoded {
+                return std::borrow::Cow::Owned(d);
+            }
+        }
+    }
+    std::borrow::Cow::Borrowed(part.contents())
+}
+
 fn default_name(i: usize, mime: &str) -> String {
     match mime.strip_prefix("image/") {
         Some(ext) => format!("picture-{}.{}", i + 1, ext.split(['+', ';']).next().unwrap_or("img")),
@@ -225,7 +244,7 @@ pub fn parse(uid: u32, raw: &[u8], seen: bool, flagged: bool, fallback_date: i64
     let mut attachments = vec![];
     for (i, part) in m.attachments().enumerate() {
         let mime = part_mime(part);
-        let size = part.contents().len();
+        let size = part_data(raw, part).len();
         let cid = part_cid(part);
         let referenced = match (&cid, &html) {
             (Some(c), Some(h)) => !cid_ref_spans(h, c).is_empty(),
@@ -353,7 +372,7 @@ pub fn attachment_bytes(raw: &[u8], index: usize) -> R<(String, Vec<u8>)> {
     let part = m.attachments().nth(index).ok_or("attachment not found")?;
     // same fallback name as the metadata (AttMeta.name), so a saved file and its card agree
     let name = part.attachment_name().map(|s| s.to_string()).unwrap_or_else(|| default_name(index, &part_mime(part)));
-    Ok((name, part.contents().to_vec()))
+    Ok((name, part_data(raw, part).into_owned()))
 }
 
 pub fn fetch_folder(s: &mut Sess, folder: &str, max_known_uid: u32, min_known_uid: u32, initial: u32) -> R<FolderFetch> {
@@ -484,7 +503,7 @@ pub fn inline_part(raw: &[u8], cid: &str) -> R<(String, Vec<u8>, String)> {
         if part_cid(part).as_deref() == Some(cid) {
             let mime = part_mime(part);
             let name = part.attachment_name().map(|s| s.to_string()).unwrap_or_else(|| default_name(i, &mime));
-            return Ok((mime, part.contents().to_vec(), name));
+            return Ok((mime, part_data(raw, part).into_owned(), name));
         }
     }
     Err(format!("picture missing from this message (cid:{cid})"))
