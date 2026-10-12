@@ -31,6 +31,15 @@ export interface Overridable {
   autoResizePictures: boolean;
   /** receiving: inline pictures up to this size per picture are loaded with the message (0 = always) */
   inlineAutoLoadMB: 2 | 5 | 0;
+  /** PGP: "possible" = Encrypt starts on only when every recipient has a key; "always" never turns itself off */
+  pgpEncrypt: "never" | "possible" | "always";
+  pgpSign: boolean;
+  /** attach the public key to signed / encrypted messages (lets recipients reply encrypted) */
+  pgpAttachKey: boolean;
+  /** drafts of encrypted messages are encrypted to your own key on the server */
+  pgpEncryptDrafts: boolean;
+  /** keys attached to received mail */
+  pgpImportFromMail: "ask" | "auto" | "never";
 }
 
 export interface Prefs extends Overridable {
@@ -59,6 +68,8 @@ export interface Prefs extends Overridable {
   afterSave: "notify" | "reveal" | "open";
   /** confirm before opening programs and scripts */
   warnExecutables: boolean;
+  /** how long an unlocked PGP key stays unlocked: "session" = until the app quits (memory only) */
+  pgpRemember: "never" | "session";
   /** scheduled messages whose time passed while the app was closed: send them, or ask first */
   scheduledCatchUp: "send" | "ask";
   /** retry network failures of scheduled messages 3 times, 5 minutes apart */
@@ -100,6 +111,7 @@ export const DEFAULT_PREFS: Prefs = {
   warnExecutables: true,
   scheduledCatchUp: "send",
   retryScheduled: true,
+  pgpRemember: "session",
   trayBadge: "number",
   taskbarBadge: "number",
   countOtherMail: false,
@@ -129,6 +141,11 @@ export const DEFAULT_PREFS: Prefs = {
   inlinePictures: "inline",
   autoResizePictures: false,
   inlineAutoLoadMB: 2,
+  pgpEncrypt: "possible",
+  pgpSign: false,
+  pgpAttachKey: true,
+  pgpEncryptDrafts: true,
+  pgpImportFromMail: "ask",
 };
 
 /** Effective value: the account's own override if it has one, otherwise the "All accounts" value. */

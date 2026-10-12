@@ -36,6 +36,9 @@ export interface ThreadSummary {
   pinned: boolean;
   snoozedUntil: number | null;
   hasAttach: boolean;
+  /** PGP: at least one message of the conversation is encrypted / signed */
+  encrypted?: boolean;
+  signed?: boolean;
 }
 
 export interface MessageFull {
@@ -55,6 +58,85 @@ export interface MessageFull {
   flagged: boolean;
   attachments: AttMeta[];
   canUnsubscribe: boolean;
+  /** PGP state; null for ordinary mail */
+  security?: MessageSecurity | null;
+}
+
+export type SigStatus = "valid" | "invalid" | "unknown_key" | "expired_key" | "revoked_key";
+
+export interface SigInfo {
+  status: SigStatus;
+  signer?: string | null;
+  fingerprint?: string | null;
+  keyId: string;
+  signedAt?: number | null;
+  verified: boolean;
+  matchesFrom: boolean;
+  inline: boolean;
+}
+
+export interface MessageSecurity {
+  encrypted: boolean;
+  partial: boolean;
+  decryption: "ok" | "locked" | "no_key" | "error" | "none";
+  lockedKey?: string | null;
+  lockedLabel?: string | null;
+  encryptedFor: string[];
+  error?: string | null;
+  cipher?: string | null;
+  signature?: SigInfo | null;
+}
+
+export type KeyAlgo = "cv25519" | "rsa3072";
+export type KeyStatus = "ok" | "missing" | "expired" | "revoked";
+
+export interface PgpKey {
+  /** 40 hex characters, no spaces */
+  fingerprint: string;
+  keyId: string;
+  userIds: string[];
+  algo: string;
+  created: number;
+  expires: number | null;
+  expired: boolean;
+  revoked: boolean;
+  hasSecret: boolean;
+  verified: boolean;
+  source: "generated" | "file" | "paste" | "email";
+  passphraseRemembered: boolean;
+  unlocked: boolean;
+  defaultFor: string[];
+  /** the stored secret key is passphrase-protected */
+  protected: boolean;
+}
+
+export interface KeyInspect {
+  keys: PgpKey[];
+  isSecret: boolean;
+  needsNewPassphrase: boolean;
+  alreadyKnown: string[];
+}
+
+export interface RecipientStatus {
+  address: string;
+  status: KeyStatus;
+  fingerprint?: string | null;
+  verified?: boolean | null;
+  expires?: number | null;
+}
+
+export interface OwnKeyStatus {
+  fingerprint: string;
+  canSign: boolean;
+  canEncrypt: boolean;
+  unlocked: boolean;
+  expired: boolean;
+}
+
+export interface DraftSecurity {
+  encrypt: boolean;
+  sign: boolean;
+  attachPublicKey: boolean;
 }
 
 export interface AttMeta {
@@ -153,6 +235,8 @@ export interface Draft {
   attachments: Att[];
   /** pictures in the body; the html refers to them as cid:<cid> */
   inline?: InlineImage[];
+  /** Encrypt / sign (PGP/MIME). Errors: PGP_MISSING_KEYS:<a,b> / PGP_LOCKED:<fpr> / PGP_NO_KEY / PGP_FAILED */
+  security?: DraftSecurity;
 }
 
 export type OutboxStatus = "pending" | "held" | "sending" | "failed" | "overdue";
@@ -297,6 +381,31 @@ export const api = {
   outboxToDraft: (id: string) => invoke<void>("outbox_to_draft", { id }),
   outboxSendNow: (id: string) => invoke<void>("outbox_send_now", { id }),
   quitNow: () => invoke<void>("quit_now"),
+  // PGP
+  pgpListKeys: () => invoke<PgpKey[]>("pgp_list_keys"),
+  pgpGenerateKey: (accountId: string, algo: KeyAlgo, expiresDays: number | null, passphrase: string, remember: "never" | "session") =>
+    invoke<PgpKey>("pgp_generate_key", { accountId, algo, expiresDays, passphrase, remember }),
+  pgpInspectKey: (src: { armored?: string; path?: string }) => invoke<KeyInspect>("pgp_inspect_key", { armored: src.armored ?? null, path: src.path ?? null }),
+  pgpImportKey: (src: { armored?: string; path?: string }, passphrase: string | null, verified: boolean) =>
+    invoke<PgpKey[]>("pgp_import_key", { armored: src.armored ?? null, path: src.path ?? null, passphrase, verified }),
+  pgpImportFromMessage: (messageId: string, index: number) => invoke<PgpKey[]>("pgp_import_from_message", { messageId, index }),
+  pgpPickKeyFile: () => invoke<string | null>("pgp_pick_key_file"),
+  pgpPublicArmored: (fingerprint: string) => invoke<string>("pgp_public_armored", { fingerprint }),
+  pgpExportPublic: (fingerprint: string) => invoke<string | null>("pgp_export_public", { fingerprint }),
+  pgpExportSecret: (fingerprint: string, passphrase?: string) => invoke<string | null>("pgp_export_secret", { fingerprint, passphrase: passphrase ?? null }),
+  pgpDeleteKey: (fingerprint: string, includeSecret: boolean) => invoke<void>("pgp_delete_key", { fingerprint, includeSecret }),
+  pgpSetVerified: (fingerprint: string, verified: boolean) => invoke<void>("pgp_set_verified", { fingerprint, verified }),
+  pgpSetDefault: (accountId: string, fingerprint: string | null) => invoke<void>("pgp_set_default", { accountId, fingerprint }),
+  pgpChangePassphrase: (fingerprint: string, oldPassphrase: string, newPassphrase: string) =>
+    invoke<void>("pgp_change_passphrase", { fingerprint, oldPassphrase, newPassphrase }),
+  pgpSetExpiry: (fingerprint: string, passphrase: string, expiresDays: number | null) =>
+    invoke<PgpKey>("pgp_set_expiry", { fingerprint, passphrase, expiresDays }),
+  pgpUnlock: (fingerprint: string, passphrase: string, remember: boolean) => invoke<void>("pgp_unlock", { fingerprint, passphrase, remember }),
+  pgpLockAll: () => invoke<void>("pgp_lock_all"),
+  pgpRecipientStatus: (accountId: string, addresses: string[]) =>
+    invoke<{ own: OwnKeyStatus | null; recipients: RecipientStatus[] }>("pgp_recipient_status", { accountId, addresses }),
+  pgpDecryptMessage: (messageId: string, passphrase?: string, remember?: boolean) =>
+    invoke<MessageFull>("pgp_decrypt_message", { messageId, passphrase: passphrase ?? null, remember: remember ?? null }),
   listTemplates: () => invoke<Template[]>("list_templates"),
   saveTemplate: (template: Template) => invoke<void>("save_template", { template }),
   deleteTemplate: (id: string) => invoke<void>("delete_template", { id }),

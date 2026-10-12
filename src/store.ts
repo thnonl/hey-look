@@ -1,5 +1,5 @@
 import { create } from "zustand";
-import { api, Account, Att, FolderInfo, MessageFull, OutboxItem, SearchScope, ThreadSummary } from "./api";
+import { api, Account, Att, DraftSecurity, FolderInfo, MessageFull, OutboxItem, SearchScope, ThreadSummary } from "./api";
 import { accentText, buttonAccent, DEFAULT_PREFS, lightened, mergePrefs, Prefs, readableOn, topBar, validHex } from "./prefs";
 
 export interface ComposeInit {
@@ -22,13 +22,29 @@ export interface ComposeInit {
   openSchedule?: boolean;
   /** why the scheduled message failed (shown in the Compose banner) */
   outboxError?: string;
+  /** encryption / signing of a reopened draft or scheduled message */
+  security?: DraftSecurity;
 }
 
 export type Dialog =
   | null
   | { type: "settings"; tab?: string; focus?: string }
   | { type: "cleaner" }
-  | { type: "original"; messageId: string };
+  | { type: "original"; messageId: string }
+  | { type: "pgp-generate"; accountId?: string; back?: string }
+  | { type: "pgp-import"; armored?: string; paste?: boolean; back?: string }
+  | { type: "pgp-key"; fingerprint: string; back?: string };
+
+/** Why a PGP key has to be unlocked right now (the title of the passphrase prompt). */
+export type UnlockReason = "sign" | "decrypt" | "draft" | "schedule";
+
+export interface PassphraseAsk {
+  fingerprint: string;
+  reason: UnlockReason;
+  /** e.g. the address the key belongs to */
+  label?: string;
+  resolve: (unlocked: boolean) => void;
+}
 
 export type RibbonTab = "home" | "view" | "help";
 
@@ -70,7 +86,11 @@ export function scopeOf(folder: string): string | undefined {
 
 /** Turn backend / network errors into something a person can act on. */
 export function friendlyError(e: unknown): string {
-  const raw = String(e instanceof Error ? e.message : e).replace(/^Error:\s*/, "").trim();
+  let raw = String(e instanceof Error ? e.message : e).replace(/^Error:\s*/, "").trim();
+  // backend errors are "CODE: human text"; a few PGP ones carry data instead ("PGP_MISSING_KEYS:a@b.c,d@e.f")
+  if (/^PGP_LOCKED:/.test(raw)) return "Your encryption key is locked. Unlock it and try again.";
+  if (/^PGP_MISSING_KEYS:/.test(raw)) return `No public key for ${raw.slice("PGP_MISSING_KEYS:".length).split(",").join(", ")}.`;
+  raw = raw.replace(/^[A-Z][A-Z_]+:\s+/, "");
   if (/login failed|authenticationfailed|invalid credentials|auth.*fail/i.test(raw))
     return "Sign-in failed. Check the password (Gmail, iCloud and Yahoo need an app password) or sign in again.";
   if (/no stored (password|\w+ token)/i.test(raw)) return "The saved credentials for this account are missing. Remove the account and add it again.";
@@ -100,6 +120,9 @@ interface State {
   syncErrors: Record<string, string>;
   toasts: Toast[];
   ask: AskState | null;
+  passphrase: PassphraseAsk | null;
+  /** bumps whenever keys are added, removed or unlocked, so key-dependent views refetch */
+  keysRev: number;
   compose: ComposeInit | null;
   composeKey: number; // changes on every open so a new message never inherits the old one's state
   composeDirty: boolean;
@@ -135,6 +158,12 @@ interface State {
   confirm: (o: { title: string; body?: string; confirmLabel?: string; danger?: boolean }) => Promise<boolean>;
   choose: (o: { title: string; body?: string; choices: Choice[] }) => Promise<string>;
   resolveAsk: (id: string) => void;
+  /** Asks for the passphrase of a key and unlocks it. Resolves true when it is unlocked, false when cancelled. */
+  askPassphrase: (o: { fingerprint: string; reason: UnlockReason; label?: string }) => Promise<boolean>;
+  resolvePassphrase: (unlocked: boolean) => void;
+  bumpKeys: () => void;
+  /** Swap one message of the open conversation (after it was decrypted). */
+  replaceMessage: (m: MessageFull) => void;
   setPrefs: (p: Partial<Prefs>) => void;
   refreshAi: () => Promise<void>;
 }
@@ -225,6 +254,8 @@ export const useStore = create<State>((set, get) => ({
   syncErrors: {},
   toasts: [],
   ask: null,
+  passphrase: null,
+  keysRev: 0,
   compose: null,
   composeKey: 0,
   composeDirty: false,
@@ -496,6 +527,22 @@ export const useStore = create<State>((set, get) => ({
     set({ ask: null });
     a?.resolve(id);
   },
+
+  askPassphrase: (o) =>
+    new Promise<boolean>((resolve) => {
+      set({ passphrase: { ...o, resolve } });
+    }),
+
+  resolvePassphrase: (unlocked) => {
+    const p = get().passphrase;
+    set({ passphrase: null });
+    if (unlocked) get().bumpKeys();
+    p?.resolve(unlocked);
+  },
+
+  bumpKeys: () => set((s) => ({ keysRev: s.keysRev + 1 })),
+
+  replaceMessage: (m) => set((s) => ({ messages: s.messages.map((x) => (x.id === m.id ? m : x)) })),
 
   setPrefs: (patch) => {
     const prefs = { ...get().prefs, ...patch };

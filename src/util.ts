@@ -241,3 +241,33 @@ export function dataUriBytes(uri: string): number {
 }
 
 export const PICTURE_TYPES = ["image/png", "image/jpeg", "image/gif", "image/webp"];
+
+/** Fingerprint in groups of four ("7A3F 9C21 …"). */
+export function fmtFpr(fpr: string): string {
+  return (fpr.replace(/\s+/g, "").toUpperCase().match(/.{1,4}/g) ?? []).join(" ");
+}
+
+/** The usual short form of a key: the last eight hex digits, grouped ("0B44 D1E8"). */
+export function shortKey(fprOrId: string): string {
+  return fmtFpr(fprOrId.replace(/\s+/g, "").slice(-8));
+}
+
+export function fmtDay(ts: number): string {
+  return format(new Date(ts * 1000), "d MMM yyyy");
+}
+
+/** Name part of "Name <a@b.c>", else the address. */
+export function userName(uid: string): string {
+  const n = uid.split("<")[0].trim().replace(/^"|"$/g, "");
+  return n || uid.replace(/[<>]/g, "");
+}
+
+/** 0-4 for the passphrase meter: length first, then variety. */
+export function passphraseStrength(p: string): 0 | 1 | 2 | 3 | 4 {
+  if (!p) return 0;
+  const kinds = [/[a-z]/, /[A-Z]/, /\d/, /[^A-Za-z0-9]/].filter((r) => r.test(p)).length;
+  if (p.length < 8) return 1;
+  if (p.length >= 16 && kinds >= 3) return 4;
+  if (p.length >= 12 && kinds >= 2) return 3;
+  return kinds >= 2 ? 2 : 1;
+}
