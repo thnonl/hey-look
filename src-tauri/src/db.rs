@@ -1,0 +1,152 @@
+use rusqlite::{params, Connection};
+use serde::{Deserialize, Serialize};
+use std::path::Path;
+
+pub type R<T> = Result<T, String>;
+
+pub fn err<E: std::fmt::Display>(e: E) -> String {
+    e.to_string()
+}
+
+pub fn open(path: &Path) -> R<Connection> {
+    let conn = Connection::open(path).map_err(err)?;
+    conn.execute_batch(
+        "PRAGMA journal_mode=WAL;
+         PRAGMA foreign_keys=ON;
+         CREATE TABLE IF NOT EXISTS accounts(
+           id TEXT PRIMARY KEY, email TEXT NOT NULL, display_name TEXT NOT NULL,
+           imap_host TEXT NOT NULL, imap_port INTEGER NOT NULL, imap_ssl INTEGER NOT NULL,
+           smtp_host TEXT NOT NULL, smtp_port INTEGER NOT NULL, smtp_security TEXT NOT NULL,
+           username TEXT NOT NULL
+         );
+         CREATE TABLE IF NOT EXISTS messages(
+           id TEXT PRIMARY KEY, account_id TEXT NOT NULL, folder TEXT NOT NULL, uid INTEGER NOT NULL,
+           message_id TEXT, thread_id TEXT NOT NULL, subject TEXT NOT NULL,
+           from_name TEXT NOT NULL, from_email TEXT NOT NULL,
+           to_addrs TEXT NOT NULL, cc_addrs TEXT NOT NULL, date INTEGER NOT NULL,
+           snippet TEXT NOT NULL, body_html TEXT, body_text TEXT,
+           seen INTEGER NOT NULL DEFAULT 0, flagged INTEGER NOT NULL DEFAULT 0,
+           has_attach INTEGER NOT NULL DEFAULT 0,
+           list_unsub TEXT, list_unsub_post INTEGER NOT NULL DEFAULT 0,
+           UNIQUE(account_id, folder, uid)
+         );
+         CREATE INDEX IF NOT EXISTS idx_msg_thread ON messages(thread_id);
+         CREATE INDEX IF NOT EXISTS idx_msg_folder ON messages(account_id, folder, date DESC);
+         CREATE INDEX IF NOT EXISTS idx_msg_mid ON messages(message_id);
+         CREATE TABLE IF NOT EXISTS thread_meta(
+           thread_id TEXT PRIMARY KEY, pinned INTEGER NOT NULL DEFAULT 0, snoozed_until INTEGER
+         );
+         CREATE TABLE IF NOT EXISTS blocked(email TEXT PRIMARY KEY);
+         CREATE TABLE IF NOT EXISTS templates(
+           id TEXT PRIMARY KEY, name TEXT NOT NULL, subject TEXT NOT NULL, body TEXT NOT NULL
+         );
+         CREATE TABLE IF NOT EXISTS signatures(
+           id TEXT PRIMARY KEY, name TEXT NOT NULL, html TEXT NOT NULL, is_default INTEGER NOT NULL DEFAULT 0
+         );
+         CREATE TABLE IF NOT EXISTS outbox(
+           id TEXT PRIMARY KEY, account_id TEXT NOT NULL, payload TEXT NOT NULL,
+           send_at INTEGER NOT NULL, status TEXT NOT NULL DEFAULT 'pending', error TEXT
+         );
+         CREATE TABLE IF NOT EXISTS settings(key TEXT PRIMARY KEY, value TEXT NOT NULL);",
+    )
+    .map_err(err)?;
+    Ok(conn)
+}
+
+#[derive(Serialize, Deserialize, Clone, Debug)]
+#[serde(rename_all = "camelCase")]
+pub struct Account {
+    pub id: String,
+    pub email: String,
+    pub display_name: String,
+    pub imap_host: String,
+    pub imap_port: u16,
+    pub imap_ssl: bool,
+    pub smtp_host: String,
+    pub smtp_port: u16,
+    /// "ssl" | "starttls" | "none"
+    pub smtp_security: String,
+    pub username: String,
+}
+
+pub fn list_accounts(c: &Connection) -> R<Vec<Account>> {
+    let mut st = c
+        .prepare(
+            "SELECT id,email,display_name,imap_host,imap_port,imap_ssl,smtp_host,smtp_port,smtp_security,username
+             FROM accounts ORDER BY rowid",
+        )
+        .map_err(err)?;
+    let rows = st
+        .query_map([], row_account)
+        .map_err(err)?
+        .collect::<Result<Vec<_>, _>>()
+        .map_err(err)?;
+    Ok(rows)
+}
+
+pub fn get_account(c: &Connection, id: &str) -> R<Account> {
+    c.query_row(
+        "SELECT id,email,display_name,imap_host,imap_port,imap_ssl,smtp_host,smtp_port,smtp_security,username
+         FROM accounts WHERE id=?1",
+        [id],
+        row_account,
+    )
+    .map_err(|_| format!("account not found: {id}"))
+}
+
+fn row_account(r: &rusqlite::Row) -> rusqlite::Result<Account> {
+    Ok(Account {
+        id: r.get(0)?,
+        email: r.get(1)?,
+        display_name: r.get(2)?,
+        imap_host: r.get(3)?,
+        imap_port: r.get(4)?,
+        imap_ssl: r.get::<_, i64>(5)? != 0,
+        smtp_host: r.get(6)?,
+        smtp_port: r.get(7)?,
+        smtp_security: r.get(8)?,
+        username: r.get(9)?,
+    })
+}
+
+pub fn insert_account(c: &Connection, a: &Account) -> R<()> {
+    c.execute(
+        "INSERT OR REPLACE INTO accounts VALUES(?1,?2,?3,?4,?5,?6,?7,?8,?9,?10)",
+        params![
+            a.id,
+            a.email,
+            a.display_name,
+            a.imap_host,
+            a.imap_port,
+            a.imap_ssl as i64,
+            a.smtp_host,
+            a.smtp_port,
+            a.smtp_security,
+            a.username
+        ],
+    )
+    .map_err(err)?;
+    Ok(())
+}
+
+pub fn remove_account(c: &Connection, id: &str) -> R<()> {
+    c.execute("DELETE FROM messages WHERE account_id=?1", [id]).map_err(err)?;
+    c.execute("DELETE FROM outbox WHERE account_id=?1", [id]).map_err(err)?;
+    c.execute("DELETE FROM accounts WHERE id=?1", [id]).map_err(err)?;
+    Ok(())
+}
+
+pub fn get_setting(c: &Connection, key: &str) -> Option<String> {
+    c.query_row("SELECT value FROM settings WHERE key=?1", [key], |r| r.get(0))
+        .ok()
+}
+
+pub fn set_setting(c: &Connection, key: &str, value: &str) -> R<()> {
+    c.execute(
+        "INSERT INTO settings(key,value) VALUES(?1,?2)
+         ON CONFLICT(key) DO UPDATE SET value=excluded.value",
+        params![key, value],
+    )
+    .map_err(err)?;
+    Ok(())
+}
