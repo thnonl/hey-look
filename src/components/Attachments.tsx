@@ -5,8 +5,10 @@ import {
 } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { api, AttMeta, errorCode, MessageFull } from "../api";
+import { eff } from "../prefs";
 import { friendlyError, useStore } from "../store";
 import { fmtSize } from "../util";
+import { importKeyFromMessage, isKeyAttachment } from "./Pgp";
 import { Dropdown } from "./ui";
 
 // ---------------------------------------------------------------- file types
@@ -207,7 +209,9 @@ export function AttachmentCard({ m, a }: { m: MessageFull; a: AttMeta }) {
     }
   };
 
+  const isKey = isKeyAttachment(a) && eff(prefs, m.accountId, "pgpImportFromMail") !== "never";
   const menu = [
+    ...(isKey ? [{ label: "Import key", onClick: () => void importKeyFromMessage(m, a.index) }, { divider: true }] : []),
     ...(pv ? [{ label: "Preview", hint: "Space", onClick: () => setPreview(true) }] : []),
     { label: "Open", hint: "Enter", onClick: open },
     { divider: true },
@@ -229,6 +233,8 @@ export function AttachmentCard({ m, a }: { m: MessageFull; a: AttMeta }) {
           <button className="icon-btn" title="Open" aria-label={`Open ${a.name}`} onClick={open}><ExternalLink size={14} /></button>
           <button className="icon-btn" title="Show in folder" aria-label={`Show ${a.name} in folder`} onClick={() => st.path && void api.attachmentReveal(st.path)}><FolderOpen size={14} /></button>
         </>
+      ) : isKey ? (
+        <button className="btn small" onClick={() => void importKeyFromMessage(m, a.index)} aria-label={`Import key from ${a.name}`}>Import key</button>
       ) : pv ? (
         <button className="icon-btn" title={`Save to ${saveTo}`} aria-label={`Save ${a.name} to ${saveTo}`} onClick={() => void save(false)}><Download size={14} /></button>
       ) : (

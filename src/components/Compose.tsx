@@ -4,15 +4,17 @@ import { NodeSelection } from "@tiptap/pm/state";
 import { EditorContent, useEditor, type Editor } from "@tiptap/react";
 import StarterKit from "@tiptap/starter-kit";
 import {
-  Bold, CalendarClock, ChevronDown, FileText, ImagePlus, Italic, Link2, List, ListOrdered, Paperclip, Save, Send, Sparkles, Trash2, Underline as UIcon, X,
+  BadgeCheck, Bold, CalendarClock, ChevronDown, FileText, ImagePlus, Info, Italic, Link2, List, ListOrdered, Lock, LockOpen, Paperclip, Save, Send, ShieldCheck, Sparkles, Trash2,
+  TriangleAlert, Underline as UIcon, X,
 } from "lucide-react";
-import { useCallback, useEffect, useRef, useState } from "react";
-import { api, Att, Contact, Draft, errorCode, InlineImage, MessageFull, Signature, Template } from "../api";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { api, Att, Contact, Draft, DraftSecurity, errorCode, InlineImage, MessageFull, OwnKeyStatus, RecipientStatus, Signature, Template } from "../api";
 import { eff } from "../prefs";
 import { ComposeInit, friendlyError, useStore } from "../store";
-import { dataUriBytes, fileToBase64, fmtIn, fmtSize, fmtWhen, htmlToText, imageSize, PICTURE_TYPES, playSent, resizeImage } from "../util";
+import { dataUriBytes, fileToBase64, fmtIn, fmtSize, fmtWhen, htmlToText, imageSize, PICTURE_TYPES, playSent, resizeImage, shortKey, userName } from "../util";
+import { askUnlock } from "./Pgp";
 import { SchedulePicker } from "./SchedulePicker";
-import { Dropdown, useOutside } from "./ui";
+import { Dropdown, MenuList, useOutside } from "./ui";
 
 const MAX_ATTACH_BYTES = 25 * 1024 * 1024;
 const EMAIL = /^[^\s@<>"]+@[^\s@<>"]+\.[^\s@<>"]+$/;
@@ -42,7 +44,21 @@ const PictureNode = Image.extend({
 }).configure({ inline: false, allowBase64: true });
 
 /** Recipient input with chips, address validation and keyboard-friendly suggestions. */
-function RecipientField({ label, values, onChange, autoFocus, onTouch }: { label: string; values: string[]; onChange: (v: string[]) => void; autoFocus?: boolean; onTouch?: () => void }) {
+function RecipientField({
+  label, values, onChange, autoFocus, onTouch, keys, onKeyAction,
+}: {
+  label: string;
+  values: string[];
+  onChange: (v: string[]) => void;
+  autoFocus?: boolean;
+  onTouch?: () => void;
+  /** PGP key status per address (lower case); shown on the chips while Encrypt is on */
+  keys?: Record<string, RecipientStatus>;
+  onKeyAction?: (a: "import" | "paste") => void;
+}) {
+  const [keyPop, setKeyPop] = useState<string | null>(null);
+  const popRef = useRef<HTMLSpanElement>(null);
+  useOutside(popRef, () => setKeyPop(null), keyPop !== null);
   const [text, setText] = useState("");
   const [sugg, setSugg] = useState<Contact[]>([]);
   const [hi, setHi] = useState(-1);
@@ -74,8 +90,19 @@ function RecipientField({ label, values, onChange, autoFocus, onTouch }: { label
     <div className="cf-field rcpt" onClick={() => input.current?.focus()}>
       <label>{label}</label>
       <div className="chips">
-        {values.map((v) => (
-          <span key={v} className={`rchip ${EMAIL.test(bareAddress(v)) ? "" : "bad"}`} title={EMAIL.test(bareAddress(v)) ? v : "This does not look like an email address"}>
+        {values.map((v) => {
+          const addr = bareAddress(v).toLowerCase();
+          const ks = keys?.[addr];
+          const noKey = !!ks && ks.status !== "ok";
+          return (
+          <span key={v} className={`rchip ${EMAIL.test(bareAddress(v)) ? "" : "bad"} ${noKey ? "nokey" : ""}`} title={EMAIL.test(bareAddress(v)) ? (noKey ? `No usable public key for ${addr}` : v) : "This does not look like an email address"}>
+            {ks && (ks.status === "ok" ? (
+              <span className="rchip-key ok" title="Public key found" role="img" aria-label={`Public key found for ${addr}`}><Lock size={11} /></span>
+            ) : (
+              <button type="button" className="rchip-key missing" aria-label={`No public key for ${addr} — options`} aria-haspopup="dialog" aria-expanded={keyPop === addr} onClick={(e) => (e.stopPropagation(), setKeyPop(keyPop === addr ? null : addr))}>
+                <LockOpen size={11} />
+              </button>
+            ))}
             <span className="ellipsis">{v}</span>
             <button
               type="button"
@@ -89,7 +116,8 @@ function RecipientField({ label, values, onChange, autoFocus, onTouch }: { label
               <X size={11} />
             </button>
           </span>
-        ))}
+          );
+        })}
         <input
           ref={input}
           value={text}
@@ -128,6 +156,21 @@ function RecipientField({ label, values, onChange, autoFocus, onTouch }: { label
           }}
         />
       </div>
+      {keyPop && keys?.[keyPop] && (
+        <span className="suggest popover" role="dialog" aria-label={`Public key for ${keyPop}`} ref={popRef} style={{ width: 340, right: "auto", left: 62, padding: 12, gap: 8, display: "flex", flexDirection: "column" }} onClick={(e) => e.stopPropagation()}>
+          <span style={{ display: "flex", gap: 8, alignItems: "center" }}><TriangleAlert size={15} className="warn-ico" /><b>{keys[keyPop].status === "expired" ? `The key for ${keyPop} expired` : keys[keyPop].status === "revoked" ? `The key for ${keyPop} was revoked` : `No public key for ${keyPop}`}</b></span>
+          <span className="muted small">
+            {keys[keyPop].status === "missing"
+              ? "Encrypted mail can only be sent to people whose public key you have. Ask them to send it, or import it from a file."
+              : "You can’t encrypt to this key any more. Ask for a new public key, or import it from a file."}
+          </span>
+          <span style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
+            <button className="btn small primary" onClick={() => (setKeyPop(null), onKeyAction?.("import"))}>Import key…</button>
+            <button className="btn small" onClick={() => (setKeyPop(null), onKeyAction?.("paste"))}>Paste key</button>
+            <button className="btn small" onClick={() => { const a = keyPop; setKeyPop(null); onChange(values.filter((x) => bareAddress(x).toLowerCase() !== a)); onTouch?.(); }}>Remove recipient</button>
+          </span>
+        </span>
+      )}
       {sugg.length > 0 && (
         <div className="suggest" role="listbox">
           {sugg.map((c, i) => (
@@ -222,6 +265,17 @@ export function Compose({ init }: { init: ComposeInit }) {
   const [picSel, setPicSel] = useState<PictureSel | null>(null);
   const [altOpen, setAltOpen] = useState(false);
   const [altText, setAltText] = useState("");
+  // PGP: Encrypt is "on", "off", or "auto" (on while every recipient has a key); Sign is a plain switch
+  const keysRev = useStore((s) => s.keysRev);
+  const startMode = eff(prefs, init.accountId || prefs.defaultAccount || accounts[0]?.id, "pgpEncrypt");
+  const [encIntent, setEncIntent] = useState<"on" | "off" | "auto">(init.security ? (init.security.encrypt ? "on" : "off") : startMode === "always" ? "on" : startMode === "possible" ? "auto" : "off");
+  const [signOn, setSignOn] = useState(init.security ? init.security.sign : eff(prefs, init.accountId || prefs.defaultAccount || accounts[0]?.id, "pgpSign"));
+  const [attachKey, setAttachKey] = useState(init.security ? init.security.attachPublicKey : eff(prefs, init.accountId || prefs.defaultAccount || accounts[0]?.id, "pgpAttachKey"));
+  const [signMenu, setSignMenu] = useState(false);
+  const [secDetails, setSecDetails] = useState(false);
+  const [ks, setKs] = useState<{ own: OwnKeyStatus | null; recipients: Record<string, RecipientStatus> } | null>(null);
+  const signRef = useRef<HTMLDivElement>(null);
+  useOutside(signRef, () => setSignMenu(false), signMenu);
   const touched = useRef(false);
   const ccTouched = useRef(false);
   const savedRef = useRef(false); // an outbox item was saved, moved or sent from here (nothing to release)
@@ -235,6 +289,54 @@ export function Compose({ init }: { init: ComposeInit }) {
     touched.current = true;
     setComposeDirty(true);
   }, [setComposeDirty]);
+
+  // key status of every recipient (and of the From account's own key), refreshed 250 ms after a change
+  const allAddrs = useMemo(
+    () => Array.from(new Set([...to, ...cc, ...bcc].map((a) => bareAddress(a).toLowerCase()).filter((a) => EMAIL.test(a)))),
+    [to, cc, bcc],
+  );
+  const addrKey = allAddrs.join(",");
+  useEffect(() => {
+    if (!accountId) return;
+    let live = true;
+    const t = setTimeout(() => {
+      api
+        .pgpRecipientStatus(accountId, allAddrs)
+        .then((r) => live && setKs({ own: r.own, recipients: Object.fromEntries(r.recipients.map((x) => [x.address.toLowerCase(), x])) }))
+        .catch(() => live && setKs({ own: null, recipients: {} }));
+    }, 250);
+    return () => {
+      live = false;
+      clearTimeout(t);
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [accountId, addrKey, keysRev]);
+
+  const own = ks?.own ?? null;
+  const noKeyAddrs = ks ? allAddrs.filter((a) => ks.recipients[a] && ks.recipients[a].status !== "ok") : [];
+  const canEnc = !!own && own.canEncrypt;
+  const encOn = !!own && (encIntent === "on" || (encIntent === "auto" && canEnc && noKeyAddrs.length === 0));
+  const signActive = signOn && !!own;
+  const autoOff = encIntent === "auto" && !!own && noKeyAddrs.length > 0;
+  const fromEmail = accounts.find((a) => a.id === accountId)?.email ?? "";
+  const encTitle = !own
+    ? `You have no PGP key for ${fromEmail}. Set up encryption… (Settings → Encryption)`
+    : encOn && noKeyAddrs.length > 0
+      ? `Encrypt (Ctrl+Shift+E) — ${noKeyAddrs.length} recipient${noKeyAddrs.length === 1 ? " has" : "s have"} no key`
+      : "Encrypt (Ctrl+Shift+E)";
+  const toggleEncrypt = () => {
+    if (!own) return setDialog({ type: "pgp-generate", accountId });
+    setEncIntent(encOn ? "off" : "on");
+    touch();
+  };
+  const toggleSign = () => {
+    if (!own) return setDialog({ type: "pgp-generate", accountId });
+    setSignOn(!signOn);
+    touch();
+  };
+  /** What this message will do, as sent to the backend. */
+  const currentSecurity = (): DraftSecurity | undefined =>
+    encOn || signActive ? { encrypt: encOn, sign: signActive, attachPublicKey: attachKey && (encOn || signActive) } : undefined;
 
   const addFilesRef = useRef<(files: File[]) => Promise<void>>(async () => undefined);
 
@@ -384,6 +486,7 @@ export function Compose({ init }: { init: ComposeInit }) {
       references: init.references ?? [],
       attachments: atts,
       inline,
+      security: currentSecurity(),
     };
   };
 
@@ -401,7 +504,45 @@ export function Compose({ init }: { init: ComposeInit }) {
       attachments: d.attachments,
       replaces: init.replaces,
       isReply: false,
+      security: d.security,
     });
+  };
+
+  /**
+   * Before anything is sent or scheduled: ask what to do about recipients without a key, and unlock the signing
+   * key. Returns the draft to send, or null when the user backed out.
+   */
+  const secureDraft = async (d: Draft): Promise<Draft | null> => {
+    let sec = d.security;
+    if (!sec || (!sec.encrypt && !sec.sign)) return d;
+    let out = d;
+    const r = await api.pgpRecipientStatus(d.accountId, [...d.to, ...d.cc, ...d.bcc].map((a) => bareAddress(a).toLowerCase())).catch(() => null);
+    if (sec.encrypt && r) {
+      const miss = r.recipients.filter((x) => x.status !== "ok").map((x) => x.address);
+      if (miss.length) {
+        const one = miss.length === 1 ? miss[0] : null;
+        const label = one ? userName(d.to.concat(d.cc, d.bcc).find((a) => bareAddress(a).toLowerCase() === one) ?? one) : "";
+        const choice = await choose({
+          title: "Send without encryption?",
+          body: one ? `There is no public key for ${one}, so this message can’t be encrypted for them.` : `There are no public keys for ${miss.slice(0, 3).join(", ")}${miss.length > 3 ? ` and ${miss.length - 3} more` : ""}, so this message can’t be encrypted for them.`,
+          choices: [
+            { id: "cancel", label: "Cancel" },
+            ...(one && d.to.length + d.cc.length + d.bcc.length > 1 ? [{ id: "remove", label: `Remove ${label} and send encrypted`, kind: "primary" as const }] : []),
+            { id: "plain", label: "Send unencrypted", kind: "danger" as const },
+          ],
+        });
+        if (choice === "cancel") return null;
+        if (choice === "remove" && one) {
+          const keep = (list: string[]) => list.filter((a) => bareAddress(a).toLowerCase() !== one);
+          out = { ...out, to: keep(out.to), cc: keep(out.cc), bcc: keep(out.bcc) };
+        } else sec = { ...sec, encrypt: false };
+      }
+    }
+    if (sec.sign && r?.own && !r.own.unlocked) {
+      if (!(await askUnlock(r.own.fingerprint, "sign", fromEmail))) return null;
+    }
+    const final: DraftSecurity | undefined = sec.encrypt || sec.sign ? sec : undefined;
+    return { ...out, security: final };
   };
 
   const attBytes = atts.reduce((n, a) => n + approxBytes(a), 0);
@@ -417,8 +558,9 @@ export function Compose({ init }: { init: ComposeInit }) {
   );
 
   const sendNowFromEditor = async () => {
-    const d = buildDraft();
     if (!init.outboxId) return;
+    const d = await secureDraft(buildDraft());
+    if (!d) return;
     setBusy(true);
     try {
       await api.cancelOutbox(init.outboxId);
@@ -437,13 +579,17 @@ export function Compose({ init }: { init: ComposeInit }) {
   };
 
   const send = async (sendAt?: number) => {
-    const d = buildDraft();
+    let d = buildDraft();
     if (d.to.length === 0) return showToast("Add at least one recipient", undefined, "error");
     const bad = [...d.to, ...d.cc, ...d.bcc].filter((a) => !EMAIL.test(bareAddress(a)));
     if (bad.length) return showToast(`Check the address: ${bad[0]}`, undefined, "error");
     if (!accountId) return showToast("No account selected", undefined, "error");
     if (totalBytes > MAX_ATTACH_BYTES) return showToast(`Attachments and pictures are ${fmtSize(totalBytes)}; most servers accept at most 25 MB`, undefined, "error");
     if (!d.subject && !(await confirm({ title: "Send without a subject?", confirmLabel: "Send anyway" }))) return;
+    const secured = await secureDraft(d);
+    if (!secured) return;
+    d = secured;
+    if (d.to.length === 0) return showToast("Add at least one recipient", undefined, "error");
 
     if (sendAt) {
       if (sendAt * 1000 < Date.now() - 60_000) return showToast("That time has passed. Pick a later time, or send now.", undefined, "error");
@@ -514,8 +660,11 @@ export function Compose({ init }: { init: ComposeInit }) {
     async (close: boolean) => {
       if (init.outboxId) return; // a scheduled message is not a draft; "Move to Drafts" does that
       try {
-        await api.saveDraft(buildDraft(), init.replaces);
-        showToast("Draft saved", undefined, "success");
+        const d = buildDraft();
+        // a draft is only ever encrypted to your own key (no passphrase needed), and never signed
+        const keepPrivate = !!d.security?.encrypt && eff(prefs, accountId, "pgpEncryptDrafts");
+        await api.saveDraft({ ...d, security: keepPrivate ? { encrypt: true, sign: false, attachPublicKey: false } : undefined }, init.replaces);
+        showToast(d.security?.encrypt && !keepPrivate ? "Draft saved without encryption (Settings → Security)" : "Draft saved", undefined, d.security?.encrypt && !keepPrivate ? "info" : "success");
         setComposeDirty(false);
         if (close) void openCompose(null);
         void useStore.getState().sync();
@@ -524,7 +673,7 @@ export function Compose({ init }: { init: ComposeInit }) {
       }
     },
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [to, cc, bcc, subject, atts, accountId, sigId, editor],
+    [to, cc, bcc, subject, atts, accountId, sigId, editor, encOn, signActive, attachKey],
   );
 
   const moveToDrafts = async () => {
@@ -738,6 +887,51 @@ export function Compose({ init }: { init: ComposeInit }) {
     }
   };
 
+  const keyAction = (a: "import" | "paste") => setDialog({ type: "pgp-import", paste: a === "paste" });
+
+  // the security strip: what will happen to this message on Send, and why Encrypt may have turned itself off
+  const ownExpired = !!own && own.expired;
+  const nUnique = allAddrs.length;
+  const firstMissing = noKeyAddrs[0];
+  const strip: { cls: string; icon: React.ReactNode; body: React.ReactNode; actions?: React.ReactNode } | null = (() => {
+    if (!own) return null;
+    if ((encOn || signActive) && (ownExpired || (encOn && !canEnc))) {
+      return { cls: "warn", icon: <TriangleAlert size={15} />, body: <>Your key expired. Extend it in Settings → Encryption.</>, actions: <button className="link" onClick={() => setDialog({ type: "settings", tab: "pgp" })}>Open settings</button> };
+    }
+    if (encOn && noKeyAddrs.length > 0) {
+      const st = ks?.recipients[firstMissing]?.status;
+      return {
+        cls: "warn",
+        icon: <TriangleAlert size={15} />,
+        body: <>{st === "expired" ? <>Can’t encrypt for <b>{firstMissing}</b>: their key expired.</> : st === "revoked" ? <>Can’t encrypt for <b>{firstMissing}</b>: their key was revoked.</> : <>Can’t encrypt yet: no public key for <b>{firstMissing}</b>{noKeyAddrs.length > 1 ? ` and ${noKeyAddrs.length - 1} other${noKeyAddrs.length > 2 ? "s" : ""}` : ""}.</>}</>,
+        actions: (
+          <>
+            <button className="link" onClick={() => keyAction("import")}>Import key…</button><span className="muted">·</span>
+            <button className="link" onClick={() => (setEncIntent("off"), touch())}>Turn off Encrypt</button>
+          </>
+        ),
+      };
+    }
+    if (encOn) {
+      return {
+        cls: "",
+        icon: <ShieldCheck size={15} />,
+        body: <>{signActive ? "Encrypted and signed" : "Encrypted"} for {nUnique} recipient{nUnique === 1 ? "" : "s"} and you. Subject is not encrypted.</>,
+        actions: <button className="link" onClick={() => setSecDetails((o) => !o)} aria-expanded={secDetails}>Details</button>,
+      };
+    }
+    if (autoOff) {
+      return {
+        cls: "off",
+        icon: <Info size={15} />,
+        body: <>Encryption turned off: no key for <b>{firstMissing}</b>.{signActive ? " Signed only." : ""}</>,
+        actions: <button className="link" onClick={() => (setEncIntent("on"), touch())}>Encrypt anyway…</button>,
+      };
+    }
+    if (signActive) return { cls: "", icon: <ShieldCheck size={15} />, body: <>Signed. Not encrypted.</> };
+    return null;
+  })();
+
   const draftsHint = init.replaces;
   const schedInitial = init.sendAt;
   const pastDue = !!init.outboxId && !!init.sendAt && init.sendAt * 1000 < Date.now() - 60_000;
@@ -760,6 +954,16 @@ export function Compose({ init }: { init: ComposeInit }) {
         if ((e.ctrlKey || e.metaKey) && e.shiftKey && e.key.toLowerCase() === "p") {
           e.preventDefault();
           picRef.current?.click();
+          return;
+        }
+        if ((e.ctrlKey || e.metaKey) && e.shiftKey && e.key.toLowerCase() === "e") {
+          e.preventDefault();
+          toggleEncrypt();
+          return;
+        }
+        if ((e.ctrlKey || e.metaKey) && e.shiftKey && e.key.toLowerCase() === "g") {
+          e.preventDefault();
+          toggleSign();
           return;
         }
         if (imgSelected && (e.ctrlKey || e.metaKey) && ["1", "2", "3", "0"].includes(e.key)) {
@@ -840,6 +1044,37 @@ export function Compose({ init }: { init: ComposeInit }) {
           hidden
           onChange={(e) => (e.target.files && void insertPictures(Array.from(e.target.files)), (e.target.value = ""))}
         />
+        <button
+          className={`rb ${encOn && noKeyAddrs.length === 0 && canEnc ? "on" : encOn ? "warn" : ""}`}
+          aria-pressed={encOn}
+          aria-disabled={!own}
+          title={encTitle}
+          onClick={toggleEncrypt}
+        >
+          {encOn ? <Lock size={15} /> : <LockOpen size={15} />}<span>Encrypt</span>
+        </button>
+        <div className="dd" ref={signRef}>
+          <button className={`rb ${signActive ? "on" : ""}`} aria-pressed={signActive} aria-disabled={!own} title={own ? "Sign (Ctrl+Shift+G)" : encTitle} onClick={toggleSign}>
+            <BadgeCheck size={15} /><span>Sign</span>
+          </button>
+          <button className="rb caret" aria-label="Signing options" aria-haspopup="menu" aria-expanded={signMenu} title="Signing options" onClick={() => setSignMenu((o) => !o)}>
+            <ChevronDown size={12} />
+          </button>
+          {signMenu && (
+            <div className="dd-pop left" style={{ width: 300 }}>
+              <MenuList
+                onDone={() => setSignMenu(false)}
+                items={[
+                  { label: "Sign this message", checked: signOn, hint: "Ctrl+Shift+G", disabled: !own, onClick: toggleSign },
+                  { label: "Attach my public key", checked: attachKey, disabled: !own, onClick: () => (setAttachKey(!attachKey), touch()) },
+                  { divider: true },
+                  ...(own ? [{ label: `Signing key ${shortKey(own.fingerprint)}`, icon: <ShieldCheck size={14} />, onClick: () => setDialog({ type: "pgp-key", fingerprint: own.fingerprint }) }] : [{ label: "No key for this account yet", disabled: true }]),
+                  { label: own ? "Manage keys…" : "Set up encryption…", onClick: () => (own ? setDialog({ type: "settings", tab: "pgp" }) : setDialog({ type: "pgp-generate", accountId })) },
+                ]}
+              />
+            </div>
+          )}
+        </div>
         {!init.outboxId && <button className="rb" onClick={() => void saveDraft(true)}><Save size={15} /><span>Save draft</span></button>}
         <Dropdown
           className="rb"
@@ -899,11 +1134,11 @@ export function Compose({ init }: { init: ComposeInit }) {
             {accounts.map((a) => <option key={a.id} value={a.id}>{a.displayName ? `${a.displayName} <${a.email}>` : a.email}</option>)}
           </select>
         </div>
-        <RecipientField label="To" values={to} onChange={setTo} autoFocus={to.length === 0 && !init.replaces} onTouch={touch} />
+        <RecipientField label="To" values={to} onChange={setTo} autoFocus={to.length === 0 && !init.replaces} onTouch={touch} keys={encOn && ks ? ks.recipients : undefined} onKeyAction={keyAction} />
         {showCc ? (
           <>
-            <RecipientField label="Cc" values={cc} onChange={setCc} onTouch={() => ((ccTouched.current = true), touch())} />
-            <RecipientField label="Bcc" values={bcc} onChange={setBcc} onTouch={() => ((ccTouched.current = true), touch())} />
+            <RecipientField label="Cc" values={cc} onChange={setCc} onTouch={() => ((ccTouched.current = true), touch())} keys={encOn && ks ? ks.recipients : undefined} onKeyAction={keyAction} />
+            <RecipientField label="Bcc" values={bcc} onChange={setBcc} onTouch={() => ((ccTouched.current = true), touch())} keys={encOn && ks ? ks.recipients : undefined} onKeyAction={keyAction} />
           </>
         ) : (
           <div className="cf-links">
@@ -916,6 +1151,24 @@ export function Compose({ init }: { init: ComposeInit }) {
           <input value={subject} onChange={(e) => (setSubject(e.target.value), touch())} placeholder="Add a subject" aria-label="Subject" />
         </div>
       </div>
+
+      {strip && (
+        <div className={`sec-strip ${strip.cls}`} role="status" aria-live="polite">
+          <span className="sec-ico">{strip.icon}</span>
+          <span className="grow">{strip.body}</span>
+          {strip.actions}
+        </div>
+      )}
+      {secDetails && encOn && (
+        <div className="sec-strip" style={{ display: "block" }}>
+          <dl className="kv">
+            <dt>Encryption</dt><dd>OpenPGP (PGP/MIME), AES-256</dd>
+            {signActive && own && <><dt>Signing key</dt><dd className="fpr">{shortKey(own.fingerprint)}</dd></>}
+            <dt>Encrypted for</dt>
+            <dd>{allAddrs.map((a) => `${a}${ks?.recipients[a]?.fingerprint ? ` (${shortKey(ks.recipients[a].fingerprint!)})` : ""}`).join(", ") || "Only you"} and you{bcc.length ? ". Bcc recipients can read it too." : ""}</dd>
+          </dl>
+        </div>
+      )}
 
       <div className="cp-fmt" role="toolbar" aria-label="Formatting">
         <button className="icon-btn" title="Bold (Ctrl+B)" aria-label="Bold" onClick={() => editor?.chain().focus().toggleBold().run()}><Bold size={14} /></button>

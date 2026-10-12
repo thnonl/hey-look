@@ -1,10 +1,11 @@
 import { AlertTriangle, CalendarClock, CalendarX, Pencil, RotateCw, Send, X } from "lucide-react";
 import { useMemo, useState } from "react";
-import { api, OutboxItem } from "../api";
+import { api, errorCode, OutboxItem } from "../api";
 import { picturesToEditor } from "./Compose";
 import { friendlyError, useStore } from "../store";
 import { fmtWhen, zoneLabel } from "../util";
 import { EmptyState } from "./overlays";
+import { askUnlock } from "./Pgp";
 
 type Group = "Needs attention" | "Today" | "Tomorrow" | "Later";
 
@@ -60,12 +61,19 @@ export function ScheduledList() {
         subject: d.subject,
         bodyHtml: picturesToEditor(d.html, d.inline ?? []),
         attachments: d.attachments,
+        security: d.security,
         outboxId: o.id,
         sendAt: e.sendAt,
         outboxError: o.status === "failed" ? o.error ?? "The server refused it." : undefined,
         openSchedule,
       });
     } catch (err) {
+      // an encrypted message is read back with your key: ask for the passphrase and try again
+      const locked = String(err).match(/PGP_LOCKED:([0-9A-F]+)/);
+      if (errorCode(err) === "PGP_LOCKED" && locked) {
+        if (await askUnlock(locked[1], "decrypt")) return open(o, openSchedule);
+        return;
+      }
       showToast(friendlyError(err), undefined, "error");
       void refresh();
     }

@@ -8,6 +8,7 @@ import { friendlyError, useStore } from "../store";
 import { fmtFull, fmtSize, plainToHtml, sanitizeHtml, snoozePresets } from "../util";
 import { AttachmentStrip, Lightbox, LbItem } from "./Attachments";
 import { EmptyState } from "./overlays";
+import { EncCard, importKeyFromMessage, isKeyAttachment, needsCard, SecBadges } from "./Pgp";
 import { Avatar, Dropdown } from "./ui";
 
 // Remote images already fetched through the backend (url -> data: URI), shared by all messages.
@@ -288,6 +289,7 @@ function MessageBody({ m, frameRef, onPictures }: { m: MessageFull; frameRef: Re
   );
 }
 
+const AUTO_IMPORTED = new Set<string>();
 const LANGS = ["English", "Vietnamese", "Japanese", "Chinese (Simplified)", "Korean", "French", "German", "Spanish"];
 
 function MessageCard({ m, open, onToggle }: { m: MessageFull; open: boolean; onToggle: () => void }) {
@@ -296,6 +298,16 @@ function MessageCard({ m, open, onToggle }: { m: MessageFull; open: boolean; onT
   const [translated, setTranslated] = useState<string | null>(null);
   const [lightbox, setLightbox] = useState<{ items: { src: string; name: string }[]; index: number } | null>(null);
   const who = m.fromName || m.fromEmail;
+
+  // received public keys: imported without asking when the mailbox is set to do that (once per message)
+  const keyAtt = open ? m.attachments.find(isKeyAttachment) : undefined;
+  const importMode = eff(prefs, m.accountId, "pgpImportFromMail");
+  useEffect(() => {
+    if (!keyAtt || importMode !== "auto" || AUTO_IMPORTED.has(m.id)) return;
+    AUTO_IMPORTED.add(m.id);
+    void importKeyFromMessage(m, keyAtt.index);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [m.id, keyAtt?.index, importMode]);
 
   const unsub = async () => {
     try {
@@ -322,6 +334,7 @@ function MessageCard({ m, open, onToggle }: { m: MessageFull; open: boolean; onT
   };
 
   const translate = async (lang: string) => {
+    if (needsCard(m)) return showToast("Unlock this message first.", undefined, "info");
     showToast(`Translating to ${lang}…`);
     try {
       setTranslated(
@@ -345,7 +358,7 @@ function MessageCard({ m, open, onToggle }: { m: MessageFull; open: boolean; onT
             <b>{who}</b>
             <span className="muted"> &lt;{m.fromEmail}&gt;</span>
           </div>
-          <div className="muted small ellipsis">{open ? `To: ${m.to}${m.cc ? `; Cc: ${m.cc}` : ""}` : (m.text ?? "").replace(/\s+/g, " ").slice(0, 140)}</div>
+          <div className="muted small ellipsis">{open ? `To: ${m.to}${m.cc ? `; Cc: ${m.cc}` : ""}` : needsCard(m) ? "Encrypted message" : (m.text ?? "").replace(/\s+/g, " ").slice(0, 140)}</div>
         </div>
         {open && (
           <div className="rp-msg-actions" onClick={(e) => e.stopPropagation()}>
@@ -362,7 +375,7 @@ function MessageCard({ m, open, onToggle }: { m: MessageFull; open: boolean; onT
                 { label: "Print", onClick: () => frameRef.current?.contentWindow?.print() },
                 { label: "Copy sender email", onClick: () => void navigator.clipboard.writeText(m.fromEmail).then(() => showToast("Copied")) },
                 { divider: true },
-                ...LANGS.map((l) => ({ label: `Translate to ${l}`, onClick: () => void translate(l) })),
+                ...LANGS.map((l) => ({ label: `Translate to ${l}`, onClick: () => void translate(l), disabled: needsCard(m) })),
                 ...(m.canUnsubscribe ? [{ divider: true }, { label: "Unsubscribe", onClick: () => void unsub() }] : []),
                 ...(m.attachments.length ? [{ divider: true }, { label: "Save all attachments…", onClick: () => void saveAll(false) }] : []),
               ]}
@@ -375,6 +388,7 @@ function MessageCard({ m, open, onToggle }: { m: MessageFull; open: boolean; onT
       </div>
       {open && (
         <div className="rp-msg-body">
+          <SecBadges m={m} />
           {m.canUnsubscribe && (
             <div className="notice">
               This looks like a newsletter. <button className="link" onClick={unsub}>Unsubscribe</button>
@@ -387,7 +401,7 @@ function MessageCard({ m, open, onToggle }: { m: MessageFull; open: boolean; onT
               <button className="link small" onClick={() => setTranslated(null)}>Dismiss</button>
             </div>
           )}
-          <MessageBody m={m} frameRef={frameRef} onPictures={(items, index) => setLightbox({ items, index })} />
+          {needsCard(m) ? <EncCard m={m} /> : <MessageBody m={m} frameRef={frameRef} onPictures={(items, index) => setLightbox({ items, index })} />}
           <AttachmentStrip m={m} />
           {lightbox && (
             <Lightbox
@@ -449,7 +463,12 @@ export function ReadingPane() {
     }
     setBusy(true);
     try {
-      const body = messages
+      const readable = messages.filter((m) => !needsCard(m));
+      if (readable.length === 0) {
+        showToast("Unlock the encrypted message first.", undefined, "info");
+        return;
+      }
+      const body = readable
         .map((m) => `From: ${m.fromName} <${m.fromEmail}>\nDate: ${fmtFull(m.date)}\n\n${(m.text ?? "").slice(0, 4000)}`)
         .join("\n\n-----\n\n")
         .slice(0, 24000);

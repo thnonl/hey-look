@@ -1,11 +1,13 @@
-import { Plus, Trash2 } from "lucide-react";
+import { KeyRound, Lock, Plus, Trash2, Upload } from "lucide-react";
 import { openUrl } from "@tauri-apps/plugin-opener";
 import { ReactNode, useEffect, useRef, useState } from "react";
-import { Account, api, Discovered, PROVIDERS, Rule, Signature, Template } from "../api";
+import { Account, api, Discovered, PgpKey, PROVIDERS, Rule, Signature, Template } from "../api";
 import { ACCENT_PRESETS, DEFAULT_PREFS, eff, folderLabel, isOverridden, NOTIFY_ACTIONS, NOTIFY_SOUNDS, Overridable, Prefs, validHex } from "../prefs";
 import { friendlyError, useStore } from "../store";
+import { fmtDay, fmtFpr, shortKey } from "../util";
 import { AppearancePreview } from "./AppearancePreview";
 import { RichEditor } from "./RichEditor";
+import { keyName } from "./Pgp";
 import { Avatar, Modal, Switch } from "./ui";
 
 const Row = ({ label, hint, children, id }: { label: string; hint?: string; children: ReactNode; id?: string }) => {
@@ -965,7 +967,61 @@ function ServerPanel({ account, close }: { account: Account; close: () => void }
   );
 }
 
-type MbTab = "profile" | "composing" | "signatures" | "templates" | "filters" | "notifications" | "reading" | "folders" | "server";
+/** Per-mailbox PGP defaults. "My key" belongs to one account, so it is only shown inside a mailbox. */
+function SecurityPanel({ scope }: { scope: string | null }) {
+  const { keysRev, bumpKeys, showToast } = useStore();
+  const [keys, setKeys] = useState<PgpKey[]>([]);
+  useEffect(() => void api.pgpListKeys().then(setKeys).catch(() => setKeys([])), [keysRev]);
+  const own = keys.filter((k) => k.hasSecret);
+  const current = scope ? own.find((k) => k.defaultFor.includes(scope))?.fingerprint ?? "" : "";
+  return (
+    <>
+      {scope ? (
+        <Row label="My key for this mailbox" hint="Used to sign, and to read mail encrypted to you">
+          <select
+            style={{ maxWidth: 260 }}
+            value={current}
+            onChange={(e) => void api.pgpSetDefault(scope, e.target.value || null).then(bumpKeys).catch((er) => showToast(friendlyError(er), undefined, "error"))}
+          >
+            <option value="">{own.length ? "Automatic (a key with this address)" : "No key yet"}</option>
+            {own.map((k) => <option key={k.fingerprint} value={k.fingerprint}>{shortKey(k.fingerprint)} · {k.algo}{k.expires ? ` · exp. ${new Date(k.expires * 1000).getFullYear()}` : ""}</option>)}
+          </select>
+        </Row>
+      ) : (
+        <div className="muted small pad">Your keys are chosen per mailbox. Open a mailbox to pick its key. Manage keys under More → Encryption (PGP).</div>
+      )}
+      <OvRow scope={scope} k="pgpEncrypt" label="Encrypt new messages" hint="“When possible” turns Encrypt on only if every recipient has a public key">
+        {(v, set) => (
+          <select value={v} onChange={(e) => set(e.target.value as Prefs["pgpEncrypt"])}>
+            <option value="possible">When possible</option>
+            <option value="never">Never (turn on per message)</option>
+            <option value="always">Always (warn before sending unencrypted)</option>
+          </select>
+        )}
+      </OvRow>
+      <OvRow scope={scope} k="pgpSign" label="Sign new messages">
+        {(v, set) => <Switch checked={v} onChange={set} />}
+      </OvRow>
+      <OvRow scope={scope} k="pgpAttachKey" label="Attach my public key" hint="Lets recipients reply encrypted">
+        {(v, set) => <Switch checked={v} onChange={set} />}
+      </OvRow>
+      <OvRow scope={scope} k="pgpEncryptDrafts" label="Keep drafts encrypted on the server" hint="Drafts of encrypted messages are encrypted to your own key">
+        {(v, set) => <Switch checked={v} onChange={set} />}
+      </OvRow>
+      <OvRow scope={scope} k="pgpImportFromMail" label="Import keys found in received mail" hint="Ask before adding keys attached to messages (application/pgp-keys)">
+        {(v, set) => (
+          <select value={v} onChange={(e) => set(e.target.value as Prefs["pgpImportFromMail"])}>
+            <option value="ask">Ask</option>
+            <option value="auto">Import automatically</option>
+            <option value="never">Never</option>
+          </select>
+        )}
+      </OvRow>
+    </>
+  );
+}
+
+type MbTab = "profile" | "composing" | "signatures" | "templates" | "filters" | "notifications" | "reading" | "security" | "folders" | "server";
 
 function MailboxPage({ scope, tab, setTab, close }: { scope: string | null; tab: MbTab; setTab: (t: MbTab) => void; close: () => void }) {
   const { accounts } = useStore();
@@ -974,7 +1030,7 @@ function MailboxPage({ scope, tab, setTab, close }: { scope: string | null; tab:
   const tabs: [MbTab, string][] = [
     ...(scope ? ([["profile", "Profile"]] as [MbTab, string][]) : []),
     ["composing", "Composing"], ["signatures", "Signatures"], ["templates", "Templates"], ["filters", "Filters"],
-    ["notifications", "Notifications"], ["reading", "Reading & sync"], ["folders", "Folders"],
+    ["notifications", "Notifications"], ["reading", "Reading & sync"], ["security", "Security"], ["folders", "Folders"],
     ...(scope ? ([["server", "Server"]] as [MbTab, string][]) : []),
   ];
   const active: MbTab = tabs.some(([k]) => k === tab) ? tab : "composing";
@@ -1000,6 +1056,7 @@ function MailboxPage({ scope, tab, setTab, close }: { scope: string | null; tab:
         {active === "filters" && <FiltersPanel scope={scope} />}
         {active === "notifications" && <NotifyPanel scope={scope} />}
         {active === "reading" && <ReadingPanel scope={scope} />}
+        {active === "security" && <SecurityPanel scope={scope} />}
         {active === "folders" && <FoldersPanel scope={scope} />}
         {active === "server" && account && <ServerPanel account={account} close={close} />}
       </div>
@@ -1203,11 +1260,102 @@ function AiTab() {
   );
 }
 
+function KeyRow({ k, onOpen }: { k: PgpKey; onOpen: () => void }) {
+  const accounts = useStore((s) => s.accounts);
+  const used = k.defaultFor.map((id) => accounts.find((a) => a.id === id)?.email).filter(Boolean) as string[];
+  const fp = fmtFpr(k.fingerprint).split(" ");
+  return (
+    <div
+      className="key-row"
+      tabIndex={0}
+      role="button"
+      aria-label={`${keyName(k)}, key ${shortKey(k.fingerprint)}. Open details`}
+      onClick={onOpen}
+      onKeyDown={(e) => (e.key === "Enter" || e.key === " ") && (e.preventDefault(), onOpen())}
+    >
+      <span className={`key-ico ${k.hasSecret ? "" : "pub"}`}>{k.hasSecret ? <KeyRound size={17} /> : <Lock size={16} />}</span>
+      <span className="key-meta">
+        <b className="ellipsis">{keyName(k)}</b>
+        <span className="fpr" aria-hidden>{fp.slice(0, 4).join(" ")} … {fp.slice(-1)} · {k.algo}{k.expires ? ` · ${k.expired ? "expired" : "expires"} ${fmtDay(k.expires)}` : ""}</span>
+      </span>
+      <span className="key-tags">
+        {k.revoked && <span className="pill bad">Revoked</span>}
+        {!k.revoked && k.expired && <span className="pill warn">Expired</span>}
+        {k.hasSecret ? (
+          <>
+            {used.map((e) => <span key={e} className="pill accent">Default for {e}</span>)}
+            {k.unlocked && <span className="pill">{k.passphraseRemembered ? "Passphrase remembered" : "Unlocked"}</span>}
+          </>
+        ) : k.verified ? <span className="pill good">Verified</span> : <span className="pill">Not verified</span>}
+      </span>
+    </div>
+  );
+}
+
+function PgpTab() {
+  const { setDialog, prefs, setPrefs, keysRev, bumpKeys, showToast } = useStore();
+  const [keys, setKeys] = useState<PgpKey[] | null>(null);
+  const [q, setQ] = useState("");
+  const [err, setErr] = useState("");
+  useEffect(() => {
+    api.pgpListKeys().then((k) => (setKeys(k), setErr(""))).catch((e) => (setKeys([]), setErr(friendlyError(e))));
+  }, [keysRev]);
+  const own = keys?.filter((k) => k.hasSecret) ?? [];
+  const others = (keys ?? []).filter((k) => !k.hasSecret);
+  const needle = q.trim().toLowerCase();
+  const shown = needle ? others.filter((k) => `${k.userIds.join(" ")} ${k.keyId} ${k.fingerprint}`.toLowerCase().includes(needle)) : others;
+  const open = (fingerprint: string) => setDialog({ type: "pgp-key", fingerprint, back: "pgp" });
+  return (
+    <div>
+      <h3>Encryption (PGP)</h3>
+      <div className="muted small">OpenPGP keys for encrypting and signing mail (PGP/MIME). Your secret keys stay on this computer, locked with your passphrase. Keys are never looked up online: you add them yourself.</div>
+      {err && <div className="notice bad" role="alert" style={{ marginTop: 10 }}>Couldn’t load keys: {err} <button className="link" onClick={bumpKeys}>Retry</button></div>}
+      <div className="set-card-head" style={{ marginTop: 14 }}>
+        <h4 style={{ margin: 0, flex: 1 }}>Your keys</h4>
+        <button className="btn small" onClick={() => setDialog({ type: "pgp-import", back: "pgp" })}><Upload size={13} /> Import…</button>
+        <button className="btn small primary" onClick={() => setDialog({ type: "pgp-generate", back: "pgp" })}><Plus size={13} /> Generate key…</button>
+      </div>
+      <div style={{ marginTop: 8 }}>
+        {!keys ? (
+          <div className="sk" style={{ height: 56 }} aria-busy aria-label="Loading keys" />
+        ) : own.length === 0 ? (
+          <div className="empty-state" style={{ padding: "18px 0" }}>
+            <div className="empty-art"><KeyRound size={34} /></div>
+            <div className="empty-title">No keys yet</div>
+            <div className="muted">Generate a key to sign mail and let people send you encrypted mail.</div>
+            <button className="btn primary" style={{ marginTop: 8 }} onClick={() => setDialog({ type: "pgp-generate", back: "pgp" })}>Generate key…</button>
+          </div>
+        ) : own.map((k) => <KeyRow key={k.fingerprint} k={k} onOpen={() => open(k.fingerprint)} />)}
+      </div>
+      <div className="set-card-head" style={{ marginTop: 18 }}>
+        <h4 style={{ margin: 0, flex: 1 }}>Other people’s public keys <span className="muted small" style={{ fontWeight: 400 }}>· {others.length}</span></h4>
+        <input placeholder="Search name, email or key ID" aria-label="Search keys" style={{ width: 220 }} value={q} onChange={(e) => setQ(e.target.value)} />
+        <button className="btn small" onClick={() => setDialog({ type: "pgp-import", back: "pgp" })}><Upload size={13} /> Import…</button>
+      </div>
+      <div style={{ marginTop: 8 }}>
+        {others.length === 0 && keys && <div className="muted small">Public keys you import, or that arrive attached to mail, appear here.</div>}
+        {others.length > 0 && shown.length === 0 && <div className="muted small">No key matches “{q}”.</div>}
+        {shown.map((k) => <KeyRow key={k.fingerprint} k={k} onOpen={() => open(k.fingerprint)} />)}
+      </div>
+      <h4>Passphrases</h4>
+      <Row label="Remember passphrases" hint="How long an unlocked key stays unlocked. It is kept in memory only, never on disk.">
+        <select value={prefs.pgpRemember} onChange={(e) => setPrefs({ pgpRemember: e.target.value as Prefs["pgpRemember"] })}>
+          <option value="session">Until Hey Look! quits</option>
+          <option value="never">Ask every time</option>
+        </select>
+      </Row>
+      <Row label="Lock all keys now" hint="Forget every remembered passphrase and decrypted message">
+        <button className="btn small" onClick={() => void api.pgpLockAll().then(() => (bumpKeys(), showToast("All keys are locked", undefined, "success")))}>Lock now</button>
+      </Row>
+    </div>
+  );
+}
+
 function ShortcutsTab() {
   const rows: [string, string][] = [
     ["c", "New mail"], ["/", "Search"], ["j / k", "Next / previous conversation"], ["e", "Archive"], ["#", "Delete"], ["!", "Move to Junk"],
     ["s", "Snooze"], ["p", "Pin"], ["*", "Flag"], ["u", "Mark as unread"], ["r", "Reply"], ["a", "Reply all"], ["f", "Forward"],
-    ["Ctrl+Enter", "Send (while writing)"], ["Ctrl+Shift+Enter", "Send later (while writing)"], ["Ctrl+Shift+P", "Insert picture (while writing)"],
+    ["Ctrl+Enter", "Send (while writing)"], ["Ctrl+Shift+Enter", "Send later (while writing)"], ["Ctrl+Shift+P", "Insert picture (while writing)"], ["Ctrl+Shift+E", "Encrypt (while writing)"], ["Ctrl+Shift+G", "Sign (while writing)"],
     ["Space / Enter", "Preview / open attachment"], ["Ctrl+S", "Save attachment as…"], ["Ctrl+Shift+S", "Save all attachments"],
     ["Ctrl+A", "Select all"], ["Ctrl+K", "Command bar"], ["F5", "Sync now"], ["Esc", "Close / deselect"],
   ];
@@ -1237,7 +1385,7 @@ function AboutTab() {
 
 // ---------------------------------------------------------------- shell
 const MORE: [string, string][] = [
-  ["tray", "Notifications & tray"], ["actions", "Thread actions"], ["times", "Customize times"], ["blocked", "Blocked senders"],
+  ["tray", "Notifications & tray"], ["actions", "Thread actions"], ["times", "Customize times"], ["blocked", "Blocked senders"], ["pgp", "Encryption (PGP)"],
   ["ai", "AI Assistant"], ["shortcuts", "Shortcuts"], ["about", "About"],
 ];
 
@@ -1245,7 +1393,7 @@ export function Settings({ initial, focus }: { initial?: string; focus?: string 
   const { setDialog, accounts } = useStore();
   const start = initial === "accounts" ? "mb:all" : initial === "notifications" ? "tray" : initial;
   const [tab, setTab] = useState<string>(start || (accounts.length === 0 ? "add-account" : "general"));
-  const [mbTab, setMbTab] = useState<MbTab>(focus === "loadRemote" ? "reading" : "composing");
+  const [mbTab, setMbTab] = useState<MbTab>(focus === "loadRemote" ? "reading" : focus === "security" ? "security" : "composing");
   const close = () => setDialog(null);
   useEffect(() => {
     if (!focus) return;
@@ -1287,6 +1435,7 @@ export function Settings({ initial, focus }: { initial?: string; focus?: string 
           {tab === "actions" && <ActionsTab />}
           {tab === "times" && <TimesTab />}
           {tab === "blocked" && <BlockedTab />}
+          {tab === "pgp" && <PgpTab />}
           {tab === "ai" && <AiTab />}
           {tab === "shortcuts" && <ShortcutsTab />}
           {tab === "about" && <AboutTab />}

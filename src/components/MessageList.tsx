@@ -1,10 +1,11 @@
-import { Archive, Check, CheckCheck, Clock, Flag, FolderOpen, Mail, MailOpen, Paperclip, Pin, SearchX, Trash2 } from "lucide-react";
+import { Archive, BadgeCheck, Check, CheckCheck, Clock, Flag, FolderOpen, Lock, Mail, MailOpen, Paperclip, Pin, SearchX, Trash2 } from "lucide-react";
 import { Fragment, ReactNode } from "react";
 import { api, ThreadSummary } from "../api";
 import { folderLabel, Prefs } from "../prefs";
-import { useStore } from "../store";
+import { friendlyError, useStore } from "../store";
 import { dateGroup, fmtDate, snoozePresets } from "../util";
 import { messageToEditor } from "./Compose";
+import { askUnlock } from "./Pgp";
 import { ScheduledList } from "./ScheduledList";
 import { EmptyState, SkeletonRows } from "./overlays";
 import { Avatar, Dropdown } from "./ui";
@@ -71,6 +72,8 @@ export function ThreadRow({ t, selected, checked, prefs, showFolder, accountColo
           <span className="flags">
             {showFolder && <span className="where">{folderLabel(t.folder)}</span>}
             {t.count > 1 && prefs.conversations && <span className="count">{t.count}</span>}
+            {t.encrypted && <Lock size={12} aria-label="Encrypted" />}
+            {t.signed && !t.encrypted && <BadgeCheck size={12} aria-label="Signed" />}
             {t.hasAttach && <Paperclip size={12} aria-label="Has attachment" />}
             {t.pinned && <Pin size={12} aria-label="Pinned" />}
             {t.flagged && <Flag size={12} fill="currentColor" className="flag-on" aria-label="Flagged" />}
@@ -136,8 +139,19 @@ export function MessageList() {
     if (folder === "drafts") {
       void (async () => {
         const msgs = await api.getThread(t.threadId, "drafts");
-        const m = msgs[msgs.length - 1];
+        let m = msgs[msgs.length - 1];
         if (!m) return;
+        // a draft that was encrypted to your own key needs the key (and its passphrase) to be opened again
+        const st = useStore.getState();
+        if (m.security?.encrypted && m.security.decryption !== "ok") {
+          if (m.security.decryption === "locked" && m.security.lockedKey && (await askUnlock(m.security.lockedKey, "draft", m.security.lockedLabel ?? undefined))) {
+            m = await api.pgpDecryptMessage(m.id).catch(() => m);
+          }
+          if (m.security?.decryption !== "ok") {
+            if (m.security?.decryption !== "locked") st.showToast(`Couldn’t open this encrypted draft: ${friendlyError(m.security?.error ?? "the key for it is not on this computer")}`, undefined, "error");
+            return;
+          }
+        }
         // restore pictures and attachments so saving or sending the draft does not silently drop them
         const { html, attachments } = await messageToEditor(m);
         void openCompose({
@@ -148,6 +162,7 @@ export function MessageList() {
           bodyHtml: html ?? `<p>${(m.text ?? "").replace(/\n/g, "<br>")}</p>`,
           replaces: t.threadId,
           attachments,
+          security: m.security?.encrypted ? { encrypt: true, sign: false, attachPublicKey: false } : undefined,
         });
       })();
       return;

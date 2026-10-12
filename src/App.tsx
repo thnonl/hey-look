@@ -6,6 +6,7 @@ import { api } from "./api";
 import { CommandBar } from "./components/CommandBar";
 import { Compose } from "./components/Compose";
 import { BulkCleaner, ShowOriginal } from "./components/Dialogs";
+import { GenerateKeyDialog, ImportKeyDialog, KeyDetailsDialog, PassphraseHost } from "./components/Pgp";
 import { FolderPane } from "./components/FolderPane";
 import { MessageList } from "./components/MessageList";
 import { AskHost, Toasts } from "./components/overlays";
@@ -209,8 +210,12 @@ function App() {
       {dialog?.type === "settings" && <Settings initial={dialog.tab} focus={dialog.focus} />}
       {dialog?.type === "cleaner" && <BulkCleaner />}
       {dialog?.type === "original" && <ShowOriginal messageId={dialog.messageId} />}
+      {dialog?.type === "pgp-generate" && <GenerateKeyDialog accountId={dialog.accountId} back={dialog.back} />}
+      {dialog?.type === "pgp-import" && <ImportKeyDialog armored={dialog.armored} paste={dialog.paste} back={dialog.back} />}
+      {dialog?.type === "pgp-key" && <KeyDetailsDialog fingerprint={dialog.fingerprint} back={dialog.back} />}
       {commandOpen && <CommandBar />}
       <AskHost />
+      <PassphraseHost />
       <Toasts />
     </div>
   );

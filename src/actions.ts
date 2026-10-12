@@ -24,6 +24,10 @@ export function replyTo(m: MessageFull, all: boolean) {
     inReplyTo: m.messageId,
     references: st.messages.map((x) => x.messageId).filter(Boolean) as string[],
     isReply: true,
+    // an answer to encrypted mail is encrypted too
+    security: m.security?.encrypted
+      ? { encrypt: true, sign: eff(st.prefs, m.accountId, "pgpSign"), attachPublicKey: eff(st.prefs, m.accountId, "pgpAttachKey") }
+      : undefined,
   });
 }
 
