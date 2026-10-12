@@ -129,6 +129,8 @@ export interface CalInvite {
   outdated: boolean;
   conflicts: { eventId: string; summary: string; start: number; end: number }[];
   parseError: string | null;
+  /** the invitation was over a size cap and some details (repeat rule, guests, excluded dates) were not imported */
+  trimmed?: boolean;
 }
 export interface CalEvent {
   id: string;

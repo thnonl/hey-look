@@ -197,6 +197,9 @@ button:focus-visible, [role="option"]:focus-visible, [role="treeitem"]:focus-vis
 .dd-pop.left { left: 0; }
 .dd-pop.right { right: 0; }
 .dd-pop.up { top: auto; bottom: 100%; margin-top: 0; margin-bottom: 4px; }
+/* the Dropdown menu is drawn in a portal on <body> and placed from its button (ui.tsx), above dialogs and the lightbox */
+.dd-fixed { position: fixed; z-index: 100; animation: pop .12s var(--ease); }
+.dd-fixed .menu { max-height: min(60vh, var(--dd-max, 60vh)); }
 .caret { opacity: .6; }
 .menu { min-width: 200px; background: var(--bg); border: 1px solid var(--border); border-radius: var(--r-md); box-shadow: var(--shadow); padding: 5px; max-height: 60vh; overflow-y: auto; }
 .menu-row { display: flex; align-items: center; gap: 8px; width: 100%; text-align: left; background: none; border: 0; border-radius: var(--r-sm); padding: 7px 9px; cursor: pointer; }
@@ -278,7 +281,7 @@ button:focus-visible, [role="option"]:focus-visible, [role="treeitem"]:focus-vis
 [data-density="medium"] .ml-row { padding-top: 6px; padding-bottom: 6px; }
 [data-density="compact"] .ml-row { padding-top: 4px; padding-bottom: 4px; align-items: center; }
 [data-density="compact"] .ml-main { display: flex; gap: 10px; align-items: center; }
-[data-density="compact"] .ml-top { width: 34%; }
+[data-density="compact"] .ml-top { width: 42%; min-width: 150px; max-width: 240px; } /* room for a name next to the dots and the time */
 [data-density="compact"] .ml-mid { flex: 1; min-width: 0; }
 
 /* empty + loading states */
@@ -891,7 +894,6 @@ span.spin { display: inline-block; width: 13px; height: 13px; border: 2px solid 
 .invite-actions .btn[aria-busy="true"] { cursor: progress; }
 .rsvp .btn.chosen { background: var(--accent-soft); border-color: var(--accent); color: var(--accent-text); font-weight: 650; }
 .invite .cal-tile[data-cancelled="1"] b { background: var(--danger); color: #fff; }
-.invite-actions .dd-pop { z-index: 40; }
 
 /* new / edit event dialog and Compose meeting strip */
 .ev-form input:not([type="checkbox"]):not([type="date"]):not([type="time"]), .ev-form select, .ev-form textarea { width: 100%; box-sizing: border-box; }

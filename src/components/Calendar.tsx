@@ -1,6 +1,6 @@
 import { openUrl } from "@tauri-apps/plugin-opener";
 import {
-  CalendarCheck, CalendarDays, CalendarPlus, CalendarX, Check, ChevronDown, ChevronLeft, ChevronRight, ChevronUp, CircleCheck, Clock, Download, History, MapPin,
+  CalendarCheck, CalendarDays, CalendarPlus, CalendarX, Check, ChevronDown, ChevronLeft, ChevronRight, ChevronUp, CircleCheck, Clock, Download, History, Info, MapPin,
   Mail, MoreHorizontal, RefreshCw, Repeat, TriangleAlert, UserRound, Video, X,
 } from "lucide-react";
 import { ReactNode, useCallback, useEffect, useMemo, useRef, useState } from "react";
@@ -13,7 +13,7 @@ import {
 import { friendlyError, EventInit, useStore } from "../store";
 import { RecipientField } from "./Compose";
 import { EmptyState } from "./overlays";
-import { Avatar, Dropdown, MenuList, Modal, Switch, useOutside } from "./ui";
+import { Avatar, Dropdown, FloatingMenu, Modal, Switch, useOutside } from "./ui";
 
 const EMAIL = /^[^\s@<>"]+@[^\s@<>"]+\.[^\s@<>"]+$/;
 const bare = (v: string) => (v.match(/<([^>]+)>/)?.[1] ?? v).trim();
@@ -84,7 +84,7 @@ export function InviteCard({ m }: { m: MessageFull }) {
   const [showAtt, setShowAtt] = useState(inv.attendees.length <= 8);
   const [adding, setAdding] = useState(false);
   const menuRef = useRef<HTMLDivElement>(null);
-  useOutside(menuRef, () => setMenu(null), menu !== null);
+  const closeMenu = useCallback(() => setMenu(null), []);
 
   if (inv.parseError) {
     return (
@@ -212,11 +212,7 @@ export function InviteCard({ m }: { m: MessageFull }) {
         <button className="btn" aria-label={`${label} options`} aria-haspopup="menu" aria-expanded={menu === r} disabled={busy !== null} onClick={() => setMenu(menu === r ? null : r)}>
           <ChevronDown size={14} />
         </button>
-        {menu === r && (
-          <div className="dd-pop left" style={{ top: "100%", minWidth: 280 }}>
-            <MenuList items={items} onDone={() => setMenu(null)} />
-          </div>
-        )}
+        {menu === r && <FloatingMenu anchor={menuRef} items={items} minWidth={280} onClose={closeMenu} />}
       </span>
     );
   };
@@ -240,6 +236,11 @@ export function InviteCard({ m }: { m: MessageFull }) {
       )}
       {!inv.cancelled && !inv.outdated && ended && (
         <div className="invite-banner muted" role="status"><History size={15} aria-hidden /> This event has ended</div>
+      )}
+      {inv.trimmed && (
+        <div className="invite-banner muted" role="status">
+          <Info size={15} aria-hidden /> Some details were too large and were not imported (repeat rule, guests or excluded dates).
+        </div>
       )}
       {mine && !inv.cancelled && !ended && (
         <div className="invite-banner" role="status"><CalendarCheck size={15} aria-hidden /> You organized this event</div>
