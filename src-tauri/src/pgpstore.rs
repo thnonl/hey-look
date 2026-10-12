@@ -848,6 +848,11 @@ pub fn seal_for_outbox(c: &Connection, acc: &Account, d: &Draft) -> R<Draft> {
         out.text = "Encrypted message".into();
         out.attachments.clear();
         out.inline.clear();
+        // the invitation text holds the message text: keep only the event id (to remove the event if this is cancelled)
+        if let Some(c) = out.calendar.as_mut() {
+            let uid = crate::ical::parse(&c.ics).ok().and_then(|p| p.events.first().map(|e| e.uid.clone())).unwrap_or_default();
+            c.ics = format!("UID:{uid}");
+        }
     }
     Ok(out)
 }

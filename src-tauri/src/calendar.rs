@@ -917,6 +917,21 @@ pub fn prepare_meeting(c: &Connection, d: &mut crate::smtp::Draft) -> R<()> {
     Ok(())
 }
 
+/// A scheduled meeting was cancelled, edited or moved to Drafts: remove the local event made for it when it was scheduled.
+pub fn forget_prepared(c: &Connection, payload: &str) {
+    let Ok(d) = serde_json::from_str::<crate::smtp::Draft>(payload) else { return };
+    let Some(cal) = d.calendar else { return };
+    let uid = cal
+        .ics
+        .lines()
+        .find_map(|l| l.trim().strip_prefix("UID:").map(|u| u.trim().to_string()))
+        .filter(|u| !u.is_empty());
+    if let Some(uid) = uid {
+        let _ = c.execute("DELETE FROM events WHERE calendar_id=?1 AND uid=?2", params![LOCAL, uid]);
+        mark_dirty();
+    }
+}
+
 pub fn respond(db: &Db, message_id: &str, response: &str, comment: Option<String>, send: bool) -> R<CalInvite> {
     let partstat = match response {
         "accepted" | "tentative" | "declined" => response,
@@ -1129,6 +1144,24 @@ pub async fn calendar_add_from_message(app: tauri::AppHandle, state: tauri::Stat
     .await;
     changed(&app);
     out
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct MessageRef {
+    pub thread_id: String,
+    pub folder: String,
+    pub account_id: String,
+}
+
+/// Where a message lives, so the calendar can open the invitation e-mail.
+#[tauri::command]
+pub fn calendar_open_message(state: tauri::State<crate::AppState>, message_id: String) -> R<MessageRef> {
+    lock(&state.db)
+        .query_row("SELECT thread_id,folder,account_id FROM messages WHERE id=?1", [&message_id], |r| {
+            Ok(MessageRef { thread_id: r.get(0)?, folder: r.get(1)?, account_id: r.get(2)? })
+        })
+        .map_err(|_| "This invitation e-mail is no longer on this computer.".to_string())
 }
 
 fn ics_file_name(summary: &str) -> String {

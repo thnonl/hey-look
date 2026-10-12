@@ -2044,7 +2044,15 @@ async fn send_message(
         return Ok(format!("scheduled:{id}"));
     }
     blocking(move || {
-        send_now(&db, &draft)?;
+        if let Err(e) = send_now(&db, &draft) {
+            // the invitation never went out: do not leave its event behind (Compose reopens and can send again)
+            if draft.meeting.is_some() {
+                if let Ok(p) = serde_json::to_string(&draft) {
+                    calendar::forget_prepared(&lock(&db), &p);
+                }
+            }
+            return Err(e);
+        }
         drop_replaced_draft(&db, replaces);
         Ok(())
     })
@@ -2154,12 +2162,17 @@ fn list_outbox(state: tauri::State<AppState>) -> R<Vec<OutboxItem>> {
 }
 
 #[tauri::command]
-fn cancel_outbox(state: tauri::State<AppState>, id: String) -> R<()> {
-    let n = lock(&state.db)
-        .execute("DELETE FROM outbox WHERE id=?1 AND status!='sending'", [id])
-        .map_err(err)?;
+fn cancel_outbox(app: tauri::AppHandle, state: tauri::State<AppState>, id: String) -> R<()> {
+    let c = lock(&state.db);
+    let payload: Option<String> = c.query_row("SELECT payload FROM outbox WHERE id=?1 AND status!='sending'", [&id], |r| r.get(0)).ok();
+    let n = c.execute("DELETE FROM outbox WHERE id=?1 AND status!='sending'", [id]).map_err(err)?;
     if n == 0 {
         return Err("This message is being sent right now.".into());
+    }
+    if let Some(p) = payload {
+        // a scheduled meeting that never went out must not stay in the calendar
+        calendar::forget_prepared(&c, &p);
+        let _ = app.emit("calendar-changed", serde_json::json!({}));
     }
     Ok(())
 }
@@ -2238,6 +2251,16 @@ fn outbox_update(app: tauri::AppHandle, state: tauri::State<AppState>, id: Strin
     let draft = {
         let c = lock(&state.db);
         let acc = db::get_account(&c, &draft.account_id)?;
+        // a meeting: drop the event made when it was first scheduled and make it again from the edited details
+        let mut draft = draft;
+        if let Ok(old) = c.query_row("SELECT payload FROM outbox WHERE id=?1", [&id], |r| r.get::<_, String>(0)) {
+            calendar::forget_prepared(&c, &old);
+        }
+        draft.calendar = None;
+        if draft.meeting.is_some() {
+            calendar::prepare_meeting(&c, &mut draft)?;
+            let _ = app.emit("calendar-changed", serde_json::json!({}));
+        }
         pgpstore::seal_for_outbox(&c, &acc, &draft)?
     };
     let payload = serde_json::to_string(&draft).map_err(err)?;
@@ -2298,7 +2321,9 @@ async fn outbox_to_draft(app: tauri::AppHandle, state: tauri::State<'_, AppState
         let mut s = mail::connect(&acc, &sec)?;
         mail::append(&mut s, &folder, &raw, true)?;
         let _ = s.logout();
-        lock(&db).execute("DELETE FROM outbox WHERE id=?1", [&id]).map_err(err)?;
+        let c = lock(&db);
+        c.execute("DELETE FROM outbox WHERE id=?1", [&id]).map_err(err)?;
+        calendar::forget_prepared(&c, &payload);
         Ok(())
     })
     .await?;
@@ -2825,6 +2850,7 @@ pub fn run() {
             calendar::calendar_add_from_message,
             calendar::calendar_save_ics,
             calendar::calendar_import_ics,
+            calendar::calendar_open_message,
             list_templates,
             save_template,
             delete_template,
