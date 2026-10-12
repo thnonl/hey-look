@@ -433,7 +433,7 @@ fn insert_parsed(c: &Connection, acc: &Account, role: &str, p: &mail::Parsed) ->
     c.execute(
         "INSERT OR REPLACE INTO messages(id,account_id,folder,uid,message_id,thread_id,subject,from_name,from_email,
            to_addrs,cc_addrs,date,snippet,body_html,body_text,seen,flagged,has_attach,attachments,list_unsub,list_unsub_post,pgp,pgp_raw,ics,cal_method)
-         VALUES(?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,?13,?14,?15,?16,?17,?18,?19,?20,?21,?22,?23,?24,?25)",
+         VALUES(?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,?13,?14,?15,?16,?17,?18,?19,?20,?21,?22 | COALESCE((SELECT pgp FROM messages WHERE id=?1),0),?23,?24,?25)",
         params![
             format!("{}:{}:{}", acc.id, role, p.uid),
             acc.id,
@@ -1071,7 +1071,10 @@ struct ThreadSummary {
 
 #[tauri::command]
 fn list_threads(state: tauri::State<AppState>, filter: ThreadFilter) -> R<Vec<ThreadSummary>> {
-    let c = lock(&state.db);
+    threads_for(&lock(&state.db), filter)
+}
+
+fn threads_for(c: &Connection, filter: ThreadFilter) -> R<Vec<ThreadSummary>> {
     let t = now();
     let mut w: Vec<String> = vec![];
     let mut p: Vec<rusqlite::types::Value> = vec![];
@@ -1344,6 +1347,15 @@ fn finish_message(c: &Connection, m: &mut MessageFull, pgp: i64, raw: Option<Vec
     }
 }
 
+/// A signature inside an encrypted message cannot be seen before it is decrypted, so the sync step only stored "encrypted".
+/// Once the message was opened and carried a signature, remember that one bit (no content) so the list's signed mark and the
+/// thread's `signed` flag include it from then on.
+fn note_signed(c: &Connection, id: &str, sec: &pgpmail::Security) {
+    if sec.signature.is_some() {
+        let _ = c.execute("UPDATE messages SET pgp = pgp | ?2 WHERE id=?1 AND pgp & ?2 = 0", params![id, pgpmail::FLAG_SIGNED as i64]);
+    }
+}
+
 /// Decrypt / verify a PGP message for display. The decrypted content only lives in the returned value (and the
 /// in-memory session cache); it is never written to the database.
 fn apply_pgp(c: &Connection, m: &mut MessageFull, pgp: i64, raw: Option<Vec<u8>>) {
@@ -1364,6 +1376,7 @@ fn apply_pgp(c: &Connection, m: &mut MessageFull, pgp: i64, raw: Option<Vec<u8>>
     };
     match pgpstore::open_message(c, &m.id, &raw) {
         Ok(o) => {
+            note_signed(c, &m.id, &o.security);
             m.security = Some(o.security.clone());
             if let Some(plain) = &o.plain {
                 if let Some(p) = mail::parse(0, plain, true, false, 0) {
@@ -2937,5 +2950,63 @@ mod search_tests {
         assert_eq!(q.from, vec!["linh tran".to_string()]);
         assert!(q.has_attachment);
         assert_eq!(q.unread, Some(true));
+    }
+}
+
+#[cfg(test)]
+mod signed_flag_tests {
+    use super::*;
+
+    fn filter() -> ThreadFilter {
+        serde_json::from_str(r#"{"folder":"inbox"}"#).unwrap()
+    }
+
+    fn put(c: &Connection, uid: i64, thread: &str, pgp: i64) {
+        c.execute(
+            "INSERT INTO messages(id,account_id,folder,uid,thread_id,subject,from_name,from_email,to_addrs,cc_addrs,date,snippet,pgp) VALUES(?1,'a1','inbox',?2,?3,'s','x','x@y.z','','',?2,'',?4)",
+            params![format!("m{uid}"), uid, thread, pgp],
+        )
+        .unwrap();
+    }
+
+    fn sig() -> pgpmail::Security {
+        pgpmail::Security {
+            encrypted: true,
+            decryption: "ok".into(),
+            signature: Some(pgpmail::SigInfo {
+                status: "valid".into(),
+                signer: None,
+                fingerprint: None,
+                key_id: "AB".into(),
+                signed_at: None,
+                verified: true,
+                matches_from: true,
+                inline: false,
+            }),
+            ..Default::default()
+        }
+    }
+
+    #[test]
+    fn encrypted_and_signed_thread_is_flagged_signed_once_opened() {
+        let c = Connection::open_in_memory().unwrap();
+        db::migrate(&c).unwrap();
+        put(&c, 1, "t-enc", pgpmail::FLAG_ENCRYPTED as i64); // encrypted + signed inside (unknown until opened)
+        put(&c, 2, "t-plain-enc", pgpmail::FLAG_ENCRYPTED as i64); // encrypted, no signature
+        put(&c, 3, "t-signed", pgpmail::FLAG_SIGNED as i64);
+        let by = |c: &Connection| -> HashMap<String, (bool, bool)> { threads_for(c, filter()).unwrap().into_iter().map(|t| (t.thread_id, (t.encrypted, t.signed))).collect() };
+        let before = by(&c);
+        assert_eq!(before["t-enc"], (true, false));
+        assert_eq!(before["t-signed"], (false, true));
+        // opening the first message finds the signature; the second has none
+        note_signed(&c, "m1", &sig());
+        note_signed(&c, "m2", &pgpmail::Security { encrypted: true, decryption: "ok".into(), ..Default::default() });
+        let after = by(&c);
+        assert_eq!(after["t-enc"], (true, true), "the list shows both marks");
+        assert_eq!(after["t-plain-enc"], (true, false));
+        // idempotent, and the encrypted bit stays
+        note_signed(&c, "m1", &sig());
+        let bits: i64 = c.query_row("SELECT pgp FROM messages WHERE id='m1'", [], |r| r.get(0)).unwrap();
+        assert_eq!(bits, 3);
     }
 }
