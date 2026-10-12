@@ -82,26 +82,36 @@ pub fn migrate(conn: &Connection) -> R<()> {
          CREATE INDEX IF NOT EXISTS idx_events_uid ON events(uid);",
     )
     .map_err(err)?;
-    // migrations: ignore "duplicate column" errors on already-migrated DBs
-    let _ = conn.execute("ALTER TABLE accounts ADD COLUMN auth TEXT NOT NULL DEFAULT 'password'", []);
-    let _ = conn.execute("ALTER TABLE accounts ADD COLUMN color TEXT", []);
-    let _ = conn.execute("ALTER TABLE accounts ADD COLUMN smtp_username TEXT NOT NULL DEFAULT ''", []);
-    let _ = conn.execute("ALTER TABLE accounts ADD COLUMN tls_insecure INTEGER NOT NULL DEFAULT 0", []);
-    let _ = conn.execute("ALTER TABLE messages ADD COLUMN attachments TEXT NOT NULL DEFAULT '[]'", []);
+    // migrations: a column that is already there is fine, any other failure (locked file, full disk) is reported
+    add_column(conn, "ALTER TABLE accounts ADD COLUMN auth TEXT NOT NULL DEFAULT 'password'")?;
+    add_column(conn, "ALTER TABLE accounts ADD COLUMN color TEXT")?;
+    add_column(conn, "ALTER TABLE accounts ADD COLUMN smtp_username TEXT NOT NULL DEFAULT ''")?;
+    add_column(conn, "ALTER TABLE accounts ADD COLUMN tls_insecure INTEGER NOT NULL DEFAULT 0")?;
+    add_column(conn, "ALTER TABLE messages ADD COLUMN attachments TEXT NOT NULL DEFAULT '[]'")?;
     // scheduled sends: when it was queued and how many delivery attempts failed so far
-    let _ = conn.execute("ALTER TABLE outbox ADD COLUMN created_at INTEGER NOT NULL DEFAULT 0", []);
-    let _ = conn.execute("ALTER TABLE outbox ADD COLUMN attempts INTEGER NOT NULL DEFAULT 0", []);
+    add_column(conn, "ALTER TABLE outbox ADD COLUMN created_at INTEGER NOT NULL DEFAULT 0")?;
+    add_column(conn, "ALTER TABLE outbox ADD COLUMN attempts INTEGER NOT NULL DEFAULT 0")?;
     // PGP: 1 = encrypted, 2 = signed; the raw message is kept for those (ciphertext only, never decrypted text)
-    let _ = conn.execute("ALTER TABLE messages ADD COLUMN pgp INTEGER NOT NULL DEFAULT 0", []);
-    let _ = conn.execute("ALTER TABLE messages ADD COLUMN pgp_raw BLOB", []);
+    add_column(conn, "ALTER TABLE messages ADD COLUMN pgp INTEGER NOT NULL DEFAULT 0")?;
+    add_column(conn, "ALTER TABLE messages ADD COLUMN pgp_raw BLOB")?;
     // calendar invitations: the iCalendar text of the message and its (lowercase) iMIP method
-    let _ = conn.execute("ALTER TABLE messages ADD COLUMN ics TEXT", []);
-    let _ = conn.execute("ALTER TABLE messages ADD COLUMN cal_method TEXT", []);
+    add_column(conn, "ALTER TABLE messages ADD COLUMN ics TEXT")?;
+    add_column(conn, "ALTER TABLE messages ADD COLUMN cal_method TEXT")?;
     // signatures / templates / filter rules can apply to one account (NULL = every account)
     for t in ["rules", "signatures", "templates"] {
-        let _ = conn.execute(&format!("ALTER TABLE {t} ADD COLUMN account_id TEXT"), []);
+        add_column(conn, &format!("ALTER TABLE {t} ADD COLUMN account_id TEXT"))?;
     }
     Ok(())
+}
+
+/// Run one `ALTER TABLE ... ADD COLUMN`. Only "duplicate column name" (an already migrated database) is ignored: any other
+/// failure leaves the schema incomplete and is returned instead of being swallowed.
+fn add_column(conn: &Connection, ddl: &str) -> R<()> {
+    match conn.execute(ddl, []) {
+        Ok(_) => Ok(()),
+        Err(e) if e.to_string().contains("duplicate column name") => Ok(()),
+        Err(e) => Err(format!("database migration failed ({ddl}): {e}")),
+    }
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug)]
@@ -227,4 +237,26 @@ pub fn set_setting(c: &Connection, key: &str, value: &str) -> R<()> {
     )
     .map_err(err)?;
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn migrate_is_idempotent() {
+        let c = Connection::open_in_memory().unwrap();
+        migrate(&c).unwrap();
+        migrate(&c).unwrap(); // every ALTER now hits "duplicate column name"
+        c.execute("INSERT INTO outbox(id,account_id,payload,send_at,status) VALUES('o','a','{}',0,'pending')", []).unwrap();
+    }
+
+    #[test]
+    fn only_duplicate_column_errors_are_ignored() {
+        let c = Connection::open_in_memory().unwrap();
+        c.execute("CREATE TABLE t(a INTEGER)", []).unwrap();
+        add_column(&c, "ALTER TABLE t ADD COLUMN b TEXT").unwrap();
+        add_column(&c, "ALTER TABLE t ADD COLUMN b TEXT").unwrap();
+        assert!(add_column(&c, "ALTER TABLE missing ADD COLUMN b TEXT").is_err());
+    }
 }
