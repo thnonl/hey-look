@@ -61,6 +61,9 @@ pub fn open(path: &Path) -> R<Connection> {
     let _ = conn.execute("ALTER TABLE accounts ADD COLUMN smtp_username TEXT NOT NULL DEFAULT ''", []);
     let _ = conn.execute("ALTER TABLE accounts ADD COLUMN tls_insecure INTEGER NOT NULL DEFAULT 0", []);
     let _ = conn.execute("ALTER TABLE messages ADD COLUMN attachments TEXT NOT NULL DEFAULT '[]'", []);
+    // scheduled sends: when it was queued and how many delivery attempts failed so far
+    let _ = conn.execute("ALTER TABLE outbox ADD COLUMN created_at INTEGER NOT NULL DEFAULT 0", []);
+    let _ = conn.execute("ALTER TABLE outbox ADD COLUMN attempts INTEGER NOT NULL DEFAULT 0", []);
     // signatures / templates / filter rules can apply to one account (NULL = every account)
     for t in ["rules", "signatures", "templates"] {
         let _ = conn.execute(&format!("ALTER TABLE {t} ADD COLUMN account_id TEXT"), []);

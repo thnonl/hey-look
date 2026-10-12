@@ -261,10 +261,7 @@ pub fn setup_tray(app: &AppHandle, db: &Db) -> tauri::Result<()> {
                 let st = app.state::<AppState>();
                 let _ = db::set_setting(&lock(&st.db), "notif_paused", if on { "1" } else { "0" });
             }
-            "quit" => {
-                crate::flush_pending(app);
-                app.exit(0)
-            }
+            "quit" => crate::request_quit(app),
             _ => {}
         })
         .on_tray_icon_event(|tray, event| {

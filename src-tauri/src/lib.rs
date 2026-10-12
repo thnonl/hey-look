@@ -1,9 +1,11 @@
 mod ai;
+mod attach;
 mod db;
 mod discover;
 mod mail;
 mod oauth;
 use oauth::Provider;
+mod schedule;
 mod shell;
 mod smtp;
 
@@ -14,6 +16,7 @@ use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 use tauri::{Emitter, Manager};
+use tauri_plugin_dialog::DialogExt;
 use tauri_plugin_opener::OpenerExt;
 
 type Db = Arc<Mutex<Connection>>;
@@ -434,7 +437,8 @@ fn insert_parsed(c: &Connection, acc: &Account, role: &str, p: &mail::Parsed) ->
             p.text,
             p.seen as i64,
             p.flagged as i64,
-            !p.attachments.is_empty() as i64,
+            // pictures shown in the body are not "attachments" for the list's paperclip
+            p.attachments.iter().any(|a| !(a.inline && a.referenced)) as i64,
             serde_json::to_string(&p.attachments).unwrap_or_else(|_| "[]".into()),
             p.list_unsub,
             p.list_unsub_post as i64
@@ -1618,7 +1622,26 @@ async fn get_raw(state: tauri::State<'_, AppState>, message_id: String) -> R<Str
     Ok(String::from_utf8_lossy(&raw).into_owned())
 }
 
-/// Save one attachment (`index`) or all of them into the Downloads folder; returns the saved paths.
+/// Folder for "Save" (Settings → Attachments), falling back to the system Downloads folder.
+fn download_folder(app: &tauri::AppHandle, db: &Db) -> R<std::path::PathBuf> {
+    match setting(db, "download_dir").filter(|s| !s.trim().is_empty()) {
+        Some(p) if std::path::Path::new(&p).is_dir() => Ok(p.into()),
+        _ => app.path().download_dir().map_err(err),
+    }
+}
+
+fn setting(db: &Db, key: &str) -> Option<String> {
+    db::get_setting(&lock(db), key)
+}
+
+/// Write `bytes` into `dir` under a safe, unused name; returns the path written.
+fn write_unique(dir: &std::path::Path, name: &str, bytes: &[u8]) -> R<std::path::PathBuf> {
+    let path = attach::unique_path(dir, &attach::clean_name(name), |p| p.exists());
+    std::fs::write(&path, bytes).map_err(err)?;
+    Ok(path)
+}
+
+/// Save one attachment (`index`) or all of them into the download folder; returns the saved paths.
 #[tauri::command]
 async fn save_attachments(
     app: tauri::AppHandle,
@@ -1627,8 +1650,8 @@ async fn save_attachments(
     index: Option<usize>,
 ) -> R<Vec<String>> {
     let db = state.db.clone();
-    let dir = app.path().download_dir().map_err(err)?;
     blocking(move || {
+        let dir = download_folder(&app, &db)?;
         let (raw, att_json) = fetch_raw_for(&db, &message_id)?;
         let metas: Vec<mail::AttMeta> = serde_json::from_str(&att_json).unwrap_or_default();
         let wanted: Vec<usize> = match index {
@@ -1638,20 +1661,152 @@ async fn save_attachments(
         let mut saved = vec![];
         for i in wanted {
             let (name, bytes) = mail::attachment_bytes(&raw, i)?;
-            let clean: String = name.chars().map(|c| if "\\/:*?\"<>|".contains(c) { '_' } else { c }).collect();
-            let mut path = dir.join(&clean);
-            let mut n = 1;
-            while path.exists() {
-                let p = std::path::Path::new(&clean);
-                let stem = p.file_stem().and_then(|s| s.to_str()).unwrap_or("file");
-                let ext = p.extension().and_then(|s| s.to_str()).map(|e| format!(".{e}")).unwrap_or_default();
-                path = dir.join(format!("{stem} ({n}){ext}"));
-                n += 1;
-            }
-            std::fs::write(&path, bytes).map_err(err)?;
-            saved.push(path.to_string_lossy().into_owned());
+            saved.push(write_unique(&dir, &name, &bytes)?.to_string_lossy().into_owned());
         }
         Ok(saved)
+    })
+    .await
+}
+
+/// Native "Save as" dialog for one attachment. `None` when the user cancels.
+#[tauri::command]
+async fn attachment_save_as(app: tauri::AppHandle, state: tauri::State<'_, AppState>, message_id: String, index: usize) -> R<Option<String>> {
+    let db = state.db.clone();
+    blocking(move || {
+        let dir = download_folder(&app, &db)?;
+        let (raw, _) = fetch_raw_for(&db, &message_id)?;
+        let (name, bytes) = mail::attachment_bytes(&raw, index)?;
+        let Some(picked) = app.dialog().file().set_file_name(attach::clean_name(&name)).set_directory(&dir).blocking_save_file() else {
+            return Ok(None);
+        };
+        let path = picked.into_path().map_err(err)?;
+        std::fs::write(&path, bytes).map_err(err)?;
+        Ok(Some(path.to_string_lossy().into_owned()))
+    })
+    .await
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct SaveAllFailure {
+    index: usize,
+    name: String,
+    error: String,
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct SaveAllResult {
+    dir: String,
+    saved: Vec<String>,
+    failed: Vec<SaveAllFailure>,
+}
+
+/// Save every attachment (pictures included) into one folder. `ask` shows a folder picker first; `None` = cancelled.
+/// Failures do not stop the others. Emits `attachment-progress` after each file.
+#[tauri::command]
+async fn attachment_save_all(
+    app: tauri::AppHandle,
+    state: tauri::State<'_, AppState>,
+    message_id: String,
+    ask: bool,
+    job_id: Option<String>,
+) -> R<Option<SaveAllResult>> {
+    let db = state.db.clone();
+    blocking(move || {
+        let (raw, att_json) = fetch_raw_for(&db, &message_id)?;
+        let metas: Vec<mail::AttMeta> = serde_json::from_str(&att_json).unwrap_or_default();
+        let dir = if ask {
+            let Some(p) = app.dialog().file().set_title("Save attachments to").blocking_pick_folder() else {
+                return Ok(None);
+            };
+            p.into_path().map_err(err)?
+        } else {
+            download_folder(&app, &db)?
+        };
+        let total = metas.len();
+        let (mut saved, mut failed) = (vec![], vec![]);
+        for (n, m) in metas.iter().enumerate() {
+            match mail::attachment_bytes(&raw, m.index).and_then(|(name, bytes)| write_unique(&dir, &name, &bytes)) {
+                Ok(p) => saved.push(p.to_string_lossy().into_owned()),
+                Err(e) => failed.push(SaveAllFailure { index: m.index, name: m.name.clone(), error: e }),
+            }
+            let _ = app.emit(
+                "attachment-progress",
+                serde_json::json!({ "jobId": job_id, "messageId": message_id, "index": m.index, "phase": "write", "received": n + 1, "total": total, "done": n + 1 == total }),
+            );
+        }
+        Ok(Some(SaveAllResult { dir: dir.to_string_lossy().into_owned(), saved, failed }))
+    })
+    .await
+}
+
+/// Write an attachment to the temp folder and open it with the default app. Programs and scripts need
+/// `confirmed = true`; otherwise the error starts with `ATT_RISKY` (unless the user turned the warning off).
+#[tauri::command]
+async fn attachment_open(app: tauri::AppHandle, state: tauri::State<'_, AppState>, message_id: String, index: usize, confirmed: bool) -> R<String> {
+    let db = state.db.clone();
+    blocking(move || {
+        let (raw, _) = fetch_raw_for(&db, &message_id)?;
+        let (name, bytes) = mail::attachment_bytes(&raw, index)?;
+        let warn = setting(&db, "warn_executables").map(|v| v != "0").unwrap_or(true);
+        if warn && !confirmed && attach::is_risky(&name) {
+            return Err(format!("ATT_RISKY: {name} can run programs on your computer."));
+        }
+        let dir = std::env::temp_dir().join("HeyLook").join(attach::safe_id(&message_id));
+        std::fs::create_dir_all(&dir).map_err(err)?;
+        let path = dir.join(attach::clean_name(&name));
+        std::fs::write(&path, bytes).map_err(err)?;
+        let shown = path.to_string_lossy().into_owned();
+        app.opener().open_path(shown.clone(), None::<&str>).map_err(err)?;
+        Ok(shown)
+    })
+    .await
+}
+
+/// Show a saved file selected in Explorer / Finder.
+#[tauri::command]
+fn attachment_reveal(app: tauri::AppHandle, path: String) -> R<()> {
+    let p = std::path::PathBuf::from(&path);
+    if !p.is_absolute() || !p.exists() {
+        return Err("That file no longer exists.".into());
+    }
+    app.opener().reveal_item_in_dir(p).map_err(err)
+}
+
+/// Native folder picker (used for "Save to" in Settings).
+#[tauri::command]
+async fn pick_folder(app: tauri::AppHandle, title: Option<String>) -> R<Option<String>> {
+    blocking(move || {
+        let mut dlg = app.dialog().file();
+        if let Some(t) = title {
+            dlg = dlg.set_title(t);
+        }
+        match dlg.blocking_pick_folder() {
+            Some(p) => Ok(Some(p.into_path().map_err(err)?.to_string_lossy().into_owned())),
+            None => Ok(None),
+        }
+    })
+    .await
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct InlineData {
+    mime: String,
+    data_base64: String,
+    name: String,
+}
+
+/// One picture of a stored message by Content-ID, fetched from the server (for pictures that were not embedded
+/// at sync time).
+#[tauri::command]
+async fn inline_image(state: tauri::State<'_, AppState>, message_id: String, cid: String) -> R<InlineData> {
+    let db = state.db.clone();
+    blocking(move || {
+        let (raw, _) = fetch_raw_for(&db, &message_id)?;
+        let (mime, bytes, name) = mail::inline_part(&raw, &cid)?;
+        Ok(InlineData { mime, data_base64: base64::engine::general_purpose::STANDARD.encode(bytes), name })
     })
     .await
 }
@@ -1676,29 +1831,53 @@ fn send_now(db: &Db, d: &smtp::Draft) -> R<()> {
     Ok(())
 }
 
+/// Queue a finished message (MIME is built at send time from the stored draft) for `send_at`.
+fn insert_outbox(db: &Db, draft: &smtp::Draft, send_at: i64) -> R<String> {
+    let id = uuid::Uuid::new_v4().to_string();
+    let payload = serde_json::to_string(draft).map_err(err)?;
+    lock(db)
+        .execute(
+            "INSERT INTO outbox(id,account_id,payload,send_at,status,created_at) VALUES(?1,?2,?3,?4,'pending',?5)",
+            params![id, draft.account_id, payload, send_at, now()],
+        )
+        .map_err(err)?;
+    Ok(id)
+}
+
+/// Remove the original draft after a message was sent or scheduled from it (so it is not duplicated).
+fn drop_replaced_draft(db: &Db, replaces: Option<String>) {
+    if let Some(t) = replaces {
+        let _ = action_impl(db, vec![t], "delete_forever".into(), None, Some("drafts".into()));
+    }
+}
+
 #[tauri::command]
 async fn send_message(
+    app: tauri::AppHandle,
     state: tauri::State<'_, AppState>,
     draft: smtp::Draft,
     send_at: Option<i64>,
     replaces: Option<String>,
 ) -> R<String> {
     let db = state.db.clone();
-    if let Some(at) = send_at.filter(|a| *a > now() + 10) {
-        let payload = serde_json::to_string(&draft).map_err(err)?;
-        lock(&db)
-            .execute(
-                "INSERT INTO outbox(id,account_id,payload,send_at) VALUES(?1,?2,?3,?4)",
-                params![uuid::Uuid::new_v4().to_string(), draft.account_id, payload, at],
-            )
-            .map_err(err)?;
+    let t = now();
+    if let Some(at) = send_at {
+        schedule::validate_send_at(at, t)?;
+    }
+    if schedule::should_queue(send_at, t) {
+        let at = send_at.unwrap_or(t);
+        let id = blocking(move || {
+            let id = insert_outbox(&db, &draft, at)?;
+            drop_replaced_draft(&db, replaces);
+            Ok(id)
+        })
+        .await?;
+        let _ = app.emit("outbox-changed", serde_json::json!({ "id": id, "status": "pending" }));
         return Ok("scheduled".into());
     }
     blocking(move || {
         send_now(&db, &draft)?;
-        if let Some(t) = replaces {
-            let _ = action_impl(&db, vec![t], "delete_forever".into(), None, Some("drafts".into()));
-        }
+        drop_replaced_draft(&db, replaces);
         Ok(())
     })
     .await?;
@@ -1732,61 +1911,337 @@ struct OutboxItem {
     account_id: String,
     subject: String,
     to: Vec<String>,
+    cc: Vec<String>,
+    snippet: String,
+    has_attachments: bool,
     send_at: i64,
+    created_at: i64,
+    /// pending | held | sending | failed | overdue (sent rows are deleted)
     status: String,
     error: Option<String>,
+    attempts: i64,
+}
+
+/// Plain-text preview of a stored draft for the Scheduled list.
+fn snippet_of(d: &smtp::Draft) -> String {
+    let text = if d.text.trim().is_empty() { strip_tags(&d.html) } else { d.text.clone() };
+    text.split_whitespace().collect::<Vec<_>>().join(" ").chars().take(160).collect()
+}
+
+fn strip_tags(h: &str) -> String {
+    let mut out = String::new();
+    let mut in_tag = false;
+    for ch in h.chars() {
+        match ch {
+            '<' => in_tag = true,
+            '>' => in_tag = false,
+            c if !in_tag => out.push(c),
+            _ => {}
+        }
+    }
+    out
 }
 
 #[tauri::command]
 fn list_outbox(state: tauri::State<AppState>) -> R<Vec<OutboxItem>> {
     let c = lock(&state.db);
     let mut st = c
-        .prepare("SELECT id,account_id,payload,send_at,status,error FROM outbox WHERE status!='sent' ORDER BY send_at")
+        .prepare("SELECT id,account_id,payload,send_at,status,error,created_at,attempts FROM outbox WHERE status!='sent' ORDER BY send_at")
         .map_err(err)?;
     let rows = st
         .query_map([], |r| {
-            Ok((r.get::<_, String>(0)?, r.get::<_, String>(1)?, r.get::<_, String>(2)?, r.get(3)?, r.get(4)?, r.get(5)?))
+            Ok((
+                r.get::<_, String>(0)?,
+                r.get::<_, String>(1)?,
+                r.get::<_, String>(2)?,
+                r.get::<_, i64>(3)?,
+                r.get::<_, String>(4)?,
+                r.get::<_, Option<String>>(5)?,
+                r.get::<_, i64>(6)?,
+                r.get::<_, i64>(7)?,
+            ))
         })
         .map_err(err)?;
     let mut out = vec![];
     for r in rows {
-        let (id, account_id, payload, send_at, status, error) = r.map_err(err)?;
-        let d: smtp::Draft = serde_json::from_str(&payload).map_err(err)?;
-        out.push(OutboxItem { id, account_id, subject: d.subject, to: d.to, send_at, status, error });
+        let (id, account_id, payload, send_at, status, error, created_at, attempts) = r.map_err(err)?;
+        // a row that cannot be parsed is skipped rather than hiding the whole list
+        let Ok(d) = serde_json::from_str::<smtp::Draft>(&payload) else { continue };
+        out.push(OutboxItem {
+            id,
+            account_id,
+            subject: d.subject.clone(),
+            to: d.to.clone(),
+            cc: d.cc.clone(),
+            snippet: snippet_of(&d),
+            has_attachments: !d.attachments.is_empty() || !d.inline.is_empty(),
+            send_at,
+            created_at,
+            status,
+            error,
+            attempts,
+        });
     }
     Ok(out)
 }
 
 #[tauri::command]
 fn cancel_outbox(state: tauri::State<AppState>, id: String) -> R<()> {
-    lock(&state.db).execute("DELETE FROM outbox WHERE id=?1", [id]).map_err(err)?;
+    let n = lock(&state.db)
+        .execute("DELETE FROM outbox WHERE id=?1 AND status!='sending'", [id])
+        .map_err(err)?;
+    if n == 0 {
+        return Err("This message is being sent right now.".into());
+    }
     Ok(())
 }
 
-fn outbox_worker(db: Db) {
+/// Counts for the quit guard: everything that will not go out unless the app keeps running.
+fn outbox_counts(db: &Db) -> (i64, Option<i64>) {
+    let c = lock(db);
+    let count = c
+        .query_row("SELECT COUNT(*) FROM outbox WHERE status IN ('pending','held','sending','overdue')", [], |r| r.get(0))
+        .unwrap_or(0);
+    let next = c
+        .query_row("SELECT MIN(send_at) FROM outbox WHERE status='pending'", [], |r| r.get::<_, Option<i64>>(0))
+        .ok()
+        .flatten();
+    (count, next)
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct PendingCount {
+    count: i64,
+    next: Option<i64>,
+}
+
+#[tauri::command]
+fn outbox_pending_count(state: tauri::State<AppState>) -> PendingCount {
+    let (count, next) = outbox_counts(&state.db);
+    PendingCount { count, next }
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct OutboxEdit {
+    draft: smtp::Draft,
+    send_at: i64,
+    status: String,
+}
+
+/// Load a scheduled message into Compose. Pending or overdue items are paused (`held`) while they are edited.
+#[tauri::command]
+fn outbox_open_for_edit(state: tauri::State<AppState>, id: String) -> R<OutboxEdit> {
+    let c = lock(&state.db);
+    let (payload, send_at, status): (String, i64, String) = c
+        .query_row("SELECT payload,send_at,status FROM outbox WHERE id=?1", [&id], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)))
+        .map_err(|_| "This scheduled message no longer exists.".to_string())?;
+    if status == "sending" {
+        return Err("This message is being sent right now.".into());
+    }
+    if status == "pending" || status == "overdue" {
+        c.execute("UPDATE outbox SET status='held' WHERE id=?1", [&id]).map_err(err)?;
+    }
+    let shown = if status == "pending" || status == "overdue" { "held".to_string() } else { status };
+    Ok(OutboxEdit { draft: serde_json::from_str(&payload).map_err(err)?, send_at, status: shown })
+}
+
+/// Leave Compose without saving: a paused message goes back to the queue (or to Overdue when its time passed).
+#[tauri::command]
+fn outbox_release(state: tauri::State<AppState>, id: String) -> R<()> {
+    lock(&state.db)
+        .execute(
+            "UPDATE outbox SET status=CASE WHEN send_at < ?2 THEN 'overdue' ELSE 'pending' END WHERE id=?1 AND status='held'",
+            params![id, now() - schedule::GRACE_SECS],
+        )
+        .map_err(err)?;
+    Ok(())
+}
+
+/// Save edits to a scheduled message (new content and time). It goes back to the queue.
+#[tauri::command]
+fn outbox_update(app: tauri::AppHandle, state: tauri::State<AppState>, id: String, draft: smtp::Draft, send_at: i64) -> R<()> {
+    schedule::validate_send_at(send_at, now())?;
+    let payload = serde_json::to_string(&draft).map_err(err)?;
+    let n = lock(&state.db)
+        .execute(
+            "UPDATE outbox SET payload=?2, send_at=?3, status='pending', error=NULL, attempts=0 WHERE id=?1 AND status!='sending'",
+            params![id, payload, send_at],
+        )
+        .map_err(err)?;
+    if n == 0 {
+        return Err("This scheduled message is no longer waiting to be sent.".into());
+    }
+    let _ = app.emit("outbox-changed", serde_json::json!({ "id": id, "status": "pending" }));
+    Ok(())
+}
+
+/// Change only the time of a scheduled message.
+#[tauri::command]
+fn outbox_reschedule(app: tauri::AppHandle, state: tauri::State<AppState>, id: String, send_at: i64) -> R<()> {
+    schedule::validate_send_at(send_at, now())?;
+    let n = lock(&state.db)
+        .execute(
+            "UPDATE outbox SET send_at=?2, status='pending', error=NULL, attempts=0 WHERE id=?1 AND status IN ('pending','held','overdue','failed')",
+            params![id, send_at],
+        )
+        .map_err(err)?;
+    if n == 0 {
+        return Err("This message is being sent right now.".into());
+    }
+    let _ = app.emit("outbox-changed", serde_json::json!({ "id": id, "status": "pending" }));
+    Ok(())
+}
+
+/// Failed items go back to the queue and are picked up by the worker on its next pass.
+#[tauri::command]
+fn outbox_retry(app: tauri::AppHandle, state: tauri::State<AppState>, id: String) -> R<()> {
+    lock(&state.db)
+        .execute("UPDATE outbox SET status='pending', send_at=?2, error=NULL, attempts=0 WHERE id=?1 AND status IN ('failed','overdue')", params![id, now()])
+        .map_err(err)?;
+    let _ = app.emit("outbox-changed", serde_json::json!({ "id": id, "status": "pending" }));
+    Ok(())
+}
+
+/// Move the message out of the queue and into Drafts on the server.
+#[tauri::command]
+async fn outbox_to_draft(app: tauri::AppHandle, state: tauri::State<'_, AppState>, id: String) -> R<()> {
+    let db = state.db.clone();
+    let event_id = id.clone();
+    blocking(move || {
+        let payload: String = lock(&db)
+            .query_row("SELECT payload FROM outbox WHERE id=?1 AND status!='sending'", [&id], |r| r.get(0))
+            .map_err(|_| "This message is being sent right now.".to_string())?;
+        let d: smtp::Draft = serde_json::from_str(&payload).map_err(err)?;
+        let acc = db::get_account(&lock(&db), &d.account_id)?;
+        let sec = secret(&db, &acc)?;
+        let folder = fmap(&db, &acc.id).get("drafts").cloned().ok_or("this account has no Drafts folder")?;
+        let msg = smtp::build_draft(&acc, &d)?;
+        let mut s = mail::connect(&acc, &sec)?;
+        mail::append(&mut s, &folder, &msg.formatted(), true)?;
+        let _ = s.logout();
+        lock(&db).execute("DELETE FROM outbox WHERE id=?1", [&id]).map_err(err)?;
+        Ok(())
+    })
+    .await?;
+    let _ = app.emit("outbox-changed", serde_json::json!({ "id": event_id, "status": "removed" }));
+    Ok(())
+}
+
+/// Atomically take a queued item for sending. Returns its payload and attempt count, or `None` if another
+/// sender already has it (the timer and "Send now" can never both send the same message).
+fn claim_outbox(db: &Db, id: &str, from: &[&str]) -> R<Option<(String, i64)>> {
+    let c = lock(db);
+    let row: Option<(String, i64)> = c
+        .query_row("SELECT payload,attempts FROM outbox WHERE id=?1", [id], |r| Ok((r.get(0)?, r.get(1)?)))
+        .ok();
+    let Some((payload, attempts)) = row else { return Ok(None) };
+    let placeholders = from.iter().map(|s| format!("'{s}'")).collect::<Vec<_>>().join(",");
+    let sql = format!("UPDATE outbox SET status='sending' WHERE id=?1 AND status IN ({placeholders})");
+    let n = c.execute(&sql, [id]).map_err(err)?;
+    Ok(if n == 1 { Some((payload, attempts)) } else { None })
+}
+
+fn retry_enabled(db: &Db) -> bool {
+    setting(db, "scheduled_retry").map(|v| v != "0").unwrap_or(true)
+}
+
+/// Send a claimed item and record the outcome: delete on success, retry later or mark failed on error.
+fn deliver(app: &tauri::AppHandle, db: &Db, id: &str, payload: &str, attempts: i64, late: &mut i64, due_at: i64) -> R<()> {
+    let res = serde_json::from_str::<smtp::Draft>(payload).map_err(err).and_then(|d| send_now(db, &d));
+    match res {
+        Ok(()) => {
+            if due_at < now() - 600 {
+                *late += 1;
+            }
+            let _ = lock(db).execute("DELETE FROM outbox WHERE id=?1", [id]);
+            let _ = app.emit("outbox-changed", serde_json::json!({ "id": id, "status": "sent" }));
+            Ok(())
+        }
+        Err(e) => {
+            let attempts = attempts + 1;
+            let (status, next) = match schedule::retry_at(&e, attempts, retry_enabled(db), now()) {
+                Some(at) => ("pending", at),
+                None => ("failed", due_at),
+            };
+            let _ = lock(db).execute(
+                "UPDATE outbox SET status=?2, error=?3, attempts=?4, send_at=?5 WHERE id=?1",
+                params![id, status, e, attempts, next],
+            );
+            let _ = app.emit("outbox-changed", serde_json::json!({ "id": id, "status": status, "error": e }));
+            Err(e)
+        }
+    }
+}
+
+/// Send one scheduled message now, whatever its state (except already sending).
+#[tauri::command]
+async fn outbox_send_now(app: tauri::AppHandle, state: tauri::State<'_, AppState>, id: String) -> R<()> {
+    let db = state.db.clone();
+    blocking(move || {
+        let (payload, attempts) = claim_outbox(&db, &id, &["pending", "held", "overdue", "failed"])?
+            .ok_or("This message is already being sent.")?;
+        let mut late = 0;
+        let due = now();
+        deliver(&app, &db, &id, &payload, attempts, &mut late, due)
+    })
+    .await
+}
+
+/// Startup: a message interrupted mid-send is queued again, and with "ask" anything whose time passed while the
+/// app was closed waits as Overdue instead of going out without a word.
+fn outbox_startup(db: &Db) {
+    let c = lock(db);
+    let _ = c.execute("UPDATE outbox SET status='pending' WHERE status='sending'", []);
+    if setting_in(&c, "scheduled_catchup").as_deref() == Some("ask") {
+        let _ = c.execute("UPDATE outbox SET status='overdue' WHERE status='pending' AND send_at < ?1", [now() - schedule::GRACE_SECS]);
+    }
+}
+
+fn setting_in(c: &Connection, key: &str) -> Option<String> {
+    db::get_setting(c, key)
+}
+
+fn outbox_worker(app: tauri::AppHandle, db: Db) {
     loop {
         std::thread::sleep(std::time::Duration::from_secs(15));
-        let due: Vec<(String, String)> = {
+        let due: Vec<(String, i64)> = {
             let c = lock(&db);
-            let Ok(mut st) = c.prepare("SELECT id,payload FROM outbox WHERE status='pending' AND send_at<=?1") else {
+            let Ok(mut st) = c.prepare("SELECT id,send_at FROM outbox WHERE status='pending' AND send_at<=?1 ORDER BY send_at") else {
                 continue;
             };
             let Ok(rows) = st.query_map([now()], |r| Ok((r.get(0)?, r.get(1)?))) else { continue };
             rows.filter_map(|r| r.ok()).collect()
         };
-        for (id, payload) in due {
-            let res = serde_json::from_str::<smtp::Draft>(&payload).map_err(err).and_then(|d| send_now(&db, &d));
-            let c = lock(&db);
-            match res {
-                Ok(()) => {
-                    let _ = c.execute("UPDATE outbox SET status='sent' WHERE id=?1", [&id]);
-                }
-                Err(e) => {
-                    let _ = c.execute("UPDATE outbox SET status='failed', error=?2 WHERE id=?1", params![id, e]);
-                }
-            }
+        let mut late = 0;
+        for (id, due_at) in due {
+            let Ok(Some((payload, attempts))) = claim_outbox(&db, &id, &["pending"]) else { continue };
+            let _ = deliver(&app, &db, &id, &payload, attempts, &mut late, due_at);
+        }
+        if late > 0 {
+            let _ = app.emit("outbox-catchup", serde_json::json!({ "count": late }));
         }
     }
+}
+
+/// Quit, or ask first when scheduled messages are still waiting (they only go out while the app runs).
+pub(crate) fn request_quit(app: &tauri::AppHandle) {
+    let db = app.state::<AppState>().db.clone();
+    let (count, next) = outbox_counts(&db);
+    if count > 0 {
+        shell::show_main(app);
+        let _ = app.emit("confirm-quit", serde_json::json!({ "count": count, "next": next }));
+        return;
+    }
+    flush_pending(app);
+    app.exit(0);
+}
+
+#[tauri::command]
+fn quit_now(app: tauri::AppHandle) {
+    flush_pending(&app);
+    app.exit(0);
 }
 
 // ---------- templates / signatures ----------
@@ -2069,13 +2524,20 @@ pub fn run() {
         .plugin(tauri_plugin_single_instance::init(|app, _args, _cwd| shell::show_main(app)))
         .plugin(tauri_plugin_autostart::init(tauri_plugin_autostart::MacosLauncher::LaunchAgent, Some(vec!["--minimized"])))
         .plugin(tauri_plugin_opener::init())
+        .plugin(tauri_plugin_dialog::init())
         .setup(|app| {
             let dir = app.path().app_data_dir()?;
             std::fs::create_dir_all(&dir)?;
             let conn = db::open(&dir.join("heylook.db"))?;
             let db: Db = Arc::new(Mutex::new(conn));
+            outbox_startup(&db);
             let worker_db = db.clone();
-            std::thread::spawn(move || outbox_worker(worker_db));
+            let worker_app = app.handle().clone();
+            std::thread::spawn(move || outbox_worker(worker_app, worker_db));
+            // files from "Open" are kept for a day
+            std::thread::spawn(|| {
+                let _ = attach::cleanup_older_than(&std::env::temp_dir().join("HeyLook"), 24 * 3600, std::time::SystemTime::now());
+            });
             app.manage(AppState { db: db.clone() });
             migrate_secrets(&db);
             let pending_app = app.handle().clone();
@@ -2100,6 +2562,10 @@ pub fn run() {
                     api.prevent_close();
                     let _ = window.hide();
                     shell::tray_hint_once(window.app_handle(), &db);
+                } else if outbox_counts(&db).0 > 0 {
+                    // closing would quit: scheduled messages would wait until the next start, so ask first
+                    api.prevent_close();
+                    request_quit(window.app_handle());
                 }
             }
         })
@@ -2132,10 +2598,25 @@ pub fn run() {
             delete_rule,
             get_raw,
             save_attachments,
+            attachment_save_as,
+            attachment_save_all,
+            attachment_open,
+            attachment_reveal,
+            pick_folder,
+            inline_image,
             send_message,
             save_draft,
             list_outbox,
             cancel_outbox,
+            outbox_pending_count,
+            outbox_open_for_edit,
+            outbox_release,
+            outbox_update,
+            outbox_reschedule,
+            outbox_retry,
+            outbox_to_draft,
+            outbox_send_now,
+            quit_now,
             list_templates,
             save_template,
             delete_template,
