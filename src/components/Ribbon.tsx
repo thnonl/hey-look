@@ -2,7 +2,7 @@ import {
   Archive, BrushCleaning, Clock, Command, FolderInput, Flag, Forward, Info, Keyboard, MailOpen, MailPlus, Mail, OctagonAlert, Pin, Reply, ReplyAll, Trash2,
 } from "lucide-react";
 import { ReactNode } from "react";
-import { forwardLast, replyLast, targets } from "../actions";
+import { forwardLast, newMailAccount, replyLast, targets } from "../actions";
 import { useStore, scopeOf } from "../store";
 import { folderLabel } from "../prefs";
 import { snoozePresets } from "../util";
@@ -45,7 +45,7 @@ function HomeTab() {
   return (
     <div className="ribbon-row home">
       <div className="rg">
-        <button className="rb primary" onClick={() => openCompose({ accountId: prefs.defaultAccount || accountId || undefined })}>
+        <button className="rb primary" onClick={() => openCompose({ accountId: newMailAccount() })}>
           <MailPlus size={18} />
           <span>New mail</span>
         </button>

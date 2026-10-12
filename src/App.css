@@ -1,6 +1,11 @@
 /* Hey Look! — design system
    Tokens first, then layout, then each surface. Light and dark share the same structure. */
 :root {
+  /* stacking order of the overlay layers: modal < menus / popovers opened from anywhere (also inside a modal) < confirm dialog < toast */
+  --z-modal: 70;
+  --z-menu: 80;
+  --z-ask: 100;
+  --z-toast: 110;
   --bg: #ffffff;
   --bg2: #f6f7f9;
   --bg3: #eceef2;
@@ -108,7 +113,7 @@ button:focus-visible, [role="option"]:focus-visible, [role="treeitem"]:focus-vis
 .link:hover { color: color-mix(in srgb, var(--accent-text), var(--fg) 30%); }
 .about-links { display: flex; flex-direction: column; align-items: flex-start; gap: 16px; margin-top: 16px; }
 .about-link { display: inline-flex; align-items: center; min-height: 24px; }
-.notice .link, .bg-toggle .link { display: inline-block; min-height: 24px; line-height: 24px; vertical-align: middle; }
+.notice .link { display: inline-block; min-height: 24px; line-height: 24px; vertical-align: middle; }
 .link-btn { min-height: 24px; background: none; border: 0; color: var(--fg); padding: 3px 8px; border-radius: var(--r-sm); display: inline-flex; align-items: center; gap: 4px; font-size: .9em; }
 .link-btn:hover { background: var(--bg3); }
 .avatar { border-radius: 50%; color: #fff; display: flex; align-items: center; justify-content: center; font-weight: 600; flex: none; user-select: none; letter-spacing: .02em; box-shadow: inset 0 0 0 1px rgba(255,255,255,.18); }
@@ -179,13 +184,27 @@ button:focus-visible, [role="option"]:focus-visible, [role="treeitem"]:focus-vis
 .dd { position: relative; display: inline-block; }
 .dd > button { display: inline-flex; align-items: center; gap: 4px; }
 .dd > button .caret { margin-right: 4px; flex: none; } /* chevron >= 12px from the button edge */
-.dd-pop { position: fixed; z-index: 60; animation: pop .12s var(--ease); }
+.dd-pop { position: fixed; z-index: var(--z-menu); animation: pop .12s var(--ease); }
 .caret { opacity: .6; }
 .menu { min-width: 200px; background: var(--bg); border: 1px solid var(--border); border-radius: var(--r-md); box-shadow: var(--shadow); padding: 5px; max-height: 60vh; overflow-y: auto; }
 .menu-row { display: flex; align-items: center; gap: 8px; width: 100%; text-align: left; background: none; border: 0; border-radius: var(--r-sm); padding: 7px 9px; cursor: pointer; }
 .menu-row:hover:not(:disabled), .menu-row.hl { background: var(--bg3); }
 .menu-ico { width: 16px; display: inline-flex; justify-content: center; color: var(--accent-text); }
 .menu-lbl { flex: 1; white-space: nowrap; }
+.menu { max-width: min(440px, 92vw); }
+/* account chooser (Compose From, Settings default account): same look as the other dropdowns */
+.acct-pick-wrap { display: block; flex: 1; min-width: 0; }
+.acct-pick { display: flex; align-items: center; gap: 8px; width: 100%; min-width: 0; background: var(--bg); color: var(--fg); border: 1px solid var(--border); border-radius: var(--r-sm); padding: 6px 12px; text-align: left; }
+.dd > button.acct-pick { display: flex; }
+.acct-pick:hover { border-color: color-mix(in srgb, var(--border), var(--fg) 25%); }
+.acct-pick .ap-name { flex: 0 1 auto; min-width: 0; }
+.acct-pick .ap-addr { flex: 1; min-width: 0; color: var(--muted); font-size: .9em; }
+.acct-pick .caret { margin-left: auto; margin-right: 4px; color: var(--muted); }
+.acct-pick.static { border-color: transparent; padding-left: 0; }
+.cf-field .acct-pick { border-color: transparent; background: transparent; padding: 8px 12px 8px 0; }
+.cf-field .acct-pick:hover { border-color: transparent; }
+.set-ctl .acct-pick-wrap { flex: none; width: 300px; max-width: 100%; }
+.menu-row .dot { flex: none; }
 .menu-hint { color: var(--muted); font-size: .86em; }
 .menu-div { height: 1px; background: var(--border); margin: 5px 2px; }
 
@@ -223,9 +242,9 @@ button:focus-visible, [role="option"]:focus-visible, [role="treeitem"]:focus-vis
 /* while messages are checked the selection bar replaces the Focused/Other tabs and Filter: they are hidden (not focusable, not read out) instead of sitting under it */
 .ml-head.multi .ml-title { visibility: hidden; }
 .pivots { display: flex; gap: 18px; }
-.pivots button { background: none; border: 0; border-bottom: 2.5px solid transparent; padding: 5px 0; font-size: 1.1em; color: var(--muted); font-weight: 500; transition: color .12s; }
+.pivots button, .ap-pivots span { background: none; border: 0; border-bottom: 2.5px solid transparent; padding: 5px 0; font-size: 1.1em; color: var(--muted); font-weight: 500; transition: color .12s; }
 .pivots button:hover { color: var(--fg); }
-.pivots button.active { color: var(--fg); font-weight: 650; border-bottom-color: var(--accent); }
+.pivots button.active, .ap-pivots span.active { color: var(--fg); font-weight: 650; border-bottom-color: var(--accent); }
 .ml-body { flex: 1; overflow-y: auto; }
 .ml-group { padding: 12px 16px 5px; font-size: .78em; font-weight: 650; text-transform: uppercase; letter-spacing: .07em; color: var(--muted); position: sticky; top: 0; background: color-mix(in srgb, var(--bg), transparent 6%); backdrop-filter: blur(6px); z-index: 1; }
 .ml-more { padding: 14px; text-align: center; }
@@ -287,20 +306,21 @@ button:focus-visible, [role="option"]:focus-visible, [role="treeitem"]:focus-vis
 .rp-head h2 { font-size: 1.45em; font-weight: 650; letter-spacing: -.01em; line-height: 1.25; margin: 0 0 8px; overflow-wrap: anywhere; }
 .rp-tools { display: flex; align-items: center; gap: 2px; flex-wrap: wrap; }
 .rp-tools .ai-btn { margin-left: auto; }
-.rp-body { flex: 1; overflow-y: auto; padding: 4px 24px 28px; }
+.rp-body { flex: 1; overflow-y: auto; overflow-x: auto; overflow-anchor: none; padding: 4px 24px 28px; }
 .summary { margin: 10px 24px; padding: 11px 15px; border-radius: var(--r-md); background: var(--accent-soft); border-left: 3px solid var(--accent); }
 .rp-body .summary { margin: 10px 0; }
 .rp-msg { border-bottom: 1px solid var(--border); }
 .rp-msg-head { display: flex; flex-wrap: wrap; gap: 12px; align-items: center; padding: 12px 0; cursor: pointer; }
 .rp-meta { flex: 1 1 140px; min-width: 0; }
 .rp-msg-actions { display: flex; gap: 0; }
+/* a wide mail makes its row wider than the pane; the header, actions, notices and reply row stay pane-wide and stuck to the left edge */
+.rp-msg > .rp-msg-head, .rp-msg-body > :not(.msg-frame) { position: sticky; left: 24px; width: min(100%, var(--rp-cw, 100%)); box-sizing: border-box; }
 .rp-date { flex: none; }
 .rp-msg-body { padding: 0 0 16px 52px; }
 @media (max-width: 1100px) { .rp-msg-body { padding-left: 0; } }
 .rp-reply-row { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 14px; }
 .notice { background: color-mix(in srgb, var(--warn), transparent 90%); border-left: 3px solid var(--warn); padding: 8px 12px; border-radius: var(--r-sm); font-size: .92em; margin-bottom: 10px; }
 .msg-frame { width: 100%; border: 0; min-height: 40px; background: transparent; display: block; }
-.bg-toggle { display: flex; justify-content: flex-end; margin-bottom: 4px; }
 .atts { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 10px; align-items: center; }
 .att-chip { display: inline-flex; align-items: center; gap: 7px; background: var(--bg2); border: 1px solid var(--border); border-radius: var(--r-sm); padding: 5px 10px; max-width: 300px; transition: background .12s, border-color .12s; }
 button.att-chip:hover { background: var(--bg3); border-color: color-mix(in srgb, var(--border), var(--fg) 20%); }
@@ -353,7 +373,7 @@ button.att-chip:hover { background: var(--bg3); border-color: color-mix(in srgb,
 .rich-body .tiptap p.is-editor-empty:first-child::before { content: attr(data-placeholder); color: var(--muted); float: left; height: 0; pointer-events: none; }
 
 /* ===== modals & dialogs ===== */
-.modal-back { position: fixed; inset: 0; background: rgba(10, 14, 22, .46); backdrop-filter: blur(3px); display: flex; align-items: center; justify-content: center; z-index: 70; animation: fade .14s; }
+.modal-back { position: fixed; inset: 0; background: rgba(10, 14, 22, .46); backdrop-filter: blur(3px); display: flex; align-items: center; justify-content: center; z-index: var(--z-modal); animation: fade .14s; }
 .modal-back.top { align-items: flex-start; padding-top: 12vh; }
 .modal { background: var(--bg); border: 1px solid var(--border); border-radius: var(--r-lg); box-shadow: var(--shadow); width: 520px; max-width: 94vw; max-height: 90vh; display: flex; flex-direction: column; animation: pop .16s var(--ease); }
 .modal.wide { width: 980px; height: 82vh; }
@@ -361,7 +381,7 @@ button.att-chip:hover { background: var(--bg3); border-color: color-mix(in srgb,
 .modal.cmd input { width: 100%; margin-bottom: 6px; }
 .modal-head { display: flex; justify-content: space-between; align-items: center; padding: 12px 18px; border-bottom: 1px solid var(--border); }
 .modal-body { flex: 1; overflow: auto; padding: 16px 18px; min-height: 0; }
-.ask-back { z-index: 100; }
+.ask-back { z-index: var(--z-ask); }
 .ask { background: var(--bg); border: 1px solid var(--border); border-radius: var(--r-lg); box-shadow: var(--shadow); width: 440px; max-width: 92vw; padding: 20px 22px; animation: pop .16s var(--ease); }
 .ask h3 { font-size: 1.15em; margin-bottom: 6px; }
 .ask p { margin: 0 0 16px; line-height: 1.5; }
@@ -392,6 +412,10 @@ button.att-chip:hover { background: var(--bg3); border-color: color-mix(in srgb,
 .set-ctl { display: flex; align-items: center; gap: 8px; max-width: 62%; }
 .set-ctl input:not([type]), .set-ctl input[type="text"] { width: 260px; }
 .ov { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; justify-content: flex-end; }
+/* a long option text must never push the control (or its override tag) out of the settings body */
+.set-ctl, .ov { min-width: 0; }
+.ov { max-width: 100%; }
+.set-ctl select, .ov select { min-width: 0; max-width: 100%; text-overflow: ellipsis; }
 .three { display: flex; gap: 6px; }
 .three select { max-width: 150px; }
 .ov-tag { font-size: .78em; color: var(--muted); background: var(--bg3); border: 0; border-radius: 999px; padding: 2px 9px; white-space: nowrap; }
@@ -408,10 +432,15 @@ button.ov-tag:hover { background: color-mix(in srgb, var(--accent), transparent 
 .form > label:not(.switch):not(:first-child) { margin-top: 16px; } /* field -> next label: 4 + 16 = 20px, so a label clearly belongs to the field below it */
 .form > label:not(.switch) + .row-inline { margin-top: 0; }
 .form label { font-size: .86em; color: var(--muted); }
-.list-row { display: flex; gap: 12px; align-items: center; padding: 10px 12px; border: 1px solid var(--border); border-radius: var(--r-md); margin-bottom: 6px; cursor: pointer; transition: background .12s, border-color .12s; }
+.advanced > summary { cursor: pointer; color: var(--muted); font-size: .86em; padding: 4px 0; min-height: 24px; }
+.advanced > .form { margin-top: 14px; }
+.list-row { display: flex; gap: 14px; align-items: center; padding: 10px 12px; border: 1px solid var(--border); border-radius: var(--r-md); margin-bottom: 6px; cursor: pointer; transition: background .12s, border-color .12s; }
 .list-row:hover { background: var(--bg2); border-color: color-mix(in srgb, var(--border), var(--fg) 15%); }
 .list-row.inherited { cursor: default; background: var(--bg2); }
-.list-row > span:first-child { flex: 1; min-width: 0; }
+.lr-name { flex: 1; min-width: 0; } /* name block: left, truncates; tags then actions follow on the right (gap 12px from .list-row) */
+.lr-title { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.lr-name > .small { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.lr-tags { display: inline-flex; align-items: center; gap: 6px; flex: none; }
 .switch { display: inline-flex; align-items: center; gap: 9px; cursor: pointer; }
 .switch input { position: absolute; opacity: 0; width: 0; height: 0; }
 .switch .track { width: 40px; height: 22px; border-radius: 11px; background: var(--bg3); border: 1px solid color-mix(in srgb, var(--border), var(--fg) 25%); display: inline-flex; align-items: center; padding: 0 2px; transition: background .14s, border-color .14s; }
@@ -462,7 +491,7 @@ button.ov-tag:hover { background: color-mix(in srgb, var(--accent), transparent 
 .original { background: var(--bg2); padding: 12px; border-radius: var(--r-md); font: 12px/1.45 "Cascadia Mono", Consolas, monospace; white-space: pre-wrap; word-break: break-all; margin-top: 8px; }
 
 /* ===== toasts ===== */
-.toasts { position: fixed; left: 50%; bottom: 22px; transform: translateX(-50%); display: flex; flex-direction: column-reverse; gap: 8px; z-index: 110; width: min(520px, 92vw); pointer-events: none; }
+.toasts { position: fixed; left: 50%; bottom: 22px; transform: translateX(-50%); display: flex; flex-direction: column-reverse; gap: 8px; z-index: var(--z-toast); width: min(520px, 92vw); pointer-events: none; }
 .toast { pointer-events: auto; position: relative; overflow: hidden; display: flex; align-items: center; gap: 10px; background: #26282e; color: #f4f5f7; padding: 11px 12px 11px 14px; border-radius: var(--r-md); box-shadow: var(--shadow); animation: pop .18s var(--ease); }
 .toast-ico { display: inline-flex; color: #8fb8ee; }
 .toast.success .toast-ico { color: #47cd89; }

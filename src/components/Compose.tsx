@@ -9,7 +9,7 @@ import { api, Att, Contact, Signature, Template } from "../api";
 import { eff } from "../prefs";
 import { ComposeInit, friendlyError, useStore } from "../store";
 import { fileToBase64, fmtSize, htmlToText, playSent, snoozePresets } from "../util";
-import { Dropdown, useOutside } from "./ui";
+import { AccountPicker, Dropdown, useOutside } from "./ui";
 
 const MAX_ATTACH_BYTES = 25 * 1024 * 1024;
 const EMAIL = /^[^\s@<>"]+@[^\s@<>"]+\.[^\s@<>"]+$/;
@@ -120,7 +120,7 @@ function RecipientField({ label, values, onChange, autoFocus, onTouch }: { label
 
 export function Compose({ init }: { init: ComposeInit }) {
   const { accounts, openCompose, showToast, prefs, refresh, confirm, setComposeDirty, setComposeSaver, aiConfigured, setDialog } = useStore();
-  const [accountId, setAccountId] = useState(init.accountId || prefs.defaultAccount || accounts[0]?.id || "");
+  const [accountId, setAccountId] = useState(init.accountId || (accounts.some((a) => a.id === prefs.defaultAccount) ? prefs.defaultAccount : "") || accounts[0]?.id || "");
   const isFresh = !init.replaces && !init.isReply;
   const autoCc = (id: string) => (isFresh ? eff(prefs, id, "autoCc").trim() : "");
   const autoBcc = (id: string) => (isFresh ? eff(prefs, id, "autoBcc").trim() : "");
@@ -464,9 +464,7 @@ export function Compose({ init }: { init: ComposeInit }) {
       <div className="cp-fields">
         <div className="cf-field">
           <label>From</label>
-          <select value={accountId} onChange={(e) => changeAccount(e.target.value)} aria-label="From">
-            {accounts.map((a) => <option key={a.id} value={a.id}>{a.displayName ? `${a.displayName} <${a.email}>` : a.email}</option>)}
-          </select>
+          <AccountPicker value={accountId} accounts={accounts} onChange={changeAccount} label="From" />
         </div>
         <RecipientField label="To" values={to} onChange={setTo} autoFocus={to.length === 0 && !init.replaces} onTouch={touch} />
         {showCc ? (

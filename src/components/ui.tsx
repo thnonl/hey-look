@@ -12,6 +12,8 @@ export interface MenuItem {
   divider?: boolean;
   disabled?: boolean;
   hint?: string;
+  /** colour dot shown before the label (accounts) */
+  dot?: string;
 }
 
 export function useOutside(ref: React.RefObject<HTMLElement | null>, onOut: () => void, active: boolean) {
@@ -50,7 +52,8 @@ export function MenuList({ items, onDone }: { items: MenuItem[]; onDone: () => v
             }}
           >
             <span className="menu-ico">{it.checked ? <Check size={14} /> : it.icon}</span>
-            <span className="menu-lbl">{it.label}</span>
+            {it.dot && <span className="dot" style={{ background: it.dot }} />}
+            <span className="menu-lbl ellipsis">{it.label}</span>
             {it.hint && <span className="menu-hint">{it.hint}</span>}
           </button>
         ),
@@ -67,6 +70,8 @@ export function Dropdown({
   title,
   align = "left",
   caret = true,
+  wrapClass = "",
+  matchWidth = false,
 }: {
   children: ReactNode;
   items: MenuItem[];
@@ -74,6 +79,10 @@ export function Dropdown({
   title?: string;
   align?: "left" | "right";
   caret?: boolean;
+  /** class of the wrapper (to size the control) */
+  wrapClass?: string;
+  /** the menu is at least as wide as the button */
+  matchWidth?: boolean;
 }) {
   const [open, setOpen] = useState(false);
   const [pos, setPos] = useState<{ top: number; left: number }>({ top: 0, left: 0 });
@@ -135,7 +144,7 @@ export function Dropdown({
     };
   }, [open]);
   return (
-    <div className="dd" ref={ref}>
+    <div className={`dd ${wrapClass}`} ref={ref}>
       <button
         ref={trigger}
         className={className}
@@ -164,7 +173,7 @@ export function Dropdown({
           <div
             className="dd-pop"
             ref={pop}
-            style={{ top: pos.top, left: pos.left }}
+            style={{ top: pos.top, left: pos.left, minWidth: matchWidth ? ref.current?.offsetWidth : undefined }}
             onKeyDown={(e) => {
               const list = rows();
               const i = list.indexOf(document.activeElement as HTMLElement);
@@ -184,6 +193,54 @@ export function Dropdown({
           document.body,
         )}
     </div>
+  );
+}
+
+export interface PickerAccount {
+  id: string;
+  email: string;
+  displayName?: string | null;
+  color?: string | null;
+}
+
+/**
+ * Account chooser built on the shared Dropdown: colour dot + name + address on every entry, same keyboard behaviour
+ * and look as the other menus. `none` adds a leading entry without account (value "").
+ */
+export function AccountPicker({
+  value, accounts, onChange, label, none, className = "",
+}: {
+  value: string;
+  accounts: PickerAccount[];
+  onChange: (id: string) => void;
+  label: string;
+  none?: string;
+  className?: string;
+}) {
+  const name = (a: PickerAccount) => a.displayName || a.email;
+  const cur = accounts.find((a) => a.id === value);
+  const body = (a?: PickerAccount) =>
+    a ? (
+      <>
+        <span className="dot" style={{ background: a.color || "var(--accent)" }} />
+        <span className="ap-name ellipsis">{name(a)}</span>
+        {a.displayName && <span className="ap-addr ellipsis">{a.email}</span>}
+      </>
+    ) : (
+      <span className="ap-name ellipsis">{none}</span>
+    );
+  if (accounts.length === 1 && !none) {
+    // a single mailbox: nothing to choose, show it as readable text
+    return <div className={`acct-pick static ${className}`} aria-label={`${label}: ${cur?.email ?? accounts[0].email}`}>{body(cur ?? accounts[0])}</div>;
+  }
+  const items: MenuItem[] = [
+    ...(none !== undefined ? [{ label: none, checked: value === "", onClick: () => onChange("") }] : []),
+    ...accounts.map((a) => ({ label: name(a), hint: a.displayName ? a.email : undefined, dot: a.color || "var(--accent)", checked: a.id === value, onClick: () => onChange(a.id) })),
+  ];
+  return (
+    <Dropdown className={`acct-pick ${className}`} wrapClass="acct-pick-wrap" matchWidth title={`${label}: ${cur ? cur.email : none ?? ""}`} items={items}>
+      {body(cur)}
+    </Dropdown>
   );
 }
 

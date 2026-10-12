@@ -1,11 +1,12 @@
 import { Moon, RefreshCw, Settings, Sun } from "lucide-react";
 import logo from "../assets/logo.png";
 import { useStore } from "../store";
+import { useAppDark } from "../useAppDark";
 import { SearchBox } from "./SearchBox";
 
 export function TopBar() {
-  const { sync, syncing, setDialog, prefs, setPrefs } = useStore();
-  const dark = prefs.theme === "dark" || (prefs.theme === "system" && window.matchMedia("(prefers-color-scheme: dark)").matches);
+  const { sync, syncing, setDialog, setPrefs } = useStore();
+  const dark = useAppDark();
 
   return (
     <header className="topbar">

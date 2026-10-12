@@ -6,7 +6,7 @@ import { ACCENT_PRESETS, DEFAULT_PREFS, eff, folderLabel, isOverridden, NOTIFY_A
 import { friendlyError, useStore } from "../store";
 import { AppearancePreview } from "./AppearancePreview";
 import { RichEditor } from "./RichEditor";
-import { Avatar, Modal, Switch } from "./ui";
+import { AccountPicker, Avatar, Modal, Switch } from "./ui";
 
 const Row = ({ label, hint, children, id }: { label: string; hint?: string; children: ReactNode; id?: string }) => {
   const ctl = useRef<HTMLDivElement>(null);
@@ -117,11 +117,14 @@ function GeneralTab() {
           {[3, 6, 10, 15, 30].map((n) => <option key={n} value={n}>{n} seconds</option>)}
         </select>
       </Row>
-      <Row label="Default account for new mail">
-        <select value={prefs.defaultAccount} onChange={(e) => set("defaultAccount", e.target.value)}>
-          <option value="">First account</option>
-          {accounts.map((a) => <option key={a.id} value={a.id}>{a.email}</option>)}
-        </select>
+      <Row label="Default account" hint="Used for new mail when no mailbox is selected. Inside a mailbox, new mail starts from that mailbox.">
+        <AccountPicker
+          value={accounts.some((a) => a.id === prefs.defaultAccount) ? prefs.defaultAccount : ""}
+          accounts={accounts}
+          onChange={(id) => set("defaultAccount", id)}
+          label="Default account"
+          none="None - use the first account"
+        />
       </Row>
       <Row label="Date format">
         <select value={prefs.dateFormat} onChange={(e) => set("dateFormat", e.target.value as Prefs["dateFormat"])}>
@@ -273,14 +276,12 @@ const OAUTH = {
     label: "Google",
     secretName: "google_client_secret" as const,
     idSetting: "google_client_id",
-    envVars: "GOOGLE_CLIENT_ID / GOOGLE_CLIENT_SECRET",
     idPlaceholder: "1234-abc.apps.googleusercontent.com",
   },
   microsoft: {
     label: "Microsoft",
     secretName: "microsoft_client_secret" as const,
     idSetting: "microsoft_client_id",
-    envVars: "MICROSOFT_CLIENT_ID",
     idPlaceholder: "00000000-0000-0000-0000-000000000000",
   },
 };
@@ -323,57 +324,30 @@ function OAuthBlock({ kind }: { kind: OAuthKind }) {
   };
   return (
     <div className="set-card">
-      <h4>Sign in with {cfg.label} (OAuth)</h4>
-      {kind === "google" ? (
-        <div className="muted small">
-          No password is stored. A browser window opens for the Google consent screen; the redirect stays on <code>127.0.0.1</code>.
-          If the OAuth consent screen is in "Testing" mode Google expires refresh tokens after 7 days.
-        </div>
-      ) : (
-        <div className="muted small">
-          For Outlook.com, Hotmail, Live and Microsoft 365 accounts. No password is stored. A browser window opens for the Microsoft
-          consent screen; the redirect stays on <code>localhost</code>. Microsoft 365 tenants may need an admin to allow IMAP / SMTP AUTH.
-        </div>
-      )}
+      <h4>Sign in with {cfg.label}</h4>
+      <div className="muted small">No password is stored. A browser window opens for you to sign in with {cfg.label}.</div>
       <div className="form">
-        {fromEnv ? (
-          <div className="notice">
-            Using the {cfg.label} OAuth client from the <code>{cfg.envVars}</code> environment variable(s)
-            (or the <code>.env</code> file this build was made with).
-          </div>
-        ) : (
-          <>
-            {kind === "google" ? (
-              <div className="muted small">
-                Create an OAuth client of type <b>Desktop app</b> in Google Cloud Console (Gmail API enabled) and paste it here, or set the
-                environment variables above.
-              </div>
-            ) : (
-              <div className="muted small">
-                In Microsoft Entra (portal.azure.com, App registrations) register an app that supports <b>personal and work accounts</b>,
-                add a <b>Mobile and desktop applications</b> platform with redirect URI <code>http://localhost</code>, and paste the
-                Application (client) ID here. API permissions: <code>IMAP.AccessAsUser.All</code>, <code>SMTP.Send</code>,{" "}
-                <code>offline_access</code> (Office 365 Exchange Online).
-              </div>
-            )}
-            <label>Client ID</label>
-            <input aria-label="Client ID" value={cid} onChange={(e) => setCid(e.target.value)} placeholder={cfg.idPlaceholder} />
-            {kind === "google" && (
-              <>
-                <label>Client secret</label>
-                <input aria-label="Client secret" type="password" value={sec} onChange={(e) => setSec(e.target.value)} placeholder={secSaved ? "Saved in Windows Credential Manager" : ""} />
-              </>
-            )}
-          </>
+        {!fromEnv && !cid && <div className="muted small" role="status">Sign-in with {cfg.label} is not available in this build.</div>}
+        {!fromEnv && (
+          <details className="advanced">
+            <summary>Advanced</summary>
+            <div className="form">
+              <label>Client ID</label>
+              <input aria-label="Client ID" value={cid} onChange={(e) => setCid(e.target.value)} placeholder={cfg.idPlaceholder} />
+              {kind === "google" && (
+                <>
+                  <label>Client secret</label>
+                  <input aria-label="Client secret" type="password" value={sec} onChange={(e) => setSec(e.target.value)} placeholder={secSaved ? "Saved in Windows Credential Manager" : ""} />
+                </>
+              )}
+            </div>
+          </details>
         )}
         {kind === "microsoft" && (
           <>
             <label>Tenant (optional)</label>
             <input aria-label="Tenant (optional)" value={tenant} onChange={(e) => setTenant(e.target.value)} placeholder="common" />
-            <div className="muted small">
-              Leave empty for personal and work accounts. Enter a tenant ID or domain only if your app registration is single-tenant
-              (then personal accounts cannot sign in).
-            </div>
+            <div className="muted small">Leave empty unless your organisation gave you a tenant ID or domain.</div>
           </>
         )}
         <label>Display name (optional)</label>
@@ -596,11 +570,13 @@ function ComposingPanel({ scope }: { scope: string | null }) {
 }
 
 function ScopedList<T extends { id: string; accountId?: string | null }>({
-  scope, items, title, render, onOpen, onDelete, empty,
+  scope, items, title, tags, render, onOpen, onDelete, empty,
 }: {
   scope: string | null;
   items: T[];
   title: (i: T) => ReactNode;
+  /** badges of the row (default, off...): right-aligned, just before the action */
+  tags?: (i: T) => ReactNode;
   render?: (i: T) => ReactNode;
   onOpen: (i: T) => void;
   onDelete: (i: T) => void;
@@ -613,7 +589,8 @@ function ScopedList<T extends { id: string; accountId?: string | null }>({
       {own.length === 0 && <div className="muted small pad">{empty}</div>}
       {own.map((i) => (
         <div key={i.id} className="list-row" onClick={() => onOpen(i)}>
-          <span>{title(i)}{render?.(i)}</span>
+          <div className="lr-name"><span className="lr-title">{title(i)}</span>{render?.(i)}</div>
+          {tags?.(i) && <span className="lr-tags">{tags(i)}</span>}
           <button className="icon-btn" title="Delete" aria-label="Delete" onClick={(e) => { e.stopPropagation(); onDelete(i); }}><Trash2 size={15} /></button>
         </div>
       ))}
@@ -622,8 +599,8 @@ function ScopedList<T extends { id: string; accountId?: string | null }>({
           <div className="muted small inh-title">Also applies here (from All accounts)</div>
           {inherited.map((i) => (
             <div key={i.id} className="list-row inherited">
-              <span>{title(i)}</span>
-              <span className="ov-tag">All accounts</span>
+              <div className="lr-name"><span className="lr-title">{title(i)}</span></div>
+              <span className="lr-tags"><span className="ov-tag">All accounts</span></span>
             </div>
           ))}
         </>
@@ -645,7 +622,8 @@ function SignaturesPanel({ scope }: { scope: string | null }) {
         scope={scope}
         items={list}
         empty={scope ? "No signature of its own. This account uses the ones from All accounts." : "No signatures yet."}
-        title={(s) => <>{s.name}{s.isDefault && <span className="ov-tag own"> default</span>}</>}
+        title={(s) => s.name}
+        tags={(s) => s.isDefault && <span className="ov-tag own">default</span>}
         onOpen={setCur}
         onDelete={async (s) => {
           if (await confirm({ title: `Delete the signature “${s.name}”?`, confirmLabel: "Delete", danger: true })) {
@@ -731,7 +709,8 @@ function FiltersPanel({ scope }: { scope: string | null }) {
         items={list}
         empty="No filters yet."
         title={(r) => r.name || `${r.field} ${r.op} “${r.value}”`}
-        render={(r) => <div className="muted small">{r.action}{r.arg ? ` → ${folderLabel(r.arg)}` : ""}{r.enabled ? "" : " · off"}</div>}
+        tags={(r) => !r.enabled && <span className="ov-tag">off</span>}
+        render={(r) => <div className="muted small">{r.action}{r.arg ? ` → ${folderLabel(r.arg)}` : ""}</div>}
         onOpen={setCur}
         onDelete={async (r) => {
           if (await confirm({ title: "Delete this filter?", confirmLabel: "Delete", danger: true })) {
@@ -1051,7 +1030,7 @@ function BlockedTab() {
       {list.length === 0 && <div className="muted">No blocked senders.</div>}
       {list.map((e) => (
         <div key={e} className="list-row">
-          <span>{e}</span>
+          <div className="lr-name"><span className="lr-title">{e}</span></div>
           <button className="btn small" onClick={async () => { await api.unblock(e); void load(); }}>Unblock</button>
         </div>
       ))}

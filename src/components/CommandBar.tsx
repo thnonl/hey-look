@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
+import { newMailAccount } from "../actions";
 import { folderLabel } from "../prefs";
 import { useStore } from "../store";
 
@@ -18,7 +19,7 @@ export function CommandBar() {
     const ids = s.selected ? [s.selected] : [];
     const cur = s.threads.find((t) => t.threadId === s.selected);
     const list: Cmd[] = [
-      { label: "New mail", run: () => s.openCompose({}) },
+      { label: "New mail", run: () => s.openCompose({ accountId: newMailAccount() }) },
       { label: "Sync now", run: () => void s.sync() },
       { label: "Open settings", run: () => s.setDialog({ type: "settings" }) },
       { label: "Sweep: clean up by sender", run: () => s.setDialog({ type: "cleaner" }) },
