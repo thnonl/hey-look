@@ -83,7 +83,7 @@ export function RecipientField({
   const pick = (c: Contact) => commit(c.name ? `${c.name.replace(/[<>,;]/g, "")} <${c.email}>` : c.email);
 
   const onInput = (v: string) => {
-    if (/[,;]$/.test(v)) return commit(v);
+    if (/[,;]\s*$/.test(v)) return commit(v);
     setText(v);
     setHi(-1);
     if (v.trim().length >= 2) void api.suggestContacts(v.trim()).then(setSugg).catch(() => setSugg([]));
@@ -931,7 +931,9 @@ export function Compose({ init }: { init: ComposeInit }) {
       return {
         cls: "",
         icon: <ShieldCheck size={15} />,
-        body: <>{signActive ? "Encrypted and signed" : "Encrypted"} for {nUnique} recipient{nUnique === 1 ? "" : "s"} and you. Subject is not encrypted.</>,
+        body: nUnique === 0
+          ? <>Will be {signActive ? "encrypted and signed" : "encrypted"} for the people you add, and you. Subject is not encrypted.</>
+          : <>{signActive ? "Encrypted and signed" : "Encrypted"} for {nUnique} recipient{nUnique === 1 ? "" : "s"} and you. Subject is not encrypted.</>,
         actions: <button className="link" onClick={() => setSecDetails((o) => !o)} aria-expanded={secDetails}>Details</button>,
       };
     }

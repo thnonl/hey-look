@@ -50,9 +50,10 @@ const RS_ICON: Record<string, ReactNode> = {
 const RS_CLASS: Record<string, string> = { accepted: "yes", declined: "no", tentative: "maybe", "needs-action": "wait", delegated: "wait" };
 const RS_TEXT: Record<string, string> = { accepted: "accepted", declined: "declined", tentative: "tentative", "needs-action": "no response yet", delegated: "delegated" };
 
-function Dot({ status }: { status: string }) {
+function Dot({ status, label, title }: { status: string; label?: string; title?: string }) {
+  const text = label ?? RS_TEXT[status] ?? status;
   return (
-    <span className={`rs ${RS_CLASS[status] ?? "wait"}`} role="img" aria-label={RS_TEXT[status] ?? status}>
+    <span className={`rs ${RS_CLASS[status] ?? "wait"}`} role="img" aria-label={text} title={title ?? text}>
       {RS_ICON[status]}
     </span>
   );
@@ -305,7 +306,10 @@ export function InviteCard({ m }: { m: MessageFull }) {
             <ul className="att-list">
               {inv.attendees.map((a) => (
                 <li key={a.email}>
-                  <Dot status={a.isYou && inv.you ? (inv.you.status === "organizer" ? "accepted" : inv.you.status) : a.status} />
+                  <Dot
+                    status={a.isYou && inv.you ? (inv.you.status === "organizer" ? "accepted" : inv.you.status) : a.status}
+                    label={a.role === "chair" ? `organizer, ${RS_TEXT[a.isYou && inv.you ? (inv.you.status === "organizer" ? "accepted" : inv.you.status) : a.status] ?? a.status}` : undefined}
+                  />
                   <span>{personName(a)}{a.isYou ? " (you)" : ""}</span>
                   {a.role === "chair" && <span className="muted small">organizer</span>}
                   {a.role === "optional" && <span className="muted small">optional</span>}
@@ -1229,6 +1233,9 @@ export function meetingToDraft(m: MeetingState, tz: string): { meeting: { start:
 
 export function MeetingStrip({ value, onChange, tz }: { value: MeetingState; onChange: (m: MeetingState) => void; tz: string }) {
   const set = (p: Partial<MeetingState>) => onChange({ ...value, ...p });
+  // shown next to the fields as soon as the times can't work, not only when Send is pressed
+  const bad = meetingToDraft(value, tz);
+  const problem = "error" in bad && bad.error.startsWith("The meeting must end") ? "End must be after start." : null;
   return (
     <div className="cp-event" role="group" aria-label="Meeting details">
       <label htmlFor="mt-sd">When</label>
@@ -1236,11 +1243,14 @@ export function MeetingStrip({ value, onChange, tz }: { value: MeetingState; onC
         <input id="mt-sd" type="date" aria-label="Start date" value={value.sd} onChange={(e) => set({ sd: e.target.value, ed: value.ed < e.target.value ? e.target.value : value.ed })} />
         {!value.allDay && <input type="time" aria-label="Start time" value={value.st} onChange={(e) => set({ st: e.target.value })} />}
         <span className="muted">–</span>
-        {!value.allDay && <input type="time" aria-label="End time" value={value.et} onChange={(e) => set({ et: e.target.value })} />}
-        <input type="date" aria-label="End date" value={value.ed} onChange={(e) => set({ ed: e.target.value })} />
+        {!value.allDay && <input type="time" aria-label="End time" aria-invalid={!!problem || undefined} value={value.et} onChange={(e) => set({ et: e.target.value })} />}
+        <input type="date" aria-label="End date" aria-invalid={!!problem || undefined} value={value.ed} onChange={(e) => set({ ed: e.target.value })} />
         <Switch checked={value.allDay} onChange={(v) => set({ allDay: v })} label="All day" />
         <span className="tz">{value.allDay ? "" : tz}</span>
       </div>
+      {problem && (
+        <div className="field-err" role="alert" style={{ gridColumn: "2" }}>{problem}</div>
+      )}
       <label htmlFor="mt-where">Where</label>
       <input id="mt-where" value={value.where} onChange={(e) => set({ where: e.target.value })} placeholder="Room, address or meeting link" />
     </div>
