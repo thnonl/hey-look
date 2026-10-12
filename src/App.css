@@ -133,6 +133,24 @@ button:focus-visible, [role="option"]:focus-visible, [role="treeitem"]:focus-vis
 .search-box input::placeholder { color: inherit; opacity: 1; }
 .search-box .icon-btn { color: inherit; }
 .top-actions { display: flex; align-items: center; gap: 2px; }
+
+/* Custom window frame (Windows): the top bar is the title bar, see winframe.rs / WindowControls.tsx */
+:root[data-frame="custom"] { --tb-h: 50px; }
+:root[data-frame="custom"] .topbar { padding-right: 0; user-select: none; -webkit-user-select: none; }
+:root[data-frame="custom"] .topbar input { user-select: text; -webkit-user-select: text; }
+:root[data-frame="custom"] .modal-back, :root[data-frame="custom"] .lightbox { top: var(--tb-h); } /* dialogs dim the app, not the title bar */
+.window-controls { display: flex; align-self: stretch; flex: none; margin-left: 6px; position: relative; }
+.window-controls.wc-hidden { display: none; }
+.wc { width: 46px; min-width: 46px; padding: 0; border: 0; border-radius: 0; background: transparent; color: var(--top-fg); display: grid; place-items: center; transition: background .08s; }
+.wc svg { width: 10px; height: 10px; fill: none; stroke: currentColor; stroke-width: 1; stroke-linecap: round; stroke-linejoin: round; }
+.window-controls[data-active="false"] .wc:not(.hot):not(.down):not(:focus-visible) svg { opacity: .55; }
+.wc:focus-visible { outline: 2px solid var(--top-fg); outline-offset: -5px; border-radius: 6px; }
+.window-controls:not(.native) .wc:hover, .wc.hot { background: var(--top-hover); }
+.window-controls:not(.native) .wc:active, .wc.down { background: color-mix(in srgb, var(--top-fg) 26%, transparent); }
+.window-controls:not(.native) .wc-close:hover, .wc-close.hot { background: #c42b1c; color: #fff; }
+.window-controls:not(.native) .wc-close:active, .wc-close.down { background: #b22a1b; color: #fff; }
+.wc-tip { position: absolute; top: calc(100% + 4px); left: 50%; transform: translateX(-50%); white-space: nowrap; background: var(--bg); color: var(--fg); border: 1px solid var(--border); border-radius: var(--r-sm); box-shadow: var(--shadow); padding: 3px 9px; font-size: .86em; pointer-events: none; animation: fade .12s; }
+.wc-tip-close { left: auto; right: 0; transform: none; }
 .topbar .icon-btn { color: var(--top-fg); padding: 7px; }
 .topbar .icon-btn:hover { background: var(--top-hover); color: var(--top-fg); }
 

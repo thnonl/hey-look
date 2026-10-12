@@ -1,5 +1,6 @@
 // Dev-only: lets the UI run in a plain browser (npm run dev) with fake data, no Tauri backend.
 import { mockIPC } from "@tauri-apps/api/mocks";
+import { setSimulatedWindow } from "./winframe";
 
 const now = Math.floor(Date.now() / 1000);
 const H = 3600;
@@ -289,7 +290,31 @@ export async function applyDemoHash() {
   }
 }
 
+/** `?frame=win` previews the Windows title bar: a pretend window (maximize/restore, focus, fullscreen) stands in for Tauri's. */
+function simulateWindowFrame(): boolean {
+  if (new URLSearchParams(window.location.search).get("frame") !== "win") return false;
+  const st = { maximized: false, fullscreen: false, focused: true };
+  const resized = new Set<() => void>();
+  const focus = new Set<(f: boolean) => void>();
+  const ping = () => resized.forEach((cb) => cb());
+  window.addEventListener("focus", () => (st.focused = true, focus.forEach((cb) => cb(true))));
+  window.addEventListener("blur", () => (st.focused = false, focus.forEach((cb) => cb(false))));
+  setSimulatedWindow({
+    minimize: async () => undefined,
+    toggleMaximize: async () => ((st.maximized = !st.maximized), ping()),
+    close: async () => undefined,
+    isMaximized: async () => st.maximized,
+    isFullscreen: async () => st.fullscreen,
+    setFullscreen: async (on) => ((st.fullscreen = on), ping()),
+    isFocused: async () => st.focused,
+    onResized: async (cb) => (resized.add(cb), () => void resized.delete(cb)),
+    onFocusChanged: async (cb) => (focus.add(cb), () => void focus.delete(cb)),
+  });
+  return true;
+}
+
 export function installMock() {
+  const frame = simulateWindowFrame();
   mockIPC((cmd, args) => {
     const a = (args ?? {}) as Record<string, unknown>;
     switch (cmd) {
@@ -535,6 +560,9 @@ export function installMock() {
         return null;
       }
       case "outbox_release": case "quit_now": return null;
+      case "frame_info": return { custom: frame, snapLayouts: false };
+      case "frame_caption_rect": return false; // no OS hit-testing in a browser: plain DOM buttons
+      case "frame_system_menu": return null;
       default: return null;
     }
   });

@@ -20,6 +20,7 @@ import { Welcome } from "./components/Welcome";
 import { useStore } from "./store";
 import { calTz, configureCalendar, addDays, addMonths, today as todayDay } from "./calendar";
 import { configureDates, fmtWhen } from "./util";
+import { frameAction, initFrame, useFrame } from "./winframe";
 
 const clamp = (n: number, lo: number, hi: number) => Math.max(lo, Math.min(hi, n));
 
@@ -62,6 +63,7 @@ function App() {
   const hasAccounts = useStore((s) => s.accounts.length > 0);
   const module = useStore((s) => s.module);
   const setPrefs = useStore((s) => s.setPrefs);
+  const customFrame = useFrame((f) => f.custom);
   const [live, setLive] = useState<{ f?: number; l?: number }>({});
 
   configureDates(prefs);
@@ -69,6 +71,7 @@ function App() {
 
   useEffect(() => {
     void useStore.getState().init();
+    initFrame();
   }, []);
 
   useEffect(() => {
@@ -160,6 +163,11 @@ function App() {
         document.querySelector<HTMLButtonElement>(".att-strip-head .link-btn")?.click();
         return;
       }
+      if (e.key === "F11") {
+        e.preventDefault();
+        frameAction.toggleFullscreen();
+        return;
+      }
       if (e.key === "F5") {
         e.preventDefault();
         void st.sync();
@@ -227,7 +235,7 @@ function App() {
     return () => window.removeEventListener("keydown", onKey);
   }, []);
 
-  if (!loaded) return <div className="app-loading">Hey Look!</div>;
+  if (!loaded) return <div className="app-loading" data-tauri-drag-region={customFrame ? "" : undefined}>Hey Look!</div>;
 
   const fw = live.f ?? prefs.folderW;
   const lw = live.l ?? prefs.listW;

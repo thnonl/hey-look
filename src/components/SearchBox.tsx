@@ -99,7 +99,7 @@ export function SearchBox() {
   );
 
   return (
-    <div className="search-wrap" ref={box}>
+    <div className="search-wrap" ref={box} data-tauri-drag-region="false">
       <div className="search-box" onClick={() => setOpen(true)}>
         <Search size={16} />
         <input

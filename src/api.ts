@@ -406,7 +406,16 @@ export interface Discovered {
 
 export type SecretName = "ai_key" | "google_client_secret" | "microsoft_client_secret";
 
+export interface FrameInfo {
+  custom: boolean;
+  snapLayouts: boolean;
+}
+
 export const api = {
+  frameInfo: () => invoke<FrameInfo>("frame_info"),
+  /** Reports the caption button group (CSS px); true = the OS hit-tests it (Snap Layouts, press/hover via events). */
+  frameCaptionRect: (r: { x: number; y: number; w: number; h: number }) => invoke<boolean>("frame_caption_rect", { ...r, dpr: window.devicePixelRatio || 1 }),
+  frameSystemMenu: (x: number, y: number) => invoke<void>("frame_system_menu", { x, y, dpr: window.devicePixelRatio || 1 }),
   listAccounts: () => invoke<Account[]>("list_accounts"),
   addAccount: (input: AccountInput, passwordValue: string, smtpPassword?: string) =>
     invoke<Account>("add_account", { input, passwordValue, smtpPassword: smtpPassword || null }),
