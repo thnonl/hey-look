@@ -466,15 +466,20 @@ fn pick_signer(sk: &SignedSecretKey) -> R<Signer<'_>> {
     Err("PGP_FAILED: This key has no signing capability.".into())
 }
 
-pub fn micalg(h: HashAlgorithm) -> String {
-    match h {
+/// The RFC 3156 `micalg` parameter for the hash a signature was made with. A hash without a registered name is an error:
+/// labelling it `pgp-sha256` would make the receiving client check the signature against the wrong digest.
+pub fn micalg(h: HashAlgorithm) -> R<String> {
+    Ok(match h {
+        HashAlgorithm::Md5 => "pgp-md5",
         HashAlgorithm::Sha1 => "pgp-sha1",
+        HashAlgorithm::Ripemd160 => "pgp-ripemd160",
+        HashAlgorithm::Sha256 => "pgp-sha256",
         HashAlgorithm::Sha224 => "pgp-sha224",
         HashAlgorithm::Sha384 => "pgp-sha384",
         HashAlgorithm::Sha512 => "pgp-sha512",
-        _ => "pgp-sha256",
+        other => return Err(format!("PGP_FAILED: This key signs with a hash ({other:?}) that cannot be used in a signed email.")),
     }
-    .to_string()
+    .to_string())
 }
 
 /// Detached ASCII-armored signature (text mode) over `data`. Returns (armored signature, micalg).
@@ -493,7 +498,7 @@ pub fn sign_detached(sk: &SignedSecretKey, passphrase: &str, data: &[u8]) -> R<(
         }
     };
     let armored = sig.to_armored_string(ArmorOptions::default()).map_err(err)?;
-    Ok((armored, micalg(hash)))
+    Ok((armored, micalg(hash)?))
 }
 
 #[derive(Serialize, Clone, Debug, PartialEq)]
@@ -853,6 +858,14 @@ mod tests {
         let d = decrypt(armored.as_bytes(), &[&open], &[pk]).unwrap();
         assert_eq!(d.data, b"rsa works");
         assert_eq!(d.signatures[0].status, "valid");
+    }
+
+    #[test]
+    fn micalg_names_follow_rfc_3156_and_unknown_hashes_are_refused() {
+        assert_eq!(micalg(HashAlgorithm::Sha256).unwrap(), "pgp-sha256");
+        assert_eq!(micalg(HashAlgorithm::Sha512).unwrap(), "pgp-sha512");
+        assert_eq!(micalg(HashAlgorithm::Sha1).unwrap(), "pgp-sha1");
+        assert!(micalg(HashAlgorithm::Sha3_256).is_err());
     }
 
     #[test]
