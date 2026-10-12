@@ -117,6 +117,42 @@ export function lightText(fg: RGB, bg: RGB, min: number): RGB {
   return contrast(WHITE, bg) >= contrast([0, 0, 0], bg) ? WHITE : [0, 0, 0];
 }
 
+/**
+ * A neutral light colour (white, off-white, light grey, with at most a trace of tint): the "paper" of a mail. Its dark
+ * counterpart is not a lighter shade of the canvas but the canvas itself, so a wrapper, card, heading or paragraph
+ * block painted white leaves no visible box behind it. Pale tints with real chroma (a light-blue card, cream, pastel
+ * highlights) and mid greys are not paper: they keep their own dark tint.
+ */
+export function isPaper(c: RGB): boolean {
+  const o = toOklch(c);
+  return o.L >= 0.88 && o.C <= 0.011;
+}
+
+/** Elements that keep a tinted dark counterpart of a light grey background: controls and inline marks, which have to stand out from the page. */
+const TINTED = new Set(["a", "button", "input", "select", "textarea", "option", "summary", "code", "kbd", "samp", "mark", "img", "hr", "meter", "progress", "svg"]);
+
+let probe: CanvasRenderingContext2D | null | undefined;
+/** A colour the computed style left in a syntax parseColor cannot read (color(), oklch(), lab()...), resolved to sRGB through a canvas. */
+function resolveColor(s: string): RGBA | null {
+  try {
+    if (probe === undefined) {
+      const c = document.createElement("canvas");
+      c.width = c.height = 1;
+      probe = c.getContext("2d", { willReadFrequently: true });
+    }
+    if (!probe) return null;
+    probe.clearRect(0, 0, 1, 1);
+    probe.fillStyle = "#010203";
+    probe.fillStyle = s; // an unreadable value leaves the sentinel behind
+    probe.fillRect(0, 0, 1, 1);
+    const d = probe.getImageData(0, 0, 1, 1).data;
+    if (d[3] === 255 && d[0] === 1 && d[1] === 2 && d[2] === 3) return null;
+    return [d[0], d[1], d[2], d[3] / 255];
+  } catch {
+    return null;
+  }
+}
+
 /** Composites a colour with alpha over an opaque backdrop. */
 const over = ([r, g, b, a]: RGBA, bg: RGB): RGB => [r * a + bg[0] * (1 - a), g * a + bg[1] * (1 - a), b * a + bg[2] * (1 - a)];
 const css = (c: RGB) => `rgb(${c.map(Math.round).join(",")})`;
@@ -186,9 +222,12 @@ export function buildDarkSheet(doc: Document, base: RGB): string {
     const decl: string[] = [];
     let now = above(effNew, r.el.parentElement, base);
     let was = above(effOld, r.el.parentElement, WHITE);
-    const bg = parseColor(r.bg);
+    const bg = parseColor(r.bg) ?? (NEW_COLOR_FN.test(r.bg) ? resolveColor(r.bg) : null);
+    const tinted = TINTED.has(r.el.localName);
+    // the dark counterpart of a background: paper (white / light grey) is the app surface itself, anything else darkBg
+    const dark = (c: RGB): RGB => (!tinted && isPaper(c) ? base : darkBg(c));
     if (bg && bg[3] > 0) {
-      const d = darkBg([bg[0], bg[1], bg[2]]);
+      const d = dark([bg[0], bg[1], bg[2]]);
       decl.push(`background-color:${cssA(d, bg[3])}`);
       now = over([...d, bg[3]], now);
       was = over(bg, was);
@@ -196,14 +235,14 @@ export function buildDarkSheet(doc: Document, base: RGB): string {
     if (/gradient\(/.test(r.img)) {
       if (NEW_COLOR_FN.test(r.img)) {
         // colour syntax we cannot read: a flat dark surface instead of the gradient
-        now = darkBg(was);
+        now = dark(was);
         decl.push(`background-image:none`, `background-color:${css(now)}`);
       } else {
         let worst = now;
         const img = r.img.replace(/rgba?\([^)]*\)/g, (c) => {
           const p = parseColor(c);
           if (!p) return c;
-          const d = darkBg([p[0], p[1], p[2]]);
+          const d = dark([p[0], p[1], p[2]]);
           const stop = over([...d, p[3]], now);
           if (lum(stop) > lum(worst) || worst === now) worst = stop;
           return cssA(d, p[3]);
