@@ -1,17 +1,19 @@
 import Image from "@tiptap/extension-image";
 import Placeholder from "@tiptap/extension-placeholder";
 import { NodeSelection } from "@tiptap/pm/state";
-import { EditorContent, useEditor, type Editor } from "@tiptap/react";
+import { EditorContent, Node as TipNode, useEditor, type Editor } from "@tiptap/react";
 import StarterKit from "@tiptap/starter-kit";
 import {
   BadgeCheck, Bold, CalendarClock, CalendarPlus, ChevronDown, FileText, ImagePlus, Info, Italic, Link2, List, ListOrdered, Lock, LockOpen, Paperclip, Save, Send, ShieldCheck, Sparkles, Trash2,
   TriangleAlert, Underline as UIcon, X,
 } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import { api, Att, Contact, Draft, DraftSecurity, errorCode, InlineImage, MessageFull, OwnKeyStatus, RecipientStatus, Signature, Template } from "../api";
 import { eff } from "../prefs";
 import { ComposeInit, friendlyError, useStore } from "../store";
-import { dataUriBytes, fileToBase64, fmtIn, fmtSize, fmtWhen, htmlToText, imageSize, PICTURE_TYPES, playSent, resizeImage, shortKey, userName } from "../util";
+import { extractSignature, fillSignature, normalizeHtml, SIG_MARK } from "../signature";
+import { dataUriBytes, fileToBase64, fmtIn, fmtSize, fmtWhen, htmlToText, imageSize, PICTURE_TYPES, playSent, resizeImage, sanitizeHtml, shortKey, userName } from "../util";
 import { calTz } from "../calendar";
 import { defaultMeeting, MeetingState, MeetingStrip, meetingToDraft } from "./Calendar";
 import { askUnlock } from "./Pgp";
@@ -44,6 +46,31 @@ const PictureNode = Image.extend({
     };
   },
 }).configure({ inline: false, allowBase64: true });
+
+/**
+ * The signature region of a message: an atom the user cannot type into or break. Its header holds the signature picker (React
+ * portal into the element reported through `mount`), its body is filled from the chosen signature without touching the document,
+ * so changing the signature or the From account never alters the typed text. `buildDraft` turns it into the signature HTML.
+ */
+const SignatureBlock = (cb: { mount: (el: HTMLElement) => void; unmount: (el: HTMLElement) => void }) =>
+  TipNode.create({
+    name: "signatureBlock",
+    group: "block",
+    atom: true,
+    selectable: false,
+    draggable: false,
+    parseHTML: () => [{ tag: "div[data-sig-block]" }],
+    renderHTML: () => ["div", { "data-sig-block": "" }],
+    addNodeView: () => () => {
+      const dom = document.createElement("div");
+      dom.className = "sig-block none";
+      dom.contentEditable = "false";
+      dom.innerHTML = '<div class="sig-head"></div><div class="sig-body"></div>';
+      const head = dom.querySelector<HTMLElement>(".sig-head")!;
+      queueMicrotask(() => cb.mount(head));
+      return { dom, ignoreMutation: () => true, stopEvent: () => true, destroy: () => queueMicrotask(() => cb.unmount(head)) };
+    },
+  });
 
 /** Recipient input with chips, address validation and keyboard-friendly suggestions. */
 export function RecipientField({
@@ -257,7 +284,17 @@ export function Compose({ init }: { init: ComposeInit }) {
   const [atts, setAtts] = useState<Att[]>(init.attachments ?? []);
   const [templates, setTemplates] = useState<Template[]>([]);
   const [sigs, setSigs] = useState<Signature[]>([]);
-  const [sigId, setSigId] = useState<string>("");
+  // the message of an opened draft carries its signature as stored text: it is shown as the signature region again
+  const startDoc = useRef<{ html: string; sig: string | null } | null>(null);
+  if (editing && !startDoc.current) startDoc.current = extractSignature(init.bodyHtml ?? "");
+  const draftSig = useMemo<Signature | null>(
+    () => (startDoc.current?.sig ? { id: "draft-signature", name: "Signature saved in this draft", html: startDoc.current.sig, isDefault: false, accountId: null } : null),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [],
+  );
+  const [sigId, setSigId] = useState<string>(editing ? (draftSig ? "draft-signature" : "none") : "");
+  const sigManual = useRef(false); // the user picked a signature: it stays until it stops being valid for the From account
+  const [sigHeads, setSigHeads] = useState<HTMLElement[]>([]);
   const [aiOpen, setAiOpen] = useState(false);
   const [aiPrompt, setAiPrompt] = useState("");
   const [aiBusy, setAiBusy] = useState(false);
@@ -380,7 +417,12 @@ export function Compose({ init }: { init: ComposeInit }) {
   };
 
   const editor = useEditor({
-    extensions: [StarterKit, Placeholder.configure({ placeholder: "Write your message…" }), PictureNode],
+    extensions: [
+      StarterKit,
+      Placeholder.configure({ placeholder: "Write your message…", showOnlyCurrent: false }),
+      PictureNode,
+      SignatureBlock({ mount: (el) => setSigHeads((h) => [...h, el]), unmount: (el) => setSigHeads((h) => h.filter((x) => x !== el)) }),
+    ],
     // the accessible name belongs on the contenteditable node ProseMirror renders
     editorProps: {
       attributes: { "aria-label": "Message body" },
@@ -397,9 +439,14 @@ export function Compose({ init }: { init: ComposeInit }) {
         return true;
       },
     },
-    content: init.bodyHtml ? (editing ? init.bodyHtml : `<p></p>${init.bodyHtml}`) : "<p></p>",
+    // a new message: typed text, then the signature region, then (reply / forward) the quoted message
+    content: editing ? startDoc.current!.html : `<p></p>${SIG_MARK}${init.bodyHtml ?? "<p></p>"}`,
     autofocus: (init.to?.length ?? 0) > 0 ? "start" : false,
     onUpdate: ({ editor: ed }) => {
+      // the signature region cannot be deleted by accident (Backspace, select all): it comes back at the end
+      let has = false;
+      ed.state.doc.descendants((n) => { if (n.type.name === "signatureBlock") has = true; return !has; });
+      if (!has) ed.commands.insertContentAt(ed.state.doc.content.size, [{ type: "signatureBlock" }, { type: "paragraph" }]);
       touch();
       countPictures(ed);
       syncPicSel(ed);
@@ -425,6 +472,13 @@ export function Compose({ init }: { init: ComposeInit }) {
   // only what applies to the sending account: its own items plus those shared by all accounts
   const mySigs = sigs.filter((s) => !s.accountId || s.accountId === accountId);
   const myTemplates = templates.filter((t) => !t.accountId || t.accountId === accountId);
+  // the signature stored in an opened draft is offered too (as the saved one, unless it is one of the user's signatures)
+  const sigChoices = useMemo(
+    () => (draftSig && !mySigs.some((s) => normalizeHtml(s.html) === normalizeHtml(draftSig.html)) ? [...mySigs, draftSig] : mySigs),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [sigs, accountId, draftSig],
+  );
+  const chosenSig = sigChoices.find((x) => x.id === sigId) ?? null;
 
   /** Explicit choice for the account (or All accounts), else the default of the narrowest scope that has one. */
   const defaultSig = useCallback(() => {
@@ -439,12 +493,33 @@ export function Compose({ init }: { init: ComposeInit }) {
   }, [prefs, accountId, mySigs]);
 
   useEffect(() => {
-    if (!loaded || editing) return;
-    if (sigId && (sigId === "none" || mySigs.some((s) => s.id === sigId))) return; // keep a valid manual choice
-    if (init.isReply && !eff(prefs, accountId, "signatureOnReply")) return setSigId("none");
-    setSigId(defaultSig());
+    if (!loaded) return;
+    if (editing) {
+      // an opened draft: the stored signature maps to the user's signature with the same content, else it stays as saved
+      if (draftSig && sigId === "draft-signature") {
+        const same = mySigs.find((s) => normalizeHtml(s.html) === normalizeHtml(draftSig.html));
+        if (same) setSigId(same.id);
+      } else if (sigId !== "none" && !sigChoices.some((s) => s.id === sigId)) setSigId(defaultSig() || "none"); // From changed to an account the signature does not belong to
+      return;
+    }
+    // the From account changed (or the signatures arrived): a picked signature stays while it applies to that account, anything else follows the account's default
+    if (sigManual.current && sigId && (sigId === "none" || mySigs.some((s) => s.id === sigId))) return;
+    sigManual.current = false;
+    setSigId(init.isReply && !eff(prefs, accountId, "signatureOnReply") ? "none" : defaultSig());
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [loaded, accountId]);
+
+  // the region shows the chosen signature right away; the document (what the user typed) is not touched
+  useEffect(() => {
+    const root = editor?.view.dom;
+    if (!root) return;
+    const html = chosenSig ? sanitizeHtml(chosenSig.html, true).html : "";
+    root.querySelectorAll<HTMLElement>(".sig-block").forEach((blk) => {
+      const body = blk.querySelector<HTMLElement>(".sig-body");
+      if (body && body.innerHTML !== html) body.innerHTML = html;
+      blk.classList.toggle("none", !html);
+    });
+  }, [editor, chosenSig, sigHeads]);
 
   // switching the From account re-applies that account's Auto Cc/Bcc until the user edits those fields
   const changeAccount = (id: string) => {
@@ -457,18 +532,13 @@ export function Compose({ init }: { init: ComposeInit }) {
     touch();
   };
 
-  const sigHtml = () => {
-    const s = mySigs.find((x) => x.id === sigId);
-    return s ? `<br><div class="sig">-- <br>${s.html}</div>` : "";
-  };
-
   /**
    * The draft to store or send. Pictures in the body (data: URIs) become cid: references with their own part,
    * so they travel as related parts and are not listed as attachments.
    */
   const buildDraft = (): Draft => {
-    const raw = (editor?.getHTML() ?? "") + sigHtml();
-    const doc = new DOMParser().parseFromString(raw, "text/html");
+    const doc = new DOMParser().parseFromString(editor?.getHTML() ?? "", "text/html");
+    fillSignature(doc, chosenSig?.html ?? null);
     const inline: InlineImage[] = [];
     doc.querySelectorAll("img").forEach((img) => {
       const src = img.getAttribute("src") ?? "";
@@ -1126,11 +1196,6 @@ export function Compose({ init }: { init: ComposeInit }) {
           <Sparkles size={15} /><span>Write with AI</span>
         </button>
         <div className="grow" />
-        <select className="sig-select" value={sigId} onChange={(e) => (setSigId(e.target.value), touch())} title="Signature" aria-label="Signature">
-          <option value="none">No signature</option>
-          {mySigs.map((s) => <option key={s.id} value={s.id}>{s.name}</option>)}
-          {!sigId && <option value="">Automatic</option>}
-        </select>
       </div>
 
       {init.outboxId && (
@@ -1264,7 +1329,24 @@ export function Compose({ init }: { init: ComposeInit }) {
             )}
           </>
         )}
-        {sigId && sigId !== "none" && <div className="sig-note muted small">Signature “{mySigs.find((s) => s.id === sigId)?.name}” will be added when you send.</div>}
+        {sigHeads.map((el) =>
+          createPortal(
+            <label className="sig-pick">
+              <span>Signature</span>
+              <select
+                className="sig-select"
+                value={sigChoices.some((x) => x.id === sigId) || sigId === "none" ? sigId : ""}
+                onChange={(e) => (sigManual.current = true, setSigId(e.target.value), touch())}
+                aria-label="Signature"
+              >
+                <option value="none">No signature</option>
+                {sigChoices.map((x) => <option key={x.id} value={x.id}>{x.name}{x.accountId ? "" : x.id !== "draft-signature" && accounts.length > 1 ? " (all accounts)" : ""}</option>)}
+                {!sigId && <option value="">Automatic</option>}
+              </select>
+            </label>,
+            el,
+          ),
+        )}
       </div>
 
       {pics.count > 0 && (

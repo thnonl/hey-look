@@ -1,6 +1,7 @@
 // Dev-only: lets the UI run in a plain browser (npm run dev) with fake data, no Tauri backend.
 import { mockIPC } from "@tauri-apps/api/mocks";
 import { darkMessages, darkThreadRows } from "./devMockDark";
+import { extractSignature, fillSignatureHtml, normalizeHtml, SIG_MARK } from "./signature";
 import { ACCOUNT_PALETTE, accountColor, pickAccountColor } from "./prefs";
 import { setSimulatedWindow } from "./winframe";
 
@@ -324,7 +325,8 @@ export async function applyDemoHash() {
       void st().accountAdded(acc);
     }
     else if (k === "event") st().setDialog({ type: "event", eventId: val === "new" ? undefined : val });
-    else if (k === "compose") await st().openCompose({ accountId: "a1", to: ["alice@fabrikam.com"], cc: ["bob@northwind.io"], subject: "Q4 contract call", meeting: { on: true } });
+    else if (k === "compose") await st().openCompose(val === "draft" || val === "draftcustom" ? { accountId: "a1", to: ["alice@fabrikam.com"], subject: "Draft with signature", replaces: "d1", bodyHtml: `<p>Saved draft text</p><br><div class="sig">-- <br>${val === "draft" ? "Nam<br>Hey Look!" : "Old signature<br>no longer in the list"}</div>` } : val === "new" ? { accountId: "a1", to: ["alice@fabrikam.com"], subject: "Hello" } : { accountId: "a1", to: ["alice@fabrikam.com"], cc: ["bob@northwind.io"], subject: "Q4 contract call", meeting: { on: true } });
+    else if (k === "type") { await wait(400); const ed = document.querySelector<HTMLElement>(".editor .tiptap"); ed?.focus(); document.execCommand("insertText", false, val); } // types into the open Compose body
     else if (k === "chip") {
       await wait(600);
       const el = [...document.querySelectorAll<HTMLElement>(".ev-chip, .wk-ev, .ag-row")].find((x) => x.textContent?.includes(val));
@@ -406,6 +408,23 @@ export function installMock() {
     ok(accountColor({ color: "red" }, "#0f6cbd").startsWith("#"), "invalid stored value -> primary color");
     return out;
   };
+  // `__sigCheck()`: dev self-check of the signature region <-> stored HTML conversion
+  (window as unknown as { __sigCheck: () => string[] }).__sigCheck = () => {
+    const out: string[] = [], ok = (c: boolean, m: string) => out.push((c ? "ok   " : "FAIL ") + m);
+    const sig = "Nam<br><b>Hey Look!</b>";
+    const stored = fillSignatureHtml(`<p>Hi</p>${SIG_MARK}<p></p>`, sig);
+    ok(stored === `<p>Hi</p><br><div class="sig">-- <br>${sig}</div>`, "marker -> stored signature, trailing empty paragraph dropped");
+    const back = extractSignature(stored);
+    ok(back.sig === sig, "stored signature -> its html");
+    ok(normalizeHtml(back.html) === normalizeHtml(`<p>Hi</p>${SIG_MARK}<p></p>`), "stored signature -> marker again (no <br> left behind)");
+    ok(fillSignatureHtml(back.html, sig) === stored, "round trip is stable");
+    ok(fillSignatureHtml(`<p>Hi</p>${SIG_MARK}<p></p>`, null) === "<p>Hi</p>", "no signature: nothing added");
+    const reply = fillSignatureHtml(`<p>Thanks</p>${SIG_MARK}<br><br><div>On Mon wrote:</div><blockquote>q</blockquote>`, sig);
+    ok(reply.indexOf('class="sig"') > reply.indexOf("Thanks") && reply.indexOf('class="sig"') < reply.indexOf("<blockquote"), "reply: signature sits between the answer and the quote");
+    const none = extractSignature("<p>Old draft</p>");
+    ok(none.sig === null && none.html.includes(SIG_MARK), "draft without signature gets an empty region");
+    return out;
+  };
   mockIPC((cmd, args) => {
     const a = (args ?? {}) as Record<string, unknown>;
     switch (cmd) {
@@ -464,7 +483,7 @@ export function installMock() {
         return { draft: mockDraftOf(o), sendAt: o.sendAt, status: o.status === "pending" || o.status === "overdue" ? "held" : o.status };
       }
       case "list_templates": return [{ id: "tp1", name: "Thanks", subject: "Thanks!", body: "<p>Thanks for your message.</p>" }, { id: "tp2", name: "Quarterly customer success follow-up with a deliberately very long template name", subject: "Follow-up", body: "<p>Hello</p>" }];
-      case "list_signatures": return [{ id: "s1", name: "Work", html: "Nam<br>Hey Look!", isDefault: true }, { id: "s2", name: "Personal signature with a very long name that has to be cut with an ellipsis before it reaches the tag", html: "Nam", isDefault: false }];
+      case "list_signatures": return [{ id: "s1", name: "Work", html: "Nam<br>Hey Look!", isDefault: true }, { id: "s2", name: "Personal signature with a very long name that has to be cut with an ellipsis before it reaches the tag", html: "Nam", isDefault: false }, { id: "s3", accountId: "a2", name: "Gmail", html: "Nam (via Gmail)<br><i>nam@gmail.com</i>", isDefault: true }];
       case "list_senders": return [{ email: "news@ph.com", name: "Product Hunt", count: 42, unread: 12, canUnsubscribe: true, lastDate: now - H }];
       case "list_rules": return [{ id: "r1", accountId: null, name: "Move newsletters", field: "from", op: "contains", value: "newsletter@example.com", action: "archive", arg: null, enabled: true }, { id: "r2", accountId: null, name: "", field: "subject", op: "contains", value: "a very long rule text that should be truncated in the list row", action: "trash", arg: null, enabled: false }];
       case "list_blocked": return [];
@@ -474,7 +493,7 @@ export function installMock() {
         if (x) { x.displayName = a.displayName as string; (x as { color: string | null }).color = (a.color as string | null) ?? null; }
         return null;
       }
-      case "save_draft": return null;
+      case "save_draft": (window as unknown as { __lastDraft: unknown }).__lastDraft = a.draft; return null;
       case "queue_action": return "token-" + Math.random().toString(36).slice(2);
       case "cancel_action": return true;
       case "load_older": return 0;
