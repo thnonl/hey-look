@@ -228,12 +228,12 @@ pub fn parse(uid: u32, raw: &[u8], seen: bool, flagged: bool, fallback_date: i64
         let size = part.contents().len();
         let cid = part_cid(part);
         let referenced = match (&cid, &html) {
-            (Some(c), Some(h)) => h.contains(&format!("cid:{c}")),
+            (Some(c), Some(h)) => !cid_ref_spans(h, c).is_empty(),
             _ => false,
         };
         if let (true, Some(c), Some(h)) = (referenced && mime.starts_with("image/") && size <= INLINE_SYNC_MAX, &cid, html.as_mut()) {
             let uri = format!("data:{mime};base64,{}", base64::engine::general_purpose::STANDARD.encode(part.contents()));
-            *h = h.replace(&format!("cid:{c}"), &uri);
+            *h = replace_cid_refs(h, c, &uri);
         }
         let name = part.attachment_name().map(|s| s.to_string()).unwrap_or_else(|| default_name(i, &mime));
         attachments.push(AttMeta { index: i, name, mime, size, inline: cid.is_some(), cid, referenced });
@@ -490,9 +490,49 @@ pub fn inline_part(raw: &[u8], cid: &str) -> R<(String, Vec<u8>, String)> {
     Err(format!("picture missing from this message (cid:{cid})"))
 }
 
+/// Where `cid:<cid>` is used in the html as a whole reference (so `cid:logo@x` does not match inside `cid:logo@xy`).
+fn cid_ref_spans(html: &str, cid: &str) -> Vec<(usize, usize)> {
+    let needle = format!("cid:{cid}");
+    let lower_html = html.to_ascii_lowercase();
+    let lower_needle = needle.to_ascii_lowercase();
+    lower_html
+        .match_indices(&lower_needle)
+        .filter(|(i, _)| {
+            // the reference ends at a quote, bracket, space or the end of the text (not inside a longer id)
+            let after = lower_html[i + lower_needle.len()..].chars().next();
+            after.map(|c| c.is_whitespace() || matches!(c, '"' | '\'' | ')' | '>' | '<' | ';' | ',' | '&')).unwrap_or(true)
+        })
+        .map(|(i, _)| (i, i + needle.len()))
+        .collect()
+}
+
+fn replace_cid_refs(html: &str, cid: &str, uri: &str) -> String {
+    let mut out = String::with_capacity(html.len());
+    let mut last = 0;
+    for (a, b) in cid_ref_spans(html, cid) {
+        out.push_str(&html[last..a]);
+        out.push_str(uri);
+        last = b;
+    }
+    out.push_str(&html[last..]);
+    out
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_cid_that_is_a_prefix_of_another_does_not_get_the_wrong_picture() {
+        // F14: replacing `cid:logo@x` must leave `cid:logo@xy` alone
+        let html = r#"<img src="cid:logo@x"><img src='cid:logo@xy'><div style="background:url(cid:logo@x)"></div><img src="CID:logo@x">"#;
+        let out = replace_cid_refs(html, "logo@x", "data:1");
+        assert_eq!(out, r#"<img src="data:1"><img src='cid:logo@xy'><div style="background:url(data:1)"></div><img src="data:1">"#);
+        assert!(cid_ref_spans("<img src=\"cid:logo@xy\">", "logo@x").is_empty());
+        assert_eq!(cid_ref_spans("cid:abc", "abc").len(), 1, "reference at the very end of the text");
+        // multi-byte text around the reference
+        assert_eq!(replace_cid_refs("Đỗ <img src=\"cid:a\"> é", "a", "U"), "Đỗ <img src=\"U\"> é");
+    }
 
     fn related_msg(cid: &str, png: &[u8], extra_part: &str, html_ref: bool) -> Vec<u8> {
         let b64 = base64::engine::general_purpose::STANDARD.encode(png);
