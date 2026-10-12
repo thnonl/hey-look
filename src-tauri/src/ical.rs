@@ -595,12 +595,12 @@ fn build_event(props: &[Line], ctx: &Ctx) -> Option<IcsEvent> {
             "ORGANIZER" => ev.organizer = person(p),
             "ATTENDEE" => {
                 if let Some(a) = attendee(p) {
-                    if !ev.attendees.iter().any(|x| x.email == a.email) {
+                    if ev.attendees.len() < MAX_ATTENDEES && !ev.attendees.iter().any(|x| x.email == a.email) {
                         ev.attendees.push(a);
                     }
                 }
             }
-            "RRULE" => ev.rrule = Some(p.value.trim().to_string()).filter(|s| !s.is_empty()),
+            "RRULE" => ev.rrule = Some(p.value.trim().to_string()).filter(|s| !s.is_empty() && s.len() <= MAX_RRULE_LEN),
             "DTSTART" => dtstart = parse_dt_value(&p.value, Some(p), ctx),
             "DTEND" | "DUE" => dtend = parse_dt_value(&p.value, Some(p), ctx),
             "DURATION" => duration = parse_duration(&p.value),
@@ -608,8 +608,13 @@ fn build_event(props: &[Line], ctx: &Ctx) -> Option<IcsEvent> {
             "RECURRENCE-ID" => ev.recurrence_id = parse_dt_value(&p.value, Some(p), ctx).map(|d| d.ts),
             "EXDATE" => {
                 for part in p.value.split(',') {
+                    if ev.exdates.len() >= MAX_EXDATES {
+                        break;
+                    }
                     if let Some(d) = parse_dt_value(part, Some(p), ctx) {
-                        ev.exdates.push(d.ts);
+                        if !ev.exdates.contains(&d.ts) {
+                            ev.exdates.push(d.ts);
+                        }
                     }
                 }
             }
@@ -715,7 +720,38 @@ fn wd(s: &str) -> Option<Weekday> {
     })
 }
 
+/// Longest list accepted for BYDAY / BYMONTHDAY / BYMONTH after removing duplicates (a month has at most 62 distinct
+/// BYMONTHDAY values, so real rules are far below this). Stops a hostile 100,000-entry list from multiplying the work.
+const MAX_RULE_LIST: usize = 64;
+/// Longest RRULE text kept from an invite; a longer one is dropped (the event is then shown once, not repeated).
+pub const MAX_RRULE_LEN: usize = 1000;
+/// Most EXDATE values kept per event.
+pub const MAX_EXDATES: usize = 1000;
+/// Most ATTENDEE lines kept per event.
+pub const MAX_ATTENDEES: usize = 500;
+/// Most occurrences one `expand` call returns.
+const MAX_OCCURRENCES: usize = 3000;
+/// Iteration budget of one `expand` call (days / weeks / months walked from DTSTART). `list_range` shares a budget
+/// between all events of one call (see `expand_budgeted`).
+pub const MAX_EXPAND_STEPS: usize = 60_000;
+
+fn capped_set<T: PartialEq>(it: impl Iterator<Item = T>) -> Vec<T> {
+    let mut out: Vec<T> = vec![];
+    for x in it {
+        if out.len() >= MAX_RULE_LIST {
+            break;
+        }
+        if !out.contains(&x) {
+            out.push(x);
+        }
+    }
+    out
+}
+
 fn parse_rule(s: &str) -> Option<Rule> {
+    if s.len() > MAX_RRULE_LEN {
+        return None; // rules stored before the cap, or typed by hand: do not walk a huge string on every list
+    }
     let mut r = Rule { freq: Freq::Daily, interval: 1, count: None, until: None, by_day: vec![], by_month_day: vec![], by_month: vec![], wkst: Weekday::Mon };
     let mut freq = None;
     for kv in s.trim().trim_start_matches("RRULE:").split(';') {
@@ -744,11 +780,14 @@ fn parse_rule(s: &str) -> Option<Rule> {
                     let Some((cut, _)) = d.char_indices().rev().nth(1) else { continue };
                     let (num, name) = d.split_at(cut);
                     let ord: i32 = if num.is_empty() { 0 } else { num.trim_start_matches('+').parse().ok().filter(|n: &i32| n.unsigned_abs() <= 53)? };
-                    r.by_day.push((ord, wd(name)?));
+                    let item = (ord, wd(name)?);
+                    if !r.by_day.contains(&item) && r.by_day.len() < MAX_RULE_LIST {
+                        r.by_day.push(item);
+                    }
                 }
             }
-            "BYMONTHDAY" => r.by_month_day = v.split(',').filter_map(|x| x.trim().parse::<i32>().ok()).filter(|d| (-31..=31).contains(d)).collect(),
-            "BYMONTH" => r.by_month = v.split(',').filter_map(|x| x.trim().parse::<u32>().ok()).filter(|m| (1..=12).contains(m)).collect(),
+            "BYMONTHDAY" => r.by_month_day = capped_set(v.split(',').filter_map(|x| x.trim().parse::<i32>().ok()).filter(|d| (-31..=31).contains(d))),
+            "BYMONTH" => r.by_month = capped_set(v.split(',').filter_map(|x| x.trim().parse::<u32>().ok()).filter(|m| (1..=12).contains(m))),
             "WKST" => r.wkst = wd(v)?,
             _ => {}
         }
@@ -782,10 +821,17 @@ fn month_days(y: i32, m: u32, r: &Rule, base_day: u32) -> Vec<NaiveDate> {
             }
         }
     } else if !r.by_day.is_empty() {
+        // the days of the month per weekday, built once (not once per BYDAY entry)
+        let mut per_wd: [Vec<u32>; 7] = Default::default();
+        for d in 1..=dim {
+            if let Some(x) = NaiveDate::from_ymd_opt(y, m, d) {
+                per_wd[x.weekday().num_days_from_monday() as usize].push(d);
+            }
+        }
         for (ord, w) in &r.by_day {
-            let matching: Vec<u32> = (1..=dim).filter(|d| NaiveDate::from_ymd_opt(y, m, *d).map(|x| x.weekday() == *w).unwrap_or(false)).collect();
+            let matching: &Vec<u32> = &per_wd[w.num_days_from_monday() as usize];
             match *ord {
-                0 => out.extend(matching),
+                0 => out.extend(matching.iter().copied()),
                 n if n > 0 => out.extend(matching.get(n as usize - 1).copied()),
                 n => {
                     let i = (matching.len() as i32).saturating_add(n);
@@ -805,7 +851,36 @@ fn month_days(y: i32, m: u32, r: &Rule, base_day: u32) -> Vec<NaiveDate> {
 
 /// All occurrences (start, end) of a recurring event that touch `[win_from, win_to)`, with EXDATEs removed.
 /// The first instance is always DTSTART itself. Unknown rules fall back to the single base occurrence.
+#[cfg(test)]
 pub fn expand(start: i64, end: i64, all_day: bool, tzid: Option<&str>, rrule: &str, exdates: &[i64], win_from: i64, win_to: i64) -> Vec<(i64, i64)> {
+    expand_budgeted(start, end, all_day, tzid, rrule, exdates, win_from, win_to, &mut MAX_EXPAND_STEPS.clone())
+}
+
+/// `expand` with an iteration budget the caller shares between several events: each call spends what it walked, and stops
+/// (returning the occurrences found so far) when the budget is used up. One call never walks more than `MAX_EXPAND_STEPS`.
+#[allow(clippy::too_many_arguments)]
+pub fn expand_budgeted(start: i64, end: i64, all_day: bool, tzid: Option<&str>, rrule: &str, exdates: &[i64], win_from: i64, win_to: i64, budget: &mut usize) -> Vec<(i64, i64)> {
+    let ex: std::collections::HashSet<i64> = exdates.iter().copied().take(MAX_EXDATES * 2).collect();
+    let limit = (*budget).min(MAX_EXPAND_STEPS);
+    let mut used = 0usize;
+    let out = expand_inner(start, end, all_day, tzid, rrule, &ex, win_from, win_to, limit, &mut used);
+    *budget = budget.saturating_sub(used);
+    out
+}
+
+#[allow(clippy::too_many_arguments)]
+fn expand_inner(
+    start: i64,
+    end: i64,
+    all_day: bool,
+    tzid: Option<&str>,
+    rrule: &str,
+    exdates: &std::collections::HashSet<i64>,
+    win_from: i64,
+    win_to: i64,
+    limit: usize,
+    used: &mut usize,
+) -> Vec<(i64, i64)> {
     let dur = end.saturating_sub(start).max(0);
     let touches = |s: i64| s < win_to && s.saturating_add(dur).max(s.saturating_add(1)) > win_from;
     let Some(rule) = parse_rule(rrule) else {
@@ -849,6 +924,9 @@ pub fn expand(start: i64, end: i64, all_day: bool, tzid: Option<&str>, rrule: &s
         *emitted += 1;
         if touches(s) && !exdates.contains(&s) {
             out.push((s, s.saturating_add(dur)));
+            if out.len() >= MAX_OCCURRENCES {
+                return false;
+            }
         }
         true
     };
@@ -857,7 +935,7 @@ pub fn expand(start: i64, end: i64, all_day: bool, tzid: Option<&str>, rrule: &s
             let mut d = bdate;
             loop {
                 guard += 1;
-                if guard > 60_000 || !take(d, &mut out, &mut emitted) {
+                if guard > limit || !take(d, &mut out, &mut emitted) {
                     break;
                 }
                 match Duration::try_days(rule.interval as i64).and_then(|step| d.checked_add_signed(step)) {
@@ -877,7 +955,7 @@ pub fn expand(start: i64, end: i64, all_day: bool, tzid: Option<&str>, rrule: &s
                 for o in &offs {
                     guard += 1;
                     let Some(day) = week.checked_add_signed(Duration::days(*o)) else { break 'w };
-                    if guard > 60_000 || !take(day, &mut out, &mut emitted) {
+                    if guard > limit || !take(day, &mut out, &mut emitted) {
                         break 'w;
                     }
                 }
@@ -897,12 +975,12 @@ pub fn expand(start: i64, end: i64, all_day: bool, tzid: Option<&str>, rrule: &s
                 }
                 for d in month_days(y, m, &rule, bdate.day()) {
                     guard += 1;
-                    if guard > 60_000 || !take(d, &mut out, &mut emitted) {
+                    if guard > limit || !take(d, &mut out, &mut emitted) {
                         break 'm;
                     }
                 }
                 guard += 1;
-                if guard > 60_000 {
+                if guard > limit {
                     break;
                 }
                 // a month that yields nothing past the window end must still end the loop
@@ -924,13 +1002,13 @@ pub fn expand(start: i64, end: i64, all_day: bool, tzid: Option<&str>, rrule: &s
                 for m in months {
                     for d in month_days(y, m, &rule, bdate.day()) {
                         guard += 1;
-                        if guard > 60_000 || !take(d, &mut out, &mut emitted) {
+                        if guard > limit || !take(d, &mut out, &mut emitted) {
                             break 'y;
                         }
                     }
                 }
                 guard += 1;
-                if guard > 60_000 {
+                if guard > limit {
                     break;
                 }
                 if NaiveDate::from_ymd_opt(y, 1, 1).map(|f| to_utc(f) >= win_to).unwrap_or(true) {
@@ -940,6 +1018,7 @@ pub fn expand(start: i64, end: i64, all_day: bool, tzid: Option<&str>, rrule: &s
             }
         }
     }
+    *used = guard;
     out
 }
 
@@ -1476,6 +1555,95 @@ END:VEVENT\r\nEND:VCALENDAR\r\n";
         assert_eq!(o.len(), 1);
         // window that ends before the start yields nothing and does not loop forever
         assert!(series("FREQ=DAILY", start, 0, ts(2026, 1, 1, 0, 0)).is_empty());
+    }
+
+    fn took(f: impl FnOnce()) -> std::time::Duration {
+        let t = std::time::Instant::now();
+        f();
+        t.elapsed()
+    }
+
+    #[test]
+    fn hostile_rule_lists_are_bounded_and_fast() {
+        // F32: a 200 KB invite with a 100,000-entry BYMONTHDAY list used to take about a minute in a debug build
+        let list = vec!["1"; 100_000].join(",");
+        let ics = format!("BEGIN:VCALENDAR\nBEGIN:VEVENT\nUID:h1\nDTSTART:20261014T100000Z\nRRULE:FREQ=MONTHLY;BYMONTHDAY={list}\nEND:VEVENT\nEND:VCALENDAR\n");
+        assert!(ics.len() > 200_000);
+        let mut got = vec![];
+        let t = took(|| {
+            let c = parse(&ics).unwrap();
+            let e = &c.events[0];
+            assert!(e.rrule.is_none(), "an oversized RRULE is dropped");
+            got = expand(e.start, e.end, false, None, &format!("FREQ=MONTHLY;BYMONTHDAY={list}"), &[], 0, ts(2060, 1, 1, 0, 0));
+        });
+        assert_eq!(got.len(), 1, "unusable rule: only the base occurrence");
+        assert!(t.as_millis() < 1000, "took {t:?}");
+    }
+
+    #[test]
+    fn rule_lists_below_the_text_cap_are_deduplicated_and_capped() {
+        // about 900 characters of repeated values: only the distinct ones survive
+        let days: Vec<String> = (0..300).map(|i| ((i % 31) as i32 + 1).to_string()).collect();
+        let r = parse_rule(&format!("FREQ=MONTHLY;BYMONTHDAY={}", days.join(","))).unwrap();
+        assert_eq!(r.by_month_day.len(), 31);
+        let r = parse_rule(&format!("FREQ=MONTHLY;BYDAY={}", vec!["MO"; 300].join(","))).unwrap();
+        assert_eq!(r.by_day.len(), 1);
+        let many: Vec<String> = (-53..=53).flat_map(|n| ["MO", "TU", "WE"].map(|d| format!("{n}{d}"))).collect();
+        let r = parse_rule(&format!("FREQ=MONTHLY;BYDAY={}", many.join(","))).unwrap_or_else(|| parse_rule("FREQ=MONTHLY;BYDAY=MO").unwrap());
+        assert!(r.by_day.len() <= MAX_RULE_LIST);
+        // worst case within the text cap, walked from a very old DTSTART to a far window
+        let start = ts(1971, 1, 1, 9, 0);
+        let rule = format!("FREQ=MONTHLY;BYMONTHDAY={}", (1..=31).map(|d| d.to_string()).collect::<Vec<_>>().join(","));
+        let mut n = 0;
+        let t = took(|| n = expand(start, start + 3600, false, Some("Europe/Berlin"), &rule, &[], ts(2026, 1, 1, 0, 0), ts(2027, 1, 1, 0, 0)).len());
+        assert!(n > 300, "{n}");
+        assert!(t.as_millis() < 1000, "took {t:?}");
+        let rule = format!("FREQ=YEARLY;BYMONTH=1,2,3,4,5,6,7,8,9,10,11,12;BYDAY={}", &many.join(",")[..600].trim_end_matches(','));
+        let t = took(|| {
+            let _ = expand(start, start + 3600, false, Some("Europe/Berlin"), &rule, &[], ts(2026, 1, 1, 0, 0), ts(2027, 1, 1, 0, 0));
+        });
+        assert!(t.as_millis() < 1000, "took {t:?}");
+    }
+
+    #[test]
+    fn many_exdates_are_capped_on_parse_and_cheap_to_expand() {
+        let ex: Vec<String> = (0..10_000).map(|i| format!("{}", 20270101 + (i % 28))).collect();
+        let ics = format!("BEGIN:VCALENDAR\nBEGIN:VEVENT\nUID:h2\nDTSTART:20261014T100000Z\nRRULE:FREQ=DAILY\nEXDATE;VALUE=DATE:{}\nEND:VEVENT\nEND:VCALENDAR\n", ex.join(","));
+        let c = parse(&ics).unwrap();
+        assert!(c.events[0].exdates.len() <= MAX_EXDATES);
+        // duplicates collapse
+        let ex2: Vec<String> = (0..500).map(|_| "20261015T100000Z".to_string()).collect();
+        let c = parse(&format!("BEGIN:VCALENDAR\nBEGIN:VEVENT\nUID:h3\nDTSTART:20261014T100000Z\nEXDATE:{}\nEND:VEVENT\nEND:VCALENDAR\n", ex2.join(","))).unwrap();
+        assert_eq!(c.events[0].exdates.len(), 1);
+        // a long stored list (rows written by an older version) is a set lookup, not a scan per occurrence
+        let start = ts(2026, 10, 14, 10, 0);
+        let exd: Vec<i64> = (0..10_000).map(|i| start + 86400 * (i % 5000)).collect();
+        let mut n = 0;
+        let t = took(|| n = expand(start, start + 3600, false, None, "FREQ=DAILY", &exd, start, start + 30_000 * 86400).len());
+        assert!(t.as_millis() < 1000, "took {t:?}");
+        assert!(n <= MAX_OCCURRENCES);
+    }
+
+    #[test]
+    fn expand_budget_is_shared_and_spent() {
+        let start = ts(2026, 10, 14, 10, 0);
+        let mut budget = MAX_EXPAND_STEPS;
+        let _ = expand_budgeted(start, start + 3600, false, None, "FREQ=DAILY", &[], start, start + 40_000 * 86400, &mut budget);
+        assert!(budget < MAX_EXPAND_STEPS);
+        let mut none = 0usize;
+        let out = expand_budgeted(start, start + 3600, false, None, "FREQ=DAILY", &[], start, start + 100 * 86400, &mut none);
+        assert!(out.is_empty(), "no budget left: nothing is walked");
+        let mut b = MAX_EXPAND_STEPS;
+        let out = expand_budgeted(start, start + 3600, false, None, "FREQ=DAILY", &[], start, start + 10 * 86400, &mut b);
+        assert_eq!(out.len(), 10);
+    }
+
+    #[test]
+    fn oversized_attendee_lists_are_cut_and_normal_rules_kept() {
+        let att: String = (0..2000).map(|i| format!("ATTENDEE:mailto:p{i}@example.com\n")).collect();
+        let c = parse(&format!("BEGIN:VCALENDAR\nBEGIN:VEVENT\nUID:h4\nDTSTART:20261014T100000Z\nRRULE:FREQ=DAILY\n{att}END:VEVENT\nEND:VCALENDAR\n")).unwrap();
+        assert_eq!(c.events[0].attendees.len(), MAX_ATTENDEES);
+        assert_eq!(c.events[0].rrule.as_deref(), Some("FREQ=DAILY"), "a normal rule is kept");
     }
 
     #[test]

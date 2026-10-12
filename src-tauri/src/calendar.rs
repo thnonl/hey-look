@@ -340,6 +340,11 @@ fn hidden_calendars(c: &Connection) -> HashSet<String> {
 
 // ------------------------------------------------------------------ queries
 
+/// Work one `list_range` call may spend expanding repeating events (days / weeks / months walked, summed over all events).
+const LIST_EXPAND_BUDGET: usize = 1_000_000;
+/// Most event instances one `list_range` call returns.
+const LIST_MAX_INSTANCES: usize = 20_000;
+
 /// Events touching `[from, to)` with repeating events expanded, from visible calendars, ordered by start.
 /// All-day events are matched with one day of slack on both sides (they are dates, not instants).
 pub fn list_range(c: &Connection, from: i64, to: i64) -> R<Vec<CalEvent>> {
@@ -352,6 +357,8 @@ pub fn list_range(c: &Connection, from: i64, to: i64) -> R<Vec<CalEvent>> {
         .map_err(err)?;
     let rows = st.query_map(params![from - DAY, to + DAY], row_event).map_err(err)?.filter_map(|r| r.ok()).collect::<Vec<_>>();
     let mut out = vec![];
+    // One call spends at most this much work on repeating events, however many (or however hostile) they are.
+    let mut budget = LIST_EXPAND_BUDGET;
     // timed events must really touch the window; all-day events keep a day of slack (they are dates)
     let touches = |e: &CalEvent| e.all_day || (e.start < to && e.end.max(e.start + 1) > from);
     for mut e in rows {
@@ -361,7 +368,10 @@ pub fn list_range(c: &Connection, from: i64, to: i64) -> R<Vec<CalEvent>> {
         mark_you(&mut e, &mine);
         match e.rrule.clone() {
             Some(rule) => {
-                for (s, en) in ical::expand(e.start, e.end, e.all_day, e.tzid.as_deref(), &rule, &e.exdates, from - DAY, to + DAY) {
+                for (s, en) in ical::expand_budgeted(e.start, e.end, e.all_day, e.tzid.as_deref(), &rule, &e.exdates, from - DAY, to + DAY, &mut budget) {
+                    if out.len() >= LIST_MAX_INSTANCES {
+                        break;
+                    }
                     let mut i = e.clone();
                     i.start = s;
                     i.end = en;
@@ -484,6 +494,9 @@ pub fn ingest(c: &Connection, acc: &Account, message_id: &str, from_email: &str,
     let auto = setting_bool(c, "auto_add_invites", true);
     let mut out = Ingested { changed: false, event_id: None };
     let sender = sender_key(from_email);
+    // Known limit (F28): the only evidence of who sent the message is its From header (no DKIM / SPF / S/MIME check, and
+    // SENT-BY is not honoured). A forged From equal to the organizer, plus the event UID and a higher SEQUENCE, can still
+    // change or cancel the event. Mail servers normally reject such spoofing; see README, Known limitations.
     // true when the sender is the organizer recorded for the stored event (no stored organizer: nobody may change it)
     let from_organizer = |ex: &CalEvent| ex.organizer.as_ref().map(|o| !sender.is_empty() && sender_key(&o.email) == sender).unwrap_or(false);
     for ev in &cal.events {
@@ -577,10 +590,8 @@ pub fn ingest(c: &Connection, acc: &Account, message_id: &str, from_email: &str,
                                     out.changed = true;
                                 }
                             }
-                            None => {
-                                ex.attendees.push(to_att(a));
-                                out.changed = true;
-                            }
+                            // F27: an answer only updates a row that already exists; a stranger who knows the UID cannot add themselves
+                            None => {}
                         }
                     }
                     if out.changed {
@@ -1558,6 +1569,10 @@ END:VCALENDAR
         let for_other = ical::to_ics(Some("REPLY"), &[ical::reply_event(&to_ics_event(&e), &Person { email: "carol@contoso.com".into(), name: None }, "accepted", None, 1)]);
         assert!(!ingest(&c, &a1, "m6", "bao@contoso.com", &for_other, false).unwrap().changed, "Bao cannot answer for Carol");
         assert_eq!(get_event(&c, &e.id).unwrap().attendees.len(), 2, "no attendee was added");
+        // F27: a stranger answering with their own address is not added as an attendee either
+        let stranger = ical::to_ics(Some("REPLY"), &[ical::reply_event(&to_ics_event(&e), &Person { email: "eve@evil.example".into(), name: None }, "accepted", None, 1)]);
+        assert!(!ingest(&c, &a1, "m7", "eve@evil.example", &stranger, false).unwrap().changed, "REPLY from a non-attendee");
+        assert_eq!(get_event(&c, &e.id).unwrap().attendees.len(), 2, "the stranger was not added");
         assert!(ingest(&c, &a1, "m5", "bao@contoso.com", &reply, false).unwrap().changed);
         let after = get_event(&c, &e.id).unwrap();
         assert_eq!(after.attendees[1].status, "declined");
@@ -1626,6 +1641,24 @@ END:VCALENDAR
         // hidden calendar
         db::set_setting(&c, "cal_hidden", "[\"local\"]").unwrap();
         assert!(list_range(&c, ts(2026, 10, 12, 0, 0), ts(2026, 10, 19, 0, 0)).unwrap().is_empty());
+    }
+
+    #[test]
+    fn listing_many_hostile_repeating_events_stays_fast() {
+        // F32: every list call re-expands stored rules, so the work of one call is bounded however many events there are
+        let (c, a) = setup();
+        let days: Vec<String> = (0..300).map(|i| ((i % 31) as i32 + 1).to_string()).collect();
+        let rule = format!("FREQ=MONTHLY;BYMONTHDAY={}", days.join(","));
+        for i in 0..60 {
+            let ics = format!("BEGIN:VCALENDAR\r\nMETHOD:PUBLISH\r\nBEGIN:VEVENT\r\nUID:hostile{i}\r\nDTSTART:19710101T090000Z\r\nDTEND:19710101T100000Z\r\nSUMMARY:x\r\nRRULE:{rule}\r\nEND:VEVENT\r\nEND:VCALENDAR\r\n");
+            put_message(&c, &format!("h{i}"), &ics);
+            ingest(&c, &a, &format!("h{i}"), "mai@contoso.com", &ics, true).unwrap();
+        }
+        let t = std::time::Instant::now();
+        let got = list_range(&c, ts(2026, 1, 1, 0, 0), ts(2027, 1, 1, 0, 0)).unwrap();
+        let took = t.elapsed();
+        assert!(took.as_millis() < 2000, "took {took:?}");
+        assert!(got.len() <= 20_000);
     }
 
     #[test]
