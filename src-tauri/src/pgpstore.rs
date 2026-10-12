@@ -215,6 +215,17 @@ fn label_of(k: &StoredKey) -> String {
     k.emails.first().cloned().or_else(|| k.info.user_ids.first().cloned()).unwrap_or_default()
 }
 
+/// The address of the account a stored message belongs to and the addresses it was sent to (To, Cc).
+fn mailbox_of(c: &Connection, message_id: &str) -> Option<(String, Vec<String>)> {
+    c.query_row(
+        "SELECT a.email, m.to_addrs, m.cc_addrs FROM messages m JOIN accounts a ON a.id=m.account_id WHERE m.id=?1",
+        [message_id],
+        |r| Ok((r.get::<_, String>(0)?, r.get::<_, String>(1)?, r.get::<_, String>(2)?)),
+    )
+    .ok()
+    .map(|(mailbox, to, cc)| (mailbox, to.split(',').chain(cc.split(',')).map(|a| addr_of(a)).filter(|a| !a.is_empty()).collect()))
+}
+
 /// Open a stored PGP message with the keys currently available. Successful decryptions are cached for the session.
 pub fn open_message(c: &Connection, message_id: &str, raw: &[u8]) -> R<Arc<Opened>> {
     if let Some(v) = VIEWS.lock().unwrap_or_else(|p| p.into_inner()).iter().find(|(id, _)| id == message_id) {
@@ -227,8 +238,18 @@ pub fn open_message(c: &Connection, message_id: &str, raw: &[u8]) -> R<Arc<Opene
         .keys
         .iter()
         .filter(|k| k.secret.is_some() && !have.contains(&k.info.fingerprint))
-        .map(|k| LockedKey { fingerprint: k.info.fingerprint.clone(), key_ids: openpgp::all_key_ids(&k.public), label: label_of(k) })
+        .map(|k| LockedKey {
+            fingerprint: k.info.fingerprint.clone(),
+            key_ids: openpgp::all_key_ids(&k.public),
+            label: label_of(k),
+            emails: k.emails.iter().map(|e| e.to_ascii_lowercase()).collect(),
+        })
         .collect();
+    // the unlock prompt names the key of the mailbox the message is in, not whichever key is stored first
+    let mut locked = locked;
+    if let Some((mailbox, recipients)) = mailbox_of(c, message_id) {
+        pgpmail::order_locked(&mut locked, &mailbox, &recipients);
+    }
     let ctx = Ctx { unlocked: unlocked.iter().collect(), locked, publics: &store.publics, verified: &store.verified };
     let opened = Arc::new(pgpmail::open(raw, &ctx));
     if opened.plain.is_some() {
@@ -1208,6 +1229,34 @@ mod tests {
         import_materials(&c, m(), "new-pass-5678", true, "paste").unwrap();
         let s = load_store(&c).unwrap();
         assert!(openpgp::is_protected(s.by_fpr(&done[0]).unwrap().secret.as_ref().unwrap()));
+    }
+
+    #[test]
+    fn stored_message_asks_for_the_key_of_its_own_mailbox() {
+        // two accounts of the app, both with a locked key; a message from the first to the second is encrypted to both keys
+        let (c, acc_a, _g) = setup();
+        let acc_b = account("b2", "other@example.com");
+        crate::db::insert_account(&c, &acc_b).unwrap();
+        let fpr_a = add_own(&c, "me@example.com", "my-pass-1234");
+        let fpr_b = add_own(&c, "other@example.com", "other-pass-1234");
+        let mut d = draft(&acc_a, &["other@example.com"], &[], true, false);
+        d.security = Some(Security { encrypt: true, sign: false, attach_public_key: false });
+        let raw = build_secure(&c, &acc_a, &d, false).unwrap().formatted();
+        for (id, account, to) in [("in-b", "b2", "other@example.com"), ("in-a-copy", "a1", "other@example.com")] {
+            c.execute(
+                "INSERT INTO messages(id,account_id,folder,uid,thread_id,subject,from_name,from_email,to_addrs,cc_addrs,date,snippet,pgp) VALUES(?1,?2,'inbox',(SELECT COUNT(*)+1 FROM messages),'t','s','n','me@example.com',?3,'',0,'',1)",
+                params![id, account, to],
+            )
+            .unwrap();
+        }
+        invalidate();
+        let opened_b = open_message(&c, "in-b", &raw).unwrap();
+        assert_eq!(opened_b.security.decryption, "locked");
+        assert_eq!(opened_b.security.locked_key.as_deref(), Some(fpr_b.as_str()), "the mailbox's own key, not the sender's");
+        assert_eq!(opened_b.security.locked_label.as_deref(), Some("other@example.com"));
+        let opened_a = open_message(&c, "in-a-copy", &raw).unwrap();
+        assert_eq!(opened_a.security.locked_key.as_deref(), Some(fpr_a.as_str()));
+        assert_eq!(opened_a.security.locked_label.as_deref(), Some("me@example.com"));
     }
 }
 

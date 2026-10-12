@@ -280,6 +280,25 @@ pub struct LockedKey {
     pub fingerprint: String,
     pub key_ids: Vec<String>,
     pub label: String,
+    /// the addresses of the key's user IDs (lower case)
+    pub emails: Vec<String>,
+}
+
+/// Put the locked keys in the order the unlock prompt should offer them: the key of the mailbox the message is in first, then
+/// the keys of the other recipients, then the rest. A message encrypted to two accounts of this app (for example a copy to
+/// yourself) would otherwise ask for whichever key happens to be stored first.
+pub fn order_locked(locked: &mut [LockedKey], mailbox: &str, recipients: &[String]) {
+    let mailbox = mailbox.trim().to_ascii_lowercase();
+    let rank = |k: &LockedKey| -> u8 {
+        if !mailbox.is_empty() && k.emails.iter().any(|e| *e == mailbox) {
+            0
+        } else if k.emails.iter().any(|e| recipients.iter().any(|r| r.trim().eq_ignore_ascii_case(e))) {
+            1
+        } else {
+            2
+        }
+    };
+    locked.sort_by_key(|k| rank(k));
 }
 
 /// What the opener may use. Built by the store.
@@ -583,7 +602,7 @@ mod tests {
         assert_eq!(o.security.encrypted_for.len(), 1);
         assert!(o.plain.is_none());
         // key known but locked
-        let locked = Ctx { unlocked: vec![], locked: vec![LockedKey { fingerprint: openpgp::fingerprint(&bpk), key_ids: openpgp::all_key_ids(&bpk), label: "bob".into() }], publics: &publics, verified: &verified };
+        let locked = Ctx { unlocked: vec![], locked: vec![LockedKey { fingerprint: openpgp::fingerprint(&bpk), key_ids: openpgp::all_key_ids(&bpk), label: "bob".into(), emails: vec!["bob@example.com".into()] }], publics: &publics, verified: &verified };
         let o = open(&raw, &locked);
         assert_eq!(o.security.decryption, "locked");
         assert_eq!(o.security.locked_key.as_deref(), Some(openpgp::fingerprint(&bpk).as_str()));
@@ -668,5 +687,34 @@ mod tests {
         let o = open(&raw, &ctx(vec![], &[], &HashSet::new()));
         assert_eq!(o.security.decryption, "none");
         assert!(o.security.signature.is_none() && !o.security.encrypted);
+    }
+
+    #[test]
+    fn locked_prompt_names_the_key_of_the_mailbox_not_the_first_key() {
+        // one message encrypted to two accounts of this app (alice's key is stored first)
+        let (alice, bob) = (key("alice@example.com"), key("bob@example.com"));
+        let (apk, bpk) = (alice.to_public_key(), bob.to_public_key());
+        let inner = "Content-Type: text/plain; charset=utf-8\r\n\r\nhello both\r\n";
+        let armored = encrypt(inner.as_bytes(), &[Recipient { key: &apk, hidden: false }, Recipient { key: &bpk, hidden: false }], None).unwrap();
+        let raw = mime_encrypted(&armored);
+        let lk = |k: &SignedPublicKey, mail: &str| LockedKey { fingerprint: openpgp::fingerprint(k), key_ids: openpgp::all_key_ids(k), label: mail.into(), emails: vec![mail.into()] };
+        let publics = vec![];
+        let verified = HashSet::new();
+        let open_with = |mailbox: &str, recipients: &[String]| {
+            let mut locked = vec![lk(&apk, "alice@example.com"), lk(&bpk, "bob@example.com")];
+            order_locked(&mut locked, mailbox, recipients);
+            open(&raw, &Ctx { unlocked: vec![], locked, publics: &publics, verified: &verified }).security
+        };
+        // no hint: the first stored key (the old behaviour)
+        assert_eq!(open_with("", &[]).locked_label.as_deref(), Some("alice@example.com"));
+        // the message sits in bob's mailbox: bob's key is asked for, with bob's address as the label
+        let s = open_with("Bob@Example.com", &["alice@example.com".into()]);
+        assert_eq!(s.decryption, "locked");
+        assert_eq!(s.locked_label.as_deref(), Some("bob@example.com"));
+        assert_eq!(s.locked_key.as_deref(), Some(openpgp::fingerprint(&bpk).as_str()));
+        // in alice's mailbox: alice's
+        assert_eq!(open_with("alice@example.com", &[]).locked_label.as_deref(), Some("alice@example.com"));
+        // a mailbox without a key of its own falls back to a recipient's key, in recipient order of preference
+        assert_eq!(open_with("carol@example.com", &["bob@example.com".into()]).locked_label.as_deref(), Some("bob@example.com"));
     }
 }
