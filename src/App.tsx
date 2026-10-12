@@ -19,7 +19,7 @@ import { TopBar } from "./components/TopBar";
 import { Welcome } from "./components/Welcome";
 import { useStore } from "./store";
 import { calTz, configureCalendar, addDays, addMonths, today as todayDay } from "./calendar";
-import { configureDates, fmtWhen } from "./util";
+import { catchupText, configureDates, fmtWhen } from "./util";
 import { frameAction, initFrame, useFrame } from "./winframe";
 
 const clamp = (n: number, lo: number, hi: number) => Math.max(lo, Math.min(hi, n));
@@ -131,7 +131,7 @@ function App() {
       }),
       listen<{ count: number }>("outbox-catchup", (e) => {
         const st = useStore.getState();
-        st.showToast(`Sent ${e.payload.count} scheduled message${e.payload.count === 1 ? "" : "s"} that were due while Hey Look! was closed.`, undefined, "success", [
+        st.showToast(catchupText(e.payload.count), undefined, "success", [
           { label: "View", run: () => void st.setView("scheduled") },
         ]);
       }),

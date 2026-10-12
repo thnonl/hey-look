@@ -281,3 +281,8 @@ export function passphraseStrength(p: string): 0 | 1 | 2 | 3 | 4 {
   if (p.length >= 12 && kinds >= 2) return 3;
   return kinds >= 2 ? 2 : 1;
 }
+
+/** The toast after scheduled messages that fell due while the app was closed were sent on start. */
+export function catchupText(count: number): string {
+  return count === 1 ? "Sent 1 scheduled message that was due while Hey Look! was closed." : `Sent ${count} scheduled messages that were due while Hey Look! was closed.`;
+}
