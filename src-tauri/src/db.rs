@@ -58,6 +58,8 @@ pub fn open(path: &Path) -> R<Connection> {
     // migrations: ignore "duplicate column" errors on already-migrated DBs
     let _ = conn.execute("ALTER TABLE accounts ADD COLUMN auth TEXT NOT NULL DEFAULT 'password'", []);
     let _ = conn.execute("ALTER TABLE accounts ADD COLUMN color TEXT", []);
+    let _ = conn.execute("ALTER TABLE accounts ADD COLUMN smtp_username TEXT NOT NULL DEFAULT ''", []);
+    let _ = conn.execute("ALTER TABLE accounts ADD COLUMN tls_insecure INTEGER NOT NULL DEFAULT 0", []);
     let _ = conn.execute("ALTER TABLE messages ADD COLUMN attachments TEXT NOT NULL DEFAULT '[]'", []);
     // signatures / templates / filter rules can apply to one account (NULL = every account)
     for t in ["rules", "signatures", "templates"] {
@@ -85,6 +87,13 @@ pub struct Account {
     pub auth: String,
     #[serde(default)]
     pub color: Option<String>,
+    /// SMTP login when it differs from `username` (empty = same). Its password lives in the credential
+    /// manager under "<id>:smtp"; without one the IMAP password is reused.
+    #[serde(default)]
+    pub smtp_username: String,
+    /// Accept self-signed / private-CA / mismatched certificates (IMAP and SMTP).
+    #[serde(default)]
+    pub tls_insecure: bool,
 }
 
 fn default_auth() -> String {
@@ -94,7 +103,7 @@ fn default_auth() -> String {
 pub fn list_accounts(c: &Connection) -> R<Vec<Account>> {
     let mut st = c
         .prepare(
-            "SELECT id,email,display_name,imap_host,imap_port,imap_ssl,smtp_host,smtp_port,smtp_security,username,auth,color
+            "SELECT id,email,display_name,imap_host,imap_port,imap_ssl,smtp_host,smtp_port,smtp_security,username,auth,color,smtp_username,tls_insecure
              FROM accounts ORDER BY rowid",
         )
         .map_err(err)?;
@@ -108,7 +117,7 @@ pub fn list_accounts(c: &Connection) -> R<Vec<Account>> {
 
 pub fn get_account(c: &Connection, id: &str) -> R<Account> {
     c.query_row(
-        "SELECT id,email,display_name,imap_host,imap_port,imap_ssl,smtp_host,smtp_port,smtp_security,username,auth,color
+        "SELECT id,email,display_name,imap_host,imap_port,imap_ssl,smtp_host,smtp_port,smtp_security,username,auth,color,smtp_username,tls_insecure
          FROM accounts WHERE id=?1",
         [id],
         row_account,
@@ -130,13 +139,15 @@ fn row_account(r: &rusqlite::Row) -> rusqlite::Result<Account> {
         username: r.get(9)?,
         auth: r.get(10)?,
         color: r.get(11)?,
+        smtp_username: r.get(12)?,
+        tls_insecure: r.get::<_, i64>(13)? != 0,
     })
 }
 
 pub fn insert_account(c: &Connection, a: &Account) -> R<()> {
     c.execute(
-        "INSERT OR REPLACE INTO accounts(id,email,display_name,imap_host,imap_port,imap_ssl,smtp_host,smtp_port,smtp_security,username,auth,color)
-         VALUES(?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12)",
+        "INSERT OR REPLACE INTO accounts(id,email,display_name,imap_host,imap_port,imap_ssl,smtp_host,smtp_port,smtp_security,username,auth,color,smtp_username,tls_insecure)
+         VALUES(?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,?13,?14)",
         params![
             a.id,
             a.email,
@@ -149,7 +160,9 @@ pub fn insert_account(c: &Connection, a: &Account) -> R<()> {
             a.smtp_security,
             a.username,
             a.auth,
-            a.color
+            a.color,
+            a.smtp_username,
+            a.tls_insecure as i64
         ],
     )
     .map_err(err)?;

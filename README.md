@@ -31,6 +31,8 @@ account, and every feature is available.
 
 ### Mailboxes and sync
 - Add Google and Microsoft (Outlook.com, Hotmail, Microsoft 365) accounts with OAuth 2.0 (no password stored), or any account with IMAP/SMTP and an app password
+- **Detect settings** finds IMAP / SMTP servers for an address: built-in presets, the provider's autoconfig, the Thunderbird ISPDB, DNS SRV, the MX host, then common host names. Only the domain and address are sent, never the password.
+- Servers with a **self-signed or private-CA certificate** (Proton Mail Bridge, company servers) can be trusted per account; a **different SMTP login** can be set when sending uses other credentials
 - A background worker keeps syncing while the window is hidden in the tray; each mailbox can have its own interval
 - Standard folders (Inbox, Sent, Drafts, Archive, Junk, Deleted) and your own folders, with nesting shown
 - **Load older messages** pages further back than the first download
@@ -126,7 +128,7 @@ App-wide options (appearance, tray, shortcuts, AI Assistant, blocked senders) li
 ### Where your data lives
 - Mail cache and settings: `%APPDATA%\thnonl.heylook\heylook.db` (SQLite)
 - Passwords, OAuth tokens, the AI key and the OAuth client secrets: Windows Credential Manager (entries named `hey-look…`)
-- Nothing is sent anywhere except to your mail servers, Google's and Microsoft's sign-in services, and the AI endpoint you configure.
+- Nothing is sent anywhere except to your mail servers, Google's and Microsoft's sign-in services, the Thunderbird ISPDB and your own domain's autoconfig URL when you press **Detect settings**, and the AI endpoint you configure.
 
 ---
 
@@ -164,9 +166,18 @@ Provide it the same three ways as Google:
 | Variable | Meaning |
 |---|---|
 | `MICROSOFT_CLIENT_ID` | Application (client) ID |
-| `MICROSOFT_CLIENT_SECRET` | Optional, only for confidential clients |
+| `MICROSOFT_CLIENT_SECRET` | Optional, only for confidential clients (not shown in the app) |
+
+The **Tenant** field in the Microsoft tab is typed in the app (empty = `common`, personal and work accounts); enter a tenant ID or domain only for a
+single-tenant app registration, which personal accounts cannot use.
 
 Work and school tenants may block IMAP / SMTP AUTH until an admin enables it for the mailbox.
+
+### Servers with their own certificate
+
+Proton Mail Bridge listens on `127.0.0.1` with a self-signed certificate: choose **Proton Mail Bridge** in the provider list and use the
+username and password Bridge shows. For other servers turn on **Trust this server's certificate** under the advanced settings. The
+certificate is then not checked for IMAP and SMTP of that account, so use it only for servers you control.
 
 ### iCloud
 
@@ -203,6 +214,7 @@ src-tauri/src/           Rust backend
   mail.rs                IMAP: folders, fetch, flags, move, parsing (MIME, attachments, inline images)
   smtp.rs                message building and sending
   oauth.rs               Google and Microsoft OAuth 2.0 (PKCE, loopback redirect) and token refresh
+  discover.rs            server-settings lookup (presets, autoconfig, ISPDB, DNS SRV / MX)
   shell.rs               tray icon, badges, native notifications, snooze reminders
   ai.rs                  OpenAI-compatible chat client
   db.rs                  SQLite schema and settings storage

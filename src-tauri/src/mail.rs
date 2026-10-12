@@ -23,7 +23,11 @@ impl imap::Authenticator for XOAuth2<'_> {
 
 /// `secret` is the password, or the OAuth access token when `acc.auth` is an `oauth_*` method.
 pub fn connect(acc: &Account, secret: &str) -> R<Sess> {
-    let tls = native_tls::TlsConnector::builder().build().map_err(err)?;
+    let tls = native_tls::TlsConnector::builder()
+        .danger_accept_invalid_certs(acc.tls_insecure)
+        .danger_accept_invalid_hostnames(acc.tls_insecure)
+        .build()
+        .map_err(err)?;
     let host = acc.imap_host.as_str();
     let addr = (host, acc.imap_port);
     let client = if acc.imap_ssl {

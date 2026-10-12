@@ -61,7 +61,7 @@ export function friendlyError(e: unknown): string {
   if (/no stored (password|\w+ token)/i.test(raw)) return "The saved credentials for this account are missing. Remove the account and add it again.";
   if (/timed out|timeout|10060|did not properly respond/i.test(raw)) return "The mail server did not respond. Check your connection and try again.";
   if (/lookup|dns|no such host|name or service not known|11001/i.test(raw)) return "Cannot reach the mail server. Check the server name and your connection.";
-  if (/certificate|tls|ssl/i.test(raw) && /invalid|verify|unknown|expired/i.test(raw)) return "The server's security certificate was rejected.";
+  if (/certificate|tls|ssl/i.test(raw) && /invalid|verify|unknown|expired/i.test(raw)) return "The server's security certificate was rejected. For a self-signed or private-CA server, remove the account and add it again with \"Trust this server's certificate\" turned on.";
   return raw.length > 220 ? `${raw.slice(0, 220)}…` : raw;
 }
 

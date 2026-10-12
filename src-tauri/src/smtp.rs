@@ -3,6 +3,7 @@ use base64::Engine;
 use lettre::message::header::ContentType;
 use lettre::message::{Attachment, Mailbox, MultiPart, SinglePart};
 use lettre::transport::smtp::authentication::{Credentials, Mechanism};
+use lettre::transport::smtp::client::{Tls, TlsParameters};
 use lettre::{Address, Message, SmtpTransport, Transport};
 use serde::{Deserialize, Serialize};
 
@@ -79,18 +80,48 @@ pub fn build(acc: &Account, d: &Draft) -> R<Message> {
     msg.map_err(err)
 }
 
-pub fn send(acc: &Account, secret: &str, msg: &Message) -> R<()> {
-    let creds = Credentials::new(if acc.auth.starts_with("oauth_") { acc.email.clone() } else { acc.username.clone() }, secret.to_string());
+/// SMTP login name: the account email for OAuth, else the separate SMTP user, else the IMAP user.
+fn smtp_user(acc: &Account) -> String {
+    if acc.auth.starts_with("oauth_") {
+        acc.email.clone()
+    } else if !acc.smtp_username.trim().is_empty() {
+        acc.smtp_username.trim().to_string()
+    } else {
+        acc.username.clone()
+    }
+}
+
+fn transport(acc: &Account, secret: &str) -> R<SmtpTransport> {
     let host = acc.smtp_host.as_str();
-    let t = match acc.smtp_security.as_str() {
+    let mut b = match acc.smtp_security.as_str() {
         "ssl" => SmtpTransport::relay(host).map_err(err)?.port(acc.smtp_port),
         "starttls" => SmtpTransport::starttls_relay(host).map_err(err)?.port(acc.smtp_port),
         _ => SmtpTransport::builder_dangerous(host).port(acc.smtp_port),
+    };
+    if acc.tls_insecure && matches!(acc.smtp_security.as_str(), "ssl" | "starttls") {
+        let params = TlsParameters::builder(host.to_string())
+            .dangerous_accept_invalid_certs(true)
+            .dangerous_accept_invalid_hostnames(true)
+            .build()
+            .map_err(err)?;
+        b = b.tls(if acc.smtp_security == "ssl" { Tls::Wrapper(params) } else { Tls::Required(params) });
     }
-    .credentials(creds);
-    let t = (if acc.auth.starts_with("oauth_") { t.authentication(vec![Mechanism::Xoauth2]) } else { t }).build();
-    t.send(msg).map_err(|e| format!("SMTP send failed: {e}"))?;
+    let b = b.credentials(Credentials::new(smtp_user(acc), secret.to_string()));
+    Ok((if acc.auth.starts_with("oauth_") { b.authentication(vec![Mechanism::Xoauth2]) } else { b }).build())
+}
+
+pub fn send(acc: &Account, secret: &str, msg: &Message) -> R<()> {
+    transport(acc, secret)?.send(msg).map_err(|e| format!("SMTP send failed: {e}"))?;
     Ok(())
+}
+
+/// Connect and authenticate without sending anything.
+pub fn test(acc: &Account, secret: &str) -> R<()> {
+    match transport(acc, secret)?.test_connection() {
+        Ok(true) => Ok(()),
+        Ok(false) => Err("SMTP server did not accept the connection".into()),
+        Err(e) => Err(format!("SMTP login failed: {e}")),
+    }
 }
 
 /// Same as `build`; lettre only needs recipients at send time, so incomplete drafts are fine.

@@ -1,5 +1,6 @@
 mod ai;
 mod db;
+mod discover;
 mod mail;
 mod oauth;
 use oauth::Provider;
@@ -56,6 +57,22 @@ fn oauth_env(p: Provider) -> Option<(String, String)> {
         ),
     };
     Some((id?.trim().to_string(), secret.unwrap_or_default().trim().to_string()))
+}
+
+/// Microsoft tenant the user typed in the app ("common" when empty); needed again for every token refresh.
+fn oauth_tenant(db: &Db, p: Provider) -> String {
+    if p != Provider::Microsoft {
+        return String::new();
+    }
+    let t = db::get_setting(&lock(db), "microsoft_tenant").unwrap_or_default();
+    oauth::clean_tenant(&t).unwrap_or_else(|_| "common".into())
+}
+
+/// Saved tenant for the sign-in form ("" = common).
+#[tauri::command]
+fn microsoft_tenant(state: tauri::State<AppState>) -> String {
+    let t = oauth_tenant(&state.db, Provider::Microsoft);
+    if t == "common" { String::new() } else { t }
 }
 
 /// Settings / credential-manager names for a provider's client id and secret.
@@ -142,10 +159,20 @@ fn secret(db: &Db, acc: &Account) -> R<String> {
     match Provider::from_auth(&acc.auth) {
         Some(p) => {
             let (id, sec) = oauth_creds(db, p);
-            oauth::access_token(p, &acc.id, &id, &sec)
+            oauth::access_token(p, &oauth_tenant(db, p), &acc.id, &id, &sec)
         }
         None => password(&acc.id),
     }
+}
+
+/// Password (or token) for SMTP: the separate SMTP password when one is stored, else the IMAP secret.
+fn smtp_secret(db: &Db, acc: &Account) -> R<String> {
+    if Provider::from_auth(&acc.auth).is_none() {
+        if let Some(pw) = keyring::Entry::new("hey-look", &format!("{}:smtp", acc.id)).ok().and_then(|e| e.get_password().ok()) {
+            return Ok(pw);
+        }
+    }
+    secret(db, acc)
 }
 
 fn fnv(s: &str) -> String {
@@ -171,6 +198,10 @@ struct AccountInput {
     smtp_port: u16,
     smtp_security: String,
     username: String,
+    #[serde(default)]
+    smtp_username: String,
+    #[serde(default)]
+    tls_insecure: bool,
 }
 
 #[tauri::command]
@@ -179,7 +210,12 @@ fn list_accounts(state: tauri::State<AppState>) -> R<Vec<Account>> {
 }
 
 #[tauri::command]
-async fn add_account(state: tauri::State<'_, AppState>, input: AccountInput, password_value: String) -> R<Account> {
+async fn add_account(
+    state: tauri::State<'_, AppState>,
+    input: AccountInput,
+    password_value: String,
+    smtp_password: Option<String>,
+) -> R<Account> {
     let acc = Account {
         id: uuid::Uuid::new_v4().to_string(),
         email: input.email,
@@ -193,18 +229,32 @@ async fn add_account(state: tauri::State<'_, AppState>, input: AccountInput, pas
         username: input.username,
         auth: "password".into(),
         color: None,
+        smtp_username: input.smtp_username.trim().to_string(),
+        tls_insecure: input.tls_insecure,
     };
+    let smtp_password = smtp_password.filter(|p| !p.is_empty());
     let a2 = acc.clone();
     let pw = password_value.clone();
+    let smtp_pw = smtp_password.clone().unwrap_or_else(|| password_value.clone());
+    let test_smtp = !acc.smtp_username.is_empty() || smtp_password.is_some();
     blocking(move || {
         let mut s = mail::connect(&a2, &pw)?;
         let _ = s.logout();
+        // only a separate SMTP login is verified up front; a shared one was never checked before either
+        if test_smtp {
+            smtp::test(&a2, &smtp_pw)?;
+        }
         Ok(())
     })
     .await?;
     keyring::Entry::new("hey-look", &acc.id)
         .and_then(|e| e.set_password(&password_value))
         .map_err(|e| format!("cannot store password: {e}"))?;
+    if let Some(sp) = &smtp_password {
+        keyring::Entry::new("hey-look", &format!("{}:smtp", acc.id))
+            .and_then(|e| e.set_password(sp))
+            .map_err(|e| format!("cannot store SMTP password: {e}"))?;
+    }
     db::insert_account(&lock(&state.db), &acc)?;
     Ok(acc)
 }
@@ -217,7 +267,7 @@ async fn google_sign_in(
     client_secret: String,
     display_name: String,
 ) -> R<Account> {
-    oauth_sign_in(app, state, Provider::Google, client_id, client_secret, display_name).await
+    oauth_sign_in(app, state, Provider::Google, client_id, client_secret, None, display_name).await
 }
 
 #[tauri::command]
@@ -226,9 +276,10 @@ async fn microsoft_sign_in(
     state: tauri::State<'_, AppState>,
     client_id: String,
     client_secret: String,
+    tenant: Option<String>,
     display_name: String,
 ) -> R<Account> {
-    oauth_sign_in(app, state, Provider::Microsoft, client_id, client_secret, display_name).await
+    oauth_sign_in(app, state, Provider::Microsoft, client_id, client_secret, tenant, display_name).await
 }
 
 async fn oauth_sign_in(
@@ -237,9 +288,11 @@ async fn oauth_sign_in(
     provider: Provider,
     client_id: String,
     client_secret: String,
+    tenant: Option<String>,
     display_name: String,
 ) -> R<Account> {
     let label = provider.label();
+    let tenant = if provider == Provider::Microsoft { oauth::clean_tenant(&tenant.unwrap_or_default())? } else { String::new() };
     let from_env = oauth_env(provider);
     let (client_id, client_secret) = match &from_env {
         Some((i, s)) => (i.clone(), s.clone()),
@@ -254,7 +307,7 @@ async fn oauth_sign_in(
             label.to_uppercase()
         ));
     }
-    let pending = oauth::begin(provider, client_id.trim())?;
+    let pending = oauth::begin(provider, &tenant, client_id.trim())?;
     app.opener().open_url(pending.url.clone(), None::<&str>).map_err(err)?;
     let (cid, csec) = (client_id.trim().to_string(), client_secret.trim().to_string());
     let signed = blocking(move || pending.finish(&cid, &csec)).await?;
@@ -285,6 +338,8 @@ async fn oauth_sign_in(
         username: signed.email.clone(),
         auth: provider.auth().into(),
         color: existing.and_then(|a| a.color),
+        smtp_username: String::new(),
+        tls_insecure: false,
     };
     keyring::Entry::new("hey-look", &acc.id)
         .and_then(|e| e.set_password(&signed.refresh_token))
@@ -299,6 +354,10 @@ async fn oauth_sign_in(
     })
     .await?;
     let c = lock(&state.db);
+    if provider == Provider::Microsoft {
+        // always kept: token refresh uses the same tenant, whether the client id came from the env or the form
+        db::set_setting(&c, "microsoft_tenant", if tenant == "common" { "" } else { &tenant })?;
+    }
     if from_env.is_none() {
         db::set_setting(&c, client_id_key(provider), client_id.trim())?;
         if !client_secret.trim().is_empty() {
@@ -307,6 +366,12 @@ async fn oauth_sign_in(
     }
     db::insert_account(&c, &acc)?;
     Ok(acc)
+}
+
+/// Look up IMAP / SMTP settings for an address (presets, autoconfig, DNS SRV, MX, probing).
+#[tauri::command]
+async fn discover_server(email: String) -> R<Option<discover::Discovered>> {
+    discover::run(&email).await
 }
 
 #[tauri::command]
@@ -323,8 +388,10 @@ fn update_account(state: tauri::State<AppState>, account_id: String, display_nam
 #[tauri::command]
 fn remove_account(state: tauri::State<AppState>, account_id: String) -> R<()> {
     db::remove_account(&lock(&state.db), &account_id)?;
-    if let Ok(e) = keyring::Entry::new("hey-look", &account_id) {
-        let _ = e.delete_credential();
+    for name in [account_id.clone(), format!("{account_id}:smtp")] {
+        if let Ok(e) = keyring::Entry::new("hey-look", &name) {
+            let _ = e.delete_credential();
+        }
     }
     Ok(())
 }
@@ -1595,7 +1662,7 @@ fn send_now(db: &Db, d: &smtp::Draft) -> R<()> {
     let acc = db::get_account(&lock(db), &d.account_id)?;
     let sec = secret(db, &acc)?;
     let msg = smtp::build(&acc, d)?;
-    smtp::send(&acc, &sec, &msg)?;
+    smtp::send(&acc, &smtp_secret(db, &acc)?, &msg)?;
     let h = acc.smtp_host.to_lowercase();
     let auto_saves = h.contains("gmail") || h.contains("googlemail") || h.contains("office365") || h.contains("outlook");
     if !auto_saves {
@@ -2043,6 +2110,8 @@ pub fn run() {
             google_env_configured,
             microsoft_sign_in,
             microsoft_env_configured,
+            microsoft_tenant,
+            discover_server,
             update_account,
             remove_account,
             sync_account,

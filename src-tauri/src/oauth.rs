@@ -41,17 +41,18 @@ impl Provider {
         }
     }
 
-    fn auth_url(self) -> &'static str {
+    /// `tenant` only matters for Microsoft: "common", "organizations", "consumers", a tenant GUID or domain.
+    fn auth_url(self, tenant: &str) -> String {
         match self {
-            Provider::Google => "https://accounts.google.com/o/oauth2/v2/auth",
-            Provider::Microsoft => "https://login.microsoftonline.com/common/oauth2/v2.0/authorize",
+            Provider::Google => "https://accounts.google.com/o/oauth2/v2/auth".into(),
+            Provider::Microsoft => format!("https://login.microsoftonline.com/{tenant}/oauth2/v2.0/authorize"),
         }
     }
 
-    fn token_url(self) -> &'static str {
+    fn token_url(self, tenant: &str) -> String {
         match self {
-            Provider::Google => "https://oauth2.googleapis.com/token",
-            Provider::Microsoft => "https://login.microsoftonline.com/common/oauth2/v2.0/token",
+            Provider::Google => "https://oauth2.googleapis.com/token".into(),
+            Provider::Microsoft => format!("https://login.microsoftonline.com/{tenant}/oauth2/v2.0/token"),
         }
     }
 
@@ -95,8 +96,22 @@ fn b64url(b: &[u8]) -> String {
     base64::engine::general_purpose::URL_SAFE_NO_PAD.encode(b)
 }
 
+/// Microsoft tenant segment of the endpoints. Restricted to what a tenant id/domain can contain so it can
+/// never alter the URL path.
+pub fn clean_tenant(raw: &str) -> R<String> {
+    let t = raw.trim();
+    if t.is_empty() {
+        return Ok("common".into());
+    }
+    if t.len() > 100 || !t.chars().all(|c| c.is_ascii_alphanumeric() || c == '-' || c == '.') {
+        return Err(format!("invalid Microsoft tenant: {t}"));
+    }
+    Ok(t.to_string())
+}
+
 pub struct Pending {
     provider: Provider,
+    tenant: String,
     listener: TcpListener,
     pub port: u16,
     verifier: String,
@@ -112,7 +127,7 @@ pub struct Signed {
 }
 
 /// Bind the loopback listener and build the consent URL.
-pub fn begin(provider: Provider, client_id: &str) -> R<Pending> {
+pub fn begin(provider: Provider, tenant: &str, client_id: &str) -> R<Pending> {
     let listener = TcpListener::bind("127.0.0.1:0").map_err(err)?;
     let port = listener.local_addr().map_err(err)?.port();
     let verifier = b64url(&rand::random::<[u8; 32]>());
@@ -121,7 +136,7 @@ pub fn begin(provider: Provider, client_id: &str) -> R<Pending> {
     let q = |s: &str| urlencoding::encode(s).into_owned();
     let url = format!(
         "{}?client_id={}&redirect_uri={}&response_type=code&scope={}&code_challenge={}&code_challenge_method=S256&state={}{}",
-        provider.auth_url(),
+        provider.auth_url(tenant),
         q(client_id),
         q(&provider.redirect(port)),
         q(provider.scope()),
@@ -129,7 +144,7 @@ pub fn begin(provider: Provider, client_id: &str) -> R<Pending> {
         state,
         provider.extra_auth_params()
     );
-    Ok(Pending { provider, listener, port, verifier, state, url })
+    Ok(Pending { provider, tenant: tenant.to_string(), listener, port, verifier, state, url })
 }
 
 fn query_param(line: &str, key: &str) -> Option<String> {
@@ -212,7 +227,7 @@ impl Pending {
             form.push(("scope", self.provider.scope()));
         }
         let resp: serde_json::Value = reqwest::blocking::Client::new()
-            .post(self.provider.token_url())
+            .post(self.provider.token_url(&self.tenant))
             .form(&form)
             .send()
             .map_err(err)?
@@ -246,7 +261,7 @@ pub fn cache_token(account_id: &str, token: &str, expires_in: i64) {
 }
 
 /// A valid access token for the account; refreshes with the stored refresh token when needed.
-pub fn access_token(provider: Provider, account_id: &str, client_id: &str, client_secret: &str) -> R<String> {
+pub fn access_token(provider: Provider, tenant: &str, account_id: &str, client_id: &str, client_secret: &str) -> R<String> {
     if let Some((t, exp)) = cache().lock().unwrap().get(account_id) {
         if *exp - 60 > now() {
             return Ok(t.clone());
@@ -263,7 +278,7 @@ pub fn access_token(provider: Provider, account_id: &str, client_id: &str, clien
         form.push(("scope", provider.scope()));
     }
     let resp: serde_json::Value = reqwest::blocking::Client::new()
-        .post(provider.token_url())
+        .post(provider.token_url(tenant))
         .form(&form)
         .send()
         .map_err(err)?

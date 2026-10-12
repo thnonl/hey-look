@@ -11,6 +11,10 @@ export interface Account {
   smtpPort: number;
   smtpSecurity: "ssl" | "starttls" | "none";
   username: string;
+  /** SMTP login when it differs from `username` (empty = same). */
+  smtpUsername: string;
+  /** Server certificate is not verified (self-signed / private CA). */
+  tlsInsecure: boolean;
   auth: "password" | "oauth_google" | "oauth_microsoft";
   color?: string | null;
 }
@@ -167,18 +171,33 @@ export interface Contact {
 
 export type FolderKey = string;
 
+/** Result of the server-settings lookup for an email address. */
+export interface Discovered {
+  imapHost: string;
+  imapPort: number;
+  imapSsl: boolean;
+  smtpHost: string;
+  smtpPort: number;
+  smtpSecurity: "ssl" | "starttls";
+  username: string;
+  oauth: "google" | "microsoft" | null;
+  source: "built-in" | "autoconfig" | "ispdb" | "dns-srv" | "mx" | "guess";
+}
+
 export type SecretName = "ai_key" | "google_client_secret" | "microsoft_client_secret";
 
 export const api = {
   listAccounts: () => invoke<Account[]>("list_accounts"),
-  addAccount: (input: AccountInput, passwordValue: string) =>
-    invoke<Account>("add_account", { input, passwordValue }),
+  addAccount: (input: AccountInput, passwordValue: string, smtpPassword?: string) =>
+    invoke<Account>("add_account", { input, passwordValue, smtpPassword: smtpPassword || null }),
+  discoverServer: (email: string) => invoke<Discovered | null>("discover_server", { email }),
   googleEnvConfigured: () => invoke<boolean>("google_env_configured"),
   googleSignIn: (clientId: string, clientSecret: string, displayName: string) =>
     invoke<Account>("google_sign_in", { clientId, clientSecret, displayName }),
   microsoftEnvConfigured: () => invoke<boolean>("microsoft_env_configured"),
-  microsoftSignIn: (clientId: string, clientSecret: string, displayName: string) =>
-    invoke<Account>("microsoft_sign_in", { clientId, clientSecret, displayName }),
+  microsoftTenant: () => invoke<string>("microsoft_tenant"),
+  microsoftSignIn: (clientId: string, clientSecret: string, tenant: string, displayName: string) =>
+    invoke<Account>("microsoft_sign_in", { clientId, clientSecret, tenant, displayName }),
   updateAccount: (accountId: string, displayName: string, color: string | null) =>
     invoke<void>("update_account", { accountId, displayName, color }),
   removeAccount: (accountId: string) => invoke<void>("remove_account", { accountId }),
@@ -236,7 +255,10 @@ export const api = {
 
 export const PROVIDERS: Record<
   string,
-  { label: string; imapHost: string; imapPort: number; smtpHost: string; smtpPort: number; smtpSecurity: "ssl" | "starttls"; hint?: string }
+  {
+    label: string; imapHost: string; imapPort: number; imapSsl?: boolean; smtpHost: string; smtpPort: number;
+    smtpSecurity: "ssl" | "starttls"; hint?: string; insecure?: boolean;
+  }
 > = {
   gmail: {
     label: "Gmail",
@@ -273,6 +295,17 @@ export const PROVIDERS: Record<
     smtpPort: 465,
     smtpSecurity: "ssl",
     hint: "Use a Yahoo app password.",
+  },
+  bridge: {
+    label: "Proton Mail Bridge",
+    imapHost: "127.0.0.1",
+    imapPort: 1143,
+    imapSsl: false,
+    smtpHost: "127.0.0.1",
+    smtpPort: 1025,
+    smtpSecurity: "starttls",
+    insecure: true,
+    hint: "Run Proton Mail Bridge, then use the Bridge username and password (not your Proton password). Bridge uses a self-signed certificate on this computer, so the certificate is trusted.",
   },
   custom: {
     label: "Other (IMAP/SMTP)",

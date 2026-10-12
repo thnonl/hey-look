@@ -1,7 +1,7 @@
 import { Plus, Trash2 } from "lucide-react";
 import { openUrl } from "@tauri-apps/plugin-opener";
 import { ReactNode, useEffect, useRef, useState } from "react";
-import { Account, api, PROVIDERS, Rule, Signature, Template } from "../api";
+import { Account, api, Discovered, PROVIDERS, Rule, Signature, Template } from "../api";
 import { ACCENT_PRESETS, DEFAULT_PREFS, eff, folderLabel, isOverridden, NOTIFY_ACTIONS, NOTIFY_SOUNDS, Overridable, Prefs, validHex } from "../prefs";
 import { friendlyError, useStore } from "../store";
 import { AppearancePreview } from "./AppearancePreview";
@@ -275,7 +275,6 @@ const OAUTH = {
     idSetting: "google_client_id",
     envVars: "GOOGLE_CLIENT_ID / GOOGLE_CLIENT_SECRET",
     idPlaceholder: "1234-abc.apps.googleusercontent.com",
-    secretRequired: true,
   },
   microsoft: {
     label: "Microsoft",
@@ -283,7 +282,6 @@ const OAUTH = {
     idSetting: "microsoft_client_id",
     envVars: "MICROSOFT_CLIENT_ID",
     idPlaceholder: "00000000-0000-0000-0000-000000000000",
-    secretRequired: false,
   },
 };
 
@@ -296,17 +294,23 @@ function OAuthBlock({ kind }: { kind: OAuthKind }) {
   const [name, setName] = useState("");
   const [busy, setBusy] = useState(false);
   const [fromEnv, setFromEnv] = useState(false);
+  const [tenant, setTenant] = useState("");
   useEffect(() => {
     const envCheck = kind === "google" ? api.googleEnvConfigured() : api.microsoftEnvConfigured();
     void envCheck.then(setFromEnv).catch(() => undefined);
     void api.getSetting(cfg.idSetting).then((a) => setCid(a ?? ""));
-    void api.hasSecret(cfg.secretName).then(setSecSaved).catch(() => undefined);
+    // Microsoft is a public client: no secret to ask for. Only Google needs one.
+    if (kind === "google") void api.hasSecret(cfg.secretName).then(setSecSaved).catch(() => undefined);
+    if (kind === "microsoft") {
+      void api.microsoftTenant().then(setTenant).catch(() => undefined);
+    }
   }, [kind, cfg]);
   const go = async () => {
     setBusy(true);
     try {
-      const signIn = kind === "google" ? api.googleSignIn : api.microsoftSignIn;
-      const acc = await signIn(cid, sec, name);
+      const acc = kind === "google"
+        ? await api.googleSignIn(cid, sec, name)
+        : await api.microsoftSignIn(cid, "", tenant, name);
       const accounts = await api.listAccounts();
       useStore.setState({ accounts });
       showToast(`Signed in as ${acc.email}. Syncing…`, undefined, "success");
@@ -349,13 +353,27 @@ function OAuthBlock({ kind }: { kind: OAuthKind }) {
                 In Microsoft Entra (portal.azure.com, App registrations) register an app that supports <b>personal and work accounts</b>,
                 add a <b>Mobile and desktop applications</b> platform with redirect URI <code>http://localhost</code>, and paste the
                 Application (client) ID here. API permissions: <code>IMAP.AccessAsUser.All</code>, <code>SMTP.Send</code>,{" "}
-                <code>offline_access</code> (Office 365 Exchange Online). No secret is needed.
+                <code>offline_access</code> (Office 365 Exchange Online).
               </div>
             )}
             <label>Client ID</label>
             <input aria-label="Client ID" value={cid} onChange={(e) => setCid(e.target.value)} placeholder={cfg.idPlaceholder} />
-            <label>Client secret{cfg.secretRequired ? "" : " (optional)"}</label>
-            <input aria-label="Client secret" type="password" value={sec} onChange={(e) => setSec(e.target.value)} placeholder={secSaved ? "Saved in Windows Credential Manager" : ""} />
+            {kind === "google" && (
+              <>
+                <label>Client secret</label>
+                <input aria-label="Client secret" type="password" value={sec} onChange={(e) => setSec(e.target.value)} placeholder={secSaved ? "Saved in Windows Credential Manager" : ""} />
+              </>
+            )}
+          </>
+        )}
+        {kind === "microsoft" && (
+          <>
+            <label>Tenant (optional)</label>
+            <input aria-label="Tenant (optional)" value={tenant} onChange={(e) => setTenant(e.target.value)} placeholder="common" />
+            <div className="muted small">
+              Leave empty for personal and work accounts. Enter a tenant ID or domain only if your app registration is single-tenant
+              (then personal accounts cannot sign in).
+            </div>
           </>
         )}
         <label>Display name (optional)</label>
@@ -368,31 +386,75 @@ function OAuthBlock({ kind }: { kind: OAuthKind }) {
   );
 }
 
+const SOURCE_LABEL: Record<Discovered["source"], string> = {
+  "built-in": "built-in settings",
+  autoconfig: "the provider's autoconfig",
+  ispdb: "the Thunderbird ISPDB",
+  "dns-srv": "DNS SRV records",
+  mx: "the MX record",
+  guess: "common host names (not verified)",
+};
+
 function ImapForm() {
   const { showToast } = useStore();
   const [provider, setProvider] = useState("custom");
   const [email, setEmail] = useState("");
   const [name, setName] = useState("");
   const [pw, setPw] = useState("");
-  const [adv, setAdv] = useState(PROVIDERS.custom);
+  const startAdv = (p: string) => ({ ...PROVIDERS[p], imapSsl: PROVIDERS[p].imapSsl ?? PROVIDERS[p].imapPort === 993 });
+  const [adv, setAdv] = useState(startAdv("custom"));
   const [username, setUsername] = useState("");
+  const [sepSmtp, setSepSmtp] = useState(false);
+  const [smtpUser, setSmtpUser] = useState("");
+  const [smtpPw, setSmtpPw] = useState("");
+  const [insecure, setInsecure] = useState(false);
   const [busy, setBusy] = useState(false);
+  const [detecting, setDetecting] = useState(false);
+  const [found, setFound] = useState<Discovered | null>(null);
+  const showAdv = provider === "custom" || provider === "bridge";
   const pick = (p: string) => {
     setProvider(p);
-    setAdv(PROVIDERS[p]);
+    setAdv(startAdv(p));
+    setInsecure(!!PROVIDERS[p].insecure);
+    setFound(null);
+  };
+  const detect = async () => {
+    setDetecting(true);
+    setFound(null);
+    try {
+      const d = await api.discoverServer(email);
+      if (!d) {
+        showToast("No server settings found for this address. Enter them manually.", undefined, "error");
+        return;
+      }
+      setProvider("custom");
+      setAdv({
+        ...PROVIDERS.custom, imapHost: d.imapHost, imapPort: d.imapPort, imapSsl: d.imapSsl,
+        smtpHost: d.smtpHost, smtpPort: d.smtpPort, smtpSecurity: d.smtpSecurity,
+      });
+      setUsername(d.username === email.trim() ? "" : d.username);
+      setInsecure(false);
+      setFound(d);
+    } catch (e) {
+      showToast(friendlyError(e), undefined, "error");
+    } finally {
+      setDetecting(false);
+    }
   };
   const add = async () => {
     setBusy(true);
     try {
       const acc = await api.addAccount(
         {
-          email, displayName: name, imapHost: adv.imapHost, imapPort: adv.imapPort, imapSsl: adv.imapPort === 993,
+          email, displayName: name, imapHost: adv.imapHost, imapPort: adv.imapPort, imapSsl: adv.imapSsl,
           smtpHost: adv.smtpHost, smtpPort: adv.smtpPort, smtpSecurity: adv.smtpSecurity, username: username || email,
+          smtpUsername: sepSmtp ? smtpUser : "", tlsInsecure: insecure,
         },
         pw,
+        sepSmtp ? smtpPw : undefined,
       );
       useStore.setState((s) => ({ accounts: [...s.accounts, acc] }));
-      setEmail(""); setPw(""); setName("");
+      setEmail(""); setPw(""); setName(""); setSmtpPw(""); setFound(null);
       showToast(`Added ${acc.email}. Syncing…`, undefined, "success");
       void useStore.getState().sync();
     } catch (e) {
@@ -411,19 +473,33 @@ function ImapForm() {
         </select>
         {PROVIDERS[provider].hint && <div className="notice">{PROVIDERS[provider].hint}</div>}
         <label>Email</label>
-        <input aria-label="Email" value={email} onChange={(e) => setEmail(e.target.value)} />
+        <div className="row-inline">
+          <input aria-label="Email" value={email} onChange={(e) => setEmail(e.target.value)} />
+          <button className="btn" disabled={detecting || !email.includes("@")} onClick={() => void detect()} title="Look up the server settings for this address">
+            {detecting ? "Detecting…" : "Detect settings"}
+          </button>
+        </div>
+        {found && (
+          <div className="notice">
+            Settings found via {SOURCE_LABEL[found.source]}. {found.source === "guess" ? "Check them before adding. " : ""}
+            {found.oauth && <>This provider also supports signing in without a password: use the {found.oauth === "google" ? "Google" : "Microsoft"} tab.</>}
+          </div>
+        )}
         <label>Display name</label>
         <input aria-label="Display name" value={name} onChange={(e) => setName(e.target.value)} />
         <label>Password / app password</label>
         <input aria-label="Password / app password" type="password" value={pw} onChange={(e) => setPw(e.target.value)} />
-        {provider === "custom" && (
+        {showAdv && (
           <>
             <label>Username (if different from email)</label>
             <input aria-label="Username (if different from email)" value={username} onChange={(e) => setUsername(e.target.value)} />
-            <label>IMAP host / port</label>
+            <label>IMAP host / port / security</label>
             <div className="row-inline">
               <input aria-label="IMAP host" value={adv.imapHost} onChange={(e) => setAdv({ ...adv, imapHost: e.target.value })} />
               <input type="number" aria-label="IMAP port" value={adv.imapPort} onChange={(e) => setAdv({ ...adv, imapPort: Number(e.target.value) })} />
+              <select aria-label="IMAP security" value={adv.imapSsl ? "ssl" : "starttls"} onChange={(e) => setAdv({ ...adv, imapSsl: e.target.value === "ssl" })}>
+                <option value="ssl">SSL/TLS</option><option value="starttls">STARTTLS</option>
+              </select>
             </div>
             <label>SMTP host / port / security</label>
             <div className="row-inline">
@@ -433,6 +509,28 @@ function ImapForm() {
                 <option value="ssl">SSL/TLS</option><option value="starttls">STARTTLS</option>
               </select>
             </div>
+            <div className="row-inline">
+              <Switch checked={sepSmtp} onChange={setSepSmtp} />
+              <span>Use a different login for sending (SMTP)</span>
+            </div>
+            {sepSmtp && (
+              <>
+                <label>SMTP username</label>
+                <input aria-label="SMTP username" value={smtpUser} onChange={(e) => setSmtpUser(e.target.value)} placeholder={username || email} />
+                <label>SMTP password (empty = same as above)</label>
+                <input aria-label="SMTP password" type="password" value={smtpPw} onChange={(e) => setSmtpPw(e.target.value)} />
+              </>
+            )}
+            <div className="row-inline">
+              <Switch checked={insecure} onChange={setInsecure} />
+              <span>Trust this server's certificate (self-signed or private CA)</span>
+            </div>
+            {insecure && (
+              <div className="notice">
+                The certificate is not checked, so anyone on the network path could impersonate this server. Use this only for servers on
+                this computer or your own network.
+              </div>
+            )}
           </>
         )}
         <button className="btn primary" disabled={busy || !email || !pw} onClick={() => void add()}>
@@ -799,6 +897,8 @@ function ServerPanel({ account, close }: { account: Account; close: () => void }
       <Row label="Sign-in method">{account.auth === "oauth_google" ? "Google (OAuth 2.0)" : account.auth === "oauth_microsoft" ? "Microsoft (OAuth 2.0)" : "Password (stored in Windows Credential Manager)"}</Row>
       <Row label="Incoming (IMAP)">{account.imapHost}:{account.imapPort}</Row>
       <Row label="Outgoing (SMTP)">{account.smtpHost}:{account.smtpPort} ({account.smtpSecurity})</Row>
+      {account.smtpUsername && <Row label="SMTP login">{account.smtpUsername}</Row>}
+      {account.tlsInsecure && <Row label="Server certificate" hint="Self-signed or private-CA certificates are accepted for this account.">Not verified</Row>}
       <Row label="Remove account" hint="Deletes the local cache and stored credentials.">
         <button className="btn danger" onClick={() => void remove()}><Trash2 size={14} /> Remove</button>
       </Row>
