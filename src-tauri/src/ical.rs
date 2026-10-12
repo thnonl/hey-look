@@ -249,16 +249,20 @@ enum Zone {
 fn offset_secs(v: &str) -> Option<i32> {
     let v = v.trim();
     let (sign, rest) = match v.as_bytes().first()? {
-        b'-' => (-1, &v[1..]),
-        b'+' => (1, &v[1..]),
+        b'-' => (-1, v.get(1..)?),
+        b'+' => (1, v.get(1..)?),
         _ => (1, v),
     };
-    if rest.len() < 4 {
+    // HHMM or HHMMSS, ASCII digits only (never slice by bytes: the text can hold multi-byte characters)
+    if !(rest.len() == 4 || rest.len() == 6) || !rest.bytes().all(|b| b.is_ascii_digit()) {
         return None;
     }
-    let h: i32 = rest[0..2].parse().ok()?;
-    let m: i32 = rest[2..4].parse().ok()?;
+    let h: i32 = rest.get(0..2)?.parse().ok()?;
+    let m: i32 = rest.get(2..4)?.parse().ok()?;
     let s: i32 = rest.get(4..6).and_then(|x| x.parse().ok()).unwrap_or(0);
+    if h > 23 || m > 59 || s > 59 {
+        return None;
+    }
     Some(sign * (h * 3600 + m * 60 + s))
 }
 
@@ -267,10 +271,10 @@ fn local_in(tz: Tz, n: NaiveDateTime) -> i64 {
     match tz.from_local_datetime(&n) {
         chrono::LocalResult::Single(d) => d.timestamp(),
         chrono::LocalResult::Ambiguous(a, _) => a.timestamp(),
-        chrono::LocalResult::None => match tz.from_local_datetime(&(n + Duration::hours(1))) {
-            chrono::LocalResult::Single(d) => d.timestamp(),
-            chrono::LocalResult::Ambiguous(a, _) => a.timestamp(),
-            chrono::LocalResult::None => n.and_utc().timestamp(),
+        chrono::LocalResult::None => match n.checked_add_signed(Duration::hours(1)).map(|m| tz.from_local_datetime(&m)) {
+            Some(chrono::LocalResult::Single(d)) => d.timestamp(),
+            Some(chrono::LocalResult::Ambiguous(a, _)) => a.timestamp(),
+            _ => n.and_utc().timestamp(),
         },
     }
 }
@@ -308,9 +312,11 @@ fn parse_naive(v: &str) -> Option<NaiveDateTime> {
     if v.len() < 8 {
         return None;
     }
-    let d = NaiveDate::from_ymd_opt(v.get(0..4)?.parse().ok()?, v.get(4..6)?.parse().ok()?, v.get(6..8)?.parse().ok()?)?;
+    // digits only: a sign or other character would parse as a number and give odd years
+    let digits = |r: std::ops::Range<usize>| -> Option<&str> { v.get(r).filter(|x| x.bytes().all(|b| b.is_ascii_digit())) };
+    let d = NaiveDate::from_ymd_opt(digits(0..4)?.parse().ok()?, digits(4..6)?.parse().ok()?, digits(6..8)?.parse().ok()?)?;
     if v.len() >= 15 && v.as_bytes()[8] == b'T' {
-        let t = NaiveTime::from_hms_opt(v.get(9..11)?.parse().ok()?, v.get(11..13)?.parse().ok()?, v.get(13..15)?.parse().ok()?)?;
+        let t = NaiveTime::from_hms_opt(digits(9..11)?.parse().ok()?, digits(11..13)?.parse().ok()?, digits(13..15)?.parse().ok()?)?;
         Some(d.and_time(t))
     } else {
         Some(d.and_hms_opt(0, 0, 0)?)
@@ -385,13 +391,14 @@ fn parse_duration(v: &str) -> Option<i64> {
                 let n: i64 = num.parse().ok()?;
                 num.clear();
                 seen = true;
-                total += n * match c {
+                let unit: i64 = match c {
                     'W' => 604800,
                     'D' => 86400,
                     'H' => 3600,
                     'M' => 60,
                     _ => 1,
                 };
+                total = total.checked_add(n.checked_mul(unit)?)?;
             }
             _ => return None,
         }
@@ -404,7 +411,10 @@ fn parse_duration(v: &str) -> Option<i64> {
 
 fn mailto(v: &str) -> Option<String> {
     let t = v.trim();
-    let t = if t.len() >= 7 && t[..7].eq_ignore_ascii_case("mailto:") { &t[7..] } else { t };
+    let t = match t.get(..7) {
+        Some(p) if p.eq_ignore_ascii_case("mailto:") => t.get(7..).unwrap_or(""),
+        _ => t,
+    };
     let t = t.split('?').next().unwrap_or(t).trim();
     (t.contains('@') && !t.contains(' ')).then(|| t.to_ascii_lowercase())
 }
@@ -552,6 +562,9 @@ pub fn parse(text: &str) -> Result<IcsCalendar, String> {
     Ok(cal)
 }
 
+/// Longest DURATION accepted (100 years); anything larger is treated as missing.
+const MAX_DURATION_SECS: i64 = 100 * 366 * 86400;
+
 fn build_event(props: &[Line], ctx: &Ctx) -> Option<IcsEvent> {
     let mut ev = IcsEvent { status: "confirmed".into(), ..Default::default() };
     let mut dtstart: Option<Dt> = None;
@@ -609,7 +622,7 @@ fn build_event(props: &[Line], ctx: &Ctx) -> Option<IcsEvent> {
     ev.tzid = s.tz.clone();
     ev.end = match (dtend, duration) {
         (Some(e), _) if e.ts >= s.ts => e.ts,
-        (_, Some(d)) if d >= 0 => s.ts + d,
+        (_, Some(d)) if (0..=MAX_DURATION_SECS).contains(&d) => s.ts + d,
         _ => {
             if s.all_day {
                 s.ts + 86400
@@ -727,16 +740,15 @@ fn parse_rule(s: &str) -> Option<Rule> {
             "BYDAY" => {
                 for d in v.split(',') {
                     let d = d.trim();
-                    if d.len() < 2 {
-                        continue;
-                    }
-                    let (num, name) = d.split_at(d.len() - 2);
-                    let ord: i32 = if num.is_empty() { 0 } else { num.trim_start_matches('+').parse().ok()? };
+                    // the weekday is the last two characters (never split by byte index: the text may be multi-byte)
+                    let Some((cut, _)) = d.char_indices().rev().nth(1) else { continue };
+                    let (num, name) = d.split_at(cut);
+                    let ord: i32 = if num.is_empty() { 0 } else { num.trim_start_matches('+').parse().ok().filter(|n: &i32| n.unsigned_abs() <= 53)? };
                     r.by_day.push((ord, wd(name)?));
                 }
             }
-            "BYMONTHDAY" => r.by_month_day = v.split(',').filter_map(|x| x.trim().parse().ok()).collect(),
-            "BYMONTH" => r.by_month = v.split(',').filter_map(|x| x.trim().parse().ok()).collect(),
+            "BYMONTHDAY" => r.by_month_day = v.split(',').filter_map(|x| x.trim().parse::<i32>().ok()).filter(|d| (-31..=31).contains(d)).collect(),
+            "BYMONTH" => r.by_month = v.split(',').filter_map(|x| x.trim().parse::<u32>().ok()).filter(|m| (1..=12).contains(m)).collect(),
             "WKST" => r.wkst = wd(v)?,
             _ => {}
         }
@@ -746,8 +758,11 @@ fn parse_rule(s: &str) -> Option<Rule> {
 }
 
 fn days_in_month(y: i32, m: u32) -> u32 {
-    let (ny, nm) = if m == 12 { (y + 1, 1) } else { (y, m + 1) };
-    (NaiveDate::from_ymd_opt(ny, nm, 1).unwrap() - NaiveDate::from_ymd_opt(y, m, 1).unwrap()).num_days() as u32
+    let (ny, nm) = if m == 12 { (y.saturating_add(1), 1) } else { (y, m + 1) };
+    match (NaiveDate::from_ymd_opt(ny, nm, 1), NaiveDate::from_ymd_opt(y, m, 1)) {
+        (Some(next), Some(first)) => (next - first).num_days() as u32,
+        _ => 0,
+    }
 }
 
 fn add_months(y: i32, m: u32, add: u32) -> (i32, u32) {
@@ -761,19 +776,19 @@ fn month_days(y: i32, m: u32, r: &Rule, base_day: u32) -> Vec<NaiveDate> {
     let mut out: Vec<u32> = vec![];
     if !r.by_month_day.is_empty() {
         for d in &r.by_month_day {
-            let day = if *d > 0 { *d as u32 } else { (dim as i32 + 1 + *d) as u32 };
-            if day >= 1 && day <= dim {
-                out.push(day);
+            let day = if *d > 0 { *d } else { dim as i32 + 1 + *d };
+            if day >= 1 && day <= dim as i32 {
+                out.push(day as u32);
             }
         }
     } else if !r.by_day.is_empty() {
         for (ord, w) in &r.by_day {
-            let matching: Vec<u32> = (1..=dim).filter(|d| NaiveDate::from_ymd_opt(y, m, *d).unwrap().weekday() == *w).collect();
+            let matching: Vec<u32> = (1..=dim).filter(|d| NaiveDate::from_ymd_opt(y, m, *d).map(|x| x.weekday() == *w).unwrap_or(false)).collect();
             match *ord {
                 0 => out.extend(matching),
                 n if n > 0 => out.extend(matching.get(n as usize - 1).copied()),
                 n => {
-                    let i = matching.len() as i32 + n;
+                    let i = (matching.len() as i32).saturating_add(n);
                     if i >= 0 {
                         out.extend(matching.get(i as usize).copied());
                     }
@@ -791,8 +806,8 @@ fn month_days(y: i32, m: u32, r: &Rule, base_day: u32) -> Vec<NaiveDate> {
 /// All occurrences (start, end) of a recurring event that touch `[win_from, win_to)`, with EXDATEs removed.
 /// The first instance is always DTSTART itself. Unknown rules fall back to the single base occurrence.
 pub fn expand(start: i64, end: i64, all_day: bool, tzid: Option<&str>, rrule: &str, exdates: &[i64], win_from: i64, win_to: i64) -> Vec<(i64, i64)> {
-    let dur = (end - start).max(0);
-    let touches = |s: i64| s < win_to && (s + dur).max(s + 1) > win_from;
+    let dur = end.saturating_sub(start).max(0);
+    let touches = |s: i64| s < win_to && s.saturating_add(dur).max(s.saturating_add(1)) > win_from;
     let Some(rule) = parse_rule(rrule) else {
         return if touches(start) && !exdates.contains(&start) { vec![(start, end)] } else { vec![] };
     };
@@ -833,7 +848,7 @@ pub fn expand(start: i64, end: i64, all_day: bool, tzid: Option<&str>, rrule: &s
         }
         *emitted += 1;
         if touches(s) && !exdates.contains(&s) {
-            out.push((s, s + dur));
+            out.push((s, s.saturating_add(dur)));
         }
         true
     };
@@ -845,12 +860,15 @@ pub fn expand(start: i64, end: i64, all_day: bool, tzid: Option<&str>, rrule: &s
                 if guard > 60_000 || !take(d, &mut out, &mut emitted) {
                     break;
                 }
-                d += Duration::days(rule.interval as i64);
+                match Duration::try_days(rule.interval as i64).and_then(|step| d.checked_add_signed(step)) {
+                    Some(next) => d = next,
+                    None => break,
+                }
             }
         }
         Freq::Weekly => {
             let back = (bdate.weekday().num_days_from_monday() + 7 - rule.wkst.num_days_from_monday()) % 7;
-            let mut week = bdate - Duration::days(back as i64);
+            let Some(mut week) = bdate.checked_sub_signed(Duration::days(back as i64)) else { return out };
             let days: Vec<Weekday> = if rule.by_day.is_empty() { vec![bdate.weekday()] } else { rule.by_day.iter().map(|x| x.1).collect() };
             let mut offs: Vec<i64> = days.iter().map(|w| ((w.num_days_from_monday() + 7 - rule.wkst.num_days_from_monday()) % 7) as i64).collect();
             offs.sort_unstable();
@@ -858,18 +876,23 @@ pub fn expand(start: i64, end: i64, all_day: bool, tzid: Option<&str>, rrule: &s
             'w: loop {
                 for o in &offs {
                     guard += 1;
-                    if guard > 60_000 || !take(week + Duration::days(*o), &mut out, &mut emitted) {
+                    let Some(day) = week.checked_add_signed(Duration::days(*o)) else { break 'w };
+                    if guard > 60_000 || !take(day, &mut out, &mut emitted) {
                         break 'w;
                     }
                 }
-                week += Duration::weeks(rule.interval as i64);
+                match Duration::try_weeks(rule.interval as i64).and_then(|step| week.checked_add_signed(step)) {
+                    Some(next) => week = next,
+                    None => break,
+                }
             }
         }
         Freq::Monthly => {
             let mut k = 0u32;
             'm: loop {
-                let (y, m) = add_months(bdate.year(), bdate.month(), k * rule.interval);
-                if y > 9000 {
+                let Some(add) = k.checked_mul(rule.interval) else { break };
+                let (y, m) = add_months(bdate.year(), bdate.month(), add);
+                if y > 9000.max(bdate.year()) {
                     break;
                 }
                 for d in month_days(y, m, &rule, bdate.day()) {
@@ -890,12 +913,13 @@ pub fn expand(start: i64, end: i64, all_day: bool, tzid: Option<&str>, rrule: &s
             }
         }
         Freq::Yearly => {
-            let mut k = 0i32;
+            let mut k = 0u32;
             'y: loop {
-                let y = bdate.year() + k * rule.interval as i32;
-                if y > 9000 {
+                let y = bdate.year() as i64 + k as i64 * rule.interval as i64;
+                if y > 9000i64.max(bdate.year() as i64) {
                     break;
                 }
+                let y = y as i32;
                 let months: Vec<u32> = if rule.by_month.is_empty() { vec![bdate.month()] } else { rule.by_month.clone() };
                 for m in months {
                     for d in month_days(y, m, &rule, bdate.day()) {
@@ -1236,6 +1260,158 @@ END:VEVENT\r\nEND:VCALENDAR\r\n";
         // a UTF-8 BOM and multibyte text survive
         let c = parse("\u{feff}BEGIN:VCALENDAR\r\nBEGIN:VEVENT\r\nUID:x\r\nDTSTART:20261014T100000Z\r\nSUMMARY:Họp nhóm — đồng bộ\r\nEND:VEVENT\r\nEND:VCALENDAR").unwrap();
         assert_eq!(c.events[0].summary, "Họp nhóm — đồng bộ");
+    }
+
+    fn ics_with(extra: &str) -> String {
+        format!("BEGIN:VCALENDAR\r\nMETHOD:REQUEST\r\nBEGIN:VTIMEZONE\r\nTZID:Custom\r\n{extra}END:VTIMEZONE\r\nBEGIN:VEVENT\r\nUID:f1\r\nDTSTART;TZID=Custom:20261014T100000\r\nSUMMARY:x\r\nEND:VEVENT\r\nEND:VCALENDAR\r\n")
+    }
+
+    #[test]
+    fn multibyte_tz_offset_does_not_panic() {
+        // F1: TZOFFSETTO with a multi-byte character in the digits
+        for bad in ["+€12", "€€€€", "+12é4", "-é", "+", "-", "", "+99999999", "+2599", "+1260", "+12:30"] {
+            let ics = ics_with(&format!("BEGIN:STANDARD\r\nTZOFFSETTO:{bad}\r\nEND:STANDARD\r\n"));
+            let _ = parse(&ics);
+            assert_eq!(offset_secs(bad), None, "{bad}");
+        }
+        assert_eq!(offset_secs("+0530"), Some(19800));
+        assert_eq!(offset_secs("-0800"), Some(-28800));
+        assert_eq!(offset_secs("+053015"), Some(19815));
+    }
+
+    #[test]
+    fn multibyte_byday_does_not_panic() {
+        // F2: BYDAY with multi-byte characters, on every path that reads a rule
+        let s = ts(2026, 10, 14, 9, 0);
+        for rule in [
+            "FREQ=WEEKLY;BYDAY=éM",
+            "FREQ=WEEKLY;BYDAY=é",
+            "FREQ=WEEKLY;BYDAY=€€€",
+            "FREQ=MONTHLY;BYDAY=1é",
+            "FREQ=WEEKLY;BYDAY=日本語",
+            "FREQ=WEEKLY;BYDAY=,,,",
+            "FREQ=WEEKLY;BYDAY=99999999999MO",
+            "FREQ=MONTHLY;BYDAY=-2147483648MO",
+            "FREQ=MONTHLY;BYDAY=2147483647TU",
+        ] {
+            let _ = expand(s, s + 3600, false, None, rule, &[], 0, ts(2030, 1, 1, 0, 0));
+            let _ = describe_rrule(rule, s);
+        }
+        assert!(parse_rule("FREQ=WEEKLY;BYDAY=éM").is_none());
+        assert_eq!(parse_rule("FREQ=MONTHLY;BYDAY=-1FR").unwrap().by_day, vec![(-1, Weekday::Fri)]);
+    }
+
+    #[test]
+    fn multibyte_attendee_and_organizer_do_not_panic() {
+        // F3: mailto() sliced bytes
+        assert_eq!(mailto("aaaaaa€x@y.z").as_deref(), Some("aaaaaa€x@y.z"));
+        assert_eq!(mailto("MAILTO:Bob@Example.com").as_deref(), Some("bob@example.com"));
+        assert_eq!(mailto("€€€").as_deref(), None);
+        assert_eq!(mailto("mail€o:a@b").as_deref(), Some("mail€o:a@b"));
+        let s = "BEGIN:VCALENDAR\r\nBEGIN:VEVENT\r\nUID:m\r\nDTSTART:20261014T100000Z\r\nORGANIZER:aaaaaa€x@y.z\r\nATTENDEE;EMAIL=€€€€€€€€:€€€€€€€€\r\nATTENDEE;CN=Đỗ:mailto:€@x\r\nEND:VEVENT\r\nEND:VCALENDAR";
+        let e = &parse(s).unwrap().events[0];
+        assert_eq!(e.organizer.as_ref().unwrap().email, "aaaaaa€x@y.z");
+    }
+
+    #[test]
+    fn huge_interval_and_counts_do_not_overflow() {
+        // F4: INTERVAL and friends near the integer and date limits
+        let s = ts(2026, 10, 14, 9, 0);
+        for rule in [
+            "FREQ=DAILY;INTERVAL=100000000",
+            "FREQ=DAILY;INTERVAL=4294967295",
+            "FREQ=WEEKLY;INTERVAL=20000000",
+            "FREQ=WEEKLY;INTERVAL=4294967295;BYDAY=MO,TU",
+            "FREQ=MONTHLY;INTERVAL=4294967295",
+            "FREQ=MONTHLY;INTERVAL=2147483647;COUNT=4294967295",
+            "FREQ=YEARLY;INTERVAL=4294967295",
+            "FREQ=YEARLY;INTERVAL=2147483647",
+            "FREQ=YEARLY;INTERVAL=1000000;BYMONTH=0,13,99,4294967295",
+            "FREQ=YEARLY;BYMONTH=0",
+            "FREQ=YEARLY;BYMONTH=13;BYMONTHDAY=-2147483648,2147483647,0",
+            "FREQ=MONTHLY;BYMONTHDAY=-2147483648,32,-32",
+            "FREQ=DAILY;COUNT=99999999999999",
+        ] {
+            let o = expand(s, s + 3600, false, None, rule, &[], 0, i64::MAX);
+            assert!(o.len() <= 60_000, "{rule}");
+            let _ = expand(s, s + 3600, false, Some("Europe/Berlin"), rule, &[], i64::MIN, i64::MAX);
+            let _ = expand(s, i64::MAX, false, None, rule, &[], 0, i64::MAX);
+            let _ = expand(i64::MAX / 2, i64::MIN, true, None, rule, &[], i64::MIN, i64::MAX);
+            let _ = describe_rrule(rule, s);
+        }
+        // dates at the edge of the calendar
+        let far = NaiveDate::from_ymd_opt(9999, 12, 30).unwrap().and_hms_opt(23, 0, 0).unwrap().and_utc().timestamp();
+        for rule in ["FREQ=DAILY", "FREQ=WEEKLY;BYDAY=SA,SU", "FREQ=MONTHLY", "FREQ=YEARLY"] {
+            let o = expand(far, far + 3600, false, Some("Europe/Berlin"), rule, &[], 0, i64::MAX);
+            assert!(!o.is_empty() && o.len() < 100_000, "{rule}");
+        }
+        // an enormous DURATION does not overflow the end time
+        let c = parse("BEGIN:VCALENDAR\r\nBEGIN:VEVENT\r\nUID:d\r\nDTSTART:20261014T100000Z\r\nDURATION:P9223372036854775807W\r\nEND:VEVENT\r\nEND:VCALENDAR").unwrap();
+        assert_eq!(c.events[0].end, c.events[0].start);
+        assert_eq!(parse_duration("PT9223372036854775807S"), Some(i64::MAX));
+        assert_eq!(parse_duration("P9223372036854775807D"), None);
+        assert_eq!(parse_duration("P9223372036854775807DT9223372036854775807S"), None);
+    }
+
+    #[test]
+    fn odd_dates_are_rejected_not_panicked_on() {
+        for v in ["+2026", "-2026-14", "2026€1014", "２０２６1014", "20261014T1000", "20261014T10€000", "20261014Tzzzzzz", "00000000", "99999999", "20261332", "€€€€€€€€", "20261014T250000Z"] {
+            let ics = format!("BEGIN:VCALENDAR\r\nBEGIN:VEVENT\r\nUID:o\r\nDTSTART:{v}\r\nRRULE:FREQ=DAILY;UNTIL={v}\r\nEXDATE:{v},{v}\r\nRECURRENCE-ID:{v}\r\nEND:VEVENT\r\nEND:VCALENDAR");
+            let _ = parse(&ics);
+        }
+        assert!(parse_naive("-2026-14").is_none());
+        assert!(parse_naive("+2026101").is_none());
+    }
+
+    #[test]
+    fn fuzz_truncation_and_mutation_never_panics() {
+        // every prefix of a rich invitation, at every char boundary, plus splices of multi-byte and numeric junk
+        let rich = format!("{REQUEST}BEGIN:VEVENT\r\nUID:z\r\nDTSTART;VALUE=DATE:20261014\r\nRRULE:FREQ=YEARLY;BYMONTH=2;BYDAY=-1MO;UNTIL=20300101\r\nEXDATE;VALUE=DATE:20271014,20281014\r\nDURATION:P1DT2H3M4S\r\nATTENDEE;CN=\"Đỗ Văn\";PARTSTAT=ACCEPTED:mailto:dv@x.vn\r\nEND:VEVENT\r\n");
+        let exercise = |c: &IcsCalendar| {
+            for e in &c.events {
+                if let Some(r) = &e.rrule {
+                    let _ = describe_rrule(r, e.start);
+                    let _ = expand(e.start, e.end, e.all_day, e.tzid.as_deref(), r, &e.exdates, 0, ts(2032, 1, 1, 0, 0));
+                }
+                let _ = to_ics(Some("REQUEST"), &[e.clone()]);
+                let _ = join_url(e);
+            }
+        };
+        for (i, _) in rich.char_indices() {
+            if let Ok(c) = parse(&rich[..i]) {
+                exercise(&c);
+            }
+        }
+        let junk = ["€", "é", "日", "😀", "\u{0}", ";", ":", "=", "\\", "\"", ",", "9999999999", "-", "+"];
+        let chars: Vec<(usize, char)> = rich.char_indices().collect();
+        let mut seed: u64 = 0x9E37_79B9_7F4A_7C15;
+        let mut next = || {
+            seed ^= seed << 13;
+            seed ^= seed >> 7;
+            seed ^= seed << 17;
+            seed
+        };
+        for _ in 0..1500 {
+            let cut = chars[(next() % chars.len() as u64) as usize].0;
+            let resume = chars[(next() % chars.len() as u64) as usize].0;
+            let t = format!("{}{}{}", &rich[..cut], junk[(next() % junk.len() as u64) as usize], &rich[resume..]);
+            if let Ok(c) = parse(&t) {
+                exercise(&c);
+            }
+        }
+        // rule strings built from junk fragments
+        for _ in 0..2000 {
+            let mut r = String::from(["FREQ=DAILY", "FREQ=WEEKLY", "FREQ=MONTHLY", "FREQ=YEARLY"][(next() % 4) as usize]);
+            for _ in 0..(next() % 4) {
+                r.push(';');
+                r.push_str(["BYDAY=", "BYMONTH=", "BYMONTHDAY=", "INTERVAL=", "COUNT=", "UNTIL=", "WKST="][(next() % 7) as usize]);
+                r.push_str(junk[(next() % junk.len() as u64) as usize]);
+                r.push_str(["MO", "1", "-1", "12", "0", "99999999999", "20261014", "TU,WE", ""][(next() % 9) as usize]);
+            }
+            let s = ts(2026, 10, 14, 9, 0);
+            let _ = describe_rrule(&r, s);
+            let _ = expand(s, s + 3600, false, Some("Europe/Berlin"), &r, &[], 0, ts(2032, 1, 1, 0, 0));
+        }
     }
 
     fn series(rule: &str, start: i64, from: i64, to: i64) -> Vec<i64> {
