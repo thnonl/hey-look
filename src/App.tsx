@@ -2,6 +2,7 @@ import { listen } from "@tauri-apps/api/event";
 import { useEffect, useRef, useState } from "react";
 import "./App.css";
 import { forwardLast, replyLast, targets } from "./actions";
+import { api } from "./api";
 import { CommandBar } from "./components/CommandBar";
 import { Compose } from "./components/Compose";
 import { BulkCleaner, ShowOriginal } from "./components/Dialogs";
@@ -14,7 +15,7 @@ import { Settings } from "./components/SettingsDialog";
 import { TopBar } from "./components/TopBar";
 import { Welcome } from "./components/Welcome";
 import { useStore } from "./store";
-import { configureDates } from "./util";
+import { configureDates, fmtWhen } from "./util";
 
 const clamp = (n: number, lo: number, hi: number) => Math.max(lo, Math.min(hi, n));
 
@@ -88,6 +89,38 @@ function App() {
         await open(e.payload.threadId);
         replyLast();
       }),
+      // scheduled sends: state changes from the worker, catch-up after a closed period, quit guard
+      listen<{ id: string; status: string; error?: string }>("outbox-changed", (e) => {
+        const st = useStore.getState();
+        void st.refresh();
+        if (e.payload.status !== "failed") return;
+        const subject = st.outbox.find((o) => o.id === e.payload.id)?.subject || "(no subject)";
+        st.showToast(`Scheduled message “${subject}” failed to send.`, undefined, "error", [
+          { label: "Retry", run: () => void api.outboxRetry(e.payload.id).then(() => useStore.getState().refresh()) },
+          { label: "Open", run: () => void useStore.getState().setView("scheduled") },
+        ]);
+      }),
+      listen<{ count: number }>("outbox-catchup", (e) => {
+        const st = useStore.getState();
+        st.showToast(`Sent ${e.payload.count} scheduled message${e.payload.count === 1 ? "" : "s"} that were due while Hey Look! was closed.`, undefined, "success", [
+          { label: "View", run: () => void st.setView("scheduled") },
+        ]);
+      }),
+      listen<{ count: number; next: number | null }>("confirm-quit", async (e) => {
+        const st = useStore.getState();
+        const n = e.payload.count;
+        const next = e.payload.next ? ` The next one is due ${fmtWhen(e.payload.next)}.` : "";
+        const choice = await st.choose({
+          title: `${n} message${n === 1 ? " is" : "s are"} scheduled`,
+          body: `If you quit now, ${n === 1 ? "it" : "they"} will be sent the next time you open Hey Look!.${next}`,
+          choices: [
+            { id: "cancel", label: "Cancel" },
+            { id: "keep", label: "Keep running in tray", kind: "primary" },
+            { id: "quit", label: "Quit anyway", kind: "danger" },
+          ],
+        });
+        if (choice === "quit") await api.quitNow();
+      }),
     ];
     return () => {
       subs.forEach((p) => void p.then((off) => off()).catch(() => undefined));
@@ -100,6 +133,12 @@ function App() {
       if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "k") {
         e.preventDefault();
         st.setCommandOpen(true);
+        return;
+      }
+      if ((e.ctrlKey || e.metaKey) && e.shiftKey && e.key.toLowerCase() === "s" && st.selected && !st.compose) {
+        // Save all attachments of the open conversation (the strip's "Save all" link)
+        e.preventDefault();
+        document.querySelector<HTMLButtonElement>(".att-strip-head .link-btn")?.click();
         return;
       }
       if (e.key === "F5") {

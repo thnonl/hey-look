@@ -21,6 +21,7 @@ const threads = [
   t("t4", "Your weekly digest", ["Product Hunt"], "Top launches this week: AI mail clients, note apps and more.", 26 * H, { bulk: true, unread: 1 }),
   t("t5", "Re: Contract changes", ["Legal Team"], "Thanks, we've updated clause 4.2 as discussed. Please confirm.", 30 * H, { count: 2 }),
   t("t6", "Welcome to Hey Look!", ["Hey Look!"], "Everything is unlocked: no plans, no limits.", 80 * H),
+  t("t7", "Photos from the offsite", ["Linh Tran"], "Here are the photos and the agenda. Thanks!", 4 * H, { hasAttach: true }),
 ];
 
 const body = (n: string) =>
@@ -32,11 +33,46 @@ const messages = [
   { id: "m3", accountId: "a1", folder: "inbox", messageId: "<3@x>", subject: "Re: Q4 roadmap review", fromName: "Linh Tran", fromEmail: "linh@example.com", to: "nam@example.com", cc: "", date: now - 0.5 * H, html: body("Could you review the milestones before Thursday? Also see the newsletter link <a href='https://example.com'>here</a>.<br><img id='remote1' src='https://upload.wikimedia.org/wikipedia/commons/4/47/PNG_transparency_demonstration_1.png' width='200'>"), text: "Could you review the milestones before Thursday?", seen: false, flagged: false, attachments: [], canUnsubscribe: true },
 ];
 
+// a 1x1 PNG, used for mock pictures
+const PIC = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg==";
+
+// pictures in the body: one small (embedded by the backend, shown here as cid: and loaded on demand), one large
+// (not embedded), one picture that nothing refers to, and a real PDF
+const m4 = {
+  id: "m4", accountId: "a1", folder: "inbox", messageId: "<4@x>", subject: "Photos from the offsite", fromName: "Linh Tran", fromEmail: "linh@example.com",
+  to: "nam@example.com", cc: "", date: now - 4 * H, seen: true, flagged: false, canUnsubscribe: false,
+  html: `<p>Here are the photos and the agenda.</p><p><img src="cid:logo@x" alt="Office logo" width="240"></p><p><img src="cid:big@x" alt="Whiteboard"></p><p>Thanks!</p>`,
+  text: "Here are the photos and the agenda.",
+  attachments: [
+    { index: 0, name: "logo.png", mime: "image/png", size: 1024, inline: true, cid: "logo@x", referenced: true },
+    { index: 1, name: "whiteboard.jpg", mime: "image/jpeg", size: 3400000, inline: true, cid: "big@x", referenced: true },
+    { index: 2, name: "agenda.pdf", mime: "application/pdf", size: 482113, inline: false, cid: null, referenced: false },
+    { index: 3, name: "photo-orphan.png", mime: "image/png", size: 2048, inline: true, cid: "orphan@x", referenced: false },
+  ],
+};
+
 const folders = ["inbox", "drafts", "sent", "archive", "junk", "trash"].flatMap((k, i) =>
   accounts.map((a) => ({ accountId: a.id, key: k, name: k, unread: k === "inbox" ? (a.id === "a1" ? 4 : 2) : 0, total: 10 + i })),
 ).concat([{ accountId: "a1", key: "f:Projects/Hey Look", name: "Projects/Hey Look", unread: 0, total: 5 }]);
 
 const settings: Record<string, string> = {};
+
+// scheduled messages in every state the worker can be in
+const mockOutbox = (() => {
+  const base = { accountId: "a1", cc: [] as string[], snippet: "Shared the agenda for Thursday and the budget draft.", hasAttachments: false, createdAt: now - H, attempts: 0 };
+  return [
+    { ...base, id: "s1", subject: "Agenda for Thursday", to: ["linh@example.com"], sendAt: now + 3 * H, status: "pending", error: null },
+    { ...base, id: "s2", subject: "Budget draft v3", to: ["minh@example.com", "anna@example.com"], cc: ["finance@example.com"], sendAt: now + 26 * H, status: "pending", error: null, hasAttachments: true },
+    { ...base, id: "s3", subject: "Happy birthday!", to: ["team@example.com"], sendAt: now - 2 * H, status: "overdue", error: null },
+    { ...base, id: "s4", subject: "Contract redlines", to: ["legal@example.com"], sendAt: now - 40 * 60, status: "failed", error: "SMTP send failed: connection timed out", attempts: 3 },
+    { ...base, id: "s5", subject: "Lunch on Monday?", to: ["minh@example.com"], sendAt: now + 2 * 24 * H, status: "held", error: null },
+    { ...base, id: "s6", subject: "Release notes", to: ["dev@example.com"], sendAt: now + 5 * 60, status: "sending", error: null },
+  ];
+})();
+const mockDraftOf = (o: (typeof mockOutbox)[number]) => ({
+  accountId: o.accountId, to: o.to, cc: o.cc, bcc: [] as string[], subject: o.subject, html: `<p>${o.snippet}</p>`, text: o.snippet,
+  references: [] as string[], attachments: [], inline: [],
+});
 
 export function installMock() {
   mockIPC((cmd, args) => {
@@ -63,11 +99,16 @@ export function installMock() {
         return f.folder === "inbox" || f.folder === "unread" || f.folder === "all" ? list : [];
       }
       case "get_thread":
-        return a.threadId === "t1" ? messages : a.threadId === "t4"
+        return a.threadId === "t7" ? [m4] : a.threadId === "t1" ? messages : a.threadId === "t4"
         ? [{ ...messages[0], id: "mt", subject: "Tall newsletter", html: "<html><head><style>html,body{height:100%;margin:0}</style></head><body><table width='100%' height='100%'><tr><td style='background:#f4f4f8'><div style='height:900px;background:linear-gradient(#e8a317,#2aa)'>tall block</div><p id='endmark'>THE END</p></td></tr></table></body></html>", attachments: [] }]
         : [{ ...messages[0], id: "mx", subject: "Hello", html: "<p>Hello from the mock backend.</p>", attachments: [] }];
       case "sync_account": return { added: 0, newInbox: [] };
-      case "list_outbox": return [];
+      case "list_outbox": return mockOutbox;
+      case "outbox_pending_count": return { count: mockOutbox.filter((o) => o.status !== "failed").length, next: now + 3 * H };
+      case "outbox_open_for_edit": {
+        const o = mockOutbox.find((x) => x.id === a.id) ?? mockOutbox[0];
+        return { draft: mockDraftOf(o), sendAt: o.sendAt, status: o.status === "pending" || o.status === "overdue" ? "held" : o.status };
+      }
       case "list_templates": return [{ id: "tp1", name: "Thanks", subject: "Thanks!", body: "<p>Thanks for your message.</p>" }];
       case "list_signatures": return [{ id: "s1", name: "Work", html: "Nam<br>Hey Look!", isDefault: true }];
       case "list_senders": return [{ email: "news@ph.com", name: "Product Hunt", count: 42, unread: 12, canUnsubscribe: true, lastDate: now - H }];
@@ -88,8 +129,20 @@ export function installMock() {
         return { imapHost: `imap.${domain}`, imapPort: 993, imapSsl: true, smtpHost: `smtp.${domain}`, smtpPort: 587, smtpSecurity: "starttls", username: email, oauth: null, source: "autoconfig" };
       }
       case "set_secret": return null;
-      case "attachment_data": return { name: "file.pdf", mime: "application/pdf", dataBase64: "" };
-      case "send_message": return "sent";
+      case "attachment_data": {
+        const att = [m4, ...messages].find((x) => x.id === a.messageId)?.attachments.find((z) => z.index === a.index);
+        const name = att?.name ?? "file.pdf";
+        const mime = att?.mime ?? "application/pdf";
+        return { name, mime, dataBase64: mime.startsWith("image/") ? PIC : btoa(`Mock contents of ${name}\n`) };
+      }
+      case "inline_image": return { mime: "image/png", dataBase64: PIC, name: "picture.png" };
+      case "save_attachments": return ["C:/Users/Me/Downloads/logo.png"];
+      case "attachment_save_as": return "C:/Users/Me/Downloads/logo.png";
+      case "attachment_save_all": return { dir: "C:/Users/Me/Downloads", saved: ["C:/Users/Me/Downloads/logo.png", "C:/Users/Me/Downloads/agenda.pdf"], failed: [] };
+      case "attachment_open": return "C:/Users/Me/AppData/Local/Temp/HeyLook/m4/logo.png";
+      case "attachment_reveal": return null;
+      case "pick_folder": return "C:/Users/Me/Documents/Attachments";
+      case "send_message": return a.sendAt ? `scheduled:mock-${Math.random().toString(36).slice(2, 8)}` : "sent";
       case "suggest_contacts": return [{ name: "Linh Tran", email: "linh@example.com" }];
       case "ai_list_models": {
         if (String(a.endpoint).includes("bad")) throw "Models request failed (404 Not Found)"; // lets the error state be tried in the browser
@@ -97,6 +150,8 @@ export function installMock() {
       }
       case "ai_complete": return "• Linh shared the Q4 roadmap\n• Review requested before Thursday";
       case "get_autostart": return false;
+      case "outbox_to_draft": case "cancel_outbox": case "outbox_release": case "outbox_update": case "outbox_reschedule":
+      case "outbox_retry": case "outbox_send_now": case "quit_now": return null;
       default: return null;
     }
   });

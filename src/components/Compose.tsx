@@ -1,20 +1,45 @@
-import { useEditor, EditorContent } from "@tiptap/react";
-import StarterKit from "@tiptap/starter-kit";
+import Image from "@tiptap/extension-image";
 import Placeholder from "@tiptap/extension-placeholder";
+import { NodeSelection } from "@tiptap/pm/state";
+import { EditorContent, useEditor, type Editor } from "@tiptap/react";
+import StarterKit from "@tiptap/starter-kit";
 import {
-  Bold, CalendarClock, ChevronDown, FileText, Italic, Link2, List, ListOrdered, Paperclip, Save, Send, Sparkles, Trash2, Underline as UIcon, X,
+  Bold, CalendarClock, ChevronDown, FileText, ImagePlus, Italic, Link2, List, ListOrdered, Paperclip, Save, Send, Sparkles, Trash2, Underline as UIcon, X,
 } from "lucide-react";
 import { useCallback, useEffect, useRef, useState } from "react";
-import { api, Att, Contact, Signature, Template } from "../api";
+import { api, Att, Contact, Draft, errorCode, InlineImage, MessageFull, Signature, Template } from "../api";
 import { eff } from "../prefs";
 import { ComposeInit, friendlyError, useStore } from "../store";
-import { fileToBase64, fmtSize, htmlToText, playSent, snoozePresets } from "../util";
+import { dataUriBytes, fileToBase64, fmtIn, fmtSize, fmtWhen, htmlToText, imageSize, PICTURE_TYPES, playSent, resizeImage } from "../util";
+import { SchedulePicker } from "./SchedulePicker";
 import { Dropdown, useOutside } from "./ui";
 
 const MAX_ATTACH_BYTES = 25 * 1024 * 1024;
 const EMAIL = /^[^\s@<>"]+@[^\s@<>"]+\.[^\s@<>"]+$/;
 const bareAddress = (v: string) => (v.match(/<([^>]+)>/)?.[1] ?? v).trim();
 const approxBytes = (a: Att) => Math.floor((a.dataBase64.length * 3) / 4);
+const MEDIUM = 480;
+const SIZES: [string, number | null][] = [["Small", 240], ["Medium", MEDIUM], ["Large", 720], ["Original", null]];
+const LARGE_PICTURE = 1024 * 1024;
+
+/** An inline picture: the same node as tiptap's image, plus the width and the file name we keep. */
+const PictureNode = Image.extend({
+  addAttributes() {
+    return {
+      ...this.parent?.(),
+      width: {
+        default: null,
+        parseHTML: (el: HTMLElement) => Number(el.getAttribute("width")) || null,
+        renderHTML: (a: Record<string, unknown>) => (a.width ? { width: a.width } : {}),
+      },
+      "data-name": {
+        default: null,
+        parseHTML: (el: HTMLElement) => el.getAttribute("data-name"),
+        renderHTML: (a: Record<string, unknown>) => (a["data-name"] ? { "data-name": a["data-name"] } : {}),
+      },
+    };
+  },
+}).configure({ inline: false, allowBase64: true });
 
 /** Recipient input with chips, address validation and keyboard-friendly suggestions. */
 function RecipientField({ label, values, onChange, autoFocus, onTouch }: { label: string; values: string[]; onChange: (v: string[]) => void; autoFocus?: boolean; onTouch?: () => void }) {
@@ -117,10 +142,63 @@ function RecipientField({ label, values, onChange, autoFocus, onTouch }: { label
   );
 }
 
+// ---------------------------------------------------------------- pictures: stored <-> editor
+
+/** Pictures of a stored message as data: URIs for the editor, and the attachments that stay attachments. */
+export async function messageToEditor(m: MessageFull): Promise<{ html: string | null; attachments: Att[] }> {
+  let html = m.html;
+  const attachments: Att[] = [];
+  for (const a of m.attachments) {
+    if (a.inline && a.referenced) {
+      // embedded at sync time already, or still a cid: reference that is fetched now
+      if (a.cid && html?.includes(`cid:${a.cid}`)) {
+        const d = await api.attachmentData(m.id, a.index).catch(() => null);
+        if (d) html = html.split(`cid:${a.cid}`).join(`data:${d.mime};base64,${d.dataBase64}`);
+      }
+      continue;
+    }
+    // one unreadable attachment must not stop the draft from opening
+    const d = await api.attachmentData(m.id, a.index).catch(() => null);
+    if (d) attachments.push({ filename: d.name, mime: d.mime, dataBase64: d.dataBase64 });
+  }
+  return { html, attachments };
+}
+
+/** Replace cid: references with the pictures' data: URIs (used when a sent or scheduled draft is reopened). */
+export function picturesToEditor(html: string, pics: InlineImage[]): string {
+  return pics.reduce((h, p) => h.split(`cid:${p.cid}`).join(`data:${p.mime};base64,${p.dataBase64}`), html);
+}
+
+const dataUriParts = (uri: string) => {
+  const m = uri.match(/^data:([^;,]+);base64,(.*)$/);
+  return m ? { mime: m[1], b64: m[2] } : null;
+};
+
+function readDataUrl(f: File): Promise<string> {
+  return new Promise((res, rej) => {
+    const r = new FileReader();
+    r.onload = () => res(String(r.result));
+    r.onerror = () => rej(r.error);
+    r.readAsDataURL(f);
+  });
+}
+
+// ---------------------------------------------------------------- compose
+
+interface PictureSel {
+  pos: number;
+  width: number | null;
+  alt: string;
+  name: string;
+  top: number;
+  left: number;
+}
+
 export function Compose({ init }: { init: ComposeInit }) {
-  const { accounts, openCompose, showToast, prefs, refresh, confirm, setComposeDirty, setComposeSaver, aiConfigured, setDialog } = useStore();
+  const { accounts, openCompose, showToast, prefs, refresh, confirm, choose, setComposeDirty, setComposeSaver, aiConfigured, setDialog } = useStore();
   const [accountId, setAccountId] = useState(init.accountId || prefs.defaultAccount || accounts[0]?.id || "");
-  const isFresh = !init.replaces && !init.isReply;
+  const isFresh = !init.replaces && !init.isReply && !init.outboxId;
+  const editing = !!(init.replaces || init.outboxId);
   const autoCc = (id: string) => (isFresh ? eff(prefs, id, "autoCc").trim() : "");
   const autoBcc = (id: string) => (isFresh ? eff(prefs, id, "autoBcc").trim() : "");
   const [to, setTo] = useState<string[]>(init.to ?? []);
@@ -136,13 +214,21 @@ export function Compose({ init }: { init: ComposeInit }) {
   const [aiPrompt, setAiPrompt] = useState("");
   const [aiBusy, setAiBusy] = useState(false);
   const [busy, setBusy] = useState(false);
-  const [schedOpen, setSchedOpen] = useState(false);
-  const [custom, setCustom] = useState("");
+  const [schedOpen, setSchedOpen] = useState(!!init.openSchedule);
   const [dragging, setDragging] = useState(false);
+  const [dragImages, setDragImages] = useState(false);
+  const [hotZone, setHotZone] = useState<"top" | "bottom" | null>(null);
+  const [pics, setPics] = useState({ count: 0, bytes: 0 });
+  const [picSel, setPicSel] = useState<PictureSel | null>(null);
+  const [altOpen, setAltOpen] = useState(false);
+  const [altText, setAltText] = useState("");
   const touched = useRef(false);
   const ccTouched = useRef(false);
+  const savedRef = useRef(false); // an outbox item was saved, moved or sent from here (nothing to release)
   const fileRef = useRef<HTMLInputElement>(null);
+  const picRef = useRef<HTMLInputElement>(null);
   const schedRef = useRef<HTMLDivElement>(null);
+  const bodyRef = useRef<HTMLDivElement>(null);
   useOutside(schedRef, () => setSchedOpen(false), schedOpen);
 
   const touch = useCallback(() => {
@@ -150,14 +236,73 @@ export function Compose({ init }: { init: ComposeInit }) {
     setComposeDirty(true);
   }, [setComposeDirty]);
 
+  const addFilesRef = useRef<(files: File[]) => Promise<void>>(async () => undefined);
+
+  /** Where the picture tools float: above the selected picture, below it when there is no room. */
+  const syncPicSel = (ed: Editor) => {
+    const sel = ed.state.selection;
+    if (!(sel instanceof NodeSelection) || sel.node.type.name !== "image") return setPicSel(null);
+    const dom = ed.view.nodeDOM(sel.from) as HTMLElement | null;
+    const box = bodyRef.current?.getBoundingClientRect();
+    if (!dom || !box) return setPicSel(null);
+    const r = dom.getBoundingClientRect();
+    const scroll = bodyRef.current?.scrollTop ?? 0;
+    const above = r.top - box.top - 44 >= 0;
+    setPicSel({
+      pos: sel.from,
+      width: (sel.node.attrs.width as number | null) ?? null,
+      alt: (sel.node.attrs.alt as string | null) ?? "",
+      name: (sel.node.attrs["data-name"] as string | null) ?? "picture",
+      top: above ? r.top - box.top + scroll - 42 : r.bottom - box.top + scroll + 8,
+      left: Math.max(8, r.left - box.left + Math.min(r.width, 360) / 2 - 150),
+    });
+  };
+
+  const countPictures = (ed: Editor) => {
+    let count = 0;
+    let bytes = 0;
+    ed.state.doc.descendants((n) => {
+      if (n.type.name === "image" && typeof n.attrs.src === "string" && n.attrs.src.startsWith("data:")) {
+        count++;
+        bytes += dataUriBytes(n.attrs.src);
+      }
+    });
+    setPics({ count, bytes });
+  };
+
   const editor = useEditor({
-    extensions: [StarterKit, Placeholder.configure({ placeholder: "Write your message…" })],
+    extensions: [StarterKit, Placeholder.configure({ placeholder: "Write your message…" }), PictureNode],
     // the accessible name belongs on the contenteditable node ProseMirror renders
-    editorProps: { attributes: { "aria-label": "Message body" } },
-    content: init.bodyHtml ? (init.replaces ? init.bodyHtml : `<p></p>${init.bodyHtml}`) : "<p></p>",
+    editorProps: {
+      attributes: { "aria-label": "Message body" },
+      handlePaste: (_view, event) => {
+        const all = Array.from(event.clipboardData?.files ?? []);
+        const images = all.filter((f) => PICTURE_TYPES.includes(f.type));
+        if (images.length === 0 || useStore.getState().prefs.inlinePictures !== "inline") return false;
+        // the picture goes into the body, so the Compose-wide paste handler must not attach it as well
+        event.preventDefault();
+        event.stopPropagation();
+        void insertPictures(images);
+        const others = all.filter((f) => !PICTURE_TYPES.includes(f.type));
+        if (others.length) void addFilesRef.current(others);
+        return true;
+      },
+    },
+    content: init.bodyHtml ? (editing ? init.bodyHtml : `<p></p>${init.bodyHtml}`) : "<p></p>",
     autofocus: (init.to?.length ?? 0) > 0 ? "start" : false,
-    onUpdate: () => touch(),
+    onUpdate: ({ editor: ed }) => {
+      touch();
+      countPictures(ed);
+      syncPicSel(ed);
+    },
+    onSelectionUpdate: ({ editor: ed }) => syncPicSel(ed),
   });
+
+  // pictures that were already in the draft (or a scheduled message) are counted once the editor exists
+  useEffect(() => {
+    if (editor) countPictures(editor);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [editor]);
 
   const [loaded, setLoaded] = useState(false);
   useEffect(() => {
@@ -185,7 +330,7 @@ export function Compose({ init }: { init: ComposeInit }) {
   }, [prefs, accountId, mySigs]);
 
   useEffect(() => {
-    if (!loaded || init.replaces) return;
+    if (!loaded || editing) return;
     if (sigId && (sigId === "none" || mySigs.some((s) => s.id === sigId))) return; // keep a valid manual choice
     if (init.isReply && !eff(prefs, accountId, "signatureOnReply")) return setSigId("none");
     setSigId(defaultSig());
@@ -208,8 +353,25 @@ export function Compose({ init }: { init: ComposeInit }) {
     return s ? `<br><div class="sig">-- <br>${s.html}</div>` : "";
   };
 
-  const buildDraft = () => {
-    const body = (editor?.getHTML() ?? "") + sigHtml();
+  /**
+   * The draft to store or send. Pictures in the body (data: URIs) become cid: references with their own part,
+   * so they travel as related parts and are not listed as attachments.
+   */
+  const buildDraft = (): Draft => {
+    const raw = (editor?.getHTML() ?? "") + sigHtml();
+    const doc = new DOMParser().parseFromString(raw, "text/html");
+    const inline: InlineImage[] = [];
+    doc.querySelectorAll("img").forEach((img) => {
+      const src = img.getAttribute("src") ?? "";
+      const parts = dataUriParts(src);
+      if (!parts) return;
+      const cid = `${crypto.randomUUID()}@heylook`;
+      const name = img.getAttribute("data-name") || `picture-${inline.length + 1}.${parts.mime.split("/")[1]?.replace("jpeg", "jpg") ?? "img"}`;
+      inline.push({ cid, filename: name, mime: parts.mime, dataBase64: parts.b64 });
+      img.setAttribute("src", `cid:${cid}`);
+      img.removeAttribute("data-name");
+    });
+    const body = doc.body.innerHTML;
     return {
       accountId,
       to,
@@ -221,24 +383,58 @@ export function Compose({ init }: { init: ComposeInit }) {
       inReplyTo: init.inReplyTo ?? null,
       references: init.references ?? [],
       attachments: atts,
+      inline,
     };
   };
 
-  const reopen = (d: ReturnType<typeof buildDraft>) =>
+  const reopen = (d: Draft) => {
+    // the draft's pictures go back to data: URIs so the editor shows them again
+    const bodyHtml = picturesToEditor(d.html, d.inline ?? []);
     void useStore.getState().openCompose({
       ...init,
       to: d.to,
       cc: d.cc,
       bcc: d.bcc,
       subject: d.subject,
-      bodyHtml: d.html,
+      bodyHtml,
       accountId: d.accountId,
       attachments: d.attachments,
       replaces: init.replaces,
       isReply: false,
     });
+  };
 
-  const totalBytes = atts.reduce((n, a) => n + approxBytes(a), 0);
+  const attBytes = atts.reduce((n, a) => n + approxBytes(a), 0);
+  const totalBytes = attBytes + pics.bytes;
+
+  /** A scheduled message opened for editing keeps its pause until it is saved, moved, sent or released. */
+  useEffect(
+    () => () => {
+      if (init.outboxId && !savedRef.current) void api.outboxRelease(init.outboxId).catch(() => undefined);
+    },
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [],
+  );
+
+  const sendNowFromEditor = async () => {
+    const d = buildDraft();
+    if (!init.outboxId) return;
+    setBusy(true);
+    try {
+      await api.cancelOutbox(init.outboxId);
+      savedRef.current = true;
+      setComposeDirty(false);
+      void openCompose(null);
+      await api.sendMessage(d, null, null);
+      if (useStore.getState().prefs.sentSound) playSent();
+      showToast("Message sent", undefined, "success");
+      void refresh();
+    } catch (e) {
+      setBusy(false);
+      showToast(`Send failed: ${friendlyError(e)}`, undefined, "error");
+      reopen(d);
+    }
+  };
 
   const send = async (sendAt?: number) => {
     const d = buildDraft();
@@ -246,22 +442,47 @@ export function Compose({ init }: { init: ComposeInit }) {
     const bad = [...d.to, ...d.cc, ...d.bcc].filter((a) => !EMAIL.test(bareAddress(a)));
     if (bad.length) return showToast(`Check the address: ${bad[0]}`, undefined, "error");
     if (!accountId) return showToast("No account selected", undefined, "error");
-    if (totalBytes > MAX_ATTACH_BYTES) return showToast(`Attachments are ${fmtSize(totalBytes)}; most servers accept at most 25 MB`, undefined, "error");
+    if (totalBytes > MAX_ATTACH_BYTES) return showToast(`Attachments and pictures are ${fmtSize(totalBytes)}; most servers accept at most 25 MB`, undefined, "error");
     if (!d.subject && !(await confirm({ title: "Send without a subject?", confirmLabel: "Send anyway" }))) return;
-    setBusy(true);
-    setComposeDirty(false);
-    void openCompose(null);
+
     if (sendAt) {
+      if (sendAt * 1000 < Date.now() - 60_000) return showToast("That time has passed. Pick a later time, or send now.", undefined, "error");
+      setBusy(true);
+      setComposeDirty(false);
+      void openCompose(null);
       try {
-        await api.sendMessage(d, sendAt, init.replaces);
-        showToast(`Scheduled for ${new Date(sendAt * 1000).toLocaleString()}`, undefined, "success");
+        if (init.outboxId) {
+          await api.outboxUpdate(init.outboxId, d, sendAt);
+          savedRef.current = true;
+          showToast(`Rescheduled for ${fmtWhen(sendAt)}`, undefined, "success");
+        } else {
+          const res = await api.sendMessage(d, sendAt, init.replaces);
+          savedRef.current = true;
+          const id = res.startsWith("scheduled:") ? res.slice("scheduled:".length) : null;
+          const st = useStore.getState();
+          showToast(
+            `Scheduled for ${fmtWhen(sendAt)}`,
+            id
+              ? () => {
+                  void api.cancelOutbox(id).then(() => reopen(d)).catch((e) => showToast(friendlyError(e), undefined, "error"));
+                }
+              : undefined,
+            "success",
+            [{ label: "View", run: () => void st.setView("scheduled") }],
+          );
+        }
         void refresh();
       } catch (e) {
-        showToast(`Schedule failed: ${friendlyError(e)}`, undefined, "error");
+        const code = errorCode(e);
+        showToast(code === "SCHEDULE_IN_PAST" ? friendlyError(e) : `Schedule failed: ${friendlyError(e)}`, undefined, "error");
         reopen(d);
       }
       return;
     }
+
+    setBusy(true);
+    setComposeDirty(false);
+    void openCompose(null);
     const wait = eff(prefs, accountId, "undoSeconds");
     let cancelled = false;
     const t = setTimeout(async () => {
@@ -291,6 +512,7 @@ export function Compose({ init }: { init: ComposeInit }) {
 
   const saveDraft = useCallback(
     async (close: boolean) => {
+      if (init.outboxId) return; // a scheduled message is not a draft; "Move to Drafts" does that
       try {
         await api.saveDraft(buildDraft(), init.replaces);
         showToast("Draft saved", undefined, "success");
@@ -304,6 +526,20 @@ export function Compose({ init }: { init: ComposeInit }) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
     [to, cc, bcc, subject, atts, accountId, sigId, editor],
   );
+
+  const moveToDrafts = async () => {
+    if (!init.outboxId) return;
+    try {
+      await api.outboxToDraft(init.outboxId);
+      savedRef.current = true;
+      setComposeDirty(false);
+      showToast("Moved to Drafts", undefined, "success");
+      void openCompose(null);
+      void refresh();
+    } catch (e) {
+      showToast(`Couldn’t move to Drafts: ${friendlyError(e)}`, undefined, "error");
+    }
+  };
 
   // let the store save this draft when another message is opened over it
   useEffect(() => {
@@ -319,6 +555,33 @@ export function Compose({ init }: { init: ComposeInit }) {
   );
 
   const discard = async () => {
+    if (init.outboxId) {
+      const choice = await choose({
+        title: "Cancel this scheduled message?",
+        body: `“${subject || "(no subject)"}” won’t be sent.`,
+        choices: [
+          { id: "keep", label: "Keep scheduled" },
+          { id: "drafts", label: "Move to Drafts" },
+          { id: "delete", label: "Delete", kind: "danger" },
+        ],
+      });
+      if (choice === "keep") {
+        setComposeDirty(false);
+        return void openCompose(null);
+      }
+      try {
+        if (choice === "delete") await api.cancelOutbox(init.outboxId);
+        else await api.outboxToDraft(init.outboxId);
+        savedRef.current = true;
+        setComposeDirty(false);
+        showToast(choice === "delete" ? "Scheduled send cancelled" : "Moved to Drafts", undefined, "success");
+        void openCompose(null);
+        void refresh();
+      } catch (e) {
+        showToast(friendlyError(e), undefined, "error");
+      }
+      return;
+    }
     const dirty = touched.current && ((editor?.getText().trim().length ?? 0) > 0 || to.length > 0 || subject.trim() || atts.length > 0);
     if (dirty && !(await confirm({ title: "Discard this message?", body: "What you wrote will be lost.", confirmLabel: "Discard", danger: true }))) return;
     setComposeDirty(false);
@@ -331,11 +594,122 @@ export function Compose({ init }: { init: ComposeInit }) {
     for (const f of Array.from(files)) list.push({ filename: f.name || "pasted-image.png", mime: f.type || "application/octet-stream", dataBase64: await fileToBase64(f) });
     setAtts((a) => {
       const next = [...a, ...list];
-      const bytes = next.reduce((n, x) => n + approxBytes(x), 0);
+      const bytes = next.reduce((n, x) => n + approxBytes(x), 0) + pics.bytes;
       if (bytes > MAX_ATTACH_BYTES) showToast(`Attachments total ${fmtSize(bytes)}; most servers accept at most 25 MB`, undefined, "error");
       return next;
     });
     touch();
+  };
+  addFilesRef.current = async (files: File[]) => addFiles(files);
+
+  /** A picture file into the body at the caret (Medium size), or attached when the format is not supported. */
+  const insertPictures = async (files: File[]) => {
+    const st = useStore.getState();
+    const attach: File[] = [];
+    for (const f of files) {
+      if (!PICTURE_TYPES.includes(f.type)) {
+        attach.push(f);
+        continue;
+      }
+      let src: string;
+      let size: { w: number; h: number };
+      try {
+        src = await readDataUrl(f);
+        size = await imageSize(src);
+      } catch {
+        showToast(`Couldn’t insert “${f.name}”: this picture format isn’t supported. It was attached instead.`, undefined, "error");
+        attach.push(f);
+        continue;
+      }
+      let finalSrc = src;
+      if (f.size > LARGE_PICTURE) {
+        if (st.prefs.autoResizePictures) {
+          const r = await resizeImage(src, f.type, 1600);
+          finalSrc = r.dataUrl;
+          showToast(`Resized ${f.name} to 1600 px (${fmtSize(dataUriBytes(finalSrc))})`, undefined, "success");
+        } else {
+          const original = src;
+          showToast(
+            `This picture is ${fmtSize(f.size)} (${size.w} × ${size.h}). Resize it to 1600 px wide?`,
+            undefined,
+            "info",
+            [{ label: "Resize", run: () => void resizeInEditor(original, f.type, f.name) }],
+          );
+        }
+      }
+      editor?.chain().focus().insertContent({ type: "image", attrs: { src: finalSrc, alt: "", "data-name": f.name, width: size.w > MEDIUM ? MEDIUM : null } }).run();
+    }
+    if (attach.length) {
+      await addFiles(attach);
+      if (files.length > attach.length) showToast(`${attach.length} file${attach.length === 1 ? "" : "s"} attached (only pictures can go in the message)`, undefined, "info");
+    }
+    touch();
+  };
+
+  /** Replace the picture (matched by its data: URI) with a 1600 px version. */
+  const resizeInEditor = async (original: string, mime: string, name: string) => {
+    if (!editor) return;
+    const r = await resizeImage(original, mime, 1600);
+    let at: number | null = null;
+    editor.state.doc.descendants((n, pos) => {
+      if (at === null && n.type.name === "image" && n.attrs.src === original) at = pos;
+    });
+    if (at === null) return;
+    editor.chain().setNodeSelection(at).updateAttributes("image", { src: r.dataUrl }).run();
+    showToast(`Resized ${name} to 1600 px (${fmtSize(dataUriBytes(r.dataUrl))})`, undefined, "success");
+  };
+
+  const setPictureSize = (w: number | null) => {
+    if (!picSel || !editor) return;
+    editor.chain().setNodeSelection(picSel.pos).updateAttributes("image", { width: w }).run();
+  };
+
+  const savePictureAlt = () => {
+    if (!picSel || !editor) return;
+    editor.chain().setNodeSelection(picSel.pos).updateAttributes("image", { alt: altText.trim() }).run();
+    setAltOpen(false);
+    touch();
+  };
+
+  /** A picture from the body becomes a plain attachment. */
+  const pictureAsAttachment = () => {
+    if (!picSel || !editor) return;
+    const src = (editor.state.doc.nodeAt(picSel.pos)?.attrs.src as string | undefined) ?? "";
+    const parts = dataUriParts(src);
+    editor.chain().setNodeSelection(picSel.pos).deleteSelection().run();
+    if (parts) {
+      const ext = parts.mime.split("/")[1]?.replace("jpeg", "jpg") ?? "img";
+      setAtts((a) => [...a, { filename: picSel.name !== "picture" ? picSel.name : `picture.${ext}`, mime: parts.mime, dataBase64: parts.b64 }]);
+    }
+    setPicSel(null);
+    touch();
+  };
+
+  const removePicture = () => {
+    if (!picSel || !editor) return;
+    editor.chain().setNodeSelection(picSel.pos).deleteSelection().run();
+    setPicSel(null);
+    setAltOpen(false);
+  };
+
+  /** Drop on the top zone = into the message, bottom zone = attach. Other files never go into the body. */
+  const dropOn = (zone: "top" | "bottom", files: FileList | null) => {
+    setDragging(false);
+    setDragImages(false);
+    setHotZone(null);
+    if (!files || files.length === 0) return;
+    const all = Array.from(files);
+    if (zone === "top") {
+      const images = all.filter((f) => PICTURE_TYPES.includes(f.type));
+      const rest = all.filter((f) => !PICTURE_TYPES.includes(f.type));
+      if (images.length) void insertPictures(images);
+      if (rest.length) {
+        void addFiles(rest);
+        showToast(`${rest.length} file${rest.length === 1 ? "" : "s"} attached (only pictures can go in the message)`, undefined, "info");
+      }
+      return;
+    }
+    void addFiles(all);
   };
 
   const applyTemplate = (t: Template) => {
@@ -365,28 +739,55 @@ export function Compose({ init }: { init: ComposeInit }) {
   };
 
   const draftsHint = init.replaces;
+  const schedInitial = init.sendAt;
+  const pastDue = !!init.outboxId && !!init.sendAt && init.sendAt * 1000 < Date.now() - 60_000;
+  const imgSelected = !!picSel;
 
   return (
     <div
       className={`compose-pane ${dragging ? "dragging" : ""}`}
       onKeyDown={(e) => {
+        if ((e.ctrlKey || e.metaKey) && e.key === "Enter" && e.shiftKey) {
+          e.preventDefault();
+          setSchedOpen(true);
+          return;
+        }
         if ((e.ctrlKey || e.metaKey) && e.key === "Enter") {
           e.preventDefault();
-          void send();
+          void (init.outboxId ? send(init.sendAt) : send());
+          return;
+        }
+        if ((e.ctrlKey || e.metaKey) && e.shiftKey && e.key.toLowerCase() === "p") {
+          e.preventDefault();
+          picRef.current?.click();
+          return;
+        }
+        if (imgSelected && (e.ctrlKey || e.metaKey) && ["1", "2", "3", "0"].includes(e.key)) {
+          e.preventDefault();
+          const sizeFor: Record<string, number | null> = { "1": 240, "2": MEDIUM, "3": 720, "0": null };
+          setPictureSize(sizeFor[e.key]);
+          return;
+        }
+        if (imgSelected && e.altKey && e.key === "Enter") {
+          e.preventDefault();
+          setAltText(picSel?.alt ?? "");
+          setAltOpen((o) => !o);
         }
       }}
       onDragOver={(e) => {
         if (e.dataTransfer.types.includes("Files")) {
           e.preventDefault();
           setDragging(true);
+          const hasImg = Array.from(e.dataTransfer.items).some((i) => i.kind === "file" && PICTURE_TYPES.includes(i.type));
+          setDragImages(hasImg);
         }
       }}
-      onDragLeave={(e) => e.currentTarget === e.target && setDragging(false)}
+      onDragLeave={(e) => e.currentTarget === e.target && (setDragging(false), setDragImages(false), setHotZone(null))}
       onDrop={(e) => {
         if (!e.dataTransfer.files.length) return;
         e.preventDefault();
-        setDragging(false);
-        void addFiles(e.dataTransfer.files);
+        // the drop zones handle drops on the pane; this is only the fallback
+        dropOn("bottom", e.dataTransfer.files);
       }}
       onPaste={(e) => {
         const files = Array.from(e.clipboardData.files);
@@ -398,34 +799,48 @@ export function Compose({ init }: { init: ComposeInit }) {
     >
       <div className="cp-bar">
         <div className="split-btn" ref={schedRef}>
-          <button className="btn primary" disabled={busy} onClick={() => void send()} title="Send (Ctrl+Enter)">
-            <Send size={14} /> Send
+          <button className="btn primary" disabled={busy} onClick={() => void (init.outboxId ? send(init.sendAt) : send())} title={init.outboxId ? "Schedule (keeps the time)" : "Send (Ctrl+Enter)"}>
+            {init.outboxId ? <><CalendarClock size={14} /> Schedule</> : <><Send size={14} /> Send</>}
           </button>
-          <button className="btn primary split-caret" aria-label="Schedule send" title="Send later" onClick={() => setSchedOpen((o) => !o)}>
+          <button
+            className="btn primary split-caret"
+            aria-label="Send later options"
+            aria-haspopup="dialog"
+            aria-expanded={schedOpen}
+            title="Send later (Ctrl+Shift+Enter)"
+            onClick={() => setSchedOpen((o) => !o)}
+          >
             <ChevronDown size={14} />
           </button>
           {schedOpen && (
-            <div className="popover up sched">
-              <div className="sb-title">Send later</div>
-              {snoozePresets(prefs.snoozeTimes).map((p) => (
-                <button key={p.label} className="menu-row" onClick={() => (setSchedOpen(false), void send(p.ts))}>
-                  <CalendarClock size={14} />
-                  <span className="menu-lbl">{p.label}</span>
-                </button>
-              ))}
-              <div className="row-inline">
-                <input type="datetime-local" value={custom} min={new Date(Date.now() - new Date().getTimezoneOffset() * 60000).toISOString().slice(0, 16)} onChange={(e) => setCustom(e.target.value)} />
-                <button className="btn primary" disabled={!custom} onClick={() => (setSchedOpen(false), void send(Math.floor(new Date(custom).getTime() / 1000)))}>
-                  Schedule
-                </button>
-              </div>
+            <div className="popover up sched-pop">
+              <SchedulePicker
+                initial={schedInitial}
+                primaryLabel="Schedule"
+                busy={busy}
+                onPick={(ts) => (setSchedOpen(false), void send(ts))}
+                onSendNow={init.outboxId ? () => (setSchedOpen(false), void sendNowFromEditor()) : () => (setSchedOpen(false), void send())}
+                onCancel={() => setSchedOpen(false)}
+              />
             </div>
           )}
         </div>
+        {init.outboxId ? (
+          <button className="rb" onClick={() => void moveToDrafts()}><Save size={15} /><span>Move to Drafts</span></button>
+        ) : null}
         <button className="rb" onClick={() => void discard()}><Trash2 size={15} /><span>Discard</span></button>
         <button className="rb" onClick={() => fileRef.current?.click()}><Paperclip size={15} /><span>Attach</span></button>
+        <button className="rb" onClick={() => picRef.current?.click()} title="Insert picture (Ctrl+Shift+P)"><ImagePlus size={15} /><span>Picture</span></button>
         <input ref={fileRef} type="file" multiple hidden onChange={(e) => (void addFiles(e.target.files), (e.target.value = ""))} />
-        <button className="rb" onClick={() => void saveDraft(true)}><Save size={15} /><span>Save draft</span></button>
+        <input
+          ref={picRef}
+          type="file"
+          accept={PICTURE_TYPES.join(",")}
+          multiple
+          hidden
+          onChange={(e) => (e.target.files && void insertPictures(Array.from(e.target.files)), (e.target.value = ""))}
+        />
+        {!init.outboxId && <button className="rb" onClick={() => void saveDraft(true)}><Save size={15} /><span>Save draft</span></button>}
         <Dropdown
           className="rb"
           items={myTemplates.length ? myTemplates.map((t) => ({ label: t.name, onClick: () => applyTemplate(t) })) : [{ label: "No templates yet (Settings → Mailboxes → Templates)", disabled: true }]}
@@ -446,6 +861,23 @@ export function Compose({ init }: { init: ComposeInit }) {
           {!sigId && <option value="">Automatic</option>}
         </select>
       </div>
+
+      {init.outboxId && (
+        <div className={`cp-banner ${init.outboxError ? "bad" : ""}`} role="status">
+          <CalendarClock size={15} aria-hidden />
+          {init.outboxError ? (
+            <span>This scheduled message failed: {init.outboxError}</span>
+          ) : (
+            <span>
+              Scheduled for <b>{fmtWhen(init.sendAt ?? Date.now() / 1000)}</b> ({fmtIn(init.sendAt ?? Date.now() / 1000)}). Paused while you edit.
+            </span>
+          )}
+          <span className="grow" />
+          <button className="link" onClick={() => setSchedOpen(true)}>Change time</button>
+          <button className="link" onClick={() => void sendNowFromEditor()} disabled={busy}>Send now</button>
+          {pastDue && <span className="muted small">That time has passed. Pick a new time to schedule it again.</span>}
+        </div>
+      )}
 
       {aiOpen && (
         <div className="cp-ai">
@@ -502,26 +934,107 @@ export function Compose({ init }: { init: ComposeInit }) {
         >
           <Link2 size={14} />
         </button>
+        <button className="icon-btn" title="Insert picture (Ctrl+Shift+P)" aria-label="Insert picture" onClick={() => picRef.current?.click()}><ImagePlus size={14} /></button>
       </div>
 
-      <div className="cp-editor">
+      <div className="cp-editor" ref={bodyRef} onScroll={() => editor && syncPicSel(editor)}>
         <EditorContent editor={editor} className="editor" />
+        {picSel && (
+          <>
+            <div className="img-tools" role="toolbar" aria-label="Picture options" style={{ top: picSel.top, left: picSel.left, position: "absolute" }}>
+              <div className="seg" role="radiogroup" aria-label="Size">
+                {SIZES.map(([label, w]) => (
+                  <button key={label} role="radio" aria-checked={picSel.width === w} className={picSel.width === w ? "on" : ""} onClick={() => setPictureSize(w)}>
+                    {label}
+                  </button>
+                ))}
+              </div>
+              <span className="sep" />
+              <button className={`tool-btn ${picSel.alt ? "" : "dot"}`} title={picSel.alt ? "Edit alt text (Alt+Enter)" : "Add alt text (Alt+Enter)"} onClick={() => (setAltText(picSel.alt), setAltOpen((o) => !o))}>
+                Alt text
+              </button>
+              <button className="tool-btn" onClick={pictureAsAttachment}>As attachment</button>
+              <button className="icon-btn" aria-label="Remove picture" title="Remove picture (Delete)" onClick={removePicture}><Trash2 size={14} /></button>
+            </div>
+            {altOpen && (
+              <div className="popover alt-pop" style={{ top: picSel.top + 40, left: picSel.left, position: "absolute", zIndex: 13 }} role="dialog" aria-label="Alt text">
+                <label className="small muted">Alt text</label>
+                <textarea value={altText} onChange={(e) => setAltText(e.target.value)} autoFocus placeholder="Describe the picture for people who can’t see it" />
+                <div className="helper">Read aloud by screen readers. Leave empty for decorative pictures.</div>
+                <div className="row-inline" style={{ justifyContent: "flex-end", margin: 0 }}>
+                  <button className="btn small" onClick={() => setAltOpen(false)}>Cancel</button>
+                  <button className="btn primary small" onClick={savePictureAlt}>Save</button>
+                </div>
+              </div>
+            )}
+          </>
+        )}
         {sigId && sigId !== "none" && <div className="sig-note muted small">Signature “{mySigs.find((s) => s.id === sigId)?.name}” will be added when you send.</div>}
       </div>
+
+      {pics.count > 0 && (
+        <div className="cp-size muted small cp-atts" aria-live="polite">
+          {pics.count} picture{pics.count === 1 ? "" : "s"} in message · {fmtSize(totalBytes)} of 25 MB
+          <div className={`progress ${totalBytes > MAX_ATTACH_BYTES ? "over" : ""}`} role="progressbar" aria-valuemin={0} aria-valuemax={25 * 1024 * 1024} aria-valuenow={totalBytes}>
+            <i style={{ width: `${Math.min(100, (totalBytes / MAX_ATTACH_BYTES) * 100)}%` }} />
+          </div>
+          {totalBytes > MAX_ATTACH_BYTES && <span className="inline-err">Message is {fmtSize(totalBytes)} — over the 25 MB most servers accept. Resize pictures or remove attachments.</span>}
+        </div>
+      )}
 
       {atts.length > 0 && (
         <div className="atts cp-atts">
           {atts.map((a, i) => (
             <span key={i} className="att-chip">
               <Paperclip size={13} /> <span className="ellipsis">{a.filename}</span> <span className="muted small">{fmtSize(approxBytes(a))}</span>
+              {a.mime.startsWith("image/") && (
+                <button
+                  className="icon-btn"
+                  aria-label={`Show ${a.filename} in message instead`}
+                  title="Show in message instead"
+                  onClick={() => {
+                    const uri = `data:${a.mime};base64,${a.dataBase64}`;
+                    setAtts((x) => x.filter((_, j) => j !== i));
+                    editor?.chain().focus().insertContent({ type: "image", attrs: { src: uri, alt: "", "data-name": a.filename, width: null } }).run();
+                  }}
+                >
+                  <ImagePlus size={12} />
+                </button>
+              )}
               <button className="icon-btn" aria-label={`Remove ${a.filename}`} onClick={() => (setAtts((x) => x.filter((_, j) => j !== i)), touch())}><X size={12} /></button>
             </span>
           ))}
-          <span className={`muted small ${totalBytes > MAX_ATTACH_BYTES ? "err" : ""}`}>{fmtSize(totalBytes)} of 25 MB</span>
+          <span className={`muted small ${attBytes > MAX_ATTACH_BYTES ? "err" : ""}`}>{fmtSize(attBytes)} attached of 25 MB</span>
         </div>
       )}
-      {draftsHint && <div className="muted small cp-foot">Editing a draft. Sending or saving replaces the original.</div>}
-      {dragging && <div className="drop-hint">Drop files to attach</div>}
+      {draftsHint && !init.outboxId && <div className="muted small cp-foot">Editing a draft. Sending or saving replaces the original.</div>}
+      {init.outboxId && <div className="muted small cp-foot">Closing without changes keeps the original schedule.</div>}
+      {dragging && (
+        <div className="drop-zones" aria-label="Drop files">
+          {dragImages && (
+            <div
+              className={`dz ${hotZone === "top" ? "hot" : ""}`}
+              data-zone="top"
+              onDragOver={(e) => (e.preventDefault(), setHotZone("top"))}
+              onDragLeave={() => setHotZone(null)}
+              onDrop={(e) => (e.preventDefault(), e.stopPropagation(), dropOn("top", e.dataTransfer.files))}
+            >
+              <span>Drop to insert in the message</span>
+              <small>Pictures go where the cursor is</small>
+            </div>
+          )}
+          <div
+            className={`dz ${hotZone === "bottom" ? "hot" : ""}`}
+            data-zone="bottom"
+            style={dragImages ? undefined : { gridRow: "1 / span 2" }}
+            onDragOver={(e) => (e.preventDefault(), setHotZone("bottom"))}
+            onDragLeave={() => setHotZone(null)}
+            onDrop={(e) => (e.preventDefault(), e.stopPropagation(), dropOn("bottom", e.dataTransfer.files))}
+          >
+            <span>Drop here to attach</span>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

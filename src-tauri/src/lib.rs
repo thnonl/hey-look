@@ -1873,7 +1873,7 @@ async fn send_message(
         })
         .await?;
         let _ = app.emit("outbox-changed", serde_json::json!({ "id": id, "status": "pending" }));
-        return Ok("scheduled".into());
+        return Ok(format!("scheduled:{id}"));
     }
     blocking(move || {
         send_now(&db, &draft)?;

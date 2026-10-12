@@ -23,7 +23,7 @@ const ICONS: Record<string, ReactNode> = {
 const VIRTUAL_VIEWS = ["unread", "starred", "pinned", "snoozed", "scheduled"];
 
 export function FolderPane() {
-  const { accounts, folders, folder, accountId, setView, prefs, setPrefs, syncErrors, sync } = useStore();
+  const { accounts, folders, folder, accountId, setView, prefs, setPrefs, syncErrors, sync, outbox } = useStore();
 
   const isFav = (acct: string | null, key: string) => prefs.favorites.includes(`${acct ?? "*"}|${key}`);
   const toggleFav = (acct: string | null, key: string) => {
@@ -43,6 +43,9 @@ export function FolderPane() {
     const c = counts(acct, key);
     // calm numbers: only unread conversations, and only where they help (Inbox / Junk / the Unread view); drafts show a total
     const badge = key === "inbox" || key === "unread" || key === "junk" ? c.unread : key === "drafts" ? c.total : 0;
+    // Scheduled: how many are queued, or how many failed (shown in red)
+    const failed = key === "scheduled" ? outbox.filter((o) => o.status === "failed").length : 0;
+    const queued = key === "scheduled" ? outbox.length : 0;
     const go = () => void setView(key, acct);
     return (
       <div
@@ -64,6 +67,11 @@ export function FolderPane() {
         <span className="fp-ico">{ICONS[key] ?? <Folder size={16} />}</span>
         <span className="fp-lbl ellipsis">{label}</span>
         {badge > 0 && <span className={`fp-badge ${key === "inbox" || key === "unread" ? "strong" : ""}`}>{badge > 99 ? "99+" : badge}</span>}
+        {failed > 0 ? (
+          <span className="fp-badge err" title={`${failed} scheduled message${failed === 1 ? "" : "s"} failed`}>{failed} failed</span>
+        ) : queued > 0 && key === "scheduled" ? (
+          <span className="fp-badge">{queued}</span>
+        ) : null}
         <button
           className={`fp-star ${isFav(acct, key) ? "on" : ""}`}
           title={isFav(acct, key) ? "Remove from Favorites" : "Add to Favorites"}

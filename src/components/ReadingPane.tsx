@@ -1,11 +1,12 @@
-import { openUrl, revealItemInDir } from "@tauri-apps/plugin-opener";
-import { Archive, Clock, Download, Flag, Forward, MailX, MoreHorizontal, Paperclip, Pin, Reply, ReplyAll, Sparkles, Trash2, ChevronsDownUp, ChevronsUpDown, Mail } from "lucide-react";
+import { openUrl } from "@tauri-apps/plugin-opener";
+import { Archive, Clock, Flag, Forward, MailX, MoreHorizontal, Pin, Reply, ReplyAll, Sparkles, Trash2, ChevronsDownUp, ChevronsUpDown, Mail } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { forward, replyTo } from "../actions";
 import { api, MessageFull } from "../api";
 import { eff } from "../prefs";
-import { useStore } from "../store";
+import { friendlyError, useStore } from "../store";
 import { fmtFull, fmtSize, plainToHtml, sanitizeHtml, snoozePresets } from "../util";
+import { AttachmentStrip, Lightbox, LbItem } from "./Attachments";
 import { EmptyState } from "./overlays";
 import { Avatar, Dropdown } from "./ui";
 
@@ -23,6 +24,47 @@ function remoteImageUrls(html: string): string[] {
     if (/^https?:\/\//i.test(u)) urls.add(u);
   });
   return Array.from(urls);
+}
+
+/** Pictures the sync did not embed: loaded ones become data: URIs, the rest become click-to-load placeholders. */
+function pictureHtml(html: string, m: MessageFull, loaded: Record<string, string>, state: Record<string, { status: "loading" | "failed"; error?: string }>): string {
+  const doc = new DOMParser().parseFromString(html, "text/html");
+  doc.querySelectorAll("img[src^='cid:']").forEach((img) => {
+    const cid = (img.getAttribute("src") ?? "").slice(4);
+    if (loaded[cid]) {
+      img.setAttribute("src", loaded[cid]);
+      return;
+    }
+    const meta = m.attachments.find((a) => a.cid === cid);
+    const ph = doc.createElement("button");
+    ph.type = "button";
+    ph.className = "hl-ph";
+    ph.setAttribute("data-cid", cid);
+    const st = state[cid];
+    if (!meta) {
+      ph.disabled = true;
+      ph.textContent = `Picture missing from this message (cid:${cid})`;
+    } else if (st?.status === "loading") {
+      ph.setAttribute("aria-busy", "true");
+      const spin = doc.createElement("span");
+      spin.className = "hl-spin";
+      ph.append(spin, `Loading ${fmtSize(meta.size)}…`);
+    } else if (st?.status === "failed") {
+      ph.classList.add("bad");
+      const b = doc.createElement("b");
+      b.textContent = "Couldn’t load this picture.";
+      ph.append(b, " Retry");
+    } else {
+      const b = doc.createElement("b");
+      b.textContent = meta.name;
+      const small = doc.createElement("span");
+      small.textContent = `${fmtSize(meta.size)} · large picture, not loaded yet`;
+      ph.append(b, doc.createElement("br"), small, " · Show");
+    }
+    ph.setAttribute("aria-label", meta ? `Show picture ${meta.name}, ${fmtSize(meta.size)}` : "Picture missing");
+    img.replaceWith(ph);
+  });
+  return doc.body.innerHTML;
 }
 
 function inlineImages(html: string): string {
@@ -43,7 +85,7 @@ const host = (u: string) => {
   }
 };
 
-function MessageBody({ m, frameRef }: { m: MessageFull; frameRef: React.RefObject<HTMLIFrameElement | null> }) {
+function MessageBody({ m, frameRef, onPictures }: { m: MessageFull; frameRef: React.RefObject<HTMLIFrameElement | null>; onPictures: (items: { src: string; name: string }[], index: number) => void }) {
   const prefs = useStore((s) => s.prefs);
   const setDialog = useStore((s) => s.setDialog);
   const confirm = useStore((s) => s.confirm);
@@ -51,15 +93,54 @@ function MessageBody({ m, frameRef }: { m: MessageFull; frameRef: React.RefObjec
   const theme = prefs.theme;
   const [allow, setAllow] = useState(false);
   const [version, setVersion] = useState(0); // bumps when images arrive from the backend
+  const [loadedPics, setLoadedPics] = useState<Record<string, string>>({});
+  const [picState, setPicState] = useState<Record<string, { status: "loading" | "failed"; error?: string }>>({});
   const allowed = loadRemote || allow;
   const clean = useMemo(
     () => (m.html ? sanitizeHtml(m.html, allowed) : { html: plainToHtml(m.text ?? ""), blocked: 0 }),
     [m, allowed],
   );
   const html = useMemo(
-    () => (allowed ? inlineImages(clean.html) : clean.html),
-    [clean, allowed, version], // eslint-disable-line react-hooks/exhaustive-deps
+    () => pictureHtml(allowed ? inlineImages(clean.html) : clean.html, m, loadedPics, picState),
+    [clean, allowed, version, m, loadedPics, picState], // eslint-disable-line react-hooks/exhaustive-deps
   );
+
+  // a picture that was not embedded at sync time: fetch it from the server (click, or by the auto-load setting)
+  const loadPicture = useCallback(
+    async (cid: string) => {
+      setPicState((s) => ({ ...s, [cid]: { status: "loading" } }));
+      try {
+        const d = await api.inlineImage(m.id, cid);
+        setLoadedPics((s) => ({ ...s, [cid]: `data:${d.mime};base64,${d.dataBase64}` }));
+        setPicState((s) => {
+          const n = { ...s };
+          delete n[cid];
+          return n;
+        });
+      } catch (e) {
+        setPicState((s) => ({ ...s, [cid]: { status: "failed", error: friendlyError(e) } }));
+      }
+    },
+    [m.id],
+  );
+  const loadRef = useRef(loadPicture);
+  loadRef.current = loadPicture;
+  const onPicturesRef = useRef(onPictures);
+  onPicturesRef.current = onPictures;
+
+  // auto-load per the setting (2 MB each by default; 5 MB; or always), within a 10 MB budget per message
+  useEffect(() => {
+    const limit = prefs.inlineAutoLoadMB === 0 ? Infinity : prefs.inlineAutoLoadMB * 1024 * 1024;
+    if (!m.html) return;
+    let budget = 10 * 1024 * 1024;
+    for (const a of m.attachments) {
+      if (!(a.inline && a.referenced && a.cid) || !m.html.includes(`cid:${a.cid}`)) continue;
+      if (a.size > limit || a.size > budget) continue;
+      budget -= a.size;
+      void loadRef.current(a.cid);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [m.id, prefs.inlineAutoLoadMB]);
 
   // Fetch remote images in the backend instead of letting the webview contact the sender's servers.
   useEffect(() => {
@@ -88,7 +169,11 @@ function MessageBody({ m, frameRef }: { m: MessageFull; frameRef: React.RefObjec
   const csp = allowed ? "default-src 'none'; img-src data: https: http:; style-src 'unsafe-inline'; font-src data:" : "default-src 'none'; img-src data:; style-src 'unsafe-inline'; font-src data:";
   const srcDoc = `<!doctype html><html><head><meta charset="utf-8"><meta http-equiv="Content-Security-Policy" content="${csp}"><base target="_blank"><meta name="color-scheme" content="${dark ? "dark" : "light"}">
     <style>body{font:14px/1.5 "Segoe UI Variable","Segoe UI",system-ui,sans-serif;margin:0;padding:${dark ? "4px 2px" : "10px 12px"};word-wrap:break-word;background:${dark ? "transparent" : "#ffffff"};color:${dark ? "#e6e6e6" : "#242424"}}
-    img{max-width:100%;height:auto}blockquote{margin:0 0 0 .8ex;border-left:2px solid #999;padding-left:1ex}a{color:${dark ? "#6cb8f6" : "#0f6cbd"}}table{max-width:100%}</style>
+    img{max-width:100%;height:auto;cursor:zoom-in}blockquote{margin:0 0 0 .8ex;border-left:2px solid #999;padding-left:1ex}a{color:${dark ? "#6cb8f6" : "#0f6cbd"}}table{max-width:100%}
+    .hl-ph{display:flex;align-items:center;gap:10px;max-width:100%;width:360px;padding:12px 14px;border:1px dashed #9aa3af;border-radius:10px;background:#f6f7f9;color:#5b6470;font:13px/1.4 "Segoe UI",sans-serif;cursor:pointer;text-align:left;box-sizing:border-box;flex-wrap:wrap}
+    .hl-ph:hover{background:#eceef2}.hl-ph b{color:#1f2328}.hl-ph.bad{border-color:#c4314b;color:#c4314b}.hl-ph:disabled{cursor:default}
+    .hl-spin{width:14px;height:14px;border:2px solid #9aa3af;border-top-color:transparent;border-radius:50%;animation:hlspin 1s linear infinite;flex:none}@keyframes hlspin{to{transform:rotate(360deg)}}
+    ${dark ? ".hl-ph{background:#2d2f36;color:#a2a8b3;border-color:#5b6470}.hl-ph:hover{background:#363841}.hl-ph b{color:#f1f2f4}" : ""}</style>
     </head><body>${html}</body></html>`;
 
   // Frame height follows the content. Always read the frame's *current* document: the srcDoc is replaced
@@ -130,7 +215,21 @@ function MessageBody({ m, frameRef }: { m: MessageFull; frameRef: React.RefObjec
     void doc.fonts?.ready.then(measure);
     doc.querySelectorAll<HTMLAnchorElement>("a[href]").forEach((a) => (a.title = a.href)); // show the real target on hover
     const onClick = (e: MouseEvent) => {
-      const a = (e.target as HTMLElement).closest("a");
+      const target = e.target as HTMLElement;
+      const ph = target.closest?.(".hl-ph[data-cid]") as HTMLElement | null;
+      if (ph) {
+        e.preventDefault();
+        void loadRef.current(ph.getAttribute("data-cid") ?? "");
+        return;
+      }
+      const pic = target.closest?.("img") as HTMLImageElement | null;
+      if (pic && (pic.getAttribute("src") ?? "").startsWith("data:")) {
+        e.preventDefault();
+        const all = Array.from(doc.querySelectorAll<HTMLImageElement>("img")).filter((i) => (i.getAttribute("src") ?? "").startsWith("data:"));
+        onPicturesRef.current(all.map((i) => ({ src: i.getAttribute("src") ?? "", name: i.getAttribute("alt") || "picture" })), Math.max(0, all.indexOf(pic)));
+        return;
+      }
+      const a = target.closest("a");
       if (!a?.href) return;
       e.preventDefault();
       const text = (a.textContent ?? "").trim();
@@ -195,6 +294,7 @@ function MessageCard({ m, open, onToggle }: { m: MessageFull; open: boolean; onT
   const { showToast, setDialog, prefs } = useStore();
   const frameRef = useRef<HTMLIFrameElement>(null);
   const [translated, setTranslated] = useState<string | null>(null);
+  const [lightbox, setLightbox] = useState<{ items: { src: string; name: string }[]; index: number } | null>(null);
   const who = m.fromName || m.fromEmail;
 
   const unsub = async () => {
@@ -208,13 +308,16 @@ function MessageCard({ m, open, onToggle }: { m: MessageFull; open: boolean; onT
     }
   };
 
-  const save = async (index?: number) => {
+  /** Every attachment into one folder (pictures included); a failed file does not stop the others. */
+  const saveAll = async (ask = false) => {
     try {
-      const paths = await api.saveAttachments(m.id, index);
-      showToast(paths.length === 1 ? `Saved to ${paths[0]}` : `Saved ${paths.length} files to Downloads`, undefined, "success");
-      if (paths[0]) void revealItemInDir(paths[0]).catch(() => undefined);
+      const r = await api.attachmentSaveAll(m.id, ask || prefs.askWhereToSave);
+      if (!r) return;
+      const folder = r.dir.split(/[\\/]/).filter(Boolean).pop() ?? r.dir;
+      if (r.failed.length === 0) showToast(`Saved ${r.saved.length} attachment${r.saved.length === 1 ? "" : "s"} to ${folder}`, undefined, "success", r.saved[0] ? [{ label: "Show in folder", run: () => void api.attachmentReveal(r.saved[0]).catch(() => undefined) }] : undefined);
+      else showToast(`Saved ${r.saved.length} of ${m.attachments.length}. ${r.failed[0].name} failed: ${friendlyError(r.failed[0].error)}`, undefined, "error", [{ label: "Retry", run: () => void saveAll(ask) }]);
     } catch (e) {
-      showToast(`Save failed: ${e}`, undefined, "error");
+      showToast(`Save all failed: ${friendlyError(e)}`, undefined, "error", [{ label: "Retry", run: () => void saveAll(ask) }]);
     }
   };
 
@@ -261,7 +364,7 @@ function MessageCard({ m, open, onToggle }: { m: MessageFull; open: boolean; onT
                 { divider: true },
                 ...LANGS.map((l) => ({ label: `Translate to ${l}`, onClick: () => void translate(l) })),
                 ...(m.canUnsubscribe ? [{ divider: true }, { label: "Unsubscribe", onClick: () => void unsub() }] : []),
-                ...(m.attachments.length ? [{ divider: true }, { label: "Save all attachments", onClick: () => void save() }] : []),
+                ...(m.attachments.length ? [{ divider: true }, { label: "Save all attachments…", onClick: () => void saveAll(false) }] : []),
               ]}
             >
               <MoreHorizontal size={16} />
@@ -284,18 +387,15 @@ function MessageCard({ m, open, onToggle }: { m: MessageFull; open: boolean; onT
               <button className="link small" onClick={() => setTranslated(null)}>Dismiss</button>
             </div>
           )}
-          <MessageBody m={m} frameRef={frameRef} />
-          {m.attachments.length > 0 && (
-            <div className="atts">
-              {m.attachments.map((a) => (
-                <button key={a.index} className="att-chip" onClick={() => void save(a.index)} title="Save to Downloads">
-                  <Paperclip size={13} />
-                  <span className="ellipsis">{a.name}</span>
-                  <span className="muted small">{fmtSize(a.size)}</span>
-                  <Download size={13} />
-                </button>
-              ))}
-            </div>
+          <MessageBody m={m} frameRef={frameRef} onPictures={(items, index) => setLightbox({ items, index })} />
+          <AttachmentStrip m={m} />
+          {lightbox && (
+            <Lightbox
+              items={lightbox.items.map((p, i): LbItem => ({ key: `${i}:${p.name}`, name: p.name, load: () => Promise.resolve(p.src) }))}
+              index={lightbox.index}
+              onClose={() => setLightbox(null)}
+              onIndex={(i) => setLightbox((l) => (l ? { ...l, index: i } : l))}
+            />
           )}
           <div className="rp-reply-row">
             <button className="btn" onClick={() => replyTo(m, replyDefaultAll)}>

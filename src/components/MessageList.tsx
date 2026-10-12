@@ -1,9 +1,11 @@
-import { Archive, CalendarX, Check, CheckCheck, Clock, Flag, FolderOpen, Mail, MailOpen, Paperclip, Pin, SearchX, Trash2, X } from "lucide-react";
+import { Archive, Check, CheckCheck, Clock, Flag, FolderOpen, Mail, MailOpen, Paperclip, Pin, SearchX, Trash2 } from "lucide-react";
 import { Fragment, ReactNode } from "react";
 import { api, ThreadSummary } from "../api";
 import { folderLabel, Prefs } from "../prefs";
 import { useStore } from "../store";
-import { dateGroup, fmtDate, fmtFull, snoozePresets } from "../util";
+import { dateGroup, fmtDate, snoozePresets } from "../util";
+import { messageToEditor } from "./Compose";
+import { ScheduledList } from "./ScheduledList";
 import { EmptyState, SkeletonRows } from "./overlays";
 import { Avatar, Dropdown } from "./ui";
 
@@ -117,7 +119,7 @@ function HoverActions({ t }: { t: ThreadSummary }) {
 
 export function MessageList() {
   const {
-    threads, outbox, folder, accountId, selected, select, checked, toggleCheck, setChecked, search, searchScope, setSearchScope, refresh,
+    threads, folder, accountId, selected, select, checked, toggleCheck, setChecked, search, searchScope, setSearchScope,
     prefs, focus, setFocus, filter, setFilter, accounts, openCompose, loading, loadOlder, loadingOlder,
   } = useStore();
   const searching = search.trim().length > 0;
@@ -136,20 +138,16 @@ export function MessageList() {
         const msgs = await api.getThread(t.threadId, "drafts");
         const m = msgs[msgs.length - 1];
         if (!m) return;
-        // restore attachments so saving or sending the draft does not silently drop them
-        const attachments = await Promise.all(
-          m.attachments.map((a) =>
-            api.attachmentData(m.id, a.index).then((d) => ({ filename: d.name, mime: d.mime, dataBase64: d.dataBase64 })).catch(() => null),
-          ),
-        );
+        // restore pictures and attachments so saving or sending the draft does not silently drop them
+        const { html, attachments } = await messageToEditor(m);
         void openCompose({
           accountId: m.accountId,
           to: m.to ? m.to.split(",").map((x) => x.trim()) : [],
           cc: m.cc ? m.cc.split(",").map((x) => x.trim()) : [],
           subject: m.subject === "(no subject)" ? "" : m.subject,
-          bodyHtml: m.html ?? `<p>${(m.text ?? "").replace(/\n/g, "<br>")}</p>`,
+          bodyHtml: html ?? `<p>${(m.text ?? "").replace(/\n/g, "<br>")}</p>`,
           replaces: t.threadId,
-          attachments: attachments.filter((a): a is NonNullable<typeof a> => !!a),
+          attachments,
         });
       })();
       return;
@@ -212,25 +210,7 @@ export function MessageList() {
 
       <div className="ml-body" role="listbox" aria-label={title} aria-multiselectable onKeyDown={onKeyNav}>
         {folder === "scheduled" ? (
-          outbox.length === 0 ? (
-            <EmptyState icon={<CalendarX size={40} />} title="No scheduled messages" text="Messages you schedule with Send later appear here until they go out." />
-          ) : (
-            outbox.map((o) => (
-              <div key={o.id} className="ml-row">
-                <div className="ml-main">
-                  <div className="ml-top">
-                    <span className="who ellipsis">{o.to.join(", ")}</span>
-                    <span className="date">{o.status === "failed" ? "failed" : fmtFull(o.sendAt)}</span>
-                  </div>
-                  <div className="subject ellipsis">{o.subject || "(no subject)"}</div>
-                  {o.error && <div className="preview err">{o.error}</div>}
-                </div>
-                <button className="icon-btn" title="Cancel scheduled send" aria-label="Cancel scheduled send" onClick={async () => { await api.cancelOutbox(o.id); void refresh(); }}>
-                  <X size={16} />
-                </button>
-              </div>
-            ))
-          )
+          <ScheduledList />
         ) : loading && threads.length === 0 ? (
           <SkeletonRows />
         ) : threads.length === 0 ? (

@@ -133,6 +133,45 @@ function GeneralTab() {
           <option value="24">24-hour</option><option value="12">12-hour</option>
         </select>
       </Row>
+      <h4>Attachments</h4>
+      <Row label="Save attachments to" hint="Used by Save and Save all">
+        <div className="path-field">
+          <code title={prefs.downloadDir ?? "Downloads"}>{prefs.downloadDir ?? "Downloads"}</code>
+          <button
+            className="btn small"
+            onClick={async () => {
+              const p = await api.pickFolder("Save attachments to");
+              if (p) set("downloadDir", p);
+            }}
+          >
+            Change…
+          </button>
+          {prefs.downloadDir && <button className="link small" onClick={() => set("downloadDir", null)}>Use Downloads</button>}
+        </div>
+      </Row>
+      <Row label="Ask where to save each file">
+        <Switch checked={prefs.askWhereToSave} onChange={(v) => set("askWhereToSave", v)} />
+      </Row>
+      <Row label="After saving">
+        <select value={prefs.afterSave} onChange={(e) => set("afterSave", e.target.value as Prefs["afterSave"])}>
+          <option value="notify">Show a notification</option>
+          <option value="reveal">Show in folder</option>
+          <option value="open">Open the file</option>
+        </select>
+      </Row>
+      <Row label="Warn before opening programs and scripts" hint=".exe, .bat, .cmd, .ps1, .js, .vbs, .msi and similar">
+        <Switch checked={prefs.warnExecutables} onChange={(v) => set("warnExecutables", v)} />
+      </Row>
+      <h4>Scheduled messages</h4>
+      <Row label="If a scheduled time passes while Hey Look! is closed">
+        <select value={prefs.scheduledCatchUp} onChange={(e) => set("scheduledCatchUp", e.target.value as Prefs["scheduledCatchUp"])}>
+          <option value="send">Send as soon as it opens</option>
+          <option value="ask">Ask me first</option>
+        </select>
+      </Row>
+      <Row label="Retry failed scheduled messages" hint="Network errors are retried 3 times, 5 minutes apart">
+        <Switch checked={prefs.retryScheduled} onChange={(v) => set("retryScheduled", v)} />
+      </Row>
     </div>
   );
 }
@@ -590,6 +629,17 @@ function ComposingPanel({ scope }: { scope: string | null }) {
           </select>
         )}
       </OvRow>
+      <OvRow scope={scope} k="inlinePictures" label="Pasted and dropped pictures" hint="Put in the message, or attached as files">
+        {(v, set) => (
+          <select value={v} onChange={(e) => set(e.target.value as Prefs["inlinePictures"])}>
+            <option value="inline">Put in the message</option>
+            <option value="attach">Attach as files</option>
+          </select>
+        )}
+      </OvRow>
+      <OvRow scope={scope} k="autoResizePictures" label="Resize large pictures automatically" hint="Pictures over 1 MB are reduced to 1600 px wide when inserted">
+        {(v, set) => <Switch checked={v} onChange={set} />}
+      </OvRow>
       <OvRow scope={scope} k="signatureOnReply" label="Add signature to replies">
         {(v, set) => <Switch checked={v} onChange={set} />}
       </OvRow>
@@ -834,6 +884,15 @@ function ReadingPanel({ scope }: { scope: string | null }) {
     <>
       <OvRow scope={scope} k="loadRemote" id="loadRemote" label="Always load remote content (images)" hint="Off = blocked to stop tracking pixels; you can still load a single message. When on, senders can tell you opened it.">
         {(v, set) => <Switch checked={v} onChange={set} />}
+      </OvRow>
+      <OvRow scope={scope} k="inlineAutoLoadMB" label="Load inline pictures automatically up to" hint="Larger pictures show a placeholder you can click to load">
+        {(v, set) => (
+          <select value={v} onChange={(e) => set(Number(e.target.value) as Prefs["inlineAutoLoadMB"])}>
+            <option value={2}>2 MB each</option>
+            <option value={5}>5 MB each</option>
+            <option value={0}>Always</option>
+          </select>
+        )}
       </OvRow>
       <OvRow scope={scope} k="syncMinutes" label="Fetch new mail every">
         {(v, set) => (
@@ -1148,7 +1207,9 @@ function ShortcutsTab() {
   const rows: [string, string][] = [
     ["c", "New mail"], ["/", "Search"], ["j / k", "Next / previous conversation"], ["e", "Archive"], ["#", "Delete"], ["!", "Move to Junk"],
     ["s", "Snooze"], ["p", "Pin"], ["*", "Flag"], ["u", "Mark as unread"], ["r", "Reply"], ["a", "Reply all"], ["f", "Forward"],
-    ["Ctrl+Enter", "Send (while writing)"], ["Ctrl+A", "Select all"], ["Ctrl+K", "Command bar"], ["F5", "Sync now"], ["Esc", "Close / deselect"],
+    ["Ctrl+Enter", "Send (while writing)"], ["Ctrl+Shift+Enter", "Send later (while writing)"], ["Ctrl+Shift+P", "Insert picture (while writing)"],
+    ["Space / Enter", "Preview / open attachment"], ["Ctrl+S", "Save attachment as…"], ["Ctrl+Shift+S", "Save all attachments"],
+    ["Ctrl+A", "Select all"], ["Ctrl+K", "Command bar"], ["F5", "Sync now"], ["Esc", "Close / deselect"],
   ];
   return (
     <div>
