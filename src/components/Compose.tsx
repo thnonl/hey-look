@@ -244,7 +244,7 @@ interface PictureSel {
 
 export function Compose({ init }: { init: ComposeInit }) {
   const { accounts, openCompose, showToast, prefs, refresh, confirm, choose, setComposeDirty, setComposeSaver, aiConfigured, setDialog } = useStore();
-  const [accountId, setAccountId] = useState(init.accountId || (accounts.some((a) => a.id === prefs.defaultAccount) ? prefs.defaultAccount : "") || accounts[0]?.id || "");
+  const [accountId, setAccountId] = useState(accounts.some((a) => a.id === init.accountId) ? init.accountId! : accounts.some((a) => a.id === prefs.defaultAccount) ? prefs.defaultAccount : accounts[0]?.id || init.accountId || "");
   const isFresh = !init.replaces && !init.isReply && !init.outboxId;
   const editing = !!(init.replaces || init.outboxId);
   const autoCc = (id: string) => (isFresh ? eff(prefs, id, "autoCc").trim() : "");
@@ -274,10 +274,10 @@ export function Compose({ init }: { init: ComposeInit }) {
   const [altText, setAltText] = useState("");
   // PGP: Encrypt is "on", "off", or "auto" (on while every recipient has a key); Sign is a plain switch
   const keysRev = useStore((s) => s.keysRev);
-  const startMode = eff(prefs, init.accountId || prefs.defaultAccount || accounts[0]?.id, "pgpEncrypt");
+  const startMode = eff(prefs, accountId, "pgpEncrypt");
   const [encIntent, setEncIntent] = useState<"on" | "off" | "auto">(init.security ? (init.security.encrypt ? "on" : "off") : startMode === "always" ? "on" : startMode === "possible" ? "auto" : "off");
-  const [signOn, setSignOn] = useState(init.security ? init.security.sign : eff(prefs, init.accountId || prefs.defaultAccount || accounts[0]?.id, "pgpSign"));
-  const [attachKey, setAttachKey] = useState(init.security ? init.security.attachPublicKey : eff(prefs, init.accountId || prefs.defaultAccount || accounts[0]?.id, "pgpAttachKey"));
+  const [signOn, setSignOn] = useState(init.security ? init.security.sign : eff(prefs, accountId, "pgpSign"));
+  const [attachKey, setAttachKey] = useState(init.security ? init.security.attachPublicKey : eff(prefs, accountId, "pgpAttachKey"));
   const [signMenu, setSignMenu] = useState(false);
   const [secDetails, setSecDetails] = useState(false);
   const [ks, setKs] = useState<{ own: OwnKeyStatus | null; recipients: Record<string, RecipientStatus> } | null>(null);

@@ -121,12 +121,18 @@ export function FloatingMenu({
     if (!p || !b) return;
     const gap = 4;
     const edge = 6;
+    // a trigger scrolled out of view (a dialog body, a list) has nowhere sensible to anchor the menu: close it instead of placing it off-screen
+    if (b.bottom < edge || b.top > window.innerHeight - edge || b.right < edge || b.left > window.innerWidth - edge) {
+      close.current();
+      return;
+    }
     const below = window.innerHeight - edge - (b.bottom + gap);
     const above = b.top - gap - edge;
     // down when it fits, else up when it fits, else the roomier side with the list made scrollable
     const up = p.height > below && (p.height <= above || above > below);
     const room = up ? above : below;
-    const top = up ? b.top - gap - Math.min(p.height, room) : b.bottom + gap;
+    const raw = up ? b.top - gap - Math.min(p.height, room) : b.bottom + gap;
+    const top = Math.max(edge, Math.min(raw, window.innerHeight - edge - Math.min(p.height, room)));
     const want = align === "right" ? b.right - p.width : b.left;
     const left = Math.max(edge, Math.min(want, window.innerWidth - p.width - edge));
     setPos({ top, left, max: room });
