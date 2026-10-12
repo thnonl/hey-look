@@ -88,6 +88,7 @@ account, and every feature is available.
 - **Primary color**: choose a preset or any color; dark mode derives a lighter shade automatically
 - A live preview made from generated sample mail shows every choice before you commit
 - Text size, date and time formats, command bar (Ctrl+K)
+- **Windows**: the top bar is the title bar (drag, double-click to maximize, right-click for the system menu, Snap Layouts on Windows 11, `F11` full screen); macOS and Linux keep the system title bar
 
 ### AI Assistant (optional)
 Summaries, translation and a "Write with AI" helper in the composer. It talks only to the endpoint you configure
@@ -122,6 +123,7 @@ App-wide options (appearance, tray, shortcuts, AI Assistant, blocked senders) li
 | `u` | Mark unread | `Ctrl+A` | Select all |
 | `Ctrl+K` | Command bar | `Ctrl+Enter` | Send (while writing) |
 | `F5` | Sync now | `Esc` | Close, deselect |
+| `F11` | Full screen (Windows) | | |
 | `Ctrl+1` / `Ctrl+2` | Mail / Calendar | `c` `t` `m` `w` `a` `←` `→` | Calendar: new event, today, month / week / agenda, previous / next |
 
 ---
@@ -225,6 +227,7 @@ src-tauri/src/           Rust backend
   ical.rs, calendar.rs   iCalendar parsing and writing, repeat rules, events, invitations and replies
   oauth.rs               Google and Microsoft OAuth 2.0 (PKCE, loopback redirect) and token refresh
   discover.rs            server-settings lookup (presets, autoconfig, ISPDB, DNS SRV / MX)
+  winframe.rs            custom title bar on Windows: caption-button hit-testing (Snap Layouts), system menu
   shell.rs               tray icon, badges, native notifications, snooze reminders
   ai.rs                  OpenAI-compatible chat client
   db.rs                  SQLite schema and settings storage
