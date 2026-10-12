@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { FolderKey } from "../api";
+import { folderLabel } from "../prefs";
 import { useStore } from "../store";
 
 interface Cmd {
@@ -16,30 +16,35 @@ export function CommandBar() {
 
   const cmds = useMemo<Cmd[]>(() => {
     const ids = s.selected ? [s.selected] : [];
-    const go = (f: FolderKey) => () => void s.setFolder(f, s.accountId);
+    const cur = s.threads.find((t) => t.threadId === s.selected);
     const list: Cmd[] = [
-      { label: "Compose new message", run: () => s.openCompose({}) },
+      { label: "New mail", run: () => s.openCompose({}) },
       { label: "Sync now", run: () => void s.sync() },
-      { label: "Open settings", run: () => s.setSettingsOpen(true) },
-      { label: "Theme: light", run: () => s.setTheme("light") },
-      { label: "Theme: dark", run: () => s.setTheme("dark") },
-      { label: "Theme: system", run: () => s.setTheme("system") },
-      ...(["inbox", "unread", "starred", "pinned", "snoozed", "scheduled", "sent", "drafts", "archive", "junk", "trash"] as FolderKey[]).map(
-        (f) => ({ label: `Go to ${f}`, run: go(f) }),
-      ),
+      { label: "Open settings", run: () => s.setDialog({ type: "settings" }) },
+      { label: "Sweep: clean up by sender", run: () => s.setDialog({ type: "cleaner" }) },
+      { label: "Theme: light", run: () => s.setPrefs({ theme: "light" }) },
+      { label: "Theme: dark", run: () => s.setPrefs({ theme: "dark" }) },
+      { label: "Theme: system", run: () => s.setPrefs({ theme: "system" }) },
+      { label: "Toggle reading pane position", run: () => s.setPrefs({ readingPane: s.prefs.readingPane === "right" ? "bottom" : "right" }) },
+      { label: "Toggle conversations", run: () => s.setPrefs({ conversations: !s.prefs.conversations }) },
+      { label: "Toggle Focused Inbox", run: () => s.setPrefs({ focused: !s.prefs.focused }) },
+      ...["inbox", "unread", "starred", "pinned", "snoozed", "scheduled", "sent", "drafts", "archive", "junk", "trash"].map((f) => ({
+        label: `Go to ${folderLabel(f)}`,
+        run: () => void s.setView(f, s.accountId),
+      })),
     ];
     if (ids.length)
       list.push(
         { label: "Archive conversation", run: () => void s.act(ids, "archive", undefined, "Archived") },
-        { label: "Trash conversation", run: () => void s.act(ids, "trash", undefined, "Moved to trash") },
-        { label: "Mark unread", run: () => void s.act(ids, "unread") },
-        { label: "Star / unstar", run: () => void s.act(ids, s.threads.find((t) => t.threadId === ids[0])?.flagged ? "unstar" : "star") },
-        { label: "Pin / unpin", run: () => void s.act(ids, s.threads.find((t) => t.threadId === ids[0])?.pinned ? "unpin" : "pin") },
+        { label: "Delete conversation", run: () => void s.act(ids, "trash", undefined, "Moved to Deleted Items") },
+        { label: "Mark as unread", run: () => void s.act(ids, "unread") },
+        { label: cur?.flagged ? "Remove flag" : "Flag", run: () => void s.act(ids, cur?.flagged ? "unstar" : "star") },
+        { label: cur?.pinned ? "Unpin" : "Pin", run: () => void s.act(ids, cur?.pinned ? "unpin" : "pin") },
       );
-    for (const a of s.accounts) list.push({ label: `Switch to ${a.email}`, run: () => void s.setFolder(s.folder, a.id) });
-    list.push({ label: "Show all accounts", run: () => void s.setFolder(s.folder, null) });
+    for (const a of s.accounts) list.push({ label: `Switch to ${a.email}`, run: () => void s.setView(s.folder, a.id) });
+    list.push({ label: "Show all accounts", run: () => void s.setView(s.folder, null) });
     return list;
-  }, [s.selected, s.accounts, s.folder, s.accountId, s.threads]);
+  }, [s.selected, s.accounts, s.folder, s.accountId, s.threads, s.prefs]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const shown = cmds.filter((c) => c.label.toLowerCase().includes(q.toLowerCase())).slice(0, 10);
   const exec = (c?: Cmd) => {
@@ -48,8 +53,8 @@ export function CommandBar() {
   };
 
   return (
-    <div className="modal-back top" onClick={() => s.setCommandOpen(false)}>
-      <div className="modal cmd" onClick={(e) => e.stopPropagation()}>
+    <div className="modal-back top" onMouseDown={() => s.setCommandOpen(false)}>
+      <div className="modal cmd" onMouseDown={(e) => e.stopPropagation()}>
         <input
           ref={ref}
           placeholder="Type a command…"
@@ -66,7 +71,7 @@ export function CommandBar() {
           }}
         />
         {shown.map((c, idx) => (
-          <div key={c.label} className={`menu-item ${idx === i ? "hl" : ""}`} onMouseEnter={() => setI(idx)} onClick={() => exec(c)}>
+          <div key={c.label} className={`menu-row ${idx === i ? "hl" : ""}`} onMouseEnter={() => setI(idx)} onClick={() => exec(c)}>
             {c.label}
           </div>
         ))}

@@ -1,16 +1,44 @@
 import DOMPurify from "dompurify";
-import { format, isThisYear, isToday, isYesterday } from "date-fns";
+import { format, isThisYear, isThisWeek, isToday, isYesterday, subWeeks, isSameWeek } from "date-fns";
+import type { Prefs } from "./prefs";
+
+let timePat = "HH:mm";
+let relative = true;
+export function configureDates(p: Pick<Prefs, "timeFormat" | "dateFormat">) {
+  timePat = p.timeFormat === "12" ? "h:mm a" : "HH:mm";
+  relative = p.dateFormat === "relative";
+}
 
 export function fmtDate(ts: number): string {
   const d = new Date(ts * 1000);
-  if (isToday(d)) return format(d, "HH:mm");
-  if (isYesterday(d)) return "Yesterday";
-  if (isThisYear(d)) return format(d, "MMM d");
-  return format(d, "dd/MM/yyyy");
+  if (relative) {
+    if (isToday(d)) return format(d, timePat);
+    if (isYesterday(d)) return "Yesterday";
+    if (isThisWeek(d)) return format(d, "EEE");
+    if (isThisYear(d)) return format(d, "d MMM");
+    return format(d, "dd/MM/yyyy");
+  }
+  return format(d, isThisYear(d) ? `d MMM ${timePat}` : `dd/MM/yyyy ${timePat}`);
 }
 
 export function fmtFull(ts: number): string {
-  return format(new Date(ts * 1000), "EEE, MMM d yyyy · HH:mm");
+  return format(new Date(ts * 1000), `EEE, d MMM yyyy ${timePat}`);
+}
+
+export function dateGroup(ts: number): string {
+  const d = new Date(ts * 1000);
+  if (isToday(d)) return "Today";
+  if (isYesterday(d)) return "Yesterday";
+  if (isThisWeek(d)) return "Earlier this week";
+  if (isSameWeek(d, subWeeks(new Date(), 1))) return "Last week";
+  if (isThisYear(d)) return format(d, "MMMM");
+  return format(d, "yyyy");
+}
+
+export function fmtSize(n: number): string {
+  if (n < 1024) return `${n} B`;
+  if (n < 1024 * 1024) return `${(n / 1024).toFixed(0)} KB`;
+  return `${(n / 1024 / 1024).toFixed(1)} MB`;
 }
 
 export function initials(s: string): string {
@@ -73,25 +101,26 @@ export function quoteHtml(m: { fromName: string; fromEmail: string; date: number
   return `<br><br><div>On ${fmtFull(m.date)}, ${who} wrote:</div><blockquote style="margin:0 0 0 .8ex;border-left:2px solid #ccc;padding-left:1ex">${body}</blockquote>`;
 }
 
-export function snoozePresets(): { label: string; ts: number }[] {
+export function snoozePresets(t: Prefs["snoozeTimes"]): { label: string; ts: number }[] {
   const at = (d: Date, h: number) => {
     const x = new Date(d);
     x.setHours(h, 0, 0, 0);
     return Math.floor(x.getTime() / 1000);
   };
+  const hh = (h: number) => `${String(h).padStart(2, "0")}:00`;
   const now = new Date();
   const out: { label: string; ts: number }[] = [];
   out.push({ label: "In 1 hour", ts: Math.floor(Date.now() / 1000) + 3600 });
-  if (now.getHours() < 18) out.push({ label: "This evening (18:00)", ts: at(now, 18) });
+  if (now.getHours() < t.evening) out.push({ label: `Later today (${hh(t.evening)})`, ts: at(now, t.evening) });
   const tm = new Date(now);
   tm.setDate(tm.getDate() + 1);
-  out.push({ label: "Tomorrow (08:00)", ts: at(tm, 8) });
+  out.push({ label: `Tomorrow (${hh(t.tomorrow)})`, ts: at(tm, t.tomorrow) });
+  const sat = new Date(now);
+  sat.setDate(sat.getDate() + ((6 - sat.getDay() + 7) % 7 || 7));
+  out.push({ label: `This weekend (${hh(t.weekend)})`, ts: at(sat, t.weekend) });
   const mon = new Date(now);
   mon.setDate(mon.getDate() + ((8 - mon.getDay()) % 7 || 7));
-  out.push({ label: "Next Monday (08:00)", ts: at(mon, 8) });
-  const nm = new Date(now);
-  nm.setMonth(nm.getMonth() + 1);
-  out.push({ label: "Next month", ts: at(nm, 8) });
+  out.push({ label: `Next week (${hh(t.nextWeek)})`, ts: at(mon, t.nextWeek) });
   return out;
 }
 
@@ -106,4 +135,27 @@ export function fileToBase64(f: File): Promise<string> {
     r.onerror = () => rej(r.error);
     r.readAsDataURL(f);
   });
+}
+
+/** Short "message sent" whoosh (Web Audio, no asset needed). */
+export function playSent() {
+  try {
+    const ctx = new AudioContext();
+    const t0 = ctx.currentTime;
+    [660, 880].forEach((f, i) => {
+      const o = ctx.createOscillator();
+      const g = ctx.createGain();
+      o.type = "sine";
+      o.frequency.value = f;
+      g.gain.setValueAtTime(0.0001, t0 + i * 0.09);
+      g.gain.exponentialRampToValueAtTime(0.12, t0 + i * 0.09 + 0.02);
+      g.gain.exponentialRampToValueAtTime(0.0001, t0 + i * 0.09 + 0.16);
+      o.connect(g).connect(ctx.destination);
+      o.start(t0 + i * 0.09);
+      o.stop(t0 + i * 0.09 + 0.18);
+    });
+    setTimeout(() => void ctx.close(), 600);
+  } catch {
+    /* audio unavailable */
+  }
 }

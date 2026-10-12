@@ -14,7 +14,10 @@
       {
         "title": "Hey Look!",
         "width": 1280,
-        "height": 800
+        "height": 800,
+        "minWidth": 960,
+        "minHeight": 560,
+        "visible": false
       }
     ],
     "security": {

@@ -27,6 +27,7 @@ pub fn open(path: &Path) -> R<Connection> {
            snippet TEXT NOT NULL, body_html TEXT, body_text TEXT,
            seen INTEGER NOT NULL DEFAULT 0, flagged INTEGER NOT NULL DEFAULT 0,
            has_attach INTEGER NOT NULL DEFAULT 0,
+           attachments TEXT NOT NULL DEFAULT '[]',
            list_unsub TEXT, list_unsub_post INTEGER NOT NULL DEFAULT 0,
            UNIQUE(account_id, folder, uid)
          );
@@ -47,9 +48,21 @@ pub fn open(path: &Path) -> R<Connection> {
            id TEXT PRIMARY KEY, account_id TEXT NOT NULL, payload TEXT NOT NULL,
            send_at INTEGER NOT NULL, status TEXT NOT NULL DEFAULT 'pending', error TEXT
          );
-         CREATE TABLE IF NOT EXISTS settings(key TEXT PRIMARY KEY, value TEXT NOT NULL);",
+         CREATE TABLE IF NOT EXISTS settings(key TEXT PRIMARY KEY, value TEXT NOT NULL);
+         CREATE TABLE IF NOT EXISTS rules(
+           id TEXT PRIMARY KEY, name TEXT NOT NULL, field TEXT NOT NULL, op TEXT NOT NULL,
+           value TEXT NOT NULL, action TEXT NOT NULL, arg TEXT, enabled INTEGER NOT NULL DEFAULT 1
+         );",
     )
     .map_err(err)?;
+    // migrations: ignore "duplicate column" errors on already-migrated DBs
+    let _ = conn.execute("ALTER TABLE accounts ADD COLUMN auth TEXT NOT NULL DEFAULT 'password'", []);
+    let _ = conn.execute("ALTER TABLE accounts ADD COLUMN color TEXT", []);
+    let _ = conn.execute("ALTER TABLE messages ADD COLUMN attachments TEXT NOT NULL DEFAULT '[]'", []);
+    // signatures / templates / filter rules can apply to one account (NULL = every account)
+    for t in ["rules", "signatures", "templates"] {
+        let _ = conn.execute(&format!("ALTER TABLE {t} ADD COLUMN account_id TEXT"), []);
+    }
     Ok(conn)
 }
 
@@ -67,12 +80,21 @@ pub struct Account {
     /// "ssl" | "starttls" | "none"
     pub smtp_security: String,
     pub username: String,
+    /// "password" | "oauth_google"
+    #[serde(default = "default_auth")]
+    pub auth: String,
+    #[serde(default)]
+    pub color: Option<String>,
+}
+
+fn default_auth() -> String {
+    "password".into()
 }
 
 pub fn list_accounts(c: &Connection) -> R<Vec<Account>> {
     let mut st = c
         .prepare(
-            "SELECT id,email,display_name,imap_host,imap_port,imap_ssl,smtp_host,smtp_port,smtp_security,username
+            "SELECT id,email,display_name,imap_host,imap_port,imap_ssl,smtp_host,smtp_port,smtp_security,username,auth,color
              FROM accounts ORDER BY rowid",
         )
         .map_err(err)?;
@@ -86,7 +108,7 @@ pub fn list_accounts(c: &Connection) -> R<Vec<Account>> {
 
 pub fn get_account(c: &Connection, id: &str) -> R<Account> {
     c.query_row(
-        "SELECT id,email,display_name,imap_host,imap_port,imap_ssl,smtp_host,smtp_port,smtp_security,username
+        "SELECT id,email,display_name,imap_host,imap_port,imap_ssl,smtp_host,smtp_port,smtp_security,username,auth,color
          FROM accounts WHERE id=?1",
         [id],
         row_account,
@@ -106,12 +128,15 @@ fn row_account(r: &rusqlite::Row) -> rusqlite::Result<Account> {
         smtp_port: r.get(7)?,
         smtp_security: r.get(8)?,
         username: r.get(9)?,
+        auth: r.get(10)?,
+        color: r.get(11)?,
     })
 }
 
 pub fn insert_account(c: &Connection, a: &Account) -> R<()> {
     c.execute(
-        "INSERT OR REPLACE INTO accounts VALUES(?1,?2,?3,?4,?5,?6,?7,?8,?9,?10)",
+        "INSERT OR REPLACE INTO accounts(id,email,display_name,imap_host,imap_port,imap_ssl,smtp_host,smtp_port,smtp_security,username,auth,color)
+         VALUES(?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12)",
         params![
             a.id,
             a.email,
@@ -122,7 +147,9 @@ pub fn insert_account(c: &Connection, a: &Account) -> R<()> {
             a.smtp_host,
             a.smtp_port,
             a.smtp_security,
-            a.username
+            a.username,
+            a.auth,
+            a.color
         ],
     )
     .map_err(err)?;
