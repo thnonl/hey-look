@@ -3,6 +3,7 @@
 //! The user supplies their own OAuth client: Google Cloud Console "Desktop app", or a Microsoft Entra
 //! "Mobile and desktop applications" registration (public client, no secret needed).
 use crate::db::{err, R};
+use crate::oauth_page::{self, Outcome};
 use base64::Engine;
 use sha2::{Digest, Sha256};
 use std::collections::HashMap;
@@ -171,7 +172,8 @@ impl Pending {
         let label = self.provider.label();
         self.listener.set_nonblocking(true).map_err(err)?;
         let deadline = Instant::now() + Duration::from_secs(300);
-        let code = loop {
+        // the browser connection of the redirect stays open until the token exchange is done, so the page can show the address
+        let (code, mut conn) = loop {
             if Instant::now() > deadline {
                 return Err(format!("{label} sign-in timed out"));
             }
@@ -183,38 +185,63 @@ impl Pending {
                     let n = s.read(&mut buf).unwrap_or(0);
                     let req = String::from_utf8_lossy(&buf[..n]).to_string();
                     let line = req.lines().next().unwrap_or("").to_string();
-                    let reply = |s: &mut std::net::TcpStream, body: &str| {
-                        let _ = write!(
-                            s,
-                            "HTTP/1.1 200 OK\r\nContent-Type: text/html; charset=utf-8\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}",
-                            body.len(),
-                            body
-                        );
+                    let reply = |s: &mut std::net::TcpStream, status: u16, o: &Outcome| {
+                        let _ = s.write_all(&oauth_page::response(status, o));
                     };
                     if let Some(e) = query_param(&line, "error") {
-                        reply(&mut s, "<h3>Sign-in was cancelled.</h3>You can close this tab.");
                         let detail = query_param(&line, "error_description").unwrap_or_default();
+                        let (title, next) = if e == "access_denied" {
+                            ("Sign-in was cancelled", "Hey Look! needs your permission to read and send mail for this account. Return to Hey Look! and choose Sign in again when you are ready.")
+                        } else {
+                            ("Sign-in didn't finish", "Return to Hey Look!, check the sign-in settings (client ID, secret, redirect) and try again.")
+                        };
+                        let reason = format!("{label} reported: {e}{}{detail}", if detail.is_empty() { "" } else { " - " });
+                        reply(&mut s, 200, &Outcome::Error { title, reason: &reason, next });
                         return Err(format!("{label} sign-in refused: {e} {detail}").trim().to_string());
                     }
                     match (query_param(&line, "code"), query_param(&line, "state")) {
-                        (Some(c), Some(st)) if st == self.state => {
-                            reply(&mut s, "<h3>Signed in to Hey Look!</h3>You can close this tab and return to the app.");
-                            break c;
-                        }
+                        (Some(c), Some(st)) if st == self.state => break (c, s),
                         (Some(_), _) => {
-                            reply(&mut s, "State mismatch.");
+                            reply(&mut s, 400, &Outcome::Error {
+                                title: "Sign-in could not be verified",
+                                reason: "The sign-in response did not match the request that Hey Look! started (state mismatch).",
+                                next: "Close this tab, return to Hey Look! and start the sign-in again.",
+                            });
                             return Err("OAuth state mismatch".into());
                         }
-                        _ => reply(&mut s, "Waiting for sign-in…"), // favicon etc.
+                        _ => {
+                            // favicon etc.: not the redirect, keep waiting
+                            reply(&mut s, 404, &Outcome::Error { title: "Waiting for sign-in", reason: "This address is only used to finish signing in to Hey Look!.", next: "Return to Hey Look! to continue." });
+                        }
                     }
                 }
                 Err(e) if e.kind() == std::io::ErrorKind::WouldBlock => std::thread::sleep(Duration::from_millis(200)),
                 Err(e) => return Err(err(e)),
             }
         };
+        let result = self.exchange(&code, client_id, client_secret);
+        match &result {
+            Ok(signed) => {
+                let o = Outcome::Success { provider: label, email: Some(&signed.email) };
+                let _ = conn.write_all(&oauth_page::response(200, &o));
+            }
+            Err(e) => {
+                let o = Outcome::Error {
+                    title: "Sign-in didn't finish",
+                    reason: e,
+                    next: "Return to Hey Look! to see the details, then try signing in again.",
+                };
+                let _ = conn.write_all(&oauth_page::response(200, &o));
+            }
+        }
+        result
+    }
+
+    /// Exchange the authorization code for tokens and read the account address from the id_token.
+    fn exchange(&self, code: &str, client_id: &str, client_secret: &str) -> R<Signed> {
         let redirect = self.provider.redirect(self.port);
         let mut form = vec![
-            ("code", code.as_str()),
+            ("code", code),
             ("client_id", client_id),
             ("redirect_uri", redirect.as_str()),
             ("grant_type", "authorization_code"),

@@ -6,6 +6,7 @@ mod discover;
 mod ical;
 mod mail;
 mod oauth;
+mod oauth_page;
 mod openpgp;
 mod pgpmail;
 mod pgpstore;
