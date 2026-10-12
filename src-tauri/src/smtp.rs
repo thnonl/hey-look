@@ -27,6 +27,31 @@ pub struct InlineImage {
     pub data_base64: String,
 }
 
+/// An iCalendar (iMIP) part: sent as a text/calendar alternative (and, for invitations, as invite.ics).
+#[derive(Serialize, Deserialize, Clone, Debug)]
+#[serde(rename_all = "camelCase")]
+pub struct CalendarPart {
+    /// REQUEST | CANCEL | REPLY
+    pub method: String,
+    pub ics: String,
+}
+
+/// A meeting made in Compose: the backend turns it into an event and a calendar invitation when it is sent.
+#[derive(Serialize, Deserialize, Clone, Debug)]
+#[serde(rename_all = "camelCase")]
+pub struct Meeting {
+    pub start: i64,
+    pub end: i64,
+    #[serde(default)]
+    pub all_day: bool,
+    #[serde(default)]
+    pub tzid: Option<String>,
+    #[serde(default)]
+    pub location: Option<String>,
+    #[serde(default)]
+    pub rrule: Option<String>,
+}
+
 #[derive(Serialize, Deserialize, Clone, Debug)]
 #[serde(rename_all = "camelCase")]
 pub struct Draft {
@@ -54,6 +79,12 @@ pub struct Draft {
     /// is sent as is and the other content fields are not used (encrypted ones are emptied).
     #[serde(default)]
     pub prebuilt: Option<String>,
+    /// Meeting details set in Compose (turned into the calendar part at send / schedule time).
+    #[serde(default)]
+    pub meeting: Option<Meeting>,
+    /// Calendar invitation part, made from the meeting.
+    #[serde(default)]
+    pub calendar: Option<CalendarPart>,
 }
 
 fn mailbox(s: &str) -> R<Mailbox> {
@@ -87,7 +118,7 @@ fn headers(acc: &Account, d: &Draft) -> R<lettre::message::MessageBuilder> {
 /// The content: text/plain + text/html (+ related pictures), then the real attachments.
 fn body(d: &Draft) -> R<MultiPart> {
     let html = SinglePart::html(d.html.clone());
-    let alt = if d.inline.is_empty() {
+    let mut alt = if d.inline.is_empty() {
         MultiPart::alternative().singlepart(SinglePart::plain(d.text.clone())).singlepart(html)
     } else {
         let mut related = MultiPart::related().singlepart(html);
@@ -98,16 +129,50 @@ fn body(d: &Draft) -> R<MultiPart> {
         }
         MultiPart::alternative().singlepart(SinglePart::plain(d.text.clone())).multipart(related)
     };
-    if d.attachments.is_empty() {
+    // a calendar invitation travels as the last alternative and, for invitations, also as invite.ics
+    let invite_file = d.calendar.as_ref().filter(|c| c.method == "REQUEST");
+    if let Some(c) = &d.calendar {
+        alt = alt.singlepart(calendar_part(&c.method, &c.ics)?);
+    }
+    if d.attachments.is_empty() && invite_file.is_none() {
         return Ok(alt);
     }
     let mut mixed = MultiPart::mixed().multipart(alt);
+    if let Some(c) = invite_file {
+        let ct = ContentType::parse("application/ics; name=\"invite.ics\"").map_err(err)?;
+        mixed = mixed.singlepart(Attachment::new("invite.ics".to_string()).body(c.ics.clone().into_bytes(), ct));
+    }
     for a in &d.attachments {
         let bytes = base64::engine::general_purpose::STANDARD.decode(&a.data_base64).map_err(err)?;
         let ct = ContentType::parse(&a.mime).unwrap_or_else(|_| ContentType::parse("application/octet-stream").unwrap());
         mixed = mixed.singlepart(Attachment::new(a.filename.clone()).body(bytes, ct));
     }
     Ok(mixed)
+}
+
+/// The text/calendar part of an iMIP message.
+pub fn calendar_part(method: &str, ics: &str) -> R<SinglePart> {
+    let ct = ContentType::parse(&format!("text/calendar; charset=UTF-8; method={method}")).map_err(err)?;
+    Ok(SinglePart::builder().header(ct).body(ics.to_string()))
+}
+
+/// A small iMIP message (reply, update or cancellation): readable text plus the calendar part, from the account to the recipients.
+pub fn build_calendar_mail(acc: &Account, to: &[String], cc: &[String], subject: &str, text: &str, cal: &CalendarPart) -> R<Message> {
+    let from = Mailbox::new(Some(acc.display_name.clone()).filter(|n| !n.is_empty()), acc.email.parse::<Address>().map_err(err)?);
+    let mut b = Message::builder().from(from).subject(subject.to_string());
+    for t in to {
+        b = b.to(mailbox(t)?);
+    }
+    for c in cc {
+        b = b.cc(mailbox(c)?);
+    }
+    let alt = MultiPart::alternative().singlepart(SinglePart::plain(text.to_string())).singlepart(calendar_part(&cal.method, &cal.ics)?);
+    if cal.method == "REQUEST" {
+        let ct = ContentType::parse("application/ics; name=\"invite.ics\"").map_err(err)?;
+        let mixed = MultiPart::mixed().multipart(alt).singlepart(Attachment::new("invite.ics".to_string()).body(cal.ics.clone().into_bytes(), ct));
+        return b.multipart(mixed).map_err(err);
+    }
+    b.multipart(alt).map_err(err)
 }
 
 pub fn build(acc: &Account, d: &Draft) -> R<Message> {
@@ -240,6 +305,8 @@ mod tests {
             inline,
             security: None,
             prebuilt: None,
+            meeting: None,
+            calendar: None,
         }
     }
 

@@ -490,6 +490,15 @@ pub fn check_snoozes(app: &AppHandle, db: &Db) {
     let _ = app.emit("mail-synced", ());
 }
 
+/// Desktop notification for an event reminder (skipped when notifications are paused or the window is in front).
+pub fn notify_reminder(app: &AppHandle, db: &Db, title: &str, line: &str) {
+    if blocked(app, db) {
+        return;
+    }
+    let p = prefs(db);
+    toast(app, String::new(), title, line, "", &pstr(&p, "notifySound", "reminder"), &[]);
+}
+
 pub fn test_notification(app: &AppHandle, db: &Db) {
     let p = prefs(db);
     toast(

@@ -163,6 +163,10 @@ pub struct Parsed {
     pub pgp: u8,
     /// the raw message, kept only for PGP messages (decrypted at view time, never stored decrypted)
     pub pgp_raw: Option<Vec<u8>>,
+    /// iCalendar text of an invitation (text/calendar part or .ics attachment)
+    pub ics: Option<String>,
+    /// lowercase iMIP method of that calendar data (request, reply, cancel, publish, ...)
+    pub cal_method: Option<String>,
 }
 
 pub struct FolderFetch {
@@ -247,7 +251,17 @@ pub fn parse(uid: u32, raw: &[u8], seen: bool, flagged: bool, fallback_date: i64
         attachments.retain(|a| a.mime != "application/pgp-signature");
     }
 
-    let basis = text.clone().unwrap_or_else(|| html.as_deref().map(strip_html).unwrap_or_default());
+    // calendar invitations: keep the iCalendar text (never for encrypted mail, which is read after decrypting)
+    let ics = if pgp & crate::pgpmail::FLAG_ENCRYPTED != 0 { None } else { extract_ics(&m) };
+    let cal = ics.as_deref().and_then(|t| crate::ical::parse(t).ok());
+    let cal_method = cal.as_ref().map(|c| c.method.clone().unwrap_or_else(|| "PUBLISH".into()).to_ascii_lowercase());
+
+    let mut basis = text.clone().unwrap_or_else(|| html.as_deref().map(strip_html).unwrap_or_default());
+    if basis.trim().is_empty() {
+        if let Some(ev) = cal.as_ref().and_then(|c| c.events.first()) {
+            basis = invite_snippet(ev);
+        }
+    }
     let snippet: String = snippet_override.unwrap_or_else(|| basis.split_whitespace().collect::<Vec<_>>().join(" ").chars().take(200).collect());
     let mut refs = m.header_raw("References").map(ids_in).unwrap_or_default();
     if let Some(r) = m.header_raw("In-Reply-To") {
@@ -273,7 +287,64 @@ pub fn parse(uid: u32, raw: &[u8], seen: bool, flagged: bool, fallback_date: i64
         list_unsub_post: m.header_raw("List-Unsubscribe-Post").is_some(),
         pgp,
         pgp_raw: keep.then(|| raw.to_vec()),
+        ics,
+        cal_method,
     })
+}
+
+/// Cap for stored calendar text.
+const ICS_MAX: usize = 512 * 1024;
+
+/// "Wed 14 Oct 10:00–11:00 · Room 4B" (this computer's time zone) for messages that only carry an invitation.
+fn invite_snippet(ev: &crate::ical::IcsEvent) -> String {
+    use chrono::{Local, TimeZone};
+    let at = |t: i64| Local.timestamp_opt(t, 0).single();
+    let mut out = match (at(ev.start), at(ev.end)) {
+        (Some(s), Some(e)) if ev.all_day => format!("{} · All day{}", s.format("%a %-d %b"), if e.date_naive() > s.date_naive() + chrono::Duration::days(1) { " (multi-day)" } else { "" }),
+        (Some(s), Some(e)) => format!("{} {}–{}", s.format("%a %-d %b"), s.format("%H:%M"), e.format("%H:%M")),
+        _ => String::new(),
+    };
+    if let Some(l) = &ev.location {
+        out.push_str(&format!(" · {l}"));
+    }
+    out
+}
+
+/// The first iCalendar document of a message: a text/calendar part (or application/ics), or an attached .ics file.
+/// A METHOD given only in the Content-Type is copied into the text.
+pub fn extract_ics(m: &mail_parser::Message) -> Option<String> {
+    for part in m.parts.iter() {
+        let ct = part.content_type();
+        let is_cal = ct
+            .map(|c| {
+                let (a, b) = (c.ctype().to_ascii_lowercase(), c.subtype().unwrap_or("").to_ascii_lowercase());
+                (a == "text" && b == "calendar") || (a == "application" && (b == "ics" || b == "calendar"))
+            })
+            .unwrap_or(false);
+        let named = part.attachment_name().map(|n| n.to_ascii_lowercase().ends_with(".ics")).unwrap_or(false);
+        if !is_cal && !named {
+            continue;
+        }
+        let bytes = part.contents();
+        if bytes.is_empty() || bytes.len() > ICS_MAX {
+            continue;
+        }
+        let mut text = String::from_utf8_lossy(bytes).into_owned();
+        if !text.to_ascii_uppercase().contains("BEGIN:VCALENDAR") {
+            continue;
+        }
+        if let Some(method) = ct.and_then(|c| c.attribute("method")) {
+            let upper = text.to_ascii_uppercase();
+            if !upper.contains("\nMETHOD:") {
+                if let Some(i) = upper.find("BEGIN:VCALENDAR") {
+                    let eol = text[i..].find('\n').map(|n| i + n + 1).unwrap_or(text.len());
+                    text.insert_str(eol, &format!("METHOD:{}\r\n", method.to_ascii_uppercase()));
+                }
+            }
+        }
+        return Some(text);
+    }
+    None
 }
 
 /// Raw attachment bytes for `index` (position among the parsed attachment parts).
@@ -502,5 +573,47 @@ MIME-Version: 1.0\r\nContent-Type: multipart/mixed; boundary=\"MIX\"\r\n\r\n\
         assert_eq!(bytes, PNG);
         assert_eq!(name, "picture-1.png");
         assert!(inline_part(&raw, "missing@x").is_err());
+    }
+
+    const ICS_BODY: &str = "BEGIN:VCALENDAR\r\nVERSION:2.0\r\nBEGIN:VEVENT\r\nUID:u1@x\r\nDTSTART:20261014T100000Z\r\nDTEND:20261014T110000Z\r\nSUMMARY:Sync\r\nLOCATION:Room 4B\r\nEND:VEVENT\r\nEND:VCALENDAR\r\n";
+
+    #[test]
+    fn calendar_alternative_is_extracted_and_method_comes_from_the_content_type() {
+        let raw = format!(
+            "From: Mai <mai@contoso.com>\r\nTo: me@example.com\r\nSubject: Invitation: Sync\r\nMIME-Version: 1.0\r\nContent-Type: multipart/alternative; boundary=\"B\"\r\n\r\n\
+--B\r\nContent-Type: text/plain; charset=utf-8\r\n\r\nMai invites you.\r\n\
+--B\r\nContent-Type: text/calendar; charset=utf-8; method=REQUEST\r\n\r\n{ICS_BODY}\
+--B--\r\n"
+        );
+        let p = parse(1, raw.as_bytes(), false, false, 0).unwrap();
+        assert_eq!(p.cal_method.as_deref(), Some("request"), "METHOD only in the Content-Type");
+        assert!(p.ics.as_deref().unwrap().contains("METHOD:REQUEST"));
+        assert_eq!(p.text.as_deref().map(str::trim), Some("Mai invites you."));
+        assert!(crate::ical::parse(p.ics.as_deref().unwrap()).is_ok());
+    }
+
+    #[test]
+    fn invitation_only_message_gets_a_readable_snippet_and_an_attached_ics_is_found() {
+        let b64 = base64::engine::general_purpose::STANDARD.encode(ICS_BODY);
+        let raw = format!(
+            "From: Mai <mai@contoso.com>\r\nTo: me@example.com\r\nSubject: Event\r\nMIME-Version: 1.0\r\nContent-Type: multipart/mixed; boundary=\"M\"\r\n\r\n\
+--M\r\nContent-Type: application/ics; name=\"invite.ics\"\r\nContent-Transfer-Encoding: base64\r\nContent-Disposition: attachment; filename=\"invite.ics\"\r\n\r\n{b64}\r\n\
+--M--\r\n"
+        );
+        let p = parse(2, raw.as_bytes(), false, false, 0).unwrap();
+        assert!(p.ics.is_some(), "an .ics attachment is read as an invitation");
+        assert_eq!(p.cal_method.as_deref(), Some("publish"), "no METHOD at all is a plain event file");
+        assert!(p.snippet.contains("Room 4B") && p.snippet.contains(':'), "snippet shows when and where: {}", p.snippet);
+        assert_eq!(p.attachments.len(), 1, "the file stays in the attachment list");
+        assert_eq!(p.attachments[0].name, "invite.ics");
+    }
+
+    #[test]
+    fn messages_without_calendar_data_and_junk_calendar_parts_have_no_ics() {
+        let raw = related_msg("logo@x", PNG, "", true);
+        let p = parse(3, &raw, true, false, 0).unwrap();
+        assert!(p.ics.is_none() && p.cal_method.is_none());
+        let raw = "From: a@b.c\r\nSubject: x\r\nMIME-Version: 1.0\r\nContent-Type: multipart/mixed; boundary=\"M\"\r\n\r\n--M\r\nContent-Type: text/plain\r\n\r\nhi\r\n--M\r\nContent-Type: text/calendar; name=\"x.ics\"\r\n\r\nthis is not ical\r\n--M--\r\n";
+        assert!(parse(4, raw.as_bytes(), true, false, 0).unwrap().ics.is_none());
     }
 }

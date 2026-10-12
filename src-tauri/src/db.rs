@@ -65,7 +65,21 @@ pub fn migrate(conn: &Connection) -> R<()> {
            public_armored TEXT NOT NULL, secret_armored TEXT, verified INTEGER NOT NULL DEFAULT 0,
            source TEXT NOT NULL DEFAULT 'paste', added_at INTEGER NOT NULL
          );
-         CREATE TABLE IF NOT EXISTS pgp_default(account_id TEXT PRIMARY KEY, fingerprint TEXT NOT NULL);",
+         CREATE TABLE IF NOT EXISTS pgp_default(account_id TEXT PRIMARY KEY, fingerprint TEXT NOT NULL);
+         CREATE TABLE IF NOT EXISTS events(
+           id TEXT PRIMARY KEY, uid TEXT NOT NULL, recurrence_id TEXT NOT NULL DEFAULT '',
+           calendar_id TEXT NOT NULL, account_id TEXT,
+           summary TEXT NOT NULL, starts_at INTEGER NOT NULL, ends_at INTEGER NOT NULL, all_day INTEGER NOT NULL DEFAULT 0, tzid TEXT,
+           location TEXT, join_url TEXT, description TEXT,
+           organizer_name TEXT, organizer_email TEXT, attendees TEXT NOT NULL DEFAULT '[]',
+           rrule TEXT, exdates TEXT NOT NULL DEFAULT '[]',
+           status TEXT NOT NULL DEFAULT 'confirmed', my_status TEXT, responded_at INTEGER, reminder_min INTEGER,
+           source_message_id TEXT, sequence INTEGER NOT NULL DEFAULT 0, prev TEXT,
+           created_at INTEGER NOT NULL DEFAULT 0, updated_at INTEGER NOT NULL DEFAULT 0,
+           UNIQUE(calendar_id, uid, recurrence_id)
+         );
+         CREATE INDEX IF NOT EXISTS idx_events_range ON events(starts_at, ends_at);
+         CREATE INDEX IF NOT EXISTS idx_events_uid ON events(uid);",
     )
     .map_err(err)?;
     // migrations: ignore "duplicate column" errors on already-migrated DBs
@@ -80,6 +94,9 @@ pub fn migrate(conn: &Connection) -> R<()> {
     // PGP: 1 = encrypted, 2 = signed; the raw message is kept for those (ciphertext only, never decrypted text)
     let _ = conn.execute("ALTER TABLE messages ADD COLUMN pgp INTEGER NOT NULL DEFAULT 0", []);
     let _ = conn.execute("ALTER TABLE messages ADD COLUMN pgp_raw BLOB", []);
+    // calendar invitations: the iCalendar text of the message and its (lowercase) iMIP method
+    let _ = conn.execute("ALTER TABLE messages ADD COLUMN ics TEXT", []);
+    let _ = conn.execute("ALTER TABLE messages ADD COLUMN cal_method TEXT", []);
     // signatures / templates / filter rules can apply to one account (NULL = every account)
     for t in ["rules", "signatures", "templates"] {
         let _ = conn.execute(&format!("ALTER TABLE {t} ADD COLUMN account_id TEXT"), []);
@@ -192,6 +209,7 @@ pub fn remove_account(c: &Connection, id: &str) -> R<()> {
     c.execute("DELETE FROM messages WHERE account_id=?1", [id]).map_err(err)?;
     c.execute("DELETE FROM outbox WHERE account_id=?1", [id]).map_err(err)?;
     c.execute("DELETE FROM pgp_default WHERE account_id=?1", [id]).map_err(err)?;
+    c.execute("DELETE FROM events WHERE account_id=?1 OR calendar_id=?2", params![id, format!("invites:{id}")]).map_err(err)?;
     c.execute("DELETE FROM accounts WHERE id=?1", [id]).map_err(err)?;
     Ok(())
 }

@@ -1,7 +1,9 @@
 mod ai;
 mod attach;
+mod calendar;
 mod db;
 mod discover;
+mod ical;
 mod mail;
 mod oauth;
 mod openpgp;
@@ -420,8 +422,8 @@ fn insert_parsed(c: &Connection, acc: &Account, role: &str, p: &mail::Parsed) ->
     let thread_id = fnv(&format!("{}|{}", acc.id, root));
     c.execute(
         "INSERT OR REPLACE INTO messages(id,account_id,folder,uid,message_id,thread_id,subject,from_name,from_email,
-           to_addrs,cc_addrs,date,snippet,body_html,body_text,seen,flagged,has_attach,attachments,list_unsub,list_unsub_post,pgp,pgp_raw)
-         VALUES(?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,?13,?14,?15,?16,?17,?18,?19,?20,?21,?22,?23)",
+           to_addrs,cc_addrs,date,snippet,body_html,body_text,seen,flagged,has_attach,attachments,list_unsub,list_unsub_post,pgp,pgp_raw,ics,cal_method)
+         VALUES(?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,?13,?14,?15,?16,?17,?18,?19,?20,?21,?22,?23,?24,?25)",
         params![
             format!("{}:{}:{}", acc.id, role, p.uid),
             acc.id,
@@ -446,10 +448,21 @@ fn insert_parsed(c: &Connection, acc: &Account, role: &str, p: &mail::Parsed) ->
             p.list_unsub,
             p.list_unsub_post as i64,
             p.pgp as i64,
-            p.pgp_raw
+            p.pgp_raw,
+            p.ics,
+            p.cal_method
         ],
     )
     .map_err(err)?;
+    // invitations, updates, cancellations and replies reach the calendar as they arrive
+    if let Some(ics) = &p.ics {
+        if !matches!(role, "sent" | "drafts" | "trash" | "junk") {
+            let id = format!("{}:{}:{}", acc.id, role, p.uid);
+            if calendar::ingest(c, acc, &id, ics, false).map(|o| o.changed).unwrap_or(false) {
+                calendar::mark_dirty();
+            }
+        }
+    }
     Ok(thread_id)
 }
 
@@ -634,6 +647,9 @@ fn run_sync(app: &tauri::AppHandle, db: &Db, account_id: &str) -> R<SyncResult> 
     let r = sync_impl(db, account_id)?;
     shell::notify_new(app, db, &r.new_inbox);
     shell::update_badge(app, db);
+    if calendar::take_dirty() {
+        let _ = app.emit("calendar-changed", serde_json::json!({}));
+    }
     Ok(r)
 }
 
@@ -1038,6 +1054,8 @@ struct ThreadSummary {
     bulk: bool,
     encrypted: bool,
     signed: bool,
+    /// request | reply | cancel when a message of the conversation carries a calendar invitation
+    invite: Option<String>,
 }
 
 #[tauri::command]
@@ -1160,7 +1178,7 @@ fn list_threads(state: tauri::State<AppState>, filter: ThreadFilter) -> R<Vec<Th
     }
     let sql = format!(
         "SELECT m.thread_id,m.id,m.account_id,m.folder,m.subject,m.from_name,m.from_email,m.snippet,m.date,m.seen,m.flagged,m.has_attach,
-                COALESCE(tm.pinned,0), tm.snoozed_until, m.list_unsub IS NOT NULL, m.pgp
+                COALESCE(tm.pinned,0), tm.snoozed_until, m.list_unsub IS NOT NULL, m.pgp, m.cal_method
          FROM messages m LEFT JOIN thread_meta tm ON tm.thread_id=m.thread_id
          WHERE {} ORDER BY m.date {} LIMIT 4000",
         w.join(" AND "),
@@ -1186,13 +1204,14 @@ fn list_threads(state: tauri::State<AppState>, filter: ThreadFilter) -> R<Vec<Th
                 r.get::<_, Option<i64>>(13)?,
                 r.get::<_, i64>(14)? != 0,
                 r.get::<_, i64>(15)?,
+                r.get::<_, Option<String>>(16)?,
             ))
         })
         .map_err(err)?;
     let mut order: Vec<String> = vec![];
     let mut map: HashMap<String, ThreadSummary> = HashMap::new();
     for row in rows {
-        let (tid, mid, acct, folder, subject, fname, femail, snippet, date, seen, flagged, att, pinned, snooze, bulk, pgp) =
+        let (tid, mid, acct, folder, subject, fname, femail, snippet, date, seen, flagged, att, pinned, snooze, bulk, pgp, cal) =
             row.map_err(err)?;
         let who = if fname.is_empty() { femail } else { fname };
         let key = if filter.flat { mid } else { tid.clone() };
@@ -1216,6 +1235,7 @@ fn list_threads(state: tauri::State<AppState>, filter: ThreadFilter) -> R<Vec<Th
                 bulk: false,
                 encrypted: false,
                 signed: false,
+                invite: None,
             }
         });
         e.count += 1;
@@ -1227,6 +1247,9 @@ fn list_threads(state: tauri::State<AppState>, filter: ThreadFilter) -> R<Vec<Th
         e.bulk |= bulk;
         e.encrypted |= pgp & 1 != 0;
         e.signed |= pgp & 2 != 0;
+        if e.invite.is_none() {
+            e.invite = cal.filter(|m| matches!(m.as_str(), "request" | "reply" | "cancel"));
+        }
         if e.participants.len() < 3 && !e.participants.contains(&who) {
             e.participants.push(who);
         }
@@ -1263,10 +1286,15 @@ pub(crate) struct MessageFull {
     can_unsubscribe: bool,
     /// PGP state (encryption, signature); `None` for ordinary mail
     security: Option<pgpmail::Security>,
+    /// the iCalendar text of an invitation (not sent to the UI)
+    #[serde(skip)]
+    ics: Option<String>,
+    /// calendar invitation / update / cancellation / reply carried by this message
+    invite: Option<calendar::CalInvite>,
 }
 
 const MESSAGE_COLS: &str = "id,account_id,folder,message_id,subject,from_name,from_email,to_addrs,cc_addrs,date,body_html,body_text,
-                    seen,flagged,attachments,list_unsub,pgp,pgp_raw";
+                    seen,flagged,attachments,list_unsub,pgp,pgp_raw,ics";
 
 fn row_message(r: &rusqlite::Row) -> rusqlite::Result<(MessageFull, i64, Option<Vec<u8>>)> {
     let att: String = r.get(14)?;
@@ -1289,10 +1317,20 @@ fn row_message(r: &rusqlite::Row) -> rusqlite::Result<(MessageFull, i64, Option<
             attachments: serde_json::from_str(&att).unwrap_or_default(),
             can_unsubscribe: r.get::<_, Option<String>>(15)?.is_some(),
             security: None,
+            ics: r.get(18)?,
+            invite: None,
         },
         r.get(16)?,
         r.get(17)?,
     ))
+}
+
+/// Decrypt / verify a PGP message for display, then read its calendar invitation (also from decrypted content).
+fn finish_message(c: &Connection, m: &mut MessageFull, pgp: i64, raw: Option<Vec<u8>>) {
+    apply_pgp(c, m, pgp, raw);
+    if let Some(ics) = m.ics.clone() {
+        m.invite = Some(calendar::invite_for(c, &m.account_id, &m.id, &m.folder, &m.from_email, &ics, pgp & pgpmail::FLAG_ENCRYPTED as i64 != 0));
+    }
 }
 
 /// Decrypt / verify a PGP message for display. The decrypted content only lives in the returned value (and the
@@ -1321,6 +1359,7 @@ fn apply_pgp(c: &Connection, m: &mut MessageFull, pgp: i64, raw: Option<Vec<u8>>
                     m.html = p.html;
                     m.text = p.text;
                     m.attachments = p.attachments;
+                    m.ics = p.ics;
                 }
             }
         }
@@ -1334,7 +1373,7 @@ pub(crate) fn message_full(c: &Connection, message_id: &str) -> R<MessageFull> {
     let (mut m, pgp, raw) = c
         .query_row(&format!("SELECT {MESSAGE_COLS} FROM messages WHERE id=?1"), [message_id], row_message)
         .map_err(|_| "message not found".to_string())?;
-    apply_pgp(c, &mut m, pgp, raw);
+    finish_message(c, &mut m, pgp, raw);
     Ok(m)
 }
 
@@ -1354,7 +1393,7 @@ fn get_thread(state: tauri::State<AppState>, thread_id: String, scope: Option<St
     Ok(rows
         .into_iter()
         .map(|(mut m, pgp, raw)| {
-            apply_pgp(&c, &mut m, pgp, raw);
+            finish_message(&c, &mut m, pgp, raw);
             m
         })
         .collect())
@@ -1983,6 +2022,12 @@ async fn send_message(
     let t = now();
     if let Some(at) = send_at {
         schedule::validate_send_at(at, t)?;
+    }
+    // a meeting made in Compose: create the event and the calendar part now (also when it is scheduled)
+    let mut draft = draft;
+    if draft.meeting.is_some() {
+        calendar::prepare_meeting(&lock(&db), &mut draft)?;
+        let _ = app.emit("calendar-changed", serde_json::json!({}));
     }
     if schedule::should_queue(send_at, t) {
         let at = send_at.unwrap_or(t);
@@ -2674,6 +2719,9 @@ pub fn run() {
             migrate_secrets(&db);
             let pending_app = app.handle().clone();
             std::thread::spawn(move || pending_worker(pending_app));
+            let cal_app = app.handle().clone();
+            let cal_db = db.clone();
+            std::thread::spawn(move || calendar::reminder_worker(cal_app, cal_db));
 
             shell::register_aumid(app.handle());
             shell::setup_tray(app.handle(), &db)?;
@@ -2767,6 +2815,16 @@ pub fn run() {
             pgpstore::pgp_decrypt_message,
             outbox_send_now,
             quit_now,
+            calendar::calendar_list_calendars,
+            calendar::calendar_set_visible,
+            calendar::calendar_list_events,
+            calendar::calendar_get_event,
+            calendar::calendar_save_event,
+            calendar::calendar_delete_event,
+            calendar::calendar_respond,
+            calendar::calendar_add_from_message,
+            calendar::calendar_save_ics,
+            calendar::calendar_import_ics,
             list_templates,
             save_template,
             delete_template,

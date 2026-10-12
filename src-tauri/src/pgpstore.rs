@@ -936,6 +936,8 @@ mod tests {
             inline: vec![],
             security: Some(Security { encrypt: enc, sign, attach_public_key: false }),
             prebuilt: None,
+            meeting: None,
+            calendar: None,
         }
     }
 
@@ -1087,6 +1089,41 @@ mod tests {
         }
         let ctx = Ctx { unlocked: vec![&eve], locked: vec![], publics: &store.publics, verified: &verified };
         assert_eq!(pgpmail::open(&raw, &ctx).security.decryption, "no_key");
+    }
+
+    #[test]
+    fn encrypted_invitation_keeps_its_calendar_part_inside_the_encryption() {
+        let (c, acc, _g) = setup();
+        let fpr = add_own(&c, "me@example.com", "my-pass-1234");
+        let store0 = load_store(&c).unwrap();
+        unlock_key(&store0, &fpr, "my-pass-1234", false).unwrap();
+        let (bob, _) = add_contact(&c, "bob@example.com");
+        let ev = crate::ical::IcsEvent {
+            uid: "enc-1@heylook".into(),
+            summary: "Secret review".into(),
+            start: 1_792_000_000,
+            end: 1_792_003_600,
+            status: "confirmed".into(),
+            organizer: Some(crate::ical::Person { email: "me@example.com".into(), name: None }),
+            ..Default::default()
+        };
+        let mut d = draft(&acc, &["bob@example.com"], &[], true, false);
+        d.calendar = Some(crate::smtp::CalendarPart { method: "REQUEST".into(), ics: crate::ical::to_ics(Some("REQUEST"), &[ev]) });
+        let raw = build_secure(&c, &acc, &d, false).unwrap().formatted();
+        let wire = String::from_utf8_lossy(&raw).to_string();
+        assert!(wire.contains("multipart/encrypted") && !wire.contains("Secret review") && !wire.to_lowercase().contains("text/calendar"), "the invitation is not visible on the wire");
+        // the stored message carries no calendar text (nothing is readable without the key) ...
+        let at_sync = crate::mail::parse(1, &raw, false, false, 0).unwrap();
+        assert!(at_sync.ics.is_none());
+        // ... and the decrypted content yields it for the invite card
+        let store = load_store(&c).unwrap();
+        let verified = HashSet::new();
+        let ctx = Ctx { unlocked: vec![&bob], locked: vec![], publics: &store.publics, verified: &verified };
+        let o = pgpmail::open(&raw, &ctx);
+        assert_eq!(o.security.decryption, "ok");
+        let p = crate::mail::parse(0, o.plain.as_ref().unwrap(), true, false, 0).unwrap();
+        assert_eq!(p.cal_method.as_deref(), Some("request"));
+        assert_eq!(crate::ical::parse(p.ics.as_deref().unwrap()).unwrap().events[0].summary, "Secret review");
     }
 
     #[test]
