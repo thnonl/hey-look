@@ -2255,15 +2255,30 @@ fn outbox_update(app: tauri::AppHandle, state: tauri::State<AppState>, id: Strin
         let acc = db::get_account(&c, &draft.account_id)?;
         // a meeting: drop the event made when it was first scheduled and make it again from the edited details
         let mut draft = draft;
-        if let Ok(old) = c.query_row("SELECT payload FROM outbox WHERE id=?1", [&id], |r| r.get::<_, String>(0)) {
-            calendar::forget_prepared(&c, &old);
-        }
+        let old = c.query_row("SELECT payload FROM outbox WHERE id=?1", [&id], |r| r.get::<_, String>(0)).ok();
         draft.calendar = None;
         if draft.meeting.is_some() {
             calendar::prepare_meeting(&c, &mut draft)?;
+        }
+        let sealed = match pgpstore::seal_for_outbox(&c, &acc, &draft) {
+            Ok(d) => d,
+            Err(e) => {
+                // the edit failed (for example the key is locked): the queued message keeps its own event, so
+                // only the event made for this attempt goes
+                if let Ok(attempt) = serde_json::to_string(&draft) {
+                    calendar::forget_prepared(&c, &attempt);
+                }
+                return Err(e);
+            }
+        };
+        // the edit worked: the event made when it was first scheduled is replaced by the new one
+        if let Some(old) = old {
+            calendar::forget_prepared(&c, &old);
+        }
+        if draft.meeting.is_some() {
             let _ = app.emit("calendar-changed", serde_json::json!({}));
         }
-        pgpstore::seal_for_outbox(&c, &acc, &draft)?
+        sealed
     };
     let payload = serde_json::to_string(&draft).map_err(err)?;
     let n = lock(&state.db)
