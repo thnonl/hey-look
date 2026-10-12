@@ -4,18 +4,41 @@
 use std::path::{Path, PathBuf};
 
 /// Extensions that can run programs or scripts. Opening one asks the user first (setting `warn_executables`).
-pub const RISKY_EXT: [&str; 22] = [
+pub const RISKY_EXT: &[&str] = &[
     "exe", "msi", "msix", "bat", "cmd", "com", "ps1", "psm1", "vbs", "vbe", "js", "jse", "wsf", "wsh", "scr", "pif", "lnk",
     "hta", "cpl", "jar", "reg", "appx",
+    // more programs, scripts and shortcuts
+    "dll", "msp", "mst", "msc", "sct", "inf", "ins", "isp", "gadget", "application", "appref-ms", "url", "scf", "ps1xml", "psc1",
+    "psd1", "ws", "vb", "vbscript", "chm", "ade", "adp", "mde", "ocx", "sys", "drv", "diagcab", "msixbundle", "appxbundle", "appinstaller",
+    "settingcontent-ms", "library-ms", "search-ms", "wsc",
+    // Office files that can carry macros
+    "docm", "dotm", "xlsm", "xltm", "xlam", "xlsb", "pptm", "potm", "ppam", "ppsm", "sldm", "iqy", "slk",
 ];
 pub const RISKY_IMAGE: [&str; 2] = ["iso", "img"];
 
-/// Windows reserved device names, which cannot be used as file names.
-const RESERVED: [&str; 8] = ["CON", "PRN", "AUX", "NUL", "COM1", "LPT1", "COM2", "LPT2"];
+/// Windows reserved device names other than COM0-9 / LPT0-9 (see `is_reserved`); they cannot be used as file names.
+const RESERVED: [&str; 6] = ["CON", "PRN", "AUX", "NUL", "CONIN$", "CONOUT$"];
 
-pub fn is_risky(name: &str) -> bool {
-    let ext = extension(name).to_lowercase();
+fn is_reserved(stem: &str) -> bool {
+    let s = stem.trim_end().to_uppercase();
+    if RESERVED.contains(&s.as_str()) {
+        return true;
+    }
+    // COM0-9 and LPT0-9, plus the superscript digits Windows also reserves
+    let mut it = s.chars();
+    let head: String = it.by_ref().take(3).collect();
+    matches!(head.as_str(), "COM" | "LPT") && matches!((it.next(), it.next()), (Some('0'..='9' | '\u{b9}' | '\u{b2}' | '\u{b3}'), None))
+}
+
+fn risky_ext(name: &str) -> bool {
+    let ext = extension(name).trim().to_lowercase();
     RISKY_EXT.contains(&ext.as_str()) || RISKY_IMAGE.contains(&ext.as_str())
+}
+
+/// Whether opening this file can run code. Judged on the name as given and on the name `clean_name` stores it under
+/// (Windows ignores trailing dots and spaces, so `setup.exe.` is `setup.exe`).
+pub fn is_risky(name: &str) -> bool {
+    risky_ext(name) || risky_ext(&clean_name(name))
 }
 
 fn extension(name: &str) -> &str {
@@ -33,8 +56,8 @@ pub fn clean_name(name: &str) -> String {
     if out.is_empty() || out == ".." {
         return "attachment".into();
     }
-    let stem = out.split('.').next().unwrap_or("").to_uppercase();
-    if RESERVED.contains(&stem.as_str()) {
+    let stem = out.split('.').next().unwrap_or("");
+    if is_reserved(stem) {
         out = format!("_{out}");
     }
     out
@@ -110,6 +133,40 @@ mod tests {
         assert_eq!(clean_name("CON.txt"), "_CON.txt");
         assert_eq!(clean_name(""), "attachment");
         assert_eq!(clean_name(".."), "attachment");
+    }
+
+    #[test]
+    fn trailing_dots_spaces_and_streams_cannot_hide_a_program() {
+        // F6: the warning is decided on the name that is actually stored and opened
+        for n in ["invoice.exe.", "invoice.exe ", "invoice.EXE. ", "invoice.exe...", "invoice.exe. . ", "invoice.exe\u{a0}", "dir\\invoice.exe.", "a/b/invoice.cmd ."] {
+            assert!(is_risky(n), "{n:?}");
+            assert!(is_risky(&clean_name(n)), "cleaned {n:?}");
+        }
+        // an alternate data stream is flattened by clean_name; the stored file is not a program
+        assert_eq!(clean_name("note.txt:evil.exe"), "note.txt_evil.exe");
+        assert!(is_risky("note.txt:evil.exe"), "conservative: still asks");
+        assert!(!is_risky("report.pdf."));
+        assert!(!is_risky("exe."));
+    }
+
+    #[test]
+    fn all_reserved_device_names_are_prefixed() {
+        for n in ["COM1", "com2.txt", "COM3.txt", "Com9", "lpt9", "LPT4.log", "COM0", "LPT0.x", "CON", "nul.tar.gz", "AUX.", "PRN ", "COM\u{b9}", "CONIN$", "con .txt"] {
+            assert!(clean_name(n).starts_with('_'), "{n:?} -> {}", clean_name(n));
+        }
+        for n in ["COM", "COM10", "COMX", "LPT", "console.txt", "community.doc", "auxiliary", "communication.pdf"] {
+            assert_eq!(clean_name(n), n, "{n:?}");
+        }
+    }
+
+    #[test]
+    fn macro_and_script_types_are_risky() {
+        for n in ["a.docm", "a.XLSM", "a.pptm", "a.dll", "a.url", "a.msc", "a.sct", "a.inf", "a.application", "a.chm"] {
+            assert!(is_risky(n), "{n}");
+        }
+        for n in ["a.docx", "a.xlsx", "a.pptx", "a.pdf", "a.txt", "a.png", "a.zip"] {
+            assert!(!is_risky(n), "{n}");
+        }
     }
 
     #[test]

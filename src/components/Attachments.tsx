@@ -25,7 +25,9 @@ const EXT_KIND: Record<string, FileKind> = {
   ics: "ics", asc: "key", gpg: "key", pgp: "key", key: "key",
 };
 /** Programs and scripts: these can run code, so opening them asks first (see Settings → Attachments). */
-export const RISKY_EXT = ["exe", "msi", "msix", "bat", "cmd", "com", "ps1", "psm1", "vbs", "vbe", "js", "jse", "wsf", "wsh", "scr", "pif", "lnk", "hta", "cpl", "jar", "reg", "appx", "iso", "img"];
+export const RISKY_EXT = ["exe", "msi", "msix", "bat", "cmd", "com", "ps1", "psm1", "vbs", "vbe", "js", "jse", "wsf", "wsh", "scr", "pif", "lnk", "hta", "cpl", "jar", "reg", "appx", "iso", "img",
+  "dll", "msp", "mst", "msc", "sct", "inf", "ins", "isp", "gadget", "application", "appref-ms", "url", "scf", "ps1xml", "psc1", "psd1", "ws", "vb", "vbscript", "chm", "ade", "adp", "mde", "ocx", "sys", "drv", "diagcab", "msixbundle", "appxbundle", "appinstaller", "settingcontent-ms", "library-ms", "search-ms", "wsc",
+  "docm", "dotm", "xlsm", "xltm", "xlam", "xlsb", "pptm", "potm", "ppam", "ppsm", "sldm", "iqy", "slk"];
 
 const ext = (name: string) => (name.includes(".") ? name.slice(name.lastIndexOf(".") + 1).toLowerCase() : "");
 

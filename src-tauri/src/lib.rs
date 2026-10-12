@@ -1885,12 +1885,14 @@ async fn attachment_open(app: tauri::AppHandle, state: tauri::State<'_, AppState
         let (raw, _) = fetch_view_for(&db, &message_id)?;
         let (name, bytes) = mail::attachment_bytes(&raw, index)?;
         let warn = setting(&db, "warn_executables").map(|v| v != "0").unwrap_or(true);
-        if warn && !confirmed && attach::is_risky(&name) {
-            return Err(format!("ATT_RISKY: {name} can run programs on your computer."));
+        // the file that is opened is the cleaned name, so that is the name the risk check must look at
+        let stored = attach::clean_name(&name);
+        if warn && !confirmed && (attach::is_risky(&name) || attach::is_risky(&stored)) {
+            return Err(format!("ATT_RISKY: {stored} can run programs on your computer."));
         }
         let dir = std::env::temp_dir().join("HeyLook").join(attach::safe_id(&message_id));
         std::fs::create_dir_all(&dir).map_err(err)?;
-        let path = dir.join(attach::clean_name(&name));
+        let path = dir.join(&stored);
         std::fs::write(&path, bytes).map_err(err)?;
         let shown = path.to_string_lossy().into_owned();
         app.opener().open_path(shown.clone(), None::<&str>).map_err(err)?;

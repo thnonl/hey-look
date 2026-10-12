@@ -195,7 +195,7 @@ function GeneralTab() {
           <option value="open">Open the file</option>
         </select>
       </Row>
-      <Row label="Warn before opening programs and scripts" hint=".exe, .bat, .cmd, .ps1, .js, .vbs, .msi and similar">
+      <Row label="Warn before opening programs and scripts" hint=".exe, .bat, .cmd, .ps1, .js, .vbs, .msi, macro-enabled Office files (.docm, .xlsm) and similar">
         <Switch checked={prefs.warnExecutables} onChange={(v) => set("warnExecutables", v)} />
       </Row>
       <h4>Scheduled messages</h4>
