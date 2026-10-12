@@ -12,7 +12,13 @@ pub const RISKY_EXT: &[&str] = &[
     "psd1", "ws", "vb", "vbscript", "chm", "ade", "adp", "mde", "ocx", "sys", "drv", "diagcab", "msixbundle", "appxbundle", "appinstaller",
     "settingcontent-ms", "library-ms", "search-ms", "wsc",
     // Office files that can carry macros
-    "docm", "dotm", "xlsm", "xltm", "xlam", "xlsb", "pptm", "potm", "ppam", "ppsm", "sldm", "iqy", "slk",
+    "docm", "dotm", "xlsm", "xltm", "xlam", "xlsb", "pptm", "potm", "ppam", "ppsm", "sldm", "iqy", "slk", "xla", "xlw",
+    // add-ins and remote/embedded launchers: Excel add-in (xll), Remote Desktop, OneNote (embedded files), Java Web Start, ClickOnce
+    "xll", "rdp", "one", "onepkg", "jnlp", "xbap", "website",
+    // more scripting / shell types
+    "ps2", "ps2xml", "msh", "msh1", "msh2", "mshxml", "msh1xml", "msh2xml", "job", "shs", "shb", "bas", "py", "pyw", "pyz", "pl", "sh", "command", "xnk",
+    // disk images that mount as a drive
+    "vhd", "vhdx", "dmg", "wim",
 ];
 pub const RISKY_IMAGE: [&str; 2] = ["iso", "img"];
 
@@ -41,8 +47,10 @@ pub fn is_risky(name: &str) -> bool {
     risky_ext(name) || risky_ext(&clean_name(name))
 }
 
+/// The text after the last dot. A leading dot counts: Windows takes `.exe` (no stem) as the extension `exe`, so a dotfile-style
+/// name is judged on its last segment like any other (`.bashrc` has the harmless extension `bashrc`).
 fn extension(name: &str) -> &str {
-    name.rsplit_once('.').map(|(stem, ext)| if stem.is_empty() { "" } else { ext }).unwrap_or("")
+    name.rsplit_once('.').map(|(_, ext)| ext).unwrap_or("")
 }
 
 /// A name that is safe on Windows: no path separators or reserved characters, no trailing dots or spaces.
@@ -128,6 +136,26 @@ mod tests {
         assert!(!is_risky("report.pdf"));
         assert!(!is_risky("exe"), "a bare name is not an extension");
         assert!(!is_risky(".bashrc"));
+    }
+
+    #[test]
+    fn bare_dot_extension_names_are_risky() {
+        // F25: a name that is only a dot and an extension is still that extension on Windows
+        for n in [".exe", ".cmd", ".EXE", ".Cmd", " .exe", "..exe", "...exe", "a/.exe", "a\\.exe", ".exe.", ".exe ", ".bat.", ".tar.exe", ".hidden.ps1", ".vbs"] {
+            assert!(is_risky(n), "{n:?}");
+        }
+        for n in [".bashrc", ".gitignore", ".", "..", ".pdf.txt", "exe", "exe."] {
+            assert!(!is_risky(n), "{n:?}");
+        }
+        assert_eq!(clean_name(".exe"), ".exe");
+        assert!(is_risky(&clean_name(".exe")));
+    }
+
+    #[test]
+    fn more_program_types_are_risky() {
+        for n in ["a.rdp", "a.xll", "a.xla", "a.one", "a.vhdx", "a.jnlp", "a.vhd", "a.xbap", "a.py", "a.RDP", "x.onepkg"] {
+            assert!(is_risky(n), "{n}");
+        }
     }
 
     #[test]
