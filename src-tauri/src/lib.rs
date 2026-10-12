@@ -2768,13 +2768,16 @@ pub fn run() {
 
             winframe::setup(app);
             shell::register_aumid(app.handle());
-            shell::setup_tray(app.handle(), &db)?;
+            // a missing tray is not fatal: without it the close button quits instead of hiding (shell::close_to_tray)
+            if let Err(e) = shell::setup_tray(app.handle(), &db) {
+                eprintln!("tray icon unavailable: {e}");
+            }
             shell::update_badge(app.handle(), &db);
             let handle = app.handle().clone();
             std::thread::spawn(move || sync_worker(handle));
 
-            // started by "launch at login" => stay in the tray
-            if !std::env::args().any(|a| a == "--minimized") {
+            // started by "launch at login" => stay in the tray (only when there is a tray to come back from)
+            if !std::env::args().any(|a| a == "--minimized") || !shell::tray_ready() {
                 shell::show_main(app.handle());
             }
             Ok(())

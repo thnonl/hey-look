@@ -2,6 +2,7 @@
 //! snooze reminders. Settings come from the UI's `prefs` JSON (stored in the settings table).
 use crate::{action_impl, db, lock, now, AppState, Db, NewMsg};
 use serde_json::{json, Value};
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::OnceLock;
 use tauri::image::Image;
 use tauri::menu::{CheckMenuItem, Menu, MenuItem, PredefinedMenuItem};
@@ -36,8 +37,17 @@ pub fn eff(p: &Value, account: &str, k: &str) -> Option<Value> {
     account_pref(p, account, k).or_else(|| p.get(k).cloned())
 }
 
+/// Set once the tray icon exists. Without it a hidden window could not be brought back, so closing must quit.
+static TRAY_READY: AtomicBool = AtomicBool::new(false);
+
+pub fn tray_ready() -> bool {
+    TRAY_READY.load(Ordering::Relaxed)
+}
+
+/// Whether the window close button hides the window to the tray (setting `closeToTray`, on by default) instead of quitting.
+/// Never true when the tray icon could not be created: then the close button really quits.
 pub fn close_to_tray(db: &Db) -> bool {
-    pbool(&prefs(db), "closeToTray", true)
+    tray_ready() && pbool(&prefs(db), "closeToTray", true)
 }
 
 // ---------- window ----------
@@ -241,9 +251,9 @@ pub fn setup_tray(app: &AppHandle, db: &Db) -> tauri::Result<()> {
         .tooltip("Hey Look!")
         .menu(&menu)
         .show_menu_on_left_click(false);
-    if let Some(icon) = tray_icon(app, 0, "off") {
-        builder = builder.icon(icon);
-    }
+    // no icon at all would leave an invisible tray entry: do without the tray then (closing quits, see `close_to_tray`)
+    let Some(icon) = tray_icon(app, 0, "off").or_else(|| app.default_window_icon().cloned()) else { return Ok(()) };
+    builder = builder.icon(icon);
     let pause_item = pause.clone();
     builder
         .on_menu_event(move |app, event| match event.id().as_ref() {
@@ -272,6 +282,7 @@ pub fn setup_tray(app: &AppHandle, db: &Db) -> tauri::Result<()> {
             }
         })
         .build(app)?;
+    TRAY_READY.store(true, Ordering::Relaxed);
     Ok(())
 }
 

@@ -134,7 +134,7 @@ App-wide options (appearance, tray, shortcuts, AI Assistant, blocked senders) li
 2. On the welcome screen choose **Sign in with Google**, **Sign in with Microsoft** or **Other email account**.
    - Google and Microsoft: the app needs an OAuth client, see [Configuration](#configuration).
    - iCloud and Yahoo need an **app password**. Apple offers no OAuth for third-party mail apps, so iCloud cannot use a sign-in window.
-3. Your mail downloads in the background. Closing the window keeps Hey Look! running in the tray; use **Quit** in the tray menu to exit.
+3. Your mail downloads in the background. Closing the window keeps Hey Look! running in the tray; use **Quit** in the tray menu to exit. (Turn off "Keep running in the tray when the window is closed" in Settings and the close button quits instead, after asking when scheduled messages are waiting.)
 
 ### Where your data lives
 - Mail cache and settings: `%APPDATA%\thnonl.heylook\heylook.db` (SQLite)
