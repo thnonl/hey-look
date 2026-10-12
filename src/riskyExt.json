@@ -1,0 +1,10 @@
+[
+  "exe", "msi", "msix", "bat", "cmd", "com", "ps1", "psm1", "vbs", "vbe", "js", "jse", "wsf", "wsh", "scr", "pif",
+  "lnk", "hta", "cpl", "jar", "reg", "appx", "dll", "msp", "mst", "msc", "sct", "inf", "ins", "isp", "gadget",
+  "application", "appref-ms", "url", "scf", "ps1xml", "psc1", "psd1", "ws", "vb", "vbscript", "chm", "ade", "adp",
+  "mde", "ocx", "sys", "drv", "diagcab", "msixbundle", "appxbundle", "appinstaller", "settingcontent-ms", "library-ms",
+  "search-ms", "wsc", "docm", "dotm", "xlsm", "xltm", "xlam", "xlsb", "pptm", "potm", "ppam", "ppsm", "sldm", "iqy",
+  "slk", "xla", "xlw", "xll", "rdp", "one", "onepkg", "jnlp", "xbap", "website", "ps2", "ps2xml", "msh", "msh1", "msh2",
+  "mshxml", "msh1xml", "msh2xml", "job", "shs", "shb", "bas", "py", "pyw", "pyz", "pl", "sh", "command", "xnk", "vhd",
+  "vhdx", "dmg", "wim", "iso", "img"
+]

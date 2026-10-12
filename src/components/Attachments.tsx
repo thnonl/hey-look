@@ -8,6 +8,7 @@ import { api, AttMeta, errorCode, MessageFull } from "../api";
 import { eff } from "../prefs";
 import { friendlyError, useStore } from "../store";
 import { fmtSize } from "../util";
+import riskyExt from "../riskyExt.json";
 import { importKeyFromMessage, isKeyAttachment } from "./Pgp";
 import { Dropdown } from "./ui";
 
@@ -24,12 +25,15 @@ const EXT_KIND: Record<string, FileKind> = {
   txt: "code", log: "code", md: "code",
   ics: "ics", asc: "key", gpg: "key", pgp: "key", key: "key",
 };
-/** Programs and scripts: these can run code, so opening them asks first (see Settings → Attachments). */
-export const RISKY_EXT = ["exe", "msi", "msix", "bat", "cmd", "com", "ps1", "psm1", "vbs", "vbe", "js", "jse", "wsf", "wsh", "scr", "pif", "lnk", "hta", "cpl", "jar", "reg", "appx", "iso", "img",
-  "dll", "msp", "mst", "msc", "sct", "inf", "ins", "isp", "gadget", "application", "appref-ms", "url", "scf", "ps1xml", "psc1", "psd1", "ws", "vb", "vbscript", "chm", "ade", "adp", "mde", "ocx", "sys", "drv", "diagcab", "msixbundle", "appxbundle", "appinstaller", "settingcontent-ms", "library-ms", "search-ms", "wsc",
-  "docm", "dotm", "xlsm", "xltm", "xlam", "xlsb", "pptm", "potm", "ppam", "ppsm", "sldm", "iqy", "slk"];
+/** Programs, scripts, macro files and disk images: these can run code, so opening them asks first (see Settings → Attachments).
+ *  The list is src/riskyExt.json, the same file the Rust side reads, so the file-type icon and the open warning agree. */
+export const RISKY_EXT: readonly string[] = riskyExt;
 
-const ext = (name: string) => (name.includes(".") ? name.slice(name.lastIndexOf(".") + 1).toLowerCase() : "");
+// like the Rust side: trailing dots and blanks do not hide the type ("setup.exe." is "setup.exe")
+const ext = (name: string) => {
+  const n = name.replace(/[\s. ]+$/, "");
+  return n.includes(".") ? n.slice(n.lastIndexOf(".") + 1).toLowerCase() : "";
+};
 
 export function fileKind(name: string, mime: string): FileKind {
   const e = ext(name);

@@ -1,26 +1,15 @@
 //! Attachment helpers that do not touch the mail server: safe file names, unique targets, the list of
 //! file types that can run code, and cleanup of the temp folder used for "Open".
 
+use std::collections::HashSet;
 use std::path::{Path, PathBuf};
+use std::sync::LazyLock;
 
-/// Extensions that can run programs or scripts. Opening one asks the user first (setting `warn_executables`).
-pub const RISKY_EXT: &[&str] = &[
-    "exe", "msi", "msix", "bat", "cmd", "com", "ps1", "psm1", "vbs", "vbe", "js", "jse", "wsf", "wsh", "scr", "pif", "lnk",
-    "hta", "cpl", "jar", "reg", "appx",
-    // more programs, scripts and shortcuts
-    "dll", "msp", "mst", "msc", "sct", "inf", "ins", "isp", "gadget", "application", "appref-ms", "url", "scf", "ps1xml", "psc1",
-    "psd1", "ws", "vb", "vbscript", "chm", "ade", "adp", "mde", "ocx", "sys", "drv", "diagcab", "msixbundle", "appxbundle", "appinstaller",
-    "settingcontent-ms", "library-ms", "search-ms", "wsc",
-    // Office files that can carry macros
-    "docm", "dotm", "xlsm", "xltm", "xlam", "xlsb", "pptm", "potm", "ppam", "ppsm", "sldm", "iqy", "slk", "xla", "xlw",
-    // add-ins and remote/embedded launchers: Excel add-in (xll), Remote Desktop, OneNote (embedded files), Java Web Start, ClickOnce
-    "xll", "rdp", "one", "onepkg", "jnlp", "xbap", "website",
-    // more scripting / shell types
-    "ps2", "ps2xml", "msh", "msh1", "msh2", "mshxml", "msh1xml", "msh2xml", "job", "shs", "shb", "bas", "py", "pyw", "pyz", "pl", "sh", "command", "xnk",
-    // disk images that mount as a drive
-    "vhd", "vhdx", "dmg", "wim",
-];
-pub const RISKY_IMAGE: [&str; 2] = ["iso", "img"];
+/// Extensions that can run programs or scripts, or carry macros / mount as a drive. Opening one asks the user first
+/// (setting `warn_executables`). The list lives in `src/riskyExt.json` and is shared with the frontend (file-type icon, no
+/// text preview), so the two cannot drift apart.
+static RISKY_EXT: LazyLock<HashSet<String>> =
+    LazyLock::new(|| serde_json::from_str::<Vec<String>>(include_str!("../../src/riskyExt.json")).expect("src/riskyExt.json is a JSON array of strings").into_iter().collect());
 
 /// Windows reserved device names other than COM0-9 / LPT0-9 (see `is_reserved`); they cannot be used as file names.
 const RESERVED: [&str; 6] = ["CON", "PRN", "AUX", "NUL", "CONIN$", "CONOUT$"];
@@ -38,7 +27,7 @@ fn is_reserved(stem: &str) -> bool {
 
 fn risky_ext(name: &str) -> bool {
     let ext = extension(name).trim().to_lowercase();
-    RISKY_EXT.contains(&ext.as_str()) || RISKY_IMAGE.contains(&ext.as_str())
+    RISKY_EXT.contains(ext.as_str())
 }
 
 /// Whether opening this file can run code. Judged on the name as given and on the name `clean_name` stores it under
@@ -149,6 +138,19 @@ mod tests {
         }
         assert_eq!(clean_name(".exe"), ".exe");
         assert!(is_risky(&clean_name(".exe")));
+    }
+
+    #[test]
+    fn shared_risky_list_is_clean() {
+        // the list is shared with the frontend: lower-case, no dots, no blanks, no duplicates
+        let raw: Vec<String> = serde_json::from_str(include_str!("../../src/riskyExt.json")).unwrap();
+        assert_eq!(raw.len(), RISKY_EXT.len(), "duplicate entries");
+        for e in &raw {
+            assert!(!e.is_empty() && *e == e.trim().to_lowercase() && !e.contains('.'), "{e:?}");
+        }
+        for e in ["exe", "iso", "img", "rdp", "xll", "one", "jnlp", "vhdx", "py", "sh", "docm"] {
+            assert!(RISKY_EXT.contains(e), "{e}");
+        }
     }
 
     #[test]
