@@ -532,18 +532,35 @@ button.ov-tag:hover { background: color-mix(in srgb, var(--accent), transparent 
 @keyframes drain { to { transform: scaleX(0); } }
 
 /* ===== welcome ===== */
-.welcome { flex: 1; display: grid; place-items: center; padding: 24px; background: radial-gradient(1200px 500px at 50% -10%, var(--accent-soft), transparent), var(--bg); overflow: auto; }
-.welcome-card { width: min(560px, 100%); text-align: center; animation: pop .25s var(--ease); }
-.welcome-card h1 { margin: 14px 0 6px; font-size: 1.9em; letter-spacing: -.02em; }
-.welcome-card p { max-width: 440px; margin: 0 auto 22px; line-height: 1.55; }
-.welcome-actions { display: grid; gap: 10px; text-align: left; }
-.wcard { display: flex; align-items: center; gap: 14px; padding: 15px 18px; border: 1px solid var(--border); background: var(--bg); border-radius: var(--r-md); box-shadow: var(--shadow-sm); transition: transform .12s, box-shadow .12s, border-color .12s; }
-.wcard:hover { transform: translateY(-2px); box-shadow: var(--shadow); border-color: var(--accent); }
-.wcard.primary { background: var(--accent); color: var(--accent-fg); border-color: transparent; }
-.wcard span { display: flex; flex-direction: column; gap: 2px; }
-.wcard small { opacity: .8; }
-.welcome-points { list-style: none; padding: 0; margin: 22px 0 0; display: grid; gap: 8px; color: var(--muted); font-size: .92em; }
-.welcome-points li { display: flex; align-items: center; justify-content: center; gap: 8px; }
+/* the card centres itself (auto margins, so a short window scrolls instead of clipping its top) */
+.welcome { flex: 1; display: flex; padding: 20px 24px; background: radial-gradient(1200px 500px at 50% -10%, var(--accent-soft), transparent), var(--bg); overflow: auto; min-height: 0; }
+.welcome-card { width: min(480px, 100%); margin: auto; display: flex; flex-direction: column; align-items: center; text-align: center; animation: pop .25s var(--ease); }
+.welcome-card img { display: block; width: 64px; height: 64px; }
+.welcome-card h1 { margin: 16px 0 8px; font-size: 1.8em; line-height: 1.2; letter-spacing: -.02em; }
+.welcome-card p { max-width: 400px; margin: 0 0 24px; line-height: 1.5; }
+.welcome-actions { display: grid; gap: 10px; width: 100%; }
+.wcard { display: grid; grid-template-columns: 40px minmax(0, 1fr) auto; align-items: center; gap: 14px; width: 100%; padding: 12px 14px; text-align: left; border: 1px solid var(--border); background: var(--bg); color: var(--fg); border-radius: var(--r-md); box-shadow: var(--shadow-sm); transition: transform .12s, box-shadow .12s, border-color .12s; }
+.wcard:hover { transform: translateY(-1px); box-shadow: var(--shadow); border-color: var(--accent); }
+.wglyph { display: grid; place-items: center; width: 40px; height: 40px; border-radius: 10px; border: 1px solid var(--border); flex: none; }
+.wglyph.g, .wglyph.m { background: #ffffff; }
+.wglyph.o { background: var(--bg3); color: var(--fg); }
+.wtext { display: flex; flex-direction: column; gap: 2px; min-width: 0; text-align: left; }
+.wtext b { font-weight: 600; font-size: 1em; }
+.wtext small { color: var(--muted); font-size: .86em; line-height: 1.35; }
+.wgo { color: var(--muted); transition: transform .12s, color .12s; }
+.wcard:hover .wgo { color: var(--accent); transform: translateX(2px); }
+.welcome-points { list-style: none; padding: 0; margin: 24px 0 0; display: grid; gap: 8px; color: var(--muted); font-size: .9em; text-align: left; }
+.welcome-points li { display: flex; align-items: center; gap: 9px; }
+.welcome-points svg { flex: none; }
+@media (max-height: 640px) {
+  .welcome { padding: 12px 24px; }
+  .welcome-card img { width: 48px; height: 48px; }
+  .welcome-card h1 { margin: 10px 0 6px; font-size: 1.6em; }
+  .welcome-card p { margin-bottom: 16px; line-height: 1.4; }
+  .welcome-actions { gap: 8px; }
+  .wcard { padding: 9px 12px; }
+  .welcome-points { margin-top: 16px; gap: 5px; }
+}
 
 /* segmented control that wraps instead of overflowing (mailbox pages have many tabs) */
 .seg { flex-wrap: wrap; max-width: 100%; }
