@@ -33,8 +33,19 @@ pub fn is_transient(error: &str) -> bool {
     if PERMANENT.iter().any(|p| e.contains(p)) {
         return false;
     }
-    const TRANSIENT: [&str; 10] = ["timed out", "timeout", "connection", "network", "temporar", "reset", "refused", "lookup", "421", "451"];
-    TRANSIENT.iter().any(|t| e.contains(t))
+    const TRANSIENT: [&str; 8] = ["timed out", "timeout", "connection", "network", "temporar", "reset", "refused", "lookup"];
+    // temporary SMTP replies (4yz): 421 service not available, 450 mailbox busy, 451 local error, 452 storage, 454 TLS unavailable
+    const TRANSIENT_CODES: [&str; 5] = ["421", "450", "451", "452", "454"];
+    TRANSIENT.iter().any(|t| e.contains(t)) || TRANSIENT_CODES.iter().any(|c| has_code(&e, c))
+}
+
+/// `code` as a whole number in the text (so "450" matches "450 4.2.1 busy" but not "14500").
+fn has_code(text: &str, code: &str) -> bool {
+    text.match_indices(code).any(|(i, _)| {
+        let before = text[..i].chars().next_back();
+        let after = text[i + code.len()..].chars().next();
+        !before.map(|c| c.is_ascii_digit()).unwrap_or(false) && !after.map(|c| c.is_ascii_digit()).unwrap_or(false)
+    })
 }
 
 /// After a failed attempt: `Some(next_due)` to try again, `None` when the message should be marked failed.
@@ -86,6 +97,11 @@ mod tests {
     fn network_errors_retry_and_auth_errors_do_not() {
         assert!(is_transient("SMTP send failed: connection timed out"));
         assert!(is_transient("SMTP send failed: 451 try again later"));
+        // F9: other temporary 4yz replies retry too
+        assert!(is_transient("SMTP send failed: 450 4.2.1 mailbox busy"));
+        assert!(is_transient("SMTP send failed: 452 insufficient storage"));
+        assert!(is_transient("SMTP send failed: 454 TLS not available"));
+        assert!(!is_transient("SMTP send failed: queue id 14500 rejected"), "a number inside a longer number is not a reply code");
         assert!(!is_transient("SMTP send failed: 535 5.7.8 authentication failed"));
         assert!(!is_transient("SMTP login failed: invalid credentials"));
         assert!(!is_transient("bad address 'nobody'"));
