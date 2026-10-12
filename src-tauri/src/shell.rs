@@ -252,7 +252,10 @@ pub fn setup_tray(app: &AppHandle, db: &Db) -> tauri::Result<()> {
         .menu(&menu)
         .show_menu_on_left_click(false);
     // no icon at all would leave an invisible tray entry: do without the tray then (closing quits, see `close_to_tray`)
-    let Some(icon) = tray_icon(app, 0, "off").or_else(|| app.default_window_icon().cloned()) else { return Ok(()) };
+    let Some(icon) = tray_icon(app, 0, "off").or_else(|| app.default_window_icon().cloned()) else {
+        eprintln!("tray icon unavailable: no icon image found, the close button will quit instead of hiding the window");
+        return Ok(());
+    };
     builder = builder.icon(icon);
     let pause_item = pause.clone();
     builder

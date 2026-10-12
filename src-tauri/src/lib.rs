@@ -969,7 +969,8 @@ fn split_tokens(q: &str) -> Vec<String> {
 /// `2026-01-31`, or `7d` / `30d` meaning "that many days ago".
 fn parse_when(v: &str) -> Option<i64> {
     if let Some(n) = v.strip_suffix('d').and_then(|n| n.parse::<i64>().ok()) {
-        return Some(now() - n * 86_400);
+        // checked: an absurd "99999999999999d" must not overflow (it just means "not a usable date")
+        return n.checked_mul(86_400).and_then(|secs| now().checked_sub(secs));
     }
     chrono::NaiveDate::parse_from_str(v, "%Y-%m-%d")
         .ok()
@@ -2251,45 +2252,51 @@ fn outbox_release(state: tauri::State<AppState>, id: String) -> R<()> {
 #[tauri::command]
 fn outbox_update(app: tauri::AppHandle, state: tauri::State<AppState>, id: String, draft: smtp::Draft, send_at: i64) -> R<()> {
     schedule::validate_send_at(send_at, now())?;
-    let draft = {
-        let c = lock(&state.db);
-        let acc = db::get_account(&c, &draft.account_id)?;
-        // a meeting: drop the event made when it was first scheduled and make it again from the edited details
-        let mut draft = draft;
-        let old = c.query_row("SELECT payload FROM outbox WHERE id=?1", [&id], |r| r.get::<_, String>(0)).ok();
-        draft.calendar = None;
-        if draft.meeting.is_some() {
-            calendar::prepare_meeting(&c, &mut draft)?;
-        }
-        let sealed = match pgpstore::seal_for_outbox(&c, &acc, &draft) {
-            Ok(d) => d,
-            Err(e) => {
-                // the edit failed (for example the key is locked): the queued message keeps its own event, so
-                // only the event made for this attempt goes
-                if let Ok(attempt) = serde_json::to_string(&draft) {
-                    calendar::forget_prepared(&c, &attempt);
-                }
-                return Err(e);
+    const GONE: &str = "This scheduled message is no longer waiting to be sent.";
+    // one critical section from the first look at the row to the UPDATE: the sender cannot claim it in between, and a
+    // calendar event is only made once the row is known to be editable
+    let c = lock(&state.db);
+    let acc = db::get_account(&c, &draft.account_id)?;
+    let (old, status) = c
+        .query_row("SELECT payload, status FROM outbox WHERE id=?1", [&id], |r| Ok((r.get::<_, String>(0)?, r.get::<_, String>(1)?)))
+        .map_err(|_| GONE.to_string())?;
+    if status == "sending" {
+        return Err(GONE.into());
+    }
+    // a meeting: drop the event made when it was first scheduled and make it again from the edited details
+    let mut draft = draft;
+    draft.calendar = None;
+    if draft.meeting.is_some() {
+        calendar::prepare_meeting(&c, &mut draft)?;
+    }
+    let sealed = match pgpstore::seal_for_outbox(&c, &acc, &draft) {
+        Ok(d) => d,
+        Err(e) => {
+            // the edit failed (for example the key is locked): the queued message keeps its own event, so
+            // only the event made for this attempt goes
+            if let Ok(attempt) = serde_json::to_string(&draft) {
+                calendar::forget_prepared(&c, &attempt);
             }
-        };
-        // the edit worked: the event made when it was first scheduled is replaced by the new one
-        if let Some(old) = old {
-            calendar::forget_prepared(&c, &old);
+            return Err(e);
         }
-        if draft.meeting.is_some() {
-            let _ = app.emit("calendar-changed", serde_json::json!({}));
-        }
-        sealed
     };
-    let payload = serde_json::to_string(&draft).map_err(err)?;
-    let n = lock(&state.db)
+    let payload = serde_json::to_string(&sealed).map_err(err)?;
+    let n = c
         .execute(
             "UPDATE outbox SET payload=?2, send_at=?3, status='pending', error=NULL, attempts=0 WHERE id=?1 AND status!='sending'",
             params![id, payload, send_at],
         )
         .map_err(err)?;
     if n == 0 {
-        return Err("This scheduled message is no longer waiting to be sent.".into());
+        // lost the race after all: keep the queued message's own event, drop the one made for this attempt
+        calendar::forget_prepared(&c, &payload);
+        return Err(GONE.into());
+    }
+    // the edit worked: the event made when it was first scheduled is replaced by the new one
+    calendar::forget_prepared(&c, &old);
+    drop(c);
+    if sealed.meeting.is_some() {
+        let _ = app.emit("calendar-changed", serde_json::json!({}));
     }
     let _ = app.emit("outbox-changed", serde_json::json!({ "id": id, "status": "pending" }));
     Ok(())
@@ -2898,4 +2905,28 @@ pub fn run() {
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
+}
+
+#[cfg(test)]
+mod search_tests {
+    use super::*;
+
+    #[test]
+    fn relative_and_absolute_dates_in_operators() {
+        let n = now();
+        assert!(parse_when("7d").is_some_and(|t| (n - t - 7 * 86_400).abs() <= 2));
+        assert!(parse_when("2026-01-31").is_some());
+        assert_eq!(parse_when("banana"), None);
+        // an absurd number of days must not overflow (it is not a usable date)
+        assert_eq!(parse_when("9223372036854775807d"), None);
+        assert_eq!(parse_when("99999999999999999d"), None);
+    }
+
+    #[test]
+    fn operators_are_parsed() {
+        let q = parse_query("from:\"Linh Tran\" has:attachment is:unread");
+        assert_eq!(q.from, vec!["linh tran".to_string()]);
+        assert!(q.has_attachment);
+        assert_eq!(q.unread, Some(true));
+    }
 }
