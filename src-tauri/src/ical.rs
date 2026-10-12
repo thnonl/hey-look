@@ -48,6 +48,8 @@ pub struct IcsEvent {
     pub status: String,
     pub comment: Option<String>,
     pub dtstamp: i64,
+    /// part of the event was left out because it was over a size cap (very long RRULE, huge attendee or EXDATE list)
+    pub trimmed: bool,
 }
 
 #[derive(Debug, Clone, Default)]
@@ -595,12 +597,21 @@ fn build_event(props: &[Line], ctx: &Ctx) -> Option<IcsEvent> {
             "ORGANIZER" => ev.organizer = person(p),
             "ATTENDEE" => {
                 if let Some(a) = attendee(p) {
-                    if ev.attendees.len() < MAX_ATTENDEES && !ev.attendees.iter().any(|x| x.email == a.email) {
+                    if ev.attendees.len() >= MAX_ATTENDEES {
+                        ev.trimmed = true;
+                    } else if !ev.attendees.iter().any(|x| x.email == a.email) {
                         ev.attendees.push(a);
                     }
                 }
             }
-            "RRULE" => ev.rrule = Some(p.value.trim().to_string()).filter(|s| !s.is_empty() && s.len() <= MAX_RRULE_LEN),
+            "RRULE" => {
+                let r = p.value.trim();
+                if r.len() > MAX_RRULE_LEN {
+                    ev.trimmed = true; // dropped: the event shows once instead of repeating
+                } else if !r.is_empty() {
+                    ev.rrule = Some(r.to_string());
+                }
+            }
             "DTSTART" => dtstart = parse_dt_value(&p.value, Some(p), ctx),
             "DTEND" | "DUE" => dtend = parse_dt_value(&p.value, Some(p), ctx),
             "DURATION" => duration = parse_duration(&p.value),
@@ -609,6 +620,7 @@ fn build_event(props: &[Line], ctx: &Ctx) -> Option<IcsEvent> {
             "EXDATE" => {
                 for part in p.value.split(',') {
                     if ev.exdates.len() >= MAX_EXDATES {
+                        ev.trimmed = true;
                         break;
                     }
                     if let Some(d) = parse_dt_value(part, Some(p), ctx) {
@@ -1644,6 +1656,44 @@ END:VEVENT\r\nEND:VCALENDAR\r\n";
         let c = parse(&format!("BEGIN:VCALENDAR\nBEGIN:VEVENT\nUID:h4\nDTSTART:20261014T100000Z\nRRULE:FREQ=DAILY\n{att}END:VEVENT\nEND:VCALENDAR\n")).unwrap();
         assert_eq!(c.events[0].attendees.len(), MAX_ATTENDEES);
         assert_eq!(c.events[0].rrule.as_deref(), Some("FREQ=DAILY"), "a normal rule is kept");
+        assert!(c.events[0].trimmed, "cutting the list is reported");
+    }
+
+    #[test]
+    fn dropped_details_are_flagged_and_normal_events_are_not() {
+        let plain = parse("BEGIN:VCALENDAR
+BEGIN:VEVENT
+UID:t1
+DTSTART:20261014T100000Z
+RRULE:FREQ=WEEKLY;BYDAY=WE
+ATTENDEE:mailto:a@example.com
+EXDATE:20261021T100000Z
+END:VEVENT
+END:VCALENDAR
+").unwrap();
+        assert!(!plain.events[0].trimmed);
+        let long_rule = format!("FREQ=WEEKLY;BYDAY={}", "MO,".repeat(500));
+        let c = parse(&format!("BEGIN:VCALENDAR
+BEGIN:VEVENT
+UID:t2
+DTSTART:20261014T100000Z
+RRULE:{long_rule}
+END:VEVENT
+END:VCALENDAR
+")).unwrap();
+        assert!(c.events[0].rrule.is_none() && c.events[0].trimmed);
+        let ex: Vec<String> = (30..40).flat_map(|y| (1..=12).flat_map(move |m| (1..=28).map(move |d| format!("20{y}{m:02}{d:02}")))).collect();
+        assert!(ex.len() > MAX_EXDATES);
+        let c = parse(&format!("BEGIN:VCALENDAR
+BEGIN:VEVENT
+UID:t3
+DTSTART:20261014T100000Z
+EXDATE;VALUE=DATE:{}
+END:VEVENT
+END:VCALENDAR
+", ex.join(","))).unwrap();
+        assert_eq!(c.events[0].exdates.len(), MAX_EXDATES);
+        assert!(c.events[0].trimmed);
     }
 
     #[test]

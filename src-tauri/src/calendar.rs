@@ -211,6 +211,8 @@ pub struct CalInvite {
     pub outdated: bool,
     pub conflicts: Vec<Conflict>,
     pub parse_error: Option<String>,
+    /// the invitation was over a size cap and some details (repeat rule, guests, excluded dates) were not imported
+    pub trimmed: bool,
 }
 
 // ------------------------------------------------------------------ rows
@@ -658,6 +660,7 @@ pub fn invite_for(c: &Connection, account_id: &str, message_id: &str, folder: &s
     inv.organizer = ev.organizer.as_ref().map(|o| CalPerson { email: o.email.clone(), name: o.name.clone() });
     inv.rrule = ev.rrule.clone();
     inv.recurrence_text = ev.rrule.as_deref().and_then(|r| ical::describe_rrule(r, ev.start));
+    inv.trimmed = ev.trimmed;
     inv.cancelled = ev.status == "cancelled" || method == "CANCEL";
     inv.ended = ev.rrule.is_none() && ev.end.max(ev.start) < now();
     let mine = account_emails(c);
@@ -795,6 +798,7 @@ fn to_ics_event(e: &CalEvent) -> IcsEvent {
         status: e.status.clone(),
         comment: None,
         dtstamp: now(),
+        trimmed: false,
     }
 }
 
