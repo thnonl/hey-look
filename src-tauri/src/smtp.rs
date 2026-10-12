@@ -105,15 +105,16 @@ pub fn format_mailbox(name: Option<&str>, email: &str) -> String {
     }
 }
 
-/// Undo the quoting of a display name: `"a \"b\""` -> `a "b"`. An unquoted name is taken as written.
+/// Undo the quoting of a display name: `"a \"b\""` -> `a "b"`. An unquoted name is taken as written. Only the two escapes
+/// `format_mailbox` writes (`\"` and `\\`) are undone; any other backslash is part of the name (`"a \ b"` stays `a \ b`).
 fn unquote_name(raw: &str) -> String {
     let t = raw.trim();
     let Some(inner) = t.strip_prefix('"').and_then(|x| x.strip_suffix('"')).filter(|_| t.len() >= 2) else { return clean_name(t) };
     let mut out = String::with_capacity(inner.len());
-    let mut it = inner.chars();
+    let mut it = inner.chars().peekable();
     while let Some(c) = it.next() {
         match c {
-            '\\' => out.extend(it.next()),
+            '\\' if matches!(it.peek(), Some('"') | Some('\\')) => out.extend(it.next()),
             c => out.push(c),
         }
     }
@@ -505,6 +506,21 @@ mod tests {
         }
         assert_eq!(format_mailbox(None, " a@b.c "), "a@b.c");
         assert_eq!(format_mailbox(Some("  "), "a@b.c"), "a@b.c");
+    }
+
+    #[test]
+    fn a_backslash_in_a_display_name_is_kept_even_when_the_name_was_quoted_by_hand() {
+        // quoted by hand with only the quotes escaped: a lone backslash (before a space or a letter) is part of the name
+        let (n, e) = split_mailbox(r#""Nam; Thái: \"test\" \ (x)" <b@x.y>"#);
+        assert_eq!(e, "b@x.y");
+        assert_eq!(n.as_deref(), Some(r#"Nam; Thái: "test" \ (x)"#));
+        let (n, _) = split_mailbox(r#""C:\dir\sub" <b@x.y>"#);
+        assert_eq!(n.as_deref(), Some(r"C:\dir\sub"));
+        // written by format_mailbox, unquoted, or doubled: all the same
+        let (n, _) = split_mailbox(&format_mailbox(Some(r"a \ b \\ c"), "b@x.y"));
+        assert_eq!(n.as_deref(), Some(r"a \ b \\ c"));
+        let (n, _) = split_mailbox(r"Nam \ (x) <b@x.y>");
+        assert_eq!(n.as_deref(), Some(r"Nam \ (x)"));
     }
 
     #[test]

@@ -1829,6 +1829,32 @@ ATTENDEE;CN=Evil:mailto:evil@x.y",
     }
 
     #[test]
+    fn cn_keeps_backslashes_literally_while_text_properties_escape_them() {
+        let name = r#"Nam; Thái: "test" \ (x) \\ C:\dir"#;
+        let ev = IcsEvent {
+            uid: "bs@x".into(),
+            summary: r"back\slash; and, comma".into(),
+            start: ts(2026, 10, 14, 3, 0),
+            end: ts(2026, 10, 14, 4, 0),
+            attendees: vec![Attendee { email: "a@x.y".into(), name: Some(name.into()), role: "required".into(), status: "needs-action".into(), rsvp: true }],
+            status: "confirmed".into(),
+            dtstamp: ts(2026, 10, 1, 0, 0),
+            ..Default::default()
+        };
+        let text = to_ics(Some("REQUEST"), &[ev]);
+        let lines = unfold(&text);
+        // a parameter value is not TEXT: the backslash is written as it is (quotes become apostrophes, spaces stay)
+        let att = lines.iter().find(|l| l.starts_with("ATTENDEE")).unwrap();
+        assert!(att.contains(r#"CN="Nam; Thái: 'test' \ (x) \\ C:\dir""#), "{att}");
+        // a TEXT property escapes backslash, semicolon and comma
+        let sum = lines.iter().find(|l| l.starts_with("SUMMARY")).unwrap();
+        assert_eq!(sum, r"SUMMARY:back\\slash\; and\, comma");
+        let back = parse(&text).unwrap();
+        assert_eq!(back.events[0].attendees[0].name.as_deref(), Some(r"Nam; Thái: 'test' \ (x) \\ C:\dir"));
+        assert_eq!(back.events[0].summary, r"back\slash; and, comma");
+    }
+
+    #[test]
     fn hostile_addresses_cannot_break_the_property() {
         let ev = IcsEvent {
             uid: "h@x".into(),

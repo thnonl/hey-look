@@ -727,6 +727,13 @@ pub fn invite_for(c: &Connection, account_id: &str, message_id: &str, folder: &s
             }
             if let Some(r) = &row {
                 inv.event_id = Some(r.id.clone());
+                // your own attendee row shows the stored answer, not the "needs-action" the invitation text was sent with
+                for a in inv.attendees.iter_mut().filter(|a| a.is_you) {
+                    let stored = r.attendees.iter().find(|x| x.email.trim().eq_ignore_ascii_case(a.email.trim())).map(|x| x.status.clone());
+                    if let Some(s) = stored.filter(|s| s != "needs-action").or_else(|| r.my_status.as_deref().and_then(status_of).map(String::from)) {
+                        a.status = s;
+                    }
+                }
                 if let Some(s) = r.my_status.as_deref().and_then(status_of) {
                     inv.responded = Some(Responded { status: s.into(), sent_at: r.responded_at });
                 }
@@ -1933,6 +1940,10 @@ END:VCALENDAR
         let db: crate::Db = std::sync::Arc::new(std::sync::Mutex::new(c));
         let after = respond(&db, "mb", "accepted", None, false).unwrap();
         assert_eq!(after.responded.as_ref().map(|r| r.status.as_str()), Some("accepted"));
+        // the returned card equals the stored state: B's own attendee row is accepted, the others keep theirs
+        let mine: Vec<(&str, &str)> = after.attendees.iter().filter(|x| x.is_you).map(|x| (x.email.as_str(), x.status.as_str())).collect();
+        assert_eq!(mine, vec![(B_MAIL, "accepted")]);
+        assert!(after.attendees.iter().filter(|x| !x.is_you && x.role != "chair").all(|x| x.status == "needs-action"));
         let c = lock(&db);
         assert_eq!(get_event(&c, &eb).unwrap().my_status.as_deref(), Some("accepted"));
         assert_eq!(get_event(&c, &ec).unwrap().my_status.as_deref(), Some("needs-action"));
@@ -2139,6 +2150,35 @@ END:VCALENDAR
         let raw = msg.formatted();
         let parsed = mail_parser::MessageParser::default().parse(&raw[..]).unwrap();
         assert_eq!(parsed.from().unwrap().first().unwrap().address.as_ref().unwrap().to_string(), A_MAIL);
+    }
+
+    #[test]
+    fn a_backslash_in_a_guest_name_reaches_the_invitation() {
+        let c = two_accounts();
+        let hostile = r#"Nam; Thái: "test" \ (x)"#;
+        for to in [crate::smtp::format_mailbox(Some(hostile), B_MAIL), format!("{hostile} <{B_MAIL}>"), format!(r#""Nam; Thái: \"test\" \ (x)" <{B_MAIL}>"#)] {
+            let mut d = crate::smtp::Draft {
+                account_id: A_ID.into(),
+                to: vec![to.clone()],
+                cc: vec![],
+                bcc: vec![],
+                subject: "Sync".into(),
+                html: "<p>x</p>".into(),
+                text: "x".into(),
+                in_reply_to: None,
+                references: vec![],
+                attachments: vec![],
+                inline: vec![],
+                security: None,
+                prebuilt: None,
+                meeting: Some(crate::smtp::Meeting { start: ts(2026, 10, 21, 9, 0), end: ts(2026, 10, 21, 10, 0), all_day: false, tzid: None, location: None, rrule: None }),
+                calendar: None,
+            };
+            prepare_meeting(&c, &mut d).unwrap();
+            let back = ical::parse(&d.calendar.as_ref().unwrap().ics).unwrap();
+            let b = back.events[0].attendees.iter().find(|x| x.email == B_MAIL).unwrap();
+            assert_eq!(b.name.as_deref(), Some(r"Nam; Thái: 'test' \ (x)"), "{to}");
+        }
     }
 
     #[test]
