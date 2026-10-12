@@ -1,6 +1,7 @@
 import { Check, ChevronDown } from "lucide-react";
-import { ReactNode, useCallback, useEffect, useRef, useState } from "react";
+import { ReactNode, useCallback, useEffect, useId, useRef, useState } from "react";
 import { createPortal } from "react-dom";
+import { useStore } from "../store";
 import { hue, initials } from "../util";
 
 export interface MenuItem {
@@ -11,6 +12,8 @@ export interface MenuItem {
   divider?: boolean;
   disabled?: boolean;
   hint?: string;
+  /** colour dot shown before the label (accounts) */
+  dot?: string;
 }
 
 type Ref = React.RefObject<HTMLElement | null>;
@@ -23,7 +26,11 @@ export function useOutside(ref: Ref | Ref[], onOut: () => void, active: boolean)
     const h = (e: MouseEvent) => {
       if (refs.every((r) => r.current && !r.current.contains(e.target as Node))) onOut();
     };
-    const k = (e: KeyboardEvent) => e.key === "Escape" && onOut();
+    const k = (e: KeyboardEvent) => {
+      if (e.key !== "Escape") return;
+      e.stopPropagation(); // Esc closes only this popover: the global Esc (clear selection) and an open dialog must not react as well
+      onOut();
+    };
     document.addEventListener("mousedown", h);
     document.addEventListener("keydown", k);
     return () => {
@@ -43,6 +50,9 @@ export function MenuList({ items, onDone }: { items: MenuItem[]; onDone: () => v
           <button
             key={i}
             className="menu-row"
+            role={it.checked === undefined ? "menuitem" : "menuitemradio"}
+            aria-checked={it.checked === undefined ? undefined : it.checked}
+            tabIndex={-1}
             disabled={it.disabled}
             onClick={() => {
               onDone();
@@ -50,7 +60,8 @@ export function MenuList({ items, onDone }: { items: MenuItem[]; onDone: () => v
             }}
           >
             <span className="menu-ico">{it.checked ? <Check size={14} /> : it.icon}</span>
-            <span className="menu-lbl">{it.label}</span>
+            {it.dot && <span className="dot" style={{ background: it.dot }} />}
+            <span className="menu-lbl ellipsis">{it.label}</span>
             {it.hint && <span className="menu-hint">{it.hint}</span>}
           </button>
         ),
@@ -59,29 +70,50 @@ export function MenuList({ items, onDone }: { items: MenuItem[]; onDone: () => v
   );
 }
 
+const ITEMS = '[role^="menuitem"]:not(:disabled)';
+
 /**
  * A menu drawn in a portal on <body> with fixed coordinates taken from its anchor, so no scrolling or overflow-clipped
  * parent (the ribbon row, an invitation card, a dialog body) can cut it off. It opens below the anchor, upward when it
  * would run off the bottom of the window, on the roomier side (scrollable) when neither fits, and is kept inside the
- * window sideways. Closes on a press outside (anchor and menu count as inside), Escape, a resize, or a scroll of
- * something that carries the anchor.
+ * window sideways.
+ *
+ * Keyboard: focus moves into the menu when it opens (the checked row, else the first; `start="last"` for ArrowUp on the
+ * trigger); ArrowUp/Down/Home/End move between rows, Tab closes it and carries on from the trigger, Escape closes it,
+ * returns focus to the trigger and does not reach the global shortcuts (it must not also clear the open conversation).
+ * Mouse: closes on a press outside (anchor and menu count as inside), a resize, or any scroll outside the menu.
+ *
+ * `trigger` is the element focus returns to (defaults to the anchor); `onClose` only has to hide the menu.
  */
 export function FloatingMenu({
   anchor,
+  trigger,
   items,
   align = "left",
   minWidth,
+  start = "first",
   onClose,
 }: {
   anchor: React.RefObject<HTMLElement | null>;
+  trigger?: React.RefObject<HTMLElement | null>;
   items: MenuItem[];
   align?: "left" | "right";
   minWidth?: number;
+  start?: "first" | "last";
   onClose: () => void;
 }) {
   const pop = useRef<HTMLDivElement>(null);
   const [pos, setPos] = useState<{ top: number; left: number; max: number } | null>(null);
-  useOutside([anchor, pop], onClose, true);
+  const close = useRef(onClose);
+  close.current = onClose;
+  const shut = useCallback(
+    (refocus: boolean) => {
+      close.current();
+      if (refocus) (trigger ?? anchor).current?.focus({ preventScroll: true });
+    },
+    [anchor, trigger],
+  );
+  const rows = () => Array.from(pop.current?.querySelectorAll<HTMLElement>(ITEMS) ?? []);
   // an effect, not a layout effect: a conditionally attached anchor ref (the invitation buttons) is only set once this commit is done
   useEffect(() => {
     const p = pop.current?.getBoundingClientRect();
@@ -99,22 +131,54 @@ export function FloatingMenu({
     const left = Math.max(edge, Math.min(want, window.innerWidth - p.width - edge));
     setPos({ top, left, max: room });
   }, [anchor, align]);
+  // keyboard users land in the menu however it was opened; only once it is placed (a hidden element cannot take focus)
+  const placed = pos !== null;
   useEffect(() => {
-    const onScroll = (e: Event) => {
-      const t = e.target;
-      if (t instanceof Node && t !== document && t.contains(anchor.current)) onClose();
+    if (!placed) return;
+    const list = rows();
+    (start === "last" ? list[list.length - 1] : list.find((x) => x.getAttribute("aria-checked") === "true") ?? list[0])?.focus({ preventScroll: true });
+  }, [placed]); // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => {
+    const down = (e: MouseEvent) => {
+      const n = e.target as Node;
+      if (!anchor.current?.contains(n) && !pop.current?.contains(n)) shut(false);
     };
-    window.addEventListener("resize", onClose);
-    window.addEventListener("scroll", onScroll, true);
+    const key = (e: KeyboardEvent) => {
+      if (e.key !== "Escape") return;
+      e.stopPropagation(); // Esc only closes the menu: the global Esc (clear selection) and an open dialog must not react as well
+      e.preventDefault();
+      shut(true);
+    };
+    const gone = () => shut(false);
+    const scroll = (e: Event) => !pop.current?.contains(e.target as Node) && shut(false); // scrolling the menu itself is fine
+    document.addEventListener("mousedown", down);
+    document.addEventListener("keydown", key);
+    window.addEventListener("resize", gone);
+    window.addEventListener("scroll", scroll, true); // any scroll container moving the anchor would leave the menu behind
     return () => {
-      window.removeEventListener("resize", onClose);
-      window.removeEventListener("scroll", onScroll, true);
+      document.removeEventListener("mousedown", down);
+      document.removeEventListener("keydown", key);
+      window.removeEventListener("resize", gone);
+      window.removeEventListener("scroll", scroll, true);
     };
-  }, [anchor, onClose]);
+  }, [anchor, shut]);
+  const onKeyDown = (e: React.KeyboardEvent) => {
+    const list = rows();
+    const i = list.indexOf(document.activeElement as HTMLElement);
+    const go = (el?: HTMLElement) => {
+      e.preventDefault();
+      el?.focus();
+    };
+    if (e.key === "ArrowDown") go(list[(i + 1) % list.length]);
+    else if (e.key === "ArrowUp") go(list[(i - 1 + list.length) % list.length]);
+    else if (e.key === "Home") go(list[0]);
+    else if (e.key === "End") go(list[list.length - 1]);
+    else if (e.key === "Tab") shut(true); // focus returns to the trigger and Tab carries on from there
+  };
   const style = pos ? ({ top: pos.top, left: pos.left, "--dd-max": `${pos.max}px` } as React.CSSProperties) : { top: 0, left: 0, visibility: "hidden" as const };
   return createPortal(
-    <div ref={pop} className="dd-fixed" style={{ ...style, minWidth }}>
-      <MenuList items={items} onDone={onClose} />
+    <div ref={pop} className="dd-fixed" style={{ ...style, minWidth }} onKeyDown={onKeyDown}>
+      <MenuList items={items} onDone={() => shut(true)} />
     </div>,
     document.body,
   );
@@ -128,6 +192,8 @@ export function Dropdown({
   title,
   align = "left",
   caret = true,
+  wrapClass = "",
+  matchWidth = false,
 }: {
   children: ReactNode;
   items: MenuItem[];
@@ -135,18 +201,89 @@ export function Dropdown({
   title?: string;
   align?: "left" | "right";
   caret?: boolean;
+  /** class of the wrapper (to size the control) */
+  wrapClass?: string;
+  /** the menu is at least as wide as the button */
+  matchWidth?: boolean;
 }) {
   const [open, setOpen] = useState(false);
   const ref = useRef<HTMLDivElement>(null);
+  const trigger = useRef<HTMLButtonElement>(null);
+  const start = useRef<"first" | "last">("first"); // which end an Arrow key on the trigger asked for
   const close = useCallback(() => setOpen(false), []);
   return (
-    <div className="dd" ref={ref}>
-      <button className={className} title={title} aria-label={title} aria-haspopup="menu" aria-expanded={open} onClick={() => setOpen((o) => !o)}>
+    <div className={`dd ${wrapClass}`} ref={ref}>
+      <button
+        ref={trigger}
+        className={className}
+        title={title}
+        aria-label={title}
+        aria-haspopup="menu"
+        aria-expanded={open}
+        onClick={() => {
+          start.current = "first";
+          setOpen((o) => !o);
+        }}
+        onKeyDown={(e) => {
+          if (e.key !== "ArrowDown" && e.key !== "ArrowUp") return;
+          e.preventDefault();
+          start.current = e.key === "ArrowDown" ? "first" : "last";
+          setOpen(true);
+        }}
+      >
         {children}
         {caret && <ChevronDown size={12} className="caret" />}
       </button>
-      {open && <FloatingMenu anchor={ref} items={items} align={align} onClose={close} />}
+      {open && <FloatingMenu anchor={ref} trigger={trigger} items={items} align={align} start={start.current} minWidth={matchWidth ? ref.current?.offsetWidth : undefined} onClose={close} />}
     </div>
+  );
+}
+
+export interface PickerAccount {
+  id: string;
+  email: string;
+  displayName?: string | null;
+  color?: string | null;
+}
+
+/**
+ * Account chooser built on the shared Dropdown: colour dot + name + address on every entry, same keyboard behaviour
+ * and look as the other menus. `none` adds a leading entry without account (value "").
+ */
+export function AccountPicker({
+  value, accounts, onChange, label, none, className = "",
+}: {
+  value: string;
+  accounts: PickerAccount[];
+  onChange: (id: string) => void;
+  label: string;
+  none?: string;
+  className?: string;
+}) {
+  const name = (a: PickerAccount) => a.displayName || a.email;
+  const cur = accounts.find((a) => a.id === value);
+  const body = (a?: PickerAccount) =>
+    a ? (
+      <>
+        <span className="dot" style={{ background: a.color || "var(--accent)" }} />
+        <span className="ap-name ellipsis">{name(a)}</span>
+        {a.displayName && <span className="ap-addr ellipsis">{a.email}</span>}
+      </>
+    ) : (
+      <span className="ap-name ellipsis">{none}</span>
+    );
+  if (accounts.length === 1 && !none) {
+    // a single mailbox: nothing to choose, show it as readable text
+    return <div className={`acct-pick static ${className}`} aria-label={`${label}: ${cur?.email ?? accounts[0].email}`}>{body(cur ?? accounts[0])}</div>;
+  }
+  const items: MenuItem[] = [
+    ...(none !== undefined ? [{ label: none, checked: value === "", onClick: () => onChange("") }] : []),
+    ...accounts.map((a) => ({ label: name(a), hint: a.displayName ? a.email : undefined, dot: a.color || "var(--accent)", checked: a.id === value, onClick: () => onChange(a.id) })),
+  ];
+  return (
+    <Dropdown className={`acct-pick ${className}`} wrapClass="acct-pick-wrap" matchWidth title={`${label}: ${cur ? cur.email : none ?? ""}`} items={items}>
+      {body(cur)}
+    </Dropdown>
   );
 }
 
@@ -173,12 +310,54 @@ export function Switch({ checked, onChange, label }: { checked: boolean; onChang
   );
 }
 
+const FOCUSABLE = 'a[href],button:not(:disabled),input:not(:disabled):not([type=hidden]),select:not(:disabled),textarea:not(:disabled),[contenteditable=true],[tabindex]:not([tabindex="-1"])';
+
 export function Modal({ title, onClose, children, wide, width }: { title: string; onClose: () => void; children: ReactNode; wide?: boolean; width?: number }) {
+  const titleId = useId();
+  const box = useRef<HTMLDivElement>(null);
+  // focus moves into the dialog when it opens and goes back to what opened it when it closes
+  useEffect(() => {
+    const opener = document.activeElement as HTMLElement | null;
+    if (box.current && !box.current.contains(document.activeElement)) box.current.focus({ preventScroll: true });
+    return () => {
+      if (opener && document.contains(opener)) opener.focus({ preventScroll: true });
+    };
+  }, []);
+  // Esc closes - unless a menu or a confirm question on top of the dialog takes it first
+  const onCloseRef = useRef(onClose);
+  onCloseRef.current = onClose;
+  useEffect(() => {
+    const k = (e: KeyboardEvent) => {
+      if (e.key === "Escape" && !e.defaultPrevented && !useStore.getState().ask) onCloseRef.current();
+    };
+    window.addEventListener("keydown", k);
+    return () => window.removeEventListener("keydown", k);
+  }, []);
+  // Tab / Shift+Tab cycle inside the dialog
+  const trap = (e: React.KeyboardEvent) => {
+    if (e.key !== "Tab" || !box.current || !box.current.contains(e.target as Node)) return; // menus portalled out of the dialog handle their own Tab
+    const list = Array.from(box.current.querySelectorAll<HTMLElement>(FOCUSABLE)).filter((x) => x.getClientRects().length > 0);
+    if (!list.length) return;
+    const first = list[0], last = list[list.length - 1];
+    const active = document.activeElement;
+    if (e.shiftKey && (active === first || active === box.current)) (e.preventDefault(), last.focus());
+    else if (!e.shiftKey && active === last) (e.preventDefault(), first.focus());
+  };
   return (
     <div className="modal-back" onMouseDown={onClose}>
-      <div className={`modal ${wide ? "wide" : ""}`} style={width ? { width } : undefined} onMouseDown={(e) => e.stopPropagation()}>
+      <div
+        ref={box}
+        className={`modal ${wide ? "wide" : ""}`}
+        style={width ? { width } : undefined}
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby={titleId}
+        tabIndex={-1}
+        onKeyDown={trap}
+        onMouseDown={(e) => e.stopPropagation()}
+      >
         <div className="modal-head">
-          <b>{title}</b>
+          <b id={titleId}>{title}</b>
           <button className="icon-btn" onClick={onClose} aria-label="Close">
             ✕
           </button>

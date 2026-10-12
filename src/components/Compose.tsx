@@ -16,7 +16,7 @@ import { calTz } from "../calendar";
 import { defaultMeeting, MeetingState, MeetingStrip, meetingToDraft } from "./Calendar";
 import { askUnlock } from "./Pgp";
 import { SchedulePicker } from "./SchedulePicker";
-import { Dropdown, MenuList, useOutside } from "./ui";
+import { AccountPicker, Dropdown, MenuList, useOutside } from "./ui";
 
 const MAX_ATTACH_BYTES = 25 * 1024 * 1024;
 const EMAIL = /^[^\s@<>"]+@[^\s@<>"]+\.[^\s@<>"]+$/;
@@ -126,6 +126,7 @@ export function RecipientField({
           ref={input}
           value={text}
           aria-label={label}
+          placeholder={values.length === 0 ? "name@example.com" : undefined}
           onChange={(e) => onInput(e.target.value)}
           onPaste={(e) => {
             const t = e.clipboardData.getData("text");
@@ -243,7 +244,7 @@ interface PictureSel {
 
 export function Compose({ init }: { init: ComposeInit }) {
   const { accounts, openCompose, showToast, prefs, refresh, confirm, choose, setComposeDirty, setComposeSaver, aiConfigured, setDialog } = useStore();
-  const [accountId, setAccountId] = useState(init.accountId || prefs.defaultAccount || accounts[0]?.id || "");
+  const [accountId, setAccountId] = useState(init.accountId || (accounts.some((a) => a.id === prefs.defaultAccount) ? prefs.defaultAccount : "") || accounts[0]?.id || "");
   const isFresh = !init.replaces && !init.isReply && !init.outboxId;
   const editing = !!(init.replaces || init.outboxId);
   const autoCc = (id: string) => (isFresh ? eff(prefs, id, "autoCc").trim() : "");
@@ -1165,9 +1166,7 @@ export function Compose({ init }: { init: ComposeInit }) {
       <div className="cp-fields">
         <div className="cf-field">
           <label>From</label>
-          <select value={accountId} onChange={(e) => changeAccount(e.target.value)} aria-label="From">
-            {accounts.map((a) => <option key={a.id} value={a.id}>{a.displayName ? `${a.displayName} <${a.email}>` : a.email}</option>)}
-          </select>
+          <AccountPicker value={accountId} accounts={accounts} onChange={changeAccount} label="From" />
         </div>
         <RecipientField label="To" values={to} onChange={setTo} autoFocus={to.length === 0 && !init.replaces} onTouch={touch} keys={encOn && ks ? ks.recipients : undefined} onKeyAction={keyAction} />
         {showCc ? (

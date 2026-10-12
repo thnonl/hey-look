@@ -3,13 +3,14 @@ import type { MouseEvent } from "react";
 import logo from "../assets/logo.png";
 import { api } from "../api";
 import { useStore } from "../store";
+import { useAppDark } from "../useAppDark";
 import { useFrame } from "../winframe";
 import { SearchBox } from "./SearchBox";
 import { WindowControls } from "./WindowControls";
 
 export function TopBar() {
-  const { sync, syncing, setDialog, prefs, setPrefs } = useStore();
-  const dark = prefs.theme === "dark" || (prefs.theme === "system" && window.matchMedia("(prefers-color-scheme: dark)").matches);
+  const { sync, syncing, setDialog, setPrefs } = useStore();
+  const dark = useAppDark();
 
   const custom = useFrame((f) => f.custom);
 

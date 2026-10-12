@@ -42,8 +42,8 @@ export function AppearancePreview() {
           <div className="ap-list">
             {prefs.focused ? (
               <div className="pivots ap-pivots">
-                <button className="active">Focused</button>
-                <button>Other</button>
+                <span className="active" aria-hidden="true">Focused</span>
+                <span aria-hidden="true">Other</span>
               </div>
             ) : (
               <h2 className="ap-title">Inbox</h2>

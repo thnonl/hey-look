@@ -2,7 +2,7 @@ import {
   Archive, BrushCleaning, CalendarDays, CalendarPlus, CalendarRange, Clock, List as ListIcon, Upload, Command, FolderInput, Flag, Forward, Info, Keyboard, MailOpen, MailPlus, Mail, OctagonAlert, Pin, Reply, ReplyAll, Trash2,
 } from "lucide-react";
 import { ReactNode } from "react";
-import { forwardLast, replyLast, targets } from "../actions";
+import { forwardLast, newMailAccount, replyLast, targets } from "../actions";
 import { api } from "../api";
 import { calTz, today } from "../calendar";
 import { friendlyError, useStore, scopeOf } from "../store";
@@ -48,7 +48,7 @@ function HomeTab() {
   return (
     <div className="ribbon-row home">
       <div className="rg">
-        <button className="rb primary" onClick={() => openCompose({ accountId: prefs.defaultAccount || accountId || undefined })}>
+        <button className="rb primary" onClick={() => openCompose({ accountId: newMailAccount() })}>
           <MailPlus size={18} />
           <span>New mail</span>
         </button>

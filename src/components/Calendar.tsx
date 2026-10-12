@@ -84,6 +84,7 @@ export function InviteCard({ m }: { m: MessageFull }) {
   const [showAtt, setShowAtt] = useState(inv.attendees.length <= 8);
   const [adding, setAdding] = useState(false);
   const menuRef = useRef<HTMLDivElement>(null);
+  const optsRef = useRef<HTMLButtonElement>(null); // the "options" button of the open menu: Escape returns focus to it
   const closeMenu = useCallback(() => setMenu(null), []);
 
   if (inv.parseError) {
@@ -209,10 +210,10 @@ export function InviteCard({ m }: { m: MessageFull }) {
         <button className={`btn ${chosen || isBusy ? "chosen" : ""}`} disabled={others || busy === r} aria-busy={isBusy} aria-pressed={chosen} onClick={() => void respond(r, true)}>
           {isBusy ? <RefreshCw size={14} className="spin" /> : icon} {isBusy ? "Sending…" : label}
         </button>
-        <button className="btn" aria-label={`${label} options`} aria-haspopup="menu" aria-expanded={menu === r} disabled={busy !== null} onClick={() => setMenu(menu === r ? null : r)}>
+        <button ref={menu === r ? optsRef : undefined} className="btn" aria-label={`${label} options`} aria-haspopup="menu" aria-expanded={menu === r} disabled={busy !== null} onClick={() => setMenu(menu === r ? null : r)}>
           <ChevronDown size={14} />
         </button>
-        {menu === r && <FloatingMenu anchor={menuRef} items={items} minWidth={280} onClose={closeMenu} />}
+        {menu === r && <FloatingMenu anchor={menuRef} trigger={optsRef} items={items} minWidth={280} onClose={closeMenu} />}
       </span>
     );
   };

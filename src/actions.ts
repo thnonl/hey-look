@@ -9,6 +9,18 @@ export function targets(): string[] {
   return selected ? [selected] : [];
 }
 
+/**
+ * Account a NEW message is written from: the open mailbox (or one of its folders / quick views) when one is selected;
+ * in the combined view the "Default account" setting (if it still exists); otherwise undefined (Compose takes the first).
+ * Reply / Reply all / Forward do not use this: they always use the account that owns the message.
+ */
+export function newMailAccount(): string | undefined {
+  const st = useStore.getState();
+  if (st.accountId && st.accounts.some((a) => a.id === st.accountId)) return st.accountId;
+  const d = st.prefs.defaultAccount;
+  return d && st.accounts.some((a) => a.id === d) ? d : undefined;
+}
+
 export function replyTo(m: MessageFull, all: boolean) {
   const st = useStore.getState();
   const mine = new Set(st.accounts.map((a) => a.email.toLowerCase()));

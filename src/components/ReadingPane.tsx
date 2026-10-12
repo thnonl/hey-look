@@ -1,10 +1,12 @@
 import { openUrl } from "@tauri-apps/plugin-opener";
-import { Archive, Clock, Flag, Forward, MailX, MoreHorizontal, Pin, Reply, ReplyAll, Sparkles, Trash2, ChevronsDownUp, ChevronsUpDown, Mail } from "lucide-react";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { Archive, Clock, Flag, Forward, MailX, MoreHorizontal, Moon, Pin, Reply, ReplyAll, Sparkles, Sun, Trash2, ChevronsDownUp, ChevronsUpDown, Mail } from "lucide-react";
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { forward, replyTo } from "../actions";
 import { api, MessageFull } from "../api";
+import { appSurface, setMailDark } from "../darkMail";
 import { eff } from "../prefs";
 import { friendlyError, useStore } from "../store";
+import { useAppDark } from "../useAppDark";
 import { fmtFull, fmtSize, plainToHtml, sanitizeHtml, snoozePresets } from "../util";
 import { AttachmentStrip, Lightbox, LbItem } from "./Attachments";
 import { InviteCard } from "./Calendar";
@@ -15,8 +17,26 @@ import { Avatar, Dropdown } from "./ui";
 // Remote images already fetched through the backend (url -> data: URI), shared by all messages.
 const imageCache = new Map<string, string>();
 
-/** Height the message frame starts at, and keeps while images are still loading. */
-const START_HEIGHT = 500;
+/**
+ * Free height of the reading pane from the top of this frame down (pane viewport minus everything above the frame
+ * and the reply row / padding below it). The frame never gets shorter than this, so a short mail fills the empty
+ * pane from the first paint instead of opening tall and shrinking, and only a taller mail makes the pane scroll.
+ */
+function fillHeight(frame: HTMLIFrameElement): number {
+  const pane = frame.closest<HTMLElement>(".rp-body");
+  const last = pane?.lastElementChild;
+  if (!pane || !last) return 0;
+  const f = frame.getBoundingClientRect();
+  const top = f.top - pane.getBoundingClientRect().top + pane.scrollTop;
+  const below = last.getBoundingClientRect().bottom - f.bottom + parseFloat(getComputedStyle(pane).paddingBottom);
+  return Math.max(0, Math.floor(pane.clientHeight - top - below));
+}
+
+/** Smallest scale a wide mail is shrunk to (14px text stays about 8.5px). */
+const MIN_ZOOM = 0.6;
+
+// Last measured content height per message: reopening a mail starts at its real height.
+const heightCache = new Map<string, number>();
 
 function remoteImageUrls(html: string): string[] {
   const doc = new DOMParser().parseFromString(html, "text/html");
@@ -87,12 +107,20 @@ const host = (u: string) => {
   }
 };
 
-function MessageBody({ m, frameRef, onPictures }: { m: MessageFull; frameRef: React.RefObject<HTMLIFrameElement | null>; onPictures: (items: { src: string; name: string }[], index: number) => void }) {
+/** Background the mail is shown on: dark in the dark theme (see darkMail.ts), the toggle shows the original colours of this mail instead. */
+function useCanvas() {
+  const appDark = useAppDark();
+  const [light, setLight] = useState(false);
+  useEffect(() => setLight(false), [appDark]);
+  const dark = appDark && !light;
+  return { appDark, dark, toggle: () => setLight(dark) };
+}
+
+function MessageBody({ m, frameRef, dark, onPictures }: { m: MessageFull; frameRef: React.RefObject<HTMLIFrameElement | null>; dark: boolean; onPictures: (items: { src: string; name: string }[], index: number) => void }) {
   const prefs = useStore((s) => s.prefs);
   const setDialog = useStore((s) => s.setDialog);
   const confirm = useStore((s) => s.confirm);
   const loadRemote = eff(prefs, m.accountId, "loadRemote");
-  const theme = prefs.theme;
   const [allow, setAllow] = useState(false);
   const [version, setVersion] = useState(0); // bumps when images arrive from the backend
   const [loadedPics, setLoadedPics] = useState<Record<string, string>>({});
@@ -160,42 +188,106 @@ function MessageBody({ m, frameRef, onPictures }: { m: MessageFull; frameRef: Re
     };
   }, [allowed, clean, m.html]);
 
-  const appDark = theme === "dark" || (theme === "system" && window.matchMedia("(prefers-color-scheme: dark)").matches);
-  const [canvas, setCanvas] = useState<"auto" | "light" | "dark">("auto");
-  const designed = useMemo(() => !!m.html && /bgcolor\s*=|background(-color|-image)?\s*:|<body[^>]*background|color\s*:/i.test(m.html), [m.html]);
-  // Dark app + mail with its own colors => keep it on a light canvas so text never ends up light-on-white.
-  const lightCanvas = !appDark || canvas === "light" || (canvas === "auto" && designed);
-  const dark = !lightCanvas;
   // CSP inside the message frame: without consent nothing remote may load; with consent the backend already
   // inlined what it could and the rest falls back to a direct request.
   const csp = allowed ? "default-src 'none'; img-src data: https: http:; style-src 'unsafe-inline'; font-src data:" : "default-src 'none'; img-src data:; style-src 'unsafe-inline'; font-src data:";
-  const srcDoc = `<!doctype html><html><head><meta charset="utf-8"><meta http-equiv="Content-Security-Policy" content="${csp}"><base target="_blank"><meta name="color-scheme" content="${dark ? "dark" : "light"}">
-    <style>body{font:14px/1.5 "Segoe UI Variable","Segoe UI",system-ui,sans-serif;margin:0;padding:${dark ? "4px 2px" : "10px 12px"};word-wrap:break-word;background:${dark ? "transparent" : "#ffffff"};color:${dark ? "#e6e6e6" : "#242424"}}
-    img{max-width:100%;height:auto;cursor:zoom-in}blockquote{margin:0 0 0 .8ex;border-left:2px solid #999;padding-left:1ex}a{color:${dark ? "#6cb8f6" : "#0f6cbd"}}table{max-width:100%}
+  // The base colours switch with a class on <html> (screen only, so print stays light), and the mail's own colours with
+  // the sheet from darkMail.ts: toggling never reloads the frame. The frame is created already dark and hidden
+  // (hm-pend) so the original colours are never painted first. The picture placeholders (.hl-ph) are ordinary mail
+  // elements for the dark sheet, so they are recoloured with the rest.
+  const darkNow = useRef(dark);
+  darkNow.current = dark;
+  const srcDoc = useMemo(
+    () => `<!doctype html><html data-hm-doc${darkNow.current ? ' class="hm-dark hm-pend"' : ""}><head><meta charset="utf-8"><meta http-equiv="Content-Security-Policy" content="${csp}"><base target="_blank">
+    <style>html{--hm-fg:#242424;--hm-link:#0f6cbd;--hm-bg:#ffffff}
+    @media screen{html.hm-dark{--hm-fg:#e6e6e6;--hm-link:#6cb8f6;--hm-bg:transparent;color-scheme:dark}html.hm-dark img{filter:brightness(.9)}html.hm-pend body{visibility:hidden}}
+    body{font:14px/1.5 "Segoe UI Variable","Segoe UI",system-ui,sans-serif;margin:0;padding:10px 12px;word-wrap:break-word;background:var(--hm-bg);color:var(--hm-fg)}
+    img{max-width:100%;height:auto;cursor:zoom-in}blockquote{margin:0 0 0 .8ex;border-left:2px solid #999;padding-left:1ex}a{color:var(--hm-link)}table{max-width:100%}
     .hl-ph{display:flex;align-items:center;gap:10px;max-width:100%;width:360px;padding:12px 14px;border:1px dashed #9aa3af;border-radius:10px;background:#f6f7f9;color:#5b6470;font:13px/1.4 "Segoe UI",sans-serif;cursor:pointer;text-align:left;box-sizing:border-box;flex-wrap:wrap}
     .hl-ph:hover{background:#eceef2}.hl-ph b{color:#1f2328}.hl-ph.bad{border-color:#c4314b;color:#c4314b}.hl-ph:disabled{cursor:default}
-    .hl-spin{width:14px;height:14px;border:2px solid #9aa3af;border-top-color:transparent;border-radius:50%;animation:hlspin 1s linear infinite;flex:none}@keyframes hlspin{to{transform:rotate(360deg)}}
-    ${dark ? ".hl-ph{background:#2d2f36;color:#a2a8b3;border-color:#5b6470}.hl-ph:hover{background:#363841}.hl-ph b{color:#f1f2f4}" : ""}</style>
-    </head><body>${html}</body></html>`;
+    .hl-spin{width:14px;height:14px;border:2px solid #9aa3af;border-top-color:transparent;border-radius:50%;animation:hlspin 1s linear infinite;flex:none}@keyframes hlspin{to{transform:rotate(360deg)}}</style>
+    </head><body>${html}<style>html,body{overflow:hidden!important;height:auto!important;min-height:0!important}</style></body></html>`,
+    [html, csp], // eslint-disable-line react-hooks/exhaustive-deps
+  );
+  // theme change or toggle on a loaded mail: recolour in place (a freshly loaded mail is handled in onLoad)
+  useEffect(() => {
+    const doc = frameRef.current?.contentDocument;
+    if (doc?.documentElement?.hasAttribute("data-hm-doc")) setMailDark(doc, dark, appSurface());
+  }, [dark, frameRef]);
 
-  // Frame height follows the content. Always read the frame's *current* document: the srcDoc is replaced
-  // when images arrive from the backend, and a measurement taken from the previous (detached) document
-  // would shrink the frame to nothing.
+  // Frame height follows the content, never below the free height of the pane (see fillHeight). The content is
+  // measured through the body's own height: nothing is collapsed or resized while measuring, because shrinking the
+  // scroll container for a moment clamps the user's scrollTop back to 0.
   const stopObserve = useRef<() => void>(() => undefined);
+  const applyFill = useCallback(() => {
+    const frame = frameRef.current;
+    if (!frame) return;
+    const min = `${Math.max(40, fillHeight(frame))}px`;
+    if (frame.style.minHeight !== min) frame.style.minHeight = min;
+  }, [frameRef]);
   const measure = useCallback(() => {
     const frame = frameRef.current;
     const doc = frame?.contentDocument;
     if (!frame || !doc?.body) return;
-    // collapse first so CSS like `height:100%` cannot pin the result to the previous frame height
-    const prev = frame.style.height;
-    frame.style.height = "0px";
-    const h = Math.max(doc.body.scrollHeight, doc.documentElement.scrollHeight);
-    // while images are still loading the real height is unknown: stay at the start height instead of
-    // flashing a short frame that then jumps open
+    applyFill();
+    // The reading pane is the only scroller: the mail never scrolls inside its frame. A mail wider than the pane
+    // (fixed-width tables, big images) is scaled down to fit the width instead of getting a horizontal scrollbar.
+    // Below MIN_ZOOM the text would be too small to read: the frame is then made wider than the pane and the reading
+    // pane scrolls sideways (never the frame itself).
+    // width the frame may use = the pane's content width minus the message body's own padding (not the row's width,
+    // which a wide frame itself makes larger)
+    const box = frame.parentElement;
+    const cs = box ? getComputedStyle(box) : null;
+    const rp = frame.closest<HTMLElement>(".rp-body");
+    const rcs = rp ? getComputedStyle(rp) : null;
+    const avail = box && cs && rp && rcs
+      ? rp.clientWidth - parseFloat(rcs.paddingLeft) - parseFloat(rcs.paddingRight) - parseFloat(cs.paddingLeft) - parseFloat(cs.paddingRight)
+      : frame.clientWidth;
+    if (frame.dataset.avail !== String(Math.round(avail))) {
+      frame.dataset.avail = String(Math.round(avail)); // the pane changed width: start again from the pane width
+      frame.style.width = "";
+    }
+    const root = doc.documentElement;
+    root.style.zoom = "";
+    const natural = Math.max(root.scrollWidth, doc.body.scrollWidth);
+    const fit = natural > avail + 1 ? Math.max(MIN_ZOOM, avail / natural) : 1;
+    if (fit < 1) root.style.zoom = String(fit);
+    const wide = fit < 1 && natural * fit > avail + 1 ? `${Math.ceil(natural * fit)}px` : "";
+    if (frame.style.width !== wide) frame.style.width = wide;
+    // a wide frame widens its message row, and the header / actions stay as wide as the pane and stick to its left edge
+    // (CSS: .rp-msg-head and the non-frame children of .rp-msg-body), so only the mail itself scrolls sideways
+    const row = frame.closest<HTMLElement>(".rp-msg");
+    const pane = frame.closest<HTMLElement>(".rp-body");
+    if (row && pane) {
+      const minW = wide ? `${Math.ceil(frame.getBoundingClientRect().left - row.getBoundingClientRect().left + parseFloat(wide))}px` : "";
+      if (row.style.minWidth !== minW) row.style.minWidth = minW;
+      const pcs = getComputedStyle(pane);
+      pane.style.setProperty("--rp-cw", `${pane.clientWidth - parseFloat(pcs.paddingLeft) - parseFloat(pcs.paddingRight)}px`);
+    }
+    const h = Math.ceil(Math.max(doc.body.scrollHeight * (fit < 1 ? fit : 1), doc.body.getBoundingClientRect().height, root.scrollHeight > root.clientHeight ? root.scrollHeight : 0));
+    // images still loading: the real height is unknown, so do not shrink below what the frame already has
     const loading = Array.from(doc.images).some((i) => !i.complete);
-    const target = loading ? Math.max(h + 8, START_HEIGHT) : h + 8;
-    frame.style.height = h > 0 ? `${target}px` : prev;
-  }, [frameRef]);
+    const target = `${loading ? Math.max(h, frame.offsetHeight) : h}px`;
+    if (h > 0 && frame.style.height !== target) {
+      frame.style.height = target;
+      frame.dispatchEvent(new Event("rp-measured", { bubbles: true }));
+    }
+    if (h > 0 && !loading) heightCache.set(m.id, h);
+    frame.style.visibility = ""; // first measurement done: show the mail at its final height
+  }, [frameRef, applyFill, m.id]);
+
+  // first paint: open at the free height of the pane (no fixed 500px that then jumps)
+  useLayoutEffect(() => {
+    const frame = frameRef.current;
+    if (!frame) return;
+    const fill = Math.max(40, fillHeight(frame));
+    frame.style.minHeight = `${fill}px`;
+    frame.style.height = `${Math.max(fill, heightCache.get(m.id) ?? 0)}px`;
+    // stay invisible until the first measurement (a frame or two) so the height step after load is never seen as content jumping
+    frame.style.visibility = "hidden";
+    const safety = setTimeout(() => (frame.style.visibility = ""), 600);
+    return () => clearTimeout(safety);
+  }, [frameRef, m.id]);
 
   useEffect(() => () => stopObserve.current(), []);
 
@@ -204,8 +296,8 @@ function MessageBody({ m, frameRef, onPictures }: { m: MessageFull; frameRef: Re
     const frame = frameRef.current;
     const doc = frame?.contentDocument;
     if (!frame || !doc?.body) return;
+    setMailDark(doc, darkNow.current, appSurface());
     measure();
-    const timers = [100, 400, 1200, 3000, 6000].map((ms) => setTimeout(measure, ms));
     // images without a height attribute (common in newsletters) only get their size once they load
     const imgs = Array.from(doc.images);
     imgs.forEach((i) => {
@@ -214,6 +306,11 @@ function MessageBody({ m, frameRef, onPictures }: { m: MessageFull; frameRef: Re
     });
     const ro = typeof ResizeObserver !== "undefined" ? new ResizeObserver(measure) : null;
     ro?.observe(doc.body);
+    // the pane itself resizing (window, splitter) changes the free height
+    const pane = frame.closest(".rp-body");
+    const paneRo = typeof ResizeObserver !== "undefined" && pane ? new ResizeObserver(() => measure()) : null;
+    if (pane) paneRo?.observe(pane);
+    window.addEventListener("resize", measure);
     void doc.fonts?.ready.then(measure);
     doc.querySelectorAll<HTMLAnchorElement>("a[href]").forEach((a) => (a.title = a.href)); // show the real target on hover
     const onClick = (e: MouseEvent) => {
@@ -247,12 +344,13 @@ function MessageBody({ m, frameRef, onPictures }: { m: MessageFull; frameRef: Re
     };
     doc.addEventListener("click", onClick);
     stopObserve.current = () => {
-      timers.forEach(clearTimeout);
       imgs.forEach((i) => {
         i.removeEventListener("load", measure);
         i.removeEventListener("error", measure);
       });
       ro?.disconnect();
+      paneRo?.disconnect();
+      window.removeEventListener("resize", measure);
       doc.removeEventListener("click", onClick);
     };
   };
@@ -269,22 +367,15 @@ function MessageBody({ m, frameRef, onPictures }: { m: MessageFull; frameRef: Re
           </button>
         </div>
       )}
-      {appDark && m.html && (
-        <div className="bg-toggle">
-          <button className="link small" onClick={() => setCanvas(lightCanvas ? "dark" : "light")}>
-            {lightCanvas ? "Switch to dark background" : "Switch to light background"}
-          </button>
-        </div>
-      )}
       {/* sandbox without allow-scripts: no script can run; allow-same-origin only lets us read height / hook links */}
       <iframe
         ref={frameRef}
         className="msg-frame"
-        style={{ height: START_HEIGHT }}
         sandbox="allow-same-origin allow-modals"
+        scrolling="no"
         srcDoc={srcDoc}
         onLoad={onLoad}
-        title={m.id}
+        title={m.subject ? `Message body: ${m.subject}` : "Message body"}
       />
     </>
   );
@@ -296,6 +387,7 @@ const LANGS = ["English", "Vietnamese", "Japanese", "Chinese (Simplified)", "Kor
 function MessageCard({ m, open, onToggle }: { m: MessageFull; open: boolean; onToggle: () => void }) {
   const { showToast, setDialog, prefs } = useStore();
   const frameRef = useRef<HTMLIFrameElement>(null);
+  const cv = useCanvas();
   const [translated, setTranslated] = useState<string | null>(null);
   const [lightbox, setLightbox] = useState<{ items: { src: string; name: string }[]; index: number } | null>(null);
   const who = m.fromName || m.fromEmail;
@@ -366,6 +458,16 @@ function MessageCard({ m, open, onToggle }: { m: MessageFull; open: boolean; onT
             <button className="icon-btn" title="Reply" aria-label="Reply" onClick={() => replyTo(m, false)}><Reply size={16} /></button>
             <button className="icon-btn" title="Reply all" aria-label="Reply all" onClick={() => replyTo(m, true)}><ReplyAll size={16} /></button>
             <button className="icon-btn" title="Forward" aria-label="Forward" onClick={() => forward(m)}><Forward size={16} /></button>
+            {cv.appDark && (
+              <button
+                className="icon-btn"
+                title={!cv.dark ? "Switch to dark background" : "Switch to light background"}
+                aria-label={!cv.dark ? "Switch to dark background" : "Switch to light background"}
+                onClick={cv.toggle}
+              >
+                {!cv.dark ? <Sun size={16} /> : <Moon size={16} />}
+              </button>
+            )}
             <Dropdown
               className="icon-btn"
               caret={false}
@@ -407,7 +509,7 @@ function MessageCard({ m, open, onToggle }: { m: MessageFull; open: boolean; onT
               <button className="link small" onClick={() => setTranslated(null)}>Dismiss</button>
             </div>
           )}
-          {needsCard(m) ? <EncCard m={m} /> : m.invite && !m.html?.trim() && !m.text?.trim() ? null : <MessageBody m={m} frameRef={frameRef} onPictures={(items, index) => setLightbox({ items, index })} />}
+          {needsCard(m) ? <EncCard m={m} /> : m.invite && !m.html?.trim() && !m.text?.trim() ? null : <MessageBody m={m} frameRef={frameRef} dark={cv.dark} onPictures={(items, index) => setLightbox({ items, index })} />}
           <AttachmentStrip m={m} />
           {lightbox && (
             <Lightbox
@@ -440,6 +542,64 @@ export function ReadingPane() {
   const [summary, setSummary] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const summ = threads.find((t) => t.threadId === selected);
+  const bodyRef = useRef<HTMLDivElement>(null);
+
+  // a newly selected mail starts at the top - once, here, and nowhere else (nothing re-scrolls while it loads)
+  useEffect(() => {
+    if (bodyRef.current) bodyRef.current.scrollTop = 0;
+  }, [selected]);
+
+  // Keep the reading position through a window resize: the browser shifts scrollTop when the pane changes size and the
+  // frame is re-measured (new zoom / height), so remember the position from before the resize and restore it by
+  // proportion (scrollTop / scrollHeight) once the layout has settled. Only resizes: selecting a mail still starts at 0.
+  useEffect(() => {
+    const pane = () => document.querySelector<HTMLElement>(".rp-body");
+    let saved = { top: 0, left: 0, h: 0 };
+    let lastH = 0; // scrollHeight as of the last time the pane was at rest
+    let resizing = false;
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const settle = () => {
+      resizing = false;
+      const p = pane();
+      if (!p) return;
+      const h = p.scrollHeight;
+      p.scrollTop = saved.h && saved.h !== h ? Math.round((saved.top * h) / saved.h) : saved.top;
+      p.scrollLeft = saved.left;
+      lastH = p.scrollHeight;
+    };
+    const onScroll = (e: Event) => {
+      if (!resizing && e.target instanceof HTMLElement && e.target.classList.contains("rp-body")) lastH = e.target.scrollHeight;
+    };
+    const onResize = () => {
+      if (!resizing) {
+        // .rp-body has overflow-anchor: none, so the browser has not moved the position yet: remember where the user was
+        const p = pane();
+        if (p) saved = { top: p.scrollTop, left: p.scrollLeft, h: lastH || p.scrollHeight };
+      }
+      resizing = true;
+      clearTimeout(timer);
+      timer = setTimeout(settle, 500);
+    };
+    const onMeasured = () => {
+      // a frame re-measured (new height / zoom) while resizing: wait for the layout to stop changing
+      if (!resizing) {
+        const p = pane();
+        if (p) lastH = p.scrollHeight;
+        return;
+      }
+      clearTimeout(timer);
+      timer = setTimeout(settle, 400);
+    };
+    document.addEventListener("scroll", onScroll, true);
+    document.addEventListener("rp-measured", onMeasured);
+    window.addEventListener("resize", onResize);
+    return () => {
+      clearTimeout(timer);
+      document.removeEventListener("scroll", onScroll, true);
+      document.removeEventListener("rp-measured", onMeasured);
+      window.removeEventListener("resize", onResize);
+    };
+  }, []);
 
   useEffect(() => {
     setSummary(null);
@@ -561,7 +721,7 @@ export function ReadingPane() {
           <div className="pre">{summary}</div>
         </div>
       )}
-      <div className="rp-body">
+      <div className="rp-body" ref={bodyRef}>
         {messages.map((m) => (
           <MessageCard
             key={m.id}

@@ -58,11 +58,12 @@ export function ThreadRow({ t, selected, checked, prefs, showFolder, accountColo
           </div>
         )}
         <div className={`lead-check ${checked ? "on" : ""}`}>{checked && <Check size={12} />}</div>
+        {accountColor && !dense && <span className="acct-dot under" style={{ background: accountColor }} title={accountLabel} />}
       </div>
       <div className="ml-main">
         <div className="ml-top">
           {t.unread > 0 && <span className="unread-dot" aria-label="Unread" />}
-          {accountColor && <span className="acct-dot" style={{ background: accountColor }} title={accountLabel} />}
+          {accountColor && dense && <span className="acct-dot" style={{ background: accountColor }} title={accountLabel} />}
           <span className="who ellipsis">{who}</span>
           {hover}
           <span className="date">{fmtDate(t.lastDate)}</span>
@@ -187,7 +188,7 @@ export function MessageList() {
   let lastGroup = "";
   return (
     <section className="msg-list" aria-label="Message list">
-      <div className="ml-head">
+      <div className={`ml-head ${multi ? "multi" : ""}`}>
         <div className="ml-title">
           {showTabs ? (
             <div className="pivots" role="tablist">

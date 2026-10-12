@@ -2,7 +2,7 @@ import { listen } from "@tauri-apps/api/event";
 import { openUrl } from "@tauri-apps/plugin-opener";
 import { useEffect, useRef, useState } from "react";
 import "./App.css";
-import { forwardLast, replyLast, targets } from "./actions";
+import { forwardLast, newMailAccount, replyLast, targets } from "./actions";
 import { api } from "./api";
 import { CalendarView, EventDialog, newEvent } from "./components/Calendar";
 import { CommandBar } from "./components/CommandBar";
@@ -90,7 +90,7 @@ function App() {
       listen("mail-synced", () => void useStore.getState().refresh()),
       listen("tray-compose", () => {
         const st = useStore.getState();
-        void st.openCompose({ accountId: st.prefs.defaultAccount || undefined });
+        void st.openCompose({ accountId: newMailAccount() });
       }),
       listen<string>("action-failed", (e) => useStore.getState().showToast(`Failed: ${e.payload}`, undefined, "error")),
       listen<{ threadId: string }>("open-thread", (e) => void open(e.payload.threadId)),
@@ -214,7 +214,7 @@ function App() {
       const idx = st.threads.findIndex((x) => x.threadId === st.selected);
       const cur = st.threads[idx];
       switch (e.key) {
-        case "c": e.preventDefault(); void st.openCompose({ accountId: st.prefs.defaultAccount || st.accountId || undefined }); break;
+        case "c": e.preventDefault(); void st.openCompose({ accountId: newMailAccount() }); break;
         case "/": e.preventDefault(); document.getElementById("search-input")?.focus(); break;
         case "j": void st.select(st.threads[Math.min(idx + 1, st.threads.length - 1)]?.threadId ?? null); break;
         case "k": void st.select(st.threads[Math.max(idx - 1, 0)]?.threadId ?? null); break;
