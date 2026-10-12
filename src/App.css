@@ -178,6 +178,7 @@ button:focus-visible, [role="option"]:focus-visible, [role="treeitem"]:focus-vis
 .dd-pop { position: absolute; top: 100%; z-index: 60; margin-top: 4px; animation: pop .12s var(--ease); }
 .dd-pop.left { left: 0; }
 .dd-pop.right { right: 0; }
+.dd-pop.up { top: auto; bottom: 100%; margin-top: 0; margin-bottom: 4px; }
 .caret { opacity: .6; }
 .menu { min-width: 200px; background: var(--bg); border: 1px solid var(--border); border-radius: var(--r-md); box-shadow: var(--shadow); padding: 5px; max-height: 60vh; overflow-y: auto; }
 .menu-row { display: flex; align-items: center; gap: 8px; width: 100%; text-align: left; background: none; border: 0; border-radius: var(--r-sm); padding: 7px 9px; cursor: pointer; }

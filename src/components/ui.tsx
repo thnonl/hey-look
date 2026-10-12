@@ -1,5 +1,5 @@
 import { Check, ChevronDown } from "lucide-react";
-import { ReactNode, useEffect, useRef, useState } from "react";
+import { ReactNode, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { hue, initials } from "../util";
 
 export interface MenuItem {
@@ -73,6 +73,15 @@ export function Dropdown({
   const [open, setOpen] = useState(false);
   const ref = useRef<HTMLDivElement>(null);
   useOutside(ref, () => setOpen(false), open);
+  // a menu that would run off the bottom of the window opens upward instead (when there is room above)
+  const pop = useRef<HTMLDivElement>(null);
+  const [up, setUp] = useState(false);
+  useLayoutEffect(() => {
+    if (!open) return setUp(false);
+    const p = pop.current?.getBoundingClientRect();
+    const b = ref.current?.getBoundingClientRect();
+    if (p && b) setUp(p.bottom > window.innerHeight - 6 && b.top - p.height - 4 >= 6);
+  }, [open]);
   return (
     <div className="dd" ref={ref}>
       <button className={className} title={title} aria-label={title} onClick={() => setOpen((o) => !o)}>
@@ -80,7 +89,7 @@ export function Dropdown({
         {caret && <ChevronDown size={12} className="caret" />}
       </button>
       {open && (
-        <div className={`dd-pop ${align}`}>
+        <div ref={pop} className={`dd-pop ${align}${up ? " up" : ""}`}>
           <MenuList items={items} onDone={() => setOpen(false)} />
         </div>
       )}
