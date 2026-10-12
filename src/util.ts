@@ -159,3 +159,85 @@ export function playSent() {
     /* audio unavailable */
   }
 }
+
+// ---------- scheduled sends ----------
+
+/** The zone a scheduled time is interpreted in, e.g. "Asia/Ho_Chi_Minh (UTC+7)". */
+export function zoneLabel(d = new Date()): string {
+  const tz = Intl.DateTimeFormat().resolvedOptions().timeZone || "local time";
+  const off = -d.getTimezoneOffset();
+  const h = Math.trunc(off / 60);
+  const m = Math.abs(off % 60);
+  return `${tz} (UTC${off >= 0 ? "+" : "-"}${Math.abs(h)}${m ? `:${String(m).padStart(2, "0")}` : ""})`;
+}
+
+/** "Tue 13 Oct, 08:00" for a scheduled time (Today / Tomorrow when that is the day). */
+export function fmtWhen(ts: number, now = new Date()): string {
+  const d = new Date(ts * 1000);
+  const time = format(d, timePat);
+  const dayDiff = Math.round((new Date(d.getFullYear(), d.getMonth(), d.getDate()).getTime() - new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime()) / 86400000);
+  if (dayDiff === 0) return `Today ${time}`;
+  if (dayDiff === 1) return `Tomorrow ${time}`;
+  return `${format(d, isThisYear(d) ? "EEE d MMM" : "EEE d MMM yyyy")}, ${time}`;
+}
+
+/** "in 1 day 22 h", "in 20 h", "in 5 min", "now" */
+export function fmtIn(ts: number, now = Date.now()): string {
+  const s = Math.round((ts * 1000 - now) / 1000);
+  if (s <= 60) return "now";
+  const m = Math.round(s / 60);
+  if (m < 60) return `in ${m} min`;
+  const h = Math.floor(m / 60);
+  if (h < 24) return `in ${h} h${m % 60 ? ` ${m % 60} min` : ""}`;
+  const days = Math.floor(h / 24);
+  return `in ${days} day${days === 1 ? "" : "s"}${h % 24 ? ` ${h % 24} h` : ""}`;
+}
+
+/** Local date + time for a `datetime` pair, or null when the pair is not a real date. */
+export function parseLocal(date: string, time: string): number | null {
+  const m = date.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+  const t = time.match(/^(\d{2}):(\d{2})$/);
+  if (!m || !t) return null;
+  const d = new Date(Number(m[1]), Number(m[2]) - 1, Number(m[3]), Number(t[1]), Number(t[2]), 0, 0);
+  if (d.getMonth() !== Number(m[2]) - 1) return null; // e.g. 31 February
+  return Math.floor(d.getTime() / 1000);
+}
+
+// ---------- pictures ----------
+
+/** Natural size of an image data: URI. */
+export function imageSize(dataUrl: string): Promise<{ w: number; h: number }> {
+  return new Promise((res, rej) => {
+    const img = new Image();
+    img.onload = () => res({ w: img.naturalWidth, h: img.naturalHeight });
+    img.onerror = () => rej(new Error("not an image"));
+    img.src = dataUrl;
+  });
+}
+
+/** Downscale to `maxW` pixels wide (JPEG q 0.85, PNG kept when it has transparency). Returns a data: URI. */
+export async function resizeImage(dataUrl: string, mime: string, maxW: number): Promise<{ dataUrl: string; mime: string; w: number; h: number }> {
+  const img = new Image();
+  img.src = dataUrl;
+  await img.decode();
+  const scale = Math.min(1, maxW / img.naturalWidth);
+  const w = Math.round(img.naturalWidth * scale);
+  const h = Math.round(img.naturalHeight * scale);
+  const canvas = document.createElement("canvas");
+  canvas.width = w;
+  canvas.height = h;
+  const ctx = canvas.getContext("2d");
+  if (!ctx) throw new Error("canvas unavailable");
+  ctx.drawImage(img, 0, 0, w, h);
+  const keepPng = mime === "image/png" || mime === "image/gif";
+  const out = keepPng ? "image/png" : "image/jpeg";
+  return { dataUrl: canvas.toDataURL(out, 0.85), mime: out, w, h };
+}
+
+/** Raw base64 length of a data: URI's payload, in bytes. */
+export function dataUriBytes(uri: string): number {
+  const b64 = uri.slice(uri.indexOf(",") + 1);
+  return Math.floor((b64.length * 3) / 4);
+}
+
+export const PICTURE_TYPES = ["image/png", "image/jpeg", "image/gif", "image/webp"];

@@ -14,6 +14,14 @@ export interface ComposeInit {
   replaces?: string; // draft thread id being edited
   isReply?: boolean;
   attachments?: Att[];
+  /** a scheduled message opened for editing (paused while open) */
+  outboxId?: string;
+  /** the scheduled time of that message */
+  sendAt?: number;
+  /** open the "Send later" picker straight away (Change time from the Scheduled list) */
+  openSchedule?: boolean;
+  /** why the scheduled message failed (shown in the Compose banner) */
+  outboxError?: string;
 }
 
 export type Dialog =
@@ -24,11 +32,18 @@ export type Dialog =
 
 export type RibbonTab = "home" | "view" | "help";
 
+export interface ToastAction {
+  label: string;
+  run: () => void;
+}
+
 export interface Toast {
   id: number;
   text: string;
   kind: "info" | "success" | "error";
   undo?: () => void;
+  /** up to two buttons, e.g. Open / Show in folder / Retry */
+  actions?: ToastAction[];
   ttl: number;
 }
 
@@ -115,7 +130,7 @@ interface State {
   setDialog: (d: Dialog) => void;
   setCommandOpen: (o: boolean) => void;
   setRibbonTab: (t: RibbonTab) => void;
-  showToast: (text: string, undo?: () => void, kind?: Toast["kind"]) => void;
+  showToast: (text: string, undo?: () => void, kind?: Toast["kind"], actions?: ToastAction[]) => void;
   dismissToast: (id: number) => void;
   confirm: (o: { title: string; body?: string; confirmLabel?: string; danger?: boolean }) => Promise<boolean>;
   choose: (o: { title: string; body?: string; choices: Choice[] }) => Promise<string>;
@@ -126,6 +141,20 @@ interface State {
 
 let toastSeq = 0;
 let readTimer: ReturnType<typeof setTimeout> | undefined;
+
+/** Preferences the backend acts on (saving, retries, quit) are also stored as plain settings. */
+const BACKEND_SETTINGS: [keyof Prefs, string, (v: unknown) => string][] = [
+  ["downloadDir", "download_dir", (v) => (typeof v === "string" ? v : "")],
+  ["warnExecutables", "warn_executables", (v) => (v ? "1" : "0")],
+  ["scheduledCatchUp", "scheduled_catchup", (v) => String(v)],
+  ["retryScheduled", "scheduled_retry", (v) => (v ? "1" : "0")],
+];
+
+function mirrorSettings(p: Partial<Prefs>) {
+  for (const [pref, key, fmt] of BACKEND_SETTINGS) {
+    if (pref in p) void api.setSetting(key, fmt(p[pref])).catch(() => undefined);
+  }
+}
 
 function applyPrefs(p: Prefs) {
   const root = document.documentElement;
@@ -211,6 +240,7 @@ export const useStore = create<State>((set, get) => ({
     const [accounts, rawPrefs] = await Promise.all([api.listAccounts(), api.getSetting("prefs")]);
     const prefs = mergePrefs(rawPrefs);
     applyPrefs(prefs);
+    mirrorSettings(prefs);
     set({ accounts, prefs, loaded: true });
     void get().refreshAi();
     await get().refresh();
@@ -261,11 +291,13 @@ export const useStore = create<State>((set, get) => ({
   refresh: async () => {
     const { folder, accountId, search, searchScope, focus, filter, prefs } = get();
     const foldersP = api.listFolders().then((folders) => set({ folders }));
+    // scheduled messages feed the Scheduled view and its badge, so they are read on every refresh
+    const outboxP = api.listOutbox().then((outbox) => set({ outbox })).catch(() => undefined);
     void api.refreshBadge().catch(() => undefined);
     try {
       if (folder === "scheduled") {
-        set({ outbox: await api.listOutbox(), threads: [] });
-        await foldersP;
+        set({ threads: [] });
+        await Promise.all([foldersP, outboxP]);
         return;
       }
       const threads = await api.listThreads({
@@ -282,7 +314,7 @@ export const useStore = create<State>((set, get) => ({
       // ignore a slow answer for a view the user already left
       const now = get();
       if (now.folder === folder && now.accountId === accountId && now.search === search) set({ threads });
-      await foldersP;
+      await Promise.all([foldersP, outboxP]);
     } finally {
       set({ loading: false });
     }
@@ -429,12 +461,14 @@ export const useStore = create<State>((set, get) => ({
   setCommandOpen: (commandOpen) => set({ commandOpen }),
   setRibbonTab: (ribbonTab) => set({ ribbonTab }),
 
-  showToast: (text, undo, kind) => {
+  showToast: (text, undo, kind, actions) => {
     const k: Toast["kind"] = kind ?? (/^(failed|sync error|send failed|schedule failed|save|unsubscribe failed|cannot)/i.test(text) ? "error" : "info");
-    const ttl = undo ? Math.max(5000, get().prefs.undoActionSeconds * 1000) : k === "error" ? 8000 : 4500;
+    const acts = actions?.slice(0, 2);
+    // a toast with buttons stays long enough to be read and clicked
+    const ttl = undo ? Math.max(5000, get().prefs.undoActionSeconds * 1000) : acts?.length || k === "error" ? 8000 : 4500;
     const id = ++toastSeq;
     // newest last; keep a short stack and never evict a toast that still has an Undo
-    set((s) => ({ toasts: [...s.toasts.filter((t) => t.undo || s.toasts.length < 4), { id, text, kind: k, undo, ttl }].slice(-5) }));
+    set((s) => ({ toasts: [...s.toasts.filter((t) => t.undo || s.toasts.length < 4), { id, text, kind: k, undo, actions: acts, ttl }].slice(-5) }));
     setTimeout(() => get().dismissToast(id), ttl);
   },
 
@@ -468,6 +502,7 @@ export const useStore = create<State>((set, get) => ({
     set({ prefs });
     applyPrefs(prefs);
     void api.setSetting("prefs", JSON.stringify(prefs));
+    mirrorSettings(patch);
     const layoutKeys: (keyof Prefs)[] = ["conversations", "focused", "sortAsc"];
     if (layoutKeys.some((k) => k in patch)) void get().refresh();
   },

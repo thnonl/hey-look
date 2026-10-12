@@ -25,6 +25,12 @@ export interface Overridable {
   undoSeconds: number;
   loadRemote: boolean;
   syncMinutes: number;
+  /** pasted / dropped pictures go into the message ("inline") or are attached */
+  inlinePictures: "inline" | "attach";
+  /** resize pictures over 1 MB silently when inserting them */
+  autoResizePictures: boolean;
+  /** receiving: inline pictures up to this size per picture are loaded with the message (0 = always) */
+  inlineAutoLoadMB: 2 | 5 | 0;
 }
 
 export interface Prefs extends Overridable {
@@ -45,6 +51,18 @@ export interface Prefs extends Overridable {
   undoActionSeconds: number; // Undo window for archive / delete / junk
   sentSound: boolean;
   closeToTray: boolean;
+  /** Save folder for attachments; null = the system Downloads folder */
+  downloadDir: string | null;
+  /** ask for a location on every Save */
+  askWhereToSave: boolean;
+  /** what happens after a successful Save */
+  afterSave: "notify" | "reveal" | "open";
+  /** confirm before opening programs and scripts */
+  warnExecutables: boolean;
+  /** scheduled messages whose time passed while the app was closed: send them, or ask first */
+  scheduledCatchUp: "send" | "ask";
+  /** retry network failures of scheduled messages 3 times, 5 minutes apart */
+  retryScheduled: boolean;
   trayBadge: "number" | "dot" | "off"; // unread badge on the tray icon
   taskbarBadge: "number" | "off"; // unread badge on the taskbar button
   countOtherMail: boolean; // include "Other" (bulk) mail in unread counts
@@ -76,6 +94,12 @@ export const DEFAULT_PREFS: Prefs = {
   undoActionSeconds: 6,
   sentSound: true,
   closeToTray: true,
+  downloadDir: null,
+  askWhereToSave: false,
+  afterSave: "notify",
+  warnExecutables: true,
+  scheduledCatchUp: "send",
+  retryScheduled: true,
   trayBadge: "number",
   taskbarBadge: "number",
   countOtherMail: false,
@@ -102,6 +126,9 @@ export const DEFAULT_PREFS: Prefs = {
   undoSeconds: 10,
   loadRemote: false,
   syncMinutes: 2,
+  inlinePictures: "inline",
+  autoResizePictures: false,
+  inlineAutoLoadMB: 2,
 };
 
 /** Effective value: the account's own override if it has one, otherwise the "All accounts" value. */

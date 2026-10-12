@@ -25,6 +25,18 @@ export function Toasts() {
               Undo
             </button>
           )}
+          {t.actions?.map((a) => (
+            <button
+              key={a.label}
+              className="toast-act"
+              onClick={() => {
+                dismiss(t.id);
+                a.run();
+              }}
+            >
+              {a.label}
+            </button>
+          ))}
           <button className="toast-x" aria-label="Dismiss" onClick={() => dismiss(t.id)}>
             <X size={14} />
           </button>

@@ -62,6 +62,19 @@ export interface AttMeta {
   name: string;
   mime: string;
   size: number;
+  /** the part has a Content-ID (a picture placed in the body, or another cid part) */
+  inline?: boolean;
+  cid?: string | null;
+  /** the message body refers to the part (cid:) */
+  referenced?: boolean;
+}
+
+/** A picture inside the message body (sent as a related part with Content-ID). */
+export interface InlineImage {
+  cid: string;
+  filename: string;
+  mime: string;
+  dataBase64: string;
 }
 
 export interface FolderInfo {
@@ -138,16 +151,43 @@ export interface Draft {
   inReplyTo?: string | null;
   references: string[];
   attachments: Att[];
+  /** pictures in the body; the html refers to them as cid:<cid> */
+  inline?: InlineImage[];
 }
+
+export type OutboxStatus = "pending" | "held" | "sending" | "failed" | "overdue";
 
 export interface OutboxItem {
   id: string;
   accountId: string;
   subject: string;
   to: string[];
+  cc: string[];
+  snippet: string;
+  hasAttachments: boolean;
   sendAt: number;
-  status: string;
+  createdAt: number;
+  status: OutboxStatus;
   error: string | null;
+  attempts: number;
+}
+
+export interface OutboxEdit {
+  draft: Draft;
+  sendAt: number;
+  status: OutboxStatus;
+}
+
+export interface SaveAllResult {
+  dir: string;
+  saved: string[];
+  failed: { index: number; name: string; error: string }[];
+}
+
+/** Backend errors look like "CODE: human text". Returns the code, or null. */
+export function errorCode(e: unknown): string | null {
+  const m = String(e instanceof Error ? e.message : e).match(/^([A-Z][A-Z_]+):/);
+  return m ? m[1] : null;
 }
 
 export interface Template {
@@ -231,12 +271,32 @@ export const api = {
   getRaw: (messageId: string) => invoke<string>("get_raw", { messageId }),
   saveAttachments: (messageId: string, index?: number) =>
     invoke<string[]>("save_attachments", { messageId, index: index ?? null }),
+  attachmentSaveAs: (messageId: string, index: number) =>
+    invoke<string | null>("attachment_save_as", { messageId, index }),
+  attachmentSaveAll: (messageId: string, ask: boolean, jobId?: string) =>
+    invoke<SaveAllResult | null>("attachment_save_all", { messageId, ask, jobId: jobId ?? null }),
+  /** Opens a temp copy with the default app. Programs and scripts need confirmed = true. */
+  attachmentOpen: (messageId: string, index: number, confirmed = false) =>
+    invoke<string>("attachment_open", { messageId, index, confirmed }),
+  attachmentReveal: (path: string) => invoke<void>("attachment_reveal", { path }),
+  pickFolder: (title?: string) => invoke<string | null>("pick_folder", { title: title ?? null }),
+  inlineImage: (messageId: string, cid: string) =>
+    invoke<{ mime: string; dataBase64: string; name: string }>("inline_image", { messageId, cid }),
   sendMessage: (draft: Draft, sendAt?: number | null, replaces?: string | null) =>
     invoke<string>("send_message", { draft, sendAt: sendAt ?? null, replaces: replaces ?? null }),
   saveDraft: (draft: Draft, replaces?: string | null) =>
     invoke<void>("save_draft", { draft, replaces: replaces ?? null }),
   listOutbox: () => invoke<OutboxItem[]>("list_outbox"),
   cancelOutbox: (id: string) => invoke<void>("cancel_outbox", { id }),
+  outboxPendingCount: () => invoke<{ count: number; next: number | null }>("outbox_pending_count"),
+  outboxOpenForEdit: (id: string) => invoke<OutboxEdit>("outbox_open_for_edit", { id }),
+  outboxRelease: (id: string) => invoke<void>("outbox_release", { id }),
+  outboxUpdate: (id: string, draft: Draft, sendAt: number) => invoke<void>("outbox_update", { id, draft, sendAt }),
+  outboxReschedule: (id: string, sendAt: number) => invoke<void>("outbox_reschedule", { id, sendAt }),
+  outboxRetry: (id: string) => invoke<void>("outbox_retry", { id }),
+  outboxToDraft: (id: string) => invoke<void>("outbox_to_draft", { id }),
+  outboxSendNow: (id: string) => invoke<void>("outbox_send_now", { id }),
+  quitNow: () => invoke<void>("quit_now"),
   listTemplates: () => invoke<Template[]>("list_templates"),
   saveTemplate: (template: Template) => invoke<void>("save_template", { template }),
   deleteTemplate: (id: string) => invoke<void>("delete_template", { id }),
