@@ -1,6 +1,6 @@
 import { Plus, Trash2 } from "lucide-react";
 import { openUrl } from "@tauri-apps/plugin-opener";
-import { ReactNode, useEffect, useRef, useState } from "react";
+import { Fragment, ReactNode, useEffect, useRef, useState } from "react";
 import { Account, api, Discovered, PROVIDERS, Rule, Signature, Template } from "../api";
 import { ACCENT_PRESETS, DEFAULT_PREFS, eff, folderLabel, isOverridden, NOTIFY_ACTIONS, NOTIFY_SOUNDS, Overridable, Prefs, validHex } from "../prefs";
 import { friendlyError, useStore } from "../store";
@@ -377,7 +377,7 @@ function OAuthBlock({ kind }: { kind: OAuthKind }) {
           </>
         )}
         <label>Display name (optional)</label>
-        <input aria-label="Display name (optional)" value={name} onChange={(e) => setName(e.target.value)} />
+        <input aria-label="Display name (optional)" placeholder="Your name" value={name} onChange={(e) => setName(e.target.value)} />
         <button className="btn primary" disabled={busy || (!fromEnv && !cid)} onClick={() => void go()}>
           {busy ? `Waiting for ${cfg.label}…` : `Sign in with ${cfg.label}`}
         </button>
@@ -474,7 +474,7 @@ function ImapForm() {
         {PROVIDERS[provider].hint && <div className="notice">{PROVIDERS[provider].hint}</div>}
         <label>Email</label>
         <div className="row-inline">
-          <input aria-label="Email" value={email} onChange={(e) => setEmail(e.target.value)} />
+          <input aria-label="Email" placeholder="name@example.com" value={email} onChange={(e) => setEmail(e.target.value)} />
           <button className="btn" disabled={detecting || !email.includes("@")} onClick={() => void detect()} title="Look up the server settings for this address">
             {detecting ? "Detecting…" : "Detect settings"}
           </button>
@@ -486,32 +486,31 @@ function ImapForm() {
           </div>
         )}
         <label>Display name</label>
-        <input aria-label="Display name" value={name} onChange={(e) => setName(e.target.value)} />
+        <input aria-label="Display name" placeholder="Your name" value={name} onChange={(e) => setName(e.target.value)} />
         <label>Password / app password</label>
         <input aria-label="Password / app password" type="password" value={pw} onChange={(e) => setPw(e.target.value)} />
         {showAdv && (
           <>
             <label>Username (if different from email)</label>
-            <input aria-label="Username (if different from email)" value={username} onChange={(e) => setUsername(e.target.value)} />
+            <input aria-label="Username (if different from email)" placeholder="name@example.com" value={username} onChange={(e) => setUsername(e.target.value)} />
             <label>IMAP host / port / security</label>
             <div className="row-inline">
-              <input aria-label="IMAP host" value={adv.imapHost} onChange={(e) => setAdv({ ...adv, imapHost: e.target.value })} />
-              <input type="number" aria-label="IMAP port" value={adv.imapPort} onChange={(e) => setAdv({ ...adv, imapPort: Number(e.target.value) })} />
+              <input aria-label="IMAP host" placeholder="imap.example.com" value={adv.imapHost} onChange={(e) => setAdv({ ...adv, imapHost: e.target.value })} />
+              <input type="number" aria-label="IMAP port" placeholder="993" value={adv.imapPort} onChange={(e) => setAdv({ ...adv, imapPort: Number(e.target.value) })} />
               <select aria-label="IMAP security" value={adv.imapSsl ? "ssl" : "starttls"} onChange={(e) => setAdv({ ...adv, imapSsl: e.target.value === "ssl" })}>
                 <option value="ssl">SSL/TLS</option><option value="starttls">STARTTLS</option>
               </select>
             </div>
             <label>SMTP host / port / security</label>
             <div className="row-inline">
-              <input aria-label="SMTP host" value={adv.smtpHost} onChange={(e) => setAdv({ ...adv, smtpHost: e.target.value })} />
-              <input type="number" aria-label="SMTP port" value={adv.smtpPort} onChange={(e) => setAdv({ ...adv, smtpPort: Number(e.target.value) })} />
+              <input aria-label="SMTP host" placeholder="smtp.example.com" value={adv.smtpHost} onChange={(e) => setAdv({ ...adv, smtpHost: e.target.value })} />
+              <input type="number" aria-label="SMTP port" placeholder="465" value={adv.smtpPort} onChange={(e) => setAdv({ ...adv, smtpPort: Number(e.target.value) })} />
               <select aria-label="SMTP security" value={adv.smtpSecurity} onChange={(e) => setAdv({ ...adv, smtpSecurity: e.target.value as "ssl" | "starttls" })}>
                 <option value="ssl">SSL/TLS</option><option value="starttls">STARTTLS</option>
               </select>
             </div>
             <div className="row-inline">
-              <Switch checked={sepSmtp} onChange={setSepSmtp} />
-              <span>Use a different login for sending (SMTP)</span>
+              <Switch checked={sepSmtp} onChange={setSepSmtp} label="Use a different login for sending (SMTP)" />
             </div>
             {sepSmtp && (
               <>
@@ -522,8 +521,7 @@ function ImapForm() {
               </>
             )}
             <div className="row-inline">
-              <Switch checked={insecure} onChange={setInsecure} />
-              <span>Trust this server's certificate (self-signed or private CA)</span>
+              <Switch checked={insecure} onChange={setInsecure} label="Trust this server's certificate (self-signed or private CA)" />
             </div>
             {insecure && (
               <div className="notice">
@@ -662,7 +660,7 @@ function SignaturesPanel({ scope }: { scope: string | null }) {
       {cur && (
         <div className="form set-card">
           <label>Name</label>
-          <input aria-label="Name" value={cur.name} onChange={(e) => setCur({ ...cur, name: e.target.value })} />
+          <input aria-label="Name" placeholder="Work signature" value={cur.name} onChange={(e) => setCur({ ...cur, name: e.target.value })} />
           <label>Signature</label>
           <RichEditor key={cur.id} label="Signature" value={cur.html} onChange={(html) => setCur((c) => (c ? { ...c, html } : c))} placeholder="Your name, title, phone…" />
           <Switch checked={cur.isDefault} onChange={(v) => setCur({ ...cur, isDefault: v })} label={scope ? "Default for this account" : "Default for all accounts"} />
@@ -703,9 +701,9 @@ function TemplatesPanel({ scope }: { scope: string | null }) {
       {cur && (
         <div className="form set-card">
           <label>Name</label>
-          <input aria-label="Name" value={cur.name} onChange={(e) => setCur({ ...cur, name: e.target.value })} />
+          <input aria-label="Name" placeholder="Weekly report" value={cur.name} onChange={(e) => setCur({ ...cur, name: e.target.value })} />
           <label>Subject (optional)</label>
-          <input aria-label="Subject (optional)" value={cur.subject} onChange={(e) => setCur({ ...cur, subject: e.target.value })} />
+          <input aria-label="Subject (optional)" placeholder="Weekly status update" value={cur.subject} onChange={(e) => setCur({ ...cur, subject: e.target.value })} />
           <label>Message</label>
           <RichEditor key={cur.id} label="Message" value={cur.body} onChange={(body) => setCur((c) => (c ? { ...c, body } : c))} minHeight={180} />
           <div className="row-inline">
@@ -748,7 +746,7 @@ function FiltersPanel({ scope }: { scope: string | null }) {
       {cur && (
         <div className="form set-card">
           <label>Name</label>
-          <input aria-label="Name" value={cur.name} onChange={(e) => setCur({ ...cur, name: e.target.value })} />
+          <input aria-label="Name" placeholder="Move newsletters" value={cur.name} onChange={(e) => setCur({ ...cur, name: e.target.value })} />
           <label>When</label>
           <div className="row-inline">
             <select aria-label="Rule field" value={cur.field} onChange={(e) => setCur({ ...cur, field: e.target.value as Rule["field"] })}>
@@ -757,7 +755,7 @@ function FiltersPanel({ scope }: { scope: string | null }) {
             <select aria-label="Rule condition" value={cur.op} onChange={(e) => setCur({ ...cur, op: e.target.value as Rule["op"] })}>
               <option value="contains">contains</option><option value="equals">equals</option>
             </select>
-            <input aria-label="Rule text" value={cur.value} onChange={(e) => setCur({ ...cur, value: e.target.value })} />
+            <input aria-label="Rule text" placeholder="newsletter@example.com" value={cur.value} onChange={(e) => setCur({ ...cur, value: e.target.value })} />
           </div>
           <label>Then</label>
           <div className="row-inline">
@@ -871,7 +869,7 @@ function ProfilePanel({ account }: { account: Account }) {
   };
   return (
     <>
-      <Row label="Display name" hint="Shown to recipients as the sender name"><input defaultValue={account.displayName} onBlur={(e) => void upd({ displayName: e.target.value })} /></Row>
+      <Row label="Display name" hint="Shown to recipients as the sender name"><input defaultValue={account.displayName} placeholder="Your name" onBlur={(e) => void upd({ displayName: e.target.value })} /></Row>
       <Row label="Color" hint="Marks this account in the folder pane and in combined lists"><input type="color" aria-label="Mailbox color" value={account.color ?? "#0f6cbd"} onChange={(e) => void upd({ color: e.target.value })} /></Row>
     </>
   );
@@ -908,17 +906,22 @@ function ServerPanel({ account, close }: { account: Account; close: () => void }
 
 type MbTab = "profile" | "composing" | "signatures" | "templates" | "filters" | "notifications" | "reading" | "folders" | "server";
 
-function MailboxPage({ scope, tab, setTab, close }: { scope: string | null; tab: MbTab; setTab: (t: MbTab) => void; close: () => void }) {
-  const { accounts } = useStore();
-  const account = scope ? accounts.find((a) => a.id === scope) : undefined;
-  if (scope && !account) return <div className="muted">Account not found.</div>;
-  const tabs: [MbTab, string][] = [
+/** The sections of a mailbox (scope = account id) or of "All accounts" (null). They are listed under the mailbox in the Settings navigation. */
+function mailboxSections(scope: string | null): [MbTab, string][] {
+  return [
     ...(scope ? ([["profile", "Profile"]] as [MbTab, string][]) : []),
     ["composing", "Composing"], ["signatures", "Signatures"], ["templates", "Templates"], ["filters", "Filters"],
     ["notifications", "Notifications"], ["reading", "Reading & sync"], ["folders", "Folders"],
     ...(scope ? ([["server", "Server"]] as [MbTab, string][]) : []),
   ];
-  const active: MbTab = tabs.some(([k]) => k === tab) ? tab : "composing";
+}
+const activeSection = (scope: string | null, tab: MbTab): MbTab => (mailboxSections(scope).some(([k]) => k === tab) ? tab : "composing");
+
+function MailboxPage({ scope, tab, close }: { scope: string | null; tab: MbTab; close: () => void }) {
+  const { accounts } = useStore();
+  const account = scope ? accounts.find((a) => a.id === scope) : undefined;
+  if (scope && !account) return <div className="muted">Account not found.</div>;
+  const active = activeSection(scope, tab);
   return (
     <div>
       <div className="mb-head">
@@ -932,8 +935,7 @@ function MailboxPage({ scope, tab, setTab, close }: { scope: string | null; tab:
           </div>
         </div>
       </div>
-      <Seg value={active} onChange={setTab} options={tabs} />
-      <div className="mb-body">
+      <div className="mb-body" role="region" aria-label={mailboxSections(scope).find(([k]) => k === active)?.[1]}>
         {active === "profile" && account && <ProfilePanel account={account} />}
         {active === "composing" && <ComposingPanel scope={scope} />}
         {active === "signatures" && <SignaturesPanel scope={scope} />}
@@ -1195,11 +1197,44 @@ export function Settings({ initial, focus }: { initial?: string; focus?: string 
     }, 80);
     return () => clearTimeout(t);
   }, [focus, tab, mbTab]);
+  // keep the selected navigation entry in view (the list scrolls on small windows)
+  useEffect(() => {
+    document.querySelector<HTMLElement>(".settings-nav button.active:not(.has-sub)")?.scrollIntoView({ block: "nearest" });
+  }, [tab, mbTab]);
 
+  // sections of the selected mailbox, listed right under it (Arrow Up/Down move between them)
+  const sections = (k: string) => {
+    const scope = k === "mb:all" ? null : k.slice(3);
+    const active = activeSection(scope, mbTab);
+    return (
+      <div
+        className="nav-sub"
+        role="group"
+        aria-label="Mailbox sections"
+        onKeyDown={(e) => {
+          if (e.key !== "ArrowDown" && e.key !== "ArrowUp") return;
+          e.preventDefault();
+          const list = Array.from(e.currentTarget.querySelectorAll<HTMLButtonElement>("button"));
+          const i = list.indexOf(document.activeElement as HTMLButtonElement);
+          list[Math.max(0, Math.min(list.length - 1, i + (e.key === "ArrowDown" ? 1 : -1)))]?.click();
+          list[Math.max(0, Math.min(list.length - 1, i + (e.key === "ArrowDown" ? 1 : -1)))]?.focus();
+        }}
+      >
+        {mailboxSections(scope).map(([s, l]) => (
+          <button key={s} className={s === active ? "active" : ""} aria-current={s === active ? "page" : undefined} onClick={() => setMbTab(s)}>
+            {l}
+          </button>
+        ))}
+      </div>
+    );
+  };
   const item = (k: string, l: ReactNode, sub = false) => (
-    <button key={k} className={`${tab === k ? "active" : ""} ${sub ? "sub" : ""}`} onClick={() => setTab(k)}>
-      {l}
-    </button>
+    <Fragment key={k}>
+      <button className={`${tab === k ? "active" : ""} ${sub ? "sub" : ""} ${tab === k && k.startsWith("mb:") ? "has-sub" : ""}`} aria-current={tab === k ? "page" : undefined} onClick={() => setTab(k)}>
+        {l}
+      </button>
+      {tab === k && k.startsWith("mb:") && sections(k)}
+    </Fragment>
   );
 
   return (
@@ -1220,8 +1255,8 @@ export function Settings({ initial, focus }: { initial?: string; focus?: string 
           {tab === "general" && <GeneralTab />}
           {tab === "appearance" && <AppearanceTab />}
           {tab === "add-account" && <AddAccountTab />}
-          {tab === "mb:all" && <MailboxPage scope={null} tab={mbTab} setTab={setMbTab} close={() => setTab("mb:all")} />}
-          {tab.startsWith("mb:") && tab !== "mb:all" && <MailboxPage key={tab} scope={tab.slice(3)} tab={mbTab} setTab={setMbTab} close={() => setTab("mb:all")} />}
+          {tab === "mb:all" && <MailboxPage scope={null} tab={mbTab} close={() => setTab("mb:all")} />}
+          {tab.startsWith("mb:") && tab !== "mb:all" && <MailboxPage key={tab} scope={tab.slice(3)} tab={mbTab} close={() => setTab("mb:all")} />}
           {tab === "tray" && <TrayTab />}
           {tab === "actions" && <ActionsTab />}
           {tab === "times" && <TimesTab />}

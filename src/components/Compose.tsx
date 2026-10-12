@@ -69,6 +69,7 @@ function RecipientField({ label, values, onChange, autoFocus, onTouch }: { label
           ref={input}
           value={text}
           aria-label={label}
+          placeholder={values.length === 0 ? "name@example.com" : undefined}
           onChange={(e) => onInput(e.target.value)}
           onPaste={(e) => {
             const t = e.clipboardData.getData("text");

@@ -1,6 +1,6 @@
 import { openUrl, revealItemInDir } from "@tauri-apps/plugin-opener";
 import { Archive, Clock, Download, Flag, Forward, MailX, MoreHorizontal, Paperclip, Pin, Reply, ReplyAll, Sparkles, Trash2, ChevronsDownUp, ChevronsUpDown, Mail } from "lucide-react";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { forward, replyTo } from "../actions";
 import { api, MessageFull } from "../api";
 import { eff } from "../prefs";
@@ -12,8 +12,23 @@ import { Avatar, Dropdown } from "./ui";
 // Remote images already fetched through the backend (url -> data: URI), shared by all messages.
 const imageCache = new Map<string, string>();
 
-/** Height the message frame starts at, and keeps while images are still loading. */
-const START_HEIGHT = 500;
+/**
+ * Free height of the reading pane from the top of this frame down (pane viewport minus everything above the frame
+ * and the reply row / padding below it). The frame never gets shorter than this, so a short mail fills the empty
+ * pane from the first paint instead of opening tall and shrinking, and only a taller mail makes the pane scroll.
+ */
+function fillHeight(frame: HTMLIFrameElement): number {
+  const pane = frame.closest<HTMLElement>(".rp-body");
+  const last = pane?.lastElementChild;
+  if (!pane || !last) return 0;
+  const f = frame.getBoundingClientRect();
+  const top = f.top - pane.getBoundingClientRect().top + pane.scrollTop;
+  const below = last.getBoundingClientRect().bottom - f.bottom + parseFloat(getComputedStyle(pane).paddingBottom);
+  return Math.max(0, Math.floor(pane.clientHeight - top - below));
+}
+
+// Last measured content height per message: reopening a mail starts at its real height.
+const heightCache = new Map<string, number>();
 
 function remoteImageUrls(html: string): string[] {
   const doc = new DOMParser().parseFromString(html, "text/html");
@@ -91,24 +106,42 @@ function MessageBody({ m, frameRef }: { m: MessageFull; frameRef: React.RefObjec
     img{max-width:100%;height:auto}blockquote{margin:0 0 0 .8ex;border-left:2px solid #999;padding-left:1ex}a{color:${dark ? "#6cb8f6" : "#0f6cbd"}}table{max-width:100%}</style>
     </head><body>${html}</body></html>`;
 
-  // Frame height follows the content. Always read the frame's *current* document: the srcDoc is replaced
-  // when images arrive from the backend, and a measurement taken from the previous (detached) document
-  // would shrink the frame to nothing.
+  // Frame height follows the content, never below the free height of the pane (see fillHeight). The content is
+  // measured through the body's own height: nothing is collapsed or resized while measuring, because shrinking the
+  // scroll container for a moment clamps the user's scrollTop back to 0.
   const stopObserve = useRef<() => void>(() => undefined);
+  const applyFill = useCallback(() => {
+    const frame = frameRef.current;
+    if (!frame) return;
+    const min = `${Math.max(40, fillHeight(frame))}px`;
+    if (frame.style.minHeight !== min) frame.style.minHeight = min;
+  }, [frameRef]);
   const measure = useCallback(() => {
     const frame = frameRef.current;
     const doc = frame?.contentDocument;
     if (!frame || !doc?.body) return;
-    // collapse first so CSS like `height:100%` cannot pin the result to the previous frame height
-    const prev = frame.style.height;
-    frame.style.height = "0px";
-    const h = Math.max(doc.body.scrollHeight, doc.documentElement.scrollHeight);
-    // while images are still loading the real height is unknown: stay at the start height instead of
-    // flashing a short frame that then jumps open
+    applyFill();
+    const h = Math.max(doc.body.scrollHeight, doc.body.offsetHeight);
+    // images still loading: the real height is unknown, so do not shrink below what the frame already has
     const loading = Array.from(doc.images).some((i) => !i.complete);
-    const target = loading ? Math.max(h + 8, START_HEIGHT) : h + 8;
-    frame.style.height = h > 0 ? `${target}px` : prev;
-  }, [frameRef]);
+    const target = `${loading ? Math.max(h, frame.offsetHeight) : h}px`;
+    if (h > 0 && frame.style.height !== target) frame.style.height = target;
+    if (h > 0 && !loading) heightCache.set(m.id, h);
+    frame.style.visibility = ""; // first measurement done: show the mail at its final height
+  }, [frameRef, applyFill, m.id]);
+
+  // first paint: open at the free height of the pane (no fixed 500px that then jumps)
+  useLayoutEffect(() => {
+    const frame = frameRef.current;
+    if (!frame) return;
+    const fill = Math.max(40, fillHeight(frame));
+    frame.style.minHeight = `${fill}px`;
+    frame.style.height = `${Math.max(fill, heightCache.get(m.id) ?? 0)}px`;
+    // stay invisible until the first measurement (a frame or two) so the height step after load is never seen as content jumping
+    frame.style.visibility = "hidden";
+    const safety = setTimeout(() => (frame.style.visibility = ""), 600);
+    return () => clearTimeout(safety);
+  }, [frameRef, m.id]);
 
   useEffect(() => () => stopObserve.current(), []);
 
@@ -118,7 +151,6 @@ function MessageBody({ m, frameRef }: { m: MessageFull; frameRef: React.RefObjec
     const doc = frame?.contentDocument;
     if (!frame || !doc?.body) return;
     measure();
-    const timers = [100, 400, 1200, 3000, 6000].map((ms) => setTimeout(measure, ms));
     // images without a height attribute (common in newsletters) only get their size once they load
     const imgs = Array.from(doc.images);
     imgs.forEach((i) => {
@@ -127,6 +159,11 @@ function MessageBody({ m, frameRef }: { m: MessageFull; frameRef: React.RefObjec
     });
     const ro = typeof ResizeObserver !== "undefined" ? new ResizeObserver(measure) : null;
     ro?.observe(doc.body);
+    // the pane itself resizing (window, splitter) changes the free height
+    const pane = frame.closest(".rp-body");
+    const paneRo = typeof ResizeObserver !== "undefined" && pane ? new ResizeObserver(() => applyFill()) : null;
+    if (pane) paneRo?.observe(pane);
+    window.addEventListener("resize", applyFill);
     void doc.fonts?.ready.then(measure);
     doc.querySelectorAll<HTMLAnchorElement>("a[href]").forEach((a) => (a.title = a.href)); // show the real target on hover
     const onClick = (e: MouseEvent) => {
@@ -146,12 +183,13 @@ function MessageBody({ m, frameRef }: { m: MessageFull; frameRef: React.RefObjec
     };
     doc.addEventListener("click", onClick);
     stopObserve.current = () => {
-      timers.forEach(clearTimeout);
       imgs.forEach((i) => {
         i.removeEventListener("load", measure);
         i.removeEventListener("error", measure);
       });
       ro?.disconnect();
+      paneRo?.disconnect();
+      window.removeEventListener("resize", applyFill);
       doc.removeEventListener("click", onClick);
     };
   };
@@ -179,7 +217,6 @@ function MessageBody({ m, frameRef }: { m: MessageFull; frameRef: React.RefObjec
       <iframe
         ref={frameRef}
         className="msg-frame"
-        style={{ height: START_HEIGHT }}
         sandbox="allow-same-origin allow-modals"
         srcDoc={srcDoc}
         onLoad={onLoad}
@@ -320,6 +357,12 @@ export function ReadingPane() {
   const [summary, setSummary] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const summ = threads.find((t) => t.threadId === selected);
+  const bodyRef = useRef<HTMLDivElement>(null);
+
+  // a newly selected mail starts at the top - once, here, and nowhere else (nothing re-scrolls while it loads)
+  useEffect(() => {
+    if (bodyRef.current) bodyRef.current.scrollTop = 0;
+  }, [selected]);
 
   useEffect(() => {
     setSummary(null);
@@ -436,7 +479,7 @@ export function ReadingPane() {
           <div className="pre">{summary}</div>
         </div>
       )}
-      <div className="rp-body">
+      <div className="rp-body" ref={bodyRef}>
         {messages.map((m) => (
           <MessageCard
             key={m.id}

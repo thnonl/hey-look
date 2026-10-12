@@ -57,6 +57,9 @@ body { background: var(--bg); color: var(--fg); overflow: hidden; -webkit-font-s
 button { font: inherit; color: inherit; cursor: pointer; }
 button:disabled { opacity: .45; cursor: default; }
 input, select, textarea { font: inherit; color: inherit; background: var(--bg); border: 1px solid var(--border); border-radius: var(--r-sm); padding: 6px 9px; transition: border-color .12s, box-shadow .12s; }
+::placeholder { color: var(--muted); opacity: 1; } /* sample values: >= 4.5:1 on the field, still lighter than typed text */
+/* own chevron instead of the native one, so it sits 12px from the edge and long values are cut before it */
+select { appearance: none; -webkit-appearance: none; padding-right: 32px; text-overflow: ellipsis; background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%238b93a0' stroke-width='2.5' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m6 9 6 6 6-6'/%3E%3C/svg%3E"); background-repeat: no-repeat; background-position: right 12px center; background-size: 12px; }
 input:hover, select:hover, textarea:hover { border-color: color-mix(in srgb, var(--border), var(--fg) 25%); }
 input:focus, select:focus, textarea:focus { outline: none; border-color: var(--accent); box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent), transparent 78%); }
 textarea { width: 100%; resize: vertical; }
@@ -103,7 +106,7 @@ button:focus-visible, [role="option"]:focus-visible, [role="treeitem"]:focus-vis
 .icon-btn.on { color: var(--accent-text); }
 .link { background: none; border: 0; color: var(--accent-text); padding: 0; text-decoration: underline; text-underline-offset: 2px; }
 .link:hover { color: color-mix(in srgb, var(--accent-text), var(--fg) 30%); }
-.about-links { display: flex; flex-direction: column; align-items: flex-start; gap: 4px; margin-top: 10px; }
+.about-links { display: flex; flex-direction: column; align-items: flex-start; gap: 16px; margin-top: 16px; }
 .about-link { display: inline-flex; align-items: center; min-height: 24px; }
 .notice .link, .bg-toggle .link { display: inline-block; min-height: 24px; line-height: 24px; vertical-align: middle; }
 .link-btn { min-height: 24px; background: none; border: 0; color: var(--fg); padding: 3px 8px; border-radius: var(--r-sm); display: inline-flex; align-items: center; gap: 4px; font-size: .9em; }
@@ -175,9 +178,8 @@ button:focus-visible, [role="option"]:focus-visible, [role="treeitem"]:focus-vis
 /* dropdown + menus */
 .dd { position: relative; display: inline-block; }
 .dd > button { display: inline-flex; align-items: center; gap: 4px; }
-.dd-pop { position: absolute; top: 100%; z-index: 60; margin-top: 4px; animation: pop .12s var(--ease); }
-.dd-pop.left { left: 0; }
-.dd-pop.right { right: 0; }
+.dd > button .caret { margin-right: 4px; flex: none; } /* chevron >= 12px from the button edge */
+.dd-pop { position: fixed; z-index: 60; animation: pop .12s var(--ease); }
 .caret { opacity: .6; }
 .menu { min-width: 200px; background: var(--bg); border: 1px solid var(--border); border-radius: var(--r-md); box-shadow: var(--shadow); padding: 5px; max-height: 60vh; overflow-y: auto; }
 .menu-row { display: flex; align-items: center; gap: 8px; width: 100%; text-align: left; background: none; border: 0; border-radius: var(--r-sm); padding: 7px 9px; cursor: pointer; }
@@ -218,6 +220,8 @@ button:focus-visible, [role="option"]:focus-visible, [role="treeitem"]:focus-vis
 .ml-sub { color: var(--muted); font-size: .86em; padding: 2px 0 4px; }
 .ml-bulk { position: absolute; top: 0; left: 0; right: 0; z-index: 2; display: flex; gap: 10px; align-items: center; font-size: .9em; padding: 10px 14px 6px; min-height: 48px; box-sizing: border-box; background: var(--bg); }
 .ml-bulk span { flex: 1; color: var(--muted); }
+/* while messages are checked the selection bar replaces the Focused/Other tabs and Filter: they are hidden (not focusable, not read out) instead of sitting under it */
+.ml-head.multi .ml-title { visibility: hidden; }
 .pivots { display: flex; gap: 18px; }
 .pivots button { background: none; border: 0; border-bottom: 2.5px solid transparent; padding: 5px 0; font-size: 1.1em; color: var(--muted); font-weight: 500; transition: color .12s; }
 .pivots button:hover { color: var(--fg); }
@@ -242,7 +246,9 @@ button:focus-visible, [role="option"]:focus-visible, [role="treeitem"]:focus-vis
 .ml-main { flex: 1; min-width: 0; }
 .ml-top { display: flex; align-items: center; gap: 6px; }
 .unread-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--accent); flex: none; }
-.acct-dot { width: 7px; height: 7px; border-radius: 2px; flex: none; }
+.acct-dot { width: 7px; height: 7px; border-radius: 2px; flex: none; box-shadow: 0 0 0 1px color-mix(in srgb, var(--fg) 60%, transparent); } /* thin neutral edge: the marker stays >= 3:1 against the row whatever colour the mailbox has */
+/* mailbox marker: a small bar under the avatar (absolute, so the row never changes height); Compact has no avatar and keeps the dot before the name */
+.acct-dot.under { position: absolute; left: 50%; top: calc(100% + 3px); width: 16px; height: 4px; transform: translateX(-50%); }
 .who { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .date { color: var(--muted); font-size: .86em; flex: none; font-variant-numeric: tabular-nums; }
 .hover-actions { display: none; gap: 0; flex: none; margin: -4px 0; /* 24px buttons must not grow the row on hover */ }
@@ -303,7 +309,7 @@ button.att-chip:hover { background: var(--bg3); border-color: color-mix(in srgb,
 .compose-pane { position: absolute; inset: 0; background: var(--bg); display: flex; flex-direction: column; z-index: 5; animation: fade .15s; }
 .compose-pane.dragging { outline: 2px dashed var(--accent); outline-offset: -8px; }
 .drop-hint { position: absolute; inset: 0; background: color-mix(in srgb, var(--accent), transparent 90%); display: grid; place-items: center; font-weight: 650; font-size: 1.2em; color: var(--accent-text); pointer-events: none; }
-.cp-bar { display: flex; align-items: center; gap: 2px; padding: 8px 14px; border-bottom: 1px solid var(--border); flex-wrap: wrap; }
+.cp-bar { display: flex; align-items: center; gap: 2px; row-gap: 8px; padding: 8px 14px; border-bottom: 1px solid var(--border); flex-wrap: wrap; }
 .split-btn { display: inline-flex; margin-right: 10px; position: relative; }
 .split-btn .btn:first-child { border-radius: var(--r-sm) 0 0 var(--r-sm); padding: 7px 18px; }
 .split-caret { border-radius: 0 var(--r-sm) var(--r-sm) 0 !important; padding: 7px 7px !important; border-left: 1px solid rgba(255,255,255,.4) !important; }
@@ -312,7 +318,8 @@ button.att-chip:hover { background: var(--bg3); border-color: color-mix(in srgb,
 .cp-fields { padding: 4px 20px 0; }
 .cf-field { display: flex; align-items: flex-start; gap: 8px; border-bottom: 1px solid var(--border); position: relative; }
 .cf-field label { width: 54px; color: var(--muted); font-size: .86em; padding-top: 11px; flex: none; }
-.cf-field > input, .cf-field > select { flex: 1; border: 0; background: none; padding: 9px 0; box-shadow: none !important; min-width: 0; }
+.cf-field > input, .cf-field > select { flex: 1; border: 0; background-color: transparent; padding: 9px 0; box-shadow: none !important; min-width: 0; }
+.cf-field > select { padding-right: 32px; }
 .cf-links { display: flex; gap: 14px; padding: 5px 0 5px 62px; }
 .cf-links .link { display: inline-flex; align-items: center; min-height: 24px; }
 .chips { flex: 1; display: flex; flex-wrap: wrap; gap: 5px; padding: 6px 0; align-items: center; min-width: 0; }
@@ -329,7 +336,7 @@ button.att-chip:hover { background: var(--bg3); border-color: color-mix(in srgb,
 .editor .tiptap { outline: none; min-height: 240px; line-height: 1.55; }
 .editor .tiptap p.is-editor-empty:first-child::before { content: attr(data-placeholder); color: var(--muted); float: left; height: 0; pointer-events: none; }
 .editor blockquote { border-left: 2px solid var(--border); margin-left: 4px; padding-left: 12px; color: var(--muted); }
-.sig-note { margin-top: 12px; }
+.sig-note { margin-top: 16px; }
 .cp-atts { padding: 8px 20px; border-top: 1px solid var(--border); margin: 0; }
 .cp-foot { padding: 4px 20px 10px; }
 .popover { background: var(--bg); border: 1px solid var(--border); border-radius: var(--r-md); padding: 8px; box-shadow: var(--shadow); display: flex; flex-direction: column; gap: 4px; }
@@ -368,6 +375,11 @@ button.att-chip:hover { background: var(--bg3); border-color: color-mix(in srgb,
 .settings-nav button:hover { background: var(--bg3); }
 .settings-nav button.active { background: var(--accent-soft); color: var(--accent-text); font-weight: 650; }
 .settings-nav button.sub { padding-left: 24px; font-size: .94em; }
+.settings-nav button.active.has-sub { background: none; color: var(--fg); } /* the mailbox is the parent; its selected section carries the highlight */
+.nav-sub { margin: 0 0 4px 24px; padding-left: 4px; border-left: 1px solid var(--border); }
+.nav-sub button { padding: 5px 10px; font-size: .92em; }
+.nav-sub button.active { box-shadow: inset 3px 0 0 var(--accent); } /* selection is not carried by colour alone */
+.modal:focus { outline: none; }
 .settings-body { flex: 1; padding: 8px 26px 28px; overflow-y: auto; min-width: 0; }
 .settings-body h3 { margin: 16px 0 6px; font-size: 1.2em; font-weight: 650; }
 .settings-body h4 { margin: 18px 0 6px; font-size: 1em; }
@@ -375,7 +387,7 @@ button.att-chip:hover { background: var(--bg3); border-color: color-mix(in srgb,
 .mb-head h3 { margin: 0; }
 .mb-all { width: 36px; height: 36px; border-radius: 50%; background: var(--accent-soft); color: var(--accent-text); display: grid; place-items: center; font-size: 1.3em; font-weight: 700; flex: none; }
 .mb-body { margin-top: 6px; }
-.set-row { display: flex; align-items: center; justify-content: space-between; gap: 18px; padding: 10px 0; border-bottom: 1px solid var(--border); border-radius: 6px; }
+.set-row { display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 14px 0; border-bottom: 1px solid var(--border); border-radius: 6px; }
 .set-lbl { flex: 1; min-width: 0; }
 .set-ctl { display: flex; align-items: center; gap: 8px; max-width: 62%; }
 .set-ctl input:not([type]), .set-ctl input[type="text"] { width: 260px; }
@@ -387,10 +399,14 @@ button.att-chip:hover { background: var(--bg3); border-color: color-mix(in srgb,
 button.ov-tag { cursor: pointer; }
 button.ov-tag:hover { background: color-mix(in srgb, var(--accent), transparent 82%); }
 .inh-title { margin: 14px 0 6px; text-transform: uppercase; letter-spacing: .06em; font-weight: 650; font-size: .74em; }
-.set-card { border: 1px solid var(--border); border-radius: var(--r-md); padding: 14px 16px; margin: 12px 0; background: var(--bg); box-shadow: var(--shadow-sm); }
+.set-card { border: 1px solid var(--border); border-radius: var(--r-md); padding: 14px 16px; margin: 16px 0; background: var(--bg); box-shadow: var(--shadow-sm); }
 .set-card-head { display: flex; gap: 10px; align-items: center; }
 .set-card h4 { margin-top: 0; }
-.form { display: flex; flex-direction: column; gap: 7px; margin-top: 8px; }
+.form { display: flex; flex-direction: column; gap: 4px; margin-top: 8px; }
+.form.set-card { margin-top: 18px; } /* editor card under its "New ..." button */ /* label -> its field: 4px */
+.form > :not(label:not(.switch)) + :not(label:not(.switch)) { margin-top: 16px; } /* switch rows, hints, editors and the action-button row: >= 16px (+4 gap) from whatever precedes them */
+.form > label:not(.switch):not(:first-child) { margin-top: 16px; } /* field -> next label: 4 + 16 = 20px, so a label clearly belongs to the field below it */
+.form > label:not(.switch) + .row-inline { margin-top: 0; }
 .form label { font-size: .86em; color: var(--muted); }
 .list-row { display: flex; gap: 12px; align-items: center; padding: 10px 12px; border: 1px solid var(--border); border-radius: var(--r-md); margin-bottom: 6px; cursor: pointer; transition: background .12s, border-color .12s; }
 .list-row:hover { background: var(--bg2); border-color: color-mix(in srgb, var(--border), var(--fg) 15%); }
@@ -435,7 +451,7 @@ button.ov-tag:hover { background: color-mix(in srgb, var(--accent), transparent 
 .ap-read h4 { margin: 0 0 8px; font-size: 1.05em; }
 .ap-from { display: flex; align-items: center; gap: 8px; margin-bottom: 8px; }
 .ap-read p { margin: 0 0 8px; line-height: 1.5; }
-.shuffle { display: inline-flex; align-items: center; gap: 5px; margin-top: 8px; min-height: 24px; }
+.shuffle { display: inline-flex; align-items: center; gap: 5px; margin-top: 16px; min-height: 24px; }
 
 /* sweep + original */
 .sweep-search { width: 100%; margin: 8px 0; }
