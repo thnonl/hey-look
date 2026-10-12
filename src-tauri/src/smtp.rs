@@ -15,6 +15,18 @@ pub struct Att {
     pub data_base64: String,
 }
 
+/// A picture placed in the message body. The HTML refers to it as `cid:<cid>`; it is sent as a related part
+/// (Content-ID + Content-Disposition: inline), so it is not listed as an attachment.
+#[derive(Serialize, Deserialize, Clone, Debug)]
+#[serde(rename_all = "camelCase")]
+pub struct InlineImage {
+    /// Content-ID without angle brackets.
+    pub cid: String,
+    pub filename: String,
+    pub mime: String,
+    pub data_base64: String,
+}
+
 #[derive(Serialize, Deserialize, Clone, Debug)]
 #[serde(rename_all = "camelCase")]
 pub struct Draft {
@@ -33,6 +45,8 @@ pub struct Draft {
     pub references: Vec<String>,
     #[serde(default)]
     pub attachments: Vec<Att>,
+    #[serde(default)]
+    pub inline: Vec<InlineImage>,
 }
 
 fn mailbox(s: &str) -> R<Mailbox> {
@@ -60,9 +74,19 @@ pub fn build(acc: &Account, d: &Draft) -> R<Message> {
     if !d.references.is_empty() {
         b = b.references(d.references.join(" "));
     }
-    let alt = MultiPart::alternative()
-        .singlepart(SinglePart::plain(d.text.clone()))
-        .singlepart(SinglePart::html(d.html.clone()));
+    // text/plain + text/html (+ related pictures), then the real attachments
+    let html = SinglePart::html(d.html.clone());
+    let alt = if d.inline.is_empty() {
+        MultiPart::alternative().singlepart(SinglePart::plain(d.text.clone())).singlepart(html)
+    } else {
+        let mut related = MultiPart::related().singlepart(html);
+        for img in &d.inline {
+            let bytes = base64::engine::general_purpose::STANDARD.decode(&img.data_base64).map_err(err)?;
+            let ct = ContentType::parse(&img.mime).unwrap_or_else(|_| ContentType::parse("application/octet-stream").unwrap());
+            related = related.singlepart(Attachment::new_inline_with_name(img.cid.clone(), img.filename.clone()).body(bytes, ct));
+        }
+        MultiPart::alternative().singlepart(SinglePart::plain(d.text.clone())).multipart(related)
+    };
     let msg = if d.attachments.is_empty() {
         b.multipart(alt)
     } else {
@@ -127,4 +151,101 @@ pub fn test(acc: &Account, secret: &str) -> R<()> {
 /// Same as `build`; lettre only needs recipients at send time, so incomplete drafts are fine.
 pub fn build_draft(acc: &Account, d: &Draft) -> R<Message> {
     build(acc, d)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn account() -> Account {
+        Account {
+            id: "a1".into(),
+            email: "me@example.com".into(),
+            display_name: "Me".into(),
+            imap_host: "imap.example.com".into(),
+            imap_port: 993,
+            imap_ssl: true,
+            smtp_host: "smtp.example.com".into(),
+            smtp_port: 465,
+            smtp_security: "ssl".into(),
+            username: "me@example.com".into(),
+            auth: "password".into(),
+            color: None,
+            smtp_username: String::new(),
+            tls_insecure: false,
+        }
+    }
+
+    fn draft(html: &str, inline: Vec<InlineImage>, attachments: Vec<Att>) -> Draft {
+        Draft {
+            account_id: "a1".into(),
+            to: vec!["ann@example.com".into()],
+            cc: vec![],
+            bcc: vec![],
+            subject: "Pictures".into(),
+            html: html.into(),
+            text: "Hello".into(),
+            in_reply_to: None,
+            references: vec![],
+            attachments,
+            inline,
+        }
+    }
+
+    fn pic(cid: &str) -> InlineImage {
+        InlineImage {
+            cid: cid.into(),
+            filename: "logo.png".into(),
+            mime: "image/png".into(),
+            data_base64: base64::engine::general_purpose::STANDARD.encode([137u8, 80, 78, 71]),
+        }
+    }
+
+    fn text(m: &Message) -> String {
+        String::from_utf8_lossy(&m.formatted()).into_owned()
+    }
+
+    #[test]
+    fn inline_picture_is_a_related_part_with_content_id() {
+        let d = draft("<p>Logo <img src=\"cid:logo@heylook\" alt=\"Logo\"></p>", vec![pic("logo@heylook")], vec![]);
+        let out = text(&build(&account(), &d).unwrap());
+        assert!(out.contains("multipart/related"), "related wrapper present");
+        assert!(out.contains("multipart/alternative"), "text and html alternatives present");
+        assert!(out.contains("Content-ID: <logo@heylook>"), "content id header: {out}");
+        assert!(out.contains("Content-Disposition: inline"), "inline disposition");
+        assert!(out.contains("cid:logo@heylook"));
+        assert!(!out.contains("Content-Disposition: attachment"), "pictures are not attachments");
+    }
+
+    #[test]
+    fn real_attachments_stay_separate_from_inline_pictures() {
+        let att = Att { filename: "report.pdf".into(), mime: "application/pdf".into(), data_base64: "JVBERi0=".into() };
+        let d = draft("<p>x</p>", vec![pic("logo@heylook")], vec![att]);
+        let out = text(&build(&account(), &d).unwrap());
+        assert!(out.contains("multipart/mixed"));
+        assert!(out.contains("Content-Disposition: attachment"));
+        assert!(out.contains("filename=\"report.pdf\""));
+        assert!(out.contains("Content-ID: <logo@heylook>"));
+    }
+
+    #[test]
+    fn draft_without_pictures_has_no_related_part() {
+        let out = text(&build(&account(), &draft("<p>plain</p>", vec![], vec![])).unwrap());
+        assert!(!out.contains("multipart/related"));
+        assert!(!out.contains("Content-ID"));
+    }
+
+    #[test]
+    fn bad_picture_data_is_an_error_not_a_silent_drop() {
+        let mut img = pic("x@heylook");
+        img.data_base64 = "!!not base64!!".into();
+        assert!(build(&account(), &draft("<p>x</p>", vec![img], vec![])).is_err());
+    }
+
+    #[test]
+    fn draft_json_without_inline_field_still_deserializes() {
+        let json = r#"{"accountId":"a1","to":["a@b.c"],"subject":"s","html":"<p>x</p>","text":"x"}"#;
+        let d: Draft = serde_json::from_str(json).unwrap();
+        assert!(d.inline.is_empty());
+    }
 }

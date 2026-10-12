@@ -108,6 +108,36 @@ pub struct AttMeta {
     pub name: String,
     pub mime: String,
     pub size: usize,
+    /// The part carries a Content-ID (embedded picture or other cid part).
+    #[serde(default)]
+    pub inline: bool,
+    /// Content-ID without angle brackets.
+    #[serde(default)]
+    pub cid: Option<String>,
+    /// The HTML body refers to the part as `cid:<cid>`.
+    #[serde(default)]
+    pub referenced: bool,
+}
+
+/// Inline pictures up to this size are embedded in the stored HTML at sync time. Larger ones stay as `cid:`
+/// references and are fetched on demand (`inline_part`), so nothing is dropped.
+pub const INLINE_SYNC_MAX: usize = 2_000_000;
+
+fn part_cid(part: &mail_parser::MessagePart) -> Option<String> {
+    part.content_id().map(|c| c.trim().trim_matches(['<', '>']).to_string()).filter(|c| !c.is_empty())
+}
+
+fn part_mime(part: &mail_parser::MessagePart) -> String {
+    part.content_type()
+        .map(|c| format!("{}/{}", c.ctype(), c.subtype().unwrap_or("octet-stream")))
+        .unwrap_or_else(|| "application/octet-stream".into())
+}
+
+fn default_name(i: usize, mime: &str) -> String {
+    match mime.strip_prefix("image/") {
+        Some(ext) => format!("picture-{}.{}", i + 1, ext.split(['+', ';']).next().unwrap_or("img")),
+        None => format!("attachment-{}", i + 1),
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -182,28 +212,23 @@ pub fn parse(uid: u32, raw: &[u8], seen: bool, flagged: bool, fallback_date: i64
     let mut html = m.body_html(0).map(|s| s.to_string());
     let text = m.body_text(0).map(|s| s.to_string());
 
-    // attachments + inline cid images (embedded as data: URIs, max 2 MB each)
+    // Every part is kept (never silently dropped). Referenced inline pictures up to INLINE_SYNC_MAX are embedded
+    // as data: URIs; the rest keep their cid: reference and are loaded on demand.
     let mut attachments = vec![];
     for (i, part) in m.attachments().enumerate() {
-        let mime = part
-            .content_type()
-            .map(|c| format!("{}/{}", c.ctype(), c.subtype().unwrap_or("octet-stream")))
-            .unwrap_or_else(|| "application/octet-stream".into());
+        let mime = part_mime(part);
         let size = part.contents().len();
-        if let (Some(cid), Some(h)) = (part.content_id(), html.as_mut()) {
-            if mime.starts_with("image/") && size <= 2_000_000 {
-                let cid = cid.trim_matches(['<', '>']);
-                let uri = format!(
-                    "data:{mime};base64,{}",
-                    base64::engine::general_purpose::STANDARD.encode(part.contents())
-                );
-                *h = h.replace(&format!("cid:{cid}"), &uri);
-                continue;
-            }
+        let cid = part_cid(part);
+        let referenced = match (&cid, &html) {
+            (Some(c), Some(h)) => h.contains(&format!("cid:{c}")),
+            _ => false,
+        };
+        if let (true, Some(c), Some(h)) = (referenced && mime.starts_with("image/") && size <= INLINE_SYNC_MAX, &cid, html.as_mut()) {
+            let uri = format!("data:{mime};base64,{}", base64::engine::general_purpose::STANDARD.encode(part.contents()));
+            *h = h.replace(&format!("cid:{c}"), &uri);
         }
-        if let Some(name) = part.attachment_name() {
-            attachments.push(AttMeta { index: i, name: name.to_string(), mime, size });
-        }
+        let name = part.attachment_name().map(|s| s.to_string()).unwrap_or_else(|| default_name(i, &mime));
+        attachments.push(AttMeta { index: i, name, mime, size, inline: cid.is_some(), cid, referenced });
     }
 
     let basis = text.clone().unwrap_or_else(|| html.as_deref().map(strip_html).unwrap_or_default());
@@ -237,7 +262,8 @@ pub fn parse(uid: u32, raw: &[u8], seen: bool, flagged: bool, fallback_date: i64
 pub fn attachment_bytes(raw: &[u8], index: usize) -> R<(String, Vec<u8>)> {
     let m = MessageParser::default().parse(raw).ok_or("cannot parse message")?;
     let part = m.attachments().nth(index).ok_or("attachment not found")?;
-    let name = part.attachment_name().unwrap_or("attachment").to_string();
+    // same fallback name as the metadata (AttMeta.name), so a saved file and its card agree
+    let name = part.attachment_name().map(|s| s.to_string()).unwrap_or_else(|| default_name(index, &part_mime(part)));
     Ok((name, part.contents().to_vec()))
 }
 
@@ -360,4 +386,103 @@ pub fn append(s: &mut Sess, folder: &str, raw: &[u8], draft: bool) -> R<()> {
     };
     s.append_with_flags(folder, raw, &flags).map_err(err)?;
     Ok(())
+}
+
+/// One inline (cid) part of a raw message: (mime, bytes, file name).
+pub fn inline_part(raw: &[u8], cid: &str) -> R<(String, Vec<u8>, String)> {
+    let m = MessageParser::default().parse(raw).ok_or("cannot parse message")?;
+    for (i, part) in m.attachments().enumerate() {
+        if part_cid(part).as_deref() == Some(cid) {
+            let mime = part_mime(part);
+            let name = part.attachment_name().map(|s| s.to_string()).unwrap_or_else(|| default_name(i, &mime));
+            return Ok((mime, part.contents().to_vec(), name));
+        }
+    }
+    Err(format!("picture missing from this message (cid:{cid})"))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn related_msg(cid: &str, png: &[u8], extra_part: &str, html_ref: bool) -> Vec<u8> {
+        let b64 = base64::engine::general_purpose::STANDARD.encode(png);
+        let img = if html_ref { format!("<img src=\"cid:{cid}\" alt=\"logo\">") } else { "no pictures".into() };
+        format!(
+            "From: Ann <ann@example.com>\r\nTo: me@example.com\r\nSubject: Pics\r\nMessage-ID: <m1@example.com>\r\nDate: Mon, 12 Oct 2026 09:00:00 +0000\r\n\
+MIME-Version: 1.0\r\nContent-Type: multipart/mixed; boundary=\"MIX\"\r\n\r\n\
+--MIX\r\nContent-Type: multipart/related; boundary=\"REL\"\r\n\r\n\
+--REL\r\nContent-Type: text/html; charset=utf-8\r\n\r\n<p>Hi</p>{img}\r\n\
+--REL\r\nContent-Type: image/png\r\nContent-Transfer-Encoding: base64\r\nContent-ID: <{cid}>\r\nContent-Disposition: inline\r\n\r\n{b64}\r\n\
+--REL--\r\n{extra_part}\
+--MIX--\r\n"
+        )
+        .into_bytes()
+    }
+
+    const PNG: &[u8] = &[0x89, b'P', b'N', b'G', 1, 2, 3, 4];
+
+    #[test]
+    fn small_referenced_picture_is_embedded_and_listed() {
+        let raw = related_msg("logo@x", PNG, "", true);
+        let p = parse(1, &raw, true, false, 0).expect("parses");
+        let html = p.html.expect("html body");
+        assert!(html.contains("data:image/png;base64,"), "cid replaced with data uri: {html}");
+        assert!(!html.contains("cid:logo@x"));
+        assert_eq!(p.attachments.len(), 1);
+        let a = &p.attachments[0];
+        assert!(a.inline && a.referenced);
+        assert_eq!(a.cid.as_deref(), Some("logo@x"));
+        assert_eq!(a.name, "picture-1.png", "pictures without a file name get a name");
+    }
+
+    #[test]
+    fn large_referenced_picture_is_kept_as_cid_not_dropped() {
+        let big = vec![7u8; INLINE_SYNC_MAX + 10];
+        let raw = related_msg("big@x", &big, "", true);
+        let p = parse(2, &raw, true, false, 0).expect("parses");
+        let html = p.html.expect("html body");
+        assert!(html.contains("cid:big@x"), "large picture stays a cid reference");
+        assert_eq!(p.attachments.len(), 1, "large picture is still listed");
+        assert_eq!(p.attachments[0].size, big.len());
+        assert!(p.attachments[0].referenced);
+        let (mime, bytes, _) = inline_part(&raw, "big@x").expect("fetchable on demand");
+        assert_eq!(mime, "image/png");
+        assert_eq!(bytes, big);
+    }
+
+    #[test]
+    fn unreferenced_inline_part_is_listed_as_attachment() {
+        let extra = "--MIX\r\nContent-Type: image/jpeg; name=\"whiteboard.jpg\"\r\nContent-Transfer-Encoding: base64\r\nContent-ID: <orphan@x>\r\nContent-Disposition: inline; filename=\"whiteboard.jpg\"\r\n\r\naGVsbG8=\r\n";
+        let raw = related_msg("logo@x", PNG, extra, true);
+        let p = parse(3, &raw, true, false, 0).expect("parses");
+        let orphan = p.attachments.iter().find(|a| a.cid.as_deref() == Some("orphan@x")).expect("orphan kept");
+        assert!(!orphan.referenced);
+        assert!(orphan.inline);
+        assert_eq!(orphan.name, "whiteboard.jpg");
+        assert!(p.html.unwrap().contains("data:image/png"), "referenced logo still embedded");
+    }
+
+    #[test]
+    fn text_only_message_with_inline_picture_keeps_it() {
+        let raw = format!(
+            "From: Ann <ann@example.com>\r\nTo: me@example.com\r\nSubject: Plain\r\nMIME-Version: 1.0\r\nContent-Type: multipart/related; boundary=\"R\"\r\n\r\n\
+--R\r\nContent-Type: text/plain\r\n\r\nSee attached picture\r\n\
+--R\r\nContent-Type: image/png\r\nContent-Transfer-Encoding: base64\r\nContent-ID: <p@x>\r\n\r\n{}\r\n--R--\r\n",
+            base64::engine::general_purpose::STANDARD.encode(PNG)
+        );
+        let p = parse(4, raw.as_bytes(), true, false, 0).expect("parses");
+        assert!(!p.html.unwrap_or_default().contains("cid:p@x"), "nothing references the picture");
+        assert_eq!(p.attachments.len(), 1, "inline part of a text-only message is listed");
+        assert!(!p.attachments[0].referenced);
+    }
+
+    #[test]
+    fn attachment_bytes_and_inline_part_agree_on_index() {
+        let raw = related_msg("logo@x", PNG, "", true);
+        let (name, bytes) = attachment_bytes(&raw, 0).expect("index 0");
+        assert_eq!(bytes, PNG);
+        assert_eq!(name, "picture-1.png");
+        assert!(inline_part(&raw, "missing@x").is_err());
+    }
 }
