@@ -734,7 +734,9 @@ pub fn invite_for(c: &Connection, account_id: &str, message_id: &str, folder: &s
                 if r.status == "cancelled" {
                     inv.cancelled = true;
                 }
-                if r.source_message_id.as_deref() == Some(message_id) {
+                // every copy of this version of the invitation (Inbox and All Mail hold the same message) shows the change: the
+                // event is the same (account + UID, the row above) and so is the SEQUENCE; older copies are "outdated"
+                if r.sequence == ev.sequence {
                     if let Some(p) = r.prev.as_deref().and_then(|p| serde_json::from_str::<serde_json::Value>(p).ok()) {
                         let (ps, pe) = (p["start"].as_i64().unwrap_or(r.start), p["end"].as_i64().unwrap_or(r.end));
                         let pl = p["location"].as_str().map(|s| s.to_string());
@@ -1002,6 +1004,11 @@ pub fn forget_prepared(c: &Connection, payload: &str) {
     }
 }
 
+/// True when this very answer (with no new comment) was already sent for the event row.
+fn already_answered(row: &CalEvent, partstat: &str, comment: Option<&str>) -> bool {
+    row.my_status.as_deref() == Some(partstat) && row.responded_at.is_some() && comment.map(|c| c.trim().is_empty()).unwrap_or(true)
+}
+
 pub fn respond(db: &Db, message_id: &str, response: &str, comment: Option<String>, send: bool) -> R<CalInvite> {
     let partstat = match response {
         "accepted" | "tentative" | "declined" => response,
@@ -1016,6 +1023,7 @@ pub fn respond(db: &Db, message_id: &str, response: &str, comment: Option<String
     }
     // the answer is stored for, and sent from, the account that received the invitation (with several accounts in one app,
     // another account named in the attendee list got its own copy of the message and answers that one)
+    let mut skip_send = false;
     let acc = {
         let c = lock(db);
         let acc = db::get_account(&c, &account_id)?;
@@ -1024,15 +1032,26 @@ pub fn respond(db: &Db, message_id: &str, response: &str, comment: Option<String
         let calendar = format!("invites:{}", acc.id);
         let rid = ev.recurrence_id.map(|r| r.to_string()).unwrap_or_default();
         if let Some(mut row) = find(&c, &calendar, &ev.uid, &rid) {
+            let already = already_answered(&row, partstat, comment.as_deref());
             row.my_status = Some(partstat.to_string());
-            row.responded_at = None;
+            if !already {
+                row.responded_at = None;
+            }
+            // your own attendee row shows the answer too
+            let me = acc.email.trim().to_ascii_lowercase();
+            for a in row.attendees.iter_mut().filter(|a| a.email.trim().to_ascii_lowercase() == me) {
+                a.status = partstat.to_string();
+            }
             save_row(&c, &row)?;
+            skip_send = already;
         }
         acc
     };
     let who_acc = acc.clone();
     mark_dirty();
-    if send {
+    // the same message sits in several folders (Inbox, All Mail): answering the same way from another copy does not mail the
+    // organizer a second time
+    if send && !skip_send {
         let to = ev.organizer.as_ref().map(|o| o.email.clone()).unwrap_or(from_email.clone());
         let me = Person { email: who_acc.email.to_ascii_lowercase(), name: Some(display_name(&who_acc)) };
         let reply = ical::reply_event(&ev, &me, partstat, comment.as_deref(), now());
@@ -2013,6 +2032,74 @@ END:VCALENDAR
         assert_eq!(inv.start, e.start + 7200);
         assert!(!inv.outdated);
         assert_eq!(inv.you.unwrap().status, "needs-action", "answer reset by the update");
+    }
+
+    /// Gmail stores one message twice (Inbox and All Mail): the reading pane may open either copy.
+    #[test]
+    fn every_stored_copy_of_an_update_shows_the_same_card_and_answers_once() {
+        let c = two_accounts();
+        let b = acct(&c, B_ID);
+        let e = organize(&c, vec![att(B_MAIL, None)]);
+        let v0 = request_ics(&e);
+        put_for(&c, "m0-inbox", B_ID, "inbox", A_MAIL, &v0);
+        put_for(&c, "m0-all", B_ID, "archive", A_MAIL, &v0);
+        ingest(&c, &b, "m0-inbox", A_MAIL, &v0, false).unwrap();
+        let (moved, _) = save_local(
+            &c,
+            &CalEventInput {
+                id: Some(e.id.clone()),
+                account_id: Some(A_ID.into()),
+                summary: e.summary.clone(),
+                start: e.start + 3600,
+                end: e.end + 3600,
+                all_day: false,
+                tzid: None,
+                location: Some("Room 2".into()),
+                description: None,
+                attendees: vec![att(B_MAIL, None)],
+                rrule: None,
+                reminder_min: None,
+            },
+        )
+        .unwrap();
+        let v1 = request_ics(&moved);
+        put_for(&c, "m1-inbox", B_ID, "inbox", A_MAIL, &v1);
+        put_for(&c, "m1-all", B_ID, "archive", A_MAIL, &v1);
+        // the Inbox copy is the one that was ingested ...
+        assert!(ingest(&c, &b, "m1-inbox", A_MAIL, &v1, false).unwrap().changed);
+        // ... the All Mail copy of the same message is the same card
+        let inbox = invite_for(&c, B_ID, "m1-inbox", "inbox", A_MAIL, &v1, false);
+        let all = invite_for(&c, B_ID, "m1-all", "archive", A_MAIL, &v1, false);
+        let (ci, ca) = (inbox.changed.expect("inbox copy shows the change"), all.changed.expect("All Mail copy shows the change"));
+        assert_eq!(ci.fields, ca.fields);
+        assert_eq!(ci.fields, vec!["time".to_string(), "location".to_string()]);
+        assert_eq!(ca.previous.start, e.start);
+        assert_eq!(all.event_id, inbox.event_id);
+        assert!(!all.outdated && !inbox.outdated);
+        // copies of the superseded version are outdated and show no change
+        let old = invite_for(&c, B_ID, "m0-all", "archive", A_MAIL, &v0, false);
+        assert!(old.outdated);
+        assert!(old.changed.is_none());
+        // answering from the All Mail copy: stored once on the one event; B's own attendee row follows
+        let db: crate::Db = std::sync::Arc::new(std::sync::Mutex::new(c));
+        let after = respond(&db, "m1-all", "accepted", None, false).unwrap();
+        assert_eq!(after.responded.as_ref().map(|r| r.status.as_str()), Some("accepted"));
+        {
+            let c = lock(&db);
+            let row = get_event(&c, after.event_id.as_deref().unwrap()).unwrap();
+            assert_eq!(row.my_status.as_deref(), Some("accepted"));
+            assert_eq!(row.attendees.iter().find(|x| x.email == B_MAIL).unwrap().status, "accepted", "own attendee row updated");
+            assert_eq!(c.query_row("SELECT COUNT(*) FROM events WHERE calendar_id=?1", [format!("invites:{B_ID}")], |r| r.get::<_, i64>(0)).unwrap(), 1);
+            // pretend the answer went out, then the same answer from the other copy must not be mailed again
+            c.execute("UPDATE events SET responded_at=?1 WHERE id=?2", params![now(), row.id]).unwrap();
+            assert!(already_answered(&get_event(&c, &row.id).unwrap(), "accepted", None));
+            assert!(!already_answered(&get_event(&c, &row.id).unwrap(), "declined", None));
+            assert!(!already_answered(&get_event(&c, &row.id).unwrap(), "accepted", Some("see you")));
+        }
+        // send = true would reach SMTP; no error here proves nothing was sent
+        let again = respond(&db, "m1-inbox", "accepted", None, true).expect("no second mail for the same answer");
+        assert_eq!(again.responded.as_ref().map(|r| r.status.as_str()), Some("accepted"));
+        assert!(again.responded.unwrap().sent_at.is_some());
     }
 
     #[test]
