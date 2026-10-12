@@ -10,6 +10,7 @@ mod oauth_page;
 mod openpgp;
 mod pgpmail;
 mod pgpstore;
+mod rawcache;
 use oauth::Provider;
 mod schedule;
 mod shell;
@@ -1744,13 +1745,17 @@ fn fetch_raw_for(db: &Db, message_id: &str) -> R<(Vec<u8>, String)> {
     if let Some(raw) = kept {
         return Ok((raw, att));
     }
-    let acc = db::get_account(&lock(db), &acct)?;
-    let sec = secret(db, &acc)?;
-    let name = fmap(db, &acct).get(&role).cloned().ok_or("folder unknown")?;
-    let mut s = mail::connect(&acc, &sec)?;
-    let raw = mail::fetch_raw(&mut s, &name, uid)?;
-    let _ = s.logout();
-    Ok((raw, att))
+    // downloaded once per session (bounded, see rawcache.rs): the second picture or click of the same message is instant
+    let raw = rawcache::get_or_fetch(message_id, || {
+        let acc = db::get_account(&lock(db), &acct)?;
+        let sec = secret(db, &acc)?;
+        let name = fmap(db, &acct).get(&role).cloned().ok_or("folder unknown")?;
+        let mut s = mail::connect(&acc, &sec)?;
+        let raw = mail::fetch_raw(&mut s, &name, uid)?;
+        let _ = s.logout();
+        Ok::<_, String>(raw)
+    })?;
+    Ok((raw.as_ref().clone(), att))
 }
 
 /// The message as it is read: encrypted PGP mail is decrypted (in memory), so attachment indexes and the
