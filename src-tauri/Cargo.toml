@@ -41,6 +41,9 @@ urlencoding = "2.1.3"
 fontdue = "0.9"
 hickory-resolver = "0.26.3"
 roxmltree = "0.21.1"
+pgp = { version = "0.21", default-features = false }
+rand08 = { package = "rand", version = "0.8" }
+smallvec = "1"
 
 [target.'cfg(windows)'.dependencies]
 tauri-winrt-notification = "0.8"
