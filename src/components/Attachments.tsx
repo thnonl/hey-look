@@ -120,22 +120,50 @@ async function confirmRisky(name: string, sender: string): Promise<"open" | "sav
   return choice === "open" ? "open" : choice === "save" ? "save" : "cancel";
 }
 
+/** Hooks of a caller that shows progress (the attachment card). */
+interface OpenHooks {
+  onError?: (msg: string) => void;
+  /** a question is shown (risky file): the card is not "opening" while it waits, nor after Cancel */
+  onAsk?: () => void;
+  /** the answer was "Open anyway": the open is running again */
+  onResume?: () => void;
+  /** "Save instead" saved the file here */
+  onSaved?: (path: string) => void;
+}
+
 /** Open a saved attachment with the default app (temp copy). */
-export async function openAttachment(m: Pick<MessageFull, "id" | "fromEmail">, a: AttMeta, onError?: (msg: string) => void): Promise<void> {
+export async function openAttachment(m: Pick<MessageFull, "id" | "fromEmail">, a: AttMeta, hooks: OpenHooks | ((msg: string) => void) = {}): Promise<void> {
+  const h: OpenHooks = typeof hooks === "function" ? { onError: hooks } : hooks;
   const st = useStore.getState();
+  const fail = (what: string, e: unknown, retry: () => void) => {
+    const msg = `${what} ${a.name}: ${friendlyError(e)}`;
+    if (h.onError) h.onError(msg);
+    else st.showToast(msg, undefined, "error", [{ label: "Retry", run: retry }]);
+  };
   const attempt = async (confirmed: boolean): Promise<void> => {
     try {
       await api.attachmentOpen(m.id, a.index, confirmed);
     } catch (e) {
       if (errorCode(e) === "ATT_RISKY" && st.prefs.warnExecutables) {
+        h.onAsk?.();
         const c = await confirmRisky(a.name, m.fromEmail);
-        if (c === "open") return attempt(true);
-        if (c === "save") return void (await saveQuick(m, a, () => undefined));
+        if (c === "open") {
+          h.onResume?.();
+          return attempt(true);
+        }
+        if (c === "save") {
+          try {
+            await saveQuick(m, a, (path) => {
+              h.onSaved?.(path);
+              savedToast(path, a.name);
+            });
+          } catch (er) {
+            fail("Couldn’t save", er, () => void openAttachment(m, a));
+          }
+        }
         return;
       }
-      const msg = `Couldn’t open ${a.name}: ${friendlyError(e)}`;
-      if (onError) onError(msg);
-      else st.showToast(msg, undefined, "error", [{ label: "Retry", run: () => void openAttachment(m, a) }]);
+      fail("Couldn’t open", e, () => void openAttachment(m, a));
     }
   };
   await attempt(false);
@@ -154,16 +182,24 @@ export async function saveAs(m: Pick<MessageFull, "id">, a: AttMeta, onDone: (pa
   if (path) onDone(path);
 }
 
+const folderName = (path: string) => {
+  const folder = path.replace(/[\/][^\/]*$/, "");
+  return folder.split(/[\/]/).filter(Boolean).pop() ?? folder;
+};
+
+/** Plain "saved" toast (no automatic open: used after a risky file was saved instead of opened, and by the preview's Save as). */
+function savedToast(path: string, name: string) {
+  useStore.getState().showToast(`Saved ${name} to ${folderName(path)}`, undefined, "success", [{ label: "Show in folder", run: () => void api.attachmentReveal(path).catch(() => undefined) }]);
+}
+
 /** Toast after a save, following the "After saving" setting. */
-function afterSave(path: string, name: string, m: MessageFull, a: AttMeta) {
+function afterSave(path: string, name: string, m: Pick<MessageFull, "id" | "fromEmail">, a: AttMeta) {
   const st = useStore.getState();
-  const folder = path.replace(/[\\/][^\\/]*$/, "");
-  const folderName = folder.split(/[\\/]/).filter(Boolean).pop() ?? folder;
   const reveal = { label: "Show in folder", run: () => void api.attachmentReveal(path).catch(() => undefined) };
   const open = { label: "Open", run: () => void openAttachment(m, a) };
   if (st.prefs.afterSave === "reveal") return void api.attachmentReveal(path).catch(() => undefined);
   if (st.prefs.afterSave === "open") return void openAttachment(m, a);
-  st.showToast(`Saved ${name} to ${folderName}`, undefined, "success", [open, reveal]);
+  st.showToast(`Saved ${name} to ${folderName(path)}`, undefined, "success", [open, reveal]);
 }
 
 // ---------------------------------------------------------------- card
@@ -201,9 +237,12 @@ export function AttachmentCard({ m, a }: { m: MessageFull; a: AttMeta }) {
 
   const open = () => {
     setSt((s) => ({ ...s, status: "busy", label: "Opening…" }));
-    void openAttachment(m, a, (msg) => setSt({ status: "error", error: msg })).finally(() =>
-      setSt((s) => (s.status === "busy" ? { status: "idle" } : s)),
-    );
+    void openAttachment(m, a, {
+      onError: (msg) => setSt({ status: "error", error: msg }),
+      onAsk: () => setSt({ status: "idle" }),
+      onResume: () => setSt((s) => ({ ...s, status: "busy", label: "Opening…" })),
+      onSaved: (path) => setSt({ status: "done", path }),
+    }).finally(() => setSt((s) => (s.status === "busy" ? { status: "idle" } : s)));
   };
 
   const attachToNew = async () => {
@@ -497,7 +536,7 @@ export function PreviewDialog({ m, items, start, onClose }: { m: MessageFull; it
             </span>
           )}
           <button className="btn small" onClick={() => void openAttachment(m, cur)}><ExternalLink size={13} /> Open</button>
-          <button className="btn small" onClick={() => void saveAs(m, cur, () => undefined)}><Download size={13} /> Save as…</button>
+          <button className="btn small" onClick={() => void saveAs(m, cur, (p) => savedToast(p, cur.name)).catch((e) => useStore.getState().showToast(`Couldn’t save ${cur.name}: ${friendlyError(e)}`, undefined, "error"))}><Download size={13} /> Save as…</button>
           <button className="icon-btn" aria-label="Close preview" onClick={onClose}><X size={16} /></button>
         </div>
         <div className="pv-stage">
