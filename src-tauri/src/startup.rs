@@ -10,9 +10,17 @@
 //! not come within `READY_WAIT`, the window is shown anyway (the person sees something and can close it) and the page is reloaded,
 //! up to `MAX_RELOADS` times. Every stage leaves one line on stderr and in `startup.log` in the data folder (the release app has
 //! no console, so the file is the only record).
+//!
+//! Round 10 (QA BUG-11): the blank windows of QA rounds 5 and 6 were a web view whose browser process had died, and the death came
+//! with the pixel check below (a `PrintWindow` capture that crashes the process on a PC with an overlay hook), see `webview_health.rs`
+//! for the evidence. The harness numbers above also come from screenshots, so they may be the same effect. What this file does now:
+//! the looks after a show ask the process and the window manager instead of reading pixels (the pixel read is a switch, off), a
+//! failure event of the web view restarts the app when the browser process is gone, and the escalation (re-assert the web view,
+//! hide + show, reload, restart) is bounded and says in `startup.log` which step cured the window or failed.
+use crate::webview_health::{self, BrowserState, Reaction};
 use std::io::Write;
 use std::sync::atomic::{AtomicBool, AtomicU32, Ordering};
-use std::sync::OnceLock;
+use std::sync::{Mutex, OnceLock};
 use std::time::{Duration, Instant};
 use tauri::{AppHandle, Manager};
 
@@ -60,9 +68,26 @@ pub fn watch(ready: impl Fn() -> bool, mut sleep: impl FnMut(Duration), mut on: 
 
 /// The data folder, for the log file (set once at start-up, so code that has no `AppHandle` can log too).
 static LOG_DIR: OnceLock<std::path::PathBuf> = OnceLock::new();
+/// Lines written before the data folder is known (the wait for the previous run's web view runs before the app exists).
+static EARLY: Mutex<Vec<String>> = Mutex::new(Vec::new());
 
 pub fn init_log_dir(dir: std::path::PathBuf) {
-    let _ = LOG_DIR.set(dir);
+    if LOG_DIR.set(dir.clone()).is_ok() {
+        let early = std::mem::take(&mut *EARLY.lock().unwrap_or_else(|p| p.into_inner()));
+        for l in early {
+            append(&dir, &l);
+        }
+    }
+}
+
+fn append(dir: &std::path::Path, line: &str) {
+    let path = dir.join("startup.log");
+    if std::fs::metadata(&path).map(|m| m.len() > LOG_CAP).unwrap_or(false) {
+        let _ = std::fs::remove_file(&path);
+    }
+    if let Ok(mut f) = std::fs::OpenOptions::new().create(true).append(true).open(path) {
+        let _ = writeln!(f, "{line}");
+    }
 }
 
 /// One line per event: `[tag +ms]` (milliseconds since the process started), on stderr and in `<data folder>/startup.log` (capped).
@@ -70,13 +95,14 @@ pub fn line(tag: &str, what: &str) {
     let ms = T0.get_or_init(Instant::now).elapsed().as_millis();
     let line = format!("[{tag} +{ms} ms] {what}");
     eprintln!("{line}");
-    let Some(dir) = LOG_DIR.get() else { return };
-    let path = dir.join("startup.log");
-    if std::fs::metadata(&path).map(|m| m.len() > LOG_CAP).unwrap_or(false) {
-        let _ = std::fs::remove_file(&path);
-    }
-    if let Ok(mut f) = std::fs::OpenOptions::new().create(true).append(true).open(path) {
-        let _ = writeln!(f, "{line}");
+    match LOG_DIR.get() {
+        Some(dir) => append(dir, &line),
+        None => {
+            let mut early = EARLY.lock().unwrap_or_else(|p| p.into_inner());
+            if early.len() < 100 {
+                early.push(line);
+            }
+        }
     }
 }
 
@@ -153,36 +179,80 @@ pub fn is_blank(samples: impl IntoIterator<Item = [u8; 3]>) -> bool {
     true
 }
 
-/// When, after the window was shown, its pixels are looked at (seconds). The black window was seen only in screenshots taken 2.5 s
-/// or later after the window appeared; a check at 1.5 s alone found content every time (450 of 450 launches, 4 of which were black
-/// a second later), so the window is looked at again later: a web view that attached to the previous run's dying browser process
-/// goes wrong when that process exits, a few seconds after the relaunch.
-pub const PAINT_CHECKS_MS: [u64; 4] = [1500, 2500, 4000, 8000];
+/// When, after a window was shown, the web view is looked at (ms after the show), and whether the look reads the window's pixels.
+///
+/// QA BUG-11 (evidence in `webview_health.rs`): reading the window's pixels with `PrintWindow(PW_RENDERFULLCONTENT)`, the way a
+/// screenshot does, asks the web view's browser process to render the window for the capture. On the QA PC, where a graphics overlay
+/// hook (`RTSSHooks64.dll`) sits in that process, the call stalled for 0.3 to 0.9 s and the browser process crashed (an access violation
+/// in the hook) in 3 of 3 blank starts of round 6, exactly at the capture 2.5 s after the show; the window stayed white for good. The
+/// check that was meant to find a blank window was making it. So by default no look reads pixels: the looks ask the process (still
+/// running?) and the window manager (is the web view's own window there, how big, visible?), neither of which sends the browser
+/// process anything, and the failure event of `webview_health` reports a death at once. The pixel read stays as a diagnostic that is
+/// switched on with `HEYLOOK_PIXEL_CHECK=1` (a machine without such hooks, a QA run that wants it).
+const LOOKS_MS: [u64; 5] = [1500, 2500, 4000, 8000, 15000];
+/// After a step of the escalation (it needs an answer sooner).
+const STEP_LOOKS_MS: [u64; 2] = [1500, 4000];
 
-/// Windows: look at the window's pixels at `PAINT_CHECKS_MS` after it was shown (the way a screenshot does); one colour means a
-/// black window, and the window is hidden and shown again, at most `MAX_REMEDIES` times. Runs on its own thread.
+/// Whether the diagnostic pixel read is on (`HEYLOOK_PIXEL_CHECK=1`).
+fn pixel_check_enabled() -> bool {
+    std::env::var("HEYLOOK_PIXEL_CHECK").is_ok_and(|v| v == "1")
+}
+
+/// The looks of a run: `(ms after the show, reads pixels)`. Pixels only when the diagnostic is on, and never in the first seconds.
+pub fn schedule(in_ladder: bool, pixels_on: bool) -> Vec<(u64, bool)> {
+    let times: &[u64] = if in_ladder { &STEP_LOOKS_MS } else { &LOOKS_MS };
+    times.iter().map(|&ms| (ms, pixels_on && (in_ladder || ms >= 8000))).collect()
+}
+
+/// Set once the escalation has started: later looks use `STEP_LOOKS_MS`.
+static IN_LADDER: AtomicBool = AtomicBool::new(false);
+/// The step taken last, until a look says whether it helped.
+static LAST_STEP: Mutex<Option<&'static str>> = Mutex::new(None);
+
+/// The step the last escalation took, if no look has judged it yet (taken: it is judged once).
+fn judged_step() -> Option<&'static str> {
+    LAST_STEP.lock().unwrap_or_else(|p| p.into_inner()).take()
+}
+
+/// Look at the web view at the times of `schedule` after the window was shown, on its own thread: a browser process that is gone (or,
+/// with the diagnostic on, a window of one colour) starts the escalation. A healthy window is only looked at.
 pub fn verify_painting(app: &AppHandle) {
     if !cfg!(windows) {
         return;
     }
     let app = app.clone();
     std::thread::spawn(move || {
+        let looks = schedule(IN_LADDER.load(Ordering::SeqCst), pixel_check_enabled());
         let mut at = 0;
-        for ms in PAINT_CHECKS_MS {
+        for (ms, pixels) in looks {
             std::thread::sleep(Duration::from_millis(ms - at));
             at = ms;
             let shown = app.get_webview_window("main").map(|w| w.is_visible().unwrap_or(false) && !w.is_minimized().unwrap_or(false)).unwrap_or(false);
             if !shown {
                 return; // hidden to the tray or minimized meanwhile: nothing to look at
             }
-            match window_paints(&app) {
+            let state = webview_health::browser_state();
+            let child = webview_health::child_info(&app).unwrap_or_else(|| "no web view window found".into());
+            if let BrowserState::Exited(_) = state {
+                stage(Some(&app), &format!("native check at {ms} ms: the web view's browser process is gone ({}); {child}", state.text()));
+                escalate(&app, true);
+                return;
+            }
+            if !pixels {
+                stage(Some(&app), &format!("native check at {ms} ms: the web view is running (browser process {}; {child})", state.text()));
+                continue;
+            }
+            let started = Instant::now();
+            let painted = window_paints(&app);
+            let took = started.elapsed().as_millis();
+            match painted {
                 Some(true) => {
-                    let cured = REMEDIES.load(Ordering::SeqCst) > 0;
-                    stage(Some(&app), &format!("native check at {ms} ms: the window shows content{}", if cured { " (the hide + show cured the black window)" } else { "" }));
+                    let cured = judged_step().map(|s| format!(" (cured by: {s})")).unwrap_or_default();
+                    stage(Some(&app), &format!("native check at {ms} ms: the window shows content{cured}"));
                 }
                 Some(false) => {
-                    stage(Some(&app), &format!("native check at {ms} ms: one colour only (black or blank window)"));
-                    escalate(&app);
+                    stage(Some(&app), &format!("native check at {ms} ms: one colour only (black or blank window); capture took {took} ms; browser process {}; {child}", state.text()));
+                    escalate(&app, false);
                     return;
                 }
                 None => stage(Some(&app), &format!("native check at {ms} ms: the window could not be captured")),
@@ -191,43 +261,178 @@ pub fn verify_painting(app: &AppHandle) {
     });
 }
 
-/// The app restarts itself for a blank window at most once in ten minutes (a restart that is blank again must not loop).
-pub fn restart_allowed(last_restart: Option<i64>, now: i64) -> bool {
-    last_restart.map_or(true, |t| now - t > 600 || now < t)
+/// How often the app restarts itself for a dead or blank web view within `RESTART_WINDOW_S` (a restart that fails the same way
+/// again must not loop for ever).
+pub const MAX_RESTARTS: usize = 3;
+const RESTART_WINDOW_S: i64 = 600;
+
+/// Whether another restart is allowed: fewer than `MAX_RESTARTS` of them in the last ten minutes (`history` = unix seconds of the
+/// earlier ones).
+pub fn restart_allowed(history: &[i64], now: i64) -> bool {
+    history.iter().filter(|&&t| now >= t && now - t <= RESTART_WINDOW_S).count() < MAX_RESTARTS
 }
 
-/// The ladder when the window shows one colour: hide + show (twice), then reload the page, then restart the app once. QA BUG-11: a
-/// start where two hide + show attempts did not cure a blank window (the page was alive, the native surface was not). Each step logs
-/// its own line; every step but the last starts the pixel checks again.
-fn escalate(app: &AppHandle) {
-    let n = REMEDIES.load(Ordering::SeqCst);
-    if n < MAX_REMEDIES {
-        hide_and_show(app, "blank window"); // its show starts the checks again
-    } else if n == MAX_REMEDIES {
-        REMEDIES.store(n + 1, Ordering::SeqCst);
-        stage(Some(app), "still one colour after hide + show: reloading the page");
-        if let Some(w) = app.get_webview_window("main") {
-            let _ = w.eval("window.location.reload()");
+/// The restart times kept in `blank-restart.txt` (whitespace-separated unix seconds; an old file holds one).
+pub fn parse_history(text: &str) -> Vec<i64> {
+    text.split_whitespace().filter_map(|t| t.parse().ok()).collect()
+}
+
+/// One restart at a time (the failure event and a look can see the same dead process).
+static RESTARTING: AtomicBool = AtomicBool::new(false);
+/// Set when the app itself is closing: the web view's processes then end by design.
+static EXITING: AtomicBool = AtomicBool::new(false);
+
+pub fn mark_exiting() {
+    EXITING.store(true, Ordering::SeqCst);
+}
+
+/// Restart the app, unless it did so `MAX_RESTARTS` times in the last ten minutes (then the window is left as it is). Messages in
+/// their Undo time are safe in the outbox, queued actions are flushed first. The new process waits for this one and for the web
+/// view processes it leaves behind (`webview_health::wait_for_previous_run`).
+fn restart_app(app: &AppHandle, why: &str) {
+    if RESTARTING.swap(true, Ordering::SeqCst) || EXITING.load(Ordering::SeqCst) {
+        return;
+    }
+    let marker = LOG_DIR.get().map(|d| d.join("blank-restart.txt"));
+    let history = marker.as_ref().and_then(|m| std::fs::read_to_string(m).ok()).map(|t| parse_history(&t)).unwrap_or_default();
+    let now = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_secs() as i64).unwrap_or(0);
+    if !restart_allowed(&history, now) {
+        stage(Some(app), &format!("{why}: the app already restarted {MAX_RESTARTS} times in the last ten minutes: leaving the window as it is"));
+        RESTARTING.store(false, Ordering::SeqCst);
+        return;
+    }
+    let mut kept: Vec<i64> = history.into_iter().filter(|&t| now >= t && now - t <= RESTART_WINDOW_S).collect();
+    stage(Some(app), &format!("{why}: restarting the app (restart {} of {MAX_RESTARTS} allowed in ten minutes; messages in their Undo time are kept in the outbox)", kept.len() + 1));
+    kept.push(now);
+    if let Some(m) = &marker {
+        let _ = std::fs::write(m, kept.iter().map(|t| t.to_string()).collect::<Vec<_>>().join("\n"));
+    }
+    crate::flush_pending(app);
+    // the new process waits for this one to be gone, and for its web view processes, so it does not join a dying browser process
+    // SAFETY: set right before the process is replaced; nothing else reads the variable meanwhile
+    unsafe { std::env::set_var(webview_health::RELAUNCH_ENV, std::process::id().to_string()) };
+    app.restart();
+}
+
+/// How often a page process that died is answered with a reload in one run.
+const MAX_PAGE_RELOADS: u32 = 3;
+static PAGE_RELOADS: AtomicU32 = AtomicU32::new(0);
+
+/// The web view reported that one of its processes failed (`webview_health::watch`). Logged with everything the runtime says; a dead
+/// browser process (the web view is gone for good) restarts the app, a dead page process reloads the page.
+pub fn web_view_failed(app: &AppHandle, kind: i32, detail: &str) {
+    if EXITING.load(Ordering::SeqCst) {
+        return; // the app is closing: its web view's processes end on purpose
+    }
+    let what = webview_health::kind_name(kind);
+    stage(Some(app), &format!("web view: {what}{}", if detail.is_empty() { String::new() } else { format!(" ({detail})") }));
+    let app = app.clone();
+    match webview_health::reaction(kind) {
+        Reaction::Restart => {
+            std::thread::spawn(move || restart_app(&app, "the web view's browser process is gone"));
         }
-        verify_painting(app); // checks again after the reload
-    } else if n == MAX_REMEDIES + 1 {
-        REMEDIES.store(n + 1, Ordering::SeqCst);
-        let marker = LOG_DIR.get().map(|d| d.join("blank-restart.txt"));
-        let last = marker.as_ref().and_then(|m| std::fs::read_to_string(m).ok()).and_then(|t| t.trim().parse::<i64>().ok());
-        let now = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_secs() as i64).unwrap_or(0);
-        if restart_allowed(last, now) {
-            stage(Some(app), "still one colour after the reload: restarting the app once (messages in their Undo time are kept in the outbox)");
-            // the marker tells the new process that this was a restart for a blank window: it does not restart again
-            if let Some(m) = &marker {
-                let _ = std::fs::write(m, now.to_string());
+        Reaction::Reload => {
+            std::thread::spawn(move || {
+                if PAGE_RELOADS.fetch_add(1, Ordering::SeqCst) < MAX_PAGE_RELOADS {
+                    stage(Some(&app), "a page process of the web view died: reloading the page");
+                    if let Some(w) = app.get_webview_window("main") {
+                        let _ = w.eval("window.location.reload()");
+                    }
+                } else {
+                    stage(Some(&app), "a page process of the web view died again: not reloading again");
+                }
+            });
+        }
+        Reaction::LogOnly => {}
+    }
+}
+
+/// The steps of the escalation for a window that shows nothing, in order, each at most once (hide + show twice).
+#[derive(Debug, PartialEq, Clone, Copy)]
+pub enum Step {
+    /// Tell the web view controller to take up its visibility, position and bounds again (no flicker).
+    Reassert,
+    /// Hide the window and show it again.
+    HideShow,
+    /// Load the page again.
+    Reload,
+    /// Restart the app.
+    Restart,
+    GiveUp,
+}
+
+#[derive(Default)]
+pub struct Ladder {
+    reasserted: bool,
+    reloaded: bool,
+    restarted: bool,
+}
+
+impl Ladder {
+    /// The next step. A dead browser process skips straight to the restart (nothing else can revive it); otherwise re-assert, hide +
+    /// show (`hide_shows` done so far, at most `MAX_REMEDIES`), reload, restart.
+    pub fn next(&mut self, hide_shows: u32, browser_gone: bool) -> Step {
+        if browser_gone && !self.restarted {
+            self.restarted = true;
+            return Step::Restart;
+        }
+        if !self.reasserted {
+            self.reasserted = true;
+            return Step::Reassert;
+        }
+        if hide_shows < MAX_REMEDIES {
+            return Step::HideShow; // the counter is raised by `hide_and_show`
+        }
+        if !self.reloaded {
+            self.reloaded = true;
+            return Step::Reload;
+        }
+        if !self.restarted {
+            self.restarted = true;
+            return Step::Restart;
+        }
+        Step::GiveUp
+    }
+}
+
+static LADDER: Mutex<Ladder> = Mutex::new(Ladder { reasserted: false, reloaded: false, restarted: false });
+
+fn took_step(name: &'static str) {
+    *LAST_STEP.lock().unwrap_or_else(|p| p.into_inner()) = Some(name);
+}
+
+/// The window shows one colour, or the web view's browser process is gone. Each step logs its own line, and the line that follows
+/// says whether it cured the window or failed; every step but the last starts the looks again.
+fn escalate(app: &AppHandle, browser_gone: bool) {
+    IN_LADDER.store(true, Ordering::SeqCst);
+    if let Some(prev) = judged_step() {
+        stage(Some(app), &format!("after \"{prev}\": still blank"));
+    }
+    let step = LADDER.lock().unwrap_or_else(|p| p.into_inner()).next(REMEDIES.load(Ordering::SeqCst), browser_gone);
+    match step {
+        Step::Reassert => {
+            stage(Some(app), "blank window: re-asserting the web view (visibility, position, bounds)");
+            took_step("re-asserting the web view");
+            webview_health::reassert(app);
+            verify_painting(app);
+        }
+        Step::HideShow => {
+            took_step("hide + show");
+            hide_and_show(app, "blank window"); // its show starts the looks again
+        }
+        Step::Reload => {
+            stage(Some(app), "still blank after hide + show: reloading the page");
+            took_step("reloading the page");
+            if let Some(w) = app.get_webview_window("main") {
+                let _ = w.eval("window.location.reload()");
             }
-            crate::flush_pending(app);
-            app.restart();
-        } else {
-            stage(Some(app), "still one colour after the reload, and the app already restarted for this a moment ago: leaving the window as it is");
+            verify_painting(app); // looks again after the reload
         }
-    } else {
-        stage(Some(app), "still one colour after every attempt: leaving the window as it is");
+        Step::Restart => {
+            let why = if browser_gone { "the web view's browser process is gone" } else { "still blank after the reload" };
+            restart_app(app, why);
+        }
+        Step::GiveUp => stage(Some(app), "still blank after every step: leaving the window as it is"),
     }
 }
 
@@ -283,6 +488,8 @@ fn window_paints(_app: &AppHandle) -> Option<bool> {
 /// Start watching: show the window when the page is ready (`show_at_start`: not a tray-only start), reload it when it never is.
 pub fn start(app: &AppHandle, show_at_start: bool) {
     stage(Some(app), &format!("window created hidden (show at start: {show_at_start})"));
+    // which browser process the web view uses (joined from an earlier run or its own), and a listener for its failures
+    webview_health::watch(app);
     let app = app.clone();
     std::thread::spawn(move || {
         watch(
@@ -388,25 +595,82 @@ mod tests {
     }
 
     #[test]
-    fn the_app_restarts_for_a_blank_window_at_most_once_in_ten_minutes() {
-        assert!(restart_allowed(None, 1000));
-        assert!(!restart_allowed(Some(1000), 1100), "a restart that is blank again must not loop");
-        assert!(restart_allowed(Some(1000), 1700));
-        assert!(restart_allowed(Some(5000), 100), "a marker from the future (clock changed) does not block");
+    fn the_app_restarts_for_a_dead_or_blank_web_view_at_most_three_times_in_ten_minutes() {
+        assert!(restart_allowed(&[], 1000));
+        assert!(restart_allowed(&[1000], 1100));
+        assert!(restart_allowed(&[1000, 1050], 1100));
+        assert!(!restart_allowed(&[1000, 1050, 1090], 1100), "a restart that fails the same way again must not loop");
+        assert!(restart_allowed(&[1000, 1050, 1090], 1700), "the oldest one is more than ten minutes ago");
+        assert!(restart_allowed(&[5000, 5100, 5200], 100), "markers from the future (clock changed) do not block");
+        assert_eq!(MAX_RESTARTS, 3);
     }
 
     #[test]
-    fn the_ladder_is_hide_show_twice_then_reload_then_restart() {
-        let src = include_str!("startup.rs");
-        let esc = &src[src.find("fn escalate").expect("escalate")..];
-        let esc = &esc[..esc.find("
-}
-").unwrap()];
-        let hide = esc.find("hide_and_show").unwrap();
-        let reload = esc.find("location.reload").unwrap();
-        let restart = esc.find("app.restart()").unwrap();
-        assert!(hide < reload && reload < restart, "{esc}");
+    fn the_restart_marker_reads_old_and_new_files() {
+        assert_eq!(parse_history("1000"), vec![1000], "the one-time-stamp file of round 9");
+        assert_eq!(parse_history("1000\n1050\r\n1090\n"), vec![1000, 1050, 1090]);
+        assert_eq!(parse_history("garbage 7 x"), vec![7]);
+        assert!(parse_history("").is_empty());
+    }
+
+    #[test]
+    fn the_ladder_is_reassert_then_hide_show_twice_then_reload_then_restart_then_give_up() {
+        let mut l = Ladder::default();
+        assert_eq!(l.next(0, false), Step::Reassert);
+        assert_eq!(l.next(0, false), Step::HideShow);
+        assert_eq!(l.next(1, false), Step::HideShow);
+        assert_eq!(l.next(MAX_REMEDIES, false), Step::Reload);
+        assert_eq!(l.next(MAX_REMEDIES, false), Step::Restart);
+        assert_eq!(l.next(MAX_REMEDIES, false), Step::GiveUp);
+        assert_eq!(l.next(MAX_REMEDIES, false), Step::GiveUp, "bounded: nothing after the last step");
         assert_eq!(MAX_REMEDIES, 2);
+    }
+
+    #[test]
+    fn a_dead_browser_process_goes_straight_to_the_restart_because_nothing_else_can_revive_it() {
+        let mut l = Ladder::default();
+        assert_eq!(l.next(0, true), Step::Restart);
+        // the restart was refused (three in ten minutes): the rest of the ladder still runs, once
+        assert_eq!(l.next(0, true), Step::Reassert);
+        assert_eq!(l.next(0, true), Step::HideShow);
+    }
+
+    #[test]
+    fn by_default_no_look_reads_the_windows_pixels_because_that_capture_crashes_the_web_view_on_some_pcs() {
+        for in_ladder in [false, true] {
+            let looks = schedule(in_ladder, false);
+            assert!(!looks.is_empty() && looks.iter().all(|(_, px)| !px), "{in_ladder}: {looks:?}");
+            assert!(looks.windows(2).all(|w| w[0].0 < w[1].0), "in time order");
+        }
+        // the diagnostic: pixels only later in a normal run (never in the first seconds), at once after a step of the escalation
+        let on = schedule(false, true);
+        assert!(on.iter().filter(|(ms, _)| *ms < 8000).all(|(_, px)| !px), "{on:?}");
+        assert!(on.iter().any(|(_, px)| *px), "{on:?}");
+        assert!(schedule(true, true).iter().all(|(_, px)| *px));
+        // and the capture is behind the switch in the code
+        let src = include_str!("startup.rs").replace('\r', "");
+        let code = &src[..src.find("#[cfg(test)]\nmod tests").unwrap()];
+        let call = code.find("let painted = window_paints(&app);").expect("the capture call");
+        assert!(code[..call].rfind("if !pixels {").is_some(), "the capture is only reached by a look that asks for pixels");
+    }
+
+    #[test]
+    fn a_failure_log_line_names_what_failed_and_the_log_survives_before_the_data_folder_is_known() {
+        // lines written before `init_log_dir` (the wait for the previous run) are kept and written once the folder is known
+        let dir = std::env::temp_dir().join(format!("heylook-early-log-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        EARLY.lock().unwrap().clear();
+        {
+            let mut e = EARLY.lock().unwrap();
+            e.push("[webview +1 ms] early line".into());
+        }
+        // LOG_DIR is a process-wide OnceLock: this test only checks the flush helper on its own folder
+        for l in std::mem::take(&mut *EARLY.lock().unwrap()) {
+            append(&dir, &l);
+        }
+        let text = std::fs::read_to_string(dir.join("startup.log")).unwrap();
+        assert!(text.contains("[webview +1 ms] early line"));
+        let _ = std::fs::remove_dir_all(&dir);
     }
 
     #[test]

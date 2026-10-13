@@ -306,6 +306,7 @@ src-tauri/src/           Rust backend
 - Mail servers must offer SSL/TLS or STARTTLS; servers that only accept unencrypted connections can't be added.
 - Hey Look! doesn't create missing standard folders. On a server without a Drafts, Sent, Archive or Deleted Items folder, the actions that need that folder show an error.
 - If Hey Look! is closed by force (an installer, Task Manager, a crash) while you are writing, the unsaved text is lost; a message you already sent is kept and goes out at the next start.
+- Windows: overlay tools that hook into other programs' graphics (for example RivaTuner Statistics Server, which comes with MSI Afterburner) can crash the web view that draws Hey Look!. The window then turns blank a few seconds after it appeared; Hey Look! notices, writes the cause to `startup.log` in its data folder and restarts itself (at most three times in ten minutes). If it keeps happening, exclude `hey-look.exe` and `msedgewebview2.exe` in that tool.
 - macOS: notifications are not shown in this version because the app is not signed with an Apple Developer ID. New mail still shows in the app and in the menu-bar icon.
 - Mail is fetched by polling (default every 2 minutes), not IMAP IDLE push
 - Search covers mail downloaded to this computer

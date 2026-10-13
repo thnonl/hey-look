@@ -21,6 +21,7 @@ mod snippet;
 mod update;
 mod winframe;
 mod startup;
+mod webview_health;
 mod winproc;
 
 use base64::Engine;
@@ -3457,6 +3458,9 @@ async fn ai_list_models(endpoint: String, key: Option<String>) -> R<Vec<String>>
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     startup::init_clock();
+    // a restart or an installer relaunch starts this process while the previous run's web view processes are still going away: a web
+    // view created now would join them and die with them (see webview_health.rs)
+    webview_health::wait_for_previous_run();
     let builder = tauri::Builder::default();
     // macOS and Linux notifications (Windows has its own toasts in shell.rs)
     #[cfg(not(windows))]
@@ -3666,10 +3670,13 @@ pub fn run() {
                     api.prevent_exit();
                     return;
                 }
+                // from here the exit goes on: the web view's processes ending is no failure
+                startup::mark_exiting();
                 // a downloaded update the user chose to keep for later is installed now
                 update::install_on_exit(app);
             }
             tauri::RunEvent::Exit => {
+                startup::mark_exiting();
                 flush_pending(app);
                 update::install_on_exit(app);
             }

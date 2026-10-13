@@ -58,7 +58,7 @@ pub fn show_main(app: &AppHandle) {
         let _ = w.unminimize();
         let _ = w.show();
         let _ = w.set_focus();
-        // a window that was hidden (first show, a tray click after a --minimized start, a second start) is looked at for a black web view
+        // a window that was hidden (first show, a tray click after a --minimized start, a second start) is looked at: is the web view still running?
         if was_hidden {
             crate::startup::verify_painting(app);
         }

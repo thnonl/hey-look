@@ -2409,6 +2409,7 @@ dependencies = [
  "tokio",
  "urlencoding",
  "uuid",
+ "webview2-com",
  "windows",
  "windows-version",
  "zbus 5.19.0",
