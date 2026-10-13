@@ -20,7 +20,7 @@ pub fn prefs(db: &Db) -> Value {
         .unwrap_or(Value::Null)
 }
 
-fn pbool(v: &Value, k: &str, d: bool) -> bool {
+pub(crate) fn pbool(v: &Value, k: &str, d: bool) -> bool {
     v.get(k).and_then(|x| x.as_bool()).unwrap_or(d)
 }
 
@@ -57,6 +57,8 @@ pub fn show_main(app: &AppHandle) {
         let _ = w.unminimize();
         let _ = w.show();
         let _ = w.set_focus();
+        // the UI re-checks for updates when the window comes back (throttled in update.rs)
+        let _ = app.emit("app-shown", ());
     }
 }
 

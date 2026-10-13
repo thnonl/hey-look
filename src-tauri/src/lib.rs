@@ -17,6 +17,7 @@ mod shard;
 mod shell;
 mod smtp;
 mod snippet;
+mod update;
 mod winframe;
 
 use base64::Engine;
@@ -3257,7 +3258,8 @@ pub fn run() {
             set_secret,
             has_secret,
             ai_complete,
-            ai_list_models
+            ai_list_models,
+            update::check_update
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
