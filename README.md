@@ -48,7 +48,7 @@ can be turned off, see [Where your data lives](#where-your-data-lives).
 | **Settings that follow you** | One set of defaults for **All accounts**, and any mailbox can override any of them. |
 | **Search that goes deep** | Filters, operators, date pickers and a choice of scope: this folder, a whole mailbox, or everything. |
 | **Quiet by design** | Smart notifications, a calm unread badge, a tray icon that keeps working when the window is closed. |
-| **Private by default** | Remote images and trackers are blocked, passwords stay in Windows Credential Manager, no telemetry. The only call of its own is the optional check for a newer version (it asks GitHub; you can turn it off). |
+| **Private by default** | Remote images and trackers are blocked, passwords stay in Windows Credential Manager, no telemetry. The only call of its own is the check for a newer version (it asks github.com; you can turn it off). |
 
 ---
 
@@ -110,8 +110,8 @@ can be turned off, see [Where your data lives](#where-your-data-lives).
 - Optional start with Windows, minimized to the tray
 
 ### Updates
-- **Check for updates** in Settings > About, and automatically when the app starts or comes back from the tray (at most every 6 hours, can be turned off). A newer version shows a dot on the Settings button, one toast per version, and a card with the release notes and a **Download** button that opens the installer for your system in your browser. **Skip this version** hides the notice for that version.
-- Hey Look! never downloads or installs anything by itself
+- **Hey Look! updates itself after you agree.** It checks automatically when the app starts or comes back from the tray (at most every 6 hours, can be turned off) and on demand in Settings > About. A newer version shows a dot on the Settings button, one toast per version, and a card with the release notes. **Download and install** downloads the update with a progress bar while you keep working, checks its signature, and restarts Hey Look! into the new version (after a 5 second countdown you can cancel). If you are writing a message it asks first and saves your message as a draft; **Later** installs the update when you quit. **Skip this version** hides the notice for that version.
+- Only GitHub is asked, and nothing is downloaded until you agree. Every update package is signed; the app refuses anything that does not match its built-in public key
 
 ### Appearance
 - Light, dark or follow Windows; three densities; reading pane on the right or bottom; resizable panes
@@ -175,7 +175,7 @@ App-wide options (appearance, tray, shortcuts, AI Assistant, blocked senders) li
 ### Where your data lives
 - Mail cache and settings: `%APPDATA%\thnonl.heylook\heylook.db` (SQLite)
 - Passwords, OAuth tokens, the AI key and the OAuth client secrets: Windows Credential Manager (entries named `hey-look…`)
-- Nothing is sent anywhere except to your mail servers, Google's and Microsoft's sign-in services, the Thunderbird ISPDB and your own domain's autoconfig URL when you press **Detect settings**, the AI endpoint you configure, and `api.github.com` for the update check (GitHub sees your IP address and the app version; turn it off in Settings > About, "Check for updates automatically", and no automatic request is made).
+- Nothing is sent anywhere except to your mail servers, Google's and Microsoft's sign-in services, the Thunderbird ISPDB and your own domain's autoconfig URL when you press **Detect settings**, the AI endpoint you configure, and github.com for the update check (GitHub sees your IP address; when you agree to update, the installer is downloaded from github.com). Turn the check off in Settings > About, "Check for updates automatically", and no automatic request is made.
 
 ---
 
@@ -265,7 +265,7 @@ src-tauri/src/           Rust backend
   discover.rs            server-settings lookup (presets, autoconfig, ISPDB, DNS SRV / MX)
   winframe.rs            custom title bar on Windows: caption-button hit-testing (Snap Layouts), system menu
   shell.rs               tray icon, badges, native notifications, snooze reminders
-  update.rs              update check: latest GitHub release, version compare, installer pick, throttle
+  update.rs              updates: check (GitHub latest.json through the updater plugin), signed download with progress, install, restart
   ai.rs                  OpenAI-compatible chat client
   db.rs                  SQLite schema and settings storage
 ```
@@ -273,8 +273,12 @@ src-tauri/src/           Rust backend
 ### Releasing
 1. Bump the version to `X.Y.Z` in `package.json` (and `package-lock.json`), `src-tauri/tauri.conf.json` and `src-tauri/Cargo.toml` (then `cargo check` updates `Cargo.lock`), and add a `## X.Y.Z — <date>` section to `CHANGELOG.md` (no `xx` left in it).
 2. Dry run: Actions > Release > **Run workflow** on the branch (or `gh workflow run release.yml --ref <branch>`). It builds all three platforms and keeps the installers as workflow artifacts; no tag, no release.
-3. Tag the commit that passed: `git tag -a vX.Y.Z -m "Hey Look! X.Y.Z" && git push origin vX.Y.Z`. The workflow makes a draft release (notes from `CHANGELOG.md` plus `.github/release-footer.md`), uploads the installers, checks the file names and then publishes it as the latest release. If a build fails nothing is published: use "Re-run failed jobs" for a flaky step, or fix the code, delete the draft and the tag (`gh release delete vX.Y.Z --yes --cleanup-tag`, `git tag -d vX.Y.Z`) and tag again.
+3. Tag the commit that passed: `git tag -a vX.Y.Z -m "Hey Look! X.Y.Z" && git push origin vX.Y.Z`. The workflow makes a draft release (notes from `CHANGELOG.md` plus `.github/release-footer.md`), uploads the installers and their updater signatures (`.sig`), writes and checks `latest.json` (the manifest installed apps read), checks all file names and then publishes the release as the latest one. If a build fails nothing is published: use "Re-run failed jobs" for a flaky step, or fix the code, delete the draft and the tag (`gh release delete vX.Y.Z --yes --cleanup-tag`, `git tag -d vX.Y.Z`) and tag again.
 4. A published tag is never moved; fixes ship as the next version.
+
+**Signing.** Update packages are signed with a minisign key. The public key is in `src-tauri/tauri.conf.json` (`plugins.updater.pubkey`); the private key and its password exist only as the repo secrets `TAURI_SIGNING_PRIVATE_KEY` and `TAURI_SIGNING_PRIVATE_KEY_PASSWORD` and in the owner's backup. Never commit them or paste them anywhere. **If the key or its password is lost, installed apps can no longer update themselves** (people have to install a new build by hand). A tag run fails without the secret; a dry run without it builds unsigned (with a warning). Anyone with write access to the repo can read the secrets through a workflow, so keep write access to the owner.
+
+**Testing the updater.** Run the workflow by hand with the `test_version` input (for example `0.9.0`): it builds a debug test build of that version (unsigned, nothing committed). A debug build reads `HEYLOOK_UPDATE_ENDPOINT` (a URL of a `latest.json`, for example a local server) instead of GitHub; release builds ignore that variable.
 
 ### How it works
 - The UI never talks to a mail server. It calls Rust commands; the backend syncs IMAP folders into SQLite, and the UI
@@ -288,7 +292,7 @@ src-tauri/src/           Rust backend
 
 - Windows is the primary and supported platform; tray, notifications and badges use Windows APIs. The macOS and Linux builds are build-verified only (not tested on real hardware) and have fewer native integrations
 - The installers are not code-signed (see [Download](#download) for how to open them)
-- Updates are not installed by the app: it tells you and opens the download page in your browser
+- Updating needs permission on some systems: MSI installs ask for administrator rights (UAC), `.deb` and `.rpm` installs ask for your password. If an update cannot be installed, the app offers the download from GitHub instead
 - Mail is fetched by polling (default every 2 minutes), not IMAP IDLE push
 - Search covers mail downloaded to this computer
 - No shared inboxes; the calendar is local (no CalDAV / Exchange sync, single occurrences of a repeating event can't be edited)
