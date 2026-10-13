@@ -117,17 +117,21 @@ jobs:
             fi
             echo "extra=" >> "$GITHUB_OUTPUT"
             echo "pubkey=error" >> "$GITHUB_OUTPUT"
+            echo "signed=true" >> "$GITHUB_OUTPUT"
           elif [ -n "$TEST_VERSION" ]; then
             echo "Test build $TEST_VERSION (debug, no updater artifacts)"
             echo "extra=--debug $NOUPD" >> "$GITHUB_OUTPUT"
             echo "pubkey=error" >> "$GITHUB_OUTPUT"
+            echo "signed=false" >> "$GITHUB_OUTPUT"
           elif [ -n "$KEY" ]; then
             echo "extra=" >> "$GITHUB_OUTPUT"
             echo "pubkey=error" >> "$GITHUB_OUTPUT"
+            echo "signed=true" >> "$GITHUB_OUTPUT"
           else
             echo "::warning::Unsigned dry run: TAURI_SIGNING_PRIVATE_KEY is not set"
             echo "extra=$NOUPD" >> "$GITHUB_OUTPUT"
             echo "pubkey=warn" >> "$GITHUB_OUTPUT"
+            echo "signed=false" >> "$GITHUB_OUTPUT"
           fi
 
       # Test build only: the version of this checkout is changed (never committed).
@@ -169,6 +173,15 @@ jobs:
           # No retries while fixing the build (a real compile error would take twice as long); one on tag runs.
           retryAttempts: ${{ github.event_name == 'push' && 1 || 0 }}
           args: ${{ matrix.args }} ${{ steps.sign.outputs.extra }}
+
+      # tauri-action keeps only the installers as workflow artifacts: keep the updater signatures of a dry run too
+      - name: Keep the signatures of a dry run
+        if: github.event_name == 'workflow_dispatch'
+        uses: actions/upload-artifact@v4
+        with:
+          name: signatures-${{ runner.os }}
+          path: src-tauri/target/**/bundle/**/*.sig
+          if-no-files-found: ${{ steps.sign.outputs.signed == 'true' && 'error' || 'ignore' }}
 
       - name: Check ad-hoc signature
         if: runner.os == 'macOS'
