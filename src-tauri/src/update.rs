@@ -494,11 +494,30 @@ pub async fn run_check<R: Runtime>(app: &AppHandle<R>, db: &Db, busy: &AtomicBoo
     {
         let c = lock(db);
         let _ = db::set_setting(&c, "update_last_ok", if ok { "1" } else { "0" });
-        if matches!(r.kind, Kind::Available | Kind::UpToDate) {
-            if let Some(info) = &r.info {
-                let cache = serde_json::json!({ "current": ctx.current, "kind": r.kind, "info": info });
-                let _ = db::set_setting(&c, "update_cache", &cache.to_string());
+        match r.kind {
+            Kind::Available | Kind::UpToDate => {
+                if let Some(info) = &r.info {
+                    let cache = serde_json::json!({ "current": ctx.current, "kind": r.kind, "info": info });
+                    let _ = db::set_setting(&c, "update_cache", &cache.to_string());
+                }
             }
+            // GitHub answered that there is no release (any non-2xx): the offer is gone, and a later throttled / disabled answer
+            // must not bring it back
+            Kind::NoRelease => {
+                let _ = db::set_setting(&c, "update_cache", "");
+            }
+            // a failed check says nothing about the release: the offer the app already knows stays (never written back: the cache
+            // is only ever the last real answer)
+            Kind::Offline | Kind::Error => {
+                if let Some(cur) = parse_version(&ctx.current) {
+                    if let Some((Kind::Available, info)) = valid_cache(db::get_setting(&c, "update_cache").as_deref(), &cur) {
+                        r.info = Some(info);
+                        r.cached_kind = Some(Kind::Available);
+                        r.from_cache = true;
+                    }
+                }
+            }
+            _ => {}
         }
     }
     r
@@ -614,9 +633,35 @@ fn check_failure_reason(r: &UpdateResult) -> String {
     }
 }
 
+/// The fresh check that starts a download, and the rules that stop it before any package request: no update, a version other than the
+/// one the user agreed to (consent is per version: the card, possibly a cached offer, named `agreed`), a link outside the allow-list.
+/// Returns the update to download, or has already told the UI why not.
+async fn prepare_download<R: Runtime>(app: &AppHandle<R>, ctx: &Ctx, agreed: &str, emit: &Emit) -> Option<Update> {
+    let checked = check_once(app, ctx).await;
+    let Some(mut update) = checked.update else {
+        emit(DlEvent::Failed { stage: "download".into(), message: check_failure_reason(&checked.result) });
+        return None;
+    };
+    if !same_version(&update.version, agreed) {
+        emit(DlEvent::Failed { stage: "changed".into(), message: update.version.clone() });
+        return None;
+    }
+    if !update_url_ok(update.download_url.as_str(), &update.version, ctx.allow_local) {
+        emit(DlEvent::Failed { stage: "badurl".into(), message: String::new() });
+        return None;
+    }
+    update.timeout = None;
+    Some(update)
+}
+
+/// Whether two version strings name the same version (a `v` prefix and build metadata do not matter).
+fn same_version(a: &str, b: &str) -> bool {
+    matches!((parse_version(a), parse_version(b)), (Some(x), Some(y)) if x == y)
+}
+
 /// Download the update the user agreed to, with progress events on `on_event`; the verified package stays in memory.
 #[tauri::command]
-pub async fn update_download(app: AppHandle, state: tauri::State<'_, AppState>, upd: tauri::State<'_, UpdState>, on_event: Channel<DlEvent>) -> R<()> {
+pub async fn update_download(app: AppHandle, state: tauri::State<'_, AppState>, upd: tauri::State<'_, UpdState>, version: String, on_event: Channel<DlEvent>) -> R<()> {
     let Some(_flag) = try_flag(&upd.downloading) else { return Err("A download is already running.".into()) };
     upd.deferred.store(false, Ordering::SeqCst);
     let ch = on_event.clone();
@@ -629,16 +674,7 @@ pub async fn update_download(app: AppHandle, state: tauri::State<'_, AppState>, 
     let db = state.db.clone();
     let _ = db::set_setting(&lock(&db), "update_last_check", &ctx.now.to_string());
 
-    let checked = check_once(&app, &ctx).await;
-    let Some(mut update) = checked.update else {
-        emit(DlEvent::Failed { stage: "download".into(), message: check_failure_reason(&checked.result) });
-        return Ok(());
-    };
-    if !update_url_ok(update.download_url.as_str(), &update.version, ctx.allow_local) {
-        emit(DlEvent::Failed { stage: "badurl".into(), message: String::new() });
-        return Ok(());
-    }
-    update.timeout = None;
+    let Some(update) = prepare_download(&app, &ctx, &version, &emit).await else { return Ok(()) };
     match download_update(&update, emit.clone(), rx, STALL).await {
         Ok(bytes) => {
             *upd.ready.lock().unwrap_or_else(|p| p.into_inner()) = Some((update, bytes));
@@ -1281,6 +1317,103 @@ Content-Length: {}
         assert_eq!(db::get_setting(&lock(&db), "update_last_check").as_deref(), Some((1000 + 99999).to_string().as_str()));
         assert_eq!(run(&app, &db, &busy, &c, Trigger::Manual).kind, Kind::Available);
         assert_eq!(s.count("/latest.json"), 3);
+    }
+
+    /// The state of a user who saw 1.1.0 and now has no connection: a manual check fails and the offer stays.
+    fn db_with_offer(s: &Stub, app: &tauri::App<tauri::test::MockRuntime>) -> Db {
+        let db = new_db();
+        assert_eq!(run(app, &db, &AtomicBool::new(false), &ctx(&s.base, 1000, "1.0.0"), Trigger::Manual).kind, Kind::Available);
+        db
+    }
+
+    #[test]
+    fn a_failed_check_keeps_the_known_offer_and_never_rewrites_the_cache() {
+        let state = Arc::new(Mutex::new(0u8)); // 0 = ok, 1 = garbage, 2 = 404
+        let st = state.clone();
+        let s = stub(
+            move |_| match *st.lock().unwrap() {
+                0 => resp(http(200, &[], &manifest("1.1.0", "https://github.com/thnonl/hey-look/releases/download/v1.1.0/x.exe"))),
+                1 => resp(http(200, &[], "<html>captive portal</html>")),
+                _ => resp(http(404, &[], "")),
+            },
+            None,
+        );
+        let app = app_for(&format!("{}/latest.json", s.base));
+        let db = db_with_offer(&s, &app);
+        let cache_before = db::get_setting(&lock(&db), "update_cache");
+        let busy = AtomicBool::new(false);
+
+        // error answer (not JSON): the offer is carried, flagged as cached, and the cache is untouched
+        *state.lock().unwrap() = 1;
+        let r = run(&app, &db, &busy, &ctx(&s.base, 2000, "1.0.0"), Trigger::Manual);
+        assert_eq!(r.kind, Kind::Error);
+        assert_eq!((r.from_cache, r.cached_kind), (true, Some(Kind::Available)));
+        assert_eq!(r.info.as_ref().map(|i| i.latest.as_str()), Some("1.1.0"));
+        assert!(r.message.is_some());
+        assert_eq!(db::get_setting(&lock(&db), "update_cache"), cache_before);
+
+        // offline (nothing listens): same
+        let closed = {
+            let l = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+            format!("http://{}", l.local_addr().unwrap())
+        };
+        let dead_app = app_for(&format!("{closed}/latest.json"));
+        let r = run(&dead_app, &db, &busy, &ctx(&closed, 3000, "1.0.0"), Trigger::Manual);
+        assert_eq!((r.kind, r.from_cache, r.cached_kind), (Kind::Offline, true, Some(Kind::Available)));
+        assert_eq!(r.info.as_ref().map(|i| i.latest.as_str()), Some("1.1.0"));
+        assert_eq!(db::get_setting(&lock(&db), "update_cache"), cache_before);
+
+        // a cache for another running version, or one that is not newer, is never carried
+        let r = run(&dead_app, &db, &busy, &ctx(&closed, 4000, "1.1.0"), Trigger::Manual);
+        assert_eq!((r.kind, r.info, r.from_cache), (Kind::Offline, None, false));
+
+        // an upToDate cache is not carried either (the UI shows the red notice)
+        let db2 = new_db();
+        let s2 = manifest_stub(manifest("1.0.0", "https://github.com/x"));
+        let app2 = app_for(&format!("{}/latest.json", s2.base));
+        assert_eq!(run(&app2, &db2, &busy, &ctx(&s2.base, 1000, "1.0.0"), Trigger::Manual).kind, Kind::UpToDate);
+        let r = run(&dead_app, &db2, &busy, &ctx(&closed, 2000, "1.0.0"), Trigger::Manual);
+        assert_eq!((r.kind, r.info, r.from_cache), (Kind::Offline, None, false));
+
+        // no cache at all: nothing to carry
+        let r = run(&dead_app, &new_db(), &busy, &ctx(&closed, 2000, "1.0.0"), Trigger::Manual);
+        assert_eq!((r.kind, r.info), (Kind::Offline, None));
+
+        // GitHub answers "no release": the offer is gone and a later throttled answer does not bring it back
+        *state.lock().unwrap() = 2;
+        let r = run(&app, &db, &busy, &ctx(&s.base, 5000, "1.0.0"), Trigger::Manual);
+        assert_eq!((r.kind, r.info, r.from_cache), (Kind::NoRelease, None, false));
+        assert!(valid_cache(db::get_setting(&lock(&db), "update_cache").as_deref(), &v("1.0.0")).is_none());
+        let r = run(&app, &db, &busy, &ctx(&s.base, 5100, "1.0.0"), Trigger::Shown);
+        assert_eq!((r.kind, r.info, r.from_cache), (Kind::Throttled, None, false));
+    }
+
+    #[test]
+    fn a_download_only_fetches_the_version_the_user_agreed_to() {
+        let (s, app, _update) = update_for(|| resp(http(200, &[], "package")));
+        let c = ctx(&s.base, 1, "1.0.0");
+        let run_prepare = |agreed: &str| {
+            let (emit, events) = recorder();
+            let got = tauri::async_runtime::block_on(prepare_download(app.handle(), &c, agreed, &emit));
+            let ev = events.lock().unwrap().clone();
+            (got.map(|u| u.version), ev)
+        };
+        // the card's version equals the one found now (a "v" prefix does not matter): the download goes on
+        for agreed in ["1.1.0", "v1.1.0"] {
+            let (got, ev) = run_prepare(agreed);
+            assert_eq!(got.as_deref(), Some("1.1.0"));
+            assert!(ev.is_empty(), "{ev:?}");
+        }
+        let manifest_requests = s.count("/latest.json");
+        // another version: nothing is downloaded, and the UI is told which version GitHub has now
+        let (got, ev) = run_prepare("1.0.5");
+        assert_eq!(got, None);
+        assert_eq!(ev, vec![DlEvent::Failed { stage: "changed".into(), message: "1.1.0".into() }]);
+        assert_eq!(s.count("/latest.json"), manifest_requests + 1, "one fresh check");
+        assert_eq!(s.count("/HeyLook_1.1.0_windows_x64-setup.exe"), 0, "no package request");
+        // an unreadable version never matches
+        assert_eq!(run_prepare("").0, None);
+        assert!(same_version("1.2.3", "v1.2.3") && !same_version("1.2.3", "1.2.4") && !same_version("x", "x"));
     }
 
     #[test]

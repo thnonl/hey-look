@@ -61,9 +61,13 @@ interface UpdatesState {
   startupCheck: () => Promise<void>;
 }
 
-/** The kind that counts for the UI: `throttled` / `disabled` stand for what their cached info says. */
+/** A check that failed (offline / error) but carries the update the app already knew: the offer stays, with a quiet note. */
+export const isStaleOffer = (r: UpdateResult | null): boolean =>
+  !!r && (r.kind === "offline" || r.kind === "error") && !!r.info && r.cachedKind === "available";
+
+/** The kind that counts for the UI: `throttled` / `disabled` stand for what their cached info says, a stale offer for `available`. */
 export const updateKindOf = (r: UpdateResult | null): UpdateKind | null =>
-  !r ? null : r.kind === "throttled" || r.kind === "disabled" ? (r.info ? r.cachedKind ?? null : null) : r.kind;
+  !r ? null : r.kind === "throttled" || r.kind === "disabled" ? (r.info ? r.cachedKind ?? null : null) : isStaleOffer(r) ? "available" : r.kind;
 
 /** A download is running or a package waits: automatic checks stay quiet. */
 export const flowActive = (f: UpdateFlow) => f.state !== "idle" && f.state !== "failed";
@@ -133,9 +137,13 @@ export const useUpdates = create<UpdatesState>((set, get) => {
   const onEvent = (id: number, e: DlEvent) => {
     if (id !== runId || get().flow.state === "idle") return;
     switch (e.event) {
-      case "started":
+      case "started": {
         setFlow({ total: e.data.total, received: 0 });
+        // the check inside the download reached GitHub: the offer is real now, whatever the last check said (the note goes, and stays gone)
+        const u = get().update;
+        if (u && isStaleOffer(u)) set({ update: { ...u, kind: "available", message: null, fromCache: false, cachedKind: null } });
         break;
+      }
       case "progress": {
         const now = Date.now();
         ring.push({ t: now, b: e.data.received });
@@ -156,7 +164,14 @@ export const useUpdates = create<UpdatesState>((set, get) => {
         evaluateReady();
         break;
       case "failed":
-        fail(e.data.stage, e.data.message);
+        if (e.data.stage === "changed") {
+          // GitHub has another version than the card: nothing was downloaded; start over from a fresh answer (no failure state, no chip)
+          clearCountdown();
+          runId++;
+          set({ flow: IDLE });
+          useStore.getState().showToast(`The update on GitHub changed to ${e.data.message}. Nothing was downloaded.`, undefined, "info");
+          void get().checkUpdate("manual");
+        } else fail(e.data.stage, e.data.message);
         break;
       case "cancelled":
         break;
@@ -262,15 +277,21 @@ export const useUpdates = create<UpdatesState>((set, get) => {
           const prev = await inflight;
           if (prev && prev.kind !== "throttled" && prev.kind !== "disabled") return;
         }
-        const run = api.checkUpdate(trigger).catch((e): UpdateResult => ({
-          kind: "error",
-          current: get().update?.current ?? "",
-          platform: get().update?.platform ?? { os: "", arch: "", installer: "unknown", label: "your system" },
-          checkedAt: get().checkedAt,
-          message: friendlyError(e).replace(/\.$/, ""),
-          info: null,
-          fromCache: false,
-        }));
+        const run = api.checkUpdate(trigger).catch((e): UpdateResult => {
+          // the call itself failed: the offer the UI already shows stays (as for any failed check)
+          const known = get().update;
+          const offer = updateKindOf(known) === "available" ? known?.info ?? null : null;
+          return {
+            kind: "error",
+            current: known?.current ?? "",
+            platform: known?.platform ?? { os: "", arch: "", installer: "unknown", label: "your system" },
+            checkedAt: get().checkedAt,
+            message: friendlyError(e).replace(/\.$/, ""),
+            info: offer,
+            fromCache: !!offer,
+            cachedKind: offer ? "available" : null,
+          };
+        });
         inflight = run;
         const r = await run;
         inflight = null;
@@ -283,7 +304,7 @@ export const useUpdates = create<UpdatesState>((set, get) => {
           if (kind === "available" && latest) set({ toastFor: latest });
           // a newer version than the one downloaded (or that failed): forget the old package, offer the new one
           const f = get().flow;
-          if (kind === "available" && latest && f.version && f.version !== latest && f.state !== "idle" && f.state !== "downloading" && f.state !== "verifying" && f.state !== "installing") {
+          if (kind === "available" && !isStaleOffer(r) && latest && f.version && f.version !== latest && f.state !== "idle" && f.state !== "downloading" && f.state !== "verifying" && f.state !== "installing") {
             clearCountdown();
             toast(null);
             void api.updateDiscard().catch(() => undefined);
@@ -308,7 +329,8 @@ export const useUpdates = create<UpdatesState>((set, get) => {
       const st = useStore.getState();
       const v = pendingVersion(update, st.prefs.skippedUpdate);
       const info = update?.info;
-      if (!v || !info || toastFor === v || flowActive(flow) || !windowFocused()) return;
+      // a stale offer (the last check failed) is no news: no toast from it
+      if (!v || !info || toastFor === v || flowActive(flow) || !windowFocused() || isStaleOffer(update)) return;
       set({ toastFor: v });
       // stays until the user closes it (the × or Esc), no timer
       st.setStickyToast("update-available", {
@@ -333,7 +355,7 @@ export const useUpdates = create<UpdatesState>((set, get) => {
       useStore.getState().setStickyToast("update-available", null); // the announcement is answered
       useStore.getState().showToast(`Downloading Hey Look! ${info.latest}. You can keep working.`, undefined, "info");
       try {
-        await api.updateDownload((e) => onEvent(id, e));
+        await api.updateDownload(info.latest, (e) => onEvent(id, e));
       } catch (e) {
         if (id === runId && (get().flow.state === "downloading" || get().flow.state === "verifying")) fail("download", friendlyError(e));
       }

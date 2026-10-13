@@ -3,7 +3,7 @@ import { ReactNode, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { UpdateInfo, UpdateResult } from "../api";
 import { getVersion } from "@tauri-apps/api/app";
 import { useStore } from "../store";
-import { openUpdateLink, pct, updateKindOf, UpdateFlow, useUpdates } from "../updates";
+import { isStaleOffer, openUpdateLink, pct, updateKindOf, UpdateFlow, useUpdates } from "../updates";
 import { fmtDay, fmtSize, fmtWhen } from "../util";
 
 /** One line of release notes as plain text: markdown markers removed, links kept as their text, nothing is HTML. */
@@ -220,6 +220,9 @@ function UpdateCard({ info, result, skipped }: { info: UpdateInfo; result: Updat
           </div>
           {info.asset && <div className="muted small update-file">{info.asset.name}{sizeText}</div>}
           {info.asset && hint && <div className="muted small">{hint}</div>}
+          {info.asset && isStaleOffer(result) && (
+            <div className="muted small">Downloading needs an internet connection. If Hey Look! still can’t reach GitHub, it stops with a message and nothing is installed.</div>
+          )}
           <div className="small update-skip">
             {skipped ? (
               <>
@@ -274,7 +277,14 @@ export function UpdatesBlock({ privacy, autoSwitch }: { privacy: ReactNode; auto
       : mine === "deferred" ? "The update will be installed when you quit the app."
       : mine === "failed" ? failedText(flow)
       : `Hey Look! ${info.latest} is available.`;
-    live = <span className="sr-only">{line}</span>;
+    // a stale offer (the last check failed): the quiet note replaces the sr-only line, only while no download / restart is going on
+    if (isStaleOffer(update) && mine === "idle")
+      live = (
+        <p className="muted small">
+          {update.kind === "offline" ? "Couldn’t check for updates just now. You seem to be offline." : `Couldn’t check for updates just now${update.message ? `: ${update.message}` : ""}.`} Showing the last update found. {retry}
+        </p>
+      );
+    else live = <span className="sr-only">{line}</span>;
   } else if (update && kind === "upToDate" && info)
     live = (
       <div className="notice good">

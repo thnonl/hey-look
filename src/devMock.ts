@@ -441,6 +441,11 @@ const UPDATE_LONG_NOTES = (() => {
   for (let i = 1; out.join("\n").length < 4000; i++) out.push(`- Change ${i}: a longer line of release notes that explains one improvement in a few words`);
   return out.join("\n").slice(0, 4000);
 })();
+// REQ-47 state: how many checks were answered (not `disabled`), the first answer's offer, and `dl=changed`'s pending "GitHub has 1.2.0 now".
+let mockChecks = 0;
+let mockFirstOffer: unknown = null;
+let mockChangedPending = false;
+let mockChangedDone = false;
 async function mockCheckUpdate(trigger: string, prefsJson?: string) {
   const entry = logUpdateCall({ trigger });
   const token = hashTokens().get("update") || "uptodate";
@@ -466,7 +471,22 @@ async function mockCheckUpdate(trigger: string, prefsJson?: string) {
       case "norelease": r = { ...base, kind: "noRelease" }; break;
       case "offline": r = { ...base, kind: "offline" }; break;
       case "error": r = { ...base, kind: "error", message: "GitHub sent an unexpected answer" }; break;
+      // the check fails, but the cache holds the 1.1.0 offer (REQ-47)
+      case "offlinecached": r = { ...base, kind: "offline", info: info(), fromCache: true, cachedKind: "available" } as typeof base; break;
+      case "errorcached": r = { ...base, kind: "error", message: "GitHub sent an unexpected answer", info: info(), fromCache: true, cachedKind: "available" } as typeof base; break;
       default: r = { ...base, info: info({ latest: "1.0.0", asset: null }) };
+    }
+    // `recheck=offline|error`: the first answer is per `update=`, every later one fails and carries the first answer's offer;
+    // `dl=changed`: the check after the refused download finds 1.2.0 (once, over `recheck=`)
+    const recheck = hashTokens().get("recheck");
+    const first = mockChecks++ === 0;
+    if (mockChangedPending) {
+      mockChangedPending = false;
+      r = { ...base, kind: "available", info: info({ latest: "1.2.0", releaseUrl: "https://github.com/thnonl/hey-look/releases/tag/v1.2.0", asset: { name: "HeyLook_1.2.0_windows_x64-setup.exe", url: "https://github.com/thnonl/hey-look/releases/download/v1.2.0/HeyLook_1.2.0_windows_x64-setup.exe", size: 10276044, urlOk: true } }) };
+      mockFirstOffer = r.info;
+    } else if (first) mockFirstOffer = r.kind === "available" ? r.info : null;
+    else if (recheck === "offline" || recheck === "error") {
+      r = { ...base, kind: recheck, message: recheck === "error" ? "GitHub sent an unexpected answer" : null, info: mockFirstOffer, fromCache: !!mockFirstOffer, cachedKind: mockFirstOffer ? "available" : null } as typeof base;
     }
   }
   entry.kind = r.kind;
@@ -475,7 +495,7 @@ async function mockCheckUpdate(trigger: string, prefsJson?: string) {
 
 // ---- the update flow (`#dl=<mode>`, `#sending`, `#draftfail`, `#afterupdate=ok|draft|fail`): a pretend download with the same events as Rust's channel.
 // Modes: ok (default; 9.8 MB over 6 s), nolength (no total), slow (60 s), stall (stops at 30 %, fails after 10 s), fail (fails at 40 %),
-// verifyfail, badurl, installfail. `update_install` never restarts: it shows a toast and logs the call.
+// verifyfail, badurl, installfail, offline (fails at once), changed (the first one: GitHub has 1.2.0 now). `update_install` never restarts: it shows a toast and logs the call.
 type UpdateLogEntry = { trigger?: string; cmd?: string; restart?: boolean; at: number; kind: string | null };
 function logUpdateCall(e: { trigger?: string; cmd?: string; restart?: boolean }): UpdateLogEntry {
   const w = window as unknown as { __updateCalls?: UpdateLogEntry[] };
@@ -496,9 +516,21 @@ async function mockDownload(ch: { onmessage: (e: unknown) => void }) {
     entry.kind = "failed";
     return;
   }
+  if (mode === "offline") {
+    send({ event: "failed", data: { stage: "download", message: "You seem to be offline." } });
+    entry.kind = "failed";
+    return;
+  }
+  // `dl=changed`: the first download finds that GitHub has 1.2.0 now and downloads nothing; later ones behave as `ok` (for 1.2.0)
+  if (mode === "changed" && !mockChangedDone) {
+    mockChangedDone = mockChangedPending = true;
+    send({ event: "failed", data: { stage: "changed", message: "1.2.0" } });
+    entry.kind = "changed";
+    return;
+  }
   const full = 10276044;
   const total = mode === "nolength" ? null : full;
-  send({ event: "started", data: { total, version: "1.1.0" } });
+  send({ event: "started", data: { total, version: mode === "changed" ? "1.2.0" : "1.1.0" } });
   const steps = mode === "slow" ? 600 : 60;
   const tick = 100;
   for (let i = 1; i <= steps; i++) {

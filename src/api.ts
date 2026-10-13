@@ -565,10 +565,11 @@ export const api = {
   shellInfo: () => invoke<{ os: string; tray: boolean; testData?: string | null }>("shell_info"),
   checkUpdate: (trigger: UpdateTrigger) => invoke<UpdateResult>("check_update", { trigger }),
   /** Download and verify the update; progress arrives on `onEvent`. Resolves when the download has ended (ready, failed or cancelled). */
-  updateDownload: (onEvent: (e: DlEvent) => void) => {
+  updateDownload: (version: string, onEvent: (e: DlEvent) => void) => {
     const channel = new Channel<DlEvent>();
     channel.onmessage = onEvent;
-    return invoke<void>("update_download", { onEvent: channel });
+    // `version` is the one the user agreed to (the card's): the backend downloads nothing else and answers stage "changed" otherwise
+    return invoke<void>("update_download", { version, onEvent: channel });
   },
   updateCancel: () => invoke<void>("update_cancel"),
   updateDiscard: () => invoke<void>("update_discard"),
@@ -619,7 +620,7 @@ export type DlEvent =
   | { event: "progress"; data: { received: number } }
   | { event: "verifying" }
   | { event: "ready" }
-  | { event: "failed"; data: { stage: "download" | "badurl" | "verify" | "install"; message: string } }
+  | { event: "failed"; data: { stage: "download" | "badurl" | "verify" | "install" | "changed"; message: string } }
   | { event: "cancelled" };
 export interface UpdateStartupState {
   outcome: "updated" | "failed" | null;
