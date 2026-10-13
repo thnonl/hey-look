@@ -643,6 +643,35 @@ mod tests {
         assert_eq!(choose_debug_data(None, p("E:/b"), true, fb), DebugData::Test(PathBuf::from("E:/b")));
     }
 
+    /// Machine-wide changes (the system credential store, the registry) must be guarded by `data_dir_overridden()`, which is true for
+    /// every debug build that is not explicitly on the real data (`HEYLOOK_ALLOW_REAL_DATA=1`) and false in release builds. The guard has
+    /// to come BEFORE the first such operation, in the function itself or at its only call site.
+    #[test]
+    fn credential_and_registry_changes_are_guarded_before_they_start() {
+        let this = include_str!("legacy_names.rs");
+        let lib = include_str!("lib.rs");
+        let body = |text: &str, sig: &str| -> String {
+            let a = text.find(sig).unwrap_or_else(|| panic!("{sig} not found"));
+            text[a..].split("\n}\n").next().unwrap().to_string()
+        };
+        // migrate_keyring: the guard precedes every use of the credential store
+        let keyring = body(this, "pub fn migrate_keyring(");
+        let guard = keyring.find("data_dir_overridden()").expect("migrate_keyring checks the override");
+        assert!(guard < keyring.find("migrate_creds(").unwrap() && guard < keyring.find("SystemCreds").unwrap());
+        // the registry cleanup (Windows)
+        let reg = body(this, "pub fn remove_old_notification_id() {\n    if data_dir_overridden()");
+        assert!(reg.find("data_dir_overridden()").unwrap() < reg.find("winproc::hidden").unwrap());
+        // the old database secrets go to the credential store too: guarded at the call site
+        let call = lib.find("migrate_secrets(&db);").expect("migrate_secrets is called");
+        assert!(lib[call.saturating_sub(200)..call].contains("data_dir_overridden()"), "migrate_secrets must sit inside the guard");
+        // the folder move only ever targets the folder `data_dir` chose: a debug build without a choice gets the throw-away folder
+        let dd = body(this, "pub fn data_dir(");
+        assert!(dd.contains("DebugData::Default(p)") && dd.contains("DebugData::Real => app.path().app_data_dir()"));
+        assert!(dd.find("debug_data()").unwrap() < dd.find("resolve_data_dir(").unwrap(), "the choice is made before anything is moved");
+        // and the real folder is only reachable through the explicit opt-in
+        assert!(this.contains("std::env::var(\"HEYLOOK_ALLOW_REAL_DATA\").is_ok_and(|v| v == \"1\")"));
+    }
+
     // ---------- credentials ----------
 
     #[derive(Default)]
