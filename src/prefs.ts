@@ -74,6 +74,8 @@ export interface Prefs extends Overridable {
   scheduledCatchUp: "send" | "ask";
   /** retry network failures of scheduled messages 3 times, 5 minutes apart */
   retryScheduled: boolean;
+  /** most messages kept per mailbox by the background download and "load older" (all its folders together; also a plain setting `max_download`) */
+  maxDownload: number;
   /** calendar: first day of the week (1 = Monday, 0 = Sunday, 6 = Saturday) */
   weekStart: 1 | 0 | 6;
   /** calendar: "auto" = this computer's zone, or an IANA zone id */
@@ -122,6 +124,7 @@ export const DEFAULT_PREFS: Prefs = {
   warnExecutables: true,
   scheduledCatchUp: "send",
   retryScheduled: true,
+  maxDownload: 2000,
   pgpRemember: "session",
   weekStart: 1,
   calTz: "auto",
@@ -176,6 +179,14 @@ export function isOverridden(prefs: Prefs, accountId: string | null | undefined,
   return !!accountId && prefs.accountPrefs[accountId]?.[key] !== undefined;
 }
 
+export const MAX_DOWNLOAD_PRESETS = [500, 1000, 2000, 5000];
+/** Same bounds as the backend (`max_download` in lib.rs): anything else falls back to the default, a stored value above the maximum counts as the maximum. */
+export function clampMaxDownload(v: unknown): number {
+  const n = typeof v === "number" ? v : typeof v === "string" && v.trim() ? Number(v) : NaN;
+  if (!Number.isFinite(n)) return DEFAULT_PREFS.maxDownload;
+  return Math.min(5000, Math.max(100, Math.trunc(n)));
+}
+
 export function mergePrefs(raw: string | null): Prefs {
   if (!raw) return { ...DEFAULT_PREFS };
   try {
@@ -203,6 +214,7 @@ export function mergePrefs(raw: string | null): Prefs {
     return {
       ...DEFAULT_PREFS,
       ...p,
+      maxDownload: clampMaxDownload(p.maxDownload),
       accountPrefs,
       snoozeTimes: { ...DEFAULT_PREFS.snoozeTimes, ...(p.snoozeTimes ?? {}) },
     };
@@ -349,10 +361,13 @@ export function accountColor(a: { color?: string | null } | null | undefined, ac
 }
 /** Same rule as the backend (`pick_account_color` in db.rs): first palette colour no account uses, else the least used one. */
 export function pickAccountColor(used: (string | null | undefined)[]): string {
-  const u = used.filter((c): c is string => !!c).map((c) => c.trim().toLowerCase());
+  const rgb = (h: string) => (HEX6.test(h.trim()) ? [1, 3, 5].map((i) => parseInt(h.trim().slice(i, i + 2), 16)) : null);
+  // a color with none stored is drawn in the primary color (default = first palette color); look-alikes count as the same color
+  const u = used.map((c) => rgb(c ?? ACCOUNT_PALETTE[0])).filter((c): c is number[] => !!c);
   let best = ACCOUNT_PALETTE[0], n = Infinity;
   for (const p of ACCOUNT_PALETTE) {
-    const k = u.filter((c) => c === p).length;
+    const pc = rgb(p)!;
+    const k = u.filter((c) => Math.hypot(c[0] - pc[0], c[1] - pc[1], c[2] - pc[2]) < 45).length;
     if (k < n) { best = p; n = k; }
   }
   return best;

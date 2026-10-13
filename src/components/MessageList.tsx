@@ -1,14 +1,17 @@
 import { Archive, BadgeCheck, Calendar, CalendarCheck, CalendarX, Check, CheckCheck, Clock, Flag, FolderOpen, Lock, Mail, MailOpen, Paperclip, Pin, SearchX, Trash2 } from "lucide-react";
-import { Fragment, ReactNode } from "react";
+import { openUrl } from "@tauri-apps/plugin-opener";
+import { ReactNode, useCallback, useMemo, useRef } from "react";
 import { api, ThreadSummary } from "../api";
+import { gmailSearchUrl, webmailQuery, webmailTargets, WebmailTarget } from "../webmail";
 import { accountColor, folderLabel, Prefs } from "../prefs";
-import { friendlyError, useStore } from "../store";
+import { canPageBack, exhaustedKey, friendlyError, useStore } from "../store";
 import { dateGroup, fmtDate, snoozePresets } from "../util";
 import { messageToEditor } from "./Compose";
 import { askUnlock } from "./Pgp";
 import { ScheduledList } from "./ScheduledList";
 import { EmptyState, SkeletonRows } from "./overlays";
 import { Avatar, Dropdown } from "./ui";
+import { VirtualList, VItem } from "./VirtualList";
 
 export interface ThreadRowProps {
   t: ThreadSummary;
@@ -23,16 +26,21 @@ export interface ThreadRowProps {
   hover?: ReactNode;
   onOpen?: () => void;
   onToggle?: () => void;
+  /** position among the conversations of a list that is only partly in the DOM (1-based) and how many there are */
+  posInSet?: number;
+  setSize?: number;
 }
 
 /** One conversation in the list. Pure: the real list and the Appearance preview both render it. */
-export function ThreadRow({ t, selected, checked, prefs, showFolder, accountColor, accountLabel, hover, onOpen, onToggle }: ThreadRowProps) {
+export function ThreadRow({ t, selected, checked, prefs, showFolder, accountColor, accountLabel, hover, onOpen, onToggle, posInSet, setSize }: ThreadRowProps) {
   const who = t.participants.join(", ");
   const dense = prefs.density === "compact";
   return (
     <div
       role="option"
       aria-selected={!!selected}
+      aria-posinset={posInSet}
+      aria-setsize={setSize}
       tabIndex={0}
       data-thread={t.threadId}
       className={`ml-row ${selected ? "selected" : ""} ${t.unread ? "unread" : ""} ${checked ? "checked" : ""}`}
@@ -124,11 +132,75 @@ function HoverActions({ t }: { t: ThreadSummary }) {
   );
 }
 
+/** A line of the list: a conversation, or the header of its group. */
+type ListItem = VItem & ({ kind: "group"; label: string } | { kind: "row"; t: ThreadSummary; pos: number });
+
+/** Copies text for the clipboard; false when the webview refuses (no permission, no focus). */
+async function copyText(text: string): Promise<boolean> {
+  try {
+    await navigator.clipboard.writeText(text);
+    return true;
+  } catch {
+    try {
+      const ta = document.createElement("textarea");
+      ta.value = text;
+      ta.style.cssText = "position:fixed;opacity:0";
+      document.body.appendChild(ta);
+      ta.select();
+      const ok = document.execCommand("copy");
+      ta.remove();
+      return ok;
+    } catch {
+      return false;
+    }
+  }
+}
+
+/**
+ * Gmail has a documented search link and opens straight on the results. The other webmails have none that we know of, so the
+ * search is copied and their home page is opened: the person pastes it into the webmail's own search box.
+ */
+async function searchInWebmail({ account, webmail }: WebmailTarget, q: string) {
+  const st = useStore.getState();
+  try {
+    if (webmail.id === "gmail") {
+      await openUrl(gmailSearchUrl(account.email, q));
+      return;
+    }
+    const copying = copyText(q); // started inside the click, before anything is awaited
+    await openUrl(webmail.home);
+    if (await copying) st.showToast(`Search text copied. Paste it into the search box of ${webmail.name} webmail.`, undefined, "success");
+    else st.showToast(`Couldn’t copy the search. Type it into the search box of ${webmail.name} webmail: ${q}`, undefined, "error");
+  } catch (e) {
+    st.showToast(`Couldn’t open ${webmail.name} in the browser: ${friendlyError(e)}`, undefined, "error");
+  }
+}
+
+/** "Search in <webmail>": one button per mailbox of the search that has a known webmail (the address is shown when there are several). */
+function WebmailSearch({ targets, query, openFolder }: { targets: WebmailTarget[]; query: string; openFolder?: string }) {
+  const shown = targets.map((t) => ({ t, q: webmailQuery(t.webmail, query, openFolder) })).filter((x) => x.q);
+  if (shown.length === 0) return null;
+  return (
+    <div className="gmail-search">
+      {shown.map(({ t, q }) => {
+        const hint = t.webmail.id === "gmail" ? `Opens ${t.account.email} in Gmail` : `Copies your search and opens ${t.webmail.name}`;
+        return (
+          <button key={t.account.id} className="btn" title={hint} aria-label={`Search in ${t.webmail.name}${shown.length > 1 ? `, ${t.account.email}` : ""}. ${hint}`} onClick={() => void searchInWebmail(t, q)}>
+            <span className="gs-main">Search in {t.webmail.name}</span>
+            {shown.length > 1 && <span className="gs-acct">{t.account.email}</span>}
+          </button>
+        );
+      })}
+    </div>
+  );
+}
+
 export function MessageList() {
   const {
     threads, folder, accountId, selected, select, checked, toggleCheck, setChecked, search, searchScope, setSearchScope,
-    prefs, focus, setFocus, filter, setFilter, accounts, openCompose, loading, loadOlder, loadingOlder, firstSync,
+    prefs, focus, setFocus, filter, setFilter, accounts, openCompose, loading, loadMore, loadingMore, exhausted, limited, backfill, firstSync, setDialog,
   } = useStore();
+  const scrollRef = useRef<HTMLDivElement>(null);
   const searching = search.trim().length > 0;
   const title = searching ? "Search results" : folderLabel(folder);
   const scopeNote = searching ? (searchScope === "all" ? "All mailboxes" : searchScope === "account" ? "Whole mailbox" : `In ${folderLabel(folder)}`) : "";
@@ -138,7 +210,19 @@ export function MessageList() {
   const labels = new Map(accounts.map((a) => [a.id, a.email]));
   const mixed = accounts.length > 1 && (!accountId || (searching && searchScope === "all"));
   const firstHere = !!firstSync && (!accountId || accountId === firstSync) && !searching && folder === "inbox";
-  const canPageBack = !searching && !["starred", "pinned", "snoozed", "all", "scheduled"].includes(folder) && threads.length > 0;
+  const pageable = canPageBack(folder, searching) && threads.length > 0;
+  const targets = accountId ? [accountId] : accounts.map((a) => a.id);
+  // a mailbox is done when the server has nothing older or the "Max emails to download" cap stopped it; the cap's footer wins
+  const reachedEnd = targets.length > 0 && targets.every((id) => exhausted[exhaustedKey(id, folder)] || limited[exhaustedKey(id, folder)]);
+  const capped = reachedEnd && targets.some((id) => limited[exhaustedKey(id, folder)]);
+  // background download of older Inbox mail (event `backfill-progress`)
+  const inboxish = folder === "inbox" || folder === "unread";
+  const download = inboxish && !searching ? Object.values(backfill).filter((p) => !p.done && p.role === "inbox" && (!accountId || p.accountId === accountId)) : [];
+  const dlHave = download.reduce((n, p) => n + Math.min(p.have, p.target), 0);
+  const dlTarget = download.reduce((n, p) => n + p.target, 0);
+  const webmails = searching ? webmailTargets(accounts, accountId, searchScope) : [];
+  // a search limited to the open folder stays in that folder on Gmail
+  const webmailFolder = searchScope === "current" ? folder : undefined;
 
   const openThread = (t: ThreadSummary) => {
     if (folder === "drafts") {
@@ -175,18 +259,59 @@ export function MessageList() {
     void select(t.threadId);
   };
 
-  const onKeyNav = (e: React.KeyboardEvent) => {
-    if (e.key !== "ArrowDown" && e.key !== "ArrowUp") return;
-    const rows = Array.from((e.currentTarget as HTMLElement).querySelectorAll<HTMLElement>('[role="option"]'));
-    const i = rows.indexOf(document.activeElement as HTMLElement);
-    const next = rows[Math.max(0, Math.min(rows.length - 1, i + (e.key === "ArrowDown" ? 1 : -1)))];
-    if (next) {
-      e.preventDefault();
-      next.focus();
+  // the flat list of lines (group headers + conversations) the virtual list draws from
+  const items = useMemo(() => {
+    const out: ListItem[] = [];
+    let last = "";
+    let pos = 0;
+    for (const t of threads) {
+      const group = prefs.sortAsc ? "" : t.pinned && folder === "inbox" ? "Pinned" : dateGroup(t.lastDate);
+      if (group && group !== last) out.push({ kind: "group", key: `g:${t.rowKey}`, group, label: group });
+      last = group;
+      out.push({ kind: "row", key: t.rowKey, group, t, pos: ++pos });
     }
-  };
+    return out;
+  }, [threads, folder, prefs.sortAsc]);
+  const revealKey = useMemo(() => (selected ? threads.find((t) => t.threadId === selected)?.rowKey ?? null : null), [threads, selected]);
+  const viewKey = [folder, accountId, search, searchScope, filter, focus, prefs.sortAsc, prefs.conversations, prefs.focused].join("|");
+  // oldest-first: older mail is added at the top, so that is where the list asks for it and where its status is shown
+  // re-created when what loadMore would decide changes, so the list asks again (e.g. after "Loading…" ended with the end still in view)
+  const nearMore = useCallback(() => {
+    if (pageable) void loadMore();
+  }, [pageable, loadMore, loadingMore, reachedEnd, capped, folder, accountId]);
+  const pagingStatus = loadingMore ? (
+    <span className="muted"><span className="spin" aria-hidden /> Loading…</span>
+  ) : capped ? (
+    <span className="muted">
+      Download limit reached ({prefs.maxDownload.toLocaleString("en-US")} mails per mailbox). Raise it in{" "}
+      <button className="link" onClick={() => setDialog({ type: "settings", tab: "mb:all", focus: "maxDownload" })}>Settings &gt; Reading &amp; sync</button>.
+    </span>
+  ) : reachedEnd ? (
+    <span className="muted">You've reached the end</span>
+  ) : (
+    <button className="btn small" onClick={() => void loadMore(true)}>Load older messages</button>
+  );
 
-  let lastGroup = "";
+  const renderItem = (it: ListItem) =>
+    it.kind === "group" ? (
+      <div className="ml-group" role="presentation">{it.label}</div>
+    ) : (
+      <ThreadRow
+        t={it.t}
+        prefs={prefs}
+        selected={selected === it.t.threadId}
+        checked={checked.has(it.t.threadId)}
+        showFolder={searching}
+        accountColor={mixed ? colors.get(it.t.accountId) ?? accountColor(null, prefs.accent) : null}
+        accountLabel={labels.get(it.t.accountId)}
+        hover={<HoverActions t={it.t} />}
+        onOpen={() => openThread(it.t)}
+        onToggle={() => toggleCheck(it.t.threadId)}
+        posInSet={it.pos}
+        setSize={threads.length}
+      />
+    );
+
   return (
     <section className="msg-list" aria-label="Message list">
       <div className={`ml-head ${multi ? "multi" : ""}`}>
@@ -219,6 +344,14 @@ export function MessageList() {
         ) : (
           accountId && <div className="ml-sub">{labels.get(accountId)}</div>
         )}
+        {pageable && prefs.sortAsc && !searching && (
+          <div className="ml-progress" role="status">{pagingStatus}</div>
+        )}
+        {download.length > 0 && (
+          <div className="ml-progress" role="status">
+            <span className="spin" aria-hidden /> Downloading mails… {dlHave} / {dlTarget}
+          </div>
+        )}
         {multi && (
           <div className="ml-bulk">
             <span>{checked.size} selected</span>
@@ -228,7 +361,7 @@ export function MessageList() {
         )}
       </div>
 
-      <div className="ml-body" role="listbox" aria-label={title} aria-multiselectable onKeyDown={onKeyNav}>
+      <div className="ml-body" ref={scrollRef} role="listbox" aria-label={title} aria-multiselectable>
         {folder === "scheduled" ? (
           <ScheduledList />
         ) : (loading || firstHere) && threads.length === 0 ? (
@@ -245,8 +378,13 @@ export function MessageList() {
             <EmptyState
               icon={<SearchX size={40} />}
               title="No results"
-              text={searchScope === "all" ? "Only mail already downloaded to this computer is searched. Use Load older messages in a folder to fetch more." : "Try other words, or search every folder."}
-              action={searchScope !== "all" && <button className="btn" onClick={() => void setSearchScope("all")}>Search all mailboxes</button>}
+              text={searchScope === "all" ? "Only mail already downloaded to this computer is searched. Older mail is downloaded as you scroll a folder." : "Try other words, or search every folder."}
+              action={
+                <>
+                  {searchScope !== "all" && <button className="btn" onClick={() => void setSearchScope("all")}>Search all mailboxes</button>}
+                  <WebmailSearch targets={webmails} query={search} openFolder={webmailFolder} />
+                </>
+              }
             />
           ) : filter !== "all" ? (
             <EmptyState icon={<FolderOpen size={40} />} title="Nothing matches this filter" action={<button className="btn" onClick={() => void setFilter("all")}>Show everything</button>} />
@@ -256,37 +394,29 @@ export function MessageList() {
             <EmptyState icon={<FolderOpen size={40} />} title="This folder is empty" />
           )
         ) : (
-          <>
-            {threads.map((t) => {
-              const group = t.pinned && folder === "inbox" ? "Pinned" : dateGroup(t.lastDate);
-              const showGroup = !prefs.sortAsc && group !== lastGroup;
-              lastGroup = group;
-              return (
-                <Fragment key={t.rowKey}>
-                  {showGroup && <div className="ml-group" role="presentation">{group}</div>}
-                  <ThreadRow
-                    t={t}
-                    prefs={prefs}
-                    selected={selected === t.threadId}
-                    checked={checked.has(t.threadId)}
-                    showFolder={searching}
-                    accountColor={mixed ? colors.get(t.accountId) ?? accountColor(null, prefs.accent) : null}
-                    accountLabel={labels.get(t.accountId)}
-                    hover={<HoverActions t={t} />}
-                    onOpen={() => openThread(t)}
-                    onToggle={() => toggleCheck(t.threadId)}
-                  />
-                </Fragment>
-              );
-            })}
-            {canPageBack && (
-              <div className="ml-more">
-                <button className="btn" disabled={loadingOlder} onClick={() => void loadOlder()}>
-                  {loadingOlder ? "Loading…" : "Load older messages"}
-                </button>
-              </div>
-            )}
-          </>
+          <VirtualList
+            scrollRef={scrollRef}
+            items={items}
+            render={renderItem}
+            viewKey={viewKey}
+            reveal={revealKey}
+            floating={(label) => <div className="ml-group" role="presentation">{label}</div>}
+            onNearEnd={prefs.sortAsc ? undefined : nearMore}
+            onNearStart={prefs.sortAsc ? nearMore : undefined}
+            prefetch={filter === "all" && folder !== "unread"}
+            holdTop={prefs.sortAsc}
+            footer={
+              searching ? (
+                webmails.some((t) => webmailQuery(t.webmail, search, webmailFolder)) ? (
+                  <div className="ml-foot">
+                    <WebmailSearch targets={webmails} query={search} openFolder={webmailFolder} />
+                  </div>
+                ) : null
+              ) : pageable && !prefs.sortAsc ? (
+                <div className="ml-foot" role="status">{pagingStatus}</div>
+              ) : null
+            }
+          />
         )}
       </div>
     </section>

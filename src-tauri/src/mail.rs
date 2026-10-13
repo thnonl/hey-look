@@ -21,6 +21,29 @@ impl imap::Authenticator for XOAuth2<'_> {
     }
 }
 
+/// Opening the connection may take this long (per resolved address).
+const CONNECT_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(20);
+/// A read or write on the socket that makes no progress for this long fails: a server that stops answering in the middle of a
+/// big FETCH (Gmail does that when it throttles) gives an error instead of freezing the sync forever.
+const IO_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(60);
+
+fn tcp(host: &str, port: u16) -> R<std::net::TcpStream> {
+    use std::net::ToSocketAddrs;
+    let mut last: Option<std::io::Error> = None;
+    for addr in (host, port).to_socket_addrs().map_err(err)? {
+        match std::net::TcpStream::connect_timeout(&addr, CONNECT_TIMEOUT) {
+            Ok(s) => {
+                // set on the socket under TLS, so it covers the handshake and every later read / write
+                s.set_read_timeout(Some(IO_TIMEOUT)).map_err(err)?;
+                s.set_write_timeout(Some(IO_TIMEOUT)).map_err(err)?;
+                return Ok(s);
+            }
+            Err(e) => last = Some(e),
+        }
+    }
+    Err(last.map(err).unwrap_or_else(|| format!("cannot resolve {host}")))
+}
+
 /// `secret` is the password, or the OAuth access token when `acc.auth` is an `oauth_*` method.
 pub fn connect(acc: &Account, secret: &str) -> R<Sess> {
     let tls = native_tls::TlsConnector::builder()
@@ -29,11 +52,15 @@ pub fn connect(acc: &Account, secret: &str) -> R<Sess> {
         .build()
         .map_err(err)?;
     let host = acc.imap_host.as_str();
-    let addr = (host, acc.imap_port);
+    let sock = tcp(host, acc.imap_port)?;
     let client = if acc.imap_ssl {
-        imap::connect(addr, host, &tls).map_err(err)?
+        let mut c = imap::Client::new(tls.connect(host, sock).map_err(err)?);
+        c.read_greeting().map_err(err)?;
+        c
     } else {
-        imap::connect_starttls(addr, host, &tls).map_err(err)?
+        let mut c = imap::Client::new(sock);
+        c.read_greeting().map_err(err)?;
+        c.secure(host, &tls).map_err(err)?
     };
     if acc.auth.starts_with("oauth_") {
         client
@@ -414,14 +441,51 @@ pub fn fetch_folder(s: &mut Sess, folder: &str, max_known_uid: u32, min_known_ui
     Ok(res)
 }
 
-/// Messages with UIDs in `lo..=hi` (used to page back into older mail).
-pub fn fetch_range(s: &mut Sess, folder: &str, lo: u32, hi: u32) -> R<Vec<Parsed>> {
+/// The `count` highest UIDs below `below` among `uids`, ascending, and whether that leaves nothing older (the server has no
+/// UID under the lowest one returned). Works on the UIDs that really exist, so holes in the numbering (Gmail's INBOX loses
+/// archived mail) never make a page come up empty while older mail is still there.
+pub fn pick_older(uids: impl IntoIterator<Item = u32>, below: u32, count: usize) -> (Vec<u32>, bool) {
+    let mut older: Vec<u32> = uids.into_iter().filter(|u| *u < below).collect();
+    older.sort_unstable();
+    older.dedup();
+    let exhausted = older.len() <= count;
+    let from = older.len().saturating_sub(count);
+    (older.split_off(from), exhausted)
+}
+
+/// IMAP sequence set for ascending UIDs: runs become `a:b`, e.g. [10,11,12,500] -> "10:12,500".
+pub fn uid_set(uids: &[u32]) -> String {
+    let mut parts: Vec<String> = vec![];
+    let mut i = 0;
+    while i < uids.len() {
+        let mut j = i;
+        while j + 1 < uids.len() && uids[j + 1] == uids[j] + 1 {
+            j += 1;
+        }
+        parts.push(if j > i { format!("{}:{}", uids[i], uids[j]) } else { uids[i].to_string() });
+        i = j + 1;
+    }
+    parts.join(",")
+}
+
+/// The next `count` messages older than `below_uid` (the lowest UID already stored): `UID SEARCH` for the UIDs that exist
+/// below it, then one `UID FETCH` of exactly the highest `count` of them. Returns the parsed messages and whether the folder
+/// has nothing older than the lowest one returned.
+pub fn fetch_older(s: &mut Sess, folder: &str, below_uid: u32, count: usize) -> R<(Vec<Parsed>, bool)> {
     s.select(folder).map_err(err)?;
-    let fetched = s.uid_fetch(format!("{lo}:{hi}"), "(UID FLAGS INTERNALDATE BODY.PEEK[])").map_err(err)?;
+    if below_uid <= 1 || count == 0 {
+        return Ok((vec![], below_uid <= 1));
+    }
+    let all = s.uid_search(format!("UID 1:{}", below_uid - 1)).map_err(err)?;
+    let (pick, exhausted) = pick_older(all, below_uid, count);
+    if pick.is_empty() {
+        return Ok((vec![], true));
+    }
+    let fetched = s.uid_fetch(uid_set(&pick), "(UID FLAGS INTERNALDATE BODY.PEEK[])").map_err(err)?;
     let mut out = vec![];
     for f in fetched.iter() {
         let (Some(uid), Some(body)) = (f.uid, f.body()) else { continue };
-        if uid < lo || uid > hi {
+        if pick.binary_search(&uid).is_err() {
             continue;
         }
         let flags = f.flags();
@@ -432,7 +496,7 @@ pub fn fetch_range(s: &mut Sess, folder: &str, lo: u32, hi: u32) -> R<Vec<Parsed
             out.push(p);
         }
     }
-    Ok(out)
+    Ok((out, exhausted))
 }
 
 pub fn fetch_raw(s: &mut Sess, folder: &str, uid: u32) -> R<Vec<u8>> {
@@ -535,6 +599,28 @@ fn replace_cid_refs(html: &str, cid: &str, uri: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn older_page_is_picked_from_the_uids_that_exist_so_gaps_do_not_matter() {
+        // sparse numbering: nothing between 11 and 500 (Gmail's INBOX after archiving)
+        let uids = [10, 11, 500, 501, 900];
+        assert_eq!(pick_older(uids, 1000, 2), (vec![501, 900], false));
+        assert_eq!(pick_older(uids, 501, 2), (vec![11, 500], false));
+        assert_eq!(pick_older(uids, 500, 2), (vec![10, 11], true), "exactly two left: nothing older afterwards");
+        assert_eq!(pick_older(uids, 1000, 5), (vec![10, 11, 500, 501, 900], true));
+        assert_eq!(pick_older(uids, 1000, 50), (vec![10, 11, 500, 501, 900], true));
+        assert_eq!(pick_older(uids, 10, 50), (vec![], true), "nothing below the lowest stored uid");
+        assert_eq!(pick_older([7, 7, 3], 8, 1), (vec![7], false), "duplicates are counted once");
+        assert_eq!(pick_older(Vec::<u32>::new(), 100, 50), (vec![], true));
+    }
+
+    #[test]
+    fn uid_sets_join_runs() {
+        assert_eq!(uid_set(&[]), "");
+        assert_eq!(uid_set(&[501, 900]), "501,900");
+        assert_eq!(uid_set(&[10, 11, 12, 500, 502, 503]), "10:12,500,502:503");
+        assert_eq!(uid_set(&[5]), "5");
+    }
 
     #[test]
     fn a_cid_that_is_a_prefix_of_another_does_not_get_the_wrong_picture() {

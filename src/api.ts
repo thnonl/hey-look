@@ -312,6 +312,23 @@ export interface ThreadFilter {
 
 export type SearchScope = "current" | "account" | "all";
 
+export interface LoadOlderResult {
+  added: number;
+  /** the server has nothing older in that folder */
+  exhausted: boolean;
+  /** the "Max emails to download" cap stopped it (not the server): raising the cap lets it continue */
+  limited: boolean;
+}
+
+/** Event `backfill-progress`: the background download of older Inbox mail (in chunks of 50). */
+export interface BackfillProgress {
+  accountId: string;
+  role: string;
+  have: number;
+  target: number;
+  done: boolean;
+}
+
 export interface Att {
   filename: string;
   mime: string;
@@ -446,7 +463,8 @@ export const api = {
   queueAction: (threadIds: string[], action: string, arg: string | null, scope: string | null, delaySecs: number) =>
     invoke<string>("queue_action", { threadIds, action, arg, scope, delaySecs }),
   cancelAction: (id: string) => invoke<boolean>("cancel_action", { id }),
-  loadOlder: (accountId: string, role: string) => invoke<number>("load_older", { accountId, role }),
+  /** Downloads up to `limit` (max 50) messages older than what is stored. Rejects with the server's error; never turns it into "none". */
+  loadOlder: (accountId: string, role: string, limit = 50) => invoke<LoadOlderResult>("load_older", { accountId, role, limit }),
   attachmentData: (messageId: string, index: number) =>
     invoke<{ name: string; mime: string; dataBase64: string }>("attachment_data", { messageId, index }),
   setSecret: (name: SecretName, value: string) => invoke<void>("set_secret", { name, value }),

@@ -2,7 +2,7 @@ import { KeyRound, Lock, Plus, Trash2, Upload } from "lucide-react";
 import { openUrl } from "@tauri-apps/plugin-opener";
 import { Fragment, ReactNode, useEffect, useRef, useState } from "react";
 import { Account, api, Discovered, PgpKey, PROVIDERS, Rule, Signature, Template } from "../api";
-import { ACCENT_PRESETS, ACCOUNT_PALETTE, accountColor, DEFAULT_PREFS, eff, folderLabel, isOverridden, NOTIFY_ACTIONS, NOTIFY_SOUNDS, Overridable, Prefs, staleAccountPrefs, validHex } from "../prefs";
+import { ACCENT_PRESETS, ACCOUNT_PALETTE, accountColor, DEFAULT_PREFS, eff, folderLabel, isOverridden, MAX_DOWNLOAD_PRESETS, NOTIFY_ACTIONS, NOTIFY_SOUNDS, Overridable, Prefs, staleAccountPrefs, validHex } from "../prefs";
 import { friendlyError, useStore } from "../store";
 import { systemTz } from "../calendar";
 import { fmtDay, fmtFpr, shortKey } from "../util";
@@ -11,7 +11,7 @@ import { RichEditor } from "./RichEditor";
 import { keyName } from "./Pgp";
 import { AccountPicker, Avatar, Modal, Switch } from "./ui";
 
-const Row = ({ label, hint, children, id }: { label: string; hint?: string; children: ReactNode; id?: string }) => {
+const Row = ({ label, hint, children, id }: { label: string; hint?: ReactNode; children: ReactNode; id?: string }) => {
   const ctl = useRef<HTMLDivElement>(null);
   // the label is a sibling <div>, not a <label for>: give the unnamed inputs/selects in this row the label as accessible name
   useEffect(() => {
@@ -898,6 +898,9 @@ function NotifyPanel({ scope }: { scope: string | null }) {
 }
 
 function ReadingPanel({ scope }: { scope: string | null }) {
+  const { prefs, setPrefs } = useStore();
+  // a value outside the presets (edited by hand) stays selectable instead of silently showing another one
+  const caps = MAX_DOWNLOAD_PRESETS.includes(prefs.maxDownload) ? MAX_DOWNLOAD_PRESETS : [...MAX_DOWNLOAD_PRESETS, prefs.maxDownload].sort((a, b) => a - b);
   return (
     <>
       <OvRow scope={scope} k="loadRemote" id="loadRemote" label="Always load remote content (images)" hint="Off = blocked to stop tracking pixels; you can still load a single message. When on, senders can tell you opened it.">
@@ -919,6 +922,16 @@ function ReadingPanel({ scope }: { scope: string | null }) {
           </select>
         )}
       </OvRow>
+      {/* one value for every mailbox (each mailbox is counted on its own), so no per-mailbox override */}
+      <Row
+        label="Max emails to download per mailbox"
+        id="maxDownload"
+        hint="The fewer mails, the less disk space they use and the better the app performs. When the limit is reached, the oldest mails are removed from this computer as new mail arrives (they stay on the server)."
+      >
+        <select value={prefs.maxDownload} onChange={(e) => setPrefs({ maxDownload: Number(e.target.value) })}>
+          {caps.map((n) => <option key={n} value={n}>{n.toLocaleString("en-US")}{n === DEFAULT_PREFS.maxDownload ? " (default)" : ""}</option>)}
+        </select>
+      </Row>
     </>
   );
 }
@@ -1437,7 +1450,7 @@ export function Settings({ initial, focus }: { initial?: string; focus?: string 
   const { setDialog, accounts, prefs } = useStore();
   const start = initial === "accounts" ? "mb:all" : initial === "notifications" ? "tray" : initial;
   const [tab, setTab] = useState<string>(start || (accounts.length === 0 ? "add-account" : "general"));
-  const [mbTab, setMbTab] = useState<MbTab>(focus === "loadRemote" ? "reading" : focus === "security" ? "security" : "composing");
+  const [mbTab, setMbTab] = useState<MbTab>(focus === "loadRemote" || focus === "maxDownload" ? "reading" : focus === "security" ? "security" : "composing");
   const close = () => setDialog(null);
   useEffect(() => {
     if (!focus) return;

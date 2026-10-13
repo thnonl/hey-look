@@ -1,7 +1,7 @@
 import { create } from "zustand";
-import { api, Account, Att, CalendarInfo, CalEvent, DraftSecurity, FolderInfo, Meeting, MessageFull, OutboxItem, SearchScope, ThreadSummary } from "./api";
+import { api, Account, Att, BackfillProgress, CalendarInfo, CalEvent, DraftSecurity, FolderInfo, Meeting, MessageFull, OutboxItem, SearchScope, ThreadSummary } from "./api";
 import { calTz, CalView, Day, rangeFor, systemTz, today } from "./calendar";
-import { accentText, accountColor, buttonAccent, DEFAULT_PREFS, lightened, mergePrefs, Prefs, readableOn, staleAccountPrefs, topBar, validHex } from "./prefs";
+import { accentText, accountColor, buttonAccent, clampMaxDownload, DEFAULT_PREFS, lightened, mergePrefs, Prefs, readableOn, staleAccountPrefs, topBar, validHex } from "./prefs";
 
 export interface ComposeInit {
   accountId?: string;
@@ -164,7 +164,16 @@ interface State {
   checked: Set<string>;
   messages: MessageFull[];
   loading: boolean;
-  loadingOlder: boolean;
+  /** `loadMore` is fetching older mail right now (re-entrancy guard and the "Loading…" footer) */
+  loadingMore: boolean;
+  /** the last `loadMore` failed: scrolling stops retrying, the footer button is the retry */
+  moreError: boolean;
+  /** "accountId|role" the server has nothing older for; cleared by a sync */
+  exhausted: Record<string, true>;
+  /** "accountId|role" the "Max emails to download" cap stopped; cleared by a sync and when the cap changes */
+  limited: Record<string, true>;
+  /** background download of older Inbox mail per account (`backfill-progress`), only while it runs */
+  backfill: Record<string, BackfillProgress>;
   syncing: boolean;
   /** account whose first sync runs right now (after it was added): its empty Inbox says so instead of "all caught up" */
   firstSync: string | null;
@@ -205,7 +214,9 @@ interface State {
   sync: () => Promise<void>;
   /** A new account was added: close the dialogs, show its Inbox, start its first sync with a visible loading state. */
   accountAdded: (acc: Account) => Promise<void>;
-  loadOlder: () => Promise<void>;
+  /** Older mail of the open folder: up to MORE_CHUNKS x 50 per account, one request at a time. `manual` = the button (retry, ignores a previous error). */
+  loadMore: (manual?: boolean) => Promise<void>;
+  onBackfill: (p: BackfillProgress) => void;
   select: (id: string | null) => Promise<void>;
   toggleCheck: (id: string) => void;
   setChecked: (ids: string[]) => void;
@@ -241,12 +252,44 @@ interface State {
 let toastSeq = 0;
 let readTimer: ReturnType<typeof setTimeout> | undefined;
 
+/** Folders `loadMore` cannot page back (cross-folder views and the outbox have no single IMAP folder). */
+const NO_PAGING = new Set(["starred", "pinned", "snoozed", "all", "scheduled"]);
+export const canPageBack = (folder: string, searching: boolean) => !searching && !NO_PAGING.has(folder);
+/** The IMAP-side role `load_older` takes for a view (the Unread view reads the Inbox). */
+const roleOf = (folder: string) => (folder === "unread" ? "inbox" : folder);
+export const exhaustedKey = (accountId: string, folder: string) => `${accountId}|${roleOf(folder)}`;
+
+/** Shown where the "Max emails to download" cap stopped the list (toast of "Load older messages"; the list footer words it the same). */
+export const limitMessage = (n: number) => `Download limit reached (${n.toLocaleString("en-US")} mails per mailbox). Raise it in Settings > Reading & sync.`;
+
+const MORE_CHUNKS = 4; // one scroll to the end = up to 4 x 50 = 200 older messages in total, however many mailboxes are open
+const MORE_PAUSE_MS = 700; // between two requests, so the server and the list can breathe
+const BACKFILL_REFRESH_MS = 1000; // the list is re-read at most this often while the background download runs
+/** Bumped whenever the open view changes: a `loadMore` loop that sees a newer number stops without touching the state. */
+let moreRun = 0;
+let backfillTimer: ReturnType<typeof setTimeout> | undefined;
+let backfillLast = 0;
+const sleep = (ms: number) => new Promise<void>((r) => setTimeout(r, ms));
+/** The mailbox to page next: the one whose oldest loaded thread is the most recent (one with nothing loaded goes first). */
+function nextMailbox(ids: Set<string>, threads: { accountId: string; lastDate: number }[]): string {
+  const oldest = new Map<string, number>();
+  for (const t of threads) if (ids.has(t.accountId)) oldest.set(t.accountId, Math.min(oldest.get(t.accountId) ?? Infinity, t.lastDate));
+  let best = "";
+  let bestAt = -Infinity;
+  for (const id of ids) {
+    const at = oldest.get(id) ?? Infinity;
+    if (at > bestAt) [best, bestAt] = [id, at];
+  }
+  return best;
+}
+
 /** Preferences the backend acts on (saving, retries, quit) are also stored as plain settings. */
 const BACKEND_SETTINGS: [keyof Prefs, string, (v: unknown) => string][] = [
   ["downloadDir", "download_dir", (v) => (typeof v === "string" ? v : "")],
   ["warnExecutables", "warn_executables", (v) => (v ? "1" : "0")],
   ["scheduledCatchUp", "scheduled_catchup", (v) => String(v)],
   ["retryScheduled", "scheduled_retry", (v) => (v ? "1" : "0")],
+  ["maxDownload", "max_download", (v) => String(clampMaxDownload(v))],
   ["autoAddInvites", "auto_add_invites", (v) => (v ? "1" : "0")],
   ["eventReminderMin", "event_reminder_min", (v) => (typeof v === "number" ? String(v) : "")],
 ];
@@ -319,6 +362,12 @@ export function storeMissingColors(accounts: Account[], accent: string): Account
   });
 }
 
+/** The open view changed: a running `loadMore` is abandoned (its answer is ignored) and a new one may start. */
+function cancelMore() {
+  moreRun++;
+  useStore.setState({ loadingMore: false, moreError: false });
+}
+
 export const useStore = create<State>((set, get) => ({
   accounts: [],
   accountId: null,
@@ -334,7 +383,11 @@ export const useStore = create<State>((set, get) => ({
   checked: new Set(),
   messages: [],
   loading: true,
-  loadingOlder: false,
+  loadingMore: false,
+  moreError: false,
+  exhausted: {},
+  limited: {},
+  backfill: {},
   syncing: false,
   firstSync: null,
   syncErrors: {},
@@ -440,6 +493,7 @@ export const useStore = create<State>((set, get) => ({
   },
 
   setView: async (folder, accountId = null) => {
+    cancelMore();
     set({ folder, accountId, selected: null, messages: [], threads: [], loading: true, checked: new Set(), search: "", module: "mail" });
     if (get().prefs.lastModule !== "mail") get().setPrefs({ lastModule: "mail" });
     await get().refresh();
@@ -448,6 +502,7 @@ export const useStore = create<State>((set, get) => ({
   setSearch: async (search, remember = false) => {
     // searching is a mail thing: leave the calendar
     if (get().module !== "mail") get().setModule("mail");
+    cancelMore();
     set({ search, selected: null, messages: [], loading: true });
     if (remember && search.trim()) {
       const recent = [search.trim(), ...get().prefs.recentSearches.filter((r) => r !== search.trim())].slice(0, 8);
@@ -457,6 +512,7 @@ export const useStore = create<State>((set, get) => ({
   },
 
   setSearchScope: async (searchScope) => {
+    cancelMore();
     set({ searchScope });
     if (get().search.trim()) {
       set({ loading: true });
@@ -524,7 +580,8 @@ export const useStore = create<State>((set, get) => ({
         get().showToast(`${acct?.email ?? "Account"}: ${first[1]}`, undefined, "error");
       }
     } finally {
-      set({ syncing: false });
+      // new mail may have arrived and a failed fetch may work now: scrolling may ask the server for older mail again
+      set({ syncing: false, exhausted: {}, limited: {}, moreError: false });
       await get().refresh();
     }
   },
@@ -551,20 +608,88 @@ export const useStore = create<State>((set, get) => ({
     }
   },
 
-  loadOlder: async () => {
-    const { accountId, accounts, folder, loadingOlder } = get();
-    if (loadingOlder || folder === "scheduled" || ["starred", "pinned", "snoozed", "all"].includes(folder)) return;
-    const role = folder === "unread" ? "inbox" : folder;
+  loadMore: async (manual = false) => {
+    const { accountId, accounts, folder, search, loadingMore, moreError } = get();
+    if (loadingMore || !canPageBack(folder, search.trim().length > 0)) return;
+    if (moreError && !manual) return;
+    const role = roleOf(folder);
     const targets = accountId ? [accountId] : accounts.map((a) => a.id);
-    set({ loadingOlder: true });
-    try {
-      const counts = await Promise.all(targets.map((id) => api.loadOlder(id, role).catch(() => 0)));
-      const added = counts.reduce((a, b) => a + b, 0);
-      get().showToast(added > 0 ? `Loaded ${added} older message${added === 1 ? "" : "s"}` : "No older messages in this folder", undefined, added > 0 ? "success" : "info");
-      await get().refresh();
-    } finally {
-      set({ loadingOlder: false });
+    // the button asks again even where the server said "nothing older" (it may have been wrong or things changed) or the cap
+    // stopped it (answered at once by the backend, without any network)
+    let { exhausted, limited } = get();
+    const mine = (k: string) => targets.some((id) => k === `${id}|${role}`);
+    if (manual) {
+      exhausted = Object.fromEntries(Object.entries(exhausted).filter(([k]) => !mine(k)));
+      limited = Object.fromEntries(Object.entries(limited).filter(([k]) => !mine(k)));
     }
+    const pending = targets.filter((id) => !exhausted[`${id}|${role}`] && !limited[`${id}|${role}`]);
+    if (manual) set({ exhausted, limited });
+    if (pending.length === 0) return;
+    const run = ++moreRun;
+    set({ loadingMore: true, moreError: false });
+    const alive = () => run === moreRun;
+    let added = 0;
+    let failing = "";
+    try {
+      // MORE_CHUNKS requests in all, shared by the mailboxes: each goes to the one whose loaded mail ends most recently,
+      // so the merged timeline grows evenly instead of one mailbox racing ahead
+      const active = new Set(pending);
+      for (let i = 0; i < MORE_CHUNKS && active.size > 0; i++) {
+        if (i > 0) await sleep(MORE_PAUSE_MS);
+        if (!alive()) return;
+        const id = nextMailbox(active, get().threads);
+        failing = id;
+        const r = await api.loadOlder(id, role, 50);
+        if (!alive()) return;
+        added += r.added;
+        if (r.exhausted) {
+          active.delete(id);
+          set((s) => ({ exhausted: { ...s.exhausted, [`${id}|${role}`]: true } }));
+        } else if (r.limited) {
+          // the cap, not the server: a mailbox stops being asked just like an exhausted one, but the footer says why
+          active.delete(id);
+          set((s) => ({ limited: { ...s.limited, [`${id}|${role}`]: true } }));
+        }
+        // the list grows chunk by chunk (the viewport keeps its place)
+        if (r.added > 0) await get().refresh();
+        if (!alive()) return;
+      }
+      const stopped = (id: string) => get().exhausted[`${id}|${role}`] || get().limited[`${id}|${role}`];
+      const done = pending.every(stopped);
+      if (manual) {
+        if (added > 0) get().showToast(`Loaded ${added} older message${added === 1 ? "" : "s"}`, undefined, "success");
+        else if (done) {
+          const capped = targets.some((id) => get().limited[`${id}|${role}`]);
+          get().showToast(capped ? limitMessage(get().prefs.maxDownload) : "No older messages in this folder", undefined, "info");
+        }
+      }
+      // nothing came back although the server did not say it was done: stop scrolling from asking again and again (the button still can)
+      if (added === 0 && !done) set({ moreError: true });
+    } catch (e) {
+      if (!alive()) return;
+      // with several mailboxes say which one failed
+      const acct = targets.length > 1 ? get().accounts.find((x) => x.id === failing)?.email : undefined;
+      get().showToast(`${acct ? `${acct}: ` : ""}${friendlyError(e)}`, undefined, "error");
+      set({ moreError: true });
+    } finally {
+      if (alive()) set({ loadingMore: false });
+    }
+  },
+
+  onBackfill: (p) => {
+    set((s) => {
+      const backfill = { ...s.backfill };
+      if (p.done) delete backfill[p.accountId];
+      else backfill[p.accountId] = p;
+      return { backfill };
+    });
+    // the list is re-read quietly (same scroll position, same selection), at most once a second; the last chunk always is
+    clearTimeout(backfillTimer);
+    const wait = p.done ? 0 : Math.max(0, backfillLast + BACKFILL_REFRESH_MS - Date.now());
+    backfillTimer = setTimeout(() => {
+      backfillLast = Date.now();
+      void get().refresh();
+    }, wait);
   },
 
   select: async (id) => {
@@ -723,11 +848,17 @@ export const useStore = create<State>((set, get) => ({
 
   setPrefs: (patch) => {
     const prefs = { ...get().prefs, ...patch };
+    // a new cap: mailboxes that were stopped by the old one are asked again
+    if ("maxDownload" in patch && patch.maxDownload !== get().prefs.maxDownload) set({ limited: {} });
     set({ prefs });
     applyPrefs(prefs);
     void api.setSetting("prefs", JSON.stringify(prefs));
     mirrorSettings(patch);
     const layoutKeys: (keyof Prefs)[] = ["conversations", "focused", "sortAsc"];
-    if (layoutKeys.some((k) => k in patch)) void get().refresh();
+    if (layoutKeys.some((k) => k in patch)) {
+      // a different list (order, grouping): the old lines are dropped so the list starts at the top instead of keeping a place that no longer means anything
+      set({ threads: [], loading: true });
+      void get().refresh();
+    }
   },
 }));

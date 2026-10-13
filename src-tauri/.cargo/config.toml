@@ -1,0 +1,5 @@
+# One SQLite file per mailbox is attached to the app's connection (see src/shard.rs). SQLite allows 10 attached files by
+# default; this raises the compile-time cap (hard maximum 125). Only applies to builds started inside src-tauri (as
+# `tauri build` does): elsewhere the default stays and shard::attach reports a clear error past the cap.
+[env]
+LIBSQLITE3_FLAGS = "-DSQLITE_MAX_ATTACHED=60"

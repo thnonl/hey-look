@@ -269,41 +269,45 @@ pub fn fix_stored(conn: &Connection) -> Result<usize, String> {
         return Ok(0);
     }
     let e = |x: rusqlite::Error| x.to_string();
-    let mut last = 0i64;
     let mut changed = 0usize;
-    loop {
-        let batch: Vec<(i64, String)> = {
-            let mut st = conn
-                .prepare(
-                    "SELECT rowid, snippet FROM messages WHERE rowid>?1
-                       AND (body_html IS NOT NULL OR body_text IS NOT NULL)
-                       AND (snippet LIKE '#%' OR snippet LIKE '.%' OR snippet LIKE '@%' OR snippet LIKE '<%'
-                            OR (instr(snippet,'{')>0 AND instr(snippet,';')>0))
-                     ORDER BY rowid LIMIT 200",
-                )
-                .map_err(e)?;
-            let rows = st.query_map([last], |r| Ok((r.get(0)?, r.get(1)?))).map_err(e)?.collect::<Result<Vec<_>, _>>().map_err(e)?;
-            rows
-        };
-        let Some(&(max, _)) = batch.last() else { break };
-        let tx = conn.unchecked_transaction().map_err(e)?;
-        for (rid, old) in &batch {
-            if !looks_like_junk(old) {
-                continue;
-            }
-            let (html, text): (Option<String>, Option<String>) =
-                tx.query_row("SELECT body_html, body_text FROM messages WHERE rowid=?1", [rid], |r| Ok((r.get(0)?, r.get(1)?))).map_err(e)?;
-            let new = {
-                let from_html = make(None, html.as_deref());
-                if from_html.is_empty() { make(text.as_deref(), None) } else { from_html }
+    // one mail file at a time: the `messages` view has no rowid
+    for schema in crate::shard::message_schemas(conn) {
+        let table = format!("{schema}.messages");
+        let mut last = 0i64;
+        loop {
+            let batch: Vec<(i64, String)> = {
+                let mut st = conn
+                    .prepare(&format!(
+                        "SELECT rowid, snippet FROM {table} WHERE rowid>?1
+                           AND (body_html IS NOT NULL OR body_text IS NOT NULL)
+                           AND (snippet LIKE '#%' OR snippet LIKE '.%' OR snippet LIKE '@%' OR snippet LIKE '<%'
+                                OR (instr(snippet,'{{')>0 AND instr(snippet,';')>0))
+                         ORDER BY rowid LIMIT 200"
+                    ))
+                    .map_err(e)?;
+                let rows = st.query_map([last], |r| Ok((r.get(0)?, r.get(1)?))).map_err(e)?.collect::<Result<Vec<_>, _>>().map_err(e)?;
+                rows
             };
-            if !new.is_empty() && new != *old {
-                tx.execute("UPDATE messages SET snippet=?1 WHERE rowid=?2", params![new, rid]).map_err(e)?;
-                changed += 1;
+            let Some(&(max, _)) = batch.last() else { break };
+            let tx = conn.unchecked_transaction().map_err(e)?;
+            for (rid, old) in &batch {
+                if !looks_like_junk(old) {
+                    continue;
+                }
+                let (html, text): (Option<String>, Option<String>) =
+                    tx.query_row(&format!("SELECT body_html, body_text FROM {table} WHERE rowid=?1"), [rid], |r| Ok((r.get(0)?, r.get(1)?))).map_err(e)?;
+                let new = {
+                    let from_html = make(None, html.as_deref());
+                    if from_html.is_empty() { make(text.as_deref(), None) } else { from_html }
+                };
+                if !new.is_empty() && new != *old {
+                    tx.execute(&format!("UPDATE {table} SET snippet=?1 WHERE rowid=?2"), params![new, rid]).map_err(e)?;
+                    changed += 1;
+                }
             }
+            tx.commit().map_err(e)?;
+            last = max;
         }
-        tx.commit().map_err(e)?;
-        last = max;
     }
     conn.execute("INSERT OR REPLACE INTO settings(key,value) VALUES(?1,'1')", [FIXED_KEY]).map_err(e)?;
     Ok(changed)
@@ -388,9 +392,7 @@ mod tests {
     }
 
     fn db() -> Connection {
-        let c = Connection::open_in_memory().unwrap();
-        crate::db::migrate(&c).unwrap();
-        c
+        crate::db::test_conn(&["a"])
     }
 
     fn put(c: &Connection, id: &str, snippet: &str, html: Option<&str>, text: Option<&str>) {

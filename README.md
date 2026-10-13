@@ -35,7 +35,7 @@ account, and every feature is available.
 - Servers with a **self-signed or private-CA certificate** (Proton Mail Bridge, company servers) can be trusted per account; a **different SMTP login** can be set when sending uses other credentials
 - A background worker keeps syncing while the window is hidden in the tray; each mailbox can have its own interval
 - Standard folders (Inbox, Sent, Drafts, Archive, Junk, Deleted) and your own folders, with nesting shown
-- **Load older messages** pages further back than the first download
+- Older mail is downloaded as you scroll: near the end of a folder the next 200 messages are fetched (50 at a time), until the server has no more; the Inbox also fills in the background up to 500 messages (the other folders 100 each). Both stop at the **Max emails to download per mailbox** limit (default 2000, up to 5000, counted over all folders of a mailbox; see below), and the list footer then says so. **Load older messages** at the bottom retries after an error. The list only keeps the rows in view, so thousands of messages stay fast
 - Favorites, quick views (Unread, Flagged, Pinned, Snoozed, Scheduled) and per-mailbox colors
 
 ### Reading
@@ -74,6 +74,7 @@ account, and every feature is available.
 - Operators you can also type: `from:` `to:` `subject:` `body:` `folder:` `is:unread|read|flagged|pinned`
   `has:attachment` `after:2026-01-31` `before:` `after:7d`, and `"quoted phrases"`
 - Results show which folder each conversation lives in; recent searches are remembered
+- Only downloaded mail is searched. At the end of the results (or when there are none), **Search in <webmail>** appears for each mailbox whose webmail is known: Gmail, Outlook, Microsoft 365, Yahoo, iCloud, Fastmail and Zoho (a custom server gets no button). **Gmail** opens the same search directly, with the operators translated. The others have no search link, so the search text is copied and the webmail opens: paste it into its search box (operators the webmail is not known to understand are left out)
 
 ### Notifications and tray
 - Native Windows notifications with up to three action buttons (Archive, Delete, Mark as read, Flag, Reply, Snooze)
@@ -104,6 +105,12 @@ Open **Settings → Mailboxes**.
   content and sync interval, favorites.
 - Each **account** has the same pages. A setting you change there is marked **Custom** and overrides the All accounts
   value for that mailbox only; untouched settings are marked **Same as All accounts** and follow any later change.
+- **Reading & sync → Max emails to download per mailbox** (500 / 1000 / 2000 / 5000, default 2000) is one value for every
+  mailbox, counted per mailbox over all its folders. The fewer mails, the less disk space they use and the better the app
+  performs. It limits the background download and scrolling for older mail; new mail always arrives. When a mailbox is over the limit, the
+  oldest mails (by date, any folder) are removed **from this computer only** as new mail arrives; they stay on the server, and
+  Drafts, flagged mail, pinned or snoozed conversations and the newest message of each folder are kept. Lowering the limit
+  trims the excess at the next arrival; raising it lets older mail download again.
   **Reset** goes back to inheriting.
 - Signatures, templates and filters can belong to All accounts or to one mailbox; a mailbox sees its own plus the shared ones.
 

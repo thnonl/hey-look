@@ -13,6 +13,7 @@ mod pgpstore;
 mod rawcache;
 use oauth::Provider;
 mod schedule;
+mod shard;
 mod shell;
 mod smtp;
 mod snippet;
@@ -563,6 +564,7 @@ fn sync_impl(db: &Db, account_id: &str) -> R<SyncResult> {
     roles.extend(custom);
 
     let mut result = SyncResult { added: 0, new_inbox: vec![] };
+    let mut fresh: std::collections::HashSet<String> = Default::default(); // ids stored by this sync: never pruned
     let mut to_rule: Vec<(String, String, String, String)> = vec![]; // thread, from, to, subject
     for role in roles {
         let Some(name) = map.get(&role) else { continue };
@@ -573,8 +575,8 @@ fn sync_impl(db: &Db, account_id: &str) -> R<SyncResult> {
                 |r| Ok((r.get(0)?, r.get(1)?)),
             )
             .map_err(err)?;
-        let initial = if role == "inbox" { 300 } else { 100 };
-        let ff = match mail::fetch_folder(&mut s, name, max_uid, min_uid, initial) {
+        // the first sync of a folder is only a taste (the newest page, so the UI has mail at once); `backfill_run` brings the rest
+        let ff = match mail::fetch_folder(&mut s, name, max_uid, min_uid, PAGE) {
             Ok(f) => f,
             Err(_) => continue,
         };
@@ -583,6 +585,7 @@ fn sync_impl(db: &Db, account_id: &str) -> R<SyncResult> {
         for p in &ff.new {
             let tid = insert_parsed(&c, &acc, &role, p)?;
             result.added += 1;
+            fresh.insert(format!("{}:{}:{}", acc.id, role, p.uid));
             if role == "inbox" && max_uid > 0 {
                 if !p.seen {
                     result.new_inbox.push(NewMsg {
@@ -648,6 +651,14 @@ fn sync_impl(db: &Db, account_id: &str) -> R<SyncResult> {
         }
         result.new_inbox.retain(|n| !moved.contains(&n.thread_id));
     }
+    // new mail arrived: keep the account at its cap by dropping its oldest local mail (a failure here never fails the sync)
+    if result.added > 0 {
+        match prune_oldest(db, account_id, max_download(db), &fresh) {
+            Ok(0) => {}
+            Ok(n) => eprintln!("pruned {n} oldest local messages of account {account_id} (download cap)"),
+            Err(e) => eprintln!("pruning account {account_id} failed: {e}"),
+        }
+    }
     Ok(result)
 }
 
@@ -657,6 +668,7 @@ static SYNC_LOCK: Mutex<()> = Mutex::new(());
 fn run_sync(app: &tauri::AppHandle, db: &Db, account_id: &str) -> R<SyncResult> {
     let _guard = SYNC_LOCK.lock().unwrap_or_else(|p| p.into_inner());
     let r = sync_impl(db, account_id)?;
+    backfill_start(app, db, account_id);
     shell::notify_new(app, db, &r.new_inbox);
     shell::update_badge(app, db);
     if calendar::take_dirty() {
@@ -789,40 +801,325 @@ fn pending_worker(app: tauri::AppHandle) {
 
 // ---------- older mail / attachment data ----------
 
-fn load_older_impl(db: &Db, account_id: &str, role: &str) -> R<u32> {
-    let acc = db::get_account(&lock(db), account_id)?;
-    let sec = secret(db, &acc)?;
-    let map = fmap(db, account_id);
-    let name = map.get(role).cloned().ok_or("folder unknown")?;
-    let min_uid: u32 = lock(db)
-        .query_row(
-            "SELECT COALESCE(MIN(uid),0) FROM messages WHERE account_id=?1 AND folder=?2",
-            params![account_id, role],
-            |r| r.get(0),
-        )
-        .map_err(err)?;
-    if min_uid <= 1 {
-        return Ok(0);
-    }
-    let hi = min_uid - 1;
-    let lo = hi.saturating_sub(300).max(1);
-    let mut s = mail::connect(&acc, &sec)?;
-    let found = mail::fetch_range(&mut s, &name, lo, hi)?;
-    let _ = s.logout();
-    let c = lock(db);
-    c.execute_batch("BEGIN").map_err(err)?;
-    for p in &found {
-        insert_parsed(&c, &acc, role, p)?;
-    }
-    c.execute_batch("COMMIT").map_err(err)?;
-    Ok(found.len() as u32)
+/// Messages per IMAP fetch: the first sync, every "load older" page and every backfill chunk. Gmail drops or throttles a
+/// FETCH of hundreds of full messages, so mail always arrives in small steps.
+const PAGE: u32 = 50;
+
+/// How many messages a folder should hold locally after the background download: the inbox is worth a long history, other
+/// folders get a shorter one. "Load older" goes beyond it on request.
+fn backfill_target(role: &str) -> u32 {
+    if role == "inbox" { 500 } else { 100 }
 }
 
-/// Fetch the next page of older messages for a folder; returns how many were added (0 = nothing older).
+/// "Max emails to download per mailbox" (setting `max_download`): most messages stored for ONE account, all its folders together.
+/// It limits the background download and "load older"; new mail from a normal sync is never held back, instead the oldest
+/// local mail is pruned when new mail arrives and the account is over the cap (`prune_oldest`). Changing the setting alone
+/// deletes nothing.
+const MAX_DOWNLOAD_DEFAULT: u32 = 2000;
+const MAX_DOWNLOAD_MIN: u32 = 100;
+const MAX_DOWNLOAD_MAX: u32 = 5000;
+
+/// The setting's stored text as a cap: missing or not a number = the default, otherwise clamped to the allowed range (same
+/// rule as `clampMaxDownload` in prefs.ts).
+fn parse_max_download(v: Option<&str>) -> u32 {
+    match v.and_then(|t| t.trim().parse::<f64>().ok()).filter(|f| f.is_finite()) {
+        Some(f) => f.trunc().clamp(MAX_DOWNLOAD_MIN as f64, MAX_DOWNLOAD_MAX as f64) as u32,
+        None => MAX_DOWNLOAD_DEFAULT,
+    }
+}
+
+/// Read every time it is needed, so a change in Settings applies to the next chunk without a restart.
+fn max_download(db: &Db) -> u32 {
+    parse_max_download(setting(db, "max_download").as_deref())
+}
+
+/// How many of `want` messages may still be stored when `total` are already there and the cap is `cap`.
+fn clamp_chunk(want: u32, total: u32, cap: u32) -> u32 {
+    want.min(cap.saturating_sub(total))
+}
+
+/// Messages stored for the account, all folders (the `messages` view routes to the account's own shard).
+fn account_total(db: &Db, account_id: &str) -> R<u32> {
+    lock(db)
+        .query_row("SELECT COUNT(*) FROM messages WHERE account_id=?1", params![account_id], |r| r.get(0))
+        .map_err(err)
+}
+
+/// Bring an account back to `cap` messages after new mail arrived: delete its OLDEST messages (by date, across folders) from the
+/// local database only - nothing is sent to the server, so the mail stays there. Never deleted: drafts, flagged messages,
+/// messages of pinned or snoozed threads, the newest message of every folder (the sync's high-water mark: a folder that lost
+/// every row would be fetched afresh, and pruned again, on each sync) and `keep` (what the running sync just stored). If those
+/// alone exceed the cap the rest is still pruned and the account stays above it, without an error. Rows go by id, straight from
+/// the account's own table in one transaction (the `messages` view cannot count deletes). A folder that lost rows is no longer
+/// "downloaded to the oldest message", so its `exhausted:` mark is cleared. Never holds the lock across network IO (it has none).
+/// Returns how many messages were deleted.
+fn prune_oldest(db: &Db, account_id: &str, cap: u32, keep: &std::collections::HashSet<String>) -> R<u32> {
+    let ids: Vec<(String, String)> = {
+        let c = lock(db);
+        let total: u32 = c
+            .query_row("SELECT COUNT(*) FROM messages WHERE account_id=?1", params![account_id], |r| r.get(0))
+            .map_err(err)?;
+        if total <= cap {
+            return Ok(0);
+        }
+        let excess = (total - cap) as usize;
+        let mut st = c.prepare("SELECT folder, MAX(uid) FROM messages WHERE account_id=?1 GROUP BY folder").map_err(err)?;
+        let newest: std::collections::HashMap<String, u32> = st
+            .query_map(params![account_id], |r| Ok((r.get(0)?, r.get(1)?)))
+            .map_err(err)?
+            .filter_map(|r| r.ok())
+            .collect();
+        drop(st);
+        // enough candidates to still have `excess` left after the ones that are skipped below
+        let want = (excess + keep.len() + newest.len()) as i64;
+        let mut st = c
+            .prepare(
+                "SELECT m.id, m.folder, m.uid FROM messages m LEFT JOIN thread_meta tm ON tm.thread_id=m.thread_id
+                 WHERE m.account_id=?1 AND m.folder<>'drafts' AND m.flagged=0 AND COALESCE(tm.pinned,0)=0 AND tm.snoozed_until IS NULL
+                 ORDER BY m.date ASC, m.id ASC LIMIT ?2",
+            )
+            .map_err(err)?;
+        let found: Vec<(String, String, u32)> = st
+            .query_map(params![account_id, want], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)))
+            .map_err(err)?
+            .filter_map(|r| r.ok())
+            .collect();
+        drop(st);
+        found
+            .into_iter()
+            .filter(|(id, folder, uid)| !keep.contains(id) && newest.get(folder) != Some(uid))
+            .take(excess)
+            .map(|(id, folder, _)| (id, folder))
+            .collect()
+    };
+    if ids.is_empty() {
+        return Ok(0);
+    }
+    {
+        let c = lock(db);
+        let table = shard::messages_table(&c, account_id)?;
+        c.execute_batch("BEGIN").map_err(err)?;
+        let res = (|| -> R<()> {
+            let mut del = c.prepare(&format!("DELETE FROM {table} WHERE id=?1")).map_err(err)?;
+            for (id, _) in &ids {
+                del.execute(params![id]).map_err(err)?;
+            }
+            let folders: std::collections::HashSet<&String> = ids.iter().map(|(_, f)| f).collect();
+            for f in folders {
+                c.execute("DELETE FROM settings WHERE key=?1", params![exhausted_key(account_id, f)]).map_err(err)?;
+            }
+            Ok(())
+        })();
+        match res {
+            Ok(()) => c.execute_batch("COMMIT").map_err(err)?,
+            Err(e) => {
+                let _ = c.execute_batch("ROLLBACK");
+                return Err(e);
+            }
+        }
+    }
+    for (id, _) in &ids {
+        rawcache::forget(id);
+    }
+    Ok(ids.len() as u32)
+}
+
+/// Pause between two chunks of the background download, so the server (and the database lock) are never hammered.
+const BACKFILL_PAUSE: std::time::Duration = std::time::Duration::from_millis(1500);
+
+fn exhausted_key(account_id: &str, role: &str) -> String {
+    format!("exhausted:{account_id}:{role}")
+}
+
+/// The folder was downloaded down to its oldest message (kept, so it is not asked again on every visit).
+fn is_exhausted(db: &Db, account_id: &str, role: &str) -> bool {
+    db::get_setting(&lock(db), &exhausted_key(account_id, role)).is_some()
+}
+
+/// (messages stored, lowest stored uid) of a folder; the uid is 0 for an empty folder.
+fn folder_state(db: &Db, account_id: &str, role: &str) -> R<(u32, u32)> {
+    lock(db)
+        .query_row(
+            "SELECT COUNT(*), COALESCE(MIN(uid),0) FROM messages WHERE account_id=?1 AND folder=?2",
+            params![account_id, role],
+            |r| Ok((r.get(0)?, r.get(1)?)),
+        )
+        .map_err(err)
+}
+
+/// Store a page of older messages in one transaction (all or nothing). Never holds the lock while talking to the server.
+fn store_page(db: &Db, acc: &Account, role: &str, found: &[mail::Parsed]) -> R<()> {
+    let c = lock(db);
+    c.execute_batch("BEGIN").map_err(err)?;
+    for p in found {
+        if let Err(e) = insert_parsed(&c, acc, role, p) {
+            let _ = c.execute_batch("ROLLBACK");
+            return Err(e);
+        }
+    }
+    c.execute_batch("COMMIT").map_err(err)
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct LoadOlder {
+    added: u32,
+    /// the folder has nothing older than what is stored now
+    exhausted: bool,
+    /// the "Max emails to download" cap stopped it, not the server: more can be loaded after raising the cap
+    limited: bool,
+}
+
+fn load_older_impl(db: &Db, account_id: &str, role: &str, limit: u32) -> R<LoadOlder> {
+    if is_exhausted(db, account_id, role) {
+        return Ok(LoadOlder { added: 0, exhausted: true, limited: false });
+    }
+    let cap = max_download(db);
+    let total = account_total(db, account_id)?;
+    if total >= cap {
+        return Ok(LoadOlder { added: 0, exhausted: false, limited: true }); // no network at all
+    }
+    let acc = db::get_account(&lock(db), account_id)?;
+    let sec = secret(db, &acc)?;
+    let name = fmap(db, account_id).get(role).cloned().ok_or("folder unknown")?;
+    let (_, min_uid) = folder_state(db, account_id, role)?;
+    if min_uid == 0 {
+        return Ok(LoadOlder { added: 0, exhausted: true, limited: false }); // nothing stored: there is no "older" to speak of
+    }
+    let mut s = mail::connect(&acc, &sec)?;
+    let (found, exhausted) = mail::fetch_older(&mut s, &name, min_uid, clamp_chunk(limit, total, cap) as usize)?;
+    let _ = s.logout();
+    store_page(db, &acc, role, &found)?;
+    if exhausted {
+        db::set_setting(&lock(db), &exhausted_key(account_id, role), "1")?;
+    }
+    let added = found.len() as u32;
+    Ok(LoadOlder { added, exhausted, limited: !exhausted && total + added >= cap })
+}
+
+/// Fetch the next page (default and maximum 50) of older messages for a folder. An IMAP failure is an error, never "nothing
+/// older": `exhausted` is true only when the server has no older message, `limited` only when the download cap stopped it.
 #[tauri::command]
-async fn load_older(state: tauri::State<'_, AppState>, account_id: String, role: String) -> R<u32> {
+async fn load_older(state: tauri::State<'_, AppState>, account_id: String, role: String, limit: Option<u32>) -> R<LoadOlder> {
     let db = state.db.clone();
-    blocking(move || load_older_impl(&db, &account_id, &role)).await
+    let limit = limit.unwrap_or(PAGE).clamp(1, PAGE);
+    blocking(move || load_older_impl(&db, &account_id, &role, limit)).await
+}
+
+// ---------- background download of the history ----------
+
+/// Accounts whose backfill thread is running (one per account).
+static BACKFILLING: Mutex<Vec<String>> = Mutex::new(Vec::new());
+
+struct BackfillGuard(String);
+
+impl Drop for BackfillGuard {
+    fn drop(&mut self) {
+        BACKFILLING.lock().unwrap_or_else(|p| p.into_inner()).retain(|a| *a != self.0);
+    }
+}
+
+/// The next folder that still has history to download: (role, IMAP name, stored, target), in sync order (inbox first). A folder
+/// with nothing stored yet waits for its first sync; `skip` holds folders given up on during this run. The target never goes
+/// beyond the account's cap: the folder's own target, the cap, and what is left of it after the other folders (`have + room`).
+fn next_backfill(db: &Db, account_id: &str, skip: &std::collections::HashSet<String>, cap: u32) -> Option<(String, String, u32, u32)> {
+    let room = cap.saturating_sub(account_total(db, account_id).ok()?);
+    if room == 0 {
+        return None;
+    }
+    let map = fmap(db, account_id);
+    let mut roles: Vec<String> = mail::ROLES.iter().filter(|r| map.contains_key(**r)).map(|r| r.to_string()).collect();
+    let mut custom: Vec<String> = map.keys().filter(|k| k.starts_with("f:")).cloned().collect();
+    custom.sort();
+    roles.extend(custom);
+    for role in roles {
+        if skip.contains(&role) || is_exhausted(db, account_id, &role) {
+            continue;
+        }
+        let Ok((have, min_uid)) = folder_state(db, account_id, &role) else { continue };
+        let target = backfill_target(&role).min(cap).min(have + room);
+        if have > 0 && min_uid > 1 && have < target {
+            return Some((role.clone(), map[&role].clone(), have, target));
+        }
+    }
+    None
+}
+
+/// Start the background download for an account unless one is already running or there is nothing left to download.
+fn backfill_start(app: &tauri::AppHandle, db: &Db, account_id: &str) {
+    if next_backfill(db, account_id, &Default::default(), max_download(db)).is_none() {
+        return;
+    }
+    {
+        let mut running = BACKFILLING.lock().unwrap_or_else(|p| p.into_inner());
+        if running.iter().any(|a| a == account_id) {
+            return;
+        }
+        running.push(account_id.to_string());
+    }
+    let (app, db, id) = (app.clone(), db.clone(), account_id.to_string());
+    let spawned = std::thread::Builder::new().name("backfill".into()).spawn(move || {
+        let _guard = BackfillGuard(id.clone());
+        if let Err(e) = backfill_run(&app, &db, &id) {
+            // not fatal: the next sync starts again where this one stopped
+            eprintln!("background download for account {id} stopped: {e}");
+        }
+    });
+    if spawned.is_err() {
+        BACKFILLING.lock().unwrap_or_else(|p| p.into_inner()).retain(|a| a != account_id);
+    }
+}
+
+/// Download older mail in chunks of `PAGE`, one folder after the other, until every folder holds its target (or the account
+/// its cap) or has nothing older. Resumable (it works from what is stored), stops when the account is removed, and on an error (after one reconnect).
+fn backfill_run(app: &tauri::AppHandle, db: &Db, account_id: &str) -> R<()> {
+    let mut sess: Option<mail::Sess> = None;
+    let mut skip: std::collections::HashSet<String> = Default::default();
+    let mut failures = 0;
+    loop {
+        // the account can be removed while this runs: its mail file is gone, so stop
+        let acc = db::get_account(&lock(db), account_id)?;
+        let Some((role, name, have, target)) = next_backfill(db, account_id, &skip, max_download(db)) else { break };
+        let (_, below) = folder_state(db, account_id, &role)?;
+        let step = (|| -> R<(usize, bool)> {
+            if sess.is_none() {
+                sess = Some(mail::connect(&acc, &secret(db, &acc)?)?);
+            }
+            let s = sess.as_mut().ok_or("no session")?;
+            let (found, exhausted) = mail::fetch_older(s, &name, below, (target - have).min(PAGE) as usize)?;
+            store_page(db, &acc, &role, &found)?;
+            Ok((found.len(), exhausted))
+        })();
+        match step {
+            Ok((added, exhausted)) => {
+                failures = 0;
+                if exhausted {
+                    db::set_setting(&lock(db), &exhausted_key(account_id, &role), "1")?;
+                } else if added == 0 {
+                    skip.insert(role.clone()); // a page that yields nothing must not loop forever
+                }
+                let (now_have, _) = folder_state(db, account_id, &role)?;
+                let done = exhausted || now_have >= target || added == 0;
+                let _ = app.emit(
+                    "backfill-progress",
+                    serde_json::json!({ "accountId": account_id, "role": role, "have": now_have, "target": target, "done": done }),
+                );
+                std::thread::sleep(BACKFILL_PAUSE);
+            }
+            Err(e) => {
+                sess = None; // a failed session is not reused
+                failures += 1;
+                if failures > 1 {
+                    return Err(e);
+                }
+                std::thread::sleep(BACKFILL_PAUSE);
+            }
+        }
+    }
+    if let Some(mut s) = sess {
+        let _ = s.logout();
+    }
+    Ok(())
 }
 
 #[derive(Serialize)]
@@ -2991,8 +3288,7 @@ mod search_tests {
 
     #[test]
     fn searching_inside_trash_or_junk_finds_its_mail() {
-        let c = Connection::open_in_memory().unwrap();
-        db::migrate(&c).unwrap();
+        let c = db::test_conn(&["a1"]);
         let put = |id: &str, folder: &str, uid: i64, thread: &str| {
             c.execute(
                 "INSERT INTO messages(id,account_id,folder,uid,thread_id,subject,from_name,from_email,to_addrs,cc_addrs,date,snippet) VALUES(?1,'a1',?2,?3,?4,'token invoice','x','x@y.z','','',?3,'')",
@@ -3027,6 +3323,305 @@ mod search_tests {
         assert_eq!(run("inbox", "token in:junk", Some("all")), vec!["t-junk:junk"]);
         assert_eq!(run("inbox", "token folder:spam", Some("current")), vec!["t-junk:junk"]);
         assert_eq!(run("inbox", "token folder:bin", Some("current")), vec!["t-trash:trash"]);
+    }
+}
+
+#[cfg(test)]
+mod backfill_tests {
+    use super::*;
+
+    const ACC: &str = "11111111-2222-4333-8444-555555555555";
+    const CAP: u32 = MAX_DOWNLOAD_DEFAULT;
+
+    fn db_with(rows: &[(&str, u32)]) -> Db {
+        let c = db::test_conn(&[ACC]);
+        db::set_setting(&c, &format!("fmap:{ACC}"), r#"{"inbox":"INBOX","sent":"Sent","f:Work":"Work"}"#).unwrap();
+        for (folder, uid) in rows {
+            c.execute(
+                "INSERT INTO messages(id,account_id,folder,uid,thread_id,subject,from_name,from_email,to_addrs,cc_addrs,date,snippet) VALUES(?1,?2,?3,?4,'t','s','n','e','','',?4,'')",
+                params![format!("{folder}:{uid}"), ACC, folder, uid],
+            )
+            .unwrap();
+        }
+        Arc::new(Mutex::new(c))
+    }
+
+    #[test]
+    fn targets_are_500_for_the_inbox_and_100_elsewhere() {
+        assert_eq!((backfill_target("inbox"), backfill_target("sent"), backfill_target("f:Work")), (500, 100, 100));
+    }
+
+    #[test]
+    fn the_next_folder_to_download_is_chosen_from_what_is_stored() {
+        let none = Default::default();
+        // nothing stored: the first sync comes first
+        assert!(next_backfill(&db_with(&[]), ACC, &none, CAP).is_none());
+        // some inbox mail, older mail may exist
+        let db = db_with(&[("inbox", 900), ("inbox", 901), ("sent", 5)]);
+        assert_eq!(next_backfill(&db, ACC, &none, CAP), Some(("inbox".into(), "INBOX".into(), 2, 500)));
+        // the inbox is complete: on to the next folder in sync order
+        db::set_setting(&lock(&db), &exhausted_key(ACC, "inbox"), "1").unwrap();
+        assert!(is_exhausted(&db, ACC, "inbox") && !is_exhausted(&db, ACC, "sent"));
+        assert_eq!(next_backfill(&db, ACC, &none, CAP), Some(("sent".into(), "Sent".into(), 1, 100)));
+        // a folder given up on during this run is skipped
+        let skip = ["sent".to_string()].into_iter().collect();
+        assert_eq!(next_backfill(&db, ACC, &skip, CAP), None);
+        // a folder whose lowest stored uid is 1 has nothing below it
+        assert_eq!(next_backfill(&db_with(&[("inbox", 1), ("inbox", 2)]), ACC, &none, CAP), None);
+        // a folder that holds its target is done
+        let full: Vec<(&str, u32)> = (1..=500).map(|u| ("inbox", u + 5)).collect();
+        assert_eq!(next_backfill(&db_with(&full), ACC, &none, CAP), None);
+        // 499 stored: one more chunk (of one message) is needed
+        let almost: Vec<(&str, u32)> = (1..=499).map(|u| ("inbox", u + 5)).collect();
+        assert_eq!(next_backfill(&db_with(&almost), ACC, &none, CAP).map(|t| (t.2, t.3)), Some((499, 500)));
+    }
+
+    #[test]
+    fn the_cap_text_is_parsed_with_a_default_and_clamped() {
+        assert_eq!(parse_max_download(None), 2000);
+        for bad in ["", "  ", "abc", "NaN", "inf", "2k"] {
+            assert_eq!(parse_max_download(Some(bad)), 2000, "{bad:?}");
+        }
+        assert_eq!(parse_max_download(Some("500")), 500);
+        assert_eq!(parse_max_download(Some(" 1000 ")), 1000);
+        assert_eq!(parse_max_download(Some("5000")), 5000);
+        assert_eq!(parse_max_download(Some("2000.9")), 2000);
+        // out of range: clamped, a stored value above the maximum counts as the maximum
+        assert_eq!(parse_max_download(Some("5001")), 5000);
+        assert_eq!(parse_max_download(Some("20000")), 5000);
+        assert_eq!(parse_max_download(Some("99")), 100);
+        assert_eq!(parse_max_download(Some("0")), 100);
+        assert_eq!(parse_max_download(Some("-5")), 100);
+        // the stored setting is what max_download() reads, every time
+        let db = db_with(&[]);
+        assert_eq!(max_download(&db), 2000);
+        db::set_setting(&lock(&db), "max_download", "500").unwrap();
+        assert_eq!(max_download(&db), 500);
+        db::set_setting(&lock(&db), "max_download", "9999").unwrap();
+        assert_eq!(max_download(&db), 5000);
+        db::set_setting(&lock(&db), "max_download", "x").unwrap();
+        assert_eq!(max_download(&db), 2000);
+    }
+
+    #[test]
+    fn a_chunk_is_clamped_to_what_is_left_of_the_cap() {
+        assert_eq!(clamp_chunk(50, 0, 2000), 50);
+        assert_eq!(clamp_chunk(50, 1950, 2000), 50);
+        assert_eq!(clamp_chunk(50, 1951, 2000), 49);
+        assert_eq!(clamp_chunk(50, 1999, 2000), 1);
+        assert_eq!(clamp_chunk(50, 2000, 2000), 0);
+        // already over the cap (it was lowered): nothing, no underflow
+        assert_eq!(clamp_chunk(50, 3000, 2000), 0);
+        assert_eq!(clamp_chunk(0, 0, 2000), 0);
+    }
+
+    #[test]
+    fn the_background_download_stops_at_the_cap_of_the_whole_account() {
+        let none = Default::default();
+        let rows = |inbox: u32, sent: u32| -> Vec<(&'static str, u32)> {
+            (0..inbox).map(|u| ("inbox", u + 5)).chain((0..sent).map(|u| ("sent", u + 5))).collect()
+        };
+        // inbox target = min(500, cap)
+        let db = db_with(&rows(10, 0));
+        assert_eq!(next_backfill(&db, ACC, &none, 300).map(|t| t.3), Some(300));
+        assert_eq!(next_backfill(&db, ACC, &none, 5000).map(|t| t.3), Some(500));
+        // the other folders' mail counts: 450 stored in total, 500 allowed, so the inbox may grow by 50 only
+        let db = db_with(&rows(300, 150));
+        assert_eq!(next_backfill(&db, ACC, &none, 500).map(|t| (t.2, t.3)), Some((300, 350)));
+        // the cap is reached: nothing more to download in any folder
+        assert_eq!(next_backfill(&db_with(&rows(300, 200)), ACC, &none, 500), None);
+        // lowered below what is stored: nothing is downloaded (and nothing is deleted)
+        let db = db_with(&rows(300, 200));
+        assert_eq!(next_backfill(&db, ACC, &none, 100), None);
+        assert_eq!(account_total(&db, ACC).unwrap(), 500);
+        // raised again: downloading continues
+        assert!(next_backfill(&db, ACC, &none, 2000).is_some());
+        // other folders: 100 each, never beyond the cap
+        let db = db_with(&rows(0, 5));
+        assert_eq!(next_backfill(&db, ACC, &none, 5000).map(|t| t.3), Some(100));
+        assert_eq!(next_backfill(&db, ACC, &none, 100).map(|t| t.3), Some(100));
+        assert_eq!(next_backfill(&db_with(&rows(0, 100)), ACC, &none, 100), None);
+    }
+
+    #[test]
+    fn load_older_at_the_cap_answers_limited_without_any_network_call() {
+        let db = db_with(&(0..100).map(|u| ("inbox", u + 5)).collect::<Vec<_>>());
+        db::set_setting(&lock(&db), "max_download", "100").unwrap();
+        // there is no mail server (or password) in this test: reaching the network would be an error, not Ok
+        let r = load_older_impl(&db, ACC, "inbox", 50).unwrap();
+        assert_eq!((r.added, r.exhausted, r.limited), (0, false, true));
+        // below the cap the request goes on towards the server (and fails here, there is none)
+        db::set_setting(&lock(&db), "max_download", "101").unwrap();
+        assert!(load_older_impl(&db, ACC, "inbox", 50).is_err());
+        // a folder the server has nothing older for stays "exhausted", not "limited"
+        db::set_setting(&lock(&db), &exhausted_key(ACC, "inbox"), "1").unwrap();
+        db::set_setting(&lock(&db), "max_download", "100").unwrap();
+        let r = load_older_impl(&db, ACC, "inbox", 50).unwrap();
+        assert_eq!((r.added, r.exhausted, r.limited), (0, true, false));
+    }
+
+    /// One stored message with everything the pruning looks at.
+    fn put(db: &Db, folder: &str, uid: u32, date: i64, thread: &str, flagged: bool) -> String {
+        let id = format!("{ACC}:{folder}:{uid}");
+        lock(db)
+            .execute(
+                "INSERT INTO messages(id,account_id,folder,uid,thread_id,subject,from_name,from_email,to_addrs,cc_addrs,date,snippet,flagged) VALUES(?1,?2,?3,?4,?5,'s','n','e','','',?6,'',?7)",
+                params![id, ACC, folder, uid, thread, date, flagged as i64],
+            )
+            .unwrap();
+        id
+    }
+
+    fn have(db: &Db, id: &str) -> bool {
+        lock(db).query_row("SELECT COUNT(*) FROM messages WHERE id=?1", [id], |r| r.get::<_, u32>(0)).unwrap() == 1
+    }
+
+    fn none() -> std::collections::HashSet<String> {
+        Default::default()
+    }
+
+    #[test]
+    fn pruning_keeps_the_newest_messages_across_all_folders() {
+        let db = db_with(&[]);
+        for u in 1..=120 {
+            put(&db, "inbox", u, 1000 + u as i64, &format!("t{u}"), false);
+        }
+        for u in 1..=30 {
+            put(&db, "sent", u, 100 + u as i64, &format!("s{u}"), false); // old mail of another folder goes first
+        }
+        assert_eq!(prune_oldest(&db, ACC, 100, &none()).unwrap(), 50);
+        assert_eq!(account_total(&db, ACC).unwrap(), 100);
+        // the 29 oldest of Sent (its newest stays) and the 21 oldest of the Inbox
+        assert_eq!(folder_state(&db, ACC, "sent").unwrap(), (1, 30));
+        assert_eq!(folder_state(&db, ACC, "inbox").unwrap(), (99, 22));
+        // the old mail is gone for good, the newest is untouched: a second pass has nothing to do
+        assert_eq!(prune_oldest(&db, ACC, 100, &none()).unwrap(), 0);
+        assert_eq!(account_total(&db, ACC).unwrap(), 100);
+        // under the cap: nothing happens
+        assert_eq!(prune_oldest(&db, ACC, 5000, &none()).unwrap(), 0);
+        assert_eq!(account_total(&db, ACC).unwrap(), 100);
+    }
+
+    #[test]
+    fn lowering_the_cap_is_trimmed_in_one_go_by_the_next_arrival() {
+        let db = db_with(&[]);
+        for u in 1..=300 {
+            put(&db, "inbox", u, u as i64, &format!("t{u}"), false);
+        }
+        db::set_setting(&lock(&db), "max_download", "100").unwrap();
+        // changing the setting alone deletes nothing
+        assert_eq!(account_total(&db, ACC).unwrap(), 300);
+        assert_eq!(prune_oldest(&db, ACC, max_download(&db), &none()).unwrap(), 200);
+        assert_eq!(folder_state(&db, ACC, "inbox").unwrap(), (100, 201));
+    }
+
+    #[test]
+    fn pruning_never_deletes_protected_or_just_stored_mail() {
+        let db = db_with(&[]);
+        for u in 1..=130 {
+            put(&db, "inbox", u, 1000 + u as i64, &format!("t{u}"), false);
+        }
+        // every kind of protected mail is older than all the rest
+        let drafts: Vec<String> = (1..=5).map(|u| put(&db, "drafts", u, 1, "d", false)).collect();
+        let flagged = put(&db, "inbox", 200, 2, "tf", true);
+        let pinned = put(&db, "inbox", 201, 3, "tp", false);
+        let snoozed = put(&db, "inbox", 202, 4, "ts", false);
+        lock(&db).execute("INSERT INTO thread_meta(thread_id,pinned) VALUES('tp',1)", []).unwrap();
+        lock(&db).execute("INSERT INTO thread_meta(thread_id,snoozed_until) VALUES('ts',99999999999)", []).unwrap();
+        let fresh = put(&db, "f:Work", 5, 5, "w1", false);
+        let newest_of_folder = put(&db, "f:Work", 9, 6, "w2", false);
+        let doomed = put(&db, "f:Work", 6, 7, "w3", false); // old, unprotected: goes first
+        let keep: std::collections::HashSet<String> = [fresh.clone()].into_iter().collect();
+        let total = account_total(&db, ACC).unwrap();
+        assert_eq!(total, 130 + 5 + 3 + 3);
+        assert_eq!(prune_oldest(&db, ACC, 100, &keep).unwrap(), total - 100);
+        assert_eq!(account_total(&db, ACC).unwrap(), 100);
+        for id in drafts.iter().chain([&flagged, &pinned, &snoozed, &fresh, &newest_of_folder]) {
+            assert!(have(&db, id), "{id} must stay");
+        }
+        assert!(!have(&db, &doomed));
+        // the oldest unprotected inbox mail went, the newer did not
+        assert!(!have(&db, &format!("{ACC}:inbox:1")));
+        assert!(have(&db, &format!("{ACC}:inbox:130")));
+    }
+
+    #[test]
+    fn protected_mail_alone_above_the_cap_is_not_an_error() {
+        let db = db_with(&[]);
+        for u in 1..=120 {
+            put(&db, "drafts", u, u as i64, "d", false);
+        }
+        put(&db, "inbox", 1, 1, "t1", false); // the newest of its folder: stays
+        assert_eq!(prune_oldest(&db, ACC, 100, &none()).unwrap(), 0);
+        assert_eq!(account_total(&db, ACC).unwrap(), 121);
+        // some can go, the rest stays above the cap
+        for u in 2..=11 {
+            put(&db, "inbox", u, 1000 + u as i64, "t", false);
+        }
+        assert_eq!(prune_oldest(&db, ACC, 100, &none()).unwrap(), 10);
+        assert_eq!(folder_state(&db, ACC, "drafts").unwrap().0, 120);
+    }
+
+    #[test]
+    fn just_stored_mail_survives_even_when_it_is_the_oldest() {
+        let db = db_with(&[]);
+        let mut keep = std::collections::HashSet::new();
+        for u in 1..=105 {
+            let id = put(&db, "inbox", u, u as i64, &format!("t{u}"), false);
+            if u <= 3 {
+                keep.insert(id); // dated before everything else
+            }
+        }
+        assert_eq!(prune_oldest(&db, ACC, 100, &keep).unwrap(), 5);
+        for u in 1..=3 {
+            assert!(have(&db, &format!("{ACC}:inbox:{u}")));
+        }
+        assert!(!have(&db, &format!("{ACC}:inbox:4")) && !have(&db, &format!("{ACC}:inbox:8")));
+        assert!(have(&db, &format!("{ACC}:inbox:9")));
+    }
+
+    #[test]
+    fn a_folder_that_lost_mail_is_no_longer_marked_as_downloaded_to_the_end() {
+        let db = db_with(&[]);
+        for u in 1..=110 {
+            put(&db, "inbox", u, 1000 + u as i64, &format!("t{u}"), false);
+        }
+        for u in 1..=3 {
+            put(&db, "sent", u, 500 + u as i64, &format!("s{u}"), false);
+        }
+        for role in ["inbox", "sent", "archive"] {
+            db::set_setting(&lock(&db), &exhausted_key(ACC, role), "1").unwrap();
+        }
+        // another account's mark is not ours to touch
+        db::set_setting(&lock(&db), "exhausted:other:inbox", "1").unwrap();
+        // 113 stored, 100 allowed: Sent loses 2 (its newest stays) and the Inbox 11
+        assert_eq!(prune_oldest(&db, ACC, 100, &none()).unwrap(), 13);
+        assert!(!is_exhausted(&db, ACC, "inbox") && !is_exhausted(&db, ACC, "sent"));
+        assert!(is_exhausted(&db, ACC, "archive"), "a folder that lost nothing keeps its mark");
+        assert!(db::get_setting(&lock(&db), "exhausted:other:inbox").is_some());
+    }
+
+    #[test]
+    fn a_page_is_stored_or_nothing_is() {
+        let db = db_with(&[]);
+        let acc = db::Account {
+            id: ACC.into(), email: "a@b.c".into(), display_name: "N".into(), imap_host: "h".into(), imap_port: 993, imap_ssl: true,
+            smtp_host: "s".into(), smtp_port: 465, smtp_security: "ssl".into(), username: "u".into(), auth: "password".into(), color: None,
+            smtp_username: String::new(), tls_insecure: false,
+        };
+        let msg = |uid: u32| mail::parse(uid, format!("From: x@y.z
+Subject: m{uid}
+Message-ID: <{uid}@t>
+
+body {uid}
+").as_bytes(), false, false, 0).unwrap();
+        store_page(&db, &acc, "inbox", &[msg(7), msg(8)]).unwrap();
+        assert_eq!(folder_state(&db, ACC, "inbox").unwrap(), (2, 7));
+        // storing again is idempotent (a chunk fetched twice by the sync and the UI)
+        store_page(&db, &acc, "inbox", &[msg(8), msg(6)]).unwrap();
+        assert_eq!(folder_state(&db, ACC, "inbox").unwrap(), (3, 6));
+        // no transaction is left open afterwards
+        assert!(lock(&db).execute_batch("BEGIN; COMMIT").is_ok());
     }
 }
 
@@ -3066,8 +3661,7 @@ mod signed_flag_tests {
 
     #[test]
     fn encrypted_and_signed_thread_is_flagged_signed_once_opened() {
-        let c = Connection::open_in_memory().unwrap();
-        db::migrate(&c).unwrap();
+        let c = db::test_conn(&["a1"]);
         put(&c, 1, "t-enc", pgpmail::FLAG_ENCRYPTED as i64); // encrypted + signed inside (unknown until opened)
         put(&c, 2, "t-plain-enc", pgpmail::FLAG_ENCRYPTED as i64); // encrypted, no signature
         put(&c, 3, "t-signed", pgpmail::FLAG_SIGNED as i64);

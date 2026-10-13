@@ -83,7 +83,7 @@ pub fn put(id: &str, raw: Arc<Vec<u8>>) {
     with_cache(|c| c.put(id, raw))
 }
 
-#[cfg(test)]
+/// Drop a message that is no longer stored locally (pruned by the download cap).
 pub fn forget(id: &str) {
     with_cache(|c| c.remove(id))
 }

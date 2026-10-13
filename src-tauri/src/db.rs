@@ -11,10 +11,15 @@ pub fn err<E: std::fmt::Display>(e: E) -> String {
 pub fn open(path: &Path) -> R<Connection> {
     let conn = Connection::open(path).map_err(err)?;
     migrate(&conn)?;
+    // mail lives in one file per account, reached through the TEMP VIEW `messages` (see shard.rs)
+    crate::shard::open_all(&conn)?;
+    // snippet repair walks the shards, so it runs once they are attached (a failure is retried at the next start)
+    let _ = crate::snippet::fix_stored(&conn);
     Ok(conn)
 }
 
-/// Create missing tables and columns (safe to run on every start).
+/// Create missing tables and columns of the main database (safe to run on every start). `messages` is not here: it is
+/// created per account by `shard::attach`.
 pub fn migrate(conn: &Connection) -> R<()> {
     conn.execute_batch(
         "PRAGMA journal_mode=WAL;
@@ -25,21 +30,6 @@ pub fn migrate(conn: &Connection) -> R<()> {
            smtp_host TEXT NOT NULL, smtp_port INTEGER NOT NULL, smtp_security TEXT NOT NULL,
            username TEXT NOT NULL
          );
-         CREATE TABLE IF NOT EXISTS messages(
-           id TEXT PRIMARY KEY, account_id TEXT NOT NULL, folder TEXT NOT NULL, uid INTEGER NOT NULL,
-           message_id TEXT, thread_id TEXT NOT NULL, subject TEXT NOT NULL,
-           from_name TEXT NOT NULL, from_email TEXT NOT NULL,
-           to_addrs TEXT NOT NULL, cc_addrs TEXT NOT NULL, date INTEGER NOT NULL,
-           snippet TEXT NOT NULL, body_html TEXT, body_text TEXT,
-           seen INTEGER NOT NULL DEFAULT 0, flagged INTEGER NOT NULL DEFAULT 0,
-           has_attach INTEGER NOT NULL DEFAULT 0,
-           attachments TEXT NOT NULL DEFAULT '[]',
-           list_unsub TEXT, list_unsub_post INTEGER NOT NULL DEFAULT 0,
-           UNIQUE(account_id, folder, uid)
-         );
-         CREATE INDEX IF NOT EXISTS idx_msg_thread ON messages(thread_id);
-         CREATE INDEX IF NOT EXISTS idx_msg_folder ON messages(account_id, folder, date DESC);
-         CREATE INDEX IF NOT EXISTS idx_msg_mid ON messages(message_id);
          CREATE TABLE IF NOT EXISTS thread_meta(
            thread_id TEXT PRIMARY KEY, pinned INTEGER NOT NULL DEFAULT 0, snoozed_until INTEGER
          );
@@ -87,28 +77,20 @@ pub fn migrate(conn: &Connection) -> R<()> {
     add_column(conn, "ALTER TABLE accounts ADD COLUMN color TEXT")?;
     add_column(conn, "ALTER TABLE accounts ADD COLUMN smtp_username TEXT NOT NULL DEFAULT ''")?;
     add_column(conn, "ALTER TABLE accounts ADD COLUMN tls_insecure INTEGER NOT NULL DEFAULT 0")?;
-    add_column(conn, "ALTER TABLE messages ADD COLUMN attachments TEXT NOT NULL DEFAULT '[]'")?;
     // scheduled sends: when it was queued and how many delivery attempts failed so far
     add_column(conn, "ALTER TABLE outbox ADD COLUMN created_at INTEGER NOT NULL DEFAULT 0")?;
     add_column(conn, "ALTER TABLE outbox ADD COLUMN attempts INTEGER NOT NULL DEFAULT 0")?;
-    // PGP: 1 = encrypted, 2 = signed; the raw message is kept for those (ciphertext only, never decrypted text)
-    add_column(conn, "ALTER TABLE messages ADD COLUMN pgp INTEGER NOT NULL DEFAULT 0")?;
-    add_column(conn, "ALTER TABLE messages ADD COLUMN pgp_raw BLOB")?;
-    // calendar invitations: the iCalendar text of the message and its (lowercase) iMIP method
-    add_column(conn, "ALTER TABLE messages ADD COLUMN ics TEXT")?;
-    add_column(conn, "ALTER TABLE messages ADD COLUMN cal_method TEXT")?;
+    // (messages: pgp = 1 encrypted / 2 signed with the raw message kept for those, ics + cal_method for invitations: see shard.rs)
     // signatures / templates / filter rules can apply to one account (NULL = every account)
     for t in ["rules", "signatures", "templates"] {
         add_column(conn, &format!("ALTER TABLE {t} ADD COLUMN account_id TEXT"))?;
     }
-    // snippets stored with style sheet / markup text get a readable one (once; a failure is retried at the next start)
-    let _ = crate::snippet::fix_stored(conn);
     Ok(())
 }
 
 /// Run one `ALTER TABLE ... ADD COLUMN`. Only "duplicate column name" (an already migrated database) is ignored: any other
 /// failure leaves the schema incomplete and is returned instead of being swallowed.
-fn add_column(conn: &Connection, ddl: &str) -> R<()> {
+pub(crate) fn add_column(conn: &Connection, ddl: &str) -> R<()> {
     match conn.execute(ddl, []) {
         Ok(_) => Ok(()),
         Err(e) if e.to_string().contains("duplicate column name") => Ok(()),
@@ -198,11 +180,28 @@ pub const ACCOUNT_PALETTE: [&str; 10] = [
     "#0f6cbd", "#ca5010", "#13803c", "#8764b8", "#d13438", "#038387", "#e3008c", "#b8860b", "#5c7e9e", "#6b8e23",
 ];
 
-/// The color for a new account: the first palette color no existing account uses; when all are used, the least used one
-/// (the earliest in the palette on a tie). Comparison ignores case; colors outside the palette (custom) count for nothing.
+/// Two colors closer than this (Euclidean distance in RGB) look the same, e.g. the Teal primary preset #0e7c86 and palette #038387.
+const SAME_COLOR_DISTANCE: f64 = 45.0;
+
+fn rgb(hex: &str) -> Option<[f64; 3]> {
+    let h = hex.trim().strip_prefix('#')?;
+    if h.len() != 6 || !h.is_ascii() {
+        return None;
+    }
+    let v = |i: usize| u8::from_str_radix(&h[i..i + 2], 16).ok().map(f64::from);
+    Some([v(0)?, v(2)?, v(4)?])
+}
+
+/// The color for a new account: the palette color that looks least like the existing accounts' colors - the first one no account
+/// resembles; when every one is taken, the least used one (the earliest in the palette on a tie). Comparison ignores case, and a
+/// custom color counts for the palette colors it is visually close to. An account without a stored color is drawn in the primary
+/// color (default #0f6cbd, the first palette color), so `None` counts for that.
 pub fn pick_account_color<'a, I: IntoIterator<Item = Option<&'a str>>>(used: I) -> String {
-    let used: Vec<String> = used.into_iter().flatten().map(|c| c.trim().to_ascii_lowercase()).collect();
-    let uses = |p: &str| used.iter().filter(|u| u.as_str() == p).count();
+    let used: Vec<[f64; 3]> = used.into_iter().filter_map(|c| rgb(c.unwrap_or(ACCOUNT_PALETTE[0]))).collect();
+    let uses = |p: &str| {
+        let p = rgb(p).unwrap_or([0.0; 3]);
+        used.iter().filter(|u| (0..3).map(|i| (u[i] - p[i]).powi(2)).sum::<f64>().sqrt() < SAME_COLOR_DISTANCE).count()
+    };
     let best = ACCOUNT_PALETTE.iter().min_by_key(|p| uses(p)).copied().unwrap_or(ACCOUNT_PALETTE[0]);
     best.to_string()
 }
@@ -229,17 +228,19 @@ pub fn insert_account(c: &Connection, a: &Account) -> R<()> {
         ],
     )
     .map_err(err)?;
-    Ok(())
+    // its mail file (created empty on first use, a no-op when it exists)
+    crate::shard::ensure(c, &a.id)
 }
 
 pub fn remove_account(c: &Connection, id: &str) -> R<()> {
     // pins and snoozes of this account's conversations go with the conversations
     c.execute("DELETE FROM thread_meta WHERE thread_id IN (SELECT thread_id FROM messages WHERE account_id=?1)", [id]).map_err(err)?;
-    c.execute("DELETE FROM messages WHERE account_id=?1", [id]).map_err(err)?;
     c.execute("DELETE FROM outbox WHERE account_id=?1", [id]).map_err(err)?;
     c.execute("DELETE FROM pgp_default WHERE account_id=?1", [id]).map_err(err)?;
     c.execute("DELETE FROM events WHERE account_id=?1 OR calendar_id=?2", params![id, format!("invites:{id}")]).map_err(err)?;
     c.execute("DELETE FROM accounts WHERE id=?1", [id]).map_err(err)?;
+    // its mail: the whole file goes (never row by row through the view)
+    crate::shard::drop_account(c, id)?;
     // the account's rules / signatures / templates, folder map, hidden-calendar mark and preferences
     prune_orphans(c)?;
     Ok(())
@@ -266,14 +267,15 @@ pub fn prune_orphans(c: &Connection) -> R<usize> {
     ] {
         n += c.execute(&sql, []).map_err(err)?;
     }
-    // folder maps of removed accounts
+    // folder maps (and "downloaded to the oldest message" marks, `exhausted:<id>:<folder>`) of removed accounts
     let keys: Vec<String> = {
-        let mut st = c.prepare("SELECT key FROM settings WHERE key LIKE 'fmap:%'").map_err(err)?;
+        let mut st = c.prepare("SELECT key FROM settings WHERE key LIKE 'fmap:%' OR key LIKE 'exhausted:%'").map_err(err)?;
         let rows = st.query_map([], |r| r.get::<_, String>(0)).map_err(err)?.collect::<Result<Vec<_>, _>>().map_err(err)?;
         rows
     };
     for k in keys {
-        if !ids.contains(k.trim_start_matches("fmap:")) {
+        let owner = k.strip_prefix("exhausted:").map(|r| r.split(':').next().unwrap_or("")).unwrap_or_else(|| k.trim_start_matches("fmap:"));
+        if !ids.contains(owner) {
             n += c.execute("DELETE FROM settings WHERE key=?1", [&k]).map_err(err)?;
         }
     }
@@ -352,6 +354,16 @@ pub fn set_setting(c: &Connection, key: &str, value: &str) -> R<()> {
     Ok(())
 }
 
+/// In-memory database for tests: the main tables plus an (in-memory) mail shard for each of `account_ids`, so `messages`
+/// behaves as in the app. Those accounts need no `accounts` row.
+#[cfg(test)]
+pub fn test_conn(account_ids: &[&str]) -> Connection {
+    let c = Connection::open_in_memory().unwrap();
+    migrate(&c).unwrap();
+    crate::shard::set_attached(&c, &account_ids.iter().map(|s| s.to_string()).collect::<Vec<_>>()).unwrap();
+    c
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -387,9 +399,30 @@ mod tests {
     fn new_account_gets_first_unused_color() {
         assert_eq!(pick_account_color([]), ACCOUNT_PALETTE[0]);
         assert_eq!(pick_account_color([Some(ACCOUNT_PALETTE[0])]), ACCOUNT_PALETTE[1]);
-        // order of use does not matter; a gap is filled, case and spaces are ignored, custom colors and None are ignored
-        let used = [Some("#0F6CBD"), None, Some("#123456"), Some(" #13803c "), Some(ACCOUNT_PALETTE[3])];
+        // order of use does not matter; a gap is filled, case and spaces are ignored, a far-off custom color counts for nothing
+        let used = [Some("#0F6CBD"), Some("#123456"), Some(" #13803c "), Some(ACCOUNT_PALETTE[3])];
         assert_eq!(pick_account_color(used), ACCOUNT_PALETTE[1]);
+    }
+
+    #[test]
+    fn similar_and_missing_colors_count_as_taken() {
+        // no stored color is drawn in the default primary color = first palette color
+        assert_eq!(pick_account_color([None]), ACCOUNT_PALETTE[1]);
+        // the Teal / Green primary presets look like palette colors 5 / 2
+        assert_eq!(pick_account_color([Some(ACCOUNT_PALETTE[0]), Some(ACCOUNT_PALETTE[1]), Some("#1a7f4b")]), ACCOUNT_PALETTE[3]);
+        assert_eq!(pick_account_color([Some("#0e7c86"), Some(ACCOUNT_PALETTE[0])]), ACCOUNT_PALETTE[1]);
+        assert_eq!(pick_account_color([Some("not a color"), Some(ACCOUNT_PALETTE[0])]), ACCOUNT_PALETTE[1]);
+    }
+
+    #[test]
+    fn palette_colors_are_distinct() {
+        for (i, a) in ACCOUNT_PALETTE.iter().enumerate() {
+            for b in ACCOUNT_PALETTE.iter().skip(i + 1) {
+                let (a, b) = (rgb(a).unwrap(), rgb(b).unwrap());
+                let d = (0..3).map(|k| (a[k] - b[k]).powi(2)).sum::<f64>().sqrt();
+                assert!(d >= SAME_COLOR_DISTANCE, "{a:?} vs {b:?}");
+            }
+        }
     }
 
     #[test]
@@ -446,21 +479,21 @@ mod tests {
         c.execute("INSERT INTO signatures(id,name,html,account_id) VALUES(?1,'s','<p>x</p>',?2)", params![format!("s-{id}"), id]).unwrap();
         c.execute("INSERT INTO templates(id,name,subject,body,account_id) VALUES(?1,'t','s','b',?2)", params![format!("tp-{id}"), id]).unwrap();
         set_setting(c, &format!("fmap:{id}"), "{\"inbox\":\"INBOX\"}").unwrap();
+        set_setting(c, &format!("exhausted:{id}:inbox"), "1").unwrap();
     }
 
     /// Rows and settings that name `id`, over every table that has per-account data.
     fn rows_for(c: &Connection, id: &str) -> i64 {
         let tables = ["messages", "outbox", "pgp_default", "events", "rules", "signatures", "templates"];
         tables.iter().map(|t| count(c, &format!("SELECT COUNT(*) FROM {t} WHERE account_id='{id}'"))).sum::<i64>()
-            + count(c, &format!("SELECT COUNT(*) FROM settings WHERE key='fmap:{id}'"))
+            + count(c, &format!("SELECT COUNT(*) FROM settings WHERE key='fmap:{id}' OR key LIKE 'exhausted:{id}:%'"))
             + count(c, &format!("SELECT COUNT(*) FROM thread_meta WHERE thread_id='t-{id}'"))
             + count(c, &format!("SELECT COUNT(*) FROM events WHERE calendar_id='invites:{id}'"))
     }
 
     #[test]
     fn removing_an_account_removes_every_row_and_setting_that_names_it() {
-        let c = Connection::open_in_memory().unwrap();
-        migrate(&c).unwrap();
+        let c = test_conn(&[GONE, LIVE]);
         put_account(&c, GONE);
         put_account(&c, LIVE);
         seed_for(&c, GONE);
@@ -489,8 +522,7 @@ mod tests {
     #[test]
     fn leftovers_of_an_account_removed_earlier_are_cleaned_on_start() {
         // a database where the account row is already gone (older version, interrupted removal): orphans + a stale default
-        let c = Connection::open_in_memory().unwrap();
-        migrate(&c).unwrap();
+        let c = test_conn(&[GONE, LIVE]);
         put_account(&c, LIVE);
         seed_for(&c, GONE); // no account row for GONE
         set_setting(&c, "prefs", &format!(r#"{{"defaultAccount":"{GONE}"}}"#)).unwrap();

@@ -1,5 +1,7 @@
 // Dev-only: lets the UI run in a plain browser (npm run dev) with fake data, no Tauri backend.
+import { emit } from "@tauri-apps/api/event";
 import { mockIPC } from "@tauri-apps/api/mocks";
+import { gmailSearchUrl, toGmailQuery, toWebmailQuery, webmailOf, webmailTargets, WebmailId } from "./webmail";
 import { darkMessages, darkThreadRows } from "./devMockDark";
 import { extractSignature, fillSignatureHtml, normalizeHtml, SIG_MARK } from "./signature";
 import { ACCOUNT_PALETTE, accountColor, pickAccountColor } from "./prefs";
@@ -446,11 +448,101 @@ const newThreads = (accountId: string) =>
   [["Welcome to your new mailbox", "Mail Team", "Your account is connected. Everything arrives here.", 0.2 * H, 1], ["Getting started", "Mail Team", "Three quick tips for your inbox.", 3 * H, 0], ["Your first newsletter", "Digest", "Nothing to read yet, but this is how it looks.", 20 * H, 0]]
     .map(([subject, who, snippet, ago, unread], i) => t(`${accountId}-t${i}`, subject as string, [who as string], snippet as string, ago as number, { accountId, unread }));
 
+// ---- a big mailbox for the list: virtual scrolling, scroll-to-load-older, search -> Gmail. Hash switches (all optional):
+//   #smallmailbox      the original handful of threads only
+//   #big=3000          threads on the "server" in total (spread over three Gmail-ish mailboxes), default 3000
+//   #local=360         threads per mailbox already downloaded when the app starts (the rest arrives 50 at a time via load_older), default 360
+//   #failolder=3       the 3rd load_older call from now on rejects (shows the error toast); `__mockMail.failIn = n` does the same later
+//   #backfill          simulates the background download of 500 Inbox messages (event backfill-progress) for the first mailbox (never beyond the "Max emails to download" cap)
+//                      the cap (setting max_download, Settings > Reading & sync) also makes load_older answer { limited: true } once a mailbox holds that many messages
+// `__mockMail` in the console: { calls (every load_older), opened (urls given to the browser), local, total, failIn }
+const hashHas = (k: string) => new RegExp(`(^|&)${k}(=|&|$)`).test(window.location.hash.slice(1));
+const hashNum = (k: string, d: number) => {
+  const m = new RegExp(`(^|&)${k}=(\\d+)`).exec(window.location.hash.slice(1));
+  return m ? Number(m[2]) : d;
+};
+type MockRow = ReturnType<typeof t>;
+/** The "Max emails to download" cap as the backend reads it (setting `max_download`: default 2000, clamped to 100..5000). */
+const mockCap = () => {
+  const n = Number(settings.max_download);
+  return settings.max_download?.trim() && Number.isFinite(n) ? Math.min(5000, Math.max(100, Math.trunc(n))) : 2000;
+};
+const mockMail = {
+  calls: [] as { accountId: string; role: string; limit: number; at: number }[],
+  opened: [] as string[],
+  copied: [] as string[], // texts given to navigator.clipboard.writeText (the "Search in <webmail>" buttons)
+  local: {} as Record<string, number>,
+  total: {} as Record<string, number>,
+  failIn: 0,
+};
+const serverMail: Record<string, MockRow[]> = {}; // per mailbox, newest first
+function buildBigMailbox(total: number, local: number) {
+  let seed = 20260124;
+  const rnd = () => {
+    seed = (seed + 0x6d2b79f5) | 0;
+    let x = Math.imul(seed ^ (seed >>> 15), 1 | seed);
+    x = (x + Math.imul(x ^ (x >>> 7), 61 | x)) ^ x;
+    return ((x ^ (x >>> 14)) >>> 0) / 4294967296;
+  };
+  const pick = <T,>(a: T[]) => a[Math.floor(rnd() * a.length)];
+  const people = ["Linh Tran", "Minh Pham", "Bao Tran", "Mai Khanh", "Duc Pham", "Alice Lin", "Eve Park", "Support", "Billing", "GitHub", "Product Hunt", "Lotusmiles", "Calendar", "HR", "Vendor Ops", "Dana Smith"];
+  const topics = ["invoice", "roadmap", "contract", "offsite", "release notes", "statement", "reservation", "budget", "feedback", "interview", "newsletter", "receipt", "security alert", "standup", "photos", "tax", "travel"];
+  const verbs = ["Re:", "Fwd:", "Update on", "Reminder:", "Question about", "Your", "New", "Weekly", "Action needed:", "Thanks for"];
+  const share = [["a1", 0.45], ["a2", 0.35], ["a3", 0.2]] as const;
+  for (const [id, f] of share) {
+    const n = Math.round(total * f);
+    const list: MockRow[] = [];
+    let ago = 8 * H;
+    for (let i = 0; i < n; i++) {
+      ago += (0.2 + 1.6 * rnd()) * 13 * H;
+      const topic = pick(topics);
+      const who = pick(people);
+      list.push(t(`g${id}-${i}`, `${pick(verbs)} ${topic} #${1000 + Math.floor(rnd() * 9000)}`, [who], `${who} wrote about the ${topic}. Details are in the message; please have a look when you have a minute (${i}).`, ago, {
+        accountId: id, unread: rnd() < 0.12 ? 1 : 0, count: rnd() < 0.18 ? 2 + Math.floor(rnd() * 5) : 1, hasAttach: rnd() < 0.15, flagged: rnd() < 0.03, bulk: rnd() < 0.15,
+      }));
+    }
+    serverMail[id] = list;
+    mockMail.total[id] = n;
+    mockMail.local[id] = Math.min(n, local);
+  }
+}
+/** The mailbox as the app has it on disk right now (what list_threads reads). */
+const localMail = (id: string) => (serverMail[id] ?? []).slice(0, mockMail.local[id] ?? 0);
+
 export function installMock() {
   const frame = simulateWindowFrame();
   if (/(^|&)noaccounts(&|$)/.test(window.location.hash.slice(1))) {
     accounts.length = 0; // first-run: the Welcome screen
     folders.length = 0;
+  }
+  if (accounts.length && !hashHas("smallmailbox")) {
+    // a second Gmail mailbox (password login on imap.gmail.com) next to the Google one: the search footer then names the address
+    accounts.push({ id: "a3", email: "nam.work@gmail.com", displayName: "Nam Work", imapHost: "imap.gmail.com", imapPort: 993, imapSsl: true, smtpHost: "smtp.gmail.com", smtpPort: 465, smtpSecurity: "ssl", username: "nam.work@gmail.com", smtpUsername: "", tlsInsecure: false, auth: "password", color: "#2e7d32" });
+    // an Outlook.com mailbox (Microsoft sign-in) and one on a custom domain and server: the first gets "Search in Outlook", the second no button
+    accounts.push({ id: "a4", email: "nam@outlook.com", displayName: "Nam Outlook", imapHost: "outlook.office365.com", imapPort: 993, imapSsl: true, smtpHost: "smtp.office365.com", smtpPort: 587, smtpSecurity: "starttls", username: "nam@outlook.com", smtpUsername: "", tlsInsecure: false, auth: "oauth_microsoft", color: "#7b3fe4" });
+    accounts.push({ id: "a5", email: "nam@pro66.emailserver.vn", displayName: "Nam Pro66", imapHost: "pro66.emailserver.vn", imapPort: 993, imapSsl: true, smtpHost: "pro66.emailserver.vn", smtpPort: 465, smtpSecurity: "ssl", username: "nam@pro66.emailserver.vn", smtpUsername: "", tlsInsecure: false, auth: "password", color: "#b45309" });
+    for (const id of ["a4", "a5"]) for (const [i, k] of ["inbox", "drafts", "sent", "archive", "junk", "trash"].entries()) folders.push({ accountId: id, key: k, name: k, unread: 0, total: 10 + i });
+    // what the "Search in <webmail>" buttons copy is recorded (and still copied when the browser allows it)
+    const clip = navigator.clipboard;
+    const realWrite = clip?.writeText?.bind(clip);
+    if (clip) clip.writeText = async (text: string) => { mockMail.copied.push(text); try { await realWrite?.(text); } catch { /* no permission in this browser: the record is what counts */ } };
+    for (const [i, k] of ["inbox", "drafts", "sent", "archive", "junk", "trash"].entries()) folders.push({ accountId: "a3", key: k, name: k, unread: k === "inbox" ? 2 : 0, total: 10 + i });
+    buildBigMailbox(hashNum("big", 3000), hashNum("local", 360));
+    const failAt = hashNum("failolder", 0);
+    if (failAt) mockMail.failIn = failAt;
+    (window as unknown as { __mockMail: typeof mockMail }).__mockMail = mockMail;
+    if (hashHas("backfill")) {
+      // the background download: 50 more Inbox messages of the first mailbox every 450 ms, up to 1000 (or what the server has)
+      void (async () => {
+        await new Promise((r) => setTimeout(r, 2500));
+        const target = Math.min(500, mockMail.total.a1, mockCap());
+        while (mockMail.local.a1 < target) {
+          mockMail.local.a1 = Math.min(target, mockMail.local.a1 + 50);
+          await emit("backfill-progress", { accountId: "a1", role: "inbox", have: mockMail.local.a1, target, done: mockMail.local.a1 >= target });
+          await new Promise((r) => setTimeout(r, 450));
+        }
+      })();
+    }
   }
   // `#legacycolor=<hex>`: accounts as an older version stored them (no color) and that primary color: shows the one-time migration
   const legacy = /(^|&)legacycolor=(%23)?([0-9a-f]{6})(&|$)/i.exec(window.location.hash.slice(1));
@@ -462,7 +554,9 @@ export function installMock() {
   (window as unknown as { __colorCheck: () => string[] }).__colorCheck = () => {
     const out: string[] = [], ok = (c: boolean, m: string) => out.push((c ? "ok   " : "FAIL ") + m);
     ok(pickAccountColor([]) === ACCOUNT_PALETTE[0], "empty -> first");
-    ok(pickAccountColor([ACCOUNT_PALETTE[0], "#123456", null]) === ACCOUNT_PALETTE[1], "custom/null ignored, next unused");
+    ok(pickAccountColor([ACCOUNT_PALETTE[0], "#123456", null]) === ACCOUNT_PALETTE[1], "far custom ignored, next unused");
+    ok(pickAccountColor([null]) === ACCOUNT_PALETTE[1], "no stored color = primary = first palette color");
+    ok(pickAccountColor(["#0e7c86", ACCOUNT_PALETTE[0], ACCOUNT_PALETTE[1], ACCOUNT_PALETTE[2], ACCOUNT_PALETTE[3], ACCOUNT_PALETTE[4]]) === ACCOUNT_PALETTE[6], "look-alike of palette[5] counts as taken");
     ok(pickAccountColor([ACCOUNT_PALETTE[0].toUpperCase(), ACCOUNT_PALETTE[1]]) === ACCOUNT_PALETTE[2], "case-insensitive");
     const all = [...ACCOUNT_PALETTE, ACCOUNT_PALETTE[0], ACCOUNT_PALETTE[1]];
     ok(pickAccountColor(all) === ACCOUNT_PALETTE[2], "all used -> least used, earliest");
@@ -491,6 +585,86 @@ export function installMock() {
     ok(friendlyError("x ".repeat(300)).length <= 221, "other long errors are cut at 220");
     return out;
   };
+  // `__webmailCheck()`: dev self-check of the app-query -> Gmail / webmail query conversion, the Gmail URL and which accounts get a "Search in <webmail>" button
+  (window as unknown as { __webmailCheck: () => string[] }).__webmailCheck = () => {
+    const out: string[] = [], ok = (c: boolean, m: string) => out.push((c ? "ok   " : "FAIL ") + m);
+    const eq = (q: string, want: string, folder?: string) => {
+      const got = toGmailQuery(q, folder);
+      ok(got === want, `${JSON.stringify(q)}${folder ? ` in ${folder}` : ""} -> ${JSON.stringify(got)}${got === want ? "" : ` (wanted ${JSON.stringify(want)})`}`);
+    };
+    eq("invoice", "invoice");
+    eq("from:linh subject:roadmap review", "from:linh subject:roadmap review");
+    eq('from:"Linh Tran" subject:"q4 plan"', 'from:"Linh Tran" subject:"q4 plan"');
+    eq("to:a@b.c cc:d@e.f", "to:a@b.c cc:d@e.f");
+    eq("is:unread is:read is:starred is:flagged is:pinned", "is:unread is:read is:starred is:starred");
+    eq("has:attachment has:att has:yes has:no", 'has:attachment has:attachment has:attachment "has:no"');
+    eq("after:2026-01-31 before:2026-02-15", "after:2026/01/31 before:2026/02/15");
+    eq("since:7d until:30d", "newer_than:7d older_than:30d");
+    eq("after:yesterday before:2026-13", "");
+    eq('body:budget body:"q4 plan" report', 'budget "q4 plan" report');
+    eq("folder:sent report", "in:sent report");
+    eq("in:spam in:bin in:drafts in:inbox", "in:spam in:trash in:drafts in:inbox");
+    eq("in:archive x", "in:anywhere x");
+    eq("folder:all x", "in:anywhere x");
+    eq("folder:Projects/Hey x", "label:Projects/Hey x");
+    eq("report", "report in:sent", "sent");
+    eq("report", "report in:spam", "junk");
+    eq("report", "report in:inbox", "unread");
+    eq("report", "report label:Projects/Hey-Look", "f:Projects/Hey Look");
+    eq("report", "report", "all");
+    eq("report in:trash", "report in:trash", "inbox");
+    eq("is:pinned", "", "inbox");
+    eq("http://x.y", '"http://x.y"');
+    eq("from: odd:", '"from:" "odd:"');
+    ok(gmailSearchUrl("nam@gmail.com", "from:linh is:unread") === "https://mail.google.com/mail/?authuser=nam%40gmail.com#search/from%3Alinh%20is%3Aunread", "url: authuser + encoded search hash");
+    ok(gmailSearchUrl("a+b@gmail.com", "x y") === "https://mail.google.com/mail/?authuser=a%2Bb%40gmail.com#search/x%20y", "url: + in the address is encoded");
+    // which webmail an account has: server first, then sign-in provider, then address domain; unknown = none
+    const wm = (email: string, imapHost: string, auth: "password" | "oauth_google" | "oauth_microsoft" = "password") => webmailOf({ email, imapHost, auth })?.id ?? null;
+    const who = (want: WebmailId | null, got: WebmailId | null, m: string) => ok(want === got, `webmail of ${m}: ${got} (wanted ${want})`);
+    who("gmail", wm("a@gmail.com", "imap.gmail.com"), "imap.gmail.com");
+    who("gmail", wm("a@gmail.com", "x", "oauth_google"), "Google sign-in");
+    who("gmail", wm("a@acme.io", "imap.gmail.com"), "Workspace address on imap.gmail.com");
+    who("gmail", wm("a@googlemail.com", "mail.example.org"), "googlemail.com domain");
+    who("outlook", wm("a@hotmail.com", "imap-mail.outlook.com"), "imap-mail.outlook.com");
+    who("outlook", wm("a@outlook.com", "outlook.office365.com", "oauth_microsoft"), "Microsoft sign-in, outlook.com address");
+    who("outlook", wm("a@live.nl", "outlook.office365.com", "oauth_microsoft"), "Microsoft sign-in, live.nl address");
+    who("outlook", wm("a@msn.com", "outlook.office365.com"), "password login on outlook.office365.com, msn.com address");
+    who("m365", wm("a@contoso.com", "outlook.office365.com", "oauth_microsoft"), "Microsoft sign-in, company address");
+    who("m365", wm("a@contoso.com", "outlook.office365.com"), "outlook.office365.com, company address");
+    who("yahoo", wm("a@yahoo.com", "imap.mail.yahoo.com"), "imap.mail.yahoo.com");
+    who("yahoo", wm("a@ymail.com", "mail.example.org"), "ymail.com domain");
+    who("yahoo", wm("a@yahoo.co.uk", "mail.example.org"), "yahoo.co.uk domain");
+    who("icloud", wm("a@icloud.com", "imap.mail.me.com"), "imap.mail.me.com");
+    who("icloud", wm("a@mac.com", "mail.example.org"), "mac.com domain");
+    who("fastmail", wm("a@fastmail.com", "imap.fastmail.com"), "imap.fastmail.com");
+    who("fastmail", wm("a@fastmail.fm", "mail.example.org"), "fastmail.fm domain");
+    who("zoho", wm("a@zoho.com", "imap.zoho.com"), "imap.zoho.com");
+    who("zoho", wm("a@acme.io", "imap.zoho.eu"), "imap.zoho.eu");
+    who("zoho", wm("a@zohomail.in", "mail.example.org"), "zohomail.in domain");
+    who(null, wm("nam@pro66.emailserver.vn", "pro66.emailserver.vn"), "custom domain and server");
+    who(null, wm("a@proton.me", "127.0.0.1"), "Proton Bridge");
+    // the query other webmails get: the words stay, only what the provider is known to understand is kept
+    const web = (id: WebmailId, q: string, want: string) => {
+      const got = toWebmailQuery(id, q);
+      ok(got === want, `${id}: ${JSON.stringify(q)} -> ${JSON.stringify(got)}${got === want ? "" : ` (wanted ${JSON.stringify(want)})`}`);
+    };
+    const full = 'invoice from:linh to:a@b.c cc:d@e.f subject:"q4 plan" has:attachment after:2026-01-31 before:2026-02-15 since:7d is:unread is:pinned folder:sent body:budget';
+    web("gmail", full, 'invoice from:linh to:a@b.c cc:d@e.f subject:"q4 plan" has:attachment after:2026/01/31 before:2026/02/15 newer_than:7d is:unread in:sent budget');
+    web("fastmail", full, 'invoice from:linh to:a@b.c to:d@e.f subject:"q4 plan" has:attachment after:2026-01-31 before:2026-02-15 budget');
+    web("yahoo", full, 'invoice from:linh to:a@b.c to:d@e.f subject:"q4 plan" has:attachment after:2026-01-31 before:2026-02-15 budget');
+    web("outlook", full, 'invoice from:linh to:a@b.c cc:d@e.f subject:"q4 plan" hasattachment:yes budget');
+    web("m365", full, 'invoice from:linh to:a@b.c cc:d@e.f subject:"q4 plan" hasattachment:yes budget');
+    web("icloud", full, 'invoice linh a@b.c d@e.f "q4 plan" budget');
+    web("zoho", full, 'invoice linh a@b.c d@e.f "q4 plan" budget');
+    web("yahoo", "is:pinned folder:inbox", "");
+    web("outlook", "report http://x.y has:no", 'report "http://x.y" "has:no"');
+    web("fastmail", "after:yesterday before:2026-13-01 until:2026-03-01", "before:2026-03-01");
+    // which accounts get a button: selected mailbox, or every mailbox with scope 'all' / none selected; unknown webmails get none
+    const ids = (acc: string | null, sc: "current" | "account" | "all") => webmailTargets(accounts as never, acc, sc).map((x) => `${x.account.id}:${x.webmail.id}`).join();
+    ok(ids("a2", "current") === "a2:gmail" && ids("a1", "current") === "" && ids("a5", "all") === "a2:gmail,a3:gmail,a4:outlook" && ids(null, "current") === "a2:gmail,a3:gmail,a4:outlook" && ids("a4", "account") === "a4:outlook" && ids("a5", "current") === "", `targets: ${ids(null, "current")} | custom domain: "${ids("a5", "current")}"`);
+    return out;
+  };
+  (window as unknown as { __gmailCheck: () => string[] }).__gmailCheck = (window as unknown as { __webmailCheck: () => string[] }).__webmailCheck; // old name
   // `__sigCheck()`: dev self-check of the signature region <-> stored HTML conversion
   (window as unknown as { __sigCheck: () => string[] }).__sigCheck = () => {
     const out: string[] = [], ok = (c: boolean, m: string) => out.push((c ? "ok   " : "FAIL ") + m);
@@ -530,22 +704,34 @@ export function installMock() {
       case "set_setting": settings[a.key as string] = a.value as string; return null;
       case "list_folders": return folders;
       case "list_threads": {
-        const f = a.filter as { folder: string; focus?: string; unreadOnly?: boolean; search?: string };
-        let list = threads;
-        if (f.focus === "other") list = threads.filter((x) => x.bulk);
-        else if (f.focus === "focused") list = threads.filter((x) => !x.bulk);
+        const f = a.filter as { folder: string; focus?: string; unreadOnly?: boolean; flaggedOnly?: boolean; sortAsc?: boolean; search?: string; scope?: string };
+        const own = (a.filter as { accountId?: string | null }).accountId;
+        const q = (f.search ?? "").trim();
+        if (own && own.startsWith("n")) return f.folder === "inbox" && synced.has(own) ? newThreads(own) : []; // an added account: empty until its first sync is done
+        if (!(f.folder === "inbox" || f.folder === "unread" || f.folder === "all")) return [];
+        // like the backend: a search over every mailbox ignores the selected one
+        const scoped = own && !(q && f.scope === "all") ? own : null;
+        let list = [...threads.filter((x) => !scoped || scoped === x.accountId), ...accounts.flatMap((x) => (!scoped || scoped === x.id ? localMail(x.id) : []))];
+        if (f.focus === "other") list = list.filter((x) => x.bulk);
+        else if (f.focus === "focused") list = list.filter((x) => !x.bulk);
         if (f.unreadOnly) list = list.filter((x) => x.unread);
+        if (f.flaggedOnly) list = list.filter((x) => x.flagged);
         // mirror the Rust backend: every free word must appear in subject, snippet or participants
-        const words = (f.search ?? "").toLowerCase().split(/\s+/).filter(Boolean);
+        const ops = q.toLowerCase().split(/\s+/).filter((w) => /^(from|is):\S+/.test(w));
+        for (const o of ops) {
+          const [k, v] = o.split(":");
+          list = list.filter((x) => (k === "from" ? x.participants.join(" ").toLowerCase().includes(v) : v === "unread" ? x.unread > 0 : true));
+        }
+        const words = q.toLowerCase().split(/\s+/).filter((w) => w && !ops.includes(w));
         if (words.length) {
           list = list.filter((x) => {
             const hay = [x.subject, x.snippet, ...x.participants].join(" ").toLowerCase();
             return words.every((w) => hay.includes(w));
           });
         }
-        const own = (a.filter as { accountId?: string | null }).accountId;
-        if (own && own.startsWith("n")) return f.folder === "inbox" && synced.has(own) ? newThreads(own) : []; // an added account: empty until its first sync is done
-        return f.folder === "inbox" || f.folder === "unread" || f.folder === "all" ? list : [];
+        // pinned first in the (newest-first) Inbox, then by date (newest first, or oldest first with sortAsc)
+        const dir = f.sortAsc ? 1 : -1;
+        return list.sort((x, y) => (f.folder === "inbox" && !f.sortAsc ? Number(y.pinned) - Number(x.pinned) : 0) || dir * (x.lastDate - y.lastDate));
       }
       case "get_thread":
         if (a.threadId === "t9") return [ownLocked ? lockedMsg() : openedMsg()];
@@ -593,7 +779,25 @@ export function installMock() {
       case "save_draft": (window as unknown as { __lastDraft: unknown }).__lastDraft = a.draft; return null;
       case "queue_action": return "token-" + Math.random().toString(36).slice(2);
       case "cancel_action": return true;
-      case "load_older": return 0;
+      case "load_older": {
+        // up to 50 older messages of one folder; rejects like an IMAP failure when `failIn` counts down to the call
+        const id = String(a.accountId);
+        const limit = Math.min(50, Number(a.limit ?? 50));
+        mockMail.calls.push({ accountId: id, role: String(a.role), limit, at: Date.now() });
+        return later(400, () => {
+          if (mockMail.failIn > 0 && --mockMail.failIn === 0) throw "IMAP_FETCH: could not read older messages: connection timed out (mock failure)";
+          const have = mockMail.local[id], total = mockMail.total[id];
+          if (a.role !== "inbox" || have === undefined) return { added: 0, exhausted: true, limited: false };
+          // the cap counts everything stored for the mailbox: at it, the answer comes without any "network"
+          const cap = mockCap();
+          if (have >= cap) return { added: 0, exhausted: false, limited: true };
+          const added = Math.min(limit, total - have, cap - have);
+          mockMail.local[id] = have + added;
+          const exhausted = have + added >= total;
+          return { added, exhausted, limited: !exhausted && have + added >= cap };
+        });
+      }
+      case "plugin:opener|open_url": mockMail.opened.push(String(a.url)); console.info("[mock] open in browser:", a.url); return null;
       case "has_secret": return false;
       case "google_env_configured": case "microsoft_env_configured": return false;
       case "microsoft_tenant": return "";
@@ -798,5 +1002,5 @@ export function installMock() {
       case "frame_system_menu": return null;
       default: return null;
     }
-  });
+  }, { shouldMockEvents: true });
 }

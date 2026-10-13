@@ -3,7 +3,7 @@ import { openUrl } from "@tauri-apps/plugin-opener";
 import { useEffect, useRef, useState } from "react";
 import "./App.css";
 import { forwardLast, newMailAccount, replyLast, targets } from "./actions";
-import { api } from "./api";
+import { api, BackfillProgress } from "./api";
 import { CalendarView, EventDialog, newEvent } from "./components/Calendar";
 import { CommandBar } from "./components/CommandBar";
 import { Compose } from "./components/Compose";
@@ -88,6 +88,8 @@ function App() {
     };
     const subs = [
       listen("mail-synced", () => void useStore.getState().refresh()),
+      // the background download of older Inbox mail: a status line in the list and a quiet, throttled re-read of it
+      listen<BackfillProgress>("backfill-progress", (e) => useStore.getState().onBackfill(e.payload)),
       listen("tray-compose", () => {
         const st = useStore.getState();
         void st.openCompose({ accountId: newMailAccount() });
