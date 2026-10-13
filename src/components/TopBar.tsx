@@ -2,15 +2,19 @@ import { Moon, RefreshCw, Settings, Sun } from "lucide-react";
 import type { MouseEvent } from "react";
 import logo from "../assets/logo.png";
 import { api } from "../api";
-import { pendingUpdate, useStore } from "../store";
+import { useStore } from "../store";
+import { pendingVersion, useUpdates } from "../updates";
 import { useAppDark } from "../useAppDark";
 import { useFrame } from "../winframe";
 import { SearchBox } from "./SearchBox";
+import { UpdateChip } from "./UpdateChip";
 import { WindowControls } from "./WindowControls";
 
 export function TopBar() {
-  const { sync, syncing, firstSync, setDialog, setPrefs, openSettingsAbout } = useStore();
-  const newVersion = useStore(pendingUpdate);
+  const { sync, syncing, firstSync, setDialog, setPrefs } = useStore();
+  const openSettingsAbout = useUpdates((s) => s.openSettingsAbout);
+  const skipped = useStore((s) => s.prefs.skippedUpdate);
+  const newVersion = useUpdates((s) => pendingVersion(s.update, skipped));
   const dark = useAppDark();
 
   const custom = useFrame((f) => f.custom);
@@ -31,6 +35,7 @@ export function TopBar() {
       </div>
       <SearchBox />
       <div className="top-actions" data-tauri-drag-region="false">
+        <UpdateChip />
         <button className="icon-btn" title="Sync now (F5)" onClick={() => void sync()}>
           <RefreshCw size={16} className={syncing || firstSync ? "spin" : ""} />
         </button>

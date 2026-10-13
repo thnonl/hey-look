@@ -18,6 +18,7 @@ import { Settings } from "./components/SettingsDialog";
 import { TopBar } from "./components/TopBar";
 import { Welcome } from "./components/Welcome";
 import { useStore } from "./store";
+import { useUpdates } from "./updates";
 import { calTz, configureCalendar, addDays, addMonths, today as todayDay } from "./calendar";
 import { catchupText, configureDates, fmtWhen } from "./util";
 import { frameAction, initFrame, useFrame } from "./winframe";
@@ -161,20 +162,22 @@ function App() {
   // update check: once about 8 s after the UI is ready, then whenever the window comes back (the backend throttles to once per 6 h)
   useEffect(() => {
     if (!loaded) return;
+    // how the last update went (after an update restart) is told first, then the startup check runs
+    const t0 = setTimeout(() => void useUpdates.getState().startupCheck(), 1000);
     const t = setTimeout(() => {
-      const st = useStore.getState();
-      st.markUpdateStartup();
-      void st.checkUpdate("startup");
+      const up = useUpdates.getState();
+      up.markStartup();
+      void up.checkUpdate("startup");
     }, 8000);
-    return () => clearTimeout(t);
+    return () => (clearTimeout(t0), clearTimeout(t));
   }, [loaded]);
 
   useEffect(() => {
     const shown = () => {
-      const st = useStore.getState();
-      if (!st.updateStartupIssued) return; // the window gains focus at launch: that must not pre-empt the startup delay
-      void st.checkUpdate("shown");
-      st.announceUpdate();
+      const up = useUpdates.getState();
+      if (!up.startupIssued) return; // the window gains focus at launch: that must not pre-empt the startup delay
+      void up.checkUpdate("shown");
+      up.announceUpdate();
     };
     const sub = listen("app-shown", shown);
     const onFocus = () => shown();

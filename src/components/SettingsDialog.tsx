@@ -5,6 +5,7 @@ import { Fragment, ReactNode, useEffect, useRef, useState } from "react";
 import { Account, api, Discovered, PgpKey, PROVIDERS, Rule, Signature, Template } from "../api";
 import { ACCENT_PRESETS, ACCOUNT_PALETTE, accountColor, DEFAULT_PREFS, eff, folderLabel, isOverridden, MAX_DOWNLOAD_PRESETS, NOTIFY_ACTIONS, NOTIFY_SOUNDS, Overridable, Prefs, staleAccountPrefs, validHex } from "../prefs";
 import { friendlyError, useStore } from "../store";
+import { useUpdates } from "../updates";
 import { systemTz } from "../calendar";
 import { fmtDay, fmtFpr, shortKey } from "../util";
 import { AppearancePreview } from "./AppearancePreview";
@@ -1430,7 +1431,7 @@ function ShortcutsTab() {
 
 function AboutTab() {
   const { prefs, setPrefs } = useStore();
-  const current = useStore((s) => s.update?.current);
+  const current = useUpdates((s) => s.update?.current);
   const [version, setVersion] = useState("");
   // before the first update answer the version comes from the app itself
   useEffect(() => {
@@ -1441,7 +1442,7 @@ function AboutTab() {
       <h3>About</h3>
       <p><b>Hey Look!</b> — a desktop mail client built with Tauri, React and Rust.</p>
       <p className="muted small">Version {current || version}</p>
-      <p className="muted small">All features are always enabled. No license, no subscription, no cloud account. Mail goes directly between this app and your mail servers; AI features use only the endpoint you configure. Update checks ask GitHub (api.github.com) for the latest release; you can turn them off below.</p>
+      <p className="muted small">All features are always enabled. No license, no subscription, no cloud account. Mail goes directly between this app and your mail servers; AI features use only the endpoint you configure. Update checks ask GitHub (github.com) for the latest version; updates are downloaded from GitHub only after you agree. You can turn automatic checks off below.</p>
       <UpdatesBlock
         autoSwitch={
           <Row

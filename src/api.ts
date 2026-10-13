@@ -1,4 +1,4 @@
-import { invoke } from "@tauri-apps/api/core";
+import { Channel, invoke } from "@tauri-apps/api/core";
 
 export interface Account {
   id: string;
@@ -561,13 +561,28 @@ export const api = {
   aiComplete: (system: string, prompt: string) => invoke<string>("ai_complete", { system, prompt }),
   aiListModels: (endpoint: string, key?: string) => invoke<string[]>("ai_list_models", { endpoint, key: key ?? null }),
   checkUpdate: (trigger: UpdateTrigger) => invoke<UpdateResult>("check_update", { trigger }),
+  /** Download and verify the update; progress arrives on `onEvent`. Resolves when the download has ended (ready, failed or cancelled). */
+  updateDownload: (onEvent: (e: DlEvent) => void) => {
+    const channel = new Channel<DlEvent>();
+    channel.onmessage = onEvent;
+    return invoke<void>("update_download", { onEvent: channel });
+  },
+  updateCancel: () => invoke<void>("update_cancel"),
+  updateDiscard: () => invoke<void>("update_discard"),
+  /** Install the downloaded update. `draftSaved`: a draft was saved for the restart (the next start says so). */
+  updateInstall: (restart: boolean, draftSaved: boolean) => invoke<void>("update_install", { restart, draftSaved }),
+  updateStartupState: () => invoke<UpdateStartupState>("update_startup_state"),
+  /** A scheduled message is being delivered right now. */
+  outboxBusy: () => invoke<boolean>("outbox_busy"),
 };
 
 export type UpdateTrigger = "startup" | "shown" | "manual";
 export interface UpdateAsset {
   name: string;
   url: string;
-  size: number;
+  size: number | null;
+  /** the link passes the allow-list (a github.com release download of this version) */
+  urlOk: boolean;
 }
 export interface UpdateInfo {
   latest: string;
@@ -579,20 +594,34 @@ export interface UpdateInfo {
   asset: UpdateAsset | null;
 }
 /** `disabled` and `throttled` are internal: the UI shows the cached `info` instead (see `cachedKind`). */
-export type UpdateKind =
-  | "available" | "upToDate" | "noRelease" | "offline" | "rateLimited" | "error" | "disabled" | "throttled";
+export type UpdateKind = "available" | "upToDate" | "noRelease" | "offline" | "error" | "disabled" | "throttled";
 export interface UpdateResult {
   kind: UpdateKind;
   current: string;
-  platform: { os: string; arch: string; label: string };
+  /** `installer`: how this copy was installed (nsis, msi, app, appimage, deb, rpm, unknown) */
+  platform: { os: string; arch: string; installer: string; label: string };
   /** last attempt, unix seconds */
   checkedAt: number | null;
-  retryAt?: number | null;
   message?: string | null;
   info: UpdateInfo | null;
   fromCache: boolean;
   /** for `throttled` / `disabled` results that carry cached `info`: `available` or `upToDate` */
   cachedKind?: UpdateKind | null;
+  /** the user already agreed to install this version (the app ended before it was installed) */
+  consented: boolean;
+}
+/** Progress of `updateDownload` (the Rust side sends `{ event, data }`). */
+export type DlEvent =
+  | { event: "started"; data: { total: number | null; version: string } }
+  | { event: "progress"; data: { received: number } }
+  | { event: "verifying" }
+  | { event: "ready" }
+  | { event: "failed"; data: { stage: "download" | "badurl" | "verify" | "install"; message: string } }
+  | { event: "cancelled" };
+export interface UpdateStartupState {
+  outcome: "updated" | "failed" | null;
+  version: string | null;
+  draft: boolean;
 }
 
 export const PROVIDERS: Record<

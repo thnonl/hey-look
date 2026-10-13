@@ -9,7 +9,7 @@ export function Toasts() {
   return (
     <div className="toasts" role="status" aria-live="polite">
       {toasts.map((t) => (
-        <div key={t.id} className={`toast ${t.kind}`} style={{ ["--ttl" as string]: `${t.ttl}ms` }}>
+        <div key={t.id} className={`toast ${t.kind}${t.sticky ? " sticky" : ""}`} style={t.sticky ? undefined : { ["--ttl" as string]: `${t.ttl}ms` }}>
           <span className="toast-ico">
             {t.kind === "error" ? <AlertTriangle size={16} /> : t.kind === "success" ? <CheckCircle2 size={16} /> : <Info size={16} />}
           </span>
@@ -37,10 +37,17 @@ export function Toasts() {
               {a.label}
             </button>
           ))}
-          <button className="toast-x" aria-label="Dismiss" onClick={() => dismiss(t.id)}>
+          <button
+            className="toast-x"
+            aria-label={t.onDismiss ? "Later" : "Dismiss"}
+            onClick={() => {
+              dismiss(t.id);
+              t.onDismiss?.();
+            }}
+          >
             <X size={14} />
           </button>
-          <span className="toast-bar" />
+          {!t.sticky && <span className="toast-bar" />}
         </div>
       ))}
     </div>

@@ -442,16 +442,14 @@ const UPDATE_LONG_NOTES = (() => {
   return out.join("\n").slice(0, 4000);
 })();
 async function mockCheckUpdate(trigger: string, prefsJson?: string) {
-  const w = window as unknown as { __updateCalls?: { trigger: string; at: number; kind: string | null }[] };
-  const entry = { trigger, at: Date.now(), kind: null as string | null };
-  (w.__updateCalls ??= []).push(entry);
+  const entry = logUpdateCall({ trigger });
   const token = hashTokens().get("update") || "uptodate";
   const now = Math.floor(Date.now() / 1000);
-  const base = { kind: "upToDate", current: "1.0.0", platform: { os: "windows", arch: "x64", label: "Windows" }, checkedAt: now, retryAt: null as number | null, message: null as string | null, info: null as unknown, fromCache: false };
+  const base = { kind: "upToDate", current: "1.0.0", platform: { os: "windows", arch: "x64", installer: "nsis", label: "Windows" }, checkedAt: now, message: null as string | null, info: null as unknown, fromCache: false, consented: false };
   const info = (over: Record<string, unknown> = {}) => ({
     latest: "1.1.0", notes: UPDATE_SAMPLE_NOTES, notesTruncated: false, publishedAt: Math.floor(new Date(2026, 9, 12, 10, 0).getTime() / 1000),
     releaseUrl: "https://github.com/thnonl/hey-look/releases/tag/v1.1.0",
-    asset: { name: "HeyLook_1.1.0_windows_x64-setup.exe", url: "https://github.com/thnonl/hey-look/releases/download/v1.1.0/HeyLook_1.1.0_windows_x64-setup.exe", size: 10276044 },
+    asset: { name: "HeyLook_1.1.0_windows_x64-setup.exe", url: "https://github.com/thnonl/hey-look/releases/download/v1.1.0/HeyLook_1.1.0_windows_x64-setup.exe", size: 10276044, urlOk: true },
     ...over,
   });
   const enabled = (() => { try { return JSON.parse(prefsJson ?? "{}").checkUpdates !== false; } catch { return true; } })();
@@ -467,13 +465,82 @@ async function mockCheckUpdate(trigger: string, prefsJson?: string) {
       case "newer": r = { ...base, current: "1.2.0", info: info() }; break;
       case "norelease": r = { ...base, kind: "noRelease" }; break;
       case "offline": r = { ...base, kind: "offline" }; break;
-      case "ratelimited": r = { ...base, kind: "rateLimited", retryAt: now + 60 }; break;
-      case "error": r = { ...base, kind: "error", message: "GitHub answered 500" }; break;
+      case "error": r = { ...base, kind: "error", message: "GitHub sent an unexpected answer" }; break;
       default: r = { ...base, info: info({ latest: "1.0.0", asset: null }) };
     }
   }
   entry.kind = r.kind;
   return r;
+}
+
+// ---- the update flow (`#dl=<mode>`, `#sending`, `#draftfail`, `#afterupdate=ok|draft|fail`): a pretend download with the same events as Rust's channel.
+// Modes: ok (default; 9.8 MB over 6 s), nolength (no total), slow (60 s), stall (stops at 30 %, fails after 10 s), fail (fails at 40 %),
+// verifyfail, badurl, installfail. `update_install` never restarts: it shows a toast and logs the call.
+type UpdateLogEntry = { trigger?: string; cmd?: string; restart?: boolean; at: number; kind: string | null };
+function logUpdateCall(e: { trigger?: string; cmd?: string; restart?: boolean }): UpdateLogEntry {
+  const w = window as unknown as { __updateCalls?: UpdateLogEntry[] };
+  const entry: UpdateLogEntry = { ...e, at: Date.now(), kind: null };
+  (w.__updateCalls ??= []).push(entry);
+  return entry;
+}
+let dlCancelled = false;
+let busyUntil = 0;
+const wait = (ms: number) => new Promise<void>((r) => setTimeout(r, ms));
+async function mockDownload(ch: { onmessage: (e: unknown) => void }) {
+  const entry = logUpdateCall({ cmd: "download" });
+  const mode = hashTokens().get("dl") || "ok";
+  const send = (e: unknown) => ch.onmessage(e);
+  dlCancelled = false;
+  if (mode === "badurl") {
+    send({ event: "failed", data: { stage: "badurl", message: "" } });
+    entry.kind = "failed";
+    return;
+  }
+  const full = 10276044;
+  const total = mode === "nolength" ? null : full;
+  send({ event: "started", data: { total, version: "1.1.0" } });
+  const steps = mode === "slow" ? 600 : 60;
+  const tick = 100;
+  for (let i = 1; i <= steps; i++) {
+    await wait(tick);
+    if (dlCancelled) {
+      send({ event: "cancelled" });
+      entry.kind = "cancelled";
+      return;
+    }
+    const f = i / steps;
+    if (mode === "stall" && f > 0.3) {
+      await wait(10_000);
+      send({ event: "failed", data: { stage: "download", message: "The download stopped. Check your connection." } });
+      entry.kind = "failed";
+      return;
+    }
+    if (mode === "fail" && f > 0.4) {
+      send({ event: "failed", data: { stage: "download", message: "The connection was lost." } });
+      entry.kind = "failed";
+      return;
+    }
+    send({ event: "progress", data: { received: Math.round(full * f) } });
+  }
+  send({ event: "verifying" });
+  await wait(1000);
+  if (mode === "verifyfail") {
+    send({ event: "failed", data: { stage: "verify", message: "signature mismatch" } });
+    entry.kind = "failed";
+    return;
+  }
+  send({ event: "ready" });
+  entry.kind = "ready";
+}
+async function mockInstall(restart: boolean) {
+  const entry = logUpdateCall({ cmd: "install", restart });
+  if (hashTokens().get("dl") === "installfail") {
+    entry.kind = "failed";
+    throw "The installer couldn’t start";
+  }
+  entry.kind = "ok";
+  const { useStore } = await import("./store");
+  useStore.getState().showToast("Mock: Hey Look! would restart now.", undefined, "info");
 }
 
 // ---- adding accounts (Settings > Add account, Welcome): the mock backend creates the account after a short delay.
@@ -824,7 +891,9 @@ export function installMock() {
         if (x) { x.displayName = a.displayName as string; (x as { color: string | null }).color = (a.color as string | null) ?? null; }
         return null;
       }
-      case "save_draft": (window as unknown as { __lastDraft: unknown }).__lastDraft = a.draft; return null;
+      case "save_draft":
+        if (hashTokens().has("draftfail")) throw "mock: the server refused the draft"; // `#draftfail`: saving a draft fails (update restart keeps Compose open)
+        (window as unknown as { __lastDraft: unknown }).__lastDraft = a.draft; return null;
       case "queue_action": return "token-" + Math.random().toString(36).slice(2);
       case "cancel_action": return true;
       case "load_older": {
@@ -850,6 +919,20 @@ export function installMock() {
         mockMail.opened.push(String(a.url)); console.info("[mock] open in browser:", a.url); return null;
       case "plugin:app|version": return "1.0.0";
       case "check_update": return mockCheckUpdate(String(a.trigger), settings.prefs);
+      case "update_download": return mockDownload(a.onEvent as { onmessage: (e: unknown) => void });
+      case "update_cancel": dlCancelled = true; logUpdateCall({ cmd: "cancel" }).kind = "ok"; return null;
+      case "update_discard": logUpdateCall({ cmd: "discard" }).kind = "ok"; return null;
+      case "update_install": return mockInstall(!!a.restart);
+      case "update_startup_state": {
+        const t = hashTokens().get("afterupdate");
+        return t === "fail" ? { outcome: "failed", version: "1.0.0", draft: false } : t ? { outcome: "updated", version: "1.0.0", draft: t === "draft" } : { outcome: null, version: null, draft: false };
+      }
+      case "outbox_busy": {
+        // `#sending`: one message is "being sent" for 8 s after the first question
+        if (!hashTokens().has("sending")) return false;
+        if (!busyUntil) busyUntil = Date.now() + 8000;
+        return Date.now() < busyUntil;
+      }
       case "has_secret": return false;
       case "google_env_configured": case "microsoft_env_configured": return false;
       case "microsoft_tenant": return "";

@@ -121,6 +121,19 @@ button:focus-visible, [role="option"]:focus-visible, [role="treeitem"]:focus-vis
 .update-card .update-notes { order: 1; }
 .update-card .update-actions, .update-card .update-file, .update-card .update-skip { order: 2; }
 .update-card .update-skip { margin-top: 8px; }
+.update-card.flowing .update-notes { order: 3; }
+.update-card .progress { margin-top: 8px; }
+.update-progress { height: 6px; margin: 8px 0 4px; }
+.update-flow-line { font-variant-numeric: tabular-nums; }
+.sr-only { position: absolute; width: 1px; height: 1px; margin: -1px; padding: 0; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; border: 0; }
+.update-chip { display: inline-flex; align-items: center; gap: 6px; height: 28px; padding: 0 10px; margin-right: 6px; border-radius: 999px;
+  font-size: .82em; font-weight: 600; font-variant-numeric: tabular-nums; color: var(--top-fg); cursor: pointer;
+  background: color-mix(in srgb, var(--top-fg) 14%, transparent); border: 1px solid color-mix(in srgb, var(--top-fg) 30%, transparent); }
+.update-chip:hover { background: var(--top-hover); }
+.update-chip:focus-visible { outline: 2px solid var(--top-fg); outline-offset: 2px; }
+.update-chip .progress { width: 36px; height: 3px; margin: 0; background: color-mix(in srgb, var(--top-fg) 25%, transparent); }
+.update-chip .progress > i { background: var(--top-fg); }
+.toast.sticky .toast-bar { display: none; }
 .update-notes { margin: 10px 0 12px; padding: 10px 12px; max-height: 220px; overflow: auto; background: var(--bg2);
   border: 1px solid var(--border); border-radius: var(--r-sm); font-size: .92em; line-height: 1.5;
   white-space: pre-wrap; overflow-wrap: anywhere; }

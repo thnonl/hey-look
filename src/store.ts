@@ -1,8 +1,6 @@
 import { create } from "zustand";
-import { openUrl } from "@tauri-apps/plugin-opener";
-import { api, Account, Att, BackfillProgress, CalendarInfo, CalEvent, DraftSecurity, FolderInfo, Meeting, MessageFull, OutboxItem, SearchScope, ThreadSummary, UpdateInfo, UpdateKind, UpdateResult, UpdateTrigger } from "./api";
+import { api, Account, Att, BackfillProgress, CalendarInfo, CalEvent, DraftSecurity, FolderInfo, Meeting, MessageFull, OutboxItem, SearchScope, ThreadSummary } from "./api";
 import { calTz, CalView, Day, rangeFor, systemTz, today } from "./calendar";
-import { useFrame } from "./winframe";
 import { accentText, accountColor, buttonAccent, clampMaxDownload, DEFAULT_PREFS, lightened, mergePrefs, Prefs, readableOn, staleAccountPrefs, topBar, validHex } from "./prefs";
 
 export interface ComposeInit {
@@ -83,6 +81,11 @@ export interface Toast {
   /** up to two buttons, e.g. Open / Show in folder / Retry */
   actions?: ToastAction[];
   ttl: number;
+  /** stays until it is answered (no timer, no countdown bar); `key` names it so a new one replaces the old */
+  sticky?: boolean;
+  key?: string;
+  /** what the "×" does for a sticky toast (default: just close it) */
+  onDismiss?: () => void;
 }
 
 export interface Choice {
@@ -188,7 +191,8 @@ interface State {
   compose: ComposeInit | null;
   composeKey: number; // changes on every open so a new message never inherits the old one's state
   composeDirty: boolean;
-  composeSaver: (() => Promise<void>) | null;
+  /** Saves the open message as a draft; resolves true when it was saved (false: the save failed, the message is still open). */
+  composeSaver: (() => Promise<boolean | void>) | null;
   dialog: Dialog;
   commandOpen: boolean;
   ribbonTab: RibbonTab;
@@ -205,16 +209,8 @@ interface State {
   calError: string | null;
   /** bumps when the calendar changed behind the view's back (sync, respond, save) */
   calRev: number;
-  /** The last meaningful answer of the update check (a `throttled` / `disabled` answer without cached info does not replace it). */
-  update: UpdateResult | null;
-  /** When the latest answer says the last attempt happened (unix seconds). */
-  updateCheckedAt: number | null;
-  /** A manual check is running (also while it waits for an automatic one). */
-  updateBusy: boolean;
-  /** The version the "update available" toast was shown for in this app run (memory only). */
-  updateToastFor: string | null;
-  /** The 8 s startup check was issued: focus / app-shown events count only after that. */
-  updateStartupIssued: boolean;
+  /** Messages being sent right now: waiting in the undo window or handed to the backend and not answered yet (an update restart waits for them). */
+  sendsInFlight: number;
 
   init: () => Promise<void>;
   setView: (folder: string, accountId?: string | null) => Promise<void>;
@@ -235,12 +231,16 @@ interface State {
   act: (ids: string[], action: string, arg?: string, label?: string) => Promise<void>;
   openCompose: (c: ComposeInit | null) => Promise<void>;
   setComposeDirty: (d: boolean) => void;
-  setComposeSaver: (f: (() => Promise<void>) | null) => void;
+  setComposeSaver: (f: (() => Promise<boolean | void>) | null) => void;
   setDialog: (d: Dialog) => void;
   setCommandOpen: (o: boolean) => void;
   setRibbonTab: (t: RibbonTab) => void;
   showToast: (text: string, undo?: () => void, kind?: Toast["kind"], actions?: ToastAction[]) => void;
   dismissToast: (id: number) => void;
+  /** A toast that stays until it is answered (or `null` to remove it); one per `key`, a new text replaces the old in place. */
+  setStickyToast: (key: string, spec: { text: string; kind?: Toast["kind"]; actions?: ToastAction[]; onDismiss?: () => void } | null) => void;
+  /** Count a message as being sent from now until `done()` is called. */
+  beginSend: () => () => void;
   confirm: (o: { title: string; body?: string; confirmLabel?: string; danger?: boolean }) => Promise<boolean>;
   choose: (o: { title: string; body?: string; choices: Choice[] }) => Promise<string>;
   resolveAsk: (id: string) => void;
@@ -259,43 +259,7 @@ interface State {
   bumpCal: () => void;
   /** Re-read the open conversation without clearing it (an invitation's state changed). */
   reloadMessages: () => Promise<void>;
-  /** Ask GitHub for a newer version. Automatic triggers always go to the backend, which answers `disabled` when they are switched off. */
-  checkUpdate: (trigger: UpdateTrigger) => Promise<void>;
-  /** Show the "update available" toast once per version and run, only while the window is focused. */
-  announceUpdate: () => void;
-  /** Open Settings on About (switching the tab if Settings is already open); `manual` also starts a check. */
-  openSettingsAbout: (manual: boolean) => void;
-  markUpdateStartup: () => void;
 }
-
-/** The kind that counts for the UI: `throttled` / `disabled` stand for what their cached info says. */
-export const updateKindOf = (r: UpdateResult | null): UpdateKind | null =>
-  !r ? null : r.kind === "throttled" || r.kind === "disabled" ? (r.info ? r.cachedKind ?? null : null) : r.kind;
-
-/** Version of the newer release the user has not skipped (drives the gear dot and the toast), else null. */
-export const pendingUpdate = (s: { update: UpdateResult | null; prefs: Prefs }): string | null => {
-  const latest = updateKindOf(s.update) === "available" ? s.update?.info?.latest ?? null : null;
-  return latest && latest !== s.prefs.skippedUpdate ? latest : null;
-};
-
-/** Open a link in the browser; if that fails the link is copied and an error toast says so. */
-export async function openUpdateLink(url: string, announce = false) {
-  const { showToast } = useStore.getState();
-  try {
-    await openUrl(url);
-    if (announce) showToast("Opening the download in your browser…", undefined, "info");
-  } catch {
-    void navigator.clipboard?.writeText(url).catch(() => undefined);
-    showToast("Couldn’t open your browser. The link is copied to the clipboard.", undefined, "error");
-  }
-}
-
-export const downloadUpdate = (info: UpdateInfo) => info.asset && openUpdateLink(info.asset.url, true);
-
-/** Whether the app window has the focus (kept by `useFrame`; where the frame is not custom it stays true, so the toast is not held back). */
-const windowFocused = () => useFrame.getState().focused;
-
-let updateInflight: Promise<UpdateResult | null> | null = null;
 
 let toastSeq = 0;
 let readTimer: ReturnType<typeof setTimeout> | undefined;
@@ -460,11 +424,7 @@ export const useStore = create<State>((set, get) => ({
   calLoading: false,
   calError: null,
   calRev: 0,
-  update: null,
-  updateCheckedAt: null,
-  updateBusy: false,
-  updateToastFor: null,
-  updateStartupIssued: false,
+  sendsInFlight: 0,
 
   init: async () => {
     const [rawAccounts, rawPrefs] = await Promise.all([api.listAccounts(), api.getSetting("prefs")]);
@@ -854,11 +814,31 @@ export const useStore = create<State>((set, get) => ({
     const ttl = undo ? Math.max(5000, get().prefs.undoActionSeconds * 1000) : acts?.length || k === "error" ? 8000 : 4500;
     const id = ++toastSeq;
     // newest last; keep a short stack and never evict a toast that still has an Undo
-    set((s) => ({ toasts: [...s.toasts.filter((t) => t.undo || s.toasts.length < 4), { id, text, kind: k, undo, actions: acts, ttl }].slice(-5) }));
+    set((s) => ({ toasts: [...s.toasts.filter((t) => t.undo || t.sticky || s.toasts.length < 4), { id, text, kind: k, undo, actions: acts, ttl }].slice(-5) }));
     setTimeout(() => get().dismissToast(id), ttl);
   },
 
   dismissToast: (id) => set((s) => ({ toasts: s.toasts.filter((t) => t.id !== id) })),
+
+  setStickyToast: (key, spec) =>
+    set((s) => {
+      const others = s.toasts.filter((t) => t.key !== key);
+      if (!spec) return { toasts: others };
+      const old = s.toasts.find((t) => t.key === key);
+      const toast: Toast = { id: old?.id ?? ++toastSeq, text: spec.text, kind: spec.kind ?? "info", actions: spec.actions, ttl: 0, sticky: true, key, onDismiss: spec.onDismiss };
+      // in place when it exists (the countdown changes its text every second), else on top of the stack
+      return { toasts: old ? s.toasts.map((t) => (t.key === key ? toast : t)) : [...others, toast].slice(-5) };
+    }),
+
+  beginSend: () => {
+    set((s) => ({ sendsInFlight: s.sendsInFlight + 1 }));
+    let done = false;
+    return () => {
+      if (done) return;
+      done = true;
+      set((s) => ({ sendsInFlight: Math.max(0, s.sendsInFlight - 1) }));
+    };
+  },
 
   choose: (o) =>
     new Promise<string>((resolve) => {
@@ -898,61 +878,6 @@ export const useStore = create<State>((set, get) => ({
   bumpKeys: () => set((s) => ({ keysRev: s.keysRev + 1 })),
 
   replaceMessage: (m) => set((s) => ({ messages: s.messages.map((x) => (x.id === m.id ? m : x)) })),
-
-  markUpdateStartup: () => set({ updateStartupIssued: true }),
-
-  openSettingsAbout: (manual) => {
-    set({ dialog: { type: "settings", tab: "about", nonce: Date.now() } });
-    if (manual) void get().checkUpdate("manual");
-  },
-
-  checkUpdate: async (trigger) => {
-    const manual = trigger === "manual";
-    if (manual) set({ updateBusy: true });
-    try {
-      if (updateInflight) {
-        // one request at a time: an automatic call just drops out; a manual one waits and uses the answer if a request was made
-        if (!manual) return;
-        const prev = await updateInflight;
-        if (prev && prev.kind !== "throttled" && prev.kind !== "disabled") return;
-      }
-      const run = api
-        .checkUpdate(trigger)
-        .catch((e): UpdateResult => ({
-          kind: "error",
-          current: get().update?.current ?? "",
-          platform: get().update?.platform ?? { os: "", arch: "", label: "your system" },
-          checkedAt: get().updateCheckedAt,
-          message: friendlyError(e).replace(/\.$/, ""),
-          info: null,
-          fromCache: false,
-        }));
-      updateInflight = run;
-      const r = await run;
-      updateInflight = null;
-      const holdOn = (r.kind === "throttled" || r.kind === "disabled") && !r.info;
-      set({ update: holdOn ? get().update : r, updateCheckedAt: r.checkedAt });
-      if (manual) {
-        // a manual answer counts as seen: no toast for this version later in the run
-        if (updateKindOf(r) === "available" && r.info) set({ updateToastFor: r.info.latest });
-      } else get().announceUpdate();
-    } finally {
-      updateInflight = null;
-      if (manual) set({ updateBusy: false });
-    }
-  },
-
-  announceUpdate: () => {
-    const s = get();
-    const v = pendingUpdate(s);
-    const info = s.update?.info;
-    if (!v || !info || s.updateToastFor === v || !windowFocused()) return;
-    set({ updateToastFor: v });
-    s.showToast(`Hey Look! ${v} is available.`, undefined, "info", [
-      ...(info.asset ? [{ label: "Download", run: () => void downloadUpdate(info) }] : []),
-      { label: "What’s new", run: () => get().openSettingsAbout(false) },
-    ]);
-  },
 
   setPrefs: (patch) => {
     const prefs = { ...get().prefs, ...patch };

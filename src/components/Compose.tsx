@@ -270,7 +270,7 @@ interface PictureSel {
 }
 
 export function Compose({ init }: { init: ComposeInit }) {
-  const { accounts, openCompose, showToast, prefs, refresh, confirm, choose, setComposeDirty, setComposeSaver, aiConfigured, setDialog } = useStore();
+  const { accounts, openCompose, showToast, prefs, refresh, confirm, choose, setComposeDirty, setComposeSaver, aiConfigured, setDialog, beginSend } = useStore();
   const [accountId, setAccountId] = useState(accounts.some((a) => a.id === init.accountId) ? init.accountId! : accounts.some((a) => a.id === prefs.defaultAccount) ? prefs.defaultAccount : accounts[0]?.id || init.accountId || "");
   const isFresh = !init.replaces && !init.isReply && !init.outboxId && !init.restore;
   // an opened draft / scheduled message / message that failed to send: its body already holds the signature, shown as the region again
@@ -652,7 +652,12 @@ export function Compose({ init }: { init: ComposeInit }) {
       savedRef.current = true;
       setComposeDirty(false);
       void openCompose(null);
-      await api.sendMessage(d, null, null);
+      const done = beginSend();
+      try {
+        await api.sendMessage(d, null, null);
+      } finally {
+        done();
+      }
       if (useStore.getState().prefs.sentSound) playSent();
       showToast("Message sent", undefined, "success");
       void refresh();
@@ -702,7 +707,8 @@ export function Compose({ init }: { init: ComposeInit }) {
           savedRef.current = true;
           showToast(`Rescheduled for ${fmtWhen(sendAt)}`, undefined, "success");
         } else {
-          const res = await api.sendMessage(d, sendAt, init.replaces);
+          const done = beginSend();
+          const res = await api.sendMessage(d, sendAt, init.replaces).finally(done);
           savedRef.current = true;
           const id = res.startsWith("scheduled:") ? res.slice("scheduled:".length) : null;
           const st = useStore.getState();
@@ -731,6 +737,8 @@ export function Compose({ init }: { init: ComposeInit }) {
     void openCompose(null);
     const wait = eff(prefs, accountId, "undoSeconds");
     let cancelled = false;
+    // counted as "being sent" from the start of the undo window until the server answered (an update restart waits for it)
+    const done = beginSend();
     const t = setTimeout(async () => {
       if (cancelled) return;
       try {
@@ -741,6 +749,8 @@ export function Compose({ init }: { init: ComposeInit }) {
       } catch (e) {
         showToast(`Send failed: ${friendlyError(e)}`, undefined, "error");
         reopen(d);
+      } finally {
+        done();
       }
     }, wait * 1000);
     if (wait > 0) {
@@ -749,6 +759,7 @@ export function Compose({ init }: { init: ComposeInit }) {
         () => {
           cancelled = true;
           clearTimeout(t);
+          done();
           reopen(d);
         },
         "info",
@@ -757,8 +768,8 @@ export function Compose({ init }: { init: ComposeInit }) {
   };
 
   const saveDraft = useCallback(
-    async (close: boolean) => {
-      if (init.outboxId) return; // a scheduled message is not a draft; "Move to Drafts" does that
+    async (close: boolean): Promise<boolean> => {
+      if (init.outboxId) return true; // a scheduled message is not a draft; "Move to Drafts" does that
       try {
         const d = buildDraft();
         // a draft is only ever encrypted to your own key (no passphrase needed), and never signed
@@ -768,8 +779,10 @@ export function Compose({ init }: { init: ComposeInit }) {
         setComposeDirty(false);
         if (close) void openCompose(null);
         void useStore.getState().sync();
+        return true;
       } catch (e) {
         showToast(`Save draft failed: ${friendlyError(e)}`, undefined, "error");
+        return false;
       }
     },
     // eslint-disable-next-line react-hooks/exhaustive-deps
