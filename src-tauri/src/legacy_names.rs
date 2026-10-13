@@ -207,13 +207,13 @@ fn resolve_with(new_dir: PathBuf, mover: &dyn Fn(&Path, &Path) -> Result<Moved, 
     dir
 }
 
-/// The data folder for this run: the one of the current identifier (a debug build can override it with `HEYLOOK_DATA_DIR`, so
-/// tests never touch real mail data; release builds ignore the variable), after the one-time migration.
+/// The data folder for this run: the one of the current identifier (a debug build can override it, see `debug_override`, so tests
+/// never touch real mail data; release builds ignore the override), after the one-time migration.
 pub fn data_dir(app: &tauri::AppHandle) -> Result<PathBuf, Box<dyn std::error::Error>> {
     use tauri::Manager;
     #[cfg(debug_assertions)]
-    let new_dir = match std::env::var_os("HEYLOOK_DATA_DIR").filter(|v| !v.is_empty()) {
-        Some(v) => PathBuf::from(v),
+    let new_dir = match debug_override() {
+        Some(v) => v,
         None => app.path().app_data_dir()?,
     };
     #[cfg(not(debug_assertions))]
@@ -223,12 +223,33 @@ pub fn data_dir(app: &tauri::AppHandle) -> Result<PathBuf, Box<dyn std::error::E
     Ok(dir)
 }
 
-/// A debug build runs on a test data folder (`HEYLOOK_DATA_DIR`): the system credential store and the registry cannot be redirected,
-/// so such a run must not move the real ones (see `migrate_keyring`, `remove_old_notification_id`). Always false in release builds.
+/// Name of the file next to the executable that names the test data folder (first line = path). Unlike the environment variable it
+/// survives an installer-driven update and restart, where the new process may not inherit the environment.
+const MARKER: &str = "heylook-data-dir.txt";
+
+#[cfg_attr(not(debug_assertions), allow(dead_code))]
+fn read_marker(exe_dir: &Path) -> Option<PathBuf> {
+    let text = fs::read_to_string(exe_dir.join(MARKER)).ok()?;
+    let line = text.trim_start_matches('\u{feff}').lines().next()?.trim().trim_matches('"');
+    (!line.is_empty()).then(|| PathBuf::from(line))
+}
+
+/// Debug builds only: the test data folder from `HEYLOOK_DATA_DIR`, else from `heylook-data-dir.txt` next to the executable.
+#[cfg(debug_assertions)]
+fn debug_override() -> Option<PathBuf> {
+    if let Some(v) = std::env::var_os("HEYLOOK_DATA_DIR").filter(|v| !v.is_empty()) {
+        return Some(PathBuf::from(v));
+    }
+    read_marker(std::env::current_exe().ok()?.parent()?)
+}
+
+/// A debug build runs on a test data folder: the system credential store and the registry cannot be redirected, so such a run must
+/// not move the real ones (see `migrate_keyring`, `remove_old_notification_id`). Always false in release builds, which ignore both
+/// the variable and the marker file.
 pub fn data_dir_overridden() -> bool {
     #[cfg(debug_assertions)]
     {
-        std::env::var_os("HEYLOOK_DATA_DIR").is_some_and(|v| !v.is_empty())
+        debug_override().is_some()
     }
     #[cfg(not(debug_assertions))]
     {
@@ -545,6 +566,16 @@ mod tests {
         fs::write(&new, b"a file in the way").unwrap();
         assert_eq!(resolve_data_dir(new.clone(), &|_| {}), new);
         assert_eq!(fs::read(old.join(OLD_DB)).unwrap(), b"mail");
+    }
+
+    #[test]
+    fn marker_file_names_the_test_folder() {
+        let d = tmp("mk");
+        assert_eq!(read_marker(&d), None);
+        put(&d, MARKER, b"\xEF\xBB\xBF\"E:/work/e2e-data/thnonl.heylook\"\r\nsecond line ignored\r\n");
+        assert_eq!(read_marker(&d), Some(PathBuf::from("E:/work/e2e-data/thnonl.heylook")));
+        put(&d, MARKER, b"   \n");
+        assert_eq!(read_marker(&d), None);
     }
 
     // ---------- credentials ----------

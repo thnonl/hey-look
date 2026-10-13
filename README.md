@@ -249,7 +249,7 @@ npx tsc --noEmit                       # type-check the UI
 cargo check --manifest-path src-tauri/Cargo.toml
 ```
 
-Debug builds (`tauri dev`, `tauri build --debug`) can run on a throw-away data folder: set `HEYLOOK_DATA_DIR` to a folder and the app keeps its database and files there (release builds ignore the variable). Testing on a copy of real data, and the system credential store, which cannot be redirected, are covered in `src-tauri/src/legacy_names.rs`.
+Debug builds (`tauri dev`, `tauri build --debug`) can run on a throw-away data folder: set `HEYLOOK_DATA_DIR` to a folder, or put a file `heylook-data-dir.txt` (first line = folder) next to the executable (it survives an installer-driven update), and the app keeps its database and files there (release builds ignore both). Testing on a copy of real data, and the system credential store, which cannot be redirected, are covered in `src-tauri/src/legacy_names.rs`.
 
 ### Project layout
 
