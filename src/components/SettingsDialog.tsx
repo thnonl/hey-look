@@ -1,4 +1,5 @@
 import { KeyRound, Lock, Plus, Trash2, Upload } from "lucide-react";
+import { getVersion } from "@tauri-apps/api/app";
 import { openUrl } from "@tauri-apps/plugin-opener";
 import { Fragment, ReactNode, useEffect, useRef, useState } from "react";
 import { Account, api, Discovered, PgpKey, PROVIDERS, Rule, Signature, Template } from "../api";
@@ -8,6 +9,7 @@ import { systemTz } from "../calendar";
 import { fmtDay, fmtFpr, shortKey } from "../util";
 import { AppearancePreview } from "./AppearancePreview";
 import { RichEditor } from "./RichEditor";
+import { UpdatesBlock } from "./Updates";
 import { keyName } from "./Pgp";
 import { AccountPicker, Avatar, Modal, Switch } from "./ui";
 
@@ -1427,11 +1429,29 @@ function ShortcutsTab() {
 }
 
 function AboutTab() {
+  const { prefs, setPrefs } = useStore();
+  const current = useStore((s) => s.update?.current);
+  const [version, setVersion] = useState("");
+  // before the first update answer the version comes from the app itself
+  useEffect(() => {
+    void getVersion().then(setVersion).catch(() => undefined);
+  }, []);
   return (
     <div>
       <h3>About</h3>
       <p><b>Hey Look!</b> — a desktop mail client built with Tauri, React and Rust.</p>
-      <p className="muted small">All features are always enabled. No license, no subscription, no cloud account. Mail goes directly between this app and your mail servers; AI features use only the endpoint you configure.</p>
+      <p className="muted small">Version {current || version}</p>
+      <p className="muted small">All features are always enabled. No license, no subscription, no cloud account. Mail goes directly between this app and your mail servers; AI features use only the endpoint you configure. Update checks ask GitHub (api.github.com) for the latest release; you can turn them off below.</p>
+      <UpdatesBlock
+        autoSwitch={
+          <Row
+            label="Check for updates automatically"
+            hint="When Hey Look! starts or comes back from the tray, at most every 6 hours. Only GitHub is asked; your mail and accounts are never sent."
+          >
+            <Switch checked={prefs.checkUpdates} onChange={(v) => setPrefs({ checkUpdates: v })} />
+          </Row>
+        }
+      />
       <div className="about-links">
         <button className="link about-link" title="https://github.com/thnonl/hey-look" onClick={() => void openUrl("https://github.com/thnonl/hey-look")}>GitHub repository (thnonl/hey-look)</button>
         <button className="link about-link" title="https://github.com/thnonl" onClick={() => void openUrl("https://github.com/thnonl")}>GitHub profile (thnonl)</button>
@@ -1446,12 +1466,21 @@ const MORE: [string, string][] = [
   ["ai", "AI Assistant"], ["shortcuts", "Shortcuts"], ["about", "About"],
 ];
 
-export function Settings({ initial, focus }: { initial?: string; focus?: string }) {
+export function Settings({ initial, focus, nonce }: { initial?: string; focus?: string; nonce?: number }) {
   const { setDialog, accounts, prefs } = useStore();
   const start = initial === "accounts" ? "mb:all" : initial === "notifications" ? "tray" : initial;
   const [tab, setTab] = useState<string>(start || (accounts.length === 0 ? "add-account" : "general"));
   const [mbTab, setMbTab] = useState<MbTab>(focus === "loadRemote" || focus === "maxDownload" ? "reading" : focus === "security" ? "security" : "composing");
   const close = () => setDialog(null);
+  // Settings is already open and something asks for a tab (toast "What’s new", Command bar, the gear with a dot): switch to it
+  const first = useRef(true);
+  useEffect(() => {
+    if (first.current) {
+      first.current = false;
+      return;
+    }
+    if (initial) setTab(initial === "accounts" ? "mb:all" : initial === "notifications" ? "tray" : initial);
+  }, [initial, nonce]);
   useEffect(() => {
     if (!focus) return;
     const t = setTimeout(() => {

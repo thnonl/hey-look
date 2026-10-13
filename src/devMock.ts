@@ -428,6 +428,54 @@ function simulateWindowFrame(): boolean {
   return true;
 }
 
+// ---- update check (`#update=<kind>`, `#openfail`): fixed answers, read from the URL hash on every call.
+// Kinds: available, uptodate (default), newer, norelease, offline, ratelimited, error, noasset, slow, empty, long.
+// The throttle, the 6 h rule and the stored state are Rust only: here every manual call answers, automatic calls answer `disabled` when the switch is off.
+const hashTokens = () => new Map(window.location.hash.slice(1).split("&").filter(Boolean).map((t) => { const [k, v = ""] = t.split("="); return [k, decodeURIComponent(v)] as [string, string]; }));
+const UPDATE_SAMPLE_NOTES = [
+  "## Highlights", "- Faster search in large mailboxes", "* **Bold** item with `code`", "[a link](https://example.com)", "",
+  "### Fixes", "| Area | Fix |", "|---|---|", "| Sync | Fewer retries |", "<img src=x onerror=alert(1)>", "x".repeat(200),
+].join("\n");
+const UPDATE_LONG_NOTES = (() => {
+  const out: string[] = ["## Everything that changed"];
+  for (let i = 1; out.join("\n").length < 4000; i++) out.push(`- Change ${i}: a longer line of release notes that explains one improvement in a few words`);
+  return out.join("\n").slice(0, 4000);
+})();
+async function mockCheckUpdate(trigger: string, prefsJson?: string) {
+  const w = window as unknown as { __updateCalls?: { trigger: string; at: number; kind: string | null }[] };
+  const entry = { trigger, at: Date.now(), kind: null as string | null };
+  (w.__updateCalls ??= []).push(entry);
+  const token = hashTokens().get("update") || "uptodate";
+  const now = Math.floor(Date.now() / 1000);
+  const base = { kind: "upToDate", current: "1.0.0", platform: { os: "windows", arch: "x64", label: "Windows" }, checkedAt: now, retryAt: null as number | null, message: null as string | null, info: null as unknown, fromCache: false };
+  const info = (over: Record<string, unknown> = {}) => ({
+    latest: "1.1.0", notes: UPDATE_SAMPLE_NOTES, notesTruncated: false, publishedAt: Math.floor(new Date(2026, 9, 12, 10, 0).getTime() / 1000),
+    releaseUrl: "https://github.com/thnonl/hey-look/releases/tag/v1.1.0",
+    asset: { name: "HeyLook_1.1.0_windows_x64-setup.exe", url: "https://github.com/thnonl/hey-look/releases/download/v1.1.0/HeyLook_1.1.0_windows_x64-setup.exe", size: 10276044 },
+    ...over,
+  });
+  const enabled = (() => { try { return JSON.parse(prefsJson ?? "{}").checkUpdates !== false; } catch { return true; } })();
+  let r: typeof base;
+  if (trigger !== "manual" && !enabled) r = { ...base, kind: "disabled" };
+  else {
+    if (token === "slow") await new Promise((res) => setTimeout(res, 5000));
+    switch (token) {
+      case "available": case "slow": r = { ...base, kind: "available", info: info() }; break;
+      case "noasset": r = { ...base, kind: "available", info: info({ asset: null }) }; break;
+      case "empty": r = { ...base, kind: "available", info: info({ notes: "", publishedAt: null }) }; break;
+      case "long": r = { ...base, kind: "available", info: info({ notes: UPDATE_LONG_NOTES, notesTruncated: true }) }; break;
+      case "newer": r = { ...base, current: "1.2.0", info: info() }; break;
+      case "norelease": r = { ...base, kind: "noRelease" }; break;
+      case "offline": r = { ...base, kind: "offline" }; break;
+      case "ratelimited": r = { ...base, kind: "rateLimited", retryAt: now + 60 }; break;
+      case "error": r = { ...base, kind: "error", message: "GitHub answered 500" }; break;
+      default: r = { ...base, info: info({ latest: "1.0.0", asset: null }) };
+    }
+  }
+  entry.kind = r.kind;
+  return r;
+}
+
 // ---- adding accounts (Settings > Add account, Welcome): the mock backend creates the account after a short delay.
 // Failures to try: password `wrong` (IMAP), client id `fail` (Google / Microsoft). Its first sync takes 2.5 s, then three messages appear.
 const synced = new Set<string>();
@@ -797,7 +845,11 @@ export function installMock() {
           return { added, exhausted, limited: !exhausted && have + added >= cap };
         });
       }
-      case "plugin:opener|open_url": mockMail.opened.push(String(a.url)); console.info("[mock] open in browser:", a.url); return null;
+      case "plugin:opener|open_url":
+        if (hashTokens().has("openfail")) throw "mock: no default browser"; // `#openfail` makes opening links fail (update check: copy-link path)
+        mockMail.opened.push(String(a.url)); console.info("[mock] open in browser:", a.url); return null;
+      case "plugin:app|version": return "1.0.0";
+      case "check_update": return mockCheckUpdate(String(a.trigger), settings.prefs);
       case "has_secret": return false;
       case "google_env_configured": case "microsoft_env_configured": return false;
       case "microsoft_tenant": return "";

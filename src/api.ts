@@ -560,7 +560,40 @@ export const api = {
   fetchRemoteImages: (urls: string[]) => invoke<Record<string, string>>("fetch_remote_images", { urls }),
   aiComplete: (system: string, prompt: string) => invoke<string>("ai_complete", { system, prompt }),
   aiListModels: (endpoint: string, key?: string) => invoke<string[]>("ai_list_models", { endpoint, key: key ?? null }),
+  checkUpdate: (trigger: UpdateTrigger) => invoke<UpdateResult>("check_update", { trigger }),
 };
+
+export type UpdateTrigger = "startup" | "shown" | "manual";
+export interface UpdateAsset {
+  name: string;
+  url: string;
+  size: number;
+}
+export interface UpdateInfo {
+  latest: string;
+  notes: string;
+  notesTruncated: boolean;
+  /** unix seconds */
+  publishedAt: number | null;
+  releaseUrl: string;
+  asset: UpdateAsset | null;
+}
+/** `disabled` and `throttled` are internal: the UI shows the cached `info` instead (see `cachedKind`). */
+export type UpdateKind =
+  | "available" | "upToDate" | "noRelease" | "offline" | "rateLimited" | "error" | "disabled" | "throttled";
+export interface UpdateResult {
+  kind: UpdateKind;
+  current: string;
+  platform: { os: string; arch: string; label: string };
+  /** last attempt, unix seconds */
+  checkedAt: number | null;
+  retryAt?: number | null;
+  message?: string | null;
+  info: UpdateInfo | null;
+  fromCache: boolean;
+  /** for `throttled` / `disabled` results that carry cached `info`: `available` or `upToDate` */
+  cachedKind?: UpdateKind | null;
+}
 
 export const PROVIDERS: Record<
   string,

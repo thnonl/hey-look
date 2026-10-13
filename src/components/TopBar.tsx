@@ -2,14 +2,15 @@ import { Moon, RefreshCw, Settings, Sun } from "lucide-react";
 import type { MouseEvent } from "react";
 import logo from "../assets/logo.png";
 import { api } from "../api";
-import { useStore } from "../store";
+import { pendingUpdate, useStore } from "../store";
 import { useAppDark } from "../useAppDark";
 import { useFrame } from "../winframe";
 import { SearchBox } from "./SearchBox";
 import { WindowControls } from "./WindowControls";
 
 export function TopBar() {
-  const { sync, syncing, firstSync, setDialog, setPrefs } = useStore();
+  const { sync, syncing, firstSync, setDialog, setPrefs, openSettingsAbout } = useStore();
+  const newVersion = useStore(pendingUpdate);
   const dark = useAppDark();
 
   const custom = useFrame((f) => f.custom);
@@ -36,7 +37,12 @@ export function TopBar() {
         <button className="icon-btn" title={dark ? "Light mode" : "Dark mode"} onClick={() => setPrefs({ theme: dark ? "light" : "dark" })}>
           {dark ? <Sun size={16} /> : <Moon size={16} />}
         </button>
-        <button className="icon-btn" title="Settings" onClick={() => setDialog({ type: "settings" })}>
+        <button
+          className={`icon-btn${newVersion ? " has-dot" : ""}`}
+          title={newVersion ? `Settings — Hey Look! ${newVersion} is available` : "Settings"}
+          aria-label={newVersion ? "Settings (update available)" : "Settings"}
+          onClick={() => (newVersion ? openSettingsAbout(false) : setDialog({ type: "settings" }))}
+        >
           <Settings size={16} />
         </button>
       </div>

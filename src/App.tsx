@@ -158,6 +158,37 @@ function App() {
     };
   }, []);
 
+  // update check: once about 8 s after the UI is ready, then whenever the window comes back (the backend throttles to once per 6 h)
+  useEffect(() => {
+    if (!loaded) return;
+    const t = setTimeout(() => {
+      const st = useStore.getState();
+      st.markUpdateStartup();
+      void st.checkUpdate("startup");
+    }, 8000);
+    return () => clearTimeout(t);
+  }, [loaded]);
+
+  useEffect(() => {
+    const shown = () => {
+      const st = useStore.getState();
+      if (!st.updateStartupIssued) return; // the window gains focus at launch: that must not pre-empt the startup delay
+      void st.checkUpdate("shown");
+      st.announceUpdate();
+    };
+    const sub = listen("app-shown", shown);
+    const onFocus = () => shown();
+    window.addEventListener("focus", onFocus);
+    const off = useFrame.subscribe((s, prev) => {
+      if (s.focused && !prev.focused) shown();
+    });
+    return () => {
+      void sub.then((un) => un()).catch(() => undefined);
+      window.removeEventListener("focus", onFocus);
+      off();
+    };
+  }, []);
+
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       const st = useStore.getState();
@@ -282,7 +313,7 @@ function App() {
       ) : (
         <Welcome />
       )}
-      {dialog?.type === "settings" && <Settings initial={dialog.tab} focus={dialog.focus} />}
+      {dialog?.type === "settings" && <Settings initial={dialog.tab} focus={dialog.focus} nonce={dialog.nonce} />}
       {dialog?.type === "cleaner" && <BulkCleaner />}
       {dialog?.type === "original" && <ShowOriginal messageId={dialog.messageId} />}
       {dialog?.type === "pgp-generate" && <GenerateKeyDialog accountId={dialog.accountId} back={dialog.back} />}

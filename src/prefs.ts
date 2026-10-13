@@ -74,6 +74,10 @@ export interface Prefs extends Overridable {
   scheduledCatchUp: "send" | "ask";
   /** retry network failures of scheduled messages 3 times, 5 minutes apart */
   retryScheduled: boolean;
+  /** ask GitHub for a newer version when the app starts or comes back from the tray (at most every 6 hours) */
+  checkUpdates: boolean;
+  /** version the user chose to skip in the update notice ("" = none) */
+  skippedUpdate: string;
   /** most messages kept per mailbox by the background download and "load older" (all its folders together; also a plain setting `max_download`) */
   maxDownload: number;
   /** calendar: first day of the week (1 = Monday, 0 = Sunday, 6 = Saturday) */
@@ -124,6 +128,8 @@ export const DEFAULT_PREFS: Prefs = {
   warnExecutables: true,
   scheduledCatchUp: "send",
   retryScheduled: true,
+  checkUpdates: true,
+  skippedUpdate: "",
   maxDownload: 2000,
   pgpRemember: "session",
   weekStart: 1,

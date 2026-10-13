@@ -115,6 +115,24 @@ button:focus-visible, [role="option"]:focus-visible, [role="treeitem"]:focus-vis
 .about-links { display: flex; flex-direction: column; align-items: flex-start; gap: 16px; margin-top: 16px; }
 .about-link { display: inline-flex; align-items: center; min-height: 24px; }
 .notice .link { display: inline-block; min-height: 24px; line-height: 24px; vertical-align: middle; }
+/* update check: Settings > About card, status row, gear dot */
+.update-card { display: flex; flex-direction: column; }
+.update-card .set-card-head { flex-wrap: wrap; }
+.update-card .update-notes { order: 1; }
+.update-card .update-actions, .update-card .update-file, .update-card .update-skip { order: 2; }
+.update-card .update-skip { margin-top: 8px; }
+.update-notes { margin: 10px 0 12px; padding: 10px 12px; max-height: 220px; overflow: auto; background: var(--bg2);
+  border: 1px solid var(--border); border-radius: var(--r-sm); font-size: .92em; line-height: 1.5;
+  white-space: pre-wrap; overflow-wrap: anywhere; }
+.update-notes .h { font-weight: 600; }
+.update-actions { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+.update-file { margin-top: 6px; }
+.update-status { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 10px; padding: 12px 0; border-bottom: 1px solid var(--border); }
+.icon-btn.has-dot { position: relative; }
+.icon-btn.has-dot::after { content: ""; position: absolute; top: 5px; right: 5px; width: 8px; height: 8px; border-radius: 50%;
+  background: var(--top-fg); box-shadow: 0 0 0 1.5px color-mix(in srgb, var(--accent-base), black 22%); }
+:root[data-theme="dark"] .icon-btn.has-dot::after { box-shadow: 0 0 0 1.5px #2d3038; }
+@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) .icon-btn.has-dot::after { box-shadow: 0 0 0 1.5px #2d3038; } }
 .link-btn { min-height: 24px; background: none; border: 0; color: var(--fg); padding: 3px 8px; border-radius: var(--r-sm); display: inline-flex; align-items: center; gap: 4px; font-size: .9em; }
 .link-btn:hover { background: var(--bg3); }
 .avatar { border-radius: 50%; color: #fff; display: flex; align-items: center; justify-content: center; font-weight: 600; flex: none; user-select: none; letter-spacing: .02em; box-shadow: inset 0 0 0 1px rgba(255,255,255,.18); }

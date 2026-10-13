@@ -29,6 +29,7 @@ export function CommandBar() {
       { label: "Calendar: Week view", run: () => (s.setModule("calendar"), s.setCalView("week")) },
       { label: "Calendar: Agenda view", run: () => (s.setModule("calendar"), s.setCalView("agenda")) },
       { label: "Open settings", run: () => s.setDialog({ type: "settings" }) },
+      { label: "Check for updates", run: () => s.openSettingsAbout(true) },
       { label: "Sweep: clean up by sender", run: () => s.setDialog({ type: "cleaner" }) },
       { label: "Theme: light", run: () => s.setPrefs({ theme: "light" }) },
       { label: "Theme: dark", run: () => s.setPrefs({ theme: "dark" }) },
