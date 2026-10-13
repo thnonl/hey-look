@@ -497,6 +497,14 @@ export const api = {
     invoke<void>("save_draft", { draft, replaces: replaces ?? null }),
   listOutbox: () => invoke<OutboxItem[]>("list_outbox"),
   cancelOutbox: (id: string) => invoke<void>("cancel_outbox", { id }),
+  /** Send was pressed with an Undo time: the message goes into the local outbox (not a scheduled message) until `dueAt` (unix seconds). */
+  outboxHold: (draft: Draft, dueAt: number, replaces?: string | null) => invoke<string>("outbox_hold", { draft, dueAt, replaces: replaces ?? null }),
+  /** The Undo time of a held message is over (or a quit ends it): send it. `keep`: if that fails the row stays for the next start (quit). */
+  outboxHoldSend: (id: string, keep: boolean) => invoke<void>("outbox_hold_send", { id, keep }),
+  /** The quit waits (`true`) or no longer waits (`false`) for an answer of the person. */
+  quitDialog: (open: boolean) => invoke<void>("quit_dialog", { open }),
+  /** The person cancelled the scheduled-messages question of a quit. */
+  quitCancelled: () => invoke<void>("quit_cancelled"),
   outboxPendingCount: () => invoke<{ count: number; next: number | null }>("outbox_pending_count"),
   outboxOpenForEdit: (id: string) => invoke<OutboxEdit>("outbox_open_for_edit", { id }),
   outboxRelease: (id: string) => invoke<void>("outbox_release", { id }),
@@ -563,6 +571,10 @@ export const api = {
   /** Whether any account exists: the tray menu items "New mail" and "Check mail now" are enabled only then. */
   /** The UI has painted its first screen: the backend may show the window (it reloads the page when this never comes). */
   frontendReady: () => invoke<void>("frontend_ready"),
+  /** The page has let its sends go out and saved its draft (answer to the quit's `flush-sends`); `go` false = keep the window open. */
+  sendsFlushed: (go: boolean) => invoke<void>("sends_flushed", { go }),
+  /** Bring the window to the front (a question while the app sat in the tray). */
+  showWindow: () => invoke<void>("show_window"),
   /** What the page sees a moment after the window was shown: `visibilityState` and whether an animation frame arrived. */
   pageState: (visibility: string, frames: boolean) => invoke<void>("page_state", { visibility, frames }),
   setMailAvailable: (available: boolean) => invoke<void>("set_mail_available", { available }),

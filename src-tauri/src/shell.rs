@@ -591,16 +591,26 @@ fn tray_hint_text(os: &str) -> &'static str {
 }
 
 pub fn test_notification(app: &AppHandle, db: &Db) -> Result<(), String> {
-    let p = prefs(db);
-    toast(
-        app,
-        String::new(),
-        "Hey Look! test notification",
-        "Notifications are working",
-        "This is how new mail will look.",
-        &pstr(&p, "notifySound", "mail"),
-        &notify_actions(&p),
-    )
+    // macOS: the notification backend of the plugin (the old NSUserNotification API) shows nothing on current macOS for an ad-hoc
+    // signed app and cannot ask for permission; Send test says so instead of pretending (QA BUG-M5, owner decision: documented limit)
+    #[cfg(target_os = "macos")]
+    {
+        let _ = (app, db);
+        return Err("not available on macOS in this version".into());
+    }
+    #[cfg(not(target_os = "macos"))]
+    {
+        let p = prefs(db);
+        toast(
+            app,
+            String::new(),
+            "Hey Look! test notification",
+            "Notifications are working",
+            "This is how new mail will look.",
+            &pstr(&p, "notifySound", "mail"),
+            &notify_actions(&p),
+        )
+    }
 }
 
 #[cfg(test)]

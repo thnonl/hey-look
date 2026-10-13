@@ -465,6 +465,15 @@ fn fmap(db: &Db, account_id: &str) -> HashMap<String, String> {
         .unwrap_or_default()
 }
 
+/// The server folder for a role (drafts, archive, trash ...). Hey Look! does not create standard folders a server lacks (README, known
+/// limitations): the action that needs one fails with a message that says which folder is missing (QA BUG-M4 / M8).
+fn folder_for(db: &Db, acc: &Account, role: &str) -> R<String> {
+    fmap(db, &acc.id).get(role).cloned().ok_or_else(|| match role {
+        "drafts" => "this account has no Drafts folder".to_string(),
+        r => format!("no '{r}' folder on this account"),
+    })
+}
+
 fn insert_parsed(c: &Connection, acc: &Account, role: &str, p: &mail::Parsed) -> R<String> {
     let root = p
         .refs
@@ -682,9 +691,22 @@ fn sync_impl(db: &Db, account_id: &str) -> R<SyncResult> {
         for (tid, from, to, subject) in &to_rule {
             for r in &rules {
                 if rule_matches(r, from, to, subject) {
-                    let _ = action_impl(db, vec![tid.clone()], r.action.clone(), r.arg.clone(), Some("inbox".into()));
-                    if matches!(r.action.as_str(), "archive" | "trash" | "junk" | "move") {
-                        moved.insert(tid.clone());
+                    match action_impl(db, vec![tid.clone()], r.action.clone(), r.arg.clone(), Some("inbox".into())) {
+                        Ok(()) => {
+                            if matches!(r.action.as_str(), "archive" | "trash" | "junk" | "move") {
+                                moved.insert(tid.clone());
+                            }
+                        }
+                        // a rule that cannot run says so (once per reason and run) instead of doing nothing (QA BUG-M8)
+                        Err(e) => {
+                            let why = if r.name.trim().is_empty() {
+                                format!("A filter couldn’t run on new mail: {e}")
+                            } else {
+                                format!("Filter “{}” couldn’t run on new mail: {e}", r.name.trim())
+                            };
+                            eprintln!("{why}");
+                            note_rule_error(why);
+                        }
                     }
                 }
             }
@@ -702,12 +724,30 @@ fn sync_impl(db: &Db, account_id: &str) -> R<SyncResult> {
     Ok(result)
 }
 
+/// Reasons rules failed during syncs, waiting to be told to the person; a reason is told once per run.
+static RULE_ERRORS: Mutex<Vec<String>> = Mutex::new(Vec::new());
+static RULE_ERRORS_TOLD: Mutex<Vec<String>> = Mutex::new(Vec::new());
+
+fn note_rule_error(why: String) {
+    let told = RULE_ERRORS_TOLD.lock().unwrap_or_else(|p| p.into_inner());
+    if !told.contains(&why) {
+        RULE_ERRORS.lock().unwrap_or_else(|p| p.into_inner()).push(why);
+    }
+}
+
 static SYNC_LOCK: Mutex<()> = Mutex::new(());
 
 /// One sync pass for an account, then toasts + tray badge. Serialized so the UI and the background worker never overlap.
 fn run_sync(app: &tauri::AppHandle, db: &Db, account_id: &str) -> R<SyncResult> {
     let _guard = SYNC_LOCK.lock().unwrap_or_else(|p| p.into_inner());
     let r = sync_impl(db, account_id)?;
+    for why in std::mem::take(&mut *RULE_ERRORS.lock().unwrap_or_else(|p| p.into_inner())) {
+        let mut told = RULE_ERRORS_TOLD.lock().unwrap_or_else(|p| p.into_inner());
+        if !told.contains(&why) {
+            told.push(why.clone());
+            let _ = app.emit("filter-failed", why);
+        }
+    }
     backfill_start(app, db, account_id);
     shell::notify_new(app, db, &r.new_inbox);
     shell::update_badge(app, db);
@@ -1918,7 +1958,7 @@ fn action_impl(db: &Db, thread_ids: Vec<String>, action: String, arg: Option<Str
                     if dst == "trash" && role == "trash" {
                         continue;
                     }
-                    let real = map.get(&dst).cloned().ok_or_else(|| format!("no '{dst}' folder on this account"))?;
+                    let real = folder_for(db, &acc, &dst)?;
                     mail::move_to(&mut s, &src, &uids, &real)?;
                     let c = lock(db);
                     for m in &group {
@@ -2427,6 +2467,74 @@ fn insert_outbox(db: &Db, draft: &smtp::Draft, send_at: i64) -> R<String> {
     Ok(id)
 }
 
+/// Store a message that is in its "Undo" time (REQ-49): it is in the local outbox from the moment Send is pressed, so a process that ends
+/// in that time (a kill, an installer, a crash) does not lose it; the next start sends it like a scheduled message that came due.
+fn insert_outbox_hold(db: &Db, draft: &smtp::Draft, due_at: i64, replaces: Option<&str>) -> R<String> {
+    let id = uuid::Uuid::new_v4().to_string();
+    let payload = serde_json::to_string(draft).map_err(err)?;
+    lock(db)
+        .execute(
+            "INSERT INTO outbox(id,account_id,payload,send_at,status,created_at,undo,replaces) VALUES(?1,?2,?3,?4,'undo',?5,1,?6)",
+            params![id, draft.account_id, payload, due_at, now(), replaces],
+        )
+        .map_err(err)?;
+    Ok(id)
+}
+
+/// Send was pressed with an Undo time: keep the message in the outbox until the time is over (or a quit sends it early).
+#[tauri::command]
+async fn outbox_hold(app: tauri::AppHandle, state: tauri::State<'_, AppState>, draft: smtp::Draft, due_at: i64, replaces: Option<String>) -> R<String> {
+    let db = state.db.clone();
+    let mut draft = draft;
+    // a meeting made in Compose: create the event and the calendar part now (as for a message that is sent at once)
+    if draft.meeting.is_some() {
+        calendar::prepare_meeting(&lock(&db), &mut draft)?;
+        let _ = app.emit("calendar-changed", serde_json::json!({}));
+    }
+    blocking(move || {
+        let acc = db::get_account(&lock(&db), &draft.account_id)?;
+        let draft = pgpstore::seal_for_outbox(&lock(&db), &acc, &draft)?;
+        insert_outbox_hold(&db, &draft, due_at, replaces.as_deref())
+    })
+    .await
+}
+
+/// What happens to the row of an Undo-window message whose delivery failed: it stays for the next start (`keep`: the app is quitting,
+/// REQ-48 c) or leaves the outbox (the app keeps running: Compose reopens with the text, as before).
+fn finish_failed_hold(db: &Db, id: &str, payload: &str, error: &str, keep: bool) {
+    let c = lock(db);
+    if keep {
+        let _ = c.execute("UPDATE outbox SET status='pending', undo=2, error=?2, attempts=1, send_at=?3 WHERE id=?1", params![id, error, now()]);
+    } else {
+        let _ = c.execute("DELETE FROM outbox WHERE id=?1", [id]);
+        calendar::forget_prepared(&c, payload);
+    }
+}
+
+/// The Undo time of a held message is over (or a quit ends it early): send it now. `keep`: on failure the row stays (quit).
+#[tauri::command]
+async fn outbox_hold_send(app: tauri::AppHandle, state: tauri::State<'_, AppState>, id: String, keep: bool) -> R<()> {
+    let db = state.db.clone();
+    blocking(move || {
+        let (payload, _attempts) = claim_outbox(&db, &id, &["undo"])?.ok_or("This message is no longer waiting to be sent.")?;
+        let replaces: Option<String> = lock(&db).query_row("SELECT replaces FROM outbox WHERE id=?1", [&id], |r| r.get(0)).ok().flatten();
+        let res = serde_json::from_str::<smtp::Draft>(&payload).map_err(err).and_then(|d| send_now(&db, &d));
+        match res {
+            Ok(()) => {
+                let _ = lock(&db).execute("DELETE FROM outbox WHERE id=?1", [&id]);
+                drop_replaced_draft(&db, replaces);
+                let _ = app.emit("outbox-changed", serde_json::json!({ "id": id, "status": "sent" }));
+                Ok(())
+            }
+            Err(e) => {
+                finish_failed_hold(&db, &id, &payload, &e, keep);
+                Err(e)
+            }
+        }
+    })
+    .await
+}
+
 /// Remove the original draft after a message was sent or scheduled from it (so it is not duplicated).
 fn drop_replaced_draft(db: &Db, replaces: Option<String>) {
     if let Some(t) = replaces {
@@ -2490,10 +2598,9 @@ async fn save_draft(state: tauri::State<'_, AppState>, draft: smtp::Draft, repla
     blocking(move || {
         let acc = db::get_account(&lock(&db), &draft.account_id)?;
         let sec = secret(&db, &acc)?;
-        let map = fmap(&db, &acc.id);
-        let folder = map.get("drafts").cloned().ok_or("this account has no Drafts folder")?;
         let raw = draft_bytes(&db, &acc, &draft)?;
         let mut s = mail::connect(&acc, &sec)?;
+        let folder = folder_for(&db, &acc, "drafts")?;
         mail::append(&mut s, &folder, &raw, true)?;
         let _ = s.logout();
         if let Some(t) = replaces {
@@ -2546,7 +2653,7 @@ fn strip_tags(h: &str) -> String {
 fn list_outbox(state: tauri::State<AppState>) -> R<Vec<OutboxItem>> {
     let c = lock(&state.db);
     let mut st = c
-        .prepare("SELECT id,account_id,payload,send_at,status,error,created_at,attempts FROM outbox WHERE status!='sent' ORDER BY send_at")
+        .prepare("SELECT id,account_id,payload,send_at,status,error,created_at,attempts FROM outbox WHERE status!='sent' AND undo!=1 ORDER BY send_at")
         .map_err(err)?;
     let rows = st
         .query_map([], |r| {
@@ -2605,7 +2712,7 @@ fn cancel_outbox(app: tauri::AppHandle, state: tauri::State<AppState>, id: Strin
 fn outbox_counts(db: &Db) -> (i64, Option<i64>) {
     let c = lock(db);
     let count = c
-        .query_row("SELECT COUNT(*) FROM outbox WHERE status IN ('pending','held','sending','overdue')", [], |r| r.get(0))
+        .query_row("SELECT COUNT(*) FROM outbox WHERE status IN ('pending','held','sending','overdue') AND undo!=1", [], |r| r.get(0))
         .unwrap_or(0);
     let next = c
         .query_row("SELECT MIN(send_at) FROM outbox WHERE status='pending'", [], |r| r.get::<_, Option<i64>>(0))
@@ -2761,9 +2868,9 @@ async fn outbox_to_draft(app: tauri::AppHandle, state: tauri::State<'_, AppState
         let d: smtp::Draft = serde_json::from_str(&payload).map_err(err)?;
         let acc = db::get_account(&lock(&db), &d.account_id)?;
         let sec = secret(&db, &acc)?;
-        let folder = fmap(&db, &acc.id).get("drafts").cloned().ok_or("this account has no Drafts folder")?;
         let raw = draft_bytes(&db, &acc, &d)?;
         let mut s = mail::connect(&acc, &sec)?;
+        let folder = folder_for(&db, &acc, "drafts")?;
         mail::append(&mut s, &folder, &raw, true)?;
         let _ = s.logout();
         let c = lock(&db);
@@ -2795,14 +2902,20 @@ fn retry_enabled(db: &Db) -> bool {
 }
 
 /// Send a claimed item and record the outcome: delete on success, retry later or mark failed on error.
-fn deliver(app: &tauri::AppHandle, db: &Db, id: &str, payload: &str, attempts: i64, late: &mut i64, due_at: i64) -> R<()> {
+fn deliver(app: &tauri::AppHandle, db: &Db, id: &str, payload: &str, attempts: i64, late: &mut i64, left: &mut i64, due_at: i64) -> R<()> {
     let res = serde_json::from_str::<smtp::Draft>(payload).map_err(err).and_then(|d| send_now(db, &d));
+    // 2 = left behind by an earlier run (REQ-49 d): told apart from a scheduled message that came due while the app was closed
+    let (undo, replaces): (i64, Option<String>) =
+        lock(db).query_row("SELECT undo, replaces FROM outbox WHERE id=?1", [id], |r| Ok((r.get(0)?, r.get(1)?))).unwrap_or((0, None));
     match res {
         Ok(()) => {
-            if due_at < now() - 600 {
+            if undo == 2 {
+                *left += 1;
+            } else if due_at < now() - 600 {
                 *late += 1;
             }
             let _ = lock(db).execute("DELETE FROM outbox WHERE id=?1", [id]);
+            drop_replaced_draft(db, replaces);
             let _ = app.emit("outbox-changed", serde_json::json!({ "id": id, "status": "sent" }));
             Ok(())
         }
@@ -2829,9 +2942,9 @@ async fn outbox_send_now(app: tauri::AppHandle, state: tauri::State<'_, AppState
     blocking(move || {
         let (payload, attempts) = claim_outbox(&db, &id, &["pending", "held", "overdue", "failed"])?
             .ok_or("This message is already being sent.")?;
-        let mut late = 0;
+        let (mut late, mut left) = (0, 0);
         let due = now();
-        deliver(&app, &db, &id, &payload, attempts, &mut late, due)
+        deliver(&app, &db, &id, &payload, attempts, &mut late, &mut left, due)
     })
     .await
 }
@@ -2841,9 +2954,13 @@ async fn outbox_send_now(app: tauri::AppHandle, state: tauri::State<'_, AppState
 fn outbox_startup(db: &Db) {
     let c = lock(db);
     let _ = c.execute("UPDATE outbox SET status='pending' WHERE status='sending'", []);
+    // messages that were in their Undo time when the last run ended (REQ-49 d): they go out like a scheduled message that came due
+    let _ = c.execute("UPDATE outbox SET status='pending', undo=2 WHERE undo=1", []);
     if setting_in(&c, "scheduled_catchup").as_deref() == Some("ask") {
         let _ = c.execute("UPDATE outbox SET status='overdue' WHERE status='pending' AND send_at < ?1", [now() - schedule::GRACE_SECS]);
     }
+    // ... and one that waits for the person's decision is an ordinary Overdue row of the Scheduled list from here on
+    let _ = c.execute("UPDATE outbox SET undo=0 WHERE undo=2 AND status='overdue'", []);
 }
 
 fn setting_in(c: &Connection, key: &str) -> Option<String> {
@@ -2861,53 +2978,152 @@ fn outbox_worker(app: tauri::AppHandle, db: Db) {
             let Ok(rows) = st.query_map([now()], |r| Ok((r.get(0)?, r.get(1)?))) else { continue };
             rows.filter_map(|r| r.ok()).collect()
         };
-        let mut late = 0;
+        let (mut late, mut left) = (0, 0);
         for (id, due_at) in due {
             let Ok(Some((payload, attempts))) = claim_outbox(&db, &id, &["pending"]) else { continue };
-            let _ = deliver(&app, &db, &id, &payload, attempts, &mut late, due_at);
+            let _ = deliver(&app, &db, &id, &payload, attempts, &mut late, &mut left, due_at);
         }
         if late > 0 {
             let _ = app.emit("outbox-catchup", serde_json::json!({ "count": late }));
         }
+        if left > 0 {
+            let _ = app.emit("outbox-leftover", serde_json::json!({ "count": left }));
+        }
     }
 }
 
-/// Quit, or ask first when scheduled messages are still waiting (they only go out while the app runs).
+/// The page is carrying out its part of a quit (REQ-48 b, c): further quit requests start nothing (REQ-48 f).
+static QUIT_BUSY: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+/// The scheduled-messages question is on screen: a second quit request shows it, it does not ask again.
+static QUESTION_OPEN: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+/// The page is asking the person something (a draft that could not be saved): the quit waits for the answer, however long it takes.
+static USER_DIALOG: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+/// Where the page's answer to `flush-sends` goes: `true` = go on quitting, `false` = the person chose to keep the window open.
+static FLUSH_ACK: Mutex<Option<std::sync::mpsc::Sender<bool>>> = Mutex::new(None);
+/// How long a quit waits for the page (it holds the sends for at most 20 s itself; this only guards against a page that hangs).
+const FLUSH_WAIT: std::time::Duration = std::time::Duration::from_secs(45);
+
+/// Steps (b) to (d) of a quit (REQ-48): the page saves a dirty Compose (and asks when that fails), lets every message still in its
+/// "Undo" time go out at once and waits for the sends under way; only then `then` runs (queued actions, install, exit). The Undo timer and
+/// the open Compose live in the page, so the backend alone could not do this (QA BUG-M6: a quit during "Sending... Undo" lost the
+/// message). `then` is not run when the page answers "no" (the person chose to keep writing) or when a quit is already running.
+fn finish_sends_then(app: &tauri::AppHandle, then: impl FnOnce(&tauri::AppHandle) + Send + 'static) {
+    if QUIT_BUSY.swap(true, std::sync::atomic::Ordering::SeqCst) {
+        return;
+    }
+    USER_DIALOG.store(false, std::sync::atomic::Ordering::SeqCst);
+    let (tx, rx) = std::sync::mpsc::channel::<bool>();
+    // a page that never loaded has nothing to finish
+    let asked = startup::is_ready() && app.get_webview_window("main").is_some();
+    if asked {
+        *FLUSH_ACK.lock().unwrap_or_else(|p| p.into_inner()) = Some(tx);
+        startup::stage(Some(app), "quit: asking the page to save its draft and send what is waiting");
+        let _ = app.emit("flush-sends", ());
+    }
+    let app = app.clone();
+    std::thread::spawn(move || {
+        let go = after_flush(asked, &rx, FLUSH_WAIT, &USER_DIALOG);
+        startup::stage(Some(&app), &format!("quit: the page is done (go on: {go})"));
+        if go {
+            then(&app);
+        }
+        QUIT_BUSY.store(false, std::sync::atomic::Ordering::SeqCst);
+    });
+}
+
+/// Whether the quit goes on: the page's answer when it was asked, `true` when it was not asked or gave no answer within `wait`
+/// (the time a dialog to the person is open does not count).
+fn after_flush(asked: bool, rx: &std::sync::mpsc::Receiver<bool>, wait: std::time::Duration, dialog: &std::sync::atomic::AtomicBool) -> bool {
+    use std::sync::mpsc::RecvTimeoutError;
+    if !asked {
+        return true;
+    }
+    let tick = std::time::Duration::from_millis(200);
+    let mut waited = std::time::Duration::ZERO;
+    loop {
+        match rx.recv_timeout(tick) {
+            Ok(go) => return go,
+            Err(RecvTimeoutError::Disconnected) => return true,
+            Err(RecvTimeoutError::Timeout) => {
+                if !dialog.load(std::sync::atomic::Ordering::SeqCst) {
+                    waited += tick;
+                    if waited >= wait {
+                        return true;
+                    }
+                }
+            }
+        }
+    }
+}
+
+/// The page has done its part (and saved its draft): `go` false = the person wants to keep the window open.
+#[tauri::command]
+fn sends_flushed(go: bool) {
+    USER_DIALOG.store(false, std::sync::atomic::Ordering::SeqCst);
+    if let Some(tx) = FLUSH_ACK.lock().unwrap_or_else(|p| p.into_inner()).take() {
+        let _ = tx.send(go);
+    }
+}
+
+/// The page opened (`true`) or closed (`false`) a dialog that the quit has to wait for.
+#[tauri::command]
+fn quit_dialog(open: bool) {
+    USER_DIALOG.store(open, std::sync::atomic::Ordering::SeqCst);
+}
+
+/// The page needs the window in front of the person (a question about unsaved text while the app sat in the tray).
+#[tauri::command]
+fn show_window(app: tauri::AppHandle) {
+    shell::show_main(&app);
+}
+
+/// Quit (REQ-48): the question about scheduled messages first, when there are any; `Cancel` there changes nothing at all. Otherwise
+/// the sequence runs: draft, sends, queued actions, install, exit.
 pub(crate) fn request_quit(app: &tauri::AppHandle) {
+    // a quit is already running or waiting for its answer: no second sequence, no second question (REQ-48 f)
+    if QUIT_BUSY.load(std::sync::atomic::Ordering::SeqCst) || QUESTION_OPEN.load(std::sync::atomic::Ordering::SeqCst) {
+        shell::show_main(app);
+        return;
+    }
     let db = app.state::<AppState>().db.clone();
     let (count, next) = outbox_counts(&db);
     if count > 0 {
+        QUESTION_OPEN.store(true, std::sync::atomic::Ordering::SeqCst);
         shell::show_main(app);
         let _ = app.emit("confirm-quit", serde_json::json!({ "count": count, "next": next }));
         return;
     }
+    finish_sends_then(app, quit_final);
+}
+
+/// Steps (d) and (e): queued archive / delete actions are committed, then the app exits (install on quit runs in `ExitRequested`).
+fn quit_final(app: &tauri::AppHandle) {
     flush_pending(app);
     QUITTING.store(true, std::sync::atomic::Ordering::SeqCst);
     app.exit(0);
 }
 
+/// "Quit anyway" in the scheduled-messages question: the rest of the sequence (draft, sends, queued actions, install).
 #[tauri::command]
 fn quit_now(app: tauri::AppHandle) {
-    flush_pending(&app);
-    QUITTING.store(true, std::sync::atomic::Ordering::SeqCst);
-    app.exit(0);
+    QUESTION_OPEN.store(false, std::sync::atomic::Ordering::SeqCst);
+    finish_sends_then(&app, quit_final);
+}
+
+/// "Cancel" / "Keep running in tray" in the question: nothing happens, a later quit asks again.
+#[tauri::command]
+fn quit_cancelled() {
+    QUESTION_OPEN.store(false, std::sync::atomic::Ordering::SeqCst);
 }
 
 /// Set right before this app calls `app.exit` itself (the quit guard has run by then).
 static QUITTING: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
 
-/// An exit nobody here asked for (macOS Cmd+Q, app menu / Dock "Quit", the last window closing): the same guard as tray "Quit".
-/// Returns false when the exit has to be stopped because scheduled messages are waiting (the question is shown instead).
+/// An exit nobody here asked for (macOS Cmd+Q, app menu / Dock "Quit", the last window closing): the same way as tray "Quit". Always
+/// stops this exit; `request_quit` makes it again (with `QUITTING` set) once the page has finished its sends.
 fn guard_exit(app: &tauri::AppHandle) -> bool {
-    flush_pending(app);
-    let db = app.state::<AppState>().db.clone();
-    let (count, next) = outbox_counts(&db);
-    if count > 0 {
-        shell::show_main(app);
-        let _ = app.emit("confirm-quit", serde_json::json!({ "count": count, "next": next }));
-        return false;
-    }
-    true
+    request_quit(app);
+    false
 }
 
 // ---------- templates / signatures ----------
@@ -3254,8 +3470,9 @@ pub fn run() {
                     api.prevent_close();
                     let _ = window.hide();
                     shell::tray_hint_once(window.app_handle(), &db);
-                } else if outbox_counts(&db).0 > 0 {
-                    // closing would quit: scheduled messages would wait until the next start, so ask first
+                } else {
+                    // closing would quit: the page first finishes its sends and saves what is being written, and scheduled
+                    // messages (which wait until the next start) are asked about; the window stays until then
                     api.prevent_close();
                     request_quit(window.app_handle());
                 }
@@ -3329,6 +3546,8 @@ pub fn run() {
             pgpstore::pgp_recipient_status,
             pgpstore::pgp_decrypt_message,
             outbox_send_now,
+            outbox_hold,
+            outbox_hold_send,
             quit_now,
             calendar::calendar_list_calendars,
             calendar::calendar_set_visible,
@@ -3368,6 +3587,10 @@ pub fn run() {
             update::update_defer,
             set_mail_available,
             frontend_ready,
+            sends_flushed,
+            quit_dialog,
+            quit_cancelled,
+            show_window,
             page_state,
             update::update_install,
             update::update_startup_state,
@@ -3395,6 +3618,147 @@ pub fn run() {
             }
             _ => {}
         });
+}
+
+#[cfg(test)]
+mod quit_tests {
+    use super::*;
+    use std::sync::mpsc::channel;
+    use std::time::Duration;
+
+    #[test]
+    fn the_quit_waits_for_the_page_and_respects_its_answer() {
+        let (tx, rx) = channel::<bool>();
+        // not asked (the page never loaded): go on at once
+        let no_dialog = std::sync::atomic::AtomicBool::new(false);
+        assert!(after_flush(false, &rx, Duration::from_secs(5), &no_dialog));
+        // the page says "done": go on; "keep the window": stop
+        tx.send(true).unwrap();
+        assert!(after_flush(true, &rx, Duration::from_secs(5), &no_dialog));
+        tx.send(false).unwrap();
+        assert!(!after_flush(true, &rx, Duration::from_secs(5), &no_dialog));
+        // no answer in time (a page that hangs): go on, the app must not stay alive for ever
+        let t0 = std::time::Instant::now();
+        assert!(after_flush(true, &rx, Duration::from_millis(150), &no_dialog));
+        assert!(t0.elapsed() < Duration::from_secs(3));
+        // a dialog to the person is open: the time limit does not run, the answer decides however late it comes
+        let (tx3, rx3) = channel::<bool>();
+        let open = std::sync::atomic::AtomicBool::new(true);
+        std::thread::spawn(move || {
+            std::thread::sleep(Duration::from_millis(900));
+            tx3.send(false).unwrap();
+        });
+        assert!(!after_flush(true, &rx3, Duration::from_millis(200), &open), "a quit does not run away from an open question");
+        // the answer travels through the command
+        let (tx2, rx2) = channel::<bool>();
+        *FLUSH_ACK.lock().unwrap() = Some(tx2);
+        sends_flushed(false);
+        assert_eq!(rx2.recv_timeout(Duration::from_secs(1)), Ok(false));
+        assert!(FLUSH_ACK.lock().unwrap().is_none(), "one answer per question");
+        sends_flushed(true); // an answer nobody waits for does nothing
+    }
+
+    fn test_db(tag: &str) -> Db {
+        let dir = crate::shard::tests::temp_dir(tag);
+        Arc::new(Mutex::new(db::open(&dir.join("heylook.db")).unwrap()))
+    }
+
+    fn put_row(db: &Db, id: &str, status: &str, undo: i64, send_at: i64) {
+        lock(db)
+            .execute(
+                "INSERT INTO outbox(id,account_id,payload,send_at,status,created_at,undo) VALUES(?1,'a','{}',?2,?3,?4,?5)",
+                params![id, send_at, status, now(), undo],
+            )
+            .unwrap();
+    }
+
+    fn row(db: &Db, id: &str) -> (String, i64) {
+        lock(db).query_row("SELECT status, undo FROM outbox WHERE id=?1", [id], |r| Ok((r.get(0)?, r.get(1)?))).unwrap()
+    }
+
+    /// REQ-49: a message in its Undo time is in the outbox but is not a scheduled message (not counted by the quit question), and an
+    /// earlier run's rows are picked up at the next start like a scheduled message that came due while the app was closed.
+    #[test]
+    fn undo_window_rows_are_not_scheduled_messages_and_survive_a_restart() {
+        let db = test_db("undo-rows");
+        put_row(&db, "u1", "undo", 1, now() + 20);
+        assert_eq!(outbox_counts(&db).0, 0, "an Undo-window row is not counted by the scheduled-messages question");
+        put_row(&db, "s1", "pending", 0, now() + 3600);
+        assert_eq!(outbox_counts(&db).0, 1);
+
+        // next start, default setting (send as soon as it opens): the row is queued, flagged as left behind
+        outbox_startup(&db);
+        assert_eq!(row(&db, "u1"), ("pending".to_string(), 2));
+        assert_eq!(row(&db, "s1"), ("pending".to_string(), 0));
+
+        // a row that was being delivered when the process ended is queued again as well
+        put_row(&db, "u2", "sending", 1, now() - 5);
+        outbox_startup(&db);
+        assert_eq!(row(&db, "u2"), ("pending".to_string(), 2));
+
+        // "Ask me first" and more than 60 s ago: an ordinary Overdue row of the Scheduled list
+        db::set_setting(&lock(&db), "scheduled_catchup", "ask").unwrap();
+        put_row(&db, "u3", "undo", 1, now() - 600);
+        put_row(&db, "u4", "undo", 1, now() - 10);
+        outbox_startup(&db);
+        assert_eq!(row(&db, "u3"), ("overdue".to_string(), 0));
+        assert_eq!(row(&db, "u4"), ("pending".to_string(), 2), "within 60 s it still goes out");
+    }
+
+    #[test]
+    fn a_failed_undo_window_send_leaves_the_outbox_or_stays_for_the_next_start() {
+        let db = test_db("undo-fail");
+        put_row(&db, "k", "sending", 1, now());
+        finish_failed_hold(&db, "k", "{}", "connection reset", true);
+        assert_eq!(row(&db, "k"), ("pending".to_string(), 2), "quitting: kept for the next start");
+        put_row(&db, "r", "sending", 1, now());
+        finish_failed_hold(&db, "r", "{}", "connection reset", false);
+        let gone: i64 = lock(&db).query_row("SELECT COUNT(*) FROM outbox WHERE id='r'", [], |r| r.get(0)).unwrap();
+        assert_eq!(gone, 0, "running: the row leaves and Compose reopens");
+    }
+
+    /// QA BUG-M4 / M8: a folder the server lacks is named in the error; one it has is used.
+    #[test]
+    fn a_missing_folder_is_named_in_the_error() {
+        let db = test_db("folders");
+        let acc = Account {
+            id: "a1".into(), email: "me@example.com".into(), display_name: "Me".into(), imap_host: "h".into(), imap_port: 993, imap_ssl: true,
+            smtp_host: "s".into(), smtp_port: 465, smtp_security: "ssl".into(), username: "u".into(), auth: "password".into(), color: None,
+            smtp_username: String::new(), tls_insecure: false,
+        };
+        db::set_setting(&lock(&db), "fmap:a1", r#"{"inbox":"INBOX","drafts":"Entwürfe"}"#).unwrap();
+        assert_eq!(folder_for(&db, &acc, "drafts").unwrap(), "Entwürfe");
+        assert_eq!(folder_for(&db, &acc, "archive").unwrap_err(), "no 'archive' folder on this account");
+        let acc2 = Account { id: "a2".into(), ..acc };
+        assert_eq!(folder_for(&db, &acc2, "drafts").unwrap_err(), "this account has no Drafts folder");
+    }
+
+    /// QA BUG-M6: every way out of the app has to pass the flush. The window can no longer be reached once it is destroyed, so the
+    /// close button must stop the close and go through `request_quit`, and an exit nobody here asked for is stopped and redone.
+    #[test]
+    fn every_way_out_goes_through_the_flush() {
+        let src = include_str!("lib.rs");
+        let close = &src[src.find("tauri::WindowEvent::CloseRequested").expect("close handler")..];
+        let close = &close[..close.find(".invoke_handler").expect("end of handler")];
+        assert!(close.contains("api.prevent_close();
+                    request_quit("), "closing that quits must go through request_quit: {close}");
+        let guard = &src[src.find("fn guard_exit").expect("guard_exit")..];
+        let guard = &guard[..guard.find("
+}
+").unwrap()];
+        assert!(guard.contains("request_quit(app)") && guard.contains("false"), "{guard}");
+        assert!(src.contains("finish_sends_then(app, quit_final)") && src.contains("finish_sends_then(&app, quit_final)"));
+        // the question comes before anything is flushed, sent or saved (REQ-48 a): `Cancel` changes nothing
+        let rq = &src[src.find("pub(crate) fn request_quit").expect("request_quit")..];
+        let rq = &rq[..rq.find("\n}\n").unwrap()];
+        assert!(rq.find("confirm-quit").unwrap() < rq.find("finish_sends_then").unwrap(), "{rq}");
+        // the tray's Quit item
+        assert!(include_str!("shell.rs").contains("\"quit\" => crate::request_quit(app)"));
+        // the quit that follows the page's answer is not asked again
+        let last = &src[src.find("fn quit_final").expect("quit_final")..];
+        let last = &last[..last.find("\n}\n").unwrap()];
+        assert!(last.contains("flush_pending") && last.contains("QUITTING.store(true") && last.contains("app.exit(0)"), "{last}");
+    }
 }
 
 #[cfg(test)]

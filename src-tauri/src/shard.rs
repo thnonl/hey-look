@@ -457,7 +457,7 @@ pub fn migrate_legacy(conn: &Connection, main_file: &Path) -> R<Option<Migrated>
 }
 
 #[cfg(test)]
-mod tests {
+pub(crate) mod tests {
     use super::*;
     use rusqlite::params;
 

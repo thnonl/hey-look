@@ -962,6 +962,10 @@ export function installMock() {
       // the last account can be removed in the mock (Settings > account > Remove): the Welcome screen returns
       case "remove_account": { const i = accounts.findIndex((x) => x.id === a.accountId); if (i >= 0) accounts.splice(i, 1); return null; }
       case "set_mail_available": ((window as unknown as { __mailAvailable?: boolean[] }).__mailAvailable ??= []).push(!!a.available); return null;
+      // an Undo-window send is kept in the (mock) outbox until it is sent or taken back; every call is logged in window.__sendCalls
+      case "outbox_hold": { const w = window as unknown as { __sendCalls?: unknown[] }; (w.__sendCalls ??= []).push({ cmd: "hold", dueAt: a.dueAt }); return `hold-${Date.now()}`; }
+      case "outbox_hold_send": { const w = window as unknown as { __sendCalls?: unknown[] }; (w.__sendCalls ??= []).push({ cmd: "holdSend", id: a.id, keep: a.keep }); return null; }
+      case "quit_dialog": case "quit_cancelled": case "sends_flushed": case "show_window": case "frontend_ready": case "page_state": return null;
       case "update_defer": logUpdateCall({ cmd: "defer" }).kind = a.deferred ? "later" : "now"; return null;
       case "update_install": return mockInstall(!!a.restart);
       case "update_startup_state": {

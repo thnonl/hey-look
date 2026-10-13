@@ -1154,6 +1154,7 @@ function TrayTab() {
   return (
     <div>
       <h3>Notifications & tray</h3>
+      {os === "macos" && <div className="muted small" style={{ marginBottom: 6 }}>Notifications aren’t available on macOS in this version.</div>}
       <div className="muted small">{os === "windows" ? "Which mail triggers a notification, its sound and its buttons are set per mailbox (Mailboxes → Notifications)." : "Which mail triggers a notification and its sound are set per mailbox (Mailboxes → Notifications)."}</div>
       <Row label="Test notification"><button className="btn" onClick={() => void test()}>Send test</button></Row>
       <Row label="Sound when a message is sent"><Switch checked={prefs.sentSound} onChange={(v) => setPrefs({ sentSound: v })} /></Row>

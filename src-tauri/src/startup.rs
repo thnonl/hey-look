@@ -78,6 +78,11 @@ pub fn init_clock() {
     T0.get_or_init(Instant::now);
 }
 
+/// Whether the page has reported itself at least once (a quit asks a page that is not up for nothing).
+pub fn is_ready() -> bool {
+    READY.load(Ordering::SeqCst)
+}
+
 /// The page is up (sent once per page load by the UI).
 pub fn mark_ready(app: &AppHandle) {
     if !READY.swap(true, Ordering::SeqCst) {

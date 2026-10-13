@@ -18,7 +18,7 @@ import { Settings } from "./components/SettingsDialog";
 import { TopBar } from "./components/TopBar";
 import { Welcome } from "./components/Welcome";
 import { hasMailAccounts, shortcutWorks } from "./mailControls";
-import { useStore } from "./store";
+import { flushSends, useStore } from "./store";
 import { osNow } from "./platform";
 import { useUpdates } from "./updates";
 import { calTz, configureCalendar, addDays, addMonths, today as todayDay } from "./calendar";
@@ -160,6 +160,68 @@ function App() {
           { label: "Change folder", run: () => st.setDialog({ type: "settings", tab: "general" }) },
         ]);
       }),
+      // The rest of a quit (REQ-48 b, c): a message being written is saved to Drafts (and the person is asked when that fails), then every
+      // message still in its Undo time goes out now, for at most 20 s. The answer tells the backend whether the quit goes on.
+      listen("flush-sends", async () => {
+        let go = true;
+        try {
+          const s = useStore.getState();
+          if (s.compose && s.composeDirty) {
+            if (s.compose.outboxId) {
+              // a scheduled message being edited stays as it was
+              void api.showWindow().catch(() => undefined);
+              void api.quitDialog(true).catch(() => undefined);
+              const c = await s.choose({
+                title: "Quit without saving your changes?",
+                body: "Your changes to this scheduled message aren’t saved. It stays scheduled as it was.",
+                choices: [
+                  { id: "keep", label: "Keep editing", kind: "primary" },
+                  { id: "quit", label: "Quit and discard changes", kind: "danger" },
+                ],
+              });
+              void api.quitDialog(false).catch(() => undefined);
+              go = c === "quit";
+            } else {
+              const saved = s.composeSaver ? await s.composeSaver({ quiet: true }) : false;
+              if (saved === true) {
+                await useStore.getState().openCompose(null);
+              } else {
+                void api.showWindow().catch(() => undefined);
+                void api.quitDialog(true).catch(() => undefined);
+                const c = await s.choose({
+                  title: "Your message isn’t saved",
+                  body: `Hey Look! couldn’t save it to Drafts (${useStore.getState().draftError || "unknown error"}). If you quit now, it’s lost.`,
+                  choices: [
+                    { id: "keep", label: "Keep writing", kind: "primary" },
+                    { id: "quit", label: "Quit and discard", kind: "danger" },
+                  ],
+                });
+                void api.quitDialog(false).catch(() => undefined);
+                go = c === "quit";
+                if (go) useStore.setState({ composeDirty: false });
+              }
+            }
+          }
+          if (go) {
+            const n = useStore.getState().sendsInFlight;
+            if (n > 0) {
+              useStore.getState().showToast(n === 1 ? "Sending your message before Hey Look! quits…" : `Sending ${n} messages before Hey Look! quits…`, undefined, "info");
+            }
+            await flushSends(20_000);
+          }
+        } catch {
+          /* quit anyway */
+        } finally {
+          void api.sendsFlushed(go).catch(() => undefined);
+        }
+      }),
+      // messages that were in their Undo time when the last run ended went out now (REQ-49 d)
+      listen<{ count: number }>("outbox-leftover", (e) => {
+        const n = e.payload.count;
+        useStore.getState().showToast(n === 1 ? "Sent 1 message that was still waiting to go out when Hey Look! closed." : `Sent ${n} messages that were still waiting to go out when Hey Look! closed.`, undefined, "success");
+      }),
+      // a filter whose action failed on new mail (once per filter and error per run, REQ-52)
+      listen<string>("filter-failed", (e) => useStore.getState().showToast(e.payload, undefined, "error")),
       listen<{ count: number }>("outbox-catchup", (e) => {
         const st = useStore.getState();
         st.showToast(catchupText(e.payload.count), undefined, "success", [
@@ -180,6 +242,7 @@ function App() {
           ],
         });
         if (choice === "quit") await api.quitNow();
+        else await api.quitCancelled().catch(() => undefined); // Cancel / Keep running: nothing else happens, a later quit asks again
       }),
     ];
     return () => {

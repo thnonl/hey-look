@@ -330,7 +330,8 @@ export const useUpdates = create<UpdatesState>((set, get) => {
       const v = pendingVersion(update, st.prefs.skippedUpdate);
       const info = update?.info;
       // a stale offer (the last check failed) is no news: no toast from it
-      if (!v || !info || toastFor === v || flowActive(flow) || !windowFocused() || isStaleOffer(update)) return;
+      // (an answer of kind `disabled` - automatic checks are off - is a remembered offer, not news: no toast, REQ-18 r3.4)
+      if (!v || !info || toastFor === v || flowActive(flow) || !windowFocused() || isStaleOffer(update) || update?.kind === "disabled") return;
       set({ toastFor: v });
       // stays until the user closes it (the × or Esc), no timer
       st.setStickyToast("update-available", {

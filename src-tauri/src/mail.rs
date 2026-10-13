@@ -44,6 +44,26 @@ fn tcp(host: &str, port: u16) -> R<std::net::TcpStream> {
     Err(last.map(err).unwrap_or_else(|| format!("cannot resolve {host}")))
 }
 
+/// A failure while the connection is being secured (STARTTLS refused or failed, the SSL/TLS handshake failed), in words (QA BUG-M1:
+/// a server without encryption answered "Bad Response: Invalid command." and the person could not tell that the app only connects over
+/// an encrypted connection). A certificate that is not trusted is a different matter with its own advice and is left as it is.
+pub fn secure_connection_error(host: &str, port: u16, raw: &str) -> String {
+    let l = raw.to_lowercase();
+    if l.contains("certificate") || l.contains("verify") || l.contains("hostname") || l.contains("expired") {
+        return raw.to_string();
+    }
+    let server: String = raw.trim().chars().take(120).collect();
+    format!(
+        "Couldn\u{2019}t start a secure connection to {host}:{port}. Hey Look! connects only with SSL/TLS or STARTTLS. Check the port and the security setting. (Server: {server})"
+    )
+}
+
+/// Whether an SMTP error text is a failure of the TLS step (lettre words it as "tls", "starttls" or "handshake" errors).
+pub fn is_tls_step_failure(raw: &str) -> bool {
+    let l = raw.to_lowercase();
+    ["tls", "starttls", "handshake", "wrong version", "ssl"].iter().any(|k| l.contains(k))
+}
+
 /// `secret` is the password, or the OAuth access token when `acc.auth` is an `oauth_*` method.
 pub fn connect(acc: &Account, secret: &str) -> R<Sess> {
     let tls = native_tls::TlsConnector::builder()
@@ -54,13 +74,13 @@ pub fn connect(acc: &Account, secret: &str) -> R<Sess> {
     let host = acc.imap_host.as_str();
     let sock = tcp(host, acc.imap_port)?;
     let client = if acc.imap_ssl {
-        let mut c = imap::Client::new(tls.connect(host, sock).map_err(err)?);
+        let mut c = imap::Client::new(tls.connect(host, sock).map_err(|e| secure_connection_error(host, acc.imap_port, &e.to_string()))?);
         c.read_greeting().map_err(err)?;
         c
     } else {
         let mut c = imap::Client::new(sock);
         c.read_greeting().map_err(err)?;
-        c.secure(host, &tls).map_err(err)?
+        c.secure(host, &tls).map_err(|e| secure_connection_error(host, acc.imap_port, &e.to_string()))?
     };
     if acc.auth.starts_with("oauth_") {
         client
@@ -126,6 +146,27 @@ pub fn discover_folders(s: &mut Sess) -> R<HashMap<String, String>> {
         map.insert(format!("f:{c}"), c);
     }
     Ok(map)
+}
+
+#[cfg(test)]
+mod connect_tests {
+    use super::*;
+
+    #[test]
+    fn a_failed_secure_connection_is_explained_and_a_bad_certificate_is_left_alone() {
+        let m = secure_connection_error("mail.example.com", 143, "Bad Response: Invalid command.");
+        assert_eq!(
+            m,
+            "Couldn\u{2019}t start a secure connection to mail.example.com:143. Hey Look! connects only with SSL/TLS or STARTTLS. Check the port and the security setting. (Server: Bad Response: Invalid command.)"
+        );
+        // the server's words are cut at 120 characters
+        let long = "x".repeat(300);
+        assert!(secure_connection_error("h", 1, &long).ends_with(&format!("(Server: {})", "x".repeat(120))));
+        // an untrusted certificate keeps its own advice
+        assert_eq!(secure_connection_error("h", 993, "certificate verify failed"), "certificate verify failed");
+        assert!(is_tls_step_failure("error:0A00010B:SSL routines:wrong version number") && is_tls_step_failure("invalid tls handshake"));
+        assert!(!is_tls_step_failure("connection refused"));
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

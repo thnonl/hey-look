@@ -17,12 +17,14 @@ import { extractSignature, fillSignature, normalizeHtml, SIG_MARK } from "../sig
 import { blockedAttachmentExt, dataUriBytes, fileToBase64, fmtIn, fmtSize, fmtWhen, htmlToText, imageSize, PICTURE_TYPES, playSent, resizeImage, sanitizeHtml, shortKey, userName } from "../util";
 import { calTz } from "../calendar";
 import { defaultMeeting, MeetingState, MeetingStrip, meetingToDraft } from "./Calendar";
+import { isEmail, singleLabelHostsOf } from "../addresses";
 import { askUnlock } from "./Pgp";
 import { SchedulePicker } from "./SchedulePicker";
 import { AccountPicker, Dropdown, MenuList, useOutside } from "./ui";
 
 const MAX_ATTACH_BYTES = 25 * 1024 * 1024;
-const EMAIL = /^[^\s@<>"]+@[^\s@<>"]+\.[^\s@<>"]+$/;
+/** Whether this is an address the composer accepts (see addresses.ts: `qa@localhost` and the account hosts count). */
+const EMAIL = { test: (a: string) => isEmail(a, singleLabelHostsOf(useStore.getState().accounts)) };
 const bareAddress = (v: string) => (v.match(/<([^>]+)>/)?.[1] ?? v).trim();
 const approxBytes = (a: Att) => Math.floor((a.dataBase64.length * 3) / 4);
 const MEDIUM = 480;
@@ -175,11 +177,14 @@ export function RecipientField({
               e.preventDefault();
               setHi((h) => Math.max(h - 1, 0));
             } else if (e.key === "Enter" || e.key === "Tab" || e.key === ";" || e.key === ",") {
+              // Tab turns what is typed into a recipient and then moves on to the next field as usual (it used to stay here, so the
+              // subject was typed into this box: QA BUG-M2); Enter, `;` and `,` keep the focus here for the next address
+              const moveOn = e.key === "Tab";
               if (hi >= 0 && sugg[hi]) {
-                e.preventDefault();
+                if (!moveOn) e.preventDefault();
                 pick(sugg[hi]);
               } else if (text.trim()) {
-                e.preventDefault();
+                if (!moveOn) e.preventDefault();
                 commit(text);
               }
             } else if (e.key === "Backspace" && !text && values.length) {
@@ -738,26 +743,60 @@ export function Compose({ init }: { init: ComposeInit }) {
     void openCompose(null);
     const wait = eff(prefs, accountId, "undoSeconds");
     let cancelled = false;
-    // counted as "being sent" from the start of the undo window until the server answered (an update restart waits for it)
-    const done = beginSend();
-    const t = setTimeout(async () => {
-      if (cancelled) return;
+    let started = false;
+    let t: ReturnType<typeof setTimeout> | undefined;
+    // With an Undo time the message is in the local outbox from now on (REQ-49): a quit, a kill or an installer that ends the app in the
+    // Undo time no longer loses it, the next start sends it. Without one it is sent at once as before.
+    let heldId: string | null = null;
+    if (wait > 0) {
       try {
-        await api.sendMessage(d, null, init.replaces);
+        heldId = await api.outboxHold(d, Math.floor(Date.now() / 1000) + wait, init.replaces);
+      } catch (e) {
+        showToast(`Send failed: ${friendlyError(e)}`, undefined, "error");
+        reopen(d);
+        return;
+      }
+    }
+    const run = async () => {
+      if (cancelled || started) return;
+      started = true;
+      clearTimeout(t);
+      const quitting = useStore.getState().quitting;
+      try {
+        if (heldId) await api.outboxHoldSend(heldId, quitting);
+        else await api.sendMessage(d, null, init.replaces);
         if (useStore.getState().prefs.sentSound) playSent();
         showToast("Message sent", undefined, "success");
         void useStore.getState().sync();
       } catch (e) {
+        // quitting: the message stays in the outbox and goes out at the next start (REQ-48 c), nothing is reopened
+        if (quitting) return;
         showToast(`Send failed: ${friendlyError(e)}`, undefined, "error");
         reopen(d);
       } finally {
         done();
       }
-    }, wait * 1000);
+    };
+    // counted as "being sent" from the start of the undo window until the server answered (an update restart waits for it; a quit sends it at once)
+    const done = beginSend(() => void run());
+    t = setTimeout(() => void run(), wait * 1000);
     if (wait > 0) {
       showToast(
         "Sending…",
         () => {
+          // Undo: the message leaves the outbox (if it is already being sent it cannot be taken back)
+          if (heldId) {
+            void api.cancelOutbox(heldId).then(
+              () => {
+                cancelled = true;
+                clearTimeout(t);
+                done();
+                reopen(d);
+              },
+              (e) => showToast(friendlyError(e), undefined, "error"),
+            );
+            return;
+          }
           cancelled = true;
           clearTimeout(t);
           done();
@@ -776,13 +815,15 @@ export function Compose({ init }: { init: ComposeInit }) {
         // a draft is only ever encrypted to your own key (no passphrase needed), and never signed
         const keepPrivate = !!d.security?.encrypt && eff(prefs, accountId, "pgpEncryptDrafts");
         await api.saveDraft({ ...d, security: keepPrivate ? { encrypt: true, sign: false, attachPublicKey: false } : undefined }, init.replaces);
+        useStore.setState({ draftError: "" });
         showToast(d.security?.encrypt && !keepPrivate ? "Draft saved without encryption (Settings → Security)" : "Draft saved", undefined, d.security?.encrypt && !keepPrivate ? "info" : "success");
         setComposeDirty(false);
         if (close) void openCompose(null);
         void useStore.getState().sync();
         return true;
       } catch (e) {
-        // `quiet`: the caller (an update restart) tells the user itself
+        // `quiet`: the caller (an update restart, a quit) tells the user itself
+        useStore.setState({ draftError: friendlyError(e).replace(/\.$/, "") });
         if (!quiet) showToast(`Save draft failed: ${friendlyError(e)}`, undefined, "error");
         return false;
       }

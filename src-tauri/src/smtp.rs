@@ -363,7 +363,15 @@ fn transport(acc: &Account, secret: &str) -> R<SmtpTransport> {
 
 /// Send an already finished message (encrypted/signed ones are built once, at schedule time).
 pub fn send_raw(acc: &Account, secret: &str, env: &lettre::address::Envelope, raw: &[u8]) -> R<()> {
-    transport(acc, secret)?.send_raw(env, raw).map_err(|e| explain_send_error(e.status().map(|c| c.to_string()).as_deref(), &e.to_string()))?;
+    transport(acc, secret)?.send_raw(env, raw).map_err(|e| {
+        let text = e.to_string();
+        // a failure of the TLS step has its own hint (REQ-53); everything else is explained as before
+        if e.status().is_none() && crate::mail::is_tls_step_failure(&text) {
+            crate::mail::secure_connection_error(&acc.smtp_host, acc.smtp_port, &text)
+        } else {
+            explain_send_error(e.status().map(|c| c.to_string()).as_deref(), &text)
+        }
+    })?;
     Ok(())
 }
 
@@ -392,7 +400,15 @@ pub fn test(acc: &Account, secret: &str) -> R<()> {
     match transport(acc, secret)?.test_connection() {
         Ok(true) => Ok(()),
         Ok(false) => Err("SMTP server did not accept the connection".into()),
-        Err(e) => Err(format!("SMTP login failed: {e}")),
+        Err(e) => {
+            let text = e.to_string();
+            // a failure of the TLS step has its own hint (REQ-53); a refused login stays "SMTP login failed"
+            if e.status().is_none() && crate::mail::is_tls_step_failure(&text) {
+                Err(crate::mail::secure_connection_error(&acc.smtp_host, acc.smtp_port, &text))
+            } else {
+                Err(format!("SMTP login failed: {e}"))
+            }
+        }
     }
 }
 
@@ -459,6 +475,18 @@ mod tests {
 
     /// A draft saves whatever the person has typed so far (QA BUG-7: "missing destination address, invalid envelope"); a message that is
     /// sent still needs a valid recipient.
+    /// QA BUG-M3: local servers have addresses like `qa@localhost`; the backend must take them too (the composer checks first).
+    #[test]
+    fn addresses_on_a_single_label_host_can_be_sent_to() {
+        for a in ["qa@localhost", "Local QA <qa@localhost>", "me@intranet"] {
+            assert!(parse_mailbox(a).is_ok(), "{a}");
+        }
+        let mut d = draft("<p>Hi</p>", vec![], vec![]);
+        d.to = vec!["qa@localhost".into()];
+        assert!(build(&account(), &d).is_ok());
+        assert!(envelope(&account(), &d).is_ok());
+    }
+
     #[test]
     fn a_draft_needs_no_recipient_no_subject_and_may_hold_half_typed_addresses() {
         let acc = account();

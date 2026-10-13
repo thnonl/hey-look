@@ -122,6 +122,8 @@ export function friendlyError(e: unknown): string {
   if (/^PGP_LOCKED:/.test(raw)) return "Your encryption key is locked. Unlock it and try again.";
   if (/^PGP_MISSING_KEYS:/.test(raw)) return `No public key for ${raw.slice("PGP_MISSING_KEYS:".length).split(",").join(", ")}.`;
   raw = raw.replace(/^[A-Z][A-Z_]+:\s+/, "");
+  // the backend already explained a server that does not do SSL/TLS or STARTTLS (mail.rs): keep its words
+  if (/^Couldn[’']t start a secure connection to /.test(raw)) return shortenError(raw);
   if (/login failed|authenticationfailed|invalid credentials|auth.*fail/i.test(raw))
     return "Sign-in failed. Check the password (Gmail, iCloud and Yahoo need an app password) or sign in again.";
   if (/no stored (password|\w+ token)/i.test(raw)) return "The saved credentials for this account are missing. Remove the account and add it again.";
@@ -217,6 +219,10 @@ interface State {
   calRev: number;
   /** Messages being sent right now: waiting in the undo window or handed to the backend and not answered yet (an update restart waits for them). */
   sendsInFlight: number;
+  /** The app is flushing sends because it is about to quit (a failed send then goes to Drafts). */
+  quitting: boolean;
+  /** Why the last draft save failed (the quit dialog says it). */
+  draftError: string;
 
   init: () => Promise<void>;
   setView: (folder: string, accountId?: string | null) => Promise<void>;
@@ -249,7 +255,8 @@ interface State {
     spec: { text: string; kind?: Toast["kind"]; actions?: ToastAction[]; onDismiss?: () => void; closeLabel?: string; escCloses?: boolean } | null,
   ) => void;
   /** Count a message as being sent from now until `done()` is called. */
-  beginSend: () => () => void;
+  /** A send is under way (its undo window counts). `flush` makes it go out at once (a quit); it is dropped when the send ends. */
+  beginSend: (flush?: () => void) => () => void;
   confirm: (o: { title: string; body?: string; confirmLabel?: string; danger?: boolean }) => Promise<boolean>;
   choose: (o: { title: string; body?: string; choices: Choice[] }) => Promise<string>;
   resolveAsk: (id: string) => void;
@@ -374,6 +381,28 @@ function applyOptimistic(ids: string[], action: string) {
  * One-time migration: an account without a stored color has always been drawn in the primary color, so that exact color is stored
  * for it now (what the user sees does not change) and every place - dots, avatars, Settings > Profile - reads the stored value.
  */
+/** The sends still waiting out their "Undo" time: each can be told to go out now. */
+const sendFlushers = new Set<() => void>();
+
+/**
+ * The app is about to quit: let every message that is still in its Undo window go out at once and wait (at most `maxMs`) until no send is
+ * under way. A quit used to throw such a message away (the timer lives only here). Resolves true when nothing is left.
+ */
+export async function flushSends(maxMs = 25_000): Promise<boolean> {
+  useStore.setState({ quitting: true });
+  try {
+    for (const f of [...sendFlushers]) f();
+    const until = Date.now() + maxMs;
+    while (useStore.getState().sendsInFlight > 0) {
+      if (Date.now() > until) return false;
+      await new Promise((r) => setTimeout(r, 100));
+    }
+    return true;
+  } finally {
+    useStore.setState({ quitting: false });
+  }
+}
+
 export function storeMissingColors(accounts: Account[], accent: string): Account[] {
   return accounts.map((a) => {
     if (a.color) return a;
@@ -434,6 +463,8 @@ export const useStore = create<State>((set, get) => ({
   calError: null,
   calRev: 0,
   sendsInFlight: 0,
+  quitting: false,
+  draftError: "",
 
   init: async () => {
     const [rawAccounts, rawPrefs] = await Promise.all([api.listAccounts(), api.getSetting("prefs"), loadPlatform()]);
@@ -840,12 +871,14 @@ export const useStore = create<State>((set, get) => ({
       return { toasts: old ? s.toasts.map((t) => (t.key === key ? toast : t)) : [...others, toast].slice(-5) };
     }),
 
-  beginSend: () => {
+  beginSend: (flush) => {
     set((s) => ({ sendsInFlight: s.sendsInFlight + 1 }));
+    if (flush) sendFlushers.add(flush);
     let done = false;
     return () => {
       if (done) return;
       done = true;
+      if (flush) sendFlushers.delete(flush);
       set((s) => ({ sendsInFlight: Math.max(0, s.sendsInFlight - 1) }));
     };
   },
