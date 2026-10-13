@@ -17,6 +17,7 @@ import { Ribbon } from "./components/Ribbon";
 import { Settings } from "./components/SettingsDialog";
 import { TopBar } from "./components/TopBar";
 import { Welcome } from "./components/Welcome";
+import { hasMailAccounts, shortcutWorks } from "./mailControls";
 import { useStore } from "./store";
 import { osNow } from "./platform";
 import { useUpdates } from "./updates";
@@ -94,6 +95,7 @@ function App() {
       listen<BackfillProgress>("backfill-progress", (e) => useStore.getState().onBackfill(e.payload)),
       listen("tray-compose", () => {
         const st = useStore.getState();
+        if (!hasMailAccounts(st.accounts.length)) return; // no account: nothing to write with
         void st.openCompose({ accountId: newMailAccount() });
       }),
       listen<string>("action-failed", (e) => useStore.getState().showToast(`Failed: ${e.payload}`, undefined, "error")),
@@ -122,7 +124,8 @@ function App() {
       listen<{ eventId: string; title: string; line: string; joinUrl?: string | null }>("event-reminder", (e) => {
         const st = useStore.getState();
         st.showToast(`${e.payload.title}${e.payload.line ? ` · ${e.payload.line}` : ""}`, undefined, "info", [
-          { label: "Open", run: () => st.setModule("calendar") },
+          // no account: the calendar is not on screen, so there is nothing to open
+          ...(hasMailAccounts(st.accounts.length) ? [{ label: "Open", run: () => st.setModule("calendar") }] : []),
           ...(e.payload.joinUrl ? [{ label: "Join", run: () => void openUrl(e.payload.joinUrl as string).catch(() => undefined) }] : []),
         ]);
       }),
@@ -196,12 +199,13 @@ function App() {
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       const st = useStore.getState();
+      const n = st.accounts.length;
       if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "k") {
         e.preventDefault();
         st.setCommandOpen(true);
         return;
       }
-      if ((e.ctrlKey || e.metaKey) && e.shiftKey && e.key.toLowerCase() === "s" && st.selected && !st.compose) {
+      if ((e.ctrlKey || e.metaKey) && e.shiftKey && e.key.toLowerCase() === "s" && st.selected && !st.compose && shortcutWorks(n, "mail-keys")) {
         // Save all attachments of the open conversation (the strip's "Save all" link)
         e.preventDefault();
         document.querySelector<HTMLButtonElement>(".att-strip-head .link-btn")?.click();
@@ -214,9 +218,11 @@ function App() {
       }
       if (e.key === "F5") {
         e.preventDefault();
-        void st.sync();
+        if (shortcutWorks(n, "sync")) void st.sync();
         return;
       }
+      // no account: no mail shortcut (search, new mail, navigation, actions, Ctrl+1 / 2 ...) is live
+      if (!shortcutWorks(n, "mail-keys")) return;
       const t = e.target;
       if (!(t instanceof Element)) return;
       if (t.closest("input,textarea,select,[contenteditable=true]")) return;

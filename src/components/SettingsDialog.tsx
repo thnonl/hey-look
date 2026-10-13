@@ -1010,7 +1010,8 @@ function ServerPanel({ account, close }: { account: Account; close: () => void }
     const stale = staleAccountPrefs(st.prefs, st.accounts.map((x) => x.id));
     if (Object.keys(stale).length) st.setPrefs(stale);
     await useStore.getState().refresh();
-    close();
+    // the last account: Settings stays open on "+ Add account" (the store switched it), not on the page of the removed mailbox
+    if (useStore.getState().accounts.length > 0) close();
   };
   return (
     <>

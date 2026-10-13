@@ -156,6 +156,11 @@ jobs:
 
       - run: npm ci
 
+      # the "no account" rules of the UI (which controls, shortcuts and commands exist on the Welcome screen)
+      - name: Mail-controls rules
+        if: runner.os == 'Linux'
+        run: node --experimental-strip-types scripts/test-mail-controls.mjs
+
       - uses: tauri-apps/tauri-action@v1
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

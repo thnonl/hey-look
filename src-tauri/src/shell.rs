@@ -260,6 +260,24 @@ fn tray_host_present(probe: Option<bool>) -> bool {
     probe.unwrap_or(false)
 }
 
+/// Whether at least one account exists. The tray entries "New mail" and "Check mail now" work only then (the Welcome screen has no mail controls).
+static MAIL_AVAILABLE: AtomicBool = AtomicBool::new(true);
+static TRAY_MAIL_ITEMS: OnceLock<(MenuItem<tauri::Wry>, MenuItem<tauri::Wry>)> = OnceLock::new();
+
+/// The tray's mail entries are enabled exactly when an account exists.
+pub fn tray_mail_enabled(account_count: usize) -> bool {
+    account_count > 0
+}
+
+/// Called with the account state at start and whenever the frontend sees the account list become empty / non-empty.
+pub fn set_mail_available(available: bool) {
+    MAIL_AVAILABLE.store(available, Ordering::Relaxed);
+    if let Some((compose, sync)) = TRAY_MAIL_ITEMS.get() {
+        let _ = compose.set_enabled(available);
+        let _ = sync.set_enabled(available);
+    }
+}
+
 pub fn setup_tray(app: &AppHandle, db: &Db) -> tauri::Result<()> {
     // without a tray host the icon would be invisible and a hidden window could not be brought back: no tray, closing quits
     #[cfg(target_os = "linux")]
@@ -276,6 +294,9 @@ pub fn setup_tray(app: &AppHandle, db: &Db) -> tauri::Result<()> {
     let sep1 = PredefinedMenuItem::separator(app)?;
     let sep2 = PredefinedMenuItem::separator(app)?;
     let menu = Menu::with_items(app, &[&open, &compose, &sync, &sep1, &pause, &sep2, &quit])?;
+    let has_accounts = tray_mail_enabled(db::list_accounts(&lock(db)).map(|a| a.len()).unwrap_or(0));
+    let _ = TRAY_MAIL_ITEMS.set((compose.clone(), sync.clone()));
+    set_mail_available(has_accounts);
 
     let mut builder = TrayIconBuilder::with_id("main")
         .tooltip("Hey Look!")
@@ -291,11 +312,11 @@ pub fn setup_tray(app: &AppHandle, db: &Db) -> tauri::Result<()> {
     builder
         .on_menu_event(move |app, event| match event.id().as_ref() {
             "open" => show_main(app),
-            "compose" => {
+            "compose" if MAIL_AVAILABLE.load(Ordering::Relaxed) => {
                 show_main(app);
                 let _ = app.emit("tray-compose", ());
             }
-            "sync" => {
+            "sync" if MAIL_AVAILABLE.load(Ordering::Relaxed) => {
                 let app = app.clone();
                 std::thread::spawn(move || crate::sync_all(&app));
             }
@@ -580,6 +601,18 @@ pub fn test_notification(app: &AppHandle, db: &Db) -> Result<(), String> {
 #[cfg(test)]
 mod platform_tests {
     use super::*;
+
+    #[test]
+    fn tray_mail_entries_need_an_account() {
+        assert!(!tray_mail_enabled(0));
+        assert!(tray_mail_enabled(1));
+        assert!(tray_mail_enabled(4));
+        // the menu handlers for "New mail" and "Check mail now" check the same flag, so a stale menu cannot start a sync or a draft
+        let src = include_str!("shell.rs");
+        for id in ["\"compose\" if MAIL_AVAILABLE", "\"sync\" if MAIL_AVAILABLE"] {
+            assert!(src.contains(id), "{id}");
+        }
+    }
 
     #[test]
     fn only_a_registered_tray_host_counts() {

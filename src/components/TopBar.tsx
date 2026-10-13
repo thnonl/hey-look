@@ -5,6 +5,7 @@ import { api } from "../api";
 import { useStore } from "../store";
 import { pendingVersion, useUpdates } from "../updates";
 import { useAppDark } from "../useAppDark";
+import { hasMailAccounts } from "../mailControls";
 import { useFrame } from "../winframe";
 import { SearchBox } from "./SearchBox";
 import { UpdateChip } from "./UpdateChip";
@@ -16,6 +17,8 @@ export function TopBar() {
   const skipped = useStore((s) => s.prefs.skippedUpdate);
   const newVersion = useUpdates((s) => pendingVersion(s.update, skipped));
   const dark = useAppDark();
+  // no account: only the Welcome screen is shown, so no search box and no sync button
+  const mail = useStore((st) => hasMailAccounts(st.accounts.length));
 
   const custom = useFrame((f) => f.custom);
 
@@ -33,12 +36,14 @@ export function TopBar() {
         <img src={logo} alt="" width={26} height={26} draggable={false} />
         <span>Hey Look!</span>
       </div>
-      <SearchBox />
+      {mail ? <SearchBox /> : <div className="top-spacer" />}
       <div className="top-actions" data-tauri-drag-region="false">
         <UpdateChip />
-        <button className="icon-btn" title="Sync now (F5)" onClick={() => void sync()}>
-          <RefreshCw size={16} className={syncing || firstSync ? "spin" : ""} />
-        </button>
+        {mail && (
+          <button className="icon-btn" title="Sync now (F5)" onClick={() => void sync()}>
+            <RefreshCw size={16} className={syncing || firstSync ? "spin" : ""} />
+          </button>
+        )}
         <button className="icon-btn" title={dark ? "Light mode" : "Dark mode"} onClick={() => setPrefs({ theme: dark ? "light" : "dark" })}>
           {dark ? <Sun size={16} /> : <Moon size={16} />}
         </button>

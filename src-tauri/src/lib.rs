@@ -416,6 +416,12 @@ async fn discover_server(email: String) -> R<Option<discover::Discovered>> {
     discover::run(&email).await
 }
 
+/// The frontend tells whether any account exists: without one the tray's "New mail" and "Check mail now" are disabled.
+#[tauri::command]
+fn set_mail_available(available: bool) {
+    shell::set_mail_available(available);
+}
+
 #[tauri::command]
 fn update_account(state: tauri::State<AppState>, account_id: String, display_name: String, color: Option<String>) -> R<()> {
     lock(&state.db)
@@ -3343,6 +3349,7 @@ pub fn run() {
             update::update_cancel,
             update::update_discard,
             update::update_defer,
+            set_mail_available,
             update::update_install,
             update::update_startup_state,
             update::outbox_busy

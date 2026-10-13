@@ -1,6 +1,7 @@
 import { create } from "zustand";
 import { api, Account, Att, BackfillProgress, CalendarInfo, CalEvent, DraftSecurity, FolderInfo, Meeting, MessageFull, OutboxItem, SearchScope, ThreadSummary } from "./api";
 import { loadPlatform } from "./platform";
+import { hasMailAccounts } from "./mailControls";
 import { calTz, CalView, Day, rangeFor, systemTz, today } from "./calendar";
 import { accentText, accountColor, buttonAccent, clampMaxDownload, DEFAULT_PREFS, lightened, mergePrefs, Prefs, readableOn, staleAccountPrefs, topBar, validHex } from "./prefs";
 
@@ -793,6 +794,7 @@ export const useStore = create<State>((set, get) => ({
 
   openCompose: async (compose) => {
     const st = get();
+    if (compose && !hasMailAccounts(st.accounts.length)) return; // no account: there is nothing to send with
     if (compose && st.compose && st.composeDirty) {
       const choice = await st.choose({
         title: "You have an unsent message",
@@ -903,3 +905,24 @@ export const useStore = create<State>((set, get) => ({
     }
   },
 }));
+
+// The account list decides whether mail controls exist (see mailControls.ts). When the last account goes, whatever belonged to it
+// (an open search, selection, compose window, calendar module) is dropped, so the first account added later starts clean; the tray's
+// "New mail" and "Check mail now" follow the same state.
+useStore.subscribe((s, prev) => {
+  if (!s.loaded) return;
+  const had = hasMailAccounts(prev.accounts.length);
+  const has = hasMailAccounts(s.accounts.length);
+  if (had === has && prev.loaded) return;
+  void api.setMailAvailable(has).catch(() => undefined);
+  if (!prev.loaded) return; // the first read at start-up is not a change
+  // the saved module is Mail in the zero-account state and after the first account (Calendar is a mail-app module)
+  if (had !== has) useStore.getState().setModule("mail");
+  if (had && !has) {
+    // an open Compose is closed WITHOUT saving: the account's local copy is gone, and the pane unmounts with the workspace
+    useStore.setState({
+      search: "", selected: null, messages: [], threads: [], checked: new Set(), compose: null, composeDirty: false, composeSaver: null,
+      commandOpen: false, accountId: null, folder: "inbox", filter: "all", firstSync: null, dialog: s.dialog?.type === "settings" ? { type: "settings", tab: "add-account", nonce: Date.now() } : s.dialog,
+    });
+  }
+});

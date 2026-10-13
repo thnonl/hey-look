@@ -927,6 +927,9 @@ export function installMock() {
       case "update_download": return mockDownload(a.onEvent as { onmessage: (e: unknown) => void });
       case "update_cancel": dlCancelled = true; logUpdateCall({ cmd: "cancel" }).kind = "ok"; return null;
       case "update_discard": logUpdateCall({ cmd: "discard" }).kind = "ok"; return null;
+      // the last account can be removed in the mock (Settings > account > Remove): the Welcome screen returns
+      case "remove_account": { const i = accounts.findIndex((x) => x.id === a.accountId); if (i >= 0) accounts.splice(i, 1); return null; }
+      case "set_mail_available": ((window as unknown as { __mailAvailable?: boolean[] }).__mailAvailable ??= []).push(!!a.available); return null;
       case "update_defer": logUpdateCall({ cmd: "defer" }).kind = a.deferred ? "later" : "now"; return null;
       case "update_install": return mockInstall(!!a.restart);
       case "update_startup_state": {
