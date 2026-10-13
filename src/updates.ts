@@ -51,7 +51,7 @@ interface UpdatesState {
   checkUpdate: (trigger: UpdateTrigger) => Promise<void>;
   announceUpdate: () => void;
   openSettingsAbout: (manual: boolean) => void;
-  startUpdate: (source: "card" | "toast" | "consent") => Promise<void>;
+  startUpdate: (source: "card" | "toast") => Promise<void>;
   cancelUpdate: () => void;
   deferUpdate: () => void;
   cancelRestart: () => void;
@@ -270,7 +270,6 @@ export const useUpdates = create<UpdatesState>((set, get) => {
           message: friendlyError(e).replace(/\.$/, ""),
           info: null,
           fromCache: false,
-          consented: false,
         }));
         inflight = run;
         const r = await run;
@@ -292,8 +291,11 @@ export const useUpdates = create<UpdatesState>((set, get) => {
           }
         } else {
           get().announceUpdate();
-          // the user agreed to this version before and the app ended without installing it: download it again, without asking
-          if (kind === "available" && r.consented && r.info?.asset && get().flow.state === "idle") void get().startUpdate("consent");
+        }
+        // a check that got an answer clears an old failure (the red chip and the error text) - the offer is shown again
+        if (get().flow.state === "failed" && !holdOn && (r.kind === "available" || r.kind === "upToDate" || r.kind === "noRelease")) {
+          clearCountdown();
+          set({ flow: IDLE });
         }
       } finally {
         inflight = null;
@@ -320,7 +322,7 @@ export const useUpdates = create<UpdatesState>((set, get) => {
       });
     },
 
-    startUpdate: async (source) => {
+    startUpdate: async (_source) => {
       const f = get().flow;
       const info = get().update?.info;
       if ((f.state !== "idle" && f.state !== "failed") || !info?.asset) return;
@@ -329,11 +331,7 @@ export const useUpdates = create<UpdatesState>((set, get) => {
       startedAt = Date.now();
       set({ flow: { ...IDLE, state: "downloading", version: info.latest } });
       useStore.getState().setStickyToast("update-available", null); // the announcement is answered
-      useStore.getState().showToast(
-        source === "consent" ? `Downloading Hey Look! ${info.latest} that you agreed to install.` : `Downloading Hey Look! ${info.latest}. You can keep working.`,
-        undefined,
-        "info",
-      );
+      useStore.getState().showToast(`Downloading Hey Look! ${info.latest}. You can keep working.`, undefined, "info");
       try {
         await api.updateDownload((e) => onEvent(id, e));
       } catch (e) {
@@ -357,10 +355,14 @@ export const useUpdates = create<UpdatesState>((set, get) => {
       toast(null);
       set({ askedFor: f.version });
       setFlow({ state: "deferred", countdown: null, asking: "none" });
+      void api.updateDefer(true).catch(() => undefined); // this run only: the package is installed when the app quits
     },
 
     cancelRestart: () => {
-      if (get().flow.state === "waiting") setFlow({ state: "deferred", countdown: null, asking: "none" });
+      if (get().flow.state === "waiting") {
+        setFlow({ state: "deferred", countdown: null, asking: "none" });
+        void api.updateDefer(true).catch(() => undefined);
+      }
     },
 
     restartToUpdate: async () => {
@@ -370,6 +372,7 @@ export const useUpdates = create<UpdatesState>((set, get) => {
       try {
         clearCountdown();
         toast(null);
+        void api.updateDefer(false).catch(() => undefined); // restarting now: no install at quit on top of it
         const st = useStore.getState();
         let draftSaved = false;
         const stay = (asking: AskVariant) => setFlow({ state: "ready", countdown: null, asking });

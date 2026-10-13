@@ -570,6 +570,8 @@ export const api = {
   },
   updateCancel: () => invoke<void>("update_cancel"),
   updateDiscard: () => invoke<void>("update_discard"),
+  /** The user chose Later / Not now (true) or took it back (false): only then the kept package is installed when the app quits. */
+  updateDefer: (deferred: boolean) => invoke<void>("update_defer", { deferred }),
   /** Install the downloaded update. `draftSaved`: a draft was saved for the restart (the next start says so). */
   updateInstall: (restart: boolean, draftSaved: boolean) => invoke<void>("update_install", { restart, draftSaved }),
   updateStartupState: () => invoke<UpdateStartupState>("update_startup_state"),
@@ -608,8 +610,6 @@ export interface UpdateResult {
   fromCache: boolean;
   /** for `throttled` / `disabled` results that carry cached `info`: `available` or `upToDate` */
   cachedKind?: UpdateKind | null;
-  /** the user already agreed to install this version (the app ended before it was installed) */
-  consented: boolean;
 }
 /** Progress of `updateDownload` (the Rust side sends `{ event, data }`). */
 export type DlEvent =

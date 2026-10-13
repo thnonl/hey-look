@@ -20,6 +20,7 @@ mod smtp;
 mod snippet;
 mod update;
 mod winframe;
+mod winproc;
 
 use base64::Engine;
 use db::{err, Account, R};
@@ -3341,6 +3342,7 @@ pub fn run() {
             update::update_download,
             update::update_cancel,
             update::update_discard,
+            update::update_defer,
             update::update_install,
             update::update_startup_state,
             update::outbox_busy

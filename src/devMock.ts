@@ -445,7 +445,7 @@ async function mockCheckUpdate(trigger: string, prefsJson?: string) {
   const entry = logUpdateCall({ trigger });
   const token = hashTokens().get("update") || "uptodate";
   const now = Math.floor(Date.now() / 1000);
-  const base = { kind: "upToDate", current: "1.0.0", platform: { os: "windows", arch: "x64", installer: "nsis", label: "Windows" }, checkedAt: now, message: null as string | null, info: null as unknown, fromCache: false, consented: false };
+  const base = { kind: "upToDate", current: "1.0.0", platform: { os: "windows", arch: "x64", installer: "nsis", label: "Windows" }, checkedAt: now, message: null as string | null, info: null as unknown, fromCache: false };
   const info = (over: Record<string, unknown> = {}) => ({
     latest: "1.1.0", notes: UPDATE_SAMPLE_NOTES, notesTruncated: false, publishedAt: Math.floor(new Date(2026, 9, 12, 10, 0).getTime() / 1000),
     releaseUrl: "https://github.com/thnonl/hey-look/releases/tag/v1.1.0",
@@ -927,6 +927,7 @@ export function installMock() {
       case "update_download": return mockDownload(a.onEvent as { onmessage: (e: unknown) => void });
       case "update_cancel": dlCancelled = true; logUpdateCall({ cmd: "cancel" }).kind = "ok"; return null;
       case "update_discard": logUpdateCall({ cmd: "discard" }).kind = "ok"; return null;
+      case "update_defer": logUpdateCall({ cmd: "defer" }).kind = a.deferred ? "later" : "now"; return null;
       case "update_install": return mockInstall(!!a.restart);
       case "update_startup_state": {
         const t = hashTokens().get("afterupdate");

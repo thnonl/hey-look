@@ -307,7 +307,8 @@ pub fn test_data_dir() -> Option<PathBuf> {
     }
 }
 
-/// The data folder in use (managed state).
+/// The data folder in use (managed state; read for the notification icon on Windows).
+#[cfg_attr(not(windows), allow(dead_code))]
 pub struct DataDir(pub PathBuf);
 
 // ---------- credential store ----------
@@ -387,14 +388,10 @@ pub fn migrate_keyring(db: &Db, secret_names: &[&str]) {
 /// Windows: forget the notification registration of the old id.
 #[cfg(windows)]
 pub fn remove_old_notification_id() {
-    use std::os::windows::process::CommandExt;
     if data_dir_overridden() {
         return;
     }
-    let _ = std::process::Command::new("reg")
-        .args(["delete", &format!(r"HKCU\Software\Classes\AppUserModelId\{OLD_AUMID}"), "/f"])
-        .creation_flags(0x0800_0000)
-        .output();
+    let _ = crate::winproc::hidden("reg").args(["delete", &format!(r"HKCU\Software\Classes\AppUserModelId\{OLD_AUMID}"), "/f"]).output();
 }
 
 #[cfg(not(windows))]

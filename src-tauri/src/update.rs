@@ -3,7 +3,7 @@
 //! `update_download` downloads the package into memory with progress events and verifies its minisign signature;
 //! `update_install` installs it (the plugin restarts the app) and `install_on_exit` installs a package the user chose to
 //! keep for later when the app quits. Throttle state lives in the settings table (`update_last_check`,
-//! `update_last_ok`, `update_cache`, `update_consent`, `update_installing`, `update_restart_draft`).
+//! `update_last_ok`, `update_cache`, `update_installing`, `update_restart_draft`).
 use crate::{db, lock, now, shell, AppState, Db};
 use db::R;
 use semver::{BuildMetadata, Version};
@@ -85,8 +85,6 @@ pub struct UpdateResult {
     pub from_cache: bool,
     /// For `throttled`/`disabled` results that carry cached `info`: whether that cache says `available` or `upToDate`.
     pub cached_kind: Option<Kind>,
-    /// The user already agreed to install this version (it was downloaded before and the app ended without installing it).
-    pub consented: bool,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -307,7 +305,6 @@ impl Ctx {
             info: None,
             from_cache: false,
             cached_kind: None,
-            consented: false,
         }
     }
 }
@@ -345,12 +342,6 @@ fn read_last_ok(db: &Db) -> bool {
     }
 }
 
-fn mark_consent(db: &Db, r: &mut UpdateResult) {
-    let consent = db::get_setting(&lock(db), "update_consent");
-    let offered = r.kind == Kind::Available || r.cached_kind == Some(Kind::Available);
-    r.consented = offered && r.info.as_ref().is_some_and(|i| consent.as_deref() == Some(i.latest.as_str()));
-}
-
 /// `throttled` / `disabled`: no request, carrying the cached info when it is still valid.
 fn without_request(db: &Db, ctx: &Ctx, kind: Kind) -> UpdateResult {
     let mut r = ctx.result(kind, read_last_check(db));
@@ -362,7 +353,6 @@ fn without_request(db: &Db, ctx: &Ctx, kind: Kind) -> UpdateResult {
             r.from_cache = true;
         }
     }
-    mark_consent(db, &mut r);
     r
 }
 
@@ -464,10 +454,19 @@ pub struct UpdState {
     cancel: Mutex<Option<oneshot::Sender<()>>>,
     /// the verified package, in memory only
     ready: Mutex<Option<(Update, Vec<u8>)>>,
+    /// the user chose "Later" / "Not now" for the package in `ready`, in THIS run: only then is it installed when the app quits
+    deferred: AtomicBool,
 }
 
 impl UpdState {
     /// A download is running or a package is waiting: automatic checks stay quiet.
+    /// The package to install now that the app is quitting: only one the user explicitly chose to keep for later (never one that merely
+    /// finished downloading), and never across a restart (it lives in memory only).
+    fn take_for_exit(&self) -> Option<(Update, Vec<u8>)> {
+        let mut ready = self.ready.lock().unwrap_or_else(|p| p.into_inner());
+        if self.deferred.load(Ordering::SeqCst) { ready.take() } else { None }
+    }
+
     fn flow_active(&self) -> bool {
         self.downloading.load(Ordering::SeqCst) || self.ready.lock().unwrap_or_else(|p| p.into_inner()).is_some()
     }
@@ -502,7 +501,6 @@ pub async fn run_check<R: Runtime>(app: &AppHandle<R>, db: &Db, busy: &AtomicBoo
             }
         }
     }
-    mark_consent(db, &mut r);
     r
 }
 
@@ -620,6 +618,7 @@ fn check_failure_reason(r: &UpdateResult) -> String {
 #[tauri::command]
 pub async fn update_download(app: AppHandle, state: tauri::State<'_, AppState>, upd: tauri::State<'_, UpdState>, on_event: Channel<DlEvent>) -> R<()> {
     let Some(_flag) = try_flag(&upd.downloading) else { return Err("A download is already running.".into()) };
+    upd.deferred.store(false, Ordering::SeqCst);
     let ch = on_event.clone();
     let emit: Emit = Arc::new(move |e| {
         let _ = ch.send(e);
@@ -639,7 +638,6 @@ pub async fn update_download(app: AppHandle, state: tauri::State<'_, AppState>, 
         emit(DlEvent::Failed { stage: "badurl".into(), message: String::new() });
         return Ok(());
     }
-    let _ = db::set_setting(&lock(&db), "update_consent", &update.version);
     update.timeout = None;
     match download_update(&update, emit.clone(), rx, STALL).await {
         Ok(bytes) => {
@@ -663,6 +661,13 @@ pub fn update_cancel(upd: tauri::State<'_, UpdState>) {
 #[tauri::command]
 pub fn update_discard(upd: tauri::State<'_, UpdState>) {
     *upd.ready.lock().unwrap_or_else(|p| p.into_inner()) = None;
+    upd.deferred.store(false, Ordering::SeqCst);
+}
+
+/// The user chose "Later" / "Not now" (true) or asked to restart / took it back (false): the kept package is installed at quit only after a "true".
+#[tauri::command]
+pub fn update_defer(upd: tauri::State<'_, UpdState>, deferred: bool) {
+    upd.deferred.store(deferred, Ordering::SeqCst);
 }
 
 // ---------- install ----------
@@ -680,6 +685,7 @@ fn remember_install(db: &Db, current: &str, version: &str, draft_saved: bool) {
 #[tauri::command]
 pub async fn update_install(app: AppHandle, state: tauri::State<'_, AppState>, upd: tauri::State<'_, UpdState>, restart: bool, draft_saved: bool) -> R<()> {
     let (update, bytes) = upd.ready.lock().unwrap_or_else(|p| p.into_inner()).take().ok_or("No update is ready to install.")?;
+    upd.deferred.store(false, Ordering::SeqCst);
     let db = state.db.clone();
     let current = app.package_info().version.to_string();
     remember_install(&db, &current, &update.version, draft_saved);
@@ -704,10 +710,10 @@ pub async fn update_install(app: AppHandle, state: tauri::State<'_, AppState>, u
     }
 }
 
-/// The user chose "Later": install what is ready when the app ends (every exit path ends in `RunEvent::Exit`).
+/// The user chose "Later" in this run: install what is kept when the app ends (every exit path ends in `ExitRequested` / `Exit`).
 pub fn install_on_exit(app: &AppHandle) {
     let Some(upd) = app.try_state::<UpdState>() else { return };
-    let Some((update, bytes)) = upd.ready.lock().unwrap_or_else(|p| p.into_inner()).take() else { return };
+    let Some((update, bytes)) = upd.take_for_exit() else { return };
     let db = app.state::<AppState>().db.clone();
     remember_install(&db, &app.package_info().version.to_string(), &update.version, false);
     crate::flush_pending(app);
@@ -1097,7 +1103,7 @@ mod tests {
         let a = i.asset.unwrap();
         assert_eq!((a.name.as_str(), a.size, a.url_ok), ("HeyLook_1.1.0_windows_x64-setup.exe", Some(10276044), true));
         assert_eq!(r.checked_at, Some(5000));
-        assert!(!r.from_cache && !r.consented);
+        assert!(!r.from_cache);
         // the attempt was already stored when the server saw the request
         assert_eq!(s.seen_last_check.lock().unwrap().as_deref(), Some("5000"));
         let c = lock(&db);
@@ -1278,18 +1284,39 @@ Content-Length: {}
     }
 
     #[test]
-    fn consent_is_reported_for_the_agreed_version() {
+    fn a_kept_package_is_installed_at_quit_only_after_later_in_this_run() {
+        let (_s, _app, update) = update_for(|| resp(http(200, &[], "hello")));
+        let st = UpdState::default();
+        // nothing kept: nothing to install
+        assert!(st.take_for_exit().is_none());
+        // downloaded and ready, but the user did not choose Later (a countdown, a prompt): quitting installs nothing
+        *st.ready.lock().unwrap() = Some((update.clone(), b"bytes".to_vec()));
+        assert!(st.take_for_exit().is_none());
+        assert!(st.ready.lock().unwrap().is_some(), "the package is not consumed by a quit that installs nothing");
+        // "Later" / "Not now" in this run
+        st.deferred.store(true, Ordering::SeqCst);
+        assert_eq!(st.take_for_exit().map(|(_, b)| b), Some(b"bytes".to_vec()));
+        assert!(st.take_for_exit().is_none(), "installed once");
+        // a restart builds a fresh state: nothing persisted can install anything
+        assert!(UpdState::default().take_for_exit().is_none());
+    }
+
+    #[test]
+    fn switched_off_means_no_request_and_no_cached_download_offer_to_resume() {
         let db = new_db();
         let s = manifest_stub(manifest("1.1.0", "https://github.com/thnonl/hey-look/releases/download/v1.1.0/x.exe"));
         let app = app_for(&format!("{}/latest.json", s.base));
         let busy = AtomicBool::new(false);
-        assert!(!run(&app, &db, &busy, &ctx(&s.base, 1, "1.0.0"), Trigger::Manual).consented);
+        assert_eq!(run(&app, &db, &busy, &ctx(&s.base, 1000, "1.0.0"), Trigger::Manual).kind, Kind::Available);
+        // an old build stored a consent; it has no effect any more
         db::set_setting(&lock(&db), "update_consent", "1.1.0").unwrap();
-        assert!(run(&app, &db, &busy, &ctx(&s.base, 2, "1.0.0"), Trigger::Manual).consented);
-        // a throttled answer from the cache says the same
-        assert!(run(&app, &db, &busy, &ctx(&s.base, 3, "1.0.0"), Trigger::Shown).consented);
-        db::set_setting(&lock(&db), "update_consent", "1.0.5").unwrap();
-        assert!(!run(&app, &db, &busy, &ctx(&s.base, 4, "1.0.0"), Trigger::Manual).consented);
+        db::set_setting(&lock(&db), "prefs", r#"{"checkUpdates":false}"#).unwrap();
+        let hits = s.count("/latest.json");
+        for t in [Trigger::Startup, Trigger::Shown] {
+            let r = run(&app, &db, &busy, &ctx(&s.base, 1000 + 99_999, "1.0.0"), t);
+            assert_eq!(r.kind, Kind::Disabled);
+        }
+        assert_eq!(s.count("/latest.json"), hits, "no request at all while automatic checks are off");
     }
 
     #[test]

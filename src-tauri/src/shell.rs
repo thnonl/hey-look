@@ -324,17 +324,13 @@ pub fn setup_tray(app: &AppHandle, db: &Db) -> tauri::Result<()> {
 /// Register the AppUserModelID so Windows shows our name and icon on toasts (no installer needed).
 #[cfg(windows)]
 pub fn register_aumid(app: &AppHandle) {
-    use std::os::windows::process::CommandExt;
     crate::legacy_names::remove_old_notification_id();
     let Some(data) = app.try_state::<crate::legacy_names::DataDir>() else { return };
     let icon = data.0.join("icon.png");
     let _ = std::fs::write(&icon, include_bytes!("../icons/128x128.png"));
     let key = format!(r"HKCU\Software\Classes\AppUserModelId\{AUMID}");
     for (name, val) in [("DisplayName", "Hey Look!"), ("IconUri", icon.to_str().unwrap_or(""))] {
-        let _ = std::process::Command::new("reg")
-            .args(["add", &key, "/v", name, "/t", "REG_SZ", "/d", val, "/f"])
-            .creation_flags(0x0800_0000)
-            .output();
+        let _ = crate::winproc::hidden("reg").args(["add", &key, "/v", name, "/t", "REG_SZ", "/d", val, "/f"]).output();
     }
 }
 
