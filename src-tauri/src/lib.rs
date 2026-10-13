@@ -1140,7 +1140,9 @@ fn threads_for(c: &Connection, filter: ThreadFilter) -> R<Vec<ThreadSummary>> {
         w.push("m.flagged=1".into());
     }
     if let Some(q) = &query {
-        if explicit_folder.is_none() && !cross {
+        // viewing Trash/Junk itself: the search stays inside it (the open folder is already pinned above)
+        let in_bin = matches!(filter.folder.as_str(), "trash" | "junk");
+        if explicit_folder.is_none() && !cross && !in_bin {
             w.push("m.folder NOT IN ('trash','junk')".into());
         }
         let like = |v: &str| format!("%{}%", v.replace('%', "").replace('_', ""));
@@ -2985,6 +2987,46 @@ mod search_tests {
         assert_eq!(q.from, vec!["linh tran".to_string()]);
         assert!(q.has_attachment);
         assert_eq!(q.unread, Some(true));
+    }
+
+    #[test]
+    fn searching_inside_trash_or_junk_finds_its_mail() {
+        let c = Connection::open_in_memory().unwrap();
+        db::migrate(&c).unwrap();
+        let put = |id: &str, folder: &str, uid: i64, thread: &str| {
+            c.execute(
+                "INSERT INTO messages(id,account_id,folder,uid,thread_id,subject,from_name,from_email,to_addrs,cc_addrs,date,snippet) VALUES(?1,'a1',?2,?3,?4,'token invoice','x','x@y.z','','',?3,'')",
+                params![id, folder, uid, thread],
+            )
+            .unwrap();
+        };
+        put("m1", "inbox", 1, "t-inbox");
+        put("m2", "trash", 2, "t-trash");
+        put("m3", "junk", 3, "t-junk");
+        let run = |folder: &str, search: &str, scope: Option<&str>| -> Vec<String> {
+            let f: ThreadFilter = serde_json::from_value(serde_json::json!({
+                "accountId": "a1", "folder": folder, "search": search, "scope": scope
+            }))
+            .unwrap();
+            let mut v: Vec<String> = threads_for(&c, f).unwrap().into_iter().map(|t| format!("{}:{}", t.thread_id, t.folder)).collect();
+            v.sort();
+            v
+        };
+        // current scope inside Trash / Junk
+        assert_eq!(run("trash", "token", Some("current")), vec!["t-trash:trash"]);
+        assert_eq!(run("junk", "token", None), vec!["t-junk:junk"]);
+        assert_eq!(run("trash", "", Some("current")), vec!["t-trash:trash"]);
+        // current scope in the inbox does not leak trash/junk
+        assert_eq!(run("inbox", "token", Some("current")), vec!["t-inbox:inbox"]);
+        // whole mailbox / every account: trash and junk stay out
+        assert_eq!(run("inbox", "token", Some("account")), vec!["t-inbox:inbox"]);
+        assert_eq!(run("trash", "token", Some("all")), vec!["t-inbox:inbox"]);
+        assert_eq!(run("all", "token", Some("current")), vec!["t-inbox:inbox"]);
+        // explicit folder operators find them from anywhere, and report their folder
+        assert_eq!(run("inbox", "token folder:trash", Some("account")), vec!["t-trash:trash"]);
+        assert_eq!(run("inbox", "token in:junk", Some("all")), vec!["t-junk:junk"]);
+        assert_eq!(run("inbox", "token folder:spam", Some("current")), vec!["t-junk:junk"]);
+        assert_eq!(run("inbox", "token folder:bin", Some("current")), vec!["t-trash:trash"]);
     }
 }
 
