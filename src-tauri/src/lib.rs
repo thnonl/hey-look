@@ -270,9 +270,14 @@ async fn add_account(
     blocking(move || {
         let mut s = mail::connect(&a2, &pw)?;
         let _ = s.logout();
-        // only a separate SMTP login is verified up front; a shared one was never checked before either
+        // a separate SMTP login is verified up front; a shared one never was and a refusal of it still is not held against the account,
+        // but a server that cannot be secured (a plain port with SSL/TLS or STARTTLS) is reported now, as the IMAP side is (REQ-53)
         if test_smtp {
             smtp::test(&a2, &smtp_pw)?;
+        } else if let Err(e) = smtp::test(&a2, &smtp_pw) {
+            if mail::is_secure_connection_error(&e) {
+                return Err(e);
+            }
         }
         Ok(())
     })

@@ -58,6 +58,11 @@ pub fn secure_connection_error(host: &str, port: u16, raw: &str) -> String {
     )
 }
 
+/// Whether an error text is the hint of `secure_connection_error`.
+pub fn is_secure_connection_error(text: &str) -> bool {
+    text.starts_with("Couldn\u{2019}t start a secure connection to ")
+}
+
 /// Whether an SMTP error text is a failure of the TLS step (lettre words it as "tls", "starttls" or "handshake" errors).
 pub fn is_tls_step_failure(raw: &str) -> bool {
     let l = raw.to_lowercase();

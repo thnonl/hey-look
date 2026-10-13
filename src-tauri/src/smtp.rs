@@ -343,6 +343,11 @@ fn smtp_user(acc: &Account) -> String {
 }
 
 fn transport(acc: &Account, secret: &str) -> R<SmtpTransport> {
+    transport_with(acc, secret, None)
+}
+
+/// `timeout`: how long a connection step may take (lettre's own default is a minute); the checks made while an account is added use less.
+fn transport_with(acc: &Account, secret: &str, timeout: Option<std::time::Duration>) -> R<SmtpTransport> {
     let host = acc.smtp_host.as_str();
     let mut b = match acc.smtp_security.as_str() {
         "ssl" => SmtpTransport::relay(host).map_err(err)?.port(acc.smtp_port),
@@ -358,6 +363,7 @@ fn transport(acc: &Account, secret: &str) -> R<SmtpTransport> {
         b = b.tls(if acc.smtp_security == "ssl" { Tls::Wrapper(params) } else { Tls::Required(params) });
     }
     let b = b.credentials(Credentials::new(smtp_user(acc), secret.to_string()));
+    let b = if timeout.is_some() { b.timeout(timeout) } else { b };
     Ok((if acc.auth.starts_with("oauth_") { b.authentication(vec![Mechanism::Xoauth2]) } else { b }).build())
 }
 
@@ -366,7 +372,7 @@ pub fn send_raw(acc: &Account, secret: &str, env: &lettre::address::Envelope, ra
     transport(acc, secret)?.send_raw(env, raw).map_err(|e| {
         let text = e.to_string();
         // a failure of the TLS step has its own hint (REQ-53); everything else is explained as before
-        if e.status().is_none() && crate::mail::is_tls_step_failure(&text) {
+        if e.status().is_none() && is_tls_failure(&e) {
             crate::mail::secure_connection_error(&acc.smtp_host, acc.smtp_port, &text)
         } else {
             explain_send_error(e.status().map(|c| c.to_string()).as_deref(), &text)
@@ -395,15 +401,36 @@ pub fn explain_send_error(code: Option<&str>, detail: &str) -> String {
     format!("SMTP send failed: {detail}")
 }
 
+/// Whether a failed SMTP step failed while the connection was being secured (STARTTLS refused, the SSL/TLS handshake failed), as
+/// opposed to a refused or timed out connection or a refused login. lettre words a failed STARTTLS in its own words ("tls",
+/// "starttls"), but a failed SSL/TLS handshake of the native-tls backend only as "Connection error: ..." (Windows: "The token supplied
+/// to the function is invalid"), so the cause decides: a connection that could not be opened has an I/O error as its cause, a handshake
+/// that failed has the TLS library's own error (QA round 6: a plain SMTP port with SSL/TLS gave the raw text, not the REQ-53 hint).
+pub fn is_tls_failure(e: &lettre::transport::smtp::Error) -> bool {
+    use std::error::Error as _;
+    if e.status().is_some() || e.is_timeout() {
+        return false;
+    }
+    let text = e.to_string();
+    if crate::mail::is_tls_step_failure(&text) {
+        return true;
+    }
+    let from_io = e.source().is_some_and(|s| s.downcast_ref::<std::io::Error>().is_some());
+    text.starts_with("Connection error") && !from_io && !text.contains("resolve") && !text.contains("DNS name")
+}
+
+/// How long the connection test of an account being added may take.
+const TEST_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(20);
+
 /// Connect and authenticate without sending anything.
 pub fn test(acc: &Account, secret: &str) -> R<()> {
-    match transport(acc, secret)?.test_connection() {
+    match transport_with(acc, secret, Some(TEST_TIMEOUT))?.test_connection() {
         Ok(true) => Ok(()),
         Ok(false) => Err("SMTP server did not accept the connection".into()),
         Err(e) => {
             let text = e.to_string();
             // a failure of the TLS step has its own hint (REQ-53); a refused login stays "SMTP login failed"
-            if e.status().is_none() && crate::mail::is_tls_step_failure(&text) {
+            if e.status().is_none() && is_tls_failure(&e) {
                 Err(crate::mail::secure_connection_error(&acc.smtp_host, acc.smtp_port, &text))
             } else {
                 Err(format!("SMTP login failed: {e}"))
@@ -678,5 +705,73 @@ To:"), "no To header is invented: {out}");
         // a blocked-attachment failure is permanent for the scheduled-send retry rules
         assert!(!crate::schedule::is_transient(&gmail));
         assert!(!crate::schedule::is_transient(&other));
+    }
+
+    /// A mail server that does not speak TLS (QA round 6: GreenMail on 127.0.0.1:3025): it greets in plain text, knows no STARTTLS,
+    /// and answers everything else with an error. Returns its port; it serves connections until the test ends.
+    fn plain_smtp_server() -> u16 {
+        use std::io::{BufRead, BufReader, Write};
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let port = listener.local_addr().unwrap().port();
+        std::thread::spawn(move || {
+            for conn in listener.incoming().flatten() {
+                std::thread::spawn(move || {
+                    let mut w = conn.try_clone().unwrap();
+                    let _ = w.write_all(b"220 plain.test ESMTP\r\n");
+                    for line in BufReader::new(conn).split(b'\n').map_while(Result::ok) {
+                        let l = String::from_utf8_lossy(&line).to_uppercase();
+                        let reply: &[u8] = if l.starts_with("EHLO") { b"250 plain.test\r\n" } else if l.starts_with("QUIT") { b"221 bye\r\n" } else { b"500 Command not recognized\r\n" };
+                        if w.write_all(reply).is_err() || l.starts_with("QUIT") {
+                            break;
+                        }
+                    }
+                });
+            }
+        });
+        port
+    }
+
+    /// QA round 6 (OBS-R6-2, REQ-53 / AC-69): a plain SMTP port with SSL/TLS or STARTTLS is reported with the hint, not the library's
+    /// words (on Windows "The token supplied to the function is invalid").
+    #[test]
+    fn a_plain_smtp_port_with_ssl_or_starttls_gets_the_secure_connection_hint() {
+        let port = plain_smtp_server();
+        for security in ["ssl", "starttls"] {
+            let mut acc = account();
+            acc.smtp_host = "127.0.0.1".into();
+            acc.smtp_port = port;
+            acc.smtp_security = security.into();
+            acc.tls_insecure = true; // the certificate is not the question here
+            let e = test(&acc, "secret").unwrap_err();
+            assert!(crate::mail::is_secure_connection_error(&e), "{security}: {e}");
+            assert!(e.contains(&format!("127.0.0.1:{port}")) && e.contains("SSL/TLS or STARTTLS") && e.contains("(Server: "), "{security}: {e}");
+            // sending uses the same words
+            let env = lettre::address::Envelope::new(Some("me@example.com".parse().unwrap()), vec!["you@example.com".parse().unwrap()]).unwrap();
+            let e = send_raw(&acc, "secret", &env, b"Subject: x\r\n\r\nhi").unwrap_err();
+            assert!(crate::mail::is_secure_connection_error(&e), "send, {security}: {e}");
+        }
+    }
+
+    #[test]
+    fn a_closed_smtp_port_is_a_connection_problem_not_a_secure_connection_hint() {
+        // a port nothing listens on: refused, which has an I/O error as its cause
+        let port = {
+            let l = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+            l.local_addr().unwrap().port()
+        };
+        let mut acc = account();
+        acc.smtp_host = "127.0.0.1".into();
+        acc.smtp_port = port;
+        let e = test(&acc, "secret").unwrap_err();
+        assert!(!crate::mail::is_secure_connection_error(&e), "{e}");
+        assert!(e.starts_with("SMTP login failed: "), "{e}");
+    }
+
+    #[test]
+    fn the_secure_connection_hint_is_recognised_by_its_first_words() {
+        let hint = crate::mail::secure_connection_error("h", 25, "x");
+        assert!(crate::mail::is_secure_connection_error(&hint));
+        assert!(!crate::mail::is_secure_connection_error("SMTP login failed: bad password"));
+        assert!(!crate::mail::is_secure_connection_error("certificate verify failed"));
     }
 }
