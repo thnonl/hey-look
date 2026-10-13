@@ -1,11 +1,14 @@
 name: Release
 
-# Build installers for Windows, macOS and Linux when a version tag is pushed (e.g. v0.2.0),
-# then attach them to a draft GitHub Release.
+# Tag vX.Y.Z (numbers only): build installers for Windows, macOS and Linux, attach them to a draft
+# GitHub Release, check the asset names, then publish it as the latest release.
+# Manual run (workflow_dispatch) = dry run on the chosen ref: builds all three platforms and keeps the
+# bundles as workflow artifacts. It creates no tag and no release.
 on:
   push:
     tags:
-      - "v*.*.*"
+      - "v[0-9]+.[0-9]+.[0-9]+"
+  workflow_dispatch: {}
 
 permissions:
   contents: write
@@ -15,7 +18,40 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
-  release:
+  create-release:
+    # Tag runs only. Creates the one draft release that all build jobs upload into.
+    if: github.event_name == 'push'
+    runs-on: ubuntu-latest
+    outputs:
+      id: ${{ steps.mk.outputs.id }}
+    env:
+      GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - id: mk
+        run: |
+          set -euo pipefail
+          T="$GITHUB_REF_NAME"
+          V="${T#v}"
+          # No release or draft may exist for this tag yet.
+          n=$(gh api "repos/$GITHUB_REPOSITORY/releases" --paginate --jq "[.[] | select(.tag_name == \"$T\")] | length" | awk '{s+=$1} END {print s+0}')
+          if [ "$n" != "0" ]; then
+            echo "::error::A release or draft for $T already exists. Delete it first."
+            exit 1
+          fi
+          # Release notes = the CHANGELOG section for this version + the download footer.
+          bash .github/scripts/changelog-section.sh "$V" > notes.md
+          cat .github/release-footer.md >> notes.md
+          id=$(gh api -X POST "repos/$GITHUB_REPOSITORY/releases" \
+                 -f tag_name="$T" -f name="Hey Look! $T" \
+                 -F draft=true -F prerelease=false -F body=@notes.md --jq .id)
+          echo "id=$id" >> "$GITHUB_OUTPUT"
+
+  build:
+    needs: create-release
+    # Runs after create-release on tag runs, and on its own (create-release skipped) on dry runs.
+    if: ${{ !cancelled() && (needs.create-release.result == 'success' || needs.create-release.result == 'skipped') }}
     strategy:
       fail-fast: false
       matrix:
@@ -57,23 +93,15 @@ jobs:
         with:
           workspaces: src-tauri -> target
 
-      # Make the app version match the tag (v1.2.3 -> 1.2.3) so installer file names are right.
-      - name: Sync version from tag
+      # The repo files are the source of truth for the version. A tag run fails if they do not match the tag.
+      - name: Verify version matches tag
+        if: github.event_name == 'push'
         shell: bash
-        run: |
-          VERSION="${GITHUB_REF_NAME#v}"
-          node -e '
-            const fs = require("fs");
-            const v = process.argv[1];
-            const edit = (f, fn) => fs.writeFileSync(f, fn(fs.readFileSync(f, "utf8")));
-            edit("package.json", s => s.replace(/("version":\s*")[^"]+/, `$1${v}`));
-            edit("src-tauri/tauri.conf.json", s => s.replace(/("version":\s*")[^"]+/, `$1${v}`));
-            edit("src-tauri/Cargo.toml", s => s.replace(/^version = ".*"$/m, `version = "${v}"`));
-          ' "$VERSION"
+        run: node .github/scripts/verify-version.cjs "${GITHUB_REF_NAME#v}"
 
       - run: npm ci
 
-      - uses: tauri-apps/tauri-action@v0
+      - uses: tauri-apps/tauri-action@v1
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           # Embedded into the binary at build time (see src-tauri/build.rs).
@@ -82,9 +110,40 @@ jobs:
           MICROSOFT_CLIENT_ID: ${{ secrets.MICROSOFT_CLIENT_ID }}
           MICROSOFT_CLIENT_SECRET: ${{ secrets.MICROSOFT_CLIENT_SECRET }}
         with:
-          tagName: ${{ github.ref_name }}
-          releaseName: "Hey Look! ${{ github.ref_name }}"
-          releaseBody: "See the assets below to download and install this version."
-          releaseDraft: true
-          prerelease: false
+          # Upload into the draft made by create-release. Empty on dry runs: build only, upload nothing.
+          releaseId: ${{ needs.create-release.outputs.id }}
+          releaseAssetNamePattern: "HeyLook_[version]_[platform]_[arch][setup][ext]"
+          uploadUpdaterJson: false
+          uploadWorkflowArtifacts: ${{ github.event_name == 'workflow_dispatch' }}
+          # No retries while fixing the build (a real compile error would take twice as long); one on tag runs.
+          retryAttempts: ${{ github.event_name == 'push' && 1 || 0 }}
           args: ${{ matrix.args }}
+
+      - name: Check ad-hoc signature
+        if: runner.os == 'macOS'
+        run: |
+          app=$(find src-tauri/target/universal-apple-darwin/release/bundle/macos -maxdepth 1 -name '*.app' | head -n 1)
+          echo "App bundle: $app"
+          out=$(codesign -dv --verbose=2 "$app" 2>&1) || true
+          echo "$out"
+          grep -q 'Signature=adhoc' <<<"$out"
+
+  publish:
+    # Default success rule on purpose: runs only when create-release and all three builds succeeded.
+    needs: [create-release, build]
+    if: github.event_name == 'push'
+    runs-on: ubuntu-latest
+    env:
+      GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      ID: ${{ needs.create-release.outputs.id }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Check assets
+        run: |
+          gh api "repos/$GITHUB_REPOSITORY/releases/$ID/assets" --paginate --jq '.[].name' > names.txt
+          cat names.txt
+          bash .github/scripts/check-release-assets.sh "${GITHUB_REF_NAME#v}" < names.txt
+
+      - name: Publish and mark latest
+        run: gh api -X PATCH "repos/$GITHUB_REPOSITORY/releases/$ID" -F draft=false -f make_latest=true
