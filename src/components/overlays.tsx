@@ -6,6 +6,20 @@ import { fullErrorFor, useStore } from "../store";
 export function Toasts() {
   const toasts = useStore((s) => s.toasts);
   const dismiss = useStore((s) => s.dismissToast);
+  // Esc closes the newest toast that asks for it ("a new version is available"), unless a dialog, the command bar or a question is open
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key !== "Escape" || e.defaultPrevented) return;
+      const st = useStore.getState();
+      if (st.dialog || st.ask || st.passphrase || st.commandOpen) return;
+      const t = [...st.toasts].reverse().find((x) => x.escCloses);
+      if (!t) return;
+      st.dismissToast(t.id);
+      t.onDismiss?.();
+    };
+    document.addEventListener("keydown", onKey);
+    return () => document.removeEventListener("keydown", onKey);
+  }, []);
   return (
     <div className="toasts" role="status" aria-live="polite">
       {toasts.map((t) => (
@@ -39,7 +53,7 @@ export function Toasts() {
           ))}
           <button
             className="toast-x"
-            aria-label={t.onDismiss ? "Later" : "Dismiss"}
+            aria-label={t.closeLabel ?? (t.onDismiss ? "Later" : "Dismiss")}
             onClick={() => {
               dismiss(t.id);
               t.onDismiss?.();

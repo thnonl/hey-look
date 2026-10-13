@@ -308,10 +308,16 @@ export const useUpdates = create<UpdatesState>((set, get) => {
       const info = update?.info;
       if (!v || !info || toastFor === v || flowActive(flow) || !windowFocused()) return;
       set({ toastFor: v });
-      st.showToast(`Hey Look! ${v} is available.`, undefined, "info", [
-        ...(info.asset ? [{ label: "Update", run: () => void get().startUpdate("toast") }] : []),
-        { label: "What’s new", run: () => get().openSettingsAbout(false) },
-      ]);
+      // stays until the user closes it (the × or Esc), no timer
+      st.setStickyToast("update-available", {
+        text: `Hey Look! ${v} is available.`,
+        actions: [
+          ...(info.asset ? [{ label: "Update", run: () => void get().startUpdate("toast") }] : []),
+          { label: "What’s new", run: () => get().openSettingsAbout(false) },
+        ],
+        closeLabel: "Close",
+        escCloses: true,
+      });
     },
 
     startUpdate: async (source) => {
@@ -322,6 +328,7 @@ export const useUpdates = create<UpdatesState>((set, get) => {
       ring = [];
       startedAt = Date.now();
       set({ flow: { ...IDLE, state: "downloading", version: info.latest } });
+      useStore.getState().setStickyToast("update-available", null); // the announcement is answered
       useStore.getState().showToast(
         source === "consent" ? `Downloading Hey Look! ${info.latest} that you agreed to install.` : `Downloading Hey Look! ${info.latest}. You can keep working.`,
         undefined,

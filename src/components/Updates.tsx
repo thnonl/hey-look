@@ -227,7 +227,7 @@ function UpdateCard({ info, result, skipped }: { info: UpdateInfo; result: Updat
                 <button id="upd-skip" className="link" onClick={() => ((pendingFocus.current = "upd-skip"), setPrefs({ skippedUpdate: "" }))}>Remind me again</button>
               </>
             ) : (
-              <button id="upd-skip" className="link" onClick={() => ((pendingFocus.current = "upd-skip"), setPrefs({ skippedUpdate: info.latest }))}>Skip this version</button>
+              <button id="upd-skip" className="link" onClick={() => ((pendingFocus.current = "upd-skip"), setPrefs({ skippedUpdate: info.latest }), useStore.getState().setStickyToast("update-available", null))}>Skip this version</button>
             )}
           </div>
         </>

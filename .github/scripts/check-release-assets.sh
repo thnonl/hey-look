@@ -22,6 +22,11 @@ fi
 while IFS= read -r n; do
   [ -z "$n" ] && continue
   [ "$n" = "latest.json" ] && continue
+  # the only .exe that may be published is the installer
+  case "$n" in
+    *-setup.exe | *-setup.exe.sig) ;;
+    *.exe | *.exe.sig) problem "a bare executable is not allowed among the assets: '$n'"; continue ;;
+  esac
   if ! [[ "$n" =~ $name_re ]]; then
     problem "bad asset name: '$n'"
   fi

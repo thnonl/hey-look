@@ -87,6 +87,10 @@ export interface Toast {
   key?: string;
   /** what the "×" does for a sticky toast (default: just close it) */
   onDismiss?: () => void;
+  /** accessible name of the "×" (default: "Later" when `onDismiss` is set, else "Dismiss") */
+  closeLabel?: string;
+  /** Esc closes it (when nothing else that Esc closes is open) */
+  escCloses?: boolean;
 }
 
 export interface Choice {
@@ -239,7 +243,10 @@ interface State {
   showToast: (text: string, undo?: () => void, kind?: Toast["kind"], actions?: ToastAction[]) => void;
   dismissToast: (id: number) => void;
   /** A toast that stays until it is answered (or `null` to remove it); one per `key`, a new text replaces the old in place. */
-  setStickyToast: (key: string, spec: { text: string; kind?: Toast["kind"]; actions?: ToastAction[]; onDismiss?: () => void } | null) => void;
+  setStickyToast: (
+    key: string,
+    spec: { text: string; kind?: Toast["kind"]; actions?: ToastAction[]; onDismiss?: () => void; closeLabel?: string; escCloses?: boolean } | null,
+  ) => void;
   /** Count a message as being sent from now until `done()` is called. */
   beginSend: () => () => void;
   confirm: (o: { title: string; body?: string; confirmLabel?: string; danger?: boolean }) => Promise<boolean>;
@@ -826,7 +833,7 @@ export const useStore = create<State>((set, get) => ({
       const others = s.toasts.filter((t) => t.key !== key);
       if (!spec) return { toasts: others };
       const old = s.toasts.find((t) => t.key === key);
-      const toast: Toast = { id: old?.id ?? ++toastSeq, text: spec.text, kind: spec.kind ?? "info", actions: spec.actions, ttl: 0, sticky: true, key, onDismiss: spec.onDismiss };
+      const toast: Toast = { id: old?.id ?? ++toastSeq, text: spec.text, kind: spec.kind ?? "info", actions: spec.actions, ttl: 0, sticky: true, key, onDismiss: spec.onDismiss, closeLabel: spec.closeLabel, escCloses: spec.escCloses };
       // in place when it exists (the countdown changes its text every second), else on top of the stack
       return { toasts: old ? s.toasts.map((t) => (t.key === key ? toast : t)) : [...others, toast].slice(-5) };
     }),

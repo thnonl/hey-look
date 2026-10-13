@@ -1151,6 +1151,32 @@ mod tests {
     }
 
     #[test]
+    fn one_check_is_one_request_whatever_the_answer() {
+        // the answer of Python's http.server for a missing file (HTTP/1.0, an HTML body). QA saw two log lines per 404 from such a server: that server
+        // logs an error response twice (log_error + log_request); counted at the socket the app makes exactly one request
+        let py404 = "<!DOCTYPE HTML><html><head><title>Error</title></head><body><h1>Error response</h1><p>Error code: 404</p></body></html>";
+        let py = format!("HTTP/1.0 404 File not found
+Server: SimpleHTTP/0.6 Python/3.13.0
+Connection: close
+Content-Type: text/html;charset=utf-8
+Content-Length: {}
+
+{py404}", py404.len());
+        let s = stub(move |_| resp(py.clone().into_bytes()), None);
+        let app = app_for(&format!("{}/latest.json", s.base));
+        let r = run(&app, &new_db(), &AtomicBool::new(false), &ctx(&s.base, 1, "1.0.0"), Trigger::Startup);
+        std::thread::sleep(Duration::from_millis(300));
+        assert_eq!((r.kind, s.count("/latest.json")), (Kind::NoRelease, 1), "HTTP/1.0 404");
+        for (status, body) in [(404, ""), (500, "{}"), (200, "<html>"), (204, "")] {
+            let s = stub(move |_| resp(http(status, &[], body)), None);
+            let app = app_for(&format!("{}/latest.json", s.base));
+            run(&app, &new_db(), &AtomicBool::new(false), &ctx(&s.base, 1, "1.0.0"), Trigger::Startup);
+            std::thread::sleep(Duration::from_millis(300));
+            assert_eq!(s.count("/latest.json"), 1, "status {status}");
+        }
+    }
+
+    #[test]
     fn stub_failures_are_remembered() {
         let db = new_db();
         let s = stub(|_| resp(http(200, &[], "<html>")), None);
