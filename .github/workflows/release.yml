@@ -2,10 +2,14 @@ name: Release
 
 # Tag vX.Y.Z (numbers only): build signed installers for Windows, macOS and Linux, attach them to a draft GitHub Release,
 # write and check the updater manifest (latest.json), then publish the release as the latest one.
-# Manual run (workflow_dispatch) = dry run on the chosen ref: builds all three platforms and keeps the bundles as workflow
-# artifacts. It creates no tag and no release. It is signed when the repo secret TAURI_SIGNING_PRIVATE_KEY exists.
+# Manual run (workflow_dispatch) = dry run on the chosen ref: builds the chosen platforms (input `platforms`, default all three)
+# and keeps the bundles as workflow artifacts. It creates no tag and no release. It is signed when the repo secret
+# TAURI_SIGNING_PRIVATE_KEY exists. The signed dry run on the commit that will be tagged uses `platforms: all`.
 # With `test_version` (for example 0.9.0) it builds a DEBUG test build of that version (never signed, nothing committed):
 # the debug build honours HEYLOOK_UPDATE_ENDPOINT, so it can be pointed at a local latest.json to test the in-app update.
+# Use `platforms` there for just the system that is being tested (windows, macos, linux, or a list such as windows,macos).
+# A tag run always builds all three platforms. The checks that need all three (the asset list, latest.json) exist only in the
+# tag run's publish job, so a subset dry run has nothing to skip; the plan job says what was chosen.
 on:
   push:
     tags:
@@ -16,15 +20,60 @@ on:
         description: "Optional: build a debug TEST build with this version (x.y.z) for updater tests"
         required: false
         default: ""
+      platforms:
+        description: "Platforms to build: all, or one or more of windows, macos, linux separated by commas (tag runs always build all)"
+        required: false
+        default: "all"
 
 permissions:
   contents: write
 
+# One run per ref and kind at a time. A newer manual run of the same kind (and the same platforms) on the same ref cancels the one
+# that is still building; a tag run is never cancelled.
 concurrency:
-  group: release-${{ github.ref }}
-  cancel-in-progress: false
+  group: release-${{ github.ref }}-${{ github.event_name == 'push' && 'tag' || format('{0}-{1}', github.event.inputs.test_version != '' && 'test' || 'dry', github.event.inputs.platforms) }}
+  cancel-in-progress: ${{ github.event_name == 'workflow_dispatch' }}
 
 jobs:
+  plan:
+    # Which platforms to build: a tag run builds all three; a manual run builds what `platforms` names.
+    runs-on: ubuntu-latest
+    outputs:
+      matrix: ${{ steps.plan.outputs.matrix }}
+    steps:
+      - id: plan
+        shell: bash
+        env:
+          EVENT: ${{ github.event_name }}
+          PLATFORMS: ${{ github.event.inputs.platforms }}
+        run: |
+          set -euo pipefail
+          want="all"
+          if [ "$EVENT" = "workflow_dispatch" ]; then want="$(echo "${PLATFORMS:-all}" | tr 'A-Z' 'a-z' | tr -d ' ')"; fi
+          [ -n "$want" ] || want="all"
+          win=false; mac=false; lin=false
+          IFS=',' read -ra parts <<< "$want"
+          for p in "${parts[@]}"; do
+            case "$p" in
+              all) win=true; mac=true; lin=true ;;
+              windows) win=true ;;
+              macos) mac=true ;;
+              linux) lin=true ;;
+              *) echo "::error::Unknown platform '$p'. Use all, windows, macos, linux or a comma list."; exit 1 ;;
+            esac
+          done
+          items=()
+          $win && items+=('{"name":"Windows","platform":"windows-latest","args":""}')
+          $mac && items+=('{"name":"macOS (universal)","platform":"macos-latest","args":"--target universal-apple-darwin"}')
+          $lin && items+=('{"name":"Linux","platform":"ubuntu-22.04","args":""}')
+          matrix="{\"include\":[$(IFS=,; echo "${items[*]}")]}"
+          echo "matrix=$matrix" >> "$GITHUB_OUTPUT"
+          echo "Event: $EVENT. Platforms to build: $want"
+          echo "$matrix"
+          if [ "${#items[@]}" -lt 3 ]; then
+            echo "::notice::Subset run: only some platforms are built. A tag run always builds all three; the asset-list and latest.json checks run only there."
+          fi
+
   create-release:
     # Tag runs only. Creates the one draft release that all build jobs upload into.
     if: github.event_name == 'push'
@@ -56,22 +105,12 @@ jobs:
           echo "id=$id" >> "$GITHUB_OUTPUT"
 
   build:
-    needs: create-release
+    needs: [plan, create-release]
     # Runs after create-release on tag runs, and on its own (create-release skipped) on dry runs.
-    if: ${{ !cancelled() && (needs.create-release.result == 'success' || needs.create-release.result == 'skipped') }}
+    if: ${{ !cancelled() && needs.plan.result == 'success' && (needs.create-release.result == 'success' || needs.create-release.result == 'skipped') }}
     strategy:
       fail-fast: false
-      matrix:
-        include:
-          - name: Windows
-            platform: windows-latest
-            args: ""
-          - name: macOS (universal)
-            platform: macos-latest
-            args: "--target universal-apple-darwin"
-          - name: Linux
-            platform: ubuntu-22.04
-            args: ""
+      matrix: ${{ fromJSON(needs.plan.outputs.matrix) }}
 
     name: Build (${{ matrix.name }})
     runs-on: ${{ matrix.platform }}
