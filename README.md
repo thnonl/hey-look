@@ -7,9 +7,34 @@ scheduled sending, powerful search, per-mailbox settings and a calm, polished in
 Everything is included. There are no plans, tiers, license checks or accounts to create: install it, add your mail
 account, and every feature is available.
 
-- Windows 10 / 11 desktop app, built with Tauri 2 (Rust) and React
+- Desktop app for Windows 10 / 11 (the primary platform), with macOS and Linux builds, built with Tauri 2 (Rust) and React
 - Your mail goes directly between the app and your mail provider, nothing passes through a Hey Look! server
 - Open design: IMAP and SMTP, OAuth for Google and Microsoft, any OpenAI-compatible endpoint for the optional AI Assistant
+
+---
+
+## Download
+
+Get the latest version from the [GitHub Releases page](https://github.com/thnonl/hey-look/releases/latest) and install it.
+
+| System | File |
+|---|---|
+| Windows 10/11 (recommended) | `HeyLook_<version>_windows_x64-setup.exe` |
+| Windows (MSI, for managed installs) | `HeyLook_<version>_windows_x64.msi` (does not install WebView2 itself; the setup.exe does) |
+| macOS 11+ (Apple silicon and Intel) | `HeyLook_<version>_darwin_universal.dmg` |
+| Linux, any distro | `HeyLook_<version>_linux_amd64.AppImage` |
+| Debian / Ubuntu | `HeyLook_<version>_linux_amd64.deb` |
+| Fedora / openSUSE | `HeyLook_<version>_linux_x86_64.rpm` |
+
+Windows is the primary platform. The macOS and Linux builds are new, have fewer native integrations (tray badge,
+notifications), and have not been tested on real hardware by the maintainer.
+
+The installers are not code-signed yet:
+- **Windows**: if SmartScreen appears, choose **More info**, then **Run anyway**.
+- **macOS**: if the app "can't be opened", open **System Settings > Privacy & Security** and choose **Open Anyway**.
+
+Hey Look! tells you when a newer version is available (Settings > About). You download and install it yourself; the check
+can be turned off, see [Where your data lives](#where-your-data-lives).
 
 ---
 
@@ -23,7 +48,7 @@ account, and every feature is available.
 | **Settings that follow you** | One set of defaults for **All accounts**, and any mailbox can override any of them. |
 | **Search that goes deep** | Filters, operators, date pickers and a choice of scope: this folder, a whole mailbox, or everything. |
 | **Quiet by design** | Smart notifications, a calm unread badge, a tray icon that keeps working when the window is closed. |
-| **Private by default** | Remote images and trackers are blocked, passwords stay in Windows Credential Manager, no telemetry. |
+| **Private by default** | Remote images and trackers are blocked, passwords stay in Windows Credential Manager, no telemetry. The only call of its own is the optional check for a newer version (it asks GitHub; you can turn it off). |
 
 ---
 
@@ -83,6 +108,10 @@ account, and every feature is available.
 - Tray icon with an unread badge (number, dot or off), tray menu (open, new mail, check now, pause, quit)
   and a taskbar badge. Unread counts are conversations, and bulk mail can be left out
 - Optional start with Windows, minimized to the tray
+
+### Updates
+- **Check for updates** in Settings > About, and automatically when the app starts or comes back from the tray (at most every 6 hours, can be turned off). A newer version shows a dot on the Settings button, one toast per version, and a card with the release notes and a **Download** button that opens the installer for your system in your browser. **Skip this version** hides the notice for that version.
+- Hey Look! never downloads or installs anything by itself
 
 ### Appearance
 - Light, dark or follow Windows; three densities; reading pane on the right or bottom; resizable panes
@@ -146,7 +175,7 @@ App-wide options (appearance, tray, shortcuts, AI Assistant, blocked senders) li
 ### Where your data lives
 - Mail cache and settings: `%APPDATA%\thnonl.heylook\heylook.db` (SQLite)
 - Passwords, OAuth tokens, the AI key and the OAuth client secrets: Windows Credential Manager (entries named `hey-look…`)
-- Nothing is sent anywhere except to your mail servers, Google's and Microsoft's sign-in services, the Thunderbird ISPDB and your own domain's autoconfig URL when you press **Detect settings**, and the AI endpoint you configure.
+- Nothing is sent anywhere except to your mail servers, Google's and Microsoft's sign-in services, the Thunderbird ISPDB and your own domain's autoconfig URL when you press **Detect settings**, the AI endpoint you configure, and `api.github.com` for the update check (GitHub sees your IP address and the app version; turn it off in Settings > About, "Check for updates automatically", and no automatic request is made).
 
 ---
 
@@ -236,9 +265,16 @@ src-tauri/src/           Rust backend
   discover.rs            server-settings lookup (presets, autoconfig, ISPDB, DNS SRV / MX)
   winframe.rs            custom title bar on Windows: caption-button hit-testing (Snap Layouts), system menu
   shell.rs               tray icon, badges, native notifications, snooze reminders
+  update.rs              update check: latest GitHub release, version compare, installer pick, throttle
   ai.rs                  OpenAI-compatible chat client
   db.rs                  SQLite schema and settings storage
 ```
+
+### Releasing
+1. Bump the version to `X.Y.Z` in `package.json` (and `package-lock.json`), `src-tauri/tauri.conf.json` and `src-tauri/Cargo.toml` (then `cargo check` updates `Cargo.lock`), and add a `## X.Y.Z — <date>` section to `CHANGELOG.md` (no `xx` left in it).
+2. Dry run: Actions > Release > **Run workflow** on the branch (or `gh workflow run release.yml --ref <branch>`). It builds all three platforms and keeps the installers as workflow artifacts; no tag, no release.
+3. Tag the commit that passed: `git tag -a vX.Y.Z -m "Hey Look! X.Y.Z" && git push origin vX.Y.Z`. The workflow makes a draft release (notes from `CHANGELOG.md` plus `.github/release-footer.md`), uploads the installers, checks the file names and then publishes it as the latest release. If a build fails nothing is published: use "Re-run failed jobs" for a flaky step, or fix the code, delete the draft and the tag (`gh release delete vX.Y.Z --yes --cleanup-tag`, `git tag -d vX.Y.Z`) and tag again.
+4. A published tag is never moved; fixes ship as the next version.
 
 ### How it works
 - The UI never talks to a mail server. It calls Rust commands; the backend syncs IMAP folders into SQLite, and the UI
@@ -250,7 +286,9 @@ src-tauri/src/           Rust backend
 
 ## Known limitations
 
-- Windows is the supported platform; tray, notifications and badges use Windows APIs
+- Windows is the primary and supported platform; tray, notifications and badges use Windows APIs. The macOS and Linux builds are build-verified only (not tested on real hardware) and have fewer native integrations
+- The installers are not code-signed (see [Download](#download) for how to open them)
+- Updates are not installed by the app: it tells you and opens the download page in your browser
 - Mail is fetched by polling (default every 2 minutes), not IMAP IDLE push
 - Search covers mail downloaded to this computer
 - No shared inboxes; the calendar is local (no CalDAV / Exchange sync, single occurrences of a repeating event can't be edited)
