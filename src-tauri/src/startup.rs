@@ -58,19 +58,31 @@ pub fn watch(ready: impl Fn() -> bool, mut sleep: impl FnMut(Duration), mut on: 
     }
 }
 
-/// One line per stage: milliseconds since the process started, on stderr and in `<data folder>/startup.log` (capped).
-pub fn stage(app: Option<&AppHandle>, what: &str) {
+/// The data folder, for the log file (set once at start-up, so code that has no `AppHandle` can log too).
+static LOG_DIR: OnceLock<std::path::PathBuf> = OnceLock::new();
+
+pub fn init_log_dir(dir: std::path::PathBuf) {
+    let _ = LOG_DIR.set(dir);
+}
+
+/// One line per event: `[tag +ms]` (milliseconds since the process started), on stderr and in `<data folder>/startup.log` (capped).
+pub fn line(tag: &str, what: &str) {
     let ms = T0.get_or_init(Instant::now).elapsed().as_millis();
-    let line = format!("[window +{ms} ms] {what}");
+    let line = format!("[{tag} +{ms} ms] {what}");
     eprintln!("{line}");
-    let Some(dir) = app.and_then(|a| a.try_state::<crate::legacy_names::DataDir>()) else { return };
-    let path = dir.0.join("startup.log");
+    let Some(dir) = LOG_DIR.get() else { return };
+    let path = dir.join("startup.log");
     if std::fs::metadata(&path).map(|m| m.len() > LOG_CAP).unwrap_or(false) {
         let _ = std::fs::remove_file(&path);
     }
     if let Ok(mut f) = std::fs::OpenOptions::new().create(true).append(true).open(path) {
         let _ = writeln!(f, "{line}");
     }
+}
+
+/// A window stage (see `line`).
+pub fn stage(_app: Option<&AppHandle>, what: &str) {
+    line("window", what);
 }
 
 /// Call first thing in `main`-ish code so the stage clock starts with the process.
@@ -168,16 +180,55 @@ pub fn verify_painting(app: &AppHandle) {
                     let cured = REMEDIES.load(Ordering::SeqCst) > 0;
                     stage(Some(&app), &format!("native check at {ms} ms: the window shows content{}", if cured { " (the hide + show cured the black window)" } else { "" }));
                 }
-                Some(false) if REMEDIES.load(Ordering::SeqCst) < MAX_REMEDIES => {
-                    stage(Some(&app), &format!("native check at {ms} ms: one colour only (black window)"));
-                    hide_and_show(&app, "black window"); // its show starts the checks again
+                Some(false) => {
+                    stage(Some(&app), &format!("native check at {ms} ms: one colour only (black or blank window)"));
+                    escalate(&app);
                     return;
                 }
-                Some(false) => stage(Some(&app), &format!("native check at {ms} ms: still one colour after the attempts, leaving the window as it is")),
                 None => stage(Some(&app), &format!("native check at {ms} ms: the window could not be captured")),
             }
         }
     });
+}
+
+/// The app restarts itself for a blank window at most once in ten minutes (a restart that is blank again must not loop).
+pub fn restart_allowed(last_restart: Option<i64>, now: i64) -> bool {
+    last_restart.map_or(true, |t| now - t > 600 || now < t)
+}
+
+/// The ladder when the window shows one colour: hide + show (twice), then reload the page, then restart the app once. QA BUG-11: a
+/// start where two hide + show attempts did not cure a blank window (the page was alive, the native surface was not). Each step logs
+/// its own line; every step but the last starts the pixel checks again.
+fn escalate(app: &AppHandle) {
+    let n = REMEDIES.load(Ordering::SeqCst);
+    if n < MAX_REMEDIES {
+        hide_and_show(app, "blank window"); // its show starts the checks again
+    } else if n == MAX_REMEDIES {
+        REMEDIES.store(n + 1, Ordering::SeqCst);
+        stage(Some(app), "still one colour after hide + show: reloading the page");
+        if let Some(w) = app.get_webview_window("main") {
+            let _ = w.eval("window.location.reload()");
+        }
+        verify_painting(app); // checks again after the reload
+    } else if n == MAX_REMEDIES + 1 {
+        REMEDIES.store(n + 1, Ordering::SeqCst);
+        let marker = LOG_DIR.get().map(|d| d.join("blank-restart.txt"));
+        let last = marker.as_ref().and_then(|m| std::fs::read_to_string(m).ok()).and_then(|t| t.trim().parse::<i64>().ok());
+        let now = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_secs() as i64).unwrap_or(0);
+        if restart_allowed(last, now) {
+            stage(Some(app), "still one colour after the reload: restarting the app once (messages in their Undo time are kept in the outbox)");
+            // the marker tells the new process that this was a restart for a blank window: it does not restart again
+            if let Some(m) = &marker {
+                let _ = std::fs::write(m, now.to_string());
+            }
+            crate::flush_pending(app);
+            app.restart();
+        } else {
+            stage(Some(app), "still one colour after the reload, and the app already restarted for this a moment ago: leaving the window as it is");
+        }
+    } else {
+        stage(Some(app), "still one colour after every attempt: leaving the window as it is");
+    }
 }
 
 #[cfg(windows)]
@@ -334,6 +385,28 @@ mod tests {
         let mut ui = vec![[250, 250, 250]; 50];
         ui[17] = [30, 30, 30];
         assert!(!is_blank(ui), "a real screen has more than one colour");
+    }
+
+    #[test]
+    fn the_app_restarts_for_a_blank_window_at_most_once_in_ten_minutes() {
+        assert!(restart_allowed(None, 1000));
+        assert!(!restart_allowed(Some(1000), 1100), "a restart that is blank again must not loop");
+        assert!(restart_allowed(Some(1000), 1700));
+        assert!(restart_allowed(Some(5000), 100), "a marker from the future (clock changed) does not block");
+    }
+
+    #[test]
+    fn the_ladder_is_hide_show_twice_then_reload_then_restart() {
+        let src = include_str!("startup.rs");
+        let esc = &src[src.find("fn escalate").expect("escalate")..];
+        let esc = &esc[..esc.find("
+}
+").unwrap()];
+        let hide = esc.find("hide_and_show").unwrap();
+        let reload = esc.find("location.reload").unwrap();
+        let restart = esc.find("app.restart()").unwrap();
+        assert!(hide < reload && reload < restart, "{esc}");
+        assert_eq!(MAX_REMEDIES, 2);
     }
 
     #[test]

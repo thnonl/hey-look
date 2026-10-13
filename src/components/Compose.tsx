@@ -1104,6 +1104,14 @@ export function Compose({ init }: { init: ComposeInit }) {
           setSchedOpen(true);
           return;
         }
+        // Cc / Bcc are not in the Tab order (Tab from To goes to Subject); Ctrl/Cmd+Shift+C / B show and focus them
+        if ((e.ctrlKey || e.metaKey) && e.shiftKey && !e.altKey && (e.key.toLowerCase() === "c" || (e.key.toLowerCase() === "b" && !meeting))) {
+          e.preventDefault();
+          const label = e.key.toLowerCase() === "c" ? "Cc" : "Bcc";
+          setShowCc(true);
+          setTimeout(() => document.querySelector<HTMLInputElement>(`input[aria-label="${label}"]`)?.focus(), 0);
+          return;
+        }
         if ((e.ctrlKey || e.metaKey) && e.key === "Enter") {
           e.preventDefault();
           void (init.outboxId ? send(init.sendAt) : send());
@@ -1311,8 +1319,9 @@ export function Compose({ init }: { init: ComposeInit }) {
           </>
         ) : (
           <div className="cf-links">
-            <button className="link" onClick={() => setShowCc(true)}>Cc</button>
-            {!meeting && <button className="link" onClick={() => setShowCc(true)}>Bcc</button>}
+            {/* tabIndex -1: Tab from To goes to Subject (QA BUG-9); the keys are Ctrl/Cmd+Shift+C and B */}
+            <button className="link" tabIndex={-1} title={kbd("Add Cc (Ctrl+Shift+C)")} onClick={() => setShowCc(true)}>Cc</button>
+            {!meeting && <button className="link" tabIndex={-1} title={kbd("Add Bcc (Ctrl+Shift+B)")} onClick={() => setShowCc(true)}>Bcc</button>}
           </div>
         )}
         <div className="cf-field">

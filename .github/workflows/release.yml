@@ -163,6 +163,7 @@ jobs:
           node --experimental-strip-types scripts/test-mail-controls.mjs
           node --experimental-strip-types scripts/test-frame-sandbox.mjs
           node --experimental-strip-types scripts/test-addresses.mjs
+          node scripts/test-compose-tab-order.mjs
 
       - uses: tauri-apps/tauri-action@v1
         env:
