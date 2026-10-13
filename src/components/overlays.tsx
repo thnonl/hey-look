@@ -6,12 +6,14 @@ import { fullErrorFor, useStore } from "../store";
 export function Toasts() {
   const toasts = useStore((s) => s.toasts);
   const dismiss = useStore((s) => s.dismissToast);
-  // Esc closes the newest toast that asks for it ("a new version is available"), unless a dialog, the command bar or a question is open
+  // Esc closes the newest toast that asks for it ("a new version is available") when focus is on its buttons, unless a dialog, the command bar or a question is open
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if (e.key !== "Escape" || e.defaultPrevented) return;
       const st = useStore.getState();
       if (st.dialog || st.ask || st.passphrase || st.commandOpen) return;
+      // only while keyboard focus is on one of the toast's own buttons: an Esc that closed the command bar or a menu is not meant for it
+      if (!(document.activeElement instanceof Element) || !document.activeElement.closest(".toasts")) return;
       const t = [...st.toasts].reverse().find((x) => x.escCloses);
       if (!t) return;
       st.dismissToast(t.id);

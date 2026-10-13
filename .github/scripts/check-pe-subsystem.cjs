@@ -46,9 +46,10 @@ function selftest() {
 
 const args = process.argv.slice(2);
 if (args.includes("--selftest")) selftest();
-const file = args.find((a) => !a.startsWith("--"));
 const expectIdx = args.indexOf("--expect");
 const expect = expectIdx >= 0 ? args[expectIdx + 1] : null;
+// the file is the first argument that is neither an option nor the value of --expect (either order works)
+const file = args.find((a, i) => !a.startsWith("--") && i !== expectIdx + 1);
 if (!file) {
   console.error("usage: check-pe-subsystem.cjs <exe> [--expect gui|console] | --selftest");
   process.exit(2);

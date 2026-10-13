@@ -585,8 +585,11 @@ async fn download_update(update: &Update, emit: Emit, cancel: oneshot::Receiver<
     let last_emit = Arc::new(Mutex::new(Instant::now() - Duration::from_secs(1)));
     let finished = Arc::new(AtomicBool::new(false));
     let started = Arc::new(AtomicBool::new(false));
+    // the byte count the UI was last told: the throttle below drops events, so the watchdog tops it up (a burst followed by a stall
+    // must not leave the progress line stuck at the first chunk)
+    let told = Arc::new(AtomicU64::new(0));
 
-    let (e1, r1, lb1, le1, st1) = (emit.clone(), received.clone(), last_bytes.clone(), last_emit.clone(), started.clone());
+    let (e1, r1, lb1, le1, st1, t1) = (emit.clone(), received.clone(), last_bytes.clone(), last_emit.clone(), started.clone(), told.clone());
     let version = update.version.clone();
     let (e2, r2, f2) = (emit.clone(), received.clone(), finished.clone());
     let download = update.download(
@@ -599,6 +602,7 @@ async fn download_update(update: &Update, emit: Emit, cancel: oneshot::Receiver<
             let mut le = le1.lock().unwrap_or_else(|p| p.into_inner());
             if le.elapsed() >= Duration::from_millis(100) {
                 *le = Instant::now();
+                t1.store(got, Ordering::SeqCst);
                 e1(DlEvent::Progress { received: got });
             }
         },
@@ -608,9 +612,14 @@ async fn download_update(update: &Update, emit: Emit, cancel: oneshot::Receiver<
             e2(DlEvent::Verifying);
         },
     );
+    let (e3, r3, t3) = (emit.clone(), received.clone(), told.clone());
     let watchdog = async {
         loop {
             tokio::time::sleep(Duration::from_millis(250).min(stall)).await;
+            let got = r3.load(Ordering::SeqCst);
+            if got != t3.swap(got, Ordering::SeqCst) && !finished.load(Ordering::SeqCst) {
+                e3(DlEvent::Progress { received: got });
+            }
             let idle = last_bytes.lock().unwrap_or_else(|p| p.into_inner()).elapsed();
             if !finished.load(Ordering::SeqCst) && idle >= stall {
                 break;
@@ -1556,6 +1565,26 @@ Content-Length: {}
         let (res, _) = download(&update, Duration::from_secs(30), Some(Duration::from_millis(300)));
         assert_eq!(res, Err(DlEnd::Cancelled));
         assert!(t0.elapsed() < Duration::from_secs(3));
+    }
+
+    /// QA OBS-6: a burst of data and then silence left the progress line at the first chunk (the events are throttled to 10 per second
+    /// and nothing sent the last value). The UI must be told the byte count that really arrived.
+    #[test]
+    fn the_last_byte_count_reaches_the_ui_even_when_the_download_stalls() {
+        let burst = || {
+            let mut raw = b"HTTP/1.1 200 OK
+Content-Length: 1000000
+Connection: close
+
+".to_vec();
+            raw.extend(std::iter::repeat(b'x').take(300_000));
+            Resp { raw, delay: Duration::ZERO, hold: Duration::from_secs(5) }
+        };
+        let (_s, _app, update) = update_for(burst);
+        let (res, ev) = download(&update, Duration::from_millis(1500), None);
+        assert_eq!(res, Err(dl_failed("download", "The download stopped. Check your connection.")));
+        let last = ev.iter().rev().find_map(|e| if let DlEvent::Progress { received } = e { Some(*received) } else { None });
+        assert_eq!(last, Some(300_000), "events: {ev:?}");
     }
 
     #[test]
