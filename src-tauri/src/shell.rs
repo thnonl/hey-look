@@ -54,9 +54,14 @@ pub fn close_to_tray(db: &Db) -> bool {
 
 pub fn show_main(app: &AppHandle) {
     if let Some(w) = app.get_webview_window("main") {
+        let was_hidden = !w.is_visible().unwrap_or(true);
         let _ = w.unminimize();
         let _ = w.show();
         let _ = w.set_focus();
+        // a window that was hidden (first show, a tray click after a --minimized start, a second start) is looked at for a black web view
+        if was_hidden {
+            crate::startup::verify_painting(app);
+        }
         // the UI re-checks for updates when the window comes back (throttled in update.rs)
         let _ = app.emit("app-shown", ());
     }

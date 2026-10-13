@@ -77,6 +77,30 @@ function App() {
     initFrame();
   }, []);
 
+  // the page is up and has painted once: the backend shows the (hidden) window now, and reloads the page if this never arrives
+  // (a timer, not requestAnimationFrame: a page in a hidden window gets no animation frames)
+  useEffect(() => {
+    const t = setTimeout(() => void api.frontendReady().catch(() => undefined), 50);
+    // a moment after the window is shown, say whether this page is really painting (visible state + an animation frame): when it is
+    // not, the backend hides and shows the window again (the black window after an updater relaunch)
+    let check: ReturnType<typeof setTimeout> | undefined;
+    const sub = listen("app-shown", () => {
+      clearTimeout(check);
+      check = setTimeout(async () => {
+        const frames = await new Promise<boolean>((done) => {
+          requestAnimationFrame(() => done(true));
+          setTimeout(() => done(false), 700);
+        });
+        void api.pageState(document.visibilityState, frames).catch(() => undefined);
+      }, 1500);
+    });
+    return () => {
+      clearTimeout(t);
+      clearTimeout(check);
+      void sub.then((off) => off()).catch(() => undefined);
+    };
+  }, []);
+
   useEffect(() => {
     // periodic mail fetching, toasts and the tray badge live in the backend; this only re-reads local state
     const tick = setInterval(() => void useStore.getState().refresh(), 30 * 1000);

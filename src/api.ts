@@ -561,6 +561,10 @@ export const api = {
   aiComplete: (system: string, prompt: string) => invoke<string>("ai_complete", { system, prompt }),
   aiListModels: (endpoint: string, key?: string) => invoke<string[]>("ai_list_models", { endpoint, key: key ?? null }),
   /** Whether any account exists: the tray menu items "New mail" and "Check mail now" are enabled only then. */
+  /** The UI has painted its first screen: the backend may show the window (it reloads the page when this never comes). */
+  frontendReady: () => invoke<void>("frontend_ready"),
+  /** What the page sees a moment after the window was shown: `visibilityState` and whether an animation frame arrived. */
+  pageState: (visibility: string, frames: boolean) => invoke<void>("page_state", { visibility, frames }),
   setMailAvailable: (available: boolean) => invoke<void>("set_mail_available", { available }),
   shellInfo: () => invoke<{ os: string; tray: boolean; testData?: string | null }>("shell_info"),
   checkUpdate: (trigger: UpdateTrigger) => invoke<UpdateResult>("check_update", { trigger }),

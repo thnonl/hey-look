@@ -20,6 +20,7 @@ mod smtp;
 mod snippet;
 mod update;
 mod winframe;
+mod startup;
 mod winproc;
 
 use base64::Engine;
@@ -414,6 +415,18 @@ async fn oauth_sign_in(
 #[tauri::command]
 async fn discover_server(email: String) -> R<Option<discover::Discovered>> {
     discover::run(&email).await
+}
+
+/// The UI has painted its first screen: the window may be shown (startup.rs).
+#[tauri::command]
+fn frontend_ready(app: tauri::AppHandle) {
+    startup::mark_ready(&app);
+}
+
+/// The page's report on whether it is painting, a moment after the window was shown (startup.rs).
+#[tauri::command]
+fn page_state(app: tauri::AppHandle, visibility: String, frames: bool) {
+    startup::page_state(&app, &visibility, frames);
 }
 
 /// The frontend tells whether any account exists: without one the tray's "New mail" and "Check mail now" are disabled.
@@ -3172,13 +3185,17 @@ async fn ai_list_models(endpoint: String, key: Option<String>) -> R<Vec<String>>
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
+    startup::init_clock();
     let builder = tauri::Builder::default();
     // macOS and Linux notifications (Windows has its own toasts in shell.rs)
     #[cfg(not(windows))]
     let builder = builder.plugin(tauri_plugin_notification::init());
     builder
         // a second launch just brings the running instance forward
-        .plugin(tauri_plugin_single_instance::init(|app, _args, _cwd| shell::show_main(app)))
+        .plugin(tauri_plugin_single_instance::init(|app, _args, _cwd| {
+            startup::stage(Some(app), "a second start was handed to this instance: showing the window");
+            shell::show_main(app)
+        }))
         .plugin(tauri_plugin_autostart::init(tauri_plugin_autostart::MacosLauncher::LaunchAgent, Some(vec!["--minimized"])))
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_dialog::init())
@@ -3224,10 +3241,10 @@ pub fn run() {
             let handle = app.handle().clone();
             std::thread::spawn(move || sync_worker(handle));
 
-            // started by "launch at login" => stay in the tray (only when there is a tray to come back from)
-            if !std::env::args().any(|a| a == "--minimized") || !shell::tray_ready() {
-                shell::show_main(app.handle());
-            }
+            // started by "launch at login" => stay in the tray (only when there is a tray to come back from). The window is shown
+            // when its page has reported itself (not here: see startup.rs), and the page is reloaded if it never does.
+            let show_at_start = !std::env::args().any(|a| a == "--minimized") || !shell::tray_ready();
+            startup::start(app.handle(), show_at_start);
             Ok(())
         })
         .on_window_event(|window, event| {
@@ -3350,6 +3367,8 @@ pub fn run() {
             update::update_discard,
             update::update_defer,
             set_mail_available,
+            frontend_ready,
+            page_state,
             update::update_install,
             update::update_startup_state,
             update::outbox_busy
