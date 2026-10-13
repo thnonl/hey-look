@@ -31,7 +31,12 @@ notifications without buttons), and have not been tested on real hardware by the
 
 The installers are not code-signed yet:
 - **Windows**: if SmartScreen appears, choose **More info**, then **Run anyway**.
-- **macOS**: if the app "can't be opened", open **System Settings > Privacy & Security** and choose **Open Anyway**.
+- **macOS**: the app is not notarized by Apple, so macOS blocks its first start once:
+  1. Open the `.dmg`, drag **Hey Look!** to **Applications**, and start it from **Applications** (not from the disk image).
+  2. macOS says “Hey Look!” Not Opened (or “can’t be opened”). Click **Done**, not **Move to Trash**.
+  3. Open **System Settings > Privacy & Security**, scroll to **Security**, click **Open Anyway** next to the message about Hey Look!, confirm with your password or Touch ID, then click **Open**.
+
+  You do this only once; versions that Hey Look! installs itself start normally. If you use Terminal, instead of steps 2 and 3 you can run `xattr -dr com.apple.quarantine "/Applications/Hey Look!.app"` once.
 
 Hey Look! updates itself after you agree (Settings > About): it checks for a newer version, downloads it with a progress bar,
 verifies its signature and restarts into the new version; it asks first while you are writing a message. On Windows an `.msi`
@@ -104,7 +109,7 @@ app offers the download from GitHub instead. The check can be turned off, see [W
 - Only downloaded mail is searched. At the end of the results (or when there are none), **Search in <webmail>** appears for each mailbox whose webmail is known: Gmail, Outlook, Microsoft 365, Yahoo, iCloud, Fastmail and Zoho (a custom server gets no button). **Gmail** opens the same search directly, with the operators translated. The others have no search link, so the search text is copied and the webmail opens: paste it into its search box (operators the webmail is not known to understand are left out)
 
 ### Notifications and tray
-- Windows: native notifications with up to three action buttons (Archive, Delete, Mark as read, Flag, Reply, Snooze). macOS and Linux: native notifications without buttons
+- Windows: native notifications with up to three action buttons (Archive, Delete, Mark as read, Flag, Reply, Snooze). Linux: native notifications without buttons. macOS: not available in this version (see Known limitations)
 - Per-mailbox switch, sound, preview and buttons; smart mode skips newsletters
 - Snooze reminders when a conversation comes back
 - Tray icon with an unread badge (number, dot or off), tray menu (open, new mail, check now, pause, quit)
@@ -298,6 +303,10 @@ src-tauri/src/           Rust backend
 - The macOS and Linux builds are build-verified only (not tested on real hardware) and have fewer native integrations
 - The installers are not code-signed (see [Download](#download) for how to open them)
 - Updating needs permission on some systems: MSI installs ask for administrator rights (UAC), `.deb` and `.rpm` installs ask for your password. If an update cannot be installed, the app offers the download from GitHub instead
+- Mail servers must offer SSL/TLS or STARTTLS; servers that only accept unencrypted connections can't be added.
+- Hey Look! doesn't create missing standard folders. On a server without a Drafts, Sent, Archive or Deleted Items folder, the actions that need that folder show an error.
+- If Hey Look! is closed by force (an installer, Task Manager, a crash) while you are writing, the unsaved text is lost; a message you already sent is kept and goes out at the next start.
+- macOS: notifications are not shown in this version because the app is not signed with an Apple Developer ID. New mail still shows in the app and in the menu-bar icon.
 - Mail is fetched by polling (default every 2 minutes), not IMAP IDLE push
 - Search covers mail downloaded to this computer
 - No shared inboxes; the calendar is local (no CalDAV / Exchange sync, single occurrences of a repeating event can't be edited)
