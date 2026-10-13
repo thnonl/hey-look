@@ -174,13 +174,16 @@ jobs:
           retryAttempts: ${{ github.event_name == 'push' && 1 || 0 }}
           args: ${{ matrix.args }} ${{ steps.sign.outputs.extra }}
 
-      # tauri-action keeps only the installers as workflow artifacts: keep the updater signatures of a dry run too
+      # tauri-action keeps only the installers as workflow artifacts: keep the updater signatures of a dry run too, and the
+      # macOS update package (.app.tar.gz, not an installer artifact) that its signature belongs to
       - name: Keep the signatures of a dry run
         if: github.event_name == 'workflow_dispatch'
         uses: actions/upload-artifact@v4
         with:
           name: signatures-${{ runner.os }}
-          path: src-tauri/target/**/bundle/**/*.sig
+          path: |
+            src-tauri/target/**/bundle/**/*.sig
+            src-tauri/target/**/bundle/macos/*.app.tar.gz
           if-no-files-found: ${{ steps.sign.outputs.signed == 'true' && 'error' || 'ignore' }}
 
       - name: Check ad-hoc signature
