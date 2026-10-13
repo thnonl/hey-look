@@ -307,6 +307,8 @@ fn restart_app(app: &AppHandle, why: &str) {
     if let Some(m) = &marker {
         let _ = std::fs::write(m, kept.iter().map(|t| t.to_string()).collect::<Vec<_>>().join("\n"));
     }
+    // closing the web view during the restart ends its processes: that is no failure to report
+    mark_exiting();
     crate::flush_pending(app);
     // the new process waits for this one to be gone, and for its web view processes, so it does not join a dying browser process
     // SAFETY: set right before the process is replaced; nothing else reads the variable meanwhile
