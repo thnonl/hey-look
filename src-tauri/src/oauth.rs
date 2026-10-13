@@ -295,7 +295,7 @@ pub fn access_token(provider: Provider, tenant: &str, account_id: &str, client_i
         }
     }
     let label = provider.label();
-    let entry = keyring::Entry::new("hey-look", account_id).map_err(|e| format!("no stored {label} token: {e}"))?;
+    let entry = keyring::Entry::new(crate::KEYRING_SERVICE, account_id).map_err(|e| format!("no stored {label} token: {e}"))?;
     let refresh = entry.get_password().map_err(|e| format!("no stored {label} token: {e}"))?;
     let mut form = vec![("client_id", client_id), ("refresh_token", refresh.as_str()), ("grant_type", "refresh_token")];
     if !client_secret.is_empty() {

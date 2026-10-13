@@ -173,8 +173,8 @@ App-wide options (appearance, tray, shortcuts, AI Assistant, blocked senders) li
 3. Your mail downloads in the background. Closing the window keeps Hey Look! running in the tray; use **Quit** in the tray menu to exit. (Turn off "Keep running in the tray when the window is closed" in Settings and the close button quits instead, after asking when scheduled messages are waiting.)
 
 ### Where your data lives
-- Mail cache and settings: `%APPDATA%\thnonl.heylook\heylook.db` (SQLite)
-- Passwords, OAuth tokens, the AI key and the OAuth client secrets: Windows Credential Manager (entries named `hey-look…`)
+- Mail cache and settings: `%APPDATA%\thnonl.heylook\heylook.db` (SQLite; macOS `~/Library/Application Support/thnonl.heylook/`, Linux `~/.local/share/thnonl.heylook/`)
+- Passwords, OAuth tokens, the AI key and the OAuth client secrets: Windows Credential Manager (entries named `heylook…`)
 - Nothing is sent anywhere except to your mail servers, Google's and Microsoft's sign-in services, the Thunderbird ISPDB and your own domain's autoconfig URL when you press **Detect settings**, the AI endpoint you configure, and github.com for the update check (GitHub sees your IP address; when you agree to update, the installer is downloaded from github.com). Turn the check off in Settings > About, "Check for updates automatically", and no automatic request is made.
 
 ---

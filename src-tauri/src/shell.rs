@@ -297,8 +297,9 @@ pub fn setup_tray(app: &AppHandle, db: &Db) -> tauri::Result<()> {
 #[cfg(windows)]
 pub fn register_aumid(app: &AppHandle) {
     use std::os::windows::process::CommandExt;
-    let Ok(dir) = app.path().app_data_dir() else { return };
-    let icon = dir.join("icon.png");
+    crate::legacy_names::remove_old_notification_id();
+    let Some(data) = app.try_state::<crate::legacy_names::DataDir>() else { return };
+    let icon = data.0.join("icon.png");
     let _ = std::fs::write(&icon, include_bytes!("../icons/128x128.png"));
     let key = format!(r"HKCU\Software\Classes\AppUserModelId\{AUMID}");
     for (name, val) in [("DisplayName", "Hey Look!"), ("IconUri", icon.to_str().unwrap_or(""))] {

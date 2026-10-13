@@ -4,6 +4,7 @@ mod calendar;
 mod db;
 mod discover;
 mod ical;
+mod legacy_names;
 mod mail;
 mod oauth;
 mod oauth_page;
@@ -32,6 +33,9 @@ use tauri_plugin_opener::OpenerExt;
 
 type Db = Arc<Mutex<Connection>>;
 
+/// Name under which passwords, tokens and secrets are kept in the system credential store.
+pub(crate) const KEYRING_SERVICE: &str = "heylook";
+
 struct AppState {
     db: Db,
 }
@@ -49,7 +53,7 @@ fn lock(db: &Db) -> std::sync::MutexGuard<'_, Connection> {
 }
 
 fn password(account_id: &str) -> R<String> {
-    keyring::Entry::new("hey-look", account_id)
+    keyring::Entry::new(KEYRING_SERVICE, account_id)
         .and_then(|e| e.get_password())
         .map_err(|e| format!("no stored password: {e}"))
 }
@@ -108,7 +112,7 @@ fn client_secret_key(p: Provider) -> &'static str {
 const SECRET_NAMES: [&str; 3] = ["ai_key", "google_client_secret", "microsoft_client_secret"];
 
 fn secret_get(name: &str) -> Option<String> {
-    keyring::Entry::new("hey-look", &format!("secret:{name}"))
+    keyring::Entry::new(KEYRING_SERVICE, &format!("secret:{name}"))
         .ok()?
         .get_password()
         .ok()
@@ -116,7 +120,7 @@ fn secret_get(name: &str) -> Option<String> {
 }
 
 fn secret_set(name: &str, value: &str) -> R<()> {
-    let e = keyring::Entry::new("hey-look", &format!("secret:{name}")).map_err(err)?;
+    let e = keyring::Entry::new(KEYRING_SERVICE, &format!("secret:{name}")).map_err(err)?;
     if value.is_empty() {
         let _ = e.delete_credential();
         Ok(())
@@ -182,7 +186,7 @@ fn secret(db: &Db, acc: &Account) -> R<String> {
 /// Password (or token) for SMTP: the separate SMTP password when one is stored, else the IMAP secret.
 fn smtp_secret(db: &Db, acc: &Account) -> R<String> {
     if Provider::from_auth(&acc.auth).is_none() {
-        if let Some(pw) = keyring::Entry::new("hey-look", &format!("{}:smtp", acc.id)).ok().and_then(|e| e.get_password().ok()) {
+        if let Some(pw) = keyring::Entry::new(KEYRING_SERVICE, &format!("{}:smtp", acc.id)).ok().and_then(|e| e.get_password().ok()) {
             return Ok(pw);
         }
     }
@@ -261,11 +265,11 @@ async fn add_account(
         Ok(())
     })
     .await?;
-    keyring::Entry::new("hey-look", &acc.id)
+    keyring::Entry::new(KEYRING_SERVICE, &acc.id)
         .and_then(|e| e.set_password(&password_value))
         .map_err(|e| format!("cannot store password: {e}"))?;
     if let Some(sp) = &smtp_password {
-        keyring::Entry::new("hey-look", &format!("{}:smtp", acc.id))
+        keyring::Entry::new(KEYRING_SERVICE, &format!("{}:smtp", acc.id))
             .and_then(|e| e.set_password(sp))
             .map_err(|e| format!("cannot store SMTP password: {e}"))?;
     }
@@ -359,7 +363,7 @@ async fn oauth_sign_in(
         smtp_username: String::new(),
         tls_insecure: false,
     };
-    keyring::Entry::new("hey-look", &acc.id)
+    keyring::Entry::new(KEYRING_SERVICE, &acc.id)
         .and_then(|e| e.set_password(&signed.refresh_token))
         .map_err(|e| format!("cannot store token: {e}"))?;
     oauth::cache_token(&acc.id, &signed.access_token, 3300);
@@ -411,7 +415,7 @@ fn update_account(state: tauri::State<AppState>, account_id: String, display_nam
 fn remove_account(state: tauri::State<AppState>, account_id: String) -> R<()> {
     db::remove_account(&lock(&state.db), &account_id)?;
     for name in [account_id.clone(), format!("{account_id}:smtp")] {
-        if let Ok(e) = keyring::Entry::new("hey-look", &name) {
+        if let Ok(e) = keyring::Entry::new(KEYRING_SERVICE, &name) {
             let _ = e.delete_credential();
         }
     }
@@ -3107,8 +3111,9 @@ pub fn run() {
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_updater::Builder::new().build())
         .setup(|app| {
-            let dir = app.path().app_data_dir()?;
-            std::fs::create_dir_all(&dir)?;
+            // the data folder of this identifier (data saved under the old names is moved there once, see legacy_names.rs)
+            let dir = legacy_names::data_dir(app.handle())?;
+            app.manage(legacy_names::DataDir(dir.clone()));
             let conn = db::open(&dir.join("heylook.db"))?;
             let db: Db = Arc::new(Mutex::new(conn));
             outbox_startup(&db);
@@ -3121,6 +3126,7 @@ pub fn run() {
             });
             app.manage(AppState { db: db.clone() });
             app.manage(update::UpdState::default());
+            legacy_names::migrate_keyring(&db, &SECRET_NAMES);
             migrate_secrets(&db);
             // settings and rows that still point at an account that no longer exists are removed
             if let Err(e) = db::prune_orphans(&lock(&db)) {
