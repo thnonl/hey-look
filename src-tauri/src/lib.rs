@@ -3105,6 +3105,7 @@ pub fn run() {
         .plugin(tauri_plugin_autostart::init(tauri_plugin_autostart::MacosLauncher::LaunchAgent, Some(vec!["--minimized"])))
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_dialog::init())
+        .plugin(tauri_plugin_updater::Builder::new().build())
         .setup(|app| {
             let dir = app.path().app_data_dir()?;
             std::fs::create_dir_all(&dir)?;
@@ -3119,6 +3120,7 @@ pub fn run() {
                 let _ = attach::cleanup_older_than(&std::env::temp_dir().join("HeyLook"), 24 * 3600, std::time::SystemTime::now());
             });
             app.manage(AppState { db: db.clone() });
+            app.manage(update::UpdState::default());
             migrate_secrets(&db);
             // settings and rows that still point at an account that no longer exists are removed
             if let Err(e) = db::prune_orphans(&lock(&db)) {
@@ -3259,10 +3261,22 @@ pub fn run() {
             has_secret,
             ai_complete,
             ai_list_models,
-            update::check_update
+            update::check_update,
+            update::update_download,
+            update::update_cancel,
+            update::update_discard,
+            update::update_install,
+            update::update_startup_state,
+            update::outbox_busy
         ])
-        .run(tauri::generate_context!())
-        .expect("error while running tauri application");
+        .build(tauri::generate_context!())
+        .expect("error while building tauri application")
+        .run(|app, event| {
+            // every way out of the app (tray Quit, the close button when it quits, Cmd+Q, app.exit) passes here: a downloaded update the user chose to keep for later is installed now
+            if matches!(event, tauri::RunEvent::ExitRequested { .. } | tauri::RunEvent::Exit) {
+                update::install_on_exit(app);
+            }
+        });
 }
 
 #[cfg(test)]

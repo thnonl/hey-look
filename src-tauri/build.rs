@@ -24,5 +24,13 @@ fn main() {
             }
         }
     }
+    // comctl32 (TaskDialogIndirect, used by the dialog plugin) is loaded on first use instead of at process start. The app has the
+    // comctl32 v6 manifest either way; the unit-test executable has none and could not start at all once its tests build a mock
+    // Tauri app (STATUS_ENTRYPOINT_NOT_FOUND, see update.rs).
+    if std::env::var("CARGO_CFG_TARGET_OS").is_ok_and(|v| v == "windows") && std::env::var("CARGO_CFG_TARGET_ENV").is_ok_and(|v| v == "msvc") {
+        println!("cargo:rustc-link-arg=/DELAYLOAD:comctl32.dll");
+        println!("cargo:rustc-link-arg=delayimp.lib");
+        println!("cargo:rustc-link-arg=/IGNORE:4199");
+    }
     tauri_build::build()
 }
