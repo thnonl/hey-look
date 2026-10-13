@@ -3127,7 +3127,10 @@ pub fn run() {
             app.manage(AppState { db: db.clone() });
             app.manage(update::UpdState::default());
             legacy_names::migrate_keyring(&db, &SECRET_NAMES);
-            migrate_secrets(&db);
+            // (secrets of an old database go to the system credential store, which a test data folder must not touch)
+            if !legacy_names::data_dir_overridden() {
+                migrate_secrets(&db);
+            }
             // settings and rows that still point at an account that no longer exists are removed
             if let Err(e) = db::prune_orphans(&lock(&db)) {
                 eprintln!("could not clean up leftovers of removed accounts: {e}");
