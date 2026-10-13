@@ -9,7 +9,9 @@
 | Debian / Ubuntu | `....deb` |
 | Fedora / openSUSE | `....rpm` |
 
-Ignore the `.app.tar.gz` file unless you know you need it.
+The `.sig` files, `latest.json` and the `.app.tar.gz` are used by the app’s updater; you don’t need them.
+
+Already using Hey Look!? It updates itself (Settings > About).
 
 The installers are not code-signed yet.
 - Windows: if SmartScreen appears, choose "More info" > "Run anyway".

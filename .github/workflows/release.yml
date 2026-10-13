@@ -1,14 +1,21 @@
 name: Release
 
-# Tag vX.Y.Z (numbers only): build installers for Windows, macOS and Linux, attach them to a draft
-# GitHub Release, check the asset names, then publish it as the latest release.
-# Manual run (workflow_dispatch) = dry run on the chosen ref: builds all three platforms and keeps the
-# bundles as workflow artifacts. It creates no tag and no release.
+# Tag vX.Y.Z (numbers only): build signed installers for Windows, macOS and Linux, attach them to a draft GitHub Release,
+# write and check the updater manifest (latest.json), then publish the release as the latest one.
+# Manual run (workflow_dispatch) = dry run on the chosen ref: builds all three platforms and keeps the bundles as workflow
+# artifacts. It creates no tag and no release. It is signed when the repo secret TAURI_SIGNING_PRIVATE_KEY exists.
+# With `test_version` (for example 0.9.0) it builds a DEBUG test build of that version (never signed, nothing committed):
+# the debug build honours HEYLOOK_UPDATE_ENDPOINT, so it can be pointed at a local latest.json to test the in-app update.
 on:
   push:
     tags:
       - "v[0-9]+.[0-9]+.[0-9]+"
-  workflow_dispatch: {}
+  workflow_dispatch:
+    inputs:
+      test_version:
+        description: "Optional: build a debug TEST build with this version (x.y.z) for updater tests"
+        required: false
+        default: ""
 
 permissions:
   contents: write
@@ -93,11 +100,51 @@ jobs:
         with:
           workspaces: src-tauri -> target
 
-      # The repo files are the source of truth for the version. A tag run fails if they do not match the tag.
-      - name: Verify version matches tag
-        if: github.event_name == 'push'
+      # Is there a signing key? Tag run: it must be there. Dry run: signed with it, or built unsigned (with a warning) without.
+      # A test build (test_version) is never signed. The key itself is never printed.
+      - name: Signing key
+        id: sign
         shell: bash
-        run: node .github/scripts/verify-version.cjs "${GITHUB_REF_NAME#v}"
+        env:
+          KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TEST_VERSION: ${{ github.event.inputs.test_version }}
+        run: |
+          NOUPD="--config src-tauri/tauri.no-updater.conf.json"
+          if [ "${{ github.event_name }}" = "push" ]; then
+            if [ -z "$KEY" ]; then
+              echo "::error::TAURI_SIGNING_PRIVATE_KEY is not set: a release must be signed"
+              exit 1
+            fi
+            echo "extra=" >> "$GITHUB_OUTPUT"
+            echo "pubkey=error" >> "$GITHUB_OUTPUT"
+          elif [ -n "$TEST_VERSION" ]; then
+            echo "Test build $TEST_VERSION (debug, no updater artifacts)"
+            echo "extra=--debug $NOUPD" >> "$GITHUB_OUTPUT"
+            echo "pubkey=error" >> "$GITHUB_OUTPUT"
+          elif [ -n "$KEY" ]; then
+            echo "extra=" >> "$GITHUB_OUTPUT"
+            echo "pubkey=error" >> "$GITHUB_OUTPUT"
+          else
+            echo "::warning::Unsigned dry run: TAURI_SIGNING_PRIVATE_KEY is not set"
+            echo "extra=$NOUPD" >> "$GITHUB_OUTPUT"
+            echo "pubkey=warn" >> "$GITHUB_OUTPUT"
+          fi
+
+      # Test build only: the version of this checkout is changed (never committed).
+      - name: Set test version
+        if: github.event_name == 'workflow_dispatch' && github.event.inputs.test_version != ''
+        shell: bash
+        env:
+          TEST_VERSION: ${{ github.event.inputs.test_version }}
+        run: node .github/scripts/set-version.cjs "$TEST_VERSION"
+
+      # The repo files are the source of truth for the version: a tag run fails if they do not match the tag.
+      # The updater public key must be in tauri.conf.json (warning only for an unsigned dry run).
+      - name: Verify version and updater key
+        shell: bash
+        run: |
+          if [ "${{ github.event_name }}" = "push" ]; then V="${GITHUB_REF_NAME#v}"; else V="-"; fi
+          node .github/scripts/verify-version.cjs "$V" . --pubkey=${{ steps.sign.outputs.pubkey }}
 
       - run: npm ci
 
@@ -109,20 +156,24 @@ jobs:
           GOOGLE_CLIENT_SECRET: ${{ secrets.GOOGLE_CLIENT_SECRET }}
           MICROSOFT_CLIENT_ID: ${{ secrets.MICROSOFT_CLIENT_ID }}
           MICROSOFT_CLIENT_SECRET: ${{ secrets.MICROSOFT_CLIENT_SECRET }}
+          # Signs the update packages (minisign). Only this step gets the key.
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
         with:
           # Upload into the draft made by create-release. Empty on dry runs: build only, upload nothing.
           releaseId: ${{ needs.create-release.outputs.id }}
           releaseAssetNamePattern: "HeyLook_[version]_[platform]_[arch][setup][ext]"
           uploadUpdaterJson: false
+          uploadUpdaterSignatures: true
           uploadWorkflowArtifacts: ${{ github.event_name == 'workflow_dispatch' }}
           # No retries while fixing the build (a real compile error would take twice as long); one on tag runs.
           retryAttempts: ${{ github.event_name == 'push' && 1 || 0 }}
-          args: ${{ matrix.args }}
+          args: ${{ matrix.args }} ${{ steps.sign.outputs.extra }}
 
       - name: Check ad-hoc signature
         if: runner.os == 'macOS'
         run: |
-          app=$(find src-tauri/target/universal-apple-darwin/release/bundle/macos -maxdepth 1 -name '*.app' | head -n 1)
+          app=$(find src-tauri/target/universal-apple-darwin -maxdepth 5 -name '*.app' -path '*/bundle/macos/*' | head -n 1)
           echo "App bundle: $app"
           out=$(codesign -dv --verbose=2 "$app" 2>&1) || true
           echo "$out"
@@ -139,11 +190,41 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Check assets
+      # A re-run ("Re-run failed jobs") finds the manifest of the last attempt: it is made again from the current assets.
+      - name: Remove an old latest.json
+        run: |
+          gh api "repos/$GITHUB_REPOSITORY/releases/$ID/assets" --paginate --jq '.[] | select(.name == "latest.json") | .id' | while read -r aid; do
+            [ -n "$aid" ] && gh api -X DELETE "repos/$GITHUB_REPOSITORY/releases/assets/$aid"
+          done
+          true
+
+      - name: Check installers and signatures
         run: |
           gh api "repos/$GITHUB_REPOSITORY/releases/$ID/assets" --paginate --jq '.[].name' > names.txt
           cat names.txt
-          bash .github/scripts/check-release-assets.sh "${GITHUB_REF_NAME#v}" < names.txt
+          bash .github/scripts/check-release-assets.sh "${GITHUB_REF_NAME#v}" --pre < names.txt
+
+      - name: Write and upload latest.json
+        run: |
+          set -euo pipefail
+          V="${GITHUB_REF_NAME#v}"
+          gh api "repos/$GITHUB_REPOSITORY/releases/$ID/assets" --paginate --jq '.[] | {name: .name, size: .size, id: .id}' | jq -s . > assets.json
+          mkdir sigs
+          jq -r '.[] | select(.name | endswith(".sig")) | "\(.id) \(.name)"' assets.json | while read -r aid aname; do
+            gh api -H "Accept: application/octet-stream" "repos/$GITHUB_REPOSITORY/releases/assets/$aid" > "sigs/$aname"
+          done
+          bash .github/scripts/changelog-section.sh "$V" > notes.md
+          node .github/scripts/make-latest-json.cjs generate --version "$V" --assets assets.json --sigs sigs --notes notes.md > latest.json
+          node .github/scripts/make-latest-json.cjs check latest.json --version "$V"
+          gh release upload "$GITHUB_REF_NAME" latest.json --clobber
+
+      - name: Check the final asset list and latest.json
+        run: |
+          V="${GITHUB_REF_NAME#v}"
+          gh api "repos/$GITHUB_REPOSITORY/releases/$ID/assets" --paginate --jq '.[].name' > names.txt
+          cat names.txt
+          bash .github/scripts/check-release-assets.sh "$V" < names.txt
+          node .github/scripts/make-latest-json.cjs check latest.json --version "$V"
 
       - name: Publish and mark latest
         run: gh api -X PATCH "repos/$GITHUB_REPOSITORY/releases/$ID" -F draft=false -f make_latest=true

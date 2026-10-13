@@ -11,4 +11,4 @@ First public release of Hey Look!, a fast, private desktop mail client.
 - OpenPGP encryption and signing
 - Optional AI Assistant with any OpenAI-compatible endpoint
 - Tray icon with unread badge and native notifications (Windows)
-- New: Hey Look! tells you when a new version is available (Settings > About)
+- New: Hey Look! updates itself. When a new version is out, agree once, keep working while it downloads, and the app restarts into the new version (it asks first while you are writing)
