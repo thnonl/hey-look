@@ -197,6 +197,14 @@ fn rebuild(conn: &Connection) -> R<()> {
            SELECT RAISE(ABORT, 'no mail file for this account (it was removed)'); END;",
         if ids.is_empty() { "''".to_string() } else { known }
     ));
+    // rows that belong to no attached shard (none at all on a fresh folder or after the last account was removed): the view holds
+    // none of them, so a DELETE / UPDATE on `messages` changes nothing - but SQLite refuses the statement outright
+    // ("cannot modify messages because it is a view") unless some INSTEAD OF trigger exists for it
+    let none_of = if ids.is_empty() { "''".to_string() } else { ids.iter().map(|id| format!("'{id}'")).collect::<Vec<_>>().join(",") };
+    sql.push_str(&format!(
+        "CREATE TEMP TRIGGER msg_del_none INSTEAD OF DELETE ON messages WHEN OLD.account_id IS NULL OR OLD.account_id NOT IN ({none_of}) BEGIN SELECT 1; END;
+         CREATE TEMP TRIGGER msg_upd_none INSTEAD OF UPDATE ON messages WHEN OLD.account_id IS NULL OR OLD.account_id NOT IN ({none_of}) BEGIN SELECT 1; END;"
+    ));
     conn.execute_batch(&sql).map_err(err)
 }
 
@@ -582,6 +590,34 @@ mod tests {
         let c = crate::db::open(&dir.join("heylook.db")).unwrap();
         assert!(!dir.join(file_name(A)).exists());
         assert_eq!(n(&c, "SELECT COUNT(*) FROM messages"), 1);
+        drop(c);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// A fresh folder has no account and so no shard: the start-up cleanup (DELETE ... FROM messages) must not fail on the empty view,
+    /// and neither must removing the last account (which runs the same cleanup).
+    #[test]
+    fn a_fresh_folder_and_the_last_removal_can_run_the_cleanup() {
+        let dir = temp_dir("fresh-cleanup");
+        let c = crate::db::open(&dir.join("heylook.db")).unwrap();
+        assert!(crate::db::prune_orphans(&c).is_ok(), "{:?}", crate::db::prune_orphans(&c).err());
+        c.execute("DELETE FROM messages WHERE account_id NOT IN (SELECT id FROM accounts)", []).unwrap();
+        c.execute("UPDATE messages SET seen=1 WHERE account_id='nobody'", []).unwrap();
+        // one account, then removed: the view ends up with no shard again
+        let acc = crate::db::Account {
+            id: A.into(), email: "a@x.example".into(), display_name: "N".into(), imap_host: "h".into(), imap_port: 993, imap_ssl: true,
+            smtp_host: "s".into(), smtp_port: 465, smtp_security: "ssl".into(), username: "u".into(), auth: "password".into(), color: None,
+            smtp_username: String::new(), tls_insecure: false,
+        };
+        crate::db::insert_account(&c, &acc).unwrap();
+        put(&c, "a1", A, 1, "one");
+        crate::db::remove_account(&c, A).unwrap();
+        assert_eq!(n(&c, "SELECT COUNT(*) FROM messages"), 0);
+        assert!(crate::db::prune_orphans(&c).is_ok());
+        drop(c);
+        // and a restart of the same folder
+        let c = crate::db::open(&dir.join("heylook.db")).unwrap();
+        assert!(crate::db::prune_orphans(&c).is_ok());
         drop(c);
         let _ = std::fs::remove_dir_all(&dir);
     }
