@@ -33,8 +33,10 @@ The installers are not code-signed yet:
 - **Windows**: if SmartScreen appears, choose **More info**, then **Run anyway**.
 - **macOS**: if the app "can't be opened", open **System Settings > Privacy & Security** and choose **Open Anyway**.
 
-Hey Look! tells you when a newer version is available (Settings > About). You download and install it yourself; the check
-can be turned off, see [Where your data lives](#where-your-data-lives).
+Hey Look! updates itself after you agree (Settings > About): it checks for a newer version, downloads it with a progress bar,
+verifies its signature and restarts into the new version; it asks first while you are writing a message. On Windows an `.msi`
+install asks for administrator rights, `.deb` and `.rpm` installs ask for your password, and if an update cannot be installed the
+app offers the download from GitHub instead. The check can be turned off, see [Where your data lives](#where-your-data-lives).
 
 ---
 

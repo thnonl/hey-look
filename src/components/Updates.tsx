@@ -134,7 +134,6 @@ function UpdateCard({ info, result, skipped }: { info: UpdateInfo; result: Updat
 
       {(st === "downloading" || st === "verifying") && (
         <>
-          <span className="sr-only">{st === "downloading" ? `Downloading Hey Look! ${info.latest}…` : "Verifying the download…"}</span>
           <div aria-live="off">
             {st === "downloading" ? (
               <div className="update-flow-line">
@@ -251,12 +250,27 @@ export function UpdatesBlock({ autoSwitch }: { autoSwitch: ReactNode }) {
   const retry = <button className="link" onClick={check}>Try again</button>;
   const checked = checkedAt == null ? "never" : Date.now() / 1000 - checkedAt < 60 ? "just now" : fmtWhen(checkedAt);
   const info = update?.info ?? null;
+  const flow = useUpdates((s) => s.flow);
 
-  let status: ReactNode = null;
-  if (busy) status = <p className="muted">Checking for updates…</p>;
-  else if (update && kind === "available" && info) status = <UpdateCard info={info} result={update} skipped={info.latest === skippedUpdate} />;
-  else if (update && kind === "upToDate" && info)
-    status = (
+  // `live` is the short state text a screen reader announces; the card itself is outside the live region
+  let live: ReactNode = null;
+  let card: ReactNode = null;
+  if (busy) live = <p className="muted">Checking for updates…</p>;
+  else if (update && kind === "available" && info) {
+    card = <UpdateCard info={info} result={update} skipped={info.latest === skippedUpdate} />;
+    const mine = flow.state !== "idle" && flow.version === info.latest ? flow.state : "idle";
+    const line =
+      mine === "downloading" ? `Downloading Hey Look! ${info.latest}…`
+      : mine === "verifying" ? "Verifying the download…"
+      : mine === "ready" ? (flow.countdown != null ? `Hey Look! ${info.latest} is ready. Restarting in ${flow.countdown} s.` : `Hey Look! ${info.latest} is ready to install.`)
+      : mine === "waiting" ? "Finishing sending your message…"
+      : mine === "installing" ? "Installing the update…"
+      : mine === "deferred" ? "The update will be installed when you quit the app."
+      : mine === "failed" ? failedText(flow)
+      : `Hey Look! ${info.latest} is available.`;
+    live = <span className="sr-only">{line}</span>;
+  } else if (update && kind === "upToDate" && info)
+    live = (
       <div className="notice good">
         {info.latest === update.current
           ? `You’re up to date. Hey Look! ${update.current} is the latest version.`
@@ -264,15 +278,25 @@ export function UpdatesBlock({ autoSwitch }: { autoSwitch: ReactNode }) {
       </div>
     );
   else if (kind === "noRelease")
-    status = (
+    live = (
       <div className="notice info">
         Couldn’t find update information on GitHub. Try again later, or see the{" "}
-        <button className="link" onClick={() => void openUpdateLink("https://github.com/thnonl/hey-look/releases")}>releases page</button>.
+        <a
+          className="link"
+          href="https://github.com/thnonl/hey-look/releases"
+          onClick={(e) => {
+            e.preventDefault();
+            void openUpdateLink("https://github.com/thnonl/hey-look/releases");
+          }}
+        >
+          releases page
+        </a>
+        .
       </div>
     );
-  else if (kind === "offline") status = <div className="notice bad">Couldn’t check for updates. You seem to be offline. {retry}</div>;
+  else if (kind === "offline") live = <div className="notice bad">Couldn’t check for updates. You seem to be offline. {retry}</div>;
   else if (kind === "error")
-    status = (
+    live = (
       <div className="notice bad">
         Couldn’t check for updates{update?.message ? `: ${update.message}` : ""}. {retry}
       </div>
@@ -281,7 +305,8 @@ export function UpdatesBlock({ autoSwitch }: { autoSwitch: ReactNode }) {
   return (
     <div>
       <h4>Updates</h4>
-      <div className="update-live" role="status" aria-live="polite">{status}</div>
+      <div className="update-live" role="status" aria-live="polite">{live}</div>
+      {card}
       <div className="update-status">
         <span className="muted small">Last checked: {checked}</span>
         <button ref={btn} className="btn small" disabled={busy} aria-busy={busy || undefined} onClick={check}>

@@ -192,7 +192,7 @@ interface State {
   composeKey: number; // changes on every open so a new message never inherits the old one's state
   composeDirty: boolean;
   /** Saves the open message as a draft; resolves true when it was saved (false: the save failed, the message is still open). */
-  composeSaver: (() => Promise<boolean | void>) | null;
+  composeSaver: ((opts?: { quiet?: boolean }) => Promise<boolean | void>) | null;
   dialog: Dialog;
   commandOpen: boolean;
   ribbonTab: RibbonTab;
@@ -231,7 +231,7 @@ interface State {
   act: (ids: string[], action: string, arg?: string, label?: string) => Promise<void>;
   openCompose: (c: ComposeInit | null) => Promise<void>;
   setComposeDirty: (d: boolean) => void;
-  setComposeSaver: (f: (() => Promise<boolean | void>) | null) => void;
+  setComposeSaver: (f: ((opts?: { quiet?: boolean }) => Promise<boolean | void>) | null) => void;
   setDialog: (d: Dialog) => void;
   setCommandOpen: (o: boolean) => void;
   setRibbonTab: (t: RibbonTab) => void;

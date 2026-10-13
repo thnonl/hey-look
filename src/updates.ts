@@ -382,7 +382,7 @@ export const useUpdates = create<UpdatesState>((set, get) => {
               st.setComposeDirty(false);
             }
           } else if (st.composeDirty) {
-            const saved = st.composeSaver ? await st.composeSaver() : false;
+            const saved = st.composeSaver ? await st.composeSaver({ quiet: true }) : false;
             if (saved !== true) {
               st.showToast("Couldn’t save your draft, so Hey Look! didn’t restart. Your message is still open.", undefined, "error");
               return stay("dirty");

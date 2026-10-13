@@ -768,7 +768,7 @@ export function Compose({ init }: { init: ComposeInit }) {
   };
 
   const saveDraft = useCallback(
-    async (close: boolean): Promise<boolean> => {
+    async (close: boolean, quiet = false): Promise<boolean> => {
       if (init.outboxId) return true; // a scheduled message is not a draft; "Move to Drafts" does that
       try {
         const d = buildDraft();
@@ -781,7 +781,8 @@ export function Compose({ init }: { init: ComposeInit }) {
         void useStore.getState().sync();
         return true;
       } catch (e) {
-        showToast(`Save draft failed: ${friendlyError(e)}`, undefined, "error");
+        // `quiet`: the caller (an update restart) tells the user itself
+        if (!quiet) showToast(`Save draft failed: ${friendlyError(e)}`, undefined, "error");
         return false;
       }
     },
@@ -805,7 +806,7 @@ export function Compose({ init }: { init: ComposeInit }) {
 
   // let the store save this draft when another message is opened over it
   useEffect(() => {
-    setComposeSaver(() => saveDraft(false));
+    setComposeSaver((o) => saveDraft(false, o?.quiet));
   }, [saveDraft, setComposeSaver]);
   // only when the composer goes away: forget the saver and the "unsaved" flag
   useEffect(
