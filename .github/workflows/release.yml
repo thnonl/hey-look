@@ -118,20 +118,24 @@ jobs:
             echo "extra=" >> "$GITHUB_OUTPUT"
             echo "pubkey=error" >> "$GITHUB_OUTPUT"
             echo "signed=true" >> "$GITHUB_OUTPUT"
+            echo "profile=release" >> "$GITHUB_OUTPUT"
           elif [ -n "$TEST_VERSION" ]; then
             echo "Test build $TEST_VERSION (debug, no updater artifacts)"
             echo "extra=--debug $NOUPD" >> "$GITHUB_OUTPUT"
             echo "pubkey=error" >> "$GITHUB_OUTPUT"
             echo "signed=false" >> "$GITHUB_OUTPUT"
+            echo "profile=debug" >> "$GITHUB_OUTPUT"
           elif [ -n "$KEY" ]; then
             echo "extra=" >> "$GITHUB_OUTPUT"
             echo "pubkey=error" >> "$GITHUB_OUTPUT"
             echo "signed=true" >> "$GITHUB_OUTPUT"
+            echo "profile=release" >> "$GITHUB_OUTPUT"
           else
             echo "::warning::Unsigned dry run: TAURI_SIGNING_PRIVATE_KEY is not set"
             echo "extra=$NOUPD" >> "$GITHUB_OUTPUT"
             echo "pubkey=warn" >> "$GITHUB_OUTPUT"
             echo "signed=false" >> "$GITHUB_OUTPUT"
+            echo "profile=release" >> "$GITHUB_OUTPUT"
           fi
 
       # Test build only: the version of this checkout is changed (never committed).
@@ -188,8 +192,11 @@ jobs:
 
       - name: Check ad-hoc signature
         if: runner.os == 'macOS'
+        env:
+          PROFILE: ${{ steps.sign.outputs.profile }}
         run: |
-          app=$(find src-tauri/target/universal-apple-darwin -maxdepth 5 -name '*.app' -path '*/bundle/macos/*' | head -n 1)
+          # the build profile's folder only: the cache can hold an older bundle of the other profile
+          app=$(find "src-tauri/target/universal-apple-darwin/$PROFILE/bundle/macos" -maxdepth 1 -name '*.app' | head -n 1)
           echo "App bundle: $app"
           out=$(codesign -dv --verbose=2 "$app" 2>&1) || true
           echo "$out"
