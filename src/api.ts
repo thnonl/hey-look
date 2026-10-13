@@ -594,6 +594,8 @@ export const api = {
   /** Install the downloaded update. `draftSaved`: a draft was saved for the restart (the next start says so). */
   updateInstall: (restart: boolean, draftSaved: boolean) => invoke<void>("update_install", { restart, draftSaved }),
   updateStartupState: () => invoke<UpdateStartupState>("update_startup_state"),
+  /** The result of the last install was shown: the backend forgets it (until then every start tells it again). */
+  updateStartupAck: () => invoke<void>("update_startup_ack"),
   /** A scheduled message is being delivered right now. */
   outboxBusy: () => invoke<boolean>("outbox_busy"),
 };

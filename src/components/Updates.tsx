@@ -277,12 +277,17 @@ export function UpdatesBlock({ privacy, autoSwitch }: { privacy: ReactNode; auto
       : mine === "deferred" ? "The update will be installed when you quit the app."
       : mine === "failed" ? failedText(flow)
       : `Hey Look! ${info.latest} is available.`;
-    // a stale offer (the last check failed): the quiet note replaces the sr-only line, only while no download / restart is going on
-    if (isStaleOffer(update) && mine === "idle")
+    // a stale offer (the last check failed): the quiet note replaces the sr-only line, only while no download / restart is going on.
+    // After a failed download (F6) the card keeps its failure (REQ-47 h) and the note is added: the person asked for a check, and a check
+    // that could not reach the server must say so (QA round 6, stopped server).
+    if (isStaleOffer(update) && (mine === "idle" || mine === "failed"))
       live = (
-        <p className="muted small">
-          {update.kind === "offline" ? "Couldn’t check for updates just now. You seem to be offline." : `Couldn’t check for updates just now${update.message ? `: ${update.message}` : ""}.`} Showing the last update found. {retry}
-        </p>
+        <>
+          <p className="muted small">
+            {update.kind === "offline" ? "Couldn’t check for updates just now. You seem to be offline." : `Couldn’t check for updates just now${update.message ? `: ${update.message}` : ""}.`} Showing the last update found. {retry}
+          </p>
+          {mine === "failed" && <span className="sr-only">{line}</span>}
+        </>
       );
     else live = <span className="sr-only">{line}</span>;
   } else if (update && kind === "upToDate" && info)

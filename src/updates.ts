@@ -455,18 +455,28 @@ export const useUpdates = create<UpdatesState>((set, get) => {
       void openUpdateLink(direct ? a.url : info.releaseUrl, true);
     },
 
-    // after a restart: tell how the update went (once), before the first check
+    // after a restart: tell how the update went (once), before the first check. The toast stays until it is closed (or 30 s): the
+    // person is often not looking when the window comes back, and a toast of a few seconds was missed (QA BUG-12). The backend keeps
+    // the result until this page says it showed it, so a window that died before the person saw it tells it again after its restart.
     startupCheck: async () => {
       try {
         const s = await api.updateStartupState();
         const st = useStore.getState();
+        const key = "update-result";
         if (s.outcome === "updated") {
-          st.showToast(`Hey Look! is updated to ${s.version}.${s.draft ? " Your message is in Drafts." : ""}`, undefined, "success");
+          st.setStickyToast(key, { text: `Hey Look! is updated to ${s.version}.${s.draft ? " Your message is in Drafts." : ""}`, kind: "success", closeLabel: "Close" });
         } else if (s.outcome === "failed") {
-          st.showToast(`The update to ${s.version} didn’t finish. You can try again in Settings > About.`, undefined, "error", [
-            { label: "Open", run: () => get().openSettingsAbout(false) },
-          ]);
+          st.setStickyToast(key, {
+            text: `The update to ${s.version} didn’t finish. You can try again in Settings > About.`,
+            kind: "error",
+            actions: [{ label: "Open", run: () => get().openSettingsAbout(false) }],
+            closeLabel: "Close",
+          });
+        } else {
+          return;
         }
+        setTimeout(() => useStore.getState().setStickyToast(key, null), 30_000);
+        await api.updateStartupAck();
       } catch {
         /* an old backend or the browser without the mock: nothing to tell */
       }

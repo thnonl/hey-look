@@ -3650,6 +3650,7 @@ pub fn run() {
             page_state,
             update::update_install,
             update::update_startup_state,
+            update::update_startup_ack,
             update::outbox_busy
         ])
         .build(tauri::generate_context!())

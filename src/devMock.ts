@@ -968,6 +968,7 @@ export function installMock() {
       case "quit_dialog": case "quit_cancelled": case "sends_flushed": case "show_window": case "frontend_ready": case "page_state": return null;
       case "update_defer": logUpdateCall({ cmd: "defer" }).kind = a.deferred ? "later" : "now"; return null;
       case "update_install": return mockInstall(!!a.restart);
+      case "update_startup_ack": logUpdateCall({ cmd: "startupAck" }).kind = "ok"; return null;
       case "update_startup_state": {
         const t = hashTokens().get("afterupdate");
         return t === "fail" ? { outcome: "failed", version: "1.0.0", draft: false } : t ? { outcome: "updated", version: "1.0.0", draft: t === "draft" } : { outcome: null, version: null, draft: false };

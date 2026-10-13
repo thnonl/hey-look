@@ -717,12 +717,23 @@ pub fn update_defer(upd: tauri::State<'_, UpdState>, deferred: bool) {
 
 // ---------- install ----------
 
+/// Written before the installer is started (the installer ends this process, so nothing can be written afterwards): which version was
+/// running and which one is being installed. The next start reads it (`startup_state`).
 fn remember_install(db: &Db, current: &str, version: &str, draft_saved: bool) {
     let c = lock(db);
     let _ = db::set_setting(&c, "update_installing", &format!("{current}>{version}"));
     if draft_saved {
         let _ = db::set_setting(&c, "update_restart_draft", "1");
     }
+    // (the log is the data folder's `startup.log`: the one record a release build keeps, for the QA of the next start)
+    crate::startup::line("update", &format!("install of {version} started from {current}: marker written{}", if draft_saved { " (a draft was saved for the restart)" } else { "" }));
+}
+
+/// The installer did not start (or refused): nothing is going to be installed, so the next start has nothing to report.
+fn forget_install(db: &Db) {
+    let c = lock(db);
+    let _ = db::set_setting(&c, "update_installing", "");
+    let _ = db::set_setting(&c, "update_restart_draft", "");
 }
 
 /// Install the downloaded package. Windows: the plugin starts the installer and exits the app (the installer starts the new
@@ -749,7 +760,7 @@ pub async fn update_install(app: AppHandle, state: tauri::State<'_, AppState>, u
         Err(e) => {
             // the package stays ready so that "Try again" installs the same bytes
             *upd.ready.lock().unwrap_or_else(|p| p.into_inner()) = Some((update, bytes));
-            let _ = db::set_setting(&lock(&db), "update_installing", "");
+            forget_install(&db);
             Err(short(&e.to_string()))
         }
     }
@@ -763,8 +774,8 @@ pub fn install_on_exit(app: &AppHandle) {
     remember_install(&db, &app.package_info().version.to_string(), &update.version, false);
     crate::flush_pending(app);
     if let Err(e) = update.restart_after_install(false).install(&bytes) {
-        eprintln!("update on exit failed: {e}");
-        let _ = db::set_setting(&lock(&db), "update_installing", "");
+        crate::startup::line("update", &format!("the install on quit failed: {e}"));
+        forget_install(&db);
     }
 }
 
@@ -777,10 +788,27 @@ pub struct StartupState {
     pub draft: bool,
 }
 
-/// After an update restart: what happened to the install that was started last time (shown once). Also drops a stale consent.
+/// After an update restart: what happened to the install that was started last time. The marker stays until the page says it showed
+/// the result (`update_startup_ack`): when the web view dies before the person saw it (the app then restarts itself), the next start
+/// tells it again. Also drops a stale consent.
 #[tauri::command]
 pub fn update_startup_state(app: AppHandle, state: tauri::State<'_, AppState>) -> StartupState {
-    startup_state(&state.db, &app.package_info().version.to_string())
+    let out = startup_state(&state.db, &app.package_info().version.to_string());
+    crate::startup::line(
+        "update",
+        &match (&out.outcome, &out.version) {
+            (Some(o), Some(v)) => format!("this start follows an install of {v}: running {}, outcome \"{o}\", the page is told", app.package_info().version),
+            _ => "this start follows no install (no marker)".to_string(),
+        },
+    );
+    out
+}
+
+/// The page showed the result of the last install: the marker is cleared, so it is told once.
+#[tauri::command]
+pub fn update_startup_ack(state: tauri::State<'_, AppState>) {
+    forget_install(&state.db);
+    crate::startup::line("update", "the page showed the install result: marker cleared");
 }
 
 fn startup_state(db: &Db, current: &str) -> StartupState {
@@ -793,10 +821,11 @@ fn startup_state(db: &Db, current: &str) -> StartupState {
         if let Some((_, target)) = s.split_once('>') {
             let ok = matches!((parse_version(target), &running), (Some(t), Some(r)) if *r >= t);
             out = StartupState { outcome: Some(if ok { "updated" } else { "failed" }.into()), version: Some(target.to_string()), draft: ok && draft };
+        } else {
+            // not a marker this version wrote: nothing to tell, and nothing to keep
+            let _ = db::set_setting(&c, "update_installing", "");
         }
     }
-    let _ = db::set_setting(&c, "update_installing", "");
-    let _ = db::set_setting(&c, "update_restart_draft", "");
     if let (Some(cons), Some(r)) = (db::get_setting(&c, "update_consent").and_then(|v| parse_version(&v)), &running) {
         if *r >= cons {
             let _ = db::set_setting(&c, "update_consent", "");
@@ -972,30 +1001,139 @@ mod tests {
         assert!(Trigger::parse("now").is_none());
     }
 
+    // ---------- the install marker (QA BUG-12: no success toast after an update) ----------
+
+    /// A database file in its own folder, the way the app has it: the process that writes the marker ends (the installer takes over),
+    /// the next start opens the file again.
+    fn data_folder(name: &str) -> std::path::PathBuf {
+        let dir = std::env::temp_dir().join(format!("heylook-marker-{name}-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        dir
+    }
+
+    fn open_db(dir: &std::path::Path) -> Db {
+        Arc::new(Mutex::new(db::open(&dir.join("heylook.db")).unwrap()))
+    }
+
+    fn marker(db: &Db) -> String {
+        db::get_setting(&lock(db), "update_installing").unwrap_or_default()
+    }
+
     #[test]
-    fn startup_state_reports_the_last_install_once() {
-        let db: Db = Arc::new(Mutex::new(db::test_conn(&[])));
-        let set = |k: &str, val: &str| db::set_setting(&lock(&db), k, val).unwrap();
-        let get = |k: &str| db::get_setting(&lock(&db), k).unwrap_or_default();
-
-        // nothing started
-        assert_eq!(startup_state(&db, "1.0.0").outcome, None);
-
-        // updated, with a draft saved for the restart
-        set("update_installing", "0.9.0>1.0.0");
-        set("update_restart_draft", "1");
-        set("update_consent", "1.0.0");
+    fn the_marker_is_written_before_the_installer_starts_and_is_there_at_the_next_start() {
+        let dir = data_folder("lifecycle");
+        {
+            // the running 0.9.0: marker first (`update_install` and `install_on_exit` call this before `install`, which ends the process)
+            let db = open_db(&dir);
+            assert_eq!(startup_state(&db, "0.9.0").outcome, None, "nothing started yet");
+            remember_install(&db, "0.9.0", "1.0.0", false);
+            assert_eq!(marker(&db), "0.9.0>1.0.0");
+            // the process ends here without closing anything (`std::process::exit` inside the plugin): the connection is only dropped
+        }
+        // the next start (the new version) opens the same file
+        let db = open_db(&dir);
+        assert_eq!(marker(&db), "0.9.0>1.0.0", "the marker survived the end of the process");
         let s = startup_state(&db, "1.0.0");
-        assert_eq!((s.outcome.as_deref(), s.version.as_deref(), s.draft), (Some("updated"), Some("1.0.0"), true));
-        assert_eq!((get("update_installing"), get("update_restart_draft"), get("update_consent")), (String::new(), String::new(), String::new()));
-        assert_eq!(startup_state(&db, "1.0.0").outcome, None);
+        assert_eq!((s.outcome.as_deref(), s.version.as_deref(), s.draft), (Some("updated"), Some("1.0.0"), false));
+        drop(db);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
 
-        // the install did not happen (still the old version): error outcome, consent stays
-        set("update_installing", "0.9.0>1.0.0");
-        set("update_consent", "1.0.0");
+    #[test]
+    fn the_result_is_told_until_the_page_has_shown_it_and_then_never_again() {
+        let dir = data_folder("once");
+        let db = open_db(&dir);
+        remember_install(&db, "0.9.0", "1.0.0", true);
+        // the page asked, then its web view died before it could show anything (the app restarts itself): the next start tells it again
+        let first = startup_state(&db, "1.0.0");
+        assert_eq!((first.outcome.as_deref(), first.draft), (Some("updated"), true));
+        let again = startup_state(&db, "1.0.0");
+        assert_eq!((again.outcome.as_deref(), again.version.as_deref(), again.draft), (Some("updated"), Some("1.0.0"), true), "not told yet: told again");
+        // the page showed the toast and said so
+        forget_install(&db);
+        assert_eq!(marker(&db), "");
+        assert_eq!(db::get_setting(&lock(&db), "update_restart_draft").unwrap_or_default(), "");
+        assert_eq!(startup_state(&db, "1.0.0").outcome, None, "told once");
+        drop(db);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn an_install_that_did_not_finish_is_told_as_such_with_the_target_version() {
+        let dir = data_folder("partial");
+        let db = open_db(&dir);
+        db::set_setting(&lock(&db), "update_consent", "1.0.0").unwrap();
+        remember_install(&db, "0.9.0", "1.0.0", false);
+        // the installer ran but the old version is still what runs (cancelled, refused, partial)
         let s = startup_state(&db, "0.9.0");
         assert_eq!((s.outcome.as_deref(), s.version.as_deref(), s.draft), (Some("failed"), Some("1.0.0"), false));
-        assert_eq!(get("update_consent"), "1.0.0");
+        assert_eq!(db::get_setting(&lock(&db), "update_consent").unwrap_or_default(), "1.0.0", "a consent for a version that is not running stays");
+        // an older build than the target is the same
+        assert_eq!(startup_state(&db, "0.9.5").outcome.as_deref(), Some("failed"));
+        // a draft is only promised when the update really happened
+        remember_install(&db, "0.9.0", "1.0.0", true);
+        assert!(!startup_state(&db, "0.9.0").draft);
+        assert!(startup_state(&db, "1.0.0").draft);
+        // a newer build than the target counts as updated (a second update ran in between)
+        assert_eq!(startup_state(&db, "1.0.1").outcome.as_deref(), Some("updated"));
+        forget_install(&db);
+        drop(db);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn an_installer_that_could_not_start_leaves_no_marker_behind() {
+        let db: Db = Arc::new(Mutex::new(db::test_conn(&[])));
+        remember_install(&db, "0.9.0", "1.0.0", true);
+        // `update_install` and `install_on_exit` call this when `install` returns an error: the package stays ready for "Try again"
+        forget_install(&db);
+        assert_eq!(startup_state(&db, "0.9.0").outcome, None, "no \"didn't finish\" toast for an install that never began");
+    }
+
+    #[test]
+    fn a_marker_of_another_shape_or_with_a_version_that_does_not_parse_is_dropped_or_ignored() {
+        let db: Db = Arc::new(Mutex::new(db::test_conn(&[])));
+        db::set_setting(&lock(&db), "update_installing", "garbage").unwrap();
+        assert_eq!(startup_state(&db, "1.0.0").outcome, None);
+        assert_eq!(marker(&db), "", "not kept");
+        db::set_setting(&lock(&db), "update_installing", "0.9.0>banana").unwrap();
+        // a target that is no version cannot be compared: told as not finished rather than as done
+        assert_eq!(startup_state(&db, "1.0.0").outcome.as_deref(), Some("failed"));
+    }
+
+    #[test]
+    fn the_marker_is_compared_with_the_version_that_runs_not_with_a_cached_check() {
+        // the update check keeps the version it saw (`update_cache` still says 0.9.0 after the update): the result must not depend on it
+        let db: Db = Arc::new(Mutex::new(db::test_conn(&[])));
+        db::set_setting(&lock(&db), "update_cache", r#"{"current":"0.9.0","latest":"1.0.0"}"#).unwrap();
+        remember_install(&db, "0.9.0", "1.0.0", false);
+        assert_eq!(startup_state(&db, "1.0.0").outcome.as_deref(), Some("updated"));
+    }
+
+    #[test]
+    fn a_legacy_consent_of_a_version_that_runs_is_cleared_at_the_start() {
+        let db: Db = Arc::new(Mutex::new(db::test_conn(&[])));
+        db::set_setting(&lock(&db), "update_consent", "1.0.0").unwrap();
+        assert_eq!(startup_state(&db, "1.0.0").outcome, None);
+        assert_eq!(db::get_setting(&lock(&db), "update_consent").unwrap_or_default(), "");
+    }
+
+    #[test]
+    fn the_install_paths_write_the_marker_first_and_clear_it_only_when_the_installer_failed() {
+        // `install()` ends the process on Windows, so the order inside both callers is what keeps the marker: write, then install, and
+        // forget only in the error branch
+        let src = include_str!("update.rs").replace('\r', "");
+        let code = &src[..src.find("#[cfg(test)]\nmod tests").unwrap()];
+        for func in ["pub async fn update_install", "pub fn install_on_exit"] {
+            let body = &code[code.find(func).unwrap()..];
+            let body = &body[..body[1..].find("\n}\n").unwrap()];
+            let remember = body.find("remember_install(").unwrap_or_else(|| panic!("{func}: no marker written"));
+            let install = body.find(".install(").unwrap_or_else(|| panic!("{func}: no install call"));
+            let forget = body.find("forget_install(").unwrap_or_else(|| panic!("{func}: no clean-up"));
+            assert!(remember < install && install < forget, "{func}: write, install, then (on failure) forget");
+            assert_eq!(body.matches("forget_install(").count(), 1, "{func}: the marker is cleared in one place only, the error branch");
+        }
     }
 
     // ---------- stub server + mock app ----------
