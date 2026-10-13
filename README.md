@@ -46,8 +46,16 @@ account, and every feature is available.
 - Attachments: save one or all, inline images shown in the message
 - Newsletter detection with **one-click unsubscribe** (RFC 8058) and a mailto fallback
 - View the original source, print, translate with the AI Assistant, expand or collapse a whole thread
+- **Confidential mail**, as in Outlook: mail the sender marked `Sensitivity: Confidential` (or labelled with a Microsoft
+  Purview label such as "Highly Confidential") is shown with the window hidden from screenshots and screen recording
+  (Windows and macOS), and can't be selected, copied, printed, saved, shown as source, forwarded or sent to the AI
+  Assistant. Its attachments can't be saved or opened outside the app: pictures and small text files can be previewed in
+  the app, a PDF can't be previewed. Its body text stays out of the list preview and notifications (the subject and the
+  sender remain visible). Only mail received after this was added is recognised. A camera pointed at the screen is out of
+  reach, and Linux has no capture protection.
 
 ### Writing
+- **Confidential** button: sends `Sensitivity: Company-Confidential`; an answer to confidential mail starts that way
 - Rich-text editor, Cc/Bcc, recipient chips with address checking and keyboard-friendly suggestions
   (people who wrote to you and people you wrote to)
 - Attach by button, drag and drop or paste; a warning when the total goes over the usual 25 MB limit

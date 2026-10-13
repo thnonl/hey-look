@@ -36,6 +36,8 @@ export function replyTo(m: MessageFull, all: boolean) {
     inReplyTo: m.messageId,
     references: st.messages.map((x) => x.messageId).filter(Boolean) as string[],
     isReply: true,
+    // an answer to confidential mail is confidential too
+    confidential: m.confidential,
     // an answer to encrypted mail is encrypted too
     security: m.security?.encrypted
       ? { encrypt: true, sign: eff(st.prefs, m.accountId, "pgpSign"), attachPublicKey: eff(st.prefs, m.accountId, "pgpAttachKey") }
@@ -44,6 +46,7 @@ export function replyTo(m: MessageFull, all: boolean) {
 }
 
 export function forward(m: MessageFull) {
+  if (m.confidential) return useStore.getState().showToast("Confidential mail can’t be forwarded.", undefined, "info");
   useStore.getState().openCompose({
     accountId: m.accountId,
     subject: /^fwd?:/i.test(m.subject) ? m.subject : `Fwd: ${m.subject}`,

@@ -39,6 +39,8 @@ export interface ThreadSummary {
   /** PGP: at least one message of the conversation is encrypted / signed */
   encrypted?: boolean;
   signed?: boolean;
+  /** the sender labelled a message of the conversation confidential */
+  confidential?: boolean;
   /** a message of the conversation carries a calendar invitation / reply / cancellation */
   invite?: "request" | "reply" | "cancel" | null;
 }
@@ -62,6 +64,8 @@ export interface MessageFull {
   canUnsubscribe: boolean;
   /** PGP state; null for ordinary mail */
   security?: MessageSecurity | null;
+  /** labelled confidential by the sender: no screen capture, copy, print, save or forward */
+  confidential?: boolean;
   /** calendar invitation, update, cancellation or reply carried by this message */
   invite?: CalInvite | null;
 }
@@ -156,6 +160,8 @@ export interface CalEvent {
   reminderMin: number | null;
   sourceMessageId: string | null;
   sequence: number;
+  /** made from confidential mail: can't be exported or copied */
+  confidential?: boolean;
   /** set on expanded occurrences of a repeating event */
   instanceStart?: number | null;
 }
@@ -352,6 +358,8 @@ export interface Draft {
   security?: DraftSecurity;
   /** a meeting made in Compose: the backend creates the event and adds the calendar invitation */
   meeting?: Meeting;
+  /** send as confidential (Sensitivity: Company-Confidential) */
+  confidential?: boolean;
 }
 
 export type OutboxStatus = "pending" | "held" | "sending" | "failed" | "overdue";

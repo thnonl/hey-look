@@ -559,7 +559,7 @@ function SecPopover({ m, sec, onClose }: { m: MessageFull; sec: MessageSecurity;
       )}
       <div style={{ display: "flex", gap: 6 }}>
         {known && <button className="btn small" onClick={() => (onClose(), setDialog({ type: "pgp-key", fingerprint: s!.fingerprint! }))}>Show key</button>}
-        <button className="btn small" onClick={() => (onClose(), setDialog({ type: "original", messageId: m.id }))}>Show original</button>
+        {!m.confidential && <button className="btn small" onClick={() => (onClose(), setDialog({ type: "original", messageId: m.id }))}>Show original</button>}
       </div>
     </div>
   );
@@ -657,7 +657,7 @@ export function EncCard({ m }: { m: MessageFull }) {
         </span>
         <div style={{ display: "flex", gap: 8 }}>
           <button className="btn" onClick={() => setDialog({ type: "pgp-import" })}>Import key…</button>
-          <button className="btn" onClick={() => setDialog({ type: "original", messageId: m.id })}>Show original</button>
+          {!m.confidential && <button className="btn" onClick={() => setDialog({ type: "original", messageId: m.id })}>Show original</button>}
         </div>
       </div>
     );
@@ -678,7 +678,7 @@ export function EncCard({ m }: { m: MessageFull }) {
       <span className="muted small">The PGP data could not be read ({sec.error ?? "unsupported or corrupted data"}).</span>
       <div style={{ display: "flex", gap: 8 }}>
         <button className="btn" onClick={() => void retry()}>Try again</button>
-        <button className="btn" onClick={() => setDialog({ type: "original", messageId: m.id })}>Show original</button>
+        {!m.confidential && <button className="btn" onClick={() => setDialog({ type: "original", messageId: m.id })}>Show original</button>}
       </div>
     </div>
   );

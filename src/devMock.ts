@@ -37,6 +37,7 @@ const threads = [
   t("t11", "Re: Contract changes (damaged)", ["Legal Team"], "Encrypted message", 7 * H, { encrypted: true }),
   t("t12", "Re: build pipeline", ["Bao Tran"], "The release is tagged, please check the artifacts.", 5 * H, { signed: true }),
   t("t13", "Hello from a new contact", ["Eve Park"], "Nice to meet you! My public key is attached.", 8 * H, { signed: true, hasAttach: true }),
+  t("tconf", "Board pack — Highly Confidential", ["Linh Tran"], "Revenue is down 12% and we plan to cut the Hanoi office.", 1 * H, { unread: 1, confidential: true, hasAttach: true }),
   t("t14", "Weekly sync notes", ["Bao Tran"], "Notes from today are below. Signed inline.", 9 * H, { signed: true }),
 ];
 
@@ -54,6 +55,7 @@ threads.push(
   t("t25", "Invitation: Salary review meeting (encrypted)", ["Linh Tran"], "Encrypted message", 14 * H, { encrypted: true }),
   t("t24", "Invitation: Server check (sending fails once)", ["Linh Tran"], "Sat 17 Oct 11:00–12:00", 13 * H, { invite: "request" }),
   t("t26", "Invitation: Company all-hands (huge guest list)", ["Mai Khanh"], "Mon 19 Oct 15:00–16:00", 15 * H, { invite: "request" }),
+  t("tconf-inv", "Invitation: Board pack review — Highly Confidential", ["Linh Tran"], "Confidential message", 1.1 * H, { invite: "request", confidential: true }),
 );
 
 const body = (n: string) =>
@@ -110,6 +112,11 @@ const mockThreadMsgs: Record<string, unknown[]> = {
   t11: [secMsg("m-bad", "Re: Contract changes (damaged)", "Legal Team", "legal@example.com", { security: { encrypted: true, partial: false, decryption: "error", error: "unsupported packet or corrupted transfer", encryptedFor: [], signature: null } }, null)],
   t12: [secMsg("m-inv", "Re: build pipeline", "Bao Tran", "bao@contoso.com", { security: { encrypted: false, partial: false, decryption: "none", encryptedFor: [], signature: { status: "invalid", signer: "Bao Tran", fingerprint: pgpKeys[3].fingerprint, keyId: pgpKeys[3].keyId, signedAt: now - 5 * H, verified: false, matchesFrom: true, inline: false } } }, "<p>The release is tagged. Please check the artifacts at <a href='https://example.com/release'>the release page</a>.</p>")],
   t13: [secMsg("m-unk", "Hello from a new contact", "Eve Park", "eve@example.org", { security: { encrypted: false, partial: false, decryption: "none", encryptedFor: [], signature: { status: "unknown_key", signer: null, fingerprint: null, keyId: "E21C0A9F33B07D12", signedAt: now - H, verified: false, matchesFrom: false, inline: false } } }, "<p>Nice to meet you! My public key is attached.</p>", [{ index: 0, name: "eve-public.asc", mime: "application/pgp-keys", size: 2900 }])],
+  tconf: [secMsg("m-conf", "Board pack — Highly Confidential", "Linh Tran", "linh@example.com", { confidential: true }, "<p>Hi Nam,</p><p>Revenue is down 12% and we plan to cut the Hanoi office. Please do not share this.</p><p>— Linh</p>", [
+    { index: 0, name: "board-pack.pdf", mime: "application/pdf", size: 2400000 },
+    { index: 1, name: "cuts.xlsx", mime: "application/vnd.ms-excel", size: 51000 },
+    { index: 2, name: "floorplan.png", mime: "image/png", size: 84000 },
+  ])],
   t14: [secMsg("m-ok2", "Weekly sync notes", "Bao Tran", "bao@contoso.com", { security: { encrypted: false, partial: false, decryption: "none", encryptedFor: [], signature: { status: "valid", signer: "Bao Tran", fingerprint: pgpKeys[3].fingerprint, keyId: pgpKeys[3].keyId, signedAt: now - 8 * H, verified: false, matchesFrom: true, inline: true } } }, "<p>Notes from today are below. Signed inline.</p>")],
 };
 
@@ -193,7 +200,7 @@ const sysTz = Intl.DateTimeFormat().resolvedOptions().timeZone;
 type MockEvent = Record<string, unknown> & { id: string; start: number; end: number; calendarId: string; rrule: string | null; allDay: boolean };
 const ev = (id: string, summary: string, start: number, end: number, over: Record<string, unknown> = {}): MockEvent => ({
   id, uid: `${id}@mock`, calendarId: "local", accountId: null, summary, start, end, allDay: false, tzid: sysTz, location: null, joinUrl: null, description: null,
-  organizer: null, attendees: [], rrule: null, recurrenceText: null, status: "confirmed", myStatus: null, respondedAt: null, reminderMin: 15, sourceMessageId: null, sequence: 0, ...over,
+  organizer: null, attendees: [], rrule: null, recurrenceText: null, status: "confirmed", myStatus: null, respondedAt: null, reminderMin: 15, sourceMessageId: null, sequence: 0, confidential: false, ...over,
 });
 const you = { email: "nam@example.com", name: "Nam Hoang", role: "required", status: "needs-action", isYou: true };
 const people = (list: [string, string][]) => list.map(([name, status]) => ({ email: `${name.split(" ")[0].toLowerCase()}@contoso.com`, name, role: "required", status, isYou: false }));
@@ -264,11 +271,12 @@ const inviteMsgs: Record<string, ReturnType<typeof inviteMsg>> = {
   "m-inv-fwd": inviteMsg("m-inv-fwd", "Invitation: Q4 planning (forwarded)", "Duc Pham", "duc@contoso.com", mkInvite({ summary: "Q4 planning", start: at(5, 9), end: at(5, 10), rrule: null, recurrenceText: null, eventId: null, you: { email: "nam@example.com", status: "needs-action", onList: false }, attendees: people([["Mai Khanh", "accepted"], ["Duc Pham", "accepted"]]), conflicts: [], joinUrl: null, organizer: { email: "mai@contoso.com", name: "Mai Khanh" } }), 11 * H),
   "m-inv-old": inviteMsg("m-inv-old", "Invitation: Kick-off (last month)", "Mai Khanh", "mai@contoso.com", mkInvite({ summary: "Kick-off", start: at(-12, 9), end: at(-12, 10), rrule: null, recurrenceText: null, eventId: "e16", ended: true, conflicts: [], joinUrl: null, tzid: sysTz, you: { email: "nam@example.com", status: "accepted", onList: true }, responded: { status: "accepted", sentAt: at(-14, 9) } }), 12 * H),
   "m-inv-big": inviteMsg("m-inv-big", "Invitation: Company all-hands (huge guest list)", "Mai Khanh", "mai@contoso.com", mkInvite({ summary: "Company all-hands", start: at(7, 15), end: at(7, 16), rrule: null, recurrenceText: null, eventId: null, conflicts: [], joinUrl: null, tzid: sysTz, trimmed: true, attendees: people([["Mai Khanh", "accepted"], ["Duc Pham", "accepted"]]).concat([you as never]), organizer: { email: "mai@contoso.com", name: "Mai Khanh" } }), 15 * H),
+  "m-inv-conf": inviteMsg("m-inv-conf", "Invitation: Board pack review — Highly Confidential", "Linh Tran", "linh@example.com", mkInvite({ summary: "Board pack review", rrule: null, recurrenceText: null, eventId: null, conflicts: [], joinUrl: null, tzid: sysTz, organizer: { email: "linh@example.com", name: "Linh Tran" } }), 1.1 * H, { confidential: true }),
   "m-inv-flaky": inviteMsg("m-inv-flaky", "Invitation: Server check (sending fails once)", "Linh Tran", "linh@example.com", mkInvite({ summary: "Server check", start: at(6, 11), end: at(6, 12), rrule: null, recurrenceText: null, eventId: "e21", conflicts: [], joinUrl: null, tzid: sysTz, attendees: people([["Linh Tran", "accepted"]]).concat([you as never]), organizer: { email: "linh@example.com", name: "Linh Tran" } }), 13 * H),
 };
 const threadInvite: Record<string, string[]> = {
   t15: ["m-inv-req"], t16: ["m-inv-cancel"], t17: ["m-inv-upd0", "m-inv-upd1"], t18: ["m-reply"], t19: ["m-publish"], t20: ["m-broken"],
-  t21: ["m-inv-allday"], t22: ["m-inv-fwd"], t23: ["m-inv-old"], t24: ["m-inv-flaky"], t26: ["m-inv-big"],
+  t21: ["m-inv-allday"], t22: ["m-inv-fwd"], t23: ["m-inv-old"], t24: ["m-inv-flaky"], t26: ["m-inv-big"], "tconf-inv": ["m-inv-conf"],
 };
 // an encrypted invitation: locked until the key is unlocked, then it shows the same card
 const encInvite = (locked: boolean) => ({
@@ -948,7 +956,7 @@ export function installMock() {
       }
       case "calendar_add_from_message": {
         const inv = inviteMsgs[a.messageId as string].invite as Record<string, unknown>;
-        const e = ev(`e${++eventSeq}`, String(inv.summary), inv.start as number, inv.end as number, { allDay: inv.allDay, tzid: inv.tzid, calendarId: "invites:a1", accountId: "a1", sourceMessageId: a.messageId as string });
+        const e = ev(`e${++eventSeq}`, String(inv.summary), inv.start as number, inv.end as number, { allDay: inv.allDay, tzid: inv.tzid, calendarId: "invites:a1", accountId: "a1", sourceMessageId: a.messageId as string, confidential: !!(inviteMsgs[a.messageId as string] as { confidential?: boolean }).confidential });
         calEvents = [...calEvents, e];
         inv.eventId = e.id;
         return e;

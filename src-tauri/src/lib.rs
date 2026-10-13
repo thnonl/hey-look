@@ -591,7 +591,8 @@ fn sync_impl(db: &Db, account_id: &str) -> R<SyncResult> {
                     result.new_inbox.push(NewMsg {
                         thread_id: tid.clone(),
                         account_id: acc.id.clone(),
-                        snippet: p.snippet.chars().take(160).collect(),
+                        // a confidential mail's text never goes into a toast, which screen capture protection does not cover
+                        snippet: if p.pgp & pgpmail::FLAG_CONFIDENTIAL != 0 { "Confidential message".into() } else { p.snippet.chars().take(160).collect() },
                         from: if p.from_name.is_empty() { p.from_email.clone() } else { p.from_name.clone() },
                         subject: p.subject.clone(),
                         bulk: p.list_unsub.is_some(),
@@ -1364,6 +1365,8 @@ struct ThreadSummary {
     bulk: bool,
     encrypted: bool,
     signed: bool,
+    /// a message of the conversation was labelled confidential by its sender
+    confidential: bool,
     /// request | reply | cancel when a message of the conversation carries a calendar invitation
     invite: Option<String>,
 }
@@ -1550,6 +1553,7 @@ fn threads_for(c: &Connection, filter: ThreadFilter) -> R<Vec<ThreadSummary>> {
                 bulk: false,
                 encrypted: false,
                 signed: false,
+                confidential: false,
                 invite: None,
             }
         });
@@ -1562,6 +1566,7 @@ fn threads_for(c: &Connection, filter: ThreadFilter) -> R<Vec<ThreadSummary>> {
         e.bulk |= bulk;
         e.encrypted |= pgp & 1 != 0;
         e.signed |= pgp & 2 != 0;
+        e.confidential |= pgp & pgpmail::FLAG_CONFIDENTIAL as i64 != 0;
         if e.invite.is_none() {
             e.invite = cal.filter(|m| matches!(m.as_str(), "request" | "reply" | "cancel"));
         }
@@ -1601,6 +1606,8 @@ pub(crate) struct MessageFull {
     can_unsubscribe: bool,
     /// PGP state (encryption, signature); `None` for ordinary mail
     security: Option<pgpmail::Security>,
+    /// labelled confidential by the sender: shown without screen capture, copy, print or forwarding
+    confidential: bool,
     /// the iCalendar text of an invitation (not sent to the UI)
     #[serde(skip)]
     ics: Option<String>,
@@ -1613,6 +1620,7 @@ const MESSAGE_COLS: &str = "id,account_id,folder,message_id,subject,from_name,fr
 
 fn row_message(r: &rusqlite::Row) -> rusqlite::Result<(MessageFull, i64, Option<Vec<u8>>)> {
     let att: String = r.get(14)?;
+    let pgp: i64 = r.get(16)?;
     Ok((
         MessageFull {
             id: r.get(0)?,
@@ -1632,10 +1640,11 @@ fn row_message(r: &rusqlite::Row) -> rusqlite::Result<(MessageFull, i64, Option<
             attachments: serde_json::from_str(&att).unwrap_or_default(),
             can_unsubscribe: r.get::<_, Option<String>>(15)?.is_some(),
             security: None,
+            confidential: pgp & pgpmail::FLAG_CONFIDENTIAL as i64 != 0,
             ics: r.get(18)?,
             invite: None,
         },
-        r.get(16)?,
+        pgp,
         r.get(17)?,
     ))
 }
@@ -2079,10 +2088,24 @@ pub(crate) fn fetch_view_for(db: &Db, message_id: &str) -> R<(Vec<u8>, String)> 
     }
 }
 
+/// Confidential mail (sender's Sensitivity / label, see mail::is_confidential) must not leave the app: the UI hides these
+/// actions, and this refuses them here too. Showing a picture or previewing an attachment inside the app stays allowed.
+pub(crate) fn ensure_not_confidential(c: &Connection, message_id: &str) -> R<()> {
+    let pgp: i64 = c.query_row("SELECT pgp FROM messages WHERE id=?1", [message_id], |r| r.get(0)).unwrap_or(0);
+    if pgp & pgpmail::FLAG_CONFIDENTIAL as i64 != 0 {
+        return Err("This message is confidential, so that isn’t allowed.".into());
+    }
+    Ok(())
+}
+
 #[tauri::command]
 async fn get_raw(state: tauri::State<'_, AppState>, message_id: String) -> R<String> {
     let db = state.db.clone();
-    let (raw, _) = blocking(move || fetch_raw_for(&db, &message_id)).await?;
+    let (raw, _) = blocking(move || {
+        ensure_not_confidential(&lock(&db), &message_id)?;
+        fetch_raw_for(&db, &message_id)
+    })
+    .await?;
     Ok(String::from_utf8_lossy(&raw).into_owned())
 }
 
@@ -2140,6 +2163,7 @@ async fn save_attachments(
 ) -> R<Vec<String>> {
     let db = state.db.clone();
     blocking(move || {
+        ensure_not_confidential(&lock(&db), &message_id)?;
         let dir = download_folder(&app, &db)?;
         let (raw, att_json) = fetch_view_for(&db, &message_id)?;
         let metas: Vec<mail::AttMeta> = serde_json::from_str(&att_json).unwrap_or_default();
@@ -2162,6 +2186,7 @@ async fn save_attachments(
 async fn attachment_save_as(app: tauri::AppHandle, state: tauri::State<'_, AppState>, message_id: String, index: usize) -> R<Option<String>> {
     let db = state.db.clone();
     blocking(move || {
+        ensure_not_confidential(&lock(&db), &message_id)?;
         let dir = download_folder(&app, &db)?;
         let (raw, _) = fetch_view_for(&db, &message_id)?;
         let (name, bytes) = mail::attachment_bytes(&raw, index)?;
@@ -2203,6 +2228,7 @@ async fn attachment_save_all(
 ) -> R<Option<SaveAllResult>> {
     let db = state.db.clone();
     blocking(move || {
+        ensure_not_confidential(&lock(&db), &message_id)?;
         let (raw, att_json) = fetch_view_for(&db, &message_id)?;
         let metas: Vec<mail::AttMeta> = serde_json::from_str(&att_json).unwrap_or_default();
         let dir = if ask {
@@ -2236,6 +2262,7 @@ async fn attachment_save_all(
 async fn attachment_open(app: tauri::AppHandle, state: tauri::State<'_, AppState>, message_id: String, index: usize, confirmed: bool) -> R<String> {
     let db = state.db.clone();
     blocking(move || {
+        ensure_not_confidential(&lock(&db), &message_id)?;
         let (raw, _) = fetch_view_for(&db, &message_id)?;
         let (name, bytes) = mail::attachment_bytes(&raw, index)?;
         let warn = setting(&db, "warn_executables").map(|v| v != "0").unwrap_or(true);
@@ -3679,6 +3706,21 @@ mod signed_flag_tests {
         note_signed(&c, "m1", &sig());
         let bits: i64 = c.query_row("SELECT pgp FROM messages WHERE id='m1'", [], |r| r.get(0)).unwrap();
         assert_eq!(bits, 3);
+    }
+
+    #[test]
+    fn confidential_mail_is_refused_for_actions_that_leave_the_app() {
+        let c = db::test_conn(&["a1"]);
+        put(&c, 1, "t1", 0);
+        put(&c, 2, "t2", pgpmail::FLAG_CONFIDENTIAL as i64);
+        put(&c, 3, "t3", (pgpmail::FLAG_CONFIDENTIAL | pgpmail::FLAG_ENCRYPTED) as i64); // bits are OR-ed
+        put(&c, 4, "t4", (pgpmail::FLAG_ENCRYPTED | pgpmail::FLAG_SIGNED) as i64);
+        assert!(ensure_not_confidential(&c, "m1").is_ok());
+        assert!(ensure_not_confidential(&c, "m4").is_ok());
+        assert!(ensure_not_confidential(&c, "nope").is_ok(), "an unknown id fails later, with its own error");
+        for id in ["m2", "m3"] {
+            assert_eq!(ensure_not_confidential(&c, id).unwrap_err(), "This message is confidential, so that isn’t allowed.");
+        }
     }
 }
 

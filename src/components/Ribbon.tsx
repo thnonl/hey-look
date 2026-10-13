@@ -45,6 +45,7 @@ function HomeTab() {
   const flagged = cur?.flagged;
   const pinned = cur?.pinned;
   const canReply = messages.length > 0;
+  const lastConfidential = !!messages[messages.length - 1]?.confidential;
   return (
     <div className="ribbon-row home">
       <div className="rg">
@@ -71,7 +72,7 @@ function HomeTab() {
       <div className="rg">
         <Btn icon={<Reply size={16} />} label="Reply" disabled={!canReply} onClick={() => replyLast(false)} />
         <Btn icon={<ReplyAll size={16} />} label="Reply all" disabled={!canReply} onClick={() => replyLast(true)} />
-        <Btn icon={<Forward size={16} />} label="Forward" disabled={!canReply} onClick={forwardLast} />
+        <Btn icon={<Forward size={16} />} label="Forward" disabled={!canReply || lastConfidential} title={lastConfidential ? "Confidential mail can’t be forwarded" : undefined} onClick={forwardLast} />
       </div>
       <div className="rg">
         <Btn

@@ -6,6 +6,7 @@ import {
 import { useEffect, useMemo, useRef, useState } from "react";
 import { api, AttMeta, errorCode, MessageFull } from "../api";
 import { eff } from "../prefs";
+import { denyIfConfidential, imageLock } from "../protect";
 import { friendlyError, useStore } from "../store";
 import { fmtSize } from "../util";
 import riskyExt from "../riskyExt.json";
@@ -78,15 +79,20 @@ function KindIcon({ kind, size = 16 }: { kind: FileKind; size?: number }) {
   }
 }
 
-/** Preview is offered for pictures, PDFs and small text files. */
-export function previewable(a: Pick<AttMeta, "name" | "mime" | "size">): "image" | "pdf" | "text" | null {
+/**
+ * Preview is offered for pictures, PDFs and small text files. A PDF is shown by the browser's own viewer, whose Save / Print /
+ * right-click menu no lock of ours reaches, so confidential mail has no PDF preview (pictures and text are drawn by the app).
+ */
+export function previewable(a: Pick<AttMeta, "name" | "mime" | "size">, confidential = false): "image" | "pdf" | "text" | null {
   const e = ext(a.name);
   if (a.mime.startsWith("image/") && a.size <= 25 * 1024 * 1024 && !["heic", "heif", "tif", "tiff"].includes(e)) return "image";
-  if (a.mime === "application/pdf" || e === "pdf") return a.size <= 25 * 1024 * 1024 ? "pdf" : null;
+  if (a.mime === "application/pdf" || e === "pdf") return a.size <= 25 * 1024 * 1024 && !confidential ? "pdf" : null;
   const textExt = ["txt", "log", "csv", "json", "xml", "md", "eml"];
   if ((a.mime.startsWith("text/") || textExt.includes(e)) && !RISKY_EXT.includes(e) && a.size <= 1024 * 1024) return "text";
   return null;
 }
+
+const noCopy = (e: { preventDefault: () => void }) => e.preventDefault();
 
 /** base64 payload to bytes (for Blob URLs). */
 function b64ToBytes(b64: string): Uint8Array {
@@ -142,6 +148,7 @@ export async function openAttachment(m: Pick<MessageFull, "id" | "fromEmail">, a
   };
   const attempt = async (confirmed: boolean): Promise<void> => {
     try {
+      denyIfConfidential(m.id);
       await api.attachmentOpen(m.id, a.index, confirmed);
     } catch (e) {
       if (errorCode(e) === "ATT_RISKY" && st.prefs.warnExecutables) {
@@ -171,6 +178,7 @@ export async function openAttachment(m: Pick<MessageFull, "id" | "fromEmail">, a
 
 /** Quick save to the download folder (or the Save as dialog when that is the setting). */
 async function saveQuick(m: Pick<MessageFull, "id">, a: AttMeta, onDone: (path: string) => void): Promise<void> {
+  denyIfConfidential(m.id);
   const st = useStore.getState();
   if (st.prefs.askWhereToSave) return saveAs(m, a, onDone);
   const paths = await api.saveAttachments(m.id, a.index);
@@ -178,6 +186,7 @@ async function saveQuick(m: Pick<MessageFull, "id">, a: AttMeta, onDone: (path: 
 }
 
 export async function saveAs(m: Pick<MessageFull, "id">, a: AttMeta, onDone: (path: string) => void): Promise<void> {
+  denyIfConfidential(m.id);
   const path = await api.attachmentSaveAs(m.id, a.index);
   if (path) onDone(path);
 }
@@ -208,9 +217,11 @@ export function AttachmentCard({ m, a }: { m: MessageFull; a: AttMeta }) {
   const { prefs, showToast, openCompose } = useStore();
   const [st, setSt] = useState<CardState>({ status: "idle" });
   const [preview, setPreview] = useState(false);
+  const conf = !!m.confidential; // confidential mail: preview inside the app only, nothing leaves it
+  const deny = () => showToast("This message is confidential: attachments can only be previewed here.", undefined, "info");
   const kind = fileKind(a.name, a.mime);
-  const pv = previewable(a);
-  const sub = `${typeName(a.name, a.mime)} · ${fmtSize(a.size)}`;
+  const pv = previewable(a, conf);
+  const sub = conf && !pv ? "Can’t be previewed: confidential" : `${typeName(a.name, a.mime)} · ${fmtSize(a.size)}`;
   const saveTo = prefs.downloadDir ? prefs.downloadDir.split(/[\\/]/).filter(Boolean).pop() : "Downloads";
 
   const run = async (label: string, job: () => Promise<void>) => {
@@ -226,7 +237,7 @@ export function AttachmentCard({ m, a }: { m: MessageFull; a: AttMeta }) {
   };
 
   const save = (askWhere: boolean) =>
-    run("Saving…", async () => {
+    conf ? deny() : run("Saving…", async () => {
       const done = (path: string) => {
         setSt({ status: "done", path });
         afterSave(path, a.name, m, a);
@@ -236,6 +247,7 @@ export function AttachmentCard({ m, a }: { m: MessageFull; a: AttMeta }) {
     });
 
   const open = () => {
+    if (conf) return pv ? setPreview(true) : deny();
     setSt((s) => ({ ...s, status: "busy", label: "Opening…" }));
     void openAttachment(m, a, {
       onError: (msg) => setSt({ status: "error", error: msg }),
@@ -246,6 +258,7 @@ export function AttachmentCard({ m, a }: { m: MessageFull; a: AttMeta }) {
   };
 
   const attachToNew = async () => {
+    if (conf) return deny();
     try {
       const d = await api.attachmentData(m.id, a.index);
       void openCompose({ accountId: m.accountId, subject: "", attachments: [{ filename: d.name, mime: d.mime, dataBase64: d.dataBase64 }] });
@@ -255,7 +268,7 @@ export function AttachmentCard({ m, a }: { m: MessageFull; a: AttMeta }) {
   };
 
   const isKey = isKeyAttachment(a) && eff(prefs, m.accountId, "pgpImportFromMail") !== "never";
-  const menu = [
+  const menu = conf ? (pv ? [{ label: "Preview", hint: "Space", onClick: () => setPreview(true) }] : []) : [
     ...(isKey ? [{ label: "Import key", onClick: () => void importKeyFromMessage(m, a.index) }, { divider: true }] : []),
     ...(pv ? [{ label: "Preview", hint: "Space", onClick: () => setPreview(true) }] : []),
     { label: "Open", hint: "Enter", onClick: open },
@@ -269,7 +282,9 @@ export function AttachmentCard({ m, a }: { m: MessageFull; a: AttMeta }) {
   const busy = st.status === "busy";
   const acts = (
     <div className="att-acts" onClick={(e) => e.stopPropagation()}>
-      {busy ? (
+      {conf ? (
+        pv ? <button className="icon-btn" title="Preview" aria-label={`Preview ${a.name}`} onClick={() => setPreview(true)}><ExternalLink size={14} /></button> : null
+      ) : busy ? (
         <button className="icon-btn" disabled aria-label={`${st.label ?? "Working"} ${a.name}`}><span className="spin" /></button>
       ) : st.status === "error" ? (
         <button className="btn small" onClick={() => void save(false)} aria-label={`Retry saving ${a.name}`}>Retry</button>
@@ -285,9 +300,11 @@ export function AttachmentCard({ m, a }: { m: MessageFull; a: AttMeta }) {
       ) : (
         <button className="icon-btn" title="Open" aria-label={`Open ${a.name}`} onClick={open}><ExternalLink size={14} /></button>
       )}
-      <Dropdown className="icon-btn" caret={false} align="right" title={`More actions for ${a.name}`} items={menu}>
-        <MoreHorizontal size={15} />
-      </Dropdown>
+      {menu.length > 0 && (
+        <Dropdown className="icon-btn" caret={false} align="right" title={`More actions for ${a.name}`} items={menu}>
+          <MoreHorizontal size={15} />
+        </Dropdown>
+      )}
     </div>
   );
 
@@ -359,6 +376,7 @@ export function AttachmentStrip({ m }: { m: MessageFull }) {
   }, [saveAll?.jobId]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const runSaveAll = async (ask: boolean) => {
+    if (m.confidential) return showToast("Attachments of confidential mail can’t be saved.", undefined, "info");
     const jobId = crypto.randomUUID();
     setSaveAll({ done: 0, total: m.attachments.length, jobId });
     try {
@@ -394,7 +412,7 @@ export function AttachmentStrip({ m }: { m: MessageFull }) {
               <span><b>{cards.length} attachment{cards.length === 1 ? "" : "s"}</b> · {fmtSize(cardsTotal)}</span>
             )}
             <span className="grow" />
-            {cards.length > 1 && !saveAll && (
+            {cards.length > 1 && !saveAll && !m.confidential && (
               <button className="link-btn small" title="Shift-click to choose a folder" onClick={(e) => void runSaveAll(e.shiftKey)}>
                 <FolderDown size={13} /> Save all…
               </button>
@@ -420,7 +438,7 @@ export function AttachmentStrip({ m }: { m: MessageFull }) {
               title="Pictures in this message"
               items={[
                 { label: "Show all pictures", disabled: pictureItems.length === 0, onClick: () => setLightbox({ idx: 0, items: pictureItems }) },
-                { label: "Save all pictures", onClick: () => void (async () => {
+                { label: "Save all pictures", disabled: !!m.confidential, onClick: () => void (async () => {
                   let n = 0;
                   for (const p of pictures) {
                     try {
@@ -446,6 +464,7 @@ export function AttachmentStrip({ m }: { m: MessageFull }) {
         <Lightbox
           items={lightbox.items.map((a) => ({ key: `att:${a.index}`, name: a.name, size: a.size, load: () => api.attachmentData(m.id, a.index).then((d) => `data:${d.mime};base64,${d.dataBase64}`) }))}
           index={lightbox.idx}
+          confidential={!!m.confidential}
           onClose={() => setLightbox(null)}
           onIndex={(i) => setLightbox((l) => (l ? { ...l, idx: i } : l))}
         />
@@ -464,7 +483,7 @@ interface PvLoaded {
 
 /** Modal preview of attachments (pictures, PDF, small text), with ← → between previewable items. */
 export function PreviewDialog({ m, items, start, onClose }: { m: MessageFull; items: AttMeta[]; start: number; onClose: () => void }) {
-  const list = items.filter((a) => previewable(a));
+  const list = items.filter((a) => previewable(a, !!m.confidential));
   const [i, setI] = useState(Math.max(0, Math.min(start, list.length - 1)));
   const [data, setData] = useState<PvLoaded | null>(null);
   const cur = list[i];
@@ -474,7 +493,7 @@ export function PreviewDialog({ m, items, start, onClose }: { m: MessageFull; it
     if (!cur) return;
     let live = true;
     setData(null);
-    const kind = previewable(cur);
+    const kind = previewable(cur, !!m.confidential);
     void api
       .attachmentData(m.id, cur.index)
       .then((d) => {
@@ -520,8 +539,9 @@ export function PreviewDialog({ m, items, start, onClose }: { m: MessageFull; it
   }, [list.length, onClose]);
 
   const [zoom, setZoom] = useState<"fit" | 1 | 2>("fit");
+  const lock = imageLock(!!m.confidential);
   if (!cur) return null;
-  const kind = previewable(cur);
+  const kind = previewable(cur, !!m.confidential);
   return (
     <div className="modal-back" onMouseDown={onClose}>
       <div className="modal pv-modal" role="dialog" aria-modal="true" aria-label={`Preview ${cur.name}`} onMouseDown={(e) => e.stopPropagation()}>
@@ -535,8 +555,8 @@ export function PreviewDialog({ m, items, start, onClose }: { m: MessageFull; it
               <button className="icon-btn" aria-label="Zoom in" onClick={() => setZoom((z) => (z === "fit" ? 1 : 2))}><ZoomIn size={15} /></button>
             </span>
           )}
-          <button className="btn small" onClick={() => void openAttachment(m, cur)}><ExternalLink size={13} /> Open</button>
-          <button className="btn small" onClick={() => void saveAs(m, cur, (p) => savedToast(p, cur.name)).catch((e) => useStore.getState().showToast(`Couldn’t save ${cur.name}: ${friendlyError(e)}`, undefined, "error"))}><Download size={13} /> Save as…</button>
+          {!m.confidential && <button className="btn small" onClick={() => void openAttachment(m, cur)}><ExternalLink size={13} /> Open</button>}
+          {!m.confidential && <button className="btn small" onClick={() => void saveAs(m, cur, (p) => savedToast(p, cur.name)).catch((e) => useStore.getState().showToast(`Couldn’t save ${cur.name}: ${friendlyError(e)}`, undefined, "error"))}><Download size={13} /> Save as…</button>}
           <button className="icon-btn" aria-label="Close preview" onClick={onClose}><X size={16} /></button>
         </div>
         <div className="pv-stage">
@@ -551,14 +571,15 @@ export function PreviewDialog({ m, items, start, onClose }: { m: MessageFull; it
           ) : data.error ? (
             <div className="pv-msg"><ImageOff size={28} /><div>Couldn’t show this file. {data.error}</div></div>
           ) : kind === "text" ? (
-            <pre className="pv-text">{data.text}</pre>
+            <pre className="pv-text" {...(m.confidential ? { style: { userSelect: "none", WebkitUserSelect: "none" } as const, onCopy: noCopy, onCut: noCopy, onContextMenu: noCopy, onDragStart: noCopy } : {})}>{data.text}</pre>
           ) : kind === "pdf" ? (
             <iframe title={cur.name} src={data.url} sandbox="allow-same-origin allow-scripts" />
           ) : (
             <img
               src={data.url}
               alt={cur.name}
-              style={zoom === "fit" ? undefined : { maxWidth: "none", maxHeight: "none", width: `${zoom * 100}%` }}
+              {...lock}
+              style={{ ...lock.style, ...(zoom === "fit" ? undefined : { maxWidth: "none", maxHeight: "none", width: `${zoom * 100}%` }) }}
             />
           )}
         </div>
@@ -578,8 +599,9 @@ export interface LbItem {
 }
 
 /** Full-window picture viewer. ← → move, Esc closes, + − zoom, 0 fits. */
-export function Lightbox({ items, index, onClose, onIndex }: { items: LbItem[]; index: number; onClose: () => void; onIndex: (i: number) => void }) {
+export function Lightbox({ items, index, onClose, onIndex, confidential }: { items: LbItem[]; index: number; onClose: () => void; onIndex: (i: number) => void; confidential?: boolean }) {
   const cur = items[index];
+  const lock = imageLock(!!confidential);
   const [src, setSrc] = useState<string | null>(null);
   const [zoom, setZoom] = useState(0); // 0 = fit
   const [dims, setDims] = useState<{ w: number; h: number } | null>(null);
@@ -637,7 +659,8 @@ export function Lightbox({ items, index, onClose, onIndex }: { items: LbItem[]; 
             src={src}
             alt={cur.name}
             onLoad={(e) => setDims({ w: e.currentTarget.naturalWidth, h: e.currentTarget.naturalHeight })}
-            style={zoom ? { maxWidth: "none", maxHeight: "none", width: `${zoom * 100}%` } : undefined}
+            {...lock}
+            style={{ ...lock.style, ...(zoom ? { maxWidth: "none", maxHeight: "none", width: `${zoom * 100}%` } : undefined) }}
           />
         )}
       </div>

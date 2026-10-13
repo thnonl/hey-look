@@ -4,7 +4,7 @@ import { NodeSelection } from "@tiptap/pm/state";
 import { EditorContent, Node as TipNode, useEditor, type Editor } from "@tiptap/react";
 import StarterKit from "@tiptap/starter-kit";
 import {
-  BadgeCheck, Bold, CalendarClock, CalendarPlus, ChevronDown, FileText, ImagePlus, Info, Italic, Link2, List, ListOrdered, Lock, LockOpen, Paperclip, Save, Send, ShieldCheck, Sparkles, Trash2,
+  BadgeCheck, Bold, CalendarClock, CalendarPlus, ChevronDown, FileText, ImagePlus, Info, Italic, Link2, List, ListOrdered, Lock, LockOpen, Paperclip, Save, Send, ShieldAlert, ShieldCheck, Sparkles, Trash2,
   TriangleAlert, Underline as UIcon, X,
 } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
@@ -17,6 +17,7 @@ import { blockedAttachmentExt, dataUriBytes, fileToBase64, fmtIn, fmtSize, fmtWh
 import { calTz } from "../calendar";
 import { defaultMeeting, MeetingState, MeetingStrip, meetingToDraft } from "./Calendar";
 import { askUnlock } from "./Pgp";
+import { useContentProtection } from "../protect";
 import { SchedulePicker } from "./SchedulePicker";
 import { AccountPicker, Dropdown, MenuList, useOutside } from "./ui";
 
@@ -313,6 +314,10 @@ export function Compose({ init }: { init: ComposeInit }) {
   // PGP: Encrypt is "on", "off", or "auto" (on while every recipient has a key); Sign is a plain switch
   const keysRev = useStore((s) => s.keysRev);
   const startMode = eff(prefs, accountId, "pgpEncrypt");
+  // Outlook's Sensitivity: Confidential. An answer to confidential mail starts that way, and keeps the window out of screen capture
+  // while it quotes the mail (init.confidential), as the reading pane does.
+  const [confidential, setConfidential] = useState(!!init.confidential);
+  useContentProtection(!!init.confidential);
   const [encIntent, setEncIntent] = useState<"on" | "off" | "auto">(init.restore ? init.restore.encrypt : init.security ? (init.security.encrypt ? "on" : "off") : startMode === "always" ? "on" : startMode === "possible" ? "auto" : "off");
   const [signOn, setSignOn] = useState(init.restore ? init.restore.sign : init.security ? init.security.sign : eff(prefs, accountId, "pgpSign"));
   const [attachKey, setAttachKey] = useState(init.restore ? init.restore.attachKey : init.security ? init.security.attachPublicKey : eff(prefs, accountId, "pgpAttachKey"));
@@ -566,6 +571,7 @@ export function Compose({ init }: { init: ComposeInit }) {
       attachments: atts,
       inline,
       security: currentSecurity(),
+      confidential: confidential || undefined,
       meeting: md && "meeting" in md ? md.meeting : undefined,
     };
   };
@@ -585,6 +591,7 @@ export function Compose({ init }: { init: ComposeInit }) {
       replaces: init.replaces,
       isReply: false,
       security: d.security,
+      confidential: d.confidential,
       // the toggles as they were when Send was pressed (the draft only knows what is active), the body with its one signature region
       restore: { encrypt: encIntent, sign: signOn, attachKey },
       meeting: d.meeting ? { ...d.meeting, on: true } : undefined,
@@ -773,7 +780,7 @@ export function Compose({ init }: { init: ComposeInit }) {
       }
     },
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [to, cc, bcc, subject, atts, accountId, sigId, editor, encOn, signActive, attachKey],
+    [to, cc, bcc, subject, atts, accountId, sigId, editor, encOn, signActive, attachKey, confidential],
   );
 
   const moveToDrafts = async () => {
@@ -969,6 +976,8 @@ export function Compose({ init }: { init: ComposeInit }) {
 
   const letAiWrite = async () => {
     if (!aiPrompt.trim()) return;
+    // the draft and the reply context quote confidential mail
+    if (init.confidential) return showToast("Confidential mail isn’t sent to the AI Assistant.", undefined, "info");
     setAiBusy(true);
     try {
       const context = init.isReply ? `\n\nThe email being replied to:\n${htmlToText(init.bodyHtml ?? "").slice(0, 6000)}` : "";
@@ -1195,6 +1204,14 @@ export function Compose({ init }: { init: ComposeInit }) {
             </div>
           )}
         </div>
+        <button
+          className={`rb ${confidential ? "on" : ""}`}
+          aria-pressed={confidential}
+          title={confidential ? "Confidential: recipients can’t copy, print, forward or screen-capture it in Hey Look! (click to turn off)" : "Mark as confidential (Sensitivity: Confidential)"}
+          onClick={() => (setConfidential(!confidential), touch())}
+        >
+          <ShieldAlert size={15} /><span>Confidential</span>
+        </button>
         {!init.outboxId && <button className="rb" onClick={() => void saveDraft(true)}><Save size={15} /><span>Save draft</span></button>}
         <Dropdown
           className="rb"
@@ -1204,8 +1221,9 @@ export function Compose({ init }: { init: ComposeInit }) {
         </Dropdown>
         <button
           className={`rb ${aiOpen ? "on" : ""}`}
+          disabled={!!init.confidential}
           onClick={() => (aiConfigured ? setAiOpen((o) => !o) : setDialog({ type: "settings", tab: "ai" }))}
-          title={aiConfigured ? "Write or rewrite with AI" : "Set up the AI Assistant first"}
+          title={init.confidential ? "Confidential mail isn’t sent to the AI Assistant" : aiConfigured ? "Write or rewrite with AI" : "Set up the AI Assistant first"}
         >
           <Sparkles size={15} /><span>Write with AI</span>
         </button>

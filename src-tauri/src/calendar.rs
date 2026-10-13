@@ -86,6 +86,8 @@ pub struct CalEvent {
     pub reminder_min: Option<i64>,
     pub source_message_id: Option<String>,
     pub sequence: i64,
+    /// made from confidential mail (see mail::is_confidential): no export, no copy; set when the event is read
+    pub confidential: bool,
     /// set for expanded recurrence instances
     pub instance_start: Option<i64>,
     #[serde(skip)]
@@ -251,6 +253,7 @@ fn row_event(r: &Row) -> rusqlite::Result<CalEvent> {
         reminder_min: r.get(21)?,
         source_message_id: r.get(22)?,
         sequence: r.get(23)?,
+        confidential: false,
         prev: r.get(24)?,
         instance_start: None,
     })
@@ -307,7 +310,22 @@ fn find(c: &Connection, calendar: &str, uid: &str, rid: &str) -> Option<CalEvent
 }
 
 pub fn get_event(c: &Connection, id: &str) -> R<CalEvent> {
-    c.query_row(&format!("SELECT {COLS} FROM events WHERE id=?1"), [id], row_event).map_err(|_| "event not found".to_string())
+    let mut e = c.query_row(&format!("SELECT {COLS} FROM events WHERE id=?1"), [id], row_event).map_err(|_| "event not found".to_string())?;
+    mark_confidential(c, &mut e);
+    Ok(e)
+}
+
+/// Flag an event that came from a confidential invitation: its summary, description and location are as confidential as the mail.
+fn mark_confidential(c: &Connection, e: &mut CalEvent) {
+    e.confidential = ensure_event_exportable(c, e).is_err();
+}
+
+/// Refuses the events of confidential invitations (for "Save .ics" and the like), with the same error as the mail itself.
+fn ensure_event_exportable(c: &Connection, e: &CalEvent) -> R<()> {
+    match e.source_message_id.as_deref() {
+        Some(mid) => crate::ensure_not_confidential(c, mid),
+        None => Ok(()),
+    }
 }
 
 /// Account id -> its address (lower case), for deciding who "you" are in an event.
@@ -373,6 +391,7 @@ pub fn list_range(c: &Connection, from: i64, to: i64) -> R<Vec<CalEvent>> {
             continue;
         }
         mark_you(&mut e, &mine);
+        mark_confidential(c, &mut e);
         match e.rrule.clone() {
             Some(rule) => {
                 for (s, en) in ical::expand_budgeted(e.start, e.end, e.all_day, e.tzid.as_deref(), &rule, &e.exdates, from - DAY, to + DAY, &mut budget) {
@@ -461,6 +480,7 @@ fn event_from_ics(ev: &IcsEvent, calendar: &str, account: Option<&Account>, mess
         reminder_min: reminder,
         source_message_id: Some(message_id.to_string()),
         sequence: ev.sequence,
+        confidential: false,
         instance_start: None,
         recurrence_id: ev.recurrence_id.map(|r| r.to_string()).unwrap_or_default(),
         exdates: ev.exdates.clone(),
@@ -945,6 +965,7 @@ pub fn save_local(c: &Connection, inp: &CalEventInput) -> R<(CalEvent, Option<Ac
         reminder_min: inp.reminder_min,
         source_message_id: None,
         sequence,
+        confidential: false,
         instance_start: None,
         recurrence_id: String::new(),
         exdates: existing.as_ref().map(|x| x.exdates.clone()).unwrap_or_default(),
@@ -1271,11 +1292,13 @@ pub async fn calendar_save_ics(app: tauri::AppHandle, state: tauri::State<'_, cr
     let db = state.db.clone();
     crate::blocking(move || {
         let (name, text) = if let Some(mid) = message_id {
+            crate::ensure_not_confidential(&lock(&db), &mid)?;
             let (_, _, _, text) = message_ics(&db, &mid)?;
             let name = ical::parse(&text).ok().and_then(|c| c.events.first().map(|e| e.summary.clone())).unwrap_or_default();
             (ics_file_name(&name), text)
         } else if let Some(id) = event_id {
             let e = get_event(&lock(&db), &id)?;
+            ensure_event_exportable(&lock(&db), &e)?;
             let mut ev = to_ics_event(&e);
             ev.attendees.clear();
             ev.organizer = e.organizer.as_ref().map(|o| Person { email: o.email.clone(), name: o.name.clone() });
@@ -1797,6 +1820,7 @@ END:VCALENDAR
             prebuilt: None,
             meeting: Some(crate::smtp::Meeting { start: ts(2026, 10, 20, 9, 0), end: ts(2026, 10, 20, 10, 0), all_day: false, tzid: Some("Asia/Ho_Chi_Minh".into()), location: Some("Room 1".into()), rrule: None }),
             calendar: None,
+            confidential: false,
         };
         prepare_meeting(&c, &mut d).unwrap();
         let cal = d.calendar.clone().unwrap();
@@ -1877,6 +1901,31 @@ END:VCALENDAR
 
     fn request_ics(e: &CalEvent) -> String {
         ical::to_ics(Some("REQUEST"), &[to_ics_event(e)])
+    }
+
+    #[test]
+    fn events_of_confidential_invitations_are_not_exportable() {
+        let c = two_accounts();
+        let e = organize(&c, vec![att(B_MAIL, None)]);
+        let req = request_ics(&e);
+        put_for(&c, "inv-plain", A_ID, "inbox", B_MAIL, &req);
+        put_for(&c, "inv-conf", A_ID, "inbox", B_MAIL, &req);
+        c.execute("UPDATE messages SET pgp=?1 WHERE id='inv-conf'", [crate::pgpmail::FLAG_CONFIDENTIAL as i64]).unwrap();
+        let from = |mid: &str| -> CalEvent {
+            let mut ev = organize(&c, vec![]);
+            ev.id = format!("ev-{mid}");
+            ev.calendar_id = format!("invites:{A_ID}");
+            ev.source_message_id = Some(mid.to_string());
+            save_row(&c, &ev).unwrap();
+            get_event(&c, &ev.id).unwrap()
+        };
+        let (plain, conf) = (from("inv-plain"), from("inv-conf"));
+        assert!(!plain.confidential && ensure_event_exportable(&c, &plain).is_ok());
+        assert!(conf.confidential);
+        assert_eq!(ensure_event_exportable(&c, &conf).unwrap_err(), "This message is confidential, so that isn’t allowed.");
+        // an event of your own, or one without a source message, is never held back
+        assert!(ensure_event_exportable(&c, &e).is_ok());
+        assert!(list_range(&c, 0, i64::MAX / 4).unwrap().iter().any(|x| x.id == conf.id && x.confidential));
     }
 
     #[test]
@@ -2173,6 +2222,7 @@ END:VCALENDAR
                 prebuilt: None,
                 meeting: Some(crate::smtp::Meeting { start: ts(2026, 10, 21, 9, 0), end: ts(2026, 10, 21, 10, 0), all_day: false, tzid: None, location: None, rrule: None }),
                 calendar: None,
+                confidential: false,
             };
             prepare_meeting(&c, &mut d).unwrap();
             let back = ical::parse(&d.calendar.as_ref().unwrap().ics).unwrap();
@@ -2200,6 +2250,7 @@ END:VCALENDAR
             prebuilt: None,
             meeting: Some(crate::smtp::Meeting { start: ts(2026, 10, 21, 9, 0), end: ts(2026, 10, 21, 10, 0), all_day: false, tzid: None, location: None, rrule: None }),
             calendar: None,
+            confidential: false,
         };
         prepare_meeting(&c, &mut d).unwrap();
         let ev = d.calendar.as_ref().unwrap().ics.clone();

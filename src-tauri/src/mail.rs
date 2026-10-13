@@ -205,7 +205,7 @@ pub struct Parsed {
     pub attachments: Vec<AttMeta>,
     pub list_unsub: Option<String>,
     pub list_unsub_post: bool,
-    /// pgpmail::FLAG_ENCRYPTED | FLAG_SIGNED
+    /// pgpmail::FLAG_ENCRYPTED | FLAG_SIGNED | FLAG_CONFIDENTIAL
     pub pgp: u8,
     /// the raw message, kept only for PGP messages (decrypted at view time, never stored decrypted)
     pub pgp_raw: Option<Vec<u8>>,
@@ -235,6 +235,63 @@ fn ids_in(raw: &str) -> Vec<String> {
 fn addrs(a: Option<&Address>) -> Vec<String> {
     a.map(|a| a.iter().filter_map(|x| x.address.as_ref().map(|s| s.to_string())).collect())
         .unwrap_or_default()
+}
+
+/// Words in a sensitivity label name that make a message confidential.
+const LABEL_WORDS: [&str; 3] = ["confidential", "secret", "restricted"];
+
+/// The words of a label name, lower case: split at anything that is not an ASCII letter or digit and between camelCase words
+/// ("HighlyConfidential" -> highly, confidential).
+fn label_tokens(name: &str) -> Vec<String> {
+    let (mut out, mut cur, mut prev_lower) = (vec![], String::new(), false);
+    for c in name.chars() {
+        if !c.is_ascii_alphanumeric() {
+            if !cur.is_empty() {
+                out.push(std::mem::take(&mut cur));
+            }
+            prev_lower = false;
+            continue;
+        }
+        if c.is_ascii_uppercase() && prev_lower {
+            out.push(std::mem::take(&mut cur));
+        }
+        cur.push(c.to_ascii_lowercase());
+        prev_lower = c.is_ascii_lowercase() || c.is_ascii_digit();
+    }
+    if !cur.is_empty() {
+        out.push(cur);
+    }
+    out
+}
+
+/// Does a label name call the mail confidential: one of LABEL_WORDS as a word of its own (so "Secretariat" and "Unrestricted"
+/// are not), and not negated by the word before it ("Non-Confidential", "Not_Secret", "NotConfidential").
+fn label_is_confidential(name: &str) -> bool {
+    const NOT: [&str; 4] = ["non", "not", "no", "un"];
+    let tokens = label_tokens(name);
+    tokens.iter().enumerate().any(|(i, t)| LABEL_WORDS.contains(&t.as_str()) && !(i > 0 && NOT.contains(&tokens[i - 1].as_str())))
+}
+
+/// Did the sender mark this message confidential? Outlook's Sensitivity option sends `Sensitivity: Company-Confidential`
+/// (Normal / Personal / Private are not enough); Microsoft Purview sensitivity labels add `msip_labels:
+/// MSIP_Label_<guid>_Name=Highly Confidential; ...` or a `MSIP_Label_<guid>_Name:` header of their own.
+pub fn is_confidential(raw: &[u8]) -> bool {
+    let (headers, _) = crate::pgpmail::parse_headers(raw);
+    let label = label_is_confidential;
+    headers.iter().any(|(name, value)| {
+        let n = name.to_ascii_lowercase();
+        if n == "sensitivity" {
+            matches!(value.trim().to_ascii_lowercase().as_str(), "company-confidential" | "confidential")
+        } else if n == "msip_labels" || n == "x-msip_labels" {
+            value.split(';').any(|kv| {
+                let (k, v) = kv.split_once('=').unwrap_or(("", ""));
+                let k = k.trim().to_ascii_lowercase();
+                k.starts_with("msip_label_") && k.ends_with("_name") && label(v)
+            })
+        } else {
+            n.trim_start_matches("x-").starts_with("msip_label_") && n.ends_with("_name") && label(value)
+        }
+    })
 }
 
 pub fn parse(uid: u32, raw: &[u8], seen: bool, flagged: bool, fallback_date: i64) -> Option<Parsed> {
@@ -272,7 +329,10 @@ pub fn parse(uid: u32, raw: &[u8], seen: bool, flagged: bool, fallback_date: i64
     }
 
     // PGP: encrypted mail keeps no readable body in the database; signed mail drops its signature part
-    let (pgp, keep) = crate::pgpmail::flags_for(raw, text.as_deref());
+    let (mut pgp, keep) = crate::pgpmail::flags_for(raw, text.as_deref());
+    if is_confidential(raw) {
+        pgp |= crate::pgpmail::FLAG_CONFIDENTIAL;
+    }
     let mut snippet_override = None;
     if pgp & crate::pgpmail::FLAG_ENCRYPTED != 0 {
         html = None;
@@ -804,5 +864,74 @@ Content-Type: text/html; charset=utf-8
 --B--
 ");
         assert_eq!(parse(12, empty.as_bytes(), false, false, 0).unwrap().snippet, "Preview words Main content");
+    }
+
+    #[test]
+    fn confidential_mail_is_recognised_from_sensitivity_and_purview_labels() {
+        let msg = |h: &str| format!("From: a@example.com\r\nTo: b@example.com\r\nSubject: s\r\n{h}\r\n\r\nbody\r\n").into_bytes();
+        for yes in [
+            "Sensitivity: Company-Confidential\r\n",
+            "sensitivity:  confidential \r\n",
+            "msip_labels: MSIP_Label_1f2e_Enabled=true; MSIP_Label_1f2e_Name=Highly Confidential; MSIP_Label_1f2e_Method=Standard\r\n",
+            "X-MSIP_Label_1f2e_Name: Secret\r\n",
+            "MSIP_Label_1f2e_Name: Restricted\r\n",
+            "MSIP_Label_1f2e_Name: Confidential\r\n",
+            "MSIP_Label_1f2e_Name: Secret Project X\r\n",
+            "MSIP_Label_1f2e_Name: Confidential - Not for distribution\r\n",
+            "msip_labels: MSIP_Label_1f2e_Name=Internal; MSIP_Label_9a8b_Name=Highly Confidential\r\n",
+            "MSIP_Label_1f2e_Name: Highly Confidential\r\n",
+            "MSIP_Label_1f2e_Name: Confidential\\All Employees\r\n",
+            "MSIP_Label_1f2e_Name: Company Confidential\r\n",
+            "MSIP_Label_1f2e_Name: HighlyConfidential\r\n",
+            "MSIP_Label_1f2e_Name: Anon Confidential\r\n",
+            "MSIP_Label_1f2e_Name: Public Confidential\r\n",
+            "MSIP_Label_1f2e_Name: Confidential, not secret\r\n",
+            "MSIP_Label_1f2e_Name: Not Secret, Confidential\r\n",
+            "MSIP_Label_1f2e_Name: Not for distribution: Confidential\r\n",
+            "MSIP_Label_1f2e_Name: Non-Confidential Secret\r\n",
+            "MSIP_Label_1f2e_Name: 🔒 Confidential\r\n",
+            "MSIP_Label_1f2e_Name: 日本Confidential\r\n",
+            "MSIP_Label_1f2e_Name: éConfidential\r\n",
+            "MSIP_Label_1f2e_Name: CONFIDENTIAL\r\n",
+        ] {
+            assert!(is_confidential(&msg(yes)), "{yes}");
+            let p = parse(1, &msg(yes), false, false, 0).unwrap();
+            assert_eq!(p.pgp & crate::pgpmail::FLAG_CONFIDENTIAL, crate::pgpmail::FLAG_CONFIDENTIAL, "{yes}");
+        }
+        for no in [
+            "",
+            "Sensitivity: Normal\r\n",
+            "Sensitivity: Private\r\n",
+            "msip_labels: MSIP_Label_1f2e_Enabled=true; MSIP_Label_1f2e_Name=Public\r\n",
+            "X-Note: Sensitivity: Confidential\r\n",
+            // a label that says it is not confidential
+            "MSIP_Label_1f2e_Name: Non-Confidential\r\n",
+            "MSIP_Label_1f2e_Name: Non Confidential\r\n",
+            "msip_labels: MSIP_Label_1f2e_Enabled=true; MSIP_Label_1f2e_Name=Not Confidential\r\n",
+            "MSIP_Label_1f2e_Name: Unclassified/Non Confidential\r\n",
+            "MSIP_Label_1f2e_Name: Unrestricted\r\n",
+            "MSIP_Label_1f2e_Name: Not Secret\r\n",
+            "MSIP_Label_1f2e_Name: NotConfidential\r\n",
+            "MSIP_Label_1f2e_Name: Not_Confidential\r\n",
+            "MSIP_Label_1f2e_Name: NotSecret\r\n",
+            "MSIP_Label_1f2e_Name: NoSecret\r\n",
+            "MSIP_Label_1f2e_Name: NotRestricted\r\n",
+            "MSIP_Label_1f2e_Name: Public-NotConfidential\r\n",
+            "MSIP_Label_1f2e_Name: PublicNonConfidential\r\n",
+            "MSIP_Label_1f2e_Name: Public (not confidential)\r\n",
+            "MSIP_Label_1f2e_Name: UNCONFIDENTIAL\r\n",
+            "MSIP_Label_1f2e_Name: NONCONFIDENTIAL\r\n",
+            "MSIP_Label_1f2e_Name: Secretariat\r\n",
+            "MSIP_Label_1f2e_Name: Secretary Use Only\r\n",
+            "MSIP_Label_1f2e_Name: Un-restricted\r\n",
+        ] {
+            assert!(!is_confidential(&msg(no)), "{no}");
+            assert_eq!(parse(1, &msg(no), false, false, 0).unwrap().pgp, 0, "{no}");
+        }
+        // very long label names are neither slow nor a panic
+        assert!(!is_confidential(&msg(&format!("MSIP_Label_1f2e_Name: {}Unconfidential\r\n", "A".repeat(5000)))));
+        assert!(is_confidential(&msg(&format!("MSIP_Label_1f2e_Name: {} Confidential\r\n", "\u{e9}".repeat(5000)))));
+        // a header-looking line in the body is not a header
+        assert!(!is_confidential(b"From: a@example.com\r\n\r\nSensitivity: Confidential\r\n"));
     }
 }

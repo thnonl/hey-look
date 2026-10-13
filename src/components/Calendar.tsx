@@ -93,7 +93,9 @@ export function InviteCard({ m }: { m: MessageFull }) {
     return (
       <div className="notice bad" role="alert">
         This invitation couldn’t be read (invalid calendar data).{" "}
-        <button className="link" onClick={() => void saveIcs()}>Save .ics</button> · <button className="link" onClick={() => useStore.getState().setDialog({ type: "original", messageId: m.id })}>Show original</button>
+        {m.confidential ? "Confidential mail can’t be saved or shown as source." : (
+          <><button className="link" onClick={() => void saveIcs()}>Save .ics</button> · <button className="link" onClick={() => useStore.getState().setDialog({ type: "original", messageId: m.id })}>Show original</button></>
+        )}
       </div>
     );
   }
@@ -377,7 +379,7 @@ export function InviteCard({ m }: { m: MessageFull }) {
         )}
         <span className="grow" />
         {inv.eventId && !inv.cancelled && <button className="link-btn" onClick={openInCalendar}><CalendarDays size={14} /> Open in calendar</button>}
-        <button className="link-btn" onClick={() => void saveIcs()}><Download size={14} /> Save .ics</button>
+        {!m.confidential && <button className="link-btn" onClick={() => void saveIcs()}><Download size={14} /> Save .ics</button>}
       </div>
 
       {note && <NoteDialog r={note} onClose={() => setNote(null)} onSend={(text) => (setNote(null), void respond(note, true, text))} />}
@@ -903,8 +905,8 @@ function EventPopover({ state, tz, color, onClose }: { state: PopState; tz: stri
           title="More actions"
           items={[
             { label: "Edit", disabled: !mine, onClick: () => (onClose(), setDialog({ type: "event", eventId: ev.id })) },
-            { label: "Duplicate", onClick: duplicate },
-            { label: "Save .ics", onClick: () => void saveIcs() },
+            { label: "Duplicate", disabled: ev.confidential, onClick: duplicate },
+            { label: "Save .ics", disabled: ev.confidential, onClick: () => void saveIcs() },
             { divider: true },
             { label: "Delete", onClick: () => void remove() },
           ]}

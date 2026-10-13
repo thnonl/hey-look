@@ -1,6 +1,7 @@
 import { Archive, Ban, MailMinus, Trash2 } from "lucide-react";
 import { useEffect, useState } from "react";
 import { api, SenderInfo } from "../api";
+import { isConfidentialId } from "../protect";
 import { useStore } from "../store";
 import { fmtDate } from "../util";
 import { Modal } from "./ui";
@@ -65,7 +66,9 @@ export function BulkCleaner() {
 export function ShowOriginal({ messageId }: { messageId: string }) {
   const { setDialog, showToast } = useStore();
   const [raw, setRaw] = useState<string | null>(null);
+  const confidential = isConfidentialId(messageId);
   useEffect(() => {
+    if (confidential) return;
     api.getRaw(messageId).then(setRaw).catch((e) => {
       showToast(String(e));
       setDialog(null);
@@ -73,7 +76,7 @@ export function ShowOriginal({ messageId }: { messageId: string }) {
   }, [messageId]); // eslint-disable-line react-hooks/exhaustive-deps
   return (
     <Modal title="Original message" onClose={() => setDialog(null)} wide>
-      {raw === null ? <div className="muted">Fetching from server…</div> : (
+      {confidential ? <div className="muted">This message is confidential, so its source can’t be shown.</div> : raw === null ? <div className="muted">Fetching from server…</div> : (
         <>
           <button className="btn small" onClick={() => void navigator.clipboard.writeText(raw).then(() => showToast("Copied"))}>Copy</button>
           <pre className="original">{raw}</pre>

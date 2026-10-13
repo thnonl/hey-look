@@ -1,10 +1,11 @@
 import { openUrl } from "@tauri-apps/plugin-opener";
-import { Archive, Clock, Flag, Forward, MailX, MoreHorizontal, Moon, Pin, Reply, ReplyAll, Sparkles, Sun, Trash2, ChevronsDownUp, ChevronsUpDown, Mail } from "lucide-react";
+import { Archive, Clock, Flag, Forward, MailX, MoreHorizontal, Moon, Pin, Reply, ReplyAll, Sparkles, Sun, Trash2, ChevronsDownUp, ChevronsUpDown, Mail, ShieldAlert } from "lucide-react";
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { forward, replyTo } from "../actions";
 import { api, MessageFull } from "../api";
 import { appSurface, setMailDark } from "../darkMail";
 import { eff } from "../prefs";
+import { CONFIDENTIAL_FRAME_CSS, CONFIDENTIAL_NOTE, lockDocument, useContentProtection } from "../protect";
 import { friendlyError, useStore } from "../store";
 import { useAppDark } from "../useAppDark";
 import { fmtFull, fmtSize, plainToHtml, sanitizeHtml, snoozePresets } from "../util";
@@ -197,6 +198,8 @@ function MessageBody({ m, frameRef, dark, onPictures }: { m: MessageFull; frameR
   // elements for the dark sheet, so they are recoloured with the rest.
   const darkNow = useRef(dark);
   darkNow.current = dark;
+  const lockedNow = useRef(!!m.confidential);
+  lockedNow.current = !!m.confidential;
   const srcDoc = useMemo(
     () => `<!doctype html><html data-hm-doc${darkNow.current ? ' class="hm-dark hm-pend"' : ""}><head><meta charset="utf-8"><meta http-equiv="Content-Security-Policy" content="${csp}"><base target="_blank">
     <style>html{--hm-fg:#242424;--hm-link:#0f6cbd;--hm-bg:#ffffff}
@@ -205,9 +208,10 @@ function MessageBody({ m, frameRef, dark, onPictures }: { m: MessageFull; frameR
     img{max-width:100%;height:auto;cursor:zoom-in}blockquote{margin:0 0 0 .8ex;border-left:2px solid #999;padding-left:1ex}a{color:var(--hm-link)}table{max-width:100%}
     .hl-ph{display:flex;align-items:center;gap:10px;max-width:100%;width:360px;padding:12px 14px;border:1px dashed #9aa3af;border-radius:10px;background:#f6f7f9;color:#5b6470;font:13px/1.4 "Segoe UI",sans-serif;cursor:pointer;text-align:left;box-sizing:border-box;flex-wrap:wrap}
     .hl-ph:hover{background:#eceef2}.hl-ph b{color:#1f2328}.hl-ph.bad{border-color:#c4314b;color:#c4314b}.hl-ph:disabled{cursor:default}
+    ${lockedNow.current ? CONFIDENTIAL_FRAME_CSS : ""}
     .hl-spin{width:14px;height:14px;border:2px solid #9aa3af;border-top-color:transparent;border-radius:50%;animation:hlspin 1s linear infinite;flex:none}@keyframes hlspin{to{transform:rotate(360deg)}}</style>
     </head><body>${html}<style>html,body{overflow:hidden!important;height:auto!important;min-height:0!important}</style></body></html>`,
-    [html, csp], // eslint-disable-line react-hooks/exhaustive-deps
+    [html, csp, m.confidential], // eslint-disable-line react-hooks/exhaustive-deps
   );
   // theme change or toggle on a loaded mail: recolour in place (a freshly loaded mail is handled in onLoad)
   useEffect(() => {
@@ -343,7 +347,9 @@ function MessageBody({ m, frameRef, dark, onPictures }: { m: MessageFull; frameR
       } else void openUrl(a.href);
     };
     doc.addEventListener("click", onClick);
+    const unlock = lockedNow.current ? lockDocument(doc) : undefined;
     stopObserve.current = () => {
+      unlock?.();
       imgs.forEach((i) => {
         i.removeEventListener("load", measure);
         i.removeEventListener("error", measure);
@@ -391,6 +397,8 @@ function MessageCard({ m, open, onToggle }: { m: MessageFull; open: boolean; onT
   const [translated, setTranslated] = useState<string | null>(null);
   const [lightbox, setLightbox] = useState<{ items: { src: string; name: string }[]; index: number } | null>(null);
   const who = m.fromName || m.fromEmail;
+  const conf = !!m.confidential;
+  const noCopy = (e: React.SyntheticEvent) => conf && e.preventDefault();
 
   // received public keys: imported without asking when the mailbox is set to do that (once per message)
   const keyAtt = open ? m.attachments.find(isKeyAttachment) : undefined;
@@ -415,6 +423,7 @@ function MessageCard({ m, open, onToggle }: { m: MessageFull; open: boolean; onT
 
   /** Every attachment into one folder (pictures included); a failed file does not stop the others. */
   const saveAll = async (ask = false) => {
+    if (conf) return showToast("Attachments of confidential mail can’t be saved.", undefined, "info");
     try {
       const r = await api.attachmentSaveAll(m.id, ask || prefs.askWhereToSave);
       if (!r) return;
@@ -428,6 +437,7 @@ function MessageCard({ m, open, onToggle }: { m: MessageFull; open: boolean; onT
 
   const translate = async (lang: string) => {
     if (needsCard(m)) return showToast("Unlock this message first.", undefined, "info");
+    if (conf) return showToast("Confidential mail isn’t sent to the AI Assistant.", undefined, "info");
     showToast(`Translating to ${lang}…`);
     try {
       setTranslated(
@@ -451,13 +461,13 @@ function MessageCard({ m, open, onToggle }: { m: MessageFull; open: boolean; onT
             <b>{who}</b>
             <span className="muted"> &lt;{m.fromEmail}&gt;</span>
           </div>
-          <div className="muted small ellipsis">{open ? `To: ${m.to}${m.cc ? `; Cc: ${m.cc}` : ""}` : needsCard(m) ? "Encrypted message" : (m.text ?? "").replace(/\s+/g, " ").slice(0, 140)}</div>
+          <div className="muted small ellipsis">{open ? `To: ${m.to}${m.cc ? `; Cc: ${m.cc}` : ""}` : needsCard(m) ? "Encrypted message" : conf ? "Confidential message" : (m.text ?? "").replace(/\s+/g, " ").slice(0, 140)}</div>
         </div>
         {open && (
           <div className="rp-msg-actions" onClick={(e) => e.stopPropagation()}>
             <button className="icon-btn" title="Reply" aria-label="Reply" onClick={() => replyTo(m, false)}><Reply size={16} /></button>
             <button className="icon-btn" title="Reply all" aria-label="Reply all" onClick={() => replyTo(m, true)}><ReplyAll size={16} /></button>
-            <button className="icon-btn" title="Forward" aria-label="Forward" onClick={() => forward(m)}><Forward size={16} /></button>
+            <button className="icon-btn" title={conf ? "Confidential mail can’t be forwarded" : "Forward"} aria-label="Forward" disabled={conf} onClick={() => forward(m)}><Forward size={16} /></button>
             {cv.appDark && (
               <button
                 className="icon-btn"
@@ -474,17 +484,17 @@ function MessageCard({ m, open, onToggle }: { m: MessageFull; open: boolean; onT
               align="right"
               title="More actions"
               items={[
-                { label: "Show original", onClick: () => setDialog({ type: "original", messageId: m.id }) },
-                { label: "Print", onClick: () => frameRef.current?.contentWindow?.print() },
+                { label: "Show original", disabled: conf, onClick: () => setDialog({ type: "original", messageId: m.id }) },
+                { label: "Print", disabled: conf, onClick: () => frameRef.current?.contentWindow?.print() },
                 {
                   label: "Create event from this email…",
-                  onClick: () => setDialog({ type: "event", init: { summary: m.subject.replace(/^((re|fwd?):\s*)+/i, ""), description: (m.text ?? "").trim().slice(0, 1500) } }),
+                  onClick: () => setDialog({ type: "event", init: { summary: m.subject.replace(/^((re|fwd?):\s*)+/i, ""), description: conf ? "" : (m.text ?? "").trim().slice(0, 1500) } }),
                 },
                 { label: "Copy sender email", onClick: () => void navigator.clipboard.writeText(m.fromEmail).then(() => showToast("Copied")) },
                 { divider: true },
-                ...LANGS.map((l) => ({ label: `Translate to ${l}`, onClick: () => void translate(l), disabled: needsCard(m) })),
+                ...LANGS.map((l) => ({ label: `Translate to ${l}`, onClick: () => void translate(l), disabled: needsCard(m) || conf })),
                 ...(m.canUnsubscribe ? [{ divider: true }, { label: "Unsubscribe", onClick: () => void unsub() }] : []),
-                ...(m.attachments.length ? [{ divider: true }, { label: "Save all attachments…", onClick: () => void saveAll(false) }] : []),
+                ...(m.attachments.length ? [{ divider: true }, { label: "Save all attachments…", disabled: conf, onClick: () => void saveAll(false) }] : []),
               ]}
             >
               <MoreHorizontal size={16} />
@@ -494,7 +504,12 @@ function MessageCard({ m, open, onToggle }: { m: MessageFull; open: boolean; onT
         <div className="muted small rp-date">{fmtFull(m.date)}</div>
       </div>
       {open && (
-        <div className="rp-msg-body">
+        <div className={`rp-msg-body ${conf ? "confidential" : ""}`} onCopy={noCopy} onCut={noCopy} onContextMenu={noCopy} onDragStart={noCopy}>
+          {conf && (
+            <div className="notice conf-banner" role="note">
+              <ShieldAlert size={14} aria-hidden /> {CONFIDENTIAL_NOTE}
+            </div>
+          )}
           <SecBadges m={m} />
           {m.invite && <InviteCard m={m} />}
           {m.canUnsubscribe && (
@@ -515,6 +530,7 @@ function MessageCard({ m, open, onToggle }: { m: MessageFull; open: boolean; onT
             <Lightbox
               items={lightbox.items.map((p, i): LbItem => ({ key: `${i}:${p.name}`, name: p.name, load: () => Promise.resolve(p.src) }))}
               index={lightbox.index}
+              confidential={conf}
               onClose={() => setLightbox(null)}
               onIndex={(i) => setLightbox((l) => (l ? { ...l, index: i } : l))}
             />
@@ -526,7 +542,7 @@ function MessageCard({ m, open, onToggle }: { m: MessageFull; open: boolean; onT
             <button className="btn" onClick={() => replyTo(m, !replyDefaultAll)}>
               {replyDefaultAll ? <Reply size={14} /> : <ReplyAll size={14} />} {replyDefaultAll ? "Reply" : "Reply all"}
             </button>
-            <button className="btn" onClick={() => forward(m)}>
+            <button className="btn" disabled={conf} title={conf ? "Confidential mail can’t be forwarded" : undefined} onClick={() => forward(m)}>
               <Forward size={14} /> Forward
             </button>
           </div>
@@ -543,6 +559,8 @@ export function ReadingPane() {
   const [busy, setBusy] = useState(false);
   const summ = threads.find((t) => t.threadId === selected);
   const bodyRef = useRef<HTMLDivElement>(null);
+  // while confidential mail is on screen the window is hidden from screen capture and recording
+  useContentProtection(!!selected && messages.some((m) => m.confidential));
 
   // a newly selected mail starts at the top - once, here, and nowhere else (nothing re-scrolls while it loads)
   useEffect(() => {
@@ -629,9 +647,9 @@ export function ReadingPane() {
     }
     setBusy(true);
     try {
-      const readable = messages.filter((m) => !needsCard(m));
+      const readable = messages.filter((m) => !needsCard(m) && !m.confidential);
       if (readable.length === 0) {
-        showToast("Unlock the encrypted message first.", undefined, "info");
+        showToast(messages.some((m) => m.confidential) ? "Confidential mail isn’t sent to the AI Assistant." : "Unlock the encrypted message first.", undefined, "info");
         return;
       }
       const body = readable
@@ -641,7 +659,8 @@ export function ReadingPane() {
       setSummary(
         await api.aiComplete(
           "You summarize email conversations. Reply with 2-5 concise bullet points covering key facts, decisions and requested actions. Use the language of the emails.",
-          `Subject: ${summ.subject}\n\n${body}`,
+          // the subject of a thread with confidential mail may be that mail's, so it is left out
+          `${messages.some((m) => m.confidential) ? "" : `Subject: ${summ.subject}\n\n`}${body}`,
         ),
       );
     } catch (e) {

@@ -973,6 +973,7 @@ mod tests {
             prebuilt: None,
             meeting: None,
             calendar: None,
+            confidential: false,
         }
     }
 

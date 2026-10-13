@@ -30,6 +30,8 @@ export interface ComposeInit {
    * as in a stored draft), and Encrypt / Sign / public key are as the user had set them.
    */
   restore?: { encrypt: "on" | "off" | "auto"; sign: boolean; attachKey: boolean };
+  /** send as confidential (an answer to confidential mail starts that way) */
+  confidential?: boolean;
   /** start Compose as a meeting invitation ("Meeting" switched on) */
   meeting?: Partial<Meeting> & { on?: boolean };
 }

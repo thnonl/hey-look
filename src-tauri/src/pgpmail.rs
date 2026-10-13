@@ -10,6 +10,9 @@ use std::collections::{HashMap, HashSet};
 
 pub const FLAG_ENCRYPTED: u8 = 1;
 pub const FLAG_SIGNED: u8 = 2;
+/// Not PGP: the `pgp` column is a small bit set about how a message is protected. This bit marks mail the sender labelled
+/// confidential (see `mail::is_confidential`), which the reading pane shows without screen capture, copy or print.
+pub const FLAG_CONFIDENTIAL: u8 = 4;
 
 /// Largest signed (not encrypted) message whose raw bytes are kept for signature checks.
 pub const KEEP_SIGNED_MAX: usize = 8_000_000;

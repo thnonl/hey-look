@@ -1,4 +1,4 @@
-import { Archive, BadgeCheck, Calendar, CalendarCheck, CalendarX, Check, CheckCheck, Clock, Flag, FolderOpen, Lock, Mail, MailOpen, Paperclip, Pin, SearchX, Trash2 } from "lucide-react";
+import { Archive, BadgeCheck, Calendar, CalendarCheck, CalendarX, Check, CheckCheck, Clock, Flag, FolderOpen, Lock, Mail, MailOpen, Paperclip, Pin, SearchX, ShieldAlert, Trash2 } from "lucide-react";
 import { openUrl } from "@tauri-apps/plugin-opener";
 import { ReactNode, useCallback, useMemo, useRef } from "react";
 import { api, ThreadSummary } from "../api";
@@ -81,6 +81,7 @@ export function ThreadRow({ t, selected, checked, prefs, showFolder, accountColo
           <span className="flags">
             {showFolder && <span className="where">{folderLabel(t.folder)}</span>}
             {t.count > 1 && prefs.conversations && <span className="count">{t.count}</span>}
+            {t.confidential && <ShieldAlert size={12} aria-label="Confidential" />}
             {t.encrypted && <Lock size={12} aria-label="Encrypted" />}
             {t.signed && !t.encrypted && <BadgeCheck size={12} aria-label="Signed" />}
             {t.invite === "request" && <Calendar size={12} aria-label="Meeting invitation" />}
@@ -92,7 +93,7 @@ export function ThreadRow({ t, selected, checked, prefs, showFolder, accountColo
             {t.snoozedUntil && t.snoozedUntil > Date.now() / 1000 && <Clock size={12} aria-label="Snoozed" />}
           </span>
         </div>
-        {prefs.preview && !dense && <div className="preview ellipsis">{t.snippet}</div>}
+        {prefs.preview && !dense && <div className="preview ellipsis">{t.confidential ? "Confidential — open to read" : t.snippet}</div>}
       </div>
     </div>
   );
@@ -252,6 +253,7 @@ export function MessageList() {
           replaces: t.threadId,
           attachments,
           security: m.security?.encrypted ? { encrypt: true, sign: false, attachPublicKey: false } : undefined,
+          confidential: m.confidential,
         });
       })();
       return;

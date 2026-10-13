@@ -995,3 +995,8 @@ span.spin { display: inline-block; width: 13px; height: 13px; border: 2px solid 
 .ev-invite .cf-field:focus-within { border-color: var(--accent); }
 .cp-event .when input[type="date"], .cp-event .when input[type="time"] { width: auto; }
 .cp-event > input { width: 100%; box-sizing: border-box; }
+
+/* confidential mail: nothing in the message area can be selected (the mail frame has its own rule) */
+.rp-msg-body.confidential, .rp-msg-body.confidential * { -webkit-user-select: none; user-select: none; }
+.conf-banner { display: flex; align-items: center; gap: 8px; }
+.conf-banner svg { flex: none; }

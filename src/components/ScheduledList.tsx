@@ -63,6 +63,7 @@ export function ScheduledList() {
         attachments: d.attachments,
         security: d.security,
         meeting: d.meeting ? { ...d.meeting, on: true } : undefined,
+        confidential: d.confidential,
         outboxId: o.id,
         sendAt: e.sendAt,
         outboxError: o.status === "failed" ? o.error ?? "The server refused it." : undefined,

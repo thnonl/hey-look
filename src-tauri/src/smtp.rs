@@ -86,6 +86,26 @@ pub struct Draft {
     /// Calendar invitation part, made from the meeting.
     #[serde(default)]
     pub calendar: Option<CalendarPart>,
+    /// Send with `Sensitivity: Company-Confidential` (Outlook's "Confidential"): receiving clients show it without
+    /// screen capture, copy, print or forwarding.
+    #[serde(default)]
+    pub confidential: bool,
+}
+
+/// Outlook's Sensitivity header. Lettre has no typed header for it.
+#[derive(Clone)]
+struct Sensitivity(String);
+
+impl lettre::message::header::Header for Sensitivity {
+    fn name() -> lettre::message::header::HeaderName {
+        lettre::message::header::HeaderName::new_from_ascii_str("Sensitivity")
+    }
+    fn parse(s: &str) -> Result<Self, Box<dyn std::error::Error + Send + Sync>> {
+        Ok(Self(s.to_string()))
+    }
+    fn display(&self) -> lettre::message::header::HeaderValue {
+        lettre::message::header::HeaderValue::new(Self::name(), self.0.clone())
+    }
 }
 
 /// A display name made safe to put in front of an address: control characters (header injection) are dropped and runs of
@@ -166,6 +186,9 @@ fn headers(acc: &Account, d: &Draft) -> R<lettre::message::MessageBuilder> {
     }
     if !d.references.is_empty() {
         b = b.references(d.references.join(" "));
+    }
+    if d.confidential {
+        b = b.header(Sensitivity("Company-Confidential".into()));
     }
     Ok(b)
 }
@@ -388,6 +411,7 @@ mod tests {
             prebuilt: None,
             meeting: None,
             calendar: None,
+            confidential: false,
         }
     }
 
@@ -555,5 +579,17 @@ mod tests {
         // a blocked-attachment failure is permanent for the scheduled-send retry rules
         assert!(!crate::schedule::is_transient(&gmail));
         assert!(!crate::schedule::is_transient(&other));
+    }
+
+    #[test]
+    fn confidential_draft_carries_the_outlook_sensitivity_header() {
+        let mut d = draft("<p>Hi</p>", vec![], vec![]);
+        let plain = String::from_utf8(build(&account(), &d).unwrap().formatted()).unwrap();
+        assert!(!plain.contains("Sensitivity:"), "{plain}");
+        d.confidential = true;
+        let raw = build(&account(), &d).unwrap().formatted();
+        assert!(String::from_utf8_lossy(&raw).contains("Sensitivity: Company-Confidential"));
+        // what we send is what we recognise on receipt
+        assert!(crate::mail::is_confidential(&raw));
     }
 }
