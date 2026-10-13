@@ -221,7 +221,7 @@ mod win {
     use windows::Win32::UI::WindowsAndMessaging::{FindWindowExW, GetClientRect, GetWindowRect, IsWindowVisible};
 
     /// The browser process of the main web view (0 = not asked yet).
-    static BROWSER_PID: AtomicU32 = AtomicU32::new(0);
+    pub(super) static BROWSER_PID: AtomicU32 = AtomicU32::new(0);
 
     pub fn snapshot() -> Vec<Proc> {
         let mut out = vec![];
@@ -399,35 +399,45 @@ mod win {
         });
     }
 
+    /// Listens for the failures of a web view's processes and returns its browser process id. `on_failed(kind, description)` runs on the
+    /// UI thread for every failure (`kind` = `COREWEBVIEW2_PROCESS_FAILED_KIND`).
+    pub unsafe fn listen(core: &ICoreWebView2, mut on_failed: impl FnMut(i32, String) + 'static) -> windows::core::Result<u32> {
+        unsafe {
+            let mut pid = 0u32;
+            core.BrowserProcessId(&mut pid)?;
+            let handler = ProcessFailedEventHandler::create(Box::new(move |_sender, args| {
+                if let Some(args) = args {
+                    let (kind, detail) = describe(&args);
+                    on_failed(kind, detail);
+                }
+                Ok(())
+            }));
+            let mut token = 0i64;
+            core.add_ProcessFailed(&handler, &mut token)?;
+            Ok(pid)
+        }
+    }
+
     /// Records the browser process of the main web view and listens for its failures. Call once, after the window exists.
     pub fn watch(app: &AppHandle) {
         let Some(win) = app.get_webview_window("main") else { return };
         let app = app.clone();
         let asked = win.with_webview(move |pw| unsafe {
             let Ok(core) = pw.controller().CoreWebView2() else { return };
-            let mut pid = 0u32;
-            if core.BrowserProcessId(&mut pid).is_ok() {
-                BROWSER_PID.store(pid, Ordering::SeqCst);
-                let parent = snapshot().into_iter().find(|p| p.pid == pid).map(|p| p.ppid);
-                let whose = match parent {
-                    Some(p) if p == GetCurrentProcessId() => "started by this run".to_string(),
-                    Some(p) => format!("started by process {p}: another run's, this web view joined it"),
-                    None => "parent unknown".to_string(),
-                };
-                let age = age_ms(pid).map(|a| format!("{a} ms old")).unwrap_or_else(|| "age unknown".into());
-                crate::startup::line("webview", &format!("browser process {pid}: {whose}, {age}"));
-            }
             let handler_app = app.clone();
-            let handler = ProcessFailedEventHandler::create(Box::new(move |_sender, args| {
-                if let Some(args) = args {
-                    let (kind, detail) = describe(&args);
-                    crate::startup::web_view_failed(&handler_app, kind, &detail);
+            match listen(&core, move |kind, detail| crate::startup::web_view_failed(&handler_app, kind, &detail)) {
+                Ok(pid) => {
+                    BROWSER_PID.store(pid, Ordering::SeqCst);
+                    let parent = snapshot().into_iter().find(|p| p.pid == pid).map(|p| p.ppid);
+                    let whose = match parent {
+                        Some(p) if p == GetCurrentProcessId() => "started by this run".to_string(),
+                        Some(p) => format!("started by process {p}: another run's, this web view joined it"),
+                        None => "parent unknown".to_string(),
+                    };
+                    let age = age_ms(pid).map(|a| format!("{a} ms old")).unwrap_or_else(|| "age unknown".into());
+                    crate::startup::line("webview", &format!("browser process {pid}: {whose}, {age}; listening for web view failures"));
                 }
-                Ok(())
-            }));
-            let mut token = 0i64;
-            if let Err(e) = core.add_ProcessFailed(&handler, &mut token) {
-                crate::startup::line("webview", &format!("could not listen for web view failures: {e}"));
+                Err(e) => crate::startup::line("webview", &format!("could not listen for web view failures: {e}")),
             }
         });
         if let Err(e) = asked {
@@ -663,6 +673,111 @@ mod tests {
             assert!(w.left.is_empty(), "{w:?}");
             assert!(w.waited_ms >= 500 && w.waited_ms < 9000, "{w:?}");
             let _ = std::fs::remove_dir_all(&dir);
+        }
+
+        /// The failure listener with a real web view that is never shown (a window that is never made visible, a temp data folder):
+        /// the browser process is killed the way a crash or Task Manager would, and the listener must say what failed. Skipped on a
+        /// machine without the WebView2 runtime.
+        #[test]
+        fn a_killed_web_view_browser_process_is_reported_with_its_kind_and_exit_code() {
+            use std::sync::mpsc;
+            use webview2_com::{CreateCoreWebView2ControllerCompletedHandler, CreateCoreWebView2EnvironmentCompletedHandler};
+            use windows::core::{w, HSTRING, PCWSTR};
+            use windows::Win32::Foundation::{E_POINTER, HINSTANCE, HWND, LPARAM, LRESULT, WPARAM};
+            use windows::Win32::System::Com::{CoInitializeEx, COINIT_APARTMENTTHREADED};
+            use windows::Win32::System::LibraryLoader::GetModuleHandleW;
+            use windows::Win32::UI::WindowsAndMessaging::*;
+            use webview2_com::Microsoft::Web::WebView2::Win32::*;
+
+            unsafe extern "system" fn test_proc(h: HWND, m: u32, w: WPARAM, l: LPARAM) -> LRESULT {
+                unsafe { DefWindowProcW(h, m, w, l) }
+            }
+            let folder = std::env::temp_dir().join(format!("heylook-wv2-listen-{}", std::process::id()));
+            let _ = std::fs::remove_dir_all(&folder);
+            unsafe {
+                let _ = CoInitializeEx(None, COINIT_APARTMENTTHREADED);
+                // a top-level window that is never shown
+                let class = WNDCLASSW { lpfnWndProc: Some(test_proc), lpszClassName: w!("HEYLOOK_WV2_TEST"), ..Default::default() };
+                RegisterClassW(&class);
+                let hinst = GetModuleHandleW(None).ok().map(|h| HINSTANCE(h.0));
+                let host = CreateWindowExW(Default::default(), w!("HEYLOOK_WV2_TEST"), w!("test"), WS_POPUP, 0, 0, 400, 300, None, None, hinst, None).unwrap();
+
+                let udf = HSTRING::from(folder.to_string_lossy().as_ref());
+                let (tx, rx) = mpsc::channel();
+                let env = CreateCoreWebView2EnvironmentCompletedHandler::wait_for_async_operation(
+                    Box::new(move |h| CreateCoreWebView2EnvironmentWithOptions(PCWSTR::null(), &udf, None::<&ICoreWebView2EnvironmentOptions>, &h).map_err(webview2_com::Error::WindowsError)),
+                    Box::new(move |code, env| {
+                        code?;
+                        tx.send(env.ok_or_else(|| windows::core::Error::from(E_POINTER))).ok();
+                        Ok(())
+                    }),
+                );
+                let env = match env.ok().and_then(|_| rx.recv().ok()).and_then(|r| r.ok()) {
+                    Some(e) => e,
+                    None => {
+                        eprintln!("no WebView2 runtime here: test skipped");
+                        let _ = DestroyWindow(host);
+                        return;
+                    }
+                };
+                let (tx, rx) = mpsc::channel();
+                CreateCoreWebView2ControllerCompletedHandler::wait_for_async_operation(
+                    Box::new(move |h| env.CreateCoreWebView2Controller(host, &h).map_err(webview2_com::Error::WindowsError)),
+                    Box::new(move |code, c| {
+                        code?;
+                        tx.send(c.ok_or_else(|| windows::core::Error::from(E_POINTER))).ok();
+                        Ok(())
+                    }),
+                )
+                .unwrap();
+                let controller = rx.recv().unwrap().unwrap();
+                let core = controller.CoreWebView2().unwrap();
+
+                let (ftx, frx) = mpsc::channel();
+                let pid = listen(&core, move |kind, detail| {
+                    ftx.send((kind, detail)).ok();
+                })
+                .unwrap();
+                assert!(pid != 0, "a browser process id");
+                BROWSER_PID.store(pid, std::sync::atomic::Ordering::SeqCst);
+                assert_eq!(browser_state(), BrowserState::Running, "the process this web view uses runs");
+                let me = std::process::id();
+                let parent = snapshot().into_iter().find(|p| p.pid == pid).map(|p| p.ppid);
+                assert_eq!(parent, Some(me), "a web view created by this process starts its own browser process");
+
+                // what a crash or Task Manager does
+                let killed = crate::winproc::hidden("taskkill").args(["/F", "/PID", &pid.to_string()]).output().unwrap();
+                assert!(killed.status.success(), "{}", String::from_utf8_lossy(&killed.stdout));
+
+                // the callbacks arrive on this thread's message loop
+                let mut got = None;
+                let t0 = std::time::Instant::now();
+                while t0.elapsed() < Duration::from_secs(20) && got.is_none() {
+                    let mut msg = MSG::default();
+                    while PeekMessageW(&mut msg, None, 0, 0, PM_REMOVE).as_bool() {
+                        let _ = TranslateMessage(&msg);
+                        DispatchMessageW(&msg);
+                    }
+                    got = frx.try_recv().ok();
+                    std::thread::sleep(Duration::from_millis(20));
+                }
+                let (kind, detail) = got.expect("a failure event within 20 s of killing the browser process");
+                eprintln!("web view failure reported: kind {kind} ({}), {detail}", kind_name(kind));
+                assert_eq!(kind, 0, "browser process exited: {detail}");
+                assert_eq!(reaction(kind), Reaction::Restart);
+                assert!(detail.contains("exit code: 0x"), "{detail}");
+                assert!(matches!(browser_state(), BrowserState::Exited(_)), "{:?}", browser_state());
+                let _ = controller.Close();
+                let _ = DestroyWindow(host);
+                let _: HWND = HWND::default();
+            }
+            // the helper processes of the killed browser are still going away for a moment
+            for _ in 0..50 {
+                if std::fs::remove_dir_all(&folder).is_ok() || !folder.exists() {
+                    break;
+                }
+                std::thread::sleep(Duration::from_millis(100));
+            }
         }
 
         /// The restart wait (`HEYLOOK_RELAUNCH_OF`) only waits for a running process of this very program: another program, this

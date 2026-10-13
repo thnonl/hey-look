@@ -17,6 +17,8 @@
 //! the looks after a show ask the process and the window manager instead of reading pixels (the pixel read is a switch, off), a
 //! failure event of the web view restarts the app when the browser process is gone, and the escalation (re-assert the web view,
 //! hide + show, reload, restart) is bounded and says in `startup.log` which step cured the window or failed.
+// (the restart, the failure reaction and the escalation need the Windows web view's events: other systems compile them unused)
+#![cfg_attr(not(windows), allow(dead_code))]
 use crate::webview_health::{self, BrowserState, Reaction};
 use std::io::Write;
 use std::sync::atomic::{AtomicBool, AtomicU32, Ordering};
