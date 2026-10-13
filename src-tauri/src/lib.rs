@@ -53,9 +53,19 @@ fn lock(db: &Db) -> std::sync::MutexGuard<'_, Connection> {
 }
 
 fn password(account_id: &str) -> R<String> {
-    keyring::Entry::new(KEYRING_SERVICE, account_id)
-        .and_then(|e| e.get_password())
-        .map_err(|e| format!("no stored password: {e}"))
+    keyring::Entry::new(KEYRING_SERVICE, account_id).and_then(|e| e.get_password()).map_err(|e| match e {
+        keyring::Error::NoEntry => format!("no stored password: {e}"),
+        other => keyring_error_text(std::env::consts::OS, "read", &other.to_string()),
+    })
+}
+
+/// What the user is told when the system credential store refuses (`action`: "save" or "read"). Windows keeps the technical text.
+fn keyring_error_text(os: &str, action: &str, err: &str) -> String {
+    match os {
+        "linux" => format!("Couldn’t {action} the password: no system keyring is available. On Linux, start and unlock GNOME Keyring or KWallet, then try again."),
+        "macos" => format!("Couldn’t {action} the password in your macOS Keychain: {err}"),
+        _ => format!("cannot {} password: {err}", if action == "save" { "store" } else { "read" }),
+    }
 }
 
 /// OAuth client from the environment: a runtime variable wins over the value embedded at build
@@ -267,11 +277,16 @@ async fn add_account(
     .await?;
     keyring::Entry::new(KEYRING_SERVICE, &acc.id)
         .and_then(|e| e.set_password(&password_value))
-        .map_err(|e| format!("cannot store password: {e}"))?;
+        .map_err(|e| keyring_error_text(std::env::consts::OS, "save", &e.to_string()))?;
     if let Some(sp) = &smtp_password {
-        keyring::Entry::new(KEYRING_SERVICE, &format!("{}:smtp", acc.id))
-            .and_then(|e| e.set_password(sp))
-            .map_err(|e| format!("cannot store SMTP password: {e}"))?;
+        let stored = keyring::Entry::new(KEYRING_SERVICE, &format!("{}:smtp", acc.id)).and_then(|e| e.set_password(sp));
+        if let Err(e) = stored {
+            // nothing half-added: the first secret goes again, no account row is made
+            if let Ok(entry) = keyring::Entry::new(KEYRING_SERVICE, &acc.id) {
+                let _ = entry.delete_credential();
+            }
+            return Err(keyring_error_text(std::env::consts::OS, "save", &e.to_string()));
+        }
     }
     // the color is chosen and stored here, so every window shows the same one from the first moment
     let c = lock(&state.db);
@@ -365,7 +380,7 @@ async fn oauth_sign_in(
     };
     keyring::Entry::new(KEYRING_SERVICE, &acc.id)
         .and_then(|e| e.set_password(&signed.refresh_token))
-        .map_err(|e| format!("cannot store token: {e}"))?;
+        .map_err(|e| keyring_error_text(std::env::consts::OS, "save", &e.to_string()))?;
     oauth::cache_token(&acc.id, &signed.access_token, 3300);
     // verify the IMAP login works with the new token
     let (a2, tok) = (acc.clone(), signed.access_token.clone());
@@ -1161,8 +1176,23 @@ fn refresh_badge(app: tauri::AppHandle, state: tauri::State<AppState>) {
 }
 
 #[tauri::command]
-fn test_notification(app: tauri::AppHandle, state: tauri::State<AppState>) {
-    shell::test_notification(&app, &state.db);
+fn test_notification(app: tauri::AppHandle, state: tauri::State<AppState>) -> R<()> {
+    shell::test_notification(&app, &state.db)
+}
+
+/// What the UI needs to know about the shell it runs in: the OS (per-OS copy and shortcut labels) and whether a tray exists.
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct ShellInfo {
+    os: &'static str,
+    tray: bool,
+    /// debug builds only: the test data folder in use (the About page says so)
+    test_data: Option<String>,
+}
+
+#[tauri::command]
+fn shell_info() -> ShellInfo {
+    ShellInfo { os: std::env::consts::OS, tray: shell::tray_ready(), test_data: legacy_names::test_data_dir().map(|p| p.display().to_string()) }
 }
 
 #[tauri::command]
@@ -2093,8 +2123,12 @@ async fn get_raw(state: tauri::State<'_, AppState>, message_id: String) -> R<Str
 
 /// Folder for "Save" (Settings → Attachments), falling back to the system Downloads folder.
 fn download_folder(app: &tauri::AppHandle, db: &Db) -> R<std::path::PathBuf> {
-    let system = app.path().download_dir().map_err(err)?;
+    let (system, from_home) = system_download_dir(app.path().download_dir().ok(), app.path().home_dir().ok())?;
     let (dir, replaced) = resolve_download_dir(setting(db, "download_dir").as_deref(), system);
+    // no Downloads folder on this system (a bare Linux install): the home folder is used, and the user is told once
+    if from_home && replaced.is_none() && first_time_for(&DOWNLOAD_WARNED, "Downloads") {
+        let _ = app.emit("download-dir-fallback", serde_json::json!({ "configured": "Downloads", "used": dir.to_string_lossy() }));
+    }
     // a chosen folder that is gone is no secret: say so (once per folder and session) instead of quietly saving elsewhere
     if let Some(bad) = replaced.filter(|b| first_time_for(&DOWNLOAD_WARNED, b)) {
         let _ = app.emit("download-dir-fallback", serde_json::json!({ "configured": bad, "used": dir.to_string_lossy() }));
@@ -2112,6 +2146,15 @@ fn first_time_for(seen: &Mutex<Vec<String>>, key: &str) -> bool {
     }
     g.push(key.to_string());
     true
+}
+
+/// The system folder for downloads, or the home folder when there is none (second value: it is the home folder).
+fn system_download_dir(download: Option<std::path::PathBuf>, home: Option<std::path::PathBuf>) -> R<(std::path::PathBuf, bool)> {
+    match (download, home) {
+        (Some(d), _) => Ok((d, false)),
+        (None, Some(h)) => Ok((h, true)),
+        (None, None) => Err("No folder to save into: set one in Settings > Mailboxes > Reading & sync.".into()),
+    }
 }
 
 /// The folder attachments are saved to: the configured one when it is an existing folder, else the system Downloads folder.
@@ -2819,13 +2862,32 @@ pub(crate) fn request_quit(app: &tauri::AppHandle) {
         return;
     }
     flush_pending(app);
+    QUITTING.store(true, std::sync::atomic::Ordering::SeqCst);
     app.exit(0);
 }
 
 #[tauri::command]
 fn quit_now(app: tauri::AppHandle) {
     flush_pending(&app);
+    QUITTING.store(true, std::sync::atomic::Ordering::SeqCst);
     app.exit(0);
+}
+
+/// Set right before this app calls `app.exit` itself (the quit guard has run by then).
+static QUITTING: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+
+/// An exit nobody here asked for (macOS Cmd+Q, app menu / Dock "Quit", the last window closing): the same guard as tray "Quit".
+/// Returns false when the exit has to be stopped because scheduled messages are waiting (the question is shown instead).
+fn guard_exit(app: &tauri::AppHandle) -> bool {
+    flush_pending(app);
+    let db = app.state::<AppState>().db.clone();
+    let (count, next) = outbox_counts(&db);
+    if count > 0 {
+        shell::show_main(app);
+        let _ = app.emit("confirm-quit", serde_json::json!({ "count": count, "next": next }));
+        return false;
+    }
+    true
 }
 
 // ---------- templates / signatures ----------
@@ -3103,7 +3165,11 @@ async fn ai_list_models(endpoint: String, key: Option<String>) -> R<Vec<String>>
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
-    tauri::Builder::default()
+    let builder = tauri::Builder::default();
+    // macOS and Linux notifications (Windows has its own toasts in shell.rs)
+    #[cfg(not(windows))]
+    let builder = builder.plugin(tauri_plugin_notification::init());
+    builder
         // a second launch just brings the running instance forward
         .plugin(tauri_plugin_single_instance::init(|app, _args, _cwd| shell::show_main(app)))
         .plugin(tauri_plugin_autostart::init(tauri_plugin_autostart::MacosLauncher::LaunchAgent, Some(vec!["--minimized"])))
@@ -3270,6 +3336,7 @@ pub fn run() {
             has_secret,
             ai_complete,
             ai_list_models,
+            shell_info,
             update::check_update,
             update::update_download,
             update::update_cancel,
@@ -3280,11 +3347,25 @@ pub fn run() {
         ])
         .build(tauri::generate_context!())
         .expect("error while building tauri application")
-        .run(|app, event| {
-            // every way out of the app (tray Quit, the close button when it quits, Cmd+Q, app.exit) passes here: a downloaded update the user chose to keep for later is installed now
-            if matches!(event, tauri::RunEvent::ExitRequested { .. } | tauri::RunEvent::Exit) {
+        .run(|app, event| match event {
+            // Dock icon / Finder / Spotlight while the window is hidden
+            #[cfg(target_os = "macos")]
+            tauri::RunEvent::Reopen { .. } => shell::show_main(app),
+            // every way out of the app (tray Quit, the close button when it quits, Cmd+Q, app.exit) passes here
+            tauri::RunEvent::ExitRequested { api, code, .. } => {
+                // not requested by this app (`code` is None, no `QUITTING`): run the quit guard first; a quit the user is asked about installs nothing
+                if code.is_none() && !QUITTING.load(std::sync::atomic::Ordering::SeqCst) && !guard_exit(app) {
+                    api.prevent_exit();
+                    return;
+                }
+                // a downloaded update the user chose to keep for later is installed now
                 update::install_on_exit(app);
             }
+            tauri::RunEvent::Exit => {
+                flush_pending(app);
+                update::install_on_exit(app);
+            }
+            _ => {}
         });
 }
 
@@ -3737,5 +3818,30 @@ mod download_dir_tests {
         assert!(first_time_for(&seen, "C:/Gone"));
         assert!(!first_time_for(&seen, "C:/Gone"));
         assert!(first_time_for(&seen, "D:/Other"));
+    }
+}
+
+#[cfg(test)]
+mod platform_tests {
+    use super::*;
+    use std::path::PathBuf;
+
+    #[test]
+    fn keyring_failures_are_explained_per_os() {
+        let l = keyring_error_text("linux", "save", "boom");
+        assert!(l.starts_with("Couldn’t save the password: no system keyring is available. On Linux, start and unlock GNOME Keyring or KWallet"), "{l}");
+        assert!(!l.contains("boom"));
+        assert_eq!(keyring_error_text("macos", "save", "denied"), "Couldn’t save the password in your macOS Keychain: denied");
+        assert_eq!(keyring_error_text("windows", "save", "x"), "cannot store password: x");
+        assert!(keyring_error_text("linux", "read", "x").starts_with("Couldn’t read the password"));
+    }
+
+    #[test]
+    fn download_folder_falls_back_to_home() {
+        let d = PathBuf::from("/dl");
+        let h = PathBuf::from("/home/u");
+        assert_eq!(system_download_dir(Some(d.clone()), Some(h.clone())).unwrap(), (d, false));
+        assert_eq!(system_download_dir(None, Some(h.clone())).unwrap(), (h, true));
+        assert!(system_download_dir(None, None).is_err());
     }
 }

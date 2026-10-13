@@ -207,14 +207,18 @@ fn resolve_with(new_dir: PathBuf, mover: &dyn Fn(&Path, &Path) -> Result<Moved, 
     dir
 }
 
-/// The data folder for this run: the one of the current identifier (a debug build can override it, see `debug_override`, so tests
-/// never touch real mail data; release builds ignore the override), after the one-time migration.
+/// The data folder for this run: the one of the current identifier, after the one-time migration. A DEBUG build never uses the real
+/// folder unless `HEYLOOK_ALLOW_REAL_DATA=1` is set, see `choose_debug_data`; release builds always use it.
 pub fn data_dir(app: &tauri::AppHandle) -> Result<PathBuf, Box<dyn std::error::Error>> {
     use tauri::Manager;
     #[cfg(debug_assertions)]
-    let new_dir = match debug_override() {
-        Some(v) => v,
-        None => app.path().app_data_dir()?,
+    let new_dir = match debug_data() {
+        DebugData::Test(p) => p,
+        DebugData::Default(p) => {
+            eprintln!("debug build without a test data folder: using {} (set HEYLOOK_DATA_DIR or heylook-data-dir.txt to choose one, HEYLOOK_ALLOW_REAL_DATA=1 to use the real data)", p.display());
+            p
+        }
+        DebugData::Real => app.path().app_data_dir()?,
     };
     #[cfg(not(debug_assertions))]
     let new_dir = app.path().app_data_dir()?;
@@ -234,26 +238,72 @@ fn read_marker(exe_dir: &Path) -> Option<PathBuf> {
     (!line.is_empty()).then(|| PathBuf::from(line))
 }
 
-/// Debug builds only: the test data folder from `HEYLOOK_DATA_DIR`, else from `heylook-data-dir.txt` next to the executable.
-#[cfg(debug_assertions)]
-fn debug_override() -> Option<PathBuf> {
-    if let Some(v) = std::env::var_os("HEYLOOK_DATA_DIR").filter(|v| !v.is_empty()) {
-        return Some(PathBuf::from(v));
-    }
-    read_marker(std::env::current_exe().ok()?.parent()?)
+/// Where a debug build keeps its data.
+#[derive(Debug, PartialEq)]
+#[cfg_attr(not(debug_assertions), allow(dead_code))]
+enum DebugData {
+    /// a test folder chosen with `HEYLOOK_DATA_DIR` or the marker file
+    Test(PathBuf),
+    /// nothing chosen: a throw-away folder, so a misplaced marker file or a forgotten variable can never reach the real data
+    Default(PathBuf),
+    /// explicitly asked for with `HEYLOOK_ALLOW_REAL_DATA=1`: the real data folder, with all migrations
+    Real,
 }
 
-/// A debug build runs on a test data folder: the system credential store and the registry cannot be redirected, so such a run must
-/// not move the real ones (see `migrate_keyring`, `remove_old_notification_id`). Always false in release builds, which ignore both
-/// the variable and the marker file.
+/// The decision: the environment variable, else the marker file, else (only with the explicit opt-in) the real folder, else a
+/// throw-away folder. A chosen test folder wins over the opt-in.
+#[cfg_attr(not(debug_assertions), allow(dead_code))]
+fn choose_debug_data(env_dir: Option<PathBuf>, marker: Option<PathBuf>, allow_real: bool, fallback: PathBuf) -> DebugData {
+    if let Some(p) = env_dir.filter(|p| !p.as_os_str().is_empty()) {
+        return DebugData::Test(p);
+    }
+    if let Some(p) = marker {
+        return DebugData::Test(p);
+    }
+    if allow_real {
+        DebugData::Real
+    } else {
+        DebugData::Default(fallback)
+    }
+}
+
+#[cfg(debug_assertions)]
+fn debug_data() -> DebugData {
+    let marker = std::env::current_exe().ok().and_then(|e| e.parent().and_then(read_marker));
+    choose_debug_data(
+        std::env::var_os("HEYLOOK_DATA_DIR").map(PathBuf::from),
+        marker,
+        std::env::var("HEYLOOK_ALLOW_REAL_DATA").is_ok_and(|v| v == "1"),
+        std::env::temp_dir().join("heylook-debug-data"),
+    )
+}
+
+/// A debug build that is not on the real data: the system credential store and the registry cannot be redirected, so such a run must
+/// not move the real ones (see `migrate_keyring`, `remove_old_notification_id`). Always false in release builds, which ignore the
+/// variable, the marker file and the opt-in.
 pub fn data_dir_overridden() -> bool {
     #[cfg(debug_assertions)]
     {
-        debug_override().is_some()
+        debug_data() != DebugData::Real
     }
     #[cfg(not(debug_assertions))]
     {
         false
+    }
+}
+
+/// The test data folder of a debug build (shown in Settings > About), None for release builds and for `HEYLOOK_ALLOW_REAL_DATA=1`.
+pub fn test_data_dir() -> Option<PathBuf> {
+    #[cfg(debug_assertions)]
+    {
+        match debug_data() {
+            DebugData::Test(p) | DebugData::Default(p) => Some(p),
+            DebugData::Real => None,
+        }
+    }
+    #[cfg(not(debug_assertions))]
+    {
+        None
     }
 }
 
@@ -576,6 +626,24 @@ mod tests {
         assert_eq!(read_marker(&d), Some(PathBuf::from("E:/work/e2e-data/thnonl.heylook")));
         put(&d, MARKER, b"   \n");
         assert_eq!(read_marker(&d), None);
+    }
+
+    #[test]
+    fn a_debug_build_never_reaches_the_real_data_by_accident() {
+        let fb = PathBuf::from("T:/heylook-debug-data");
+        let p = |s: &str| Some(PathBuf::from(s));
+        // nothing chosen: the throw-away folder
+        assert_eq!(choose_debug_data(None, None, false, fb.clone()), DebugData::Default(fb.clone()));
+        // an empty variable counts as not set
+        assert_eq!(choose_debug_data(p(""), None, false, fb.clone()), DebugData::Default(fb.clone()));
+        // the variable, then the marker file
+        assert_eq!(choose_debug_data(p("E:/a"), p("E:/b"), false, fb.clone()), DebugData::Test(PathBuf::from("E:/a")));
+        assert_eq!(choose_debug_data(None, p("E:/b"), false, fb.clone()), DebugData::Test(PathBuf::from("E:/b")));
+        // only the explicit opt-in gives the real folder ...
+        assert_eq!(choose_debug_data(None, None, true, fb.clone()), DebugData::Real);
+        // ... and a chosen test folder still wins over it
+        assert_eq!(choose_debug_data(p("E:/a"), None, true, fb.clone()), DebugData::Test(PathBuf::from("E:/a")));
+        assert_eq!(choose_debug_data(None, p("E:/b"), true, fb), DebugData::Test(PathBuf::from("E:/b")));
     }
 
     // ---------- credentials ----------

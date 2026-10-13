@@ -11,6 +11,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { api, Att, Contact, Draft, DraftSecurity, errorCode, InlineImage, MessageFull, OwnKeyStatus, RecipientStatus, Signature, Template } from "../api";
 import { eff } from "../prefs";
+import { kbd } from "../platform";
 import { ComposeInit, friendlyError, useStore } from "../store";
 import { extractSignature, fillSignature, normalizeHtml, SIG_MARK } from "../signature";
 import { blockedAttachmentExt, dataUriBytes, fileToBase64, fmtIn, fmtSize, fmtWhen, htmlToText, imageSize, PICTURE_TYPES, playSent, resizeImage, sanitizeHtml, shortKey, userName } from "../util";
@@ -367,8 +368,8 @@ export function Compose({ init }: { init: ComposeInit }) {
   const encTitle = !own
     ? `You have no PGP key for ${fromEmail}. Set up encryption… (Settings → Encryption)`
     : encOn && noKeyAddrs.length > 0
-      ? `Encrypt (Ctrl+Shift+E) — ${noKeyAddrs.length} recipient${noKeyAddrs.length === 1 ? " has" : "s have"} no key`
-      : "Encrypt (Ctrl+Shift+E)";
+      ? kbd(`Encrypt (Ctrl+Shift+E) — ${noKeyAddrs.length} recipient${noKeyAddrs.length === 1 ? " has" : "s have"} no key`)
+      : kbd("Encrypt (Ctrl+Shift+E)");
   const toggleEncrypt = () => {
     if (!own) return setDialog({ type: "pgp-generate", accountId });
     setEncIntent(encOn ? "off" : "on");
@@ -1119,7 +1120,7 @@ export function Compose({ init }: { init: ComposeInit }) {
     >
       <div className="cp-bar">
         <div className="split-btn" ref={schedRef}>
-          <button className="btn primary" disabled={busy} onClick={() => void (init.outboxId ? send(init.sendAt) : send())} title={init.outboxId ? "Schedule (keeps the time)" : "Send (Ctrl+Enter)"}>
+          <button className="btn primary" disabled={busy} onClick={() => void (init.outboxId ? send(init.sendAt) : send())} title={init.outboxId ? "Schedule (keeps the time)" : kbd("Send (Ctrl+Enter)")}>
             {init.outboxId ? <><CalendarClock size={14} /> Schedule</> : meeting ? <><CalendarPlus size={14} /> Send invite</> : <><Send size={14} /> Send</>}
           </button>
           <button
@@ -1127,7 +1128,7 @@ export function Compose({ init }: { init: ComposeInit }) {
             aria-label="Send later options"
             aria-haspopup="dialog"
             aria-expanded={schedOpen}
-            title="Send later (Ctrl+Shift+Enter)"
+            title={kbd("Send later (Ctrl+Shift+Enter)")}
             onClick={() => setSchedOpen((o) => !o)}
           >
             <ChevronDown size={14} />
@@ -1150,7 +1151,7 @@ export function Compose({ init }: { init: ComposeInit }) {
         ) : null}
         <button className="rb" onClick={() => void discard()}><Trash2 size={15} /><span>Discard</span></button>
         <button className="rb" onClick={() => fileRef.current?.click()}><Paperclip size={15} /><span>Attach</span></button>
-        <button className="rb" onClick={() => picRef.current?.click()} title="Insert picture (Ctrl+Shift+P)"><ImagePlus size={15} /><span>Picture</span></button>
+        <button className="rb" onClick={() => picRef.current?.click()} title={kbd("Insert picture (Ctrl+Shift+P)")}><ImagePlus size={15} /><span>Picture</span></button>
         <input ref={fileRef} type="file" multiple hidden onChange={(e) => (void addFiles(e.target.files), (e.target.value = ""))} />
         <input
           ref={picRef}
@@ -1188,7 +1189,7 @@ export function Compose({ init }: { init: ComposeInit }) {
           {encOn ? <Lock size={15} /> : <LockOpen size={15} />}<span>Encrypt</span>
         </button>
         <div className="dd" ref={signRef}>
-          <button className={`rb ${signActive ? "on" : ""}`} aria-pressed={signActive} aria-disabled={!own} title={own ? "Sign (Ctrl+Shift+G)" : encTitle} onClick={toggleSign}>
+          <button className={`rb ${signActive ? "on" : ""}`} aria-pressed={signActive} aria-disabled={!own} title={own ? kbd("Sign (Ctrl+Shift+G)") : encTitle} onClick={toggleSign}>
             <BadgeCheck size={15} /><span>Sign</span>
           </button>
           <button className="rb caret" aria-label="Signing options" aria-haspopup="menu" aria-expanded={signMenu} title="Signing options" onClick={() => setSignMenu((o) => !o)}>
@@ -1199,7 +1200,7 @@ export function Compose({ init }: { init: ComposeInit }) {
               <MenuList
                 onDone={() => setSignMenu(false)}
                 items={[
-                  { label: "Sign this message", checked: signOn, hint: "Ctrl+Shift+G", disabled: !own, onClick: toggleSign },
+                  { label: "Sign this message", checked: signOn, hint: kbd("Ctrl+Shift+G"), disabled: !own, onClick: toggleSign },
                   { label: "Attach my public key", checked: attachKey, disabled: !own, onClick: () => (setAttachKey(!attachKey), touch()) },
                   { divider: true },
                   ...(own ? [{ label: `Signing key ${shortKey(own.fingerprint)}`, icon: <ShieldCheck size={14} />, onClick: () => setDialog({ type: "pgp-key", fingerprint: own.fingerprint }) }] : [{ label: "No key for this account yet", disabled: true }]),
@@ -1306,9 +1307,9 @@ export function Compose({ init }: { init: ComposeInit }) {
       )}
 
       <div className="cp-fmt" role="toolbar" aria-label="Formatting">
-        <button className="icon-btn" title="Bold (Ctrl+B)" aria-label="Bold" onClick={() => editor?.chain().focus().toggleBold().run()}><Bold size={14} /></button>
-        <button className="icon-btn" title="Italic (Ctrl+I)" aria-label="Italic" onClick={() => editor?.chain().focus().toggleItalic().run()}><Italic size={14} /></button>
-        <button className="icon-btn" title="Underline (Ctrl+U)" aria-label="Underline" onClick={() => editor?.chain().focus().toggleUnderline().run()}><UIcon size={14} /></button>
+        <button className="icon-btn" title={kbd("Bold (Ctrl+B)")} aria-label="Bold" onClick={() => editor?.chain().focus().toggleBold().run()}><Bold size={14} /></button>
+        <button className="icon-btn" title={kbd("Italic (Ctrl+I)")} aria-label="Italic" onClick={() => editor?.chain().focus().toggleItalic().run()}><Italic size={14} /></button>
+        <button className="icon-btn" title={kbd("Underline (Ctrl+U)")} aria-label="Underline" onClick={() => editor?.chain().focus().toggleUnderline().run()}><UIcon size={14} /></button>
         <button className="icon-btn" title="Bulleted list" aria-label="Bulleted list" onClick={() => editor?.chain().focus().toggleBulletList().run()}><List size={14} /></button>
         <button className="icon-btn" title="Numbered list" aria-label="Numbered list" onClick={() => editor?.chain().focus().toggleOrderedList().run()}><ListOrdered size={14} /></button>
         <button
@@ -1322,7 +1323,7 @@ export function Compose({ init }: { init: ComposeInit }) {
         >
           <Link2 size={14} />
         </button>
-        <button className="icon-btn" title="Insert picture (Ctrl+Shift+P)" aria-label="Insert picture" onClick={() => picRef.current?.click()}><ImagePlus size={14} /></button>
+        <button className="icon-btn" title={kbd("Insert picture (Ctrl+Shift+P)")} aria-label="Insert picture" onClick={() => picRef.current?.click()}><ImagePlus size={14} /></button>
       </div>
 
       <div className="cp-editor" ref={bodyRef} onScroll={() => editor && syncPicSel(editor)}>

@@ -51,6 +51,10 @@ tokio = { version = "1", features = ["sync", "time", "macros"] }
 [target.'cfg(any(target_os = "macos", windows, target_os = "linux"))'.dependencies]
 tauri-plugin-updater = "2.13"
 
+# macOS / Linux native notifications (Windows has its own toasts with buttons, see shell.rs); used from Rust only
+[target.'cfg(not(windows))'.dependencies]
+tauri-plugin-notification = "2"
+
 [target.'cfg(windows)'.dependencies]
 tauri-winrt-notification = "0.8"
 # custom window frame: caption-button hit-testing (Snap Layouts) + system menu, see src/winframe.rs
@@ -62,6 +66,8 @@ keyring = { version = "3", features = ["windows-native"] }
 keyring = { version = "3", features = ["apple-native"] }
 
 [target.'cfg(target_os = "linux")'.dependencies]
+# asks the session bus whether a tray host exists (shell.rs); the notification plugin uses the same version
+zbus = "5"
 keyring = { version = "3", features = ["sync-secret-service", "crypto-rust"] }
 
 

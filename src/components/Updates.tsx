@@ -1,6 +1,7 @@
 import { RefreshCw } from "lucide-react";
 import { ReactNode, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { UpdateInfo, UpdateResult } from "../api";
+import { getVersion } from "@tauri-apps/api/app";
 import { useStore } from "../store";
 import { openUpdateLink, pct, updateKindOf, UpdateFlow, useUpdates } from "../updates";
 import { fmtDay, fmtSize, fmtWhen } from "../util";
@@ -237,13 +238,18 @@ function UpdateCard({ info, result, skipped }: { info: UpdateInfo; result: Updat
 }
 
 /** Settings > About > Updates: status, the update card, the "Check for updates" button and the automatic-check switch. */
-export function UpdatesBlock({ autoSwitch }: { autoSwitch: ReactNode }) {
+export function UpdatesBlock({ privacy, autoSwitch }: { privacy: ReactNode; autoSwitch: ReactNode }) {
   const update = useUpdates((s) => s.update);
   const checkedAt = useUpdates((s) => s.checkedAt);
   const busy = useUpdates((s) => s.busy);
   const checkUpdate = useUpdates((s) => s.checkUpdate);
   const skippedUpdate = useStore((s) => s.prefs.skippedUpdate);
   const btn = useRef<HTMLButtonElement>(null);
+  // the version of the running app: from the app itself until the first check answer
+  const [appVersion, setAppVersion] = useState("");
+  useEffect(() => {
+    void getVersion().then(setAppVersion).catch(() => undefined);
+  }, []);
 
   const kind = updateKindOf(update);
   const check = () => void checkUpdate("manual").then(() => btn.current?.focus());
@@ -302,13 +308,13 @@ export function UpdatesBlock({ autoSwitch }: { autoSwitch: ReactNode }) {
       </div>
     );
 
+  const version = update?.current || appVersion;
   return (
     <div>
-      <h4>Updates</h4>
-      <div className="update-live" role="status" aria-live="polite">{live}</div>
-      {card}
       <div className="update-status">
-        <span className="muted small">Last checked: {checked}</span>
+        <span>
+          <b>Version {version}</b> <span className="muted small">· Last checked: {checked}</span>
+        </span>
         <button ref={btn} className="btn small" disabled={busy} aria-busy={busy || undefined} onClick={check}>
           {busy ? (
             <>
@@ -319,6 +325,9 @@ export function UpdatesBlock({ autoSwitch }: { autoSwitch: ReactNode }) {
           )}
         </button>
       </div>
+      <div className="update-live" role="status" aria-live="polite">{live}</div>
+      {card}
+      {privacy}
       {autoSwitch}
     </div>
   );

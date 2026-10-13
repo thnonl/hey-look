@@ -918,6 +918,11 @@ export function installMock() {
         if (hashTokens().has("openfail")) throw "mock: no default browser"; // `#openfail` makes opening links fail (update check: copy-link path)
         mockMail.opened.push(String(a.url)); console.info("[mock] open in browser:", a.url); return null;
       case "plugin:app|version": return "1.0.0";
+      // `#os=macos|linux` (per-OS copy and shortcut labels), `#notray` (Linux without a tray host), `#nonotify` (Send test fails)
+      case "shell_info": return { os: hashTokens().get("os") || "windows", tray: !hashTokens().has("notray"), testData: null };
+      case "test_notification":
+        if (hashTokens().has("nonotify")) throw "no notification server is running";
+        return null;
       case "check_update": return mockCheckUpdate(String(a.trigger), settings.prefs);
       case "update_download": return mockDownload(a.onEvent as { onmessage: (e: unknown) => void });
       case "update_cancel": dlCancelled = true; logUpdateCall({ cmd: "cancel" }).kind = "ok"; return null;

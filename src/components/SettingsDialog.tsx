@@ -1,11 +1,10 @@
 import { KeyRound, Lock, Plus, Trash2, Upload } from "lucide-react";
-import { getVersion } from "@tauri-apps/api/app";
 import { openUrl } from "@tauri-apps/plugin-opener";
 import { Fragment, ReactNode, useEffect, useRef, useState } from "react";
 import { Account, api, Discovered, PgpKey, PROVIDERS, Rule, Signature, Template } from "../api";
 import { ACCENT_PRESETS, ACCOUNT_PALETTE, accountColor, DEFAULT_PREFS, eff, folderLabel, isOverridden, MAX_DOWNLOAD_PRESETS, NOTIFY_ACTIONS, NOTIFY_SOUNDS, Overridable, Prefs, staleAccountPrefs, validHex } from "../prefs";
 import { friendlyError, useStore } from "../store";
-import { useUpdates } from "../updates";
+import { credStore, kbd, riskyHint, usePlatform } from "../platform";
 import { systemTz } from "../calendar";
 import { fmtDay, fmtFpr, shortKey } from "../util";
 import { AppearancePreview } from "./AppearancePreview";
@@ -201,7 +200,7 @@ function GeneralTab() {
           <option value="open">Open the file</option>
         </select>
       </Row>
-      <Row label="Warn before opening programs and scripts" hint=".exe, .bat, .cmd, .ps1, .js, .vbs, .msi, macro-enabled Office files (.docm, .xlsm) and similar">
+      <Row label="Warn before opening programs and scripts" hint={riskyHint()}>
         <Switch checked={prefs.warnExecutables} onChange={(v) => set("warnExecutables", v)} />
       </Row>
       <h4>Scheduled messages</h4>
@@ -416,7 +415,7 @@ function OAuthBlock({ kind }: { kind: OAuthKind }) {
               {kind === "google" && (
                 <>
                   <label>Client secret</label>
-                  <input aria-label="Client secret" type="password" value={sec} onChange={(e) => setSec(e.target.value)} placeholder={secSaved ? "Saved in Windows Credential Manager" : ""} />
+                  <input aria-label="Client secret" type="password" value={sec} onChange={(e) => setSec(e.target.value)} placeholder={secSaved ? `Saved in ${credStore()}` : ""} />
                 </>
               )}
             </div>
@@ -591,7 +590,7 @@ function ImapForm() {
         <button className="btn primary" disabled={busy || !email || !pw} onClick={() => void add()}>
           <Plus size={14} /> {busy ? "Connecting…" : "Add account"}
         </button>
-        <div className="muted small">Passwords are stored in the Windows Credential Manager, never in the database.</div>
+        <div className="muted small">Passwords are stored in {credStore()}, never in the database.</div>
       </div>
     </div>
   );
@@ -861,20 +860,24 @@ function FiltersPanel({ scope }: { scope: string | null }) {
 }
 
 function NotifyPanel({ scope }: { scope: string | null }) {
+  const os = usePlatform((s) => s.os);
+  const windows = os === "windows";
   return (
     <>
       <OvRow scope={scope} k="notifications" label="Desktop notifications for new mail">
         {(v, set) => <Switch checked={v} onChange={set} />}
       </OvRow>
+      {!windows && <div className="muted small">Notifications on {os === "macos" ? "macOS" : "Linux"} have no buttons. Open Hey Look! to act on a message.</div>}
       <OvRow scope={scope} k="smartNotifications" label="Smart notifications" hint="Skip newsletters and bulk mail">
         {(v, set) => <Switch checked={v} onChange={set} />}
       </OvRow>
       <OvRow scope={scope} k="notifyPreview" label="Show message preview">
         {(v, set) => <Switch checked={v} onChange={set} />}
       </OvRow>
-      <OvRow scope={scope} k="notifySound" label="Sound">
+      <OvRow scope={scope} k="notifySound" label="Sound" hint={windows ? undefined : "Every choice except None plays the system’s notification sound."}>
         {(v, set) => <SoundSelect value={v} onChange={set} />}
       </OvRow>
+      {windows && (
       <OvRow scope={scope} k="notifyActions" label="Notification buttons" hint="Up to three buttons on each notification">
         {(v, set) => (
           <div className="three">
@@ -896,6 +899,7 @@ function NotifyPanel({ scope }: { scope: string | null }) {
           </div>
         )}
       </OvRow>
+      )}
     </>
   );
 }
@@ -1010,7 +1014,7 @@ function ServerPanel({ account, close }: { account: Account; close: () => void }
   };
   return (
     <>
-      <Row label="Sign-in method">{account.auth === "oauth_google" ? "Google (OAuth 2.0)" : account.auth === "oauth_microsoft" ? "Microsoft (OAuth 2.0)" : "Password (stored in Windows Credential Manager)"}</Row>
+      <Row label="Sign-in method">{account.auth === "oauth_google" ? "Google (OAuth 2.0)" : account.auth === "oauth_microsoft" ? "Microsoft (OAuth 2.0)" : `Password (stored in ${credStore()})`}</Row>
       <Row label="Incoming (IMAP)">{account.imapHost}:{account.imapPort}</Row>
       <Row label="Outgoing (SMTP)">{account.smtpHost}:{account.smtpPort} ({account.smtpSecurity})</Row>
       {account.smtpUsername && <Row label="SMTP login">{account.smtpUsername}</Row>}
@@ -1126,13 +1130,16 @@ function MailboxPage({ scope, tab, close }: { scope: string | null; tab: MbTab; 
 // ---------------------------------------------------------------- app-level pages
 function TrayTab() {
   const { prefs, setPrefs, showToast } = useStore();
+  const os = usePlatform((s) => s.os);
+  const tray = usePlatform((s) => s.tray);
   const [autostart, setAutostart] = useState(false);
   useEffect(() => void api.getAutostart().then(setAutostart).catch(() => undefined), []);
   const test = async () => {
     try {
       await api.testNotification();
     } catch (e) {
-      showToast(String(e), undefined, "error");
+      const text = String(e instanceof Error ? e.message : e).replace(/^Error:\s*/, "").slice(0, 120);
+      showToast(os === "windows" ? text : `Couldn’t show a notification: ${text}`, undefined, "error");
     }
   };
   const toggleAuto = async (v: boolean) => {
@@ -1146,29 +1153,45 @@ function TrayTab() {
   return (
     <div>
       <h3>Notifications & tray</h3>
-      <div className="muted small">Which mail triggers a notification, its sound and its buttons are set per mailbox (Mailboxes → Notifications).</div>
+      <div className="muted small">{os === "windows" ? "Which mail triggers a notification, its sound and its buttons are set per mailbox (Mailboxes → Notifications)." : "Which mail triggers a notification and its sound are set per mailbox (Mailboxes → Notifications)."}</div>
       <Row label="Test notification"><button className="btn" onClick={() => void test()}>Send test</button></Row>
       <Row label="Sound when a message is sent"><Switch checked={prefs.sentSound} onChange={(v) => setPrefs({ sentSound: v })} /></Row>
-      <Row label="Keep running in the tray when the window is closed" hint="Mail keeps syncing and notifying. Quit from the tray menu.">
-        <Switch checked={prefs.closeToTray} onChange={(v) => setPrefs({ closeToTray: v })} />
+      <Row
+        label="Keep running in the tray when the window is closed"
+        hint={
+          !tray
+            ? "No tray area was found on this desktop, so closing the window quits Hey Look!."
+            : os === "macos"
+              ? "Mail keeps syncing and notifying. Quit from the menu bar icon or with Cmd+Q."
+              : "Mail keeps syncing and notifying. Quit from the tray menu."
+        }
+      >
+        <Switch checked={tray && prefs.closeToTray} disabled={!tray} onChange={(v) => setPrefs({ closeToTray: v })} />
       </Row>
-      <Row label="Tray icon badge" hint="A dot is the calmest option; the exact number is always in the tooltip">
-        <select value={prefs.trayBadge} onChange={(e) => setPrefs({ trayBadge: e.target.value as Prefs["trayBadge"] })}>
-          <option value="number">Unread number</option>
-          <option value="dot">Dot only</option>
-          <option value="off">None</option>
-        </select>
-      </Row>
-      <Row label="Taskbar badge">
-        <select value={prefs.taskbarBadge} onChange={(e) => setPrefs({ taskbarBadge: e.target.value as Prefs["taskbarBadge"] })}>
-          <option value="number">Unread number</option>
-          <option value="off">None</option>
-        </select>
-      </Row>
+      {tray && (
+        <Row label="Tray icon badge" hint="A dot is the calmest option; the exact number is always in the tooltip">
+          <select value={prefs.trayBadge} onChange={(e) => setPrefs({ trayBadge: e.target.value as Prefs["trayBadge"] })}>
+            <option value="number">Unread number</option>
+            <option value="dot">Dot only</option>
+            <option value="off">None</option>
+          </select>
+        </Row>
+      )}
+      {os === "windows" && (
+        <Row label="Taskbar badge">
+          <select value={prefs.taskbarBadge} onChange={(e) => setPrefs({ taskbarBadge: e.target.value as Prefs["taskbarBadge"] })}>
+            <option value="number">Unread number</option>
+            <option value="off">None</option>
+          </select>
+        </Row>
+      )}
       <Row label="Count Other (bulk) mail" hint="Off = the numbers only include conversations in Focused, so newsletters do not inflate them">
         <Switch checked={prefs.countOtherMail} onChange={(v) => setPrefs({ countOtherMail: v })} />
       </Row>
-      <Row label="Start Hey Look! when I sign in to Windows" hint="Starts minimized to the tray">
+      <Row
+        label={os === "windows" ? "Start Hey Look! when I sign in to Windows" : "Start Hey Look! when I log in"}
+        hint={os === "linux" && !tray ? "Starts with the window open" : "Starts minimized to the tray"}
+      >
         <Switch checked={autostart} onChange={(v) => void toggleAuto(v)} />
       </Row>
     </div>
@@ -1295,7 +1318,7 @@ function AiTab() {
         <label>Base URL (ending in /v1)</label>
         <input aria-label="Base URL (ending in /v1)" placeholder="https://api.openai.com/v1" value={v.ai_endpoint} onChange={(e) => setV({ ...v, ai_endpoint: e.target.value })} />
         <label>API key</label>
-        <input aria-label="API key" type="password" value={key} onChange={(e) => setKey(e.target.value)} placeholder={hasKey ? "Saved in Windows Credential Manager" : "Optional for local servers"} />
+        <input aria-label="API key" type="password" value={key} onChange={(e) => setKey(e.target.value)} placeholder={hasKey ? `Saved in ${credStore()}` : "Optional for local servers"} />
         {hasKey && (
           <button className="link small" onClick={async () => { await api.setSecret("ai_key", ""); setHasKey(false); }}>Remove the saved key</button>
         )}
@@ -1411,6 +1434,7 @@ function PgpTab() {
 }
 
 function ShortcutsTab() {
+  const os = usePlatform((s) => s.os);
   const rows: [string, string][] = [
     ["c", "New mail"], ["/", "Search"], ["j / k", "Next / previous conversation"], ["e", "Archive"], ["#", "Delete"], ["!", "Move to Junk"],
     ["s", "Snooze"], ["p", "Pin"], ["*", "Flag"], ["u", "Mark as unread"], ["r", "Reply"], ["a", "Reply all"], ["f", "Forward"],
@@ -1423,7 +1447,7 @@ function ShortcutsTab() {
     <div>
       <h3>Keyboard shortcuts</h3>
       {rows.map(([k, d]) => (
-        <div key={k} className="set-row"><kbd>{k}</kbd><span>{d}</span></div>
+        <div key={k} className="set-row"><kbd>{kbd(os === "macos" && k === "#" ? "delete / #" : k, os)}</kbd><span>{d}</span></div>
       ))}
     </div>
   );
@@ -1431,19 +1455,16 @@ function ShortcutsTab() {
 
 function AboutTab() {
   const { prefs, setPrefs } = useStore();
-  const current = useUpdates((s) => s.update?.current);
-  const [version, setVersion] = useState("");
-  // before the first update answer the version comes from the app itself
-  useEffect(() => {
-    void getVersion().then(setVersion).catch(() => undefined);
-  }, []);
+  const testData = usePlatform((s) => s.testData);
   return (
     <div>
       <h3>About</h3>
       <p><b>Hey Look!</b> — a desktop mail client built with Tauri, React and Rust.</p>
-      <p className="muted small">Version {current || version}</p>
-      <p className="muted small">All features are always enabled. No license, no subscription, no cloud account. Mail goes directly between this app and your mail servers; AI features use only the endpoint you configure. Update checks ask GitHub (github.com) for the latest version; updates are downloaded from GitHub only after you agree. You can turn automatic checks off below.</p>
+      {testData && <div className="notice info">Test build: your mail, accounts and settings are kept in {testData}, not in the normal data folder.</div>}
       <UpdatesBlock
+        privacy={
+          <p className="muted small">All features are always enabled. No license, no subscription, no cloud account. Mail goes directly between this app and your mail servers; AI features use only the endpoint you configure. Update checks ask GitHub (github.com) for the latest version; updates are downloaded from GitHub only after you agree. You can turn automatic checks off below.</p>
+        }
         autoSwitch={
           <Row
             label="Check for updates automatically"

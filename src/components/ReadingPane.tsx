@@ -10,6 +10,7 @@ import { useAppDark } from "../useAppDark";
 import { fmtFull, fmtSize, plainToHtml, sanitizeHtml, snoozePresets } from "../util";
 import { AttachmentStrip, Lightbox, LbItem } from "./Attachments";
 import { InviteCard } from "./Calendar";
+import { osNow } from "../platform";
 import { EmptyState } from "./overlays";
 import { EncCard, importKeyFromMessage, isKeyAttachment, needsCard, SecBadges } from "./Pgp";
 import { Avatar, Dropdown } from "./ui";
@@ -475,7 +476,8 @@ function MessageCard({ m, open, onToggle }: { m: MessageFull; open: boolean; onT
               title="More actions"
               items={[
                 { label: "Show original", onClick: () => setDialog({ type: "original", messageId: m.id }) },
-                { label: "Print", onClick: () => frameRef.current?.contentWindow?.print() },
+                // WKWebView cannot print a message frame from the app: no Print entry on macOS
+                ...(osNow() === "macos" ? [] : [{ label: "Print", onClick: () => frameRef.current?.contentWindow?.print() }]),
                 {
                   label: "Create event from this email…",
                   onClick: () => setDialog({ type: "event", init: { summary: m.subject.replace(/^((re|fwd?):\s*)+/i, ""), description: (m.text ?? "").trim().slice(0, 1500) } }),

@@ -26,8 +26,8 @@ Get the latest version from the [GitHub Releases page](https://github.com/thnonl
 | Debian / Ubuntu | `HeyLook_<version>_linux_amd64.deb` |
 | Fedora / openSUSE | `HeyLook_<version>_linux_x86_64.rpm` |
 
-Windows is the primary platform. The macOS and Linux builds are new, have fewer native integrations (tray badge,
-notifications), and have not been tested on real hardware by the maintainer.
+Windows is the primary platform. The macOS and Linux builds are new, have fewer native integrations (no Dock badge,
+notifications without buttons), and have not been tested on real hardware by the maintainer.
 
 The installers are not code-signed yet:
 - **Windows**: if SmartScreen appears, choose **More info**, then **Run anyway**.
@@ -50,7 +50,7 @@ app offers the download from GitHub instead. The check can be turned off, see [W
 | **Settings that follow you** | One set of defaults for **All accounts**, and any mailbox can override any of them. |
 | **Search that goes deep** | Filters, operators, date pickers and a choice of scope: this folder, a whole mailbox, or everything. |
 | **Quiet by design** | Smart notifications, a calm unread badge, a tray icon that keeps working when the window is closed. |
-| **Private by default** | Remote images and trackers are blocked, passwords stay in Windows Credential Manager, no telemetry. The only call of its own is the check for a newer version (it asks github.com; you can turn it off). |
+| **Private by default** | Remote images and trackers are blocked, passwords stay in your system's credential store (Windows Credential Manager, macOS Keychain, GNOME Keyring / KWallet), no telemetry. The only call of its own is the check for a newer version (it asks github.com; you can turn it off). |
 
 ---
 
@@ -104,12 +104,12 @@ app offers the download from GitHub instead. The check can be turned off, see [W
 - Only downloaded mail is searched. At the end of the results (or when there are none), **Search in <webmail>** appears for each mailbox whose webmail is known: Gmail, Outlook, Microsoft 365, Yahoo, iCloud, Fastmail and Zoho (a custom server gets no button). **Gmail** opens the same search directly, with the operators translated. The others have no search link, so the search text is copied and the webmail opens: paste it into its search box (operators the webmail is not known to understand are left out)
 
 ### Notifications and tray
-- Native Windows notifications with up to three action buttons (Archive, Delete, Mark as read, Flag, Reply, Snooze)
+- Windows: native notifications with up to three action buttons (Archive, Delete, Mark as read, Flag, Reply, Snooze). macOS and Linux: native notifications without buttons
 - Per-mailbox switch, sound, preview and buttons; smart mode skips newsletters
 - Snooze reminders when a conversation comes back
 - Tray icon with an unread badge (number, dot or off), tray menu (open, new mail, check now, pause, quit)
-  and a taskbar badge. Unread counts are conversations, and bulk mail can be left out
-- Optional start with Windows, minimized to the tray
+  and, on Windows, a taskbar badge. Unread counts are conversations, and bulk mail can be left out. If your Linux desktop has no tray area, closing the window quits Hey Look!.
+- Optional start at login (sign in to Windows / log in on macOS and Linux), minimized to the tray
 
 ### Updates
 - **Hey Look! updates itself after you agree.** It checks automatically when the app starts or comes back from the tray (at most every 6 hours, can be turned off) and on demand in Settings > About. A newer version shows a dot on the Settings button, one toast per version, and a card with the release notes. **Download and install** downloads the update with a progress bar while you keep working, checks its signature, and restarts Hey Look! into the new version (after a 5 second countdown you can cancel). If you are writing a message it asks first and saves your message as a draft; **Later** installs the update when you quit. **Skip this version** hides the notice for that version.
@@ -124,7 +124,7 @@ app offers the download from GitHub instead. The check can be turned off, see [W
 
 ### AI Assistant (optional)
 Summaries, translation and a "Write with AI" helper in the composer. It talks only to the endpoint you configure
-(any OpenAI-compatible API, including local servers). The key is stored in Windows Credential Manager.
+(any OpenAI-compatible API, including local servers). The key is stored in your system's credential store (Windows Credential Manager, macOS Keychain, Secret Service such as GNOME Keyring or KWallet).
 
 ---
 
@@ -155,14 +155,14 @@ App-wide options (appearance, tray, shortcuts, AI Assistant, blocked senders) li
 |---|---|---|---|
 | `c` | New mail | `r` / `a` / `f` | Reply / Reply all / Forward |
 | `/` | Search | `e` | Archive |
-| `j` / `k` | Next / previous conversation | `#` or `Delete` | Delete |
+| `j` / `k` | Next / previous conversation | `#` or `Delete` (macOS: also `delete`) | Delete |
 | `s` | Snooze | `!` | Move to Junk |
 | `p` | Pin | `*` | Flag |
-| `u` | Mark unread | `Ctrl+A` | Select all |
-| `Ctrl+K` | Command bar | `Ctrl+Enter` | Send (while writing) |
+| `u` | Mark unread | `Ctrl/Cmd+A` | Select all |
+| `Ctrl/Cmd+K` | Command bar | `Ctrl/Cmd+Enter` | Send (while writing) |
 | `F5` | Sync now | `Esc` | Close, deselect |
 | `F11` | Full screen (Windows) | | |
-| `Ctrl+1` / `Ctrl+2` | Mail / Calendar | `c` `t` `m` `w` `a` `←` `→` | Calendar: new event, today, month / week / agenda, previous / next |
+| `Ctrl/Cmd+1` / `Ctrl/Cmd+2` | Mail / Calendar | `c` `t` `m` `w` `a` `←` `→` | Calendar: new event, today, month / week / agenda, previous / next |
 
 ---
 
@@ -176,7 +176,7 @@ App-wide options (appearance, tray, shortcuts, AI Assistant, blocked senders) li
 
 ### Where your data lives
 - Mail cache and settings: `%APPDATA%\thnonl.heylook\heylook.db` (SQLite; macOS `~/Library/Application Support/thnonl.heylook/`, Linux `~/.local/share/thnonl.heylook/`)
-- Passwords, OAuth tokens, the AI key and the OAuth client secrets: Windows Credential Manager (entries named `heylook…`)
+- Passwords, OAuth tokens, the AI key and the OAuth client secrets: Windows Credential Manager, the macOS Keychain, or the Secret Service on Linux (GNOME Keyring, KWallet); on Linux one of them has to be running and unlocked. All entries are named `heylook…`
 - Nothing is sent anywhere except to your mail servers, Google's and Microsoft's sign-in services, the Thunderbird ISPDB and your own domain's autoconfig URL when you press **Detect settings**, the AI endpoint you configure, and github.com for the update check (GitHub sees your IP address; when you agree to update, the installer is downloaded from github.com). Turn the check off in Settings > About, "Check for updates automatically", and no automatic request is made.
 
 ---
@@ -294,7 +294,8 @@ src-tauri/src/           Rust backend
 
 ## Known limitations
 
-- Windows is the primary and supported platform; tray, notifications and badges use Windows APIs. The macOS and Linux builds are build-verified only (not tested on real hardware) and have fewer native integrations
+- Windows is the primary and supported platform. On macOS there is no Dock badge yet (planned for 1.1); notifications on macOS and Linux have no buttons; the Print menu entry is Windows and Linux only; PDF attachments open in the default app on Linux.
+- The macOS and Linux builds are build-verified only (not tested on real hardware) and have fewer native integrations
 - The installers are not code-signed (see [Download](#download) for how to open them)
 - Updating needs permission on some systems: MSI installs ask for administrator rights (UAC), `.deb` and `.rpm` installs ask for your password. If an update cannot be installed, the app offers the download from GitHub instead
 - Mail is fetched by polling (default every 2 minutes), not IMAP IDLE push

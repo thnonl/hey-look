@@ -238,7 +238,35 @@ pub fn update_badge(app: &AppHandle, db: &Db) {
 
 // ---------- tray ----------
 
+/// Linux: is there anything on the session bus that shows tray icons (a registered StatusNotifier host)? Any error = no.
+#[cfg(target_os = "linux")]
+fn linux_tray_host() -> bool {
+    let probe = || -> Result<bool, zbus::Error> {
+        let conn = zbus::blocking::Connection::session()?;
+        let dbus = zbus::blocking::fdo::DBusProxy::new(&conn)?;
+        let name = zbus::names::BusName::try_from("org.kde.StatusNotifierWatcher")?;
+        if !dbus.name_has_owner(name)? {
+            return Ok(false);
+        }
+        let watcher = zbus::blocking::Proxy::new(&conn, "org.kde.StatusNotifierWatcher", "/StatusNotifierWatcher", "org.kde.StatusNotifierWatcher")?;
+        Ok(watcher.get_property::<bool>("IsStatusNotifierHostRegistered")?)
+    };
+    tray_host_present(probe().ok())
+}
+
+/// The answer of the bus probe as a yes/no: only an explicit "a host is registered" counts.
+#[cfg_attr(not(target_os = "linux"), allow(dead_code))]
+fn tray_host_present(probe: Option<bool>) -> bool {
+    probe.unwrap_or(false)
+}
+
 pub fn setup_tray(app: &AppHandle, db: &Db) -> tauri::Result<()> {
+    // without a tray host the icon would be invisible and a hidden window could not be brought back: no tray, closing quits
+    #[cfg(target_os = "linux")]
+    if !linux_tray_host() {
+        eprintln!("tray: no StatusNotifier host, closing the window quits");
+        return Ok(());
+    }
     let paused = db::get_setting(&lock(db), "notif_paused").as_deref() == Some("1");
     let open = MenuItem::with_id(app, "open", "Open Hey Look!", true, None::<&str>)?;
     let compose = MenuItem::with_id(app, "compose", "New mail", true, None::<&str>)?;
@@ -371,7 +399,7 @@ fn handle_activation(app: &AppHandle, thread: &str, action: Option<String>) {
 }
 
 #[cfg(windows)]
-fn toast(app: &AppHandle, thread: String, title: &str, line1: &str, line2: &str, sound: &str, actions: &[String]) {
+fn toast(app: &AppHandle, thread: String, title: &str, line1: &str, line2: &str, sound: &str, actions: &[String]) -> Result<(), String> {
     use tauri_winrt_notification::{Sound, Toast};
     let snd = match sound {
         "none" => None,
@@ -397,10 +425,33 @@ fn toast(app: &AppHandle, thread: String, title: &str, line1: &str, line2: &str,
         Ok(())
     });
     let _ = t.show();
+    Ok(())
 }
 
+/// macOS and Linux: a plain native notification (no buttons; clicking it has the system's default effect only).
 #[cfg(not(windows))]
-fn toast(_: &AppHandle, _: String, _: &str, _: &str, _: &str, _: &str, _: &[String]) {}
+fn toast(app: &AppHandle, _thread: String, title: &str, line1: &str, line2: &str, sound: &str, _actions: &[String]) -> Result<(), String> {
+    use tauri_plugin_notification::NotificationExt;
+    let mut n = app.notification().builder().title(title).body(notification_body(line1, line2));
+    if sound != "none" {
+        n = n.sound(if cfg!(target_os = "macos") { "default" } else { "message-new-email" });
+    }
+    n.show().map_err(|e| e.to_string().chars().take(120).collect())
+}
+
+/// Subject, then the preview on a second line when there is one.
+#[cfg_attr(windows, allow(dead_code))]
+fn notification_body(line1: &str, line2: &str) -> String {
+    if line2.is_empty() { line1.to_string() } else { format!("{line1}
+{line2}") }
+}
+
+/// Failures of other notifications than "Send test" are only logged.
+fn toast_logged(app: &AppHandle, thread: String, title: &str, line1: &str, line2: &str, sound: &str, actions: &[String]) {
+    if let Err(e) = toast(app, thread, title, line1, line2, sound, actions) {
+        eprintln!("notification failed: {e}");
+    }
+}
 
 fn notify_actions(p: &Value) -> Vec<String> {
     let list: Vec<String> = p
@@ -439,13 +490,13 @@ pub fn notify_new(app: &AppHandle, db: &Db, new: &[NewMsg]) {
             .unwrap_or_else(|| "mail".to_string())
     };
     if list.len() > 3 {
-        toast(app, String::new(), "Hey Look!", &format!("{} new messages", list.len()), "", &sound_for(list[0]), &[]);
+        toast_logged(app, String::new(), "Hey Look!", &format!("{} new messages", list.len()), "", &sound_for(list[0]), &[]);
         return;
     }
     for n in list {
         let snippet: String = if flag(n, "notifyPreview", true) { n.snippet.chars().take(140).collect() } else { String::new() };
         let actions = notify_actions_for(&p, &n.account_id);
-        toast(app, n.thread_id.clone(), &n.from, &n.subject, &snippet, &sound_for(n), &actions);
+        toast_logged(app, n.thread_id.clone(), &n.from, &n.subject, &snippet, &sound_for(n), &actions);
     }
 }
 
@@ -462,15 +513,7 @@ pub fn tray_hint_once(app: &AppHandle, db: &Db) {
         return;
     }
     let _ = db::set_setting(&lock(db), "tray_hint_shown", "1");
-    toast(
-        app,
-        String::new(),
-        "Hey Look! is still running",
-        "It keeps checking your mail from the tray. Right-click the tray icon and choose Quit to exit.",
-        "",
-        "none",
-        &[],
-    );
+    toast_logged(app, String::new(), "Hey Look! is still running", tray_hint_text(std::env::consts::OS), "", "none", &[]);
 }
 
 /// Snoozed threads whose time has come: bring them back as unread and notify.
@@ -500,7 +543,7 @@ pub fn check_snoozes(app: &AppHandle, db: &Db) {
         let _ = lock(db).execute("UPDATE thread_meta SET snoozed_until=NULL WHERE thread_id=?1", [&tid]);
         let _ = action_impl(db, vec![tid.clone()], "unread".into(), None, None);
         if !quiet {
-            toast(app, tid, &format!("Snooze ended: {}", who.trim()), &subject, &snippet.chars().take(140).collect::<String>(), &sound, &actions);
+            toast_logged(app, tid, &format!("Snooze ended: {}", who.trim()), &subject, &snippet.chars().take(140).collect::<String>(), &sound, &actions);
         }
     }
     update_badge(app, db);
@@ -513,10 +556,19 @@ pub fn notify_reminder(app: &AppHandle, db: &Db, title: &str, line: &str) {
         return;
     }
     let p = prefs(db);
-    toast(app, String::new(), title, line, "", &pstr(&p, "notifySound", "reminder"), &[]);
+    toast_logged(app, String::new(), title, line, "", &pstr(&p, "notifySound", "reminder"), &[]);
 }
 
-pub fn test_notification(app: &AppHandle, db: &Db) {
+/// Body of the one-time "still running" notice, per OS.
+fn tray_hint_text(os: &str) -> &'static str {
+    match os {
+        "macos" => "It keeps checking your mail from the menu bar. Click the Hey Look! icon in the Dock or the menu bar to open it again.",
+        "linux" => "It keeps checking your mail from the tray. Choose Quit Hey Look! in the tray icon’s menu to exit.",
+        _ => "It keeps checking your mail from the tray. Right-click the tray icon and choose Quit to exit.",
+    }
+}
+
+pub fn test_notification(app: &AppHandle, db: &Db) -> Result<(), String> {
     let p = prefs(db);
     toast(
         app,
@@ -526,5 +578,30 @@ pub fn test_notification(app: &AppHandle, db: &Db) {
         "This is how new mail will look.",
         &pstr(&p, "notifySound", "mail"),
         &notify_actions(&p),
-    );
+    )
+}
+
+#[cfg(test)]
+mod platform_tests {
+    use super::*;
+
+    #[test]
+    fn only_a_registered_tray_host_counts() {
+        assert!(tray_host_present(Some(true)));
+        assert!(!tray_host_present(Some(false)));
+        assert!(!tray_host_present(None), "any error on the bus means no host");
+    }
+
+    #[test]
+    fn notification_text_is_subject_then_preview() {
+        assert_eq!(notification_body("Subject", ""), "Subject");
+        assert_eq!(notification_body("Subject", "Preview text"), "Subject\nPreview text");
+    }
+
+    #[test]
+    fn the_still_running_notice_names_the_right_place() {
+        assert!(tray_hint_text("windows").contains("Right-click the tray icon"));
+        assert!(tray_hint_text("macos").contains("Dock") && tray_hint_text("macos").contains("menu bar"));
+        assert!(tray_hint_text("linux").contains("Quit Hey Look! in the tray icon"));
+    }
 }

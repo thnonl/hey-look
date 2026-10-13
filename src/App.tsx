@@ -18,6 +18,7 @@ import { Settings } from "./components/SettingsDialog";
 import { TopBar } from "./components/TopBar";
 import { Welcome } from "./components/Welcome";
 import { useStore } from "./store";
+import { osNow } from "./platform";
 import { useUpdates } from "./updates";
 import { calTz, configureCalendar, addDays, addMonths, today as todayDay } from "./calendar";
 import { catchupText, configureDates, fmtWhen } from "./util";
@@ -263,6 +264,8 @@ function App() {
         case "k": void st.select(st.threads[Math.max(idx - 1, 0)]?.threadId ?? null); break;
         case "e": void st.act(ids, "archive", undefined, "Archived"); break;
         case "#": case "Delete": void st.act(ids, "trash", undefined, "Moved to Deleted Items"); break;
+        // the Mac "delete" key (Backspace) deletes the selected conversation too; not while typing (guarded above)
+        case "Backspace": if (osNow() === "macos") void st.act(ids, "trash", undefined, "Moved to Deleted Items"); break;
         case "!": void st.act(ids, "junk", undefined, "Moved to Junk"); break;
         case "u": void st.act(ids, "unread"); break;
         case "p": void st.act(ids, cur?.pinned ? "unpin" : "pin"); break;

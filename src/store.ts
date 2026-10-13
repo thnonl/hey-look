@@ -1,5 +1,6 @@
 import { create } from "zustand";
 import { api, Account, Att, BackfillProgress, CalendarInfo, CalEvent, DraftSecurity, FolderInfo, Meeting, MessageFull, OutboxItem, SearchScope, ThreadSummary } from "./api";
+import { loadPlatform } from "./platform";
 import { calTz, CalView, Day, rangeFor, systemTz, today } from "./calendar";
 import { accentText, accountColor, buttonAccent, clampMaxDownload, DEFAULT_PREFS, lightened, mergePrefs, Prefs, readableOn, staleAccountPrefs, topBar, validHex } from "./prefs";
 
@@ -427,7 +428,7 @@ export const useStore = create<State>((set, get) => ({
   sendsInFlight: 0,
 
   init: async () => {
-    const [rawAccounts, rawPrefs] = await Promise.all([api.listAccounts(), api.getSetting("prefs")]);
+    const [rawAccounts, rawPrefs] = await Promise.all([api.listAccounts(), api.getSetting("prefs"), loadPlatform()]);
     let prefs = mergePrefs(rawPrefs);
     // settings that point at an account that was removed (default account, overrides, favorites) are dropped
     const stale = staleAccountPrefs(prefs, rawAccounts.map((a) => a.id));

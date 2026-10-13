@@ -560,6 +560,7 @@ export const api = {
   fetchRemoteImages: (urls: string[]) => invoke<Record<string, string>>("fetch_remote_images", { urls }),
   aiComplete: (system: string, prompt: string) => invoke<string>("ai_complete", { system, prompt }),
   aiListModels: (endpoint: string, key?: string) => invoke<string[]>("ai_list_models", { endpoint, key: key ?? null }),
+  shellInfo: () => invoke<{ os: string; tray: boolean; testData?: string | null }>("shell_info"),
   checkUpdate: (trigger: UpdateTrigger) => invoke<UpdateResult>("check_update", { trigger }),
   /** Download and verify the update; progress arrives on `onEvent`. Resolves when the download has ended (ready, failed or cancelled). */
   updateDownload: (onEvent: (e: DlEvent) => void) => {
