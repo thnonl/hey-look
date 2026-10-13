@@ -223,6 +223,19 @@ pub fn data_dir(app: &tauri::AppHandle) -> Result<PathBuf, Box<dyn std::error::E
     Ok(dir)
 }
 
+/// A debug build runs on a test data folder (`HEYLOOK_DATA_DIR`): the system credential store and the registry cannot be redirected,
+/// so such a run must not move the real ones (see `migrate_keyring`, `remove_old_notification_id`). Always false in release builds.
+pub fn data_dir_overridden() -> bool {
+    #[cfg(debug_assertions)]
+    {
+        std::env::var_os("HEYLOOK_DATA_DIR").is_some_and(|v| !v.is_empty())
+    }
+    #[cfg(not(debug_assertions))]
+    {
+        false
+    }
+}
+
 /// The data folder in use (managed state).
 pub struct DataDir(pub PathBuf);
 
@@ -273,6 +286,9 @@ pub fn migrate_creds(store: &dyn Creds, new_service: &str, users: &[String]) -> 
 /// Once per install: the account ids come from the database, the secret names from `secret_names`.
 pub fn migrate_keyring(db: &Db, secret_names: &[&str]) {
     let flag = "legacy_keyring_done";
+    if data_dir_overridden() {
+        return; // a test data folder: the real credentials stay where they are
+    }
     if db::get_setting(&lock(db), flag).as_deref() == Some("1") {
         return;
     }
@@ -301,6 +317,9 @@ pub fn migrate_keyring(db: &Db, secret_names: &[&str]) {
 #[cfg(windows)]
 pub fn remove_old_notification_id() {
     use std::os::windows::process::CommandExt;
+    if data_dir_overridden() {
+        return;
+    }
     let _ = std::process::Command::new("reg")
         .args(["delete", &format!(r"HKCU\Software\Classes\AppUserModelId\{OLD_AUMID}"), "/f"])
         .creation_flags(0x0800_0000)
