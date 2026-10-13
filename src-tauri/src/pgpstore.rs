@@ -349,11 +349,11 @@ pub fn build_secure(c: &Connection, acc: &Account, d: &Draft, draft_mode: bool) 
             let recips: Vec<Recipient> = certs.iter().map(|(k, h)| Recipient { key: k, hidden: *h }).collect();
             openpgp::encrypt(plain, &recips, signer.as_ref().map(|s| (s, "")))
         };
-        return smtp::build_encrypted(acc, &d2, &encrypt_fn);
+        return smtp::build_encrypted(acc, &d2, draft_mode, &encrypt_fn);
     }
     let signer = signer.ok_or("PGP_FAILED: nothing to do")?;
     let sign_fn = |data: &[u8]| openpgp::sign_detached(&signer, "", data);
-    smtp::build_signed(acc, &d2, &sign_fn)
+    smtp::build_signed(acc, &d2, draft_mode, &sign_fn)
 }
 
 /// Key status for the recipient chips in Compose.

@@ -146,20 +146,73 @@ fn mailbox(s: &str) -> R<Mailbox> {
     parse_mailbox(s)
 }
 
-fn headers(acc: &Account, d: &Draft) -> R<lettre::message::MessageBuilder> {
-    let from = Mailbox::new(
-        Some(acc.display_name.clone()).filter(|n| !n.is_empty()),
-        acc.email.parse::<Address>().map_err(err)?,
-    );
+/// A recipient header written exactly as typed, for a draft whose recipients are not all valid addresses yet (`ann@`, `ann bob`):
+/// the draft keeps what the person wrote. Never used for a message that is sent (that one is strict).
+macro_rules! raw_recipients {
+    ($t:ident, $name:literal) => {
+        #[derive(Clone, Debug, PartialEq)]
+        struct $t(String);
+        impl lettre::message::header::Header for $t {
+            fn name() -> lettre::message::header::HeaderName {
+                lettre::message::header::HeaderName::new_from_ascii_str($name)
+            }
+            fn parse(s: &str) -> Result<Self, Box<dyn std::error::Error + Send + Sync>> {
+                Ok(Self(s.to_string()))
+            }
+            fn display(&self) -> lettre::message::header::HeaderValue {
+                lettre::message::header::HeaderValue::new(Self::name(), self.0.clone())
+            }
+        }
+    };
+}
+raw_recipients!(RawTo, "To");
+raw_recipients!(RawCc, "Cc");
+raw_recipients!(RawBcc, "Bcc");
+
+/// `lenient`: for a DRAFT. A draft is saved as it is: no recipient, a half-typed one, an empty subject all save. lettre derives the
+/// SMTP envelope from the recipient headers and refuses a message without one ("missing destination address, invalid envelope"), so
+/// a draft gets an explicit envelope (from the account to the account; it is never sent, the envelope is not part of the text) and
+/// recipients that are not valid addresses are written as typed. A message that is SENT is built strict (`lenient = false`).
+fn headers(acc: &Account, d: &Draft, lenient: bool) -> R<lettre::message::MessageBuilder> {
+    let me = acc.email.parse::<Address>().map_err(err)?;
+    let from = Mailbox::new(Some(acc.display_name.clone()).filter(|n| !n.is_empty()), me.clone());
     let mut b = Message::builder().from(from).subject(d.subject.clone());
-    for t in &d.to {
-        b = b.to(mailbox(t)?);
-    }
-    for c in &d.cc {
-        b = b.cc(mailbox(c)?);
-    }
-    for c in &d.bcc {
-        b = b.bcc(mailbox(c)?);
+    if lenient {
+        b = b.envelope(lettre::address::Envelope::new(Some(me.clone()), vec![me]).map_err(err)?);
+        // each list: typed addresses when every entry is one, else the text as written
+        let all_ok = |l: &[String]| l.iter().all(|t| parse_mailbox(t).is_ok());
+        let raw = |l: &[String]| l.iter().map(|t| t.trim()).filter(|t| !t.is_empty()).collect::<Vec<_>>().join(", ");
+        if all_ok(&d.to) {
+            for t in &d.to {
+                b = b.to(mailbox(t)?);
+            }
+        } else {
+            b = b.header(RawTo(raw(&d.to)));
+        }
+        if all_ok(&d.cc) {
+            for t in &d.cc {
+                b = b.cc(mailbox(t)?);
+            }
+        } else {
+            b = b.header(RawCc(raw(&d.cc)));
+        }
+        if all_ok(&d.bcc) {
+            for t in &d.bcc {
+                b = b.bcc(mailbox(t)?);
+            }
+        } else {
+            b = b.header(RawBcc(raw(&d.bcc)));
+        }
+    } else {
+        for t in &d.to {
+            b = b.to(mailbox(t)?);
+        }
+        for c in &d.cc {
+            b = b.cc(mailbox(c)?);
+        }
+        for c in &d.bcc {
+            b = b.bcc(mailbox(c)?);
+        }
     }
     if let Some(r) = &d.in_reply_to {
         b = b.in_reply_to(r.clone());
@@ -237,12 +290,12 @@ pub fn build_calendar_mail(acc: &Account, to: &[String], cc: &[String], subject:
 }
 
 pub fn build(acc: &Account, d: &Draft) -> R<Message> {
-    headers(acc, d)?.multipart(body(d)?).map_err(err)
+    headers(acc, d, false)?.multipart(body(d)?).map_err(err)
 }
 
 /// multipart/signed (RFC 3156): the signature covers the content entity exactly as it is written, without the
 /// line break that belongs to the next boundary line.
-pub fn build_signed(acc: &Account, d: &Draft, sign: &dyn Fn(&[u8]) -> R<(String, String)>) -> R<Message> {
+pub fn build_signed(acc: &Account, d: &Draft, lenient: bool, sign: &dyn Fn(&[u8]) -> R<(String, String)>) -> R<Message> {
     let inner = body(d)?;
     let mut bytes = inner.formatted();
     if bytes.ends_with(b"\r\n") {
@@ -253,11 +306,11 @@ pub fn build_signed(acc: &Account, d: &Draft, sign: &dyn Fn(&[u8]) -> R<(String,
         .header(ContentType::parse("application/pgp-signature; name=\"signature.asc\"").map_err(err)?)
         .body(armored);
     let outer = MultiPart::signed("application/pgp-signature".to_string(), micalg).multipart(inner).singlepart(sig);
-    headers(acc, d)?.multipart(outer).map_err(err)
+    headers(acc, d, lenient)?.multipart(outer).map_err(err)
 }
 
 /// multipart/encrypted (RFC 3156): a control part and the armored OpenPGP message.
-pub fn build_encrypted(acc: &Account, d: &Draft, encrypt: &dyn Fn(&[u8]) -> R<String>) -> R<Message> {
+pub fn build_encrypted(acc: &Account, d: &Draft, lenient: bool, encrypt: &dyn Fn(&[u8]) -> R<String>) -> R<Message> {
     let armored = encrypt(&body(d)?.formatted())?;
     let control = SinglePart::builder().header(ContentType::parse("application/pgp-encrypted").map_err(err)?).body(String::from("Version: 1"));
     let data = SinglePart::builder()
@@ -265,7 +318,7 @@ pub fn build_encrypted(acc: &Account, d: &Draft, encrypt: &dyn Fn(&[u8]) -> R<St
         .header(lettre::message::header::ContentDisposition::inline_with_name("encrypted.asc"))
         .body(armored);
     let outer = MultiPart::encrypted("application/pgp-encrypted".to_string()).singlepart(control).singlepart(data);
-    headers(acc, d)?.multipart(outer).map_err(err)
+    headers(acc, d, lenient)?.multipart(outer).map_err(err)
 }
 
 /// Addresses of every recipient (To, Cc, Bcc) of a draft, for sending a prebuilt message.
@@ -343,9 +396,9 @@ pub fn test(acc: &Account, secret: &str) -> R<()> {
     }
 }
 
-/// Same as `build`; lettre only needs recipients at send time, so incomplete drafts are fine.
+/// What is saved to the Drafts folder: like `build`, but a draft needs no recipient, no subject and may hold half-typed addresses.
 pub fn build_draft(acc: &Account, d: &Draft) -> R<Message> {
-    build(acc, d)
+    headers(acc, d, true)?.multipart(body(d)?).map_err(err)
 }
 
 #[cfg(test)]
@@ -402,6 +455,48 @@ mod tests {
 
     fn text(m: &Message) -> String {
         String::from_utf8_lossy(&m.formatted()).into_owned()
+    }
+
+    /// A draft saves whatever the person has typed so far (QA BUG-7: "missing destination address, invalid envelope"); a message that is
+    /// sent still needs a valid recipient.
+    #[test]
+    fn a_draft_needs_no_recipient_no_subject_and_may_hold_half_typed_addresses() {
+        let acc = account();
+        // nothing but a body, an empty subject
+        let mut d = draft("<p>Hi</p>", vec![], vec![]);
+        d.to.clear();
+        d.subject.clear();
+        let out = text(&build_draft(&acc, &d).expect("empty To saves"));
+        assert!(out.contains("From:") && out.contains("Hi"));
+        assert!(!out.contains("
+To:"), "no To header is invented: {out}");
+        // only Cc
+        d.cc = vec!["bob@example.com".into()];
+        let out = text(&build_draft(&acc, &d).expect("only Cc saves"));
+        assert!(out.contains("Cc: bob@example.com"), "{out}");
+        // half-typed / invalid recipients are kept as typed
+        d.to = vec!["ann@".into(), "Carl <carl@example.com>".into()];
+        d.bcc = vec!["not an address".into()];
+        let out = text(&build_draft(&acc, &d).expect("invalid recipients save"));
+        assert!(out.contains("To: ann@, Carl <carl@example.com>"), "{out}");
+        assert!(!out.contains("not an address"), "{out}");
+        // valid recipients are typed headers as before
+        d.to = vec!["Ann <ann@example.com>".into()];
+        d.bcc.clear();
+        let out = text(&build_draft(&acc, &d).unwrap());
+        assert!(out.contains("To: Ann <ann@example.com>") || out.contains("To: \"Ann\" <ann@example.com>"), "{out}");
+        // the encrypted-draft route builds the same way
+        let enc = build_encrypted(&acc, &{ let mut e = d.clone(); e.to.clear(); e }, true, &|_| Ok("armored".to_string()));
+        assert!(enc.is_ok(), "{:?}", enc.err());
+
+        // sending stays strict: no recipient, or one that is not an address, is refused
+        let mut s = draft("<p>Hi</p>", vec![], vec![]);
+        s.to.clear();
+        assert!(build(&acc, &s).is_err(), "a message without recipients must not be built for sending");
+        assert!(envelope(&acc, &s).is_err());
+        s.to = vec!["ann@".into()];
+        assert!(build(&acc, &s).is_err());
+        assert!(envelope(&acc, &s).is_err());
     }
 
     #[test]
