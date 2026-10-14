@@ -70,7 +70,7 @@ OAuth clients, the code layout, releasing and how it works: [CONTRIBUTING.md](CO
 
 ## Support the project
 
-Hey Look! is free. If it helps you, you can support it on [Ko-fi](https://ko-fi.com/namthnonl) or by bank transfer: see the [support page](https://thnonl.github.io/hey-look/support.html).
+Hey Look! is free. If it helps you, you can [buy me a coffee](https://thnonl.github.io/hey-look/support.html): on [Ko-fi](https://ko-fi.com/namthnonl) or by bank transfer (the same link is under Settings > About).
 
 ## Security
 

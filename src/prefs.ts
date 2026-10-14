@@ -1,3 +1,4 @@
+import { DEFAULT_MAIL_CANVAS, MailCanvas, resolveMailCanvas } from "./mailCanvas";
 export type NotifySound = "mail" | "default" | "im" | "reminder" | "sms" | "none";
 export const NOTIFY_SOUNDS: [NotifySound, string][] = [
   ["mail", "Mail"], ["default", "Default"], ["im", "Instant message"], ["reminder", "Reminder"], ["sms", "SMS"], ["none", "Silent"],
@@ -46,6 +47,8 @@ export interface Overridable {
 
 export interface Prefs extends Overridable {
   theme: "system" | "light" | "dark";
+  /** the background HTML mail is read on: as the sender designed it, or dark (reading pane button) */
+  mailCanvas: MailCanvas;
   /** primary (accent) color, #rrggbb */
   accent: string;
   density: "full" | "medium" | "compact";
@@ -109,6 +112,7 @@ export interface Prefs extends Overridable {
 
 export const DEFAULT_PREFS: Prefs = {
   theme: "system",
+  mailCanvas: DEFAULT_MAIL_CANVAS,
   accent: "#0f6cbd",
   density: "full",
   readingPane: "right",
@@ -224,6 +228,7 @@ export function mergePrefs(raw: string | null): Prefs {
       ...DEFAULT_PREFS,
       ...p,
       maxDownload: clampMaxDownload(p.maxDownload),
+      mailCanvas: resolveMailCanvas(p.mailCanvas),
       accountPrefs,
       snoozeTimes: { ...DEFAULT_PREFS.snoozeTimes, ...(p.snoozeTimes ?? {}) },
     };

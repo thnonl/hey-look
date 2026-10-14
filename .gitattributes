@@ -1,2 +1,5 @@
+# Source is LF on every platform: several tests read the source files (include_str!, readFileSync) and match multi-line text,
+# which fails on a Windows checkout with core.autocrlf=true (CRLF). Binary files are detected by git and left untouched.
+* text=auto eol=lf
 *.sh text eol=lf
 scripts/idle-it/*.conf text eol=lf

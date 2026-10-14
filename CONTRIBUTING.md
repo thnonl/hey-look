@@ -105,6 +105,34 @@ src-tauri/src/           Rust backend
 
 **Testing the updater.** Run the workflow by hand with the `test_version` input (for example `0.9.0`): it builds a debug test build of that version (unsigned, nothing committed). Add `platforms` (`windows`, `macos`, `linux` or a comma list such as `windows,macos`; default `all`) to build only the system you test, for example `gh workflow run release.yml -f test_version=0.9.0 -f platforms=windows`. A newer manual run of the same kind and platforms on the same ref cancels an older one that is still building; a tag run always builds all three platforms. A debug build reads `HEYLOOK_UPDATE_ENDPOINT` (a URL of a `latest.json`, for example a local server) instead of GitHub; release builds ignore that variable.
 
+### Signing and notarisation
+The macOS app is **ad-hoc signed** today: people must allow it once in System Settings > Privacy & Security, and macOS cannot show native notifications for it. The release workflow can sign it with an Apple *Developer ID Application* certificate and have Apple notarise it, but only when the secrets below exist. Without them a run behaves exactly as before (ad-hoc signed, the `Signature=adhoc` check). Windows signing is not part of this; it needs its own route first.
+
+**Owner steps (once).**
+1. Join the **Apple Developer Program** (developer.apple.com/programs, individual, 99 USD per year; enrolment usually takes 1 to 3 days, longer if Apple asks for identity checks). Your legal name is shown as the developer.
+2. In the developer account > Certificates, create a **Developer ID Application** certificate (not "Apple Development", not "Mac App Store"). On a Mac, in Keychain Access > login > My Certificates, expand it, right-click the *key* > Export as a `.p12` and choose a password.
+3. Base64 of the `.p12` (one line): `openssl base64 -A -in certificate.p12 -out certificate-base64.txt`.
+4. The signing identity is the certificate's full name: `security find-identity -v -p codesigning` prints it, for example `Developer ID Application: Your Name (ABCDE12345)`. The ten characters in brackets are the Team ID.
+5. For notarisation create an **App Store Connect API key** (App Store Connect > Users and Access > Integrations > Team Keys, role *Developer*) and download the `.p8` once. Note the *Key ID* and the *Issuer ID* shown above the table. (Alternative without a key: your Apple ID and an app-specific password made at account.apple.com > Sign-In and Security.)
+6. Keep the `.p12`, its password and the `.p8` with the updater-key backups. Never commit them or paste them into an issue.
+7. Set them yourself in the repo (the values are typed or piped by you, never by an agent):
+   ```
+   gh secret set APPLE_CERTIFICATE < certificate-base64.txt
+   gh secret set APPLE_CERTIFICATE_PASSWORD
+   gh secret set APPLE_SIGNING_IDENTITY        # the full name from step 4
+   gh secret set APPLE_API_ISSUER              # Issuer ID
+   gh secret set APPLE_API_KEY                 # Key ID
+   gh secret set APPLE_API_PRIVATE_KEY < AuthKey_XXXXXXXXXX.p8
+   gh variable set APPLE_TEAM_ID --body ABCDE12345
+   ```
+   With the Apple ID alternative set `APPLE_ID` and `APPLE_PASSWORD` (the app-specific password) instead of the three `APPLE_API_*` secrets; `APPLE_TEAM_ID` is needed there.
+8. Signing starts when `APPLE_CERTIFICATE`, `APPLE_CERTIFICATE_PASSWORD` and `APPLE_SIGNING_IDENTITY` are all set, and notarisation when the `APPLE_API_*` trio (or the Apple ID trio) is set too. A signed run without notarisation credentials warns in the log: such an app is still blocked by Gatekeeper.
+9. When you are ready to ship signed builds only, set the repo variable `REQUIRE_MAC_SIGNING` to `true`: a **tag** run then fails if the macOS app would not be signed and notarised (a dry run still builds without).
+
+**What the workflow does** (step `macOS signing` in `.github/workflows/release.yml`): test builds (`test_version`) are never signed. Otherwise, with the secrets, it exports the `APPLE_*` variables to the build only now (so a run without secrets has none, not empty ones), writes your identity in place of `-` in `tauri.conf.json` **in the CI checkout only**, and the bundler imports the certificate into a temporary keychain, signs the app, submits it to Apple's notary service and staples the ticket. The updater package (`.app.tar.gz`) and its minisign signature are made from the signed app, so the update signature steps are unchanged.
+
+**How to verify.** Run the workflow by hand (dry run, `platforms: macos`) and read the step `Check Developer ID signature and notarisation` (it checks `Authority=Developer ID Application`, your `TeamIdentifier`, `xcrun stapler validate` and `spctl --assess`). On a Mac download the dmg from the dry run's artifacts and run `codesign -dv --verbose=4 "/Applications/Hey Look!.app"` (Authority line `Developer ID Application`), `spctl -a -vv "/Applications/Hey Look!.app"` (`accepted`, `source=Notarized Developer ID`) and `xcrun stapler validate "/Applications/Hey Look!.app"`. A dmg that was downloaded with a browser must open without the "Open Anyway" steps. The first update from an ad-hoc signed version to a signed one makes the Keychain ask once, because the app's identity changed.
+
 ### How it works
 - The UI never talks to a mail server. It calls Rust commands; the backend syncs IMAP folders into SQLite, and the UI
   reads from that local database, which keeps lists instant and search offline.

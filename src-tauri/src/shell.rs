@@ -237,8 +237,19 @@ pub fn update_badge(app: &AppHandle, db: &Db) {
     if let Some(w) = app.get_webview_window("main") {
         let _ = w.set_overlay_icon(if count > 0 && task_style == "number" { Some(overlay_icon(count)) } else { None });
     }
-    #[cfg(not(windows))]
+    // macOS Dock icon: the same number as the tray, off at 0 and with the "None" choice of the badge setting (shown as "Dock badge")
+    #[cfg(target_os = "macos")]
+    if let Some(w) = app.get_webview_window("main") {
+        let _ = w.set_badge_label(dock_label(count, &task_style));
+    }
+    #[cfg(not(any(windows, target_os = "macos")))]
     let _ = task_style;
+}
+
+/// The text of the macOS Dock badge: the unread number, nothing at 0 or when the setting is "off" (`None` removes the badge).
+#[cfg_attr(not(target_os = "macos"), allow(dead_code))]
+fn dock_label(count: u32, style: &str) -> Option<String> {
+    (count > 0 && style == "number").then(|| count.to_string())
 }
 
 // ---------- macOS app menu ----------
@@ -498,6 +509,11 @@ fn toast(app: &AppHandle, _thread: String, title: &str, line1: &str, line2: &str
     }
     #[cfg(not(target_os = "linux"))]
     {
+        // macOS: the hidden diagnostic (HEYLOOK_MAC_NOTIFY in a debug build, see macnotify.rs); off = the unchanged path below
+        #[cfg(target_os = "macos")]
+        if let Some(mode) = crate::macnotify::mode() {
+            return crate::macnotify::show(app, mode, title, &notification_body(line1, line2), sound);
+        }
         use tauri_plugin_notification::NotificationExt;
         let mut n = app.notification().builder().title(title).body(notification_body(line1, line2));
         if sound != "none" {
@@ -705,24 +721,22 @@ fn tray_hint_text(os: &str) -> &'static str {
 pub fn test_notification(app: &AppHandle, db: &Db) -> Result<(), String> {
     // macOS: the notification backend of the plugin (the old NSUserNotification API) shows nothing on current macOS for an ad-hoc
     // signed app and cannot ask for permission; Send test says so instead of pretending (QA BUG-M5, owner decision: documented limit)
+    // (a debug build started with HEYLOOK_MAC_NOTIFY=1 makes the attempt instead, for the Mac QA session: macnotify.rs)
     #[cfg(target_os = "macos")]
-    {
+    if crate::macnotify::mode().is_none() {
         let _ = (app, db);
         return Err("not available on macOS in this version".into());
     }
-    #[cfg(not(target_os = "macos"))]
-    {
-        let p = prefs(db);
-        toast(
-            app,
-            String::new(),
-            "Hey Look! test notification",
-            "Notifications are working",
-            "This is how new mail will look.",
-            &pstr(&p, "notifySound", "mail"),
-            &notify_actions(&p),
-        )
-    }
+    let p = prefs(db);
+    toast(
+        app,
+        String::new(),
+        "Hey Look! test notification",
+        "Notifications are working",
+        "This is how new mail will look.",
+        &pstr(&p, "notifySound", "mail"),
+        &notify_actions(&p),
+    )
 }
 
 #[cfg(test)]
@@ -739,6 +753,18 @@ mod platform_tests {
         for id in ["\"compose\" if MAIL_AVAILABLE", "\"sync\" if MAIL_AVAILABLE"] {
             assert!(src.contains(id), "{id}");
         }
+    }
+
+    #[test]
+    fn the_dock_badge_is_the_unread_number_unless_it_is_zero_or_turned_off() {
+        assert_eq!(dock_label(7, "number"), Some("7".into()));
+        assert_eq!(dock_label(1234, "number"), Some("1234".into()));
+        assert_eq!(dock_label(0, "number"), None, "cleared at 0");
+        assert_eq!(dock_label(7, "off"), None, "the setting's None");
+        assert_eq!(dock_label(7, "dot"), None, "an unknown style shows nothing");
+        // the Dock follows the same count and the same style setting as the taskbar badge, on macOS only
+        let src = include_str!("shell.rs");
+        assert!(src.contains("w.set_badge_label(dock_label(count, &task_style))"));
     }
 
     #[test]
