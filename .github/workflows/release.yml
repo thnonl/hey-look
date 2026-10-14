@@ -204,6 +204,7 @@ jobs:
           node --experimental-strip-types scripts/test-addresses.mjs
           node scripts/test-compose-tab-order.mjs
           node scripts/test-update-result.mjs
+          node --experimental-strip-types scripts/test-sticky-timers.mjs
 
       - uses: tauri-apps/tauri-action@v1
         env:

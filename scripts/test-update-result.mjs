@@ -18,7 +18,7 @@ const body = start.slice(0, start.indexOf("\n    },\n"));
 assert.match(body, /setStickyToast\(key, \{ text: `Hey Look! is updated to/, "success result is a sticky toast");
 assert.match(body, /kind: "success"/);
 assert.match(body, /The update to \$\{s\.version\} didn’t finish\. You can try again in Settings > About\./, "REQ-30 wording of the failed install");
-assert.match(body, /setTimeout\(\(\) => useStore\.getState\(\)\.setStickyToast\(key, null\), 30_000\)/, "it goes after 30 s");
+assert.match(body, /stickyTimer\.arm\(key\)/, "it goes after 30 s (one timer per toast, see stickyTimers.ts, BUG-14)");
 assert.ok(body.indexOf("setStickyToast(key, {") < body.indexOf("api.updateStartupAck()"), "the ack comes after the toast is shown");
 assert.ok(!/showToast\(`Hey Look! is updated/.test(body), "no short-lived toast for the result");
 

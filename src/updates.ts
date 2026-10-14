@@ -1,6 +1,7 @@
 // In-app updates, UI side: the result of the check, the download / ready / install flow and its toasts.
 // The backend (src-tauri/src/update.rs) does the work: this keeps the state the card, the top-bar chip and the toasts show.
 import { openExternal } from "./open";
+import { stickyTimers } from "./stickyTimers";
 import { create } from "zustand";
 import { api, DlEvent, UpdateInfo, UpdateKind, UpdateResult, UpdateTrigger } from "./api";
 import { friendlyError, useStore } from "./store";
@@ -117,6 +118,8 @@ let restarting = false;
 /** The sticky error toast of a restart that the failed draft save stopped (REQ-28 c). */
 const RESTART_STOPPED = "update-restart-stopped";
 const RESTART_STOPPED_TEXT = "Couldn’t save your draft, so Hey Look! didn’t restart. Your message is still open.";
+/** The 30 s timers of the sticky toasts above and the update result: one per toast, a new one replaces the old one (BUG-14). */
+const stickyTimer = stickyTimers((key) => useStore.getState().setStickyToast(key, null));
 
 export const useUpdates = create<UpdatesState>((set, get) => {
   const setFlow = (patch: Partial<UpdateFlow>) => set((s) => ({ flow: { ...s.flow, ...patch } }));
@@ -400,7 +403,8 @@ export const useUpdates = create<UpdatesState>((set, get) => {
         toast(null);
         void api.updateDefer(false).catch(() => undefined); // restarting now: no install at quit on top of it
         const st = useStore.getState();
-        st.setStickyToast(RESTART_STOPPED, null); // a new attempt: the note of the last one goes
+        st.setStickyToast(RESTART_STOPPED, null); // a new attempt: the note of the last one goes, and so does its timer
+        stickyTimer.cancel(RESTART_STOPPED);
         let draftSaved = false;
         const stay = (asking: AskVariant) => setFlow({ state: "ready", countdown: null, asking });
         if (st.compose) {
@@ -430,7 +434,7 @@ export const useUpdates = create<UpdatesState>((set, get) => {
             if (saved !== true) {
               // sticky: the save can take seconds on a slow server, and a toast of a few seconds was gone before anyone looked (QA BUG-13)
               st.setStickyToast(RESTART_STOPPED, { text: RESTART_STOPPED_TEXT, kind: "error", closeLabel: "Close" });
-              setTimeout(() => useStore.getState().setStickyToast(RESTART_STOPPED, null), 30_000);
+              stickyTimer.arm(RESTART_STOPPED);
               void api.updateNote(`restart not started: the draft could not be saved (${useStore.getState().draftError || "no error text"}); the message stays open`).catch(() => undefined);
               return stay("dirty");
             }
@@ -494,7 +498,7 @@ export const useUpdates = create<UpdatesState>((set, get) => {
         } else {
           return;
         }
-        setTimeout(() => useStore.getState().setStickyToast(key, null), 30_000);
+        stickyTimer.arm(key);
         await api.updateStartupAck();
       } catch {
         /* an old backend or the browser without the mock: nothing to tell */
