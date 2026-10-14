@@ -273,7 +273,9 @@ const WAIT: Duration = Duration::from_secs(30);
 fn it_new_mail_appears_within_5_seconds_without_a_poll() {
     let Some(e) = env() else { return };
     let _g = SERIAL.lock().unwrap_or_else(|p| p.into_inner());
-    let w = Worker::start(account(&e.user, e.port), &e.pass, fast());
+    // the production debounce (2 s), so the 5 s bound is the real one
+    let t = Timing { debounce: Timing::default().debounce, ..fast() };
+    let w = Worker::start(account(&e.user, e.port), &e.pass, t);
     assert!(w.wait_state(Push::On, WAIT), "IDLE came up");
     // the poll interval of a healthy account is the long one
     assert_eq!(poll_minutes(Push::On, 2, &Timing::default()), 10);
