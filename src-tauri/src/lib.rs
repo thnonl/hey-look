@@ -5,6 +5,9 @@ mod db;
 mod discover;
 mod ical;
 mod legacy_names;
+// the checked open of links and files on Linux; compiled everywhere so that its rules are tested everywhere
+#[cfg_attr(not(target_os = "linux"), allow(dead_code))]
+mod linuxopen;
 #[cfg(target_os = "macos")]
 mod macquit;
 mod mail;
@@ -356,7 +359,7 @@ async fn oauth_sign_in(
         ));
     }
     let pending = oauth::begin(provider, &tenant, client_id.trim())?;
-    app.opener().open_url(pending.url.clone(), None::<&str>).map_err(err)?;
+    open_target(&app, &pending.url, true)?;
     let (cid, csec) = (client_id.trim().to_string(), client_secret.trim().to_string());
     let signed = blocking(move || pending.finish(&cid, &csec)).await?;
 
@@ -2397,6 +2400,30 @@ async fn attachment_save_all(
     .await
 }
 
+/// Open a link (`is_url`) or a file with the system's default program. Linux checks what the launcher did and says so when
+/// nothing opened (linuxopen.rs); Windows and macOS use the opener plugin as before.
+fn open_target(app: &tauri::AppHandle, target: &str, is_url: bool) -> R<()> {
+    #[cfg(target_os = "linux")]
+    {
+        let _ = app;
+        linuxopen::open(target, is_url)
+    }
+    #[cfg(not(target_os = "linux"))]
+    {
+        if is_url { app.opener().open_url(target, None::<&str>) } else { app.opener().open_path(target, None::<&str>) }.map_err(err)
+    }
+}
+
+/// A link of a message, the About page or an update, in the default browser or mail program. The page calls this only on Linux
+/// (elsewhere it uses the opener plugin directly); the other systems get the same behaviour here for completeness.
+#[tauri::command]
+async fn open_external(app: tauri::AppHandle, url: String) -> R<()> {
+    if !linuxopen::url_allowed(&url) {
+        return Err("That kind of link is not opened.".into()); // the same schemes as the opener plugin allows
+    }
+    blocking(move || open_target(&app, &url, true)).await
+}
+
 /// Write an attachment to the temp folder and open it with the default app. Programs and scripts need
 /// `confirmed = true`; otherwise the error starts with `ATT_RISKY` (unless the user turned the warning off).
 #[tauri::command]
@@ -2416,7 +2443,7 @@ async fn attachment_open(app: tauri::AppHandle, state: tauri::State<'_, AppState
         let path = dir.join(&stored);
         std::fs::write(&path, bytes).map_err(err)?;
         let shown = path.to_string_lossy().into_owned();
-        app.opener().open_path(shown.clone(), None::<&str>).map_err(err)?;
+        open_target(&app, &shown, false)?;
         Ok(shown)
     })
     .await
@@ -3597,6 +3624,7 @@ pub fn run() {
             sync_account,
             refresh_badge,
             test_notification,
+            open_external,
             get_autostart,
             set_autostart,
             list_folders,

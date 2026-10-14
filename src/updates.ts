@@ -1,6 +1,6 @@
 // In-app updates, UI side: the result of the check, the download / ready / install flow and its toasts.
 // The backend (src-tauri/src/update.rs) does the work: this keeps the state the card, the top-bar chip and the toasts show.
-import { openUrl } from "@tauri-apps/plugin-opener";
+import { openExternal } from "./open";
 import { create } from "zustand";
 import { api, DlEvent, UpdateInfo, UpdateKind, UpdateResult, UpdateTrigger } from "./api";
 import { friendlyError, useStore } from "./store";
@@ -82,7 +82,7 @@ export function pendingVersion(update: UpdateResult | null, skipped: string): st
 export async function openUpdateLink(url: string, announce = false) {
   const { showToast } = useStore.getState();
   try {
-    await openUrl(url);
+    await openExternal(url);
     if (announce) showToast("Opening the download in your browser…", undefined, "info");
   } catch {
     void navigator.clipboard?.writeText(url).catch(() => undefined);

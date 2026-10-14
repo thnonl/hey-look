@@ -451,6 +451,8 @@ export const api = {
   removeAccount: (accountId: string) => invoke<void>("remove_account", { accountId }),
   refreshBadge: () => invoke<void>("refresh_badge"),
   testNotification: () => invoke<void>("test_notification"),
+  /** a link in the default browser or mail program, with a checked launch (Linux only; see open.ts) */
+  openExternal: (url: string) => invoke<void>("open_external", { url }),
   getAutostart: () => invoke<boolean>("get_autostart"),
   setAutostart: (enabled: boolean) => invoke<void>("set_autostart", { enabled }),
   syncAccount: (accountId: string) => invoke<SyncResult>("sync_account", { accountId }),

@@ -1,5 +1,4 @@
 import { listen } from "@tauri-apps/api/event";
-import { openUrl } from "@tauri-apps/plugin-opener";
 import { useEffect, useRef, useState } from "react";
 import "./App.css";
 import { forwardLast, newMailAccount, replyLast, targets } from "./actions";
@@ -20,7 +19,7 @@ import { Welcome } from "./components/Welcome";
 import { hasMailAccounts, shortcutWorks } from "./mailControls";
 import { flushSends, useStore } from "./store";
 import { osNow } from "./platform";
-import { useUpdates } from "./updates";
+import { openUpdateLink, useUpdates } from "./updates";
 import { calTz, configureCalendar, addDays, addMonths, today as todayDay } from "./calendar";
 import { catchupText, configureDates, fmtWhen } from "./util";
 import { frameAction, initFrame, useFrame } from "./winframe";
@@ -150,7 +149,7 @@ function App() {
         st.showToast(`${e.payload.title}${e.payload.line ? ` · ${e.payload.line}` : ""}`, undefined, "info", [
           // no account: the calendar is not on screen, so there is nothing to open
           ...(hasMailAccounts(st.accounts.length) ? [{ label: "Open", run: () => st.setModule("calendar") }] : []),
-          ...(e.payload.joinUrl ? [{ label: "Join", run: () => void openUrl(e.payload.joinUrl as string).catch(() => undefined) }] : []),
+          ...(e.payload.joinUrl ? [{ label: "Join", run: () => void openUpdateLink(e.payload.joinUrl as string) }] : []),
         ]);
       }),
       // the chosen save folder is gone: attachments went to Downloads instead (said once per session and folder)

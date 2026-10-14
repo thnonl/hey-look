@@ -1,5 +1,5 @@
 import { KeyRound, Lock, Plus, Trash2, Upload } from "lucide-react";
-import { openUrl } from "@tauri-apps/plugin-opener";
+import { openUpdateLink } from "../updates";
 import { Fragment, ReactNode, useEffect, useRef, useState } from "react";
 import { Account, api, Discovered, PgpKey, PROVIDERS, Rule, Signature, Template } from "../api";
 import { ACCENT_PRESETS, ACCOUNT_PALETTE, accountColor, DEFAULT_PREFS, eff, folderLabel, isOverridden, MAX_DOWNLOAD_PRESETS, NOTIFY_ACTIONS, NOTIFY_SOUNDS, Overridable, Prefs, staleAccountPrefs, validHex } from "../prefs";
@@ -1477,8 +1477,8 @@ function AboutTab() {
         }
       />
       <div className="about-links">
-        <button className="link about-link" title="https://github.com/thnonl/hey-look" onClick={() => void openUrl("https://github.com/thnonl/hey-look")}>GitHub repository (thnonl/hey-look)</button>
-        <button className="link about-link" title="https://github.com/thnonl" onClick={() => void openUrl("https://github.com/thnonl")}>GitHub profile (thnonl)</button>
+        <button className="link about-link" title="https://github.com/thnonl/hey-look" onClick={() => void openUpdateLink("https://github.com/thnonl/hey-look")}>GitHub repository (thnonl/hey-look)</button>
+        <button className="link about-link" title="https://github.com/thnonl" onClick={() => void openUpdateLink("https://github.com/thnonl")}>GitHub profile (thnonl)</button>
       </div>
     </div>
   );

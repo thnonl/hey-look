@@ -946,7 +946,8 @@ export function installMock() {
           return { added, exhausted, limited: !exhausted && have + added >= cap };
         });
       }
-      case "plugin:opener|open_url":
+      case "plugin:opener|open_url": // (Linux asks the backend: open_external)
+      case "open_external":
         if (hashTokens().has("openfail")) throw "mock: no default browser"; // `#openfail` makes opening links fail (update check: copy-link path)
         mockMail.opened.push(String(a.url)); console.info("[mock] open in browser:", a.url); return null;
       case "plugin:app|version": return "1.0.0";
