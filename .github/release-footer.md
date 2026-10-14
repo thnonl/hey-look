@@ -13,7 +13,7 @@ The `.sig` files, `latest.json` and the `.app.tar.gz` are used by the app’s up
 
 Already using Hey Look!? It updates itself (Settings > About).
 
-The installers are not code-signed yet.
+The installers are not code-signed with a publisher certificate yet (the macOS app is only ad-hoc signed).
 - Windows: if SmartScreen appears, choose "More info" > "Run anyway".
 - macOS: the app is not notarized. Drag it to Applications and start it once; when macOS says it was not opened, click Done, then open System Settings > Privacy & Security and choose Open Anyway. Details in the README.
 

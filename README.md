@@ -29,7 +29,7 @@ Get the latest version from the [GitHub Releases page](https://github.com/thnonl
 Windows is the primary platform. The macOS and Linux builds have fewer native integrations (no Dock badge,
 notifications without buttons). Windows 11 (x64) was tested on real hardware. macOS (universal build, ad-hoc signed, not notarized) was tested on a MacBook Pro with Apple Silicon running macOS 27 (quit, update and mail core flows; see Known limitations for what was not verified). Linux (AppImage, .deb) was tested under WSL2 Ubuntu 22.04 with WSLg only, not on a native Linux desktop, and the tray could not be tested.
 
-The installers are not code-signed yet:
+The installers are not code-signed with a publisher certificate yet (the macOS app is only ad-hoc signed):
 - **Windows**: if SmartScreen appears, choose **More info**, then **Run anyway**.
 - **macOS**: the app is not notarized by Apple, so macOS blocks its first start once:
   1. Open the `.dmg`, drag **Hey Look!** to **Applications**, and start it from **Applications** (not from the disk image).
@@ -55,7 +55,7 @@ app offers the download from GitHub instead. The check can be turned off, see [W
 | **Settings that follow you** | One set of defaults for **All accounts**, and any mailbox can override any of them. |
 | **Search that goes deep** | Filters, operators, date pickers and a choice of scope: this folder, a whole mailbox, or everything. |
 | **Quiet by design** | Smart notifications, a calm unread badge, a tray icon that keeps working when the window is closed. |
-| **Private by default** | Remote images and trackers are blocked, passwords stay in your system's credential store (Windows Credential Manager, macOS Keychain, GNOME Keyring / KWallet), no telemetry. The only call of its own is the check for a newer version (it asks github.com; you can turn it off). |
+| **Private by default** | Remote images are blocked (which stops tracking pixels), passwords stay in your system's credential store (Windows Credential Manager, macOS Keychain, GNOME Keyring / KWallet), no telemetry. The only call of its own is the check for a newer version (it asks github.com; you can turn it off). |
 
 ---
 
@@ -73,7 +73,7 @@ app offers the download from GitHub instead. The check can be turned off, see [W
 ### Reading
 - Focused and Other tabs separate people from newsletters and bulk mail
 - Messages are shown in a sandboxed frame with no scripts; remote content is blocked until you allow it
-  (once, per mailbox, or always). Allowed images are downloaded by the app itself, so senders never see your webview
+  (once, per mailbox, or always). Allowed images are downloaded by the app where it can; any it cannot fetch itself, the web view may request directly
 - Links whose visible text points somewhere else than where they go trigger a warning
 - Attachments: save one or all, inline images shown in the message
 - Newsletter detection with **one-click unsubscribe** (RFC 8058) and a mailto fallback
@@ -181,8 +181,8 @@ App-wide options (appearance, tray, shortcuts, AI Assistant, blocked senders) li
 
 ### Where your data lives
 - Mail cache and settings: `%APPDATA%\thnonl.heylook\heylook.db` (SQLite; macOS `~/Library/Application Support/thnonl.heylook/`, Linux `~/.local/share/thnonl.heylook/`)
-- Passwords, OAuth tokens, the AI key and the OAuth client secrets: Windows Credential Manager, the macOS Keychain, or the Secret Service on Linux (GNOME Keyring, KWallet); on Linux one of them has to be running and unlocked. All entries are named `heylook…`
-- Nothing is sent anywhere except to your mail servers, Google's and Microsoft's sign-in services, the Thunderbird ISPDB and your own domain's autoconfig URL when you press **Detect settings**, the AI endpoint you configure, and github.com for the update check (GitHub sees your IP address; when you agree to update, the installer is downloaded from github.com). Turn the check off in Settings > About, "Check for updates automatically", and no automatic request is made.
+- Passwords, OAuth tokens, the AI key and the OAuth client secrets: Windows Credential Manager, the macOS Keychain, or the Secret Service on Linux (GNOME Keyring, KWallet); on Linux one of them has to be running and unlocked. All entries are named `heylook…`. OpenPGP secret keys are the exception (see Known limitations)
+- Nothing is sent anywhere except to your mail servers, Google's and Microsoft's sign-in services, the Thunderbird ISPDB and your own domain's autoconfig URL when you press **Detect settings**, the AI endpoint you configure, the server behind an image you allowed to load, the sender's address behind the Unsubscribe link when you press it, and github.com for the update check (GitHub sees your IP address; when you agree to update, the installer is downloaded from github.com). Turn the check off in Settings > About, "Check for updates automatically", and no automatic request is made.
 
 ---
 
@@ -301,7 +301,9 @@ src-tauri/src/           Rust backend
 
 - Windows is the primary and supported platform. On macOS there is no Dock badge yet (planned for 1.1); notifications on macOS and Linux have no buttons; the Print menu entry is Windows and Linux only; PDF attachments open in the default app on Linux.
 - Windows 11 (x64) was tested on real hardware. macOS (universal build, ad-hoc signed, not notarized) was tested on a MacBook Pro with Apple Silicon running macOS 27 (quit, update and mail core flows; see Known limitations for what was not verified). Linux (AppImage, .deb) was tested under WSL2 Ubuntu 22.04 with WSLg only, not on a native Linux desktop, and the tray could not be tested. The macOS and Linux builds have fewer native integrations
-- The installers are not code-signed (see [Download](#download) for how to open them)
+- The installers are not code-signed with a publisher certificate (the macOS app is only ad-hoc signed and not notarized; see [Download](#download) for how to open them)
+- OpenPGP secret keys are stored in Hey Look!'s own database, protected by their passphrase; unlike your passwords they are not in the system credential store.
+- Undo send does not survive a normal Quit: a message that is still waiting out its Undo time is sent at once when you quit Hey Look!. If the app is closed by force (a crash, Task Manager, an installer), it goes out at the next start.
 - Updating needs permission on some systems: MSI installs ask for administrator rights (UAC), `.deb` and `.rpm` installs ask for your password. If an update cannot be installed, the app offers the download from GitHub instead
 - Mail servers must offer SSL/TLS or STARTTLS; servers that only accept unencrypted connections can't be added.
 - Hey Look! doesn't create missing standard folders. On a server without a Drafts, Sent, Archive or Deleted Items folder, the actions that need that folder show an error.
