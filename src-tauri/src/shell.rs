@@ -509,6 +509,11 @@ fn toast(app: &AppHandle, _thread: String, title: &str, line1: &str, line2: &str
     }
     #[cfg(not(target_os = "linux"))]
     {
+        // macOS: the hidden diagnostic (HEYLOOK_MAC_NOTIFY in a debug build, see macnotify.rs); off = the unchanged path below
+        #[cfg(target_os = "macos")]
+        if let Some(mode) = crate::macnotify::mode() {
+            return crate::macnotify::show(app, mode, title, &notification_body(line1, line2), sound);
+        }
         use tauri_plugin_notification::NotificationExt;
         let mut n = app.notification().builder().title(title).body(notification_body(line1, line2));
         if sound != "none" {
@@ -716,24 +721,22 @@ fn tray_hint_text(os: &str) -> &'static str {
 pub fn test_notification(app: &AppHandle, db: &Db) -> Result<(), String> {
     // macOS: the notification backend of the plugin (the old NSUserNotification API) shows nothing on current macOS for an ad-hoc
     // signed app and cannot ask for permission; Send test says so instead of pretending (QA BUG-M5, owner decision: documented limit)
+    // (a debug build started with HEYLOOK_MAC_NOTIFY=1 makes the attempt instead, for the Mac QA session: macnotify.rs)
     #[cfg(target_os = "macos")]
-    {
+    if crate::macnotify::mode().is_none() {
         let _ = (app, db);
         return Err("not available on macOS in this version".into());
     }
-    #[cfg(not(target_os = "macos"))]
-    {
-        let p = prefs(db);
-        toast(
-            app,
-            String::new(),
-            "Hey Look! test notification",
-            "Notifications are working",
-            "This is how new mail will look.",
-            &pstr(&p, "notifySound", "mail"),
-            &notify_actions(&p),
-        )
-    }
+    let p = prefs(db);
+    toast(
+        app,
+        String::new(),
+        "Hey Look! test notification",
+        "Notifications are working",
+        "This is how new mail will look.",
+        &pstr(&p, "notifySound", "mail"),
+        &notify_actions(&p),
+    )
 }
 
 #[cfg(test)]

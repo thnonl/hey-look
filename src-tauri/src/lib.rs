@@ -8,6 +8,9 @@ mod legacy_names;
 // the checked open of links and files on Linux; compiled everywhere so that its rules are tested everywhere
 #[cfg_attr(not(target_os = "linux"), allow(dead_code))]
 mod linuxopen;
+// macOS notification diagnostic (HEYLOOK_MAC_NOTIFY); compiled everywhere so that its rules are tested everywhere
+#[cfg_attr(not(target_os = "macos"), allow(dead_code))]
+mod macnotify;
 #[cfg(target_os = "macos")]
 mod macquit;
 mod mail;
