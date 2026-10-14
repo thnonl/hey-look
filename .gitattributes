@@ -2,4 +2,3 @@
 # which fails on a Windows checkout with core.autocrlf=true (CRLF). Binary files are detected by git and left untouched.
 * text=auto eol=lf
 *.sh text eol=lf
-scripts/idle-it/*.conf text eol=lf
