@@ -16,6 +16,7 @@ mod pgpstore;
 mod rawcache;
 use oauth::Provider;
 mod schedule;
+mod sessionend;
 mod shard;
 mod shell;
 mod smtp;
@@ -3188,16 +3189,25 @@ fn guard_exit(app: &tauri::AppHandle) -> bool {
     false
 }
 
-/// macOS `applicationShouldTerminate:` (Dock "Quit", log out, a `quit` Apple event): `true` lets the process end (the quit sequence
-/// has run and `quit_final` is exiting), `false` stops it and starts the sequence, which exits through `app.exit(0)` afterwards.
+/// macOS `applicationShouldTerminate:` (Dock "Quit", a `quit` Apple event, log out, restart, shut down): `true` lets the process end,
+/// `false` stops it and starts the quit sequence, which exits through `app.exit(0)` afterwards. `session_end` (log out, restart, shut
+/// down; see `sessionend.rs`) is **always** answered "now" (OWNER DECISION A1, REQ-42 b): never a question, never a cancel, whatever
+/// the quit sequence is doing; a message in its Undo time goes out at the next start, unsaved Compose text is lost.
 #[cfg(target_os = "macos")]
-fn terminate_allowed(app: &tauri::AppHandle) -> bool {
-    if QUITTING.load(std::sync::atomic::Ordering::SeqCst) {
-        return true;
+fn terminate_allowed(app: &tauri::AppHandle, session_end: bool) -> bool {
+    match sessionend::plan(session_end, QUITTING.load(std::sync::atomic::Ordering::SeqCst)) {
+        sessionend::Plan::EndNow => {
+            if session_end {
+                startup::stage(Some(app), "quit: session end (log out / restart / shut down): the app ends now without questions");
+            }
+            true
+        }
+        sessionend::Plan::RunSequence => {
+            startup::stage(Some(app), "quit: asked by the system (Dock Quit, ...): the quit sequence runs first");
+            request_quit(app);
+            false
+        }
     }
-    startup::stage(Some(app), "quit: asked by the system (Dock Quit, log out, ...): the quit sequence runs first");
-    request_quit(app);
-    false
 }
 
 // ---------- templates / signatures ----------
@@ -3539,8 +3549,11 @@ pub fn run() {
             #[cfg(target_os = "macos")]
             {
                 let quit_app = app.handle().clone();
-                let hooked = macquit::install_terminate_hook(Box::new(move || terminate_allowed(&quit_app)));
+                let hooked = macquit::install_terminate_hook(Box::new(move |session_end| terminate_allowed(&quit_app, session_end)));
                 startup::stage(Some(app.handle()), &format!("macos: applicationShouldTerminate hook: {}", hooked.err().unwrap_or_else(|| "installed".into())));
+                // the second sign of a session end (the first is the reason of the quit Apple event, read in the hook)
+                let noticed = macquit::observe_power_off();
+                startup::stage(Some(app.handle()), &format!("macos: power-off notice (log out / restart / shut down): {}", noticed.err().unwrap_or_else(|| "observed".into())));
             }
             let handle = app.handle().clone();
             std::thread::spawn(move || sync_worker(handle));
@@ -3973,13 +3986,30 @@ mod quit_tests {
         assert!(shell.contains("\"quit\" => crate::request_quit(app)") && shell.contains("pub const MAC_QUIT_ID: &str = \"app-quit\""));
         // (2) a terminate that does not come from the menu (Dock "Quit", log out) is stopped and redone through the sequence
         assert!(mac.contains("applicationShouldTerminate:") && mac.contains("class_addMethod") && mac.contains("TERMINATE_CANCEL"), "no terminate hook");
-        assert!(lib.contains("macquit::install_terminate_hook(Box::new(move || terminate_allowed(&quit_app)))"), "the hook is never installed");
+        assert!(
+            lib.contains("macquit::install_terminate_hook(Box::new(move |session_end| terminate_allowed(&quit_app, session_end)))"),
+            "the hook is never installed"
+        );
         let allowed = &lib[lib.find("fn terminate_allowed").unwrap()..];
         let allowed = &allowed[..allowed.find("\n}\n").unwrap()];
+        // the decision is `sessionend::plan(session_end, quitting)`: a session end ends now (tested in sessionend.rs), everything else
+        // is stopped and started through request_quit
         assert!(
-            allowed.find("QUITTING.load").unwrap() < allowed.find("request_quit(app)").unwrap() && allowed.trim_end().ends_with("false"),
-            "an unfinished quit is stopped and started through request_quit: {allowed}"
+            allowed.contains("sessionend::plan(session_end, QUITTING.load") && allowed.contains("sessionend::Plan::EndNow") && allowed.contains("sessionend::Plan::RunSequence"),
+            "{allowed}"
         );
+        let (end_now, run) = (allowed.find("Plan::EndNow =>").unwrap(), allowed.find("Plan::RunSequence =>").unwrap());
+        assert!(end_now < run && !allowed[end_now..run].contains("request_quit") && allowed[end_now..run].contains("true"), "the EndNow arm only ends: {allowed}");
+        assert!(allowed[run..].contains("request_quit(app)") && allowed[run..].trim_end().ends_with("false\n        }\n    }"), "an unfinished quit is stopped and started through request_quit: {allowed}");
+        assert!(allowed.contains("quit: session end (log out / restart / shut down): the app ends now without questions"));
+        // (2b) a session end (log out, restart, shut down) is never cancelled or held (OWNER DECISION A1, REQ-42 b r3.6): the hook reads
+        // it first and by itself, and no path of the hook answers "cancel" for it
+        let hook = &mac[mac.find("extern \"C-unwind\" fn should_terminate").unwrap()..];
+        let hook = &hook[..hook.find("\n}\n").unwrap()];
+        assert!(hook.find("is_session_end_now()").unwrap() < hook.find("DECIDE.get()").unwrap(), "{hook}");
+        assert!(hook.contains("decide(session_end)") && hook.contains("if go || session_end { TERMINATE_NOW } else { TERMINATE_CANCEL }"), "{hook}");
+        assert!(mac.contains("sessionend::QUIT_REASON_KEY") && mac.contains("NSWorkspaceWillPowerOffNotification") && mac.contains("power_off_recently_seen()"));
+        assert!(lib.contains("macquit::observe_power_off()"), "the power-off notice is never observed");
         // (3) a terminate that slipped through anyway is at least written down
         let exit = &lib[lib.find("tauri::RunEvent::Exit =>").unwrap()..];
         assert!(exit[..300].contains("without the quit sequence"), "{}", &exit[..300]);
