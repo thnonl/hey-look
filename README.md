@@ -1,5 +1,7 @@
 # Hey Look!
 
+Website: https://thnonl.github.io/hey-look/
+
 **A fast, private desktop mail client.** Hey Look! connects straight to your mail servers, keeps a local copy of your
 mailboxes, and gives you the tools to stay on top of a busy inbox: conversations, snooze, undo for every move,
 scheduled sending, powerful search, per-mailbox settings and a calm, polished interface.
