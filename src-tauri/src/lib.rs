@@ -4,6 +4,7 @@ mod calendar;
 mod db;
 mod discover;
 mod ical;
+mod idle;
 mod legacy_names;
 // the checked open of links and files on Linux; compiled everywhere so that its rules are tested everywhere
 #[cfg_attr(not(target_os = "linux"), allow(dead_code))]
@@ -835,6 +836,8 @@ fn sync_worker(app: tauri::AppHandle) {
         for id in ids {
             // an account can override the "all accounts" interval
             let mins = shell::eff(&p, &id, "syncMinutes").and_then(|v| v.as_u64()).unwrap_or(2).max(1);
+            // while the account's IDLE push session is healthy, polling is only the safety net (and the way to check the other folders)
+            let mins = idle::poll_minutes_for(&id, mins);
             let due = last.get(&id).map_or(true, |t| t.elapsed() >= std::time::Duration::from_secs(mins * 60));
             if due {
                 last.insert(id.clone(), std::time::Instant::now());
@@ -3639,6 +3642,7 @@ pub fn run() {
             }
             let handle = app.handle().clone();
             std::thread::spawn(move || sync_worker(handle));
+            idle::start(app.handle().clone());
 
             // started by "launch at login" => stay in the tray (only when there is a tray to come back from). The window is shown
             // when its page has reported itself (not here: see startup.rs), and the page is reloaded if it never does.
@@ -3782,7 +3786,8 @@ pub fn run() {
             update::update_install,
             update::update_startup_state,
             update::update_startup_ack,
-            update::outbox_busy
+            update::outbox_busy,
+            idle::idle_states
         ])
         .build(tauri::generate_context!())
         .expect("error while building tauri application")
@@ -3810,6 +3815,7 @@ pub fn run() {
                     startup::stage(Some(app), "exit: the process ends without the quit sequence (a terminate that was not stopped)");
                 }
                 startup::mark_exiting();
+                idle::shutdown();
                 flush_pending(app);
                 update::install_on_exit(app);
             }
