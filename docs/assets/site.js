@@ -3,8 +3,8 @@
 (function () {
   'use strict';
 
-  var KOFI_USER = 'namthonl';
-  var KOFI_WIDGET = 'https://ko-fi.com/namthonl/?hidefeed=true&widget=true&embed=true&preview=true'; /* the owner's embed, loaded only after a click */
+  var KOFI_USER = 'namthnonl';
+  var KOFI_WIDGET = 'https://ko-fi.com/namthnonl/?hidefeed=true&widget=true&embed=true&preview=true'; /* the owner's embed, loaded only after a click */
   var KOFI_SCRIPT = 'https://storage.ko-fi.com/cdn/scripts/overlay-widget.js'; /* Ko-fi's documented widget for other sites, also only after the click */
 
   var root = document.documentElement;
@@ -212,7 +212,7 @@
       var loaded = false, warn = function () { if (knote) knote.classList.add('warn'); };
       /* 1. the owner's panel (a frame of ko-fi.com). No sandbox attribute: Ko-fi's own checks need to run normally in the frame. */
       var f = document.createElement('iframe');
-      f.id = 'kofiframe'; f.src = KOFI_WIDGET; f.height = '712'; f.title = 'namthonl';
+      f.id = 'kofiframe'; f.src = KOFI_WIDGET; f.height = '712'; f.title = 'namthnonl';
       f.addEventListener('load', function () { loaded = true; });
       f.style.border = 'none'; f.style.width = '100%'; f.style.padding = '4px'; f.style.background = '#f9f9f9';
       kb.appendChild(f); kb.hidden = false; kl.hidden = true;
