@@ -317,3 +317,7 @@ src-tauri/src/           Rust backend
 - No shared inboxes; the calendar is local (no CalDAV / Exchange sync, single occurrences of a repeating event can't be edited)
 - Meeting updates and cancellations are accepted when the From address matches the stored organizer. There is no DKIM / SPF / S/MIME check on the invitation and SENT-BY is not honoured, so a forged From address that equals the organizer can still change or cancel an event you received; mail providers normally reject such spoofing
 - The interface is English only
+
+## License
+
+MIT, free to use: see [LICENSE](LICENSE). To report a vulnerability, see [SECURITY.md](SECURITY.md).

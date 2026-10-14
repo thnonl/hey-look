@@ -2,6 +2,7 @@
 name = "hey-look"
 version = "1.0.0"
 description = "Hey Look! desktop mail client"
+license = "MIT"
 authors = ["you"]
 edition = "2024"
 
