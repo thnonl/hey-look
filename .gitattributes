@@ -1,1 +1,2 @@
 *.sh text eol=lf
+scripts/idle-it/*.conf text eol=lf
