@@ -1180,8 +1180,8 @@ function TrayTab() {
           </select>
         </Row>
       )}
-      {os === "windows" && (
-        <Row label="Taskbar badge">
+      {(os === "windows" || os === "macos") && (
+        <Row label={os === "macos" ? "Dock badge" : "Taskbar badge"}>
           <select value={prefs.taskbarBadge} onChange={(e) => setPrefs({ taskbarBadge: e.target.value as Prefs["taskbarBadge"] })}>
             <option value="number">Unread number</option>
             <option value="off">None</option>
