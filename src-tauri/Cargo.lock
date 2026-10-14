@@ -2381,6 +2381,7 @@ dependencies = [
  "chrono",
  "chrono-tz",
  "fontdue",
+ "gtk",
  "hickory-resolver",
  "imap",
  "keyring",

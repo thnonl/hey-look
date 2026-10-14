@@ -1,6 +1,6 @@
 // In-app updates, UI side: the result of the check, the download / ready / install flow and its toasts.
 // The backend (src-tauri/src/update.rs) does the work: this keeps the state the card, the top-bar chip and the toasts show.
-import { openExternal } from "./open";
+import { copyToClipboard, openExternal } from "./open";
 import { stickyTimers } from "./stickyTimers";
 import { create } from "zustand";
 import { api, DlEvent, UpdateInfo, UpdateKind, UpdateResult, UpdateTrigger } from "./api";
@@ -86,8 +86,13 @@ export async function openUpdateLink(url: string, announce = false) {
     await openExternal(url);
     if (announce) showToast("Opening the download in your browser…", undefined, "info");
   } catch {
-    void navigator.clipboard?.writeText(url).catch(() => undefined);
-    showToast("Couldn’t open your browser. The link is copied to the clipboard.", undefined, "error");
+    // the toast says "copied" only when it was (on Linux it was not, QA BUG-L4)
+    const copied = await copyToClipboard(url);
+    showToast(
+      copied ? "Couldn’t open your browser. The link is copied to the clipboard." : `Couldn’t open your browser, and the link couldn’t be copied. The link: ${url.length > 100 ? url.slice(0, 100) + "…" : url}`,
+      undefined,
+      "error",
+    );
   }
 }
 

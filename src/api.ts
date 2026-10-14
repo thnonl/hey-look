@@ -453,6 +453,8 @@ export const api = {
   testNotification: () => invoke<void>("test_notification"),
   /** a link in the default browser or mail program, with a checked launch (Linux only; see open.ts) */
   openExternal: (url: string) => invoke<void>("open_external", { url }),
+  /** text on the system clipboard through the backend (Linux only; see open.ts) */
+  copyText: (text: string) => invoke<void>("copy_text", { text }),
   getAutostart: () => invoke<boolean>("get_autostart"),
   setAutostart: (enabled: boolean) => invoke<void>("set_autostart", { enabled }),
   syncAccount: (accountId: string) => invoke<SyncResult>("sync_account", { accountId }),

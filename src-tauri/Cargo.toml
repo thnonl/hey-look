@@ -76,6 +76,8 @@ block2 = "0.6"
 zbus = "5"
 # shows the Linux notifications and returns the answer of the bus (the plugin that wraps it drops the result); the version the plugin uses
 notify-rust = "4.18"
+# the system clipboard for copy_text (lib.rs); the version tauri and wry already use
+gtk = "0.18"
 keyring = { version = "3", features = ["sync-secret-service", "crypto-rust"] }
 
 

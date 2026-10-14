@@ -2424,6 +2424,34 @@ async fn open_external(app: tauri::AppHandle, url: String) -> R<()> {
     blocking(move || open_target(&app, &url, true)).await
 }
 
+/// Put text on the system clipboard. The page calls this only on Linux, where the web view's own clipboard call
+/// (`navigator.clipboard`) is not available to a page that does not run in a secure context or has no user gesture left (the
+/// "link is copied" toast after a failed open copied nothing, QA BUG-L4); the text goes to the GTK clipboard the web view and
+/// every other GTK program use. Other systems report that it is not available.
+#[tauri::command]
+async fn copy_text(app: tauri::AppHandle, text: String) -> R<()> {
+    #[cfg(target_os = "linux")]
+    {
+        blocking(move || {
+            let (tx, rx) = std::sync::mpsc::channel();
+            // GTK is used on the main thread only
+            app.run_on_main_thread(move || {
+                let clipboard = gtk::Clipboard::get(&gtk::gdk::SELECTION_CLIPBOARD);
+                clipboard.set_text(&text);
+                let _ = tx.send(());
+            })
+            .map_err(err)?;
+            rx.recv_timeout(std::time::Duration::from_secs(3)).map_err(|_| "the clipboard did not answer".to_string())
+        })
+        .await
+    }
+    #[cfg(not(target_os = "linux"))]
+    {
+        let _ = (app, text);
+        Err("copying from the backend is only available on Linux".into())
+    }
+}
+
 /// Write an attachment to the temp folder and open it with the default app. Programs and scripts need
 /// `confirmed = true`; otherwise the error starts with `ATT_RISKY` (unless the user turned the warning off).
 #[tauri::command]
@@ -3625,6 +3653,7 @@ pub fn run() {
             refresh_badge,
             test_notification,
             open_external,
+            copy_text,
             get_autostart,
             set_autostart,
             list_folders,
