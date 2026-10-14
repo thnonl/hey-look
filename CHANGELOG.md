@@ -7,7 +7,7 @@ First public release of Hey Look!, a fast, private desktop mail client.
 - Many mailboxes in one place: Google and Microsoft (OAuth), iCloud, Yahoo and any IMAP/SMTP server
 - Conversations, snooze, pin, flag, undo for archive/delete/junk, undo send and send later
 - Search with filters and operators, Focused/Other inbox, Sweep (clean up by sender), filters
-- Calendar invitations (accept/tentative/decline) and a local calendar
+- Calendar invitations (accept/tentative/decline) and a local calendar (month, week and agenda views, reminders, `.ics` import and export); syncing with other calendar services may come in a later update
 - OpenPGP encryption and signing
 - Optional AI Assistant with any OpenAI-compatible endpoint
 - Tray icon with unread badge and native notifications (Windows with action buttons, Linux without, macOS none in this version)

@@ -93,7 +93,7 @@ app offers the download from GitHub instead. The check can be turned off, see [W
   updated and cancelled invitations are recognised, and a reply to your own invitation updates the attendee list.
 - A local calendar (Mail | Calendar switch, `Ctrl+1` / `Ctrl+2`) with **Month, Week and Agenda** views, repeating events
   (read-only series), reminders, import and export of `.ics`. New events can invite people (sent as a calendar invitation), and the
-  **Meeting** switch in the composer turns a message into an invitation. No CalDAV or Exchange sync.
+  **Meeting** switch in the composer turns a message into an invitation. In 1.0 the calendar lives on this computer; syncing with other calendar services (such as CalDAV or Exchange) may come in a later update.
 
 ### Organizing
 - Archive, delete, move to any folder, junk, block sender, pin, flag, mark read/unread, **snooze** with your own times
@@ -316,7 +316,7 @@ src-tauri/src/           Rust backend
 - Linux new-mail notifications were verified on WSLg with dunst; behaviour with a minimised window was not verified.
 - Mail is fetched by polling (default every 2 minutes), not IMAP IDLE push
 - Search covers mail downloaded to this computer
-- No shared inboxes; the calendar is local (no CalDAV / Exchange sync, single occurrences of a repeating event can't be edited)
+- No shared inboxes. In 1.0 the calendar is local to this computer and single occurrences of a repeating event can't be edited; syncing with other calendar services (such as CalDAV or Exchange) may come in a later update
 - Meeting updates and cancellations are accepted when the From address matches the stored organizer. There is no DKIM / SPF / S/MIME check on the invitation and SENT-BY is not honoured, so a forged From address that equals the organizer can still change or cancel an event you received; mail providers normally reject such spoofing
 - The interface is English only
 
