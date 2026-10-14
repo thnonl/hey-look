@@ -54,7 +54,7 @@ Details and more in the [Help](https://thnonl.github.io/hey-look/help.html).
 - **OpenPGP secret keys** are stored in the app's own database, protected by their passphrase, not in the system credential store.
 - **Undo send** does not survive a normal Quit: the message is sent at once. If Hey Look! is closed by force (an installer, Task Manager, a crash) while you are writing, or on macOS when you log out, restart or shut down, the unsaved text is lost; a message you already sent is kept and goes out at the next start.
 - **Windows:** overlay tools (for example RivaTuner Statistics Server) can crash the web view; Hey Look! restarts itself at most three times in ten minutes; exclude `hey-look.exe` and `msedgewebview2.exe` there.
-- Mail servers must offer SSL/TLS or STARTTLS; mail is fetched by polling (every 2 minutes), not push.
+- Mail servers must offer SSL/TLS or STARTTLS; new Inbox mail is delivered by IMAP IDLE (push) when the server supports it, otherwise mail is polled (every 2 minutes by default). While push works, the other folders are checked every 10 minutes. Settings > Mailboxes > Reading & sync has the interval and a push switch.
 
 ## Build
 
