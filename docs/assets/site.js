@@ -1,9 +1,11 @@
 /* Hey Look! site v2: theme, motion switch, nav, reveals, hero, tag wall, video slot, download logic, support page.
-   No libraries, no analytics, no cookies. localStorage only for the theme and the animation switch, always in try/catch. */
+   No libraries, no analytics, no cookies. localStorage only for the theme and the animation choice (auto | on | off), always in try/catch. */
 (function () {
   'use strict';
 
+  var KOFI_USER = 'namthonl';
   var KOFI_WIDGET = 'https://ko-fi.com/namthonl/?hidefeed=true&widget=true&embed=true&preview=true'; /* the owner's embed, loaded only after a click */
+  var KOFI_SCRIPT = 'https://storage.ko-fi.com/cdn/scripts/overlay-widget.js'; /* Ko-fi's documented widget for other sites, also only after the click */
 
   var root = document.documentElement;
   var $ = function (s, c) { return (c || document).querySelector(s); };
@@ -42,29 +44,38 @@
   });
   if (mqDark.addEventListener) mqDark.addEventListener('change', function () { if (pref === 'auto') applyTheme(pref); });
 
-  /* ---------- motion: follows the system setting, plus a visible switch ---------- */
-  function motionOn() { return !mqReduce.matches && !root.classList.contains('calm'); }
+  /* ---------- motion: three states, auto (follow the system), on, off; the header switch decides ----------
+     With the system asking for reduced motion, "auto" is off, and the switch can still turn animations ON (html.motion-on lifts the
+     reduced-motion rules in style.css). ?motion=on|off|auto is for one visit and is not stored. */
+  var mpref = root.classList.contains('calm') ? 'off' : root.classList.contains('motion-on') ? 'on' : 'auto';
+  var mnames = { auto: 'system', on: 'on', off: 'off' };
+  function motionOn() { return mpref === 'on' ? true : mpref === 'off' ? false : !mqReduce.matches; }
+  function motionOrder() { return mqReduce.matches ? ['auto', 'on', 'off'] : ['auto', 'off', 'on']; }
   function applyMotion() {
     var on = motionOn();
+    root.classList.toggle('calm', mpref === 'off');
+    root.classList.toggle('motion-on', mpref === 'on');
     root.classList.toggle('motion', on);
     var b = $('#motion-btn');
     if (b) {
-      var calm = root.classList.contains('calm') || mqReduce.matches;
-      b.setAttribute('aria-pressed', calm ? 'true' : 'false');
-      b.setAttribute('aria-label', calm ? 'Animations: off. Switch on' : 'Animations: on. Switch off');
-      b.setAttribute('title', calm ? 'Animations are off' : 'Animations are on');
+      var o = motionOrder(), next = o[(o.indexOf(mpref) + 1) % 3];
+      var state = mpref === 'auto' ? 'system (currently ' + (on ? 'on' : 'off') + ')' : mnames[mpref];
+      b.setAttribute('aria-pressed', on ? 'false' : 'true'); /* pressed = animations are off */
+      b.setAttribute('aria-label', 'Animations: ' + state + '. Switch to ' + (next === 'auto' ? 'follow the system' : mnames[next]));
+      b.setAttribute('title', 'Animations: ' + state);
+      var l = $('.m-lbl', b);
+      if (!l) { l = document.createElement('span'); l.className = 'm-lbl'; b.appendChild(l); }
+      l.textContent = 'Animations: ' + mnames[mpref];
     }
     listeners.motion.forEach(function (f) { f(on); });
   }
   var mb = $('#motion-btn');
   if (mb) mb.addEventListener('click', function () {
-    var calm = root.classList.contains('calm');
-    if (mqReduce.matches && !calm) { /* the system asks for no motion: this switch cannot turn it back on */
-      var live = $('#theme-live'); if (live) live.textContent = 'Your system asks for reduced motion, so animations stay off.'; return;
-    }
-    root.classList.toggle('calm', !calm);
-    store.set('hl2-calm', calm ? '0' : '1');
+    var o = motionOrder();
+    mpref = o[(o.indexOf(mpref) + 1) % 3];
+    if (!/[?&]motion=|[?&]calm=/.test(location.search)) { store.set('hl2-motion', mpref === 'auto' ? '' : mpref); store.set('hl2-calm', ''); }
     applyMotion();
+    var live = $('#theme-live'); if (live) live.textContent = 'Animations: ' + mnames[mpref] + (mpref === 'auto' ? (motionOn() ? ' (on)' : ' (off, your system asks for reduced motion)') : '');
   });
   if (mqReduce.addEventListener) mqReduce.addEventListener('change', applyMotion);
   applyMotion();
@@ -151,16 +162,20 @@
     if (srcs.length) srcs[srcs.length - 1].addEventListener('error', fail);
     v.addEventListener('error', fail);
     v.addEventListener('loadedmetadata', function () { miss.hidden = true; });
-    var auto = false, byUser = false;
+    var auto = false, byUser = false, inView = false;
     v.addEventListener('pause', function () { if (!auto) byUser = true; auto = false; });
     v.addEventListener('play', function () { if (!auto) byUser = false; auto = false; });
     if ('IntersectionObserver' in window) new IntersectionObserver(function (es) {
+      inView = es[0].isIntersecting;
       if (es[0].isIntersecting) {
         if (!motionOn() || byUser || !v.paused) return;
         auto = true; var p = v.play(); if (p && p.catch) p.catch(function () { auto = false; });
       } else if (!v.paused) { auto = true; v.pause(); }
     }, { threshold: 0.5 }).observe(v);
-    listeners.motion.push(function (on) { if (!on && !v.paused) { auto = true; v.pause(); } });
+    listeners.motion.push(function (on) {
+      if (!on && !v.paused) { auto = true; v.pause(); }
+      else if (on && inView && !byUser && v.paused) { auto = true; var p = v.play(); if (p && p.catch) p.catch(function () { auto = false; }); }
+    });
   });
 
   /* ---------- help page: filter the questions, open the one a link points to ---------- */
@@ -191,13 +206,32 @@
   var kl = $('#kofi-load'), kb = $('#kofi-box');
   if (kl && kb) {
     kl.hidden = false;
+    var knote = $('#kofi-note');
     kl.addEventListener('click', function () {
       if (kb.firstChild) return;
+      var loaded = false, warn = function () { if (knote) knote.classList.add('warn'); };
+      /* 1. the owner's panel (a frame of ko-fi.com). No sandbox attribute: Ko-fi's own checks need to run normally in the frame. */
       var f = document.createElement('iframe');
       f.id = 'kofiframe'; f.src = KOFI_WIDGET; f.height = '712'; f.title = 'namthonl';
-      f.setAttribute('sandbox', 'allow-scripts allow-same-origin allow-forms allow-popups allow-popups-to-escape-sandbox');
+      f.addEventListener('load', function () { loaded = true; });
       f.style.border = 'none'; f.style.width = '100%'; f.style.padding = '4px'; f.style.background = '#f9f9f9';
       kb.appendChild(f); kb.hidden = false; kl.hidden = true;
+      /* 2. Ko-fi's documented floating button for other sites (script from storage.ko-fi.com; no extra fonts requested) */
+      var sc = document.createElement('script');
+      sc.src = KOFI_SCRIPT; sc.async = true;
+      sc.onload = function () {
+        try {
+          window.kofiWidgetOverlay.draw(KOFI_USER, {
+            'type': 'floating-chat', 'floating-chat.donateButton.text': 'Support me',
+            'floating-chat.donateButton.background-color': '#0f6cbd', 'floating-chat.donateButton.text-color': '#fff',
+            'floating-chat.stylesheets': '[]'
+          });
+        } catch (e) { warn(); }
+      };
+      sc.onerror = warn;
+      document.head.appendChild(sc);
+      /* the button above always works; if the frame has not reported in after 6 s the note says so */
+      setTimeout(function () { if (!loaded) warn(); }, 6000);
     });
   }
   /* ---------- download logic: the latest release from GitHub, the Releases page when that is not possible ---------- */

@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<meta http-equiv="Content-Security-Policy" content="default-src 'none'; img-src 'self' data:; media-src 'self'; style-src 'self'; script-src 'self'; connect-src https://api.github.com; frame-src https://ko-fi.com; base-uri 'self'; form-action 'none'">
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; img-src 'self' data: https://storage.ko-fi.com; media-src 'self'; style-src 'self' 'unsafe-inline' https://storage.ko-fi.com; script-src 'self' https://storage.ko-fi.com; connect-src https://api.github.com; frame-src https://ko-fi.com; base-uri 'self'; form-action 'none'">
 <meta name="referrer" content="strict-origin-when-cross-origin">
 <title>Support Hey Look!</title>
 <meta name="description" content="Support Hey Look! with Ko-fi or a bank transfer (VietQR) if you like. It stays free and open source, and supporting is optional.">
@@ -49,9 +49,9 @@
       <section class="way kofi" aria-labelledby="kofi-h">
         <h2 id="kofi-h">Ko-fi</h2>
         <p>A one-off or monthly gift through Ko-fi. You choose the amount.</p>
-        <p class="btn-row"><a class="btn btn-primary btn-lg" id="kofi-link" href="https://ko-fi.com/namthonl" rel="noopener"><svg class="ic" aria-hidden="true" focusable="false"><use href="#i-heart"/></svg><span class="t">Open ko-fi.com/namthonl</span></a><button type="button" class="btn btn-ghost" id="kofi-load" hidden aria-controls="kofi-box">Load the Ko-fi widget here</button></p>
+        <p class="btn-row"><a class="btn btn-primary btn-lg" id="kofi-link" href="https://ko-fi.com/namthonl" target="_blank" rel="noopener"><svg class="ic" aria-hidden="true" focusable="false"><use href="#i-heart"/></svg><span class="t">Open Ko-fi in a new tab</span></a><button type="button" class="btn btn-ghost" id="kofi-load" hidden aria-controls="kofi-box">Load the Ko-fi widget here</button></p>
         <div id="kofi-box" class="kofi-box" role="region" aria-label="Ko-fi widget" hidden></div>
-        <p class="fine-s">The widget is not loaded until you press the button. Then it comes from ko-fi.com and Ko-fi&rsquo;s own policy applies. The plain link works without it.</p>
+        <p class="fine-s" id="kofi-note">If the widget does not appear, use the button above. The widget is not loaded until you press <em>Load the Ko-fi widget here</em>; then it comes from ko-fi.com and storage.ko-fi.com and Ko-fi&rsquo;s own policy applies. The plain link works without it.</p>
       </section>
       <section class="way bank" aria-labelledby="bank-h">
         <h2 id="bank-h">Bank transfer (VietQR)</h2>

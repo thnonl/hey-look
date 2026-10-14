@@ -101,6 +101,9 @@ kbd { font: 600 .78em/1.5 var(--mono); background: var(--bg2); color: var(--fg);
 [data-pref="light"] #theme-btn .i-auto, [data-pref="dark"] #theme-btn .i-auto { display: none; }
 [data-pref="light"] #theme-btn .i-sun { display: block; }
 [data-pref="dark"] #theme-btn .i-moon { display: block; }
+#motion-btn { width: auto; min-width: 44px; padding: 0 10px; }
+#motion-btn .m-lbl { font-size: .8rem; font-weight: 600; margin-left: 6px; white-space: nowrap; }
+@media (max-width: 1180px) { #motion-btn { width: 44px; padding: 0; } #motion-btn .m-lbl { display: none; } }
 #motion-btn .m-off { display: none; }
 #motion-btn[aria-pressed="true"] .m-on { display: none; }
 #motion-btn[aria-pressed="true"] .m-off { display: block; }
@@ -637,11 +640,12 @@ details ol { padding-left: 1.2em; } details li { margin-bottom: .5em; }
 }
 
 /* ---------- reduced motion / animations off ---------- */
+/* the system asks for less motion: honoured by default ("auto"), unless the visitor switched animations on (html.motion-on) */
 @media (prefers-reduced-motion: reduce) {
-  html { scroll-behavior: auto; }
-  *, *::before, *::after { animation: none !important; transition: none !important; }
-  .tk-track { transform: none; width: auto; } .tk-g { flex-wrap: wrap; } .tk-dup { display: none; }
-  .swap { width: auto !important; }
+  :root:not(.motion-on) { scroll-behavior: auto; }
+  :root:not(.motion-on) *, :root:not(.motion-on) *::before, :root:not(.motion-on) *::after { animation: none !important; transition: none !important; }
+  :root:not(.motion-on) .tk-track { transform: none; width: auto; } :root:not(.motion-on) .tk-g { flex-wrap: wrap; } :root:not(.motion-on) .tk-dup { display: none; }
+  :root:not(.motion-on) .swap { width: auto !important; }
 }
 .calm *, .calm *::before, .calm *::after { animation: none !important; transition: none !important; }
 .calm { scroll-behavior: auto; }
@@ -728,6 +732,7 @@ details.hq[open] > summary::after { transform: translateY(-30%) rotate(-135deg);
 .kofi .btn-row .btn { justify-content: center; }
 .kofi-box { flex: 1; }
 .kofi .fine-s { padding-top: 14px; }
+.kofi .fine-s.warn { color: var(--fg); background: color-mix(in srgb, var(--amber) 22%, transparent); border: 2px solid var(--amber); border-radius: 10px; padding: 10px 12px; margin-top: 14px; font-weight: 600; }
 .bank-grid { grid-template-columns: minmax(0, 200px) minmax(0, 1fr); align-items: center; justify-items: stretch; margin-top: 6px; }
 .bank-card { width: auto; }
 .bank-dl { grid-template-columns: 1fr; }
