@@ -1478,7 +1478,6 @@ function AboutTab() {
       />
       <div className="about-links">
         <button className="link about-link" title="https://github.com/thnonl/hey-look" onClick={() => void openUpdateLink("https://github.com/thnonl/hey-look")}>GitHub repository (thnonl/hey-look)</button>
-        <button className="link about-link" title="https://github.com/thnonl" onClick={() => void openUpdateLink("https://github.com/thnonl")}>GitHub profile (thnonl)</button>
       </div>
     </div>
   );
