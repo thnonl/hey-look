@@ -491,12 +491,48 @@ fn toast(app: &AppHandle, thread: String, title: &str, line1: &str, line2: &str,
 /// macOS and Linux: a plain native notification (no buttons; clicking it has the system's default effect only).
 #[cfg(not(windows))]
 fn toast(app: &AppHandle, _thread: String, title: &str, line1: &str, line2: &str, sound: &str, _actions: &[String]) -> Result<(), String> {
-    use tauri_plugin_notification::NotificationExt;
-    let mut n = app.notification().builder().title(title).body(notification_body(line1, line2));
-    if sound != "none" {
-        n = n.sound(if cfg!(target_os = "macos") { "default" } else { "message-new-email" });
+    #[cfg(target_os = "linux")]
+    {
+        let _ = app;
+        return toast_linux(title, &notification_body(line1, line2), sound);
     }
-    n.show().map_err(|e| e.to_string().chars().take(120).collect())
+    #[cfg(not(target_os = "linux"))]
+    {
+        use tauri_plugin_notification::NotificationExt;
+        let mut n = app.notification().builder().title(title).body(notification_body(line1, line2));
+        if sound != "none" {
+            n = n.sound(if cfg!(target_os = "macos") { "default" } else { "message-new-email" });
+        }
+        n.show().map_err(|e| e.to_string().chars().take(120).collect())
+    }
+}
+
+/// Linux: the plugin's `show()` hands the notification to a background task and drops its result, so a missing notification
+/// service ("ServiceUnknown" on the bus) was never reported and "Send test" stayed silent (QA BUG-L2). The notification is sent
+/// here and the answer of the bus is returned; a bus that does not answer in time is an error too.
+#[cfg(target_os = "linux")]
+fn toast_linux(title: &str, body: &str, sound: &str) -> Result<(), String> {
+    let mut n = notify_rust::Notification::new();
+    n.summary(title).body(body).auto_icon();
+    if sound != "none" {
+        n.sound_name("message-new-email");
+    }
+    let (tx, rx) = std::sync::mpsc::channel();
+    std::thread::spawn(move || {
+        let _ = tx.send(n.show().map(|_| ()).map_err(|e| notify_failure_text(&e.to_string())));
+    });
+    rx.recv_timeout(std::time::Duration::from_secs(5)).unwrap_or_else(|_| Err("the notification service did not answer".into()))
+}
+
+/// What the user reads after "Couldn’t show a notification: ". The bus answers `ServiceUnknown` / `NameHasNoOwner` when no
+/// notification service runs (a bare window manager, WSL without a server); anything else is kept in the system's words.
+#[cfg_attr(not(target_os = "linux"), allow(dead_code))]
+fn notify_failure_text(raw: &str) -> String {
+    let lower = raw.to_ascii_lowercase();
+    if lower.contains("serviceunknown") || lower.contains("namehasnoowner") || lower.contains("was not provided by any .service") {
+        return "no notification service is running on this desktop".into();
+    }
+    raw.split_whitespace().collect::<Vec<_>>().join(" ").chars().take(120).collect()
 }
 
 /// Subject, then the preview on a second line when there is one.
@@ -685,5 +721,28 @@ mod platform_tests {
         assert!(tray_hint_text("windows").contains("Right-click the tray icon"));
         assert!(tray_hint_text("macos").contains("Dock") && tray_hint_text("macos").contains("menu bar"));
         assert!(tray_hint_text("linux").contains("Quit Hey Look! in the tray icon"));
+    }
+
+    #[test]
+    fn a_missing_notification_service_is_named_not_swallowed() {
+        let raw = "org.freedesktop.DBus.Error.ServiceUnknown: The name org.freedesktop.Notifications was not provided by any .service files";
+        assert_eq!(notify_failure_text(raw), "no notification service is running on this desktop");
+        assert_eq!(notify_failure_text("org.freedesktop.DBus.Error.NameHasNoOwner: x"), "no notification service is running on this desktop");
+        assert_eq!(notify_failure_text("some  other\nfailure"), "some other failure");
+        assert_eq!(notify_failure_text(&"x".repeat(500)).chars().count(), 120);
+    }
+
+    #[test]
+    fn the_linux_notification_is_not_sent_through_the_fire_and_forget_plugin() {
+        // BUG-L2: the plugin's show() drops the bus error, so "Send test" could never report it. The Linux branch of `toast` must
+        // call `toast_linux` (which waits for the answer) before it reaches the plugin.
+        let src = include_str!("shell.rs");
+        let toast = &src[src.find("fn toast(app: &AppHandle, _thread").unwrap()..];
+        let linux = toast.find("toast_linux(").unwrap();
+        let plugin = toast.find(concat!("builder", "()")).unwrap();
+        assert!(linux < plugin, "the Linux branch comes first and returns");
+        let body = &src[src.find("fn toast_linux").unwrap()..];
+        let body = &body[..body.find("\n}\n").unwrap()];
+        assert!(body.contains(".show()") && body.contains("recv_timeout") && !body.contains("NotificationExt"), "{body}");
     }
 }

@@ -2387,6 +2387,7 @@ dependencies = [
  "lettre",
  "mail-parser",
  "native-tls",
+ "notify-rust",
  "objc2",
  "pgp",
  "rand 0.10.3",
