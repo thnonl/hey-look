@@ -521,8 +521,16 @@ fn toast_linux(title: &str, body: &str, sound: &str) -> Result<(), String> {
     std::thread::spawn(move || {
         let _ = tx.send(n.show().map(|_| ()).map_err(|e| notify_failure_text(&e.to_string())));
     });
-    rx.recv_timeout(std::time::Duration::from_secs(5)).unwrap_or_else(|_| Err("the notification service did not answer".into()))
+    rx.recv_timeout(std::time::Duration::from_secs(5)).unwrap_or_else(|_| {
+        // no answer in 5 s: the bus holds the call while it tries to start a notification service that never comes up (an
+        // activatable name without a working service), which is the same thing for the person: nothing will show it (QA BUG-L6)
+        crate::startup::line("notify", "the notification call got no answer from the bus within 5 s");
+        Err(NO_NOTIFICATION_SERVICE.into())
+    })
 }
+
+/// What "Send test" says when no notification service can show the notification (TC-165 (1)).
+const NO_NOTIFICATION_SERVICE: &str = "no notification service is running on this desktop";
 
 /// What the user reads after "Couldn’t show a notification: ". The bus answers `ServiceUnknown` / `NameHasNoOwner` when no
 /// notification service runs (a bare window manager, WSL without a server); anything else is kept in the system's words.
@@ -530,7 +538,7 @@ fn toast_linux(title: &str, body: &str, sound: &str) -> Result<(), String> {
 fn notify_failure_text(raw: &str) -> String {
     let lower = raw.to_ascii_lowercase();
     if lower.contains("serviceunknown") || lower.contains("namehasnoowner") || lower.contains("was not provided by any .service") {
-        return "no notification service is running on this desktop".into();
+        return NO_NOTIFICATION_SERVICE.into();
     }
     raw.split_whitespace().collect::<Vec<_>>().join(" ").chars().take(120).collect()
 }
@@ -546,6 +554,7 @@ fn notification_body(line1: &str, line2: &str) -> String {
 fn toast_logged(app: &AppHandle, thread: String, title: &str, line1: &str, line2: &str, sound: &str, actions: &[String]) {
     if let Err(e) = toast(app, thread, title, line1, line2, sound, actions) {
         eprintln!("notification failed: {e}");
+        crate::startup::line("notify", &format!("notification failed: {e}"));
     }
 }
 
@@ -559,14 +568,41 @@ fn notify_actions(p: &Value) -> Vec<String> {
 }
 
 fn blocked(app: &AppHandle, db: &Db) -> bool {
-    db::get_setting(&lock(db), "notif_paused").as_deref() == Some("1")
-        || !pbool(&prefs(db), "notifications", true)
-        || app.get_webview_window("main").map_or(false, |w| w.is_focused().unwrap_or(false) && w.is_visible().unwrap_or(false))
+    quiet_reason(app, db).is_some()
+}
+
+/// Why no desktop notification is shown right now (paused, switched off, or the window is in front), None when one may be.
+fn quiet_reason(app: &AppHandle, db: &Db) -> Option<String> {
+    let paused = db::get_setting(&lock(db), "notif_paused").as_deref() == Some("1");
+    let enabled = pbool(&prefs(db), "notifications", true);
+    let (focused, visible, minimized) = app
+        .get_webview_window("main")
+        .map(|w| (w.is_focused().unwrap_or(false), w.is_visible().unwrap_or(false), w.is_minimized().unwrap_or(false)))
+        .unwrap_or((false, false, false));
+    quiet_because(paused, enabled, focused, visible, minimized, cfg!(target_os = "linux"))
+}
+
+/// The rule behind `quiet_reason`, pure. The window is "in front" when it is focused and visible; on Linux a minimized window is
+/// never in front even when the desktop still reports it visible and focused (WSLg keeps a minimized window viewable, QA BUG-L5).
+/// The reason names the values it saw, so `startup.log` tells an environment that reports the window as focused from a product fault.
+pub fn quiet_because(paused: bool, enabled: bool, focused: bool, visible: bool, minimized: bool, linux: bool) -> Option<String> {
+    if paused {
+        return Some("notifications are paused".into());
+    }
+    if !enabled {
+        return Some("notifications are switched off for all mailboxes".into());
+    }
+    let in_front = focused && visible && !(linux && minimized);
+    in_front.then(|| format!("the window is in front (focused: {focused}, visible: {visible}, minimized: {minimized})"))
 }
 
 /// Toasts for newly arrived inbox mail. Every account can override the "all accounts" notification settings.
 pub fn notify_new(app: &AppHandle, db: &Db, new: &[NewMsg]) {
-    if new.is_empty() || blocked(app, db) {
+    if new.is_empty() {
+        return;
+    }
+    if let Some(why) = quiet_reason(app, db) {
+        crate::startup::line("notify", &format!("notification: skipped for {} new message(s) ({why})", new.len()));
         return;
     }
     let p = prefs(db);
@@ -577,8 +613,10 @@ pub fn notify_new(app: &AppHandle, db: &Db, new: &[NewMsg]) {
         .filter(|n| !(flag(n, "smartNotifications", true) && n.bulk))
         .collect();
     if list.is_empty() {
+        crate::startup::line("notify", &format!("notification: skipped for {} new message(s) (the mailbox settings switch them off, or they are bulk mail)", new.len()));
         return;
     }
+    crate::startup::line("notify", &format!("notification: shown for {} new message(s)", list.len()));
     let sound_for = |n: &NewMsg| {
         eff(&p, &n.account_id, "notifySound")
             .and_then(|v| v.as_str().map(String::from))
@@ -721,6 +759,41 @@ mod platform_tests {
         assert!(tray_hint_text("windows").contains("Right-click the tray icon"));
         assert!(tray_hint_text("macos").contains("Dock") && tray_hint_text("macos").contains("menu bar"));
         assert!(tray_hint_text("linux").contains("Quit Hey Look! in the tray icon"));
+    }
+
+    #[test]
+    fn the_quiet_rule_says_why_and_a_minimized_window_on_linux_is_not_in_front() {
+        assert_eq!(quiet_because(false, true, false, true, false, true), None, "visible but not focused: shown");
+        assert_eq!(quiet_because(false, true, true, false, false, true), None, "focused but hidden: shown");
+        assert!(quiet_because(false, true, true, true, false, true).unwrap().starts_with("the window is in front (focused: true, visible: true, minimized: false)"));
+        // BUG-L5: a minimized window that the desktop still calls focused and visible
+        assert_eq!(quiet_because(false, true, true, true, true, true), None, "Linux: minimized is not in front");
+        assert!(quiet_because(false, true, true, true, true, false).is_some(), "other systems keep the old rule");
+        assert_eq!(quiet_because(true, true, false, false, false, true).as_deref(), Some("notifications are paused"));
+        assert_eq!(quiet_because(false, false, false, false, false, true).as_deref(), Some("notifications are switched off for all mailboxes"));
+    }
+
+    #[test]
+    fn a_new_mail_notification_leaves_a_line_for_every_decision() {
+        let src = include_str!("shell.rs");
+        let body = &src[src.find("pub fn notify_new(").unwrap()..];
+        let body = &body[..body.find("\n}\n").unwrap()];
+        for line in ["notification: skipped for", "notification: shown for", "mailbox settings switch them off"] {
+            assert!(body.contains(line), "{line}");
+        }
+        let logged = &src[src.find("fn toast_logged(").unwrap()..];
+        let logged = &logged[..logged.find("\n}\n").unwrap()];
+        assert!(logged.contains("startup::line(\"notify\""), "a failed notification is in startup.log too");
+    }
+
+    #[test]
+    fn a_bus_that_does_not_answer_reads_like_a_missing_service() {
+        // BUG-L6: the AppImage showed "did not answer" after 5 s, the deb the TC-165 text
+        let src = include_str!("shell.rs");
+        let body = &src[src.find("fn toast_linux").unwrap()..];
+        let body = &body[..body.find("\n}\n").unwrap()];
+        assert!(body.contains("Err(NO_NOTIFICATION_SERVICE.into())") && !body.contains(concat!("did not ", "answer\".into()")), "{body}");
+        assert_eq!(NO_NOTIFICATION_SERVICE, "no notification service is running on this desktop");
     }
 
     #[test]
