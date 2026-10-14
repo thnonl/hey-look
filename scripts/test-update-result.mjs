@@ -35,4 +35,20 @@ assert.match(rust, /fn remember_install[\s\S]*crate::startup::line\("update", &f
 
 // 4. After a failed download the offline note is shown next to the failure (REQ-47 h keeps the failure on the card).
 assert.match(card, /isStaleOffer\(update\) && \(mine === "idle" \|\| mine === "failed"\)/);
+// 5. BUG-13: `Restart now` with a draft that cannot be saved is never silent. The error toast is sticky (a toast of 8 s was gone before the
+// QA looked, and a slow server makes the save take seconds), a saver that throws counts as a failed save, anything else that goes wrong
+// before the installer starts is told too, and startup.log gets a line saying why no restart began (QA found no `[update]` line).
+const restart = updates.slice(updates.indexOf("restartToUpdate: async () => {"));
+const restartBody = restart.slice(0, restart.indexOf("\n    },\n"));
+assert.match(updates, /const RESTART_STOPPED_TEXT = "Couldn’t save your draft, so Hey Look! didn’t restart\. Your message is still open\."/, "REQ-28 c wording");
+assert.match(restartBody, /setStickyToast\(RESTART_STOPPED, \{ text: RESTART_STOPPED_TEXT, kind: "error", closeLabel: "Close" \}\)/, "the failed save toast is sticky");
+assert.ok(!/showToast\(RESTART_STOPPED_TEXT/.test(restartBody) && !/showToast\("Couldn’t save your draft/.test(restartBody), "not a short-lived toast");
+assert.match(restartBody, /try \{\s+return st\.composeSaver \? await st\.composeSaver\(\{ quiet: true \}\) : false;\s+\} catch \{\s+return false;/, "a throwing saver is a failed save");
+assert.match(restartBody, /api\.updateNote\(`restart not started: the draft could not be saved/, "startup.log says why");
+assert.match(restartBody, /\} catch \(e\) \{[\s\S]*RESTART_STOPPED[\s\S]*api\.updateNote\(`restart not started: \$\{friendlyError\(e\)\}`\)[\s\S]*\} finally \{\s+restarting = false;/, "any other failure before the installer is told too");
+assert.ok(restartBody.indexOf('return stay("dirty")') < restartBody.indexOf("await api.updateInstall(true, draftSaved)"), "no install after a failed save");
+assert.match(api, /updateNote: \(text: string\) => invoke<void>\("update_note", \{ text \}\)/);
+assert.match(lib, /update::update_note,/, "registered as a command");
+assert.match(rust, /pub fn update_note\(text: String\)[\s\S]*crate::startup::line\("update"/, "the note goes to startup.log");
+
 console.log("update-result: all checks passed");

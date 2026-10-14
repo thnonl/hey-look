@@ -591,6 +591,8 @@ export const api = {
   updateDiscard: () => invoke<void>("update_discard"),
   /** The user chose Later / Not now (true) or took it back (false): only then the kept package is installed when the app quits. */
   updateDefer: (deferred: boolean) => invoke<void>("update_defer", { deferred }),
+  /** A line for `startup.log` (tag `update`): why a restart did not start. */
+  updateNote: (text: string) => invoke<void>("update_note", { text }),
   /** Install the downloaded update. `draftSaved`: a draft was saved for the restart (the next start says so). */
   updateInstall: (restart: boolean, draftSaved: boolean) => invoke<void>("update_install", { restart, draftSaved }),
   updateStartupState: () => invoke<UpdateStartupState>("update_startup_state"),

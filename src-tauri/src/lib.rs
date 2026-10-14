@@ -3645,6 +3645,7 @@ pub fn run() {
             update::update_cancel,
             update::update_discard,
             update::update_defer,
+            update::update_note,
             set_mail_available,
             frontend_ready,
             sends_flushed,

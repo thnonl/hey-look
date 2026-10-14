@@ -496,8 +496,8 @@ async function mockCheckUpdate(trigger: string, prefsJson?: string) {
 // ---- the update flow (`#dl=<mode>`, `#sending`, `#draftfail`, `#afterupdate=ok|draft|fail`): a pretend download with the same events as Rust's channel.
 // Modes: ok (default; 9.8 MB over 6 s), nolength (no total), slow (60 s), stall (stops at 30 %, fails after 10 s), fail (fails at 40 %),
 // verifyfail, badurl, installfail, offline (fails at once), changed (the first one: GitHub has 1.2.0 now). `update_install` never restarts: it shows a toast and logs the call.
-type UpdateLogEntry = { trigger?: string; cmd?: string; restart?: boolean; at: number; kind: string | null };
-function logUpdateCall(e: { trigger?: string; cmd?: string; restart?: boolean }): UpdateLogEntry {
+type UpdateLogEntry = { trigger?: string; cmd?: string; restart?: boolean; note?: string; at: number; kind: string | null };
+function logUpdateCall(e: { trigger?: string; cmd?: string; restart?: boolean; note?: string }): UpdateLogEntry {
   const w = window as unknown as { __updateCalls?: UpdateLogEntry[] };
   const entry: UpdateLogEntry = { ...e, at: Date.now(), kind: null };
   (w.__updateCalls ??= []).push(entry);
@@ -958,6 +958,7 @@ export function installMock() {
       case "check_update": return mockCheckUpdate(String(a.trigger), settings.prefs);
       case "update_download": return mockDownload(a.onEvent as { onmessage: (e: unknown) => void });
       case "update_cancel": dlCancelled = true; logUpdateCall({ cmd: "cancel" }).kind = "ok"; return null;
+      case "update_note": logUpdateCall({ cmd: "note", note: String(a.text) }).kind = "ok"; return null;
       case "update_discard": logUpdateCall({ cmd: "discard" }).kind = "ok"; return null;
       // the last account can be removed in the mock (Settings > account > Remove): the Welcome screen returns
       case "remove_account": { const i = accounts.findIndex((x) => x.id === a.accountId); if (i >= 0) accounts.splice(i, 1); return null; }

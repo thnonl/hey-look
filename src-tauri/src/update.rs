@@ -715,6 +715,12 @@ pub fn update_defer(upd: tauri::State<'_, UpdState>, deferred: bool) {
     upd.deferred.store(deferred, Ordering::SeqCst);
 }
 
+/// The page records in `startup.log` why a restart it was asked for did not start (QA BUG-13: nothing in the log said so).
+#[tauri::command]
+pub fn update_note(text: String) {
+    crate::startup::line("update", &text.chars().take(300).collect::<String>());
+}
+
 // ---------- install ----------
 
 /// Written before the installer is started (the installer ends this process, so nothing can be written afterwards): which version was
