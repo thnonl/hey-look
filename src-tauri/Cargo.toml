@@ -66,6 +66,8 @@ keyring = { version = "3", features = ["windows-native"] }
 
 [target.'cfg(target_os = "macos")'.dependencies]
 keyring = { version = "3", features = ["apple-native"] }
+# macquit.rs: `applicationShouldTerminate:` on the app delegate (Dock "Quit", log out); the version tao and muda already use
+objc2 = "0.6"
 
 [target.'cfg(target_os = "linux")'.dependencies]
 # asks the session bus whether a tray host exists (shell.rs); the notification plugin uses the same version

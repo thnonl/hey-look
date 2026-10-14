@@ -5,7 +5,7 @@ use serde_json::{json, Value};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::OnceLock;
 use tauri::image::Image;
-use tauri::menu::{CheckMenuItem, Menu, MenuItem, PredefinedMenuItem};
+use tauri::menu::{CheckMenuItem, Menu, MenuEvent, MenuItem, MenuItemKind, PredefinedMenuItem};
 use tauri::tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent};
 use tauri::{AppHandle, Emitter, Manager};
 
@@ -239,6 +239,44 @@ pub fn update_badge(app: &AppHandle, db: &Db) {
     }
     #[cfg(not(windows))]
     let _ = task_style;
+}
+
+// ---------- macOS app menu ----------
+
+/// Id of the Quit item of the macOS app menu (the tray's own item is "quit").
+pub const MAC_QUIT_ID: &str = "app-quit";
+
+/// macOS: tauri's default menu with its Quit item replaced by one that goes through the quit sequence (REQ-48). The predefined Quit item
+/// (and its Cmd+Q) ends in `[NSApp terminate:]`, which never raises `RunEvent::ExitRequested`: nothing was saved or sent (QA Mac round 2,
+/// Q3 / Q4). Never fails on account of the change: a menu that cannot be changed is left as it is and `macquit.rs` still stops the terminate.
+#[cfg_attr(not(target_os = "macos"), allow(dead_code))]
+pub fn mac_app_menu(app: &AppHandle) -> tauri::Result<Menu<tauri::Wry>> {
+    let menu = Menu::default(app)?;
+    if let Err(e) = replace_quit_item(app, &menu) {
+        crate::startup::line("menu", &format!("the Quit item of the app menu could not be replaced ({e}): the terminate hook covers it"));
+    }
+    Ok(menu)
+}
+
+/// The app menu is the first submenu of the default menu and its Quit item the last item in it.
+#[cfg_attr(not(target_os = "macos"), allow(dead_code))]
+fn replace_quit_item(app: &AppHandle, menu: &Menu<tauri::Wry>) -> Result<(), String> {
+    let first = menu.items().map_err(|e| e.to_string())?.into_iter().next();
+    let Some(MenuItemKind::Submenu(app_menu)) = first else { return Err("the menu does not start with the app menu".into()) };
+    let items = app_menu.items().map_err(|e| e.to_string())?;
+    let Some(MenuItemKind::Predefined(quit)) = items.last() else { return Err("the app menu does not end with a predefined item".into()) };
+    app_menu.remove(quit).map_err(|e| e.to_string())?;
+    let ours = MenuItem::with_id(app, MAC_QUIT_ID, "Quit Hey Look!", true, Some("CmdOrCtrl+Q")).map_err(|e| e.to_string())?;
+    app_menu.append(&ours).map_err(|e| e.to_string())
+}
+
+/// The macOS app menu's items (the tray's items are handled in `setup_tray`).
+#[cfg_attr(not(target_os = "macos"), allow(dead_code))]
+pub fn mac_menu_event(app: &AppHandle, event: MenuEvent) {
+    if event.id().as_ref() == MAC_QUIT_ID {
+        crate::startup::stage(Some(app), "quit: asked through the app menu (Quit Hey Look! / Cmd+Q)");
+        crate::request_quit(app);
+    }
 }
 
 // ---------- tray ----------

@@ -5,6 +5,8 @@ mod db;
 mod discover;
 mod ical;
 mod legacy_names;
+#[cfg(target_os = "macos")]
+mod macquit;
 mod mail;
 mod oauth;
 mod oauth_page;
@@ -3138,12 +3140,14 @@ fn show_window(app: tauri::AppHandle) {
 pub(crate) fn request_quit(app: &tauri::AppHandle) {
     // a quit is already running or waiting for its answer: no second sequence, no second question (REQ-48 f)
     if QUIT_BUSY.load(std::sync::atomic::Ordering::SeqCst) || QUESTION_OPEN.load(std::sync::atomic::Ordering::SeqCst) {
+        startup::stage(Some(app), "quit: asked again while a quit is running or being asked about: the window is shown");
         shell::show_main(app);
         return;
     }
     let db = app.state::<AppState>().db.clone();
     let (count, next) = outbox_counts(&db);
     if count > 0 {
+        startup::stage(Some(app), &format!("quit: {count} scheduled message(s) are waiting: asking the person first"));
         QUESTION_OPEN.store(true, std::sync::atomic::Ordering::SeqCst);
         shell::show_main(app);
         let _ = app.emit("confirm-quit", serde_json::json!({ "count": count, "next": next }));
@@ -3175,9 +3179,23 @@ fn quit_cancelled() {
 /// Set right before this app calls `app.exit` itself (the quit guard has run by then).
 static QUITTING: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
 
-/// An exit nobody here asked for (macOS Cmd+Q, app menu / Dock "Quit", the last window closing): the same way as tray "Quit". Always
-/// stops this exit; `request_quit` makes it again (with `QUITTING` set) once the page has finished its sends.
+/// An exit nobody here asked for (the last window closing, `app.exit` from a plugin): the same way as tray "Quit". Always stops this
+/// exit; `request_quit` makes it again (with `QUITTING` set) once the page has finished its sends. On macOS Cmd+Q, the app menu's
+/// Quit and the Dock's Quit do NOT arrive here (they are `[NSApp terminate:]`, which skips `ExitRequested`): see `shell::mac_app_menu`
+/// and `macquit.rs`.
 fn guard_exit(app: &tauri::AppHandle) -> bool {
+    request_quit(app);
+    false
+}
+
+/// macOS `applicationShouldTerminate:` (Dock "Quit", log out, a `quit` Apple event): `true` lets the process end (the quit sequence
+/// has run and `quit_final` is exiting), `false` stops it and starts the sequence, which exits through `app.exit(0)` afterwards.
+#[cfg(target_os = "macos")]
+fn terminate_allowed(app: &tauri::AppHandle) -> bool {
+    if QUITTING.load(std::sync::atomic::Ordering::SeqCst) {
+        return true;
+    }
+    startup::stage(Some(app), "quit: asked by the system (Dock Quit, log out, ...): the quit sequence runs first");
     request_quit(app);
     false
 }
@@ -3465,6 +3483,9 @@ pub fn run() {
     // macOS and Linux notifications (Windows has its own toasts in shell.rs)
     #[cfg(not(windows))]
     let builder = builder.plugin(tauri_plugin_notification::init());
+    // macOS: the app menu's Quit item (and Cmd+Q) goes through the quit sequence like the tray's (see shell::mac_app_menu)
+    #[cfg(target_os = "macos")]
+    let builder = builder.menu(shell::mac_app_menu).on_menu_event(shell::mac_menu_event);
     builder
         // a second launch just brings the running instance forward
         .plugin(tauri_plugin_single_instance::init(|app, _args, _cwd| {
@@ -3514,6 +3535,13 @@ pub fn run() {
                 eprintln!("tray icon unavailable: {e}");
             }
             shell::update_badge(app.handle(), &db);
+            // macOS: a Dock "Quit" or a log out ends in `[NSApp terminate:]` too, which raises no `ExitRequested`
+            #[cfg(target_os = "macos")]
+            {
+                let quit_app = app.handle().clone();
+                let hooked = macquit::install_terminate_hook(Box::new(move || terminate_allowed(&quit_app)));
+                startup::stage(Some(app.handle()), &format!("macos: applicationShouldTerminate hook: {}", hooked.err().unwrap_or_else(|| "installed".into())));
+            }
             let handle = app.handle().clone();
             std::thread::spawn(move || sync_worker(handle));
 
@@ -3526,6 +3554,7 @@ pub fn run() {
         .on_window_event(|window, event| {
             if let tauri::WindowEvent::CloseRequested { api, .. } = event {
                 let db = window.app_handle().state::<AppState>().db.clone();
+                startup::stage(Some(window.app_handle()), &format!("window close requested (hides to the tray: {})", shell::close_to_tray(&db)));
                 if shell::close_to_tray(&db) {
                     api.prevent_close();
                     let _ = window.hide();
@@ -3664,7 +3693,8 @@ pub fn run() {
             // Dock icon / Finder / Spotlight while the window is hidden
             #[cfg(target_os = "macos")]
             tauri::RunEvent::Reopen { .. } => shell::show_main(app),
-            // every way out of the app (tray Quit, the close button when it quits, Cmd+Q, app.exit) passes here
+            // the ways out of the app that raise `ExitRequested`: tray Quit, the close button when it quits, `app.exit`, the last window
+            // closing. (macOS Cmd+Q, the app menu's Quit and the Dock's Quit do not: shell::mac_app_menu, macquit.rs)
             tauri::RunEvent::ExitRequested { api, code, .. } => {
                 // not requested by this app (`code` is None, no `QUITTING`): run the quit guard first; a quit the user is asked about installs nothing
                 if code.is_none() && !QUITTING.load(std::sync::atomic::Ordering::SeqCst) && !guard_exit(app) {
@@ -3677,6 +3707,11 @@ pub fn run() {
                 update::install_on_exit(app);
             }
             tauri::RunEvent::Exit => {
+                // macOS: reached without the quit sequence = a `terminate:` that nobody stopped (the log tells the Mac tester)
+                #[cfg(target_os = "macos")]
+                if !QUITTING.load(std::sync::atomic::Ordering::SeqCst) {
+                    startup::stage(Some(app), "exit: the process ends without the quit sequence (a terminate that was not stopped)");
+                }
                 startup::mark_exiting();
                 flush_pending(app);
                 update::install_on_exit(app);
@@ -3910,6 +3945,82 @@ mod quit_tests {
         let last = &src[src.find("fn quit_final").expect("quit_final")..];
         let last = &last[..last.find("\n}\n").unwrap()];
         assert!(last.contains("flush_pending") && last.contains("QUITTING.store(true") && last.contains("app.exit(0)"), "{last}");
+    }
+
+    /// QA Mac round 2 (Q3 Cmd+Q, Q4 app menu Quit): on macOS the predefined Quit item, Cmd+Q and the Dock's Quit are `[NSApp terminate:]`,
+    /// which tao turns into `RunEvent::Exit` without an `ExitRequested`, so the flush never ran and a message in its Undo time was
+    /// sent only after the next start. The macOS routes have to be taken over explicitly; this reads the sources (the macOS code
+    /// cannot be compiled on every machine that runs the tests).
+    #[test]
+    fn the_macos_quit_routes_go_through_the_flush() {
+        let lib = include_str!("lib.rs").replace("\r\n", "\n");
+        // (not this test's own text)
+        let lib = &lib[..lib.find("#[cfg(test)]").unwrap()];
+        let shell = include_str!("shell.rs").replace("\r\n", "\n");
+        let mac = include_str!("macquit.rs").replace("\r\n", "\n");
+        // (1) the app menu's Quit (and Cmd+Q) is our own item: no predefined Quit item is ever put into a menu we build
+        assert!(!lib.contains("PredefinedMenuItem::quit") && !shell.contains("PredefinedMenuItem::quit"), "a predefined Quit item skips the flush on macOS");
+        assert!(lib.contains("builder.menu(shell::mac_app_menu).on_menu_event(shell::mac_menu_event)"), "the macOS menu is not installed");
+        let at = lib.find("let builder = builder.menu(shell::mac_app_menu)").unwrap();
+        assert!(lib[..at].trim_end().ends_with("#[cfg(target_os = \"macos\")]"), "the macOS menu is for macOS only");
+        let item = &shell[shell.find("fn replace_quit_item").unwrap()..];
+        let item = &item[..item.find("\n}\n").unwrap()];
+        assert!(item.contains("app_menu.remove(quit)") && item.contains("MAC_QUIT_ID") && item.contains("\"CmdOrCtrl+Q\""), "{item}");
+        let event = &shell[shell.find("pub fn mac_menu_event").unwrap()..];
+        let event = &event[..event.find("\n}\n").unwrap()];
+        assert!(event.contains("MAC_QUIT_ID") && event.contains("crate::request_quit(app)"), "{event}");
+        // the tray's item has another id, so the one global menu listener never starts a second quit for it
+        assert!(shell.contains("\"quit\" => crate::request_quit(app)") && shell.contains("pub const MAC_QUIT_ID: &str = \"app-quit\""));
+        // (2) a terminate that does not come from the menu (Dock "Quit", log out) is stopped and redone through the sequence
+        assert!(mac.contains("applicationShouldTerminate:") && mac.contains("class_addMethod") && mac.contains("TERMINATE_CANCEL"), "no terminate hook");
+        assert!(lib.contains("macquit::install_terminate_hook(Box::new(move || terminate_allowed(&quit_app)))"), "the hook is never installed");
+        let allowed = &lib[lib.find("fn terminate_allowed").unwrap()..];
+        let allowed = &allowed[..allowed.find("\n}\n").unwrap()];
+        assert!(
+            allowed.find("QUITTING.load").unwrap() < allowed.find("request_quit(app)").unwrap() && allowed.trim_end().ends_with("false"),
+            "an unfinished quit is stopped and started through request_quit: {allowed}"
+        );
+        // (3) a terminate that slipped through anyway is at least written down
+        let exit = &lib[lib.find("tauri::RunEvent::Exit =>").unwrap()..];
+        assert!(exit[..300].contains("without the quit sequence"), "{}", &exit[..300]);
+    }
+
+    /// Every place that ends the process or restarts it, outside of tests: a new one fails here until it is looked at (does the page
+    /// save its draft and send what waits first? the quit sequence is `request_quit` -> `quit_final`). Known and justified:
+    /// - lib.rs `quit_final`: the end of the quit sequence itself.
+    /// - update.rs `update_install`: the page saved the draft and waited for the sends before it asked for the install (REQ-27 / 28).
+    /// - startup.rs: the restart for a dead web view (the page is gone, there is nothing to ask; Undo-window messages are in the outbox).
+    #[test]
+    fn every_place_that_ends_the_process_is_known() {
+        let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("src");
+        let mut found: Vec<(String, usize, usize)> = vec![];
+        for entry in std::fs::read_dir(dir).unwrap() {
+            let path = entry.unwrap().path();
+            if path.extension().and_then(|e| e.to_str()) != Some("rs") {
+                continue;
+            }
+            let src = std::fs::read_to_string(&path).unwrap();
+            // the part that is not tests
+            let code = &src[..src.find("#[cfg(test)]").unwrap_or(src.len())];
+            let code: String = code.lines().filter(|l| !l.trim_start().starts_with("//")).collect::<Vec<_>>().join("\n");
+            let exits = code.matches(".exit(").count() + code.matches("process::exit(").count() + code.matches("libc::_exit(").count();
+            let restarts = code.matches(".restart()").count();
+            if exits + restarts > 0 {
+                found.push((path.file_name().unwrap().to_string_lossy().into_owned(), exits, restarts));
+            }
+        }
+        found.sort();
+        assert_eq!(
+            found,
+            vec![("lib.rs".to_string(), 1, 0), ("startup.rs".to_string(), 0, 1), ("update.rs".to_string(), 1, 1)],
+            "a way to end or restart the process was added or removed: make sure it goes through the quit sequence (request_quit) or is justified in the comment above"
+        );
+    }
+
+    /// The macOS menu wiring type-checks on every platform (the calls themselves are `cfg(target_os = "macos")`).
+    #[allow(dead_code)]
+    fn macos_menu_wiring_type_checks() -> tauri::Builder<tauri::Wry> {
+        tauri::Builder::<tauri::Wry>::default().menu(shell::mac_app_menu).on_menu_event(shell::mac_menu_event)
     }
 }
 
