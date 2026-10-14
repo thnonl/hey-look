@@ -26,8 +26,8 @@ Get the latest version from the [GitHub Releases page](https://github.com/thnonl
 | Debian / Ubuntu | `HeyLook_<version>_linux_amd64.deb` |
 | Fedora / openSUSE | `HeyLook_<version>_linux_x86_64.rpm` |
 
-Windows is the primary platform. The macOS and Linux builds are new, have fewer native integrations (no Dock badge,
-notifications without buttons), and have not been tested on real hardware by the maintainer.
+Windows is the primary platform. The macOS and Linux builds have fewer native integrations (no Dock badge,
+notifications without buttons). Windows 11 (x64) was tested on real hardware. macOS (universal build, ad-hoc signed, not notarized) was tested on a MacBook Pro with Apple Silicon running macOS 27 (quit, update and mail core flows; see Known limitations for what was not verified). Linux (AppImage, .deb) was tested under WSL2 Ubuntu 22.04 with WSLg only, not on a native Linux desktop, and the tray could not be tested.
 
 The installers are not code-signed yet:
 - **Windows**: if SmartScreen appears, choose **More info**, then **Run anyway**.
@@ -300,7 +300,7 @@ src-tauri/src/           Rust backend
 ## Known limitations
 
 - Windows is the primary and supported platform. On macOS there is no Dock badge yet (planned for 1.1); notifications on macOS and Linux have no buttons; the Print menu entry is Windows and Linux only; PDF attachments open in the default app on Linux.
-- The macOS and Linux builds are build-verified only (not tested on real hardware) and have fewer native integrations
+- Windows 11 (x64) was tested on real hardware. macOS (universal build, ad-hoc signed, not notarized) was tested on a MacBook Pro with Apple Silicon running macOS 27 (quit, update and mail core flows; see Known limitations for what was not verified). Linux (AppImage, .deb) was tested under WSL2 Ubuntu 22.04 with WSLg only, not on a native Linux desktop, and the tray could not be tested. The macOS and Linux builds have fewer native integrations
 - The installers are not code-signed (see [Download](#download) for how to open them)
 - Updating needs permission on some systems: MSI installs ask for administrator rights (UAC), `.deb` and `.rpm` installs ask for your password. If an update cannot be installed, the app offers the download from GitHub instead
 - Mail servers must offer SSL/TLS or STARTTLS; servers that only accept unencrypted connections can't be added.
