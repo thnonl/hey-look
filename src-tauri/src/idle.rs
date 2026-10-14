@@ -13,9 +13,11 @@
 //!
 //! Stopping: the supervisor stops a worker when its account is removed or the pref is turned off, and `shutdown` (called on exit)
 //! stops all. A stop sets a flag (every wait is interruptible) and shuts the socket down, so a read that blocks returns at once.
-//! The imap crate clears the socket read timeout after an IDLE wait and then reads the answer to DONE without one, so a peer that went
-//! silent (sleep, dropped NAT entry) would block that read for good: the supervisor's watchdog shuts the socket down when the IDLE
-//! wait plus a grace period is over.
+//! A thread blocked in a read cannot be woken from outside on Windows when the peer is silent (`shutdown` only helps when the peer
+//! answers the FIN), and the imap crate clears the read timeout after an IDLE wait and then reads the answer to DONE without one. So the
+//! IDLE wait is cut into slices of `Timing::poll` (`wait_interruptible`, an addition to the vendored crate): the stop flag is looked at
+//! after each slice, and the read timeout stays `Timing::finish` for the answer to DONE. The supervisor's watchdog (shutdown of the
+//! socket when the wait plus a grace period is over) is a second line that works wherever `shutdown` wakes a read.
 use crate::db::{err, Account, R};
 use crate::{db, mail, startup, AppState, Db};
 use std::collections::HashMap;
@@ -34,6 +36,10 @@ pub struct Timing {
     pub keepalive: Duration,
     /// Allowed on top of `keepalive` for the server to answer DONE before the watchdog shuts the socket down.
     pub grace: Duration,
+    /// The IDLE read is cut into slices of this length; the stop flag is looked at after each (so a stop takes at most this long).
+    pub poll: Duration,
+    /// Read timeout for the answer to DONE after an IDLE wait.
+    pub finish: Duration,
     /// After the server reports a change: wait this long (a burst of mail is one sync).
     pub debounce: Duration,
     /// At least this long between the end of one push-triggered sync and the start of the next.
@@ -55,6 +61,8 @@ impl Default for Timing {
         Timing {
             keepalive: Duration::from_secs(25 * 60),
             grace: Duration::from_secs(30),
+            poll: Duration::from_secs(2),
+            finish: Duration::from_secs(30),
             debounce: Duration::from_secs(2),
             min_gap: Duration::from_secs(5),
             backoff: [30, 60, 120, 300].iter().map(|s| Duration::from_secs(*s)).collect(),
@@ -421,10 +429,10 @@ fn serve<T: std::io::Read + std::io::Write + imap::extensions::idle::SetReadTime
             host.log("push on");
         }
         // returns with IDLE ended (DONE sent and answered)
-        let outcome = h.wait_with_timeout(t.keepalive);
+        let outcome = h.wait_interruptible(t.keepalive, t.poll, t.finish, &|| sh.stop.is_stopped());
         sh.set_deadline(None);
-        // the crate cleared the read timeout: the commands that follow must not block for good
-        let _ = sock.set_read_timeout(Some(mail::IO_TIMEOUT));
+        // the commands that follow (NOOP) must not block for good either: a peer that went silent shows here at the latest
+        let _ = sock.set_read_timeout(Some(t.finish));
         if sh.stop.is_stopped() {
             return Ok(End::Stopped);
         }
@@ -776,6 +784,7 @@ mod tests {
     #[test]
     fn the_keepalive_and_the_watchdog_follow_the_clock() {
         let t = Timing::default();
+        assert_eq!((t.poll.as_secs(), t.finish.as_secs()), (2, 30));
         let t0 = Instant::now();
         assert_eq!(t.keepalive, Duration::from_secs(25 * 60));
         let deadline = t.watchdog_deadline(t0);
@@ -962,15 +971,20 @@ mod tests {
         let (addr, idles) = fake_server(odd);
         let host = Arc::new(OddHost { addr, log: Default::default(), states: Default::default() });
         let sh = Shared::new();
-        let t = Timing { backoff: vec![Duration::from_millis(300), Duration::from_millis(300), Duration::from_millis(600)], ..Timing::default() };
+        let t = Timing { backoff: vec![Duration::from_millis(300), Duration::from_millis(300), Duration::from_millis(600)], poll: Duration::from_millis(300), ..Timing::default() };
         let (h2, s2) = (host.clone(), sh.clone());
         let worker = std::thread::spawn(move || run_account(&s2, h2.as_ref(), &t, false));
+        // long enough for several attempts; a loaded machine gets up to 10 s to show the first outcome
         std::thread::sleep(Duration::from_millis(2500));
+        let first = Instant::now();
+        while host.states.lock().unwrap().is_empty() && first.elapsed() < Duration::from_secs(10) {
+            std::thread::sleep(Duration::from_millis(50));
+        }
         let t0 = Instant::now();
         sh.stop_now();
         // a panic in the worker (the old crate behaviour) shows here; in a release build it would have ended the process
         worker.join().unwrap_or_else(|_| panic!("the worker panicked on {odd:?}"));
-        assert!(t0.elapsed() < Duration::from_secs(3), "stop is quick");
+        assert!(t0.elapsed() < Duration::from_secs(3), "stop is quick: {:?} after {odd:?}, log {:?}", t0.elapsed(), host.log.lock().unwrap());
         let (l, s) = (host.log.lock().unwrap().clone(), host.states.lock().unwrap().clone());
         (l, s, idles.load(std::sync::atomic::Ordering::SeqCst))
     }

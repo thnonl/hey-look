@@ -7,7 +7,7 @@ use crate::error::{Error, ParseError, Result};
 use native_tls::TlsStream;
 use std::io::{self, Read, Write};
 use std::net::TcpStream;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 /// `Handle` allows a client to block waiting for changes to the remote mailbox.
 ///
@@ -178,6 +178,50 @@ impl<'a, T: SetReadTimeout + Read + Write + 'a> Handle<'a, T> {
     /// Block until the selected mailbox changes, or until the given amount of time has expired.
     pub fn wait_with_timeout(self, timeout: Duration) -> Result<WaitOutcome> {
         self.timed_wait(timeout, false)
+    }
+
+    /// Hey Look! addition. Like `wait_with_timeout`, but the read is cut into slices of `poll`, and `stop` is asked after each one that
+    /// brought nothing: when it says yes the wait ends at once (and no DONE is sent: the caller drops the connection). A thread that
+    /// is blocked in a read cannot be woken from outside on Windows when the peer is silent (`shutdown` does not wake it), so this is
+    /// how the app stops a push session. The read timeout is left at `finish` instead of none, so that the answer to the DONE that
+    /// the drop sends cannot block for ever either. A slice that times out in the middle of a line keeps the part already read.
+    pub fn wait_interruptible(
+        mut self,
+        timeout: Duration,
+        poll: Duration,
+        finish: Duration,
+        stop: &dyn Fn() -> bool,
+    ) -> Result<WaitOutcome> {
+        let deadline = Instant::now() + timeout;
+        self.session.stream.get_mut().set_read_timeout(Some(poll))?;
+        let mut v = Vec::new();
+        let res = loop {
+            match self.session.readline(&mut v) {
+                Err(Error::Io(ref e))
+                    if e.kind() == io::ErrorKind::TimedOut
+                        || e.kind() == io::ErrorKind::WouldBlock =>
+                {
+                    if stop() {
+                        self.done = true;
+                        break Ok(WaitOutcome::TimedOut);
+                    }
+                    if Instant::now() >= deadline {
+                        break Ok(WaitOutcome::TimedOut);
+                    }
+                }
+                Ok(_) => {
+                    // Dovecot's imap_idle_notify_interval message
+                    if v.eq_ignore_ascii_case(b"* OK Still here\r\n") {
+                        v.clear();
+                    } else {
+                        break Ok(WaitOutcome::MailboxChanged);
+                    }
+                }
+                Err(e) => break Err(e),
+            }
+        };
+        let _ = self.session.stream.get_mut().set_read_timeout(Some(finish));
+        res
     }
 
     fn timed_wait(mut self, timeout: Duration, reconnect: bool) -> Result<WaitOutcome> {

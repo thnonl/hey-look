@@ -108,6 +108,8 @@ fn fast() -> Timing {
     Timing {
         keepalive: Duration::from_secs(25 * 60),
         grace: Duration::from_secs(30),
+        poll: Duration::from_millis(500),
+        finish: Duration::from_secs(5),
         debounce: Duration::from_millis(300),
         min_gap: Duration::from_millis(500),
         backoff: vec![Duration::from_secs(1), Duration::from_secs(1), Duration::from_secs(2)],
@@ -385,20 +387,22 @@ fn it_the_idle_is_renewed_and_still_works() {
 }
 
 #[test]
-fn it_a_peer_that_goes_silent_is_cut_by_the_watchdog_and_the_worker_reconnects() {
+fn it_a_peer_that_goes_silent_is_given_up_on_by_the_read_timeouts_and_the_worker_reconnects() {
     let Some(e) = env() else { return };
     let _g = SERIAL.lock().unwrap_or_else(|p| p.into_inner());
     let proxy = Proxy::start(e.port);
     let mut t = fast();
     t.keepalive = Duration::from_secs(2);
-    t.grace = Duration::from_secs(2);
+    t.finish = Duration::from_secs(2);
+    // the watchdog (socket shutdown) must not be what saves it: Windows does not wake a read that way when the peer is silent
+    t.grace = Duration::from_secs(120);
     let w = Worker::start(account(&e.user, proxy.port), &e.pass, t);
     assert!(w.wait_state(Push::On, WAIT));
     // the network swallows everything (sleep, a dropped NAT entry): the DONE after the renewal is never answered
     proxy.blackhole.store(true, Ordering::SeqCst);
     let line = w.wait(Duration::from_secs(20), |ev| if let Ev::Log(l) = ev { l.starts_with("reconnect in").then(|| l.clone()) } else { None });
     eprintln!("[it] silent peer: {line:?}");
-    assert!(line.is_some(), "the watchdog freed the blocked read");
+    assert!(line.is_some(), "the read timeouts freed the worker");
     proxy.blackhole.store(false, Ordering::SeqCst);
     proxy.cut_all();
     std::thread::sleep(Duration::from_secs(4));
