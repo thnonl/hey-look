@@ -1,5 +1,10 @@
 # Changelog
 
+## 1.0.1 — 2026-10-xx
+
+- Fix: after a manually added IMAP account had downloaded its mail, "Downloading mails… 100 / 500" could stay on screen for good; it now disappears when the download ends
+- Settings > About: links to the Website, "Buy me a coffee" (the support page) and the Source code
+
 ## 1.0.0 — 2026-10-14
 
 First public release of Hey Look!, a fast, private desktop mail client.

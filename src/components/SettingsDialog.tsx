@@ -1,5 +1,6 @@
 import { KeyRound, Lock, Plus, Trash2, Upload } from "lucide-react";
 import { openUpdateLink } from "../updates";
+import { ABOUT_LINKS } from "../aboutLinks";
 import { Fragment, ReactNode, useEffect, useRef, useState } from "react";
 import { Account, api, Discovered, PgpKey, PROVIDERS, Rule, Signature, Template } from "../api";
 import { ACCENT_PRESETS, ACCOUNT_PALETTE, accountColor, DEFAULT_PREFS, eff, folderLabel, isOverridden, MAX_DOWNLOAD_PRESETS, NOTIFY_ACTIONS, NOTIFY_SOUNDS, Overridable, Prefs, staleAccountPrefs, validHex } from "../prefs";
@@ -1477,7 +1478,9 @@ function AboutTab() {
         }
       />
       <div className="about-links">
-        <button className="link about-link" title="https://github.com/thnonl/hey-look" onClick={() => void openUpdateLink("https://github.com/thnonl/hey-look")}>GitHub repository (thnonl/hey-look)</button>
+        {ABOUT_LINKS.map((l) => (
+          <button key={l.url} className="link about-link" title={l.url} onClick={() => void openUpdateLink(l.url)}>{l.text}</button>
+        ))}
       </div>
     </div>
   );

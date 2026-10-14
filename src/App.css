@@ -112,7 +112,7 @@ button:focus-visible, [role="option"]:focus-visible, [role="treeitem"]:focus-vis
 .icon-btn.on { color: var(--accent-text); }
 .link { background: none; border: 0; color: var(--accent-text); padding: 0; text-decoration: underline; text-underline-offset: 2px; }
 .link:hover { color: color-mix(in srgb, var(--accent-text), var(--fg) 30%); }
-.about-links { display: flex; flex-direction: column; align-items: flex-start; gap: 16px; margin-top: 16px; }
+.about-links { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 20px; margin-top: 16px; }
 .about-link { display: inline-flex; align-items: center; min-height: 24px; }
 .notice .link { display: inline-block; min-height: 24px; line-height: 24px; vertical-align: middle; }
 /* update check: Settings > About card, status row, gear dot */
