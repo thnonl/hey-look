@@ -4,11 +4,11 @@ import { Archive, Clock, Flag, Forward, MailX, MoreHorizontal, Moon, Pin, Reply,
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { forward, replyTo } from "../actions";
 import { api, MessageFull } from "../api";
-import { appSurface, setMailDark } from "../darkMail";
+import { setMailDark } from "../darkMail";
+import { DARK_CANVAS, frameBaseCss, frameRootClass, MAIL_CANVAS_LABEL, toggleMailCanvas } from "../mailCanvas";
 import { eff } from "../prefs";
 import { CONFIDENTIAL_FRAME_CSS, CONFIDENTIAL_NOTE, lockDocument, useContentProtection } from "../protect";
 import { friendlyError, useStore } from "../store";
-import { useAppDark } from "../useAppDark";
 import { fmtFull, fmtSize, plainToHtml, sanitizeHtml, snoozePresets } from "../util";
 import { AttachmentStrip, Lightbox, LbItem } from "./Attachments";
 import { InviteCard } from "./Calendar";
@@ -110,13 +110,12 @@ const host = (u: string) => {
   }
 };
 
-/** Background the mail is shown on: dark in the dark theme (see darkMail.ts), the toggle shows the original colours of this mail instead. */
+/** Background the mail is shown on: the mail's own colours (default, in every app theme) or the dark one (see darkMail.ts); remembered as a preference. */
 function useCanvas() {
-  const appDark = useAppDark();
-  const [light, setLight] = useState(false);
-  useEffect(() => setLight(false), [appDark]);
-  const dark = appDark && !light;
-  return { appDark, dark, toggle: () => setLight(dark) };
+  const canvas = useStore((s) => s.prefs.mailCanvas);
+  const setPrefs = useStore((s) => s.setPrefs);
+  const dark = canvas === "dark";
+  return { dark, toggle: () => setPrefs({ mailCanvas: toggleMailCanvas(canvas) }) };
 }
 
 function MessageBody({ m, frameRef, dark, onPictures }: { m: MessageFull; frameRef: React.RefObject<HTMLIFrameElement | null>; dark: boolean; onPictures: (items: { src: string; name: string }[], index: number) => void }) {
@@ -203,9 +202,8 @@ function MessageBody({ m, frameRef, dark, onPictures }: { m: MessageFull; frameR
   const lockedNow = useRef(!!m.confidential);
   lockedNow.current = !!m.confidential;
   const srcDoc = useMemo(
-    () => `<!doctype html><html data-hm-doc${darkNow.current ? ' class="hm-dark hm-pend"' : ""}><head><meta charset="utf-8"><meta http-equiv="Content-Security-Policy" content="${csp}"><base target="_blank">
-    <style>html{--hm-fg:#242424;--hm-link:#0f6cbd;--hm-bg:#ffffff}
-    @media screen{html.hm-dark{--hm-fg:#e6e6e6;--hm-link:#6cb8f6;--hm-bg:transparent;color-scheme:dark}html.hm-dark img{filter:brightness(.9)}html.hm-pend body{visibility:hidden}}
+    () => `<!doctype html><html data-hm-doc${frameRootClass(darkNow.current ? "dark" : "original")}><head><meta charset="utf-8"><meta http-equiv="Content-Security-Policy" content="${csp}"><base target="_blank">
+    <style>${frameBaseCss()}
     body{font:14px/1.5 "Segoe UI Variable","Segoe UI",system-ui,sans-serif;margin:0;padding:10px 12px;word-wrap:break-word;background:var(--hm-bg);color:var(--hm-fg)}
     img{max-width:100%;height:auto;cursor:zoom-in}blockquote{margin:0 0 0 .8ex;border-left:2px solid #999;padding-left:1ex}a{color:var(--hm-link)}table{max-width:100%}
     .hl-ph{display:flex;align-items:center;gap:10px;max-width:100%;width:360px;padding:12px 14px;border:1px dashed #9aa3af;border-radius:10px;background:#f6f7f9;color:#5b6470;font:13px/1.4 "Segoe UI",sans-serif;cursor:pointer;text-align:left;box-sizing:border-box;flex-wrap:wrap}
@@ -218,7 +216,7 @@ function MessageBody({ m, frameRef, dark, onPictures }: { m: MessageFull; frameR
   // theme change or toggle on a loaded mail: recolour in place (a freshly loaded mail is handled in onLoad)
   useEffect(() => {
     const doc = frameRef.current?.contentDocument;
-    if (doc?.documentElement?.hasAttribute("data-hm-doc")) setMailDark(doc, dark, appSurface());
+    if (doc?.documentElement?.hasAttribute("data-hm-doc")) setMailDark(doc, dark, DARK_CANVAS);
   }, [dark, frameRef]);
 
   // Frame height follows the content, never below the free height of the pane (see fillHeight). The content is
@@ -302,7 +300,7 @@ function MessageBody({ m, frameRef, dark, onPictures }: { m: MessageFull; frameR
     const frame = frameRef.current;
     const doc = frame?.contentDocument;
     if (!frame || !doc?.body) return;
-    setMailDark(doc, darkNow.current, appSurface());
+    setMailDark(doc, darkNow.current, DARK_CANVAS);
     measure();
     // images without a height attribute (common in newsletters) only get their size once they load
     const imgs = Array.from(doc.images);
@@ -472,16 +470,9 @@ function MessageCard({ m, open, onToggle }: { m: MessageFull; open: boolean; onT
             <button className="icon-btn" title="Reply" aria-label="Reply" onClick={() => replyTo(m, false)}><Reply size={16} /></button>
             <button className="icon-btn" title="Reply all" aria-label="Reply all" onClick={() => replyTo(m, true)}><ReplyAll size={16} /></button>
             <button className="icon-btn" title={conf ? "Confidential mail can’t be forwarded" : "Forward"} aria-label="Forward" disabled={conf} onClick={() => forward(m)}><Forward size={16} /></button>
-            {cv.appDark && (
-              <button
-                className="icon-btn"
-                title={!cv.dark ? "Switch to dark background" : "Switch to light background"}
-                aria-label={!cv.dark ? "Switch to dark background" : "Switch to light background"}
-                onClick={cv.toggle}
-              >
-                {!cv.dark ? <Sun size={16} /> : <Moon size={16} />}
-              </button>
-            )}
+            <button className="icon-btn" title={MAIL_CANVAS_LABEL} aria-label={MAIL_CANVAS_LABEL} aria-pressed={cv.dark} onClick={cv.toggle}>
+              {cv.dark ? <Moon size={16} /> : <Sun size={16} />}
+            </button>
             <Dropdown
               className="icon-btn"
               caret={false}
