@@ -2,6 +2,7 @@ import { create } from "zustand";
 import { api, Account, Att, BackfillProgress, CalendarInfo, CalEvent, DraftSecurity, FolderInfo, Meeting, MessageFull, OutboxItem, SearchScope, ThreadSummary } from "./api";
 import { loadPlatform } from "./platform";
 import { hasMailAccounts } from "./mailControls";
+import { applyBackfill } from "./backfill";
 import { calTz, CalView, Day, rangeFor, systemTz, today } from "./calendar";
 import { accentText, accountColor, buttonAccent, clampMaxDownload, DEFAULT_PREFS, lightened, mergePrefs, Prefs, readableOn, staleAccountPrefs, topBar, validHex } from "./prefs";
 
@@ -732,12 +733,7 @@ export const useStore = create<State>((set, get) => ({
   },
 
   onBackfill: (p) => {
-    set((s) => {
-      const backfill = { ...s.backfill };
-      if (p.done) delete backfill[p.accountId];
-      else backfill[p.accountId] = p;
-      return { backfill };
-    });
+    set((s) => ({ backfill: applyBackfill(s.backfill, p) }));
     // the list is re-read quietly (same scroll position, same selection), at most once a second; the last chunk always is
     clearTimeout(backfillTimer);
     const wait = p.done ? 0 : Math.max(0, backfillLast + BACKFILL_REFRESH_MS - Date.now());

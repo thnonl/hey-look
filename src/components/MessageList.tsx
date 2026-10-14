@@ -11,6 +11,7 @@ import { askUnlock } from "./Pgp";
 import { ScheduledList } from "./ScheduledList";
 import { EmptyState, SkeletonRows } from "./overlays";
 import { Avatar, Dropdown } from "./ui";
+import { downloadLine } from "../backfill";
 import { VirtualList, VItem } from "./VirtualList";
 
 export interface ThreadRowProps {
@@ -218,9 +219,7 @@ export function MessageList() {
   const capped = reachedEnd && targets.some((id) => limited[exhaustedKey(id, folder)]);
   // background download of older Inbox mail (event `backfill-progress`)
   const inboxish = folder === "inbox" || folder === "unread";
-  const download = inboxish && !searching ? Object.values(backfill).filter((p) => !p.done && p.role === "inbox" && (!accountId || p.accountId === accountId)) : [];
-  const dlHave = download.reduce((n, p) => n + Math.min(p.have, p.target), 0);
-  const dlTarget = download.reduce((n, p) => n + p.target, 0);
+  const download = downloadLine(backfill, { inboxish, searching, accountId, accountIds: accounts.map((a) => a.id) });
   const webmails = searching ? webmailTargets(accounts, accountId, searchScope) : [];
   // a search limited to the open folder stays in that folder on Gmail
   const webmailFolder = searchScope === "current" ? folder : undefined;
@@ -349,9 +348,9 @@ export function MessageList() {
         {pageable && prefs.sortAsc && !searching && (
           <div className="ml-progress" role="status">{pagingStatus}</div>
         )}
-        {download.length > 0 && (
+        {download && (
           <div className="ml-progress" role="status">
-            <span className="spin" aria-hidden /> Downloading mails… {dlHave} / {dlTarget}
+            <span className="spin" aria-hidden /> Downloading mails… {download.have} / {download.target}
           </div>
         )}
         {multi && (

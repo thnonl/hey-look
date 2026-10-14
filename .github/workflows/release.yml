@@ -206,6 +206,7 @@ jobs:
           node scripts/test-update-result.mjs
           node --experimental-strip-types scripts/test-sticky-timers.mjs
           node scripts/test-link-copy.mjs
+          node --experimental-strip-types scripts/test-backfill-line.mjs
 
       - uses: tauri-apps/tauri-action@v1
         env:

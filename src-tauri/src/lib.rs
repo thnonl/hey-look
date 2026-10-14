@@ -1200,10 +1200,70 @@ fn backfill_start(app: &tauri::AppHandle, db: &Db, account_id: &str) {
     }
 }
 
+/// The `backfill-progress` event the UI shows "Downloading mails..." from. `done` ends the line for the account (the UI keys it by account).
+fn backfill_event(account_id: &str, role: &str, have: u32, target: u32, done: bool) -> serde_json::Value {
+    serde_json::json!({ "accountId": account_id, "role": role, "have": have, "target": target, "done": done })
+}
+
 /// Download older mail in chunks of `PAGE`, one folder after the other, until every folder holds its target (or the account
 /// its cap) or has nothing older. Resumable (it works from what is stored), stops when the account is removed, and on an error (after one reconnect).
 fn backfill_run(app: &tauri::AppHandle, db: &Db, account_id: &str) -> R<()> {
     let mut sess: Option<mail::Sess> = None;
+    let r = backfill_loop(
+        db,
+        account_id,
+        BACKFILL_PAUSE,
+        &mut |acc, name, below, count| {
+            let step = (|| -> R<(Vec<mail::Parsed>, bool)> {
+                if sess.is_none() {
+                    sess = Some(mail::connect(acc, &secret(db, acc)?)?);
+                }
+                mail::fetch_older(sess.as_mut().ok_or("no session")?, name, below, count)
+            })();
+            if step.is_err() {
+                sess = None; // a failed session is not reused
+            }
+            step
+        },
+        &mut |ev| {
+            let _ = app.emit("backfill-progress", ev);
+        },
+    );
+    if let Some(mut s) = sess {
+        let _ = s.logout();
+    }
+    r
+}
+
+/// The loop of `backfill_run` without the network (`fetch`: account, IMAP folder, lowest stored uid, count) and without the
+/// window (`emit`: the `backfill-progress` payloads). However it ends - nothing left, the account removed, two failures in a row -
+/// the line the UI shows is closed: every run that ended after a progress event that was not the last of its folder emits a final
+/// `done` one. The UI keeps the last event until a `done` arrives, and the loop can stop between two chunks without having
+/// finished the folder: `load_older` (the list asks for older mail by itself when its end is in view) marks the folder as
+/// complete in the pause, a sync brings the account to its cap, the cap is lowered.
+fn backfill_loop(
+    db: &Db,
+    account_id: &str,
+    pause: std::time::Duration,
+    fetch: &mut dyn FnMut(&Account, &str, u32, usize) -> R<(Vec<mail::Parsed>, bool)>,
+    emit: &mut dyn FnMut(serde_json::Value),
+) -> R<()> {
+    let mut open: Option<(String, u32, u32)> = None; // the last progress event, unless it ended its folder
+    let r = backfill_chunks(db, account_id, pause, fetch, emit, &mut open);
+    if let Some((role, have, target)) = open {
+        emit(backfill_event(account_id, &role, have, target, true));
+    }
+    r
+}
+
+fn backfill_chunks(
+    db: &Db,
+    account_id: &str,
+    pause: std::time::Duration,
+    fetch: &mut dyn FnMut(&Account, &str, u32, usize) -> R<(Vec<mail::Parsed>, bool)>,
+    emit: &mut dyn FnMut(serde_json::Value),
+    open: &mut Option<(String, u32, u32)>,
+) -> R<()> {
     let mut skip: std::collections::HashSet<String> = Default::default();
     let mut failures = 0;
     loop {
@@ -1212,11 +1272,7 @@ fn backfill_run(app: &tauri::AppHandle, db: &Db, account_id: &str) -> R<()> {
         let Some((role, name, have, target)) = next_backfill(db, account_id, &skip, max_download(db)) else { break };
         let (_, below) = folder_state(db, account_id, &role)?;
         let step = (|| -> R<(usize, bool)> {
-            if sess.is_none() {
-                sess = Some(mail::connect(&acc, &secret(db, &acc)?)?);
-            }
-            let s = sess.as_mut().ok_or("no session")?;
-            let (found, exhausted) = mail::fetch_older(s, &name, below, (target - have).min(PAGE) as usize)?;
+            let (found, exhausted) = fetch(&acc, &name, below, (target - have).min(PAGE) as usize)?;
             store_page(db, &acc, &role, &found)?;
             Ok((found.len(), exhausted))
         })();
@@ -1230,24 +1286,18 @@ fn backfill_run(app: &tauri::AppHandle, db: &Db, account_id: &str) -> R<()> {
                 }
                 let (now_have, _) = folder_state(db, account_id, &role)?;
                 let done = exhausted || now_have >= target || added == 0;
-                let _ = app.emit(
-                    "backfill-progress",
-                    serde_json::json!({ "accountId": account_id, "role": role, "have": now_have, "target": target, "done": done }),
-                );
-                std::thread::sleep(BACKFILL_PAUSE);
+                *open = if done { None } else { Some((role.clone(), now_have, target)) };
+                emit(backfill_event(account_id, &role, now_have, target, done));
+                std::thread::sleep(pause);
             }
             Err(e) => {
-                sess = None; // a failed session is not reused
                 failures += 1;
                 if failures > 1 {
                     return Err(e);
                 }
-                std::thread::sleep(BACKFILL_PAUSE);
+                std::thread::sleep(pause);
             }
         }
-    }
-    if let Some(mut s) = sess {
-        let _ = s.logout();
     }
     Ok(())
 }
@@ -4333,6 +4383,154 @@ mod backfill_tests {
         db::set_setting(&lock(&db), "max_download", "100").unwrap();
         let r = load_older_impl(&db, ACC, "inbox", 50).unwrap();
         assert_eq!((r.added, r.exhausted, r.limited), (0, true, false));
+    }
+
+    // ----- the "Downloading mails..." line must end however the background download ends -----
+
+    fn account() -> Account {
+        Account {
+            id: ACC.into(), email: "me@example.com".into(), display_name: "Me".into(), imap_host: "h".into(), imap_port: 993, imap_ssl: true,
+            smtp_host: "s".into(), smtp_port: 465, smtp_security: "ssl".into(), username: "u".into(), auth: "password".into(), color: None,
+            smtp_username: String::new(), tls_insecure: false,
+        }
+    }
+
+    /// A manually added account holding the newest `n` inbox messages (uids `total-n+1 ..= total`): what the first sync leaves.
+    fn first_sync(total: u32, n: u32) -> Db {
+        let db = db_with(&((total - n + 1)..=total).map(|u| ("inbox", u)).collect::<Vec<_>>());
+        db::insert_account(&lock(&db), &account()).unwrap();
+        db
+    }
+
+    fn parsed(uid: u32) -> mail::Parsed {
+        mail::Parsed {
+            uid, message_id: None, refs: vec![], subject: "s".into(), from_name: "n".into(), from_email: "e@example.com".into(), to: vec![], cc: vec![],
+            date: uid as i64, snippet: String::new(), html: None, text: Some("t".into()), seen: true, flagged: false, attachments: vec![],
+            list_unsub: None, list_unsub_post: false, pgp: 0, pgp_raw: None, ics: None, cal_method: None,
+        }
+    }
+
+    /// A server holding uids 1..=`total`: the `count` highest below `below`, like `mail::fetch_older`.
+    fn server(total: u32) -> impl FnMut(&Account, &str, u32, usize) -> R<(Vec<mail::Parsed>, bool)> {
+        move |_, _, below, count| {
+            let (pick, exhausted) = mail::pick_older((1..=total).filter(|u| *u < below), below, count);
+            Ok((pick.into_iter().map(parsed).collect(), exhausted))
+        }
+    }
+
+    /// (role, have, target, done) of the events a run emitted.
+    type Ev = (String, u64, u64, bool);
+
+    fn run(db: &Db, fetch: &mut dyn FnMut(&Account, &str, u32, usize) -> R<(Vec<mail::Parsed>, bool)>, between: &mut dyn FnMut(&Db, usize)) -> (R<()>, Vec<Ev>) {
+        let mut events: Vec<Ev> = vec![];
+        let r = backfill_loop(db, ACC, std::time::Duration::ZERO, fetch, &mut |ev| {
+            assert_eq!(ev["accountId"], ACC);
+            events.push((ev["role"].as_str().unwrap().into(), ev["have"].as_u64().unwrap(), ev["target"].as_u64().unwrap(), ev["done"].as_bool().unwrap()));
+            between(db, events.len()); // what happens in the pause after an event
+        });
+        (r, events)
+    }
+
+    /// The last event is what the UI keeps showing: it must end the line (`done`), whatever stopped the run.
+    fn ends_the_line(events: &[Ev]) -> bool {
+        events.last().map(|e| e.3).unwrap_or(true)
+    }
+
+    #[test]
+    fn a_complete_download_ends_with_its_own_done_event_and_no_extra_one() {
+        // 101 inbox messages: the first sync took the newest 50, two chunks follow (50, then the last 1)
+        let db = first_sync(101, 50);
+        let (r, ev) = run(&db, &mut server(101), &mut |_, _| {});
+        assert!(r.is_ok());
+        assert_eq!(ev, vec![("inbox".into(), 100, 500, false), ("inbox".into(), 101, 500, true)]);
+        assert_eq!(folder_state(&db, ACC, "inbox").unwrap(), (101, 1));
+    }
+
+    /// The repro of the stuck "Downloading mails... 100/500": the list asks for older mail by itself when its end is in view
+    /// (`loadMore` -> `load_older_impl`), and in the pause after a chunk it reaches the end of the folder and marks it as complete.
+    /// The background download then finds nothing to do, stops, and no event says so.
+    #[test]
+    fn a_folder_completed_by_load_older_between_two_chunks_still_ends_the_line() {
+        let db = first_sync(300, 50);
+        let (r, ev) = run(&db, &mut server(300), &mut |db, n| {
+            if n == 1 {
+                // load_older got everything that is left and set the mark
+                for u in 1..=200 {
+                    lock(db).execute("INSERT INTO messages(id,account_id,folder,uid,thread_id,subject,from_name,from_email,to_addrs,cc_addrs,date,snippet) VALUES(?1,?2,'inbox',?3,'t','s','n','e','','',?3,'')", params![format!("l{u}"), ACC, u]).unwrap();
+                }
+                db::set_setting(&lock(db), &exhausted_key(ACC, "inbox"), "1").unwrap();
+            }
+        });
+        assert!(r.is_ok());
+        assert_eq!(ev[0], ("inbox".into(), 100, 500, false), "{ev:?}");
+        assert!(ends_the_line(&ev), "the last event still says 'downloading': {ev:?}");
+        assert_eq!(ev.iter().filter(|e| e.3).count(), 1, "one closing event: {ev:?}");
+    }
+
+    #[test]
+    fn a_cap_reached_or_lowered_between_two_chunks_still_ends_the_line() {
+        let db = first_sync(900, 50);
+        let (r, ev) = run(&db, &mut server(900), &mut |db, n| {
+            if n == 1 {
+                db::set_setting(&lock(db), "max_download", "100").unwrap(); // lowered in Settings: applies to the next chunk
+            }
+        });
+        assert!(r.is_ok());
+        assert_eq!(ev[0], ("inbox".into(), 100, 500, false));
+        assert!(ends_the_line(&ev), "{ev:?}");
+        // new mail from a sync fills the account up to its cap
+        let db = first_sync(900, 50);
+        let (_, ev) = run(&db, &mut server(900), &mut |db, n| {
+            if n == 2 {
+                db::set_setting(&lock(db), "max_download", "100").unwrap();
+            }
+        });
+        assert!(ends_the_line(&ev), "{ev:?}");
+    }
+
+    #[test]
+    fn a_download_that_fails_twice_in_a_row_ends_the_line_and_reports_the_error() {
+        let db = first_sync(900, 50);
+        let mut good = server(900);
+        let mut calls = 0;
+        let (r, ev) = run(
+            &db,
+            &mut |a, n, b, c| {
+                calls += 1;
+                if calls == 1 { good(a, n, b, c) } else { Err("connection reset".to_string()) }
+            },
+            &mut |_, _| {},
+        );
+        assert_eq!(r, Err("connection reset".to_string()));
+        assert_eq!(calls, 3, "one chunk, then the failure and one retry");
+        assert_eq!(ev[0], ("inbox".into(), 100, 500, false));
+        assert!(ends_the_line(&ev), "{ev:?}");
+        // a single failure is retried and does not end anything
+        let db = first_sync(120, 50);
+        let mut good = server(120);
+        let mut calls = 0;
+        let (r, ev) = run(&db, &mut |a, n, b, c| { calls += 1; if calls == 1 { Err("hiccup".to_string()) } else { good(a, n, b, c) } }, &mut |_, _| {});
+        assert!(r.is_ok());
+        assert_eq!(ev.last(), Some(&("inbox".into(), 120, 500, true)));
+    }
+
+    #[test]
+    fn a_removed_account_ends_the_line() {
+        let db = first_sync(900, 50);
+        let (r, ev) = run(&db, &mut server(900), &mut |db, n| {
+            if n == 1 {
+                lock(db).execute("DELETE FROM accounts WHERE id=?1", params![ACC]).unwrap();
+            }
+        });
+        assert!(r.is_err());
+        assert!(ends_the_line(&ev), "{ev:?}");
+    }
+
+    #[test]
+    fn nothing_to_download_emits_nothing() {
+        let db = first_sync(30, 30); // the first sync took everything: lowest uid 1
+        let (r, ev) = run(&db, &mut server(30), &mut |_, _| {});
+        assert!(r.is_ok() && ev.is_empty());
     }
 
     /// One stored message with everything the pruning looks at.
