@@ -12,3 +12,4 @@ First public release of Hey Look!, a fast, private desktop mail client.
 - Optional AI Assistant with any OpenAI-compatible endpoint
 - Tray icon with unread badge and native notifications (Windows with action buttons, Linux without)
 - New: Hey Look! updates itself. When a new version is out, agree once, keep working while it downloads, and the app restarts into the new version (it asks first while you are writing)
+- Linux: links and attachments open through the desktop's `xdg-open` (then `gio`, `sensible-browser`) with the AppImage's own library paths removed, and a link or file that cannot be opened is reported instead of nothing happening; "Send test" reports a missing notification service
