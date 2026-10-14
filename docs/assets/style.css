@@ -577,18 +577,7 @@ details ol { padding-left: 1.2em; } details li { margin-bottom: .5em; }
 .kofi-box { margin-top: 16px; border-radius: 12px; overflow: hidden; border: 2px solid var(--line); }
 .kofi-box iframe { display: block; }
 .fine-s { margin: 14px 0 0; font-size: .88rem; }
-.bank-grid { display: grid; grid-template-columns: minmax(0, 220px) minmax(0, 1fr); gap: 14px 20px; align-items: start; }
-.bank-card { margin: 0; }
-.bank-frame { position: relative; padding: 10px; background: var(--paper); border-radius: 12px; }
-.bank-frame img { display: block; width: 100%; height: auto; aspect-ratio: 1125 / 1330; object-fit: cover; object-position: top; border-radius: 6px; }
-.bank-corner { position: absolute; width: 20px; height: 20px; border: 0 solid var(--fg); }
-.bank-corner.c1 { top: 0; left: 0; border-width: 4px 0 0 4px; border-top-left-radius: 10px; } .bank-corner.c2 { top: 0; right: 0; border-width: 4px 4px 0 0; border-top-right-radius: 10px; }
-.bank-corner.c3 { bottom: 0; left: 0; border-width: 0 0 4px 4px; border-bottom-left-radius: 10px; } .bank-corner.c4 { bottom: 0; right: 0; border-width: 0 4px 4px 0; border-bottom-right-radius: 10px; }
 .bank-card figcaption { margin-top: 8px; font-size: .92rem; }
-.bank-dl { margin: 0; display: grid; gap: 12px; }
-.bank-dl dt { font: 700 .74rem var(--mono); letter-spacing: .12em; text-transform: uppercase; color: var(--muted); }
-.bank-dl dd { margin: 2px 0 0; font-weight: 700; font-size: 1.05rem; overflow-wrap: anywhere; }
-.bank-dl .sel { user-select: all; font-family: var(--mono); }
 .vi { margin-top: clamp(32px, 5vw, 56px); max-width: 52rem; padding: 22px 26px; border-left: 6px solid var(--amber); background: var(--bg2); border-radius: 0 14px 14px 0; }
 .vi h2 { font-size: 1.5rem; margin-bottom: .5em; } .vi p:last-child { margin: 0; }
 .help { margin-top: clamp(48px, 7vw, 96px); padding-top: clamp(32px, 5vw, 56px); border-top: 2px solid var(--fg); }
@@ -733,9 +722,11 @@ details.hq[open] > summary::after { transform: translateY(-30%) rotate(-135deg);
 .kofi-box { flex: 1; }
 .kofi .fine-s { padding-top: 14px; }
 .kofi .fine-s.warn { color: var(--fg); background: color-mix(in srgb, var(--amber) 22%, transparent); border: 2px solid var(--amber); border-radius: 10px; padding: 10px 12px; margin-top: 14px; font-weight: 600; }
-.bank-grid { grid-template-columns: minmax(0, 200px) minmax(0, 1fr); align-items: center; justify-items: stretch; margin-top: 6px; }
-.bank-card { width: auto; }
-.bank-dl { grid-template-columns: 1fr; }
 .vi-line { margin: 14px 0 0; padding-top: 12px; border-top: 2px dashed var(--line); font-size: .92rem; color: var(--muted); }
 @media (max-width: 720px) { .ways { grid-template-columns: minmax(0, 1fr); } .way > p:first-of-type { min-height: 0; } }
-@media (max-width: 460px) { .bank-grid { grid-template-columns: minmax(0, 1fr); } .bank-card { max-width: 260px; } }
+
+/* bank transfer card: the tight QR image only, as wide as the card allows (a QR must stay big enough to scan) */
+.bank-card { margin: 14px auto 0; width: 100%; max-width: 460px; }
+.bank-card img { display: block; width: 100%; height: auto; border: 2px solid var(--line); border-radius: 12px; background: #fff; }
+.bank-card figcaption { text-align: center; }
+.way.bank > p.vi-line { min-height: 0; }
