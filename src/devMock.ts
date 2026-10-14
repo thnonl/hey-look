@@ -436,6 +436,153 @@ function simulateWindowFrame(): boolean {
   return true;
 }
 
+// ---- update check (`#update=<kind>`, `#openfail`): fixed answers, read from the URL hash on every call.
+// Kinds: available, uptodate (default), newer, norelease, offline, ratelimited, error, noasset, slow, empty, long.
+// The throttle, the 6 h rule and the stored state are Rust only: here every manual call answers, automatic calls answer `disabled` when the switch is off.
+const hashTokens = () => new Map(window.location.hash.slice(1).split("&").filter(Boolean).map((t) => { const [k, v = ""] = t.split("="); return [k, decodeURIComponent(v)] as [string, string]; }));
+const UPDATE_SAMPLE_NOTES = [
+  "## Highlights", "- Faster search in large mailboxes", "* **Bold** item with `code`", "[a link](https://example.com)", "",
+  "### Fixes", "| Area | Fix |", "|---|---|", "| Sync | Fewer retries |", "<img src=x onerror=alert(1)>", "x".repeat(200),
+].join("\n");
+const UPDATE_LONG_NOTES = (() => {
+  const out: string[] = ["## Everything that changed"];
+  for (let i = 1; out.join("\n").length < 4000; i++) out.push(`- Change ${i}: a longer line of release notes that explains one improvement in a few words`);
+  return out.join("\n").slice(0, 4000);
+})();
+// REQ-47 state: how many checks were answered (not `disabled`), the first answer's offer, and `dl=changed`'s pending "GitHub has 1.2.0 now".
+let mockChecks = 0;
+let mockFirstOffer: unknown = null;
+let mockChangedPending = false;
+let mockChangedDone = false;
+async function mockCheckUpdate(trigger: string, prefsJson?: string) {
+  const entry = logUpdateCall({ trigger });
+  const token = hashTokens().get("update") || "uptodate";
+  const now = Math.floor(Date.now() / 1000);
+  const base = { kind: "upToDate", current: "1.0.0", platform: { os: "windows", arch: "x64", installer: "nsis", label: "Windows" }, checkedAt: now, message: null as string | null, info: null as unknown, fromCache: false };
+  const info = (over: Record<string, unknown> = {}) => ({
+    latest: "1.1.0", notes: UPDATE_SAMPLE_NOTES, notesTruncated: false, publishedAt: Math.floor(new Date(2026, 9, 12, 10, 0).getTime() / 1000),
+    releaseUrl: "https://github.com/thnonl/hey-look/releases/tag/v1.1.0",
+    asset: { name: "HeyLook_1.1.0_windows_x64-setup.exe", url: "https://github.com/thnonl/hey-look/releases/download/v1.1.0/HeyLook_1.1.0_windows_x64-setup.exe", size: 10276044, urlOk: true },
+    ...over,
+  });
+  const enabled = (() => { try { return JSON.parse(prefsJson ?? "{}").checkUpdates !== false; } catch { return true; } })();
+  let r: typeof base;
+  if (trigger !== "manual" && !enabled) r = { ...base, kind: "disabled" };
+  else {
+    if (token === "slow") await new Promise((res) => setTimeout(res, 5000));
+    switch (token) {
+      case "available": case "slow": r = { ...base, kind: "available", info: info() }; break;
+      case "noasset": r = { ...base, kind: "available", info: info({ asset: null }) }; break;
+      case "empty": r = { ...base, kind: "available", info: info({ notes: "", publishedAt: null }) }; break;
+      case "long": r = { ...base, kind: "available", info: info({ notes: UPDATE_LONG_NOTES, notesTruncated: true }) }; break;
+      case "newer": r = { ...base, current: "1.2.0", info: info() }; break;
+      case "norelease": r = { ...base, kind: "noRelease" }; break;
+      case "offline": r = { ...base, kind: "offline" }; break;
+      case "error": r = { ...base, kind: "error", message: "GitHub sent an unexpected answer" }; break;
+      // the check fails, but the cache holds the 1.1.0 offer (REQ-47)
+      case "offlinecached": r = { ...base, kind: "offline", info: info(), fromCache: true, cachedKind: "available" } as typeof base; break;
+      case "errorcached": r = { ...base, kind: "error", message: "GitHub sent an unexpected answer", info: info(), fromCache: true, cachedKind: "available" } as typeof base; break;
+      default: r = { ...base, info: info({ latest: "1.0.0", asset: null }) };
+    }
+    // `recheck=offline|error`: the first answer is per `update=`, every later one fails and carries the first answer's offer;
+    // `dl=changed`: the check after the refused download finds 1.2.0 (once, over `recheck=`)
+    const recheck = hashTokens().get("recheck");
+    const first = mockChecks++ === 0;
+    if (mockChangedPending) {
+      mockChangedPending = false;
+      r = { ...base, kind: "available", info: info({ latest: "1.2.0", releaseUrl: "https://github.com/thnonl/hey-look/releases/tag/v1.2.0", asset: { name: "HeyLook_1.2.0_windows_x64-setup.exe", url: "https://github.com/thnonl/hey-look/releases/download/v1.2.0/HeyLook_1.2.0_windows_x64-setup.exe", size: 10276044, urlOk: true } }) };
+      mockFirstOffer = r.info;
+    } else if (first) mockFirstOffer = r.kind === "available" ? r.info : null;
+    else if (recheck === "offline" || recheck === "error") {
+      r = { ...base, kind: recheck, message: recheck === "error" ? "GitHub sent an unexpected answer" : null, info: mockFirstOffer, fromCache: !!mockFirstOffer, cachedKind: mockFirstOffer ? "available" : null } as typeof base;
+    }
+  }
+  entry.kind = r.kind;
+  return r;
+}
+
+// ---- the update flow (`#dl=<mode>`, `#sending`, `#draftfail`, `#afterupdate=ok|draft|fail`): a pretend download with the same events as Rust's channel.
+// Modes: ok (default; 9.8 MB over 6 s), nolength (no total), slow (60 s), stall (stops at 30 %, fails after 10 s), fail (fails at 40 %),
+// verifyfail, badurl, installfail, offline (fails at once), changed (the first one: GitHub has 1.2.0 now). `update_install` never restarts: it shows a toast and logs the call.
+type UpdateLogEntry = { trigger?: string; cmd?: string; restart?: boolean; note?: string; at: number; kind: string | null };
+function logUpdateCall(e: { trigger?: string; cmd?: string; restart?: boolean; note?: string }): UpdateLogEntry {
+  const w = window as unknown as { __updateCalls?: UpdateLogEntry[] };
+  const entry: UpdateLogEntry = { ...e, at: Date.now(), kind: null };
+  (w.__updateCalls ??= []).push(entry);
+  return entry;
+}
+let dlCancelled = false;
+let busyUntil = 0;
+const wait = (ms: number) => new Promise<void>((r) => setTimeout(r, ms));
+async function mockDownload(ch: { onmessage: (e: unknown) => void }) {
+  const entry = logUpdateCall({ cmd: "download" });
+  const mode = hashTokens().get("dl") || "ok";
+  const send = (e: unknown) => ch.onmessage(e);
+  dlCancelled = false;
+  if (mode === "badurl") {
+    send({ event: "failed", data: { stage: "badurl", message: "" } });
+    entry.kind = "failed";
+    return;
+  }
+  if (mode === "offline") {
+    send({ event: "failed", data: { stage: "download", message: "You seem to be offline." } });
+    entry.kind = "failed";
+    return;
+  }
+  // `dl=changed`: the first download finds that GitHub has 1.2.0 now and downloads nothing; later ones behave as `ok` (for 1.2.0)
+  if (mode === "changed" && !mockChangedDone) {
+    mockChangedDone = mockChangedPending = true;
+    send({ event: "failed", data: { stage: "changed", message: "1.2.0" } });
+    entry.kind = "changed";
+    return;
+  }
+  const full = 10276044;
+  const total = mode === "nolength" ? null : full;
+  send({ event: "started", data: { total, version: mode === "changed" ? "1.2.0" : "1.1.0" } });
+  const steps = mode === "slow" ? 600 : 60;
+  const tick = 100;
+  for (let i = 1; i <= steps; i++) {
+    await wait(tick);
+    if (dlCancelled) {
+      send({ event: "cancelled" });
+      entry.kind = "cancelled";
+      return;
+    }
+    const f = i / steps;
+    if (mode === "stall" && f > 0.3) {
+      await wait(10_000);
+      send({ event: "failed", data: { stage: "download", message: "The download stopped. Check your connection." } });
+      entry.kind = "failed";
+      return;
+    }
+    if (mode === "fail" && f > 0.4) {
+      send({ event: "failed", data: { stage: "download", message: "The connection was lost." } });
+      entry.kind = "failed";
+      return;
+    }
+    send({ event: "progress", data: { received: Math.round(full * f) } });
+  }
+  send({ event: "verifying" });
+  await wait(1000);
+  if (mode === "verifyfail") {
+    send({ event: "failed", data: { stage: "verify", message: "signature mismatch" } });
+    entry.kind = "failed";
+    return;
+  }
+  send({ event: "ready" });
+  entry.kind = "ready";
+}
+async function mockInstall(restart: boolean) {
+  const entry = logUpdateCall({ cmd: "install", restart });
+  if (hashTokens().get("dl") === "installfail") {
+    entry.kind = "failed";
+    throw "The installer couldn’t start";
+  }
+  entry.kind = "ok";
+  const { useStore } = await import("./store");
+  useStore.getState().showToast("Mock: Hey Look! would restart now.", undefined, "info");
+}
+
 // ---- adding accounts (Settings > Add account, Welcome): the mock backend creates the account after a short delay.
 // Failures to try: password `wrong` (IMAP), client id `fail` (Google / Microsoft). Its first sync takes 2.5 s, then three messages appear.
 const synced = new Set<string>();
@@ -784,7 +931,9 @@ export function installMock() {
         if (x) { x.displayName = a.displayName as string; (x as { color: string | null }).color = (a.color as string | null) ?? null; }
         return null;
       }
-      case "save_draft": (window as unknown as { __lastDraft: unknown }).__lastDraft = a.draft; return null;
+      case "save_draft":
+        if (hashTokens().has("draftfail")) throw "mock: the server refused the draft"; // `#draftfail`: saving a draft fails (update restart keeps Compose open)
+        (window as unknown as { __lastDraft: unknown }).__lastDraft = a.draft; return null;
       case "queue_action": return "token-" + Math.random().toString(36).slice(2);
       case "cancel_action": return true;
       case "load_older": {
@@ -805,7 +954,44 @@ export function installMock() {
           return { added, exhausted, limited: !exhausted && have + added >= cap };
         });
       }
-      case "plugin:opener|open_url": mockMail.opened.push(String(a.url)); console.info("[mock] open in browser:", a.url); return null;
+      case "plugin:opener|open_url": // (Linux asks the backend: open_external)
+      case "open_external":
+        if (hashTokens().has("openfail")) throw "mock: no default browser"; // `#openfail` makes opening links fail (update check: copy-link path)
+        mockMail.opened.push(String(a.url)); console.info("[mock] open in browser:", a.url); return null;
+      case "copy_text": // (Linux asks the backend for the clipboard; `#copyfail` makes it fail)
+        if (hashTokens().has("copyfail")) throw "mock: no clipboard";
+        console.info("[mock] clipboard:", a.text); return null;
+      case "plugin:app|version": return "1.0.0";
+      // `#os=macos|linux` (per-OS copy and shortcut labels), `#notray` (Linux without a tray host), `#nonotify` (Send test fails)
+      case "shell_info": return { os: hashTokens().get("os") || "windows", tray: !hashTokens().has("notray"), testData: null };
+      case "test_notification":
+        if (hashTokens().has("nonotify")) throw "no notification server is running";
+        return null;
+      case "check_update": return mockCheckUpdate(String(a.trigger), settings.prefs);
+      case "update_download": return mockDownload(a.onEvent as { onmessage: (e: unknown) => void });
+      case "update_cancel": dlCancelled = true; logUpdateCall({ cmd: "cancel" }).kind = "ok"; return null;
+      case "update_note": logUpdateCall({ cmd: "note", note: String(a.text) }).kind = "ok"; return null;
+      case "update_discard": logUpdateCall({ cmd: "discard" }).kind = "ok"; return null;
+      // the last account can be removed in the mock (Settings > account > Remove): the Welcome screen returns
+      case "remove_account": { const i = accounts.findIndex((x) => x.id === a.accountId); if (i >= 0) accounts.splice(i, 1); return null; }
+      case "set_mail_available": ((window as unknown as { __mailAvailable?: boolean[] }).__mailAvailable ??= []).push(!!a.available); return null;
+      // an Undo-window send is kept in the (mock) outbox until it is sent or taken back; every call is logged in window.__sendCalls
+      case "outbox_hold": { const w = window as unknown as { __sendCalls?: unknown[] }; (w.__sendCalls ??= []).push({ cmd: "hold", dueAt: a.dueAt }); return `hold-${Date.now()}`; }
+      case "outbox_hold_send": { const w = window as unknown as { __sendCalls?: unknown[] }; (w.__sendCalls ??= []).push({ cmd: "holdSend", id: a.id, keep: a.keep }); return null; }
+      case "quit_dialog": case "quit_cancelled": case "sends_flushed": case "show_window": case "frontend_ready": case "page_state": return null;
+      case "update_defer": logUpdateCall({ cmd: "defer" }).kind = a.deferred ? "later" : "now"; return null;
+      case "update_install": return mockInstall(!!a.restart);
+      case "update_startup_ack": logUpdateCall({ cmd: "startupAck" }).kind = "ok"; return null;
+      case "update_startup_state": {
+        const t = hashTokens().get("afterupdate");
+        return t === "fail" ? { outcome: "failed", version: "1.0.0", draft: false } : t ? { outcome: "updated", version: "1.0.0", draft: t === "draft" } : { outcome: null, version: null, draft: false };
+      }
+      case "outbox_busy": {
+        // `#sending`: one message is "being sent" for 8 s after the first question
+        if (!hashTokens().has("sending")) return false;
+        if (!busyUntil) busyUntil = Date.now() + 8000;
+        return Date.now() < busyUntil;
+      }
       case "has_secret": return false;
       case "google_env_configured": case "microsoft_env_configured": return false;
       case "microsoft_tenant": return "";

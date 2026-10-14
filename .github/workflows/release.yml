@@ -1,34 +1,116 @@
 name: Release
 
-# Build installers for Windows, macOS and Linux when a version tag is pushed (e.g. v0.2.0),
-# then attach them to a draft GitHub Release.
+# Tag vX.Y.Z (numbers only): build signed installers for Windows, macOS and Linux, attach them to a draft GitHub Release,
+# write and check the updater manifest (latest.json), then publish the release as the latest one.
+# Manual run (workflow_dispatch) = dry run on the chosen ref: builds the chosen platforms (input `platforms`, default all three)
+# and keeps the bundles as workflow artifacts. It creates no tag and no release. It is signed when the repo secret
+# TAURI_SIGNING_PRIVATE_KEY exists. The signed dry run on the commit that will be tagged uses `platforms: all`.
+# With `test_version` (for example 0.9.0) it builds a DEBUG test build of that version (never signed, nothing committed):
+# the debug build honours HEYLOOK_UPDATE_ENDPOINT, so it can be pointed at a local latest.json to test the in-app update.
+# Use `platforms` there for just the system that is being tested (windows, macos, linux, or a list such as windows,macos).
+# A tag run always builds all three platforms. The checks that need all three (the asset list, latest.json) exist only in the
+# tag run's publish job, so a subset dry run has nothing to skip; the plan job says what was chosen.
 on:
   push:
     tags:
-      - "v*.*.*"
+      - "v[0-9]+.[0-9]+.[0-9]+"
+  workflow_dispatch:
+    inputs:
+      test_version:
+        description: "Optional: build a debug TEST build with this version (x.y.z) for updater tests"
+        required: false
+        default: ""
+      platforms:
+        description: "Platforms to build: all, or one or more of windows, macos, linux separated by commas (tag runs always build all)"
+        required: false
+        default: "all"
 
 permissions:
   contents: write
 
+# One run per ref and kind at a time. A newer manual run of the same kind (and the same platforms) on the same ref cancels the one
+# that is still building; a tag run is never cancelled.
 concurrency:
-  group: release-${{ github.ref }}
-  cancel-in-progress: false
+  group: release-${{ github.ref }}-${{ github.event_name == 'push' && 'tag' || format('{0}-{1}', github.event.inputs.test_version != '' && 'test' || 'dry', github.event.inputs.platforms) }}
+  cancel-in-progress: ${{ github.event_name == 'workflow_dispatch' }}
 
 jobs:
-  release:
+  plan:
+    # Which platforms to build: a tag run builds all three; a manual run builds what `platforms` names.
+    runs-on: ubuntu-latest
+    outputs:
+      matrix: ${{ steps.plan.outputs.matrix }}
+    steps:
+      - id: plan
+        shell: bash
+        env:
+          EVENT: ${{ github.event_name }}
+          PLATFORMS: ${{ github.event.inputs.platforms }}
+        run: |
+          set -euo pipefail
+          want="all"
+          if [ "$EVENT" = "workflow_dispatch" ]; then want="$(echo "${PLATFORMS:-all}" | tr 'A-Z' 'a-z' | tr -d ' ')"; fi
+          [ -n "$want" ] || want="all"
+          win=false; mac=false; lin=false
+          IFS=',' read -ra parts <<< "$want"
+          for p in "${parts[@]}"; do
+            case "$p" in
+              all) win=true; mac=true; lin=true ;;
+              windows) win=true ;;
+              macos) mac=true ;;
+              linux) lin=true ;;
+              *) echo "::error::Unknown platform '$p'. Use all, windows, macos, linux or a comma list."; exit 1 ;;
+            esac
+          done
+          items=()
+          $win && items+=('{"name":"Windows","platform":"windows-latest","args":""}')
+          $mac && items+=('{"name":"macOS (universal)","platform":"macos-latest","args":"--target universal-apple-darwin"}')
+          $lin && items+=('{"name":"Linux","platform":"ubuntu-22.04","args":""}')
+          matrix="{\"include\":[$(IFS=,; echo "${items[*]}")]}"
+          echo "matrix=$matrix" >> "$GITHUB_OUTPUT"
+          echo "Event: $EVENT. Platforms to build: $want"
+          echo "$matrix"
+          if [ "${#items[@]}" -lt 3 ]; then
+            echo "::notice::Subset run: only some platforms are built. A tag run always builds all three; the asset-list and latest.json checks run only there."
+          fi
+
+  create-release:
+    # Tag runs only. Creates the one draft release that all build jobs upload into.
+    if: github.event_name == 'push'
+    runs-on: ubuntu-latest
+    outputs:
+      id: ${{ steps.mk.outputs.id }}
+    env:
+      GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - id: mk
+        run: |
+          set -euo pipefail
+          T="$GITHUB_REF_NAME"
+          V="${T#v}"
+          # No release or draft may exist for this tag yet.
+          n=$(gh api "repos/$GITHUB_REPOSITORY/releases" --paginate --jq "[.[] | select(.tag_name == \"$T\")] | length" | awk '{s+=$1} END {print s+0}')
+          if [ "$n" != "0" ]; then
+            echo "::error::A release or draft for $T already exists. Delete it first."
+            exit 1
+          fi
+          # Release notes = the CHANGELOG section for this version + the download footer.
+          bash .github/scripts/changelog-section.sh "$V" > notes.md
+          cat .github/release-footer.md >> notes.md
+          id=$(gh api -X POST "repos/$GITHUB_REPOSITORY/releases" \
+                 -f tag_name="$T" -f name="Hey Look! $T" \
+                 -F draft=true -F prerelease=false -F body=@notes.md --jq .id)
+          echo "id=$id" >> "$GITHUB_OUTPUT"
+
+  build:
+    needs: [plan, create-release]
+    # Runs after create-release on tag runs, and on its own (create-release skipped) on dry runs.
+    if: ${{ !cancelled() && needs.plan.result == 'success' && (needs.create-release.result == 'success' || needs.create-release.result == 'skipped') }}
     strategy:
       fail-fast: false
-      matrix:
-        include:
-          - name: Windows
-            platform: windows-latest
-            args: ""
-          - name: macOS (universal)
-            platform: macos-latest
-            args: "--target universal-apple-darwin"
-          - name: Linux
-            platform: ubuntu-22.04
-            args: ""
+      matrix: ${{ fromJSON(needs.plan.outputs.matrix) }}
 
     name: Build (${{ matrix.name }})
     runs-on: ${{ matrix.platform }}
@@ -57,23 +139,75 @@ jobs:
         with:
           workspaces: src-tauri -> target
 
-      # Make the app version match the tag (v1.2.3 -> 1.2.3) so installer file names are right.
-      - name: Sync version from tag
+      # Is there a signing key? Tag run: it must be there. Dry run: signed with it, or built unsigned (with a warning) without.
+      # A test build (test_version) is never signed. The key itself is never printed.
+      - name: Signing key
+        id: sign
+        shell: bash
+        env:
+          KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TEST_VERSION: ${{ github.event.inputs.test_version }}
+        run: |
+          NOUPD="--config src-tauri/tauri.no-updater.conf.json"
+          if [ "${{ github.event_name }}" = "push" ]; then
+            if [ -z "$KEY" ]; then
+              echo "::error::TAURI_SIGNING_PRIVATE_KEY is not set: a release must be signed"
+              exit 1
+            fi
+            echo "extra=" >> "$GITHUB_OUTPUT"
+            echo "pubkey=error" >> "$GITHUB_OUTPUT"
+            echo "signed=true" >> "$GITHUB_OUTPUT"
+            echo "profile=release" >> "$GITHUB_OUTPUT"
+          elif [ -n "$TEST_VERSION" ]; then
+            echo "Test build $TEST_VERSION (debug, no updater artifacts)"
+            echo "extra=--debug $NOUPD" >> "$GITHUB_OUTPUT"
+            echo "pubkey=error" >> "$GITHUB_OUTPUT"
+            echo "signed=false" >> "$GITHUB_OUTPUT"
+            echo "profile=debug" >> "$GITHUB_OUTPUT"
+          elif [ -n "$KEY" ]; then
+            echo "extra=" >> "$GITHUB_OUTPUT"
+            echo "pubkey=error" >> "$GITHUB_OUTPUT"
+            echo "signed=true" >> "$GITHUB_OUTPUT"
+            echo "profile=release" >> "$GITHUB_OUTPUT"
+          else
+            echo "::warning::Unsigned dry run: TAURI_SIGNING_PRIVATE_KEY is not set"
+            echo "extra=$NOUPD" >> "$GITHUB_OUTPUT"
+            echo "pubkey=warn" >> "$GITHUB_OUTPUT"
+            echo "signed=false" >> "$GITHUB_OUTPUT"
+            echo "profile=release" >> "$GITHUB_OUTPUT"
+          fi
+
+      # Test build only: the version of this checkout is changed (never committed).
+      - name: Set test version
+        if: github.event_name == 'workflow_dispatch' && github.event.inputs.test_version != ''
+        shell: bash
+        env:
+          TEST_VERSION: ${{ github.event.inputs.test_version }}
+        run: node .github/scripts/set-version.cjs "$TEST_VERSION"
+
+      # The repo files are the source of truth for the version: a tag run fails if they do not match the tag.
+      # The updater public key must be in tauri.conf.json (warning only for an unsigned dry run).
+      - name: Verify version and updater key
         shell: bash
         run: |
-          VERSION="${GITHUB_REF_NAME#v}"
-          node -e '
-            const fs = require("fs");
-            const v = process.argv[1];
-            const edit = (f, fn) => fs.writeFileSync(f, fn(fs.readFileSync(f, "utf8")));
-            edit("package.json", s => s.replace(/("version":\s*")[^"]+/, `$1${v}`));
-            edit("src-tauri/tauri.conf.json", s => s.replace(/("version":\s*")[^"]+/, `$1${v}`));
-            edit("src-tauri/Cargo.toml", s => s.replace(/^version = ".*"$/m, `version = "${v}"`));
-          ' "$VERSION"
+          if [ "${{ github.event_name }}" = "push" ]; then V="${GITHUB_REF_NAME#v}"; else V="-"; fi
+          node .github/scripts/verify-version.cjs "$V" . --pubkey=${{ steps.sign.outputs.pubkey }}
 
       - run: npm ci
 
-      - uses: tauri-apps/tauri-action@v0
+      # the "no account" rules of the UI (which controls, shortcuts and commands exist on the Welcome screen)
+      - name: Mail-controls rules
+        if: runner.os == 'Linux'
+        run: |
+          node --experimental-strip-types scripts/test-mail-controls.mjs
+          node --experimental-strip-types scripts/test-frame-sandbox.mjs
+          node --experimental-strip-types scripts/test-addresses.mjs
+          node scripts/test-compose-tab-order.mjs
+          node scripts/test-update-result.mjs
+          node --experimental-strip-types scripts/test-sticky-timers.mjs
+          node scripts/test-link-copy.mjs
+
+      - uses: tauri-apps/tauri-action@v1
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           # Embedded into the binary at build time (see src-tauri/build.rs).
@@ -81,10 +215,101 @@ jobs:
           GOOGLE_CLIENT_SECRET: ${{ secrets.GOOGLE_CLIENT_SECRET }}
           MICROSOFT_CLIENT_ID: ${{ secrets.MICROSOFT_CLIENT_ID }}
           MICROSOFT_CLIENT_SECRET: ${{ secrets.MICROSOFT_CLIENT_SECRET }}
+          # Signs the update packages (minisign). Only this step gets the key.
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
         with:
-          tagName: ${{ github.ref_name }}
-          releaseName: "Hey Look! ${{ github.ref_name }}"
-          releaseBody: "See the assets below to download and install this version."
-          releaseDraft: true
-          prerelease: false
-          args: ${{ matrix.args }}
+          # Upload into the draft made by create-release. Empty on dry runs: build only, upload nothing.
+          releaseId: ${{ needs.create-release.outputs.id }}
+          releaseAssetNamePattern: "HeyLook_[version]_[platform]_[arch][setup][ext]"
+          uploadUpdaterJson: false
+          uploadUpdaterSignatures: true
+          uploadWorkflowArtifacts: ${{ github.event_name == 'workflow_dispatch' }}
+          # No retries while fixing the build (a real compile error would take twice as long); one on tag runs.
+          retryAttempts: ${{ github.event_name == 'push' && 1 || 0 }}
+          args: ${{ matrix.args }} ${{ steps.sign.outputs.extra }}
+
+      # A release app must be a GUI program: with the console subsystem Windows opens a black console window beside it.
+      - name: The Windows app is a GUI program
+        if: runner.os == 'Windows' && steps.sign.outputs.profile == 'release'
+        shell: bash
+        run: |
+          node .github/scripts/check-pe-subsystem.cjs --selftest
+          node .github/scripts/check-pe-subsystem.cjs src-tauri/target/release/hey-look.exe --expect gui
+
+      # tauri-action keeps only the installers as workflow artifacts: keep the updater signatures of a dry run too, and the
+      # macOS update package (.app.tar.gz, not an installer artifact) that its signature belongs to
+      - name: Keep the signatures of a dry run
+        if: github.event_name == 'workflow_dispatch'
+        uses: actions/upload-artifact@v4
+        with:
+          name: signatures-${{ runner.os }}
+          path: |
+            src-tauri/target/**/bundle/**/*.sig
+            src-tauri/target/**/bundle/macos/*.app.tar.gz
+          if-no-files-found: ${{ steps.sign.outputs.signed == 'true' && 'error' || 'ignore' }}
+
+      - name: Check ad-hoc signature
+        if: runner.os == 'macOS'
+        env:
+          PROFILE: ${{ steps.sign.outputs.profile }}
+        run: |
+          # the build profile's folder only: the cache can hold an older bundle of the other profile
+          app=$(find "src-tauri/target/universal-apple-darwin/$PROFILE/bundle/macos" -maxdepth 1 -name '*.app' | head -n 1)
+          echo "App bundle: $app"
+          out=$(codesign -dv --verbose=2 "$app" 2>&1) || true
+          echo "$out"
+          grep -q 'Signature=adhoc' <<<"$out"
+
+  publish:
+    # Default success rule on purpose: runs only when create-release and all three builds succeeded.
+    needs: [create-release, build]
+    if: github.event_name == 'push'
+    runs-on: ubuntu-latest
+    env:
+      GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      ID: ${{ needs.create-release.outputs.id }}
+    steps:
+      - uses: actions/checkout@v4
+
+      # A re-run ("Re-run failed jobs") finds the manifest of the last attempt: it is made again from the current assets.
+      - name: Script fixtures
+        run: bash .github/scripts/test-check-release-assets.sh
+
+      - name: Remove an old latest.json
+        run: |
+          gh api "repos/$GITHUB_REPOSITORY/releases/$ID/assets" --paginate --jq '.[] | select(.name == "latest.json") | .id' | while read -r aid; do
+            [ -n "$aid" ] && gh api -X DELETE "repos/$GITHUB_REPOSITORY/releases/assets/$aid"
+          done
+          true
+
+      - name: Check installers and signatures
+        run: |
+          gh api "repos/$GITHUB_REPOSITORY/releases/$ID/assets" --paginate --jq '.[].name' > names.txt
+          cat names.txt
+          bash .github/scripts/check-release-assets.sh "${GITHUB_REF_NAME#v}" --pre < names.txt
+
+      - name: Write and upload latest.json
+        run: |
+          set -euo pipefail
+          V="${GITHUB_REF_NAME#v}"
+          gh api "repos/$GITHUB_REPOSITORY/releases/$ID/assets" --paginate --jq '.[] | {name: .name, size: .size, id: .id}' | jq -s . > assets.json
+          mkdir sigs
+          jq -r '.[] | select(.name | endswith(".sig")) | "\(.id) \(.name)"' assets.json | while read -r aid aname; do
+            gh api -H "Accept: application/octet-stream" "repos/$GITHUB_REPOSITORY/releases/assets/$aid" > "sigs/$aname"
+          done
+          bash .github/scripts/changelog-section.sh "$V" > notes.md
+          node .github/scripts/make-latest-json.cjs generate --version "$V" --assets assets.json --sigs sigs --notes notes.md > latest.json
+          node .github/scripts/make-latest-json.cjs check latest.json --version "$V"
+          gh release upload "$GITHUB_REF_NAME" latest.json --clobber
+
+      - name: Check the final asset list and latest.json
+        run: |
+          V="${GITHUB_REF_NAME#v}"
+          gh api "repos/$GITHUB_REPOSITORY/releases/$ID/assets" --paginate --jq '.[].name' > names.txt
+          cat names.txt
+          bash .github/scripts/check-release-assets.sh "$V" < names.txt
+          node .github/scripts/make-latest-json.cjs check latest.json --version "$V"
+
+      - name: Publish and mark latest
+        run: gh api -X PATCH "repos/$GITHUB_REPOSITORY/releases/$ID" -F draft=false -f make_latest=true

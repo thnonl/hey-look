@@ -1,6 +1,7 @@
 import { ChevronRight, Lock, Mail, ShieldCheck, Zap } from "lucide-react";
 import { ReactNode } from "react";
 import logo from "../assets/logo.png";
+import { credStore } from "../platform";
 import { useStore } from "../store";
 
 /** Generic provider marks (a letter badge and a four-square mark): neutral glyphs, not the providers' own logos. */
@@ -47,7 +48,7 @@ export function Welcome() {
           <Choice icon={<Mail size={20} />} tone="o" title="Other email account" text="iCloud (app password), Yahoo or any IMAP / SMTP server" onClick={add} />
         </div>
         <ul className="welcome-points">
-          <li><Lock size={14} /> Passwords stay in Windows Credential Manager</li>
+          <li><Lock size={14} /> Passwords stay in {credStore()}</li>
           <li><ShieldCheck size={14} /> Remote images and trackers are blocked by default</li>
           <li><Zap size={14} /> Keeps checking mail from the tray, with Undo for every move</li>
         </ul>

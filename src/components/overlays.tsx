@@ -6,10 +6,26 @@ import { fullErrorFor, useStore } from "../store";
 export function Toasts() {
   const toasts = useStore((s) => s.toasts);
   const dismiss = useStore((s) => s.dismissToast);
+  // Esc closes the newest toast that asks for it ("a new version is available") when focus is on its buttons, unless a dialog, the command bar or a question is open
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key !== "Escape" || e.defaultPrevented) return;
+      const st = useStore.getState();
+      if (st.dialog || st.ask || st.passphrase || st.commandOpen) return;
+      // only while keyboard focus is on one of the toast's own buttons: an Esc that closed the command bar or a menu is not meant for it
+      if (!(document.activeElement instanceof Element) || !document.activeElement.closest(".toasts")) return;
+      const t = [...st.toasts].reverse().find((x) => x.escCloses);
+      if (!t) return;
+      st.dismissToast(t.id);
+      t.onDismiss?.();
+    };
+    document.addEventListener("keydown", onKey);
+    return () => document.removeEventListener("keydown", onKey);
+  }, []);
   return (
     <div className="toasts" role="status" aria-live="polite">
       {toasts.map((t) => (
-        <div key={t.id} className={`toast ${t.kind}`} style={{ ["--ttl" as string]: `${t.ttl}ms` }}>
+        <div key={t.id} className={`toast ${t.kind}${t.sticky ? " sticky" : ""}`} style={t.sticky ? undefined : { ["--ttl" as string]: `${t.ttl}ms` }}>
           <span className="toast-ico">
             {t.kind === "error" ? <AlertTriangle size={16} /> : t.kind === "success" ? <CheckCircle2 size={16} /> : <Info size={16} />}
           </span>
@@ -37,10 +53,17 @@ export function Toasts() {
               {a.label}
             </button>
           ))}
-          <button className="toast-x" aria-label="Dismiss" onClick={() => dismiss(t.id)}>
+          <button
+            className="toast-x"
+            aria-label={t.closeLabel ?? (t.onDismiss ? "Later" : "Dismiss")}
+            onClick={() => {
+              dismiss(t.id);
+              t.onDismiss?.();
+            }}
+          >
             <X size={14} />
           </button>
-          <span className="toast-bar" />
+          {!t.sticky && <span className="toast-bar" />}
         </div>
       ))}
     </div>

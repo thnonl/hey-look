@@ -1,4 +1,5 @@
-import { openUrl } from "@tauri-apps/plugin-opener";
+import { frameCsp, frameSandbox } from "../frameSandbox";
+import { openUpdateLink } from "../updates";
 import { Archive, Clock, Flag, Forward, MailX, MoreHorizontal, Moon, Pin, Reply, ReplyAll, Sparkles, Sun, Trash2, ChevronsDownUp, ChevronsUpDown, Mail, ShieldAlert } from "lucide-react";
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { forward, replyTo } from "../actions";
@@ -11,6 +12,7 @@ import { useAppDark } from "../useAppDark";
 import { fmtFull, fmtSize, plainToHtml, sanitizeHtml, snoozePresets } from "../util";
 import { AttachmentStrip, Lightbox, LbItem } from "./Attachments";
 import { InviteCard } from "./Calendar";
+import { osNow } from "../platform";
 import { EmptyState } from "./overlays";
 import { EncCard, importKeyFromMessage, isKeyAttachment, needsCard, SecBadges } from "./Pgp";
 import { Avatar, Dropdown } from "./ui";
@@ -191,7 +193,7 @@ function MessageBody({ m, frameRef, dark, onPictures }: { m: MessageFull; frameR
 
   // CSP inside the message frame: without consent nothing remote may load; with consent the backend already
   // inlined what it could and the rest falls back to a direct request.
-  const csp = allowed ? "default-src 'none'; img-src data: https: http:; style-src 'unsafe-inline'; font-src data:" : "default-src 'none'; img-src data:; style-src 'unsafe-inline'; font-src data:";
+  const csp = frameCsp(allowed ? "default-src 'none'; img-src data: https: http:; style-src 'unsafe-inline'; font-src data:" : "default-src 'none'; img-src data:; style-src 'unsafe-inline'; font-src data:");
   // The base colours switch with a class on <html> (screen only, so print stays light), and the mail's own colours with
   // the sheet from darkMail.ts: toggling never reloads the frame. The frame is created already dark and hidden
   // (hm-pend) so the original colours are never painted first. The picture placeholders (.hl-ph) are ordinary mail
@@ -343,10 +345,11 @@ function MessageBody({ m, frameRef, dark, onPictures }: { m: MessageFull; frameR
           body: `It is shown as “${text.slice(0, 80)}” but opens ${host(a.href) || a.href}. Open it anyway?`,
           confirmLabel: "Open link",
           danger: true,
-        }).then((ok) => ok && void openUrl(a.href));
-      } else void openUrl(a.href);
+        }).then((ok) => ok && void openUpdateLink(a.href));
+      } else void openUpdateLink(a.href); // (an open that fails says so and copies the link, instead of doing nothing)
     };
     doc.addEventListener("click", onClick);
+    doc.addEventListener("auxclick", onClick); // middle click on a link opens it in the browser too (REQ-50)
     const unlock = lockedNow.current ? lockDocument(doc) : undefined;
     stopObserve.current = () => {
       unlock?.();
@@ -358,6 +361,7 @@ function MessageBody({ m, frameRef, dark, onPictures }: { m: MessageFull; frameR
       paneRo?.disconnect();
       window.removeEventListener("resize", measure);
       doc.removeEventListener("click", onClick);
+      doc.removeEventListener("auxclick", onClick);
     };
   };
 
@@ -373,11 +377,11 @@ function MessageBody({ m, frameRef, dark, onPictures }: { m: MessageFull; frameR
           </button>
         </div>
       )}
-      {/* sandbox without allow-scripts: no script can run; allow-same-origin only lets us read height / hook links */}
+      {/* no script can run (CSP script-src none; on Chromium the sandbox forbids scripts too); allow-same-origin only lets us read height / hook links */}
       <iframe
         ref={frameRef}
         className="msg-frame"
-        sandbox="allow-same-origin allow-modals"
+        sandbox={frameSandbox(navigator.userAgent)}
         scrolling="no"
         srcDoc={srcDoc}
         onLoad={onLoad}
@@ -414,7 +418,7 @@ function MessageCard({ m, open, onToggle }: { m: MessageFull; open: boolean; onT
     try {
       const r = await api.unsubscribe(m.id);
       if (r.kind === "done") showToast("Unsubscribed", undefined, "success");
-      else if (r.kind === "open") await openUrl(r.target);
+      else if (r.kind === "open") await openUpdateLink(r.target);
       else void useStore.getState().openCompose({ accountId: m.accountId, to: [r.target.replace("mailto:", "").split("?")[0]], subject: "unsubscribe" });
     } catch (e) {
       showToast(`Unsubscribe failed: ${e}`, undefined, "error");
@@ -485,7 +489,8 @@ function MessageCard({ m, open, onToggle }: { m: MessageFull; open: boolean; onT
               title="More actions"
               items={[
                 { label: "Show original", disabled: conf, onClick: () => setDialog({ type: "original", messageId: m.id }) },
-                { label: "Print", disabled: conf, onClick: () => frameRef.current?.contentWindow?.print() },
+                // WKWebView cannot print a message frame from the app: no Print entry on macOS
+                ...(osNow() === "macos" ? [] : [{ label: "Print", disabled: conf, onClick: () => frameRef.current?.contentWindow?.print() }]),
                 {
                   label: "Create event from this email…",
                   onClick: () => setDialog({ type: "event", init: { summary: m.subject.replace(/^((re|fwd?):\s*)+/i, ""), description: conf ? "" : (m.text ?? "").trim().slice(0, 1500) } }),

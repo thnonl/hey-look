@@ -1,4 +1,4 @@
-import { openUrl } from "@tauri-apps/plugin-opener";
+import { openUpdateLink } from "../updates";
 import {
   CalendarCheck, CalendarDays, CalendarPlus, CalendarX, Check, ChevronDown, ChevronLeft, ChevronRight, ChevronUp, CircleCheck, Clock, Download, History, Info, MapPin,
   Mail, MoreHorizontal, RefreshCw, Repeat, TriangleAlert, UserRound, Video, X,
@@ -23,11 +23,7 @@ const HOUR_PX = 48;
 
 async function open(url: string) {
   if (!/^https?:\/\//i.test(url)) return;
-  try {
-    await openUrl(url);
-  } catch {
-    window.open(url, "_blank", "noopener");
-  }
+  await openUpdateLink(url); // an open that fails says so and copies the link
 }
 
 function useTz() {

@@ -80,6 +80,11 @@ pub fn migrate(conn: &Connection) -> R<()> {
     // scheduled sends: when it was queued and how many delivery attempts failed so far
     add_column(conn, "ALTER TABLE outbox ADD COLUMN created_at INTEGER NOT NULL DEFAULT 0")?;
     add_column(conn, "ALTER TABLE outbox ADD COLUMN attempts INTEGER NOT NULL DEFAULT 0")?;
+    // Undo-window sends (REQ-49): 1 = a message in its "Undo" time in this run (not a scheduled message: not listed, not counted),
+    // 2 = left behind by an earlier run and handled like a scheduled message that came due while the app was closed. `replaces` = the
+    // draft the message was written from, removed once it is sent.
+    add_column(conn, "ALTER TABLE outbox ADD COLUMN undo INTEGER NOT NULL DEFAULT 0")?;
+    add_column(conn, "ALTER TABLE outbox ADD COLUMN replaces TEXT")?;
     // (messages: pgp = 1 encrypted / 2 signed with the raw message kept for those, ics + cal_method for invitations: see shard.rs)
     // signatures / templates / filter rules can apply to one account (NULL = every account)
     for t in ["rules", "signatures", "templates"] {

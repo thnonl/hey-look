@@ -1,5 +1,5 @@
 import { Archive, BadgeCheck, Calendar, CalendarCheck, CalendarX, Check, CheckCheck, Clock, Flag, FolderOpen, Lock, Mail, MailOpen, Paperclip, Pin, SearchX, ShieldAlert, Trash2 } from "lucide-react";
-import { openUrl } from "@tauri-apps/plugin-opener";
+import { openExternal } from "../open";
 import { ReactNode, useCallback, useMemo, useRef } from "react";
 import { api, ThreadSummary } from "../api";
 import { gmailSearchUrl, webmailQuery, webmailTargets, WebmailTarget } from "../webmail";
@@ -165,11 +165,11 @@ async function searchInWebmail({ account, webmail }: WebmailTarget, q: string) {
   const st = useStore.getState();
   try {
     if (webmail.id === "gmail") {
-      await openUrl(gmailSearchUrl(account.email, q));
+      await openExternal(gmailSearchUrl(account.email, q));
       return;
     }
     const copying = copyText(q); // started inside the click, before anything is awaited
-    await openUrl(webmail.home);
+    await openExternal(webmail.home);
     if (await copying) st.showToast(`Search text copied. Paste it into the search box of ${webmail.name} webmail.`, undefined, "success");
     else st.showToast(`Couldn’t copy the search. Type it into the search box of ${webmail.name} webmail: ${q}`, undefined, "error");
   } catch (e) {

@@ -11,18 +11,21 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { api, Att, Contact, Draft, DraftSecurity, errorCode, InlineImage, MessageFull, OwnKeyStatus, RecipientStatus, Signature, Template } from "../api";
 import { eff } from "../prefs";
+import { kbd } from "../platform";
 import { ComposeInit, friendlyError, useStore } from "../store";
 import { extractSignature, fillSignature, normalizeHtml, SIG_MARK } from "../signature";
 import { blockedAttachmentExt, dataUriBytes, fileToBase64, fmtIn, fmtSize, fmtWhen, htmlToText, imageSize, PICTURE_TYPES, playSent, resizeImage, sanitizeHtml, shortKey, userName } from "../util";
 import { calTz } from "../calendar";
 import { defaultMeeting, MeetingState, MeetingStrip, meetingToDraft } from "./Calendar";
+import { isEmail, singleLabelHostsOf } from "../addresses";
 import { askUnlock } from "./Pgp";
 import { useContentProtection } from "../protect";
 import { SchedulePicker } from "./SchedulePicker";
 import { AccountPicker, Dropdown, MenuList, useOutside } from "./ui";
 
 const MAX_ATTACH_BYTES = 25 * 1024 * 1024;
-const EMAIL = /^[^\s@<>"]+@[^\s@<>"]+\.[^\s@<>"]+$/;
+/** Whether this is an address the composer accepts (see addresses.ts: `qa@localhost` and the account hosts count). */
+const EMAIL = { test: (a: string) => isEmail(a, singleLabelHostsOf(useStore.getState().accounts)) };
 const bareAddress = (v: string) => (v.match(/<([^>]+)>/)?.[1] ?? v).trim();
 const approxBytes = (a: Att) => Math.floor((a.dataBase64.length * 3) / 4);
 const MEDIUM = 480;
@@ -175,11 +178,14 @@ export function RecipientField({
               e.preventDefault();
               setHi((h) => Math.max(h - 1, 0));
             } else if (e.key === "Enter" || e.key === "Tab" || e.key === ";" || e.key === ",") {
+              // Tab turns what is typed into a recipient and then moves on to the next field as usual (it used to stay here, so the
+              // subject was typed into this box: QA BUG-M2); Enter, `;` and `,` keep the focus here for the next address
+              const moveOn = e.key === "Tab";
               if (hi >= 0 && sugg[hi]) {
-                e.preventDefault();
+                if (!moveOn) e.preventDefault();
                 pick(sugg[hi]);
               } else if (text.trim()) {
-                e.preventDefault();
+                if (!moveOn) e.preventDefault();
                 commit(text);
               }
             } else if (e.key === "Backspace" && !text && values.length) {
@@ -271,7 +277,7 @@ interface PictureSel {
 }
 
 export function Compose({ init }: { init: ComposeInit }) {
-  const { accounts, openCompose, showToast, prefs, refresh, confirm, choose, setComposeDirty, setComposeSaver, aiConfigured, setDialog } = useStore();
+  const { accounts, openCompose, showToast, prefs, refresh, confirm, choose, setComposeDirty, setComposeSaver, aiConfigured, setDialog, beginSend } = useStore();
   const [accountId, setAccountId] = useState(accounts.some((a) => a.id === init.accountId) ? init.accountId! : accounts.some((a) => a.id === prefs.defaultAccount) ? prefs.defaultAccount : accounts[0]?.id || init.accountId || "");
   const isFresh = !init.replaces && !init.isReply && !init.outboxId && !init.restore;
   // an opened draft / scheduled message / message that failed to send: its body already holds the signature, shown as the region again
@@ -372,8 +378,8 @@ export function Compose({ init }: { init: ComposeInit }) {
   const encTitle = !own
     ? `You have no PGP key for ${fromEmail}. Set up encryption… (Settings → Encryption)`
     : encOn && noKeyAddrs.length > 0
-      ? `Encrypt (Ctrl+Shift+E) — ${noKeyAddrs.length} recipient${noKeyAddrs.length === 1 ? " has" : "s have"} no key`
-      : "Encrypt (Ctrl+Shift+E)";
+      ? kbd(`Encrypt (Ctrl+Shift+E) — ${noKeyAddrs.length} recipient${noKeyAddrs.length === 1 ? " has" : "s have"} no key`)
+      : kbd("Encrypt (Ctrl+Shift+E)");
   const toggleEncrypt = () => {
     if (!own) return setDialog({ type: "pgp-generate", accountId });
     setEncIntent(encOn ? "off" : "on");
@@ -659,7 +665,12 @@ export function Compose({ init }: { init: ComposeInit }) {
       savedRef.current = true;
       setComposeDirty(false);
       void openCompose(null);
-      await api.sendMessage(d, null, null);
+      const done = beginSend();
+      try {
+        await api.sendMessage(d, null, null);
+      } finally {
+        done();
+      }
       if (useStore.getState().prefs.sentSound) playSent();
       showToast("Message sent", undefined, "success");
       void refresh();
@@ -709,7 +720,8 @@ export function Compose({ init }: { init: ComposeInit }) {
           savedRef.current = true;
           showToast(`Rescheduled for ${fmtWhen(sendAt)}`, undefined, "success");
         } else {
-          const res = await api.sendMessage(d, sendAt, init.replaces);
+          const done = beginSend();
+          const res = await api.sendMessage(d, sendAt, init.replaces).finally(done);
           savedRef.current = true;
           const id = res.startsWith("scheduled:") ? res.slice("scheduled:".length) : null;
           const st = useStore.getState();
@@ -738,24 +750,63 @@ export function Compose({ init }: { init: ComposeInit }) {
     void openCompose(null);
     const wait = eff(prefs, accountId, "undoSeconds");
     let cancelled = false;
-    const t = setTimeout(async () => {
-      if (cancelled) return;
+    let started = false;
+    let t: ReturnType<typeof setTimeout> | undefined;
+    // With an Undo time the message is in the local outbox from now on (REQ-49): a quit, a kill or an installer that ends the app in the
+    // Undo time no longer loses it, the next start sends it. Without one it is sent at once as before.
+    let heldId: string | null = null;
+    if (wait > 0) {
       try {
-        await api.sendMessage(d, null, init.replaces);
+        heldId = await api.outboxHold(d, Math.floor(Date.now() / 1000) + wait, init.replaces);
+      } catch (e) {
+        showToast(`Send failed: ${friendlyError(e)}`, undefined, "error");
+        reopen(d);
+        return;
+      }
+    }
+    const run = async () => {
+      if (cancelled || started) return;
+      started = true;
+      clearTimeout(t);
+      const quitting = useStore.getState().quitting;
+      try {
+        if (heldId) await api.outboxHoldSend(heldId, quitting);
+        else await api.sendMessage(d, null, init.replaces);
         if (useStore.getState().prefs.sentSound) playSent();
         showToast("Message sent", undefined, "success");
         void useStore.getState().sync();
       } catch (e) {
+        // quitting: the message stays in the outbox and goes out at the next start (REQ-48 c), nothing is reopened
+        if (quitting) return;
         showToast(`Send failed: ${friendlyError(e)}`, undefined, "error");
         reopen(d);
+      } finally {
+        done();
       }
-    }, wait * 1000);
+    };
+    // counted as "being sent" from the start of the undo window until the server answered (an update restart waits for it; a quit sends it at once)
+    const done = beginSend(() => void run());
+    t = setTimeout(() => void run(), wait * 1000);
     if (wait > 0) {
       showToast(
         "Sending…",
         () => {
+          // Undo: the message leaves the outbox (if it is already being sent it cannot be taken back)
+          if (heldId) {
+            void api.cancelOutbox(heldId).then(
+              () => {
+                cancelled = true;
+                clearTimeout(t);
+                done();
+                reopen(d);
+              },
+              (e) => showToast(friendlyError(e), undefined, "error"),
+            );
+            return;
+          }
           cancelled = true;
           clearTimeout(t);
+          done();
           reopen(d);
         },
         "info",
@@ -764,19 +815,24 @@ export function Compose({ init }: { init: ComposeInit }) {
   };
 
   const saveDraft = useCallback(
-    async (close: boolean) => {
-      if (init.outboxId) return; // a scheduled message is not a draft; "Move to Drafts" does that
+    async (close: boolean, quiet = false): Promise<boolean> => {
+      if (init.outboxId) return true; // a scheduled message is not a draft; "Move to Drafts" does that
       try {
         const d = buildDraft();
         // a draft is only ever encrypted to your own key (no passphrase needed), and never signed
         const keepPrivate = !!d.security?.encrypt && eff(prefs, accountId, "pgpEncryptDrafts");
         await api.saveDraft({ ...d, security: keepPrivate ? { encrypt: true, sign: false, attachPublicKey: false } : undefined }, init.replaces);
+        useStore.setState({ draftError: "" });
         showToast(d.security?.encrypt && !keepPrivate ? "Draft saved without encryption (Settings → Security)" : "Draft saved", undefined, d.security?.encrypt && !keepPrivate ? "info" : "success");
         setComposeDirty(false);
         if (close) void openCompose(null);
         void useStore.getState().sync();
+        return true;
       } catch (e) {
-        showToast(`Save draft failed: ${friendlyError(e)}`, undefined, "error");
+        // `quiet`: the caller (an update restart, a quit) tells the user itself
+        useStore.setState({ draftError: friendlyError(e).replace(/\.$/, "") });
+        if (!quiet) showToast(`Save draft failed: ${friendlyError(e)}`, undefined, "error");
+        return false;
       }
     },
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -799,7 +855,7 @@ export function Compose({ init }: { init: ComposeInit }) {
 
   // let the store save this draft when another message is opened over it
   useEffect(() => {
-    setComposeSaver(() => saveDraft(false));
+    setComposeSaver((o) => saveDraft(false, o?.quiet));
   }, [saveDraft, setComposeSaver]);
   // only when the composer goes away: forget the saver and the "unsaved" flag
   useEffect(
@@ -1057,6 +1113,14 @@ export function Compose({ init }: { init: ComposeInit }) {
           setSchedOpen(true);
           return;
         }
+        // Cc / Bcc are not in the Tab order (Tab from To goes to Subject); Ctrl/Cmd+Shift+C / B show and focus them
+        if ((e.ctrlKey || e.metaKey) && e.shiftKey && !e.altKey && (e.key.toLowerCase() === "c" || (e.key.toLowerCase() === "b" && !meeting))) {
+          e.preventDefault();
+          const label = e.key.toLowerCase() === "c" ? "Cc" : "Bcc";
+          setShowCc(true);
+          setTimeout(() => document.querySelector<HTMLInputElement>(`input[aria-label="${label}"]`)?.focus(), 0);
+          return;
+        }
         if ((e.ctrlKey || e.metaKey) && e.key === "Enter") {
           e.preventDefault();
           void (init.outboxId ? send(init.sendAt) : send());
@@ -1114,7 +1178,7 @@ export function Compose({ init }: { init: ComposeInit }) {
     >
       <div className="cp-bar">
         <div className="split-btn" ref={schedRef}>
-          <button className="btn primary" disabled={busy} onClick={() => void (init.outboxId ? send(init.sendAt) : send())} title={init.outboxId ? "Schedule (keeps the time)" : "Send (Ctrl+Enter)"}>
+          <button className="btn primary" disabled={busy} onClick={() => void (init.outboxId ? send(init.sendAt) : send())} title={init.outboxId ? "Schedule (keeps the time)" : kbd("Send (Ctrl+Enter)")}>
             {init.outboxId ? <><CalendarClock size={14} /> Schedule</> : meeting ? <><CalendarPlus size={14} /> Send invite</> : <><Send size={14} /> Send</>}
           </button>
           <button
@@ -1122,7 +1186,7 @@ export function Compose({ init }: { init: ComposeInit }) {
             aria-label="Send later options"
             aria-haspopup="dialog"
             aria-expanded={schedOpen}
-            title="Send later (Ctrl+Shift+Enter)"
+            title={kbd("Send later (Ctrl+Shift+Enter)")}
             onClick={() => setSchedOpen((o) => !o)}
           >
             <ChevronDown size={14} />
@@ -1145,7 +1209,7 @@ export function Compose({ init }: { init: ComposeInit }) {
         ) : null}
         <button className="rb" onClick={() => void discard()}><Trash2 size={15} /><span>Discard</span></button>
         <button className="rb" onClick={() => fileRef.current?.click()}><Paperclip size={15} /><span>Attach</span></button>
-        <button className="rb" onClick={() => picRef.current?.click()} title="Insert picture (Ctrl+Shift+P)"><ImagePlus size={15} /><span>Picture</span></button>
+        <button className="rb" onClick={() => picRef.current?.click()} title={kbd("Insert picture (Ctrl+Shift+P)")}><ImagePlus size={15} /><span>Picture</span></button>
         <input ref={fileRef} type="file" multiple hidden onChange={(e) => (void addFiles(e.target.files), (e.target.value = ""))} />
         <input
           ref={picRef}
@@ -1183,7 +1247,7 @@ export function Compose({ init }: { init: ComposeInit }) {
           {encOn ? <Lock size={15} /> : <LockOpen size={15} />}<span>Encrypt</span>
         </button>
         <div className="dd" ref={signRef}>
-          <button className={`rb ${signActive ? "on" : ""}`} aria-pressed={signActive} aria-disabled={!own} title={own ? "Sign (Ctrl+Shift+G)" : encTitle} onClick={toggleSign}>
+          <button className={`rb ${signActive ? "on" : ""}`} aria-pressed={signActive} aria-disabled={!own} title={own ? kbd("Sign (Ctrl+Shift+G)") : encTitle} onClick={toggleSign}>
             <BadgeCheck size={15} /><span>Sign</span>
           </button>
           <button className="rb caret" aria-label="Signing options" aria-haspopup="menu" aria-expanded={signMenu} title="Signing options" onClick={() => setSignMenu((o) => !o)}>
@@ -1194,7 +1258,7 @@ export function Compose({ init }: { init: ComposeInit }) {
               <MenuList
                 onDone={() => setSignMenu(false)}
                 items={[
-                  { label: "Sign this message", checked: signOn, hint: "Ctrl+Shift+G", disabled: !own, onClick: toggleSign },
+                  { label: "Sign this message", checked: signOn, hint: kbd("Ctrl+Shift+G"), disabled: !own, onClick: toggleSign },
                   { label: "Attach my public key", checked: attachKey, disabled: !own, onClick: () => (setAttachKey(!attachKey), touch()) },
                   { divider: true },
                   ...(own ? [{ label: `Signing key ${shortKey(own.fingerprint)}`, icon: <ShieldCheck size={14} />, onClick: () => setDialog({ type: "pgp-key", fingerprint: own.fingerprint }) }] : [{ label: "No key for this account yet", disabled: true }]),
@@ -1273,8 +1337,9 @@ export function Compose({ init }: { init: ComposeInit }) {
           </>
         ) : (
           <div className="cf-links">
-            <button className="link" onClick={() => setShowCc(true)}>Cc</button>
-            {!meeting && <button className="link" onClick={() => setShowCc(true)}>Bcc</button>}
+            {/* tabIndex -1: Tab from To goes to Subject (QA BUG-9); the keys are Ctrl/Cmd+Shift+C and B */}
+            <button className="link" tabIndex={-1} title={kbd("Add Cc (Ctrl+Shift+C)")} onClick={() => setShowCc(true)}>Cc</button>
+            {!meeting && <button className="link" tabIndex={-1} title={kbd("Add Bcc (Ctrl+Shift+B)")} onClick={() => setShowCc(true)}>Bcc</button>}
           </div>
         )}
         <div className="cf-field">
@@ -1310,9 +1375,9 @@ export function Compose({ init }: { init: ComposeInit }) {
       )}
 
       <div className="cp-fmt" role="toolbar" aria-label="Formatting">
-        <button className="icon-btn" title="Bold (Ctrl+B)" aria-label="Bold" onClick={() => editor?.chain().focus().toggleBold().run()}><Bold size={14} /></button>
-        <button className="icon-btn" title="Italic (Ctrl+I)" aria-label="Italic" onClick={() => editor?.chain().focus().toggleItalic().run()}><Italic size={14} /></button>
-        <button className="icon-btn" title="Underline (Ctrl+U)" aria-label="Underline" onClick={() => editor?.chain().focus().toggleUnderline().run()}><UIcon size={14} /></button>
+        <button className="icon-btn" title={kbd("Bold (Ctrl+B)")} aria-label="Bold" onClick={() => editor?.chain().focus().toggleBold().run()}><Bold size={14} /></button>
+        <button className="icon-btn" title={kbd("Italic (Ctrl+I)")} aria-label="Italic" onClick={() => editor?.chain().focus().toggleItalic().run()}><Italic size={14} /></button>
+        <button className="icon-btn" title={kbd("Underline (Ctrl+U)")} aria-label="Underline" onClick={() => editor?.chain().focus().toggleUnderline().run()}><UIcon size={14} /></button>
         <button className="icon-btn" title="Bulleted list" aria-label="Bulleted list" onClick={() => editor?.chain().focus().toggleBulletList().run()}><List size={14} /></button>
         <button className="icon-btn" title="Numbered list" aria-label="Numbered list" onClick={() => editor?.chain().focus().toggleOrderedList().run()}><ListOrdered size={14} /></button>
         <button
@@ -1326,7 +1391,7 @@ export function Compose({ init }: { init: ComposeInit }) {
         >
           <Link2 size={14} />
         </button>
-        <button className="icon-btn" title="Insert picture (Ctrl+Shift+P)" aria-label="Insert picture" onClick={() => picRef.current?.click()}><ImagePlus size={14} /></button>
+        <button className="icon-btn" title={kbd("Insert picture (Ctrl+Shift+P)")} aria-label="Insert picture" onClick={() => picRef.current?.click()}><ImagePlus size={14} /></button>
       </div>
 
       <div className="cp-editor" ref={bodyRef} onScroll={() => editor && syncPicSel(editor)}>

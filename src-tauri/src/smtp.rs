@@ -166,20 +166,73 @@ fn mailbox(s: &str) -> R<Mailbox> {
     parse_mailbox(s)
 }
 
-fn headers(acc: &Account, d: &Draft) -> R<lettre::message::MessageBuilder> {
-    let from = Mailbox::new(
-        Some(acc.display_name.clone()).filter(|n| !n.is_empty()),
-        acc.email.parse::<Address>().map_err(err)?,
-    );
+/// A recipient header written exactly as typed, for a draft whose recipients are not all valid addresses yet (`ann@`, `ann bob`):
+/// the draft keeps what the person wrote. Never used for a message that is sent (that one is strict).
+macro_rules! raw_recipients {
+    ($t:ident, $name:literal) => {
+        #[derive(Clone, Debug, PartialEq)]
+        struct $t(String);
+        impl lettre::message::header::Header for $t {
+            fn name() -> lettre::message::header::HeaderName {
+                lettre::message::header::HeaderName::new_from_ascii_str($name)
+            }
+            fn parse(s: &str) -> Result<Self, Box<dyn std::error::Error + Send + Sync>> {
+                Ok(Self(s.to_string()))
+            }
+            fn display(&self) -> lettre::message::header::HeaderValue {
+                lettre::message::header::HeaderValue::new(Self::name(), self.0.clone())
+            }
+        }
+    };
+}
+raw_recipients!(RawTo, "To");
+raw_recipients!(RawCc, "Cc");
+raw_recipients!(RawBcc, "Bcc");
+
+/// `lenient`: for a DRAFT. A draft is saved as it is: no recipient, a half-typed one, an empty subject all save. lettre derives the
+/// SMTP envelope from the recipient headers and refuses a message without one ("missing destination address, invalid envelope"), so
+/// a draft gets an explicit envelope (from the account to the account; it is never sent, the envelope is not part of the text) and
+/// recipients that are not valid addresses are written as typed. A message that is SENT is built strict (`lenient = false`).
+fn headers(acc: &Account, d: &Draft, lenient: bool) -> R<lettre::message::MessageBuilder> {
+    let me = acc.email.parse::<Address>().map_err(err)?;
+    let from = Mailbox::new(Some(acc.display_name.clone()).filter(|n| !n.is_empty()), me.clone());
     let mut b = Message::builder().from(from).subject(d.subject.clone());
-    for t in &d.to {
-        b = b.to(mailbox(t)?);
-    }
-    for c in &d.cc {
-        b = b.cc(mailbox(c)?);
-    }
-    for c in &d.bcc {
-        b = b.bcc(mailbox(c)?);
+    if lenient {
+        b = b.envelope(lettre::address::Envelope::new(Some(me.clone()), vec![me]).map_err(err)?);
+        // each list: typed addresses when every entry is one, else the text as written
+        let all_ok = |l: &[String]| l.iter().all(|t| parse_mailbox(t).is_ok());
+        let raw = |l: &[String]| l.iter().map(|t| t.trim()).filter(|t| !t.is_empty()).collect::<Vec<_>>().join(", ");
+        if all_ok(&d.to) {
+            for t in &d.to {
+                b = b.to(mailbox(t)?);
+            }
+        } else {
+            b = b.header(RawTo(raw(&d.to)));
+        }
+        if all_ok(&d.cc) {
+            for t in &d.cc {
+                b = b.cc(mailbox(t)?);
+            }
+        } else {
+            b = b.header(RawCc(raw(&d.cc)));
+        }
+        if all_ok(&d.bcc) {
+            for t in &d.bcc {
+                b = b.bcc(mailbox(t)?);
+            }
+        } else {
+            b = b.header(RawBcc(raw(&d.bcc)));
+        }
+    } else {
+        for t in &d.to {
+            b = b.to(mailbox(t)?);
+        }
+        for c in &d.cc {
+            b = b.cc(mailbox(c)?);
+        }
+        for c in &d.bcc {
+            b = b.bcc(mailbox(c)?);
+        }
     }
     if let Some(r) = &d.in_reply_to {
         b = b.in_reply_to(r.clone());
@@ -260,12 +313,12 @@ pub fn build_calendar_mail(acc: &Account, to: &[String], cc: &[String], subject:
 }
 
 pub fn build(acc: &Account, d: &Draft) -> R<Message> {
-    headers(acc, d)?.multipart(body(d)?).map_err(err)
+    headers(acc, d, false)?.multipart(body(d)?).map_err(err)
 }
 
 /// multipart/signed (RFC 3156): the signature covers the content entity exactly as it is written, without the
 /// line break that belongs to the next boundary line.
-pub fn build_signed(acc: &Account, d: &Draft, sign: &dyn Fn(&[u8]) -> R<(String, String)>) -> R<Message> {
+pub fn build_signed(acc: &Account, d: &Draft, lenient: bool, sign: &dyn Fn(&[u8]) -> R<(String, String)>) -> R<Message> {
     let inner = body(d)?;
     let mut bytes = inner.formatted();
     if bytes.ends_with(b"\r\n") {
@@ -276,11 +329,11 @@ pub fn build_signed(acc: &Account, d: &Draft, sign: &dyn Fn(&[u8]) -> R<(String,
         .header(ContentType::parse("application/pgp-signature; name=\"signature.asc\"").map_err(err)?)
         .body(armored);
     let outer = MultiPart::signed("application/pgp-signature".to_string(), micalg).multipart(inner).singlepart(sig);
-    headers(acc, d)?.multipart(outer).map_err(err)
+    headers(acc, d, lenient)?.multipart(outer).map_err(err)
 }
 
 /// multipart/encrypted (RFC 3156): a control part and the armored OpenPGP message.
-pub fn build_encrypted(acc: &Account, d: &Draft, encrypt: &dyn Fn(&[u8]) -> R<String>) -> R<Message> {
+pub fn build_encrypted(acc: &Account, d: &Draft, lenient: bool, encrypt: &dyn Fn(&[u8]) -> R<String>) -> R<Message> {
     let armored = encrypt(&body(d)?.formatted())?;
     let control = SinglePart::builder().header(ContentType::parse("application/pgp-encrypted").map_err(err)?).body(String::from("Version: 1"));
     let data = SinglePart::builder()
@@ -288,7 +341,7 @@ pub fn build_encrypted(acc: &Account, d: &Draft, encrypt: &dyn Fn(&[u8]) -> R<St
         .header(lettre::message::header::ContentDisposition::inline_with_name("encrypted.asc"))
         .body(armored);
     let outer = MultiPart::encrypted("application/pgp-encrypted".to_string()).singlepart(control).singlepart(data);
-    headers(acc, d)?.multipart(outer).map_err(err)
+    headers(acc, d, lenient)?.multipart(outer).map_err(err)
 }
 
 /// Addresses of every recipient (To, Cc, Bcc) of a draft, for sending a prebuilt message.
@@ -313,6 +366,11 @@ fn smtp_user(acc: &Account) -> String {
 }
 
 fn transport(acc: &Account, secret: &str) -> R<SmtpTransport> {
+    transport_with(acc, secret, None)
+}
+
+/// `timeout`: how long a connection step may take (lettre's own default is a minute); the checks made while an account is added use less.
+fn transport_with(acc: &Account, secret: &str, timeout: Option<std::time::Duration>) -> R<SmtpTransport> {
     let host = acc.smtp_host.as_str();
     let mut b = match acc.smtp_security.as_str() {
         "ssl" => SmtpTransport::relay(host).map_err(err)?.port(acc.smtp_port),
@@ -328,12 +386,21 @@ fn transport(acc: &Account, secret: &str) -> R<SmtpTransport> {
         b = b.tls(if acc.smtp_security == "ssl" { Tls::Wrapper(params) } else { Tls::Required(params) });
     }
     let b = b.credentials(Credentials::new(smtp_user(acc), secret.to_string()));
+    let b = if timeout.is_some() { b.timeout(timeout) } else { b };
     Ok((if acc.auth.starts_with("oauth_") { b.authentication(vec![Mechanism::Xoauth2]) } else { b }).build())
 }
 
 /// Send an already finished message (encrypted/signed ones are built once, at schedule time).
 pub fn send_raw(acc: &Account, secret: &str, env: &lettre::address::Envelope, raw: &[u8]) -> R<()> {
-    transport(acc, secret)?.send_raw(env, raw).map_err(|e| explain_send_error(e.status().map(|c| c.to_string()).as_deref(), &e.to_string()))?;
+    transport(acc, secret)?.send_raw(env, raw).map_err(|e| {
+        let text = e.to_string();
+        // a failure of the TLS step has its own hint (REQ-53); everything else is explained as before
+        if e.status().is_none() && is_tls_failure(&e) {
+            crate::mail::secure_connection_error(&acc.smtp_host, acc.smtp_port, &text)
+        } else {
+            explain_send_error(e.status().map(|c| c.to_string()).as_deref(), &text)
+        }
+    })?;
     Ok(())
 }
 
@@ -357,18 +424,47 @@ pub fn explain_send_error(code: Option<&str>, detail: &str) -> String {
     format!("SMTP send failed: {detail}")
 }
 
+/// Whether a failed SMTP step failed while the connection was being secured (STARTTLS refused, the SSL/TLS handshake failed), as
+/// opposed to a refused or timed out connection or a refused login. lettre words a failed STARTTLS in its own words ("tls",
+/// "starttls"), but a failed SSL/TLS handshake of the native-tls backend only as "Connection error: ..." (Windows: "The token supplied
+/// to the function is invalid"), so the cause decides: a connection that could not be opened has an I/O error as its cause, a handshake
+/// that failed has the TLS library's own error (QA round 6: a plain SMTP port with SSL/TLS gave the raw text, not the REQ-53 hint).
+pub fn is_tls_failure(e: &lettre::transport::smtp::Error) -> bool {
+    use std::error::Error as _;
+    if e.status().is_some() || e.is_timeout() {
+        return false;
+    }
+    let text = e.to_string();
+    if crate::mail::is_tls_step_failure(&text) {
+        return true;
+    }
+    let from_io = e.source().is_some_and(|s| s.downcast_ref::<std::io::Error>().is_some());
+    text.starts_with("Connection error") && !from_io && !text.contains("resolve") && !text.contains("DNS name")
+}
+
+/// How long the connection test of an account being added may take.
+const TEST_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(20);
+
 /// Connect and authenticate without sending anything.
 pub fn test(acc: &Account, secret: &str) -> R<()> {
-    match transport(acc, secret)?.test_connection() {
+    match transport_with(acc, secret, Some(TEST_TIMEOUT))?.test_connection() {
         Ok(true) => Ok(()),
         Ok(false) => Err("SMTP server did not accept the connection".into()),
-        Err(e) => Err(format!("SMTP login failed: {e}")),
+        Err(e) => {
+            let text = e.to_string();
+            // a failure of the TLS step has its own hint (REQ-53); a refused login stays "SMTP login failed"
+            if e.status().is_none() && is_tls_failure(&e) {
+                Err(crate::mail::secure_connection_error(&acc.smtp_host, acc.smtp_port, &text))
+            } else {
+                Err(format!("SMTP login failed: {e}"))
+            }
+        }
     }
 }
 
-/// Same as `build`; lettre only needs recipients at send time, so incomplete drafts are fine.
+/// What is saved to the Drafts folder: like `build`, but a draft needs no recipient, no subject and may hold half-typed addresses.
 pub fn build_draft(acc: &Account, d: &Draft) -> R<Message> {
-    build(acc, d)
+    headers(acc, d, true)?.multipart(body(d)?).map_err(err)
 }
 
 #[cfg(test)]
@@ -426,6 +522,60 @@ mod tests {
 
     fn text(m: &Message) -> String {
         String::from_utf8_lossy(&m.formatted()).into_owned()
+    }
+
+    /// A draft saves whatever the person has typed so far (QA BUG-7: "missing destination address, invalid envelope"); a message that is
+    /// sent still needs a valid recipient.
+    /// QA BUG-M3: local servers have addresses like `qa@localhost`; the backend must take them too (the composer checks first).
+    #[test]
+    fn addresses_on_a_single_label_host_can_be_sent_to() {
+        for a in ["qa@localhost", "Local QA <qa@localhost>", "me@intranet"] {
+            assert!(parse_mailbox(a).is_ok(), "{a}");
+        }
+        let mut d = draft("<p>Hi</p>", vec![], vec![]);
+        d.to = vec!["qa@localhost".into()];
+        assert!(build(&account(), &d).is_ok());
+        assert!(envelope(&account(), &d).is_ok());
+    }
+
+    #[test]
+    fn a_draft_needs_no_recipient_no_subject_and_may_hold_half_typed_addresses() {
+        let acc = account();
+        // nothing but a body, an empty subject
+        let mut d = draft("<p>Hi</p>", vec![], vec![]);
+        d.to.clear();
+        d.subject.clear();
+        let out = text(&build_draft(&acc, &d).expect("empty To saves"));
+        assert!(out.contains("From:") && out.contains("Hi"));
+        assert!(!out.contains("
+To:"), "no To header is invented: {out}");
+        // only Cc
+        d.cc = vec!["bob@example.com".into()];
+        let out = text(&build_draft(&acc, &d).expect("only Cc saves"));
+        assert!(out.contains("Cc: bob@example.com"), "{out}");
+        // half-typed / invalid recipients are kept as typed
+        d.to = vec!["ann@".into(), "Carl <carl@example.com>".into()];
+        d.bcc = vec!["not an address".into()];
+        let out = text(&build_draft(&acc, &d).expect("invalid recipients save"));
+        assert!(out.contains("To: ann@, Carl <carl@example.com>"), "{out}");
+        assert!(!out.contains("not an address"), "{out}");
+        // valid recipients are typed headers as before
+        d.to = vec!["Ann <ann@example.com>".into()];
+        d.bcc.clear();
+        let out = text(&build_draft(&acc, &d).unwrap());
+        assert!(out.contains("To: Ann <ann@example.com>") || out.contains("To: \"Ann\" <ann@example.com>"), "{out}");
+        // the encrypted-draft route builds the same way
+        let enc = build_encrypted(&acc, &{ let mut e = d.clone(); e.to.clear(); e }, true, &|_| Ok("armored".to_string()));
+        assert!(enc.is_ok(), "{:?}", enc.err());
+
+        // sending stays strict: no recipient, or one that is not an address, is refused
+        let mut s = draft("<p>Hi</p>", vec![], vec![]);
+        s.to.clear();
+        assert!(build(&acc, &s).is_err(), "a message without recipients must not be built for sending");
+        assert!(envelope(&acc, &s).is_err());
+        s.to = vec!["ann@".into()];
+        assert!(build(&acc, &s).is_err());
+        assert!(envelope(&acc, &s).is_err());
     }
 
     #[test]
@@ -591,5 +741,73 @@ mod tests {
         assert!(String::from_utf8_lossy(&raw).contains("Sensitivity: Company-Confidential"));
         // what we send is what we recognise on receipt
         assert!(crate::mail::is_confidential(&raw));
+    }
+
+    /// A mail server that does not speak TLS (QA round 6: GreenMail on 127.0.0.1:3025): it greets in plain text, knows no STARTTLS,
+    /// and answers everything else with an error. Returns its port; it serves connections until the test ends.
+    fn plain_smtp_server() -> u16 {
+        use std::io::{BufRead, BufReader, Write};
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let port = listener.local_addr().unwrap().port();
+        std::thread::spawn(move || {
+            for conn in listener.incoming().flatten() {
+                std::thread::spawn(move || {
+                    let mut w = conn.try_clone().unwrap();
+                    let _ = w.write_all(b"220 plain.test ESMTP\r\n");
+                    for line in BufReader::new(conn).split(b'\n').map_while(Result::ok) {
+                        let l = String::from_utf8_lossy(&line).to_uppercase();
+                        let reply: &[u8] = if l.starts_with("EHLO") { b"250 plain.test\r\n" } else if l.starts_with("QUIT") { b"221 bye\r\n" } else { b"500 Command not recognized\r\n" };
+                        if w.write_all(reply).is_err() || l.starts_with("QUIT") {
+                            break;
+                        }
+                    }
+                });
+            }
+        });
+        port
+    }
+
+    /// QA round 6 (OBS-R6-2, REQ-53 / AC-69): a plain SMTP port with SSL/TLS or STARTTLS is reported with the hint, not the library's
+    /// words (on Windows "The token supplied to the function is invalid").
+    #[test]
+    fn a_plain_smtp_port_with_ssl_or_starttls_gets_the_secure_connection_hint() {
+        let port = plain_smtp_server();
+        for security in ["ssl", "starttls"] {
+            let mut acc = account();
+            acc.smtp_host = "127.0.0.1".into();
+            acc.smtp_port = port;
+            acc.smtp_security = security.into();
+            acc.tls_insecure = true; // the certificate is not the question here
+            let e = test(&acc, "secret").unwrap_err();
+            assert!(crate::mail::is_secure_connection_error(&e), "{security}: {e}");
+            assert!(e.contains(&format!("127.0.0.1:{port}")) && e.contains("SSL/TLS or STARTTLS") && e.contains("(Server: "), "{security}: {e}");
+            // sending uses the same words
+            let env = lettre::address::Envelope::new(Some("me@example.com".parse().unwrap()), vec!["you@example.com".parse().unwrap()]).unwrap();
+            let e = send_raw(&acc, "secret", &env, b"Subject: x\r\n\r\nhi").unwrap_err();
+            assert!(crate::mail::is_secure_connection_error(&e), "send, {security}: {e}");
+        }
+    }
+
+    #[test]
+    fn a_closed_smtp_port_is_a_connection_problem_not_a_secure_connection_hint() {
+        // a port nothing listens on: refused, which has an I/O error as its cause
+        let port = {
+            let l = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+            l.local_addr().unwrap().port()
+        };
+        let mut acc = account();
+        acc.smtp_host = "127.0.0.1".into();
+        acc.smtp_port = port;
+        let e = test(&acc, "secret").unwrap_err();
+        assert!(!crate::mail::is_secure_connection_error(&e), "{e}");
+        assert!(e.starts_with("SMTP login failed: "), "{e}");
+    }
+
+    #[test]
+    fn the_secure_connection_hint_is_recognised_by_its_first_words() {
+        let hint = crate::mail::secure_connection_error("h", 25, "x");
+        assert!(crate::mail::is_secure_connection_error(&hint));
+        assert!(!crate::mail::is_secure_connection_error("SMTP login failed: bad password"));
+        assert!(!crate::mail::is_secure_connection_error("certificate verify failed"));
     }
 }

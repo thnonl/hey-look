@@ -5,7 +5,7 @@ use serde_json::{json, Value};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::OnceLock;
 use tauri::image::Image;
-use tauri::menu::{CheckMenuItem, Menu, MenuItem, PredefinedMenuItem};
+use tauri::menu::{CheckMenuItem, Menu, MenuEvent, MenuItem, MenuItemKind, PredefinedMenuItem};
 use tauri::tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent};
 use tauri::{AppHandle, Emitter, Manager};
 
@@ -20,7 +20,7 @@ pub fn prefs(db: &Db) -> Value {
         .unwrap_or(Value::Null)
 }
 
-fn pbool(v: &Value, k: &str, d: bool) -> bool {
+pub(crate) fn pbool(v: &Value, k: &str, d: bool) -> bool {
     v.get(k).and_then(|x| x.as_bool()).unwrap_or(d)
 }
 
@@ -54,9 +54,16 @@ pub fn close_to_tray(db: &Db) -> bool {
 
 pub fn show_main(app: &AppHandle) {
     if let Some(w) = app.get_webview_window("main") {
+        let was_hidden = !w.is_visible().unwrap_or(true);
         let _ = w.unminimize();
         let _ = w.show();
         let _ = w.set_focus();
+        // a window that was hidden (first show, a tray click after a --minimized start, a second start) is looked at: is the web view still running?
+        if was_hidden {
+            crate::startup::verify_painting(app);
+        }
+        // the UI re-checks for updates when the window comes back (throttled in update.rs)
+        let _ = app.emit("app-shown", ());
     }
 }
 
@@ -234,9 +241,93 @@ pub fn update_badge(app: &AppHandle, db: &Db) {
     let _ = task_style;
 }
 
+// ---------- macOS app menu ----------
+
+/// Id of the Quit item of the macOS app menu (the tray's own item is "quit").
+pub const MAC_QUIT_ID: &str = "app-quit";
+
+/// macOS: tauri's default menu with its Quit item replaced by one that goes through the quit sequence (REQ-48). The predefined Quit item
+/// (and its Cmd+Q) ends in `[NSApp terminate:]`, which never raises `RunEvent::ExitRequested`: nothing was saved or sent (QA Mac round 2,
+/// Q3 / Q4). Never fails on account of the change: a menu that cannot be changed is left as it is and `macquit.rs` still stops the terminate.
+#[cfg_attr(not(target_os = "macos"), allow(dead_code))]
+pub fn mac_app_menu(app: &AppHandle) -> tauri::Result<Menu<tauri::Wry>> {
+    let menu = Menu::default(app)?;
+    if let Err(e) = replace_quit_item(app, &menu) {
+        crate::startup::line("menu", &format!("the Quit item of the app menu could not be replaced ({e}): the terminate hook covers it"));
+    }
+    Ok(menu)
+}
+
+/// The app menu is the first submenu of the default menu and its Quit item the last item in it.
+#[cfg_attr(not(target_os = "macos"), allow(dead_code))]
+fn replace_quit_item(app: &AppHandle, menu: &Menu<tauri::Wry>) -> Result<(), String> {
+    let first = menu.items().map_err(|e| e.to_string())?.into_iter().next();
+    let Some(MenuItemKind::Submenu(app_menu)) = first else { return Err("the menu does not start with the app menu".into()) };
+    let items = app_menu.items().map_err(|e| e.to_string())?;
+    let Some(MenuItemKind::Predefined(quit)) = items.last() else { return Err("the app menu does not end with a predefined item".into()) };
+    app_menu.remove(quit).map_err(|e| e.to_string())?;
+    let ours = MenuItem::with_id(app, MAC_QUIT_ID, "Quit Hey Look!", true, Some("CmdOrCtrl+Q")).map_err(|e| e.to_string())?;
+    app_menu.append(&ours).map_err(|e| e.to_string())
+}
+
+/// The macOS app menu's items (the tray's items are handled in `setup_tray`).
+#[cfg_attr(not(target_os = "macos"), allow(dead_code))]
+pub fn mac_menu_event(app: &AppHandle, event: MenuEvent) {
+    if event.id().as_ref() == MAC_QUIT_ID {
+        crate::startup::stage(Some(app), "quit: asked through the app menu (Quit Hey Look! / Cmd+Q)");
+        crate::request_quit(app);
+    }
+}
+
 // ---------- tray ----------
 
+/// Linux: is there anything on the session bus that shows tray icons (a registered StatusNotifier host)? Any error = no.
+#[cfg(target_os = "linux")]
+fn linux_tray_host() -> bool {
+    let probe = || -> Result<bool, zbus::Error> {
+        let conn = zbus::blocking::Connection::session()?;
+        let dbus = zbus::blocking::fdo::DBusProxy::new(&conn)?;
+        let name = zbus::names::BusName::try_from("org.kde.StatusNotifierWatcher")?;
+        if !dbus.name_has_owner(name)? {
+            return Ok(false);
+        }
+        let watcher = zbus::blocking::Proxy::new(&conn, "org.kde.StatusNotifierWatcher", "/StatusNotifierWatcher", "org.kde.StatusNotifierWatcher")?;
+        Ok(watcher.get_property::<bool>("IsStatusNotifierHostRegistered")?)
+    };
+    tray_host_present(probe().ok())
+}
+
+/// The answer of the bus probe as a yes/no: only an explicit "a host is registered" counts.
+#[cfg_attr(not(target_os = "linux"), allow(dead_code))]
+fn tray_host_present(probe: Option<bool>) -> bool {
+    probe.unwrap_or(false)
+}
+
+/// Whether at least one account exists. The tray entries "New mail" and "Check mail now" work only then (the Welcome screen has no mail controls).
+static MAIL_AVAILABLE: AtomicBool = AtomicBool::new(true);
+static TRAY_MAIL_ITEMS: OnceLock<(MenuItem<tauri::Wry>, MenuItem<tauri::Wry>)> = OnceLock::new();
+
+/// The tray's mail entries are enabled exactly when an account exists.
+pub fn tray_mail_enabled(account_count: usize) -> bool {
+    account_count > 0
+}
+
+/// Called with the account state at start and whenever the frontend sees the account list become empty / non-empty.
+pub fn set_mail_available(available: bool) {
+    MAIL_AVAILABLE.store(available, Ordering::Relaxed);
+    if let Some((compose, sync)) = TRAY_MAIL_ITEMS.get() {
+        let _ = compose.set_enabled(available);
+        let _ = sync.set_enabled(available);
+    }
+}
+
 pub fn setup_tray(app: &AppHandle, db: &Db) -> tauri::Result<()> {
+    // without a tray host the icon would be invisible and a hidden window could not be brought back: no tray, closing quits
+    #[cfg(target_os = "linux")]
+    if !linux_tray_host() {
+        eprintln!("tray: no StatusNotifier host, closing the window quits");
+        return Ok(());
+    }
     let paused = db::get_setting(&lock(db), "notif_paused").as_deref() == Some("1");
     let open = MenuItem::with_id(app, "open", "Open Hey Look!", true, None::<&str>)?;
     let compose = MenuItem::with_id(app, "compose", "New mail", true, None::<&str>)?;
@@ -246,6 +337,9 @@ pub fn setup_tray(app: &AppHandle, db: &Db) -> tauri::Result<()> {
     let sep1 = PredefinedMenuItem::separator(app)?;
     let sep2 = PredefinedMenuItem::separator(app)?;
     let menu = Menu::with_items(app, &[&open, &compose, &sync, &sep1, &pause, &sep2, &quit])?;
+    let has_accounts = tray_mail_enabled(db::list_accounts(&lock(db)).map(|a| a.len()).unwrap_or(0));
+    let _ = TRAY_MAIL_ITEMS.set((compose.clone(), sync.clone()));
+    set_mail_available(has_accounts);
 
     let mut builder = TrayIconBuilder::with_id("main")
         .tooltip("Hey Look!")
@@ -261,11 +355,11 @@ pub fn setup_tray(app: &AppHandle, db: &Db) -> tauri::Result<()> {
     builder
         .on_menu_event(move |app, event| match event.id().as_ref() {
             "open" => show_main(app),
-            "compose" => {
+            "compose" if MAIL_AVAILABLE.load(Ordering::Relaxed) => {
                 show_main(app);
                 let _ = app.emit("tray-compose", ());
             }
-            "sync" => {
+            "sync" if MAIL_AVAILABLE.load(Ordering::Relaxed) => {
                 let app = app.clone();
                 std::thread::spawn(move || crate::sync_all(&app));
             }
@@ -294,16 +388,13 @@ pub fn setup_tray(app: &AppHandle, db: &Db) -> tauri::Result<()> {
 /// Register the AppUserModelID so Windows shows our name and icon on toasts (no installer needed).
 #[cfg(windows)]
 pub fn register_aumid(app: &AppHandle) {
-    use std::os::windows::process::CommandExt;
-    let Ok(dir) = app.path().app_data_dir() else { return };
-    let icon = dir.join("icon.png");
+    crate::legacy_names::remove_old_notification_id();
+    let Some(data) = app.try_state::<crate::legacy_names::DataDir>() else { return };
+    let icon = data.0.join("icon.png");
     let _ = std::fs::write(&icon, include_bytes!("../icons/128x128.png"));
     let key = format!(r"HKCU\Software\Classes\AppUserModelId\{AUMID}");
     for (name, val) in [("DisplayName", "Hey Look!"), ("IconUri", icon.to_str().unwrap_or(""))] {
-        let _ = std::process::Command::new("reg")
-            .args(["add", &key, "/v", name, "/t", "REG_SZ", "/d", val, "/f"])
-            .creation_flags(0x0800_0000)
-            .output();
+        let _ = crate::winproc::hidden("reg").args(["add", &key, "/v", name, "/t", "REG_SZ", "/d", val, "/f"]).output();
     }
 }
 
@@ -368,7 +459,7 @@ fn handle_activation(app: &AppHandle, thread: &str, action: Option<String>) {
 }
 
 #[cfg(windows)]
-fn toast(app: &AppHandle, thread: String, title: &str, line1: &str, line2: &str, sound: &str, actions: &[String]) {
+fn toast(app: &AppHandle, thread: String, title: &str, line1: &str, line2: &str, sound: &str, actions: &[String]) -> Result<(), String> {
     use tauri_winrt_notification::{Sound, Toast};
     let snd = match sound {
         "none" => None,
@@ -394,10 +485,78 @@ fn toast(app: &AppHandle, thread: String, title: &str, line1: &str, line2: &str,
         Ok(())
     });
     let _ = t.show();
+    Ok(())
 }
 
+/// macOS and Linux: a plain native notification (no buttons; clicking it has the system's default effect only).
 #[cfg(not(windows))]
-fn toast(_: &AppHandle, _: String, _: &str, _: &str, _: &str, _: &str, _: &[String]) {}
+fn toast(app: &AppHandle, _thread: String, title: &str, line1: &str, line2: &str, sound: &str, _actions: &[String]) -> Result<(), String> {
+    #[cfg(target_os = "linux")]
+    {
+        let _ = app;
+        return toast_linux(title, &notification_body(line1, line2), sound);
+    }
+    #[cfg(not(target_os = "linux"))]
+    {
+        use tauri_plugin_notification::NotificationExt;
+        let mut n = app.notification().builder().title(title).body(notification_body(line1, line2));
+        if sound != "none" {
+            n = n.sound(if cfg!(target_os = "macos") { "default" } else { "message-new-email" });
+        }
+        n.show().map_err(|e| e.to_string().chars().take(120).collect())
+    }
+}
+
+/// Linux: the plugin's `show()` hands the notification to a background task and drops its result, so a missing notification
+/// service ("ServiceUnknown" on the bus) was never reported and "Send test" stayed silent (QA BUG-L2). The notification is sent
+/// here and the answer of the bus is returned; a bus that does not answer in time is an error too.
+#[cfg(target_os = "linux")]
+fn toast_linux(title: &str, body: &str, sound: &str) -> Result<(), String> {
+    let mut n = notify_rust::Notification::new();
+    n.summary(title).body(body).auto_icon();
+    if sound != "none" {
+        n.sound_name("message-new-email");
+    }
+    let (tx, rx) = std::sync::mpsc::channel();
+    std::thread::spawn(move || {
+        let _ = tx.send(n.show().map(|_| ()).map_err(|e| notify_failure_text(&e.to_string())));
+    });
+    rx.recv_timeout(std::time::Duration::from_secs(5)).unwrap_or_else(|_| {
+        // no answer in 5 s: the bus holds the call while it tries to start a notification service that never comes up (an
+        // activatable name without a working service), which is the same thing for the person: nothing will show it (QA BUG-L6)
+        crate::startup::line("notify", "the notification call got no answer from the bus within 5 s");
+        Err(NO_NOTIFICATION_SERVICE.into())
+    })
+}
+
+/// What "Send test" says when no notification service can show the notification (TC-165 (1)).
+const NO_NOTIFICATION_SERVICE: &str = "no notification service is running on this desktop";
+
+/// What the user reads after "Couldn’t show a notification: ". The bus answers `ServiceUnknown` / `NameHasNoOwner` when no
+/// notification service runs (a bare window manager, WSL without a server); anything else is kept in the system's words.
+#[cfg_attr(not(target_os = "linux"), allow(dead_code))]
+fn notify_failure_text(raw: &str) -> String {
+    let lower = raw.to_ascii_lowercase();
+    if lower.contains("serviceunknown") || lower.contains("namehasnoowner") || lower.contains("was not provided by any .service") {
+        return NO_NOTIFICATION_SERVICE.into();
+    }
+    raw.split_whitespace().collect::<Vec<_>>().join(" ").chars().take(120).collect()
+}
+
+/// Subject, then the preview on a second line when there is one.
+#[cfg_attr(windows, allow(dead_code))]
+fn notification_body(line1: &str, line2: &str) -> String {
+    if line2.is_empty() { line1.to_string() } else { format!("{line1}
+{line2}") }
+}
+
+/// Failures of other notifications than "Send test" are only logged.
+fn toast_logged(app: &AppHandle, thread: String, title: &str, line1: &str, line2: &str, sound: &str, actions: &[String]) {
+    if let Err(e) = toast(app, thread, title, line1, line2, sound, actions) {
+        eprintln!("notification failed: {e}");
+        crate::startup::line("notify", &format!("notification failed: {e}"));
+    }
+}
 
 fn notify_actions(p: &Value) -> Vec<String> {
     let list: Vec<String> = p
@@ -409,14 +568,41 @@ fn notify_actions(p: &Value) -> Vec<String> {
 }
 
 fn blocked(app: &AppHandle, db: &Db) -> bool {
-    db::get_setting(&lock(db), "notif_paused").as_deref() == Some("1")
-        || !pbool(&prefs(db), "notifications", true)
-        || app.get_webview_window("main").map_or(false, |w| w.is_focused().unwrap_or(false) && w.is_visible().unwrap_or(false))
+    quiet_reason(app, db).is_some()
+}
+
+/// Why no desktop notification is shown right now (paused, switched off, or the window is in front), None when one may be.
+fn quiet_reason(app: &AppHandle, db: &Db) -> Option<String> {
+    let paused = db::get_setting(&lock(db), "notif_paused").as_deref() == Some("1");
+    let enabled = pbool(&prefs(db), "notifications", true);
+    let (focused, visible, minimized) = app
+        .get_webview_window("main")
+        .map(|w| (w.is_focused().unwrap_or(false), w.is_visible().unwrap_or(false), w.is_minimized().unwrap_or(false)))
+        .unwrap_or((false, false, false));
+    quiet_because(paused, enabled, focused, visible, minimized, cfg!(target_os = "linux"))
+}
+
+/// The rule behind `quiet_reason`, pure. The window is "in front" when it is focused and visible; on Linux a minimized window is
+/// never in front even when the desktop still reports it visible and focused (WSLg keeps a minimized window viewable, QA BUG-L5).
+/// The reason names the values it saw, so `startup.log` tells an environment that reports the window as focused from a product fault.
+pub fn quiet_because(paused: bool, enabled: bool, focused: bool, visible: bool, minimized: bool, linux: bool) -> Option<String> {
+    if paused {
+        return Some("notifications are paused".into());
+    }
+    if !enabled {
+        return Some("notifications are switched off for all mailboxes".into());
+    }
+    let in_front = focused && visible && !(linux && minimized);
+    in_front.then(|| format!("the window is in front (focused: {focused}, visible: {visible}, minimized: {minimized})"))
 }
 
 /// Toasts for newly arrived inbox mail. Every account can override the "all accounts" notification settings.
 pub fn notify_new(app: &AppHandle, db: &Db, new: &[NewMsg]) {
-    if new.is_empty() || blocked(app, db) {
+    if new.is_empty() {
+        return;
+    }
+    if let Some(why) = quiet_reason(app, db) {
+        crate::startup::line("notify", &format!("notification: skipped for {} new message(s) ({why})", new.len()));
         return;
     }
     let p = prefs(db);
@@ -427,8 +613,10 @@ pub fn notify_new(app: &AppHandle, db: &Db, new: &[NewMsg]) {
         .filter(|n| !(flag(n, "smartNotifications", true) && n.bulk))
         .collect();
     if list.is_empty() {
+        crate::startup::line("notify", &format!("notification: skipped for {} new message(s) (the mailbox settings switch them off, or they are bulk mail)", new.len()));
         return;
     }
+    crate::startup::line("notify", &format!("notification: shown for {} new message(s)", list.len()));
     let sound_for = |n: &NewMsg| {
         eff(&p, &n.account_id, "notifySound")
             .and_then(|v| v.as_str().map(String::from))
@@ -436,13 +624,13 @@ pub fn notify_new(app: &AppHandle, db: &Db, new: &[NewMsg]) {
             .unwrap_or_else(|| "mail".to_string())
     };
     if list.len() > 3 {
-        toast(app, String::new(), "Hey Look!", &format!("{} new messages", list.len()), "", &sound_for(list[0]), &[]);
+        toast_logged(app, String::new(), "Hey Look!", &format!("{} new messages", list.len()), "", &sound_for(list[0]), &[]);
         return;
     }
     for n in list {
         let snippet: String = if flag(n, "notifyPreview", true) { n.snippet.chars().take(140).collect() } else { String::new() };
         let actions = notify_actions_for(&p, &n.account_id);
-        toast(app, n.thread_id.clone(), &n.from, &n.subject, &snippet, &sound_for(n), &actions);
+        toast_logged(app, n.thread_id.clone(), &n.from, &n.subject, &snippet, &sound_for(n), &actions);
     }
 }
 
@@ -459,15 +647,7 @@ pub fn tray_hint_once(app: &AppHandle, db: &Db) {
         return;
     }
     let _ = db::set_setting(&lock(db), "tray_hint_shown", "1");
-    toast(
-        app,
-        String::new(),
-        "Hey Look! is still running",
-        "It keeps checking your mail from the tray. Right-click the tray icon and choose Quit to exit.",
-        "",
-        "none",
-        &[],
-    );
+    toast_logged(app, String::new(), "Hey Look! is still running", tray_hint_text(std::env::consts::OS), "", "none", &[]);
 }
 
 /// Snoozed threads whose time has come: bring them back as unread and notify.
@@ -497,7 +677,7 @@ pub fn check_snoozes(app: &AppHandle, db: &Db) {
         let _ = lock(db).execute("UPDATE thread_meta SET snoozed_until=NULL WHERE thread_id=?1", [&tid]);
         let _ = action_impl(db, vec![tid.clone()], "unread".into(), None, None);
         if !quiet {
-            toast(app, tid, &format!("Snooze ended: {}", who.trim()), &subject, &snippet.chars().take(140).collect::<String>(), &sound, &actions);
+            toast_logged(app, tid, &format!("Snooze ended: {}", who.trim()), &subject, &snippet.chars().take(140).collect::<String>(), &sound, &actions);
         }
     }
     update_badge(app, db);
@@ -510,18 +690,132 @@ pub fn notify_reminder(app: &AppHandle, db: &Db, title: &str, line: &str) {
         return;
     }
     let p = prefs(db);
-    toast(app, String::new(), title, line, "", &pstr(&p, "notifySound", "reminder"), &[]);
+    toast_logged(app, String::new(), title, line, "", &pstr(&p, "notifySound", "reminder"), &[]);
 }
 
-pub fn test_notification(app: &AppHandle, db: &Db) {
-    let p = prefs(db);
-    toast(
-        app,
-        String::new(),
-        "Hey Look! test notification",
-        "Notifications are working",
-        "This is how new mail will look.",
-        &pstr(&p, "notifySound", "mail"),
-        &notify_actions(&p),
-    );
+/// Body of the one-time "still running" notice, per OS.
+fn tray_hint_text(os: &str) -> &'static str {
+    match os {
+        "macos" => "It keeps checking your mail from the menu bar. Click the Hey Look! icon in the Dock or the menu bar to open it again.",
+        "linux" => "It keeps checking your mail from the tray. Choose Quit Hey Look! in the tray icon’s menu to exit.",
+        _ => "It keeps checking your mail from the tray. Right-click the tray icon and choose Quit to exit.",
+    }
+}
+
+pub fn test_notification(app: &AppHandle, db: &Db) -> Result<(), String> {
+    // macOS: the notification backend of the plugin (the old NSUserNotification API) shows nothing on current macOS for an ad-hoc
+    // signed app and cannot ask for permission; Send test says so instead of pretending (QA BUG-M5, owner decision: documented limit)
+    #[cfg(target_os = "macos")]
+    {
+        let _ = (app, db);
+        return Err("not available on macOS in this version".into());
+    }
+    #[cfg(not(target_os = "macos"))]
+    {
+        let p = prefs(db);
+        toast(
+            app,
+            String::new(),
+            "Hey Look! test notification",
+            "Notifications are working",
+            "This is how new mail will look.",
+            &pstr(&p, "notifySound", "mail"),
+            &notify_actions(&p),
+        )
+    }
+}
+
+#[cfg(test)]
+mod platform_tests {
+    use super::*;
+
+    #[test]
+    fn tray_mail_entries_need_an_account() {
+        assert!(!tray_mail_enabled(0));
+        assert!(tray_mail_enabled(1));
+        assert!(tray_mail_enabled(4));
+        // the menu handlers for "New mail" and "Check mail now" check the same flag, so a stale menu cannot start a sync or a draft
+        let src = include_str!("shell.rs");
+        for id in ["\"compose\" if MAIL_AVAILABLE", "\"sync\" if MAIL_AVAILABLE"] {
+            assert!(src.contains(id), "{id}");
+        }
+    }
+
+    #[test]
+    fn only_a_registered_tray_host_counts() {
+        assert!(tray_host_present(Some(true)));
+        assert!(!tray_host_present(Some(false)));
+        assert!(!tray_host_present(None), "any error on the bus means no host");
+    }
+
+    #[test]
+    fn notification_text_is_subject_then_preview() {
+        assert_eq!(notification_body("Subject", ""), "Subject");
+        assert_eq!(notification_body("Subject", "Preview text"), "Subject\nPreview text");
+    }
+
+    #[test]
+    fn the_still_running_notice_names_the_right_place() {
+        assert!(tray_hint_text("windows").contains("Right-click the tray icon"));
+        assert!(tray_hint_text("macos").contains("Dock") && tray_hint_text("macos").contains("menu bar"));
+        assert!(tray_hint_text("linux").contains("Quit Hey Look! in the tray icon"));
+    }
+
+    #[test]
+    fn the_quiet_rule_says_why_and_a_minimized_window_on_linux_is_not_in_front() {
+        assert_eq!(quiet_because(false, true, false, true, false, true), None, "visible but not focused: shown");
+        assert_eq!(quiet_because(false, true, true, false, false, true), None, "focused but hidden: shown");
+        assert!(quiet_because(false, true, true, true, false, true).unwrap().starts_with("the window is in front (focused: true, visible: true, minimized: false)"));
+        // BUG-L5: a minimized window that the desktop still calls focused and visible
+        assert_eq!(quiet_because(false, true, true, true, true, true), None, "Linux: minimized is not in front");
+        assert!(quiet_because(false, true, true, true, true, false).is_some(), "other systems keep the old rule");
+        assert_eq!(quiet_because(true, true, false, false, false, true).as_deref(), Some("notifications are paused"));
+        assert_eq!(quiet_because(false, false, false, false, false, true).as_deref(), Some("notifications are switched off for all mailboxes"));
+    }
+
+    #[test]
+    fn a_new_mail_notification_leaves_a_line_for_every_decision() {
+        let src = include_str!("shell.rs");
+        let body = &src[src.find("pub fn notify_new(").unwrap()..];
+        let body = &body[..body.find("\n}\n").unwrap()];
+        for line in ["notification: skipped for", "notification: shown for", "mailbox settings switch them off"] {
+            assert!(body.contains(line), "{line}");
+        }
+        let logged = &src[src.find("fn toast_logged(").unwrap()..];
+        let logged = &logged[..logged.find("\n}\n").unwrap()];
+        assert!(logged.contains("startup::line(\"notify\""), "a failed notification is in startup.log too");
+    }
+
+    #[test]
+    fn a_bus_that_does_not_answer_reads_like_a_missing_service() {
+        // BUG-L6: the AppImage showed "did not answer" after 5 s, the deb the TC-165 text
+        let src = include_str!("shell.rs");
+        let body = &src[src.find("fn toast_linux").unwrap()..];
+        let body = &body[..body.find("\n}\n").unwrap()];
+        assert!(body.contains("Err(NO_NOTIFICATION_SERVICE.into())") && !body.contains(concat!("did not ", "answer\".into()")), "{body}");
+        assert_eq!(NO_NOTIFICATION_SERVICE, "no notification service is running on this desktop");
+    }
+
+    #[test]
+    fn a_missing_notification_service_is_named_not_swallowed() {
+        let raw = "org.freedesktop.DBus.Error.ServiceUnknown: The name org.freedesktop.Notifications was not provided by any .service files";
+        assert_eq!(notify_failure_text(raw), "no notification service is running on this desktop");
+        assert_eq!(notify_failure_text("org.freedesktop.DBus.Error.NameHasNoOwner: x"), "no notification service is running on this desktop");
+        assert_eq!(notify_failure_text("some  other\nfailure"), "some other failure");
+        assert_eq!(notify_failure_text(&"x".repeat(500)).chars().count(), 120);
+    }
+
+    #[test]
+    fn the_linux_notification_is_not_sent_through_the_fire_and_forget_plugin() {
+        // BUG-L2: the plugin's show() drops the bus error, so "Send test" could never report it. The Linux branch of `toast` must
+        // call `toast_linux` (which waits for the answer) before it reaches the plugin.
+        let src = include_str!("shell.rs");
+        let toast = &src[src.find("fn toast(app: &AppHandle, _thread").unwrap()..];
+        let linux = toast.find("toast_linux(").unwrap();
+        let plugin = toast.find(concat!("builder", "()")).unwrap();
+        assert!(linux < plugin, "the Linux branch comes first and returns");
+        let body = &src[src.find("fn toast_linux").unwrap()..];
+        let body = &body[..body.find("\n}\n").unwrap()];
+        assert!(body.contains(".show()") && body.contains("recv_timeout") && !body.contains("NotificationExt"), "{body}");
+    }
 }

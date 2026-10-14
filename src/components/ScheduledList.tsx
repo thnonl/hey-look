@@ -2,6 +2,7 @@ import { AlertTriangle, CalendarClock, CalendarX, Pencil, RotateCw, Send, X } fr
 import { useMemo, useState } from "react";
 import { api, errorCode, OutboxItem } from "../api";
 import { picturesToEditor } from "./Compose";
+import { kbd } from "../platform";
 import { friendlyError, useStore } from "../store";
 import { fmtWhen, zoneLabel } from "../util";
 import { EmptyState } from "./overlays";
@@ -211,8 +212,8 @@ export function ScheduledList() {
                     </>
                   ) : (
                     <>
-                      <button className="icon-btn" title="Send now (Ctrl+Enter)" aria-label={`Send ${o.subject || "message"} now`} disabled={o.status === "sending"} onClick={() => void sendNow(o)}><Send size={14} /></button>
-                      <button className="icon-btn" title="Change time (Ctrl+Shift+Enter)" aria-label={`Change time of ${o.subject || "message"}`} onClick={() => void open(o, true)}><CalendarClock size={14} /></button>
+                      <button className="icon-btn" title={kbd("Send now (Ctrl+Enter)")} aria-label={`Send ${o.subject || "message"} now`} disabled={o.status === "sending"} onClick={() => void sendNow(o)}><Send size={14} /></button>
+                      <button className="icon-btn" title={kbd("Change time (Ctrl+Shift+Enter)")} aria-label={`Change time of ${o.subject || "message"}`} onClick={() => void open(o, true)}><CalendarClock size={14} /></button>
                     </>
                   )}
                   <button className="icon-btn" title="Cancel scheduled send (Delete)" aria-label={`Cancel scheduled send of ${o.subject || "message"}`} onClick={() => void cancel(o)}><X size={14} /></button>

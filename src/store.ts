@@ -1,5 +1,7 @@
 import { create } from "zustand";
 import { api, Account, Att, BackfillProgress, CalendarInfo, CalEvent, DraftSecurity, FolderInfo, Meeting, MessageFull, OutboxItem, SearchScope, ThreadSummary } from "./api";
+import { loadPlatform } from "./platform";
+import { hasMailAccounts } from "./mailControls";
 import { calTz, CalView, Day, rangeFor, systemTz, today } from "./calendar";
 import { accentText, accountColor, buttonAccent, clampMaxDownload, DEFAULT_PREFS, lightened, mergePrefs, Prefs, readableOn, staleAccountPrefs, topBar, validHex } from "./prefs";
 
@@ -49,7 +51,7 @@ export interface EventInit {
 
 export type Dialog =
   | null
-  | { type: "settings"; tab?: string; focus?: string }
+  | { type: "settings"; tab?: string; focus?: string; nonce?: number }
   | { type: "cleaner" }
   | { type: "original"; messageId: string }
   | { type: "pgp-generate"; accountId?: string; back?: string }
@@ -83,6 +85,15 @@ export interface Toast {
   /** up to two buttons, e.g. Open / Show in folder / Retry */
   actions?: ToastAction[];
   ttl: number;
+  /** stays until it is answered (no timer, no countdown bar); `key` names it so a new one replaces the old */
+  sticky?: boolean;
+  key?: string;
+  /** what the "×" does for a sticky toast (default: just close it) */
+  onDismiss?: () => void;
+  /** accessible name of the "×" (default: "Later" when `onDismiss` is set, else "Dismiss") */
+  closeLabel?: string;
+  /** Esc closes it (when nothing else that Esc closes is open) */
+  escCloses?: boolean;
 }
 
 export interface Choice {
@@ -113,6 +124,8 @@ export function friendlyError(e: unknown): string {
   if (/^PGP_LOCKED:/.test(raw)) return "Your encryption key is locked. Unlock it and try again.";
   if (/^PGP_MISSING_KEYS:/.test(raw)) return `No public key for ${raw.slice("PGP_MISSING_KEYS:".length).split(",").join(", ")}.`;
   raw = raw.replace(/^[A-Z][A-Z_]+:\s+/, "");
+  // the backend already explained a server that does not do SSL/TLS or STARTTLS (mail.rs): keep its words
+  if (/^Couldn[’']t start a secure connection to /.test(raw)) return shortenError(raw);
   if (/login failed|authenticationfailed|invalid credentials|auth.*fail/i.test(raw))
     return "Sign-in failed. Check the password (Gmail, iCloud and Yahoo need an app password) or sign in again.";
   if (/no stored (password|\w+ token)/i.test(raw)) return "The saved credentials for this account are missing. Remove the account and add it again.";
@@ -188,7 +201,8 @@ interface State {
   compose: ComposeInit | null;
   composeKey: number; // changes on every open so a new message never inherits the old one's state
   composeDirty: boolean;
-  composeSaver: (() => Promise<void>) | null;
+  /** Saves the open message as a draft; resolves true when it was saved (false: the save failed, the message is still open). */
+  composeSaver: ((opts?: { quiet?: boolean }) => Promise<boolean | void>) | null;
   dialog: Dialog;
   commandOpen: boolean;
   ribbonTab: RibbonTab;
@@ -205,6 +219,12 @@ interface State {
   calError: string | null;
   /** bumps when the calendar changed behind the view's back (sync, respond, save) */
   calRev: number;
+  /** Messages being sent right now: waiting in the undo window or handed to the backend and not answered yet (an update restart waits for them). */
+  sendsInFlight: number;
+  /** The app is flushing sends because it is about to quit (a failed send then goes to Drafts). */
+  quitting: boolean;
+  /** Why the last draft save failed (the quit dialog says it). */
+  draftError: string;
 
   init: () => Promise<void>;
   setView: (folder: string, accountId?: string | null) => Promise<void>;
@@ -225,12 +245,20 @@ interface State {
   act: (ids: string[], action: string, arg?: string, label?: string) => Promise<void>;
   openCompose: (c: ComposeInit | null) => Promise<void>;
   setComposeDirty: (d: boolean) => void;
-  setComposeSaver: (f: (() => Promise<void>) | null) => void;
+  setComposeSaver: (f: ((opts?: { quiet?: boolean }) => Promise<boolean | void>) | null) => void;
   setDialog: (d: Dialog) => void;
   setCommandOpen: (o: boolean) => void;
   setRibbonTab: (t: RibbonTab) => void;
   showToast: (text: string, undo?: () => void, kind?: Toast["kind"], actions?: ToastAction[]) => void;
   dismissToast: (id: number) => void;
+  /** A toast that stays until it is answered (or `null` to remove it); one per `key`, a new text replaces the old in place. */
+  setStickyToast: (
+    key: string,
+    spec: { text: string; kind?: Toast["kind"]; actions?: ToastAction[]; onDismiss?: () => void; closeLabel?: string; escCloses?: boolean } | null,
+  ) => void;
+  /** Count a message as being sent from now until `done()` is called. */
+  /** A send is under way (its undo window counts). `flush` makes it go out at once (a quit); it is dropped when the send ends. */
+  beginSend: (flush?: () => void) => () => void;
   confirm: (o: { title: string; body?: string; confirmLabel?: string; danger?: boolean }) => Promise<boolean>;
   choose: (o: { title: string; body?: string; choices: Choice[] }) => Promise<string>;
   resolveAsk: (id: string) => void;
@@ -355,6 +383,28 @@ function applyOptimistic(ids: string[], action: string) {
  * One-time migration: an account without a stored color has always been drawn in the primary color, so that exact color is stored
  * for it now (what the user sees does not change) and every place - dots, avatars, Settings > Profile - reads the stored value.
  */
+/** The sends still waiting out their "Undo" time: each can be told to go out now. */
+const sendFlushers = new Set<() => void>();
+
+/**
+ * The app is about to quit: let every message that is still in its Undo window go out at once and wait (at most `maxMs`) until no send is
+ * under way. A quit used to throw such a message away (the timer lives only here). Resolves true when nothing is left.
+ */
+export async function flushSends(maxMs = 25_000): Promise<boolean> {
+  useStore.setState({ quitting: true });
+  try {
+    for (const f of [...sendFlushers]) f();
+    const until = Date.now() + maxMs;
+    while (useStore.getState().sendsInFlight > 0) {
+      if (Date.now() > until) return false;
+      await new Promise((r) => setTimeout(r, 100));
+    }
+    return true;
+  } finally {
+    useStore.setState({ quitting: false });
+  }
+}
+
 export function storeMissingColors(accounts: Account[], accent: string): Account[] {
   return accounts.map((a) => {
     if (a.color) return a;
@@ -414,9 +464,12 @@ export const useStore = create<State>((set, get) => ({
   calLoading: false,
   calError: null,
   calRev: 0,
+  sendsInFlight: 0,
+  quitting: false,
+  draftError: "",
 
   init: async () => {
-    const [rawAccounts, rawPrefs] = await Promise.all([api.listAccounts(), api.getSetting("prefs")]);
+    const [rawAccounts, rawPrefs] = await Promise.all([api.listAccounts(), api.getSetting("prefs"), loadPlatform()]);
     let prefs = mergePrefs(rawPrefs);
     // settings that point at an account that was removed (default account, overrides, favorites) are dropped
     const stale = staleAccountPrefs(prefs, rawAccounts.map((a) => a.id));
@@ -774,6 +827,7 @@ export const useStore = create<State>((set, get) => ({
 
   openCompose: async (compose) => {
     const st = get();
+    if (compose && !hasMailAccounts(st.accounts.length)) return; // no account: there is nothing to send with
     if (compose && st.compose && st.composeDirty) {
       const choice = await st.choose({
         title: "You have an unsent message",
@@ -803,11 +857,33 @@ export const useStore = create<State>((set, get) => ({
     const ttl = undo ? Math.max(5000, get().prefs.undoActionSeconds * 1000) : acts?.length || k === "error" ? 8000 : 4500;
     const id = ++toastSeq;
     // newest last; keep a short stack and never evict a toast that still has an Undo
-    set((s) => ({ toasts: [...s.toasts.filter((t) => t.undo || s.toasts.length < 4), { id, text, kind: k, undo, actions: acts, ttl }].slice(-5) }));
+    set((s) => ({ toasts: [...s.toasts.filter((t) => t.undo || t.sticky || s.toasts.length < 4), { id, text, kind: k, undo, actions: acts, ttl }].slice(-5) }));
     setTimeout(() => get().dismissToast(id), ttl);
   },
 
   dismissToast: (id) => set((s) => ({ toasts: s.toasts.filter((t) => t.id !== id) })),
+
+  setStickyToast: (key, spec) =>
+    set((s) => {
+      const others = s.toasts.filter((t) => t.key !== key);
+      if (!spec) return { toasts: others };
+      const old = s.toasts.find((t) => t.key === key);
+      const toast: Toast = { id: old?.id ?? ++toastSeq, text: spec.text, kind: spec.kind ?? "info", actions: spec.actions, ttl: 0, sticky: true, key, onDismiss: spec.onDismiss, closeLabel: spec.closeLabel, escCloses: spec.escCloses };
+      // in place when it exists (the countdown changes its text every second), else on top of the stack
+      return { toasts: old ? s.toasts.map((t) => (t.key === key ? toast : t)) : [...others, toast].slice(-5) };
+    }),
+
+  beginSend: (flush) => {
+    set((s) => ({ sendsInFlight: s.sendsInFlight + 1 }));
+    if (flush) sendFlushers.add(flush);
+    let done = false;
+    return () => {
+      if (done) return;
+      done = true;
+      if (flush) sendFlushers.delete(flush);
+      set((s) => ({ sendsInFlight: Math.max(0, s.sendsInFlight - 1) }));
+    };
+  },
 
   choose: (o) =>
     new Promise<string>((resolve) => {
@@ -864,3 +940,24 @@ export const useStore = create<State>((set, get) => ({
     }
   },
 }));
+
+// The account list decides whether mail controls exist (see mailControls.ts). When the last account goes, whatever belonged to it
+// (an open search, selection, compose window, calendar module) is dropped, so the first account added later starts clean; the tray's
+// "New mail" and "Check mail now" follow the same state.
+useStore.subscribe((s, prev) => {
+  if (!s.loaded) return;
+  const had = hasMailAccounts(prev.accounts.length);
+  const has = hasMailAccounts(s.accounts.length);
+  if (had === has && prev.loaded) return;
+  void api.setMailAvailable(has).catch(() => undefined);
+  if (!prev.loaded) return; // the first read at start-up is not a change
+  // the saved module is Mail in the zero-account state and after the first account (Calendar is a mail-app module)
+  if (had !== has) useStore.getState().setModule("mail");
+  if (had && !has) {
+    // an open Compose is closed WITHOUT saving: the account's local copy is gone, and the pane unmounts with the workspace
+    useStore.setState({
+      search: "", selected: null, messages: [], threads: [], checked: new Set(), compose: null, composeDirty: false, composeSaver: null,
+      commandOpen: false, accountId: null, folder: "inbox", filter: "all", firstSync: null, dialog: s.dialog?.type === "settings" ? { type: "settings", tab: "add-account", nonce: Date.now() } : s.dialog,
+    });
+  }
+});

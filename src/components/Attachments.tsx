@@ -10,6 +10,7 @@ import { denyIfConfidential, imageLock } from "../protect";
 import { friendlyError, useStore } from "../store";
 import { fmtSize } from "../util";
 import riskyExt from "../riskyExt.json";
+import { kbd, osNow } from "../platform";
 import { importKeyFromMessage, isKeyAttachment } from "./Pgp";
 import { Dropdown } from "./ui";
 
@@ -86,7 +87,8 @@ function KindIcon({ kind, size = 16 }: { kind: FileKind; size?: number }) {
 export function previewable(a: Pick<AttMeta, "name" | "mime" | "size">, confidential = false): "image" | "pdf" | "text" | null {
   const e = ext(a.name);
   if (a.mime.startsWith("image/") && a.size <= 25 * 1024 * 1024 && !["heic", "heif", "tif", "tiff"].includes(e)) return "image";
-  if (a.mime === "application/pdf" || e === "pdf") return a.size <= 25 * 1024 * 1024 && !confidential ? "pdf" : null;
+  // WebKitGTK has no PDF viewer inside the page: on Linux a PDF opens with the default app instead; a confidential message has no preview
+  if (a.mime === "application/pdf" || e === "pdf") return a.size <= 25 * 1024 * 1024 && osNow() !== "linux" && !confidential ? "pdf" : null;
   const textExt = ["txt", "log", "csv", "json", "xml", "md", "eml"];
   if ((a.mime.startsWith("text/") || textExt.includes(e)) && !RISKY_EXT.includes(e) && a.size <= 1024 * 1024) return "text";
   return null;
@@ -274,7 +276,7 @@ export function AttachmentCard({ m, a }: { m: MessageFull; a: AttMeta }) {
     { label: "Open", hint: "Enter", onClick: open },
     { divider: true },
     { label: `Save to ${saveTo}`, onClick: () => void save(false) },
-    { label: "Save as…", hint: "Ctrl+S", onClick: () => void save(true) },
+    { label: "Save as…", hint: kbd("Ctrl+S"), onClick: () => void save(true) },
     { divider: true },
     { label: "Attach to new message", onClick: () => void attachToNew() },
   ];

@@ -1,4 +1,4 @@
-import { invoke } from "@tauri-apps/api/core";
+import { Channel, invoke } from "@tauri-apps/api/core";
 
 export interface Account {
   id: string;
@@ -459,6 +459,10 @@ export const api = {
   removeAccount: (accountId: string) => invoke<void>("remove_account", { accountId }),
   refreshBadge: () => invoke<void>("refresh_badge"),
   testNotification: () => invoke<void>("test_notification"),
+  /** a link in the default browser or mail program, with a checked launch (Linux only; see open.ts) */
+  openExternal: (url: string) => invoke<void>("open_external", { url }),
+  /** text on the system clipboard through the backend (Linux only; see open.ts) */
+  copyText: (text: string) => invoke<void>("copy_text", { text }),
   getAutostart: () => invoke<boolean>("get_autostart"),
   setAutostart: (enabled: boolean) => invoke<void>("set_autostart", { enabled }),
   syncAccount: (accountId: string) => invoke<SyncResult>("sync_account", { accountId }),
@@ -505,6 +509,14 @@ export const api = {
     invoke<void>("save_draft", { draft, replaces: replaces ?? null }),
   listOutbox: () => invoke<OutboxItem[]>("list_outbox"),
   cancelOutbox: (id: string) => invoke<void>("cancel_outbox", { id }),
+  /** Send was pressed with an Undo time: the message goes into the local outbox (not a scheduled message) until `dueAt` (unix seconds). */
+  outboxHold: (draft: Draft, dueAt: number, replaces?: string | null) => invoke<string>("outbox_hold", { draft, dueAt, replaces: replaces ?? null }),
+  /** The Undo time of a held message is over (or a quit ends it): send it. `keep`: if that fails the row stays for the next start (quit). */
+  outboxHoldSend: (id: string, keep: boolean) => invoke<void>("outbox_hold_send", { id, keep }),
+  /** The quit waits (`true`) or no longer waits (`false`) for an answer of the person. */
+  quitDialog: (open: boolean) => invoke<void>("quit_dialog", { open }),
+  /** The person cancelled the scheduled-messages question of a quit. */
+  quitCancelled: () => invoke<void>("quit_cancelled"),
   outboxPendingCount: () => invoke<{ count: number; next: number | null }>("outbox_pending_count"),
   outboxOpenForEdit: (id: string) => invoke<OutboxEdit>("outbox_open_for_edit", { id }),
   outboxRelease: (id: string) => invoke<void>("outbox_release", { id }),
@@ -568,7 +580,85 @@ export const api = {
   fetchRemoteImages: (urls: string[]) => invoke<Record<string, string>>("fetch_remote_images", { urls }),
   aiComplete: (system: string, prompt: string) => invoke<string>("ai_complete", { system, prompt }),
   aiListModels: (endpoint: string, key?: string) => invoke<string[]>("ai_list_models", { endpoint, key: key ?? null }),
+  /** Whether any account exists: the tray menu items "New mail" and "Check mail now" are enabled only then. */
+  /** The UI has painted its first screen: the backend may show the window (it reloads the page when this never comes). */
+  frontendReady: () => invoke<void>("frontend_ready"),
+  /** The page has let its sends go out and saved its draft (answer to the quit's `flush-sends`); `go` false = keep the window open. */
+  sendsFlushed: (go: boolean) => invoke<void>("sends_flushed", { go }),
+  /** Bring the window to the front (a question while the app sat in the tray). */
+  showWindow: () => invoke<void>("show_window"),
+  /** What the page sees a moment after the window was shown: `visibilityState` and whether an animation frame arrived. */
+  pageState: (visibility: string, frames: boolean) => invoke<void>("page_state", { visibility, frames }),
+  setMailAvailable: (available: boolean) => invoke<void>("set_mail_available", { available }),
+  shellInfo: () => invoke<{ os: string; tray: boolean; testData?: string | null }>("shell_info"),
+  checkUpdate: (trigger: UpdateTrigger) => invoke<UpdateResult>("check_update", { trigger }),
+  /** Download and verify the update; progress arrives on `onEvent`. Resolves when the download has ended (ready, failed or cancelled). */
+  updateDownload: (version: string, onEvent: (e: DlEvent) => void) => {
+    const channel = new Channel<DlEvent>();
+    channel.onmessage = onEvent;
+    // `version` is the one the user agreed to (the card's): the backend downloads nothing else and answers stage "changed" otherwise
+    return invoke<void>("update_download", { version, onEvent: channel });
+  },
+  updateCancel: () => invoke<void>("update_cancel"),
+  updateDiscard: () => invoke<void>("update_discard"),
+  /** The user chose Later / Not now (true) or took it back (false): only then the kept package is installed when the app quits. */
+  updateDefer: (deferred: boolean) => invoke<void>("update_defer", { deferred }),
+  /** A line for `startup.log` (tag `update`): why a restart did not start. */
+  updateNote: (text: string) => invoke<void>("update_note", { text }),
+  /** Install the downloaded update. `draftSaved`: a draft was saved for the restart (the next start says so). */
+  updateInstall: (restart: boolean, draftSaved: boolean) => invoke<void>("update_install", { restart, draftSaved }),
+  updateStartupState: () => invoke<UpdateStartupState>("update_startup_state"),
+  /** The result of the last install was shown: the backend forgets it (until then every start tells it again). */
+  updateStartupAck: () => invoke<void>("update_startup_ack"),
+  /** A scheduled message is being delivered right now. */
+  outboxBusy: () => invoke<boolean>("outbox_busy"),
 };
+
+export type UpdateTrigger = "startup" | "shown" | "manual";
+export interface UpdateAsset {
+  name: string;
+  url: string;
+  size: number | null;
+  /** the link passes the allow-list (a github.com release download of this version) */
+  urlOk: boolean;
+}
+export interface UpdateInfo {
+  latest: string;
+  notes: string;
+  notesTruncated: boolean;
+  /** unix seconds */
+  publishedAt: number | null;
+  releaseUrl: string;
+  asset: UpdateAsset | null;
+}
+/** `disabled` and `throttled` are internal: the UI shows the cached `info` instead (see `cachedKind`). */
+export type UpdateKind = "available" | "upToDate" | "noRelease" | "offline" | "error" | "disabled" | "throttled";
+export interface UpdateResult {
+  kind: UpdateKind;
+  current: string;
+  /** `installer`: how this copy was installed (nsis, msi, app, appimage, deb, rpm, unknown) */
+  platform: { os: string; arch: string; installer: string; label: string };
+  /** last attempt, unix seconds */
+  checkedAt: number | null;
+  message?: string | null;
+  info: UpdateInfo | null;
+  fromCache: boolean;
+  /** for `throttled` / `disabled` results that carry cached `info`: `available` or `upToDate` */
+  cachedKind?: UpdateKind | null;
+}
+/** Progress of `updateDownload` (the Rust side sends `{ event, data }`). */
+export type DlEvent =
+  | { event: "started"; data: { total: number | null; version: string } }
+  | { event: "progress"; data: { received: number } }
+  | { event: "verifying" }
+  | { event: "ready" }
+  | { event: "failed"; data: { stage: "download" | "badurl" | "verify" | "install" | "changed"; message: string } }
+  | { event: "cancelled" };
+export interface UpdateStartupState {
+  outcome: "updated" | "failed" | null;
+  version: string | null;
+  draft: boolean;
+}
 
 export const PROVIDERS: Record<
   string,

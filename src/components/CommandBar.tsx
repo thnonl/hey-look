@@ -3,6 +3,8 @@ import { newMailAccount } from "../actions";
 import { folderLabel } from "../prefs";
 import { newEvent } from "./Calendar";
 import { useStore } from "../store";
+import { commandsFor } from "../mailControls";
+import { useUpdates } from "../updates";
 
 interface Cmd {
   label: string;
@@ -20,6 +22,7 @@ export function CommandBar() {
     const ids = s.selected ? [s.selected] : [];
     const cur = s.threads.find((t) => t.threadId === s.selected);
     const list: Cmd[] = [
+      { label: "Add account", run: () => s.setDialog({ type: "settings", tab: "add-account", nonce: Date.now() }) }, // listed only without an account
       { label: "New mail", run: () => s.openCompose({ accountId: newMailAccount() }) },
       { label: "Sync now", run: () => void s.sync() },
       { label: "New event", run: () => newEvent() },
@@ -29,6 +32,7 @@ export function CommandBar() {
       { label: "Calendar: Week view", run: () => (s.setModule("calendar"), s.setCalView("week")) },
       { label: "Calendar: Agenda view", run: () => (s.setModule("calendar"), s.setCalView("agenda")) },
       { label: "Open settings", run: () => s.setDialog({ type: "settings" }) },
+      { label: "Check for updates", run: () => useUpdates.getState().openSettingsAbout(true) },
       { label: "Sweep: clean up by sender", run: () => s.setDialog({ type: "cleaner" }) },
       { label: "Theme: light", run: () => s.setPrefs({ theme: "light" }) },
       { label: "Theme: dark", run: () => s.setPrefs({ theme: "dark" }) },
@@ -51,7 +55,7 @@ export function CommandBar() {
       );
     for (const a of s.accounts) list.push({ label: `Switch to ${a.email}`, run: () => void s.setView(s.folder, a.id) });
     list.push({ label: "Show all accounts", run: () => void s.setView(s.folder, null) });
-    return list;
+    return commandsFor(s.accounts.length, list); // without an account only Settings, updates and the theme remain
   }, [s.selected, s.accounts, s.folder, s.accountId, s.threads, s.prefs]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const shown = cmds.filter((c) => c.label.toLowerCase().includes(q.toLowerCase())).slice(0, 10);

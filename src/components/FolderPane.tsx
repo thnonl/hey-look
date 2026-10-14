@@ -5,6 +5,7 @@ import { ReactNode, useEffect } from "react";
 import { CalSidebar } from "./Calendar";
 import { FolderInfo } from "../api";
 import { accountColor, folderDepth, folderLabel } from "../prefs";
+import { kbd } from "../platform";
 import { useStore } from "../store";
 
 const ICONS: Record<string, ReactNode> = {
@@ -169,10 +170,10 @@ export function FolderPane() {
       </div>
       )}
       <nav className="fp-modules" aria-label="Switch between Mail and Calendar">
-        <button aria-current={module === "mail" ? "page" : undefined} title="Mail (Ctrl+1)" onClick={() => setModule("mail")}>
+        <button aria-current={module === "mail" ? "page" : undefined} title={kbd("Mail (Ctrl+1)")} onClick={() => setModule("mail")}>
           <Inbox size={15} aria-hidden /> Mail
         </button>
-        <button aria-current={module === "calendar" ? "page" : undefined} title="Calendar (Ctrl+2)" onClick={() => setModule("calendar")}>
+        <button aria-current={module === "calendar" ? "page" : undefined} title={kbd("Calendar (Ctrl+2)")} onClick={() => setModule("calendar")}>
           <CalendarDays size={15} aria-hidden /> Calendar
         </button>
       </nav>

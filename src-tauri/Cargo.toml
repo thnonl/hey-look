@@ -1,7 +1,8 @@
 [package]
 name = "hey-look"
-version = "0.1.0"
+version = "1.0.0"
 description = "Hey Look! desktop mail client"
+license = "MIT"
 authors = ["you"]
 edition = "2024"
 
@@ -45,18 +46,39 @@ roxmltree = "0.21.1"
 pgp = { version = "0.21", default-features = false }
 rand08 = { package = "rand", version = "0.8" }
 smallvec = "1"
+semver = "1"
+tokio = { version = "1", features = ["sync", "time", "macros"] }
+
+[target.'cfg(any(target_os = "macos", windows, target_os = "linux"))'.dependencies]
+tauri-plugin-updater = "2.13"
+
+# macOS / Linux native notifications (Windows has its own toasts with buttons, see shell.rs); used from Rust only
+[target.'cfg(not(windows))'.dependencies]
+tauri-plugin-notification = "2"
 
 [target.'cfg(windows)'.dependencies]
 tauri-winrt-notification = "0.8"
 # custom window frame: caption-button hit-testing (Snap Layouts) + system menu, see src/winframe.rs
-windows = { version = "0.62", features = ["Win32_Foundation", "Win32_Graphics_Gdi", "Win32_System_LibraryLoader", "Win32_UI_Input_KeyboardAndMouse", "Win32_UI_Shell", "Win32_UI_WindowsAndMessaging"] }
+# the web view's own process events (webview_health.rs): the same version tauri's runtime uses, so the types are shared
+webview2-com = "0.39"
+windows = { version = "0.62", features = ["Wdk_System_Threading", "Win32_Foundation", "Win32_Graphics_Gdi", "Win32_Storage_Xps", "Win32_System_Diagnostics_ToolHelp", "Win32_System_LibraryLoader", "Win32_System_Threading", "Win32_UI_Input_KeyboardAndMouse", "Win32_UI_Shell", "Win32_UI_WindowsAndMessaging"] }
 windows-version = "0.1"
 keyring = { version = "3", features = ["windows-native"] }
 
 [target.'cfg(target_os = "macos")'.dependencies]
 keyring = { version = "3", features = ["apple-native"] }
+# macquit.rs: `applicationShouldTerminate:` on the app delegate (Dock "Quit", log out); the version tao and muda already use
+objc2 = "0.6"
+# macquit.rs: the block for the power-off notice (already in the lock file, tao and muda use it)
+block2 = "0.6"
 
 [target.'cfg(target_os = "linux")'.dependencies]
+# asks the session bus whether a tray host exists (shell.rs); the notification plugin uses the same version
+zbus = "5"
+# shows the Linux notifications and returns the answer of the bus (the plugin that wraps it drops the result); the version the plugin uses
+notify-rust = "4.18"
+# the system clipboard for copy_text (lib.rs); the version tauri and wry already use
+gtk = "0.18"
 keyring = { version = "3", features = ["sync-secret-service", "crypto-rust"] }
 
 
@@ -67,3 +89,6 @@ lto = true
 opt-level = 3
 panic = "abort"
 strip = true
+
+[dev-dependencies]
+tauri = { version = "2", features = ["test"] }

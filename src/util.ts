@@ -262,6 +262,11 @@ export function shortKey(fprOrId: string): string {
   return fmtFpr(fprOrId.replace(/\s+/g, "").slice(-8));
 }
 
+/** Clock time of a timestamp in the app's time format ("14:05" or "2:05 pm"). */
+export function fmtClock(ts: number): string {
+  return format(new Date(ts * 1000), timePat);
+}
+
 export function fmtDay(ts: number): string {
   return format(new Date(ts * 1000), "d MMM yyyy");
 }

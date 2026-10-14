@@ -1,0 +1,274 @@
+/* Hey Look! site v2: theme, motion switch, nav, reveals, hero, tag wall, video slot, download logic, support page.
+   No libraries, no analytics, no cookies. localStorage only for the theme and the animation switch, always in try/catch. */
+(function () {
+  'use strict';
+
+  var KOFI_WIDGET = 'https://ko-fi.com/namthonl/?hidefeed=true&widget=true&embed=true&preview=true'; /* the owner's embed, loaded only after a click */
+
+  var root = document.documentElement;
+  var $ = function (s, c) { return (c || document).querySelector(s); };
+  var $$ = function (s, c) { return Array.prototype.slice.call((c || document).querySelectorAll(s)); };
+  var store = {
+    get: function (k) { try { return window.localStorage.getItem(k); } catch (e) { return null; } },
+    set: function (k, v) { try { window.localStorage.setItem(k, v); } catch (e) { /* private mode */ } }
+  };
+  var mqReduce = window.matchMedia ? window.matchMedia('(prefers-reduced-motion: reduce)') : { matches: false };
+  var mqDark = window.matchMedia ? window.matchMedia('(prefers-color-scheme: dark)') : { matches: false };
+  var listeners = { theme: [], motion: [] };
+
+  /* ---------- theme: auto (system) -> light -> dark ---------- */
+  var order = ['auto', 'light', 'dark'];
+  var names = { auto: 'automatic', light: 'light', dark: 'dark' };
+  function resolvedTheme() {
+    var t = root.getAttribute('data-theme');
+    return t === 'light' || t === 'dark' ? t : (mqDark.matches ? 'dark' : 'light');
+  }
+  function applyTheme(pref) {
+    if (pref === 'light' || pref === 'dark') root.setAttribute('data-theme', pref); else root.removeAttribute('data-theme');
+    root.setAttribute('data-pref', pref);
+    var b = $('#theme-btn');
+    if (b) b.setAttribute('aria-label', 'Theme: ' + names[pref] + '. Switch to ' + names[order[(order.indexOf(pref) + 1) % 3]]);
+    listeners.theme.forEach(function (f) { f(resolvedTheme()); });
+  }
+  var pref = root.getAttribute('data-pref') || 'auto';
+  if (order.indexOf(pref) < 0) pref = 'auto';
+  applyTheme(pref);
+  var tb = $('#theme-btn');
+  if (tb) tb.addEventListener('click', function () {
+    pref = order[(order.indexOf(pref) + 1) % 3];
+    if (!/[?&]theme=/.test(location.search)) store.set('hl2-theme', pref === 'auto' ? '' : pref);
+    applyTheme(pref);
+    var live = $('#theme-live'); if (live) live.textContent = 'Theme: ' + names[pref];
+  });
+  if (mqDark.addEventListener) mqDark.addEventListener('change', function () { if (pref === 'auto') applyTheme(pref); });
+
+  /* ---------- motion: follows the system setting, plus a visible switch ---------- */
+  function motionOn() { return !mqReduce.matches && !root.classList.contains('calm'); }
+  function applyMotion() {
+    var on = motionOn();
+    root.classList.toggle('motion', on);
+    var b = $('#motion-btn');
+    if (b) {
+      var calm = root.classList.contains('calm') || mqReduce.matches;
+      b.setAttribute('aria-pressed', calm ? 'true' : 'false');
+      b.setAttribute('aria-label', calm ? 'Animations: off. Switch on' : 'Animations: on. Switch off');
+      b.setAttribute('title', calm ? 'Animations are off' : 'Animations are on');
+    }
+    listeners.motion.forEach(function (f) { f(on); });
+  }
+  var mb = $('#motion-btn');
+  if (mb) mb.addEventListener('click', function () {
+    var calm = root.classList.contains('calm');
+    if (mqReduce.matches && !calm) { /* the system asks for no motion: this switch cannot turn it back on */
+      var live = $('#theme-live'); if (live) live.textContent = 'Your system asks for reduced motion, so animations stay off.'; return;
+    }
+    root.classList.toggle('calm', !calm);
+    store.set('hl2-calm', calm ? '0' : '1');
+    applyMotion();
+  });
+  if (mqReduce.addEventListener) mqReduce.addEventListener('change', applyMotion);
+  applyMotion();
+
+  window.HL = {
+    motionOn: motionOn, resolvedTheme: resolvedTheme,
+    onTheme: function (f) { listeners.theme.push(f); }, onMotion: function (f) { listeners.motion.push(f); }
+  };
+
+  /* ---------- mobile nav ---------- */
+  var nt = $('.nav-toggle'), nav = $('#site-nav');
+  if (nt && nav) {
+    nt.addEventListener('click', function () {
+      var open = nav.classList.toggle('open'); nt.setAttribute('aria-expanded', open ? 'true' : 'false');
+    });
+    document.addEventListener('keydown', function (e) {
+      if (e.key === 'Escape' && nav.classList.contains('open')) { nav.classList.remove('open'); nt.setAttribute('aria-expanded', 'false'); nt.focus(); }
+    });
+    nav.addEventListener('click', function (e) { if (e.target.closest && e.target.closest('a')) { nav.classList.remove('open'); nt.setAttribute('aria-expanded', 'false'); } });
+  }
+
+  /* ---------- reveal on scroll ---------- */
+  if ('IntersectionObserver' in window) {
+    var rio = new IntersectionObserver(function (es) {
+      es.forEach(function (e) { if (e.isIntersecting) { e.target.classList.add('in'); rio.unobserve(e.target); } });
+    }, { rootMargin: '0px 0px -8% 0px' });
+    $$('.rv').forEach(function (el) { rio.observe(el); });
+  } else {
+    $$('.rv').forEach(function (el) { el.classList.add('in'); });
+  }
+
+  /* ---------- TOC highlight ---------- */
+  var toc = $$('.toc a[href^="#"]');
+  if (toc.length && 'IntersectionObserver' in window) {
+    var map = {}; toc.forEach(function (a) { map[a.getAttribute('href').slice(1)] = a; });
+    var tio = new IntersectionObserver(function (es) {
+      es.forEach(function (e) { if (e.isIntersecting && map[e.target.id]) { toc.forEach(function (a) { a.classList.remove('on'); }); map[e.target.id].classList.add('on'); } });
+    }, { rootMargin: '-15% 0px -75% 0px' });
+    Object.keys(map).forEach(function (id) { var el = document.getElementById(id); if (el) tio.observe(el); });
+  }
+
+  /* ---------- hero: tag-word cycler and eyes ---------- */
+  var swap = $('[data-swap]');
+  if (swap) {
+    var words = $$('.sw-w', swap), cur = 0, timer = null, visible = true;
+    var padX = function () { var cs = getComputedStyle(swap); return parseFloat(cs.paddingLeft) + parseFloat(cs.paddingRight); };
+    var fit = function (i) { swap.style.width = (words[i].getBoundingClientRect().width + padX()) + 'px'; };
+    var step = function () {
+      if (!motionOn() || !visible || document.hidden) return;
+      var prev = cur; cur = (cur + 1) % words.length;
+      words[prev].classList.remove('on'); words[prev].classList.add('out');
+      words[cur].classList.add('on'); fit(cur);
+      setTimeout(function () { words[prev].classList.remove('out'); }, 800);
+    };
+    var reset = function () {
+      words.forEach(function (w, i) { w.classList.toggle('on', i === 0); w.classList.remove('out'); }); cur = 0;
+      if (motionOn()) fit(0); else swap.style.removeProperty('width');
+    };
+    reset();
+    if (document.fonts && document.fonts.ready) document.fonts.ready.then(function () { if (motionOn()) fit(cur); });
+    window.addEventListener('resize', function () { if (motionOn()) fit(cur); });
+    timer = setInterval(step, 2700);
+    if ('IntersectionObserver' in window) new IntersectionObserver(function (es) { visible = es[0].isIntersecting; }).observe(swap);
+    listeners.motion.push(reset);
+  }
+  var pupilsAll = $$('.pupils');
+  if (pupilsAll.length && window.matchMedia('(pointer: fine)').matches) {
+    document.addEventListener('pointermove', function (e) {
+      if (!motionOn()) return;
+      pupilsAll.forEach(function (g) {
+        var svg = g.ownerSVGElement, r = svg.getBoundingClientRect();
+        if (r.bottom < 0 || r.top > innerHeight) return;
+        var dx = e.clientX - (r.left + r.width * .5), dy = e.clientY - (r.top + r.height * .4), d = Math.hypot(dx, dy) || 1, k = Math.min(1, d / 320) * 11;
+        g.style.transform = 'translate(' + (dx / d * k).toFixed(1) + 'px,' + (dy / d * k).toFixed(1) + 'px)';
+      });
+    }, { passive: true });
+    listeners.motion.push(function (on) { if (!on) pupilsAll.forEach(function (g) { g.style.transform = ''; }); });
+  }
+
+  /* ---------- film: plays muted when it scrolls into view, never with reduced motion or "animations off" ---------- */
+  $$('[data-video-slot]').forEach(function (slot) {
+    var v = $('video', slot), miss = $('.vmiss', slot), srcs = $$('source', v);
+    var fail = function () { miss.hidden = false; };
+    if (srcs.length) srcs[srcs.length - 1].addEventListener('error', fail);
+    v.addEventListener('error', fail);
+    v.addEventListener('loadedmetadata', function () { miss.hidden = true; });
+    var auto = false, byUser = false;
+    v.addEventListener('pause', function () { if (!auto) byUser = true; auto = false; });
+    v.addEventListener('play', function () { if (!auto) byUser = false; auto = false; });
+    if ('IntersectionObserver' in window) new IntersectionObserver(function (es) {
+      if (es[0].isIntersecting) {
+        if (!motionOn() || byUser || !v.paused) return;
+        auto = true; var p = v.play(); if (p && p.catch) p.catch(function () { auto = false; });
+      } else if (!v.paused) { auto = true; v.pause(); }
+    }, { threshold: 0.5 }).observe(v);
+    listeners.motion.push(function (on) { if (!on && !v.paused) { auto = true; v.pause(); } });
+  });
+
+  /* ---------- help page: filter the questions, open the one a link points to ---------- */
+  var hqTools = $('#hq-tools');
+  if (hqTools) {
+    var hqs = $$('details.hq'), groups = $$('.hq-group'), inp = $('#hq-filter'), cnt = $('#hq-count'), none = $('#hq-none');
+    var text = hqs.map(function (d) { return d.textContent.toLowerCase(); }), wasOpen = hqs.map(function (d) { return d.open; });
+    hqTools.hidden = false;
+    var run = function () {
+      var q = inp.value.trim().toLowerCase(), toks = q.split(/\s+/).filter(Boolean), shown = 0;
+      hqs.forEach(function (d, i) {
+        var ok = toks.every(function (t) { return text[i].indexOf(t) >= 0; });
+        d.hidden = !ok; if (ok) shown++;
+        d.open = q ? ok && shown <= 6 : wasOpen[i];
+      });
+      groups.forEach(function (g) { g.hidden = !$$('details.hq', g).some(function (d) { return !d.hidden; }); });
+      none.hidden = shown > 0;
+      cnt.textContent = q ? shown + (shown === 1 ? ' question matches' : ' questions match') : '';
+    };
+    inp.addEventListener('input', run);
+    var openHash = function () { var id = location.hash.slice(1), el = id && document.getElementById(id); if (el && el.tagName === 'DETAILS') { el.open = true; el.scrollIntoView(); } };
+    window.addEventListener('hashchange', openHash); openHash();
+  }
+
+  /* ---------- 404: eyes follow the pointer are handled by the shared pupils code above ---------- */
+
+  /* ---------- support page ---------- */
+  var kl = $('#kofi-load'), kb = $('#kofi-box');
+  if (kl && kb) {
+    kl.hidden = false;
+    kl.addEventListener('click', function () {
+      if (kb.firstChild) return;
+      var f = document.createElement('iframe');
+      f.id = 'kofiframe'; f.src = KOFI_WIDGET; f.height = '712'; f.title = 'namthonl';
+      f.setAttribute('sandbox', 'allow-scripts allow-same-origin allow-forms allow-popups allow-popups-to-escape-sandbox');
+      f.style.border = 'none'; f.style.width = '100%'; f.style.padding = '4px'; f.style.background = '#f9f9f9';
+      kb.appendChild(f); kb.hidden = false; kl.hidden = true;
+    });
+  }
+  /* ---------- download logic: the latest release from GitHub, the Releases page when that is not possible ---------- */
+  var dl = $('#downloads');
+  if (dl) {
+    var REPO = 'thnonl/hey-look';
+    var RELEASES = 'https://github.com/' + REPO + '/releases';
+    var PATTERNS = {
+      'win-exe': /_windows_x64-setup\.exe$/i, 'win-msi': /_windows_x64\.msi$/i, 'mac-dmg': /_darwin_universal\.dmg$/i,
+      'lin-appimage': /_linux_amd64\.AppImage$/i, 'lin-deb': /_linux_amd64\.deb$/i, 'lin-rpm': /_linux_x86_64\.rpm$/i
+    };
+    var status = $('#dl-status');
+    var setStatus = function (state, html) { status.setAttribute('data-state', state); $('.msg', status).innerHTML = html; };
+    var fmtSize = function (n) { return n ? (n / 1048576).toFixed(1) + ' MB' : ''; };
+    var fill = function (rel, noRelease) {
+      var ver = rel ? rel.tag_name.replace(/^v/, '') : '1.0.0';
+      $$('[data-version]').forEach(function (e) { e.textContent = ver; });
+      $$('[data-asset]').forEach(function (box) {
+        var key = box.getAttribute('data-asset'), a = null, btn = $('a.btn', box), fn = $('.fn', box), sz = $('.sz', box);
+        if (rel) rel.assets.forEach(function (x) { if (PATTERNS[key].test(x.name)) a = x; });
+        if (a) {
+          btn.href = a.browser_download_url; btn.removeAttribute('aria-disabled'); btn.querySelector('.t').textContent = btn.getAttribute('data-label');
+          fn.textContent = a.name; sz.textContent = fmtSize(a.size);
+        } else {
+          if (rel) { btn.removeAttribute('href'); btn.setAttribute('aria-disabled', 'true'); btn.querySelector('.t').textContent = 'Not in this release'; }
+          else { btn.href = RELEASES + (noRelease ? '' : '/latest'); btn.removeAttribute('aria-disabled'); btn.querySelector('.t').textContent = 'Open GitHub Releases'; }
+          fn.textContent = box.getAttribute('data-pattern').replace(/&lt;/g, '<').replace(/&gt;/g, '>'); sz.textContent = '';
+        }
+      });
+    };
+    var show = function (rel, err) {
+      fill(rel, !rel && !err);
+      if (rel) {
+        var d = new Date(rel.published_at), when = isNaN(d) ? '' : ' (' + d.toISOString().slice(0, 10) + ')';
+        setStatus('ok', '<strong>Latest version: ' + rel.tag_name + '</strong>' + when + ' <a href="' + rel.html_url + '">Release notes on GitHub</a>');
+      } else if (err) {
+        setStatus('error', '<strong>Get the latest version from GitHub Releases.</strong>');
+      } else {
+        setStatus('none', '<strong>The first release is on its way.</strong> Watch the GitHub repository for it.');
+      }
+      var fb = $('#dl-fallback'); if (fb) { fb.hidden = !!rel && !err; fb.href = rel ? rel.html_url : (err ? RELEASES + '/latest' : RELEASES); }
+    };
+    var load = function () {
+      setStatus('', 'Asking api.github.com for the latest release...');
+      fetch('https://api.github.com/repos/' + REPO + '/releases/latest', { headers: { Accept: 'application/vnd.github+json' } })
+        .then(function (r) { if (r.status === 404) return null; if (!r.ok) throw new Error(r.status); return r.json(); })
+        .then(function (j) { show(j && j.assets ? j : null); })
+        .catch(function () { show(null, true); });
+    };
+    /* recommend the card for the visitor's system (computed locally, nothing is sent) */
+    var ua = (navigator.userAgentData && navigator.userAgentData.platform) || navigator.platform || navigator.userAgent || '';
+    var os = /win/i.test(ua) ? 'windows' : /mac|iphone|ipad/i.test(ua) ? 'macos' : /linux|x11|cros/i.test(ua) && !/android/i.test(navigator.userAgent) ? 'linux' : '';
+    var rec = os && document.getElementById('card-' + os);
+    if (rec) rec.classList.add('rec');
+    var label = { windows: 'Windows', macos: 'macOS', linux: 'Linux' };
+    $$('[data-os-cta] .t').forEach(function (t) { t.textContent = os ? 'Download for ' + label[os] : 'Download Hey Look!'; });
+    $$('.copy button').forEach(function (b) {
+      b.addEventListener('click', function () {
+        var txt = b.parentNode.querySelector('code').textContent;
+        var done = function () { b.textContent = 'Copied'; setTimeout(function () { b.textContent = 'Copy'; }, 1600); };
+        if (navigator.clipboard && navigator.clipboard.writeText) navigator.clipboard.writeText(txt).then(done, function () { });
+      });
+    });
+    load();
+  }
+
+  /* a new page starts at the top (anchors and the back button keep working; scroll restoration is left on) */
+  document.addEventListener('DOMContentLoaded', function () {
+    var nav = window.performance && performance.getEntriesByType && performance.getEntriesByType('navigation')[0];
+    if (location.hash || (nav && nav.type === 'back_forward')) return;
+    window.scrollTo(0, 0);
+    if (document.scrollingElement) document.scrollingElement.scrollTop = 0;
+  });
+})();
