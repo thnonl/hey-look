@@ -25,6 +25,8 @@ export interface Overridable {
   undoSeconds: number;
   loadRemote: boolean;
   syncMinutes: number;
+  /** keep the Inbox connection open and get new mail at once (IMAP IDLE) when the server supports it */
+  pushMail: boolean;
   /** pasted / dropped pictures go into the message ("inline") or are attached */
   inlinePictures: "inline" | "attach";
   /** resize pictures over 1 MB silently when inserting them */
@@ -165,6 +167,7 @@ export const DEFAULT_PREFS: Prefs = {
   undoSeconds: 10,
   loadRemote: false,
   syncMinutes: 2,
+  pushMail: true,
   inlinePictures: "inline",
   autoResizePictures: false,
   inlineAutoLoadMB: 2,

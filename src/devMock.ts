@@ -855,6 +855,7 @@ export function installMock() {
     const a = (args ?? {}) as Record<string, unknown>;
     switch (cmd) {
       case "list_accounts": return accounts;
+      case "idle_states": return { a1: "push" };
       case "get_setting": return settings[a.key as string] ?? null;
       case "set_setting": settings[a.key as string] = a.value as string; return null;
       case "list_folders": return folders;

@@ -444,6 +444,8 @@ export const api = {
   frameCaptionRect: (r: { x: number; y: number; w: number; h: number }) => invoke<boolean>("frame_caption_rect", { ...r, dpr: window.devicePixelRatio || 1 }),
   frameSystemMenu: (x: number, y: number) => invoke<void>("frame_system_menu", { x, y, dpr: window.devicePixelRatio || 1 }),
   listAccounts: () => invoke<Account[]>("list_accounts"),
+  /** account id -> "push" (IMAP IDLE is running) or "polling"; an account without an entry is polled */
+  idleStates: () => invoke<Record<string, string>>("idle_states"),
   addAccount: (input: AccountInput, passwordValue: string, smtpPassword?: string) =>
     invoke<Account>("add_account", { input, passwordValue, smtpPassword: smtpPassword || null }),
   discoverServer: (email: string) => invoke<Discovered | null>("discover_server", { email }),

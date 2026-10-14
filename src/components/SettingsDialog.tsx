@@ -1,3 +1,4 @@
+import { listen } from "@tauri-apps/api/event";
 import { KeyRound, Lock, Plus, Trash2, Upload } from "lucide-react";
 import { openUpdateLink } from "../updates";
 import { Fragment, ReactNode, useEffect, useRef, useState } from "react";
@@ -929,6 +930,9 @@ function ReadingPanel({ scope }: { scope: string | null }) {
           </select>
         )}
       </OvRow>
+      <OvRow scope={scope} k="pushMail" label="Get new Inbox mail instantly (push)" hint="Keeps one connection to the Inbox open when the server supports it (IMAP IDLE), so new mail arrives at once. While it works, the other folders are checked every 10 minutes. Without push, everything is checked at the interval above.">
+        {(v, set) => <Switch checked={v} onChange={set} />}
+      </OvRow>
       {/* one value for every mailbox (each mailbox is counted on its own), so no per-mailbox override */}
       <Row
         label="Max emails to download per mailbox"
@@ -994,8 +998,24 @@ function ProfilePanel({ account }: { account: Account }) {
   );
 }
 
+/** "push" while the account's Inbox connection (IMAP IDLE) is running, otherwise "polling"; kept up to date by the backend's idle-state event. */
+function usePushState(accountId: string): string {
+  const [state, setState] = useState("polling");
+  useEffect(() => {
+    let dead = false;
+    let off: (() => void) | undefined;
+    void api.idleStates().then((m) => { if (!dead) setState(m[accountId] ?? "polling"); }).catch(() => {});
+    void listen<{ accountId: string; state: string }>("idle-state", (e) => {
+      if (e.payload.accountId === accountId) setState(e.payload.state);
+    }).then((u) => { if (dead) u(); else off = u; }).catch(() => {});
+    return () => { dead = true; off?.(); };
+  }, [accountId]);
+  return state;
+}
+
 function ServerPanel({ account, close }: { account: Account; close: () => void }) {
   const { confirm } = useStore();
+  const push = usePushState(account.id);
   const remove = async () => {
     const ok = await confirm({
       title: `Remove ${account.email}?`,
@@ -1017,6 +1037,7 @@ function ServerPanel({ account, close }: { account: Account; close: () => void }
     <>
       <Row label="Sign-in method">{account.auth === "oauth_google" ? "Google (OAuth 2.0)" : account.auth === "oauth_microsoft" ? "Microsoft (OAuth 2.0)" : `Password (stored in ${credStore()})`}</Row>
       <Row label="Incoming (IMAP)">{account.imapHost}:{account.imapPort}</Row>
+      <Row label="New mail" hint="Push = the server tells Hey Look! at once (IMAP IDLE). Polling = checked at the interval set under Reading & sync.">{push === "push" ? "Push" : "Polling"}</Row>
       <Row label="Outgoing (SMTP)">{account.smtpHost}:{account.smtpPort} ({account.smtpSecurity})</Row>
       {account.smtpUsername && <Row label="SMTP login">{account.smtpUsername}</Row>}
       {account.tlsInsecure && <Row label="Server certificate" hint="Self-signed or private-CA certificates are accepted for this account.">Not verified</Row>}
