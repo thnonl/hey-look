@@ -1,6 +1,6 @@
 # Changelog
 
-## 1.0.0 — 2026-10-xx
+## 1.0.0 — 2026-10-14
 
 First public release of Hey Look!, a fast, private desktop mail client.
 
