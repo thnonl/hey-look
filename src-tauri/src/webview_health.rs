@@ -780,6 +780,165 @@ mod tests {
             }
         }
 
+        /// BUG-15 (QA round 8): after a page (render) process dies, which call brings the page back? A real web view that is never
+        /// shown loads a page, its render process is killed, the failure event arrives (kind 1), and then the page is loaded again
+        /// the way the app did (`window.location.reload()` run in the page) or with the native `Reload()`. The native reload must
+        /// produce a successful navigation within 10 s. The script variant is measured and printed (`--nocapture`), not asserted:
+        /// the round-8 logs say it did nothing, and a script cannot run in a page whose process is gone. Skipped without WebView2.
+        #[test]
+        fn a_killed_page_process_comes_back_with_the_native_reload() {
+            let native = reload_after_render_kill("native Reload()", |core| unsafe { core.Reload().is_ok() });
+            let script = reload_after_render_kill("script location.reload()", |core| unsafe {
+                use webview2_com::ExecuteScriptCompletedHandler;
+                use windows::core::HSTRING;
+                let done = ExecuteScriptCompletedHandler::create(Box::new(|_err, _result| Ok(())));
+                core.ExecuteScript(&HSTRING::from("window.location.reload()"), &done).is_ok()
+            });
+            eprintln!("render kill recovery: native reload -> {native:?}, script reload -> {script:?}");
+            if let Some(n) = native {
+                assert_eq!(n.kind, 1, "a render process exited event: {n:?}");
+                assert!(n.back_ms.is_some(), "the native reload must bring the page back within 10 s: {n:?}");
+            }
+        }
+
+        #[derive(Debug)]
+        struct Recovery {
+            /// the failure kind of the first event after the kill (1 = render process exited)
+            kind: i32,
+            /// milliseconds from the reload call to a successful navigation, None when none came within 10 s
+            back_ms: Option<u128>,
+        }
+
+        /// Starts a hidden real web view on a page, kills its render process, and calls `reload` once the failure event came.
+        fn reload_after_render_kill(label: &str, reload: impl Fn(&webview2_com::Microsoft::Web::WebView2::Win32::ICoreWebView2) -> bool) -> Option<Recovery> {
+            use std::sync::mpsc;
+            use webview2_com::{CreateCoreWebView2ControllerCompletedHandler, CreateCoreWebView2EnvironmentCompletedHandler, NavigationCompletedEventHandler};
+            use windows::core::{w, HSTRING, PCWSTR};
+            use windows::Win32::Foundation::{E_POINTER, HINSTANCE, HWND, LPARAM, LRESULT, WPARAM};
+            use windows::Win32::System::Com::{CoInitializeEx, COINIT_APARTMENTTHREADED};
+            use windows::Win32::System::LibraryLoader::GetModuleHandleW;
+            use windows::Win32::UI::WindowsAndMessaging::*;
+            use webview2_com::Microsoft::Web::WebView2::Win32::*;
+
+            unsafe extern "system" fn proc2(h: HWND, m: u32, w: WPARAM, l: LPARAM) -> LRESULT {
+                unsafe { DefWindowProcW(h, m, w, l) }
+            }
+            let folder = std::env::temp_dir().join(format!("heylook-wv2-render-{}-{}", std::process::id(), label.len()));
+            let _ = std::fs::remove_dir_all(&folder);
+            let result;
+            unsafe {
+                let _ = CoInitializeEx(None, COINIT_APARTMENTTHREADED);
+                let class = WNDCLASSW { lpfnWndProc: Some(proc2), lpszClassName: w!("HEYLOOK_WV2_TEST2"), ..Default::default() };
+                RegisterClassW(&class);
+                let hinst = GetModuleHandleW(None).ok().map(|h| HINSTANCE(h.0));
+                let host = CreateWindowExW(Default::default(), w!("HEYLOOK_WV2_TEST2"), w!("test"), WS_POPUP, 0, 0, 400, 300, None, None, hinst, None).unwrap();
+                let pump = |ms: u64, stop: &mut dyn FnMut() -> bool| {
+                    let t0 = std::time::Instant::now();
+                    while t0.elapsed() < Duration::from_millis(ms) && !stop() {
+                        let mut msg = MSG::default();
+                        while PeekMessageW(&mut msg, None, 0, 0, PM_REMOVE).as_bool() {
+                            let _ = TranslateMessage(&msg);
+                            DispatchMessageW(&msg);
+                        }
+                        std::thread::sleep(Duration::from_millis(10));
+                    }
+                };
+                let udf = HSTRING::from(folder.to_string_lossy().as_ref());
+                let (tx, rx) = mpsc::channel();
+                let env = CreateCoreWebView2EnvironmentCompletedHandler::wait_for_async_operation(
+                    Box::new(move |h| CreateCoreWebView2EnvironmentWithOptions(PCWSTR::null(), &udf, None::<&ICoreWebView2EnvironmentOptions>, &h).map_err(webview2_com::Error::WindowsError)),
+                    Box::new(move |code, env| {
+                        code?;
+                        tx.send(env.ok_or_else(|| windows::core::Error::from(E_POINTER))).ok();
+                        Ok(())
+                    }),
+                );
+                let Some(env) = env.ok().and_then(|_| rx.recv().ok()).and_then(|r| r.ok()) else {
+                    eprintln!("no WebView2 runtime here: test skipped");
+                    let _ = DestroyWindow(host);
+                    return None;
+                };
+                let (tx, rx) = mpsc::channel();
+                CreateCoreWebView2ControllerCompletedHandler::wait_for_async_operation(
+                    Box::new(move |h| env.CreateCoreWebView2Controller(host, &h).map_err(webview2_com::Error::WindowsError)),
+                    Box::new(move |code, c| {
+                        code?;
+                        tx.send(c.ok_or_else(|| windows::core::Error::from(E_POINTER))).ok();
+                        Ok(())
+                    }),
+                )
+                .unwrap();
+                let controller = rx.recv().unwrap().unwrap();
+                let core = controller.CoreWebView2().unwrap();
+
+                // the result of every navigation that completes
+                let (ntx, nrx) = mpsc::channel::<bool>();
+                let handler = NavigationCompletedEventHandler::create(Box::new(move |_s, args| {
+                    let mut ok = windows::core::BOOL(0);
+                    if let Some(a) = args {
+                        let _ = a.IsSuccess(&mut ok);
+                    }
+                    ntx.send(ok.as_bool()).ok();
+                    Ok(())
+                }));
+                let mut token = 0i64;
+                core.add_NavigationCompleted(&handler, &mut token).unwrap();
+                let (ftx, frx) = mpsc::channel();
+                let pid = listen(&core, move |kind, detail| {
+                    ftx.send((kind, detail)).ok();
+                })
+                .unwrap();
+                core.Navigate(&HSTRING::from("data:text/html,<title>heylook</title><p>page</p>")).unwrap();
+                let mut first = None;
+                pump(15_000, &mut || {
+                    first = first.or(nrx.try_recv().ok());
+                    first.is_some()
+                });
+                assert_eq!(first, Some(true), "the first page loads");
+
+                // the render process: a child of the browser process
+                let mut renderer = None;
+                for _ in 0..30 {
+                    renderer = snapshot().into_iter().filter(|p| p.ppid == pid).find(|p| command_line(p.pid).is_some_and(|c| c.contains("--type=renderer"))).map(|p| p.pid);
+                    if renderer.is_some() {
+                        break;
+                    }
+                    pump(100, &mut || false);
+                }
+                let renderer = renderer.expect("a render process of this web view");
+                let killed = crate::winproc::hidden("taskkill").args(["/F", "/PID", &renderer.to_string()]).output().unwrap();
+                assert!(killed.status.success());
+                let mut ev = None;
+                pump(20_000, &mut || {
+                    ev = ev.take().or(frx.try_recv().ok());
+                    ev.is_some()
+                });
+                let (kind, detail) = ev.expect("a failure event within 20 s of killing the render process");
+                eprintln!("[{label}] failure reported: kind {kind} ({}), {detail}", kind_name(kind));
+                while nrx.try_recv().is_ok() {} // navigations of the error page do not count
+                let t0 = std::time::Instant::now();
+                let asked = reload(&core);
+                let mut back = None;
+                pump(10_000, &mut || {
+                    if nrx.try_recv().ok() == Some(true) {
+                        back = Some(t0.elapsed().as_millis());
+                    }
+                    back.is_some()
+                });
+                eprintln!("[{label}] reload call ok: {asked}; page back after: {back:?} ms");
+                result = Some(Recovery { kind, back_ms: back });
+                let _ = controller.Close();
+                let _ = DestroyWindow(host);
+            }
+            for _ in 0..50 {
+                if std::fs::remove_dir_all(&folder).is_ok() || !folder.exists() {
+                    break;
+                }
+                std::thread::sleep(Duration::from_millis(100));
+            }
+            result
+        }
+
         /// The restart wait (`HEYLOOK_RELAUNCH_OF`) only waits for a running process of this very program: another program, this
         /// process itself and pid 0 never hold it up; a running second copy of this program does, until it ends.
         #[test]

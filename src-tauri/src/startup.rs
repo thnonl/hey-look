@@ -34,6 +34,8 @@ const LOG_CAP: u64 = 32 * 1024;
 
 static T0: OnceLock<Instant> = OnceLock::new();
 static READY: AtomicBool = AtomicBool::new(false);
+/// How many page loads reported themselves ready (the UI does it once per load): a page that came back after its process died counts again.
+static READY_COUNT: AtomicU32 = AtomicU32::new(0);
 /// Hide + show attempts made so far (a window that is shown but whose page is not painting).
 static REMEDIES: AtomicU32 = AtomicU32::new(0);
 /// How often the hide + show is tried before leaving the window as it is.
@@ -125,6 +127,7 @@ pub fn is_ready() -> bool {
 
 /// The page is up (sent once per page load by the UI).
 pub fn mark_ready(app: &AppHandle) {
+    READY_COUNT.fetch_add(1, Ordering::SeqCst);
     if !READY.swap(true, Ordering::SeqCst) {
         stage(Some(app), "the page reported itself ready");
     }
@@ -339,15 +342,95 @@ pub fn web_view_failed(app: &AppHandle, kind: i32, detail: &str) {
             std::thread::spawn(move || {
                 if PAGE_RELOADS.fetch_add(1, Ordering::SeqCst) < MAX_PAGE_RELOADS {
                     stage(Some(&app), "a page process of the web view died: reloading the page");
-                    if let Some(w) = app.get_webview_window("main") {
-                        let _ = w.eval("window.location.reload()");
-                    }
+                    let before = READY_COUNT.load(Ordering::SeqCst);
+                    let t0 = Instant::now();
+                    recover_page(
+                        |remedy| match remedy {
+                            PageRemedy::Reload => reload_page(&app),
+                            PageRemedy::Navigate => navigate_to_app(&app),
+                            PageRemedy::Restart => restart_app(&app, "the page does not come back after a reload"),
+                        },
+                        || READY_COUNT.load(Ordering::SeqCst) > before,
+                        std::thread::sleep,
+                        |said| stage(Some(&app), &said),
+                        || t0.elapsed().as_millis(),
+                    );
                 } else {
                     stage(Some(&app), "a page process of the web view died again: not reloading again");
                 }
             });
         }
         Reaction::LogOnly => {}
+    }
+}
+
+/// What brings back a page whose process died, in order, each tried only when the one before did not work.
+#[derive(Debug, PartialEq, Clone, Copy)]
+pub enum PageRemedy {
+    /// The web view's own reload.
+    Reload,
+    /// Load the app's address again (a reload of the browser's error page can fail).
+    Navigate,
+    /// A new process (limited like every restart).
+    Restart,
+}
+
+/// How long a remedy gets before the next one is tried (the page loads in well under a second when it works).
+pub const PAGE_BACK_WAIT: Duration = Duration::from_secs(5);
+
+/// Apply the remedies in order until the page has reported itself ready again (`back`), and say in the log what cured it or that
+/// nothing did. `elapsed_ms` is the time since the page died. Returns the remedy that worked.
+pub fn recover_page(
+    mut apply: impl FnMut(PageRemedy),
+    back: impl Fn() -> bool,
+    mut sleep: impl FnMut(Duration),
+    mut said: impl FnMut(String),
+    elapsed_ms: impl Fn() -> u128,
+) -> Option<PageRemedy> {
+    let tick = Duration::from_millis(50);
+    for (n, remedy) in [PageRemedy::Reload, PageRemedy::Navigate, PageRemedy::Restart].into_iter().enumerate() {
+        if n > 0 {
+            said(format!("the page did not come back within {} s: {}", PAGE_BACK_WAIT.as_secs(), match remedy {
+                PageRemedy::Navigate => "loading the app's address again",
+                _ => "restarting the app",
+            }));
+        }
+        apply(remedy);
+        let mut waited = Duration::ZERO;
+        while waited < PAGE_BACK_WAIT {
+            if back() {
+                said(format!("the page is back {} ms after it died (cured by: {})", elapsed_ms(), match remedy {
+                    PageRemedy::Reload => "reload",
+                    PageRemedy::Navigate => "loading the app's address again",
+                    PageRemedy::Restart => "restart",
+                }));
+                return Some(remedy);
+            }
+            sleep(tick);
+            waited += tick;
+        }
+    }
+    said("the page did not come back after a reload, loading the address again and a restart: leaving the window as it is".into());
+    None
+}
+
+/// Load the page again with the web view's own reload. A script (`window.location.reload()`) cannot do this for a page whose
+/// process is gone: there is nothing to run it in, and the call returns without an error (QA BUG-15, proven with a real web view in
+/// `webview_health.rs`).
+fn reload_page(app: &AppHandle) {
+    match app.get_webview_window("main").map(|w| w.reload()) {
+        Some(Ok(())) => {}
+        Some(Err(e)) => stage(Some(app), &format!("could not reload the page: {e}")),
+        None => stage(Some(app), "could not reload the page: no window"),
+    }
+}
+
+/// Load the address the page was loaded from again.
+fn navigate_to_app(app: &AppHandle) {
+    let Some(w) = app.get_webview_window("main") else { return };
+    match w.url().map(|u| w.navigate(u)) {
+        Ok(Ok(())) => {}
+        Ok(Err(e)) | Err(e) => stage(Some(app), &format!("could not load the page's address again: {e}")),
     }
 }
 
@@ -427,9 +510,7 @@ fn escalate(app: &AppHandle, browser_gone: bool) {
         Step::Reload => {
             stage(Some(app), "still blank after hide + show: reloading the page");
             took_step("reloading the page");
-            if let Some(w) = app.get_webview_window("main") {
-                let _ = w.eval("window.location.reload()");
-            }
+            reload_page(app);
             verify_painting(app); // looks again after the reload
         }
         Step::Restart => {
@@ -677,6 +758,73 @@ mod tests {
         let _ = std::fs::remove_dir_all(&dir);
     }
 
+
+    /// Runs `recover_page` with a fake clock: `back_after` says which remedy brings the page back (and after how many ticks).
+    fn recover(back_after: Option<(PageRemedy, u32)>) -> (Option<PageRemedy>, Vec<PageRemedy>, Vec<String>, u32) {
+        let ticks = Cell::new(0u32);
+        let applied = RefCell::new(vec![]);
+        let said = RefCell::new(vec![]);
+        let cured_at = Cell::new(None::<u32>);
+        let r = recover_page(
+            |r| {
+                applied.borrow_mut().push(r);
+                if let Some((_, n)) = back_after.filter(|(b, _)| *b == r) {
+                    cured_at.set(Some(ticks.get() + n));
+                }
+            },
+            || cured_at.get().is_some_and(|t| ticks.get() >= t),
+            |_| ticks.set(ticks.get() + 1),
+            |s| said.borrow_mut().push(s),
+            || (ticks.get() * 50) as u128,
+        );
+        (r, applied.into_inner(), said.into_inner(), ticks.get())
+    }
+
+    #[test]
+    fn a_dead_page_is_reloaded_at_once_and_the_log_says_it_is_back() {
+        let (r, applied, said, ticks) = recover(Some((PageRemedy::Reload, 4)));
+        assert_eq!(r, Some(PageRemedy::Reload));
+        assert_eq!(applied, [PageRemedy::Reload], "nothing else is tried when the reload works");
+        assert_eq!(said, ["the page is back 200 ms after it died (cured by: reload)"]);
+        assert_eq!(ticks, 4);
+    }
+
+    #[test]
+    fn a_page_that_stays_dead_gets_the_address_again_and_then_a_restart_and_then_is_left_alone() {
+        let (r, applied, said, _) = recover(Some((PageRemedy::Navigate, 2)));
+        assert_eq!(r, Some(PageRemedy::Navigate));
+        assert_eq!(applied, [PageRemedy::Reload, PageRemedy::Navigate]);
+        assert!(said[0].contains("did not come back within 5 s") && said[0].contains("address again"), "{said:?}");
+        assert!(said[1].contains("cured by: loading the app's address again"), "{said:?}");
+
+        let (r, applied, said, ticks) = recover(Some((PageRemedy::Restart, 1)));
+        assert_eq!((r, applied.len()), (Some(PageRemedy::Restart), 3));
+        assert!(said.iter().any(|s| s.contains("restarting the app")), "{said:?}");
+        assert_eq!(ticks, 2 * 100 + 1, "5 s per remedy at 50 ms ticks");
+
+        let (r, applied, said, _) = recover(None);
+        assert_eq!(r, None);
+        assert_eq!(applied, [PageRemedy::Reload, PageRemedy::Navigate, PageRemedy::Restart]);
+        assert!(said.last().unwrap().contains("leaving the window as it is"), "{said:?}");
+    }
+
+    #[test]
+    fn a_dead_page_is_not_reloaded_by_a_script() {
+        // BUG-15: a script cannot run in a page whose process is gone, and the call returns without an error. The reaction to a dead
+        // page process and the escalation's reload use the web view's own reload.
+        let code = include_str!("startup.rs");
+        let code = &code[..code.find(concat!("#[cfg(test)]", "\nmod tests")).unwrap()];
+        let eval = concat!(".ev", "al(");
+        let react = &code[code.find("Reaction::Reload => {").unwrap()..];
+        let react = &react[..react.find("Reaction::LogOnly").unwrap()];
+        assert!(!react.contains(eval) && react.contains("recover_page("), "{react}");
+        let step = &code[code.find("Step::Reload => {").unwrap()..];
+        let step = &step[..step.find("Step::Restart =>").unwrap()];
+        assert!(!step.contains(eval) && step.contains("reload_page(app)"), "{step}");
+        let helper = &code[code.find("fn reload_page(").unwrap()..];
+        let helper = &helper[..helper.find("\n}\n").unwrap()];
+        assert!(helper.contains(".reload()") && !helper.contains(eval), "{helper}");
+    }
     #[test]
     fn the_window_is_never_shown_from_setup() {
         // the regression itself: `show_main` in `setup` showed the window before the page existed
