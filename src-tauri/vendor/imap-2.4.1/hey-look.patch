@@ -1,0 +1,78 @@
+--- a/src/extensions/idle.rs
++++ b/src/extensions/idle.rs
+@@ -2,7 +2,7 @@
+ //! 2177](https://tools.ietf.org/html/rfc2177).
+ 
+ use crate::client::Session;
+-use crate::error::{Error, Result};
++use crate::error::{Error, ParseError, Result};
+ #[cfg(feature = "tls")]
+ use native_tls::TlsStream;
+ use std::io::{self, Read, Write};
+@@ -61,7 +61,12 @@
+             keepalive: Duration::from_secs(29 * 60),
+             done: false,
+         };
+-        h.init()?;
++        if let Err(e) = h.init() {
++            // Hey Look! patch: IDLE was refused (or never started), so there is nothing to end: without this the Drop below sends a
++            // DONE outside IDLE, the server answers it with the tag DONE, and the tag check of read_response_onto panicked
++            h.done = true;
++            return Err(e);
++        }
+         Ok(h)
+     }
+ 
+@@ -84,7 +89,9 @@
+ 
+         self.session.read_response_onto(&mut v)?;
+         // We should *only* get a continuation on an error (i.e., it gives BAD or NO).
+-        unreachable!();
++        // Hey Look! patch: a server that answers IDLE with something else (a tagged OK, garbage) is an error, not a panic
++        // (the app is built with panic = "abort", so a panic here would end the whole process).
++        Err(Error::Parse(ParseError::Invalid(v)))
+     }
+ 
+     fn terminate(&mut self) -> Result<()> {
+--- a/src/parse.rs
++++ b/src/parse.rs
+@@ -207,7 +207,9 @@
+                 if let imap_proto::Status::Ok = status {
+                 } else {
+                     // how can this happen for a Response::Data?
+-                    unreachable!();
++                    // Hey Look! patch: an untagged NO / BAD / BYE line inside a SELECT / EXAMINE answer is skipped, not a panic
++                    // (the app is built with panic = "abort").
++                    continue;
+                 }
+ 
+                 use imap_proto::ResponseCode;
+--- a/src/client.rs
++++ b/src/client.rs
+@@ -1366,14 +1366,18 @@
+                             ..
+                         },
+                     )) => {
+-                        assert_eq!(tag.as_bytes(), match_tag.as_bytes());
+-                        Some(match status {
+-                            Status::Bad | Status::No => {
+-                                Err((status, information.map(ToString::to_string)))
+-                            }
+-                            Status::Ok => Ok(()),
+-                            status => Err((status, None)),
+-                        })
++                        if tag.as_bytes() != match_tag.as_bytes() {
++                            // Hey Look! patch: this was `assert_eq!`; an answer with another tag is an error, not a panic
++                            Some(Err((Status::Bye, None)))
++                        } else {
++                            Some(match status {
++                                Status::Bad | Status::No => {
++                                    Err((status, information.map(ToString::to_string)))
++                                }
++                                Status::Ok => Ok(()),
++                                status => Err((status, None)),
++                            })
++                        }
+                     }
+                     Ok((..)) => None,
+                     Err(nom::Err::Incomplete(..)) => {

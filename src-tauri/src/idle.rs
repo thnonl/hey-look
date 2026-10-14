@@ -274,6 +274,11 @@ pub trait Host: Send + Sync {
     fn log(&self, what: &str);
     /// IDLE was ended and started again (the keepalive).
     fn renewed(&self) {}
+    /// Tests only: connect to this plain TCP address instead of the account's server over TLS.
+    #[cfg(test)]
+    fn plain_addr(&self) -> Option<std::net::SocketAddr> {
+        None
+    }
 }
 
 // ---------- the worker ----------
@@ -330,7 +335,7 @@ pub fn run_account(sh: &Shared, host: &dyn Host, t: &Timing, catch_up: bool) {
 }
 
 /// Whether the server said anything new about the mailbox since the last command.
-fn drain(s: &mail::Sess) -> bool {
+fn drain<T: std::io::Read + std::io::Write>(s: &imap::Session<T>) -> bool {
     use imap::types::UnsolicitedResponse as U;
     let mut any = false;
     while let Ok(u) = s.unsolicited_responses.try_recv() {
@@ -354,7 +359,30 @@ fn sync_after_change(sh: &Shared, host: &dyn Host, t: &Timing, run: &mut Run) ->
 /// One connection: until it fails (`Err`), the worker is stopped, or the server has no IDLE.
 fn session(sh: &Shared, host: &dyn Host, t: &Timing, run: &mut Run) -> R<End> {
     let (acc, secret) = host.account()?;
-    let (mut s, sock) = mail::connect_with_socket(&acc, &secret)?;
+    // test seam: a plain TCP server instead of TLS (a fake server that answers IDLE wrongly needs no certificate)
+    #[cfg(test)]
+    if let Some(addr) = host.plain_addr() {
+        let sock = TcpStream::connect(addr).map_err(err)?;
+        sock.set_read_timeout(Some(mail::IO_TIMEOUT)).map_err(err)?;
+        let handle = sock.try_clone().map_err(err)?;
+        let mut c = imap::Client::new(sock);
+        c.read_greeting().map_err(err)?;
+        let s = c.login(&acc.username, &secret).map_err(|e| format!("IMAP login failed: {}", e.0))?;
+        return serve(sh, host, t, run, s, handle);
+    }
+    let (s, sock) = mail::connect_with_socket(&acc, &secret)?;
+    serve(sh, host, t, run, s, sock)
+}
+
+/// The session on a connected, logged-in transport (TLS in the app).
+fn serve<T: std::io::Read + std::io::Write + imap::extensions::idle::SetReadTimeout>(
+    sh: &Shared,
+    host: &dyn Host,
+    t: &Timing,
+    run: &mut Run,
+    mut s: imap::Session<T>,
+    sock: TcpStream,
+) -> R<End> {
     sh.attach(&sock);
     if sh.stop.is_stopped() {
         return Ok(End::Stopped);
@@ -822,5 +850,147 @@ mod tests {
         assert!(!slept(Duration::from_secs(25), tick), "a busy machine is no sleep");
         assert!(slept(Duration::from_secs(71), tick));
         assert!(slept(Duration::from_secs(3 * 3600), tick));
+    }
+
+    // ---- a server that answers wrongly must never be able to end the app (release builds use panic = "abort") ----
+
+    #[derive(Clone, Copy, Debug)]
+    enum Odd {
+        /// `tag NO ...` to IDLE
+        No,
+        /// `tag BAD ...` to IDLE
+        Bad,
+        /// a line of garbage to IDLE, then the connection closes
+        Garbage,
+        /// `tag OK` to IDLE with no continuation (the case the crate called `unreachable!`)
+        OkWithoutContinuation,
+        /// an untagged line first, then `tag OK`
+        UntaggedThenOk,
+        /// an untagged `* NO [ALERT]` inside the EXAMINE answer (a second `unreachable!` of the crate); IDLE itself is fine
+        AlertInExamine,
+    }
+
+    /// A plain-TCP IMAP server that is correct up to `IDLE`, where it does what `Odd` says. Counts the IDLE commands it got.
+    fn fake_server(odd: Odd) -> (std::net::SocketAddr, Arc<std::sync::atomic::AtomicU32>) {
+        use std::io::{BufRead, BufReader, Write};
+        use std::sync::atomic::Ordering;
+        let l = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let addr = l.local_addr().unwrap();
+        let idles = Arc::new(std::sync::atomic::AtomicU32::new(0));
+        let n = idles.clone();
+        std::thread::spawn(move || {
+            for c in l.incoming().flatten() {
+                let n = n.clone();
+                std::thread::spawn(move || {
+                    let mut w = c.try_clone().unwrap();
+                    let mut r = BufReader::new(c);
+                    let _ = w.write_all(b"* OK fake ready\r\n");
+                    let mut line = String::new();
+                    loop {
+                        line.clear();
+                        if r.read_line(&mut line).unwrap_or(0) == 0 {
+                            return;
+                        }
+                        let mut it = line.trim_end().splitn(2, ' ');
+                        let (tag, cmd) = (it.next().unwrap_or("").to_string(), it.next().unwrap_or("").to_uppercase());
+                        let reply = if cmd.starts_with("LOGIN") {
+                            format!("{tag} OK LOGIN completed\r\n")
+                        } else if cmd.starts_with("CAPABILITY") {
+                            format!("* CAPABILITY IMAP4rev1 IDLE\r\n{tag} OK done\r\n")
+                        } else if cmd.starts_with("EXAMINE") {
+                            let alert = if matches!(odd, Odd::AlertInExamine) { "* NO [ALERT] the server is odd today\r\n" } else { "" };
+                            format!("{alert}* 0 EXISTS\r\n* 0 RECENT\r\n* OK [UIDVALIDITY 1] ok\r\n{tag} OK [READ-ONLY] done\r\n")
+                        } else if cmd.starts_with("NOOP") {
+                            format!("{tag} OK done\r\n")
+                        } else if cmd.starts_with("IDLE") {
+                            n.fetch_add(1, Ordering::SeqCst);
+                            match odd {
+                                Odd::No => format!("{tag} NO IDLE is not available now\r\n"),
+                                Odd::Bad => format!("{tag} BAD unknown command\r\n"),
+                                Odd::Garbage => {
+                                    let _ = w.write_all(b"\x00\xff\xfe this is not imap \x01\r\n");
+                                    return;
+                                }
+                                Odd::OkWithoutContinuation => format!("{tag} OK IDLE terminated\r\n"),
+                                Odd::UntaggedThenOk => format!("* 1 EXISTS\r\n{tag} OK IDLE terminated\r\n"),
+                                Odd::AlertInExamine => "+ idling\r\n".to_string(),
+                            }
+                        } else if cmd.starts_with("DONE") {
+                            continue;
+                        } else {
+                            format!("{tag} BAD unexpected\r\n")
+                        };
+                        if w.write_all(reply.as_bytes()).is_err() {
+                            return;
+                        }
+                    }
+                });
+            }
+        });
+        (addr, idles)
+    }
+
+    struct OddHost {
+        addr: std::net::SocketAddr,
+        log: Mutex<Vec<String>>,
+        states: Mutex<Vec<Push>>,
+    }
+
+    impl Host for OddHost {
+        fn account(&self) -> R<(Account, String)> {
+            let a = Account {
+                id: "odd".into(), email: "x@example.test".into(), display_name: "X".into(), imap_host: "127.0.0.1".into(), imap_port: 1, imap_ssl: false,
+                smtp_host: "s".into(), smtp_port: 465, smtp_security: "ssl".into(), username: "u".into(), auth: "password".into(), color: None,
+                smtp_username: String::new(), tls_insecure: false,
+            };
+            Ok((a, "pw".into()))
+        }
+        fn changed(&self) {}
+        fn state(&self, s: Push) {
+            self.states.lock().unwrap().push(s);
+        }
+        fn log(&self, what: &str) {
+            self.log.lock().unwrap().push(what.to_string());
+        }
+        fn plain_addr(&self) -> Option<std::net::SocketAddr> {
+            Some(self.addr)
+        }
+    }
+
+    /// Runs the worker against the odd server for a few seconds with short backoffs.
+    fn run_against(odd: Odd) -> (Vec<String>, Vec<Push>, u32) {
+        let (addr, idles) = fake_server(odd);
+        let host = Arc::new(OddHost { addr, log: Default::default(), states: Default::default() });
+        let sh = Shared::new();
+        let t = Timing { backoff: vec![Duration::from_millis(300), Duration::from_millis(300), Duration::from_millis(600)], ..Timing::default() };
+        let (h2, s2) = (host.clone(), sh.clone());
+        let worker = std::thread::spawn(move || run_account(&s2, h2.as_ref(), &t, false));
+        std::thread::sleep(Duration::from_millis(2500));
+        let t0 = Instant::now();
+        sh.stop_now();
+        // a panic in the worker (the old crate behaviour) shows here; in a release build it would have ended the process
+        worker.join().unwrap_or_else(|_| panic!("the worker panicked on {odd:?}"));
+        assert!(t0.elapsed() < Duration::from_secs(3), "stop is quick");
+        let (l, s) = (host.log.lock().unwrap().clone(), host.states.lock().unwrap().clone());
+        (l, s, idles.load(std::sync::atomic::Ordering::SeqCst))
+    }
+
+    #[test]
+    fn a_server_that_answers_idle_wrongly_gives_a_logged_failure_a_backoff_and_polling_never_a_panic() {
+        for odd in [Odd::No, Odd::Bad, Odd::Garbage, Odd::OkWithoutContinuation, Odd::UntaggedThenOk] {
+            let (log, states, idles) = run_against(odd);
+            eprintln!("{odd:?}: idle commands {idles}, states {states:?}, log {log:?}");
+            assert!(log.iter().any(|l| l.starts_with("reconnect in ")), "{odd:?}: the failure is logged: {log:?}");
+            assert!(states.contains(&Push::Polling) && !states.contains(&Push::On), "{odd:?}: falls back to polling: {states:?}");
+            // 2.5 s with 0.3 s / 0.3 s / 0.6 s waits: a handful of attempts, not a tight loop
+            assert!((2..=6).contains(&idles), "{odd:?}: backs off ({idles} attempts)");
+        }
+    }
+
+    #[test]
+    fn an_untagged_alert_inside_the_examine_answer_does_not_panic_and_idle_goes_on() {
+        let (log, states, _) = run_against(Odd::AlertInExamine);
+        assert_eq!(states, vec![Push::On], "{log:?}");
+        assert!(log.contains(&"push on".to_string()));
     }
 }
