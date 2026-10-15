@@ -273,6 +273,8 @@ button:focus-visible, [role="option"]:focus-visible, [role="treeitem"]:focus-vis
 .fp-head:hover { color: var(--fg); background: var(--bg3); }
 .fp-acct { flex: 1; min-width: 0; }
 .fp-warn { color: var(--warn); display: inline-flex; padding: 2px; border-radius: 4px; }
+.fp-reauth { margin: 2px 8px 6px 22px; padding: 6px 8px; font-size: .88em; }
+.fp-reauth .muted { margin-top: 6px; }
 .fp-warn:hover { background: color-mix(in srgb, var(--warn), transparent 85%); }
 .fp-row { display: flex; align-items: center; gap: 9px; padding: 7px 10px; cursor: pointer; margin: 1px 8px; border-radius: var(--r-sm); position: relative; transition: background .1s; }
 .fp-row:hover { background: var(--bg3); }

@@ -17,8 +17,9 @@ import { Settings } from "./components/SettingsDialog";
 import { TopBar } from "./components/TopBar";
 import { Welcome } from "./components/Welcome";
 import { hasMailAccounts, shortcutWorks } from "./mailControls";
+import { t as tNow } from "./i18n";
 import { useT } from "./i18n/react";
-import { flushSends, useStore } from "./store";
+import { flushSends, friendlyError, useStore } from "./store";
 import { osNow } from "./platform";
 import { openUpdateLink, useUpdates } from "./updates";
 import { calTz, configureCalendar, addDays, addMonths, today as todayDay } from "./calendar";
@@ -116,6 +117,20 @@ function App() {
     };
     const subs = [
       listen("mail-synced", () => void useStore.getState().refresh()),
+      // a Google / Microsoft mailbox was signed out behind our back (the background sync got rejected): it shows "Sign in again"
+      listen<{ accountId: string; state: "again" | "blocked" | null; error?: string }>("signin-state", (e) => {
+        const st = useStore.getState();
+        const { accountId, state, error } = e.payload;
+        st.setReauth(accountId, state);
+        if (!state) {
+          useStore.setState((x) => ({ syncErrors: Object.fromEntries(Object.entries(x.syncErrors).filter(([k]) => k !== accountId)) }));
+          return;
+        }
+        const shown = friendlyError(error ?? "");
+        useStore.setState((x) => ({ syncErrors: { ...x.syncErrors, [accountId]: shown } }));
+        const email = st.accounts.find((a) => a.id === accountId)?.email;
+        st.showToast(email ? tNow("errors.toast.withAccount", { account: email, error: shown }) : shown, undefined, "error");
+      }),
       // the background download of older Inbox mail: a status line in the list and a quiet, throttled re-read of it
       listen<BackfillProgress>("backfill-progress", (e) => useStore.getState().onBackfill(e.payload)),
       listen("tray-compose", () => {

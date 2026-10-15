@@ -13,6 +13,7 @@ import { fmtDay, fmtFpr, shortKey } from "../util";
 import { AppearancePreview } from "./AppearancePreview";
 import { RichEditor } from "./RichEditor";
 import { UpdatesBlock } from "./Updates";
+import { ReauthNotice, SignInEnded, SignInWaiting, signInEnd, type SignInEnd } from "./SignInHelp";
 import { keyName } from "./Pgp";
 import { AccountPicker, Avatar, Modal, Switch } from "./ui";
 import { LANGS, intlLocale, pseudoAllowed, type Key } from "../i18n";
@@ -387,7 +388,7 @@ const OAUTH = {
   },
 };
 
-function OAuthBlock({ kind }: { kind: OAuthKind }) {
+function OAuthBlock({ kind, onAppPassword }: { kind: OAuthKind; onAppPassword: () => void }) {
   const t = useT();
   const { showToast } = useStore();
   const cfg = OAUTH[kind];
@@ -399,6 +400,10 @@ function OAuthBlock({ kind }: { kind: OAuthKind }) {
   const [fromEnv, setFromEnv] = useState(false);
   const [tenant, setTenant] = useState("");
   const [error, setError] = useState("");
+  const [ended, setEnded] = useState<SignInEnd | null>(null);
+  // a sign-in is waiting for the browser: leaving this screen (closing Settings, switching the tab) ends the wait and frees the port
+  const waiting = useRef(false);
+  useEffect(() => () => { if (waiting.current) void api.oauthCancel().catch(() => undefined); }, []);
   useEffect(() => {
     const envCheck = kind === "google" ? api.googleEnvConfigured() : api.microsoftEnvConfigured();
     void envCheck.then(setFromEnv).catch(() => undefined);
@@ -412,15 +417,25 @@ function OAuthBlock({ kind }: { kind: OAuthKind }) {
   const go = async () => {
     setBusy(true);
     setError("");
+    setEnded(null);
+    waiting.current = true;
     try {
       const acc = kind === "google"
         ? await api.googleSignIn(cid, sec, name)
         : await api.microsoftSignIn(cid, "", tenant, name);
+      waiting.current = false;
       // closes this dialog, opens the new account's Inbox and starts its first sync
       void useStore.getState().accountAdded(acc);
     } catch (e) {
-      setError(friendlyError(e)); // stay here: the message is next to the button, and in a toast
-      showToast(friendlyError(e), undefined, "error");
+      waiting.current = false;
+      // timed out, cancelled, refused, or the organization has to approve: a calm notice with advice, and no toast
+      const end = signInEnd(kind, "mail", e);
+      if (end) {
+        setEnded(end);
+      } else {
+        setError(friendlyError(e)); // stay here: the message is next to the button, and in a toast
+        showToast(friendlyError(e), undefined, "error");
+      }
     } finally {
       setBusy(false);
     }
@@ -456,9 +471,14 @@ function OAuthBlock({ kind }: { kind: OAuthKind }) {
         <label>{t("settings.add.displayNameOpt")}</label>
         <input aria-label={t("settings.add.displayNameOpt")} placeholder={t("settings.add.yourName")} value={name} onChange={(e) => setName(e.target.value)} />
         {error && <div className="notice bad" role="alert">{error}</div>}
-        <button className="btn primary" disabled={busy || (!fromEnv && !cid)} onClick={() => void go()}>
-          {busy ? t("settings.add.waitingFor", { provider: cfg.label }) : t("settings.add.signInWith", { provider: cfg.label })}
-        </button>
+        {ended && <SignInEnded provider={kind} purpose="mail" end={ended} onAppPassword={kind === "google" ? onAppPassword : undefined} />}
+        <div className="row-inline">
+          <button className="btn primary" disabled={busy || (!fromEnv && !cid)} onClick={() => void go()}>
+            {busy ? t("settings.add.waitingFor", { provider: cfg.label }) : t("settings.add.signInWith", { provider: cfg.label })}
+          </button>
+          {busy && <button className="btn" autoFocus onClick={() => void api.oauthCancel()}>{t("common.cancel")}</button>}
+        </div>
+        {busy && <SignInWaiting provider={kind} lead={t("signin.waiting.mail")} />}
       </div>
     </div>
   );
@@ -474,20 +494,20 @@ const SOURCE_LABEL: Record<Discovered["source"], Key> = {
   guess: "settings.add.found.guess",
 };
 
-function ImapForm() {
+function ImapForm({ initialProvider = "custom" }: { initialProvider?: string }) {
   const t = useT();
   const { showToast } = useStore();
-  const [provider, setProvider] = useState("custom");
+  const [provider, setProvider] = useState(initialProvider);
   const [email, setEmail] = useState("");
   const [name, setName] = useState("");
   const [pw, setPw] = useState("");
   const startAdv = (p: string) => ({ ...PROVIDERS[p], imapSsl: PROVIDERS[p].imapSsl ?? PROVIDERS[p].imapPort === 993 });
-  const [adv, setAdv] = useState(startAdv("custom"));
+  const [adv, setAdv] = useState(startAdv(initialProvider));
   const [username, setUsername] = useState("");
   const [sepSmtp, setSepSmtp] = useState(false);
   const [smtpUser, setSmtpUser] = useState("");
   const [smtpPw, setSmtpPw] = useState("");
-  const [insecure, setInsecure] = useState(false);
+  const [insecure, setInsecure] = useState(!!PROVIDERS[initialProvider].insecure);
   const [busy, setBusy] = useState(false);
   const [detecting, setDetecting] = useState(false);
   const [found, setFound] = useState<Discovered | null>(null);
@@ -627,11 +647,13 @@ function ImapForm() {
 function AddAccountTab() {
   const t = useT();
   const [kind, setKind] = useState<OAuthKind | "imap">("google");
+  // "Add Gmail with an app password" (after a Google sign-in that ended without access) opens the form with the Gmail preset
+  const [preset, setPreset] = useState("custom");
   return (
     <div>
       <h3>{t("settings.add.addAccount")}</h3>
-      <Seg value={kind} onChange={setKind} options={[["google", "Google"], ["microsoft", "Microsoft"], ["imap", t("settings.add.imapTab")]]} />
-      {kind === "imap" ? <ImapForm /> : <OAuthBlock kind={kind} />}
+      <Seg value={kind} onChange={(k) => { setPreset("custom"); setKind(k); }} options={[["google", "Google"], ["microsoft", "Microsoft"], ["imap", t("settings.add.imapTab")]]} />
+      {kind === "imap" ? <ImapForm key={preset} initialProvider={preset} /> : <OAuthBlock key={kind} kind={kind} onAppPassword={() => { setPreset("gmail"); setKind("imap"); }} />}
     </div>
   );
 }
@@ -1081,6 +1103,7 @@ function ServerPanel({ account, close }: { account: Account; close: () => void }
   };
   return (
     <>
+      <ReauthNotice account={account} />
       {/* i18n-ok: provider + protocol names */}
       <Row label={t("settings.server.signIn")}>{account.auth === "oauth_google" ? "Google (OAuth 2.0)" : account.auth === "oauth_microsoft" ? "Microsoft (OAuth 2.0)" : t("settings.server.passwordStored", { store: credStore() })}</Row>
       <Row label={t("settings.server.incoming")}>{account.imapHost}:{account.imapPort}</Row>
@@ -1103,6 +1126,7 @@ function CalendarPanel({ account }: { account: Account }) {
   const src: CalSource | undefined = calSources.find((s) => s.accountId === account.id);
   const [connecting, setConnecting] = useState(false);
   const [err, setErr] = useState<string | null>(null);
+  const [ended, setEnded] = useState<SignInEnd | null>(null);
   const [now, setNow] = useState(() => Math.floor(Date.now() / 1000));
   const cancelBtn = useRef<HTMLButtonElement>(null);
   useEffect(() => void loadCalSources(), [loadCalSources]);
@@ -1121,13 +1145,16 @@ function CalendarPanel({ account }: { account: Account }) {
 
   const connect = async () => {
     setErr(null);
+    setEnded(null);
     setConnecting(true);
     try {
       await api.calendarConnect(account.id);
       showToast(t("settings.calendar.syncOn", { email: account.email }), undefined, "success");
     } catch (e) {
-      // (cancelled by the person: nothing to say)
-      if (calendarErrorCode(String(e)) !== "CANCELLED") setErr(friendlyError(e));
+      // timed out / cancelled / refused: the calendar's own sentence and the advice for the service; cancelled with nothing to add says nothing
+      const end = kind ? signInEnd(kind, "calendar", e) : null;
+      if (end) setEnded(end);
+      else if (calendarErrorCode(String(e)) !== "CANCELLED") setErr(friendlyError(e));
     } finally {
       setConnecting(false);
       await loadCalSources();
@@ -1164,10 +1191,7 @@ function CalendarPanel({ account }: { account: Account }) {
       </Row>
       <div role="status" aria-live="polite" className="set-status">
         {connecting && (
-          <div className="muted small">
-            {t("settings.calendar.allowInBrowser")}{" "}
-            <button ref={cancelBtn} className="link" onClick={() => void api.calendarCancelConnect()}>{t("common.cancel")}</button>
-          </div>
+          <SignInWaiting provider={kind} lead={t("settings.calendar.allowInBrowser")} onCancel={() => void api.calendarCancelConnect()} cancelRef={cancelBtn} />
         )}
         {!connecting && line && (
           <div className={line.tone === "bad" ? "notice bad" : "muted small"}>
@@ -1177,6 +1201,7 @@ function CalendarPanel({ account }: { account: Account }) {
         )}
       </div>
       {err && <div className="field-err" role="alert">{err}</div>}
+      {ended && !connecting && <SignInEnded provider={kind} purpose="calendar" end={ended} />}
       {!connecting && src && line && (line.syncNow !== "off" || line.allow) && (
         <div className="row-inline" style={{ margin: "6px 0 10px" }}>
           {line.allow && <button className="btn primary" onClick={() => void connect()}>{t("settings.calendar.allowAgain")}</button>}

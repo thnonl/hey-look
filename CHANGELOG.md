@@ -8,6 +8,9 @@
 - Settings > About: links to the Website, "Buy me a coffee" (the support page) and the Source code
 - Calendar: turn on two-way sync with Google Calendar or Outlook / Microsoft 365 (Outlook.com, Hotmail, work and school accounts) for a mailbox (Settings > Mailboxes > your mailbox > Calendar). Repeating events from those calendars are shown but can’t be changed in Hey Look! yet.
 - Languages: the whole app is now available in English, Vietnamese (Tiếng Việt) and French (Français). Choose it in Settings > General > Language; English stays the default. Dates, times, numbers, the tray menu and notifications follow the language too
+- Sign-in with Google: Google has not finished reviewing Hey Look! yet, so its sign-in page may say “Google hasn’t verified this app”: choose Advanced, then Go to Hey Look! (unsafe). Hey Look! says so while it waits, and explains what to do when Google blocks the sign-in (for example when the limit for unverified apps is reached): add Gmail with an app password instead
+- Signing in to Google or Microsoft has a Cancel button (mail and calendar); it stops waiting at once and nothing is added. If a Microsoft sign-in ends without access, Hey Look! suggests asking your IT admin to approve it
+- A Google or Microsoft mailbox whose sign-in ended (access removed, password changed) shows “Sign in again” in the folder list and in Settings, instead of failing quietly
 
 ## 1.0.0 — 2026-10-14
 

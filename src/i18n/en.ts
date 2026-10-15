@@ -9,6 +9,7 @@ import calendar from "./ns/calendar.ts";
 import errors from "./ns/errors.ts";
 import updates from "./ns/updates.ts";
 import backend from "./ns/backend.ts";
+import signin from "./ns/signin.ts";
 
 export const en = {
   ...common.en,
@@ -22,4 +23,5 @@ export const en = {
   ...errors.en,
   ...updates.en,
   ...backend.en,
+  ...signin.en,
 };

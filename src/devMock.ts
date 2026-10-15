@@ -694,6 +694,36 @@ const mockCalsOf = (m: MockCalAccount) =>
       ];
 const calSrcs: Record<string, MockSrc | null> = {};
 let calConnectCancel: (() => void) | null = null;
+// ---- mail sign-in (Add account > Google / Microsoft, and "Sign in again")
+// `#signin=slow` keeps the browser sign-in waiting until Cancel; `#signin=timeout|denied|blocked|error` ends it that way after 1.5 s.
+// `#reauth=again|blocked` starts the Google mailbox (a2) as one whose sign-in was rejected, `#reauthms=again|blocked` the Outlook one (a4):
+// their sync fails like the backend does until "Sign in again" works. `__mockSignIn.flag("a2", "again")` does it later (and emits signin-state).
+let oauthCancel: (() => void) | null = null;
+const reauthNeeded: Record<string, string> = {};
+const signinMode = () => /(^|&)signin=([a-z]+)/.exec(window.location.hash.slice(1))?.[2];
+const reauthError = (acc: string) => {
+  const label = acc === "a4" ? "Microsoft" : "Google";
+  return reauthNeeded[acc] === "blocked"
+    ? `OAUTH_BLOCKED|label=${label}: Your organization may need to approve Hey Look! for this ${label} account. Ask your IT admin. (AADSTS65001)`
+    : `OAUTH_REAUTH|label=${label}: ${label} sign-in expired or revoked (invalid_grant). Sign in again.`;
+};
+/** The browser sign-in of the mock: ends the way the hash says; Cancel ends it at once. */
+const mockBrowserSignIn = <T,>(label: string, done: () => T) =>
+  new Promise<T>((resolve, reject) => {
+    oauthCancel = () => reject(`OAUTH_CANCELLED|label=${label}: ${label} sign-in cancelled`);
+    const mode = signinMode();
+    if (mode === "slow") return;
+    setTimeout(() => {
+      const errs: Record<string, string> = {
+        timeout: `OAUTH_TIMEOUT|label=${label}: ${label} sign-in timed out`,
+        denied: `OAUTH_REFUSED|label=${label}|reason=access_denied: ${label} sign-in refused: access_denied`,
+        blocked: `OAUTH_REFUSED|label=${label}|reason=access_denied - AADSTS65001%3A The user or administrator has not consented: ${label} sign-in refused: access_denied AADSTS65001`,
+        error: `OAUTH_REFUSED|label=${label}|reason=redirect_uri_mismatch: ${label} sign-in refused: redirect_uri_mismatch`,
+      };
+      if (mode && errs[mode]) return reject(errs[mode]);
+      resolve(done());
+    }, 1500);
+  });
 const syncedEvents = (m: MockCalAccount): MockEvent[] => {
   const mk = (id: string, cal: string, summary: string, start: number, end: number, over: Record<string, unknown> = {}) =>
     ev(id, summary, start, end, { calendarId: `${m.prefix}:${m.account}:${cal}`, accountId: m.account, remoteMock: true, readOnly: null, reminderMin: 10, ...over });
@@ -755,6 +785,17 @@ export function installMock() {
     accounts.length = 0; // first-run: the Welcome screen
     folders.length = 0;
   }
+  for (const [param, id] of [["reauth", "a2"], ["reauthms", "a4"]] as const) {
+    const m = new RegExp(`(^|&)${param}=([a-z]+)`).exec(window.location.hash.slice(1))?.[2];
+    if (m) reauthNeeded[id] = m;
+  }
+  (window as unknown as { __mockSignIn: unknown }).__mockSignIn = {
+    flag: (id: string, kind: string | null) => {
+      if (kind) reauthNeeded[id] = kind;
+      else delete reauthNeeded[id];
+      void emit("signin-state", { accountId: id, state: kind, error: kind ? reauthError(id) : undefined });
+    },
+  };
   (window as unknown as { __mockCalSync: unknown }).__mockCalSync = {
     state: (st: string, account = "a2") => { mockCalState(st, account); void emit("calendar-changed", {}); },
     get: (account = "a2") => calSrcs[account] ?? null,
@@ -995,6 +1036,7 @@ export function installMock() {
         : [{ ...messages[0], id: "mx", subject: "Hello", html: "<p>Hello from the mock backend.</p>", attachments: [] }];
       case "sync_account": {
         const id = String(a.accountId ?? a.id ?? "");
+        if (reauthNeeded[id]) return later(300, () => { throw new Error(reauthError(id)); });
         if (id.startsWith("n") && !synced.has(id)) return later(syncDelay, () => (synced.add(id), { added: 3, newInbox: [] }));
         return { added: 0, newInbox: [] };
       }
@@ -1006,7 +1048,18 @@ export function installMock() {
       case "google_sign_in": case "microsoft_sign_in": {
         const g = cmd === "google_sign_in";
         if (a.clientId === "fail") return later(900, () => { throw new Error("OAUTH: sign-in was cancelled in the browser"); });
+        if (signinMode()) return mockBrowserSignIn(g ? "Google" : "Microsoft", () =>
+          mockNewAccount(g ? `new.user${newSeq + 1}@gmail.com` : `new.user${newSeq + 1}@outlook.com`, String(a.displayName || "New User"), g ? "oauth_google" : "oauth_microsoft", g ? "imap.gmail.com" : "outlook.office365.com", g ? "smtp.gmail.com" : "smtp.office365.com"));
         return later(1200, () => mockNewAccount(g ? `new.user${newSeq + 1}@gmail.com` : `new.user${newSeq + 1}@outlook.com`, String(a.displayName || "New User"), g ? "oauth_google" : "oauth_microsoft", g ? "imap.gmail.com" : "outlook.office365.com", g ? "smtp.gmail.com" : "smtp.office365.com"));
+      }
+      case "oauth_cancel": oauthCancel?.(); oauthCancel = null; return null;
+      case "reauth_account": {
+        const acc = accounts.find((x) => x.id === a.accountId);
+        if (!acc) throw new Error("account not found");
+        return mockBrowserSignIn(acc.auth === "oauth_microsoft" ? "Microsoft" : "Google", () => {
+          delete reauthNeeded[acc.id];
+          return acc;
+        });
       }
       case "list_outbox": return mockOutbox;
       case "outbox_pending_count": return { count: mockOutbox.filter((o) => o.status !== "failed").length, next: now + 3 * H };
@@ -1201,7 +1254,7 @@ export function installMock() {
               wrong: `CAL_WRONG_ACCOUNT: You allowed access for other@${target.email.split("@")[1]}. Sign in as ${target.email} to sync this mailbox’s calendar.`,
               partial: "CAL_PARTIAL: Hey Look! needs every calendar permission it asked for. Turn the switch on again and keep all boxes ticked.",
               timeout: "CAL_TIMEOUT: Calendar sign-in timed out. Turn the switch on to try again.",
-              blocked: `CAL_BLOCKED: ${target.email}’s organization hasn’t approved Hey Look! for calendar access. Ask your IT admin.`,
+              blocked: `CAL_BLOCKED: ${target.email}’s organization may need to approve Hey Look! for calendar access. Ask your IT admin.`,
             };
             if (fail && errs[fail]) return reject(errs[fail]);
             mockCalState("ok", target.account);

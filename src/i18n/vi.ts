@@ -9,6 +9,7 @@ import calendar from "./ns/calendar.ts";
 import errors from "./ns/errors.ts";
 import updates from "./ns/updates.ts";
 import backend from "./ns/backend.ts";
+import signin from "./ns/signin.ts";
 
 export const vi = {
   ...common.vi,
@@ -22,4 +23,5 @@ export const vi = {
   ...errors.vi,
   ...updates.vi,
   ...backend.vi,
+  ...signin.vi,
 };

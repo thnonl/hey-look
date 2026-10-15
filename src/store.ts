@@ -5,6 +5,7 @@ import { hasMailAccounts } from "./mailControls";
 import { applyBackfill } from "./backfill";
 import { calendarErrorText } from "./calendarSync";
 import { backendText } from "./backendErrors";
+import { needsSignIn } from "./signIn";
 import { resolveLang, setLangPref, t } from "./i18n";
 import { fmtNumber } from "./i18n/format";
 import { calTz, CalView, Day, rangeFor, systemTz, today } from "./calendar";
@@ -203,6 +204,9 @@ interface State {
   /** account whose first sync runs right now (after it was added): its empty Inbox says so instead of "all caught up" */
   firstSync: string | null;
   syncErrors: Record<string, string>;
+  /** mailboxes whose sign-in was rejected (Google / Microsoft): they show "Sign in again"; "blocked" = the organization has to approve the app */
+  reauth: Record<string, "again" | "blocked">;
+  setReauth: (accountId: string, kind: "again" | "blocked" | null) => void;
   toasts: Toast[];
   ask: AskState | null;
   passphrase: PassphraseAsk | null;
@@ -462,6 +466,14 @@ export const useStore = create<State>((set, get) => ({
   syncing: false,
   firstSync: null,
   syncErrors: {},
+  reauth: {},
+  setReauth: (accountId, kind) =>
+    set((s) => {
+      const next = { ...s.reauth };
+      if (kind) next[accountId] = kind;
+      else delete next[accountId];
+      return { reauth: next };
+    }),
   toasts: [],
   ask: null,
   passphrase: null,
@@ -654,10 +666,14 @@ export const useStore = create<State>((set, get) => ({
       // toasts and the tray badge are handled by the backend (it keeps syncing while the window is hidden)
       const results = await Promise.allSettled(accounts.map((a) => api.syncAccount(a.id)));
       const errors: Record<string, string> = {};
+      const reauth: Record<string, "again" | "blocked"> = {};
       results.forEach((r, i) => {
-        if (r.status === "rejected") errors[accounts[i].id] = friendlyError(r.reason);
+        if (r.status !== "rejected") return;
+        errors[accounts[i].id] = friendlyError(r.reason);
+        const again = needsSignIn(String(r.reason));
+        if (again) reauth[accounts[i].id] = again;
       });
-      set({ syncErrors: errors });
+      set({ syncErrors: errors, reauth });
       const first = Object.entries(errors)[0];
       if (first) {
         const acct = accounts.find((a) => a.id === first[0]);
@@ -682,9 +698,11 @@ export const useStore = create<State>((set, get) => ({
     try {
       await api.syncAccount(acc.id);
       set((s) => ({ syncErrors: Object.fromEntries(Object.entries(s.syncErrors).filter(([k]) => k !== acc.id)) }));
+      get().setReauth(acc.id, null);
     } catch (e) {
       const msg = friendlyError(e);
       set((s) => ({ syncErrors: { ...s.syncErrors, [acc.id]: msg } }));
+      get().setReauth(acc.id, needsSignIn(String(e)));
       get().showToast(t("errors.toast.withAccount", { account: acc.email, error: msg }), undefined, "error");
     } finally {
       set({ firstSync: null });

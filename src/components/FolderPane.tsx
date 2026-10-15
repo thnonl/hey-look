@@ -3,6 +3,7 @@ import {
 } from "lucide-react";
 import { ReactNode, useEffect } from "react";
 import { CalSidebar } from "./Calendar";
+import { ReauthNotice } from "./SignInHelp";
 import { FolderInfo } from "../api";
 import { accountColor, folderDepth, folderLabel } from "../prefs";
 import { useT } from "../i18n/react";
@@ -160,6 +161,7 @@ export function FolderPane() {
                 )}
               </>,
             )}
+            <ReauthNotice account={a} compact />
             {!collapsed(a.id) && (
               <>
                 {std.map((k) => row(a.id, k, folderLabel(k), 1))}
