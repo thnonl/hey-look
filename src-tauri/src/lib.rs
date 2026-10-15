@@ -2848,14 +2848,51 @@ fn send_now(db: &Db, d: &smtp::Draft) -> R<()> {
     let h = acc.smtp_host.to_lowercase();
     let auto_saves = h.contains("gmail") || h.contains("googlemail") || h.contains("office365") || h.contains("outlook");
     if !auto_saves {
-        if let Some(sent) = fmap(db, &acc.id).get("sent").cloned() {
-            if let Ok(mut s) = mail::connect(&acc, &sec) {
-                let _ = mail::append(&mut s, &sent, &raw, false);
+        // best effort, after the send went through: a copy that cannot be stored is a line in the log, never an error of the send
+        match mail::connect(&acc, &sec) {
+            Ok(mut s) => {
+                if let Err(e) = store_sent_copy(db, &acc, &mut s, &raw) {
+                    startup::line("send", &format!("account {}: the sent message was sent, but no copy was stored in a Sent folder: {e}", acc.id));
+                }
                 let _ = s.logout();
             }
+            Err(e) => startup::line("send", &format!("account {}: the sent message was sent, but no copy was stored (no connection to the mail server: {e})", acc.id)),
         }
     }
     Ok(())
+}
+
+/// Put the copy of a sent message into the account's Sent folder, with the F-14 rule for a missing folder: the saved name first; when
+/// there is none, or the server refuses it, a fresh LIST (the server may have created or renamed the folder, and its SPECIAL-USE flag or
+/// a standard name tells which); when the server has no Sent folder at all, `Sent` is created (`INBOX.Sent` on a server that keeps its
+/// folders in the INBOX namespace). The saved folder list is refreshed on the way. Errors are for the log: the caller sends anyway.
+fn store_sent_copy<T: std::io::Read + std::io::Write>(db: &Db, acc: &Account, s: &mut imap::Session<T>, raw: &[u8]) -> R<()> {
+    let saved = fmap(db, &acc.id).get("sent").cloned();
+    let mut first_error = None;
+    if let Some(name) = &saved {
+        match mail::append(s, name, raw, false) {
+            Ok(()) => return Ok(()),
+            Err(e) => first_error = Some(e),
+        }
+    }
+    let listing = mail::list_folders(s)?;
+    save_fmap(db, &acc.id, &listing.map)?;
+    let (name, created) = match listing.map.get("sent").cloned() {
+        Some(n) => (n, false),
+        None => {
+            let create = mail::name_to_create("sent", &listing).ok_or("no Sent folder on this account")?;
+            mail::create_folder(s, &create).map_err(|why| format!("no Sent folder on this account and it could not be created ({why})"))?;
+            let mut map = listing.map.clone();
+            map.insert("sent".to_string(), create.clone());
+            save_fmap(db, &acc.id, &map)?;
+            (create, true)
+        }
+    };
+    if !created && saved.as_ref() == Some(&name) {
+        // the server has the folder we tried: the append failed for another reason
+        return Err(first_error.unwrap_or_else(|| "the Sent folder refused the message".to_string()));
+    }
+    mail::append(s, &name, raw, false)
 }
 
 /// The bytes to send and their envelope. Encrypted or signed messages (PGP/MIME) are built here, or were built

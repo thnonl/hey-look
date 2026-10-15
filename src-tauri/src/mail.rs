@@ -432,13 +432,14 @@ fn decode_imap_utf7(s: &str) -> String {
     out
 }
 
-/// The name to create for a standard role the server lacks, or None for a role that is never created (junk, custom folders).
-/// Archive and Trash use their plain English names. A server that keeps every folder inside the INBOX namespace (`INBOX.Sent`, Courier and
+/// The name to create for a standard role the server lacks, or None for a role that is never created (drafts, junk, custom folders).
+/// Archive, Trash and Sent (for the copy of a sent message) use their plain English names. A server that keeps every folder inside the INBOX namespace (`INBOX.Sent`, Courier and
 /// older Dovecot setups) gets `INBOX.Archive`: a top-level folder is refused there.
 pub fn name_to_create(role: &str, listing: &Listing) -> Option<String> {
     let leaf = match role {
         "archive" => "Archive",
         "trash" => "Trash",
+        "sent" => "Sent",
         _ => return None,
     };
     let in_inbox_namespace = listing.delimiter.as_deref().is_some_and(|d| {
@@ -961,7 +962,7 @@ pub fn delete_forever<T: Read + Write>(s: &mut imap::Session<T>, src: &str, uids
     Ok(())
 }
 
-pub fn append(s: &mut Sess, folder: &str, raw: &[u8], draft: bool) -> R<()> {
+pub fn append<T: Read + Write>(s: &mut imap::Session<T>, folder: &str, raw: &[u8], draft: bool) -> R<()> {
     let flags: Vec<imap::types::Flag> = if draft {
         vec![imap::types::Flag::Seen, imap::types::Flag::Draft]
     } else {

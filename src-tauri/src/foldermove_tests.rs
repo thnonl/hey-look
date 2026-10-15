@@ -274,3 +274,89 @@ fn a_failure_that_is_not_about_the_folder_is_reported_as_it_is_and_the_mail_stay
         assert_eq!(local_folder(&db, 1).as_deref(), Some("inbox"));
     });
 }
+
+const NO_ARCHIVE_NO_SENT: &str = r#"{"inbox":"INBOX"}"#;
+
+// ---- the copy of a sent message (QA v1.0.1 round 6, OBS-5): the same folder rule as Archive and Trash
+
+const RAW: &[u8] = b"From: me@example.com\r\nTo: peer@example.com\r\nSubject: hello\r\n\r\nbody\r\n";
+
+fn store_copy(db: &Db, acc: &Account, fake: &Fake) -> R<()> {
+    let mut s = fake.connect();
+    let done = store_sent_copy(db, acc, &mut s, RAW);
+    let _ = s.logout();
+    done
+}
+
+fn appended(fake: &Fake) -> Vec<(String, Vec<u8>)> {
+    fake.state.lock().unwrap().appended.clone()
+}
+
+#[test]
+fn a_server_without_a_sent_folder_gets_one_and_the_copy_goes_into_it() {
+    test_guard::within(60, || {
+        let (db, acc) = setup("obs5-create", NO_ARCHIVE_NO_SENT, &[]);
+        let fake = Fake::start(&[("INBOX", &[]), ("Drafts", &[])]);
+        store_copy(&db, &acc, &fake).unwrap();
+        assert_eq!(appended(&fake), vec![("Sent".to_string(), RAW.to_vec())]);
+        assert_eq!(sent(&fake, "CREATE"), 1);
+        assert_eq!(saved(&db).get("sent").map(String::as_str), Some("Sent"), "the saved list knows it now");
+        // the next one finds the saved folder: nothing to list or create
+        let before = fake.commands().len();
+        store_copy(&db, &acc, &fake).unwrap();
+        assert_eq!(appended(&fake).len(), 2);
+        let after: Vec<String> = fake.commands().into_iter().skip(before).filter(|c| c.to_uppercase().starts_with("LIST") || c.to_uppercase().starts_with("CREATE")).collect();
+        assert!(after.is_empty(), "{after:?}");
+    });
+}
+
+#[test]
+fn the_servers_own_sent_folder_is_used_when_the_saved_list_does_not_know_it() {
+    test_guard::within(60, || {
+        // not saved at all, and named in another way (flagged by the server)
+        let (db, acc) = setup("obs5-found", NO_ARCHIVE_NO_SENT, &[]);
+        let fake = Fake::start(&[("INBOX", &[]), ("Gesendete Objekte", &[])]);
+        store_copy(&db, &acc, &fake).unwrap();
+        assert_eq!(appended(&fake).iter().map(|a| a.0.as_str()).collect::<Vec<_>>(), vec!["Gesendete Objekte"]);
+        assert_eq!(sent(&fake, "CREATE"), 0);
+        // saved "Sent", but the server calls it "Sent Items" now: found by the fresh list
+        let (db, acc) = setup("obs5-renamed", r#"{"inbox":"INBOX","sent":"Sent"}"#, &[]);
+        let fake = Fake::start(&[("INBOX", &[]), ("Sent Items", &[])]);
+        fake.state.lock().unwrap().special.insert("Sent Items".into(), "\\Sent".into());
+        store_copy(&db, &acc, &fake).unwrap();
+        assert_eq!(appended(&fake).iter().map(|a| a.0.as_str()).collect::<Vec<_>>(), vec!["Sent Items"]);
+        assert_eq!(sent(&fake, "CREATE"), 0);
+        assert_eq!(saved(&db).get("sent").map(String::as_str), Some("Sent Items"));
+        // a lookalike is not the Sent folder: one is made
+        let (db, acc) = setup("obs5-lookalike", NO_ARCHIVE_NO_SENT, &[]);
+        let fake = Fake::start(&[("INBOX", &[]), ("Sent 2019", &[]), ("Work/Sent", &[])]);
+        store_copy(&db, &acc, &fake).unwrap();
+        assert_eq!(appended(&fake).iter().map(|a| a.0.as_str()).collect::<Vec<_>>(), vec!["Sent"]);
+    });
+}
+
+#[test]
+fn a_server_that_keeps_its_folders_in_the_inbox_namespace_gets_inbox_dot_sent() {
+    test_guard::within(60, || {
+        let (db, acc) = setup("obs5-ns", NO_ARCHIVE_NO_SENT, &[]);
+        let fake = Fake::start(&[("INBOX", &[]), ("INBOX.Drafts", &[])]);
+        fake.state.lock().unwrap().delimiter = ".".into();
+        store_copy(&db, &acc, &fake).unwrap();
+        assert_eq!(appended(&fake).iter().map(|a| a.0.as_str()).collect::<Vec<_>>(), vec!["INBOX.Sent"]);
+        assert!(!fake.has_folder("Sent"));
+    });
+}
+
+#[test]
+fn when_no_sent_folder_can_be_made_the_copy_is_given_up_with_a_reason_and_nothing_else_happens() {
+    test_guard::within(60, || {
+        let (db, acc) = setup("obs5-refused", NO_ARCHIVE_NO_SENT, &[]);
+        let fake = Fake::start(&[("INBOX", &[])]);
+        fake.state.lock().unwrap().refuse_create = true;
+        let e = store_copy(&db, &acc, &fake).unwrap_err();
+        assert!(e.contains("no Sent folder on this account and it could not be created"), "{e}");
+        assert!(appended(&fake).is_empty());
+        assert_eq!(fake.uids("INBOX"), Some(vec![]), "nothing else was touched");
+    });
+}
+
