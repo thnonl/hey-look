@@ -2,7 +2,7 @@ import { defineLocale } from "../../types.ts";
 import type ns from "../../ns/compose.ts";
 
 // Compose window, the formatting toolbar (also used by the signature / template editor), the schedule picker and the Scheduled list.
-// ja: Send later = 送信予約, Schedule = 予約, PGP sign = デジタル署名 (the e-mail signature is 署名).
+// ja: Send later = 送信予約, Schedule = 送信予約, PGP sign = デジタル署名 (the e-mail signature is 署名).
 
 export default defineLocale<typeof ns.en>({
   // fields
@@ -37,8 +37,8 @@ export default defineLocale<typeof ns.en>({
   "compose.bar.send": "送信",
   "compose.bar.sendTip": "送信 (Ctrl+Enter)",
   "compose.bar.sendInvite": "招待を送信",
-  "compose.bar.schedule": "予約",
-  "compose.bar.scheduleTip": "予約（時刻はそのまま）",
+  "compose.bar.schedule": "送信予約",
+  "compose.bar.scheduleTip": "送信予約（時刻はそのまま）",
   "compose.bar.sendLaterOptions": "送信予約のオプション",
   "compose.bar.sendLaterTip": "送信予約 (Ctrl+Shift+Enter)",
   "compose.bar.moveToDrafts": "下書きに移動",
@@ -210,7 +210,7 @@ export default defineLocale<typeof ns.en>({
   "compose.toast.scheduleCancelled": "送信予約をキャンセルしました",
   // schedule picker
   "compose.schedule.title": "送信予約",
-  "compose.schedule.button": "予約",
+  "compose.schedule.button": "送信予約",
   "compose.schedule.tzTip": "選択した時刻は、このタイムゾーンの時刻として扱われます",
   "compose.schedule.times": "時刻は{zone}です",
   "compose.schedule.date": "日付",
@@ -251,7 +251,7 @@ export default defineLocale<typeof ns.en>({
   "compose.scheduled.noOne": "宛先なし",
   "compose.scheduled.rowLabel": "{to}宛て「{subject}」、{status}",
   "compose.scheduled.rowLabelError": "{to}宛て「{subject}」、{status}。{error}",
-  "compose.scheduled.wasDue": "送信予定：{when} · {error}",
+  "compose.scheduled.wasDue": "送信予定だった時刻：{when} · {error}",
   "compose.scheduled.retryAria": "{name}の送信を再試行",
   "compose.scheduled.editAria": "{name}を編集",
   "compose.scheduled.sendNowTip": "今すぐ送信 (Ctrl+Enter)",

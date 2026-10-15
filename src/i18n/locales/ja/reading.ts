@@ -11,7 +11,7 @@ export default defineLocale<typeof ns.en>({
   "reading.protect.captureOff": "機密メールでは、画面キャプチャが無効になっています。",
   // ---- appearance preview (miniature window in Settings > Appearance)
   "reading.preview.search": "メールを検索",
-  "reading.preview.inbox": "受信",
+  "reading.preview.inbox": "受信トレイ",
   "reading.preview.sent": "送信済み",
   "reading.preview.drafts": "下書き",
   "reading.preview.archive": "アーカイブ",
@@ -29,7 +29,7 @@ export default defineLocale<typeof ns.en>({
   "reading.head.archived": "アーカイブしました",
   "reading.head.delete": "削除",
   "reading.head.deleteTip": "削除 (#)",
-  "reading.head.trashed": "ごみ箱に移動しました",
+  "reading.head.trashed": "削除済みアイテムに移動しました",
   "reading.head.snoozeTip": "スヌーズ (s)",
   "reading.head.snoozed": "スヌーズ：{label}",
   "reading.head.pin": "ピン留め",
