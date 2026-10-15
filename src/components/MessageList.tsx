@@ -226,7 +226,10 @@ export function MessageList() {
   const targets = accountId ? [accountId] : accounts.map((a) => a.id);
   // a mailbox is done when the server has nothing older or the "Max emails to download" cap stopped it; the cap's footer wins
   const reachedEnd = targets.length > 0 && targets.every((id) => exhausted[exhaustedKey(id, folder)] || limited[exhaustedKey(id, folder)]);
-  const capped = reachedEnd && targets.some((id) => limited[exhaustedKey(id, folder)]);
+  // F-13: the cap is about how much mail of the mailbox was downloaded; under a filter (or in the Unread view) the list is a handful of
+  // matches, so the cap's footer would read as "this list is limited to 500" - there the plain end-of-list line is shown instead
+  const filtered = filter !== "all" || folder === "unread";
+  const capped = reachedEnd && !filtered && targets.some((id) => limited[exhaustedKey(id, folder)]);
   // background download of older Inbox mail (event `backfill-progress`)
   const inboxish = folder === "inbox" || folder === "unread";
   const download = downloadLine(backfill, { inboxish, searching, accountId, accountIds: accounts.map((a) => a.id) });
@@ -417,7 +420,7 @@ export function MessageList() {
             floating={(label) => <div className="ml-group" role="presentation">{label}</div>}
             onNearEnd={prefs.sortAsc ? undefined : nearMore}
             onNearStart={prefs.sortAsc ? nearMore : undefined}
-            prefetch={filter === "all" && folder !== "unread"}
+            prefetch={!filtered}
             holdTop={prefs.sortAsc}
             footer={
               searching ? (
