@@ -91,6 +91,7 @@ export default defineLocale<typeof ns.en>({
   "reading.lang.french": "французский",
   "reading.lang.german": "немецкий",
   "reading.lang.spanish": "испанский",
+  "reading.lang.russian": "русский",
   // ---- message body (blocked content, links, pictures that are not embedded)
   "reading.body.blocked": "Часть содержимого этого письма заблокирована, чтобы предотвратить отслеживание.",
   "reading.body.loadContent": "Загрузить содержимое",

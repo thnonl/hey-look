@@ -93,6 +93,7 @@ export default define({
     "reading.lang.french": "French",
     "reading.lang.german": "German",
     "reading.lang.spanish": "Spanish",
+    "reading.lang.russian": "Russian",
 
     // ---- message body (blocked content, links, pictures that are not embedded)
     "reading.body.blocked": "Some content in this message has been blocked to help prevent tracking.",
@@ -274,6 +275,7 @@ export default define({
     "reading.lang.french": "tiếng Pháp",
     "reading.lang.german": "tiếng Đức",
     "reading.lang.spanish": "tiếng Tây Ban Nha",
+    "reading.lang.russian": "tiếng Nga",
 
     "reading.body.blocked": "Một số nội dung trong thư này đã bị chặn để ngăn việc theo dõi.",
     "reading.body.loadContent": "Tải nội dung",
@@ -451,6 +453,7 @@ export default define({
     "reading.lang.french": "français",
     "reading.lang.german": "allemand",
     "reading.lang.spanish": "espagnol",
+    "reading.lang.russian": "russe",
 
     "reading.body.blocked": "Certains contenus de ce message ont été bloqués pour empêcher le suivi.",
     "reading.body.loadContent": "Charger le contenu",

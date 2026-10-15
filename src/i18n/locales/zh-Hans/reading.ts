@@ -91,6 +91,7 @@ export default defineLocale<typeof ns.en>({
   "reading.lang.french": "法语",
   "reading.lang.german": "德语",
   "reading.lang.spanish": "西班牙语",
+  "reading.lang.russian": "俄语",
   // ---- message body (blocked content, links, pictures that are not embedded)
   "reading.body.blocked": "此邮件中的部分内容已被阻止，以防止跟踪。",
   "reading.body.loadContent": "加载内容",

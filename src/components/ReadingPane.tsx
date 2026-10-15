@@ -5,7 +5,7 @@ import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } fr
 import { forward, replyTo } from "../actions";
 import { api, MessageFull } from "../api";
 import { setMailDark } from "../darkMail";
-import { t, type Key } from "../i18n";
+import { LANGS, t, type Key, type Lang } from "../i18n";
 import { useLang, useT } from "../i18n/react";
 import { tx } from "../i18n/rich";
 import { DARK_CANVAS, frameBaseCss, frameRootClass, toggleMailCanvas } from "../mailCanvas";
@@ -395,16 +395,21 @@ function MessageBody({ m, frameRef, dark, onPictures }: { m: MessageFull; frameR
 }
 
 const AUTO_IMPORTED = new Set<string>();
-// the English name goes into the AI prompt; the key is the name shown in the menu
-const LANGS: { en: string; key: Key }[] = [
-  { en: "English", key: "reading.lang.english" },
-  { en: "Vietnamese", key: "reading.lang.vietnamese" },
-  { en: "Japanese", key: "reading.lang.japanese" },
-  { en: "Chinese (Simplified)", key: "reading.lang.chineseSimplified" },
+// "Translate to ...": every language of the app (registry order), then the ones the model can write but the app is not translated into.
+// The English name goes into the AI prompt; the key is the name shown in the menu (a language added to the registry fails tsc until it has one).
+const LANG_NAME: Record<Lang, Key> = {
+  en: "reading.lang.english",
+  vi: "reading.lang.vietnamese",
+  fr: "reading.lang.french",
+  "zh-Hans": "reading.lang.chineseSimplified",
+  es: "reading.lang.spanish",
+  ja: "reading.lang.japanese",
+  de: "reading.lang.german",
+  ru: "reading.lang.russian",
+};
+const TRANSLATE_TO: { en: string; key: Key }[] = [
+  ...LANGS.map((l) => ({ en: l.englishName, key: LANG_NAME[l.code] })),
   { en: "Korean", key: "reading.lang.korean" },
-  { en: "French", key: "reading.lang.french" },
-  { en: "German", key: "reading.lang.german" },
-  { en: "Spanish", key: "reading.lang.spanish" },
 ];
 
 function MessageCard({ m, open, onToggle }: { m: MessageFull; open: boolean; onToggle: () => void }) {
@@ -506,7 +511,7 @@ function MessageCard({ m, open, onToggle }: { m: MessageFull; open: boolean; onT
                 },
                 { label: t("reading.msg.copySender"), onClick: () => void navigator.clipboard.writeText(m.fromEmail).then(() => showToast(t("reading.msg.copied"))) },
                 { divider: true },
-                ...LANGS.map((l) => ({ label: t("reading.msg.translateTo", { lang: t(l.key) }), onClick: () => void translate(l), disabled: needsCard(m) || conf })),
+                ...TRANSLATE_TO.map((l) => ({ label: t("reading.msg.translateTo", { lang: t(l.key) }), onClick: () => void translate(l), disabled: needsCard(m) || conf })),
                 ...(m.canUnsubscribe ? [{ divider: true }, { label: t("reading.msg.unsubscribe"), onClick: () => void unsub() }] : []),
                 ...(m.attachments.length ? [{ divider: true }, { label: t("reading.msg.saveAllAtt"), disabled: conf, onClick: () => void saveAll(false) }] : []),
               ]}

@@ -91,6 +91,7 @@ export default defineLocale<typeof ns.en>({
   "reading.lang.french": "フランス語",
   "reading.lang.german": "ドイツ語",
   "reading.lang.spanish": "スペイン語",
+  "reading.lang.russian": "ロシア語",
   // ---- message body (blocked content, links, pictures that are not embedded)
   "reading.body.blocked": "追跡を防ぐため、このメッセージの一部のコンテンツをブロックしました。",
   "reading.body.loadContent": "コンテンツを読み込む",

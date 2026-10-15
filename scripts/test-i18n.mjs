@@ -326,6 +326,15 @@ if (!args.has("--lint-only")) {
     assert.ok(rules.every((r) => /lang\((ja|zh-Hans)\)|lang="(ja|zh-Hans)"/.test(r)), "line-break / auto-phrase are set for ja and zh-Hans only (nothing else changes how Latin text wraps)");
   }
 
+  // ---- the "Translate to ..." menu offers every language of the registry (and is built from it), each with a name in every dictionary
+  {
+    const rp = readFileSync(join(root, "src/components/ReadingPane.tsx"), "utf8");
+    assert.ok(/\.\.\.LANGS\.map\(\(l\) => \(\{ en: l\.englishName, key: LANG_NAME\[l\.code\] \}\)\)/.test(rp), "TRANSLATE_TO is built from the registry");
+    const names = rp.match(/LANG_NAME: Record<Lang, Key> = \{([^}]*)\}/)?.[1] ?? "";
+    for (const l of LANGUAGES) assert.ok(names.includes(`${l.code.includes("-") ? `"${l.code}"` : l.code}: "reading.lang.`), `LANG_NAME names ${l.code}`);
+    for (const [name, dict] of Object.entries(dicts)) for (const l of LANGUAGES) assert.ok(typeof dict[`reading.lang.${({ en: "english", vi: "vietnamese", fr: "french", "zh-Hans": "chineseSimplified", es: "spanish", ja: "japanese", de: "german", ru: "russian" })[l.code]}`] === "string", `${name} names ${l.code} in reading.lang.*`);
+  }
+
   // ---- errors that come from the Rust side as codes (backend.<CODE>)
   assert.deepEqual(parseCoded("OUTBOX_SENDING: This message is being sent right now."), { code: "OUTBOX_SENDING", params: {}, text: "This message is being sent right now." });
   assert.deepEqual(parseCoded("PGP_NO_KEY|email=a%3Ab@c.d%7Cx: You have no PGP key for a:b@c.d|x.")?.params, { email: "a:b@c.d|x" });
