@@ -120,7 +120,7 @@ export default defineLocale<typeof ns.en>({
   "calendar.invite.change.location": "地点已更改",
   "calendar.invite.change.details": "详细信息已更改",
   "calendar.invite.ended": "此事件已结束",
-  "calendar.invite.trimmed": "部分详细信息过大，未被导入（重复规则、与会者或排除的日期）。",
+  "calendar.invite.trimmed": "部分详细信息过大，未被导入（重复规则、与会者或跳过的日期）。",
   "calendar.invite.organized": "此事件由您组织",
   "calendar.invite.you.accepted": "您已接受",
   "calendar.invite.you.tentative": "您回复了“暂定”",

@@ -172,7 +172,7 @@ export default define({
     "reading.strip.confSave": "Attachments of confidential mail can’t be saved.",
     "reading.strip.savedMany": { one: "Saved {n} attachment to {folder}", other: "Saved {n} attachments to {folder}" },
     "reading.strip.savedPartial": "Saved {n} of {total}. {name} failed: {error}",
-    "reading.strip.saveAllFailed": "Save all failed: {error}",
+    "reading.strip.saveAllFailed": "Couldn’t save the attachments: {error}",
 
     // ---- attachment preview and picture lightbox
     "reading.pv.xOfY": "{i} of {total}",
@@ -351,7 +351,7 @@ export default define({
     "reading.strip.confSave": "Không thể lưu tệp đính kèm của thư mật.",
     "reading.strip.savedMany": "Đã lưu {n} tệp đính kèm vào {folder}",
     "reading.strip.savedPartial": "Đã lưu {n} trên {total}. {name} không thành công: {error}",
-    "reading.strip.saveAllFailed": "Lưu tất cả không thành công: {error}",
+    "reading.strip.saveAllFailed": "Không thể lưu các tệp đính kèm: {error}",
 
     "reading.pv.xOfY": "{i} trên {total}",
     "reading.pv.zoomOut": "Thu nhỏ",
@@ -529,7 +529,7 @@ export default define({
     "reading.strip.confSave": "Les pièces jointes d’un message confidentiel ne peuvent pas être enregistrées.",
     "reading.strip.savedMany": { one: "{n} pièce jointe enregistrée dans {folder}", other: "{n} pièces jointes enregistrées dans {folder}" },
     "reading.strip.savedPartial": "{n} sur {total} enregistrés. Échec pour {name} : {error}",
-    "reading.strip.saveAllFailed": "Échec de l’enregistrement groupé : {error}",
+    "reading.strip.saveAllFailed": "Impossible d’enregistrer les pièces jointes : {error}",
 
     "reading.pv.xOfY": "{i} sur {total}",
     "reading.pv.zoomOut": "Zoom arrière",

@@ -238,7 +238,7 @@ export default defineLocale<typeof ns.en>({
   "app.sweep.readTitle": "Alle E-Mails von {email} als gelesen markieren?",
   "app.sweep.blockTitle": "Alle E-Mails von {email} blockieren?",
   "app.sweep.body": { one: "{n} Unterhaltung im Posteingang ist betroffen.", other: "{n} Unterhaltungen im Posteingang sind betroffen." },
-  "app.sweep.done": "{action}: {n} Unterhaltung(en) von {email}",
+  "app.sweep.done": { one: "{action}: {n} Unterhaltung von {email}", other: "{action}: {n} Unterhaltungen von {email}" },
   "app.sweep.archiveAll": "Alle archivieren",
   "app.sweep.deleteAll": "Alle löschen",
   "app.sweep.readAll": "Alle als gelesen markieren",

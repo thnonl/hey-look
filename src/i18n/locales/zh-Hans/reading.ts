@@ -167,7 +167,7 @@ export default defineLocale<typeof ns.en>({
   "reading.strip.confSave": "机密邮件的附件无法保存。",
   "reading.strip.savedMany": { other: "已将{n}个附件保存到{folder}" },
   "reading.strip.savedPartial": "已保存{total}个中的{n}个。{name}保存失败：{error}",
-  "reading.strip.saveAllFailed": "全部保存失败：{error}",
+  "reading.strip.saveAllFailed": "无法保存附件：{error}",
   // ---- attachment preview and picture lightbox
   "reading.pv.xOfY": "{i} / {total}",
   "reading.pv.zoomOut": "缩小",

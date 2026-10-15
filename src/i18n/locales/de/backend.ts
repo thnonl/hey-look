@@ -33,7 +33,7 @@ export default defineLocale<typeof ns.en>({
   "backend.OAUTH_WRONG_ACCOUNT": "Sie haben sich als {got} angemeldet. Melden Sie sich als {expected} an, um den Zugriff auf dieses Postfach zu erneuern.",
   "backend.SCHEDULE_IN_PAST": "Dieser Zeitpunkt ist bereits vorbei. Wählen Sie einen späteren Zeitpunkt oder senden Sie sofort.",
   "backend.SCHEDULE_TOO_FAR": "Wählen Sie ein Datum innerhalb eines Jahres.",
-  "backend.NOTIFY_NO_SERVICE": "auf diesem Desktop läuft kein Benachrichtigungsdienst",
+  "backend.NOTIFY_NO_SERVICE": "In dieser Desktopumgebung läuft kein Benachrichtigungsdienst.",
   "backend.NOTIFY_MAC_UNAVAILABLE": "in dieser Version unter macOS nicht verfügbar",
   "backend.PGP_LOCKED_OUT": "Zu viele Versuche. Warten Sie 30 Sekunden.",
   "backend.PGP_NO_KEY": "Sie haben keinen PGP-Schlüssel für {email}.",

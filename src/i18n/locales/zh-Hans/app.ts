@@ -232,7 +232,7 @@ export default defineLocale<typeof ns.en>({
   "app.sweep.readTitle": "将来自{email}的所有邮件标记为已读？",
   "app.sweep.blockTitle": "阻止来自{email}的所有邮件？",
   "app.sweep.body": { other: "收件箱中的{n}个对话将受到影响。" },
-  "app.sweep.done": "{action}：来自{email}的{n}个对话",
+  "app.sweep.done": { other: "{action}：来自{email}的{n}个对话" },
   "app.sweep.archiveAll": "全部归档",
   "app.sweep.deleteAll": "全部删除",
   "app.sweep.readAll": "全部标记为已读",

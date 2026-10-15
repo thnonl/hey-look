@@ -167,7 +167,7 @@ export default defineLocale<typeof ns.en>({
   "reading.strip.confSave": "機密メールの添付ファイルは保存できません。",
   "reading.strip.savedMany": { other: "{n}件の添付ファイルを{folder}に保存しました" },
   "reading.strip.savedPartial": "{total}件中{n}件を保存しました。{name}は失敗しました：{error}",
-  "reading.strip.saveAllFailed": "すべて保存に失敗しました：{error}",
+  "reading.strip.saveAllFailed": "添付ファイルを保存できませんでした：{error}",
   // ---- attachment preview and picture lightbox
   "reading.pv.xOfY": "{i} / {total}",
   "reading.pv.zoomOut": "縮小",

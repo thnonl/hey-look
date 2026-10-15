@@ -120,7 +120,7 @@ export default defineLocale<typeof ns.en>({
   "calendar.invite.change.location": "Ort geändert",
   "calendar.invite.change.details": "Details geändert",
   "calendar.invite.ended": "Dieser Termin ist beendet",
-  "calendar.invite.trimmed": "Einige Angaben waren zu groß und wurden nicht importiert (Wiederholungsregel, Gäste oder ausgeschlossene Datumsangaben).",
+  "calendar.invite.trimmed": "Einige Angaben waren zu groß und wurden nicht importiert (Wiederholungsregel, Gäste oder übersprungene Termine).",
   "calendar.invite.organized": "Sie haben diesen Termin organisiert",
   "calendar.invite.you.accepted": "Sie haben zugesagt",
   "calendar.invite.you.tentative": "Sie haben mit Vorbehalt zugesagt",

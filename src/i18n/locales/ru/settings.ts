@@ -136,7 +136,7 @@ export default defineLocale<typeof ns.en>({
   "settings.add.displayNameOpt": "Отображаемое имя (необязательно)",
   "settings.add.yourName": "Ваше имя",
   "settings.add.waitingFor": "Ожидание ответа от {provider}…",
-  "settings.add.found.builtIn": "Параметры найдены во встроенных настройках.",
+  "settings.add.found.builtIn": "Параметры найдены во встроенном списке провайдеров.",
   "settings.add.found.autoconfig": "Параметры найдены через автонастройку провайдера.",
   "settings.add.found.ispdb": "Параметры найдены через Thunderbird ISPDB.",
   "settings.add.found.dnsSrv": "Параметры найдены через записи DNS SRV.",

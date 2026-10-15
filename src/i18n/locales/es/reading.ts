@@ -167,7 +167,7 @@ export default defineLocale<typeof ns.en>({
   "reading.strip.confSave": "Los adjuntos del correo confidencial no se pueden guardar.",
   "reading.strip.savedMany": { one: "Se guardó {n} adjunto en {folder}", other: "Se guardaron {n} adjuntos en {folder}" },
   "reading.strip.savedPartial": "Se guardaron {n} de {total}. Falló {name}: {error}",
-  "reading.strip.saveAllFailed": "Error al guardar todo: {error}",
+  "reading.strip.saveAllFailed": "No se pudieron guardar los adjuntos: {error}",
   // ---- attachment preview and picture lightbox
   "reading.pv.xOfY": "{i} de {total}",
   "reading.pv.zoomOut": "Alejar",

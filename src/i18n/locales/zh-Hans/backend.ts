@@ -33,7 +33,7 @@ export default defineLocale<typeof ns.en>({
   "backend.OAUTH_WRONG_ACCOUNT": "您登录的是{got}。请使用{expected}登录，以刷新此邮箱的登录状态。",
   "backend.SCHEDULE_IN_PAST": "该时间已过。请选择更晚的时间，或立即发送。",
   "backend.SCHEDULE_TOO_FAR": "请选择一年以内的日期。",
-  "backend.NOTIFY_NO_SERVICE": "此桌面环境中没有运行通知服务",
+  "backend.NOTIFY_NO_SERVICE": "此桌面环境中没有运行通知服务。",
   "backend.NOTIFY_MAC_UNAVAILABLE": "此版本在macOS上不可用",
   "backend.PGP_LOCKED_OUT": "尝试次数过多。请等待30秒。",
   "backend.PGP_NO_KEY": "您没有{email}的PGP密钥。",

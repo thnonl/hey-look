@@ -232,7 +232,7 @@ export default defineLocale<typeof ns.en>({
   "app.sweep.readTitle": "{email}からのメールをすべて既読にしますか？",
   "app.sweep.blockTitle": "{email}からのメールをすべてブロックしますか？",
   "app.sweep.body": { other: "受信トレイの会話{n}件が対象になります。" },
-  "app.sweep.done": "{action}：{email}からの会話{n}件",
+  "app.sweep.done": { other: "{action}：{email}からの会話{n}件" },
   "app.sweep.archiveAll": "すべてアーカイブ",
   "app.sweep.deleteAll": "すべて削除",
   "app.sweep.readAll": "すべて既読にする",

@@ -177,7 +177,7 @@ export default defineLocale<typeof ns.en>({
     other: "Сохранено {n} вложения в {folder}",
   },
   "reading.strip.savedPartial": "Сохранено {n} из {total}. Не удалось сохранить {name}: {error}",
-  "reading.strip.saveAllFailed": "Не удалось сохранить все: {error}",
+  "reading.strip.saveAllFailed": "Не удалось сохранить вложения: {error}",
   // ---- attachment preview and picture lightbox
   "reading.pv.xOfY": "{i} из {total}",
   "reading.pv.zoomOut": "Уменьшить",

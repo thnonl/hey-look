@@ -443,7 +443,7 @@ async fn oauth_sign_in(
             return Err(i18n::coded(
                 "OAUTH_WRONG_ACCOUNT",
                 &[("got", &signed.email), ("expected", want)],
-                &format!("You signed in as {}. Sign in as {} to renew this mailbox.", signed.email, want),
+                &format!("You signed in as {}. Sign in as {} to renew this mailbox’s sign-in.", signed.email, want),
             ));
         }
     }
