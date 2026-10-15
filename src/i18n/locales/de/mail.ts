@@ -24,7 +24,7 @@ export default defineLocale<typeof ns.en>({
   "mail.hover.flag": "Kennzeichnen",
   "mail.hover.unflag": "Kennzeichnung entfernen",
   "mail.hover.pin": "Anheften",
-  "mail.hover.unpin": "Lösen",
+  "mail.hover.unpin": "Anheftung lösen",
   "mail.hover.markRead": "Als gelesen markieren",
   "mail.hover.markUnread": "Als ungelesen markieren",
   "mail.hover.snooze": "Zurückstellen",
@@ -58,7 +58,7 @@ export default defineLocale<typeof ns.en>({
   "mail.list.downloading": "E-Mails werden heruntergeladen… {have} / {target}",
   "mail.list.selected": { one: "{n} ausgewählt", other: "{n} ausgewählt" },
   "mail.list.selectAll": "Alle auswählen",
-  "mail.list.clear": "Aufheben",
+  "mail.list.clear": "Auswahl aufheben",
   "mail.list.syncing": "{account} wird synchronisiert… Der erste Download kann eine Minute dauern.",
   "mail.list.yourAccount": "Ihr Konto",
   // empty states
