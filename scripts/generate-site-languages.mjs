@@ -24,7 +24,7 @@ export const SITE = 'https://thnonl.github.io/hey-look/';
 export const LANGS = [
   { code: 'en', dir: '', hreflang: 'en', native: 'English', short: 'EN', label: 'Language' },
   { code: 'vi', dir: 'vi', hreflang: 'vi', native: 'Tiếng Việt', short: 'VI', label: 'Ngôn ngữ' },
-  { code: 'fr', dir: 'fr', hreflang: 'fr', native: 'Français', short: 'FR', label: 'Langue', colon: ' : ' },
+  { code: 'fr', dir: 'fr', hreflang: 'fr', native: 'Français', short: 'FR', label: 'Langue', colon: '\u00a0: ' },
   { code: 'zh', dir: 'zh', hreflang: 'zh-Hans', native: '中文（简体）', short: '中文', label: '语言', colon: '：' },
   { code: 'es', dir: 'es', hreflang: 'es', native: 'Español', short: 'ES', label: 'Idioma' },
   { code: 'ja', dir: 'ja', hreflang: 'ja', native: '日本語', short: 'JA', label: '言語', colon: '：' },
