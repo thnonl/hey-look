@@ -104,6 +104,21 @@ kbd { font: 600 .78em/1.5 var(--mono); background: var(--bg2); color: var(--fg);
 #motion-btn { width: auto; min-width: 44px; padding: 0 10px; }
 #motion-btn .m-lbl { font-size: .8rem; font-weight: 600; margin-left: 6px; white-space: nowrap; }
 @media (max-width: 1180px) { #motion-btn { width: 44px; padding: 0; } #motion-btn .m-lbl { display: none; } }
+/* language menu: a <details> of plain links, so it works without JavaScript */
+.lang { position: relative; }
+.lang > summary { list-style: none; display: inline-flex; align-items: center; justify-content: center; gap: 6px; min-width: 44px; height: 44px; padding: 0 10px; border-radius: 12px; cursor: pointer; color: var(--fg); font: 700 .8rem var(--font); letter-spacing: .04em; }
+.lang > summary::-webkit-details-marker { display: none; }
+.lang > summary:hover, .lang[open] > summary { background: var(--bg3); }
+.brand, .nav a { white-space: nowrap; }
+@media (max-width: 420px) { .hdr-in { gap: 8px; } .hdr-r { gap: 2px; } .hdr-dl { margin-left: 2px; } }
+@media (max-width: 350px) { .brand span { display: none; } }
+@media (max-width: 1180px) { .lang-cur { display: none; } .lang > summary { padding: 0; } .nav { margin-left: 6px; } .nav a { padding-inline: 8px; } }
+.lang-menu { position: absolute; right: 0; top: calc(100% + 8px); z-index: 120; margin: 0; padding: 6px; list-style: none; width: max-content; min-width: 200px; max-width: calc(100vw - 24px); background: var(--bg); border: 1px solid var(--line); border-radius: 14px; box-shadow: var(--shadow); }
+@media (max-width: 980px) { .lang { position: static; } .lang-menu { right: 12px; top: calc(100% + 6px); } } /* the menu hangs from the header, so it never leaves the screen */
+.lang-menu a { display: flex; align-items: center; justify-content: space-between; gap: 14px; min-height: 44px; padding: 8px 12px; border-radius: 10px; color: var(--fg); text-decoration: none; font-weight: 600; }
+.lang-menu a:hover { background: var(--bg3); }
+.lang-menu a[aria-current="true"] { background: var(--bg3); box-shadow: inset 3px 0 0 var(--solid); }
+.lang-menu a[aria-current="true"]::after { content: "\2713"; color: var(--accent-text); font-weight: 800; }
 #motion-btn .m-off { display: none; }
 #motion-btn[aria-pressed="true"] .m-on { display: none; }
 #motion-btn[aria-pressed="true"] .m-off { display: block; }
