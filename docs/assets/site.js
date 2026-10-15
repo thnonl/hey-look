@@ -14,13 +14,38 @@
     get: function (k) { try { return window.localStorage.getItem(k); } catch (e) { return null; } },
     set: function (k, v) { try { window.localStorage.setItem(k, v); } catch (e) { /* private mode */ } }
   };
+  /* ---------- strings: per-language dictionaries in assets/i18n/<code>.js (loaded before this file); English is the fallback ---------- */
+  var LANG = (root.getAttribute('lang') || 'en').split('-')[0];
+  var DICT = window.HL_I18N || {};
+  function str(key) {
+    var d = DICT[LANG];
+    if (d && d[key] != null) return d[key];
+    d = DICT.en;
+    return d && d[key] != null ? d[key] : key;
+  }
+  function fmt(s, v) { return s.replace(/\{(\w+)\}/g, function (m, k) { return v && v[k] != null ? v[k] : m; }); }
+  function t(key, v) { return fmt(str(key), v); }
+  /* plural: key.<category from Intl.PluralRules of the page language>, else key.other */
+  function tn(key, n, v) {
+    var cat = 'other';
+    try { cat = new Intl.PluralRules(str('locale')).select(n); } catch (e) { cat = n === 1 ? 'one' : 'other'; }
+    var d = DICT[LANG], has = function (k) { return (d && d[k] != null) || (DICT.en && DICT.en[k] != null); };
+    var o = { n: n }; if (v) for (var k in v) o[k] = v[k];
+    return t(has(key + '.' + cat) ? key + '.' + cat : key + '.other', o);
+  }
+  function escHtml(s) { return String(s).replace(/[&<>"]/g, function (c) { return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]; }); }
+  /* like t(), but returns safe HTML: values are escaped, **text** becomes <b>text</b> */
+  function rich(key, v) {
+    var e = {}; if (v) for (var k in v) e[k] = escHtml(v[k]);
+    return fmt(escHtml(str(key)), e).replace(/\*\*(.+?)\*\*/g, '<b>$1</b>');
+  }
   var mqReduce = window.matchMedia ? window.matchMedia('(prefers-reduced-motion: reduce)') : { matches: false };
   var mqDark = window.matchMedia ? window.matchMedia('(prefers-color-scheme: dark)') : { matches: false };
   var listeners = { theme: [], motion: [] };
 
   /* ---------- theme: auto (system) -> light -> dark ---------- */
   var order = ['auto', 'light', 'dark'];
-  var names = { auto: 'automatic', light: 'light', dark: 'dark' };
+  var names = function (p) { return t('theme.' + p); };
   function resolvedTheme() {
     var t = root.getAttribute('data-theme');
     return t === 'light' || t === 'dark' ? t : (mqDark.matches ? 'dark' : 'light');
@@ -29,7 +54,7 @@
     if (pref === 'light' || pref === 'dark') root.setAttribute('data-theme', pref); else root.removeAttribute('data-theme');
     root.setAttribute('data-pref', pref);
     var b = $('#theme-btn');
-    if (b) b.setAttribute('aria-label', 'Theme: ' + names[pref] + '. Switch to ' + names[order[(order.indexOf(pref) + 1) % 3]]);
+    if (b) b.setAttribute('aria-label', t('theme.label', { state: names(pref), next: names(order[(order.indexOf(pref) + 1) % 3]) }));
     listeners.theme.forEach(function (f) { f(resolvedTheme()); });
   }
   var pref = root.getAttribute('data-pref') || 'auto';
@@ -40,7 +65,7 @@
     pref = order[(order.indexOf(pref) + 1) % 3];
     if (!/[?&]theme=/.test(location.search)) store.set('hl2-theme', pref === 'auto' ? '' : pref);
     applyTheme(pref);
-    var live = $('#theme-live'); if (live) live.textContent = 'Theme: ' + names[pref];
+    var live = $('#theme-live'); if (live) live.textContent = t('theme.live', { state: names(pref) });
   });
   if (mqDark.addEventListener) mqDark.addEventListener('change', function () { if (pref === 'auto') applyTheme(pref); });
 
@@ -48,7 +73,7 @@
      With the system asking for reduced motion, "auto" is off, and the switch can still turn animations ON (html.motion-on lifts the
      reduced-motion rules in style.css). ?motion=on|off|auto is for one visit and is not stored. */
   var mpref = root.classList.contains('calm') ? 'off' : root.classList.contains('motion-on') ? 'on' : 'auto';
-  var mnames = { auto: 'system', on: 'on', off: 'off' };
+  var mnames = function (p) { return t('motion.' + p); };
   function motionOn() { return mpref === 'on' ? true : mpref === 'off' ? false : !mqReduce.matches; }
   function motionOrder() { return mqReduce.matches ? ['auto', 'on', 'off'] : ['auto', 'off', 'on']; }
   function applyMotion() {
@@ -59,13 +84,13 @@
     var b = $('#motion-btn');
     if (b) {
       var o = motionOrder(), next = o[(o.indexOf(mpref) + 1) % 3];
-      var state = mpref === 'auto' ? 'system (currently ' + (on ? 'on' : 'off') + ')' : mnames[mpref];
+      var state = mpref === 'auto' ? t('motion.state.auto', { now: mnames(on ? 'on' : 'off') }) : mnames(mpref);
       b.setAttribute('aria-pressed', on ? 'false' : 'true'); /* pressed = animations are off */
-      b.setAttribute('aria-label', 'Animations: ' + state + '. Switch to ' + (next === 'auto' ? 'follow the system' : mnames[next]));
-      b.setAttribute('title', 'Animations: ' + state);
+      b.setAttribute('aria-label', t('motion.label', { state: state, next: next === 'auto' ? t('motion.next.auto') : mnames(next) }));
+      b.setAttribute('title', t('motion.status', { state: state }));
       var l = $('.m-lbl', b);
       if (!l) { l = document.createElement('span'); l.className = 'm-lbl'; b.appendChild(l); }
-      l.textContent = 'Animations: ' + mnames[mpref];
+      l.textContent = t('motion.status', { state: mnames(mpref) });
     }
     listeners.motion.forEach(function (f) { f(on); });
   }
@@ -75,13 +100,13 @@
     mpref = o[(o.indexOf(mpref) + 1) % 3];
     if (!/[?&]motion=|[?&]calm=/.test(location.search)) { store.set('hl2-motion', mpref === 'auto' ? '' : mpref); store.set('hl2-calm', ''); }
     applyMotion();
-    var live = $('#theme-live'); if (live) live.textContent = 'Animations: ' + mnames[mpref] + (mpref === 'auto' ? (motionOn() ? ' (on)' : ' (off, your system asks for reduced motion)') : '');
+    var live = $('#theme-live'); if (live) live.textContent = mpref === 'auto' ? t(motionOn() ? 'motion.live.auto.on' : 'motion.live.auto.off') : t('motion.live.' + mpref);
   });
   if (mqReduce.addEventListener) mqReduce.addEventListener('change', applyMotion);
   applyMotion();
 
   window.HL = {
-    motionOn: motionOn, resolvedTheme: resolvedTheme,
+    motionOn: motionOn, resolvedTheme: resolvedTheme, lang: LANG, t: t, tn: tn, rich: rich, locale: function () { return str('locale'); },
     onTheme: function (f) { listeners.theme.push(f); }, onMotion: function (f) { listeners.motion.push(f); }
   };
 
@@ -90,6 +115,7 @@
   if (nt && nav) {
     nt.addEventListener('click', function () {
       var open = nav.classList.toggle('open'); nt.setAttribute('aria-expanded', open ? 'true' : 'false');
+      var lgm = $('details.lang'); if (open && lgm) lgm.open = false;
     });
     document.addEventListener('keydown', function (e) {
       if (e.key === 'Escape' && nav.classList.contains('open')) { nav.classList.remove('open'); nt.setAttribute('aria-expanded', 'false'); nt.focus(); }
@@ -193,14 +219,49 @@
       });
       groups.forEach(function (g) { g.hidden = !$$('details.hq', g).some(function (d) { return !d.hidden; }); });
       none.hidden = shown > 0;
-      cnt.textContent = q ? shown + (shown === 1 ? ' question matches' : ' questions match') : '';
+      cnt.textContent = q ? tn('help.match', shown) : '';
     };
     inp.addEventListener('input', run);
     var openHash = function () { var id = location.hash.slice(1), el = id && document.getElementById(id); if (el && el.tagName === 'DETAILS') { el.open = true; el.scrollIntoView(); } };
     window.addEventListener('hashchange', openHash); openHash();
   }
 
-  /* ---------- 404: eyes follow the pointer are handled by the shared pupils code above ---------- */
+  /* ---------- language menu: a <details> of plain links (works without JavaScript); this adds Escape, a click outside, and keeps the #anchor ---------- */
+  var lg = $('details.lang'), onNotFound = !!$('.nf');
+  if (lg) {
+    var lgSum = $('summary', lg), lgLinks = $$('.lang-menu a', lg), lgBase = lgLinks.map(function (a) { return a.getAttribute('href'); });
+    lg.addEventListener('toggle', function () { if (lg.open && nav) { nav.classList.remove('open'); if (nt) nt.setAttribute('aria-expanded', 'false'); } });
+    document.addEventListener('keydown', function (e) { if (e.key === 'Escape' && lg.open) { lg.open = false; lgSum.focus(); } });
+    document.addEventListener('click', function (e) { if (lg.open && !lg.contains(e.target)) lg.open = false; });
+    var keepHash = function () { if (!onNotFound) lgLinks.forEach(function (a, i) { a.setAttribute('href', lgBase[i] + location.hash); }); };
+    window.addEventListener('hashchange', keepHash); keepHash();
+  }
+
+  /* ---------- 404: GitHub Pages serves one 404.html for every language directory, so the page reads the language from the address
+     (<base>/<dir>/...), loads that dictionary and points its links into that language. Eyes follow the pointer: shared pupils code above. ---------- */
+  if (onNotFound && lg) {
+    var basePath = new URL(document.baseURI).pathname, here = location.pathname;
+    var seg = here.indexOf(basePath) === 0 ? here.slice(basePath.length).split('/')[0] : '';
+    var cur = seg && $$('.lang-menu a', lg).filter(function (a) { return a.getAttribute('data-dir') === seg; })[0];
+    if (cur) {
+      var sc404 = document.createElement('script');
+      sc404.src = 'assets/i18n/' + seg + '.js';
+      sc404.onload = function () {
+        var hl = cur.getAttribute('hreflang');
+        root.setAttribute('lang', hl); LANG = hl.split('-')[0];
+        $$('[data-i18n]').forEach(function (el) { el.textContent = t(el.getAttribute('data-i18n')); });
+        document.title = t('nf.title');
+        $$('a[href]').forEach(function (a) {
+          var h = a.getAttribute('href');
+          if (!a.closest('.lang-menu') && /^[a-z-]+\.html(#|$)/.test(h)) a.setAttribute('href', seg + '/' + h);
+        });
+        $$('.lang-menu a', lg).forEach(function (a) { if (a === cur) a.setAttribute('aria-current', 'true'); else a.removeAttribute('aria-current'); });
+        var lc = $('.lang-cur', lg); if (lc) lc.textContent = cur.getAttribute('data-short');
+        applyTheme(pref); applyMotion();
+      };
+      document.head.appendChild(sc404);
+    }
+  }
 
   /* ---------- support page ---------- */
   var kl = $('#kofi-load'), kb = $('#kofi-box');
@@ -222,7 +283,7 @@
       sc.onload = function () {
         try {
           window.kofiWidgetOverlay.draw(KOFI_USER, {
-            'type': 'floating-chat', 'floating-chat.donateButton.text': 'Support me',
+            'type': 'floating-chat', 'floating-chat.donateButton.text': t('kofi.button'),
             'floating-chat.donateButton.background-color': '#0f6cbd', 'floating-chat.donateButton.text-color': '#fff',
             'floating-chat.stylesheets': '[]'
           });
@@ -244,7 +305,17 @@
       'lin-appimage': /_linux_amd64\.AppImage$/i, 'lin-deb': /_linux_amd64\.deb$/i, 'lin-rpm': /_linux_x86_64\.rpm$/i
     };
     var status = $('#dl-status');
-    var setStatus = function (state, html) { status.setAttribute('data-state', state); $('.msg', status).innerHTML = html; };
+    /* nodes: strings become text, elements are appended as they are (no HTML is parsed) */
+    var setStatus = function (state, nodes) {
+      status.setAttribute('data-state', state);
+      var box = $('.msg', status); while (box.firstChild) box.removeChild(box.firstChild);
+      [].concat(nodes).forEach(function (n) { box.appendChild(typeof n === 'string' ? document.createTextNode(n) : n); });
+    };
+    var mk = function (tag, text, attrs) {
+      var e = document.createElement(tag); e.textContent = text;
+      if (attrs) for (var k in attrs) e.setAttribute(k, attrs[k]);
+      return e;
+    };
     var fmtSize = function (n) { return n ? (n / 1048576).toFixed(1) + ' MB' : ''; };
     var fill = function (rel, noRelease) {
       var ver = rel ? rel.tag_name.replace(/^v/, '') : '1.0.1';
@@ -256,8 +327,8 @@
           btn.href = a.browser_download_url; btn.removeAttribute('aria-disabled'); btn.querySelector('.t').textContent = btn.getAttribute('data-label');
           fn.textContent = a.name; sz.textContent = fmtSize(a.size);
         } else {
-          if (rel) { btn.removeAttribute('href'); btn.setAttribute('aria-disabled', 'true'); btn.querySelector('.t').textContent = 'Not in this release'; }
-          else { btn.href = RELEASES + (noRelease ? '' : '/latest'); btn.removeAttribute('aria-disabled'); btn.querySelector('.t').textContent = 'Open GitHub Releases'; }
+          if (rel) { btn.removeAttribute('href'); btn.setAttribute('aria-disabled', 'true'); btn.querySelector('.t').textContent = t('dl.not_in_release'); }
+          else { btn.href = RELEASES + (noRelease ? '' : '/latest'); btn.removeAttribute('aria-disabled'); btn.querySelector('.t').textContent = t('dl.open_releases'); }
           fn.textContent = box.getAttribute('data-pattern').replace(/&lt;/g, '<').replace(/&gt;/g, '>'); sz.textContent = '';
         }
       });
@@ -266,16 +337,16 @@
       fill(rel, !rel && !err);
       if (rel) {
         var d = new Date(rel.published_at), when = isNaN(d) ? '' : ' (' + d.toISOString().slice(0, 10) + ')';
-        setStatus('ok', '<strong>Latest version: ' + rel.tag_name + '</strong>' + when + ' <a href="' + rel.html_url + '">Release notes on GitHub</a>');
+        setStatus('ok', [mk('strong', t('dl.latest', { tag: rel.tag_name })), when + ' ', mk('a', t('dl.notes'), { href: rel.html_url })]);
       } else if (err) {
-        setStatus('error', '<strong>Get the latest version from GitHub Releases.</strong>');
+        setStatus('error', mk('strong', t('dl.error')));
       } else {
-        setStatus('none', '<strong>The first release is on its way.</strong> Watch the GitHub repository for it.');
+        setStatus('none', [mk('strong', t('dl.none.head')), ' ' + t('dl.none.tail')]);
       }
       var fb = $('#dl-fallback'); if (fb) { fb.hidden = !!rel && !err; fb.href = rel ? rel.html_url : (err ? RELEASES + '/latest' : RELEASES); }
     };
     var load = function () {
-      setStatus('', 'Asking api.github.com for the latest release...');
+      setStatus('', t('dl.loading'));
       fetch('https://api.github.com/repos/' + REPO + '/releases/latest', { headers: { Accept: 'application/vnd.github+json' } })
         .then(function (r) { if (r.status === 404) return null; if (!r.ok) throw new Error(r.status); return r.json(); })
         .then(function (j) { show(j && j.assets ? j : null); })
@@ -287,11 +358,11 @@
     var rec = os && document.getElementById('card-' + os);
     if (rec) rec.classList.add('rec');
     var label = { windows: 'Windows', macos: 'macOS', linux: 'Linux' };
-    $$('[data-os-cta] .t').forEach(function (t) { t.textContent = os ? 'Download for ' + label[os] : 'Download Hey Look!'; });
+    $$('[data-os-cta] .t').forEach(function (el) { el.textContent = os ? t('dl.for_os', { os: label[os] }) : t('dl.generic'); });
     $$('.copy button').forEach(function (b) {
       b.addEventListener('click', function () {
         var txt = b.parentNode.querySelector('code').textContent;
-        var done = function () { b.textContent = 'Copied'; setTimeout(function () { b.textContent = 'Copy'; }, 1600); };
+        var done = function () { b.textContent = t('dl.copied'); setTimeout(function () { b.textContent = t('dl.copy'); }, 1600); };
         if (navigator.clipboard && navigator.clipboard.writeText) navigator.clipboard.writeText(txt).then(done, function () { });
       });
     });
