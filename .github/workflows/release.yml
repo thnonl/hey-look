@@ -364,7 +364,7 @@ jobs:
 
       # The Apple secrets live only from "macOS signing" to here: the key file and keychain go, the variables are emptied for every later step.
       - name: Remove Apple signing material
-        if: always() && runner.os == 'macOS' && steps.apple.conclusion != 'skipped'
+        if: always() && runner.os == 'macOS' && steps.apple.outputs.signed == 'true'
         shell: bash
         run: |
           rm -f "$RUNNER_TEMP"/AuthKey_*.p8
