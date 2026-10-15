@@ -524,6 +524,7 @@ button.r-btn:hover { background: var(--a-bg3); }
 
 /* ---------- features page ---------- */
 .layout { display: grid; grid-template-columns: 230px minmax(0, 1fr); gap: clamp(24px, 4vw, 64px); padding-block: clamp(28px, 4vw, 56px) clamp(48px, 7vw, 100px); align-items: start; }
+.layout > * { min-width: 0; } /* a grid item defaults to min-width:auto, so a long word or a wide table would stretch the whole page */
 .toc { position: sticky; top: 88px; font-size: .95rem; }
 .toc h2 { font: 700 .74rem var(--mono); letter-spacing: .14em; text-transform: uppercase; color: var(--muted); margin-bottom: 12px; }
 .toc ol { list-style: none; margin: 0; padding: 0; display: grid; gap: 2px; border-left: 2px solid var(--line); }
@@ -620,7 +621,7 @@ details ol { padding-left: 1.2em; } details li { margin-bottom: .5em; }
   .lg-grid { grid-template-columns: 1fr; }
   .mk-grid { grid-template-columns: 1fr; } .mk-view { position: static; }
   .dl-grid, .steps3, .help-grid { grid-template-columns: minmax(0, 1fr); }
-  .layout { grid-template-columns: 1fr; } .toc { position: static; } .toc ol { grid-template-columns: repeat(auto-fill, minmax(190px, 1fr)); border-left: 0; gap: 0 18px; } .toc a { border-left: 0; padding-left: 0; }
+  .layout { grid-template-columns: minmax(0, 1fr); } .toc { position: static; } .toc ol { grid-template-columns: repeat(auto-fill, minmax(190px, 1fr)); border-left: 0; gap: 0 18px; } .toc a { border-left: 0; padding-left: 0; }
   .ftr-grid { grid-template-columns: 1fr 1fr; }
 }
 @media (max-width: 900px) {
