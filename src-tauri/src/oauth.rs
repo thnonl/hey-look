@@ -74,10 +74,6 @@ impl Provider {
         }
     }
 
-    fn scope(self) -> &'static str {
-        self.scope_for(Purpose::Mail)
-    }
-
     /// The scopes of one grant. The calendar scopes are the narrowest that work: events (view and edit) and the list of calendars
     /// (read only); never the full `calendar` scope.
     pub fn scope_for(self, purpose: Purpose) -> &'static str {

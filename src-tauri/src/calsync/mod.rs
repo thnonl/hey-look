@@ -168,7 +168,8 @@ pub enum EventKind {
     Master,
     /// a changed instance of a series (Google exception, Graph exception)
     Exception,
-    /// one occurrence of a series as its own row (Graph)
+    /// one occurrence of a series as its own row (Outlook / Microsoft 365: the Graph provider)
+    #[allow(dead_code)]
     Occurrence,
 }
 
@@ -225,7 +226,8 @@ pub struct RemoteEvent {
 }
 
 impl RemoteEvent {
-    /// A plain single event; providers fill in what they have.
+    /// A plain single event (tests build their events from it).
+    #[cfg(test)]
     pub fn single(id: &str, summary: &str, start: i64, end: i64) -> RemoteEvent {
         RemoteEvent {
             id: id.into(),
@@ -323,6 +325,8 @@ pub struct PullReq {
     pub state: Option<String>,
     /// The window of a full download (UTC seconds): `now - 365 days` .. `now + 730 days`. Ignored while `state` is set.
     pub window_from: i64,
+    /// (Google reads everything after `window_from`; a provider whose delta covers a window, like Graph, uses both ends)
+    #[allow(dead_code)]
     pub window_to: i64,
 }
 
