@@ -5,11 +5,14 @@ import { vi as dfVi } from "date-fns/locale/vi";
 import { fr as dfFr } from "date-fns/locale/fr";
 import type { Locale } from "date-fns";
 import { getLang, intlLocale } from "./index.ts";
+import type { Lang } from "./index.ts";
+
+/** The date-fns locale of each language (a new language in the registry fails `tsc` until it has one here). */
+const DF: Record<Lang, Locale> = { en: enUS, vi: dfVi, fr: dfFr };
 
 /** The date-fns locale of the language in use (month and weekday names, am/pm). */
 export function dfLocale(): Locale {
-  const l = getLang();
-  return l === "vi" ? dfVi : l === "fr" ? dfFr : enUS;
+  return DF[getLang()];
 }
 
 /** date-fns `format` with the language in use: `fmtPattern(d, "EEE d MMM")`. */

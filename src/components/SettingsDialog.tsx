@@ -132,7 +132,7 @@ function GeneralTab() {
       <div className="muted small">{t("settings.general.intro")}</div>
       <Row label={t("settings.general.language")} hint={t("settings.general.languageHint")}>
         <select value={prefs.language} onChange={(e) => set("language", e.target.value as Prefs["language"])}>
-          {LANGS.map((l) => <option key={l.code} value={l.code}>{l.name}</option>)}
+          {LANGS.map((l) => <option key={l.code} value={l.code} lang={l.code}>{l.nativeName}</option>)}
           {/* i18n-ok: dev builds only, not shown to users */}
           {pseudoAllowed() && <option value="en-XA">Pseudo-locale (dev)</option>}
         </select>

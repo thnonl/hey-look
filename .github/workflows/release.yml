@@ -241,6 +241,7 @@ jobs:
           node --experimental-strip-types scripts/test-mail-canvas.mjs
           node --experimental-strip-types scripts/test-calendar-sync.mjs
           node --experimental-strip-types scripts/test-i18n.mjs
+          node --experimental-strip-types scripts/test-language-switcher.mjs
           node --experimental-strip-types scripts/test-sign-in.mjs
           node --experimental-strip-types scripts/test-popover-menu.mjs
 

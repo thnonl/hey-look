@@ -1,4 +1,4 @@
-import { t } from "./i18n/index.ts";
+import { isLang, t } from "./i18n/index.ts";
 import type { Key, LangPref } from "./i18n/index.ts";
 import { DEFAULT_MAIL_CANVAS, MailCanvas, resolveMailCanvas } from "./mailCanvas";
 export type NotifySound = "mail" | "default" | "im" | "reminder" | "sms" | "none";
@@ -239,7 +239,7 @@ export function mergePrefs(raw: string | null): Prefs {
       maxDownload: clampMaxDownload(p.maxDownload),
       mailCanvas: resolveMailCanvas(p.mailCanvas),
       // English unless the person chose another language (an unknown or older value counts as English)
-      language: p.language === "vi" || p.language === "fr" || p.language === "en-XA" ? p.language : "en",
+      language: isLang(p.language) || p.language === "en-XA" ? p.language : "en",
       accountPrefs,
       snoozeTimes: { ...DEFAULT_PREFS.snoozeTimes, ...(p.snoozeTimes ?? {}) },
     };

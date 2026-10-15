@@ -11,7 +11,8 @@ import ts from "typescript";
 import { en } from "../src/i18n/en.ts";
 import { vi } from "../src/i18n/vi.ts";
 import { fr } from "../src/i18n/fr.ts";
-import { pseudoize, resolveLang, t, setLangPref, getLang } from "../src/i18n/index.ts";
+import { pseudoize, resolveLang, t, setLangPref, getLang, LANGS } from "../src/i18n/index.ts";
+import { LANGUAGES } from "../src/i18n/languages.ts";
 import { backendText, parseCoded } from "../src/backendErrors.ts";
 import { BACKEND_ERRORS } from "../src/calendarSync.ts";
 
@@ -20,8 +21,46 @@ const args = new Set(process.argv.slice(2));
 const failures = [];
 const fail = (m) => failures.push(m);
 
+// ------------------------------------------------------------------------------------------------ 0. the language registry
+// src/i18n/languages.ts is the one list every control and check reads. Every entry needs a dictionary (src/i18n/<code>.ts, and that
+// language in each ns/*.ts), every dictionary needs an entry, and the Rust side must know the same codes.
+// (A language missing from DICTS in index.ts or DF in format.ts fails `tsc`: both are Record<Lang, ...>.)
+const codes = LANGUAGES.map((l) => l.code);
+const dicts = {};
+{
+  assert.equal(codes[0], "en", "English is the first entry (default and fallback)");
+  assert.equal(LANGUAGES[0].sortOrder, Math.min(...LANGUAGES.map((l) => l.sortOrder)), "English comes first in the menus");
+  assert.equal(new Set(codes).size, codes.length, "language codes are unique");
+  assert.deepEqual(LANGS.map((l) => l.code).sort(), [...codes].sort(), "LANGS (what the controls list) holds every registry entry");
+  for (const l of LANGUAGES) {
+    if (!/^[a-z]{2,3}(-[a-z0-9]+)?$/.test(l.code)) fail(`registry: bad code ${l.code}`);
+    if (!l.nativeName.trim() || !l.englishName.trim()) fail(`registry ${l.code}: nativeName and englishName are required`);
+    if (l.dir !== "ltr" && l.dir !== "rtl") fail(`registry ${l.code}: dir must be ltr or rtl`);
+    if (!Number.isFinite(l.sortOrder)) fail(`registry ${l.code}: sortOrder must be a number`);
+    try { Intl.getCanonicalLocales(l.intl); } catch { fail(`registry ${l.code}: intl ${l.intl} is not a valid locale tag`); }
+    try { dicts[l.code] = (await import(new URL(`../src/i18n/${l.code}.ts`, import.meta.url)))[l.code]; } catch { fail(`registry ${l.code}: no dictionary file src/i18n/${l.code}.ts exporting ${l.code}`); }
+  }
+  // a dictionary without a registry entry: a src/i18n/<code>.ts next to index.ts, or a language inside an ns/*.ts
+  for (const f of readdirSync(join(root, "src/i18n")).filter((x) => /^[a-z]{2,3}(-[a-z0-9]+)?\.ts$/.test(x))) {
+    if (!codes.includes(f.replace(/\.ts$/, ""))) fail(`src/i18n/${f} is a dictionary but its language is not in src/i18n/languages.ts`);
+  }
+  for (const f of readdirSync(join(root, "src/i18n/ns")).filter((x) => x.endsWith(".ts"))) {
+    const mod = await import(new URL(`../src/i18n/ns/${f}`, import.meta.url));
+    const have = Object.keys(mod.default).sort().join();
+    if (have !== [...codes].sort().join()) fail(`ns/${f} has the languages {${have}} but the registry has {${[...codes].sort().join()}}`);
+  }
+  // Rust (tray menu, notifications): the same codes in parse() and one Lang variant per language
+  const rs = readFileSync(join(root, "src-tauri/src/i18n.rs"), "utf8");
+  const parseBody = rs.match(/pub fn parse\(code: &str\) -> Lang \{[\s\S]*?\n\}/)?.[0] ?? "";
+  const rustCodes = [...parseBody.matchAll(/"([a-z-]+)" => Lang::/g)].map((m) => m[1]);
+  const variants = (rs.match(/pub enum Lang \{([\s\S]*?)\}/)?.[1] ?? "").split(",").map((x) => x.trim()).filter(Boolean);
+  if ([...rustCodes].sort().join() !== codes.filter((c) => c !== "en").sort().join()) fail(`src-tauri/src/i18n.rs parse() maps {${rustCodes}} but the registry (minus en, the fallback) has {${codes.filter((c) => c !== "en")}}`);
+  if (variants.length !== codes.length) fail("src-tauri/src/i18n.rs: needs one Lang variant per registry language");
+}
+
 // ------------------------------------------------------------------------------------------------ 1. dictionaries
 const NS_DIR = join(root, "src/i18n/ns");
+const OTHERS = Object.entries(dicts).filter(([c]) => c !== "en");
 if (!args.has("--lint-only")) {
   const placeholders = (m) => {
     const parts = typeof m === "string" ? [m] : [m.one, m.other];
@@ -41,7 +80,7 @@ if (!args.has("--lint-only")) {
     }
   }
 
-  for (const [name, dict] of [["vi", vi], ["fr", fr]]) {
+  for (const [name, dict] of OTHERS) {
     for (const k of Object.keys(en)) if (!(k in dict)) fail(`${name}: missing key ${k}`);
     for (const k of Object.keys(dict)) if (!(k in en)) fail(`${name}: key ${k} is not in en`);
   }
@@ -51,7 +90,7 @@ if (!args.has("--lint-only")) {
     const want = phOf(m);
     const plural = typeof m !== "string";
     if (plural && !/\{n\}/.test(m.other)) fail(`en: plural ${k} has no {n}`);
-    for (const [name, dict] of [["vi", vi], ["fr", fr]]) {
+    for (const [name, dict] of OTHERS) {
       const v = dict[k];
       if (v === undefined) continue;
       if (!text(v).trim()) fail(`${name}: ${k} is empty`);
@@ -89,7 +128,7 @@ if (!args.has("--lint-only")) {
   assert.equal(getLang(), "en");
   // English is the default for everyone: an unset, unknown or outdated setting is English even when the browser / OS language is Vietnamese or French
   Object.defineProperty(globalThis, "navigator", { value: { language: "vi-VN", languages: ["vi-VN", "fr-FR"] }, configurable: true });
-  for (const unset of [undefined, null, "", "system", "de", "vi-VN", "FR", "klingon"]) assert.equal(resolveLang(unset), "en", String(unset));
+  for (const unset of [undefined, null, "", "system", "tlh", "vi-VN", "FR", "klingon"]) assert.equal(resolveLang(unset), "en", String(unset));
   setLangPref(undefined);
   assert.equal(getLang(), "en", "no setting: English, not the language of the computer");
   setLangPref("system");
@@ -101,7 +140,7 @@ if (!args.has("--lint-only")) {
   // the default of the setting is English, an invalid stored value is mapped back to it, and the Language row offers no "System default"
   const prefsSrc = readFileSync(join(root, "src/prefs.ts"), "utf8");
   assert.ok(prefsSrc.includes('  language: "en",\n'), "the default language is English");
-  assert.ok(prefsSrc.includes('language: p.language === "vi" || p.language === "fr" || p.language === "en-XA" ? p.language : "en"'), "an invalid stored language is English");
+  assert.ok(prefsSrc.includes('language: isLang(p.language) || p.language === "en-XA" ? p.language : "en"'), "an invalid stored language is English");
   assert.ok(!/langSystem|System default/.test(readFileSync(join(root, "src/components/SettingsDialog.tsx"), "utf8")), "no System default option");
   assert.ok(!/navigator/.test(readFileSync(join(root, "src/i18n/index.ts"), "utf8").replace(/\/\/.*$/gm, "")), "the language of the computer is never read");
   assert.equal(pseudoize("Hi {name}!"), "[Ĥî {name}! ~~]");
@@ -154,7 +193,7 @@ if (!args.has("--lint-only")) {
     if (!BACKEND_ERRORS.some((e) => e.re.test(text))) fail(`calendar sync sentence not covered by BACKEND_ERRORS: ${m[1]}: ${text}`);
   }
   // the Snooze tooltip must keep ending with the shortcut: App.tsx finds the button by it
-  for (const [name, dict] of [["en", en], ["vi", vi], ["fr", fr]]) if (!String(dict["reading.head.snoozeTip"]).endsWith(" (s)")) fail(`${name}: reading.head.snoozeTip must end with " (s)"`);
+  for (const [name, dict] of Object.entries(dicts)) if (!String(dict["reading.head.snoozeTip"]).endsWith(" (s)")) fail(`${name}: reading.head.snoozeTip must end with " (s)"`);
 }
 
 // ------------------------------------------------------------------------------------------------ 2. hard-coded English lint

@@ -12,15 +12,18 @@ export type Msg = string | Plural;
 export type Dict = Record<string, Msg>;
 export type Params = Record<string, string | number>;
 
-/** Supported UI languages (the pseudo-locale `en-XA` exists in dev builds only and is not one of them). */
-export type Lang = "en" | "vi" | "fr";
+/** Supported UI languages: the codes of the registry in languages.ts (the pseudo-locale `en-XA` exists in dev builds only and is not one of them). */
+export type { Lang } from "./languages.ts";
+import type { Lang } from "./languages.ts";
+
 /** What the Settings > General > Language choice stores. */
 export type LangPref = Lang | "en-XA";
 
 /**
- * Declares one dictionary (a feature area) with all three languages side by side. `vi` and `fr` must have exactly the keys of
- * `en`: a missing or extra key fails `tsc`. (`NoInfer` keeps the key list coming from `en` alone.)
+ * Declares one dictionary (a feature area) with every language of the registry side by side. Each other language must have exactly the
+ * keys of `en`: a missing or extra key, or a registry language without its dictionary, fails `tsc`. (`NoInfer` keeps the key list coming
+ * from `en` alone.)
  */
-export function define<E extends Dict>(d: { en: E; vi: NoInfer<Record<keyof E, Msg>>; fr: NoInfer<Record<keyof E, Msg>> }) {
+export function define<E extends Dict>(d: { en: E } & { [L in Exclude<Lang, "en">]: NoInfer<Record<keyof E, Msg>> }) {
   return d;
 }

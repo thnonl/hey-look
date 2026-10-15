@@ -4,6 +4,7 @@ import logo from "../assets/logo.png";
 import { credStore } from "../platform";
 import { useT } from "../i18n/react";
 import { useStore } from "../store";
+import { LanguageChoice } from "./LanguageSwitcher";
 
 /** Generic provider marks (a letter badge and a four-square mark): neutral glyphs, not the providers' own logos. */
 const GoogleMark = () => (
@@ -41,6 +42,7 @@ export function Welcome() {
   return (
     <main className="welcome">
       <div className="welcome-card">
+        <LanguageChoice />
         <img src={logo} alt="" width={64} height={64} />
         <h1>{t("app.welcome.title")}</h1>
         <p className="muted">{t("app.welcome.intro")}</p>
