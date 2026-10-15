@@ -1,7 +1,13 @@
 import { create } from "zustand";
-import { api, Account, Att, BackfillProgress, CalendarInfo, CalEvent, DraftSecurity, FolderInfo, Meeting, MessageFull, OutboxItem, SearchScope, ThreadSummary } from "./api";
+import { api, Account, Att, BackfillProgress, CalendarInfo, CalEvent, CalSource, DraftSecurity, FolderInfo, Meeting, MessageFull, OutboxItem, SearchScope, ThreadSummary } from "./api";
 import { loadPlatform } from "./platform";
 import { hasMailAccounts } from "./mailControls";
+import { applyBackfill } from "./backfill";
+import { calendarErrorText } from "./calendarSync";
+import { backendText } from "./backendErrors";
+import { needsSignIn } from "./signIn";
+import { resolveLang, setLangPref, t } from "./i18n";
+import { fmtNumber } from "./i18n/format";
 import { calTz, CalView, Day, rangeFor, systemTz, today } from "./calendar";
 import { accentText, accountColor, buttonAccent, clampMaxDownload, DEFAULT_PREFS, lightened, mergePrefs, Prefs, readableOn, staleAccountPrefs, topBar, validHex } from "./prefs";
 
@@ -120,18 +126,23 @@ export function scopeOf(folder: string): string | undefined {
 /** Turn backend / network errors into something a person can act on. */
 export function friendlyError(e: unknown): string {
   let raw = String(e instanceof Error ? e.message : e).replace(/^Error:\s*/, "").trim();
-  // backend errors are "CODE: human text"; a few PGP ones carry data instead ("PGP_MISSING_KEYS:a@b.c,d@e.f")
-  if (/^PGP_LOCKED:/.test(raw)) return "Your encryption key is locked. Unlock it and try again.";
-  if (/^PGP_MISSING_KEYS:/.test(raw)) return `No public key for ${raw.slice("PGP_MISSING_KEYS:".length).split(",").join(", ")}.`;
-  raw = raw.replace(/^[A-Z][A-Z_]+:\s+/, "");
+  // calendar sync errors come with their sentence ("CAL_CONFLICT: This event was changed in …"): shown as they are
+  const calendarText = calendarErrorText(raw);
+  if (calendarText) return calendarText;
+  // backend errors are "CODE: human text" (or "CODE|name=value: text"); a few PGP ones carry data instead ("PGP_MISSING_KEYS:a@b.c,d@e.f")
+  if (/^PGP_LOCKED:/.test(raw)) return t("errors.pgp.locked");
+  if (/^PGP_MISSING_KEYS:/.test(raw)) return t("errors.pgp.missingKeys", { list: raw.slice("PGP_MISSING_KEYS:".length).split(",").join(", ") });
+  const coded = backendText(raw);
+  if (coded) return coded;
+  raw = raw.replace(/^[A-Z][A-Z0-9_]+(?:\|[A-Za-z]\w*=[^|:]*)*:\s+/, "");
   // the backend already explained a server that does not do SSL/TLS or STARTTLS (mail.rs): keep its words
   if (/^Couldn[’']t start a secure connection to /.test(raw)) return shortenError(raw);
   if (/login failed|authenticationfailed|invalid credentials|auth.*fail/i.test(raw))
-    return "Sign-in failed. Check the password (Gmail, iCloud and Yahoo need an app password) or sign in again.";
-  if (/no stored (password|\w+ token)/i.test(raw)) return "The saved credentials for this account are missing. Remove the account and add it again.";
-  if (/timed out|timeout|10060|did not properly respond/i.test(raw)) return "The mail server did not respond. Check your connection and try again.";
-  if (/lookup|dns|no such host|name or service not known|11001/i.test(raw)) return "Cannot reach the mail server. Check the server name and your connection.";
-  if (/certificate|tls|ssl/i.test(raw) && /invalid|verify|unknown|expired/i.test(raw)) return "The server's security certificate was rejected. For a self-signed or private-CA server, remove the account and add it again with \"Trust this server's certificate\" turned on.";
+    return t("errors.signIn");
+  if (/no stored (password|\w+ token)/i.test(raw)) return t("errors.noCredentials");
+  if (/timed out|timeout|10060|did not properly respond/i.test(raw)) return t("errors.timeout");
+  if (/lookup|dns|no such host|name or service not known|11001/i.test(raw)) return t("errors.unreachable");
+  if (/certificate|tls|ssl/i.test(raw) && /invalid|verify|unknown|expired/i.test(raw)) return t("errors.certificate");
   return shortenError(raw);
 }
 
@@ -193,6 +204,9 @@ interface State {
   /** account whose first sync runs right now (after it was added): its empty Inbox says so instead of "all caught up" */
   firstSync: string | null;
   syncErrors: Record<string, string>;
+  /** mailboxes whose sign-in was rejected (Google / Microsoft): they show "Sign in again"; "blocked" = the organization has to approve the app */
+  reauth: Record<string, "again" | "blocked">;
+  setReauth: (accountId: string, kind: "again" | "blocked" | null) => void;
   toasts: Toast[];
   ask: AskState | null;
   passphrase: PassphraseAsk | null;
@@ -215,6 +229,8 @@ interface State {
   calDate: Day;
   calEvents: CalEvent[];
   calendars: CalendarInfo[];
+  /** calendar sync state of the mailboxes that turned it on (Settings, the calendar sidebar) */
+  calSources: CalSource[];
   calLoading: boolean;
   calError: string | null;
   /** bumps when the calendar changed behind the view's back (sync, respond, save) */
@@ -275,6 +291,7 @@ interface State {
   setCalDate: (d: Day) => void;
   loadCalendar: () => Promise<void>;
   bumpCal: () => void;
+  loadCalSources: () => Promise<void>;
   /** Re-read the open conversation without clearing it (an invitation's state changed). */
   reloadMessages: () => Promise<void>;
 }
@@ -290,7 +307,7 @@ const roleOf = (folder: string) => (folder === "unread" ? "inbox" : folder);
 export const exhaustedKey = (accountId: string, folder: string) => `${accountId}|${roleOf(folder)}`;
 
 /** Shown where the "Max emails to download" cap stopped the list (toast of "Load older messages"; the list footer words it the same). */
-export const limitMessage = (n: number) => `Download limit reached (${n.toLocaleString("en-US")} mails per mailbox). Raise it in Settings > Reading & sync.`;
+export const limitMessage = (n: number) => t("errors.limit", { n: fmtNumber(n) });
 
 const MORE_CHUNKS = 4; // one scroll to the end = up to 4 x 50 = 200 older messages in total, however many mailboxes are open
 const MORE_PAUSE_MS = 700; // between two requests, so the server and the list can breathe
@@ -322,15 +339,21 @@ const BACKEND_SETTINGS: [keyof Prefs, string, (v: unknown) => string][] = [
   ["maxDownload", "max_download", (v) => String(clampMaxDownload(v))],
   ["autoAddInvites", "auto_add_invites", (v) => (v ? "1" : "0")],
   ["eventReminderMin", "event_reminder_min", (v) => (typeof v === "number" ? String(v) : "")],
+  // the language the tray menu and native notifications are written in: en / vi / fr (the pseudo-locale counts as English)
+  ["language", "ui_language", (v) => resolveLang(String(v))],
 ];
 
-function mirrorSettings(p: Partial<Prefs>) {
+/** Writes the changed ones; the returned promises settle when the backend has stored them. */
+function mirrorSettings(p: Partial<Prefs>): Promise<unknown>[] {
+  const pending: Promise<unknown>[] = [];
   for (const [pref, key, fmt] of BACKEND_SETTINGS) {
-    if (pref in p) void api.setSetting(key, fmt(p[pref])).catch(() => undefined);
+    if (pref in p) pending.push(api.setSetting(key, fmt(p[pref])).catch(() => undefined));
   }
+  return pending;
 }
 
 function applyPrefs(p: Prefs) {
+  setLangPref(p.language);
   const root = document.documentElement;
   if (p.theme === "system") root.removeAttribute("data-theme");
   else root.setAttribute("data-theme", p.theme);
@@ -443,6 +466,14 @@ export const useStore = create<State>((set, get) => ({
   syncing: false,
   firstSync: null,
   syncErrors: {},
+  reauth: {},
+  setReauth: (accountId, kind) =>
+    set((s) => {
+      const next = { ...s.reauth };
+      if (kind) next[accountId] = kind;
+      else delete next[accountId];
+      return { reauth: next };
+    }),
   toasts: [],
   ask: null,
   passphrase: null,
@@ -460,6 +491,7 @@ export const useStore = create<State>((set, get) => ({
   module: "mail",
   calDate: today(systemTz()),
   calEvents: [],
+  calSources: [],
   calendars: [],
   calLoading: false,
   calError: null,
@@ -516,6 +548,15 @@ export const useStore = create<State>((set, get) => ({
   bumpCal: () => {
     set((s) => ({ calRev: s.calRev + 1 }));
     if (get().module === "calendar") void get().loadCalendar();
+    else void get().loadCalSources();
+  },
+
+  loadCalSources: async () => {
+    try {
+      set({ calSources: await api.calendarSources() });
+    } catch {
+      /* keep what is shown */
+    }
   },
 
   loadCalendar: async () => {
@@ -524,11 +565,11 @@ export const useStore = create<State>((set, get) => ({
     const { from, to } = rangeFor(prefs.calView, calDate, prefs.weekStart, tz);
     set({ calLoading: true });
     try {
-      const [events, calendars] = await Promise.all([api.calendarListEvents(from, to), api.calendarListCalendars()]);
+      const [events, calendars, calSources] = await Promise.all([api.calendarListEvents(from, to), api.calendarListCalendars(), api.calendarSources().catch(() => get().calSources)]);
       // ignore a slow answer for a range the user already left
       const now = get();
       const cur = rangeFor(now.prefs.calView, now.calDate, now.prefs.weekStart, calTz(now.prefs));
-      if (cur.from === from && cur.to === to) set({ calEvents: events, calendars, calError: null });
+      if (cur.from === from && cur.to === to) set({ calEvents: events, calendars, calSources, calError: null });
     } catch (e) {
       set({ calError: friendlyError(e) });
     } finally {
@@ -625,14 +666,18 @@ export const useStore = create<State>((set, get) => ({
       // toasts and the tray badge are handled by the backend (it keeps syncing while the window is hidden)
       const results = await Promise.allSettled(accounts.map((a) => api.syncAccount(a.id)));
       const errors: Record<string, string> = {};
+      const reauth: Record<string, "again" | "blocked"> = {};
       results.forEach((r, i) => {
-        if (r.status === "rejected") errors[accounts[i].id] = friendlyError(r.reason);
+        if (r.status !== "rejected") return;
+        errors[accounts[i].id] = friendlyError(r.reason);
+        const again = needsSignIn(String(r.reason));
+        if (again) reauth[accounts[i].id] = again;
       });
-      set({ syncErrors: errors });
+      set({ syncErrors: errors, reauth });
       const first = Object.entries(errors)[0];
       if (first) {
         const acct = accounts.find((a) => a.id === first[0]);
-        get().showToast(`${acct?.email ?? "Account"}: ${first[1]}`, undefined, "error");
+        get().showToast(t("errors.toast.withAccount", { account: acct?.email ?? t("errors.toast.accountFallback"), error: first[1] }), undefined, "error");
       }
     } finally {
       // new mail may have arrived and a failed fetch may work now: scrolling may ask the server for older mail again
@@ -648,15 +693,17 @@ export const useStore = create<State>((set, get) => ({
     accounts = storeMissingColors(accounts, get().prefs.accent);
     // the selection moves to the new mailbox: a stale search / filter of the old view must not hide it
     set({ accounts, dialog: null, firstSync: acc.id, filter: "all" });
-    get().showToast(`Account ${acc.email} added`, undefined, "success");
+    get().showToast(t("errors.toast.accountAdded", { email: acc.email }), undefined, "success");
     await get().setView("inbox", acc.id);
     try {
       await api.syncAccount(acc.id);
       set((s) => ({ syncErrors: Object.fromEntries(Object.entries(s.syncErrors).filter(([k]) => k !== acc.id)) }));
+      get().setReauth(acc.id, null);
     } catch (e) {
       const msg = friendlyError(e);
       set((s) => ({ syncErrors: { ...s.syncErrors, [acc.id]: msg } }));
-      get().showToast(`${acc.email}: ${msg}`, undefined, "error");
+      get().setReauth(acc.id, needsSignIn(String(e)));
+      get().showToast(t("errors.toast.withAccount", { account: acc.email, error: msg }), undefined, "error");
     } finally {
       set({ firstSync: null });
       await get().refresh();
@@ -712,10 +759,10 @@ export const useStore = create<State>((set, get) => ({
       const stopped = (id: string) => get().exhausted[`${id}|${role}`] || get().limited[`${id}|${role}`];
       const done = pending.every(stopped);
       if (manual) {
-        if (added > 0) get().showToast(`Loaded ${added} older message${added === 1 ? "" : "s"}`, undefined, "success");
+        if (added > 0) get().showToast(t("errors.toast.loadedOlder", { n: added }), undefined, "success");
         else if (done) {
           const capped = targets.some((id) => get().limited[`${id}|${role}`]);
-          get().showToast(capped ? limitMessage(get().prefs.maxDownload) : "No older messages in this folder", undefined, "info");
+          get().showToast(capped ? limitMessage(get().prefs.maxDownload) : t("errors.toast.noOlder"), undefined, "info");
         }
       }
       // nothing came back although the server did not say it was done: stop scrolling from asking again and again (the button still can)
@@ -724,7 +771,7 @@ export const useStore = create<State>((set, get) => ({
       if (!alive()) return;
       // with several mailboxes say which one failed
       const acct = targets.length > 1 ? get().accounts.find((x) => x.id === failing)?.email : undefined;
-      get().showToast(`${acct ? `${acct}: ` : ""}${friendlyError(e)}`, undefined, "error");
+      get().showToast(acct ? t("errors.toast.withAccount", { account: acct, error: friendlyError(e) }) : friendlyError(e), undefined, "error");
       set({ moreError: true });
     } finally {
       if (alive()) set({ loadingMore: false });
@@ -732,12 +779,7 @@ export const useStore = create<State>((set, get) => ({
   },
 
   onBackfill: (p) => {
-    set((s) => {
-      const backfill = { ...s.backfill };
-      if (p.done) delete backfill[p.accountId];
-      else backfill[p.accountId] = p;
-      return { backfill };
-    });
+    set((s) => ({ backfill: applyBackfill(s.backfill, p) }));
     // the list is re-read quietly (same scroll position, same selection), at most once a second; the last chunk always is
     clearTimeout(backfillTimer);
     const wait = p.done ? 0 : Math.max(0, backfillLast + BACKFILL_REFRESH_MS - Date.now());
@@ -806,7 +848,7 @@ export const useStore = create<State>((set, get) => ({
           );
         }
       } catch (e) {
-        get().showToast(`Failed: ${friendlyError(e)}`, undefined, "error");
+        get().showToast(t("errors.toast.failed", { error: friendlyError(e) }), undefined, "error");
         await get().refresh();
       }
       if (selected && ids.includes(selected)) await get().select(nextSel);
@@ -819,7 +861,7 @@ export const useStore = create<State>((set, get) => ({
         get().showToast(label, action === "snooze" ? () => void get().act(ids, "unsnooze") : undefined, "success");
       }
     } catch (e) {
-      get().showToast(`Failed: ${friendlyError(e)}`, undefined, "error");
+      get().showToast(t("errors.toast.failed", { error: friendlyError(e) }), undefined, "error");
     }
     if (removing && selected && ids.includes(selected)) await get().select(nextSel);
     await get().refresh();
@@ -830,12 +872,12 @@ export const useStore = create<State>((set, get) => ({
     if (compose && !hasMailAccounts(st.accounts.length)) return; // no account: there is nothing to send with
     if (compose && st.compose && st.composeDirty) {
       const choice = await st.choose({
-        title: "You have an unsent message",
-        body: "Opening another message will close the one you are writing.",
+        title: t("errors.ask.unsentTitle"),
+        body: t("errors.ask.unsentBody"),
         choices: [
-          { id: "keep", label: "Keep writing" },
-          { id: "save", label: "Save draft and continue", kind: "primary" },
-          { id: "discard", label: "Discard", kind: "danger" },
+          { id: "keep", label: t("errors.ask.keepWriting") },
+          { id: "save", label: t("errors.ask.saveContinue"), kind: "primary" },
+          { id: "discard", label: t("errors.ask.discard"), kind: "danger" },
         ],
       });
       if (choice === "keep") return;
@@ -851,6 +893,7 @@ export const useStore = create<State>((set, get) => ({
   setRibbonTab: (ribbonTab) => set({ ribbonTab }),
 
   showToast: (text, undo, kind, actions) => {
+    // i18n note: this guess reads the English start of the text; a caller whose text is translated must pass `kind` itself
     const k: Toast["kind"] = kind ?? (/^(failed|sync error|send failed|schedule failed|save|unsubscribe failed|cannot)/i.test(text) ? "error" : "info");
     const acts = actions?.slice(0, 2);
     // a toast with buttons stays long enough to be read and clicked
@@ -895,8 +938,8 @@ export const useStore = create<State>((set, get) => ({
       title: o.title,
       body: o.body,
       choices: [
-        { id: "no", label: "Cancel" },
-        { id: "yes", label: o.confirmLabel ?? "OK", kind: o.danger ? "danger" : "primary" },
+        { id: "no", label: t("common.cancel") },
+        { id: "yes", label: o.confirmLabel ?? t("common.ok"), kind: o.danger ? "danger" : "primary" },
       ],
     });
     return id === "yes";
@@ -928,10 +971,19 @@ export const useStore = create<State>((set, get) => ({
     const prefs = { ...get().prefs, ...patch };
     // a new cap: mailboxes that were stopped by the old one are asked again
     if ("maxDownload" in patch && patch.maxDownload !== get().prefs.maxDownload) set({ limited: {} });
+    const languageChanged = "language" in patch && patch.language !== get().prefs.language;
     set({ prefs });
     applyPrefs(prefs);
     void api.setSetting("prefs", JSON.stringify(prefs));
-    mirrorSettings(patch);
+    const mirrored = mirrorSettings(patch);
+    if (languageChanged) {
+      // texts the backend writes in the chosen language (repeat descriptions of events) are read again once it knows the new language
+      void Promise.all(mirrored).then(() => {
+        const s = get();
+        if (s.module === "calendar") void s.loadCalendar();
+        if (s.selected) void s.reloadMessages();
+      });
+    }
     const layoutKeys: (keyof Prefs)[] = ["conversations", "focused", "sortAsc"];
     if (layoutKeys.some((k) => k in patch)) {
       // a different list (order, grouping): the old lines are dropped so the list starts at the top instead of keeping a place that no longer means anything

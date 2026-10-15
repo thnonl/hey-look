@@ -3,6 +3,8 @@
 // of their dates and are always handled by date.
 import type { CalEvent, CalInvite } from "./api";
 import type { Prefs } from "./prefs";
+import { getLang, intlLocale, t } from "./i18n";
+import { fmtPattern } from "./i18n/format";
 
 export type CalView = "month" | "week" | "agenda";
 
@@ -12,10 +14,14 @@ export interface Day {
   d: number;
 }
 
-export const MONTHS = ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"];
-export const MONTHS_SHORT = MONTHS.map((m) => m.slice(0, 3));
-export const WEEKDAYS = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
-export const WD_SHORT = WEEKDAYS.map((d) => d.slice(0, 3));
+// Month and weekday names come from the language in use (date-fns locale), never from tables of words. `m` is 1-12, `wd` 0 = Sunday.
+const dayDate = (d: Day) => new Date(d.y, d.m - 1, d.d);
+export const monthShort = (m: number) => fmtPattern(new Date(2021, m - 1, 15), "MMM");
+// Vietnamese gets the 2-letter forms ("T2", "CN"): "Thứ 2" is too wide for a calendar column
+const wdAbbr = () => (getLang() === "vi" ? "EEEEEE" : "EEE");
+export const wdShort = (wd: number) => fmtPattern(new Date(2021, 7, 1 + wd), wdAbbr()); // 1 Aug 2021 = Sunday
+export const wdLong = (wd: number) => fmtPattern(new Date(2021, 7, 1 + wd), "EEEE");
+export const wdNarrow = (wd: number) => fmtPattern(new Date(2021, 7, 1 + wd), "EEEEE");
 const DAY_MS = 86_400_000;
 
 export const MY_EVENTS_COLOR = "#8764b8";
@@ -37,7 +43,7 @@ export function validTz(tz: string): boolean {
   let ok = tzOk.get(tz);
   if (ok === undefined) {
     try {
-      new Intl.DateTimeFormat("en-US", { timeZone: tz });
+      new Intl.DateTimeFormat("en-US", { timeZone: tz }); // i18n-ok: internal parsing
       ok = true;
     } catch {
       ok = false;
@@ -48,6 +54,7 @@ export function validTz(tz: string): boolean {
 }
 
 const dtf = new Map<string, Intl.DateTimeFormat>();
+// i18n-ok: internal parsing (the numbers of the parts are read back, "en-US" keeps the part order and digits fixed)
 function formatter(tz: string): Intl.DateTimeFormat {
   let f = dtf.get(tz);
   if (!f) {
@@ -182,7 +189,7 @@ const pad = (n: number) => String(n).padStart(2, "0");
 
 export function fmtClock(h: number, mi: number): string {
   if (!hour12) return `${pad(h)}:${pad(mi)}`;
-  return `${h % 12 === 0 ? 12 : h % 12}:${pad(mi)} ${h < 12 ? "AM" : "PM"}`;
+  return `${h % 12 === 0 ? 12 : h % 12}:${pad(mi)} ${h < 12 ? t("calendar.time.am") : t("calendar.time.pm")}`;
 }
 
 /** Clock time of an instant (epoch seconds) in a zone. */
@@ -191,8 +198,8 @@ export function fmtTime(sec: number, tz: string): string {
   return fmtClock(p.h, p.mi);
 }
 
-export const fmtDayLong = (d: Day) => `${WD_SHORT[weekdayOf(d)]}, ${d.d} ${MONTHS_SHORT[d.m - 1]} ${d.y}`;
-export const fmtDayShort = (d: Day) => `${WD_SHORT[weekdayOf(d)]} ${d.d} ${MONTHS_SHORT[d.m - 1]}`;
+export const fmtDayLong = (d: Day) => fmtPattern(dayDate(d), `${wdAbbr()}, d MMM yyyy`);
+export const fmtDayShort = (d: Day) => fmtPattern(dayDate(d), `${wdAbbr()} d MMM`);
 
 /** "UTC+7" / "UTC-5:30" for a zone at an instant. */
 export function tzOffsetLabel(tz: string, ms = Date.now()): string {
@@ -206,6 +213,7 @@ export function tzOffsetLabel(tz: string, ms = Date.now()): string {
 /** Short zone name such as "CEST" when the browser knows one, else "UTC+2". */
 export function tzShortName(tz: string, ms = Date.now()): string {
   try {
+    // i18n-ok: internal parsing (only a real abbreviation such as CEST is used; a GMT+x name falls back to the UTC+x label)
     const n = new Intl.DateTimeFormat("en-GB", { timeZone: tz, timeZoneName: "short" }).formatToParts(new Date(ms)).find((p) => p.type === "timeZoneName")?.value;
     if (n && !/^GMT[+-]/.test(n)) return n;
   } catch {
@@ -218,8 +226,9 @@ export function tzShortName(tz: string, ms = Date.now()): string {
 export function fmtRange(e: Pick<CalEvent, "start" | "end" | "allDay">, tz: string): string {
   const [a, b] = eventDaySpan(e, tz);
   if (e.allDay) {
-    if (sameDay(a, b)) return `${fmtDayLong(a)} · All day`;
-    return a.y === b.y && a.m === b.m ? `${a.d} – ${b.d} ${MONTHS_SHORT[b.m - 1]} ${b.y} · All day` : `${fmtDayShort(a)} – ${fmtDayLong(b)} · All day`;
+    const allDay = t("calendar.allDay");
+    if (sameDay(a, b)) return `${fmtDayLong(a)} · ${allDay}`;
+    return a.y === b.y && a.m === b.m ? `${a.d} – ${b.d} ${fmtPattern(dayDate(b), "MMM yyyy")} · ${allDay}` : `${fmtDayShort(a)} – ${fmtDayLong(b)} · ${allDay}`;
   }
   if (sameDay(a, b)) {
     const end = e.end > e.start ? ` – ${fmtTime(e.end, tz)}` : "";
@@ -233,16 +242,20 @@ export function fmtClockRange(e: Pick<CalEvent, "start" | "end">, tz: string): s
   return e.end > e.start ? `${fmtTime(e.start, tz)} – ${fmtTime(e.end, tz)}` : fmtTime(e.start, tz);
 }
 
+/** "October 2026" / "tháng 10 năm 2026" / "octobre 2026" */
+const monthYearLong = (d: Day) => new Intl.DateTimeFormat(intlLocale(), { month: "long", year: "numeric", timeZone: "UTC" }).format(Date.UTC(d.y, d.m - 1, 15));
+
 export function monthTitle(d: Day) {
-  return `${MONTHS[d.m - 1]} ${d.y}`;
+  const s = monthYearLong(d);
+  return getLang() === "vi" ? s.charAt(0).toLocaleUpperCase(intlLocale()) + s.slice(1) : s; // (French month titles stay lower case)
 }
 
 export function weekTitle(days: Day[]): string {
   const a = days[0];
   const b = days[6];
-  if (a.m === b.m) return `${a.d} – ${b.d} ${MONTHS[a.m - 1]} ${a.y}`;
-  if (a.y === b.y) return `${a.d} ${MONTHS_SHORT[a.m - 1]} – ${b.d} ${MONTHS_SHORT[b.m - 1]} ${a.y}`;
-  return `${a.d} ${MONTHS_SHORT[a.m - 1]} ${a.y} – ${b.d} ${MONTHS_SHORT[b.m - 1]} ${b.y}`;
+  if (a.m === b.m) return `${a.d} – ${b.d} ${monthYearLong(a)}`;
+  if (a.y === b.y) return `${a.d} ${monthShort(a.m)} – ${b.d} ${monthShort(b.m)} ${a.y}`;
+  return `${a.d} ${monthShort(a.m)} ${a.y} – ${b.d} ${monthShort(b.m)} ${b.y}`;
 }
 
 // ---------------------------------------------------------------- input <-> instant
@@ -274,19 +287,41 @@ export function fromInputs(date: string, time: string, tz: string, allDay = fals
 
 // ---------------------------------------------------------------- misc
 
-/** "Join Microsoft Teams meeting" etc. for a meeting link; null when the URL is not a known service. */
-export function joinLabel(url: string): string {
+type JoinService = "teams" | "meet" | "zoom" | "webex" | null;
+function joinServiceOf(url: string): JoinService {
   let host = "";
   try {
     host = new URL(url).hostname.toLowerCase();
   } catch {
-    return "Join meeting";
+    return null;
   }
-  if (host.includes("teams.microsoft.com") || host.includes("teams.live.com")) return "Join Microsoft Teams meeting";
-  if (host.includes("meet.google.com")) return "Join Google Meet meeting";
-  if (host.includes("zoom.us")) return "Join Zoom meeting";
-  if (host.includes("webex.com")) return "Join Webex meeting";
-  return "Join meeting";
+  if (host.includes("teams.microsoft.com") || host.includes("teams.live.com")) return "teams";
+  if (host.includes("meet.google.com")) return "meet";
+  if (host.includes("zoom.us")) return "zoom";
+  if (host.includes("webex.com")) return "webex";
+  return null;
+}
+
+/** "Join Microsoft Teams meeting" etc. for a meeting link; "Join meeting" when the URL is not a known service. */
+export function joinLabel(url: string): string {
+  switch (joinServiceOf(url)) {
+    case "teams": return t("calendar.join.teams");
+    case "meet": return t("calendar.join.meet");
+    case "zoom": return t("calendar.join.zoom");
+    case "webex": return t("calendar.join.webex");
+    default: return t("calendar.join.generic");
+  }
+}
+
+/** The short name shown in the agenda for a meeting link ("Microsoft Teams", "Zoom", "meeting"). */
+export function joinShortName(url: string): string {
+  switch (joinServiceOf(url)) {
+    case "teams": return "Microsoft Teams";
+    case "meet": return "Google Meet";
+    case "zoom": return "Zoom";
+    case "webex": return "Webex";
+    default: return t("calendar.join.shortGeneric");
+  }
 }
 
 export const isUrl = (s: string) => /^https?:\/\/\S+$/i.test(s.trim());
@@ -303,11 +338,11 @@ export function eventColor(e: Pick<CalEvent, "calendarId">, accountColor: (id: s
 /** Answer text for an event ("Accepted", "Not responded", …). */
 export function myStatusLabel(s: CalEvent["myStatus"]): string | null {
   switch (s) {
-    case "accepted": return "Accepted";
-    case "tentative": return "Tentative";
-    case "declined": return "Declined";
-    case "needs-action": return "Not responded";
-    case "organizer": return "Organizer";
+    case "accepted": return t("calendar.status.accepted");
+    case "tentative": return t("calendar.status.tentative");
+    case "declined": return t("calendar.status.declined");
+    case "needs-action": return t("calendar.status.needsAction");
+    case "organizer": return t("calendar.status.organizer");
     default: return null;
   }
 }
@@ -323,8 +358,8 @@ export function chipClass(e: Pick<CalEvent, "myStatus" | "status" | "allDay">): 
 }
 
 export function eventLabel(e: CalEvent, tz: string): string {
-  const when = e.allDay ? "all day" : `${fmtTime(e.start, tz)} to ${fmtTime(e.end, tz)}`;
-  const st = e.status === "cancelled" ? "cancelled" : myStatusLabel(e.myStatus)?.toLowerCase();
+  const when = e.allDay ? t("calendar.label.allDay") : t("calendar.label.timed", { from: fmtTime(e.start, tz), to: fmtTime(e.end, tz) });
+  const st = e.status === "cancelled" ? t("calendar.label.cancelled") : myStatusLabel(e.myStatus)?.toLowerCase();
   return `${e.summary}, ${when}${st ? `, ${st}` : ""}`;
 }
 

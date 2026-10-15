@@ -1,4 +1,5 @@
 import { Channel, invoke } from "@tauri-apps/api/core";
+import { t } from "./i18n";
 
 export interface Account {
   id: string;
@@ -164,6 +165,8 @@ export interface CalEvent {
   confidential?: boolean;
   /** set on expanded occurrences of a repeating event */
   instanceStart?: number | null;
+  /** an event of a synced calendar that can't be changed here, and why */
+  readOnly?: "calendar" | "repeating" | "organizer" | null;
 }
 export interface CalEventInput {
   id?: string | null;
@@ -178,8 +181,37 @@ export interface CalEventInput {
   attendees: { email: string; name?: string | null; role: "required" | "optional" }[];
   rrule?: string | null;
   reminderMin?: number | null;
+  /** the calendar a new event goes to ("local" or null = My events); fixed when editing */
+  calendarId?: string | null;
 }
-export interface CalendarInfo { id: string; name: string; color: string; accountId: string | null; visible: boolean }
+export interface CalendarInfo {
+  id: string;
+  name: string;
+  color: string;
+  accountId: string | null;
+  visible: boolean;
+  /** a calendar synced from Google Calendar / Outlook */
+  remote?: boolean;
+  /** new events can be added to it */
+  writable?: boolean;
+  /** "Google Calendar" / "Outlook" for a synced calendar */
+  service?: string | null;
+}
+/** One calendar of a synced mailbox, as Settings lists it. */
+export interface CalendarSyncInfo { id: string; name: string; color: string; readOnly: boolean; primary: boolean; syncOn: boolean; eventCount: number; truncated: boolean }
+/** The calendar sync of one mailbox: its state and calendars. */
+export interface CalSource {
+  id: string;
+  accountId: string;
+  kind: "google" | "microsoft" | "caldav";
+  status: "ok" | "syncing" | "offline" | "busy" | "auth" | "blocked" | "notsetup" | "error";
+  lastSync: number | null;
+  lastError: string | null;
+  retryAt: number | null;
+  /** the first download is running */
+  firstSync: boolean;
+  calendars: CalendarSyncInfo[];
+}
 export interface Meeting {
   start: number;
   end: number;
@@ -393,7 +425,7 @@ export interface SaveAllResult {
 
 /** Backend errors look like "CODE: human text". Returns the code, or null. */
 export function errorCode(e: unknown): string | null {
-  const m = String(e instanceof Error ? e.message : e).match(/^([A-Z][A-Z_]+):/);
+  const m = String(e instanceof Error ? e.message : e).match(/^([A-Z][A-Z0-9_]+)(?:\|[A-Za-z]\w*=[^|:]*)*:/);
   return m ? m[1] : null;
 }
 
@@ -444,6 +476,8 @@ export const api = {
   frameCaptionRect: (r: { x: number; y: number; w: number; h: number }) => invoke<boolean>("frame_caption_rect", { ...r, dpr: window.devicePixelRatio || 1 }),
   frameSystemMenu: (x: number, y: number) => invoke<void>("frame_system_menu", { x, y, dpr: window.devicePixelRatio || 1 }),
   listAccounts: () => invoke<Account[]>("list_accounts"),
+  /** account id -> "push" (IMAP IDLE is running) or "polling"; an account without an entry is polled */
+  idleStates: () => invoke<Record<string, string>>("idle_states"),
   addAccount: (input: AccountInput, passwordValue: string, smtpPassword?: string) =>
     invoke<Account>("add_account", { input, passwordValue, smtpPassword: smtpPassword || null }),
   discoverServer: (email: string) => invoke<Discovered | null>("discover_server", { email }),
@@ -454,6 +488,10 @@ export const api = {
   microsoftTenant: () => invoke<string>("microsoft_tenant"),
   microsoftSignIn: (clientId: string, clientSecret: string, tenant: string, displayName: string) =>
     invoke<Account>("microsoft_sign_in", { clientId, clientSecret, tenant, displayName }),
+  /** End the wait for the browser of a mail sign-in (Add account, Sign in again); that command then fails with OAUTH_CANCELLED. */
+  oauthCancel: () => invoke<void>("oauth_cancel"),
+  /** Sign in again to a mailbox whose sign-in ended: the same address, the same account (nothing is added). */
+  reauthAccount: (accountId: string) => invoke<Account>("reauth_account", { accountId }),
   updateAccount: (accountId: string, displayName: string, color: string | null) =>
     invoke<void>("update_account", { accountId, displayName, color }),
   removeAccount: (accountId: string) => invoke<void>("remove_account", { accountId }),
@@ -540,6 +578,13 @@ export const api = {
   calendarSaveIcs: (target: { messageId?: string; eventId?: string }) =>
     invoke<string | null>("calendar_save_ics", { messageId: target.messageId ?? null, eventId: target.eventId ?? null }),
   calendarImportIcs: () => invoke<{ added: number; updated: number } | null>("calendar_import_ics"),
+  // calendar sync (Google Calendar / Outlook)
+  calendarSources: () => invoke<CalSource[]>("calendar_sources"),
+  calendarConnect: (accountId: string) => invoke<CalSource>("calendar_connect", { accountId }),
+  calendarCancelConnect: () => invoke<void>("calendar_cancel_connect"),
+  calendarDisconnect: (accountId: string) => invoke<void>("calendar_disconnect", { accountId }),
+  calendarSetSync: (calendarId: string, on: boolean) => invoke<void>("calendar_set_sync", { calendarId, on }),
+  calendarSyncNow: (accountId: string | null, onlyIfStale = false) => invoke<void>("calendar_sync_now", { accountId, onlyIfStale }),
   calendarOpenMessage: (messageId: string) => invoke<{ threadId: string; folder: string; accountId: string }>("calendar_open_message", { messageId }),
   // PGP
   pgpListKeys: () => invoke<PgpKey[]>("pgp_list_keys"),
@@ -660,6 +705,7 @@ export interface UpdateStartupState {
   draft: boolean;
 }
 
+// `hint` and the "Other" `label` are getters: they are read while a component renders, so they follow the language.
 export const PROVIDERS: Record<
   string,
   {
@@ -674,16 +720,20 @@ export const PROVIDERS: Record<
     smtpHost: "smtp.gmail.com",
     smtpPort: 465,
     smtpSecurity: "ssl",
-    hint: "Needs a Google App Password (2-Step Verification on).",
+    get hint() {
+      return t("errors.provider.gmail.hint");
+    },
   },
   outlook: {
-    label: "Outlook / Microsoft 365",
+    label: "Outlook / Microsoft 365", // i18n-ok: product name
     imapHost: "outlook.office365.com",
     imapPort: 993,
     smtpHost: "smtp.office365.com",
     smtpPort: 587,
     smtpSecurity: "starttls",
-    hint: "Prefer the Microsoft tab (OAuth). Password sign-in only works if basic auth is enabled; personal accounts then need an app password.",
+    get hint() {
+      return t("errors.provider.outlook.hint");
+    },
   },
   icloud: {
     label: "iCloud",
@@ -692,7 +742,9 @@ export const PROVIDERS: Record<
     smtpHost: "smtp.mail.me.com",
     smtpPort: 587,
     smtpSecurity: "starttls",
-    hint: "Apple has no OAuth for mail apps. Create an app-specific password at account.apple.com (Sign-In and Security) and use it here, with your full iCloud address as the email.",
+    get hint() {
+      return t("errors.provider.icloud.hint");
+    },
   },
   yahoo: {
     label: "Yahoo",
@@ -701,10 +753,12 @@ export const PROVIDERS: Record<
     smtpHost: "smtp.mail.yahoo.com",
     smtpPort: 465,
     smtpSecurity: "ssl",
-    hint: "Use a Yahoo app password.",
+    get hint() {
+      return t("errors.provider.yahoo.hint");
+    },
   },
   bridge: {
-    label: "Proton Mail Bridge",
+    label: "Proton Mail Bridge", // i18n-ok: product name
     imapHost: "127.0.0.1",
     imapPort: 1143,
     imapSsl: false,
@@ -712,10 +766,14 @@ export const PROVIDERS: Record<
     smtpPort: 1025,
     smtpSecurity: "starttls",
     insecure: true,
-    hint: "Run Proton Mail Bridge, then use the Bridge username and password (not your Proton password). Bridge uses a self-signed certificate on this computer, so the certificate is trusted.",
+    get hint() {
+      return t("errors.provider.bridge.hint");
+    },
   },
   custom: {
-    label: "Other (IMAP/SMTP)",
+    get label() {
+      return t("errors.provider.custom.label");
+    },
     imapHost: "",
     imapPort: 993,
     smtpHost: "",

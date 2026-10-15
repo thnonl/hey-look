@@ -2,7 +2,9 @@ import { ChevronRight, Lock, Mail, ShieldCheck, Zap } from "lucide-react";
 import { ReactNode } from "react";
 import logo from "../assets/logo.png";
 import { credStore } from "../platform";
+import { useT } from "../i18n/react";
 import { useStore } from "../store";
+import { LanguageChoice } from "./LanguageSwitcher";
 
 /** Generic provider marks (a letter badge and a four-square mark): neutral glyphs, not the providers' own logos. */
 const GoogleMark = () => (
@@ -34,23 +36,25 @@ function Choice({ icon, tone, title, text, onClick }: { icon: ReactNode; tone: s
 
 /** First-run screen: shown while there is no account yet. */
 export function Welcome() {
+  const t = useT();
   const setDialog = useStore((s) => s.setDialog);
   const add = () => setDialog({ type: "settings", tab: "add-account" });
   return (
     <main className="welcome">
       <div className="welcome-card">
+        <LanguageChoice />
         <img src={logo} alt="" width={64} height={64} />
-        <h1>Welcome to Hey Look!</h1>
-        <p className="muted">A fast, private mail client. Connect an account to get started — everything is unlocked, no plans and no limits.</p>
+        <h1>{t("app.welcome.title")}</h1>
+        <p className="muted">{t("app.welcome.intro")}</p>
         <div className="welcome-actions">
-          <Choice icon={<GoogleMark />} tone="g" title="Sign in with Google" text="Gmail and Google Workspace, no password stored" onClick={add} />
-          <Choice icon={<MicrosoftMark />} tone="m" title="Sign in with Microsoft" text="Outlook.com, Hotmail and Microsoft 365, no password stored" onClick={add} />
-          <Choice icon={<Mail size={20} />} tone="o" title="Other email account" text="iCloud (app password), Yahoo or any IMAP / SMTP server" onClick={add} />
+          <Choice icon={<GoogleMark />} tone="g" title={t("app.welcome.google.title")} text={t("app.welcome.google.text")} onClick={add} />
+          <Choice icon={<MicrosoftMark />} tone="m" title={t("app.welcome.microsoft.title")} text={t("app.welcome.microsoft.text")} onClick={add} />
+          <Choice icon={<Mail size={20} />} tone="o" title={t("app.welcome.other.title")} text={t("app.welcome.other.text")} onClick={add} />
         </div>
         <ul className="welcome-points">
-          <li><Lock size={14} /> Passwords stay in {credStore()}</li>
-          <li><ShieldCheck size={14} /> Remote images and trackers are blocked by default</li>
-          <li><Zap size={14} /> Keeps checking mail from the tray, with Undo for every move</li>
+          <li><Lock size={14} /> {t("app.welcome.point.passwords", { store: credStore() })}</li>
+          <li><ShieldCheck size={14} /> {t("app.welcome.point.privacy")}</li>
+          <li><Zap size={14} /> {t("app.welcome.point.tray")}</li>
         </ul>
       </div>
     </main>

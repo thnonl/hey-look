@@ -1,0 +1,135 @@
+--- a/src/extensions/idle.rs
++++ b/src/extensions/idle.rs
+@@ -2,12 +2,12 @@
+ //! 2177](https://tools.ietf.org/html/rfc2177).
+ 
+ use crate::client::Session;
+-use crate::error::{Error, Result};
++use crate::error::{Error, ParseError, Result};
+ #[cfg(feature = "tls")]
+ use native_tls::TlsStream;
+ use std::io::{self, Read, Write};
+ use std::net::TcpStream;
+-use std::time::Duration;
++use std::time::{Duration, Instant};
+ 
+ /// `Handle` allows a client to block waiting for changes to the remote mailbox.
+ ///
+@@ -61,7 +61,12 @@
+             keepalive: Duration::from_secs(29 * 60),
+             done: false,
+         };
+-        h.init()?;
++        if let Err(e) = h.init() {
++            // Hey Look! patch: IDLE was refused (or never started), so there is nothing to end: without this the Drop below sends a
++            // DONE outside IDLE, the server answers it with the tag DONE, and the tag check of read_response_onto panicked
++            h.done = true;
++            return Err(e);
++        }
+         Ok(h)
+     }
+ 
+@@ -84,7 +89,9 @@
+ 
+         self.session.read_response_onto(&mut v)?;
+         // We should *only* get a continuation on an error (i.e., it gives BAD or NO).
+-        unreachable!();
++        // Hey Look! patch: a server that answers IDLE with something else (a tagged OK, garbage) is an error, not a panic
++        // (the app is built with panic = "abort", so a panic here would end the whole process).
++        Err(Error::Parse(ParseError::Invalid(v)))
+     }
+ 
+     fn terminate(&mut self) -> Result<()> {
+@@ -173,6 +180,50 @@
+         self.timed_wait(timeout, false)
+     }
+ 
++    /// Hey Look! addition. Like `wait_with_timeout`, but the read is cut into slices of `poll`, and `stop` is asked after each one that
++    /// brought nothing: when it says yes the wait ends at once (and no DONE is sent: the caller drops the connection). A thread that
++    /// is blocked in a read cannot be woken from outside on Windows when the peer is silent (`shutdown` does not wake it), so this is
++    /// how the app stops a push session. The read timeout is left at `finish` instead of none, so that the answer to the DONE that
++    /// the drop sends cannot block for ever either. A slice that times out in the middle of a line keeps the part already read.
++    pub fn wait_interruptible(
++        mut self,
++        timeout: Duration,
++        poll: Duration,
++        finish: Duration,
++        stop: &dyn Fn() -> bool,
++    ) -> Result<WaitOutcome> {
++        let deadline = Instant::now() + timeout;
++        self.session.stream.get_mut().set_read_timeout(Some(poll))?;
++        let mut v = Vec::new();
++        let res = loop {
++            match self.session.readline(&mut v) {
++                Err(Error::Io(ref e))
++                    if e.kind() == io::ErrorKind::TimedOut
++                        || e.kind() == io::ErrorKind::WouldBlock =>
++                {
++                    if stop() {
++                        self.done = true;
++                        break Ok(WaitOutcome::TimedOut);
++                    }
++                    if Instant::now() >= deadline {
++                        break Ok(WaitOutcome::TimedOut);
++                    }
++                }
++                Ok(_) => {
++                    // Dovecot's imap_idle_notify_interval message
++                    if v.eq_ignore_ascii_case(b"* OK Still here\r\n") {
++                        v.clear();
++                    } else {
++                        break Ok(WaitOutcome::MailboxChanged);
++                    }
++                }
++                Err(e) => break Err(e),
++            }
++        };
++        let _ = self.session.stream.get_mut().set_read_timeout(Some(finish));
++        res
++    }
++
+     fn timed_wait(mut self, timeout: Duration, reconnect: bool) -> Result<WaitOutcome> {
+         self.session
+             .stream
+--- a/src/parse.rs
++++ b/src/parse.rs
+@@ -207,7 +207,9 @@
+                 if let imap_proto::Status::Ok = status {
+                 } else {
+                     // how can this happen for a Response::Data?
+-                    unreachable!();
++                    // Hey Look! patch: an untagged NO / BAD / BYE line inside a SELECT / EXAMINE answer is skipped, not a panic
++                    // (the app is built with panic = "abort").
++                    continue;
+                 }
+ 
+                 use imap_proto::ResponseCode;
+--- a/src/client.rs
++++ b/src/client.rs
+@@ -1366,14 +1366,18 @@
+                             ..
+                         },
+                     )) => {
+-                        assert_eq!(tag.as_bytes(), match_tag.as_bytes());
+-                        Some(match status {
+-                            Status::Bad | Status::No => {
+-                                Err((status, information.map(ToString::to_string)))
+-                            }
+-                            Status::Ok => Ok(()),
+-                            status => Err((status, None)),
+-                        })
++                        if tag.as_bytes() != match_tag.as_bytes() {
++                            // Hey Look! patch: this was `assert_eq!`; an answer with another tag is an error, not a panic
++                            Some(Err((Status::Bye, None)))
++                        } else {
++                            Some(match status {
++                                Status::Bad | Status::No => {
++                                    Err((status, information.map(ToString::to_string)))
++                                }
++                                Status::Ok => Ok(()),
++                                status => Err((status, None)),
++                            })
++                        }
+                     }
+                     Ok((..)) => None,
+                     Err(nom::Err::Incomplete(..)) => {

@@ -17,7 +17,9 @@ import { Settings } from "./components/SettingsDialog";
 import { TopBar } from "./components/TopBar";
 import { Welcome } from "./components/Welcome";
 import { hasMailAccounts, shortcutWorks } from "./mailControls";
-import { flushSends, useStore } from "./store";
+import { t as tNow } from "./i18n";
+import { useT } from "./i18n/react";
+import { flushSends, friendlyError, useStore } from "./store";
 import { osNow } from "./platform";
 import { openUpdateLink, useUpdates } from "./updates";
 import { calTz, configureCalendar, addDays, addMonths, today as todayDay } from "./calendar";
@@ -27,7 +29,7 @@ import { frameAction, initFrame, useFrame } from "./winframe";
 const clamp = (n: number, lo: number, hi: number) => Math.max(lo, Math.min(hi, n));
 
 /** Drag handle between two panes; the width is committed (saved) on release. */
-function Splitter({ label, value, min, max, onLive, onCommit }: { label: string; value: number; min: number; max: number; onLive: (w: number) => void; onCommit: (w: number) => void }) {
+function Splitter({ which, label, value, min, max, onLive, onCommit }: { which: "folder" | "list"; label: string; value: number; min: number; max: number; onLive: (w: number) => void; onCommit: (w: number) => void }) {
   const drag = useRef<{ x: number; w: number } | null>(null);
   return (
     <div
@@ -46,7 +48,7 @@ function Splitter({ label, value, min, max, onLive, onCommit }: { label: string;
         onCommit(clamp(drag.current.w + e.clientX - drag.current.x, min, max));
         drag.current = null;
       }}
-      onDoubleClick={() => onCommit(label.startsWith("Folder") ? 248 : 392)}
+      onDoubleClick={() => onCommit(which === "folder" ? 248 : 392)}
       onKeyDown={(e) => {
         if (e.key === "ArrowLeft") onCommit(clamp(value - 16, min, max));
         if (e.key === "ArrowRight") onCommit(clamp(value + 16, min, max));
@@ -56,6 +58,7 @@ function Splitter({ label, value, min, max, onLive, onCommit }: { label: string;
 }
 
 function App() {
+  const t = useT();
   const compose = useStore((s) => s.compose);
   const composeKey = useStore((s) => s.composeKey);
   const dialog = useStore((s) => s.dialog);
@@ -114,6 +117,20 @@ function App() {
     };
     const subs = [
       listen("mail-synced", () => void useStore.getState().refresh()),
+      // a Google / Microsoft mailbox was signed out behind our back (the background sync got rejected): it shows "Sign in again"
+      listen<{ accountId: string; state: "again" | "blocked" | null; error?: string }>("signin-state", (e) => {
+        const st = useStore.getState();
+        const { accountId, state, error } = e.payload;
+        st.setReauth(accountId, state);
+        if (!state) {
+          useStore.setState((x) => ({ syncErrors: Object.fromEntries(Object.entries(x.syncErrors).filter(([k]) => k !== accountId)) }));
+          return;
+        }
+        const shown = friendlyError(error ?? "");
+        useStore.setState((x) => ({ syncErrors: { ...x.syncErrors, [accountId]: shown } }));
+        const email = st.accounts.find((a) => a.id === accountId)?.email;
+        st.showToast(email ? tNow("errors.toast.withAccount", { account: email, error: shown }) : shown, undefined, "error");
+      }),
       // the background download of older Inbox mail: a status line in the list and a quiet, throttled re-read of it
       listen<BackfillProgress>("backfill-progress", (e) => useStore.getState().onBackfill(e.payload)),
       listen("tray-compose", () => {
@@ -121,7 +138,7 @@ function App() {
         if (!hasMailAccounts(st.accounts.length)) return; // no account: nothing to write with
         void st.openCompose({ accountId: newMailAccount() });
       }),
-      listen<string>("action-failed", (e) => useStore.getState().showToast(`Failed: ${e.payload}`, undefined, "error")),
+      listen<string>("action-failed", (e) => useStore.getState().showToast(t("app.toast.actionFailed", { error: e.payload }), undefined, "error")),
       listen<{ threadId: string }>("open-thread", (e) => void open(e.payload.threadId)),
       listen<{ threadId: string }>("notify-reply", async (e) => {
         await open(e.payload.threadId);
@@ -132,10 +149,10 @@ function App() {
         const st = useStore.getState();
         void st.refresh();
         if (e.payload.status !== "failed") return;
-        const subject = st.outbox.find((o) => o.id === e.payload.id)?.subject || "(no subject)";
-        st.showToast(`Scheduled message “${subject}” failed to send.`, undefined, "error", [
-          { label: "Retry", run: () => void api.outboxRetry(e.payload.id).then(() => useStore.getState().refresh()) },
-          { label: "Open", run: () => void useStore.getState().setView("scheduled") },
+        const subject = st.outbox.find((o) => o.id === e.payload.id)?.subject || t("app.noSubject");
+        st.showToast(t("app.toast.scheduledFailed", { subject }), undefined, "error", [
+          { label: t("common.retry"), run: () => void api.outboxRetry(e.payload.id).then(() => useStore.getState().refresh()) },
+          { label: t("app.action.open"), run: () => void useStore.getState().setView("scheduled") },
         ]);
       }),
       // the calendar changed behind the view's back: sync processed an invitation, a reply or a cancellation
@@ -148,15 +165,15 @@ function App() {
         const st = useStore.getState();
         st.showToast(`${e.payload.title}${e.payload.line ? ` · ${e.payload.line}` : ""}`, undefined, "info", [
           // no account: the calendar is not on screen, so there is nothing to open
-          ...(hasMailAccounts(st.accounts.length) ? [{ label: "Open", run: () => st.setModule("calendar") }] : []),
-          ...(e.payload.joinUrl ? [{ label: "Join", run: () => void openUpdateLink(e.payload.joinUrl as string) }] : []),
+          ...(hasMailAccounts(st.accounts.length) ? [{ label: t("app.action.open"), run: () => st.setModule("calendar") }] : []),
+          ...(e.payload.joinUrl ? [{ label: t("app.action.join"), run: () => void openUpdateLink(e.payload.joinUrl as string) }] : []),
         ]);
       }),
       // the chosen save folder is gone: attachments went to Downloads instead (said once per session and folder)
       listen<{ configured: string; used: string }>("download-dir-fallback", (e) => {
         const st = useStore.getState();
-        st.showToast(`The attachment folder “${e.payload.configured}” isn’t available, so files are saved to ${e.payload.used} instead.`, undefined, "info", [
-          { label: "Change folder", run: () => st.setDialog({ type: "settings", tab: "general" }) },
+        st.showToast(t("app.toast.downloadDirFallback", { configured: e.payload.configured, used: e.payload.used }), undefined, "info", [
+          { label: t("app.action.changeFolder"), run: () => st.setDialog({ type: "settings", tab: "general" }) },
         ]);
       }),
       // The rest of a quit (REQ-48 b, c): a message being written is saved to Drafts (and the person is asked when that fails), then every
@@ -171,11 +188,11 @@ function App() {
               void api.showWindow().catch(() => undefined);
               void api.quitDialog(true).catch(() => undefined);
               const c = await s.choose({
-                title: "Quit without saving your changes?",
-                body: "Your changes to this scheduled message aren’t saved. It stays scheduled as it was.",
+                title: t("app.quit.discardTitle"),
+                body: t("app.quit.discardBody"),
                 choices: [
-                  { id: "keep", label: "Keep editing", kind: "primary" },
-                  { id: "quit", label: "Quit and discard changes", kind: "danger" },
+                  { id: "keep", label: t("app.quit.keepEditing"), kind: "primary" },
+                  { id: "quit", label: t("app.quit.quitDiscardChanges"), kind: "danger" },
                 ],
               });
               void api.quitDialog(false).catch(() => undefined);
@@ -188,11 +205,11 @@ function App() {
                 void api.showWindow().catch(() => undefined);
                 void api.quitDialog(true).catch(() => undefined);
                 const c = await s.choose({
-                  title: "Your message isn’t saved",
-                  body: `Hey Look! couldn’t save it to Drafts (${useStore.getState().draftError || "unknown error"}). If you quit now, it’s lost.`,
+                  title: t("app.quit.notSavedTitle"),
+                  body: t("app.quit.notSavedBody", { error: useStore.getState().draftError || t("app.quit.unknownError") }),
                   choices: [
-                    { id: "keep", label: "Keep writing", kind: "primary" },
-                    { id: "quit", label: "Quit and discard", kind: "danger" },
+                    { id: "keep", label: t("app.quit.keepWriting"), kind: "primary" },
+                    { id: "quit", label: t("app.quit.quitDiscard"), kind: "danger" },
                   ],
                 });
                 void api.quitDialog(false).catch(() => undefined);
@@ -204,7 +221,7 @@ function App() {
           if (go) {
             const n = useStore.getState().sendsInFlight;
             if (n > 0) {
-              useStore.getState().showToast(n === 1 ? "Sending your message before Hey Look! quits…" : `Sending ${n} messages before Hey Look! quits…`, undefined, "info");
+              useStore.getState().showToast(t("app.quit.sending", { n }), undefined, "info");
             }
             await flushSends(20_000);
           }
@@ -217,27 +234,28 @@ function App() {
       // messages that were in their Undo time when the last run ended went out now (REQ-49 d)
       listen<{ count: number }>("outbox-leftover", (e) => {
         const n = e.payload.count;
-        useStore.getState().showToast(n === 1 ? "Sent 1 message that was still waiting to go out when Hey Look! closed." : `Sent ${n} messages that were still waiting to go out when Hey Look! closed.`, undefined, "success");
+        useStore.getState().showToast(t("app.toast.leftover", { n }), undefined, "success");
       }),
       // a filter whose action failed on new mail (once per filter and error per run, REQ-52)
       listen<string>("filter-failed", (e) => useStore.getState().showToast(e.payload, undefined, "error")),
       listen<{ count: number }>("outbox-catchup", (e) => {
         const st = useStore.getState();
         st.showToast(catchupText(e.payload.count), undefined, "success", [
-          { label: "View", run: () => void st.setView("scheduled") },
+          { label: t("app.action.view"), run: () => void st.setView("scheduled") },
         ]);
       }),
       listen<{ count: number; next: number | null }>("confirm-quit", async (e) => {
         const st = useStore.getState();
         const n = e.payload.count;
-        const next = e.payload.next ? ` The next one is due ${fmtWhen(e.payload.next)}.` : "";
         const choice = await st.choose({
-          title: `${n} message${n === 1 ? " is" : "s are"} scheduled`,
-          body: `If you quit now, ${n === 1 ? "it" : "they"} will be sent the next time you open Hey Look!.${next}`,
+          title: t("app.quit.scheduledTitle", { n }),
+          body: e.payload.next
+            ? t(n === 1 ? "app.quit.scheduledBodyNext.one" : "app.quit.scheduledBodyNext.many", { when: fmtWhen(e.payload.next) })
+            : t(n === 1 ? "app.quit.scheduledBody.one" : "app.quit.scheduledBody.many"),
           choices: [
-            { id: "cancel", label: "Cancel" },
-            { id: "keep", label: "Keep running in tray", kind: "primary" },
-            { id: "quit", label: "Quit anyway", kind: "danger" },
+            { id: "cancel", label: t("common.cancel") },
+            { id: "keep", label: t("app.quit.keepRunning"), kind: "primary" },
+            { id: "quit", label: t("app.quit.quitAnyway"), kind: "danger" },
           ],
         });
         if (choice === "quit") await api.quitNow();
@@ -309,9 +327,9 @@ function App() {
       }
       // no account: no mail shortcut (search, new mail, navigation, actions, Ctrl+1 / 2 ...) is live
       if (!shortcutWorks(n, "mail-keys")) return;
-      const t = e.target;
-      if (!(t instanceof Element)) return;
-      if (t.closest("input,textarea,select,[contenteditable=true]")) return;
+      const tgt = e.target;
+      if (!(tgt instanceof Element)) return;
+      if (tgt.closest("input,textarea,select,[contenteditable=true]")) return;
       if (!st.dialog && !st.commandOpen && !st.ask && (e.ctrlKey || e.metaKey) && !e.shiftKey && !e.altKey && (e.key === "1" || e.key === "2")) {
         e.preventDefault();
         st.setModule(e.key === "2" ? "calendar" : "mail");
@@ -354,15 +372,16 @@ function App() {
         case "/": e.preventDefault(); document.getElementById("search-input")?.focus(); break;
         case "j": void st.select(st.threads[Math.min(idx + 1, st.threads.length - 1)]?.threadId ?? null); break;
         case "k": void st.select(st.threads[Math.max(idx - 1, 0)]?.threadId ?? null); break;
-        case "e": void st.act(ids, "archive", undefined, "Archived"); break;
-        case "#": case "Delete": void st.act(ids, "trash", undefined, "Moved to Deleted Items"); break;
+        case "e": void st.act(ids, "archive", undefined, t("mail.done.archived")); break;
+        case "#": case "Delete": void st.act(ids, "trash", undefined, t("mail.done.trashed")); break;
         // the Mac "delete" key (Backspace) deletes the selected conversation too; not while typing (guarded above)
-        case "Backspace": if (osNow() === "macos") void st.act(ids, "trash", undefined, "Moved to Deleted Items"); break;
-        case "!": void st.act(ids, "junk", undefined, "Moved to Junk"); break;
+        case "Backspace": if (osNow() === "macos") void st.act(ids, "trash", undefined, t("mail.done.trashed")); break;
+        case "!": void st.act(ids, "junk", undefined, t("mail.done.junk")); break;
         case "u": void st.act(ids, "unread"); break;
         case "p": void st.act(ids, cur?.pinned ? "unpin" : "pin"); break;
         case "*": void st.act(ids, cur?.flagged ? "unstar" : "star"); break;
-        case "s": document.querySelector<HTMLButtonElement>('.reading-pane button[title^="Snooze"]')?.click(); break;
+        // the Snooze button of the reading pane: its tooltip is translated but always ends with the key hint "(s)"
+        case "s": document.querySelector<HTMLButtonElement>('.reading-pane button[title$="(s)"]')?.click(); break;
         case "r": replyLast(false); break;
         case "a": replyLast(true); break;
         case "f": forwardLast(); break;
@@ -385,7 +404,7 @@ function App() {
           <Ribbon />
           <div className="workspace" style={{ ["--fw" as string]: `${fw}px`, ["--lw" as string]: `${lw}px` }}>
             <FolderPane />
-            <Splitter label="Folder pane width" value={fw} min={180} max={360} onLive={(w) => setLive((s) => ({ ...s, f: w }))} onCommit={(w) => (setLive((s) => ({ ...s, f: undefined })), setPrefs({ folderW: w }))} />
+            <Splitter which="folder" label={t("app.splitter.folder")} value={fw} min={180} max={360} onLive={(w) => setLive((s) => ({ ...s, f: w }))} onCommit={(w) => (setLive((s) => ({ ...s, f: undefined })), setPrefs({ folderW: w }))} />
             {module === "calendar" ? (
               <>
                 <CalendarView />
@@ -399,7 +418,7 @@ function App() {
               <>
                 <MessageList />
                 {prefs.readingPane === "right" && (
-                  <Splitter label="Message list width" value={lw} min={300} max={680} onLive={(w) => setLive((s) => ({ ...s, l: w }))} onCommit={(w) => (setLive((s) => ({ ...s, l: undefined })), setPrefs({ listW: w }))} />
+                  <Splitter which="list" label={t("app.splitter.list")} value={lw} min={300} max={680} onLive={(w) => setLive((s) => ({ ...s, l: w }))} onCommit={(w) => (setLive((s) => ({ ...s, l: undefined })), setPrefs({ listW: w }))} />
                 )}
                 <div className="reading-region">
                   {compose ? <Compose key={composeKey} init={compose} /> : <ReadingPane />}

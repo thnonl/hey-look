@@ -4,7 +4,7 @@ use serde_json::json;
 /// OpenAI-compatible chat completion. Works with any endpoint (OpenAI, local, gateways).
 pub async fn complete(endpoint: &str, key: &str, model: &str, system: &str, prompt: &str) -> R<String> {
     if endpoint.trim().is_empty() || model.trim().is_empty() {
-        return Err("AI not configured: set endpoint and model in Settings > AI".into());
+        return Err("AI_NOT_CONFIGURED: AI not configured: set endpoint and model in Settings > AI".into());
     }
     let url = format!("{}/chat/completions", endpoint.trim_end_matches('/'));
     let mut req = reqwest::Client::new().post(url).json(&json!({

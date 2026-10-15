@@ -1,6 +1,7 @@
 import { Inbox, RefreshCw, Search } from "lucide-react";
 import { Fragment, useMemo, useState } from "react";
 import { makeFakeMailbox } from "../fakeMail";
+import { useT } from "../i18n/react";
 import { useStore } from "../store";
 import { dateGroup, fmtFull } from "../util";
 import { ThreadRow } from "./MessageList";
@@ -13,12 +14,13 @@ import logo from "../assets/logo.png";
  * The rows are the very same component the mailbox uses.
  */
 export function AppearancePreview() {
+  const t = useT();
   const prefs = useStore((s) => s.prefs);
   const [seed, setSeed] = useState(() => Math.floor(Math.random() * 1e6));
   const box = useMemo(() => makeFakeMailbox(seed), [seed]);
   const dark = prefs.theme === "dark" || (prefs.theme === "system" && window.matchMedia("(prefers-color-scheme: dark)").matches);
   const threads = prefs.sortAsc ? [...box.threads].reverse() : box.threads;
-  const shown = prefs.focused ? threads.filter((t) => !t.bulk) : threads;
+  const shown = prefs.focused ? threads.filter((th) => !th.bulk) : threads;
   let last = "";
   return (
     <div className="ap-wrap">
@@ -27,35 +29,35 @@ export function AppearancePreview() {
           <img src={logo} alt="" width={16} height={16} />
           <b>Hey Look!</b>
           <span className="ap-search">
-            <Search size={11} /> Search mail
+            <Search size={11} /> {t("reading.preview.search")}
           </span>
         </div>
         <div className="ap-body">
           <div className="ap-folders">
             <div className="fp-row active">
-              <Inbox size={13} /> Inbox <span className="fp-badge strong">{box.threads.filter((t) => t.unread && !t.bulk).length || ""}</span>
+              <Inbox size={13} /> {t("reading.preview.inbox")} <span className="fp-badge strong">{box.threads.filter((th) => th.unread && !th.bulk).length || ""}</span>
             </div>
-            <div className="fp-row">Sent Items</div>
-            <div className="fp-row">Drafts</div>
-            <div className="fp-row">Archive</div>
+            <div className="fp-row">{t("reading.preview.sent")}</div>
+            <div className="fp-row">{t("reading.preview.drafts")}</div>
+            <div className="fp-row">{t("reading.preview.archive")}</div>
           </div>
           <div className="ap-list">
             {prefs.focused ? (
               <div className="pivots ap-pivots">
-                <span className="active" aria-hidden="true">Focused</span>
-                <span aria-hidden="true">Other</span>
+                <span className="active" aria-hidden="true">{t("reading.preview.focused")}</span>
+                <span aria-hidden="true">{t("reading.preview.other")}</span>
               </div>
             ) : (
-              <h2 className="ap-title">Inbox</h2>
+              <h2 className="ap-title">{t("reading.preview.inbox")}</h2>
             )}
-            {shown.map((t, i) => {
-              const group = t.pinned ? "Pinned" : dateGroup(t.lastDate);
+            {shown.map((th, i) => {
+              const group = th.pinned ? t("reading.preview.pinned") : dateGroup(th.lastDate);
               const showGroup = !prefs.sortAsc && group !== last;
               last = group;
               return (
-                <Fragment key={t.threadId}>
+                <Fragment key={th.threadId}>
                   {showGroup && <div className="ml-group">{group}</div>}
-                  <ThreadRow t={t} prefs={prefs} selected={i === 0} />
+                  <ThreadRow t={th} prefs={prefs} selected={i === 0} />
                 </Fragment>
               );
             })}
@@ -78,7 +80,7 @@ export function AppearancePreview() {
         </div>
       </div>
       <button className="link small shuffle" onClick={() => setSeed((s) => s + 1)}>
-        <RefreshCw size={11} /> Generate different sample mail
+        <RefreshCw size={11} /> {t("reading.preview.shuffle")}
       </button>
     </div>
   );

@@ -1,7 +1,10 @@
+import { listen } from "@tauri-apps/api/event";
 import { KeyRound, Lock, Plus, Trash2, Upload } from "lucide-react";
 import { openUpdateLink } from "../updates";
+import { ABOUT_LINKS } from "../aboutLinks";
 import { Fragment, ReactNode, useEffect, useRef, useState } from "react";
-import { Account, api, Discovered, PgpKey, PROVIDERS, Rule, Signature, Template } from "../api";
+import { Account, api, CalSource, Discovered, PgpKey, PROVIDERS, Rule, Signature, Template } from "../api";
+import { calendarErrorCode, calendarSyncKind, providerName, serviceName, statusLine, truncatedNote } from "../calendarSync";
 import { ACCENT_PRESETS, ACCOUNT_PALETTE, accountColor, DEFAULT_PREFS, eff, folderLabel, isOverridden, MAX_DOWNLOAD_PRESETS, NOTIFY_ACTIONS, NOTIFY_SOUNDS, Overridable, Prefs, staleAccountPrefs, validHex } from "../prefs";
 import { friendlyError, useStore } from "../store";
 import { credStore, kbd, riskyHint, usePlatform } from "../platform";
@@ -10,8 +13,16 @@ import { fmtDay, fmtFpr, shortKey } from "../util";
 import { AppearancePreview } from "./AppearancePreview";
 import { RichEditor } from "./RichEditor";
 import { UpdatesBlock } from "./Updates";
+import { ReauthNotice, SignInEnded, SignInWaiting, signInEnd, type SignInEnd } from "./SignInHelp";
 import { keyName } from "./Pgp";
 import { AccountPicker, Avatar, Modal, Switch } from "./ui";
+import { LANGS, intlLocale, pseudoAllowed, type Key } from "../i18n";
+import { fmtNumber, weekdayName } from "../i18n/format";
+import { useT } from "../i18n/react";
+import { tx } from "../i18n/rich";
+
+/** "lundi" -> "Lundi": Intl gives weekday names in lower case in some languages, the options here start with a capital. */
+const cap = (s: string) => s.charAt(0).toUpperCase() + s.slice(1);
 
 const Row = ({ label, hint, children, id }: { label: string; hint?: ReactNode; children: ReactNode; id?: string }) => {
   const ctl = useRef<HTMLDivElement>(null);
@@ -59,6 +70,7 @@ function OvRow<K extends keyof Overridable>({
   id?: string;
   children: (value: Prefs[K], set: (v: Prefs[K]) => void) => ReactNode;
 }) {
+  const t = useT();
   const { prefs, setPrefs } = useStore();
   const own = isOverridden(prefs, scope, k);
   const value = eff(prefs, scope, k);
@@ -77,22 +89,25 @@ function OvRow<K extends keyof Overridable>({
       <div className="ov">
         {children(value, set)}
         {scope && (own ? (
-          <button className="ov-tag own" onClick={reset} title="Go back to the All accounts value">
-            Custom · Reset
+          <button className="ov-tag own" onClick={reset} title={t("settings.ov.backToAll")}>
+            {t("settings.ov.customReset")}
           </button>
         ) : (
-          <span className="ov-tag" title="Change it to override the All accounts value for this account only">Same as All accounts</span>
+          <span className="ov-tag" title={t("settings.ov.overrideHint")}>{t("settings.ov.sameAsAll")}</span>
         ))}
       </div>
     </Row>
   );
 }
 
-const SoundSelect = ({ value, onChange }: { value: string; onChange: (v: Prefs["notifySound"]) => void }) => (
-  <select value={value} onChange={(e) => onChange(e.target.value as Prefs["notifySound"])}>
-    {NOTIFY_SOUNDS.map(([k, l]) => <option key={k} value={k}>{l}</option>)}
-  </select>
-);
+const SoundSelect = ({ value, onChange }: { value: string; onChange: (v: Prefs["notifySound"]) => void }) => {
+  const t = useT();
+  return (
+    <select value={value} onChange={(e) => onChange(e.target.value as Prefs["notifySound"])}>
+      {NOTIFY_SOUNDS.map(([k, l]) => <option key={k} value={k}>{t(l)}</option>)}
+    </select>
+  );
+};
 
 // ---------------------------------------------------------------- General
 /** IANA zone names the browser knows (a short fallback list when it can't enumerate them). */
@@ -108,109 +123,117 @@ function zoneList(): string[] {
 }
 
 function GeneralTab() {
+  const t = useT();
   const { prefs, setPrefs, accounts } = useStore();
   const set = <K extends keyof Prefs>(k: K, v: Prefs[K]) => setPrefs({ [k]: v } as Partial<Prefs>);
   return (
     <div>
-      <h3>General</h3>
-      <div className="muted small">Settings for the whole app. Settings that can differ per mailbox are under Mailboxes.</div>
-      <Row label="After archiving or deleting">
+      <h3>{t("settings.general.title")}</h3>
+      <div className="muted small">{t("settings.general.intro")}</div>
+      <Row label={t("settings.general.language")} hint={t("settings.general.languageHint")}>
+        <select value={prefs.language} onChange={(e) => set("language", e.target.value as Prefs["language"])}>
+          {LANGS.map((l) => <option key={l.code} value={l.code} lang={l.code}>{l.nativeName}</option>)}
+          {/* i18n-ok: dev builds only, not shown to users */}
+          {pseudoAllowed() && <option value="en-XA">Pseudo-locale (dev)</option>}
+        </select>
+      </Row>
+      <Row label={t("settings.general.afterAction")}>
         <select value={prefs.afterAction} onChange={(e) => set("afterAction", e.target.value as Prefs["afterAction"])}>
-          <option value="next">Open the next message</option>
-          <option value="previous">Open the previous message</option>
-          <option value="list">Go back to the list</option>
+          <option value="next">{t("settings.general.openNext")}</option>
+          <option value="previous">{t("settings.general.openPrevious")}</option>
+          <option value="list">{t("settings.general.backToList")}</option>
         </select>
       </Row>
-      <Row label="Mark as read">
+      <Row label={t("settings.general.markRead")}>
         <select value={prefs.markReadDelay} onChange={(e) => set("markReadDelay", Number(e.target.value))}>
-          <option value={0}>Immediately</option>
-          <option value={2}>After 2 seconds</option>
-          <option value={5}>After 5 seconds</option>
-          <option value={-1}>Never (manually)</option>
+          <option value={0}>{t("settings.general.immediately")}</option>
+          <option value={2}>{t("settings.general.after2")}</option>
+          <option value={5}>{t("settings.general.after5")}</option>
+          <option value={-1}>{t("settings.general.never")}</option>
         </select>
       </Row>
-      <Row label="Undo window for archive, delete and junk" hint="The change reaches the server after this delay, so you can take it back">
+      <Row label={t("settings.general.undoWindow")} hint={t("settings.general.undoWindowHint")}>
         <select value={prefs.undoActionSeconds} onChange={(e) => set("undoActionSeconds", Number(e.target.value))}>
-          {[3, 6, 10, 15, 30].map((n) => <option key={n} value={n}>{n} seconds</option>)}
+          {[3, 6, 10, 15, 30].map((n) => <option key={n} value={n}>{t("settings.unit.seconds", { n })}</option>)}
         </select>
       </Row>
-      <Row label="Default account" hint="Used for new mail when no mailbox is selected. Inside a mailbox, new mail starts from that mailbox.">
+      <Row label={t("settings.general.defaultAccount")} hint={t("settings.general.defaultAccountHint")}>
         <AccountPicker
           value={accounts.some((a) => a.id === prefs.defaultAccount) ? prefs.defaultAccount : ""}
           accounts={accounts}
           onChange={(id) => set("defaultAccount", id)}
-          label="Default account"
-          none="None - use the first account"
+          label={t("settings.general.defaultAccount")}
+          none={t("settings.general.noDefaultAccount")}
         />
       </Row>
-      <Row label="Date format">
+      <Row label={t("settings.general.dateFormat")}>
         <select value={prefs.dateFormat} onChange={(e) => set("dateFormat", e.target.value as Prefs["dateFormat"])}>
-          <option value="relative">Relative (Today, Yesterday…)</option><option value="absolute">Absolute</option>
+          <option value="relative">{t("settings.general.dateRelative")}</option><option value="absolute">{t("settings.general.dateAbsolute")}</option>
         </select>
       </Row>
-      <Row label="Time format">
+      <Row label={t("settings.general.timeFormat")}>
         <select value={prefs.timeFormat} onChange={(e) => set("timeFormat", e.target.value as Prefs["timeFormat"])}>
-          <option value="24">24-hour</option><option value="12">12-hour</option>
+          <option value="24">{t("settings.general.time24")}</option><option value="12">{t("settings.general.time12")}</option>
         </select>
       </Row>
-      <h4>Calendar</h4>
-      <Row label="First day of the week">
+      <h4>{t("settings.general.calendar")}</h4>
+      <Row label={t("settings.general.weekStart")}>
         <select value={prefs.weekStart} onChange={(e) => set("weekStart", Number(e.target.value) as Prefs["weekStart"])}>
-          <option value={1}>Monday</option><option value={0}>Sunday</option><option value={6}>Saturday</option>
+          <option value={1}>{cap(weekdayName(1, "long"))}</option><option value={0}>{cap(weekdayName(0, "long"))}</option><option value={6}>{cap(weekdayName(6, "long"))}</option>
         </select>
       </Row>
-      <Row label="Time zone" hint="Used to show event times">
+      <Row label={t("settings.general.timeZone")} hint={t("settings.general.timeZoneHint")}>
         <select value={prefs.calTz} onChange={(e) => set("calTz", e.target.value)}>
-          <option value="auto">Automatic ({systemTz()})</option>
+          <option value="auto">{t("settings.general.tzAuto", { zone: systemTz() })}</option>
           {zoneList().map((z) => <option key={z} value={z}>{z}</option>)}
         </select>
       </Row>
-      <Row label="Add invitations to my calendar when they arrive" hint="Shown as “Not responded” until you answer">
+      <Row label={t("settings.general.autoAddInvites")} hint={t("settings.general.autoAddInvitesHint")}>
         <Switch checked={prefs.autoAddInvites} onChange={(v) => set("autoAddInvites", v)} />
       </Row>
-      <Row label="Event reminders" hint="Desktop notification before events start">
+      <Row label={t("settings.general.eventReminders")} hint={t("settings.general.eventRemindersHint")}>
         <select value={prefs.eventReminderMin === null ? "" : String(prefs.eventReminderMin)} onChange={(e) => set("eventReminderMin", e.target.value === "" ? null : Number(e.target.value))}>
-          <option value="">No reminder</option>
-          {[0, 5, 10, 15, 30, 60].map((n) => <option key={n} value={n}>{n === 0 ? "At the start" : n === 60 ? "1 hour before" : `${n} minutes before`}</option>)}
+          <option value="">{t("settings.general.noReminder")}</option>
+          {[0, 5, 10, 15, 30, 60].map((n) => <option key={n} value={n}>{n === 0 ? t("settings.general.remindAtStart") : n === 60 ? t("settings.general.remind1h") : t("settings.general.remindMinutes", { n })}</option>)}
         </select>
       </Row>
-      <h4>Attachments</h4>
-      <Row label="Save attachments to" hint="Used by Save and Save all">
+      <h4>{t("settings.general.attachments")}</h4>
+      <Row label={t("settings.general.saveTo")} hint={t("settings.general.saveToHint")}>
         <div className="path-field">
-          <code title={prefs.downloadDir ?? "Downloads"}>{prefs.downloadDir ?? "Downloads"}</code>
+          <code title={prefs.downloadDir ?? t("settings.general.downloads")}>{prefs.downloadDir ?? t("settings.general.downloads")}</code>
           <button
             className="btn small"
             onClick={async () => {
-              const p = await api.pickFolder("Save attachments to");
+              const p = await api.pickFolder(t("settings.general.saveTo"));
               if (p) set("downloadDir", p);
             }}
           >
-            Change…
+            {t("settings.general.change")}
           </button>
-          {prefs.downloadDir && <button className="link small" onClick={() => set("downloadDir", null)}>Use Downloads</button>}
+          {prefs.downloadDir && <button className="link small" onClick={() => set("downloadDir", null)}>{t("settings.general.useDownloads")}</button>}
         </div>
       </Row>
-      <Row label="Ask where to save each file">
+      <Row label={t("settings.general.askWhere")}>
         <Switch checked={prefs.askWhereToSave} onChange={(v) => set("askWhereToSave", v)} />
       </Row>
-      <Row label="After saving">
+      <Row label={t("settings.general.afterSaving")}>
         <select value={prefs.afterSave} onChange={(e) => set("afterSave", e.target.value as Prefs["afterSave"])}>
-          <option value="notify">Show a notification</option>
-          <option value="reveal">Show in folder</option>
-          <option value="open">Open the file</option>
+          <option value="notify">{t("settings.general.showNotification")}</option>
+          <option value="reveal">{t("settings.general.showInFolder")}</option>
+          <option value="open">{t("settings.general.openFile")}</option>
         </select>
       </Row>
-      <Row label="Warn before opening programs and scripts" hint={riskyHint()}>
+      <Row label={t("settings.general.warnExec")} hint={riskyHint()}>
         <Switch checked={prefs.warnExecutables} onChange={(v) => set("warnExecutables", v)} />
       </Row>
-      <h4>Scheduled messages</h4>
-      <Row label="If a scheduled time passes while Hey Look! is closed">
+      <h4>{t("settings.general.scheduled")}</h4>
+      <Row label={t("settings.general.catchUp")}>
         <select value={prefs.scheduledCatchUp} onChange={(e) => set("scheduledCatchUp", e.target.value as Prefs["scheduledCatchUp"])}>
-          <option value="send">Send as soon as it opens</option>
-          <option value="ask">Ask me first</option>
+          <option value="send">{t("settings.general.sendAtOpen")}</option>
+          <option value="ask">{t("settings.general.askFirst")}</option>
         </select>
       </Row>
-      <Row label="Retry failed scheduled messages" hint="Network errors are retried 3 times, 5 minutes apart">
+      <Row label={t("settings.general.retry")} hint={t("settings.general.retryHint")}>
         <Switch checked={prefs.retryScheduled} onChange={(v) => set("retryScheduled", v)} />
       </Row>
     </div>
@@ -272,72 +295,74 @@ const PaneArt = ({ bottom }: { bottom?: boolean }) => (
 );
 
 function AppearanceTab() {
+  const t = useT();
   const { prefs, setPrefs } = useStore();
   return (
     <div>
-      <h3>Appearance</h3>
-      <div className="muted small">Changes apply immediately. The preview is generated sample mail; your real mail is not shown here.</div>
+      <h3>{t("settings.appearance.title")}</h3>
+      <div className="muted small">{t("settings.appearance.intro")}</div>
       <AppearancePreview />
 
-      <h4>Theme</h4>
+      <h4>{t("settings.appearance.theme")}</h4>
       <Cards
         value={prefs.theme}
         onChange={(v) => setPrefs({ theme: v })}
         options={[
-          { key: "light", label: "Light", art: <Swatch /> },
-          { key: "dark", label: "Dark", art: <Swatch dark /> },
-          { key: "system", label: "System", art: <Swatch half /> },
+          { key: "light", label: t("settings.appearance.light"), art: <Swatch /> },
+          { key: "dark", label: t("settings.appearance.dark"), art: <Swatch dark /> },
+          { key: "system", label: t("settings.appearance.system"), art: <Swatch half /> },
         ]}
       />
-      <h4>Primary color</h4>
-      <div className="muted small">Used for buttons, selection, links and the top bar. Dark mode automatically uses a lighter shade of it.</div>
-      <div className="accents" role="radiogroup" aria-label="Primary color">
+      <h4>{t("settings.appearance.primary")}</h4>
+      <div className="muted small">{t("settings.appearance.primaryHint")}</div>
+      <div className="accents" role="radiogroup" aria-label={t("settings.appearance.primary")}>
         {ACCENT_PRESETS.map(([hex, name]) => (
           <button
             key={hex}
             role="radio"
             aria-checked={prefs.accent.toLowerCase() === hex}
-            aria-label={name}
-            title={name}
+            aria-label={t(name)}
+            title={t(name)}
             className={`swatch ${prefs.accent.toLowerCase() === hex ? "on" : ""}`}
             style={{ background: hex }}
             onClick={() => setPrefs({ accent: hex })}
           />
         ))}
         <label className="swatch-custom">
-          <input type="color" value={validHex(prefs.accent) ? prefs.accent : DEFAULT_PREFS.accent} onChange={(e) => setPrefs({ accent: e.target.value })} aria-label="Custom primary color" />
-          <span className="muted small">Custom</span>
+          <input type="color" value={validHex(prefs.accent) ? prefs.accent : DEFAULT_PREFS.accent} onChange={(e) => setPrefs({ accent: e.target.value })} aria-label={t("settings.appearance.customPrimary")} />
+          <span className="muted small">{t("settings.appearance.custom")}</span>
         </label>
         {prefs.accent.toLowerCase() !== DEFAULT_PREFS.accent && (
-          <button className="link small" onClick={() => setPrefs({ accent: DEFAULT_PREFS.accent })}>Reset</button>
+          <button className="link small" onClick={() => setPrefs({ accent: DEFAULT_PREFS.accent })}>{t("settings.appearance.reset")}</button>
         )}
       </div>
-      <h4>Density</h4>
+      <h4>{t("settings.appearance.density")}</h4>
       <Cards
         value={prefs.density}
         onChange={(v) => setPrefs({ density: v })}
         options={[
-          { key: "full", label: "Full", art: <DensityArt gap={13} rows={3} /> },
-          { key: "medium", label: "Medium", art: <DensityArt gap={10} rows={4} /> },
-          { key: "compact", label: "Compact", art: <DensityArt gap={7} rows={5} /> },
+          { key: "full", label: t("settings.appearance.full"), art: <DensityArt gap={13} rows={3} /> },
+          { key: "medium", label: t("settings.appearance.medium"), art: <DensityArt gap={10} rows={4} /> },
+          { key: "compact", label: t("settings.appearance.compact"), art: <DensityArt gap={7} rows={5} /> },
         ]}
       />
-      <h4>Reading pane</h4>
+      <h4>{t("settings.appearance.readingPane")}</h4>
       <Cards
         value={prefs.readingPane}
         onChange={(v) => setPrefs({ readingPane: v })}
         options={[
-          { key: "right", label: "Right", art: <PaneArt /> },
-          { key: "bottom", label: "Bottom", art: <PaneArt bottom /> },
+          { key: "right", label: t("settings.appearance.right"), art: <PaneArt /> },
+          { key: "bottom", label: t("settings.appearance.bottom"), art: <PaneArt bottom /> },
         ]}
       />
-      <h4>Message list</h4>
-      <Row label="Show message preview"><Switch checked={prefs.preview} onChange={(v) => setPrefs({ preview: v })} /></Row>
-      <Row label="Show as conversations" hint="Group messages of the same thread"><Switch checked={prefs.conversations} onChange={(v) => setPrefs({ conversations: v })} /></Row>
-      <Row label="Focused Inbox" hint="Newsletters and bulk mail go to the Other tab"><Switch checked={prefs.focused} onChange={(v) => setPrefs({ focused: v })} /></Row>
-      <Row label="Oldest on top"><Switch checked={prefs.sortAsc} onChange={(v) => setPrefs({ sortAsc: v })} /></Row>
-      <Row label="Text size">
+      <h4>{t("settings.appearance.messageList")}</h4>
+      <Row label={t("settings.appearance.preview")}><Switch checked={prefs.preview} onChange={(v) => setPrefs({ preview: v })} /></Row>
+      <Row label={t("settings.appearance.conversations")} hint={t("settings.appearance.conversationsHint")}><Switch checked={prefs.conversations} onChange={(v) => setPrefs({ conversations: v })} /></Row>
+      <Row label={t("settings.appearance.focused")} hint={t("settings.appearance.focusedHint")}><Switch checked={prefs.focused} onChange={(v) => setPrefs({ focused: v })} /></Row>
+      <Row label={t("settings.appearance.oldestOnTop")}><Switch checked={prefs.sortAsc} onChange={(v) => setPrefs({ sortAsc: v })} /></Row>
+      <Row label={t("settings.appearance.textSize")}>
         <select value={prefs.fontSize} onChange={(e) => setPrefs({ fontSize: Number(e.target.value) })}>
+          {/* i18n-ok: unit */}
           {[12, 13, 14, 15, 16, 18].map((n) => <option key={n} value={n}>{n} px</option>)}
         </select>
       </Row>
@@ -363,7 +388,8 @@ const OAUTH = {
   },
 };
 
-function OAuthBlock({ kind }: { kind: OAuthKind }) {
+function OAuthBlock({ kind, onAppPassword }: { kind: OAuthKind; onAppPassword: () => void }) {
+  const t = useT();
   const { showToast } = useStore();
   const cfg = OAUTH[kind];
   const [cid, setCid] = useState("");
@@ -374,6 +400,10 @@ function OAuthBlock({ kind }: { kind: OAuthKind }) {
   const [fromEnv, setFromEnv] = useState(false);
   const [tenant, setTenant] = useState("");
   const [error, setError] = useState("");
+  const [ended, setEnded] = useState<SignInEnd | null>(null);
+  // a sign-in is waiting for the browser: leaving this screen (closing Settings, switching the tab) ends the wait and frees the port
+  const waiting = useRef(false);
+  useEffect(() => () => { if (waiting.current) void api.oauthCancel().catch(() => undefined); }, []);
   useEffect(() => {
     const envCheck = kind === "google" ? api.googleEnvConfigured() : api.microsoftEnvConfigured();
     void envCheck.then(setFromEnv).catch(() => undefined);
@@ -387,35 +417,45 @@ function OAuthBlock({ kind }: { kind: OAuthKind }) {
   const go = async () => {
     setBusy(true);
     setError("");
+    setEnded(null);
+    waiting.current = true;
     try {
       const acc = kind === "google"
         ? await api.googleSignIn(cid, sec, name)
         : await api.microsoftSignIn(cid, "", tenant, name);
+      waiting.current = false;
       // closes this dialog, opens the new account's Inbox and starts its first sync
       void useStore.getState().accountAdded(acc);
     } catch (e) {
-      setError(friendlyError(e)); // stay here: the message is next to the button, and in a toast
-      showToast(friendlyError(e), undefined, "error");
+      waiting.current = false;
+      // timed out, cancelled, refused, or the organization has to approve: a calm notice with advice, and no toast
+      const end = signInEnd(kind, "mail", e);
+      if (end) {
+        setEnded(end);
+      } else {
+        setError(friendlyError(e)); // stay here: the message is next to the button, and in a toast
+        showToast(friendlyError(e), undefined, "error");
+      }
     } finally {
       setBusy(false);
     }
   };
   return (
     <div className="set-card">
-      <h4>Sign in with {cfg.label}</h4>
-      <div className="muted small">No password is stored. A browser window opens for you to sign in with {cfg.label}.</div>
+      <h4>{t("settings.add.signInWith", { provider: cfg.label })}</h4>
+      <div className="muted small">{t("settings.add.noPassword", { provider: cfg.label })}</div>
       <div className="form">
-        {!fromEnv && !cid && <div className="muted small" role="status">Sign-in with {cfg.label} is not available in this build.</div>}
+        {!fromEnv && !cid && <div className="muted small" role="status">{t("settings.add.notAvailable", { provider: cfg.label })}</div>}
         {!fromEnv && (
           <details className="advanced">
-            <summary>Advanced</summary>
+            <summary>{t("settings.add.advanced")}</summary>
             <div className="form">
-              <label>Client ID</label>
-              <input aria-label="Client ID" value={cid} onChange={(e) => setCid(e.target.value)} placeholder={cfg.idPlaceholder} />
+              <label>{t("settings.add.clientId")}</label>
+              <input aria-label={t("settings.add.clientId")} value={cid} onChange={(e) => setCid(e.target.value)} placeholder={cfg.idPlaceholder} />
               {kind === "google" && (
                 <>
-                  <label>Client secret</label>
-                  <input aria-label="Client secret" type="password" value={sec} onChange={(e) => setSec(e.target.value)} placeholder={secSaved ? `Saved in ${credStore()}` : ""} />
+                  <label>{t("settings.add.clientSecret")}</label>
+                  <input aria-label={t("settings.add.clientSecret")} type="password" value={sec} onChange={(e) => setSec(e.target.value)} placeholder={secSaved ? t("settings.add.savedIn", { store: credStore() }) : ""} />
                 </>
               )}
             </div>
@@ -423,44 +463,51 @@ function OAuthBlock({ kind }: { kind: OAuthKind }) {
         )}
         {kind === "microsoft" && (
           <>
-            <label>Tenant (optional)</label>
-            <input aria-label="Tenant (optional)" value={tenant} onChange={(e) => setTenant(e.target.value)} placeholder="common" />
-            <div className="muted small">Leave empty unless your organisation gave you a tenant ID or domain.</div>
+            <label>{t("settings.add.tenant")}</label>
+            <input aria-label={t("settings.add.tenant")} value={tenant} onChange={(e) => setTenant(e.target.value)} placeholder="common" />
+            <div className="muted small">{t("settings.add.tenantHint")}</div>
           </>
         )}
-        <label>Display name (optional)</label>
-        <input aria-label="Display name (optional)" placeholder="Your name" value={name} onChange={(e) => setName(e.target.value)} />
+        <label>{t("settings.add.displayNameOpt")}</label>
+        <input aria-label={t("settings.add.displayNameOpt")} placeholder={t("settings.add.yourName")} value={name} onChange={(e) => setName(e.target.value)} />
         {error && <div className="notice bad" role="alert">{error}</div>}
-        <button className="btn primary" disabled={busy || (!fromEnv && !cid)} onClick={() => void go()}>
-          {busy ? `Waiting for ${cfg.label}…` : `Sign in with ${cfg.label}`}
-        </button>
+        {ended && <SignInEnded provider={kind} purpose="mail" end={ended} onAppPassword={kind === "google" ? onAppPassword : undefined} />}
+        <div className="row-inline">
+          <button className="btn primary" disabled={busy || (!fromEnv && !cid)} onClick={() => void go()}>
+            {busy ? t("settings.add.waitingFor", { provider: cfg.label }) : t("settings.add.signInWith", { provider: cfg.label })}
+          </button>
+          {busy && <button className="btn" autoFocus onClick={() => void api.oauthCancel()}>{t("common.cancel")}</button>}
+        </div>
+        {busy && <SignInWaiting provider={kind} lead={t("signin.waiting.mail")} />}
       </div>
     </div>
   );
 }
 
-const SOURCE_LABEL: Record<Discovered["source"], string> = {
-  "built-in": "built-in settings",
-  autoconfig: "the provider's autoconfig",
-  ispdb: "the Thunderbird ISPDB",
-  "dns-srv": "DNS SRV records",
-  mx: "the MX record",
-  guess: "common host names (not verified)",
+/** The sentence that says where the detected server settings came from, per source. */
+const SOURCE_LABEL: Record<Discovered["source"], Key> = {
+  "built-in": "settings.add.found.builtIn",
+  autoconfig: "settings.add.found.autoconfig",
+  ispdb: "settings.add.found.ispdb",
+  "dns-srv": "settings.add.found.dnsSrv",
+  mx: "settings.add.found.mx",
+  guess: "settings.add.found.guess",
 };
 
-function ImapForm() {
+function ImapForm({ initialProvider = "custom" }: { initialProvider?: string }) {
+  const t = useT();
   const { showToast } = useStore();
-  const [provider, setProvider] = useState("custom");
+  const [provider, setProvider] = useState(initialProvider);
   const [email, setEmail] = useState("");
   const [name, setName] = useState("");
   const [pw, setPw] = useState("");
   const startAdv = (p: string) => ({ ...PROVIDERS[p], imapSsl: PROVIDERS[p].imapSsl ?? PROVIDERS[p].imapPort === 993 });
-  const [adv, setAdv] = useState(startAdv("custom"));
+  const [adv, setAdv] = useState(startAdv(initialProvider));
   const [username, setUsername] = useState("");
   const [sepSmtp, setSepSmtp] = useState(false);
   const [smtpUser, setSmtpUser] = useState("");
   const [smtpPw, setSmtpPw] = useState("");
-  const [insecure, setInsecure] = useState(false);
+  const [insecure, setInsecure] = useState(!!PROVIDERS[initialProvider].insecure);
   const [busy, setBusy] = useState(false);
   const [detecting, setDetecting] = useState(false);
   const [found, setFound] = useState<Discovered | null>(null);
@@ -478,7 +525,7 @@ function ImapForm() {
     try {
       const d = await api.discoverServer(email);
       if (!d) {
-        showToast("No server settings found for this address. Enter them manually.", undefined, "error");
+        showToast(t("settings.add.noServerFound"), undefined, "error");
         return;
       }
       setProvider("custom");
@@ -520,142 +567,147 @@ function ImapForm() {
   };
   return (
     <div className="set-card">
-      <h4>Other account (IMAP / SMTP)</h4>
+      <h4>{t("settings.add.otherAccount")}</h4>
       <div className="form">
-        <label>Provider</label>
-        <select aria-label="Provider" value={provider} onChange={(e) => pick(e.target.value)}>
+        <label>{t("settings.add.provider")}</label>
+        <select aria-label={t("settings.add.provider")} value={provider} onChange={(e) => pick(e.target.value)}>
           {Object.entries(PROVIDERS).map(([k, v]) => <option key={k} value={k}>{v.label}</option>)}
         </select>
         {PROVIDERS[provider].hint && <div className="notice">{PROVIDERS[provider].hint}</div>}
-        <label>Email</label>
+        <label>{t("settings.add.email")}</label>
         <div className="row-inline">
-          <input aria-label="Email" placeholder="name@example.com" value={email} onChange={(e) => setEmail(e.target.value)} />
-          <button className="btn" disabled={detecting || !email.includes("@")} onClick={() => void detect()} title="Look up the server settings for this address">
-            {detecting ? "Detecting…" : "Detect settings"}
+          <input aria-label={t("settings.add.email")} placeholder="name@example.com" value={email} onChange={(e) => setEmail(e.target.value)} />
+          <button className="btn" disabled={detecting || !email.includes("@")} onClick={() => void detect()} title={t("settings.add.detectTitle")}>
+            {detecting ? t("settings.add.detecting") : t("settings.add.detect")}
           </button>
         </div>
         {found && (
           <div className="notice">
-            Settings found via {SOURCE_LABEL[found.source]}. {found.source === "guess" ? "Check them before adding. " : ""}
-            {found.oauth && <>This provider also supports signing in without a password: use the {found.oauth === "google" ? "Google" : "Microsoft"} tab.</>}
+            {t(SOURCE_LABEL[found.source])} {found.source === "guess" ? `${t("settings.add.checkThem")} ` : ""}
+            {found.oauth && <>{t("settings.add.oauthAlso", { provider: found.oauth === "google" ? "Google" : "Microsoft" })}</>}
           </div>
         )}
-        <label>Display name</label>
-        <input aria-label="Display name" placeholder="Your name" value={name} onChange={(e) => setName(e.target.value)} />
-        <label>Password / app password</label>
-        <input aria-label="Password / app password" type="password" value={pw} onChange={(e) => setPw(e.target.value)} />
+        <label>{t("settings.add.displayName")}</label>
+        <input aria-label={t("settings.add.displayName")} placeholder={t("settings.add.yourName")} value={name} onChange={(e) => setName(e.target.value)} />
+        <label>{t("settings.add.password")}</label>
+        <input aria-label={t("settings.add.password")} type="password" value={pw} onChange={(e) => setPw(e.target.value)} />
         {showAdv && (
           <>
-            <label>Username (if different from email)</label>
-            <input aria-label="Username (if different from email)" placeholder="name@example.com" value={username} onChange={(e) => setUsername(e.target.value)} />
-            <label>IMAP host / port / security</label>
+            <label>{t("settings.add.username")}</label>
+            <input aria-label={t("settings.add.username")} placeholder="name@example.com" value={username} onChange={(e) => setUsername(e.target.value)} />
+            <label>{t("settings.add.imapServer")}</label>
             <div className="row-inline">
-              <input aria-label="IMAP host" placeholder="imap.example.com" value={adv.imapHost} onChange={(e) => setAdv({ ...adv, imapHost: e.target.value })} />
-              <input type="number" aria-label="IMAP port" placeholder="993" value={adv.imapPort} onChange={(e) => setAdv({ ...adv, imapPort: Number(e.target.value) })} />
-              <select aria-label="IMAP security" value={adv.imapSsl ? "ssl" : "starttls"} onChange={(e) => setAdv({ ...adv, imapSsl: e.target.value === "ssl" })}>
+              <input aria-label={t("settings.add.imapHost")} placeholder="imap.example.com" value={adv.imapHost} onChange={(e) => setAdv({ ...adv, imapHost: e.target.value })} />
+              <input type="number" aria-label={t("settings.add.imapPort")} placeholder="993" value={adv.imapPort} onChange={(e) => setAdv({ ...adv, imapPort: Number(e.target.value) })} />
+              <select aria-label={t("settings.add.imapSecurity")} value={adv.imapSsl ? "ssl" : "starttls"} onChange={(e) => setAdv({ ...adv, imapSsl: e.target.value === "ssl" })}>
+                {/* i18n-ok: protocol names */}
                 <option value="ssl">SSL/TLS</option><option value="starttls">STARTTLS</option>
               </select>
             </div>
-            <label>SMTP host / port / security</label>
+            <label>{t("settings.add.smtpServer")}</label>
             <div className="row-inline">
-              <input aria-label="SMTP host" placeholder="smtp.example.com" value={adv.smtpHost} onChange={(e) => setAdv({ ...adv, smtpHost: e.target.value })} />
-              <input type="number" aria-label="SMTP port" placeholder="465" value={adv.smtpPort} onChange={(e) => setAdv({ ...adv, smtpPort: Number(e.target.value) })} />
-              <select aria-label="SMTP security" value={adv.smtpSecurity} onChange={(e) => setAdv({ ...adv, smtpSecurity: e.target.value as "ssl" | "starttls" })}>
+              <input aria-label={t("settings.add.smtpHost")} placeholder="smtp.example.com" value={adv.smtpHost} onChange={(e) => setAdv({ ...adv, smtpHost: e.target.value })} />
+              <input type="number" aria-label={t("settings.add.smtpPort")} placeholder="465" value={adv.smtpPort} onChange={(e) => setAdv({ ...adv, smtpPort: Number(e.target.value) })} />
+              <select aria-label={t("settings.add.smtpSecurity")} value={adv.smtpSecurity} onChange={(e) => setAdv({ ...adv, smtpSecurity: e.target.value as "ssl" | "starttls" })}>
+                {/* i18n-ok: protocol names */}
                 <option value="ssl">SSL/TLS</option><option value="starttls">STARTTLS</option>
               </select>
             </div>
             <div className="row-inline">
-              <Switch checked={sepSmtp} onChange={setSepSmtp} label="Use a different login for sending (SMTP)" />
+              <Switch checked={sepSmtp} onChange={setSepSmtp} label={t("settings.add.sepSmtp")} />
             </div>
             {sepSmtp && (
               <>
-                <label>SMTP username</label>
-                <input aria-label="SMTP username" value={smtpUser} onChange={(e) => setSmtpUser(e.target.value)} placeholder={username || email} />
-                <label>SMTP password (empty = same as above)</label>
-                <input aria-label="SMTP password" type="password" value={smtpPw} onChange={(e) => setSmtpPw(e.target.value)} />
+                <label>{t("settings.add.smtpUsername")}</label>
+                <input aria-label={t("settings.add.smtpUsername")} value={smtpUser} onChange={(e) => setSmtpUser(e.target.value)} placeholder={username || email} />
+                <label>{t("settings.add.smtpPasswordLabel")}</label>
+                <input aria-label={t("settings.add.smtpPassword")} type="password" value={smtpPw} onChange={(e) => setSmtpPw(e.target.value)} />
               </>
             )}
             <div className="row-inline">
-              <Switch checked={insecure} onChange={setInsecure} label="Trust this server's certificate (self-signed or private CA)" />
+              <Switch checked={insecure} onChange={setInsecure} label={t("settings.add.trustCert")} />
             </div>
             {insecure && (
               <div className="notice">
-                The certificate is not checked, so anyone on the network path could impersonate this server. Use this only for servers on
-                this computer or your own network.
+                {t("settings.add.trustCertWarning")}
               </div>
             )}
           </>
         )}
         {error && <div className="notice bad" role="alert">{error}</div>}
         <button className="btn primary" disabled={busy || !email || !pw} onClick={() => void add()}>
-          <Plus size={14} /> {busy ? "Connecting…" : "Add account"}
+          <Plus size={14} /> {busy ? t("settings.add.connecting") : t("settings.add.addAccount")}
         </button>
-        <div className="muted small">Passwords are stored in {credStore()}, never in the database.</div>
+        <div className="muted small">{t("settings.add.passwordsStored", { store: credStore() })}</div>
       </div>
     </div>
   );
 }
 
 function AddAccountTab() {
+  const t = useT();
   const [kind, setKind] = useState<OAuthKind | "imap">("google");
+  // "Add Gmail with an app password" (after a Google sign-in that ended without access) opens the form with the Gmail preset
+  const [preset, setPreset] = useState("custom");
   return (
     <div>
-      <h3>Add account</h3>
-      <Seg value={kind} onChange={setKind} options={[["google", "Google"], ["microsoft", "Microsoft"], ["imap", "iCloud, Yahoo, other"]]} />
-      {kind === "imap" ? <ImapForm /> : <OAuthBlock kind={kind} />}
+      <h3>{t("settings.add.addAccount")}</h3>
+      <Seg value={kind} onChange={(k) => { setPreset("custom"); setKind(k); }} options={[["google", "Google"], ["microsoft", "Microsoft"], ["imap", t("settings.add.imapTab")]]} />
+      {kind === "imap" ? <ImapForm key={preset} initialProvider={preset} /> : <OAuthBlock key={kind} kind={kind} onAppPassword={() => { setPreset("gmail"); setKind("imap"); }} />}
     </div>
   );
 }
 
 // ---------------------------------------------------------------- Mailbox panels (scope = null | accountId)
 function ComposingPanel({ scope }: { scope: string | null }) {
+  const t = useT();
   const [sigs, setSigs] = useState<Signature[]>([]);
   useEffect(() => void api.listSignatures().then(setSigs), []);
   const usable = sigs.filter((s) => !s.accountId || s.accountId === scope || scope === null);
   return (
     <>
-      <OvRow scope={scope} k="replyDefault" label="Default reply action">
+      <OvRow scope={scope} k="replyDefault" label={t("settings.composing.replyDefault")}>
         {(v, set) => (
           <select value={v} onChange={(e) => set(e.target.value as Prefs["replyDefault"])}>
-            <option value="reply">Reply</option>
-            <option value="replyAll">Reply all</option>
+            <option value="reply">{t("settings.action.reply")}</option>
+            <option value="replyAll">{t("settings.composing.replyAll")}</option>
           </select>
         )}
       </OvRow>
-      <OvRow scope={scope} k="undoSeconds" label="Undo send" hint="Delay before a message is actually sent">
+      <OvRow scope={scope} k="undoSeconds" label={t("settings.composing.undoSend")} hint={t("settings.composing.undoSendHint")}>
         {(v, set) => (
           <select value={v} onChange={(e) => set(Number(e.target.value))}>
-            {[0, 5, 10, 20, 30, 60].map((n) => <option key={n} value={n}>{n === 0 ? "Off" : `${n} seconds`}</option>)}
+            {[0, 5, 10, 20, 30, 60].map((n) => <option key={n} value={n}>{n === 0 ? t("common.off") : t("settings.unit.seconds", { n })}</option>)}
           </select>
         )}
       </OvRow>
-      <OvRow scope={scope} k="autoCc" label="Auto Cc" hint="Added to Cc on every new message">
+      <OvRow scope={scope} k="autoCc" label={t("settings.composing.autoCc")} hint={t("settings.composing.autoCcHint")}>
         {(v, set) => <input value={v} onChange={(e) => set(e.target.value)} placeholder="name@example.com" />}
       </OvRow>
-      <OvRow scope={scope} k="autoBcc" label="Auto Bcc">
+      <OvRow scope={scope} k="autoBcc" label={t("settings.composing.autoBcc")}>
         {(v, set) => <input value={v} onChange={(e) => set(e.target.value)} placeholder="name@example.com" />}
       </OvRow>
-      <OvRow scope={scope} k="signatureId" label="Signature" hint="Automatic uses the default signature of this scope">
+      <OvRow scope={scope} k="signatureId" label={t("settings.composing.signature")} hint={t("settings.composing.signatureHint")}>
         {(v, set) => (
           <select value={v} onChange={(e) => set(e.target.value)}>
-            <option value="">Automatic (default)</option>
-            <option value="none">No signature</option>
+            <option value="">{t("settings.composing.sigAuto")}</option>
+            <option value="none">{t("settings.composing.sigNone")}</option>
             {usable.map((s) => <option key={s.id} value={s.id}>{s.name}</option>)}
           </select>
         )}
       </OvRow>
-      <OvRow scope={scope} k="inlinePictures" label="Pasted and dropped pictures" hint="Put in the message, or attached as files">
+      <OvRow scope={scope} k="inlinePictures" label={t("settings.composing.pictures")} hint={t("settings.composing.picturesHint")}>
         {(v, set) => (
           <select value={v} onChange={(e) => set(e.target.value as Prefs["inlinePictures"])}>
-            <option value="inline">Put in the message</option>
-            <option value="attach">Attach as files</option>
+            <option value="inline">{t("settings.composing.picInline")}</option>
+            <option value="attach">{t("settings.composing.picAttach")}</option>
           </select>
         )}
       </OvRow>
-      <OvRow scope={scope} k="autoResizePictures" label="Resize large pictures automatically" hint="Pictures over 1 MB are reduced to 1600 px wide when inserted">
+      <OvRow scope={scope} k="autoResizePictures" label={t("settings.composing.resize")} hint={t("settings.composing.resizeHint")}>
         {(v, set) => <Switch checked={v} onChange={set} />}
       </OvRow>
-      <OvRow scope={scope} k="signatureOnReply" label="Add signature to replies">
+      <OvRow scope={scope} k="signatureOnReply" label={t("settings.composing.sigOnReply")}>
         {(v, set) => <Switch checked={v} onChange={set} />}
       </OvRow>
     </>
@@ -675,6 +727,7 @@ function ScopedList<T extends { id: string; accountId?: string | null }>({
   onDelete: (i: T) => void;
   empty: string;
 }) {
+  const t = useT();
   const own = items.filter((i) => (i.accountId ?? null) === scope);
   const inherited = scope ? items.filter((i) => !i.accountId) : [];
   return (
@@ -684,16 +737,16 @@ function ScopedList<T extends { id: string; accountId?: string | null }>({
         <div key={i.id} className="list-row" onClick={() => onOpen(i)}>
           <div className="lr-name"><span className="lr-title">{title(i)}</span>{render?.(i)}</div>
           {tags?.(i) && <span className="lr-tags">{tags(i)}</span>}
-          <button className="icon-btn" title="Delete" aria-label="Delete" onClick={(e) => { e.stopPropagation(); onDelete(i); }}><Trash2 size={15} /></button>
+          <button className="icon-btn" title={t("common.delete")} aria-label={t("common.delete")} onClick={(e) => { e.stopPropagation(); onDelete(i); }}><Trash2 size={15} /></button>
         </div>
       ))}
       {inherited.length > 0 && (
         <>
-          <div className="muted small inh-title">Also applies here (from All accounts)</div>
+          <div className="muted small inh-title">{t("settings.scope.alsoApplies")}</div>
           {inherited.map((i) => (
             <div key={i.id} className="list-row inherited">
               <div className="lr-name"><span className="lr-title">{title(i)}</span></div>
-              <span className="lr-tags"><span className="ov-tag">All accounts</span></span>
+              <span className="lr-tags"><span className="ov-tag">{t("settings.scope.allAccounts")}</span></span>
             </div>
           ))}
         </>
@@ -703,6 +756,7 @@ function ScopedList<T extends { id: string; accountId?: string | null }>({
 }
 
 function SignaturesPanel({ scope }: { scope: string | null }) {
+  const t = useT();
   const { confirm } = useStore();
   const [list, setList] = useState<Signature[]>([]);
   const [cur, setCur] = useState<Signature | null>(null);
@@ -714,30 +768,30 @@ function SignaturesPanel({ scope }: { scope: string | null }) {
       <ScopedList
         scope={scope}
         items={list}
-        empty={scope ? "No signature of its own. This account uses the ones from All accounts." : "No signatures yet."}
+        empty={scope ? t("settings.sig.emptyAccount") : t("settings.sig.empty")}
         title={(s) => s.name}
-        tags={(s) => s.isDefault && <span className="ov-tag own">default</span>}
+        tags={(s) => s.isDefault && <span className="ov-tag own">{t("settings.sig.default")}</span>}
         onOpen={setCur}
         onDelete={async (s) => {
-          if (await confirm({ title: `Delete the signature “${s.name}”?`, confirmLabel: "Delete", danger: true })) {
+          if (await confirm({ title: t("settings.sig.deleteTitle", { name: s.name }), confirmLabel: t("common.delete"), danger: true })) {
             await api.deleteSignature(s.id);
             void load();
           }
         }}
       />
-      <button className="btn" onClick={() => setCur({ id: crypto.randomUUID(), accountId: scope, name: "New signature", html: "", isDefault: !own.some((s) => s.isDefault) })}>
-        <Plus size={14} /> New signature
+      <button className="btn" onClick={() => setCur({ id: crypto.randomUUID(), accountId: scope, name: t("settings.sig.new"), html: "", isDefault: !own.some((s) => s.isDefault) })}>
+        <Plus size={14} /> {t("settings.sig.new")}
       </button>
       {cur && (
         <div className="form set-card">
-          <label>Name</label>
-          <input aria-label="Name" placeholder="Work signature" value={cur.name} onChange={(e) => setCur({ ...cur, name: e.target.value })} />
-          <label>Signature</label>
-          <RichEditor key={cur.id} label="Signature" value={cur.html} onChange={(html) => setCur((c) => (c ? { ...c, html } : c))} placeholder="Your name, title, phone…" />
-          <Switch checked={cur.isDefault} onChange={(v) => setCur({ ...cur, isDefault: v })} label={scope ? "Default for this account" : "Default for all accounts"} />
+          <label>{t("settings.form.name")}</label>
+          <input aria-label={t("settings.form.name")} placeholder={t("settings.sig.namePlaceholder")} value={cur.name} onChange={(e) => setCur({ ...cur, name: e.target.value })} />
+          <label>{t("settings.composing.signature")}</label>
+          <RichEditor key={cur.id} label={t("settings.composing.signature")} value={cur.html} onChange={(html) => setCur((c) => (c ? { ...c, html } : c))} placeholder={t("settings.sig.bodyPlaceholder")} />
+          <Switch checked={cur.isDefault} onChange={(v) => setCur({ ...cur, isDefault: v })} label={scope ? t("settings.sig.defaultThis") : t("settings.sig.defaultAll")} />
           <div className="row-inline">
-            <button className="btn primary" onClick={async () => { await api.saveSignature(cur); setCur(null); void load(); }}>Save</button>
-            <button className="btn" onClick={() => setCur(null)}>Cancel</button>
+            <button className="btn primary" onClick={async () => { await api.saveSignature(cur); setCur(null); void load(); }}>{t("common.save")}</button>
+            <button className="btn" onClick={() => setCur(null)}>{t("common.cancel")}</button>
           </div>
         </div>
       )}
@@ -746,6 +800,7 @@ function SignaturesPanel({ scope }: { scope: string | null }) {
 }
 
 function TemplatesPanel({ scope }: { scope: string | null }) {
+  const t = useT();
   const { confirm } = useStore();
   const [list, setList] = useState<Template[]>([]);
   const [cur, setCur] = useState<Template | null>(null);
@@ -756,30 +811,30 @@ function TemplatesPanel({ scope }: { scope: string | null }) {
       <ScopedList
         scope={scope}
         items={list}
-        empty={scope ? "No template of its own. This account can use the ones from All accounts." : "No templates yet."}
-        title={(t) => t.name}
+        empty={scope ? t("settings.tpl.emptyAccount") : t("settings.tpl.empty")}
+        title={(tpl) => tpl.name}
         onOpen={setCur}
-        onDelete={async (t) => {
-          if (await confirm({ title: `Delete the template “${t.name}”?`, confirmLabel: "Delete", danger: true })) {
-            await api.deleteTemplate(t.id);
+        onDelete={async (tpl) => {
+          if (await confirm({ title: t("settings.tpl.deleteTitle", { name: tpl.name }), confirmLabel: t("common.delete"), danger: true })) {
+            await api.deleteTemplate(tpl.id);
             void load();
           }
         }}
       />
-      <button className="btn" onClick={() => setCur({ id: crypto.randomUUID(), accountId: scope, name: "New template", subject: "", body: "" })}>
-        <Plus size={14} /> New template
+      <button className="btn" onClick={() => setCur({ id: crypto.randomUUID(), accountId: scope, name: t("settings.tpl.new"), subject: "", body: "" })}>
+        <Plus size={14} /> {t("settings.tpl.new")}
       </button>
       {cur && (
         <div className="form set-card">
-          <label>Name</label>
-          <input aria-label="Name" placeholder="Weekly report" value={cur.name} onChange={(e) => setCur({ ...cur, name: e.target.value })} />
-          <label>Subject (optional)</label>
-          <input aria-label="Subject (optional)" placeholder="Weekly status update" value={cur.subject} onChange={(e) => setCur({ ...cur, subject: e.target.value })} />
-          <label>Message</label>
-          <RichEditor key={cur.id} label="Message" value={cur.body} onChange={(body) => setCur((c) => (c ? { ...c, body } : c))} minHeight={180} />
+          <label>{t("settings.form.name")}</label>
+          <input aria-label={t("settings.form.name")} placeholder={t("settings.tpl.namePlaceholder")} value={cur.name} onChange={(e) => setCur({ ...cur, name: e.target.value })} />
+          <label>{t("settings.tpl.subjectOpt")}</label>
+          <input aria-label={t("settings.tpl.subjectOpt")} placeholder={t("settings.tpl.subjectPlaceholder")} value={cur.subject} onChange={(e) => setCur({ ...cur, subject: e.target.value })} />
+          <label>{t("settings.tpl.message")}</label>
+          <RichEditor key={cur.id} label={t("settings.tpl.message")} value={cur.body} onChange={(body) => setCur((c) => (c ? { ...c, body } : c))} minHeight={180} />
           <div className="row-inline">
-            <button className="btn primary" onClick={async () => { await api.saveTemplate(cur); setCur(null); void load(); }}>Save</button>
-            <button className="btn" onClick={() => setCur(null)}>Cancel</button>
+            <button className="btn primary" onClick={async () => { await api.saveTemplate(cur); setCur(null); void load(); }}>{t("common.save")}</button>
+            <button className="btn" onClick={() => setCur(null)}>{t("common.cancel")}</button>
           </div>
         </div>
       )}
@@ -787,7 +842,16 @@ function TemplatesPanel({ scope }: { scope: string | null }) {
   );
 }
 
+/** The words a filter is described with in the list (field, condition, action), lower case as the rule reads: "from contains “x”". */
+const FIELD_WORD: Record<Rule["field"], Key> = { from: "settings.filters.wFrom", to: "settings.filters.wTo", subject: "settings.filters.wSubject", any: "settings.filters.wAny" };
+const OP_WORD: Record<Rule["op"], Key> = { contains: "settings.filters.opContains", equals: "settings.filters.opEquals" };
+const ACTION_WORD: Record<Rule["action"], Key> = {
+  archive: "settings.filters.wArchive", trash: "settings.filters.wTrash", junk: "settings.filters.wJunk", read: "settings.filters.wRead",
+  star: "settings.filters.wStar", pin: "settings.filters.wPin", move: "settings.filters.wMove",
+};
+
 function FiltersPanel({ scope }: { scope: string | null }) {
+  const t = useT();
   const { folders, showToast, confirm } = useStore();
   const [list, setList] = useState<Rule[]>([]);
   const [cur, setCur] = useState<Rule | null>(null);
@@ -796,62 +860,62 @@ function FiltersPanel({ scope }: { scope: string | null }) {
   const roles = Array.from(new Set(folders.filter((f) => !scope || f.accountId === scope).map((f) => f.key))).filter((k) => !["inbox", "sent", "drafts"].includes(k));
   return (
     <>
-      <div className="muted small pad">Filters run on new inbox mail when it arrives, also while the app sits in the tray.</div>
+      <div className="muted small pad">{t("settings.filters.intro")}</div>
       <ScopedList
         scope={scope}
         items={list}
-        empty="No filters yet."
-        title={(r) => r.name || `${r.field} ${r.op} “${r.value}”`}
-        tags={(r) => !r.enabled && <span className="ov-tag">off</span>}
-        render={(r) => <div className="muted small">{r.action}{r.arg ? ` → ${folderLabel(r.arg)}` : ""}</div>}
+        empty={t("settings.filters.empty")}
+        title={(r) => r.name || t("settings.filters.autoName", { field: t(FIELD_WORD[r.field]), op: t(OP_WORD[r.op]), value: r.value })}
+        tags={(r) => !r.enabled && <span className="ov-tag">{t("settings.filters.off")}</span>}
+        render={(r) => <div className="muted small">{t(ACTION_WORD[r.action])}{r.arg ? ` → ${folderLabel(r.arg)}` : ""}</div>}
         onOpen={setCur}
         onDelete={async (r) => {
-          if (await confirm({ title: "Delete this filter?", confirmLabel: "Delete", danger: true })) {
+          if (await confirm({ title: t("settings.filters.deleteTitle"), confirmLabel: t("common.delete"), danger: true })) {
             await api.deleteRule(r.id);
             void load();
           }
         }}
       />
       <button className="btn" onClick={() => setCur({ id: crypto.randomUUID(), accountId: scope, name: "", field: "from", op: "contains", value: "", action: "archive", arg: null, enabled: true })}>
-        <Plus size={14} /> New filter
+        <Plus size={14} /> {t("settings.filters.new")}
       </button>
       {cur && (
         <div className="form set-card">
-          <label>Name</label>
-          <input aria-label="Name" placeholder="Move newsletters" value={cur.name} onChange={(e) => setCur({ ...cur, name: e.target.value })} />
-          <label>When</label>
+          <label>{t("settings.form.name")}</label>
+          <input aria-label={t("settings.form.name")} placeholder={t("settings.filters.namePlaceholder")} value={cur.name} onChange={(e) => setCur({ ...cur, name: e.target.value })} />
+          <label>{t("settings.filters.when")}</label>
           <div className="row-inline">
-            <select aria-label="Rule field" value={cur.field} onChange={(e) => setCur({ ...cur, field: e.target.value as Rule["field"] })}>
-              <option value="from">From</option><option value="to">To</option><option value="subject">Subject</option><option value="any">Any field</option>
+            <select aria-label={t("settings.filters.ruleField")} value={cur.field} onChange={(e) => setCur({ ...cur, field: e.target.value as Rule["field"] })}>
+              <option value="from">{t("settings.filters.from")}</option><option value="to">{t("settings.filters.to")}</option><option value="subject">{t("settings.filters.subject")}</option><option value="any">{t("settings.filters.anyField")}</option>
             </select>
-            <select aria-label="Rule condition" value={cur.op} onChange={(e) => setCur({ ...cur, op: e.target.value as Rule["op"] })}>
-              <option value="contains">contains</option><option value="equals">equals</option>
+            <select aria-label={t("settings.filters.ruleCondition")} value={cur.op} onChange={(e) => setCur({ ...cur, op: e.target.value as Rule["op"] })}>
+              <option value="contains">{t("settings.filters.opContains")}</option><option value="equals">{t("settings.filters.opEquals")}</option>
             </select>
-            <input aria-label="Rule text" placeholder="newsletter@example.com" value={cur.value} onChange={(e) => setCur({ ...cur, value: e.target.value })} />
+            <input aria-label={t("settings.filters.ruleText")} placeholder="newsletter@example.com" value={cur.value} onChange={(e) => setCur({ ...cur, value: e.target.value })} />
           </div>
-          <label>Then</label>
+          <label>{t("settings.filters.then")}</label>
           <div className="row-inline">
-            <select aria-label="Rule action" value={cur.action} onChange={(e) => setCur({ ...cur, action: e.target.value as Rule["action"] })}>
-              <option value="archive">Archive</option><option value="trash">Delete</option><option value="junk">Move to Junk</option>
-              <option value="read">Mark as read</option><option value="star">Flag</option><option value="pin">Pin</option><option value="move">Move to folder…</option>
+            <select aria-label={t("settings.filters.ruleAction")} value={cur.action} onChange={(e) => setCur({ ...cur, action: e.target.value as Rule["action"] })}>
+              <option value="archive">{t("settings.action.archive")}</option><option value="trash">{t("common.delete")}</option><option value="junk">{t("settings.filters.toJunk")}</option>
+              <option value="read">{t("settings.action.read")}</option><option value="star">{t("settings.action.flag")}</option><option value="pin">{t("settings.action.pin")}</option><option value="move">{t("settings.filters.toFolder")}</option>
             </select>
             {cur.action === "move" && (
-              <select aria-label="Target folder" value={cur.arg ?? ""} onChange={(e) => setCur({ ...cur, arg: e.target.value })}>
-                <option value="">Choose folder</option>
+              <select aria-label={t("settings.filters.targetFolder")} value={cur.arg ?? ""} onChange={(e) => setCur({ ...cur, arg: e.target.value })}>
+                <option value="">{t("settings.filters.chooseFolder")}</option>
                 {roles.map((k) => <option key={k} value={k}>{folderLabel(k, folders.find((f) => f.key === k)?.name)}</option>)}
               </select>
             )}
           </div>
-          <Switch checked={cur.enabled} onChange={(v) => setCur({ ...cur, enabled: v })} label="Enabled" />
+          <Switch checked={cur.enabled} onChange={(v) => setCur({ ...cur, enabled: v })} label={t("settings.filters.enabled")} />
           <div className="row-inline">
             <button
               className="btn primary"
               disabled={!cur.value.trim() || (cur.action === "move" && !cur.arg)}
-              onClick={async () => { await api.saveRule(cur); setCur(null); void load(); showToast("Filter saved", undefined, "success"); }}
+              onClick={async () => { await api.saveRule(cur); setCur(null); void load(); showToast(t("settings.filters.saved"), undefined, "success"); }}
             >
-              Save
+              {t("common.save")}
             </button>
-            <button className="btn" onClick={() => setCur(null)}>Cancel</button>
+            <button className="btn" onClick={() => setCur(null)}>{t("common.cancel")}</button>
           </div>
         </div>
       )}
@@ -860,31 +924,32 @@ function FiltersPanel({ scope }: { scope: string | null }) {
 }
 
 function NotifyPanel({ scope }: { scope: string | null }) {
+  const t = useT();
   const os = usePlatform((s) => s.os);
   const windows = os === "windows";
   return (
     <>
-      <OvRow scope={scope} k="notifications" label="Desktop notifications for new mail">
+      <OvRow scope={scope} k="notifications" label={t("settings.notify.desktop")}>
         {(v, set) => <Switch checked={v} onChange={set} />}
       </OvRow>
-      {!windows && <div className="muted small">Notifications on {os === "macos" ? "macOS" : "Linux"} have no buttons. Open Hey Look! to act on a message.</div>}
-      <OvRow scope={scope} k="smartNotifications" label="Smart notifications" hint="Skip newsletters and bulk mail">
+      {!windows && <div className="muted small">{t("settings.notify.noButtons", { os: os === "macos" ? "macOS" : "Linux" })}</div>}
+      <OvRow scope={scope} k="smartNotifications" label={t("settings.notify.smart")} hint={t("settings.notify.smartHint")}>
         {(v, set) => <Switch checked={v} onChange={set} />}
       </OvRow>
-      <OvRow scope={scope} k="notifyPreview" label="Show message preview">
+      <OvRow scope={scope} k="notifyPreview" label={t("settings.appearance.preview")}>
         {(v, set) => <Switch checked={v} onChange={set} />}
       </OvRow>
-      <OvRow scope={scope} k="notifySound" label="Sound" hint={windows ? undefined : "Every choice except None plays the system’s notification sound."}>
+      <OvRow scope={scope} k="notifySound" label={t("settings.notify.sound")} hint={windows ? undefined : t("settings.notify.soundHint")}>
         {(v, set) => <SoundSelect value={v} onChange={set} />}
       </OvRow>
       {windows && (
-      <OvRow scope={scope} k="notifyActions" label="Notification buttons" hint="Up to three buttons on each notification">
+      <OvRow scope={scope} k="notifyActions" label={t("settings.notify.buttons")} hint={t("settings.notify.buttonsHint")}>
         {(v, set) => (
           <div className="three">
             {[0, 1, 2].map((i) => (
               <select
                 key={i}
-                aria-label={`Button ${i + 1}`}
+                aria-label={t("settings.notify.buttonN", { n: i + 1 })}
                 value={v[i] ?? "none"}
                 onChange={(e) => {
                   const a = [...v];
@@ -893,7 +958,7 @@ function NotifyPanel({ scope }: { scope: string | null }) {
                   set(a);
                 }}
               >
-                {NOTIFY_ACTIONS.map(([k, l]) => <option key={k} value={k}>{l}</option>)}
+                {NOTIFY_ACTIONS.map(([k, l]) => <option key={k} value={k}>{t(l)}</option>)}
               </select>
             ))}
           </div>
@@ -905,38 +970,42 @@ function NotifyPanel({ scope }: { scope: string | null }) {
 }
 
 function ReadingPanel({ scope }: { scope: string | null }) {
+  const t = useT();
   const { prefs, setPrefs } = useStore();
   // a value outside the presets (edited by hand) stays selectable instead of silently showing another one
   const caps = MAX_DOWNLOAD_PRESETS.includes(prefs.maxDownload) ? MAX_DOWNLOAD_PRESETS : [...MAX_DOWNLOAD_PRESETS, prefs.maxDownload].sort((a, b) => a - b);
   return (
     <>
-      <OvRow scope={scope} k="loadRemote" id="loadRemote" label="Always load remote content (images)" hint="Off = blocked to stop tracking pixels; you can still load a single message. When on, senders can tell you opened it.">
+      <OvRow scope={scope} k="loadRemote" id="loadRemote" label={t("settings.reading.loadRemote")} hint={t("settings.reading.loadRemoteHint")}>
         {(v, set) => <Switch checked={v} onChange={set} />}
       </OvRow>
-      <OvRow scope={scope} k="inlineAutoLoadMB" label="Load inline pictures automatically up to" hint="Larger pictures show a placeholder you can click to load">
+      <OvRow scope={scope} k="inlineAutoLoadMB" label={t("settings.reading.inlineAuto")} hint={t("settings.reading.inlineAutoHint")}>
         {(v, set) => (
           <select value={v} onChange={(e) => set(Number(e.target.value) as Prefs["inlineAutoLoadMB"])}>
-            <option value={2}>2 MB each</option>
-            <option value={5}>5 MB each</option>
-            <option value={0}>Always</option>
+            <option value={2}>{t("settings.reading.mbEach", { n: 2 })}</option>
+            <option value={5}>{t("settings.reading.mbEach", { n: 5 })}</option>
+            <option value={0}>{t("settings.reading.always")}</option>
           </select>
         )}
       </OvRow>
-      <OvRow scope={scope} k="syncMinutes" label="Fetch new mail every">
+      <OvRow scope={scope} k="syncMinutes" label={t("settings.reading.fetchEvery")}>
         {(v, set) => (
           <select value={v} onChange={(e) => set(Number(e.target.value))}>
-            {[1, 2, 5, 10, 15, 30].map((n) => <option key={n} value={n}>{n} min</option>)}
+            {[1, 2, 5, 10, 15, 30].map((n) => <option key={n} value={n}>{t("settings.reading.minutes", { n })}</option>)}
           </select>
         )}
+      </OvRow>
+      <OvRow scope={scope} k="pushMail" label={t("settings.reading.push")} hint={t("settings.reading.pushHint")}>
+        {(v, set) => <Switch checked={v} onChange={set} />}
       </OvRow>
       {/* one value for every mailbox (each mailbox is counted on its own), so no per-mailbox override */}
       <Row
-        label="Max emails to download per mailbox"
+        label={t("settings.reading.maxDownload")}
         id="maxDownload"
-        hint="The fewer mails, the less disk space they use and the better the app performs. When the limit is reached, the oldest mails are removed from this computer as new mail arrives (they stay on the server)."
+        hint={t("settings.reading.maxDownloadHint")}
       >
         <select value={prefs.maxDownload} onChange={(e) => setPrefs({ maxDownload: Number(e.target.value) })}>
-          {caps.map((n) => <option key={n} value={n}>{n.toLocaleString("en-US")}{n === DEFAULT_PREFS.maxDownload ? " (default)" : ""}</option>)}
+          {caps.map((n) => <option key={n} value={n}>{n === DEFAULT_PREFS.maxDownload ? t("settings.reading.maxDefault", { n: fmtNumber(n) }) : fmtNumber(n)}</option>)}
         </select>
       </Row>
     </>
@@ -944,13 +1013,14 @@ function ReadingPanel({ scope }: { scope: string | null }) {
 }
 
 function FoldersPanel({ scope }: { scope: string | null }) {
+  const t = useT();
   const { folders, prefs, setPrefs } = useStore();
   const isFav = (id: string) => prefs.favorites.includes(id);
   const toggle = (id: string) => setPrefs({ favorites: isFav(id) ? prefs.favorites.filter((f) => f !== id) : [...prefs.favorites, id] });
   const keys = scope ? folders.filter((f) => f.accountId === scope).map((f) => ({ key: f.key, label: folderLabel(f.key, f.name) })) : ["inbox", "drafts", "sent", "archive", "junk", "trash"].map((k) => ({ key: k, label: folderLabel(k) }));
   return (
     <>
-      <div className="muted small pad">{scope ? "Folders of this account that appear under Favorites." : "Folders shown under Favorites for all accounts together."}</div>
+      <div className="muted small pad">{scope ? t("settings.folders.account") : t("settings.folders.all")}</div>
       {keys.map(({ key, label }) => (
         <Row key={key} label={label}>
           <Switch checked={isFav(`${scope ?? "*"}|${key}`)} onChange={() => toggle(`${scope ?? "*"}|${key}`)} />
@@ -961,6 +1031,7 @@ function FoldersPanel({ scope }: { scope: string | null }) {
 }
 
 function ProfilePanel({ account }: { account: Account }) {
+  const t = useT();
   const accent = useStore((s) => s.prefs.accent);
   const color = accountColor(account, accent);
   const upd = async (patch: Partial<Account>) => {
@@ -970,9 +1041,9 @@ function ProfilePanel({ account }: { account: Account }) {
   };
   return (
     <>
-      <Row label="Display name" hint="Shown to recipients as the sender name"><input defaultValue={account.displayName} placeholder="Your name" onBlur={(e) => void upd({ displayName: e.target.value })} /></Row>
-      <Row label="Color" hint="Marks this account in the folder pane and in combined lists">
-        <div className="accents" role="radiogroup" aria-label="Mailbox color" style={{ margin: 0, gap: 8, justifyContent: "flex-end" }}>
+      <Row label={t("settings.add.displayName")} hint={t("settings.profile.displayNameHint")}><input defaultValue={account.displayName} placeholder={t("settings.add.yourName")} onBlur={(e) => void upd({ displayName: e.target.value })} /></Row>
+      <Row label={t("settings.profile.color")} hint={t("settings.profile.colorHint")}>
+        <div className="accents" role="radiogroup" aria-label={t("settings.profile.mailboxColor")} style={{ margin: 0, gap: 8, justifyContent: "flex-end" }}>
           {ACCOUNT_PALETTE.map((hex) => (
             <button
               key={hex}
@@ -986,7 +1057,7 @@ function ProfilePanel({ account }: { account: Account }) {
             />
           ))}
           <label className="swatch-custom">
-            <input type="color" aria-label="Custom mailbox color" value={color} onChange={(e) => void upd({ color: e.target.value })} />
+            <input type="color" aria-label={t("settings.profile.customColor")} value={color} onChange={(e) => void upd({ color: e.target.value })} />
           </label>
         </div>
       </Row>
@@ -994,13 +1065,30 @@ function ProfilePanel({ account }: { account: Account }) {
   );
 }
 
+/** "push" while the account's Inbox connection (IMAP IDLE) is running, otherwise "polling"; kept up to date by the backend's idle-state event. */
+function usePushState(accountId: string): string {
+  const [state, setState] = useState("polling");
+  useEffect(() => {
+    let dead = false;
+    let off: (() => void) | undefined;
+    void api.idleStates().then((m) => { if (!dead) setState(m[accountId] ?? "polling"); }).catch(() => {});
+    void listen<{ accountId: string; state: string }>("idle-state", (e) => {
+      if (e.payload.accountId === accountId) setState(e.payload.state);
+    }).then((u) => { if (dead) u(); else off = u; }).catch(() => {});
+    return () => { dead = true; off?.(); };
+  }, [accountId]);
+  return state;
+}
+
 function ServerPanel({ account, close }: { account: Account; close: () => void }) {
+  const t = useT();
   const { confirm } = useStore();
+  const push = usePushState(account.id);
   const remove = async () => {
     const ok = await confirm({
-      title: `Remove ${account.email}?`,
-      body: "The local copy of this mailbox and the saved credentials are deleted. Mail stays on the server.",
-      confirmLabel: "Remove account",
+      title: t("settings.server.removeTitle", { email: account.email }),
+      body: t("settings.server.removeBody"),
+      confirmLabel: t("settings.server.removeAccount"),
       danger: true,
     });
     if (!ok) return;
@@ -1015,20 +1103,142 @@ function ServerPanel({ account, close }: { account: Account; close: () => void }
   };
   return (
     <>
-      <Row label="Sign-in method">{account.auth === "oauth_google" ? "Google (OAuth 2.0)" : account.auth === "oauth_microsoft" ? "Microsoft (OAuth 2.0)" : `Password (stored in ${credStore()})`}</Row>
-      <Row label="Incoming (IMAP)">{account.imapHost}:{account.imapPort}</Row>
-      <Row label="Outgoing (SMTP)">{account.smtpHost}:{account.smtpPort} ({account.smtpSecurity})</Row>
-      {account.smtpUsername && <Row label="SMTP login">{account.smtpUsername}</Row>}
-      {account.tlsInsecure && <Row label="Server certificate" hint="Self-signed or private-CA certificates are accepted for this account.">Not verified</Row>}
-      <Row label="Remove account" hint="Deletes the local cache and stored credentials.">
-        <button className="btn danger" onClick={() => void remove()}><Trash2 size={14} /> Remove</button>
+      <ReauthNotice account={account} />
+      {/* i18n-ok: provider + protocol names */}
+      <Row label={t("settings.server.signIn")}>{account.auth === "oauth_google" ? "Google (OAuth 2.0)" : account.auth === "oauth_microsoft" ? "Microsoft (OAuth 2.0)" : t("settings.server.passwordStored", { store: credStore() })}</Row>
+      <Row label={t("settings.server.incoming")}>{account.imapHost}:{account.imapPort}</Row>
+      <Row label={t("settings.server.newMail")} hint={t("settings.server.newMailHint")}>{push === "push" ? t("settings.server.push") : t("settings.server.polling")}</Row>
+      <Row label={t("settings.server.outgoing")}>{account.smtpHost}:{account.smtpPort} ({account.smtpSecurity})</Row>
+      {account.smtpUsername && <Row label={t("settings.server.smtpLogin")}>{account.smtpUsername}</Row>}
+      {account.tlsInsecure && <Row label={t("settings.server.cert")} hint={t("settings.server.certHint")}>{t("settings.server.notVerified")}</Row>}
+      <Row label={t("settings.server.removeAccount")} hint={t("settings.server.removeHint")}>
+        <button className="btn danger" onClick={() => void remove()}><Trash2 size={14} /> {t("common.remove")}</button>
       </Row>
+    </>
+  );
+}
+
+/** Settings > mailbox > Calendar: sync this mailbox's Google / Outlook calendars (a separate, calendar-only consent in the browser). */
+function CalendarPanel({ account }: { account: Account }) {
+  const t = useT();
+  const { confirm, showToast, calSources, loadCalSources, bumpCal, prefs } = useStore();
+  const kind = calendarSyncKind(account);
+  const src: CalSource | undefined = calSources.find((s) => s.accountId === account.id);
+  const [connecting, setConnecting] = useState(false);
+  const [err, setErr] = useState<string | null>(null);
+  const [ended, setEnded] = useState<SignInEnd | null>(null);
+  const [now, setNow] = useState(() => Math.floor(Date.now() / 1000));
+  const cancelBtn = useRef<HTMLButtonElement>(null);
+  useEffect(() => void loadCalSources(), [loadCalSources]);
+  // "Last synced 3 min ago" stays current
+  useEffect(() => {
+    const timer = setInterval(() => setNow(Math.floor(Date.now() / 1000)), 20_000);
+    return () => clearInterval(timer);
+  }, []);
+  // the Cancel button takes the focus when the switch is turned on and disabled
+  useEffect(() => {
+    if (connecting) cancelBtn.current?.focus();
+  }, [connecting]);
+  if (!kind) return <div className="muted">{t("settings.calendar.none")}</div>;
+  const service = serviceName(kind);
+  const clock = (sec: number) => new Intl.DateTimeFormat(intlLocale(), { hour: "2-digit", minute: "2-digit", timeZone: systemTz() }).format(new Date(sec * 1000));
+
+  const connect = async () => {
+    setErr(null);
+    setEnded(null);
+    setConnecting(true);
+    try {
+      await api.calendarConnect(account.id);
+      showToast(t("settings.calendar.syncOn", { email: account.email }), undefined, "success");
+    } catch (e) {
+      // timed out / cancelled / refused: the calendar's own sentence and the advice for the service; cancelled with nothing to add says nothing
+      const end = kind ? signInEnd(kind, "calendar", e) : null;
+      if (end) setEnded(end);
+      else if (calendarErrorCode(String(e)) !== "CANCELLED") setErr(friendlyError(e));
+    } finally {
+      setConnecting(false);
+      await loadCalSources();
+      bumpCal();
+    }
+  };
+  const stop = async () => {
+    const ok = await confirm({
+      title: t("settings.calendar.stopTitle", { email: account.email }),
+      body: t("settings.calendar.stopBody", { service }),
+      confirmLabel: t("settings.calendar.stopLabel"),
+      danger: true,
+    });
+    if (!ok) return;
+    try {
+      await api.calendarDisconnect(account.id);
+    } catch (e) {
+      setErr(friendlyError(e));
+    }
+    await loadCalSources();
+    bumpCal();
+  };
+  const line = src ? statusLine(src, { email: account.email, nowSec: now, fmtTime: clock }) : null;
+  const note = src ? truncatedNote(src) : null;
+  const on = connecting || !!src;
+  return (
+    <>
+      <Row
+        label={t("settings.calendar.syncWith", { provider: providerName(kind) })}
+        hint={t("settings.calendar.syncHint", { service })}
+        id="calendar"
+      >
+        <Switch checked={on} disabled={connecting} onChange={(v) => void (v ? connect() : stop())} />
+      </Row>
+      <div role="status" aria-live="polite" className="set-status">
+        {connecting && (
+          <SignInWaiting provider={kind} lead={t("settings.calendar.allowInBrowser")} onCancel={() => void api.calendarCancelConnect()} cancelRef={cancelBtn} />
+        )}
+        {!connecting && line && (
+          <div className={line.tone === "bad" ? "notice bad" : "muted small"}>
+            {line.text}
+            {line.detail && <div style={{ marginTop: 2, fontSize: "0.9em", opacity: 0.8 }}>{line.detail}</div>}
+            {note && <div>{note}</div>}
+          </div>
+        )}
+      </div>
+      {err && <div className="field-err" role="alert">{err}</div>}
+      {ended && !connecting && <SignInEnded provider={kind} purpose="calendar" end={ended} />}
+      {!connecting && src && line && (line.syncNow !== "off" || line.allow) && (
+        <div className="row-inline" style={{ margin: "6px 0 10px" }}>
+          {line.allow && <button className="btn primary" onClick={() => void connect()}>{t("settings.calendar.allowAgain")}</button>}
+          {line.syncNow !== "off" && (
+            <button className="btn small" disabled={line.syncNow === "disabled"} onClick={() => void api.calendarSyncNow(account.id).then(() => loadCalSources())}>{t("settings.calendar.syncNow")}</button>
+          )}
+        </div>
+      )}
+      {!connecting && src && src.calendars.length > 0 && (
+        <>
+          <h4 style={{ margin: "16px 0 2px" }}>{t("settings.calendar.calendars")}</h4>
+          <div className="muted small">{t("settings.calendar.calendarsHint")}</div>
+          {src.calendars.map((c) => (
+            <div className="set-row" key={c.id}>
+              <div className="set-lbl">
+                <div>
+                  <span className="dot" style={{ background: c.color || accountColor(account, prefs.accent), marginRight: 8 }} aria-hidden />
+                  {c.name}
+                  {c.primary && <span className="muted small"> · {t("settings.calendar.primary")}</span>}
+                  {c.readOnly && <span className="muted small"> · {t("settings.calendar.readOnly")}</span>}
+                </div>
+              </div>
+              <div className="set-ctl">
+                <Switch checked={c.syncOn} ariaLabel={t("settings.calendar.syncCal", { name: c.name })} onChange={(v) => void api.calendarSetSync(c.id, v).then(() => { bumpCal(); return loadCalSources(); }).catch((e) => setErr(friendlyError(e)))} />
+              </div>
+            </div>
+          ))}
+        </>
+      )}
     </>
   );
 }
 
 /** Per-mailbox PGP defaults. "My key" belongs to one account, so it is only shown inside a mailbox. */
 function SecurityPanel({ scope }: { scope: string | null }) {
+  const t = useT();
   const { keysRev, bumpKeys, showToast } = useStore();
   const [keys, setKeys] = useState<PgpKey[]>([]);
   useEffect(() => void api.pgpListKeys().then(setKeys).catch(() => setKeys([])), [keysRev]);
@@ -1037,43 +1247,43 @@ function SecurityPanel({ scope }: { scope: string | null }) {
   return (
     <>
       {scope ? (
-        <Row label="My key for this mailbox" hint="Used to sign, and to read mail encrypted to you">
+        <Row label={t("settings.security.myKey")} hint={t("settings.security.myKeyHint")}>
           <select
             style={{ maxWidth: 260 }}
             value={current}
             onChange={(e) => void api.pgpSetDefault(scope, e.target.value || null).then(bumpKeys).catch((er) => showToast(friendlyError(er), undefined, "error"))}
           >
-            <option value="">{own.length ? "Automatic (a key with this address)" : "No key yet"}</option>
-            {own.map((k) => <option key={k.fingerprint} value={k.fingerprint}>{shortKey(k.fingerprint)} · {k.algo}{k.expires ? ` · exp. ${new Date(k.expires * 1000).getFullYear()}` : ""}</option>)}
+            <option value="">{own.length ? t("settings.security.keyAuto") : t("settings.security.noKeyYet")}</option>
+            {own.map((k) => <option key={k.fingerprint} value={k.fingerprint}>{k.expires ? t("settings.security.keyLabelExp", { key: shortKey(k.fingerprint), algo: k.algo, year: new Date(k.expires * 1000).getFullYear() }) : t("settings.security.keyLabel", { key: shortKey(k.fingerprint), algo: k.algo })}</option>)}
           </select>
         </Row>
       ) : (
-        <div className="muted small pad">Your keys are chosen per mailbox. Open a mailbox to pick its key. Manage keys under More → Encryption (PGP).</div>
+        <div className="muted small pad">{t("settings.security.keysPerMailbox")}</div>
       )}
-      <OvRow scope={scope} k="pgpEncrypt" label="Encrypt new messages" hint="“When possible” turns Encrypt on only if every recipient has a public key">
+      <OvRow scope={scope} k="pgpEncrypt" label={t("settings.security.encrypt")} hint={t("settings.security.encryptHint")}>
         {(v, set) => (
           <select value={v} onChange={(e) => set(e.target.value as Prefs["pgpEncrypt"])}>
-            <option value="possible">When possible</option>
-            <option value="never">Never (turn on per message)</option>
-            <option value="always">Always (warn before sending unencrypted)</option>
+            <option value="possible">{t("settings.security.whenPossible")}</option>
+            <option value="never">{t("settings.security.neverEncrypt")}</option>
+            <option value="always">{t("settings.security.alwaysEncrypt")}</option>
           </select>
         )}
       </OvRow>
-      <OvRow scope={scope} k="pgpSign" label="Sign new messages">
+      <OvRow scope={scope} k="pgpSign" label={t("settings.security.sign")}>
         {(v, set) => <Switch checked={v} onChange={set} />}
       </OvRow>
-      <OvRow scope={scope} k="pgpAttachKey" label="Attach my public key" hint="Lets recipients reply encrypted">
+      <OvRow scope={scope} k="pgpAttachKey" label={t("settings.security.attachKey")} hint={t("settings.security.attachKeyHint")}>
         {(v, set) => <Switch checked={v} onChange={set} />}
       </OvRow>
-      <OvRow scope={scope} k="pgpEncryptDrafts" label="Keep drafts encrypted on the server" hint="Drafts of encrypted messages are encrypted to your own key">
+      <OvRow scope={scope} k="pgpEncryptDrafts" label={t("settings.security.encryptDrafts")} hint={t("settings.security.encryptDraftsHint")}>
         {(v, set) => <Switch checked={v} onChange={set} />}
       </OvRow>
-      <OvRow scope={scope} k="pgpImportFromMail" label="Import keys found in received mail" hint="Ask before adding keys attached to messages (application/pgp-keys)">
+      <OvRow scope={scope} k="pgpImportFromMail" label={t("settings.security.importKeys")} hint={t("settings.security.importKeysHint")}>
         {(v, set) => (
           <select value={v} onChange={(e) => set(e.target.value as Prefs["pgpImportFromMail"])}>
-            <option value="ask">Ask</option>
-            <option value="auto">Import automatically</option>
-            <option value="never">Never</option>
+            <option value="ask">{t("settings.security.importAsk")}</option>
+            <option value="auto">{t("settings.security.importAuto")}</option>
+            <option value="never">{t("settings.security.importNever")}</option>
           </select>
         )}
       </OvRow>
@@ -1081,38 +1291,41 @@ function SecurityPanel({ scope }: { scope: string | null }) {
   );
 }
 
-type MbTab = "profile" | "composing" | "signatures" | "templates" | "filters" | "notifications" | "reading" | "security" | "folders" | "server";
+type MbTab = "profile" | "composing" | "signatures" | "templates" | "filters" | "notifications" | "reading" | "calendar" | "security" | "folders" | "server";
 
 /** The sections of a mailbox (scope = account id) or of "All accounts" (null). They are listed under the mailbox in the Settings navigation. */
-function mailboxSections(scope: string | null): [MbTab, string][] {
+function mailboxSections(scope: string | null, accounts: Account[]): [MbTab, Key][] {
+  // only a Google / Gmail (and later Microsoft) mailbox has a calendar to sync
+  const calendar = scope !== null && accounts.some((a) => a.id === scope && calendarSyncKind(a) !== null);
   return [
-    ...(scope ? ([["profile", "Profile"]] as [MbTab, string][]) : []),
-    ["composing", "Composing"], ["signatures", "Signatures"], ["templates", "Templates"], ["filters", "Filters"],
-    ["notifications", "Notifications"], ["reading", "Reading & sync"], ["security", "Security"], ["folders", "Folders"],
-    ...(scope ? ([["server", "Server"]] as [MbTab, string][]) : []),
+    ...(scope ? ([["profile", "settings.section.profile"]] as [MbTab, Key][]) : []),
+    ["composing", "settings.section.composing"], ["signatures", "settings.section.signatures"], ["templates", "settings.section.templates"], ["filters", "settings.section.filters"],
+    ["notifications", "settings.section.notifications"], ["reading", "settings.section.reading"],
+    ...(calendar ? ([["calendar", "settings.section.calendar"]] as [MbTab, Key][]) : []),
+    ["security", "settings.section.security"], ["folders", "settings.section.folders"],
+    ...(scope ? ([["server", "settings.section.server"]] as [MbTab, Key][]) : []),
   ];
 }
-const activeSection = (scope: string | null, tab: MbTab): MbTab => (mailboxSections(scope).some(([k]) => k === tab) ? tab : "composing");
+const activeSection = (scope: string | null, tab: MbTab, accounts: Account[]): MbTab => (mailboxSections(scope, accounts).some(([k]) => k === tab) ? tab : "composing");
 
 function MailboxPage({ scope, tab, close }: { scope: string | null; tab: MbTab; close: () => void }) {
+  const t = useT();
   const { accounts, prefs } = useStore();
   const account = scope ? accounts.find((a) => a.id === scope) : undefined;
-  if (scope && !account) return <div className="muted">Account not found.</div>;
-  const active = activeSection(scope, tab);
+  if (scope && !account) return <div className="muted">{t("settings.mailbox.notFound")}</div>;
+  const active = activeSection(scope, tab, accounts);
   return (
     <div>
       <div className="mb-head">
         {account ? <Avatar name={account.displayName || account.email} size={36} color={accountColor(account, prefs.accent)} /> : <div className="mb-all">∗</div>}
         <div>
-          <h3>{account ? account.email : "All accounts"}</h3>
+          <h3>{account ? account.email : t("settings.scope.allAccounts")}</h3>
           <div className="muted small">
-            {account
-              ? "Anything you set here overrides the All accounts value for this mailbox only. Untouched settings follow All accounts."
-              : "The default for every mailbox. A mailbox can override any of these in its own settings."}
+            {account ? t("settings.mailbox.accountIntro") : t("settings.mailbox.allIntro")}
           </div>
         </div>
       </div>
-      <div className="mb-body" role="region" aria-label={mailboxSections(scope).find(([k]) => k === active)?.[1]}>
+      <div className="mb-body" role="region" aria-label={t(mailboxSections(scope, accounts).find(([k]) => k === active)![1])}>
         {active === "profile" && account && <ProfilePanel account={account} />}
         {active === "composing" && <ComposingPanel scope={scope} />}
         {active === "signatures" && <SignaturesPanel scope={scope} />}
@@ -1120,6 +1333,7 @@ function MailboxPage({ scope, tab, close }: { scope: string | null; tab: MbTab; 
         {active === "filters" && <FiltersPanel scope={scope} />}
         {active === "notifications" && <NotifyPanel scope={scope} />}
         {active === "reading" && <ReadingPanel scope={scope} />}
+        {active === "calendar" && account && <CalendarPanel account={account} />}
         {active === "security" && <SecurityPanel scope={scope} />}
         {active === "folders" && <FoldersPanel scope={scope} />}
         {active === "server" && account && <ServerPanel account={account} close={close} />}
@@ -1130,6 +1344,7 @@ function MailboxPage({ scope, tab, close }: { scope: string | null; tab: MbTab; 
 
 // ---------------------------------------------------------------- app-level pages
 function TrayTab() {
+  const t = useT();
   const { prefs, setPrefs, showToast } = useStore();
   const os = usePlatform((s) => s.os);
   const tray = usePlatform((s) => s.tray);
@@ -1139,8 +1354,8 @@ function TrayTab() {
     try {
       await api.testNotification();
     } catch (e) {
-      const text = String(e instanceof Error ? e.message : e).replace(/^Error:\s*/, "").slice(0, 120);
-      showToast(os === "windows" ? text : `Couldn’t show a notification: ${text}`, undefined, "error");
+      const text = friendlyError(e);
+      showToast(os === "windows" ? text : t("settings.tray.testFailed", { error: text }), undefined, "error");
     }
   };
   const toggleAuto = async (v: boolean) => {
@@ -1148,51 +1363,51 @@ function TrayTab() {
       await api.setAutostart(v);
       setAutostart(v);
     } catch (e) {
-      showToast(String(e), undefined, "error");
+      showToast(friendlyError(e), undefined, "error");
     }
   };
   return (
     <div>
-      <h3>Notifications & tray</h3>
-      {os === "macos" && <div className="muted small" style={{ marginBottom: 6 }}>Notifications aren’t available on macOS in this version.</div>}
-      <div className="muted small">{os === "windows" ? "Which mail triggers a notification, its sound and its buttons are set per mailbox (Mailboxes → Notifications)." : "Which mail triggers a notification and its sound are set per mailbox (Mailboxes → Notifications)."}</div>
-      <Row label="Test notification"><button className="btn" onClick={() => void test()}>Send test</button></Row>
-      <Row label="Sound when a message is sent"><Switch checked={prefs.sentSound} onChange={(v) => setPrefs({ sentSound: v })} /></Row>
+      <h3>{t("settings.tray.title")}</h3>
+      {os === "macos" && <div className="muted small" style={{ marginBottom: 6 }}>{t("settings.tray.macUnavailable")}</div>}
+      <div className="muted small">{os === "windows" ? t("settings.tray.introWindows") : t("settings.tray.intro")}</div>
+      <Row label={t("settings.tray.test")}><button className="btn" onClick={() => void test()}>{t("settings.tray.sendTest")}</button></Row>
+      <Row label={t("settings.tray.sentSound")}><Switch checked={prefs.sentSound} onChange={(v) => setPrefs({ sentSound: v })} /></Row>
       <Row
-        label="Keep running in the tray when the window is closed"
+        label={t("settings.tray.keepRunning")}
         hint={
           !tray
-            ? "No tray area was found on this desktop, so closing the window quits Hey Look!."
+            ? t("settings.tray.noTray")
             : os === "macos"
-              ? "Mail keeps syncing and notifying. Quit from the menu bar icon or with Cmd+Q."
-              : "Mail keeps syncing and notifying. Quit from the tray menu."
+              ? t("settings.tray.keepRunningMac")
+              : t("settings.tray.keepRunningHint")
         }
       >
         <Switch checked={tray && prefs.closeToTray} disabled={!tray} onChange={(v) => setPrefs({ closeToTray: v })} />
       </Row>
       {tray && (
-        <Row label="Tray icon badge" hint="A dot is the calmest option; the exact number is always in the tooltip">
+        <Row label={t("settings.tray.trayBadge")} hint={t("settings.tray.trayBadgeHint")}>
           <select value={prefs.trayBadge} onChange={(e) => setPrefs({ trayBadge: e.target.value as Prefs["trayBadge"] })}>
-            <option value="number">Unread number</option>
-            <option value="dot">Dot only</option>
-            <option value="off">None</option>
+            <option value="number">{t("settings.tray.unreadNumber")}</option>
+            <option value="dot">{t("settings.tray.dotOnly")}</option>
+            <option value="off">{t("common.none")}</option>
           </select>
         </Row>
       )}
-      {os === "windows" && (
-        <Row label="Taskbar badge">
+      {(os === "windows" || os === "macos") && (
+        <Row label={os === "macos" ? t("settings.tray.dockBadge") : t("settings.tray.taskbarBadge")}>
           <select value={prefs.taskbarBadge} onChange={(e) => setPrefs({ taskbarBadge: e.target.value as Prefs["taskbarBadge"] })}>
-            <option value="number">Unread number</option>
-            <option value="off">None</option>
+            <option value="number">{t("settings.tray.unreadNumber")}</option>
+            <option value="off">{t("common.none")}</option>
           </select>
         </Row>
       )}
-      <Row label="Count Other (bulk) mail" hint="Off = the numbers only include conversations in Focused, so newsletters do not inflate them">
+      <Row label={t("settings.tray.countOther")} hint={t("settings.tray.countOtherHint")}>
         <Switch checked={prefs.countOtherMail} onChange={(v) => setPrefs({ countOtherMail: v })} />
       </Row>
       <Row
-        label={os === "windows" ? "Start Hey Look! when I sign in to Windows" : "Start Hey Look! when I log in"}
-        hint={os === "linux" && !tray ? "Starts with the window open" : "Starts minimized to the tray"}
+        label={os === "windows" ? t("settings.tray.autostartWindows") : t("settings.tray.autostart")}
+        hint={os === "linux" && !tray ? t("settings.tray.startsOpen") : t("settings.tray.startsMinimized")}
       >
         <Switch checked={autostart} onChange={(v) => void toggleAuto(v)} />
       </Row>
@@ -1200,57 +1415,63 @@ function TrayTab() {
   );
 }
 
-const ALL_ACTIONS: [string, string][] = [["archive", "Archive"], ["delete", "Delete"], ["flag", "Flag"], ["pin", "Pin"], ["read", "Mark read/unread"], ["snooze", "Snooze"]];
+const ALL_ACTIONS: [string, Key][] = [
+  ["archive", "settings.action.archive"], ["delete", "common.delete"], ["flag", "settings.action.flag"], ["pin", "settings.action.pin"],
+  ["read", "settings.action.readUnread"], ["snooze", "settings.action.snooze"],
+];
 
 function ActionsTab() {
+  const t = useT();
   const { prefs, setPrefs } = useStore();
   const toggle = (k: string) =>
     setPrefs({ hoverActions: prefs.hoverActions.includes(k) ? prefs.hoverActions.filter((x) => x !== k) : [...prefs.hoverActions, k] });
   return (
     <div>
-      <h3>Thread actions</h3>
-      <div className="muted small">Quick actions that appear when you hover a conversation in the list.</div>
+      <h3>{t("settings.actions.title")}</h3>
+      <div className="muted small">{t("settings.actions.intro")}</div>
       {ALL_ACTIONS.map(([k, l]) => (
-        <Row key={k} label={l}><Switch checked={prefs.hoverActions.includes(k)} onChange={() => toggle(k)} /></Row>
+        <Row key={k} label={t(l)}><Switch checked={prefs.hoverActions.includes(k)} onChange={() => toggle(k)} /></Row>
       ))}
     </div>
   );
 }
 
 function TimesTab() {
+  const t = useT();
   const { prefs, setPrefs } = useStore();
-  const t = prefs.snoozeTimes;
-  const sel = (k: keyof typeof t, label: string) => (
+  const times = prefs.snoozeTimes;
+  const sel = (k: keyof typeof times, label: string) => (
     <Row label={label}>
-      <select value={t[k]} onChange={(e) => setPrefs({ snoozeTimes: { ...t, [k]: Number(e.target.value) } })}>
+      <select value={times[k]} onChange={(e) => setPrefs({ snoozeTimes: { ...times, [k]: Number(e.target.value) } })}>
         {Array.from({ length: 24 }, (_, h) => <option key={h} value={h}>{String(h).padStart(2, "0")}:00</option>)}
       </select>
     </Row>
   );
   return (
     <div>
-      <h3>Customize times</h3>
-      <div className="muted small">Used by Snooze and Send later.</div>
-      {sel("evening", "Later today")}
-      {sel("tomorrow", "Tomorrow")}
-      {sel("weekend", "This weekend")}
-      {sel("nextWeek", "Next week")}
+      <h3>{t("settings.times.title")}</h3>
+      <div className="muted small">{t("settings.times.intro")}</div>
+      {sel("evening", t("settings.times.evening"))}
+      {sel("tomorrow", t("settings.times.tomorrow"))}
+      {sel("weekend", t("settings.times.weekend"))}
+      {sel("nextWeek", t("settings.times.nextWeek"))}
     </div>
   );
 }
 
 function BlockedTab() {
+  const t = useT();
   const [list, setList] = useState<string[]>([]);
   const load = () => api.listBlocked().then(setList);
   useEffect(() => void load(), []);
   return (
     <div>
-      <h3>Blocked senders</h3>
-      {list.length === 0 && <div className="muted">No blocked senders.</div>}
+      <h3>{t("settings.blocked.title")}</h3>
+      {list.length === 0 && <div className="muted">{t("settings.blocked.none")}</div>}
       {list.map((e) => (
         <div key={e} className="list-row">
           <div className="lr-name"><span className="lr-title">{e}</span></div>
-          <button className="btn small" onClick={async () => { await api.unblock(e); void load(); }}>Unblock</button>
+          <button className="btn small" onClick={async () => { await api.unblock(e); void load(); }}>{t("settings.blocked.unblock")}</button>
         </div>
       ))}
     </div>
@@ -1258,6 +1479,7 @@ function BlockedTab() {
 }
 
 function AiTab() {
+  const t = useT();
   const [v, setV] = useState({ ai_endpoint: "", ai_model: "" });
   const [key, setKey] = useState("");
   const [hasKey, setHasKey] = useState(false);
@@ -1310,41 +1532,42 @@ function AiTab() {
       setKey("");
     }
     await refreshAi();
-    showToast("AI Assistant settings saved", undefined, "success");
+    showToast(t("settings.ai.saved"), undefined, "success");
   };
   return (
     <div>
-      <h3>AI Assistant</h3>
-      <div className="muted small">Any OpenAI-compatible endpoint (OpenAI, a local server, a gateway). Used for summaries, translation and writing help.</div>
+      <h3>{t("settings.ai.title")}</h3>
+      <div className="muted small">{t("settings.ai.intro")}</div>
       <div className="form">
-        <label>Base URL (ending in /v1)</label>
-        <input aria-label="Base URL (ending in /v1)" placeholder="https://api.openai.com/v1" value={v.ai_endpoint} onChange={(e) => setV({ ...v, ai_endpoint: e.target.value })} />
-        <label>API key</label>
-        <input aria-label="API key" type="password" value={key} onChange={(e) => setKey(e.target.value)} placeholder={hasKey ? `Saved in ${credStore()}` : "Optional for local servers"} />
+        <label>{t("settings.ai.baseUrl")}</label>
+        <input aria-label={t("settings.ai.baseUrl")} placeholder="https://api.openai.com/v1" value={v.ai_endpoint} onChange={(e) => setV({ ...v, ai_endpoint: e.target.value })} />
+        <label>{t("settings.ai.apiKey")}</label>
+        <input aria-label={t("settings.ai.apiKey")} type="password" value={key} onChange={(e) => setKey(e.target.value)} placeholder={hasKey ? t("settings.add.savedIn", { store: credStore() }) : t("settings.ai.keyOptional")} />
         {hasKey && (
-          <button className="link small" onClick={async () => { await api.setSecret("ai_key", ""); setHasKey(false); }}>Remove the saved key</button>
+          <button className="link small" onClick={async () => { await api.setSecret("ai_key", ""); setHasKey(false); }}>{t("settings.ai.removeKey")}</button>
         )}
-        <label>Model</label>
+        <label>{t("settings.ai.model")}</label>
         {models.length > 0 ? (
-          <select aria-label="Model" value={v.ai_model} onChange={(e) => setV({ ...v, ai_model: e.target.value })}>
-            {!v.ai_model && <option value="">Choose a model…</option>}
+          <select aria-label={t("settings.ai.model")} value={v.ai_model} onChange={(e) => setV({ ...v, ai_model: e.target.value })}>
+            {!v.ai_model && <option value="">{t("settings.ai.chooseModel")}</option>}
             {/* the saved model stays selectable even when the endpoint does not list it */}
-            {v.ai_model && !models.includes(v.ai_model) && <option value={v.ai_model}>{v.ai_model} (saved)</option>}
+            {v.ai_model && !models.includes(v.ai_model) && <option value={v.ai_model}>{t("settings.ai.modelSaved", { model: v.ai_model })}</option>}
             {models.map((m) => <option key={m} value={m}>{m}</option>)}
           </select>
         ) : (
-          <input aria-label="Model" value={v.ai_model} placeholder="Model id, e.g. gpt-4o-mini" onChange={(e) => setV({ ...v, ai_model: e.target.value })} />
+          <input aria-label={t("settings.ai.model")} value={v.ai_model} placeholder={t("settings.ai.modelPlaceholder")} onChange={(e) => setV({ ...v, ai_model: e.target.value })} />
         )}
-        {modelsState === "loading" && <div className="muted small" role="status">Loading models…</div>}
-        {modelsState === "error" && <div className="muted small" role="status">Could not load the model list ({modelsErr}). Type a model id instead.</div>}
-        {modelsState === "idle" && models.length === 0 && v.ai_endpoint.trim() && <div className="muted small" role="status">The endpoint returned no models. Type a model id instead.</div>}
-        <button className="btn primary" onClick={() => void save()}>Save</button>
+        {modelsState === "loading" && <div className="muted small" role="status">{t("settings.ai.loadingModels")}</div>}
+        {modelsState === "error" && <div className="muted small" role="status">{t("settings.ai.modelsError", { error: modelsErr })}</div>}
+        {modelsState === "idle" && models.length === 0 && v.ai_endpoint.trim() && <div className="muted small" role="status">{t("settings.ai.noModels")}</div>}
+        <button className="btn primary" onClick={() => void save()}>{t("common.save")}</button>
       </div>
     </div>
   );
 }
 
 function KeyRow({ k, onOpen }: { k: PgpKey; onOpen: () => void }) {
+  const t = useT();
   const accounts = useStore((s) => s.accounts);
   const used = k.defaultFor.map((id) => accounts.find((a) => a.id === id)?.email).filter(Boolean) as string[];
   const fp = fmtFpr(k.fingerprint).split(" ");
@@ -1353,30 +1576,35 @@ function KeyRow({ k, onOpen }: { k: PgpKey; onOpen: () => void }) {
       className="key-row"
       tabIndex={0}
       role="button"
-      aria-label={`${keyName(k)}, key ${shortKey(k.fingerprint)}. Open details`}
+      aria-label={t("settings.pgp.keyAria", { name: keyName(k), key: shortKey(k.fingerprint) })}
       onClick={onOpen}
       onKeyDown={(e) => (e.key === "Enter" || e.key === " ") && (e.preventDefault(), onOpen())}
     >
       <span className={`key-ico ${k.hasSecret ? "" : "pub"}`}>{k.hasSecret ? <KeyRound size={17} /> : <Lock size={16} />}</span>
       <span className="key-meta">
         <b className="ellipsis">{keyName(k)}</b>
-        <span className="fpr" aria-hidden>{fp.slice(0, 4).join(" ")} … {fp.slice(-1)} · {k.algo}{k.expires ? ` · ${k.expired ? "expired" : "expires"} ${fmtDay(k.expires)}` : ""}</span>
+        <span className="fpr" aria-hidden>
+          {k.expires
+            ? t(k.expired ? "settings.pgp.fprExpired" : "settings.pgp.fprExpires", { fpr: `${fp.slice(0, 4).join(" ")} … ${fp.slice(-1)}`, algo: k.algo, date: fmtDay(k.expires) })
+            : t("settings.pgp.fpr", { fpr: `${fp.slice(0, 4).join(" ")} … ${fp.slice(-1)}`, algo: k.algo })}
+        </span>
       </span>
       <span className="key-tags">
-        {k.revoked && <span className="pill bad">Revoked</span>}
-        {!k.revoked && k.expired && <span className="pill warn">Expired</span>}
+        {k.revoked && <span className="pill bad">{t("settings.pgp.revoked")}</span>}
+        {!k.revoked && k.expired && <span className="pill warn">{t("settings.pgp.expired")}</span>}
         {k.hasSecret ? (
           <>
-            {used.map((e) => <span key={e} className="pill accent">Default for {e}</span>)}
-            {k.unlocked && <span className="pill">{k.passphraseRemembered ? "Passphrase remembered" : "Unlocked"}</span>}
+            {used.map((e) => <span key={e} className="pill accent">{t("settings.pgp.defaultFor", { email: e })}</span>)}
+            {k.unlocked && <span className="pill">{k.passphraseRemembered ? t("settings.pgp.remembered") : t("settings.pgp.unlocked")}</span>}
           </>
-        ) : k.verified ? <span className="pill good">Verified</span> : <span className="pill">Not verified</span>}
+        ) : k.verified ? <span className="pill good">{t("settings.pgp.verified")}</span> : <span className="pill">{t("settings.server.notVerified")}</span>}
       </span>
     </div>
   );
 }
 
 function PgpTab() {
+  const t = useT();
   const { setDialog, prefs, setPrefs, keysRev, bumpKeys, showToast } = useStore();
   const [keys, setKeys] = useState<PgpKey[] | null>(null);
   const [q, setQ] = useState("");
@@ -1391,109 +1619,114 @@ function PgpTab() {
   const open = (fingerprint: string) => setDialog({ type: "pgp-key", fingerprint, back: "pgp" });
   return (
     <div>
-      <h3>Encryption (PGP)</h3>
-      <div className="muted small">OpenPGP keys for encrypting and signing mail (PGP/MIME). Your secret keys stay on this computer, locked with your passphrase. Keys are never looked up online: you add them yourself.</div>
-      {err && <div className="notice bad" role="alert" style={{ marginTop: 10 }}>Couldn’t load keys: {err} <button className="link" onClick={bumpKeys}>Retry</button></div>}
+      <h3>{t("settings.pgp.title")}</h3>
+      <div className="muted small">{t("settings.pgp.intro")}</div>
+      {err && <div className="notice bad" role="alert" style={{ marginTop: 10 }}>{t("settings.pgp.loadFailed", { error: err })} <button className="link" onClick={bumpKeys}>{t("common.retry")}</button></div>}
       <div className="set-card-head" style={{ marginTop: 14 }}>
-        <h4 style={{ margin: 0, flex: 1 }}>Your keys</h4>
-        <button className="btn small" onClick={() => setDialog({ type: "pgp-import", back: "pgp" })}><Upload size={13} /> Import…</button>
-        <button className="btn small primary" onClick={() => setDialog({ type: "pgp-generate", back: "pgp" })}><Plus size={13} /> Generate key…</button>
+        <h4 style={{ margin: 0, flex: 1 }}>{t("settings.pgp.yourKeys")}</h4>
+        <button className="btn small" onClick={() => setDialog({ type: "pgp-import", back: "pgp" })}><Upload size={13} /> {t("settings.pgp.import")}</button>
+        <button className="btn small primary" onClick={() => setDialog({ type: "pgp-generate", back: "pgp" })}><Plus size={13} /> {t("settings.pgp.generate")}</button>
       </div>
       <div style={{ marginTop: 8 }}>
         {!keys ? (
-          <div className="sk" style={{ height: 56 }} aria-busy aria-label="Loading keys" />
+          <div className="sk" style={{ height: 56 }} aria-busy aria-label={t("settings.pgp.loadingKeys")} />
         ) : own.length === 0 ? (
           <div className="empty-state" style={{ padding: "18px 0" }}>
             <div className="empty-art"><KeyRound size={34} /></div>
-            <div className="empty-title">No keys yet</div>
-            <div className="muted">Generate a key to sign mail and let people send you encrypted mail.</div>
-            <button className="btn primary" style={{ marginTop: 8 }} onClick={() => setDialog({ type: "pgp-generate", back: "pgp" })}>Generate key…</button>
+            <div className="empty-title">{t("settings.pgp.noKeys")}</div>
+            <div className="muted">{t("settings.pgp.noKeysHint")}</div>
+            <button className="btn primary" style={{ marginTop: 8 }} onClick={() => setDialog({ type: "pgp-generate", back: "pgp" })}>{t("settings.pgp.generate")}</button>
           </div>
         ) : own.map((k) => <KeyRow key={k.fingerprint} k={k} onOpen={() => open(k.fingerprint)} />)}
       </div>
       <div className="set-card-head" style={{ marginTop: 18 }}>
-        <h4 style={{ margin: 0, flex: 1 }}>Other people’s public keys <span className="muted small" style={{ fontWeight: 400 }}>· {others.length}</span></h4>
-        <input placeholder="Search name, email or key ID" aria-label="Search keys" style={{ width: 220 }} value={q} onChange={(e) => setQ(e.target.value)} />
-        <button className="btn small" onClick={() => setDialog({ type: "pgp-import", back: "pgp" })}><Upload size={13} /> Import…</button>
+        <h4 style={{ margin: 0, flex: 1 }}>{t("settings.pgp.others")} <span className="muted small" style={{ fontWeight: 400 }}>· {others.length}</span></h4>
+        <input placeholder={t("settings.pgp.searchPlaceholder")} aria-label={t("settings.pgp.searchKeys")} style={{ width: 220 }} value={q} onChange={(e) => setQ(e.target.value)} />
+        <button className="btn small" onClick={() => setDialog({ type: "pgp-import", back: "pgp" })}><Upload size={13} /> {t("settings.pgp.import")}</button>
       </div>
       <div style={{ marginTop: 8 }}>
-        {others.length === 0 && keys && <div className="muted small">Public keys you import, or that arrive attached to mail, appear here.</div>}
-        {others.length > 0 && shown.length === 0 && <div className="muted small">No key matches “{q}”.</div>}
+        {others.length === 0 && keys && <div className="muted small">{t("settings.pgp.othersEmpty")}</div>}
+        {others.length > 0 && shown.length === 0 && <div className="muted small">{t("settings.pgp.noMatch", { q })}</div>}
         {shown.map((k) => <KeyRow key={k.fingerprint} k={k} onOpen={() => open(k.fingerprint)} />)}
       </div>
-      <h4>Passphrases</h4>
-      <Row label="Remember passphrases" hint="How long an unlocked key stays unlocked. It is kept in memory only, never on disk.">
+      <h4>{t("settings.pgp.passphrases")}</h4>
+      <Row label={t("settings.pgp.remember")} hint={t("settings.pgp.rememberHint")}>
         <select value={prefs.pgpRemember} onChange={(e) => setPrefs({ pgpRemember: e.target.value as Prefs["pgpRemember"] })}>
-          <option value="session">Until Hey Look! quits</option>
-          <option value="never">Ask every time</option>
+          <option value="session">{t("settings.pgp.untilQuit")}</option>
+          <option value="never">{t("settings.pgp.askEveryTime")}</option>
         </select>
       </Row>
-      <Row label="Lock all keys now" hint="Forget every remembered passphrase and decrypted message">
-        <button className="btn small" onClick={() => void api.pgpLockAll().then(() => (bumpKeys(), showToast("All keys are locked", undefined, "success")))}>Lock now</button>
+      <Row label={t("settings.pgp.lockAll")} hint={t("settings.pgp.lockAllHint")}>
+        <button className="btn small" onClick={() => void api.pgpLockAll().then(() => (bumpKeys(), showToast(t("settings.pgp.allLocked"), undefined, "success")))}>{t("settings.pgp.lockNow")}</button>
       </Row>
     </div>
   );
 }
 
 function ShortcutsTab() {
+  const t = useT();
   const os = usePlatform((s) => s.os);
-  const rows: [string, string][] = [
-    ["c", "New mail"], ["/", "Search"], ["j / k", "Next / previous conversation"], ["e", "Archive"], ["#", "Delete"], ["!", "Move to Junk"],
-    ["s", "Snooze"], ["p", "Pin"], ["*", "Flag"], ["u", "Mark as unread"], ["r", "Reply"], ["a", "Reply all"], ["f", "Forward"],
-    ["Ctrl+Enter", "Send (while writing)"], ["Ctrl+Shift+Enter", "Send later (while writing)"], ["Ctrl+Shift+P", "Insert picture (while writing)"], ["Ctrl+Shift+E", "Encrypt (while writing)"], ["Ctrl+Shift+G", "Sign (while writing)"],
-    ["Space / Enter", "Preview / open attachment"], ["Ctrl+S", "Save attachment as…"], ["Ctrl+Shift+S", "Save all attachments"],
-    ["Ctrl+1 / Ctrl+2", "Mail / Calendar"], ["c · t · ← / → · m / w / a", "Calendar: new event, today, previous / next, Month / Week / Agenda"],
-    ["Ctrl+A", "Select all"], ["Ctrl+K", "Command bar"], ["F5", "Sync now"], ["Esc", "Close / deselect"],
+  const rows: [string, Key][] = [
+    ["c", "settings.keys.newMail"], ["/", "settings.keys.search"], ["j / k", "settings.keys.nextPrev"], ["e", "settings.action.archive"], ["#", "common.delete"], ["!", "settings.filters.toJunk"],
+    ["s", "settings.action.snooze"], ["p", "settings.action.pin"], ["*", "settings.action.flag"], ["u", "settings.keys.markUnread"], ["r", "settings.action.reply"], ["a", "settings.composing.replyAll"], ["f", "settings.keys.forward"],
+    ["Ctrl+Enter", "settings.keys.send"], ["Ctrl+Shift+Enter", "settings.keys.sendLater"], ["Ctrl+Shift+P", "settings.keys.insertPicture"], ["Ctrl+Shift+E", "settings.keys.encrypt"], ["Ctrl+Shift+G", "settings.keys.sign"],
+    ["Space / Enter", "settings.keys.preview"], ["Ctrl+S", "settings.keys.saveAs"], ["Ctrl+Shift+S", "settings.keys.saveAll"],
+    ["Ctrl+1 / Ctrl+2", "settings.keys.mailCalendar"], ["c · t · ← / → · m / w / a", "settings.keys.calendarKeys"],
+    ["Ctrl+A", "settings.keys.selectAll"], ["Ctrl+K", "settings.keys.commandBar"], ["F5", "settings.keys.syncNow"], ["Esc", "settings.keys.closeDeselect"],
   ];
   return (
     <div>
-      <h3>Keyboard shortcuts</h3>
+      <h3>{t("settings.keys.title")}</h3>
       {rows.map(([k, d]) => (
-        <div key={k} className="set-row"><kbd>{kbd(os === "macos" && k === "#" ? "delete / #" : k, os)}</kbd><span>{d}</span></div>
+        <div key={k} className="set-row"><kbd>{kbd(os === "macos" && k === "#" ? "delete / #" : k, os)}</kbd><span>{t(d)}</span></div>
       ))}
     </div>
   );
 }
 
 function AboutTab() {
+  const t = useT();
   const { prefs, setPrefs } = useStore();
   const testData = usePlatform((s) => s.testData);
   return (
     <div>
-      <h3>About</h3>
-      <p><b>Hey Look!</b> — a desktop mail client built with Tauri, React and Rust.</p>
-      {testData && <div className="notice info">Test build: your mail, accounts and settings are kept in {testData}, not in the normal data folder.</div>}
+      <h3>{t("settings.about.title")}</h3>
+      <p>{tx("settings.about.tagline", { name: <b>Hey Look!</b> })}</p>
+      {testData && <div className="notice info">{t("settings.about.testBuild", { dir: testData })}</div>}
       <UpdatesBlock
         privacy={
-          <p className="muted small">All features are always enabled. No license, no subscription, no cloud account. Mail goes directly between this app and your mail servers; AI features use only the endpoint you configure. Update checks ask GitHub (github.com) for the latest version; updates are downloaded from GitHub only after you agree. You can turn automatic checks off below.</p>
+          <p className="muted small">{t("settings.about.privacy")}</p>
         }
         autoSwitch={
           <Row
-            label="Check for updates automatically"
-            hint="When Hey Look! starts or comes back from the tray, at most every 6 hours. Only GitHub is asked; your mail and accounts are never sent."
+            label={t("settings.about.autoCheck")}
+            hint={t("settings.about.autoCheckHint")}
           >
             <Switch checked={prefs.checkUpdates} onChange={(v) => setPrefs({ checkUpdates: v })} />
           </Row>
         }
       />
       <div className="about-links">
-        <button className="link about-link" title="https://github.com/thnonl/hey-look" onClick={() => void openUpdateLink("https://github.com/thnonl/hey-look")}>GitHub repository (thnonl/hey-look)</button>
+        {ABOUT_LINKS.map((l) => (
+          <button key={l.url} className="link about-link" title={l.url} onClick={() => void openUpdateLink(l.url)}>{l.text}</button>
+        ))}
       </div>
     </div>
   );
 }
 
 // ---------------------------------------------------------------- shell
-const MORE: [string, string][] = [
-  ["tray", "Notifications & tray"], ["actions", "Thread actions"], ["times", "Customize times"], ["blocked", "Blocked senders"], ["pgp", "Encryption (PGP)"],
-  ["ai", "AI Assistant"], ["shortcuts", "Shortcuts"], ["about", "About"],
+const MORE: [string, Key][] = [
+  ["tray", "settings.tray.title"], ["actions", "settings.actions.title"], ["times", "settings.times.title"], ["blocked", "settings.blocked.title"], ["pgp", "settings.pgp.title"],
+  ["ai", "settings.ai.title"], ["shortcuts", "settings.nav.shortcuts"], ["about", "settings.about.title"],
 ];
 
 export function Settings({ initial, focus, nonce }: { initial?: string; focus?: string; nonce?: number }) {
+  const t = useT();
   const { setDialog, accounts, prefs } = useStore();
   const start = initial === "accounts" ? "mb:all" : initial === "notifications" ? "tray" : initial;
   const [tab, setTab] = useState<string>(start || (accounts.length === 0 ? "add-account" : "general"));
-  const [mbTab, setMbTab] = useState<MbTab>(focus === "loadRemote" || focus === "maxDownload" ? "reading" : focus === "security" ? "security" : "composing");
+  const [mbTab, setMbTab] = useState<MbTab>(focus === "loadRemote" || focus === "maxDownload" ? "reading" : focus === "security" ? "security" : focus === "calendar" ? "calendar" : "composing");
   const close = () => setDialog(null);
   // Settings is already open and something asks for a tab (toast "What’s new", Command bar, the gear with a dot): switch to it
   const first = useRef(true);
@@ -1506,12 +1739,12 @@ export function Settings({ initial, focus, nonce }: { initial?: string; focus?: 
   }, [initial, nonce]);
   useEffect(() => {
     if (!focus) return;
-    const t = setTimeout(() => {
+    const timer = setTimeout(() => {
       const el = document.getElementById(`set-${focus}`);
       el?.scrollIntoView({ block: "center" });
       el?.classList.add("flash");
     }, 80);
-    return () => clearTimeout(t);
+    return () => clearTimeout(timer);
   }, [focus, tab, mbTab]);
   // keep the selected navigation entry in view (the list scrolls on small windows)
   useEffect(() => {
@@ -1521,12 +1754,12 @@ export function Settings({ initial, focus, nonce }: { initial?: string; focus?: 
   // sections of the selected mailbox, listed right under it (Arrow Up/Down move between them)
   const sections = (k: string) => {
     const scope = k === "mb:all" ? null : k.slice(3);
-    const active = activeSection(scope, mbTab);
+    const active = activeSection(scope, mbTab, accounts);
     return (
       <div
         className="nav-sub"
         role="group"
-        aria-label="Mailbox sections"
+        aria-label={t("settings.nav.mailboxSections")}
         onKeyDown={(e) => {
           if (e.key !== "ArrowDown" && e.key !== "ArrowUp") return;
           e.preventDefault();
@@ -1536,9 +1769,9 @@ export function Settings({ initial, focus, nonce }: { initial?: string; focus?: 
           list[Math.max(0, Math.min(list.length - 1, i + (e.key === "ArrowDown" ? 1 : -1)))]?.focus();
         }}
       >
-        {mailboxSections(scope).map(([s, l]) => (
+        {mailboxSections(scope, accounts).map(([s, l]) => (
           <button key={s} className={s === active ? "active" : ""} aria-current={s === active ? "page" : undefined} onClick={() => setMbTab(s)}>
-            {l}
+            {t(l)}
           </button>
         ))}
       </div>
@@ -1554,18 +1787,18 @@ export function Settings({ initial, focus, nonce }: { initial?: string; focus?: 
   );
 
   return (
-    <Modal title="Settings" onClose={close} wide>
+    <Modal title={t("settings.title")} onClose={close} wide>
       <div className="settings">
-        <nav className="settings-nav" aria-label="Settings sections">
-          <div className="nav-label">App</div>
-          {item("general", "General")}
-          {item("appearance", "Appearance")}
-          <div className="nav-label">Mailboxes</div>
-          {item("mb:all", "All accounts")}
+        <nav className="settings-nav" aria-label={t("settings.nav.sections")}>
+          <div className="nav-label">{t("settings.nav.app")}</div>
+          {item("general", t("settings.general.title"))}
+          {item("appearance", t("settings.appearance.title"))}
+          <div className="nav-label">{t("settings.nav.mailboxes")}</div>
+          {item("mb:all", t("settings.scope.allAccounts"))}
           {accounts.map((a) => item(`mb:${a.id}`, <><span className="dot" style={{ background: accountColor(a, prefs.accent) }} />{a.email}</>, true))}
-          {item("add-account", "+ Add account", true)}
-          <div className="nav-label">More</div>
-          {MORE.map(([k, l]) => item(k, l))}
+          {item("add-account", t("settings.nav.addAccount"), true)}
+          <div className="nav-label">{t("settings.nav.more")}</div>
+          {MORE.map(([k, l]) => item(k, t(l)))}
         </nav>
         <div className="settings-body">
           {tab === "general" && <GeneralTab />}

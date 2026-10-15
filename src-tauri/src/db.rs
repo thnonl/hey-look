@@ -69,7 +69,24 @@ pub fn migrate(conn: &Connection) -> R<()> {
            UNIQUE(calendar_id, uid, recurrence_id)
          );
          CREATE INDEX IF NOT EXISTS idx_events_range ON events(starts_at, ends_at);
-         CREATE INDEX IF NOT EXISTS idx_events_uid ON events(uid);",
+         CREATE INDEX IF NOT EXISTS idx_events_uid ON events(uid);
+         -- calendar sync (calsync): one source per mailbox and provider, its calendars, and what was deleted there
+         CREATE TABLE IF NOT EXISTS cal_sources(
+           id TEXT PRIMARY KEY, account_id TEXT NOT NULL, kind TEXT NOT NULL,
+           status TEXT NOT NULL DEFAULT 'syncing', last_sync INTEGER, last_error TEXT, retry_at INTEGER,
+           fail_count INTEGER NOT NULL DEFAULT 0, connected_at INTEGER NOT NULL DEFAULT 0
+         );
+         CREATE TABLE IF NOT EXISTS calendars(
+           id TEXT PRIMARY KEY, source_id TEXT NOT NULL, remote_id TEXT NOT NULL, name TEXT NOT NULL, color TEXT,
+           read_only INTEGER NOT NULL DEFAULT 0, is_primary INTEGER NOT NULL DEFAULT 0, sync_on INTEGER NOT NULL DEFAULT 1,
+           sync_state TEXT, time_zone TEXT, default_reminder_min INTEGER, event_count INTEGER NOT NULL DEFAULT 0,
+           truncated INTEGER NOT NULL DEFAULT 0, window_from INTEGER,
+           UNIQUE(source_id, remote_id)
+         );
+         CREATE TABLE IF NOT EXISTS cal_tombstones(
+           calendar_id TEXT NOT NULL, remote_id TEXT NOT NULL, series_id TEXT, recurrence_id INTEGER, deleted_at INTEGER NOT NULL,
+           PRIMARY KEY(calendar_id, remote_id)
+         );",
     )
     .map_err(err)?;
     // migrations: a column that is already there is fine, any other failure (locked file, full disk) is reported
@@ -77,6 +94,14 @@ pub fn migrate(conn: &Connection) -> R<()> {
     add_column(conn, "ALTER TABLE accounts ADD COLUMN color TEXT")?;
     add_column(conn, "ALTER TABLE accounts ADD COLUMN smtp_username TEXT NOT NULL DEFAULT ''")?;
     add_column(conn, "ALTER TABLE accounts ADD COLUMN tls_insecure INTEGER NOT NULL DEFAULT 0")?;
+    // synced calendar events: the provider's id / version tag / series / kind, and why the event cannot be edited here
+    // (0 = it can, 1 = read-only calendar, 2 = repeating, 3 = organized by someone else; see calsync::store)
+    add_column(conn, "ALTER TABLE events ADD COLUMN remote_id TEXT")?;
+    add_column(conn, "ALTER TABLE events ADD COLUMN etag TEXT")?;
+    add_column(conn, "ALTER TABLE events ADD COLUMN series_id TEXT")?;
+    add_column(conn, "ALTER TABLE events ADD COLUMN remote_kind TEXT")?;
+    add_column(conn, "ALTER TABLE events ADD COLUMN read_only INTEGER NOT NULL DEFAULT 0")?;
+    conn.execute_batch("CREATE INDEX IF NOT EXISTS idx_events_remote ON events(calendar_id, remote_id);").map_err(err)?;
     // scheduled sends: when it was queued and how many delivery attempts failed so far
     add_column(conn, "ALTER TABLE outbox ADD COLUMN created_at INTEGER NOT NULL DEFAULT 0")?;
     add_column(conn, "ALTER TABLE outbox ADD COLUMN attempts INTEGER NOT NULL DEFAULT 0")?;
@@ -243,6 +268,7 @@ pub fn remove_account(c: &Connection, id: &str) -> R<()> {
     c.execute("DELETE FROM outbox WHERE account_id=?1", [id]).map_err(err)?;
     c.execute("DELETE FROM pgp_default WHERE account_id=?1", [id]).map_err(err)?;
     c.execute("DELETE FROM events WHERE account_id=?1 OR calendar_id=?2", params![id, format!("invites:{id}")]).map_err(err)?;
+    crate::calsync::store::forget_account(c, id)?;
     c.execute("DELETE FROM accounts WHERE id=?1", [id]).map_err(err)?;
     // its mail: the whole file goes (never row by row through the view)
     crate::shard::drop_account(c, id)?;
@@ -284,10 +310,20 @@ pub fn prune_orphans(c: &Connection) -> R<usize> {
             n += c.execute("DELETE FROM settings WHERE key=?1", [&k]).map_err(err)?;
         }
     }
-    // calendars hidden by the user: "invites:<account>" of a removed account
+    // synced calendars (and their events and tombstones) of a mailbox that is gone, or of a calendar that is gone
+    n += crate::calsync::store::prune_orphans(c)?;
+    // calendars hidden by the user: "invites:<account>" of a removed account, or a synced calendar that no longer exists
     if let Some(raw) = get_setting(c, "cal_hidden") {
         if let Ok(list) = serde_json::from_str::<Vec<String>>(&raw) {
-            let kept: Vec<String> = list.iter().filter(|k| k.strip_prefix("invites:").map(|a| ids.contains(a)).unwrap_or(true)).cloned().collect();
+            let known: std::collections::HashSet<String> = crate::calsync::store::all_calendar_ids(c);
+            let kept: Vec<String> = list
+                .iter()
+                .filter(|k| match k.strip_prefix("invites:") {
+                    Some(a) => ids.contains(a),
+                    None => !crate::calsync::is_remote_calendar_id(k) || known.contains(*k),
+                })
+                .cloned()
+                .collect();
             if kept.len() != list.len() {
                 set_setting(c, "cal_hidden", &serde_json::to_string(&kept).map_err(err)?)?;
                 n += 1;

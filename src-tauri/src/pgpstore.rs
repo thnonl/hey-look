@@ -517,7 +517,7 @@ pub async fn pgp_generate_key(
     let db = state.db.clone();
     blocking(move || {
         if passphrase.chars().count() < 8 {
-            return Err("Use at least 8 characters.".into());
+            return Err("PGP_PASSPHRASE_SHORT: Use at least 8 characters.".into());
         }
         let acc = crate::db::get_account(&lock(&db), &account_id)?;
         let name = if acc.display_name.trim().is_empty() { acc.email.clone() } else { acc.display_name.trim().to_string() };
@@ -545,15 +545,15 @@ const MAX_KEY_FILE: u64 = 4_000_000;
 
 fn read_key_input(armored: Option<String>, path: Option<String>) -> R<Vec<u8>> {
     if let Some(p) = path {
-        let meta = std::fs::metadata(&p).map_err(|e| format!("Couldn't read that file: {e}"))?;
+        let meta = std::fs::metadata(&p).map_err(|e| crate::i18n::coded("PGP_FILE_UNREADABLE", &[("detail", &e.to_string())], &format!("Couldn't read that file: {e}")))?;
         if meta.len() > MAX_KEY_FILE {
-            return Err("That file is too large to be an OpenPGP key.".into());
+            return Err("PGP_FILE_TOO_LARGE: That file is too large to be an OpenPGP key.".into());
         }
-        return std::fs::read(&p).map_err(|e| format!("Couldn't read that file: {e}"));
+        return std::fs::read(&p).map_err(|e| crate::i18n::coded("PGP_FILE_UNREADABLE", &[("detail", &e.to_string())], &format!("Couldn't read that file: {e}")));
     }
     let a = armored.unwrap_or_default();
     if a.trim().is_empty() {
-        return Err("Paste an armored key or choose a file.".into());
+        return Err("PGP_NOTHING_TO_IMPORT: Paste an armored key or choose a file.".into());
     }
     Ok(a.into_bytes())
 }
@@ -646,7 +646,7 @@ pub async fn pgp_import_from_message(state: tauri::State<'_, AppState>, message_
         let (_, bytes) = crate::mail::attachment_bytes(&raw, index)?;
         let mats = openpgp::parse_material(&bytes)?;
         if mats.iter().any(|m| m.is_secret()) {
-            return Err("This attachment contains a secret key. Import it from Settings, Encryption (PGP).".into());
+            return Err("PGP_ATT_SECRET_KEY: This attachment contains a secret key. Import it from Settings, Encryption (PGP).".into());
         }
         let c = lock(&db);
         let fprs = import_materials(&c, mats, "", false, "email")?;
@@ -659,7 +659,7 @@ pub async fn pgp_import_from_message(state: tauri::State<'_, AppState>, message_
 #[tauri::command]
 pub async fn pgp_pick_key_file(app: tauri::AppHandle) -> R<Option<String>> {
     blocking(move || {
-        let p = app.dialog().file().set_title("Choose a key file").add_filter("OpenPGP keys", &["asc", "gpg", "pgp", "key", "txt"]).blocking_pick_file();
+        let p = app.dialog().file().set_title(crate::i18n::tr(crate::i18n::K::ChooseKeyFile)).add_filter(crate::i18n::tr(crate::i18n::K::OpenPgpKeys), &["asc", "gpg", "pgp", "key", "txt"]).blocking_pick_file();
         match p {
             Some(f) => Ok(Some(f.into_path().map_err(err)?.to_string_lossy().into_owned())),
             None => Ok(None),
@@ -677,7 +677,7 @@ fn safe_file_stem(k: &StoredKey) -> String {
 pub fn pgp_public_armored(state: tauri::State<AppState>, fingerprint: String) -> R<String> {
     let c = lock(&state.db);
     let store = load_store(&c)?;
-    openpgp::armor_public(&store.by_fpr(&fingerprint).ok_or("Key not found.")?.public)
+    openpgp::armor_public(&store.by_fpr(&fingerprint).ok_or("PGP_KEY_NOT_FOUND: Key not found.")?.public)
 }
 
 #[tauri::command]
@@ -687,10 +687,10 @@ pub async fn pgp_export_public(app: tauri::AppHandle, state: tauri::State<'_, Ap
         let (armored, name) = {
             let c = lock(&db);
             let store = load_store(&c)?;
-            let k = store.by_fpr(&fingerprint).ok_or("Key not found.")?;
+            let k = store.by_fpr(&fingerprint).ok_or("PGP_KEY_NOT_FOUND: Key not found.")?;
             (openpgp::armor_public(&k.public)?, format!("{}-public-key.asc", safe_file_stem(k)))
         };
-        save_text(&app, &name, "Save public key", &armored)
+        save_text(&app, &name, crate::i18n::tr(crate::i18n::K::SavePublicKey), &armored)
     })
     .await
 }
@@ -712,8 +712,8 @@ pub async fn pgp_export_secret(app: tauri::AppHandle, state: tauri::State<'_, Ap
         let (armored, name) = {
             let c = lock(&db);
             let store = load_store(&c)?;
-            let k = store.by_fpr(&fingerprint).ok_or("Key not found.")?;
-            let s = k.secret.as_ref().ok_or("This key has no secret part on this computer.")?;
+            let k = store.by_fpr(&fingerprint).ok_or("PGP_KEY_NOT_FOUND: Key not found.")?;
+            let s = k.secret.as_ref().ok_or("PGP_NO_SECRET_PART: This key has no secret part on this computer.")?;
             if let Some(p) = passphrase.filter(|p| !p.is_empty()) {
                 check_attempts(&fingerprint)?;
                 openpgp::unlock_clone(s, &p).inspect_err(|_| record_attempt(&fingerprint, false))?;
@@ -721,7 +721,7 @@ pub async fn pgp_export_secret(app: tauri::AppHandle, state: tauri::State<'_, Ap
             }
             (openpgp::armor_secret(s)?, format!("{}-secret-key-BACKUP.asc", safe_file_stem(k)))
         };
-        save_text(&app, &name, "Save a backup of your key", &armored)
+        save_text(&app, &name, crate::i18n::tr(crate::i18n::K::SaveKeyBackup), &armored)
     })
     .await
 }
@@ -729,7 +729,7 @@ pub async fn pgp_export_secret(app: tauri::AppHandle, state: tauri::State<'_, Ap
 #[tauri::command]
 pub fn pgp_delete_key(state: tauri::State<AppState>, fingerprint: String, include_secret: bool) -> R<()> {
     let c = lock(&state.db);
-    let has_secret: Option<String> = c.query_row("SELECT secret_armored FROM pgp_keys WHERE fingerprint=?1", [&fingerprint], |r| r.get(0)).map_err(|_| "Key not found.".to_string())?;
+    let has_secret: Option<String> = c.query_row("SELECT secret_armored FROM pgp_keys WHERE fingerprint=?1", [&fingerprint], |r| r.get(0)).map_err(|_| "PGP_KEY_NOT_FOUND: Key not found.".to_string())?;
     if has_secret.is_some() && !include_secret {
         c.execute("UPDATE pgp_keys SET secret_armored=NULL WHERE fingerprint=?1", [&fingerprint]).map_err(err)?;
     } else {
@@ -761,7 +761,7 @@ pub fn pgp_set_default(state: tauri::State<AppState>, account_id: String, finger
         Some(f) => {
             let store = load_store(&c)?;
             if store.by_fpr(&f).is_none_or(|k| k.secret.is_none()) {
-                return Err("Choose one of your own keys.".into());
+                return Err("PGP_NOT_OWN_KEY: Choose one of your own keys.".into());
             }
             c.execute("INSERT INTO pgp_default(account_id,fingerprint) VALUES(?1,?2) ON CONFLICT(account_id) DO UPDATE SET fingerprint=excluded.fingerprint", params![account_id, f]).map_err(err)?;
         }
@@ -778,12 +778,12 @@ pub async fn pgp_change_passphrase(state: tauri::State<'_, AppState>, fingerprin
     let db = state.db.clone();
     blocking(move || {
         if new_passphrase.chars().count() < 8 {
-            return Err("Use at least 8 characters.".into());
+            return Err("PGP_PASSPHRASE_SHORT: Use at least 8 characters.".into());
         }
         // the slow key derivation runs without the database lock, so other commands keep working
         let store = load_store(&lock(&db))?;
-        let k = store.by_fpr(&fingerprint).ok_or("Key not found.")?;
-        let s = k.secret.as_ref().ok_or("This key has no secret part on this computer.")?;
+        let k = store.by_fpr(&fingerprint).ok_or("PGP_KEY_NOT_FOUND: Key not found.")?;
+        let s = k.secret.as_ref().ok_or("PGP_NO_SECRET_PART: This key has no secret part on this computer.")?;
         check_attempts(&fingerprint)?;
         let changed = openpgp::change_passphrase(s, &old_passphrase, &new_passphrase).inspect_err(|_| record_attempt(&fingerprint, false))?;
         record_attempt(&fingerprint, true);
@@ -803,8 +803,8 @@ pub async fn pgp_set_expiry(state: tauri::State<'_, AppState>, fingerprint: Stri
     let db = state.db.clone();
     blocking(move || {
         let store = load_store(&lock(&db))?;
-        let k = store.by_fpr(&fingerprint).ok_or("Key not found.")?;
-        let mut s = k.secret.clone().ok_or("Only your own keys can be extended.")?;
+        let k = store.by_fpr(&fingerprint).ok_or("PGP_KEY_NOT_FOUND: Key not found.")?;
+        let mut s = k.secret.clone().ok_or("PGP_EXTEND_OWN_ONLY: Only your own keys can be extended.")?;
         check_attempts(&fingerprint)?;
         openpgp::unlock_clone(&s, &passphrase).inspect_err(|_| record_attempt(&fingerprint, false))?;
         record_attempt(&fingerprint, true);
@@ -814,7 +814,7 @@ pub async fn pgp_set_expiry(state: tauri::State<'_, AppState>, fingerprint: Stri
         save_key(&c, &pk, Some(&s), k.verified, &k.source.clone())?;
         clear_views();
         let store = load_store(&c)?;
-        Ok(view(&store, store.by_fpr(&fingerprint).ok_or("Key not found.")?))
+        Ok(view(&store, store.by_fpr(&fingerprint).ok_or("PGP_KEY_NOT_FOUND: Key not found.")?))
     })
     .await
 }
@@ -898,13 +898,13 @@ pub fn unseal_from_outbox(c: &Connection, acc: &Account, d: &Draft) -> R<Draft> 
     }
     let raw = base64::engine::general_purpose::STANDARD.decode(pre).map_err(err)?;
     let store = load_store(c)?;
-    let own = store.own_key(acc).ok_or_else(|| format!("PGP_NO_KEY: You have no PGP key for {}.", acc.email))?;
+    let own = store.own_key(acc).ok_or_else(|| crate::i18n::coded("PGP_NO_KEY", &[("email", &acc.email)], &format!("You have no PGP key for {}.", acc.email)))?;
     if unlocked_key(&own.info.fingerprint).is_none() && own.secret.as_ref().is_some_and(openpgp::is_protected) {
         return Err(format!("PGP_LOCKED:{}", own.info.fingerprint));
     }
     let opened = open_message(c, &format!("outbox:{}", pgpstore_hash(&raw)), &raw)?;
-    let plain = opened.plain.as_ref().ok_or("PGP_FAILED: Couldn't read the encrypted message.")?;
-    let parsed = crate::mail::parse(0, plain, true, false, 0).ok_or("PGP_FAILED: Couldn't read the encrypted message.")?;
+    let plain = opened.plain.as_ref().ok_or("PGP_UNREADABLE: Couldn't read the encrypted message.")?;
+    let parsed = crate::mail::parse(0, plain, true, false, 0).ok_or("PGP_UNREADABLE: Couldn't read the encrypted message.")?;
     out.html = parsed.html.unwrap_or_default();
     out.text = parsed.text.unwrap_or_default();
     // attachments and inline pictures come back from the decrypted copy

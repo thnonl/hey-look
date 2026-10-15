@@ -1,7 +1,9 @@
 import { Check, ChevronDown } from "lucide-react";
 import { ReactNode, useCallback, useEffect, useId, useRef, useState } from "react";
 import { createPortal } from "react-dom";
+import { useT } from "../i18n/react";
 import { accountColor } from "../prefs";
+import { menuOwners, pressIsOutside } from "../pressInside";
 import { useStore } from "../store";
 import { hue, initials } from "../util";
 
@@ -15,6 +17,10 @@ export interface MenuItem {
   hint?: string;
   /** colour dot shown before the label (accounts) */
   dot?: string;
+  /** language of the label when it differs from the app's (the language names, each in its own language) */
+  lang?: string;
+  /** extra text the type-ahead of the menu also matches (the English name of a language written in its own) */
+  search?: string;
 }
 
 type Ref = React.RefObject<HTMLElement | null>;
@@ -24,8 +30,9 @@ export function useOutside(ref: Ref | Ref[], onOut: () => void, active: boolean)
   useEffect(() => {
     if (!active) return;
     const refs = Array.isArray(ref) ? ref : [ref];
+    // a press on a menu that was opened from inside counts as inside: the menu is portalled out of the DOM tree (see pressInside.ts)
     const h = (e: MouseEvent) => {
-      if (refs.every((r) => r.current && !r.current.contains(e.target as Node))) onOut();
+      if (pressIsOutside(e.target, refs)) onOut();
     };
     const k = (e: KeyboardEvent) => {
       if (e.key !== "Escape") return;
@@ -54,6 +61,7 @@ export function MenuList({ items, onDone }: { items: MenuItem[]; onDone: () => v
             role={it.checked === undefined ? "menuitem" : "menuitemradio"}
             aria-checked={it.checked === undefined ? undefined : it.checked}
             tabIndex={-1}
+            data-search={it.search}
             disabled={it.disabled}
             onClick={() => {
               onDone();
@@ -62,7 +70,7 @@ export function MenuList({ items, onDone }: { items: MenuItem[]; onDone: () => v
           >
             <span className="menu-ico">{it.checked ? <Check size={14} /> : it.icon}</span>
             {it.dot && <span className="dot" style={{ background: it.dot }} />}
-            <span className="menu-lbl ellipsis">{it.label}</span>
+            <span className="menu-lbl ellipsis" lang={it.lang}>{it.label}</span>
             {it.hint && <span className="menu-hint">{it.hint}</span>}
           </button>
         ),
@@ -80,7 +88,8 @@ const ITEMS = '[role^="menuitem"]:not(:disabled)';
  * window sideways.
  *
  * Keyboard: focus moves into the menu when it opens (the checked row, else the first; `start="last"` for ArrowUp on the
- * trigger); ArrowUp/Down/Home/End move between rows, Tab closes it and carries on from the trigger, Escape closes it,
+ * trigger); ArrowUp/Down/Home/End move between rows, typing letters jumps to the next row that starts with them (a long list,
+ * such as the languages), Tab closes it and carries on from the trigger, Escape closes it,
  * returns focus to the trigger and does not reach the global shortcuts (it must not also clear the open conversation).
  * Mouse: closes on a press outside (anchor and menu count as inside), a resize, or any scroll outside the menu.
  *
@@ -114,6 +123,7 @@ export function FloatingMenu({
     },
     [anchor, trigger],
   );
+  const typed = useRef({ text: "", at: 0 });
   const rows = () => Array.from(pop.current?.querySelectorAll<HTMLElement>(ITEMS) ?? []);
   // an effect, not a layout effect: a conditionally attached anchor ref (the invitation buttons) is only set once this commit is done
   useEffect(() => {
@@ -138,6 +148,13 @@ export function FloatingMenu({
     const left = Math.max(edge, Math.min(want, window.innerWidth - p.width - edge));
     setPos({ top, left, max: room });
   }, [anchor, align]);
+  // lets a "press outside" handler of the popover this menu was opened from tell that a press on a row is not outside (pressInside.ts)
+  useEffect(() => {
+    const el = pop.current;
+    if (!el) return;
+    menuOwners.set(el, anchor);
+    return () => void menuOwners.delete(el);
+  }, [anchor]);
   // keyboard users land in the menu however it was opened; only once it is placed (a hidden element cannot take focus)
   const placed = pos !== null;
   useEffect(() => {
@@ -172,6 +189,7 @@ export function FloatingMenu({
   const onKeyDown = (e: React.KeyboardEvent) => {
     const list = rows();
     const i = list.indexOf(document.activeElement as HTMLElement);
+    if (e.key.length !== 1) typed.current.text = ""; // an Arrow / Home / End key starts a new type-ahead word
     const go = (el?: HTMLElement) => {
       e.preventDefault();
       el?.focus();
@@ -180,6 +198,21 @@ export function FloatingMenu({
     else if (e.key === "ArrowUp") go(list[(i - 1 + list.length) % list.length]);
     else if (e.key === "Home") go(list[0]);
     else if (e.key === "End") go(list[list.length - 1]);
+    else if (e.key.length === 1 && e.key !== " " && !e.ctrlKey && !e.metaKey && !e.altKey) {
+      // type-ahead: letters typed within 700 ms make one prefix; the same letter again steps through the rows starting with it
+      const now = Date.now();
+      const ty = typed.current;
+      ty.text = now - ty.at > 700 ? e.key : ty.text + e.key;
+      ty.at = now;
+      const fold = (x: string) => x.normalize("NFD").replace(/\p{M}/gu, "").replace(/đ/gi, "d").toLocaleLowerCase();
+      const want = fold(ty.text);
+      const same = want.length > 1 && [...want].every((c) => c === want[0]);
+      const prefix = same ? want[0] : want;
+      const hit = (el: HTMLElement) => [el.querySelector(".menu-lbl")?.textContent ?? "", el.dataset.search ?? ""].some((x) => fold(x).startsWith(prefix));
+      const from = same || ty.text.length === 1 ? i + 1 : Math.max(i, 0); // a longer prefix may stay on the current row
+      const order = [...list.slice(from), ...list.slice(0, from)];
+      go(order.find(hit));
+    }
     else if (e.key === "Tab") shut(true); // focus returns to the trigger and Tab carries on from there
   };
   const style = pos ? ({ top: pos.top, left: pos.left, "--dd-max": `${pos.max}px` } as React.CSSProperties) : { top: 0, left: 0, visibility: "hidden" as const };
@@ -306,10 +339,10 @@ export function Avatar({ name, size = 36, color }: { name: string; size?: number
   );
 }
 
-export function Switch({ checked, onChange, label, disabled }: { checked: boolean; onChange: (v: boolean) => void; label?: string; disabled?: boolean }) {
+export function Switch({ checked, onChange, label, disabled, ariaLabel }: { checked: boolean; onChange: (v: boolean) => void; label?: string; disabled?: boolean; ariaLabel?: string }) {
   return (
     <label className="switch">
-      <input type="checkbox" checked={checked} disabled={disabled} onChange={(e) => onChange(e.target.checked)} />
+      <input type="checkbox" checked={checked} disabled={disabled} aria-label={ariaLabel} onChange={(e) => onChange(e.target.checked)} />
       <span className="track">
         <span className="thumb" />
       </span>
@@ -321,6 +354,7 @@ export function Switch({ checked, onChange, label, disabled }: { checked: boolea
 const FOCUSABLE = 'a[href],button:not(:disabled),input:not(:disabled):not([type=hidden]),select:not(:disabled),textarea:not(:disabled),[contenteditable=true],[tabindex]:not([tabindex="-1"])';
 
 export function Modal({ title, onClose, children, wide, width }: { title: string; onClose: () => void; children: ReactNode; wide?: boolean; width?: number }) {
+  const t = useT();
   const titleId = useId();
   const box = useRef<HTMLDivElement>(null);
   // focus moves into the dialog when it opens and goes back to what opened it when it closes
@@ -366,7 +400,7 @@ export function Modal({ title, onClose, children, wide, width }: { title: string
       >
         <div className="modal-head">
           <b id={titleId}>{title}</b>
-          <button className="icon-btn" onClick={onClose} aria-label="Close">
+          <button className="icon-btn" onClick={onClose} aria-label={t("common.close")}>
             ✕
           </button>
         </div>

@@ -1,13 +1,19 @@
 mod ai;
 mod attach;
 mod calendar;
+mod calsync;
 mod db;
 mod discover;
 mod ical;
+mod i18n;
+mod idle;
 mod legacy_names;
 // the checked open of links and files on Linux; compiled everywhere so that its rules are tested everywhere
 #[cfg_attr(not(target_os = "linux"), allow(dead_code))]
 mod linuxopen;
+// macOS notification diagnostic (HEYLOOK_MAC_NOTIFY); compiled everywhere so that its rules are tested everywhere
+#[cfg_attr(not(target_os = "macos"), allow(dead_code))]
+mod macnotify;
 #[cfg(target_os = "macos")]
 mod macquit;
 mod mail;
@@ -253,6 +259,29 @@ async fn add_account(
     password_value: String,
     smtp_password: Option<String>,
 ) -> R<Account> {
+    let db = state.db.clone();
+    blocking(move || {
+        let imap_login = |acc: &Account, pw: &str| -> R<()> {
+            let mut s = mail::connect(acc, pw)?;
+            let _ = s.logout();
+            Ok(())
+        };
+        add_account_with(&db, input, &password_value, smtp_password, &imap_login, &smtp::test)
+    })
+    .await
+}
+
+/// The whole of "Add account": the connection checks come first and the first thing written (the password, then the account row)
+/// only after both have passed, so an add that is refused leaves nothing behind.
+/// `imap_login` and `smtp_check` are the two connection checks (the real ones, or stand-ins in tests).
+fn add_account_with(
+    db: &Db,
+    input: AccountInput,
+    password_value: &str,
+    smtp_password: Option<String>,
+    imap_login: &dyn Fn(&Account, &str) -> R<()>,
+    smtp_check: &dyn Fn(&Account, &str) -> R<()>,
+) -> R<Account> {
     let acc = Account {
         id: uuid::Uuid::new_v4().to_string(),
         email: input.email,
@@ -270,27 +299,11 @@ async fn add_account(
         tls_insecure: input.tls_insecure,
     };
     let smtp_password = smtp_password.filter(|p| !p.is_empty());
-    let a2 = acc.clone();
-    let pw = password_value.clone();
-    let smtp_pw = smtp_password.clone().unwrap_or_else(|| password_value.clone());
+    let smtp_pw = smtp_password.clone().unwrap_or_else(|| password_value.to_string());
     let test_smtp = !acc.smtp_username.is_empty() || smtp_password.is_some();
-    blocking(move || {
-        let mut s = mail::connect(&a2, &pw)?;
-        let _ = s.logout();
-        // a separate SMTP login is verified up front; a shared one never was and a refusal of it still is not held against the account,
-        // but a server that cannot be secured (a plain port with SSL/TLS or STARTTLS) is reported now, as the IMAP side is (REQ-53)
-        if test_smtp {
-            smtp::test(&a2, &smtp_pw)?;
-        } else if let Err(e) = smtp::test(&a2, &smtp_pw) {
-            if mail::is_secure_connection_error(&e) {
-                return Err(e);
-            }
-        }
-        Ok(())
-    })
-    .await?;
+    check_new_account(&acc, password_value, &smtp_pw, test_smtp, imap_login, smtp_check)?;
     keyring::Entry::new(KEYRING_SERVICE, &acc.id)
-        .and_then(|e| e.set_password(&password_value))
+        .and_then(|e| e.set_password(password_value))
         .map_err(|e| keyring_error_text(std::env::consts::OS, "save", &e.to_string()))?;
     if let Some(sp) = &smtp_password {
         let stored = keyring::Entry::new(KEYRING_SERVICE, &format!("{}:smtp", acc.id)).and_then(|e| e.set_password(sp));
@@ -303,11 +316,33 @@ async fn add_account(
         }
     }
     // the color is chosen and stored here, so every window shows the same one from the first moment
-    let c = lock(&state.db);
+    let c = lock(db);
     let mut acc = acc;
     acc.color = Some(db::pick_account_color(db::list_accounts(&c)?.iter().map(|a| a.color.as_deref())));
     db::insert_account(&c, &acc)?;
     Ok(acc)
+}
+
+/// What an account must pass before it is stored: the IMAP login, and the SMTP side. A separate SMTP login is verified up front; a
+/// shared one never was and a refusal of it still is not held against the account, but a server that cannot be secured (a plain port
+/// or a silent one, with SSL/TLS or STARTTLS) is reported now, as the IMAP side is (REQ-53), and the account is not added.
+fn check_new_account(
+    acc: &Account,
+    password_value: &str,
+    smtp_pw: &str,
+    test_smtp: bool,
+    imap_login: &dyn Fn(&Account, &str) -> R<()>,
+    smtp_check: &dyn Fn(&Account, &str) -> R<()>,
+) -> R<()> {
+    imap_login(acc, password_value)?;
+    if test_smtp {
+        smtp_check(acc, smtp_pw)?;
+    } else if let Err(e) = smtp_check(acc, smtp_pw) {
+        if mail::is_secure_connection_error(&e) {
+            return Err(e);
+        }
+    }
+    Ok(())
 }
 
 #[tauri::command]
@@ -318,7 +353,7 @@ async fn google_sign_in(
     client_secret: String,
     display_name: String,
 ) -> R<Account> {
-    oauth_sign_in(app, state, Provider::Google, client_id, client_secret, None, display_name).await
+    oauth_sign_in(app, state, Provider::Google, client_id, client_secret, None, display_name, None).await
 }
 
 #[tauri::command]
@@ -330,9 +365,33 @@ async fn microsoft_sign_in(
     tenant: Option<String>,
     display_name: String,
 ) -> R<Account> {
-    oauth_sign_in(app, state, Provider::Microsoft, client_id, client_secret, tenant, display_name).await
+    oauth_sign_in(app, state, Provider::Microsoft, client_id, client_secret, tenant, display_name, None).await
 }
 
+/// The mail sign-in that waits for the browser (Add account, Sign in again): what the Cancel button ends.
+static MAIL_WAIT: oauth::Waiting = oauth::Waiting::new();
+
+/// Cancel button of a mail sign-in: it stops waiting at once, the loopback port is freed and no account is added or changed.
+#[tauri::command]
+fn oauth_cancel() {
+    MAIL_WAIT.cancel();
+}
+
+/// "Sign in again" for a Google / Microsoft mailbox whose sign-in ended: the same address, the same account (its mail stays), a new token.
+#[tauri::command]
+async fn reauth_account(app: tauri::AppHandle, state: tauri::State<'_, AppState>, account_id: String) -> R<Account> {
+    let (acc, provider) = {
+        let c = lock(&state.db);
+        let acc = db::get_account(&c, &account_id)?;
+        let provider = Provider::from_auth(&acc.auth).ok_or("This mailbox does not sign in with Google or Microsoft.")?;
+        (acc, provider)
+    };
+    let (client_id, client_secret) = oauth_creds(&state.db, provider);
+    let tenant = oauth_tenant(&state.db, provider);
+    oauth_sign_in(app, state, provider, client_id, client_secret, Some(tenant), String::new(), Some(acc.email)).await
+}
+
+/// `expect`: the address the sign-in must be for (Sign in again); another account is refused before anything is stored.
 async fn oauth_sign_in(
     app: tauri::AppHandle,
     state: tauri::State<'_, AppState>,
@@ -341,6 +400,7 @@ async fn oauth_sign_in(
     client_secret: String,
     tenant: Option<String>,
     display_name: String,
+    expect: Option<String>,
 ) -> R<Account> {
     let label = provider.label();
     let tenant = if provider == Provider::Microsoft { oauth::clean_tenant(&tenant.unwrap_or_default())? } else { String::new() };
@@ -358,10 +418,27 @@ async fn oauth_sign_in(
             label.to_uppercase()
         ));
     }
-    let pending = oauth::begin(provider, &tenant, client_id.trim())?;
-    open_target(&app, &pending.url, true)?;
+    let pending = oauth::begin_for(provider, oauth::Purpose::Mail, &tenant, client_id.trim(), expect.as_deref())?;
+    let wait = pending.canceller();
+    MAIL_WAIT.begin(wait.clone());
+    if let Err(e) = open_target(&app, &pending.url, true) {
+        MAIL_WAIT.end(&wait);
+        return Err(e);
+    }
     let (cid, csec) = (client_id.trim().to_string(), client_secret.trim().to_string());
-    let signed = blocking(move || pending.finish(&cid, &csec)).await?;
+    let signed = blocking(move || pending.finish(&cid, &csec)).await;
+    MAIL_WAIT.end(&wait);
+    // (a cancel or a timeout ends here: nothing was stored, no account was added or changed)
+    let signed = signed?;
+    if let Some(want) = &expect {
+        if !signed.email.eq_ignore_ascii_case(want) {
+            return Err(i18n::coded(
+                "OAUTH_WRONG_ACCOUNT",
+                &[("got", &signed.email), ("expected", want)],
+                &format!("You signed in as {}. Sign in as {} to renew this mailbox.", signed.email, want),
+            ));
+        }
+    }
 
     let existing = db::list_accounts(&lock(&state.db))?
         .into_iter()
@@ -398,12 +475,22 @@ async fn oauth_sign_in(
     oauth::cache_token(&acc.id, &signed.access_token, 3300);
     // verify the IMAP login works with the new token
     let (a2, tok) = (acc.clone(), signed.access_token.clone());
-    blocking(move || {
+    let verified = blocking(move || {
         let mut s = mail::connect(&a2, &tok)?;
         let _ = s.logout();
         Ok(())
     })
-    .await?;
+    .await;
+    if let Err(e) = verified {
+        // a new mailbox that cannot be used leaves no token behind (an existing one keeps the token it has just been given)
+        if existing.is_none() {
+            if let Ok(entry) = keyring::Entry::new(KEYRING_SERVICE, &acc.id) {
+                let _ = entry.delete_credential();
+            }
+            oauth::forget_token(&acc.id);
+        }
+        return Err(e);
+    }
     let c = lock(&state.db);
     if provider == Provider::Microsoft {
         // always kept: token refresh uses the same tenant, whether the client id came from the env or the form
@@ -461,11 +548,13 @@ fn update_account(state: tauri::State<AppState>, account_id: String, display_nam
 #[tauri::command]
 fn remove_account(state: tauri::State<AppState>, account_id: String) -> R<()> {
     db::remove_account(&lock(&state.db), &account_id)?;
-    for name in [account_id.clone(), format!("{account_id}:smtp")] {
+    // (the calendar grant of the mailbox goes with it)
+    for name in [account_id.clone(), format!("{account_id}:smtp"), oauth::calendar_key(&account_id)] {
         if let Ok(e) = keyring::Entry::new(KEYRING_SERVICE, &name) {
             let _ = e.delete_credential();
         }
     }
+    oauth::forget_token(&oauth::calendar_key(&account_id));
     Ok(())
 }
 
@@ -791,8 +880,31 @@ fn take_rule_errors_to_tell() -> Vec<String> {
 
 static SYNC_LOCK: Mutex<()> = Mutex::new(());
 
-/// One sync pass for an account, then toasts + tray badge. Serialized so the UI and the background worker never overlap.
+/// The mailboxes known to need a new sign-in (account id -> `again` / `blocked`), so the UI is told once when that changes.
+static SIGNIN_FLAGGED: Mutex<std::collections::BTreeMap<String, &'static str>> = Mutex::new(std::collections::BTreeMap::new());
+
+/// Note the outcome of a sync of one account. The change to announce: `Some(Some(kind))` it now needs a new sign-in,
+/// `Some(None)` it works again, `None` nothing changed.
+fn track_signin(flagged: &mut std::collections::BTreeMap<String, &'static str>, account_id: &str, error: Option<&str>) -> Option<Option<&'static str>> {
+    match error {
+        // (an error that is not about the sign-in, such as no network, changes nothing: the mailbox still needs it)
+        Some(e) => oauth::signin_kind(e).and_then(|kind| (flagged.insert(account_id.to_string(), kind) != Some(kind)).then_some(Some(kind))),
+        None => flagged.remove(account_id).map(|_| None),
+    }
+}
+
+/// One sync pass for an account, then toasts + tray badge. A rejected sign-in is announced to the UI (`signin-state`), also when the
+/// background worker found it, so the mailbox shows "Sign in again" instead of failing quietly.
 fn run_sync(app: &tauri::AppHandle, db: &Db, account_id: &str) -> R<SyncResult> {
+    let r = run_sync_inner(app, db, account_id);
+    let change = track_signin(&mut SIGNIN_FLAGGED.lock().unwrap_or_else(|p| p.into_inner()), account_id, r.as_ref().err().map(String::as_str));
+    if let Some(state) = change {
+        let _ = app.emit("signin-state", serde_json::json!({ "accountId": account_id, "state": state, "error": r.as_ref().err() }));
+    }
+    r
+}
+
+fn run_sync_inner(app: &tauri::AppHandle, db: &Db, account_id: &str) -> R<SyncResult> {
     let _guard = SYNC_LOCK.lock().unwrap_or_else(|p| p.into_inner());
     let r = sync_impl(db, account_id)?;
     for why in take_rule_errors_to_tell() {
@@ -835,6 +947,8 @@ fn sync_worker(app: tauri::AppHandle) {
         for id in ids {
             // an account can override the "all accounts" interval
             let mins = shell::eff(&p, &id, "syncMinutes").and_then(|v| v.as_u64()).unwrap_or(2).max(1);
+            // while the account's IDLE push session is healthy, polling is only the safety net (and the way to check the other folders)
+            let mins = idle::poll_minutes_for(&id, mins);
             let due = last.get(&id).map_or(true, |t| t.elapsed() >= std::time::Duration::from_secs(mins * 60));
             if due {
                 last.insert(id.clone(), std::time::Instant::now());
@@ -1200,10 +1314,70 @@ fn backfill_start(app: &tauri::AppHandle, db: &Db, account_id: &str) {
     }
 }
 
+/// The `backfill-progress` event the UI shows "Downloading mails..." from. `done` ends the line for the account (the UI keys it by account).
+fn backfill_event(account_id: &str, role: &str, have: u32, target: u32, done: bool) -> serde_json::Value {
+    serde_json::json!({ "accountId": account_id, "role": role, "have": have, "target": target, "done": done })
+}
+
 /// Download older mail in chunks of `PAGE`, one folder after the other, until every folder holds its target (or the account
 /// its cap) or has nothing older. Resumable (it works from what is stored), stops when the account is removed, and on an error (after one reconnect).
 fn backfill_run(app: &tauri::AppHandle, db: &Db, account_id: &str) -> R<()> {
     let mut sess: Option<mail::Sess> = None;
+    let r = backfill_loop(
+        db,
+        account_id,
+        BACKFILL_PAUSE,
+        &mut |acc, name, below, count| {
+            let step = (|| -> R<(Vec<mail::Parsed>, bool)> {
+                if sess.is_none() {
+                    sess = Some(mail::connect(acc, &secret(db, acc)?)?);
+                }
+                mail::fetch_older(sess.as_mut().ok_or("no session")?, name, below, count)
+            })();
+            if step.is_err() {
+                sess = None; // a failed session is not reused
+            }
+            step
+        },
+        &mut |ev| {
+            let _ = app.emit("backfill-progress", ev);
+        },
+    );
+    if let Some(mut s) = sess {
+        let _ = s.logout();
+    }
+    r
+}
+
+/// The loop of `backfill_run` without the network (`fetch`: account, IMAP folder, lowest stored uid, count) and without the
+/// window (`emit`: the `backfill-progress` payloads). However it ends - nothing left, the account removed, two failures in a row -
+/// the line the UI shows is closed: every run that ended after a progress event that was not the last of its folder emits a final
+/// `done` one. The UI keeps the last event until a `done` arrives, and the loop can stop between two chunks without having
+/// finished the folder: `load_older` (the list asks for older mail by itself when its end is in view) marks the folder as
+/// complete in the pause, a sync brings the account to its cap, the cap is lowered.
+fn backfill_loop(
+    db: &Db,
+    account_id: &str,
+    pause: std::time::Duration,
+    fetch: &mut dyn FnMut(&Account, &str, u32, usize) -> R<(Vec<mail::Parsed>, bool)>,
+    emit: &mut dyn FnMut(serde_json::Value),
+) -> R<()> {
+    let mut open: Option<(String, u32, u32)> = None; // the last progress event, unless it ended its folder
+    let r = backfill_chunks(db, account_id, pause, fetch, emit, &mut open);
+    if let Some((role, have, target)) = open {
+        emit(backfill_event(account_id, &role, have, target, true));
+    }
+    r
+}
+
+fn backfill_chunks(
+    db: &Db,
+    account_id: &str,
+    pause: std::time::Duration,
+    fetch: &mut dyn FnMut(&Account, &str, u32, usize) -> R<(Vec<mail::Parsed>, bool)>,
+    emit: &mut dyn FnMut(serde_json::Value),
+    open: &mut Option<(String, u32, u32)>,
+) -> R<()> {
     let mut skip: std::collections::HashSet<String> = Default::default();
     let mut failures = 0;
     loop {
@@ -1212,11 +1386,7 @@ fn backfill_run(app: &tauri::AppHandle, db: &Db, account_id: &str) -> R<()> {
         let Some((role, name, have, target)) = next_backfill(db, account_id, &skip, max_download(db)) else { break };
         let (_, below) = folder_state(db, account_id, &role)?;
         let step = (|| -> R<(usize, bool)> {
-            if sess.is_none() {
-                sess = Some(mail::connect(&acc, &secret(db, &acc)?)?);
-            }
-            let s = sess.as_mut().ok_or("no session")?;
-            let (found, exhausted) = mail::fetch_older(s, &name, below, (target - have).min(PAGE) as usize)?;
+            let (found, exhausted) = fetch(&acc, &name, below, (target - have).min(PAGE) as usize)?;
             store_page(db, &acc, &role, &found)?;
             Ok((found.len(), exhausted))
         })();
@@ -1230,24 +1400,18 @@ fn backfill_run(app: &tauri::AppHandle, db: &Db, account_id: &str) -> R<()> {
                 }
                 let (now_have, _) = folder_state(db, account_id, &role)?;
                 let done = exhausted || now_have >= target || added == 0;
-                let _ = app.emit(
-                    "backfill-progress",
-                    serde_json::json!({ "accountId": account_id, "role": role, "have": now_have, "target": target, "done": done }),
-                );
-                std::thread::sleep(BACKFILL_PAUSE);
+                *open = if done { None } else { Some((role.clone(), now_have, target)) };
+                emit(backfill_event(account_id, &role, now_have, target, done));
+                std::thread::sleep(pause);
             }
             Err(e) => {
-                sess = None; // a failed session is not reused
                 failures += 1;
                 if failures > 1 {
                     return Err(e);
                 }
-                std::thread::sleep(BACKFILL_PAUSE);
+                std::thread::sleep(pause);
             }
         }
-    }
-    if let Some(mut s) = sess {
-        let _ = s.logout();
     }
     Ok(())
 }
@@ -1850,7 +2014,7 @@ fn apply_pgp(c: &Connection, m: &mut MessageFull, pgp: i64, raw: Option<Vec<u8>>
 pub(crate) fn message_full(c: &Connection, message_id: &str) -> R<MessageFull> {
     let (mut m, pgp, raw) = c
         .query_row(&format!("SELECT {MESSAGE_COLS} FROM messages WHERE id=?1"), [message_id], row_message)
-        .map_err(|_| "message not found".to_string())?;
+        .map_err(|_| "MSG_NOT_FOUND: message not found".to_string())?;
     finish_message(c, &mut m, pgp, raw);
     Ok(m)
 }
@@ -2240,7 +2404,10 @@ pub(crate) fn fetch_view_for(db: &Db, message_id: &str) -> R<(Vec<u8>, String)> 
         }
         None => match &opened.security.locked_key {
             Some(f) => Err(format!("PGP_LOCKED:{f}")),
-            None => Err(format!("PGP_FAILED: {}", opened.security.error.clone().unwrap_or_else(|| "this message can't be decrypted".into()))),
+            None => Err(match opened.security.error.clone() {
+                Some(e) => format!("PGP_FAILED: {e}"),
+                None => "PGP_CANT_DECRYPT: this message can't be decrypted".to_string(),
+            }),
         },
     }
 }
@@ -2250,7 +2417,7 @@ pub(crate) fn fetch_view_for(db: &Db, message_id: &str) -> R<(Vec<u8>, String)> 
 pub(crate) fn ensure_not_confidential(c: &Connection, message_id: &str) -> R<()> {
     let pgp: i64 = c.query_row("SELECT pgp FROM messages WHERE id=?1", [message_id], |r| r.get(0)).unwrap_or(0);
     if pgp & pgpmail::FLAG_CONFIDENTIAL as i64 != 0 {
-        return Err("This message is confidential, so that isn’t allowed.".into());
+        return Err("CONFIDENTIAL: This message is confidential, so that isn’t allowed.".into());
     }
     Ok(())
 }
@@ -2298,7 +2465,7 @@ fn system_download_dir(download: Option<std::path::PathBuf>, home: Option<std::p
     match (download, home) {
         (Some(d), _) => Ok((d, false)),
         (None, Some(h)) => Ok((h, true)),
-        (None, None) => Err("No folder to save into: set one in Settings > Mailboxes > Reading & sync.".into()),
+        (None, None) => Err("NO_SAVE_FOLDER: No folder to save into: set one in Settings > Mailboxes > Reading & sync.".into()),
     }
 }
 
@@ -2402,7 +2569,7 @@ async fn attachment_save_all(
         let (raw, att_json) = fetch_view_for(&db, &message_id)?;
         let metas: Vec<mail::AttMeta> = serde_json::from_str(&att_json).unwrap_or_default();
         let dir = if ask {
-            let Some(p) = app.dialog().file().set_title("Save attachments to").blocking_pick_folder() else {
+            let Some(p) = app.dialog().file().set_title(i18n::tr(i18n::K::SaveAttachmentsTo)).blocking_pick_folder() else {
                 return Ok(None);
             };
             p.into_path().map_err(err)?
@@ -2445,7 +2612,7 @@ fn open_target(app: &tauri::AppHandle, target: &str, is_url: bool) -> R<()> {
 #[tauri::command]
 async fn open_external(app: tauri::AppHandle, url: String) -> R<()> {
     if !linuxopen::url_allowed(&url) {
-        return Err("That kind of link is not opened.".into()); // the same schemes as the opener plugin allows
+        return Err("LINK_NOT_OPENED: That kind of link is not opened.".into()); // the same schemes as the opener plugin allows
     }
     blocking(move || open_target(&app, &url, true)).await
 }
@@ -2509,7 +2676,7 @@ async fn attachment_open(app: tauri::AppHandle, state: tauri::State<'_, AppState
 fn attachment_reveal(app: tauri::AppHandle, path: String) -> R<()> {
     let p = std::path::PathBuf::from(&path);
     if !p.is_absolute() || !p.exists() {
-        return Err("That file no longer exists.".into());
+        return Err("FILE_GONE: That file no longer exists.".into());
     }
     app.opener().reveal_item_in_dir(p).map_err(err)
 }
@@ -2657,7 +2824,7 @@ fn finish_failed_hold(db: &Db, id: &str, payload: &str, error: &str, keep: bool)
 async fn outbox_hold_send(app: tauri::AppHandle, state: tauri::State<'_, AppState>, id: String, keep: bool) -> R<()> {
     let db = state.db.clone();
     blocking(move || {
-        let (payload, _attempts) = claim_outbox(&db, &id, &["undo"])?.ok_or("This message is no longer waiting to be sent.")?;
+        let (payload, _attempts) = claim_outbox(&db, &id, &["undo"])?.ok_or("OUTBOX_GONE: This message is no longer waiting to be sent.")?;
         let replaces: Option<String> = lock(&db).query_row("SELECT replaces FROM outbox WHERE id=?1", [&id], |r| r.get(0)).ok().flatten();
         let res = serde_json::from_str::<smtp::Draft>(&payload).map_err(err).and_then(|d| send_now(&db, &d));
         match res {
@@ -2839,7 +3006,7 @@ fn cancel_outbox(app: tauri::AppHandle, state: tauri::State<AppState>, id: Strin
     let payload: Option<String> = c.query_row("SELECT payload FROM outbox WHERE id=?1 AND status!='sending'", [&id], |r| r.get(0)).ok();
     let n = c.execute("DELETE FROM outbox WHERE id=?1 AND status!='sending'", [id]).map_err(err)?;
     if n == 0 {
-        return Err("This message is being sent right now.".into());
+        return Err("OUTBOX_SENDING: This message is being sent right now.".into());
     }
     if let Some(p) = payload {
         // a scheduled meeting that never went out must not stay in the calendar
@@ -2889,9 +3056,9 @@ fn outbox_open_for_edit(state: tauri::State<AppState>, id: String) -> R<OutboxEd
     let c = lock(&state.db);
     let (payload, send_at, status): (String, i64, String) = c
         .query_row("SELECT payload,send_at,status FROM outbox WHERE id=?1", [&id], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)))
-        .map_err(|_| "This scheduled message no longer exists.".to_string())?;
+        .map_err(|_| "OUTBOX_MISSING: This scheduled message no longer exists.".to_string())?;
     if status == "sending" {
-        return Err("This message is being sent right now.".into());
+        return Err("OUTBOX_SENDING: This message is being sent right now.".into());
     }
     // an encrypted message is read back with the account's key (PGP_LOCKED:<fpr> while it is locked)
     let stored: smtp::Draft = serde_json::from_str(&payload).map_err(err)?;
@@ -2920,7 +3087,7 @@ fn outbox_release(state: tauri::State<AppState>, id: String) -> R<()> {
 #[tauri::command]
 fn outbox_update(app: tauri::AppHandle, state: tauri::State<AppState>, id: String, draft: smtp::Draft, send_at: i64) -> R<()> {
     schedule::validate_send_at(send_at, now())?;
-    const GONE: &str = "This scheduled message is no longer waiting to be sent.";
+    const GONE: &str = "OUTBOX_NOT_WAITING: This scheduled message is no longer waiting to be sent.";
     // one critical section from the first look at the row to the UPDATE: the sender cannot claim it in between, and a
     // calendar event is only made once the row is known to be editable
     let c = lock(&state.db);
@@ -2981,7 +3148,7 @@ fn outbox_reschedule(app: tauri::AppHandle, state: tauri::State<AppState>, id: S
         )
         .map_err(err)?;
     if n == 0 {
-        return Err("This message is being sent right now.".into());
+        return Err("OUTBOX_SENDING: This message is being sent right now.".into());
     }
     let _ = app.emit("outbox-changed", serde_json::json!({ "id": id, "status": "pending" }));
     Ok(())
@@ -3005,7 +3172,7 @@ async fn outbox_to_draft(app: tauri::AppHandle, state: tauri::State<'_, AppState
     blocking(move || {
         let payload: String = lock(&db)
             .query_row("SELECT payload FROM outbox WHERE id=?1 AND status!='sending'", [&id], |r| r.get(0))
-            .map_err(|_| "This message is being sent right now.".to_string())?;
+            .map_err(|_| "OUTBOX_SENDING: This message is being sent right now.".to_string())?;
         let d: smtp::Draft = serde_json::from_str(&payload).map_err(err)?;
         let acc = db::get_account(&lock(&db), &d.account_id)?;
         let sec = secret(&db, &acc)?;
@@ -3082,7 +3249,7 @@ async fn outbox_send_now(app: tauri::AppHandle, state: tauri::State<'_, AppState
     let db = state.db.clone();
     blocking(move || {
         let (payload, attempts) = claim_outbox(&db, &id, &["pending", "held", "overdue", "failed"])?
-            .ok_or("This message is already being sent.")?;
+            .ok_or("OUTBOX_ALREADY_SENDING: This message is already being sent.")?;
         let (mut late, mut left) = (0, 0);
         let due = now();
         deliver(&app, &db, &id, &payload, attempts, &mut late, &mut left, due)
@@ -3395,8 +3562,13 @@ fn get_setting(state: tauri::State<AppState>, key: String) -> Option<String> {
 }
 
 #[tauri::command]
-fn set_setting(state: tauri::State<AppState>, key: String, value: String) -> R<()> {
-    db::set_setting(&lock(&state.db), &key, &value)
+fn set_setting(app: tauri::AppHandle, state: tauri::State<AppState>, key: String, value: String) -> R<()> {
+    db::set_setting(&lock(&state.db), &key, &value)?;
+    // the UI mirrors its language here: the tray menu, the macOS Quit item and the tray tooltip follow at once (native texts, see i18n.rs)
+    if key == "ui_language" && i18n::set_lang(&value) {
+        shell::refresh_language(&app, &state.db);
+    }
+    Ok(())
 }
 
 #[derive(Serialize)]
@@ -3496,7 +3668,7 @@ async fn unsubscribe(state: tauri::State<'_, AppState>, message_id: String) -> R
     if let Some(u) = targets.iter().find(|t| t.starts_with("http://")) {
         return Ok(UnsubResult { kind: "open".into(), target: u.clone() });
     }
-    Err("no unsubscribe target".into())
+    Err("UNSUBSCRIBE_NO_TARGET: This message has no unsubscribe link.".into())
 }
 
 /// Download remote images in the backend and hand them to the UI as data: URIs. The webview never
@@ -3595,6 +3767,10 @@ pub fn run() {
             startup::init_log_dir(dir.clone());
             let conn = db::open(&dir.join("heylook.db"))?;
             let db: Db = Arc::new(Mutex::new(conn));
+            // the language of the native texts (tray, notifications) as the UI last mirrored it; English until the first run mirrors it
+            if let Some(code) = db::get_setting(&lock(&db), "ui_language") {
+                i18n::set_lang(&code);
+            }
             outbox_startup(&db);
             let worker_db = db.clone();
             let worker_app = app.handle().clone();
@@ -3619,6 +3795,9 @@ pub fn run() {
             let cal_app = app.handle().clone();
             let cal_db = db.clone();
             std::thread::spawn(move || calendar::reminder_worker(cal_app, cal_db));
+            // calendar sync (Google / Microsoft calendars of the mailboxes that turned it on) has its own thread: mail never waits for it
+            let sync_app = app.handle().clone();
+            std::thread::spawn(move || calsync::cmds::calsync_worker(sync_app));
 
             winframe::setup(app);
             shell::register_aumid(app.handle());
@@ -3626,7 +3805,8 @@ pub fn run() {
             if let Err(e) = shell::setup_tray(app.handle(), &db) {
                 eprintln!("tray icon unavailable: {e}");
             }
-            shell::update_badge(app.handle(), &db);
+            // (also puts the stored language into the macOS app menu, which is built before the settings can be read)
+            shell::refresh_language(app.handle(), &db);
             // macOS: a Dock "Quit" or a log out ends in `[NSApp terminate:]` too, which raises no `ExitRequested`
             #[cfg(target_os = "macos")]
             {
@@ -3639,6 +3819,7 @@ pub fn run() {
             }
             let handle = app.handle().clone();
             std::thread::spawn(move || sync_worker(handle));
+            idle::start(app.handle().clone());
 
             // started by "launch at login" => stay in the tray (only when there is a tray to come back from). The window is shown
             // when its page has reported itself (not here: see startup.rs), and the page is reloaded if it never does.
@@ -3669,6 +3850,8 @@ pub fn run() {
             list_accounts,
             add_account,
             google_sign_in,
+            oauth_cancel,
+            reauth_account,
             google_env_configured,
             microsoft_sign_in,
             microsoft_env_configured,
@@ -3746,6 +3929,12 @@ pub fn run() {
             calendar::calendar_save_ics,
             calendar::calendar_import_ics,
             calendar::calendar_open_message,
+            calsync::cmds::calendar_sources,
+            calsync::cmds::calendar_connect,
+            calsync::cmds::calendar_cancel_connect,
+            calsync::cmds::calendar_disconnect,
+            calsync::cmds::calendar_set_sync,
+            calsync::cmds::calendar_sync_now,
             list_templates,
             save_template,
             delete_template,
@@ -3782,7 +3971,8 @@ pub fn run() {
             update::update_install,
             update::update_startup_state,
             update::update_startup_ack,
-            update::outbox_busy
+            update::outbox_busy,
+            idle::idle_states
         ])
         .build(tauri::generate_context!())
         .expect("error while building tauri application")
@@ -3810,6 +4000,7 @@ pub fn run() {
                     startup::stage(Some(app), "exit: the process ends without the quit sequence (a terminate that was not stopped)");
                 }
                 startup::mark_exiting();
+                idle::shutdown();
                 flush_pending(app);
                 update::install_on_exit(app);
             }
@@ -4335,6 +4526,154 @@ mod backfill_tests {
         assert_eq!((r.added, r.exhausted, r.limited), (0, true, false));
     }
 
+    // ----- the "Downloading mails..." line must end however the background download ends -----
+
+    fn account() -> Account {
+        Account {
+            id: ACC.into(), email: "me@example.com".into(), display_name: "Me".into(), imap_host: "h".into(), imap_port: 993, imap_ssl: true,
+            smtp_host: "s".into(), smtp_port: 465, smtp_security: "ssl".into(), username: "u".into(), auth: "password".into(), color: None,
+            smtp_username: String::new(), tls_insecure: false,
+        }
+    }
+
+    /// A manually added account holding the newest `n` inbox messages (uids `total-n+1 ..= total`): what the first sync leaves.
+    fn first_sync(total: u32, n: u32) -> Db {
+        let db = db_with(&((total - n + 1)..=total).map(|u| ("inbox", u)).collect::<Vec<_>>());
+        db::insert_account(&lock(&db), &account()).unwrap();
+        db
+    }
+
+    fn parsed(uid: u32) -> mail::Parsed {
+        mail::Parsed {
+            uid, message_id: None, refs: vec![], subject: "s".into(), from_name: "n".into(), from_email: "e@example.com".into(), to: vec![], cc: vec![],
+            date: uid as i64, snippet: String::new(), html: None, text: Some("t".into()), seen: true, flagged: false, attachments: vec![],
+            list_unsub: None, list_unsub_post: false, pgp: 0, pgp_raw: None, ics: None, cal_method: None,
+        }
+    }
+
+    /// A server holding uids 1..=`total`: the `count` highest below `below`, like `mail::fetch_older`.
+    fn server(total: u32) -> impl FnMut(&Account, &str, u32, usize) -> R<(Vec<mail::Parsed>, bool)> {
+        move |_, _, below, count| {
+            let (pick, exhausted) = mail::pick_older((1..=total).filter(|u| *u < below), below, count);
+            Ok((pick.into_iter().map(parsed).collect(), exhausted))
+        }
+    }
+
+    /// (role, have, target, done) of the events a run emitted.
+    type Ev = (String, u64, u64, bool);
+
+    fn run(db: &Db, fetch: &mut dyn FnMut(&Account, &str, u32, usize) -> R<(Vec<mail::Parsed>, bool)>, between: &mut dyn FnMut(&Db, usize)) -> (R<()>, Vec<Ev>) {
+        let mut events: Vec<Ev> = vec![];
+        let r = backfill_loop(db, ACC, std::time::Duration::ZERO, fetch, &mut |ev| {
+            assert_eq!(ev["accountId"], ACC);
+            events.push((ev["role"].as_str().unwrap().into(), ev["have"].as_u64().unwrap(), ev["target"].as_u64().unwrap(), ev["done"].as_bool().unwrap()));
+            between(db, events.len()); // what happens in the pause after an event
+        });
+        (r, events)
+    }
+
+    /// The last event is what the UI keeps showing: it must end the line (`done`), whatever stopped the run.
+    fn ends_the_line(events: &[Ev]) -> bool {
+        events.last().map(|e| e.3).unwrap_or(true)
+    }
+
+    #[test]
+    fn a_complete_download_ends_with_its_own_done_event_and_no_extra_one() {
+        // 101 inbox messages: the first sync took the newest 50, two chunks follow (50, then the last 1)
+        let db = first_sync(101, 50);
+        let (r, ev) = run(&db, &mut server(101), &mut |_, _| {});
+        assert!(r.is_ok());
+        assert_eq!(ev, vec![("inbox".into(), 100, 500, false), ("inbox".into(), 101, 500, true)]);
+        assert_eq!(folder_state(&db, ACC, "inbox").unwrap(), (101, 1));
+    }
+
+    /// The repro of the stuck "Downloading mails... 100/500": the list asks for older mail by itself when its end is in view
+    /// (`loadMore` -> `load_older_impl`), and in the pause after a chunk it reaches the end of the folder and marks it as complete.
+    /// The background download then finds nothing to do, stops, and no event says so.
+    #[test]
+    fn a_folder_completed_by_load_older_between_two_chunks_still_ends_the_line() {
+        let db = first_sync(300, 50);
+        let (r, ev) = run(&db, &mut server(300), &mut |db, n| {
+            if n == 1 {
+                // load_older got everything that is left and set the mark
+                for u in 1..=200 {
+                    lock(db).execute("INSERT INTO messages(id,account_id,folder,uid,thread_id,subject,from_name,from_email,to_addrs,cc_addrs,date,snippet) VALUES(?1,?2,'inbox',?3,'t','s','n','e','','',?3,'')", params![format!("l{u}"), ACC, u]).unwrap();
+                }
+                db::set_setting(&lock(db), &exhausted_key(ACC, "inbox"), "1").unwrap();
+            }
+        });
+        assert!(r.is_ok());
+        assert_eq!(ev[0], ("inbox".into(), 100, 500, false), "{ev:?}");
+        assert!(ends_the_line(&ev), "the last event still says 'downloading': {ev:?}");
+        assert_eq!(ev.iter().filter(|e| e.3).count(), 1, "one closing event: {ev:?}");
+    }
+
+    #[test]
+    fn a_cap_reached_or_lowered_between_two_chunks_still_ends_the_line() {
+        let db = first_sync(900, 50);
+        let (r, ev) = run(&db, &mut server(900), &mut |db, n| {
+            if n == 1 {
+                db::set_setting(&lock(db), "max_download", "100").unwrap(); // lowered in Settings: applies to the next chunk
+            }
+        });
+        assert!(r.is_ok());
+        assert_eq!(ev[0], ("inbox".into(), 100, 500, false));
+        assert!(ends_the_line(&ev), "{ev:?}");
+        // new mail from a sync fills the account up to its cap
+        let db = first_sync(900, 50);
+        let (_, ev) = run(&db, &mut server(900), &mut |db, n| {
+            if n == 2 {
+                db::set_setting(&lock(db), "max_download", "100").unwrap();
+            }
+        });
+        assert!(ends_the_line(&ev), "{ev:?}");
+    }
+
+    #[test]
+    fn a_download_that_fails_twice_in_a_row_ends_the_line_and_reports_the_error() {
+        let db = first_sync(900, 50);
+        let mut good = server(900);
+        let mut calls = 0;
+        let (r, ev) = run(
+            &db,
+            &mut |a, n, b, c| {
+                calls += 1;
+                if calls == 1 { good(a, n, b, c) } else { Err("connection reset".to_string()) }
+            },
+            &mut |_, _| {},
+        );
+        assert_eq!(r, Err("connection reset".to_string()));
+        assert_eq!(calls, 3, "one chunk, then the failure and one retry");
+        assert_eq!(ev[0], ("inbox".into(), 100, 500, false));
+        assert!(ends_the_line(&ev), "{ev:?}");
+        // a single failure is retried and does not end anything
+        let db = first_sync(120, 50);
+        let mut good = server(120);
+        let mut calls = 0;
+        let (r, ev) = run(&db, &mut |a, n, b, c| { calls += 1; if calls == 1 { Err("hiccup".to_string()) } else { good(a, n, b, c) } }, &mut |_, _| {});
+        assert!(r.is_ok());
+        assert_eq!(ev.last(), Some(&("inbox".into(), 120, 500, true)));
+    }
+
+    #[test]
+    fn a_removed_account_ends_the_line() {
+        let db = first_sync(900, 50);
+        let (r, ev) = run(&db, &mut server(900), &mut |db, n| {
+            if n == 1 {
+                lock(db).execute("DELETE FROM accounts WHERE id=?1", params![ACC]).unwrap();
+            }
+        });
+        assert!(r.is_err());
+        assert!(ends_the_line(&ev), "{ev:?}");
+    }
+
+    #[test]
+    fn nothing_to_download_emits_nothing() {
+        let db = first_sync(30, 30); // the first sync took everything: lowest uid 1
+        let (r, ev) = run(&db, &mut server(30), &mut |_, _| {});
+        assert!(r.is_ok() && ev.is_empty());
+    }
+
     /// One stored message with everything the pruning looks at.
     fn put(db: &Db, folder: &str, uid: u32, date: i64, thread: &str, flagged: bool) -> String {
         let id = format!("{ACC}:{folder}:{uid}");
@@ -4567,7 +4906,7 @@ mod signed_flag_tests {
         assert!(ensure_not_confidential(&c, "m4").is_ok());
         assert!(ensure_not_confidential(&c, "nope").is_ok(), "an unknown id fails later, with its own error");
         for id in ["m2", "m3"] {
-            assert_eq!(ensure_not_confidential(&c, id).unwrap_err(), "This message is confidential, so that isn’t allowed.");
+            assert_eq!(ensure_not_confidential(&c, id).unwrap_err(), "CONFIDENTIAL: This message is confidential, so that isn’t allowed.");
         }
     }
 }
@@ -4621,6 +4960,28 @@ mod platform_tests {
     }
 
     #[test]
+    fn a_rejected_sign_in_is_announced_once_and_again_when_it_works() {
+        let mut f = std::collections::BTreeMap::new();
+        let reauth = "OAUTH_REAUTH|label=Google: Google sign-in expired or revoked (invalid_grant). Sign in again.";
+        let blocked = "OAUTH_BLOCKED|label=Microsoft: Your organization may need to approve Hey Look! for this Microsoft account.";
+        assert_eq!(track_signin(&mut f, "a", Some(reauth)), Some(Some("again")));
+        // the next failed syncs (every 2 minutes, and the push session) say nothing new
+        assert_eq!(track_signin(&mut f, "a", Some(reauth)), None);
+        assert_eq!(track_signin(&mut f, "a", Some(reauth)), None);
+        // another account is its own case; so is another kind of problem on the same one
+        assert_eq!(track_signin(&mut f, "b", Some(blocked)), Some(Some("blocked")));
+        assert_eq!(track_signin(&mut f, "a", Some(blocked)), Some(Some("blocked")));
+        // an error that is not about the sign-in (offline) neither flags nor clears
+        assert_eq!(track_signin(&mut f, "c", Some("dns error")), None);
+        assert_eq!(track_signin(&mut f, "a", Some("dns error")), None);
+        assert_eq!(f.get("a"), Some(&"blocked"));
+        // a good sync announces the recovery once
+        assert_eq!(track_signin(&mut f, "a", None), Some(None));
+        assert_eq!(track_signin(&mut f, "a", None), None);
+        assert_eq!(track_signin(&mut f, "b", None), Some(None));
+    }
+
+    #[test]
     fn download_folder_falls_back_to_home() {
         let d = PathBuf::from("/dl");
         let h = PathBuf::from("/home/u");
@@ -4629,3 +4990,7 @@ mod platform_tests {
         assert!(system_download_dir(None, None).is_err());
     }
 }
+
+// helper of the socket tests (after the first cfg(test): the source-reading tests above cut the file there)
+#[cfg(test)]
+mod test_guard;

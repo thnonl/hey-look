@@ -6,12 +6,18 @@
 export const hasMailAccounts = (accountCount: number): boolean => accountCount > 0;
 
 /** The command-bar entries of the zero-account state, in this order: Add account, Settings (with the About / update block) and the theme. */
+// i18n-ok: command ids (English on purpose, the bar matches its entries by them), not shown text
 export const NO_ACCOUNT_COMMANDS: readonly string[] = ["Add account", "Open settings", "Check for updates", "Theme: light", "Theme: dark", "Theme: system"];
 
-/** The command-bar list for this account count: today's list (without `Add account`) with an account, exactly the 6 entries without one. */
-export function commandsFor<T extends { label: string }>(accountCount: number, all: readonly T[]): T[] {
-  if (hasMailAccounts(accountCount)) return all.filter((c) => c.label !== "Add account");
-  return NO_ACCOUNT_COMMANDS.flatMap((l) => all.filter((c) => c.label === l));
+/**
+ * The command-bar list for this account count: today's list (without `Add account`) with an account, exactly the 6 entries without one.
+ * An entry is matched by its `id` when it has one, else by its `label`: the ids are the English names above, so the match keeps
+ * working when the labels are shown in another language.
+ */
+export function commandsFor<T extends { label: string; id?: string }>(accountCount: number, all: readonly T[]): T[] {
+  const key = (c: T) => c.id ?? c.label;
+  if (hasMailAccounts(accountCount)) return all.filter((c) => key(c) !== "Add account");
+  return NO_ACCOUNT_COMMANDS.flatMap((l) => all.filter((c) => key(c) === l));
 }
 
 export type Shortcut =

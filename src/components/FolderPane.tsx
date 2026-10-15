@@ -3,8 +3,10 @@ import {
 } from "lucide-react";
 import { ReactNode, useEffect } from "react";
 import { CalSidebar } from "./Calendar";
+import { ReauthNotice } from "./SignInHelp";
 import { FolderInfo } from "../api";
 import { accountColor, folderDepth, folderLabel } from "../prefs";
+import { useT } from "../i18n/react";
 import { kbd } from "../platform";
 import { useStore } from "../store";
 
@@ -25,6 +27,7 @@ const ICONS: Record<string, ReactNode> = {
 const VIRTUAL_VIEWS = ["unread", "starred", "pinned", "snoozed", "scheduled"];
 
 export function FolderPane() {
+  const t = useT();
   const { accounts, folders, folder, accountId, setView, prefs, setPrefs, syncErrors, sync, outbox, module, setModule, firstSync } = useStore();
   // a new account's group sits at the bottom of a long tree: bring its (selected) Inbox into view
   useEffect(() => {
@@ -74,14 +77,14 @@ export function FolderPane() {
         <span className="fp-lbl ellipsis">{label}</span>
         {badge > 0 && <span className={`fp-badge ${key === "inbox" || key === "unread" ? "strong" : ""}`}>{badge > 99 ? "99+" : badge}</span>}
         {failed > 0 ? (
-          <span className="fp-badge err" title={`${failed} scheduled message${failed === 1 ? "" : "s"} failed`}>{failed} failed</span>
+          <span className="fp-badge err" title={t("mail.pane.failedTitle", { n: failed })}>{t("mail.pane.failedBadge", { n: failed })}</span>
         ) : queued > 0 && key === "scheduled" ? (
           <span className="fp-badge">{queued}</span>
         ) : null}
         <button
           className={`fp-star ${isFav(acct, key) ? "on" : ""}`}
-          title={isFav(acct, key) ? "Remove from Favorites" : "Add to Favorites"}
-          aria-label={isFav(acct, key) ? "Remove from Favorites" : "Add to Favorites"}
+          title={isFav(acct, key) ? t("mail.pane.removeFav") : t("mail.pane.addFav")}
+          aria-label={isFav(acct, key) ? t("mail.pane.removeFav") : t("mail.pane.addFav")}
           onClick={(e) => {
             e.stopPropagation();
             toggleFav(acct, key);
@@ -115,18 +118,18 @@ export function FolderPane() {
   );
 
   return (
-    <aside className="folder-pane" aria-label={module === "calendar" ? "Calendars" : "Folders"}>
+    <aside className="folder-pane" aria-label={module === "calendar" ? t("mail.pane.calendars") : t("mail.pane.folders")}>
       {module === "calendar" ? (
         <CalSidebar />
       ) : (
-      <div className="fp-tree" role="tree" aria-label="Folders">
+      <div className="fp-tree" role="tree" aria-label={t("mail.pane.folders")}>
       <div className="fp-group">
-        {head("fav", "Favorites")}
+        {head("fav", t("mail.pane.favorites"))}
         {!collapsed("fav") && favs.map((f) => row(f.acct, f.key, labelFor(f.acct, f.key)))}
       </div>
 
       <div className="fp-group">
-        {head("views", "Quick views")}
+        {head("views", t("mail.pane.quickViews"))}
         {!collapsed("views") && VIRTUAL_VIEWS.map((k) => row(null, k, folderLabel(k)))}
       </div>
 
@@ -147,7 +150,7 @@ export function FolderPane() {
                     className="fp-warn"
                     role="button"
                     tabIndex={0}
-                    title={`${error}\nClick to retry`}
+                    title={t("mail.pane.retry", { error })}
                     onClick={(e) => {
                       e.stopPropagation();
                       void sync();
@@ -158,6 +161,7 @@ export function FolderPane() {
                 )}
               </>,
             )}
+            <ReauthNotice account={a} compact />
             {!collapsed(a.id) && (
               <>
                 {std.map((k) => row(a.id, k, folderLabel(k), 1))}
@@ -169,12 +173,12 @@ export function FolderPane() {
       })}
       </div>
       )}
-      <nav className="fp-modules" aria-label="Switch between Mail and Calendar">
-        <button aria-current={module === "mail" ? "page" : undefined} title={kbd("Mail (Ctrl+1)")} onClick={() => setModule("mail")}>
-          <Inbox size={15} aria-hidden /> Mail
+      <nav className="fp-modules" aria-label={t("mail.pane.switch")}>
+        <button aria-current={module === "mail" ? "page" : undefined} title={kbd(t("mail.pane.mailTitle"))} onClick={() => setModule("mail")}>
+          <Inbox size={15} aria-hidden /> {t("mail.pane.mail")}
         </button>
-        <button aria-current={module === "calendar" ? "page" : undefined} title={kbd("Calendar (Ctrl+2)")} onClick={() => setModule("calendar")}>
-          <CalendarDays size={15} aria-hidden /> Calendar
+        <button aria-current={module === "calendar" ? "page" : undefined} title={kbd(t("mail.pane.calendarTitle"))} onClick={() => setModule("calendar")}>
+          <CalendarDays size={15} aria-hidden /> {t("mail.pane.calendar")}
         </button>
       </nav>
     </aside>

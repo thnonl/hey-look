@@ -1,9 +1,11 @@
 // Source check of the result of an update (QA BUG-12: no "Hey Look! is updated to 1.0.0." toast was seen after any of four updates) and of
 // the stale-offer note (QA round 6, stopped server). The behaviour itself was run in the dev mock (a headless browser): the toast stays on
 // screen, is acknowledged once, and the offline note shows next to a failed download.
-// Run: node scripts/test-update-result.mjs
+// The texts are in the dictionary (src/i18n/ns/updates.ts): the source is checked for the keys, the English wording through en.
+// Run: node --experimental-strip-types scripts/test-update-result.mjs
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
+import { en } from "../src/i18n/en.ts";
 
 const read = (p) => readFileSync(new URL(`../${p}`, import.meta.url), "utf8").replace(/\r\n/g, "\n");
 const updates = read("src/updates.ts");
@@ -15,12 +17,15 @@ const card = read("src/components/Updates.tsx");
 // 1. The result toast is sticky (it was a 4.5 s toast, gone before anyone looked), closes itself after 30 s, and the page tells the backend once it showed it.
 const start = updates.slice(updates.indexOf("startupCheck: async () => {"));
 const body = start.slice(0, start.indexOf("\n    },\n"));
-assert.match(body, /setStickyToast\(key, \{ text: `Hey Look! is updated to/, "success result is a sticky toast");
+assert.match(body, /setStickyToast\(key, \{ text: t\(s\.draft \? "updates\.result\.updatedDraft" : "updates\.result\.updated"/, "success result is a sticky toast");
+assert.equal(en["updates.result.updated"], "Hey Look! is updated to {version}.");
+assert.equal(en["updates.result.updatedDraft"], "Hey Look! is updated to {version}. Your message is in Drafts.");
 assert.match(body, /kind: "success"/);
-assert.match(body, /The update to \$\{s\.version\} didn’t finish\. You can try again in Settings > About\./, "REQ-30 wording of the failed install");
+assert.match(body, /text: t\("updates\.result\.failed", \{ version: s\.version/, "REQ-30 failed install");
+assert.equal(en["updates.result.failed"], "The update to {version} didn’t finish. You can try again in Settings > About.", "REQ-30 wording of the failed install");
 assert.match(body, /stickyTimer\.arm\(key\)/, "it goes after 30 s (one timer per toast, see stickyTimers.ts, BUG-14)");
 assert.ok(body.indexOf("setStickyToast(key, {") < body.indexOf("api.updateStartupAck()"), "the ack comes after the toast is shown");
-assert.ok(!/showToast\(`Hey Look! is updated/.test(body), "no short-lived toast for the result");
+assert.ok(!/showToast\(t\("updates\.result/.test(body), "no short-lived toast for the result");
 
 // 2. The ack exists on both sides, and the backend keeps the marker until it arrives.
 assert.match(api, /updateStartupAck: \(\) => invoke<void>\("update_startup_ack"\)/);
@@ -40,8 +45,9 @@ assert.match(card, /isStaleOffer\(update\) && \(mine === "idle" \|\| mine === "f
 // before the installer starts is told too, and startup.log gets a line saying why no restart began (QA found no `[update]` line).
 const restart = updates.slice(updates.indexOf("restartToUpdate: async () => {"));
 const restartBody = restart.slice(0, restart.indexOf("\n    },\n"));
-assert.match(updates, /const RESTART_STOPPED_TEXT = "Couldn’t save your draft, so Hey Look! didn’t restart\. Your message is still open\."/, "REQ-28 c wording");
-assert.match(restartBody, /setStickyToast\(RESTART_STOPPED, \{ text: RESTART_STOPPED_TEXT, kind: "error", closeLabel: "Close" \}\)/, "the failed save toast is sticky");
+assert.match(updates, /const RESTART_STOPPED_TEXT = "updates\.restartStopped"/, "REQ-28 c text is a dictionary key");
+assert.equal(en["updates.restartStopped"], "Couldn’t save your draft, so Hey Look! didn’t restart. Your message is still open.", "REQ-28 c wording");
+assert.match(restartBody, /setStickyToast\(RESTART_STOPPED, \{ text: t\(RESTART_STOPPED_TEXT\), kind: "error", closeLabel: t\("common\.close"\) \}\)/, "the failed save toast is sticky");
 assert.ok(!/showToast\(RESTART_STOPPED_TEXT/.test(restartBody) && !/showToast\("Couldn’t save your draft/.test(restartBody), "not a short-lived toast");
 assert.match(restartBody, /try \{\s+return st\.composeSaver \? await st\.composeSaver\(\{ quiet: true \}\) : false;\s+\} catch \{\s+return false;/, "a throwing saver is a failed save");
 assert.match(restartBody, /api\.updateNote\(`restart not started: the draft could not be saved/, "startup.log says why");

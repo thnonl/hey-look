@@ -90,6 +90,18 @@ pub struct CalEvent {
     pub confidential: bool,
     /// set for expanded recurrence instances
     pub instance_start: Option<i64>,
+    /// Why a synced event cannot be changed here: "calendar" (read-only calendar) | "repeating" | "organizer" (organized by someone
+    /// else). `None` = editable.
+    pub read_only: Option<String>,
+    /// The id, version tag, series and kind the provider gave a synced event (see calsync); `None` for local events and invitations.
+    #[serde(skip)]
+    pub remote_id: Option<String>,
+    #[serde(skip)]
+    pub etag: Option<String>,
+    #[serde(skip)]
+    pub series_id: Option<String>,
+    #[serde(skip)]
+    pub remote_kind: Option<String>,
     #[serde(skip)]
     pub recurrence_id: String,
     #[serde(skip)]
@@ -123,6 +135,9 @@ pub struct CalEventInput {
     pub rrule: Option<String>,
     #[serde(default)]
     pub reminder_min: Option<i64>,
+    /// the calendar a new event goes to (`None` / "local" = My events; a synced calendar's id otherwise); fixed when editing
+    #[serde(default)]
+    pub calendar_id: Option<String>,
 }
 
 #[derive(Serialize, Clone, Debug)]
@@ -133,6 +148,12 @@ pub struct CalendarInfo {
     pub color: String,
     pub account_id: Option<String>,
     pub visible: bool,
+    /// a calendar of a connected provider (Google / Microsoft)
+    pub remote: bool,
+    /// new events can be added to it (My events and the writable synced calendars)
+    pub writable: bool,
+    /// "Google Calendar" / "Outlook": the service that holds a synced calendar
+    pub service: Option<String>,
 }
 
 #[derive(Serialize, Clone, Debug, Default)]
@@ -219,10 +240,11 @@ pub struct CalInvite {
 
 // ------------------------------------------------------------------ rows
 
-const COLS: &str = "id,uid,recurrence_id,calendar_id,account_id,summary,starts_at,ends_at,all_day,tzid,location,join_url,description,\
-organizer_name,organizer_email,attendees,rrule,exdates,status,my_status,responded_at,reminder_min,source_message_id,sequence,prev";
+pub(crate) const COLS: &str = "id,uid,recurrence_id,calendar_id,account_id,summary,starts_at,ends_at,all_day,tzid,location,join_url,description,\
+organizer_name,organizer_email,attendees,rrule,exdates,status,my_status,responded_at,reminder_min,source_message_id,sequence,prev,\
+remote_id,etag,series_id,remote_kind,read_only";
 
-fn row_event(r: &Row) -> rusqlite::Result<CalEvent> {
+pub(crate) fn row_event(r: &Row) -> rusqlite::Result<CalEvent> {
     let org_email: Option<String> = r.get(14)?;
     let attendees: String = r.get(15)?;
     let exdates: String = r.get(17)?;
@@ -256,14 +278,19 @@ fn row_event(r: &Row) -> rusqlite::Result<CalEvent> {
         confidential: false,
         prev: r.get(24)?,
         instance_start: None,
+        remote_id: r.get(25)?,
+        etag: r.get(26)?,
+        series_id: r.get(27)?,
+        remote_kind: r.get(28)?,
+        read_only: crate::calsync::store::read_only_reason(r.get::<_, i64>(29)?),
     })
 }
 
-fn save_row(c: &Connection, e: &CalEvent) -> R<()> {
+pub(crate) fn save_row(c: &Connection, e: &CalEvent) -> R<()> {
     c.execute(
         &format!(
             "INSERT OR REPLACE INTO events({COLS},created_at,updated_at) VALUES(?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,?13,?14,?15,?16,?17,?18,?19,?20,?21,?22,?23,?24,?25,
-               COALESCE((SELECT created_at FROM events WHERE id=?1),?26),?26)"
+               ?26,?27,?28,?29,?30,COALESCE((SELECT created_at FROM events WHERE id=?1),?31),?31)"
         ),
         params![
             e.id,
@@ -291,6 +318,11 @@ fn save_row(c: &Connection, e: &CalEvent) -> R<()> {
             e.source_message_id,
             e.sequence,
             e.prev,
+            e.remote_id,
+            e.etag,
+            e.series_id,
+            e.remote_kind,
+            crate::calsync::store::read_only_code(e.read_only.as_deref()),
             now()
         ],
     )
@@ -298,7 +330,7 @@ fn save_row(c: &Connection, e: &CalEvent) -> R<()> {
     Ok(())
 }
 
-fn find(c: &Connection, calendar: &str, uid: &str, rid: &str) -> Option<CalEvent> {
+pub(crate) fn find(c: &Connection, calendar: &str, uid: &str, rid: &str) -> Option<CalEvent> {
     c.query_row(
         &format!("SELECT {COLS} FROM events WHERE calendar_id=?1 AND uid=?2 AND recurrence_id=?3"),
         params![calendar, uid, rid],
@@ -310,7 +342,7 @@ fn find(c: &Connection, calendar: &str, uid: &str, rid: &str) -> Option<CalEvent
 }
 
 pub fn get_event(c: &Connection, id: &str) -> R<CalEvent> {
-    let mut e = c.query_row(&format!("SELECT {COLS} FROM events WHERE id=?1"), [id], row_event).map_err(|_| "event not found".to_string())?;
+    let mut e = c.query_row(&format!("SELECT {COLS} FROM events WHERE id=?1"), [id], row_event).map_err(|_| "CAL_EVENT_NOT_FOUND: event not found".to_string())?;
     mark_confidential(c, &mut e);
     Ok(e)
 }
@@ -370,6 +402,36 @@ const LIST_EXPAND_BUDGET: usize = 1_000_000;
 /// Most event instances one `list_range` call returns.
 const LIST_MAX_INSTANCES: usize = 20_000;
 
+/// An invitation that is also an event of a synced calendar of the same mailbox (the provider adds it there by itself) is shown once:
+/// the synced copy wins. Matched by UID; occurrences that the provider reports as separate events are matched by title and start.
+struct SyncedTwins {
+    uids: HashSet<(String, String)>,
+    occurrences: HashSet<(String, String, i64)>,
+}
+
+impl SyncedTwins {
+    fn of(rows: &[CalEvent], hidden: &HashSet<String>) -> SyncedTwins {
+        let mut t = SyncedTwins { uids: HashSet::new(), occurrences: HashSet::new() };
+        // (a synced calendar the user hid does not count: the event would vanish from the views altogether)
+        for e in rows.iter().filter(|e| e.remote_id.is_some() && !hidden.contains(&e.calendar_id) && e.status != "cancelled") {
+            let Some(acc) = e.account_id.clone() else { continue };
+            if matches!(e.remote_kind.as_deref(), Some("occurrence" | "exception")) {
+                t.occurrences.insert((acc.clone(), e.summary.clone(), e.start));
+            }
+            t.uids.insert((acc, e.uid.clone()));
+        }
+        t
+    }
+
+    fn hides(&self, e: &CalEvent) -> bool {
+        e.calendar_id.starts_with("invites:") && e.account_id.clone().is_some_and(|a| self.uids.contains(&(a, e.uid.clone())))
+    }
+
+    fn hides_instance(&self, e: &CalEvent) -> bool {
+        e.calendar_id.starts_with("invites:") && e.account_id.clone().is_some_and(|a| self.occurrences.contains(&(a, e.summary.clone(), e.start)))
+    }
+}
+
 /// Events touching `[from, to)` with repeating events expanded, from visible calendars, ordered by start.
 /// All-day events are matched with one day of slack on both sides (they are dates, not instants).
 pub fn list_range(c: &Connection, from: i64, to: i64) -> R<Vec<CalEvent>> {
@@ -386,8 +448,9 @@ pub fn list_range(c: &Connection, from: i64, to: i64) -> R<Vec<CalEvent>> {
     let mut budget = LIST_EXPAND_BUDGET;
     // timed events must really touch the window; all-day events keep a day of slack (they are dates)
     let touches = |e: &CalEvent| e.all_day || (e.start < to && e.end.max(e.start + 1) > from);
+    let synced = SyncedTwins::of(&rows, &hidden);
     for mut e in rows {
-        if hidden.contains(&e.calendar_id) {
+        if hidden.contains(&e.calendar_id) || synced.hides(&e) {
             continue;
         }
         mark_you(&mut e, &mine);
@@ -402,7 +465,7 @@ pub fn list_range(c: &Connection, from: i64, to: i64) -> R<Vec<CalEvent>> {
                     i.start = s;
                     i.end = en;
                     i.instance_start = Some(s);
-                    if touches(&i) {
+                    if touches(&i) && !synced.hides_instance(&i) {
                         out.push(i);
                     }
                 }
@@ -482,6 +545,11 @@ fn event_from_ics(ev: &IcsEvent, calendar: &str, account: Option<&Account>, mess
         sequence: ev.sequence,
         confidential: false,
         instance_start: None,
+        read_only: None,
+        remote_id: None,
+        etag: None,
+        series_id: None,
+        remote_kind: None,
         recurrence_id: ev.recurrence_id.map(|r| r.to_string()).unwrap_or_default(),
         exdates: ev.exdates.clone(),
         prev: None,
@@ -795,7 +863,7 @@ fn message_ics(db: &Db, message_id: &str) -> R<(String, String, String, String)>
         .query_row("SELECT account_id,folder,from_email,ics,pgp FROM messages WHERE id=?1", [message_id], |r| {
             Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?, r.get(4)?))
         })
-        .map_err(|_| "message not found".to_string())?;
+        .map_err(|_| "MSG_NOT_FOUND: message not found".to_string())?;
     if let Some(t) = ics {
         return Ok((account, folder, from, t));
     }
@@ -967,6 +1035,11 @@ pub fn save_local(c: &Connection, inp: &CalEventInput) -> R<(CalEvent, Option<Ac
         sequence,
         confidential: false,
         instance_start: None,
+        read_only: None,
+        remote_id: None,
+        etag: None,
+        series_id: None,
+        remote_kind: None,
         recurrence_id: String::new(),
         exdates: existing.as_ref().map(|x| x.exdates.clone()).unwrap_or_default(),
         prev: None,
@@ -1010,6 +1083,7 @@ pub fn prepare_meeting(c: &Connection, d: &mut crate::smtp::Draft) -> R<()> {
             attendees,
             rrule: m.rrule.clone(),
             reminder_min: default_reminder(c),
+            calendar_id: None,
         },
     )?;
     d.calendar = Some(iso_part("REQUEST", &to_ics_event(&e)));
@@ -1044,7 +1118,7 @@ pub fn respond(db: &Db, message_id: &str, response: &str, comment: Option<String
     };
     let (account_id, folder, from_email, text) = message_ics(db, message_id)?;
     let cal = ical::parse(&text)?;
-    let ev = first_event(&cal).ok_or("this invitation has no event")?.clone();
+    let ev = first_event(&cal).ok_or("CAL_NO_EVENT: this invitation has no event")?.clone();
     let method = cal.method.clone().unwrap_or_else(|| "PUBLISH".into());
     if method != "REQUEST" && method != "PUBLISH" {
         return Err("CAL_NOT_AN_INVITATION: This message is not an invitation you can respond to.".into());
@@ -1103,6 +1177,15 @@ pub fn respond(db: &Db, message_id: &str, response: &str, comment: Option<String
             save_row(&c, &row)?;
         }
     }
+    // the same event in a synced calendar of this mailbox gets the answer too (silently: the organizer was told by the reply above)
+    crate::calsync::write::mirror_rsvp(
+        db,
+        &crate::calsync::cmds::AppFactory { db: db.clone() },
+        &account_id,
+        &ev.uid,
+        &ev.recurrence_id.map(|r| r.to_string()).unwrap_or_default(),
+        partstat,
+    );
     let c = lock(db);
     Ok(invite_for(&c, &account_id, message_id, &folder, &from_email, &text, false))
 }
@@ -1130,7 +1213,7 @@ fn reminder_worker_pass(app: &tauri::AppHandle, db: &Db, fired: &mut HashSet<(St
             None => when,
         };
         let mins = ((e.start - t) / 60).max(0);
-        let title = if mins == 0 { format!("{} is starting", e.summary) } else { format!("{} in {} minute{}", e.summary, mins, if mins == 1 { "" } else { "s" }) };
+        let title = crate::i18n::event_reminder(&e.summary, mins);
         let _ = app.emit("event-reminder", serde_json::json!({ "eventId": e.id, "title": title, "line": line2, "joinUrl": e.join_url, "start": e.start }));
         crate::shell::notify_reminder(app, db, &title, &line2);
     }
@@ -1156,12 +1239,34 @@ fn changed(app: &tauri::AppHandle) {
 
 #[tauri::command]
 pub fn calendar_list_calendars(state: tauri::State<crate::AppState>) -> R<Vec<CalendarInfo>> {
-    let c = lock(&state.db);
-    let hidden = hidden_calendars(&c);
-    let mut out = vec![CalendarInfo { id: LOCAL.into(), name: "My events".into(), color: "#8764b8".into(), account_id: None, visible: !hidden.contains(LOCAL) }];
-    for a in db::list_accounts(&c)? {
+    list_calendars(&lock(&state.db))
+}
+
+/// My events, each mailbox's invitations, then the synced calendars of the mailboxes that sync.
+pub fn list_calendars(c: &Connection) -> R<Vec<CalendarInfo>> {
+    let hidden = hidden_calendars(c);
+    let mut out = vec![CalendarInfo { id: LOCAL.into(), name: "My events".into(), color: "#8764b8".into(), account_id: None, visible: !hidden.contains(LOCAL), remote: false, writable: true, service: None }];
+    let accounts = db::list_accounts(c)?;
+    for a in &accounts {
         let id = format!("invites:{}", a.id);
-        out.push(CalendarInfo { visible: !hidden.contains(&id), id, name: format!("Invitations · {}", a.email), color: a.color.clone().unwrap_or_default(), account_id: Some(a.id) });
+        out.push(CalendarInfo { visible: !hidden.contains(&id), id, name: format!("Invitations · {}", a.email), color: a.color.clone().unwrap_or_default(), account_id: Some(a.id.clone()), remote: false, writable: false, service: None });
+    }
+    // the calendars of the mailboxes that sync, in account order, with the provider's colours
+    for a in &accounts {
+        let Some(src) = crate::calsync::store::source_of_account(c, &a.id) else { continue };
+        for cal in crate::calsync::store::calendars_of(c, &src.id)?.into_iter().filter(|x| x.sync_on) {
+            let color = if cal.color.is_empty() { a.color.clone().unwrap_or_default() } else { cal.color.clone() };
+            out.push(CalendarInfo {
+                visible: !hidden.contains(&cal.id),
+                name: format!("{} · {}", cal.name, a.email),
+                id: cal.id,
+                color,
+                account_id: Some(a.id.clone()),
+                remote: true,
+                writable: !cal.read_only,
+                service: Some(src.kind.service().to_string()),
+            });
+        }
     }
     Ok(out)
 }
@@ -1197,13 +1302,26 @@ pub fn calendar_get_event(state: tauri::State<crate::AppState>, id: String) -> R
     Ok(e)
 }
 
+/// The synced calendar an event input is for: the calendar of the event being edited, or the one chosen for a new event.
+fn remote_calendar_of(c: &Connection, inp: &CalEventInput) -> Option<String> {
+    let id = match &inp.id {
+        Some(id) => get_event(c, id).ok()?.calendar_id,
+        None => inp.calendar_id.clone()?,
+    };
+    crate::calsync::is_remote_calendar_id(&id).then_some(id)
+}
+
 #[tauri::command]
 pub async fn calendar_save_event(app: tauri::AppHandle, state: tauri::State<'_, crate::AppState>, event: CalEventInput, notify: bool) -> R<CalEvent> {
     let db = state.db.clone();
     let out = crate::blocking(move || {
+        // an event of a synced calendar goes to its provider (which sends the invitations, not this app)
+        if remote_calendar_of(&lock(&db), &event).is_some() {
+            return crate::calsync::write::save(&db, &crate::calsync::cmds::AppFactory { db: db.clone() }, &event);
+        }
         let (e, acc) = save_local(&lock(&db), &event)?;
         if let (true, Some(acc)) = (notify, acc) {
-            send_organizer_mail(&db, &acc, &e, "REQUEST").map_err(|m| format!("CAL_SEND_FAILED: The event was saved, but the invitations weren't sent: {m}"))?;
+            send_organizer_mail(&db, &acc, &e, "REQUEST").map_err(|m| crate::i18n::coded("CAL_SEND_FAILED", &[("v", "saved"), ("detail", &m)], &format!("The event was saved, but the invitations weren't sent: {m}")))?;
         }
         Ok(e)
     })
@@ -1222,13 +1340,16 @@ pub async fn calendar_delete_event(app: tauri::AppHandle, state: tauri::State<'_
             let acc = e.account_id.as_deref().and_then(|a| db::get_account(&c, a).ok());
             (e, acc)
         };
+        if crate::calsync::is_remote_calendar_id(&e.calendar_id) {
+            return crate::calsync::write::delete(&db, &crate::calsync::cmds::AppFactory { db: db.clone() }, &id);
+        }
         let mut result = Ok(());
         let organizer_is_me = e.calendar_id == LOCAL && e.my_status.as_deref() == Some("organizer") && e.attendees.len() > 1;
         if let (true, true, Some(acc)) = (notify, organizer_is_me, acc) {
             let mut cancelled = e.clone();
             cancelled.sequence += 1;
             cancelled.status = "cancelled".into();
-            result = send_organizer_mail(&db, &acc, &cancelled, "CANCEL").map_err(|m| format!("CAL_SEND_FAILED: The event was deleted, but the cancellation wasn't sent: {m}"));
+            result = send_organizer_mail(&db, &acc, &cancelled, "CANCEL").map_err(|m| crate::i18n::coded("CAL_SEND_FAILED", &[("v", "deleted"), ("detail", &m)], &format!("The event was deleted, but the cancellation wasn't sent: {m}")));
         }
         lock(&db).execute("DELETE FROM events WHERE calendar_id=?1 AND uid=?2", params![e.calendar_id, e.uid]).map_err(err)?;
         result
@@ -1254,7 +1375,7 @@ pub async fn calendar_add_from_message(app: tauri::AppHandle, state: tauri::Stat
         let c = lock(&db);
         let acc = db::get_account(&c, &account_id)?;
         let got = ingest(&c, &acc, &message_id, &from_email, &text, true)?;
-        let id = got.event_id.ok_or("CAL_NO_DATA: nothing to add from this message")?;
+        let id = got.event_id.ok_or_else(|| crate::i18n::coded("CAL_NO_DATA", &[("v", "add")], "nothing to add from this message"))?;
         get_event(&c, &id)
     })
     .await;
@@ -1277,7 +1398,7 @@ pub fn calendar_open_message(state: tauri::State<crate::AppState>, message_id: S
         .query_row("SELECT thread_id,folder,account_id FROM messages WHERE id=?1", [&message_id], |r| {
             Ok(MessageRef { thread_id: r.get(0)?, folder: r.get(1)?, account_id: r.get(2)? })
         })
-        .map_err(|_| "This invitation e-mail is no longer on this computer.".to_string())
+        .map_err(|_| "CAL_MAIL_GONE: This invitation e-mail is no longer on this computer.".to_string())
 }
 
 fn ics_file_name(summary: &str) -> String {
@@ -1306,7 +1427,7 @@ pub async fn calendar_save_ics(app: tauri::AppHandle, state: tauri::State<'_, cr
         } else {
             return Err("nothing to save".into());
         };
-        let Some(picked) = app.dialog().file().add_filter("Calendar file", &["ics"]).set_file_name(name).blocking_save_file() else {
+        let Some(picked) = app.dialog().file().add_filter(crate::i18n::tr(crate::i18n::K::CalendarFile), &["ics"]).set_file_name(name).blocking_save_file() else {
             return Ok(None);
         };
         let path = picked.into_path().map_err(err)?;
@@ -1328,13 +1449,13 @@ pub async fn calendar_import_ics(app: tauri::AppHandle, state: tauri::State<'_, 
     let db = state.db.clone();
     let app2 = app.clone();
     let out = crate::blocking(move || {
-        let Some(picked) = app2.dialog().file().add_filter("Calendar file", &["ics"]).blocking_pick_file() else {
+        let Some(picked) = app2.dialog().file().add_filter(crate::i18n::tr(crate::i18n::K::CalendarFile), &["ics"]).blocking_pick_file() else {
             return Ok(None);
         };
         let path = picked.into_path().map_err(err)?;
         let bytes = std::fs::read(&path).map_err(err)?;
         if bytes.len() > 8 * 1024 * 1024 {
-            return Err("CAL_BAD_FILE: This file is too large to be a calendar.".into());
+            return Err(crate::i18n::coded("CAL_BAD_FILE", &[("v", "large")], "This file is too large to be a calendar."));
         }
         let text = String::from_utf8_lossy(&bytes).into_owned();
         let c = lock(&db);
@@ -1347,7 +1468,7 @@ pub async fn calendar_import_ics(app: tauri::AppHandle, state: tauri::State<'_, 
 
 /// Import calendar text as local events (updates events with the same UID).
 pub fn import_text(c: &Connection, text: &str) -> R<ImportResult> {
-    let cal = ical::parse(text).map_err(|e| format!("CAL_BAD_FILE: This doesn't look like a calendar file ({e})."))?;
+    let cal = ical::parse(text).map_err(|e| crate::i18n::coded("CAL_BAD_FILE", &[("v", "detail"), ("detail", &e.to_string())], &format!("This doesn't look like a calendar file ({e}).")))?;
     let mut res = ImportResult { added: 0, updated: 0 };
     for ev in &cal.events {
         let rid = ev.recurrence_id.map(|r| r.to_string()).unwrap_or_default();
@@ -1465,6 +1586,7 @@ ATTENDEE;CN=Bao Tran;PARTSTAT=ACCEPTED:mailto:bao@contoso.com\r\n{extra}END:VEVE
             attendees: vec![CalAttendee { email: "bao@contoso.com".into(), name: None, role: "required".into(), status: "needs-action".into(), is_you: false }],
             rrule: None,
             reminder_min: None,
+            calendar_id: None,
         };
         let (e, _) = save_local(&c, &input).unwrap();
         let req = ical::to_ics(Some("REQUEST"), &[to_ics_event(&e)]);
@@ -1614,6 +1736,7 @@ END:VCALENDAR
             attendees: vec![CalAttendee { email: "Bao@Contoso.com".into(), name: Some("Bao Tran".into()), role: "required".into(), status: "needs-action".into(), is_you: false }],
             rrule: None,
             reminder_min: Some(10),
+            calendar_id: None,
         };
         let (e, acc) = save_local(&c, &input).unwrap();
         assert!(acc.is_some(), "attendees: an invitation has to be sent");
@@ -1667,15 +1790,15 @@ END:VCALENDAR
         let (c, _) = setup();
         let (e, acc) = save_local(
             &c,
-            &CalEventInput { id: None, account_id: None, summary: "  ".into(), start: ts(2026, 10, 20, 9, 0), end: ts(2026, 10, 20, 9, 30), all_day: false, tzid: Some("Nowhere".into()), location: Some(" ".into()), description: None, attendees: vec![], rrule: None, reminder_min: None },
+            &CalEventInput { id: None, account_id: None, summary: "  ".into(), start: ts(2026, 10, 20, 9, 0), end: ts(2026, 10, 20, 9, 30), all_day: false, tzid: Some("Nowhere".into()), location: Some(" ".into()), description: None, attendees: vec![], rrule: None, reminder_min: None, calendar_id: None },
         )
         .unwrap();
         assert!(acc.is_none());
         assert_eq!(e.summary, "(No title)");
         assert!(e.tzid.is_none() && e.location.is_none() && e.my_status.is_none());
-        assert!(save_local(&c, &CalEventInput { id: None, account_id: None, summary: "x".into(), start: 10, end: 5, all_day: false, tzid: None, location: None, description: None, attendees: vec![], rrule: None, reminder_min: None }).is_err());
+        assert!(save_local(&c, &CalEventInput { id: None, account_id: None, summary: "x".into(), start: 10, end: 5, all_day: false, tzid: None, location: None, description: None, attendees: vec![], rrule: None, reminder_min: None, calendar_id: None }).is_err());
         // attendees need an account to send from
-        let r = save_local(&c, &CalEventInput { id: None, account_id: None, summary: "x".into(), start: 1, end: 2, all_day: false, tzid: None, location: None, description: None, attendees: vec![CalAttendee { email: "a@b.c".into(), name: None, role: "required".into(), status: "needs-action".into(), is_you: false }], rrule: None, reminder_min: None });
+        let r = save_local(&c, &CalEventInput { id: None, account_id: None, summary: "x".into(), start: 1, end: 2, all_day: false, tzid: None, location: None, description: None, attendees: vec![CalAttendee { email: "a@b.c".into(), name: None, role: "required".into(), status: "needs-action".into(), is_you: false }], rrule: None, reminder_min: None, calendar_id: None });
         assert!(r.unwrap_err().starts_with("CAL_NO_ACCOUNT"));
     }
 
@@ -1685,7 +1808,7 @@ END:VCALENDAR
         let mk = |summary: &str, start: i64, end: i64, all_day: bool, rrule: Option<&str>| {
             save_local(
                 &c,
-                &CalEventInput { id: None, account_id: None, summary: summary.into(), start, end, all_day, tzid: None, location: None, description: None, attendees: vec![], rrule: rrule.map(|s| s.to_string()), reminder_min: None },
+                &CalEventInput { id: None, account_id: None, summary: summary.into(), start, end, all_day, tzid: None, location: None, description: None, attendees: vec![], rrule: rrule.map(|s| s.to_string()), reminder_min: None, calendar_id: None },
             )
             .unwrap()
             .0
@@ -1895,6 +2018,7 @@ END:VCALENDAR
             attendees,
             rrule: None,
             reminder_min: None,
+            calendar_id: None,
         };
         save_local(c, &input).unwrap().0
     }
@@ -1922,7 +2046,7 @@ END:VCALENDAR
         let (plain, conf) = (from("inv-plain"), from("inv-conf"));
         assert!(!plain.confidential && ensure_event_exportable(&c, &plain).is_ok());
         assert!(conf.confidential);
-        assert_eq!(ensure_event_exportable(&c, &conf).unwrap_err(), "This message is confidential, so that isn’t allowed.");
+        assert_eq!(ensure_event_exportable(&c, &conf).unwrap_err(), "CONFIDENTIAL: This message is confidential, so that isn’t allowed.");
         // an event of your own, or one without a source message, is never held back
         assert!(ensure_event_exportable(&c, &e).is_ok());
         assert!(list_range(&c, 0, i64::MAX / 4).unwrap().iter().any(|x| x.id == conf.id && x.confidential));
@@ -2077,6 +2201,7 @@ END:VCALENDAR
                 attendees: vec![att(B_MAIL, None)],
                 rrule: None,
                 reminder_min: None,
+                calendar_id: None,
             },
         )
         .unwrap();
@@ -2119,6 +2244,7 @@ END:VCALENDAR
                 attendees: vec![att(B_MAIL, None)],
                 rrule: None,
                 reminder_min: None,
+                calendar_id: None,
             },
         )
         .unwrap();
@@ -2262,5 +2388,135 @@ END:VCALENDAR
         assert_eq!(cc.name.as_deref(), Some("Cee, 'C'"));
         // and the draft itself still builds into a message
         assert!(crate::smtp::build(&acct(&c, A_ID), &d).is_ok());
+    }
+
+    // ---- synced calendars (calsync)
+
+    mod synced {
+        use super::*;
+        use crate::calsync::store::tests::{conn, rc, setup, ACC};
+        use crate::calsync::{store, EventKind, RemoteCalendar, RemoteEvent};
+
+        const T: i64 = 1_800_000_000;
+
+        fn invite_copy(remote: &CalEvent, id: &str, account: &str) -> CalEvent {
+            let mut inv = remote.clone();
+            inv.id = id.into();
+            inv.calendar_id = format!("invites:{account}");
+            inv.account_id = Some(account.into());
+            inv.remote_id = None;
+            inv.etag = None;
+            inv.series_id = None;
+            inv.remote_kind = None;
+            inv.read_only = None;
+            inv
+        }
+
+        fn shown(c: &Connection) -> Vec<(String, String)> {
+            list_range(c, T - 3600, T + 7200).unwrap().into_iter().map(|e| (e.id, e.calendar_id)).collect()
+        }
+
+        #[test]
+        fn an_invitation_that_is_also_in_a_synced_calendar_shows_once() {
+            let c = conn();
+            let (_, cal) = setup(&c);
+            let mut re = RemoteEvent::single("r1", "Review", T, T + 3600);
+            re.uid = "u1@google.com".into();
+            let remote = store::upsert_remote(&c, &cal, ACC, &re).unwrap();
+            save_row(&c, &invite_copy(&remote, "inv1", ACC)).unwrap();
+            // an invitation with another UID, and the same UID in another mailbox, stay
+            let mut other = invite_copy(&remote, "inv2", ACC);
+            other.uid = "u2@x".into();
+            save_row(&c, &other).unwrap();
+            let elsewhere = invite_copy(&remote, "inv3", "someone-else");
+            save_row(&c, &elsewhere).unwrap();
+            let got = shown(&c);
+            assert!(got.contains(&(remote.id.clone(), cal.id.clone())), "the synced copy is shown");
+            assert!(!got.iter().any(|(id, _)| id == "inv1"), "its invitation copy is hidden: {got:?}");
+            assert!(got.iter().any(|(id, _)| id == "inv2") && got.iter().any(|(id, _)| id == "inv3"));
+            // the user hid the synced calendar: the invitation shows instead of the event vanishing
+            db::set_setting(&c, "cal_hidden", &format!("[\"{}\"]", cal.id)).unwrap();
+            let got = shown(&c);
+            assert!(got.iter().any(|(id, _)| id == "inv1") && !got.iter().any(|(id, _)| *id == remote.id));
+        }
+
+        #[test]
+        fn occurrences_without_a_shared_uid_are_matched_by_title_and_start() {
+            let c = conn();
+            let (_, cal) = setup(&c);
+            let mut occ = RemoteEvent::single("o1", "Standup", T, T + 1800);
+            occ.kind = EventKind::Occurrence;
+            occ.series_id = Some("master".into());
+            occ.recurrence_id = Some(T);
+            occ.uid = "other-uid".into();
+            let remote = store::upsert_remote(&c, &cal, ACC, &occ).unwrap();
+            let mut inv = invite_copy(&remote, "invs", ACC);
+            inv.uid = "series-uid".into();
+            inv.rrule = Some("FREQ=DAILY".into());
+            inv.recurrence_id = String::new();
+            save_row(&c, &inv).unwrap();
+            let got: Vec<(String, i64)> = list_range(&c, T - 60, T + 3 * 86_400).unwrap().into_iter().map(|e| (e.calendar_id, e.start)).collect();
+            assert_eq!(got.iter().filter(|(cal_id, start)| *start == T && cal_id.starts_with("google:")).count(), 1);
+            assert_eq!(got.iter().filter(|(cal_id, start)| *start == T && cal_id.starts_with("invites:")).count(), 0, "the day the provider lists it, the invitation's instance is hidden");
+            assert!(got.iter().any(|(cal_id, start)| cal_id.starts_with("invites:") && *start == T + 86_400), "the other days of the series stay");
+        }
+
+        #[test]
+        fn the_calendar_list_has_the_synced_calendars_with_colour_label_and_access() {
+            let c = conn();
+            let (s, _) = setup(&c);
+            let mut work = rc("work", "Work");
+            work.color = "#d50000".into();
+            let holidays = RemoteCalendar { read_only: true, color: String::new(), ..rc("holidays", "Holidays") };
+            let off = RemoteCalendar { selected: false, ..rc("off", "Not synced") };
+            store::reconcile_calendars(&c, &s, &[rc("primary", "Me"), work, holidays, off]).unwrap();
+            let list = list_calendars(&c).unwrap();
+            let ids: Vec<&str> = list.iter().map(|x| x.id.as_str()).collect();
+            assert_eq!(ids[0], "local");
+            assert_eq!(ids[1], format!("invites:{ACC}"));
+            let remote: Vec<&CalendarInfo> = list.iter().filter(|x| x.remote).collect();
+            assert_eq!(remote.len(), 3, "a calendar whose Sync is off is not in the sidebar");
+            let work = remote.iter().find(|x| x.name == "Work · me@gmail.test").unwrap();
+            assert_eq!((work.color.as_str(), work.writable, work.service.as_deref(), work.account_id.as_deref()), ("#d50000", true, Some("Google Calendar"), Some(ACC)));
+            let hol = remote.iter().find(|x| x.name.starts_with("Holidays")).unwrap();
+            assert!(!hol.writable);
+            // the visibility checkbox is the same list as for the other calendars
+            let work_id = work.id.clone();
+            db::set_setting(&c, "cal_hidden", &format!("[\"{work_id}\"]")).unwrap();
+            let list = list_calendars(&c).unwrap();
+            assert!(!list.iter().find(|x| x.name.starts_with("Work")).unwrap().visible);
+            assert!(list.iter().find(|x| x.id == "local").unwrap().writable);
+            assert!(!list.iter().find(|x| x.id.starts_with("invites:")).unwrap().writable);
+        }
+
+        #[test]
+        fn a_new_event_routes_by_the_chosen_calendar_and_an_edit_by_the_events_own() {
+            let c = conn();
+            let (_, cal) = setup(&c);
+            let mk = |id: Option<&str>, calendar: Option<&str>| CalEventInput {
+                id: id.map(String::from),
+                account_id: None,
+                summary: "x".into(),
+                start: T,
+                end: T + 60,
+                all_day: false,
+                tzid: None,
+                location: None,
+                description: None,
+                attendees: vec![],
+                rrule: None,
+                reminder_min: None,
+                calendar_id: calendar.map(String::from),
+            };
+            assert_eq!(remote_calendar_of(&c, &mk(None, Some(&cal.id))), Some(cal.id.clone()));
+            assert_eq!(remote_calendar_of(&c, &mk(None, Some("local"))), None);
+            assert_eq!(remote_calendar_of(&c, &mk(None, None)), None);
+            let (e, _) = save_local(&c, &mk(None, None)).unwrap();
+            assert_eq!(remote_calendar_of(&c, &mk(Some(&e.id), Some(&cal.id))), None, "an existing event keeps its own calendar");
+            let mut re = RemoteEvent::single("r", "R", T, T + 60);
+            re.uid = "r@g".into();
+            let remote = store::upsert_remote(&c, &cal, ACC, &re).unwrap();
+            assert_eq!(remote_calendar_of(&c, &mk(Some(&remote.id), None)), Some(cal.id.clone()));
+        }
     }
 }

@@ -4,12 +4,15 @@ import { Archive, Clock, Flag, Forward, MailX, MoreHorizontal, Moon, Pin, Reply,
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { forward, replyTo } from "../actions";
 import { api, MessageFull } from "../api";
-import { appSurface, setMailDark } from "../darkMail";
+import { setMailDark } from "../darkMail";
+import { t, type Key } from "../i18n";
+import { useLang, useT } from "../i18n/react";
+import { tx } from "../i18n/rich";
+import { DARK_CANVAS, frameBaseCss, frameRootClass, toggleMailCanvas } from "../mailCanvas";
 import { eff } from "../prefs";
-import { CONFIDENTIAL_FRAME_CSS, CONFIDENTIAL_NOTE, lockDocument, useContentProtection } from "../protect";
+import { CONFIDENTIAL_FRAME_CSS, lockDocument, useContentProtection } from "../protect";
 import { friendlyError, useStore } from "../store";
-import { useAppDark } from "../useAppDark";
-import { fmtFull, fmtSize, plainToHtml, sanitizeHtml, snoozePresets } from "../util";
+import { fmtFull, fmtSize, plainToHtml, sanitizeHtml, snoozePresets, subjectText } from "../util";
 import { AttachmentStrip, Lightbox, LbItem } from "./Attachments";
 import { InviteCard } from "./Calendar";
 import { osNow } from "../platform";
@@ -68,25 +71,25 @@ function pictureHtml(html: string, m: MessageFull, loaded: Record<string, string
     const st = state[cid];
     if (!meta) {
       ph.disabled = true;
-      ph.textContent = `Picture missing from this message (cid:${cid})`;
+      ph.textContent = t("reading.pic.missing", { cid });
     } else if (st?.status === "loading") {
       ph.setAttribute("aria-busy", "true");
       const spin = doc.createElement("span");
       spin.className = "hl-spin";
-      ph.append(spin, `Loading ${fmtSize(meta.size)}…`);
+      ph.append(spin, t("reading.pic.loading", { size: fmtSize(meta.size) }));
     } else if (st?.status === "failed") {
       ph.classList.add("bad");
       const b = doc.createElement("b");
-      b.textContent = "Couldn’t load this picture.";
-      ph.append(b, " Retry");
+      b.textContent = t("reading.pic.failed");
+      ph.append(b, ` ${t("common.retry")}`);
     } else {
       const b = doc.createElement("b");
       b.textContent = meta.name;
       const small = doc.createElement("span");
-      small.textContent = `${fmtSize(meta.size)} · large picture, not loaded yet`;
-      ph.append(b, doc.createElement("br"), small, " · Show");
+      small.textContent = t("reading.pic.large", { size: fmtSize(meta.size) });
+      ph.append(b, doc.createElement("br"), small, ` · ${t("reading.pic.show")}`);
     }
-    ph.setAttribute("aria-label", meta ? `Show picture ${meta.name}, ${fmtSize(meta.size)}` : "Picture missing");
+    ph.setAttribute("aria-label", meta ? t("reading.pic.showLabel", { name: meta.name, size: fmtSize(meta.size) }) : t("reading.pic.missingLabel"));
     img.replaceWith(ph);
   });
   return doc.body.innerHTML;
@@ -110,16 +113,17 @@ const host = (u: string) => {
   }
 };
 
-/** Background the mail is shown on: dark in the dark theme (see darkMail.ts), the toggle shows the original colours of this mail instead. */
+/** Background the mail is shown on: the mail's own colours (default, in every app theme) or the dark one (see darkMail.ts); remembered as a preference. */
 function useCanvas() {
-  const appDark = useAppDark();
-  const [light, setLight] = useState(false);
-  useEffect(() => setLight(false), [appDark]);
-  const dark = appDark && !light;
-  return { appDark, dark, toggle: () => setLight(dark) };
+  const canvas = useStore((s) => s.prefs.mailCanvas);
+  const setPrefs = useStore((s) => s.setPrefs);
+  const dark = canvas === "dark";
+  return { dark, toggle: () => setPrefs({ mailCanvas: toggleMailCanvas(canvas) }) };
 }
 
 function MessageBody({ m, frameRef, dark, onPictures }: { m: MessageFull; frameRef: React.RefObject<HTMLIFrameElement | null>; dark: boolean; onPictures: (items: { src: string; name: string }[], index: number) => void }) {
+  const t = useT();
+  const lang = useLang(); // the picture placeholders carry text: rebuilt when the language changes
   const prefs = useStore((s) => s.prefs);
   const setDialog = useStore((s) => s.setDialog);
   const confirm = useStore((s) => s.confirm);
@@ -135,7 +139,7 @@ function MessageBody({ m, frameRef, dark, onPictures }: { m: MessageFull; frameR
   );
   const html = useMemo(
     () => pictureHtml(allowed ? inlineImages(clean.html) : clean.html, m, loadedPics, picState),
-    [clean, allowed, version, m, loadedPics, picState], // eslint-disable-line react-hooks/exhaustive-deps
+    [clean, allowed, version, m, loadedPics, picState, lang], // eslint-disable-line react-hooks/exhaustive-deps
   );
 
   // a picture that was not embedded at sync time: fetch it from the server (click, or by the auto-load setting)
@@ -203,9 +207,8 @@ function MessageBody({ m, frameRef, dark, onPictures }: { m: MessageFull; frameR
   const lockedNow = useRef(!!m.confidential);
   lockedNow.current = !!m.confidential;
   const srcDoc = useMemo(
-    () => `<!doctype html><html data-hm-doc${darkNow.current ? ' class="hm-dark hm-pend"' : ""}><head><meta charset="utf-8"><meta http-equiv="Content-Security-Policy" content="${csp}"><base target="_blank">
-    <style>html{--hm-fg:#242424;--hm-link:#0f6cbd;--hm-bg:#ffffff}
-    @media screen{html.hm-dark{--hm-fg:#e6e6e6;--hm-link:#6cb8f6;--hm-bg:transparent;color-scheme:dark}html.hm-dark img{filter:brightness(.9)}html.hm-pend body{visibility:hidden}}
+    () => `<!doctype html><html data-hm-doc${frameRootClass(darkNow.current ? "dark" : "original")}><head><meta charset="utf-8"><meta http-equiv="Content-Security-Policy" content="${csp}"><base target="_blank">
+    <style>${frameBaseCss()}
     body{font:14px/1.5 "Segoe UI Variable","Segoe UI",system-ui,sans-serif;margin:0;padding:10px 12px;word-wrap:break-word;background:var(--hm-bg);color:var(--hm-fg)}
     img{max-width:100%;height:auto;cursor:zoom-in}blockquote{margin:0 0 0 .8ex;border-left:2px solid #999;padding-left:1ex}a{color:var(--hm-link)}table{max-width:100%}
     .hl-ph{display:flex;align-items:center;gap:10px;max-width:100%;width:360px;padding:12px 14px;border:1px dashed #9aa3af;border-radius:10px;background:#f6f7f9;color:#5b6470;font:13px/1.4 "Segoe UI",sans-serif;cursor:pointer;text-align:left;box-sizing:border-box;flex-wrap:wrap}
@@ -218,7 +221,7 @@ function MessageBody({ m, frameRef, dark, onPictures }: { m: MessageFull; frameR
   // theme change or toggle on a loaded mail: recolour in place (a freshly loaded mail is handled in onLoad)
   useEffect(() => {
     const doc = frameRef.current?.contentDocument;
-    if (doc?.documentElement?.hasAttribute("data-hm-doc")) setMailDark(doc, dark, appSurface());
+    if (doc?.documentElement?.hasAttribute("data-hm-doc")) setMailDark(doc, dark, DARK_CANVAS);
   }, [dark, frameRef]);
 
   // Frame height follows the content, never below the free height of the pane (see fillHeight). The content is
@@ -302,7 +305,7 @@ function MessageBody({ m, frameRef, dark, onPictures }: { m: MessageFull; frameR
     const frame = frameRef.current;
     const doc = frame?.contentDocument;
     if (!frame || !doc?.body) return;
-    setMailDark(doc, darkNow.current, appSurface());
+    setMailDark(doc, darkNow.current, DARK_CANVAS);
     measure();
     // images without a height attribute (common in newsletters) only get their size once they load
     const imgs = Array.from(doc.images);
@@ -341,9 +344,9 @@ function MessageBody({ m, frameRef, dark, onPictures }: { m: MessageFull; frameR
       const looksLikeUrl = /^(https?:\/\/)?[\w-]+(\.[\w-]+)+(\/\S*)?$/i.test(text);
       if (looksLikeUrl && host(text) && host(text) !== host(a.href)) {
         void confirm({
-          title: "This link may not go where it says",
-          body: `It is shown as “${text.slice(0, 80)}” but opens ${host(a.href) || a.href}. Open it anyway?`,
-          confirmLabel: "Open link",
+          title: t("reading.body.linkWarnTitle"),
+          body: t("reading.body.linkWarnBody", { text: text.slice(0, 80), target: host(a.href) || a.href }),
+          confirmLabel: t("reading.body.linkWarnConfirm"),
           danger: true,
         }).then((ok) => ok && void openUpdateLink(a.href));
       } else void openUpdateLink(a.href); // (an open that fails says so and copies the link, instead of doing nothing)
@@ -369,11 +372,11 @@ function MessageBody({ m, frameRef, dark, onPictures }: { m: MessageFull; frameR
     <>
       {clean.blocked > 0 && !allowed && (
         <div className="notice">
-          Some content in this message has been blocked to help prevent tracking.{" "}
-          <button className="link" onClick={() => setAllow(true)}>Load content</button>
+          {t("reading.body.blocked")}{" "}
+          <button className="link" onClick={() => setAllow(true)}>{t("reading.body.loadContent")}</button>
           {" · "}
           <button className="link" onClick={() => setDialog({ type: "settings", tab: "mb:all", focus: "loadRemote" })}>
-            Always load remote content (Settings)
+            {t("reading.body.alwaysLoad")}
           </button>
         </div>
       )}
@@ -385,19 +388,31 @@ function MessageBody({ m, frameRef, dark, onPictures }: { m: MessageFull; frameR
         scrolling="no"
         srcDoc={srcDoc}
         onLoad={onLoad}
-        title={m.subject ? `Message body: ${m.subject}` : "Message body"}
+        title={m.subject ? t("reading.body.frameTitleSubject", { subject: m.subject }) : t("reading.body.frameTitle")}
       />
     </>
   );
 }
 
 const AUTO_IMPORTED = new Set<string>();
-const LANGS = ["English", "Vietnamese", "Japanese", "Chinese (Simplified)", "Korean", "French", "German", "Spanish"];
+// the English name goes into the AI prompt; the key is the name shown in the menu
+const LANGS: { en: string; key: Key }[] = [
+  { en: "English", key: "reading.lang.english" },
+  { en: "Vietnamese", key: "reading.lang.vietnamese" },
+  { en: "Japanese", key: "reading.lang.japanese" },
+  { en: "Chinese (Simplified)", key: "reading.lang.chineseSimplified" },
+  { en: "Korean", key: "reading.lang.korean" },
+  { en: "French", key: "reading.lang.french" },
+  { en: "German", key: "reading.lang.german" },
+  { en: "Spanish", key: "reading.lang.spanish" },
+];
 
 function MessageCard({ m, open, onToggle }: { m: MessageFull; open: boolean; onToggle: () => void }) {
+  const t = useT();
   const { showToast, setDialog, prefs } = useStore();
   const frameRef = useRef<HTMLIFrameElement>(null);
   const cv = useCanvas();
+  const canvasLabel = t("reading.canvas.label");
   const [translated, setTranslated] = useState<string | null>(null);
   const [lightbox, setLightbox] = useState<{ items: { src: string; name: string }[]; index: number } | null>(null);
   const who = m.fromName || m.fromEmail;
@@ -417,41 +432,42 @@ function MessageCard({ m, open, onToggle }: { m: MessageFull; open: boolean; onT
   const unsub = async () => {
     try {
       const r = await api.unsubscribe(m.id);
-      if (r.kind === "done") showToast("Unsubscribed", undefined, "success");
+      if (r.kind === "done") showToast(t("reading.msg.unsubscribed"), undefined, "success");
       else if (r.kind === "open") await openUpdateLink(r.target);
       else void useStore.getState().openCompose({ accountId: m.accountId, to: [r.target.replace("mailto:", "").split("?")[0]], subject: "unsubscribe" });
     } catch (e) {
-      showToast(`Unsubscribe failed: ${e}`, undefined, "error");
+      showToast(t("reading.msg.unsubscribeFailed", { error: friendlyError(e) }), undefined, "error");
     }
   };
 
   /** Every attachment into one folder (pictures included); a failed file does not stop the others. */
   const saveAll = async (ask = false) => {
-    if (conf) return showToast("Attachments of confidential mail can’t be saved.", undefined, "info");
+    if (conf) return showToast(t("reading.strip.confSave"), undefined, "info");
     try {
       const r = await api.attachmentSaveAll(m.id, ask || prefs.askWhereToSave);
       if (!r) return;
       const folder = r.dir.split(/[\\/]/).filter(Boolean).pop() ?? r.dir;
-      if (r.failed.length === 0) showToast(`Saved ${r.saved.length} attachment${r.saved.length === 1 ? "" : "s"} to ${folder}`, undefined, "success", r.saved[0] ? [{ label: "Show in folder", run: () => void api.attachmentReveal(r.saved[0]).catch(() => undefined) }] : undefined);
-      else showToast(`Saved ${r.saved.length} of ${m.attachments.length}. ${r.failed[0].name} failed: ${friendlyError(r.failed[0].error)}`, undefined, "error", [{ label: "Retry", run: () => void saveAll(ask) }]);
+      if (r.failed.length === 0) showToast(t("reading.strip.savedMany", { n: r.saved.length, folder }), undefined, "success", r.saved[0] ? [{ label: t("reading.att.showInFolder"), run: () => void api.attachmentReveal(r.saved[0]).catch(() => undefined) }] : undefined);
+      else showToast(t("reading.strip.savedPartial", { n: r.saved.length, total: m.attachments.length, name: r.failed[0].name, error: friendlyError(r.failed[0].error) }), undefined, "error", [{ label: t("common.retry"), run: () => void saveAll(ask) }]);
     } catch (e) {
-      showToast(`Save all failed: ${friendlyError(e)}`, undefined, "error", [{ label: "Retry", run: () => void saveAll(ask) }]);
+      showToast(t("reading.strip.saveAllFailed", { error: friendlyError(e) }), undefined, "error", [{ label: t("common.retry"), run: () => void saveAll(ask) }]);
     }
   };
 
-  const translate = async (lang: string) => {
-    if (needsCard(m)) return showToast("Unlock this message first.", undefined, "info");
-    if (conf) return showToast("Confidential mail isn’t sent to the AI Assistant.", undefined, "info");
-    showToast(`Translating to ${lang}…`);
+  const translate = async (lang: { en: string; key: Key }) => {
+    if (needsCard(m)) return showToast(t("reading.ai.unlockThis"), undefined, "info");
+    if (conf) return showToast(t("reading.ai.noConfidential"), undefined, "info");
+    showToast(t("reading.msg.translating", { lang: t(lang.key) }));
     try {
       setTranslated(
         await api.aiComplete(
-          `Translate the email into ${lang}. Output only the translation, keep the formatting and line breaks.`,
+          // i18n-ok: a prompt for the language model, not text the person reads
+          `Translate the email into ${lang.en}. Output only the translation, keep the formatting and line breaks.`,
           (m.text ?? m.html?.replace(/<[^>]+>/g, " ") ?? "").slice(0, 12000),
         ),
       );
     } catch (e) {
-      showToast(String(e), undefined, "error");
+      showToast(friendlyError(e), undefined, "error");
     }
   };
 
@@ -465,41 +481,34 @@ function MessageCard({ m, open, onToggle }: { m: MessageFull; open: boolean; onT
             <b>{who}</b>
             <span className="muted"> &lt;{m.fromEmail}&gt;</span>
           </div>
-          <div className="muted small ellipsis">{open ? `To: ${m.to}${m.cc ? `; Cc: ${m.cc}` : ""}` : needsCard(m) ? "Encrypted message" : conf ? "Confidential message" : (m.text ?? "").replace(/\s+/g, " ").slice(0, 140)}</div>
+          <div className="muted small ellipsis">{open ? (m.cc ? t("reading.msg.toCc", { to: m.to, cc: m.cc }) : t("reading.msg.to", { to: m.to })) : needsCard(m) ? t("reading.msg.encrypted") : conf ? t("reading.msg.confidential") : (m.text ?? "").replace(/\s+/g, " ").slice(0, 140)}</div>
         </div>
         {open && (
           <div className="rp-msg-actions" onClick={(e) => e.stopPropagation()}>
-            <button className="icon-btn" title="Reply" aria-label="Reply" onClick={() => replyTo(m, false)}><Reply size={16} /></button>
-            <button className="icon-btn" title="Reply all" aria-label="Reply all" onClick={() => replyTo(m, true)}><ReplyAll size={16} /></button>
-            <button className="icon-btn" title={conf ? "Confidential mail can’t be forwarded" : "Forward"} aria-label="Forward" disabled={conf} onClick={() => forward(m)}><Forward size={16} /></button>
-            {cv.appDark && (
-              <button
-                className="icon-btn"
-                title={!cv.dark ? "Switch to dark background" : "Switch to light background"}
-                aria-label={!cv.dark ? "Switch to dark background" : "Switch to light background"}
-                onClick={cv.toggle}
-              >
-                {!cv.dark ? <Sun size={16} /> : <Moon size={16} />}
-              </button>
-            )}
+            <button className="icon-btn" title={t("reading.msg.reply")} aria-label={t("reading.msg.reply")} onClick={() => replyTo(m, false)}><Reply size={16} /></button>
+            <button className="icon-btn" title={t("reading.msg.replyAll")} aria-label={t("reading.msg.replyAll")} onClick={() => replyTo(m, true)}><ReplyAll size={16} /></button>
+            <button className="icon-btn" title={conf ? t("reading.msg.forwardBlocked") : t("reading.msg.forward")} aria-label={t("reading.msg.forward")} disabled={conf} onClick={() => forward(m)}><Forward size={16} /></button>
+            <button className="icon-btn" title={canvasLabel} aria-label={canvasLabel} aria-pressed={cv.dark} onClick={cv.toggle}>
+              {cv.dark ? <Moon size={16} /> : <Sun size={16} />}
+            </button>
             <Dropdown
               className="icon-btn"
               caret={false}
               align="right"
-              title="More actions"
+              title={t("reading.msg.moreActions")}
               items={[
-                { label: "Show original", disabled: conf, onClick: () => setDialog({ type: "original", messageId: m.id }) },
+                { label: t("reading.msg.showOriginal"), disabled: conf, onClick: () => setDialog({ type: "original", messageId: m.id }) },
                 // WKWebView cannot print a message frame from the app: no Print entry on macOS
-                ...(osNow() === "macos" ? [] : [{ label: "Print", disabled: conf, onClick: () => frameRef.current?.contentWindow?.print() }]),
+                ...(osNow() === "macos" ? [] : [{ label: t("reading.msg.print"), disabled: conf, onClick: () => frameRef.current?.contentWindow?.print() }]),
                 {
-                  label: "Create event from this email…",
+                  label: t("reading.msg.createEvent"),
                   onClick: () => setDialog({ type: "event", init: { summary: m.subject.replace(/^((re|fwd?):\s*)+/i, ""), description: conf ? "" : (m.text ?? "").trim().slice(0, 1500) } }),
                 },
-                { label: "Copy sender email", onClick: () => void navigator.clipboard.writeText(m.fromEmail).then(() => showToast("Copied")) },
+                { label: t("reading.msg.copySender"), onClick: () => void navigator.clipboard.writeText(m.fromEmail).then(() => showToast(t("reading.msg.copied"))) },
                 { divider: true },
-                ...LANGS.map((l) => ({ label: `Translate to ${l}`, onClick: () => void translate(l), disabled: needsCard(m) || conf })),
-                ...(m.canUnsubscribe ? [{ divider: true }, { label: "Unsubscribe", onClick: () => void unsub() }] : []),
-                ...(m.attachments.length ? [{ divider: true }, { label: "Save all attachments…", disabled: conf, onClick: () => void saveAll(false) }] : []),
+                ...LANGS.map((l) => ({ label: t("reading.msg.translateTo", { lang: t(l.key) }), onClick: () => void translate(l), disabled: needsCard(m) || conf })),
+                ...(m.canUnsubscribe ? [{ divider: true }, { label: t("reading.msg.unsubscribe"), onClick: () => void unsub() }] : []),
+                ...(m.attachments.length ? [{ divider: true }, { label: t("reading.msg.saveAllAtt"), disabled: conf, onClick: () => void saveAll(false) }] : []),
               ]}
             >
               <MoreHorizontal size={16} />
@@ -512,21 +521,21 @@ function MessageCard({ m, open, onToggle }: { m: MessageFull; open: boolean; onT
         <div className={`rp-msg-body ${conf ? "confidential" : ""}`} onCopy={noCopy} onCut={noCopy} onContextMenu={noCopy} onDragStart={noCopy}>
           {conf && (
             <div className="notice conf-banner" role="note">
-              <ShieldAlert size={14} aria-hidden /> {CONFIDENTIAL_NOTE}
+              <ShieldAlert size={14} aria-hidden /> {t("reading.protect.note")}
             </div>
           )}
           <SecBadges m={m} />
           {m.invite && <InviteCard m={m} />}
           {m.canUnsubscribe && (
             <div className="notice">
-              This looks like a newsletter. <button className="link" onClick={unsub}>Unsubscribe</button>
+              {tx("reading.msg.newsletter", { link: <button className="link" onClick={unsub}>{t("reading.msg.unsubscribe")}</button> })}
             </div>
           )}
           {translated && (
             <div className="summary">
-              <b><Sparkles size={13} /> Translation</b>
+              <b><Sparkles size={13} /> {t("reading.msg.translation")}</b>
               <div className="pre">{translated}</div>
-              <button className="link small" onClick={() => setTranslated(null)}>Dismiss</button>
+              <button className="link small" onClick={() => setTranslated(null)}>{t("reading.msg.dismiss")}</button>
             </div>
           )}
           {needsCard(m) ? <EncCard m={m} /> : m.invite && !m.html?.trim() && !m.text?.trim() ? null : <MessageBody m={m} frameRef={frameRef} dark={cv.dark} onPictures={(items, index) => setLightbox({ items, index })} />}
@@ -542,13 +551,13 @@ function MessageCard({ m, open, onToggle }: { m: MessageFull; open: boolean; onT
           )}
           <div className="rp-reply-row">
             <button className="btn" onClick={() => replyTo(m, replyDefaultAll)}>
-              {replyDefaultAll ? <ReplyAll size={14} /> : <Reply size={14} />} {replyDefaultAll ? "Reply all" : "Reply"}
+              {replyDefaultAll ? <ReplyAll size={14} /> : <Reply size={14} />} {replyDefaultAll ? t("reading.msg.replyAll") : t("reading.msg.reply")}
             </button>
             <button className="btn" onClick={() => replyTo(m, !replyDefaultAll)}>
-              {replyDefaultAll ? <Reply size={14} /> : <ReplyAll size={14} />} {replyDefaultAll ? "Reply" : "Reply all"}
+              {replyDefaultAll ? <Reply size={14} /> : <ReplyAll size={14} />} {replyDefaultAll ? t("reading.msg.reply") : t("reading.msg.replyAll")}
             </button>
-            <button className="btn" disabled={conf} title={conf ? "Confidential mail can’t be forwarded" : undefined} onClick={() => forward(m)}>
-              <Forward size={14} /> Forward
+            <button className="btn" disabled={conf} title={conf ? t("reading.msg.forwardBlocked") : undefined} onClick={() => forward(m)}>
+              <Forward size={14} /> {t("reading.msg.forward")}
             </button>
           </div>
         </div>
@@ -558,11 +567,12 @@ function MessageCard({ m, open, onToggle }: { m: MessageFull; open: boolean; onT
 }
 
 export function ReadingPane() {
+  const t = useT();
   const { selected, messages, threads, act, showToast, prefs, aiConfigured, setDialog, confirm, checked } = useStore();
   const [openIds, setOpenIds] = useState<Set<string>>(new Set());
   const [summary, setSummary] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
-  const summ = threads.find((t) => t.threadId === selected);
+  const summ = threads.find((th) => th.threadId === selected);
   const bodyRef = useRef<HTMLDivElement>(null);
   // while confidential mail is on screen the window is hidden from screen capture and recording
   useContentProtection(!!selected && messages.some((m) => m.confidential));
@@ -631,11 +641,11 @@ export function ReadingPane() {
 
   if (!selected || !summ) {
     return (
-      <section className="reading-pane empty" aria-label="Reading pane">
+      <section className="reading-pane empty" aria-label={t("reading.pane.label")}>
         <EmptyState
           icon={<Mail size={44} />}
-          title="Select an item to read"
-          text={checked.size > 1 ? `${checked.size} items selected` : "Nothing is selected"}
+          title={t("reading.empty.title")}
+          text={checked.size > 1 ? t("reading.empty.selected", { n: checked.size }) : t("reading.empty.none")}
         />
       </section>
     );
@@ -654,7 +664,7 @@ export function ReadingPane() {
     try {
       const readable = messages.filter((m) => !needsCard(m) && !m.confidential);
       if (readable.length === 0) {
-        showToast(messages.some((m) => m.confidential) ? "Confidential mail isn’t sent to the AI Assistant." : "Unlock the encrypted message first.", undefined, "info");
+        showToast(messages.some((m) => m.confidential) ? t("reading.ai.noConfidential") : t("reading.ai.unlockEncrypted"), undefined, "info");
         return;
       }
       const body = readable
@@ -663,13 +673,14 @@ export function ReadingPane() {
         .slice(0, 24000);
       setSummary(
         await api.aiComplete(
+          // i18n-ok: a prompt for the language model, not text the person reads
           "You summarize email conversations. Reply with 2-5 concise bullet points covering key facts, decisions and requested actions. Use the language of the emails.",
           // the subject of a thread with confidential mail may be that mail's, so it is left out
           `${messages.some((m) => m.confidential) ? "" : `Subject: ${summ.subject}\n\n`}${body}`,
         ),
       );
     } catch (e) {
-      showToast(String(e), undefined, "error");
+      showToast(friendlyError(e), undefined, "error");
     } finally {
       setBusy(false);
     }
@@ -678,43 +689,43 @@ export function ReadingPane() {
   const block = async () => {
     if (!last) return;
     const ok = await confirm({
-      title: `Block ${last.fromEmail}?`,
-      body: "Mail from this sender moves to Junk and they are added to Blocked senders (Settings → Blocked senders), where you can undo it.",
-      confirmLabel: "Block sender",
+      title: t("reading.head.blockTitle", { email: last.fromEmail }),
+      body: t("reading.head.blockBody"),
+      confirmLabel: t("reading.head.blockConfirm"),
       danger: true,
     });
-    if (ok) void act(id, "block", undefined, `Blocked ${last.fromEmail}`);
+    if (ok) void act(id, "block", undefined, t("reading.head.blocked", { email: last.fromEmail }));
   };
 
   return (
-    <section className="reading-pane" aria-label="Reading pane">
+    <section className="reading-pane" aria-label={t("reading.pane.label")}>
       <div className="rp-head">
-        <h2>{summ.subject}</h2>
+        <h2>{subjectText(summ.subject)}</h2>
         <div className="rp-tools">
-          <button className="icon-btn" title="Archive (e)" aria-label="Archive" onClick={() => void act(id, "archive", undefined, "Archived")}><Archive size={16} /></button>
-          <button className="icon-btn" title="Delete (#)" aria-label="Delete" onClick={() => void act(id, "trash", undefined, "Moved to Deleted Items")}><Trash2 size={16} /></button>
+          <button className="icon-btn" title={t("reading.head.archiveTip")} aria-label={t("reading.head.archive")} onClick={() => void act(id, "archive", undefined, t("reading.head.archived"))}><Archive size={16} /></button>
+          <button className="icon-btn" title={t("reading.head.deleteTip")} aria-label={t("reading.head.delete")} onClick={() => void act(id, "trash", undefined, t("reading.head.trashed"))}><Trash2 size={16} /></button>
           <Dropdown
             className="icon-btn"
             caret={false}
-            title="Snooze (s)"
+            title={t("reading.head.snoozeTip")}
             items={snoozePresets(prefs.snoozeTimes).map((p) => ({
               label: p.label,
-              onClick: () => void act(id, "snooze", String(p.ts), `Snoozed: ${p.label}`),
+              onClick: () => void act(id, "snooze", String(p.ts), t("reading.head.snoozed", { label: p.label })),
             }))}
           >
             <Clock size={16} />
           </Dropdown>
-          <button className={`icon-btn ${summ.pinned ? "on" : ""}`} title="Pin (p)" aria-label="Pin" onClick={() => void act(id, summ.pinned ? "unpin" : "pin")}><Pin size={16} /></button>
-          <button className={`icon-btn ${summ.flagged ? "on" : ""}`} title="Flag (*)" aria-label="Flag" onClick={() => void act(id, summ.flagged ? "unstar" : "star")}><Flag size={16} fill={summ.flagged ? "currentColor" : "none"} /></button>
+          <button className={`icon-btn ${summ.pinned ? "on" : ""}`} title={t("reading.head.pinTip")} aria-label={t("reading.head.pin")} onClick={() => void act(id, summ.pinned ? "unpin" : "pin")}><Pin size={16} /></button>
+          <button className={`icon-btn ${summ.flagged ? "on" : ""}`} title={t("reading.head.flagTip")} aria-label={t("reading.head.flag")} onClick={() => void act(id, summ.flagged ? "unstar" : "star")}><Flag size={16} fill={summ.flagged ? "currentColor" : "none"} /></button>
           <Dropdown
             className="icon-btn"
             caret={false}
-            title="More"
+            title={t("reading.head.more")}
             items={[
-              { label: "Mark as unread", icon: <MailX size={14} />, onClick: () => void act(id, "unread", undefined, "Marked as unread") },
-              { label: "Move to Junk", onClick: () => void act(id, "junk", undefined, "Moved to Junk") },
+              { label: t("reading.head.markUnread"), icon: <MailX size={14} />, onClick: () => void act(id, "unread", undefined, t("reading.head.markedUnread")) },
+              { label: t("reading.head.moveJunk"), onClick: () => void act(id, "junk", undefined, t("reading.head.movedJunk")) },
               { divider: true },
-              { label: "Block sender…", onClick: () => void block() },
+              { label: t("reading.head.blockSender"), onClick: () => void block() },
             ]}
           >
             <MoreHorizontal size={16} />
@@ -722,8 +733,8 @@ export function ReadingPane() {
           {messages.length > 1 && (
             <button
               className="icon-btn"
-              title={allOpen ? "Collapse all messages" : "Expand all messages"}
-              aria-label={allOpen ? "Collapse all" : "Expand all"}
+              title={allOpen ? t("reading.head.collapseAllTip") : t("reading.head.expandAllTip")}
+              aria-label={allOpen ? t("reading.head.collapseAll") : t("reading.head.expandAll")}
               onClick={() => setOpenIds(allOpen ? new Set([messages[messages.length - 1].id]) : new Set(messages.map((m) => m.id)))}
             >
               {allOpen ? <ChevronsDownUp size={16} /> : <ChevronsUpDown size={16} />}
@@ -733,15 +744,15 @@ export function ReadingPane() {
             className="btn small ai-btn"
             onClick={summarize}
             disabled={busy}
-            title={aiConfigured ? "Summarize this conversation" : "Set up the AI Assistant in Settings first"}
+            title={aiConfigured ? t("reading.head.summarizeTip") : t("reading.head.setupAiTip")}
           >
-            <Sparkles size={13} /> {busy ? "Summarizing…" : aiConfigured ? "Summarize" : "Set up AI"}
+            <Sparkles size={13} /> {busy ? t("reading.head.summarizing") : aiConfigured ? t("reading.head.summarize") : t("reading.head.setupAi")}
           </button>
         </div>
       </div>
       {summary && (
         <div className="summary">
-          <b><Sparkles size={13} /> Conversation summary</b>
+          <b><Sparkles size={13} /> {t("reading.head.summaryTitle")}</b>
           <div className="pre">{summary}</div>
         </div>
       )}

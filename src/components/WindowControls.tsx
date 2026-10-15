@@ -1,6 +1,7 @@
 import { ReactNode, useEffect, useRef, useState } from "react";
 import { api } from "../api";
-import { frameAction, useFrame, Zone, zoneLabel } from "../winframe";
+import { useT } from "../i18n/react";
+import { frameAction, useFrame, Zone } from "../winframe";
 
 // Fluent-style 10x10 glyphs (the same shapes as Segoe Fluent Icons E921 / E922 / E923 / E8BB)
 const ICON: Record<Zone | "restore", ReactNode> = {
@@ -22,6 +23,9 @@ const ICON: Record<Zone | "restore", ReactNode> = {
  * the `frame-caption` events (`native`); otherwise (Windows 10 without the overlay, keyboard) plain DOM buttons work.
  */
 export function WindowControls() {
+  const t = useT();
+  const zoneLabel = (z: Zone, maximized: boolean) =>
+    z === "min" ? t("app.window.minimize") : z === "max" ? (maximized ? t("app.window.restore") : t("app.window.maximize")) : t("common.close");
   const { custom, native, maximized, fullscreen, focused, caption } = useFrame();
   const box = useRef<HTMLDivElement>(null);
   const [tip, setTip] = useState<Zone | null>(null);
@@ -75,8 +79,8 @@ export function WindowControls() {
   useEffect(() => {
     setTip(null);
     if (!native || !caption.hot || caption.down) return;
-    const t = setTimeout(() => setTip(caption.hot), 500);
-    return () => clearTimeout(t);
+    const timer = setTimeout(() => setTip(caption.hot), 500);
+    return () => clearTimeout(timer);
   }, [native, caption.hot, caption.down]);
 
   if (!custom) return null;
@@ -98,7 +102,7 @@ export function WindowControls() {
       ref={box}
       className={`window-controls${native ? " native" : ""}${fullscreen ? " wc-hidden" : ""}`}
       role="group"
-      aria-label="Window controls"
+      aria-label={t("app.window.controls")}
       data-active={focused}
       data-tauri-drag-region="false"
     >

@@ -84,15 +84,15 @@ pub fn parse_material(data: &[u8]) -> R<Vec<Material>> {
     let text = std::str::from_utf8(data).ok().filter(|t| t.contains("-----BEGIN PGP"));
     if let Some(text) = text {
         for b in blocks(text, "PRIVATE KEY") {
-            let (it, _) = SignedSecretKey::from_string_many(b).map_err(|e| format!("This doesn't look like an OpenPGP key. ({e})"))?;
+            let (it, _) = SignedSecretKey::from_string_many(b).map_err(|e| crate::i18n::coded("PGP_BAD_KEY_DETAIL", &[("detail", &e.to_string())], &format!("This doesn't look like an OpenPGP key. ({e})")))?;
             for k in it {
-                out.push(Material::Secret(k.map_err(|e| format!("This doesn't look like an OpenPGP key. ({e})"))?));
+                out.push(Material::Secret(k.map_err(|e| crate::i18n::coded("PGP_BAD_KEY_DETAIL", &[("detail", &e.to_string())], &format!("This doesn't look like an OpenPGP key. ({e})")))?));
             }
         }
         for b in blocks(text, "PUBLIC KEY") {
-            let (it, _) = SignedPublicKey::from_string_many(b).map_err(|e| format!("This doesn't look like an OpenPGP key. ({e})"))?;
+            let (it, _) = SignedPublicKey::from_string_many(b).map_err(|e| crate::i18n::coded("PGP_BAD_KEY_DETAIL", &[("detail", &e.to_string())], &format!("This doesn't look like an OpenPGP key. ({e})")))?;
             for k in it {
-                out.push(Material::Public(k.map_err(|e| format!("This doesn't look like an OpenPGP key. ({e})"))?));
+                out.push(Material::Public(k.map_err(|e| crate::i18n::coded("PGP_BAD_KEY_DETAIL", &[("detail", &e.to_string())], &format!("This doesn't look like an OpenPGP key. ({e})")))?));
             }
         }
     } else {
@@ -109,14 +109,14 @@ pub fn parse_material(data: &[u8]) -> R<Vec<Material>> {
         }
     }
     if out.is_empty() {
-        return Err("This doesn't look like an OpenPGP key.".into());
+        return Err("PGP_BAD_KEY: This doesn't look like an OpenPGP key.".into());
     }
     for m in &out {
         let ok = match m {
             Material::Public(k) => k.verify_bindings(),
             Material::Secret(k) => k.verify_bindings(),
         };
-        ok.map_err(|e| format!("This key's signatures are not valid. ({e})"))?;
+        ok.map_err(|e| crate::i18n::coded("PGP_BAD_KEY_SIG", &[("detail", &e.to_string())], &format!("This key's signatures are not valid. ({e})")))?;
     }
     Ok(out)
 }
@@ -463,7 +463,7 @@ fn pick_signer(sk: &SignedSecretKey) -> R<Signer<'_>> {
             }
         }
     }
-    Err("PGP_FAILED: This key has no signing capability.".into())
+    Err("PGP_NO_SIGN_CAP: This key has no signing capability.".into())
 }
 
 /// The RFC 3156 `micalg` parameter for the hash a signature was made with. A hash without a registered name is an error:
@@ -629,9 +629,9 @@ pub fn encrypt(plain: &[u8], recipients: &[Recipient], signer: Option<(&SignedSe
             (EncKey::Primary(p), false) => b.encrypt_to_key(&mut rng, &p.primary_key),
             (EncKey::Primary(p), true) => b.encrypt_to_key_anonymous(&mut rng, &p.primary_key),
         };
-        res.map_err(|e| format!("PGP_FAILED: Couldn't encrypt: {e}"))?;
+        res.map_err(|e| crate::i18n::coded("PGP_ENCRYPT_FAILED", &[("detail", &e.to_string())], &format!("Couldn't encrypt: {e}")))?;
     }
-    b.to_armored_string(&mut rng, ArmorOptions::default()).map_err(|e| format!("PGP_FAILED: Couldn't encrypt: {e}"))
+    b.to_armored_string(&mut rng, ArmorOptions::default()).map_err(|e| crate::i18n::coded("PGP_ENCRYPT_FAILED", &[("detail", &e.to_string())], &format!("Couldn't encrypt: {e}")))
 }
 
 /// Key ids (upper hex) the message is encrypted for. An empty id means "anonymous recipient".
@@ -654,8 +654,8 @@ pub fn encrypted_for(cipher: &[u8]) -> R<Vec<String>> {
 fn parse_message(cipher: &[u8]) -> R<Message<'static>> {
     let armored = std::str::from_utf8(cipher).ok().filter(|t| t.contains("-----BEGIN PGP"));
     match armored {
-        Some(t) => Message::from_armor(Cursor::new(t.as_bytes().to_vec())).map(|(m, _)| m).map_err(|e| format!("The PGP data could not be read ({e})")),
-        None => Message::from_bytes(Cursor::new(cipher.to_vec())).map_err(|e| format!("The PGP data could not be read ({e})")),
+        Some(t) => Message::from_armor(Cursor::new(t.as_bytes().to_vec())).map(|(m, _)| m).map_err(|e| crate::i18n::coded("PGP_DATA_UNREADABLE", &[("detail", &e.to_string())], &format!("The PGP data could not be read ({e})"))),
+        None => Message::from_bytes(Cursor::new(cipher.to_vec())).map_err(|e| crate::i18n::coded("PGP_DATA_UNREADABLE", &[("detail", &e.to_string())], &format!("The PGP data could not be read ({e})"))),
     }
 }
 
@@ -741,12 +741,16 @@ mod tests {
 
     #[test]
     fn key_with_expiry_reports_it_and_cannot_be_used_after() {
+        // generation can take seconds on a loaded machine, so bracket it between two clock reads
+        let before = now();
         let sk = generate(Algo::Cv25519, "E <e@example.com>", Some(30), "secret-pass").unwrap();
+        let after = now();
         let pk = sk.to_public_key();
         pk.verify_bindings().expect("re-signed bindings are valid");
         let i = info(&pk, true);
         let exp = i.expires.expect("has expiry");
-        assert!((exp - (now() + 30 * 86400)).abs() < 5);
+        // expiry = creation time + 30 days, creation time lies between the two reads (1 s rounding slack each side)
+        assert!(exp >= before + 30 * 86400 - 1 && exp <= after + 30 * 86400 + 1, "expiry {exp} outside [{before}, {after}] + 30 d");
         assert!(encryption_key(&pk, now()).is_ok());
         assert_eq!(encryption_key(&pk, exp + 10).err(), Some(Unusable::Expired(exp)));
         // extend: expiry moves, key still valid

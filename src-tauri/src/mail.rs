@@ -25,7 +25,7 @@ impl imap::Authenticator for XOAuth2<'_> {
 const CONNECT_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(20);
 /// A read or write on the socket that makes no progress for this long fails: a server that stops answering in the middle of a
 /// big FETCH (Gmail does that when it throttles) gives an error instead of freezing the sync forever.
-const IO_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(60);
+pub(crate) const IO_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(60);
 
 fn tcp(host: &str, port: u16) -> R<std::net::TcpStream> {
     use std::net::ToSocketAddrs;
@@ -71,6 +71,12 @@ pub fn is_tls_step_failure(raw: &str) -> bool {
 
 /// `secret` is the password, or the OAuth access token when `acc.auth` is an `oauth_*` method.
 pub fn connect(acc: &Account, secret: &str) -> R<Sess> {
+    connect_with_socket(acc, secret).map(|(s, _)| s)
+}
+
+/// `connect`, plus a second handle on the same socket: `idle.rs` shuts it down to end a read that blocks (stop, quit, a peer that
+/// went silent), and sets its read timeout again after the IDLE wait (the imap crate clears it).
+pub fn connect_with_socket(acc: &Account, secret: &str) -> R<(Sess, std::net::TcpStream)> {
     let tls = native_tls::TlsConnector::builder()
         .danger_accept_invalid_certs(acc.tls_insecure)
         .danger_accept_invalid_hostnames(acc.tls_insecure)
@@ -78,6 +84,7 @@ pub fn connect(acc: &Account, secret: &str) -> R<Sess> {
         .map_err(err)?;
     let host = acc.imap_host.as_str();
     let sock = tcp(host, acc.imap_port)?;
+    let handle = sock.try_clone().map_err(err)?;
     let client = if acc.imap_ssl {
         let mut c = imap::Client::new(tls.connect(host, sock).map_err(|e| secure_connection_error(host, acc.imap_port, &e.to_string()))?);
         c.read_greeting().map_err(err)?;
@@ -87,13 +94,14 @@ pub fn connect(acc: &Account, secret: &str) -> R<Sess> {
         c.read_greeting().map_err(err)?;
         c.secure(host, &tls).map_err(|e| secure_connection_error(host, acc.imap_port, &e.to_string()))?
     };
-    if acc.auth.starts_with("oauth_") {
+    let session = if acc.auth.starts_with("oauth_") {
         client
             .authenticate("XOAUTH2", &XOAuth2 { user: &acc.email, token: secret })
             .map_err(|e| format!("IMAP OAuth login failed: {}", e.0))
     } else {
         client.login(&acc.username, secret).map_err(|e| format!("IMAP login failed: {}", e.0))
-    }
+    }?;
+    Ok((session, handle))
 }
 
 /// role -> real IMAP folder name. Standard roles use their plain name, everything else "f:<name>".
@@ -497,7 +505,7 @@ pub fn extract_ics(m: &mail_parser::Message) -> Option<String> {
 /// Raw attachment bytes for `index` (position among the parsed attachment parts).
 pub fn attachment_bytes(raw: &[u8], index: usize) -> R<(String, Vec<u8>)> {
     let m = MessageParser::default().parse(raw).ok_or("cannot parse message")?;
-    let part = m.attachments().nth(index).ok_or("attachment not found")?;
+    let part = m.attachments().nth(index).ok_or("ATT_NOT_FOUND: attachment not found")?;
     // same fallback name as the metadata (AttMeta.name), so a saved file and its card agree
     let name = part.attachment_name().map(|s| s.to_string()).unwrap_or_else(|| default_name(index, &part_mime(part)));
     Ok((name, part_data(raw, part).into_owned()))
@@ -611,7 +619,7 @@ pub fn fetch_raw(s: &mut Sess, folder: &str, uid: u32) -> R<Vec<u8>> {
     f.iter()
         .next()
         .and_then(|m| m.body().map(|b| b.to_vec()))
-        .ok_or_else(|| "message not found on server".into())
+        .ok_or_else(|| "MSG_NOT_ON_SERVER: message not found on server".into())
 }
 
 pub fn store_flag(s: &mut Sess, folder: &str, uids: &[u32], flag: &str, add: bool) -> R<()> {

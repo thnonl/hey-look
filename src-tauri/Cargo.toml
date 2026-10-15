@@ -1,6 +1,6 @@
 [package]
 name = "hey-look"
-version = "1.0.0"
+version = "1.0.1"
 description = "Hey Look! desktop mail client"
 license = "MIT"
 authors = ["you"]
@@ -83,6 +83,10 @@ keyring = { version = "3", features = ["sync-secret-service", "crypto-rust"] }
 
 
 # Read the optimization guideline for more details: https://tauri.app/concept/size/#cargo-configuration
+# imap 2.4.1 with two panics turned into errors (panic = "abort" in the release profile): see vendor/imap-2.4.1/HEY-LOOK-PATCH.md
+[patch.crates-io]
+imap = { path = "vendor/imap-2.4.1" }
+
 [profile.release]
 codegen-units = 1
 lto = true

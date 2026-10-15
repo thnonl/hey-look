@@ -112,7 +112,7 @@ button:focus-visible, [role="option"]:focus-visible, [role="treeitem"]:focus-vis
 .icon-btn.on { color: var(--accent-text); }
 .link { background: none; border: 0; color: var(--accent-text); padding: 0; text-decoration: underline; text-underline-offset: 2px; }
 .link:hover { color: color-mix(in srgb, var(--accent-text), var(--fg) 30%); }
-.about-links { display: flex; flex-direction: column; align-items: flex-start; gap: 16px; margin-top: 16px; }
+.about-links { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 20px; margin-top: 16px; }
 .about-link { display: inline-flex; align-items: center; min-height: 24px; }
 .notice .link { display: inline-block; min-height: 24px; line-height: 24px; vertical-align: middle; }
 /* update check: Settings > About card, status row, gear dot */
@@ -194,6 +194,10 @@ button:focus-visible, [role="option"]:focus-visible, [role="treeitem"]:focus-vis
 .wc-tip-close { left: auto; right: 0; transform: none; }
 .topbar .icon-btn { color: var(--top-fg); padding: 7px; }
 .topbar .icon-btn:hover { background: var(--top-hover); color: var(--top-fg); }
+/* language menu: globe + code; the focus ring uses the bar colour (the accent ring would vanish on the bar) */
+.topbar .lang-btn { gap: 5px; padding: 7px 9px; }
+.lang-code { font-size: .8em; font-weight: 650; letter-spacing: .05em; max-width: 4.5em; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.topbar .lang-btn:focus-visible { outline: 2px solid var(--top-fg); outline-offset: -2px; }
 
 /* search panel */
 .sb-panel { position: absolute; top: calc(100% + 8px); left: 0; right: 0; background: var(--bg); color: var(--fg); border: 1px solid var(--border); border-radius: var(--r-md); box-shadow: var(--shadow); padding: 4px 16px 12px; z-index: 80; max-height: 76vh; overflow-y: auto; animation: pop .14s var(--ease); }
@@ -273,6 +277,8 @@ button:focus-visible, [role="option"]:focus-visible, [role="treeitem"]:focus-vis
 .fp-head:hover { color: var(--fg); background: var(--bg3); }
 .fp-acct { flex: 1; min-width: 0; }
 .fp-warn { color: var(--warn); display: inline-flex; padding: 2px; border-radius: 4px; }
+.fp-reauth { margin: 2px 8px 6px 22px; padding: 6px 8px; font-size: .88em; }
+.fp-reauth .muted { margin-top: 6px; }
 .fp-warn:hover { background: color-mix(in srgb, var(--warn), transparent 85%); }
 .fp-row { display: flex; align-items: center; gap: 9px; padding: 7px 10px; cursor: pointer; margin: 1px 8px; border-radius: var(--r-sm); position: relative; transition: background .1s; }
 .fp-row:hover { background: var(--bg3); }
@@ -589,6 +595,12 @@ button.ov-tag:hover { background: color-mix(in srgb, var(--accent), transparent 
 /* the card centres itself (auto margins, so a short window scrolls instead of clipping its top) */
 .welcome { flex: 1; display: flex; padding: 20px 24px; background: radial-gradient(1200px 500px at 50% -10%, var(--accent-soft), transparent), var(--bg); overflow: auto; min-height: 0; }
 .welcome-card { width: min(480px, 100%); margin: auto; display: flex; flex-direction: column; align-items: center; text-align: center; animation: pop .25s var(--ease); }
+.lang-choice { display: flex; align-items: center; justify-content: center; flex-wrap: wrap; gap: 6px; margin: 0 0 16px; color: var(--muted); }
+.lang-opt { background: none; color: var(--fg); border: 1px solid var(--border); border-radius: 999px; padding: 4px 12px; font-size: .9em; transition: background .12s, border-color .12s; }
+.lang-select { display: inline-flex; align-items: center; gap: 7px; max-width: min(280px, 100%); }
+.lang-select .lang-name { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.lang-opt:hover { border-color: var(--accent); }
+.lang-opt.on { background: var(--accent-soft); color: var(--accent-text); border-color: var(--accent); font-weight: 600; }
 .welcome-card img { display: block; width: 64px; height: 64px; }
 .welcome-card h1 { margin: 16px 0 8px; font-size: 1.8em; line-height: 1.2; letter-spacing: -.02em; }
 .welcome-card p { max-width: 400px; margin: 0 0 24px; line-height: 1.5; }
@@ -608,6 +620,9 @@ button.ov-tag:hover { background: color-mix(in srgb, var(--accent), transparent 
 .welcome-points svg { flex: none; }
 @media (max-height: 640px) {
   .welcome { padding: 12px 24px; }
+  .welcome-card { width: min(560px, 100%); } /* wider rather than taller: the language row above the logo needs the height */
+  .welcome-card p { max-width: 480px; }
+  .lang-choice { margin-bottom: 10px; }
   .welcome-card img { width: 48px; height: 48px; }
   .welcome-card h1 { margin: 10px 0 6px; font-size: 1.6em; }
   .welcome-card p { margin-bottom: 16px; line-height: 1.4; }
@@ -1020,7 +1035,12 @@ span.spin { display: inline-block; width: 13px; height: 13px; border: 2px solid 
 
 /* new / edit event dialog and Compose meeting strip */
 .ev-form input:not([type="checkbox"]):not([type="date"]):not([type="time"]), .ev-form select, .ev-form textarea { width: 100%; box-sizing: border-box; }
-.ev-form .when input[type="date"], .ev-form .when input[type="time"] { width: auto; flex: 1 1 0; min-width: 0; }
+/* When: start and end rows share one grid (date | time | hint) so their controls line up; the hint column is as wide as its longest translation */
+.ev-when { display: flex; flex-direction: column; gap: 8px; }
+.ev-when .when-dates { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) auto; gap: 8px 6px; align-items: center; }
+.ev-when .when-dates input { width: 100%; min-width: 0; box-sizing: border-box; }
+.ev-when .when-dates[data-allday] input { grid-column: span 2; }
+.ev-when .when-dates > .muted { white-space: nowrap; }
 .ev-form .tz { color: var(--muted); font-size: .86em; }
 .ev-form > label { align-self: start; padding-top: 8px; }
 .ev-invite .cf-field { border: 1px solid var(--border); border-radius: var(--r-sm); padding: 2px 8px; background: var(--bg); }

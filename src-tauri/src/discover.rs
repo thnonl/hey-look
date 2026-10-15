@@ -34,10 +34,10 @@ fn valid_host(h: &str) -> bool {
 /// (local part, domain) of an address; the domain is lowercased and must look like a host name.
 fn split(email: &str) -> R<(String, String)> {
     let e = email.trim();
-    let (local, domain) = e.rsplit_once('@').ok_or("Enter a valid email address")?;
+    let (local, domain) = e.rsplit_once('@').ok_or("EMAIL_INVALID: Enter a valid email address")?;
     let domain = domain.to_lowercase();
     if local.is_empty() || !domain.contains('.') || !valid_host(&domain) {
-        return Err("Enter a valid email address".into());
+        return Err("EMAIL_INVALID: Enter a valid email address".into());
     }
     Ok((local.to_string(), domain))
 }

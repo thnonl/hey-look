@@ -226,25 +226,34 @@ pub fn update_badge(app: &AppHandle, db: &Db) {
         if let Some(icon) = tray_icon(app, count, &tray_style) {
             let _ = tray.set_icon(Some(icon));
         }
-        let tip = match count {
-            0 => "Hey Look!".to_string(),
-            1 => "Hey Look! — 1 unread conversation".to_string(),
-            n => format!("Hey Look! — {n} unread conversations"),
-        };
-        let _ = tray.set_tooltip(Some(tip));
+        let _ = tray.set_tooltip(Some(crate::i18n::unread_tooltip(count)));
     }
     #[cfg(windows)]
     if let Some(w) = app.get_webview_window("main") {
         let _ = w.set_overlay_icon(if count > 0 && task_style == "number" { Some(overlay_icon(count)) } else { None });
     }
-    #[cfg(not(windows))]
+    // macOS Dock icon: the same number as the tray, off at 0 and with the "None" choice of the badge setting (shown as "Dock badge")
+    #[cfg(target_os = "macos")]
+    if let Some(w) = app.get_webview_window("main") {
+        let _ = w.set_badge_label(dock_label(count, &task_style));
+    }
+    #[cfg(not(any(windows, target_os = "macos")))]
     let _ = task_style;
+}
+
+/// The text of the macOS Dock badge: the unread number, nothing at 0 or when the setting is "off" (`None` removes the badge).
+#[cfg_attr(not(target_os = "macos"), allow(dead_code))]
+fn dock_label(count: u32, style: &str) -> Option<String> {
+    (count > 0 && style == "number").then(|| count.to_string())
 }
 
 // ---------- macOS app menu ----------
 
 /// Id of the Quit item of the macOS app menu (the tray's own item is "quit").
 pub const MAC_QUIT_ID: &str = "app-quit";
+/// The Quit item, kept to change its text when the language changes.
+#[cfg_attr(not(target_os = "macos"), allow(dead_code))]
+static MAC_QUIT_ITEM: OnceLock<MenuItem<tauri::Wry>> = OnceLock::new();
 
 /// macOS: tauri's default menu with its Quit item replaced by one that goes through the quit sequence (REQ-48). The predefined Quit item
 /// (and its Cmd+Q) ends in `[NSApp terminate:]`, which never raises `RunEvent::ExitRequested`: nothing was saved or sent (QA Mac round 2,
@@ -266,7 +275,8 @@ fn replace_quit_item(app: &AppHandle, menu: &Menu<tauri::Wry>) -> Result<(), Str
     let items = app_menu.items().map_err(|e| e.to_string())?;
     let Some(MenuItemKind::Predefined(quit)) = items.last() else { return Err("the app menu does not end with a predefined item".into()) };
     app_menu.remove(quit).map_err(|e| e.to_string())?;
-    let ours = MenuItem::with_id(app, MAC_QUIT_ID, "Quit Hey Look!", true, Some("CmdOrCtrl+Q")).map_err(|e| e.to_string())?;
+    let ours = MenuItem::with_id(app, MAC_QUIT_ID, crate::i18n::tr(crate::i18n::K::MacQuit), true, Some("CmdOrCtrl+Q")).map_err(|e| e.to_string())?;
+    let _ = MAC_QUIT_ITEM.set(ours.clone());
     app_menu.append(&ours).map_err(|e| e.to_string())
 }
 
@@ -306,6 +316,26 @@ fn tray_host_present(probe: Option<bool>) -> bool {
 /// Whether at least one account exists. The tray entries "New mail" and "Check mail now" work only then (the Welcome screen has no mail controls).
 static MAIL_AVAILABLE: AtomicBool = AtomicBool::new(true);
 static TRAY_MAIL_ITEMS: OnceLock<(MenuItem<tauri::Wry>, MenuItem<tauri::Wry>)> = OnceLock::new();
+/// The other tray entries, kept to change their text when the language changes: open, pause, quit.
+static TRAY_OTHER_ITEMS: OnceLock<(MenuItem<tauri::Wry>, CheckMenuItem<tauri::Wry>, MenuItem<tauri::Wry>)> = OnceLock::new();
+
+/// The language changed (the UI mirrored it): the tray menu, the macOS Quit item and the tray tooltip follow at once.
+pub fn refresh_language(app: &AppHandle, db: &Db) {
+    use crate::i18n::{tr, K};
+    if let Some((compose, sync)) = TRAY_MAIL_ITEMS.get() {
+        let _ = compose.set_text(tr(K::TrayCompose));
+        let _ = sync.set_text(tr(K::TraySync));
+    }
+    if let Some((open, pause, quit)) = TRAY_OTHER_ITEMS.get() {
+        let _ = open.set_text(tr(K::TrayOpen));
+        let _ = pause.set_text(tr(K::TrayPause));
+        let _ = quit.set_text(tr(K::TrayQuit));
+    }
+    if let Some(q) = MAC_QUIT_ITEM.get() {
+        let _ = q.set_text(tr(K::MacQuit));
+    }
+    update_badge(app, db);
+}
 
 /// The tray's mail entries are enabled exactly when an account exists.
 pub fn tray_mail_enabled(account_count: usize) -> bool {
@@ -329,16 +359,18 @@ pub fn setup_tray(app: &AppHandle, db: &Db) -> tauri::Result<()> {
         return Ok(());
     }
     let paused = db::get_setting(&lock(db), "notif_paused").as_deref() == Some("1");
-    let open = MenuItem::with_id(app, "open", "Open Hey Look!", true, None::<&str>)?;
-    let compose = MenuItem::with_id(app, "compose", "New mail", true, None::<&str>)?;
-    let sync = MenuItem::with_id(app, "sync", "Check mail now", true, None::<&str>)?;
-    let pause = CheckMenuItem::with_id(app, "pause", "Pause notifications", true, paused, None::<&str>)?;
-    let quit = MenuItem::with_id(app, "quit", "Quit Hey Look!", true, None::<&str>)?;
+    use crate::i18n::{tr, K};
+    let open = MenuItem::with_id(app, "open", tr(K::TrayOpen), true, None::<&str>)?;
+    let compose = MenuItem::with_id(app, "compose", tr(K::TrayCompose), true, None::<&str>)?;
+    let sync = MenuItem::with_id(app, "sync", tr(K::TraySync), true, None::<&str>)?;
+    let pause = CheckMenuItem::with_id(app, "pause", tr(K::TrayPause), true, paused, None::<&str>)?;
+    let quit = MenuItem::with_id(app, "quit", tr(K::TrayQuit), true, None::<&str>)?;
     let sep1 = PredefinedMenuItem::separator(app)?;
     let sep2 = PredefinedMenuItem::separator(app)?;
     let menu = Menu::with_items(app, &[&open, &compose, &sync, &sep1, &pause, &sep2, &quit])?;
     let has_accounts = tray_mail_enabled(db::list_accounts(&lock(db)).map(|a| a.len()).unwrap_or(0));
     let _ = TRAY_MAIL_ITEMS.set((compose.clone(), sync.clone()));
+    let _ = TRAY_OTHER_ITEMS.set((open.clone(), pause.clone(), quit.clone()));
     set_mail_available(has_accounts);
 
     let mut builder = TrayIconBuilder::with_id("main")
@@ -402,15 +434,16 @@ pub fn register_aumid(app: &AppHandle) {
 pub fn register_aumid(_app: &AppHandle) {}
 
 fn action_label(id: &str) -> Option<&'static str> {
-    Some(match id {
-        "archive" => "Archive",
-        "delete" => "Delete",
-        "read" => "Mark as read",
-        "flag" => "Flag",
-        "reply" => "Reply",
-        "snooze" => "Snooze",
+    use crate::i18n::{tr, K};
+    Some(tr(match id {
+        "archive" => K::ActArchive,
+        "delete" => K::ActDelete,
+        "read" => K::ActRead,
+        "flag" => K::ActFlag,
+        "reply" => K::ActReply,
+        "snooze" => K::ActSnooze,
         _ => return None,
-    })
+    }))
 }
 
 /// Hours from `prefs.snoozeTimes.tomorrow` (default 08:00) tomorrow, as a unix timestamp.
@@ -498,6 +531,11 @@ fn toast(app: &AppHandle, _thread: String, title: &str, line1: &str, line2: &str
     }
     #[cfg(not(target_os = "linux"))]
     {
+        // macOS: the hidden diagnostic (HEYLOOK_MAC_NOTIFY in a debug build, see macnotify.rs); off = the unchanged path below
+        #[cfg(target_os = "macos")]
+        if let Some(mode) = crate::macnotify::mode() {
+            return crate::macnotify::show(app, mode, title, &notification_body(line1, line2), sound);
+        }
         use tauri_plugin_notification::NotificationExt;
         let mut n = app.notification().builder().title(title).body(notification_body(line1, line2));
         if sound != "none" {
@@ -530,7 +568,8 @@ fn toast_linux(title: &str, body: &str, sound: &str) -> Result<(), String> {
 }
 
 /// What "Send test" says when no notification service can show the notification (TC-165 (1)).
-const NO_NOTIFICATION_SERVICE: &str = "no notification service is running on this desktop";
+/// (a coded error: the UI translates it, see `i18n::coded`)
+const NO_NOTIFICATION_SERVICE: &str = "NOTIFY_NO_SERVICE: no notification service is running on this desktop";
 
 /// What the user reads after "Couldn’t show a notification: ". The bus answers `ServiceUnknown` / `NameHasNoOwner` when no
 /// notification service runs (a bare window manager, WSL without a server); anything else is kept in the system's words.
@@ -624,7 +663,7 @@ pub fn notify_new(app: &AppHandle, db: &Db, new: &[NewMsg]) {
             .unwrap_or_else(|| "mail".to_string())
     };
     if list.len() > 3 {
-        toast_logged(app, String::new(), "Hey Look!", &format!("{} new messages", list.len()), "", &sound_for(list[0]), &[]);
+        toast_logged(app, String::new(), "Hey Look!", &crate::i18n::new_messages(list.len()), "", &sound_for(list[0]), &[]);
         return;
     }
     for n in list {
@@ -647,7 +686,7 @@ pub fn tray_hint_once(app: &AppHandle, db: &Db) {
         return;
     }
     let _ = db::set_setting(&lock(db), "tray_hint_shown", "1");
-    toast_logged(app, String::new(), "Hey Look! is still running", tray_hint_text(std::env::consts::OS), "", "none", &[]);
+    toast_logged(app, String::new(), crate::i18n::tr(crate::i18n::K::TrayHintTitle), tray_hint_text(std::env::consts::OS), "", "none", &[]);
 }
 
 /// Snoozed threads whose time has come: bring them back as unread and notify.
@@ -677,7 +716,7 @@ pub fn check_snoozes(app: &AppHandle, db: &Db) {
         let _ = lock(db).execute("UPDATE thread_meta SET snoozed_until=NULL WHERE thread_id=?1", [&tid]);
         let _ = action_impl(db, vec![tid.clone()], "unread".into(), None, None);
         if !quiet {
-            toast_logged(app, tid, &format!("Snooze ended: {}", who.trim()), &subject, &snippet.chars().take(140).collect::<String>(), &sound, &actions);
+            toast_logged(app, tid, &crate::i18n::snooze_ended(who.trim()), &subject, &snippet.chars().take(140).collect::<String>(), &sound, &actions);
         }
     }
     update_badge(app, db);
@@ -695,34 +734,28 @@ pub fn notify_reminder(app: &AppHandle, db: &Db, title: &str, line: &str) {
 
 /// Body of the one-time "still running" notice, per OS.
 fn tray_hint_text(os: &str) -> &'static str {
-    match os {
-        "macos" => "It keeps checking your mail from the menu bar. Click the Hey Look! icon in the Dock or the menu bar to open it again.",
-        "linux" => "It keeps checking your mail from the tray. Choose Quit Hey Look! in the tray icon’s menu to exit.",
-        _ => "It keeps checking your mail from the tray. Right-click the tray icon and choose Quit to exit.",
-    }
+    crate::i18n::tray_hint(os)
 }
 
 pub fn test_notification(app: &AppHandle, db: &Db) -> Result<(), String> {
     // macOS: the notification backend of the plugin (the old NSUserNotification API) shows nothing on current macOS for an ad-hoc
     // signed app and cannot ask for permission; Send test says so instead of pretending (QA BUG-M5, owner decision: documented limit)
+    // (a debug build started with HEYLOOK_MAC_NOTIFY=1 makes the attempt instead, for the Mac QA session: macnotify.rs)
     #[cfg(target_os = "macos")]
-    {
+    if crate::macnotify::mode().is_none() {
         let _ = (app, db);
-        return Err("not available on macOS in this version".into());
+        return Err(crate::i18n::coded("NOTIFY_MAC_UNAVAILABLE", &[], "not available on macOS in this version"));
     }
-    #[cfg(not(target_os = "macos"))]
-    {
-        let p = prefs(db);
-        toast(
-            app,
-            String::new(),
-            "Hey Look! test notification",
-            "Notifications are working",
-            "This is how new mail will look.",
-            &pstr(&p, "notifySound", "mail"),
-            &notify_actions(&p),
-        )
-    }
+    let p = prefs(db);
+    toast(
+        app,
+        String::new(),
+        crate::i18n::tr(crate::i18n::K::TestTitle),
+        crate::i18n::tr(crate::i18n::K::TestLine1),
+        crate::i18n::tr(crate::i18n::K::TestLine2),
+        &pstr(&p, "notifySound", "mail"),
+        &notify_actions(&p),
+    )
 }
 
 #[cfg(test)]
@@ -739,6 +772,18 @@ mod platform_tests {
         for id in ["\"compose\" if MAIL_AVAILABLE", "\"sync\" if MAIL_AVAILABLE"] {
             assert!(src.contains(id), "{id}");
         }
+    }
+
+    #[test]
+    fn the_dock_badge_is_the_unread_number_unless_it_is_zero_or_turned_off() {
+        assert_eq!(dock_label(7, "number"), Some("7".into()));
+        assert_eq!(dock_label(1234, "number"), Some("1234".into()));
+        assert_eq!(dock_label(0, "number"), None, "cleared at 0");
+        assert_eq!(dock_label(7, "off"), None, "the setting's None");
+        assert_eq!(dock_label(7, "dot"), None, "an unknown style shows nothing");
+        // the Dock follows the same count and the same style setting as the taskbar badge, on macOS only
+        let src = include_str!("shell.rs");
+        assert!(src.contains("w.set_badge_label(dock_label(count, &task_style))"));
     }
 
     #[test]
@@ -793,14 +838,14 @@ mod platform_tests {
         let body = &src[src.find("fn toast_linux").unwrap()..];
         let body = &body[..body.find("\n}\n").unwrap()];
         assert!(body.contains("Err(NO_NOTIFICATION_SERVICE.into())") && !body.contains(concat!("did not ", "answer\".into()")), "{body}");
-        assert_eq!(NO_NOTIFICATION_SERVICE, "no notification service is running on this desktop");
+        assert_eq!(NO_NOTIFICATION_SERVICE, "NOTIFY_NO_SERVICE: no notification service is running on this desktop");
     }
 
     #[test]
     fn a_missing_notification_service_is_named_not_swallowed() {
         let raw = "org.freedesktop.DBus.Error.ServiceUnknown: The name org.freedesktop.Notifications was not provided by any .service files";
-        assert_eq!(notify_failure_text(raw), "no notification service is running on this desktop");
-        assert_eq!(notify_failure_text("org.freedesktop.DBus.Error.NameHasNoOwner: x"), "no notification service is running on this desktop");
+        assert_eq!(notify_failure_text(raw), NO_NOTIFICATION_SERVICE);
+        assert_eq!(notify_failure_text("org.freedesktop.DBus.Error.NameHasNoOwner: x"), NO_NOTIFICATION_SERVICE);
         assert_eq!(notify_failure_text("some  other\nfailure"), "some other failure");
         assert_eq!(notify_failure_text(&"x".repeat(500)).chars().count(), 120);
     }
