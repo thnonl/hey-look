@@ -85,7 +85,7 @@ export default defineLocale<typeof ns.en>({
   "compose.banner.keepsSchedule": "Wenn Sie ohne Änderungen schließen, bleibt der ursprüngliche Zeitplan erhalten.",
   "compose.banner.editingDraft": "Sie bearbeiten einen Entwurf. Beim Senden oder Speichern wird das Original ersetzt.",
   // meeting note
-  "compose.meeting.note": "Empfänger in „An“ sind erforderliche Teilnehmer, Empfänger in „Cc“ optionale. Bcc wird für Besprechungen nicht verwendet. Der Termin wird auch zu „Meine Termine“ hinzugefügt.",
+  "compose.meeting.note": "Empfänger in „An“ sind erforderliche Teilnehmer, Empfänger in „Cc“ sind optionale Teilnehmer. Bcc wird für Besprechungen nicht verwendet. Der Termin wird auch zu „Meine Termine“ hinzugefügt.",
   // security strip
   "compose.sec.keyExpired": "Ihr Schlüssel ist abgelaufen. Verlängern Sie ihn unter Einstellungen → Verschlüsselung.",
   "compose.sec.openSettings": "Einstellungen öffnen",

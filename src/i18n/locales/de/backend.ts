@@ -7,7 +7,7 @@ import type ns from "../../ns/backend.ts";
 export default defineLocale<typeof ns.en>({
   "backend.CONFIDENTIAL": "Diese Nachricht ist vertraulich, daher ist das nicht erlaubt.",
   "backend.NO_SAVE_FOLDER": "Kein Speicherordner festgelegt: Legen Sie einen unter Einstellungen > Postfächer > Lesen & Synchronisierung fest.",
-  "backend.LINK_NOT_OPENED": "Diese Art von Link wird nicht geöffnet.",
+  "backend.LINK_NOT_OPENED": "Links dieser Art werden nicht geöffnet.",
   "backend.FILE_GONE": "Diese Datei existiert nicht mehr.",
   "backend.OUTBOX_GONE": "Diese Nachricht wartet nicht mehr auf den Versand.",
   "backend.OUTBOX_SENDING": "Diese Nachricht wird gerade gesendet.",
