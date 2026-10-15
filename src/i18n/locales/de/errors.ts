@@ -12,7 +12,7 @@ export default defineLocale<typeof ns.en>({
   "errors.noCredentials": "Die gespeicherten Zugangsdaten für dieses Konto fehlen. Entfernen Sie das Konto und fügen Sie es erneut hinzu.",
   "errors.timeout": "Der Mailserver antwortet nicht. Prüfen Sie Ihre Verbindung und versuchen Sie es erneut.",
   "errors.unreachable": "Der Mailserver ist nicht erreichbar. Prüfen Sie den Servernamen und Ihre Verbindung.",
-  "errors.certificate": "Das Sicherheitszertifikat des Servers wurde abgelehnt. Bei einem Server mit selbstsigniertem oder privatem Zertifikat entfernen Sie das Konto und fügen es erneut hinzu, mit aktivierter Option „Dem Zertifikat dieses Servers vertrauen“.",
+  "errors.certificate": "Das Sicherheitszertifikat des Servers wurde abgelehnt. Bei einem Server mit selbstsigniertem Zertifikat oder einem Zertifikat einer privaten Zertifizierungsstelle entfernen Sie das Konto und fügen es erneut hinzu, mit aktivierter Option „Dem Zertifikat dieses Servers vertrauen“.",
   // ---- toasts of store.ts
   "errors.toast.failed": "Fehlgeschlagen: {error}",
   "errors.toast.accountFallback": "Konto",
@@ -20,7 +20,7 @@ export default defineLocale<typeof ns.en>({
   "errors.toast.accountAdded": "Konto {email} hinzugefügt",
   "errors.toast.loadedOlder": { one: "{n} ältere Nachricht geladen", other: "{n} ältere Nachrichten geladen" },
   "errors.toast.noOlder": "Keine älteren Nachrichten in diesem Ordner",
-  "errors.limit": "Download-Limit erreicht ({n} E-Mails pro Postfach). Erhöhen Sie es unter Einstellungen > Lesen & Sync.",
+  "errors.limit": "Download-Limit erreicht ({n} E-Mails pro Postfach). Erhöhen Sie es unter Einstellungen > Lesen & Synchronisierung.",
   // ---- questions of store.ts
   "errors.ask.unsentTitle": "Sie haben eine ungesendete Nachricht",
   "errors.ask.unsentBody": "Wenn Sie eine andere Nachricht öffnen, wird die Nachricht geschlossen, die Sie gerade schreiben.",

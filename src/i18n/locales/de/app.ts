@@ -12,7 +12,7 @@ export default defineLocale<typeof ns.en>({
   "app.welcome.other.text": "iCloud (App-Passwort), Yahoo oder jeder IMAP-/SMTP-Server",
   "app.welcome.point.passwords": "Passwörter bleiben in {store}",
   "app.welcome.point.privacy": "Externe Bilder und Tracker werden standardmäßig blockiert",
-  "app.welcome.point.tray": "Prüft E-Mails weiter aus dem Infobereich, mit „Rückgängig“ für jede Aktion",
+  "app.welcome.point.tray": "Prüft E-Mails weiter aus dem Infobereich, mit „Rückgängig“ für jede Verschiebung",
   // ---- dates, sizes and times (src/util.ts)
   "app.date.today": "Heute",
   "app.date.yesterday": "Gestern",
