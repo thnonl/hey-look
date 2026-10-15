@@ -411,6 +411,17 @@ export async function applyDemoHash() {
       await wait(300);
       [...document.querySelectorAll<HTMLElement>("button")].find((b) => (b.getAttribute("aria-label") ?? b.title) === val || b.textContent?.trim() === val)?.click();
     } else if (k === "wait") await wait(Number(val) || 300);
+    else if (k === "nudge") {
+      // the support reminder: `nudge=now` shows the toast at once; `nudge=due` makes it due and the app 3 minutes old, then asks the real
+      // calm-moment check (focus, open dialogs, other toasts ...); the check also runs every 30 s. `nudge=state` prints the stored schedule.
+      const host = await import("./supportNudgeHost");
+      if (val === "now") host.showSupportNudge();
+      else if (val === "due") {
+        st().setPrefs({ supportNudge: { ...st().prefs.supportNudge, enabled: true, nextDueAt: Date.now() - 1000 } });
+        host.setSessionStartForTest(Date.now() - 3 * 60_000);
+        host.checkSupportNudge();
+      } else if (val === "state") console.info("[mock] supportNudge", JSON.stringify(st().prefs.supportNudge), JSON.stringify(host.currentMoment()));
+    }
     await wait(250);
   }
 }
@@ -999,6 +1010,7 @@ export function installMock() {
       case "list_accounts": return accounts;
       case "idle_states": return { a1: "push" };
       case "get_setting": return settings[a.key as string] ?? null;
+      case "first_run_hint": { const d = Number(hashTokens().get("firstrun")); return d > 0 ? Date.now() - d * 86_400_000 : null; } // `#firstrun=90`: the database is 90 days old (an install from before the support reminder)
       case "set_setting": settings[a.key as string] = a.value as string; return null;
       case "list_folders": return folders;
       case "list_threads": {

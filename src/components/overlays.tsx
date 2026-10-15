@@ -1,4 +1,4 @@
-import { AlertTriangle, CheckCircle2, Info, X } from "lucide-react";
+import { AlertTriangle, CheckCircle2, Coffee, Info, X } from "lucide-react";
 import { useEffect, useRef } from "react";
 import { useT } from "../i18n/react";
 import { fullErrorFor, useStore } from "../store";
@@ -26,48 +26,68 @@ export function Toasts() {
   }, []);
   return (
     <div className="toasts" role="status" aria-live="polite">
-      {toasts.map((t) => (
-        <div key={t.id} className={`toast ${t.kind}${t.sticky ? " sticky" : ""}`} style={t.sticky ? undefined : { ["--ttl" as string]: `${t.ttl}ms` }}>
-          <span className="toast-ico">
-            {t.kind === "error" ? <AlertTriangle size={16} /> : t.kind === "success" ? <CheckCircle2 size={16} /> : <Info size={16} />}
-          </span>
-          <span className="toast-text" title={fullErrorFor(t.text)}>{t.text}</span>
-          {t.undo && (
-            <button
-              className="toast-undo"
-              onClick={() => {
-                t.undo?.();
-                dismiss(t.id);
-              }}
-            >
-              {tr("common.undo")}
-            </button>
-          )}
-          {t.actions?.map((a) => (
-            <button
-              key={a.label}
-              className="toast-act"
-              onClick={() => {
-                dismiss(t.id);
-                a.run();
-              }}
-            >
-              {a.label}
-            </button>
-          ))}
+      {toasts.map((t) => {
+        const actions = t.actions?.map((a) => (
           <button
-            className="toast-x"
-            aria-label={t.closeLabel ?? (t.onDismiss ? tr("app.toast.later") : tr("app.toast.dismiss"))}
+            key={a.label}
+            className="toast-act"
             onClick={() => {
               dismiss(t.id);
-              t.onDismiss?.();
+              a.run();
             }}
           >
-            <X size={14} />
+            {a.label}
           </button>
-          {!t.sticky && <span className="toast-bar" />}
-        </div>
-      ))}
+        ));
+        const text = <span className="toast-text" title={fullErrorFor(t.text)}>{t.text}</span>;
+        return (
+          <div key={t.id} className={`toast ${t.kind}${t.sticky && !t.ttl ? " sticky" : ""}${t.support ? " support" : ""}`} style={t.sticky && !t.ttl ? undefined : { ["--ttl" as string]: `${t.ttl}ms` }}>
+            <span className="toast-ico">
+              {t.support ? <Coffee size={16} /> : t.kind === "error" ? <AlertTriangle size={16} /> : t.kind === "success" ? <CheckCircle2 size={16} /> : <Info size={16} />}
+            </span>
+            {t.support ? (
+              <div className="toast-body">
+                {text}
+                <div className="toast-row">
+                  {actions}
+                  {t.link && (
+                    <button className="toast-link" onClick={() => { dismiss(t.id); t.link?.run(); }}>{t.link.label}</button>
+                  )}
+                </div>
+              </div>
+            ) : (
+              <>
+                {text}
+                {t.undo && (
+                  <button
+                    className="toast-undo"
+                    onClick={() => {
+                      t.undo?.();
+                      dismiss(t.id);
+                    }}
+                  >
+                    {tr("common.undo")}
+                  </button>
+                )}
+                {actions}
+              </>
+            )}
+            {!t.hideClose && (
+              <button
+                className="toast-x"
+                aria-label={t.closeLabel ?? (t.onDismiss ? tr("app.toast.later") : tr("app.toast.dismiss"))}
+                onClick={() => {
+                  dismiss(t.id);
+                  t.onDismiss?.();
+                }}
+              >
+                <X size={14} />
+              </button>
+            )}
+            {(!t.sticky || t.ttl > 0) && <span className="toast-bar" />}
+          </div>
+        );
+      })}
     </div>
   );
 }

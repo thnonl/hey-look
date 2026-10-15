@@ -590,6 +590,23 @@ button.ov-tag:hover { background: color-mix(in srgb, var(--accent), transparent 
 .toast-x:hover { color: #fff; background: rgba(255,255,255,.12); }
 .toast-bar { position: absolute; left: 0; bottom: 0; height: 2px; background: rgba(255,255,255,.35); width: 100%; transform-origin: left; animation: drain var(--ttl, 5s) linear forwards; }
 @keyframes drain { to { transform: scaleX(0); } }
+/* the support reminder: a calm card in the theme's own colours (not the dark pill of the other toasts), text on top, buttons below */
+.toast.support { align-items: flex-start; background: var(--bg); color: var(--fg); border: 1px solid var(--border); padding: 12px 12px 14px 14px; gap: 11px; }
+.toast.support .toast-ico { color: var(--accent-text); margin-top: 2px; }
+.toast.support .toast-body { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 10px; }
+.toast.support .toast-text { flex: none; }
+.toast.support .toast-row { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 10px; }
+.toast.support .toast-act { background: transparent; color: var(--fg); border: 1px solid var(--border); font-weight: 600; }
+.toast.support .toast-act:hover { background: var(--bg3); }
+.toast.support .toast-act:first-child { background: var(--accent); color: var(--accent-fg); border-color: var(--accent); }
+.toast.support .toast-act:first-child:hover { background: var(--accent-hover); }
+.toast.support .toast-link { background: none; border: 0; padding: 2px 4px; margin-left: auto; color: var(--muted); font-size: .86em; text-decoration: underline; text-underline-offset: 2px; border-radius: 4px; }
+.toast.support .toast-link:hover { color: var(--fg); }
+.toast.support .toast-x { color: var(--muted); }
+.toast.support .toast-x:hover { color: var(--fg); background: var(--bg3); }
+.toast.support .toast-bar { background: var(--accent); opacity: .45; }
+.toast.support:hover .toast-bar, .toast.support:focus-within .toast-bar { animation-play-state: paused; }
+.toast.support button:focus-visible { outline: 2px solid var(--accent-text); outline-offset: 2px; }
 
 /* ===== welcome ===== */
 /* the card centres itself (auto margins, so a short window scrolls instead of clipping its top) */

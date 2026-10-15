@@ -101,6 +101,12 @@ export interface Toast {
   closeLabel?: string;
   /** Esc closes it (when nothing else that Esc closes is open) */
   escCloses?: boolean;
+  /** text on top, buttons in a row below it (a longer text), with the coffee icon: the support reminder */
+  support?: boolean;
+  /** a small text link after the buttons (the support reminder: "Don't remind me again"); pressing it closes the toast */
+  link?: ToastAction;
+  /** no "×": the buttons already close it */
+  hideClose?: boolean;
 }
 
 export interface Choice {
@@ -238,6 +244,8 @@ interface State {
   calRev: number;
   /** Messages being sent right now: waiting in the undo window or handed to the backend and not answered yet (an update restart waits for them). */
   sendsInFlight: number;
+  /** Attachment saves / opens under way (the support reminder waits for them). */
+  transfers: number;
   /** The app is flushing sends because it is about to quit (a failed send then goes to Drafts). */
   quitting: boolean;
   /** Why the last draft save failed (the quit dialog says it). */
@@ -271,11 +279,13 @@ interface State {
   /** A toast that stays until it is answered (or `null` to remove it); one per `key`, a new text replaces the old in place. */
   setStickyToast: (
     key: string,
-    spec: { text: string; kind?: Toast["kind"]; actions?: ToastAction[]; onDismiss?: () => void; closeLabel?: string; escCloses?: boolean } | null,
+    spec: { text: string; kind?: Toast["kind"]; actions?: ToastAction[]; onDismiss?: () => void; closeLabel?: string; escCloses?: boolean; support?: boolean; link?: ToastAction; hideClose?: boolean; ttl?: number } | null,
   ) => void;
   /** Count a message as being sent from now until `done()` is called. */
   /** A send is under way (its undo window counts). `flush` makes it go out at once (a quit); it is dropped when the send ends. */
   beginSend: (flush?: () => void) => () => void;
+  /** Count an attachment save / open as under way until the returned function is called. */
+  beginTransfer: () => () => void;
   confirm: (o: { title: string; body?: string; confirmLabel?: string; danger?: boolean }) => Promise<boolean>;
   choose: (o: { title: string; body?: string; choices: Choice[] }) => Promise<string>;
   resolveAsk: (id: string) => void;
@@ -501,6 +511,7 @@ export const useStore = create<State>((set, get) => ({
   calError: null,
   calRev: 0,
   sendsInFlight: 0,
+  transfers: 0,
   quitting: false,
   draftError: "",
 
@@ -925,7 +936,7 @@ export const useStore = create<State>((set, get) => ({
       const others = s.toasts.filter((t) => t.key !== key);
       if (!spec) return { toasts: others };
       const old = s.toasts.find((t) => t.key === key);
-      const toast: Toast = { id: old?.id ?? ++toastSeq, text: spec.text, kind: spec.kind ?? "info", actions: spec.actions, ttl: 0, sticky: true, key, onDismiss: spec.onDismiss, closeLabel: spec.closeLabel, escCloses: spec.escCloses };
+      const toast: Toast = { id: old?.id ?? ++toastSeq, text: spec.text, kind: spec.kind ?? "info", actions: spec.actions, ttl: spec.ttl ?? 0, sticky: true, key, onDismiss: spec.onDismiss, closeLabel: spec.closeLabel, escCloses: spec.escCloses, support: spec.support, link: spec.link, hideClose: spec.hideClose };
       // in place when it exists (the countdown changes its text every second), else on top of the stack
       return { toasts: old ? s.toasts.map((t) => (t.key === key ? toast : t)) : [...others, toast].slice(-5) };
     }),
@@ -939,6 +950,16 @@ export const useStore = create<State>((set, get) => ({
       done = true;
       if (flush) sendFlushers.delete(flush);
       set((s) => ({ sendsInFlight: Math.max(0, s.sendsInFlight - 1) }));
+    };
+  },
+
+  beginTransfer: () => {
+    set((s) => ({ transfers: s.transfers + 1 }));
+    let done = false;
+    return () => {
+      if (done) return;
+      done = true;
+      set((s) => ({ transfers: Math.max(0, s.transfers - 1) }));
     };
   },
 

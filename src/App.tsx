@@ -25,6 +25,7 @@ import { openUpdateLink, useUpdates } from "./updates";
 import { calTz, configureCalendar, addDays, addMonths, today as todayDay } from "./calendar";
 import { catchupText, configureDates, fmtWhen } from "./util";
 import { frameAction, initFrame, useFrame } from "./winframe";
+import { startSupportNudge } from "./supportNudgeHost";
 
 const clamp = (n: number, lo: number, hi: number) => Math.max(lo, Math.min(hi, n));
 
@@ -78,6 +79,11 @@ function App() {
     void useStore.getState().init();
     initFrame();
   }, []);
+
+  // the occasional support reminder: once the preferences are loaded, make sure its first due date exists and start looking for a calm moment
+  useEffect(() => {
+    if (loaded) void startSupportNudge();
+  }, [loaded]);
 
   // the page is up and has painted once: the backend shows the (hidden) window now, and reloads the page if this never arrives
   // (a timer, not requestAnimationFrame: a page in a hidden window gets no animation frames)

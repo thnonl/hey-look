@@ -1,6 +1,7 @@
 import { isLang, t } from "./i18n/index.ts";
 import type { Key, LangPref } from "./i18n/index.ts";
 import { DEFAULT_MAIL_CANVAS, MailCanvas, resolveMailCanvas } from "./mailCanvas";
+import { DEFAULT_NUDGE, NudgeState, normalizeNudge } from "./supportNudge";
 export type NotifySound = "mail" | "default" | "im" | "reminder" | "sms" | "none";
 /** The labels are dictionary keys: show them with t() while rendering, so they follow the language. */
 export const NOTIFY_SOUNDS: [NotifySound, Key][] = [
@@ -88,6 +89,8 @@ export interface Prefs extends Overridable {
   checkUpdates: boolean;
   /** version the user chose to skip in the update notice ("" = none) */
   skippedUpdate: string;
+  /** the occasional "support the project" toast: the switch (Settings > General) and its schedule; stays on this computer (see supportNudge.ts) */
+  supportNudge: NudgeState;
   /** most messages kept per mailbox by the background download and "load older" (all its folders together; also a plain setting `max_download`) */
   maxDownload: number;
   /** calendar: first day of the week (1 = Monday, 0 = Sunday, 6 = Saturday) */
@@ -144,6 +147,7 @@ export const DEFAULT_PREFS: Prefs = {
   retryScheduled: true,
   checkUpdates: true,
   skippedUpdate: "",
+  supportNudge: DEFAULT_NUDGE,
   maxDownload: 2000,
   pgpRemember: "session",
   weekStart: 1,
@@ -241,6 +245,7 @@ export function mergePrefs(raw: string | null): Prefs {
       // English unless the person chose another language (an unknown or older value counts as English)
       language: isLang(p.language) || p.language === "en-XA" ? p.language : "en",
       accountPrefs,
+      supportNudge: normalizeNudge(p.supportNudge),
       snoozeTimes: { ...DEFAULT_PREFS.snoozeTimes, ...(p.snoozeTimes ?? {}) },
     };
   } catch {

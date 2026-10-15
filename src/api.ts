@@ -619,6 +619,8 @@ export const api = {
   deleteSignature: (id: string) => invoke<void>("delete_signature", { id }),
   getSetting: (key: string) => invoke<string | null>("get_setting", { key }),
   setSetting: (key: string, value: string) => invoke<void>("set_setting", { key, value }),
+  /** Creation time (ms since the epoch) of the local database file, or null when the system cannot tell: the first-run date of the support reminder for an older install. */
+  firstRunHint: () => invoke<number | null>("first_run_hint"),
   suggestContacts: (prefix: string) => invoke<Contact[]>("suggest_contacts", { prefix }),
   unsubscribe: (messageId: string) =>
     invoke<{ kind: "done" | "open" | "mailto"; target: string }>("unsubscribe", { messageId }),
