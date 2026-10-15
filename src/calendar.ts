@@ -269,7 +269,7 @@ export function weekTitle(days: Day[]): string {
 
 // ---------------------------------------------------------------- input <-> instant
 
-/** `<input type="date">` / `<input type="time">` values for an instant in a zone. */
+/** The date ("yyyy-MM-dd") and time ("HH:mm") values of the date and time fields for an instant in a zone. */
 export function toInputs(sec: number, tz: string): { date: string; time: string } {
   const p = partsOf(sec * 1000, tz);
   return { date: `${p.y}-${pad(p.m)}-${pad(p.d)}`, time: `${pad(p.h)}:${pad(p.mi)}` };
