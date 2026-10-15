@@ -43,6 +43,21 @@ try {
   const small = run("i18n-export-tsv.mjs", "fr", join(dir, "small"), "--bytes=3000");
   assert.equal(small.code, 0, small.err);
   assert.ok(readdirSync(join(dir, "small")).length > readdirSync(join(dir, "vi")).length);
+  // --chunk-chars counts characters, --prefix names the files, --index writes index.json (and only then)
+  const ch = run("i18n-export-tsv.mjs", "zh-Hans", join(dir, "zh"), "--chunk-chars=40000", "--prefix=chunk", "--index");
+  assert.equal(ch.code, 0, ch.err);
+  const zhFiles = readdirSync(join(dir, "zh")).sort();
+  assert.ok(zhFiles.includes("index.json") && zhFiles.includes("chunk-01.tsv"), zhFiles.join());
+  const index = JSON.parse(readFileSync(join(dir, "zh", "index.json"), "utf8"));
+  assert.equal(index.totalRows, Object.keys(en).length);
+  assert.equal(index.files.length, index.totalChunks);
+  assert.equal(index.files.reduce((n, f) => n + f.rows, 0), index.totalRows);
+  for (const f of index.files) {
+    assert.ok(f.characters <= 40000, `${f.file}: ${f.characters} characters`);
+    assert.equal([...readFileSync(join(dir, "zh", f.file), "utf8")].length, f.characters);
+  }
+  assert.ok(!readdirSync(join(dir, "vi")).includes("index.json"), "no index.json without --index");
+  assert.equal(run("i18n-export-tsv.mjs", "fr", join(dir, "bad"), "--prefix=../x").code, 2, "a prefix with a path is refused");
   assert.notEqual(run("i18n-export-tsv.mjs", "xx", join(dir, "x")).code, 0, "an unknown language is refused");
   assert.notEqual(run("i18n-export-tsv.mjs", "fr").code, 0, "the target dir is required");
 } finally {
