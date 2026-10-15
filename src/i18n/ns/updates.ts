@@ -161,9 +161,9 @@ export default define({
     "updates.action.keepEditing": "Tiếp tục chỉnh sửa",
     "updates.action.restartDiscard": "Khởi động lại và bỏ thay đổi",
     "updates.action.keepWriting": "Tiếp tục soạn",
-    "updates.action.restartDiscardMessage": "Khởi động lại và bỏ thư",
+    "updates.action.restartDiscardMessage": "Khởi động lại và loại bỏ thư",
 
-    "updates.toast.opening": "Đang mở trang tải xuống trong trình duyệt…",
+    "updates.toast.opening": "Đang mở liên kết tải xuống trong trình duyệt…",
     "updates.toast.openFailedCopied": "Không mở được trình duyệt. Liên kết đã được sao chép vào bộ nhớ tạm.",
     "updates.toast.openFailedNotCopied": "Không mở được trình duyệt và cũng không sao chép được liên kết. Liên kết: {url}",
     "updates.toast.failed": "Cập nhật lên {version} không thành công.",
@@ -246,8 +246,8 @@ export default define({
     "updates.progress.downloading": "Đang tải, {received}",
     "updates.progress.percent": "{percent}%, {received}",
     "updates.progress.percentOf": "{percent}%, {received} trên {total}",
-    "updates.failed.verify": "Tệp tải xuống bị hỏng hoặc chữ ký không khớp. Chưa có gì được cài đặt.",
-    "updates.failed.badurl": "Liên kết cập nhật không thuộc các bản phát hành của Hey Look!. Chưa có gì được tải xuống.",
+    "updates.failed.verify": "Tệp tải xuống bị hỏng hoặc chữ ký không khớp. Không có gì được cài đặt.",
+    "updates.failed.badurl": "Liên kết cập nhật không thuộc các bản phát hành của Hey Look!. Không có gì được tải xuống.",
     "updates.failed.install": "Không cài đặt được bản cập nhật: {message}.",
     "updates.failed.download": "Không tải được bản cập nhật. {message}",
 

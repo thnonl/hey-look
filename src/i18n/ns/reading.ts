@@ -320,7 +320,7 @@ export default define({
     "reading.att.preview": "Xem trước",
     "reading.att.importKey": "Nhập khóa",
     "reading.att.saveToFolder": "Lưu vào {folder}",
-    "reading.att.saveAs": "Lưu thành…",
+    "reading.att.saveAs": "Lưu dưới dạng…",
     "reading.att.attachToNew": "Đính kèm vào thư mới",
     "reading.att.previewName": "Xem trước {name}",
     "reading.att.ariaSaving": "Đang lưu… {name}",
