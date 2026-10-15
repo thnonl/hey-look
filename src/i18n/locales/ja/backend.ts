@@ -14,7 +14,7 @@ export default defineLocale<typeof ns.en>({
   "backend.OUTBOX_MISSING": "この送信予約メッセージは存在しません。",
   "backend.OUTBOX_NOT_WAITING": "この送信予約メッセージは送信待ちではなくなりました。",
   "backend.OUTBOX_ALREADY_SENDING": "このメッセージは既に送信中です。",
-  "backend.UNSUBSCRIBE_NO_TARGET": "このメッセージには配信停止リンクがありません。",
+  "backend.UNSUBSCRIBE_NO_TARGET": "このメッセージには登録解除リンクがありません。",
   "backend.MSG_NOT_FOUND": "メッセージが見つかりません",
   "backend.MSG_NOT_ON_SERVER": "サーバー上にメッセージが見つかりません",
   "backend.FOLDER_MISSING": "このアカウントに{folder}フォルダーが見つかりませんでした。メールは元の場所に残ります。",
