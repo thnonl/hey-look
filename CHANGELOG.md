@@ -1,5 +1,13 @@
 # Changelog
 
+## 1.0.2 — 2026-10-15
+
+A bug fix for the Unread filter.
+
+### Fixed
+
+- With the Unread filter on, the mail you are reading no longer disappears from the reading pane (“Select an item to read”) a few seconds after it is marked read
+
 ## 1.0.1 — 2026-10-15
 
 New Inbox mail now arrives at once, Hey Look! speaks Vietnamese and French, and your Google and Outlook calendars can sync. Several bugs found in testing are fixed.
