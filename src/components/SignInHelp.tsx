@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { Account, api } from "../api";
-import { endHint, endLead, endReason, GOOGLE_REVIEW_HELP_URL, providerLabel, waitHint, type EndReason, type SignInProvider } from "../signIn";
+import { endHint, endNotice, endReason, GOOGLE_REVIEW_HELP_URL, providerLabel, waitHint, type EndReason, type SignInProvider } from "../signIn";
 import { friendlyError, useStore } from "../store";
 import { useT } from "../i18n/react";
 import { openUpdateLink } from "../updates";
@@ -65,9 +65,8 @@ export function SignInEnded({ provider, purpose, end, onAppPassword }: {
   onAppPassword?: () => void;
 }) {
   const t = useT();
-  const hint = endHint(provider, purpose, end.reason);
   // the calendar says it in its own sentence ("Calendar sign-in timed out ..."), mail says which sign-in ended
-  const lead = purpose === "calendar" ? friendlyError(end.raw) : endLead(provider, end.reason);
+  const { lead, hint } = endNotice(provider, purpose, end.reason, purpose === "calendar" ? friendlyError(end.raw) : null);
   return (
     <div className="notice" role={end.reason === "cancelled" ? "status" : "alert"}>
       {lead}

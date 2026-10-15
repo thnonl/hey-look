@@ -1196,6 +1196,7 @@ function CalendarPanel({ account }: { account: Account }) {
         {!connecting && line && (
           <div className={line.tone === "bad" ? "notice bad" : "muted small"}>
             {line.text}
+            {line.detail && <div style={{ marginTop: 2, fontSize: "0.9em", opacity: 0.8 }}>{line.detail}</div>}
             {note && <div>{note}</div>}
           </div>
         )}

@@ -966,8 +966,12 @@ mod tests {
         }
     }
 
-    /// Runs the worker against the odd server for a few seconds with short backoffs.
+    /// Runs the worker against the odd server for a few seconds with short backoffs. A hard limit makes a stuck worker fail the test.
     fn run_against(odd: Odd) -> (Vec<String>, Vec<Push>, u32) {
+        crate::test_guard::within(60, move || run_against_unguarded(odd))
+    }
+
+    fn run_against_unguarded(odd: Odd) -> (Vec<String>, Vec<Push>, u32) {
         let (addr, idles) = fake_server(odd);
         let host = Arc::new(OddHost { addr, log: Default::default(), states: Default::default() });
         let sh = Shared::new();
