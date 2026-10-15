@@ -917,7 +917,7 @@ export default define({
     "settings.about.autoCheck": "Tự động kiểm tra cập nhật",
     "settings.about.autoCheckHint": "Khi Hey Look! khởi động hoặc trở lại từ khay hệ thống, tối đa 6 giờ một lần. Chỉ hỏi GitHub; thư và tài khoản của bạn không bao giờ được gửi đi.",
     "settings.about.website": "Trang web",
-    "settings.about.coffee": "Mời tôi một ly cà phê",
+    "settings.about.coffee": "Mời mình một ly cà phê",
     "settings.about.source": "Mã nguồn",
   },
   fr: {
