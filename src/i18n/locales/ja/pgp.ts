@@ -38,7 +38,7 @@ export default defineLocale<typeof ns.en>({
   "pgp.gen.compatible": "互換性重視（RSA 3072）",
   "pgp.gen.repeat": "パスフレーズを再入力",
   "pgp.gen.remember": "Hey Look!を終了するまでパスフレーズを記憶する",
-  "pgp.gen.note": "秘密鍵はこのコンピューターに保存され、パスフレーズでロックされます。パスフレーズを紛失したり忘れたりすると、この鍵宛ての暗号化メールは読めなくなります。次に、バックアップを保存します。",
+  "pgp.gen.note": "秘密鍵はこのコンピューターに保存され、パスフレーズでロックされます。鍵を紛失したり、パスフレーズを忘れたりすると、この鍵宛ての暗号化メールは読めなくなります。次に、バックアップを保存します。",
   "pgp.gen.generating": "生成中…",
   "pgp.gen.generate": "生成",
   "pgp.gen.ready": "鍵の準備ができました。",

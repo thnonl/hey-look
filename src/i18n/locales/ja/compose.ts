@@ -216,7 +216,7 @@ export default defineLocale<typeof ns.en>({
   "compose.schedule.date": "日付",
   "compose.schedule.time": "時刻",
   "compose.schedule.sends": "{when}に送信 · {in}",
-  "compose.schedule.adjusted": "{time}に調整しました（時刻の切り替えのため）。",
+  "compose.schedule.adjusted": "{time}に調整しました（時計の変更のため）。",
   "compose.schedule.sendNow": "今すぐ送信",
   "compose.schedule.sendNowInstead": "代わりに今すぐ送信",
   "compose.schedule.realDate": "実在する日付と時刻を選んでください。",
