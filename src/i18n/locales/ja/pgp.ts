@@ -34,7 +34,7 @@ export default defineLocale<typeof ns.en>({
   "pgp.gen.step2": "2. バックアップ",
   "pgp.gen.for": "対象",
   "pgp.gen.keyType": "鍵の種類",
-  "pgp.gen.modern": "最新方式（Curve25519）",
+  "pgp.gen.modern": "モダン（Curve25519）",
   "pgp.gen.compatible": "互換性重視（RSA 3072）",
   "pgp.gen.repeat": "パスフレーズを再入力",
   "pgp.gen.remember": "Hey Look!を終了するまでパスフレーズを記憶する",
