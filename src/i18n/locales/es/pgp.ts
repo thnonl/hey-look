@@ -111,7 +111,7 @@ export default defineLocale<typeof ns.en>({
   "pgp.details.exportPublic": "Exportar clave pública…",
   "pgp.details.copyPublic": "Copiar clave pública",
   "pgp.details.publicCopied": "Clave pública copiada",
-  "pgp.details.backupSecret": "Copia de seguridad de la clave secreta…",
+  "pgp.details.backupSecret": "Hacer copia de seguridad de la clave secreta…",
   "pgp.details.changePassphrase": "Cambiar frase de contraseña…",
   "pgp.details.delete": "Eliminar…",
   "pgp.details.savedTo": "Guardado en {path}",
