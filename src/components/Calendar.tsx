@@ -1216,21 +1216,21 @@ export function EventDialog({ eventId, init }: { eventId?: string; init?: EventI
         <input id="ev-title" autoFocus value={title} aria-invalid={!!error && !title.trim()} onChange={(e) => (setTitle(e.target.value), touch())} placeholder={t("calendar.dialog.titlePlaceholder")} />
 
         <label>{t("calendar.dialog.when")}</label>
-        <div>
-          <div className="when">
+        <div className="ev-when">
+          {/* start and end share one grid (date | time | hint), so both rows get the same column widths in every state */}
+          <div className="when-dates" data-allday={allDay || undefined}>
             <input type="date" aria-label={t("calendar.dialog.startDate")} value={sd} onChange={(e) => (setSd(e.target.value), touch(), ed < e.target.value && setEd(e.target.value))} />
             {!allDay && <input type="time" aria-label={t("calendar.dialog.startTime")} value={st} onChange={(e) => (setSt(e.target.value), touch())} />}
-          </div>
-          <div className="when" style={{ marginTop: 6 }}>
+            <span aria-hidden />
             <input type="date" aria-label={t("calendar.dialog.endDate")} value={ed} onChange={(e) => (setEd(e.target.value), touch())} />
             {!allDay && <input type="time" aria-label={t("calendar.dialog.endTime")} value={et} onChange={(e) => (setEt(e.target.value), touch())} />}
             <span className="muted small">{allDay ? t("calendar.dialog.lastDay") : t("calendar.dialog.end")}</span>
           </div>
-          <div className="when" style={{ marginTop: 8 }}>
+          <div className="when">
             <Switch checked={allDay} onChange={(v) => (setAllDay(v), touch())} label={t("calendar.allDay")} />
             <span className="tz">{allDay ? t("calendar.dialog.datesOnly") : `${tz} (${tzOffsetLabel(tz)})`}</span>
           </div>
-          <div style={{ marginTop: 8 }}>
+          <div>
             <select aria-label={t("calendar.dialog.repeat")} value={repeat} disabled={remote} onChange={(e) => (setRepeat(e.target.value), touch())}>
               <option value="none">{t("calendar.repeat.none")}</option>
               <option value="daily">{t("calendar.repeat.daily")}</option>

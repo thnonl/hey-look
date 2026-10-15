@@ -1022,7 +1022,12 @@ span.spin { display: inline-block; width: 13px; height: 13px; border: 2px solid 
 
 /* new / edit event dialog and Compose meeting strip */
 .ev-form input:not([type="checkbox"]):not([type="date"]):not([type="time"]), .ev-form select, .ev-form textarea { width: 100%; box-sizing: border-box; }
-.ev-form .when input[type="date"], .ev-form .when input[type="time"] { width: auto; flex: 1 1 0; min-width: 0; }
+/* When: start and end rows share one grid (date | time | hint) so their controls line up; the hint column is as wide as its longest translation */
+.ev-when { display: flex; flex-direction: column; gap: 8px; }
+.ev-when .when-dates { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) auto; gap: 8px 6px; align-items: center; }
+.ev-when .when-dates input { width: 100%; min-width: 0; box-sizing: border-box; }
+.ev-when .when-dates[data-allday] input { grid-column: span 2; }
+.ev-when .when-dates > .muted { white-space: nowrap; }
 .ev-form .tz { color: var(--muted); font-size: .86em; }
 .ev-form > label { align-self: start; padding-top: 8px; }
 .ev-invite .cf-field { border: 1px solid var(--border); border-radius: var(--r-sm); padding: 2px 8px; background: var(--bg); }
