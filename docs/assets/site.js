@@ -247,7 +247,7 @@
     var setStatus = function (state, html) { status.setAttribute('data-state', state); $('.msg', status).innerHTML = html; };
     var fmtSize = function (n) { return n ? (n / 1048576).toFixed(1) + ' MB' : ''; };
     var fill = function (rel, noRelease) {
-      var ver = rel ? rel.tag_name.replace(/^v/, '') : '1.0.0';
+      var ver = rel ? rel.tag_name.replace(/^v/, '') : '1.0.1';
       $$('[data-version]').forEach(function (e) { e.textContent = ver; });
       $$('[data-asset]').forEach(function (box) {
         var key = box.getAttribute('data-asset'), a = null, btn = $('a.btn', box), fn = $('.fn', box), sz = $('.sz', box);
