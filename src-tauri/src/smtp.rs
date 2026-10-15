@@ -390,70 +390,16 @@ fn transport_with(acc: &Account, secret: &str, timeout: Option<std::time::Durati
     Ok((if acc.auth.starts_with("oauth_") { b.authentication(vec![Mechanism::Xoauth2]) } else { b }).build())
 }
 
-const SILENT_TLS: &str = "no answer to the TLS handshake";
-const SILENT_STARTTLS: &str = "no answer to the STARTTLS request";
+use crate::mail::{Probe, SILENT_STARTTLS};
 
-/// Why `probe_ssl_handshake` / `probe_starttls` gave up.
-enum Probe {
-    /// The server accepted the connection but did not answer in time while the connection was being secured (the text says what
-    /// was waited for: the TLS handshake, or the greeting and the STARTTLS reply).
-    Silent(&'static str),
-    /// The connection itself timed out (the text is the I/O error).
-    ConnectTimedOut(String),
-}
-
-impl Probe {
-    /// The error text: a silent server gets the secure connection hint (as the IMAP side does for a failed handshake), a timed out
-    /// connection the usual connection words, put into the caller’s own phrasing by `wrap`.
-    fn explain(self, acc: &Account, wrap: impl Fn(&str) -> String) -> String {
-        match self {
-            Probe::Silent(what) => crate::mail::secure_connection_error(&acc.smtp_host, acc.smtp_port, what),
-            Probe::ConnectTimedOut(e) => wrap(&format!("Connection error: {e}")),
-        }
-    }
-}
-
-/// lettre sets the read and write timeouts of its connection only after the TLS handshake of an SSL/TLS (implicit TLS) connection has
-/// finished, so a server that accepts the connection and then stays silent (a plain SMTP port, a firewall that swallows packets) would
-/// keep a send or an account check waiting with no bound at all. For such connections the handshake is therefore run once here first,
-/// on a socket that has the timeouts (like `mail::tcp` does for IMAP) and the result is thrown away; anything that is not a timeout
-/// (refused, a handshake that failed, an untrusted certificate) is left to lettre, which words it as before.
+/// The SSL/TLS (implicit TLS) handshake check of `mail::probe_tls_handshake`, for the SMTP connection of `acc`: lettre sets the read and
+/// write timeouts of such a connection only after the handshake has finished, so a server that accepts the connection and then stays
+/// silent (a plain SMTP port, a firewall that swallows packets) would keep a send or an account check waiting with no bound at all.
 fn probe_ssl_handshake(acc: &Account, timeout: std::time::Duration) -> Result<(), Probe> {
-    use std::net::ToSocketAddrs;
     if acc.smtp_security != "ssl" {
         return Ok(());
     }
-    let host = acc.smtp_host.as_str();
-    let Ok(connector) = native_tls::TlsConnector::builder().danger_accept_invalid_certs(acc.tls_insecure).danger_accept_invalid_hostnames(acc.tls_insecure).build() else { return Ok(()) };
-    let Ok(addrs) = (host, acc.smtp_port).to_socket_addrs() else { return Ok(()) };
-    let mut timed_out = None;
-    for addr in addrs {
-        let sock = match std::net::TcpStream::connect_timeout(&addr, timeout) {
-            Ok(s) => s,
-            Err(e) if e.kind() == std::io::ErrorKind::TimedOut => {
-                timed_out = Some(e.to_string());
-                continue;
-            }
-            Err(_) => continue,
-        };
-        let _ = sock.set_read_timeout(Some(timeout));
-        let _ = sock.set_write_timeout(Some(timeout));
-        let started = std::time::Instant::now();
-        return match connector.connect(host, sock) {
-            Ok(mut stream) => {
-                let _ = stream.shutdown();
-                Ok(())
-            }
-            Err(native_tls::HandshakeError::WouldBlock(_)) => Err(Probe::Silent(SILENT_TLS)),
-            Err(native_tls::HandshakeError::Failure(e)) => {
-                use std::error::Error as _;
-                let io_timeout = e.source().and_then(|s| s.downcast_ref::<std::io::Error>()).is_some_and(|io| matches!(io.kind(), std::io::ErrorKind::TimedOut | std::io::ErrorKind::WouldBlock));
-                // platforms word a read that timed out differently, so the time the handshake took counts too
-                if io_timeout || started.elapsed() >= timeout.mul_f32(0.9) { Err(Probe::Silent(SILENT_TLS)) } else { Ok(()) }
-            }
-        };
-    }
-    timed_out.map_or(Ok(()), |e| Err(Probe::ConnectTimedOut(e)))
+    crate::mail::probe_tls_handshake(&acc.smtp_host, acc.smtp_port, acc.tls_insecure, timeout)
 }
 
 /// The STARTTLS counterpart of `probe_ssl_handshake`, used by the connection check of an account being added: the greeting, EHLO and the
@@ -543,7 +489,7 @@ pub fn send_raw(acc: &Account, secret: &str, env: &lettre::address::Envelope, ra
 
 fn send_raw_with(acc: &Account, secret: &str, env: &lettre::address::Envelope, raw: &[u8], timeout: std::time::Duration) -> R<()> {
     if let Err(p) = probe_ssl_handshake(acc, timeout) {
-        return Err(p.explain(acc, |detail| explain_send_error(None, detail)));
+        return Err(p.explain(&acc.smtp_host, acc.smtp_port, |detail| explain_send_error(None, detail)));
     }
     transport_with(acc, secret, Some(timeout))?.send_raw(env, raw).map_err(|e| {
         let text = e.to_string();
@@ -608,7 +554,7 @@ pub fn test(acc: &Account, secret: &str) -> R<()> {
 
 pub(crate) fn test_with(acc: &Account, secret: &str, timeout: std::time::Duration) -> R<()> {
     if let Err(p) = probe_ssl_handshake(acc, timeout).and_then(|()| probe_starttls(acc, timeout)) {
-        return Err(p.explain(acc, |detail| format!("SMTP login failed: {detail}")));
+        return Err(p.explain(&acc.smtp_host, acc.smtp_port, |detail| format!("SMTP login failed: {detail}")));
     }
     match transport_with(acc, secret, Some(timeout))?.test_connection() {
         Ok(true) => Ok(()),
@@ -1192,38 +1138,134 @@ To:"), "no To header is invented: {out}");
         });
     }
 
-    /// The IMAP side: a plain port or a silent one, with SSL/TLS or STARTTLS, is refused and nothing is saved (the real login check,
-    /// with its 60 s socket timeout: the cases wait at the same time).
+    /// An IMAP server that greets and answers CAPABILITY and the STARTTLS request like one that supports STARTTLS (it cannot do the TLS
+    /// part), except that it falls silent after `silent_after` (greeting, capability or starttls); "never" does not.
+    fn starttls_imap_server(silent_after: &'static str) -> (u16, std::sync::mpsc::Sender<()>) {
+        use std::io::{BufRead, BufReader, Write};
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        listener.set_nonblocking(true).unwrap();
+        let port = listener.local_addr().unwrap().port();
+        let (stop, gone) = std::sync::mpsc::channel::<()>();
+        std::thread::spawn(move || {
+            let mut held = Vec::new();
+            while !matches!(gone.try_recv(), Err(std::sync::mpsc::TryRecvError::Disconnected)) {
+                match listener.accept() {
+                    Ok((c, _)) => {
+                        let _ = c.set_nonblocking(false);
+                        let mut w = c.try_clone().unwrap();
+                        let r = c.try_clone().unwrap();
+                        held.push(c);
+                        std::thread::spawn(move || {
+                            let _ = w.write_all(b"* OK [CAPABILITY IMAP4rev1 STARTTLS] fake ready\r\n");
+                            if silent_after == "greeting" {
+                                return;
+                            }
+                            for line in BufReader::new(r).lines().map_while(Result::ok) {
+                                let mut words = line.split_whitespace();
+                                let (tag, cmd) = (words.next().unwrap_or("*").to_string(), words.next().unwrap_or("").to_uppercase());
+                                match cmd.as_str() {
+                                    "CAPABILITY" => {
+                                        if silent_after == "capability" {
+                                            return;
+                                        }
+                                        let _ = w.write_all(format!("* CAPABILITY IMAP4rev1 STARTTLS\r\n{tag} OK done\r\n").as_bytes());
+                                    }
+                                    "STARTTLS" => {
+                                        if silent_after == "starttls" {
+                                            return;
+                                        }
+                                        let _ = w.write_all(format!("{tag} OK Begin TLS negotiation now\r\n").as_bytes());
+                                    }
+                                    "LOGOUT" => return,
+                                    _ => {}
+                                }
+                            }
+                        });
+                    }
+                    Err(_) => std::thread::sleep(std::time::Duration::from_millis(20)),
+                }
+            }
+        });
+        (port, stop)
+    }
+
+    /// QA v1.0.1 round 3, BUG-2: the IMAP side of the add check. A plain port, and a silent one (no greeting, or silence after the
+    /// greeting, after CAPABILITY or after the STARTTLS request), with SSL/TLS or STARTTLS, is refused with the secure connection hint
+    /// within the probe time (here 2 s; 20 s in the app) and nothing is saved. Before, a silent STARTTLS server waited for the 60 s
+    /// socket timeout and ended as "the mail server did not respond".
     #[test]
     fn add_account_with_an_imap_server_that_cannot_be_secured_saves_nothing() {
-        crate::test_guard::within(170, || {
+        crate::test_guard::within(120, || {
             let plain = plain_imap_server();
             let (silent, _keep_open) = silent_server();
+            let (after_greeting, _k1) = starttls_imap_server("greeting");
+            let (after_capability, _k2) = starttls_imap_server("capability");
+            let (after_starttls, _k3) = starttls_imap_server("starttls");
             let db = memory_db();
-            let imap_login = |acc: &Account, pw: &str| -> R<()> {
-                let mut s = crate::mail::connect(acc, pw)?;
-                let _ = s.logout();
-                Ok(())
-            };
+            let probe_time = std::time::Duration::from_secs(2);
+            let imap_login = move |acc: &Account, pw: &str| crate::imap_login_check(acc, pw, probe_time);
             let smtp_ok = |_: &Account, _: &str| -> R<()> { Ok(()) };
-            let started = std::time::Instant::now();
+            let mut cases: Vec<(&str, u16, bool)> = vec![("plain port", plain, true), ("plain port", plain, false), ("silent port", silent, true), ("silent port", silent, false)];
+            // these servers only talk STARTTLS, so they are tried with STARTTLS
+            for (what, port) in [("silent after the greeting", after_greeting), ("silent after CAPABILITY", after_capability), ("silent after the STARTTLS request", after_starttls)] {
+                cases.push((what, port, false));
+            }
             std::thread::scope(|scope| {
                 let mut runs = vec![];
-                for (what, port) in [("plain port", plain), ("silent port", silent)] {
-                    for ssl in [true, false] {
-                        let (db, imap_login, smtp_ok) = (&db, &imap_login, &smtp_ok);
-                        runs.push((what, ssl, scope.spawn(move || crate::add_account_with(db, input(port, ssl, 1, "ssl"), "secret", None, imap_login, smtp_ok))));
-                    }
+                for (what, port, ssl) in cases {
+                    let (db, imap_login, smtp_ok) = (&db, &imap_login, &smtp_ok);
+                    runs.push((
+                        what,
+                        port,
+                        ssl,
+                        scope.spawn(move || {
+                            let t = std::time::Instant::now();
+                            (crate::add_account_with(db, input(port, ssl, 1, "ssl"), "secret", None, imap_login, smtp_ok), t.elapsed())
+                        }),
+                    ));
                 }
-                for (what, ssl, run) in runs {
-                    let e = run.join().unwrap().expect_err(&format!("{what}, imap ssl={ssl}: the add must be refused"));
-                    if what == "plain port" {
-                        assert!(crate::mail::is_secure_connection_error(&e), "{what}, imap ssl={ssl}: {e}");
-                    }
+                for (what, port, ssl, run) in runs {
+                    let (result, took) = run.join().unwrap();
+                    let e = result.expect_err(&format!("{what}, imap ssl={ssl}: the add must be refused"));
+                    assert!(crate::mail::is_secure_connection_error(&e), "{what}, imap ssl={ssl}: {e}");
+                    assert!(e.contains(&format!("127.0.0.1:{port}")), "{what}, imap ssl={ssl}: {e}");
+                    assert!(took < std::time::Duration::from_secs(15), "{what}, imap ssl={ssl} took {took:?}");
                 }
             });
-            assert!(started.elapsed() < std::time::Duration::from_secs(150), "took {:?}", started.elapsed());
             assert_eq!(account_rows(&db), 0, "an account row was left behind");
+        });
+    }
+
+    /// The IMAP STARTTLS probe lets a server that answers through (here: up to the "Begin TLS" reply) pass at once, answers of a server
+    /// that is not IMAP are left to the real connection, and a silent server is told apart. The SSL/TLS probe passes a port that
+    /// refuses the handshake quickly (the real connection words that) and flags one that never answers.
+    #[test]
+    fn the_imap_probe_lets_a_cooperative_server_through_and_flags_a_silent_one() {
+        crate::test_guard::within(60, || {
+            let one_sec = std::time::Duration::from_secs(1);
+            let mut acc = account();
+            acc.imap_host = "127.0.0.1".into();
+            acc.imap_ssl = false;
+            let (coop, _k) = starttls_imap_server("never");
+            acc.imap_port = coop;
+            let t = std::time::Instant::now();
+            assert!(crate::mail::probe_secure_connection(&acc, std::time::Duration::from_secs(5)).is_ok());
+            assert!(t.elapsed() < std::time::Duration::from_secs(3), "{:?}", t.elapsed());
+            // a plain server saying BAD is the real connection's to word
+            acc.imap_port = plain_imap_server();
+            assert!(crate::mail::probe_secure_connection(&acc, one_sec).is_ok());
+            // so is a port nothing listens on (Windows takes about 2 s to refuse a local connection, so a longer time than the others)
+            acc.imap_port = std::net::TcpListener::bind("127.0.0.1:0").unwrap().local_addr().unwrap().port();
+            assert!(crate::mail::probe_secure_connection(&acc, std::time::Duration::from_secs(8)).is_ok());
+            let (silent, _k2) = silent_server();
+            acc.imap_port = silent;
+            let e = crate::mail::probe_secure_connection(&acc, one_sec).unwrap_err();
+            assert!(crate::mail::is_secure_connection_error(&e) && e.contains("STARTTLS"), "{e}");
+            acc.imap_ssl = true;
+            let e = crate::mail::probe_secure_connection(&acc, one_sec).unwrap_err();
+            assert!(crate::mail::is_secure_connection_error(&e) && e.contains("TLS handshake"), "{e}");
+            acc.imap_port = plain_imap_server();
+            assert!(crate::mail::probe_secure_connection(&acc, std::time::Duration::from_secs(5)).is_ok());
         });
     }
 

@@ -70,6 +70,146 @@ pub fn is_tls_step_failure(raw: &str) -> bool {
     ["tls", "starttls", "handshake", "wrong version", "ssl"].iter().any(|k| l.contains(k))
 }
 
+pub(crate) const SILENT_TLS: &str = "no answer to the TLS handshake";
+pub(crate) const SILENT_STARTTLS: &str = "no answer to the STARTTLS request";
+
+/// Why a bounded connection probe (`probe_tls_handshake`, `probe_imap_starttls`, and the SMTP one in smtp.rs) gave up.
+pub(crate) enum Probe {
+    /// The server accepted the connection but did not answer in time while the connection was being secured (the text says what
+    /// was waited for: the TLS handshake, or the greeting and the STARTTLS reply).
+    Silent(&'static str),
+    /// The connection itself timed out (the text is the I/O error).
+    ConnectTimedOut(String),
+}
+
+impl Probe {
+    /// The error text: a silent server gets the secure connection hint, a timed out connection the usual connection words, put into
+    /// the caller’s own phrasing by `wrap`.
+    pub(crate) fn explain(self, host: &str, port: u16, wrap: impl Fn(&str) -> String) -> String {
+        match self {
+            Probe::Silent(what) => secure_connection_error(host, port, what),
+            Probe::ConnectTimedOut(e) => wrap(&format!("Connection error: {e}")),
+        }
+    }
+}
+
+/// Run the SSL/TLS handshake once on a socket that has read and write timeouts and throw the result away. A server that accepts the
+/// connection and then stays silent (a plain port, a firewall that swallows packets) is `Probe::Silent`; anything that is not a timeout
+/// (refused, a handshake that failed, an untrusted certificate) is `Ok` and left to the real connection, which words it as before.
+pub(crate) fn probe_tls_handshake(host: &str, port: u16, insecure: bool, timeout: std::time::Duration) -> Result<(), Probe> {
+    use std::net::ToSocketAddrs;
+    let Ok(connector) = native_tls::TlsConnector::builder().danger_accept_invalid_certs(insecure).danger_accept_invalid_hostnames(insecure).build() else { return Ok(()) };
+    let Ok(addrs) = (host, port).to_socket_addrs() else { return Ok(()) };
+    let mut timed_out = None;
+    for addr in addrs {
+        let sock = match std::net::TcpStream::connect_timeout(&addr, timeout) {
+            Ok(s) => s,
+            Err(e) if e.kind() == std::io::ErrorKind::TimedOut => {
+                timed_out = Some(e.to_string());
+                continue;
+            }
+            Err(_) => continue,
+        };
+        let _ = sock.set_read_timeout(Some(timeout));
+        let _ = sock.set_write_timeout(Some(timeout));
+        let started = std::time::Instant::now();
+        return match connector.connect(host, sock) {
+            Ok(mut stream) => {
+                let _ = stream.shutdown();
+                Ok(())
+            }
+            Err(native_tls::HandshakeError::WouldBlock(_)) => Err(Probe::Silent(SILENT_TLS)),
+            Err(native_tls::HandshakeError::Failure(e)) => {
+                use std::error::Error as _;
+                let io_timeout = e.source().and_then(|s| s.downcast_ref::<std::io::Error>()).is_some_and(|io| matches!(io.kind(), std::io::ErrorKind::TimedOut | std::io::ErrorKind::WouldBlock));
+                // platforms word a read that timed out differently, so the time the handshake took counts too
+                if io_timeout || started.elapsed() >= timeout.mul_f32(0.9) { Err(Probe::Silent(SILENT_TLS)) } else { Ok(()) }
+            }
+        };
+    }
+    timed_out.map_or(Ok(()), |e| Err(Probe::ConnectTimedOut(e)))
+}
+
+/// The STARTTLS probe of an IMAP server: the greeting, CAPABILITY and the STARTTLS request are run once on a socket whose reads are
+/// bound by one deadline (`timeout` for all three together), and the result is thrown away. `Probe::Silent` when the server accepts the
+/// connection and then stops answering (a port that waits for the client, such as an implicit TLS port used with STARTTLS, or a
+/// firewall that swallows packets); anything else (a refusal, a reply that is not IMAP, a server without STARTTLS) is `Ok` and left to
+/// the real connection, which words it as before.
+fn probe_imap_starttls(host: &str, port: u16, timeout: std::time::Duration) -> Result<(), Probe> {
+    use std::io::BufRead;
+    use std::net::ToSocketAddrs;
+    let Ok(addrs) = (host, port).to_socket_addrs() else { return Ok(()) };
+    let mut timed_out = None;
+    for addr in addrs {
+        let sock = match std::net::TcpStream::connect_timeout(&addr, timeout) {
+            Ok(s) => s,
+            Err(e) if e.kind() == std::io::ErrorKind::TimedOut => {
+                timed_out = Some(e.to_string());
+                continue;
+            }
+            Err(_) => continue,
+        };
+        let _ = sock.set_write_timeout(Some(timeout));
+        let deadline = std::time::Instant::now() + timeout;
+        let Ok(mut out) = sock.try_clone() else { return Ok(()) };
+        let mut input = std::io::BufReader::new(sock);
+        // The next line (`tag` None) or the next line that starts with `tag`. Err(()): the server did not answer in time.
+        // Ok(None): it went away or sent something that is not text.
+        let read = |input: &mut std::io::BufReader<std::net::TcpStream>, tag: Option<&str>| -> Result<Option<String>, ()> {
+            loop {
+                let left = deadline.saturating_duration_since(std::time::Instant::now());
+                if left.is_zero() {
+                    return Err(());
+                }
+                let _ = input.get_ref().set_read_timeout(Some(left));
+                let mut line = String::new();
+                match input.read_line(&mut line) {
+                    Ok(0) => return Ok(None),
+                    Ok(_) => match tag {
+                        None => return Ok(Some(line)),
+                        Some(t) if line.starts_with(t) => return Ok(Some(line)),
+                        Some(_) => {}
+                    },
+                    Err(e) if matches!(e.kind(), std::io::ErrorKind::TimedOut | std::io::ErrorKind::WouldBlock) => return Err(()),
+                    Err(_) => return Ok(None),
+                }
+            }
+        };
+        let silent = || Err(Probe::Silent(SILENT_STARTTLS));
+        match read(&mut input, None) {
+            Err(()) => return silent(),
+            Ok(Some(g)) if g.starts_with("* OK") => {}
+            _ => return Ok(()),
+        }
+        for (command, tag) in [("hl1 CAPABILITY\r\n", "hl1 "), ("hl2 STARTTLS\r\n", "hl2 ")] {
+            if out.write_all(command.as_bytes()).is_err() {
+                return Ok(());
+            }
+            match read(&mut input, Some(tag)) {
+                Err(()) => return silent(),
+                Ok(Some(r)) if r.starts_with(&format!("{tag}OK")) => {}
+                _ => return Ok(()),
+            }
+        }
+        let _ = out.write_all(b"hl3 LOGOUT\r\n");
+        return Ok(());
+    }
+    timed_out.map_or(Ok(()), |e| Err(Probe::ConnectTimedOut(e)))
+}
+
+/// The connection check of an account being added (and only that: a normal sync does not run it): before the real login the
+/// connection is secured once under `timeout` for the whole of it, so a server that cannot be secured and says nothing gets the secure
+/// connection hint after `timeout`, not the error of a 60 s socket timeout that reads as "the mail server did not respond". These are
+/// the words the SMTP side uses.
+pub fn probe_secure_connection(acc: &Account, timeout: std::time::Duration) -> R<()> {
+    let probed = if acc.imap_ssl {
+        probe_tls_handshake(&acc.imap_host, acc.imap_port, acc.tls_insecure, timeout)
+    } else {
+        probe_imap_starttls(&acc.imap_host, acc.imap_port, timeout)
+    };
+    probed.map_err(|p| p.explain(&acc.imap_host, acc.imap_port, |detail| detail.to_string()))
+}
+
 /// `secret` is the password, or the OAuth access token when `acc.auth` is an `oauth_*` method.
 pub fn connect(acc: &Account, secret: &str) -> R<Sess> {
     connect_with_socket(acc, secret).map(|(s, _)| s)

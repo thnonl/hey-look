@@ -261,14 +261,22 @@ async fn add_account(
 ) -> R<Account> {
     let db = state.db.clone();
     blocking(move || {
-        let imap_login = |acc: &Account, pw: &str| -> R<()> {
-            let mut s = mail::connect(acc, pw)?;
-            let _ = s.logout();
-            Ok(())
-        };
+        let imap_login = |acc: &Account, pw: &str| imap_login_check(acc, pw, ADD_ACCOUNT_PROBE_TIMEOUT);
         add_account_with(&db, input, &password_value, smtp_password, &imap_login, &smtp::test)
     })
     .await
+}
+
+/// How long the IMAP server may take to greet and to answer the STARTTLS request (or the SSL/TLS handshake) while an account is added.
+const ADD_ACCOUNT_PROBE_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(20);
+
+/// The IMAP connection check of an account being added: the bounded secure-connection probe first (a server that stays silent gets the
+/// secure connection hint within `probe_timeout`, like SMTP), then the real login. The normal sync path does not probe.
+fn imap_login_check(acc: &Account, pw: &str, probe_timeout: std::time::Duration) -> R<()> {
+    mail::probe_secure_connection(acc, probe_timeout)?;
+    let mut s = mail::connect(acc, pw)?;
+    let _ = s.logout();
+    Ok(())
 }
 
 /// The whole of "Add account": the connection checks come first and the first thing written (the password, then the account row)
