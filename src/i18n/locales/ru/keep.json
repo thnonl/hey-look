@@ -1,1 +1,7 @@
-[]
+[
+  "calendar.time.am",
+  "calendar.time.pm",
+  "compose.sec.encryptionValue",
+  "settings.server.push",
+  "settings.sound.sms"
+]
