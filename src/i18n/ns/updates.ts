@@ -339,7 +339,7 @@ export default define({
     "updates.card.youHave": "Vous avez la version {version}",
     "updates.card.released": "Publiée le {date}",
     "updates.card.noNotes": "Aucune note de version",
-    "updates.card.noInstaller": "Cette version n’a pas d’installateur pour {platform}. La page de la version propose peut-être d’autres options.",
+    "updates.card.noInstaller": "Cette version n’a pas de programme d’installation pour {platform}. La page de la version propose peut-être d’autres options.",
     "updates.card.offlineNote": "Le téléchargement nécessite une connexion Internet. Si Hey Look! ne parvient toujours pas à joindre GitHub, il s’arrête avec un message et rien n’est installé.",
     "updates.card.skipped": "Vous avez ignoré cette version.",
     "updates.pill.downloading": "Téléchargement",

@@ -6,7 +6,7 @@
 <meta http-equiv="Content-Security-Policy" content="default-src 'none'; img-src 'self' data:; media-src 'self'; style-src 'self'; script-src 'self'; connect-src https://api.github.com; base-uri 'self'; form-action 'none'">
 <meta name="referrer" content="strict-origin-when-cross-origin">
 <title>Télécharger Hey Look! pour Windows, macOS et Linux</title>
-<meta name="description" content="Téléchargez Hey Look! pour Windows, macOS ou Linux. Gratuit, avec toutes les fonctionnalités. Noms des installateurs, étapes du premier lancement et configuration requise.">
+<meta name="description" content="Téléchargez Hey Look! pour Windows, macOS ou Linux. Gratuit, avec toutes les fonctionnalités. Noms des programmes d’installation, étapes du premier lancement et configuration requise.">
 <meta name="color-scheme" content="light dark">
 <meta name="theme-color" content="#f4f5f7" media="(prefers-color-scheme: light)">
 <meta name="theme-color" content="#131417" media="(prefers-color-scheme: dark)">
@@ -32,7 +32,7 @@
 <header class="hdr">
   <div class="wrap hdr-in">
     <a class="brand" href="index.html" aria-label="Accueil Hey Look!"><svg aria-hidden="true" focusable="false"><use href="#hl-mark"/></svg><span>Hey Look!</span></a>
-    <nav id="site-nav" class="nav" aria-label="Principale">
+    <nav id="site-nav" class="nav" aria-label="Navigation principale">
       <a href="index.html#story">La visite</a>
       <a href="index.html#free">Inclus</a>
       <a href="features.html">Fonctions</a>
@@ -65,17 +65,17 @@
   </div>
 </header>
 <main id="main">
-<section class="page-head"><div class="wrap"><p class="kicker">Télécharger</p><h1>Prenez-le. <em>C’est gratuit.</em></h1><p class="lead">Toutes les fonctionnalités, sans compte. Choisissez votre système. Hey Look! se met à jour après votre accord.</p></div></section>
+<section class="page-head"><div class="wrap"><p class="kicker">Télécharger</p><h1>Téléchargez-le. <em>C’est gratuit.</em></h1><p class="lead">Toutes les fonctionnalités, sans compte. Choisissez votre système. Hey Look! se met à jour après votre accord.</p></div></section>
 <div class="wrap section dl-page">
   <div id="dl-status" class="dl-status" role="status" data-state=""><span class="dot" aria-hidden="true"></span><span class="grow msg">Récupérez la dernière version sur GitHub Releases.</span><a id="dl-fallback" class="btn btn-ghost btn-sm" href="https://github.com/thnonl/hey-look/releases/latest"><svg class="ic" aria-hidden="true" focusable="false"><use href="#i-external"/></svg>Ouvrir GitHub Releases</a></div>
   <noscript><p class="callout">Récupérez la dernière version sur GitHub Releases. <a class="btn btn-primary btn-sm" href="https://github.com/thnonl/hey-look/releases/latest">Ouvrir GitHub Releases</a></p></noscript>
   <div id="downloads" class="dl-grid">
     <article class="dl-card" id="card-windows"><span class="rec-b">Recommandé pour vous</span>
       <h2><svg class="ic" aria-hidden="true" focusable="false"><use href="#i-windows"/></svg>Windows</h2><p class="sub">Windows 10 et 11, 64 bits.</p>
-      <div class="asset" data-asset="win-exe" data-pattern="HeyLook_&lt;version&gt;_windows_x64-setup.exe"><a class="btn btn-primary" href="https://github.com/thnonl/hey-look/releases/latest" data-label="Télécharger l’installateur (.exe)"><svg class="ic" aria-hidden="true" focusable="false"><use href="#i-download"/></svg><span class="t">Télécharger l’installateur (.exe)</span></a><span class="fn">HeyLook_&lt;version&gt;_windows_x64-setup.exe</span><small class="sz"></small></div>
+      <div class="asset" data-asset="win-exe" data-pattern="HeyLook_&lt;version&gt;_windows_x64-setup.exe"><a class="btn btn-primary" href="https://github.com/thnonl/hey-look/releases/latest" data-label="Télécharger le programme d’installation (.exe)"><svg class="ic" aria-hidden="true" focusable="false"><use href="#i-download"/></svg><span class="t">Télécharger le programme d’installation (.exe)</span></a><span class="fn">HeyLook_&lt;version&gt;_windows_x64-setup.exe</span><small class="sz"></small></div>
       <div class="asset" data-asset="win-msi" data-pattern="HeyLook_&lt;version&gt;_windows_x64.msi"><a class="btn btn-ghost" href="https://github.com/thnonl/hey-look/releases/latest" data-label="Télécharger le MSI"><svg class="ic" aria-hidden="true" focusable="false"><use href="#i-download"/></svg><span class="t">Télécharger le MSI</span></a><span class="fn">HeyLook_&lt;version&gt;_windows_x64.msi</span><small class="sz"></small></div>
       <details><summary>Notes pour Windows</summary>
-        <p>Les installateurs ne sont pas encore signés (signature de code). Si SmartScreen apparaît, choisissez <strong>Informations complémentaires</strong>, puis <strong>Exécuter quand même</strong>.</p>
+        <p>Les programmes d’installation ne sont pas encore signés numériquement. Si SmartScreen apparaît, choisissez <strong>Informations complémentaires</strong>, puis <strong>Exécuter quand même</strong>.</p>
         <p>Le MSI est destiné aux installations gérées et n’installe pas WebView2 lui-même&nbsp;; le setup.exe, si. Une mise à jour MSI demande des droits d’administrateur.</p></details>
     </article>
     <article class="dl-card" id="card-macos"><span class="rec-b">Recommandé pour vous</span>
@@ -84,7 +84,7 @@
       <details id="install-notes" open><summary>Premier lancement sous macOS&nbsp;: trois étapes, une seule fois</summary>
         <p>L’application est signée ad hoc mais non notarisée par Apple&nbsp;; macOS bloque donc son premier lancement.</p>
         <ol><li>Ouvrez le .dmg, faites glisser <strong>Hey Look!</strong> vers <strong>Applications</strong>, puis lancez-le depuis Applications (pas depuis l’image disque).</li>
-        <li>macOS affiche le message «&nbsp;Hey Look! n’a pas été ouvert&nbsp;». Cliquez sur <strong>OK</strong>, et non sur Placer dans la corbeille.</li>
+        <li>macOS affiche le message «&nbsp;Hey Look! n’a pas été ouvert&nbsp;». Cliquez sur <strong>Terminé</strong>, et non sur Placer dans la corbeille.</li>
         <li>Ouvrez <strong>Réglages Système &gt; Confidentialité et sécurité</strong>, faites défiler jusqu’à <strong>Sécurité</strong>, cliquez sur <strong>Ouvrir quand même</strong>, confirmez avec votre mot de passe ou Touch ID, puis cliquez sur <strong>Ouvrir</strong>.</li></ol>
         <p>Vous préférez le Terminal&nbsp;? Exécutez ceci une fois à la place des étapes 2 et 3&nbsp;:</p>
         <div class="copy"><code>xattr -dr com.apple.quarantine "/Applications/Hey Look!.app"</code><button class="btn btn-ghost btn-sm" type="button">Copier</button></div>
@@ -118,7 +118,7 @@
     <li><h3>Vos données restent les vôtres</h3><p>Le cache des messages est un fichier SQLite local sur votre ordinateur. Les secrets restent dans le trousseau de clés du système. Voir la <a href="privacy.html">politique de confidentialité</a>.</p></li>
   </ol>
   <div class="callout" id="gmail-signin"><h3>Gmail</h3><p>Connectez-vous avec votre compte Google. Hey Look! n’a pas encore terminé l’examen de Google&nbsp;; Google affiche donc d’abord un avertissement («&nbsp;Google n’a pas validé cette application&nbsp;») et autorise jusqu’à 100 personnes à se connecter. <a href="help.html#google-review">Que faire</a>. Avec un compte Gmail personnel, vous pouvez aussi utiliser un mot de passe d’application.</p></div>
-  <p class="after-note">Des questions&nbsp;? Consultez <a href="help.html">Aide et FAQ</a>. Toutes les versions et notes de version se trouvent sur <a href="https://github.com/thnonl/hey-look/releases" rel="noopener">GitHub Releases</a>. Les installateurs ne sont pas encore signés (signature de code).</p>
+  <p class="after-note">Des questions&nbsp;? Consultez <a href="help.html">Aide et FAQ</a>. Toutes les versions et notes de version se trouvent sur <a href="https://github.com/thnonl/hey-look/releases" rel="noopener">GitHub Releases</a>. Les programmes d’installation ne sont pas encore signés numériquement.</p>
 </div>
 </main>
 <footer class="ftr">
