@@ -12,9 +12,10 @@ assert.equal(calendarSyncKind({ auth: "oauth_google", imapHost: "imap.gmail.com"
 assert.equal(calendarSyncKind({ auth: "password", imapHost: "IMAP.GMAIL.COM" }), "google", "Gmail with an app password");
 assert.equal(calendarSyncKind({ auth: "password", imapHost: "imap.mail.me.com" }), null, "iCloud has none");
 assert.equal(calendarSyncKind({ auth: "password", imapHost: "mail.example.com" }), null);
-// Microsoft is listed by the build only when its provider is shipped
-assert.equal(calendarSyncKind({ auth: "oauth_microsoft", imapHost: "outlook.office365.com" }), CALENDAR_SYNC_KINDS.includes("microsoft") ? "microsoft" : null);
-assert.ok(CALENDAR_SYNC_KINDS.includes("google"));
+// Microsoft mailboxes (Outlook.com, Hotmail, Microsoft 365) have it too, whatever their IMAP host
+assert.equal(calendarSyncKind({ auth: "oauth_microsoft", imapHost: "outlook.office365.com" }), "microsoft");
+assert.equal(calendarSyncKind({ auth: "password", imapHost: "outlook.office365.com" }), null, "a password mailbox on Outlook has no OAuth grant to extend");
+assert.deepEqual(CALENDAR_SYNC_KINDS, ["google", "microsoft"]);
 
 // ---- ids
 assert.ok(isSyncedCalendarId("google:acc:primary") && isSyncedCalendarId("ms:acc:x") && isSyncedCalendarId("caldav:a:b"));
@@ -53,6 +54,14 @@ assert.deepEqual(line({ status: "error", lastError: "HTTP 500", retryAt: NOW + 2
   text: "Couldn’t sync the calendar: HTTP 500. Hey Look! tries again in 4 min.", tone: "muted", syncNow: "on", allow: false,
 });
 assert.equal(statusLine(src({ kind: "microsoft", status: "busy", retryAt: NOW + 60 }), ctx).text, "Outlook is busy. Hey Look! tries again in 1 min.");
+// Microsoft: admin approval needed, no mailbox the API reaches
+assert.deepEqual(statusLine(src({ kind: "microsoft", status: "blocked", lastError: "AADSTS65001: The user or administrator has not consented" }), { ...ctx, email: "me@contoso.com" }), {
+  text: "me@contoso.com’s organization hasn’t approved Hey Look! for calendar access. Ask your IT admin.", tone: "bad", syncNow: "off", allow: true,
+});
+assert.equal(
+  statusLine(src({ kind: "microsoft", status: "notsetup", lastError: "The mailbox is either inactive, soft-deleted, or is hosted on-premise." }), ctx).text,
+  "Calendar sync isn’t available in this version of Hey Look! (Microsoft reported: The mailbox is either inactive, soft-deleted, or is hosted on-premise.).",
+);
 
 // ---- too many events, and the sidebar notice
 const cal = (over) => ({ id: "google:a:x", name: "Big", color: "#039be5", readOnly: false, primary: false, syncOn: true, eventCount: 25000, truncated: false, ...over });
