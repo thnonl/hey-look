@@ -53,6 +53,8 @@ export interface StatusLine {
   syncNow: "on" | "disabled" | "off";
   /** the `Allow access again` button */
   allow: boolean;
+  /** the technical part of an error (what the server said), shown apart in smaller type */
+  detail?: string;
 }
 
 const minutes = (retryAt: number | null, nowSec: number) => Math.max(1, Math.ceil(((retryAt ?? nowSec) - nowSec) / 60));
@@ -72,11 +74,12 @@ export function statusLine(src: CalSource, ctx: { email: string; nowSec: number;
     case "auth":
       return { text: t("calendar.sync.auth", { email: ctx.email }), tone: "bad", syncNow: "off", allow: true };
     case "blocked":
-      return { text: t("calendar.sync.blocked", { email: ctx.email }), tone: "bad", syncNow: "off", allow: true };
+      // the organization has to approve the app first: asking for access again cannot help until the admin has acted (switching the sync off and on starts over)
+      return { text: t("calendar.sync.blocked", { email: ctx.email }), tone: "bad", syncNow: "off", allow: false };
     case "notsetup":
       return { text: t("calendar.sync.notSetUp", { provider: providerName(kind), reason }), tone: "bad", syncNow: "off", allow: false };
     case "error":
-      return { text: t("calendar.sync.error", { reason, n: minutes(src.retryAt, ctx.nowSec) }), tone: "muted", syncNow: "on", allow: false };
+      return { text: t("calendar.sync.error", { n: minutes(src.retryAt, ctx.nowSec) }), tone: "muted", syncNow: "on", allow: false, detail: t("calendar.sync.details", { reason }) };
     default:
       return { text: lastSyncedText(src.lastSync, ctx.nowSec, ctx.fmtTime), tone: "muted", syncNow: "on", allow: false };
   }

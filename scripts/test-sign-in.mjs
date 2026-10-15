@@ -3,7 +3,7 @@
 // Checks src/signIn.ts. Run: node --experimental-strip-types scripts/test-sign-in.mjs
 import assert from "node:assert/strict";
 import { setLangPref } from "../src/i18n/index.ts";
-import { GOOGLE_REVIEW_HELP_URL, GOOGLE_REVIEW_PENDING, endHint, endLead, endReason, needsSignIn, waitHint } from "../src/signIn.ts";
+import { GOOGLE_REVIEW_HELP_URL, GOOGLE_REVIEW_PENDING, endHint, endLead, endNotice, endReason, needsSignIn, waitHint } from "../src/signIn.ts";
 import { calendarErrorText, statusLine } from "../src/calendarSync.ts";
 import { backendText } from "../src/backendErrors.ts";
 
@@ -34,7 +34,7 @@ setLangPref("en");
 assert.equal(waitHint("microsoft"), null, "only Google has a warning page to explain");
 const wait = waitHint("google");
 assert.ok(wait.includes("Google hasn’t verified this app") && wait.includes("Advanced") && wait.includes("Go to Hey Look! (unsafe)") && wait.includes("waiting for Google’s review"), wait);
-for (const reason of ["timeout", "cancelled", "denied"]) {
+for (const reason of ["timeout", "cancelled", "denied", "blocked"]) {
   const mailHint = endHint("google", "mail", reason);
   assert.ok(/may have blocked/.test(mailHint.text) && /limit for apps Google hasn’t verified/.test(mailHint.text) && /app password/.test(mailHint.text), mailHint.text);
   assert.deepEqual([mailHint.appPassword, mailHint.learn], [true, true], "mail: the app password way and the Help link");
@@ -42,7 +42,7 @@ for (const reason of ["timeout", "cancelled", "denied"]) {
   assert.ok(/may have blocked/.test(calHint.text) && /mail isn’t affected/.test(calHint.text), calHint.text);
   assert.deepEqual([calHint.appPassword, calHint.learn], [false, true], "calendar sync cannot use an app password");
 }
-assert.equal(endHint("google", "mail", "blocked"), null);
+// (Google "blocked" used to have no sentence at all: the red notice came out empty)
 // the sentence that opens a mail notice
 assert.equal(endLead("google", "timeout"), "Google sign-in timed out.");
 assert.equal(endLead("microsoft", "cancelled"), "Microsoft sign-in was cancelled.");
@@ -71,6 +71,27 @@ for (const lang of ["vi", "fr"]) {
   assert.ok(/CNTT/.test(endHint("microsoft", "mail", "timeout").text) || /informatique/.test(endHint("microsoft", "mail", "timeout").text), `${lang}: ask the IT admin`);
   assert.ok(/CNTT|informatique/.test(statusLine(src, { email: "me@x.test", nowSec: 0, fmtTime: String }).text), `${lang}: calendar blocked names the IT admin`);
   assert.ok(endHint("google", "mail", "timeout").appPassword);
+}
+setLangPref("en");
+
+// ---- the notice of a sign-in that ended is never empty: every provider x purpose x reason, in every language
+for (const lang of ["en", "vi", "fr"]) {
+  setLangPref(lang);
+  for (const provider of ["google", "microsoft"]) {
+    for (const purpose of ["mail", "calendar"]) {
+      for (const reason of ["timeout", "cancelled", "denied", "blocked"]) {
+        // the calendar passes its own sentence; an empty one must still end in visible text
+        for (const calendarLead of purpose === "calendar" ? ["Calendar sign-in ended.", "", null] : [null]) {
+          const { lead, hint } = endNotice(provider, purpose, reason, calendarLead);
+          const shown = [lead, hint?.text].filter(Boolean).join(" ").trim();
+          assert.ok(shown.length > 10 && !/{w+}/.test(shown), `${lang} ${provider} ${purpose} ${reason} [${calendarLead}]: "${shown}"`);
+        }
+      }
+    }
+  }
+  // the Google "blocked" case carries the review advice, the app password way (mail) and the Help link
+  const g = endNotice("google", "mail", "blocked");
+  assert.ok(g.hint.appPassword && g.hint.learn && /Google/.test(g.hint.text), `${lang}: ${g.hint.text}`);
 }
 setLangPref("en");
 

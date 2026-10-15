@@ -74,7 +74,7 @@ export interface EndHint {
  */
 export function endHint(provider: SignInProvider, purpose: "mail" | "calendar", reason: EndReason): EndHint | null {
   if (provider === "google") {
-    if (!GOOGLE_REVIEW_PENDING || reason === "blocked") return null;
+    if (!GOOGLE_REVIEW_PENDING) return null;
     return purpose === "mail"
       ? { text: t("signin.end.google.mail"), appPassword: true, learn: true }
       : { text: t("signin.end.google.calendar"), appPassword: false, learn: true };
@@ -84,6 +84,18 @@ export function endHint(provider: SignInProvider, purpose: "mail" | "calendar", 
     return purpose === "mail" ? { text: t("signin.end.microsoft.blocked"), appPassword: false, learn: false } : null;
   }
   return { text: t("signin.end.microsoft"), appPassword: false, learn: false };
+}
+
+/**
+ * What the notice of a sign-in that ended says, never nothing: the opening sentence (mail: `endLead`; calendar: its own sentence, passed
+ * as `calendarLead`) and the advice. When neither exists (Google after its review, a calendar sentence that is empty) a plain
+ * "sign-in didn't finish" stands in, so the alert never shows an empty box.
+ */
+export function endNotice(provider: SignInProvider, purpose: "mail" | "calendar", reason: EndReason, calendarLead?: string | null): { lead: string | null; hint: EndHint | null } {
+  const lead = (purpose === "calendar" ? calendarLead : endLead(provider, reason))?.trim() || null;
+  const hint = endHint(provider, purpose, reason);
+  if (!lead && !hint?.text.trim()) return { lead: t("signin.end.generic", { provider: providerLabel(provider) }), hint: null };
+  return { lead, hint };
 }
 
 /** The line shown while the browser sign-in waits: Google's warning page is explained, Microsoft needs nothing more. */
