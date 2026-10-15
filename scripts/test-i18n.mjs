@@ -317,6 +317,15 @@ if (!args.has("--lint-only")) {
     setLangPref("en");
   }
 
+  // ---- CJK line breaking: Japanese and Chinese paragraphs keep "ん。" and closing punctuation off the start of a line, Latin text is not touched
+  {
+    const css = readFileSync(join(root, "src/App.css"), "utf8");
+    assert.match(css, /:root:lang\(ja\)[^{]*\{[^}]*line-break:\s*strict;[^}]*word-break:\s*auto-phrase/, "ja: line-break strict + word-break auto-phrase");
+    assert.match(css, /:root:lang\(zh-Hans\)[^{]*\{[^}]*line-break:\s*strict/, "zh-Hans: line-break strict");
+    const rules = css.match(/[^{}]*\{[^}]*(line-break|word-break:\s*auto-phrase)[^}]*\}/g) ?? [];
+    assert.ok(rules.every((r) => /lang\((ja|zh-Hans)\)|lang="(ja|zh-Hans)"/.test(r)), "line-break / auto-phrase are set for ja and zh-Hans only (nothing else changes how Latin text wraps)");
+  }
+
   // ---- errors that come from the Rust side as codes (backend.<CODE>)
   assert.deepEqual(parseCoded("OUTBOX_SENDING: This message is being sent right now."), { code: "OUTBOX_SENDING", params: {}, text: "This message is being sent right now." });
   assert.deepEqual(parseCoded("PGP_NO_KEY|email=a%3Ab@c.d%7Cx: You have no PGP key for a:b@c.d|x.")?.params, { email: "a:b@c.d|x" });
