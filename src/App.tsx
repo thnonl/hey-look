@@ -386,8 +386,8 @@ function App() {
         case "u": void st.act(ids, "unread"); break;
         case "p": void st.act(ids, cur?.pinned ? "unpin" : "pin"); break;
         case "*": void st.act(ids, cur?.flagged ? "unstar" : "star"); break;
-        // the Snooze button of the reading pane: its tooltip is translated but always ends with the key hint "(s)"
-        case "s": document.querySelector<HTMLButtonElement>('.reading-pane button[title$="(s)"]')?.click(); break;
+        // the Snooze button of the reading pane (found by its class: its tooltip is translated, and written with the punctuation of the language)
+        case "s": document.querySelector<HTMLButtonElement>(".reading-pane button.snooze-btn")?.click(); break;
         case "r": replyLast(false); break;
         case "a": replyLast(true); break;
         case "f": forwardLast(); break;

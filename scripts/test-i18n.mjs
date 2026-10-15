@@ -380,7 +380,10 @@ if (!args.has("--lint-only")) {
     if (!BACKEND_ERRORS.some((e) => e.re.test(text))) fail(`calendar sync sentence not covered by BACKEND_ERRORS: ${m[1]}: ${text}`);
   }
   // the Snooze tooltip must keep ending with the shortcut: App.tsx finds the button by it
-  for (const [name, dict] of Object.entries(dicts)) if (!String(dict["reading.head.snoozeTip"]).endsWith(" (s)")) fail(`${name}: reading.head.snoozeTip must end with " (s)"`);
+  // the Snooze tip ends with the key hint "s" in brackets, in the punctuation of the language ("(s)", full-width "（s）" in Japanese / Chinese);
+  // the shortcut itself finds the button by its class, not by this text
+  for (const [name, dict] of Object.entries(dicts)) if (!/[(（]\s?s\s?[)）]$/.test(String(dict["reading.head.snoozeTip"]))) fail(`${name}: reading.head.snoozeTip must end with the key hint "(s)" (or "（s）")`);
+  assert.ok(/\.reading-pane button\.snooze-btn/.test(readFileSync(join(root, "src/App.tsx"), "utf8")) && readFileSync(join(root, "src/components/ReadingPane.tsx"), "utf8").includes('className="icon-btn snooze-btn"'), "the s shortcut finds the Snooze button by class");
 }
 
 // ------------------------------------------------------------------------------------------------ 2. hard-coded English lint

@@ -710,7 +710,7 @@ export function ReadingPane() {
           <button className="icon-btn" title={t("reading.head.archiveTip")} aria-label={t("reading.head.archive")} onClick={() => void act(id, "archive", undefined, t("reading.head.archived"))}><Archive size={16} /></button>
           <button className="icon-btn" title={t("reading.head.deleteTip")} aria-label={t("reading.head.delete")} onClick={() => void act(id, "trash", undefined, t("reading.head.trashed"))}><Trash2 size={16} /></button>
           <Dropdown
-            className="icon-btn"
+            className="icon-btn snooze-btn"
             caret={false}
             title={t("reading.head.snoozeTip")}
             items={snoozePresets(prefs.snoozeTimes).map((p) => ({
