@@ -98,7 +98,7 @@ export default defineLocale<typeof ns.en>({
   "reading.body.alwaysLoad": "Externe Inhalte immer laden (Einstellungen)",
   "reading.body.frameTitle": "Nachrichtentext",
   "reading.body.frameTitleSubject": "Nachrichtentext: {subject}",
-  "reading.body.linkWarnTitle": "Dieser Link führt möglicherweise nicht dorthin, wohin er vorgibt",
+  "reading.body.linkWarnTitle": "Dieser Link führt möglicherweise nicht zum angegebenen Ziel",
   "reading.body.linkWarnBody": "Angezeigt wird „{text}“, geöffnet wird aber {target}. Trotzdem öffnen?",
   "reading.body.linkWarnConfirm": "Link öffnen",
   "reading.pic.missing": "Bild fehlt in dieser Nachricht (cid:{cid})",
@@ -111,7 +111,7 @@ export default defineLocale<typeof ns.en>({
   // ---- attachments: file types and cards
   "reading.att.typeImage": "{type}-Bild",
   "reading.att.typeCalendar": "Kalendereinladung",
-  "reading.att.typeKey": "Schlüssel",
+  "reading.att.typeKey": "Verschlüsselungsschlüssel",
   "reading.att.typeProgram": "Programm oder Skript",
   "reading.att.typeExt": "{ext}-Datei",
   "reading.att.typeText": "Text",
