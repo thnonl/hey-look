@@ -233,7 +233,7 @@ export default defineLocale<typeof ns.en>({
   // ---- delete an event of a synced calendar
   "calendar.delete.title": "删除此事件？",
   "calendar.delete.body": "它也会从{service}中的{calendar}删除。",
-  "calendar.delete.bodyGuests": "它也会从{service}中的{calendar}删除。受邀者将收到来自{service}的取消通知。",
+  "calendar.delete.bodyGuests": "它也会从{service}中的{calendar}删除。与会者将收到来自{service}的取消通知。",
   // ---- calendar sync (Settings status line, sidebar, event notes)
   "calendar.sync.never": "尚未同步",
   "calendar.sync.justNow": "刚刚同步",
