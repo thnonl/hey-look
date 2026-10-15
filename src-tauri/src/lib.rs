@@ -259,6 +259,29 @@ async fn add_account(
     password_value: String,
     smtp_password: Option<String>,
 ) -> R<Account> {
+    let db = state.db.clone();
+    blocking(move || {
+        let imap_login = |acc: &Account, pw: &str| -> R<()> {
+            let mut s = mail::connect(acc, pw)?;
+            let _ = s.logout();
+            Ok(())
+        };
+        add_account_with(&db, input, &password_value, smtp_password, &imap_login, &smtp::test)
+    })
+    .await
+}
+
+/// The whole of "Add account": the connection checks come first and the first thing written (the password, then the account row)
+/// only after both have passed, so an add that is refused leaves nothing behind.
+/// `imap_login` and `smtp_check` are the two connection checks (the real ones, or stand-ins in tests).
+fn add_account_with(
+    db: &Db,
+    input: AccountInput,
+    password_value: &str,
+    smtp_password: Option<String>,
+    imap_login: &dyn Fn(&Account, &str) -> R<()>,
+    smtp_check: &dyn Fn(&Account, &str) -> R<()>,
+) -> R<Account> {
     let acc = Account {
         id: uuid::Uuid::new_v4().to_string(),
         email: input.email,
@@ -276,27 +299,11 @@ async fn add_account(
         tls_insecure: input.tls_insecure,
     };
     let smtp_password = smtp_password.filter(|p| !p.is_empty());
-    let a2 = acc.clone();
-    let pw = password_value.clone();
-    let smtp_pw = smtp_password.clone().unwrap_or_else(|| password_value.clone());
+    let smtp_pw = smtp_password.clone().unwrap_or_else(|| password_value.to_string());
     let test_smtp = !acc.smtp_username.is_empty() || smtp_password.is_some();
-    blocking(move || {
-        let mut s = mail::connect(&a2, &pw)?;
-        let _ = s.logout();
-        // a separate SMTP login is verified up front; a shared one never was and a refusal of it still is not held against the account,
-        // but a server that cannot be secured (a plain port with SSL/TLS or STARTTLS) is reported now, as the IMAP side is (REQ-53)
-        if test_smtp {
-            smtp::test(&a2, &smtp_pw)?;
-        } else if let Err(e) = smtp::test(&a2, &smtp_pw) {
-            if mail::is_secure_connection_error(&e) {
-                return Err(e);
-            }
-        }
-        Ok(())
-    })
-    .await?;
+    check_new_account(&acc, password_value, &smtp_pw, test_smtp, imap_login, smtp_check)?;
     keyring::Entry::new(KEYRING_SERVICE, &acc.id)
-        .and_then(|e| e.set_password(&password_value))
+        .and_then(|e| e.set_password(password_value))
         .map_err(|e| keyring_error_text(std::env::consts::OS, "save", &e.to_string()))?;
     if let Some(sp) = &smtp_password {
         let stored = keyring::Entry::new(KEYRING_SERVICE, &format!("{}:smtp", acc.id)).and_then(|e| e.set_password(sp));
@@ -309,11 +316,33 @@ async fn add_account(
         }
     }
     // the color is chosen and stored here, so every window shows the same one from the first moment
-    let c = lock(&state.db);
+    let c = lock(db);
     let mut acc = acc;
     acc.color = Some(db::pick_account_color(db::list_accounts(&c)?.iter().map(|a| a.color.as_deref())));
     db::insert_account(&c, &acc)?;
     Ok(acc)
+}
+
+/// What an account must pass before it is stored: the IMAP login, and the SMTP side. A separate SMTP login is verified up front; a
+/// shared one never was and a refusal of it still is not held against the account, but a server that cannot be secured (a plain port
+/// or a silent one, with SSL/TLS or STARTTLS) is reported now, as the IMAP side is (REQ-53), and the account is not added.
+fn check_new_account(
+    acc: &Account,
+    password_value: &str,
+    smtp_pw: &str,
+    test_smtp: bool,
+    imap_login: &dyn Fn(&Account, &str) -> R<()>,
+    smtp_check: &dyn Fn(&Account, &str) -> R<()>,
+) -> R<()> {
+    imap_login(acc, password_value)?;
+    if test_smtp {
+        smtp_check(acc, smtp_pw)?;
+    } else if let Err(e) = smtp_check(acc, smtp_pw) {
+        if mail::is_secure_connection_error(&e) {
+            return Err(e);
+        }
+    }
+    Ok(())
 }
 
 #[tauri::command]

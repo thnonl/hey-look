@@ -390,10 +390,14 @@ fn transport_with(acc: &Account, secret: &str, timeout: Option<std::time::Durati
     Ok((if acc.auth.starts_with("oauth_") { b.authentication(vec![Mechanism::Xoauth2]) } else { b }).build())
 }
 
-/// Why `probe_ssl_handshake` gave up.
+const SILENT_TLS: &str = "no answer to the TLS handshake";
+const SILENT_STARTTLS: &str = "no answer to the STARTTLS request";
+
+/// Why `probe_ssl_handshake` / `probe_starttls` gave up.
 enum Probe {
-    /// The server accepted the connection but did not answer the TLS handshake in time.
-    Silent,
+    /// The server accepted the connection but did not answer in time while the connection was being secured (the text says what
+    /// was waited for: the TLS handshake, or the greeting and the STARTTLS reply).
+    Silent(&'static str),
     /// The connection itself timed out (the text is the I/O error).
     ConnectTimedOut(String),
 }
@@ -403,7 +407,7 @@ impl Probe {
     /// connection the usual connection words, put into the caller’s own phrasing by `wrap`.
     fn explain(self, acc: &Account, wrap: impl Fn(&str) -> String) -> String {
         match self {
-            Probe::Silent => crate::mail::secure_connection_error(&acc.smtp_host, acc.smtp_port, "no answer to the TLS handshake"),
+            Probe::Silent(what) => crate::mail::secure_connection_error(&acc.smtp_host, acc.smtp_port, what),
             Probe::ConnectTimedOut(e) => wrap(&format!("Connection error: {e}")),
         }
     }
@@ -440,14 +444,94 @@ fn probe_ssl_handshake(acc: &Account, timeout: std::time::Duration) -> Result<()
                 let _ = stream.shutdown();
                 Ok(())
             }
-            Err(native_tls::HandshakeError::WouldBlock(_)) => Err(Probe::Silent),
+            Err(native_tls::HandshakeError::WouldBlock(_)) => Err(Probe::Silent(SILENT_TLS)),
             Err(native_tls::HandshakeError::Failure(e)) => {
                 use std::error::Error as _;
                 let io_timeout = e.source().and_then(|s| s.downcast_ref::<std::io::Error>()).is_some_and(|io| matches!(io.kind(), std::io::ErrorKind::TimedOut | std::io::ErrorKind::WouldBlock));
                 // platforms word a read that timed out differently, so the time the handshake took counts too
-                if io_timeout || started.elapsed() >= timeout.mul_f32(0.9) { Err(Probe::Silent) } else { Ok(()) }
+                if io_timeout || started.elapsed() >= timeout.mul_f32(0.9) { Err(Probe::Silent(SILENT_TLS)) } else { Ok(()) }
             }
         };
+    }
+    timed_out.map_or(Ok(()), |e| Err(Probe::ConnectTimedOut(e)))
+}
+
+/// The STARTTLS counterpart of `probe_ssl_handshake`, used by the connection check of an account being added: the greeting, EHLO and the
+/// STARTTLS request are run once on a socket whose reads are bound by one deadline, and the result is thrown away. A server that
+/// accepts the connection and then says nothing (a port that waits for the client, a firewall that swallows packets) cannot be secured,
+/// so it gets the secure connection hint and the account is not added; anything else (a refusal, a server without STARTTLS, a reply
+/// that is not understood) is left to lettre, which words it as before.
+fn probe_starttls(acc: &Account, timeout: std::time::Duration) -> Result<(), Probe> {
+    use std::io::{BufRead, BufReader, Write};
+    use std::net::ToSocketAddrs;
+    if acc.smtp_security != "starttls" {
+        return Ok(());
+    }
+    let Ok(addrs) = (acc.smtp_host.as_str(), acc.smtp_port).to_socket_addrs() else { return Ok(()) };
+    let mut timed_out = None;
+    for addr in addrs {
+        let sock = match std::net::TcpStream::connect_timeout(&addr, timeout) {
+            Ok(s) => s,
+            Err(e) if e.kind() == std::io::ErrorKind::TimedOut => {
+                timed_out = Some(e.to_string());
+                continue;
+            }
+            Err(_) => continue,
+        };
+        let _ = sock.set_write_timeout(Some(timeout));
+        let deadline = std::time::Instant::now() + timeout;
+        let Ok(mut out) = sock.try_clone() else { return Ok(()) };
+        let mut input = BufReader::new(sock);
+        // one reply: lines until one reads "NNN text" (not "NNN-text"); None when the server did not answer in time or went away
+        let reply = |input: &mut BufReader<std::net::TcpStream>| -> Result<Option<String>, ()> {
+            let mut first = None;
+            loop {
+                let left = deadline.saturating_duration_since(std::time::Instant::now());
+                if left.is_zero() {
+                    return Err(());
+                }
+                let _ = input.get_ref().set_read_timeout(Some(left));
+                let mut line = String::new();
+                match input.read_line(&mut line) {
+                    Ok(0) => return Ok(first),
+                    Ok(_) => {
+                        let multi = line.as_bytes().get(3) == Some(&b'-');
+                        first.get_or_insert(line);
+                        if !multi {
+                            return Ok(first);
+                        }
+                    }
+                    Err(e) if matches!(e.kind(), std::io::ErrorKind::TimedOut | std::io::ErrorKind::WouldBlock) => return Err(()),
+                    Err(_) => return Ok(first),
+                }
+            }
+        };
+        let silent = || Err(Probe::Silent(SILENT_STARTTLS));
+        match reply(&mut input) {
+            Err(()) => return silent(),
+            Ok(Some(g)) if g.starts_with("220") => {}
+            _ => return Ok(()),
+        }
+        if out.write_all(b"EHLO hey-look.local
+
+").is_err() {
+            return Ok(());
+        }
+        match reply(&mut input) {
+            Err(()) => return silent(),
+            Ok(Some(r)) if r.starts_with("250") => {}
+            _ => return Ok(()),
+        }
+        if out.write_all(b"STARTTLS
+
+").is_err() {
+            return Ok(());
+        }
+        let r = reply(&mut input);
+        let _ = out.write_all(b"QUIT
+
+");
+        return if r.is_err() { silent() } else { Ok(()) };
     }
     timed_out.map_or(Ok(()), |e| Err(Probe::ConnectTimedOut(e)))
 }
@@ -522,8 +606,8 @@ pub fn test(acc: &Account, secret: &str) -> R<()> {
     test_with(acc, secret, TEST_TIMEOUT)
 }
 
-fn test_with(acc: &Account, secret: &str, timeout: std::time::Duration) -> R<()> {
-    if let Err(p) = probe_ssl_handshake(acc, timeout) {
+pub(crate) fn test_with(acc: &Account, secret: &str, timeout: std::time::Duration) -> R<()> {
+    if let Err(p) = probe_ssl_handshake(acc, timeout).and_then(|()| probe_starttls(acc, timeout)) {
         return Err(p.explain(acc, |detail| format!("SMTP login failed: {detail}")));
     }
     match transport_with(acc, secret, Some(timeout))?.test_connection() {
@@ -924,7 +1008,8 @@ To:"), "no To header is invented: {out}");
                 acc.tls_insecure = true;
                 let t = std::time::Instant::now();
                 let e = test_with(&acc, "secret", short).unwrap_err();
-                assert_eq!(crate::mail::is_secure_connection_error(&e), security == "ssl", "{security}: connection check: {e}");
+                // a server that cannot be secured gets the hint (the add is refused); with no security asked for, it is an ordinary timeout
+                assert_eq!(crate::mail::is_secure_connection_error(&e), security != "none", "{security}: connection check: {e}");
                 assert!(t.elapsed() < std::time::Duration::from_secs(15), "{security}: connection check took {:?}", t.elapsed());
                 let t = std::time::Instant::now();
                 assert!(send_raw_with(&acc, "secret", &envelope_for_tests(), b"Subject: x\r\n\r\nhi", short).is_err(), "{security}: send");
@@ -956,5 +1041,209 @@ To:"), "no To header is invented: {out}");
         assert!(crate::mail::is_secure_connection_error(&hint));
         assert!(!crate::mail::is_secure_connection_error("SMTP login failed: bad password"));
         assert!(!crate::mail::is_secure_connection_error("certificate verify failed"));
+    }
+
+    // ---- Add account: a mailbox whose server cannot be secured is never saved (QA v1.0.1 round 2, BUG-1) ----
+
+    /// A server that speaks SMTP up to STARTTLS (greeting, EHLO with the STARTTLS extension, "220 Ready to start TLS") and stays silent
+    /// after the step named in `silent_after` ("greeting", "ehlo", "starttls"; anything else: it never goes silent).
+    fn starttls_smtp_server(silent_after: &'static str) -> (u16, std::sync::mpsc::Sender<()>) {
+        use std::io::{BufRead, BufReader, Write};
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        listener.set_nonblocking(true).unwrap();
+        let port = listener.local_addr().unwrap().port();
+        let (stop, gone) = std::sync::mpsc::channel::<()>();
+        std::thread::spawn(move || {
+            let mut held = Vec::new();
+            while !matches!(gone.try_recv(), Err(std::sync::mpsc::TryRecvError::Disconnected)) {
+                match listener.accept() {
+                    Ok((c, _)) => {
+                        let _ = c.set_nonblocking(false);
+                        let mut w = c.try_clone().unwrap();
+                        let r = c.try_clone().unwrap();
+                        held.push(c);
+                        std::thread::spawn(move || {
+                            let _ = w.write_all(b"220 fake.test ESMTP\r\n");
+                            if silent_after == "greeting" {
+                                return;
+                            }
+                            for line in BufReader::new(r).lines().map_while(Result::ok) {
+                                let l = line.to_uppercase();
+                                if l.starts_with("EHLO") {
+                                    if silent_after == "ehlo" {
+                                        return;
+                                    }
+                                    let _ = w.write_all(b"250-fake.test\r\n250 STARTTLS\r\n");
+                                } else if l.starts_with("STARTTLS") {
+                                    if silent_after == "starttls" {
+                                        return;
+                                    }
+                                    let _ = w.write_all(b"220 Ready to start TLS\r\n");
+                                } else if l.starts_with("QUIT") {
+                                    let _ = w.write_all(b"221 bye\r\n");
+                                    return;
+                                }
+                            }
+                        });
+                    }
+                    Err(_) => std::thread::sleep(std::time::Duration::from_millis(20)),
+                }
+            }
+        });
+        (port, stop)
+    }
+
+    /// A mail server that does not speak TLS on its IMAP port: greets in plain text, knows no STARTTLS, answers every command with BAD.
+    fn plain_imap_server() -> u16 {
+        use std::io::{Read, Write};
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let port = listener.local_addr().unwrap().port();
+        std::thread::spawn(move || {
+            for conn in listener.incoming().flatten() {
+                std::thread::spawn(move || {
+                    let _ = conn.set_read_timeout(Some(std::time::Duration::from_secs(5)));
+                    let mut w = conn.try_clone().unwrap();
+                    let _ = w.write_all(b"* OK plain IMAP ready\r\n");
+                    let mut r = &conn;
+                    let (mut buf, mut chunk) = (Vec::<u8>::new(), [0u8; 4096]);
+                    loop {
+                        match r.read(&mut chunk) {
+                            Ok(0) | Err(_) => break,
+                            Ok(n) => buf.extend_from_slice(&chunk[..n]),
+                        }
+                        if buf.iter().any(|b| !matches!(b, b'\r' | b'\n' | b'\t' | 0x20..=0x7e)) {
+                            break;
+                        }
+                        while let Some(end) = buf.iter().position(|b| *b == b'\n') {
+                            let line: Vec<u8> = buf.drain(..=end).collect();
+                            let tag = String::from_utf8_lossy(&line).split_whitespace().next().unwrap_or("*").to_string();
+                            if w.write_all(format!("{tag} BAD command not recognized\r\n").as_bytes()).is_err() {
+                                return;
+                            }
+                        }
+                    }
+                    let _ = conn.shutdown(std::net::Shutdown::Both);
+                });
+            }
+        });
+        port
+    }
+
+    fn memory_db() -> crate::Db {
+        let c = rusqlite::Connection::open_in_memory().unwrap();
+        crate::db::migrate(&c).unwrap();
+        std::sync::Arc::new(std::sync::Mutex::new(c))
+    }
+
+    fn account_rows(db: &crate::Db) -> i64 {
+        crate::lock(db).query_row("SELECT COUNT(*) FROM accounts", [], |r| r.get(0)).unwrap()
+    }
+
+    fn input(imap_port: u16, imap_ssl: bool, smtp_port: u16, smtp_security: &str) -> crate::AccountInput {
+        crate::AccountInput {
+            email: "qa@example.test".into(),
+            display_name: "QA".into(),
+            imap_host: "127.0.0.1".into(),
+            imap_port,
+            imap_ssl,
+            smtp_host: "127.0.0.1".into(),
+            smtp_port,
+            smtp_security: smtp_security.into(),
+            username: "qa".into(),
+            smtp_username: String::new(),
+            tls_insecure: true,
+        }
+    }
+
+    /// QA v1.0.1 round 2, BUG-1: an SMTP server that cannot be secured (a plain port or a silent one, with SSL/TLS or STARTTLS) gets the
+    /// secure connection hint and no account is stored, whatever the security mode and whether the SMTP login is shared or separate.
+    /// The IMAP login is stood in for by a check that passes: the point is what the SMTP side does to the add.
+    #[test]
+    fn add_account_with_an_smtp_server_that_cannot_be_secured_saves_nothing() {
+        crate::test_guard::within(120, || {
+            let plain = plain_smtp_server();
+            let (silent, _keep_open) = silent_server();
+            let (silent_after_greeting, _k1) = starttls_smtp_server("greeting");
+            let (silent_after_ehlo, _k2) = starttls_smtp_server("ehlo");
+            let (silent_after_starttls_request, _k3) = starttls_smtp_server("starttls");
+            let short = std::time::Duration::from_secs(2);
+            let imap_ok = |_: &Account, _: &str| -> R<()> { Ok(()) };
+            let smtp_check = |a: &Account, s: &str| test_with(a, s, short);
+            let db = memory_db();
+            let mut cases: Vec<(&str, u16, &str)> = vec![];
+            for security in ["ssl", "starttls"] {
+                cases.push(("plain port", plain, security));
+                cases.push(("silent port", silent, security));
+            }
+            cases.push(("silent after the greeting", silent_after_greeting, "starttls"));
+            cases.push(("silent after EHLO", silent_after_ehlo, "starttls"));
+            cases.push(("silent after the STARTTLS request", silent_after_starttls_request, "starttls"));
+            for (what, port, security) in cases {
+                for (login, smtp_pw) in [("shared", None), ("separate", Some("smtp-secret".to_string()))] {
+                    let t = std::time::Instant::now();
+                    let e = crate::add_account_with(&db, input(1, true, port, security), "secret", smtp_pw, &imap_ok, &smtp_check)
+                        .expect_err(&format!("{what}, {security}, {login} login: the add must be refused"));
+                    assert!(crate::mail::is_secure_connection_error(&e), "{what}, {security}, {login} login: {e}");
+                    assert!(e.contains(&format!("127.0.0.1:{port}")), "{what}, {security}, {login} login: {e}");
+                    assert!(t.elapsed() < std::time::Duration::from_secs(15), "{what}, {security}, {login} login took {:?}", t.elapsed());
+                    assert_eq!(account_rows(&db), 0, "{what}, {security}, {login} login: an account row was left behind");
+                }
+            }
+        });
+    }
+
+    /// The IMAP side: a plain port or a silent one, with SSL/TLS or STARTTLS, is refused and nothing is saved (the real login check,
+    /// with its 60 s socket timeout: the cases wait at the same time).
+    #[test]
+    fn add_account_with_an_imap_server_that_cannot_be_secured_saves_nothing() {
+        crate::test_guard::within(170, || {
+            let plain = plain_imap_server();
+            let (silent, _keep_open) = silent_server();
+            let db = memory_db();
+            let imap_login = |acc: &Account, pw: &str| -> R<()> {
+                let mut s = crate::mail::connect(acc, pw)?;
+                let _ = s.logout();
+                Ok(())
+            };
+            let smtp_ok = |_: &Account, _: &str| -> R<()> { Ok(()) };
+            let started = std::time::Instant::now();
+            std::thread::scope(|scope| {
+                let mut runs = vec![];
+                for (what, port) in [("plain port", plain), ("silent port", silent)] {
+                    for ssl in [true, false] {
+                        let (db, imap_login, smtp_ok) = (&db, &imap_login, &smtp_ok);
+                        runs.push((what, ssl, scope.spawn(move || crate::add_account_with(db, input(port, ssl, 1, "ssl"), "secret", None, imap_login, smtp_ok))));
+                    }
+                }
+                for (what, ssl, run) in runs {
+                    let e = run.join().unwrap().expect_err(&format!("{what}, imap ssl={ssl}: the add must be refused"));
+                    if what == "plain port" {
+                        assert!(crate::mail::is_secure_connection_error(&e), "{what}, imap ssl={ssl}: {e}");
+                    }
+                }
+            });
+            assert!(started.elapsed() < std::time::Duration::from_secs(150), "took {:?}", started.elapsed());
+            assert_eq!(account_rows(&db), 0, "an account row was left behind");
+        });
+    }
+
+    /// A server that does secure its connection (here: up to the "220 Ready to start TLS" reply) is not held up by the STARTTLS probe,
+    /// a connection that is not asked to use STARTTLS is not probed at all, and a silent server is told apart.
+    #[test]
+    fn the_starttls_probe_lets_a_cooperative_server_through() {
+        crate::test_guard::within(60, || {
+            let (port, _keep_open) = starttls_smtp_server("never");
+            let mut acc = account();
+            acc.smtp_host = "127.0.0.1".into();
+            acc.smtp_port = port;
+            acc.smtp_security = "starttls".into();
+            assert!(probe_starttls(&acc, std::time::Duration::from_secs(5)).is_ok());
+            let (silent, _k) = silent_server();
+            acc.smtp_port = silent;
+            acc.smtp_security = "none".into();
+            assert!(probe_starttls(&acc, std::time::Duration::from_secs(1)).is_ok());
+            acc.smtp_security = "starttls".into();
+            assert!(matches!(probe_starttls(&acc, std::time::Duration::from_secs(1)), Err(Probe::Silent(_))));
+        });
     }
 }
