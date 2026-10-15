@@ -75,7 +75,7 @@
   "story.snz_custom_say": "Vous pouvez définir vos propres heures dans Paramètres, sous Plus, Personnaliser les heures.",
   "story.snoozed": "Mis en attente : {subj}. La conversation revient dans votre boîte de réception **{when}**.",
   "story.jump_ahead": "Avancer dans le temps",
-  "story.snz_say": "Mis en attente. Retour {when}. Le dossier Mis en attente contient maintenant 1 conversation.",
+  "story.snz_say": "Mis en attente. La conversation revient {when}. Le dossier Mis en attente contient maintenant 1 conversation.",
   "story.snz_back": "La conversation est revenue dans la boîte de réception. Sous Windows et Linux, vous recevriez aussi une notification.",
   "story.ok": "OK",
   "story.snz_back_say": "La conversation est de retour dans la boîte de réception.",
@@ -101,7 +101,7 @@
   "story.cal_declined": "Refusé. Une réponse part de la bonne boîte aux lettres.",
   "story.cal_accepted": "Accepté. L’événement est dans votre calendrier et une réponse part de la bonne boîte aux lettres.",
   "story.cal_tentative": "Provisoire. L’événement est dans votre calendrier et une réponse part de la bonne boîte aux lettres.",
-  "story.cal_note": "La synchronisation avec un calendrier Google ou Microsoft est facultative, boîte aux lettres par boîte aux lettres. CalDAV pourrait arriver dans une prochaine mise à jour.",
+  "story.cal_note": "La synchronisation avec un calendrier Google ou Microsoft est facultative et se configure pour chaque boîte aux lettres. CalDAV pourrait arriver dans une prochaine mise à jour.",
 
   "story.img_loaded": "Contenu chargé. L’application a téléchargé elle-même les images quand elle le pouvait, donc l’expéditeur voit désormais une requête.",
   "story.img_blocked": "Le contenu distant est bloqué. Rien n’a été demandé à l’expéditeur.",
