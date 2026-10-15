@@ -31,7 +31,7 @@
 <a class="skip" href="#main">メインコンテンツへスキップ</a>
 <header class="hdr">
   <div class="wrap hdr-in">
-    <a class="brand" href="index.html" aria-label="Hey Look! ホーム"><svg aria-hidden="true" focusable="false"><use href="#hl-mark"/></svg><span>Hey Look!</span></a>
+    <a class="brand" href="index.html" aria-label="Hey Look!ホーム"><svg aria-hidden="true" focusable="false"><use href="#hl-mark"/></svg><span>Hey Look!</span></a>
     <nav id="site-nav" class="nav" aria-label="メインナビゲーション">
       <a href="index.html#story">ツアー</a>
       <a href="index.html#free">含まれるもの</a>
@@ -70,20 +70,20 @@
 <article class="prose">
 
 <h2 id="protect">Hey Look!があなたを守る方法</h2>
-<ul><li>サーバーはTLSまたはSTARTTLSに対応している必要があります。暗号化されていない接続しか提供しないサーバーは追加できません。</li><li>GoogleとMicrosoftのサインインは、プロバイダー自身のウィンドウで、PKCEを用いたOAuth 2.0 を使います。アプリが保存するのはトークンで、パスワードではありません。</li><li>パスワード、OAuthトークン、AIのキーは、システムの資格情報ストアに保管されます。</li><li>OpenPGPの秘密鍵は例外で、パスフレーズで保護してアプリのデータベースに保存され、資格情報ストアには保存されません。パスフレーズを何度も間違えると、ロック解除が30秒間待機状態になります。</li><li>メッセージは、スクリプトなし、厳格なコンテンツポリシーのもとで、iframe、object、embed、フォームを使わないフレームに表示されます。</li><li>リモート画像は、許可するまでブロックされるため、トラッキングピクセルは動作しません。</li><li>表示テキストが、別のホストを指すWebアドレスになっているリンクは、確認を求めます。これは一般的なフィッシング対策ではありません。</li><li>実行ファイルやスクリプトの添付ファイルを開くときは、先に確認が表示されます。</li><li>「この証明書を信頼する」は既定でオフです。アカウントごとの選択であり、そのアカウントの証明書チェックをオフにします。</li></ul>
-<h2 id="signed">アップデートは署名されています</h2><p>アプリはGitHubで新しいバージョンを確認し、<code>https://github.com/thnonl/hey-look/releases/download/&lt;tag&gt;/&lt;file&gt;</code> の形式のダウンロードアドレスのみを受け付けます。アプリに組み込まれた公開鍵でminisignの署名を検証し、キャンセル可能な5秒のカウントダウンのあとに再起動します。Windowsでは完全にインストールされ、macOSとLinuxでは許可が必要です。</p>
-<h2 id="codesign">インストーラーはまだコード署名されていません</h2><p>WindowsとmacOSのインストーラーはコード署名されておらず、macOS版は公証もされていないため、初回起動時にWindows SmartScreenとmacOS Gatekeeperが警告を表示します。初回起動の手順は<a href="download.html#install-notes">ダウンロードページ</a>にあります。署名は実現したいことのひとつです。助けになることについては<a href="support.html">支援ページ</a>をご覧ください。</p>
+<ul><li>サーバーはTLSまたはSTARTTLSに対応している必要があります。暗号化されていない接続しか提供しないサーバーは追加できません。</li><li>GoogleとMicrosoftのサインインは、プロバイダー自身のウィンドウで、PKCEを用いたOAuth 2.0 を使います。アプリが保存するのはトークンで、パスワードではありません。</li><li>パスワード、OAuthトークン、AIのAPIキーは、システムの資格情報ストアに保管されます。</li><li>OpenPGPの秘密鍵は例外で、パスフレーズで保護してアプリのデータベースに保存され、資格情報ストアには保存されません。パスフレーズを何度も間違えると、ロック解除まで30秒待つ必要があります。</li><li>メッセージは、スクリプトを無効にし、厳格なコンテンツポリシーを適用した、iframe、object、embed、フォームを含まないフレーム内に表示されます。</li><li>リモート画像は、許可するまでブロックされるため、トラッキングピクセルは動作しません。</li><li>表示テキストが、別のホストを指すWebアドレスになっているリンクは、確認を求めます。これは一般的なフィッシング対策ではありません。</li><li>実行ファイルやスクリプトの添付ファイルを開くときは、先に確認が表示されます。</li><li>「この証明書を信頼する」は既定でオフです。アカウントごとの選択であり、そのアカウントの証明書チェックをオフにします。</li></ul>
+<h2 id="signed">アップデートは署名されています</h2><p>アプリはGitHubで新しいバージョンを確認し、<code>https://github.com/thnonl/hey-look/releases/download/&lt;tag&gt;/&lt;file&gt;</code> の形式のダウンロードアドレスのみを受け付けます。アプリに組み込まれた公開鍵でminisignの署名を検証し、キャンセル可能な5秒のカウントダウンのあとに再起動します。Windowsではインストールまで完了し、macOSとLinuxではお客様の許可が必要です。</p>
+<h2 id="codesign">インストーラーはまだコード署名されていません</h2><p>WindowsとmacOSのインストーラーはコード署名されておらず、macOS版は公証もされていないため、初回起動時にWindows SmartScreenとmacOS Gatekeeperが警告を表示します。初回起動の手順は<a href="download.html#install-notes">ダウンロードページ</a>にあります。コード署名は、実現したい項目のひとつです。助けになることについては<a href="support.html">支援ページ</a>をご覧ください。</p>
 <h2 id="report">脆弱性を報告する</h2><p>セキュリティ上の問題は、GitHubを通じて非公開で報告してください。<a href="https://github.com/thnonl/hey-look/security" rel="noopener">github.com/thnonl/hey-look/security</a> を開いて「Report a vulnerability」を選びます。公開のIssueは作成しないでください。<a href="mailto:namth.onl@gmail.com">namth.onl@gmail.com</a> 宛にメールすることもできます。Hey Look!は空いた時間に作っているため、返答に時間がかかることがあり、返答までの時間を約束するものではありません。</p>
 <h2 id="limit">既知の制限</h2>
-<ul><li>カレンダーの招待の更新とキャンセルは、差出人アドレスが保存済みの主催者と一致する場合に受け付けられます。DKIM、SPF、S/MIMEの検証は行わないため、差出人アドレスが偽装されると、受信した予定が変更またはキャンセルされる可能性があります。通常、メールプロバイダーはそのようななりすましを拒否します。</li><li>OpenPGPは、他のOpenPGPソフトウェアとの動作をまだ検証していません。</li><li>AIアシスタントは、依頼の対象となるテキスト（復号されたOpenPGPの内容を含む）を、設定したエンドポイントに送信します。そのエンドポイントに対しては、非公開ではありません。</li><li>「アナリティクスなし」という記載は、ソースコードで確認したもので、ネットワークキャプチャによる確認ではありません。</li><li>第三者によるセキュリティ監査を受けたとは主張しません。</li></ul>
+<ul><li>カレンダーの招待の更新とキャンセルは、差出人アドレスが保存済みの主催者と一致する場合に受け付けられます。DKIM、SPF、S/MIMEの検証は行わないため、差出人アドレスが偽装されると、受信した予定が変更またはキャンセルされる可能性があります。通常、メールプロバイダーはそのようななりすましを拒否します。</li><li>OpenPGPは、他のOpenPGPソフトウェアとの動作をまだ検証していません。</li><li>AIアシスタントは、依頼の対象となるテキスト（復号されたOpenPGPの内容を含む）を、設定したエンドポイントに送信します。そのエンドポイントに対して内容は秘匿されません。</li><li>「アナリティクスなし」という記載は、ソースコードで確認したもので、ネットワークキャプチャによる確認ではありません。</li><li>第三者によるセキュリティ監査を受けたとは主張しません。</li></ul>
 </article></div>
 </main>
 <footer class="ftr">
   <div class="wrap">
-    <p class="thanks">Hey Look!をご利用いただき、ありがとうございます。これからも無料のオープンソースで、支援は任意です。<a href="support.html#support">プロジェクトを支援する</a></p>
+    <p class="thanks">Hey Look!をご利用いただき、ありがとうございます。今後も無料のオープンソースであり続けます。支援は任意です。<a href="support.html#support">プロジェクトを支援する</a></p>
     <div class="ftr-grid">
-      <div class="ftr-brand"><a class="brand" href="index.html" aria-label="Hey Look! ホーム"><svg aria-hidden="true" focusable="false"><use href="#hl-mark"/></svg><span>Hey Look!</span></a>
-        <p>Windows、macOS、Linux用のデスクトップメールクライアント。無料のオープンソース（MIT）です。</p></div>
+      <div class="ftr-brand"><a class="brand" href="index.html" aria-label="Hey Look!ホーム"><svg aria-hidden="true" focusable="false"><use href="#hl-mark"/></svg><span>Hey Look!</span></a>
+        <p>Windows、macOS、Linux用のデスクトップメールクライアント。無料のオープンソースソフトウェア（MITライセンス）です。</p></div>
       <div><h2>製品</h2><ul><li><a href="features.html">機能</a></li><li><a href="download.html">ダウンロード</a></li><li><a href="https://github.com/thnonl/hey-look/releases" rel="noopener">リリースノート</a></li><li><a href="support.html#support">プロジェクトを支援する</a></li></ul></div>
       <div><h2>信頼</h2><ul><li><a href="privacy.html">プライバシーポリシー</a></li><li><a href="terms.html">利用規約</a></li><li><a href="google-data.html">Google APIのデータ利用</a></li><li><a href="security.html">セキュリティ</a></li></ul></div>
       <div><h2>ヘルプ</h2><ul><li><a href="help.html">ヘルプとよくある質問</a></li><li><a href="support.html">プロジェクトを支援する</a></li><li><a href="https://github.com/thnonl/hey-look/issues" rel="noopener">問題を報告</a></li><li><a href="https://github.com/thnonl/hey-look" rel="noopener">GitHubのソースコード</a></li></ul></div>

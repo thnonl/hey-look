@@ -114,7 +114,7 @@ export default defineLocale<typeof ns.en>({
   "calendar.invite.openInCalendar": "カレンダーで開く",
   "calendar.invite.aria": "会議の招待：{summary}",
   "calendar.invite.cancelled": "主催者がこの予定をキャンセルしました",
-  "calendar.invite.outdated": "この招待の新しいバージョンを受信しています。最新のメッセージから返答してください。",
+  "calendar.invite.outdated": "この招待の新しいバージョンを受信しました。最新のメッセージから返答してください。",
   "calendar.invite.updated": "主催者が更新しました：{changes}",
   "calendar.invite.change.time": "日時の変更",
   "calendar.invite.change.location": "場所の変更",

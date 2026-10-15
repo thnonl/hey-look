@@ -8,7 +8,7 @@ export default defineLocale<typeof ns.en>({
   "backend.CONFIDENTIAL": "このメッセージは機密のため、この操作は許可されていません。",
   "backend.NO_SAVE_FOLDER": "保存先のフォルダーがありません。設定 > メールボックス > 閲覧と同期で指定してください。",
   "backend.LINK_NOT_OPENED": "この種類のリンクは開けません。",
-  "backend.FILE_GONE": "そのファイルは既に存在しません。",
+  "backend.FILE_GONE": "そのファイルは存在しなくなりました。",
   "backend.OUTBOX_GONE": "このメッセージは送信待ちではなくなりました。",
   "backend.OUTBOX_SENDING": "このメッセージは現在送信中です。",
   "backend.OUTBOX_MISSING": "この送信予約メッセージは存在しません。",
