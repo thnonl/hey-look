@@ -158,6 +158,7 @@ export function parseDate(text: string, ref = ""): string | null {
     return numericOrder() === "ymd" ? make(base.y, Number(a), Number(b)) : make(base.y, Number(b), Number(a)); // 16/10 or 10月16日
   }
   if (nums.length === 1) {
+    if (/\p{L}/u.test(s.replace(/[年月日号]/g, ""))) return null; // "3 foo" is not the 3rd
     const n = nums[0]!;
     if (n.length === 8) return make(Number(n.slice(0, 4)), Number(n.slice(4, 6)), Number(n.slice(6)));
     if (n.length <= 2) return make(base.y, base.m, Number(n)); // "16" = the 16th of the month the field had
