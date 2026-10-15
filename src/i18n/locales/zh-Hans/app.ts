@@ -238,7 +238,7 @@ export default defineLocale<typeof ns.en>({
   "app.sweep.readAll": "全部标记为已读",
   "app.sweep.blockAll": "阻止发件人并移至垃圾邮件",
   "app.original.title": "原始邮件",
-  "app.original.confidential": "此邮件为机密邮件，因此无法显示其源码。",
+  "app.original.confidential": "此邮件为机密邮件，因此无法显示原始邮件。",
   "app.original.fetching": "正在从服务器获取…",
   "app.original.copied": "已复制",
 });
