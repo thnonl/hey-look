@@ -142,7 +142,7 @@ export default define({
   vi: {
     "updates.action.restartNow": "Khởi động lại ngay",
     "updates.action.later": "Để sau",
-    "updates.action.notNow": "Chưa phải lúc này",
+    "updates.action.notNow": "Không phải bây giờ",
     "updates.action.update": "Cập nhật",
     "updates.action.whatsNew": "Có gì mới",
     "updates.action.open": "Mở",

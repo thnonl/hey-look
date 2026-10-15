@@ -122,11 +122,11 @@ fn texts(k: K) -> [&'static str; 3] {
         K::ActRead => ["Mark as read", "Đánh dấu đã đọc", "Marquer comme lu"],
         K::ActFlag => ["Flag", "Gắn cờ", "Assurer un suivi"],
         K::ActReply => ["Reply", "Trả lời", "Répondre"],
-        K::ActSnooze => ["Snooze", "Tạm hoãn", "Mettre en attente"],
+        K::ActSnooze => ["Snooze", "Tạm ẩn", "Mettre en attente"],
         K::TrayHintTitle => ["Hey Look! is still running", "Hey Look! vẫn đang chạy", "Hey Look! est toujours en cours d’exécution"],
         K::TrayHintMac => [
             "It keeps checking your mail from the menu bar. Click the Hey Look! icon in the Dock or the menu bar to open it again.",
-            "Ứng dụng vẫn kiểm tra thư từ thanh menu. Bấm biểu tượng Hey Look! trong Dock hoặc thanh menu để mở lại.",
+            "Ứng dụng vẫn kiểm tra thư từ thanh menu. Nhấp vào biểu tượng Hey Look! trong Dock hoặc thanh menu để mở lại.",
             "Il continue de relever votre courrier depuis la barre des menus. Cliquez sur l’icône Hey Look! dans le Dock ou la barre des menus pour le rouvrir.",
         ],
         K::TrayHintLinux => [
@@ -136,15 +136,15 @@ fn texts(k: K) -> [&'static str; 3] {
         ],
         K::TrayHintOther => [
             "It keeps checking your mail from the tray. Right-click the tray icon and choose Quit to exit.",
-            "Ứng dụng vẫn kiểm tra thư từ khay hệ thống. Bấm chuột phải vào biểu tượng khay và chọn Thoát để thoát.",
+            "Ứng dụng vẫn kiểm tra thư từ khay hệ thống. Nhấp chuột phải vào biểu tượng khay và chọn Thoát để thoát.",
             "Il continue de relever votre courrier depuis la zone de notification. Faites un clic droit sur l’icône et choisissez Quitter pour le fermer.",
         ],
         K::TestTitle => ["Hey Look! test notification", "Thông báo thử của Hey Look!", "Notification de test de Hey Look!"],
         K::TestLine1 => ["Notifications are working", "Thông báo đang hoạt động", "Les notifications fonctionnent"],
         K::TestLine2 => ["This is how new mail will look.", "Thư mới sẽ hiển thị như thế này.", "Voici l’aspect d’un nouveau message."],
-        K::EveryDay => ["Every day", "Mỗi ngày", "Tous les jours"],
-        K::EveryMonth => ["Every month", "Mỗi tháng", "Tous les mois"],
-        K::EveryYear => ["Every year", "Mỗi năm", "Tous les ans"],
+        K::EveryDay => ["Every day", "Hằng ngày", "Tous les jours"],
+        K::EveryMonth => ["Every month", "Hằng tháng", "Tous les mois"],
+        K::EveryYear => ["Every year", "Hằng năm", "Tous les ans"],
         K::SaveAttachmentsTo => ["Save attachments to", "Lưu tệp đính kèm vào", "Enregistrer les pièces jointes dans"],
         K::ChooseKeyFile => ["Choose a key file", "Chọn tệp khóa", "Choisir un fichier de clé"],
         K::OpenPgpKeys => ["OpenPGP keys", "Khóa OpenPGP", "Clés OpenPGP"],
@@ -221,7 +221,7 @@ pub fn snooze_ended(who: &str) -> String {
 pub fn snooze_ended_in(l: Lang, who: &str) -> String {
     match l {
         Lang::En => format!("Snooze ended: {who}"),
-        Lang::Vi => format!("Hết thời gian tạm hoãn: {who}"),
+        Lang::Vi => format!("Hết thời gian tạm ẩn: {who}"),
         Lang::Fr => format!("Fin de la mise en attente\u{a0}: {who}"),
         Lang::ZhHans => zh_hans::snooze_ended(who),
         Lang::Es => es::snooze_ended(who),

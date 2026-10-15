@@ -1,7 +1,7 @@
 import { define } from "../types.ts";
 
 // OpenPGP: passphrase prompt, generate / import / details dialogs, signature and encryption badges in the reading pane.
-// vi / fr terms: key = khóa / clé, passphrase = cụm mật khẩu / phrase secrète, fingerprint = vân tay khóa / empreinte,
+// vi / fr terms: key = khóa / clé, passphrase = cụm mật khẩu / phrase secrète, fingerprint = dấu vân tay / empreinte,
 // secret key = khóa bí mật / clé secrète, public key = khóa công khai / clé publique, encrypt = mã hóa / chiffrer.
 export default define({
   en: {
@@ -258,8 +258,8 @@ export default define({
     "pgp.import.alreadyKnown": "Bạn đã có khóa này. Việc nhập sẽ cập nhật ID người dùng và ngày hết hạn của khóa.",
     "pgp.import.choosePassphrase": "Khóa này chưa có cụm mật khẩu. Hãy chọn một cụm mật khẩu để lưu trữ an toàn",
     "pgp.import.enterPassphrase": "Nhập cụm mật khẩu của khóa này",
-    "pgp.import.compare": "Hãy đối chiếu dấu vân tay khóa với chủ sở hữu (trực tiếp hoặc qua điện thoại) trước khi đánh dấu đã xác minh.",
-    "pgp.import.compared": "Tôi đã đối chiếu dấu vân tay khóa — đánh dấu đã xác minh",
+    "pgp.import.compare": "Hãy đối chiếu dấu vân tay của khóa với chủ sở hữu (trực tiếp hoặc qua điện thoại) trước khi đánh dấu đã xác minh.",
+    "pgp.import.compared": "Tôi đã đối chiếu dấu vân tay — đánh dấu đã xác minh",
     "pgp.import.importing": "Đang nhập…",
     "pgp.import.importKey": "Nhập khóa",
     "pgp.import.importedOne": "Đã nhập khóa của {name}",
@@ -269,7 +269,7 @@ export default define({
     "pgp.details.title": "Chi tiết khóa",
     "pgp.details.gone": "Khóa này không còn trong danh sách khóa của bạn.",
     "pgp.details.userIds": "ID người dùng",
-    "pgp.details.fingerprint": "Dấu vân tay khóa",
+    "pgp.details.fingerprint": "Dấu vân tay",
     "pgp.details.algorithm": "Thuật toán",
     "pgp.details.created": "Ngày tạo",
     "pgp.details.expires": "Hết hạn",
