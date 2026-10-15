@@ -177,7 +177,7 @@ export default defineLocale<typeof ns.en>({
   "calendar.rsvp.acceptOptions": "Варианты принятия",
   "calendar.rsvp.acceptDialog": "Принять с заметкой",
   "calendar.rsvp.tentative": "Под вопросом",
-  "calendar.rsvp.tentativeSend": "Под вопросом и отправить ответ",
+  "calendar.rsvp.tentativeSend": "Под вопросом, отправить ответ",
   "calendar.rsvp.tentativeNote": "Под вопросом, с заметкой…",
   "calendar.rsvp.tentativeSilent": "Под вопросом, без отправки ответа",
   "calendar.rsvp.tentativeOptions": "Варианты ответа «Под вопросом»",

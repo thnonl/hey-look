@@ -46,7 +46,7 @@ export default defineLocale<typeof ns.en>({
   "compose.bar.picture": "Изображение",
   "compose.bar.insertPictureTip": "Вставить изображение (Ctrl+Shift+P)",
   "compose.bar.meeting": "Встреча",
-  "compose.bar.meetingTip": "Встреча: отправить это письмо как приглашение в календаре",
+  "compose.bar.meetingTip": "Встреча: отправить это письмо как календарное приглашение",
   "compose.bar.encrypt": "Шифровать",
   "compose.bar.encryptTip": "Зашифровать (Ctrl+Shift+E)",
   "compose.bar.encryptTipMissing": {
@@ -77,7 +77,7 @@ export default defineLocale<typeof ns.en>({
   "compose.bar.aiSetupTip": "Сначала настройте ИИ-помощника",
   // AI box
   "compose.ai.placeholderReply": "Напишите ответ на это письмо с таким смыслом…",
-  "compose.ai.placeholderNew": "Опишите нужное письмо, например: вежливо откажись от встречи и предложи следующий вторник",
+  "compose.ai.placeholderNew": "Опишите нужное письмо, например: вежливо откажитесь от встречи и предложите следующий вторник",
   "compose.ai.write": "Написать",
   "compose.ai.writing": "Пишу…",
   "compose.ai.confidential": "Конфиденциальные письма не отправляются ИИ-помощнику.",
@@ -247,7 +247,7 @@ export default defineLocale<typeof ns.en>({
   "compose.schedule.sends": "Отправка: {when} · {in}",
   "compose.schedule.adjusted": "Время изменено на {time} (перевод часов).",
   "compose.schedule.sendNow": "Отправить сейчас",
-  "compose.schedule.sendNowInstead": "Лучше отправить сейчас",
+  "compose.schedule.sendNowInstead": "Вместо этого отправить сейчас",
   "compose.schedule.realDate": "Укажите существующую дату и время.",
   "compose.schedule.passed": "Это время уже прошло. Выберите более позднее время или отправьте письмо сейчас.",
   "compose.schedule.withinYear": "Выберите дату не позднее чем через год.",
