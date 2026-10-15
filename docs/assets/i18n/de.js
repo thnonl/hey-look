@@ -45,7 +45,7 @@
   "story.selected": "Ausgewählt: {subj}",
   "story.archived": "Archiviert.",
   "story.deleted": "In den Papierkorb verschoben.",
-  "story.junk": "In den Spam-Ordner verschoben.",
+  "story.junk": "In Spam verschoben.",
   "story.undo_hint": "{msg} Rückgängig machen ist 6 Sekunden lang möglich.",
   "story.undone": "Rückgängig gemacht. {subj} ist wieder im Posteingang.",
 
@@ -88,7 +88,7 @@
   "story.pos_right": "rechts",
   "story.pos_bottom": "unten",
   "story.conv_state": "Unterhaltungen: {state}.",
-  "story.focused_state": "Relevanter Posteingang: {state}.",
+  "story.focused_state": "Posteingang mit Relevanz: {state}.",
   "story.on": "an",
   "story.off": "aus",
   "story.cmd_archived": "Archiviert. („Rückgängig“ steht im Hinweis.)",
