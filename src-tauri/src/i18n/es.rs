@@ -54,7 +54,7 @@ pub fn new_messages(n: usize) -> String {
 
 /// Title of the notification for a snoozed conversation that came back.
 pub fn snooze_ended(who: &str) -> String {
-    format!("Ya no está pospuesto: {who}")
+    format!("Vuelve a la bandeja de entrada: {who}")
 }
 
 /// Event reminder title: the event starts now (`minutes` = 0) or in `minutes` minutes.
