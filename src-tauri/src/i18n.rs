@@ -148,7 +148,7 @@ fn texts(k: K) -> [&'static str; 3] {
         K::SaveAttachmentsTo => ["Save attachments to", "Lưu tệp đính kèm vào", "Enregistrer les pièces jointes dans"],
         K::ChooseKeyFile => ["Choose a key file", "Chọn tệp khóa", "Choisir un fichier de clé"],
         K::OpenPgpKeys => ["OpenPGP keys", "Khóa OpenPGP", "Clés OpenPGP"],
-        K::CalendarFile => ["Calendar file", "Tệp lịch", "Fichier d’agenda"],
+        K::CalendarFile => ["Calendar file", "Tệp lịch", "Fichier de calendrier"],
         K::SavePublicKey => ["Save public key", "Lưu khóa công khai", "Enregistrer la clé publique"],
         K::SaveKeyBackup => ["Save a backup of your key", "Lưu bản sao lưu khóa của bạn", "Enregistrer une sauvegarde de votre clé"],
     }

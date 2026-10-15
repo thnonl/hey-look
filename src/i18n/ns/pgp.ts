@@ -446,7 +446,7 @@ export default define({
 
     "pgp.details.title": "Détails de la clé",
     "pgp.details.gone": "Cette clé ne figure plus dans votre liste de clés.",
-    "pgp.details.userIds": "ID utilisateur",
+    "pgp.details.userIds": "Identités",
     "pgp.details.fingerprint": "Empreinte",
     "pgp.details.algorithm": "Algorithme",
     "pgp.details.created": "Créée le",
@@ -481,10 +481,10 @@ export default define({
     "pgp.details.backupSavedTo": "Sauvegarde enregistrée dans {path}",
     "pgp.details.deleteSecretTitle": "Supprimer votre clé {id} ?",
     "pgp.details.deleteSecretBody": "Vous ne pourrez plus lire les messages chiffrés pour cette clé sans sauvegarde.",
-    "pgp.details.removePublicTitle": "Retirer la clé publique de {name} ?",
+    "pgp.details.removePublicTitle": "Supprimer la clé publique de {name} ?",
     "pgp.details.removePublicBody": "Vous ne pourrez plus chiffrer de messages pour cette personne tant que vous n’aurez pas réimporté sa clé.",
     "pgp.details.keyDeleted": "Clé supprimée",
-    "pgp.details.publicRemoved": "Clé publique de {name} retirée",
+    "pgp.details.publicRemoved": "Clé publique de {name} supprimée",
 
     "pgp.sig.someone": "quelqu’un d’autre",
     "pgp.sig.otherSigner": "Signé par {who}, pas par l’expéditeur",
