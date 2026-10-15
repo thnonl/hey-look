@@ -18,7 +18,8 @@ impl ProviderFactory for AppFactory {
     fn provider(&self, src: &store::Source) -> Result<Box<dyn CalProvider>, SyncErr> {
         match src.kind {
             Kind::Google => super::google::provider(&self.db, src),
-            Kind::Microsoft | Kind::CalDav => Err(SyncErr::NotSetUp(format!("{} sync is not part of this version", src.kind.service()))),
+            Kind::Microsoft => super::microsoft::provider(&self.db, src),
+            Kind::CalDav => Err(SyncErr::NotSetUp(format!("{} sync is not part of this version", src.kind.service()))),
         }
     }
 }
@@ -263,6 +264,14 @@ mod tests {
         let m = oauth::begin_for(Provider::Microsoft, Purpose::Calendar, "common", "cid", Some("me@outlook.com")).unwrap();
         assert!(m.url.contains(&q("https://graph.microsoft.com/Calendars.ReadWrite offline_access openid email profile")), "{}", m.url);
         assert!(!m.url.contains("outlook.office.com") && m.url.contains("login_hint=me%40outlook.com"));
+        // a known mailbox goes straight to that account (no account picker); without a hint, and for the mail sign-in, the picker stays
+        assert!(!m.url.contains("prompt="), "{}", m.url);
+        assert!(oauth::begin_for(Provider::Microsoft, Purpose::Calendar, "common", "cid", None).unwrap().url.contains("prompt=select_account"));
+        assert!(oauth::begin(Provider::Microsoft, "common", "cid").unwrap().url.contains("prompt=select_account"));
+        // organisations and personal accounts: the tenant of the app's setting is the authority, as for mail
+        assert!(m.url.starts_with("https://login.microsoftonline.com/common/oauth2/v2.0/authorize?"));
+        let org = oauth::begin_for(Provider::Microsoft, Purpose::Calendar, "contoso.onmicrosoft.com", "cid", Some("me@contoso.com")).unwrap();
+        assert!(org.url.starts_with("https://login.microsoftonline.com/contoso.onmicrosoft.com/oauth2/v2.0/authorize?"));
         // a mail sign-in is unchanged
         let mail = oauth::begin(Provider::Google, "", "client-id").unwrap();
         assert!(mail.url.contains(&q("https://mail.google.com/ openid email profile")) && !mail.url.contains("login_hint"));

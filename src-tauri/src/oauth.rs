@@ -99,10 +99,13 @@ impl Provider {
         }
     }
 
-    fn extra_auth_params(self) -> &'static str {
-        match self {
-            Provider::Google => "&access_type=offline&prompt=consent",
-            Provider::Microsoft => "&prompt=select_account",
+    /// `hinted`: the sign-in names the account (`login_hint`). A Microsoft calendar consent for a known mailbox goes straight to that
+    /// account instead of asking which one (the consent page still lists the permissions; the address is checked afterwards).
+    fn extra_auth_params(self, purpose: Purpose, hinted: bool) -> &'static str {
+        match (self, purpose) {
+            (Provider::Google, _) => "&access_type=offline&prompt=consent",
+            (Provider::Microsoft, Purpose::Calendar) if hinted => "",
+            (Provider::Microsoft, _) => "&prompt=select_account",
         }
     }
 }
@@ -169,6 +172,7 @@ pub fn begin_for(provider: Provider, purpose: Purpose, tenant: &str, client_id: 
     let state = b64url(&rand::random::<[u8; 16]>());
     let challenge = b64url(&Sha256::digest(verifier.as_bytes()));
     let q = |s: &str| urlencoding::encode(s).into_owned();
+    let hint = login_hint.map(str::trim).filter(|h| !h.is_empty());
     let url = format!(
         "{}?client_id={}&redirect_uri={}&response_type=code&scope={}&code_challenge={}&code_challenge_method=S256&state={}{}",
         provider.auth_url(tenant),
@@ -177,9 +181,9 @@ pub fn begin_for(provider: Provider, purpose: Purpose, tenant: &str, client_id: 
         q(provider.scope_for(purpose)),
         challenge,
         state,
-        provider.extra_auth_params()
+        provider.extra_auth_params(purpose, hint.is_some())
     );
-    let url = match login_hint.map(str::trim).filter(|h| !h.is_empty()) {
+    let url = match hint {
         Some(h) => format!("{url}&login_hint={}", q(h)),
         None => url,
     };
@@ -499,6 +503,24 @@ mod tests {
         // an error from the token endpoint is shown with its code
         let srv = token_server(json!({ "error": "invalid_grant", "error_description": "Bad Request\nmore" }));
         assert_eq!(p.exchange_at(&format!("{}/t", srv.base), "c", "cid", "s").err().unwrap(), "token exchange failed: invalid_grant: Bad Request");
+    }
+
+    #[test]
+    fn a_microsoft_calendar_exchange_reads_the_address_from_the_upn_and_the_granted_scope_is_checked() {
+        // Microsoft answers the scope without the resource URL; a personal account may have no `email` claim
+        let srv = token_server(json!({
+            "access_token": "AT", "refresh_token": "RT", "expires_in": 3599, "scope": "Calendars.ReadWrite openid profile email",
+            "id_token": id_token(json!({ "preferred_username": "Me@Outlook.test", "name": "Me" })),
+        }));
+        let p = begin_for(Provider::Microsoft, Purpose::Calendar, "common", "cid", Some("me@outlook.test")).unwrap();
+        let got = p.exchange_at(&format!("{}/t", srv.base), "c", "cid", "").unwrap();
+        assert!(crate::calsync::cmds::check_grant(Provider::Microsoft, "me@outlook.test", &got.email, &got.scope).is_ok());
+        // another account than the mailbox, or the calendar permission missing from the grant: nothing is stored
+        assert!(crate::calsync::cmds::check_grant(Provider::Microsoft, "other@outlook.test", &got.email, &got.scope).unwrap_err().starts_with("CAL_WRONG_ACCOUNT"));
+        assert!(crate::calsync::cmds::check_grant(Provider::Microsoft, "me@outlook.test", &got.email, "openid profile email").unwrap_err().starts_with("CAL_PARTIAL"));
+        // the Microsoft mail token is not in the calendar cache, and the form carries the Graph scope
+        assert!(cache().lock().unwrap().get("Me@Outlook.test").is_none());
+        assert!(srv.requests()[0].body.contains("scope=https%3A%2F%2Fgraph.microsoft.com%2FCalendars.ReadWrite"));
     }
 
     #[test]

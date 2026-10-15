@@ -6,7 +6,7 @@ import type { CalEvent, CalendarInfo, CalSource } from "./api";
 export type SyncKind = "google" | "microsoft";
 
 /** The services this build can sync. Keep in sync with `ENABLED_KINDS` in src-tauri/src/calsync/mod.rs (a Rust test compares them). */
-export const CALENDAR_SYNC_KINDS: string[] = ["google"];
+export const CALENDAR_SYNC_KINDS: string[] = ["google", "microsoft"];
 
 /** Which service a mailbox could sync its calendar with: Google and Gmail mailboxes, Microsoft mailboxes; none for iCloud / IMAP. */
 export function calendarSyncKind(a: { auth: string; imapHost: string }): SyncKind | null {

@@ -1,6 +1,6 @@
-//! Calendar sync with a mailbox's online calendars (Google Calendar, later Outlook / Microsoft 365 and CalDAV).
+//! Calendar sync with a mailbox's online calendars (Google Calendar, Outlook / Microsoft 365, later CalDAV).
 //!
-//! The layer is provider-agnostic. A provider (`google.rs`, later `graph.rs`) implements `CalProvider`: it lists the calendars of
+//! The layer is provider-agnostic. A provider (`google.rs`, `microsoft.rs`) implements `CalProvider`: it lists the calendars of
 //! an account, pulls what changed since a token, and writes single events with a version tag (etag). Everything else is shared:
 //!
 //! * `store.rs` - the local model: `cal_sources` (one per mailbox and provider, with its status), `calendars` (colour, read-only
@@ -20,6 +20,7 @@ pub mod cmds;
 pub mod engine;
 pub mod google;
 pub mod http;
+pub mod microsoft;
 pub mod store;
 pub mod write;
 
@@ -42,8 +43,8 @@ pub enum Kind {
 }
 
 /// The kinds a build offers. A kind that is not listed has no switch in Settings and refuses `calendar_connect`. Keep in sync with
-/// `CALENDAR_SYNC_KINDS` in src/calendarSync.ts (a test compares them). Microsoft joins when its provider (`graph.rs`) is green.
-pub const ENABLED_KINDS: [Kind; 1] = [Kind::Google];
+/// `CALENDAR_SYNC_KINDS` in src/calendarSync.ts (a test compares them). Leaving a kind out switches it off (the cut line).
+pub const ENABLED_KINDS: [Kind; 2] = [Kind::Google, Kind::Microsoft];
 
 impl Kind {
     /// Value stored in `cal_sources.kind`.
@@ -168,8 +169,7 @@ pub enum EventKind {
     Master,
     /// a changed instance of a series (Google exception, Graph exception)
     Exception,
-    /// one occurrence of a series as its own row (Outlook / Microsoft 365: the Graph provider)
-    #[allow(dead_code)]
+    /// one occurrence of a series as its own row (Outlook / Microsoft 365: the calendar view lists occurrences)
     Occurrence,
 }
 
@@ -326,7 +326,6 @@ pub struct PullReq {
     /// The window of a full download (UTC seconds): `now - 365 days` .. `now + 730 days`. Ignored while `state` is set.
     pub window_from: i64,
     /// (Google reads everything after `window_from`; a provider whose delta covers a window, like Graph, uses both ends)
-    #[allow(dead_code)]
     pub window_to: i64,
 }
 
@@ -458,13 +457,14 @@ mod tests {
 
     #[test]
     fn requests_are_deduplicated_and_drained() {
-        // (one test touches the process-wide queue; no other test calls request_sync)
-        request_sync("a");
-        request_sync("a");
-        request_sync("b");
+        // (the queue is process-wide and the write tests of the providers also ask for a sync: look at this test's own ids only)
+        request_sync("queue-a");
+        request_sync("queue-a");
+        request_sync("queue-b");
+        assert_eq!(REQUESTED.lock().unwrap().iter().filter(|x| x.starts_with("queue-")).count(), 2, "asking twice queues once");
         let got = take_requests();
-        assert_eq!(got.len(), 2);
-        assert!(take_requests().is_empty());
+        assert!(got.contains("queue-a") && got.contains("queue-b"));
+        assert!(!take_requests().iter().any(|x| x.starts_with("queue-")));
     }
 
     #[test]

@@ -238,7 +238,7 @@ fn google_status(s: &str) -> &'static str {
 }
 
 /// Google's description is often HTML; the app keeps text.
-fn plain_text(s: &str) -> String {
+pub(super) fn plain_text(s: &str) -> String {
     if !s.contains('<') && !s.contains('&') {
         return s.to_string();
     }
