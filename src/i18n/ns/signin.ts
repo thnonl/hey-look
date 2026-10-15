@@ -48,7 +48,7 @@ export default define({
   },
   fr: {
     "signin.waiting.mail": "Terminez dans votre navigateur.",
-    "signin.google.hint": "Si Google affiche l’avertissement « Google n’a pas validé cette application », choisissez Paramètres avancés, puis Accéder à Hey Look! (non sécurisé). Hey Look! attend l’examen de Google.",
+    "signin.google.hint": "Si Google affiche l’avertissement « Google hasn’t verified this app », choisissez Advanced, puis Go to Hey Look! (unsafe). Hey Look! attend l’examen de Google.",
     "signin.google.learn": "Que signifie ceci ?",
     "signin.end.timeout": "Délai de connexion à {provider} dépassé.",
     "signin.end.cancelled": "Connexion à {provider} annulée.",
