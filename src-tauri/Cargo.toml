@@ -1,6 +1,6 @@
 [package]
 name = "hey-look"
-version = "1.0.0"
+version = "1.0.1"
 description = "Hey Look! desktop mail client"
 license = "MIT"
 authors = ["you"]
