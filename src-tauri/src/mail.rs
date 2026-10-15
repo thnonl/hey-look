@@ -3,6 +3,7 @@ use base64::Engine;
 use mail_parser::{Address, MessageParser, MimeHeaders, PartType};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
+use std::io::{Read, Write};
 
 pub type Sess = imap::Session<native_tls::TlsStream<std::net::TcpStream>>;
 
@@ -105,9 +106,20 @@ pub fn connect_with_socket(acc: &Account, secret: &str) -> R<(Sess, std::net::Tc
 }
 
 /// role -> real IMAP folder name. Standard roles use their plain name, everything else "f:<name>".
-pub fn discover_folders(s: &mut Sess) -> R<HashMap<String, String>> {
+pub fn discover_folders<T: Read + Write>(s: &mut imap::Session<T>) -> R<HashMap<String, String>> {
+    list_folders(s).map(|l| l.map)
+}
+
+/// The server's folders as `discover_folders` maps them, and the hierarchy delimiter of the first folder that has one.
+pub struct Listing {
+    pub map: HashMap<String, String>,
+    pub delimiter: Option<String>,
+}
+
+pub fn list_folders<T: Read + Write>(s: &mut imap::Session<T>) -> R<Listing> {
     use imap::types::NameAttribute as A;
     let names = s.list(Some(""), Some("*")).map_err(err)?;
+    let delimiter = names.iter().find_map(|n| n.delimiter().map(str::to_string));
     let mut map: HashMap<String, String> = HashMap::new();
     map.insert("inbox".into(), "INBOX".into());
     let mut custom: Vec<String> = vec![];
@@ -158,7 +170,38 @@ pub fn discover_folders(s: &mut Sess) -> R<HashMap<String, String>> {
     for c in custom {
         map.insert(format!("f:{c}"), c);
     }
-    Ok(map)
+    Ok(Listing { map, delimiter })
+}
+
+/// The name to create for a standard role the server lacks, or None for a role that is never created (junk, custom folders).
+/// Archive and Trash use their plain English names. A server that keeps every folder inside the INBOX namespace (`INBOX.Sent`, Courier and
+/// older Dovecot setups) gets `INBOX.Archive`: a top-level folder is refused there.
+pub fn name_to_create(role: &str, listing: &Listing) -> Option<String> {
+    let leaf = match role {
+        "archive" => "Archive",
+        "trash" => "Trash",
+        _ => return None,
+    };
+    let in_inbox_namespace = listing.delimiter.as_deref().is_some_and(|d| {
+        let prefix = format!("INBOX{d}");
+        listing.map.values().any(|n| n.len() > prefix.len() && n[..prefix.len()].eq_ignore_ascii_case(&prefix))
+    });
+    Some(match (&listing.delimiter, in_inbox_namespace) {
+        (Some(d), true) => format!("INBOX{d}{leaf}"),
+        _ => leaf.to_string(),
+    })
+}
+
+/// CREATE a folder (and subscribe to it, so other mail programs list it). A server that says the folder is there already is no failure.
+pub fn create_folder<T: Read + Write>(s: &mut imap::Session<T>, name: &str) -> R<()> {
+    if let Err(e) = s.create(name) {
+        let why = e.to_string();
+        if !why.to_lowercase().contains("exist") {
+            return Err(why);
+        }
+    }
+    let _ = s.subscribe(name);
+    Ok(())
 }
 
 #[cfg(test)]
@@ -622,7 +665,7 @@ pub fn fetch_raw(s: &mut Sess, folder: &str, uid: u32) -> R<Vec<u8>> {
         .ok_or_else(|| "MSG_NOT_ON_SERVER: message not found on server".into())
 }
 
-pub fn store_flag(s: &mut Sess, folder: &str, uids: &[u32], flag: &str, add: bool) -> R<()> {
+pub fn store_flag<T: Read + Write>(s: &mut imap::Session<T>, folder: &str, uids: &[u32], flag: &str, add: bool) -> R<()> {
     if uids.is_empty() {
         return Ok(());
     }
@@ -633,7 +676,7 @@ pub fn store_flag(s: &mut Sess, folder: &str, uids: &[u32], flag: &str, add: boo
     Ok(())
 }
 
-pub fn move_to(s: &mut Sess, src: &str, uids: &[u32], dst: &str) -> R<()> {
+pub fn move_to<T: Read + Write>(s: &mut imap::Session<T>, src: &str, uids: &[u32], dst: &str) -> R<()> {
     if uids.is_empty() {
         return Ok(());
     }
@@ -648,7 +691,7 @@ pub fn move_to(s: &mut Sess, src: &str, uids: &[u32], dst: &str) -> R<()> {
     Ok(())
 }
 
-pub fn delete_forever(s: &mut Sess, src: &str, uids: &[u32]) -> R<()> {
+pub fn delete_forever<T: Read + Write>(s: &mut imap::Session<T>, src: &str, uids: &[u32]) -> R<()> {
     if uids.is_empty() {
         return Ok(());
     }
