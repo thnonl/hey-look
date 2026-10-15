@@ -214,7 +214,7 @@ export default defineLocale<typeof ns.en>({
   "compose.toast.scheduleFailed": "Error al programar: {error}",
   "compose.toast.view": "Ver",
   "compose.toast.draftSaved": "Borrador guardado",
-  "compose.toast.draftSavedPlain": "Borrador guardado sin cifrar (Configuración → Seguridad)",
+  "compose.toast.draftSavedPlain": "Borrador guardado sin cifrar (Configuración → Buzones → Seguridad)",
   "compose.toast.saveFailed": "Error al guardar el borrador: {error}",
   "compose.toast.movedToDrafts": "Movido a Borradores",
   "compose.toast.moveFailed": "No se pudo mover a Borradores: {error}",

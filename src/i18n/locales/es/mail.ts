@@ -52,7 +52,7 @@ export default defineLocale<typeof ns.en>({
   "mail.filter.button": "Filtro",
   "mail.filter.active": "Filtro: {name}",
   "mail.list.limitReached": "Se alcanzó el límite de descarga ({max} correos por buzón). Aumenta el límite en {link}.",
-  "mail.list.limitLink": "Configuración > Lectura y sincronización",
+  "mail.list.limitLink": "Configuración > Buzones > Lectura y sincronización",
   "mail.list.reachedEnd": "Has llegado al final",
   "mail.list.loadOlder": "Cargar mensajes anteriores",
   "mail.list.downloading": "Descargando correos… {have} / {target}",

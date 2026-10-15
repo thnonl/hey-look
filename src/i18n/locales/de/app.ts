@@ -244,7 +244,7 @@ export default defineLocale<typeof ns.en>({
   "app.sweep.readAll": "Alle als gelesen markieren",
   "app.sweep.blockAll": "Absender blockieren und in Spam verschieben",
   "app.original.title": "Originalnachricht",
-  "app.original.confidential": "Diese Nachricht ist vertraulich, daher kann ihr Quelltext nicht angezeigt werden.",
+  "app.original.confidential": "Diese Nachricht ist vertraulich, daher kann die Originalnachricht nicht angezeigt werden.",
   "app.original.fetching": "Wird vom Server abgerufen…",
   "app.original.copied": "Kopiert",
 });

@@ -202,7 +202,7 @@ export default defineLocale<typeof ns.en>({
   "compose.toast.scheduleFailed": "定时发送失败：{error}",
   "compose.toast.view": "查看",
   "compose.toast.draftSaved": "草稿已保存",
-  "compose.toast.draftSavedPlain": "草稿已保存，但未加密（设置 → 安全）",
+  "compose.toast.draftSavedPlain": "草稿已保存，但未加密（设置 → 邮箱 → 安全）",
   "compose.toast.saveFailed": "保存草稿失败：{error}",
   "compose.toast.movedToDrafts": "已移至草稿",
   "compose.toast.moveFailed": "无法移至草稿：{error}",

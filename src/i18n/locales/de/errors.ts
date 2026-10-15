@@ -20,7 +20,7 @@ export default defineLocale<typeof ns.en>({
   "errors.toast.accountAdded": "Konto {email} hinzugefügt",
   "errors.toast.loadedOlder": { one: "{n} ältere Nachricht geladen", other: "{n} ältere Nachrichten geladen" },
   "errors.toast.noOlder": "Keine älteren Nachrichten in diesem Ordner",
-  "errors.limit": "Download-Limit erreicht ({n} E-Mails pro Postfach). Erhöhen Sie es unter Einstellungen > Lesen & Synchronisierung.",
+  "errors.limit": "Download-Limit erreicht ({n} E-Mails pro Postfach). Erhöhen Sie es unter Einstellungen > Postfächer > Lesen & Synchronisierung.",
   // ---- questions of store.ts
   "errors.ask.unsentTitle": "Sie haben eine ungesendete Nachricht",
   "errors.ask.unsentBody": "Wenn Sie eine andere Nachricht öffnen, wird die Nachricht geschlossen, die Sie gerade schreiben.",

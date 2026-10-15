@@ -20,7 +20,7 @@ export default defineLocale<typeof ns.en>({
   "errors.toast.accountAdded": "Se añadió la cuenta {email}",
   "errors.toast.loadedOlder": { one: "Se cargó {n} mensaje anterior", other: "Se cargaron {n} mensajes anteriores" },
   "errors.toast.noOlder": "No hay mensajes anteriores en esta carpeta",
-  "errors.limit": "Se alcanzó el límite de descarga ({n} correos por buzón). Aumenta el límite en Configuración > Lectura y sincronización.",
+  "errors.limit": "Se alcanzó el límite de descarga ({n} correos por buzón). Aumenta el límite en Configuración > Buzones > Lectura y sincronización.",
   // ---- questions of store.ts
   "errors.ask.unsentTitle": "Tienes un mensaje sin enviar",
   "errors.ask.unsentBody": "Al abrir otro mensaje se cerrará el que estás escribiendo.",

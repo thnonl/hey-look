@@ -57,7 +57,7 @@ export default defineLocale<typeof ns.en>({
   "mail.filter.button": "Фильтр",
   "mail.filter.active": "Фильтр: {name}",
   "mail.list.limitReached": "Достигнут лимит загрузки ({max} писем на ящик). Увеличьте его в разделе {link}.",
-  "mail.list.limitLink": "Настройки > Чтение и синхронизация",
+  "mail.list.limitLink": "Настройки > Почтовые ящики > Чтение и синхронизация",
   "mail.list.reachedEnd": "Вы дошли до конца списка",
   "mail.list.loadOlder": "Загрузить более старые письма",
   "mail.list.downloading": "Загрузка писем… {have} из {target}",

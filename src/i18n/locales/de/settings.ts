@@ -359,7 +359,7 @@ export default defineLocale<typeof ns.en>({
   "settings.tray.testFailed": "Eine Benachrichtigung konnte nicht angezeigt werden: {error}",
   "settings.tray.sentSound": "Ton beim Senden einer Nachricht",
   "settings.tray.keepRunning": "Im Infobereich weiterlaufen, wenn das Fenster geschlossen wird",
-  "settings.tray.noTray": "Auf diesem Desktop wurde kein Infobereich gefunden, daher beendet das Schließen des Fensters Hey Look!.",
+  "settings.tray.noTray": "Auf diesem Desktop wurde kein Infobereich gefunden, daher beendet das Schließen des Fensters Hey Look!",
   "settings.tray.keepRunningMac": "E-Mails werden weiterhin synchronisiert und Benachrichtigungen angezeigt. Beenden über das Symbol in der Menüleiste oder mit Cmd+Q.",
   "settings.tray.keepRunningHint": "E-Mails werden weiterhin synchronisiert und Benachrichtigungen angezeigt. Beenden über das Menü des Infobereich-Symbols.",
   "settings.tray.trayBadge": "Badge am Infobereich-Symbol",

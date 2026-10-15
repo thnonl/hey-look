@@ -263,7 +263,7 @@ export default defineLocale<typeof ns.en>({
   "app.sweep.readAll": "Отметить все как прочитанные",
   "app.sweep.blockAll": "Заблокировать отправителя и переместить в спам",
   "app.original.title": "Оригинал письма",
-  "app.original.confidential": "Это письмо конфиденциально, поэтому его исходный текст показать нельзя.",
+  "app.original.confidential": "Это письмо конфиденциально, поэтому показать оригинал письма нельзя.",
   "app.original.fetching": "Загрузка с сервера…",
   "app.original.copied": "Скопировано",
 });

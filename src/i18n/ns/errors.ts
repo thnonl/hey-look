@@ -20,7 +20,7 @@ export default define({
     "errors.toast.accountAdded": "Account {email} added",
     "errors.toast.loadedOlder": { one: "Loaded {n} older message", other: "Loaded {n} older messages" },
     "errors.toast.noOlder": "No older messages in this folder",
-    "errors.limit": "Download limit reached ({n} mails per mailbox). Raise it in Settings > Reading & sync.",
+    "errors.limit": "Download limit reached ({n} mails per mailbox). Raise it in Settings > Mailboxes > Reading & sync.",
 
     // ---- questions of store.ts
     "errors.ask.unsentTitle": "You have an unsent message",
@@ -60,7 +60,7 @@ export default define({
     "errors.toast.accountAdded": "Đã thêm tài khoản {email}",
     "errors.toast.loadedOlder": { one: "Đã tải {n} thư cũ hơn", other: "Đã tải {n} thư cũ hơn" },
     "errors.toast.noOlder": "Không còn thư cũ hơn trong thư mục này",
-    "errors.limit": "Đã đạt giới hạn tải xuống ({n} thư mỗi hộp thư). Hãy tăng giới hạn trong Cài đặt > Đọc thư & đồng bộ.",
+    "errors.limit": "Đã đạt giới hạn tải xuống ({n} thư mỗi hộp thư). Hãy tăng giới hạn trong Cài đặt > Hộp thư > Đọc thư & đồng bộ.",
 
     "errors.ask.unsentTitle": "Bạn có một thư chưa gửi",
     "errors.ask.unsentBody": "Mở thư khác sẽ đóng thư bạn đang soạn.",
@@ -97,7 +97,7 @@ export default define({
     "errors.toast.accountAdded": "Compte {email} ajouté",
     "errors.toast.loadedOlder": { one: "{n} message plus ancien chargé", other: "{n} messages plus anciens chargés" },
     "errors.toast.noOlder": "Aucun message plus ancien dans ce dossier",
-    "errors.limit": "Limite de téléchargement atteinte ({n} messages par boîte aux lettres). Augmentez-la dans Paramètres > Lecture et synchro.",
+    "errors.limit": "Limite de téléchargement atteinte ({n} messages par boîte aux lettres). Augmentez-la dans Paramètres > Boîtes aux lettres > Lecture et synchro.",
 
     "errors.ask.unsentTitle": "Vous avez un message non envoyé",
     "errors.ask.unsentBody": "L’ouverture d’un autre message fermera celui que vous rédigez.",

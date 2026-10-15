@@ -247,7 +247,7 @@ export default define({
     "updates.progress.percent": "{percent}%, {received}",
     "updates.progress.percentOf": "{percent}%, {received} trên {total}",
     "updates.failed.verify": "Tệp tải xuống bị hỏng hoặc chữ ký không khớp. Không có gì được cài đặt.",
-    "updates.failed.badurl": "Liên kết cập nhật không thuộc các bản phát hành của Hey Look!. Không có gì được tải xuống.",
+    "updates.failed.badurl": "Liên kết cập nhật không thuộc các bản phát hành của Hey Look! Không có gì được tải xuống.",
     "updates.failed.install": "Không cài đặt được bản cập nhật: {message}.",
     "updates.failed.download": "Không tải được bản cập nhật. {message}",
 

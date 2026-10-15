@@ -232,7 +232,7 @@ export default defineLocale<typeof ns.en>({
   "compose.toast.scheduleFailed": "Не удалось запланировать: {error}",
   "compose.toast.view": "Посмотреть",
   "compose.toast.draftSaved": "Черновик сохранён",
-  "compose.toast.draftSavedPlain": "Черновик сохранён без шифрования (Настройки → Безопасность)",
+  "compose.toast.draftSavedPlain": "Черновик сохранён без шифрования (Настройки → Почтовые ящики → Безопасность)",
   "compose.toast.saveFailed": "Не удалось сохранить черновик: {error}",
   "compose.toast.movedToDrafts": "Перемещено в черновики",
   "compose.toast.moveFailed": "Не удалось переместить в черновики: {error}",

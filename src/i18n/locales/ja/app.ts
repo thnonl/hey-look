@@ -238,7 +238,7 @@ export default defineLocale<typeof ns.en>({
   "app.sweep.readAll": "すべて既読にする",
   "app.sweep.blockAll": "送信者をブロックして迷惑メールに移動",
   "app.original.title": "元のメッセージ",
-  "app.original.confidential": "このメッセージは機密のため、ソースを表示できません。",
+  "app.original.confidential": "このメッセージは機密のため、元のメッセージを表示できません。",
   "app.original.fetching": "サーバーから取得中…",
   "app.original.copied": "コピーしました",
 });

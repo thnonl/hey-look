@@ -50,7 +50,7 @@ export default defineLocale<typeof ns.en>({
   "compose.bar.encrypt": "Verschlüsseln",
   "compose.bar.encryptTip": "Verschlüsseln (Ctrl+Shift+E)",
   "compose.bar.encryptTipMissing": { one: "Verschlüsseln (Ctrl+Shift+E) – {n} Empfänger ohne Schlüssel", other: "Verschlüsseln (Ctrl+Shift+E) – {n} Empfänger ohne Schlüssel" },
-  "compose.bar.noPgpKey": "Sie haben keinen PGP-Schlüssel für {email}. Verschlüsselung einrichten… (Einstellungen → Verschlüsselung)",
+  "compose.bar.noPgpKey": "Sie haben keinen PGP-Schlüssel für {email}. Verschlüsselung einrichten… (Einstellungen → Verschlüsselung (PGP))",
   "compose.bar.sign": "Signieren",
   "compose.bar.signTip": "Signieren (Ctrl+Shift+G)",
   "compose.bar.signOptions": "Signieroptionen",
@@ -87,7 +87,7 @@ export default defineLocale<typeof ns.en>({
   // meeting note
   "compose.meeting.note": "Empfänger in „An“ sind erforderliche Teilnehmer, Empfänger in „Cc“ sind optionale Teilnehmer. Bcc wird für Besprechungen nicht verwendet. Der Termin wird auch zu „Meine Termine“ hinzugefügt.",
   // security strip
-  "compose.sec.keyExpired": "Ihr Schlüssel ist abgelaufen. Verlängern Sie ihn unter Einstellungen → Verschlüsselung.",
+  "compose.sec.keyExpired": "Ihr Schlüssel ist abgelaufen. Verlängern Sie ihn unter Einstellungen → Verschlüsselung (PGP).",
   "compose.sec.openSettings": "Einstellungen öffnen",
   "compose.sec.theirExpired": "Verschlüsselung für {addr} nicht möglich: Der Schlüssel ist abgelaufen.",
   "compose.sec.theirRevoked": "Verschlüsselung für {addr} nicht möglich: Der Schlüssel wurde widerrufen.",
@@ -214,7 +214,7 @@ export default defineLocale<typeof ns.en>({
   "compose.toast.scheduleFailed": "Planen fehlgeschlagen: {error}",
   "compose.toast.view": "Ansehen",
   "compose.toast.draftSaved": "Entwurf gespeichert",
-  "compose.toast.draftSavedPlain": "Entwurf ohne Verschlüsselung gespeichert (Einstellungen → Sicherheit)",
+  "compose.toast.draftSavedPlain": "Entwurf ohne Verschlüsselung gespeichert (Einstellungen → Postfächer → Sicherheit)",
   "compose.toast.saveFailed": "Entwurf konnte nicht gespeichert werden: {error}",
   "compose.toast.movedToDrafts": "In Entwürfe verschoben",
   "compose.toast.moveFailed": "Das Verschieben in die Entwürfe war nicht möglich: {error}",

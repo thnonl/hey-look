@@ -52,7 +52,7 @@ export default defineLocale<typeof ns.en>({
   "mail.filter.button": "筛选",
   "mail.filter.active": "筛选：{name}",
   "mail.list.limitReached": "已达到下载上限（每个邮箱{max}封邮件）。可在{link}中调高。",
-  "mail.list.limitLink": "设置 > 阅读与同步",
+  "mail.list.limitLink": "设置 > 邮箱 > 阅读与同步",
   "mail.list.reachedEnd": "已经到底了",
   "mail.list.loadOlder": "加载更早的邮件",
   "mail.list.downloading": "正在下载邮件… {have} / {target}",

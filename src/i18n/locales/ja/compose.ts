@@ -51,7 +51,7 @@ export default defineLocale<typeof ns.en>({
   "compose.bar.encrypt": "暗号化",
   "compose.bar.encryptTip": "暗号化 (Ctrl+Shift+E)",
   "compose.bar.encryptTipMissing": { other: "暗号化 (Ctrl+Shift+E)：{n}人の宛先の鍵がありません" },
-  "compose.bar.noPgpKey": "{email}用のPGP鍵がありません。暗号化を設定…（設定 → 暗号化）",
+  "compose.bar.noPgpKey": "{email}用のPGP鍵がありません。暗号化を設定…（設定 → 暗号化（PGP））",
   "compose.bar.sign": "デジタル署名",
   "compose.bar.signTip": "デジタル署名 (Ctrl+Shift+G)",
   "compose.bar.signOptions": "デジタル署名のオプション",
@@ -88,7 +88,7 @@ export default defineLocale<typeof ns.en>({
   // meeting note
   "compose.meeting.note": "宛先の受信者は必須の出席者、Ccは任意の出席者になります。Bccは会議では使われません。この予定は「自分の予定」にも追加されます。",
   // security strip
-  "compose.sec.keyExpired": "鍵の有効期限が切れています。設定 → 暗号化で延長してください。",
+  "compose.sec.keyExpired": "鍵の有効期限が切れています。設定 → 暗号化（PGP）で延長してください。",
   "compose.sec.openSettings": "設定を開く",
   "compose.sec.theirExpired": "{addr}宛てに暗号化できません：相手の鍵が期限切れです。",
   "compose.sec.theirRevoked": "{addr}宛てに暗号化できません：相手の鍵が失効しています。",
@@ -203,7 +203,7 @@ export default defineLocale<typeof ns.en>({
   "compose.toast.scheduleFailed": "送信予約に失敗しました：{error}",
   "compose.toast.view": "表示",
   "compose.toast.draftSaved": "下書きを保存しました",
-  "compose.toast.draftSavedPlain": "下書きを暗号化せずに保存しました（設定 → セキュリティ）",
+  "compose.toast.draftSavedPlain": "下書きを暗号化せずに保存しました（設定 → メールボックス → セキュリティ）",
   "compose.toast.saveFailed": "下書きの保存に失敗しました：{error}",
   "compose.toast.movedToDrafts": "下書きに移動しました",
   "compose.toast.moveFailed": "下書きに移動できませんでした：{error}",
