@@ -114,7 +114,7 @@ export default define({
 
     "errors.os.credStore.macos": "votre trousseau macOS",
     "errors.os.credStore.linux": "le trousseau de clés de votre système",
-    "errors.os.credStore.windows": "le Gestionnaire d’identification Windows",
+    "errors.os.credStore.windows": "le Gestionnaire d’informations d’identification Windows",
     "errors.os.risky.macos": ".app, .pkg, .command, .sh, .scpt, fichiers Office avec macros (.docm, .xlsm) et assimilés",
     "errors.os.risky.linux": ".sh, .desktop, .AppImage, .run, .deb, fichiers Office avec macros (.docm, .xlsm) et assimilés",
     "errors.os.risky.windows": ".exe, .bat, .cmd, .ps1, .js, .vbs, .msi, fichiers Office avec macros (.docm, .xlsm) et assimilés",

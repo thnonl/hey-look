@@ -649,7 +649,7 @@ export default define({
     "calendar.toast.eventAdded": "Événement ajouté",
 
     "calendar.invite.unreadable": "Cette invitation n’a pas pu être lue (données de calendrier non valides).",
-    "calendar.invite.confidentialNoSource": "Un message confidentiel ne peut pas être enregistré ni affiché en source.",
+    "calendar.invite.confidentialNoSource": "Un message confidentiel ne peut être ni enregistré ni affiché sous forme de source.",
     "calendar.invite.showOriginal": "Afficher l’original",
     "calendar.invite.replyAria": "Réponse à la réunion : {summary}",
     "calendar.invite.reply.accepted": "{who} a accepté « {summary} »",

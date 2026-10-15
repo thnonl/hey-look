@@ -405,7 +405,7 @@ export default define({
     "pgp.gen.generating": "Génération…",
     "pgp.gen.generate": "Générer",
     "pgp.gen.ready": "Votre clé est prête.",
-    "pgp.gen.backupNote": "Enregistrez une sauvegarde maintenant. Elle reste verrouillée par votre phrase secrète : vous pouvez la conserver sur une clé USB ou dans un gestionnaire de mots de passe.",
+    "pgp.gen.backupNote": "Enregistrez une sauvegarde maintenant. Elle reste verrouillée par votre phrase secrète, vous pouvez donc la conserver sans risque sur une clé USB ou dans un gestionnaire de mots de passe.",
     "pgp.gen.backupSavedTo": "Sauvegarde enregistrée dans {path}",
     "pgp.gen.saveAnother": "Enregistrer une autre copie…",
     "pgp.gen.saveBackup": "Enregistrer la sauvegarde…",
