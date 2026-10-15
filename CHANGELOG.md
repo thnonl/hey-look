@@ -7,6 +7,7 @@
 - macOS: the Dock icon shows the unread number (the same count as the menu bar icon; cleared at 0; Settings > Notifications & tray > Dock badge turns it off)
 - Settings > About: links to the Website, "Buy me a coffee" (the support page) and the Source code
 - Calendar: turn on two-way sync with Google Calendar or Outlook / Microsoft 365 (Outlook.com, Hotmail, work and school accounts) for a mailbox (Settings > Mailboxes > your mailbox > Calendar). Repeating events from those calendars are shown but can’t be changed in Hey Look! yet.
+- Languages: the whole app is now available in English, Vietnamese (Tiếng Việt) and French (Français). Choose it in Settings > General > Language; English stays the default. Dates, times, numbers, the tray menu and notifications follow the language too
 
 ## 1.0.0 — 2026-10-14
 

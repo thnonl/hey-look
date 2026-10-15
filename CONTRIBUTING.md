@@ -100,6 +100,8 @@ src/                     React + TypeScript UI
   store.ts               application state (zustand): lists, selection, undo queue, toasts, dialogs
   prefs.ts               settings model, All-accounts defaults and per-account overrides
   api.ts                 typed wrappers over the Tauri commands
+  i18n/                  translations: index.ts (`t()`, language choice), ns/*.ts (one dictionary per area, English / Vietnamese / French side by side)
+  backendErrors.ts       shows the errors the Rust side sends as `CODE: text` in the language in use
   components/            folder pane, message list, reading pane, composer, search, settings, …
   devMock.ts, fakeMail.ts  mock backend for browser previews, generated sample mail
 src-tauri/src/           Rust backend
@@ -113,10 +115,22 @@ src-tauri/src/           Rust backend
   discover.rs            server-settings lookup (presets, autoconfig, ISPDB, DNS SRV / MX)
   winframe.rs            custom title bar on Windows: caption-button hit-testing (Snap Layouts), system menu
   shell.rs               tray icon, badges, native notifications, snooze reminders
+  i18n.rs                the few texts the operating system shows (tray menu, notifications, repeat descriptions) in vi / fr / en, and `coded()` for errors the UI translates
   update.rs              updates: check (GitHub latest.json through the updater plugin), signed download with progress, install, restart
   ai.rs                  OpenAI-compatible chat client
   db.rs                  SQLite schema and settings storage
 ```
+
+### Translations
+
+The UI is in English, Vietnamese and French (Settings > General > Language; the default is English, for every user, and the language of the computer is never used).
+
+- Every text the person reads is a key in `src/i18n/ns/<area>.ts`: `t("settings.general.language")`, with `{name}` for values and `{ one, other }` entries (parameter `{n}`) for plurals. A component calls `const t = useT()` once so it follows a language change; dates and numbers go through `src/i18n/format.ts` (or `Intl` with `intlLocale()`), never a hard-coded locale.
+- Add the English, Vietnamese and French text in the same dictionary: a key missing in one of them fails `npx tsc --noEmit`.
+- `node --experimental-strip-types scripts/test-i18n.mjs` (also in CI) checks that the three languages have the same keys and `{placeholders}`, that no key is unused, that every error code of the Rust side has a sentence, and that no new hard-coded English appears in `src/` (a deliberate exception gets a comment `// i18n-ok: why`).
+- `npm run dev` (browser preview) offers a pseudo-language, "Pseudo-locale (dev)" in Settings > General > Language (or `#lang=en-XA` in the address): every translated text is longer, accented and in brackets, so text that is not translated, or does not fit, shows at a glance.
+- Errors from Rust: `i18n::coded("CODE", &[("name", value)], "English text")` (or `"CODE: English text"`), and the sentence goes into `src/i18n/ns/backend.ts` as `backend.CODE`. Texts that only the operating system can show (tray, notifications) are in `src-tauri/src/i18n.rs`; the UI mirrors its language there as the setting `ui_language`.
+- Out of scope: the website, the README, mail content, AI prompts, and invitation / reply e-mails that Hey Look! sends (they are mail content for other people).
 
 ### Releasing
 1. Bump the version to `X.Y.Z` in `package.json` (and `package-lock.json`), `src-tauri/tauri.conf.json` and `src-tauri/Cargo.toml` (then `cargo check` updates `Cargo.lock`), and add a `## X.Y.Z — <date>` section to `CHANGELOG.md` (no `xx` left in it).
