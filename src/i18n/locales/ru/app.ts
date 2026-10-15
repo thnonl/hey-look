@@ -99,7 +99,7 @@ export default defineLocale<typeof ns.en>({
   "app.quit.scheduledBody.one": "Если выйти сейчас, оно будет отправлено при следующем запуске Hey Look!",
   "app.quit.scheduledBody.many": "Если выйти сейчас, они будут отправлены при следующем запуске Hey Look!",
   "app.quit.scheduledBodyNext.one": "Если выйти сейчас, оно будет отправлено при следующем запуске Hey Look! Срок отправки: {when}.",
-  "app.quit.scheduledBodyNext.many": "Если выйти сейчас, они будут отправлены при следующем запуске Hey Look! Ближайшее: {when}.",
+  "app.quit.scheduledBodyNext.many": "Если выйти сейчас, они будут отправлены при следующем запуске Hey Look! Ближайшее письмо будет отправлено: {when}.",
   "app.quit.keepRunning": "Оставить в трее",
   "app.quit.quitAnyway": "Всё равно выйти",
   // ---- top bar and window controls
@@ -242,7 +242,7 @@ export default defineLocale<typeof ns.en>({
   "app.sweep.intro": "Отправители во входящих, по числу писем.",
   "app.sweep.introAll": "Отправители во входящих, по числу писем. Показаны все учётные записи.",
   "app.sweep.filter": "Фильтр отправителей",
-  "app.sweep.last": "{email} · последнее {date}",
+  "app.sweep.last": "{email} · последнее письмо: {date}",
   "app.sweep.none": "Нет отправителей.",
   "app.sweep.archive": "Архивировать",
   "app.sweep.read": "Отметить прочитанными",

@@ -16,7 +16,7 @@ export default defineLocale<typeof ns.en>({
   "signin.end.denied": "Вход через {provider} не завершён.",
   "signin.end.generic": "Вход через {provider} не завершился.",
   "signin.end.google.mail": "Возможно, Google заблокировал этот вход, например из-за достигнутого лимита для приложений, не прошедших проверку Google. Вместо этого можно добавить учётную запись Gmail с паролем приложения.",
-  "signin.end.google.calendar": "Возможно, Google заблокировал этот вход, например из-за достигнутого лимита для приложений, не прошедших проверку Google. Почта это не затрагивает.",
+  "signin.end.google.calendar": "Возможно, Google заблокировал этот вход, например из-за достигнутого лимита для приложений, не прошедших проверку Google. Ваша почта не затронута.",
   "signin.end.microsoft": "Если этой учётной записью управляет ваша организация, возможно, ей нужно сначала одобрить Hey Look! Обратитесь к ИТ-администратору.",
   "signin.end.microsoft.blocked": "Возможно, вашей организации нужно одобрить Hey Look!, прежде чем эта учётная запись сможет войти. Обратитесь к ИТ-администратору и повторите попытку.",
   "signin.end.appPassword": "Добавить Gmail с паролем приложения",
@@ -25,5 +25,5 @@ export default defineLocale<typeof ns.en>({
   "signin.again.button": "Войти снова",
   "signin.again.short": "Сеанс входа через {provider} завершён.",
   "signin.again.blockedShort": "Возможно, Hey Look! нужно одобрение вашей организации.",
-  "signin.again.done": "Выполнен повторный вход как {email}",
+  "signin.again.done": "Вы снова вошли как {email}",
 });
