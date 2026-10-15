@@ -3,7 +3,8 @@
 // Run: node --experimental-strip-types scripts/test-mail-canvas.mjs
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
-import { DARK_CANVAS, DEFAULT_MAIL_CANVAS, MAIL_CANVAS_LABEL, frameBaseCss, frameRootClass, resolveMailCanvas, toggleMailCanvas } from "../src/mailCanvas.ts";
+import { t } from "../src/i18n/index.ts";
+import { DARK_CANVAS, DEFAULT_MAIL_CANVAS, frameBaseCss, frameRootClass, resolveMailCanvas, toggleMailCanvas } from "../src/mailCanvas.ts";
 
 const read = (p) => readFileSync(new URL(`../${p}`, import.meta.url), "utf8").replace(/\r\n/g, "\n");
 
@@ -30,7 +31,7 @@ assert.ok(css.indexOf("hm-pend") > css.indexOf("@media screen"), "hiding is unde
 assert.deepEqual(DARK_CANVAS, [27, 28, 32], "the dark theme's own surface");
 
 // the button
-assert.equal(MAIL_CANVAS_LABEL, "Message background: original / dark");
+assert.equal(t("reading.canvas.label"), "Message background: original / dark");
 
 // the preference is stored with the other preferences, default original, unknown values fall back
 const prefs = read("src/prefs.ts");
@@ -43,7 +44,7 @@ const rp = read("src/components/ReadingPane.tsx");
 assert.match(rp, /const canvas = useStore\(\(s\) => s\.prefs\.mailCanvas\);/);
 assert.match(rp, /setPrefs\(\{ mailCanvas: toggleMailCanvas\(canvas\) \}\)/);
 assert.ok(!/useAppDark|appSurface/.test(rp), "the app theme does not decide the mail's background");
-assert.match(rp, /title=\{MAIL_CANVAS_LABEL\} aria-label=\{MAIL_CANVAS_LABEL\} aria-pressed=\{cv\.dark\}/);
+assert.match(rp, /title=\{canvasLabel\} aria-label=\{canvasLabel\} aria-pressed=\{cv\.dark\}/);
 assert.ok(!/\{cv\.appDark && \(/.test(rp), "the button is not limited to the dark theme");
 assert.match(rp, /frameRootClass\(darkNow\.current \? "dark" : "original"\)/);
 assert.match(rp, /\$\{frameBaseCss\(\)\}/);

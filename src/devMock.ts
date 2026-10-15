@@ -366,6 +366,7 @@ export async function applyDemoHash() {
     const [k, v = ""] = tok.split("=");
     const val = decodeURIComponent(v);
     if (k === "dark" || k === "light") st().setPrefs({ theme: k });
+    else if (k === "lang") st().setPrefs({ language: val as "en" | "vi" | "fr" | "en-XA" }); // `lang=fr` / `lang=vi` / `lang=en-XA` (pseudo-locale)
     else if (k === "pane") st().setPrefs({ readingPane: val as "right" | "bottom" });
     else if (k === "settings") st().setDialog({ type: "settings", tab: val });
     else if (k === "density") st().setPrefs({ density: val as "full" | "medium" | "compact" });
@@ -749,6 +750,7 @@ const mockCalendars = () =>
 
 export function installMock() {
   const frame = simulateWindowFrame();
+  void import("./store").then(({ useStore }) => ((window as unknown as { __store: typeof useStore }).__store = useStore)); // dev preview: lets a script drive the app (language, dialogs, views) without reloading
   if (/(^|&)noaccounts(&|$)/.test(window.location.hash.slice(1))) {
     accounts.length = 0; // first-run: the Welcome screen
     folders.length = 0;

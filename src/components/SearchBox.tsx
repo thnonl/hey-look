@@ -1,7 +1,9 @@
 import { format } from "date-fns";
 import { Clock, Paperclip, Pin, Search, Star, Mail, X } from "lucide-react";
-import { useEffect, useRef, useState } from "react";
+import { Fragment, useEffect, useRef, useState } from "react";
 import { api, Contact, SearchScope } from "../api";
+import { useT } from "../i18n/react";
+import { tx } from "../i18n/rich";
 import { useStore } from "../store";
 import { useOutside } from "./ui";
 
@@ -21,15 +23,20 @@ const getKey = (q: string, key: string) => {
   return t ? t.slice(key.length + 1).replace(/^"|"$/g, "") : "";
 };
 
-const DATES: [string, string][] = [
-  ["", "Any time"],
-  ["today", "Today"],
-  ["7d", "Past 7 days"],
-  ["30d", "Past 30 days"],
-  ["365d", "Past year"],
-];
+// the operators the person types into the box: they are not translated
+const OPERATORS = ["from:", "to:", "subject:", "body:", "folder:sent", "is:unread|read|flagged|pinned", "has:attachment", "after:2026-01-31", "before:", "after:7d"];
+const QUOTE_EXAMPLE = '"quarterly report"';
+
+const DATES = [
+  ["", "app.search.anyTime"],
+  ["today", "app.date.today"],
+  ["7d", "app.search.past7"],
+  ["30d", "app.search.past30"],
+  ["365d", "app.search.pastYear"],
+] as const;
 
 export function SearchBox() {
+  const t = useT();
   const { search, setSearch, searchScope, setSearchScope, prefs, accountId, accounts } = useStore();
   const [q, setQ] = useState(search);
   const [open, setOpen] = useState(false);
@@ -61,11 +68,11 @@ export function SearchBox() {
   })();
   const setDate = (v: string) => change(setKey(q, "after", v === "today" ? format(new Date(), "yyyy-MM-dd") : v), true);
 
-  const mailboxLabel = accountId ? accounts.find((a) => a.id === accountId)?.email ?? "This mailbox" : "All mailboxes";
+  const mailboxLabel = accountId ? accounts.find((a) => a.id === accountId)?.email ?? t("app.search.thisMailbox") : t("app.search.allMailboxes");
   const scopes: [SearchScope, string][] = [
-    ["current", "Current folder"],
-    ["account", accountId ? "This mailbox" : "All folders"],
-    ["all", "All mailboxes"],
+    ["current", t("app.search.currentFolder")],
+    ["account", accountId ? t("app.search.thisMailbox") : t("app.search.allFolders")],
+    ["all", t("app.search.allMailboxes")],
   ];
 
   const chip = (label: string, token: string, icon: React.ReactNode) => (
@@ -104,8 +111,8 @@ export function SearchBox() {
         <Search size={16} />
         <input
           id="search-input"
-          aria-label="Search mail"
-          placeholder="Search mail  ( / )"
+          aria-label={t("app.search.aria")}
+          placeholder={t("app.search.placeholder")}
           value={q}
           onFocus={() => setOpen(true)}
           onChange={(e) => change(e.target.value)}
@@ -122,7 +129,7 @@ export function SearchBox() {
           }}
         />
         {q && (
-          <button className="icon-btn" aria-label="Clear search" onClick={() => (change("", true), setOpen(false))}>
+          <button className="icon-btn" aria-label={t("app.search.clear")} onClick={() => (change("", true), setOpen(false))}>
             <X size={14} />
           </button>
         )}
@@ -131,7 +138,7 @@ export function SearchBox() {
       {open && (
         <div className="sb-panel">
           <div className="sb-section">
-            <div className="sb-title">Search in</div>
+            <div className="sb-title">{t("app.search.searchIn")}</div>
             <div className="seg">
               {scopes.map(([k, l]) => (
                 <button key={k} className={searchScope === k ? "on" : ""} onClick={() => void setSearchScope(k)}>
@@ -139,12 +146,12 @@ export function SearchBox() {
                 </button>
               ))}
             </div>
-            <div className="muted small">Searches mail downloaded to this computer. {searchScope === "all" ? "Every folder of every account (not Deleted/Junk)" : searchScope === "account" ? `${mailboxLabel}, all folders (not Deleted/Junk)` : "Only the folder you have open"}</div>
+            <div className="muted small">{searchScope === "all" ? t("app.search.noteAll") : searchScope === "account" ? t("app.search.noteAccount", { mailbox: mailboxLabel }) : t("app.search.noteCurrent")}</div>
           </div>
 
           {contacts.length > 0 && (
             <div className="sb-section">
-              <div className="sb-title">People</div>
+              <div className="sb-title">{t("app.search.people")}</div>
               {contacts.map((c) => (
                 <button key={c.email} className="menu-row" onClick={() => (change(setKey(q.replace(/\S+$/, "").trim(), "from", c.email), true), setContacts([]))}>
                   <Mail size={14} />
@@ -156,42 +163,42 @@ export function SearchBox() {
           )}
 
           <div className="sb-section">
-            <div className="sb-title">Filters</div>
+            <div className="sb-title">{t("app.search.filters")}</div>
             <div className="sb-chips">
-              {chip("Unread", "is:unread", <Mail size={13} />)}
-              {chip("Flagged", "is:flagged", <Star size={13} />)}
-              {chip("Pinned", "is:pinned", <Pin size={13} />)}
-              {chip("Has attachment", "has:attachment", <Paperclip size={13} />)}
+              {chip(t("app.search.unread"), "is:unread", <Mail size={13} />)}
+              {chip(t("app.search.flagged"), "is:flagged", <Star size={13} />)}
+              {chip(t("app.search.pinned"), "is:pinned", <Pin size={13} />)}
+              {chip(t("app.search.hasAttachment"), "has:attachment", <Paperclip size={13} />)}
             </div>
           </div>
 
           <div className="sb-section">
-            <div className="sb-title">Date</div>
+            <div className="sb-title">{t("app.search.date")}</div>
             <div className="sb-chips">
               {DATES.map(([k, l]) => (
                 <button key={k || "any"} className={`sb-chip ${date === k ? "on" : ""}`} onClick={() => setDate(k)}>
-                  {l}
+                  {t(l)}
                 </button>
               ))}
             </div>
             <div className="sb-row">
-              {dateField("After", "after")}
-              {dateField("Before", "before")}
+              {dateField(t("app.search.after"), "after")}
+              {dateField(t("app.search.before"), "before")}
             </div>
           </div>
 
           <div className="sb-section">
-            <div className="sb-title">Fields</div>
+            <div className="sb-title">{t("app.search.fields")}</div>
             <div className="sb-row">
-              {field("From", "from", "name or address")}
-              {field("To", "to", "name or address")}
+              {field(t("app.search.from"), "from", t("app.search.nameOrAddress"))}
+              {field(t("app.search.to"), "to", t("app.search.nameOrAddress"))}
             </div>
-            <div className="sb-row">{field("Subject", "subject", "words in the subject")}</div>
+            <div className="sb-row">{field(t("app.search.subject"), "subject", t("app.search.subjectHint"))}</div>
           </div>
 
           {prefs.recentSearches.length > 0 && (
             <div className="sb-section">
-              <div className="sb-title">Recent searches</div>
+              <div className="sb-title">{t("app.search.recent")}</div>
               {prefs.recentSearches.map((r) => (
                 <button key={r} className="menu-row" onClick={() => (change(r, true), setOpen(false))}>
                   <Clock size={14} />
@@ -202,8 +209,14 @@ export function SearchBox() {
           )}
 
           <div className="sb-foot muted small">
-            Operators: <code>from:</code> <code>to:</code> <code>subject:</code> <code>body:</code> <code>folder:sent</code> <code>is:unread|read|flagged|pinned</code>{" "}
-            <code>has:attachment</code> <code>after:2026-01-31</code> <code>before:</code> <code>after:7d</code>. Quote phrases: <code>"quarterly report"</code>.
+            {t("app.search.operators")}{" "}
+            {OPERATORS.map((o, i) => (
+              <Fragment key={o}>
+                {i > 0 && " "}
+                <code>{o}</code>
+              </Fragment>
+            ))}
+            . {tx("app.search.quote", { example: <code>{QUOTE_EXAMPLE}</code> })}
           </div>
         </div>
       )}

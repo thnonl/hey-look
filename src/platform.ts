@@ -1,6 +1,7 @@
 // Which system the app runs on, for the few words and keys that differ (Windows is the default and the reference).
 import { create } from "zustand";
 import { api } from "./api";
+import { t } from "./i18n";
 
 export type Os = "windows" | "macos" | "linux";
 
@@ -28,15 +29,10 @@ export async function loadPlatform(): Promise<void> {
 export const osNow = (): Os => usePlatform.getState().os;
 
 /** Where passwords are kept, as a phrase ("Saved in {store}"). */
-export const credStore = (os: Os = osNow()) => (os === "macos" ? "your macOS Keychain" : os === "linux" ? "your system keyring" : "Windows Credential Manager");
+export const credStore = (os: Os = osNow()) => t(os === "macos" ? "errors.os.credStore.macos" : os === "linux" ? "errors.os.credStore.linux" : "errors.os.credStore.windows");
 
 /** A shortcut label for this system: `Ctrl+` becomes `Cmd+` on macOS, everything else stays. */
 export const kbd = (label: string, os: Os = osNow()) => (os === "macos" ? label.replace(/\bCtrl\+/g, "Cmd+") : label);
 
 /** The risky-file examples in the "Warn before opening programs and scripts" hint. */
-export const riskyHint = (os: Os = osNow()) =>
-  os === "macos"
-    ? ".app, .pkg, .command, .sh, .scpt, macro-enabled Office files (.docm, .xlsm) and similar"
-    : os === "linux"
-      ? ".sh, .desktop, .AppImage, .run, .deb, macro-enabled Office files (.docm, .xlsm) and similar"
-      : ".exe, .bat, .cmd, .ps1, .js, .vbs, .msi, macro-enabled Office files (.docm, .xlsm) and similar";
+export const riskyHint = (os: Os = osNow()) => t(os === "macos" ? "errors.os.risky.macos" : os === "linux" ? "errors.os.risky.linux" : "errors.os.risky.windows");

@@ -1,6 +1,7 @@
 import { Check, ChevronDown } from "lucide-react";
 import { ReactNode, useCallback, useEffect, useId, useRef, useState } from "react";
 import { createPortal } from "react-dom";
+import { useT } from "../i18n/react";
 import { accountColor } from "../prefs";
 import { useStore } from "../store";
 import { hue, initials } from "../util";
@@ -321,6 +322,7 @@ export function Switch({ checked, onChange, label, disabled, ariaLabel }: { chec
 const FOCUSABLE = 'a[href],button:not(:disabled),input:not(:disabled):not([type=hidden]),select:not(:disabled),textarea:not(:disabled),[contenteditable=true],[tabindex]:not([tabindex="-1"])';
 
 export function Modal({ title, onClose, children, wide, width }: { title: string; onClose: () => void; children: ReactNode; wide?: boolean; width?: number }) {
+  const t = useT();
   const titleId = useId();
   const box = useRef<HTMLDivElement>(null);
   // focus moves into the dialog when it opens and goes back to what opened it when it closes
@@ -366,7 +368,7 @@ export function Modal({ title, onClose, children, wide, width }: { title: string
       >
         <div className="modal-head">
           <b id={titleId}>{title}</b>
-          <button className="icon-btn" onClick={onClose} aria-label="Close">
+          <button className="icon-btn" onClick={onClose} aria-label={t("common.close")}>
             ✕
           </button>
         </div>

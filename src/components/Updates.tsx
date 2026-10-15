@@ -2,6 +2,9 @@ import { RefreshCw } from "lucide-react";
 import { ReactNode, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { UpdateInfo, UpdateResult } from "../api";
 import { getVersion } from "@tauri-apps/api/app";
+import { t } from "../i18n";
+import { useT } from "../i18n/react";
+import { tx } from "../i18n/rich";
 import { useStore } from "../store";
 import { isStaleOffer, openUpdateLink, pct, updateKindOf, UpdateFlow, useUpdates } from "../updates";
 import { fmtDay, fmtSize, fmtWhen } from "../util";
@@ -16,6 +19,7 @@ const plainLine = (s: string) =>
 
 /** Release notes as React text (never HTML): headings bold, bullets as "• ", other lines as they are. */
 function UpdateNotes({ notes, truncated, releaseUrl }: { notes: string; truncated: boolean; releaseUrl: string }) {
+  const t = useT();
   const box = useRef<HTMLDivElement>(null);
   const [scrolls, setScrolls] = useState(false);
   useLayoutEffect(() => {
@@ -38,14 +42,14 @@ function UpdateNotes({ notes, truncated, releaseUrl }: { notes: string; truncate
     else lines.push({ h: false, text: plainLine(line) });
   }
   return (
-    <div className="update-notes" ref={box} tabIndex={scrolls ? 0 : undefined} aria-label={scrolls ? "Release notes" : undefined} role={scrolls ? "region" : undefined}>
-      <div className="small h">What’s new</div>
+    <div className="update-notes" ref={box} tabIndex={scrolls ? 0 : undefined} aria-label={scrolls ? t("updates.notes.region") : undefined} role={scrolls ? "region" : undefined}>
+      <div className="small h">{t("updates.action.whatsNew")}</div>
       {lines.map((l, i) => (
         <div key={i} className={l.h ? "h" : undefined}>{l.text || <br />}</div>
       ))}
       {truncated && (
         <div>
-          … <button className="link" onClick={() => void openUpdateLink(releaseUrl)}>Read the full notes on GitHub</button>
+          … <button className="link" onClick={() => void openUpdateLink(releaseUrl)}>{t("updates.notes.readFull")}</button>
         </div>
       )}
     </div>
@@ -55,26 +59,31 @@ function UpdateNotes({ notes, truncated, releaseUrl }: { notes: string; truncate
 /** "a few seconds left", "about 20 s left", "about 3 min left" (nothing for an hour or more). */
 function etaText(secs: number | null): string | null {
   if (secs == null) return null;
-  if (secs < 10) return "a few seconds left";
-  if (secs < 60) return `about ${Math.max(10, Math.round(secs / 5) * 5)} s left`;
-  if (secs < 3600) return `about ${Math.ceil(secs / 60)} min left`;
+  if (secs < 10) return t("updates.eta.fewSeconds");
+  if (secs < 60) return t("updates.eta.seconds", { seconds: Math.max(10, Math.round(secs / 5) * 5) });
+  if (secs < 3600) return t("updates.eta.minutes", { minutes: Math.ceil(secs / 60) });
   return null;
 }
 
 /** The progress bar of a download (determinate with a total, else indeterminate) or of the verification step. */
 function FlowBar({ flow, verifying }: { flow: UpdateFlow; verifying: boolean }) {
+  const t = useT();
   const p = pct(flow);
   const indet = verifying || p == null;
-  const total = flow.total ? ` of ${fmtSize(flow.total)}` : "";
   return (
     <div
       className={`progress update-progress${indet ? " indet" : ""}`}
       role="progressbar"
-      aria-label="Download progress"
+      aria-label={t("updates.progress.label")}
       aria-valuemin={0}
       aria-valuemax={100}
       aria-valuenow={indet ? undefined : p}
-      aria-valuetext={verifying ? "Verifying" : p == null ? `Downloading, ${fmtSize(flow.received)}` : `${p}%, ${fmtSize(flow.received)}${total}`}
+      aria-valuetext={
+        verifying ? t("updates.progress.verifying")
+        : p == null ? t("updates.progress.downloading", { received: fmtSize(flow.received) })
+        : flow.total ? t("updates.progress.percentOf", { percent: p, received: fmtSize(flow.received), total: fmtSize(flow.total) })
+        : t("updates.progress.percent", { percent: p, received: fmtSize(flow.received) })
+      }
     >
       <i style={indet ? undefined : { width: `${p}%` }} />
     </div>
@@ -83,14 +92,15 @@ function FlowBar({ flow, verifying }: { flow: UpdateFlow; verifying: boolean }) 
 
 const failedText = (f: UpdateFlow) =>
   f.stage === "verify"
-    ? "The download is damaged or its signature doesn’t match. Nothing was installed."
+    ? t("updates.failed.verify")
     : f.stage === "badurl"
-      ? "The update link isn’t from the Hey Look! releases. Nothing was downloaded."
+      ? t("updates.failed.badurl")
       : f.stage === "install"
-        ? `Couldn’t install the update: ${f.message}.`
-        : `Couldn’t download the update. ${f.message}`;
+        ? t("updates.failed.install", { message: f.message })
+        : t("updates.failed.download", { message: f.message });
 
 function UpdateCard({ info, result, skipped }: { info: UpdateInfo; result: UpdateResult; skipped: boolean }) {
+  const t = useT();
   const setPrefs = useStore((s) => s.setPrefs);
   const flow = useUpdates((s) => s.flow);
   const { startUpdate, cancelUpdate, restartToUpdate, deferUpdate, cancelRestart, retryUpdate, openFallback } = useUpdates.getState();
@@ -110,27 +120,27 @@ function UpdateCard({ info, result, skipped }: { info: UpdateInfo; result: Updat
   const osArch = `${result.platform.label.replace(/ \(.*\)$/, "")} (${result.platform.arch})`;
   const readyHead = st === "ready" || st === "waiting" || st === "deferred" || st === "installing";
   const pill = (() => {
-    if (st === "downloading") return <span className="pill accent">Downloading</span>;
-    if (st === "verifying") return <span className="pill accent">Verifying</span>;
-    if (st === "installing") return <span className="pill good">Installing</span>;
-    if (readyHead) return <span className="pill good">Ready</span>;
+    if (st === "downloading") return <span className="pill accent">{t("updates.pill.downloading")}</span>;
+    if (st === "verifying") return <span className="pill accent">{t("updates.pill.verifying")}</span>;
+    if (st === "installing") return <span className="pill good">{t("updates.pill.installing")}</span>;
+    if (readyHead) return <span className="pill good">{t("updates.pill.ready")}</span>;
     if (st === "failed") return null;
-    return skipped ? <span className="pill">Skipped</span> : <span className="pill accent">New</span>;
+    return skipped ? <span className="pill">{t("updates.pill.skipped")}</span> : <span className="pill accent">{t("updates.pill.new")}</span>;
   })();
   const speed = flow.speed != null ? `${fmtSize(Math.round(flow.speed))}/s` : null;
   const eta = etaText(flow.eta);
-  const hint = result.platform.installer === "msi" ? "Windows will ask for permission to install." : ["deb", "rpm"].includes(result.platform.installer) ? "You’ll be asked for your password to install." : null;
+  const hint = result.platform.installer === "msi" ? t("updates.hint.msi") : ["deb", "rpm"].includes(result.platform.installer) ? t("updates.hint.password") : null;
   const sizeText = info.asset?.size != null ? ` · ${fmtSize(info.asset.size)}` : "";
   return (
     <div className={`set-card update-card${st !== "idle" ? " flowing" : ""}`}>
       <div className="set-card-head">
-        <b>{readyHead ? `Hey Look! ${info.latest} is ready to install` : `Hey Look! ${info.latest} is available`}</b>
+        <b>{t(readyHead ? "updates.card.readyHead" : "updates.card.availableHead", { version: info.latest })}</b>
         {pill}
       </div>
       <div className="muted small">
-        You have {result.current}
-        {info.publishedAt != null && ` · Released ${fmtDay(info.publishedAt)}`}
-        {!info.notes.trim() && " · No release notes"}
+        {t("updates.card.youHave", { version: result.current })}
+        {info.publishedAt != null && ` · ${t("updates.card.released", { date: fmtDay(info.publishedAt) })}`}
+        {!info.notes.trim() && ` · ${t("updates.card.noNotes")}`}
       </div>
 
       {(st === "downloading" || st === "verifying") && (
@@ -138,23 +148,24 @@ function UpdateCard({ info, result, skipped }: { info: UpdateInfo; result: Updat
           <div aria-live="off">
             {st === "downloading" ? (
               <div className="update-flow-line">
-                Downloading… {fmtSize(flow.received)}
-                {flow.total ? ` of ${fmtSize(flow.total)} (${pct(flow)}%)` : ""}
+                {flow.total
+                  ? t("updates.flow.downloadingOf", { received: fmtSize(flow.received), total: fmtSize(flow.total), percent: pct(flow) ?? 0 })
+                  : t("updates.flow.downloading", { received: fmtSize(flow.received) })}
               </div>
             ) : (
-              <div className="update-flow-line" aria-hidden>Verifying the download…</div>
+              <div className="update-flow-line" aria-hidden>{t("updates.flow.verifying")}</div>
             )}
             <FlowBar flow={flow} verifying={st === "verifying"} />
             {st === "downloading" && (
               <div className="muted small update-flow-line">
-                {speed ? [speed, eta].filter(Boolean).join(" · ") : "Starting…"}
+                {speed ? [speed, eta].filter(Boolean).join(" · ") : t("updates.flow.starting")}
               </div>
             )}
           </div>
           {st === "downloading" && (
             <div className="update-actions" style={{ marginTop: 8 }}>
-              <button id="upd-cancel" className="btn" onClick={cancelUpdate}>Cancel</button>
-              <span className="muted small">You can keep working.</span>
+              <button id="upd-cancel" className="btn" onClick={cancelUpdate}>{t("common.cancel")}</button>
+              <span className="muted small">{t("updates.flow.keepWorking")}</span>
             </div>
           )}
         </>
@@ -163,28 +174,28 @@ function UpdateCard({ info, result, skipped }: { info: UpdateInfo; result: Updat
       {st === "ready" && (
         <>
           <div className="notice good" style={{ marginTop: 10 }}>
-            {flow.countdown != null ? `Restarting in ${flow.countdown} s to finish the update.` : "Hey Look! will restart to finish the update."}
+            {flow.countdown != null ? t("updates.flow.restartCountdown", { seconds: flow.countdown }) : t("updates.flow.restartWill")}
           </div>
           <div className="update-actions">
-            <button id="upd-restart" className="btn primary" onClick={() => void restartToUpdate()}>Restart now</button>
-            <button className="btn" onClick={deferUpdate}>{flow.countdown != null ? "Not now" : "Later"}</button>
+            <button id="upd-restart" className="btn primary" onClick={() => void restartToUpdate()}>{t("updates.action.restartNow")}</button>
+            <button className="btn" onClick={deferUpdate}>{flow.countdown != null ? t("updates.action.notNow") : t("updates.action.later")}</button>
           </div>
         </>
       )}
       {st === "waiting" && (
         <>
-          <div className="notice info" style={{ marginTop: 10 }}>Finishing sending your message… Hey Look! will restart right after.</div>
+          <div className="notice info" style={{ marginTop: 10 }}>{t("updates.flow.waiting")}</div>
           <div className="update-actions">
-            <button className="btn" onClick={cancelRestart}>Cancel restart</button>
+            <button className="btn" onClick={cancelRestart}>{t("updates.action.cancelRestart")}</button>
           </div>
         </>
       )}
-      {st === "installing" && <p className="muted" style={{ marginTop: 10 }}>Installing the update… Hey Look! will restart.</p>}
+      {st === "installing" && <p className="muted" style={{ marginTop: 10 }}>{t("updates.flow.installing")}</p>}
       {st === "deferred" && (
         <>
-          <div className="notice good" style={{ marginTop: 10 }}>The update will be installed when you quit the app.</div>
+          <div className="notice good" style={{ marginTop: 10 }}>{t("updates.flow.deferred")}</div>
           <div className="update-actions">
-            <button id="upd-restart" className="btn primary" onClick={() => void restartToUpdate()}>Restart now</button>
+            <button id="upd-restart" className="btn primary" onClick={() => void restartToUpdate()}>{t("updates.action.restartNow")}</button>
           </div>
         </>
       )}
@@ -192,9 +203,9 @@ function UpdateCard({ info, result, skipped }: { info: UpdateInfo; result: Updat
         <>
           <div className="notice bad" style={{ marginTop: 10 }}>{failedText(flow)}</div>
           <div className="update-actions">
-            <button id="upd-retry" className="btn primary" onClick={retryUpdate}>Try again</button>
-            <button className="btn" onClick={openFallback}>Download from GitHub instead</button>
-            <button className="btn" onClick={() => void openUpdateLink(info.releaseUrl)}>View release on GitHub</button>
+            <button id="upd-retry" className="btn primary" onClick={retryUpdate}>{t("updates.action.tryAgain")}</button>
+            <button className="btn" onClick={openFallback}>{t("updates.action.downloadFromGithub")}</button>
+            <button className="btn" onClick={() => void openUpdateLink(info.releaseUrl)}>{t("updates.action.viewRelease")}</button>
           </div>
         </>
       )}
@@ -203,7 +214,7 @@ function UpdateCard({ info, result, skipped }: { info: UpdateInfo; result: Updat
         <>
           {!info.asset && (
             <div className="notice info" style={{ marginTop: 10 }}>
-              This release has no installer for {osArch}. The release page may list other options.
+              {t("updates.card.noInstaller", { platform: osArch })}
             </div>
           )}
           <div className="update-actions">
@@ -213,24 +224,24 @@ function UpdateCard({ info, result, skipped }: { info: UpdateInfo; result: Updat
                 className="btn primary"
                 onClick={() => ((pendingFocus.current = "upd-cancel"), void startUpdate("card"))}
               >
-                Download and install
+                {t("updates.action.downloadInstall")}
               </button>
             )}
-            <button className={info.asset ? "btn" : "btn primary"} onClick={() => void openUpdateLink(info.releaseUrl)}>View release on GitHub</button>
+            <button className={info.asset ? "btn" : "btn primary"} onClick={() => void openUpdateLink(info.releaseUrl)}>{t("updates.action.viewRelease")}</button>
           </div>
           {info.asset && <div className="muted small update-file">{info.asset.name}{sizeText}</div>}
           {info.asset && hint && <div className="muted small">{hint}</div>}
           {info.asset && isStaleOffer(result) && (
-            <div className="muted small">Downloading needs an internet connection. If Hey Look! still can’t reach GitHub, it stops with a message and nothing is installed.</div>
+            <div className="muted small">{t("updates.card.offlineNote")}</div>
           )}
           <div className="small update-skip">
             {skipped ? (
               <>
-                <span className="muted">You skipped this version. </span>
-                <button id="upd-skip" className="link" onClick={() => ((pendingFocus.current = "upd-skip"), setPrefs({ skippedUpdate: "" }))}>Remind me again</button>
+                <span className="muted">{t("updates.card.skipped")} </span>
+                <button id="upd-skip" className="link" onClick={() => ((pendingFocus.current = "upd-skip"), setPrefs({ skippedUpdate: "" }))}>{t("updates.action.remind")}</button>
               </>
             ) : (
-              <button id="upd-skip" className="link" onClick={() => ((pendingFocus.current = "upd-skip"), setPrefs({ skippedUpdate: info.latest }), useStore.getState().setStickyToast("update-available", null))}>Skip this version</button>
+              <button id="upd-skip" className="link" onClick={() => ((pendingFocus.current = "upd-skip"), setPrefs({ skippedUpdate: info.latest }), useStore.getState().setStickyToast("update-available", null))}>{t("updates.action.skip")}</button>
             )}
           </div>
         </>
@@ -242,6 +253,7 @@ function UpdateCard({ info, result, skipped }: { info: UpdateInfo; result: Updat
 
 /** Settings > About > Updates: status, the update card, the "Check for updates" button and the automatic-check switch. */
 export function UpdatesBlock({ privacy, autoSwitch }: { privacy: ReactNode; autoSwitch: ReactNode }) {
+  const t = useT();
   const update = useUpdates((s) => s.update);
   const checkedAt = useUpdates((s) => s.checkedAt);
   const busy = useUpdates((s) => s.busy);
@@ -256,27 +268,27 @@ export function UpdatesBlock({ privacy, autoSwitch }: { privacy: ReactNode; auto
 
   const kind = updateKindOf(update);
   const check = () => void checkUpdate("manual").then(() => btn.current?.focus());
-  const retry = <button className="link" onClick={check}>Try again</button>;
-  const checked = checkedAt == null ? "never" : Date.now() / 1000 - checkedAt < 60 ? "just now" : fmtWhen(checkedAt);
+  const retry = <button className="link" onClick={check}>{t("updates.action.tryAgain")}</button>;
+  const checked = checkedAt == null ? t("updates.status.never") : Date.now() / 1000 - checkedAt < 60 ? t("updates.status.justNow") : fmtWhen(checkedAt);
   const info = update?.info ?? null;
   const flow = useUpdates((s) => s.flow);
 
   // `live` is the short state text a screen reader announces; the card itself is outside the live region
   let live: ReactNode = null;
   let card: ReactNode = null;
-  if (busy) live = <p className="muted">Checking for updates…</p>;
+  if (busy) live = <p className="muted">{t("updates.status.checking")}</p>;
   else if (update && kind === "available" && info) {
     card = <UpdateCard info={info} result={update} skipped={info.latest === skippedUpdate} />;
     const mine = flow.state !== "idle" && flow.version === info.latest ? flow.state : "idle";
     const line =
-      mine === "downloading" ? `Downloading Hey Look! ${info.latest}…`
-      : mine === "verifying" ? "Verifying the download…"
-      : mine === "ready" ? (flow.countdown != null ? `Hey Look! ${info.latest} is ready. Restarting in ${flow.countdown} s.` : `Hey Look! ${info.latest} is ready to install.`)
-      : mine === "waiting" ? "Finishing sending your message…"
-      : mine === "installing" ? "Installing the update…"
-      : mine === "deferred" ? "The update will be installed when you quit the app."
+      mine === "downloading" ? t("updates.live.downloading", { version: info.latest })
+      : mine === "verifying" ? t("updates.flow.verifying")
+      : mine === "ready" ? (flow.countdown != null ? t("updates.live.readyCountdown", { version: info.latest, seconds: flow.countdown }) : t("updates.live.ready", { version: info.latest }))
+      : mine === "waiting" ? t("updates.live.waiting")
+      : mine === "installing" ? t("updates.live.installing")
+      : mine === "deferred" ? t("updates.flow.deferred")
       : mine === "failed" ? failedText(flow)
-      : `Hey Look! ${info.latest} is available.`;
+      : t("updates.available", { version: info.latest });
     // a stale offer (the last check failed): the quiet note replaces the sr-only line, only while no download / restart is going on.
     // After a failed download (F6) the card keeps its failure (REQ-47 h) and the note is added: the person asked for a check, and a check
     // that could not reach the server must say so (QA round 6, stopped server).
@@ -284,7 +296,7 @@ export function UpdatesBlock({ privacy, autoSwitch }: { privacy: ReactNode; auto
       live = (
         <>
           <p className="muted small">
-            {update.kind === "offline" ? "Couldn’t check for updates just now. You seem to be offline." : `Couldn’t check for updates just now${update.message ? `: ${update.message}` : ""}.`} Showing the last update found. {retry}
+            {update.kind === "offline" ? t("updates.stale.offline") : update.message ? t("updates.stale.error", { message: update.message }) : t("updates.stale.errorNoMessage")} {retry}
           </p>
           {mine === "failed" && <span className="sr-only">{line}</span>}
         </>
@@ -294,32 +306,34 @@ export function UpdatesBlock({ privacy, autoSwitch }: { privacy: ReactNode; auto
     live = (
       <div className="notice good">
         {info.latest === update.current
-          ? `You’re up to date. Hey Look! ${update.current} is the latest version.`
-          : `You’re up to date. This build (${update.current}) is newer than the latest release (${info.latest}).`}
+          ? t("updates.upToDate.same", { version: update.current })
+          : t("updates.upToDate.newer", { current: update.current, latest: info.latest })}
       </div>
     );
   else if (kind === "noRelease")
     live = (
       <div className="notice info">
-        Couldn’t find update information on GitHub. Try again later, or see the{" "}
-        <a
-          className="link"
-          href="https://github.com/thnonl/hey-look/releases"
-          onClick={(e) => {
-            e.preventDefault();
-            void openUpdateLink("https://github.com/thnonl/hey-look/releases");
-          }}
-        >
-          releases page
-        </a>
-        .
+        {tx("updates.noRelease", {
+          link: (
+            <a
+              className="link"
+              href="https://github.com/thnonl/hey-look/releases"
+              onClick={(e) => {
+                e.preventDefault();
+                void openUpdateLink("https://github.com/thnonl/hey-look/releases");
+              }}
+            >
+              {t("updates.noRelease.link")}
+            </a>
+          ),
+        })}
       </div>
     );
-  else if (kind === "offline") live = <div className="notice bad">Couldn’t check for updates. You seem to be offline. {retry}</div>;
+  else if (kind === "offline") live = <div className="notice bad">{t("updates.check.offline")} {retry}</div>;
   else if (kind === "error")
     live = (
       <div className="notice bad">
-        Couldn’t check for updates{update?.message ? `: ${update.message}` : ""}. {retry}
+        {update?.message ? t("updates.check.error", { message: update.message }) : t("updates.check.errorNoMessage")} {retry}
       </div>
     );
 
@@ -328,15 +342,15 @@ export function UpdatesBlock({ privacy, autoSwitch }: { privacy: ReactNode; auto
     <div>
       <div className="update-status">
         <span>
-          <b>Version {version}</b> <span className="muted small">· Last checked: {checked}</span>
+          <b>{t("updates.status.version", { version })}</b> <span className="muted small">· {t("updates.status.lastChecked", { when: checked })}</span>
         </span>
         <button ref={btn} className="btn small" disabled={busy} aria-busy={busy || undefined} onClick={check}>
           {busy ? (
             <>
-              <RefreshCw size={13} className="spin" /> Checking…
+              <RefreshCw size={13} className="spin" /> {t("updates.action.checking")}
             </>
           ) : (
-            "Check for updates"
+            t("updates.action.check")
           )}
         </button>
       </div>

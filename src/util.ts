@@ -1,6 +1,8 @@
 import DOMPurify from "dompurify";
-import { format, isThisYear, isThisWeek, isToday, isYesterday, subWeeks, isSameWeek } from "date-fns";
+import { isThisYear, isThisWeek, isToday, isYesterday, subWeeks, isSameWeek } from "date-fns";
 import blockedExt from "./blockedExt.json";
+import { fmtNumber, fmtPattern } from "./i18n/format";
+import { intlLocale, t } from "./i18n";
 import type { Prefs } from "./prefs";
 
 let timePat = "HH:mm";
@@ -13,33 +15,40 @@ export function configureDates(p: Pick<Prefs, "timeFormat" | "dateFormat">) {
 export function fmtDate(ts: number): string {
   const d = new Date(ts * 1000);
   if (relative) {
-    if (isToday(d)) return format(d, timePat);
-    if (isYesterday(d)) return "Yesterday";
-    if (isThisWeek(d)) return format(d, "EEE");
-    if (isThisYear(d)) return format(d, "d MMM");
-    return format(d, "dd/MM/yyyy");
+    if (isToday(d)) return fmtPattern(d, timePat);
+    if (isYesterday(d)) return t("app.date.yesterday");
+    if (isThisWeek(d)) return fmtPattern(d, "EEE");
+    if (isThisYear(d)) return fmtPattern(d, "d MMM");
+    return fmtPattern(d, "dd/MM/yyyy");
   }
-  return format(d, isThisYear(d) ? `d MMM ${timePat}` : `dd/MM/yyyy ${timePat}`);
+  return fmtPattern(d, isThisYear(d) ? `d MMM ${timePat}` : `dd/MM/yyyy ${timePat}`);
 }
 
 export function fmtFull(ts: number): string {
-  return format(new Date(ts * 1000), `EEE, d MMM yyyy ${timePat}`);
+  return fmtPattern(new Date(ts * 1000), `EEE, d MMM yyyy ${timePat}`);
 }
 
 export function dateGroup(ts: number): string {
   const d = new Date(ts * 1000);
-  if (isToday(d)) return "Today";
-  if (isYesterday(d)) return "Yesterday";
-  if (isThisWeek(d)) return "Earlier this week";
-  if (isSameWeek(d, subWeeks(new Date(), 1))) return "Last week";
-  if (isThisYear(d)) return format(d, "MMMM");
-  return format(d, "yyyy");
+  if (isToday(d)) return t("app.date.today");
+  if (isYesterday(d)) return t("app.date.yesterday");
+  if (isThisWeek(d)) return t("app.date.earlierThisWeek");
+  if (isSameWeek(d, subWeeks(new Date(), 1))) return t("app.date.lastWeek");
+  if (isThisYear(d)) {
+    const month = fmtPattern(d, "LLLL"); // stand-alone month name; a group heading starts with a capital in every language
+    return month.charAt(0).toLocaleUpperCase(intlLocale()) + month.slice(1);
+  }
+  return fmtPattern(d, "yyyy");
 }
 
+/** A message without a subject is stored as "(no subject)" by the backend; it is shown in the language in use. */
+export const subjectText = (s: string): string => (s === "(no subject)" ? t("app.noSubject") : s);
+
 export function fmtSize(n: number): string {
-  if (n < 1024) return `${n} B`;
-  if (n < 1024 * 1024) return `${(n / 1024).toFixed(0)} KB`;
-  return `${(n / 1024 / 1024).toFixed(1)} MB`;
+  const plain = { useGrouping: false };
+  if (n < 1024) return t("app.size.b", { n: fmtNumber(n, plain) });
+  if (n < 1024 * 1024) return t("app.size.kb", { n: fmtNumber(n / 1024, { ...plain, maximumFractionDigits: 0 }) });
+  return t("app.size.mb", { n: fmtNumber(n / 1024 / 1024, { ...plain, minimumFractionDigits: 1, maximumFractionDigits: 1 }) });
 }
 
 export function initials(s: string): string {
@@ -99,10 +108,10 @@ export function htmlToText(html: string): string {
 export function quoteHtml(m: { fromName: string; fromEmail: string; date: number; html: string | null; text: string | null }): string {
   const body = m.html ? sanitizeHtml(m.html, false).html : plainToHtml(m.text ?? "");
   const who = m.fromName ? `${m.fromName} &lt;${m.fromEmail}&gt;` : m.fromEmail;
-  return `<br><br><div>On ${fmtFull(m.date)}, ${who} wrote:</div><blockquote style="margin:0 0 0 .8ex;border-left:2px solid #ccc;padding-left:1ex">${body}</blockquote>`;
+  return `<br><br><div>${t("app.quote.wrote", { date: fmtFull(m.date), who })}</div><blockquote style="margin:0 0 0 .8ex;border-left:2px solid #ccc;padding-left:1ex">${body}</blockquote>`;
 }
 
-export function snoozePresets(t: Prefs["snoozeTimes"]): { label: string; ts: number }[] {
+export function snoozePresets(times: Prefs["snoozeTimes"]): { label: string; ts: number }[] {
   const at = (d: Date, h: number) => {
     const x = new Date(d);
     x.setHours(h, 0, 0, 0);
@@ -111,17 +120,17 @@ export function snoozePresets(t: Prefs["snoozeTimes"]): { label: string; ts: num
   const hh = (h: number) => `${String(h).padStart(2, "0")}:00`;
   const now = new Date();
   const out: { label: string; ts: number }[] = [];
-  out.push({ label: "In 1 hour", ts: Math.floor(Date.now() / 1000) + 3600 });
-  if (now.getHours() < t.evening) out.push({ label: `Later today (${hh(t.evening)})`, ts: at(now, t.evening) });
+  out.push({ label: t("app.snooze.inOneHour"), ts: Math.floor(Date.now() / 1000) + 3600 });
+  if (now.getHours() < times.evening) out.push({ label: t("app.snooze.laterToday", { time: hh(times.evening) }), ts: at(now, times.evening) });
   const tm = new Date(now);
   tm.setDate(tm.getDate() + 1);
-  out.push({ label: `Tomorrow (${hh(t.tomorrow)})`, ts: at(tm, t.tomorrow) });
+  out.push({ label: t("app.snooze.tomorrow", { time: hh(times.tomorrow) }), ts: at(tm, times.tomorrow) });
   const sat = new Date(now);
   sat.setDate(sat.getDate() + ((6 - sat.getDay() + 7) % 7 || 7));
-  out.push({ label: `This weekend (${hh(t.weekend)})`, ts: at(sat, t.weekend) });
+  out.push({ label: t("app.snooze.weekend", { time: hh(times.weekend) }), ts: at(sat, times.weekend) });
   const mon = new Date(now);
   mon.setDate(mon.getDate() + ((8 - mon.getDay()) % 7 || 7));
-  out.push({ label: `Next week (${hh(t.nextWeek)})`, ts: at(mon, t.nextWeek) });
+  out.push({ label: t("app.snooze.nextWeek", { time: hh(times.nextWeek) }), ts: at(mon, times.nextWeek) });
   return out;
 }
 
@@ -165,7 +174,7 @@ export function playSent() {
 
 /** The zone a scheduled time is interpreted in, e.g. "Asia/Ho_Chi_Minh (UTC+7)". */
 export function zoneLabel(d = new Date()): string {
-  const tz = Intl.DateTimeFormat().resolvedOptions().timeZone || "local time";
+  const tz = Intl.DateTimeFormat().resolvedOptions().timeZone || t("app.sched.localTime");
   const off = -d.getTimezoneOffset();
   const h = Math.trunc(off / 60);
   const m = Math.abs(off % 60);
@@ -175,23 +184,23 @@ export function zoneLabel(d = new Date()): string {
 /** "Tue 13 Oct, 08:00" for a scheduled time (Today / Tomorrow when that is the day). */
 export function fmtWhen(ts: number, now = new Date()): string {
   const d = new Date(ts * 1000);
-  const time = format(d, timePat);
+  const time = fmtPattern(d, timePat);
   const dayDiff = Math.round((new Date(d.getFullYear(), d.getMonth(), d.getDate()).getTime() - new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime()) / 86400000);
-  if (dayDiff === 0) return `Today ${time}`;
-  if (dayDiff === 1) return `Tomorrow ${time}`;
-  return `${format(d, isThisYear(d) ? "EEE d MMM" : "EEE d MMM yyyy")}, ${time}`;
+  if (dayDiff === 0) return t("app.date.todayAt", { time });
+  if (dayDiff === 1) return t("app.date.tomorrowAt", { time });
+  return `${fmtPattern(d, isThisYear(d) ? "EEE d MMM" : "EEE d MMM yyyy")}, ${time}`;
 }
 
 /** "in 1 day 22 h", "in 20 h", "in 5 min", "now" */
 export function fmtIn(ts: number, now = Date.now()): string {
   const s = Math.round((ts * 1000 - now) / 1000);
-  if (s <= 60) return "now";
+  if (s <= 60) return t("app.in.now");
   const m = Math.round(s / 60);
-  if (m < 60) return `in ${m} min`;
+  if (m < 60) return t("app.in.minutes", { m });
   const h = Math.floor(m / 60);
-  if (h < 24) return `in ${h} h${m % 60 ? ` ${m % 60} min` : ""}`;
+  if (h < 24) return m % 60 ? t("app.in.hoursMinutes", { h, m: m % 60 }) : t("app.in.hours", { h });
   const days = Math.floor(h / 24);
-  return `in ${days} day${days === 1 ? "" : "s"}${h % 24 ? ` ${h % 24} h` : ""}`;
+  return h % 24 ? t("app.in.daysHours", { n: days, h: h % 24 }) : t("app.in.days", { n: days });
 }
 
 /** Local date + time for a `datetime` pair, or null when the pair is not a real date. */
@@ -211,7 +220,7 @@ export function imageSize(dataUrl: string): Promise<{ w: number; h: number }> {
   return new Promise((res, rej) => {
     const img = new Image();
     img.onload = () => res({ w: img.naturalWidth, h: img.naturalHeight });
-    img.onerror = () => rej(new Error("not an image"));
+    img.onerror = () => rej(new Error(t("app.error.notImage")));
     img.src = dataUrl;
   });
 }
@@ -228,7 +237,7 @@ export async function resizeImage(dataUrl: string, mime: string, maxW: number): 
   canvas.width = w;
   canvas.height = h;
   const ctx = canvas.getContext("2d");
-  if (!ctx) throw new Error("canvas unavailable");
+  if (!ctx) throw new Error(t("app.error.canvas"));
   ctx.drawImage(img, 0, 0, w, h);
   const keepPng = mime === "image/png" || mime === "image/gif";
   const out = keepPng ? "image/png" : "image/jpeg";
@@ -264,11 +273,11 @@ export function shortKey(fprOrId: string): string {
 
 /** Clock time of a timestamp in the app's time format ("14:05" or "2:05 pm"). */
 export function fmtClock(ts: number): string {
-  return format(new Date(ts * 1000), timePat);
+  return fmtPattern(new Date(ts * 1000), timePat);
 }
 
 export function fmtDay(ts: number): string {
-  return format(new Date(ts * 1000), "d MMM yyyy");
+  return fmtPattern(new Date(ts * 1000), "d MMM yyyy");
 }
 
 /** Name part of "Name <a@b.c>", else the address. */
@@ -289,5 +298,5 @@ export function passphraseStrength(p: string): 0 | 1 | 2 | 3 | 4 {
 
 /** The toast after scheduled messages that fell due while the app was closed were sent on start. */
 export function catchupText(count: number): string {
-  return count === 1 ? "Sent 1 scheduled message that was due while Hey Look! was closed." : `Sent ${count} scheduled messages that were due while Hey Look! was closed.`;
+  return t("app.catchup", { n: count });
 }

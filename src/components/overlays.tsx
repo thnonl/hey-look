@@ -1,9 +1,11 @@
 import { AlertTriangle, CheckCircle2, Info, X } from "lucide-react";
 import { useEffect, useRef } from "react";
+import { useT } from "../i18n/react";
 import { fullErrorFor, useStore } from "../store";
 
 /** Stack of toasts; a toast with Undo stays until its window ends. */
 export function Toasts() {
+  const tr = useT();
   const toasts = useStore((s) => s.toasts);
   const dismiss = useStore((s) => s.dismissToast);
   // Esc closes the newest toast that asks for it ("a new version is available") when focus is on its buttons, unless a dialog, the command bar or a question is open
@@ -38,7 +40,7 @@ export function Toasts() {
                 dismiss(t.id);
               }}
             >
-              Undo
+              {tr("common.undo")}
             </button>
           )}
           {t.actions?.map((a) => (
@@ -55,7 +57,7 @@ export function Toasts() {
           ))}
           <button
             className="toast-x"
-            aria-label={t.closeLabel ?? (t.onDismiss ? "Later" : "Dismiss")}
+            aria-label={t.closeLabel ?? (t.onDismiss ? tr("app.toast.later") : tr("app.toast.dismiss"))}
             onClick={() => {
               dismiss(t.id);
               t.onDismiss?.();

@@ -1,10 +1,13 @@
+import { t } from "./i18n/index.ts";
+import type { Key, LangPref } from "./i18n/index.ts";
 import { DEFAULT_MAIL_CANVAS, MailCanvas, resolveMailCanvas } from "./mailCanvas";
 export type NotifySound = "mail" | "default" | "im" | "reminder" | "sms" | "none";
-export const NOTIFY_SOUNDS: [NotifySound, string][] = [
-  ["mail", "Mail"], ["default", "Default"], ["im", "Instant message"], ["reminder", "Reminder"], ["sms", "SMS"], ["none", "Silent"],
+/** The labels are dictionary keys: show them with t() while rendering, so they follow the language. */
+export const NOTIFY_SOUNDS: [NotifySound, Key][] = [
+  ["mail", "settings.sound.mail"], ["default", "common.default"], ["im", "settings.sound.im"], ["reminder", "settings.sound.reminder"], ["sms", "settings.sound.sms"], ["none", "settings.sound.silent"],
 ];
-export const NOTIFY_ACTIONS: [string, string][] = [
-  ["none", "None"], ["archive", "Archive"], ["delete", "Delete"], ["read", "Mark as read"], ["flag", "Flag"], ["reply", "Reply"], ["snooze", "Snooze until tomorrow"],
+export const NOTIFY_ACTIONS: [string, Key][] = [
+  ["none", "common.none"], ["archive", "settings.action.archive"], ["delete", "common.delete"], ["read", "settings.action.read"], ["flag", "settings.action.flag"], ["reply", "settings.action.reply"], ["snooze", "settings.action.snoozeTomorrow"],
 ];
 
 /**
@@ -46,6 +49,8 @@ export interface Overridable {
 }
 
 export interface Prefs extends Overridable {
+  /** UI language: en (the default, also for an unset or unknown value), vi or fr; "en-XA" is the pseudo-locale of dev builds. The OS language is not used. */
+  language: LangPref;
   theme: "system" | "light" | "dark";
   /** the background HTML mail is read on: as the sender designed it, or dark (reading pane button) */
   mailCanvas: MailCanvas;
@@ -113,6 +118,7 @@ export interface Prefs extends Overridable {
 }
 
 export const DEFAULT_PREFS: Prefs = {
+  language: "en",
   theme: "system",
   mailCanvas: DEFAULT_MAIL_CANVAS,
   accent: "#0f6cbd",
@@ -232,6 +238,8 @@ export function mergePrefs(raw: string | null): Prefs {
       ...p,
       maxDownload: clampMaxDownload(p.maxDownload),
       mailCanvas: resolveMailCanvas(p.mailCanvas),
+      // English unless the person chose another language (an unknown or older value counts as English)
+      language: p.language === "vi" || p.language === "fr" || p.language === "en-XA" ? p.language : "en",
       accountPrefs,
       snoozeTimes: { ...DEFAULT_PREFS.snoozeTimes, ...(p.snoozeTimes ?? {}) },
     };
@@ -261,23 +269,24 @@ export function staleAccountPrefs(prefs: Prefs, accountIds: string[]): Partial<P
   return out;
 }
 
-export const ROLE_LABELS: Record<string, string> = {
-  inbox: "Inbox",
-  drafts: "Drafts",
-  sent: "Sent Items",
-  archive: "Archive",
-  junk: "Junk Email",
-  trash: "Deleted Items",
-  starred: "Flagged",
-  pinned: "Pinned",
-  snoozed: "Snoozed",
-  scheduled: "Scheduled",
-  unread: "Unread",
-  all: "All Mail",
+/** Dictionary key of the name of each built-in folder (the label itself comes from t(), in the language in use). */
+export const ROLE_LABELS: Record<string, Key> = {
+  inbox: "settings.folder.inbox",
+  drafts: "settings.folder.drafts",
+  sent: "settings.folder.sent",
+  archive: "settings.folder.archive",
+  junk: "settings.folder.junk",
+  trash: "settings.folder.trash",
+  starred: "settings.folder.starred",
+  pinned: "settings.folder.pinned",
+  snoozed: "settings.folder.snoozed",
+  scheduled: "settings.folder.scheduled",
+  unread: "settings.folder.unread",
+  all: "settings.folder.all",
 };
 
 export function folderLabel(key: string, name?: string): string {
-  if (ROLE_LABELS[key]) return ROLE_LABELS[key];
+  if (ROLE_LABELS[key]) return t(ROLE_LABELS[key]);
   const n = name ?? key.replace(/^f:/, "");
   return n.split(/[/.]/).pop() || n;
 }
@@ -289,9 +298,9 @@ export function folderDepth(key: string, name?: string): number {
   return Math.max(0, n.split(/[/.]/).length - 1);
 }
 
-export const ACCENT_PRESETS: [string, string][] = [
-  ["#0f6cbd", "Blue"], ["#0e7c86", "Teal"], ["#1a7f4b", "Green"], ["#6d4aff", "Violet"],
-  ["#c2327d", "Rose"], ["#c4570c", "Orange"], ["#475569", "Slate"],
+export const ACCENT_PRESETS: [string, Key][] = [
+  ["#0f6cbd", "settings.accent.blue"], ["#0e7c86", "settings.accent.teal"], ["#1a7f4b", "settings.accent.green"], ["#6d4aff", "settings.accent.violet"],
+  ["#c2327d", "settings.accent.rose"], ["#c4570c", "settings.accent.orange"], ["#475569", "settings.accent.slate"],
 ];
 
 const channel = (v: number) => {

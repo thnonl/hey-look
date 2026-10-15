@@ -1,5 +1,6 @@
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { useEffect, type CSSProperties, type ImgHTMLAttributes, type SyntheticEvent } from "react";
+import { t } from "./i18n";
 import { useStore } from "./store";
 
 /**
@@ -11,9 +12,6 @@ import { useStore } from "./store";
  * macOS. Screenshots, Snipping Tool, Teams / Zoom sharing and recordings show the window black. It does not stop a camera
  * pointed at the screen, and Linux has no equivalent (the call is accepted and does nothing).
  */
-export const CONFIDENTIAL_NOTE = "Confidential: screen capture, copying, printing and forwarding are turned off for this message.";
-export const CONFIDENTIAL_DENIED = "This message is confidential, so that isn’t allowed.";
-
 let users = 0;
 
 function setProtected(on: boolean) {
@@ -30,7 +28,7 @@ setProtected(false);
 function onKey(e: KeyboardEvent) {
   if (e.key === "PrintScreen") {
     void navigator.clipboard?.writeText("").catch(() => undefined);
-    if (e.type === "keydown") useStore.getState().showToast("Screen capture is turned off for confidential mail.", undefined, "info");
+    if (e.type === "keydown") useStore.getState().showToast(t("reading.protect.captureOff"), undefined, "info");
   } else if ((e.ctrlKey || e.metaKey) && !e.shiftKey && !e.altKey && e.key.toLowerCase() === "p") {
     e.preventDefault(); // the webview would print the whole window, message included
   }
@@ -62,7 +60,7 @@ export function isConfidentialId(id: string): boolean {
 
 /** For actions that take mail out of the app (save, open outside, show source, ...): throws for confidential mail. */
 export function denyIfConfidential(id: string) {
-  if (isConfidentialId(id)) throw new Error(CONFIDENTIAL_DENIED);
+  if (isConfidentialId(id)) throw new Error(t("reading.protect.denied"));
 }
 
 /** Props for a picture shown outside the message frame (lightbox, preview) so the webview menu can't "save image as" or copy it. */
@@ -82,11 +80,11 @@ export const CONFIDENTIAL_FRAME_CSS =
 export function lockDocument(doc: Document): () => void {
   const stop = (e: Event) => e.preventDefault();
   const events = ["copy", "cut", "contextmenu", "dragstart", "selectstart"];
-  events.forEach((t) => doc.addEventListener(t, stop));
+  events.forEach((ev) => doc.addEventListener(ev, stop));
   doc.addEventListener("keydown", onKey, true);
   doc.addEventListener("keyup", onKey, true);
   return () => {
-    events.forEach((t) => doc.removeEventListener(t, stop));
+    events.forEach((ev) => doc.removeEventListener(ev, stop));
     doc.removeEventListener("keydown", onKey, true);
     doc.removeEventListener("keyup", onKey, true);
   };

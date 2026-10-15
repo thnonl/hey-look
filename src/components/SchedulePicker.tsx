@@ -1,5 +1,8 @@
 import { CalendarClock, Clock, Send } from "lucide-react";
 import { useMemo, useRef, useState } from "react";
+import { t } from "../i18n";
+import { useT } from "../i18n/react";
+import { tx } from "../i18n/rich";
 import { useStore } from "../store";
 import { fmtIn, fmtWhen, parseLocal, snoozePresets, zoneLabel } from "../util";
 
@@ -12,13 +15,13 @@ const toTimeInput = (d: Date) => `${pad(d.getHours())}:${pad(d.getMinutes())}`;
 /** The check behind the custom date/time: an error blocks scheduling, a warning does not. */
 export function checkSchedule(date: string, time: string, now = Date.now()): { ts: number | null; error?: string; warn?: string; adjusted?: string } {
   const ts = parseLocal(date, time);
-  if (ts === null) return { ts: null, error: date && time ? "Pick a real date and time." : undefined };
+  if (ts === null) return { ts: null, error: date && time ? t("compose.schedule.realDate") : undefined };
   const d = new Date(ts * 1000);
   // a time that does not exist (clock change) is moved forward by the browser; say so
   const adjusted = toTimeInput(d) !== time ? toTimeInput(d) : undefined;
-  if (ts * 1000 < now - 60 * 1000) return { ts: null, error: "That time has passed. Pick a later time, or send now.", adjusted };
-  if (ts * 1000 > now + MAX_AHEAD * 1000) return { ts: null, error: "Pick a date within a year.", adjusted };
-  if (ts * 1000 < now + 60 * 1000) return { ts, warn: "That’s less than a minute away — it will be sent almost immediately.", adjusted };
+  if (ts * 1000 < now - 60 * 1000) return { ts: null, error: t("compose.schedule.passed"), adjusted };
+  if (ts * 1000 > now + MAX_AHEAD * 1000) return { ts: null, error: t("compose.schedule.withinYear"), adjusted };
+  if (ts * 1000 < now + 60 * 1000) return { ts, warn: t("compose.schedule.almostNow"), adjusted };
   return { ts, adjusted };
 }
 
@@ -30,7 +33,7 @@ export function SchedulePicker({
   initial,
   onPick,
   onSendNow,
-  primaryLabel = "Schedule",
+  primaryLabel,
   busy = false,
   onCancel,
   currentLabel,
@@ -45,6 +48,7 @@ export function SchedulePicker({
   /** e.g. "Now: Tue 13 Oct, 08:00" */
   currentLabel?: string;
 }) {
+  const t = useT();
   const prefs = useStore((s) => s.prefs);
   const start = initial ? new Date(initial * 1000) : new Date(Date.now() + 60 * 60 * 1000);
   const [date, setDate] = useState(toDateInput(start));
@@ -76,10 +80,10 @@ export function SchedulePicker({
   };
 
   return (
-    <div ref={wrap} role="dialog" aria-label="Send later" onKeyDown={onKey} className="sched-picker">
-      <div className="sb-title">Send later</div>
-      <div className="sched-tz" title="The time you pick is read in this time zone">
-        <Clock size={12} aria-hidden /> Times in {zoneLabel()}
+    <div ref={wrap} role="dialog" aria-label={t("compose.schedule.title")} onKeyDown={onKey} className="sched-picker">
+      <div className="sb-title">{t("compose.schedule.title")}</div>
+      <div className="sched-tz" title={t("compose.schedule.tzTip")}>
+        <Clock size={12} aria-hidden /> {t("compose.schedule.times", { zone: zoneLabel() })}
       </div>
       <div className="sched-presets">
         {presets.map((p) => (
@@ -93,7 +97,7 @@ export function SchedulePicker({
       <div className="sched-custom">
         <div className="row-inline" style={{ margin: 0 }}>
           <label>
-            Date
+            {t("compose.schedule.date")}
             <input
               type="date"
               value={date}
@@ -103,7 +107,7 @@ export function SchedulePicker({
             />
           </label>
           <label>
-            Time
+            {t("compose.schedule.time")}
             <input
               type="time"
               value={time}
@@ -115,39 +119,39 @@ export function SchedulePicker({
         </div>
         {check.ts !== null && (
           <div className="sched-sum" aria-live="polite">
-            Sends <b>{fmtWhen(check.ts)}</b> · {fmtIn(check.ts)}
-            {check.adjusted && <span className="muted"> · Adjusted to {check.adjusted} (clock change).</span>}
+            {tx("compose.schedule.sends", { when: <b>{fmtWhen(check.ts)}</b> }, { in: fmtIn(check.ts) })}
+            {check.adjusted && <span className="muted"> · {t("compose.schedule.adjusted", { time: check.adjusted })}</span>}
           </div>
         )}
         {check.error && (
           <div id="sched-err" className="field-err" role="alert">
             {check.error}
             {onSendNow && (
-              <button className="link" onClick={onSendNow}>Send now</button>
+              <button className="link" onClick={onSendNow}>{t("compose.schedule.sendNow")}</button>
             )}
           </div>
         )}
         {check.warn && <div className="note" style={{ color: "var(--warn)" }}>{check.warn}</div>}
         <div className="row-inline" style={{ margin: 0, justifyContent: "flex-end" }}>
-          {onCancel && <button className="btn small" onClick={onCancel}>Cancel</button>}
+          {onCancel && <button className="btn small" onClick={onCancel}>{t("common.cancel")}</button>}
           <button className="btn primary small" disabled={!valid || busy} onClick={() => check.ts !== null && onPick(check.ts)}>
-            <CalendarClock size={13} /> {primaryLabel}
+            <CalendarClock size={13} /> {primaryLabel ?? t("compose.schedule.button")}
           </button>
         </div>
       </div>
       {currentLabel && <div className="sched-picker-foot">{currentLabel}</div>}
       <div className="sched-picker-foot">
-        Hey Look! sends from this computer. If it’s closed at that time, the message goes out the next time you open it.
+        {t("compose.schedule.foot")}
         {!prefs.closeToTray && (
           <div className="warn">
-            Closing the window quits Hey Look!, so this message only goes out when you open it again.{" "}
-            <button className="link" onClick={() => useStore.getState().setPrefs({ closeToTray: true })}>Keep running in the tray</button>
+            {t("compose.schedule.quitWarning")}{" "}
+            <button className="link" onClick={() => useStore.getState().setPrefs({ closeToTray: true })}>{t("compose.schedule.keepInTray")}</button>
           </div>
         )}
       </div>
       {onSendNow && !check.error && (
         <button className="link small" style={{ alignSelf: "flex-start", marginTop: 4 }} onClick={onSendNow}>
-          <Send size={12} /> Send now instead
+          <Send size={12} /> {t("compose.schedule.sendNowInstead")}
         </button>
       )}
     </div>

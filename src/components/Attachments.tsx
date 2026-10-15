@@ -5,6 +5,8 @@ import {
 } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { api, AttMeta, errorCode, MessageFull } from "../api";
+import { t, type Key } from "../i18n";
+import { useT } from "../i18n/react";
 import { eff } from "../prefs";
 import { denyIfConfidential, imageLock } from "../protect";
 import { friendlyError, useStore } from "../store";
@@ -54,12 +56,12 @@ const KIND_LABEL: Partial<Record<FileKind, string>> = { pdf: "PDF", doc: "DOC", 
 export function typeName(name: string, mime: string): string {
   const k = fileKind(name, mime);
   if (KIND_LABEL[k]) return KIND_LABEL[k] as string;
-  if (mime.startsWith("image/")) return `${mime.slice(6).toUpperCase().replace("JPG", "JPEG")} image`;
-  if (k === "ics") return "Calendar invite";
-  if (k === "key") return "Encryption key";
-  if (k === "exe") return "Program or script";
-  if (k === "code") return ext(name) ? `${ext(name).toUpperCase()} file` : "Text";
-  return ext(name) ? `${ext(name).toUpperCase()} file` : "File";
+  if (mime.startsWith("image/")) return t("reading.att.typeImage", { type: mime.slice(6).toUpperCase().replace("JPG", "JPEG") });
+  if (k === "ics") return t("reading.att.typeCalendar");
+  if (k === "key") return t("reading.att.typeKey");
+  if (k === "exe") return t("reading.att.typeProgram");
+  if (k === "code") return ext(name) ? t("reading.att.typeExt", { ext: ext(name).toUpperCase() }) : t("reading.att.typeText");
+  return ext(name) ? t("reading.att.typeExt", { ext: ext(name).toUpperCase() }) : t("reading.att.typeFile");
 }
 
 function KindIcon({ kind, size = 16 }: { kind: FileKind; size?: number }) {
@@ -109,7 +111,7 @@ function b64ToBytes(b64: string): Uint8Array {
 type Status = "idle" | "busy" | "done" | "error";
 interface CardState {
   status: Status;
-  label?: string;
+  label?: "saving" | "opening";
   error?: string;
   path?: string;
 }
@@ -117,12 +119,12 @@ interface CardState {
 /** Ask before running a program/script; returns true when the user chose "Open anyway". */
 async function confirmRisky(name: string, sender: string): Promise<"open" | "save" | "cancel"> {
   const choice = await useStore.getState().choose({
-    title: `Open “${name}”?`,
-    body: `This kind of file can run programs on your computer. Open it only if you trust ${sender || "the sender"} and expected this file.`,
+    title: t("reading.att.riskyTitle", { name }),
+    body: t("reading.att.riskyBody", { sender: sender || t("reading.att.theSender") }),
     choices: [
-      { id: "cancel", label: "Cancel" },
-      { id: "save", label: "Save instead" },
-      { id: "open", label: "Open anyway", kind: "danger" },
+      { id: "cancel", label: t("common.cancel") },
+      { id: "save", label: t("reading.att.saveInstead") },
+      { id: "open", label: t("reading.att.openAnyway"), kind: "danger" },
     ],
   });
   return choice === "open" ? "open" : choice === "save" ? "save" : "cancel";
@@ -143,10 +145,10 @@ interface OpenHooks {
 export async function openAttachment(m: Pick<MessageFull, "id" | "fromEmail">, a: AttMeta, hooks: OpenHooks | ((msg: string) => void) = {}): Promise<void> {
   const h: OpenHooks = typeof hooks === "function" ? { onError: hooks } : hooks;
   const st = useStore.getState();
-  const fail = (what: string, e: unknown, retry: () => void) => {
-    const msg = `${what} ${a.name}: ${friendlyError(e)}`;
+  const fail = (key: Key, e: unknown, retry: () => void) => {
+    const msg = t(key, { name: a.name, error: friendlyError(e) });
     if (h.onError) h.onError(msg);
-    else st.showToast(msg, undefined, "error", [{ label: "Retry", run: retry }]);
+    else st.showToast(msg, undefined, "error", [{ label: t("common.retry"), run: retry }]);
   };
   const attempt = async (confirmed: boolean): Promise<void> => {
     try {
@@ -167,12 +169,12 @@ export async function openAttachment(m: Pick<MessageFull, "id" | "fromEmail">, a
               savedToast(path, a.name);
             });
           } catch (er) {
-            fail("Couldn’t save", er, () => void openAttachment(m, a));
+            fail("reading.att.couldntSave", er, () => void openAttachment(m, a));
           }
         }
         return;
       }
-      fail("Couldn’t open", e, () => void openAttachment(m, a));
+      fail("reading.att.couldntOpen", e, () => void openAttachment(m, a));
     }
   };
   await attempt(false);
@@ -200,33 +202,34 @@ const folderName = (path: string) => {
 
 /** Plain "saved" toast (no automatic open: used after a risky file was saved instead of opened, and by the preview's Save as). */
 function savedToast(path: string, name: string) {
-  useStore.getState().showToast(`Saved ${name} to ${folderName(path)}`, undefined, "success", [{ label: "Show in folder", run: () => void api.attachmentReveal(path).catch(() => undefined) }]);
+  useStore.getState().showToast(t("reading.att.savedTo", { name, folder: folderName(path) }), undefined, "success", [{ label: t("reading.att.showInFolder"), run: () => void api.attachmentReveal(path).catch(() => undefined) }]);
 }
 
 /** Toast after a save, following the "After saving" setting. */
 function afterSave(path: string, name: string, m: Pick<MessageFull, "id" | "fromEmail">, a: AttMeta) {
   const st = useStore.getState();
-  const reveal = { label: "Show in folder", run: () => void api.attachmentReveal(path).catch(() => undefined) };
-  const open = { label: "Open", run: () => void openAttachment(m, a) };
+  const reveal = { label: t("reading.att.showInFolder"), run: () => void api.attachmentReveal(path).catch(() => undefined) };
+  const open = { label: t("reading.att.open"), run: () => void openAttachment(m, a) };
   if (st.prefs.afterSave === "reveal") return void api.attachmentReveal(path).catch(() => undefined);
   if (st.prefs.afterSave === "open") return void openAttachment(m, a);
-  st.showToast(`Saved ${name} to ${folderName(path)}`, undefined, "success", [open, reveal]);
+  st.showToast(t("reading.att.savedTo", { name, folder: folderName(path) }), undefined, "success", [open, reveal]);
 }
 
 // ---------------------------------------------------------------- card
 
 export function AttachmentCard({ m, a }: { m: MessageFull; a: AttMeta }) {
+  const t = useT();
   const { prefs, showToast, openCompose } = useStore();
   const [st, setSt] = useState<CardState>({ status: "idle" });
   const [preview, setPreview] = useState(false);
   const conf = !!m.confidential; // confidential mail: preview inside the app only, nothing leaves it
-  const deny = () => showToast("This message is confidential: attachments can only be previewed here.", undefined, "info");
+  const deny = () => showToast(t("reading.att.confidentialDeny"), undefined, "info");
   const kind = fileKind(a.name, a.mime);
   const pv = previewable(a, conf);
-  const sub = conf && !pv ? "Can’t be previewed: confidential" : `${typeName(a.name, a.mime)} · ${fmtSize(a.size)}`;
-  const saveTo = prefs.downloadDir ? prefs.downloadDir.split(/[\\/]/).filter(Boolean).pop() : "Downloads";
+  const sub = conf && !pv ? t("reading.att.cantPreview") : `${typeName(a.name, a.mime)} · ${fmtSize(a.size)}`;
+  const saveTo = (prefs.downloadDir ? prefs.downloadDir.split(/[\\/]/).filter(Boolean).pop() : undefined) ?? t("reading.att.downloads");
 
-  const run = async (label: string, job: () => Promise<void>) => {
+  const run = async (label: "saving" | "opening", job: () => Promise<void>) => {
     setSt({ status: "busy", label });
     try {
       await job();
@@ -234,12 +237,12 @@ export function AttachmentCard({ m, a }: { m: MessageFull; a: AttMeta }) {
     } catch (e) {
       const msg = friendlyError(e);
       setSt({ status: "error", error: msg });
-      showToast(`${label.replace(/…$/, "")} failed: ${msg}`, undefined, "error", [{ label: "Retry", run: () => void save(false) }]);
+      showToast(t("reading.att.saveFailed", { error: msg }), undefined, "error", [{ label: t("common.retry"), run: () => void save(false) }]);
     }
   };
 
   const save = (askWhere: boolean) =>
-    conf ? deny() : run("Saving…", async () => {
+    conf ? deny() : run("saving", async () => {
       const done = (path: string) => {
         setSt({ status: "done", path });
         afterSave(path, a.name, m, a);
@@ -250,11 +253,11 @@ export function AttachmentCard({ m, a }: { m: MessageFull; a: AttMeta }) {
 
   const open = () => {
     if (conf) return pv ? setPreview(true) : deny();
-    setSt((s) => ({ ...s, status: "busy", label: "Opening…" }));
+    setSt((s) => ({ ...s, status: "busy", label: "opening" }));
     void openAttachment(m, a, {
       onError: (msg) => setSt({ status: "error", error: msg }),
       onAsk: () => setSt({ status: "idle" }),
-      onResume: () => setSt((s) => ({ ...s, status: "busy", label: "Opening…" })),
+      onResume: () => setSt((s) => ({ ...s, status: "busy", label: "opening" })),
       onSaved: (path) => setSt({ status: "done", path }),
     }).finally(() => setSt((s) => (s.status === "busy" ? { status: "idle" } : s)));
   };
@@ -265,45 +268,46 @@ export function AttachmentCard({ m, a }: { m: MessageFull; a: AttMeta }) {
       const d = await api.attachmentData(m.id, a.index);
       void openCompose({ accountId: m.accountId, subject: "", attachments: [{ filename: d.name, mime: d.mime, dataBase64: d.dataBase64 }] });
     } catch (e) {
-      showToast(`Couldn’t attach ${a.name}: ${friendlyError(e)}`, undefined, "error");
+      showToast(t("reading.att.couldntAttach", { name: a.name, error: friendlyError(e) }), undefined, "error");
     }
   };
 
   const isKey = isKeyAttachment(a) && eff(prefs, m.accountId, "pgpImportFromMail") !== "never";
-  const menu = conf ? (pv ? [{ label: "Preview", hint: "Space", onClick: () => setPreview(true) }] : []) : [
-    ...(isKey ? [{ label: "Import key", onClick: () => void importKeyFromMessage(m, a.index) }, { divider: true }] : []),
-    ...(pv ? [{ label: "Preview", hint: "Space", onClick: () => setPreview(true) }] : []),
-    { label: "Open", hint: "Enter", onClick: open },
+  const menu = conf ? (pv ? [{ label: t("reading.att.preview"), hint: "Space", onClick: () => setPreview(true) }] : []) : [ // i18n-ok: key name
+    ...(isKey ? [{ label: t("reading.att.importKey"), onClick: () => void importKeyFromMessage(m, a.index) }, { divider: true }] : []),
+    ...(pv ? [{ label: t("reading.att.preview"), hint: "Space", onClick: () => setPreview(true) }] : []), // i18n-ok: key name
+    { label: t("reading.att.open"), hint: "Enter", onClick: open }, // i18n-ok: key name
     { divider: true },
-    { label: `Save to ${saveTo}`, onClick: () => void save(false) },
-    { label: "Save as…", hint: kbd("Ctrl+S"), onClick: () => void save(true) },
+    { label: t("reading.att.saveToFolder", { folder: saveTo }), onClick: () => void save(false) },
+    { label: t("reading.att.saveAs"), hint: kbd("Ctrl+S"), onClick: () => void save(true) },
     { divider: true },
-    { label: "Attach to new message", onClick: () => void attachToNew() },
+    { label: t("reading.att.attachToNew"), onClick: () => void attachToNew() },
   ];
 
   const busy = st.status === "busy";
+  const busyLabel = (name: string) => t(st.label === "opening" ? "reading.att.ariaOpening" : "reading.att.ariaSaving", { name });
   const acts = (
     <div className="att-acts" onClick={(e) => e.stopPropagation()}>
       {conf ? (
-        pv ? <button className="icon-btn" title="Preview" aria-label={`Preview ${a.name}`} onClick={() => setPreview(true)}><ExternalLink size={14} /></button> : null
+        pv ? <button className="icon-btn" title={t("reading.att.preview")} aria-label={t("reading.att.previewName", { name: a.name })} onClick={() => setPreview(true)}><ExternalLink size={14} /></button> : null
       ) : busy ? (
-        <button className="icon-btn" disabled aria-label={`${st.label ?? "Working"} ${a.name}`}><span className="spin" /></button>
+        <button className="icon-btn" disabled aria-label={busyLabel(a.name)}><span className="spin" /></button>
       ) : st.status === "error" ? (
-        <button className="btn small" onClick={() => void save(false)} aria-label={`Retry saving ${a.name}`}>Retry</button>
+        <button className="btn small" onClick={() => void save(false)} aria-label={t("reading.att.retrySaving", { name: a.name })}>{t("common.retry")}</button>
       ) : st.status === "done" ? (
         <>
-          <button className="icon-btn" title="Open" aria-label={`Open ${a.name}`} onClick={open}><ExternalLink size={14} /></button>
-          <button className="icon-btn" title="Show in folder" aria-label={`Show ${a.name} in folder`} onClick={() => st.path && void api.attachmentReveal(st.path)}><FolderOpen size={14} /></button>
+          <button className="icon-btn" title={t("reading.att.open")} aria-label={t("reading.att.openName", { name: a.name })} onClick={open}><ExternalLink size={14} /></button>
+          <button className="icon-btn" title={t("reading.att.showInFolder")} aria-label={t("reading.att.showNameInFolder", { name: a.name })} onClick={() => st.path && void api.attachmentReveal(st.path)}><FolderOpen size={14} /></button>
         </>
       ) : isKey ? (
-        <button className="btn small" onClick={() => void importKeyFromMessage(m, a.index)} aria-label={`Import key from ${a.name}`}>Import key</button>
+        <button className="btn small" onClick={() => void importKeyFromMessage(m, a.index)} aria-label={t("reading.att.importKeyFrom", { name: a.name })}>{t("reading.att.importKey")}</button>
       ) : pv ? (
-        <button className="icon-btn" title={`Save to ${saveTo}`} aria-label={`Save ${a.name} to ${saveTo}`} onClick={() => void save(false)}><Download size={14} /></button>
+        <button className="icon-btn" title={t("reading.att.saveToFolder", { folder: saveTo })} aria-label={t("reading.att.saveNameTo", { name: a.name, folder: saveTo })} onClick={() => void save(false)}><Download size={14} /></button>
       ) : (
-        <button className="icon-btn" title="Open" aria-label={`Open ${a.name}`} onClick={open}><ExternalLink size={14} /></button>
+        <button className="icon-btn" title={t("reading.att.open")} aria-label={t("reading.att.openName", { name: a.name })} onClick={open}><ExternalLink size={14} /></button>
       )}
       {menu.length > 0 && (
-        <Dropdown className="icon-btn" caret={false} align="right" title={`More actions for ${a.name}`} items={menu}>
+        <Dropdown className="icon-btn" caret={false} align="right" title={t("reading.att.moreFor", { name: a.name })} items={menu}>
           <MoreHorizontal size={15} />
         </Dropdown>
       )}
@@ -317,7 +321,7 @@ export function AttachmentCard({ m, a }: { m: MessageFull; a: AttMeta }) {
       role="listitem"
       tabIndex={0}
       aria-busy={busy || undefined}
-      aria-label={`${a.name}, ${sub}`}
+      aria-label={t("reading.att.cardLabel", { name: a.name, sub })}
       onKeyDown={(e) => {
         if (e.target !== e.currentTarget) return;
         if (e.key === " " && pv) (e.preventDefault(), setPreview(true));
@@ -338,13 +342,13 @@ export function AttachmentCard({ m, a }: { m: MessageFull; a: AttMeta }) {
       <div className="att-main">
         <span className="att-name" title={a.name}>{a.name}</span>
         <span className="att-sub">
-          {st.status === "busy" ? `${st.label === "Opening…" ? "Opening…" : "Saving…"}` : st.status === "error" ? st.error : st.status === "done" ? (
-            <><Check size={11} aria-hidden /> Saved to {st.path ? st.path.replace(/[\\/][^\\/]*$/, "").split(/[\\/]/).filter(Boolean).pop() : saveTo}</>
+          {st.status === "busy" ? (st.label === "opening" ? t("reading.att.opening") : t("reading.att.saving")) : st.status === "error" ? st.error : st.status === "done" ? (
+            <><Check size={11} aria-hidden /> {t("reading.att.statusSavedTo", { folder: st.path ? st.path.replace(/[\\/][^\\/]*$/, "").split(/[\\/]/).filter(Boolean).pop() ?? saveTo : saveTo })}</>
           ) : sub}
         </span>
       </div>
       {acts}
-      {busy && <div className="progress indet" role="progressbar" aria-label={`${st.label ?? "Working"} ${a.name}`}><i /></div>}
+      {busy && <div className="progress indet" role="progressbar" aria-label={busyLabel(a.name)}><i /></div>}
       {preview && <PreviewDialog m={m} items={[a]} start={0} onClose={() => setPreview(false)} />}
     </div>
   );
@@ -357,6 +361,7 @@ export function AttachmentCard({ m, a }: { m: MessageFull; a: AttMeta }) {
  * everything else is a card. Nothing is hidden: unreferenced pictures are cards.
  */
 export function AttachmentStrip({ m }: { m: MessageFull }) {
+  const t = useT();
   const { prefs, showToast } = useStore();
   const [listPics, setListPics] = useState(false);
   const [lightbox, setLightbox] = useState<{ idx: number; items: AttMeta[] } | null>(null);
@@ -378,7 +383,7 @@ export function AttachmentStrip({ m }: { m: MessageFull }) {
   }, [saveAll?.jobId]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const runSaveAll = async (ask: boolean) => {
-    if (m.confidential) return showToast("Attachments of confidential mail can’t be saved.", undefined, "info");
+    if (m.confidential) return showToast(t("reading.strip.confSave"), undefined, "info");
     const jobId = crypto.randomUUID();
     setSaveAll({ done: 0, total: m.attachments.length, jobId });
     try {
@@ -386,15 +391,15 @@ export function AttachmentStrip({ m }: { m: MessageFull }) {
       if (!r) return; // cancelled
       const folder = r.dir.split(/[\\/]/).filter(Boolean).pop() ?? r.dir;
       if (r.failed.length === 0) {
-        showToast(`Saved ${r.saved.length} attachment${r.saved.length === 1 ? "" : "s"} to ${folder}`, undefined, "success", [
-          { label: "Show in folder", run: () => r.saved[0] && void api.attachmentReveal(r.saved[0]).catch(() => undefined) },
+        showToast(t("reading.strip.savedMany", { n: r.saved.length, folder }), undefined, "success", [
+          { label: t("reading.att.showInFolder"), run: () => r.saved[0] && void api.attachmentReveal(r.saved[0]).catch(() => undefined) },
         ]);
       } else {
         const f = r.failed[0];
-        showToast(`Saved ${r.saved.length} of ${m.attachments.length}. ${f.name} failed: ${f.error}`, undefined, "error", [{ label: "Retry", run: () => void runSaveAll(ask) }]);
+        showToast(t("reading.strip.savedPartial", { n: r.saved.length, total: m.attachments.length, name: f.name, error: f.error }), undefined, "error", [{ label: t("common.retry"), run: () => void runSaveAll(ask) }]);
       }
     } catch (e) {
-      showToast(`Save all failed: ${friendlyError(e)}`, undefined, "error", [{ label: "Retry", run: () => void runSaveAll(ask) }]);
+      showToast(t("reading.strip.saveAllFailed", { error: friendlyError(e) }), undefined, "error", [{ label: t("common.retry"), run: () => void runSaveAll(ask) }]);
     } finally {
       setSaveAll(null);
     }
@@ -405,18 +410,18 @@ export function AttachmentStrip({ m }: { m: MessageFull }) {
   return (
     <>
       {cards.length > 0 && (
-        <div className="att-strip" role="region" aria-label="Attachments">
+        <div className="att-strip" role="region" aria-label={t("reading.strip.label")}>
           <div className="att-strip-head">
             <Paperclip size={14} aria-hidden />
             {saveAll ? (
-              <span aria-live="polite">Saving… {saveAll.done} of {saveAll.total} · {fmtSize(cardsTotal)}</span>
+              <span aria-live="polite">{t("reading.strip.saving", { done: saveAll.done, total: saveAll.total, size: fmtSize(cardsTotal) })}</span>
             ) : (
-              <span><b>{cards.length} attachment{cards.length === 1 ? "" : "s"}</b> · {fmtSize(cardsTotal)}</span>
+              <span><b>{t("reading.strip.count", { n: cards.length })}</b> · {fmtSize(cardsTotal)}</span>
             )}
             <span className="grow" />
             {cards.length > 1 && !saveAll && !m.confidential && (
-              <button className="link-btn small" title="Shift-click to choose a folder" onClick={(e) => void runSaveAll(e.shiftKey)}>
-                <FolderDown size={13} /> Save all…
+              <button className="link-btn small" title={t("reading.strip.shiftTip")} onClick={(e) => void runSaveAll(e.shiftKey)}>
+                <FolderDown size={13} /> {t("reading.strip.saveAll")}
               </button>
             )}
           </div>
@@ -430,17 +435,17 @@ export function AttachmentStrip({ m }: { m: MessageFull }) {
       )}
       {pictures.length > 0 && (
         <div className="att-strip" style={{ marginTop: cards.length ? 8 : 12 }}>
-          <span className="att-chip inline-pics" role="group" aria-label="Pictures in message">
+          <span className="att-chip inline-pics" role="group" aria-label={t("reading.strip.picsLabel")}>
             <ImageIcon size={13} aria-hidden />
-            <span>{pictures.length} picture{pictures.length === 1 ? "" : "s"} in message</span>
+            <span>{t("reading.strip.picsCount", { n: pictures.length })}</span>
             <span className="muted small">{fmtSize(picsTotal)}</span>
             <Dropdown
               className="icon-btn"
               caret
-              title="Pictures in this message"
+              title={t("reading.strip.picsMenu")}
               items={[
-                { label: "Show all pictures", disabled: pictureItems.length === 0, onClick: () => setLightbox({ idx: 0, items: pictureItems }) },
-                { label: "Save all pictures", disabled: !!m.confidential, onClick: () => void (async () => {
+                { label: t("reading.strip.showPics"), disabled: pictureItems.length === 0, onClick: () => setLightbox({ idx: 0, items: pictureItems }) },
+                { label: t("reading.strip.savePics"), disabled: !!m.confidential, onClick: () => void (async () => {
                   let n = 0;
                   for (const p of pictures) {
                     try {
@@ -450,16 +455,16 @@ export function AttachmentStrip({ m }: { m: MessageFull }) {
                       /* reported below */
                     }
                   }
-                  showToast(`Saved ${n} of ${pictures.length} pictures`, undefined, n === pictures.length ? "success" : "error");
+                  showToast(t("reading.strip.picsSaved", { n, total: pictures.length }), undefined, n === pictures.length ? "success" : "error");
                 })() },
                 { divider: true },
-                { label: listPics ? "Hide pictures as attachments" : "List them as attachments", onClick: () => setListPics((v) => !v) },
+                { label: listPics ? t("reading.strip.hidePics") : t("reading.strip.listPics"), onClick: () => setListPics((v) => !v) },
               ]}
             >
               <MoreHorizontal size={13} />
             </Dropdown>
           </span>
-          {listPics && <span className="muted small"> · Listed below as attachments</span>}
+          {listPics && <span className="muted small"> · {t("reading.strip.listedBelow")}</span>}
         </div>
       )}
       {lightbox && (
@@ -485,6 +490,7 @@ interface PvLoaded {
 
 /** Modal preview of attachments (pictures, PDF, small text), with ← → between previewable items. */
 export function PreviewDialog({ m, items, start, onClose }: { m: MessageFull; items: AttMeta[]; start: number; onClose: () => void }) {
+  const t = useT();
   const list = items.filter((a) => previewable(a, !!m.confidential));
   const [i, setI] = useState(Math.max(0, Math.min(start, list.length - 1)));
   const [data, setData] = useState<PvLoaded | null>(null);
@@ -546,32 +552,32 @@ export function PreviewDialog({ m, items, start, onClose }: { m: MessageFull; it
   const kind = previewable(cur, !!m.confidential);
   return (
     <div className="modal-back" onMouseDown={onClose}>
-      <div className="modal pv-modal" role="dialog" aria-modal="true" aria-label={`Preview ${cur.name}`} onMouseDown={(e) => e.stopPropagation()}>
+      <div className="modal pv-modal" role="dialog" aria-modal="true" aria-label={t("reading.att.previewName", { name: cur.name })} onMouseDown={(e) => e.stopPropagation()}>
         <div className="pv-head">
           <b className="pv-name ellipsis">{cur.name}</b>
-          {list.length > 1 && <span className="muted small">{i + 1} of {list.length}</span>}
+          {list.length > 1 && <span className="muted small">{t("reading.pv.xOfY", { i: i + 1, total: list.length })}</span>}
           {kind === "image" && (
             <span className="pv-zoom">
-              <button className="icon-btn" aria-label="Zoom out" onClick={() => setZoom((z) => (z === 2 ? 1 : "fit"))}><ZoomOut size={15} /></button>
-              <button className="link-btn small" onClick={() => setZoom("fit")}>{zoom === "fit" ? "Fit" : `${zoom * 100}%`}</button>
-              <button className="icon-btn" aria-label="Zoom in" onClick={() => setZoom((z) => (z === "fit" ? 1 : 2))}><ZoomIn size={15} /></button>
+              <button className="icon-btn" aria-label={t("reading.pv.zoomOut")} onClick={() => setZoom((z) => (z === 2 ? 1 : "fit"))}><ZoomOut size={15} /></button>
+              <button className="link-btn small" onClick={() => setZoom("fit")}>{zoom === "fit" ? t("reading.pv.fit") : `${zoom * 100}%`}</button>
+              <button className="icon-btn" aria-label={t("reading.pv.zoomIn")} onClick={() => setZoom((z) => (z === "fit" ? 1 : 2))}><ZoomIn size={15} /></button>
             </span>
           )}
-          {!m.confidential && <button className="btn small" onClick={() => void openAttachment(m, cur)}><ExternalLink size={13} /> Open</button>}
-          {!m.confidential && <button className="btn small" onClick={() => void saveAs(m, cur, (p) => savedToast(p, cur.name)).catch((e) => useStore.getState().showToast(`Couldn’t save ${cur.name}: ${friendlyError(e)}`, undefined, "error"))}><Download size={13} /> Save as…</button>}
-          <button className="icon-btn" aria-label="Close preview" onClick={onClose}><X size={16} /></button>
+          {!m.confidential && <button className="btn small" onClick={() => void openAttachment(m, cur)}><ExternalLink size={13} /> {t("reading.att.open")}</button>}
+          {!m.confidential && <button className="btn small" onClick={() => void saveAs(m, cur, (p) => savedToast(p, cur.name)).catch((e) => useStore.getState().showToast(t("reading.att.couldntSave", { name: cur.name, error: friendlyError(e) }), undefined, "error"))}><Download size={13} /> {t("reading.att.saveAs")}</button>}
+          <button className="icon-btn" aria-label={t("reading.pv.close")} onClick={onClose}><X size={16} /></button>
         </div>
         <div className="pv-stage">
           {list.length > 1 && (
             <>
-              <button className="pv-nav prev" aria-label="Previous attachment" disabled={i === 0} onClick={() => setI((x) => x - 1)}><ChevronLeft size={18} /></button>
-              <button className="pv-nav next" aria-label="Next attachment" disabled={i >= list.length - 1} onClick={() => setI((x) => x + 1)}><ChevronRight size={18} /></button>
+              <button className="pv-nav prev" aria-label={t("reading.pv.prev")} disabled={i === 0} onClick={() => setI((x) => x - 1)}><ChevronLeft size={18} /></button>
+              <button className="pv-nav next" aria-label={t("reading.pv.next")} disabled={i >= list.length - 1} onClick={() => setI((x) => x + 1)}><ChevronRight size={18} /></button>
             </>
           )}
           {!data ? (
-            <div className="pv-msg"><span className="spin" /> Loading…</div>
+            <div className="pv-msg"><span className="spin" /> {t("common.loading")}</div>
           ) : data.error ? (
-            <div className="pv-msg"><ImageOff size={28} /><div>Couldn’t show this file. {data.error}</div></div>
+            <div className="pv-msg"><ImageOff size={28} /><div>{t("reading.pv.showFailed", { error: data.error })}</div></div>
           ) : kind === "text" ? (
             <pre className="pv-text" {...(m.confidential ? { style: { userSelect: "none", WebkitUserSelect: "none" } as const, onCopy: noCopy, onCut: noCopy, onContextMenu: noCopy, onDragStart: noCopy } : {})}>{data.text}</pre>
           ) : kind === "pdf" ? (
@@ -602,6 +608,7 @@ export interface LbItem {
 
 /** Full-window picture viewer. ← → move, Esc closes, + − zoom, 0 fits. */
 export function Lightbox({ items, index, onClose, onIndex, confidential }: { items: LbItem[]; index: number; onClose: () => void; onIndex: (i: number) => void; confidential?: boolean }) {
+  const t = useT();
   const cur = items[index];
   const lock = imageLock(!!confidential);
   const [src, setSrc] = useState<string | null>(null);
@@ -639,23 +646,23 @@ export function Lightbox({ items, index, onClose, onIndex, confidential }: { ite
 
   if (!cur) return null;
   return (
-    <div className="lightbox" role="dialog" aria-modal="true" aria-label={`Picture ${cur.name}`}>
+    <div className="lightbox" role="dialog" aria-modal="true" aria-label={t("reading.lb.label", { name: cur.name })}>
       <div className="lb-bar">
         <b className="ellipsis" style={{ minWidth: 0 }}>{cur.name}</b>
-        <span className="muted small">{index + 1} of {items.length}{cur.size ? ` · ${fmtSize(cur.size)}` : ""}{dims ? ` · ${dims.w} × ${dims.h}` : ""}</span>
+        <span className="muted small">{t("reading.pv.xOfY", { i: index + 1, total: items.length })}{cur.size ? ` · ${fmtSize(cur.size)}` : ""}{dims ? ` · ${dims.w} × ${dims.h}` : ""}</span>
         <span className="grow" style={{ flex: 1 }} />
-        <button className="icon-btn" aria-label="Zoom out" onClick={() => setZoom((z) => Math.max(0.25, (z || 1) / 1.25))}><ZoomOut size={16} /></button>
-        <button className="link-btn small" onClick={() => setZoom(0)}>{zoom ? `${Math.round(zoom * 100)}%` : "Fit"}</button>
-        <button className="icon-btn" aria-label="Zoom in" onClick={() => setZoom((z) => Math.min(4, (z || 1) * 1.25))}><ZoomIn size={16} /></button>
-        <button ref={closeRef} className="icon-btn" aria-label="Close" onClick={onClose}><X size={16} /></button>
+        <button className="icon-btn" aria-label={t("reading.pv.zoomOut")} onClick={() => setZoom((z) => Math.max(0.25, (z || 1) / 1.25))}><ZoomOut size={16} /></button>
+        <button className="link-btn small" onClick={() => setZoom(0)}>{zoom ? `${Math.round(zoom * 100)}%` : t("reading.pv.fit")}</button>
+        <button className="icon-btn" aria-label={t("reading.pv.zoomIn")} onClick={() => setZoom((z) => Math.min(4, (z || 1) * 1.25))}><ZoomIn size={16} /></button>
+        <button ref={closeRef} className="icon-btn" aria-label={t("common.close")} onClick={onClose}><X size={16} /></button>
       </div>
       <div className="lb-stage" onClick={(e) => e.target === e.currentTarget && onClose()}>
-        {index > 0 && <button className="lb-nav prev" aria-label="Previous picture" onClick={() => onIndex(index - 1)}><ChevronLeft size={20} /></button>}
-        {index < items.length - 1 && <button className="lb-nav next" aria-label="Next picture" onClick={() => onIndex(index + 1)}><ChevronRight size={20} /></button>}
+        {index > 0 && <button className="lb-nav prev" aria-label={t("reading.lb.prev")} onClick={() => onIndex(index - 1)}><ChevronLeft size={20} /></button>}
+        {index < items.length - 1 && <button className="lb-nav next" aria-label={t("reading.lb.next")} onClick={() => onIndex(index + 1)}><ChevronRight size={20} /></button>}
         {src === null ? (
-          <span className="spin" aria-label="Loading picture" />
+          <span className="spin" aria-label={t("reading.lb.loading")} />
         ) : src === "" ? (
-          <div className="pv-msg"><ImageOff size={28} /> Couldn’t load this picture.</div>
+          <div className="pv-msg"><ImageOff size={28} /> {t("reading.pic.failed")}</div>
         ) : (
           <img
             src={src}

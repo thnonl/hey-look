@@ -1,11 +1,15 @@
 import { Archive, BadgeCheck, Calendar, CalendarCheck, CalendarX, Check, CheckCheck, Clock, Flag, FolderOpen, Lock, Mail, MailOpen, Paperclip, Pin, SearchX, ShieldAlert, Trash2 } from "lucide-react";
 import { openExternal } from "../open";
 import { ReactNode, useCallback, useMemo, useRef } from "react";
+import { fmtNumber } from "../i18n/format";
+import { useLang, useT } from "../i18n/react";
+import { tx } from "../i18n/rich";
+import { t } from "../i18n";
 import { api, ThreadSummary } from "../api";
 import { gmailSearchUrl, webmailQuery, webmailTargets, WebmailTarget } from "../webmail";
 import { accountColor, folderLabel, Prefs } from "../prefs";
 import { canPageBack, exhaustedKey, friendlyError, useStore } from "../store";
-import { dateGroup, fmtDate, snoozePresets } from "../util";
+import { dateGroup, fmtDate, snoozePresets, subjectText } from "../util";
 import { messageToEditor } from "./Compose";
 import { askUnlock } from "./Pgp";
 import { ScheduledList } from "./ScheduledList";
@@ -34,6 +38,7 @@ export interface ThreadRowProps {
 
 /** One conversation in the list. Pure: the real list and the Appearance preview both render it. */
 export function ThreadRow({ t, selected, checked, prefs, showFolder, accountColor, accountLabel, hover, onOpen, onToggle, posInSet, setSize }: ThreadRowProps) {
+  const tr = useT();
   const who = t.participants.join(", ");
   const dense = prefs.density === "compact";
   return (
@@ -59,7 +64,7 @@ export function ThreadRow({ t, selected, checked, prefs, showFolder, accountColo
           e.stopPropagation();
           onToggle?.();
         }}
-        title="Select"
+        title={tr("mail.row.select")}
       >
         {!dense && (
           <div className="lead-avatar">
@@ -71,36 +76,37 @@ export function ThreadRow({ t, selected, checked, prefs, showFolder, accountColo
       </div>
       <div className="ml-main">
         <div className="ml-top">
-          {t.unread > 0 && <span className="unread-dot" aria-label="Unread" />}
+          {t.unread > 0 && <span className="unread-dot" aria-label={tr("mail.row.unread")} />}
           {accountColor && dense && <span className="acct-dot" style={{ background: accountColor }} title={accountLabel} />}
           <span className="who ellipsis">{who}</span>
           {hover}
           <span className="date">{fmtDate(t.lastDate)}</span>
         </div>
         <div className="ml-mid">
-          <span className="subject ellipsis">{t.subject}</span>
+          <span className="subject ellipsis">{subjectText(t.subject)}</span>
           <span className="flags">
             {showFolder && <span className="where">{folderLabel(t.folder)}</span>}
             {t.count > 1 && prefs.conversations && <span className="count">{t.count}</span>}
-            {t.confidential && <ShieldAlert size={12} aria-label="Confidential" />}
-            {t.encrypted && <Lock size={12} aria-label="Encrypted" />}
-            {t.signed && !t.encrypted && <BadgeCheck size={12} aria-label="Signed" />}
-            {t.invite === "request" && <Calendar size={12} aria-label="Meeting invitation" />}
-            {t.invite === "reply" && <CalendarCheck size={12} aria-label="Meeting reply" />}
-            {t.invite === "cancel" && <CalendarX size={12} aria-label="Meeting cancelled" />}
-            {t.hasAttach && <Paperclip size={12} aria-label="Has attachment" />}
-            {t.pinned && <Pin size={12} aria-label="Pinned" />}
-            {t.flagged && <Flag size={12} fill="currentColor" className="flag-on" aria-label="Flagged" />}
-            {t.snoozedUntil && t.snoozedUntil > Date.now() / 1000 && <Clock size={12} aria-label="Snoozed" />}
+            {t.confidential && <ShieldAlert size={12} aria-label={tr("mail.row.confidential")} />}
+            {t.encrypted && <Lock size={12} aria-label={tr("mail.row.encrypted")} />}
+            {t.signed && !t.encrypted && <BadgeCheck size={12} aria-label={tr("mail.row.signed")} />}
+            {t.invite === "request" && <Calendar size={12} aria-label={tr("mail.row.invite")} />}
+            {t.invite === "reply" && <CalendarCheck size={12} aria-label={tr("mail.row.inviteReply")} />}
+            {t.invite === "cancel" && <CalendarX size={12} aria-label={tr("mail.row.inviteCancel")} />}
+            {t.hasAttach && <Paperclip size={12} aria-label={tr("mail.row.attachment")} />}
+            {t.pinned && <Pin size={12} aria-label={tr("mail.row.pinned")} />}
+            {t.flagged && <Flag size={12} fill="currentColor" className="flag-on" aria-label={tr("mail.row.flagged")} />}
+            {t.snoozedUntil && t.snoozedUntil > Date.now() / 1000 && <Clock size={12} aria-label={tr("mail.row.snoozed")} />}
           </span>
         </div>
-        {prefs.preview && !dense && <div className="preview ellipsis">{t.confidential ? "Confidential — open to read" : t.snippet}</div>}
+        {prefs.preview && !dense && <div className="preview ellipsis">{t.confidential ? tr("mail.row.confidentialPreview") : t.snippet}</div>}
       </div>
     </div>
   );
 }
 
 function HoverActions({ t }: { t: ThreadSummary }) {
+  const tr = useT();
   const { act, prefs, folder } = useStore();
   const ids = [t.threadId];
   const btn = (key: string, title: string, icon: ReactNode, run: () => void) => (
@@ -109,19 +115,19 @@ function HoverActions({ t }: { t: ThreadSummary }) {
     </button>
   );
   const map: Record<string, ReactNode> = {
-    archive: btn("archive", "Archive", <Archive size={14} />, () => void act(ids, "archive", undefined, "Archived")),
-    delete: btn("delete", folder === "trash" ? "Delete permanently" : "Delete", <Trash2 size={14} />, () =>
-      void act(ids, "trash", undefined, folder === "trash" ? "Deleted permanently" : "Moved to Deleted Items")),
-    flag: btn("flag", t.flagged ? "Remove flag" : "Flag", <Flag size={14} fill={t.flagged ? "currentColor" : "none"} />, () => void act(ids, t.flagged ? "unstar" : "star")),
-    pin: btn("pin", t.pinned ? "Unpin" : "Pin", <Pin size={14} fill={t.pinned ? "currentColor" : "none"} />, () => void act(ids, t.pinned ? "unpin" : "pin")),
-    read: btn("read", t.unread ? "Mark as read" : "Mark as unread", t.unread ? <MailOpen size={14} /> : <Mail size={14} />, () => void act(ids, t.unread ? "read" : "unread")),
+    archive: btn("archive", tr("mail.hover.archive"), <Archive size={14} />, () => void act(ids, "archive", undefined, tr("mail.done.archived"))),
+    delete: btn("delete", folder === "trash" ? tr("mail.hover.deleteForever") : tr("common.delete"), <Trash2 size={14} />, () =>
+      void act(ids, "trash", undefined, folder === "trash" ? tr("mail.done.deleted") : tr("mail.done.trashed"))),
+    flag: btn("flag", t.flagged ? tr("mail.hover.unflag") : tr("mail.hover.flag"), <Flag size={14} fill={t.flagged ? "currentColor" : "none"} />, () => void act(ids, t.flagged ? "unstar" : "star")),
+    pin: btn("pin", t.pinned ? tr("mail.hover.unpin") : tr("mail.hover.pin"), <Pin size={14} fill={t.pinned ? "currentColor" : "none"} />, () => void act(ids, t.pinned ? "unpin" : "pin")),
+    read: btn("read", t.unread ? tr("mail.hover.markRead") : tr("mail.hover.markUnread"), t.unread ? <MailOpen size={14} /> : <Mail size={14} />, () => void act(ids, t.unread ? "read" : "unread")),
     snooze: (
       <Dropdown
         key="snooze"
         className="icon-btn"
         caret={false}
-        title="Snooze"
-        items={snoozePresets(prefs.snoozeTimes).map((p) => ({ label: p.label, onClick: () => void act(ids, "snooze", String(p.ts), `Snoozed: ${p.label}`) }))}
+        title={tr("mail.hover.snooze")}
+        items={snoozePresets(prefs.snoozeTimes).map((p) => ({ label: p.label, onClick: () => void act(ids, "snooze", String(p.ts), tr("mail.done.snoozed", { when: p.label })) }))}
       >
         <Clock size={14} />
       </Dropdown>
@@ -171,24 +177,26 @@ async function searchInWebmail({ account, webmail }: WebmailTarget, q: string) {
     }
     const copying = copyText(q); // started inside the click, before anything is awaited
     await openExternal(webmail.home);
-    if (await copying) st.showToast(`Search text copied. Paste it into the search box of ${webmail.name} webmail.`, undefined, "success");
-    else st.showToast(`Couldn’t copy the search. Type it into the search box of ${webmail.name} webmail: ${q}`, undefined, "error");
+    if (await copying) st.showToast(t("mail.webmail.copied", { name: webmail.name }), undefined, "success");
+    else st.showToast(t("mail.webmail.copyFailed", { name: webmail.name, query: q }), undefined, "error");
   } catch (e) {
-    st.showToast(`Couldn’t open ${webmail.name} in the browser: ${friendlyError(e)}`, undefined, "error");
+    st.showToast(t("mail.webmail.openFailed", { name: webmail.name, error: friendlyError(e) }), undefined, "error");
   }
 }
 
 /** "Search in <webmail>": one button per mailbox of the search that has a known webmail (the address is shown when there are several). */
 function WebmailSearch({ targets, query, openFolder }: { targets: WebmailTarget[]; query: string; openFolder?: string }) {
+  const tr = useT();
   const shown = targets.map((t) => ({ t, q: webmailQuery(t.webmail, query, openFolder) })).filter((x) => x.q);
   if (shown.length === 0) return null;
   return (
     <div className="gmail-search">
       {shown.map(({ t, q }) => {
-        const hint = t.webmail.id === "gmail" ? `Opens ${t.account.email} in Gmail` : `Copies your search and opens ${t.webmail.name}`;
+        const hint = t.webmail.id === "gmail" ? tr("mail.webmail.hintGmail", { email: t.account.email }) : tr("mail.webmail.hintCopy", { name: t.webmail.name });
+        const name = t.webmail.name;
         return (
-          <button key={t.account.id} className="btn" title={hint} aria-label={`Search in ${t.webmail.name}${shown.length > 1 ? `, ${t.account.email}` : ""}. ${hint}`} onClick={() => void searchInWebmail(t, q)}>
-            <span className="gs-main">Search in {t.webmail.name}</span>
+          <button key={t.account.id} className="btn" title={hint} aria-label={shown.length > 1 ? tr("mail.webmail.ariaMailbox", { name, email: t.account.email, hint }) : tr("mail.webmail.aria", { name, hint })} onClick={() => void searchInWebmail(t, q)}>
+            <span className="gs-main">{tr("mail.webmail.search", { name })}</span>
             {shown.length > 1 && <span className="gs-acct">{t.account.email}</span>}
           </button>
         );
@@ -198,14 +206,16 @@ function WebmailSearch({ targets, query, openFolder }: { targets: WebmailTarget[
 }
 
 export function MessageList() {
+  const tr = useT();
+  const lang = useLang();
   const {
     threads, folder, accountId, selected, select, checked, toggleCheck, setChecked, search, searchScope, setSearchScope,
     prefs, focus, setFocus, filter, setFilter, accounts, openCompose, loading, loadMore, loadingMore, exhausted, limited, backfill, firstSync, setDialog,
   } = useStore();
   const scrollRef = useRef<HTMLDivElement>(null);
   const searching = search.trim().length > 0;
-  const title = searching ? "Search results" : folderLabel(folder);
-  const scopeNote = searching ? (searchScope === "all" ? "All mailboxes" : searchScope === "account" ? "Whole mailbox" : `In ${folderLabel(folder)}`) : "";
+  const title = searching ? tr("mail.list.searchResults") : folderLabel(folder);
+  const scopeNote = searching ? (searchScope === "all" ? tr("mail.list.scopeAll") : searchScope === "account" ? tr("mail.list.scopeAccount") : tr("mail.list.scopeFolder", { folder: folderLabel(folder) })) : "";
   const showTabs = folder === "inbox" && prefs.focused && !searching;
   const multi = checked.size > 0;
   const colors = new Map(accounts.map((a) => [a.id, accountColor(a, prefs.accent)]));
@@ -237,7 +247,7 @@ export function MessageList() {
             m = await api.pgpDecryptMessage(m.id).catch(() => m);
           }
           if (m.security?.decryption !== "ok") {
-            if (m.security?.decryption !== "locked") st.showToast(`Couldn’t open this encrypted draft: ${friendlyError(m.security?.error ?? "the key for it is not on this computer")}`, undefined, "error");
+            if (m.security?.decryption !== "locked") st.showToast(tr("mail.draft.cannotOpen", { error: friendlyError(m.security?.error ?? tr("mail.draft.keyMissing")) }), undefined, "error");
             return;
           }
         }
@@ -266,13 +276,13 @@ export function MessageList() {
     let last = "";
     let pos = 0;
     for (const t of threads) {
-      const group = prefs.sortAsc ? "" : t.pinned && folder === "inbox" ? "Pinned" : dateGroup(t.lastDate);
+      const group = prefs.sortAsc ? "" : t.pinned && folder === "inbox" ? tr("mail.group.pinned") : dateGroup(t.lastDate);
       if (group && group !== last) out.push({ kind: "group", key: `g:${t.rowKey}`, group, label: group });
       last = group;
       out.push({ kind: "row", key: t.rowKey, group, t, pos: ++pos });
     }
     return out;
-  }, [threads, folder, prefs.sortAsc]);
+  }, [threads, folder, prefs.sortAsc, lang]); // the group names follow the language
   const revealKey = useMemo(() => (selected ? threads.find((t) => t.threadId === selected)?.rowKey ?? null : null), [threads, selected]);
   const viewKey = [folder, accountId, search, searchScope, filter, focus, prefs.sortAsc, prefs.conversations, prefs.focused].join("|");
   // oldest-first: older mail is added at the top, so that is where the list asks for it and where its status is shown
@@ -281,16 +291,19 @@ export function MessageList() {
     if (pageable) void loadMore();
   }, [pageable, loadMore, loadingMore, reachedEnd, capped, folder, accountId]);
   const pagingStatus = loadingMore ? (
-    <span className="muted"><span className="spin" aria-hidden /> Loading…</span>
+    <span className="muted"><span className="spin" aria-hidden /> {tr("common.loading")}</span>
   ) : capped ? (
     <span className="muted">
-      Download limit reached ({prefs.maxDownload.toLocaleString("en-US")} mails per mailbox). Raise it in{" "}
-      <button className="link" onClick={() => setDialog({ type: "settings", tab: "mb:all", focus: "maxDownload" })}>Settings &gt; Reading &amp; sync</button>.
+      {tx(
+        "mail.list.limitReached",
+        { link: <button className="link" onClick={() => setDialog({ type: "settings", tab: "mb:all", focus: "maxDownload" })}>{tr("mail.list.limitLink")}</button> },
+        { max: fmtNumber(prefs.maxDownload) },
+      )}
     </span>
   ) : reachedEnd ? (
-    <span className="muted">You've reached the end</span>
+    <span className="muted">{tr("mail.list.reachedEnd")}</span>
   ) : (
-    <button className="btn small" onClick={() => void loadMore(true)}>Load older messages</button>
+    <button className="btn small" onClick={() => void loadMore(true)}>{tr("mail.list.loadOlder")}</button>
   );
 
   const renderItem = (it: ListItem) =>
@@ -314,13 +327,13 @@ export function MessageList() {
     );
 
   return (
-    <section className="msg-list" aria-label="Message list">
+    <section className="msg-list" aria-label={tr("mail.list.aria")}>
       <div className={`ml-head ${multi ? "multi" : ""}`}>
         <div className="ml-title">
           {showTabs ? (
             <div className="pivots" role="tablist">
-              <button role="tab" aria-selected={focus === "focused"} className={focus === "focused" ? "active" : ""} onClick={() => void setFocus("focused")}>Focused</button>
-              <button role="tab" aria-selected={focus === "other"} className={focus === "other" ? "active" : ""} onClick={() => void setFocus("other")}>Other</button>
+              <button role="tab" aria-selected={focus === "focused"} className={focus === "focused" ? "active" : ""} onClick={() => void setFocus("focused")}>{tr("mail.tabs.focused")}</button>
+              <button role="tab" aria-selected={focus === "other"} className={focus === "other" ? "active" : ""} onClick={() => void setFocus("other")}>{tr("mail.tabs.other")}</button>
             </div>
           ) : (
             <h2 className="ellipsis">{title}</h2>
@@ -329,18 +342,18 @@ export function MessageList() {
             <Dropdown
               className="link-btn"
               items={[
-                { label: "All", checked: filter === "all", onClick: () => void setFilter("all") },
-                { label: "Unread", checked: filter === "unread", onClick: () => void setFilter("unread") },
-                { label: "Flagged", checked: filter === "flagged", onClick: () => void setFilter("flagged") },
+                { label: tr("mail.filter.all"), checked: filter === "all", onClick: () => void setFilter("all") },
+                { label: tr("mail.filter.unread"), checked: filter === "unread", onClick: () => void setFilter("unread") },
+                { label: tr("mail.filter.flagged"), checked: filter === "flagged", onClick: () => void setFilter("flagged") },
               ]}
             >
-              {filter === "all" ? "Filter" : `Filter: ${filter[0].toUpperCase()}${filter.slice(1)}`}
+              {filter === "all" ? tr("mail.filter.button") : tr("mail.filter.active", { name: tr(filter === "unread" ? "mail.filter.unread" : "mail.filter.flagged") })}
             </Dropdown>
           </div>
         </div>
         {searching ? (
           <div className="ml-sub">
-            “{search.trim()}” · {scopeNote} · {threads.length} result{threads.length === 1 ? "" : "s"}
+            {tr("mail.list.summary", { query: search.trim(), scope: scopeNote, n: threads.length })}
           </div>
         ) : (
           accountId && <div className="ml-sub">{labels.get(accountId)}</div>
@@ -350,14 +363,14 @@ export function MessageList() {
         )}
         {download && (
           <div className="ml-progress" role="status">
-            <span className="spin" aria-hidden /> Downloading mails… {download.have} / {download.target}
+            <span className="spin" aria-hidden /> {tr("mail.list.downloading", { have: fmtNumber(download.have), target: fmtNumber(download.target) })}
           </div>
         )}
         {multi && (
           <div className="ml-bulk">
-            <span>{checked.size} selected</span>
-            <button className="link-btn" onClick={() => setChecked(threads.map((t) => t.threadId))}>Select all</button>
-            <button className="link-btn" onClick={() => setChecked([])}>Clear</button>
+            <span>{tr("mail.list.selected", { n: checked.size })}</span>
+            <button className="link-btn" onClick={() => setChecked(threads.map((t) => t.threadId))}>{tr("mail.list.selectAll")}</button>
+            <button className="link-btn" onClick={() => setChecked([])}>{tr("mail.list.clear")}</button>
           </div>
         )}
       </div>
@@ -369,7 +382,7 @@ export function MessageList() {
           <>
             {firstHere && (
               <div className="ml-firstsync" role="status">
-                <span className="spin" aria-hidden /> Syncing {labels.get(firstSync!) ?? "your account"}… the first download can take a minute.
+                <span className="spin" aria-hidden /> {tr("mail.list.syncing", { account: labels.get(firstSync!) ?? tr("mail.list.yourAccount") })}
               </div>
             )}
             <SkeletonRows />
@@ -378,21 +391,21 @@ export function MessageList() {
           searching ? (
             <EmptyState
               icon={<SearchX size={40} />}
-              title="No results"
-              text={searchScope === "all" ? "Only mail already downloaded to this computer is searched. Older mail is downloaded as you scroll a folder." : "Try other words, or search every folder."}
+              title={tr("mail.empty.noResults")}
+              text={searchScope === "all" ? tr("mail.empty.searchedAll") : tr("mail.empty.searchHint")}
               action={
                 <>
-                  {searchScope !== "all" && <button className="btn" onClick={() => void setSearchScope("all")}>Search all mailboxes</button>}
+                  {searchScope !== "all" && <button className="btn" onClick={() => void setSearchScope("all")}>{tr("mail.empty.searchAll")}</button>}
                   <WebmailSearch targets={webmails} query={search} openFolder={webmailFolder} />
                 </>
               }
             />
           ) : filter !== "all" ? (
-            <EmptyState icon={<FolderOpen size={40} />} title="Nothing matches this filter" action={<button className="btn" onClick={() => void setFilter("all")}>Show everything</button>} />
+            <EmptyState icon={<FolderOpen size={40} />} title={tr("mail.empty.noMatch")} action={<button className="btn" onClick={() => void setFilter("all")}>{tr("mail.empty.showAll")}</button>} />
           ) : folder === "inbox" || folder === "unread" ? (
-            <EmptyState icon={<CheckCheck size={40} />} title="You're all caught up" text="New mail will show up here as it arrives." />
+            <EmptyState icon={<CheckCheck size={40} />} title={tr("mail.empty.caughtUp")} text={tr("mail.empty.caughtUpText")} />
           ) : (
-            <EmptyState icon={<FolderOpen size={40} />} title="This folder is empty" />
+            <EmptyState icon={<FolderOpen size={40} />} title={tr("mail.empty.folder")} />
           )
         ) : (
           <VirtualList
