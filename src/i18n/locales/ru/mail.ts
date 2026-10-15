@@ -6,7 +6,7 @@ import type ns from "../../ns/mail.ts";
 export default defineLocale<typeof ns.en>({
   // one conversation in the list (icons carry only a label for screen readers)
   "mail.row.select": "Выбрать",
-  "mail.row.unread": "Непрочитано",
+  "mail.row.unread": "Непрочитанное",
   "mail.row.confidential": "Конфиденциально",
   "mail.row.encrypted": "Зашифровано",
   "mail.row.signed": "Подписано",
@@ -63,7 +63,7 @@ export default defineLocale<typeof ns.en>({
   "mail.list.downloading": "Загрузка писем… {have} из {target}",
   "mail.list.selected": { one: "Выбрано: {n}", few: "Выбрано: {n}", many: "Выбрано: {n}", other: "Выбрано: {n}" },
   "mail.list.selectAll": "Выбрать все",
-  "mail.list.clear": "Снять выбор",
+  "mail.list.clear": "Отменить выбор",
   "mail.list.syncing": "Синхронизация: {account}… первая загрузка может занять минуту.",
   "mail.list.yourAccount": "ваша учётная запись",
   // empty states
@@ -92,8 +92,8 @@ export default defineLocale<typeof ns.en>({
   "mail.pane.calendars": "Календари",
   "mail.pane.favorites": "Избранное",
   "mail.pane.quickViews": "Быстрый доступ",
-  "mail.pane.addFav": "Добавить в Избранное",
-  "mail.pane.removeFav": "Убрать из Избранного",
+  "mail.pane.addFav": "Добавить в избранное",
+  "mail.pane.removeFav": "Удалить из избранного",
   "mail.pane.failedTitle": {
     one: "Не удалось отправить {n} запланированное письмо",
     few: "Не удалось отправить {n} запланированных письма",

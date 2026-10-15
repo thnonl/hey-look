@@ -22,7 +22,7 @@ pub fn text(k: K) -> &'static str {
         K::TrayHintTitle => "Hey Look! продолжает работу",
         K::TrayHintMac => "Приложение продолжает проверять почту из строки меню. Чтобы открыть его снова, щёлкните значок Hey Look! в Dock или в строке меню.",
         K::TrayHintLinux => "Приложение продолжает проверять почту из трея. Чтобы выйти, выберите «Выйти из Hey Look!» в меню значка в трее.",
-        K::TrayHintOther => "Приложение продолжает проверять почту из трея. Чтобы выйти, щёлкните значок в трее правой кнопкой мыши и выберите «Выйти».",
+        K::TrayHintOther => "Приложение продолжает проверять почту из трея. Чтобы выйти, щёлкните значок в трее правой кнопкой мыши и выберите «Выйти из Hey Look!».",
         K::TestTitle => "Тестовое уведомление Hey Look!",
         K::TestLine1 => "Уведомления работают",
         K::TestLine2 => "Так будут выглядеть новые письма.",
@@ -66,7 +66,7 @@ pub fn new_messages(n: usize) -> String {
 
 /// Title of the notification for a snoozed conversation that came back.
 pub fn snooze_ended(who: &str) -> String {
-    format!("Отсрочка закончилась: {who}")
+    format!("Отложенное письмо вернулось: {who}")
 }
 
 /// Event reminder title: the event starts now (`minutes` = 0) or in `minutes` minutes.
