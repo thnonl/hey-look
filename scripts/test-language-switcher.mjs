@@ -17,9 +17,12 @@ const app = strip(read("src/App.tsx"));
 const ui = strip(read("src/components/ui.tsx"));
 const css = read("src/App.css");
 
-// the three languages that ship, in this order (English first), each in its own language
-assert.deepEqual(LANGUAGES.map((l) => l.nativeName), ["English", "Tiếng Việt", "Français"]);
-assert.deepEqual(LANGS.map((l) => l.code), ["en", "vi", "fr"]);
+// the eight languages that ship, in this order (English first), each in its own language; the header button shows the registry's short label
+assert.deepEqual(LANGUAGES.map((l) => l.nativeName), ["English", "Tiếng Việt", "Français", "中文（简体）", "Español", "日本語", "Deutsch", "Русский"]);
+assert.deepEqual(LANGS.map((l) => l.code), ["en", "vi", "fr", "zh-Hans", "es", "ja", "de", "ru"]);
+assert.deepEqual(LANGS.map((l) => l.short), ["EN", "VI", "FR", "ZH", "ES", "JA", "DE", "RU"]);
+assert.ok(!/toUpperCase()/.test(sw), "the header button label is the registry short label, not the code in capitals (zh-Hans would be ZH-HANS)");
+assert.ok(LANGS.length > 5, "more than CHIPS_MAX languages: the Welcome screen uses the menu");
 
 // header: the shared menu; the header is also the one of the Welcome screen (no account: same TopBar, no search / sync)
 assert.ok(/<LanguageMenu\s*\/>/.test(top), "TopBar shows the shared LanguageMenu");
