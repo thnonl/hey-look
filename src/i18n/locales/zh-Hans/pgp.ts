@@ -12,7 +12,7 @@ export default defineLocale<typeof ns.en>({
   "pgp.passphrase": "密码短语",
   "pgp.tryAgain": "重试",
   // ---- passphrase prompt
-  "pgp.unlock.sign": "解锁密钥以签名",
+  "pgp.unlock.sign": "解锁密钥以进行数字签名",
   "pgp.unlock.decrypt": "解锁密钥以解密",
   "pgp.unlock.draft": "解锁密钥以打开草稿",
   "pgp.unlock.schedule": "解锁密钥以设置定时发送",

@@ -16,9 +16,9 @@ pub fn text(k: K) -> &'static str {
         K::ActArchive => "归档",
         K::ActDelete => "删除",
         K::ActRead => "标记为已读",
-        K::ActFlag => "星标",
+        K::ActFlag => "标记",
         K::ActReply => "回复",
-        K::ActSnooze => "稍后处理",
+        K::ActSnooze => "延后",
         K::TrayHintTitle => "Hey Look!仍在运行",
         K::TrayHintMac => "它会在菜单栏中持续检查您的邮件。点击程序坞或菜单栏中的Hey Look!图标即可再次打开。",
         K::TrayHintLinux => "它会在托盘中持续检查您的邮件。要退出，请在托盘图标的菜单中选择“退出Hey Look!”。",
@@ -42,7 +42,7 @@ pub fn text(k: K) -> &'static str {
 pub fn unread_tooltip(n: u32) -> String {
     match n {
         0 => "Hey Look!".to_string(),
-        n => format!("Hey Look! — {n}个未读会话"),
+        n => format!("Hey Look! — {n}个未读对话"),
     }
 }
 
@@ -53,7 +53,7 @@ pub fn new_messages(n: usize) -> String {
 
 /// Title of the notification for a snoozed conversation that came back.
 pub fn snooze_ended(who: &str) -> String {
-    format!("稍后处理已到期：{who}")
+    format!("延后时间已到：{who}")
 }
 
 /// Event reminder title: the event starts now (`minutes` = 0) or in `minutes` minutes.
