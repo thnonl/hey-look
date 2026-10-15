@@ -120,7 +120,7 @@ fn texts(k: K) -> [&'static str; 3] {
         K::ActArchive => ["Archive", "Lưu trữ", "Archiver"],
         K::ActDelete => ["Delete", "Xóa", "Supprimer"],
         K::ActRead => ["Mark as read", "Đánh dấu đã đọc", "Marquer comme lu"],
-        K::ActFlag => ["Flag", "Gắn cờ", "Marquer comme suivi"],
+        K::ActFlag => ["Flag", "Gắn cờ", "Assurer un suivi"],
         K::ActReply => ["Reply", "Trả lời", "Répondre"],
         K::ActSnooze => ["Snooze", "Tạm hoãn", "Mettre en attente"],
         K::TrayHintTitle => ["Hey Look! is still running", "Hey Look! vẫn đang chạy", "Hey Look! est toujours en cours d’exécution"],

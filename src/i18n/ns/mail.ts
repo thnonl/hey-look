@@ -216,7 +216,7 @@ export default define({
 
     "mail.hover.archive": "Archiver",
     "mail.hover.deleteForever": "Supprimer définitivement",
-    "mail.hover.flag": "Marquer comme suivi",
+    "mail.hover.flag": "Assurer un suivi",
     "mail.hover.unflag": "Retirer le suivi",
     "mail.hover.pin": "Épingler",
     "mail.hover.unpin": "Désépingler",
@@ -260,7 +260,7 @@ export default define({
     "mail.empty.noResults": "Aucun résultat",
     "mail.empty.searchedAll": "Seuls les messages déjà téléchargés sur cet ordinateur sont recherchés. Les messages plus anciens sont téléchargés au fil du défilement d’un dossier.",
     "mail.empty.searchHint": "Essayez d’autres mots, ou recherchez dans tous les dossiers.",
-    "mail.empty.searchAll": "Rechercher dans toutes les boîtes",
+    "mail.empty.searchAll": "Rechercher dans toutes les boîtes aux lettres",
     "mail.empty.noMatch": "Aucun message ne correspond à ce filtre",
     "mail.empty.showAll": "Tout afficher",
     "mail.empty.caughtUp": "Vous êtes à jour",

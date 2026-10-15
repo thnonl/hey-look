@@ -179,7 +179,7 @@ export default define({
     "backend.PGP_PASSPHRASE_SHORT": "Utilisez au moins 8 caractères.",
     "backend.PGP_FILE_UNREADABLE": "Impossible de lire ce fichier\u00a0: {detail}",
     "backend.PGP_FILE_TOO_LARGE": "Ce fichier est trop volumineux pour être une clé OpenPGP.",
-    "backend.PGP_NOTHING_TO_IMPORT": "Collez une clé au format ASCII armor ou choisissez un fichier.",
+    "backend.PGP_NOTHING_TO_IMPORT": "Collez une clé en armure ASCII ou choisissez un fichier.",
     "backend.PGP_ATT_SECRET_KEY": "Cette pièce jointe contient une clé secrète. Importez-la depuis Paramètres, Chiffrement (PGP).",
     "backend.PGP_KEY_NOT_FOUND": "Clé introuvable.",
     "backend.PGP_NO_SECRET_PART": "Cette clé n’a pas de partie secrète sur cet ordinateur.",
