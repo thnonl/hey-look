@@ -53,6 +53,8 @@ const NS_FILES = readdirSync(join(root, "src/i18n/ns")).filter((x) => x.endsWith
       if (!INLINE.includes(l.code)) for (const c of l.plural) if (!pr.resolvedOptions().pluralCategories.includes(c)) fail(`registry ${l.code}: plural lists "${c}", which ${l.intl} never uses`);
     }
     if (l.fmt?.weekdayShort && !/^E{1,6}$/.test(l.fmt.weekdayShort)) fail(`registry ${l.code}: fmt.weekdayShort must be a date-fns weekday token (E..EEEEEE)`);
+    if (l.fmt?.weekdayText && !/^E{1,6}$/.test(l.fmt.weekdayText)) fail(`registry ${l.code}: fmt.weekdayText must be a date-fns weekday token (E..EEEEEE)`);
+    if (l.fmt?.dayRange && !(l.fmt.dayRange.sep && ["sameMonth", "sameYear", "otherYear"].every((k) => l.fmt.dayRange[k]?.length === 2 && l.fmt.dayRange[k].every(Boolean)))) fail(`registry ${l.code}: fmt.dayRange needs sep and two patterns each for sameMonth, sameYear and otherYear`);
     for (const [from, to] of Object.entries(l.fmt?.patterns ?? {})) if (!from || !to) fail(`registry ${l.code}: fmt.patterns "${from}" -> "${to}" is empty`);
     if (!dicts[l.code]) fail(`registry ${l.code}: no dictionary (${INLINE.includes(l.code) ? `src/i18n/${l.code}.ts` : `src/i18n/locales/${l.code}/index.ts`} exporting ${ident(l.code)})`);
   }
@@ -270,8 +272,44 @@ if (!args.has("--lint-only")) {
       assert.equal(typeof fmt.dateFormat(), "object");
       assert.ok(fmt.monthName(9).length > 0 && fmt.weekdayName(1).length > 0, `month and weekday names for ${l.code}`);
       assert.ok((1234567.5).toLocaleString(l.intl).length > 0);
-      const r = fmt.intlDayRange({ y: 2026, m: 10, d: 5 }, { y: 2026, m: 10, d: 11 }, "long");
-      if (l.fmt?.intlRanges) assert.ok(r && r.includes("2026"), `range for ${l.code}: ${r}`); else assert.equal(r, null, `${l.code} keeps the classic range`);
+      const r = fmt.fmtDayRange({ y: 2026, m: 10, d: 5 }, { y: 2026, m: 10, d: 11 }, "long");
+      if (l.fmt?.intlRanges || l.fmt?.dayRange) assert.ok(r && r.includes("2026"), `range for ${l.code}: ${r}`); else assert.equal(r, null, `${l.code} keeps the classic range`);
+      // every language names its weekday tokens (the calendar column and the dates in text) and the tokens are date-fns weekday tokens
+      assert.ok(l.fmt?.weekdayShort && l.fmt?.weekdayText || ["en", "fr"].includes(l.code) || l.code === "vi", `registry ${l.code}: fmt.weekdayShort / weekdayText`);
+    }
+    // ---- week titles and day ranges: ja / zh write them with their own day characters, de / es / ru the way Intl does
+    const D = (y, m, d) => ({ y, m, d });
+    const range = (code, a, b, month = "long") => { setLangPref(code); return fmt.fmtDayRange(a, b, month); };
+    assert.equal(range("ja", D(2026, 10, 12), D(2026, 10, 18)), "2026年10月12日〜18日");
+    assert.equal(range("ja", D(2026, 10, 26), D(2026, 11, 1), "short"), "2026年10月26日〜11月1日");
+    assert.equal(range("ja", D(2026, 12, 28), D(2027, 1, 3), "short"), "2026年12月28日〜2027年1月3日");
+    assert.equal(range("zh-Hans", D(2026, 10, 12), D(2026, 10, 18)), "2026年10月12日至18日");
+    assert.equal(range("zh-Hans", D(2026, 10, 26), D(2026, 11, 1), "short"), "2026年10月26日至11月1日");
+    assert.match(range("de", D(2026, 10, 12), D(2026, 10, 18)), /^12\.\D{1,3}18\.\sOktober\s2026$/);
+    assert.match(range("es", D(2026, 10, 12), D(2026, 10, 18)), /^12\D{1,3}18\soct\.?\s2026$/, "es writes the week title with the short month");
+    assert.match(range("ru", D(2026, 10, 12), D(2026, 10, 18)), /^12\D{1,3}18\sокт\.?\s2026\sг\.$/, "ru writes the week title with the short month");
+    setLangPref("en");
+    assert.equal(fmt.fmtDayRange(D(2026, 10, 12), D(2026, 10, 18), "long"), null, "en keeps the classic range built by the caller");
+    // ---- weekdays: the calendar column token and the token of dates in text
+    const mon = new Date(2026, 9, 5, 14, 5); // Monday
+    const col = (code) => { setLangPref(code); return fmt.fmtPattern(mon, "EEE", fmt.dateFormat().weekdayShort ?? "EEE"); };
+    assert.deepEqual(["en", "vi", "fr", "zh-Hans", "es", "ja", "de", "ru"].map(col), ["Mon", "Th 2", "lun.", "周一", "lun", "月", "Mo", "пн"]);
+    assert.equal(at("ru", "EEE, d MMM yyyy"), "пн, 5 окт. 2026");
+    assert.equal(at("de", "EEE, d MMM yyyy"), "Mo, 5. Okt. 2026");
+    assert.equal(at("de", "EEE d MMM"), "Mo, 5. Okt.");
+    assert.equal(at("zh-Hans", "EEE, d MMM yyyy"), "2026年10月5日 周一");
+    assert.equal(at("vi", "EEE, d MMM yyyy"), "Thứ 2, 5 thg 10 2026", "vi keeps the long form in text");
+    // ---- 12-hour clock (a user setting, 24 h by default): the words of am / pm are the dictionary's, so the list and the calendar agree
+    assert.deepEqual(["en", "vi", "fr", "zh-Hans", "es", "ja", "de", "ru"].map((c) => at(c, "h:mm a")), ["2:05 PM", "2:05 PM", "2:05 PM", "下午2:05", "2:05 p. m.", "午後2:05", "2:05 PM", "2:05 PM"]);
+    assert.equal(at("ja", "EEE, d MMM yyyy h:mm a"), "2026年10月5日(月) 午後2:05");
+    // ---- en / vi / fr: byte-identical to date-fns itself
+    {
+      const dfLocales = { en: (await import("date-fns/locale/en-US")).enUS, vi: (await import("date-fns/locale/vi")).vi, fr: (await import("date-fns/locale/fr")).fr };
+      const { format: dfFormat } = await import("date-fns");
+      for (const code of ["en", "vi", "fr"]) for (const p of used) {
+        setLangPref(code);
+        assert.equal(fmt.fmtPattern(mon, p), dfFormat(mon, p, { locale: dfLocales[code] }), `${code} ${p}`);
+      }
     }
     setLangPref("vi");
     assert.equal(fmt.dateFormat().weekdayShort, "EEEEEE");

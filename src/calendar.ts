@@ -4,7 +4,7 @@
 import type { CalEvent, CalInvite } from "./api";
 import type { Prefs } from "./prefs";
 import { intlLocale, t } from "./i18n";
-import { dateFormat, fmtPattern, intlDayRange } from "./i18n/format";
+import { dateFormat, fmtDayRange, fmtPattern } from "./i18n/format";
 
 export type CalView = "month" | "week" | "agenda";
 
@@ -22,7 +22,7 @@ export const fmtDayMonth = (d: Day) => fmtPattern(dayDate(d), "d MMM");
 // The weekday token of calendar columns and day labels comes from the language (registry `fmt.weekdayShort`): Vietnamese gets the
 // 2-letter forms ("T2", "CN") because "Thứ 2" is too wide for a column.
 const wdAbbr = () => dateFormat().weekdayShort ?? "EEE";
-export const wdShort = (wd: number) => fmtPattern(new Date(2021, 7, 1 + wd), wdAbbr()); // 1 Aug 2021 = Sunday
+export const wdShort = (wd: number) => fmtPattern(new Date(2021, 7, 1 + wd), "EEE", wdAbbr()); // 1 Aug 2021 = Sunday
 export const wdLong = (wd: number) => fmtPattern(new Date(2021, 7, 1 + wd), "EEEE");
 export const wdNarrow = (wd: number) => fmtPattern(new Date(2021, 7, 1 + wd), "EEEEE");
 const DAY_MS = 86_400_000;
@@ -201,8 +201,8 @@ export function fmtTime(sec: number, tz: string): string {
   return fmtClock(p.h, p.mi);
 }
 
-export const fmtDayLong = (d: Day) => fmtPattern(dayDate(d), `${wdAbbr()}, d MMM yyyy`);
-export const fmtDayShort = (d: Day) => fmtPattern(dayDate(d), `${wdAbbr()} d MMM`);
+export const fmtDayLong = (d: Day) => fmtPattern(dayDate(d), "EEE, d MMM yyyy", wdAbbr());
+export const fmtDayShort = (d: Day) => fmtPattern(dayDate(d), "EEE d MMM", wdAbbr());
 
 /** "UTC+7" / "UTC-5:30" for a zone at an instant. */
 export function tzOffsetLabel(tz: string, ms = Date.now()): string {
@@ -232,7 +232,7 @@ export function fmtRange(e: Pick<CalEvent, "start" | "end" | "allDay">, tz: stri
     const allDay = t("calendar.allDay");
     if (sameDay(a, b)) return `${fmtDayLong(a)} · ${allDay}`;
     if (a.y === b.y && a.m === b.m) {
-      const range = intlDayRange(a, b, "short");
+      const range = fmtDayRange(a, b, "short");
       return `${range ?? `${a.d} – ${b.d} ${fmtPattern(dayDate(b), "MMM yyyy")}`} · ${allDay}`;
     }
     return `${fmtDayShort(a)} – ${fmtDayLong(b)} · ${allDay}`;
@@ -260,7 +260,7 @@ export function monthTitle(d: Day) {
 export function weekTitle(days: Day[]): string {
   const a = days[0];
   const b = days[6];
-  const range = intlDayRange(a, b, a.m === b.m ? "long" : "short"); // ja, zh, ru ...: the range the way Intl writes it
+  const range = fmtDayRange(a, b, a.m === b.m ? "long" : "short"); // ja, zh, ru ...: the range the way the language writes it
   if (range) return range;
   if (a.m === b.m) return `${a.d} – ${b.d} ${monthYearLong(a)}`;
   if (a.y === b.y) return `${a.d} ${monthShort(a.m)} – ${b.d} ${monthShort(b.m)} ${a.y}`;
