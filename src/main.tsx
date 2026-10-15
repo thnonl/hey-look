@@ -1,6 +1,8 @@
 import React from "react";
 import ReactDOM from "react-dom/client";
 import App from "./App";
+import { api } from "./api";
+import { applySavedLanguage } from "./bootLang";
 
 async function boot(): Promise<boolean> {
   // `npm run dev` in a plain browser has no Tauri backend: use fake data so the UI can be previewed.
@@ -8,6 +10,8 @@ async function boot(): Promise<boolean> {
   if (mock) {
     (await import("./devMock")).installMock();
   }
+  // the saved language first: nothing is drawn, and no event handler exists yet, until it is applied (see bootLang.ts)
+  await applySavedLanguage(api.getSetting);
   ReactDOM.createRoot(document.getElementById("root") as HTMLElement).render(
     <React.StrictMode>
       <App />
