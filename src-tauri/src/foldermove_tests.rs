@@ -222,6 +222,45 @@ fn a_server_that_keeps_its_folders_in_the_inbox_namespace_gets_inbox_dot_archive
     });
 }
 
+/// QA v1.0.1 round 6, OBS-2: the person renamed the Trash to `Trash-old` and had `Archives`. `Archives` is a standard name and is the
+/// archive; `Trash-old`, `Archive 2019` and a `Trash` that sits inside another folder are folders of the person's own: Delete makes a new
+/// `Trash`, nothing is moved into a lookalike and no second Archive is made.
+#[test]
+fn a_folder_that_only_looks_like_the_trash_or_archive_is_not_taken_for_it() {
+    test_guard::within(60, || {
+        let (db, acc) = setup("obs2-trash", r#"{"inbox":"INBOX"}"#, &[1, 2, 3]);
+        let fake = Fake::start(&[("INBOX", &[1, 2, 3]), ("Trash-old", &[]), ("Archives", &[]), ("Archive 2019", &[]), ("Old/Trash", &[]), ("Work/Archive", &[])]);
+        run(&db, &acc, &fake, 1, "trash", true).unwrap();
+        assert_eq!(fake.uids("Trash").map(|u| u.len()), Some(1), "a new Trash was made");
+        assert_eq!(fake.uids("Trash-old"), Some(vec![]));
+        assert_eq!(fake.uids("Old/Trash"), Some(vec![]));
+        assert_eq!(sent(&fake, "CREATE"), 1);
+        run(&db, &acc, &fake, 2, "archive", true).unwrap();
+        assert_eq!(fake.uids("Archives").map(|u| u.len()), Some(1), "Archives is the archive");
+        assert_eq!(fake.uids("Archive 2019"), Some(vec![]));
+        assert_eq!(fake.uids("Work/Archive"), Some(vec![]));
+        assert!(!fake.has_folder("Archive"), "no second archive was made");
+        assert_eq!(sent(&fake, "CREATE"), 1, "only the Trash was created");
+        let s = saved(&db);
+        assert_eq!((s.get("trash").map(String::as_str), s.get("archive").map(String::as_str)), (Some("Trash"), Some("Archives")));
+        // the lookalikes stay folders of their own
+        assert!(["Trash-old", "Archive 2019", "Old/Trash", "Work/Archive"].iter().all(|n| s.get(&format!("f:{n}")).is_some()), "{s:?}");
+    });
+}
+
+/// A folder the server names in another language is the standard folder (no `Trash` is made next to `Papierkorb`).
+#[test]
+fn a_localised_standard_folder_is_found_and_no_second_one_is_made() {
+    test_guard::within(60, || {
+        let (db, acc) = setup("obs2-de", r#"{"inbox":"INBOX"}"#, &[1, 2]);
+        let fake = Fake::start(&[("INBOX", &[1, 2]), ("Papierkorb", &[]), ("Archiv", &[])]);
+        run(&db, &acc, &fake, 1, "trash", true).unwrap();
+        run(&db, &acc, &fake, 2, "archive", true).unwrap();
+        assert_eq!((fake.uids("Papierkorb").map(|u| u.len()), fake.uids("Archiv").map(|u| u.len())), (Some(1), Some(1)));
+        assert_eq!(sent(&fake, "CREATE"), 0);
+    });
+}
+
 #[test]
 fn a_failure_that_is_not_about_the_folder_is_reported_as_it_is_and_the_mail_stays() {
     test_guard::within(60, || {

@@ -260,57 +260,176 @@ pub fn list_folders<T: Read + Write>(s: &mut imap::Session<T>) -> R<Listing> {
     use imap::types::NameAttribute as A;
     let names = s.list(Some(""), Some("*")).map_err(err)?;
     let delimiter = names.iter().find_map(|n| n.delimiter().map(str::to_string));
-    let mut map: HashMap<String, String> = HashMap::new();
-    map.insert("inbox".into(), "INBOX".into());
-    let mut custom: Vec<String> = vec![];
+    let mut entries: Vec<FolderEntry> = vec![];
     for n in names.iter() {
-        let name = n.name().to_string();
-        if name.eq_ignore_ascii_case("INBOX") {
-            continue;
-        }
-        let lower = name.to_lowercase();
-        let mut role: Option<&str> = None;
+        let mut e = FolderEntry { name: n.name().to_string(), delimiter: n.delimiter().map(str::to_string), role: None };
         let mut skip = false;
         for a in n.attributes() {
             match a {
                 A::NoSelect => skip = true,
                 A::Custom(c) => match c.to_lowercase().as_str() {
-                    "\\sent" => role = Some("sent"),
-                    "\\drafts" => role = Some("drafts"),
-                    "\\archive" | "\\all" => role = Some("archive"),
-                    "\\trash" => role = Some("trash"),
-                    "\\junk" => role = Some("junk"),
+                    "\\sent" => e.role = Some("sent"),
+                    "\\drafts" => e.role = Some("drafts"),
+                    "\\archive" | "\\all" => e.role = Some("archive"),
+                    "\\trash" => e.role = Some("trash"),
+                    "\\junk" => e.role = Some("junk"),
                     "\\flagged" | "\\important" => skip = true,
                     _ => {}
                 },
                 _ => {}
             }
         }
-        if skip {
+        if !skip {
+            entries.push(e);
+        }
+    }
+    Ok(Listing { map: assign_roles(&entries), delimiter })
+}
+
+/// One selectable folder of a LIST answer: its name, the hierarchy delimiter and the role its SPECIAL-USE attribute gives it, if any.
+pub(crate) struct FolderEntry {
+    pub name: String,
+    pub delimiter: Option<String>,
+    pub role: Option<&'static str>,
+}
+
+/// role -> folder name for the standard roles, and `f:<name>` for every other folder. The server's SPECIAL-USE attributes decide first.
+/// A role no attribute names is taken from a folder's name, but only from a name that is a standard one (`role_by_name`) at the top
+/// level or just under the INBOX / Gmail namespace, so `Old/Trash`, `Trash-old` or `Archive 2019` stay folders of the person's own.
+/// When several folders qualify the shallowest wins, then the first listed.
+pub(crate) fn assign_roles(entries: &[FolderEntry]) -> HashMap<String, String> {
+    let mut map: HashMap<String, String> = HashMap::new();
+    map.insert("inbox".into(), "INBOX".into());
+    let mut taken = vec![false; entries.len()];
+    let mut pending = vec![];
+    for (i, e) in entries.iter().enumerate() {
+        if e.name.eq_ignore_ascii_case("INBOX") {
+            taken[i] = true;
+        } else if let Some(r) = e.role {
+            if !map.contains_key(r) {
+                map.insert(r.to_string(), e.name.clone());
+                taken[i] = true;
+            }
+        } else {
+            pending.push(i);
+        }
+    }
+    for r in ROLES.iter().copied().filter(|r| *r != "inbox") {
+        if map.contains_key(r) {
             continue;
         }
-        if role.is_none() {
-            let leaf = lower.rsplit(['/', '.']).next().unwrap_or(&lower).to_string();
-            role = match leaf.as_str() {
-                "sent" | "sent items" | "sent mail" | "sent messages" => Some("sent"),
-                "drafts" | "draft" => Some("drafts"),
-                "archive" | "archives" => Some("archive"),
-                "trash" | "deleted items" | "deleted messages" | "bin" => Some("trash"),
-                "junk" | "spam" | "junk e-mail" | "junk email" => Some("junk"),
-                _ => None,
-            };
+        let best = pending.iter().copied().filter(|i| !taken[*i]).filter_map(|i| role_by_name(&entries[i].name, entries[i].delimiter.as_deref()).filter(|(role, _)| *role == r).map(|(_, depth)| (depth, i))).min();
+        if let Some((_, i)) = best {
+            map.insert(r.to_string(), entries[i].name.clone());
+            taken[i] = true;
         }
-        match role {
-            Some(r) if !map.contains_key(r) => {
-                map.insert(r.to_string(), name);
+    }
+    for (i, e) in entries.iter().enumerate() {
+        if !taken[i] {
+            map.insert(format!("f:{}", e.name), e.name.clone());
+        }
+    }
+    map
+}
+
+/// The role a folder name stands for when the server flags none, and how deep the folder is (1 = top level, 2 = under a namespace
+/// folder). Only a whole name counts: the standard English names and the well-known ones of other languages, case-insensitive, with
+/// the accents and the modified UTF-7 of IMAP (`&AOk-` for `é`) taken out of the way. A folder that is deeper than the namespace
+/// level, or has anything more in its name (`Trash-old`, `Archive 2019`), is none of them.
+fn role_by_name(name: &str, delimiter: Option<&str>) -> Option<(&'static str, usize)> {
+    let name = decode_imap_utf7(name);
+    let parts: Vec<&str> = match delimiter {
+        Some(d) if !d.is_empty() => name.split(d).collect(),
+        _ => vec![name.as_str()],
+    };
+    let depth = match parts.as_slice() {
+        [_] => 1,
+        [ns, _] if ["inbox", "[gmail]", "[google mail]"].contains(&ns.to_lowercase().as_str()) => 2,
+        _ => return None,
+    };
+    let leaf = parts.last()?.trim().to_lowercase();
+    let role = match leaf.as_str() {
+        // English
+        "sent" | "sent items" | "sent mail" | "sent messages" => "sent",
+        "drafts" | "draft" => "drafts",
+        "archive" | "archives" => "archive",
+        "trash" | "deleted items" | "deleted messages" | "bin" => "trash",
+        "junk" | "spam" | "junk e-mail" | "junk email" => "junk",
+        // German
+        "gesendet" | "gesendete elemente" | "gesendete objekte" => "sent",
+        "entwürfe" => "drafts",
+        "archiv" => "archive",
+        "papierkorb" | "gelöschte elemente" | "gelöschte objekte" => "trash",
+        "junk-e-mail" => "junk",
+        // French
+        "envoyés" | "éléments envoyés" | "messages envoyés" => "sent",
+        "brouillons" => "drafts",
+        "corbeille" | "éléments supprimés" => "trash",
+        "courrier indésirable" | "pourriel" => "junk",
+        // Spanish
+        "enviados" | "elementos enviados" => "sent",
+        "borradores" => "drafts",
+        "archivo" => "archive",
+        "papelera" | "elementos eliminados" => "trash",
+        "correo no deseado" => "junk",
+        // Italian
+        "posta inviata" | "inviati" => "sent",
+        "bozze" => "drafts",
+        "archivio" => "archive",
+        "cestino" | "posta eliminata" => "trash",
+        "posta indesiderata" => "junk",
+        // Portuguese
+        "itens enviados" | "enviadas" => "sent",
+        "rascunhos" => "drafts",
+        "arquivo morto" => "archive",
+        "lixeira" | "itens excluídos" => "trash",
+        "lixo eletrônico" => "junk",
+        // Vietnamese
+        "thư đã gửi" => "sent",
+        "thư nháp" => "drafts",
+        "thùng rác" => "trash",
+        "thư rác" => "junk",
+        _ => return None,
+    };
+    Some((role, depth))
+}
+
+/// IMAP folder names are in modified UTF-7 (RFC 3501 5.1.3): `&` starts a run of UTF-16 in base64 (with `,` for `/`) that `-` ends, and
+/// `&-` is a plain `&`. Used only to compare a name; a run that does not decode is left as it was.
+fn decode_imap_utf7(s: &str) -> String {
+    use base64::Engine;
+    if !s.contains('&') {
+        return s.to_string();
+    }
+    let mut parts = s.split('&');
+    let mut out = parts.next().unwrap_or("").to_string();
+    for part in parts {
+        let Some(end) = part.find('-') else {
+            out.push('&');
+            out.push_str(part);
+            continue;
+        };
+        let (run, rest) = (&part[..end], &part[end + 1..]);
+        if run.is_empty() {
+            out.push('&');
+        } else {
+            let decoded = base64::engine::general_purpose::STANDARD_NO_PAD
+                .decode(run.replace(',', "/"))
+                .ok()
+                .filter(|b| b.len() % 2 == 0)
+                .and_then(|b| String::from_utf16(&b.chunks(2).map(|c| u16::from_be_bytes([c[0], c[1]])).collect::<Vec<_>>()).ok());
+            match decoded {
+                Some(text) => out.push_str(&text),
+                None => {
+                    out.push('&');
+                    out.push_str(run);
+                    out.push('-');
+                }
             }
-            _ => custom.push(name),
         }
+        out.push_str(rest);
     }
-    for c in custom {
-        map.insert(format!("f:{c}"), c);
-    }
-    Ok(Listing { map, delimiter })
+    out
 }
 
 /// The name to create for a standard role the server lacks, or None for a role that is never created (junk, custom folders).
@@ -1172,3 +1291,97 @@ Content-Type: text/html; charset=utf-8
         assert!(!is_confidential(b"From: a@example.com\r\n\r\nSensitivity: Confidential\r\n"));
     }
 }
+#[cfg(test)]
+mod folder_role_tests {
+    use super::*;
+
+    fn entry(name: &str, delimiter: &str, role: Option<&'static str>) -> FolderEntry {
+        FolderEntry { name: name.into(), delimiter: Some(delimiter.into()), role }
+    }
+
+    fn roles(entries: &[FolderEntry]) -> Vec<(String, String)> {
+        let mut v: Vec<_> = assign_roles(entries).into_iter().collect();
+        v.sort();
+        v
+    }
+
+    fn role_of(map: &HashMap<String, String>, folder: &str) -> Option<String> {
+        map.iter().find(|(_, v)| v.as_str() == folder).map(|(k, _)| k.clone())
+    }
+
+    #[test]
+    fn only_a_whole_standard_name_counts() {
+        let map = assign_roles(
+            &["Sent", "Drafts", "Archives", "Trash", "Spam"].map(|n| entry(n, "/", None)),
+        );
+        for (role, folder) in [("sent", "Sent"), ("drafts", "Drafts"), ("archive", "Archives"), ("trash", "Trash"), ("junk", "Spam")] {
+            assert_eq!(map.get(role).map(String::as_str), Some(folder));
+        }
+        // lookalikes: a prefix or suffix, another folder's subfolder, a longer name
+        let map = assign_roles(
+            &["Trash-old", "Archive 2019", "Sent Items 2018", "Old/Trash", "Work/Drafts", "a/b/Archive", "Spam folder", "Junkyard"].map(|n| entry(n, "/", None)),
+        );
+        for role in ["sent", "drafts", "archive", "trash", "junk"] {
+            assert!(!map.contains_key(role), "{role} was taken from a lookalike: {map:?}");
+        }
+        assert_eq!(map.len(), 1 + 8, "INBOX and the eight folders of the person");
+        assert!(map.contains_key("f:Trash-old") && map.contains_key("f:Archive 2019") && map.contains_key("f:Old/Trash"));
+    }
+
+    #[test]
+    fn the_servers_flags_win_over_names_and_over_the_order_of_the_list() {
+        // `Archive` is listed first, but the server says `Archives` is the archive; `Bin` has no flag, `Deleted` is the flagged trash
+        let map = assign_roles(&[entry("Archive", "/", None), entry("Archives", "/", Some("archive")), entry("Bin", "/", None), entry("Deleted", "/", Some("trash"))]);
+        assert_eq!(map.get("archive").map(String::as_str), Some("Archives"));
+        assert_eq!(map.get("trash").map(String::as_str), Some("Deleted"));
+        assert!(map.contains_key("f:Archive") && map.contains_key("f:Bin"), "the unflagged names stay folders: {map:?}");
+        // two flagged for one role: the first, as before; the other is a folder
+        let map = assign_roles(&[entry("[Gmail]/All Mail", "/", Some("archive")), entry("Old", "/", Some("archive"))]);
+        assert_eq!(map.get("archive").map(String::as_str), Some("[Gmail]/All Mail"));
+        assert!(map.contains_key("f:Old"));
+    }
+
+    #[test]
+    fn the_namespace_level_counts_and_the_top_level_goes_first() {
+        let r = |names: &[&str], d: &str| {
+            let map = assign_roles(&names.iter().map(|n| entry(n, d, None)).collect::<Vec<_>>());
+            ["sent", "trash", "archive"].map(|k| map.get(k).cloned())
+        };
+        assert_eq!(r(&["INBOX.Sent", "INBOX.Trash", "INBOX.Archive"], "."), [Some("INBOX.Sent".into()), Some("INBOX.Trash".into()), Some("INBOX.Archive".into())]);
+        assert_eq!(r(&["[Gmail]/Sent Mail", "[Gmail]/Trash"], "/"), [Some("[Gmail]/Sent Mail".into()), Some("[Gmail]/Trash".into()), None]);
+        // a top-level folder beats one in the namespace, whatever the order
+        assert_eq!(r(&["INBOX.Trash", "Trash"], "."), [None, Some("Trash".into()), None]);
+        // the delimiter of the server decides what a subfolder is: a dot in a name on a slash server is just a character
+        assert_eq!(r(&["Old.Trash"], "/"), [None, None, None]);
+        assert_eq!(r(&["Old/Trash"], "."), [None, None, None]);
+        // case does not matter
+        assert_eq!(r(&["TRASH", "sent"], "/"), [Some("sent".into()), Some("TRASH".into()), None]);
+    }
+
+    #[test]
+    fn standard_names_in_other_languages_and_in_modified_utf7_are_found() {
+        for (name, role) in [
+            ("Papierkorb", "trash"),
+            ("Gesendete Elemente", "sent"),
+            ("Entw&APw-rfe", "drafts"),
+            ("Corbeille", "trash"),
+            ("&AMk-l&AOk-ments envoy&AOk-s", "sent"),
+            ("Courrier ind&AOk-sirable", "junk"),
+            ("Brouillons", "drafts"),
+            ("Papelera", "trash"),
+            ("Thùng rác", "trash"),
+            ("Th&AbA- nh&AOE-p", "drafts"),
+        ] {
+            let map = assign_roles(&[entry(name, "/", None)]);
+            assert_eq!(role_of(&map, name).as_deref(), Some(role), "{name}: {map:?}");
+        }
+        // the same words with something added are the person's own
+        assert_eq!(role_of(&assign_roles(&[entry("Papierkorb alt", "/", None)]), "Papierkorb alt").as_deref(), Some("f:Papierkorb alt"));
+        assert_eq!(decode_imap_utf7("a&-b"), "a&b");
+        assert_eq!(decode_imap_utf7("&AOk-"), "é");
+        assert_eq!(decode_imap_utf7("&broken"), "&broken");
+        assert_eq!(decode_imap_utf7("&!!!-x"), "&!!!-x");
+        assert_eq!(roles(&[]), vec![("inbox".to_string(), "INBOX".to_string())]);
+    }
+}
+
