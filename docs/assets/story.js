@@ -284,7 +284,7 @@
         var msg;
         if (v === 'decline') msg = 'Declined. A reply goes out from the right mailbox.';
         else { var e = document.createElement('span'); e.className = 'k-ev' + (v === 'tentative' ? ' tent' : ''); e.textContent = '15:00 Design review'; evCell.appendChild(e); msg = (v === 'accept' ? 'Accepted' : 'Tentative') + '. It is in your calendar and a reply goes out from the right mailbox.'; }
-        kNote.textContent = msg + ' Calendar in 1.0 works on your computer. Syncing with other calendar services may come in a later update.'; say(msg);
+        kNote.textContent = msg + ' Syncing with a Google or Microsoft calendar is optional, per mailbox. CalDAV may come in a later update.'; say(msg);
       });
     });
 
