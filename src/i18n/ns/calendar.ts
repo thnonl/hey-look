@@ -355,11 +355,11 @@ export default define({
     "calendar.pop.deleteSilent": "Xóa, không thông báo",
     "calendar.pop.sendCancellation": "Gửi thông báo hủy",
     "calendar.pop.deleteTitle": "Xóa “{summary}”?",
-    "calendar.pop.deleteRepeating": "Mọi lần lặp của sự kiện lặp lại này sẽ bị xóa.",
+    "calendar.pop.deleteRepeating": "Mọi lần lặp của sự kiện này sẽ bị xóa.",
     "calendar.pop.copyOf": "{summary} (bản sao)",
     "calendar.pop.join": "Tham gia",
     "calendar.pop.openEmail": "Mở thư mời",
-    "calendar.pop.more": "Thêm thao tác",
+    "calendar.pop.more": "Các thao tác khác",
     "calendar.pop.duplicate": "Nhân bản",
 
     "calendar.toast.saved": "Đã lưu {name}",

@@ -178,7 +178,7 @@ export default define({
     "updates.ask.sendingTitle": "Vẫn còn một thư đang được gửi",
     "updates.ask.sendingBody": "Khởi động lại lúc này có thể làm gián đoạn việc gửi. Hãy chờ thêm một chút, hoặc vẫn khởi động lại.",
     "updates.ask.discardTitle": "Khởi động lại mà không lưu thay đổi?",
-    "updates.ask.discardBody": "Các thay đổi với thư đã lên lịch này chưa được lưu. Thư vẫn giữ lịch như cũ.",
+    "updates.ask.discardBody": "Các thay đổi đối với thư đã lên lịch này chưa được lưu. Thư vẫn được lên lịch như cũ.",
 
     "updates.result.updated": "Hey Look! đã được cập nhật lên {version}.",
     "updates.result.updatedDraft": "Hey Look! đã được cập nhật lên {version}. Thư của bạn nằm trong Thư nháp.",
@@ -200,7 +200,7 @@ export default define({
     "updates.noRelease": "Không tìm thấy thông tin cập nhật trên GitHub. Hãy thử lại sau, hoặc xem {link}.",
     "updates.noRelease.link": "trang phát hành",
 
-    "updates.card.availableHead": "Hey Look! {version} đã có",
+    "updates.card.availableHead": "Hey Look! {version} đã có sẵn",
     "updates.card.readyHead": "Hey Look! {version} đã sẵn sàng để cài đặt",
     "updates.card.youHave": "Bạn đang dùng {version}",
     "updates.card.released": "Phát hành {date}",
