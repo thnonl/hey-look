@@ -71,12 +71,16 @@ export function mayStayEnglish(english) {
   return words.every((w) => !/\p{L}/u.test(w) || KEEP_WORDS.has(w.toLowerCase()) || /^[A-Z]$/.test(w) || /^[a-z]$/.test(w));
 }
 
-/** Keys a language marks as "same as English on purpose" in src/i18n/locales/<code>/keep.json (a JSON array of keys). */
+/**
+ * Keys a language marks as "same as English on purpose": src/i18n/locales/<code>/keep.json (a JSON array of keys) for the languages with
+ * their own folder, src/i18n/ns/keep.json (`{ "vi": [...], "fr": [...] }`) for the ones that live in ns/ next to English.
+ */
 export function keepList(code) {
-  const f = join(root, "src/i18n/locales", code, "keep.json");
+  const f = INLINE.includes(code) ? join(root, "src/i18n/ns/keep.json") : join(root, "src/i18n/locales", code, "keep.json");
   if (!existsSync(f)) return new Set();
   try {
-    return new Set(JSON.parse(readFileSync(f, "utf8")));
+    const j = JSON.parse(readFileSync(f, "utf8"));
+    return new Set(INLINE.includes(code) ? j[code] ?? [] : j);
   } catch {
     return new Set();
   }

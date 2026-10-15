@@ -11,7 +11,7 @@ import { fileURLToPath } from "node:url";
 import ts from "typescript";
 import { en } from "../src/i18n/en.ts";
 import { pickPlural, pseudoize, resolveLang, t, setLangPref, getLang, LANGS } from "../src/i18n/index.ts";
-import { INLINE, LANGUAGES, formsOf, ident, loadDicts, placeholdersOf, rustMod, textOf } from "./lib/i18n-dicts.mjs";
+import { INLINE, LANGUAGES, formsOf, ident, keepList, loadDicts, placeholdersOf, rustMod, textOf } from "./lib/i18n-dicts.mjs";
 import { backendText, parseCoded } from "../src/backendErrors.ts";
 import { BACKEND_ERRORS } from "../src/calendarSync.ts";
 
@@ -315,6 +315,14 @@ if (!args.has("--lint-only")) {
     assert.equal(fmt.dateFormat().weekdayShort, "EEEEEE");
     assert.equal(fmt.dateFormat().capitalMonthTitle, true);
     setLangPref("en");
+  }
+
+  // ---- keep lists ("the same as English on purpose"): every entry is a key of English whose text really is the English one (else the entry is stale)
+  for (const l of LANGUAGES) {
+    for (const k of keepList(l.code)) {
+      if (!(k in en)) { fail(`keep list of ${l.code}: ${k} is not a key`); continue; }
+      if (JSON.stringify(dicts[l.code][k]) !== JSON.stringify(en[k])) fail(`keep list of ${l.code}: ${k} is translated, it does not belong in the list`);
+    }
   }
 
   // ---- CJK line breaking: Japanese and Chinese paragraphs keep "ん。" and closing punctuation off the start of a line, Latin text is not touched

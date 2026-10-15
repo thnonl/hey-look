@@ -77,7 +77,7 @@ export default define({
 
     "errors.os.credStore.macos": "Keychain macOS của bạn",
     "errors.os.credStore.linux": "kho khóa hệ thống của bạn",
-    "errors.os.credStore.windows": "Windows Credential Manager",
+    "errors.os.credStore.windows": "Trình quản lý thông tin xác thực của Windows",
     "errors.os.risky.macos": ".app, .pkg, .command, .sh, .scpt, tệp Office có macro (.docm, .xlsm) và các loại tương tự",
     "errors.os.risky.linux": ".sh, .desktop, .AppImage, .run, .deb, tệp Office có macro (.docm, .xlsm) và các loại tương tự",
     "errors.os.risky.windows": ".exe, .bat, .cmd, .ps1, .js, .vbs, .msi, tệp Office có macro (.docm, .xlsm) và các loại tương tự",
@@ -114,7 +114,7 @@ export default define({
 
     "errors.os.credStore.macos": "votre trousseau macOS",
     "errors.os.credStore.linux": "le trousseau de clés de votre système",
-    "errors.os.credStore.windows": "Windows Credential Manager",
+    "errors.os.credStore.windows": "le Gestionnaire d’identification Windows",
     "errors.os.risky.macos": ".app, .pkg, .command, .sh, .scpt, fichiers Office avec macros (.docm, .xlsm) et assimilés",
     "errors.os.risky.linux": ".sh, .desktop, .AppImage, .run, .deb, fichiers Office avec macros (.docm, .xlsm) et assimilés",
     "errors.os.risky.windows": ".exe, .bat, .cmd, .ps1, .js, .vbs, .msi, fichiers Office avec macros (.docm, .xlsm) et assimilés",
