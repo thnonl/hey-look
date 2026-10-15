@@ -745,3 +745,16 @@ details.hq[open] > summary::after { transform: translateY(-30%) rotate(-135deg);
 .bank-card img { display: block; width: 100%; height: auto; border: 2px solid var(--line); border-radius: 12px; background: #fff; }
 .bank-card figcaption { text-align: center; }
 .way.bank > p.vi-line { min-height: 0; }
+
+/* ---------- Simplified Chinese (zh-Hans): CJK fonts, no negative tracking, looser lines. Additive, only applies under lang="zh-Hans". ---------- */
+:root:lang(zh-Hans) {
+  --font: "Segoe UI Variable Display", "Segoe UI Variable Text", "Segoe UI", system-ui, -apple-system, "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei UI", "Microsoft YaHei", "Noto Sans CJK SC", "Noto Sans SC", "Source Han Sans SC", sans-serif;
+  --mono: ui-monospace, "Cascadia Mono", "SF Mono", "Roboto Mono", Consolas, "PingFang SC", "Microsoft YaHei UI", "Microsoft YaHei", "Noto Sans CJK SC", "Liberation Mono", monospace;
+}
+:lang(zh-Hans) body { line-height: 1.75; }
+:lang(zh-Hans) :is(h1, h2, h3, h4) { letter-spacing: 0; line-height: 1.3; font-weight: 700; }
+:lang(zh-Hans) .hero-h { letter-spacing: 0; line-height: 1.12; font-weight: 800; }
+:lang(zh-Hans) :is(.kicker, .st-n, .stage-cap, .mk-ctl legend, .ftr h2, .tbl thead th, .cmp thead th, .hq-tools label, .toc h2, .rec-b, .rc-h span, .receipt li b, .rc-t, .stamp, .tk-track, .brand, .lang > summary) { letter-spacing: .04em; }
+:lang(zh-Hans) .rc-t b, :lang(zh-Hans) .rc-t span { letter-spacing: 0; }
+:lang(zh-Hans) .brand { letter-spacing: -.01em; }
+:lang(zh-Hans) .btn { line-height: 1.3; }
