@@ -1,8 +1,9 @@
 import { create } from "zustand";
-import { api, Account, Att, BackfillProgress, CalendarInfo, CalEvent, DraftSecurity, FolderInfo, Meeting, MessageFull, OutboxItem, SearchScope, ThreadSummary } from "./api";
+import { api, Account, Att, BackfillProgress, CalendarInfo, CalEvent, CalSource, DraftSecurity, FolderInfo, Meeting, MessageFull, OutboxItem, SearchScope, ThreadSummary } from "./api";
 import { loadPlatform } from "./platform";
 import { hasMailAccounts } from "./mailControls";
 import { applyBackfill } from "./backfill";
+import { calendarErrorText } from "./calendarSync";
 import { calTz, CalView, Day, rangeFor, systemTz, today } from "./calendar";
 import { accentText, accountColor, buttonAccent, clampMaxDownload, DEFAULT_PREFS, lightened, mergePrefs, Prefs, readableOn, staleAccountPrefs, topBar, validHex } from "./prefs";
 
@@ -121,6 +122,9 @@ export function scopeOf(folder: string): string | undefined {
 /** Turn backend / network errors into something a person can act on. */
 export function friendlyError(e: unknown): string {
   let raw = String(e instanceof Error ? e.message : e).replace(/^Error:\s*/, "").trim();
+  // calendar sync errors come with their sentence ("CAL_CONFLICT: This event was changed in …"): shown as they are
+  const calendarText = calendarErrorText(raw);
+  if (calendarText) return calendarText;
   // backend errors are "CODE: human text"; a few PGP ones carry data instead ("PGP_MISSING_KEYS:a@b.c,d@e.f")
   if (/^PGP_LOCKED:/.test(raw)) return "Your encryption key is locked. Unlock it and try again.";
   if (/^PGP_MISSING_KEYS:/.test(raw)) return `No public key for ${raw.slice("PGP_MISSING_KEYS:".length).split(",").join(", ")}.`;
@@ -216,6 +220,8 @@ interface State {
   calDate: Day;
   calEvents: CalEvent[];
   calendars: CalendarInfo[];
+  /** calendar sync state of the mailboxes that turned it on (Settings, the calendar sidebar) */
+  calSources: CalSource[];
   calLoading: boolean;
   calError: string | null;
   /** bumps when the calendar changed behind the view's back (sync, respond, save) */
@@ -276,6 +282,7 @@ interface State {
   setCalDate: (d: Day) => void;
   loadCalendar: () => Promise<void>;
   bumpCal: () => void;
+  loadCalSources: () => Promise<void>;
   /** Re-read the open conversation without clearing it (an invitation's state changed). */
   reloadMessages: () => Promise<void>;
 }
@@ -461,6 +468,7 @@ export const useStore = create<State>((set, get) => ({
   module: "mail",
   calDate: today(systemTz()),
   calEvents: [],
+  calSources: [],
   calendars: [],
   calLoading: false,
   calError: null,
@@ -517,6 +525,15 @@ export const useStore = create<State>((set, get) => ({
   bumpCal: () => {
     set((s) => ({ calRev: s.calRev + 1 }));
     if (get().module === "calendar") void get().loadCalendar();
+    else void get().loadCalSources();
+  },
+
+  loadCalSources: async () => {
+    try {
+      set({ calSources: await api.calendarSources() });
+    } catch {
+      /* keep what is shown */
+    }
   },
 
   loadCalendar: async () => {
@@ -525,11 +542,11 @@ export const useStore = create<State>((set, get) => ({
     const { from, to } = rangeFor(prefs.calView, calDate, prefs.weekStart, tz);
     set({ calLoading: true });
     try {
-      const [events, calendars] = await Promise.all([api.calendarListEvents(from, to), api.calendarListCalendars()]);
+      const [events, calendars, calSources] = await Promise.all([api.calendarListEvents(from, to), api.calendarListCalendars(), api.calendarSources().catch(() => get().calSources)]);
       // ignore a slow answer for a range the user already left
       const now = get();
       const cur = rangeFor(now.prefs.calView, now.calDate, now.prefs.weekStart, calTz(now.prefs));
-      if (cur.from === from && cur.to === to) set({ calEvents: events, calendars, calError: null });
+      if (cur.from === from && cur.to === to) set({ calEvents: events, calendars, calSources, calError: null });
     } catch (e) {
       set({ calError: friendlyError(e) });
     } finally {

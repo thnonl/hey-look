@@ -664,12 +664,73 @@ function buildBigMailbox(total: number, local: number) {
 /** The mailbox as the app has it on disk right now (what list_threads reads). */
 const localMail = (id: string) => (serverMail[id] ?? []).slice(0, mockMail.local[id] ?? 0);
 
+// ---- calendar sync (Settings > mailbox > Calendar): one fake Google mailbox (a2) with three calendars, one of them read only.
+// `#calsync=<state>` starts with sync on in that state: ok | syncing | first | offline | busy | auth | blocked | notsetup | error | truncated.
+// `__mockCalSync.state("auth")` in the console switches the state later; `#calfail=denied|wrong|partial|timeout|blocked` makes the next consent fail;
+// `#calslow` keeps the consent open until Cancel. Titles with [conflict] / [offline] / [gone] in a synced calendar fail like the service would.
+type MockSrc = { id: string; accountId: string; kind: string; status: string; lastSync: number | null; lastError: string | null; retryAt: number | null; firstSync: boolean; calendars: Record<string, unknown>[] };
+const MOCK_CAL_ACCOUNT = "a2";
+const mockGoogleCals = () => [
+  { id: `google:${MOCK_CAL_ACCOUNT}:primary`, name: "Nam", color: "#039be5", readOnly: false, primary: true, syncOn: true, eventCount: 3, truncated: false },
+  { id: `google:${MOCK_CAL_ACCOUNT}:work`, name: "Work", color: "#d50000", readOnly: false, primary: false, syncOn: true, eventCount: 2, truncated: false },
+  { id: `google:${MOCK_CAL_ACCOUNT}:holidays`, name: "Holidays in Vietnam", color: "#0b8043", readOnly: true, primary: false, syncOn: true, eventCount: 1, truncated: false },
+];
+let calSrc: MockSrc | null = null;
+let calConnectCancel: (() => void) | null = null;
+const calCid = (k: string) => `google:${MOCK_CAL_ACCOUNT}:${k}`;
+const syncedEvents = (): MockEvent[] => {
+  const mk = (id: string, cal: string, summary: string, start: number, end: number, over: Record<string, unknown> = {}) =>
+    ev(id, summary, start, end, { calendarId: calCid(cal), accountId: MOCK_CAL_ACCOUNT, remoteMock: true, readOnly: null, reminderMin: 10, ...over });
+  return [
+    mk("g1", "primary", "Coffee with Minh", at(1, 8, 30), at(1, 9, 15), { location: "Cong Caphe" }),
+    mk("g2", "primary", "Dentist (Google)", at(3, 16), at(3, 17)),
+    mk("g3", "primary", "Weekly planning", at(0, 11), at(0, 11, 45), { rrule: "FREQ=WEEKLY;BYDAY=MO,WE", recurrenceText: "Every Monday and Wednesday", readOnly: "repeating", joinUrl: "https://meet.google.com/abc-defg-hij" }),
+    mk("g4", "work", "Design crit", at(2, 14), at(2, 15), { organizer: { email: "mai@contoso.com", name: "Mai Khanh" }, readOnly: "organizer", attendees: people([["Mai Khanh", "accepted"]]).concat([{ ...you, email: "nam@gmail.com" } as never]) }),
+    mk("g5", "work", "Sprint review", at(4, 10), at(4, 11), { myStatus: "organizer", organizer: { email: "nam@gmail.com", name: "Nam" } }),
+    mk("g6", "holidays", "Reunification Day", utcDay(9), utcDay(10), { allDay: true, tzid: null, readOnly: "calendar", reminderMin: null }),
+  ];
+};
+function mockCalState(state: string) {
+  const cals = mockGoogleCals();
+  if (state === "off") {
+    calEvents = calEvents.filter((e) => !e.remoteMock);
+    calSrc = null;
+    return;
+  }
+  if (!calSrc) calEvents = [...calEvents.filter((e) => !e.remoteMock), ...syncedEvents()];
+  const base = { id: `${MOCK_CAL_ACCOUNT}:google`, accountId: MOCK_CAL_ACCOUNT, kind: "google", lastSync: Math.floor(Date.now() / 1000) - 180, lastError: null, retryAt: null, firstSync: false };
+  const t = Math.floor(Date.now() / 1000);
+  const by: Record<string, Partial<MockSrc>> = {
+    ok: { status: "ok" },
+    syncing: { status: "syncing" },
+    first: { status: "syncing", firstSync: true, lastSync: null },
+    offline: { status: "offline", retryAt: t + 60 },
+    busy: { status: "busy", retryAt: t + 3 * 60 },
+    auth: { status: "auth" },
+    blocked: { status: "blocked", lastError: "admin_policy_enforced" },
+    notsetup: { status: "notsetup", lastError: "Google Calendar API has not been used in project 123456 before or it is disabled" },
+    error: { status: "error", lastError: "HTTP 500: backend error", retryAt: t + 4 * 60 },
+    truncated: { status: "ok" },
+  };
+  calSrc = { ...base, status: "ok", ...(by[state] ?? by.ok), calendars: state === "truncated" ? cals.map((c, i) => (i === 1 ? { ...c, truncated: true, eventCount: 25000 } : c)) : cals } as MockSrc;
+}
+const mockCalendars = () =>
+  (calSrc?.calendars ?? [])
+    .filter((c) => c.syncOn)
+    .map((c) => ({ id: c.id, name: `${c.name} · nam@gmail.com`, color: c.color, accountId: MOCK_CAL_ACCOUNT, visible: !hiddenCals.has(String(c.id)), remote: true, writable: !c.readOnly, service: "Google Calendar" }));
+
 export function installMock() {
   const frame = simulateWindowFrame();
   if (/(^|&)noaccounts(&|$)/.test(window.location.hash.slice(1))) {
     accounts.length = 0; // first-run: the Welcome screen
     folders.length = 0;
   }
+  const calsync = /(^|&)calsync=([a-z]+)/.exec(window.location.hash.slice(1))?.[2];
+  if (calsync && accounts.some((x) => x.id === MOCK_CAL_ACCOUNT)) mockCalState(calsync);
+  (window as unknown as { __mockCalSync: unknown }).__mockCalSync = {
+    state: (st: string) => { mockCalState(st); void emit("calendar-changed", {}); },
+    get: () => calSrc,
+  };
   if (accounts.length && !hashHas("smallmailbox")) {
     // a second Gmail mailbox (password login on imap.gmail.com) next to the Google one: the search footer then names the address
     accounts.push({ id: "a3", email: "nam.work@gmail.com", displayName: "Nam Work", imapHost: "imap.gmail.com", imapPort: 993, imapSsl: true, smtpHost: "smtp.gmail.com", smtpPort: 465, smtpSecurity: "ssl", username: "nam.work@gmail.com", smtpUsername: "", tlsInsecure: false, auth: "password", color: "#2e7d32" });
@@ -1090,9 +1151,49 @@ export function installMock() {
       }
       case "calendar_list_calendars":
         return [
-          { id: "local", name: "My events", color: "#8764b8", accountId: null, visible: !hiddenCals.has("local") },
-          ...accounts.map((x) => ({ id: `invites:${x.id}`, name: `Invitations · ${x.email}`, color: x.color ?? "", accountId: x.id, visible: !hiddenCals.has(`invites:${x.id}`) })),
+          { id: "local", name: "My events", color: "#8764b8", accountId: null, visible: !hiddenCals.has("local"), remote: false, writable: true },
+          ...accounts.map((x) => ({ id: `invites:${x.id}`, name: `Invitations · ${x.email}`, color: x.color ?? "", accountId: x.id, visible: !hiddenCals.has(`invites:${x.id}`), remote: false, writable: false })),
+          ...mockCalendars(),
         ];
+      case "calendar_sources": return calSrc ? [calSrc] : [];
+      case "calendar_connect": {
+        const fail = /(^|&)calfail=([a-z]+)/.exec(window.location.hash.slice(1))?.[2];
+        const slow = hashHas("calslow");
+        return new Promise((resolve, reject) => {
+          calConnectCancel = () => reject("CAL_CANCELLED: Calendar sign-in was cancelled.");
+          setTimeout(() => {
+            if (slow) return; // waits for Cancel
+            const errs: Record<string, string> = {
+              denied: "CAL_DENIED: Calendar access wasn’t allowed. Turn the switch on to try again.",
+              wrong: "CAL_WRONG_ACCOUNT: You allowed access for other@gmail.com. Sign in as nam@gmail.com to sync this mailbox’s calendar.",
+              partial: "CAL_PARTIAL: Hey Look! needs every calendar permission it asked for. Turn the switch on again and keep all boxes ticked.",
+              timeout: "CAL_TIMEOUT: Calendar sign-in timed out. Turn the switch on to try again.",
+              blocked: "CAL_BLOCKED: nam@gmail.com’s organization hasn’t approved Hey Look! for calendar access. Ask your IT admin.",
+            };
+            if (fail && errs[fail]) return reject(errs[fail]);
+            mockCalState("ok");
+            resolve(calSrc);
+          }, 1500);
+        });
+      }
+      case "calendar_cancel_connect": calConnectCancel?.(); calConnectCancel = null; return null;
+      case "calendar_disconnect": mockCalState("off"); return null;
+      case "calendar_set_sync": {
+        const c = calSrc?.calendars.find((x) => x.id === a.calendarId);
+        if (c) {
+          c.syncOn = !!a.on;
+          calEvents = calEvents.filter((e) => e.calendarId !== a.calendarId);
+          if (a.on) calEvents = [...calEvents, ...syncedEvents().filter((e) => e.calendarId === a.calendarId)];
+        }
+        return null;
+      }
+      case "calendar_sync_now": {
+        if (calSrc && !a.onlyIfStale) {
+          calSrc = { ...calSrc, status: "syncing", firstSync: false };
+          setTimeout(() => { mockCalState("ok"); void emit("calendar-changed", {}); }, 1200);
+        }
+        return null;
+      }
       case "calendar_set_visible": if (a.visible) hiddenCals.delete(a.calendarId as string); else hiddenCals.add(a.calendarId as string); return null;
       case "calendar_list_events": {
         const from = a.from as number, to = a.to as number;
@@ -1111,6 +1212,23 @@ export function installMock() {
         const guests = inp.attendees ?? [];
         const prev = inp.id ? calEvents.find((x) => x.id === inp.id) : undefined;
         const acct = accounts.find((x) => x.id === inp.accountId);
+        const toCal = String(prev?.calendarId ?? (inp as { calendarId?: string }).calendarId ?? "local");
+        if (toCal.startsWith("google:")) {
+          // an event of a synced calendar: the "service" answers; no mail is sent by the app
+          const title = String(inp.summary);
+          if (title.includes("[offline]")) throw "CAL_OFFLINE: You’re offline. Changes to Work need a connection.";
+          if (title.includes("[conflict]")) throw "CAL_CONFLICT: This event was changed in Google Calendar, so its latest version is shown.";
+          if (title.includes("[gone]")) { calEvents = calEvents.filter((x) => x.id !== inp.id); throw "CAL_GONE: This event was deleted in Google Calendar."; }
+          if (prev?.readOnly) throw "CAL_READ_ONLY: Only the organizer can change this event.";
+          if (inp.rrule) throw "CAL_READ_ONLY: Repeating events can be added to Work in Google Calendar for now.";
+          const done = ev(prev?.id ?? `e${++eventSeq}`, title, inp.start as number, inp.end as number, {
+            allDay: inp.allDay, tzid: inp.tzid ?? null, location: inp.location ?? null, description: inp.description ?? null, reminderMin: inp.reminderMin ?? null,
+            calendarId: toCal, accountId: MOCK_CAL_ACCOUNT, remoteMock: true, readOnly: null,
+            attendees: guests.map((g) => ({ ...g, role: "required", status: "needs-action", isYou: false })),
+          });
+          calEvents = [...calEvents.filter((x) => x.id !== done.id), done];
+          return done;
+        }
         const saved = ev(prev?.id ?? `e${++eventSeq}`, String(inp.summary), inp.start as number, inp.end as number, {
           allDay: inp.allDay, tzid: inp.tzid ?? null, location: inp.location ?? null, description: inp.description ?? null, rrule: inp.rrule ?? null, reminderMin: inp.reminderMin ?? null,
           accountId: inp.accountId ?? null, recurrenceText: inp.rrule ? "Repeats" : null, sequence: (prev?.sequence as number ?? 0) + (guests.length ? 1 : 0),
@@ -1125,7 +1243,12 @@ export function installMock() {
         calEvents = [...calEvents.filter((x) => x.id !== saved.id), saved];
         return saved;
       }
-      case "calendar_delete_event": calEvents = calEvents.filter((x) => x.id !== a.id); return null;
+      case "calendar_delete_event": {
+        const gone = calEvents.find((x) => x.id === a.id);
+        if (gone?.readOnly) throw "CAL_READ_ONLY: Repeating events of Work can be changed in Google Calendar for now.";
+        calEvents = calEvents.filter((x) => x.id !== a.id);
+        return null;
+      }
       case "calendar_respond": {
         const m = inviteMsgs[a.messageId as string];
         if (!m) throw "message not found";

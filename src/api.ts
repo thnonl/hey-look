@@ -164,6 +164,8 @@ export interface CalEvent {
   confidential?: boolean;
   /** set on expanded occurrences of a repeating event */
   instanceStart?: number | null;
+  /** an event of a synced calendar that can't be changed here, and why */
+  readOnly?: "calendar" | "repeating" | "organizer" | null;
 }
 export interface CalEventInput {
   id?: string | null;
@@ -178,8 +180,37 @@ export interface CalEventInput {
   attendees: { email: string; name?: string | null; role: "required" | "optional" }[];
   rrule?: string | null;
   reminderMin?: number | null;
+  /** the calendar a new event goes to ("local" or null = My events); fixed when editing */
+  calendarId?: string | null;
 }
-export interface CalendarInfo { id: string; name: string; color: string; accountId: string | null; visible: boolean }
+export interface CalendarInfo {
+  id: string;
+  name: string;
+  color: string;
+  accountId: string | null;
+  visible: boolean;
+  /** a calendar synced from Google Calendar / Outlook */
+  remote?: boolean;
+  /** new events can be added to it */
+  writable?: boolean;
+  /** "Google Calendar" / "Outlook" for a synced calendar */
+  service?: string | null;
+}
+/** One calendar of a synced mailbox, as Settings lists it. */
+export interface CalendarSyncInfo { id: string; name: string; color: string; readOnly: boolean; primary: boolean; syncOn: boolean; eventCount: number; truncated: boolean }
+/** The calendar sync of one mailbox: its state and calendars. */
+export interface CalSource {
+  id: string;
+  accountId: string;
+  kind: "google" | "microsoft" | "caldav";
+  status: "ok" | "syncing" | "offline" | "busy" | "auth" | "blocked" | "notsetup" | "error";
+  lastSync: number | null;
+  lastError: string | null;
+  retryAt: number | null;
+  /** the first download is running */
+  firstSync: boolean;
+  calendars: CalendarSyncInfo[];
+}
 export interface Meeting {
   start: number;
   end: number;
@@ -542,6 +573,13 @@ export const api = {
   calendarSaveIcs: (target: { messageId?: string; eventId?: string }) =>
     invoke<string | null>("calendar_save_ics", { messageId: target.messageId ?? null, eventId: target.eventId ?? null }),
   calendarImportIcs: () => invoke<{ added: number; updated: number } | null>("calendar_import_ics"),
+  // calendar sync (Google Calendar / Outlook)
+  calendarSources: () => invoke<CalSource[]>("calendar_sources"),
+  calendarConnect: (accountId: string) => invoke<CalSource>("calendar_connect", { accountId }),
+  calendarCancelConnect: () => invoke<void>("calendar_cancel_connect"),
+  calendarDisconnect: (accountId: string) => invoke<void>("calendar_disconnect", { accountId }),
+  calendarSetSync: (calendarId: string, on: boolean) => invoke<void>("calendar_set_sync", { calendarId, on }),
+  calendarSyncNow: (accountId: string | null, onlyIfStale = false) => invoke<void>("calendar_sync_now", { accountId, onlyIfStale }),
   calendarOpenMessage: (messageId: string) => invoke<{ threadId: string; folder: string; accountId: string }>("calendar_open_message", { messageId }),
   // PGP
   pgpListKeys: () => invoke<PgpKey[]>("pgp_list_keys"),

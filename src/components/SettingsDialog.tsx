@@ -3,7 +3,8 @@ import { KeyRound, Lock, Plus, Trash2, Upload } from "lucide-react";
 import { openUpdateLink } from "../updates";
 import { ABOUT_LINKS } from "../aboutLinks";
 import { Fragment, ReactNode, useEffect, useRef, useState } from "react";
-import { Account, api, Discovered, PgpKey, PROVIDERS, Rule, Signature, Template } from "../api";
+import { Account, api, CalSource, Discovered, PgpKey, PROVIDERS, Rule, Signature, Template } from "../api";
+import { calendarErrorCode, calendarSyncKind, providerName, serviceName, statusLine, truncatedNote } from "../calendarSync";
 import { ACCENT_PRESETS, ACCOUNT_PALETTE, accountColor, DEFAULT_PREFS, eff, folderLabel, isOverridden, MAX_DOWNLOAD_PRESETS, NOTIFY_ACTIONS, NOTIFY_SOUNDS, Overridable, Prefs, staleAccountPrefs, validHex } from "../prefs";
 import { friendlyError, useStore } from "../store";
 import { credStore, kbd, riskyHint, usePlatform } from "../platform";
@@ -1049,6 +1050,120 @@ function ServerPanel({ account, close }: { account: Account; close: () => void }
   );
 }
 
+/** Settings > mailbox > Calendar: sync this mailbox's Google / Outlook calendars (a separate, calendar-only consent in the browser). */
+function CalendarPanel({ account }: { account: Account }) {
+  const { confirm, showToast, calSources, loadCalSources, bumpCal, prefs } = useStore();
+  const kind = calendarSyncKind(account);
+  const src: CalSource | undefined = calSources.find((s) => s.accountId === account.id);
+  const [connecting, setConnecting] = useState(false);
+  const [err, setErr] = useState<string | null>(null);
+  const [now, setNow] = useState(() => Math.floor(Date.now() / 1000));
+  const cancelBtn = useRef<HTMLButtonElement>(null);
+  useEffect(() => void loadCalSources(), [loadCalSources]);
+  // "Last synced 3 min ago" stays current
+  useEffect(() => {
+    const t = setInterval(() => setNow(Math.floor(Date.now() / 1000)), 20_000);
+    return () => clearInterval(t);
+  }, []);
+  // the Cancel button takes the focus when the switch is turned on and disabled
+  useEffect(() => {
+    if (connecting) cancelBtn.current?.focus();
+  }, [connecting]);
+  if (!kind) return <div className="muted">This mailbox has no calendar that Hey Look! can sync.</div>;
+  const service = serviceName(kind);
+  const clock = (sec: number) => new Intl.DateTimeFormat("en-GB", { hour: "2-digit", minute: "2-digit", timeZone: systemTz() }).format(new Date(sec * 1000));
+
+  const connect = async () => {
+    setErr(null);
+    setConnecting(true);
+    try {
+      await api.calendarConnect(account.id);
+      showToast(`Calendar sync is on for ${account.email}`, undefined, "success");
+    } catch (e) {
+      // (cancelled by the person: nothing to say)
+      if (calendarErrorCode(String(e)) !== "CANCELLED") setErr(friendlyError(e));
+    } finally {
+      setConnecting(false);
+      await loadCalSources();
+      bumpCal();
+    }
+  };
+  const stop = async () => {
+    const ok = await confirm({
+      title: `Stop syncing the calendar of ${account.email}?`,
+      body: `Its calendars are removed from this computer. They stay in ${service}.`,
+      confirmLabel: "Stop syncing",
+      danger: true,
+    });
+    if (!ok) return;
+    try {
+      await api.calendarDisconnect(account.id);
+    } catch (e) {
+      setErr(friendlyError(e));
+    }
+    await loadCalSources();
+    bumpCal();
+  };
+  const line = src ? statusLine(src, { email: account.email, nowSec: now, fmtTime: clock }) : null;
+  const note = src ? truncatedNote(src) : null;
+  const on = connecting || !!src;
+  return (
+    <>
+      <Row
+        label={`Sync calendar with ${providerName(kind)}`}
+        hint={`Shows this account’s ${service} calendars in Hey Look! and saves the events you add or change there. You allow calendar access once in your browser; your mail sign-in is not changed.`}
+        id="calendar"
+      >
+        <Switch checked={on} disabled={connecting} onChange={(v) => void (v ? connect() : stop())} />
+      </Row>
+      <div role="status" aria-live="polite" className="set-status">
+        {connecting && (
+          <div className="muted small">
+            Allow calendar access in your browser…{" "}
+            <button ref={cancelBtn} className="link" onClick={() => void api.calendarCancelConnect()}>Cancel</button>
+          </div>
+        )}
+        {!connecting && line && (
+          <div className={line.tone === "bad" ? "notice bad" : "muted small"}>
+            {line.text}
+            {note && <div>{note}</div>}
+          </div>
+        )}
+      </div>
+      {err && <div className="field-err" role="alert">{err}</div>}
+      {!connecting && src && line && (line.syncNow !== "off" || line.allow) && (
+        <div className="row-inline" style={{ margin: "6px 0 10px" }}>
+          {line.allow && <button className="btn primary" onClick={() => void connect()}>Allow access again</button>}
+          {line.syncNow !== "off" && (
+            <button className="btn small" disabled={line.syncNow === "disabled"} onClick={() => void api.calendarSyncNow(account.id).then(() => loadCalSources())}>Sync now</button>
+          )}
+        </div>
+      )}
+      {!connecting && src && src.calendars.length > 0 && (
+        <>
+          <h4 style={{ margin: "16px 0 2px" }}>Calendars</h4>
+          <div className="muted small">Calendars that are off are not downloaded. To hide one for a moment, use its box in the Calendar sidebar.</div>
+          {src.calendars.map((c) => (
+            <div className="set-row" key={c.id}>
+              <div className="set-lbl">
+                <div>
+                  <span className="dot" style={{ background: c.color || accountColor(account, prefs.accent), marginRight: 8 }} aria-hidden />
+                  {c.name}
+                  {c.primary && <span className="muted small"> · Primary</span>}
+                  {c.readOnly && <span className="muted small"> · Read only</span>}
+                </div>
+              </div>
+              <div className="set-ctl">
+                <Switch checked={c.syncOn} ariaLabel={`Sync ${c.name}`} onChange={(v) => void api.calendarSetSync(c.id, v).then(() => { bumpCal(); return loadCalSources(); }).catch((e) => setErr(friendlyError(e)))} />
+              </div>
+            </div>
+          ))}
+        </>
+      )}
+    </>
+  );
+}
+
 /** Per-mailbox PGP defaults. "My key" belongs to one account, so it is only shown inside a mailbox. */
 function SecurityPanel({ scope }: { scope: string | null }) {
   const { keysRev, bumpKeys, showToast } = useStore();
@@ -1103,24 +1218,28 @@ function SecurityPanel({ scope }: { scope: string | null }) {
   );
 }
 
-type MbTab = "profile" | "composing" | "signatures" | "templates" | "filters" | "notifications" | "reading" | "security" | "folders" | "server";
+type MbTab = "profile" | "composing" | "signatures" | "templates" | "filters" | "notifications" | "reading" | "calendar" | "security" | "folders" | "server";
 
 /** The sections of a mailbox (scope = account id) or of "All accounts" (null). They are listed under the mailbox in the Settings navigation. */
-function mailboxSections(scope: string | null): [MbTab, string][] {
+function mailboxSections(scope: string | null, accounts: Account[]): [MbTab, string][] {
+  // only a Google / Gmail (and later Microsoft) mailbox has a calendar to sync
+  const calendar = scope !== null && accounts.some((a) => a.id === scope && calendarSyncKind(a) !== null);
   return [
     ...(scope ? ([["profile", "Profile"]] as [MbTab, string][]) : []),
     ["composing", "Composing"], ["signatures", "Signatures"], ["templates", "Templates"], ["filters", "Filters"],
-    ["notifications", "Notifications"], ["reading", "Reading & sync"], ["security", "Security"], ["folders", "Folders"],
+    ["notifications", "Notifications"], ["reading", "Reading & sync"],
+    ...(calendar ? ([["calendar", "Calendar"]] as [MbTab, string][]) : []),
+    ["security", "Security"], ["folders", "Folders"],
     ...(scope ? ([["server", "Server"]] as [MbTab, string][]) : []),
   ];
 }
-const activeSection = (scope: string | null, tab: MbTab): MbTab => (mailboxSections(scope).some(([k]) => k === tab) ? tab : "composing");
+const activeSection = (scope: string | null, tab: MbTab, accounts: Account[]): MbTab => (mailboxSections(scope, accounts).some(([k]) => k === tab) ? tab : "composing");
 
 function MailboxPage({ scope, tab, close }: { scope: string | null; tab: MbTab; close: () => void }) {
   const { accounts, prefs } = useStore();
   const account = scope ? accounts.find((a) => a.id === scope) : undefined;
   if (scope && !account) return <div className="muted">Account not found.</div>;
-  const active = activeSection(scope, tab);
+  const active = activeSection(scope, tab, accounts);
   return (
     <div>
       <div className="mb-head">
@@ -1134,7 +1253,7 @@ function MailboxPage({ scope, tab, close }: { scope: string | null; tab: MbTab; 
           </div>
         </div>
       </div>
-      <div className="mb-body" role="region" aria-label={mailboxSections(scope).find(([k]) => k === active)?.[1]}>
+      <div className="mb-body" role="region" aria-label={mailboxSections(scope, accounts).find(([k]) => k === active)?.[1]}>
         {active === "profile" && account && <ProfilePanel account={account} />}
         {active === "composing" && <ComposingPanel scope={scope} />}
         {active === "signatures" && <SignaturesPanel scope={scope} />}
@@ -1142,6 +1261,7 @@ function MailboxPage({ scope, tab, close }: { scope: string | null; tab: MbTab; 
         {active === "filters" && <FiltersPanel scope={scope} />}
         {active === "notifications" && <NotifyPanel scope={scope} />}
         {active === "reading" && <ReadingPanel scope={scope} />}
+        {active === "calendar" && account && <CalendarPanel account={account} />}
         {active === "security" && <SecurityPanel scope={scope} />}
         {active === "folders" && <FoldersPanel scope={scope} />}
         {active === "server" && account && <ServerPanel account={account} close={close} />}
@@ -1517,7 +1637,7 @@ export function Settings({ initial, focus, nonce }: { initial?: string; focus?: 
   const { setDialog, accounts, prefs } = useStore();
   const start = initial === "accounts" ? "mb:all" : initial === "notifications" ? "tray" : initial;
   const [tab, setTab] = useState<string>(start || (accounts.length === 0 ? "add-account" : "general"));
-  const [mbTab, setMbTab] = useState<MbTab>(focus === "loadRemote" || focus === "maxDownload" ? "reading" : focus === "security" ? "security" : "composing");
+  const [mbTab, setMbTab] = useState<MbTab>(focus === "loadRemote" || focus === "maxDownload" ? "reading" : focus === "security" ? "security" : focus === "calendar" ? "calendar" : "composing");
   const close = () => setDialog(null);
   // Settings is already open and something asks for a tab (toast "What’s new", Command bar, the gear with a dot): switch to it
   const first = useRef(true);
@@ -1545,7 +1665,7 @@ export function Settings({ initial, focus, nonce }: { initial?: string; focus?: 
   // sections of the selected mailbox, listed right under it (Arrow Up/Down move between them)
   const sections = (k: string) => {
     const scope = k === "mb:all" ? null : k.slice(3);
-    const active = activeSection(scope, mbTab);
+    const active = activeSection(scope, mbTab, accounts);
     return (
       <div
         className="nav-sub"
@@ -1560,7 +1680,7 @@ export function Settings({ initial, focus, nonce }: { initial?: string; focus?: 
           list[Math.max(0, Math.min(list.length - 1, i + (e.key === "ArrowDown" ? 1 : -1)))]?.focus();
         }}
       >
-        {mailboxSections(scope).map(([s, l]) => (
+        {mailboxSections(scope, accounts).map(([s, l]) => (
           <button key={s} className={s === active ? "active" : ""} aria-current={s === active ? "page" : undefined} onClick={() => setMbTab(s)}>
             {l}
           </button>

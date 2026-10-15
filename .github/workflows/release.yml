@@ -275,6 +275,7 @@ jobs:
           node --experimental-strip-types scripts/test-backfill-line.mjs
           node --experimental-strip-types scripts/test-about-links.mjs
           node --experimental-strip-types scripts/test-mail-canvas.mjs
+          node --experimental-strip-types scripts/test-calendar-sync.mjs
 
       - uses: tauri-apps/tauri-action@v1
         env:

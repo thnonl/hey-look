@@ -11,6 +11,7 @@ import {
   repeatRule, sameDay, today, toInputs, tzOffsetLabel, tzShortName, weekDays, weekStartOf, weekTitle, WD_SHORT, WEEKDAYS, MONTHS_SHORT, CalView, MY_EVENTS_COLOR,
 } from "../calendar";
 import { accountColor } from "../prefs";
+import { calendarName, defaultCalendar, deleteConfirm, isSyncedCalendarId, pausedSources, readOnlyNote, writableCalendars } from "../calendarSync";
 import { friendlyError, EventInit, useStore } from "../store";
 import { RecipientField } from "./Compose";
 import { EmptyState } from "./overlays";
@@ -35,7 +36,14 @@ function useTz() {
 function useAccountColor() {
   const accounts = useStore((s) => s.accounts);
   const accent = useStore((s) => s.prefs.accent);
-  return useCallback((id: string) => { const a = accounts.find((x) => x.id === id); return a ? accountColor(a, accent) : undefined; }, [accounts, accent]);
+  const calendars = useStore((s) => s.calendars);
+  // a synced calendar is drawn in its own colour (the id of such a calendar is what `eventColor` asks for)
+  return useCallback((id: string) => {
+    const own = calendars.find((c) => c.remote && c.id === id)?.color;
+    if (own) return own;
+    const a = accounts.find((x) => x.id === (calendars.find((c) => c.id === id)?.accountId ?? id));
+    return a ? accountColor(a, accent) : undefined;
+  }, [accounts, accent, calendars]);
 }
 
 // =============================================================== invitation card (reading pane)
@@ -452,6 +460,8 @@ export function CalendarView() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [view, prefs.weekStart, prefs.calTz]);
   useEffect(() => setFocus(calDate), [calDate]);
+  // opening the Calendar asks the synced calendars for news (the backend skips a mailbox that synced in the last minute)
+  useEffect(() => void api.calendarSyncNow(null, true).catch(() => undefined), []);
 
   const events = useMemo(
     () => calEvents.filter((e) => prefs.calShowDeclined || e.myStatus !== "declined"),
@@ -766,6 +776,10 @@ function EventPopover({ state, tz, color, onClose }: { state: PopState; tz: stri
   }, []);
   const mine = ev.calendarId === "local";
   const invite = ev.calendarId.startsWith("invites:");
+  // an event of a synced calendar (Google Calendar / Outlook) can be changed here unless the service or the calendar says otherwise
+  const synced = isSyncedCalendarId(ev.calendarId);
+  const syncedCal = useStore.getState().calendars.find((c) => c.id === ev.calendarId);
+  const lockNote = synced ? readOnlyNote(ev, syncedCal?.name ?? "", syncedCal?.service) : null;
   const canRsvp = invite && !!ev.sourceMessageId && ev.myStatus !== "organizer" && ev.myStatus !== null && ev.status !== "cancelled";
 
   // below the chip, or above it when there is no room; kept inside the window
@@ -812,6 +826,10 @@ function EventPopover({ state, tz, color, onClose }: { state: PopState; tz: stri
       });
       if (c === "keep") return;
       notify = c === "send";
+    } else if (synced) {
+      // the service sends the cancellation to the guests, this app sends no mail for these events
+      const t = deleteConfirm(syncedCal?.name ?? "", syncedCal?.service, others);
+      if (!(await confirm({ ...t, confirmLabel: "Delete", danger: true }))) return;
     } else if (!(await confirm({ title: `Delete “${ev.summary}”?`, body: ev.rrule ? "Every occurrence of this repeating event is deleted." : undefined, confirmLabel: "Delete", danger: true }))) return;
     try {
       await api.calendarDeleteEvent(ev.id, notify);
@@ -882,6 +900,7 @@ function EventPopover({ state, tz, color, onClose }: { state: PopState; tz: stri
         <div className="inv-row"><CircleCheck size={14} aria-hidden /><span>{ev.status === "cancelled" ? "Cancelled by the organizer" : myStatusLabel(ev.myStatus)}{ev.respondedAt === null && ev.myStatus !== "needs-action" ? " (no response sent)" : ""}</span></div>
       )}
       {ev.description && <div className="muted small" style={{ whiteSpace: "pre-wrap", maxHeight: 90, overflow: "auto" }}>{ev.description.slice(0, 600)}</div>}
+      {lockNote && <div className="muted small">{lockNote}</div>}
       {err && <div className="inline-err" role="alert"><TriangleAlert size={14} aria-hidden /> {err}</div>}
       <div className="ev-acts">
         {canRsvp && (
@@ -900,11 +919,11 @@ function EventPopover({ state, tz, color, onClose }: { state: PopState; tz: stri
           align="right"
           title="More actions"
           items={[
-            { label: "Edit", disabled: !mine, onClick: () => (onClose(), setDialog({ type: "event", eventId: ev.id })) },
+            { label: "Edit", disabled: !(mine || (synced && !ev.readOnly)), onClick: () => (onClose(), setDialog({ type: "event", eventId: ev.id })) },
             { label: "Duplicate", disabled: ev.confidential, onClick: duplicate },
             { label: "Save .ics", disabled: ev.confidential, onClick: () => void saveIcs() },
             { divider: true },
-            { label: "Delete", onClick: () => void remove() },
+            { label: "Delete", disabled: synced && !!ev.readOnly, onClick: () => void remove() },
           ]}
         >
           <MoreHorizontal size={15} />
@@ -917,7 +936,7 @@ function EventPopover({ state, tz, color, onClose }: { state: PopState; tz: stri
 // =============================================================== sidebar (folder pane in Calendar mode)
 
 export function CalSidebar() {
-  const { prefs, calDate, calEvents, calendars, setCalDate, setPrefs, bumpCal, accounts } = useStore();
+  const { prefs, calDate, calEvents, calendars, calSources, setCalDate, setPrefs, setDialog, bumpCal, accounts } = useStore();
   const tz = useTz();
   const todayD = today(tz);
   const [month, setMonth] = useState<Day>(calDate);
@@ -974,7 +993,8 @@ export function CalSidebar() {
         <div className="cal-list">
           {cals.map((c) => {
             const acct = accounts.find((a) => a.id === c.accountId);
-            const col = c.id === "local" ? MY_EVENTS_COLOR : acct ? accountColor(acct, prefs.accent) : c.color || "var(--accent)";
+            // a synced calendar keeps its own colour; a mailbox's invitations use the mailbox colour
+            const col = c.id === "local" ? MY_EVENTS_COLOR : c.remote && c.color ? c.color : acct ? accountColor(acct, prefs.accent) : c.color || "var(--accent)";
             return (
               <label key={c.id}>
                 <input
@@ -983,7 +1003,8 @@ export function CalSidebar() {
                   style={{ accentColor: col }}
                   onChange={(e) => void api.calendarSetVisible(c.id, e.target.checked).then(() => bumpCal())}
                 />
-                <span className="ellipsis">{c.name}</span>
+                <span className="ellipsis" title={c.name}>{c.name}</span>
+                {c.remote && !c.writable && <span className="muted small" style={{ flex: "none" }}>Read only</span>}
               </label>
             );
           })}
@@ -992,6 +1013,12 @@ export function CalSidebar() {
             <span>Show declined events</span>
           </label>
         </div>
+        {pausedSources(calSources).map((s) => (
+          <div key={s.id} className="notice bad" style={{ margin: "8px 0 0" }}>
+            Calendar sync paused for {accounts.find((a) => a.id === s.accountId)?.email ?? "this mailbox"}.{" "}
+            <button className="link" onClick={() => setDialog({ type: "settings", tab: `mb:${s.accountId}`, focus: "calendar", nonce: Date.now() })}>Fix in Settings</button>
+          </div>
+        ))}
       </div>
     </>
   );
@@ -1004,9 +1031,13 @@ const REMINDERS: [number | null, string][] = [
 ];
 
 export function EventDialog({ eventId, init }: { eventId?: string; init?: EventInit }) {
-  const { prefs, accounts, setDialog, showToast, bumpCal } = useStore();
+  const { prefs, accounts, calendars, setPrefs, setDialog, showToast, bumpCal } = useStore();
   const tz = useTz();
   const [loaded, setLoaded] = useState(!eventId);
+  // the calendar a new event goes to (My events or a synced calendar); fixed when editing
+  const [calId, setCalId] = useState(() => defaultCalendar(calendars, prefs.calDefaultCalendar));
+  const calInfo = calendars.find((c) => c.id === calId);
+  const remote = isSyncedCalendarId(calId);
   const [loadErr, setLoadErr] = useState<string | null>(null);
   const [title, setTitle] = useState(init?.summary ?? "");
   const startSec = init?.start ?? nextHour(tz);
@@ -1036,6 +1067,7 @@ export function EventDialog({ eventId, init }: { eventId?: string; init?: EventI
     api.calendarGetEvent(eventId).then((e) => {
       if (!live) return;
       setExisting(e);
+      setCalId(e.calendarId);
       setTitle(e.summary);
       setAllDay(e.allDay);
       const zone = e.allDay ? "UTC" : tz;
@@ -1083,7 +1115,7 @@ export function EventDialog({ eventId, init }: { eventId?: string; init?: EventI
     if (allDay && e <= s) return setError("End must be after start.");
     const bad = invite.find((a) => !EMAIL.test(bare(a)));
     if (bad) return setError(`Check the address: ${bad}`);
-    if (hasGuests && !accountId) return setError("Choose the account to send from.");
+    if (hasGuests && !accountId && !remote) return setError("Choose the account to send from.");
     const startDay = allDay ? dayOfMs(s * 1000, "UTC") : dayOfMs(s * 1000, tz);
     const rrule = repeat === "custom" ? customRule : repeatRule(repeat, startDay);
     setBusy(true);
@@ -1091,7 +1123,7 @@ export function EventDialog({ eventId, init }: { eventId?: string; init?: EventI
       const ev = await api.calendarSaveEvent(
         {
           id: eventId ?? null,
-          accountId: accountId || null,
+          accountId: (remote ? calInfo?.accountId : accountId) || null,
           summary: title.trim(),
           start: s,
           end: e,
@@ -1102,18 +1134,27 @@ export function EventDialog({ eventId, init }: { eventId?: string; init?: EventI
           attendees: invite.map((a) => ({ email: bare(a).toLowerCase(), name: nameOf(a) || null, role: "required" as const })),
           rrule,
           reminderMin: reminder,
+          calendarId: calId,
         },
-        hasGuests,
+        // (the service sends the invitations of a synced calendar, not this app)
+        hasGuests && !remote,
       );
+      if (!eventId && (remote || prefs.calDefaultCalendar)) setPrefs({ calDefaultCalendar: remote ? calId : "" });
       showToast(hasGuests ? `Invitations sent to ${invite.length} ${invite.length === 1 ? "person" : "people"}` : eventId ? "Event saved" : "Event added", undefined, "success");
       bumpCal();
       useStore.getState().setCalDate(allDay ? dayOfMs(ev.start * 1000, "UTC") : dayOfMs(ev.start * 1000, tz));
       setDialog(null);
     } catch (err) {
       bumpCal();
-      if (errorCode(err) === "CAL_SEND_FAILED") {
+      const code = errorCode(err);
+      if (code === "CAL_SEND_FAILED" || code === "CAL_CONFLICT" || code === "CAL_GONE") {
+        // the invitations failed, or the service's version won: said once, the dialog closes (the calendar shows what is there now)
         showToast(friendlyError(err), undefined, "error");
         setDialog(null);
+      } else if (code === "CAL_OFFLINE") {
+        // nothing was saved: the dialog stays open with what was typed
+        showToast(friendlyError(err), undefined, "error");
+        setBusy(false);
       } else {
         setError(friendlyError(err));
         setBusy(false);
@@ -1131,6 +1172,9 @@ export function EventDialog({ eventId, init }: { eventId?: string; init?: EventI
   const startDayPreview = parseDay(sd);
   return (
     <Modal title={eventId ? "Edit event" : "New event"} onClose={() => void close()} width={560}>
+      {existing && isSyncedCalendarId(existing.calendarId) && readOnlyNote(existing, calInfo?.name ?? "", calInfo?.service) && (
+        <div className="notice" role="note">{readOnlyNote(existing, calInfo?.name ?? "", calInfo?.service)}</div>
+      )}
       <div className="ev-form" aria-busy={!loaded}>
         <label htmlFor="ev-title">Title</label>
         <input id="ev-title" autoFocus value={title} aria-invalid={!!error && !title.trim()} onChange={(e) => (setTitle(e.target.value), touch())} placeholder="Add a title" />
@@ -1151,7 +1195,7 @@ export function EventDialog({ eventId, init }: { eventId?: string; init?: EventI
             <span className="tz">{allDay ? "Dates only" : `${tz} (${tzOffsetLabel(tz)})`}</span>
           </div>
           <div style={{ marginTop: 8 }}>
-            <select aria-label="Repeat" value={repeat} onChange={(e) => (setRepeat(e.target.value), touch())}>
+            <select aria-label="Repeat" value={repeat} disabled={remote} onChange={(e) => (setRepeat(e.target.value), touch())}>
               <option value="none">Does not repeat</option>
               <option value="daily">Every day</option>
               <option value="weekdays">Every weekday (Mon–Fri)</option>
@@ -1161,6 +1205,7 @@ export function EventDialog({ eventId, init }: { eventId?: string; init?: EventI
               {customRule && <option value="custom">{customText ?? "Custom"} (kept as is)</option>}
             </select>
             {existing?.rrule && <div className="muted small" style={{ marginTop: 4 }}>This event repeats. Changes apply to every occurrence.</div>}
+            {remote && <div className="muted small" style={{ marginTop: 4 }}>Repeating events can be added to {calendarName(calInfo?.name ?? "")} in {calInfo?.service ?? "its own app"} for now.</div>}
           </div>
         </div>
 
@@ -1172,14 +1217,31 @@ export function EventDialog({ eventId, init }: { eventId?: string; init?: EventI
           <RecipientField label="Invite" hideLabel values={invite} onChange={(v) => (setInvite(v), touch())} />
         </div>
 
-        <label htmlFor="ev-from">Send from</label>
-        <select id="ev-from" value={accountId} onChange={(e) => (setAccountId(e.target.value), touch())}>
-          {accounts.map((a) => <option key={a.id} value={a.id}>{a.displayName ? `${a.displayName} <${a.email}>` : a.email}</option>)}
-        </select>
+        {remote ? (
+          <div className="muted small" style={{ gridColumn: "2 / -1" }}>{calInfo?.service ?? "The calendar service"} sends the invitations{accounts.find((a) => a.id === calInfo?.accountId) ? ` from ${accounts.find((a) => a.id === calInfo?.accountId)?.email}` : ""}.</div>
+        ) : (
+          <>
+            <label htmlFor="ev-from">Send from</label>
+            <select id="ev-from" value={accountId} onChange={(e) => (setAccountId(e.target.value), touch())}>
+              {accounts.map((a) => <option key={a.id} value={a.id}>{a.displayName ? `${a.displayName} <${a.email}>` : a.email}</option>)}
+            </select>
+          </>
+        )}
 
         <label htmlFor="ev-cal">Calendar</label>
-        <select id="ev-cal" disabled value="local" aria-readonly>
-          <option value="local">My events</option>
+        <select
+          id="ev-cal"
+          disabled={!!eventId || writableCalendars(calendars).length < 2}
+          value={calId}
+          onChange={(e) => {
+            setCalId(e.target.value);
+            // repeating events can't be added to a synced calendar yet
+            if (isSyncedCalendarId(e.target.value)) setRepeat("none");
+            touch();
+          }}
+        >
+          {(eventId ? calendars.filter((c) => c.id === calId) : writableCalendars(calendars)).map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
+          {!calendars.some((c) => c.id === calId) && <option value={calId}>My events</option>}
         </select>
 
         <label htmlFor="ev-rem">Reminder</label>
@@ -1193,7 +1255,7 @@ export function EventDialog({ eventId, init }: { eventId?: string; init?: EventI
       {error && <div className="field-err" role="alert" style={{ marginTop: 10 }}>{error}</div>}
       <div className="row-inline" style={{ justifyContent: "flex-end", marginTop: 14 }}>
         <button className="btn" onClick={() => void close()} disabled={busy}>Cancel</button>
-        <button className="btn primary" disabled={busy || !loaded} aria-busy={busy} onClick={() => void save()}>
+        <button className="btn primary" disabled={busy || !loaded || !!existing?.readOnly} aria-busy={busy} onClick={() => void save()}>
           {hasGuests ? <CalendarCheck size={14} /> : <Check size={14} />} {primary}
         </button>
       </div>

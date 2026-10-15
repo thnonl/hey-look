@@ -96,6 +96,8 @@ export interface Prefs extends Overridable {
   lastModule: "mail" | "calendar";
   calView: "month" | "week" | "agenda";
   calShowDeclined: boolean;
+  /** the calendar new events go to ("" = My events): the last synced calendar the person chose, while it still exists */
+  calDefaultCalendar: string;
   trayBadge: "number" | "dot" | "off"; // unread badge on the tray icon
   taskbarBadge: "number" | "off"; // unread badge on the taskbar button
   countOtherMail: boolean; // include "Other" (bulk) mail in unread counts
@@ -145,6 +147,7 @@ export const DEFAULT_PREFS: Prefs = {
   lastModule: "mail",
   calView: "month",
   calShowDeclined: false,
+  calDefaultCalendar: "",
   trayBadge: "number",
   taskbarBadge: "number",
   countOtherMail: false,
