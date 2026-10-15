@@ -100,7 +100,7 @@ export default defineLocale<typeof ns.en>({
     many: "Не удалось отправить {n} запланированных писем",
     other: "Не удалось отправить {n} запланированного письма",
   },
-  "mail.pane.failedBadge": { one: "{n} ошибка", few: "{n} ошибки", many: "{n} ошибок", other: "{n} ошибки" },
+  "mail.pane.failedBadge": { one: "{n} сбой", few: "{n} сбоя", many: "{n} сбоев", other: "{n} сбоя" },
   "mail.pane.retry": "{error}\nНажмите, чтобы повторить",
   "mail.pane.switch": "Переключение между почтой и календарём",
   "mail.pane.mail": "Почта",

@@ -126,7 +126,7 @@ export default defineLocale<typeof ns.en>({
   "reading.att.showInFolder": "Показать в папке",
   "reading.att.open": "Открыть",
   "reading.att.confidentialDeny": "Это письмо конфиденциально: вложения можно только просматривать здесь.",
-  "reading.att.cantPreview": "Просмотр невозможен: конфиденциально",
+  "reading.att.cantPreview": "Без просмотра: конфиденциально",
   "reading.att.downloads": "Загрузки",
   "reading.att.saveFailed": "Не удалось сохранить: {error}",
   "reading.att.saving": "Сохранение…",

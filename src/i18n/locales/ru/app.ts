@@ -99,7 +99,7 @@ export default defineLocale<typeof ns.en>({
   "app.quit.scheduledBody.one": "Если выйти сейчас, оно будет отправлено при следующем запуске Hey Look!",
   "app.quit.scheduledBody.many": "Если выйти сейчас, они будут отправлены при следующем запуске Hey Look!",
   "app.quit.scheduledBodyNext.one": "Если выйти сейчас, оно будет отправлено при следующем запуске Hey Look! Срок отправки: {when}.",
-  "app.quit.scheduledBodyNext.many": "Если выйти сейчас, они будут отправлены при следующем запуске Hey Look! Ближайшее нужно отправить {when}.",
+  "app.quit.scheduledBodyNext.many": "Если выйти сейчас, они будут отправлены при следующем запуске Hey Look! Ближайшее: {when}.",
   "app.quit.keepRunning": "Оставить в трее",
   "app.quit.quitAnyway": "Всё равно выйти",
   // ---- top bar and window controls
