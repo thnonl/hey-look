@@ -55,7 +55,7 @@
        <li>macOS says &ldquo;Hey Look!&rdquo; Not Opened. Click <strong>Done</strong>, not Move to Trash.</li>
        <li>Open <strong>System Settings &gt; Privacy &amp; Security</strong>, scroll to <strong>Security</strong>, click <strong>Open Anyway</strong> next to the message about Hey Look!, confirm with your password or Touch ID, then click <strong>Open</strong>.</li></ol>
        <p>Prefer Terminal? Run this once instead of steps 2 and 3: <code>xattr -dr com.apple.quarantine "/Applications/Hey Look!.app"</code></p>
-       <p>Versions that Hey Look! installs itself start normally. Notifications are not available on macOS in this version, and there is no Dock badge yet.</p></div></details>
+       <p>Versions that Hey Look! installs itself start normally. The Dock icon shows the unread number (Settings &gt; Notifications and tray &gt; Dock badge). Notifications are not available on macOS in this version.</p></div></details>
 <details class="hq" id="linux"><summary>Linux: AppImage, .deb or .rpm</summary><div class="hq-a"><p><code>HeyLook_&lt;version&gt;_linux_amd64.AppImage</code> runs on any distro; <code>.deb</code> is for Debian and Ubuntu; <code>.rpm</code> (<code>_linux_x86_64.rpm</code>) is for Fedora and openSUSE. <code>.deb</code> and <code>.rpm</code> installs ask for your password.</p>
        <p>If your desktop has no tray area, closing the window quits Hey Look!.</p>
        <p>Links and attachments open with <code>xdg-open</code> (package xdg-utils; <code>gio</code> and <code>sensible-browser</code> are tried next), so you need a default browser and default apps. Notifications need a notification service (a bare window manager needs one such as dunst). Passwords need GNOME Keyring or KWallet running and unlocked.</p></div></details>
@@ -122,7 +122,7 @@
 <details class="hq" id="vuln"><summary>A security problem</summary><div class="hq-a"><p>Report it privately: open <a href="https://github.com/thnonl/hey-look/security" rel="noopener">github.com/thnonl/hey-look/security</a> and choose &ldquo;Report a vulnerability&rdquo;, or write to <a href="mailto:namth.onl@gmail.com">namth.onl@gmail.com</a>. Please do not open a public issue. See <a href="security.html">Security</a>.</p></div></details>
   </section>
   <section class="hq-group" id="g-limits" aria-labelledby="g-limits-h"><h2 id="g-limits-h">Known limitations</h2>
-<details class="hq" id="lim"><summary>What Hey Look! does not do yet</summary><div class="hq-a"><ul><li>On macOS there is no Dock badge yet and no notifications; the Print menu entry is Windows and Linux only. On Linux notifications have no buttons.</li>
+<details class="hq" id="lim"><summary>What Hey Look! does not do yet</summary><div class="hq-a"><ul><li>On macOS there are no notifications (the Dock icon does show the unread number); only the Quit item of the app menu follows the app language; the Print menu entry is Windows and Linux only. On Linux notifications have no buttons.</li>
        <li>The installers are not code-signed, and the macOS app is not notarised.</li>
        <li>Push (IMAP IDLE) covers the Inbox of servers that support it; other folders and servers without push are fetched by polling (default every 2 minutes).</li>
        <li>Search covers mail downloaded to this computer.</li>
@@ -130,7 +130,7 @@
        <li>Hey Look! does not create missing standard folders (Drafts, Sent, Archive, Deleted Items); actions that need one show an error.</li>
        <li>If Hey Look! is closed by force while you are writing, or on macOS when you log out, restart or shut down, the unsaved text is lost; a message you already sent is kept and goes out at the next start.</li>
        <li>Calendar update and cancellation emails are accepted when the From address matches the organiser. There is no DKIM, SPF or S/MIME check.</li>
-       <li>The interface is in English by default, with Vietnamese and French in Settings. Those translations are new and may contain mistakes; more languages may come in a later update.</li></ul></div></details>
+       <li>The interface is in English by default, with Vietnamese and French in Settings. Those translations were written with AI help, have not been reviewed by native speakers yet and may contain mistakes; more languages may come in a later update.</li></ul></div></details>
   </section>
   </div>
   <p class="hq-none" id="hq-none" hidden>No question matches. Try one word, or <a href="https://github.com/thnonl/hey-look/issues" rel="noopener">ask on GitHub</a>.</p>
