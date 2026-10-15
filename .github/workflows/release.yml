@@ -235,6 +235,8 @@ jobs:
           node scripts/test-compose-tab-order.mjs
           node --experimental-strip-types scripts/test-update-result.mjs
           node --experimental-strip-types scripts/test-sticky-timers.mjs
+          node --experimental-strip-types scripts/test-open-thread.mjs
+          node --experimental-strip-types scripts/test-list-limit-footer.mjs
           node --experimental-strip-types scripts/test-link-copy.mjs
           node --experimental-strip-types scripts/test-backfill-line.mjs
           node --experimental-strip-types scripts/test-about-links.mjs

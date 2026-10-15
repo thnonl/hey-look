@@ -986,8 +986,15 @@ export function installMock() {
     ok(none.sig === null && none.html.includes(SIG_MARK), "draft without signature gets an empty region");
     return out;
   };
-  mockIPC((cmd, args) => {
+  mockIPC(function handle(cmd, args): unknown {
     const a = (args ?? {}) as Record<string, unknown>;
+    // a conversation's read / flag state is kept (as the server does), so the Unread and Flagged filters behave like the real list
+    if (cmd === "get_thread" && !a.raw) {
+      const msgs = handle(cmd, { ...a, raw: true });
+      const th = threads.find((x) => x.threadId === a.threadId);
+      if (!th || !Array.isArray(msgs) || msgs.length === 0) return msgs;
+      return msgs.map((m, i) => ({ ...m, seen: th.unread === 0 || i < msgs.length - 1 }));
+    }
     switch (cmd) {
       case "list_accounts": return accounts;
       case "idle_states": return { a1: "push" };
@@ -1073,7 +1080,17 @@ export function installMock() {
       case "list_senders": return [{ email: "news@ph.com", name: "Product Hunt", count: 42, unread: 12, canUnsubscribe: true, lastDate: now - H }];
       case "list_rules": return [{ id: "r1", accountId: null, name: "Move newsletters", field: "from", op: "contains", value: "newsletter@example.com", action: "archive", arg: null, enabled: true }, { id: "r2", accountId: null, name: "", field: "subject", op: "contains", value: "a very long rule text that should be truncated in the list row", action: "trash", arg: null, enabled: false }];
       case "list_blocked": return [];
-      case "thread_action": return new Promise((r) => setTimeout(() => r(null), 600)); // slow like IMAP
+      case "thread_action": {
+        for (const id of (a.threadIds ?? a.ids ?? []) as string[]) {
+          const th = threads.find((x) => x.threadId === id);
+          if (!th) continue;
+          if (a.action === "read") th.unread = 0;
+          else if (a.action === "unread") th.unread = Math.max(1, th.unread);
+          else if (a.action === "star") th.flagged = true;
+          else if (a.action === "unstar") th.flagged = false;
+        }
+        return new Promise((r) => setTimeout(() => r(null), 600)); // slow like IMAP
+      }
       case "update_account": {
         const x = accounts.find((y) => y.id === a.accountId);
         if (x) { x.displayName = a.displayName as string; (x as { color: string | null }).color = (a.color as string | null) ?? null; }

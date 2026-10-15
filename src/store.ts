@@ -3,6 +3,7 @@ import { api, Account, Att, BackfillProgress, CalendarInfo, CalEvent, CalSource,
 import { loadPlatform } from "./platform";
 import { hasMailAccounts } from "./mailControls";
 import { applyBackfill } from "./backfill";
+import { holdOpenThread } from "./openThread";
 import { calendarErrorText } from "./calendarSync";
 import { backendText } from "./backendErrors";
 import { needsSignIn } from "./signIn";
@@ -298,6 +299,9 @@ interface State {
 
 let toastSeq = 0;
 let readTimer: ReturnType<typeof setTimeout> | undefined;
+/** The view (folder, mailbox, search, filter ...) the shown list was read for, and the conversation `refresh` held in it (F-12). */
+let listKey = "";
+let heldOpen: string | null = null;
 
 /** Folders `loadMore` cannot page back (cross-folder views and the outbox have no single IMAP folder). */
 const NO_PAGING = new Set(["starred", "pinned", "snoozed", "all", "scheduled"]);
@@ -638,7 +642,7 @@ export const useStore = create<State>((set, get) => ({
         await Promise.all([foldersP, outboxP]);
         return;
       }
-      const threads = await api.listThreads({
+      const fresh = await api.listThreads({
         accountId,
         folder,
         search,
@@ -651,7 +655,14 @@ export const useStore = create<State>((set, get) => ({
       });
       // ignore a slow answer for a view the user already left
       const now = get();
-      if (now.folder === folder && now.accountId === accountId && now.search === search) set({ threads });
+      if (now.folder === folder && now.accountId === accountId && now.search === search) {
+        // F-12: reading the open mail can take it out of an Unread / Flagged list; it stays (and stays open) until the person leaves it
+        const view = [folder, accountId, search, searchScope, focus, filter, prefs.conversations, prefs.sortAsc].join("|");
+        const { threads, kept } = holdOpenThread(fresh, now.threads, now.selected, view === listKey);
+        listKey = view;
+        heldOpen = kept;
+        set({ threads });
+      }
       await Promise.all([foldersP, outboxP]);
     } finally {
       set({ loading: false });
@@ -791,7 +802,10 @@ export const useStore = create<State>((set, get) => ({
 
   select: async (id) => {
     clearTimeout(readTimer);
-    set({ selected: id, messages: [] });
+    // the person moves on: the conversation `refresh` held in the list (F-12) goes now
+    const held = heldOpen && heldOpen !== id ? heldOpen : null;
+    if (held) heldOpen = null;
+    set((s) => ({ selected: id, messages: [], ...(held ? { threads: s.threads.filter((t) => t.threadId !== held) } : {}) }));
     if (!id) return;
     const { folder, prefs } = get();
     const messages = await api.getThread(id, scopeOf(folder));
