@@ -34,7 +34,7 @@
     <a class="brand" href="index.html" aria-label="Hey Look!, inicio"><svg aria-hidden="true" focusable="false"><use href="#hl-mark"/></svg><span>Hey Look!</span></a>
     <nav id="site-nav" class="nav" aria-label="Principal">
       <a href="index.html#story">Recorrido</a>
-      <a href="index.html#free">Incluye</a>
+      <a href="index.html#free">Qué incluye</a>
       <a href="features.html">Funciones</a>
       <a href="help.html">Ayuda</a>
       <a href="privacy.html">Privacidad</a>
@@ -65,10 +65,10 @@
   </div>
 </header>
 <main id="main">
-<section class="page-head"><div class="wrap"><p class="kicker">Descargar</p><h1>Descárgala. <em>Es gratis.</em></h1><p class="lead">Todas las funciones, sin cuenta. Elige tu sistema. Hey Look! se actualiza solo después de que lo aceptes.</p></div></section>
+<section class="page-head"><div class="wrap"><p class="kicker">Descargar</p><h1>Descárgala. <em>Es gratis.</em></h1><p class="lead">Todas las funciones, sin cuenta. Elige tu sistema. Hey Look! se actualiza automáticamente después de que lo aceptes.</p></div></section>
 <div class="wrap section dl-page">
-  <div id="dl-status" class="dl-status" role="status" data-state=""><span class="dot" aria-hidden="true"></span><span class="grow msg">Consigue la última versión en GitHub Releases.</span><a id="dl-fallback" class="btn btn-ghost btn-sm" href="https://github.com/thnonl/hey-look/releases/latest"><svg class="ic" aria-hidden="true" focusable="false"><use href="#i-external"/></svg>Abrir GitHub Releases</a></div>
-  <noscript><p class="callout">Consigue la última versión en GitHub Releases. <a class="btn btn-primary btn-sm" href="https://github.com/thnonl/hey-look/releases/latest">Abrir GitHub Releases</a></p></noscript>
+  <div id="dl-status" class="dl-status" role="status" data-state=""><span class="dot" aria-hidden="true"></span><span class="grow msg">Descarga la última versión en GitHub Releases.</span><a id="dl-fallback" class="btn btn-ghost btn-sm" href="https://github.com/thnonl/hey-look/releases/latest"><svg class="ic" aria-hidden="true" focusable="false"><use href="#i-external"/></svg>Abrir GitHub Releases</a></div>
+  <noscript><p class="callout">Descarga la última versión en GitHub Releases. <a class="btn btn-primary btn-sm" href="https://github.com/thnonl/hey-look/releases/latest">Abrir GitHub Releases</a></p></noscript>
   <div id="downloads" class="dl-grid">
     <article class="dl-card" id="card-windows"><span class="rec-b">Recomendado para ti</span>
       <h2><svg class="ic" aria-hidden="true" focusable="false"><use href="#i-windows"/></svg>Windows</h2><p class="sub">Windows 10 y 11, de 64 bits.</p>
@@ -76,7 +76,7 @@
       <div class="asset" data-asset="win-msi" data-pattern="HeyLook_&lt;version&gt;_windows_x64.msi"><a class="btn btn-ghost" href="https://github.com/thnonl/hey-look/releases/latest" data-label="Descargar MSI"><svg class="ic" aria-hidden="true" focusable="false"><use href="#i-download"/></svg><span class="t">Descargar MSI</span></a><span class="fn">HeyLook_&lt;version&gt;_windows_x64.msi</span><small class="sz"></small></div>
       <details><summary>Notas para Windows</summary>
         <p>Los instaladores todavía no tienen firma de código. Si aparece SmartScreen, elige <strong>Más información</strong>, y después <strong>Ejecutar de todas formas</strong>.</p>
-        <p>El MSI es para instalaciones administradas y no instala WebView2 por sí mismo; el setup.exe sí. Una actualización con MSI pide derechos de administrador.</p></details>
+        <p>El MSI es para instalaciones administradas y no instala WebView2 por sí mismo; el setup.exe sí. Una actualización con MSI pide permisos de administrador.</p></details>
     </article>
     <article class="dl-card" id="card-macos"><span class="rec-b">Recomendado para ti</span>
       <h2><svg class="ic" aria-hidden="true" focusable="false"><use href="#i-apple"/></svg>macOS</h2><p class="sub">macOS 11 o posterior, Apple silicon e Intel (una sola compilación universal).</p>
@@ -88,15 +88,15 @@
         <li>Abre <strong>Ajustes del Sistema &gt; Privacidad y seguridad</strong>, desplázate hasta <strong>Seguridad</strong>, haz clic en <strong>Abrir igualmente</strong>, confirma con tu contraseña o Touch ID y después haz clic en <strong>Abrir</strong>.</li></ol>
         <p>¿Prefieres Terminal? Ejecuta esto una vez en lugar de los pasos 2 y 3:</p>
         <div class="copy"><code>xattr -dr com.apple.quarantine "/Applications/Hey Look!.app"</code><button class="btn btn-ghost btn-sm" type="button">Copiar</button></div>
-        <p>Las actualizaciones que instala la propia Hey Look! se inician con normalidad. El icono del Dock muestra el número de no leídos (Configuración &gt; Notificaciones y bandeja del sistema &gt; Insignia del Dock). Las notificaciones no están disponibles en macOS en esta versión.</p></details>
+        <p>Las actualizaciones que instala la propia Hey Look! se inician con normalidad. El icono del Dock muestra el número de no leídos (Configuración &gt; Notificaciones y bandeja del sistema &gt; Globo del Dock). Las notificaciones no están disponibles en macOS en esta versión.</p></details>
     </article>
     <article class="dl-card" id="card-linux"><span class="rec-b">Recomendado para ti</span>
-      <h2><svg class="ic" aria-hidden="true" focusable="false"><use href="#i-linux"/></svg>Linux</h2><p class="sub">Cualquier distribución con el AppImage, o un paquete nativo.</p>
+      <h2><svg class="ic" aria-hidden="true" focusable="false"><use href="#i-linux"/></svg>Linux</h2><p class="sub">Cualquier distribución compatible con AppImage o con un paquete nativo.</p>
       <div class="asset" data-asset="lin-appimage" data-pattern="HeyLook_&lt;version&gt;_linux_amd64.AppImage"><a class="btn btn-primary" href="https://github.com/thnonl/hey-look/releases/latest" data-label="Descargar AppImage"><svg class="ic" aria-hidden="true" focusable="false"><use href="#i-download"/></svg><span class="t">Descargar AppImage</span></a><span class="fn">HeyLook_&lt;version&gt;_linux_amd64.AppImage</span><small class="sz"></small></div>
       <div class="asset" data-asset="lin-deb" data-pattern="HeyLook_&lt;version&gt;_linux_amd64.deb"><a class="btn btn-ghost" href="https://github.com/thnonl/hey-look/releases/latest" data-label="Descargar .deb (Debian, Ubuntu)"><svg class="ic" aria-hidden="true" focusable="false"><use href="#i-download"/></svg><span class="t">Descargar .deb (Debian, Ubuntu)</span></a><span class="fn">HeyLook_&lt;version&gt;_linux_amd64.deb</span><small class="sz"></small></div>
       <div class="asset" data-asset="lin-rpm" data-pattern="HeyLook_&lt;version&gt;_linux_x86_64.rpm"><a class="btn btn-ghost" href="https://github.com/thnonl/hey-look/releases/latest" data-label="Descargar .rpm (Fedora, openSUSE)"><svg class="ic" aria-hidden="true" focusable="false"><use href="#i-download"/></svg><span class="t">Descargar .rpm (Fedora, openSUSE)</span></a><span class="fn">HeyLook_&lt;version&gt;_linux_x86_64.rpm</span><small class="sz"></small></div>
       <details><summary>Notas para Linux</summary>
-        <p>Si tu escritorio no tiene área de bandeja, al cerrar la ventana se cierra Hey Look!.</p>
+        <p>Si tu escritorio no tiene bandeja del sistema, al cerrar la ventana se cierra Hey Look!.</p>
         <p>Los enlaces y los adjuntos se abren con <code>xdg-open</code>. Las notificaciones necesitan un servicio de notificaciones en el escritorio. Las contraseñas necesitan que GNOME Keyring o KWallet estén en ejecución y desbloqueados.</p></details>
     </article>
   </div>
@@ -123,7 +123,7 @@
 </main>
 <footer class="ftr">
   <div class="wrap">
-    <p class="thanks">Gracias por usar Hey Look! Seguirá siendo gratis y de código abierto, y apoyarlo es opcional. <a href="support.html#support">Apoya el proyecto</a></p>
+    <p class="thanks">Gracias por usar Hey Look! Sigue siendo gratis y de código abierto, y apoyarlo es opcional. <a href="support.html#support">Apoya el proyecto</a></p>
     <div class="ftr-grid">
       <div class="ftr-brand"><a class="brand" href="index.html" aria-label="Hey Look!, inicio"><svg aria-hidden="true" focusable="false"><use href="#hl-mark"/></svg><span>Hey Look!</span></a>
         <p>Un cliente de correo de escritorio para Windows, macOS y Linux. Gratis y de código abierto (MIT).</p></div>

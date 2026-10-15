@@ -16,7 +16,7 @@ export default defineLocale<typeof ns.en>({
   // ---- dates, sizes and times (src/util.ts)
   "app.date.today": "Hoy",
   "app.date.yesterday": "Ayer",
-  "app.date.earlierThisWeek": "Anteriores de esta semana",
+  "app.date.earlierThisWeek": "A principios de esta semana",
   "app.date.lastWeek": "La semana pasada",
   "app.date.todayAt": "Hoy {time}",
   "app.date.tomorrowAt": "Mañana {time}",
@@ -36,8 +36,8 @@ export default defineLocale<typeof ns.en>({
   "app.in.days": { one: "en {n} día", other: "en {n} días" },
   "app.in.daysHours": { one: "en {n} día {h} h", other: "en {n} días {h} h" },
   "app.catchup": {
-    one: "Se envió {n} mensaje programado que debía salir mientras Hey Look! estaba cerrado.",
-    other: "Se enviaron {n} mensajes programados que debían salir mientras Hey Look! estaba cerrado.",
+    one: "Se envió {n} mensaje programado que debía enviarse mientras Hey Look! estaba cerrado.",
+    other: "Se enviaron {n} mensajes programados que debían enviarse mientras Hey Look! estaba cerrado.",
   },
   "app.noSubject": "(sin asunto)",
   "app.error.notImage": "no es una imagen",
@@ -59,7 +59,7 @@ export default defineLocale<typeof ns.en>({
   "app.action.changeFolder": "Cambiar carpeta",
   "app.toast.actionFailed": "Error: {error}",
   "app.toast.scheduledFailed": "No se pudo enviar el mensaje programado “{subject}”.",
-  "app.toast.downloadDirFallback": "La carpeta de adjuntos “{configured}” no está disponible, así que los archivos se guardan en {used}.",
+  "app.toast.downloadDirFallback": "La carpeta de adjuntos “{configured}” no está disponible, así que, en su lugar, los archivos se guardan en {used}.",
   "app.toast.leftover": {
     one: "Se envió {n} mensaje que seguía esperando para salir cuando Hey Look! se cerró.",
     other: "Se enviaron {n} mensajes que seguían esperando para salir cuando Hey Look! se cerró.",
@@ -228,7 +228,7 @@ export default defineLocale<typeof ns.en>({
   "app.sweep.intro": "Remitentes de la bandeja de entrada ordenados por número de mensajes.",
   "app.sweep.introAll": "Remitentes de la bandeja de entrada ordenados por número de mensajes. Se muestran todas las cuentas.",
   "app.sweep.filter": "Filtrar remitentes",
-  "app.sweep.last": "{email} · último {date}",
+  "app.sweep.last": "{email} · último mensaje: {date}",
   "app.sweep.none": "No hay remitentes.",
   "app.sweep.archive": "Archivar",
   "app.sweep.read": "Marcar como leído",
