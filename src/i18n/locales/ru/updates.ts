@@ -41,7 +41,7 @@ export default defineLocale<typeof ns.en>({
   "updates.platform.unknown": "вашей системы",
   // ---- "restart now?" question when something is open
   "updates.ask.ready": "Версия Hey Look! {version} готова к установке. Перезапустить сейчас?",
-  "updates.ask.readyDirty": "Версия Hey Look! {version} готова к установке. Перезапустить сейчас? Ваше письмо будет сохранено в черновики.",
+  "updates.ask.readyDirty": "Версия Hey Look! {version} готова к установке. Перезапустить сейчас? Ваше письмо будет сохранено в папке «Черновики».",
   "updates.ask.readyEmpty": "Версия Hey Look! {version} готова к установке. Перезапустить сейчас? Пустое письмо будет закрыто.",
   "updates.ask.readyScheduled": "Версия Hey Look! {version} готова к установке. Перезапустить сейчас? Сначала сохраните или закройте запланированное письмо.",
   "updates.ask.sendingTitle": "Письмо ещё отправляется",
@@ -49,10 +49,10 @@ export default defineLocale<typeof ns.en>({
   "updates.ask.discardTitle": "Перезапустить без сохранения изменений?",
   "updates.ask.discardBody": "Ваши изменения в этом запланированном письме не сохранены. Оно останется запланированным в прежнем виде.",
   "updates.ask.unsavedTitle": "Письмо не сохранено",
-  "updates.ask.unsavedBody": "Hey Look! не удалось сохранить его в черновики ({error}), поэтому перезапуск не выполнен. Если перезапустить сейчас, письмо будет потеряно.",
+  "updates.ask.unsavedBody": "Hey Look! не удалось сохранить письмо в папку «Черновики» ({error}), поэтому перезапуск не выполнен. Если перезапустить сейчас, письмо будет потеряно.",
   // ---- result after the restart
   "updates.result.updated": "Hey Look! обновлён до версии {version}.",
-  "updates.result.updatedDraft": "Hey Look! обновлён до версии {version}. Ваше письмо находится в черновиках.",
+  "updates.result.updatedDraft": "Hey Look! обновлён до версии {version}. Ваше письмо находится в папке «Черновики».",
   "updates.result.failed": "Обновление до версии {version} не завершено. Попробовать снова можно в разделе Настройки > О программе.",
   // ---- Settings > About: status line and check results
   "updates.status.checking": "Проверка обновлений…",
@@ -112,7 +112,7 @@ export default defineLocale<typeof ns.en>({
   "updates.progress.percent": "{percent}%, {received}",
   "updates.progress.percentOf": "{percent}%, {received} из {total}",
   "updates.failed.verify": "Загруженный файл повреждён, или его подпись не совпадает. Ничего не установлено.",
-  "updates.failed.badurl": "Ссылка на обновление ведёт не на релизы Hey Look! Ничего не скачано.",
+  "updates.failed.badurl": "Ссылка на обновление взята не из релизов Hey Look! Ничего не скачано.",
   "updates.failed.install": "Не удалось установить обновление: {message}.",
   "updates.failed.download": "Не удалось скачать обновление. {message}",
   // ---- release notes
