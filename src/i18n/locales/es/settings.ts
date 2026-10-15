@@ -280,7 +280,7 @@ export default defineLocale<typeof ns.en>({
   "settings.reading.maxDefault": "{n} (predeterminado)",
   "settings.folders.account": "Carpetas de esta cuenta que aparecen en Favoritos.",
   "settings.folders.all": "Carpetas que se muestran en Favoritos para todas las cuentas juntas.",
-  "settings.folder.inbox": "Bandeja de entrada",
+  "settings.folder.inbox": "Recibidos",
   "settings.folder.drafts": "Borradores",
   "settings.folder.sent": "Enviados",
   "settings.folder.archive": "Archivo",
