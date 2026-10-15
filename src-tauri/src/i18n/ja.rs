@@ -1,6 +1,5 @@
 //! The texts the operating system shows (tray menu, notifications, reminder titles, file dialog titles, repeat descriptions) in Japanese.
-//! STUB: English placeholders, to be translated. Edit this file only: every function below returns English now; translate the strings (and the word order
-//! and plural rules where the language needs other ones). Keep the product name "Hey Look!" and the {placeholders} (`{n}`, `{who}`) as they are.
+//! Keep the product name "Hey Look!" and the {placeholders} (`{n}`, `{who}`) as they are.
 //! The compiler stops on a missing text. `cargo test --lib i18n` checks the file.
 
 use super::K;
@@ -8,34 +7,34 @@ use super::K;
 /// The fixed texts.
 pub fn text(k: K) -> &'static str {
     match k {
-        K::TrayOpen => "Open Hey Look!",
-        K::TrayCompose => "New mail",
-        K::TraySync => "Check mail now",
-        K::TrayPause => "Pause notifications",
-        K::TrayQuit => "Quit Hey Look!",
-        K::MacQuit => "Quit Hey Look!",
-        K::ActArchive => "Archive",
-        K::ActDelete => "Delete",
-        K::ActRead => "Mark as read",
-        K::ActFlag => "Flag",
-        K::ActReply => "Reply",
-        K::ActSnooze => "Snooze",
-        K::TrayHintTitle => "Hey Look! is still running",
-        K::TrayHintMac => "It keeps checking your mail from the menu bar. Click the Hey Look! icon in the Dock or the menu bar to open it again.",
-        K::TrayHintLinux => "It keeps checking your mail from the tray. Choose Quit Hey Look! in the tray icon’s menu to exit.",
-        K::TrayHintOther => "It keeps checking your mail from the tray. Right-click the tray icon and choose Quit to exit.",
-        K::TestTitle => "Hey Look! test notification",
-        K::TestLine1 => "Notifications are working",
-        K::TestLine2 => "This is how new mail will look.",
-        K::EveryDay => "Every day",
-        K::EveryMonth => "Every month",
-        K::EveryYear => "Every year",
-        K::SaveAttachmentsTo => "Save attachments to",
-        K::ChooseKeyFile => "Choose a key file",
-        K::OpenPgpKeys => "OpenPGP keys",
-        K::CalendarFile => "Calendar file",
-        K::SavePublicKey => "Save public key",
-        K::SaveKeyBackup => "Save a backup of your key",
+        K::TrayOpen => "Hey Look!を開く",
+        K::TrayCompose => "新規メール",
+        K::TraySync => "今すぐメールを確認",
+        K::TrayPause => "通知を一時停止",
+        K::TrayQuit => "Hey Look!を終了",
+        K::MacQuit => "Hey Look!を終了",
+        K::ActArchive => "アーカイブ",
+        K::ActDelete => "削除",
+        K::ActRead => "既読にする",
+        K::ActFlag => "フラグ",
+        K::ActReply => "返信",
+        K::ActSnooze => "スヌーズ",
+        K::TrayHintTitle => "Hey Look!は実行中です",
+        K::TrayHintMac => "メニューバーからメールの確認を続けます。もう一度開くには、DockまたはメニューバーのHey Look!アイコンをクリックしてください。",
+        K::TrayHintLinux => "トレイからメールの確認を続けます。終了するには、トレイアイコンのメニューで「Hey Look!を終了」を選んでください。",
+        K::TrayHintOther => "トレイからメールの確認を続けます。終了するには、トレイアイコンを右クリックして「Hey Look!を終了」を選んでください。",
+        K::TestTitle => "Hey Look!のテスト通知",
+        K::TestLine1 => "通知は正常に動作しています",
+        K::TestLine2 => "新着メールはこのように表示されます。",
+        K::EveryDay => "毎日",
+        K::EveryMonth => "毎月",
+        K::EveryYear => "毎年",
+        K::SaveAttachmentsTo => "添付ファイルの保存先",
+        K::ChooseKeyFile => "鍵ファイルを選択",
+        K::OpenPgpKeys => "OpenPGP鍵",
+        K::CalendarFile => "カレンダーファイル",
+        K::SavePublicKey => "公開鍵を保存",
+        K::SaveKeyBackup => "鍵のバックアップを保存",
     }
 }
 
@@ -43,72 +42,67 @@ pub fn text(k: K) -> &'static str {
 pub fn unread_tooltip(n: u32) -> String {
     match n {
         0 => "Hey Look!".to_string(),
-        1 => "Hey Look! — 1 unread conversation".to_string(),
-        n => format!("Hey Look! — {n} unread conversations"),
+        n => format!("Hey Look!：未読の会話{n}件"),
     }
 }
 
 /// Notification for more than three new messages at once.
 pub fn new_messages(n: usize) -> String {
-    format!("{n} new messages")
+    format!("新着メッセージ{n}件")
 }
 
 /// Title of the notification for a snoozed conversation that came back.
 pub fn snooze_ended(who: &str) -> String {
-    format!("Snooze ended: {who}")
+    format!("スヌーズ終了：{who}")
 }
 
 /// Event reminder title: the event starts now (`minutes` = 0) or in `minutes` minutes.
 pub fn event_reminder(summary: &str, minutes: i64) -> String {
     match minutes {
-        0 => format!("{summary} is starting"),
-        1 => format!("{summary} in 1 minute"),
-        m => format!("{summary} in {m} minutes"),
+        0 => format!("{summary}が始まります"),
+        m => format!("{summary}まであと{m}分"),
     }
 }
 
 /// Day name, `i` = 0 for Monday.
 pub fn day_name(i: usize) -> &'static str {
-    const DAYS: [&str; 7] = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"];
+    const DAYS: [&str; 7] = ["月曜日", "火曜日", "水曜日", "木曜日", "金曜日", "土曜日", "日曜日"];
     DAYS[i % 7]
 }
 
-/// "Monday, Tuesday and Friday"
+/// "月曜日、水曜日、金曜日" (two days: "月曜日と金曜日")
 pub fn day_list(days: &[String]) -> String {
     match days.len() {
         0 => String::new(),
         1 => days[0].clone(),
-        n => format!("{} and {}", days[..n - 1].join(", "), days[n - 1]),
+        2 => format!("{}と{}", days[0], days[1]),
+        _ => days.join("、"),
     }
 }
 
-/// "Every Wednesday" / "Every 2 weeks on Wednesday" (`list` from `day_list`).
+/// "毎週水曜日" / "2週間ごとの水曜日" (`list` from `day_list`).
 pub fn every_weekday(n: u32, list: &str) -> String {
     match n {
-        1 => format!("Every {list}"),
-        n => format!("Every {n} weeks on {list}"),
+        1 => format!("毎週{list}"),
+        n => format!("{n}週間ごとの{list}"),
     }
 }
 
-/// "Every 2 days" etc. `unit`: 'd' day, 'm' month, 'y' year.
+/// "2日ごと" etc. `unit`: 'd' day, 'm' month, 'y' year.
 pub fn every_n(n: u32, unit: char) -> String {
     match unit {
-        'd' => format!("Every {n} days"),
-        'm' => format!("Every {n} months"),
-        _ => format!("Every {n} years"),
+        'd' => format!("{n}日ごと"),
+        'm' => format!("{n}か月ごと"),
+        _ => format!("{n}年ごと"),
     }
 }
 
-/// ", 5 times"
+/// "、5回"
 pub fn times_tail(c: u32) -> String {
-    match c {
-        1 => ", 1 time".to_string(),
-        c => format!(", {c} times"),
-    }
+    format!("、{c}回")
 }
 
-/// ", until 31 Dec 2026" (`month0` = 0 for January)
+/// "、2026年12月31日まで" (`month0` = 0 for January)
 pub fn until_tail(day: u32, month0: u32, year: i32) -> String {
-    const MONTHS: [&str; 12] = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
-    format!(", until {day} {} {year}", MONTHS[(month0 % 12) as usize])
+    format!("、{year}年{}月{day}日まで", (month0 % 12) + 1)
 }
