@@ -20,14 +20,14 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 export const SITE = 'https://thnonl.github.io/hey-look/';
-// dir = folder under docs/ ('' = root), hreflang = BCP 47 tag for <html lang> and hreflang, label = "Language" in that language (menu name)
+// dir = folder under docs/ ('' = root), hreflang = BCP 47 tag for <html lang> and hreflang, label = "Language" in that language (menu name), colon = what follows the label before the language name (default ': '; French wants a no-break space before the colon, Chinese and Japanese the full-width colon)
 export const LANGS = [
   { code: 'en', dir: '', hreflang: 'en', native: 'English', short: 'EN', label: 'Language' },
   { code: 'vi', dir: 'vi', hreflang: 'vi', native: 'Tiếng Việt', short: 'VI', label: 'Ngôn ngữ' },
-  { code: 'fr', dir: 'fr', hreflang: 'fr', native: 'Français', short: 'FR', label: 'Langue' },
-  { code: 'zh', dir: 'zh', hreflang: 'zh-Hans', native: '中文（简体）', short: '中文', label: '语言' },
+  { code: 'fr', dir: 'fr', hreflang: 'fr', native: 'Français', short: 'FR', label: 'Langue', colon: ' : ' },
+  { code: 'zh', dir: 'zh', hreflang: 'zh-Hans', native: '中文（简体）', short: '中文', label: '语言', colon: '：' },
   { code: 'es', dir: 'es', hreflang: 'es', native: 'Español', short: 'ES', label: 'Idioma' },
-  { code: 'ja', dir: 'ja', hreflang: 'ja', native: '日本語', short: 'JA', label: '言語' },
+  { code: 'ja', dir: 'ja', hreflang: 'ja', native: '日本語', short: 'JA', label: '言語', colon: '：' },
   { code: 'de', dir: 'de', hreflang: 'de', native: 'Deutsch', short: 'DE', label: 'Sprache' },
   { code: 'ru', dir: 'ru', hreflang: 'ru', native: 'Русский', short: 'RU', label: 'Язык' },
 ];
@@ -60,7 +60,7 @@ export function langBlock(lang, page) {
   return [
     `<!-- hl:lang-begin: ${NOTE} -->`,
     '<details class="lang">',
-    `<summary aria-label="${lang.label}: ${lang.native}" title="${lang.label}">${GLOBE}<span class="lang-cur">${lang.short}</span></summary>`,
+    `<summary aria-label="${lang.label}${lang.colon ?? ': '}${lang.native}" title="${lang.label}">${GLOBE}<span class="lang-cur">${lang.short}</span></summary>`,
     `<ul class="lang-menu" aria-label="${lang.label}">`,
     ...items,
     '</ul>',
