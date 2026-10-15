@@ -34,7 +34,7 @@ export default defineLocale<typeof ns.en>({
   "errors.ask.discard": "Удалить",
   // ---- account presets of api.ts (provider names are not translated)
   "errors.provider.gmail.hint": "Нужен пароль приложения Google (должна быть включена двухэтапная аутентификация).",
-  "errors.provider.outlook.hint": "Лучше использовать вкладку Microsoft (OAuth). Вход по паролю работает, только если включена обычная (basic) аутентификация; для личных учётных записей тогда нужен пароль приложения.",
+  "errors.provider.outlook.hint": "Лучше использовать вкладку Microsoft (OAuth). Вход по паролю работает, только если включена обычная проверка подлинности (basic); для личных учётных записей тогда нужен пароль приложения.",
   "errors.provider.icloud.hint": "У Apple нет OAuth для почтовых программ. Создайте пароль приложения на account.apple.com (раздел «Вход и безопасность») и введите его здесь, а в поле электронной почты укажите полный адрес iCloud.",
   "errors.provider.yahoo.hint": "Используйте пароль приложения Yahoo.",
   "errors.provider.bridge.hint": "Запустите Proton Mail Bridge и введите имя пользователя и пароль из Bridge (не пароль от Proton). Bridge использует на этом компьютере самоподписанный сертификат, поэтому сертификату доверяют.",

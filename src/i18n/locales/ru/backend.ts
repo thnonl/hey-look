@@ -21,7 +21,7 @@ export default defineLocale<typeof ns.en>({
   "backend.FOLDER_NOT_CREATED": "В этой учётной записи не удалось найти или создать папку «{folder}» ({why}). Письмо остаётся на месте.",
   "backend.ATT_NOT_FOUND": "вложение не найдено",
   "backend.EMAIL_INVALID": "Введите корректный адрес электронной почты",
-  "backend.AI_NOT_CONFIGURED": "ИИ не настроен: укажите адрес и модель в разделе Настройки > ИИ-помощник",
+  "backend.AI_NOT_CONFIGURED": "ИИ не настроен: укажите конечную точку и модель в разделе Настройки > ИИ-помощник",
   "backend.UPDATE_BUSY": "Скачивание уже идёт.",
   "backend.UPDATE_NONE_READY": "Нет обновления, готового к установке.",
   "backend.OAUTH_CANCELLED": "Вход через {label} отменён",
@@ -71,5 +71,5 @@ export default defineLocale<typeof ns.en>({
   "backend.CAL_SEND_FAILED.saved": "Событие сохранено, но приглашения не отправлены: {detail}",
   "backend.CAL_SEND_FAILED.deleted": "Событие удалено, но отмена не отправлена: {detail}",
   "backend.SMTP_ATTACHMENT_BLOCKED": "Сервер отклонил тип вложения. Gmail, Outlook и Yahoo не принимают программы и скрипты, например .exe, .bat, .js или .msi, даже внутри zip-архива. Удалите вложение или отправьте ссылку на него. (Ответ сервера: {reply})",
-  "backend.SMTP_TOO_LARGE": "Письмо больше, чем допускает этот сервер. Удалите вложения или уменьшите картинки. (Ответ сервера: {reply})",
+  "backend.SMTP_TOO_LARGE": "Письмо больше, чем допускает этот сервер. Удалите вложения или уменьшите изображения. (Ответ сервера: {reply})",
 });
