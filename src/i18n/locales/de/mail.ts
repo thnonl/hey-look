@@ -11,7 +11,7 @@ export default defineLocale<typeof ns.en>({
   "mail.row.encrypted": "Verschlüsselt",
   "mail.row.signed": "Signiert",
   "mail.row.invite": "Besprechungseinladung",
-  "mail.row.inviteReply": "Antwort auf Besprechung",
+  "mail.row.inviteReply": "Besprechungsantwort",
   "mail.row.inviteCancel": "Besprechung abgesagt",
   "mail.row.attachment": "Mit Anhang",
   "mail.row.pinned": "Angeheftet",

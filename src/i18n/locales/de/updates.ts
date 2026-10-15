@@ -14,7 +14,7 @@ export default defineLocale<typeof ns.en>({
   "updates.action.details": "Details",
   "updates.action.tryAgain": "Erneut versuchen",
   "updates.action.cancelRestart": "Neustart abbrechen",
-  "updates.action.downloadFromGithub": "Stattdessen von GitHub laden",
+  "updates.action.downloadFromGithub": "Stattdessen von GitHub herunterladen",
   "updates.action.viewRelease": "Release auf GitHub ansehen",
   "updates.action.downloadInstall": "Herunterladen und installieren",
   "updates.action.skip": "Diese Version überspringen",
@@ -119,7 +119,7 @@ export default defineLocale<typeof ns.en>({
   "updates.notes.region": "Versionshinweise",
   "updates.notes.readFull": "Vollständige Versionshinweise auf GitHub lesen",
   // ---- the chip in the top bar
-  "updates.chip.downloading": "Lädt herunter…",
+  "updates.chip.downloading": "Wird heruntergeladen…",
   "updates.chip.percent": "{percent} %",
   "updates.chip.verifying": "Prüfung…",
   "updates.chip.installing": "Installation…",
