@@ -18,8 +18,7 @@ Provide it in any of these ways, in this order of priority:
 | `GOOGLE_CLIENT_ID` | OAuth client id |
 | `GOOGLE_CLIENT_SECRET` | OAuth client secret |
 
-Copy `.env.example` to `.env` (it is git-ignored) and fill in the values. While the OAuth consent screen is in
-*Testing* mode Google expires refresh tokens after 7 days; publish the app to avoid that.
+Copy `.env.example` to `.env` (it is git-ignored) and fill in the values. The consent screen is *In production* but not yet verified by Google: people see “Google hasn’t verified this app”, and the project is limited to 100 users for its whole life until the verification is done (the app and `docs/help.html#google-review` say so; `GOOGLE_REVIEW_PENDING` in `src/signIn.ts` switches the review texts off after approval). In *Testing* mode Google would expire refresh tokens after 7 days; do not switch the app back to Testing.
 
 #### Calendar sync (Google Calendar)
 
@@ -27,7 +26,7 @@ Calendar sync uses the same OAuth client and a **separate consent** (a desktop a
 
 1. Google Cloud Console, the project of `GOOGLE_CLIENT_ID` → APIs & Services → Library → **Google Calendar API** → **Enable**. Without it every request fails with `403 accessNotConfigured` and Settings shows "Calendar sync isn't available in this version of Hey Look! (Google reported: ...)".
 2. Google Auth Platform → Data Access → Add or remove scopes: `https://www.googleapis.com/auth/calendar.events` and `https://www.googleapis.com/auth/calendar.calendarlist.readonly` (both sensitive, not restricted). Add them before the first verification submission so one review covers mail and calendar.
-3. While the app is in *Testing*, add every tester under Audience → Test users; their calendar grant ends after 7 days (the app shows **Allow access again**).
+3. The app is *In production* (unverified): no test-user list and no 7-day expiry. If Google ever revokes a grant, the app shows **Allow access again** (calendar) or **Sign in again** (mail).
 
 The calendar sign-in keeps its own refresh token in the credential store under `<account id>:calendar` (the mail token is `<account id>`). Tests never use a real account: `cargo test` runs the sync layer against a fake provider and the Google provider against a small fake HTTP server (`src-tauri/src/calsync/fake_http.rs`). Debug builds can point the Calendar API, Microsoft Graph and the token endpoint at such a server with `HEYLOOK_GCAL_BASE`, `HEYLOOK_GRAPH_BASE` and `HEYLOOK_TOKEN_BASE`; a release build ignores them. `npm run dev` (the browser mock) has a fake Google mailbox (`nam@gmail.com`) and a fake Outlook mailbox (`nam@outlook.com`) with three calendars each; `#calsync=ok|syncing|first|offline|busy|auth|blocked|notsetup|error|truncated` (Google) and `#calsyncms=...` (Outlook) in the address show every state of Settings > Calendar.
 
