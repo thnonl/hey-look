@@ -21,6 +21,16 @@ Provide it in any of these ways, in this order of priority:
 Copy `.env.example` to `.env` (it is git-ignored) and fill in the values. While the OAuth consent screen is in
 *Testing* mode Google expires refresh tokens after 7 days; publish the app to avoid that.
 
+#### Calendar sync (Google Calendar)
+
+Calendar sync uses the same OAuth client and a **separate consent** (a desktop app cannot add scopes to an existing grant), so a user who never turns it on is never asked. To use it:
+
+1. Google Cloud Console, the project of `GOOGLE_CLIENT_ID` → APIs & Services → Library → **Google Calendar API** → **Enable**. Without it every request fails with `403 accessNotConfigured` and Settings shows "Calendar sync isn't available in this version of Hey Look! (Google reported: ...)".
+2. Google Auth Platform → Data Access → Add or remove scopes: `https://www.googleapis.com/auth/calendar.events` and `https://www.googleapis.com/auth/calendar.calendarlist.readonly` (both sensitive, not restricted). Add them before the first verification submission so one review covers mail and calendar.
+3. While the app is in *Testing*, add every tester under Audience → Test users; their calendar grant ends after 7 days (the app shows **Allow access again**).
+
+The calendar sign-in keeps its own refresh token in the credential store under `<account id>:calendar` (the mail token is `<account id>`). Tests never use a real account: `cargo test` runs the sync layer against a fake provider and the Google provider against a small fake HTTP server (`src-tauri/src/calsync/fake_http.rs`). Debug builds can point the Calendar API and the token endpoint at such a server with `HEYLOOK_GCAL_BASE` and `HEYLOOK_TOKEN_BASE`; a release build ignores them. `npm run dev` (the browser mock) has a fake Google mailbox with three calendars; `#calsync=ok|syncing|first|offline|busy|auth|blocked|notsetup|error|truncated` in the address shows every state of Settings > Calendar.
+
 ### Microsoft
 
 Microsoft sign-in (Outlook.com, Hotmail, Live, Microsoft 365) needs an app registration in Microsoft Entra
@@ -86,7 +96,9 @@ src-tauri/src/           Rust backend
   mail.rs                IMAP: folders, fetch, flags, move, parsing (MIME, attachments, inline images)
   smtp.rs                message building and sending
   ical.rs, calendar.rs   iCalendar parsing and writing, repeat rules, events, invitations and replies
-  oauth.rs               Google and Microsoft OAuth 2.0 (PKCE, loopback redirect) and token refresh
+  oauth.rs               Google and Microsoft OAuth 2.0 (PKCE, loopback redirect) and token refresh; mail and calendar are separate grants
+  calsync/               calendar sync with online calendars: provider trait (mod.rs), local model + apply (store.rs), rounds, scheduler and
+                         back-off (engine.rs), writes with etags (write.rs), commands + consent + worker (cmds.rs), google.rs, http.rs; fake.rs / fake_http.rs for tests
   discover.rs            server-settings lookup (presets, autoconfig, ISPDB, DNS SRV / MX)
   winframe.rs            custom title bar on Windows: caption-button hit-testing (Snap Layouts), system menu
   shell.rs               tray icon, badges, native notifications, snooze reminders

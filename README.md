@@ -20,7 +20,7 @@ Get the latest version from [GitHub Releases](https://github.com/thnonl/hey-look
 
 - Many mailboxes in one place: Google and Microsoft (OAuth), iCloud, Yahoo, any IMAP/SMTP server
 - Undo send, send later, snooze, filters and sweep by sender
-- OpenPGP encryption and signing; calendar invitations with a local calendar
+- OpenPGP encryption and signing; calendar invitations with a local calendar, and optional two-way sync with Google Calendar (turn it on per mailbox)
 - Confidential mail: a message marked Confidential is protected while it is open (no copy, print or screen capture on Windows and macOS), and the composer has a Confidential button
 - Command bar (`Ctrl/Cmd+K`), keyboard shortcuts, light and dark themes with your own colour
 - Signed in-app updates that ask first; no analytics, no account
@@ -42,6 +42,18 @@ Get the latest version from [GitHub Releases](https://github.com/thnonl/hey-look
 - Mail cache and settings: `%APPDATA%\thnonl.heylook\heylook.db` (macOS `~/Library/Application Support/thnonl.heylook/`, Linux `~/.local/share/thnonl.heylook/`)
 - Passwords, OAuth tokens, the AI key: Windows Credential Manager, macOS Keychain or the Linux Secret Service (GNOME Keyring, KWallet; it must be running and unlocked)
 - Hey Look! contacts only your mail servers, the sign-in and server-lookup services you use, the AI endpoint you configure, the sites behind images you allow or links you press, and github.com for the update check (can be turned off).
+- Only for a mailbox where you turn on calendar sync (Settings > Mailboxes > your mailbox > Calendar): `www.googleapis.com` (Google Calendar) to download its calendars and to save the events you add, change, delete or answer. The calendar sign-in is a separate permission with its own token in the credential store (`<mailbox>:calendar`); turning sync off removes the calendars from this computer and deletes the token, nothing changes in Google Calendar. Microsoft (`graph.microsoft.com`, `Calendars.ReadWrite`) is planned.
+
+### Calendar sync with Google
+
+Turn it on per Google or Gmail mailbox: **Settings > Mailboxes > (mailbox) > Calendar > Sync calendar with Google**. Your browser opens Google's own permission page for the calendar only; your mail sign-in is not touched. What the permission is used for (the exact scopes the consent page shows):
+
+- `https://www.googleapis.com/auth/calendar.events` (see and edit events on all your calendars): to show the events of your Google calendars in the app and to save the events you create, change, delete or answer back to Google Calendar.
+- `https://www.googleapis.com/auth/calendar.calendarlist.readonly` (see the list of your calendars): to list your calendars with their names and colours so you can choose which ones to sync.
+
+Calendar data stays on your computer and goes only between this computer and Google Calendar; the developer runs no server and the AI Assistant never gets calendar data. Hey Look!'s use of information received from Google APIs adheres to the [Google API Services User Data Policy](https://developers.google.com/terms/api-services-user-data-policy), including the Limited Use requirements.
+
+What syncs: your calendars (the ones Google Calendar shows), events from a year ago to two years ahead, every 5 minutes while the app runs and when you press **Sync now**. Single events can be added, changed and deleted from Hey Look! (Google sends the invitations to guests); repeating events and events somebody else organizes are shown but can only be changed in Google Calendar for now. Offline, the saved events stay visible and changes need a connection.
 
 ## Known limitations
 
@@ -50,7 +62,7 @@ Details and more in the [Help](https://thnonl.github.io/hey-look/help.html).
 - **macOS:** no notifications and no Dock badge in this version; the app is ad-hoc signed, not notarized; the first-start steps and log out / restart on this exact build were not tested.
 - **Installers** are not code-signed with a publisher certificate; on Windows the tray Quit, running the installer over an open app and opening links in the browser were not tested on this release.
 - **Linux:** tested under WSL2 Ubuntu 22.04 with WSLg only (new-mail notifications with dunst; no tray test); needs a notification service for notifications.
-- **Calendar** is local in 1.0 (CalDAV / Exchange sync may come in a later update); the **interface** is English in 1.0 (more languages may come later).
+- **Calendar:** local events plus optional two-way sync with Google Calendar (per mailbox); repeating events from Google Calendar are read-only; Outlook / Microsoft 365 and CalDAV sync may come later. While Hey Look! is in Google's *Testing* mode the calendar permission expires after 7 days (the app then shows **Allow access again**). The **interface** is English in 1.0 (more languages may come later).
 - **OpenPGP secret keys** are stored in the app's own database, protected by their passphrase, not in the system credential store.
 - **Undo send** does not survive a normal Quit: the message is sent at once. If Hey Look! is closed by force (an installer, Task Manager, a crash) while you are writing, or on macOS when you log out, restart or shut down, the unsaved text is lost; a message you already sent is kept and goes out at the next start.
 - **Windows:** overlay tools (for example RivaTuner Statistics Server) can crash the web view; Hey Look! restarts itself at most three times in ten minutes; exclude `hey-look.exe` and `msedgewebview2.exe` there.
