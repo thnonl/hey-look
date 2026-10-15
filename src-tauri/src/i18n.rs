@@ -497,6 +497,73 @@ mod tests {
         }
     }
 
+    /// `{name}`-style placeholders of a text, sorted (the fixed texts have none today; a text that gained one in English must keep it everywhere).
+    fn braces(s: &str) -> Vec<String> {
+        let mut v: Vec<String> = s.split('{').skip(1).filter_map(|r| r.split_once('}').map(|(n, _)| n.to_string())).collect();
+        v.sort();
+        v
+    }
+
+    #[test]
+    fn every_language_keeps_the_placeholders_and_the_product_name_of_english() {
+        for l in LANGS {
+            for k in ALL {
+                let (english, text) = (tr_in(Lang::En, *k), tr_in(l, *k));
+                assert!(!text.trim().is_empty(), "{l:?} {k:?} is empty");
+                assert_eq!(braces(text), braces(english), "{l:?} {k:?}: placeholders differ from English");
+                assert!(!text.contains('{') && !text.contains('}'), "{l:?} {k:?}: stray brace in {text:?}");
+                assert!(text.contains("Hey Look!") || !english.contains("Hey Look!"), "{l:?} {k:?}: the product name \"Hey Look!\" must stay where English has it ({text:?})");
+                if !matches!(l, Lang::En) {
+                    assert_ne!(text, english, "{l:?} {k:?}: still the English text");
+                }
+                assert_eq!(text, text.trim(), "{l:?} {k:?}: leading or trailing space");
+                assert!(!text.contains("  "), "{l:?} {k:?}: double space");
+            }
+            // sentences built from values: every value arrives, nothing is left over, and no template brace escapes
+            let mut out: Vec<String> = Vec::new();
+            for n in [0u32, 1, 2, 3, 4, 5, 11, 12, 21, 22, 25, 101, 111] {
+                out.push(unread_tooltip_in(l, n));
+                out.push(new_messages_in(l, n as usize));
+                out.push(every_n_in(l, n.max(2), 'd'));
+                out.push(every_n_in(l, n.max(2), 'm'));
+                out.push(every_n_in(l, n.max(2), 'y'));
+                out.push(times_tail_in(l, n.max(2)));
+                for m in [0i64, 1, n as i64] {
+                    out.push(event_reminder_in(l, "Stand-up", m.max(0)));
+                }
+            }
+            out.push(snooze_ended_in(l, "Ann <ann@x.y>"));
+            out.push(until_tail_in(l, 5, 0, 2027));
+            for i in 0..7 {
+                for plural in [true, false] {
+                    out.push(day_name_in(l, i, plural).to_string());
+                }
+            }
+            for s in &out {
+                assert!(!s.contains('{') && !s.contains('}'), "{l:?}: unfilled template in {s:?}");
+                assert_eq!(s.as_str(), s.trim(), "{l:?}: space around {s:?}");
+            }
+            assert!(snooze_ended_in(l, "Ann <ann@x.y>").contains("Ann <ann@x.y>"), "{l:?}: the sender of a snoozed message is missing");
+            assert!(event_reminder_in(l, "Stand-up", 15).contains("15") && event_reminder_in(l, "Stand-up", 15).contains("Stand-up"), "{l:?}");
+        }
+    }
+
+    #[test]
+    fn russian_uses_the_right_plural_form() {
+        // one / few / many / other (CLDR): 1, 21, 101 -> one; 2-4, 22-24 -> few; 0, 5-20, 25 -> many
+        let form = |n: usize| new_messages_in(Lang::Ru, n).replace(&n.to_string(), "#");
+        assert_eq!(form(1), form(21));
+        assert_eq!(form(1), form(101));
+        assert_eq!(form(2), form(3));
+        assert_eq!(form(2), form(22));
+        assert_eq!(form(5), form(11));
+        assert_eq!(form(5), form(25));
+        assert_eq!(form(5), form(111));
+        assert_ne!(form(1), form(2));
+        assert_ne!(form(2), form(5));
+        assert_ne!(form(1), form(5));
+    }
+
     #[test]
     fn all_lists_every_variant() {
         // texts() is exhaustive; ALL must not forget one (the variant count is pinned by the last variant's position)
