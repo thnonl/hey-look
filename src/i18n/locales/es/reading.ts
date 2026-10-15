@@ -29,7 +29,7 @@ export default defineLocale<typeof ns.en>({
   "reading.head.archived": "Archivado",
   "reading.head.delete": "Eliminar",
   "reading.head.deleteTip": "Eliminar (#)",
-  "reading.head.trashed": "Movido a la papelera",
+  "reading.head.trashed": "Movido a la Papelera",
   "reading.head.snoozeTip": "Posponer (s)",
   "reading.head.snoozed": "Pospuesto: {label}",
   "reading.head.pin": "Anclar",

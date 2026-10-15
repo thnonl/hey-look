@@ -30,7 +30,7 @@ export default defineLocale<typeof ns.en>({
   "mail.hover.snooze": "Posponer",
   // the toast / Undo text after an action on conversations (also used by the ribbon, the command bar and the shortcuts)
   "mail.done.archived": "Archivado",
-  "mail.done.trashed": "Movido a la papelera",
+  "mail.done.trashed": "Movido a la Papelera",
   "mail.done.deleted": "Eliminado definitivamente",
   "mail.done.junk": "Movido a Correo no deseado",
   "mail.done.blocked": "Remitente bloqueado",
