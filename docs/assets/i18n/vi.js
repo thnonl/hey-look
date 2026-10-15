@@ -8,7 +8,7 @@
   "theme.auto": "tự động",
   "theme.light": "sáng",
   "theme.dark": "tối",
-  "theme.label": "Giao diện: {state}. Chuyển sang {next}",
+  "theme.label": "Giao diện: {state}. Chuyển sang giao diện {next}",
   "theme.live": "Giao diện: {state}",
 
   "motion.auto": "theo hệ thống",
@@ -17,7 +17,7 @@
   "motion.state.auto": "theo hệ thống (hiện {now})",
   "motion.next.auto": "theo hệ thống",
   "motion.status": "Hiệu ứng: {state}",
-  "motion.label": "Hiệu ứng: {state}. Chuyển sang {next}",
+  "motion.label": "Hiệu ứng: {state}. Chuyển sang chế độ {next}",
   "motion.live.auto.on": "Hiệu ứng: theo hệ thống (bật)",
   "motion.live.auto.off": "Hiệu ứng: theo hệ thống (tắt, hệ thống của bạn yêu cầu giảm chuyển động)",
   "motion.live.on": "Hiệu ứng: bật",

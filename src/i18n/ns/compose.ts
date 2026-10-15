@@ -321,7 +321,7 @@ export default define({
     "compose.rcpt.keyRevoked": "Khóa của {addr} đã bị thu hồi",
     "compose.rcpt.keyMissing": "Không có khóa công khai của {addr}",
     "compose.rcpt.missingHelp": "Chỉ có thể gửi thư mã hóa cho người mà bạn có khóa công khai. Hãy nhờ họ gửi khóa, hoặc nhập từ tệp.",
-    "compose.rcpt.unusableHelp": "Bạn không thể mã hóa bằng khóa này nữa. Hãy xin khóa công khai mới, hoặc nhập từ tệp.",
+    "compose.rcpt.unusableHelp": "Bạn không thể mã hóa thư cho khóa này nữa. Hãy xin khóa công khai mới, hoặc nhập từ tệp.",
     "compose.rcpt.importKey": "Nhập khóa…",
     "compose.rcpt.pasteKey": "Dán khóa",
     "compose.rcpt.removeRecipient": "Gỡ người nhận",
