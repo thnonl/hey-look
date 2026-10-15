@@ -34,7 +34,7 @@
     <a class="brand" href="index.html" aria-label="Hey Look! Startseite"><svg aria-hidden="true" focusable="false"><use href="#hl-mark"/></svg><span>Hey Look!</span></a>
     <nav id="site-nav" class="nav" aria-label="Hauptnavigation">
       <a href="index.html#story">Tour</a>
-      <a href="index.html#free">Enthalten</a>
+      <a href="index.html#free">Das ist dabei</a>
       <a href="features.html">Funktionen</a>
       <a href="help.html">Hilfe</a>
       <a href="privacy.html">Datenschutz</a>
@@ -88,16 +88,16 @@
         <li>Öffnen Sie <strong>Systemeinstellungen &gt; Datenschutz &amp; Sicherheit</strong>, scrollen Sie zu <strong>Sicherheit</strong>, klicken Sie auf <strong>Trotzdem öffnen</strong>, bestätigen Sie mit Ihrem Passwort oder Touch ID und klicken Sie dann auf <strong>Öffnen</strong>.</li></ol>
         <p>Lieber das Terminal? Führen Sie stattdessen einmal Folgendes aus, statt der Schritte 2 und 3:</p>
         <div class="copy"><code>xattr -dr com.apple.quarantine "/Applications/Hey Look!.app"</code><button class="btn btn-ghost btn-sm" type="button">Kopieren</button></div>
-        <p>Updates, die Hey Look! selbst installiert, starten normal. Das Dock-Symbol zeigt die Zahl ungelesener E-Mails (Einstellungen &gt; Benachrichtigungen und Tray &gt; Dock-Badge). Benachrichtigungen sind unter macOS in dieser Version nicht verfügbar.</p></details>
+        <p>Nach Updates, die Hey Look! selbst installiert, startet die App normal. Das Dock-Symbol zeigt die Zahl ungelesener E-Mails (Einstellungen &gt; Benachrichtigungen &amp; Infobereich &gt; Abzeichen am Dock-Symbol). Benachrichtigungen sind unter macOS in dieser Version nicht verfügbar.</p></details>
     </article>
     <article class="dl-card" id="card-linux"><span class="rec-b">Für Sie empfohlen</span>
-      <h2><svg class="ic" aria-hidden="true" focusable="false"><use href="#i-linux"/></svg>Linux</h2><p class="sub">Jede Distribution mit dem AppImage oder ein natives Paket.</p>
+      <h2><svg class="ic" aria-hidden="true" focusable="false"><use href="#i-linux"/></svg>Linux</h2><p class="sub">Jede Distribution mit AppImage oder einem nativen Paket.</p>
       <div class="asset" data-asset="lin-appimage" data-pattern="HeyLook_&lt;version&gt;_linux_amd64.AppImage"><a class="btn btn-primary" href="https://github.com/thnonl/hey-look/releases/latest" data-label="AppImage herunterladen"><svg class="ic" aria-hidden="true" focusable="false"><use href="#i-download"/></svg><span class="t">AppImage herunterladen</span></a><span class="fn">HeyLook_&lt;version&gt;_linux_amd64.AppImage</span><small class="sz"></small></div>
       <div class="asset" data-asset="lin-deb" data-pattern="HeyLook_&lt;version&gt;_linux_amd64.deb"><a class="btn btn-ghost" href="https://github.com/thnonl/hey-look/releases/latest" data-label=".deb herunterladen (Debian, Ubuntu)"><svg class="ic" aria-hidden="true" focusable="false"><use href="#i-download"/></svg><span class="t">.deb herunterladen (Debian, Ubuntu)</span></a><span class="fn">HeyLook_&lt;version&gt;_linux_amd64.deb</span><small class="sz"></small></div>
       <div class="asset" data-asset="lin-rpm" data-pattern="HeyLook_&lt;version&gt;_linux_x86_64.rpm"><a class="btn btn-ghost" href="https://github.com/thnonl/hey-look/releases/latest" data-label=".rpm herunterladen (Fedora, openSUSE)"><svg class="ic" aria-hidden="true" focusable="false"><use href="#i-download"/></svg><span class="t">.rpm herunterladen (Fedora, openSUSE)</span></a><span class="fn">HeyLook_&lt;version&gt;_linux_x86_64.rpm</span><small class="sz"></small></div>
       <details><summary>Hinweise für Linux</summary>
-        <p>Hat Ihr Desktop keinen Tray-Bereich, beendet das Schließen des Fensters Hey Look!.</p>
-        <p>Links und Anhänge werden mit <code>xdg-open</code> geöffnet. Benachrichtigungen brauchen einen Benachrichtigungsdienst auf dem Desktop. Passwörter erfordern, dass GNOME Keyring oder KWallet läuft und entsperrt ist.</p></details>
+        <p>Hat Ihr Desktop keinen Infobereich, beendet das Schließen des Fensters Hey Look!.</p>
+        <p>Links und Anhänge werden mit <code>xdg-open</code> geöffnet. Benachrichtigungen brauchen einen Benachrichtigungsdienst auf dem Desktop. Damit Passwörter verwendet werden können, muss GNOME Keyring oder KWallet laufen und entsperrt sein.</p></details>
     </article>
   </div>
   <h2 class="h2s" id="all-files">Alle Dateien</h2>
@@ -114,8 +114,8 @@
   <h2 class="h2s" id="after">Nach der Installation</h2>
   <ol class="steps3">
     <li><h3>Postfach hinzufügen</h3><p>Melden Sie sich mit Google oder Microsoft an, oder fügen Sie ein beliebiges Konto per IMAP/SMTP hinzu. iCloud und Yahoo brauchen ein App-Passwort.</p></li>
-    <li><h3>Es aktualisiert sich selbst</h3><p>Hey Look! prüft bei GitHub auf eine neuere Version, lädt sie herunter, nachdem Sie zugestimmt haben, prüft die Signatur und startet nach einem 5-Sekunden-Countdown neu, den Sie abbrechen können. Sie können die Prüfung ausschalten.</p></li>
-    <li><h3>Ihre Daten bleiben Ihre</h3><p>Der E-Mail-Cache ist eine lokale SQLite-Datei auf Ihrem Computer. Geheimnisse bleiben im Anmeldeinformationsspeicher des Systems. Siehe die <a href="privacy.html">Datenschutzerklärung</a>.</p></li>
+    <li><h3>Es aktualisiert sich selbst</h3><p>Hey Look! prüft bei GitHub auf eine neuere Version, lädt sie nach Ihrer Zustimmung herunter, prüft die Signatur und startet nach einem 5-Sekunden-Countdown neu, den Sie abbrechen können. Sie können die Update-Prüfung ausschalten.</p></li>
+    <li><h3>Ihre Daten bleiben Ihre Daten</h3><p>Der E-Mail-Cache ist eine lokale SQLite-Datei auf Ihrem Computer. Geheimnisse bleiben im Anmeldeinformationsspeicher des Systems. Siehe die <a href="privacy.html">Datenschutzerklärung</a>.</p></li>
   </ol>
   <div class="callout" id="gmail-signin"><h3>Gmail</h3><p>Melden Sie sich mit Ihrem Google-Konto an. Hey Look! hat die Prüfung durch Google noch nicht abgeschlossen, daher zeigt Google zuerst eine Warnung („Google hat diese App nicht überprüft“) und erlaubt bis zu 100 Personen die Anmeldung. <a href="help.html#google-review">Was zu tun ist</a>. Mit einem privaten Gmail-Konto können Sie auch ein App-Passwort verwenden.</p></div>
   <p class="after-note">Fragen? Siehe <a href="help.html">Hilfe und FAQ</a>. Alle Versionen und Versionshinweise finden Sie bei <a href="https://github.com/thnonl/hey-look/releases" rel="noopener">GitHub Releases</a>. Die Installationsprogramme sind noch nicht codesigniert.</p>
