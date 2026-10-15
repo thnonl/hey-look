@@ -180,6 +180,7 @@ export function FloatingMenu({
   const onKeyDown = (e: React.KeyboardEvent) => {
     const list = rows();
     const i = list.indexOf(document.activeElement as HTMLElement);
+    if (e.key.length !== 1) typed.current.text = ""; // an Arrow / Home / End key starts a new type-ahead word
     const go = (el?: HTMLElement) => {
       e.preventDefault();
       el?.focus();

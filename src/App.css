@@ -620,6 +620,9 @@ button.ov-tag:hover { background: color-mix(in srgb, var(--accent), transparent 
 .welcome-points svg { flex: none; }
 @media (max-height: 640px) {
   .welcome { padding: 12px 24px; }
+  .welcome-card { width: min(560px, 100%); } /* wider rather than taller: the language row above the logo needs the height */
+  .welcome-card p { max-width: 480px; }
+  .lang-choice { margin-bottom: 10px; }
   .welcome-card img { width: 48px; height: 48px; }
   .welcome-card h1 { margin: 10px 0 6px; font-size: 1.6em; }
   .welcome-card p { margin-bottom: 16px; line-height: 1.4; }
