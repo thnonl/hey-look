@@ -1,41 +1,40 @@
 //! The texts the operating system shows (tray menu, notifications, reminder titles, file dialog titles, repeat descriptions) in Spanish.
-//! STUB: English placeholders, to be translated. Edit this file only: every function below returns English now; translate the strings (and the word order
-//! and plural rules where the language needs other ones). Keep the product name "Hey Look!" and the {placeholders} (`{n}`, `{who}`) as they are.
-//! The compiler stops on a missing text. `cargo test --lib i18n` checks the file.
+//! Neutral international Spanish, "tú" form. Weekday names are the plural form ("los lunes"): Monday to Friday do not change, and the
+//! sentences below are built as "Todos los {list}" / "Cada {n} semanas los {list}".
 
 use super::K;
 
 /// The fixed texts.
 pub fn text(k: K) -> &'static str {
     match k {
-        K::TrayOpen => "Open Hey Look!",
-        K::TrayCompose => "New mail",
-        K::TraySync => "Check mail now",
-        K::TrayPause => "Pause notifications",
-        K::TrayQuit => "Quit Hey Look!",
-        K::MacQuit => "Quit Hey Look!",
-        K::ActArchive => "Archive",
-        K::ActDelete => "Delete",
-        K::ActRead => "Mark as read",
-        K::ActFlag => "Flag",
-        K::ActReply => "Reply",
-        K::ActSnooze => "Snooze",
-        K::TrayHintTitle => "Hey Look! is still running",
-        K::TrayHintMac => "It keeps checking your mail from the menu bar. Click the Hey Look! icon in the Dock or the menu bar to open it again.",
-        K::TrayHintLinux => "It keeps checking your mail from the tray. Choose Quit Hey Look! in the tray icon’s menu to exit.",
-        K::TrayHintOther => "It keeps checking your mail from the tray. Right-click the tray icon and choose Quit to exit.",
-        K::TestTitle => "Hey Look! test notification",
-        K::TestLine1 => "Notifications are working",
-        K::TestLine2 => "This is how new mail will look.",
-        K::EveryDay => "Every day",
-        K::EveryMonth => "Every month",
-        K::EveryYear => "Every year",
-        K::SaveAttachmentsTo => "Save attachments to",
-        K::ChooseKeyFile => "Choose a key file",
-        K::OpenPgpKeys => "OpenPGP keys",
-        K::CalendarFile => "Calendar file",
-        K::SavePublicKey => "Save public key",
-        K::SaveKeyBackup => "Save a backup of your key",
+        K::TrayOpen => "Abrir Hey Look!",
+        K::TrayCompose => "Nuevo mensaje",
+        K::TraySync => "Comprobar correo ahora",
+        K::TrayPause => "Pausar notificaciones",
+        K::TrayQuit => "Salir de Hey Look!",
+        K::MacQuit => "Salir de Hey Look!",
+        K::ActArchive => "Archivar",
+        K::ActDelete => "Eliminar",
+        K::ActRead => "Marcar como leído",
+        K::ActFlag => "Marcar con bandera",
+        K::ActReply => "Responder",
+        K::ActSnooze => "Posponer",
+        K::TrayHintTitle => "Hey Look! sigue en ejecución",
+        K::TrayHintMac => "Sigue comprobando tu correo desde la barra de menús. Haz clic en el icono de Hey Look! del Dock o de la barra de menús para abrirlo de nuevo.",
+        K::TrayHintLinux => "Sigue comprobando tu correo desde la bandeja del sistema. Elige Salir de Hey Look! en el menú del icono de la bandeja para cerrarlo.",
+        K::TrayHintOther => "Sigue comprobando tu correo desde la bandeja del sistema. Haz clic con el botón derecho en el icono de la bandeja y elige Salir para cerrarlo.",
+        K::TestTitle => "Notificación de prueba de Hey Look!",
+        K::TestLine1 => "Las notificaciones funcionan",
+        K::TestLine2 => "Así se verá el correo nuevo.",
+        K::EveryDay => "Todos los días",
+        K::EveryMonth => "Todos los meses",
+        K::EveryYear => "Todos los años",
+        K::SaveAttachmentsTo => "Guardar los adjuntos en",
+        K::ChooseKeyFile => "Elegir un archivo de clave",
+        K::OpenPgpKeys => "Claves OpenPGP",
+        K::CalendarFile => "Archivo de calendario",
+        K::SavePublicKey => "Guardar clave pública",
+        K::SaveKeyBackup => "Guardar una copia de seguridad de tu clave",
     }
 }
 
@@ -43,72 +42,72 @@ pub fn text(k: K) -> &'static str {
 pub fn unread_tooltip(n: u32) -> String {
     match n {
         0 => "Hey Look!".to_string(),
-        1 => "Hey Look! — 1 unread conversation".to_string(),
-        n => format!("Hey Look! — {n} unread conversations"),
+        1 => "Hey Look! — 1 conversación sin leer".to_string(),
+        n => format!("Hey Look! — {n} conversaciones sin leer"),
     }
 }
 
 /// Notification for more than three new messages at once.
 pub fn new_messages(n: usize) -> String {
-    format!("{n} new messages")
+    format!("{n} mensajes nuevos")
 }
 
 /// Title of the notification for a snoozed conversation that came back.
 pub fn snooze_ended(who: &str) -> String {
-    format!("Snooze ended: {who}")
+    format!("Ya no está pospuesto: {who}")
 }
 
 /// Event reminder title: the event starts now (`minutes` = 0) or in `minutes` minutes.
 pub fn event_reminder(summary: &str, minutes: i64) -> String {
     match minutes {
-        0 => format!("{summary} is starting"),
-        1 => format!("{summary} in 1 minute"),
-        m => format!("{summary} in {m} minutes"),
+        0 => format!("{summary} empieza ahora"),
+        1 => format!("{summary} en 1 minuto"),
+        m => format!("{summary} en {m} minutos"),
     }
 }
 
-/// Day name, `i` = 0 for Monday.
+/// Day name (plural form, lower case), `i` = 0 for Monday.
 pub fn day_name(i: usize) -> &'static str {
-    const DAYS: [&str; 7] = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"];
+    const DAYS: [&str; 7] = ["lunes", "martes", "miércoles", "jueves", "viernes", "sábados", "domingos"];
     DAYS[i % 7]
 }
 
-/// "Monday, Tuesday and Friday"
+/// "lunes, martes y viernes"
 pub fn day_list(days: &[String]) -> String {
     match days.len() {
         0 => String::new(),
         1 => days[0].clone(),
-        n => format!("{} and {}", days[..n - 1].join(", "), days[n - 1]),
+        n => format!("{} y {}", days[..n - 1].join(", "), days[n - 1]),
     }
 }
 
-/// "Every Wednesday" / "Every 2 weeks on Wednesday" (`list` from `day_list`).
+/// "Todos los miércoles" / "Cada 2 semanas los miércoles" (`list` from `day_list`).
 pub fn every_weekday(n: u32, list: &str) -> String {
     match n {
-        1 => format!("Every {list}"),
-        n => format!("Every {n} weeks on {list}"),
+        1 => format!("Todos los {list}"),
+        n => format!("Cada {n} semanas los {list}"),
     }
 }
 
-/// "Every 2 days" etc. `unit`: 'd' day, 'm' month, 'y' year.
+/// "Cada 2 días" etc. `unit`: 'd' day, 'm' month, 'y' year.
 pub fn every_n(n: u32, unit: char) -> String {
     match unit {
-        'd' => format!("Every {n} days"),
-        'm' => format!("Every {n} months"),
-        _ => format!("Every {n} years"),
+        'd' => format!("Cada {n} días"),
+        'm' => format!("Cada {n} meses"),
+        _ => format!("Cada {n} años"),
     }
 }
 
-/// ", 5 times"
+/// ", 5 veces"
 pub fn times_tail(c: u32) -> String {
     match c {
-        1 => ", 1 time".to_string(),
-        c => format!(", {c} times"),
+        1 => ", 1 vez".to_string(),
+        c => format!(", {c} veces"),
     }
 }
 
-/// ", until 31 Dec 2026" (`month0` = 0 for January)
+/// ", hasta el 31 dic 2026" (`month0` = 0 for January)
 pub fn until_tail(day: u32, month0: u32, year: i32) -> String {
-    const MONTHS: [&str; 12] = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
-    format!(", until {day} {} {year}", MONTHS[(month0 % 12) as usize])
+    const MONTHS: [&str; 12] = ["ene", "feb", "mar", "abr", "may", "jun", "jul", "ago", "sep", "oct", "nov", "dic"];
+    format!(", hasta el {day} {} {year}", MONTHS[(month0 % 12) as usize])
 }
