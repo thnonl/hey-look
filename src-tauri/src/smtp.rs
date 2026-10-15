@@ -365,9 +365,9 @@ fn smtp_user(acc: &Account) -> String {
     }
 }
 
-fn transport(acc: &Account, secret: &str) -> R<SmtpTransport> {
-    transport_with(acc, secret, None)
-}
+/// How long one step of sending (connect, TLS handshake, greeting, each reply) may take. lettre's own default is a minute; a server that
+/// accepts and then stays silent (a plain SMTP port with SSL/TLS, a firewall that swallows packets) must not keep a send waiting that long.
+const SEND_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(30);
 
 /// `timeout`: how long a connection step may take (lettre's own default is a minute); the checks made while an account is added use less.
 fn transport_with(acc: &Account, secret: &str, timeout: Option<std::time::Duration>) -> R<SmtpTransport> {
@@ -390,9 +390,78 @@ fn transport_with(acc: &Account, secret: &str, timeout: Option<std::time::Durati
     Ok((if acc.auth.starts_with("oauth_") { b.authentication(vec![Mechanism::Xoauth2]) } else { b }).build())
 }
 
+/// Why `probe_ssl_handshake` gave up.
+enum Probe {
+    /// The server accepted the connection but did not answer the TLS handshake in time.
+    Silent,
+    /// The connection itself timed out (the text is the I/O error).
+    ConnectTimedOut(String),
+}
+
+impl Probe {
+    /// The error text: a silent server gets the secure connection hint (as the IMAP side does for a failed handshake), a timed out
+    /// connection the usual connection words, put into the caller’s own phrasing by `wrap`.
+    fn explain(self, acc: &Account, wrap: impl Fn(&str) -> String) -> String {
+        match self {
+            Probe::Silent => crate::mail::secure_connection_error(&acc.smtp_host, acc.smtp_port, "no answer to the TLS handshake"),
+            Probe::ConnectTimedOut(e) => wrap(&format!("Connection error: {e}")),
+        }
+    }
+}
+
+/// lettre sets the read and write timeouts of its connection only after the TLS handshake of an SSL/TLS (implicit TLS) connection has
+/// finished, so a server that accepts the connection and then stays silent (a plain SMTP port, a firewall that swallows packets) would
+/// keep a send or an account check waiting with no bound at all. For such connections the handshake is therefore run once here first,
+/// on a socket that has the timeouts (like `mail::tcp` does for IMAP) and the result is thrown away; anything that is not a timeout
+/// (refused, a handshake that failed, an untrusted certificate) is left to lettre, which words it as before.
+fn probe_ssl_handshake(acc: &Account, timeout: std::time::Duration) -> Result<(), Probe> {
+    use std::net::ToSocketAddrs;
+    if acc.smtp_security != "ssl" {
+        return Ok(());
+    }
+    let host = acc.smtp_host.as_str();
+    let Ok(connector) = native_tls::TlsConnector::builder().danger_accept_invalid_certs(acc.tls_insecure).danger_accept_invalid_hostnames(acc.tls_insecure).build() else { return Ok(()) };
+    let Ok(addrs) = (host, acc.smtp_port).to_socket_addrs() else { return Ok(()) };
+    let mut timed_out = None;
+    for addr in addrs {
+        let sock = match std::net::TcpStream::connect_timeout(&addr, timeout) {
+            Ok(s) => s,
+            Err(e) if e.kind() == std::io::ErrorKind::TimedOut => {
+                timed_out = Some(e.to_string());
+                continue;
+            }
+            Err(_) => continue,
+        };
+        let _ = sock.set_read_timeout(Some(timeout));
+        let _ = sock.set_write_timeout(Some(timeout));
+        let started = std::time::Instant::now();
+        return match connector.connect(host, sock) {
+            Ok(mut stream) => {
+                let _ = stream.shutdown();
+                Ok(())
+            }
+            Err(native_tls::HandshakeError::WouldBlock(_)) => Err(Probe::Silent),
+            Err(native_tls::HandshakeError::Failure(e)) => {
+                use std::error::Error as _;
+                let io_timeout = e.source().and_then(|s| s.downcast_ref::<std::io::Error>()).is_some_and(|io| matches!(io.kind(), std::io::ErrorKind::TimedOut | std::io::ErrorKind::WouldBlock));
+                // platforms word a read that timed out differently, so the time the handshake took counts too
+                if io_timeout || started.elapsed() >= timeout.mul_f32(0.9) { Err(Probe::Silent) } else { Ok(()) }
+            }
+        };
+    }
+    timed_out.map_or(Ok(()), |e| Err(Probe::ConnectTimedOut(e)))
+}
+
 /// Send an already finished message (encrypted/signed ones are built once, at schedule time).
 pub fn send_raw(acc: &Account, secret: &str, env: &lettre::address::Envelope, raw: &[u8]) -> R<()> {
-    transport(acc, secret)?.send_raw(env, raw).map_err(|e| {
+    send_raw_with(acc, secret, env, raw, SEND_TIMEOUT)
+}
+
+fn send_raw_with(acc: &Account, secret: &str, env: &lettre::address::Envelope, raw: &[u8], timeout: std::time::Duration) -> R<()> {
+    if let Err(p) = probe_ssl_handshake(acc, timeout) {
+        return Err(p.explain(acc, |detail| explain_send_error(None, detail)));
+    }
+    transport_with(acc, secret, Some(timeout))?.send_raw(env, raw).map_err(|e| {
         let text = e.to_string();
         // a failure of the TLS step has its own hint (REQ-53); everything else is explained as before
         if e.status().is_none() && is_tls_failure(&e) {
@@ -450,7 +519,14 @@ const TEST_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(20);
 
 /// Connect and authenticate without sending anything.
 pub fn test(acc: &Account, secret: &str) -> R<()> {
-    match transport_with(acc, secret, Some(TEST_TIMEOUT))?.test_connection() {
+    test_with(acc, secret, TEST_TIMEOUT)
+}
+
+fn test_with(acc: &Account, secret: &str, timeout: std::time::Duration) -> R<()> {
+    if let Err(p) = probe_ssl_handshake(acc, timeout) {
+        return Err(p.explain(acc, |detail| format!("SMTP login failed: {detail}")));
+    }
+    match transport_with(acc, secret, Some(timeout))?.test_connection() {
         Ok(true) => Ok(()),
         Ok(false) => Err("SMTP server did not accept the connection".into()),
         Err(e) => {
@@ -747,63 +823,131 @@ To:"), "no To header is invented: {out}");
     }
 
     /// A mail server that does not speak TLS (QA round 6: GreenMail on 127.0.0.1:3025): it greets in plain text, knows no STARTTLS,
-    /// and answers everything else with an error. Returns its port; it serves connections until the test ends.
+    /// and answers everything else with an error. Returns its port; it serves connections until the test ends. It never waits for
+    /// ever: input that is not text (a TLS ClientHello, which has no line end) makes it drop the connection, as a real server does, and
+    /// a connection that sends nothing for 5 s is closed.
     fn plain_smtp_server() -> u16 {
-        use std::io::{BufRead, BufReader, Write};
+        use std::io::{Read, Write};
         let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
         let port = listener.local_addr().unwrap().port();
         std::thread::spawn(move || {
             for conn in listener.incoming().flatten() {
                 std::thread::spawn(move || {
+                    let _ = conn.set_read_timeout(Some(std::time::Duration::from_secs(5)));
                     let mut w = conn.try_clone().unwrap();
                     let _ = w.write_all(b"220 plain.test ESMTP\r\n");
-                    for line in BufReader::new(conn).split(b'\n').map_while(Result::ok) {
-                        let l = String::from_utf8_lossy(&line).to_uppercase();
-                        let reply: &[u8] = if l.starts_with("EHLO") { b"250 plain.test\r\n" } else if l.starts_with("QUIT") { b"221 bye\r\n" } else { b"500 Command not recognized\r\n" };
-                        if w.write_all(reply).is_err() || l.starts_with("QUIT") {
+                    let mut r = &conn;
+                    let (mut buf, mut chunk) = (Vec::<u8>::new(), [0u8; 4096]);
+                    'serve: loop {
+                        match r.read(&mut chunk) {
+                            Ok(0) | Err(_) => break,
+                            Ok(n) => buf.extend_from_slice(&chunk[..n]),
+                        }
+                        if buf.iter().any(|b| !matches!(b, b'\r' | b'\n' | b'\t' | 0x20..=0x7e)) {
                             break;
                         }
+                        while let Some(end) = buf.iter().position(|b| *b == b'\n') {
+                            let line: Vec<u8> = buf.drain(..=end).collect();
+                            let l = String::from_utf8_lossy(&line).to_uppercase();
+                            let reply: &[u8] = if l.starts_with("EHLO") { b"250 plain.test\r\n" } else if l.starts_with("QUIT") { b"221 bye\r\n" } else { b"500 Command not recognized\r\n" };
+                            if w.write_all(reply).is_err() || l.starts_with("QUIT") {
+                                break 'serve;
+                            }
+                        }
                     }
+                    let _ = conn.shutdown(std::net::Shutdown::Both);
                 });
             }
         });
         port
     }
 
+    /// A server that accepts connections and never says a word (a firewall that swallows packets, a service that waits for the client to
+    /// speak first). Connections are held open until the returned sender is dropped.
+    fn silent_server() -> (u16, std::sync::mpsc::Sender<()>) {
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        listener.set_nonblocking(true).unwrap();
+        let port = listener.local_addr().unwrap().port();
+        let (stop, gone) = std::sync::mpsc::channel::<()>();
+        std::thread::spawn(move || {
+            let mut held = Vec::new();
+            while !matches!(gone.try_recv(), Err(std::sync::mpsc::TryRecvError::Disconnected)) {
+                match listener.accept() {
+                    Ok((c, _)) => held.push(c),
+                    Err(_) => std::thread::sleep(std::time::Duration::from_millis(20)),
+                }
+            }
+        });
+        (port, stop)
+    }
+
+    fn envelope_for_tests() -> lettre::address::Envelope {
+        lettre::address::Envelope::new(Some("me@example.com".parse().unwrap()), vec!["you@example.com".parse().unwrap()]).unwrap()
+    }
+
     /// QA round 6 (OBS-R6-2, REQ-53 / AC-69): a plain SMTP port with SSL/TLS or STARTTLS is reported with the hint, not the library's
     /// words (on Windows "The token supplied to the function is invalid").
     #[test]
     fn a_plain_smtp_port_with_ssl_or_starttls_gets_the_secure_connection_hint() {
-        let port = plain_smtp_server();
-        for security in ["ssl", "starttls"] {
-            let mut acc = account();
-            acc.smtp_host = "127.0.0.1".into();
-            acc.smtp_port = port;
-            acc.smtp_security = security.into();
-            acc.tls_insecure = true; // the certificate is not the question here
-            let e = test(&acc, "secret").unwrap_err();
-            assert!(crate::mail::is_secure_connection_error(&e), "{security}: {e}");
-            assert!(e.contains(&format!("127.0.0.1:{port}")) && e.contains("SSL/TLS or STARTTLS") && e.contains("(Server: "), "{security}: {e}");
-            // sending uses the same words
-            let env = lettre::address::Envelope::new(Some("me@example.com".parse().unwrap()), vec!["you@example.com".parse().unwrap()]).unwrap();
-            let e = send_raw(&acc, "secret", &env, b"Subject: x\r\n\r\nhi").unwrap_err();
-            assert!(crate::mail::is_secure_connection_error(&e), "send, {security}: {e}");
-        }
+        // hard bound: macOS QA saw this test wait for ever when the fixture never answered a TLS ClientHello
+        crate::test_guard::within(120, || {
+            let port = plain_smtp_server();
+            for security in ["ssl", "starttls"] {
+                let mut acc = account();
+                acc.smtp_host = "127.0.0.1".into();
+                acc.smtp_port = port;
+                acc.smtp_security = security.into();
+                acc.tls_insecure = true; // the certificate is not the question here
+                let e = test(&acc, "secret").unwrap_err();
+                assert!(crate::mail::is_secure_connection_error(&e), "{security}: {e}");
+                assert!(e.contains(&format!("127.0.0.1:{port}")) && e.contains("SSL/TLS or STARTTLS") && e.contains("(Server: "), "{security}: {e}");
+                // sending uses the same words
+                let e = send_raw(&acc, "secret", &envelope_for_tests(), b"Subject: x\r\n\r\nhi").unwrap_err();
+                assert!(crate::mail::is_secure_connection_error(&e), "send, {security}: {e}");
+            }
+        });
+    }
+
+    /// A server that accepts and stays silent ends the connection check and the send with an error after the timeout, whatever the
+    /// security setting says; it never waits for ever.
+    #[test]
+    fn a_silent_smtp_server_is_given_up_on_after_the_timeout() {
+        crate::test_guard::within(90, || {
+            assert!(SEND_TIMEOUT <= std::time::Duration::from_secs(30) && TEST_TIMEOUT <= std::time::Duration::from_secs(30));
+            let (port, _keep_open) = silent_server();
+            let short = std::time::Duration::from_secs(2);
+            for security in ["none", "ssl", "starttls"] {
+                let mut acc = account();
+                acc.smtp_host = "127.0.0.1".into();
+                acc.smtp_port = port;
+                acc.smtp_security = security.into();
+                acc.tls_insecure = true;
+                let t = std::time::Instant::now();
+                let e = test_with(&acc, "secret", short).unwrap_err();
+                assert_eq!(crate::mail::is_secure_connection_error(&e), security == "ssl", "{security}: connection check: {e}");
+                assert!(t.elapsed() < std::time::Duration::from_secs(15), "{security}: connection check took {:?}", t.elapsed());
+                let t = std::time::Instant::now();
+                assert!(send_raw_with(&acc, "secret", &envelope_for_tests(), b"Subject: x\r\n\r\nhi", short).is_err(), "{security}: send");
+                assert!(t.elapsed() < std::time::Duration::from_secs(15), "{security}: send took {:?}", t.elapsed());
+            }
+        });
     }
 
     #[test]
     fn a_closed_smtp_port_is_a_connection_problem_not_a_secure_connection_hint() {
-        // a port nothing listens on: refused, which has an I/O error as its cause
-        let port = {
-            let l = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
-            l.local_addr().unwrap().port()
-        };
-        let mut acc = account();
-        acc.smtp_host = "127.0.0.1".into();
-        acc.smtp_port = port;
-        let e = test(&acc, "secret").unwrap_err();
-        assert!(!crate::mail::is_secure_connection_error(&e), "{e}");
-        assert!(e.starts_with("SMTP login failed: "), "{e}");
+        crate::test_guard::within(60, || {
+            // a port nothing listens on: refused, which has an I/O error as its cause
+            let port = {
+                let l = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+                l.local_addr().unwrap().port()
+            };
+            let mut acc = account();
+            acc.smtp_host = "127.0.0.1".into();
+            acc.smtp_port = port;
+            let e = test(&acc, "secret").unwrap_err();
+            assert!(!crate::mail::is_secure_connection_error(&e), "{e}");
+            assert!(e.starts_with("SMTP login failed: "), "{e}");
+        });
     }
 
     #[test]

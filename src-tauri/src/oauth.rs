@@ -650,45 +650,49 @@ Host: 127.0.0.1
 
     #[test]
     fn cancel_ends_the_wait_at_once_frees_the_port_and_stores_nothing() {
-        let p = begin(Provider::Google, "", "cid").unwrap();
-        let (port, flag) = (p.port, p.canceller());
-        let waiting = Waiting::new();
-        waiting.begin(flag.clone());
-        let h = std::thread::spawn(move || p.finish("cid", "").err());
-        std::thread::sleep(Duration::from_millis(400));
-        assert!(!h.is_finished(), "it waits for the browser");
-        let t0 = Instant::now();
-        waiting.cancel();
-        let e = h.join().unwrap().expect("a cancelled sign-in is an error, not an account");
-        assert!(t0.elapsed() < Duration::from_secs(2), "{:?}", t0.elapsed());
-        assert_eq!(e, "OAUTH_CANCELLED|label=Google: Google sign-in cancelled");
-        // the loopback port is free again
-        assert!(TcpListener::bind(("127.0.0.1", port)).is_ok());
-        // (the sign-in is over: a later Cancel does not touch the next one)
-        waiting.end(&flag);
-        let next = Arc::new(AtomicBool::new(false));
-        waiting.begin(next.clone());
-        waiting.end(&flag);
-        waiting.cancel();
-        assert!(next.load(Ordering::SeqCst), "ending the old sign-in did not take the slot of the new one");
+        crate::test_guard::within(30, || {
+            let p = begin(Provider::Google, "", "cid").unwrap();
+            let (port, flag) = (p.port, p.canceller());
+            let waiting = Waiting::new();
+            waiting.begin(flag.clone());
+            let h = std::thread::spawn(move || p.finish("cid", "").err());
+            std::thread::sleep(Duration::from_millis(400));
+            assert!(!h.is_finished(), "it waits for the browser");
+            let t0 = Instant::now();
+            waiting.cancel();
+            let e = h.join().unwrap().expect("a cancelled sign-in is an error, not an account");
+            assert!(t0.elapsed() < Duration::from_secs(2), "{:?}", t0.elapsed());
+            assert_eq!(e, "OAUTH_CANCELLED|label=Google: Google sign-in cancelled");
+            // the loopback port is free again
+            assert!(TcpListener::bind(("127.0.0.1", port)).is_ok());
+            // (the sign-in is over: a later Cancel does not touch the next one)
+            waiting.end(&flag);
+            let next = Arc::new(AtomicBool::new(false));
+            waiting.begin(next.clone());
+            waiting.end(&flag);
+            waiting.cancel();
+            assert!(next.load(Ordering::SeqCst), "ending the old sign-in did not take the slot of the new one");
+        });
     }
 
     #[test]
     fn a_new_sign_in_ends_the_one_that_still_waits_and_the_wait_times_out() {
-        let waiting = Waiting::new();
-        let (old, new) = (Arc::new(AtomicBool::new(false)), Arc::new(AtomicBool::new(false)));
-        waiting.begin(old.clone());
-        waiting.begin(new.clone());
-        assert!(old.load(Ordering::SeqCst) && !new.load(Ordering::SeqCst));
-        waiting.end(&new);
-        waiting.cancel();
-        assert!(!new.load(Ordering::SeqCst), "nothing waits any more");
-        // no redirect ever comes: the limit ends the wait and frees the port
-        let p = begin(Provider::Microsoft, "common", "cid").unwrap();
-        let port = p.port;
-        let e = p.finish_within(Duration::from_millis(300), "cid", "").err().unwrap();
-        assert_eq!(e, "OAUTH_TIMEOUT|label=Microsoft: Microsoft sign-in timed out");
-        assert!(TcpListener::bind(("127.0.0.1", port)).is_ok());
+        crate::test_guard::within(30, || {
+            let waiting = Waiting::new();
+            let (old, new) = (Arc::new(AtomicBool::new(false)), Arc::new(AtomicBool::new(false)));
+            waiting.begin(old.clone());
+            waiting.begin(new.clone());
+            assert!(old.load(Ordering::SeqCst) && !new.load(Ordering::SeqCst));
+            waiting.end(&new);
+            waiting.cancel();
+            assert!(!new.load(Ordering::SeqCst), "nothing waits any more");
+            // no redirect ever comes: the limit ends the wait and frees the port
+            let p = begin(Provider::Microsoft, "common", "cid").unwrap();
+            let port = p.port;
+            let e = p.finish_within(Duration::from_millis(300), "cid", "").err().unwrap();
+            assert_eq!(e, "OAUTH_TIMEOUT|label=Microsoft: Microsoft sign-in timed out");
+            assert!(TcpListener::bind(("127.0.0.1", port)).is_ok());
+        });
     }
 
     #[test]

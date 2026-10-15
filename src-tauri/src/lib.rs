@@ -4961,3 +4961,7 @@ mod platform_tests {
         assert!(system_download_dir(None, None).is_err());
     }
 }
+
+// helper of the socket tests (after the first cfg(test): the source-reading tests above cut the file there)
+#[cfg(test)]
+mod test_guard;
