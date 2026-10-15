@@ -342,7 +342,7 @@ pub(crate) fn find(c: &Connection, calendar: &str, uid: &str, rid: &str) -> Opti
 }
 
 pub fn get_event(c: &Connection, id: &str) -> R<CalEvent> {
-    let mut e = c.query_row(&format!("SELECT {COLS} FROM events WHERE id=?1"), [id], row_event).map_err(|_| "event not found".to_string())?;
+    let mut e = c.query_row(&format!("SELECT {COLS} FROM events WHERE id=?1"), [id], row_event).map_err(|_| "CAL_EVENT_NOT_FOUND: event not found".to_string())?;
     mark_confidential(c, &mut e);
     Ok(e)
 }
@@ -863,7 +863,7 @@ fn message_ics(db: &Db, message_id: &str) -> R<(String, String, String, String)>
         .query_row("SELECT account_id,folder,from_email,ics,pgp FROM messages WHERE id=?1", [message_id], |r| {
             Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?, r.get(4)?))
         })
-        .map_err(|_| "message not found".to_string())?;
+        .map_err(|_| "MSG_NOT_FOUND: message not found".to_string())?;
     if let Some(t) = ics {
         return Ok((account, folder, from, t));
     }
@@ -1118,7 +1118,7 @@ pub fn respond(db: &Db, message_id: &str, response: &str, comment: Option<String
     };
     let (account_id, folder, from_email, text) = message_ics(db, message_id)?;
     let cal = ical::parse(&text)?;
-    let ev = first_event(&cal).ok_or("this invitation has no event")?.clone();
+    let ev = first_event(&cal).ok_or("CAL_NO_EVENT: this invitation has no event")?.clone();
     let method = cal.method.clone().unwrap_or_else(|| "PUBLISH".into());
     if method != "REQUEST" && method != "PUBLISH" {
         return Err("CAL_NOT_AN_INVITATION: This message is not an invitation you can respond to.".into());
@@ -1213,7 +1213,7 @@ fn reminder_worker_pass(app: &tauri::AppHandle, db: &Db, fired: &mut HashSet<(St
             None => when,
         };
         let mins = ((e.start - t) / 60).max(0);
-        let title = if mins == 0 { format!("{} is starting", e.summary) } else { format!("{} in {} minute{}", e.summary, mins, if mins == 1 { "" } else { "s" }) };
+        let title = crate::i18n::event_reminder(&e.summary, mins);
         let _ = app.emit("event-reminder", serde_json::json!({ "eventId": e.id, "title": title, "line": line2, "joinUrl": e.join_url, "start": e.start }));
         crate::shell::notify_reminder(app, db, &title, &line2);
     }
@@ -1321,7 +1321,7 @@ pub async fn calendar_save_event(app: tauri::AppHandle, state: tauri::State<'_, 
         }
         let (e, acc) = save_local(&lock(&db), &event)?;
         if let (true, Some(acc)) = (notify, acc) {
-            send_organizer_mail(&db, &acc, &e, "REQUEST").map_err(|m| format!("CAL_SEND_FAILED: The event was saved, but the invitations weren't sent: {m}"))?;
+            send_organizer_mail(&db, &acc, &e, "REQUEST").map_err(|m| crate::i18n::coded("CAL_SEND_FAILED", &[("v", "saved"), ("detail", &m)], &format!("The event was saved, but the invitations weren't sent: {m}")))?;
         }
         Ok(e)
     })
@@ -1349,7 +1349,7 @@ pub async fn calendar_delete_event(app: tauri::AppHandle, state: tauri::State<'_
             let mut cancelled = e.clone();
             cancelled.sequence += 1;
             cancelled.status = "cancelled".into();
-            result = send_organizer_mail(&db, &acc, &cancelled, "CANCEL").map_err(|m| format!("CAL_SEND_FAILED: The event was deleted, but the cancellation wasn't sent: {m}"));
+            result = send_organizer_mail(&db, &acc, &cancelled, "CANCEL").map_err(|m| crate::i18n::coded("CAL_SEND_FAILED", &[("v", "deleted"), ("detail", &m)], &format!("The event was deleted, but the cancellation wasn't sent: {m}")));
         }
         lock(&db).execute("DELETE FROM events WHERE calendar_id=?1 AND uid=?2", params![e.calendar_id, e.uid]).map_err(err)?;
         result
@@ -1375,7 +1375,7 @@ pub async fn calendar_add_from_message(app: tauri::AppHandle, state: tauri::Stat
         let c = lock(&db);
         let acc = db::get_account(&c, &account_id)?;
         let got = ingest(&c, &acc, &message_id, &from_email, &text, true)?;
-        let id = got.event_id.ok_or("CAL_NO_DATA: nothing to add from this message")?;
+        let id = got.event_id.ok_or_else(|| crate::i18n::coded("CAL_NO_DATA", &[("v", "add")], "nothing to add from this message"))?;
         get_event(&c, &id)
     })
     .await;
@@ -1398,7 +1398,7 @@ pub fn calendar_open_message(state: tauri::State<crate::AppState>, message_id: S
         .query_row("SELECT thread_id,folder,account_id FROM messages WHERE id=?1", [&message_id], |r| {
             Ok(MessageRef { thread_id: r.get(0)?, folder: r.get(1)?, account_id: r.get(2)? })
         })
-        .map_err(|_| "This invitation e-mail is no longer on this computer.".to_string())
+        .map_err(|_| "CAL_MAIL_GONE: This invitation e-mail is no longer on this computer.".to_string())
 }
 
 fn ics_file_name(summary: &str) -> String {
@@ -1427,7 +1427,7 @@ pub async fn calendar_save_ics(app: tauri::AppHandle, state: tauri::State<'_, cr
         } else {
             return Err("nothing to save".into());
         };
-        let Some(picked) = app.dialog().file().add_filter("Calendar file", &["ics"]).set_file_name(name).blocking_save_file() else {
+        let Some(picked) = app.dialog().file().add_filter(crate::i18n::tr(crate::i18n::K::CalendarFile), &["ics"]).set_file_name(name).blocking_save_file() else {
             return Ok(None);
         };
         let path = picked.into_path().map_err(err)?;
@@ -1449,13 +1449,13 @@ pub async fn calendar_import_ics(app: tauri::AppHandle, state: tauri::State<'_, 
     let db = state.db.clone();
     let app2 = app.clone();
     let out = crate::blocking(move || {
-        let Some(picked) = app2.dialog().file().add_filter("Calendar file", &["ics"]).blocking_pick_file() else {
+        let Some(picked) = app2.dialog().file().add_filter(crate::i18n::tr(crate::i18n::K::CalendarFile), &["ics"]).blocking_pick_file() else {
             return Ok(None);
         };
         let path = picked.into_path().map_err(err)?;
         let bytes = std::fs::read(&path).map_err(err)?;
         if bytes.len() > 8 * 1024 * 1024 {
-            return Err("CAL_BAD_FILE: This file is too large to be a calendar.".into());
+            return Err(crate::i18n::coded("CAL_BAD_FILE", &[("v", "large")], "This file is too large to be a calendar."));
         }
         let text = String::from_utf8_lossy(&bytes).into_owned();
         let c = lock(&db);
@@ -1468,7 +1468,7 @@ pub async fn calendar_import_ics(app: tauri::AppHandle, state: tauri::State<'_, 
 
 /// Import calendar text as local events (updates events with the same UID).
 pub fn import_text(c: &Connection, text: &str) -> R<ImportResult> {
-    let cal = ical::parse(text).map_err(|e| format!("CAL_BAD_FILE: This doesn't look like a calendar file ({e})."))?;
+    let cal = ical::parse(text).map_err(|e| crate::i18n::coded("CAL_BAD_FILE", &[("v", "detail"), ("detail", &e.to_string())], &format!("This doesn't look like a calendar file ({e}).")))?;
     let mut res = ImportResult { added: 0, updated: 0 };
     for ev in &cal.events {
         let rid = ev.recurrence_id.map(|r| r.to_string()).unwrap_or_default();
@@ -2046,7 +2046,7 @@ END:VCALENDAR
         let (plain, conf) = (from("inv-plain"), from("inv-conf"));
         assert!(!plain.confidential && ensure_event_exportable(&c, &plain).is_ok());
         assert!(conf.confidential);
-        assert_eq!(ensure_event_exportable(&c, &conf).unwrap_err(), "This message is confidential, so that isn’t allowed.");
+        assert_eq!(ensure_event_exportable(&c, &conf).unwrap_err(), "CONFIDENTIAL: This message is confidential, so that isn’t allowed.");
         // an event of your own, or one without a source message, is never held back
         assert!(ensure_event_exportable(&c, &e).is_ok());
         assert!(list_range(&c, 0, i64::MAX / 4).unwrap().iter().any(|x| x.id == conf.id && x.confidential));

@@ -1,7 +1,9 @@
 // Calendar sync with Google Calendar / Outlook: the rules that Settings, the calendar sidebar and the event dialog share.
 // Pure functions without Tauri or React, so scripts/test-calendar-sync.mjs can check them. The wording follows the design
-// (reports/v1-0-1/04-calendar-sync.md section 6); an i18n pass will move the strings later.
+// (reports/v1-0-1/04-calendar-sync.md section 6); the sentences live in the dictionary (i18n/ns/calendar.ts).
 import type { CalEvent, CalendarInfo, CalSource } from "./api";
+import { t } from "./i18n/index.ts"; // (explicit path: scripts/test-calendar-sync.mjs loads this file with node)
+import type { Key } from "./i18n/index.ts";
 
 export type SyncKind = "google" | "microsoft";
 
@@ -22,15 +24,25 @@ const kindOf = (s: string): SyncKind => (s === "microsoft" ? "microsoft" : "goog
 /** True for the id of a calendar that is synced from a service (not "local", not "invites:<account>"). */
 export const isSyncedCalendarId = (id: string) => /^(google|ms|caldav):/.test(id);
 
+/**
+ * The name of a calendar as the sidebar shows it: the backend names "local" "My events" and an account's invitations calendar
+ * "Invitations · address" in English; both are shown in the language in use. Any other name is the calendar's own.
+ */
+export function calendarTitle(c: { id: string; name: string }): string {
+  if (c.id === "local") return t("calendar.myEvents");
+  const inv = /^Invitations · (.+)$/.exec(c.name);
+  return c.id.startsWith("invites:") && inv ? t("calendar.invitationsOf", { email: inv[1] }) : c.name;
+}
+
 /** The calendar's own name from the sidebar label "Name · address". */
 export const calendarName = (label: string) => label.split(" · ")[0] || label;
 
 export function lastSyncedText(last: number | null, nowSec: number, fmtTime: (sec: number) => string): string {
-  if (last === null || last === undefined) return "Not synced yet";
+  if (last === null || last === undefined) return t("calendar.sync.never");
   const age = Math.max(0, nowSec - last);
-  if (age < 60) return "Last synced just now";
-  if (age < 3600) return `Last synced ${Math.floor(age / 60)} min ago`;
-  return `Last synced at ${fmtTime(last)}`;
+  if (age < 60) return t("calendar.sync.justNow");
+  if (age < 3600) return t("calendar.sync.minAgo", { n: Math.floor(age / 60) });
+  return t("calendar.sync.syncedAt", { time: fmtTime(last) });
 }
 
 export interface StatusLine {
@@ -49,22 +61,22 @@ const minutes = (retryAt: number | null, nowSec: number) => Math.max(1, Math.cei
 export function statusLine(src: CalSource, ctx: { email: string; nowSec: number; fmtTime: (sec: number) => string }): StatusLine {
   const kind = kindOf(src.kind);
   const service = serviceName(kind);
-  const reason = (src.lastError ?? "").trim() || "no reason given";
+  const reason = (src.lastError ?? "").trim() || t("calendar.sync.noReason");
   switch (src.status) {
     case "syncing":
-      return { text: src.firstSync ? "Downloading your calendars…" : "Syncing…", tone: "muted", syncNow: "disabled", allow: false };
+      return { text: src.firstSync ? t("calendar.sync.downloading") : t("calendar.sync.syncing"), tone: "muted", syncNow: "disabled", allow: false };
     case "offline":
-      return { text: "Offline. The calendar shows the events saved on this computer.", tone: "muted", syncNow: "on", allow: false };
+      return { text: t("calendar.sync.offline"), tone: "muted", syncNow: "on", allow: false };
     case "busy":
-      return { text: `${service} is busy. Hey Look! tries again in ${minutes(src.retryAt, ctx.nowSec)} min.`, tone: "muted", syncNow: "on", allow: false };
+      return { text: t("calendar.sync.busy", { service, n: minutes(src.retryAt, ctx.nowSec) }), tone: "muted", syncNow: "on", allow: false };
     case "auth":
-      return { text: `Calendar access for ${ctx.email} ended. Allow access again to keep syncing.`, tone: "bad", syncNow: "off", allow: true };
+      return { text: t("calendar.sync.auth", { email: ctx.email }), tone: "bad", syncNow: "off", allow: true };
     case "blocked":
-      return { text: `${ctx.email}’s organization hasn’t approved Hey Look! for calendar access. Ask your IT admin.`, tone: "bad", syncNow: "off", allow: true };
+      return { text: t("calendar.sync.blocked", { email: ctx.email }), tone: "bad", syncNow: "off", allow: true };
     case "notsetup":
-      return { text: `Calendar sync isn’t available in this version of Hey Look! (${providerName(kind)} reported: ${reason}).`, tone: "bad", syncNow: "off", allow: false };
+      return { text: t("calendar.sync.notSetUp", { provider: providerName(kind), reason }), tone: "bad", syncNow: "off", allow: false };
     case "error":
-      return { text: `Couldn’t sync the calendar: ${reason}. Hey Look! tries again in ${minutes(src.retryAt, ctx.nowSec)} min.`, tone: "muted", syncNow: "on", allow: false };
+      return { text: t("calendar.sync.error", { reason, n: minutes(src.retryAt, ctx.nowSec) }), tone: "muted", syncNow: "on", allow: false };
     default:
       return { text: lastSyncedText(src.lastSync, ctx.nowSec, ctx.fmtTime), tone: "muted", syncNow: "on", allow: false };
   }
@@ -73,7 +85,7 @@ export function statusLine(src: CalSource, ctx: { email: string; nowSec: number;
 /** The extra line when a calendar has more events than the app keeps. */
 export function truncatedNote(src: CalSource): string | null {
   const c = src.calendars.find((x) => x.truncated && x.syncOn);
-  return c ? `Only part of ${c.name} was downloaded: it has more than 25,000 events.` : null;
+  return c ? t("calendar.sync.truncated", { name: c.name }) : null;
 }
 
 /** Mailboxes whose calendar sync is paused until the person acts (access ended, blocked by the organization). */
@@ -84,14 +96,14 @@ export function pausedSources(sources: CalSource[]): CalSource[] {
 /** Why an event of a synced calendar has no Edit / Delete. `label` is the calendar's sidebar label. */
 export function readOnlyNote(e: Pick<CalEvent, "readOnly">, label: string, service: string | null | undefined): string | null {
   const cal = calendarName(label);
-  const svc = service || "its own app";
+  const svc = service || t("calendar.sync.ownApp");
   switch (e.readOnly) {
     case "repeating":
-      return `Repeating events of ${cal} can be changed in ${svc} for now.`;
+      return t("calendar.sync.readOnlyRepeating", { calendar: cal, service: svc });
     case "calendar":
-      return `${cal} is read only.`;
+      return t("calendar.sync.readOnlyCalendar", { calendar: cal });
     case "organizer":
-      return "Only the organizer can change this event.";
+      return t("calendar.sync.readOnlyOrganizer");
     default:
       return null;
   }
@@ -107,10 +119,51 @@ export function defaultCalendar(cals: CalendarInfo[], last: string | null | unde
   return last && writableCalendars(cals).some((c) => c.id === last) ? last : "local";
 }
 
-/** The sentence for the backend's calendar sync errors ("CAL_CONFLICT: text"), or null for any other error. */
+/**
+ * The sentences the backend writes for its calendar sync errors, in the shape they arrive ("CAL_CONFLICT: <text>"): each pattern
+ * names the dictionary key of its translation and the `{placeholders}` its capture groups fill, in order.
+ */
+export const BACKEND_ERRORS: { re: RegExp; key: Key; names: string[] }[] = [
+  { re: /^You’re offline\. Changes to (.+) need a connection\.$/s, key: "calendar.err.offline", names: ["calendar"] },
+  { re: /^This event was changed in (.+), so its latest version is shown\.$/s, key: "calendar.err.conflict", names: ["service"] },
+  { re: /^This event was deleted in (.+)\.$/s, key: "calendar.err.deleted", names: ["service"] },
+  { re: /^This calendar is no longer synced\.$/s, key: "calendar.err.noLongerSynced", names: [] },
+  { re: /^This event is not part of a synced calendar\.$/s, key: "calendar.err.notSynced", names: [] },
+  { re: /^Calendar access for (.+) ended\. Allow access again in Settings > Mailboxes > Calendar to keep syncing\.$/s, key: "calendar.err.auth", names: ["email"] },
+  { re: /^(.+) is busy\. Try again in a moment\.$/s, key: "calendar.err.busy", names: ["service"] },
+  { re: /^Calendar sync isn’t available in this version of Hey Look! \((.*)\)\.$/s, key: "calendar.err.notSetUp", names: ["reason"] },
+  { re: /^This mailbox has no calendar that Hey Look! can sync\.$/s, key: "calendar.err.noCalendar", names: [] },
+  { re: /^Couldn’t save to ([^:]+): (.*)\.$/s, key: "calendar.err.saveFailed", names: ["service", "reason"] },
+  { re: /^Couldn’t turn on calendar sync: (.*)$/s, key: "calendar.err.turnOnFailed", names: ["reason"] },
+  { re: /^Couldn’t save the calendar sign-in: (.*)$/s, key: "calendar.err.signInSaveFailed", names: ["reason"] },
+  { re: /^Repeating events of (.+) can be changed in (.+) for now\.$/s, key: "calendar.sync.readOnlyRepeating", names: ["calendar", "service"] },
+  { re: /^Repeating events can be added to (.+) in (.+) for now\.$/s, key: "calendar.sync.repeatAddOnly", names: ["calendar", "service"] },
+  { re: /^Only the organizer can change this event\.$/s, key: "calendar.sync.readOnlyOrganizer", names: [] },
+  { re: /^(.+) is read only\.$/s, key: "calendar.sync.readOnlyCalendar", names: ["calendar"] },
+  { re: /^(.+?)’s organization hasn’t approved Hey Look! for calendar access\. Ask your IT admin\.$/s, key: "calendar.sync.blocked", names: ["email"] },
+  { re: /^Calendar access wasn’t allowed\. Turn the switch on to try again\.$/s, key: "calendar.err.denied", names: [] },
+  { re: /^Calendar sign-in timed out\. Turn the switch on to try again\.$/s, key: "calendar.err.timeout", names: [] },
+  { re: /^Calendar sign-in was cancelled\.$/s, key: "calendar.err.cancelled", names: [] },
+  { re: /^You allowed access for (.+?)\. Sign in as (.+?) to sync this mailbox’s calendar\.$/s, key: "calendar.err.wrongAccount", names: ["signedIn", "mailbox"] },
+  { re: /^Hey Look! needs every calendar permission it asked for\. Turn the switch on again and keep all boxes ticked\.$/s, key: "calendar.err.partial", names: [] },
+];
+
+/**
+ * The sentence for the backend's calendar sync errors ("CAL_CONFLICT: text"), or null for any other error. A sentence the app knows
+ * is shown in the language in use; any other text of such an error is shown as the backend wrote it.
+ */
 export function calendarErrorText(raw: string): string | null {
   const m = /^CAL_(OFFLINE|CONFLICT|GONE|READ_ONLY|AUTH|BUSY|NOT_SET_UP|DENIED|WRONG_ACCOUNT|PARTIAL|TIMEOUT|CANCELLED|BLOCKED|ERROR):\s*(.+)$/s.exec(raw.trim());
-  return m ? m[2].trim() : null;
+  if (!m) return null;
+  const text = m[2].trim();
+  for (const e of BACKEND_ERRORS) {
+    const hit = e.re.exec(text);
+    if (!hit) continue;
+    const params: Record<string, string> = {};
+    e.names.forEach((n, i) => (params[n] = hit[i + 1]));
+    return t(e.key, params);
+  }
+  return text;
 }
 
 /** The code of such an error ("CONFLICT"), or null. */
@@ -125,9 +178,10 @@ export function syncedColor(cal: Pick<CalendarInfo, "color"> | undefined, fallba
 
 /** The confirm dialog for deleting an event of a synced calendar. */
 export function deleteConfirm(label: string, service: string | null | undefined, guests: number): { title: string; body: string } {
-  const svc = service || "its own app";
+  const svc = service || t("calendar.sync.ownApp");
+  const calendar = calendarName(label);
   return {
-    title: "Delete this event?",
-    body: `It’s also deleted from ${calendarName(label)} in ${svc}.${guests > 0 ? ` Guests get a cancellation from ${svc}.` : ""}`,
+    title: t("calendar.delete.title"),
+    body: guests > 0 ? t("calendar.delete.bodyGuests", { calendar, service: svc }) : t("calendar.delete.body", { calendar, service: svc }),
   };
 }

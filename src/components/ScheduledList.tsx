@@ -4,6 +4,8 @@ import { api, errorCode, OutboxItem } from "../api";
 import { picturesToEditor } from "./Compose";
 import { kbd } from "../platform";
 import { friendlyError, useStore } from "../store";
+import type { Key } from "../i18n";
+import { useT } from "../i18n/react";
 import { fmtWhen, zoneLabel } from "../util";
 import { EmptyState } from "./overlays";
 import { askUnlock } from "./Pgp";
@@ -21,18 +23,27 @@ export function groupOf(o: OutboxItem, now = new Date()): Group {
   return "Later";
 }
 
-const STATUS_PILL: Partial<Record<OutboxItem["status"], { cls: string; label: string }>> = {
-  held: { cls: "accent", label: "Paused · editing" },
-  sending: { cls: "", label: "Sending…" },
-  failed: { cls: "bad", label: "Failed" },
-  overdue: { cls: "warn", label: "Overdue" },
+const STATUS_PILL: Partial<Record<OutboxItem["status"], { cls: string; label: Key }>> = {
+  held: { cls: "accent", label: "compose.scheduled.paused" },
+  sending: { cls: "", label: "compose.scheduled.sending" },
+  failed: { cls: "bad", label: "compose.scheduled.failed" },
+  overdue: { cls: "warn", label: "compose.scheduled.overdue" },
 };
+
+/** The group ids stay English (they are only compared); this is what the list shows. */
+const GROUP_LABEL = {
+  "Needs attention": "compose.scheduled.needsAttention",
+  Today: "compose.scheduled.today",
+  Tomorrow: "compose.scheduled.tomorrow",
+  Later: "compose.scheduled.later",
+} as const;
 
 /**
  * The Scheduled folder: queued messages grouped by when they go out, with the states the worker can be in.
  * Enter opens a message for editing; Delete cancels (asks first); Ctrl+Enter sends now.
  */
 export function ScheduledList() {
+  const t = useT();
   const { outbox, openCompose, showToast, refresh, choose } = useStore();
   const [busyId, setBusyId] = useState<string | null>(null);
 
@@ -67,7 +78,7 @@ export function ScheduledList() {
         confidential: d.confidential,
         outboxId: o.id,
         sendAt: e.sendAt,
-        outboxError: o.status === "failed" ? o.error ?? "The server refused it." : undefined,
+        outboxError: o.status === "failed" ? o.error ?? t("compose.scheduled.serverRefused") : undefined,
         openSchedule,
       });
     } catch (err) {
@@ -86,11 +97,11 @@ export function ScheduledList() {
     setBusyId(o.id);
     try {
       await api.outboxSendNow(o.id);
-      showToast(`Sent “${o.subject || "(no subject)"}”`, undefined, "success");
+      showToast(t("compose.scheduled.sentToast", { subject: o.subject || t("compose.noSubject") }), undefined, "success");
     } catch (err) {
-      showToast(`Scheduled message “${o.subject || "(no subject)"}” failed to send. ${friendlyError(err)}`, undefined, "error", [
-        { label: "Retry", run: () => void api.outboxRetry(o.id).then(refresh) },
-        { label: "Open", run: () => void open(o) },
+      showToast(t("compose.scheduled.failedToast", { subject: o.subject || t("compose.noSubject"), error: friendlyError(err) }), undefined, "error", [
+        { label: t("common.retry"), run: () => void api.outboxRetry(o.id).then(refresh) },
+        { label: t("compose.scheduled.open"), run: () => void open(o) },
       ]);
     } finally {
       setBusyId(null);
@@ -101,7 +112,7 @@ export function ScheduledList() {
   const retry = async (o: OutboxItem) => {
     try {
       await api.outboxRetry(o.id);
-      showToast("Trying again…", undefined, "info");
+      showToast(t("compose.scheduled.tryingAgain"), undefined, "info");
     } catch (err) {
       showToast(friendlyError(err), undefined, "error");
     }
@@ -110,21 +121,21 @@ export function ScheduledList() {
 
   const cancel = async (o: OutboxItem) => {
     const choice = await choose({
-      title: "Cancel this scheduled message?",
-      body: `“${o.subject || "(no subject)"}” won’t be sent.`,
+      title: t("compose.dlg.cancelScheduledTitle"),
+      body: t("compose.dlg.cancelScheduledBody", { subject: o.subject || t("compose.noSubject") }),
       choices: [
-        { id: "keep", label: "Keep scheduled" },
-        { id: "drafts", label: "Move to Drafts" },
-        { id: "delete", label: "Delete", kind: "danger" },
+        { id: "keep", label: t("compose.dlg.keepScheduled") },
+        { id: "drafts", label: t("compose.dlg.moveToDrafts") },
+        { id: "delete", label: t("common.delete"), kind: "danger" },
       ],
     });
     try {
       if (choice === "delete") {
         await api.cancelOutbox(o.id);
-        showToast("Scheduled send cancelled", undefined, "success");
+        showToast(t("compose.toast.scheduleCancelled"), undefined, "success");
       } else if (choice === "drafts") {
         await api.outboxToDraft(o.id);
-        showToast("Moved to Drafts", undefined, "success");
+        showToast(t("compose.toast.movedToDrafts"), undefined, "success");
       }
     } catch (err) {
       showToast(friendlyError(err), undefined, "error");
@@ -133,17 +144,17 @@ export function ScheduledList() {
   };
 
   if (outbox.length === 0) {
-    return <EmptyState icon={<CalendarX size={40} />} title="No scheduled messages" text="Use the arrow next to Send to send a message later. It stays here until it goes out." />;
+    return <EmptyState icon={<CalendarX size={40} />} title={t("compose.scheduled.emptyTitle")} text={t("compose.scheduled.emptyText")} />;
   }
 
   return (
-    <div className="sched-list" role="listbox" aria-label="Scheduled messages" aria-describedby="sched-sub">
+    <div className="sched-list" role="listbox" aria-label={t("compose.scheduled.listLabel")} aria-describedby="sched-sub">
       <div id="sched-sub" className="ml-sub muted small" style={{ padding: "6px 16px 0" }}>
-        {outbox.length} message{outbox.length === 1 ? "" : "s"} · times in {zoneLabel()}
+        {t("compose.scheduled.summary", { n: outbox.length, zone: zoneLabel() })}
       </div>
       {overdue.length > 0 && (
         <div className="notice info ml-banner" role="status">
-          {overdue.length} scheduled message{overdue.length === 1 ? " was" : "s were"} due while Hey Look! was closed.{" "}
+          {t("compose.scheduled.overdueBanner", { n: overdue.length })}{" "}
           <button
             className="link"
             onClick={async () => {
@@ -151,21 +162,23 @@ export function ScheduledList() {
               void refresh();
             }}
           >
-            Send now
+            {t("compose.scheduled.sendNow")}
           </button>{" "}
-          <button className="link" onClick={() => void open(overdue[0])}>Review</button>
+          <button className="link" onClick={() => void open(overdue[0])}>{t("compose.scheduled.review")}</button>
         </div>
       )}
       {groups.map(([g, items]) => (
         <div key={g}>
           <div className="ml-group">
-            {g}
-            {g === "Needs attention" && failedCount > 0 && <span className="sched-group-count">{failedCount} failed</span>}
+            {t(GROUP_LABEL[g])}
+            {g === "Needs attention" && failedCount > 0 && <span className="sched-group-count">{t("compose.scheduled.failedCount", { n: failedCount })}</span>}
           </div>
           {items.map((o) => {
             const pill = STATUS_PILL[o.status];
             const failed = o.status === "failed";
-            const label = `${o.subject || "(no subject)"} to ${o.to.join(", ") || "no one"}, ${pill ? pill.label : fmtWhen(o.sendAt)}${failed && o.error ? `. ${friendlyError(o.error)}` : ""}`;
+            const rowParams = { subject: o.subject || t("compose.noSubject"), to: o.to.join(", ") || t("compose.scheduled.noOne"), status: pill ? t(pill.label) : fmtWhen(o.sendAt) };
+            const label = failed && o.error ? t("compose.scheduled.rowLabelError", { ...rowParams, error: friendlyError(o.error) }) : t("compose.scheduled.rowLabel", rowParams);
+            const name = o.subject || t("compose.message");
             return (
               <div
                 key={o.id}
@@ -186,20 +199,20 @@ export function ScheduledList() {
               >
                 <div className="ml-main">
                   <div className="ml-top">
-                    <span className="who ellipsis">{o.to.join(", ") || "(no recipients)"}</span>
+                    <span className="who ellipsis">{o.to.join(", ") || t("compose.noRecipients")}</span>
                   </div>
-                  <div className="subject ellipsis">{o.subject || "(no subject)"}</div>
+                  <div className="subject ellipsis">{o.subject || t("compose.noSubject")}</div>
                   {o.snippet && <div className="preview ellipsis">{o.snippet}</div>}
                   {failed && o.error && (
                     <div className="err-line">
-                      <AlertTriangle size={13} aria-hidden /> Was due {fmtWhen(o.sendAt)} · {friendlyError(o.error)}
+                      <AlertTriangle size={13} aria-hidden /> {t("compose.scheduled.wasDue", { when: fmtWhen(o.sendAt), error: friendlyError(o.error) })}
                     </div>
                   )}
                 </div>
                 {pill ? (
                   <span className={`pill ${pill.cls}`}>
                     {o.status === "sending" && <span className="spin" aria-hidden />}
-                    {pill.label}
+                    {t(pill.label)}
                   </span>
                 ) : (
                   <span className="sched-when"><CalendarClock size={13} aria-hidden /> {fmtWhen(o.sendAt)}</span>
@@ -207,16 +220,16 @@ export function ScheduledList() {
                 <div className="row-acts sched-row-acts" onClick={(e) => e.stopPropagation()}>
                   {failed ? (
                     <>
-                      <button className="btn small" onClick={() => void retry(o)} aria-label={`Retry sending ${o.subject || "message"}`}><RotateCw size={12} /> Retry</button>
-                      <button className="btn small" onClick={() => void open(o)} aria-label={`Edit ${o.subject || "message"}`}><Pencil size={12} /> Edit</button>
+                      <button className="btn small" onClick={() => void retry(o)} aria-label={t("compose.scheduled.retryAria", { name })}><RotateCw size={12} /> {t("common.retry")}</button>
+                      <button className="btn small" onClick={() => void open(o)} aria-label={t("compose.scheduled.editAria", { name })}><Pencil size={12} /> {t("common.edit")}</button>
                     </>
                   ) : (
                     <>
-                      <button className="icon-btn" title={kbd("Send now (Ctrl+Enter)")} aria-label={`Send ${o.subject || "message"} now`} disabled={o.status === "sending"} onClick={() => void sendNow(o)}><Send size={14} /></button>
-                      <button className="icon-btn" title={kbd("Change time (Ctrl+Shift+Enter)")} aria-label={`Change time of ${o.subject || "message"}`} onClick={() => void open(o, true)}><CalendarClock size={14} /></button>
+                      <button className="icon-btn" title={kbd(t("compose.scheduled.sendNowTip"))} aria-label={t("compose.scheduled.sendNowAria", { name })} disabled={o.status === "sending"} onClick={() => void sendNow(o)}><Send size={14} /></button>
+                      <button className="icon-btn" title={kbd(t("compose.scheduled.changeTimeTip"))} aria-label={t("compose.scheduled.changeTimeAria", { name })} onClick={() => void open(o, true)}><CalendarClock size={14} /></button>
                     </>
                   )}
-                  <button className="icon-btn" title="Cancel scheduled send (Delete)" aria-label={`Cancel scheduled send of ${o.subject || "message"}`} onClick={() => void cancel(o)}><X size={14} /></button>
+                  <button className="icon-btn" title={t("compose.scheduled.cancelTip")} aria-label={t("compose.scheduled.cancelAria", { name })} onClick={() => void cancel(o)}><X size={14} /></button>
                 </div>
               </div>
             );

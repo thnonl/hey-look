@@ -4,6 +4,7 @@ import { copyToClipboard, openExternal } from "./open";
 import { stickyTimers } from "./stickyTimers";
 import { create } from "zustand";
 import { api, DlEvent, UpdateInfo, UpdateKind, UpdateResult, UpdateTrigger } from "./api";
+import { t } from "./i18n";
 import { friendlyError, useStore } from "./store";
 import { useFrame } from "./winframe";
 
@@ -84,12 +85,12 @@ export async function openUpdateLink(url: string, announce = false) {
   const { showToast } = useStore.getState();
   try {
     await openExternal(url);
-    if (announce) showToast("Opening the download in your browser…", undefined, "info");
+    if (announce) showToast(t("updates.toast.opening"), undefined, "info");
   } catch {
     // the toast says "copied" only when it was (on Linux it was not, QA BUG-L4)
     const copied = await copyToClipboard(url);
     showToast(
-      copied ? "Couldn’t open your browser. The link is copied to the clipboard." : `Couldn’t open your browser, and the link couldn’t be copied. The link: ${url.length > 100 ? url.slice(0, 100) + "…" : url}`,
+      copied ? t("updates.toast.openFailedCopied") : t("updates.toast.openFailedNotCopied", { url: url.length > 100 ? url.slice(0, 100) + "…" : url }),
       undefined,
       "error",
     );
@@ -109,9 +110,8 @@ function openThing(): AskVariant {
   return "none";
 }
 
-const askText = (v: string, variant: AskVariant) =>
-  `Hey Look! ${v} is ready to install. Restart now?` +
-  (variant === "dirty" ? " Your message will be saved in Drafts." : variant === "empty" ? " The empty message will be closed." : variant === "scheduled" ? " Save or close the scheduled message first." : "");
+const askText = (version: string, variant: AskVariant) =>
+  t(variant === "dirty" ? "updates.ask.readyDirty" : variant === "empty" ? "updates.ask.readyEmpty" : variant === "scheduled" ? "updates.ask.readyScheduled" : "updates.ask.ready", { version });
 
 let inflight: Promise<UpdateResult | null> | null = null;
 /** Bumped for every download: events of an older one (cancelled) are ignored. */
@@ -122,7 +122,7 @@ let countdownTimer: ReturnType<typeof setInterval> | undefined;
 let restarting = false;
 /** The sticky error toast of a restart that the failed draft save stopped (REQ-28 c). */
 const RESTART_STOPPED = "update-restart-stopped";
-const RESTART_STOPPED_TEXT = "Couldn’t save your draft, so Hey Look! didn’t restart. Your message is still open.";
+const RESTART_STOPPED_TEXT = "updates.restartStopped" as const; // a dictionary key: translated where the toast is shown
 /** The 30 s timers of the sticky toasts above and the update result: one per toast, a new one replaces the old one (BUG-14). */
 const stickyTimer = stickyTimers((key) => useStore.getState().setStickyToast(key, null));
 
@@ -141,7 +141,7 @@ export const useUpdates = create<UpdatesState>((set, get) => {
     setFlow({ state: "failed", stage, message, countdown: null, asking: "none", canReinstall: stage === "install", speed: null, eta: null });
     const st = useStore.getState();
     if (windowFocused() && !st.dialog) {
-      st.showToast(`The update to ${v} failed.`, undefined, "error", [{ label: "Details", run: () => get().openSettingsAbout(false) }]);
+      st.showToast(t("updates.toast.failed", { version: v ?? "" }), undefined, "error", [{ label: t("updates.action.details"), run: () => get().openSettingsAbout(false) }]);
     }
   };
 
@@ -180,7 +180,7 @@ export const useUpdates = create<UpdatesState>((set, get) => {
           clearCountdown();
           runId++;
           set({ flow: IDLE });
-          useStore.getState().showToast(`The update on GitHub changed to ${e.data.message}. Nothing was downloaded.`, undefined, "info");
+          useStore.getState().showToast(t("updates.toast.changed", { version: e.data.message }), undefined, "info");
           void get().checkUpdate("manual");
         } else fail(e.data.stage, e.data.message);
         break;
@@ -201,8 +201,8 @@ export const useUpdates = create<UpdatesState>((set, get) => {
       toast({
         text: askText(v, variant),
         actions: [
-          { label: "Restart now", run: () => void get().restartToUpdate() },
-          { label: "Later", run: () => get().deferUpdate() },
+          { label: t("updates.action.restartNow"), run: () => void get().restartToUpdate() },
+          { label: t("updates.action.later"), run: () => get().deferUpdate() },
         ],
         onDismiss: () => get().deferUpdate(),
       });
@@ -211,10 +211,10 @@ export const useUpdates = create<UpdatesState>((set, get) => {
     let left = 5;
     const show = () =>
       toast({
-        text: `Hey Look! ${v} is ready. Restarting in ${left} s…`,
+        text: t("updates.countdown", { version: v, seconds: left }),
         actions: [
-          { label: "Restart now", run: () => void get().restartToUpdate() },
-          { label: "Not now", run: () => get().deferUpdate() },
+          { label: t("updates.action.restartNow"), run: () => void get().restartToUpdate() },
+          { label: t("updates.action.notNow"), run: () => get().deferUpdate() },
         ],
         onDismiss: () => get().deferUpdate(),
       });
@@ -246,11 +246,11 @@ export const useUpdates = create<UpdatesState>((set, get) => {
       if (!(await sending())) return true;
       if (Date.now() - since > 60_000) {
         const c = await useStore.getState().choose({
-          title: "A message is still being sent",
-          body: "Restarting now could stop it. Wait a little longer, or restart anyway.",
+          title: t("updates.ask.sendingTitle"),
+          body: t("updates.ask.sendingBody"),
           choices: [
-            { id: "wait", label: "Wait" },
-            { id: "anyway", label: "Restart anyway", kind: "danger" },
+            { id: "wait", label: t("updates.action.wait") },
+            { id: "anyway", label: t("updates.action.restartAnyway"), kind: "danger" },
           ],
         });
         if (c === "anyway") return true;
@@ -295,7 +295,7 @@ export const useUpdates = create<UpdatesState>((set, get) => {
           return {
             kind: "error",
             current: known?.current ?? "",
-            platform: known?.platform ?? { os: "", arch: "", installer: "unknown", label: "your system" },
+            platform: known?.platform ?? { os: "", arch: "", installer: "unknown", label: t("updates.platform.unknown") },
             checkedAt: get().checkedAt,
             message: friendlyError(e).replace(/\.$/, ""),
             info: offer,
@@ -346,12 +346,12 @@ export const useUpdates = create<UpdatesState>((set, get) => {
       set({ toastFor: v });
       // stays until the user closes it (the × or Esc), no timer
       st.setStickyToast("update-available", {
-        text: `Hey Look! ${v} is available.`,
+        text: t("updates.available", { version: v }),
         actions: [
-          ...(info.asset ? [{ label: "Update", run: () => void get().startUpdate("toast") }] : []),
-          { label: "What’s new", run: () => get().openSettingsAbout(false) },
+          ...(info.asset ? [{ label: t("updates.action.update"), run: () => void get().startUpdate("toast") }] : []),
+          { label: t("updates.action.whatsNew"), run: () => get().openSettingsAbout(false) },
         ],
-        closeLabel: "Close",
+        closeLabel: t("common.close"),
         escCloses: true,
       });
     },
@@ -365,7 +365,7 @@ export const useUpdates = create<UpdatesState>((set, get) => {
       startedAt = Date.now();
       set({ flow: { ...IDLE, state: "downloading", version: info.latest } });
       useStore.getState().setStickyToast("update-available", null); // the announcement is answered
-      useStore.getState().showToast(`Downloading Hey Look! ${info.latest}. You can keep working.`, undefined, "info");
+      useStore.getState().showToast(t("updates.toast.downloading", { version: info.latest }), undefined, "info");
       try {
         await api.updateDownload(info.latest, (e) => onEvent(id, e));
       } catch (e) {
@@ -378,7 +378,7 @@ export const useUpdates = create<UpdatesState>((set, get) => {
       runId++; // late events of this download are ignored
       set({ flow: IDLE });
       void api.updateCancel().catch(() => undefined);
-      useStore.getState().showToast("Download cancelled.", undefined, "info");
+      useStore.getState().showToast(t("updates.toast.cancelled"), undefined, "info");
     },
 
     // Later / Not now: keep the package; it is installed when the app quits
@@ -417,11 +417,11 @@ export const useUpdates = create<UpdatesState>((set, get) => {
             // a scheduled message stays scheduled as it was; unsaved edits to it are lost
             if (st.composeDirty) {
               const c = await st.choose({
-                title: "Restart without saving your changes?",
-                body: "Your changes to this scheduled message aren’t saved. It stays scheduled as it was.",
+                title: t("updates.ask.discardTitle"),
+                body: t("updates.ask.discardBody"),
                 choices: [
-                  { id: "keep", label: "Keep editing" },
-                  { id: "restart", label: "Restart and discard changes", kind: "danger" },
+                  { id: "keep", label: t("updates.action.keepEditing") },
+                  { id: "restart", label: t("updates.action.restartDiscard"), kind: "danger" },
                 ],
               });
               if (c !== "restart") return stay("scheduled");
@@ -438,7 +438,7 @@ export const useUpdates = create<UpdatesState>((set, get) => {
             })();
             if (saved !== true) {
               // sticky: the save can take seconds on a slow server, and a toast of a few seconds was gone before anyone looked (QA BUG-13)
-              st.setStickyToast(RESTART_STOPPED, { text: RESTART_STOPPED_TEXT, kind: "error", closeLabel: "Close" });
+              st.setStickyToast(RESTART_STOPPED, { text: t(RESTART_STOPPED_TEXT), kind: "error", closeLabel: t("common.close") });
               stickyTimer.arm(RESTART_STOPPED);
               void api.updateNote(`restart not started: the draft could not be saved (${useStore.getState().draftError || "no error text"}); the message stays open`).catch(() => undefined);
               return stay("dirty");
@@ -457,7 +457,7 @@ export const useUpdates = create<UpdatesState>((set, get) => {
         }
       } catch (e) {
         // anything else that went wrong before the installer started must not end without a word
-        useStore.getState().setStickyToast(RESTART_STOPPED, { text: `Hey Look! didn’t restart: ${friendlyError(e).replace(/\.$/, "")}.`, kind: "error", closeLabel: "Close" });
+        useStore.getState().setStickyToast(RESTART_STOPPED, { text: t("updates.restartFailed", { error: friendlyError(e).replace(/\.$/, "") }), kind: "error", closeLabel: t("common.close") });
         void api.updateNote(`restart not started: ${friendlyError(e)}`).catch(() => undefined);
         if (get().flow.state === "waiting") setFlow({ state: "ready", countdown: null, asking: "none" });
       } finally {
@@ -492,13 +492,13 @@ export const useUpdates = create<UpdatesState>((set, get) => {
         const st = useStore.getState();
         const key = "update-result";
         if (s.outcome === "updated") {
-          st.setStickyToast(key, { text: `Hey Look! is updated to ${s.version}.${s.draft ? " Your message is in Drafts." : ""}`, kind: "success", closeLabel: "Close" });
+          st.setStickyToast(key, { text: t(s.draft ? "updates.result.updatedDraft" : "updates.result.updated", { version: s.version ?? "" }), kind: "success", closeLabel: t("common.close") });
         } else if (s.outcome === "failed") {
           st.setStickyToast(key, {
-            text: `The update to ${s.version} didn’t finish. You can try again in Settings > About.`,
+            text: t("updates.result.failed", { version: s.version ?? "" }),
             kind: "error",
-            actions: [{ label: "Open", run: () => get().openSettingsAbout(false) }],
-            closeLabel: "Close",
+            actions: [{ label: t("updates.action.open"), run: () => get().openSettingsAbout(false) }],
+            closeLabel: t("common.close"),
           });
         } else {
           return;

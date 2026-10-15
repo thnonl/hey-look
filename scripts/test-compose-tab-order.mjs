@@ -6,10 +6,11 @@ import { readFileSync } from "node:fs";
 const src = readFileSync(new URL("../src/components/Compose.tsx", import.meta.url), "utf8").replace(/\r\n/g, "\n");
 
 // 1. The "Cc" / "Bcc" show-links are not in the Tab order, so the DOM order To -> Subject has no stop between them.
-const links = src.slice(src.indexOf('className="cf-links"'), src.indexOf('<label>Subject</label>'));
+// (the visible texts are dictionary keys now: {t("compose.cc")} shows "Cc", {t("compose.bcc")} shows "Bcc")
+const links = src.slice(src.indexOf('className="cf-links"'), src.indexOf('<label>{t("compose.subject")}</label>'));
 for (const name of ["Cc", "Bcc"]) {
   const m = new RegExp(`<button[^
-]*>${name}</button>`).exec(links);
+]*>\\{t\\("compose\\.${name.toLowerCase()}"\\)\\}</button>`).exec(links);
   assert.ok(m, `the ${name} link exists`);
   assert.match(m[0], /tabIndex=\{-1\}/, `${name} must not be a Tab stop`);
 }
@@ -23,6 +24,6 @@ assert.ok((field.match(/if \(!moveOn\) e\.preventDefault\(\);/g) ?? []).length =
 assert.ok(field.indexOf("commit(text)") > field.indexOf("moveOn"), "the text is committed");
 
 // 3. The order of the fields in the DOM: From, To, (Cc, Bcc when shown), Subject.
-const order = ["<label>From</label>", 'label="To"', 'label="Cc"', 'label="Bcc"', "<label>Subject</label>"].map((k) => src.indexOf(k));
+const order = ['<label>{t("compose.from")}</label>', 'label={t("compose.to")}', 'label={t("compose.cc")}', 'label={t("compose.bcc")}', '<label>{t("compose.subject")}</label>'].map((k) => src.indexOf(k));
 assert.ok(order.every((i) => i > 0) && order.every((v, i) => i === 0 || v > order[i - 1]), `field order ${order}`);
 console.log("compose-tab-order: all checks passed");

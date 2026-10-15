@@ -32,10 +32,10 @@ pub fn url_allowed(url: &str) -> bool {
 pub fn open(target: &str, is_url: bool) -> Result<(), String> {
     if is_url {
         if !url_allowed(target) {
-            return Err("That kind of link is not opened.".into());
+            return Err("LINK_NOT_OPENED: That kind of link is not opened.".into());
         }
     } else if !std::path::Path::new(target).exists() {
-        return Err("That file no longer exists.".into());
+        return Err("FILE_GONE: That file no longer exists.".into());
     }
     let vars: Vec<(String, String)> = std::env::vars().collect();
     let env = clean_env(&vars);
@@ -282,7 +282,7 @@ mod tests {
 
     #[test]
     fn open_checks_the_target_before_any_launcher_starts() {
-        assert_eq!(open("file:///etc/passwd", true).unwrap_err(), "That kind of link is not opened.");
-        assert_eq!(open("/no/such/dir/heylook-x.pdf", false).unwrap_err(), "That file no longer exists.");
+        assert_eq!(open("file:///etc/passwd", true).unwrap_err(), "LINK_NOT_OPENED: That kind of link is not opened.");
+        assert_eq!(open("/no/such/dir/heylook-x.pdf", false).unwrap_err(), "FILE_GONE: That file no longer exists.");
     }
 }

@@ -222,10 +222,10 @@ impl Pending {
         // the browser connection of the redirect stays open until the token exchange is done, so the page can show the address
         let (code, mut conn) = loop {
             if self.cancel.load(Ordering::SeqCst) {
-                return Err(format!("{label} sign-in cancelled"));
+                return Err(crate::i18n::coded("OAUTH_CANCELLED", &[("label", label)], &format!("{label} sign-in cancelled")));
             }
             if Instant::now() > deadline {
-                return Err(format!("{label} sign-in timed out"));
+                return Err(crate::i18n::coded("OAUTH_TIMEOUT", &[("label", label)], &format!("{label} sign-in timed out")));
             }
             match self.listener.accept() {
                 Ok((mut s, _)) => {

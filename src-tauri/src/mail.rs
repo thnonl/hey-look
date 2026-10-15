@@ -505,7 +505,7 @@ pub fn extract_ics(m: &mail_parser::Message) -> Option<String> {
 /// Raw attachment bytes for `index` (position among the parsed attachment parts).
 pub fn attachment_bytes(raw: &[u8], index: usize) -> R<(String, Vec<u8>)> {
     let m = MessageParser::default().parse(raw).ok_or("cannot parse message")?;
-    let part = m.attachments().nth(index).ok_or("attachment not found")?;
+    let part = m.attachments().nth(index).ok_or("ATT_NOT_FOUND: attachment not found")?;
     // same fallback name as the metadata (AttMeta.name), so a saved file and its card agree
     let name = part.attachment_name().map(|s| s.to_string()).unwrap_or_else(|| default_name(index, &part_mime(part)));
     Ok((name, part_data(raw, part).into_owned()))
@@ -619,7 +619,7 @@ pub fn fetch_raw(s: &mut Sess, folder: &str, uid: u32) -> R<Vec<u8>> {
     f.iter()
         .next()
         .and_then(|m| m.body().map(|b| b.to_vec()))
-        .ok_or_else(|| "message not found on server".into())
+        .ok_or_else(|| "MSG_NOT_ON_SERVER: message not found on server".into())
 }
 
 pub fn store_flag(s: &mut Sess, folder: &str, uids: &[u32], flag: &str, add: bool) -> R<()> {

@@ -7,12 +7,15 @@ import { ReactNode, useCallback, useEffect, useMemo, useRef, useState } from "re
 import { api, CalEvent, CalInvite, errorCode, MessageFull, Rsvp } from "../api";
 import {
   addDays, addMonths, calTz, chipClass, cmpDay, configureCalendar, Day, dayKey, dayOfMs, dayStartMs, daysBetween, eventColor, eventDaySpan, eventLabel, eventsOnDay, fmtClock,
-  fmtClockRange, fmtDayLong, fmtDayShort, fmtRange, fmtTime, fromInputs, isUrl, joinLabel, layoutDay, monthGrid, monthTitle, myStatusLabel, partsOf, personName, repeatKind,
-  repeatRule, sameDay, today, toInputs, tzOffsetLabel, tzShortName, weekDays, weekStartOf, weekTitle, WD_SHORT, WEEKDAYS, MONTHS_SHORT, CalView, MY_EVENTS_COLOR,
+  fmtClockRange, fmtDayLong, fmtDayShort, fmtRange, fmtTime, fromInputs, isUrl, joinLabel, joinShortName, layoutDay, monthGrid, monthShort, monthTitle, myStatusLabel, partsOf, personName,
+  repeatKind, repeatRule, sameDay, today, toInputs, tzOffsetLabel, tzShortName, weekDays, weekStartOf, weekTitle, wdLong, wdNarrow, wdShort, CalView, MY_EVENTS_COLOR,
 } from "../calendar";
 import { accountColor } from "../prefs";
-import { calendarName, defaultCalendar, deleteConfirm, isSyncedCalendarId, pausedSources, readOnlyNote, writableCalendars } from "../calendarSync";
+import { calendarName, calendarTitle, defaultCalendar, deleteConfirm, isSyncedCalendarId, pausedSources, readOnlyNote, writableCalendars } from "../calendarSync";
 import { friendlyError, EventInit, useStore } from "../store";
+import { t } from "../i18n";
+import { useLang, useT } from "../i18n/react";
+import { tx } from "../i18n/rich";
 import { RecipientField } from "./Compose";
 import { EmptyState } from "./overlays";
 import { Avatar, Dropdown, FloatingMenu, Modal, Switch, useOutside } from "./ui";
@@ -54,10 +57,16 @@ const RS_ICON: Record<string, ReactNode> = {
   tentative: <span style={{ fontSize: 10, fontWeight: 800, lineHeight: 1 }}>?</span>,
 };
 const RS_CLASS: Record<string, string> = { accepted: "yes", declined: "no", tentative: "maybe", "needs-action": "wait", delegated: "wait" };
-const RS_TEXT: Record<string, string> = { accepted: "accepted", declined: "declined", tentative: "tentative", "needs-action": "no response yet", delegated: "delegated" };
+const RS_TEXT = {
+  accepted: "calendar.invite.state.accepted", declined: "calendar.invite.state.declined", tentative: "calendar.invite.state.tentative",
+  "needs-action": "calendar.invite.state.needsAction", delegated: "calendar.invite.state.delegated",
+} as const;
+/** The words for an attendee's answer ("accepted", "no response yet"); an unknown status is shown as it is. */
+const rsText = (status: string): string => (status in RS_TEXT ? t(RS_TEXT[status as keyof typeof RS_TEXT]) : status);
 
 function Dot({ status, label, title }: { status: string; label?: string; title?: string }) {
-  const text = label ?? RS_TEXT[status] ?? status;
+  useT();
+  const text = label ?? rsText(status);
   return (
     <span className={`rs ${RS_CLASS[status] ?? "wait"}`} role="img" aria-label={text} title={title ?? text}>
       {RS_ICON[status]}
@@ -66,19 +75,27 @@ function Dot({ status, label, title }: { status: string; label?: string; title?:
 }
 
 function CalTile({ start, allDay, tz, cancelled }: { start: number; allDay: boolean; tz: string; cancelled?: boolean }) {
+  useLang(); // month and weekday names follow the language
   const d = allDay ? dayOfMs(start * 1000, "UTC") : dayOfMs(start * 1000, tz);
   return (
     <div className="cal-tile" aria-hidden="true" data-cancelled={cancelled ? "1" : undefined}>
-      <b>{MONTHS_SHORT[d.m - 1]}</b>
+      <b>{monthShort(d.m)}</b>
       <span>{d.d}</span>
-      <small>{WD_SHORT[new Date(Date.UTC(d.y, d.m - 1, d.d)).getUTCDay()]}</small>
+      <small>{wdShort(new Date(Date.UTC(d.y, d.m - 1, d.d)).getUTCDay())}</small>
     </div>
   );
 }
 
-const youText: Record<Rsvp, string> = { accepted: "You accepted", tentative: "You said maybe", declined: "You declined" };
+const YOU_TEXT = { accepted: "calendar.invite.you.accepted", tentative: "calendar.invite.you.tentative", declined: "calendar.invite.you.declined" } as const;
+/** The keys of the three answer buttons: the label, its menu entries, its options button and the note dialog's title. */
+const CHOICE = {
+  accepted: { label: "calendar.rsvp.accept", send: "calendar.rsvp.acceptSend", note: "calendar.rsvp.acceptNote", silent: "calendar.rsvp.acceptSilent", options: "calendar.rsvp.acceptOptions", dialog: "calendar.rsvp.acceptDialog" },
+  tentative: { label: "calendar.rsvp.tentative", send: "calendar.rsvp.tentativeSend", note: "calendar.rsvp.tentativeNote", silent: "calendar.rsvp.tentativeSilent", options: "calendar.rsvp.tentativeOptions", dialog: "calendar.rsvp.tentativeDialog" },
+  declined: { label: "calendar.rsvp.decline", send: "calendar.rsvp.declineSend", note: "calendar.rsvp.declineNote", silent: "calendar.rsvp.declineSilent", options: "calendar.rsvp.declineOptions", dialog: "calendar.rsvp.declineDialog" },
+} as const;
 
 export function InviteCard({ m }: { m: MessageFull }) {
+  const t = useT();
   const inv = m.invite as CalInvite;
   const { showToast, replaceMessage, setModule, setCalDate } = useStore();
   const tz = useTz();
@@ -96,9 +113,9 @@ export function InviteCard({ m }: { m: MessageFull }) {
   if (inv.parseError) {
     return (
       <div className="notice bad" role="alert">
-        This invitation couldn’t be read (invalid calendar data).{" "}
-        {m.confidential ? "Confidential mail can’t be saved or shown as source." : (
-          <><button className="link" onClick={() => void saveIcs()}>Save .ics</button> · <button className="link" onClick={() => useStore.getState().setDialog({ type: "original", messageId: m.id })}>Show original</button></>
+        {t("calendar.invite.unreadable")}{" "}
+        {m.confidential ? t("calendar.invite.confidentialNoSource") : (
+          <><button className="link" onClick={() => void saveIcs()}>{t("calendar.saveIcs")}</button> · <button className="link" onClick={() => useStore.getState().setDialog({ type: "original", messageId: m.id })}>{t("calendar.invite.showOriginal")}</button></>
         )}
       </div>
     );
@@ -107,9 +124,9 @@ export function InviteCard({ m }: { m: MessageFull }) {
   async function saveIcs() {
     try {
       const p = await api.calendarSaveIcs({ messageId: m.id });
-      if (p) showToast(`Saved ${p.split(/[\\/]/).pop()}`, undefined, "success");
+      if (p) showToast(t("calendar.toast.saved", { name: p.split(/[\\/]/).pop() ?? p }), undefined, "success");
     } catch (e) {
-      showToast(`Couldn’t save the file: ${friendlyError(e)}`, undefined, "error");
+      showToast(t("calendar.toast.saveFailed", { error: friendlyError(e) }), undefined, "error");
     }
   }
 
@@ -122,8 +139,8 @@ export function InviteCard({ m }: { m: MessageFull }) {
     try {
       const next = await api.calendarRespond(m.id, r, comment, send);
       apply(next);
-      if (send) showToast(`Response sent to ${personName(inv.organizer) || m.fromName || m.fromEmail}`, undefined, "success");
-      else showToast("Saved in your calendar (no response sent)", undefined, "success");
+      if (send) showToast(t("calendar.toast.responseSent", { name: personName(inv.organizer) || m.fromName || m.fromEmail }), undefined, "success");
+      else showToast(t("calendar.toast.savedNoResponse"), undefined, "success");
       useStore.getState().bumpCal();
     } catch (e) {
       setErr({ text: friendlyError(e), retry: () => void respond(r, send, comment) });
@@ -138,11 +155,11 @@ export function InviteCard({ m }: { m: MessageFull }) {
     setAdding(true);
     try {
       await api.calendarAddFromMessage(m.id);
-      showToast("Added to your calendar", undefined, "success");
+      showToast(t("calendar.toast.added"), undefined, "success");
       useStore.getState().bumpCal();
       await useStore.getState().reloadMessages();
     } catch (e) {
-      showToast(`Couldn’t add the event: ${friendlyError(e)}`, undefined, "error");
+      showToast(t("calendar.toast.addFailed", { error: friendlyError(e) }), undefined, "error");
     } finally {
       setAdding(false);
     }
@@ -152,11 +169,11 @@ export function InviteCard({ m }: { m: MessageFull }) {
     if (!inv.eventId) return;
     try {
       await api.calendarDeleteEvent(inv.eventId, false);
-      showToast("Removed from your calendar", undefined, "success");
+      showToast(t("calendar.toast.removed"), undefined, "success");
       useStore.getState().bumpCal();
       await useStore.getState().reloadMessages();
     } catch (e) {
-      showToast(`Couldn’t remove it: ${friendlyError(e)}`, undefined, "error");
+      showToast(t("calendar.toast.removeFailed", { error: friendlyError(e) }), undefined, "error");
     }
   };
 
@@ -178,47 +195,49 @@ export function InviteCard({ m }: { m: MessageFull }) {
   if (method === "REPLY" && inv.reply) {
     const r = inv.reply;
     const who = personName(r.from) || m.fromName || m.fromEmail;
-    const word = r.status === "accepted" ? "accepted" : r.status === "declined" ? "declined" : r.status === "tentative" ? "said maybe to" : "replied to";
+    const replyKey = r.status === "accepted" ? "calendar.invite.reply.accepted" : r.status === "declined" ? "calendar.invite.reply.declined" : r.status === "tentative" ? "calendar.invite.reply.tentative" : "calendar.invite.reply.other";
     return (
-      <article className="invite reply" aria-label={`Meeting reply: ${inv.summary}`}>
+      <article className="invite reply" aria-label={t("calendar.invite.replyAria", { summary: inv.summary })}>
         <div className="invite-head">
           <Dot status={r.status} />
           <div className="inv-rows">
-            <div className="invite-title">{who} {word} “{inv.summary}”</div>
+            <div className="invite-title">{t(replyKey, { who, summary: inv.summary })}</div>
             <div className="inv-row"><Clock size={14} aria-hidden /><span>{fmtRange(inv, tz)}</span></div>
             {r.comment && <div className="inv-row"><Mail size={14} aria-hidden /><span>“{r.comment}”</span></div>}
             {inv.attendees.length > 1 && (
               <div className="inv-row sub">
                 <Users2 />
-                <span>{accepted} of {inv.attendees.length} accepted{inv.eventId ? " · Attendee status updated in your calendar" : ""}</span>
+                <span>{t("calendar.invite.acceptedOf", { accepted, total: inv.attendees.length })}{inv.eventId ? ` · ${t("calendar.invite.statusUpdated")}` : ""}</span>
               </div>
             )}
           </div>
         </div>
         <div className="invite-actions">
           <span className="grow" />
-          {inv.eventId && <button className="link-btn" onClick={openInCalendar}><CalendarDays size={14} /> Open in calendar</button>}
+          {inv.eventId && <button className="link-btn" onClick={openInCalendar}><CalendarDays size={14} /> {t("calendar.invite.openInCalendar")}</button>}
         </div>
       </article>
     );
   }
 
   const status = inv.responded?.status;
-  const ChoiceBtn = ({ r, label, icon }: { r: Rsvp; label: string; icon: ReactNode }) => {
+  const ChoiceBtn = ({ r, icon }: { r: Rsvp; icon: ReactNode }) => {
+    const keys = CHOICE[r];
+    const label = t(keys.label);
     const chosen = status === r;
     const isBusy = busy === r;
     const others = busy !== null && busy !== r;
     const items = [
-      { label: `${label} and send response`, onClick: () => void respond(r, true) },
-      { label: `${label} with a note…`, onClick: () => setNote(r) },
-      { label: `${label} without sending a response`, onClick: () => void respond(r, false) },
+      { label: t(keys.send), onClick: () => void respond(r, true) },
+      { label: t(keys.note), onClick: () => setNote(r) },
+      { label: t(keys.silent), onClick: () => void respond(r, false) },
     ];
     return (
       <span className="rsvp" ref={menu === r ? menuRef : undefined} style={{ position: "relative" }}>
         <button className={`btn ${chosen || isBusy ? "chosen" : ""}`} disabled={others || busy === r} aria-busy={isBusy} aria-pressed={chosen} onClick={() => void respond(r, true)}>
-          {isBusy ? <RefreshCw size={14} className="spin" /> : icon} {isBusy ? "Sending…" : label}
+          {isBusy ? <RefreshCw size={14} className="spin" /> : icon} {isBusy ? t("calendar.sending") : label}
         </button>
-        <button ref={menu === r ? optsRef : undefined} className="btn" aria-label={`${label} options`} aria-haspopup="menu" aria-expanded={menu === r} disabled={busy !== null} onClick={() => setMenu(menu === r ? null : r)}>
+        <button ref={menu === r ? optsRef : undefined} className="btn" aria-label={t(keys.options)} aria-haspopup="menu" aria-expanded={menu === r} disabled={busy !== null} onClick={() => setMenu(menu === r ? null : r)}>
           <ChevronDown size={14} />
         </button>
         {menu === r && <FloatingMenu anchor={menuRef} trigger={optsRef} items={items} minWidth={280} onClose={closeMenu} />}
@@ -231,33 +250,33 @@ export function InviteCard({ m }: { m: MessageFull }) {
   const prev = inv.changed?.previous;
 
   return (
-    <article className={`invite ${inv.cancelled ? "cancelled" : ""}`} aria-label={`Meeting invitation: ${inv.summary}`}>
+    <article className={`invite ${inv.cancelled ? "cancelled" : ""}`} aria-label={t("calendar.invite.aria", { summary: inv.summary })}>
       {inv.cancelled && (
-        <div className="invite-banner bad" role="status"><CalendarX size={15} aria-hidden /> The organizer cancelled this event</div>
+        <div className="invite-banner bad" role="status"><CalendarX size={15} aria-hidden /> {t("calendar.invite.cancelled")}</div>
       )}
       {!inv.cancelled && inv.outdated && (
-        <div className="invite-banner muted" role="status"><History size={15} aria-hidden /> A newer version of this invitation was received. Respond from the latest message.</div>
+        <div className="invite-banner muted" role="status"><History size={15} aria-hidden /> {t("calendar.invite.outdated")}</div>
       )}
       {!inv.cancelled && !inv.outdated && inv.changed && (
         <div className="invite-banner" role="status">
-          <RefreshCw size={15} aria-hidden /> Updated by organizer: {inv.changed.fields.map((f) => (f === "time" ? "time changed" : f === "location" ? "location changed" : "details changed")).join(", ")}
+          <RefreshCw size={15} aria-hidden /> {t("calendar.invite.updated", { changes: inv.changed.fields.map((f) => (f === "time" ? t("calendar.invite.change.time") : f === "location" ? t("calendar.invite.change.location") : t("calendar.invite.change.details"))).join(", ") })}
         </div>
       )}
       {!inv.cancelled && !inv.outdated && ended && (
-        <div className="invite-banner muted" role="status"><History size={15} aria-hidden /> This event has ended</div>
+        <div className="invite-banner muted" role="status"><History size={15} aria-hidden /> {t("calendar.invite.ended")}</div>
       )}
       {inv.trimmed && (
         <div className="invite-banner muted" role="status">
-          <Info size={15} aria-hidden /> Some details were too large and were not imported (repeat rule, guests or excluded dates).
+          <Info size={15} aria-hidden /> {t("calendar.invite.trimmed")}
         </div>
       )}
       {mine && !inv.cancelled && !ended && (
-        <div className="invite-banner" role="status"><CalendarCheck size={15} aria-hidden /> You organized this event</div>
+        <div className="invite-banner" role="status"><CalendarCheck size={15} aria-hidden /> {t("calendar.invite.organized")}</div>
       )}
       {!inv.cancelled && !inv.outdated && !ended && inv.responded && (
         <div className="invite-banner" role="status">
-          <CircleCheck size={15} aria-hidden /> {youText[inv.responded.status]}
-          {inv.responded.sentAt ? ` · response sent ${fmtTime(inv.responded.sentAt, tz)}` : " (no response sent)"}
+          <CircleCheck size={15} aria-hidden /> {t(YOU_TEXT[inv.responded.status])}
+          {inv.responded.sentAt ? ` · ${t("calendar.invite.responseSent", { time: fmtTime(inv.responded.sentAt, tz) })}` : ` (${t("calendar.invite.noResponseSent")})`}
         </div>
       )}
 
@@ -271,9 +290,9 @@ export function InviteCard({ m }: { m: MessageFull }) {
               {inv.changed?.fields.includes("time") && prev && (
                 <><s className="muted">{fmtRange({ start: prev.start, end: prev.end, allDay: inv.allDay }, tz)}</s><br /></>
               )}
-              {fmtRange(inv, tz)} {!inv.allDay && <span className="sub">(your time, {tz})</span>}
+              {fmtRange(inv, tz)} {!inv.allDay && <span className="sub">({t("calendar.invite.yourTime", { tz })})</span>}
               {(orgTz || inv.recurrenceText) && (
-                <><br /><span className="sub">{orgTz ? `Organizer’s time: ${fmtClockRange(inv, orgTz)} ${tzShortName(orgTz, inv.start * 1000)}` : ""}{orgTz && inv.recurrenceText ? " · " : ""}{inv.recurrenceText ? <><Repeat size={11} aria-hidden style={{ verticalAlign: -1 }} /> {inv.recurrenceText}</> : ""}</span></>
+                <><br /><span className="sub">{orgTz ? t("calendar.invite.organizerTime", { range: fmtClockRange(inv, orgTz), tz: tzShortName(orgTz, inv.start * 1000) }) : ""}{orgTz && inv.recurrenceText ? " · " : ""}{inv.recurrenceText ? <><Repeat size={11} aria-hidden style={{ verticalAlign: -1 }} /> {inv.recurrenceText}</> : ""}</span></>
               )}
             </span>
           </div>
@@ -291,12 +310,14 @@ export function InviteCard({ m }: { m: MessageFull }) {
           {inv.organizer && (
             <div className="inv-row">
               <UserRound size={14} aria-hidden />
-              <span>Organizer: <b>{personName(inv.organizer)}</b>{inv.organizer.name ? ` <${inv.organizer.email}>` : ""}</span>
+              <span>{tx("calendar.invite.organizer", { name: <><b>{personName(inv.organizer)}</b>{inv.organizer.name ? ` <${inv.organizer.email}>` : ""}</> })}</span>
             </div>
           )}
           {inv.conflicts.length > 0 && !closed && (
             <div className="inv-row">
-              <span className="conflict"><TriangleAlert size={13} aria-hidden /> Overlaps “{inv.conflicts[0].summary}” {fmtClockRange(inv.conflicts[0], tz)}{inv.conflicts.length > 1 ? ` and ${inv.conflicts.length - 1} more` : ""}</span>
+              <span className="conflict"><TriangleAlert size={13} aria-hidden /> {inv.conflicts.length > 1
+                ? t("calendar.invite.overlapsMore", { summary: inv.conflicts[0].summary, range: fmtClockRange(inv.conflicts[0], tz), n: inv.conflicts.length - 1 })
+                : t("calendar.invite.overlaps", { summary: inv.conflicts[0].summary, range: fmtClockRange(inv.conflicts[0], tz) })}</span>
             </div>
           )}
         </div>
@@ -308,8 +329,8 @@ export function InviteCard({ m }: { m: MessageFull }) {
             <span className="att-stack">
               {inv.attendees.slice(0, 3).map((a) => <Avatar key={a.email} name={personName(a)} size={22} />)}
             </span>{" "}
-            {inv.attendees.length} attendee{inv.attendees.length === 1 ? "" : "s"}
-            {accepted + declined > 0 && ` · ${accepted} accepted${declined ? `, ${declined} declined` : ""}`}
+            {t("calendar.invite.attendees", { n: inv.attendees.length })}
+            {accepted + declined > 0 && ` · ${t("calendar.invite.nAccepted", { n: accepted })}${declined ? `, ${t("calendar.invite.nDeclined", { n: declined })}` : ""}`}
             {showAtt ? <ChevronUp size={13} /> : <ChevronDown size={13} />}
           </button>
           {showAtt && (
@@ -318,12 +339,12 @@ export function InviteCard({ m }: { m: MessageFull }) {
                 <li key={a.email}>
                   <Dot
                     status={a.isYou && inv.you ? (inv.you.status === "organizer" ? "accepted" : inv.you.status) : a.status}
-                    label={a.role === "chair" ? `organizer, ${RS_TEXT[a.isYou && inv.you ? (inv.you.status === "organizer" ? "accepted" : inv.you.status) : a.status] ?? a.status}` : undefined}
+                    label={a.role === "chair" ? t("calendar.invite.organizerStatus", { status: rsText(a.isYou && inv.you ? (inv.you.status === "organizer" ? "accepted" : inv.you.status) : a.status) }) : undefined}
                   />
-                  <span>{personName(a)}{a.isYou ? " (you)" : ""}</span>
-                  {a.role === "chair" && <span className="muted small">organizer</span>}
-                  {a.role === "optional" && <span className="muted small">optional</span>}
-                  {(a.isYou && inv.you ? inv.you.status : a.status) !== "accepted" && a.role !== "chair" && <span className="muted small">{RS_TEXT[a.isYou && inv.you ? (inv.you.status as string) : a.status]}</span>}
+                  <span>{personName(a)}{a.isYou ? ` (${t("calendar.invite.you")})` : ""}</span>
+                  {a.role === "chair" && <span className="muted small">{t("calendar.invite.role.organizer")}</span>}
+                  {a.role === "optional" && <span className="muted small">{t("calendar.invite.role.optional")}</span>}
+                  {(a.isYou && inv.you ? inv.you.status : a.status) !== "accepted" && a.role !== "chair" && <span className="muted small">{rsText(a.isYou && inv.you ? (inv.you.status as string) : a.status)}</span>}
                 </li>
               ))}
             </ul>
@@ -333,57 +354,57 @@ export function InviteCard({ m }: { m: MessageFull }) {
 
       {needsPermission && (
         <div className="notice" style={{ margin: "0 16px 10px" }}>
-          You’re not on the attendee list (this invite was forwarded to you). Responding tells {organizerName} you were added.{" "}
-          <button className="link" onClick={() => setForced(true)}>Respond anyway</button>
+          {t("calendar.invite.notOnList", { name: organizerName })}{" "}
+          <button className="link" onClick={() => setForced(true)}>{t("calendar.invite.respondAnyway")}</button>
         </div>
       )}
       {method === "PUBLISH" && (
         <div className="notice info" style={{ margin: "0 16px 10px" }}>
-          Published event (no response needed). {inv.eventId ? "It is in your calendar." : <button className="link" disabled={adding} onClick={() => void addToCalendar()}>{adding ? "Adding…" : "Add to calendar"}</button>}
+          {t("calendar.invite.published")} {inv.eventId ? t("calendar.invite.inYourCalendar") : <button className="link" disabled={adding} onClick={() => void addToCalendar()}>{adding ? t("calendar.adding") : t("calendar.addToCalendar")}</button>}
         </div>
       )}
       {method === "COUNTER" && (
-        <div className="notice" style={{ margin: "0 16px 10px" }}>{organizerName} proposed a new time: {fmtRange(inv, tz)}. (Counter-proposals can’t be answered in Hey Look! yet.)</div>
+        <div className="notice" style={{ margin: "0 16px 10px" }}>{t("calendar.invite.counter", { name: organizerName, range: fmtRange(inv, tz) })}</div>
       )}
       {method === "OTHER" && (
-        <div className="notice info" style={{ margin: "0 16px 10px" }}>This message contains calendar data that Hey Look! can’t act on.</div>
+        <div className="notice info" style={{ margin: "0 16px 10px" }}>{t("calendar.invite.other")}</div>
       )}
       {err && (
         <div className="inline-err" role="alert" style={{ padding: "0 16px 8px" }}>
-          <TriangleAlert size={14} aria-hidden /> Couldn’t send your response: {err.text} <button className="link" onClick={err.retry}>Retry</button>
+          <TriangleAlert size={14} aria-hidden /> {t("calendar.invite.sendFailed", { error: err.text })} <button className="link" onClick={err.retry}>{t("common.retry")}</button>
         </div>
       )}
 
-      <div className="invite-actions" role="group" aria-label="Respond to invitation">
+      <div className="invite-actions" role="group" aria-label={t("calendar.invite.respondGroup")}>
         {method === "REQUEST" && !closed && !needsPermission && !mine && (
           inv.responded && busy === null ? (
             <Dropdown
               className="btn"
-              title="Change response"
+              title={t("calendar.invite.changeResponse")}
               items={[
-                { label: "Accept", checked: status === "accepted", onClick: () => void respond("accepted", true) },
-                { label: "Tentative", checked: status === "tentative", onClick: () => void respond("tentative", true) },
-                { label: "Decline", checked: status === "declined", onClick: () => void respond("declined", true) },
+                { label: t("calendar.rsvp.accept"), checked: status === "accepted", onClick: () => void respond("accepted", true) },
+                { label: t("calendar.rsvp.tentative"), checked: status === "tentative", onClick: () => void respond("tentative", true) },
+                { label: t("calendar.rsvp.decline"), checked: status === "declined", onClick: () => void respond("declined", true) },
               ]}
             >
-              Change response
+              {t("calendar.invite.changeResponse")}
             </Dropdown>
           ) : (
             <>
-              <ChoiceBtn r="accepted" label="Accept" icon={<Check size={14} />} />
-              <ChoiceBtn r="tentative" label="Tentative" icon={<span style={{ fontWeight: 800, width: 14, textAlign: "center" }}>?</span>} />
-              <ChoiceBtn r="declined" label="Decline" icon={<X size={14} />} />
+              <ChoiceBtn r="accepted" icon={<Check size={14} />} />
+              <ChoiceBtn r="tentative" icon={<span style={{ fontWeight: 800, width: 14, textAlign: "center" }}>?</span>} />
+              <ChoiceBtn r="declined" icon={<X size={14} />} />
             </>
           )
         )}
-        {closed && !inv.cancelled && <span className="muted small">Responses are closed.</span>}
-        {inv.cancelled && inv.eventId && <button className="btn" onClick={() => void removeFromCalendar()}>Remove from calendar</button>}
+        {closed && !inv.cancelled && <span className="muted small">{t("calendar.invite.closed")}</span>}
+        {inv.cancelled && inv.eventId && <button className="btn" onClick={() => void removeFromCalendar()}>{t("calendar.invite.removeFromCalendar")}</button>}
         {method === "REQUEST" && !inv.eventId && !inv.cancelled && !mine && (
-          <button className="btn" disabled={adding} onClick={() => void addToCalendar()}><CalendarPlus size={14} /> {adding ? "Adding…" : "Add to calendar"}</button>
+          <button className="btn" disabled={adding} onClick={() => void addToCalendar()}><CalendarPlus size={14} /> {adding ? t("calendar.adding") : t("calendar.addToCalendar")}</button>
         )}
         <span className="grow" />
-        {inv.eventId && !inv.cancelled && <button className="link-btn" onClick={openInCalendar}><CalendarDays size={14} /> Open in calendar</button>}
-        {!m.confidential && <button className="link-btn" onClick={() => void saveIcs()}><Download size={14} /> Save .ics</button>}
+        {inv.eventId && !inv.cancelled && <button className="link-btn" onClick={openInCalendar}><CalendarDays size={14} /> {t("calendar.invite.openInCalendar")}</button>}
+        {!m.confidential && <button className="link-btn" onClick={() => void saveIcs()}><Download size={14} /> {t("calendar.saveIcs")}</button>}
       </div>
 
       {note && <NoteDialog r={note} onClose={() => setNote(null)} onSend={(text) => (setNote(null), void respond(note, true, text))} />}
@@ -395,15 +416,16 @@ function Users2() {
   return <CalendarCheck size={14} aria-hidden />;
 }
 
-function NoteDialog({ r, onClose, onSend }: { r: Rsvp; onClose: () => void; onSend: (t: string) => void }) {
-  const [t, setT] = useState("");
+function NoteDialog({ r, onClose, onSend }: { r: Rsvp; onClose: () => void; onSend: (text: string) => void }) {
+  const t = useT();
+  const [text, setText] = useState("");
   return (
-    <Modal title={`${r === "accepted" ? "Accept" : r === "tentative" ? "Tentative" : "Decline"} with a note`} onClose={onClose}>
-      <label className="muted small" htmlFor="rsvp-note">Add a note (optional)</label>
-      <textarea id="rsvp-note" rows={4} autoFocus value={t} onChange={(e) => setT(e.target.value)} style={{ width: "100%", marginTop: 6 }} />
+    <Modal title={t(CHOICE[r].dialog)} onClose={onClose}>
+      <label className="muted small" htmlFor="rsvp-note">{t("calendar.invite.noteLabel")}</label>
+      <textarea id="rsvp-note" rows={4} autoFocus value={text} onChange={(e) => setText(e.target.value)} style={{ width: "100%", marginTop: 6 }} />
       <div className="row-inline" style={{ justifyContent: "flex-end", marginTop: 12 }}>
-        <button className="btn" onClick={onClose}>Cancel</button>
-        <button className="btn primary" onClick={() => onSend(t.trim())}>Send</button>
+        <button className="btn" onClick={onClose}>{t("common.cancel")}</button>
+        <button className="btn primary" onClick={() => onSend(text.trim())}>{t("calendar.send")}</button>
       </div>
     </Modal>
   );
@@ -445,7 +467,10 @@ function newOnDay(day: Day, tz: string, hour = 9, minute = 0) {
   newEvent({ start, end: start + 3600 });
 }
 
+const VIEW_KEYS = { month: ["calendar.view.month", "calendar.view.monthTip"], week: ["calendar.view.week", "calendar.view.weekTip"], agenda: ["calendar.view.agenda", "calendar.view.agendaTip"] } as const;
+
 export function CalendarView() {
+  const t = useT();
   const { prefs, calDate, calEvents, calendars, calLoading, calError, loadCalendar, setCalDate, setCalView, accounts } = useStore();
   const tz = useTz();
   const view: CalView = prefs.calView;
@@ -469,29 +494,29 @@ export function CalendarView() {
   );
 
   const step = (dir: 1 | -1) => setCalDate(view === "month" ? addMonths(calDate, dir) : view === "week" ? addDays(calDate, 7 * dir) : addDays(calDate, 30 * dir));
-  const title = view === "month" ? monthTitle(calDate) : view === "week" ? weekTitle(weekDays(calDate, prefs.weekStart)) : `From ${fmtDayLong(calDate)}`;
+  const title = view === "month" ? monthTitle(calDate) : view === "week" ? weekTitle(weekDays(calDate, prefs.weekStart)) : t("calendar.fromDay", { day: fmtDayLong(calDate) });
   const openPop = (ev: CalEvent, el: HTMLElement) => setPop({ ev, rect: el.getBoundingClientRect() });
   void accounts;
 
   return (
-    <section className="cal-view" aria-label="Calendar" aria-busy={calLoading}>
+    <section className="cal-view" aria-label={t("calendar.title")} aria-busy={calLoading}>
       <div className="cal-head">
-        <button className="btn small" onClick={() => setCalDate(todayD)} title="Today (t)">Today</button>
-        <button className="icon-btn" aria-label={view === "month" ? "Previous month" : view === "week" ? "Previous week" : "Previous 30 days"} title="Previous (←)" onClick={() => step(-1)}><ChevronLeft size={16} /></button>
-        <button className="icon-btn" aria-label={view === "month" ? "Next month" : view === "week" ? "Next week" : "Next 30 days"} title="Next (→)" onClick={() => step(1)}><ChevronRight size={16} /></button>
+        <button className="btn small" onClick={() => setCalDate(todayD)} title={t("calendar.todayTip")}>{t("calendar.today")}</button>
+        <button className="icon-btn" aria-label={view === "month" ? t("calendar.prevMonth") : view === "week" ? t("calendar.prevWeek") : t("calendar.prev30")} title={t("calendar.prevTip")} onClick={() => step(-1)}><ChevronLeft size={16} /></button>
+        <button className="icon-btn" aria-label={view === "month" ? t("calendar.nextMonth") : view === "week" ? t("calendar.nextWeek") : t("calendar.next30")} title={t("calendar.nextTip")} onClick={() => step(1)}><ChevronRight size={16} /></button>
         <h2>{title}</h2>
         <span className="muted small">{tz} ({tzOffsetLabel(tz)})</span>
-        <div className="seg" role="tablist" aria-label="Calendar view">
+        <div className="seg" role="tablist" aria-label={t("calendar.viewLabel")}>
           {(["month", "week", "agenda"] as const).map((v) => (
-            <button key={v} role="tab" aria-selected={view === v} className={view === v ? "on" : ""} title={`${v[0].toUpperCase()}${v.slice(1)} (${v[0]})`} onClick={() => setCalView(v)}>
-              {v[0].toUpperCase() + v.slice(1)}
+            <button key={v} role="tab" aria-selected={view === v} className={view === v ? "on" : ""} title={t(VIEW_KEYS[v][1])} onClick={() => setCalView(v)}>
+              {t(VIEW_KEYS[v][0])}
             </button>
           ))}
         </div>
       </div>
       {calError && (
         <div className="notice bad" style={{ margin: "8px 16px 0" }} role="alert">
-          Couldn’t load events: {calError} <button className="link" onClick={() => void loadCalendar()}>Retry</button>
+          {t("calendar.loadFailed", { error: calError })} <button className="link" onClick={() => void loadCalendar()}>{t("common.retry")}</button>
         </div>
       )}
       {view === "month" && (
@@ -533,10 +558,11 @@ function MonthView({
   events: CalEvent[]; focus: Day; setFocus: (d: Day) => void; tz: string; anchor: Day; weekStart: number; todayD: Day;
   color: (id: string) => string | undefined; openPop: (e: CalEvent, el: HTMLElement) => void; loading: boolean;
 }) {
+  const t = useT();
   const setCalDate = useStore((s) => s.setCalDate);
   const setCalView = useStore((s) => s.setCalView);
   const grid = useMemo(() => monthGrid(anchor, weekStart), [anchor, weekStart]);
-  const dows = Array.from({ length: 7 }, (_, i) => WD_SHORT[(weekStart + i) % 7]);
+  const dows = Array.from({ length: 7 }, (_, i) => wdShort((weekStart + i) % 7));
   const refs = useRef<Record<string, HTMLDivElement | null>>({});
 
   const moveFocus = (d: Day) => {
@@ -562,7 +588,7 @@ function MonthView({
               key={dayKey(day)}
               ref={(el) => { refs.current[dayKey(day)] = el; }}
               role="gridcell"
-              aria-label={`${fmtDayLong(day)}${isToday ? ", today" : ""}${list.length ? `, ${list.length} event${list.length === 1 ? "" : "s"}` : ""}`}
+              aria-label={`${fmtDayLong(day)}${isToday ? `, ${t("calendar.cell.today")}` : ""}${list.length ? `, ${t("calendar.cell.events", { n: list.length })}` : ""}`}
               aria-selected={sameDay(day, focus)}
               tabIndex={sameDay(day, focus) ? 0 : -1}
               className={`mday ${other ? "other" : ""} ${isToday ? "today" : ""}`}
@@ -583,11 +609,11 @@ function MonthView({
                 e.stopPropagation();
               }}
             >
-              <span className="mnum">{day.d === 1 ? `${day.d} ${MONTHS_SHORT[day.m - 1]}` : day.d}</span>
+              <span className="mnum">{day.d === 1 ? `${day.d} ${monthShort(day.m)}` : day.d}</span>
               {loading && events.length === 0 ? (!other && day.d % 3 === 0 ? <div className="sk" style={{ height: 16, margin: "2px 2px" }} aria-hidden="true" /> : null) : shown.map((ev) => <Chip key={`${ev.id}:${ev.start}`} ev={ev} tz={tz} color={eventColor(ev, color)} openPop={openPop} />)}
               {more > 0 && (
                 <button type="button" className="ev-more" onClick={(e) => (e.stopPropagation(), setCalDate(day), setCalView("agenda"))}>
-                  +{more} more
+                  {t("calendar.more", { n: more })}
                 </button>
               )}
             </div>
@@ -604,6 +630,7 @@ function WeekView({
   events: CalEvent[]; tz: string; anchor: Day; weekStart: number; todayD: Day; now: number;
   color: (id: string) => string | undefined; openPop: (e: CalEvent, el: HTMLElement) => void;
 }) {
+  const t = useT();
   const days = useMemo(() => weekDays(anchor, weekStart), [anchor, weekStart]);
   const scroller = useRef<HTMLDivElement>(null);
   const [sbw, setSbw] = useState(0);
@@ -625,11 +652,11 @@ function WeekView({
       <div className="wk-dh" />
       {days.map((d) => (
         <div key={dayKey(d)} className={`wk-dh ${sameDay(d, todayD) ? "today" : ""}`} role="columnheader">
-          {WD_SHORT[(weekdayIdx(d))]}
+          {wdShort(weekdayIdx(d))}
           <b>{d.d}</b>
         </div>
       ))}
-      <div className="wk-allday-label">All day</div>
+      <div className="wk-allday-label">{t("calendar.allDay")}</div>
       {days.map((d) => (
         <div key={`ad-${dayKey(d)}`} className="wk-allday">
           {eventsOnDay(events, d, tz).filter((e) => e.allDay).map((ev) => <Chip key={`${ev.id}:${ev.start}`} ev={ev} tz={tz} color={eventColor(ev, color)} openPop={openPop} />)}
@@ -658,10 +685,10 @@ function WeekView({
               newOnDay(d, tz, Math.floor(mins / 60), mins % 60);
             }}
           >
-            {placed.map(({ ev: t, lane, lanes }) => {
-              const ev = t.ev;
-              const top = ((t.start - dayStart) / 3600) * HOUR_PX;
-              const h = Math.max(((t.end - t.start) / 3600) * HOUR_PX, 20);
+            {placed.map(({ ev: p, lane, lanes }) => {
+              const ev = p.ev;
+              const top = ((p.start - dayStart) / 3600) * HOUR_PX;
+              const h = Math.max(((p.end - p.start) / 3600) * HOUR_PX, 20);
               return (
                 <button
                   key={`${ev.id}:${ev.start}`}
@@ -690,13 +717,13 @@ function WeekView({
 const weekdayIdx = (d: Day) => new Date(Date.UTC(d.y, d.m - 1, d.d)).getUTCDay();
 
 function statusPill(ev: CalEvent): ReactNode {
-  if (ev.status === "cancelled") return <span className="pill bad">Cancelled</span>;
+  if (ev.status === "cancelled") return <span className="pill bad">{t("calendar.status.cancelled")}</span>;
   const s = ev.myStatus;
-  if (s === "accepted") return <span className="pill good">Accepted</span>;
-  if (s === "tentative") return <span className="pill warn">Tentative</span>;
-  if (s === "declined") return <span className="pill">Declined</span>;
-  if (s === "needs-action") return <span className="pill warn">Not responded</span>;
-  if (s === "organizer") return <span className="pill accent">Organizer</span>;
+  if (s === "accepted") return <span className="pill good">{t("calendar.status.accepted")}</span>;
+  if (s === "tentative") return <span className="pill warn">{t("calendar.status.tentative")}</span>;
+  if (s === "declined") return <span className="pill">{t("calendar.status.declined")}</span>;
+  if (s === "needs-action") return <span className="pill warn">{t("calendar.status.needsAction")}</span>;
+  if (s === "organizer") return <span className="pill accent">{t("calendar.status.organizer")}</span>;
   return null;
 }
 
@@ -705,6 +732,7 @@ function AgendaView({
 }: {
   events: CalEvent[]; tz: string; from: Day; todayD: Day; color: (id: string) => string | undefined; openPop: (e: CalEvent, el: HTMLElement) => void; loading: boolean;
 }) {
+  const t = useT();
   const days = Array.from({ length: 30 }, (_, i) => addDays(from, i));
   const groups = days.map((d) => ({ d, list: eventsOnDay(events, d, tz) })).filter((g) => g.list.length);
   if (loading && events.length === 0) {
@@ -717,16 +745,16 @@ function AgendaView({
   if (groups.length === 0) {
     return (
       <div className="agenda">
-        <EmptyState icon={<CalendarDays size={44} />} title="Nothing scheduled in the next 30 days." text="Invitations you receive and events you create show up here." />
-        <div style={{ textAlign: "center" }}><button className="btn primary" onClick={() => newOnDay(from, tz, 9)}><CalendarPlus size={14} /> New event</button></div>
+        <EmptyState icon={<CalendarDays size={44} />} title={t("calendar.agenda.emptyTitle")} text={t("calendar.agenda.emptyText")} />
+        <div style={{ textAlign: "center" }}><button className="btn primary" onClick={() => newOnDay(from, tz, 9)}><CalendarPlus size={14} /> {t("calendar.newEvent")}</button></div>
       </div>
     );
   }
   return (
-    <div className="agenda" role="list" aria-label="Agenda">
+    <div className="agenda" role="list" aria-label={t("calendar.agenda.label")}>
       {groups.map(({ d, list }) => (
         <div key={dayKey(d)} role="listitem">
-          <div className="ag-day">{sameDay(d, todayD) ? `Today · ${fmtDayShort(d)}` : fmtDayShort(d)}</div>
+          <div className="ag-day">{sameDay(d, todayD) ? t("calendar.agenda.today", { day: fmtDayShort(d) }) : fmtDayShort(d)}</div>
           {list.map((ev) => (
             <div
               key={`${ev.id}:${ev.start}`}
@@ -743,11 +771,11 @@ function AgendaView({
                 }
               }}
             >
-              <span className="ag-time">{ev.allDay ? "All day" : `${fmtTime(ev.start, tz)} – ${fmtTime(ev.end, tz)}`}</span>
+              <span className="ag-time">{ev.allDay ? t("calendar.allDay") : `${fmtTime(ev.start, tz)} – ${fmtTime(ev.end, tz)}`}</span>
               <span className="ag-bar" />
               <span className="grow ellipsis" style={{ textDecoration: ev.status === "cancelled" ? "line-through" : undefined, opacity: ev.status === "cancelled" ? 0.7 : 1 }}>
                 <b>{ev.summary}</b>
-                {ev.location && <span className="muted small"> · {isUrl(ev.location) ? joinLabel(ev.location).replace("Join ", "").replace(" meeting", "") : ev.location}</span>}
+                {ev.location && <span className="muted small"> · {isUrl(ev.location) ? joinShortName(ev.location) : ev.location}</span>}
               </span>
               {statusPill(ev)}
             </div>
@@ -761,6 +789,7 @@ function AgendaView({
 // =============================================================== event popover
 
 function EventPopover({ state, tz, color, onClose }: { state: PopState; tz: string; color: string; onClose: () => void }) {
+  const t = useT();
   const { showToast, choose, confirm, setDialog, bumpCal, setModule, setView, select } = useStore();
   const ev = state.ev;
   const ref = useRef<HTMLDivElement>(null);
@@ -800,11 +829,12 @@ function EventPopover({ state, tz, color, onClose }: { state: PopState; tz: stri
     setErr(null);
     try {
       await api.calendarRespond(ev.sourceMessageId, r, null, true);
-      showToast(`Response sent to ${personName(ev.organizer) || "the organizer"}`, undefined, "success");
+      const who = personName(ev.organizer);
+      showToast(who ? t("calendar.toast.responseSent", { name: who }) : t("calendar.toast.responseSentOrganizer"), undefined, "success");
       bumpCal();
       onClose();
     } catch (e) {
-      setErr(`Couldn’t send your response: ${friendlyError(e)}`);
+      setErr(t("calendar.invite.sendFailed", { error: friendlyError(e) }));
       bumpCal();
     } finally {
       setBusy(null);
@@ -816,24 +846,24 @@ function EventPopover({ state, tz, color, onClose }: { state: PopState; tz: stri
     let notify = false;
     if (mine && ev.myStatus === "organizer" && others > 0) {
       const c = await choose({
-        title: `Cancel this event for ${others} attendee${others === 1 ? "" : "s"}?`,
-        body: "Send a cancellation so they can remove it from their calendars, or delete it only here.",
+        title: t("calendar.pop.cancelTitle", { n: others }),
+        body: t("calendar.pop.cancelBody"),
         choices: [
-          { id: "keep", label: "Keep" },
-          { id: "silent", label: "Delete without notifying", kind: "danger" },
-          { id: "send", label: "Send cancellation", kind: "primary" },
+          { id: "keep", label: t("calendar.pop.keep") },
+          { id: "silent", label: t("calendar.pop.deleteSilent"), kind: "danger" },
+          { id: "send", label: t("calendar.pop.sendCancellation"), kind: "primary" },
         ],
       });
       if (c === "keep") return;
       notify = c === "send";
     } else if (synced) {
       // the service sends the cancellation to the guests, this app sends no mail for these events
-      const t = deleteConfirm(syncedCal?.name ?? "", syncedCal?.service, others);
-      if (!(await confirm({ ...t, confirmLabel: "Delete", danger: true }))) return;
-    } else if (!(await confirm({ title: `Delete “${ev.summary}”?`, body: ev.rrule ? "Every occurrence of this repeating event is deleted." : undefined, confirmLabel: "Delete", danger: true }))) return;
+      const del = deleteConfirm(syncedCal?.name ?? "", syncedCal?.service, others);
+      if (!(await confirm({ ...del, confirmLabel: t("common.delete"), danger: true }))) return;
+    } else if (!(await confirm({ title: t("calendar.pop.deleteTitle", { summary: ev.summary }), body: ev.rrule ? t("calendar.pop.deleteRepeating") : undefined, confirmLabel: t("common.delete"), danger: true }))) return;
     try {
       await api.calendarDeleteEvent(ev.id, notify);
-      showToast(notify ? "Event cancelled and attendees notified" : "Event deleted", undefined, "success");
+      showToast(notify ? t("calendar.toast.cancelledNotified") : t("calendar.toast.deleted"), undefined, "success");
     } catch (e) {
       showToast(friendlyError(e), undefined, errorCode(e) === "CAL_SEND_FAILED" ? "error" : "error");
     }
@@ -843,7 +873,7 @@ function EventPopover({ state, tz, color, onClose }: { state: PopState; tz: stri
 
   const duplicate = () => {
     onClose();
-    setDialog({ type: "event", init: { summary: `${ev.summary} (copy)`, start: ev.start, end: ev.end, allDay: ev.allDay, location: ev.location ?? undefined, description: ev.description ?? undefined } });
+    setDialog({ type: "event", init: { summary: t("calendar.pop.copyOf", { summary: ev.summary }), start: ev.start, end: ev.end, allDay: ev.allDay, location: ev.location ?? undefined, description: ev.description ?? undefined } });
   };
 
   const openMail = async () => {
@@ -862,20 +892,20 @@ function EventPopover({ state, tz, color, onClose }: { state: PopState; tz: stri
   const saveIcs = async () => {
     try {
       const p = await api.calendarSaveIcs({ eventId: ev.id });
-      if (p) showToast(`Saved ${p.split(/[\\/]/).pop()}`, undefined, "success");
+      if (p) showToast(t("calendar.toast.saved", { name: p.split(/[\\/]/).pop() ?? p }), undefined, "success");
     } catch (e) {
-      showToast(`Couldn’t save the file: ${friendlyError(e)}`, undefined, "error");
+      showToast(t("calendar.toast.saveFailed", { error: friendlyError(e) }), undefined, "error");
     }
     onClose();
   };
 
   const others = ev.attendees.length;
   return (
-    <div ref={ref} tabIndex={-1} className="popover ev-pop" role="dialog" aria-label={`Event: ${ev.summary}`} style={{ position: "fixed", top: pos.top, left: pos.left, zIndex: 40 }}>
+    <div ref={ref} tabIndex={-1} className="popover ev-pop" role="dialog" aria-label={t("calendar.pop.aria", { summary: ev.summary })} style={{ position: "fixed", top: pos.top, left: pos.left, zIndex: 40 }}>
       <h4 style={{ textDecoration: ev.status === "cancelled" ? "line-through" : undefined }}>
         <span style={{ width: 10, height: 10, borderRadius: 3, background: color, marginTop: 6, flex: "none" }} aria-hidden />
         <span className="grow">{ev.summary}</span>
-        <button className="icon-btn" aria-label="Close" onClick={onClose}><X size={14} /></button>
+        <button className="icon-btn" aria-label={t("common.close")} onClick={onClose}><X size={14} /></button>
       </h4>
       <div className="inv-row"><Clock size={14} aria-hidden /><span>{fmtRange(ev, tz)}{ev.recurrenceText ? <><br /><span className="sub"><Repeat size={11} aria-hidden style={{ verticalAlign: -1 }} /> {ev.recurrenceText}</span></> : ""}</span></div>
       {(ev.location || ev.joinUrl) && (
@@ -892,12 +922,12 @@ function EventPopover({ state, tz, color, onClose }: { state: PopState; tz: stri
         <div className="inv-row">
           <UserRound size={14} aria-hidden />
           <span>
-            {ev.organizer ? `${personName(ev.organizer)} (organizer)` : ""}{ev.organizer && others > 1 ? " · " : ""}{others > 1 ? `${others} attendees` : ""}
+            {ev.organizer ? t("calendar.pop.organizerOf", { name: personName(ev.organizer) }) : ""}{ev.organizer && others > 1 ? " · " : ""}{others > 1 ? t("calendar.pop.attendees", { n: others }) : ""}
           </span>
         </div>
       )}
       {myStatusLabel(ev.myStatus) && ev.myStatus !== "organizer" && (
-        <div className="inv-row"><CircleCheck size={14} aria-hidden /><span>{ev.status === "cancelled" ? "Cancelled by the organizer" : myStatusLabel(ev.myStatus)}{ev.respondedAt === null && ev.myStatus !== "needs-action" ? " (no response sent)" : ""}</span></div>
+        <div className="inv-row"><CircleCheck size={14} aria-hidden /><span>{ev.status === "cancelled" ? t("calendar.pop.cancelledByOrganizer") : myStatusLabel(ev.myStatus)}{ev.respondedAt === null && ev.myStatus !== "needs-action" ? ` (${t("calendar.invite.noResponseSent")})` : ""}</span></div>
       )}
       {ev.description && <div className="muted small" style={{ whiteSpace: "pre-wrap", maxHeight: 90, overflow: "auto" }}>{ev.description.slice(0, 600)}</div>}
       {lockNote && <div className="muted small">{lockNote}</div>}
@@ -905,25 +935,25 @@ function EventPopover({ state, tz, color, onClose }: { state: PopState; tz: stri
       <div className="ev-acts">
         {canRsvp && (
           <>
-            <button className={`btn small ${ev.myStatus === "accepted" ? "chosen" : ""}`} disabled={busy !== null} onClick={() => void respond("accepted")}>{busy === "accepted" ? "Sending…" : "Accept"}</button>
-            <button className={`btn small ${ev.myStatus === "tentative" ? "chosen" : ""}`} disabled={busy !== null} onClick={() => void respond("tentative")}>{busy === "tentative" ? "Sending…" : "Tentative"}</button>
-            <button className={`btn small ${ev.myStatus === "declined" ? "chosen" : ""}`} disabled={busy !== null} onClick={() => void respond("declined")}>{busy === "declined" ? "Sending…" : "Decline"}</button>
+            <button className={`btn small ${ev.myStatus === "accepted" ? "chosen" : ""}`} disabled={busy !== null} onClick={() => void respond("accepted")}>{busy === "accepted" ? t("calendar.sending") : t("calendar.rsvp.accept")}</button>
+            <button className={`btn small ${ev.myStatus === "tentative" ? "chosen" : ""}`} disabled={busy !== null} onClick={() => void respond("tentative")}>{busy === "tentative" ? t("calendar.sending") : t("calendar.rsvp.tentative")}</button>
+            <button className={`btn small ${ev.myStatus === "declined" ? "chosen" : ""}`} disabled={busy !== null} onClick={() => void respond("declined")}>{busy === "declined" ? t("calendar.sending") : t("calendar.rsvp.decline")}</button>
           </>
         )}
-        {ev.joinUrl && <button className="btn small primary" onClick={() => void open(ev.joinUrl!)}><Video size={13} /> Join</button>}
+        {ev.joinUrl && <button className="btn small primary" onClick={() => void open(ev.joinUrl!)}><Video size={13} /> {t("calendar.pop.join")}</button>}
         <span className="grow" />
-        {invite && ev.sourceMessageId && <button className="icon-btn" title="Open invitation email" aria-label="Open invitation email" onClick={() => void openMail()}><Mail size={15} /></button>}
+        {invite && ev.sourceMessageId && <button className="icon-btn" title={t("calendar.pop.openEmail")} aria-label={t("calendar.pop.openEmail")} onClick={() => void openMail()}><Mail size={15} /></button>}
         <Dropdown
           className="icon-btn"
           caret={false}
           align="right"
-          title="More actions"
+          title={t("calendar.pop.more")}
           items={[
-            { label: "Edit", disabled: !(mine || (synced && !ev.readOnly)), onClick: () => (onClose(), setDialog({ type: "event", eventId: ev.id })) },
-            { label: "Duplicate", disabled: ev.confidential, onClick: duplicate },
-            { label: "Save .ics", disabled: ev.confidential, onClick: () => void saveIcs() },
+            { label: t("common.edit"), disabled: !(mine || (synced && !ev.readOnly)), onClick: () => (onClose(), setDialog({ type: "event", eventId: ev.id })) },
+            { label: t("calendar.pop.duplicate"), disabled: ev.confidential, onClick: duplicate },
+            { label: t("calendar.saveIcs"), disabled: ev.confidential, onClick: () => void saveIcs() },
             { divider: true },
-            { label: "Delete", disabled: synced && !!ev.readOnly, onClick: () => void remove() },
+            { label: t("common.delete"), disabled: synced && !!ev.readOnly, onClick: () => void remove() },
           ]}
         >
           <MoreHorizontal size={15} />
@@ -936,13 +966,14 @@ function EventPopover({ state, tz, color, onClose }: { state: PopState; tz: stri
 // =============================================================== sidebar (folder pane in Calendar mode)
 
 export function CalSidebar() {
+  const t = useT();
   const { prefs, calDate, calEvents, calendars, calSources, setCalDate, setPrefs, setDialog, bumpCal, accounts } = useStore();
   const tz = useTz();
   const todayD = today(tz);
   const [month, setMonth] = useState<Day>(calDate);
   useEffect(() => setMonth({ ...calDate, d: 1 }), [calDate]);
   const grid = useMemo(() => monthGrid(month, prefs.weekStart), [month, prefs.weekStart]);
-  const dows = Array.from({ length: 7 }, (_, i) => WD_SHORT[(prefs.weekStart + i) % 7][0]);
+  const dows = Array.from({ length: 7 }, (_, i) => wdNarrow((prefs.weekStart + i) % 7));
   const has = useMemo(() => {
     const s = new Set<string>();
     for (const e of calEvents) {
@@ -954,15 +985,15 @@ export function CalSidebar() {
   const weekOfSel = weekStartOf(calDate, prefs.weekStart);
   const sel = (d: Day) => prefs.calView === "month" ? sameDay(d, calDate) : prefs.calView === "week" ? daysBetween(weekOfSel, d) >= 0 && daysBetween(weekOfSel, d) < 7 : sameDay(d, calDate);
 
-  const cals = calendars.length ? calendars : [{ id: "local", name: "My events", color: MY_EVENTS_COLOR, accountId: null, visible: true }];
+  const cals = calendars.length ? calendars : [{ id: "local", name: t("calendar.myEvents"), color: MY_EVENTS_COLOR, accountId: null, visible: true }];
   return (
     <>
       <div className="fp-group">
         <div className="mini-head">
           <span>{monthTitle(month)}</span>
           <span>
-            <button className="icon-btn" aria-label="Previous month" onClick={() => setMonth(addMonths(month, -1))}><ChevronLeft size={14} /></button>
-            <button className="icon-btn" aria-label="Next month" onClick={() => setMonth(addMonths(month, 1))}><ChevronRight size={14} /></button>
+            <button className="icon-btn" aria-label={t("calendar.prevMonth")} onClick={() => setMonth(addMonths(month, -1))}><ChevronLeft size={14} /></button>
+            <button className="icon-btn" aria-label={t("calendar.nextMonth")} onClick={() => setMonth(addMonths(month, 1))}><ChevronRight size={14} /></button>
           </span>
         </div>
         <table className="mini-month" role="grid" aria-label={monthTitle(month)}>
@@ -975,7 +1006,7 @@ export function CalSidebar() {
                     <button
                       type="button"
                       className={`${d.m !== month.m ? "other" : ""} ${sameDay(d, todayD) ? "today" : ""} ${sel(d) ? "sel" : ""} ${has.has(dayKey(d)) ? "has" : ""}`}
-                      aria-label={`${fmtDayLong(d)}${has.has(dayKey(d)) ? ", has events" : ""}`}
+                      aria-label={`${fmtDayLong(d)}${has.has(dayKey(d)) ? `, ${t("calendar.cell.hasEvents")}` : ""}`}
                       aria-current={sameDay(d, todayD) ? "date" : undefined}
                       onClick={() => setCalDate(d)}
                     >
@@ -989,7 +1020,7 @@ export function CalSidebar() {
         </table>
       </div>
       <div className="fp-group">
-        <div className="fp-head" style={{ cursor: "default" }}>Calendars</div>
+        <div className="fp-head" style={{ cursor: "default" }}>{t("calendar.side.calendars")}</div>
         <div className="cal-list">
           {cals.map((c) => {
             const acct = accounts.find((a) => a.id === c.accountId);
@@ -1003,20 +1034,23 @@ export function CalSidebar() {
                   style={{ accentColor: col }}
                   onChange={(e) => void api.calendarSetVisible(c.id, e.target.checked).then(() => bumpCal())}
                 />
-                <span className="ellipsis" title={c.name}>{c.name}</span>
-                {c.remote && !c.writable && <span className="muted small" style={{ flex: "none" }}>Read only</span>}
+                <span className="ellipsis" title={calendarTitle(c)}>{calendarTitle(c)}</span>
+                {c.remote && !c.writable && <span className="muted small" style={{ flex: "none" }}>{t("calendar.side.readOnly")}</span>}
               </label>
             );
           })}
           <label>
             <input type="checkbox" checked={prefs.calShowDeclined} onChange={(e) => setPrefs({ calShowDeclined: e.target.checked })} />
-            <span>Show declined events</span>
+            <span>{t("calendar.side.showDeclined")}</span>
           </label>
         </div>
         {pausedSources(calSources).map((s) => (
           <div key={s.id} className="notice bad" style={{ margin: "8px 0 0" }}>
-            Calendar sync paused for {accounts.find((a) => a.id === s.accountId)?.email ?? "this mailbox"}.{" "}
-            <button className="link" onClick={() => setDialog({ type: "settings", tab: `mb:${s.accountId}`, focus: "calendar", nonce: Date.now() })}>Fix in Settings</button>
+            {(() => {
+              const email = accounts.find((a) => a.id === s.accountId)?.email;
+              return email ? t("calendar.side.paused", { email }) : t("calendar.side.pausedGeneric");
+            })()}{" "}
+            <button className="link" onClick={() => setDialog({ type: "settings", tab: `mb:${s.accountId}`, focus: "calendar", nonce: Date.now() })}>{t("calendar.side.fix")}</button>
           </div>
         ))}
       </div>
@@ -1026,11 +1060,13 @@ export function CalSidebar() {
 
 // =============================================================== new / edit event
 
-const REMINDERS: [number | null, string][] = [
-  [null, "No reminder"], [0, "At the start"], [5, "5 minutes before"], [10, "10 minutes before"], [15, "15 minutes before"], [30, "30 minutes before"], [60, "1 hour before"], [1440, "1 day before"],
-];
+const REMINDERS = [
+  [null, "calendar.reminder.none"], [0, "calendar.reminder.start"], [5, "calendar.reminder.m5"], [10, "calendar.reminder.m10"], [15, "calendar.reminder.m15"], [30, "calendar.reminder.m30"],
+  [60, "calendar.reminder.h1"], [1440, "calendar.reminder.d1"],
+] as const;
 
 export function EventDialog({ eventId, init }: { eventId?: string; init?: EventInit }) {
+  const t = useT();
   const { prefs, accounts, calendars, setPrefs, setDialog, showToast, bumpCal } = useStore();
   const tz = useTz();
   const [loaded, setLoaded] = useState(!eventId);
@@ -1095,7 +1131,7 @@ export function EventDialog({ eventId, init }: { eventId?: string; init?: EventI
   }, [eventId, tz]);
 
   const close = async () => {
-    if (dirty && !(await useStore.getState().confirm({ title: "Discard this event?", body: "Your changes haven’t been saved.", confirmLabel: "Discard", danger: true }))) return;
+    if (dirty && !(await useStore.getState().confirm({ title: t("calendar.dialog.discardTitle"), body: t("calendar.dialog.discardBody"), confirmLabel: t("calendar.dialog.discard"), danger: true }))) return;
     setDialog(null);
   };
 
@@ -1103,19 +1139,19 @@ export function EventDialog({ eventId, init }: { eventId?: string; init?: EventI
   const startMs = fromInputs(sd, st, tz, allDay);
   const endMs = fromInputs(ed, et, tz, allDay);
   const everyone = existing?.attendees.length ? existing.attendees.length > 1 : false;
-  const primary = busy ? (hasGuests ? "Sending…" : "Saving…") : hasGuests ? (existing && everyone ? "Send update" : "Send invitations") : "Save";
+  const primary = busy ? (hasGuests ? t("calendar.sending") : t("calendar.dialog.saving")) : hasGuests ? (existing && everyone ? t("calendar.dialog.sendUpdate") : t("calendar.dialog.sendInvitations")) : t("common.save");
 
   const save = async () => {
     setError(null);
-    if (!title.trim()) return setError("Add a title.");
-    if (startMs === null || endMs === null) return setError("Check the date and time.");
+    if (!title.trim()) return setError(t("calendar.dialog.errTitle"));
+    if (startMs === null || endMs === null) return setError(t("calendar.dialog.errDate"));
     const s = startMs;
     const e = allDay ? endMs + 86400 : endMs;
-    if (e <= s && !allDay) return setError("End must be after start.");
-    if (allDay && e <= s) return setError("End must be after start.");
+    if (e <= s && !allDay) return setError(t("calendar.endBeforeStart"));
+    if (allDay && e <= s) return setError(t("calendar.endBeforeStart"));
     const bad = invite.find((a) => !EMAIL.test(bare(a)));
-    if (bad) return setError(`Check the address: ${bad}`);
-    if (hasGuests && !accountId && !remote) return setError("Choose the account to send from.");
+    if (bad) return setError(t("calendar.dialog.errAddress", { address: bad }));
+    if (hasGuests && !accountId && !remote) return setError(t("calendar.dialog.errAccount"));
     const startDay = allDay ? dayOfMs(s * 1000, "UTC") : dayOfMs(s * 1000, tz);
     const rrule = repeat === "custom" ? customRule : repeatRule(repeat, startDay);
     setBusy(true);
@@ -1140,7 +1176,7 @@ export function EventDialog({ eventId, init }: { eventId?: string; init?: EventI
         hasGuests && !remote,
       );
       if (!eventId && (remote || prefs.calDefaultCalendar)) setPrefs({ calDefaultCalendar: remote ? calId : "" });
-      showToast(hasGuests ? `Invitations sent to ${invite.length} ${invite.length === 1 ? "person" : "people"}` : eventId ? "Event saved" : "Event added", undefined, "success");
+      showToast(hasGuests ? t("calendar.toast.invitationsSent", { n: invite.length }) : eventId ? t("calendar.toast.eventSaved") : t("calendar.toast.eventAdded"), undefined, "success");
       bumpCal();
       useStore.getState().setCalDate(allDay ? dayOfMs(ev.start * 1000, "UTC") : dayOfMs(ev.start * 1000, tz));
       setDialog(null);
@@ -1164,71 +1200,77 @@ export function EventDialog({ eventId, init }: { eventId?: string; init?: EventI
 
   if (loadErr) {
     return (
-      <Modal title="Edit event" onClose={() => setDialog(null)} width={560}>
+      <Modal title={t("calendar.dialog.editTitle")} onClose={() => setDialog(null)} width={560}>
         <div className="notice bad">{loadErr}</div>
       </Modal>
     );
   }
   const startDayPreview = parseDay(sd);
   return (
-    <Modal title={eventId ? "Edit event" : "New event"} onClose={() => void close()} width={560}>
+    <Modal title={eventId ? t("calendar.dialog.editTitle") : t("calendar.newEvent")} onClose={() => void close()} width={560}>
       {existing && isSyncedCalendarId(existing.calendarId) && readOnlyNote(existing, calInfo?.name ?? "", calInfo?.service) && (
         <div className="notice" role="note">{readOnlyNote(existing, calInfo?.name ?? "", calInfo?.service)}</div>
       )}
       <div className="ev-form" aria-busy={!loaded}>
-        <label htmlFor="ev-title">Title</label>
-        <input id="ev-title" autoFocus value={title} aria-invalid={!!error && !title.trim()} onChange={(e) => (setTitle(e.target.value), touch())} placeholder="Add a title" />
+        <label htmlFor="ev-title">{t("calendar.dialog.title")}</label>
+        <input id="ev-title" autoFocus value={title} aria-invalid={!!error && !title.trim()} onChange={(e) => (setTitle(e.target.value), touch())} placeholder={t("calendar.dialog.titlePlaceholder")} />
 
-        <label>When</label>
+        <label>{t("calendar.dialog.when")}</label>
         <div>
           <div className="when">
-            <input type="date" aria-label="Start date" value={sd} onChange={(e) => (setSd(e.target.value), touch(), ed < e.target.value && setEd(e.target.value))} />
-            {!allDay && <input type="time" aria-label="Start time" value={st} onChange={(e) => (setSt(e.target.value), touch())} />}
+            <input type="date" aria-label={t("calendar.dialog.startDate")} value={sd} onChange={(e) => (setSd(e.target.value), touch(), ed < e.target.value && setEd(e.target.value))} />
+            {!allDay && <input type="time" aria-label={t("calendar.dialog.startTime")} value={st} onChange={(e) => (setSt(e.target.value), touch())} />}
           </div>
           <div className="when" style={{ marginTop: 6 }}>
-            <input type="date" aria-label="End date" value={ed} onChange={(e) => (setEd(e.target.value), touch())} />
-            {!allDay && <input type="time" aria-label="End time" value={et} onChange={(e) => (setEt(e.target.value), touch())} />}
-            <span className="muted small">{allDay ? "(last day)" : "(end)"}</span>
+            <input type="date" aria-label={t("calendar.dialog.endDate")} value={ed} onChange={(e) => (setEd(e.target.value), touch())} />
+            {!allDay && <input type="time" aria-label={t("calendar.dialog.endTime")} value={et} onChange={(e) => (setEt(e.target.value), touch())} />}
+            <span className="muted small">{allDay ? t("calendar.dialog.lastDay") : t("calendar.dialog.end")}</span>
           </div>
           <div className="when" style={{ marginTop: 8 }}>
-            <Switch checked={allDay} onChange={(v) => (setAllDay(v), touch())} label="All day" />
-            <span className="tz">{allDay ? "Dates only" : `${tz} (${tzOffsetLabel(tz)})`}</span>
+            <Switch checked={allDay} onChange={(v) => (setAllDay(v), touch())} label={t("calendar.allDay")} />
+            <span className="tz">{allDay ? t("calendar.dialog.datesOnly") : `${tz} (${tzOffsetLabel(tz)})`}</span>
           </div>
           <div style={{ marginTop: 8 }}>
-            <select aria-label="Repeat" value={repeat} disabled={remote} onChange={(e) => (setRepeat(e.target.value), touch())}>
-              <option value="none">Does not repeat</option>
-              <option value="daily">Every day</option>
-              <option value="weekdays">Every weekday (Mon–Fri)</option>
-              <option value="weekly">{startDayPreview ? `Every week on ${WEEKDAYS[weekdayIdx(startDayPreview)]}` : "Every week"}</option>
-              <option value="monthly">{startDayPreview ? `Every month on day ${startDayPreview.d}` : "Every month"}</option>
-              <option value="yearly">Every year</option>
-              {customRule && <option value="custom">{customText ?? "Custom"} (kept as is)</option>}
+            <select aria-label={t("calendar.dialog.repeat")} value={repeat} disabled={remote} onChange={(e) => (setRepeat(e.target.value), touch())}>
+              <option value="none">{t("calendar.repeat.none")}</option>
+              <option value="daily">{t("calendar.repeat.daily")}</option>
+              <option value="weekdays">{t("calendar.repeat.weekdays")}</option>
+              <option value="weekly">{startDayPreview ? t("calendar.repeat.weeklyOn", { weekday: wdLong(weekdayIdx(startDayPreview)) }) : t("calendar.repeat.weekly")}</option>
+              <option value="monthly">{startDayPreview ? t("calendar.repeat.monthlyOn", { day: startDayPreview.d }) : t("calendar.repeat.monthly")}</option>
+              <option value="yearly">{t("calendar.repeat.yearly")}</option>
+              {customRule && <option value="custom">{t("calendar.repeat.custom", { text: customText ?? t("calendar.repeat.customFallback") })}</option>}
             </select>
-            {existing?.rrule && <div className="muted small" style={{ marginTop: 4 }}>This event repeats. Changes apply to every occurrence.</div>}
-            {remote && <div className="muted small" style={{ marginTop: 4 }}>Repeating events can be added to {calendarName(calInfo?.name ?? "")} in {calInfo?.service ?? "its own app"} for now.</div>}
+            {existing?.rrule && <div className="muted small" style={{ marginTop: 4 }}>{t("calendar.dialog.repeatsNote")}</div>}
+            {remote && <div className="muted small" style={{ marginTop: 4 }}>{t("calendar.sync.repeatAddOnly", { calendar: calendarName(calInfo?.name ?? ""), service: calInfo?.service ?? t("calendar.sync.ownApp") })}</div>}
           </div>
         </div>
 
-        <label htmlFor="ev-where">Where</label>
-        <input id="ev-where" value={where} onChange={(e) => (setWhere(e.target.value), touch())} placeholder="Room, address or meeting link" />
+        <label htmlFor="ev-where">{t("calendar.dialog.where")}</label>
+        <input id="ev-where" value={where} onChange={(e) => (setWhere(e.target.value), touch())} placeholder={t("calendar.dialog.wherePlaceholder")} />
 
-        <label>Invite</label>
+        <label>{t("calendar.dialog.invite")}</label>
         <div className="ev-invite">
-          <RecipientField label="Invite" hideLabel values={invite} onChange={(v) => (setInvite(v), touch())} />
+          <RecipientField label={t("calendar.dialog.invite")} hideLabel values={invite} onChange={(v) => (setInvite(v), touch())} />
         </div>
 
         {remote ? (
-          <div className="muted small" style={{ gridColumn: "2 / -1" }}>{calInfo?.service ?? "The calendar service"} sends the invitations{accounts.find((a) => a.id === calInfo?.accountId) ? ` from ${accounts.find((a) => a.id === calInfo?.accountId)?.email}` : ""}.</div>
+          <div className="muted small" style={{ gridColumn: "2 / -1" }}>{(() => {
+            const from = accounts.find((a) => a.id === calInfo?.accountId)?.email;
+            const service = calInfo?.service;
+            return service
+              ? (from ? t("calendar.dialog.serviceSendsFrom", { service, email: from }) : t("calendar.dialog.serviceSends", { service }))
+              : (from ? t("calendar.dialog.genericSendsFrom", { email: from }) : t("calendar.dialog.genericSends"));
+          })()}</div>
         ) : (
           <>
-            <label htmlFor="ev-from">Send from</label>
+            <label htmlFor="ev-from">{t("calendar.dialog.sendFrom")}</label>
             <select id="ev-from" value={accountId} onChange={(e) => (setAccountId(e.target.value), touch())}>
               {accounts.map((a) => <option key={a.id} value={a.id}>{a.displayName ? `${a.displayName} <${a.email}>` : a.email}</option>)}
             </select>
           </>
         )}
 
-        <label htmlFor="ev-cal">Calendar</label>
+        <label htmlFor="ev-cal">{t("calendar.dialog.calendar")}</label>
         <select
           id="ev-cal"
           disabled={!!eventId || writableCalendars(calendars).length < 2}
@@ -1240,21 +1282,21 @@ export function EventDialog({ eventId, init }: { eventId?: string; init?: EventI
             touch();
           }}
         >
-          {(eventId ? calendars.filter((c) => c.id === calId) : writableCalendars(calendars)).map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
-          {!calendars.some((c) => c.id === calId) && <option value={calId}>My events</option>}
+          {(eventId ? calendars.filter((c) => c.id === calId) : writableCalendars(calendars)).map((c) => <option key={c.id} value={c.id}>{calendarTitle(c)}</option>)}
+          {!calendars.some((c) => c.id === calId) && <option value={calId}>{t("calendar.myEvents")}</option>}
         </select>
 
-        <label htmlFor="ev-rem">Reminder</label>
+        <label htmlFor="ev-rem">{t("calendar.dialog.reminder")}</label>
         <select id="ev-rem" value={reminder === null ? "" : String(reminder)} onChange={(e) => (setReminder(e.target.value === "" ? null : Number(e.target.value)), touch())}>
-          {REMINDERS.map(([v, l]) => <option key={String(v)} value={v === null ? "" : String(v)}>{l}</option>)}
+          {REMINDERS.map(([v, l]) => <option key={String(v)} value={v === null ? "" : String(v)}>{t(l)}</option>)}
         </select>
 
-        <label htmlFor="ev-notes">Notes</label>
+        <label htmlFor="ev-notes">{t("calendar.dialog.notes")}</label>
         <textarea id="ev-notes" rows={4} value={notes} onChange={(e) => (setNotes(e.target.value), touch())} />
       </div>
       {error && <div className="field-err" role="alert" style={{ marginTop: 10 }}>{error}</div>}
       <div className="row-inline" style={{ justifyContent: "flex-end", marginTop: 14 }}>
-        <button className="btn" onClick={() => void close()} disabled={busy}>Cancel</button>
+        <button className="btn" onClick={() => void close()} disabled={busy}>{t("common.cancel")}</button>
         <button className="btn primary" disabled={busy || !loaded || !!existing?.readOnly} aria-busy={busy} onClick={() => void save()}>
           {hasGuests ? <CalendarCheck size={14} /> : <Check size={14} />} {primary}
         </button>
@@ -1289,34 +1331,35 @@ export function defaultMeeting(tz: string, init?: { start?: number; end?: number
 export function meetingToDraft(m: MeetingState, tz: string): { meeting: { start: number; end: number; allDay: boolean; tzid: string | null; location: string | null } } | { error: string } {
   const s = fromInputs(m.sd, m.st, tz, m.allDay);
   const e = fromInputs(m.ed, m.et, tz, m.allDay);
-  if (s === null || e === null) return { error: "Check the meeting date and time." };
+  if (s === null || e === null) return { error: t("calendar.meeting.errDate") };
   const end = m.allDay ? e + 86400 : e;
-  if (end <= s) return { error: "The meeting must end after it starts." };
+  if (end <= s) return { error: t("calendar.meeting.errEnd") };
   return { meeting: { start: s, end, allDay: m.allDay, tzid: m.allDay ? null : tz, location: m.where.trim() || null } };
 }
 
 export function MeetingStrip({ value, onChange, tz }: { value: MeetingState; onChange: (m: MeetingState) => void; tz: string }) {
+  const t = useT();
   const set = (p: Partial<MeetingState>) => onChange({ ...value, ...p });
   // shown next to the fields as soon as the times can't work, not only when Send is pressed
   const bad = meetingToDraft(value, tz);
-  const problem = "error" in bad && bad.error.startsWith("The meeting must end") ? "End must be after start." : null;
+  const problem = "error" in bad && bad.error === t("calendar.meeting.errEnd") ? t("calendar.endBeforeStart") : null;
   return (
-    <div className="cp-event" role="group" aria-label="Meeting details">
-      <label htmlFor="mt-sd">When</label>
+    <div className="cp-event" role="group" aria-label={t("calendar.meeting.details")}>
+      <label htmlFor="mt-sd">{t("calendar.dialog.when")}</label>
       <div className="when">
-        <input id="mt-sd" type="date" aria-label="Start date" value={value.sd} onChange={(e) => set({ sd: e.target.value, ed: value.ed < e.target.value ? e.target.value : value.ed })} />
-        {!value.allDay && <input type="time" aria-label="Start time" value={value.st} onChange={(e) => set({ st: e.target.value })} />}
+        <input id="mt-sd" type="date" aria-label={t("calendar.dialog.startDate")} value={value.sd} onChange={(e) => set({ sd: e.target.value, ed: value.ed < e.target.value ? e.target.value : value.ed })} />
+        {!value.allDay && <input type="time" aria-label={t("calendar.dialog.startTime")} value={value.st} onChange={(e) => set({ st: e.target.value })} />}
         <span className="muted">–</span>
-        {!value.allDay && <input type="time" aria-label="End time" aria-invalid={!!problem || undefined} value={value.et} onChange={(e) => set({ et: e.target.value })} />}
-        <input type="date" aria-label="End date" aria-invalid={!!problem || undefined} value={value.ed} onChange={(e) => set({ ed: e.target.value })} />
-        <Switch checked={value.allDay} onChange={(v) => set({ allDay: v })} label="All day" />
+        {!value.allDay && <input type="time" aria-label={t("calendar.dialog.endTime")} aria-invalid={!!problem || undefined} value={value.et} onChange={(e) => set({ et: e.target.value })} />}
+        <input type="date" aria-label={t("calendar.dialog.endDate")} aria-invalid={!!problem || undefined} value={value.ed} onChange={(e) => set({ ed: e.target.value })} />
+        <Switch checked={value.allDay} onChange={(v) => set({ allDay: v })} label={t("calendar.allDay")} />
         <span className="tz">{value.allDay ? "" : tz}</span>
       </div>
       {problem && (
         <div className="field-err" role="alert" style={{ gridColumn: "2" }}>{problem}</div>
       )}
-      <label htmlFor="mt-where">Where</label>
-      <input id="mt-where" value={value.where} onChange={(e) => set({ where: e.target.value })} placeholder="Room, address or meeting link" />
+      <label htmlFor="mt-where">{t("calendar.dialog.where")}</label>
+      <input id="mt-where" value={value.where} onChange={(e) => set({ where: e.target.value })} placeholder={t("calendar.dialog.wherePlaceholder")} />
     </div>
   );
 }

@@ -2,9 +2,11 @@
 // never set on Linux (the copy was fire-and-forget through navigator.clipboard, whose answer was thrown away). Source check of the
 // parts that make the claim true: the toast waits for the copy and only claims what happened, Linux copies through the backend
 // (GTK clipboard, main thread), and the command exists and is registered.
-// Run: node scripts/test-link-copy.mjs
+// The texts are in the dictionary (src/i18n/ns/updates.ts): the source is checked for the keys, the English wording through en.
+// Run: node --experimental-strip-types scripts/test-link-copy.mjs
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
+import { en } from "../src/i18n/en.ts";
 
 const read = (p) => readFileSync(new URL(`../${p}`, import.meta.url), "utf8").replace(/\r\n/g, "\n");
 const updates = read("src/updates.ts");
@@ -16,8 +18,10 @@ const lib = read("src-tauri/src/lib.rs");
 const fn = updates.slice(updates.indexOf("export async function openUpdateLink"));
 const body = fn.slice(0, fn.indexOf("\n}\n"));
 assert.match(body, /const copied = await copyToClipboard\(url\)/, "waits for the copy");
-assert.match(body, /copied \? "Couldn’t open your browser\. The link is copied to the clipboard\."/, "REQ wording when it was copied");
-assert.match(body, /couldn’t be copied\. The link: /, "otherwise the link is in the toast");
+assert.match(body, /copied \? t\("updates\.toast\.openFailedCopied"\)/, "REQ wording when it was copied");
+assert.equal(en["updates.toast.openFailedCopied"], "Couldn’t open your browser. The link is copied to the clipboard.");
+assert.match(body, /t\("updates\.toast\.openFailedNotCopied", \{ url:/, "otherwise the link is in the toast");
+assert.match(en["updates.toast.openFailedNotCopied"], /couldn’t be copied\. The link: \{url\}/);
 assert.ok(!/void navigator\.clipboard/.test(body), "no fire-and-forget copy");
 
 // 2. Linux copies through the backend, the others through the page; both report the result

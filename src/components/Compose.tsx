@@ -22,6 +22,9 @@ import { askUnlock } from "./Pgp";
 import { useContentProtection } from "../protect";
 import { SchedulePicker } from "./SchedulePicker";
 import { AccountPicker, Dropdown, MenuList, useOutside } from "./ui";
+import type { Key } from "../i18n";
+import { useT } from "../i18n/react";
+import { tx } from "../i18n/rich";
 
 const MAX_ATTACH_BYTES = 25 * 1024 * 1024;
 /** Whether this is an address the composer accepts (see addresses.ts: `qa@localhost` and the account hosts count). */
@@ -29,7 +32,7 @@ const EMAIL = { test: (a: string) => isEmail(a, singleLabelHostsOf(useStore.getS
 const bareAddress = (v: string) => (v.match(/<([^>]+)>/)?.[1] ?? v).trim();
 const approxBytes = (a: Att) => Math.floor((a.dataBase64.length * 3) / 4);
 const MEDIUM = 480;
-const SIZES: [string, number | null][] = [["Small", 240], ["Medium", MEDIUM], ["Large", 720], ["Original", null]];
+const SIZES: [Key, number | null][] = [["compose.pic.small", 240], ["compose.pic.medium", MEDIUM], ["compose.pic.large", 720], ["compose.pic.original", null]];
 const LARGE_PICTURE = 1024 * 1024;
 
 /** An inline picture: the same node as tiptap's image, plus the width and the file name we keep. */
@@ -91,6 +94,7 @@ export function RecipientField({
   keys?: Record<string, RecipientStatus>;
   onKeyAction?: (a: "import" | "paste") => void;
 }) {
+  const t = useT();
   const [keyPop, setKeyPop] = useState<string | null>(null);
   const popRef = useRef<HTMLSpanElement>(null);
   useOutside(popRef, () => setKeyPop(null), keyPop !== null);
@@ -130,18 +134,18 @@ export function RecipientField({
           const ks = keys?.[addr];
           const noKey = !!ks && ks.status !== "ok";
           return (
-          <span key={v} className={`rchip ${EMAIL.test(bareAddress(v)) ? "" : "bad"} ${noKey ? "nokey" : ""}`} title={EMAIL.test(bareAddress(v)) ? (noKey ? `No usable public key for ${addr}` : v) : "This does not look like an email address"}>
+          <span key={v} className={`rchip ${EMAIL.test(bareAddress(v)) ? "" : "bad"} ${noKey ? "nokey" : ""}`} title={EMAIL.test(bareAddress(v)) ? (noKey ? t("compose.rcpt.noUsableKey", { addr }) : v) : t("compose.rcpt.notAddress")}>
             {ks && (ks.status === "ok" ? (
-              <span className="rchip-key ok" title="Public key found" role="img" aria-label={`Public key found for ${addr}`}><Lock size={11} /></span>
+              <span className="rchip-key ok" title={t("compose.rcpt.keyFound")} role="img" aria-label={t("compose.rcpt.keyFoundFor", { addr })}><Lock size={11} /></span>
             ) : (
-              <button type="button" className="rchip-key missing" aria-label={`No public key for ${addr} — options`} aria-haspopup="dialog" aria-expanded={keyPop === addr} onClick={(e) => (e.stopPropagation(), setKeyPop(keyPop === addr ? null : addr))}>
+              <button type="button" className="rchip-key missing" aria-label={t("compose.rcpt.noKeyOptions", { addr })} aria-haspopup="dialog" aria-expanded={keyPop === addr} onClick={(e) => (e.stopPropagation(), setKeyPop(keyPop === addr ? null : addr))}>
                 <LockOpen size={11} />
               </button>
             ))}
             <span className="ellipsis">{v}</span>
             <button
               type="button"
-              aria-label={`Remove ${v}`}
+              aria-label={t("compose.rcpt.remove", { name: v })}
               onClick={(e) => {
                 e.stopPropagation();
                 onChange(values.filter((x) => x !== v));
@@ -160,10 +164,10 @@ export function RecipientField({
           placeholder={values.length === 0 ? "name@example.com" : undefined}
           onChange={(e) => onInput(e.target.value)}
           onPaste={(e) => {
-            const t = e.clipboardData.getData("text");
-            if (/[,;\n]/.test(t)) {
+            const pasted = e.clipboardData.getData("text");
+            if (/[,;\n]/.test(pasted)) {
               e.preventDefault();
-              commit(text + t);
+              commit(text + pasted);
             }
           }}
           onBlur={() => {
@@ -196,17 +200,17 @@ export function RecipientField({
         />
       </div>
       {keyPop && keys?.[keyPop] && (
-        <span className="suggest popover" role="dialog" aria-label={`Public key for ${keyPop}`} ref={popRef} style={{ width: 340, right: "auto", left: 62, padding: 12, gap: 8, display: "flex", flexDirection: "column" }} onClick={(e) => e.stopPropagation()}>
-          <span style={{ display: "flex", gap: 8, alignItems: "center" }}><TriangleAlert size={15} className="warn-ico" /><b>{keys[keyPop].status === "expired" ? `The key for ${keyPop} expired` : keys[keyPop].status === "revoked" ? `The key for ${keyPop} was revoked` : `No public key for ${keyPop}`}</b></span>
+        <span className="suggest popover" role="dialog" aria-label={t("compose.rcpt.keyDialog", { addr: keyPop })} ref={popRef} style={{ width: 340, right: "auto", left: 62, padding: 12, gap: 8, display: "flex", flexDirection: "column" }} onClick={(e) => e.stopPropagation()}>
+          <span style={{ display: "flex", gap: 8, alignItems: "center" }}><TriangleAlert size={15} className="warn-ico" /><b>{keys[keyPop].status === "expired" ? t("compose.rcpt.keyExpired", { addr: keyPop }) : keys[keyPop].status === "revoked" ? t("compose.rcpt.keyRevoked", { addr: keyPop }) : t("compose.rcpt.keyMissing", { addr: keyPop })}</b></span>
           <span className="muted small">
             {keys[keyPop].status === "missing"
-              ? "Encrypted mail can only be sent to people whose public key you have. Ask them to send it, or import it from a file."
-              : "You can’t encrypt to this key any more. Ask for a new public key, or import it from a file."}
+              ? t("compose.rcpt.missingHelp")
+              : t("compose.rcpt.unusableHelp")}
           </span>
           <span style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
-            <button className="btn small primary" onClick={() => (setKeyPop(null), onKeyAction?.("import"))}>Import key…</button>
-            <button className="btn small" onClick={() => (setKeyPop(null), onKeyAction?.("paste"))}>Paste key</button>
-            <button className="btn small" onClick={() => { const a = keyPop; setKeyPop(null); onChange(values.filter((x) => bareAddress(x).toLowerCase() !== a)); onTouch?.(); }}>Remove recipient</button>
+            <button className="btn small primary" onClick={() => (setKeyPop(null), onKeyAction?.("import"))}>{t("compose.rcpt.importKey")}</button>
+            <button className="btn small" onClick={() => (setKeyPop(null), onKeyAction?.("paste"))}>{t("compose.rcpt.pasteKey")}</button>
+            <button className="btn small" onClick={() => { const a = keyPop; setKeyPop(null); onChange(values.filter((x) => bareAddress(x).toLowerCase() !== a)); onTouch?.(); }}>{t("compose.rcpt.removeRecipient")}</button>
           </span>
         </span>
       )}
@@ -277,6 +281,7 @@ interface PictureSel {
 }
 
 export function Compose({ init }: { init: ComposeInit }) {
+  const t = useT();
   const { accounts, openCompose, showToast, prefs, refresh, confirm, choose, setComposeDirty, setComposeSaver, aiConfigured, setDialog, beginSend } = useStore();
   const [accountId, setAccountId] = useState(accounts.some((a) => a.id === init.accountId) ? init.accountId! : accounts.some((a) => a.id === prefs.defaultAccount) ? prefs.defaultAccount : accounts[0]?.id || init.accountId || "");
   const isFresh = !init.replaces && !init.isReply && !init.outboxId && !init.restore;
@@ -296,7 +301,7 @@ export function Compose({ init }: { init: ComposeInit }) {
   const startDoc = useRef<{ html: string; sig: string | null } | null>(null);
   if (editing && !startDoc.current) startDoc.current = extractSignature(init.bodyHtml ?? "");
   const draftSig = useMemo<Signature | null>(
-    () => (startDoc.current?.sig ? { id: "draft-signature", name: "Signature saved in this draft", html: startDoc.current.sig, isDefault: false, accountId: null } : null),
+    () => (startDoc.current?.sig ? { id: "draft-signature", name: "", html: startDoc.current.sig, isDefault: false, accountId: null } : null),
     // eslint-disable-next-line react-hooks/exhaustive-deps
     [],
   );
@@ -355,7 +360,7 @@ export function Compose({ init }: { init: ComposeInit }) {
   useEffect(() => {
     if (!accountId) return;
     let live = true;
-    const t = setTimeout(() => {
+    const timer = setTimeout(() => {
       api
         .pgpRecipientStatus(accountId, allAddrs)
         .then((r) => live && setKs({ own: r.own, recipients: Object.fromEntries(r.recipients.map((x) => [x.address.toLowerCase(), x])) }))
@@ -363,7 +368,7 @@ export function Compose({ init }: { init: ComposeInit }) {
     }, 250);
     return () => {
       live = false;
-      clearTimeout(t);
+      clearTimeout(timer);
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [accountId, addrKey, keysRev]);
@@ -376,10 +381,10 @@ export function Compose({ init }: { init: ComposeInit }) {
   const autoOff = encIntent === "auto" && !!own && noKeyAddrs.length > 0;
   const fromEmail = accounts.find((a) => a.id === accountId)?.email ?? "";
   const encTitle = !own
-    ? `You have no PGP key for ${fromEmail}. Set up encryption… (Settings → Encryption)`
+    ? t("compose.bar.noPgpKey", { email: fromEmail })
     : encOn && noKeyAddrs.length > 0
-      ? kbd(`Encrypt (Ctrl+Shift+E) — ${noKeyAddrs.length} recipient${noKeyAddrs.length === 1 ? " has" : "s have"} no key`)
-      : kbd("Encrypt (Ctrl+Shift+E)");
+      ? kbd(t("compose.bar.encryptTipMissing", { n: noKeyAddrs.length }))
+      : kbd(t("compose.bar.encryptTip"));
   const toggleEncrypt = () => {
     if (!own) return setDialog({ type: "pgp-generate", accountId });
     setEncIntent(encOn ? "off" : "on");
@@ -431,13 +436,13 @@ export function Compose({ init }: { init: ComposeInit }) {
   const editor = useEditor({
     extensions: [
       StarterKit,
-      Placeholder.configure({ placeholder: "Write your message…", showOnlyCurrent: false }),
+      Placeholder.configure({ placeholder: t("compose.editor.placeholder"), showOnlyCurrent: false }),
       PictureNode,
       SignatureBlock({ mount: (el) => setSigHeads((h) => [...h, el]), unmount: (el) => setSigHeads((h) => h.filter((x) => x !== el)) }),
     ],
     // the accessible name belongs on the contenteditable node ProseMirror renders
     editorProps: {
-      attributes: { "aria-label": "Message body" },
+      attributes: { "aria-label": t("compose.editor.body") },
       handlePaste: (_view, event) => {
         const all = Array.from(event.clipboardData?.files ?? []);
         const images = all.filter((f) => PICTURE_TYPES.includes(f.type));
@@ -474,8 +479,8 @@ export function Compose({ init }: { init: ComposeInit }) {
 
   const [loaded, setLoaded] = useState(false);
   useEffect(() => {
-    void Promise.all([api.listTemplates(), api.listSignatures()]).then(([t, s]) => {
-      setTemplates(t);
+    void Promise.all([api.listTemplates(), api.listSignatures()]).then(([tpls, s]) => {
+      setTemplates(tpls);
       setSigs(s);
       setLoaded(true);
     });
@@ -483,7 +488,7 @@ export function Compose({ init }: { init: ComposeInit }) {
 
   // only what applies to the sending account: its own items plus those shared by all accounts
   const mySigs = sigs.filter((s) => !s.accountId || s.accountId === accountId);
-  const myTemplates = templates.filter((t) => !t.accountId || t.accountId === accountId);
+  const myTemplates = templates.filter((tpl) => !tpl.accountId || tpl.accountId === accountId);
   // the signature stored in an opened draft is offered too (as the saved one, unless it is one of the user's signatures)
   const sigChoices = useMemo(
     () => (draftSig && !mySigs.some((s) => normalizeHtml(s.html) === normalizeHtml(draftSig.html)) ? [...mySigs, draftSig] : mySigs),
@@ -619,12 +624,16 @@ export function Compose({ init }: { init: ComposeInit }) {
         const one = miss.length === 1 ? miss[0] : null;
         const label = one ? userName(d.to.concat(d.cc, d.bcc).find((a) => bareAddress(a).toLowerCase() === one) ?? one) : "";
         const choice = await choose({
-          title: "Send without encryption?",
-          body: one ? `There is no public key for ${one}, so this message can’t be encrypted for them.` : `There are no public keys for ${miss.slice(0, 3).join(", ")}${miss.length > 3 ? ` and ${miss.length - 3} more` : ""}, so this message can’t be encrypted for them.`,
+          title: t("compose.dlg.noEncryptTitle"),
+          body: one
+            ? t("compose.dlg.noKeyOne", { addr: one })
+            : miss.length > 3
+              ? t("compose.dlg.noKeyManyMore", { list: miss.slice(0, 3).join(", "), n: miss.length - 3 })
+              : t("compose.dlg.noKeyMany", { list: miss.join(", ") }),
           choices: [
-            { id: "cancel", label: "Cancel" },
-            ...(one && d.to.length + d.cc.length + d.bcc.length > 1 ? [{ id: "remove", label: `Remove ${label} and send encrypted`, kind: "primary" as const }] : []),
-            { id: "plain", label: "Send unencrypted", kind: "danger" as const },
+            { id: "cancel", label: t("common.cancel") },
+            ...(one && d.to.length + d.cc.length + d.bcc.length > 1 ? [{ id: "remove", label: t("compose.dlg.removeAndSend", { name: label }), kind: "primary" as const }] : []),
+            { id: "plain", label: t("compose.dlg.sendUnencrypted"), kind: "danger" as const },
           ],
         });
         if (choice === "cancel") return null;
@@ -672,45 +681,45 @@ export function Compose({ init }: { init: ComposeInit }) {
         done();
       }
       if (useStore.getState().prefs.sentSound) playSent();
-      showToast("Message sent", undefined, "success");
+      showToast(t("compose.toast.sent"), undefined, "success");
       void refresh();
     } catch (e) {
       setBusy(false);
-      showToast(`Send failed: ${friendlyError(e)}`, undefined, "error");
+      showToast(t("compose.toast.sendFailed", { error: friendlyError(e) }), undefined, "error");
       reopen(d);
     }
   };
 
   const send = async (sendAt?: number) => {
     let d = buildDraft();
-    if (d.to.length === 0) return showToast("Add at least one recipient", undefined, "error");
+    if (d.to.length === 0) return showToast(t("compose.err.noRecipient"), undefined, "error");
     const bad = [...d.to, ...d.cc, ...d.bcc].filter((a) => !EMAIL.test(bareAddress(a)));
-    if (bad.length) return showToast(`Check the address: ${bad[0]}`, undefined, "error");
+    if (bad.length) return showToast(t("compose.err.checkAddress", { addr: bad[0] }), undefined, "error");
     if (meeting) {
       const md = meetingToDraft(meeting, calTz(prefs));
       if ("error" in md) return showToast(md.error, undefined, "error");
-      if (d.bcc.length) return showToast("Bcc isn’t used for meetings. Remove the Bcc recipients or turn off Meeting.", undefined, "error");
-      if (!d.subject.trim()) return showToast("Add a subject: it becomes the title of the event.", undefined, "error");
+      if (d.bcc.length) return showToast(t("compose.err.meetingBcc"), undefined, "error");
+      if (!d.subject.trim()) return showToast(t("compose.err.meetingSubject"), undefined, "error");
     }
-    if (!accountId) return showToast("No account selected", undefined, "error");
-    if (totalBytes > MAX_ATTACH_BYTES) return showToast(`Attachments and pictures are ${fmtSize(totalBytes)}; most servers accept at most 25 MB`, undefined, "error");
-    if (!d.subject && !(await confirm({ title: "Send without a subject?", confirmLabel: "Send anyway" }))) return;
+    if (!accountId) return showToast(t("compose.err.noAccount"), undefined, "error");
+    if (totalBytes > MAX_ATTACH_BYTES) return showToast(t("compose.att.tooBig", { size: fmtSize(totalBytes) }), undefined, "error");
+    if (!d.subject && !(await confirm({ title: t("compose.dlg.noSubject"), confirmLabel: t("compose.dlg.sendAnyway") }))) return;
     if (
       blockedAtts.length &&
       !(await confirm({
-        title: `Send with ${blockedAtts.length === 1 ? "an attachment" : "attachments"} that mail servers block?`,
-        body: `${[...new Set(blockedAtts.map((a) => a.name))].slice(0, 3).join(", ")}: Gmail, Outlook and Yahoo reject programs and scripts (${[...new Set(blockedAtts.map((a) => a.ext))].join(", ")}), even inside a zip file. The message will most likely not be delivered. Remove the file or share it as a link instead.`,
-        confirmLabel: "Send anyway",
+        title: t(blockedAtts.length === 1 ? "compose.dlg.blockedTitleOne" : "compose.dlg.blockedTitleMany"),
+        body: t("compose.dlg.blockedBody", { names: [...new Set(blockedAtts.map((a) => a.name))].slice(0, 3).join(", "), types: [...new Set(blockedAtts.map((a) => a.ext))].join(", ") }),
+        confirmLabel: t("compose.dlg.sendAnyway"),
       }))
     )
       return;
     const secured = await secureDraft(d);
     if (!secured) return;
     d = secured;
-    if (d.to.length === 0) return showToast("Add at least one recipient", undefined, "error");
+    if (d.to.length === 0) return showToast(t("compose.err.noRecipient"), undefined, "error");
 
     if (sendAt) {
-      if (sendAt * 1000 < Date.now() - 60_000) return showToast("That time has passed. Pick a later time, or send now.", undefined, "error");
+      if (sendAt * 1000 < Date.now() - 60_000) return showToast(t("compose.schedule.passed"), undefined, "error");
       setBusy(true);
       setComposeDirty(false);
       void openCompose(null);
@@ -718,7 +727,7 @@ export function Compose({ init }: { init: ComposeInit }) {
         if (init.outboxId) {
           await api.outboxUpdate(init.outboxId, d, sendAt);
           savedRef.current = true;
-          showToast(`Rescheduled for ${fmtWhen(sendAt)}`, undefined, "success");
+          showToast(t("compose.toast.rescheduled", { when: fmtWhen(sendAt) }), undefined, "success");
         } else {
           const done = beginSend();
           const res = await api.sendMessage(d, sendAt, init.replaces).finally(done);
@@ -726,20 +735,20 @@ export function Compose({ init }: { init: ComposeInit }) {
           const id = res.startsWith("scheduled:") ? res.slice("scheduled:".length) : null;
           const st = useStore.getState();
           showToast(
-            `Scheduled for ${fmtWhen(sendAt)}`,
+            t("compose.toast.scheduled", { when: fmtWhen(sendAt) }),
             id
               ? () => {
                   void api.cancelOutbox(id).then(() => reopen(d)).catch((e) => showToast(friendlyError(e), undefined, "error"));
                 }
               : undefined,
             "success",
-            [{ label: "View", run: () => void st.setView("scheduled") }],
+            [{ label: t("compose.toast.view"), run: () => void st.setView("scheduled") }],
           );
         }
         void refresh();
       } catch (e) {
         const code = errorCode(e);
-        showToast(code === "SCHEDULE_IN_PAST" ? friendlyError(e) : `Schedule failed: ${friendlyError(e)}`, undefined, "error");
+        showToast(code === "SCHEDULE_IN_PAST" ? friendlyError(e) : t("compose.toast.scheduleFailed", { error: friendlyError(e) }), undefined, "error");
         reopen(d);
       }
       return;
@@ -751,7 +760,7 @@ export function Compose({ init }: { init: ComposeInit }) {
     const wait = eff(prefs, accountId, "undoSeconds");
     let cancelled = false;
     let started = false;
-    let t: ReturnType<typeof setTimeout> | undefined;
+    let timer: ReturnType<typeof setTimeout> | undefined;
     // With an Undo time the message is in the local outbox from now on (REQ-49): a quit, a kill or an installer that ends the app in the
     // Undo time no longer loses it, the next start sends it. Without one it is sent at once as before.
     let heldId: string | null = null;
@@ -759,7 +768,7 @@ export function Compose({ init }: { init: ComposeInit }) {
       try {
         heldId = await api.outboxHold(d, Math.floor(Date.now() / 1000) + wait, init.replaces);
       } catch (e) {
-        showToast(`Send failed: ${friendlyError(e)}`, undefined, "error");
+        showToast(t("compose.toast.sendFailed", { error: friendlyError(e) }), undefined, "error");
         reopen(d);
         return;
       }
@@ -767,18 +776,18 @@ export function Compose({ init }: { init: ComposeInit }) {
     const run = async () => {
       if (cancelled || started) return;
       started = true;
-      clearTimeout(t);
+      clearTimeout(timer);
       const quitting = useStore.getState().quitting;
       try {
         if (heldId) await api.outboxHoldSend(heldId, quitting);
         else await api.sendMessage(d, null, init.replaces);
         if (useStore.getState().prefs.sentSound) playSent();
-        showToast("Message sent", undefined, "success");
+        showToast(t("compose.toast.sent"), undefined, "success");
         void useStore.getState().sync();
       } catch (e) {
         // quitting: the message stays in the outbox and goes out at the next start (REQ-48 c), nothing is reopened
         if (quitting) return;
-        showToast(`Send failed: ${friendlyError(e)}`, undefined, "error");
+        showToast(t("compose.toast.sendFailed", { error: friendlyError(e) }), undefined, "error");
         reopen(d);
       } finally {
         done();
@@ -786,17 +795,17 @@ export function Compose({ init }: { init: ComposeInit }) {
     };
     // counted as "being sent" from the start of the undo window until the server answered (an update restart waits for it; a quit sends it at once)
     const done = beginSend(() => void run());
-    t = setTimeout(() => void run(), wait * 1000);
+    timer = setTimeout(() => void run(), wait * 1000);
     if (wait > 0) {
       showToast(
-        "Sending…",
+        t("compose.toast.sending"),
         () => {
           // Undo: the message leaves the outbox (if it is already being sent it cannot be taken back)
           if (heldId) {
             void api.cancelOutbox(heldId).then(
               () => {
                 cancelled = true;
-                clearTimeout(t);
+                clearTimeout(timer);
                 done();
                 reopen(d);
               },
@@ -805,7 +814,7 @@ export function Compose({ init }: { init: ComposeInit }) {
             return;
           }
           cancelled = true;
-          clearTimeout(t);
+          clearTimeout(timer);
           done();
           reopen(d);
         },
@@ -823,7 +832,7 @@ export function Compose({ init }: { init: ComposeInit }) {
         const keepPrivate = !!d.security?.encrypt && eff(prefs, accountId, "pgpEncryptDrafts");
         await api.saveDraft({ ...d, security: keepPrivate ? { encrypt: true, sign: false, attachPublicKey: false } : undefined }, init.replaces);
         useStore.setState({ draftError: "" });
-        showToast(d.security?.encrypt && !keepPrivate ? "Draft saved without encryption (Settings → Security)" : "Draft saved", undefined, d.security?.encrypt && !keepPrivate ? "info" : "success");
+        showToast(d.security?.encrypt && !keepPrivate ? t("compose.toast.draftSavedPlain") : t("compose.toast.draftSaved"), undefined, d.security?.encrypt && !keepPrivate ? "info" : "success");
         setComposeDirty(false);
         if (close) void openCompose(null);
         void useStore.getState().sync();
@@ -831,7 +840,7 @@ export function Compose({ init }: { init: ComposeInit }) {
       } catch (e) {
         // `quiet`: the caller (an update restart, a quit) tells the user itself
         useStore.setState({ draftError: friendlyError(e).replace(/\.$/, "") });
-        if (!quiet) showToast(`Save draft failed: ${friendlyError(e)}`, undefined, "error");
+        if (!quiet) showToast(t("compose.toast.saveFailed", { error: friendlyError(e) }), undefined, "error");
         return false;
       }
     },
@@ -845,11 +854,11 @@ export function Compose({ init }: { init: ComposeInit }) {
       await api.outboxToDraft(init.outboxId);
       savedRef.current = true;
       setComposeDirty(false);
-      showToast("Moved to Drafts", undefined, "success");
+      showToast(t("compose.toast.movedToDrafts"), undefined, "success");
       void openCompose(null);
       void refresh();
     } catch (e) {
-      showToast(`Couldn’t move to Drafts: ${friendlyError(e)}`, undefined, "error");
+      showToast(t("compose.toast.moveFailed", { error: friendlyError(e) }), undefined, "error");
     }
   };
 
@@ -869,12 +878,12 @@ export function Compose({ init }: { init: ComposeInit }) {
   const discard = async () => {
     if (init.outboxId) {
       const choice = await choose({
-        title: "Cancel this scheduled message?",
-        body: `“${subject || "(no subject)"}” won’t be sent.`,
+        title: t("compose.dlg.cancelScheduledTitle"),
+        body: t("compose.dlg.cancelScheduledBody", { subject: subject || t("compose.noSubject") }),
         choices: [
-          { id: "keep", label: "Keep scheduled" },
-          { id: "drafts", label: "Move to Drafts" },
-          { id: "delete", label: "Delete", kind: "danger" },
+          { id: "keep", label: t("compose.dlg.keepScheduled") },
+          { id: "drafts", label: t("compose.dlg.moveToDrafts") },
+          { id: "delete", label: t("common.delete"), kind: "danger" },
         ],
       });
       if (choice === "keep") {
@@ -886,7 +895,7 @@ export function Compose({ init }: { init: ComposeInit }) {
         else await api.outboxToDraft(init.outboxId);
         savedRef.current = true;
         setComposeDirty(false);
-        showToast(choice === "delete" ? "Scheduled send cancelled" : "Moved to Drafts", undefined, "success");
+        showToast(choice === "delete" ? t("compose.toast.scheduleCancelled") : t("compose.toast.movedToDrafts"), undefined, "success");
         void openCompose(null);
         void refresh();
       } catch (e) {
@@ -895,7 +904,7 @@ export function Compose({ init }: { init: ComposeInit }) {
       return;
     }
     const dirty = touched.current && ((editor?.getText().trim().length ?? 0) > 0 || to.length > 0 || subject.trim() || atts.length > 0);
-    if (dirty && !(await confirm({ title: "Discard this message?", body: "What you wrote will be lost.", confirmLabel: "Discard", danger: true }))) return;
+    if (dirty && !(await confirm({ title: t("compose.dlg.discardTitle"), body: t("compose.dlg.discardBody"), confirmLabel: t("compose.dlg.discard"), danger: true }))) return;
     setComposeDirty(false);
     void openCompose(null);
   };
@@ -907,7 +916,7 @@ export function Compose({ init }: { init: ComposeInit }) {
     setAtts((a) => {
       const next = [...a, ...list];
       const bytes = next.reduce((n, x) => n + approxBytes(x), 0) + pics.bytes;
-      if (bytes > MAX_ATTACH_BYTES) showToast(`Attachments total ${fmtSize(bytes)}; most servers accept at most 25 MB`, undefined, "error");
+      if (bytes > MAX_ATTACH_BYTES) showToast(t("compose.att.totalTooBig", { size: fmtSize(bytes) }), undefined, "error");
       return next;
     });
     touch();
@@ -929,7 +938,7 @@ export function Compose({ init }: { init: ComposeInit }) {
         src = await readDataUrl(f);
         size = await imageSize(src);
       } catch {
-        showToast(`Couldn’t insert “${f.name}”: this picture format isn’t supported. It was attached instead.`, undefined, "error");
+        showToast(t("compose.pic.unsupported", { name: f.name }), undefined, "error");
         attach.push(f);
         continue;
       }
@@ -938,14 +947,14 @@ export function Compose({ init }: { init: ComposeInit }) {
         if (st.prefs.autoResizePictures) {
           const r = await resizeImage(src, f.type, 1600);
           finalSrc = r.dataUrl;
-          showToast(`Resized ${f.name} to 1600 px (${fmtSize(dataUriBytes(finalSrc))})`, undefined, "success");
+          showToast(t("compose.pic.resized", { name: f.name, size: fmtSize(dataUriBytes(finalSrc)) }), undefined, "success");
         } else {
           const original = src;
           showToast(
-            `This picture is ${fmtSize(f.size)} (${size.w} × ${size.h}). Resize it to 1600 px wide?`,
+            t("compose.pic.askResize", { size: fmtSize(f.size), w: size.w, h: size.h }),
             undefined,
             "info",
-            [{ label: "Resize", run: () => void resizeInEditor(original, f.type, f.name) }],
+            [{ label: t("compose.pic.resize"), run: () => void resizeInEditor(original, f.type, f.name) }],
           );
         }
       }
@@ -953,7 +962,7 @@ export function Compose({ init }: { init: ComposeInit }) {
     }
     if (attach.length) {
       await addFiles(attach);
-      if (files.length > attach.length) showToast(`${attach.length} file${attach.length === 1 ? "" : "s"} attached (only pictures can go in the message)`, undefined, "info");
+      if (files.length > attach.length) showToast(t("compose.pic.filesAttached", { n: attach.length }), undefined, "info");
     }
     touch();
   };
@@ -968,7 +977,7 @@ export function Compose({ init }: { init: ComposeInit }) {
     });
     if (at === null) return;
     editor.chain().setNodeSelection(at).updateAttributes("image", { src: r.dataUrl }).run();
-    showToast(`Resized ${name} to 1600 px (${fmtSize(dataUriBytes(r.dataUrl))})`, undefined, "success");
+    showToast(t("compose.pic.resized", { name, size: fmtSize(dataUriBytes(r.dataUrl)) }), undefined, "success");
   };
 
   const setPictureSize = (w: number | null) => {
@@ -1017,27 +1026,29 @@ export function Compose({ init }: { init: ComposeInit }) {
       if (images.length) void insertPictures(images);
       if (rest.length) {
         void addFiles(rest);
-        showToast(`${rest.length} file${rest.length === 1 ? "" : "s"} attached (only pictures can go in the message)`, undefined, "info");
+        showToast(t("compose.pic.filesAttached", { n: rest.length }), undefined, "info");
       }
       return;
     }
     void addFiles(all);
   };
 
-  const applyTemplate = (t: Template) => {
-    if (t.subject && !subject) setSubject(t.subject);
-    editor?.commands.insertContent(t.body);
+  const applyTemplate = (tpl: Template) => {
+    if (tpl.subject && !subject) setSubject(tpl.subject);
+    editor?.commands.insertContent(tpl.body);
     touch();
   };
 
   const letAiWrite = async () => {
     if (!aiPrompt.trim()) return;
     // the draft and the reply context quote confidential mail
-    if (init.confidential) return showToast("Confidential mail isn’t sent to the AI Assistant.", undefined, "info");
+    if (init.confidential) return showToast(t("compose.ai.confidential"), undefined, "info");
     setAiBusy(true);
     try {
+      // i18n-ok: the prompt for the model, not UI text
       const context = init.isReply ? `\n\nThe email being replied to:\n${htmlToText(init.bodyHtml ?? "").slice(0, 6000)}` : "";
       const out = await api.aiComplete(
+        // i18n-ok: a prompt for the language model, not text the person reads
         "You write email bodies. Output only the email body text (no subject line, no preamble). Match the language of the user's request and the tone requested.",
         `Subject: ${subject}\nExisting draft:\n${editor?.getText() ?? ""}${context}\n\nInstruction: ${aiPrompt}`,
       );
@@ -1061,18 +1072,18 @@ export function Compose({ init }: { init: ComposeInit }) {
   const strip: { cls: string; icon: React.ReactNode; body: React.ReactNode; actions?: React.ReactNode } | null = (() => {
     if (!own) return null;
     if ((encOn || signActive) && (ownExpired || (encOn && !canEnc))) {
-      return { cls: "warn", icon: <TriangleAlert size={15} />, body: <>Your key expired. Extend it in Settings → Encryption.</>, actions: <button className="link" onClick={() => setDialog({ type: "settings", tab: "pgp" })}>Open settings</button> };
+      return { cls: "warn", icon: <TriangleAlert size={15} />, body: <>{t("compose.sec.keyExpired")}</>, actions: <button className="link" onClick={() => setDialog({ type: "settings", tab: "pgp" })}>{t("compose.sec.openSettings")}</button> };
     }
     if (encOn && noKeyAddrs.length > 0) {
       const st = ks?.recipients[firstMissing]?.status;
       return {
         cls: "warn",
         icon: <TriangleAlert size={15} />,
-        body: <>{st === "expired" ? <>Can’t encrypt for <b>{firstMissing}</b>: their key expired.</> : st === "revoked" ? <>Can’t encrypt for <b>{firstMissing}</b>: their key was revoked.</> : <>Can’t encrypt yet: no public key for <b>{firstMissing}</b>{noKeyAddrs.length > 1 ? ` and ${noKeyAddrs.length - 1} other${noKeyAddrs.length > 2 ? "s" : ""}` : ""}.</>}</>,
+        body: <>{st === "expired" ? tx("compose.sec.theirExpired", { addr: <b>{firstMissing}</b> }) : st === "revoked" ? tx("compose.sec.theirRevoked", { addr: <b>{firstMissing}</b> }) : noKeyAddrs.length > 1 ? tx("compose.sec.noKeyMore", { addr: <b>{firstMissing}</b> }, { n: noKeyAddrs.length - 1 }) : tx("compose.sec.noKey", { addr: <b>{firstMissing}</b> })}</>,
         actions: (
           <>
-            <button className="link" onClick={() => keyAction("import")}>Import key…</button><span className="muted">·</span>
-            <button className="link" onClick={() => (setEncIntent("off"), touch())}>Turn off Encrypt</button>
+            <button className="link" onClick={() => keyAction("import")}>{t("compose.rcpt.importKey")}</button><span className="muted">·</span>
+            <button className="link" onClick={() => (setEncIntent("off"), touch())}>{t("compose.sec.turnOffEncrypt")}</button>
           </>
         ),
       };
@@ -1082,20 +1093,20 @@ export function Compose({ init }: { init: ComposeInit }) {
         cls: "",
         icon: <ShieldCheck size={15} />,
         body: nUnique === 0
-          ? <>Will be {signActive ? "encrypted and signed" : "encrypted"} for the people you add, and you. Subject is not encrypted.</>
-          : <>{signActive ? "Encrypted and signed" : "Encrypted"} for {nUnique} recipient{nUnique === 1 ? "" : "s"} and you. Subject is not encrypted.</>,
-        actions: <button className="link" onClick={() => setSecDetails((o) => !o)} aria-expanded={secDetails}>Details</button>,
+          ? <>{t(signActive ? "compose.sec.willBeEncryptedSigned" : "compose.sec.willBeEncrypted")}</>
+          : <>{t(signActive ? "compose.sec.encryptedSigned" : "compose.sec.encrypted", { n: nUnique })}</>,
+        actions: <button className="link" onClick={() => setSecDetails((o) => !o)} aria-expanded={secDetails}>{t("compose.sec.details")}</button>,
       };
     }
     if (autoOff) {
       return {
         cls: "off",
         icon: <Info size={15} />,
-        body: <>Encryption turned off: no key for <b>{firstMissing}</b>.{signActive ? " Signed only." : ""}</>,
-        actions: <button className="link" onClick={() => (setEncIntent("on"), touch())}>Encrypt anyway…</button>,
+        body: <>{tx(signActive ? "compose.sec.autoOffSigned" : "compose.sec.autoOff", { addr: <b>{firstMissing}</b> })}</>,
+        actions: <button className="link" onClick={() => (setEncIntent("on"), touch())}>{t("compose.sec.encryptAnyway")}</button>,
       };
     }
-    if (signActive) return { cls: "", icon: <ShieldCheck size={15} />, body: <>Signed. Not encrypted.</> };
+    if (signActive) return { cls: "", icon: <ShieldCheck size={15} />, body: <>{t("compose.sec.signedOnly")}</> };
     return null;
   })();
 
@@ -1116,7 +1127,7 @@ export function Compose({ init }: { init: ComposeInit }) {
         // Cc / Bcc are not in the Tab order (Tab from To goes to Subject); Ctrl/Cmd+Shift+C / B show and focus them
         if ((e.ctrlKey || e.metaKey) && e.shiftKey && !e.altKey && (e.key.toLowerCase() === "c" || (e.key.toLowerCase() === "b" && !meeting))) {
           e.preventDefault();
-          const label = e.key.toLowerCase() === "c" ? "Cc" : "Bcc";
+          const label = e.key.toLowerCase() === "c" ? t("compose.cc") : t("compose.bcc");
           setShowCc(true);
           setTimeout(() => document.querySelector<HTMLInputElement>(`input[aria-label="${label}"]`)?.focus(), 0);
           return;
@@ -1178,15 +1189,15 @@ export function Compose({ init }: { init: ComposeInit }) {
     >
       <div className="cp-bar">
         <div className="split-btn" ref={schedRef}>
-          <button className="btn primary" disabled={busy} onClick={() => void (init.outboxId ? send(init.sendAt) : send())} title={init.outboxId ? "Schedule (keeps the time)" : kbd("Send (Ctrl+Enter)")}>
-            {init.outboxId ? <><CalendarClock size={14} /> Schedule</> : meeting ? <><CalendarPlus size={14} /> Send invite</> : <><Send size={14} /> Send</>}
+          <button className="btn primary" disabled={busy} onClick={() => void (init.outboxId ? send(init.sendAt) : send())} title={init.outboxId ? t("compose.bar.scheduleTip") : kbd(t("compose.bar.sendTip"))}>
+            {init.outboxId ? <><CalendarClock size={14} /> {t("compose.bar.schedule")}</> : meeting ? <><CalendarPlus size={14} /> {t("compose.bar.sendInvite")}</> : <><Send size={14} /> {t("compose.bar.send")}</>}
           </button>
           <button
             className="btn primary split-caret"
-            aria-label="Send later options"
+            aria-label={t("compose.bar.sendLaterOptions")}
             aria-haspopup="dialog"
             aria-expanded={schedOpen}
-            title={kbd("Send later (Ctrl+Shift+Enter)")}
+            title={kbd(t("compose.bar.sendLaterTip"))}
             onClick={() => setSchedOpen((o) => !o)}
           >
             <ChevronDown size={14} />
@@ -1195,7 +1206,7 @@ export function Compose({ init }: { init: ComposeInit }) {
             <div className="popover up sched-pop">
               <SchedulePicker
                 initial={schedInitial}
-                primaryLabel="Schedule"
+                primaryLabel={t("compose.bar.schedule")}
                 busy={busy}
                 onPick={(ts) => (setSchedOpen(false), void send(ts))}
                 onSendNow={init.outboxId ? () => (setSchedOpen(false), void sendNowFromEditor()) : () => (setSchedOpen(false), void send())}
@@ -1205,11 +1216,11 @@ export function Compose({ init }: { init: ComposeInit }) {
           )}
         </div>
         {init.outboxId ? (
-          <button className="rb" onClick={() => void moveToDrafts()}><Save size={15} /><span>Move to Drafts</span></button>
+          <button className="rb" onClick={() => void moveToDrafts()}><Save size={15} /><span>{t("compose.bar.moveToDrafts")}</span></button>
         ) : null}
-        <button className="rb" onClick={() => void discard()}><Trash2 size={15} /><span>Discard</span></button>
-        <button className="rb" onClick={() => fileRef.current?.click()}><Paperclip size={15} /><span>Attach</span></button>
-        <button className="rb" onClick={() => picRef.current?.click()} title={kbd("Insert picture (Ctrl+Shift+P)")}><ImagePlus size={15} /><span>Picture</span></button>
+        <button className="rb" onClick={() => void discard()}><Trash2 size={15} /><span>{t("compose.bar.discard")}</span></button>
+        <button className="rb" onClick={() => fileRef.current?.click()}><Paperclip size={15} /><span>{t("compose.bar.attach")}</span></button>
+        <button className="rb" onClick={() => picRef.current?.click()} title={kbd(t("compose.bar.insertPictureTip"))}><ImagePlus size={15} /><span>{t("compose.bar.picture")}</span></button>
         <input ref={fileRef} type="file" multiple hidden onChange={(e) => (void addFiles(e.target.files), (e.target.value = ""))} />
         <input
           ref={picRef}
@@ -1222,20 +1233,20 @@ export function Compose({ init }: { init: ComposeInit }) {
         <button
           className={`rb ${meeting ? "on" : ""}`}
           aria-pressed={!!meeting}
-          title="Meeting: send this message as a calendar invitation"
+          title={t("compose.bar.meetingTip")}
           onClick={() => {
             if (meeting) setMeeting(null);
             else {
               if (bcc.length) {
                 setBcc([]);
-                showToast("Bcc recipients were removed: Bcc isn’t used for meetings.", undefined, "info");
+                showToast(t("compose.meeting.bccRemoved"), undefined, "info");
               }
               setMeeting(defaultMeeting(calTz(prefs)));
             }
             touch();
           }}
         >
-          <CalendarPlus size={15} /><span>Meeting</span>
+          <CalendarPlus size={15} /><span>{t("compose.bar.meeting")}</span>
         </button>
         <button
           className={`rb ${encOn && noKeyAddrs.length === 0 && canEnc ? "on" : encOn ? "warn" : ""}`}
@@ -1244,13 +1255,13 @@ export function Compose({ init }: { init: ComposeInit }) {
           title={encTitle}
           onClick={toggleEncrypt}
         >
-          {encOn ? <Lock size={15} /> : <LockOpen size={15} />}<span>Encrypt</span>
+          {encOn ? <Lock size={15} /> : <LockOpen size={15} />}<span>{t("compose.bar.encrypt")}</span>
         </button>
         <div className="dd" ref={signRef}>
-          <button className={`rb ${signActive ? "on" : ""}`} aria-pressed={signActive} aria-disabled={!own} title={own ? kbd("Sign (Ctrl+Shift+G)") : encTitle} onClick={toggleSign}>
-            <BadgeCheck size={15} /><span>Sign</span>
+          <button className={`rb ${signActive ? "on" : ""}`} aria-pressed={signActive} aria-disabled={!own} title={own ? kbd(t("compose.bar.signTip")) : encTitle} onClick={toggleSign}>
+            <BadgeCheck size={15} /><span>{t("compose.bar.sign")}</span>
           </button>
-          <button className="rb caret" aria-label="Signing options" aria-haspopup="menu" aria-expanded={signMenu} title="Signing options" onClick={() => setSignMenu((o) => !o)}>
+          <button className="rb caret" aria-label={t("compose.bar.signOptions")} aria-haspopup="menu" aria-expanded={signMenu} title={t("compose.bar.signOptions")} onClick={() => setSignMenu((o) => !o)}>
             <ChevronDown size={12} />
           </button>
           {signMenu && (
@@ -1258,11 +1269,11 @@ export function Compose({ init }: { init: ComposeInit }) {
               <MenuList
                 onDone={() => setSignMenu(false)}
                 items={[
-                  { label: "Sign this message", checked: signOn, hint: kbd("Ctrl+Shift+G"), disabled: !own, onClick: toggleSign },
-                  { label: "Attach my public key", checked: attachKey, disabled: !own, onClick: () => (setAttachKey(!attachKey), touch()) },
+                  { label: t("compose.bar.signThis"), checked: signOn, hint: kbd("Ctrl+Shift+G"), disabled: !own, onClick: toggleSign },
+                  { label: t("compose.bar.attachPublicKey"), checked: attachKey, disabled: !own, onClick: () => (setAttachKey(!attachKey), touch()) },
                   { divider: true },
-                  ...(own ? [{ label: `Signing key ${shortKey(own.fingerprint)}`, icon: <ShieldCheck size={14} />, onClick: () => setDialog({ type: "pgp-key", fingerprint: own.fingerprint }) }] : [{ label: "No key for this account yet", disabled: true }]),
-                  { label: own ? "Manage keys…" : "Set up encryption…", onClick: () => (own ? setDialog({ type: "settings", tab: "pgp" }) : setDialog({ type: "pgp-generate", accountId })) },
+                  ...(own ? [{ label: t("compose.bar.signingKey", { key: shortKey(own.fingerprint) }), icon: <ShieldCheck size={14} />, onClick: () => setDialog({ type: "pgp-key", fingerprint: own.fingerprint }) }] : [{ label: t("compose.bar.noKeyYet"), disabled: true }]),
+                  { label: own ? t("compose.bar.manageKeys") : t("compose.bar.setUpEncryption"), onClick: () => (own ? setDialog({ type: "settings", tab: "pgp" }) : setDialog({ type: "pgp-generate", accountId })) },
                 ]}
               />
             </div>
@@ -1271,25 +1282,25 @@ export function Compose({ init }: { init: ComposeInit }) {
         <button
           className={`rb ${confidential ? "on" : ""}`}
           aria-pressed={confidential}
-          title={confidential ? "Confidential: recipients can’t copy, print, forward or screen-capture it in Hey Look! (click to turn off)" : "Mark as confidential (Sensitivity: Confidential)"}
+          title={confidential ? t("compose.bar.confidentialOnTip") : t("compose.bar.confidentialOffTip")}
           onClick={() => (setConfidential(!confidential), touch())}
         >
-          <ShieldAlert size={15} /><span>Confidential</span>
+          <ShieldAlert size={15} /><span>{t("compose.bar.confidential")}</span>
         </button>
-        {!init.outboxId && <button className="rb" onClick={() => void saveDraft(true)}><Save size={15} /><span>Save draft</span></button>}
+        {!init.outboxId && <button className="rb" onClick={() => void saveDraft(true)}><Save size={15} /><span>{t("compose.bar.saveDraft")}</span></button>}
         <Dropdown
           className="rb"
-          items={myTemplates.length ? myTemplates.map((t) => ({ label: t.name, onClick: () => applyTemplate(t) })) : [{ label: "No templates yet (Settings → Mailboxes → Templates)", disabled: true }]}
+          items={myTemplates.length ? myTemplates.map((tpl) => ({ label: tpl.name, onClick: () => applyTemplate(tpl) })) : [{ label: t("compose.bar.noTemplates"), disabled: true }]}
         >
-          <FileText size={15} /><span>Templates</span>
+          <FileText size={15} /><span>{t("compose.bar.templates")}</span>
         </Dropdown>
         <button
           className={`rb ${aiOpen ? "on" : ""}`}
           disabled={!!init.confidential}
           onClick={() => (aiConfigured ? setAiOpen((o) => !o) : setDialog({ type: "settings", tab: "ai" }))}
-          title={init.confidential ? "Confidential mail isn’t sent to the AI Assistant" : aiConfigured ? "Write or rewrite with AI" : "Set up the AI Assistant first"}
+          title={init.confidential ? t("compose.bar.aiConfidentialTip") : aiConfigured ? t("compose.bar.aiTip") : t("compose.bar.aiSetupTip")}
         >
-          <Sparkles size={15} /><span>Write with AI</span>
+          <Sparkles size={15} /><span>{t("compose.bar.writeWithAi")}</span>
         </button>
         <div className="grow" />
       </div>
@@ -1298,16 +1309,16 @@ export function Compose({ init }: { init: ComposeInit }) {
         <div className={`cp-banner ${init.outboxError ? "bad" : ""}`} role="status">
           <CalendarClock size={15} aria-hidden />
           {init.outboxError ? (
-            <span>This scheduled message failed: {init.outboxError}</span>
+            <span>{t("compose.banner.failed", { error: init.outboxError })}</span>
           ) : (
             <span>
-              Scheduled for <b>{fmtWhen(init.sendAt ?? Date.now() / 1000)}</b> ({fmtIn(init.sendAt ?? Date.now() / 1000)}). Paused while you edit.
+              {tx("compose.banner.scheduled", { when: <b>{fmtWhen(init.sendAt ?? Date.now() / 1000)}</b> }, { in: fmtIn(init.sendAt ?? Date.now() / 1000) })}
             </span>
           )}
           <span className="grow" />
-          <button className="link" onClick={() => setSchedOpen(true)}>Change time</button>
-          <button className="link" onClick={() => void sendNowFromEditor()} disabled={busy}>Send now</button>
-          {pastDue && <span className="muted small">That time has passed. Pick a new time to schedule it again.</span>}
+          <button className="link" onClick={() => setSchedOpen(true)}>{t("compose.banner.changeTime")}</button>
+          <button className="link" onClick={() => void sendNowFromEditor()} disabled={busy}>{t("compose.banner.sendNow")}</button>
+          {pastDue && <span className="muted small">{t("compose.banner.passed")}</span>}
         </div>
       )}
 
@@ -1316,35 +1327,35 @@ export function Compose({ init }: { init: ComposeInit }) {
           <textarea
             rows={2}
             autoFocus
-            placeholder={init.isReply ? "Write a reply to this email saying…" : "Describe the email you want, e.g. politely decline the meeting and propose next Tuesday"}
+            placeholder={init.isReply ? t("compose.ai.placeholderReply") : t("compose.ai.placeholderNew")}
             value={aiPrompt}
             onChange={(e) => setAiPrompt(e.target.value)}
           />
-          <button className="btn primary" disabled={aiBusy} onClick={() => void letAiWrite()}>{aiBusy ? "Writing…" : "Write"}</button>
+          <button className="btn primary" disabled={aiBusy} onClick={() => void letAiWrite()}>{aiBusy ? t("compose.ai.writing") : t("compose.ai.write")}</button>
         </div>
       )}
 
       <div className="cp-fields">
         <div className="cf-field">
-          <label>From</label>
-          <AccountPicker value={accountId} accounts={accounts} onChange={changeAccount} label="From" />
+          <label>{t("compose.from")}</label>
+          <AccountPicker value={accountId} accounts={accounts} onChange={changeAccount} label={t("compose.from")} />
         </div>
-        <RecipientField label="To" values={to} onChange={setTo} autoFocus={to.length === 0 && !init.replaces} onTouch={touch} keys={encOn && ks ? ks.recipients : undefined} onKeyAction={keyAction} />
+        <RecipientField label={t("compose.to")} values={to} onChange={setTo} autoFocus={to.length === 0 && !init.replaces} onTouch={touch} keys={encOn && ks ? ks.recipients : undefined} onKeyAction={keyAction} />
         {showCc ? (
           <>
-            <RecipientField label="Cc" values={cc} onChange={setCc} onTouch={() => ((ccTouched.current = true), touch())} keys={encOn && ks ? ks.recipients : undefined} onKeyAction={keyAction} />
-            {!meeting && <RecipientField label="Bcc" values={bcc} onChange={setBcc} onTouch={() => ((ccTouched.current = true), touch())} keys={encOn && ks ? ks.recipients : undefined} onKeyAction={keyAction} />}
+            <RecipientField label={t("compose.cc")} values={cc} onChange={setCc} onTouch={() => ((ccTouched.current = true), touch())} keys={encOn && ks ? ks.recipients : undefined} onKeyAction={keyAction} />
+            {!meeting && <RecipientField label={t("compose.bcc")} values={bcc} onChange={setBcc} onTouch={() => ((ccTouched.current = true), touch())} keys={encOn && ks ? ks.recipients : undefined} onKeyAction={keyAction} />}
           </>
         ) : (
           <div className="cf-links">
             {/* tabIndex -1: Tab from To goes to Subject (QA BUG-9); the keys are Ctrl/Cmd+Shift+C and B */}
-            <button className="link" tabIndex={-1} title={kbd("Add Cc (Ctrl+Shift+C)")} onClick={() => setShowCc(true)}>Cc</button>
-            {!meeting && <button className="link" tabIndex={-1} title={kbd("Add Bcc (Ctrl+Shift+B)")} onClick={() => setShowCc(true)}>Bcc</button>}
+            <button className="link" tabIndex={-1} title={kbd(t("compose.addCc"))} onClick={() => setShowCc(true)}>{t("compose.cc")}</button>
+            {!meeting && <button className="link" tabIndex={-1} title={kbd(t("compose.addBcc"))} onClick={() => setShowCc(true)}>{t("compose.bcc")}</button>}
           </div>
         )}
         <div className="cf-field">
-          <label>Subject</label>
-          <input value={subject} onChange={(e) => (setSubject(e.target.value), touch())} placeholder="Add a subject" aria-label="Subject" />
+          <label>{t("compose.subject")}</label>
+          <input value={subject} onChange={(e) => (setSubject(e.target.value), touch())} placeholder={t("compose.subject.placeholder")} aria-label={t("compose.subject")} />
         </div>
       </div>
 
@@ -1352,7 +1363,7 @@ export function Compose({ init }: { init: ComposeInit }) {
         <>
           <MeetingStrip value={meeting} onChange={(m) => (setMeeting(m), touch())} tz={calTz(prefs)} />
           <div className="note" style={{ padding: "6px 20px 0" }}>
-            <Info size={13} aria-hidden /> <span>Recipients in To are required attendees, Cc are optional. Bcc isn’t used for meetings. The event is also added to My events.</span>
+            <Info size={13} aria-hidden /> <span>{t("compose.meeting.note")}</span>
           </div>
         </>
       )}
@@ -1366,61 +1377,64 @@ export function Compose({ init }: { init: ComposeInit }) {
       {secDetails && encOn && (
         <div className="sec-strip" style={{ display: "block" }}>
           <dl className="kv">
-            <dt>Encryption</dt><dd>OpenPGP (PGP/MIME), AES-256</dd>
-            {signActive && own && <><dt>Signing key</dt><dd className="fpr">{shortKey(own.fingerprint)}</dd></>}
-            <dt>Encrypted for</dt>
-            <dd>{allAddrs.map((a) => `${a}${ks?.recipients[a]?.fingerprint ? ` (${shortKey(ks.recipients[a].fingerprint!)})` : ""}`).join(", ") || "Only you"} and you{bcc.length ? ". Bcc recipients can read it too." : ""}</dd>
+            <dt>{t("compose.sec.encryption")}</dt><dd>{t("compose.sec.encryptionValue")}</dd>
+            {signActive && own && <><dt>{t("compose.sec.signingKey")}</dt><dd className="fpr">{shortKey(own.fingerprint)}</dd></>}
+            <dt>{t("compose.sec.encryptedFor")}</dt>
+            <dd>{(() => {
+              const list = allAddrs.map((a) => `${a}${ks?.recipients[a]?.fingerprint ? ` (${shortKey(ks.recipients[a].fingerprint!)})` : ""}`).join(", ");
+              return list ? t(bcc.length ? "compose.sec.forListBcc" : "compose.sec.forList", { list }) : t(bcc.length ? "compose.sec.onlyYouBcc" : "compose.sec.onlyYou");
+            })()}</dd>
           </dl>
         </div>
       )}
 
-      <div className="cp-fmt" role="toolbar" aria-label="Formatting">
-        <button className="icon-btn" title={kbd("Bold (Ctrl+B)")} aria-label="Bold" onClick={() => editor?.chain().focus().toggleBold().run()}><Bold size={14} /></button>
-        <button className="icon-btn" title={kbd("Italic (Ctrl+I)")} aria-label="Italic" onClick={() => editor?.chain().focus().toggleItalic().run()}><Italic size={14} /></button>
-        <button className="icon-btn" title={kbd("Underline (Ctrl+U)")} aria-label="Underline" onClick={() => editor?.chain().focus().toggleUnderline().run()}><UIcon size={14} /></button>
-        <button className="icon-btn" title="Bulleted list" aria-label="Bulleted list" onClick={() => editor?.chain().focus().toggleBulletList().run()}><List size={14} /></button>
-        <button className="icon-btn" title="Numbered list" aria-label="Numbered list" onClick={() => editor?.chain().focus().toggleOrderedList().run()}><ListOrdered size={14} /></button>
+      <div className="cp-fmt" role="toolbar" aria-label={t("compose.fmt.toolbar")}>
+        <button className="icon-btn" title={kbd(t("compose.fmt.boldTip"))} aria-label={t("compose.fmt.bold")} onClick={() => editor?.chain().focus().toggleBold().run()}><Bold size={14} /></button>
+        <button className="icon-btn" title={kbd(t("compose.fmt.italicTip"))} aria-label={t("compose.fmt.italic")} onClick={() => editor?.chain().focus().toggleItalic().run()}><Italic size={14} /></button>
+        <button className="icon-btn" title={kbd(t("compose.fmt.underlineTip"))} aria-label={t("compose.fmt.underline")} onClick={() => editor?.chain().focus().toggleUnderline().run()}><UIcon size={14} /></button>
+        <button className="icon-btn" title={t("compose.fmt.bulleted")} aria-label={t("compose.fmt.bulleted")} onClick={() => editor?.chain().focus().toggleBulletList().run()}><List size={14} /></button>
+        <button className="icon-btn" title={t("compose.fmt.numbered")} aria-label={t("compose.fmt.numbered")} onClick={() => editor?.chain().focus().toggleOrderedList().run()}><ListOrdered size={14} /></button>
         <button
           className="icon-btn"
-          title="Link"
-          aria-label="Link"
+          title={t("compose.fmt.link")}
+          aria-label={t("compose.fmt.link")}
           onClick={() => {
-            const url = prompt("Link URL");
+            const url = prompt(t("compose.fmt.linkPrompt"));
             if (url) editor?.chain().focus().extendMarkRange("link").setLink({ href: url }).run();
           }}
         >
           <Link2 size={14} />
         </button>
-        <button className="icon-btn" title={kbd("Insert picture (Ctrl+Shift+P)")} aria-label="Insert picture" onClick={() => picRef.current?.click()}><ImagePlus size={14} /></button>
+        <button className="icon-btn" title={kbd(t("compose.bar.insertPictureTip"))} aria-label={t("compose.fmt.insertPicture")} onClick={() => picRef.current?.click()}><ImagePlus size={14} /></button>
       </div>
 
       <div className="cp-editor" ref={bodyRef} onScroll={() => editor && syncPicSel(editor)}>
         <EditorContent editor={editor} className="editor" />
         {picSel && (
           <>
-            <div className="img-tools" role="toolbar" aria-label="Picture options" style={{ top: picSel.top, left: picSel.left, position: "absolute" }}>
-              <div className="seg" role="radiogroup" aria-label="Size">
+            <div className="img-tools" role="toolbar" aria-label={t("compose.pic.options")} style={{ top: picSel.top, left: picSel.left, position: "absolute" }}>
+              <div className="seg" role="radiogroup" aria-label={t("compose.pic.size")}>
                 {SIZES.map(([label, w]) => (
                   <button key={label} role="radio" aria-checked={picSel.width === w} className={picSel.width === w ? "on" : ""} onClick={() => setPictureSize(w)}>
-                    {label}
+                    {t(label)}
                   </button>
                 ))}
               </div>
               <span className="sep" />
-              <button className={`tool-btn ${picSel.alt ? "" : "dot"}`} title={picSel.alt ? "Edit alt text (Alt+Enter)" : "Add alt text (Alt+Enter)"} onClick={() => (setAltText(picSel.alt), setAltOpen((o) => !o))}>
-                Alt text
+              <button className={`tool-btn ${picSel.alt ? "" : "dot"}`} title={picSel.alt ? t("compose.pic.editAlt") : t("compose.pic.addAlt")} onClick={() => (setAltText(picSel.alt), setAltOpen((o) => !o))}>
+                {t("compose.pic.altText")}
               </button>
-              <button className="tool-btn" onClick={pictureAsAttachment}>As attachment</button>
-              <button className="icon-btn" aria-label="Remove picture" title="Remove picture (Delete)" onClick={removePicture}><Trash2 size={14} /></button>
+              <button className="tool-btn" onClick={pictureAsAttachment}>{t("compose.pic.asAttachment")}</button>
+              <button className="icon-btn" aria-label={t("compose.pic.remove")} title={t("compose.pic.removeTip")} onClick={removePicture}><Trash2 size={14} /></button>
             </div>
             {altOpen && (
-              <div className="popover alt-pop" style={{ top: picSel.top + 40, left: picSel.left, position: "absolute", zIndex: 13 }} role="dialog" aria-label="Alt text">
-                <label className="small muted">Alt text</label>
-                <textarea value={altText} onChange={(e) => setAltText(e.target.value)} autoFocus placeholder="Describe the picture for people who can’t see it" />
-                <div className="helper">Read aloud by screen readers. Leave empty for decorative pictures.</div>
+              <div className="popover alt-pop" style={{ top: picSel.top + 40, left: picSel.left, position: "absolute", zIndex: 13 }} role="dialog" aria-label={t("compose.pic.altText")}>
+                <label className="small muted">{t("compose.pic.altText")}</label>
+                <textarea value={altText} onChange={(e) => setAltText(e.target.value)} autoFocus placeholder={t("compose.pic.altPlaceholder")} />
+                <div className="helper">{t("compose.pic.altHelp")}</div>
                 <div className="row-inline" style={{ justifyContent: "flex-end", margin: 0 }}>
-                  <button className="btn small" onClick={() => setAltOpen(false)}>Cancel</button>
-                  <button className="btn primary small" onClick={savePictureAlt}>Save</button>
+                  <button className="btn small" onClick={() => setAltOpen(false)}>{t("common.cancel")}</button>
+                  <button className="btn primary small" onClick={savePictureAlt}>{t("common.save")}</button>
                 </div>
               </div>
             )}
@@ -1429,16 +1443,16 @@ export function Compose({ init }: { init: ComposeInit }) {
         {sigHeads.map((el) =>
           createPortal(
             <label className="sig-pick">
-              <span>Signature</span>
+              <span>{t("compose.sig.label")}</span>
               <select
                 className="sig-select"
                 value={sigChoices.some((x) => x.id === sigId) || sigId === "none" ? sigId : ""}
                 onChange={(e) => (sigManual.current = true, setSigId(e.target.value), touch())}
-                aria-label="Signature"
+                aria-label={t("compose.sig.label")}
               >
-                <option value="none">No signature</option>
-                {sigChoices.map((x) => <option key={x.id} value={x.id}>{x.name}{x.accountId ? "" : x.id !== "draft-signature" && accounts.length > 1 ? " (all accounts)" : ""}</option>)}
-                {!sigId && <option value="">Automatic</option>}
+                <option value="none">{t("compose.sig.none")}</option>
+                {sigChoices.map((x) => <option key={x.id} value={x.id}>{x.id === "draft-signature" ? t("compose.sig.inDraft") : x.accountId ? x.name : accounts.length > 1 ? t("compose.sig.allAccounts", { name: x.name }) : x.name}</option>)}
+                {!sigId && <option value="">{t("compose.sig.automatic")}</option>}
               </select>
             </label>,
             el,
@@ -1448,24 +1462,24 @@ export function Compose({ init }: { init: ComposeInit }) {
 
       {pics.count > 0 && (
         <div className="cp-size muted small cp-atts" aria-live="polite">
-          {pics.count} picture{pics.count === 1 ? "" : "s"} in message · {fmtSize(totalBytes)} of 25 MB
+          {t("compose.pic.count", { n: pics.count, size: fmtSize(totalBytes) })}
           <div className={`progress ${totalBytes > MAX_ATTACH_BYTES ? "over" : ""}`} role="progressbar" aria-valuemin={0} aria-valuemax={25 * 1024 * 1024} aria-valuenow={totalBytes}>
             <i style={{ width: `${Math.min(100, (totalBytes / MAX_ATTACH_BYTES) * 100)}%` }} />
           </div>
-          {totalBytes > MAX_ATTACH_BYTES && <span className="inline-err">Message is {fmtSize(totalBytes)} — over the 25 MB most servers accept. Resize pictures or remove attachments.</span>}
+          {totalBytes > MAX_ATTACH_BYTES && <span className="inline-err">{t("compose.pic.overLimit", { size: fmtSize(totalBytes) })}</span>}
         </div>
       )}
 
       {atts.length > 0 && (
         <div className="atts cp-atts">
           {atts.map((a, i) => (
-            <span key={i} className={`att-chip ${blockedAttachmentExt(a.filename) ? "blocked" : ""}`} title={blockedAttachmentExt(a.filename) ? "Mail servers block this file type" : undefined}>
+            <span key={i} className={`att-chip ${blockedAttachmentExt(a.filename) ? "blocked" : ""}`} title={blockedAttachmentExt(a.filename) ? t("compose.att.blockedTip") : undefined}>
               <Paperclip size={13} /> <span className="ellipsis">{a.filename}</span> <span className="muted small">{fmtSize(approxBytes(a))}</span>
               {a.mime.startsWith("image/") && (
                 <button
                   className="icon-btn"
-                  aria-label={`Show ${a.filename} in message instead`}
-                  title="Show in message instead"
+                  aria-label={t("compose.att.showInMessageAria", { name: a.filename })}
+                  title={t("compose.att.showInMessage")}
                   onClick={() => {
                     const uri = `data:${a.mime};base64,${a.dataBase64}`;
                     setAtts((x) => x.filter((_, j) => j !== i));
@@ -1475,21 +1489,21 @@ export function Compose({ init }: { init: ComposeInit }) {
                   <ImagePlus size={12} />
                 </button>
               )}
-              <button className="icon-btn" aria-label={`Remove ${a.filename}`} onClick={() => (setAtts((x) => x.filter((_, j) => j !== i)), touch())}><X size={12} /></button>
+              <button className="icon-btn" aria-label={t("compose.att.removeAria", { name: a.filename })} onClick={() => (setAtts((x) => x.filter((_, j) => j !== i)), touch())}><X size={12} /></button>
             </span>
           ))}
-          <span className={`muted small ${attBytes > MAX_ATTACH_BYTES ? "err" : ""}`}>{fmtSize(attBytes)} attached of 25 MB</span>
+          <span className={`muted small ${attBytes > MAX_ATTACH_BYTES ? "err" : ""}`}>{t("compose.att.total", { size: fmtSize(attBytes) })}</span>
           {blockedAtts.length > 0 && (
             <span className="att-warn" role="alert">
-              <TriangleAlert size={14} aria-hidden /> Gmail, Outlook and Yahoo reject {[...new Set(blockedAtts.map((a) => a.ext))].join(", ")} files, even inside a zip. This message will probably be refused: remove {blockedAtts.length === 1 ? "it" : "them"} or share a link instead.
+              <TriangleAlert size={14} aria-hidden /> {t(blockedAtts.length === 1 ? "compose.att.blockedWarningOne" : "compose.att.blockedWarningMany", { types: [...new Set(blockedAtts.map((a) => a.ext))].join(", ") })}
             </span>
           )}
         </div>
       )}
-      {draftsHint && !init.outboxId && <div className="muted small cp-foot">Editing a draft. Sending or saving replaces the original.</div>}
-      {init.outboxId && <div className="muted small cp-foot">Closing without changes keeps the original schedule.</div>}
+      {draftsHint && !init.outboxId && <div className="muted small cp-foot">{t("compose.banner.editingDraft")}</div>}
+      {init.outboxId && <div className="muted small cp-foot">{t("compose.banner.keepsSchedule")}</div>}
       {dragging && (
-        <div className="drop-zones" aria-label="Drop files">
+        <div className="drop-zones" aria-label={t("compose.drop.label")}>
           {dragImages && (
             <div
               className={`dz ${hotZone === "top" ? "hot" : ""}`}
@@ -1498,8 +1512,8 @@ export function Compose({ init }: { init: ComposeInit }) {
               onDragLeave={() => setHotZone(null)}
               onDrop={(e) => (e.preventDefault(), e.stopPropagation(), dropOn("top", e.dataTransfer.files))}
             >
-              <span>Drop to insert in the message</span>
-              <small>Pictures go where the cursor is</small>
+              <span>{t("compose.drop.insert")}</span>
+              <small>{t("compose.drop.insertHint")}</small>
             </div>
           )}
           <div
@@ -1510,7 +1524,7 @@ export function Compose({ init }: { init: ComposeInit }) {
             onDragLeave={() => setHotZone(null)}
             onDrop={(e) => (e.preventDefault(), e.stopPropagation(), dropOn("bottom", e.dataTransfer.files))}
           >
-            <span>Drop here to attach</span>
+            <span>{t("compose.drop.attach")}</span>
           </div>
         </div>
       )}

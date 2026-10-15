@@ -19,9 +19,6 @@ export function toggleMailCanvas(c: MailCanvas): MailCanvas {
   return c === "dark" ? "original" : "dark";
 }
 
-/** Tooltip and accessible name of the reading pane's button; whether it is pressed (dark) is `aria-pressed`. */
-export const MAIL_CANVAS_LABEL = "Message background: original / dark";
-
 /** Attributes of the frame's <html>: a mail that opens dark is created dark and hidden until recoloured (no flash of the original), one that opens original is plain. */
 export function frameRootClass(c: MailCanvas): string {
   return c === "dark" ? ' class="hm-dark hm-pend"' : "";

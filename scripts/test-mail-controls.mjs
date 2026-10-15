@@ -26,8 +26,8 @@ assert.deepEqual(NO_ACCOUNT_COMMANDS, ["Add account", "Open settings", "Check fo
 for (const l of bare) assert.ok(NO_ACCOUNT_COMMANDS.includes(l));
 for (const bad of ["New mail", "Sync now", "New event", "Go to Calendar", "Go to Inbox"]) assert.ok(!bare.includes(bad), bad);
 
-// the command labels that exist in CommandBar.tsx: every kept name is really there, no mail command is kept
+// the command ids that exist in CommandBar.tsx (its labels are translated): every kept name is really there, no mail command is kept
 import { readFileSync } from "node:fs";
 const src = readFileSync(new URL("../src/components/CommandBar.tsx", import.meta.url), "utf8");
-for (const l of NO_ACCOUNT_COMMANDS) assert.ok(src.includes(`label: "${l}"`), `${l} is a command of the bar`);
+for (const l of NO_ACCOUNT_COMMANDS) assert.ok(src.includes(`id: "${l}"`), `${l} is a command of the bar`); // the bar matches by id (the English name), its label follows the language
 console.log("mail-controls: all checks passed");

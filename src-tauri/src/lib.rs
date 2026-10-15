@@ -5,6 +5,7 @@ mod calsync;
 mod db;
 mod discover;
 mod ical;
+mod i18n;
 mod idle;
 mod legacy_names;
 // the checked open of links and files on Linux; compiled everywhere so that its rules are tested everywhere
@@ -1909,7 +1910,7 @@ fn apply_pgp(c: &Connection, m: &mut MessageFull, pgp: i64, raw: Option<Vec<u8>>
 pub(crate) fn message_full(c: &Connection, message_id: &str) -> R<MessageFull> {
     let (mut m, pgp, raw) = c
         .query_row(&format!("SELECT {MESSAGE_COLS} FROM messages WHERE id=?1"), [message_id], row_message)
-        .map_err(|_| "message not found".to_string())?;
+        .map_err(|_| "MSG_NOT_FOUND: message not found".to_string())?;
     finish_message(c, &mut m, pgp, raw);
     Ok(m)
 }
@@ -2299,7 +2300,10 @@ pub(crate) fn fetch_view_for(db: &Db, message_id: &str) -> R<(Vec<u8>, String)> 
         }
         None => match &opened.security.locked_key {
             Some(f) => Err(format!("PGP_LOCKED:{f}")),
-            None => Err(format!("PGP_FAILED: {}", opened.security.error.clone().unwrap_or_else(|| "this message can't be decrypted".into()))),
+            None => Err(match opened.security.error.clone() {
+                Some(e) => format!("PGP_FAILED: {e}"),
+                None => "PGP_CANT_DECRYPT: this message can't be decrypted".to_string(),
+            }),
         },
     }
 }
@@ -2309,7 +2313,7 @@ pub(crate) fn fetch_view_for(db: &Db, message_id: &str) -> R<(Vec<u8>, String)> 
 pub(crate) fn ensure_not_confidential(c: &Connection, message_id: &str) -> R<()> {
     let pgp: i64 = c.query_row("SELECT pgp FROM messages WHERE id=?1", [message_id], |r| r.get(0)).unwrap_or(0);
     if pgp & pgpmail::FLAG_CONFIDENTIAL as i64 != 0 {
-        return Err("This message is confidential, so that isn’t allowed.".into());
+        return Err("CONFIDENTIAL: This message is confidential, so that isn’t allowed.".into());
     }
     Ok(())
 }
@@ -2357,7 +2361,7 @@ fn system_download_dir(download: Option<std::path::PathBuf>, home: Option<std::p
     match (download, home) {
         (Some(d), _) => Ok((d, false)),
         (None, Some(h)) => Ok((h, true)),
-        (None, None) => Err("No folder to save into: set one in Settings > Mailboxes > Reading & sync.".into()),
+        (None, None) => Err("NO_SAVE_FOLDER: No folder to save into: set one in Settings > Mailboxes > Reading & sync.".into()),
     }
 }
 
@@ -2461,7 +2465,7 @@ async fn attachment_save_all(
         let (raw, att_json) = fetch_view_for(&db, &message_id)?;
         let metas: Vec<mail::AttMeta> = serde_json::from_str(&att_json).unwrap_or_default();
         let dir = if ask {
-            let Some(p) = app.dialog().file().set_title("Save attachments to").blocking_pick_folder() else {
+            let Some(p) = app.dialog().file().set_title(i18n::tr(i18n::K::SaveAttachmentsTo)).blocking_pick_folder() else {
                 return Ok(None);
             };
             p.into_path().map_err(err)?
@@ -2504,7 +2508,7 @@ fn open_target(app: &tauri::AppHandle, target: &str, is_url: bool) -> R<()> {
 #[tauri::command]
 async fn open_external(app: tauri::AppHandle, url: String) -> R<()> {
     if !linuxopen::url_allowed(&url) {
-        return Err("That kind of link is not opened.".into()); // the same schemes as the opener plugin allows
+        return Err("LINK_NOT_OPENED: That kind of link is not opened.".into()); // the same schemes as the opener plugin allows
     }
     blocking(move || open_target(&app, &url, true)).await
 }
@@ -2568,7 +2572,7 @@ async fn attachment_open(app: tauri::AppHandle, state: tauri::State<'_, AppState
 fn attachment_reveal(app: tauri::AppHandle, path: String) -> R<()> {
     let p = std::path::PathBuf::from(&path);
     if !p.is_absolute() || !p.exists() {
-        return Err("That file no longer exists.".into());
+        return Err("FILE_GONE: That file no longer exists.".into());
     }
     app.opener().reveal_item_in_dir(p).map_err(err)
 }
@@ -2716,7 +2720,7 @@ fn finish_failed_hold(db: &Db, id: &str, payload: &str, error: &str, keep: bool)
 async fn outbox_hold_send(app: tauri::AppHandle, state: tauri::State<'_, AppState>, id: String, keep: bool) -> R<()> {
     let db = state.db.clone();
     blocking(move || {
-        let (payload, _attempts) = claim_outbox(&db, &id, &["undo"])?.ok_or("This message is no longer waiting to be sent.")?;
+        let (payload, _attempts) = claim_outbox(&db, &id, &["undo"])?.ok_or("OUTBOX_GONE: This message is no longer waiting to be sent.")?;
         let replaces: Option<String> = lock(&db).query_row("SELECT replaces FROM outbox WHERE id=?1", [&id], |r| r.get(0)).ok().flatten();
         let res = serde_json::from_str::<smtp::Draft>(&payload).map_err(err).and_then(|d| send_now(&db, &d));
         match res {
@@ -2898,7 +2902,7 @@ fn cancel_outbox(app: tauri::AppHandle, state: tauri::State<AppState>, id: Strin
     let payload: Option<String> = c.query_row("SELECT payload FROM outbox WHERE id=?1 AND status!='sending'", [&id], |r| r.get(0)).ok();
     let n = c.execute("DELETE FROM outbox WHERE id=?1 AND status!='sending'", [id]).map_err(err)?;
     if n == 0 {
-        return Err("This message is being sent right now.".into());
+        return Err("OUTBOX_SENDING: This message is being sent right now.".into());
     }
     if let Some(p) = payload {
         // a scheduled meeting that never went out must not stay in the calendar
@@ -2948,9 +2952,9 @@ fn outbox_open_for_edit(state: tauri::State<AppState>, id: String) -> R<OutboxEd
     let c = lock(&state.db);
     let (payload, send_at, status): (String, i64, String) = c
         .query_row("SELECT payload,send_at,status FROM outbox WHERE id=?1", [&id], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)))
-        .map_err(|_| "This scheduled message no longer exists.".to_string())?;
+        .map_err(|_| "OUTBOX_MISSING: This scheduled message no longer exists.".to_string())?;
     if status == "sending" {
-        return Err("This message is being sent right now.".into());
+        return Err("OUTBOX_SENDING: This message is being sent right now.".into());
     }
     // an encrypted message is read back with the account's key (PGP_LOCKED:<fpr> while it is locked)
     let stored: smtp::Draft = serde_json::from_str(&payload).map_err(err)?;
@@ -2979,7 +2983,7 @@ fn outbox_release(state: tauri::State<AppState>, id: String) -> R<()> {
 #[tauri::command]
 fn outbox_update(app: tauri::AppHandle, state: tauri::State<AppState>, id: String, draft: smtp::Draft, send_at: i64) -> R<()> {
     schedule::validate_send_at(send_at, now())?;
-    const GONE: &str = "This scheduled message is no longer waiting to be sent.";
+    const GONE: &str = "OUTBOX_NOT_WAITING: This scheduled message is no longer waiting to be sent.";
     // one critical section from the first look at the row to the UPDATE: the sender cannot claim it in between, and a
     // calendar event is only made once the row is known to be editable
     let c = lock(&state.db);
@@ -3040,7 +3044,7 @@ fn outbox_reschedule(app: tauri::AppHandle, state: tauri::State<AppState>, id: S
         )
         .map_err(err)?;
     if n == 0 {
-        return Err("This message is being sent right now.".into());
+        return Err("OUTBOX_SENDING: This message is being sent right now.".into());
     }
     let _ = app.emit("outbox-changed", serde_json::json!({ "id": id, "status": "pending" }));
     Ok(())
@@ -3064,7 +3068,7 @@ async fn outbox_to_draft(app: tauri::AppHandle, state: tauri::State<'_, AppState
     blocking(move || {
         let payload: String = lock(&db)
             .query_row("SELECT payload FROM outbox WHERE id=?1 AND status!='sending'", [&id], |r| r.get(0))
-            .map_err(|_| "This message is being sent right now.".to_string())?;
+            .map_err(|_| "OUTBOX_SENDING: This message is being sent right now.".to_string())?;
         let d: smtp::Draft = serde_json::from_str(&payload).map_err(err)?;
         let acc = db::get_account(&lock(&db), &d.account_id)?;
         let sec = secret(&db, &acc)?;
@@ -3141,7 +3145,7 @@ async fn outbox_send_now(app: tauri::AppHandle, state: tauri::State<'_, AppState
     let db = state.db.clone();
     blocking(move || {
         let (payload, attempts) = claim_outbox(&db, &id, &["pending", "held", "overdue", "failed"])?
-            .ok_or("This message is already being sent.")?;
+            .ok_or("OUTBOX_ALREADY_SENDING: This message is already being sent.")?;
         let (mut late, mut left) = (0, 0);
         let due = now();
         deliver(&app, &db, &id, &payload, attempts, &mut late, &mut left, due)
@@ -3454,8 +3458,13 @@ fn get_setting(state: tauri::State<AppState>, key: String) -> Option<String> {
 }
 
 #[tauri::command]
-fn set_setting(state: tauri::State<AppState>, key: String, value: String) -> R<()> {
-    db::set_setting(&lock(&state.db), &key, &value)
+fn set_setting(app: tauri::AppHandle, state: tauri::State<AppState>, key: String, value: String) -> R<()> {
+    db::set_setting(&lock(&state.db), &key, &value)?;
+    // the UI mirrors its language here: the tray menu, the macOS Quit item and the tray tooltip follow at once (native texts, see i18n.rs)
+    if key == "ui_language" && i18n::set_lang(&value) {
+        shell::refresh_language(&app, &state.db);
+    }
+    Ok(())
 }
 
 #[derive(Serialize)]
@@ -3555,7 +3564,7 @@ async fn unsubscribe(state: tauri::State<'_, AppState>, message_id: String) -> R
     if let Some(u) = targets.iter().find(|t| t.starts_with("http://")) {
         return Ok(UnsubResult { kind: "open".into(), target: u.clone() });
     }
-    Err("no unsubscribe target".into())
+    Err("UNSUBSCRIBE_NO_TARGET: This message has no unsubscribe link.".into())
 }
 
 /// Download remote images in the backend and hand them to the UI as data: URIs. The webview never
@@ -3654,6 +3663,10 @@ pub fn run() {
             startup::init_log_dir(dir.clone());
             let conn = db::open(&dir.join("heylook.db"))?;
             let db: Db = Arc::new(Mutex::new(conn));
+            // the language of the native texts (tray, notifications) as the UI last mirrored it; English until the first run mirrors it
+            if let Some(code) = db::get_setting(&lock(&db), "ui_language") {
+                i18n::set_lang(&code);
+            }
             outbox_startup(&db);
             let worker_db = db.clone();
             let worker_app = app.handle().clone();
@@ -3688,7 +3701,8 @@ pub fn run() {
             if let Err(e) = shell::setup_tray(app.handle(), &db) {
                 eprintln!("tray icon unavailable: {e}");
             }
-            shell::update_badge(app.handle(), &db);
+            // (also puts the stored language into the macOS app menu, which is built before the settings can be read)
+            shell::refresh_language(app.handle(), &db);
             // macOS: a Dock "Quit" or a log out ends in `[NSApp terminate:]` too, which raises no `ExitRequested`
             #[cfg(target_os = "macos")]
             {
@@ -4786,7 +4800,7 @@ mod signed_flag_tests {
         assert!(ensure_not_confidential(&c, "m4").is_ok());
         assert!(ensure_not_confidential(&c, "nope").is_ok(), "an unknown id fails later, with its own error");
         for id in ["m2", "m3"] {
-            assert_eq!(ensure_not_confidential(&c, id).unwrap_err(), "This message is confidential, so that isn’t allowed.");
+            assert_eq!(ensure_not_confidential(&c, id).unwrap_err(), "CONFIDENTIAL: This message is confidential, so that isn’t allowed.");
         }
     }
 }

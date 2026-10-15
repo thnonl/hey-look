@@ -2,6 +2,7 @@ import { Moon, RefreshCw, Settings, Sun } from "lucide-react";
 import type { MouseEvent } from "react";
 import logo from "../assets/logo.png";
 import { api } from "../api";
+import { useT } from "../i18n/react";
 import { useStore } from "../store";
 import { pendingVersion, useUpdates } from "../updates";
 import { useAppDark } from "../useAppDark";
@@ -12,6 +13,7 @@ import { UpdateChip } from "./UpdateChip";
 import { WindowControls } from "./WindowControls";
 
 export function TopBar() {
+  const t = useT();
   const { sync, syncing, firstSync, setDialog, setPrefs } = useStore();
   const openSettingsAbout = useUpdates((s) => s.openSettingsAbout);
   const skipped = useStore((s) => s.prefs.skippedUpdate);
@@ -40,17 +42,17 @@ export function TopBar() {
       <div className="top-actions" data-tauri-drag-region="false">
         <UpdateChip />
         {mail && (
-          <button className="icon-btn" title="Sync now (F5)" onClick={() => void sync()}>
+          <button className="icon-btn" title={t("app.top.sync")} onClick={() => void sync()}>
             <RefreshCw size={16} className={syncing || firstSync ? "spin" : ""} />
           </button>
         )}
-        <button className="icon-btn" title={dark ? "Light mode" : "Dark mode"} onClick={() => setPrefs({ theme: dark ? "light" : "dark" })}>
+        <button className="icon-btn" title={dark ? t("app.top.lightMode") : t("app.top.darkMode")} onClick={() => setPrefs({ theme: dark ? "light" : "dark" })}>
           {dark ? <Sun size={16} /> : <Moon size={16} />}
         </button>
         <button
           className={`icon-btn${newVersion ? " has-dot" : ""}`}
-          title={newVersion ? `Settings — Hey Look! ${newVersion} is available` : "Settings"}
-          aria-label={newVersion ? "Settings (update available)" : "Settings"}
+          title={newVersion ? t("app.top.settingsUpdate", { version: newVersion }) : t("app.top.settings")}
+          aria-label={newVersion ? t("app.top.settingsUpdateAria") : t("app.top.settings")}
           onClick={() => (newVersion ? openSettingsAbout(false) : setDialog({ type: "settings" }))}
         >
           <Settings size={16} />

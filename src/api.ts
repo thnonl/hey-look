@@ -1,4 +1,5 @@
 import { Channel, invoke } from "@tauri-apps/api/core";
+import { t } from "./i18n";
 
 export interface Account {
   id: string;
@@ -424,7 +425,7 @@ export interface SaveAllResult {
 
 /** Backend errors look like "CODE: human text". Returns the code, or null. */
 export function errorCode(e: unknown): string | null {
-  const m = String(e instanceof Error ? e.message : e).match(/^([A-Z][A-Z_]+):/);
+  const m = String(e instanceof Error ? e.message : e).match(/^([A-Z][A-Z0-9_]+)(?:\|[A-Za-z]\w*=[^|:]*)*:/);
   return m ? m[1] : null;
 }
 
@@ -700,6 +701,7 @@ export interface UpdateStartupState {
   draft: boolean;
 }
 
+// `hint` and the "Other" `label` are getters: they are read while a component renders, so they follow the language.
 export const PROVIDERS: Record<
   string,
   {
@@ -714,16 +716,20 @@ export const PROVIDERS: Record<
     smtpHost: "smtp.gmail.com",
     smtpPort: 465,
     smtpSecurity: "ssl",
-    hint: "Needs a Google App Password (2-Step Verification on).",
+    get hint() {
+      return t("errors.provider.gmail.hint");
+    },
   },
   outlook: {
-    label: "Outlook / Microsoft 365",
+    label: "Outlook / Microsoft 365", // i18n-ok: product name
     imapHost: "outlook.office365.com",
     imapPort: 993,
     smtpHost: "smtp.office365.com",
     smtpPort: 587,
     smtpSecurity: "starttls",
-    hint: "Prefer the Microsoft tab (OAuth). Password sign-in only works if basic auth is enabled; personal accounts then need an app password.",
+    get hint() {
+      return t("errors.provider.outlook.hint");
+    },
   },
   icloud: {
     label: "iCloud",
@@ -732,7 +738,9 @@ export const PROVIDERS: Record<
     smtpHost: "smtp.mail.me.com",
     smtpPort: 587,
     smtpSecurity: "starttls",
-    hint: "Apple has no OAuth for mail apps. Create an app-specific password at account.apple.com (Sign-In and Security) and use it here, with your full iCloud address as the email.",
+    get hint() {
+      return t("errors.provider.icloud.hint");
+    },
   },
   yahoo: {
     label: "Yahoo",
@@ -741,10 +749,12 @@ export const PROVIDERS: Record<
     smtpHost: "smtp.mail.yahoo.com",
     smtpPort: 465,
     smtpSecurity: "ssl",
-    hint: "Use a Yahoo app password.",
+    get hint() {
+      return t("errors.provider.yahoo.hint");
+    },
   },
   bridge: {
-    label: "Proton Mail Bridge",
+    label: "Proton Mail Bridge", // i18n-ok: product name
     imapHost: "127.0.0.1",
     imapPort: 1143,
     imapSsl: false,
@@ -752,10 +762,14 @@ export const PROVIDERS: Record<
     smtpPort: 1025,
     smtpSecurity: "starttls",
     insecure: true,
-    hint: "Run Proton Mail Bridge, then use the Bridge username and password (not your Proton password). Bridge uses a self-signed certificate on this computer, so the certificate is trusted.",
+    get hint() {
+      return t("errors.provider.bridge.hint");
+    },
   },
   custom: {
-    label: "Other (IMAP/SMTP)",
+    get label() {
+      return t("errors.provider.custom.label");
+    },
     imapHost: "",
     imapPort: 993,
     smtpHost: "",

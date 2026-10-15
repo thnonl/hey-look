@@ -233,13 +233,14 @@ jobs:
           node --experimental-strip-types scripts/test-frame-sandbox.mjs
           node --experimental-strip-types scripts/test-addresses.mjs
           node scripts/test-compose-tab-order.mjs
-          node scripts/test-update-result.mjs
+          node --experimental-strip-types scripts/test-update-result.mjs
           node --experimental-strip-types scripts/test-sticky-timers.mjs
-          node scripts/test-link-copy.mjs
+          node --experimental-strip-types scripts/test-link-copy.mjs
           node --experimental-strip-types scripts/test-backfill-line.mjs
           node --experimental-strip-types scripts/test-about-links.mjs
           node --experimental-strip-types scripts/test-mail-canvas.mjs
           node --experimental-strip-types scripts/test-calendar-sync.mjs
+          node --experimental-strip-types scripts/test-i18n.mjs
 
       # macOS code signing + notarisation (owner steps: CONTRIBUTING.md > Signing and notarisation). Only when the three certificate
       # secrets exist and this is not a test build; otherwise nothing changes: no APPLE_* variable is set (an EMPTY variable is not an

@@ -1,4 +1,5 @@
 import { MessageFull } from "./api";
+import { t } from "./i18n";
 import { eff } from "./prefs";
 import { useStore } from "./store";
 import { fmtFull, plainToHtml, quoteHtml, sanitizeHtml, splitAddrs } from "./util";
@@ -46,11 +47,11 @@ export function replyTo(m: MessageFull, all: boolean) {
 }
 
 export function forward(m: MessageFull) {
-  if (m.confidential) return useStore.getState().showToast("Confidential mail can’t be forwarded.", undefined, "info");
+  if (m.confidential) return useStore.getState().showToast(t("app.forward.confidential"), undefined, "info");
   useStore.getState().openCompose({
     accountId: m.accountId,
     subject: /^fwd?:/i.test(m.subject) ? m.subject : `Fwd: ${m.subject}`,
-    bodyHtml: `<br><br>---------- Forwarded message ----------<br>From: ${m.fromName} &lt;${m.fromEmail}&gt;<br>Date: ${fmtFull(m.date)}<br>Subject: ${m.subject}<br>To: ${m.to}<br><br>${
+    bodyHtml: `<br><br>${t("app.forward.header")}<br>${t("app.forward.from")} ${m.fromName} &lt;${m.fromEmail}&gt;<br>${t("app.forward.date")} ${fmtFull(m.date)}<br>${t("app.forward.subject")} ${m.subject}<br>${t("app.forward.to")} ${m.to}<br><br>${
       m.html ? sanitizeHtml(m.html, false).html : plainToHtml(m.text ?? "")
     }`,
   });

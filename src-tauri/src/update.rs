@@ -671,7 +671,7 @@ fn same_version(a: &str, b: &str) -> bool {
 /// Download the update the user agreed to, with progress events on `on_event`; the verified package stays in memory.
 #[tauri::command]
 pub async fn update_download(app: AppHandle, state: tauri::State<'_, AppState>, upd: tauri::State<'_, UpdState>, version: String, on_event: Channel<DlEvent>) -> R<()> {
-    let Some(_flag) = try_flag(&upd.downloading) else { return Err("A download is already running.".into()) };
+    let Some(_flag) = try_flag(&upd.downloading) else { return Err("UPDATE_BUSY: A download is already running.".into()) };
     upd.deferred.store(false, Ordering::SeqCst);
     let ch = on_event.clone();
     let emit: Emit = Arc::new(move |e| {
@@ -746,7 +746,7 @@ fn forget_install(db: &Db) {
 /// version when `restart`). macOS / Linux: the package is replaced, then the app restarts or exits.
 #[tauri::command]
 pub async fn update_install(app: AppHandle, state: tauri::State<'_, AppState>, upd: tauri::State<'_, UpdState>, restart: bool, draft_saved: bool) -> R<()> {
-    let (update, bytes) = upd.ready.lock().unwrap_or_else(|p| p.into_inner()).take().ok_or("No update is ready to install.")?;
+    let (update, bytes) = upd.ready.lock().unwrap_or_else(|p| p.into_inner()).take().ok_or("UPDATE_NONE_READY: No update is ready to install.")?;
     upd.deferred.store(false, Ordering::SeqCst);
     let db = state.db.clone();
     let current = app.package_info().version.to_string();
