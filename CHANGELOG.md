@@ -2,11 +2,12 @@
 
 ## 1.0.2 — 2026-10-15
 
-A bug fix for the Unread filter.
+Two fixes for the mail list and the reading pane.
 
 ### Fixed
 
-- With the Unread filter on, the mail you are reading no longer disappears from the reading pane (“Select an item to read”) a few seconds after it is marked read
+- With the Unread filter on, the mail you are reading no longer disappears from the reading pane (“Select an item to read”) a few seconds after it is marked read. The same happened under the Flagged filter when you unflagged the open mail (since 1.0.0)
+- A filtered mail list (for example Unread with a few mails) no longer ends with “Download limit reached (500 mails per mailbox)”; that notice now appears only under an unfiltered folder that really reached the limit (since 1.0.0)
 
 ## 1.0.1 — 2026-10-15
 
