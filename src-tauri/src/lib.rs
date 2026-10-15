@@ -2537,15 +2537,11 @@ async fn get_raw(state: tauri::State<'_, AppState>, message_id: String) -> R<Str
     Ok(String::from_utf8_lossy(&raw).into_owned())
 }
 
-/// Folder for "Save" (Settings → Attachments), falling back to the system Downloads folder.
+/// Folder for "Save" (Settings → Attachments), falling back to the system Downloads folder, and then to the home folder.
 fn download_folder(app: &tauri::AppHandle, db: &Db) -> R<std::path::PathBuf> {
-    let (system, from_home) = system_download_dir(app.path().download_dir().ok(), app.path().home_dir().ok())?;
-    let (dir, replaced) = resolve_download_dir(setting(db, "download_dir").as_deref(), system);
-    // no Downloads folder on this system (a bare Linux install): the home folder is used, and the user is told once
-    if from_home && replaced.is_none() && first_time_for(&DOWNLOAD_WARNED, "Downloads") {
-        let _ = app.emit("download-dir-fallback", serde_json::json!({ "configured": "Downloads", "used": dir.to_string_lossy() }));
-    }
-    // a chosen folder that is gone is no secret: say so (once per folder and session) instead of quietly saving elsewhere
+    let (dir, replaced) = pick_save_dir(setting(db, "download_dir").as_deref(), app.path().download_dir().ok(), app.path().home_dir().ok())?;
+    // a chosen folder that is gone (or no Downloads folder that can be used, a bare Linux install) is no secret: say so (once per folder
+    // and session) instead of quietly saving elsewhere
     if let Some(bad) = replaced.filter(|b| first_time_for(&DOWNLOAD_WARNED, b)) {
         let _ = app.emit("download-dir-fallback", serde_json::json!({ "configured": bad, "used": dir.to_string_lossy() }));
     }
@@ -2564,22 +2560,42 @@ fn first_time_for(seen: &Mutex<Vec<String>>, key: &str) -> bool {
     true
 }
 
-/// The system folder for downloads, or the home folder when there is none (second value: it is the home folder).
-fn system_download_dir(download: Option<std::path::PathBuf>, home: Option<std::path::PathBuf>) -> R<(std::path::PathBuf, bool)> {
-    match (download, home) {
-        (Some(d), _) => Ok((d, false)),
-        (None, Some(h)) => Ok((h, true)),
-        (None, None) => Err("NO_SAVE_FOLDER: No folder to save into: set one in Settings > Mailboxes > Reading & sync.".into()),
+/// Whether files can be written into `dir`: it is a folder (with `create`, one that is created now when nothing is there) and a file
+/// can be made in it. Checked by doing it (a read-only folder, a full disk, a permission the mode bits do not show).
+fn usable_dir(dir: &std::path::Path, create: bool) -> bool {
+    if !dir.is_dir() && !(create && !dir.exists() && std::fs::create_dir_all(dir).is_ok()) {
+        return false;
     }
+    let probe = dir.join(format!(".heylook-write-test-{}", uuid::Uuid::new_v4()));
+    let made = std::fs::OpenOptions::new().write(true).create_new(true).open(&probe).is_ok();
+    let _ = std::fs::remove_file(&probe);
+    made
 }
 
-/// The folder attachments are saved to: the configured one when it is an existing folder, else the system Downloads folder.
-/// The second value is the configured path when it had to be replaced (so the user can be told).
-fn resolve_download_dir(configured: Option<&str>, system: std::path::PathBuf) -> (std::path::PathBuf, Option<String>) {
-    match configured.map(str::trim).filter(|s| !s.is_empty()) {
-        Some(p) if std::path::Path::new(p).is_dir() => (p.into(), None),
-        Some(p) => (system, Some(p.to_string())),
-        None => (system, None),
+/// The folder attachments are saved to, in this order: the configured one when it is a folder that can be written to; the system
+/// Downloads folder (created when it is missing: an XDG profile whose `~/Downloads` was never made, or was moved away); the home
+/// folder. The second value says why the first choice was not used, for the notice: the configured path, or "Downloads".
+fn pick_save_dir(
+    configured: Option<&str>,
+    download: Option<std::path::PathBuf>,
+    home: Option<std::path::PathBuf>,
+) -> R<(std::path::PathBuf, Option<String>)> {
+    let mut replaced = None;
+    if let Some(p) = configured.map(str::trim).filter(|s| !s.is_empty()) {
+        if usable_dir(std::path::Path::new(p), false) {
+            return Ok((p.into(), None));
+        }
+        replaced = Some(p.to_string());
+    }
+    if let Some(d) = download {
+        if usable_dir(&d, true) {
+            return Ok((d, replaced));
+        }
+    }
+    let replaced = replaced.unwrap_or_else(|| "Downloads".to_string());
+    match home {
+        Some(h) if usable_dir(&h, false) => Ok((h, Some(replaced))),
+        _ => Err("NO_SAVE_FOLDER: No folder to save into: set one in Settings > Mailboxes > Reading & sync.".into()),
     }
 }
 
@@ -4989,25 +5005,97 @@ mod signed_flag_tests {
 #[cfg(test)]
 mod download_dir_tests {
     use super::*;
+    use std::path::PathBuf;
+
+    /// A fresh scratch "home" for one test: nothing in it, removed by the caller.
+    fn temp_home(name: &str) -> PathBuf {
+        let home = std::env::temp_dir().join(format!("hl-home-{name}-{}", uuid::Uuid::new_v4()));
+        std::fs::create_dir_all(&home).unwrap();
+        home
+    }
 
     #[test]
     fn a_missing_download_folder_falls_back_and_says_so() {
-        let sys = std::env::temp_dir().join("hl-system-downloads");
-        let ok = std::env::temp_dir();
+        let home = temp_home("configured");
+        let sys = home.join("Downloads");
+        std::fs::create_dir_all(&sys).unwrap();
+        let ok = home.join("chosen");
+        std::fs::create_dir_all(&ok).unwrap();
+        let pick = |configured: Option<&str>| pick_save_dir(configured, Some(sys.clone()), Some(home.clone())).unwrap();
         // not set, or blank: the system folder, nothing to report
-        assert_eq!(resolve_download_dir(None, sys.clone()), (sys.clone(), None));
-        assert_eq!(resolve_download_dir(Some("  "), sys.clone()), (sys.clone(), None));
+        assert_eq!(pick(None), (sys.clone(), None));
+        assert_eq!(pick(Some("  ")), (sys.clone(), None));
         // an existing folder is used as written
-        assert_eq!(resolve_download_dir(Some(ok.to_str().unwrap()), sys.clone()), (ok.clone(), None));
+        assert_eq!(pick(Some(ok.to_str().unwrap())), (ok.clone(), None));
         // a folder that is gone (or a file) falls back and reports the configured path
-        let gone = ok.join("hl-folder-that-does-not-exist-9f2c");
-        let (dir, note) = resolve_download_dir(Some(gone.to_str().unwrap()), sys.clone());
-        assert_eq!(dir, sys);
-        assert_eq!(note.as_deref(), gone.to_str());
-        let file = ok.join("hl-a-file-not-a-folder.txt");
+        let gone = home.join("hl-folder-that-does-not-exist-9f2c");
+        assert_eq!(pick(Some(gone.to_str().unwrap())), (sys.clone(), gone.to_str().map(String::from)));
+        assert!(!gone.exists(), "a configured folder is never created behind the person's back");
+        let file = home.join("hl-a-file-not-a-folder.txt");
         std::fs::write(&file, b"x").unwrap();
-        assert!(resolve_download_dir(file.to_str(), sys.clone()).1.is_some());
-        let _ = std::fs::remove_file(&file);
+        assert_eq!(pick(file.to_str()), (sys.clone(), file.to_str().map(String::from)));
+        let _ = std::fs::remove_dir_all(&home);
+    }
+
+    /// QA Linux round 3, BUG-L7: `~/Downloads` is set in the XDG file but the folder is not there (never made, or moved away): the
+    /// save made it fail with "No such file or directory (os error 2)". The folder is created now, and nothing is said (it is where
+    /// the person expects it).
+    #[test]
+    fn a_missing_downloads_folder_is_created() {
+        let home = temp_home("missing");
+        let sys = home.join("Downloads");
+        assert!(!sys.exists());
+        assert_eq!(pick_save_dir(None, Some(sys.clone()), Some(home.clone())).unwrap(), (sys.clone(), None));
+        assert!(sys.is_dir(), "the folder was created");
+        assert!(std::fs::read_dir(&sys).unwrap().next().is_none(), "the write probe leaves nothing behind");
+        // a save into it works
+        assert!(write_unique(&sys, "note.txt", b"hello").unwrap().starts_with(&sys));
+        // a missing configured folder falls back to the (created) Downloads folder and says which one was not there
+        let gone = home.join("gone");
+        assert_eq!(pick_save_dir(gone.to_str(), Some(sys.clone()), Some(home.clone())).unwrap(), (sys.clone(), gone.to_str().map(String::from)));
+        let _ = std::fs::remove_dir_all(&home);
+    }
+
+    /// A Downloads folder that cannot be made or used (a file is in its place, its parent is not a folder, the system names none, as on
+    /// a bare Linux install) gives the home folder and the notice about "Downloads".
+    #[test]
+    fn a_downloads_folder_that_cannot_be_used_falls_back_to_the_home_folder() {
+        let home = temp_home("blocked");
+        let blocker = home.join("Downloads");
+        std::fs::write(&blocker, b"a file where the folder should be").unwrap();
+        let under_a_file = blocker.join("sub");
+        for system in [Some(blocker.clone()), Some(under_a_file), None] {
+            let (dir, notice) = pick_save_dir(None, system.clone(), Some(home.clone())).unwrap();
+            assert_eq!((dir.as_path(), notice.as_deref()), (home.as_path(), Some("Downloads")), "system folder {system:?}");
+            assert!(write_unique(&dir, "note.txt", b"hello").is_ok());
+        }
+        // a configured folder that is gone gets reported under its own name, not "Downloads"
+        let gone = home.join("gone");
+        let (dir, notice) = pick_save_dir(gone.to_str(), None, Some(home.clone())).unwrap();
+        assert_eq!((dir.as_path(), notice), (home.as_path(), gone.to_str().map(String::from)));
+        // nothing to save into at all
+        assert!(pick_save_dir(None, None, None).unwrap_err().starts_with("NO_SAVE_FOLDER"));
+        let _ = std::fs::remove_dir_all(&home);
+    }
+
+    /// A folder that exists but cannot be written to (read-only) is not used either. Unix permissions: not run on Windows, and a run
+    /// as root (which can write anywhere) proves nothing and passes.
+    #[cfg(unix)]
+    #[test]
+    fn a_read_only_downloads_folder_falls_back_to_the_home_folder() {
+        use std::os::unix::fs::PermissionsExt;
+        let home = temp_home("readonly");
+        let sys = home.join("Downloads");
+        std::fs::create_dir_all(&sys).unwrap();
+        std::fs::set_permissions(&sys, std::fs::Permissions::from_mode(0o555)).unwrap();
+        if std::fs::write(sys.join("probe"), b"x").is_ok() {
+            let _ = std::fs::remove_file(sys.join("probe"));
+        } else {
+            let (dir, notice) = pick_save_dir(None, Some(sys.clone()), Some(home.clone())).unwrap();
+            assert_eq!((dir.as_path(), notice.as_deref()), (home.as_path(), Some("Downloads")));
+        }
+        std::fs::set_permissions(&sys, std::fs::Permissions::from_mode(0o755)).unwrap();
+        let _ = std::fs::remove_dir_all(&home);
     }
 
     #[test]
@@ -5022,7 +5110,6 @@ mod download_dir_tests {
 #[cfg(test)]
 mod platform_tests {
     use super::*;
-    use std::path::PathBuf;
 
     #[test]
     fn keyring_failures_are_explained_per_os() {
@@ -5056,14 +5143,6 @@ mod platform_tests {
         assert_eq!(track_signin(&mut f, "b", None), Some(None));
     }
 
-    #[test]
-    fn download_folder_falls_back_to_home() {
-        let d = PathBuf::from("/dl");
-        let h = PathBuf::from("/home/u");
-        assert_eq!(system_download_dir(Some(d.clone()), Some(h.clone())).unwrap(), (d, false));
-        assert_eq!(system_download_dir(None, Some(h.clone())).unwrap(), (h, true));
-        assert!(system_download_dir(None, None).is_err());
-    }
 }
 
 // helper of the socket tests (after the first cfg(test): the source-reading tests above cut the file there)
