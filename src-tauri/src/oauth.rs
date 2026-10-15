@@ -292,6 +292,11 @@ impl Pending {
 
     /// Exchange the authorization code for tokens and read the account address from the id_token.
     fn exchange(&self, code: &str, client_id: &str, client_secret: &str) -> R<Signed> {
+        self.exchange_at(&self.provider.token_url(&self.tenant), code, client_id, client_secret)
+    }
+
+    /// `exchange` against a given token endpoint (the tests use a fake one).
+    fn exchange_at(&self, url: &str, code: &str, client_id: &str, client_secret: &str) -> R<Signed> {
         let redirect = self.provider.redirect(self.port);
         let mut form = vec![
             ("code", code),
@@ -307,7 +312,7 @@ impl Pending {
             form.push(("scope", self.provider.scope_for(self.purpose)));
         }
         let resp: serde_json::Value = reqwest::blocking::Client::new()
-            .post(self.provider.token_url(&self.tenant))
+            .post(url)
             .form(&form)
             .send()
             .map_err(err)?
@@ -447,4 +452,124 @@ pub fn access_token_for(provider: Provider, purpose: Purpose, tenant: &str, key:
 /// Forget the cached access token of a grant (sign-out, disconnect).
 pub fn forget_token(key: &str) {
     cache().lock().unwrap().remove(key);
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::calsync::fake_http::{FakeServer, Resp};
+    use serde_json::json;
+
+    fn id_token(claims: serde_json::Value) -> String {
+        format!("x.{}.y", b64url(claims.to_string().as_bytes()))
+    }
+
+    fn token_server(body: serde_json::Value) -> FakeServer {
+        FakeServer::start(move |_| Resp::json(200, body.clone()))
+    }
+
+    #[test]
+    fn the_calendar_code_exchange_reads_the_address_the_granted_scopes_and_keeps_the_mail_cache_clean() {
+        let granted = "openid https://www.googleapis.com/auth/userinfo.email https://www.googleapis.com/auth/calendar.events https://www.googleapis.com/auth/calendar.calendarlist.readonly";
+        let srv = token_server(json!({
+            "access_token": "AT", "refresh_token": "RT", "expires_in": 3599, "scope": granted,
+            "id_token": id_token(json!({ "email": "Me@Gmail.test", "name": "Me" })),
+        }));
+        let p = begin_for(Provider::Google, Purpose::Calendar, "", "cid", Some("me@gmail.test")).unwrap();
+        let got = p.exchange_at(&format!("{}/token", srv.base), "the-code", "cid", "secret").unwrap();
+        assert_eq!((got.email.as_str(), got.access_token.as_str(), got.refresh_token.as_str(), got.expires_in), ("Me@Gmail.test", "AT", "RT", 3599));
+        assert_eq!(got.scope, granted);
+        // what was sent: the code, PKCE verifier, the client secret; no scope for Google (the grant is the one of the consent page)
+        let sent = &srv.requests()[0];
+        assert!(sent.body.contains("code=the-code") && sent.body.contains("code_verifier=") && sent.body.contains("client_secret=secret") && sent.body.contains("grant_type=authorization_code"), "{}", sent.body);
+        assert!(!sent.body.contains("scope="));
+        // a calendar token is cached by the caller under <account>:calendar, never under the address (that is the mail cache)
+        assert!(cache().lock().unwrap().get("Me@Gmail.test").is_none());
+        // the checks the connect command makes on it
+        assert!(crate::calsync::cmds::check_grant(Provider::Google, "me@gmail.test", &got.email, &got.scope).is_ok());
+    }
+
+    #[test]
+    fn a_microsoft_calendar_exchange_names_the_graph_scope_and_a_missing_refresh_token_is_explained() {
+        let srv = token_server(json!({ "access_token": "AT", "expires_in": 3600, "id_token": id_token(json!({ "preferred_username": "me@outlook.test" })) }));
+        let p = begin_for(Provider::Microsoft, Purpose::Calendar, "common", "cid", None).unwrap();
+        let e = p.exchange_at(&format!("{}/t", srv.base), "c", "cid", "").err().unwrap();
+        assert!(e.starts_with("Microsoft returned no refresh token"), "{e}");
+        assert!(srv.requests()[0].body.contains("scope=https%3A%2F%2Fgraph.microsoft.com%2FCalendars.ReadWrite"), "{}", srv.requests()[0].body);
+        // Google without a refresh token says what to do
+        let srv = token_server(json!({ "access_token": "AT", "id_token": id_token(json!({ "email": "a@b.c" })) }));
+        let p = begin_for(Provider::Google, Purpose::Calendar, "", "cid", None).unwrap();
+        assert!(p.exchange_at(&format!("{}/t", srv.base), "c", "cid", "s").err().unwrap().contains("myaccount.google.com/permissions"));
+        // an error from the token endpoint is shown with its code
+        let srv = token_server(json!({ "error": "invalid_grant", "error_description": "Bad Request\nmore" }));
+        assert_eq!(p.exchange_at(&format!("{}/t", srv.base), "c", "cid", "s").err().unwrap(), "token exchange failed: invalid_grant: Bad Request");
+    }
+
+    #[test]
+    fn refresh_returns_the_token_and_a_rotated_refresh_token() {
+        let srv = FakeServer::start(|r| {
+            assert!(r.body.contains("grant_type=refresh_token") && r.body.contains("refresh_token=old"));
+            Resp::json(200, json!({ "access_token": "NEW", "expires_in": 1800, "refresh_token": "rotated" }))
+        });
+        let got = refresh_at(&format!("{}/token", srv.base), "cid", "sec", "old", Some("https://graph.microsoft.com/Calendars.ReadWrite offline_access")).unwrap();
+        assert_eq!((got.access.as_str(), got.expires_in, got.refresh.as_deref()), ("NEW", 1800, Some("rotated")));
+        assert!(srv.requests()[0].body.contains("client_secret=sec") && srv.requests()[0].body.contains("scope=https%3A%2F%2Fgraph.microsoft.com"));
+        // the same refresh token handed back is not "rotated"
+        let srv = token_server(json!({ "access_token": "N", "refresh_token": "old" }));
+        assert_eq!(refresh_at(&format!("{}/t", srv.base), "cid", "", "old", None).unwrap().refresh, None);
+    }
+
+    #[test]
+    fn refresh_failures_are_sorted_for_the_calendar_states() {
+        let fail = |v: serde_json::Value| {
+            let srv = FakeServer::start(move |_| Resp::json(400, v.clone()));
+            refresh_at(&format!("{}/t", srv.base), "cid", "", "rt", None).err().unwrap()
+        };
+        // Testing-mode 7 day expiry, revoked at myaccount.google.com/permissions, password change
+        assert!(matches!(fail(json!({ "error": "invalid_grant", "error_description": "Token has been expired or revoked." })), TokenFail::Revoked(t) if t.contains("expired or revoked")));
+        assert!(matches!(fail(json!({ "error": "interaction_required" })), TokenFail::Revoked(_)));
+        // the organization does not allow the app
+        assert!(matches!(fail(json!({ "error": "admin_policy_enforced" })), TokenFail::Blocked(_)));
+        assert!(matches!(fail(json!({ "error": "invalid_grant", "error_description": "AADSTS65001: The user or administrator has not consented" })), TokenFail::Blocked(_)));
+        assert!(matches!(fail(json!({ "error": "access_denied" })), TokenFail::Blocked(_)));
+        // the client is not registered for this
+        assert!(matches!(fail(json!({ "error": "unauthorized_client" })), TokenFail::NotSetUp(_)));
+        assert!(matches!(fail(json!({ "error": "invalid_client" })), TokenFail::NotSetUp(_)));
+        assert!(matches!(fail(json!({ "error": "invalid_request", "error_description": "AADSTS700016: Application was not found" })), TokenFail::NotSetUp(_)));
+        assert!(matches!(fail(json!({ "error": "temporarily_unavailable" })), TokenFail::Other(_)));
+        // no network
+        let dead = std::net::TcpListener::bind("127.0.0.1:0").unwrap().local_addr().unwrap();
+        assert!(matches!(refresh_at(&format!("http://{dead}/t"), "cid", "", "rt", None), Err(TokenFail::Offline(_))));
+        // and into the sync layer's errors
+        use crate::calsync::SyncErr;
+        assert_eq!(SyncErr::from(TokenFail::Revoked("x".into())), SyncErr::Auth);
+        assert_eq!(SyncErr::from(TokenFail::Missing("x".into())), SyncErr::Auth);
+        assert_eq!(SyncErr::from(TokenFail::Offline("x".into())), SyncErr::Offline);
+        assert_eq!(SyncErr::from(TokenFail::NotSetUp("x".into())), SyncErr::NotSetUp("x".into()));
+        assert_eq!(SyncErr::from(TokenFail::Blocked("x".into())), SyncErr::Blocked("x".into()));
+    }
+
+    #[test]
+    fn a_cached_calendar_token_is_used_without_any_request_and_kept_apart_from_the_mail_token() {
+        let key = calendar_key("acc-cache-test");
+        assert_eq!(key, "acc-cache-test:calendar");
+        cache_token(&key, "CAL-TOKEN", 3600);
+        cache_token("acc-cache-test", "MAIL-TOKEN", 3600);
+        assert_eq!(access_token_for(Provider::Google, Purpose::Calendar, "", &key, "cid", "").unwrap(), "CAL-TOKEN");
+        assert_eq!(access_token(Provider::Google, "", "acc-cache-test", "cid", "").unwrap(), "MAIL-TOKEN");
+        forget_token(&key);
+        assert!(cache().lock().unwrap().get(&key).is_none() && cache().lock().unwrap().get("acc-cache-test").is_some());
+    }
+
+    #[test]
+    fn mail_and_calendar_scopes_never_mix() {
+        for p in [Provider::Google, Provider::Microsoft] {
+            let (mail, cal) = (p.scope_for(Purpose::Mail), p.scope_for(Purpose::Calendar));
+            assert!(!cal.contains("mail.google.com") && !cal.contains("outlook.office.com"), "{cal}");
+            assert!(!mail.to_ascii_lowercase().contains("calendar"), "{mail}");
+        }
+        // the narrowest calendar scopes: not the full `calendar` scope
+        let g = Provider::Google.scope_for(Purpose::Calendar);
+        assert_eq!(g.split_whitespace().collect::<Vec<_>>(), ["https://www.googleapis.com/auth/calendar.events", "https://www.googleapis.com/auth/calendar.calendarlist.readonly", "openid", "email"]);
+    }
 }

@@ -25,6 +25,8 @@ pub mod write;
 
 #[cfg(test)]
 pub mod fake;
+#[cfg(test)]
+pub mod fake_http;
 
 use crate::calendar::{CalAttendee, CalPerson};
 use std::time::Duration;
