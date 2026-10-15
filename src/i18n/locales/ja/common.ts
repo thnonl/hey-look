@@ -1,4 +1,3 @@
-// STUB: English placeholders, to be translated
 import { defineLocale } from "../../types.ts";
 import type ns from "../../ns/common.ts";
 
@@ -7,18 +6,18 @@ import type ns from "../../ns/common.ts";
 
 export default defineLocale<typeof ns.en>({
   "common.ok": "OK",
-  "common.cancel": "Cancel",
-  "common.close": "Close",
-  "common.save": "Save",
-  "common.delete": "Delete",
-  "common.remove": "Remove",
-  "common.edit": "Edit",
-  "common.done": "Done",
-  "common.off": "Off",
-  "common.none": "None",
-  "common.default": "Default",
-  "common.retry": "Retry",
-  "common.copy": "Copy",
-  "common.loading": "Loading…",
-  "common.undo": "Undo",
+  "common.cancel": "キャンセル",
+  "common.close": "閉じる",
+  "common.save": "保存",
+  "common.delete": "削除",
+  "common.remove": "削除",
+  "common.edit": "編集",
+  "common.done": "完了",
+  "common.off": "オフ",
+  "common.none": "なし",
+  "common.default": "既定",
+  "common.retry": "再試行",
+  "common.copy": "コピー",
+  "common.loading": "読み込み中…",
+  "common.undo": "元に戻す",
 });

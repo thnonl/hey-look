@@ -1,4 +1,3 @@
-// STUB: English placeholders, to be translated
 import { defineLocale } from "../../types.ts";
 import type ns from "../../ns/signin.ts";
 
@@ -9,22 +8,22 @@ import type ns from "../../ns/signin.ts";
 // language of the browser), so they stay in English in every language.
 
 export default defineLocale<typeof ns.en>({
-  "signin.waiting.mail": "Finish in your browser.",
-  "signin.google.hint": "If Google shows “Google hasn’t verified this app”, choose Advanced, then Go to Hey Look! (unsafe). Hey Look! is waiting for Google’s review.",
-  "signin.google.learn": "What does this mean?",
-  "signin.end.timeout": "{provider} sign-in timed out.",
-  "signin.end.cancelled": "{provider} sign-in was cancelled.",
-  "signin.end.denied": "{provider} sign-in wasn’t completed.",
-  "signin.end.generic": "{provider} sign-in didn’t finish.",
-  "signin.end.google.mail": "Google may have blocked this sign-in, for example when the limit for apps Google hasn’t verified is reached. You can add a Gmail account with an app password instead.",
-  "signin.end.google.calendar": "Google may have blocked this sign-in, for example when the limit for apps Google hasn’t verified is reached. Your mail isn’t affected.",
-  "signin.end.microsoft": "If your organization manages this account, it may need to approve Hey Look! first. Ask your IT admin.",
-  "signin.end.microsoft.blocked": "Your organization may need to approve Hey Look! before this account can sign in. Ask your IT admin, then try again.",
-  "signin.end.appPassword": "Add Gmail with an app password",
-  "signin.again.text": "{provider} sign-in for {email} ended. Sign in again to keep getting mail. Your mail stays on this computer.",
-  "signin.again.blocked": "Your organization may need to approve Hey Look! for {email}. Ask your IT admin, then try again.",
-  "signin.again.button": "Sign in again",
-  "signin.again.short": "{provider} sign-in ended.",
-  "signin.again.blockedShort": "Hey Look! may need your organization’s approval.",
-  "signin.again.done": "Signed in again as {email}",
+  "signin.waiting.mail": "ブラウザーで操作を完了してください。",
+  "signin.google.hint": "Googleに「Google hasn’t verified this app」と表示された場合は（このページはブラウザーの言語で表示されることがあります）、「Advanced」を選び、続けて「Go to Hey Look! (unsafe)」を選んでください。Hey Look!はGoogleの審査待ちです。",
+  "signin.google.learn": "これはどういう意味ですか？",
+  "signin.end.timeout": "{provider}のサインインがタイムアウトしました。",
+  "signin.end.cancelled": "{provider}のサインインがキャンセルされました。",
+  "signin.end.denied": "{provider}のサインインは完了していません。",
+  "signin.end.generic": "{provider}のサインインが完了しませんでした。",
+  "signin.end.google.mail": "Googleがこのサインインをブロックした可能性があります。たとえば、Googleが確認していないアプリの上限に達した場合などです。代わりに、アプリパスワードを使ってGmailアカウントを追加できます。",
+  "signin.end.google.calendar": "Googleがこのサインインをブロックした可能性があります。たとえば、Googleが確認していないアプリの上限に達した場合などです。メールには影響しません。",
+  "signin.end.microsoft": "このアカウントを組織が管理している場合は、先にHey Look!の承認が必要なことがあります。IT管理者に問い合わせてください。",
+  "signin.end.microsoft.blocked": "このアカウントでサインインするには、組織によるHey Look!の承認が必要な場合があります。IT管理者に問い合わせてから、もう一度お試しください。",
+  "signin.end.appPassword": "アプリパスワードでGmailを追加",
+  "signin.again.text": "{email}の{provider}サインインが終了しました。メールを受信し続けるには、もう一度サインインしてください。メールはこのコンピューターに残ります。",
+  "signin.again.blocked": "{email}でHey Look!を使うには、組織の承認が必要な場合があります。IT管理者に問い合わせてから、もう一度お試しください。",
+  "signin.again.button": "もう一度サインイン",
+  "signin.again.short": "{provider}のサインインが終了しました。",
+  "signin.again.blockedShort": "Hey Look!には、組織の承認が必要な場合があります。",
+  "signin.again.done": "{email}で再度サインインしました",
 });
