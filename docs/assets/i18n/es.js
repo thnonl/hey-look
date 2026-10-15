@@ -88,7 +88,7 @@
   "story.pos_right": "a la derecha",
   "story.pos_bottom": "abajo",
   "story.conv_state": "Conversaciones: {state}.",
-  "story.focused_state": "Bandeja de entrada prioritaria: {state}.",
+  "story.focused_state": "Bandeja de entrada Prioritarios: {state}.",
   "story.on": "activado",
   "story.off": "desactivado",
   "story.cmd_archived": "Archivado. (Deshacer está en el aviso.)",
