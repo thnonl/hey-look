@@ -107,7 +107,7 @@ export default define({
 
     "errors.provider.gmail.hint": "Nécessite un mot de passe d’application Google (validation en deux étapes activée).",
     "errors.provider.outlook.hint": "Privilégiez l’onglet Microsoft (OAuth). La connexion par mot de passe ne fonctionne que si l’authentification de base est activée ; les comptes personnels nécessitent alors un mot de passe d’application.",
-    "errors.provider.icloud.hint": "Apple ne propose pas OAuth pour les applications de messagerie. Créez un mot de passe spécifique à l’app sur account.apple.com (Connexion et sécurité) et utilisez-le ici, avec votre adresse iCloud complète comme e-mail.",
+    "errors.provider.icloud.hint": "Apple ne propose pas OAuth pour les applications de messagerie. Créez un mot de passe pour application sur account.apple.com (Connexion et sécurité) et utilisez-le ici, avec votre adresse iCloud complète comme e-mail.",
     "errors.provider.yahoo.hint": "Utilisez un mot de passe d’application Yahoo.",
     "errors.provider.bridge.hint": "Lancez Proton Mail Bridge, puis utilisez le nom d’utilisateur et le mot de passe de Bridge (et non votre mot de passe Proton). Bridge utilise un certificat auto-signé sur cet ordinateur ; ce certificat est donc approuvé.",
     "errors.provider.custom.label": "Autre (IMAP/SMTP)",
