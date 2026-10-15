@@ -1,4 +1,3 @@
-// STUB: English placeholders, to be translated
 import { defineLocale } from "../../types.ts";
 import type ns from "../../ns/signin.ts";
 
@@ -9,22 +8,22 @@ import type ns from "../../ns/signin.ts";
 // language of the browser), so they stay in English in every language.
 
 export default defineLocale<typeof ns.en>({
-  "signin.waiting.mail": "Finish in your browser.",
-  "signin.google.hint": "If Google shows “Google hasn’t verified this app”, choose Advanced, then Go to Hey Look! (unsafe). Hey Look! is waiting for Google’s review.",
-  "signin.google.learn": "What does this mean?",
-  "signin.end.timeout": "{provider} sign-in timed out.",
-  "signin.end.cancelled": "{provider} sign-in was cancelled.",
-  "signin.end.denied": "{provider} sign-in wasn’t completed.",
-  "signin.end.generic": "{provider} sign-in didn’t finish.",
-  "signin.end.google.mail": "Google may have blocked this sign-in, for example when the limit for apps Google hasn’t verified is reached. You can add a Gmail account with an app password instead.",
-  "signin.end.google.calendar": "Google may have blocked this sign-in, for example when the limit for apps Google hasn’t verified is reached. Your mail isn’t affected.",
-  "signin.end.microsoft": "If your organization manages this account, it may need to approve Hey Look! first. Ask your IT admin.",
-  "signin.end.microsoft.blocked": "Your organization may need to approve Hey Look! before this account can sign in. Ask your IT admin, then try again.",
-  "signin.end.appPassword": "Add Gmail with an app password",
-  "signin.again.text": "{provider} sign-in for {email} ended. Sign in again to keep getting mail. Your mail stays on this computer.",
-  "signin.again.blocked": "Your organization may need to approve Hey Look! for {email}. Ask your IT admin, then try again.",
-  "signin.again.button": "Sign in again",
-  "signin.again.short": "{provider} sign-in ended.",
-  "signin.again.blockedShort": "Hey Look! may need your organization’s approval.",
-  "signin.again.done": "Signed in again as {email}",
+  "signin.waiting.mail": "Schließen Sie die Anmeldung in Ihrem Browser ab.",
+  "signin.google.hint": "Wenn Google „Google hasn’t verified this app“ anzeigt, wählen Sie Advanced und dann Go to Hey Look! (unsafe). (Die Seite erscheint möglicherweise in der Sprache Ihres Browsers.) Hey Look! wartet auf die Prüfung durch Google.",
+  "signin.google.learn": "Was bedeutet das?",
+  "signin.end.timeout": "Zeitüberschreitung bei der Anmeldung bei {provider}.",
+  "signin.end.cancelled": "Die Anmeldung bei {provider} wurde abgebrochen.",
+  "signin.end.denied": "Die Anmeldung bei {provider} wurde nicht abgeschlossen.",
+  "signin.end.generic": "Die Anmeldung bei {provider} wurde nicht beendet.",
+  "signin.end.google.mail": "Google hat diese Anmeldung möglicherweise blockiert, zum Beispiel weil das Limit für Apps erreicht ist, die Google nicht verifiziert hat. Sie können stattdessen ein Gmail-Konto mit einem App-Passwort hinzufügen.",
+  "signin.end.google.calendar": "Google hat diese Anmeldung möglicherweise blockiert, zum Beispiel weil das Limit für Apps erreicht ist, die Google nicht verifiziert hat. Ihre E-Mails sind davon nicht betroffen.",
+  "signin.end.microsoft": "Wenn Ihre Organisation dieses Konto verwaltet, muss sie Hey Look! möglicherweise zuerst freigeben. Wenden Sie sich an Ihre IT-Administration.",
+  "signin.end.microsoft.blocked": "Möglicherweise muss Ihre Organisation Hey Look! freigeben, bevor sich dieses Konto anmelden kann. Wenden Sie sich an Ihre IT-Administration und versuchen Sie es dann erneut.",
+  "signin.end.appPassword": "Gmail mit App-Passwort hinzufügen",
+  "signin.again.text": "Die Anmeldung bei {provider} für {email} ist abgelaufen. Melden Sie sich erneut an, um weiterhin E-Mails zu erhalten. Ihre E-Mails bleiben auf diesem Computer.",
+  "signin.again.blocked": "Möglicherweise muss Ihre Organisation Hey Look! für {email} freigeben. Wenden Sie sich an Ihre IT-Administration und versuchen Sie es dann erneut.",
+  "signin.again.button": "Erneut anmelden",
+  "signin.again.short": "Die Anmeldung bei {provider} ist abgelaufen.",
+  "signin.again.blockedShort": "Hey Look! benötigt möglicherweise die Freigabe Ihrer Organisation.",
+  "signin.again.done": "Erneut angemeldet als {email}",
 });
