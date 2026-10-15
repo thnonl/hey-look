@@ -11,7 +11,7 @@ export default defineLocale<typeof ns.en>({
   "reading.protect.captureOff": "La captura de pantalla está desactivada para el correo confidencial.",
   // ---- appearance preview (miniature window in Settings > Appearance)
   "reading.preview.search": "Buscar en el correo",
-  "reading.preview.inbox": "Entrada",
+  "reading.preview.inbox": "Bandeja de entrada",
   "reading.preview.sent": "Enviados",
   "reading.preview.drafts": "Borradores",
   "reading.preview.archive": "Archivo",
