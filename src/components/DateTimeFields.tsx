@@ -26,7 +26,7 @@ type Ref = React.RefObject<HTMLElement | null>;
  * Closes on a press outside, Escape, a resize and any scroll outside of it.
  */
 function FieldPopup({
-  anchor, onClose, role, label, id, minWidth, children, onKeyDown,
+  anchor, onClose, role, label, id, minWidth, children,
 }: {
   anchor: Ref;
   onClose: (refocus: boolean) => void;
@@ -35,7 +35,6 @@ function FieldPopup({
   id: string;
   minWidth?: number;
   children: ReactNode;
-  onKeyDown?: (e: React.KeyboardEvent) => void;
 }) {
   const pop = useRef<HTMLDivElement>(null);
   const [pos, setPos] = useState<{ top: number; left: number; max: number } | null>(null);
@@ -101,8 +100,14 @@ function FieldPopup({
       aria-label={label}
       style={{ ...style, minWidth }}
       onKeyDown={(e) => {
-        if (e.key === "Tab") return close.current(true); // focus returns to the field and Tab carries on from there
-        onKeyDown?.(e);
+        // No key typed in the popup reaches anything around the field: React lets it bubble through the portal to the popover / dialog the field is in
+        // (the Send later popover moves between its presets with the arrow keys), and a native stop keeps the app's one-letter shortcuts out (e, j, t ...).
+        e.stopPropagation();
+        if (e.key === "Escape") {
+          e.preventDefault();
+          return close.current(true);
+        }
+        if (e.key === "Tab") close.current(true); // focus returns to the field and Tab carries on from there
       }}
     >
       {children}
@@ -283,11 +288,12 @@ function Field(p: FieldProps) {
     fresh.current = false;
     if ((e.key === "ArrowDown" && e.altKey) || e.key === "F4") {
       e.preventDefault();
+      e.stopPropagation();
       if (draft !== null) commit(draft);
       return setOpen(true);
     }
     if (e.key === "Enter") {
-      if (draft !== null) (e.preventDefault(), commit(draft));
+      if (draft !== null) (e.preventDefault(), e.stopPropagation(), commit(draft));
       return;
     }
     if (e.key === "Escape") {
@@ -299,6 +305,7 @@ function Field(p: FieldProps) {
     const next = p.step(base, e);
     if (next !== null) {
       e.preventDefault();
+      e.stopPropagation(); // (the arrows step the value, they do not move between the rows of a popover around the field)
       setDraft(null);
       if (next !== value) onChange(next);
     }
@@ -327,7 +334,8 @@ function Field(p: FieldProps) {
         onMouseUp={(e) => fresh.current && ((fresh.current = false), e.preventDefault())}
         onBlur={() => ((fresh.current = false), draft !== null && commit(draft))}
       />
-      <button type="button" className="dt-pick" tabIndex={-1} title={p.pickLabel} aria-label={p.pickLabel} aria-haspopup={p.popup} aria-expanded={open} onClick={() => setOpen((o) => !o)}>
+      {/* a press does not move the focus to the button (Chromium would scroll the dialog body to it and close the popup; WebKit never focuses buttons on a click) */}
+      <button type="button" className="dt-pick" tabIndex={-1} title={p.pickLabel} aria-label={p.pickLabel} aria-haspopup={p.popup} aria-expanded={open} onMouseDown={(e) => e.preventDefault()} onClick={() => setOpen((o) => !o)}>
         {p.icon}
       </button>
       {open && (
