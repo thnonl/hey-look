@@ -161,7 +161,9 @@ if (!args.has("--lint-only")) {
       }
       // French typography: a no-break space (not a plain one) before : ; ! ? » and after «
       if (name === "fr" && (/[^\s  ] [:;!?»]/.test(text(v)) || /« [^ ]/.test(text(v)))) fail(`fr: ${k} has a plain space before : ; ! ? » or after « (use \\u00a0)`);
-      if (name === "vi" && /[ÀÂÊÔÇ]/.test(text(v)) && !/[ạảãấầẩẫậắằẳẵặẹẻẽếềểễệịỉĩọỏốồổỗộớờởỡợụủứừửữựỳỵỷỹơưăđ]/i.test(text(v))) {
+      // French text pasted into the Vietnamese dictionary. Vietnamese writes À Â Ê Ô é è with the same letters as French, so letters cannot
+      // tell them apart ("Âm thanh" is Vietnamese); only what Vietnamese does not have can: ç œ, French function words, l’ d’ qu’
+      if (name === "vi" && /[çœÇŒ]|(?:^|[^\p{L}])(?:les|des|une|est|vous|votre|pour|avec|dans|sur|aux|nous|sont|cette)(?![\p{L}])|(?:^|[^\p{L}])[ldjnsmtc]['’]\p{L}|qu['’]/iu.test(text(v))) {
         fail(`vi: ${k} looks French: ${text(v)}`);
       }
     }

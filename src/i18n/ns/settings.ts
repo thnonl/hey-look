@@ -718,7 +718,7 @@ export default define({
     "settings.notify.noButtons": "Thông báo trên {os} không có nút. Hãy mở Hey Look! để xử lý thư.",
     "settings.notify.smart": "Thông báo thông minh",
     "settings.notify.smartHint": "Bỏ qua bản tin và thư hàng loạt",
-    "settings.notify.sound": "Âm thanh thông báo thư mới",
+    "settings.notify.sound": "Âm thanh",
     "settings.notify.soundHint": "Mọi lựa chọn trừ “Im lặng” đều phát âm thanh thông báo của hệ thống.",
     "settings.notify.buttons": "Nút trên thông báo",
     "settings.notify.buttonsHint": "Tối đa ba nút trên mỗi thông báo",
