@@ -57,6 +57,13 @@
   color-scheme: dark;
 }
 
+/* Chinese and Japanese: Han characters look different per region, so the font follows the language (<html lang> is the registry code, and the
+   language names in the menus carry their own lang). The Latin stack stays first, so Latin text, line height and widths do not change; only the
+   Han / kana glyphs come from the regional font: Windows (Microsoft YaHei UI, Yu Gothic UI), macOS (PingFang SC, Hiragino Sans), Linux (Noto Sans CJK).
+   Cyrillic, German and Spanish need nothing: the Latin stack covers them. */
+:root:lang(zh-Hans), [lang="zh-Hans"] { font-family: "Segoe UI Variable Text", "Segoe UI Variable", "Segoe UI", system-ui, "PingFang SC", "Microsoft YaHei UI", "Microsoft YaHei", "Noto Sans CJK SC", "Noto Sans SC", "Source Han Sans SC", sans-serif; }
+:root:lang(ja), [lang="ja"] { font-family: "Segoe UI Variable Text", "Segoe UI Variable", "Segoe UI", system-ui, "Hiragino Sans", "Hiragino Kaku Gothic ProN", "Yu Gothic UI", "Meiryo UI", "Noto Sans CJK JP", "Noto Sans JP", "Source Han Sans", sans-serif; }
+
 * { box-sizing: border-box; }
 html, body, #root { height: 100%; margin: 0; }
 body { background: var(--bg); color: var(--fg); overflow: hidden; -webkit-font-smoothing: antialiased; }

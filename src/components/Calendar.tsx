@@ -7,7 +7,7 @@ import { ReactNode, useCallback, useEffect, useMemo, useRef, useState } from "re
 import { api, CalEvent, CalInvite, errorCode, MessageFull, Rsvp } from "../api";
 import {
   addDays, addMonths, calTz, chipClass, cmpDay, configureCalendar, Day, dayKey, dayOfMs, dayStartMs, daysBetween, eventColor, eventDaySpan, eventLabel, eventsOnDay, fmtClock,
-  fmtClockRange, fmtDayLong, fmtDayShort, fmtRange, fmtTime, fromInputs, isUrl, joinLabel, joinShortName, layoutDay, monthGrid, monthShort, monthTitle, myStatusLabel, partsOf, personName,
+  fmtClockRange, fmtDayLong, fmtDayMonth, fmtDayShort, fmtRange, fmtTime, fromInputs, isUrl, joinLabel, joinShortName, layoutDay, monthGrid, monthShort, monthTitle, myStatusLabel, partsOf, personName,
   repeatKind, repeatRule, sameDay, today, toInputs, tzOffsetLabel, tzShortName, weekDays, weekStartOf, weekTitle, wdLong, wdNarrow, wdShort, CalView, MY_EVENTS_COLOR,
 } from "../calendar";
 import { accountColor } from "../prefs";
@@ -609,7 +609,7 @@ function MonthView({
                 e.stopPropagation();
               }}
             >
-              <span className="mnum">{day.d === 1 ? `${day.d} ${monthShort(day.m)}` : day.d}</span>
+              <span className="mnum">{day.d === 1 ? fmtDayMonth(day) : day.d}</span>
               {loading && events.length === 0 ? (!other && day.d % 3 === 0 ? <div className="sk" style={{ height: 16, margin: "2px 2px" }} aria-hidden="true" /> : null) : shown.map((ev) => <Chip key={`${ev.id}:${ev.start}`} ev={ev} tz={tz} color={eventColor(ev, color)} openPop={openPop} />)}
               {more > 0 && (
                 <button type="button" className="ev-more" onClick={(e) => (e.stopPropagation(), setCalDate(day), setCalView("agenda"))}>
