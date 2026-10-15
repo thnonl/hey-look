@@ -1034,34 +1034,33 @@ fn expand_inner(
     out
 }
 
-const DAY_NAMES: [&str; 7] = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"];
-
-/// "Every Wednesday", "Every 2 weeks", "Every day, 5 times" …
+/// "Every Wednesday", "Every 2 weeks", "Every day, 5 times" … in the language of the Language setting (`i18n`).
 pub fn describe_rrule(rrule: &str, start: i64) -> Option<String> {
+    use crate::i18n;
     let r = parse_rule(rrule)?;
     let n = r.interval;
     let base = match r.freq {
-        Freq::Daily => if n == 1 { "Every day".to_string() } else { format!("Every {n} days") },
+        Freq::Daily => if n == 1 { i18n::tr(i18n::K::EveryDay).to_string() } else { i18n::every_n(n, 'd') },
         Freq::Weekly => {
-            let days: Vec<String> = r.by_day.iter().map(|(_, w)| DAY_NAMES[w.num_days_from_monday() as usize].to_string()).collect();
+            // French says "tous les lundis" for every week and "toutes les 2 semaines le lundi" otherwise
+            let name = |w: &chrono::Weekday| i18n::day_name(w.num_days_from_monday() as usize, n == 1).to_string();
+            let days: Vec<String> = r.by_day.iter().map(|(_, w)| name(w)).collect();
             let days = if days.is_empty() {
-                let d = chrono::DateTime::from_timestamp(start, 0).unwrap_or_default().weekday();
-                vec![DAY_NAMES[d.num_days_from_monday() as usize].to_string()]
+                vec![name(&chrono::DateTime::from_timestamp(start, 0).unwrap_or_default().weekday())]
             } else {
                 days
             };
-            let list = match days.len() {
-                1 => days[0].clone(),
-                _ => format!("{} and {}", days[..days.len() - 1].join(", "), days[days.len() - 1]),
-            };
-            if n == 1 { format!("Every {list}") } else { format!("Every {n} weeks on {list}") }
+            i18n::every_weekday(n, &i18n::day_list(&days))
         }
-        Freq::Monthly => if n == 1 { "Every month".to_string() } else { format!("Every {n} months") },
-        Freq::Yearly => if n == 1 { "Every year".to_string() } else { format!("Every {n} years") },
+        Freq::Monthly => if n == 1 { i18n::tr(i18n::K::EveryMonth).to_string() } else { i18n::every_n(n, 'm') },
+        Freq::Yearly => if n == 1 { i18n::tr(i18n::K::EveryYear).to_string() } else { i18n::every_n(n, 'y') },
     };
     let tail = match (r.count, r.until) {
-        (Some(c), _) => format!(", {c} time{}", if c == 1 { "" } else { "s" }),
-        (None, Some(u)) => format!(", until {}", chrono::DateTime::from_timestamp(u, 0).unwrap_or_default().format("%-d %b %Y")),
+        (Some(c), _) => i18n::times_tail(c),
+        (None, Some(u)) => {
+            let d = chrono::DateTime::from_timestamp(u, 0).unwrap_or_default();
+            i18n::until_tail(d.day(), d.month0(), d.year())
+        }
         _ => String::new(),
     };
     Some(format!("{base}{tail}"))

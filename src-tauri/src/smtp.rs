@@ -413,13 +413,16 @@ pub fn explain_send_error(code: Option<&str>, detail: &str) -> String {
     let blocked = rejected
         && ["attachment", "executable", "file type", "security issue", "malware", "virus", "blocked because", "contents rejected", "5.7.0"].iter().any(|k| d.contains(k));
     if blocked && !d.contains("too large") && !d.contains("5.3.4") {
-        return format!(
-            "SMTP_ATTACHMENT_BLOCKED: The server rejected the attachment type. Gmail, Outlook and Yahoo refuse programs and scripts such as .exe, .bat, .js or .msi, even inside a zip file. Remove the attachment or share it as a link instead. (Server reply: {})",
-            detail.trim().trim_start_matches("permanent error ").trim()
+        let reply = detail.trim().trim_start_matches("permanent error ").trim();
+        return crate::i18n::coded(
+            "SMTP_ATTACHMENT_BLOCKED",
+            &[("reply", reply)],
+            &format!("The server rejected the attachment type. Gmail, Outlook and Yahoo refuse programs and scripts such as .exe, .bat, .js or .msi, even inside a zip file. Remove the attachment or share it as a link instead. (Server reply: {reply})"),
         );
     }
     if code == Some("552") && (d.contains("too large") || d.contains("5.3.4") || d.contains("size")) {
-        return format!("SMTP_TOO_LARGE: The message is larger than this server accepts. Remove attachments or shrink pictures. (Server reply: {})", detail.trim());
+        let reply = detail.trim();
+        return crate::i18n::coded("SMTP_TOO_LARGE", &[("reply", reply)], &format!("The message is larger than this server accepts. Remove attachments or shrink pictures. (Server reply: {reply})"));
     }
     format!("SMTP send failed: {detail}")
 }
@@ -715,14 +718,14 @@ To:"), "no To header is invented: {out}");
     #[test]
     fn blocked_attachment_replies_get_a_plain_message() {
         let gmail = explain_send_error(Some("552"), "permanent error (552): 5.7.0 This message was blocked because its content presents a potential security issue. For more information go to https://support.google.com/mail/?p=BlockedMessage");
-        assert!(gmail.starts_with("SMTP_ATTACHMENT_BLOCKED: The server rejected the attachment type"), "{gmail}");
+        assert!(gmail.starts_with("SMTP_ATTACHMENT_BLOCKED|reply=") && gmail.contains(": The server rejected the attachment type"), "{gmail}");
         assert!(gmail.contains(".exe"));
         assert!(gmail.contains("5.7.0"), "the server's words are kept: {gmail}");
         let other = explain_send_error(Some("554"), "permanent error (554): 5.7.1 attachment type not allowed");
-        assert!(other.starts_with("SMTP_ATTACHMENT_BLOCKED:"));
+        assert!(other.starts_with("SMTP_ATTACHMENT_BLOCKED|"));
         // a size error is not an attachment-type error
         let big = explain_send_error(Some("552"), "permanent error (552): 5.3.4 Message size exceeds fixed limit");
-        assert!(big.starts_with("SMTP_TOO_LARGE:"), "{big}");
+        assert!(big.starts_with("SMTP_TOO_LARGE|reply="), "{big}");
         // other failures keep the old text
         assert_eq!(explain_send_error(Some("535"), "permanent error (535): bad credentials"), "SMTP send failed: permanent error (535): bad credentials");
         assert_eq!(explain_send_error(None, "connection timed out"), "SMTP send failed: connection timed out");
