@@ -16,7 +16,7 @@ export default defineLocale<typeof ns.en>({
   // ---- dates, sizes and times (src/util.ts)
   "app.date.today": "Hoy",
   "app.date.yesterday": "Ayer",
-  "app.date.earlierThisWeek": "Antes esta semana",
+  "app.date.earlierThisWeek": "Anteriores de esta semana",
   "app.date.lastWeek": "La semana pasada",
   "app.date.todayAt": "Hoy {time}",
   "app.date.tomorrowAt": "Mañana {time}",

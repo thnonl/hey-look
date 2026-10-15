@@ -187,7 +187,7 @@ export default defineLocale<typeof ns.en>({
   "settings.composing.picturesHint": "Se colocan en el mensaje o se adjuntan como archivos",
   "settings.composing.picInline": "Colocar en el mensaje",
   "settings.composing.picAttach": "Adjuntar como archivos",
-  "settings.composing.resize": "Redimensionar automáticamente las imágenes grandes",
+  "settings.composing.resize": "Cambiar automáticamente el tamaño de las imágenes grandes",
   "settings.composing.resizeHint": "Las imágenes de más de 1 MB se reducen a 1600 px de ancho al insertarlas",
   "settings.composing.sigOnReply": "Añadir la firma a las respuestas",
   "settings.sig.emptyAccount": "No tiene firmas propias. Esta cuenta usa las de Todas las cuentas.",

@@ -20,10 +20,10 @@ export default defineLocale<typeof ns.en>({
   "signin.end.microsoft": "Si tu organización administra esta cuenta, es posible que tenga que aprobar Hey Look! antes. Consulta con tu administrador de TI.",
   "signin.end.microsoft.blocked": "Es posible que tu organización tenga que aprobar Hey Look! para que esta cuenta pueda iniciar sesión. Consulta con tu administrador de TI y vuelve a intentarlo.",
   "signin.end.appPassword": "Añadir Gmail con una contraseña de aplicación",
-  "signin.again.text": "Terminó el inicio de sesión de {provider} para {email}. Vuelve a iniciar sesión para seguir recibiendo correo. Tu correo se queda en este equipo.",
+  "signin.again.text": "Se cerró la sesión de {provider} para {email}. Vuelve a iniciar sesión para seguir recibiendo correo. Tu correo se queda en este equipo.",
   "signin.again.blocked": "Es posible que tu organización tenga que aprobar Hey Look! para {email}. Consulta con tu administrador de TI y vuelve a intentarlo.",
   "signin.again.button": "Volver a iniciar sesión",
-  "signin.again.short": "Terminó el inicio de sesión de {provider}.",
+  "signin.again.short": "Se cerró la sesión de {provider}.",
   "signin.again.blockedShort": "Hey Look! puede necesitar la aprobación de tu organización.",
   "signin.again.done": "Sesión iniciada de nuevo como {email}",
 });

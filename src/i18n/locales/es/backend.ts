@@ -27,7 +27,7 @@ export default defineLocale<typeof ns.en>({
   "backend.OAUTH_CANCELLED": "Se canceló el inicio de sesión con {label}",
   "backend.OAUTH_TIMEOUT": "Se agotó el tiempo de espera del inicio de sesión con {label}",
   "backend.OAUTH_REFUSED": "No se completó el inicio de sesión con {label}: {reason}",
-  "backend.OAUTH_REAUTH": "Terminó el inicio de sesión con {label}. Vuelve a iniciar sesión para seguir recibiendo correo.",
+  "backend.OAUTH_REAUTH": "Se cerró la sesión de {label}. Vuelve a iniciar sesión para seguir recibiendo correo.",
   "backend.OAUTH_BLOCKED": "Es posible que tu organización tenga que aprobar Hey Look! para esta cuenta de {label}. Consulta con tu administrador de TI.",
   "backend.OAUTH_REFRESH": "Ahora no se pudo renovar el inicio de sesión con {label}: {reason}",
   "backend.OAUTH_WRONG_ACCOUNT": "Iniciaste sesión como {got}. Inicia sesión como {expected} para renovar este buzón.",
