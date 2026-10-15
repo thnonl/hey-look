@@ -791,8 +791,8 @@ button.pill:hover { filter: brightness(.95); }
 .sched-tz { font-size: .8em; color: var(--muted); padding: 0 9px 4px; display: flex; align-items: center; gap: 5px; }
 .sched-custom { border-top: 1px solid var(--border); margin-top: 4px; padding: 8px 4px 2px; display: flex; flex-direction: column; gap: 6px; }
 .sched-custom .row-inline { margin: 0; }
-.sched-custom input[type="date"] { flex: 1.3; } .sched-custom input[type="time"] { flex: 1; }
-.sched-custom input[aria-invalid="true"] { border-color: var(--danger); }
+.sched-custom .sched-fld.date { flex: 1.3; } .sched-custom .sched-fld.time { flex: 1; }
+.sched-custom .sched-fld { min-width: 0; }
 .sched-sum { font-size: .86em; }
 .sched-sum b { font-weight: 650; }
 .sched-note { border-top: 1px solid var(--border); margin-top: 4px; padding: 8px 6px 2px; }
@@ -826,7 +826,7 @@ button.pill:hover { filter: brightness(.95); }
 .sched-picker-foot.warn { color: var(--warn); }
 .sched-presets .menu-row { justify-content: space-between; }
 .sched-presets .menu-hint { color: var(--muted); font-size: .86em; font-variant-numeric: tabular-nums; }
-.sched-custom label { font-size: .84em; color: var(--muted); display: flex; flex-direction: column; gap: 3px; }
+.sched-custom .sched-fld { font-size: .84em; color: var(--muted); display: flex; flex-direction: column; gap: 3px; }
 
 /* spinner dot used inline (Attachments, Scheduled list) */
 span.spin { display: inline-block; width: 13px; height: 13px; border: 2px solid var(--border); border-top-color: var(--accent); border-radius: 50%; vertical-align: -2px; flex: none; }
@@ -1064,19 +1064,36 @@ span.spin { display: inline-block; width: 13px; height: 13px; border: 2px solid 
 .invite .cal-tile[data-cancelled="1"] b { background: var(--danger); color: #fff; }
 
 /* new / edit event dialog and Compose meeting strip */
-.ev-form input:not([type="checkbox"]):not([type="date"]):not([type="time"]), .ev-form select, .ev-form textarea { width: 100%; box-sizing: border-box; }
+.ev-form input:not([type="checkbox"]), .ev-form select, .ev-form textarea { width: 100%; box-sizing: border-box; }
 /* When: start and end rows share one grid (date | time | hint) so their controls line up; the hint column is as wide as its longest translation */
 .ev-when { display: flex; flex-direction: column; gap: 8px; }
 .ev-when .when-dates { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) auto; gap: 8px 6px; align-items: center; }
 .ev-when .when-dates input { width: 100%; min-width: 0; box-sizing: border-box; }
-.ev-when .when-dates[data-allday] input { grid-column: span 2; }
+.ev-when .when-dates[data-allday] .dt-date { grid-column: span 2; }
 .ev-when .when-dates > .muted { white-space: nowrap; }
 .ev-form .tz { color: var(--muted); font-size: .86em; }
 .ev-form > label { align-self: start; padding-top: 8px; }
 .ev-invite .cf-field { border: 1px solid var(--border); border-radius: var(--r-sm); padding: 2px 8px; background: var(--bg); }
 .ev-invite .cf-field:focus-within { border-color: var(--accent); }
-.cp-event .when input[type="date"], .cp-event .when input[type="time"] { width: auto; }
+.cp-event .when .dt-date { width: 152px; } .cp-event .when .dt-time { width: 112px; }
 .cp-event > input { width: 100%; box-sizing: border-box; }
+
+/* date and time fields (components/DateTimeFields.tsx): a text field with a small button inside that opens the month grid / the list of times */
+.dt-field { position: relative; display: block; min-width: 0; }
+.dt-field > input { width: 100%; min-width: 0; box-sizing: border-box; padding-right: 30px; font-variant-numeric: tabular-nums; text-overflow: ellipsis; }
+.dt-field > input[aria-invalid="true"] { border-color: var(--danger); }
+.dt-pick { position: absolute; top: 50%; right: 4px; transform: translateY(-50%); width: 24px; height: 24px; padding: 0; display: inline-flex; align-items: center; justify-content: center; background: none; border: 0; border-radius: var(--r-sm); color: var(--muted); }
+.dt-pick:hover, .dt-field > input:focus + .dt-pick { color: var(--fg); }
+.dt-pick:hover { background: var(--bg3); }
+.fld-pop { background: var(--bg); border: 1px solid var(--border); border-radius: var(--r-md); box-shadow: var(--shadow); padding: 5px; }
+.fld-times { list-style: none; margin: 0; padding: 0; position: relative; overflow-y: auto; max-height: min(264px, var(--dd-max, 264px)); }
+.fld-times li { padding: 6px 12px; border-radius: var(--r-sm); cursor: pointer; white-space: nowrap; font-variant-numeric: tabular-nums; }
+.fld-times li:hover { background: var(--bg3); }
+.fld-times li.on { background: var(--accent-soft); color: var(--accent-text); font-weight: 650; }
+.fld-times li:focus-visible { outline: 2px solid var(--accent-text); outline-offset: -2px; }
+.fld-grid { width: 244px; }
+.fld-grid .mini-head { padding: 2px 4px 4px 8px; }
+.fld-today { display: block; margin: 4px auto 2px; }
 
 /* confidential mail: nothing in the message area can be selected (the mail frame has its own rule) */
 .rp-msg-body.confidential, .rp-msg-body.confidential * { -webkit-user-select: none; user-select: none; }
