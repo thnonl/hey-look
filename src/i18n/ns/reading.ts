@@ -204,7 +204,7 @@ export default define({
     "reading.preview.pinned": "Đã ghim",
     "reading.preview.shuffle": "Tạo thư mẫu khác",
 
-    "reading.pane.label": "Ngăn đọc thư",
+    "reading.pane.label": "Ngăn đọc",
     "reading.empty.title": "Chọn một mục để đọc",
     "reading.empty.none": "Chưa chọn mục nào",
     "reading.empty.selected": "Đã chọn {n} mục",
@@ -277,7 +277,7 @@ export default define({
     "reading.lang.spanish": "tiếng Tây Ban Nha",
     "reading.lang.russian": "tiếng Nga",
 
-    "reading.body.blocked": "Một số nội dung trong thư này đã bị chặn để ngăn việc theo dõi.",
+    "reading.body.blocked": "Một số nội dung trong thư này đã bị chặn để giúp ngăn việc theo dõi.",
     "reading.body.loadContent": "Tải nội dung",
     "reading.body.alwaysLoad": "Luôn tải nội dung từ xa (Cài đặt)",
     "reading.body.frameTitle": "Nội dung thư",
@@ -337,7 +337,7 @@ export default define({
     "reading.strip.label": "Tệp đính kèm",
     "reading.strip.saving": "Đang lưu… {done} trên {total} · {size}",
     "reading.strip.count": "{n} tệp đính kèm",
-    "reading.strip.shiftTip": "Nhấp kèm Shift để chọn thư mục",
+    "reading.strip.shiftTip": "Nhấn giữ Shift và nhấp để chọn thư mục",
     "reading.strip.saveAll": "Lưu tất cả…",
     "reading.strip.picsLabel": "Ảnh trong thư",
     "reading.strip.picsCount": "{n} ảnh trong thư",

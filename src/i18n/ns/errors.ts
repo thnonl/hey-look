@@ -75,7 +75,7 @@ export default define({
     "errors.provider.bridge.hint": "Hãy chạy Proton Mail Bridge, rồi dùng tên người dùng và mật khẩu của Bridge (không phải mật khẩu Proton). Bridge dùng chứng chỉ tự ký trên máy tính này nên chứng chỉ được tin cậy.",
     "errors.provider.custom.label": "Khác (IMAP/SMTP)",
 
-    "errors.os.credStore.macos": "Keychain macOS của bạn",
+    "errors.os.credStore.macos": "Chuỗi khóa macOS của bạn",
     "errors.os.credStore.linux": "kho khóa hệ thống của bạn",
     "errors.os.credStore.windows": "Trình quản lý thông tin xác thực của Windows",
     "errors.os.risky.macos": ".app, .pkg, .command, .sh, .scpt, tệp Office có macro (.docm, .xlsm) và các loại tương tự",

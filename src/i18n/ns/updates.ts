@@ -149,7 +149,7 @@ export default define({
     "updates.action.details": "Chi tiết",
     "updates.action.tryAgain": "Thử lại",
     "updates.action.cancelRestart": "Hủy khởi động lại",
-    "updates.action.downloadFromGithub": "Tải từ GitHub thay thế",
+    "updates.action.downloadFromGithub": "Thay vào đó, tải từ GitHub",
     "updates.action.viewRelease": "Xem bản phát hành trên GitHub",
     "updates.action.downloadInstall": "Tải xuống và cài đặt",
     "updates.action.skip": "Bỏ qua phiên bản này",
