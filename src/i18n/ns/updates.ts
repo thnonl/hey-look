@@ -24,6 +24,8 @@ export default define({
     "updates.action.restartAnyway": "Restart anyway",
     "updates.action.keepEditing": "Keep editing",
     "updates.action.restartDiscard": "Restart and discard changes",
+    "updates.action.keepWriting": "Keep writing",
+    "updates.action.restartDiscardMessage": "Restart and discard",
 
     // ---- toasts (updates.ts)
     "updates.toast.opening": "Opening the download in your browser…",
@@ -35,7 +37,6 @@ export default define({
     "updates.toast.cancelled": "Download cancelled.",
     "updates.available": "Hey Look! {version} is available.",
     "updates.countdown": "Hey Look! {version} is ready. Restarting in {seconds} s…",
-    "updates.restartStopped": "Couldn’t save your draft, so Hey Look! didn’t restart. Your message is still open.",
     "updates.restartFailed": "Hey Look! didn’t restart: {error}.",
     "updates.platform.unknown": "your system",
 
@@ -48,6 +49,8 @@ export default define({
     "updates.ask.sendingBody": "Restarting now could stop it. Wait a little longer, or restart anyway.",
     "updates.ask.discardTitle": "Restart without saving your changes?",
     "updates.ask.discardBody": "Your changes to this scheduled message aren’t saved. It stays scheduled as it was.",
+    "updates.ask.unsavedTitle": "Your message isn’t saved",
+    "updates.ask.unsavedBody": "Hey Look! couldn’t save it to Drafts ({error}), so it didn’t restart. If you restart now, it’s lost.",
 
     // ---- result after the restart
     "updates.result.updated": "Hey Look! is updated to {version}.",
@@ -157,6 +160,8 @@ export default define({
     "updates.action.restartAnyway": "Vẫn khởi động lại",
     "updates.action.keepEditing": "Tiếp tục chỉnh sửa",
     "updates.action.restartDiscard": "Khởi động lại và bỏ thay đổi",
+    "updates.action.keepWriting": "Tiếp tục soạn",
+    "updates.action.restartDiscardMessage": "Khởi động lại và bỏ thư",
 
     "updates.toast.opening": "Đang mở trang tải xuống trong trình duyệt…",
     "updates.toast.openFailedCopied": "Không mở được trình duyệt. Liên kết đã được sao chép vào bộ nhớ tạm.",
@@ -167,7 +172,6 @@ export default define({
     "updates.toast.cancelled": "Đã hủy tải xuống.",
     "updates.available": "Hey Look! {version} đã có.",
     "updates.countdown": "Hey Look! {version} đã sẵn sàng. Khởi động lại sau {seconds} giây…",
-    "updates.restartStopped": "Không lưu được thư nháp của bạn nên Hey Look! chưa khởi động lại. Thư vẫn đang mở.",
     "updates.restartFailed": "Hey Look! chưa khởi động lại được: {error}.",
     "updates.platform.unknown": "hệ thống của bạn",
 
@@ -179,6 +183,8 @@ export default define({
     "updates.ask.sendingBody": "Khởi động lại lúc này có thể làm gián đoạn việc gửi. Hãy chờ thêm một chút, hoặc vẫn khởi động lại.",
     "updates.ask.discardTitle": "Khởi động lại mà không lưu thay đổi?",
     "updates.ask.discardBody": "Các thay đổi đối với thư đã lên lịch này chưa được lưu. Thư vẫn được lên lịch như cũ.",
+    "updates.ask.unsavedTitle": "Thư của bạn chưa được lưu",
+    "updates.ask.unsavedBody": "Hey Look! không lưu được vào Thư nháp ({error}) nên chưa khởi động lại. Nếu khởi động lại bây giờ, thư sẽ bị mất.",
 
     "updates.result.updated": "Hey Look! đã được cập nhật lên {version}.",
     "updates.result.updatedDraft": "Hey Look! đã được cập nhật lên {version}. Thư của bạn nằm trong Thư nháp.",
@@ -282,6 +288,8 @@ export default define({
     "updates.action.restartAnyway": "Redémarrer quand même",
     "updates.action.keepEditing": "Continuer à modifier",
     "updates.action.restartDiscard": "Redémarrer et abandonner les modifications",
+    "updates.action.keepWriting": "Continuer à écrire",
+    "updates.action.restartDiscardMessage": "Redémarrer et abandonner",
 
     "updates.toast.opening": "Ouverture du téléchargement dans votre navigateur…",
     "updates.toast.openFailedCopied": "Impossible d’ouvrir votre navigateur. Le lien a été copié dans le presse-papiers.",
@@ -292,7 +300,6 @@ export default define({
     "updates.toast.cancelled": "Téléchargement annulé.",
     "updates.available": "Hey Look! {version} est disponible.",
     "updates.countdown": "Hey Look! {version} est prêt. Redémarrage dans {seconds} s…",
-    "updates.restartStopped": "Impossible d’enregistrer votre brouillon, Hey Look! ne s’est donc pas relancé. Votre message est toujours ouvert.",
     "updates.restartFailed": "Hey Look! ne s’est pas relancé : {error}.",
     "updates.platform.unknown": "votre système",
 
@@ -304,6 +311,8 @@ export default define({
     "updates.ask.sendingBody": "Redémarrer maintenant pourrait l’interrompre. Attendez encore un peu, ou redémarrez quand même.",
     "updates.ask.discardTitle": "Redémarrer sans enregistrer vos modifications ?",
     "updates.ask.discardBody": "Vos modifications de ce message planifié ne sont pas enregistrées. Il reste planifié tel quel.",
+    "updates.ask.unsavedTitle": "Votre message n’est pas enregistré",
+    "updates.ask.unsavedBody": "Hey Look! n’a pas pu l’enregistrer dans Brouillons ({error}), il ne s’est donc pas relancé. Si vous redémarrez maintenant, il sera perdu.",
 
     "updates.result.updated": "Hey Look! a été mis à jour vers la version {version}.",
     "updates.result.updatedDraft": "Hey Look! a été mis à jour vers la version {version}. Votre message se trouve dans Brouillons.",

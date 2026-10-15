@@ -45,10 +45,31 @@ assert.match(card, /isStaleOffer\(update\) && \(mine === "idle" \|\| mine === "f
 // before the installer starts is told too, and startup.log gets a line saying why no restart began (QA found no `[update]` line).
 const restart = updates.slice(updates.indexOf("restartToUpdate: async () => {"));
 const restartBody = restart.slice(0, restart.indexOf("\n    },\n"));
-assert.match(updates, /const RESTART_STOPPED_TEXT = "updates\.restartStopped"/, "REQ-28 c text is a dictionary key");
-assert.equal(en["updates.restartStopped"], "Couldn’t save your draft, so Hey Look! didn’t restart. Your message is still open.", "REQ-28 c wording");
-assert.match(restartBody, /setStickyToast\(RESTART_STOPPED, \{ text: t\(RESTART_STOPPED_TEXT\), kind: "error", closeLabel: t\("common\.close"\) \}\)/, "the failed save toast is sticky");
-assert.ok(!/showToast\(RESTART_STOPPED_TEXT/.test(restartBody) && !/showToast\("Couldn’t save your draft/.test(restartBody), "not a short-lived toast");
+assert.ok(!/RESTART_STOPPED_TEXT/.test(updates) && !("updates.restartStopped" in en), "the failed-save toast is gone: the B variant dialog replaced it (1.0.3)");
+// REQ-28 c, B variant (owner decision B, AC-74): a failed save asks instead of stopping with a toast.
+assert.equal(en["updates.ask.unsavedTitle"], "Your message isn’t saved");
+assert.equal(en["updates.ask.unsavedBody"], "Hey Look! couldn’t save it to Drafts ({error}), so it didn’t restart. If you restart now, it’s lost.");
+assert.equal(en["updates.action.keepWriting"], "Keep writing");
+assert.equal(en["updates.action.restartDiscardMessage"], "Restart and discard");
+const unsaved = restartBody.slice(restartBody.indexOf("if (saved !== true) {"), restartBody.indexOf("await st.openCompose(null)"));
+assert.match(unsaved, /st\.choose\(\{\s+title: t\("updates\.ask\.unsavedTitle"\),\s+body: t\("updates\.ask\.unsavedBody", \{ error \}\),/, "the dialog has the spec title and body");
+assert.match(unsaved, /choices: \[\s+\{ id: "keep", label: t\("updates\.action\.keepWriting"\), kind: "primary" \},\s+\{ id: "restart", label: t\("updates\.action\.restartDiscardMessage"\), kind: "danger" \},\s+\],/, "Keep writing is first (focus, Esc, a click outside) and Restart and discard is the danger button");
+assert.match(unsaved, /if \(c !== "restart"\) \{[\s\S]*restart not started: the draft could not be saved[\s\S]*return stay\("dirty"\);/, "Keep writing (or Esc): no restart, startup.log says why, the card keeps Restart now");
+const discardPart = unsaved.slice(unsaved.indexOf('c !== "restart"'), unsaved.indexOf("} else {"));
+assert.ok(!/draftSaved = true/.test(discardPart), "a discarded message is not reported as saved to Drafts (the result toast after the restart must not say so)");
+assert.ok(!/saveDraft|composeSaver/.test(discardPart), "Restart and discard writes no draft");
+assert.match(discardPart, /st\.setComposeDirty\(false\);\s*$/, "Restart and discard closes Compose without the unsaved-changes question");
+assert.match(unsaved, /\} else \{\s+draftSaved = true;/, "only a saved draft sets the Drafts part of the result toast");
+for (const lang of ["vi", "fr"]) {
+  const dict = (await import(new URL(`../src/i18n/${lang}.ts`, import.meta.url)))[lang];
+  for (const k of ["updates.ask.unsavedTitle", "updates.ask.unsavedBody", "updates.action.keepWriting", "updates.action.restartDiscardMessage"]) assert.ok(dict[k] && dict[k] !== en[k], `${lang} has ${k}`);
+  assert.ok(dict["updates.ask.unsavedBody"].includes("{error}"), `${lang} body keeps {error}`);
+}
+assert.ok(restartBody.indexOf('title: t("updates.ask.unsavedTitle")') < restartBody.indexOf("await api.updateInstall(true, draftSaved)"), "the question comes before the installer");
+// the dev mock path of AC-74: #draftfail makes save_draft fail, and the mock counts the calls so a check can see that discarding writes none
+const mock = read("src/devMock.ts");
+assert.match(mock, /hashTokens\(\)\.has\("draftfail"\)\) throw/, "AC-74 mock path");
+assert.match(mock, /__draftSaveCalls/, "the mock counts save_draft calls");
 assert.match(restartBody, /try \{\s+return st\.composeSaver \? await st\.composeSaver\(\{ quiet: true \}\) : false;\s+\} catch \{\s+return false;/, "a throwing saver is a failed save");
 assert.match(restartBody, /api\.updateNote\(`restart not started: the draft could not be saved/, "startup.log says why");
 assert.match(restartBody, /\} catch \(e\) \{[\s\S]*RESTART_STOPPED[\s\S]*api\.updateNote\(`restart not started: \$\{friendlyError\(e\)\}`\)[\s\S]*\} finally \{\s+restarting = false;/, "any other failure before the installer is told too");

@@ -506,8 +506,8 @@ async function mockCheckUpdate(trigger: string, prefsJson?: string) {
 // ---- the update flow (`#dl=<mode>`, `#sending`, `#draftfail`, `#afterupdate=ok|draft|fail`): a pretend download with the same events as Rust's channel.
 // Modes: ok (default; 9.8 MB over 6 s), nolength (no total), slow (60 s), stall (stops at 30 %, fails after 10 s), fail (fails at 40 %),
 // verifyfail, badurl, installfail, offline (fails at once), changed (the first one: GitHub has 1.2.0 now). `update_install` never restarts: it shows a toast and logs the call.
-type UpdateLogEntry = { trigger?: string; cmd?: string; restart?: boolean; note?: string; at: number; kind: string | null };
-function logUpdateCall(e: { trigger?: string; cmd?: string; restart?: boolean; note?: string }): UpdateLogEntry {
+type UpdateLogEntry = { trigger?: string; cmd?: string; restart?: boolean; draftSaved?: boolean; note?: string; at: number; kind: string | null };
+function logUpdateCall(e: { trigger?: string; cmd?: string; restart?: boolean; draftSaved?: boolean; note?: string }): UpdateLogEntry {
   const w = window as unknown as { __updateCalls?: UpdateLogEntry[] };
   const entry: UpdateLogEntry = { ...e, at: Date.now(), kind: null };
   (w.__updateCalls ??= []).push(entry);
@@ -574,8 +574,8 @@ async function mockDownload(ch: { onmessage: (e: unknown) => void }) {
   send({ event: "ready" });
   entry.kind = "ready";
 }
-async function mockInstall(restart: boolean) {
-  const entry = logUpdateCall({ cmd: "install", restart });
+async function mockInstall(restart: boolean, draftSaved: boolean) {
+  const entry = logUpdateCall({ cmd: "install", restart, draftSaved }); // `draftSaved`: the next start says "Your message is in Drafts" only when true
   if (hashTokens().get("dl") === "installfail") {
     entry.kind = "failed";
     throw "The installer couldn’t start";
@@ -1096,9 +1096,13 @@ export function installMock() {
         if (x) { x.displayName = a.displayName as string; (x as { color: string | null }).color = (a.color as string | null) ?? null; }
         return null;
       }
-      case "save_draft":
-        if (hashTokens().has("draftfail")) throw "mock: the server refused the draft"; // `#draftfail`: saving a draft fails (update restart keeps Compose open)
-        (window as unknown as { __lastDraft: unknown }).__lastDraft = a.draft; return null;
+      case "save_draft": {
+        const w = window as unknown as { __draftSaveCalls?: number; __lastDraft: unknown };
+        w.__draftSaveCalls = (w.__draftSaveCalls ?? 0) + 1; // counted, so a check can see that discarding writes none (AC-74)
+        if (hashTokens().has("draftfail")) throw "mock: the server refused the draft"; // `#draftfail`: saving a draft fails (update restart asks what to do)
+        w.__lastDraft = a.draft;
+        return null;
+      }
       case "queue_action": return "token-" + Math.random().toString(36).slice(2);
       case "cancel_action": return true;
       case "load_older": {
@@ -1145,7 +1149,7 @@ export function installMock() {
       case "outbox_hold_send": { const w = window as unknown as { __sendCalls?: unknown[] }; (w.__sendCalls ??= []).push({ cmd: "holdSend", id: a.id, keep: a.keep }); return null; }
       case "quit_dialog": case "quit_cancelled": case "sends_flushed": case "show_window": case "frontend_ready": case "page_state": return null;
       case "update_defer": logUpdateCall({ cmd: "defer" }).kind = a.deferred ? "later" : "now"; return null;
-      case "update_install": return mockInstall(!!a.restart);
+      case "update_install": return mockInstall(!!a.restart, !!a.draftSaved);
       case "update_startup_ack": logUpdateCall({ cmd: "startupAck" }).kind = "ok"; return null;
       case "update_startup_state": {
         const t = hashTokens().get("afterupdate");
