@@ -153,7 +153,7 @@ section { position: relative; }
 .hero { padding-block: clamp(16px, 2.4vw, 32px) clamp(20px, 2.4vw, 32px); overflow: hidden; }
 .hero-grid { display: grid; grid-template-columns: minmax(0, 7fr) minmax(0, 5fr); gap: clamp(28px, 4vw, 72px); align-items: center; }
 .hero-h { font-size: clamp(2.6rem, .8rem + 7.4vw, 5.2rem); line-height: .88; letter-spacing: -.062em; font-weight: 850; margin: 0 0 clamp(18px, 2.4vw, 32px); }
-.hl { display: block; overflow: hidden; padding: 0 0 .1em; margin-bottom: -.1em; }
+.hl { display: block; overflow: hidden; padding: .14em 0 .24em; margin: -.14em 0 -.24em; } /* padding and negative margin cancel out (layout unchanged) but keep ascenders and descenders (g, y, accents) inside the clip box */
 .hl > span { display: inline-block; animation: rise 1s var(--ease) both; }
 .hl2 > span { animation-delay: .1s; }
 .hl3 > span { animation-delay: .2s; white-space: nowrap; }
