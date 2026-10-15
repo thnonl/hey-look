@@ -194,6 +194,10 @@ button:focus-visible, [role="option"]:focus-visible, [role="treeitem"]:focus-vis
 .wc-tip-close { left: auto; right: 0; transform: none; }
 .topbar .icon-btn { color: var(--top-fg); padding: 7px; }
 .topbar .icon-btn:hover { background: var(--top-hover); color: var(--top-fg); }
+/* language menu: globe + code; the focus ring uses the bar colour (the accent ring would vanish on the bar) */
+.topbar .lang-btn { gap: 5px; padding: 7px 9px; }
+.lang-code { font-size: .8em; font-weight: 650; letter-spacing: .05em; max-width: 4.5em; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.topbar .lang-btn:focus-visible { outline: 2px solid var(--top-fg); outline-offset: -2px; }
 
 /* search panel */
 .sb-panel { position: absolute; top: calc(100% + 8px); left: 0; right: 0; background: var(--bg); color: var(--fg); border: 1px solid var(--border); border-radius: var(--r-md); box-shadow: var(--shadow); padding: 4px 16px 12px; z-index: 80; max-height: 76vh; overflow-y: auto; animation: pop .14s var(--ease); }
@@ -591,6 +595,12 @@ button.ov-tag:hover { background: color-mix(in srgb, var(--accent), transparent 
 /* the card centres itself (auto margins, so a short window scrolls instead of clipping its top) */
 .welcome { flex: 1; display: flex; padding: 20px 24px; background: radial-gradient(1200px 500px at 50% -10%, var(--accent-soft), transparent), var(--bg); overflow: auto; min-height: 0; }
 .welcome-card { width: min(480px, 100%); margin: auto; display: flex; flex-direction: column; align-items: center; text-align: center; animation: pop .25s var(--ease); }
+.lang-choice { display: flex; align-items: center; justify-content: center; flex-wrap: wrap; gap: 6px; margin: 0 0 16px; color: var(--muted); }
+.lang-opt { background: none; color: var(--fg); border: 1px solid var(--border); border-radius: 999px; padding: 4px 12px; font-size: .9em; transition: background .12s, border-color .12s; }
+.lang-select { display: inline-flex; align-items: center; gap: 7px; max-width: min(280px, 100%); }
+.lang-select .lang-name { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.lang-opt:hover { border-color: var(--accent); }
+.lang-opt.on { background: var(--accent-soft); color: var(--accent-text); border-color: var(--accent); font-weight: 600; }
 .welcome-card img { display: block; width: 64px; height: 64px; }
 .welcome-card h1 { margin: 16px 0 8px; font-size: 1.8em; line-height: 1.2; letter-spacing: -.02em; }
 .welcome-card p { max-width: 400px; margin: 0 0 24px; line-height: 1.5; }

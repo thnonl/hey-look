@@ -8,6 +8,7 @@ import { pendingVersion, useUpdates } from "../updates";
 import { useAppDark } from "../useAppDark";
 import { hasMailAccounts } from "../mailControls";
 import { useFrame } from "../winframe";
+import { LanguageMenu } from "./LanguageSwitcher";
 import { SearchBox } from "./SearchBox";
 import { UpdateChip } from "./UpdateChip";
 import { WindowControls } from "./WindowControls";
@@ -46,6 +47,7 @@ export function TopBar() {
             <RefreshCw size={16} className={syncing || firstSync ? "spin" : ""} />
           </button>
         )}
+        <LanguageMenu />
         <button className="icon-btn" title={dark ? t("app.top.lightMode") : t("app.top.darkMode")} onClick={() => setPrefs({ theme: dark ? "light" : "dark" })}>
           {dark ? <Sun size={16} /> : <Moon size={16} />}
         </button>

@@ -123,13 +123,18 @@ src-tauri/src/           Rust backend
 
 ### Translations
 
-The UI is in English, Vietnamese and French (Settings > General > Language; the default is English, for every user, and the language of the computer is never used).
+The UI is in English, Vietnamese and French (Settings > General > Language, also the globe button in the top bar and the first-run Welcome screen; the default is English, for every user, and the language of the computer is never used).
 
 - Every text the person reads is a key in `src/i18n/ns/<area>.ts`: `t("settings.general.language")`, with `{name}` for values and `{ one, other }` entries (parameter `{n}`) for plurals. A component calls `const t = useT()` once so it follows a language change; dates and numbers go through `src/i18n/format.ts` (or `Intl` with `intlLocale()`), never a hard-coded locale.
 - Add the English, Vietnamese and French text in the same dictionary: a key missing in one of them fails `npx tsc --noEmit`.
 - `node --experimental-strip-types scripts/test-i18n.mjs` (also in CI) checks that the three languages have the same keys and `{placeholders}`, that no key is unused, that every error code of the Rust side has a sentence, and that no new hard-coded English appears in `src/` (a deliberate exception gets a comment `// i18n-ok: why`).
 - `npm run dev` (browser preview) offers a pseudo-language, "Pseudo-locale (dev)" in Settings > General > Language (or `#lang=en-XA` in the address): every translated text is longer, accented and in brackets, so text that is not translated, or does not fit, shows at a glance.
 - Errors from Rust: `i18n::coded("CODE", &[("name", value)], "English text")` (or `"CODE: English text"`), and the sentence goes into `src/i18n/ns/backend.ts` as `backend.CODE`. Texts that only the operating system can show (tray, notifications) are in `src-tauri/src/i18n.rs`; the UI mirrors its language there as the setting `ui_language`.
+- **Adding a language** (the header menu, the Welcome screen, Settings and the checks all read one list, so no component changes):
+  1. `src/i18n/languages.ts`: one entry `{ code, nativeName, englishName, dir, sortOrder, intl }`. `nativeName` is the language in itself (never translated); `dir: "rtl"` is only recorded, no right-to-left layout exists yet. English stays first.
+  2. A dictionary file `src/i18n/<code>.ts` (copy `vi.ts`), the language added next to `vi` / `fr` in every `src/i18n/ns/*.ts`, and one line in `DICTS` (`index.ts`) and `DF` (`format.ts`, the date-fns locale). A missing piece fails `npx tsc --noEmit`.
+  3. Rust: a `Lang` variant in `src-tauri/src/i18n.rs` (the `parse` arm and the texts; the compiler lists what is missing).
+  4. `node --experimental-strip-types scripts/test-i18n.mjs` fails when a registry entry has no dictionary, a dictionary has no entry, or Rust does not know the code. Past about five languages the Welcome screen shows one button that opens the list instead of a button per language.
 - Out of scope: the website, the README, mail content, AI prompts, and invitation / reply e-mails that Hey Look! sends (they are mail content for other people).
 
 ### Releasing

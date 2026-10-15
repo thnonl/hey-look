@@ -11,22 +11,24 @@
 import { en } from "./en.ts";
 import { vi } from "./vi.ts";
 import { fr } from "./fr.ts";
+import { LANGUAGES } from "./languages.ts";
+import type { Language } from "./languages.ts";
 import type { Lang, LangPref, Msg, Params } from "./types.ts";
 
 export type { Lang, LangPref, Msg, Params } from "./types.ts";
+export { LANGUAGES } from "./languages.ts";
+export type { Language } from "./languages.ts";
 export type Key = keyof typeof en;
 
-/** The languages the Language setting offers, each written in its own language. */
-export const LANGS: { code: Lang; name: string }[] = [
-  { code: "en", name: "English" },
-  { code: "vi", name: "Tiếng Việt" },
-  { code: "fr", name: "Français" },
-];
+/** The languages every language control offers (header menu, Welcome screen, Settings), in registry order; names in their own language. */
+export const LANGS: readonly (Language & { code: Lang })[] = [...LANGUAGES].sort((a, b) => a.sortOrder - b.sortOrder);
 export const PSEUDO = "en-XA";
 
 const DICTS: Record<Lang, Record<string, Msg>> = { en, vi, fr };
 /** Tag for Intl / toLocaleString: numbers, dates, time zone names. */
-const INTL: Record<Lang, string> = { en: "en-GB", vi: "vi-VN", fr: "fr-FR" };
+const INTL = Object.fromEntries(LANGUAGES.map((l) => [l.code, l.intl])) as Record<Lang, string>;
+/** True for the code of a language in the registry. */
+export const isLang = (code: unknown): code is Lang => LANGUAGES.some((l) => l.code === code);
 
 const isDev = (): boolean => !!(import.meta as unknown as { env?: { DEV?: boolean } }).env?.DEV;
 /** The pseudo-locale can be picked in dev builds only. */
@@ -37,7 +39,7 @@ export const pseudoAllowed = isDev;
  * English, and the language of the computer is never looked at.
  */
 export function resolveLang(pref: LangPref | string | undefined | null): Lang {
-  return pref === "vi" || pref === "fr" ? pref : "en";
+  return isLang(pref) ? pref : "en";
 }
 
 // ---- current language (module state, observable) ------------------------------------------------------------------------------

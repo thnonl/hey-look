@@ -6,6 +6,7 @@ import { darkMessages, darkThreadRows } from "./devMockDark";
 import { extractSignature, fillSignatureHtml, normalizeHtml, SIG_MARK } from "./signature";
 import { ACCOUNT_PALETTE, accountColor, pickAccountColor } from "./prefs";
 import { setSimulatedWindow } from "./winframe";
+import type { LangPref } from "./i18n";
 
 const now = Math.floor(Date.now() / 1000);
 const H = 3600;
@@ -366,7 +367,7 @@ export async function applyDemoHash() {
     const [k, v = ""] = tok.split("=");
     const val = decodeURIComponent(v);
     if (k === "dark" || k === "light") st().setPrefs({ theme: k });
-    else if (k === "lang") st().setPrefs({ language: val as "en" | "vi" | "fr" | "en-XA" }); // `lang=fr` / `lang=vi` / `lang=en-XA` (pseudo-locale)
+    else if (k === "lang") st().setPrefs({ language: val as LangPref }); // `lang=fr` / `lang=vi` / `lang=en-XA` (pseudo-locale)
     else if (k === "pane") st().setPrefs({ readingPane: val as "right" | "bottom" });
     else if (k === "settings") st().setDialog({ type: "settings", tab: val });
     else if (k === "density") st().setPrefs({ density: val as "full" | "medium" | "compact" });
