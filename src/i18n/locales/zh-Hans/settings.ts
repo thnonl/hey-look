@@ -366,7 +366,7 @@ export default defineLocale<typeof ns.en>({
   "settings.tray.trayBadgeHint": "圆点最不打扰；确切数字始终显示在提示文字中",
   "settings.tray.unreadNumber": "未读数量",
   "settings.tray.dotOnly": "仅圆点",
-  "settings.tray.dockBadge": "Dock角标",
+  "settings.tray.dockBadge": "程序坞角标",
   "settings.tray.taskbarBadge": "任务栏角标",
   "settings.tray.countOther": "统计“其他”（批量）邮件",
   "settings.tray.countOtherHint": "关闭 = 数字只包含“焦点”中的会话，因此新闻通讯不会使数字虚高",
