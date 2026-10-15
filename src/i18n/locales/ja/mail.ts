@@ -30,7 +30,7 @@ export default defineLocale<typeof ns.en>({
   "mail.hover.snooze": "スヌーズ",
   // the toast / Undo text after an action on conversations (also used by the ribbon, the command bar and the shortcuts)
   "mail.done.archived": "アーカイブしました",
-  "mail.done.trashed": "削除済みアイテムに移動しました",
+  "mail.done.trashed": "ごみ箱に移動しました",
   "mail.done.deleted": "完全に削除しました",
   "mail.done.junk": "迷惑メールに移動しました",
   "mail.done.blocked": "送信者をブロックしました",
@@ -68,7 +68,7 @@ export default defineLocale<typeof ns.en>({
   "mail.empty.searchAll": "すべてのメールボックスを検索",
   "mail.empty.noMatch": "このフィルターに一致するものはありません",
   "mail.empty.showAll": "すべて表示",
-  "mail.empty.caughtUp": "最新の状態です",
+  "mail.empty.caughtUp": "すべて完了しました",
   "mail.empty.caughtUpText": "新しいメールが届くと、ここに表示されます。",
   "mail.empty.folder": "このフォルダーは空です",
   // "Search in Gmail / Outlook ..." buttons under search results

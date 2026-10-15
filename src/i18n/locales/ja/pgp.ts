@@ -21,7 +21,7 @@ export default defineLocale<typeof ns.en>({
   "pgp.unlock.rememberSession": "Hey Look!を終了するまで記憶する",
   "pgp.unlock.keepFew": "数分間ロックを解除したままにする",
   "pgp.unlock.unlocking": "ロックを解除中…",
-  "pgp.unlock.wait": "{n}秒待機",
+  "pgp.unlock.wait": "あと{n}秒",
   "pgp.unlock.unlock": "ロック解除",
   // ---- generate a key
   "pgp.expiry.2y": "2年後",

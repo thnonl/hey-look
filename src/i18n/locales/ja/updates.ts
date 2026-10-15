@@ -18,7 +18,7 @@ export default defineLocale<typeof ns.en>({
   "updates.action.viewRelease": "GitHubでリリースを表示",
   "updates.action.downloadInstall": "ダウンロードしてインストール",
   "updates.action.skip": "このバージョンをスキップ",
-  "updates.action.remind": "再通知",
+  "updates.action.remind": "もう一度通知",
   "updates.action.check": "アップデートを確認",
   "updates.action.checking": "確認中…",
   "updates.action.wait": "待つ",
@@ -85,7 +85,7 @@ export default defineLocale<typeof ns.en>({
   "updates.pill.ready": "準備完了",
   "updates.pill.skipped": "スキップ済み",
   "updates.pill.new": "新着",
-  "updates.hint.msi": "インストールの許可をWindowsが求めます。",
+  "updates.hint.msi": "Windowsがインストールの許可を求めます。",
   "updates.hint.password": "インストールにはパスワードの入力が必要です。",
   // ---- the flow (download, verify, restart, install)
   "updates.flow.downloading": "ダウンロード中… {received}",
