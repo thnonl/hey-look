@@ -21,7 +21,7 @@ pub fn text(k: K) -> &'static str {
         K::ActReply => "Antworten",
         K::ActSnooze => "Zurückstellen",
         K::TrayHintTitle => "Hey Look! läuft weiter",
-        K::TrayHintMac => "Die App prüft weiterhin E-Mails aus der Menüleiste. Klicken Sie auf das Hey-Look!-Symbol im Dock oder in der Menüleiste, um sie wieder zu öffnen.",
+        K::TrayHintMac => "Die App prüft weiterhin E-Mails aus der Menüleiste. Klicken Sie auf das Symbol von Hey Look! im Dock oder in der Menüleiste, um die App wieder zu öffnen.",
         K::TrayHintLinux => "Die App prüft weiterhin E-Mails aus dem Infobereich. Wählen Sie im Menü des Infobereich-Symbols „Hey Look! beenden“, um sie zu beenden.",
         K::TrayHintOther => "Die App prüft weiterhin E-Mails aus dem Infobereich. Klicken Sie mit der rechten Maustaste auf das Symbol im Infobereich und wählen Sie „Beenden“, um sie zu beenden.",
         K::TestTitle => "Hey Look! Testbenachrichtigung",
