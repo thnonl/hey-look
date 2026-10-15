@@ -9,8 +9,22 @@ use sha2::{Digest, Sha256};
 use std::collections::HashMap;
 use std::io::{Read, Write};
 use std::net::TcpListener;
-use std::sync::{Mutex, OnceLock};
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::{Arc, Mutex, OnceLock};
 use std::time::{Duration, Instant};
+
+/// What a sign-in is for. Mail and calendar are two separate grants with their own refresh tokens: a desktop app cannot add scopes
+/// to an existing grant (Google: no incremental authorisation for installed apps; Microsoft: a token request names one resource).
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum Purpose {
+    Mail,
+    Calendar,
+}
+
+/// Name of the credential-store entry (and of the access-token cache entry) of a calendar grant.
+pub fn calendar_key(account_id: &str) -> String {
+    format!("{account_id}:calendar")
+}
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum Provider {
@@ -50,20 +64,34 @@ impl Provider {
         }
     }
 
+    /// Debug builds and tests may point it at a fake server (`HEYLOOK_TOKEN_BASE`); a release build never does.
     fn token_url(self, tenant: &str) -> String {
         match self {
-            Provider::Google => "https://oauth2.googleapis.com/token".into(),
-            Provider::Microsoft => format!("https://login.microsoftonline.com/{tenant}/oauth2/v2.0/token"),
+            Provider::Google => format!("{}/token", crate::calsync::http::base_url("HEYLOOK_TOKEN_BASE", "https://oauth2.googleapis.com")),
+            Provider::Microsoft => {
+                format!("{}/{tenant}/oauth2/v2.0/token", crate::calsync::http::base_url("HEYLOOK_TOKEN_BASE", "https://login.microsoftonline.com"))
+            }
         }
     }
 
     fn scope(self) -> &'static str {
-        match self {
-            Provider::Google => "https://mail.google.com/ openid email profile",
+        self.scope_for(Purpose::Mail)
+    }
+
+    /// The scopes of one grant. The calendar scopes are the narrowest that work: events (view and edit) and the list of calendars
+    /// (read only); never the full `calendar` scope.
+    pub fn scope_for(self, purpose: Purpose) -> &'static str {
+        match (self, purpose) {
+            (Provider::Google, Purpose::Mail) => "https://mail.google.com/ openid email profile",
             // One Outlook resource token covers both IMAP and SMTP AUTH.
-            Provider::Microsoft => {
+            (Provider::Microsoft, Purpose::Mail) => {
                 "https://outlook.office.com/IMAP.AccessAsUser.All https://outlook.office.com/SMTP.Send offline_access openid email profile"
             }
+            (Provider::Google, Purpose::Calendar) => {
+                "https://www.googleapis.com/auth/calendar.events https://www.googleapis.com/auth/calendar.calendarlist.readonly openid email"
+            }
+            // the Graph resource; `Calendars.ReadWrite` needs no admin consent for the user's own calendars
+            (Provider::Microsoft, Purpose::Calendar) => "https://graph.microsoft.com/Calendars.ReadWrite offline_access openid email profile",
         }
     }
 
@@ -112,6 +140,8 @@ pub fn clean_tenant(raw: &str) -> R<String> {
 
 pub struct Pending {
     provider: Provider,
+    purpose: Purpose,
+    cancel: Arc<AtomicBool>,
     tenant: String,
     listener: TcpListener,
     pub port: u16,
@@ -125,10 +155,18 @@ pub struct Signed {
     pub name: String,
     pub refresh_token: String,
     pub access_token: String,
+    /// The scopes that were granted (the `scope` field of the token response); empty when the server did not say.
+    pub scope: String,
+    pub expires_in: i64,
 }
 
-/// Bind the loopback listener and build the consent URL.
+/// Bind the loopback listener and build the consent URL of a mail sign-in.
 pub fn begin(provider: Provider, tenant: &str, client_id: &str) -> R<Pending> {
+    begin_for(provider, Purpose::Mail, tenant, client_id, None)
+}
+
+/// Same for any purpose. `login_hint` pre-fills the account on the consent page (the calendar grant is for the mailbox's own address).
+pub fn begin_for(provider: Provider, purpose: Purpose, tenant: &str, client_id: &str, login_hint: Option<&str>) -> R<Pending> {
     let listener = TcpListener::bind("127.0.0.1:0").map_err(err)?;
     let port = listener.local_addr().map_err(err)?.port();
     let verifier = b64url(&rand::random::<[u8; 32]>());
@@ -140,12 +178,16 @@ pub fn begin(provider: Provider, tenant: &str, client_id: &str) -> R<Pending> {
         provider.auth_url(tenant),
         q(client_id),
         q(&provider.redirect(port)),
-        q(provider.scope()),
+        q(provider.scope_for(purpose)),
         challenge,
         state,
         provider.extra_auth_params()
     );
-    Ok(Pending { provider, tenant: tenant.to_string(), listener, port, verifier, state, url })
+    let url = match login_hint.map(str::trim).filter(|h| !h.is_empty()) {
+        Some(h) => format!("{url}&login_hint={}", q(h)),
+        None => url,
+    };
+    Ok(Pending { provider, purpose, cancel: Arc::new(AtomicBool::new(false)), tenant: tenant.to_string(), listener, port, verifier, state, url })
 }
 
 fn query_param(line: &str, key: &str) -> Option<String> {
@@ -166,6 +208,11 @@ fn token_error(resp: &serde_json::Value) -> String {
 }
 
 impl Pending {
+    /// Setting it ends `finish` early ("cancelled"): the Cancel button of the calendar consent.
+    pub fn canceller(&self) -> Arc<AtomicBool> {
+        self.cancel.clone()
+    }
+
     /// Wait for the browser redirect (max 5 min), then exchange the code for tokens.
     /// `client_secret` may be empty (Microsoft public clients have none).
     pub fn finish(self, client_id: &str, client_secret: &str) -> R<Signed> {
@@ -174,6 +221,9 @@ impl Pending {
         let deadline = Instant::now() + Duration::from_secs(300);
         // the browser connection of the redirect stays open until the token exchange is done, so the page can show the address
         let (code, mut conn) = loop {
+            if self.cancel.load(Ordering::SeqCst) {
+                return Err(format!("{label} sign-in cancelled"));
+            }
             if Instant::now() > deadline {
                 return Err(format!("{label} sign-in timed out"));
             }
@@ -190,7 +240,9 @@ impl Pending {
                     };
                     if let Some(e) = query_param(&line, "error") {
                         let detail = query_param(&line, "error_description").unwrap_or_default();
-                        let (title, next) = if e == "access_denied" {
+                        let (title, next) = if e == "access_denied" && self.purpose == Purpose::Calendar {
+                            ("Sign-in was cancelled", "Hey Look! needs your permission to show and change events in your calendars. Return to Hey Look! and turn the switch on again when you are ready.")
+                        } else if e == "access_denied" {
                             ("Sign-in was cancelled", "Hey Look! needs your permission to read and send mail for this account. Return to Hey Look! and choose Sign in again when you are ready.")
                         } else {
                             ("Sign-in didn't finish", "Return to Hey Look!, check the sign-in settings (client ID, secret, redirect) and try again.")
@@ -222,7 +274,8 @@ impl Pending {
         let result = self.exchange(&code, client_id, client_secret);
         match &result {
             Ok(signed) => {
-                let o = Outcome::Success { provider: label, email: Some(&signed.email) };
+                let shown = if self.purpose == Purpose::Calendar { format!("{label} Calendar") } else { label.to_string() };
+                let o = Outcome::Success { provider: &shown, email: Some(&signed.email) };
                 let _ = conn.write_all(&oauth_page::response(200, &o));
             }
             Err(e) => {
@@ -251,7 +304,7 @@ impl Pending {
             form.push(("client_secret", client_secret));
         }
         if self.provider == Provider::Microsoft {
-            form.push(("scope", self.provider.scope()));
+            form.push(("scope", self.provider.scope_for(self.purpose)));
         }
         let resp: serde_json::Value = reqwest::blocking::Client::new()
             .post(self.provider.token_url(&self.tenant))
@@ -278,8 +331,12 @@ impl Pending {
             .to_string();
         let name = claims["name"].as_str().unwrap_or("").to_string();
         let expires = resp["expires_in"].as_i64().unwrap_or(3600);
-        cache().lock().unwrap().insert(email.clone(), (access.to_string(), now() + expires));
-        Ok(Signed { email, name, refresh_token: refresh.to_string(), access_token: access.to_string() })
+        // (a mail token is cached under the address until the caller knows the account id; a calendar token is cached by the caller)
+        if self.purpose == Purpose::Mail {
+            cache().lock().unwrap().insert(email.clone(), (access.to_string(), now() + expires));
+        }
+        let scope = resp["scope"].as_str().unwrap_or("").to_string();
+        Ok(Signed { email, name, refresh_token: refresh.to_string(), access_token: access.to_string(), scope, expires_in: expires })
     }
 }
 
@@ -287,42 +344,107 @@ pub fn cache_token(account_id: &str, token: &str, expires_in: i64) {
     cache().lock().unwrap().insert(account_id.to_string(), (token.to_string(), now() + expires_in));
 }
 
+/// Why a refresh of a token failed, sorted the way the calendar sync needs it.
+#[derive(Debug, Clone, PartialEq)]
+pub enum TokenFail {
+    /// The grant ended: revoked, expired (a Google app in Testing mode: 7 days), password changed. Signing in again fixes it.
+    Revoked(String),
+    /// The organisation does not allow the app (admin approval needed, policy).
+    Blocked(String),
+    /// The app's own registration is wrong for this (client, API or tenant not set up).
+    NotSetUp(String),
+    /// There is no stored token (the credential store has no entry).
+    Missing(String),
+    /// No connection (the text of the transport error).
+    Offline(String),
+    Other(String),
+}
+
+impl TokenFail {
+    pub fn text(&self) -> String {
+        match self {
+            TokenFail::Revoked(t) | TokenFail::Blocked(t) | TokenFail::NotSetUp(t) | TokenFail::Missing(t) | TokenFail::Other(t) | TokenFail::Offline(t) => t.clone(),
+        }
+    }
+}
+
+pub struct Refreshed {
+    pub access: String,
+    pub expires_in: i64,
+    /// A new refresh token when the server rotated it (Microsoft always does).
+    pub refresh: Option<String>,
+}
+
+fn classify_token_error(resp: &serde_json::Value) -> TokenFail {
+    let code = resp["error"].as_str().unwrap_or("");
+    let desc = resp["error_description"].as_str().unwrap_or("");
+    let text = token_error(resp);
+    if desc.contains("AADSTS700016") || matches!(code, "unauthorized_client" | "invalid_client") {
+        TokenFail::NotSetUp(text)
+    } else if matches!(code, "admin_policy_enforced" | "org_internal" | "access_denied" | "consent_required")
+        || ["AADSTS65001", "AADSTS90094", "AADSTS900941", "AADSTS50105", "AADSTS53003"].iter().any(|c| desc.contains(c))
+    {
+        TokenFail::Blocked(text)
+    } else if matches!(code, "invalid_grant" | "interaction_required" | "login_required") {
+        TokenFail::Revoked(text)
+    } else {
+        TokenFail::Other(text)
+    }
+}
+
+/// One refresh-token request to `url`. `scope` is sent for Microsoft only (the resource of the token).
+pub fn refresh_at(url: &str, client_id: &str, client_secret: &str, refresh_token: &str, scope: Option<&str>) -> Result<Refreshed, TokenFail> {
+    let mut form = vec![("client_id", client_id), ("refresh_token", refresh_token), ("grant_type", "refresh_token")];
+    if !client_secret.is_empty() {
+        form.push(("client_secret", client_secret));
+    }
+    if let Some(s) = scope {
+        form.push(("scope", s));
+    }
+    // (any transport failure: no network, DNS, TLS, timeout)
+    let resp = reqwest::blocking::Client::new().post(url).form(&form).send().map_err(|e| TokenFail::Offline(err(&e)))?;
+    let status = resp.status();
+    let body: serde_json::Value = resp.json().map_err(|e| TokenFail::Other(format!("token endpoint answered {status}: {e}")))?;
+    match body["access_token"].as_str() {
+        Some(t) => Ok(Refreshed {
+            access: t.to_string(),
+            expires_in: body["expires_in"].as_i64().unwrap_or(3600),
+            refresh: body["refresh_token"].as_str().filter(|n| *n != refresh_token).map(String::from),
+        }),
+        None => Err(classify_token_error(&body)),
+    }
+}
+
 /// A valid access token for the account; refreshes with the stored refresh token when needed.
 pub fn access_token(provider: Provider, tenant: &str, account_id: &str, client_id: &str, client_secret: &str) -> R<String> {
-    if let Some((t, exp)) = cache().lock().unwrap().get(account_id) {
+    access_token_for(provider, Purpose::Mail, tenant, account_id, client_id, client_secret).map_err(|f| match f {
+        // the transport error as it was before the calendar existed
+        TokenFail::Missing(m) | TokenFail::Offline(m) => m,
+        other => format!("{} sign-in expired or revoked ({}). Remove the account and sign in again.", provider.label(), other.text()),
+    })
+}
+
+/// Access token of one grant. `key` is the credential-store entry and the cache key: the account id for mail, `<id>:calendar` for calendar.
+pub fn access_token_for(provider: Provider, purpose: Purpose, tenant: &str, key: &str, client_id: &str, client_secret: &str) -> Result<String, TokenFail> {
+    if let Some((t, exp)) = cache().lock().unwrap().get(key) {
         if *exp - 60 > now() {
             return Ok(t.clone());
         }
     }
     let label = provider.label();
-    let entry = keyring::Entry::new(crate::KEYRING_SERVICE, account_id).map_err(|e| format!("no stored {label} token: {e}"))?;
-    let refresh = entry.get_password().map_err(|e| format!("no stored {label} token: {e}"))?;
-    let mut form = vec![("client_id", client_id), ("refresh_token", refresh.as_str()), ("grant_type", "refresh_token")];
-    if !client_secret.is_empty() {
-        form.push(("client_secret", client_secret));
+    let entry = keyring::Entry::new(crate::KEYRING_SERVICE, key).map_err(|e| TokenFail::Missing(format!("no stored {label} token: {e}")))?;
+    let refresh = entry.get_password().map_err(|e| TokenFail::Missing(format!("no stored {label} token: {e}")))?;
+    let scope = (provider == Provider::Microsoft).then(|| provider.scope_for(purpose));
+    let got = refresh_at(&provider.token_url(tenant), client_id, client_secret, &refresh, scope)?;
+    // Microsoft rotates refresh tokens: keep the newest one or the next refresh fails.
+    if let Some(new_refresh) = &got.refresh {
+        let _ = entry.set_password(new_refresh);
     }
-    if provider == Provider::Microsoft {
-        form.push(("scope", provider.scope()));
-    }
-    let resp: serde_json::Value = reqwest::blocking::Client::new()
-        .post(provider.token_url(tenant))
-        .form(&form)
-        .send()
-        .map_err(err)?
-        .json()
-        .map_err(err)?;
-    match resp["access_token"].as_str() {
-        Some(t) => {
-            // Microsoft rotates refresh tokens: keep the newest one or the next refresh fails.
-            if let Some(new_refresh) = resp["refresh_token"].as_str().filter(|n| *n != refresh) {
-                let _ = entry.set_password(new_refresh);
-            }
-            cache_token(account_id, t, resp["expires_in"].as_i64().unwrap_or(3600));
-            Ok(t.to_string())
-        }
-        None => Err(format!(
-            "{label} sign-in expired or revoked ({}). Remove the account and sign in again.",
-            token_error(&resp)
-        )),
-    }
+    cache_token(key, &got.access, got.expires_in);
+    Ok(got.access)
+}
+
+/// Forget the cached access token of a grant (sign-out, disconnect).
+pub fn forget_token(key: &str) {
+    cache().lock().unwrap().remove(key);
 }

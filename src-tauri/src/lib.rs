@@ -1,6 +1,7 @@
 mod ai;
 mod attach;
 mod calendar;
+mod calsync;
 mod db;
 mod discover;
 mod ical;
@@ -465,11 +466,13 @@ fn update_account(state: tauri::State<AppState>, account_id: String, display_nam
 #[tauri::command]
 fn remove_account(state: tauri::State<AppState>, account_id: String) -> R<()> {
     db::remove_account(&lock(&state.db), &account_id)?;
-    for name in [account_id.clone(), format!("{account_id}:smtp")] {
+    // (the calendar grant of the mailbox goes with it)
+    for name in [account_id.clone(), format!("{account_id}:smtp"), oauth::calendar_key(&account_id)] {
         if let Ok(e) = keyring::Entry::new(KEYRING_SERVICE, &name) {
             let _ = e.delete_credential();
         }
     }
+    oauth::forget_token(&oauth::calendar_key(&account_id));
     Ok(())
 }
 
@@ -3675,6 +3678,9 @@ pub fn run() {
             let cal_app = app.handle().clone();
             let cal_db = db.clone();
             std::thread::spawn(move || calendar::reminder_worker(cal_app, cal_db));
+            // calendar sync (Google / Microsoft calendars of the mailboxes that turned it on) has its own thread: mail never waits for it
+            let sync_app = app.handle().clone();
+            std::thread::spawn(move || calsync::cmds::calsync_worker(sync_app));
 
             winframe::setup(app);
             shell::register_aumid(app.handle());
@@ -3803,6 +3809,12 @@ pub fn run() {
             calendar::calendar_save_ics,
             calendar::calendar_import_ics,
             calendar::calendar_open_message,
+            calsync::cmds::calendar_sources,
+            calsync::cmds::calendar_connect,
+            calsync::cmds::calendar_cancel_connect,
+            calsync::cmds::calendar_disconnect,
+            calsync::cmds::calendar_set_sync,
+            calsync::cmds::calendar_sync_now,
             list_templates,
             save_template,
             delete_template,
