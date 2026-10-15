@@ -3,6 +3,7 @@ import { ReactNode, useCallback, useEffect, useId, useRef, useState } from "reac
 import { createPortal } from "react-dom";
 import { useT } from "../i18n/react";
 import { accountColor } from "../prefs";
+import { menuOwners, pressIsOutside } from "../pressInside";
 import { useStore } from "../store";
 import { hue, initials } from "../util";
 
@@ -25,8 +26,9 @@ export function useOutside(ref: Ref | Ref[], onOut: () => void, active: boolean)
   useEffect(() => {
     if (!active) return;
     const refs = Array.isArray(ref) ? ref : [ref];
+    // a press on a menu that was opened from inside counts as inside: the menu is portalled out of the DOM tree (see pressInside.ts)
     const h = (e: MouseEvent) => {
-      if (refs.every((r) => r.current && !r.current.contains(e.target as Node))) onOut();
+      if (pressIsOutside(e.target, refs)) onOut();
     };
     const k = (e: KeyboardEvent) => {
       if (e.key !== "Escape") return;
@@ -139,6 +141,13 @@ export function FloatingMenu({
     const left = Math.max(edge, Math.min(want, window.innerWidth - p.width - edge));
     setPos({ top, left, max: room });
   }, [anchor, align]);
+  // lets a "press outside" handler of the popover this menu was opened from tell that a press on a row is not outside (pressInside.ts)
+  useEffect(() => {
+    const el = pop.current;
+    if (!el) return;
+    menuOwners.set(el, anchor);
+    return () => void menuOwners.delete(el);
+  }, [anchor]);
   // keyboard users land in the menu however it was opened; only once it is placed (a hidden element cannot take focus)
   const placed = pos !== null;
   useEffect(() => {
