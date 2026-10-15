@@ -107,7 +107,7 @@ export default define({
   vi: {
     "mail.row.select": "Chọn",
     "mail.row.unread": "Chưa đọc",
-    "mail.row.confidential": "Bảo mật",
+    "mail.row.confidential": "Thư mật",
     "mail.row.encrypted": "Đã mã hóa",
     "mail.row.signed": "Đã ký",
     "mail.row.invite": "Lời mời họp",
@@ -116,8 +116,8 @@ export default define({
     "mail.row.attachment": "Có tệp đính kèm",
     "mail.row.pinned": "Đã ghim",
     "mail.row.flagged": "Đã gắn cờ",
-    "mail.row.snoozed": "Đã tạm hoãn",
-    "mail.row.confidentialPreview": "Thư bảo mật — mở để đọc",
+    "mail.row.snoozed": "Đã tạm ẩn",
+    "mail.row.confidentialPreview": "Thư mật — mở để đọc",
 
     "mail.hover.archive": "Lưu trữ",
     "mail.hover.deleteForever": "Xóa vĩnh viễn",
@@ -127,7 +127,7 @@ export default define({
     "mail.hover.unpin": "Bỏ ghim",
     "mail.hover.markRead": "Đánh dấu đã đọc",
     "mail.hover.markUnread": "Đánh dấu chưa đọc",
-    "mail.hover.snooze": "Tạm hoãn",
+    "mail.hover.snooze": "Tạm ẩn",
 
     "mail.done.archived": "Đã lưu trữ",
     "mail.done.trashed": "Đã chuyển vào Thùng rác",
@@ -135,7 +135,7 @@ export default define({
     "mail.done.junk": "Đã chuyển vào Thư rác",
     "mail.done.blocked": "Đã chặn người gửi",
     "mail.done.moved": "Đã chuyển đến {folder}",
-    "mail.done.snoozed": "Đã tạm hoãn: {when}",
+    "mail.done.snoozed": "Đã tạm ẩn: {when}",
 
     "mail.list.aria": "Danh sách thư",
     "mail.list.searchResults": "Kết quả tìm kiếm",
