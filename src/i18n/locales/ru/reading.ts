@@ -15,7 +15,7 @@ export default defineLocale<typeof ns.en>({
   "reading.preview.sent": "Отправленные",
   "reading.preview.drafts": "Черновики",
   "reading.preview.archive": "Архив",
-  "reading.preview.focused": "Приоритетные",
+  "reading.preview.focused": "Отсортированные",
   "reading.preview.other": "Другие",
   "reading.preview.pinned": "Закреплённые",
   "reading.preview.shuffle": "Создать другие примеры писем",

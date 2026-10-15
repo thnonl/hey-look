@@ -222,7 +222,7 @@ export default defineLocale<typeof ns.en>({
   "calendar.dialog.errTitle": "Добавьте название.",
   "calendar.dialog.errDate": "Проверьте дату и время.",
   "calendar.dialog.errAddress": "Проверьте адрес: {address}",
-  "calendar.dialog.errAccount": "Выберите аккаунт, от имени которого отправлять.",
+  "calendar.dialog.errAccount": "Выберите учётную запись, от имени которой отправлять.",
   "calendar.reminder.none": "Без напоминания",
   "calendar.reminder.start": "В момент начала",
   "calendar.reminder.m5": "За 5 минут",

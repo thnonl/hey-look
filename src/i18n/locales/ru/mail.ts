@@ -49,7 +49,7 @@ export default defineLocale<typeof ns.en>({
     other: "«{query}» · {scope} · {n} результата",
   },
   "mail.group.pinned": "Закреплённые",
-  "mail.tabs.focused": "Приоритетные",
+  "mail.tabs.focused": "Отсортированные",
   "mail.tabs.other": "Другие",
   "mail.filter.all": "Все",
   "mail.filter.unread": "Непрочитанные",
@@ -65,7 +65,7 @@ export default defineLocale<typeof ns.en>({
   "mail.list.selectAll": "Выбрать все",
   "mail.list.clear": "Снять выбор",
   "mail.list.syncing": "Синхронизация: {account}… первая загрузка может занять минуту.",
-  "mail.list.yourAccount": "ваш аккаунт",
+  "mail.list.yourAccount": "ваша учётная запись",
   // empty states
   "mail.empty.noResults": "Ничего не найдено",
   "mail.empty.searchedAll": "Поиск идёт только по почте, уже загруженной на этот компьютер. Более старые письма загружаются по мере прокрутки папки.",
