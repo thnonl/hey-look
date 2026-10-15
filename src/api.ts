@@ -488,6 +488,10 @@ export const api = {
   microsoftTenant: () => invoke<string>("microsoft_tenant"),
   microsoftSignIn: (clientId: string, clientSecret: string, tenant: string, displayName: string) =>
     invoke<Account>("microsoft_sign_in", { clientId, clientSecret, tenant, displayName }),
+  /** End the wait for the browser of a mail sign-in (Add account, Sign in again); that command then fails with OAUTH_CANCELLED. */
+  oauthCancel: () => invoke<void>("oauth_cancel"),
+  /** Sign in again to a mailbox whose sign-in ended: the same address, the same account (nothing is added). */
+  reauthAccount: (accountId: string) => invoke<Account>("reauth_account", { accountId }),
   updateAccount: (accountId: string, displayName: string, color: string | null) =>
     invoke<void>("update_account", { accountId, displayName, color }),
   removeAccount: (accountId: string) => invoke<void>("remove_account", { accountId }),

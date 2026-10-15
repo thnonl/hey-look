@@ -140,7 +140,7 @@ export const BACKEND_ERRORS: { re: RegExp; key: Key; names: string[] }[] = [
   { re: /^Repeating events can be added to (.+) in (.+) for now\.$/s, key: "calendar.sync.repeatAddOnly", names: ["calendar", "service"] },
   { re: /^Only the organizer can change this event\.$/s, key: "calendar.sync.readOnlyOrganizer", names: [] },
   { re: /^(.+) is read only\.$/s, key: "calendar.sync.readOnlyCalendar", names: ["calendar"] },
-  { re: /^(.+?)’s organization hasn’t approved Hey Look! for calendar access\. Ask your IT admin\.$/s, key: "calendar.sync.blocked", names: ["email"] },
+  { re: /^(.+?)’s organization may need to approve Hey Look! for calendar access\. Ask your IT admin\.$/s, key: "calendar.sync.blocked", names: ["email"] },
   { re: /^Calendar access wasn’t allowed\. Turn the switch on to try again\.$/s, key: "calendar.err.denied", names: [] },
   { re: /^Calendar sign-in timed out\. Turn the switch on to try again\.$/s, key: "calendar.err.timeout", names: [] },
   { re: /^Calendar sign-in was cancelled\.$/s, key: "calendar.err.cancelled", names: [] },

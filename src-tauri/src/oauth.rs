@@ -137,6 +137,41 @@ pub fn clean_tenant(raw: &str) -> R<String> {
     Ok(t.to_string())
 }
 
+/// The mail sign-in that is waiting for the browser right now (at most one): what the Cancel button ends.
+pub struct Waiting(Mutex<Option<Arc<AtomicBool>>>);
+
+impl Waiting {
+    pub const fn new() -> Self {
+        Waiting(Mutex::new(None))
+    }
+
+    fn slot(&self) -> std::sync::MutexGuard<'_, Option<Arc<AtomicBool>>> {
+        self.0.lock().unwrap_or_else(|p| p.into_inner())
+    }
+
+    /// A sign-in starts waiting. One that still waits is ended: its browser tab could no longer finish it, and its port is freed.
+    pub fn begin(&self, flag: Arc<AtomicBool>) {
+        if let Some(old) = self.slot().replace(flag) {
+            old.store(true, Ordering::SeqCst);
+        }
+    }
+
+    /// The sign-in of `flag` is over. A newer one that took the place meanwhile is left alone.
+    pub fn end(&self, flag: &Arc<AtomicBool>) {
+        let mut slot = self.slot();
+        if slot.as_ref().is_some_and(|f| Arc::ptr_eq(f, flag)) {
+            *slot = None;
+        }
+    }
+
+    /// The Cancel button: the waiting sign-in ends within a fraction of a second and drops its listener.
+    pub fn cancel(&self) {
+        if let Some(flag) = self.slot().as_ref() {
+            flag.store(true, Ordering::SeqCst);
+        }
+    }
+}
+
 pub struct Pending {
     provider: Provider,
     purpose: Purpose,
@@ -159,7 +194,8 @@ pub struct Signed {
     pub expires_in: i64,
 }
 
-/// Bind the loopback listener and build the consent URL of a mail sign-in.
+/// Bind the loopback listener and build the consent URL of a mail sign-in (the app itself goes through `begin_for`, which also takes a hint).
+#[cfg(test)]
 pub fn begin(provider: Provider, tenant: &str, client_id: &str) -> R<Pending> {
     begin_for(provider, Purpose::Mail, tenant, client_id, None)
 }
@@ -208,7 +244,7 @@ fn token_error(resp: &serde_json::Value) -> String {
 }
 
 impl Pending {
-    /// Setting it ends `finish` early ("cancelled"): the Cancel button of the calendar consent.
+    /// Setting it ends `finish` early ("cancelled"): the Cancel button of the mail sign-in and of the calendar consent.
     pub fn canceller(&self) -> Arc<AtomicBool> {
         self.cancel.clone()
     }
@@ -216,9 +252,15 @@ impl Pending {
     /// Wait for the browser redirect (max 5 min), then exchange the code for tokens.
     /// `client_secret` may be empty (Microsoft public clients have none).
     pub fn finish(self, client_id: &str, client_secret: &str) -> R<Signed> {
+        self.finish_within(Duration::from_secs(300), client_id, client_secret)
+    }
+
+    /// `finish` with its own limit (the tests use a short one). Cancelling or timing out returns at once; the listener is dropped with
+    /// `self`, so the port is free again.
+    fn finish_within(self, wait: Duration, client_id: &str, client_secret: &str) -> R<Signed> {
         let label = self.provider.label();
         self.listener.set_nonblocking(true).map_err(err)?;
-        let deadline = Instant::now() + Duration::from_secs(300);
+        let deadline = Instant::now() + wait;
         // the browser connection of the redirect stays open until the token exchange is done, so the page can show the address
         let (code, mut conn) = loop {
             if self.cancel.load(Ordering::SeqCst) {
@@ -249,7 +291,9 @@ impl Pending {
                         };
                         let reason = format!("{label} reported: {e}{}{detail}", if detail.is_empty() { "" } else { " - " });
                         reply(&mut s, 200, &Outcome::Error { title, reason: &reason, next });
-                        return Err(format!("{label} sign-in refused: {e} {detail}").trim().to_string());
+                        // (the code and the description go along: the UI tells "refused" from "the organization has to approve the app")
+                        let why = format!("{e}{}{detail}", if detail.is_empty() { "" } else { " - " });
+                        return Err(crate::i18n::coded("OAUTH_REFUSED", &[("label", label), ("reason", &why)], &format!("{label} sign-in refused: {e} {detail}").trim().to_string()));
                     }
                     match (query_param(&line, "code"), query_param(&line, "state")) {
                         (Some(c), Some(st)) if st == self.state => break (c, s),
@@ -352,7 +396,8 @@ pub fn cache_token(account_id: &str, token: &str, expires_in: i64) {
 /// Why a refresh of a token failed, sorted the way the calendar sync needs it.
 #[derive(Debug, Clone, PartialEq)]
 pub enum TokenFail {
-    /// The grant ended: revoked, expired (a Google app in Testing mode: 7 days), password changed. Signing in again fixes it.
+    /// The grant ended: revoked (myaccount.google.com/permissions, account.live.com/consent), password changed, unused for too long.
+    /// Signing in again fixes it.
     Revoked(String),
     /// The organisation does not allow the app (admin approval needed, policy).
     Blocked(String),
@@ -363,14 +408,6 @@ pub enum TokenFail {
     /// No connection (the text of the transport error).
     Offline(String),
     Other(String),
-}
-
-impl TokenFail {
-    pub fn text(&self) -> String {
-        match self {
-            TokenFail::Revoked(t) | TokenFail::Blocked(t) | TokenFail::NotSetUp(t) | TokenFail::Missing(t) | TokenFail::Other(t) | TokenFail::Offline(t) => t.clone(),
-        }
-    }
 }
 
 pub struct Refreshed {
@@ -422,11 +459,33 @@ pub fn refresh_at(url: &str, client_id: &str, client_secret: &str, refresh_token
 
 /// A valid access token for the account; refreshes with the stored refresh token when needed.
 pub fn access_token(provider: Provider, tenant: &str, account_id: &str, client_id: &str, client_secret: &str) -> R<String> {
-    access_token_for(provider, Purpose::Mail, tenant, account_id, client_id, client_secret).map_err(|f| match f {
-        // the transport error as it was before the calendar existed
-        TokenFail::Missing(m) | TokenFail::Offline(m) => m,
-        other => format!("{} sign-in expired or revoked ({}). Remove the account and sign in again.", provider.label(), other.text()),
-    })
+    access_token_for(provider, Purpose::Mail, tenant, account_id, client_id, client_secret).map_err(|f| mail_token_error(provider, f))
+}
+
+/// The error of a mail token that could not be refreshed. A rejected or missing grant and an organization that has not approved the app
+/// are coded (`OAUTH_REAUTH`, `OAUTH_BLOCKED`): the UI then shows the mailbox as "Sign in again" instead of a failure nobody notices.
+/// A network failure is as the transport said; anything else is a refresh that did not work this time.
+pub fn mail_token_error(provider: Provider, fail: TokenFail) -> String {
+    let label = provider.label();
+    match fail {
+        TokenFail::Offline(m) => m,
+        TokenFail::Revoked(t) => crate::i18n::coded("OAUTH_REAUTH", &[("label", label)], &format!("{label} sign-in expired or revoked ({t}). Sign in again.")),
+        // (the credential store has no entry: signing in again writes a new one)
+        TokenFail::Missing(m) => crate::i18n::coded("OAUTH_REAUTH", &[("label", label)], &format!("{m}. Sign in again.")),
+        TokenFail::Blocked(t) => crate::i18n::coded("OAUTH_BLOCKED", &[("label", label)], &format!("Your organization may need to approve Hey Look! for this {label} account. Ask your IT admin. ({t})")),
+        TokenFail::NotSetUp(t) | TokenFail::Other(t) => crate::i18n::coded("OAUTH_REFRESH", &[("label", label), ("reason", &t)], &format!("{label} sign-in could not be renewed right now: {t}")),
+    }
+}
+
+/// Whether a mail error says the mailbox needs a new sign-in, and which kind: `again` (the grant ended) or `blocked` (the organization).
+pub fn signin_kind(error: &str) -> Option<&'static str> {
+    if error.starts_with("OAUTH_REAUTH") {
+        Some("again")
+    } else if error.starts_with("OAUTH_BLOCKED") {
+        Some("blocked")
+    } else {
+        None
+    }
 }
 
 /// Access token of one grant. `key` is the credential-store entry and the cache key: the account id for mail, `<id>:calendar` for calendar.
@@ -543,7 +602,7 @@ mod tests {
             let srv = FakeServer::start(move |_| Resp::json(400, v.clone()));
             refresh_at(&format!("{}/t", srv.base), "cid", "", "rt", None).err().unwrap()
         };
-        // Testing-mode 7 day expiry, revoked at myaccount.google.com/permissions, password change
+        // revoked at myaccount.google.com/permissions, password change
         assert!(matches!(fail(json!({ "error": "invalid_grant", "error_description": "Token has been expired or revoked." })), TokenFail::Revoked(t) if t.contains("expired or revoked")));
         assert!(matches!(fail(json!({ "error": "interaction_required" })), TokenFail::Revoked(_)));
         // the organization does not allow the app
@@ -577,6 +636,105 @@ mod tests {
         assert_eq!(access_token(Provider::Google, "", "acc-cache-test", "cid", "").unwrap(), "MAIL-TOKEN");
         forget_token(&key);
         assert!(cache().lock().unwrap().get(&key).is_none() && cache().lock().unwrap().get("acc-cache-test").is_some());
+    }
+
+    fn request(port: u16, path: &str) {
+        use std::io::Write;
+        let mut c = std::net::TcpStream::connect(("127.0.0.1", port)).unwrap();
+        c.write_all(format!("GET {path} HTTP/1.1
+Host: 127.0.0.1
+
+").as_bytes()).unwrap();
+        let _ = c.read(&mut [0u8; 64]);
+    }
+
+    #[test]
+    fn cancel_ends_the_wait_at_once_frees_the_port_and_stores_nothing() {
+        let p = begin(Provider::Google, "", "cid").unwrap();
+        let (port, flag) = (p.port, p.canceller());
+        let waiting = Waiting::new();
+        waiting.begin(flag.clone());
+        let h = std::thread::spawn(move || p.finish("cid", "").err());
+        std::thread::sleep(Duration::from_millis(400));
+        assert!(!h.is_finished(), "it waits for the browser");
+        let t0 = Instant::now();
+        waiting.cancel();
+        let e = h.join().unwrap().expect("a cancelled sign-in is an error, not an account");
+        assert!(t0.elapsed() < Duration::from_secs(2), "{:?}", t0.elapsed());
+        assert_eq!(e, "OAUTH_CANCELLED|label=Google: Google sign-in cancelled");
+        // the loopback port is free again
+        assert!(TcpListener::bind(("127.0.0.1", port)).is_ok());
+        // (the sign-in is over: a later Cancel does not touch the next one)
+        waiting.end(&flag);
+        let next = Arc::new(AtomicBool::new(false));
+        waiting.begin(next.clone());
+        waiting.end(&flag);
+        waiting.cancel();
+        assert!(next.load(Ordering::SeqCst), "ending the old sign-in did not take the slot of the new one");
+    }
+
+    #[test]
+    fn a_new_sign_in_ends_the_one_that_still_waits_and_the_wait_times_out() {
+        let waiting = Waiting::new();
+        let (old, new) = (Arc::new(AtomicBool::new(false)), Arc::new(AtomicBool::new(false)));
+        waiting.begin(old.clone());
+        waiting.begin(new.clone());
+        assert!(old.load(Ordering::SeqCst) && !new.load(Ordering::SeqCst));
+        waiting.end(&new);
+        waiting.cancel();
+        assert!(!new.load(Ordering::SeqCst), "nothing waits any more");
+        // no redirect ever comes: the limit ends the wait and frees the port
+        let p = begin(Provider::Microsoft, "common", "cid").unwrap();
+        let port = p.port;
+        let e = p.finish_within(Duration::from_millis(300), "cid", "").err().unwrap();
+        assert_eq!(e, "OAUTH_TIMEOUT|label=Microsoft: Microsoft sign-in timed out");
+        assert!(TcpListener::bind(("127.0.0.1", port)).is_ok());
+    }
+
+    #[test]
+    fn a_refused_sign_in_carries_the_provider_code_so_the_organization_case_is_told_apart() {
+        for (query, blocked) in [
+            ("error=access_denied&error_description=AADSTS65001%3A%20The%20user%20or%20administrator%20has%20not%20consented", true),
+            ("error=access_denied", false),
+        ] {
+            let p = begin(Provider::Microsoft, "common", "cid").unwrap();
+            let port = p.port;
+            let h = std::thread::spawn(move || p.finish("cid", "").err().unwrap());
+            request(port, &format!("/?{query}&state=x"));
+            let e = h.join().unwrap();
+            assert!(e.starts_with("OAUTH_REFUSED|label=Microsoft|reason=access_denied"), "{e}");
+            assert!(e.contains("AADSTS65001") == blocked, "{e}");
+            // the calendar consent turns the same texts into its own states
+            assert!(crate::calsync::cmds::connect_error(&e, "me@x.test").starts_with(if blocked { "CAL_BLOCKED" } else { "CAL_DENIED" }), "{e}");
+        }
+    }
+
+    #[test]
+    fn a_rejected_mail_grant_says_sign_in_again_and_an_organization_block_says_ask_the_admin() {
+        let kind = |p: Provider, body: serde_json::Value| {
+            let srv = FakeServer::start(move |_| Resp::json(400, body.clone()));
+            let fail = refresh_at(&format!("{}/t", srv.base), "cid", "", "rt", None).err().unwrap();
+            let text = mail_token_error(p, fail);
+            (signin_kind(&text), text)
+        };
+        // Google: revoked at myaccount.google.com/permissions, password changed
+        let (k, text) = kind(Provider::Google, json!({ "error": "invalid_grant", "error_description": "Token has been expired or revoked." }));
+        assert_eq!(k, Some("again"));
+        assert!(text.starts_with("OAUTH_REAUTH|label=Google: Google sign-in expired or revoked"), "{text}");
+        // Microsoft: the grant was revoked, or needs a new interactive sign-in
+        assert_eq!(kind(Provider::Microsoft, json!({ "error": "invalid_grant", "error_description": "AADSTS50173: The provided grant has expired due to it being revoked" })).0, Some("again"));
+        assert_eq!(kind(Provider::Microsoft, json!({ "error": "interaction_required", "error_description": "AADSTS50076: MFA" })).0, Some("again"));
+        // the organization has to approve the app
+        assert_eq!(kind(Provider::Microsoft, json!({ "error": "invalid_grant", "error_description": "AADSTS65001: The user or administrator has not consented" })).0, Some("blocked"));
+        assert_eq!(kind(Provider::Microsoft, json!({ "error": "consent_required" })).0, Some("blocked"));
+        // a token endpoint that is only unavailable, or an app that is not set up, is not "sign in again"
+        let (k, text) = kind(Provider::Google, json!({ "error": "temporarily_unavailable" }));
+        assert!(k.is_none() && text.starts_with("OAUTH_REFRESH|label=Google|reason=temporarily_unavailable"), "{text}");
+        assert!(kind(Provider::Google, json!({ "error": "invalid_client" })).0.is_none());
+        // no stored token (credential store entry gone): signing in again writes a new one; no network is the transport error as it was
+        assert_eq!(signin_kind(&mail_token_error(Provider::Google, TokenFail::Missing("no stored Google token: x".into()))), Some("again"));
+        assert_eq!(mail_token_error(Provider::Google, TokenFail::Offline("dns error".into())), "dns error");
+        assert_eq!(signin_kind("Google sign-in cancelled"), None);
     }
 
     #[test]

@@ -70,7 +70,7 @@ pub fn granted_all(provider: Provider, granted: &str) -> bool {
 pub fn connect_error(raw: &str, email: &str) -> String {
     let l = raw.to_ascii_lowercase();
     if ["admin_policy_enforced", "org_internal", "aadsts65001", "aadsts90094", "consent_required"].iter().any(|k| l.contains(k)) {
-        format!("CAL_BLOCKED: {email}’s organization hasn’t approved Hey Look! for calendar access. Ask your IT admin.")
+        format!("CAL_BLOCKED: {email}’s organization may need to approve Hey Look! for calendar access. Ask your IT admin.")
     } else if l.contains("access_denied") {
         "CAL_DENIED: Calendar access wasn’t allowed. Turn the switch on to try again.".into()
     } else if l.contains("timed out") {
@@ -249,7 +249,7 @@ mod tests {
         assert!(e("Google sign-in refused: access_denied").starts_with("CAL_DENIED: Calendar access wasn’t allowed."));
         assert!(e("Google sign-in timed out").starts_with("CAL_TIMEOUT: Calendar sign-in timed out."));
         assert!(e("Google sign-in cancelled").starts_with("CAL_CANCELLED"));
-        assert_eq!(e("Google sign-in refused: admin_policy_enforced"), "CAL_BLOCKED: me@x.y’s organization hasn’t approved Hey Look! for calendar access. Ask your IT admin.");
+        assert_eq!(e("Google sign-in refused: admin_policy_enforced"), "CAL_BLOCKED: me@x.y’s organization may need to approve Hey Look! for calendar access. Ask your IT admin.");
         assert!(e("Microsoft sign-in refused: access_denied AADSTS65001: The user or administrator has not consented").starts_with("CAL_BLOCKED"));
         assert!(e("token exchange failed: invalid_grant").starts_with("CAL_ERROR: Couldn’t turn on calendar sync: token exchange failed"));
     }

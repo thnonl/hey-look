@@ -324,7 +324,7 @@ async fn google_sign_in(
     client_secret: String,
     display_name: String,
 ) -> R<Account> {
-    oauth_sign_in(app, state, Provider::Google, client_id, client_secret, None, display_name).await
+    oauth_sign_in(app, state, Provider::Google, client_id, client_secret, None, display_name, None).await
 }
 
 #[tauri::command]
@@ -336,9 +336,33 @@ async fn microsoft_sign_in(
     tenant: Option<String>,
     display_name: String,
 ) -> R<Account> {
-    oauth_sign_in(app, state, Provider::Microsoft, client_id, client_secret, tenant, display_name).await
+    oauth_sign_in(app, state, Provider::Microsoft, client_id, client_secret, tenant, display_name, None).await
 }
 
+/// The mail sign-in that waits for the browser (Add account, Sign in again): what the Cancel button ends.
+static MAIL_WAIT: oauth::Waiting = oauth::Waiting::new();
+
+/// Cancel button of a mail sign-in: it stops waiting at once, the loopback port is freed and no account is added or changed.
+#[tauri::command]
+fn oauth_cancel() {
+    MAIL_WAIT.cancel();
+}
+
+/// "Sign in again" for a Google / Microsoft mailbox whose sign-in ended: the same address, the same account (its mail stays), a new token.
+#[tauri::command]
+async fn reauth_account(app: tauri::AppHandle, state: tauri::State<'_, AppState>, account_id: String) -> R<Account> {
+    let (acc, provider) = {
+        let c = lock(&state.db);
+        let acc = db::get_account(&c, &account_id)?;
+        let provider = Provider::from_auth(&acc.auth).ok_or("This mailbox does not sign in with Google or Microsoft.")?;
+        (acc, provider)
+    };
+    let (client_id, client_secret) = oauth_creds(&state.db, provider);
+    let tenant = oauth_tenant(&state.db, provider);
+    oauth_sign_in(app, state, provider, client_id, client_secret, Some(tenant), String::new(), Some(acc.email)).await
+}
+
+/// `expect`: the address the sign-in must be for (Sign in again); another account is refused before anything is stored.
 async fn oauth_sign_in(
     app: tauri::AppHandle,
     state: tauri::State<'_, AppState>,
@@ -347,6 +371,7 @@ async fn oauth_sign_in(
     client_secret: String,
     tenant: Option<String>,
     display_name: String,
+    expect: Option<String>,
 ) -> R<Account> {
     let label = provider.label();
     let tenant = if provider == Provider::Microsoft { oauth::clean_tenant(&tenant.unwrap_or_default())? } else { String::new() };
@@ -364,10 +389,27 @@ async fn oauth_sign_in(
             label.to_uppercase()
         ));
     }
-    let pending = oauth::begin(provider, &tenant, client_id.trim())?;
-    open_target(&app, &pending.url, true)?;
+    let pending = oauth::begin_for(provider, oauth::Purpose::Mail, &tenant, client_id.trim(), expect.as_deref())?;
+    let wait = pending.canceller();
+    MAIL_WAIT.begin(wait.clone());
+    if let Err(e) = open_target(&app, &pending.url, true) {
+        MAIL_WAIT.end(&wait);
+        return Err(e);
+    }
     let (cid, csec) = (client_id.trim().to_string(), client_secret.trim().to_string());
-    let signed = blocking(move || pending.finish(&cid, &csec)).await?;
+    let signed = blocking(move || pending.finish(&cid, &csec)).await;
+    MAIL_WAIT.end(&wait);
+    // (a cancel or a timeout ends here: nothing was stored, no account was added or changed)
+    let signed = signed?;
+    if let Some(want) = &expect {
+        if !signed.email.eq_ignore_ascii_case(want) {
+            return Err(i18n::coded(
+                "OAUTH_WRONG_ACCOUNT",
+                &[("got", &signed.email), ("expected", want)],
+                &format!("You signed in as {}. Sign in as {} to renew this mailbox.", signed.email, want),
+            ));
+        }
+    }
 
     let existing = db::list_accounts(&lock(&state.db))?
         .into_iter()
@@ -404,12 +446,22 @@ async fn oauth_sign_in(
     oauth::cache_token(&acc.id, &signed.access_token, 3300);
     // verify the IMAP login works with the new token
     let (a2, tok) = (acc.clone(), signed.access_token.clone());
-    blocking(move || {
+    let verified = blocking(move || {
         let mut s = mail::connect(&a2, &tok)?;
         let _ = s.logout();
         Ok(())
     })
-    .await?;
+    .await;
+    if let Err(e) = verified {
+        // a new mailbox that cannot be used leaves no token behind (an existing one keeps the token it has just been given)
+        if existing.is_none() {
+            if let Ok(entry) = keyring::Entry::new(KEYRING_SERVICE, &acc.id) {
+                let _ = entry.delete_credential();
+            }
+            oauth::forget_token(&acc.id);
+        }
+        return Err(e);
+    }
     let c = lock(&state.db);
     if provider == Provider::Microsoft {
         // always kept: token refresh uses the same tenant, whether the client id came from the env or the form
@@ -799,8 +851,31 @@ fn take_rule_errors_to_tell() -> Vec<String> {
 
 static SYNC_LOCK: Mutex<()> = Mutex::new(());
 
-/// One sync pass for an account, then toasts + tray badge. Serialized so the UI and the background worker never overlap.
+/// The mailboxes known to need a new sign-in (account id -> `again` / `blocked`), so the UI is told once when that changes.
+static SIGNIN_FLAGGED: Mutex<std::collections::BTreeMap<String, &'static str>> = Mutex::new(std::collections::BTreeMap::new());
+
+/// Note the outcome of a sync of one account. The change to announce: `Some(Some(kind))` it now needs a new sign-in,
+/// `Some(None)` it works again, `None` nothing changed.
+fn track_signin(flagged: &mut std::collections::BTreeMap<String, &'static str>, account_id: &str, error: Option<&str>) -> Option<Option<&'static str>> {
+    match error {
+        // (an error that is not about the sign-in, such as no network, changes nothing: the mailbox still needs it)
+        Some(e) => oauth::signin_kind(e).and_then(|kind| (flagged.insert(account_id.to_string(), kind) != Some(kind)).then_some(Some(kind))),
+        None => flagged.remove(account_id).map(|_| None),
+    }
+}
+
+/// One sync pass for an account, then toasts + tray badge. A rejected sign-in is announced to the UI (`signin-state`), also when the
+/// background worker found it, so the mailbox shows "Sign in again" instead of failing quietly.
 fn run_sync(app: &tauri::AppHandle, db: &Db, account_id: &str) -> R<SyncResult> {
+    let r = run_sync_inner(app, db, account_id);
+    let change = track_signin(&mut SIGNIN_FLAGGED.lock().unwrap_or_else(|p| p.into_inner()), account_id, r.as_ref().err().map(String::as_str));
+    if let Some(state) = change {
+        let _ = app.emit("signin-state", serde_json::json!({ "accountId": account_id, "state": state, "error": r.as_ref().err() }));
+    }
+    r
+}
+
+fn run_sync_inner(app: &tauri::AppHandle, db: &Db, account_id: &str) -> R<SyncResult> {
     let _guard = SYNC_LOCK.lock().unwrap_or_else(|p| p.into_inner());
     let r = sync_impl(db, account_id)?;
     for why in take_rule_errors_to_tell() {
@@ -3746,6 +3821,8 @@ pub fn run() {
             list_accounts,
             add_account,
             google_sign_in,
+            oauth_cancel,
+            reauth_account,
             google_env_configured,
             microsoft_sign_in,
             microsoft_env_configured,
@@ -4851,6 +4928,28 @@ mod platform_tests {
         assert_eq!(keyring_error_text("macos", "save", "denied"), "Couldn’t save the password in your macOS Keychain: denied");
         assert_eq!(keyring_error_text("windows", "save", "x"), "cannot store password: x");
         assert!(keyring_error_text("linux", "read", "x").starts_with("Couldn’t read the password"));
+    }
+
+    #[test]
+    fn a_rejected_sign_in_is_announced_once_and_again_when_it_works() {
+        let mut f = std::collections::BTreeMap::new();
+        let reauth = "OAUTH_REAUTH|label=Google: Google sign-in expired or revoked (invalid_grant). Sign in again.";
+        let blocked = "OAUTH_BLOCKED|label=Microsoft: Your organization may need to approve Hey Look! for this Microsoft account.";
+        assert_eq!(track_signin(&mut f, "a", Some(reauth)), Some(Some("again")));
+        // the next failed syncs (every 2 minutes, and the push session) say nothing new
+        assert_eq!(track_signin(&mut f, "a", Some(reauth)), None);
+        assert_eq!(track_signin(&mut f, "a", Some(reauth)), None);
+        // another account is its own case; so is another kind of problem on the same one
+        assert_eq!(track_signin(&mut f, "b", Some(blocked)), Some(Some("blocked")));
+        assert_eq!(track_signin(&mut f, "a", Some(blocked)), Some(Some("blocked")));
+        // an error that is not about the sign-in (offline) neither flags nor clears
+        assert_eq!(track_signin(&mut f, "c", Some("dns error")), None);
+        assert_eq!(track_signin(&mut f, "a", Some("dns error")), None);
+        assert_eq!(f.get("a"), Some(&"blocked"));
+        // a good sync announces the recovery once
+        assert_eq!(track_signin(&mut f, "a", None), Some(None));
+        assert_eq!(track_signin(&mut f, "a", None), None);
+        assert_eq!(track_signin(&mut f, "b", None), Some(None));
     }
 
     #[test]

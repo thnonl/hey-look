@@ -43,7 +43,7 @@ assert.equal(line({ status: "busy", retryAt: NOW + 5 }).text, "Google Calendar i
 assert.equal(line({ status: "busy", retryAt: NOW - 5 }).text, "Google Calendar is busy. Hey Look! tries again in 1 min.");
 assert.deepEqual(line({ status: "auth" }), { text: "Calendar access for me@gmail.com ended. Allow access again to keep syncing.", tone: "bad", syncNow: "off", allow: true });
 assert.deepEqual(line({ status: "blocked", lastError: "admin_policy_enforced" }), {
-  text: "me@gmail.com’s organization hasn’t approved Hey Look! for calendar access. Ask your IT admin.", tone: "bad", syncNow: "off", allow: true,
+  text: "me@gmail.com’s organization may need to approve Hey Look! for calendar access. Ask your IT admin.", tone: "bad", syncNow: "off", allow: true,
 });
 assert.deepEqual(line({ status: "notsetup", lastError: "Google Calendar API has not been used in project 1 before" }), {
   text: "Calendar sync isn’t available in this version of Hey Look! (Google reported: Google Calendar API has not been used in project 1 before).",
@@ -56,7 +56,7 @@ assert.deepEqual(line({ status: "error", lastError: "HTTP 500", retryAt: NOW + 2
 assert.equal(statusLine(src({ kind: "microsoft", status: "busy", retryAt: NOW + 60 }), ctx).text, "Outlook is busy. Hey Look! tries again in 1 min.");
 // Microsoft: admin approval needed, no mailbox the API reaches
 assert.deepEqual(statusLine(src({ kind: "microsoft", status: "blocked", lastError: "AADSTS65001: The user or administrator has not consented" }), { ...ctx, email: "me@contoso.com" }), {
-  text: "me@contoso.com’s organization hasn’t approved Hey Look! for calendar access. Ask your IT admin.", tone: "bad", syncNow: "off", allow: true,
+  text: "me@contoso.com’s organization may need to approve Hey Look! for calendar access. Ask your IT admin.", tone: "bad", syncNow: "off", allow: true,
 });
 assert.equal(
   statusLine(src({ kind: "microsoft", status: "notsetup", lastError: "The mailbox is either inactive, soft-deleted, or is hosted on-premise." }), ctx).text,
