@@ -27,7 +27,7 @@
 
   "kofi.button": "支持我",
 
-  "dl.loading": "正在向api.github.com查询最新版本……",
+  "dl.loading": "正在向api.github.com查询最新版本…",
   "dl.latest": "最新版本：{tag}",
   "dl.notes": "GitHub上的发行说明",
   "dl.error": "请从GitHub Releases获取最新版本。",
@@ -63,10 +63,10 @@
   "story.enc_off": "加密已关闭。",
   "story.sign_on": "已签名。",
   "story.sign_off": "签名已关闭。",
-  "story.scheduled": "已安排发送时间：{when}。",
+  "story.scheduled": "已定于{when}发送。",
   "story.scheduled_p": "邮件在你的发件箱里等候。到时 Hey Look! 必须正在运行。最多可以提前一年安排。",
   "story.cancel_keep": "取消并继续写",
-  "story.scheduled_say": "已安排发送时间：{when}。“定时发送”文件夹里现在有1封邮件。",
+  "story.scheduled_say": "已定于{when}发送。“定时邮件”文件夹里现在有1封邮件。",
   "story.dt_past": "请选择一个将来的时间。",
   "story.dt_limit": "最长可安排到一年后。",
 
@@ -86,7 +86,7 @@
   "story.pos_right": "右侧",
   "story.pos_bottom": "底部",
   "story.conv_state": "对话已{state}。",
-  "story.focused_state": "焦点收件箱已{state}。",
+  "story.focused_state": "重点收件箱已{state}。",
   "story.on": "开启",
   "story.off": "关闭",
   "story.cmd_archived": "已归档。（撤消按钮在提示条里。）",
@@ -102,9 +102,9 @@
   "story.cal_note": "与Google或Microsoft日历同步是可选的，按邮箱分别设置。CalDAV可能会在以后的更新中提供。",
 
   "story.img_loaded": "内容已加载。应用在可能的情况下自己下载了图片，所以发件人现在能看到一次请求。",
-  "story.img_blocked": "远程内容已被拦截。没有向发件人发出任何请求。",
+  "story.img_blocked": "远程内容已被阻止。没有向发件人发出任何请求。",
   "story.img_loaded_say": "远程内容已加载。",
-  "story.img_blocked_say": "远程内容再次被拦截。",
+  "story.img_blocked_say": "远程内容再次被阻止。",
   "story.newsletter": "已打开订阅邮件。",
 
   "nf.title": "找不到页面 - Hey Look!",

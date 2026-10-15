@@ -82,7 +82,7 @@
        <li>macOS会提示“Hey Look!”未打开。点击<strong>完成</strong>，不要点“移到废纸篓”。</li>
        <li>打开<strong>系统设置 &gt; 隐私与安全性</strong>，滚动到<strong>安全性</strong>，点击提示 Hey Look! 的那条消息旁边的<strong>仍要打开</strong>，用密码或Touch ID确认，然后点击<strong>打开</strong>。</li></ol>
        <p>想用“终端”？可以只运行一次下面的命令，代替第2步和第3步：<code>xattr -dr com.apple.quarantine "/Applications/Hey Look!.app"</code></p>
-       <p>Hey Look! 自行安装的版本可以正常启动。Dock图标会显示未读数（设置 &gt; 通知和托盘 &gt; Dock角标）。此版本在macOS上不提供通知。</p></div></details>
+       <p>Hey Look! 自行安装的版本可以正常启动。程序坞图标会显示未读数（设置 &gt; 通知与托盘 &gt; 程序坞角标）。此版本在macOS上不提供通知。</p></div></details>
 <details class="hq" id="linux"><summary>Linux：AppImage、.deb或.rpm</summary><div class="hq-a"><p><code>HeyLook_&lt;version&gt;_linux_amd64.AppImage</code>可在任何发行版上运行；<code>.deb</code>适用于Debian和Ubuntu；<code>.rpm</code>（<code>_linux_x86_64.rpm</code>）适用于Fedora和openSUSE。安装<code>.deb</code>和<code>.rpm</code>时会要求输入你的密码。</p>
        <p>如果你的桌面没有托盘区域，关闭窗口就会退出 Hey Look!。</p>
        <p>链接和附件通过 <code>xdg-open</code> 打开（属于xdg-utils软件包；接下来会依次尝试<code>gio</code>和<code>sensible-browser</code>），所以你需要有默认浏览器和默认应用。通知需要通知服务（只有窗口管理器的环境需要自行安装一个，例如dunst）。密码保存需要GNOME Keyring或KWallet正在运行并已解锁。</p></div></details>
@@ -105,23 +105,23 @@
        <p><strong>iCloud</strong>需要从account.apple.com获取App专用密码（登录与安全，App专用密码），因为Apple没有为第三方邮件应用提供登录窗口。<strong>Yahoo</strong>同样使用应用专用密码。</p>
        <p>服务器必须提供SSL/TLS或STARTTLS；只接受未加密连接的服务器无法添加。</p></div></details>
 <details class="hq" id="cert"><summary>使用自有证书的服务器（Proton Mail Bridge、公司服务器）</summary><div class="hq-a"><p>Proton Mail Bridge在<code>127.0.0.1</code>上监听，使用自签名证书：在服务商列表中选择<strong>Proton Mail Bridge</strong>，并使用Bridge显示的用户名和密码。对于其他服务器，请在高级设置中打开<strong>信任此服务器的证书</strong>。之后该账户的IMAP和SMTP将不再检查证书，所以只应对你自己掌控的服务器使用。</p></div></details>
-<details class="hq" id="limit"><summary>这台电脑上保留多少邮件？</summary><div class="hq-a"><p><strong>设置 &gt; 阅读和同步 &gt; 每个邮箱最多下载的邮件数</strong>可选500、1000、2000或5000（默认2000），按每个邮箱所有文件夹合计。当某个邮箱超出上限时，最旧的邮件会被移除，但<strong>只是从这台电脑上移除</strong>；它们仍留在服务器上。草稿、已标记的邮件、已固定或已延后的对话，以及每个文件夹中最新的一封邮件会被保留。新邮件始终会收到。</p></div></details>
+<details class="hq" id="limit"><summary>这台电脑上保留多少邮件？</summary><div class="hq-a"><p><strong>设置 &gt; 阅读与同步 &gt; 每个邮箱最多下载的邮件数</strong>可选500、1000、2000或5000（默认2000），按每个邮箱所有文件夹合计。当某个邮箱超出上限时，最旧的邮件会被移除，但<strong>只是从这台电脑上移除</strong>；它们仍留在服务器上。草稿、已标记的邮件、已固定或已延后的对话，以及每个文件夹中最新的一封邮件会被保留。新邮件始终会收到。</p></div></details>
 <details class="hq" id="calsync"><summary>与Google或Microsoft同步日历</summary><div class="hq-a"><p>这项功能是可选的，按邮箱分别设置，在你开启之前默认关闭：<strong>设置 &gt; 邮箱 &gt;（账户）&gt; 日历 &gt; 与Google同步日历</strong>（或<strong>Microsoft</strong>）。浏览器会打开服务商自己的页面，请求日历权限。这与你的邮件登录是分开的，邮件登录不会改变。然后选择要同步的日历：它们的事件会显示在 Hey Look! 的日历中，而你添加、修改、删除或回复的事件会同步保存回Google日历或Outlook。</p>
        <p>关闭开关后，已同步的日历和事件会从这台电脑上移除，日历登录令牌也会被删除；它们仍保留在你的服务商那里。来自已同步日历的重复事件是只读的。关于Google，请参阅<a href="#google-review">Google提示“Google未验证此应用”</a>；Microsoft工作或学校账户可能需要管理员批准日历访问。不支持CalDAV和其他服务。</p></div></details>
-<details class="hq" id="push"><summary>新邮件即时送达（推送）或定时检查</summary><div class="hq-a"><p>在支持IMAP IDLE的服务器上，只要 Hey Look! 正在运行，收件箱的新邮件就会立即送达。<strong>设置 &gt; 阅读和同步 &gt; 即时获取收件箱新邮件（推送）</strong>可以将其关闭，可对所有账户或单个邮箱设置；邮箱的服务器面板会显示<strong>推送</strong>或<strong>轮询</strong>。如果服务器不支持IDLE，或连接持续失败，Hey Look! 会按你设定的间隔检查（默认每2分钟一次）。推送正常工作时，对所有文件夹的常规检查只会每10分钟运行一次（如果你设定的间隔更长，则按你的间隔），而且推送只覆盖收件箱。</p></div></details>
+<details class="hq" id="push"><summary>新邮件即时送达（推送）或定时检查</summary><div class="hq-a"><p>在支持IMAP IDLE的服务器上，只要 Hey Look! 正在运行，收件箱的新邮件就会立即送达。<strong>设置 &gt; 阅读与同步 &gt; 即时获取收件箱新邮件（推送）</strong>可以将其关闭，可对所有账户或单个邮箱设置；邮箱的服务器面板会显示<strong>推送</strong>或<strong>轮询</strong>。如果服务器不支持IDLE，或连接持续失败，Hey Look! 会按你设定的间隔检查（默认每2分钟一次）。推送正常工作时，对所有文件夹的常规检查只会每10分钟运行一次（如果你设定的间隔更长，则按你的间隔），而且推送只覆盖收件箱。</p></div></details>
 <details class="hq" id="inherit"><summary>对所有账户或单个邮箱的设置</summary><div class="hq-a"><p>打开<strong>设置 &gt; 邮箱</strong>。<strong>所有账户</strong>里是默认值。每个账户都有相同的页面；你在那里更改的设置会标记为<strong>自定义</strong>，仅对该邮箱覆盖默认值。<strong>重置</strong>则恢复为继承默认值。邮件签名、模板和过滤器可以属于所有账户，也可以只属于某一个邮箱。</p></div></details>
   </section>
   <section class="hq-group" id="g-daily" aria-labelledby="g-daily-h"><h2 id="g-daily-h">日常使用</h2>
 <details class="hq" id="keys"><summary>键盘快捷键和命令栏</summary><div class="hq-a"><p>按 <kbd>Ctrl</kbd> <kbd>K</kbd>（macOS上为 <kbd>Cmd</kbd> <kbd>K</kbd>）打开命令栏：输入命令或文件夹名称。</p>
        <div class="tbl-wrap"><table class="tbl keys"><caption class="sr-only">键盘快捷键</caption><thead><tr><th scope="col">按键</th><th scope="col">操作</th><th scope="col">按键</th><th scope="col">操作</th></tr></thead><tbody>
-       <tr><td><kbd>c</kbd></td><td>写新邮件</td><td><kbd>r</kbd> <kbd>a</kbd> <kbd>f</kbd></td><td>回复、全部回复、转发</td></tr><tr><td><kbd>/</kbd></td><td>搜索</td><td><kbd>e</kbd></td><td>归档</td></tr><tr><td><kbd>j</kbd> <kbd>k</kbd></td><td>下一个、上一个对话</td><td><kbd>#</kbd> <kbd>Delete</kbd></td><td>删除（macOS上也可用删除键）</td></tr>
+       <tr><td><kbd>c</kbd></td><td>新建邮件</td><td><kbd>r</kbd> <kbd>a</kbd> <kbd>f</kbd></td><td>回复、全部回复、转发</td></tr><tr><td><kbd>/</kbd></td><td>搜索</td><td><kbd>e</kbd></td><td>归档</td></tr><tr><td><kbd>j</kbd> <kbd>k</kbd></td><td>下一个、上一个对话</td><td><kbd>#</kbd> <kbd>Delete</kbd></td><td>删除（macOS上也可用删除键）</td></tr>
        <tr><td><kbd>s</kbd></td><td>延后</td><td><kbd>!</kbd></td><td>移至垃圾邮件</td></tr><tr><td><kbd>p</kbd></td><td>固定</td><td><kbd>*</kbd></td><td>标记</td></tr><tr><td><kbd>u</kbd></td><td>标记为未读</td><td><kbd>Ctrl</kbd> <kbd>A</kbd></td><td>全选（macOS上用Cmd）</td></tr>
        <tr><td><kbd>Ctrl</kbd> <kbd>K</kbd></td><td>命令栏（macOS上用Cmd）</td><td><kbd>Ctrl</kbd> <kbd>Enter</kbd></td><td>写邮件时发送（macOS上用Cmd）</td></tr><tr><td><kbd>F5</kbd></td><td>立即同步</td><td><kbd>Esc</kbd></td><td>关闭、取消选择</td></tr>
        <tr><td><kbd>F11</kbd></td><td>全屏（Windows）</td><td><kbd>Ctrl</kbd> <kbd>1</kbd> <kbd>/</kbd> <kbd>Ctrl</kbd> <kbd>2</kbd></td><td>邮件 / 日历</td></tr><tr><td><kbd>c</kbd> <kbd>t</kbd> <kbd>m</kbd> <kbd>w</kbd> <kbd>a</kbd></td><td>日历：新建事件、今天、月、周、日程</td><td><kbd>←</kbd> <kbd>→</kbd></td><td>日历：上一个、下一个</td></tr>
        </tbody></table></div></div></details>
 <details class="hq" id="undo"><summary>撤消发送、归档撤消，以及定时发送</summary><div class="hq-a"><p><strong>撤消发送：</strong>点击发送后，邮件会在本地发件箱中等待0、5、10、20、30或60秒（默认10秒），点击“撤消”即可取消发送。如果 Hey Look! 被强制关闭（崩溃、任务管理器、安装程序），邮件会在下次启动时发出。正常<strong>退出</strong>则会立即发出仍在等待的邮件。</p>
        <p><strong>归档、删除和移至垃圾邮件</strong>的操作会在3、6、10、15或30秒后（默认6秒）才应用到服务器，所以你可以撤消。</p>
-       <p><strong>定时发送：</strong>选一个预设，或任意日期和时间，最长可安排到一年后。邮件由应用内部的后台任务发出，所以 Hey Look! 必须正在运行。发送时间在应用关闭期间已过的邮件，默认会在下次启动时发出；如果把设置改为“询问”，它就会作为“已逾期”等待你处理。遇到临时错误最多重试3次，每次间隔5分钟。</p></div></details>
+       <p><strong>定时发送：</strong>选一个预设，或任意日期和时间，最长可安排到一年后。邮件由应用内部的后台任务发出，所以 Hey Look! 必须正在运行。发送时间在应用关闭期间已过的邮件，默认会在下次启动时发出；如果把设置改为“先询问我”，它就会作为“已逾期”等待你处理。遇到临时错误最多重试3次，每次间隔5分钟。</p></div></details>
 <details class="hq" id="search"><summary>搜索</summary><div class="hq-a"><p>在搜索框中输入运算符：<code>from:</code> <code>to:</code> <code>subject:</code> <code>body:</code> <code>folder:</code> <code>is:unread|read|flagged|pinned</code> <code>has:attachment</code> <code>after:2026-01-31</code> <code>before:</code> <code>after:7d</code>，以及用引号括起来的短语，如<code>&quot;quoted phrases&quot;</code>。只会搜索已下载到这台电脑上的邮件。对于已知网页邮箱入口的邮箱，会有一个<strong>在网页邮箱中搜索</strong>按钮可以打开该网页邮箱；Gmail则会用转换后的运算符执行同样的搜索。</p></div></details>
 <details class="hq" id="language"><summary>更改语言</summary><div class="hq-a"><p>打开<strong>设置 &gt; 常规</strong>，在第一行选择英语、越南语、法语、简体中文、西班牙语、日语、德语或俄语。立即生效，无需重启。默认语言是英语，Hey Look! 不会根据你的系统自动选择语言。译文是新的，可能有错误；如果你发现了，请到<a href="https://github.com/thnonl/hey-look/issues" rel="noopener">GitHub</a>告诉我们。</p></div></details>
 <details class="hq" id="updates"><summary>更新</summary><div class="hq-a"><p>Hey Look! 会在你同意之后自行更新。它会在应用启动或从托盘恢复时检查（最多每6小时一次），也可以在<strong>设置 &gt; 关于</strong>中手动检查。在那里关闭自动检查（“自动检查更新”），应用就不会再自动发出任何请求。</p>
@@ -133,10 +133,10 @@
   <section class="hq-group" id="g-privacy" aria-labelledby="g-privacy-h"><h2 id="g-privacy-h">隐私与数据存放位置</h2>
 <details class="hq" id="where"><summary>我的数据存放在哪里？</summary><div class="hq-a"><p>邮件缓存和设置保存在一个SQLite文件里：Windows上为<code>%APPDATA%\thnonl.heylook\heylook.db</code>，macOS上为<code>~/Library/Application Support/thnonl.heylook/</code>，Linux上为<code>~/.local/share/thnonl.heylook/</code>。</p>
        <p>密码、OAuth令牌、AI密钥和OAuth客户端密钥保存在Windows凭据管理器、macOS钥匙串，或Linux上的Secret Service中（GNOME Keyring、KWallet；其中一个必须正在运行并已解锁）。所有条目的名称都是<code>heylook&hellip;</code>的形式。OpenPGP私钥是例外：它们保存在应用的数据库中，由各自的密码短语保护。</p></div></details>
-<details class="hq" id="leaves"><summary>哪些内容会离开我的电脑？</summary><div class="hq-a"><p>除了以下这些地方，不会向任何地方发送任何内容：你的邮件服务器；Google和Microsoft的登录服务；Google日历和Microsoft Graph（仅限你开启了日历同步的邮箱）；你点击<strong>检测设置</strong>时的Thunderbird ISPDB和你自己域名的autoconfig地址；你配置的AI端点；你允许加载的图片背后的服务器；你点击“退订”链接时该链接背后的发件人地址；以及用于检查更新的github.com（GitHub能看到你的IP地址；你同意更新后，安装包也来自github.com）。</p>
+<details class="hq" id="leaves"><summary>哪些内容会离开我的电脑？</summary><div class="hq-a"><p>除了以下这些地方，不会向任何地方发送任何内容：你的邮件服务器；Google和Microsoft的登录服务；Google日历和Microsoft Graph（仅限你开启了日历同步的邮箱）；你点击<strong>检测设置</strong>时的Thunderbird ISPDB和你自己域名的autoconfig地址；你配置的AI端点；你允许加载的图片背后的服务器；你点击“取消订阅”链接时该链接背后的发件人地址；以及用于检查更新的github.com（GitHub能看到你的IP地址；你同意更新后，安装包也来自github.com）。</p>
        <p>源代码里没有分析或崩溃报告代码。这是通过查看源代码确认的，而不是靠网络抓包。详见<a href="privacy.html">隐私政策</a>。</p></div></details>
-<details class="hq" id="images"><summary>远程图片和跟踪像素</summary><div class="hq-a"><p>远程图片和背景图片在你允许之前一直被拦截（允许一次、按邮箱允许，或始终允许）。跟踪像素就是一张远程图片，所以会和其他图片一起被拦截；应用没有跟踪器名单。你允许加载的图片，应用会尽量自己下载；对于它自己无法获取的图片，网页视图可能会直接请求。链接上显示的文字是网址、但实际指向别处时，会请你确认；打开可执行文件附件前也会先询问。</p></div></details>
-<details class="hq" id="ai"><summary>AI助手（可选）</summary><div class="hq-a"><p>它只会与你配置的端点通信（任何兼容OpenAI的API，包括本地服务器），而且只在你点击按钮时才通信。总结最多发送一个对话中可读邮件的24,000个字符，翻译最多12,000个字符，“用AI写邮件”则会发送你的草稿、主题，回复邮件时还会发送你所回复邮件的最多6,000个字符。解密后的OpenPGP内容也会一并发送，因为助手读取的是可读文本。密钥保存在你系统的凭据存储中。</p></div></details>
+<details class="hq" id="images"><summary>远程图片和跟踪像素</summary><div class="hq-a"><p>远程图片和背景图片在你允许之前一直被阻止（允许一次、按邮箱允许，或始终允许）。跟踪像素就是一张远程图片，所以会和其他图片一起被阻止；应用没有跟踪器名单。你允许加载的图片，应用会尽量自己下载；对于它自己无法获取的图片，网页视图可能会直接请求。链接上显示的文字是网址、但实际指向别处时，会请你确认；打开可执行文件附件前也会先询问。</p></div></details>
+<details class="hq" id="ai"><summary>AI助手（可选）</summary><div class="hq-a"><p>它只会与你配置的端点通信（任何兼容OpenAI的API，包括本地服务器），而且只在你点击按钮时才通信。总结最多发送一个对话中可读邮件的24,000个字符，翻译最多12,000个字符，“用AI撰写”则会发送你的草稿、主题，回复邮件时还会发送你所回复邮件的最多6,000个字符。解密后的OpenPGP内容也会一并发送，因为助手读取的是可读文本。密钥保存在你系统的凭据存储中。</p></div></details>
 <details class="hq" id="remove"><summary>卸载，并清除所有内容</summary><div class="hq-a"><p>先在 Hey Look! 中移除你的账户（<strong>设置 &gt; 邮箱 &gt; 账户 &gt; 移除账户</strong>；邮件仍留在服务器上），然后卸载应用，再删除它的数据文件夹（见“我的数据存放在哪里？”）以及系统凭据存储中所有名称形如<code>heylook&hellip;</code>的条目。</p></div></details>
   </section>
   <section class="hq-group" id="g-pgp" aria-labelledby="g-pgp-h"><h2 id="g-pgp-h">OpenPGP基础</h2>
@@ -149,7 +149,7 @@
 <details class="hq" id="vuln"><summary>安全问题</summary><div class="hq-a"><p>请私下报告：打开<a href="https://github.com/thnonl/hey-look/security" rel="noopener">github.com/thnonl/hey-look/security</a>并选择“Report a vulnerability”（报告漏洞），或写信到<a href="mailto:namth.onl@gmail.com">namth.onl@gmail.com</a>。请不要公开提交议题。详见<a href="security.html">安全</a>。</p></div></details>
   </section>
   <section class="hq-group" id="g-limits" aria-labelledby="g-limits-h"><h2 id="g-limits-h">已知限制</h2>
-<details class="hq" id="lim"><summary>Hey Look! 目前还做不到什么</summary><div class="hq-a"><ul><li>在macOS上没有通知（不过Dock图标会显示未读数）；应用菜单中只有“退出”一项会跟随应用语言；“打印”菜单项仅限Windows和Linux。在Linux上，通知没有按钮。</li>
+<details class="hq" id="lim"><summary>Hey Look! 目前还做不到什么</summary><div class="hq-a"><ul><li>在macOS上没有通知（不过程序坞图标会显示未读数）；应用菜单中只有“退出”一项会跟随应用语言；“打印”菜单项仅限Windows和Linux。在Linux上，通知没有按钮。</li>
        <li>安装程序没有经过代码签名，macOS版应用也没有经过公证。</li>
        <li>推送（IMAP IDLE）只覆盖支持该功能的服务器的收件箱；其他文件夹以及不支持推送的服务器通过轮询获取（默认每2分钟一次）。</li>
        <li>搜索只涵盖已下载到这台电脑上的邮件。</li>
