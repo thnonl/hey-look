@@ -195,7 +195,7 @@ export default defineLocale<typeof ns.en>({
   "calendar.dialog.serviceSendsFrom": "{service}会以{email}的名义发送邀请。",
   "calendar.dialog.genericSends": "日历服务会发送邀请。",
   "calendar.dialog.genericSendsFrom": "日历服务会以{email}的名义发送邀请。",
-  "calendar.dialog.sendFrom": "发送自",
+  "calendar.dialog.sendFrom": "发件人",
   "calendar.dialog.calendar": "日历",
   "calendar.dialog.reminder": "提醒",
   "calendar.dialog.notes": "备注",
@@ -271,6 +271,6 @@ export default defineLocale<typeof ns.en>({
   "calendar.err.denied": "未允许访问日历。请打开开关重试。",
   "calendar.err.timeout": "日历登录已超时。请打开开关重试。",
   "calendar.err.cancelled": "日历登录已取消。",
-  "calendar.err.wrongAccount": "您为{signedIn}允许了访问。请使用{mailbox}登录，以同步此邮箱的日历。",
+  "calendar.err.wrongAccount": "您已授予对{signedIn}的访问权限。请使用{mailbox}登录，以同步此邮箱的日历。",
   "calendar.err.partial": "Hey Look!需要它所请求的全部日历权限。请再次打开开关，并保持所有复选框处于勾选状态。",
 });

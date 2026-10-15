@@ -85,7 +85,7 @@ export default defineLocale<typeof ns.en>({
   "updates.pill.ready": "就绪",
   "updates.pill.skipped": "已跳过",
   "updates.pill.new": "新",
-  "updates.hint.msi": "Windows会请求安装权限。",
+  "updates.hint.msi": "Windows会请求您允许安装。",
   "updates.hint.password": "安装时会要求您输入密码。",
   // ---- the flow (download, verify, restart, install)
   "updates.flow.downloading": "正在下载… {received}",
