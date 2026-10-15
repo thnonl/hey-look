@@ -112,7 +112,7 @@ export default defineLocale<typeof ns.en>({
   "updates.progress.percent": "{percent} %, {received}",
   "updates.progress.percentOf": "{percent} %, {received} de {total}",
   "updates.failed.verify": "La descarga está dañada o su firma no coincide. No se instaló nada.",
-  "updates.failed.badurl": "El enlace de la actualización no pertenece a las versiones de Hey Look!. No se descargó nada.",
+  "updates.failed.badurl": "El enlace de la actualización no procede de las versiones de Hey Look!; no se descargó nada.",
   "updates.failed.install": "No se pudo instalar la actualización: {message}.",
   "updates.failed.download": "No se pudo descargar la actualización. {message}",
   // ---- release notes

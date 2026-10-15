@@ -29,7 +29,7 @@ export default defineLocale<typeof ns.en>({
   "errors.ask.discard": "Descartar",
   // ---- account presets of api.ts (provider names are not translated)
   "errors.provider.gmail.hint": "Requiere una contraseña de aplicación de Google (con la verificación en dos pasos activada).",
-  "errors.provider.outlook.hint": "Es preferible la pestaña Microsoft (OAuth). El inicio de sesión con contraseña solo funciona si la autenticación básica está habilitada; en ese caso, las cuentas personales necesitan una contraseña de aplicación.",
+  "errors.provider.outlook.hint": "Usa preferentemente la pestaña Microsoft (OAuth). El inicio de sesión con contraseña solo funciona si la autenticación básica está habilitada; en ese caso, las cuentas personales necesitan una contraseña de aplicación.",
   "errors.provider.icloud.hint": "Apple no ofrece OAuth para aplicaciones de correo. Crea una contraseña específica de la aplicación en account.apple.com (Inicio de sesión y seguridad) y úsala aquí, con tu dirección completa de iCloud como correo electrónico.",
   "errors.provider.yahoo.hint": "Usa una contraseña de aplicación de Yahoo.",
   "errors.provider.bridge.hint": "Ejecuta Proton Mail Bridge y usa el nombre de usuario y la contraseña de Bridge (no tu contraseña de Proton). Bridge usa un certificado autofirmado en este equipo, así que se confía en el certificado.",

@@ -119,7 +119,7 @@ export default defineLocale<typeof ns.en>({
   "reading.att.riskyTitle": "¿Abrir “{name}”?",
   "reading.att.riskyBody": "Este tipo de archivo puede ejecutar programas en tu equipo. Ábrelo solo si confías en {sender} y esperabas este archivo.",
   "reading.att.theSender": "el remitente",
-  "reading.att.saveInstead": "Mejor guardarlo",
+  "reading.att.saveInstead": "Guardar en lugar de abrir",
   "reading.att.openAnyway": "Abrir de todos modos",
   "reading.att.couldntSave": "No se pudo guardar {name}: {error}",
   "reading.att.couldntOpen": "No se pudo abrir {name}: {error}",
