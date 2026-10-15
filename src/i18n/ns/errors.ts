@@ -66,7 +66,7 @@ export default define({
     "errors.ask.unsentBody": "Mở thư khác sẽ đóng thư bạn đang soạn.",
     "errors.ask.keepWriting": "Tiếp tục soạn",
     "errors.ask.saveContinue": "Lưu nháp và tiếp tục",
-    "errors.ask.discard": "Bỏ thư",
+    "errors.ask.discard": "Loại bỏ thư",
 
     "errors.provider.gmail.hint": "Cần mật khẩu ứng dụng Google (đã bật xác minh 2 bước).",
     "errors.provider.outlook.hint": "Nên dùng tab Microsoft (OAuth). Đăng nhập bằng mật khẩu chỉ hoạt động khi bật xác thực cơ bản; tài khoản cá nhân khi đó cần mật khẩu ứng dụng.",
