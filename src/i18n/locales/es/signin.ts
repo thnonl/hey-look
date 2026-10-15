@@ -1,4 +1,3 @@
-// STUB: English placeholders, to be translated
 import { defineLocale } from "../../types.ts";
 import type ns from "../../ns/signin.ts";
 
@@ -9,22 +8,22 @@ import type ns from "../../ns/signin.ts";
 // language of the browser), so they stay in English in every language.
 
 export default defineLocale<typeof ns.en>({
-  "signin.waiting.mail": "Finish in your browser.",
-  "signin.google.hint": "If Google shows “Google hasn’t verified this app”, choose Advanced, then Go to Hey Look! (unsafe). Hey Look! is waiting for Google’s review.",
-  "signin.google.learn": "What does this mean?",
-  "signin.end.timeout": "{provider} sign-in timed out.",
-  "signin.end.cancelled": "{provider} sign-in was cancelled.",
-  "signin.end.denied": "{provider} sign-in wasn’t completed.",
-  "signin.end.generic": "{provider} sign-in didn’t finish.",
-  "signin.end.google.mail": "Google may have blocked this sign-in, for example when the limit for apps Google hasn’t verified is reached. You can add a Gmail account with an app password instead.",
-  "signin.end.google.calendar": "Google may have blocked this sign-in, for example when the limit for apps Google hasn’t verified is reached. Your mail isn’t affected.",
-  "signin.end.microsoft": "If your organization manages this account, it may need to approve Hey Look! first. Ask your IT admin.",
-  "signin.end.microsoft.blocked": "Your organization may need to approve Hey Look! before this account can sign in. Ask your IT admin, then try again.",
-  "signin.end.appPassword": "Add Gmail with an app password",
-  "signin.again.text": "{provider} sign-in for {email} ended. Sign in again to keep getting mail. Your mail stays on this computer.",
-  "signin.again.blocked": "Your organization may need to approve Hey Look! for {email}. Ask your IT admin, then try again.",
-  "signin.again.button": "Sign in again",
-  "signin.again.short": "{provider} sign-in ended.",
-  "signin.again.blockedShort": "Hey Look! may need your organization’s approval.",
-  "signin.again.done": "Signed in again as {email}",
+  "signin.waiting.mail": "Termina en tu navegador.",
+  "signin.google.hint": "Si Google muestra la advertencia “Google hasn’t verified this app” (la página puede aparecer en el idioma de tu navegador), elige Advanced y luego Go to Hey Look! (unsafe). Hey Look! está pendiente de la revisión de Google.",
+  "signin.google.learn": "¿Qué significa esto?",
+  "signin.end.timeout": "Se agotó el tiempo de espera del inicio de sesión con {provider}.",
+  "signin.end.cancelled": "Se canceló el inicio de sesión con {provider}.",
+  "signin.end.denied": "No se completó el inicio de sesión con {provider}.",
+  "signin.end.generic": "El inicio de sesión con {provider} no terminó.",
+  "signin.end.google.mail": "Es posible que Google haya bloqueado este inicio de sesión, por ejemplo al alcanzarse el límite de aplicaciones no verificadas por Google. En su lugar, puedes añadir una cuenta de Gmail con una contraseña de aplicación.",
+  "signin.end.google.calendar": "Es posible que Google haya bloqueado este inicio de sesión, por ejemplo al alcanzarse el límite de aplicaciones no verificadas por Google. Tu correo no se ve afectado.",
+  "signin.end.microsoft": "Si tu organización administra esta cuenta, es posible que tenga que aprobar Hey Look! antes. Consulta con tu administrador de TI.",
+  "signin.end.microsoft.blocked": "Es posible que tu organización tenga que aprobar Hey Look! para que esta cuenta pueda iniciar sesión. Consulta con tu administrador de TI y vuelve a intentarlo.",
+  "signin.end.appPassword": "Añadir Gmail con una contraseña de aplicación",
+  "signin.again.text": "Terminó el inicio de sesión de {provider} para {email}. Vuelve a iniciar sesión para seguir recibiendo correo. Tu correo se queda en este equipo.",
+  "signin.again.blocked": "Es posible que tu organización tenga que aprobar Hey Look! para {email}. Consulta con tu administrador de TI y vuelve a intentarlo.",
+  "signin.again.button": "Volver a iniciar sesión",
+  "signin.again.short": "Terminó el inicio de sesión de {provider}.",
+  "signin.again.blockedShort": "Hey Look! puede necesitar la aprobación de tu organización.",
+  "signin.again.done": "Sesión iniciada de nuevo como {email}",
 });
