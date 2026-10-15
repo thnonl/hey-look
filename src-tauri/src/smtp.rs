@@ -458,9 +458,7 @@ fn probe_starttls(acc: &Account, timeout: std::time::Duration) -> Result<(), Pro
             Ok(Some(g)) if g.starts_with("220") => {}
             _ => return Ok(()),
         }
-        if out.write_all(b"EHLO hey-look.local
-
-").is_err() {
+        if out.write_all(b"EHLO hey-look.local\r\n").is_err() {
             return Ok(());
         }
         match reply(&mut input) {
@@ -468,15 +466,11 @@ fn probe_starttls(acc: &Account, timeout: std::time::Duration) -> Result<(), Pro
             Ok(Some(r)) if r.starts_with("250") => {}
             _ => return Ok(()),
         }
-        if out.write_all(b"STARTTLS
-
-").is_err() {
+        if out.write_all(b"STARTTLS\r\n").is_err() {
             return Ok(());
         }
         let r = reply(&mut input);
-        let _ = out.write_all(b"QUIT
-
-");
+        let _ = out.write_all(b"QUIT\r\n");
         return if r.is_err() { silent() } else { Ok(()) };
     }
     timed_out.map_or(Ok(()), |e| Err(Probe::ConnectTimedOut(e)))
