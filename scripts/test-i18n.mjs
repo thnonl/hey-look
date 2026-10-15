@@ -326,6 +326,12 @@ if (!args.has("--lint-only")) {
     assert.ok(rules.every((r) => /lang\((ja|zh-Hans)\)|lang="(ja|zh-Hans)"/.test(r)), "line-break / auto-phrase are set for ja and zh-Hans only (nothing else changes how Latin text wraps)");
   }
 
+  // ---- key names in tooltips and hints are the platform's key names in every language (Ctrl on Windows / Linux, mapped to Cmd on macOS by kbd());
+  // the Shortcuts list in Settings keeps the English key labels, so a translated "Strg+Enter" or "Ctrl+Eingabe" would disagree with it (a modifier-click in prose, "Maj+clic", is not a hint)
+  for (const [name, dict] of Object.entries(dicts)) for (const [k, v] of Object.entries(dict)) {
+    for (const s of formsOf(v)) if (/(Strg|Ctl|Steuerung|Control)\s?\+/.test(s) || /(Ctrl|Cmd|Alt)\+(Mayús|Umschalt|Maj|Intro|Entrée|Retour|Eingabe)/.test(s) || /\+(Intro|Entrée|Retour|Eingabe)\b/.test(s)) fail(`${name}: ${k}: key names in a hint are Ctrl / Shift / Alt / Enter as the Shortcuts list shows them: ${s}`);
+  }
+
   // ---- the "Translate to ..." menu offers every language of the registry (and is built from it), each with a name in every dictionary
   {
     const rp = readFileSync(join(root, "src/components/ReadingPane.tsx"), "utf8");
