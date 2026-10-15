@@ -741,12 +741,16 @@ mod tests {
 
     #[test]
     fn key_with_expiry_reports_it_and_cannot_be_used_after() {
+        // generation can take seconds on a loaded machine, so bracket it between two clock reads
+        let before = now();
         let sk = generate(Algo::Cv25519, "E <e@example.com>", Some(30), "secret-pass").unwrap();
+        let after = now();
         let pk = sk.to_public_key();
         pk.verify_bindings().expect("re-signed bindings are valid");
         let i = info(&pk, true);
         let exp = i.expires.expect("has expiry");
-        assert!((exp - (now() + 30 * 86400)).abs() < 5);
+        // expiry = creation time + 30 days, creation time lies between the two reads (1 s rounding slack each side)
+        assert!(exp >= before + 30 * 86400 - 1 && exp <= after + 30 * 86400 + 1, "expiry {exp} outside [{before}, {after}] + 30 d");
         assert!(encryption_key(&pk, now()).is_ok());
         assert_eq!(encryption_key(&pk, exp + 10).err(), Some(Unusable::Expired(exp)));
         // extend: expiry moves, key still valid
