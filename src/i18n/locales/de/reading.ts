@@ -21,7 +21,7 @@ export default defineLocale<typeof ns.en>({
   "reading.preview.shuffle": "Andere Beispiel-E-Mails erzeugen",
   // ---- reading pane: empty state and conversation toolbar
   "reading.pane.label": "Lesebereich",
-  "reading.empty.title": "Element zum Lesen auswählen",
+  "reading.empty.title": "Wählen Sie ein Element aus, um es zu lesen",
   "reading.empty.none": "Nichts ausgewählt",
   "reading.empty.selected": "{n} Elemente ausgewählt",
   "reading.head.archive": "Archivieren",
@@ -53,7 +53,7 @@ export default defineLocale<typeof ns.en>({
   "reading.head.setupAi": "KI einrichten",
   "reading.head.summaryTitle": "Zusammenfassung der Unterhaltung",
   "reading.head.blockTitle": "{email} blockieren?",
-  "reading.head.blockBody": "E-Mails dieses Absenders werden in den Spam-Ordner verschoben und der Absender wird zu den blockierten Absendern hinzugefügt (Einstellungen → Blockierte Absender). Dort können Sie das rückgängig machen.",
+  "reading.head.blockBody": "E-Mails dieses Absenders werden in den Ordner „Spam“ verschoben und der Absender wird zu den blockierten Absendern hinzugefügt (Einstellungen → Blockierte Absender). Dort können Sie das rückgängig machen.",
   "reading.head.blockConfirm": "Absender blockieren",
   "reading.head.blocked": "{email} blockiert",
   "reading.ai.noConfidential": "Vertrauliche E-Mails werden nicht an den KI-Assistenten gesendet.",

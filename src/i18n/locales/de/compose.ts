@@ -82,7 +82,7 @@ export default defineLocale<typeof ns.en>({
   "compose.banner.changeTime": "Zeit ändern",
   "compose.banner.sendNow": "Jetzt senden",
   "compose.banner.passed": "Dieser Zeitpunkt ist bereits vorbei. Wählen Sie einen neuen Zeitpunkt, um die Nachricht erneut zu planen.",
-  "compose.banner.keepsSchedule": "Wenn Sie ohne Änderungen schließen, bleibt der ursprüngliche Zeitplan erhalten.",
+  "compose.banner.keepsSchedule": "Wenn Sie ohne Änderungen schließen, bleibt der ursprüngliche Sendezeitpunkt erhalten.",
   "compose.banner.editingDraft": "Sie bearbeiten einen Entwurf. Beim Senden oder Speichern wird das Original ersetzt.",
   // meeting note
   "compose.meeting.note": "Empfänger in „An“ sind erforderliche Teilnehmer, Empfänger in „Cc“ sind optionale Teilnehmer. Bcc wird für Besprechungen nicht verwendet. Der Termin wird auch zu „Meine Termine“ hinzugefügt.",
@@ -265,7 +265,7 @@ export default defineLocale<typeof ns.en>({
   "compose.scheduled.noOne": "niemand",
   "compose.scheduled.rowLabel": "{subject} an {to}, {status}",
   "compose.scheduled.rowLabelError": "{subject} an {to}, {status}. {error}",
-  "compose.scheduled.wasDue": "Fällig war {when} · {error}",
+  "compose.scheduled.wasDue": "War fällig: {when} · {error}",
   "compose.scheduled.retryAria": "Senden von {name} erneut versuchen",
   "compose.scheduled.editAria": "{name} bearbeiten",
   "compose.scheduled.sendNowTip": "Jetzt senden (Ctrl+Enter)",

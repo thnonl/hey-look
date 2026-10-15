@@ -23,7 +23,7 @@ export default defineLocale<typeof ns.en>({
   "pgp.unlock.rememberSession": "Merken, bis Hey Look! beendet wird",
   "pgp.unlock.keepFew": "Einige Minuten entsperrt lassen",
   "pgp.unlock.unlocking": "Wird entsperrt…",
-  "pgp.unlock.wait": "Warten {n} s",
+  "pgp.unlock.wait": "Warten ({n} s)",
   "pgp.unlock.unlock": "Entsperren",
   // ---- generate a key
   "pgp.expiry.2y": "In 2 Jahren",
@@ -64,10 +64,10 @@ export default defineLocale<typeof ns.en>({
   // ---- import a key
   "pgp.import.title": "Schlüssel importieren",
   "pgp.import.drop": ".asc-Schlüsseldatei hier ablegen",
-  "pgp.import.orChoose": "oder {link} · oder unten einen ASCII-Armor-Schlüssel einfügen",
+  "pgp.import.orChoose": "oder {link} · oder unten einen Schlüssel im Textformat (ASCII-Armor) einfügen",
   "pgp.import.chooseFile": "Datei auswählen",
   "pgp.import.notText": "Diese Datei liegt nicht im Textformat (.asc) vor. Verwenden Sie für binäre Schlüsseldateien „Datei auswählen“.",
-  "pgp.import.armored": "ASCII-Armor-Schlüssel",
+  "pgp.import.armored": "Schlüssel im Textformat (ASCII-Armor)",
   "pgp.import.secretKey": "Geheimer Schlüssel",
   "pgp.import.publicKey": "Öffentlicher Schlüssel",
   "pgp.import.revoked": "Dieser Schlüssel wurde von seinem Inhaber widerrufen. Verwenden Sie ihn nicht zum Verschlüsseln.",

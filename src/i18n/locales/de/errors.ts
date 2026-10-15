@@ -9,8 +9,8 @@ export default defineLocale<typeof ns.en>({
   "errors.pgp.locked": "Ihr Verschlüsselungsschlüssel ist gesperrt. Entsperren Sie ihn und versuchen Sie es erneut.",
   "errors.pgp.missingKeys": "Kein öffentlicher Schlüssel für {list}.",
   "errors.signIn": "Anmeldung fehlgeschlagen. Prüfen Sie das Passwort (Gmail, iCloud und Yahoo benötigen ein App-Passwort) oder melden Sie sich erneut an.",
-  "errors.noCredentials": "Die gespeicherten Zugangsdaten für dieses Konto fehlen. Entfernen Sie das Konto und fügen Sie es erneut hinzu.",
-  "errors.timeout": "Der Mailserver antwortet nicht. Prüfen Sie Ihre Verbindung und versuchen Sie es erneut.",
+  "errors.noCredentials": "Die gespeicherten Anmeldedaten für dieses Konto fehlen. Entfernen Sie das Konto und fügen Sie es erneut hinzu.",
+  "errors.timeout": "Der Mailserver hat nicht geantwortet. Prüfen Sie Ihre Verbindung und versuchen Sie es erneut.",
   "errors.unreachable": "Der Mailserver ist nicht erreichbar. Prüfen Sie den Servernamen und Ihre Verbindung.",
   "errors.certificate": "Das Sicherheitszertifikat des Servers wurde abgelehnt. Bei einem Server mit selbstsigniertem Zertifikat oder einem Zertifikat einer privaten Zertifizierungsstelle entfernen Sie das Konto und fügen es erneut hinzu, mit aktivierter Option „Dem Zertifikat dieses Servers vertrauen“.",
   // ---- toasts of store.ts
@@ -29,7 +29,7 @@ export default defineLocale<typeof ns.en>({
   "errors.ask.discard": "Verwerfen",
   // ---- account presets of api.ts (provider names are not translated)
   "errors.provider.gmail.hint": "Erfordert ein Google-App-Passwort (Bestätigung in zwei Schritten aktiviert).",
-  "errors.provider.outlook.hint": "Bevorzugen Sie den Tab „Microsoft“ (OAuth). Die Anmeldung per Passwort funktioniert nur, wenn die Standardauthentifizierung aktiviert ist; private Konten benötigen dann ein App-Passwort.",
+  "errors.provider.outlook.hint": "Bevorzugen Sie den Tab „Microsoft“ (OAuth). Die Anmeldung per Passwort funktioniert nur, wenn die Standardauthentifizierung aktiviert ist; persönliche Konten benötigen dann ein App-Passwort.",
   "errors.provider.icloud.hint": "Apple bietet für Mail-Apps kein OAuth. Erstellen Sie unter account.apple.com (Anmeldung und Sicherheit) ein app-spezifisches Passwort und verwenden Sie es hier, mit Ihrer vollständigen iCloud-Adresse als E-Mail-Adresse.",
   "errors.provider.yahoo.hint": "Verwenden Sie ein Yahoo-App-Passwort.",
   "errors.provider.bridge.hint": "Starten Sie Proton Mail Bridge und verwenden Sie dann den Bridge-Benutzernamen und das Bridge-Passwort (nicht Ihr Proton-Passwort). Bridge verwendet auf diesem Computer ein selbstsigniertes Zertifikat, daher wird dem Zertifikat vertraut.",
