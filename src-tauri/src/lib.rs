@@ -3667,6 +3667,16 @@ fn set_setting(app: tauri::AppHandle, state: tauri::State<AppState>, key: String
     Ok(())
 }
 
+/// When this computer first used the app, as far as the system can tell: the creation time of the main database file, in milliseconds
+/// since the epoch (`None` when the file or its creation time cannot be read). The page asks once, for an install from before the
+/// support reminder existed (it has no stored first-run date). Nothing is sent anywhere.
+#[tauri::command]
+fn first_run_hint(dir: tauri::State<legacy_names::DataDir>) -> Option<i64> {
+    let made = std::fs::metadata(dir.0.join("heylook.db")).ok()?.created().ok()?;
+    let ms = made.duration_since(std::time::UNIX_EPOCH).ok()?.as_millis();
+    i64::try_from(ms).ok()
+}
+
 #[derive(Serialize)]
 struct Contact {
     name: String,
@@ -4039,6 +4049,7 @@ pub fn run() {
             delete_signature,
             get_setting,
             set_setting,
+            first_run_hint,
             suggest_contacts,
             unsubscribe,
             fetch_remote_images,

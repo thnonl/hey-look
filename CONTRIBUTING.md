@@ -136,6 +136,14 @@ The UI is in English, Vietnamese and French (Settings > General > Language, also
   4. `node --experimental-strip-types scripts/test-i18n.mjs` fails when a registry entry has no dictionary, a dictionary has no entry, or Rust does not know the code. Past about five languages the Welcome screen shows one button that opens the list instead of a button per language.
 - Out of scope: the website, the README, mail content, AI prompts, and invitation / reply e-mails that Hey Look! sends (they are mail content for other people).
 
+### The support reminder (what it stores)
+Now and then (about every two months) a small toast says Hey Look! is free and made by one person and offers a link to the support page. Settings > General > "Occasional support reminder" turns it off, as does "Don't remind me again" on the toast. The logic is `src/supportNudge.ts` (pure, tested by `scripts/test-support-nudge.mjs`), the toast is `src/supportNudgeHost.ts`. It stores one object, `supportNudge`, inside the preferences (`settings` table, key `prefs`), on this computer only: nothing is sent anywhere and there is no telemetry.
+- `enabled`: the switch (default on).
+- `firstRunAt`: when the app was first used, in ms since the epoch. For an install from before the reminder existed it is the creation time of the local database file (`first_run_hint` in `lib.rs`), else the day it first ran with the reminder.
+- `nextDueAt`: when the next reminder is due. First: `firstRunAt` plus a random 7 to 30 days, drawn once. After it was shown: two calendar months later; after "Buy me a coffee": six months later.
+- `lastShownAt`: when it was last shown (for the record).
+A due reminder waits for a calm moment (window focused, open for at least 2 minutes, no message being written, no dialog, no other toast, no send or download under way) and stays due until one comes. In the browser preview (`npm run dev`) `#nudge=now` shows it at once, `#nudge=due` makes it due and lets the real check decide, `#firstrun=90` pretends the database is 90 days old.
+
 ### Releasing
 1. Bump the version to `X.Y.Z` in `package.json` (and `package-lock.json`), `src-tauri/tauri.conf.json` and `src-tauri/Cargo.toml` (then `cargo check` updates `Cargo.lock`), and add a `## X.Y.Z — <date>` section to `CHANGELOG.md` (no `xx` left in it).
 2. Dry run: Actions > Release > **Run workflow** on the branch (or `gh workflow run release.yml --ref <branch>`). It builds all three platforms and keeps the installers as workflow artifacts; no tag, no release.

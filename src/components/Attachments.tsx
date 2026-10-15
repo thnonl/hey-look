@@ -231,6 +231,7 @@ export function AttachmentCard({ m, a }: { m: MessageFull; a: AttMeta }) {
 
   const run = async (label: "saving" | "opening", job: () => Promise<void>) => {
     setSt({ status: "busy", label });
+    const end = useStore.getState().beginTransfer(); // (the support reminder waits while a file is being saved)
     try {
       await job();
       setSt({ status: "idle" });
@@ -238,6 +239,8 @@ export function AttachmentCard({ m, a }: { m: MessageFull; a: AttMeta }) {
       const msg = friendlyError(e);
       setSt({ status: "error", error: msg });
       showToast(t("reading.att.saveFailed", { error: msg }), undefined, "error", [{ label: t("common.retry"), run: () => void save(false) }]);
+    } finally {
+      end();
     }
   };
 
@@ -254,12 +257,16 @@ export function AttachmentCard({ m, a }: { m: MessageFull; a: AttMeta }) {
   const open = () => {
     if (conf) return pv ? setPreview(true) : deny();
     setSt((s) => ({ ...s, status: "busy", label: "opening" }));
+    const end = useStore.getState().beginTransfer();
     void openAttachment(m, a, {
       onError: (msg) => setSt({ status: "error", error: msg }),
       onAsk: () => setSt({ status: "idle" }),
       onResume: () => setSt((s) => ({ ...s, status: "busy", label: "opening" })),
       onSaved: (path) => setSt({ status: "done", path }),
-    }).finally(() => setSt((s) => (s.status === "busy" ? { status: "idle" } : s)));
+    }).finally(() => {
+      end();
+      setSt((s) => (s.status === "busy" ? { status: "idle" } : s));
+    });
   };
 
   const attachToNew = async () => {
@@ -386,6 +393,7 @@ export function AttachmentStrip({ m }: { m: MessageFull }) {
     if (m.confidential) return showToast(t("reading.strip.confSave"), undefined, "info");
     const jobId = crypto.randomUUID();
     setSaveAll({ done: 0, total: m.attachments.length, jobId });
+    const end = useStore.getState().beginTransfer();
     try {
       const r = await api.attachmentSaveAll(m.id, ask || prefs.askWhereToSave, jobId);
       if (!r) return; // cancelled
@@ -401,6 +409,7 @@ export function AttachmentStrip({ m }: { m: MessageFull }) {
     } catch (e) {
       showToast(t("reading.strip.saveAllFailed", { error: friendlyError(e) }), undefined, "error", [{ label: t("common.retry"), run: () => void runSaveAll(ask) }]);
     } finally {
+      end();
       setSaveAll(null);
     }
   };
