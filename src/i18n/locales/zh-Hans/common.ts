@@ -1,4 +1,3 @@
-// STUB: English placeholders, to be translated
 import { defineLocale } from "../../types.ts";
 import type ns from "../../ns/common.ts";
 
@@ -6,19 +5,19 @@ import type ns from "../../ns/common.ts";
 // in the feature's dictionary (the same English word can need different words in vi / fr in different places).
 
 export default defineLocale<typeof ns.en>({
-  "common.ok": "OK",
-  "common.cancel": "Cancel",
-  "common.close": "Close",
-  "common.save": "Save",
-  "common.delete": "Delete",
-  "common.remove": "Remove",
-  "common.edit": "Edit",
-  "common.done": "Done",
-  "common.off": "Off",
-  "common.none": "None",
-  "common.default": "Default",
-  "common.retry": "Retry",
-  "common.copy": "Copy",
-  "common.loading": "Loading…",
-  "common.undo": "Undo",
+  "common.ok": "确定",
+  "common.cancel": "取消",
+  "common.close": "关闭",
+  "common.save": "保存",
+  "common.delete": "删除",
+  "common.remove": "移除",
+  "common.edit": "编辑",
+  "common.done": "完成",
+  "common.off": "关",
+  "common.none": "无",
+  "common.default": "默认",
+  "common.retry": "重试",
+  "common.copy": "复制",
+  "common.loading": "正在加载…",
+  "common.undo": "撤消",
 });
