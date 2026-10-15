@@ -29,7 +29,7 @@ Calendar sync uses the same OAuth client and a **separate consent** (a desktop a
 2. Google Auth Platform → Data Access → Add or remove scopes: `https://www.googleapis.com/auth/calendar.events` and `https://www.googleapis.com/auth/calendar.calendarlist.readonly` (both sensitive, not restricted). Add them before the first verification submission so one review covers mail and calendar.
 3. While the app is in *Testing*, add every tester under Audience → Test users; their calendar grant ends after 7 days (the app shows **Allow access again**).
 
-The calendar sign-in keeps its own refresh token in the credential store under `<account id>:calendar` (the mail token is `<account id>`). Tests never use a real account: `cargo test` runs the sync layer against a fake provider and the Google provider against a small fake HTTP server (`src-tauri/src/calsync/fake_http.rs`). Debug builds can point the Calendar API and the token endpoint at such a server with `HEYLOOK_GCAL_BASE` and `HEYLOOK_TOKEN_BASE`; a release build ignores them. `npm run dev` (the browser mock) has a fake Google mailbox with three calendars; `#calsync=ok|syncing|first|offline|busy|auth|blocked|notsetup|error|truncated` in the address shows every state of Settings > Calendar.
+The calendar sign-in keeps its own refresh token in the credential store under `<account id>:calendar` (the mail token is `<account id>`). Tests never use a real account: `cargo test` runs the sync layer against a fake provider and the Google provider against a small fake HTTP server (`src-tauri/src/calsync/fake_http.rs`). Debug builds can point the Calendar API, Microsoft Graph and the token endpoint at such a server with `HEYLOOK_GCAL_BASE`, `HEYLOOK_GRAPH_BASE` and `HEYLOOK_TOKEN_BASE`; a release build ignores them. `npm run dev` (the browser mock) has a fake Google mailbox (`nam@gmail.com`) and a fake Outlook mailbox (`nam@outlook.com`) with three calendars each; `#calsync=ok|syncing|first|offline|busy|auth|blocked|notsetup|error|truncated` (Google) and `#calsyncms=...` (Outlook) in the address show every state of Settings > Calendar.
 
 ### Microsoft
 
@@ -38,7 +38,7 @@ Microsoft sign-in (Outlook.com, Hotmail, Live, Microsoft 365) needs an app regis
 
 1. Supported account types: **personal Microsoft accounts and accounts in any organizational directory**.
 2. Authentication → add platform **Mobile and desktop applications** with redirect URI `http://localhost` (the port is ignored), and allow public client flows.
-3. API permissions → Office 365 Exchange Online (delegated): `IMAP.AccessAsUser.All`, `SMTP.Send`, plus `offline_access`.
+3. API permissions → Office 365 Exchange Online (delegated): `IMAP.AccessAsUser.All`, `SMTP.Send`, plus `offline_access`. For calendar sync also add Microsoft Graph (delegated) `Calendars.ReadWrite` (see below).
 4. Copy the Application (client) ID. No secret is needed.
 
 Provide it the same three ways as Google:
@@ -52,6 +52,17 @@ The **Tenant** field in the Microsoft tab is typed in the app (empty = `common`,
 single-tenant app registration, which personal accounts cannot use.
 
 Work and school tenants may block IMAP / SMTP AUTH until an admin enables it for the mailbox.
+
+#### Calendar sync (Microsoft Graph)
+
+Calendar sync uses the same Entra app, the same client ID, the same tenant setting and the same redirect (`http://localhost`), and a **separate consent** with its own refresh token (a token request names one resource: the mail token is for Exchange Online, the calendar token for Microsoft Graph), so a user who never turns it on is never asked. Steps in the Entra admin center / Azure portal, for the app of `MICROSOFT_CLIENT_ID`:
+
+1. App registrations → the app → **API permissions** → Add a permission → **Microsoft Graph** → **Delegated permissions** → `Calendars.ReadWrite`. Keep `openid`, `email`, `profile`, `offline_access`. The permission needs no admin consent for the user's own calendars: do **not** grant tenant-wide admin consent unless it is your own test tenant (users consent themselves; a tenant that disabled user consent shows "Need admin approval", and Hey Look! then tells the person that their organization must approve it).
+2. **Authentication**: keep the platform "Mobile and desktop applications" with the redirect URI `http://localhost` (no new URI is needed) and public client flows allowed. Check **Supported account types** = "Accounts in any organizational directory and personal Microsoft accounts" (without personal accounts, outlook.com and hotmail.com mailboxes cannot consent).
+3. Branding & properties: home page, privacy and terms URLs. Publisher verification needs a Microsoft AI Cloud Partner Program account and a custom domain: until then the consent page says "unverified" and some tenants block unverified apps.
+4. For QA use a throw-away outlook.com account (and a second one as an invitation organizer). Tests never use a real account: the Microsoft provider is tested against a fake Graph server (`src-tauri/src/calsync/microsoft_tests*.rs`).
+
+No GitHub secret changes: the client ID is the one that already ships.
 
 ### Servers with their own certificate
 
@@ -98,7 +109,7 @@ src-tauri/src/           Rust backend
   ical.rs, calendar.rs   iCalendar parsing and writing, repeat rules, events, invitations and replies
   oauth.rs               Google and Microsoft OAuth 2.0 (PKCE, loopback redirect) and token refresh; mail and calendar are separate grants
   calsync/               calendar sync with online calendars: provider trait (mod.rs), local model + apply (store.rs), rounds, scheduler and
-                         back-off (engine.rs), writes with etags (write.rs), commands + consent + worker (cmds.rs), google.rs, http.rs; fake.rs / fake_http.rs for tests
+                         back-off (engine.rs), writes with etags (write.rs), commands + consent + worker (cmds.rs), google.rs, microsoft.rs, http.rs; fake.rs / fake_http.rs for tests
   discover.rs            server-settings lookup (presets, autoconfig, ISPDB, DNS SRV / MX)
   winframe.rs            custom title bar on Windows: caption-button hit-testing (Snap Layouts), system menu
   shell.rs               tray icon, badges, native notifications, snooze reminders
