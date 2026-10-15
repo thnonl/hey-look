@@ -1,6 +1,6 @@
 # Changelog
 
-## 1.0.1 — 2026-10-xx
+## 1.0.1 — 2026-10-15
 
 New Inbox mail now arrives at once, Hey Look! speaks Vietnamese and French, and your Google and Outlook calendars can sync. Several bugs found in testing are fixed.
 
