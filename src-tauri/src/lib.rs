@@ -566,8 +566,9 @@ fn fmap(db: &Db, account_id: &str) -> HashMap<String, String> {
         .unwrap_or_default()
 }
 
-/// The server folder for a role (drafts, archive, trash ...). Hey Look! does not create standard folders a server lacks (README, known
-/// limitations): the action that needs one fails with a message that says which folder is missing (QA BUG-M4 / M8).
+/// The server folder for a role from the saved list (drafts ...). Save draft and send do not create a folder the server lacks (README, known
+/// limitations): the action that needs one fails with a message that says which folder is missing (QA BUG-M4 / M8). A move (archive,
+/// delete ...) looks at the server and may create Archive / Trash instead: `move_to_role`.
 fn folder_for(db: &Db, acc: &Account, role: &str) -> R<String> {
     fmap(db, &acc.id).get(role).cloned().ok_or_else(|| match role {
         "drafts" => "this account has no Drafts folder".to_string(),
@@ -792,7 +793,7 @@ fn sync_impl(db: &Db, account_id: &str) -> R<SyncResult> {
             .collect();
         startup::line("filters", &format!("{} filter(s) apply to this account", rules.len()));
         let outcome = apply_rules(&rules, &to_rule, &mut |r, tid| {
-            let res = action_impl(db, vec![tid.to_string()], r.action.clone(), r.arg.clone(), Some("inbox".into()));
+            let res = action_impl_in(db, vec![tid.to_string()], r.action.clone(), r.arg.clone(), Some("inbox".into()), false);
             // a move that reports success but left the message in the inbox did not happen
             if res.is_ok() && matches!(r.action.as_str(), "archive" | "trash" | "junk" | "move") {
                 let still = thread_msgs(&lock(db), &[tid.to_string()]).map(|m| m.iter().any(|x| x.role == "inbox")).unwrap_or(false);
@@ -2068,7 +2069,14 @@ fn thread_msgs(c: &Connection, thread_ids: &[String]) -> R<Vec<MsgRef>> {
 
 /// `scope`: the folder the user is acting from. Moves only touch messages in that folder
 /// (or inbox/archive/custom folders when the view is virtual, never sent/drafts/trash/junk).
+/// A move to a standard Archive / Trash the server lacks creates it (an action the person asked for).
 fn action_impl(db: &Db, thread_ids: Vec<String>, action: String, arg: Option<String>, scope: Option<String>) -> R<()> {
+    action_impl_in(db, thread_ids, action, arg, scope, true)
+}
+
+/// `action_impl`; `create_missing` says whether a standard folder the server lacks may be created. Filters run by themselves on new mail
+/// and do not create folders (REQ-52: they fail visibly instead).
+fn action_impl_in(db: &Db, thread_ids: Vec<String>, action: String, arg: Option<String>, scope: Option<String>, create_missing: bool) -> R<()> {
     match action.as_str() {
         "pin" | "unpin" => {
             let c = lock(db);
@@ -2110,7 +2118,7 @@ fn action_impl(db: &Db, thread_ids: Vec<String>, action: String, arg: Option<Str
                     .map_err(err)?;
                 }
             }
-            return action_impl(db, thread_ids, "junk".into(), None, scope);
+            return action_impl_in(db, thread_ids, "junk".into(), None, scope, create_missing);
         }
         _ => {}
     }
@@ -2128,83 +2136,171 @@ fn action_impl(db: &Db, thread_ids: Vec<String>, action: String, arg: Option<Str
     }
     for (acct_id, list) in by_acct {
         let acc = db::get_account(&lock(db), &acct_id)?;
-        // a move to a folder the server does not have fails at once and says which one, before any connection is made
-        if let Some(dst) = &dst_role {
-            let moves = list.iter().any(|m| {
-                &m.role != dst
-                    && match &scope {
-                        Some(sc) => &m.role == sc,
-                        None => !matches!(m.role.as_str(), "sent" | "drafts" | "trash" | "junk"),
-                    }
-            });
-            if moves {
-                folder_for(db, &acc, dst)?;
-            }
-        }
         let sec = secret(db, &acc)?;
-        let map = fmap(db, &acct_id);
         let mut s = mail::connect(&acc, &sec)?;
-        let mut roles: Vec<String> = list.iter().map(|m| m.role.clone()).collect();
-        roles.sort();
-        roles.dedup();
-        for role in roles {
-            let group: Vec<&MsgRef> = list.iter().filter(|m| m.role == role).collect();
-            let uids: Vec<u32> = group.iter().map(|m| m.uid).collect();
-            let src = map.get(&role).cloned().ok_or("source folder unknown")?;
-            let is_move = dst_role.is_some() || action == "delete_forever";
-            if is_move {
-                let allowed = match &scope {
-                    Some(sc) => &role == sc,
-                    None => !matches!(role.as_str(), "sent" | "drafts" | "trash" | "junk"),
-                };
-                if !allowed {
-                    continue;
-                }
-            }
-            match action.as_str() {
-                "read" | "unread" => {
-                    mail::store_flag(&mut s, &src, &uids, "\\Seen", action == "read")?;
-                    let c = lock(db);
-                    for m in &group {
-                        c.execute("UPDATE messages SET seen=?1 WHERE id=?2", params![(action == "read") as i64, m.id])
-                            .map_err(err)?;
-                    }
-                }
-                "star" | "unstar" => {
-                    mail::store_flag(&mut s, &src, &uids, "\\Flagged", action == "star")?;
-                    let c = lock(db);
-                    for m in &group {
-                        c.execute("UPDATE messages SET flagged=?1 WHERE id=?2", params![(action == "star") as i64, m.id])
-                            .map_err(err)?;
-                    }
-                }
-                "delete_forever" => {
-                    mail::delete_forever(&mut s, &src, &uids)?;
-                    let c = lock(db);
-                    for m in &group {
-                        c.execute("DELETE FROM messages WHERE id=?1", [&m.id]).map_err(err)?;
-                    }
-                }
-                _ => {
-                    let dst = dst_role.clone().ok_or_else(|| format!("unknown action: {action}"))?;
-                    if dst == role {
-                        continue;
-                    }
-                    if dst == "trash" && role == "trash" {
-                        continue;
-                    }
-                    let real = folder_for(db, &acc, &dst)?;
-                    mail::move_to(&mut s, &src, &uids, &real)?;
-                    let c = lock(db);
-                    for m in &group {
-                        c.execute("DELETE FROM messages WHERE id=?1", [&m.id]).map_err(err)?;
-                    }
-                }
-            }
-        }
+        let done = act_on_session(db, &acc, &mut s, &list, &action, dst_role.as_deref(), &scope, create_missing);
         let _ = s.logout();
+        done?;
     }
     Ok(())
+}
+
+/// The part of `action_impl` that talks to the server for one account. A local row is changed only after the server did it.
+#[allow(clippy::too_many_arguments)]
+fn act_on_session<T: std::io::Read + std::io::Write>(
+    db: &Db,
+    acc: &Account,
+    s: &mut imap::Session<T>,
+    list: &[MsgRef],
+    action: &str,
+    dst_role: Option<&str>,
+    scope: &Option<String>,
+    create_missing: bool,
+) -> R<()> {
+    let mut folders = Folders { map: fmap(db, &acc.id), listing: None };
+    let mut roles: Vec<String> = list.iter().map(|m| m.role.clone()).collect();
+    roles.sort();
+    roles.dedup();
+    for role in roles {
+        let group: Vec<&MsgRef> = list.iter().filter(|m| m.role == role).collect();
+        let uids: Vec<u32> = group.iter().map(|m| m.uid).collect();
+        let src = folders.map.get(&role).cloned().ok_or("source folder unknown")?;
+        let is_move = dst_role.is_some() || action == "delete_forever";
+        if is_move {
+            let allowed = match scope {
+                Some(sc) => &role == sc,
+                None => !matches!(role.as_str(), "sent" | "drafts" | "trash" | "junk"),
+            };
+            if !allowed {
+                continue;
+            }
+        }
+        match action {
+            "read" | "unread" => {
+                mail::store_flag(s, &src, &uids, "\\Seen", action == "read")?;
+                let c = lock(db);
+                for m in &group {
+                    c.execute("UPDATE messages SET seen=?1 WHERE id=?2", params![(action == "read") as i64, m.id])
+                        .map_err(err)?;
+                }
+            }
+            "star" | "unstar" => {
+                mail::store_flag(s, &src, &uids, "\\Flagged", action == "star")?;
+                let c = lock(db);
+                for m in &group {
+                    c.execute("UPDATE messages SET flagged=?1 WHERE id=?2", params![(action == "star") as i64, m.id])
+                        .map_err(err)?;
+                }
+            }
+            "delete_forever" => {
+                mail::delete_forever(s, &src, &uids)?;
+                let c = lock(db);
+                for m in &group {
+                    c.execute("DELETE FROM messages WHERE id=?1", [&m.id]).map_err(err)?;
+                }
+            }
+            _ => {
+                let dst = dst_role.ok_or_else(|| format!("unknown action: {action}"))?;
+                if dst == role {
+                    continue;
+                }
+                if dst == "trash" && role == "trash" {
+                    continue;
+                }
+                move_to_role(db, acc, s, &mut folders, &src, &uids, dst, create_missing)?;
+                let c = lock(db);
+                for m in &group {
+                    c.execute("DELETE FROM messages WHERE id=?1", [&m.id]).map_err(err)?;
+                }
+            }
+        }
+    }
+    Ok(())
+}
+
+/// The account's folders while an action runs: the saved list (from the last sync), replaced by a fresh LIST once that is needed.
+struct Folders {
+    map: HashMap<String, String>,
+    /// set once this action has asked the server (so it asks only once)
+    listing: Option<mail::Listing>,
+}
+
+/// Move messages to the folder of a role. The saved folder list is tried first (the usual case costs nothing extra). When that fails
+/// or has no such folder, the server is asked (LIST) before giving up: a folder made, renamed or removed since the last sync is
+/// then found (F-14: the saved list was only refreshed by a sync, so an Archive that appeared during the session stayed unknown
+/// until the next start). A standard Archive / Trash the server still lacks is created when `create_missing`; if that is not
+/// possible the error says so and nothing was moved (the caller keeps the local mail).
+#[allow(clippy::too_many_arguments)]
+fn move_to_role<T: std::io::Read + std::io::Write>(
+    db: &Db,
+    acc: &Account,
+    s: &mut imap::Session<T>,
+    folders: &mut Folders,
+    src: &str,
+    uids: &[u32],
+    dst: &str,
+    create_missing: bool,
+) -> R<()> {
+    let tried = folders.map.get(dst).cloned();
+    let mut first_error = None;
+    if let Some(name) = &tried {
+        match mail::move_to(s, src, uids, name) {
+            Ok(()) => return Ok(()),
+            Err(e) => first_error = Some(e),
+        }
+    }
+    if folders.listing.is_none() {
+        let listing = mail::list_folders(s)?;
+        folders.map = listing.map.clone();
+        folders.listing = Some(listing);
+        save_fmap(db, &acc.id, &folders.map)?;
+    }
+    let (name, created) = match folders.map.get(dst).cloned() {
+        Some(n) => (n, false),
+        None => {
+            let create = if create_missing { folders.listing.as_ref().and_then(|l| mail::name_to_create(dst, l)) } else { None };
+            let Some(create) = create else {
+                return Err(if create_missing { folder_missing(dst) } else { format!("no '{dst}' folder on this account") });
+            };
+            mail::create_folder(s, &create).map_err(|why| folder_not_created(dst, &why))?;
+            folders.map.insert(dst.to_string(), create.clone());
+            save_fmap(db, &acc.id, &folders.map)?;
+            (create, true)
+        }
+    };
+    if !created && tried.as_ref() == Some(&name) {
+        // the server has the folder we tried: the move failed for another reason
+        return Err(first_error.unwrap_or_else(|| folder_missing(dst)));
+    }
+    mail::move_to(s, src, uids, &name)
+}
+
+fn save_fmap(db: &Db, account_id: &str, map: &HashMap<String, String>) -> R<()> {
+    db::set_setting(&lock(db), &format!("fmap:{account_id}"), &serde_json::to_string(map).map_err(err)?)
+}
+
+/// How a role is named in a message: Archive, Trash, Junk, or the folder's own name.
+fn role_label(role: &str) -> String {
+    match role {
+        "archive" => "Archive".into(),
+        "trash" => "Trash".into(),
+        "junk" => "Junk".into(),
+        r => r.strip_prefix("f:").unwrap_or(r).to_string(),
+    }
+}
+
+fn folder_missing(role: &str) -> String {
+    let folder = role_label(role);
+    i18n::coded("FOLDER_MISSING", &[("folder", &folder)], &format!("Couldn’t find the {folder} folder on this account. The mail stays where it is."))
+}
+
+fn folder_not_created(role: &str, why: &str) -> String {
+    let folder = role_label(role);
+    i18n::coded(
+        "FOLDER_NOT_CREATED",
+        &[("folder", &folder), ("why", why)],
+        &format!("Couldn’t find or create the {folder} folder on this account ({why}). The mail stays where it is."),
+    )
 }
 
 #[tauri::command]
@@ -4020,36 +4116,7 @@ mod filter_tests {
         (tid.into(), "peer@example.com".into(), "me@example.com".into(), subject.into())
     }
 
-    /// QA BUG-10 through the real action code (no server needed: the missing folder is found before any connection): an account without
-    /// an Archive folder, a new message that a filter wants to archive.
-    #[test]
-    fn archiving_on_an_account_without_an_archive_folder_fails_clearly_and_leaves_the_message() {
-        let db = quit_tests::test_db("no-archive");
-        let acc = Account {
-            id: "a1".into(), email: "me@example.com".into(), display_name: "Me".into(), imap_host: "h".into(), imap_port: 993, imap_ssl: true,
-            smtp_host: "s".into(), smtp_port: 465, smtp_security: "ssl".into(), username: "u".into(), auth: "password".into(), color: None,
-            smtp_username: String::new(), tls_insecure: false,
-        };
-        db::insert_account(&lock(&db), &acc).unwrap();
-        db::set_setting(&lock(&db), "fmap:a1", r#"{"inbox":"INBOX","sent":"Sent","trash":"Trash"}"#).unwrap();
-        lock(&db)
-            .execute(
-                "INSERT INTO messages(id,account_id,folder,uid,thread_id,subject,from_name,from_email,to_addrs,cc_addrs,date,snippet) VALUES('m1','a1','inbox',1,'t1','QA-M8 hello','n','peer@example.com','','',1,'')",
-                [],
-            )
-            .unwrap();
-        let err = action_impl(&db, vec!["t1".into()], "archive".into(), None, Some("inbox".into())).unwrap_err();
-        assert_eq!(err, "no 'archive' folder on this account");
-        // the message is untouched
-        let n: i64 = lock(&db).query_row("SELECT COUNT(*) FROM messages WHERE thread_id='t1' AND folder='inbox'", [], |r| r.get(0)).unwrap();
-        assert_eq!(n, 1);
-        // the same through the filter code: reported once, not moved, still new mail
-        let rules = vec![Rule { id: "r".into(), name: "QA-M8".into(), field: "subject".into(), op: "contains".into(), value: "qa-m8".into(), action: "archive".into(), arg: None, enabled: true, account_id: None }];
-        let msgs = vec![("t1".to_string(), "peer@example.com".to_string(), String::new(), "QA-M8 hello".to_string())];
-        let out = apply_rules(&rules, &msgs, &mut |r, tid| action_impl(&db, vec![tid.to_string()], r.action.clone(), r.arg.clone(), Some("inbox".into())));
-        assert!(out.moved.is_empty());
-        assert_eq!(out.errors, vec!["Filter “QA-M8” couldn’t run on new mail: no 'archive' folder on this account".to_string()]);
-    }
+    // (QA BUG-10 through the real action code, an account without an Archive folder: foldermove_tests.rs, against a fake server.)
 
     /// QA BUG-M8 / BUG-10: a filter whose target folder is missing leaves the message in the Inbox (it still counts as new mail) and says why.
     #[test]
@@ -4994,3 +5061,7 @@ mod platform_tests {
 // helper of the socket tests (after the first cfg(test): the source-reading tests above cut the file there)
 #[cfg(test)]
 mod test_guard;
+#[cfg(test)]
+mod fakeimap;
+#[cfg(test)]
+mod foldermove_tests;

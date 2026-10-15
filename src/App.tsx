@@ -138,7 +138,7 @@ function App() {
         if (!hasMailAccounts(st.accounts.length)) return; // no account: nothing to write with
         void st.openCompose({ accountId: newMailAccount() });
       }),
-      listen<string>("action-failed", (e) => useStore.getState().showToast(t("app.toast.actionFailed", { error: e.payload }), undefined, "error")),
+      listen<string>("action-failed", (e) => useStore.getState().showToast(t("app.toast.actionFailed", { error: friendlyError(e.payload) }), undefined, "error")),
       listen<{ threadId: string }>("open-thread", (e) => void open(e.payload.threadId)),
       listen<{ threadId: string }>("notify-reply", async (e) => {
         await open(e.payload.threadId);

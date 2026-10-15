@@ -1,5 +1,15 @@
 # Changelog
 
+## 1.0.2 — 2026-10-15
+
+Fixes for the mail list, the reading pane and Archive / Delete.
+
+### Fixed
+
+- With the Unread filter on, the mail you are reading no longer disappears from the reading pane (“Select an item to read”) a few seconds after it is marked read. The same happened under the Flagged filter when you unflagged the open mail (since 1.0.0)
+- Archive and Delete now work when the server has no Archive or Trash folder, or one that appeared or was renamed after the last check: Hey Look! looks at the server, creates a missing Archive or Trash (where the server allows it) and moves the mail. If the folder cannot be found or created, the mail stays where it is and an error says so. Before, the mail was only hidden for a moment and came back, and the error showed after the success message; the action then kept failing until the next restart or sync (since 1.0.0)
+- A filtered mail list (for example Unread with a few mails) no longer ends with “Download limit reached (500 mails per mailbox)”; that notice now appears only under an unfiltered folder that really reached the limit (since 1.0.0)
+
 ## 1.0.1 — 2026-10-15
 
 New Inbox mail now arrives at once, Hey Look! speaks Vietnamese and French, and your Google and Outlook calendars can sync. Several bugs found in testing are fixed.
