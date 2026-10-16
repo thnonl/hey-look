@@ -1,7 +1,7 @@
 // Checks src/recipients.ts: the one parser for typed, pasted, dropped and reopened recipient lists, the IME guard and the duplicate rule.
 // Inputs are the compose test plan's (B-02, B-03, B-04, B-05, B-06, B-08, B-09, B-10). Run: node --experimental-strip-types scripts/test-recipients.mjs
 import assert from "node:assert/strict";
-import { addRecipients, addressOf, chipLabel, formatRecipient, hasRecipient, isImeEvent, openAtEnd, recipientKey, splitRecipients } from "../src/recipients.ts";
+import { addRecipients, addressOf, chipLabel, formatRecipient, hasRecipient, isImeEvent, openAtEnd, placeRecipients, recipientKey, splitRecipients } from "../src/recipients.ts";
 
 const eq = (text, want, why) => assert.deepEqual(splitRecipients(text), want, why ?? JSON.stringify(text));
 
@@ -83,4 +83,37 @@ assert.ok(hasRecipient({ to: ["a@x.test"], cc: [], bcc: [] }));
 assert.ok(hasRecipient({ to: [], cc: ["a@x.test"], bcc: [] }));
 assert.ok(hasRecipient({ to: [], cc: [], bcc: ["a@x.test"] }));
 assert.ok(!hasRecipient({ to: [], cc: [], bcc: [] }));
+// R19A-2: an address lives in ONE field, the first of To, Cc, Bcc that has it
+{
+  const F = (to = [], cc = [], bcc = []) => ({ to, cc, bcc });
+  // adding to Cc what is in To: not added, the note says where it is
+  let r = placeRecipients(F(["a@x.test"]), "cc", ["b@x.test", "A@X.test"]);
+  assert.deepEqual(r.fields, F(["a@x.test"], ["b@x.test"]));
+  assert.deepEqual(r.skipped, [{ addr: "A@X.test", in: "to" }]);
+  assert.deepEqual(r.moved, []);
+  // Bcc: To wins over Cc wins over Bcc (the earliest field is named)
+  r = placeRecipients(F(["a@x.test"], ["c@x.test"]), "bcc", ["c@x.test", "a@x.test", "d@x.test"]);
+  assert.deepEqual(r.fields.bcc, ["d@x.test"]);
+  assert.deepEqual(r.skipped, [{ addr: "c@x.test", in: "cc" }, { addr: "a@x.test", in: "to" }]);
+  // a name in the chip does not make it another person; the note shows the address
+  r = placeRecipients(F(["Ann <a@x.test>"]), "cc", ['"Lee, Ann" <A@x.test>']);
+  assert.deepEqual(r.fields.cc, []);
+  assert.deepEqual(r.skipped, [{ addr: "A@x.test", in: "to" }]);
+  // adding to To what is in Cc / Bcc: it moves up, the later field loses it, and it is said
+  r = placeRecipients(F([], ["a@x.test", "b@x.test"], ["a@x.test", "c@x.test"]), "to", ["a@x.test"]);
+  assert.deepEqual(r.fields, F(["a@x.test"], ["b@x.test"], ["c@x.test"]));
+  assert.deepEqual(r.moved, [{ addr: "a@x.test", from: "cc" }, { addr: "a@x.test", from: "bcc" }]);
+  assert.deepEqual(r.skipped, []);
+  r = placeRecipients(F([], ["a@x.test"], ["a@x.test"]), "cc", ["a@x.test", "z@x.test"]);
+  assert.deepEqual(r.fields, F([], ["a@x.test", "z@x.test"], ["a@x.test"]), "an address already in this field stays; Bcc is not touched by a field that was not changed for it");
+  // removing a chip and adding nothing new changes nothing else
+  r = placeRecipients(F(["a@x.test", "b@x.test"], ["a@x.test"]), "to", ["a@x.test"]);
+  assert.deepEqual(r.fields, F(["a@x.test"], ["a@x.test"]));
+  assert.deepEqual([r.skipped, r.moved], [[], []]);
+  // a paste of several addresses, some known: the others are added in order
+  r = placeRecipients(F(["a@x.test"]), "cc", addRecipients([], splitRecipients("b@x.test; a@x.test, c@x.test")));
+  assert.deepEqual(r.fields.cc, ["b@x.test", "c@x.test"]);
+  assert.equal(r.skipped.length, 1);
+}
+
 console.log("recipients: all checks passed");

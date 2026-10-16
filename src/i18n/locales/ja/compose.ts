@@ -24,6 +24,8 @@ export default defineLocale<typeof ns.en>({
   "compose.rcpt.keyFoundFor": "{addr}の公開鍵あり",
   "compose.rcpt.noKeyOptions": "{addr}の公開鍵がありません（オプションを表示）",
   "compose.rcpt.remove": "{name}を削除",
+  "compose.rcpt.alreadyIn": "{addr}は既に「{field}」に入っています",
+  "compose.rcpt.movedUp": "{addr}を「{from}」から「{to}」に移動しました",
   "compose.replyTo.note": "返信は、このメッセージの返信先アドレス（Reply-To）である{replyTo}に送られます。送信元は{from}です。",
   "compose.replyTo.useFrom": "代わりに{from}に返信",
   "compose.fwd.fetching": "添付ファイルを取得しています…",

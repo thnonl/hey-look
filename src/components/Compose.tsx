@@ -30,7 +30,7 @@ import { blockedAttachmentExt, dataUriBytes, fileToBase64, fmtClock, fmtIn, fmtS
 import { calTz } from "../calendar";
 import { defaultMeeting, MeetingState, MeetingStrip, meetingToDraft } from "./Calendar";
 import { isEmail, singleLabelHostsOf } from "../addresses";
-import { addRecipients, addressOf, chipLabel, formatRecipient, hasRecipient, isImeEvent, openAtEnd, recipientKey, splitRecipients } from "../recipients";
+import { addRecipients, addressOf, chipLabel, formatRecipient, hasRecipient, isImeEvent, openAtEnd, placeRecipients, recipientKey, splitRecipients, type RcptField } from "../recipients";
 import { askUnlock } from "./Pgp";
 import { useContentProtection } from "../protect";
 import { editorKeyHandlers, isAltGraph } from "../composeKeys";
@@ -379,6 +379,19 @@ export function Compose({ init }: { init: ComposeInit }) {
   const [to, setTo] = useState<string[]>(init.to ?? []);
   const [cc, setCc] = useState<string[]>([...(init.cc ?? []), ...(autoCc(accountId) ? [autoCc(accountId)] : [])]);
   const [bcc, setBcc] = useState<string[]>([...(init.bcc ?? []), ...(autoBcc(accountId) ? [autoBcc(accountId)] : [])]);
+  /**
+   * What was typed, pasted, dropped or picked in a recipient field. An address lives in ONE field, the first of To, Cc, Bcc that has it
+   * (R19A-2): one that is already in an earlier field is not added again (a note says where it is), one that is in a later field moves up.
+   */
+  const changeField = (field: RcptField) => (next: string[]) => {
+    const r = placeRecipients({ to, cc, bcc }, field, next);
+    setTo(r.fields.to);
+    setCc(r.fields.cc);
+    setBcc(r.fields.bcc);
+    const name = (f: RcptField) => t(`compose.${f}`);
+    for (const x of r.skipped.slice(0, 3)) showToast(t("compose.rcpt.alreadyIn", { addr: x.addr, field: name(x.in) }), undefined, "info");
+    for (const x of r.moved.slice(0, 3)) showToast(t("compose.rcpt.movedUp", { addr: x.addr, from: name(x.from), to: name(field) }), undefined, "info");
+  };
   const [showCc, setShowCc] = useState(cc.length > 0 || bcc.length > 0);
   // the sender asked for answers to go to another address than From (Reply-To): said under To, with a way back to From
   const [replyNote, setReplyNote] = useState(init.replyNote ?? null);
@@ -1838,7 +1851,7 @@ export function Compose({ init }: { init: ComposeInit }) {
           <label>{t("compose.from")}</label>
           <AccountPicker value={accountId} accounts={accounts} onChange={changeAccount} label={t("compose.from")} />
         </div>
-        <RecipientField label={t("compose.to")} values={to} onChange={setTo} autoFocus={to.length === 0 && !init.replaces} onTouch={touch} keys={encOn && ks ? ks.recipients : undefined} onKeyAction={keyAction} />
+        <RecipientField label={t("compose.to")} values={to} onChange={changeField("to")} autoFocus={to.length === 0 && !init.replaces} onTouch={touch} keys={encOn && ks ? ks.recipients : undefined} onKeyAction={keyAction} />
         {noteShown && replyNote && (
           <div className="note cf-replyto" role="status">
             <Info size={13} aria-hidden />
@@ -1850,8 +1863,8 @@ export function Compose({ init }: { init: ComposeInit }) {
         )}
         {showCc ? (
           <>
-            <RecipientField label={t("compose.cc")} values={cc} onChange={setCc} onTouch={() => ((ccTouched.current = true), touch())} keys={encOn && ks ? ks.recipients : undefined} onKeyAction={keyAction} />
-            {!meeting && <RecipientField label={t("compose.bcc")} values={bcc} onChange={setBcc} onTouch={() => ((ccTouched.current = true), touch())} keys={encOn && ks ? ks.recipients : undefined} onKeyAction={keyAction} />}
+            <RecipientField label={t("compose.cc")} values={cc} onChange={changeField("cc")} onTouch={() => ((ccTouched.current = true), touch())} keys={encOn && ks ? ks.recipients : undefined} onKeyAction={keyAction} />
+            {!meeting && <RecipientField label={t("compose.bcc")} values={bcc} onChange={changeField("bcc")} onTouch={() => ((ccTouched.current = true), touch())} keys={encOn && ks ? ks.recipients : undefined} onKeyAction={keyAction} />}
           </>
         ) : (
           <div className="cf-links">
