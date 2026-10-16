@@ -6,6 +6,7 @@ import { actionTargets } from "./composeSelection";
 import { fmtFull, fmtSize, plainToHtml, quoteHtml, sanitizeHtml } from "./util";
 import { fallbackReferences, replyTargets } from "./replyTargets";
 import { forwardFiles, MAX_FORWARD_BYTES } from "./forwardAttachments";
+import { forwardHeaderHtml } from "./quoteHeader";
 
 export function targets(): string[] {
   const { checked, selected, compose } = useStore.getState();
@@ -68,9 +69,6 @@ export async function replyTo(m: MessageFull, all: boolean) {
   });
 }
 
-/** Text for the header lines of a forward: markup characters are shown as typed, never read as HTML. */
-const esc = (x: string) => x.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
-
 export async function forward(m: MessageFull) {
   const st = useStore.getState();
   if (m.confidential) return st.showToast(t("app.forward.confidential"), undefined, "info");
@@ -93,9 +91,11 @@ export async function forward(m: MessageFull) {
     references: h.references,
     subject: /^fwd?:/i.test(m.subject) ? m.subject : `Fwd: ${m.subject}`,
     attachments: files?.attachments,
-    bodyHtml: `<br><br>${t("app.forward.header")}<br>${t("app.forward.from")} ${esc(m.fromName)} &lt;${esc(m.fromEmail)}&gt;<br>${t("app.forward.date")} ${fmtFull(m.date)}<br>${t("app.forward.subject")} ${esc(m.subject)}<br>${t("app.forward.to")} ${esc(m.to)}<br><br>${
-      html ? sanitizeHtml(html, false).html : plainToHtml(m.text ?? "")
-    }`,
+    bodyHtml:
+      forwardHeaderHtml(
+        { header: t("app.forward.header"), from: t("app.forward.from"), date: t("app.forward.date"), subject: t("app.forward.subject"), to: t("app.forward.to") },
+        { fromName: m.fromName, fromEmail: m.fromEmail, dateText: fmtFull(m.date), subject: m.subject, to: m.to },
+      ) + (html ? sanitizeHtml(html, false).html : plainToHtml(m.text ?? "")),
   });
   // after Compose is open: what could not come along
   for (const f of files?.failed ?? []) st.showToast(t("compose.fwd.failed", { name: f.name, error: friendlyError(f.error) }), undefined, "error");

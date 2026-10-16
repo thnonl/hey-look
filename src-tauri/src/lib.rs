@@ -23,6 +23,7 @@ mod macquit;
 mod mail;
 mod oauth;
 mod oauth_page;
+mod outgoing;
 mod openpgp;
 mod pgpmail;
 mod pgpstore;
@@ -35,6 +36,7 @@ mod sessionend;
 mod shard;
 mod shell;
 mod smtp;
+mod smtpsize;
 mod snippet;
 mod update;
 mod winframe;
@@ -4424,6 +4426,7 @@ pub fn run() {
             pgpstore::pgp_unlock,
             pgpstore::pgp_lock_all,
             pgpstore::pgp_recipient_status,
+            smtpsize::smtp_size_limit,
             pgpstore::pgp_decrypt_message,
             outbox_send_now,
             outbox_hold,

@@ -19,6 +19,9 @@ import { repairSignature, signatureGuard } from "../signatureGuard";
 import { fitInWindow } from "../fitInWindow";
 import { autosaveDue, snapshotDue, timing, type AutosaveWhy } from "../autosave";
 import { RecoveryWriter, type RecoveryForm } from "../recovery";
+import { cleanPastedHtml, isLocalPictureSrc, stripRemotePictures } from "../pastedHtml";
+import { sendLimit, wireSize, worthAsking } from "../sendSize";
+import { outgoingName, outgoingNames } from "../attachName";
 import { placePictureTools } from "../pictureToolsLayout";
 import type { PictureToolsInput } from "../pictureToolsLayout";
 import { blockedAttachmentExt, dataUriBytes, fileToBase64, fmtClock, fmtIn, fmtSize, fmtWhen, htmlToText, imageSize, PICTURE_TYPES, playSent, resizeImage, sanitizeHtml, shortKey, userName } from "../util";
@@ -28,7 +31,8 @@ import { isEmail, singleLabelHostsOf } from "../addresses";
 import { addRecipients, addressOf, chipLabel, formatRecipient, hasRecipient, isImeEvent, openAtEnd, recipientKey, splitRecipients } from "../recipients";
 import { askUnlock } from "./Pgp";
 import { useContentProtection } from "../protect";
-import { editLink, editorKeyHandlers, isAltGraph } from "../composeKeys";
+import { editorKeyHandlers, isAltGraph } from "../composeKeys";
+import { useLinkEditor } from "./LinkPopover";
 import { SchedulePicker } from "./SchedulePicker";
 import { AccountPicker, Dropdown, MenuList, useFitInWindow, useOutside } from "./ui";
 import type { Key } from "../i18n";
@@ -36,7 +40,6 @@ import { t as tNow } from "../i18n";
 import { useT } from "../i18n/react";
 import { tx } from "../i18n/rich";
 
-const MAX_ATTACH_BYTES = 25 * 1024 * 1024;
 /** Whether this is an address the composer accepts (see addresses.ts: `qa@localhost` and the account hosts count). */
 const EMAIL = { test: (a: string) => isEmail(a, singleLabelHostsOf(useStore.getState().accounts)) };
 const bareAddress = addressOf;
@@ -47,6 +50,10 @@ const LARGE_PICTURE = 1024 * 1024;
 
 /** An inline picture: the same node as tiptap's image, plus the width and the file name we keep. */
 const PictureNode = Image.extend({
+  // only pictures that travel with the HTML (cid:, base64 data:) enter the document: a remote one is never shown, so it is never fetched while writing
+  parseHTML() {
+    return [{ tag: "img[src]", getAttrs: (el: HTMLElement | string) => (typeof el !== "string" && isLocalPictureSrc(el.getAttribute("src") ?? "") ? null : false) }];
+  },
   addAttributes() {
     return {
       ...this.parent?.(),
@@ -379,7 +386,11 @@ export function Compose({ init }: { init: ComposeInit }) {
     touch();
   };
   const [subject, setSubject] = useState(init.subject ?? "");
-  const [atts, setAtts] = useState<Att[]>(init.attachments ?? []);
+  // the attachments of an opened draft / forward are shown (and sent) under a clean name: no folder, no hidden characters (O-05)
+  const [atts, setAtts] = useState<Att[]>(() => {
+    const names = outgoingNames((init.attachments ?? []).map((a) => a.filename));
+    return (init.attachments ?? []).map((a, i) => ({ ...a, filename: names[i] }));
+  });
   const [templates, setTemplates] = useState<Template[]>([]);
   const [sigs, setSigs] = useState<Signature[]>([]);
   // the message of an opened draft carries its signature as stored text: it is shown as the signature region again
@@ -577,6 +588,7 @@ export function Compose({ init }: { init: ComposeInit }) {
 
   // Ctrl/Cmd+K in the body and the toolbar button open the same link UI (set after the editor exists)
   const linkRef = useRef<() => void>(() => undefined);
+  const pasteNote = useRef(false); // the "pictures from the web are not pasted" notice is shown once per message
   const editor = useEditor({
     extensions: [
       StarterKit,
@@ -589,6 +601,15 @@ export function Compose({ init }: { init: ComposeInit }) {
       attributes: { "aria-label": t("compose.editor.body") },
       // one key, one action: Ctrl+Shift+B / Ctrl+Enter / Ctrl+Alt+... (AltGr) never reach the editor shortcuts, Ctrl+K is the link UI
       handleDOMEvents: editorKeyHandlers(() => linkRef.current()),
+      // pasted / dropped HTML loses its remote pictures BEFORE the editor reads it: a tracking pixel or a UNC / file: picture is never requested
+      transformPastedHTML: (html: string) => {
+        const r = cleanPastedHtml(html);
+        if (r.removed && !pasteNote.current) {
+          pasteNote.current = true;
+          showToast(tNow("compose.paste.picturesRemoved"), undefined, "info");
+        }
+        return r.html;
+      },
       handlePaste: (_view, event) => {
         const all = Array.from(event.clipboardData?.files ?? []);
         const images = all.filter((f) => PICTURE_TYPES.includes(f.type));
@@ -603,7 +624,8 @@ export function Compose({ init }: { init: ComposeInit }) {
       },
     },
     // a new message: typed text, then the signature region, then (reply / forward) the quoted message
-    content: editing ? startDoc.current!.html : `<p></p>${SIG_MARK}${init.bodyHtml ?? "<p></p>"}`,
+    // a quoted or reopened body never brings a remote picture into the editor (the reader's "Load pictures" is the only place they load)
+    content: stripRemotePictures(editing ? startDoc.current!.html : `<p></p>${SIG_MARK}${init.bodyHtml ?? "<p></p>"}`).html,
     autofocus: (init.to?.length ?? 0) > 0 ? "start" : false,
     // a body from an older build may lack the paragraph above the signature region: add it without counting as an edit
     onCreate: ({ editor: ed }) => {
@@ -650,9 +672,10 @@ export function Compose({ init }: { init: ComposeInit }) {
     if (editor && !baseline.current) baseline.current = init.recoveryId ? { text: "", pics: 0 } : { text: editor.getText().trim(), pics: bodyPictures(editor) };
   }, [editor]);
 
-  linkRef.current = () => {
-    if (editor) editLink(editor, (cur) => prompt(t("compose.fmt.linkPrompt"), cur));
-  };
+  // the link popover (LinkPopover.tsx): the same one for the toolbar button and Ctrl/Cmd+K, drawn under the button
+  const linkBtnRef = useRef<HTMLButtonElement>(null);
+  const link = useLinkEditor(editor, linkBtnRef);
+  linkRef.current = link.open;
 
   const [loaded, setLoaded] = useState(false);
   useEffect(() => {
@@ -828,8 +851,32 @@ export function Compose({ init }: { init: ComposeInit }) {
     return { ...out, security: final };
   };
 
-  const attBytes = atts.reduce((n, a) => n + approxBytes(a), 0);
-  const totalBytes = attBytes + pics.bytes;
+  // What the server gets is the base64 text of every file in lines of 76 + part headers (about 4/3 more than the files): that is what the limit
+  // is checked against and what is shown (G-07). The limit is the server's SIZE (asked once the message is big), else the usual 25 MB.
+  const [serverMax, setServerMax] = useState<Record<string, number | null>>({});
+  const askedLimit = useRef<Record<string, Promise<number | null>>>({});
+  const askServerLimit = (id: string): Promise<number | null> => {
+    if (!id) return Promise.resolve(null);
+    askedLimit.current[id] ??= api.smtpSizeLimit(id).catch(() => null).then((v) => (setServerMax((m) => ({ ...m, [id]: v })), v));
+    return askedLimit.current[id];
+  };
+  const limit = sendLimit(serverMax[accountId]);
+  const wireOf = (files: Att[], picBytes: number, picCount: number) =>
+    wireSize({ attachments: files.map((a) => ({ filename: a.filename, base64Length: a.dataBase64.length })), pictures: picCount ? [picBytes] : [], encrypted: encOn });
+  const attBytes = wireOf(atts, 0, 0);
+  const totalBytes = wireOf(atts, pics.bytes, pics.count);
+  // going over the limit by adding files or pictures says so once (and again after the message was back under it)
+  const overShown = useRef(false);
+  const over = totalBytes > limit.bytes;
+  useEffect(() => {
+    if (over && !overShown.current && touched.current) showToast(t("compose.att.totalTooBig", { size: fmtSize(totalBytes), limit: fmtSize(limit.bytes) }), undefined, "error");
+    overShown.current = over;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [over]);
+  useEffect(() => {
+    if (worthAsking(totalBytes)) void askServerLimit(accountId);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [accountId, totalBytes > 0 && worthAsking(totalBytes)]);
   /** attachments whose type Gmail, Outlook and Yahoo reject */
   const blockedAtts = atts.map((a) => ({ name: a.filename, ext: blockedAttachmentExt(a.filename) })).filter((a) => a.ext);
 
@@ -842,9 +889,30 @@ export function Compose({ init }: { init: ComposeInit }) {
     [],
   );
 
+  /**
+   * The error text when the message, as it goes on the wire (base64 + headers + the body), is over what the server takes; null when it
+   * fits. A message above 8 MiB asks the server for its SIZE first (smtpsize.rs); without an answer the usual 25 MB applies.
+   */
+  const sizeProblem = async (d: Draft): Promise<string | null> => {
+    const wire = wireSize({
+      attachments: d.attachments.map((a) => ({ filename: a.filename, base64Length: a.dataBase64.length })),
+      pictures: (d.inline ?? []).map((i) => Math.floor((i.dataBase64.length * 3) / 4)),
+      htmlLength: d.html.length,
+      textLength: d.text.length,
+      encrypted: !!d.security?.encrypt,
+    });
+    let max = serverMax[d.accountId];
+    if (max === undefined && worthAsking(wire)) max = await askServerLimit(d.accountId);
+    const lim = sendLimit(max);
+    return wire > lim.bytes ? t("compose.att.tooBig", { size: fmtSize(wire), limit: fmtSize(lim.bytes) }) : null;
+  };
+
   const sendNowFromEditor = async () => {
     if (!init.outboxId) return;
-    const d = await secureDraft(buildDraft());
+    const built = buildDraft();
+    const tooBig = await sizeProblem(built);
+    if (tooBig) return showToast(tooBig, undefined, "error");
+    const d = await secureDraft(built);
     if (!d) return;
     setBusy(true);
     try {
@@ -887,7 +955,8 @@ export function Compose({ init }: { init: ComposeInit }) {
       if (!d.subject.trim()) return showToast(t("compose.err.meetingSubject"), undefined, "error");
     }
     if (!accountId) return showToast(t("compose.err.noAccount"), undefined, "error");
-    if (totalBytes > MAX_ATTACH_BYTES) return showToast(t("compose.att.tooBig", { size: fmtSize(totalBytes) }), undefined, "error");
+    const tooBig = await sizeProblem(d);
+    if (tooBig) return showToast(tooBig, undefined, "error");
     if (!d.subject && !(await confirm({ title: t("compose.dlg.noSubject"), confirmLabel: t("compose.dlg.sendAnyway") }))) return;
     if (
       blockedAtts.length &&
@@ -1288,13 +1357,8 @@ export function Compose({ init }: { init: ComposeInit }) {
   const addFilesNow = async (files: FileList | File[] | null) => {
     if (!files) return;
     const list: Att[] = [];
-    for (const f of Array.from(files)) list.push({ filename: f.name || "pasted-image.png", mime: f.type || "application/octet-stream", dataBase64: await fileToBase64(f) });
-    setAtts((a) => {
-      const next = [...a, ...list];
-      const bytes = next.reduce((n, x) => n + approxBytes(x), 0) + pics.bytes;
-      if (bytes > MAX_ATTACH_BYTES) showToast(t("compose.att.totalTooBig", { size: fmtSize(bytes) }), undefined, "error");
-      return next;
-    });
+    for (const f of Array.from(files)) list.push({ filename: outgoingName(f.name || "pasted-image.png"), mime: f.type || "application/octet-stream", dataBase64: await fileToBase64(f) });
+    setAtts((a) => [...a, ...list]); // (the size warning is the effect below: a state updater must not show toasts)
     touch();
   };
   addFilesRef.current = async (files: File[]) => addFiles(files);
@@ -1377,7 +1441,7 @@ export function Compose({ init }: { init: ComposeInit }) {
     editor.chain().setNodeSelection(picSel.pos).deleteSelection().run();
     if (parts) {
       const ext = parts.mime.split("/")[1]?.replace("jpeg", "jpg") ?? "img";
-      setAtts((a) => [...a, { filename: picSel.name !== "picture" ? picSel.name : `picture.${ext}`, mime: parts.mime, dataBase64: parts.b64 }]);
+      setAtts((a) => [...a, { filename: outgoingName(picSel.name !== "picture" ? picSel.name : `picture.${ext}`), mime: parts.mime, dataBase64: parts.b64 }]);
     }
     setPicSel(null);
     touch();
@@ -1783,13 +1847,17 @@ export function Compose({ init }: { init: ComposeInit }) {
         <button className="icon-btn" title={t("compose.fmt.bulleted")} aria-label={t("compose.fmt.bulleted")} onClick={() => editor?.chain().focus().toggleBulletList().run()}><List size={14} /></button>
         <button className="icon-btn" title={t("compose.fmt.numbered")} aria-label={t("compose.fmt.numbered")} onClick={() => editor?.chain().focus().toggleOrderedList().run()}><ListOrdered size={14} /></button>
         <button
+          ref={linkBtnRef}
           className="icon-btn"
-          title={t("compose.fmt.link")}
+          title={kbd(t("compose.fmt.linkTip"))}
           aria-label={t("compose.fmt.link")}
+          aria-haspopup="dialog"
+          aria-expanded={link.isOpen}
           onClick={() => linkRef.current()}
         >
           <Link2 size={14} />
         </button>
+        {link.node}
         <button className="icon-btn" title={kbd(t("compose.bar.insertPictureTip"))} aria-label={t("compose.fmt.insertPicture")} onClick={() => picRef.current?.click()}><ImagePlus size={14} /></button>
       </div>
 
@@ -1867,11 +1935,11 @@ export function Compose({ init }: { init: ComposeInit }) {
 
       {pics.count > 0 && (
         <div className="cp-size muted small cp-atts" aria-live="polite">
-          {t("compose.pic.count", { n: pics.count, size: fmtSize(totalBytes) })}
-          <div className={`progress ${totalBytes > MAX_ATTACH_BYTES ? "over" : ""}`} role="progressbar" aria-valuemin={0} aria-valuemax={25 * 1024 * 1024} aria-valuenow={totalBytes}>
-            <i style={{ width: `${Math.min(100, (totalBytes / MAX_ATTACH_BYTES) * 100)}%` }} />
+          {t("compose.pic.count", { n: pics.count, size: fmtSize(totalBytes), limit: fmtSize(limit.bytes) })}
+          <div className={`progress ${totalBytes > limit.bytes ? "over" : ""}`} role="progressbar" aria-valuemin={0} aria-valuemax={limit.bytes} aria-valuenow={totalBytes}>
+            <i style={{ width: `${Math.min(100, (totalBytes / limit.bytes) * 100)}%` }} />
           </div>
-          {totalBytes > MAX_ATTACH_BYTES && <span className="inline-err">{t("compose.pic.overLimit", { size: fmtSize(totalBytes) })}</span>}
+          {totalBytes > limit.bytes && <span className="inline-err">{t("compose.pic.overLimit", { size: fmtSize(totalBytes), limit: fmtSize(limit.bytes) })}</span>}
         </div>
       )}
 
@@ -1897,7 +1965,7 @@ export function Compose({ init }: { init: ComposeInit }) {
               <button className="icon-btn" aria-label={t("compose.att.removeAria", { name: a.filename })} onClick={() => (setAtts((x) => x.filter((_, j) => j !== i)), touch())}><X size={12} /></button>
             </span>
           ))}
-          <span className={`muted small ${attBytes > MAX_ATTACH_BYTES ? "err" : ""}`}>{t("compose.att.total", { size: fmtSize(attBytes) })}</span>
+          <span className={`muted small ${totalBytes > limit.bytes ? "err" : ""}`}>{t("compose.att.total", { size: fmtSize(attBytes), limit: fmtSize(limit.bytes) })}</span>
           {blockedAtts.length > 0 && (
             <span className="att-warn" role="alert">
               <TriangleAlert size={14} aria-hidden /> {t(blockedAtts.length === 1 ? "compose.att.blockedWarningOne" : "compose.att.blockedWarningMany", { types: [...new Set(blockedAtts.map((a) => a.ext))].join(", ") })}

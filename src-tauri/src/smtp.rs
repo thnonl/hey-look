@@ -302,7 +302,8 @@ fn exact_body(bytes: Vec<u8>) -> Body {
 
 /// The content: text/plain + text/html (+ related pictures), then the real attachments.
 fn body(d: &Draft) -> R<MultiPart> {
-    let html = SinglePart::html(d.html.clone());
+    // the allow-list sanitiser (outgoing.rs) is the last step before the HTML becomes a MIME part: send, schedule, hold, outbox and drafts
+    let html = SinglePart::html(crate::outgoing::clean_html(&d.html));
     let mut alt = if d.inline.is_empty() {
         MultiPart::alternative().singlepart(SinglePart::plain(d.text.clone())).singlepart(html)
     } else {
@@ -310,7 +311,7 @@ fn body(d: &Draft) -> R<MultiPart> {
         for img in &d.inline {
             let bytes = base64::engine::general_purpose::STANDARD.decode(&img.data_base64).map_err(err)?;
             let ct = ContentType::parse(&img.mime).unwrap_or_else(|_| ContentType::parse("application/octet-stream").unwrap());
-            related = related.singlepart(Attachment::new_inline_with_name(img.cid.clone(), img.filename.clone()).body(bytes, ct));
+            related = related.singlepart(Attachment::new_inline_with_name(img.cid.clone(), crate::attach::outgoing_name(&img.filename)).body(bytes, ct));
         }
         MultiPart::alternative().singlepart(SinglePart::plain(d.text.clone())).multipart(related)
     };
@@ -327,10 +328,12 @@ fn body(d: &Draft) -> R<MultiPart> {
         let ct = ContentType::parse("application/ics; name=\"invite.ics\"").map_err(err)?;
         mixed = mixed.singlepart(Attachment::new("invite.ics".to_string()).body(c.ics.clone().into_bytes(), ct));
     }
-    for a in &d.attachments {
+    // file names are cleaned when the MIME is built (attach::outgoing_name): no folder, no control or hidden characters, a length that fits
+    let names = crate::attach::outgoing_names(&d.attachments.iter().map(|a| a.filename.clone()).collect::<Vec<_>>());
+    for (a, name) in d.attachments.iter().zip(names) {
         let bytes = base64::engine::general_purpose::STANDARD.decode(&a.data_base64).map_err(err)?;
         let ct = ContentType::parse(&a.mime).unwrap_or_else(|_| ContentType::parse("application/octet-stream").unwrap());
-        mixed = mixed.singlepart(Attachment::new(a.filename.clone()).body(exact_body(bytes), ct));
+        mixed = mixed.singlepart(Attachment::new(name.clone()).body(exact_body(bytes), ct));
     }
     Ok(mixed)
 }

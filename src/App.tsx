@@ -27,7 +27,7 @@ import { catchupText, configureDates, fmtWhen } from "./util";
 import { frameAction, initFrame, useFrame } from "./winframe";
 import { startSupportNudge } from "./supportNudgeHost";
 import { offerRestore } from "./composeRecovery";
-import { inEditable, keyAction } from "./composeKeys";
+import { composeSwallowsAppKey, inEditable, keyAction, moduleSwitchKey } from "./composeKeys";
 
 const clamp = (n: number, lo: number, hi: number) => Math.max(lo, Math.min(hi, n));
 
@@ -353,14 +353,18 @@ function App() {
       const tgt = e.target;
       if (!(tgt instanceof Element)) return;
       if (tgt.closest("input,textarea,select,[contenteditable=true]")) return;
-      if (!st.dialog && !st.commandOpen && !st.ask && (e.ctrlKey || e.metaKey) && !e.shiftKey && !e.altKey && (e.key === "1" || e.key === "2")) {
+      const inCompose = !!tgt.closest(".compose-pane");
+      const modalOpen = !!(st.dialog || st.commandOpen || st.ask);
+      const go = moduleSwitchKey(e, { inField: false, inCompose, modalOpen });
+      if (go) {
         e.preventDefault();
-        st.setModule(e.key === "2" ? "calendar" : "mail");
+        st.setModule(go === "go-calendar" ? "calendar" : "mail");
         return;
       }
-      if (st.dialog || st.commandOpen || st.ask) return;
-      // a message being written stays as it is, except that j / k (focus outside its fields) go on to the next / previous conversation (F-21)
-      if (st.compose && !((e.key === "j" || e.key === "k") && st.module === "mail" && !e.ctrlKey && !e.metaKey && !e.altKey)) return;
+      if (modalOpen) return;
+      // a message being written stays as it is, except that j / k (focus outside the pane) go on to the next / previous conversation (F-21);
+      // the compose pane is modal for the keys that act on the mailbox, whichever of its buttons has the focus (A-24)
+      if (composeSwallowsAppKey(e, { composeOpen: !!st.compose, inCompose, module: st.module })) return;
       if (st.module === "calendar" && !e.ctrlKey && !e.metaKey && !e.altKey) {
         // Calendar: c new event, t today, ←/→ previous/next period, m / w / a Month / Week / Agenda
         const tz = calTz(st.prefs);
@@ -435,24 +439,21 @@ function App() {
             <FolderPane />
             <Splitter which="folder" label={t("app.splitter.folder")} value={fw} min={180} max={360} onLive={(w) => setLive((s) => ({ ...s, f: w }))} onCommit={(w) => (setLive((s) => ({ ...s, f: undefined })), setPrefs({ folderW: w }))} />
             {module === "calendar" ? (
-              <>
-                <CalendarView />
-                {compose && (
-                  <div className="reading-region cal-overlay">
-                    <Compose key={composeKey} init={compose} />
-                  </div>
-                )}
-              </>
+              <CalendarView />
             ) : (
               <>
                 <MessageList />
                 {prefs.readingPane === "right" && (
                   <Splitter which="list" label={t("app.splitter.list")} value={lw} min={300} max={680} onLive={(w) => setLive((s) => ({ ...s, l: w }))} onCommit={(w) => (setLive((s) => ({ ...s, l: undefined })), setPrefs({ listW: w }))} />
                 )}
-                <div className="reading-region">
-                  {compose ? <Compose key={composeKey} init={compose} /> : <ReadingPane />}
-                </div>
               </>
+            )}
+            {/* One place in the tree for the message being written, in both modules: switching Mail <-> Calendar (Ctrl+1 / 2, the folder pane) only
+                changes the class of this element, so Compose is not unmounted and what was typed is not lost (QA round 17, A-24). */}
+            {(compose || module === "mail") && (
+              <div className={module === "calendar" ? "reading-region cal-overlay" : "reading-region"}>
+                {compose ? <Compose key={composeKey} init={compose} /> : <ReadingPane />}
+              </div>
             )}
           </div>
         </>

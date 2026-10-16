@@ -4,7 +4,7 @@
 // Run: node --experimental-strip-types scripts/test-compose-keys.mjs
 import assert from "node:assert/strict";
 import { existsSync, readdirSync, readFileSync } from "node:fs";
-import { editorKeyHandlers, inEditable, isAltGraph, keyAction } from "../src/composeKeys.ts";
+import { composeSwallowsAppKey, editorKeyHandlers, inEditable, isAltGraph, keyAction, moduleSwitchKey } from "../src/composeKeys.ts";
 
 const ev = (key, mods = "", altGraphState = false) => ({
   key,
@@ -122,4 +122,64 @@ if (existsSync(tiptap)) {
     for (const s of keys) for (const meta of [false, true]) assert.equal(keyAction(toEvent(s, meta), body), "editor-skip", `TipTap ${s} (${meta ? "Cmd" : "Ctrl"}) must be skipped`);
   }
 }
+// --- A-24 (BUG-06): Ctrl+2 with the focus on a compose toolbar button blanked what was typed ------------------------------------------
+// Cause: the global handler switched to the Calendar and Compose was unmounted / mounted again with its initial content. Two fixes: Compose
+// stays mounted across the module switch (one place in the tree), and the compose pane is modal for the app's mailbox keys.
+{
+  const free = { inField: false, inCompose: false, modalOpen: false };
+  const inPane = { ...free, inCompose: true };
+  assert.equal(moduleSwitchKey(ev("1", "c"), free), "go-mail");
+  assert.equal(moduleSwitchKey(ev("2", "c"), free), "go-calendar");
+  assert.equal(moduleSwitchKey(ev("2", "m"), free), "go-calendar", "Cmd+2 (Mac)");
+  assert.equal(moduleSwitchKey(ev("2", "c"), inPane), null, "focus on a compose toolbar / Attach / chip button: no module switch");
+  assert.equal(moduleSwitchKey(ev("1", "c"), inPane), null);
+  assert.equal(moduleSwitchKey(ev("2", "c"), { ...free, inField: true }), null, "in a field");
+  assert.equal(moduleSwitchKey(ev("2", "c"), { ...free, modalOpen: true }), null, "a dialog is open");
+  assert.equal(moduleSwitchKey(ev("2", ""), free), null, "plain 2 is a character");
+  assert.equal(moduleSwitchKey(ev("2", "cs"), free), null);
+  assert.equal(moduleSwitchKey(ev("2", "ca", true), free), null, "AltGr + 2 types a character");
+  assert.equal(moduleSwitchKey(ev("3", "c"), free), null);
+
+  const sw = (key, mods, ctx) => composeSwallowsAppKey(ev(key, mods), ctx);
+  const open = { composeOpen: true, inCompose: false, module: "mail" };
+  assert.equal(sw("c", "", { ...open, composeOpen: false }), false, "no compose: nothing is swallowed");
+  assert.equal(sw("e", "", open), true, "archive is off while a message is open");
+  assert.equal(sw("j", "", open), false, "j / k outside the pane still go on to the next conversation (F-21)");
+  assert.equal(sw("k", "", open), false);
+  assert.equal(sw("j", "c", open), true);
+  assert.equal(sw("j", "", { ...open, module: "calendar" }), true, "j / k are mailbox keys only in Mail");
+  for (const k of ["j", "k", "e", "c", "#", "Delete", "u", "p", "/"]) assert.equal(sw(k, "", { ...open, inCompose: true }), true, `${k} with the focus inside the compose pane`);
+  assert.equal(sw("a", "c", { ...open, inCompose: true }), true, "Ctrl+A (select all conversations) from a compose button");
+
+  // The regression itself: a model of the app's window handler (App.tsx) with the composer open and a toolbar button focused.
+  const world = () => ({ module: "mail", composeMounts: 1, doc: "typed text", subject: "A-24 probe", handled: [] });
+  const press = (w, e, ctx) => {
+    const go = moduleSwitchKey(e, { inField: false, inCompose: ctx.inCompose, modalOpen: false });
+    if (go) {
+      w.module = go === "go-calendar" ? "calendar" : "mail";
+      w.handled.push("module");
+      return;
+    }
+    if (composeSwallowsAppKey(e, { composeOpen: true, inCompose: ctx.inCompose, module: w.module })) return;
+    if (e.key === "e") w.handled.push("archive");
+    if (e.key === "j" || e.key === "k") w.handled.push("next");
+  };
+  for (const [key, mods] of [["2", "c"], ["1", "c"], ["2", "m"], ["e", ""], ["j", ""], ["k", ""], ["c", ""], ["a", "c"], ["Delete", ""], ["Backspace", ""], ["#", ""]]) {
+    const w = world();
+    press(w, ev(key, mods), { inCompose: true });
+    assert.deepEqual(w, world(), `${mods}+${key} with a compose toolbar button focused changes nothing (document, subject, module, composer)`);
+  }
+  const w = world();
+  press(w, ev("2", "c"), { inCompose: false });
+  assert.equal(w.module, "calendar", "from the list the shortcut still works ...");
+  assert.equal(w.composeMounts, 1, "... and the composer is the same instance (see the source guard below)");
+}
+// Source guard: the composer sits in ONE place of the App tree, so a module switch cannot unmount it; the decisions above are what App.tsx uses.
+assert.equal((app.match(/<Compose\b/g) ?? []).length, 1, "App.tsx renders <Compose> in exactly one place");
+assert.match(app, /\(compose \|\| module === "mail"\) &&/, "the reading region (Compose or the reading pane) is the same element in Mail and Calendar");
+assert.match(app, /moduleSwitchKey\(e, \{ inField: false, inCompose, modalOpen \}\)/);
+assert.match(app, /composeSwallowsAppKey\(e, \{ composeOpen: !!st\.compose, inCompose, module: st\.module \}\)/);
+assert.match(app, /tgt\.closest\("\.compose-pane"\)/, "inCompose = the focus is inside .compose-pane");
+assert.match(compose, /className=\{`compose-pane /, "the pane the guard looks for exists in Compose");
+
 console.log("compose-keys: all checks passed");

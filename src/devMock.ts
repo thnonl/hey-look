@@ -1513,6 +1513,8 @@ export function installMock() {
       case "calendar_save_ics": return "C:/Users/Me/Documents/invite.ics";
       case "calendar_import_ics": return { added: 2, updated: 1 };
       case "calendar_open_message": return { threadId: "t15", folder: "inbox", accountId: "a1" };
+      // the SIZE of the mail server (dev check of the size limit: window.__smtpSize = 10485760)
+      case "smtp_size_limit": return (window as unknown as { __smtpSize?: number }).__smtpSize ?? null;
       case "send_message": {
         // a subject with [fail] is rejected like Gmail rejects a program file (dev check of the failed-send path: __failedSendCheck)
         if (!a.sendAt && String((a.draft as { subject?: string }).subject).includes("[fail]")) throw "SMTP_ATTACHMENT_BLOCKED: The server rejected the attachment type. Gmail, Outlook and Yahoo refuse programs and scripts such as .exe, .bat, .js or .msi, even inside a zip file. Remove the attachment or share it as a link instead. (Server reply: (5.7.0 This message was blocked because its content presents a potential security issue. Please visit https://support.google.com/mail/?p=BlockedMessage to review our message content and attachment content guidelines. gsmtp)";
