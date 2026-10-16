@@ -123,6 +123,25 @@
     nav.addEventListener('click', function (e) { if (e.target.closest && e.target.closest('a')) { nav.classList.remove('open'); nt.setAttribute('aria-expanded', 'false'); } });
   }
 
+  /* ---------- header safety net: above the phone layout the CSS decides when the inline nav gives way to the menu button (measured per language
+     with the Windows fonts). If the nav would still touch the buttons - a wider font on macOS or Linux, a classic scrollbar - the menu button takes over here. ---------- */
+  var hdr = $('.hdr'), hdrR = $('.hdr-r');
+  if (hdr && hdrR && nav && nt) {
+    var fitHeader = function () {
+      hdr.classList.remove('nav-menu');
+      var ncs = getComputedStyle(nav), last = nav.lastElementChild;
+      if (ncs.display === 'none' || ncs.position === 'absolute' || !last) return;
+      var rr = hdrR.getBoundingClientRect(), hin = hdrR.parentNode, pr = parseFloat(getComputedStyle(hin).paddingRight) || 0;
+      if (rr.left - last.getBoundingClientRect().right < 14 || rr.right > hin.getBoundingClientRect().right - pr + 0.5) {
+        hdr.classList.add('nav-menu'); nav.classList.remove('open'); nt.setAttribute('aria-expanded', 'false');
+      }
+    }, fitTimer = 0;
+    fitHeader();
+    window.addEventListener('resize', function () { if (!fitTimer) fitTimer = requestAnimationFrame(function () { fitTimer = 0; fitHeader(); }); });
+    window.addEventListener('load', fitHeader);
+    if (document.fonts && document.fonts.ready) document.fonts.ready.then(fitHeader);
+  }
+
   /* ---------- reveal on scroll ---------- */
   if ('IntersectionObserver' in window) {
     var rio = new IntersectionObserver(function (es) {
