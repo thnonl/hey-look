@@ -296,7 +296,7 @@ mod win {
 
     /// The folder part of the web view's user data path: `\<identifier>\ebwebview` (Tauri puts it under the local app data folder).
     fn folder_marker() -> String {
-        format!("\\{}\\ebwebview", crate::shell::AUMID.to_lowercase())
+        format!("\\{}\\ebwebview", crate::identity::identifier().to_lowercase())
     }
 
     /// Browser processes of this app's web view data folder whose app is gone.

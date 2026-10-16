@@ -7,6 +7,7 @@ mod discover;
 mod flagguard;
 mod ical;
 mod i18n;
+mod identity;
 mod idle;
 mod legacy_names;
 // the checked open of links and files on Linux; compiled everywhere so that its rules are tested everywhere
@@ -49,9 +50,6 @@ use tauri_plugin_opener::OpenerExt;
 
 type Db = Arc<Mutex<Connection>>;
 
-/// Name under which passwords, tokens and secrets are kept in the system credential store.
-pub(crate) const KEYRING_SERVICE: &str = "heylook";
-
 struct AppState {
     db: Db,
 }
@@ -69,7 +67,7 @@ fn lock(db: &Db) -> std::sync::MutexGuard<'_, Connection> {
 }
 
 fn password(account_id: &str) -> R<String> {
-    keyring::Entry::new(KEYRING_SERVICE, account_id).and_then(|e| e.get_password()).map_err(|e| match e {
+    identity::entry(account_id).and_then(|e| e.get_password()).map_err(|e| match e {
         keyring::Error::NoEntry => format!("no stored password: {e}"),
         other => keyring_error_text(std::env::consts::OS, "read", &other.to_string()),
     })
@@ -138,7 +136,7 @@ fn client_secret_key(p: Provider) -> &'static str {
 const SECRET_NAMES: [&str; 3] = ["ai_key", "google_client_secret", "microsoft_client_secret"];
 
 fn secret_get(name: &str) -> Option<String> {
-    keyring::Entry::new(KEYRING_SERVICE, &format!("secret:{name}"))
+    identity::entry(&format!("secret:{name}"))
         .ok()?
         .get_password()
         .ok()
@@ -146,7 +144,7 @@ fn secret_get(name: &str) -> Option<String> {
 }
 
 fn secret_set(name: &str, value: &str) -> R<()> {
-    let e = keyring::Entry::new(KEYRING_SERVICE, &format!("secret:{name}")).map_err(err)?;
+    let e = identity::entry(&format!("secret:{name}")).map_err(err)?;
     if value.is_empty() {
         let _ = e.delete_credential();
         Ok(())
@@ -212,7 +210,7 @@ fn secret(db: &Db, acc: &Account) -> R<String> {
 /// Password (or token) for SMTP: the separate SMTP password when one is stored, else the IMAP secret.
 fn smtp_secret(db: &Db, acc: &Account) -> R<String> {
     if Provider::from_auth(&acc.auth).is_none() {
-        if let Some(pw) = keyring::Entry::new(KEYRING_SERVICE, &format!("{}:smtp", acc.id)).ok().and_then(|e| e.get_password().ok()) {
+        if let Some(pw) = identity::entry(&format!("{}:smtp", acc.id)).ok().and_then(|e| e.get_password().ok()) {
             return Ok(pw);
         }
     }
@@ -311,14 +309,14 @@ fn add_account_with(
     let smtp_pw = smtp_password.clone().unwrap_or_else(|| password_value.to_string());
     let test_smtp = !acc.smtp_username.is_empty() || smtp_password.is_some();
     check_new_account(&acc, password_value, &smtp_pw, test_smtp, imap_login, smtp_check)?;
-    keyring::Entry::new(KEYRING_SERVICE, &acc.id)
+    identity::entry(&acc.id)
         .and_then(|e| e.set_password(password_value))
         .map_err(|e| keyring_error_text(std::env::consts::OS, "save", &e.to_string()))?;
     if let Some(sp) = &smtp_password {
-        let stored = keyring::Entry::new(KEYRING_SERVICE, &format!("{}:smtp", acc.id)).and_then(|e| e.set_password(sp));
+        let stored = identity::entry(&format!("{}:smtp", acc.id)).and_then(|e| e.set_password(sp));
         if let Err(e) = stored {
             // nothing half-added: the first secret goes again, no account row is made
-            if let Ok(entry) = keyring::Entry::new(KEYRING_SERVICE, &acc.id) {
+            if let Ok(entry) = identity::entry(&acc.id) {
                 let _ = entry.delete_credential();
             }
             return Err(keyring_error_text(std::env::consts::OS, "save", &e.to_string()));
@@ -478,7 +476,7 @@ async fn oauth_sign_in(
         smtp_username: String::new(),
         tls_insecure: false,
     };
-    keyring::Entry::new(KEYRING_SERVICE, &acc.id)
+    identity::entry(&acc.id)
         .and_then(|e| e.set_password(&signed.refresh_token))
         .map_err(|e| keyring_error_text(std::env::consts::OS, "save", &e.to_string()))?;
     oauth::cache_token(&acc.id, &signed.access_token, 3300);
@@ -493,7 +491,7 @@ async fn oauth_sign_in(
     if let Err(e) = verified {
         // a new mailbox that cannot be used leaves no token behind (an existing one keeps the token it has just been given)
         if existing.is_none() {
-            if let Ok(entry) = keyring::Entry::new(KEYRING_SERVICE, &acc.id) {
+            if let Ok(entry) = identity::entry(&acc.id) {
                 let _ = entry.delete_credential();
             }
             oauth::forget_token(&acc.id);
@@ -559,7 +557,7 @@ fn remove_account(state: tauri::State<AppState>, account_id: String) -> R<()> {
     db::remove_account(&lock(&state.db), &account_id)?;
     // (the calendar grant of the mailbox goes with it)
     for name in [account_id.clone(), format!("{account_id}:smtp"), oauth::calendar_key(&account_id)] {
-        if let Ok(e) = keyring::Entry::new(KEYRING_SERVICE, &name) {
+        if let Ok(e) = identity::entry(&name) {
             let _ = e.delete_credential();
         }
     }
@@ -4125,6 +4123,9 @@ async fn ai_list_models(endpoint: String, key: Option<String>) -> R<Vec<String>>
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     startup::init_clock();
+    // (the names shared with other copies of the app: credential store service, notification id; see identity.rs)
+    let context = tauri::generate_context!();
+    identity::init(&context.config().identifier);
     // a restart or an installer relaunch starts this process while the previous run's web view processes are still going away: a web
     // view created now would join them and die with them (see webview_health.rs)
     webview_health::wait_for_previous_run();
@@ -4361,7 +4362,7 @@ pub fn run() {
             update::outbox_busy,
             idle::idle_states
         ])
-        .build(tauri::generate_context!())
+        .build(context)
         .expect("error while building tauri application")
         .run(|app, event| match event {
             // Dock icon / Finder / Spotlight while the window is hidden

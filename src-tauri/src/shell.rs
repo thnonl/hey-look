@@ -9,9 +9,6 @@ use tauri::menu::{CheckMenuItem, Menu, MenuEvent, MenuItem, MenuItemKind, Predef
 use tauri::tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent};
 use tauri::{AppHandle, Emitter, Manager};
 
-#[cfg(windows)]
-pub const AUMID: &str = "thnonl.heylook";
-
 // ---------- prefs ----------
 
 pub fn prefs(db: &Db) -> Value {
@@ -480,8 +477,9 @@ pub fn register_aumid(app: &AppHandle) {
     let Some(data) = app.try_state::<crate::legacy_names::DataDir>() else { return };
     let icon = data.0.join("icon.png");
     let _ = std::fs::write(&icon, include_bytes!("../icons/128x128.png"));
-    let key = format!(r"HKCU\Software\Classes\AppUserModelId\{AUMID}");
-    for (name, val) in [("DisplayName", "Hey Look!"), ("IconUri", icon.to_str().unwrap_or(""))] {
+    let key = format!(r"HKCU\Software\Classes\AppUserModelId\{}", crate::identity::aumid());
+    let display = if crate::identity::isolated() { "Hey Look! (test copy)" } else { "Hey Look!" };
+    for (name, val) in [("DisplayName", display), ("IconUri", icon.to_str().unwrap_or(""))] {
         let _ = crate::winproc::hidden("reg").args(["add", &key, "/v", name, "/t", "REG_SZ", "/d", val, "/f"]).output();
     }
 }
@@ -558,7 +556,7 @@ fn toast(app: &AppHandle, thread: String, title: &str, line1: &str, line2: &str,
         "sms" => Some(Sound::SMS),
         _ => Some(Sound::Mail),
     };
-    let mut t = Toast::new(AUMID).title(title).text1(line1);
+    let mut t = Toast::new(crate::identity::aumid()).title(title).text1(line1);
     if !line2.is_empty() {
         t = t.text2(line2);
     }
