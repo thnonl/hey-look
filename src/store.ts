@@ -4,6 +4,7 @@ import { loadPlatform } from "./platform";
 import { hasMailAccounts } from "./mailControls";
 import { applyBackfill } from "./backfill";
 import { holdOpenThread } from "./openThread";
+import { QueuedMoves } from "./queuedMoves";
 import { StateIntents, type IntentKind } from "./readIntent";
 import { calendarErrorText } from "./calendarSync";
 import { backendText } from "./backendErrors";
@@ -315,6 +316,18 @@ let listKey = "";
 let heldOpen: string | null = null;
 /** (OBS-1) Conversations whose move target is being looked up on the server. */
 const preparing = new Set<string>();
+/** (BUG-1) Moves waiting out their Undo window: see queuedMoves.ts. */
+const queued = new QueuedMoves();
+
+/** The backend dropped a queued move because its folder is gone and cannot be made: the toast goes, the mail is back, the error is shown. Undo wins. */
+export function moveDropped(token: string, error: string) {
+  const d = queued.dropped(token);
+  if (!d) return; // Undo won
+  const st = useStore.getState();
+  if (d.dismiss != null) st.dismissToast(d.dismiss);
+  st.showToast(t("errors.toast.failed", { error: friendlyError(error) }), undefined, "error");
+  void st.refresh();
+}
 /** The action a yes/no state is set with: [yes, no] (always a set, never a toggle: a repeated call is harmless and the last one wins). */
 const INTENT_ACTION: Record<IntentKind, [string, string]> = { read: ["read", "unread"], flag: ["star", "unstar"], pin: ["pin", "unpin"] };
 /** The action as a state: `read`/`unread`, `star`/`unstar`, `pin`/`unpin`. */
@@ -890,6 +903,7 @@ export const useStore = create<State>((set, get) => ({
     // the view the person acted from (a move only touches the mail in it), and the action as the backend runs it
     const scope = scopeOf(get().folder);
     const real = moveLike && action === "trash" && scope === "trash" ? "delete_forever" : action;
+    let verify = false; // the saved folder list was trusted: the backend checks it during the Undo window
     if (moveLike) {
       // (OBS-1) the folder the mail goes to is looked up (and a missing Archive / Trash created) on the server BEFORE the mail leaves the
       // list and "Archived" is shown: when that cannot be done the mail stays and the error comes at once, not after the Undo time.
@@ -900,7 +914,7 @@ export const useStore = create<State>((set, get) => ({
       if (real !== "delete_forever") {
         for (const id of ids) preparing.add(id);
         try {
-          await api.prepareAction(ids, real, arg ?? null, scope ?? null);
+          verify = await api.prepareAction(ids, real, arg ?? null, scope ?? null);
         } catch (e) {
           get().showToast(t("errors.toast.failed", { error: friendlyError(e) }), undefined, "error");
           return;
@@ -925,15 +939,18 @@ export const useStore = create<State>((set, get) => ({
     if (moveLike) {
       // hide now, run on the server after the Undo window (the backend also flushes this on quit)
       try {
-        const token = await api.queueAction(ids, real, arg ?? null, scope ?? null, prefs.undoActionSeconds);
-        if (label) {
+        const token = await api.queueAction(ids, real, arg ?? null, scope ?? null, prefs.undoActionSeconds, verify);
+        // a folder check that already failed (a fast server) has shown its error and brought the mail back: no "Archived" toast then
+        if (queued.queued(token) && label) {
           get().showToast(
             label,
             () => {
+              queued.undo(token); // Undo wins over a folder check that ends later
               void api.cancelAction(token).then(() => get().refresh());
             },
             "success",
           );
+          queued.shown(token, toastSeq); // the id `showToast` just gave it (it counts up synchronously)
         }
       } catch (e) {
         get().showToast(t("errors.toast.failed", { error: friendlyError(e) }), undefined, "error");

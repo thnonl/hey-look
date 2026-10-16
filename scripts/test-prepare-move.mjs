@@ -27,11 +27,14 @@ assert.match(act, /if \(real !== "delete_forever"\) \{\s*for \(const id of ids\)
 assert.match(act, /const todo = ids\.filter\(\(id\) => !preparing\.has\(id\)\);[^\n]*\n\s*if \(todo\.length === 0\) return;/);
 assert.match(act, /finally \{\s*for \(const id of ids\) preparing\.delete\(id\);/, "the guard is always released");
 // the Undo window of the normal case is untouched
-assert.match(act, /api\.queueAction\(ids, real, arg \?\? null, scope \?\? null, prefs\.undoActionSeconds\)/);
+assert.match(act, /api\.queueAction\(ids, real, arg \?\? null, scope \?\? null, prefs\.undoActionSeconds, verify\)/);
 assert.match(act, /void api\.cancelAction\(token\)\.then\(\(\) => get\(\)\.refresh\(\)\)/);
+// (BUG-1) what the look-up says (the saved list was trusted) is handed on, so the backend checks that folder during the Undo window
+assert.match(act, /verify = await api\.prepareAction\(/);
+assert.match(act, /let verify = false;/);
 
 // api.ts and the backend command exist under the same name
-assert.match(read("../src/api.ts"), /prepareAction: \(threadIds: string\[\], action: string, arg: string \| null, scope: string \| null\) =>\s*invoke<void>\("prepare_action", \{ threadIds, action, arg, scope \}\)/);
+assert.match(read("../src/api.ts"), /prepareAction: \(threadIds: string\[\], action: string, arg: string \| null, scope: string \| null\) =>\s*invoke<boolean>\("prepare_action", \{ threadIds, action, arg, scope \}\)/);
 const lib = read("../src-tauri/src/lib.rs");
 assert.match(lib, /async fn prepare_action\(/);
 assert.match(lib, /thread_action,\s*prepare_action,/, "registered");

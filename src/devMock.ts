@@ -1126,23 +1126,41 @@ export function installMock() {
       }
       case "prepare_action": {
         // like the backend: the folder a move goes to is looked up before the move is queued. `#nocreate`: the server has no Archive / Trash
-        // and refuses to create one (the error comes after the IMAP time, 1.2 s); every call is logged on `window.__prepareActionCalls`
+        // and refuses to create one (the error comes after the IMAP time, 1.2 s). `#stalefolder`: the saved folder list still names the
+        // folder (the server deleted it since the last sync): no look-up now, the answer is `true` = "check it during the Undo window".
+        // Every call is logged on `window.__prepareActionCalls`.
         const w = window as unknown as { __prepareActionCalls?: { ids: string[]; action: string; at: number }[] };
         (w.__prepareActionCalls ??= []).push({ ids: [...((a.threadIds ?? []) as string[])], action: String(a.action), at: Date.now() });
         const folder = a.action === "archive" ? "Archive" : a.action === "trash" ? "Trash" : null;
+        if (folder && hashTokens().has("stalefolder")) return true;
         if (folder && hashTokens().has("nocreate")) {
           return later(1200, () => {
             throw `FOLDER_NOT_CREATED|folder=${folder}|why=CREATE denied: Couldn’t find or create the ${folder} folder on this account (CREATE denied). The mail stays where it is.`;
           });
         }
-        return null;
+        return false;
       }
       case "queue_action": {
-        const w = window as unknown as { __queueActionCalls?: { ids: string[]; action: string; at: number }[] };
-        (w.__queueActionCalls ??= []).push({ ids: [...((a.threadIds ?? []) as string[])], action: String(a.action), at: Date.now() });
-        return "token-" + Math.random().toString(36).slice(2);
+        // `verify` (the saved list was trusted): with `#stalefolder` + `#nocreate` the check finds the folder gone and not creatable after
+        // `#stalefolder=<ms>` (default 1.2 s): the move is dropped and `action-verify-failed` comes, unless Undo was pressed first.
+        const w = window as unknown as { __queueActionCalls?: { ids: string[]; action: string; at: number; verify: boolean }[]; __cancelledActions?: Set<string> };
+        (w.__queueActionCalls ??= []).push({ ids: [...((a.threadIds ?? []) as string[])], action: String(a.action), at: Date.now(), verify: a.verify === true });
+        const token = "token-" + Math.random().toString(36).slice(2);
+        const folder = a.action === "archive" ? "Archive" : a.action === "trash" ? "Trash" : null;
+        if (a.verify === true && folder && hashTokens().has("stalefolder") && hashTokens().has("nocreate")) {
+          const ms = Number(hashTokens().get("stalefolder")) || 1200;
+          setTimeout(() => {
+            if (w.__cancelledActions?.has(token)) return; // Undo won
+            void emit("action-verify-failed", { id: token, error: `FOLDER_NOT_CREATED|folder=${folder}|why=CREATE denied: Couldn’t find or create the ${folder} folder on this account (CREATE denied). The mail stays where it is.` });
+          }, ms);
+        }
+        return token;
       }
-      case "cancel_action": return true;
+      case "cancel_action": {
+        const w = window as unknown as { __cancelledActions?: Set<string> };
+        (w.__cancelledActions ??= new Set()).add(String(a.id));
+        return true;
+      }
       case "load_older": {
         // up to 50 older messages of one folder; rejects like an IMAP failure when `failIn` counts down to the call
         const id = String(a.accountId);

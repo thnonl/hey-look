@@ -992,7 +992,39 @@ struct Pending {
     arg: Option<String>,
     scope: Option<String>,
     due: std::time::Instant,
+    /// (BUG-1) the check, running during the Undo window, that the saved folder this move goes to still exists on the server
+    verify: Option<Arc<Verify>>,
 }
+
+/// The outcome of the folder check of one queued move. The check runs on its own thread; the move waits for it (`wait`) and does not
+/// send anything to a folder that was not checked, unless the check is taking longer than `max` (a slow or offline server: then the move
+/// is tried as before, and its own folder look-up on failure still applies).
+struct Verify {
+    result: Mutex<Option<R<()>>>,
+    done: std::sync::Condvar,
+}
+
+impl Verify {
+    fn new() -> Arc<Verify> {
+        Arc::new(Verify { result: Mutex::new(None), done: std::sync::Condvar::new() })
+    }
+
+    fn finish(&self, r: R<()>) {
+        *self.result.lock().unwrap_or_else(|p| p.into_inner()) = Some(r);
+        self.done.notify_all();
+    }
+
+    /// The result of the check, waiting at most `max` for it; None when it is still running.
+    fn wait(&self, max: std::time::Duration) -> Option<R<()>> {
+        let g = self.result.lock().unwrap_or_else(|p| p.into_inner());
+        let (g, _) = self.done.wait_timeout_while(g, max, |r| r.is_none()).unwrap_or_else(|p| p.into_inner());
+        g.clone()
+    }
+}
+
+/// How long a due move waits for its folder check (a flush at quit does not hold the app up as long).
+const VERIFY_WAIT: std::time::Duration = std::time::Duration::from_secs(20);
+const VERIFY_WAIT_AT_QUIT: std::time::Duration = std::time::Duration::from_secs(4);
 
 static PENDING: Mutex<Vec<Pending>> = Mutex::new(Vec::new());
 
@@ -1004,9 +1036,7 @@ fn pending_thread_ids() -> std::collections::HashSet<String> {
     pending_lock().iter().flat_map(|p| p.threads.iter().cloned()).collect()
 }
 
-/// Hide the threads now and run the action on the server after `delay_secs`, unless it is cancelled.
-#[tauri::command]
-fn queue_action(thread_ids: Vec<String>, action: String, arg: Option<String>, scope: Option<String>, delay_secs: u64) -> String {
+fn queue(thread_ids: Vec<String>, action: String, arg: Option<String>, scope: Option<String>, delay_secs: u64, verify: Option<Arc<Verify>>) -> String {
     let id = uuid::Uuid::new_v4().to_string();
     pending_lock().push(Pending {
         id: id.clone(),
@@ -1015,24 +1045,83 @@ fn queue_action(thread_ids: Vec<String>, action: String, arg: Option<String>, sc
         arg,
         scope,
         due: std::time::Instant::now() + std::time::Duration::from_secs(delay_secs),
+        verify,
     });
     id
 }
 
-#[tauri::command]
-fn cancel_action(id: String) -> bool {
+/// Remove a queued move; true when it was still waiting.
+fn unqueue(id: &str) -> bool {
     let mut g = pending_lock();
     let before = g.len();
     g.retain(|p| p.id != id);
     g.len() != before
 }
 
-fn run_pending(app: &tauri::AppHandle, items: Vec<Pending>) {
+/// The app is told that a queued move was dropped because its folder is gone and cannot be made: the mail is back in the list.
+#[derive(Serialize, Clone)]
+#[serde(rename_all = "camelCase")]
+struct VerifyFailed {
+    id: String,
+    error: String,
+}
+
+/// A folder check ended. A failure drops the move if it is still waiting (Undo already took it: nothing to do; the move is already
+/// running: it sees the failure itself, `run_pending`) and returns the error for the app to show.
+fn verify_finished(id: &str, v: &Verify, result: R<()>) -> Option<String> {
+    let failed = result.clone().err();
+    v.finish(result);
+    let error = failed?;
+    unqueue(id).then_some(error)
+}
+
+/// Hide the threads now and run the action on the server after `delay_secs`, unless it is cancelled. `verify`: the saved folder list was
+/// trusted for the folder this move goes to (see `prepare_action`), so it is looked up on the server now, while the Undo window runs; when
+/// it is gone and cannot be made, the move is dropped and the app gets `action-verify-failed`.
+#[tauri::command]
+fn queue_action(
+    app: tauri::AppHandle,
+    state: tauri::State<AppState>,
+    thread_ids: Vec<String>,
+    action: String,
+    arg: Option<String>,
+    scope: Option<String>,
+    delay_secs: u64,
+    verify: Option<bool>,
+) -> String {
+    let db = state.db.clone();
+    let targets = if verify == Some(true) { move_targets(&db, &thread_ids, &action, arg.as_deref(), &scope).unwrap_or_default() } else { vec![] };
+    if targets.is_empty() {
+        return queue(thread_ids, action, arg, scope, delay_secs, None);
+    }
+    let gate = Verify::new();
+    let id = queue(thread_ids, action, arg, scope, delay_secs, Some(gate.clone()));
+    let task = id.clone();
+    std::thread::spawn(move || {
+        let wanted: Vec<(String, String)> = targets.into_iter().map(|(a, d, _)| (a, d)).collect();
+        if let Some(error) = verify_finished(&task, &gate, verify_targets(&db, &wanted)) {
+            let _ = app.emit("action-verify-failed", VerifyFailed { id: task, error });
+        }
+    });
+    id
+}
+
+#[tauri::command]
+fn cancel_action(id: String) -> bool {
+    unqueue(&id)
+}
+
+fn run_pending(app: &tauri::AppHandle, items: Vec<Pending>, verify_wait: std::time::Duration) {
     if items.is_empty() {
         return;
     }
     let db = app.state::<AppState>().db.clone();
     for p in items {
+        // never move into a folder that was not checked: a failed check ends the move here
+        if let Some(Err(error)) = p.verify.as_ref().and_then(|v| v.wait(verify_wait)) {
+            let _ = app.emit("action-verify-failed", VerifyFailed { id: p.id, error });
+            continue;
+        }
         if let Err(e) = action_impl(&db, p.threads, p.action, p.arg, p.scope) {
             let _ = app.emit("action-failed", e);
         }
@@ -1049,13 +1138,13 @@ fn commit_due(app: &tauri::AppHandle) {
         *g = rest;
         due
     };
-    run_pending(app, due);
+    run_pending(app, due, VERIFY_WAIT);
 }
 
 /// Run everything still waiting (called before the app quits).
 pub(crate) fn flush_pending(app: &tauri::AppHandle) {
     let all: Vec<Pending> = std::mem::take(&mut *pending_lock());
-    run_pending(app, all);
+    run_pending(app, all, VERIFY_WAIT_AT_QUIT);
 }
 
 fn pending_worker(app: tauri::AppHandle) {
@@ -2327,9 +2416,10 @@ fn prepare_on_session<T: std::io::Read + std::io::Write>(db: &Db, acc: &Account,
     resolve_folder(db, acc, s, &mut folders, dst, true).map(|_| ())
 }
 
-/// The accounts and destination role that `action` on these conversations will move mail to, for the ones whose saved folder list does
-/// not name the destination (those need the server: `prepare_on_session`). Mirrors which messages `act_on_session` would move.
-fn targets_to_prepare(db: &Db, thread_ids: &[String], action: &str, arg: Option<&str>, scope: &Option<String>) -> R<Vec<(String, String)>> {
+/// Every (account, destination role, whether the saved folder list names that folder) a move of these conversations goes to, with the same
+/// skips as the move itself (`act_on_session`: the view it is done from, mail already there, a delete from the Trash that removes for good).
+/// Not a move (read, star, pin, snooze ...): nothing.
+fn move_targets(db: &Db, thread_ids: &[String], action: &str, arg: Option<&str>, scope: &Option<String>) -> R<Vec<(String, String, bool)>> {
     let dst = match action {
         "archive" | "trash" | "junk" | "inbox" => action,
         "block" => "junk",
@@ -2337,32 +2427,59 @@ fn targets_to_prepare(db: &Db, thread_ids: &[String], action: &str, arg: Option<
         _ => return Ok(vec![]),
     };
     let msgs = thread_msgs(&lock(db), thread_ids)?;
-    let mut out: Vec<(String, String)> = vec![];
+    let mut out: Vec<(String, String, bool)> = vec![];
     for m in msgs {
         let allowed = match scope {
             Some(sc) => &m.role == sc,
             None => !matches!(m.role.as_str(), "sent" | "drafts" | "trash" | "junk"),
         };
-        // the same skips as the move itself: already there, or a delete from the Trash (that one removes, it does not move)
         if !allowed || m.role == dst || (dst == "trash" && m.role == "trash") {
             continue;
         }
-        let key = (m.account_id.clone(), dst.to_string());
-        if !out.contains(&key) && !fmap(db, &m.account_id).contains_key(dst) {
-            out.push(key);
+        if !out.iter().any(|(a, d, _)| *a == m.account_id && d == dst) {
+            let cached = fmap(db, &m.account_id).contains_key(dst);
+            out.push((m.account_id.clone(), dst.to_string(), cached));
         }
     }
     Ok(out)
 }
 
-/// Resolve (find, refresh, create) the destination folder of a move on the server, before the move is queued. A no-op when the saved
-/// folder list already names it. See `prepare_on_session`.
-fn prepare_action_impl(db: &Db, thread_ids: &[String], action: &str, arg: Option<&str>, scope: &Option<String>) -> R<()> {
-    for (acct_id, dst) in targets_to_prepare(db, thread_ids, action, arg, scope)? {
-        let acc = db::get_account(&lock(db), &acct_id)?;
+/// The accounts and destination roles whose saved folder list does not name the destination (those need the server now: `prepare_on_session`).
+#[cfg(test)]
+fn targets_to_prepare(db: &Db, thread_ids: &[String], action: &str, arg: Option<&str>, scope: &Option<String>) -> R<Vec<(String, String)>> {
+    Ok(move_targets(db, thread_ids, action, arg, scope)?.into_iter().filter(|t| !t.2).map(|t| (t.0, t.1)).collect())
+}
+
+/// Resolve (find, refresh, create) the destination folder of a move on the server, before the move is queued, for the folders the saved
+/// list does not name. Returns true when the saved list was trusted for at least one destination: the caller must then have it checked
+/// in the background while the Undo window runs (`queue_action` with `verify`), because the folder may be gone since the last sync (BUG-1).
+fn prepare_action_impl(db: &Db, thread_ids: &[String], action: &str, arg: Option<&str>, scope: &Option<String>) -> R<bool> {
+    let targets = move_targets(db, thread_ids, action, arg, scope)?;
+    for (acct_id, dst, _) in targets.iter().filter(|t| !t.2) {
+        let acc = db::get_account(&lock(db), acct_id)?;
         let sec = secret(db, &acc)?;
         let mut s = mail::connect(&acc, &sec)?;
-        let done = prepare_on_session(db, &acc, &mut s, &dst);
+        let done = prepare_on_session(db, &acc, &mut s, dst);
+        let _ = s.logout();
+        done?;
+    }
+    Ok(targets.iter().any(|t| t.2))
+}
+
+/// (BUG-1) Look at the server for the folder a move goes to although the saved folder list names it: a fresh LIST replaces the saved list
+/// (a renamed folder is found), a folder that is gone is created again (Archive / Trash), and when that is impossible the same coded error
+/// as in `prepare_on_session` comes back. Nothing is moved.
+fn verify_on_session<T: std::io::Read + std::io::Write>(db: &Db, acc: &Account, s: &mut imap::Session<T>, dst: &str) -> R<()> {
+    let mut folders = Folders { map: fmap(db, &acc.id), listing: None };
+    resolve_folder(db, acc, s, &mut folders, dst, true).map(|_| ())
+}
+
+fn verify_targets(db: &Db, targets: &[(String, String)]) -> R<()> {
+    for (acct_id, dst) in targets {
+        let acc = db::get_account(&lock(db), acct_id)?;
+        let sec = secret(db, &acc)?;
+        let mut s = mail::connect(&acc, &sec)?;
+        let done = verify_on_session(db, &acc, &mut s, dst);
         let _ = s.logout();
         done?;
     }
@@ -2370,7 +2487,8 @@ fn prepare_action_impl(db: &Db, thread_ids: &[String], action: &str, arg: Option
 }
 
 /// (OBS-1) Called by the app before it hides the mail and shows "Archived" / "Deleted ...": fails at once when the target folder cannot be
-/// found or created, so the success message never comes before the error.
+/// found or created, so the success message never comes before the error. The answer says whether the saved folder list was trusted for a
+/// folder (true = ask `queue_action` to check it on the server during the Undo window).
 #[tauri::command]
 async fn prepare_action(
     state: tauri::State<'_, AppState>,
@@ -2378,7 +2496,7 @@ async fn prepare_action(
     action: String,
     arg: Option<String>,
     scope: Option<String>,
-) -> R<()> {
+) -> R<bool> {
     let db = state.db.clone();
     blocking(move || prepare_action_impl(&db, &thread_ids, &action, arg.as_deref(), &scope)).await
 }
