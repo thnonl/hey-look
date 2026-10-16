@@ -33,6 +33,8 @@ export default defineLocale<typeof ns.en>({
   "mail.done.trashed": "Movido a la Papelera",
   "mail.done.deleted": "Eliminado definitivamente",
   "mail.done.junk": "Movido a Correo no deseado",
+  "mail.junk.none": "Sin carpeta de correo no deseado",
+  "mail.junk.noneTip": "Este buzón no tiene una carpeta de correo no deseado, así que no se puede mover correo a Correo no deseado.",
   "mail.done.blocked": "Remitente bloqueado",
   "mail.done.moved": "Movido a {folder}",
   "mail.done.snoozed": "Pospuesto: {when}",

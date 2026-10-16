@@ -235,6 +235,7 @@ jobs:
           node scripts/test-compose-tab-order.mjs
           node --experimental-strip-types scripts/test-update-result.mjs
           node --experimental-strip-types scripts/test-sticky-timers.mjs
+          node --experimental-strip-types scripts/test-toast-stack.mjs
           node --experimental-strip-types scripts/test-translate-jobs.mjs
           node --experimental-strip-types scripts/test-translate-box-layout.mjs
           node --experimental-strip-types scripts/test-open-thread.mjs
@@ -242,6 +243,8 @@ jobs:
           node --experimental-strip-types scripts/test-flag-pin-intent.mjs
           node --experimental-strip-types scripts/test-prepare-move.mjs
           node --experimental-strip-types scripts/test-queued-moves.mjs
+          node --experimental-strip-types scripts/test-auto-advance.mjs
+          node --experimental-strip-types scripts/test-junk-folder.mjs
           node --experimental-strip-types scripts/test-list-limit-footer.mjs
           node --experimental-strip-types scripts/test-link-copy.mjs
           node --experimental-strip-types scripts/test-backfill-line.mjs

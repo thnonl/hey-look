@@ -33,6 +33,8 @@ export default defineLocale<typeof ns.en>({
   "mail.done.trashed": "ごみ箱に移動しました",
   "mail.done.deleted": "完全に削除しました",
   "mail.done.junk": "迷惑メールに移動しました",
+  "mail.junk.none": "迷惑メールフォルダーなし",
+  "mail.junk.noneTip": "このメールボックスには迷惑メールフォルダーがないため、メールを迷惑メールに移動できません。",
   "mail.done.blocked": "送信者をブロックしました",
   "mail.done.moved": "{folder}に移動しました",
   "mail.done.snoozed": "スヌーズ：{when}",

@@ -68,6 +68,11 @@ export default define({
     },
     "app.toast.dismiss": "Dismiss",
     "app.toast.later": "Later",
+    "app.toast.more": {
+      one: "{n} more notification",
+      other: "{n} more notifications",
+    },
+    "app.toast.dismissAll": "Dismiss all",
     // ---- the occasional support reminder (src/supportNudgeHost.ts)
     "app.nudge.text": "Hey Look! is free and made by one person. If it saves you time, you can buy me a coffee.",
     "app.nudge.coffee": "Buy me a coffee",
@@ -319,6 +324,11 @@ export default define({
     },
     "app.toast.dismiss": "Bỏ qua",
     "app.toast.later": "Để sau",
+    "app.toast.more": {
+      one: "{n} thông báo khác",
+      other: "{n} thông báo khác",
+    },
+    "app.toast.dismissAll": "Bỏ qua tất cả",
     "app.nudge.text": "Hey Look! miễn phí và do một người làm ra. Nếu ứng dụng giúp bạn tiết kiệm thời gian, bạn có thể mời mình một ly cà phê.",
     "app.nudge.coffee": "Mời mình một ly cà phê",
     "app.nudge.notNow": "Không phải bây giờ",
@@ -564,6 +574,11 @@ export default define({
     },
     "app.toast.dismiss": "Ignorer",
     "app.toast.later": "Plus tard",
+    "app.toast.more": {
+      one: "{n} autre notification",
+      other: "{n} autres notifications",
+    },
+    "app.toast.dismissAll": "Tout ignorer",
     "app.nudge.text": "Hey Look! est gratuit et conçu par une seule personne. Si l’app vous fait gagner du temps, vous pouvez m’offrir un café.",
     "app.nudge.coffee": "Offrez-moi un café",
     "app.nudge.notNow": "Pas maintenant",

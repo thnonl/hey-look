@@ -1601,6 +1601,9 @@ struct FolderInfo {
     name: String,
     unread: u32,
     total: u32,
+    /// the account's saved folder list (`fmap:<id>`) names a server folder for this one. The app hides the Junk row and disables
+    /// "Mark as junk" where this is false for `junk` (Junk is never created); Archive and Trash rows stay (created on first use).
+    listed: bool,
 }
 
 /// Every account lists the six standard folders (inbox, sent, drafts, archive, trash, junk) plus the server's own folders, whether the
@@ -1609,12 +1612,17 @@ struct FolderInfo {
 /// needed (F-14, `prepare_action`), so the row has to exist before the folder does. A row for a folder the server lacks is just empty;
 /// the app never claims it is a server folder. Junk is never created: marking mail as junk on a server without a Junk folder says
 /// at once that the folder is missing (`FOLDER_MISSING`), and the row fills as soon as the server has one (the next sync picks it up).
+/// (1.0.5) The rows stay, but each says whether the saved list names the folder (`listed`): the app hides the Junk row of an account
+/// whose list has no Junk, and a Junk folder the server gains later is listed by the next sync (it rewrites the saved list).
 #[tauri::command]
 fn list_folders(state: tauri::State<AppState>) -> R<Vec<FolderInfo>> {
-    let c = lock(&state.db);
-    let accounts = db::list_accounts(&c)?;
+    folder_infos(&lock(&state.db))
+}
+
+fn folder_infos(c: &Connection) -> R<Vec<FolderInfo>> {
+    let accounts = db::list_accounts(c)?;
     let mut counts: HashMap<(String, String), (u32, u32)> = HashMap::new();
-    let p: serde_json::Value = db::get_setting(&c, "prefs")
+    let p: serde_json::Value = db::get_setting(c, "prefs")
         .and_then(|s| serde_json::from_str(&s).ok())
         .unwrap_or(serde_json::Value::Null);
     // unread numbers count conversations, and (with Focused Inbox on) leave bulk mail out of the inbox figure
@@ -1639,7 +1647,7 @@ fn list_folders(state: tauri::State<AppState>) -> R<Vec<FolderInfo>> {
     drop(st);
     let mut out = vec![];
     for a in accounts {
-        let map: HashMap<String, String> = db::get_setting(&c, &format!("fmap:{}", a.id))
+        let map: HashMap<String, String> = db::get_setting(c, &format!("fmap:{}", a.id))
             .and_then(|s| serde_json::from_str(&s).ok())
             .unwrap_or_default();
         let mut keys: Vec<String> = mail::ROLES.iter().map(|r| r.to_string()).collect();
@@ -1651,6 +1659,7 @@ fn list_folders(state: tauri::State<AppState>) -> R<Vec<FolderInfo>> {
             out.push(FolderInfo {
                 account_id: a.id.clone(),
                 name: map.get(&k).cloned().unwrap_or_else(|| k.clone()),
+                listed: map.contains_key(&k),
                 key: k,
                 unread,
                 total,
@@ -4101,7 +4110,7 @@ async fn fetch_remote_images(urls: Vec<String>) -> R<HashMap<String, String>> {
 }
 
 #[tauri::command]
-async fn ai_complete(state: tauri::State<'_, AppState>, system: String, prompt: String) -> R<String> {
+async fn ai_complete(state: tauri::State<'_, AppState>, system: String, prompt: String, job_id: Option<String>) -> R<String> {
     let (ep, key, model) = {
         let c = lock(&state.db);
         (
@@ -4110,7 +4119,13 @@ async fn ai_complete(state: tauri::State<'_, AppState>, system: String, prompt: 
             db::get_setting(&c, "ai_model").unwrap_or_default(),
         )
     };
-    ai::complete(&ep, &key, &model, &system, &prompt).await
+    ai::complete(&ep, &key, &model, &system, &prompt, job_id.as_deref()).await
+}
+
+/// Cancel the `ai_complete` call that was started with this `job_id`: its request to the provider is dropped.
+#[tauri::command]
+fn ai_cancel(job_id: String) {
+    ai::cancel(&job_id);
 }
 
 #[tauri::command]
@@ -4341,6 +4356,7 @@ pub fn run() {
             set_secret,
             has_secret,
             ai_complete,
+            ai_cancel,
             ai_list_models,
             shell_info,
             update::check_update,
@@ -4549,6 +4565,40 @@ mod quit_tests {
         finish_failed_hold(&db, "r", "{}", "connection reset", false);
         let gone: i64 = lock(&db).query_row("SELECT COUNT(*) FROM outbox WHERE id='r'", [], |r| r.get(0)).unwrap();
         assert_eq!(gone, 0, "running: the row leaves and Compose reopens");
+    }
+
+    /// (1.0.5) The folder list says which rows the saved folder list names: the app hides Junk where it is not named (Junk is never
+    /// created) and keeps Archive / Trash (created on first use). A sync rewrites the saved list, so a Junk folder the server gained later
+    /// is named after it.
+    #[test]
+    fn the_folder_list_says_which_folders_the_saved_list_names() {
+        let db = test_db("listed");
+        let acc = Account {
+            id: "a1".into(), email: "me@example.com".into(), display_name: "Me".into(), imap_host: "h".into(), imap_port: 993, imap_ssl: true,
+            smtp_host: "s".into(), smtp_port: 465, smtp_security: "ssl".into(), username: "u".into(), auth: "password".into(), color: None,
+            smtp_username: String::new(), tls_insecure: false,
+        };
+        db::insert_account(&lock(&db), &acc).unwrap();
+        let listed = |db: &Db| -> HashMap<String, bool> {
+            folder_infos(&lock(db)).unwrap().into_iter().filter(|f| f.account_id == "a1").map(|f| (f.key, f.listed)).collect()
+        };
+        // never synced: nothing is named, every standard row is still there
+        let none = listed(&db);
+        assert_eq!(none.len(), 6);
+        assert!(none.values().all(|l| !l));
+        // a server without a Junk folder
+        db::set_setting(&lock(&db), "fmap:a1", r#"{"inbox":"INBOX","sent":"Sent","f:Work":"Work"}"#).unwrap();
+        let l = listed(&db);
+        assert_eq!((l["inbox"], l["sent"], l["f:Work"]), (true, true, true));
+        assert!(!l["junk"], "no Junk folder in the saved list");
+        assert!(l.contains_key("junk") && l.contains_key("archive") && l.contains_key("trash"), "the standard rows are still listed");
+        assert!(!l["archive"] && !l["trash"], "created on first use, so not named yet");
+        // the server gains a Junk folder: the next sync writes the list again and Junk is named
+        db::set_setting(&lock(&db), "fmap:a1", r#"{"inbox":"INBOX","sent":"Sent","f:Work":"Work","junk":"Spam"}"#).unwrap();
+        let l = listed(&db);
+        assert!(l["junk"]);
+        let spam = folder_infos(&lock(&db)).unwrap().into_iter().find(|f| f.key == "junk").unwrap();
+        assert_eq!(spam.name, "Spam");
     }
 
     /// QA BUG-M4 / M8: a folder the server lacks is named in the error; one it has is used.

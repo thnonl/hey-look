@@ -33,6 +33,8 @@ export default defineLocale<typeof ns.en>({
   "mail.done.trashed": "已移至已删除邮件",
   "mail.done.deleted": "已永久删除",
   "mail.done.junk": "已移至垃圾邮件",
+  "mail.junk.none": "无垃圾邮件文件夹",
+  "mail.junk.noneTip": "此邮箱没有垃圾邮件文件夹，无法将邮件移至垃圾邮件。",
   "mail.done.blocked": "已阻止发件人",
   "mail.done.moved": "已移至{folder}",
   "mail.done.snoozed": "已延后：{when}",

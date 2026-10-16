@@ -4,7 +4,7 @@
 import assert from "node:assert/strict";
 import {
   cancelJob, closeToast, elapsedLabel, failJob, finishJob, jobFor, jobKey, MAX_FINISHED, removeJob, settleToast, slowHint, SLOW_HINT_MS,
-  startJob, TRANSLATE_TIMEOUT_MS, withTimeout,
+  startJob, TRANSLATE_TIMEOUT_MS, withTimeout, aiJobId,
 } from "../src/translateJobs.ts";
 
 const spec = (messageId, lang = "German", extra = {}) => ({
@@ -179,6 +179,42 @@ const start = (jobs, s, now = 1000) => startJob(jobs, s, now, ++run);
   await assert.rejects(withTimeout(late, 20, () => new Error("t")), /t/);
   resolveLate("too late");
   await new Promise((r) => setTimeout(r, 30));
+}
+
+// 13. the id of the backend request: one per start, so Cancel / the timeout drop exactly the request of that start (a Retry has its own)
+{
+  const a = start({}, spec("m1"));
+  const first = a.jobs[a.key].run;
+  const ids = new Set([aiJobId(first), aiJobId(first + 1), aiJobId(first + 2)]);
+  assert.equal(ids.size, 3, "every start has its own id");
+  assert.equal(aiJobId(first), aiJobId(first), "the same start always gives the same id (Cancel finds it)");
+  assert.match(aiJobId(first), /^translate-[a-z0-9]+-\d+$/);
+  // a cancelled job's request is dropped; the answer that still comes (an error from the backend, or a late result) is ignored
+  const cancelled = cancelJob(a.jobs, a.key);
+  assert.equal(failJob(cancelled, a.key, first, "AI_CANCELLED").applied, false);
+  assert.equal(finishJob(cancelled, a.key, first, "late").applied, false);
+  // Retry after a failure: new run, the old run's late answer is ignored
+  const f = failJob(a.jobs, a.key, first, "boom").jobs;
+  const retry = start(f, spec("m1"));
+  assert.equal(retry.start, true);
+  const second = retry.jobs[a.key].run;
+  assert.notEqual(aiJobId(second), aiJobId(first));
+  assert.equal(finishJob(retry.jobs, a.key, first, "stale").applied, false);
+}
+
+// 14. the error keeps what it came from, so it can be written again in another language; a retry / success clears it
+{
+  const a = start({}, spec("m1"));
+  const r1 = a.jobs[a.key].run;
+  const f = failJob(a.jobs, a.key, r1, "The AI Assistant didn’t answer within 180 seconds.", "AI_TIMEOUT|secs=180: The AI Assistant didn’t answer within 180 seconds.");
+  assert.equal(f.jobs[a.key].errorSource, "AI_TIMEOUT|secs=180: The AI Assistant didn’t answer within 180 seconds.");
+  const retry = start(f.jobs, f.jobs[a.key]); // Retry passes the failed job as the spec
+  const r2 = retry.jobs[a.key].run;
+  const ok = finishJob(retry.jobs, a.key, r2, "Hallo");
+  assert.equal(ok.jobs[a.key].error, undefined);
+  assert.equal(ok.jobs[a.key].errorSource, undefined);
+  // a failure without a source (older callers) still works
+  assert.equal(failJob(a.jobs, a.key, r1, "boom").jobs[a.key].errorSource, undefined);
 }
 
 console.log("ok - test-translate-jobs");

@@ -625,6 +625,8 @@ const newThreads = (accountId: string) =>
 //                      the cap (setting max_download, Settings > Reading & sync) also makes load_older answer { limited: true } once a mailbox holds that many messages
 // `__mockMail` in the console: { calls (every load_older), opened (urls given to the browser), local, total, failIn }
 let mockAiCalls = 0;
+/** the job ids the page cancelled (ai_cancel): a dev check can read them from window.__mockAiCancelled */
+const mockAiCancelled: string[] = ((window as unknown as { __mockAiCancelled?: string[] }).__mockAiCancelled = []);
 const hashHas = (k: string) => new RegExp(`(^|&)${k}(=|&|$)`).test(window.location.hash.slice(1));
 const hashNum = (k: string, d: number) => {
   const m = new RegExp(`(^|&)${k}=(\\d+)`).exec(window.location.hash.slice(1));
@@ -1010,10 +1012,12 @@ export function installMock() {
     switch (cmd) {
       case "list_accounts": return accounts;
       case "idle_states": return { a1: "push" };
-      case "get_setting": return settings[a.key as string] ?? null;
+      // #aiset: the AI Assistant is set up (Translate / Summarize can be tried with #slowai / #failai)
+      case "get_setting": return settings[a.key as string] ?? (hashHas("aiset") && (a.key === "ai_endpoint" || a.key === "ai_model") ? "mock" : null);
       case "first_run_hint": { const d = Number(hashTokens().get("firstrun")); return d > 0 ? Date.now() - d * 86_400_000 : null; } // `#firstrun=90`: the database is 90 days old (an install from before the support reminder)
       case "set_setting": settings[a.key as string] = a.value as string; return null;
-      case "list_folders": return folders;
+      // #nojunk: the second mailbox's server has no Junk folder (the saved list does not name one): its Junk row and the Junk actions go
+      case "list_folders": return hashHas("nojunk") ? folders.map((f) => (f.accountId === "a2" && f.key === "junk" ? { ...f, listed: false } : f)) : folders;
       case "list_threads": {
         const f = a.filter as { folder: string; focus?: string; unreadOnly?: boolean; flaggedOnly?: boolean; sortAsc?: boolean; search?: string; scope?: string };
         const own = (a.filter as { accountId?: string | null }).accountId;
@@ -1477,6 +1481,7 @@ export function installMock() {
         if (hashHas("slowai")) return new Promise((r) => setTimeout(() => r(reply), hashNum("slowai", 20000)));
         return reply;
       }
+      case "ai_cancel": mockAiCancelled.push(String(a.jobId)); return null;
       case "get_autostart": return false;
       case "cancel_outbox": case "outbox_send_now": case "outbox_to_draft": {
         const i = mockOutbox.findIndex((x) => x.id === a.id);

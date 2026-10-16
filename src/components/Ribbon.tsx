@@ -8,6 +8,7 @@ import { calTz, today } from "../calendar";
 import { useT } from "../i18n/react";
 import { friendlyError, useStore, scopeOf } from "../store";
 import { newEvent } from "./Calendar";
+import { accountsOf, canMoveToJunk, folderVisible } from "../junk";
 import { folderLabel } from "../prefs";
 import { snoozePresets } from "../util";
 import { Dropdown, MenuItem } from "./ui";
@@ -40,8 +41,10 @@ function HomeTab() {
   const cur = threads.find((x) => x.threadId === selected);
   const acct = cur?.accountId ?? accountId ?? accounts[0]?.id;
   const scope = scopeOf(folder);
+  // no Junk folder on the account(s): the actions that move mail there are off, with the reason (src/junk.ts)
+  const junkOff: Partial<MenuItem> = canMoveToJunk(folders, accountsOf(threads, ids)) ? {} : { disabled: true, hint: t("mail.junk.none"), title: t("mail.junk.noneTip") };
   const moveItems: MenuItem[] = folders
-    .filter((f) => f.accountId === acct && f.key !== scope && f.key !== "drafts" && f.key !== "sent")
+    .filter((f) => f.accountId === acct && f.key !== scope && f.key !== "drafts" && f.key !== "sent" && folderVisible(folders, f.accountId, f.key))
     .map((f) => ({ label: folderLabel(f.key, f.name), onClick: () => void act(ids, "move", f.key, t("mail.done.moved", { folder: folderLabel(f.key, f.name) })) }));
   const anyUnread = (checked.size ? threads.filter((x) => checked.has(x.threadId)) : cur ? [cur] : []).some((x) => x.unread > 0);
   const flagged = cur?.flagged;
@@ -64,8 +67,8 @@ function HomeTab() {
           label={t("app.ribbon.report")}
           disabled={!has}
           items={[
-            { label: t("app.ribbon.moveToJunk"), onClick: () => void act(ids, "junk", undefined, t("mail.done.junk")) },
-            { label: t("app.ribbon.blockSender"), onClick: () => void act(ids, "block", undefined, t("mail.done.blocked")) },
+            { label: t("app.ribbon.moveToJunk"), onClick: () => void act(ids, "junk", undefined, t("mail.done.junk")), ...junkOff },
+            { label: t("app.ribbon.blockSender"), onClick: () => void act(ids, "block", undefined, t("mail.done.blocked")), ...junkOff },
           ]}
         />
         <Btn icon={<BrushCleaning size={16} />} label={t("app.ribbon.sweep")} title={t("app.ribbon.sweepTitle")} onClick={() => setDialog({ type: "cleaner" })} />

@@ -6,8 +6,87 @@ use serde_json::json;
 pub const COMPLETE_TIMEOUT_SECS: u64 = 180;
 
 /// OpenAI-compatible chat completion. Works with any endpoint (OpenAI, local, gateways).
-pub async fn complete(endpoint: &str, key: &str, model: &str, system: &str, prompt: &str) -> R<String> {
-    complete_within(endpoint, key, model, system, prompt, COMPLETE_TIMEOUT_SECS).await
+/// With a `job` id the call can be cancelled by `cancel(job)`: the request is dropped, which closes the connection to the provider.
+pub async fn complete(endpoint: &str, key: &str, model: &str, system: &str, prompt: &str, job: Option<&str>) -> R<String> {
+    complete_job(endpoint, key, model, system, prompt, COMPLETE_TIMEOUT_SECS, job).await
+}
+
+/// The error of a call that `cancel` ended. The UI has dropped the job already, so the person never reads it.
+const CANCELLED: &str = "AI_CANCELLED: The AI Assistant request was cancelled.";
+
+/// Cancellable calls: the live ones by job id, and the ids cancelled before their call got as far as registering (a cancel that
+/// overtook its own request), kept briefly so that the call still ends at once instead of running for minutes.
+#[derive(Default)]
+struct Jobs {
+    live: std::collections::HashMap<String, tokio::sync::oneshot::Sender<()>>,
+    early: std::collections::VecDeque<String>,
+}
+
+/// Cancelled-too-early ids remembered at most (the oldest go first).
+const EARLY_MAX: usize = 32;
+
+impl Jobs {
+    fn note_early(&mut self, id: &str) {
+        if self.early.len() >= EARLY_MAX {
+            self.early.pop_front();
+        }
+        self.early.push_back(id.to_string());
+    }
+}
+
+fn jobs() -> &'static std::sync::Mutex<Jobs> {
+    static JOBS: std::sync::OnceLock<std::sync::Mutex<Jobs>> = std::sync::OnceLock::new();
+    JOBS.get_or_init(Default::default)
+}
+
+fn jobs_lock() -> std::sync::MutexGuard<'static, Jobs> {
+    jobs().lock().unwrap_or_else(|p| p.into_inner())
+}
+
+/// Unregisters its job when the call ends, however it ends.
+struct JobGuard(String);
+
+impl Drop for JobGuard {
+    fn drop(&mut self) {
+        jobs_lock().live.remove(&self.0);
+    }
+}
+
+/// Registers `id`; None when it was cancelled before this call started. A second call with the same id takes the place of the first,
+/// which then ends as cancelled (its sender is dropped).
+fn register(id: &str) -> Option<(tokio::sync::oneshot::Receiver<()>, JobGuard)> {
+    let mut j = jobs_lock();
+    if let Some(i) = j.early.iter().position(|e| e == id) {
+        j.early.remove(i);
+        return None;
+    }
+    let (tx, rx) = tokio::sync::oneshot::channel();
+    j.live.insert(id.to_string(), tx);
+    Some((rx, JobGuard(id.to_string())))
+}
+
+/// Cancel the call of `id`: it ends at once with `AI_CANCELLED` and its request is dropped. An id nobody knows (yet) is remembered for a
+/// call that has not registered; one that already ended does no harm (the id is simply pushed out later).
+pub fn cancel(id: &str) {
+    let mut j = jobs_lock();
+    match j.live.remove(id) {
+        Some(tx) => {
+            let _ = tx.send(());
+        }
+        None => j.note_early(id),
+    }
+}
+
+async fn complete_job(endpoint: &str, key: &str, model: &str, system: &str, prompt: &str, secs: u64, job: Option<&str>) -> R<String> {
+    let Some(id) = job.filter(|j| !j.is_empty()) else {
+        return complete_within(endpoint, key, model, system, prompt, secs).await;
+    };
+    let Some((cancelled, _guard)) = register(id) else { return Err(CANCELLED.into()) };
+    // when `cancelled` wins, the request future is dropped here: reqwest closes the connection and the provider stops working on it
+    tokio::select! {
+        r = complete_within(endpoint, key, model, system, prompt, secs) => r,
+        _ = cancelled => Err(CANCELLED.into()),
+    }
 }
 
 fn timed_out(secs: u64) -> String {
@@ -149,6 +228,97 @@ mod tests {
         assert!(e.starts_with("AI_TIMEOUT|secs=1: "), "{e}");
         assert!(started.elapsed().as_secs() < 3, "gave up after the timeout, not after the server");
         holder.join().unwrap();
+    }
+
+    /// A server that takes the request and then waits: reports (on the channel) that the request arrived, then whether the client closed
+    /// the connection ("closed") or the connection was still open after `wait` ("answered": a late answer is sent).
+    fn slow_server(wait: std::time::Duration) -> (u16, std::sync::mpsc::Receiver<&'static str>, std::thread::JoinHandle<()>) {
+        use std::io::Write;
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let port = listener.local_addr().unwrap().port();
+        let (tx, rx) = std::sync::mpsc::channel();
+        let h = std::thread::spawn(move || {
+            let (mut sock, _) = listener.accept().unwrap();
+            let mut buf = [0u8; 8192];
+            let _ = sock.read(&mut buf);
+            tx.send("request").unwrap();
+            sock.set_read_timeout(Some(wait)).unwrap();
+            // read() returns 0 (or fails) as soon as the client has closed the connection; a timeout means it is still open
+            match sock.read(&mut buf) {
+                Err(e) if e.kind() == std::io::ErrorKind::WouldBlock || e.kind() == std::io::ErrorKind::TimedOut => {
+                    let body = r#"{"choices":[{"message":{"content":"late"}}]}"#;
+                    let _ = write!(sock, "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}", body.len(), body);
+                    tx.send("answered").unwrap();
+                }
+                _ => tx.send("closed").unwrap(),
+            }
+        });
+        (port, rx, h)
+    }
+
+    /// Cancel drops the request: the call ends at once with AI_CANCELLED, the provider's connection is closed (the server sees it, so a
+    /// late answer has nowhere to go) and the job is unregistered.
+    #[test]
+    fn a_cancelled_call_drops_the_connection_and_ends_at_once() {
+        use std::time::Duration;
+        let (port, seen, server) = slow_server(Duration::from_secs(5));
+        let ep = format!("http://127.0.0.1:{port}");
+        let started = std::time::Instant::now();
+        let call = tauri::async_runtime::spawn(async move { complete_job(&ep, "", "m", "s", "p", 30, Some("job-cancel-1")).await });
+        assert_eq!(seen.recv_timeout(Duration::from_secs(5)), Ok("request"), "the request reached the server");
+        cancel("job-cancel-1");
+        let r = tauri::async_runtime::block_on(call).unwrap();
+        assert_eq!(r.unwrap_err(), CANCELLED);
+        assert!(started.elapsed() < Duration::from_secs(3), "ended at once, not after the 30 s timeout or the server's answer");
+        assert_eq!(seen.recv_timeout(Duration::from_secs(3)), Ok("closed"), "the server saw the connection close");
+        server.join().unwrap();
+        assert!(!jobs_lock().live.contains_key("job-cancel-1"), "the job is unregistered");
+    }
+
+    /// A cancel that arrives before its call registered (the request overtaken) still ends the call, without any request.
+    #[test]
+    fn a_cancel_that_came_first_ends_the_call_without_a_request() {
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        listener.set_nonblocking(true).unwrap();
+        let port = listener.local_addr().unwrap().port();
+        cancel("job-early-1");
+        let r = tauri::async_runtime::block_on(complete_job(&format!("http://127.0.0.1:{port}"), "", "m", "s", "p", 5, Some("job-early-1")));
+        assert_eq!(r.unwrap_err(), CANCELLED);
+        assert!(listener.accept().is_err(), "no connection was made");
+        assert!(jobs_lock().early.iter().all(|e| e != "job-early-1"), "the early cancel is used up");
+    }
+
+    /// Cancelling another job (or one nobody knows) leaves a running call alone; a call without a job id is not cancellable at all.
+    #[test]
+    fn cancelling_another_job_leaves_a_call_alone() {
+        use std::io::Write;
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let port = listener.local_addr().unwrap().port();
+        let server = std::thread::spawn(move || {
+            let (mut sock, _) = listener.accept().unwrap();
+            let mut buf = [0u8; 8192];
+            let _ = sock.read(&mut buf);
+            std::thread::sleep(std::time::Duration::from_millis(400));
+            let body = r#"{"choices":[{"message":{"content":" Hallo "}}]}"#;
+            let _ = write!(sock, "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}", body.len(), body);
+        });
+        let ep = format!("http://127.0.0.1:{port}");
+        let call = tauri::async_runtime::spawn(async move { complete_job(&ep, "", "m", "s", "p", 5, Some("job-keep-1")).await });
+        std::thread::sleep(std::time::Duration::from_millis(100));
+        cancel("job-other-9");
+        assert_eq!(tauri::async_runtime::block_on(call).unwrap().unwrap(), "Hallo");
+        server.join().unwrap();
+    }
+
+    #[test]
+    fn early_cancels_are_remembered_only_up_to_a_limit() {
+        let mut j = Jobs::default();
+        for i in 0..(EARLY_MAX + 10) {
+            j.note_early(&format!("job-{i}"));
+        }
+        assert_eq!(j.early.len(), EARLY_MAX);
+        assert!(j.early.iter().any(|e| e == &format!("job-{}", EARLY_MAX + 9)), "the newest is kept");
+        assert!(!j.early.iter().any(|e| e == "job-0"), "the oldest went");
     }
 
     #[test]

@@ -60,6 +60,8 @@ export default defineLocale<typeof ns.en>({
   "app.toast.leftover": { other: "已发送{n}封在Hey Look!关闭时仍在等待发出的邮件。" },
   "app.toast.dismiss": "关闭",
   "app.toast.later": "稍后",
+  "app.toast.more": { other: "还有{n}条通知" },
+  "app.toast.dismissAll": "全部关闭",
   // ---- the occasional support reminder (src/supportNudgeHost.ts)
   "app.nudge.text": "Hey Look!免费，由一个人开发。如果它为您节省了时间，欢迎请我喝杯咖啡。",
   "app.nudge.coffee": "请我喝杯咖啡",

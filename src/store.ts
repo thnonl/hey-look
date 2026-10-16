@@ -10,6 +10,10 @@ import { calendarErrorText } from "./calendarSync";
 import { backendText } from "./backendErrors";
 import { needsSignIn } from "./signIn";
 import type { Jobs } from "./translateJobs";
+import { planRestore, startAdvance, touchAdvance, type Advance } from "./autoAdvance";
+import { accountsOf, canMoveToJunk, JUNK_ACTIONS } from "./junk";
+import { addToast, lazyText, type Lazy } from "./toastStack";
+export { lazyText, type Lazy };
 import { resolveLang, setLangPref, t } from "./i18n";
 import { fmtNumber } from "./i18n/format";
 import { calTz, CalView, Day, rangeFor, systemTz, today } from "./calendar";
@@ -83,13 +87,16 @@ export interface PassphraseAsk {
 export type RibbonTab = "home" | "view" | "help";
 
 export interface ToastAction {
-  label: string;
+  label: Lazy;
   run: () => void;
 }
 
 export interface Toast {
   id: number;
+  /** the text when the toast was made (also what an identical error is recognised by); drawn through `textFn` when there is one */
   text: string;
+  /** makes the text in the current language: set by a toast made with a function (translation progress / ready / error) */
+  textFn?: () => string;
   kind: "info" | "success" | "error";
   undo?: () => void;
   /** up to two buttons, e.g. Open / Show in folder / Retry */
@@ -101,7 +108,7 @@ export interface Toast {
   /** what the "×" does for a sticky toast (default: just close it) */
   onDismiss?: () => void;
   /** accessible name of the "×" (default: "Later" when `onDismiss` is set, else "Dismiss") */
-  closeLabel?: string;
+  closeLabel?: Lazy;
   /** Esc closes it (when nothing else that Esc closes is open) */
   escCloses?: boolean;
   /** text on top, buttons in a row below it (a longer text), with the coffee icon: the support reminder */
@@ -287,7 +294,7 @@ interface State {
   /** A toast that stays until it is answered (or `null` to remove it); one per `key`, a new text replaces the old in place. */
   setStickyToast: (
     key: string,
-    spec: { text: string; kind?: Toast["kind"]; actions?: ToastAction[]; onDismiss?: () => void; closeLabel?: string; escCloses?: boolean; support?: boolean; link?: ToastAction; hideClose?: boolean; busy?: boolean; ttl?: number } | null,
+    spec: { text: Lazy; kind?: Toast["kind"]; actions?: ToastAction[]; onDismiss?: () => void; closeLabel?: Lazy; escCloses?: boolean; support?: boolean; link?: ToastAction; hideClose?: boolean; busy?: boolean; ttl?: number } | null,
   ) => void;
   /** Count a message as being sent from now until `done()` is called. */
   /** A send is under way (its undo window counts). `flush` makes it go out at once (a quit); it is dropped when the send ends. */
@@ -325,6 +332,24 @@ const preparing = new Set<string>();
 /** (BUG-1) Moves waiting out their Undo window: see queuedMoves.ts. */
 const queued = new QueuedMoves();
 
+/** Where the selection went after a queued move (see autoAdvance.ts), by the move's token, until it is dropped, undone or pushed out. */
+const advances = new Map<string, Advance>();
+const ADVANCES_KEEP = 50;
+/** Set while the app itself marks the mail it just opened as read: that is not the person touching it. */
+let autoMarking = false;
+
+/** The mail of a move is back (refused or Undo): the selection and the unread state the app changed for the auto-advance go back too. */
+async function restoreAdvance(token: string) {
+  const a = advances.get(token);
+  advances.delete(token);
+  if (!a) return;
+  const st = useStore.getState();
+  const next = a.to === null ? undefined : st.threads.find((x) => x.threadId === a.to);
+  const plan = planRestore(a, Date.now(), st.selected, !!next && next.unread > 0);
+  if (plan.reselect) await st.select(plan.reselect);
+  if (plan.markUnread) await useStore.getState().act([plan.markUnread], "unread");
+}
+
 /** The backend dropped a queued move because its folder is gone and cannot be made: the toast goes, the mail is back, the error is shown. Undo wins. */
 export function moveDropped(token: string, error: string) {
   const d = queued.dropped(token);
@@ -332,7 +357,7 @@ export function moveDropped(token: string, error: string) {
   const st = useStore.getState();
   if (d.dismiss != null) st.dismissToast(d.dismiss);
   st.showToast(t("errors.toast.failed", { error: friendlyError(error) }), undefined, "error");
-  void st.refresh();
+  void st.refresh().then(() => restoreAdvance(token));
 }
 /** The action a yes/no state is set with: [yes, no] (always a set, never a toggle: a repeated call is harmless and the last one wins). */
 const INTENT_ACTION: Record<IntentKind, [string, string]> = { read: ["read", "unread"], flag: ["star", "unstar"], pin: ["pin", "unpin"] };
@@ -873,7 +898,14 @@ export const useStore = create<State>((set, get) => ({
     set({ messages });
     if (messages.some((m) => !m.seen) && prefs.markReadDelay >= 0) {
       const mark = () => {
-        if (get().selected === id) void get().act([id], "read");
+        if (get().selected === id) {
+          autoMarking = true; // the app's own mark-as-read of the mail it opened (see autoAdvance.ts): not the person's doing
+          try {
+            void get().act([id], "read");
+          } finally {
+            autoMarking = false;
+          }
+        }
       };
       if (prefs.markReadDelay === 0) mark();
       else readTimer = setTimeout(mark, prefs.markReadDelay * 1000);
@@ -891,6 +923,12 @@ export const useStore = create<State>((set, get) => ({
 
   act: async (ids, action, arg, label) => {
     if (ids.length === 0) return;
+    // (1.0.5) no Junk folder on the account: the buttons are off already; this is for the keyboard and any other way in
+    if (JUNK_ACTIONS.has(action) && !canMoveToJunk(get().folders, accountsOf(get().threads, ids))) {
+      get().showToast(t("mail.junk.noneTip"), undefined, "info");
+      return;
+    }
+    if (!autoMarking) for (const [k, a] of advances) advances.set(k, touchAdvance(a, ids)); // the person acts on the mail the app advanced to
     applyOptimistic(ids, action);
     const intent = INTENT_OF.get(action);
     if (intent) {
@@ -934,37 +972,48 @@ export const useStore = create<State>((set, get) => ({
     const { threads, selected, prefs, folder } = get();
     const removing = moveLike || action === "snooze";
     let nextSel = selected;
+    let nextUnread = false; // the mail the selection moves to was unread (the app marks it read as it opens)
     if (removing) {
       if (selected && ids.includes(selected)) {
         const idx = threads.findIndex((t) => t.threadId === selected);
         const rest = threads.filter((t) => !ids.includes(t.threadId));
         const pick = prefs.afterAction === "list" ? null : prefs.afterAction === "previous" ? rest[Math.max(idx - 1, 0)] : rest[Math.min(idx, rest.length - 1)];
         nextSel = pick?.threadId ?? null;
+        nextUnread = !!pick && pick.unread > 0;
       }
       set({ threads: threads.filter((t) => !ids.includes(t.threadId)), checked: new Set() });
     }
 
     if (moveLike) {
       // hide now, run on the server after the Undo window (the backend also flushes this on quit)
+      let advance = true; // the selection moves on to the next mail; not when the move is already refused
       try {
         const token = await api.queueAction(ids, real, arg ?? null, scope ?? null, prefs.undoActionSeconds, verify);
-        // a folder check that already failed (a fast server) has shown its error and brought the mail back: no "Archived" toast then
-        if (queued.queued(token) && label) {
+        // a folder check that already failed (a fast server) has shown its error and brought the mail back: no "Archived" toast then,
+        // and the person stays on the mail (nothing to move on from)
+        advance = queued.queued(token);
+        if (advance && selected && ids.includes(selected)) {
+          // what to put back if the move is refused or undone while the person is still on the next mail (see autoAdvance.ts)
+          advances.set(token, startAdvance(selected, nextSel, nextUnread, Date.now()));
+          if (advances.size > ADVANCES_KEEP) advances.delete(advances.keys().next().value as string);
+        }
+        if (advance && label) {
           get().showToast(
             label,
             () => {
               queued.undo(token); // Undo wins over a folder check that ends later
-              void api.cancelAction(token).then(() => get().refresh());
+              void api.cancelAction(token).then(() => get().refresh()).then(() => restoreAdvance(token));
             },
             "success",
           );
           queued.shown(token, toastSeq); // the id `showToast` just gave it (it counts up synchronously)
         }
       } catch (e) {
+        advance = false;
         get().showToast(t("errors.toast.failed", { error: friendlyError(e) }), undefined, "error");
         await get().refresh();
       }
-      if (selected && ids.includes(selected)) await get().select(nextSel);
+      if (advance && selected && ids.includes(selected)) await get().select(nextSel);
       return;
     }
 
@@ -1013,7 +1062,7 @@ export const useStore = create<State>((set, get) => ({
     const ttl = undo ? Math.max(5000, get().prefs.undoActionSeconds * 1000) : acts?.length || k === "error" ? 8000 : 4500;
     const id = ++toastSeq;
     // newest last; keep a short stack and never evict a toast that still has an Undo
-    set((s) => ({ toasts: [...s.toasts.filter((t) => t.undo || t.sticky || s.toasts.length < 4), { id, text, kind: k, undo, actions: acts, ttl }].slice(-5) }));
+    set((s) => ({ toasts: addToast(s.toasts.filter((t) => t.undo || t.sticky || s.toasts.length < 4), { id, text, kind: k, undo, actions: acts, ttl }).slice(-5) }));
     setTimeout(() => get().dismissToast(id), ttl);
   },
 
@@ -1024,7 +1073,7 @@ export const useStore = create<State>((set, get) => ({
       const others = s.toasts.filter((t) => t.key !== key);
       if (!spec) return { toasts: others };
       const old = s.toasts.find((t) => t.key === key);
-      const toast: Toast = { id: old?.id ?? ++toastSeq, text: spec.text, kind: spec.kind ?? "info", actions: spec.actions, ttl: spec.ttl ?? 0, sticky: true, key, onDismiss: spec.onDismiss, closeLabel: spec.closeLabel, escCloses: spec.escCloses, support: spec.support, link: spec.link, hideClose: spec.hideClose, busy: spec.busy };
+      const toast: Toast = { id: old?.id ?? ++toastSeq, text: lazyText(spec.text), textFn: typeof spec.text === "function" ? spec.text : undefined, kind: spec.kind ?? "info", actions: spec.actions, ttl: spec.ttl ?? 0, sticky: true, key, onDismiss: spec.onDismiss, closeLabel: spec.closeLabel, escCloses: spec.escCloses, support: spec.support, link: spec.link, hideClose: spec.hideClose, busy: spec.busy };
       // in place when it exists (the countdown changes its text every second), else on top of the stack
       return { toasts: old ? s.toasts.map((t) => (t.key === key ? toast : t)) : [...others, toast].slice(-5) };
     }),

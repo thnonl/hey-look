@@ -16,6 +16,8 @@ export interface MenuItem {
   divider?: boolean;
   disabled?: boolean;
   hint?: string;
+  /** tooltip of the row (the reason a disabled row is off) */
+  title?: string;
   /** colour dot shown before the label (accounts) */
   dot?: string;
   /** language of the label when it differs from the app's (the language names, each in its own language) */
@@ -86,6 +88,7 @@ export function MenuList({ items, onDone }: { items: MenuItem[]; onDone: () => v
             aria-checked={it.checked === undefined ? undefined : it.checked}
             tabIndex={-1}
             data-search={it.search}
+            title={it.title}
             disabled={it.disabled}
             onClick={() => {
               onDone();

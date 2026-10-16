@@ -33,6 +33,8 @@ export default defineLocale<typeof ns.en>({
   "mail.done.trashed": "Перемещено в корзину",
   "mail.done.deleted": "Удалено навсегда",
   "mail.done.junk": "Перемещено в спам",
+  "mail.junk.none": "Нет папки «Спам»",
+  "mail.junk.noneTip": "В этом почтовом ящике нет папки «Спам», поэтому письма нельзя переместить в спам.",
   "mail.done.blocked": "Отправитель заблокирован",
   "mail.done.moved": "Перемещено в папку {folder}",
   "mail.done.snoozed": "Отложено: {when}",

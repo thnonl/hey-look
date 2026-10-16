@@ -23,6 +23,7 @@ export default defineLocale<typeof ns.en>({
   "backend.EMAIL_INVALID": "Geben Sie eine gültige E-Mail-Adresse ein",
   "backend.AI_NOT_CONFIGURED": "KI nicht eingerichtet: Legen Sie Endpunkt und Modell unter Einstellungen > KI-Assistent fest",
   "backend.AI_TIMEOUT": "Der KI-Assistent hat nicht innerhalb von {secs} Sekunden geantwortet.",
+  "backend.AI_CANCELLED": "Die Anfrage an den KI-Assistenten wurde abgebrochen.",
   "backend.AI_HTTP": "Der KI-Assistent hat einen Fehler gemeldet ({status}): {detail}",
   "backend.AI_HTTP.plain": "Der KI-Assistent hat einen Fehler gemeldet ({status}).",
   "backend.UPDATE_BUSY": "Ein Download läuft bereits.",

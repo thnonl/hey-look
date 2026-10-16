@@ -23,6 +23,7 @@ export default defineLocale<typeof ns.en>({
   "backend.EMAIL_INVALID": "Introduce una dirección de correo válida",
   "backend.AI_NOT_CONFIGURED": "IA sin configurar: define el punto de conexión y el modelo en Configuración > Asistente de IA",
   "backend.AI_TIMEOUT": "El asistente de IA no respondió en {secs} segundos.",
+  "backend.AI_CANCELLED": "Se canceló la solicitud al asistente de IA.",
   "backend.AI_HTTP": "El asistente de IA devolvió un error ({status}): {detail}",
   "backend.AI_HTTP.plain": "El asistente de IA devolvió un error ({status}).",
   "backend.UPDATE_BUSY": "Ya hay una descarga en curso.",

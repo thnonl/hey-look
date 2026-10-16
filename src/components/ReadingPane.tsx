@@ -11,8 +11,9 @@ import { tx } from "../i18n/rich";
 import { DARK_CANVAS, frameBaseCss, frameRootClass, toggleMailCanvas } from "../mailCanvas";
 import { eff } from "../prefs";
 import { CONFIDENTIAL_FRAME_CSS, lockDocument, useContentProtection } from "../protect";
+import { accountsOf, canMoveToJunk } from "../junk";
 import { friendlyError, useStore } from "../store";
-import { cancelTranslation, dismissTranslation, startTranslation } from "../translate";
+import { cancelTranslation, dismissTranslation, jobErrorText, startTranslation } from "../translate";
 import { elapsedLabel, jobFor, slowHint, type TranslateJob } from "../translateJobs";
 import { fmtFull, fmtSize, plainToHtml, sanitizeHtml, snoozePresets, subjectText } from "../util";
 import { AttachmentStrip, Lightbox, LbItem } from "./Attachments";
@@ -450,7 +451,7 @@ function TranslateBox({ job }: { job: TranslateJob }) {
         {head}
         <div className="tr-row">
           <AlertTriangle size={14} aria-hidden />
-          <span className="tr-text">{t("reading.translate.failed", { error: job.error ?? "" })}</span>
+          <span className="tr-text">{t("reading.translate.failed", { error: jobErrorText(job) })}</span>
         </div>
         <div className="tr-actions">
           <button className="link small" onClick={() => startTranslation(job)}>{t("common.retry")}</button>
@@ -621,7 +622,7 @@ function MessageCard({ m, open, onToggle }: { m: MessageFull; open: boolean; onT
 
 export function ReadingPane() {
   const t = useT();
-  const { selected, messages, threads, act, showToast, prefs, aiConfigured, setDialog, confirm, checked } = useStore();
+  const { selected, messages, threads, folders, act, showToast, prefs, aiConfigured, setDialog, confirm, checked } = useStore();
   const [openIds, setOpenIds] = useState<Set<string>>(new Set());
   const [summary, setSummary] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
@@ -706,6 +707,8 @@ export function ReadingPane() {
 
   const last = messages[messages.length - 1];
   const id = [selected];
+  // no Junk folder on the mailbox: the items that move mail there are off, with the reason (src/junk.ts)
+  const junkOff = canMoveToJunk(folders, accountsOf(threads, id)) ? {} : { disabled: true, hint: t("mail.junk.none"), title: t("mail.junk.noneTip") };
   const allOpen = messages.length > 0 && openIds.size === messages.length;
 
   const summarize = async () => {
@@ -776,9 +779,9 @@ export function ReadingPane() {
             title={t("reading.head.more")}
             items={[
               { label: t("reading.head.markUnread"), icon: <MailX size={14} />, onClick: () => void act(id, "unread", undefined, t("reading.head.markedUnread")) },
-              { label: t("reading.head.moveJunk"), onClick: () => void act(id, "junk", undefined, t("reading.head.movedJunk")) },
+              { label: t("reading.head.moveJunk"), onClick: () => void act(id, "junk", undefined, t("reading.head.movedJunk")), ...junkOff },
               { divider: true },
-              { label: t("reading.head.blockSender"), onClick: () => void block() },
+              { label: t("reading.head.blockSender"), onClick: () => void block(), ...junkOff },
             ]}
           >
             <MoreHorizontal size={16} />

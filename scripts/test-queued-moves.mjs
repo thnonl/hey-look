@@ -66,14 +66,14 @@ import { QueuedMoves } from "../src/queuedMoves.ts";
 const read = (p) => readFileSync(new URL(p, import.meta.url), "utf8").replace(/\r\n/g, "\n");
 const store = read("../src/store.ts");
 const act = store.slice(store.indexOf("  act: async"), store.indexOf("  openCompose: async"));
-assert.match(act, /if \(queued\.queued\(token\) && label\) \{\s*get\(\)\.showToast\(/, "no toast for a move already dropped");
+assert.match(act, /advance = queued\.queued\(token\);[\s\S]*if \(advance && label\) \{\s*get\(\)\.showToast\(/, "no toast for a move already dropped");
 assert.ok(act.indexOf("queued.undo(token)") < act.indexOf("api.cancelAction(token)"), "Undo is recorded before the cancel call");
 assert.match(act, /queued\.shown\(token, toastSeq\)/);
-const dropped = store.slice(store.indexOf("export function moveDropped"), store.indexOf("export function moveDropped") + 600);
+const dropped = store.slice(store.indexOf("export function moveDropped"), store.indexOf("export function moveDropped") + 700);
 assert.match(dropped, /const d = queued\.dropped\(token\);\s*if \(!d\) return;/, "Undo wins");
 assert.match(dropped, /st\.dismissToast\(d\.dismiss\)/, "the 'Archived' toast goes");
 assert.match(dropped, /st\.showToast\(t\("errors\.toast\.failed", \{ error: friendlyError\(error\) \}\), undefined, "error"\)/, "the same error text as the fresh path");
-assert.match(dropped, /void st\.refresh\(\)/, "the mail is back in the list");
+assert.match(dropped, /void st\.refresh\(\)\.then\(/, "the mail is back in the list");
 assert.match(read("../src/App.tsx"), /listen<\{ id: string; error: string \}>\("action-verify-failed", \(e\) => moveDropped\(e\.payload\.id, e\.payload\.error\)\)/);
 assert.match(read("../src/api.ts"), /queueAction: .*verify = false\) =>\s*invoke<string>\("queue_action", \{ threadIds, action, arg, scope, delaySecs, verify \}\)/);
 // the backend side exists under the same names
