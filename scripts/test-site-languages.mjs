@@ -79,6 +79,32 @@ for (const lang of LANGS.slice(1)) {
   }
 }
 
+// ---------- the header switches: one whole sentence per case, never a state word and a target word joined by a template ----------
+// site.js writes t('theme.label.' + state) and t('motion.label.' + state + '.' + next). Every language has all 3 + 6 sentences, none with a
+// placeholder (a noun put into a sentence cannot agree in gender / case), and no sentence is shared by two cases.
+{
+  const THEME = ['auto', 'light', 'dark'].map((k) => 'theme.label.' + k);
+  const MOTION = ['auto.off', 'auto.on', 'off.on', 'off.auto', 'on.auto', 'on.off'].map((k) => 'motion.label.' + k);
+  const siteJs = read(path.join(DOCS, 'assets/site.js'));
+  if (!siteJs.includes("t('theme.label.' + pref)") || !siteJs.includes("t('motion.label.' + mpref + '.' + next)")) fail('assets/site.js', 'the switches must write one whole sentence per case (theme.label.<state>, motion.label.<state>.<next>)');
+  for (const old of ['theme.label', 'motion.label', 'motion.next.auto']) if (new RegExp(`['"]${old.replace('.', '\.')}['"]`).test(siteJs)) fail('assets/site.js', `still uses the template key "${old}"`);
+  for (const lang of LANGS) {
+    const d = loadDict(lang.code);
+    if (!d) continue;
+    const where = `assets/i18n/${lang.code}.js`;
+    for (const k of ['theme.label', 'motion.label', 'motion.next.auto']) if (k in d) fail(where, `"${k}" is the old template key (a state word and a target word in one sentence)`);
+    for (const group of [THEME, MOTION]) {
+      const seen = new Map();
+      for (const k of group) {
+        if (typeof d[k] !== 'string' || !d[k].trim()) { fail(where, `"${k}" is missing`); continue; }
+        if (/[{}]/.test(d[k])) fail(where, `"${k}" has a placeholder: it must be a whole sentence`);
+        if (seen.has(d[k])) fail(where, `"${k}" is the same sentence as "${seen.get(d[k])}"`);
+        seen.set(d[k], k);
+      }
+    }
+  }
+}
+
 // ---------- pages ----------
 const enText = {};
 for (const page of [...PAGES, '404']) {

@@ -54,7 +54,7 @@
     if (pref === 'light' || pref === 'dark') root.setAttribute('data-theme', pref); else root.removeAttribute('data-theme');
     root.setAttribute('data-pref', pref);
     var b = $('#theme-btn');
-    if (b) b.setAttribute('aria-label', t('theme.label', { state: names(pref), next: names(order[(order.indexOf(pref) + 1) % 3]) }));
+    if (b) b.setAttribute('aria-label', t('theme.label.' + pref)); /* one whole sentence per state (state and next theme agree in every language) */
     listeners.theme.forEach(function (f) { f(resolvedTheme()); });
   }
   var pref = root.getAttribute('data-pref') || 'auto';
@@ -86,7 +86,7 @@
       var o = motionOrder(), next = o[(o.indexOf(mpref) + 1) % 3];
       var state = mpref === 'auto' ? t('motion.state.auto', { now: mnames(on ? 'on' : 'off') }) : mnames(mpref);
       b.setAttribute('aria-pressed', on ? 'false' : 'true'); /* pressed = animations are off */
-      b.setAttribute('aria-label', t('motion.label', { state: state, next: next === 'auto' ? t('motion.next.auto') : mnames(next) }));
+      b.setAttribute('aria-label', t('motion.label.' + mpref + '.' + next)); /* one whole sentence per state and next state */
       b.setAttribute('title', t('motion.status', { state: state }));
       var l = $('.m-lbl', b);
       if (!l) { l = document.createElement('span'); l.className = 'm-lbl'; b.appendChild(l); }
