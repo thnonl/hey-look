@@ -756,6 +756,29 @@ mod tests {
         assert!(!out.contains("file:") && !out.contains("javascript") && !out.contains("<script"), "{out}");
     }
 
+    /// BUG-18: hostile attachment names reach the MIME as a clean base name; two files that only collide after cleaning stay two; two real
+    /// `report.pdf` stay as the sender named them; a name cannot carry a header line.
+    #[test]
+    fn hostile_attachment_names_are_cleaned_in_the_mime() {
+        let att = |n: &str| serde_json::json!({ "filename": n, "mime": "text/plain", "dataBase64": "aGk=" });
+        let names = ["..\\..\\Windows\\evil.bat", "/etc/passwd", "CON.txt", "x/passwd", "a\r\nBcc: evil@x.y\r\n.txt", "report.pdf", "report.pdf", "evil.exe. "];
+        let d: crate::smtp::Draft = serde_json::from_value(serde_json::json!({
+            "accountId": "a1", "to": ["ann@example.com"], "subject": "s", "html": "<p>x</p>", "text": "x",
+            "attachments": names.iter().map(|n| att(n)).collect::<Vec<_>>()
+        }))
+        .unwrap();
+        let raw = String::from_utf8_lossy(&crate::smtp::build(&account(), &d).unwrap().formatted()).into_owned();
+        let unfolded = raw.replace("\r\n ", " ").replace("\r\n\t", " ");
+        for want in ["filename=\"evil.bat\"", "filename=\"passwd\"", "filename=\"_CON.txt\"", "filename=\"passwd (2)\"", "filename=\"aBcc: evil@x.y.txt\"", "filename=\"evil.exe\""] {
+            assert!(unfolded.contains(want), "{want} missing in {unfolded}");
+        }
+        assert_eq!(unfolded.matches("filename=\"report.pdf\"").count(), 2, "the same name twice stays twice");
+        for bad in ["Windows", "etc/passwd", "..\\"] {
+            assert!(!unfolded.contains(bad), "{bad} in {unfolded}");
+        }
+        assert!(!raw.contains("\r\nBcc:") && !raw.contains("\nBcc:"), "a file name cannot add a header: {raw}");
+    }
+
     #[test]
     fn very_large_and_odd_input_does_not_hang_or_panic() {
         let big = "<p>x</p>".repeat(200_000);

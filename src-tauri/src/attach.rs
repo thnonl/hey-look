@@ -42,11 +42,46 @@ fn extension(name: &str) -> &str {
     name.rsplit_once('.').map(|(_, ext)| ext).unwrap_or("")
 }
 
-/// A name that is safe on Windows: no path separators or reserved characters, no trailing dots or spaces.
+/// A file name is cut to this many characters and bytes (a name is at most 255 bytes on most file systems, 255 UTF-16 units on NTFS).
+pub const NAME_MAX_CHARS: usize = 120;
+pub const NAME_MAX_BYTES: usize = 240;
+
+/// Control characters and the invisible ones that disguise a name: zero-width characters, line / paragraph separators, bidi overrides
+/// (`invoice<RLO>gpj.exe` is shown as `invoiceexe.jpg`).
+fn is_invisible(c: char) -> bool {
+    c.is_control() || matches!(c, '\u{200b}'..='\u{200f}' | '\u{2028}'..='\u{202e}' | '\u{2060}'..='\u{2064}' | '\u{2066}'..='\u{2069}' | '\u{feff}')
+}
+
+/// `name` cut to `NAME_MAX_CHARS` characters and `NAME_MAX_BYTES` bytes; a short extension (up to 16 characters) is kept.
+fn cap_name(name: String) -> String {
+    if name.chars().count() <= NAME_MAX_CHARS && name.len() <= NAME_MAX_BYTES {
+        return name;
+    }
+    let (stem, ext) = match name.rfind('.') {
+        Some(i) if i > 0 && name[i..].chars().count() <= 17 => (&name[..i], &name[i..]),
+        _ => (name.as_str(), ""),
+    };
+    let mut out = String::new();
+    let (mut chars, mut bytes) = (ext.chars().count(), ext.len());
+    for c in stem.chars() {
+        if chars + 1 > NAME_MAX_CHARS || bytes + c.len_utf8() > NAME_MAX_BYTES {
+            break;
+        }
+        out.push(c);
+        chars += 1;
+        bytes += c.len_utf8();
+    }
+    let out = out.trim_end_matches(|c: char| c == '.' || c.is_whitespace());
+    if out.is_empty() { "attachment".to_string() } else { format!("{out}{ext}") }
+}
+
+/// A name that is safe on Windows: no path separators or reserved characters, no trailing dots or spaces, no hidden characters, not longer
+/// than `NAME_MAX_*`. This is the name a received attachment is saved and opened under.
 pub fn clean_name(name: &str) -> String {
     let base = name.rsplit(['/', '\\']).next().unwrap_or(name);
     let mut out: String = base
         .chars()
+        .filter(|c| c.is_control() || !is_invisible(*c))
         .map(|c| if c.is_control() || "\\/:*?\"<>|".contains(c) { '_' } else { c })
         .collect();
     out = out.trim().trim_end_matches(['.', ' ']).to_string();
@@ -56,6 +91,50 @@ pub fn clean_name(name: &str) -> String {
     let stem = out.split('.').next().unwrap_or("");
     if is_reserved(stem) {
         out = format!("_{out}");
+    }
+    cap_name(out)
+}
+
+/// The name an attachment (or an inline picture) gets in a message that is sent: the base name only (no folder, no `..`), no control or
+/// hidden characters (a CR / LF cannot reach a header, a right-to-left override cannot swap the extension), no trailing dots or spaces
+/// (Windows ignores them: `evil.exe.` is `evil.exe`), a reserved device name (`CON`, `NUL`, `COM1` ...) gets a `_`, at most `NAME_MAX_*`
+/// long with its extension kept. Everything else is written as it is (`"`, `;`, `%`, non-ASCII ... are encoded by the MIME layer): the
+/// recipient decodes the name the sender chose. Mirrored by `outgoingName` in src/attachName.ts (shared vectors: scripts/fixtures/attach-names.json).
+pub fn outgoing_name(name: &str) -> String {
+    let base = name.rsplit(['/', '\\']).next().unwrap_or(name);
+    let s: String = base.chars().filter(|c| !is_invisible(*c)).collect();
+    let s = s.trim().trim_end_matches(|c: char| c == '.' || c.is_whitespace()).to_string();
+    if s.is_empty() {
+        return "attachment".into();
+    }
+    let s = if is_reserved(s.split('.').next().unwrap_or("")) { format!("_{s}") } else { s };
+    cap_name(s)
+}
+
+/// `outgoing_name` of every attachment of a message. Two files that only come to have the same name because of the cleaning
+/// (`a/b.txt`, `c/b.txt`) are told apart (`b.txt`, `b (2).txt`); the same name given twice by the sender stays twice (two `report.pdf`).
+pub fn outgoing_names(names: &[String]) -> Vec<String> {
+    let mut out: Vec<String> = Vec::with_capacity(names.len());
+    let mut changed: Vec<bool> = Vec::with_capacity(names.len());
+    for n in names {
+        let mut c = outgoing_name(n);
+        let was_changed = c != *n;
+        if out.iter().zip(&changed).any(|(o, ch)| *o == c && (*ch || was_changed)) {
+            let (stem, ext) = match c.rfind('.') {
+                Some(i) if i > 0 => (c[..i].to_string(), c[i..].to_string()),
+                _ => (c.clone(), String::new()),
+            };
+            let mut k = 2;
+            c = loop {
+                let candidate = format!("{stem} ({k}){ext}");
+                if !out.contains(&candidate) {
+                    break candidate;
+                }
+                k += 1;
+            };
+        }
+        out.push(c);
+        changed.push(was_changed);
     }
     out
 }
@@ -219,6 +298,76 @@ mod tests {
         assert_eq!(safe_id("m-12_ab"), "m-12_ab");
         assert_eq!(safe_id("<x>/../y"), "xy");
         assert_eq!(safe_id("///"), "message");
+    }
+
+    /// `{U+XXXX}` is that character, `{rep:n:text}` is `text` n times (the vectors are shared with src/attachName.ts).
+    fn expand(s: &str) -> String {
+        let mut out = String::new();
+        let mut rest = s;
+        while let Some(i) = rest.find('{') {
+            out.push_str(&rest[..i]);
+            let tail = &rest[i..];
+            let end = tail.find('}').unwrap();
+            let tok = &tail[1..end];
+            if let Some(h) = tok.strip_prefix("U+") {
+                out.push(char::from_u32(u32::from_str_radix(h, 16).unwrap()).unwrap());
+                rest = &tail[end + 1..];
+            } else if let Some(r) = tok.strip_prefix("rep:") {
+                let (n, text) = r.split_once(':').unwrap();
+                out.push_str(&text.repeat(n.parse().unwrap()));
+                rest = &tail[end + 1..];
+            } else {
+                out.push('{');
+                rest = &tail[1..];
+            }
+        }
+        out.push_str(rest);
+        out
+    }
+
+    fn vectors() -> serde_json::Value {
+        serde_json::from_str(include_str!("../../scripts/fixtures/attach-names.json")).unwrap()
+    }
+
+    #[test]
+    fn outgoing_names_follow_the_shared_vectors() {
+        let v = vectors();
+        let rows = v["outgoing"].as_array().unwrap();
+        assert!(rows.len() > 30);
+        for row in rows {
+            let (input, want) = (expand(row[0].as_str().unwrap()), expand(row[1].as_str().unwrap()));
+            assert_eq!(outgoing_name(&input), want, "{:?}", row[0]);
+            assert_eq!(outgoing_name(&want), want, "idempotent: {:?}", row[1]);
+            let got = outgoing_name(&input);
+            assert!(got.chars().count() <= NAME_MAX_CHARS && got.len() <= NAME_MAX_BYTES, "{got}");
+        }
+        for row in v["duplicates"].as_array().unwrap() {
+            let input: Vec<String> = row[0].as_array().unwrap().iter().map(|x| expand(x.as_str().unwrap())).collect();
+            let want: Vec<String> = row[1].as_array().unwrap().iter().map(|x| expand(x.as_str().unwrap())).collect();
+            assert_eq!(outgoing_names(&input), want, "{:?}", row[0]);
+        }
+    }
+
+    /// BUG-18, receive side: whatever the name inside a received mail says, the file lands inside the target folder.
+    #[test]
+    fn a_received_name_cannot_leave_the_download_folder() {
+        let dir = Path::new("/downloads");
+        for raw in [
+            "..\\..\\Windows\\evil.bat", "../../etc/passwd", "/etc/passwd", "C:\\Windows\\win.ini", "\\\\host\\share\\x.txt", "....//....//x", "..", ".", "a/../../b", "a\\..\\..\\b",
+            "CON", "nul.txt", "x{U+0000}/../y", "{U+202E}fdp.exe", "dir/", "~/.ssh/id_rsa", "%2e%2e%2fx", "{rep:400:a}/{rep:400:b}",
+        ] {
+            let name = clean_name(&expand(raw));
+            assert!(!name.contains(['/', '\\', ':']) && name != ".." && name != "." && !name.is_empty(), "{raw:?} -> {name:?}");
+            assert!(name.chars().count() <= NAME_MAX_CHARS && name.len() <= NAME_MAX_BYTES, "{name}");
+            let target = unique_path(dir, &name, |_| false);
+            assert_eq!(target.parent(), Some(dir), "{raw:?} -> {target:?}");
+            assert_eq!(clean_name(&name), name, "idempotent: {raw:?}");
+        }
+        assert_eq!(clean_name("..\\..\\Windows\\evil.bat"), "evil.bat");
+        assert_eq!(clean_name("/etc/passwd"), "passwd");
+        assert_eq!(clean_name(&expand("{rep:300:a}.pdf")), format!("{}.pdf", "a".repeat(116)));
+        assert_eq!(clean_name(&expand("invoice{U+202E}gpj.exe")), "invoicegpj.exe");
+        assert!(is_risky(&clean_name(&expand("invoice{U+202E}gpj.exe"))), "the hidden override does not hide the program");
     }
 
     #[test]

@@ -19,6 +19,7 @@ import { repairSignature, signatureGuard } from "../signatureGuard";
 import { fitInWindow } from "../fitInWindow";
 import { cleanPastedHtml, isLocalPictureSrc, stripRemotePictures } from "../pastedHtml";
 import { sendLimit, wireSize, worthAsking } from "../sendSize";
+import { outgoingName, outgoingNames } from "../attachName";
 import { placePictureTools } from "../pictureToolsLayout";
 import type { PictureToolsInput } from "../pictureToolsLayout";
 import { blockedAttachmentExt, dataUriBytes, fileToBase64, fmtIn, fmtSize, fmtWhen, htmlToText, imageSize, PICTURE_TYPES, playSent, resizeImage, sanitizeHtml, shortKey, userName } from "../util";
@@ -351,7 +352,11 @@ export function Compose({ init }: { init: ComposeInit }) {
   const [bcc, setBcc] = useState<string[]>([...(init.bcc ?? []), ...(autoBcc(accountId) ? [autoBcc(accountId)] : [])]);
   const [showCc, setShowCc] = useState(cc.length > 0 || bcc.length > 0);
   const [subject, setSubject] = useState(init.subject ?? "");
-  const [atts, setAtts] = useState<Att[]>(init.attachments ?? []);
+  // the attachments of an opened draft / forward are shown (and sent) under a clean name: no folder, no hidden characters (O-05)
+  const [atts, setAtts] = useState<Att[]>(() => {
+    const names = outgoingNames((init.attachments ?? []).map((a) => a.filename));
+    return (init.attachments ?? []).map((a, i) => ({ ...a, filename: names[i] }));
+  });
   const [templates, setTemplates] = useState<Template[]>([]);
   const [sigs, setSigs] = useState<Signature[]>([]);
   // the message of an opened draft carries its signature as stored text: it is shown as the signature region again
@@ -1134,7 +1139,7 @@ export function Compose({ init }: { init: ComposeInit }) {
   const addFilesNow = async (files: FileList | File[] | null) => {
     if (!files) return;
     const list: Att[] = [];
-    for (const f of Array.from(files)) list.push({ filename: f.name || "pasted-image.png", mime: f.type || "application/octet-stream", dataBase64: await fileToBase64(f) });
+    for (const f of Array.from(files)) list.push({ filename: outgoingName(f.name || "pasted-image.png"), mime: f.type || "application/octet-stream", dataBase64: await fileToBase64(f) });
     setAtts((a) => {
       const next = [...a, ...list];
       const bytes = wireOf(next, pics.bytes, pics.count);
@@ -1223,7 +1228,7 @@ export function Compose({ init }: { init: ComposeInit }) {
     editor.chain().setNodeSelection(picSel.pos).deleteSelection().run();
     if (parts) {
       const ext = parts.mime.split("/")[1]?.replace("jpeg", "jpg") ?? "img";
-      setAtts((a) => [...a, { filename: picSel.name !== "picture" ? picSel.name : `picture.${ext}`, mime: parts.mime, dataBase64: parts.b64 }]);
+      setAtts((a) => [...a, { filename: outgoingName(picSel.name !== "picture" ? picSel.name : `picture.${ext}`), mime: parts.mime, dataBase64: parts.b64 }]);
     }
     setPicSel(null);
     touch();
