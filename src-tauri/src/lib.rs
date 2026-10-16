@@ -2273,30 +2273,108 @@ fn move_to_role<T: std::io::Read + std::io::Write>(
             Err(e) => first_error = Some(e),
         }
     }
+    let (name, created) = resolve_folder(db, acc, s, folders, dst, create_missing)?;
+    if !created && tried.as_ref() == Some(&name) {
+        // the server has the folder we tried: the move failed for another reason
+        return Err(first_error.unwrap_or_else(|| folder_missing(dst)));
+    }
+    mail::move_to(s, src, uids, &name)
+}
+
+/// The server folder for a role, looked up on the server: the saved list is replaced by a fresh LIST (once per action), and a standard
+/// Archive / Trash the server still lacks is created when `create_missing`. Returns the folder name and whether it was just created.
+fn resolve_folder<T: std::io::Read + std::io::Write>(
+    db: &Db,
+    acc: &Account,
+    s: &mut imap::Session<T>,
+    folders: &mut Folders,
+    dst: &str,
+    create_missing: bool,
+) -> R<(String, bool)> {
     if folders.listing.is_none() {
         let listing = mail::list_folders(s)?;
         folders.map = listing.map.clone();
         folders.listing = Some(listing);
         save_fmap(db, &acc.id, &folders.map)?;
     }
-    let (name, created) = match folders.map.get(dst).cloned() {
-        Some(n) => (n, false),
-        None => {
-            let create = if create_missing { folders.listing.as_ref().and_then(|l| mail::name_to_create(dst, l)) } else { None };
-            let Some(create) = create else {
-                return Err(if create_missing { folder_missing(dst) } else { format!("no '{dst}' folder on this account") });
-            };
-            mail::create_folder(s, &create).map_err(|why| folder_not_created(dst, &why))?;
-            folders.map.insert(dst.to_string(), create.clone());
-            save_fmap(db, &acc.id, &folders.map)?;
-            (create, true)
-        }
-    };
-    if !created && tried.as_ref() == Some(&name) {
-        // the server has the folder we tried: the move failed for another reason
-        return Err(first_error.unwrap_or_else(|| folder_missing(dst)));
+    if let Some(n) = folders.map.get(dst).cloned() {
+        return Ok((n, false));
     }
-    mail::move_to(s, src, uids, &name)
+    let create = if create_missing { folders.listing.as_ref().and_then(|l| mail::name_to_create(dst, l)) } else { None };
+    let Some(create) = create else {
+        return Err(if create_missing { folder_missing(dst) } else { format!("no '{dst}' folder on this account") });
+    };
+    mail::create_folder(s, &create).map_err(|why| folder_not_created(dst, &why))?;
+    folders.map.insert(dst.to_string(), create.clone());
+    save_fmap(db, &acc.id, &folders.map)?;
+    Ok((create, true))
+}
+
+/// (OBS-1) Make sure the folder a move is going to exists BEFORE the person is told "Archived": the saved list is trusted when it names
+/// the folder (the usual case: no server call at all), otherwise the server is asked and a missing Archive / Trash is created now.
+/// When that is impossible the error is the one the move would have given after the Undo time, but at once, and nothing was queued.
+fn prepare_on_session<T: std::io::Read + std::io::Write>(db: &Db, acc: &Account, s: &mut imap::Session<T>, dst: &str) -> R<()> {
+    let mut folders = Folders { map: fmap(db, &acc.id), listing: None };
+    if folders.map.contains_key(dst) {
+        return Ok(());
+    }
+    resolve_folder(db, acc, s, &mut folders, dst, true).map(|_| ())
+}
+
+/// The accounts and destination role that `action` on these conversations will move mail to, for the ones whose saved folder list does
+/// not name the destination (those need the server: `prepare_on_session`). Mirrors which messages `act_on_session` would move.
+fn targets_to_prepare(db: &Db, thread_ids: &[String], action: &str, arg: Option<&str>, scope: &Option<String>) -> R<Vec<(String, String)>> {
+    let dst = match action {
+        "archive" | "trash" | "junk" | "inbox" => action,
+        "block" => "junk",
+        "move" => arg.ok_or("move needs a destination folder")?,
+        _ => return Ok(vec![]),
+    };
+    let msgs = thread_msgs(&lock(db), thread_ids)?;
+    let mut out: Vec<(String, String)> = vec![];
+    for m in msgs {
+        let allowed = match scope {
+            Some(sc) => &m.role == sc,
+            None => !matches!(m.role.as_str(), "sent" | "drafts" | "trash" | "junk"),
+        };
+        // the same skips as the move itself: already there, or a delete from the Trash (that one removes, it does not move)
+        if !allowed || m.role == dst || (dst == "trash" && m.role == "trash") {
+            continue;
+        }
+        let key = (m.account_id.clone(), dst.to_string());
+        if !out.contains(&key) && !fmap(db, &m.account_id).contains_key(dst) {
+            out.push(key);
+        }
+    }
+    Ok(out)
+}
+
+/// Resolve (find, refresh, create) the destination folder of a move on the server, before the move is queued. A no-op when the saved
+/// folder list already names it. See `prepare_on_session`.
+fn prepare_action_impl(db: &Db, thread_ids: &[String], action: &str, arg: Option<&str>, scope: &Option<String>) -> R<()> {
+    for (acct_id, dst) in targets_to_prepare(db, thread_ids, action, arg, scope)? {
+        let acc = db::get_account(&lock(db), &acct_id)?;
+        let sec = secret(db, &acc)?;
+        let mut s = mail::connect(&acc, &sec)?;
+        let done = prepare_on_session(db, &acc, &mut s, &dst);
+        let _ = s.logout();
+        done?;
+    }
+    Ok(())
+}
+
+/// (OBS-1) Called by the app before it hides the mail and shows "Archived" / "Deleted ...": fails at once when the target folder cannot be
+/// found or created, so the success message never comes before the error.
+#[tauri::command]
+async fn prepare_action(
+    state: tauri::State<'_, AppState>,
+    thread_ids: Vec<String>,
+    action: String,
+    arg: Option<String>,
+    scope: Option<String>,
+) -> R<()> {
+    let db = state.db.clone();
+    blocking(move || prepare_action_impl(&db, &thread_ids, &action, arg.as_deref(), &scope)).await
 }
 
 fn save_fmap(db: &Db, account_id: &str, map: &HashMap<String, String>) -> R<()> {
@@ -4053,6 +4131,7 @@ pub fn run() {
             list_threads,
             get_thread,
             thread_action,
+            prepare_action,
             list_senders,
             sender_action,
             list_blocked,

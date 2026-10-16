@@ -313,6 +313,8 @@ let readTimer: ReturnType<typeof setTimeout> | undefined;
 /** The view (folder, mailbox, search, filter ...) the shown list was read for, and the conversation `refresh` held in it (F-12). */
 let listKey = "";
 let heldOpen: string | null = null;
+/** (OBS-1) Conversations whose move target is being looked up on the server. */
+const preparing = new Set<string>();
 /** F-16/F-17: the read / unread state asked for, until the server has it; lists and conversations read meanwhile are shown through it. */
 const readIntents = new ReadIntents((ids, read) => api.threadAction(ids, read ? "read" : "unread", undefined, scopeOf(useStore.getState().folder)));
 
@@ -874,8 +876,30 @@ export const useStore = create<State>((set, get) => ({
       await get().refresh();
       return;
     }
-    const { threads, selected, prefs, folder } = get();
     const moveLike = MOVE_LIKE.has(action);
+    // the view the person acted from (a move only touches the mail in it), and the action as the backend runs it
+    const scope = scopeOf(get().folder);
+    const real = moveLike && action === "trash" && scope === "trash" ? "delete_forever" : action;
+    if (moveLike) {
+      // (OBS-1) the folder the mail goes to is looked up (and a missing Archive / Trash created) on the server BEFORE the mail leaves the
+      // list and "Archived" is shown: when that cannot be done the mail stays and the error comes at once, not after the Undo time.
+      // The saved folder list names the usual folder, so this costs no server call then.
+      const todo = ids.filter((id) => !preparing.has(id)); // a second press while the first one is still looking
+      if (todo.length === 0) return;
+      ids = todo;
+      if (real !== "delete_forever") {
+        for (const id of ids) preparing.add(id);
+        try {
+          await api.prepareAction(ids, real, arg ?? null, scope ?? null);
+        } catch (e) {
+          get().showToast(t("errors.toast.failed", { error: friendlyError(e) }), undefined, "error");
+          return;
+        } finally {
+          for (const id of ids) preparing.delete(id);
+        }
+      }
+    }
+    const { threads, selected, prefs, folder } = get();
     const removing = moveLike || action === "snooze";
     let nextSel = selected;
     if (removing) {
@@ -890,8 +914,6 @@ export const useStore = create<State>((set, get) => ({
 
     if (moveLike) {
       // hide now, run on the server after the Undo window (the backend also flushes this on quit)
-      const scope = scopeOf(folder);
-      const real = action === "trash" && scope === "trash" ? "delete_forever" : action;
       try {
         const token = await api.queueAction(ids, real, arg ?? null, scope ?? null, prefs.undoActionSeconds);
         if (label) {
