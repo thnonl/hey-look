@@ -5,6 +5,7 @@ mod calsync;
 mod db;
 mod discover;
 mod flagguard;
+mod headerfold;
 mod ical;
 mod i18n;
 mod identity;
@@ -3159,7 +3160,7 @@ fn finished_message(db: &Db, acc: &Account, d: &smtp::Draft) -> R<(Vec<u8>, lett
     }
     let sec = d.security.clone().unwrap_or_default();
     let msg = if sec.encrypt || sec.sign { pgpstore::build_secure(&lock(db), acc, d, false)? } else { smtp::build(acc, d)? };
-    Ok((msg.formatted(), msg.envelope().clone()))
+    Ok((smtp::wire(&msg), msg.envelope().clone()))
 }
 
 /// What goes into the Drafts folder: encrypted to the account's own key when the draft is encrypted.
@@ -3169,9 +3170,9 @@ fn draft_bytes(db: &Db, acc: &Account, d: &smtp::Draft) -> R<Vec<u8>> {
         if let Some(pre) = &d.prebuilt {
             return base64::engine::general_purpose::STANDARD.decode(pre).map_err(err);
         }
-        return Ok(pgpstore::build_secure(&lock(db), acc, d, true)?.formatted());
+        return Ok(smtp::wire(&pgpstore::build_secure(&lock(db), acc, d, true)?));
     }
-    Ok(smtp::build_draft(acc, d)?.formatted())
+    Ok(smtp::wire(&smtp::build_draft(acc, d)?))
 }
 
 /// Queue a finished message (MIME is built at send time from the stored draft) for `send_at`.

@@ -919,7 +919,7 @@ fn to_ics_event(e: &CalEvent) -> IcsEvent {
 
 fn send_message(db: &Db, acc: &Account, msg: lettre::Message) -> R<()> {
     let secret = crate::smtp_secret(db, acc)?;
-    crate::smtp::send_raw(acc, &secret, msg.envelope(), &msg.formatted())
+    crate::smtp::send_raw(acc, &secret, msg.envelope(), &crate::smtp::wire(&msg))
 }
 
 fn iso_part(method: &str, ev: &IcsEvent) -> crate::smtp::CalendarPart {

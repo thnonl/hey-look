@@ -359,6 +359,12 @@ pub fn build(acc: &Account, d: &Draft) -> R<Message> {
     headers(acc, d, false)?.multipart(body(d)?).map_err(err)
 }
 
+/// The finished message as it goes on the wire and into the Sent / Drafts folder: lettre's text with the lines of the header block folded
+/// to 78 characters (headerfold.rs; lettre leaves a long To / Cc / References list on one line).
+pub fn wire(m: &Message) -> Vec<u8> {
+    crate::headerfold::fold(m.formatted())
+}
+
 /// multipart/signed (RFC 3156): the signature covers the content entity exactly as it is written, without the
 /// line break that belongs to the next boundary line.
 pub fn build_signed(acc: &Account, d: &Draft, lenient: bool, sign: &dyn Fn(&[u8]) -> R<(String, String)>) -> R<Message> {
@@ -801,6 +807,40 @@ To:") && !out.contains("undisclosed"), "{out}");
         // the message that is sent gets its own, new id (a_sent_message_carries_its_own_message_id)
         let sent = text(&build(&acc, &d).unwrap());
         assert_eq!(sent.to_ascii_lowercase().matches("message-id:").count(), 1, "{sent}");
+    }
+
+    /// QA round 17, BUG-14 (MA-12): a hundred recipients were one 2202-octet To line. The header block is folded at 78 characters, and
+    /// still reads back as the same recipients.
+    #[test]
+    fn long_recipient_lists_and_reference_chains_are_folded_at_78_characters() {
+        let acc = account();
+        let mut d = draft("<p>Hi</p>", vec![], vec![]);
+        d.to = (0..100).map(|i| format!("r13-{i:03}@example.test")).collect();
+        d.cc = (0..30).map(|i| format!("\"Doe, John {i}\" <cc-{i:03}@example.test>")).collect();
+        d.subject = "Báo cáo Q4 – 東京 🚀 Привет, a subject that is long enough to be folded by the encoder as well".into();
+        d.references = (0..15).map(|i| format!("<ref-{i:02}-0123456789abcdef@mail.example.org>")).collect();
+        d.in_reply_to = d.references.last().cloned();
+        let msg = build(&acc, &d).unwrap();
+        let raw = wire(&msg);
+        let head_end = raw.windows(4).position(|w| w == b"\r\n\r\n").unwrap();
+        let head = String::from_utf8(raw[..head_end].to_vec()).expect("headers are ASCII");
+        for l in head.split("\r\n") {
+            assert!(l.len() <= 78, "{} octets: {l}", l.len());
+        }
+        assert!(head.is_ascii(), "{head}");
+        // the folded message reads back as the same message
+        let p = mail_parser::MessageParser::default().parse(&raw[..]).unwrap();
+        assert_eq!(p.to().unwrap().iter().count(), 100);
+        assert_eq!(p.cc().unwrap().iter().count(), 30);
+        assert_eq!(p.cc().unwrap().first().and_then(|a| a.name.as_deref()), Some("Doe, John 0"), "a quoted name with a comma stays whole");
+        assert_eq!(p.subject(), Some(d.subject.as_str()));
+        let parsed = crate::mail::parse(3, &raw, true, false, 0).unwrap();
+        assert_eq!(&parsed.refs[..15], &d.references[..], "References read back, each id whole and in order");
+        assert_eq!(parsed.to.len(), 100);
+        // the envelope is unaffected: 130 recipients, each once
+        assert_eq!(msg.envelope().to().len(), 130);
+        // the body is not touched
+        assert!(String::from_utf8_lossy(&raw).contains("<p>Hi</p>"));
     }
 
     fn message_id_of(raw: &[u8]) -> String {
