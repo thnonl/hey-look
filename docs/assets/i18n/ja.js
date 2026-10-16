@@ -135,7 +135,7 @@
   "nf.eyes": "あたりを見回す二つの目",
   "nf.thanks": "Hey Look!をご利用いただき、ありがとうございます。今後も無料のオープンソースであり続けます。支援は任意です。",
   "nf.supportproject": "プロジェクトを支援する",
-  "nf.about": "Windows、macOS、Linux用のデスクトップメールクライアント。無料のオープンソースソフトウェア（MITライセンス）です。",
+  "nf.about": "Windows、macOS、Linux用のデスクトップメールクライアント。無料で広告のない、オープンソースソフトウェア（MITライセンス）です。",
   "nf.ftr.product": "製品",
   "nf.ftr.trust": "信頼",
   "nf.ftr.help": "ヘルプ",

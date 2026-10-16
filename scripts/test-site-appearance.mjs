@@ -214,6 +214,34 @@ async function runPage(lang, width, { reduced = false, dark = false } = {}) {
   if (consoleProblems.length) fail(tag, 'console', [...new Set(consoleProblems)].slice(0, 5).join('\n      '));
 }
 
+// the pages that carry the advantages (free, no account, no ads): the page never scrolls sideways and the hero chips stay inside their column
+async function scanPages() {
+  for (const lang of LANGS) for (const width of (QUICK ? [375, 1280] : WIDTHS)) for (const page of ['index', 'download', 'features']) {
+    await cdp('Emulation.setDeviceMetricsOverride', { width, height: 900, deviceScaleFactor: 1, mobile: false });
+    consoleProblems = [];
+    await cdp('Page.navigate', { url: `${base}/${lang === 'en' ? '' : lang + '/'}${page}.html` });
+    for (let i = 0; i < 200; i++) { if (await evaluate("document.readyState === 'complete'").catch(() => false)) break; await new Promise((r) => setTimeout(r, 50)); }
+    await evaluate('new Promise((r) => (document.fonts ? document.fonts.ready : Promise.resolve()).then(() => setTimeout(r, 100)))');
+    const bad = await evaluate(`(() => { const out = [], de = document.documentElement; if (de.scrollWidth > de.clientWidth + 1) out.push('the page scrolls sideways (' + de.scrollWidth + ' > ' + de.clientWidth + ')');
+      const meta = document.querySelector('.hero-meta'); if (meta) { const mr = meta.getBoundingClientRect(); for (const c of meta.children) { const r = c.getBoundingClientRect(); if (r.right > mr.right + 1 || r.left < mr.left - 1) out.push('hero chip "' + c.textContent + '" sticks out'); } }
+      const lead = document.querySelector('.page-head .lead'); if (lead && lead.scrollWidth > lead.clientWidth + 1) out.push('the lead sticks out');
+      for (const t of document.querySelectorAll('.cmp-wrap')) { /* the table scrolls inside its own box on a phone: that is fine */ }
+      return out; })()`);
+    pages++; checked++;
+    const where = `${lang} ${width}px ${page}.html`;
+    if (SHOTS && page === 'index' && ['en', 'de', 'ja', 'ru'].includes(lang) && (width === 375 || width === 1280)) {
+      for (const [label, sel] of [['hero', '.hero-copy'], ['free-table-end', '.cmp tbody tr:last-child']]) {
+        const box = await evaluate(`(() => { const e = document.querySelector(${JSON.stringify(sel)}); if (!e) return null; e.scrollIntoView({ block: 'center' }); const r = e.getBoundingClientRect(); return { x: Math.max(0, r.left + scrollX - 8), y: r.top + scrollY - 8, width: Math.min(r.width + 16, innerWidth), height: r.height + 16 }; })()`);
+        if (!box) continue; fs.mkdirSync(SHOTS, { recursive: true });
+        const { data } = await cdp('Page.captureScreenshot', { format: 'png', clip: { ...box, scale: 1 }, captureBeyondViewport: true });
+        fs.writeFileSync(path.join(SHOTS, `${lang}-${width}-${label}.png`), Buffer.from(data, 'base64'));
+      }
+    }
+    if (bad.length) fail(where, 'page', bad.join('\n      '));
+    if (consoleProblems.length) fail(where, 'console', [...new Set(consoleProblems)].slice(0, 5).join('\n      '));
+  }
+}
+
 async function shots() {
   fs.mkdirSync(SHOTS, { recursive: true });
   const KEY = [
@@ -238,6 +266,7 @@ try {
   for (const lang of (QUICK ? ['en'] : LANGS)) await runPage(lang, 375, { reduced: true });
   await runPage('en', 1280, { reduced: true, dark: true });
   await runPage('en', 1280, { dark: true });
+  await scanPages();
   if (SHOTS) await shots();
 } finally { await shutdown(); }
 

@@ -137,7 +137,7 @@
   "nf.eyes": "Hai con mắt đang nhìn quanh",
   "nf.thanks": "Cảm ơn bạn đã dùng Hey Look! Ứng dụng vẫn miễn phí và mã nguồn mở, còn việc ủng hộ là hoàn toàn tùy chọn. ",
   "nf.supportproject": "Ủng hộ dự án",
-  "nf.about": "Ứng dụng thư trên máy tính để bàn cho Windows, macOS và Linux. Miễn phí và mã nguồn mở (MIT).",
+  "nf.about": "Ứng dụng thư trên máy tính để bàn cho Windows, macOS và Linux. Miễn phí, không có quảng cáo và mã nguồn mở (MIT).",
   "nf.ftr.product": "Sản phẩm",
   "nf.ftr.trust": "Tin cậy",
   "nf.ftr.help": "Trợ giúp",
