@@ -103,6 +103,8 @@ pub fn migrate(conn: &Connection) -> R<()> {
     add_column(conn, "ALTER TABLE events ADD COLUMN remote_kind TEXT")?;
     add_column(conn, "ALTER TABLE events ADD COLUMN read_only INTEGER NOT NULL DEFAULT 0")?;
     conn.execute_batch("CREATE INDEX IF NOT EXISTS idx_events_remote ON events(calendar_id, remote_id);").map_err(err)?;
+    // the message being written, kept until it is sent, discarded or saved (crash recovery, see recover.rs)
+    crate::recover::create_tables(conn)?;
     // scheduled sends: when it was queued and how many delivery attempts failed so far
     add_column(conn, "ALTER TABLE outbox ADD COLUMN created_at INTEGER NOT NULL DEFAULT 0")?;
     add_column(conn, "ALTER TABLE outbox ADD COLUMN attempts INTEGER NOT NULL DEFAULT 0")?;
@@ -311,6 +313,8 @@ pub fn prune_orphans(c: &Connection) -> R<usize> {
             n += c.execute("DELETE FROM settings WHERE key=?1", [&k]).map_err(err)?;
         }
     }
+    // what a removed account was writing when the app ended
+    n += crate::recover::prune(c)?;
     // synced calendars (and their events and tombstones) of a mailbox that is gone, or of a calendar that is gone
     n += crate::calsync::store::prune_orphans(c)?;
     // calendars hidden by the user: "invites:<account>" of a removed account, or a synced calendar that no longer exists

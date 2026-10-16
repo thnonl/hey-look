@@ -56,6 +56,8 @@ export interface ComposeInit {
   restore?: { encrypt: "on" | "off" | "auto"; sign: boolean; attachKey: boolean };
   /** send as confidential (an answer to confidential mail starts that way) */
   confidential?: boolean;
+  /** a message restored after the app ended unexpectedly: it keeps the id of its snapshot, so the next snapshot replaces it (recovery.ts) */
+  recoveryId?: string;
   /** start Compose as a meeting invitation ("Meeting" switched on) */
   meeting?: Partial<Meeting> & { on?: boolean };
 }
@@ -247,6 +249,11 @@ interface State {
   composeDirty: boolean;
   /** Saves the open message as a draft; resolves true when it was saved (false: the save failed, the message is still open). */
   composeSaver: ((opts?: ComposeSaveOpts) => Promise<boolean | void>) | null;
+  /**
+   * The message in the pane is over without being sent (saved, discarded, or the app is about to end): its crash-recovery snapshot goes, and
+   * with `dropDraft` the draft that an autosave made of a NEW message goes too (Discard).
+   */
+  composeEnd: ((o?: { dropDraft?: boolean }) => Promise<void>) | null;
   /** What the open message says about itself (written something? files still coming in?), for `leaveCompose`. */
   composeProbe: (() => ComposeProbe) | null;
   dialog: Dialog;
@@ -304,6 +311,7 @@ interface State {
   openCompose: (c: ComposeInit | null, opts?: { restore?: boolean }) => Promise<void>;
   setComposeDirty: (d: boolean) => void;
   setComposeSaver: (f: ((opts?: ComposeSaveOpts) => Promise<boolean | void>) | null) => void;
+  setComposeEnd: (f: ((o?: { dropDraft?: boolean }) => Promise<void>) | null) => void;
   setComposeProbe: (f: (() => ComposeProbe) | null) => void;
   setDialog: (d: Dialog) => void;
   setCommandOpen: (o: boolean) => void;
@@ -585,6 +593,7 @@ export const useStore = create<State>((set, get) => ({
   composeKey: 0,
   composeDirty: false,
   composeSaver: null,
+  composeEnd: null,
   composeProbe: null,
   dialog: null,
   commandOpen: false,
@@ -1121,12 +1130,13 @@ export const useStore = create<State>((set, get) => ({
       });
       if (choice === "keep") return;
       if (choice === "save") await get().composeSaver?.();
+      else await get().composeEnd?.({ dropDraft: true }); // discarded: no snapshot is kept, and no draft an autosave made of it
     }
     // While writing, no mail is selected: nothing that works on "the selected mail" can reach the old one (F-21). Whoever opens a reply
     // or a forward has built it from that mail already. It comes back when writing ends and no other mail was picked.
     const before = get().compose ? composeBefore : get().selected;
     composeBefore = compose ? before : null;
-    set({ compose, composeKey: get().composeKey + 1, composeDirty: false, composeSaver: null, ...(compose ? { selected: null, messages: [], checked: new Set<string>() } : {}) });
+    set({ compose, composeKey: get().composeKey + 1, composeDirty: false, composeSaver: null, composeEnd: null, ...(compose ? { selected: null, messages: [], checked: new Set<string>() } : {}) });
     if (!compose && opts?.restore !== false) {
       const back = selectionAfterCompose(before, get().selected, get().threads.map((x) => x.threadId));
       if (back) await get().select(back);
@@ -1135,6 +1145,7 @@ export const useStore = create<State>((set, get) => ({
 
   setComposeDirty: (composeDirty) => set({ composeDirty }),
   setComposeSaver: (composeSaver) => set({ composeSaver }),
+  setComposeEnd: (composeEnd) => set({ composeEnd }),
   setComposeProbe: (composeProbe) => set({ composeProbe }),
   setDialog: (dialog) => set({ dialog }),
   setCommandOpen: (commandOpen) => set({ commandOpen }),

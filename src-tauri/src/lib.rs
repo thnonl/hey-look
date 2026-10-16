@@ -26,6 +26,7 @@ mod openpgp;
 mod pgpmail;
 mod pgpstore;
 mod rawcache;
+mod recover;
 use oauth::Provider;
 mod schedule;
 mod sessionend;
@@ -3359,6 +3360,35 @@ async fn discard_draft(state: tauri::State<'_, AppState>, reference: String) -> 
     blocking(move || draftmail::drop_draft(&db, &reference)).await
 }
 
+// ---------- crash recovery of the message being written (recover.rs) ----------
+
+/// Compose writes a snapshot of the message every few seconds while something changed.
+#[tauri::command]
+async fn recovery_save(state: tauri::State<'_, AppState>, snap: recover::SnapIn) -> R<()> {
+    let db = state.db.clone();
+    blocking(move || recover::save(&lock(&db), &snap, now())).await
+}
+
+/// The message was sent, discarded or saved: no snapshot is needed any more.
+#[tauri::command]
+async fn recovery_clear(state: tauri::State<'_, AppState>, id: String) -> R<()> {
+    let db = state.db.clone();
+    blocking(move || recover::clear(&lock(&db), &id)).await
+}
+
+/// Messages that were being written when the app ended without saving or sending them.
+#[tauri::command]
+async fn recovery_list(state: tauri::State<'_, AppState>) -> R<Vec<recover::Info>> {
+    let db = state.db.clone();
+    blocking(move || recover::list(&lock(&db))).await
+}
+
+#[tauri::command]
+async fn recovery_load(state: tauri::State<'_, AppState>, id: String) -> R<Option<recover::Loaded>> {
+    let db = state.db.clone();
+    blocking(move || recover::load(&lock(&db), &id)).await
+}
+
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
 struct OutboxItem {
@@ -4349,6 +4379,10 @@ pub fn run() {
             save_draft,
             draft_recipients,
             discard_draft,
+            recovery_save,
+            recovery_clear,
+            recovery_list,
+            recovery_load,
             list_outbox,
             cancel_outbox,
             outbox_pending_count,

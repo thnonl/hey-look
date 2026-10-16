@@ -228,6 +228,11 @@ const hiddenCals = new Set<string>();
 /** Drafts saved in this page (save_draft), by thread. */
 const mockDrafts: Record<string, typeof messages> = {};
 let mockDraftSeq = 0;
+/** Crash recovery in the page (recover.rs): kept in localStorage, so reloading the page without discarding is the "crash" of a check. */
+const RECOVERY_KEY = "hl-mock-recovery";
+interface MockSnap { id: string; accountId: string; savedAt: number; subject: string; preview: string; payload: string; files: unknown[] }
+const recoveryRead = (): Record<string, MockSnap> => { try { return JSON.parse(localStorage.getItem(RECOVERY_KEY) ?? "{}"); } catch { return {}; } };
+const recoveryWrite = (m: Record<string, MockSnap>) => { try { localStorage.setItem(RECOVERY_KEY, JSON.stringify(m)); } catch { /* private window */ } };
 /** `mid:` references of the drafts saved in this page, by the thread they are in. */
 const mockDraftRefs: Record<string, string> = {};
 /** Remove the draft a reference names: `m:<message id>`, `mid:<account>|<Message-ID>` or a conversation id. */
@@ -1012,6 +1017,9 @@ export function installMock() {
     ok(none.sig === null && none.html.includes(SIG_MARK), "draft without signature gets an empty region");
     return out;
   };
+  // `#autosave=3000`: the autosave waits 3 s instead of 30 s (and `#snapshot=1000` writes the crash-recovery snapshot every second): for a check
+  const shortAutosave = Number(hashTokens().get("autosave"));
+  if (shortAutosave > 0) (window as unknown as { __hlTiming: unknown }).__hlTiming = { autosaveMs: shortAutosave, snapshotMs: Number(hashTokens().get("snapshot")) || 1000 };
   mockIPC(function handle(cmd, args): unknown {
     const a = (args ?? {}) as Record<string, unknown>;
     // a conversation's read / flag state is kept (as the server does), so the Unread and Flagged filters behave like the real list
@@ -1025,7 +1033,7 @@ export function installMock() {
       case "list_accounts": return accounts;
       case "idle_states": return { a1: "push" };
       // #aiset: the AI Assistant is set up (Translate / Summarize can be tried with #slowai / #failai)
-      case "get_setting": return settings[a.key as string] ?? (hashHas("aiset") && (a.key === "ai_endpoint" || a.key === "ai_model") ? "mock" : null);
+      case "get_setting": return settings[a.key as string] ?? (a.key === "prefs" && hashTokens().has("lang") ? JSON.stringify({ language: hashTokens().get("lang") }) : null) ?? (hashHas("aiset") && (a.key === "ai_endpoint" || a.key === "ai_model") ? "mock" : null);
       case "first_run_hint": { const d = Number(hashTokens().get("firstrun")); return d > 0 ? Date.now() - d * 86_400_000 : null; } // `#firstrun=90`: the database is 90 days old (an install from before the support reminder)
       case "set_setting": settings[a.key as string] = a.value as string; return null;
       // #nojunk: the second mailbox's server has no Junk folder (the saved list does not name one): its Junk row and the Junk actions go
@@ -1150,10 +1158,24 @@ export function installMock() {
         mockDrafts[tid] = [{ ...messages[0], id: `a1:drafts:${tid}`, accountId: dr.accountId, folder: "drafts", subject: dr.subject || "(no subject)", fromName: "Nam", fromEmail: "nam@example.com", to: bareOf(dr.to).join(", "), cc: bareOf(dr.cc).join(", "), html: dr.html, text: dr.text, attachments: [], seen: true }];
         mockDraftHeaders[`a1:drafts:${tid}`] = { to: dr.to, cc: dr.cc, bcc: dr.bcc ?? [] };
         mockDraftRefs[`mid:a1|<${tid}@mock>`] = tid;
+        (window as unknown as { __draftCount: () => number }).__draftCount = () => Object.keys(mockDrafts).length; // for a check: drafts the page holds
         const done = () => ({ threadId: tid, draftRef: `mid:a1|<${tid}@mock>` });
         return hashTokens().has("draftslow") ? later(1500, done) : done(); // `#draftslow`: the save takes 1.5 s
       }
       case "discard_draft": dropMockDraft(String(a.reference)); return null;
+      case "recovery_save": {
+        const sn = a.snap as MockSnap & { files: unknown[] | null };
+        const all = recoveryRead();
+        all[sn.id] = { ...sn, savedAt: Math.floor(Date.now() / 1000), files: sn.files ?? all[sn.id]?.files ?? [] }; // files not sent = the same as before
+        recoveryWrite(all);
+        const w = window as unknown as { __recoverySaves?: number };
+        w.__recoverySaves = (w.__recoverySaves ?? 0) + 1; // counted for a check
+        return null;
+      }
+      case "recovery_clear": { const all = recoveryRead(); delete all[String(a.id)]; recoveryWrite(all); return null; }
+      case "recovery_list":
+        return Object.values(recoveryRead()).filter((x) => accounts.some((acc) => acc.id === x.accountId)).sort((x, y) => y.savedAt - x.savedAt).map(({ payload: _p, files, ...i }) => ({ ...i, files: files.length }));
+      case "recovery_load": return recoveryRead()[String(a.id)] ?? null;
       case "draft_recipients": return mockDraftHeaders[a.messageId as string] ?? { to: [], cc: [], bcc: [] };
       case "prepare_action": {
         // like the backend: the folder a move goes to is looked up before the move is queued. `#nocreate`: the server has no Archive / Trash

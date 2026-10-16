@@ -26,6 +26,7 @@ import { calTz, configureCalendar, addDays, addMonths, today as todayDay } from 
 import { catchupText, configureDates, fmtWhen } from "./util";
 import { frameAction, initFrame, useFrame } from "./winframe";
 import { startSupportNudge } from "./supportNudgeHost";
+import { offerRestore } from "./composeRecovery";
 import { inEditable, keyAction } from "./composeKeys";
 
 const clamp = (n: number, lo: number, hi: number) => Math.max(lo, Math.min(hi, n));
@@ -85,6 +86,11 @@ function App() {
   useEffect(() => {
     if (loaded) void startSupportNudge();
   }, [loaded]);
+
+  // a message that was being written when the app ended without saving or sending it is offered back (once per start)
+  useEffect(() => {
+    if (loaded && hasAccounts) void offerRestore();
+  }, [loaded, hasAccounts]);
 
   // the page is up and has painted once: the backend shows the (hidden) window now, and reloads the page if this never arrives
   // (a timer, not requestAnimationFrame: a page in a hidden window gets no animation frames)
@@ -209,6 +215,7 @@ function App() {
             } else {
               const saved = s.composeSaver ? await s.composeSaver({ quiet: true }) : false;
               if (saved === true) {
+                await useStore.getState().composeEnd?.(); // (saved: no snapshot is needed; the process may end right after this)
                 await useStore.getState().openCompose(null);
               } else {
                 void api.showWindow().catch(() => undefined);
@@ -223,7 +230,11 @@ function App() {
                 });
                 void api.quitDialog(false).catch(() => undefined);
                 go = c === "quit";
-                if (go) useStore.setState({ composeDirty: false });
+                if (go) {
+                  // "Quit and discard" was the answer: the message must not come back at the next start either
+                  await useStore.getState().composeEnd?.();
+                  useStore.setState({ composeDirty: false });
+                }
               }
             }
           }

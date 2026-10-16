@@ -1,5 +1,6 @@
 import { Channel, invoke } from "@tauri-apps/api/core";
 import { t } from "./i18n";
+import type { RecoveryInfo, RecoveryLoaded, SnapshotOut } from "./recovery";
 
 export interface Account {
   id: string;
@@ -564,8 +565,13 @@ export const api = {
    */
   saveDraft: (draft: Draft, replaces?: string | null) =>
     invoke<DraftSaveResult>("save_draft", { draft, replaces: replaces ?? null }),
-  /** Remove the draft a reference names (Discard on a message whose autosave made a draft). */
+  /** Remove the draft a reference names (Discard on a new message whose save made a draft). */
   discardDraft: (reference: string) => invoke<void>("discard_draft", { reference }),
+  /** Crash recovery of the message being written (recover.rs): the snapshot is kept until the message is sent, discarded or saved. */
+  recoverySave: (snap: SnapshotOut) => invoke<void>("recovery_save", { snap }),
+  recoveryClear: (id: string) => invoke<void>("recovery_clear", { id }),
+  recoveryList: () => invoke<RecoveryInfo[]>("recovery_list"),
+  recoveryLoad: (id: string) => invoke<RecoveryLoaded | null>("recovery_load", { id }),
   /** To / Cc / Bcc of a saved draft with the display names, read from the draft's own headers (the synced copy has bare addresses and no Bcc). */
   draftRecipients: (messageId: string) => invoke<{ to: string[]; cc: string[]; bcc: string[] }>("draft_recipients", { messageId }),
   listOutbox: () => invoke<OutboxItem[]>("list_outbox"),

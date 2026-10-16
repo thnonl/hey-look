@@ -17,9 +17,11 @@ import type { ComposeProbe, SavedDraft } from "../leaveCompose";
 import { extractSignature, fillSignature, normalizeHtml, SIG_MARK } from "../signature";
 import { repairSignature, signatureGuard } from "../signatureGuard";
 import { fitInWindow } from "../fitInWindow";
+import { autosaveDue, snapshotDue, timing, type AutosaveWhy } from "../autosave";
+import { RecoveryWriter, type RecoveryForm } from "../recovery";
 import { placePictureTools } from "../pictureToolsLayout";
 import type { PictureToolsInput } from "../pictureToolsLayout";
-import { blockedAttachmentExt, dataUriBytes, fileToBase64, fmtIn, fmtSize, fmtWhen, htmlToText, imageSize, PICTURE_TYPES, playSent, resizeImage, sanitizeHtml, shortKey, userName } from "../util";
+import { blockedAttachmentExt, dataUriBytes, fileToBase64, fmtClock, fmtIn, fmtSize, fmtWhen, htmlToText, imageSize, PICTURE_TYPES, playSent, resizeImage, sanitizeHtml, shortKey, userName } from "../util";
 import { calTz } from "../calendar";
 import { defaultMeeting, MeetingState, MeetingStrip, meetingToDraft } from "./Calendar";
 import { isEmail, singleLabelHostsOf } from "../addresses";
@@ -411,6 +413,24 @@ export function Compose({ init }: { init: ComposeInit }) {
   const replacesRef = () => savedDraftRef.current ?? init.replaces ?? null; // the draft this message takes the place of
   const baseline = useRef<{ text: string; pics: number } | null>(null); // the body as Compose opened it (a reply: the quote)
 
+  // Autosave and crash recovery (autosave.ts, recovery.ts). A changed message is saved to Drafts about every 30 s, replacing the draft the earlier
+  // save made; and its form is written to a local snapshot every few seconds, which stays until the message is sent, discarded or saved, so a
+  // kill or a crash loses nothing: the next start offers it back.
+  const recoveryId = useRef<string>(init.recoveryId ?? crypto.randomUUID()).current;
+  const writerRef = useRef<RecoveryWriter | null>(null);
+  writerRef.current ??= new RecoveryWriter(recoveryId, { save: (s) => api.recoverySave(s), clear: (id) => api.recoveryClear(id) });
+  const writer = writerRef.current;
+  const savingRef = useRef(0); // saves that are running (autosave, Save draft, leaving)
+  const savedRevRef = useRef(0); // the revision the last successful save covered
+  const changedAtRef = useRef(0); // when the first change after that save was made
+  const lastTryRef = useRef(0); // when the last autosave started
+  const failuresRef = useRef(0); // autosaves that failed in a row
+  const snapRevRef = useRef(-1); // the revision the last snapshot covered
+  const snapAtRef = useRef(0);
+  const sendingRef = useRef(false); // the message is on its way out: its snapshot stays until the send is safe
+  const filesKeyRef = useRef<{ atts: Att[]; key: string } | null>(null);
+  const [autosavedAt, setAutosavedAt] = useState<number | null>(null);
+
   // The picture toolbar is placed after it has been laid out: it wraps to more rows in a narrow pane, so its size is measured, then it
   // goes above / below the picture and inside the pane (pictureToolsLayout.ts). The alt text popover opens under it, also inside the pane.
   const toolsRef = useRef<HTMLDivElement>(null);
@@ -435,6 +455,7 @@ export function Compose({ init }: { init: ComposeInit }) {
   const touch = useCallback(() => {
     touched.current = true;
     revRef.current++;
+    if (!changedAtRef.current) changedAtRef.current = Date.now();
     setComposeDirty(true);
   }, [setComposeDirty]);
 
@@ -598,7 +619,8 @@ export function Compose({ init }: { init: ComposeInit }) {
   };
   // the body as it opened (a reply: the quote), to tell what the person wrote from what Compose put there
   useEffect(() => {
-    if (editor && !baseline.current) baseline.current = { text: editor.getText().trim(), pics: bodyPictures(editor) };
+    // (a restored message has nothing "as it opened": everything in it was written by the person, so it is content to keep)
+    if (editor && !baseline.current) baseline.current = init.recoveryId ? { text: "", pics: 0 } : { text: editor.getText().trim(), pics: bodyPictures(editor) };
   }, [editor]);
 
   linkRef.current = () => {
@@ -728,6 +750,7 @@ export function Compose({ init }: { init: ComposeInit }) {
       accountId: d.accountId,
       attachments: d.attachments,
       replaces: init.replaces,
+      recoveryId: undefined, // (a new message: it gets a snapshot of its own)
       isReply: false,
       security: d.security,
       confidential: d.confidential,
@@ -818,6 +841,12 @@ export function Compose({ init }: { init: ComposeInit }) {
     }
   };
 
+  /** The message is safe (in the outbox, handed to the server) or came back to Compose: its snapshot is not needed any more. */
+  const finishSend = () => {
+    sendingRef.current = false;
+    void writer.clear();
+  };
+
   const send = async (sendAt?: number) => {
     let d = buildDraft();
     if (d.to.length === 0) return showToast(t("compose.err.noRecipient"), undefined, "error");
@@ -848,6 +877,8 @@ export function Compose({ init }: { init: ComposeInit }) {
 
     if (sendAt) {
       if (sendAt * 1000 < Date.now() - 60_000) return showToast(t("compose.schedule.passed"), undefined, "error");
+      await settleSaves(); // (an autosave that is running tells which draft this message replaces)
+      sendingRef.current = true; // the snapshot stays until the message is in the queue
       setBusy(true);
       setComposeDirty(false);
       void openCompose(null);
@@ -878,10 +909,14 @@ export function Compose({ init }: { init: ComposeInit }) {
         const code = errorCode(e);
         showToast(code === "SCHEDULE_IN_PAST" ? friendlyError(e) : t("compose.toast.scheduleFailed", { error: friendlyError(e) }), undefined, "error");
         reopen(d);
+      } finally {
+        finishSend();
       }
       return;
     }
 
+    await settleSaves();
+    sendingRef.current = true; // the snapshot stays until the message is in the outbox (Undo time) or was handed to the server
     setBusy(true);
     setComposeDirty(false);
     void openCompose(null);
@@ -897,9 +932,11 @@ export function Compose({ init }: { init: ComposeInit }) {
         heldId = await api.outboxHold(d, Math.floor(Date.now() / 1000) + wait, replacesRef());
       } catch (e) {
         showToast(t("compose.toast.sendFailed", { error: friendlyError(e) }), undefined, "error");
+        finishSend();
         reopen(d);
         return;
       }
+      finishSend(); // it is in the local outbox now: a kill no longer loses it
     }
     const run = async () => {
       if (cancelled || started) return;
@@ -919,6 +956,7 @@ export function Compose({ init }: { init: ComposeInit }) {
         reopen(d);
       } finally {
         done();
+        finishSend();
       }
     };
     // counted as "being sent" from the start of the undo window until the server answered (an update restart waits for it; a quit sends it at once)
@@ -953,9 +991,12 @@ export function Compose({ init }: { init: ComposeInit }) {
 
   const saveDraft = useCallback(
     // `onSaved`: the caller (leaving this message, F-21) makes the toast itself, with an Edit button, once the pane is closed
-    async (close: boolean, quiet = false, onSaved?: (d: SavedDraft) => void): Promise<boolean> => {
+    // `auto`: the autosave. It makes no toast, does not close the pane, does not count as "saved" for the leave / quit / restart flows (they save
+    // once more, which replaces this draft) and leaves the error line of those flows alone.
+    async (close: boolean, quiet = false, onSaved?: (d: SavedDraft) => void, auto = false): Promise<boolean> => {
       if (init.outboxId) return true; // a scheduled message is not a draft; "Move to Drafts" does that
       const rev = revRef.current;
+      savingRef.current++;
       try {
         const d = buildDraft();
         // a draft is only ever encrypted to your own key (no passphrase needed), and never signed
@@ -964,6 +1005,18 @@ export function Compose({ init }: { init: ComposeInit }) {
         const tid = saved.threadId;
         if (tid) savedTid.current = tid;
         if (saved.draftRef) savedDraftRef.current = saved.draftRef;
+        // the draft on the server holds everything up to `rev`: the snapshot is not needed for it any more
+        savedRevRef.current = rev;
+        changedAtRef.current = revRef.current === rev ? 0 : Date.now();
+        if (revRef.current === rev) {
+          snapRevRef.current = rev;
+          void writer.release();
+        }
+        if (auto) {
+          failuresRef.current = 0;
+          setAutosavedAt(Date.now());
+          return true;
+        }
         useStore.setState({ draftError: "" });
         const plain = !!d.security?.encrypt && !keepPrivate;
         if (onSaved) {
@@ -983,10 +1036,13 @@ export function Compose({ init }: { init: ComposeInit }) {
         void useStore.getState().sync();
         return true;
       } catch (e) {
+        if (auto) return false; // (the next try is later, see autosaveDue; the snapshot keeps the text meanwhile)
         // `quiet`: the caller (an update restart, a quit) tells the user itself
         useStore.setState({ draftError: friendlyError(e).replace(/\.$/, "") });
         if (!quiet) showToast(t("compose.toast.saveFailed", { error: friendlyError(e) }), undefined, "error");
         return false;
+      } finally {
+        savingRef.current--;
       }
     },
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -1011,18 +1067,125 @@ export function Compose({ init }: { init: ComposeInit }) {
   useEffect(() => {
     setComposeSaver((o) => saveDraft(false, o?.quiet, o?.onSaved));
   }, [saveDraft, setComposeSaver]);
+
+  /** The form of this message for the crash-recovery snapshot: the body as the editor has it (signature included, pictures as data: URIs). */
+  const snapshotForm = () => {
+    if (!editor) return null;
+    const doc = new DOMParser().parseFromString(editor.getHTML(), "text/html");
+    fillSignature(doc, chosenSig?.html ?? null);
+    const form: RecoveryForm = {
+      v: 1, to, cc, bcc, subject, html: doc.body.innerHTML,
+      inReplyTo: init.inReplyTo ?? null, references: init.references ?? [], replaces: replacesRef(), isReply: !!init.isReply,
+      encrypt: encIntent, sign: signOn, attachKey, confidential,
+    };
+    return { accountId, subject, preview: editor.getText().trim().slice(0, 160), payload: JSON.stringify(form) };
+  };
+  /** What names these attachments, worked out once per change of the list (they can be megabytes): equal key = equal attachments. */
+  const attachmentsKey = () => {
+    if (filesKeyRef.current?.atts !== atts) {
+      const fnv = (str: string) => {
+        let h = 0x811c9dc5;
+        for (let i = 0; i < str.length; i++) h = Math.imul(h ^ str.charCodeAt(i), 0x01000193);
+        return (h >>> 0).toString(16);
+      };
+      filesKeyRef.current = { atts, key: atts.map((a) => `${a.filename}|${a.mime}|${a.dataBase64.length}|${fnv(a.dataBase64)}`).join(";") };
+    }
+    return filesKeyRef.current.key;
+  };
+  const writeSnapshot = (force = false) => {
+    const p = probe();
+    const size = (editor?.state.doc.content.size ?? 0) + (pics.bytes ?? 0);
+    const due = force
+      ? p.hasContent && !init.outboxId && !encOn && revRef.current !== snapRevRef.current
+      : snapshotDue({ now: Date.now(), rev: revRef.current, snapRev: snapRevRef.current, lastWriteAt: snapAtRef.current, size, hasContent: p.hasContent, scheduled: !!init.outboxId, encrypted: encOn }, timing().snapshotMs);
+    if (!due) return;
+    const form = snapshotForm();
+    if (!form) return;
+    snapRevRef.current = revRef.current;
+    snapAtRef.current = Date.now();
+    writer.write(form, attachmentsKey(), () => atts);
+  };
+  const autosaveFacts = (why: AutosaveWhy) => {
+    const p = probe();
+    return {
+      now: Date.now(), why, rev: revRef.current, savedRev: savedRevRef.current, changedAt: changedAtRef.current, lastTryAt: lastTryRef.current,
+      failures: failuresRef.current, hasContent: p.hasContent, attaching: p.attaching, saving: savingRef.current > 0, sending: sendingRef.current,
+      scheduled: !!init.outboxId, plainWouldLeak: encOn && !eff(prefs, accountId, "pgpEncryptDrafts"),
+    };
+  };
+  const autosave = async (why: AutosaveWhy) => {
+    if (!autosaveDue(autosaveFacts(why), timing().autosaveMs)) return;
+    lastTryRef.current = Date.now();
+    const ok = await saveDraft(false, true, undefined, true);
+    if (!ok) failuresRef.current++;
+  };
+  // a second by second look (the timers of autosave.ts decide), and the moments the person leaves the window
+  const tickRef = useRef<() => void>(() => undefined);
+  tickRef.current = () => {
+    writeSnapshot();
+    void autosave("tick");
+  };
+  const awayRef = useRef<(why: AutosaveWhy) => void>(() => undefined);
+  awayRef.current = (why) => {
+    writeSnapshot(true);
+    void autosave(why);
+  };
+  useEffect(() => {
+    if (init.outboxId) return;
+    const timer = setInterval(() => tickRef.current(), 1000);
+    const away = () => awayRef.current(document.visibilityState === "hidden" ? "hidden" : "blur");
+    window.addEventListener("blur", away);
+    document.addEventListener("visibilitychange", away);
+    return () => {
+      clearInterval(timer);
+      window.removeEventListener("blur", away);
+      document.removeEventListener("visibilitychange", away);
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+  // a restored message is something the person has not saved: it counts as changed from the start
+  useEffect(() => {
+    if (init.recoveryId) touch();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  /** Wait until the saves that are running have finished (a send / discard must know which draft the last one made). */
+  const settleSaves = async () => {
+    for (let i = 0; i < 200 && savingRef.current > 0; i++) await new Promise((r) => setTimeout(r, 50));
+  };
+  // The message in this pane is over without a send (the store tells us): no snapshot, and for Discard no draft an autosave made of a new message
+  useEffect(() => {
+    useStore.getState().setComposeEnd(async (o) => {
+      await settleSaves();
+      if (o?.dropDraft) await dropSavedCopy();
+      await writer.clear();
+    });
+    return () => useStore.getState().setComposeEnd(null);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+  // The pane goes away: the snapshot goes with it, unless the message is on its way out (then it stays until the send is safe, see `send`).
+  // A kill or a crash does not run this: that is what the snapshot is for.
+  useEffect(() => {
+    writer.open();
+    return () => {
+      if (!sendingRef.current) void writer.clear();
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
   // what leaving this message needs to know: did the person write anything, are files still coming in
   const probe = (): ComposeProbe => {
     const b = baseline.current;
     const text = editor?.getText().trim() ?? "";
-    const base = init.to ?? [];
+    const restored = !!init.recoveryId;
+    const base = restored ? [] : init.to ?? [];
     const hasContent =
       touched.current &&
       (text !== (b?.text ?? "") ||
         (editor ? bodyPictures(editor) : 0) !== (b?.pics ?? 0) ||
         to.length !== base.length || to.some((x, i) => x !== base[i]) ||
-        subject.trim() !== (init.subject ?? "").trim() ||
-        atts.length !== (init.attachments?.length ?? 0));
+        cc.length > (restored ? 0 : init.cc?.length ?? 0) || bcc.length > (restored ? 0 : init.bcc?.length ?? 0) ||
+        subject.trim() !== (restored ? "" : init.subject ?? "").trim() ||
+        atts.length !== (restored ? 0 : init.attachments?.length ?? 0));
     return { hasContent, attaching: attachingRef.current > 0, rev: revRef.current };
   };
   const probeRef = useRef(probe);
@@ -1704,7 +1867,13 @@ export function Compose({ init }: { init: ComposeInit }) {
           )}
         </div>
       )}
-      {draftsHint && !init.outboxId && <div className="muted small cp-foot">{t("compose.banner.editingDraft")}</div>}
+      {((draftsHint && !init.outboxId) || autosavedAt) && (
+        <div className="muted small cp-foot">
+          {draftsHint && !init.outboxId ? t("compose.banner.editingDraft") : ""}
+          {draftsHint && !init.outboxId && autosavedAt ? " " : ""}
+          {autosavedAt ? t("compose.autosave.saved", { time: fmtClock(Math.floor(autosavedAt / 1000)) }) : ""}
+        </div>
+      )}
       {init.outboxId && <div className="muted small cp-foot">{t("compose.banner.keepsSchedule")}</div>}
       {dragging && (
         <div className="drop-zones" aria-label={t("compose.drop.label")}>
