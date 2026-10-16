@@ -394,7 +394,7 @@
   if (form) (function () {
     var capp = $('.mk-view .app'), cust = $('#mk-color');
     var DEF = { theme: 'system', accent: '#0f6cbd', density: 'full', pane: 'right', fs: '14' };
-    var S = {};
+    var S = {}, oldestOn = false;
     function read() {
       var d = new FormData(form);
       S.theme = d.get('theme'); S.density = d.get('density'); S.pane = d.get('pane'); S.fs = d.get('fs');
@@ -412,6 +412,7 @@
       capp.setAttribute('data-density', S.density); capp.setAttribute('data-pane', S.pane);
       capp.setAttribute('data-preview', S.preview ? 'on' : 'off'); capp.setAttribute('data-conv', S.conv ? 'on' : 'off');
       capp.setAttribute('data-focused', S.focused ? 'on' : 'off'); capp.setAttribute('data-oldest', S.oldest ? 'on' : 'off');
+      if (S.oldest !== oldestOn) { oldestOn = S.oldest; var rb = $('.a-rows', capp); [].slice.call(rb.children).reverse().forEach(function (r) { rb.appendChild(r); }); rb.scrollTop = 0; } /* the list really starts with the oldest mail: it is a scroller, so the order is the DOM's, not a reversed flex */
       capp.style.setProperty('--fs', S.fs + 'px');
       tint();
     }

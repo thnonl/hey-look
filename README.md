@@ -1,6 +1,6 @@
 # Hey Look!
 
-A fast, private desktop mail client for Windows, macOS and Linux. Free and open source, no account needed.
+A fast, private desktop mail client for Windows, macOS and Linux. Free and open source, no ads, no account needed.
 
 [![Hey Look! intro](docs/media/preview.gif)](https://thnonl.github.io/hey-look/#film)
 
@@ -28,7 +28,7 @@ Get the latest version from [GitHub Releases](https://github.com/thnonl/hey-look
 - Mail is shown on its original background in every theme; a button in the reading pane switches it to dark and remembers your choice
 - macOS: the Dock icon shows the unread number
 - Command bar (`Ctrl/Cmd+K`), keyboard shortcuts, light and dark themes with your own colour
-- Signed in-app updates that ask first; no analytics, no account
+- Signed in-app updates that ask first; no ads, no analytics, no account
 - Your mail stays on your computer, passwords in your system's credential store
 
 ## First launch

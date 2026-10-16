@@ -135,7 +135,7 @@
   "nf.eyes": "两只眼睛在四处张望",
   "nf.thanks": "感谢你使用 Hey Look! 它会一直保持免费和开源，是否支持它完全由你决定。",
   "nf.supportproject": "支持本项目",
-  "nf.about": "适用于Windows、macOS和Linux的桌面邮件客户端。免费开源（MIT）。",
+  "nf.about": "适用于Windows、macOS和Linux的桌面邮件客户端。免费、无广告、开源（MIT）。",
   "nf.ftr.product": "产品",
   "nf.ftr.trust": "信任",
   "nf.ftr.help": "帮助",

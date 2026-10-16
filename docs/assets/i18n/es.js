@@ -137,7 +137,7 @@
   "nf.eyes": "Dos ojos mirando a su alrededor",
   "nf.thanks": "Gracias por usar Hey Look! Sigue siendo gratis y de código abierto, y apoyarlo es opcional. ",
   "nf.supportproject": "Apoya el proyecto",
-  "nf.about": "Un cliente de correo de escritorio para Windows, macOS y Linux. Gratis y de código abierto (MIT).",
+  "nf.about": "Un cliente de correo de escritorio para Windows, macOS y Linux. Gratis, sin publicidad y de código abierto (MIT).",
   "nf.ftr.product": "Producto",
   "nf.ftr.trust": "Confianza",
   "nf.ftr.help": "Ayuda",

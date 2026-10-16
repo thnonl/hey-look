@@ -137,7 +137,7 @@
   "nf.eyes": "Zwei Augen, die sich umsehen",
   "nf.thanks": "Danke, dass Sie Hey Look! nutzen. Es bleibt kostenlos und Open Source, und die Unterstützung ist freiwillig. ",
   "nf.supportproject": "Das Projekt unterstützen",
-  "nf.about": "Ein Desktop-E-Mail-Programm für Windows, macOS und Linux. Kostenlos und Open Source (MIT).",
+  "nf.about": "Ein Desktop-E-Mail-Programm für Windows, macOS und Linux. Kostenlos, werbefrei und Open Source (MIT).",
   "nf.ftr.product": "Produkt",
   "nf.ftr.trust": "Vertrauen",
   "nf.ftr.help": "Hilfe",

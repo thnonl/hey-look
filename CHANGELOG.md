@@ -17,6 +17,8 @@ A few leftovers from 1.0.4: Cancel on an AI request, error messages that pile up
 - Pasting a picture into a message: the small toolbar under the picture (Small, Medium, Large, Original, Alt text, As attachment, delete) no longer draws the Alt text label over As attachment, in any language or window width. Deleting the only picture no longer leaves a message you cannot type in, and Backspace under the signature no longer moves the signature block down: the signature stays in its place
 - Writing a message: Ctrl+Shift+B only adds the Bcc field (it also turned the paragraph into a quote), Ctrl+K (Cmd+K on a Mac) in the text adds or edits a link, AltGr keys on German, Polish and other keyboards type their characters (@  { [ ] } | ~ €) instead of changing the paragraph into a heading, and Ctrl+Enter only sends (it also added a line break)
 - Website: the 404 page (page not found) is written in the language of the address in all eight languages, including the top menu and the footer
+- Website: "No ads" now stands next to "Free" and "No account" (home page, comparison table, features, download page, footer) in all eight languages
+- Website: the live preview of the Appearance choices with Reading pane = Bottom no longer squeezes the mail rows on top of each other; the list scrolls, Compact is one line like in the app, and the folder column and long messages fit at every text size and window width
 
 ## 1.0.4 — 2026-10-16
 
