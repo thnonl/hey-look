@@ -1,5 +1,18 @@
 # Changelog
 
+## 1.0.4 — 2026-10-16
+
+Small fixes found while testing 1.0.3: event times, Archive and Delete errors, quick clicks on flag and pin, long texts in Settings, the macOS app menu and the website on phones.
+
+### Fixed
+
+- New event, Edit event and the meeting strip in a new message: when you change the start date or time, the end now moves with it and keeps the length of the event (an all-day event follows by days). Changing the end never moves the start; an end before the start is still refused when you save
+- Archive, Delete, Junk and Move: Hey Look! now finds or creates the target folder first. When the server refuses to create it, the mail stays where it is and the error shows at once. Before, "Archived" and Undo appeared first and the error came about 6 seconds later
+- Flag and Pin: pressing the button several times quickly now ends in the state of your last click and stays there, as Mark read and Mark unread already do
+- Settings: long texts are no longer cut off with an ellipsis in any of the eight languages at a 960 px or 1280 px window (for example the default account in Russian, the Notifications choices and the PGP key list)
+- macOS: About, Services, Hide, Hide Others and Show All in the app menu now follow the language you chose, like Quit; Show All is new
+- Website: the logo keeps its size on phones, the top menu folds into the menu button before it can touch the buttons, long German words no longer run off the page, and the Theme and Animations buttons are described with whole sentences in every language
+
 ## 1.0.3 — 2026-10-16
 
 Hey Look! now speaks eight languages, dates and times have their own pickers, and more bugs found in testing are fixed.
