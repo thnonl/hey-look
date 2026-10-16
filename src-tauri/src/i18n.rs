@@ -107,6 +107,8 @@ pub enum K {
     SaveKeyBackup,
 }
 
+/// Every text key; the tests walk it (the app itself matches on `K`).
+#[cfg(test)]
 pub const ALL: &[K] = &[
     K::TrayOpen, K::TrayCompose, K::TraySync, K::TrayPause, K::TrayQuit, K::MacQuit, K::MacAbout, K::MacServices, K::MacHide, K::MacHideOthers, K::MacShowAll, K::ActArchive, K::ActDelete, K::ActRead, K::ActFlag,
     K::ActReply, K::ActSnooze, K::TrayHintTitle, K::TrayHintMac, K::TrayHintLinux, K::TrayHintOther, K::TestTitle, K::TestLine1, K::TestLine2,

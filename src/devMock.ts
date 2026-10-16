@@ -1106,6 +1106,8 @@ export function installMock() {
             else if (a.action === "unread") th.unread = Math.max(1, th.unread);
             else if (a.action === "star") th.flagged = true;
             else if (a.action === "unstar") th.flagged = false;
+            else if (a.action === "pin") th.pinned = true;
+            else if (a.action === "unpin") th.pinned = false;
           }
           return null;
         });
@@ -1122,7 +1124,24 @@ export function installMock() {
         w.__lastDraft = a.draft;
         return null;
       }
-      case "queue_action": return "token-" + Math.random().toString(36).slice(2);
+      case "prepare_action": {
+        // like the backend: the folder a move goes to is looked up before the move is queued. `#nocreate`: the server has no Archive / Trash
+        // and refuses to create one (the error comes after the IMAP time, 1.2 s); every call is logged on `window.__prepareActionCalls`
+        const w = window as unknown as { __prepareActionCalls?: { ids: string[]; action: string; at: number }[] };
+        (w.__prepareActionCalls ??= []).push({ ids: [...((a.threadIds ?? []) as string[])], action: String(a.action), at: Date.now() });
+        const folder = a.action === "archive" ? "Archive" : a.action === "trash" ? "Trash" : null;
+        if (folder && hashTokens().has("nocreate")) {
+          return later(1200, () => {
+            throw `FOLDER_NOT_CREATED|folder=${folder}|why=CREATE denied: Couldn’t find or create the ${folder} folder on this account (CREATE denied). The mail stays where it is.`;
+          });
+        }
+        return null;
+      }
+      case "queue_action": {
+        const w = window as unknown as { __queueActionCalls?: { ids: string[]; action: string; at: number }[] };
+        (w.__queueActionCalls ??= []).push({ ids: [...((a.threadIds ?? []) as string[])], action: String(a.action), at: Date.now() });
+        return "token-" + Math.random().toString(36).slice(2);
+      }
       case "cancel_action": return true;
       case "load_older": {
         // up to 50 older messages of one folder; rejects like an IMAP failure when `failIn` counts down to the call
