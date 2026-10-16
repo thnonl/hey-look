@@ -197,6 +197,8 @@ export default defineLocale<typeof ns.en>({
   "calendar.dialog.startTime": "Время начала",
   "calendar.dialog.endDate": "Дата окончания",
   "calendar.dialog.endTime": "Время окончания",
+  "calendar.dialog.pickDate": "Выбрать дату",
+  "calendar.dialog.pickTime": "Выбрать время",
   "calendar.dialog.lastDay": "(последний день)",
   "calendar.dialog.end": "(конец)",
   "calendar.dialog.datesOnly": "Только даты",

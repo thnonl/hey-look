@@ -1,9 +1,11 @@
 import { CalendarClock, Clock, Send } from "lucide-react";
-import { useMemo, useRef, useState } from "react";
+import { useId, useMemo, useRef, useState } from "react";
 import { t } from "../i18n";
 import { useT } from "../i18n/react";
 import { tx } from "../i18n/rich";
 import { useStore } from "../store";
+import { formatTime } from "../dateTimeFields";
+import { DateField, TimeField } from "./DateTimeFields";
 import { fmtIn, fmtWhen, parseLocal, snoozePresets, zoneLabel } from "../util";
 
 const MAX_AHEAD = 366 * 24 * 3600;
@@ -49,6 +51,7 @@ export function SchedulePicker({
   currentLabel?: string;
 }) {
   const t = useT();
+  const uid = useId();
   const prefs = useStore((s) => s.prefs);
   const start = initial ? new Date(initial * 1000) : new Date(Date.now() + 60 * 60 * 1000);
   const [date, setDate] = useState(toDateInput(start));
@@ -96,31 +99,31 @@ export function SchedulePicker({
       </div>
       <div className="sched-custom">
         <div className="row-inline" style={{ margin: 0 }}>
-          <label>
-            {t("compose.schedule.date")}
-            <input
-              type="date"
+          <div className="sched-fld date">
+            <label htmlFor={`${uid}-date`}>{t("compose.schedule.date")}</label>
+            <DateField
+              id={`${uid}-date`}
               value={date}
-              aria-invalid={!!check.error || undefined}
-              aria-describedby={check.error ? "sched-err" : undefined}
-              onChange={(e) => (setDate(e.target.value), tick((n) => n + 1))}
+              invalid={!!check.error}
+              describedBy={check.error ? "sched-err" : undefined}
+              onChange={(v) => (setDate(v), tick((n) => n + 1))}
             />
-          </label>
-          <label>
-            {t("compose.schedule.time")}
-            <input
-              type="time"
+          </div>
+          <div className="sched-fld time">
+            <label htmlFor={`${uid}-time`}>{t("compose.schedule.time")}</label>
+            <TimeField
+              id={`${uid}-time`}
               value={time}
-              aria-invalid={!!check.error || undefined}
-              aria-describedby={check.error ? "sched-err" : undefined}
-              onChange={(e) => (setTime(e.target.value), tick((n) => n + 1))}
+              invalid={!!check.error}
+              describedBy={check.error ? "sched-err" : undefined}
+              onChange={(v) => (setTime(v), tick((n) => n + 1))}
             />
-          </label>
+          </div>
         </div>
         {check.ts !== null && (
           <div className="sched-sum" aria-live="polite">
             {tx("compose.schedule.sends", { when: <b>{fmtWhen(check.ts)}</b> }, { in: fmtIn(check.ts) })}
-            {check.adjusted && <span className="muted"> · {t("compose.schedule.adjusted", { time: check.adjusted })}</span>}
+            {check.adjusted && <span className="muted"> · {t("compose.schedule.adjusted", { time: formatTime(check.adjusted, prefs.timeFormat === "12") })}</span>}
           </div>
         )}
         {check.error && (

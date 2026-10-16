@@ -183,6 +183,8 @@ export default defineLocale<typeof ns.en>({
   "calendar.dialog.startTime": "Hora de inicio",
   "calendar.dialog.endDate": "Fecha de fin",
   "calendar.dialog.endTime": "Hora de fin",
+  "calendar.dialog.pickDate": "Elegir fecha",
+  "calendar.dialog.pickTime": "Elegir hora",
   "calendar.dialog.lastDay": "(último día)",
   "calendar.dialog.end": "(fin)",
   "calendar.dialog.datesOnly": "Solo fechas",
