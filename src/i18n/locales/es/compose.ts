@@ -201,6 +201,7 @@ export default defineLocale<typeof ns.en>({
   "compose.att.blockedWarningMany": "Gmail, Outlook y Yahoo rechazan los archivos {types}, incluso dentro de un zip. Es probable que este mensaje sea rechazado: quítalos o comparte un enlace.",
   "compose.att.tooBig": "Los adjuntos y las imágenes suman {size} al enviarse; el límite es {limit}",
   "compose.att.totalTooBig": "Los adjuntos suman {size} al enviarse; el límite es {limit}",
+  "compose.att.tooBigServer": "Los adjuntos suman {size} al enviarse; el límite del servidor de esta cuenta es {limit}",
   "compose.drop.label": "Suelta los archivos",
   "compose.drop.insert": "Suelta para insertar en el mensaje",
   "compose.drop.insertHint": "Las imágenes se colocan donde está el cursor",

@@ -5,8 +5,6 @@
 
 /** What most servers accept (Gmail, Outlook, Yahoo ... about 25 MB); used while the server's own SIZE limit is unknown. */
 export const USUAL_LIMIT = 25 * 1024 * 1024;
-/** Below this size of the message no server is asked for its limit (it only matters for a big message). */
-export const ASK_ABOVE = 8 * 1024 * 1024;
 
 /** Bytes of a base64 text of `n` characters once it is cut into lines of 76 characters with CRLF. */
 export const base64Wire = (n: number): number => n + 2 * Math.ceil(n / 76);
@@ -51,10 +49,13 @@ export function wireSize(m: SizeInput): number {
   return Math.ceil(m.encrypted ? total * ARMOR : total);
 }
 
-/** The limit to check against: the server's SIZE when it named one, else the usual 25 MB. */
+/**
+ * The limit to check against: the smaller of the usual 25 MB and the server's SIZE when it named one (QA 19A BUG-16: a server that takes
+ * 5 MB has to block a 5.4 MB message, and one that takes 35 MB still gets the usual 25 MB). `fromServer`: the server's own number is the limit.
+ */
 export function sendLimit(serverMax: number | null | undefined): { bytes: number; fromServer: boolean } {
-  return serverMax && serverMax > 0 ? { bytes: serverMax, fromServer: true } : { bytes: USUAL_LIMIT, fromServer: false };
+  return serverMax && serverMax > 0 && serverMax < USUAL_LIMIT ? { bytes: serverMax, fromServer: true } : { bytes: USUAL_LIMIT, fromServer: false };
 }
 
-/** Whether it is worth asking the server for its limit now: the message is big enough that a limit under 25 MB could matter. */
-export const worthAsking = (wire: number): boolean => wire > ASK_ABOVE;
+/** Whether a failed send was refused for its size (the backend's coded error `SMTP_TOO_LARGE`, smtp.rs explain_send_error). */
+export const isSizeRefusal = (e: unknown): boolean => /^SMTP_TOO_LARGE(?![A-Z0-9_])/.test(String(e instanceof Error ? e.message : e).replace(/^Error:\s*/, "").trim());

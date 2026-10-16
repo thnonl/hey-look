@@ -38,6 +38,8 @@ mod shard;
 mod shell;
 mod smtp;
 mod smtpsize;
+#[cfg(test)]
+mod faketls;
 mod snippet;
 mod update;
 mod winframe;
@@ -562,6 +564,7 @@ fn update_account(state: tauri::State<AppState>, account_id: String, display_nam
 #[tauri::command]
 fn remove_account(state: tauri::State<AppState>, account_id: String) -> R<()> {
     db::remove_account(&lock(&state.db), &account_id)?;
+    smtpsize::forget(&account_id);
     // (the calendar grant of the mailbox goes with it)
     for name in [account_id.clone(), format!("{account_id}:smtp"), oauth::calendar_key(&account_id)] {
         if let Ok(e) = identity::entry(&name) {

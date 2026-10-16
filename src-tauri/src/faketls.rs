@@ -1,0 +1,57 @@
+//! A throw-away identity for the fake TLS servers of the tests (CN=localhost, 127.0.0.1; generated for these tests only, it protects
+//! nothing and is used nowhere else). The accounts under test set `tls_insecure`, so the client does not check it.
+
+pub const CERT: &str = r#"-----BEGIN CERTIFICATE-----
+MIIDJzCCAg+gAwIBAgIUO8lJOxXkL3lf8G157+v3c/vuXdowDQYJKoZIhvcNAQEL
+BQAwFDESMBAGA1UEAwwJbG9jYWxob3N0MCAXDTI2MTAxNjE4NDA1MFoYDzIxMjYw
+OTIyMTg0MDUwWjAUMRIwEAYDVQQDDAlsb2NhbGhvc3QwggEiMA0GCSqGSIb3DQEB
+AQUAA4IBDwAwggEKAoIBAQDSBWmMsxjDQeS/69GtcUmZxQ0jLYGv7ZgKCjdvp6Lv
+9C3FCw+K3utn6j1t/bsOUTPIpSRPNVViHnsm1DCDsn7BAPFanWyYrWdaC7sFVodw
+KDg8cSZIaC+1N0X+EryUfB0f+123p4E+u8CwVaXjIPxt9Z8HuZ7gd9nO5MTqGT96
+gtsDne6BN1aKBj/3m08tRvVu3/ZVckOV/b6l3VXW6gHGkDv/Tz0Tz1bc9XakALLr
+Rrwy7Mu+JvEL07gl0dP0nWVfjjsD/Ul+nXZ5y23Ii0msB0i/hWsmv4AsH7LweJBx
+Ep77LH1ZAu6D5jIK7nKxmxM8JnWZ59VaBAfEyggNJOIhAgMBAAGjbzBtMB0GA1Ud
+DgQWBBTH4yfnbhnZwEok4gpExFWTlMzOSzAfBgNVHSMEGDAWgBTH4yfnbhnZwEok
+4gpExFWTlMzOSzAPBgNVHRMBAf8EBTADAQH/MBoGA1UdEQQTMBGCCWxvY2FsaG9z
+dIcEfwAAATANBgkqhkiG9w0BAQsFAAOCAQEAtwJrFs/atl2HWFjNMqvr/ZsNw8XS
+fVVn3J9xXtWpm/iX6JkTxoIM+j31gP9CWAbpzy38OTWvCla7Txwgo6LStw/cumdp
+rHnZRPtZNSE4t3+kFpAqVQNzXA0P9ddHvaNyGK1VnYuGYC5oS5HeCj2VGYKcSmYI
+UfxVeOvlag3jwqjBd/b9agrPtmqhOk3oJQW2Z5Wi1GcE5w2KZEhjPHC35TRsxwK9
+bu7ax8ndO4BiuA9Nz/Yx665eu6WCMxoqTHggkfu2VhSgehPz6b1OWQqlPbyF80Jg
+72w8Ny9zMlQlciSfoJtvYPCPn2Iwy2b8vRa4Zv7uaYwx/ZwQva6/peC3fw==
+-----END CERTIFICATE-----
+"#;
+
+pub const KEY: &str = r#"-----BEGIN PRIVATE KEY-----
+MIIEvQIBADANBgkqhkiG9w0BAQEFAASCBKcwggSjAgEAAoIBAQDSBWmMsxjDQeS/
+69GtcUmZxQ0jLYGv7ZgKCjdvp6Lv9C3FCw+K3utn6j1t/bsOUTPIpSRPNVViHnsm
+1DCDsn7BAPFanWyYrWdaC7sFVodwKDg8cSZIaC+1N0X+EryUfB0f+123p4E+u8Cw
+VaXjIPxt9Z8HuZ7gd9nO5MTqGT96gtsDne6BN1aKBj/3m08tRvVu3/ZVckOV/b6l
+3VXW6gHGkDv/Tz0Tz1bc9XakALLrRrwy7Mu+JvEL07gl0dP0nWVfjjsD/Ul+nXZ5
+y23Ii0msB0i/hWsmv4AsH7LweJBxEp77LH1ZAu6D5jIK7nKxmxM8JnWZ59VaBAfE
+yggNJOIhAgMBAAECggEAEPouhtjocMpIFUqZE8nzXuqKrhQM5n2Qm4kpY4170qVc
+uM+01S9BfNA24IgRAa6HPto4pe2EBi88Gc6v0EmSzQPIPuC4aVwlHWaS2vLcdnDN
+4Pbtlw9TAfVio0/87gzdZtsxP3obLMjNIgP+aa6eMT5YeW2kHfWaRgsArwLU+pBp
+XZr8JZr5hIDlloyP4TuabPvntCAiRyKgjzavc9sWV2Fg4Qz3osrBiblo6PK4Xwaq
+siDQdm21QoDHttry0fWNTF0uXdfe8MZXNOmsNPvAL3s47SievHF2G/GEFEg5gUXr
+JeJv5dT8DwJn4szE6H5xwj3dx+/McL89flUOJD8B9QKBgQD0NQ9ApqDFY8/2gQQ6
+HYJbHN5usvSC8Xw0lmWxIcuQZVjfFznndWV7lcLZpaViA6iQoB6PGJMViv4YTFsv
+EicOU9N801/dhC2r4+bhSOBR12FFGIlQcWeZtnA60urKCyBflzxcPXRJg+ef2/2G
+MoY6kSHn2+rdgc5Ryc+fZCYFBQKBgQDcKbyiNCwIyNVJkxfXOx0upEh1Qjd45R4e
+XpuNDTuevnSu/2gEY23dCvdjPjuNg2hN3jyELSZfujD0kG2o40QJOgX4QpqCPFvo
+VwHKSI7ljbc1nH8fn0M3OR6MmhDiSt2CUHjYCxKnj7T7J2Ib5mn3VOnOXuwMlbKH
+ME/IoD3zbQKBgQC2X7W/U3E3WH4jmmA8wnLqdlnLFAw0igF3CGZzbUin0ngXSzIs
+H+kk7Ufx4Jns48yMDXgk53ZYnU97d/KU6ZqPQZzsWLL8LE0rVGzFC/aySAXVYyiR
+EdAL5EpWM9OyBbMskDY8sIxapo5hPRpNkQfbTy2iCQOSXvFk9TD/2PvnvQKBgE5I
+jOlEEdBB0Q0rP1PpkhPOmHERTXYwSchUrYy3AtcMM6Mx78N3s03go1xneXd1HTZq
+6iu5fiaVpuifHk7qGHwLZKoEzLm4SpnPrjRGHoFjJZzre4w77gOJzOIDujMsmZzH
+jmCLd2ObRqfzNgBjqpQmXkhiGh7Tb7qAJC5bRAv1AoGAQxdxYPDDehWN4ujnGX9L
+KqeGBPmdS8rhpJVh4gyR6xPt1chvTKTf84herUYD+tnTI6vEJDJRLk/0Ej74nGJY
+oQZYkaUP7SKj98TtNk9LA3HgoLruCNCS49mb4teY0kDtX9U0md3z7DAwM8KPh/ti
+9wfURKgSZE0gOQxX1QwTYds=
+-----END PRIVATE KEY-----
+"#;
+
+pub fn acceptor() -> native_tls::TlsAcceptor {
+    native_tls::TlsAcceptor::new(native_tls::Identity::from_pkcs8(CERT.as_bytes(), KEY.as_bytes()).unwrap()).unwrap()
+}

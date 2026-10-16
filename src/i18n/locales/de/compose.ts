@@ -201,6 +201,7 @@ export default defineLocale<typeof ns.en>({
   "compose.att.blockedWarningMany": "Gmail, Outlook und Yahoo lehnen {types}-Dateien ab, auch in einer ZIP-Datei. Diese Nachricht wird wahrscheinlich abgelehnt: Entfernen Sie die Dateien oder teilen Sie stattdessen einen Link.",
   "compose.att.tooBig": "Anhänge und Bilder umfassen beim Senden {size}; das Limit liegt bei {limit}",
   "compose.att.totalTooBig": "Die Anhänge umfassen beim Senden insgesamt {size}; das Limit liegt bei {limit}",
+  "compose.att.tooBigServer": "Die Anhänge umfassen beim Senden insgesamt {size}; das Limit des Servers dieses Kontos liegt bei {limit}",
   "compose.drop.label": "Dateien ablegen",
   "compose.drop.insert": "Zum Einfügen in die Nachricht ablegen",
   "compose.drop.insertHint": "Bilder werden an der Cursorposition eingefügt",
