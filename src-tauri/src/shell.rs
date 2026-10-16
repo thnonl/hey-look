@@ -573,8 +573,8 @@ fn toast(app: &AppHandle, thread: String, title: &str, line1: &str, line2: &str,
         handle_activation(&app, &thread, action);
         Ok(())
     });
-    let _ = t.show();
-    Ok(())
+    // (the result was dropped here: a toast that Windows refused was reported as shown by "Send test" and left no line in startup.log)
+    t.show().map_err(|e| e.to_string().split_whitespace().collect::<Vec<_>>().join(" ").chars().take(120).collect())
 }
 
 /// macOS and Linux: a plain native notification (no buttons; clicking it has the system's default effect only).
@@ -916,6 +916,15 @@ mod platform_tests {
         let logged = &src[src.find("fn toast_logged(").unwrap()..];
         let logged = &logged[..logged.find("\n}\n").unwrap()];
         assert!(logged.contains("startup::line(\"notify\""), "a failed notification is in startup.log too");
+    }
+
+    #[test]
+    fn a_windows_toast_that_fails_is_reported_not_swallowed() {
+        // F-18 check: `let _ = t.show()` hid every WinRT error from "Send test" and from startup.log (toast_logged)
+        let src = include_str!("shell.rs");
+        let toast = &src[src.find("fn toast(app: &AppHandle, thread: String").unwrap()..];
+        let toast = &toast[..toast.find("\n}\n").unwrap()];
+        assert!(toast.contains("t.show().map_err(") && !toast.contains("let _ = t.show()"), "{toast}");
     }
 
     #[test]
