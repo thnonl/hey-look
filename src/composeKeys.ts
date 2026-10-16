@@ -43,6 +43,33 @@ export function keyAction(e: KeyLike, ctx: { inEditor: boolean }): KeyAction {
   return "pass";
 }
 
+/**
+ * The app's own keys that act on the mailbox or the window (not on the text): who may run them while a message is being written.
+ * The compose pane is modal for them: with the focus on one of its buttons (the toolbar, Attach, a chip ...) a key such as Ctrl+1 / 2 (switch
+ * Mail / Calendar) or j / k (next / previous conversation) must not run, because they are not meant for what is on the screen in front of
+ * the person; Ctrl+2 from the toolbar used to unmount the composer and the typed text was gone (QA round 17, A-24).
+ *  - inField   the focus is in an input, a textarea, a select or a contenteditable (the app never takes keys from there)
+ *  - inCompose the focus is anywhere inside the compose pane
+ *  - modalOpen a dialog, the command bar or an ask dialog is open
+ */
+export type ModuleKey = "go-mail" | "go-calendar" | null;
+export function moduleSwitchKey(e: KeyLike, ctx: { inField: boolean; inCompose: boolean; modalOpen: boolean }): ModuleKey {
+  if (ctx.inField || ctx.inCompose || ctx.modalOpen || isAltGraph(e)) return null;
+  if (!(e.ctrlKey || e.metaKey) || e.shiftKey || e.altKey) return null;
+  return e.key === "1" ? "go-mail" : e.key === "2" ? "go-calendar" : null;
+}
+
+/**
+ * Whether an open compose pane swallows an app key. With a message open every mailbox shortcut is off, except j / k when the focus is
+ * outside the pane (the list or the folder pane): those still go on to the next / previous conversation (F-21). Inside the pane nothing runs.
+ */
+export function composeSwallowsAppKey(e: KeyLike, ctx: { composeOpen: boolean; inCompose: boolean; module: "mail" | "calendar" }): boolean {
+  if (!ctx.composeOpen) return false;
+  if (ctx.inCompose) return true;
+  const plainJK = (e.key === "j" || e.key === "k") && ctx.module === "mail" && !e.ctrlKey && !e.metaKey && !e.altKey;
+  return !plainJK;
+}
+
 /** The element that has the key focus is an editable region (ProseMirror compose body, signature editor ...). */
 export const inEditable = (target: EventTarget | null): boolean => typeof HTMLElement !== "undefined" && target instanceof HTMLElement && target.isContentEditable;
 
