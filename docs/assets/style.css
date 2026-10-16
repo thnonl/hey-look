@@ -552,7 +552,7 @@ button.r-btn:hover { background: var(--a-bg3); }
 .dl-card.rec { box-shadow: 8px 8px 0 var(--solid); }
 .rec-b { display: none; position: absolute; top: -14px; left: 18px; background: var(--amber); color: #2a1a00; font: 800 .74rem var(--mono); letter-spacing: .1em; text-transform: uppercase; padding: 4px 12px; border-radius: 999px; }
 .dl-card.rec .rec-b { display: block; }
-.asset { display: grid; gap: 3px; } .asset .btn { justify-content: flex-start; } .asset .fn { font: .76rem var(--mono); color: var(--muted); overflow-wrap: anywhere; margin: 0; max-width: none; } .asset .sz { color: var(--muted); }
+.asset { display: grid; gap: 4px; } .asset .btn { margin-bottom: 6px; } .asset .btn { justify-content: flex-start; } .asset .fn { font: .76rem var(--mono); color: var(--muted); overflow-wrap: anywhere; margin: 0; max-width: none; } .asset .sz { color: var(--muted); }
 .dl-card details { border-top: 2px dashed var(--line); padding-top: 10px; }
 summary { cursor: pointer; font-weight: 700; min-height: 32px; display: flex; align-items: center; }
 details ol { padding-left: 1.2em; } details li { margin-bottom: .5em; }
