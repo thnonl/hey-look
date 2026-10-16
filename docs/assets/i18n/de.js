@@ -115,5 +115,5 @@
   "nf.lead": "Der Link ist vielleicht veraltet oder falsch getippt. Hier geht es vermutlich weiter.",
   "nf.home": "Zurück zum Start",
   "nf.download": "Download",
-  "nf.support": "Support"
+  "nf.support": "Unterstützen"
 };
