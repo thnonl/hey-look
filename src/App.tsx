@@ -10,6 +10,7 @@ import { BulkCleaner, ShowOriginal } from "./components/Dialogs";
 import { GenerateKeyDialog, ImportKeyDialog, KeyDetailsDialog, PassphraseHost } from "./components/Pgp";
 import { FolderPane } from "./components/FolderPane";
 import { MessageList } from "./components/MessageList";
+import { GuardMenuHost } from "./components/GuardMenuHost";
 import { AskHost, Toasts } from "./components/overlays";
 import { ReadingPane } from "./components/ReadingPane";
 import { Ribbon } from "./components/Ribbon";
@@ -448,6 +449,7 @@ function App() {
       <AskHost />
       <PassphraseHost />
       <Toasts />
+      <GuardMenuHost />
     </div>
   );
 }

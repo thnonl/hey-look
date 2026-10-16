@@ -160,6 +160,7 @@ export function useRowContextMenu() {
     setOpen({ seq: ++seq.current, ids, at: { x, y }, row, keyboard });
   };
   const handlers = {
+    "data-own-menu": "", // the window's right-click guard (contextGuard.ts) leaves this menu to us
     onContextMenu: (e: React.MouseEvent) => {
       const row = (e.target as Element).closest<HTMLElement>("[data-thread]");
       if (!row) return;

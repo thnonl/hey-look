@@ -122,4 +122,6 @@ export default defineLocale<typeof ns.en>({
   "mail.acct.cancelled": "Изменение порядка отменено",
   // the display name of a mailbox for screen readers: name, address
   "mail.acct.labelAria": "{name}, {email}",
+  // the link menu of a message
+  "mail.link.copy": "Копировать адрес ссылки",
 });

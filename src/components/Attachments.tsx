@@ -1,3 +1,4 @@
+import { guardFrame } from "../contextGuard";
 import { listen } from "@tauri-apps/api/event";
 import {
   Archive, Calendar, Check, ChevronLeft, ChevronRight, Download, ExternalLink, File, FileCode, FileSpreadsheet, FileText, Film, FolderDown,
@@ -590,7 +591,20 @@ export function PreviewDialog({ m, items, start, onClose }: { m: MessageFull; it
           ) : kind === "text" ? (
             <pre className="pv-text" {...(m.confidential ? { style: { userSelect: "none", WebkitUserSelect: "none" } as const, onCopy: noCopy, onCut: noCopy, onContextMenu: noCopy, onDragStart: noCopy } : {})}>{data.text}</pre>
           ) : kind === "pdf" ? (
-            <iframe title={cur.name} src={data.url} sandbox="allow-same-origin allow-scripts" />
+            <iframe
+                title={cur.name}
+                src={data.url}
+                sandbox="allow-same-origin allow-scripts"
+                onLoad={(e) => {
+                  // no native webview menu in a text / html preview either (a PDF is drawn by the engine's own viewer, which keeps its menu)
+                  const f = e.currentTarget;
+                  try {
+                    if (f.contentDocument) guardFrame(f, f.contentDocument);
+                  } catch {
+                    /* a frame we cannot reach */
+                  }
+                }}
+              />
           ) : (
             <img
               src={data.url}

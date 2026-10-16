@@ -121,6 +121,9 @@ export default define({
 
     // the display name of a mailbox for screen readers: name, address
     "mail.acct.labelAria": "{name}, {email}",
+
+    // the link menu of a message
+    "mail.link.copy": "Copy link address",
   },
   vi: {
     "mail.row.select": "Chọn",
@@ -234,6 +237,9 @@ export default define({
 
     // the display name of a mailbox for screen readers: name, address
     "mail.acct.labelAria": "{name}, {email}",
+
+    // the link menu of a message
+    "mail.link.copy": "Sao chép địa chỉ liên kết",
   },
   fr: {
     "mail.row.select": "Sélectionner",
@@ -347,5 +353,8 @@ export default define({
 
     // the display name of a mailbox for screen readers: name, address
     "mail.acct.labelAria": "{name}, {email}",
+
+    // the link menu of a message
+    "mail.link.copy": "Copier l’adresse du lien",
   },
 });

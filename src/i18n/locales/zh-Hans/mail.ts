@@ -112,4 +112,6 @@ export default defineLocale<typeof ns.en>({
   "mail.acct.cancelled": "已取消重新排序",
   // the display name of a mailbox for screen readers: name, address
   "mail.acct.labelAria": "{name}，{email}",
+  // the link menu of a message
+  "mail.link.copy": "复制链接地址",
 });

@@ -157,6 +157,7 @@ export function useAccountReorder(containerRef: RefObject<HTMLElement | null>) {
   });
 
   const entry = (id: string) => ({
+    "data-own-menu": "", // the window's right-click guard (contextGuard.ts) leaves this menu to us
     onKeyDown: (e: React.KeyboardEvent) => {
       if (!(e.target as Element).closest("[data-reorder-focus]")) return;
       if (e.altKey && !e.ctrlKey && !e.metaKey && !e.shiftKey && (e.key === "ArrowUp" || e.key === "ArrowDown")) {

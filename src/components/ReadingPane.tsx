@@ -1,5 +1,6 @@
 import { frameCsp, frameSandbox } from "../frameSandbox";
 import { openUpdateLink } from "../updates";
+import { guardFrame } from "../contextGuard";
 import { Archive, Clock, Flag, Forward, MailX, MoreHorizontal, Moon, Pin, Reply, ReplyAll, Sparkles, Sun, Trash2, ChevronsDownUp, ChevronsUpDown, Mail, ShieldAlert, AlertTriangle } from "lucide-react";
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { forward, replyTo } from "../actions";
@@ -357,8 +358,11 @@ function MessageBody({ m, frameRef, dark, onPictures }: { m: MessageFull; frameR
     doc.addEventListener("click", onClick);
     doc.addEventListener("auxclick", onClick); // middle click on a link opens it in the browser too (REQ-50)
     const unlock = lockedNow.current ? lockDocument(doc) : undefined;
+    // no native webview menu in the mail either: Copy on selected text, Open link / Copy link address on a link (confidential mail has no menu at all)
+    const unguard = lockedNow.current ? undefined : guardFrame(frame, doc);
     stopObserve.current = () => {
       unlock?.();
+      unguard?.();
       imgs.forEach((i) => {
         i.removeEventListener("load", measure);
         i.removeEventListener("error", measure);
