@@ -202,4 +202,19 @@ const start = (jobs, s, now = 1000) => startJob(jobs, s, now, ++run);
   assert.equal(finishJob(retry.jobs, a.key, first, "stale").applied, false);
 }
 
+// 14. the error keeps what it came from, so it can be written again in another language; a retry / success clears it
+{
+  const a = start({}, spec("m1"));
+  const r1 = a.jobs[a.key].run;
+  const f = failJob(a.jobs, a.key, r1, "The AI Assistant didn’t answer within 180 seconds.", "AI_TIMEOUT|secs=180: The AI Assistant didn’t answer within 180 seconds.");
+  assert.equal(f.jobs[a.key].errorSource, "AI_TIMEOUT|secs=180: The AI Assistant didn’t answer within 180 seconds.");
+  const retry = start(f.jobs, f.jobs[a.key]); // Retry passes the failed job as the spec
+  const r2 = retry.jobs[a.key].run;
+  const ok = finishJob(retry.jobs, a.key, r2, "Hallo");
+  assert.equal(ok.jobs[a.key].error, undefined);
+  assert.equal(ok.jobs[a.key].errorSource, undefined);
+  // a failure without a source (older callers) still works
+  assert.equal(failJob(a.jobs, a.key, r1, "boom").jobs[a.key].errorSource, undefined);
+}
+
 console.log("ok - test-translate-jobs");

@@ -10,7 +10,8 @@ import { calendarErrorText } from "./calendarSync";
 import { backendText } from "./backendErrors";
 import { needsSignIn } from "./signIn";
 import type { Jobs } from "./translateJobs";
-import { addToast } from "./toastStack";
+import { addToast, lazyText, type Lazy } from "./toastStack";
+export { lazyText, type Lazy };
 import { resolveLang, setLangPref, t } from "./i18n";
 import { fmtNumber } from "./i18n/format";
 import { calTz, CalView, Day, rangeFor, systemTz, today } from "./calendar";
@@ -84,13 +85,16 @@ export interface PassphraseAsk {
 export type RibbonTab = "home" | "view" | "help";
 
 export interface ToastAction {
-  label: string;
+  label: Lazy;
   run: () => void;
 }
 
 export interface Toast {
   id: number;
+  /** the text when the toast was made (also what an identical error is recognised by); drawn through `textFn` when there is one */
   text: string;
+  /** makes the text in the current language: set by a toast made with a function (translation progress / ready / error) */
+  textFn?: () => string;
   kind: "info" | "success" | "error";
   undo?: () => void;
   /** up to two buttons, e.g. Open / Show in folder / Retry */
@@ -102,7 +106,7 @@ export interface Toast {
   /** what the "×" does for a sticky toast (default: just close it) */
   onDismiss?: () => void;
   /** accessible name of the "×" (default: "Later" when `onDismiss` is set, else "Dismiss") */
-  closeLabel?: string;
+  closeLabel?: Lazy;
   /** Esc closes it (when nothing else that Esc closes is open) */
   escCloses?: boolean;
   /** text on top, buttons in a row below it (a longer text), with the coffee icon: the support reminder */
@@ -288,7 +292,7 @@ interface State {
   /** A toast that stays until it is answered (or `null` to remove it); one per `key`, a new text replaces the old in place. */
   setStickyToast: (
     key: string,
-    spec: { text: string; kind?: Toast["kind"]; actions?: ToastAction[]; onDismiss?: () => void; closeLabel?: string; escCloses?: boolean; support?: boolean; link?: ToastAction; hideClose?: boolean; busy?: boolean; ttl?: number } | null,
+    spec: { text: Lazy; kind?: Toast["kind"]; actions?: ToastAction[]; onDismiss?: () => void; closeLabel?: Lazy; escCloses?: boolean; support?: boolean; link?: ToastAction; hideClose?: boolean; busy?: boolean; ttl?: number } | null,
   ) => void;
   /** Count a message as being sent from now until `done()` is called. */
   /** A send is under way (its undo window counts). `flush` makes it go out at once (a quit); it is dropped when the send ends. */
@@ -1025,7 +1029,7 @@ export const useStore = create<State>((set, get) => ({
       const others = s.toasts.filter((t) => t.key !== key);
       if (!spec) return { toasts: others };
       const old = s.toasts.find((t) => t.key === key);
-      const toast: Toast = { id: old?.id ?? ++toastSeq, text: spec.text, kind: spec.kind ?? "info", actions: spec.actions, ttl: spec.ttl ?? 0, sticky: true, key, onDismiss: spec.onDismiss, closeLabel: spec.closeLabel, escCloses: spec.escCloses, support: spec.support, link: spec.link, hideClose: spec.hideClose, busy: spec.busy };
+      const toast: Toast = { id: old?.id ?? ++toastSeq, text: lazyText(spec.text), textFn: typeof spec.text === "function" ? spec.text : undefined, kind: spec.kind ?? "info", actions: spec.actions, ttl: spec.ttl ?? 0, sticky: true, key, onDismiss: spec.onDismiss, closeLabel: spec.closeLabel, escCloses: spec.escCloses, support: spec.support, link: spec.link, hideClose: spec.hideClose, busy: spec.busy };
       // in place when it exists (the countdown changes its text every second), else on top of the stack
       return { toasts: old ? s.toasts.map((t) => (t.key === key ? toast : t)) : [...others, toast].slice(-5) };
     }),

@@ -12,7 +12,7 @@ import { DARK_CANVAS, frameBaseCss, frameRootClass, toggleMailCanvas } from "../
 import { eff } from "../prefs";
 import { CONFIDENTIAL_FRAME_CSS, lockDocument, useContentProtection } from "../protect";
 import { friendlyError, useStore } from "../store";
-import { cancelTranslation, dismissTranslation, startTranslation } from "../translate";
+import { cancelTranslation, dismissTranslation, jobErrorText, startTranslation } from "../translate";
 import { elapsedLabel, jobFor, slowHint, type TranslateJob } from "../translateJobs";
 import { fmtFull, fmtSize, plainToHtml, sanitizeHtml, snoozePresets, subjectText } from "../util";
 import { AttachmentStrip, Lightbox, LbItem } from "./Attachments";
@@ -450,7 +450,7 @@ function TranslateBox({ job }: { job: TranslateJob }) {
         {head}
         <div className="tr-row">
           <AlertTriangle size={14} aria-hidden />
-          <span className="tr-text">{t("reading.translate.failed", { error: job.error ?? "" })}</span>
+          <span className="tr-text">{t("reading.translate.failed", { error: jobErrorText(job) })}</span>
         </div>
         <div className="tr-actions">
           <button className="link small" onClick={() => startTranslation(job)}>{t("common.retry")}</button>

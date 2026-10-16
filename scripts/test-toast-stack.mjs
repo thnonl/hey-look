@@ -2,7 +2,8 @@
 // back when a shown one goes); an identical error text does not stack. Normal toasts are never hidden. Behaviour of src/toastStack.ts.
 // Run: node --experimental-strip-types scripts/test-toast-stack.mjs
 import assert from "node:assert/strict";
-import { addToast, isPersistent, MAX_PERSISTENT, stackItems } from "../src/toastStack.ts";
+import { addToast, isPersistent, lazyText, MAX_PERSISTENT, stackItems } from "../src/toastStack.ts";
+import { setLangPref, t } from "../src/i18n/index.ts";
 
 let id = 0;
 const toast = (kind, extra = {}) => ({ id: ++id, text: `t${id}`, kind, ...extra });
@@ -70,6 +71,26 @@ assert.equal(MAX_PERSISTENT, 3);
   assert.equal(addToast([s1], s2).length, 2, "two jobs keep their own toast (and Retry)");
   const u = toast("error", { text: "Failed: X", undo: () => {} });
   assert.equal(addToast([a], u).length, 2);
+}
+
+// 7. a toast made from a translation key follows the language: the function gives the text of the language in use each time it is drawn
+{
+  const ready = () => t("reading.translate.ready", { subject: "Q4 plan" });
+  const retry = () => t("common.retry");
+  setLangPref("en");
+  const en = lazyText(ready);
+  assert.match(en, /Q4 plan/);
+  setLangPref("de");
+  const de = lazyText(ready);
+  assert.notEqual(de, en, "the same toast, drawn again after the switch, is German");
+  assert.match(de, /Q4 plan/);
+  assert.notEqual(lazyText(retry), "Retry");
+  setLangPref("ja");
+  assert.notEqual(lazyText(ready), de);
+  setLangPref("en");
+  assert.equal(lazyText(retry), "Retry");
+  // a plain string (every other toast) stays as it is
+  assert.equal(lazyText("Saved"), "Saved");
 }
 
 console.log("ok - test-toast-stack");

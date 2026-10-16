@@ -1,7 +1,7 @@
 import { AlertTriangle, CheckCircle2, Coffee, Info, X } from "lucide-react";
 import { useEffect, useRef } from "react";
 import { useT } from "../i18n/react";
-import { fullErrorFor, useStore } from "../store";
+import { fullErrorFor, lazyText, useStore } from "../store";
 import { stackItems } from "../toastStack";
 
 /** Stack of toasts; a toast with Undo stays until its window ends. */
@@ -47,17 +47,18 @@ export function Toasts() {
         const t = item.toast;
         const actions = t.actions?.map((a) => (
           <button
-            key={a.label}
+            key={lazyText(a.label)}
             className="toast-act"
             onClick={() => {
               dismiss(t.id);
               a.run();
             }}
           >
-            {a.label}
+            {lazyText(a.label)}
           </button>
         ));
-        const text = <span className="toast-text" title={fullErrorFor(t.text)}>{t.text}</span>;
+        const shown = t.textFn ? t.textFn() : t.text;
+        const text = <span className="toast-text" title={fullErrorFor(shown)}>{shown}</span>;
         return (
           <div key={t.id} className={`toast ${t.kind}${t.sticky && !t.ttl ? " sticky" : ""}${t.support ? " support" : ""}`} style={t.sticky && !t.ttl ? undefined : { ["--ttl" as string]: `${t.ttl}ms` }}>
             <span className="toast-ico">
@@ -69,7 +70,7 @@ export function Toasts() {
                 <div className="toast-row">
                   {actions}
                   {t.link && (
-                    <button className="toast-link" onClick={() => { dismiss(t.id); t.link?.run(); }}>{t.link.label}</button>
+                    <button className="toast-link" onClick={() => { dismiss(t.id); t.link?.run(); }}>{lazyText(t.link.label)}</button>
                   )}
                 </div>
               </div>
@@ -93,7 +94,7 @@ export function Toasts() {
             {!t.hideClose && (
               <button
                 className="toast-x"
-                aria-label={t.closeLabel ?? (t.onDismiss ? tr("app.toast.later") : tr("app.toast.dismiss"))}
+                aria-label={t.closeLabel !== undefined ? lazyText(t.closeLabel) : (t.onDismiss ? tr("app.toast.later") : tr("app.toast.dismiss"))}
                 onClick={() => {
                   dismiss(t.id);
                   t.onDismiss?.();

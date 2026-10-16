@@ -11,6 +11,11 @@
 
 export const MAX_PERSISTENT = 3;
 
+/** A text that follows the language: a function is called each time the toast is drawn (the toasts redraw on a language switch), so a
+ *  toast made from a translation key stays in the language in use instead of the one it was made in. */
+export type Lazy = string | (() => string);
+export const lazyText = (x: Lazy): string => (typeof x === "function" ? x() : x);
+
 export type ToastKind = "info" | "success" | "error";
 
 /** The part of a toast this file looks at. */

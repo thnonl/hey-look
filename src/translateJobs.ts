@@ -44,8 +44,10 @@ export interface TranslateJob extends TranslateSpec {
   /** order of the last start / use, for "newest" and for dropping the oldest finished job */
   touched: number;
   result?: string;
-  /** the error text as the person reads it */
+  /** the error text as the person read it when it came */
   error?: string;
+  /** what the error came from (the backend's coded message): the text is made from it again in the language in use when it is drawn */
+  errorSource?: string;
   /** the person closed the toast with its "x": the job goes on, only the toast is gone */
   toastClosed: boolean;
 }
@@ -79,14 +81,14 @@ export function startJob(jobs: Jobs, spec: TranslateSpec, now: number, run: numb
 export function finishJob(jobs: Jobs, key: string, run: number, result: string): { jobs: Jobs; applied: boolean } {
   const j = jobs[key];
   if (!j || j.run !== run || j.status !== "running") return { jobs, applied: false };
-  return { jobs: dropOldFinished({ ...jobs, [key]: { ...j, status: "done", result, error: undefined, touched: touch() } }), applied: true };
+  return { jobs: dropOldFinished({ ...jobs, [key]: { ...j, status: "done", result, error: undefined, errorSource: undefined, touched: touch() } }), applied: true };
 }
 
 /** The request failed or timed out (`error` is the text for the person). Ignored like `finishJob` when it is no longer current. */
-export function failJob(jobs: Jobs, key: string, run: number, error: string): { jobs: Jobs; applied: boolean } {
+export function failJob(jobs: Jobs, key: string, run: number, error: string, errorSource?: string): { jobs: Jobs; applied: boolean } {
   const j = jobs[key];
   if (!j || j.run !== run || j.status !== "running") return { jobs, applied: false };
-  return { jobs: { ...jobs, [key]: { ...j, status: "failed", error, result: undefined, touched: touch() } }, applied: true };
+  return { jobs: { ...jobs, [key]: { ...j, status: "failed", error, errorSource, result: undefined, touched: touch() } }, applied: true };
 }
 
 /** Cancel a running job: it is dropped. Anything else is left alone. */

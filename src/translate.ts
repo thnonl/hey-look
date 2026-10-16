@@ -46,15 +46,23 @@ function subjectOf(j: TranslateJob): string {
   return j.subject.trim() || t("app.noSubject");
 }
 
+/** The error of a failed job in the language in use now (made from what it came from, so a language switch changes it too). */
+export function jobErrorText(j: TranslateJob): string {
+  return j.errorSource !== undefined ? friendlyError(j.errorSource) : (j.error ?? "");
+}
+
 function runningToast(j: TranslateJob, slow: boolean) {
-  const lang = t(j.langKey as Key);
-  const text = t("reading.translate.toastRunning", { lang, subject: subjectOf(j) });
+  // functions, not final strings: the toast is drawn again in the language in use when the person switches language meanwhile
+  const text = () => {
+    const base = t("reading.translate.toastRunning", { lang: t(j.langKey as Key), subject: subjectOf(j) });
+    return slow ? `${base} ${t("reading.translate.slow")}` : base;
+  };
   store().setStickyToast(toastKey(j), {
-    text: slow ? `${text} ${t("reading.translate.slow")}` : text,
+    text,
     kind: "info",
     busy: true,
-    actions: [{ label: t("common.cancel"), run: () => cancelTranslation(j.key) }],
-    closeLabel: t("common.close"),
+    actions: [{ label: () => t("common.cancel"), run: () => cancelTranslation(j.key) }],
+    closeLabel: () => t("common.close"),
     // the "x" hides the toast only: the job goes on and the box in the mail still shows it
     onDismiss: () => store().setTranslations((jobs) => closeToast(jobs, j.key)),
   });
@@ -73,7 +81,7 @@ function settle(key: string, run: number, outcome: { result: string } | { error:
   hintTimers.delete(key);
   const applied = "result" in outcome
     ? finishJob(store().translations, key, run, outcome.result)
-    : failJob(store().translations, key, run, friendlyError(outcome.error));
+    : failJob(store().translations, key, run, friendlyError(outcome.error), String(outcome.error instanceof Error ? outcome.error.message : outcome.error));
   if (!applied.applied) return; // cancelled or restarted meanwhile: this answer is of no interest
   const before = store().translations[key];
   store().setTranslations(() => applied.jobs);
@@ -84,18 +92,18 @@ function settle(key: string, run: number, outcome: { result: string } | { error:
     store().setStickyToast(tk, null);
   } else if (what === "ready") {
     store().setStickyToast(tk, {
-      text: t("reading.translate.ready", { subject: subjectOf(j) }),
+      text: () => t("reading.translate.ready", { subject: subjectOf(j) }),
       kind: "success",
-      actions: [{ label: t("reading.translate.show"), run: () => void showMail(j) }],
-      closeLabel: t("common.close"),
+      actions: [{ label: () => t("reading.translate.show"), run: () => void showMail(j) }],
+      closeLabel: () => t("common.close"),
     });
     readyTimers.arm(tk, READY_MS);
   } else if (what === "error") {
     store().setStickyToast(tk, {
-      text: t("reading.translate.failed", { error: j.error ?? "" }),
+      text: () => t("reading.translate.failed", { error: jobErrorText(j) }),
       kind: "error",
-      actions: [{ label: t("common.retry"), run: () => startTranslation(j) }],
-      closeLabel: t("common.close"),
+      actions: [{ label: () => t("common.retry"), run: () => startTranslation(j) }],
+      closeLabel: () => t("common.close"),
     });
   } else {
     store().setStickyToast(tk, null);
