@@ -1944,6 +1944,7 @@ END:VCALENDAR
             meeting: Some(crate::smtp::Meeting { start: ts(2026, 10, 20, 9, 0), end: ts(2026, 10, 20, 10, 0), all_day: false, tzid: Some("Asia/Ho_Chi_Minh".into()), location: Some("Room 1".into()), rrule: None }),
             calendar: None,
             confidential: false,
+            importance: Default::default(),
         };
         prepare_meeting(&c, &mut d).unwrap();
         let cal = d.calendar.clone().unwrap();
@@ -2349,6 +2350,7 @@ END:VCALENDAR
                 meeting: Some(crate::smtp::Meeting { start: ts(2026, 10, 21, 9, 0), end: ts(2026, 10, 21, 10, 0), all_day: false, tzid: None, location: None, rrule: None }),
                 calendar: None,
                 confidential: false,
+                importance: Default::default(),
             };
             prepare_meeting(&c, &mut d).unwrap();
             let back = ical::parse(&d.calendar.as_ref().unwrap().ics).unwrap();
@@ -2377,6 +2379,7 @@ END:VCALENDAR
             meeting: Some(crate::smtp::Meeting { start: ts(2026, 10, 21, 9, 0), end: ts(2026, 10, 21, 10, 0), all_day: false, tzid: None, location: None, rrule: None }),
             calendar: None,
             confidential: false,
+            importance: Default::default(),
         };
         prepare_meeting(&c, &mut d).unwrap();
         let ev = d.calendar.as_ref().unwrap().ics.clone();

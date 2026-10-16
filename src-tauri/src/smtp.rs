@@ -90,6 +90,9 @@ pub struct Draft {
     /// screen capture, copy, print or forwarding.
     #[serde(default)]
     pub confidential: bool,
+    /// Outlook's Importance: High / Low add the importance headers (see importance.rs); Normal adds none. Old queued items have no field.
+    #[serde(default)]
+    pub importance: crate::importance::Importance,
 }
 
 /// Outlook's Sensitivity header. Lettre has no typed header for it.
@@ -106,6 +109,43 @@ impl lettre::message::header::Header for Sensitivity {
     fn display(&self) -> lettre::message::header::HeaderValue {
         lettre::message::header::HeaderValue::new(Self::name(), self.0.clone())
     }
+}
+
+/// The four importance headers (lettre has no typed header for them).
+macro_rules! importance_header {
+    ($t:ident, $name:literal) => {
+        #[derive(Clone)]
+        struct $t(String);
+        impl lettre::message::header::Header for $t {
+            fn name() -> lettre::message::header::HeaderName {
+                lettre::message::header::HeaderName::new_from_ascii_str($name)
+            }
+            fn parse(s: &str) -> Result<Self, Box<dyn std::error::Error + Send + Sync>> {
+                Ok(Self(s.to_string()))
+            }
+            fn display(&self) -> lettre::message::header::HeaderValue {
+                lettre::message::header::HeaderValue::new(Self::name(), self.0.clone())
+            }
+        }
+    };
+}
+importance_header!(ImportanceH, "Importance");
+importance_header!(XPriorityH, "X-Priority");
+importance_header!(PriorityH, "Priority");
+importance_header!(XMsMailPriorityH, "X-MSMail-Priority");
+
+/// Add the importance headers of `level` (nothing for Normal). The names and values come from `importance::Importance::headers`.
+fn importance_headers(mut b: lettre::message::MessageBuilder, level: crate::importance::Importance) -> lettre::message::MessageBuilder {
+    for (name, value) in level.headers() {
+        let v = value.to_string();
+        b = match *name {
+            "Importance" => b.header(ImportanceH(v)),
+            "X-Priority" => b.header(XPriorityH(v)),
+            "Priority" => b.header(PriorityH(v)),
+            _ => b.header(XMsMailPriorityH(v)),
+        };
+    }
+    b
 }
 
 /// A display name made safe to put in front of an address: control characters (header injection) are dropped and runs of
@@ -243,6 +283,7 @@ fn headers(acc: &Account, d: &Draft, lenient: bool) -> R<lettre::message::Messag
     if d.confidential {
         b = b.header(Sensitivity("Company-Confidential".into()));
     }
+    b = importance_headers(b, d.importance);
     Ok(b)
 }
 
@@ -611,6 +652,7 @@ mod tests {
             meeting: None,
             calendar: None,
             confidential: false,
+            importance: Default::default(),
         }
     }
 
@@ -1281,5 +1323,120 @@ To:"), "no To header is invented: {out}");
             acc.smtp_security = "starttls".into();
             assert!(matches!(probe_starttls(&acc, std::time::Duration::from_secs(1)), Err(Probe::Silent(_))));
         });
+    }
+    /// The header names of a message (outer block), lower case, in order.
+    fn header_names(raw: &str) -> Vec<String> {
+        let head = raw.split("\r\n\r\n").next().unwrap_or("");
+        head.lines().filter(|l| !l.starts_with(' ') && !l.starts_with('\t')).filter_map(|l| l.split_once(':').map(|(n, _)| n.to_ascii_lowercase())).collect()
+    }
+
+    const IMPORTANCE_NAMES: [&str; 4] = ["importance", "x-priority", "priority", "x-msmail-priority"];
+
+    fn with(importance: crate::importance::Importance) -> Draft {
+        let mut d = draft("<p>Hi</p>", vec![], vec![]);
+        d.importance = importance;
+        d
+    }
+
+    fn signer(_: &[u8]) -> R<(String, String)> {
+        Ok(("sig".into(), "pgp-sha256".into()))
+    }
+
+    /// F-24: High and Low write the four importance headers, Normal writes none (not even `Importance: normal`).
+    #[test]
+    fn importance_headers_are_written_per_level_and_never_for_normal() {
+        use crate::importance::Importance::*;
+        let acc = account();
+        let out = text(&build(&acc, &with(High)).unwrap());
+        for line in ["Importance: high\r\n", "X-Priority: 1 (Highest)\r\n", "Priority: urgent\r\n", "X-MSMail-Priority: High\r\n"] {
+            assert!(out.contains(line), "{line:?} missing in {out}");
+        }
+        let out = text(&build(&acc, &with(Low)).unwrap());
+        for line in ["Importance: low\r\n", "X-Priority: 5 (Lowest)\r\n", "Priority: non-urgent\r\n", "X-MSMail-Priority: Low\r\n"] {
+            assert!(out.contains(line), "{line:?} missing in {out}");
+        }
+        assert!(!out.contains("Importance: high") && !out.contains("Priority: urgent") && !out.contains("X-Priority: 1"), "a Low message carries no High value: {out}");
+        let out = text(&build(&acc, &with(Normal)).unwrap());
+        let names = header_names(&out);
+        for n in IMPORTANCE_NAMES {
+            assert!(!names.contains(&n.to_string()), "{n} must not be added for Normal: {out}");
+        }
+        assert!(!out.contains("Importance: normal"));
+        // exactly one of each for High (no duplicates)
+        let names = header_names(&text(&build(&acc, &with(High)).unwrap()));
+        for n in IMPORTANCE_NAMES {
+            assert_eq!(names.iter().filter(|x| *x == n).count(), 1, "{n}");
+        }
+    }
+
+    /// The same headers are on every kind of message that is built from a draft: the Sent copy is the sent bytes, a draft saved to
+    /// Drafts, a signed and an encrypted message.
+    #[test]
+    fn importance_headers_are_on_drafts_signed_and_encrypted_messages_too() {
+        use crate::importance::Importance::*;
+        let acc = account();
+        for level in [High, Low] {
+            let d = with(level);
+            let want = level.headers();
+            let check = |what: &str, raw: String| {
+                for (n, v) in want {
+                    assert!(raw.contains(&format!("{n}: {v}\r\n")), "{what}: {n} missing in {raw}");
+                }
+            };
+            check("draft", text(&build_draft(&acc, &d).unwrap()));
+            check("signed", text(&build_signed(&acc, &d, false, &signer).unwrap()));
+            check("encrypted", text(&build_encrypted(&acc, &d, false, &|_| Ok("armored".into())).unwrap()));
+            let mut empty = d.clone();
+            empty.to.clear();
+            check("draft without recipients", text(&build_draft(&acc, &empty).unwrap()));
+        }
+        // and none of them add a header for Normal
+        let n = with(Normal);
+        for raw in [text(&build_draft(&acc, &n).unwrap()), text(&build_signed(&acc, &n, false, &signer).unwrap())] {
+            assert!(!header_names(&raw).iter().any(|h| IMPORTANCE_NAMES.contains(&h.as_str())), "{raw}");
+        }
+    }
+
+    /// A draft saved with an importance gives it back when it is read from the saved bytes (the way a reopened draft learns it).
+    #[test]
+    fn importance_survives_the_draft_round_trip() {
+        use crate::importance::Importance::*;
+        let acc = account();
+        for level in [Normal, High, Low] {
+            let raw = build_draft(&acc, &with(level)).unwrap().formatted();
+            assert_eq!(crate::importance::from_raw(&raw), level, "{level:?}");
+            let parsed = crate::mail::parse(1, &raw, false, false, 0).expect("parses");
+            assert_eq!(parsed.importance, level);
+            // the sent message too
+            let sent = build(&acc, &with(level)).unwrap().formatted();
+            assert_eq!(crate::mail::parse(2, &sent, true, false, 0).unwrap().importance, level);
+        }
+    }
+
+    /// The queue (scheduled sends, the Undo window) keeps the draft as JSON: the importance is in it and is still there after a restart;
+    /// an item queued by a version without the field loads as Normal.
+    #[test]
+    fn importance_is_kept_in_the_queued_json_and_old_items_still_load() {
+        use crate::importance::Importance::*;
+        for level in [Normal, High, Low] {
+            let json = serde_json::to_string(&with(level)).unwrap();
+            let back: Draft = serde_json::from_str(&json).unwrap();
+            assert_eq!(back.importance, level);
+        }
+        let json = serde_json::to_string(&with(High)).unwrap();
+        assert!(json.contains("\"importance\":\"high\""), "{json}");
+        let mut v: serde_json::Value = serde_json::from_str(&json).unwrap();
+        v.as_object_mut().unwrap().remove("importance");
+        let old: Draft = serde_json::from_value(v).unwrap();
+        assert_eq!(old.importance, Normal);
+        // what the interface sends
+        let from_ui: Draft = serde_json::from_str(r#"{"accountId":"a1","to":[],"subject":"s","html":"","text":"","importance":"low"}"#).unwrap();
+        assert_eq!(from_ui.importance, Low);
+        let no_field: Draft = serde_json::from_str(r#"{"accountId":"a1","to":[],"subject":"s","html":"","text":""}"#).unwrap();
+        assert_eq!(no_field.importance, Normal);
+        // a message queued with High, rebuilt from the stored JSON at send time, still carries the headers
+        let stored = serde_json::to_string(&with(High)).unwrap();
+        let rebuilt = build(&account(), &serde_json::from_str::<Draft>(&stored).unwrap()).unwrap();
+        assert!(text(&rebuilt).contains("Importance: high\r\n"));
     }
 }
