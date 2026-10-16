@@ -208,6 +208,10 @@ fn headers(acc: &Account, d: &Draft, lenient: bool) -> R<lettre::message::Messag
         // draft will be (an "Edit" action can open it again). Mail that is sent keeps getting its Message-ID from the server.
         b = b.message_id(Some(draft_message_id(&acc.email)));
         b = b.envelope(lettre::address::Envelope::new(Some(me.clone()), vec![me]).map_err(err)?);
+        // The Bcc header stays in the DRAFT copy (QA round 17 BUG-01: lettre drops it by default, so a saved draft lost its Bcc recipients and
+        // sending the reopened draft silently skipped them). It is only the person's own Drafts folder; a message that is SENT is built below
+        // without it (the SMTP envelope carries the Bcc recipients, the message must not name them).
+        b = b.keep_bcc();
         // each list: typed addresses when every entry is one, else the text as written
         let all_ok = |l: &[String]| l.iter().all(|t| parse_mailbox(t).is_ok());
         let raw = |l: &[String]| l.iter().map(|t| t.trim()).filter(|t| !t.is_empty()).collect::<Vec<_>>().join(", ");
@@ -670,7 +674,7 @@ To:"), "no To header is invented: {out}");
         d.bcc = vec!["not an address".into()];
         let out = text(&build_draft(&acc, &d).expect("invalid recipients save"));
         assert!(out.contains("To: ann@, Carl <carl@example.com>"), "{out}");
-        assert!(!out.contains("not an address"), "{out}");
+        assert!(out.contains("Bcc: not an address"), "a half-typed Bcc is kept as typed too: {out}");
         // valid recipients are typed headers as before
         d.to = vec!["Ann <ann@example.com>".into()];
         d.bcc.clear();
@@ -688,6 +692,55 @@ To:"), "no To header is invented: {out}");
         s.to = vec!["ann@".into()];
         assert!(build(&acc, &s).is_err());
         assert!(envelope(&acc, &s).is_err());
+    }
+
+    /// QA round 17 BUG-01 (CF-1): the Bcc recipients were missing from the saved draft, so a reopened draft was sent without them.
+    #[test]
+    fn a_saved_draft_keeps_its_bcc_but_a_sent_message_never_names_it() {
+        let acc = account();
+        let mut d = draft("<p>Hi</p>", vec![], vec![]);
+        d.cc = vec!["cc@example.com".into()];
+        d.bcc = vec!["Quiet <quiet@example.com>".into(), "silent@example.com".into()];
+        let saved = text(&build_draft(&acc, &d).unwrap());
+        assert!(saved.contains("Bcc: Quiet <quiet@example.com>, silent@example.com"), "the draft copy has the Bcc header: {saved}");
+        // only the draft copy: what is sent has no Bcc header, whatever the route (plain, signed, encrypted)
+        let sent = text(&build(&acc, &d).unwrap());
+        assert!(!sent.to_ascii_lowercase().contains("bcc:"), "{sent}");
+        assert!(!sent.contains("quiet@example.com") && !sent.contains("silent@example.com"), "{sent}");
+        let signed = text(&build_signed(&acc, &d, false, &|_| Ok(("sig".to_string(), "pgp-sha256".to_string()))).unwrap());
+        assert!(!signed.to_ascii_lowercase().contains("bcc:"), "{signed}");
+        let enc = text(&build_encrypted(&acc, &d, false, &|_| Ok("armored".to_string())).unwrap());
+        assert!(!enc.to_ascii_lowercase().contains("bcc:"), "{enc}");
+        // ... while the SMTP envelope delivers to all of them
+        let env = build(&acc, &d).unwrap().envelope().clone();
+        let to: Vec<String> = env.to().iter().map(|a| a.to_string()).collect();
+        for a in ["ann@example.com", "cc@example.com", "quiet@example.com", "silent@example.com"] {
+            assert!(to.contains(&a.to_string()), "{a} is an envelope recipient: {to:?}");
+        }
+        // an encrypted draft (to your own key) keeps it in the outer headers as well
+        let encd = text(&build_encrypted(&acc, &d, true, &|_| Ok("armored".to_string())).unwrap());
+        assert!(encd.contains("Bcc: Quiet <quiet@example.com>, silent@example.com"), "{encd}");
+        // the draft copy is still never sent anywhere by its envelope: it is the account's own
+        let env = build_draft(&acc, &d).unwrap().envelope().clone();
+        assert_eq!(env.to().iter().map(|a| a.to_string()).collect::<Vec<_>>(), vec!["me@example.com"]);
+    }
+
+    /// A scheduled message and a message in its Undo time are stored as the JSON of the draft: the Bcc recipients are part of it, still
+    /// recipients of the envelope when it is built from the stored copy, and still not named in the message.
+    #[test]
+    fn the_stored_copy_of_a_queued_message_keeps_its_bcc() {
+        let acc = account();
+        let mut d = draft("<p>Hi</p>", vec![], vec![]);
+        d.bcc = vec!["quiet@example.com".into()];
+        let stored = serde_json::to_string(&d).unwrap();
+        assert!(stored.contains("\"bcc\":[\"quiet@example.com\"]"), "{stored}");
+        let back: Draft = serde_json::from_str(&stored).unwrap();
+        assert_eq!(back.bcc, d.bcc);
+        let msg = build(&acc, &back).unwrap();
+        assert!(msg.envelope().to().iter().any(|a| a.to_string() == "quiet@example.com"));
+        assert!(!text(&msg).to_ascii_lowercase().contains("bcc:"));
+        // a finished (prebuilt) message is sent to the same recipients through its envelope
+        assert!(envelope(&acc, &back).unwrap().to().iter().any(|a| a.to_string() == "quiet@example.com"));
     }
 
     #[test]
