@@ -1,9 +1,11 @@
-import { MessageFull } from "./api";
+import { api, MessageFull, ReplyHeaders } from "./api";
 import { t } from "./i18n";
 import { eff } from "./prefs";
-import { useStore } from "./store";
+import { friendlyError, useStore } from "./store";
 import { actionTargets } from "./composeSelection";
-import { fmtFull, plainToHtml, quoteHtml, sanitizeHtml, splitAddrs } from "./util";
+import { fmtFull, fmtSize, plainToHtml, quoteHtml, sanitizeHtml } from "./util";
+import { fallbackReferences, replyTargets } from "./replyTargets";
+import { forwardFiles, MAX_FORWARD_BYTES } from "./forwardAttachments";
 
 export function targets(): string[] {
   const { checked, selected, compose } = useStore.getState();
@@ -22,21 +24,41 @@ export function newMailAccount(): string | undefined {
   return d && st.accounts.some((a) => a.id === d) ? d : undefined;
 }
 
-export function replyTo(m: MessageFull, all: boolean) {
+/** How long Reply waits for the headers of the message before it answers to From without them. */
+const REPLY_HEADERS_WAIT_MS = 5000;
+
+/**
+ * The headers of the message itself (Reply-To, its Message-ID, the References of the answer). The stored message only knows its
+ * Message-ID: when the headers cannot be read (the server is not reachable and the message is not on this computer) the answer
+ * still goes out, to From, linked by the ids the open conversation has.
+ */
+async function headersOf(m: MessageFull): Promise<ReplyHeaders> {
+  try {
+    // a server that does not answer must not keep the answer from opening
+    return await Promise.race([api.replyHeaders(m.id), new Promise<never>((_, no) => setTimeout(() => no(new Error("timeout")), REPLY_HEADERS_WAIT_MS))]);
+  } catch {
+    const thread = useStore.getState().messages.map((x) => x.messageId);
+    return { messageId: m.messageId, replyTo: [], references: fallbackReferences(thread, m.messageId) };
+  }
+}
+
+export async function replyTo(m: MessageFull, all: boolean) {
   const st = useStore.getState();
+  const h = await headersOf(m);
   const mine = new Set(st.accounts.map((a) => a.email.toLowerCase()));
-  const fromMe = mine.has(m.fromEmail.toLowerCase());
-  const base = fromMe ? splitAddrs(m.to) : [m.fromEmail];
-  const to = (all ? [...base, ...splitAddrs(m.to)] : base).filter((e) => !mine.has(e.toLowerCase()));
+  const { to, cc, viaReplyTo } = replyTargets({ fromEmail: m.fromEmail, to: m.to, cc: m.cc, mine, replyTo: h.replyTo, all });
   st.openCompose({
     accountId: m.accountId,
-    to: Array.from(new Set(to)),
-    cc: all ? splitAddrs(m.cc).filter((e) => !mine.has(e.toLowerCase())) : [],
+    to,
+    cc,
     subject: /^re:/i.test(m.subject) ? m.subject : `Re: ${m.subject}`,
     bodyHtml: quoteHtml(m),
-    inReplyTo: m.messageId,
-    references: st.messages.map((x) => x.messageId).filter(Boolean) as string[],
+    // the id of the message answered: its own (a mail you sent has the id this app gave it; a received one keeps the server's)
+    inReplyTo: h.messageId ?? m.messageId,
+    references: h.references,
     isReply: true,
+    // the sender asked for answers to go to another address than From: Compose says so
+    replyNote: viaReplyTo ?? undefined,
     // an answer to confidential mail is confidential too
     confidential: m.confidential,
     // an answer to encrypted mail is encrypted too
@@ -46,15 +68,38 @@ export function replyTo(m: MessageFull, all: boolean) {
   });
 }
 
-export function forward(m: MessageFull) {
-  if (m.confidential) return useStore.getState().showToast(t("app.forward.confidential"), undefined, "info");
-  useStore.getState().openCompose({
+/** Text for the header lines of a forward: markup characters are shown as typed, never read as HTML. */
+const esc = (x: string) => x.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+
+export async function forward(m: MessageFull) {
+  const st = useStore.getState();
+  if (m.confidential) return st.showToast(t("app.forward.confidential"), undefined, "info");
+  // a forward is linked to the message it forwards (References, no In-Reply-To), also when that is a mail you sent yourself
+  const h = await headersOf(m);
+  // the attachments of the message go along (pictures in the body stay in the body); a file that cannot be fetched is told about, the rest comes
+  const files = m.attachments.some((a) => !(a.inline && a.referenced) || (a.cid && m.html?.includes(`cid:${a.cid}`)))
+    ? await (async () => {
+        const slow = setTimeout(() => st.showToast(t("compose.fwd.fetching"), undefined, "info"), 700);
+        try {
+          return await forwardFiles(m, (i) => api.attachmentData(m.id, i));
+        } finally {
+          clearTimeout(slow);
+        }
+      })()
+    : null;
+  const html = files?.html ?? m.html;
+  await st.openCompose({
     accountId: m.accountId,
+    references: h.references,
     subject: /^fwd?:/i.test(m.subject) ? m.subject : `Fwd: ${m.subject}`,
-    bodyHtml: `<br><br>${t("app.forward.header")}<br>${t("app.forward.from")} ${m.fromName} &lt;${m.fromEmail}&gt;<br>${t("app.forward.date")} ${fmtFull(m.date)}<br>${t("app.forward.subject")} ${m.subject}<br>${t("app.forward.to")} ${m.to}<br><br>${
-      m.html ? sanitizeHtml(m.html, false).html : plainToHtml(m.text ?? "")
+    attachments: files?.attachments,
+    bodyHtml: `<br><br>${t("app.forward.header")}<br>${t("app.forward.from")} ${esc(m.fromName)} &lt;${esc(m.fromEmail)}&gt;<br>${t("app.forward.date")} ${fmtFull(m.date)}<br>${t("app.forward.subject")} ${esc(m.subject)}<br>${t("app.forward.to")} ${esc(m.to)}<br><br>${
+      html ? sanitizeHtml(html, false).html : plainToHtml(m.text ?? "")
     }`,
   });
+  // after Compose is open: what could not come along
+  for (const f of files?.failed ?? []) st.showToast(t("compose.fwd.failed", { name: f.name, error: friendlyError(f.error) }), undefined, "error");
+  if (files?.skipped.length) st.showToast(t("compose.fwd.tooBig", { max: fmtSize(MAX_FORWARD_BYTES), names: files.skipped.join(", ") }), undefined, "error");
 }
 
 /** Reply / reply-all using the user's default (or the explicit choice) on the last message of the open thread. */
@@ -62,11 +107,11 @@ export function replyLast(all?: boolean) {
   const st = useStore.getState();
   const last = st.messages[st.messages.length - 1];
   if (!last) return;
-  replyTo(last, all ?? eff(st.prefs, last.accountId, "replyDefault") === "replyAll");
+  void replyTo(last, all ?? eff(st.prefs, last.accountId, "replyDefault") === "replyAll");
 }
 
 export function forwardLast() {
   const st = useStore.getState();
   const last = st.messages[st.messages.length - 1];
-  if (last) forward(last);
+  if (last) void forward(last);
 }

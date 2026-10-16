@@ -232,6 +232,10 @@ jobs:
           node --experimental-strip-types scripts/test-mail-controls.mjs
           node --experimental-strip-types scripts/test-frame-sandbox.mjs
           node --experimental-strip-types scripts/test-addresses.mjs
+          node --experimental-strip-types scripts/test-recipients.mjs
+          node --experimental-strip-types scripts/test-reply-targets.mjs
+          node --experimental-strip-types scripts/test-html-text.mjs
+          node --experimental-strip-types scripts/test-forward-attachments.mjs
           node scripts/test-compose-tab-order.mjs
           node --experimental-strip-types scripts/test-compose-keys.mjs
           node --experimental-strip-types scripts/test-update-result.mjs

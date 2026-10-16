@@ -23,6 +23,7 @@ import { blockedAttachmentExt, dataUriBytes, fileToBase64, fmtIn, fmtSize, fmtWh
 import { calTz } from "../calendar";
 import { defaultMeeting, MeetingState, MeetingStrip, meetingToDraft } from "./Calendar";
 import { isEmail, singleLabelHostsOf } from "../addresses";
+import { addRecipients, addressOf, chipLabel, formatRecipient, hasRecipient, isImeEvent, openAtEnd, recipientKey, splitRecipients } from "../recipients";
 import { askUnlock } from "./Pgp";
 import { useContentProtection } from "../protect";
 import { editLink, editorKeyHandlers, isAltGraph } from "../composeKeys";
@@ -36,7 +37,7 @@ import { tx } from "../i18n/rich";
 const MAX_ATTACH_BYTES = 25 * 1024 * 1024;
 /** Whether this is an address the composer accepts (see addresses.ts: `qa@localhost` and the account hosts count). */
 const EMAIL = { test: (a: string) => isEmail(a, singleLabelHostsOf(useStore.getState().accounts)) };
-const bareAddress = (v: string) => (v.match(/<([^>]+)>/)?.[1] ?? v).trim();
+const bareAddress = addressOf;
 const approxBytes = (a: Att) => Math.floor((a.dataBase64.length * 3) / 4);
 const MEDIUM = 480;
 const SIZES: [Key, number | null][] = [["compose.pic.small", 240], ["compose.pic.medium", MEDIUM], ["compose.pic.large", 720], ["compose.pic.original", null]];
@@ -115,18 +116,20 @@ export function RecipientField({
   }, [autoFocus]);
 
   const commit = (raw: string) => {
-    const parts = raw.split(/[,;\n]/).map((p) => p.trim()).filter(Boolean);
-    if (parts.length === 0) return;
-    onChange([...values, ...parts.filter((p) => !values.includes(p))]);
+    // one parser for typing, paste and drop (recipients.ts): a comma inside a quoted name does not end the recipient
+    const parts = splitRecipients(raw);
+    if (parts.length === 0) return /^[\s,;]*$/.test(raw) ? setText("") : undefined; // nothing but separators: the box is emptied
+    onChange(addRecipients(values, parts)); // each address once, upper / lower case alike; the first spelling stays
     onTouch?.();
     setText("");
     setSugg([]);
     setHi(-1);
   };
-  const pick = (c: Contact) => commit(c.name ? `${c.name.replace(/[<>,;]/g, "")} <${c.email}>` : c.email);
+  const pick = (c: Contact) => commit(formatRecipient(c.name ?? "", c.email));
 
-  const onInput = (v: string) => {
-    if (/[,;]\s*$/.test(v)) return commit(v);
+  const onInput = (v: string, composing: boolean) => {
+    // not while an input method is composing (its punctuation is part of the word), and not inside a quoted name
+    if (!composing && /[,;]\s*$/.test(v) && !openAtEnd(v.replace(/[,;]\s*$/, ""))) return commit(v);
     setText(v);
     setHi(-1);
     if (v.trim().length >= 2) void api.suggestContacts(v.trim()).then(setSugg).catch(() => setSugg([]));
@@ -150,10 +153,10 @@ export function RecipientField({
                 <LockOpen size={11} />
               </button>
             ))}
-            <span className="ellipsis">{v}</span>
+            <span className="ellipsis">{chipLabel(v)}</span>
             <button
               type="button"
-              aria-label={t("compose.rcpt.remove", { name: v })}
+              aria-label={t("compose.rcpt.remove", { name: chipLabel(v) })}
               onClick={(e) => {
                 e.stopPropagation();
                 onChange(values.filter((x) => x !== v));
@@ -170,12 +173,21 @@ export function RecipientField({
           value={text}
           aria-label={label}
           placeholder={values.length === 0 ? "name@example.com" : undefined}
-          onChange={(e) => onInput(e.target.value)}
+          onChange={(e) => onInput(e.target.value, !!(e.nativeEvent as InputEvent).isComposing)}
           onPaste={(e) => {
             const pasted = e.clipboardData.getData("text");
-            if (/[,;\n]/.test(pasted)) {
+            if (/[,;\n\r\t<]/.test(pasted)) {
               e.preventDefault();
               commit(text + pasted);
+            }
+          }}
+          onDrop={(e) => {
+            // text dragged into the box (a list of addresses from another program) becomes chips like a paste
+            const dropped = e.dataTransfer.getData("text");
+            if (dropped && /[,;\n\r\t<@]/.test(dropped)) {
+              e.preventDefault();
+              e.stopPropagation();
+              commit(text + dropped);
             }
           }}
           onBlur={() => {
@@ -183,6 +195,8 @@ export function RecipientField({
             commit(text);
           }}
           onKeyDown={(e) => {
+            // Enter / Tab / `,` that belong to an input method (it confirms a half-converted word) do not make a chip
+            if (isImeEvent(e)) return;
             if (e.key === "ArrowDown" && sugg.length) {
               e.preventDefault();
               setHi((h) => Math.min(h + 1, sugg.length - 1));
@@ -197,6 +211,8 @@ export function RecipientField({
                 if (!moveOn) e.preventDefault();
                 pick(sugg[hi]);
               } else if (text.trim()) {
+                // a `,` or `;` typed inside a quoted name is part of the name
+                if ((e.key === "," || e.key === ";") && openAtEnd(text)) return;
                 if (!moveOn) e.preventDefault();
                 commit(text);
               }
@@ -290,8 +306,8 @@ export async function openDraftThread(threadId: string, wait = false): Promise<b
   const { html, attachments } = await messageToEditor(m);
   await st.openCompose({
     accountId: m.accountId,
-    to: m.to ? m.to.split(",").map((x) => x.trim()) : [],
-    cc: m.cc ? m.cc.split(",").map((x) => x.trim()) : [],
+    to: m.to ? splitRecipients(m.to) : [],
+    cc: m.cc ? splitRecipients(m.cc) : [],
     subject: m.subject === "(no subject)" ? "" : m.subject,
     bodyHtml: html ?? `<p>${(m.text ?? "").replace(/\n/g, "<br>")}</p>`,
     replaces: threadId,
@@ -345,6 +361,16 @@ export function Compose({ init }: { init: ComposeInit }) {
   const [cc, setCc] = useState<string[]>([...(init.cc ?? []), ...(autoCc(accountId) ? [autoCc(accountId)] : [])]);
   const [bcc, setBcc] = useState<string[]>([...(init.bcc ?? []), ...(autoBcc(accountId) ? [autoBcc(accountId)] : [])]);
   const [showCc, setShowCc] = useState(cc.length > 0 || bcc.length > 0);
+  // the sender asked for answers to go to another address than From (Reply-To): said under To, with a way back to From
+  const [replyNote, setReplyNote] = useState(init.replyNote ?? null);
+  const noteKeys = replyNote ? replyNote.replyTo.map(recipientKey) : [];
+  const noteShown = !!replyNote && to.some((x) => noteKeys.includes(recipientKey(x)));
+  const replyToFrom = () => {
+    if (!replyNote) return;
+    setTo(addRecipients([replyNote.from], to.filter((x) => !noteKeys.includes(recipientKey(x)))));
+    setReplyNote(null);
+    touch();
+  };
   const [subject, setSubject] = useState(init.subject ?? "");
   const [atts, setAtts] = useState<Att[]>(init.attachments ?? []);
   const [templates, setTemplates] = useState<Template[]>([]);
@@ -814,7 +840,8 @@ export function Compose({ init }: { init: ComposeInit }) {
 
   const send = async (sendAt?: number) => {
     let d = buildDraft();
-    if (d.to.length === 0) return showToast(t("compose.err.noRecipient"), undefined, "error");
+    // To may stay empty when Cc or Bcc has someone (Gmail and Outlook allow it; a Bcc-only message shows undisclosed-recipients)
+    if (!hasRecipient(d)) return showToast(t("compose.err.noRecipient"), undefined, "error");
     const bad = [...d.to, ...d.cc, ...d.bcc].filter((a) => !EMAIL.test(bareAddress(a)));
     if (bad.length) return showToast(t("compose.err.checkAddress", { addr: bad[0] }), undefined, "error");
     if (meeting) {
@@ -838,7 +865,7 @@ export function Compose({ init }: { init: ComposeInit }) {
     const secured = await secureDraft(d);
     if (!secured) return;
     d = secured;
-    if (d.to.length === 0) return showToast(t("compose.err.noRecipient"), undefined, "error");
+    if (!hasRecipient(d)) return showToast(t("compose.err.noRecipient"), undefined, "error");
 
     if (sendAt) {
       if (sendAt * 1000 < Date.now() - 60_000) return showToast(t("compose.schedule.passed"), undefined, "error");
@@ -1288,6 +1315,7 @@ export function Compose({ init }: { init: ComposeInit }) {
     <div
       className={`compose-pane ${dragging ? "dragging" : ""}`}
       onKeyDown={(e) => {
+        if (isImeEvent(e)) return; // a key that belongs to an input method (Subject, To, Cc, Bcc): no app shortcut
         if (isAltGraph(e)) return; // AltGr (Ctrl+Alt) types a character: no app shortcut
         if ((e.ctrlKey || e.metaKey) && e.key === "Enter" && e.shiftKey) {
           e.preventDefault();
@@ -1511,6 +1539,15 @@ export function Compose({ init }: { init: ComposeInit }) {
           <AccountPicker value={accountId} accounts={accounts} onChange={changeAccount} label={t("compose.from")} />
         </div>
         <RecipientField label={t("compose.to")} values={to} onChange={setTo} autoFocus={to.length === 0 && !init.replaces} onTouch={touch} keys={encOn && ks ? ks.recipients : undefined} onKeyAction={keyAction} />
+        {noteShown && replyNote && (
+          <div className="note cf-replyto" role="status">
+            <Info size={13} aria-hidden />
+            <span className="grow">
+              {t("compose.replyTo.note", { replyTo: replyNote.replyTo.map(chipLabel).join(", "), from: replyNote.from })}{" "}
+              <button className="link" onClick={replyToFrom}>{t("compose.replyTo.useFrom", { from: replyNote.from })}</button>
+            </span>
+          </div>
+        )}
         {showCc ? (
           <>
             <RecipientField label={t("compose.cc")} values={cc} onChange={setCc} onTouch={() => ((ccTouched.current = true), touch())} keys={encOn && ks ? ks.recipients : undefined} onKeyAction={keyAction} />

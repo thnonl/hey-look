@@ -38,6 +38,8 @@ export interface ComposeInit {
   references?: string[];
   replaces?: string; // draft thread id being edited
   isReply?: boolean;
+  /** the sender asked for answers to go to `replyTo` instead of the address of From: Compose says so (and offers From) */
+  replyNote?: { replyTo: string[]; from: string };
   attachments?: Att[];
   /** a scheduled message opened for editing (paused while open) */
   outboxId?: string;

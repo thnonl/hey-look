@@ -5,6 +5,7 @@ mod calsync;
 mod db;
 mod discover;
 mod flagguard;
+mod headerfold;
 mod ical;
 mod i18n;
 mod identity;
@@ -25,6 +26,7 @@ mod openpgp;
 mod pgpmail;
 mod pgpstore;
 mod rawcache;
+mod replyhdr;
 use oauth::Provider;
 mod schedule;
 mod sessionend;
@@ -2779,6 +2781,18 @@ async fn get_raw(state: tauri::State<'_, AppState>, message_id: String) -> R<Str
     Ok(String::from_utf8_lossy(&raw).into_owned())
 }
 
+/// The headers an answer to this message needs (Reply-To, Message-ID, the References of the answer), read from the message as the server
+/// holds it. Only headers: allowed for confidential mail too (the answer to it is confidential as well).
+#[tauri::command]
+async fn reply_headers(state: tauri::State<'_, AppState>, message_id: String) -> R<replyhdr::ReplyHeaders> {
+    let db = state.db.clone();
+    blocking(move || {
+        let (raw, _) = fetch_raw_for(&db, &message_id)?;
+        Ok(replyhdr::from_raw(&raw))
+    })
+    .await
+}
+
 /// Folder for "Save" (Settings → Attachments), falling back to the system Downloads folder, and then to the home folder.
 fn download_folder(app: &tauri::AppHandle, db: &Db) -> R<std::path::PathBuf> {
     let (dir, replaced) = pick_save_dir(setting(db, "download_dir").as_deref(), app.path().download_dir().ok(), app.path().home_dir().ok())?;
@@ -3146,7 +3160,7 @@ fn finished_message(db: &Db, acc: &Account, d: &smtp::Draft) -> R<(Vec<u8>, lett
     }
     let sec = d.security.clone().unwrap_or_default();
     let msg = if sec.encrypt || sec.sign { pgpstore::build_secure(&lock(db), acc, d, false)? } else { smtp::build(acc, d)? };
-    Ok((msg.formatted(), msg.envelope().clone()))
+    Ok((smtp::wire(&msg), msg.envelope().clone()))
 }
 
 /// What goes into the Drafts folder: encrypted to the account's own key when the draft is encrypted.
@@ -3156,9 +3170,9 @@ fn draft_bytes(db: &Db, acc: &Account, d: &smtp::Draft) -> R<Vec<u8>> {
         if let Some(pre) = &d.prebuilt {
             return base64::engine::general_purpose::STANDARD.decode(pre).map_err(err);
         }
-        return Ok(pgpstore::build_secure(&lock(db), acc, d, true)?.formatted());
+        return Ok(smtp::wire(&pgpstore::build_secure(&lock(db), acc, d, true)?));
     }
-    Ok(smtp::build_draft(acc, d)?.formatted())
+    Ok(smtp::wire(&smtp::build_draft(acc, d)?))
 }
 
 /// Queue a finished message (MIME is built at send time from the stored draft) for `send_at`.
@@ -4298,6 +4312,7 @@ pub fn run() {
             save_rule,
             delete_rule,
             get_raw,
+            reply_headers,
             save_attachments,
             attachment_save_as,
             attachment_save_all,

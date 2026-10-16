@@ -3,6 +3,7 @@ import { isThisYear, isThisWeek, isToday, isYesterday, subWeeks, isSameWeek } fr
 import blockedExt from "./blockedExt.json";
 import { fmtNumber, fmtPattern } from "./i18n/format";
 import { intlLocale, t } from "./i18n";
+import { splitRecipients } from "./recipients";
 import type { Prefs } from "./prefs";
 
 let timePat = "HH:mm";
@@ -99,11 +100,8 @@ export function plainToHtml(text: string): string {
   return `<div style="white-space:pre-wrap">${esc}</div>`;
 }
 
-export function htmlToText(html: string): string {
-  const d = document.createElement("div");
-  d.innerHTML = html.replace(/<br\s*\/?>/gi, "\n").replace(/<\/(p|div|h\d|li)>/gi, "\n");
-  return (d.textContent ?? "").replace(/\n{3,}/g, "\n\n").trim();
-}
+// the text/plain alternative of a message (and the context given to the AI Assistant): htmlText.ts
+export { htmlToText } from "./htmlText";
 
 export function quoteHtml(m: { fromName: string; fromEmail: string; date: number; html: string | null; text: string | null }): string {
   const body = m.html ? sanitizeHtml(m.html, false).html : plainToHtml(m.text ?? "");
@@ -135,7 +133,7 @@ export function snoozePresets(times: Prefs["snoozeTimes"]): { label: string; ts:
 }
 
 export function splitAddrs(s: string): string[] {
-  return s.split(",").map((x) => x.trim()).filter(Boolean);
+  return splitRecipients(s);
 }
 
 export function fileToBase64(f: File): Promise<string> {

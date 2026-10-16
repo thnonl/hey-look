@@ -42,6 +42,9 @@ const threads = [
   t("t14", "Weekly sync notes", ["Bao Tran"], "Notes from today are below. Signed inline.", 9 * H, { signed: true }),
 ];
 
+// a mailing-list style message whose Reply-To is not its From (Reply goes to the Reply-To address), with a quoted name in To
+threads.push(t("trt", "Reply-To probe", ["Acme No Reply"], "Please answer to support, not to this address.", 3.5 * H, { unread: 0 }));
+
 // calendar invitations in every state (the messages are built further down)
 threads.push(
   t("t15", "Invitation: Product sync", ["Mai Khanh"], "Wed 14 Oct 10:00–11:00 · Room 4B", 1.2 * H, { unread: 1, invite: "request" }),
@@ -108,6 +111,7 @@ const mockThreadMsgs: Record<string, unknown[]> = {
     { index: 0, name: "Q4-contract-v7.pdf", mime: "application/pdf", size: 1200000 },
     { index: 1, name: "linh-public.asc", mime: "application/pgp-keys", size: 3100 },
   ])],
+  trt: [secMsg("m-rt", "Reply-To probe", "Acme No Reply", "no-reply@acme.example", { to: "nam@example.com,john@acme.example,JOHN@acme.example,y@acme.example", cc: "cc@acme.example,nam@gmail.com" }, "<p>Please answer to support, not to this address.</p>")],
   t9: [lockedMsg()],
   t10: [secMsg("m-nokey", "Archive access", "Minh Pham", "minh@example.com", { security: { encrypted: true, partial: false, decryption: "no_key", encryptedFor: ["91AC4E0B5D7F2A31"], signature: null } }, null)],
   t11: [secMsg("m-bad", "Re: Contract changes (damaged)", "Legal Team", "legal@example.com", { security: { encrypted: true, partial: false, decryption: "error", error: "unsupported packet or corrupted transfer", encryptedFor: [], signature: null } }, null)],
@@ -1224,7 +1228,7 @@ export function installMock() {
       case "remove_account": { const i = accounts.findIndex((x) => x.id === a.accountId); if (i >= 0) accounts.splice(i, 1); return null; }
       case "set_mail_available": ((window as unknown as { __mailAvailable?: boolean[] }).__mailAvailable ??= []).push(!!a.available); return null;
       // an Undo-window send is kept in the (mock) outbox until it is sent or taken back; every call is logged in window.__sendCalls
-      case "outbox_hold": { const w = window as unknown as { __sendCalls?: unknown[] }; (w.__sendCalls ??= []).push({ cmd: "hold", dueAt: a.dueAt }); return `hold-${Date.now()}`; }
+      case "outbox_hold": { const w = window as unknown as { __sendCalls?: unknown[] }; (w.__sendCalls ??= []).push({ cmd: "hold", dueAt: a.dueAt, draft: a.draft }); return `hold-${Date.now()}`; }
       case "outbox_hold_send": { const w = window as unknown as { __sendCalls?: unknown[] }; (w.__sendCalls ??= []).push({ cmd: "holdSend", id: a.id, keep: a.keep }); return null; }
       case "quit_dialog": case "quit_cancelled": case "sends_flushed": case "show_window": case "frontend_ready": case "page_state": return null;
       case "update_defer": logUpdateCall({ cmd: "defer" }).kind = a.deferred ? "later" : "now"; return null;
@@ -1250,6 +1254,10 @@ export function installMock() {
         return { imapHost: `imap.${domain}`, imapPort: 993, imapSsl: true, smtpHost: `smtp.${domain}`, smtpPort: 587, smtpSecurity: "starttls", username: email, oauth: null, source: "autoconfig" };
       }
       case "set_secret": return null;
+      // the headers an answer needs (the real command reads them from the server's copy): Reply-To only on the probe message
+      case "reply_headers": return a.messageId === "m-rt"
+        ? { messageId: "<m-rt@acme.example>", references: ["<root@acme.example>", "<m-rt@acme.example>"], replyTo: ['"Acme Support" <support@acme.example>'] }
+        : { messageId: `<${String(a.messageId)}@x>`, references: [`<${String(a.messageId)}@x>`], replyTo: [] };
       case "attachment_data": {
         const att = [m4, ...messages].find((x) => x.id === a.messageId)?.attachments.find((z) => z.index === a.index);
         const name = att?.name ?? "file.pdf";

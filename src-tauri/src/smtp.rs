@@ -154,11 +154,29 @@ pub fn split_mailbox(s: &str) -> (Option<String>, String) {
     (None, t.to_string())
 }
 
+/// The address with its domain in the ASCII form (`user@bücher.example` -> `user@xn--bcher-kva.example`): lettre accepts an
+/// internationalized domain but writes it as it is, and a server without SMTPUTF8 refuses that in RCPT TO and in the headers. A domain
+/// that cannot be converted, or is ASCII already, stays as it is (lettre then judges it).
+pub fn ascii_address(email: &str) -> String {
+    match email.rsplit_once('@') {
+        Some((user, domain)) if !domain.is_ascii() => match idna::domain_to_ascii(domain) {
+            Ok(d) if !d.is_empty() => format!("{user}@{d}"),
+            _ => email.to_string(),
+        },
+        _ => email.to_string(),
+    }
+}
+
+/// The address of an account as lettre holds it (ASCII domain).
+fn account_address(acc: &Account) -> R<Address> {
+    ascii_address(acc.email.trim()).parse::<Address>().map_err(err)
+}
+
 /// Parse a recipient as the interface writes it. Unlike a strict RFC 5322 parse this accepts any display name, and still
 /// rejects an address that is not one.
 pub fn parse_mailbox(s: &str) -> R<Mailbox> {
     let (name, email) = split_mailbox(s);
-    let addr = email.parse::<Address>().map_err(|e| format!("bad address '{s}': {e}"))?;
+    let addr = ascii_address(&email).parse::<Address>().map_err(|e| format!("bad address '{s}': {e}"))?;
     Ok(Mailbox::new(name, addr))
 }
 
@@ -199,8 +217,16 @@ fn draft_message_id(email: &str) -> String {
     format!("<{}@{}>", uuid::Uuid::new_v4().simple(), domain)
 }
 
+/// `<random@domain-of-the-account>` for a message that is SENT: the Message-ID is made here, not left to lettre (which writes the name of this
+/// computer into it) or to the server (the Sent copy would not know it, and a reply to your own mail would have nothing to answer). The same
+/// bytes go to the server and into the Sent folder, so the copy carries the same id. The domain is the account's own address domain (as lettre
+/// holds it: an internationalized domain in its ASCII form), never `localhost` or a host name.
+fn sent_message_id(me: &Address) -> String {
+    format!("<{}@{}>", uuid::Uuid::new_v4().simple(), me.domain())
+}
+
 fn headers(acc: &Account, d: &Draft, lenient: bool) -> R<lettre::message::MessageBuilder> {
-    let me = acc.email.parse::<Address>().map_err(err)?;
+    let me = account_address(acc)?;
     let from = Mailbox::new(Some(acc.display_name.clone()).filter(|n| !n.is_empty()), me.clone());
     let mut b = Message::builder().from(from).subject(d.subject.clone());
     if lenient {
@@ -233,14 +259,23 @@ fn headers(acc: &Account, d: &Draft, lenient: bool) -> R<lettre::message::Messag
             b = b.header(RawBcc(raw(&d.bcc)));
         }
     } else {
-        for t in &d.to {
+        b = b.message_id(Some(sent_message_id(&me)));
+        // each address once, in the first field it is in (To, then Cc, then Bcc), whatever the case
+        let (to, cc, bcc) = unique_recipients(d);
+        for t in &to {
             b = b.to(mailbox(t)?);
         }
-        for c in &d.cc {
+        for c in &cc {
             b = b.cc(mailbox(c)?);
         }
-        for c in &d.bcc {
+        for c in &bcc {
             b = b.bcc(mailbox(c)?);
+        }
+        // Bcc recipients only (Gmail and Outlook allow it): To says so, as RFC 5322 3.6.3 suggests. The envelope delivers the message; the
+        // Bcc header itself is never written.
+        if to.is_empty() && cc.is_empty() && !bcc.is_empty() {
+            b = b.header(RawTo("undisclosed-recipients:;".to_string()));
+            b = b.envelope(envelope_of(&me, d)?);
         }
     }
     if let Some(r) = &d.in_reply_to {
@@ -304,8 +339,9 @@ pub fn calendar_part(method: &str, ics: &str) -> R<SinglePart> {
 
 /// A small iMIP message (reply, update or cancellation): readable text plus the calendar part, from the account to the recipients.
 pub fn build_calendar_mail(acc: &Account, to: &[String], cc: &[String], subject: &str, text: &str, cal: &CalendarPart) -> R<Message> {
-    let from = Mailbox::new(Some(acc.display_name.clone()).filter(|n| !n.is_empty()), acc.email.parse::<Address>().map_err(err)?);
-    let mut b = Message::builder().from(from).subject(subject.to_string());
+    let me = account_address(acc)?;
+    let from = Mailbox::new(Some(acc.display_name.clone()).filter(|n| !n.is_empty()), me.clone());
+    let mut b = Message::builder().from(from).subject(subject.to_string()).message_id(Some(sent_message_id(&me)));
     for t in to {
         b = b.to(mailbox(t)?);
     }
@@ -323,6 +359,12 @@ pub fn build_calendar_mail(acc: &Account, to: &[String], cc: &[String], subject:
 
 pub fn build(acc: &Account, d: &Draft) -> R<Message> {
     headers(acc, d, false)?.multipart(body(d)?).map_err(err)
+}
+
+/// The finished message as it goes on the wire and into the Sent / Drafts folder: lettre's text with the lines of the header block folded
+/// to 78 characters (headerfold.rs; lettre leaves a long To / Cc / References list on one line).
+pub fn wire(m: &Message) -> Vec<u8> {
+    crate::headerfold::fold(m.formatted())
 }
 
 /// multipart/signed (RFC 3156): the signature covers the content entity exactly as it is written, without the
@@ -353,14 +395,36 @@ pub fn build_encrypted(acc: &Account, d: &Draft, lenient: bool, encrypt: &dyn Fn
     headers(acc, d, lenient)?.multipart(outer).map_err(err)
 }
 
-/// Addresses of every recipient (To, Cc, Bcc) of a draft, for sending a prebuilt message.
-pub fn envelope(acc: &Account, d: &Draft) -> R<lettre::address::Envelope> {
-    let from: Address = acc.email.parse().map_err(err)?;
+/// The key two recipients are the same by: the address in lower case, its domain in the ASCII form (an upper / lower case spelling of the same
+/// address is the same mailbox in every mail system in use; keeping both would send it twice). Text that is not an address is its own key.
+fn recipient_key(entry: &str) -> String {
+    ascii_address(&split_mailbox(entry).1).to_lowercase()
+}
+
+/// To, Cc and Bcc of a message that is SENT with every address once: an address that is already in To is not repeated in To, Cc or Bcc,
+/// one in Cc not in Cc or Bcc, and the first spelling stays (`Ann@X.test` then `ann@x.test` is one recipient written `Ann@X.test`).
+fn unique_recipients(d: &Draft) -> (Vec<String>, Vec<String>, Vec<String>) {
+    let mut seen = std::collections::HashSet::new();
+    let mut take = |l: &[String]| l.iter().filter(|e| !e.trim().is_empty() && seen.insert(recipient_key(e))).cloned().collect::<Vec<_>>();
+    let to = take(&d.to);
+    let cc = take(&d.cc);
+    let bcc = take(&d.bcc);
+    (to, cc, bcc)
+}
+
+/// The envelope of a message from `from` to every recipient (To, Cc, Bcc) of the draft, each address once.
+fn envelope_of(from: &Address, d: &Draft) -> R<lettre::address::Envelope> {
+    let (to_l, cc_l, bcc_l) = unique_recipients(d);
     let mut to: Vec<Address> = vec![];
-    for r in d.to.iter().chain(d.cc.iter()).chain(d.bcc.iter()) {
+    for r in to_l.iter().chain(cc_l.iter()).chain(bcc_l.iter()) {
         to.push(mailbox(r)?.email);
     }
-    lettre::address::Envelope::new(Some(from), to).map_err(err)
+    lettre::address::Envelope::new(Some(from.clone()), to).map_err(err)
+}
+
+/// Addresses of every recipient (To, Cc, Bcc) of a draft, for sending a prebuilt message.
+pub fn envelope(acc: &Account, d: &Draft) -> R<lettre::address::Envelope> {
+    envelope_of(&account_address(acc)?, d)
 }
 
 /// SMTP login name: the account email for OAuth, else the separate SMTP user, else the IMAP user.
@@ -378,6 +442,15 @@ fn smtp_user(acc: &Account) -> String {
 /// accepts and then stays silent (a plain SMTP port with SSL/TLS, a firewall that swallows packets) must not keep a send waiting that long.
 const SEND_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(30);
 
+/// What this program calls itself in EHLO: the address literal `[127.0.0.1]`. lettre's default is the name of this computer (a privacy leak:
+/// "NamPC" in the Received header of every message, and a spam signal). RFC 5321 4.1.4 asks for a fully qualified name or, when the client
+/// has none (a desktop behind NAT has no name of its own), an address literal. The account's domain is not used: a server may refuse a
+/// client that claims to be its own domain or somebody else's, and the literal says nothing about the person or the computer. Thunderbird
+/// also sends a literal. It is not configurable.
+fn ehlo_name() -> lettre::transport::smtp::extension::ClientId {
+    lettre::transport::smtp::extension::ClientId::Ipv4(std::net::Ipv4Addr::new(127, 0, 0, 1))
+}
+
 /// `timeout`: how long a connection step may take (lettre's own default is a minute); the checks made while an account is added use less.
 fn transport_with(acc: &Account, secret: &str, timeout: Option<std::time::Duration>) -> R<SmtpTransport> {
     let host = acc.smtp_host.as_str();
@@ -394,7 +467,7 @@ fn transport_with(acc: &Account, secret: &str, timeout: Option<std::time::Durati
             .map_err(err)?;
         b = b.tls(if acc.smtp_security == "ssl" { Tls::Wrapper(params) } else { Tls::Required(params) });
     }
-    let b = b.credentials(Credentials::new(smtp_user(acc), secret.to_string()));
+    let b = b.hello_name(ehlo_name()).credentials(Credentials::new(smtp_user(acc), secret.to_string()));
     let b = if timeout.is_some() { b.timeout(timeout) } else { b };
     Ok((if acc.auth.starts_with("oauth_") { b.authentication(vec![Mechanism::Xoauth2]) } else { b }).build())
 }
@@ -467,7 +540,7 @@ fn probe_starttls(acc: &Account, timeout: std::time::Duration) -> Result<(), Pro
             Ok(Some(g)) if g.starts_with("220") => {}
             _ => return Ok(()),
         }
-        if out.write_all(b"EHLO hey-look.local\r\n").is_err() {
+        if out.write_all(format!("EHLO {}\r\n", ehlo_name()).as_bytes()).is_err() {
             return Ok(());
         }
         match reply(&mut input) {
@@ -690,6 +763,85 @@ To:"), "no To header is invented: {out}");
         assert!(envelope(&acc, &s).is_err());
     }
 
+    /// QA round 17, BUG-15 (CF-28 / B-17): Gmail and Outlook send a message that has only Bcc recipients; so does this.
+    #[test]
+    fn a_message_with_only_bcc_recipients_can_be_sent() {
+        let acc = account();
+        let mut d = draft("<p>Hi</p>", vec![], vec![]);
+        d.to.clear();
+        d.bcc = vec!["Hidden <hidden@example.org>".into(), "other@example.org".into()];
+        let msg = build(&acc, &d).expect("Bcc only is built");
+        let raw = msg.formatted();
+        let out = String::from_utf8_lossy(&raw).into_owned();
+        // delivered to every Bcc address, from the account
+        let rcpt: Vec<String> = msg.envelope().to().iter().map(|a| a.to_string()).collect();
+        assert_eq!(rcpt, vec!["hidden@example.org", "other@example.org"]);
+        assert_eq!(msg.envelope().from().map(|a| a.to_string()).as_deref(), Some("me@example.com"));
+        // nobody sees the Bcc addresses; To says the recipients are not disclosed
+        assert!(!out.to_ascii_lowercase().contains("bcc:") && !out.contains("hidden@example.org") && !out.contains("other@example.org"), "{out}");
+        assert!(out.contains("To: undisclosed-recipients:;"), "{out}");
+        let p = mail_parser::MessageParser::default().parse(&raw[..]).unwrap();
+        assert!(p.bcc().is_none());
+        assert_eq!(p.to().map(|a| a.iter().filter(|x| x.address.is_some()).count()), Some(0), "no address in To");
+        assert!(crate::mail::parse(1, &raw, true, false, 0).unwrap().to.is_empty());
+        // the prebuilt-message route has the same envelope
+        assert_eq!(envelope(&acc, &d).unwrap().to().len(), 2);
+        // Cc only: Cc is shown, there is no To header
+        let mut cc_only = draft("<p>Hi</p>", vec![], vec![]);
+        cc_only.to.clear();
+        cc_only.cc = vec!["cc@example.org".into()];
+        let out = text(&build(&acc, &cc_only).unwrap());
+        assert!(out.contains("Cc: cc@example.org") && !out.contains("
+To:") && !out.contains("undisclosed"), "{out}");
+        // Bcc together with To: To is the visible one, no placeholder
+        let mut both = draft("<p>Hi</p>", vec![], vec![]);
+        both.bcc = vec!["hidden@example.org".into()];
+        let m = build(&acc, &both).unwrap();
+        assert!(!text(&m).contains("undisclosed") && !text(&m).contains("hidden@example.org"));
+        assert_eq!(m.envelope().to().len(), 2);
+        // really no recipient: still refused
+        let mut none = draft("<p>Hi</p>", vec![], vec![]);
+        none.to.clear();
+        assert!(build(&acc, &none).is_err());
+        // a signed or encrypted message to Bcc recipients only is built the same way
+        let mut s = d.clone();
+        s.security = None;
+        assert!(build_signed(&acc, &s, false, &|_| Ok(("sig".into(), "pgp-sha256".into()))).is_ok());
+        assert!(build_encrypted(&acc, &s, false, &|_| Ok("armored".into())).is_ok());
+    }
+
+    /// QA round 17, BUG-20 (CF-17 / B-08): A@X.test and a@x.test were both kept, and an address in To and in Cc was sent twice.
+    #[test]
+    fn an_address_is_sent_to_once_whatever_its_case_and_the_field() {
+        let acc = account();
+        let mut d = draft("<p>Hi</p>", vec![], vec![]);
+        d.to = vec!["Ann@X.test".into(), "ann@x.test".into(), "Bob <bob@y.test>".into(), "BOB@Y.TEST".into()];
+        d.cc = vec!["ANN@x.test".into(), "cy@z.test".into(), "Cy <CY@z.test>".into()];
+        d.bcc = vec!["cy@z.test".into(), "bob@Y.test".into(), "dee@w.test".into(), "dee@w.test".into()];
+        let msg = build(&acc, &d).unwrap();
+        let rcpt: Vec<String> = msg.envelope().to().iter().map(|a| a.to_string()).collect();
+        assert_eq!(rcpt, vec!["Ann@X.test", "bob@y.test", "cy@z.test", "dee@w.test"], "one RCPT each, first spelling");
+        let raw = msg.formatted();
+        let p = mail_parser::MessageParser::default().parse(&raw[..]).unwrap();
+        let addrs = |a: Option<&mail_parser::Address>| a.map(|a| a.iter().filter_map(|x| x.address.as_ref().map(|s| s.to_string())).collect::<Vec<_>>()).unwrap_or_default();
+        assert_eq!(addrs(p.to()), vec!["Ann@X.test", "bob@y.test"], "one header entry each");
+        assert_eq!(addrs(p.cc()), vec!["cy@z.test"]);
+        assert!(p.bcc().is_none());
+        assert!(!String::from_utf8_lossy(&raw).contains("dee@w.test"));
+        // a Bcc address that is also in To is just in To; the envelope of a prebuilt message agrees
+        assert_eq!(envelope(&acc, &d).unwrap().to().len(), 4);
+        // a Bcc that repeats the only To address leaves a message with To and no Bcc
+        let mut only = draft("<p>Hi</p>", vec![], vec![]);
+        only.bcc = vec!["ANN@example.com".into()];
+        let m = build(&acc, &only).unwrap();
+        assert_eq!(m.envelope().to().len(), 1);
+        assert!(!text(&m).contains("undisclosed"));
+        // invalid entries are not merged into valid ones and still fail the send
+        let mut bad = draft("<p>Hi</p>", vec![], vec![]);
+        bad.to = vec!["ann@example.com".into(), "ann@".into()];
+        assert!(build(&acc, &bad).is_err());
+    }
+
     #[test]
     fn a_saved_draft_says_which_thread_the_sync_will_put_it_in() {
         let acc = account();
@@ -713,9 +865,100 @@ To:"), "no To header is invented: {out}");
         assert_eq!(crate::draft_thread_id("a1", &raw), Some(crate::thread_id_of("a1", "drafts", &p)));
         assert_eq!(p.refs.first().map(String::as_str), Some("<root@x.org>"));
 
-        // sending is unchanged: no Message-ID is made here (the server writes it)
+        // the message that is sent gets its own, new id (a_sent_message_carries_its_own_message_id)
         let sent = text(&build(&acc, &d).unwrap());
-        assert!(!sent.to_ascii_lowercase().contains("message-id:"), "{sent}");
+        assert_eq!(sent.to_ascii_lowercase().matches("message-id:").count(), 1, "{sent}");
+    }
+
+    /// QA round 17, BUG-14 (MA-12): a hundred recipients were one 2202-octet To line. The header block is folded at 78 characters, and
+    /// still reads back as the same recipients.
+    #[test]
+    fn long_recipient_lists_and_reference_chains_are_folded_at_78_characters() {
+        let acc = account();
+        let mut d = draft("<p>Hi</p>", vec![], vec![]);
+        d.to = (0..100).map(|i| format!("r13-{i:03}@example.test")).collect();
+        d.cc = (0..30).map(|i| format!("\"Doe, John {i}\" <cc-{i:03}@example.test>")).collect();
+        d.subject = "Báo cáo Q4 – 東京 🚀 Привет, a subject that is long enough to be folded by the encoder as well".into();
+        d.references = (0..15).map(|i| format!("<ref-{i:02}-0123456789abcdef@mail.example.org>")).collect();
+        d.in_reply_to = d.references.last().cloned();
+        let msg = build(&acc, &d).unwrap();
+        let raw = wire(&msg);
+        let head_end = raw.windows(4).position(|w| w == b"\r\n\r\n").unwrap();
+        let head = String::from_utf8(raw[..head_end].to_vec()).expect("headers are ASCII");
+        for l in head.split("\r\n") {
+            assert!(l.len() <= 78, "{} octets: {l}", l.len());
+        }
+        assert!(head.is_ascii(), "{head}");
+        // the folded message reads back as the same message
+        let p = mail_parser::MessageParser::default().parse(&raw[..]).unwrap();
+        assert_eq!(p.to().unwrap().iter().count(), 100);
+        assert_eq!(p.cc().unwrap().iter().count(), 30);
+        assert_eq!(p.cc().unwrap().first().and_then(|a| a.name.as_deref()), Some("Doe, John 0"), "a quoted name with a comma stays whole");
+        assert_eq!(p.subject(), Some(d.subject.as_str()));
+        let parsed = crate::mail::parse(3, &raw, true, false, 0).unwrap();
+        assert_eq!(&parsed.refs[..15], &d.references[..], "References read back, each id whole and in order");
+        assert_eq!(parsed.to.len(), 100);
+        // the envelope is unaffected: 130 recipients, each once
+        assert_eq!(msg.envelope().to().len(), 130);
+        // the body is not touched
+        assert!(String::from_utf8_lossy(&raw).contains("<p>Hi</p>"));
+    }
+
+    fn message_id_of(raw: &[u8]) -> String {
+        let p = mail_parser::MessageParser::default().parse(raw).unwrap();
+        format!("<{}>", p.message_id().expect("a Message-ID"))
+    }
+
+    /// QA round 17, BUG-11 (MA-03 / MA-04): a sent message had no Message-ID, so the Sent copy had none and a reply to your own mail had
+    /// nothing to answer. The id is made here, from the account's domain, once per message.
+    #[test]
+    fn a_sent_message_carries_its_own_message_id() {
+        let acc = account();
+        let d = draft("<p>Hi</p>", vec![], vec![]);
+        let one = build(&acc, &d).unwrap().formatted();
+        let two = build(&acc, &d).unwrap().formatted();
+        let (a, b) = (message_id_of(&one), message_id_of(&two));
+        assert!(a.ends_with("@example.com>") && a.starts_with('<'), "{a}");
+        assert_ne!(a, b, "a new id for every message");
+        let head = String::from_utf8_lossy(&one).to_ascii_lowercase();
+        assert_eq!(head.matches("\r\nmessage-id:").count(), 1, "exactly one Message-ID: {head}");
+        // never the name of this computer
+        if let Ok(host) = std::env::var("COMPUTERNAME").or_else(|_| std::env::var("HOSTNAME")) {
+            if !host.is_empty() && !"example.com".contains(&host.to_lowercase()) {
+                assert!(!head.contains(&host.to_lowercase()), "host name {host} leaked: {head}");
+            }
+        }
+        assert!(!head.contains("localhost"));
+        // the sent message and its Sent copy are the same bytes, so the same id; the app reads it back from the stored copy
+        let p = crate::mail::parse(5, &one, true, false, 0).unwrap();
+        assert_eq!(p.message_id.as_deref(), Some(a.as_str()));
+        // signed and encrypted messages carry it in the outer headers too
+        let signed = build_signed(&acc, &d, false, &|_| Ok(("-----BEGIN PGP SIGNATURE-----".into(), "pgp-sha256".into()))).unwrap().formatted();
+        assert!(message_id_of(&signed).ends_with("@example.com>"));
+        let enc = build_encrypted(&acc, &d, false, &|_| Ok("armored".into())).unwrap().formatted();
+        assert!(message_id_of(&enc).ends_with("@example.com>"));
+        // an internationalized domain is written in its ASCII form (the account's, and a recipient's)
+        let mut idn = account();
+        idn.email = "me@bücher.example".into();
+        assert!(message_id_of(&build(&idn, &d).unwrap().formatted()).ends_with("@xn--bcher-kva.example>"));
+        let mut to_idn = d.clone();
+        to_idn.to = vec!["Büro <user@bücher.example>".into()];
+        let out = build(&acc, &to_idn).unwrap();
+        assert_eq!(out.envelope().to()[0].to_string(), "user@xn--bcher-kva.example", "RCPT TO is ASCII");
+        assert!(String::from_utf8_lossy(&out.formatted()).contains("<user@xn--bcher-kva.example>"));
+        assert_eq!(envelope(&acc, &to_idn).unwrap().to()[0].to_string(), "user@xn--bcher-kva.example");
+        // an iMIP mail has one too
+        let cal = CalendarPart { method: "REPLY".into(), ics: "BEGIN:VCALENDAR\r\nEND:VCALENDAR\r\n".into() };
+        let m = build_calendar_mail(&acc, &["ann@example.com".to_string()], &[], "Accepted", "ok", &cal).unwrap().formatted();
+        assert!(message_id_of(&m).ends_with("@example.com>"));
+        // an answer to a message keeps its own id apart from In-Reply-To / References
+        let mut r = d.clone();
+        r.in_reply_to = Some("<orig@x.org>".into());
+        r.references = vec!["<root@x.org>".into(), "<orig@x.org>".into()];
+        let raw = build(&acc, &r).unwrap().formatted();
+        let p = mail_parser::MessageParser::default().parse(&raw).unwrap();
+        assert_ne!(format!("<{}>", p.message_id().unwrap()), "<orig@x.org>");
+        assert!(String::from_utf8_lossy(&raw).contains("In-Reply-To: <orig@x.org>\r\n"));
     }
 
     #[test]
@@ -940,6 +1183,68 @@ To:"), "no To header is invented: {out}");
             }
         });
         (port, stop)
+    }
+
+    /// A plain SMTP server that records the lines it receives and lets a whole mail through (no AUTH is offered). Returns its port and the
+    /// receiver of the lines.
+    fn recording_smtp_server() -> (u16, std::sync::mpsc::Receiver<String>) {
+        use std::io::{BufRead, BufReader, Write};
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let port = listener.local_addr().unwrap().port();
+        let (tx, rx) = std::sync::mpsc::channel::<String>();
+        std::thread::spawn(move || {
+            for conn in listener.incoming().flatten() {
+                let tx = tx.clone();
+                std::thread::spawn(move || {
+                    let _ = conn.set_read_timeout(Some(std::time::Duration::from_secs(10)));
+                    let mut w = conn.try_clone().unwrap();
+                    let _ = w.write_all(b"220 stub.test ESMTP\r\n");
+                    let mut data = false;
+                    for line in BufReader::new(conn).lines().map_while(Result::ok) {
+                        if data {
+                            data = line != ".";
+                            if !data {
+                                let _ = w.write_all(b"250 queued\r\n");
+                            }
+                            continue;
+                        }
+                        let _ = tx.send(line.clone());
+                        let up = line.to_uppercase();
+                        let reply: &[u8] = if up.starts_with("EHLO") { b"250 stub.test\r\n" } else if up.starts_with("DATA") { data = true; b"354 go\r\n" } else if up.starts_with("QUIT") { b"221 bye\r\n" } else { b"250 ok\r\n" };
+                        let _ = w.write_all(reply);
+                        if up.starts_with("QUIT") {
+                            break;
+                        }
+                    }
+                });
+            }
+        });
+        (port, rx)
+    }
+
+    /// QA round 17, BUG-17 (CF-13): EHLO carried the name of this computer ("NamPC"). It is the address literal `[127.0.0.1]` now, for the
+    /// sent mail and for the connection checks, whatever the computer or the account is called.
+    #[test]
+    fn ehlo_does_not_tell_the_name_of_this_computer() {
+        crate::test_guard::within(60, || {
+            let (port, lines) = recording_smtp_server();
+            let mut acc = account();
+            acc.smtp_host = "127.0.0.1".into();
+            acc.smtp_port = port;
+            acc.smtp_security = "none".into();
+            // the message is delivered or refused for lack of AUTH: either way the EHLO line is on record
+            let _ = send_raw(&acc, "secret", &envelope_for_tests(), b"Subject: x\r\n\r\nhi");
+            let _ = test(&acc, "secret");
+            let ehlos: Vec<String> = std::iter::from_fn(|| lines.recv_timeout(std::time::Duration::from_millis(300)).ok()).filter(|l| l.to_uppercase().starts_with("EHLO")).collect();
+            assert!(ehlos.len() >= 2, "{ehlos:?}");
+            for l in &ehlos {
+                assert_eq!(l, "EHLO [127.0.0.1]", "the address literal, nothing about this computer");
+            }
+            let host = std::env::var("COMPUTERNAME").or_else(|_| std::env::var("HOSTNAME")).unwrap_or_default().to_lowercase();
+            if !host.is_empty() {
+                assert!(ehlos.iter().all(|l| !l.to_lowercase().contains(&host) || host == "127.0.0.1"), "{ehlos:?}");
+            }
+        });
     }
 
     fn envelope_for_tests() -> lettre::address::Envelope {
