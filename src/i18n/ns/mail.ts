@@ -111,6 +111,13 @@ export default define({
     "mail.ctx.copyFailed": "Couldn’t copy to the clipboard",
     "mail.ctx.onlyOne": "Available for one conversation at a time",
     "mail.ctx.oneMailbox": "Available when the conversations are in one mailbox",
+
+    // reordering the mailboxes (folder pane, Settings)
+    "mail.acct.moveUp": "Move up",
+    "mail.acct.moveDown": "Move down",
+    "mail.acct.drag": "Drag to reorder {email}",
+    "mail.acct.moved": "{email} moved to position {n} of {total}",
+    "mail.acct.cancelled": "Reordering cancelled",
   },
   vi: {
     "mail.row.select": "Chọn",
@@ -214,6 +221,13 @@ export default define({
     "mail.ctx.copyFailed": "Không thể sao chép vào bộ nhớ tạm",
     "mail.ctx.onlyOne": "Chỉ dùng được cho một cuộc trò chuyện mỗi lần",
     "mail.ctx.oneMailbox": "Chỉ dùng được khi các cuộc trò chuyện cùng một hộp thư",
+
+    // reordering the mailboxes (folder pane, Settings)
+    "mail.acct.moveUp": "Di chuyển lên",
+    "mail.acct.moveDown": "Di chuyển xuống",
+    "mail.acct.drag": "Kéo để sắp xếp lại {email}",
+    "mail.acct.moved": "{email} đã chuyển sang vị trí {n}/{total}",
+    "mail.acct.cancelled": "Đã hủy sắp xếp lại",
   },
   fr: {
     "mail.row.select": "Sélectionner",
@@ -317,5 +331,12 @@ export default define({
     "mail.ctx.copyFailed": "Impossible de copier dans le presse-papiers",
     "mail.ctx.onlyOne": "Disponible pour une seule conversation à la fois",
     "mail.ctx.oneMailbox": "Disponible lorsque les conversations sont dans une seule boîte aux lettres",
+
+    // reordering the mailboxes (folder pane, Settings)
+    "mail.acct.moveUp": "Déplacer vers le haut",
+    "mail.acct.moveDown": "Déplacer vers le bas",
+    "mail.acct.drag": "Faire glisser pour réorganiser {email}",
+    "mail.acct.moved": "{email} déplacé en position {n} sur {total}",
+    "mail.acct.cancelled": "Réorganisation annulée",
   },
 });

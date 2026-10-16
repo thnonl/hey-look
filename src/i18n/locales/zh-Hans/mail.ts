@@ -104,4 +104,10 @@ export default defineLocale<typeof ns.en>({
   "mail.ctx.copyFailed": "无法复制到剪贴板",
   "mail.ctx.onlyOne": "一次只能用于一个对话",
   "mail.ctx.oneMailbox": "仅当这些对话位于同一邮箱时可用",
+  // reordering the mailboxes (folder pane, Settings)
+  "mail.acct.moveUp": "上移",
+  "mail.acct.moveDown": "下移",
+  "mail.acct.drag": "拖动以调整{email}的顺序",
+  "mail.acct.moved": "{email}已移到第{n}位，共{total}位",
+  "mail.acct.cancelled": "已取消重新排序",
 });

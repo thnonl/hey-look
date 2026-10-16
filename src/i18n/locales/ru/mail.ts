@@ -114,4 +114,10 @@ export default defineLocale<typeof ns.en>({
   "mail.ctx.copyFailed": "Не удалось скопировать в буфер обмена",
   "mail.ctx.onlyOne": "Доступно только для одной беседы за раз",
   "mail.ctx.oneMailbox": "Доступно, только если беседы находятся в одном почтовом ящике",
+  // reordering the mailboxes (folder pane, Settings)
+  "mail.acct.moveUp": "Переместить выше",
+  "mail.acct.moveDown": "Переместить ниже",
+  "mail.acct.drag": "Перетащите, чтобы изменить порядок: {email}",
+  "mail.acct.moved": "{email}: позиция {n} из {total}",
+  "mail.acct.cancelled": "Изменение порядка отменено",
 });

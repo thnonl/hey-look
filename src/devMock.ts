@@ -166,7 +166,15 @@ const longMail = (w: number) =>
 
 const darkThreads = darkMessages(messages[0], svg);
 
-const settings: Record<string, string> = {};
+// `#persist`: the stored settings survive a reload (localStorage), so a "restart" can be tested in the preview (e.g. the order of the mailboxes)
+const persistSettings = /(^|&)persist(&|$)/.test(window.location.hash.slice(1));
+const settings: Record<string, string> = (() => {
+  try {
+    return persistSettings ? JSON.parse(localStorage.getItem("hl-mock-settings") ?? "{}") : {};
+  } catch {
+    return {};
+  }
+})();
 
 // scheduled messages in every state the worker can be in
 const mockOutbox = (() => {
@@ -1015,7 +1023,7 @@ export function installMock() {
       // #aiset: the AI Assistant is set up (Translate / Summarize can be tried with #slowai / #failai)
       case "get_setting": return settings[a.key as string] ?? (hashHas("aiset") && (a.key === "ai_endpoint" || a.key === "ai_model") ? "mock" : null);
       case "first_run_hint": { const d = Number(hashTokens().get("firstrun")); return d > 0 ? Date.now() - d * 86_400_000 : null; } // `#firstrun=90`: the database is 90 days old (an install from before the support reminder)
-      case "set_setting": settings[a.key as string] = a.value as string; return null;
+      case "set_setting": settings[a.key as string] = a.value as string; if (persistSettings) localStorage.setItem("hl-mock-settings", JSON.stringify(settings)); return null;
       // #nojunk: the second mailbox's server has no Junk folder (the saved list does not name one): its Junk row and the Junk actions go
       case "list_folders": return hashHas("nojunk") ? folders.map((f) => (f.accountId === "a2" && f.key === "junk" ? { ...f, listed: false } : f)) : folders;
       case "list_threads": {

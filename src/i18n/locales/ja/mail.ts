@@ -104,4 +104,10 @@ export default defineLocale<typeof ns.en>({
   "mail.ctx.copyFailed": "クリップボードにコピーできませんでした",
   "mail.ctx.onlyOne": "一度に1件の会話でのみ使用できます",
   "mail.ctx.oneMailbox": "会話が1つのメールボックスにある場合のみ使用できます",
+  // reordering the mailboxes (folder pane, Settings)
+  "mail.acct.moveUp": "上へ移動",
+  "mail.acct.moveDown": "下へ移動",
+  "mail.acct.drag": "ドラッグして{email}の順序を変更",
+  "mail.acct.moved": "{email}を{total}件中{n}番目に移動しました",
+  "mail.acct.cancelled": "並べ替えをキャンセルしました",
 });

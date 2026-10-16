@@ -268,6 +268,7 @@ jobs:
           node --experimental-strip-types scripts/test-sign-in.mjs
           node --experimental-strip-types scripts/test-popover-menu.mjs
           node --experimental-strip-types scripts/test-row-menu.mjs
+          node --experimental-strip-types scripts/test-account-order.mjs
           node --experimental-strip-types scripts/test-support-nudge.mjs
           node scripts/generate-site-languages.mjs --check
           node scripts/test-site-languages.mjs --strict

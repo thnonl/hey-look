@@ -104,4 +104,10 @@ export default defineLocale<typeof ns.en>({
   "mail.ctx.copyFailed": "No se pudo copiar al portapapeles",
   "mail.ctx.onlyOne": "Disponible solo para una conversación a la vez",
   "mail.ctx.oneMailbox": "Disponible cuando las conversaciones están en un solo buzón",
+  // reordering the mailboxes (folder pane, Settings)
+  "mail.acct.moveUp": "Mover hacia arriba",
+  "mail.acct.moveDown": "Mover hacia abajo",
+  "mail.acct.drag": "Arrastrar para reordenar {email}",
+  "mail.acct.moved": "{email} movida a la posición {n} de {total}",
+  "mail.acct.cancelled": "Reordenación cancelada",
 });

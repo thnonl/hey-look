@@ -104,4 +104,10 @@ export default defineLocale<typeof ns.en>({
   "mail.ctx.copyFailed": "Kopieren in die Zwischenablage nicht möglich",
   "mail.ctx.onlyOne": "Nur für jeweils eine Unterhaltung verfügbar",
   "mail.ctx.oneMailbox": "Nur verfügbar, wenn sich die Unterhaltungen in einem Postfach befinden",
+  // reordering the mailboxes (folder pane, Settings)
+  "mail.acct.moveUp": "Nach oben verschieben",
+  "mail.acct.moveDown": "Nach unten verschieben",
+  "mail.acct.drag": "Ziehen, um {email} neu anzuordnen",
+  "mail.acct.moved": "{email} an Position {n} von {total} verschoben",
+  "mail.acct.cancelled": "Neuanordnung abgebrochen",
 });

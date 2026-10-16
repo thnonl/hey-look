@@ -1,5 +1,6 @@
 import { isLang, t } from "./i18n/index.ts";
 import type { Key, LangPref } from "./i18n/index.ts";
+import { pruneOrder } from "./accountOrder";
 import { DEFAULT_MAIL_CANVAS, MailCanvas, resolveMailCanvas } from "./mailCanvas";
 import { DEFAULT_NUDGE, NudgeState, normalizeNudge } from "./supportNudge";
 export type NotifySound = "mail" | "default" | "im" | "reminder" | "sms" | "none";
@@ -111,6 +112,8 @@ export interface Prefs extends Overridable {
   countOtherMail: boolean; // include "Other" (bulk) mail in unread counts
   recentSearches: string[];
   defaultAccount: string; // "" = first account
+  /** account ids in the order the person arranged them (empty = the order the backend gives, i.e. the order they were added); see accountOrder.ts */
+  accountOrder: string[];
   snoozeTimes: { evening: number; tomorrow: number; weekend: number; nextWeek: number }; // hour of day
   hoverActions: string[]; // archive | delete | flag | pin | read | snooze
   favorites: string[]; // "<accountId|*>|<folder key>"
@@ -163,6 +166,7 @@ export const DEFAULT_PREFS: Prefs = {
   countOtherMail: false,
   recentSearches: [],
   defaultAccount: "",
+  accountOrder: [],
   snoozeTimes: { evening: 18, tomorrow: 8, weekend: 9, nextWeek: 8 },
   hoverActions: ["archive", "delete", "flag", "pin"],
   favorites: ["*|inbox", "*|sent", "*|drafts"],
@@ -245,6 +249,7 @@ export function mergePrefs(raw: string | null): Prefs {
       // English unless the person chose another language (an unknown or older value counts as English)
       language: isLang(p.language) || p.language === "en-XA" ? p.language : "en",
       accountPrefs,
+      accountOrder: Array.isArray(p.accountOrder) ? p.accountOrder.filter((x): x is string => typeof x === "string") : [],
       supportNudge: normalizeNudge(p.supportNudge),
       snoozeTimes: { ...DEFAULT_PREFS.snoozeTimes, ...(p.snoozeTimes ?? {}) },
     };
@@ -269,6 +274,8 @@ export function staleAccountPrefs(prefs: Prefs, accountIds: string[]): Partial<P
     return acct === "*" || known.has(acct);
   });
   if (favs.length !== (prefs.favorites ?? []).length) out.favorites = favs;
+  const order = pruneOrder(prefs.accountOrder ?? [], accountIds);
+  if (order) out.accountOrder = order;
   const col = Object.entries(prefs.collapsed ?? {});
   if (col.some(([k]) => UUID_LIKE.test(k) && !known.has(k))) out.collapsed = Object.fromEntries(col.filter(([k]) => !UUID_LIKE.test(k) || known.has(k)));
   return out;
