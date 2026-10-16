@@ -171,6 +171,26 @@ mod tests {
         assert!(!offers_starttls(&lines(&["250-mx", "250 AUTH STARTTLSX"])));
     }
 
+    /// The TLS side of the fake servers: rustls with a self-signed certificate for localhost that is generated when the tests run (once per
+    /// process, in memory; the accounts under test set `tls_insecure`, so the client does not check it). No key is stored anywhere.
+    fn tls_accept(s: std::net::TcpStream) -> rustls::StreamOwned<rustls::ServerConnection, std::net::TcpStream> {
+        static CONFIG: std::sync::OnceLock<Arc<rustls::ServerConfig>> = std::sync::OnceLock::new();
+        let config = CONFIG.get_or_init(|| {
+            let made = rcgen::generate_simple_self_signed(vec!["localhost".to_string(), "127.0.0.1".to_string()]).unwrap();
+            let key = rustls::pki_types::PrivateKeyDer::try_from(made.signing_key.serialize_der()).unwrap();
+            let provider = Arc::new(rustls::crypto::aws_lc_rs::default_provider());
+            let cfg = rustls::ServerConfig::builder_with_provider(provider)
+                .with_safe_default_protocol_versions()
+                .unwrap()
+                .with_no_client_auth()
+                .with_single_cert(vec![made.cert.der().clone()], key)
+                .unwrap();
+            Arc::new(cfg)
+        });
+        // (the handshake runs with the first read or write)
+        rustls::StreamOwned::new(rustls::ServerConnection::new(config.clone()).unwrap(), s)
+    }
+
     /// How a fake server is reached: plain, or TLS from the first byte (port 465), or plain until STARTTLS (port 587).
     #[derive(Clone, Copy, PartialEq)]
     enum Kind {
@@ -224,8 +244,7 @@ mod tests {
                         talk(&mut r, plain, false, false);
                     }
                     Kind::Implicit => {
-                        let Ok(t) = crate::faketls::acceptor().accept(s) else { return };
-                        let mut r = BufReader::new(t);
+                        let mut r = BufReader::new(tls_accept(s));
                         r.get_mut().write_all(b"220 test ESMTP\r\n").unwrap();
                         talk(&mut r, secure, false, false);
                     }
@@ -233,8 +252,7 @@ mod tests {
                         let mut r = BufReader::new(s);
                         r.get_mut().write_all(b"220 test ESMTP\r\n").unwrap();
                         if talk(&mut r, plain, true, refuse_starttls) {
-                            let Ok(t) = crate::faketls::acceptor().accept(r.into_inner()) else { return };
-                            talk(&mut BufReader::new(t), secure, false, false);
+                            talk(&mut BufReader::new(tls_accept(r.into_inner())), secure, false, false);
                         }
                     }
                 });

@@ -38,8 +38,6 @@ mod shard;
 mod shell;
 mod smtp;
 mod smtpsize;
-#[cfg(test)]
-mod faketls;
 mod snippet;
 mod update;
 mod winframe;
