@@ -727,12 +727,15 @@ button.pill:hover { filter: brightness(.95); }
 .editor .tiptap img.ProseMirror-selectednode { outline: 2px solid var(--accent); outline-offset: 2px; }
 .img-wrap { position: relative; display: inline-block; max-width: 100%; }
 .img-wrap .handle { position: absolute; right: -5px; bottom: -5px; width: 10px; height: 10px; border-radius: 2px; background: var(--accent); border: 2px solid var(--bg); cursor: nwse-resize; }
-.img-tools { position: absolute; z-index: 9; display: flex; align-items: center; gap: 2px; background: var(--bg); border: 1px solid var(--border); border-radius: var(--r-md); box-shadow: var(--shadow); padding: 3px; animation: pop .1s var(--ease); white-space: nowrap; }
-.img-tools .seg { margin: 0; }
+/* the picture toolbar: the anchor spans the pane (Compose.tsx sets its top and the box's margin-left once the toolbar is measured), the box is as wide as the toolbar needs but never wider than the pane, and the items wrap to a second row instead of overlapping */
+.img-tools-anchor { position: absolute; left: 0; right: 0; z-index: 9; pointer-events: none; }
+.img-tools-box { position: relative; width: max-content; max-width: calc(100% - 16px); pointer-events: auto; }
+.img-tools { display: flex; flex-wrap: wrap; align-items: center; gap: 2px; background: var(--bg); border: 1px solid var(--border); border-radius: var(--r-md); box-shadow: var(--shadow); padding: 3px; animation: pop .1s var(--ease); }
+.img-tools > * { flex: none; white-space: nowrap; }
+.img-tools .seg { margin: 0; flex-wrap: nowrap; }
 .img-tools .seg button { padding: 3px 9px; font-size: .86em; }
-.img-tools .sep { width: 1px; align-self: stretch; background: var(--border); margin: 2px 3px; }
 .img-badge { position: absolute; left: 6px; bottom: 6px; font-size: .74em; background: rgba(0,0,0,.62); color: #fff; padding: 1px 7px; border-radius: 999px; }
-.alt-pop { width: 320px; padding: 12px; gap: 8px; }
+.alt-pop { position: absolute; top: calc(100% + 4px); left: 0; z-index: 13; width: 320px; padding: 12px; gap: 8px; }
 .drop-zones { position: absolute; inset: 8px; display: grid; grid-template-rows: 1fr 96px; gap: 8px; z-index: 20; pointer-events: none; }
 .dz { border: 2px dashed color-mix(in srgb, var(--accent), transparent 40%); border-radius: var(--r-lg); background: color-mix(in srgb, var(--accent), transparent 92%); display: grid; place-items: center; color: var(--accent-text); font-weight: 650; text-align: center; gap: 4px; }
 .dz.hot { background: color-mix(in srgb, var(--accent), transparent 80%); border-style: solid; }
@@ -833,6 +836,8 @@ button.pill:hover { filter: brightness(.95); }
 .drop-zones .dz { pointer-events: auto; }
 .img-tools .tool-btn { display: inline-flex; align-items: center; gap: 4px; border: 0; background: none; padding: 4px 8px; border-radius: var(--r-sm); color: var(--fg); font-size: .86em; }
 .img-tools .tool-btn:hover { background: var(--bg3); }
+/* "no alt text yet": a small dot after the label. (This was the generic .dot class, which made the button 9 px wide and let its label run over the next button: F-26.) */
+.img-tools .tool-btn.no-alt::after { content: ""; width: 6px; height: 6px; border-radius: 50%; background: var(--accent); flex: none; }
 .alt-pop textarea { width: 100%; min-height: 64px; resize: vertical; }
 .alt-pop .helper { font-size: .8em; color: var(--muted); }
 .pv-text { margin: 0; padding: 16px 20px; white-space: pre-wrap; overflow: auto; font: 12.5px/1.55 "Cascadia Mono", Consolas, monospace; background: var(--bg); height: 100%; box-sizing: border-box; }

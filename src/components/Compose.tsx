@@ -7,7 +7,7 @@ import {
   BadgeCheck, Bold, CalendarClock, CalendarPlus, ChevronDown, FileText, ImagePlus, Info, Italic, Link2, List, ListOrdered, Lock, LockOpen, Paperclip, Save, Send, ShieldAlert, ShieldCheck, Sparkles, Trash2,
   TriangleAlert, Underline as UIcon, X,
 } from "lucide-react";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { api, Att, Contact, Draft, DraftSecurity, errorCode, InlineImage, MessageFull, OwnKeyStatus, RecipientStatus, Signature, Template } from "../api";
 import { eff } from "../prefs";
@@ -15,6 +15,10 @@ import { kbd } from "../platform";
 import { ComposeInit, friendlyError, useStore } from "../store";
 import type { ComposeProbe, SavedDraft } from "../leaveCompose";
 import { extractSignature, fillSignature, normalizeHtml, SIG_MARK } from "../signature";
+import { repairSignature, signatureGuard } from "../signatureGuard";
+import { fitInWindow } from "../fitInWindow";
+import { placePictureTools } from "../pictureToolsLayout";
+import type { PictureToolsInput } from "../pictureToolsLayout";
 import { blockedAttachmentExt, dataUriBytes, fileToBase64, fmtIn, fmtSize, fmtWhen, htmlToText, imageSize, PICTURE_TYPES, playSent, resizeImage, sanitizeHtml, shortKey, userName } from "../util";
 import { calTz } from "../calendar";
 import { defaultMeeting, MeetingState, MeetingStrip, meetingToDraft } from "./Calendar";
@@ -70,6 +74,7 @@ const SignatureBlock = (cb: { mount: (el: HTMLElement) => void; unmount: (el: HT
     draggable: false,
     parseHTML: () => [{ tag: "div[data-sig-block]" }],
     renderHTML: () => ["div", { "data-sig-block": "" }],
+    addProseMirrorPlugins: () => [signatureGuard("signatureBlock")],
     addNodeView: () => () => {
       const dom = document.createElement("div");
       dom.className = "sig-block none";
@@ -322,8 +327,8 @@ interface PictureSel {
   width: number | null;
   alt: string;
   name: string;
-  top: number;
-  left: number;
+  /** where the picture is in the scrolling body (see pictureToolsLayout.ts); the toolbar is placed from it once it is measured */
+  geo: Omit<PictureToolsInput, "width" | "height">;
 }
 
 export function Compose({ init }: { init: ComposeInit }) {
@@ -398,6 +403,28 @@ export function Compose({ init }: { init: ComposeInit }) {
   const attachingRef = useRef(0); // files / pictures being read into the message
   const savedTid = useRef<string | null>(null); // the draft a "leave" save made: a second save replaces it instead of adding another
   const baseline = useRef<{ text: string; pics: number } | null>(null); // the body as Compose opened it (a reply: the quote)
+
+  // The picture toolbar is placed after it has been laid out: it wraps to more rows in a narrow pane, so its size is measured, then it
+  // goes above / below the picture and inside the pane (pictureToolsLayout.ts). The alt text popover opens under it, also inside the pane.
+  const toolsRef = useRef<HTMLDivElement>(null);
+  useLayoutEffect(() => {
+    const anchor = toolsRef.current;
+    if (!picSel || !anchor) return;
+    const box = anchor.firstElementChild as HTMLElement;
+    const { geo } = picSel;
+    box.style.marginLeft = "";
+    const { left, top } = placePictureTools({ ...geo, width: box.offsetWidth, height: box.offsetHeight });
+    box.style.marginLeft = `${left}px`;
+    anchor.style.top = `${top}px`;
+    const pop = box.querySelector<HTMLElement>(".alt-pop");
+    if (pop) {
+      pop.style.maxWidth = `${Math.max(0, geo.paneWidth - 16)}px`;
+      pop.style.marginLeft = "";
+      const at = left + pop.offsetLeft;
+      pop.style.marginLeft = `${fitInWindow({ left: at, right: at + pop.offsetWidth, top: 0, bottom: 0 }, geo.paneWidth, Infinity).shift}px`;
+    }
+  });
+
   const touch = useCallback(() => {
     touched.current = true;
     revRef.current++;
@@ -462,15 +489,22 @@ export function Compose({ init }: { init: ComposeInit }) {
     const box = bodyRef.current?.getBoundingClientRect();
     if (!dom || !box) return setPicSel(null);
     const r = dom.getBoundingClientRect();
-    const scroll = bodyRef.current?.scrollTop ?? 0;
-    const above = r.top - box.top - 44 >= 0;
+    const body = bodyRef.current!;
+    const scroll = body.scrollTop;
     setPicSel({
       pos: sel.from,
       width: (sel.node.attrs.width as number | null) ?? null,
       alt: (sel.node.attrs.alt as string | null) ?? "",
       name: (sel.node.attrs["data-name"] as string | null) ?? "picture",
-      top: above ? r.top - box.top + scroll - 42 : r.bottom - box.top + scroll + 8,
-      left: Math.max(8, r.left - box.left + Math.min(r.width, 360) / 2 - 150),
+      geo: {
+        imgLeft: r.left - box.left,
+        imgWidth: r.width,
+        imgTop: r.top - box.top + scroll,
+        imgBottom: r.bottom - box.top + scroll,
+        scrollTop: scroll,
+        paneWidth: body.clientWidth,
+        paneHeight: body.clientHeight,
+      },
     });
   };
 
@@ -512,17 +546,33 @@ export function Compose({ init }: { init: ComposeInit }) {
     // a new message: typed text, then the signature region, then (reply / forward) the quoted message
     content: editing ? startDoc.current!.html : `<p></p>${SIG_MARK}${init.bodyHtml ?? "<p></p>"}`,
     autofocus: (init.to?.length ?? 0) > 0 ? "start" : false,
-    onUpdate: ({ editor: ed }) => {
-      // the signature region cannot be deleted by accident (Backspace, select all): it comes back at the end
-      let has = false;
-      ed.state.doc.descendants((n) => { if (n.type.name === "signatureBlock") has = true; return !has; });
-      if (!has) ed.commands.insertContentAt(ed.state.doc.content.size, [{ type: "signatureBlock" }, { type: "paragraph" }]);
-      touch();
+    // a body from an older build may lack the paragraph above the signature region: add it without counting as an edit
+    onCreate: ({ editor: ed }) => {
+      const fix = repairSignature(ed.state, "signatureBlock", null);
+      if (fix) ed.view.dispatch(fix.setMeta("addToHistory", false).setMeta("signatureInit", true));
+    },
+    // the signature region itself cannot be deleted or moved by accident: signatureGuard (signatureGuard.ts) repairs it in place
+    onUpdate: ({ editor: ed, transaction }) => {
+      if (!transaction.getMeta("signatureInit")) touch();
       countPictures(ed);
       syncPicSel(ed);
     },
     onSelectionUpdate: ({ editor: ed }) => syncPicSel(ed),
   });
+
+  // a resized window changes the pane the picture toolbar has to fit in, and a picture that has just loaded gets its real height
+  useEffect(() => {
+    if (!editor) return;
+    const onResize = () => syncPicSel(editor);
+    const dom = editor.view.dom;
+    window.addEventListener("resize", onResize);
+    dom.addEventListener("load", onResize, true);
+    return () => {
+      window.removeEventListener("resize", onResize);
+      dom.removeEventListener("load", onResize, true);
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [editor]);
 
   // pictures that were already in the draft (or a scheduled message) are counted once the editor exists
   useEffect(() => {
@@ -1522,32 +1572,52 @@ export function Compose({ init }: { init: ComposeInit }) {
         <EditorContent editor={editor} className="editor" />
         {picSel && (
           <>
-            <div className="img-tools" role="toolbar" aria-label={t("compose.pic.options")} style={{ top: picSel.top, left: picSel.left, position: "absolute" }}>
-              <div className="seg" role="radiogroup" aria-label={t("compose.pic.size")}>
-                {SIZES.map(([label, w]) => (
-                  <button key={label} role="radio" aria-checked={picSel.width === w} className={picSel.width === w ? "on" : ""} onClick={() => setPictureSize(w)}>
-                    {t(label)}
+            <div
+              className="img-tools-anchor"
+              ref={toolsRef}
+              onKeyDown={(e) => {
+                // Esc leaves the toolbar (or just the alt text popover) and returns to the editor, the picture still selected
+                if (e.key !== "Escape") return;
+                e.preventDefault();
+                e.stopPropagation();
+                setAltOpen(false);
+                editor?.commands.focus();
+              }}
+            >
+              <div className="img-tools-box">
+                <div className="img-tools" role="toolbar" aria-label={t("compose.pic.options")}>
+                  <div className="seg" role="radiogroup" aria-label={t("compose.pic.size")}>
+                    {SIZES.map(([label, w]) => (
+                      <button key={label} role="radio" aria-checked={picSel.width === w} className={picSel.width === w ? "on" : ""} onClick={() => setPictureSize(w)}>
+                        {t(label)}
+                      </button>
+                    ))}
+                  </div>
+                  <button
+                    className={`tool-btn ${picSel.alt ? "" : "no-alt"}`}
+                    title={picSel.alt ? t("compose.pic.editAlt") : t("compose.pic.addAlt")}
+                    aria-haspopup="dialog"
+                    aria-expanded={altOpen}
+                    onClick={() => (setAltText(picSel.alt), setAltOpen((o) => !o))}
+                  >
+                    {t("compose.pic.altText")}
                   </button>
-                ))}
-              </div>
-              <span className="sep" />
-              <button className={`tool-btn ${picSel.alt ? "" : "dot"}`} title={picSel.alt ? t("compose.pic.editAlt") : t("compose.pic.addAlt")} onClick={() => (setAltText(picSel.alt), setAltOpen((o) => !o))}>
-                {t("compose.pic.altText")}
-              </button>
-              <button className="tool-btn" onClick={pictureAsAttachment}>{t("compose.pic.asAttachment")}</button>
-              <button className="icon-btn" aria-label={t("compose.pic.remove")} title={t("compose.pic.removeTip")} onClick={removePicture}><Trash2 size={14} /></button>
-            </div>
-            {altOpen && (
-              <div className="popover alt-pop" style={{ top: picSel.top + 40, left: picSel.left, position: "absolute", zIndex: 13 }} role="dialog" aria-label={t("compose.pic.altText")}>
-                <label className="small muted">{t("compose.pic.altText")}</label>
-                <textarea value={altText} onChange={(e) => setAltText(e.target.value)} autoFocus placeholder={t("compose.pic.altPlaceholder")} />
-                <div className="helper">{t("compose.pic.altHelp")}</div>
-                <div className="row-inline" style={{ justifyContent: "flex-end", margin: 0 }}>
-                  <button className="btn small" onClick={() => setAltOpen(false)}>{t("common.cancel")}</button>
-                  <button className="btn primary small" onClick={savePictureAlt}>{t("common.save")}</button>
+                  <button className="tool-btn" onClick={pictureAsAttachment}>{t("compose.pic.asAttachment")}</button>
+                  <button className="icon-btn" aria-label={t("compose.pic.remove")} title={t("compose.pic.removeTip")} onClick={removePicture}><Trash2 size={14} /></button>
                 </div>
+                {altOpen && (
+                  <div className="popover alt-pop" role="dialog" aria-label={t("compose.pic.altText")}>
+                    <label className="small muted" htmlFor="alt-text-field">{t("compose.pic.altText")}</label>
+                    <textarea id="alt-text-field" value={altText} onChange={(e) => setAltText(e.target.value)} autoFocus placeholder={t("compose.pic.altPlaceholder")} />
+                    <div className="helper">{t("compose.pic.altHelp")}</div>
+                    <div className="row-inline" style={{ justifyContent: "flex-end", margin: 0 }}>
+                      <button className="btn small" onClick={() => setAltOpen(false)}>{t("common.cancel")}</button>
+                      <button className="btn primary small" onClick={savePictureAlt}>{t("common.save")}</button>
+                    </div>
+                  </div>
+                )}
               </div>
-            )}
+            </div>
           </>
         )}
         {sigHeads.map((el) =>
