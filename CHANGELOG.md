@@ -1,5 +1,18 @@
 # Changelog
 
+## 1.0.5 — 2026-10-16
+
+A few leftovers from 1.0.4: Cancel on an AI request, error messages that pile up, a mail that turns read after a failed Archive, the Junk folder and the 404 page of the website.
+
+### Fixed
+
+- Translate: Cancel now stops the request to the AI provider, not only the waiting, so a cancelled translation no longer keeps running (and costing tokens) in the background
+- Many failed translations no longer cover the mail list and the reading pane: at most three notices of the same kind stay on screen, the rest are folded into one "more notifications" row with Dismiss all
+- The notices about a translation (running, ready, failed) follow the language you choose, also when you change the language while they are on screen
+- Archive and Delete: when the move is refused or you press Undo, the next mail that Hey Look! opened for you goes back to unread, if you did nothing with it in the first 10 seconds, and the selection returns to the mail you moved
+- Junk: the Junk folder and the actions that move mail to Junk (Move to Junk, Block sender, the ! key) are hidden or greyed out, with the hint "No Junk folder", when the mailbox has no Junk folder. Archive and Trash stay, they are created when you first use them
+- Website: the 404 page (page not found) is written in the language of the address in all eight languages, including the top menu and the footer
+
 ## 1.0.4 — 2026-10-16
 
 Small fixes found while testing 1.0.3: event times, Archive and Delete errors, quick clicks on flag and pin, long texts in Settings, the macOS app menu and the website on phones.
