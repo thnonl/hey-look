@@ -228,6 +228,52 @@ export function parseTime(text: string): string | null {
   return toTime(h * 60 + mi);
 }
 
+// ---------------------------------------------------------------- start / end of an event
+
+/** The four fields of a "when": start date / time, end date / time ("yyyy-MM-dd", "HH:mm"). */
+export interface When {
+  sd: string;
+  st: string;
+  ed: string;
+  et: string;
+}
+
+/** Wall-clock minutes since 1970 of a date and time, or null; `allDay` ignores the time. Calendar arithmetic only: a clock change moves nothing. */
+function wallMinutes(date: string, time: string, allDay: boolean): number | null {
+  const d = readIso(date);
+  const t = allDay ? 0 : readTime(time);
+  return d && t !== null ? Date.UTC(d.y, d.m - 1, d.d) / 60_000 + t : null;
+}
+
+const NEW_DURATION = 60; // minutes of an event whose old length can't be kept (it had none)
+
+/**
+ * The event after its START was changed (`change` = the new start date and / or time): the end moves with it and keeps the length the event had,
+ * like Google Calendar, Outlook and Apple Calendar do, whether the start moved later or earlier. All day: the last day follows the first day.
+ * A length is only kept when the event had one (end after start); if the end was already wrong, it stays where it is unless the new start would
+ * land on or after it, then the event gets an hour (a day for all day). Editing the END never goes through here: it never moves the start.
+ * Anything that is not a date / time (a half-typed value cannot get here, but "" can) leaves the end as it was.
+ */
+export function moveStart(when: When, change: Partial<Pick<When, "sd" | "st">>, allDay: boolean): When {
+  const next = { ...when, ...change };
+  const from = wallMinutes(when.sd, when.st, allDay);
+  const to = wallMinutes(next.sd, next.st, allDay);
+  const end = wallMinutes(when.ed, when.et, allDay);
+  if (from === null || to === null || end === null) return next;
+  const day = 1440;
+  const length = end - from;
+  // all day: the end date may be the start date (a one-day event, length 0); timed: the end must be after the start
+  const kept = allDay ? length >= 0 : length > 0;
+  let target: number;
+  if (kept) target = to + length;
+  else if (allDay ? to <= end : to < end) return next;
+  else target = to + (allDay ? 0 : NEW_DURATION);
+  const ed = new Date(target * 60_000);
+  const date = real(ed.getUTCFullYear(), ed.getUTCMonth() + 1, ed.getUTCDate());
+  if (!date) return next; // (past year 9999: leave the end)
+  return { ...next, ed: toIso(date), et: allDay ? when.et : toTime(target - Math.floor(target / day) * day) };
+}
+
 /** The times of the time list: every `step` minutes of a day; the current value is added when it is between two of them. */
 export function timeSlots(current = "", step = 15): string[] {
   const out: string[] = [];
