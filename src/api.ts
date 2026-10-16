@@ -510,11 +510,15 @@ export const api = {
     invoke<MessageFull[]>("get_thread", { threadId, scope: scope ?? null }),
   threadAction: (threadIds: string[], action: string, arg?: string, scope?: string) =>
     invoke<void>("thread_action", { threadIds, action, arg: arg ?? null, scope: scope ?? null }),
-  /** Finds or creates the folder a move goes to, on the server, before the move is queued; rejects when it cannot (nothing is moved). */
+  /**
+   * Finds or creates the folder a move goes to, on the server, before the move is queued; rejects when it cannot (nothing is moved).
+   * Resolves true when the saved folder list was trusted for a folder: pass that to `queueAction` as `verify`.
+   */
   prepareAction: (threadIds: string[], action: string, arg: string | null, scope: string | null) =>
-    invoke<void>("prepare_action", { threadIds, action, arg, scope }),
-  queueAction: (threadIds: string[], action: string, arg: string | null, scope: string | null, delaySecs: number) =>
-    invoke<string>("queue_action", { threadIds, action, arg, scope, delaySecs }),
+    invoke<boolean>("prepare_action", { threadIds, action, arg, scope }),
+  /** `verify`: the backend checks the saved folder on the server during the Undo window and drops the move (`action-verify-failed`) when it is gone. */
+  queueAction: (threadIds: string[], action: string, arg: string | null, scope: string | null, delaySecs: number, verify = false) =>
+    invoke<string>("queue_action", { threadIds, action, arg, scope, delaySecs, verify }),
   cancelAction: (id: string) => invoke<boolean>("cancel_action", { id }),
   /** Downloads up to `limit` (max 50) messages older than what is stored. Rejects with the server's error; never turns it into "none". */
   loadOlder: (accountId: string, role: string, limit = 50) => invoke<LoadOlderResult>("load_older", { accountId, role, limit }),

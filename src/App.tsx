@@ -19,7 +19,7 @@ import { Welcome } from "./components/Welcome";
 import { hasMailAccounts, shortcutWorks } from "./mailControls";
 import { t as tNow } from "./i18n";
 import { useT } from "./i18n/react";
-import { flushSends, friendlyError, useStore } from "./store";
+import { flushSends, friendlyError, moveDropped, useStore } from "./store";
 import { osNow } from "./platform";
 import { openUpdateLink, useUpdates } from "./updates";
 import { calTz, configureCalendar, addDays, addMonths, today as todayDay } from "./calendar";
@@ -144,6 +144,7 @@ function App() {
         if (!hasMailAccounts(st.accounts.length)) return; // no account: nothing to write with
         void st.openCompose({ accountId: newMailAccount() });
       }),
+      listen<{ id: string; error: string }>("action-verify-failed", (e) => moveDropped(e.payload.id, e.payload.error)),
       listen<string>("action-failed", (e) => useStore.getState().showToast(t("app.toast.actionFailed", { error: friendlyError(e.payload) }), undefined, "error")),
       listen<{ threadId: string }>("open-thread", (e) => void open(e.payload.threadId)),
       listen<{ threadId: string }>("notify-reply", async (e) => {
