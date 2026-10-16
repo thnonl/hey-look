@@ -149,6 +149,7 @@ export function FolderPane() {
         const error = syncErrors[a.id];
         return (
           <div className={`fp-group ${reorder.dragging === a.id ? "reorder-src" : ""}`} key={a.id} data-reorder-id={a.id} {...reorder.entry(a.id)}>
+            <div className="fp-headrow">
             {accounts.length > 1 && <Grip email={accountLabel(a).text} bind={reorder.grip(a.id)} dragging={reorder.dragging === a.id} />}
             {head(
               a.id,
@@ -172,6 +173,7 @@ export function FolderPane() {
               </>,
               true,
             )}
+            </div>
             <ReauthNotice account={a} compact />
             {!collapsed(a.id) && (
               <>
