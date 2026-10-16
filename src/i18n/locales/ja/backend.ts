@@ -23,6 +23,7 @@ export default defineLocale<typeof ns.en>({
   "backend.EMAIL_INVALID": "有効なメールアドレスを入力してください",
   "backend.AI_NOT_CONFIGURED": "AIが設定されていません。設定 > AIアシスタントでエンドポイントとモデルを指定してください",
   "backend.AI_TIMEOUT": "AIアシスタントが{secs}秒以内に応答しませんでした。",
+  "backend.AI_CANCELLED": "AIアシスタントへのリクエストをキャンセルしました。",
   "backend.AI_HTTP": "AIアシスタントがエラーを返しました（{status}）：{detail}",
   "backend.AI_HTTP.plain": "AIアシスタントがエラーを返しました（{status}）。",
   "backend.UPDATE_BUSY": "ダウンロードは既に実行中です。",

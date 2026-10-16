@@ -625,6 +625,8 @@ const newThreads = (accountId: string) =>
 //                      the cap (setting max_download, Settings > Reading & sync) also makes load_older answer { limited: true } once a mailbox holds that many messages
 // `__mockMail` in the console: { calls (every load_older), opened (urls given to the browser), local, total, failIn }
 let mockAiCalls = 0;
+/** the job ids the page cancelled (ai_cancel): a dev check can read them from window.__mockAiCancelled */
+const mockAiCancelled: string[] = ((window as unknown as { __mockAiCancelled?: string[] }).__mockAiCancelled = []);
 const hashHas = (k: string) => new RegExp(`(^|&)${k}(=|&|$)`).test(window.location.hash.slice(1));
 const hashNum = (k: string, d: number) => {
   const m = new RegExp(`(^|&)${k}=(\\d+)`).exec(window.location.hash.slice(1));
@@ -1477,6 +1479,7 @@ export function installMock() {
         if (hashHas("slowai")) return new Promise((r) => setTimeout(() => r(reply), hashNum("slowai", 20000)));
         return reply;
       }
+      case "ai_cancel": mockAiCancelled.push(String(a.jobId)); return null;
       case "get_autostart": return false;
       case "cancel_outbox": case "outbox_send_now": case "outbox_to_draft": {
         const i = mockOutbox.findIndex((x) => x.id === a.id);

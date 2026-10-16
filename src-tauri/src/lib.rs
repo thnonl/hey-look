@@ -4101,7 +4101,7 @@ async fn fetch_remote_images(urls: Vec<String>) -> R<HashMap<String, String>> {
 }
 
 #[tauri::command]
-async fn ai_complete(state: tauri::State<'_, AppState>, system: String, prompt: String) -> R<String> {
+async fn ai_complete(state: tauri::State<'_, AppState>, system: String, prompt: String, job_id: Option<String>) -> R<String> {
     let (ep, key, model) = {
         let c = lock(&state.db);
         (
@@ -4110,7 +4110,13 @@ async fn ai_complete(state: tauri::State<'_, AppState>, system: String, prompt: 
             db::get_setting(&c, "ai_model").unwrap_or_default(),
         )
     };
-    ai::complete(&ep, &key, &model, &system, &prompt).await
+    ai::complete(&ep, &key, &model, &system, &prompt, job_id.as_deref()).await
+}
+
+/// Cancel the `ai_complete` call that was started with this `job_id`: its request to the provider is dropped.
+#[tauri::command]
+fn ai_cancel(job_id: String) {
+    ai::cancel(&job_id);
 }
 
 #[tauri::command]
@@ -4341,6 +4347,7 @@ pub fn run() {
             set_secret,
             has_secret,
             ai_complete,
+            ai_cancel,
             ai_list_models,
             shell_info,
             update::check_update,

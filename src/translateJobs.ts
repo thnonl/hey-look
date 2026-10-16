@@ -52,6 +52,11 @@ export interface TranslateJob extends TranslateSpec {
 
 export type Jobs = Readonly<Record<string, TranslateJob>>;
 
+const bootId = Math.random().toString(36).slice(2, 8);
+/** The id of the backend request of a start (`ai_complete` / `ai_cancel`): unique per start and per run of the app, so a call left from
+ *  before a page reload can never be taken for a new one. */
+export const aiJobId = (run: number): string => `translate-${bootId}-${run}`;
+
 export const jobKey = (messageId: string, lang: string): string => `${messageId}\u0000${lang}`;
 
 let touchSeq = 0;

@@ -632,7 +632,9 @@ export const api = {
   unsubscribe: (messageId: string) =>
     invoke<{ kind: "done" | "open" | "mailto"; target: string }>("unsubscribe", { messageId }),
   fetchRemoteImages: (urls: string[]) => invoke<Record<string, string>>("fetch_remote_images", { urls }),
-  aiComplete: (system: string, prompt: string) => invoke<string>("ai_complete", { system, prompt }),
+  /** `jobId` makes the call cancellable: `aiCancel(jobId)` drops the request to the provider (the call then fails with AI_CANCELLED). */
+  aiComplete: (system: string, prompt: string, jobId?: string) => invoke<string>("ai_complete", { system, prompt, jobId: jobId ?? null }),
+  aiCancel: (jobId: string) => invoke<void>("ai_cancel", { jobId }),
   aiListModels: (endpoint: string, key?: string) => invoke<string[]>("ai_list_models", { endpoint, key: key ?? null }),
   /** Whether any account exists: the tray menu items "New mail" and "Check mail now" are enabled only then. */
   /** The UI has painted its first screen: the backend may show the window (it reloads the page when this never comes). */

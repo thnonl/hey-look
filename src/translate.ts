@@ -14,6 +14,7 @@ import {
   SLOW_HINT_MS,
   startJob,
   TRANSLATE_TIMEOUT_MS,
+  aiJobId,
   withTimeout,
   type TranslateJob,
   type TranslateSpec,
@@ -32,6 +33,11 @@ const current = (key: string, run: number): TranslateJob | undefined => {
   const j = store().translations[key];
   return j && j.run === run ? j : undefined;
 };
+
+/** Drop the request of a start at the backend (it closes the connection to the provider). Nothing to do when the call is over already. */
+function abortRequest(run: number) {
+  api.aiCancel(aiJobId(run)).catch(() => {});
+}
 
 /** The person has this very mail open (not elsewhere, not in the calendar). */
 const viewing = (j: TranslateJob) => store().module === "mail" && store().selected === j.threadId;
@@ -118,10 +124,14 @@ export function startTranslation(spec: TranslateSpec): void {
       // i18n-ok: a prompt for the language model, not text the person reads
       `Translate the email into ${job.lang}. Output only the translation, keep the formatting and line breaks.`,
       job.text,
+      aiJobId(run),
     ),
     TRANSLATE_TIMEOUT_MS,
-    // i18n-ok: a coded error, translated by backend.AI_TIMEOUT (the same sentence the backend sends after 180 s)
-    () => new Error(`AI_TIMEOUT|secs=${secs}: The AI Assistant didn’t answer within ${secs} seconds.`),
+    () => {
+      abortRequest(run); // the UI gives up: the request to the provider must not go on in the background
+      // i18n-ok: a coded error, translated by backend.AI_TIMEOUT (the same sentence the backend sends after 180 s)
+      return new Error(`AI_TIMEOUT|secs=${secs}: The AI Assistant didn’t answer within ${secs} seconds.`);
+    },
   ).then(
     (result) => settle(key, run, { result }),
     (error) => settle(key, run, { error }),
@@ -136,6 +146,7 @@ export function cancelTranslation(key: string): void {
   hintTimers.delete(key);
   store().setTranslations((jobs) => cancelJob(jobs, key));
   store().setStickyToast(toastKey(j), null);
+  abortRequest(j.run);
 }
 
 /** "Hide translation" / "Dismiss" of an error: the job (and its cached result) goes. */
