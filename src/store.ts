@@ -10,6 +10,7 @@ import { calendarErrorText } from "./calendarSync";
 import { backendText } from "./backendErrors";
 import { needsSignIn } from "./signIn";
 import type { Jobs } from "./translateJobs";
+import { planRestore, startAdvance, touchAdvance, type Advance } from "./autoAdvance";
 import { addToast, lazyText, type Lazy } from "./toastStack";
 export { lazyText, type Lazy };
 import { resolveLang, setLangPref, t } from "./i18n";
@@ -330,6 +331,24 @@ const preparing = new Set<string>();
 /** (BUG-1) Moves waiting out their Undo window: see queuedMoves.ts. */
 const queued = new QueuedMoves();
 
+/** Where the selection went after a queued move (see autoAdvance.ts), by the move's token, until it is dropped, undone or pushed out. */
+const advances = new Map<string, Advance>();
+const ADVANCES_KEEP = 50;
+/** Set while the app itself marks the mail it just opened as read: that is not the person touching it. */
+let autoMarking = false;
+
+/** The mail of a move is back (refused or Undo): the selection and the unread state the app changed for the auto-advance go back too. */
+async function restoreAdvance(token: string) {
+  const a = advances.get(token);
+  advances.delete(token);
+  if (!a) return;
+  const st = useStore.getState();
+  const next = a.to === null ? undefined : st.threads.find((x) => x.threadId === a.to);
+  const plan = planRestore(a, Date.now(), st.selected, !!next && next.unread > 0);
+  if (plan.reselect) await st.select(plan.reselect);
+  if (plan.markUnread) await useStore.getState().act([plan.markUnread], "unread");
+}
+
 /** The backend dropped a queued move because its folder is gone and cannot be made: the toast goes, the mail is back, the error is shown. Undo wins. */
 export function moveDropped(token: string, error: string) {
   const d = queued.dropped(token);
@@ -337,7 +356,7 @@ export function moveDropped(token: string, error: string) {
   const st = useStore.getState();
   if (d.dismiss != null) st.dismissToast(d.dismiss);
   st.showToast(t("errors.toast.failed", { error: friendlyError(error) }), undefined, "error");
-  void st.refresh();
+  void st.refresh().then(() => restoreAdvance(token));
 }
 /** The action a yes/no state is set with: [yes, no] (always a set, never a toggle: a repeated call is harmless and the last one wins). */
 const INTENT_ACTION: Record<IntentKind, [string, string]> = { read: ["read", "unread"], flag: ["star", "unstar"], pin: ["pin", "unpin"] };
@@ -878,7 +897,14 @@ export const useStore = create<State>((set, get) => ({
     set({ messages });
     if (messages.some((m) => !m.seen) && prefs.markReadDelay >= 0) {
       const mark = () => {
-        if (get().selected === id) void get().act([id], "read");
+        if (get().selected === id) {
+          autoMarking = true; // the app's own mark-as-read of the mail it opened (see autoAdvance.ts): not the person's doing
+          try {
+            void get().act([id], "read");
+          } finally {
+            autoMarking = false;
+          }
+        }
       };
       if (prefs.markReadDelay === 0) mark();
       else readTimer = setTimeout(mark, prefs.markReadDelay * 1000);
@@ -896,6 +922,7 @@ export const useStore = create<State>((set, get) => ({
 
   act: async (ids, action, arg, label) => {
     if (ids.length === 0) return;
+    if (!autoMarking) for (const [k, a] of advances) advances.set(k, touchAdvance(a, ids)); // the person acts on the mail the app advanced to
     applyOptimistic(ids, action);
     const intent = INTENT_OF.get(action);
     if (intent) {
@@ -939,37 +966,48 @@ export const useStore = create<State>((set, get) => ({
     const { threads, selected, prefs, folder } = get();
     const removing = moveLike || action === "snooze";
     let nextSel = selected;
+    let nextUnread = false; // the mail the selection moves to was unread (the app marks it read as it opens)
     if (removing) {
       if (selected && ids.includes(selected)) {
         const idx = threads.findIndex((t) => t.threadId === selected);
         const rest = threads.filter((t) => !ids.includes(t.threadId));
         const pick = prefs.afterAction === "list" ? null : prefs.afterAction === "previous" ? rest[Math.max(idx - 1, 0)] : rest[Math.min(idx, rest.length - 1)];
         nextSel = pick?.threadId ?? null;
+        nextUnread = !!pick && pick.unread > 0;
       }
       set({ threads: threads.filter((t) => !ids.includes(t.threadId)), checked: new Set() });
     }
 
     if (moveLike) {
       // hide now, run on the server after the Undo window (the backend also flushes this on quit)
+      let advance = true; // the selection moves on to the next mail; not when the move is already refused
       try {
         const token = await api.queueAction(ids, real, arg ?? null, scope ?? null, prefs.undoActionSeconds, verify);
-        // a folder check that already failed (a fast server) has shown its error and brought the mail back: no "Archived" toast then
-        if (queued.queued(token) && label) {
+        // a folder check that already failed (a fast server) has shown its error and brought the mail back: no "Archived" toast then,
+        // and the person stays on the mail (nothing to move on from)
+        advance = queued.queued(token);
+        if (advance && selected && ids.includes(selected)) {
+          // what to put back if the move is refused or undone while the person is still on the next mail (see autoAdvance.ts)
+          advances.set(token, startAdvance(selected, nextSel, nextUnread, Date.now()));
+          if (advances.size > ADVANCES_KEEP) advances.delete(advances.keys().next().value as string);
+        }
+        if (advance && label) {
           get().showToast(
             label,
             () => {
               queued.undo(token); // Undo wins over a folder check that ends later
-              void api.cancelAction(token).then(() => get().refresh());
+              void api.cancelAction(token).then(() => get().refresh()).then(() => restoreAdvance(token));
             },
             "success",
           );
           queued.shown(token, toastSeq); // the id `showToast` just gave it (it counts up synchronously)
         }
       } catch (e) {
+        advance = false;
         get().showToast(t("errors.toast.failed", { error: friendlyError(e) }), undefined, "error");
         await get().refresh();
       }
-      if (selected && ids.includes(selected)) await get().select(nextSel);
+      if (advance && selected && ids.includes(selected)) await get().select(nextSel);
       return;
     }
 
