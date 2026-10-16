@@ -1159,6 +1159,15 @@ export function installMock() {
             void emit("action-verify-failed", { id: token, error: `FOLDER_NOT_CREATED|folder=${folder}|why=CREATE denied: Couldn’t find or create the ${folder} folder on this account (CREATE denied). The mail stays where it is.` });
           }, ms);
         }
+        // `#refusemove[=<ms>]`: the server refuses the MOVE itself, <ms> (default 500) after the Undo window ends: `action-failed` names the move
+        // (the folder check passed, so this is not the `#stalefolder` path); unless Undo was pressed first
+        if (hashTokens().has("refusemove") && folder) {
+          const ms = Number(hashTokens().get("refusemove")) || 500;
+          setTimeout(() => {
+            if (w.__cancelledActions?.has(token)) return;
+            void emit("action-failed", { id: token, error: "MOVE refused: [NO] Permission denied (mock server)" });
+          }, Number(a.delaySecs ?? 6) * 1000 + ms);
+        }
         return token;
       }
       case "cancel_action": {
