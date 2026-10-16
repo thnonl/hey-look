@@ -99,4 +99,9 @@ export default defineLocale<typeof ns.en>({
   "mail.pane.calendar": "日历",
   "mail.pane.mailTitle": "邮件 (Ctrl+1)",
   "mail.pane.calendarTitle": "日历 (Ctrl+2)",
+  // right-click menu of a list row
+  "mail.ctx.copySubject": "复制主题",
+  "mail.ctx.copyFailed": "无法复制到剪贴板",
+  "mail.ctx.onlyOne": "一次只能用于一个对话",
+  "mail.ctx.oneMailbox": "仅当这些对话位于同一邮箱时可用",
 });

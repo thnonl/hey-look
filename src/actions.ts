@@ -22,7 +22,8 @@ export function newMailAccount(): string | undefined {
   return d && st.accounts.some((a) => a.id === d) ? d : undefined;
 }
 
-export function replyTo(m: MessageFull, all: boolean) {
+/** `thread`: the conversation the message belongs to (its Message-IDs become the References of the answer); the open one unless the caller answers a conversation that is not open (the list's context menu). */
+export function replyTo(m: MessageFull, all: boolean, thread: MessageFull[] = useStore.getState().messages) {
   const st = useStore.getState();
   const mine = new Set(st.accounts.map((a) => a.email.toLowerCase()));
   const fromMe = mine.has(m.fromEmail.toLowerCase());
@@ -35,7 +36,7 @@ export function replyTo(m: MessageFull, all: boolean) {
     subject: /^re:/i.test(m.subject) ? m.subject : `Re: ${m.subject}`,
     bodyHtml: quoteHtml(m),
     inReplyTo: m.messageId,
-    references: st.messages.map((x) => x.messageId).filter(Boolean) as string[],
+    references: thread.map((x) => x.messageId).filter(Boolean) as string[],
     isReply: true,
     // an answer to confidential mail is confidential too
     confidential: m.confidential,

@@ -105,6 +105,12 @@ export default define({
     "mail.pane.calendar": "Calendar",
     "mail.pane.mailTitle": "Mail (Ctrl+1)",
     "mail.pane.calendarTitle": "Calendar (Ctrl+2)",
+
+    // right-click menu of a list row
+    "mail.ctx.copySubject": "Copy subject",
+    "mail.ctx.copyFailed": "Couldn’t copy to the clipboard",
+    "mail.ctx.onlyOne": "Available for one conversation at a time",
+    "mail.ctx.oneMailbox": "Available when the conversations are in one mailbox",
   },
   vi: {
     "mail.row.select": "Chọn",
@@ -202,6 +208,12 @@ export default define({
     "mail.pane.calendar": "Lịch",
     "mail.pane.mailTitle": "Thư (Ctrl+1)",
     "mail.pane.calendarTitle": "Lịch (Ctrl+2)",
+
+    // right-click menu of a list row
+    "mail.ctx.copySubject": "Sao chép chủ đề",
+    "mail.ctx.copyFailed": "Không thể sao chép vào bộ nhớ tạm",
+    "mail.ctx.onlyOne": "Chỉ dùng được cho một cuộc trò chuyện mỗi lần",
+    "mail.ctx.oneMailbox": "Chỉ dùng được khi các cuộc trò chuyện cùng một hộp thư",
   },
   fr: {
     "mail.row.select": "Sélectionner",
@@ -299,5 +311,11 @@ export default define({
     "mail.pane.calendar": "Calendrier",
     "mail.pane.mailTitle": "Courrier (Ctrl+1)",
     "mail.pane.calendarTitle": "Calendrier (Ctrl+2)",
+
+    // right-click menu of a list row
+    "mail.ctx.copySubject": "Copier l’objet",
+    "mail.ctx.copyFailed": "Impossible de copier dans le presse-papiers",
+    "mail.ctx.onlyOne": "Disponible pour une seule conversation à la fois",
+    "mail.ctx.oneMailbox": "Disponible lorsque les conversations sont dans une seule boîte aux lettres",
   },
 });

@@ -283,6 +283,16 @@ button:focus-visible, [role="option"]:focus-visible, [role="treeitem"]:focus-vis
 .menu-row .dot { flex: none; }
 .menu-hint { color: var(--muted); font-size: .86em; }
 .menu-div { height: 1px; background: var(--border); margin: 5px 2px; }
+/* context menus (components/ContextMenu.tsx): the same menu look, opened at a point, with greyed-but-focusable entries (aria-disabled), a header line and flyouts */
+.dd-fixed.ctx-menu .menu { max-height: var(--dd-max, calc(100vh - 12px)); min-width: 210px; }
+.ctx-menu .menu { outline: none; }
+.ctx-menu .menu-row { padding: 4px 9px; }
+.menu-row[aria-disabled="true"] { opacity: .5; cursor: default; }
+.menu-row[aria-disabled="true"]:hover { background: none; }
+.ctx-menu .menu-row:focus { background: var(--bg3); outline: none; }
+.ctx-menu .menu-row:focus-visible { outline: 2px solid var(--accent-text); outline-offset: -2px; }
+.menu-sub { flex: none; margin-left: 4px; color: var(--muted); }
+.menu-head { padding: 4px 9px 5px; font-size: .86em; font-weight: 600; color: var(--muted); }
 
 /* ===== folder pane ===== */
 .folder-pane { background: var(--bg2); overflow-y: auto; padding: 8px 0 16px; min-height: 0; }

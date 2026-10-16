@@ -12,6 +12,7 @@ import { canPageBack, exhaustedKey, friendlyError, useStore } from "../store";
 import { dateGroup, fmtDate, snoozePresets, subjectText } from "../util";
 import { messageToEditor } from "./Compose";
 import { askUnlock } from "./Pgp";
+import { useRowContextMenu } from "./ListContextMenu";
 import { ScheduledList } from "./ScheduledList";
 import { EmptyState, SkeletonRows } from "./overlays";
 import { Avatar, Dropdown } from "./ui";
@@ -213,6 +214,7 @@ export function MessageList() {
     prefs, focus, setFocus, filter, setFilter, accounts, openCompose, loading, loadMore, loadingMore, exhausted, limited, backfill, firstSync, setDialog,
   } = useStore();
   const scrollRef = useRef<HTMLDivElement>(null);
+  const ctxMenu = useRowContextMenu(); // right-click / ContextMenu key on a row (components/ListContextMenu.tsx)
   const searching = search.trim().length > 0;
   const title = searching ? tr("mail.list.searchResults") : folderLabel(folder);
   const scopeNote = searching ? (searchScope === "all" ? tr("mail.list.scopeAll") : searchScope === "account" ? tr("mail.list.scopeAccount") : tr("mail.list.scopeFolder", { folder: folderLabel(folder) })) : "";
@@ -378,7 +380,7 @@ export function MessageList() {
         )}
       </div>
 
-      <div className="ml-body" ref={scrollRef} role="listbox" aria-label={title} aria-multiselectable>
+      <div className="ml-body" ref={scrollRef} role="listbox" aria-label={title} aria-multiselectable {...ctxMenu.handlers}>
         {folder === "scheduled" ? (
           <ScheduledList />
         ) : (loading || firstHere) && threads.length === 0 ? (
@@ -436,6 +438,7 @@ export function MessageList() {
           />
         )}
       </div>
+      {ctxMenu.menu}
     </section>
   );
 }

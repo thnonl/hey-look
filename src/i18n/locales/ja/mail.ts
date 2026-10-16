@@ -99,4 +99,9 @@ export default defineLocale<typeof ns.en>({
   "mail.pane.calendar": "カレンダー",
   "mail.pane.mailTitle": "メール (Ctrl+1)",
   "mail.pane.calendarTitle": "カレンダー (Ctrl+2)",
+  // right-click menu of a list row
+  "mail.ctx.copySubject": "件名をコピー",
+  "mail.ctx.copyFailed": "クリップボードにコピーできませんでした",
+  "mail.ctx.onlyOne": "一度に1件の会話でのみ使用できます",
+  "mail.ctx.oneMailbox": "会話が1つのメールボックスにある場合のみ使用できます",
 });
