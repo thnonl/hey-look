@@ -119,7 +119,7 @@ export function RecipientField({
     // one parser for typing, paste and drop (recipients.ts): a comma inside a quoted name does not end the recipient
     const parts = splitRecipients(raw);
     if (parts.length === 0) return;
-    onChange([...values, ...parts.filter((p) => !values.includes(p))]);
+    onChange(addRecipients(values, parts)); // each address once, upper / lower case alike; the first spelling stays
     onTouch?.();
     setText("");
     setSugg([]);

@@ -260,18 +260,20 @@ fn headers(acc: &Account, d: &Draft, lenient: bool) -> R<lettre::message::Messag
         }
     } else {
         b = b.message_id(Some(sent_message_id(&me)));
-        for t in &d.to {
+        // each address once, in the first field it is in (To, then Cc, then Bcc), whatever the case
+        let (to, cc, bcc) = unique_recipients(d);
+        for t in &to {
             b = b.to(mailbox(t)?);
         }
-        for c in &d.cc {
+        for c in &cc {
             b = b.cc(mailbox(c)?);
         }
-        for c in &d.bcc {
+        for c in &bcc {
             b = b.bcc(mailbox(c)?);
         }
         // Bcc recipients only (Gmail and Outlook allow it): To says so, as RFC 5322 3.6.3 suggests. The envelope delivers the message; the
         // Bcc header itself is never written.
-        if d.to.is_empty() && d.cc.is_empty() && !d.bcc.is_empty() {
+        if to.is_empty() && cc.is_empty() && !bcc.is_empty() {
             b = b.header(RawTo("undisclosed-recipients:;".to_string()));
             b = b.envelope(envelope_of(&me, d)?);
         }
@@ -393,10 +395,28 @@ pub fn build_encrypted(acc: &Account, d: &Draft, lenient: bool, encrypt: &dyn Fn
     headers(acc, d, lenient)?.multipart(outer).map_err(err)
 }
 
-/// The envelope of a message from `from` to every recipient (To, Cc, Bcc) of the draft.
+/// The key two recipients are the same by: the address in lower case, its domain in the ASCII form (an upper / lower case spelling of the same
+/// address is the same mailbox in every mail system in use; keeping both would send it twice). Text that is not an address is its own key.
+fn recipient_key(entry: &str) -> String {
+    ascii_address(&split_mailbox(entry).1).to_lowercase()
+}
+
+/// To, Cc and Bcc of a message that is SENT with every address once: an address that is already in To is not repeated in To, Cc or Bcc,
+/// one in Cc not in Cc or Bcc, and the first spelling stays (`Ann@X.test` then `ann@x.test` is one recipient written `Ann@X.test`).
+fn unique_recipients(d: &Draft) -> (Vec<String>, Vec<String>, Vec<String>) {
+    let mut seen = std::collections::HashSet::new();
+    let mut take = |l: &[String]| l.iter().filter(|e| !e.trim().is_empty() && seen.insert(recipient_key(e))).cloned().collect::<Vec<_>>();
+    let to = take(&d.to);
+    let cc = take(&d.cc);
+    let bcc = take(&d.bcc);
+    (to, cc, bcc)
+}
+
+/// The envelope of a message from `from` to every recipient (To, Cc, Bcc) of the draft, each address once.
 fn envelope_of(from: &Address, d: &Draft) -> R<lettre::address::Envelope> {
+    let (to_l, cc_l, bcc_l) = unique_recipients(d);
     let mut to: Vec<Address> = vec![];
-    for r in d.to.iter().chain(d.cc.iter()).chain(d.bcc.iter()) {
+    for r in to_l.iter().chain(cc_l.iter()).chain(bcc_l.iter()) {
         to.push(mailbox(r)?.email);
     }
     lettre::address::Envelope::new(Some(from.clone()), to).map_err(err)
@@ -788,6 +808,38 @@ To:") && !out.contains("undisclosed"), "{out}");
         s.security = None;
         assert!(build_signed(&acc, &s, false, &|_| Ok(("sig".into(), "pgp-sha256".into()))).is_ok());
         assert!(build_encrypted(&acc, &s, false, &|_| Ok("armored".into())).is_ok());
+    }
+
+    /// QA round 17, BUG-20 (CF-17 / B-08): A@X.test and a@x.test were both kept, and an address in To and in Cc was sent twice.
+    #[test]
+    fn an_address_is_sent_to_once_whatever_its_case_and_the_field() {
+        let acc = account();
+        let mut d = draft("<p>Hi</p>", vec![], vec![]);
+        d.to = vec!["Ann@X.test".into(), "ann@x.test".into(), "Bob <bob@y.test>".into(), "BOB@Y.TEST".into()];
+        d.cc = vec!["ANN@x.test".into(), "cy@z.test".into(), "Cy <CY@z.test>".into()];
+        d.bcc = vec!["cy@z.test".into(), "bob@Y.test".into(), "dee@w.test".into(), "dee@w.test".into()];
+        let msg = build(&acc, &d).unwrap();
+        let rcpt: Vec<String> = msg.envelope().to().iter().map(|a| a.to_string()).collect();
+        assert_eq!(rcpt, vec!["Ann@X.test", "bob@y.test", "cy@z.test", "dee@w.test"], "one RCPT each, first spelling");
+        let raw = msg.formatted();
+        let p = mail_parser::MessageParser::default().parse(&raw[..]).unwrap();
+        let addrs = |a: Option<&mail_parser::Address>| a.map(|a| a.iter().filter_map(|x| x.address.as_ref().map(|s| s.to_string())).collect::<Vec<_>>()).unwrap_or_default();
+        assert_eq!(addrs(p.to()), vec!["Ann@X.test", "bob@y.test"], "one header entry each");
+        assert_eq!(addrs(p.cc()), vec!["cy@z.test"]);
+        assert!(p.bcc().is_none());
+        assert!(!String::from_utf8_lossy(&raw).contains("dee@w.test"));
+        // a Bcc address that is also in To is just in To; the envelope of a prebuilt message agrees
+        assert_eq!(envelope(&acc, &d).unwrap().to().len(), 4);
+        // a Bcc that repeats the only To address leaves a message with To and no Bcc
+        let mut only = draft("<p>Hi</p>", vec![], vec![]);
+        only.bcc = vec!["ANN@example.com".into()];
+        let m = build(&acc, &only).unwrap();
+        assert_eq!(m.envelope().to().len(), 1);
+        assert!(!text(&m).contains("undisclosed"));
+        // invalid entries are not merged into valid ones and still fail the send
+        let mut bad = draft("<p>Hi</p>", vec![], vec![]);
+        bad.to = vec!["ann@example.com".into(), "ann@".into()];
+        assert!(build(&acc, &bad).is_err());
     }
 
     #[test]
