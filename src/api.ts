@@ -1,5 +1,6 @@
 import { Channel, invoke } from "@tauri-apps/api/core";
 import { t } from "./i18n";
+import type { Importance } from "./importance";
 
 export interface Account {
   id: string;
@@ -44,6 +45,8 @@ export interface ThreadSummary {
   confidential?: boolean;
   /** a message of the conversation carries a calendar invitation / reply / cancellation */
   invite?: "request" | "reply" | "cancel" | null;
+  /** the sender marked a message of the conversation High or Low importance (high wins); absent = normal */
+  importance?: Importance;
 }
 
 export interface MessageFull {
@@ -69,6 +72,8 @@ export interface MessageFull {
   confidential?: boolean;
   /** calendar invitation, update, cancellation or reply carried by this message */
   invite?: CalInvite | null;
+  /** how the sender marked it; a reopened draft starts Compose with it */
+  importance?: Importance;
 }
 
 export type SigStatus = "valid" | "invalid" | "unknown_key" | "expired_key" | "revoked_key";
@@ -394,6 +399,8 @@ export interface Draft {
   meeting?: Meeting;
   /** send as confidential (Sensitivity: Company-Confidential) */
   confidential?: boolean;
+  /** High / Low add the importance headers; absent = Normal (no header) */
+  importance?: Importance;
 }
 
 export type OutboxStatus = "pending" | "held" | "sending" | "failed" | "overdue";

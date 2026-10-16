@@ -21,6 +21,8 @@ import { isEmail, singleLabelHostsOf } from "../addresses";
 import { askUnlock } from "./Pgp";
 import { useContentProtection } from "../protect";
 import { SchedulePicker } from "./SchedulePicker";
+import { ImportanceButtons, ImportanceMark } from "./Importance";
+import { draftImportance, initialImportance, type Importance } from "../importance";
 import { AccountPicker, Dropdown, MenuList, useFitInWindow, useOutside } from "./ui";
 import type { Key } from "../i18n";
 import { useT } from "../i18n/react";
@@ -328,6 +330,8 @@ export function Compose({ init }: { init: ComposeInit }) {
   // Outlook's Sensitivity: Confidential. An answer to confidential mail starts that way, and keeps the window out of screen capture
   // while it quotes the mail (init.confidential), as the reading pane does.
   const [confidential, setConfidential] = useState(!!init.confidential);
+  // Outlook's Importance (High / Low / Normal): per message, Normal unless a reopened draft or scheduled message was High / Low
+  const [importance, setImportance] = useState<Importance>(initialImportance(init));
   useContentProtection(!!init.confidential);
   const [encIntent, setEncIntent] = useState<"on" | "off" | "auto">(init.restore ? init.restore.encrypt : init.security ? (init.security.encrypt ? "on" : "off") : startMode === "always" ? "on" : startMode === "possible" ? "auto" : "off");
   const [signOn, setSignOn] = useState(init.restore ? init.restore.sign : init.security ? init.security.sign : eff(prefs, accountId, "pgpSign"));
@@ -585,6 +589,7 @@ export function Compose({ init }: { init: ComposeInit }) {
       inline,
       security: currentSecurity(),
       confidential: confidential || undefined,
+      importance: draftImportance(importance),
       meeting: md && "meeting" in md ? md.meeting : undefined,
     };
   };
@@ -605,6 +610,7 @@ export function Compose({ init }: { init: ComposeInit }) {
       isReply: false,
       security: d.security,
       confidential: d.confidential,
+      importance: d.importance,
       // the toggles as they were when Send was pressed (the draft only knows what is active), the body with its one signature region
       restore: { encrypt: encIntent, sign: signOn, attachKey },
       meeting: d.meeting ? { ...d.meeting, on: true } : undefined,
@@ -847,7 +853,7 @@ export function Compose({ init }: { init: ComposeInit }) {
       }
     },
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [to, cc, bcc, subject, atts, accountId, sigId, editor, encOn, signActive, attachKey, confidential],
+    [to, cc, bcc, subject, atts, accountId, sigId, editor, encOn, signActive, attachKey, confidential, importance],
   );
 
   const moveToDrafts = async () => {
@@ -1289,6 +1295,7 @@ export function Compose({ init }: { init: ComposeInit }) {
         >
           <ShieldAlert size={15} /><span>{t("compose.bar.confidential")}</span>
         </button>
+        <ImportanceButtons value={importance} onChange={(v) => (setImportance(v), touch())} />
         {!init.outboxId && <button className="rb" onClick={() => void saveDraft(true)}><Save size={15} /><span>{t("compose.bar.saveDraft")}</span></button>}
         <Dropdown
           className="rb"
@@ -1358,6 +1365,7 @@ export function Compose({ init }: { init: ComposeInit }) {
         <div className="cf-field">
           <label>{t("compose.subject")}</label>
           <input value={subject} onChange={(e) => (setSubject(e.target.value), touch())} placeholder={t("compose.subject.placeholder")} aria-label={t("compose.subject")} />
+          <ImportanceMark level={importance} size={13} label />
         </div>
       </div>
 

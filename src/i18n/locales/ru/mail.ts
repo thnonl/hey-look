@@ -8,6 +8,8 @@ export default defineLocale<typeof ns.en>({
   "mail.row.select": "Выбрать",
   "mail.row.unread": "Непрочитанное",
   "mail.row.confidential": "Конфиденциально",
+  "mail.importance.high": "Высокая важность",
+  "mail.importance.low": "Низкая важность",
   "mail.row.encrypted": "Зашифровано",
   "mail.row.signed": "Подписано",
   "mail.row.invite": "Приглашение на встречу",

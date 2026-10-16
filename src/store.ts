@@ -11,6 +11,7 @@ import { backendText } from "./backendErrors";
 import { needsSignIn } from "./signIn";
 import type { Jobs } from "./translateJobs";
 import { planRestore, startAdvance, touchAdvance, type Advance } from "./autoAdvance";
+import type { Importance } from "./importance";
 import { accountsOf, canMoveToJunk, JUNK_ACTIONS } from "./junk";
 import { addToast, lazyText, type Lazy } from "./toastStack";
 export { lazyText, type Lazy };
@@ -48,6 +49,8 @@ export interface ComposeInit {
   restore?: { encrypt: "on" | "off" | "auto"; sign: boolean; attachKey: boolean };
   /** send as confidential (an answer to confidential mail starts that way) */
   confidential?: boolean;
+  /** only a reopened draft / scheduled message carries one; a new message, reply and forward start Normal */
+  importance?: Importance;
   /** start Compose as a meeting invitation ("Meeting" switched on) */
   meeting?: Partial<Meeting> & { on?: boolean };
 }

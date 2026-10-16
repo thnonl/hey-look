@@ -20,6 +20,7 @@ import { AttachmentStrip, Lightbox, LbItem } from "./Attachments";
 import { InviteCard } from "./Calendar";
 import { osNow } from "../platform";
 import { EmptyState } from "./overlays";
+import { ImportanceMark } from "./Importance";
 import { EncCard, importKeyFromMessage, isKeyAttachment, needsCard, SecBadges } from "./Pgp";
 import { Avatar, Dropdown } from "./ui";
 
@@ -541,6 +542,7 @@ function MessageCard({ m, open, onToggle }: { m: MessageFull; open: boolean; onT
             <b>{who}</b>
             <span className="muted"> &lt;{m.fromEmail}&gt;</span>
           </div>
+          {(m.importance === "high" || m.importance === "low") && <ImportanceMark level={m.importance} size={13} label />}
           <div className="muted small ellipsis">{open ? (m.cc ? t("reading.msg.toCc", { to: m.to, cc: m.cc }) : t("reading.msg.to", { to: m.to })) : needsCard(m) ? t("reading.msg.encrypted") : conf ? t("reading.msg.confidential") : (m.text ?? "").replace(/\s+/g, " ").slice(0, 140)}</div>
         </div>
         {open && (

@@ -121,6 +121,18 @@ const mockThreadMsgs: Record<string, unknown[]> = {
   t14: [secMsg("m-ok2", "Weekly sync notes", "Bao Tran", "bao@contoso.com", { security: { encrypted: false, partial: false, decryption: "none", encryptedFor: [], signature: { status: "valid", signer: "Bao Tran", fingerprint: pgpKeys[3].fingerprint, keyId: pgpKeys[3].keyId, signedAt: now - 8 * H, verified: false, matchesFrom: true, inline: true } } }, "<p>Notes from today are below. Signed inline.</p>")],
 };
 
+// message importance (F-24): one High and one Low message in the Inbox
+threads.push(
+  t("timp-hi", "Please approve the change window today", ["Linh Tran"], "We need your sign-off before 17:00 so the release can go out tonight.", 0.8 * H, { unread: 1, importance: "high" }),
+  t("timp-lo", "FYI: newsletter archive has moved", ["Minh Pham"], "No action needed, just so you know where to find the old issues.", 1.4 * H, { importance: "low" }),
+);
+mockThreadMsgs["timp-hi"] = [secMsg("m-imp-hi", "Please approve the change window today", "Linh Tran", "linh@example.com", { importance: "high", seen: false }, "<p>Hi Nam,</p><p>We need your sign-off before 17:00 so the release can go out tonight.</p><p>— Linh</p>")];
+mockThreadMsgs["timp-lo"] = [secMsg("m-imp-lo", "FYI: newsletter archive has moved", "Minh Pham", "minh@example.com", { importance: "low" }, "<p>Hi Nam,</p><p>No action needed, just so you know where to find the old issues.</p><p>— Minh</p>")];
+
+// drafts saved in this session (Save draft in the mock)
+const mockDrafts: { row: ReturnType<typeof t>; msg: ReturnType<typeof secMsg> }[] = [];
+let draftSeq = 0;
+
 const messages = [
   { id: "m1", accountId: "a1", folder: "inbox", messageId: "<1@x>", subject: "Q4 roadmap review", fromName: "Linh Tran", fromEmail: "linh@example.com", to: "nam@example.com", cc: "", date: now - 3 * H, html: body("Attaching the latest roadmap deck."), text: "Attaching the latest roadmap deck.", seen: true, flagged: false, attachments: [{ index: 0, name: "roadmap-q4.pdf", mime: "application/pdf", size: 482113 }], canUnsubscribe: false },
   { id: "m2", accountId: "a1", folder: "inbox", messageId: "<2@x>", subject: "Re: Q4 roadmap review", fromName: "Nam", fromEmail: "nam@example.com", to: "linh@example.com", cc: "", date: now - 2 * H, html: body("Thanks, looking now."), text: "Thanks, looking now.", seen: true, flagged: false, attachments: [], canUnsubscribe: false },
@@ -1023,6 +1035,7 @@ export function installMock() {
         const own = (a.filter as { accountId?: string | null }).accountId;
         const q = (f.search ?? "").trim();
         if (own && own.startsWith("n")) return f.folder === "inbox" && synced.has(own) ? newThreads(own) : []; // an added account: empty until its first sync is done
+        if (f.folder === "drafts") return mockDrafts.map((d) => d.row);
         if (!(f.folder === "inbox" || f.folder === "unread" || f.folder === "all")) return [];
         // like the backend: a search over every mailbox ignores the selected one
         const scoped = own && !(q && f.scope === "all") ? own : null;
@@ -1049,6 +1062,7 @@ export function installMock() {
         return list.sort((x, y) => (f.folder === "inbox" && !f.sortAsc ? Number(y.pinned) - Number(x.pinned) : 0) || dir * (x.lastDate - y.lastDate));
       }
       case "get_thread":
+        { const dm = mockDrafts.find((d) => d.row.threadId === a.threadId); if (dm) return [dm.msg]; }
         if (a.threadId === "t9") return [ownLocked ? lockedMsg() : openedMsg()];
         if (a.threadId === "t25") return [encInvite(ownLocked)];
         if (threadInvite[a.threadId as string]) return threadInvite[a.threadId as string].map((id) => inviteMsgs[id]);
@@ -1127,6 +1141,15 @@ export function installMock() {
         w.__draftSaveCalls = (w.__draftSaveCalls ?? 0) + 1; // counted, so a check can see that discarding writes none (AC-74)
         if (hashTokens().has("draftfail")) throw "mock: the server refused the draft"; // `#draftfail`: saving a draft fails (update restart asks what to do)
         w.__lastDraft = a.draft;
+        // the draft shows up in Drafts; reopening it gives back what was saved, the importance included (the backend reads it from the headers)
+        const dr = a.draft as { accountId: string; to: string[]; cc: string[]; subject: string; html: string; text: string; importance?: string };
+        const gone = a.replaces as string | null;
+        for (const i of mockDrafts.map((d, k) => (d.row.threadId === gone ? k : -1)).filter((k) => k >= 0).reverse()) mockDrafts.splice(i, 1);
+        const id = `mock-draft-${++draftSeq}`;
+        mockDrafts.unshift({
+          row: t(id, dr.subject || "(no subject)", [dr.to[0] ?? "(no recipient)"], dr.text.slice(0, 120), 0, { folder: "drafts", accountId: dr.accountId, importance: dr.importance ?? "normal" }),
+          msg: secMsg(`m-${id}`, dr.subject, "Nam", "nam@example.com", { folder: "drafts", accountId: dr.accountId, to: dr.to.join(", "), cc: dr.cc.join(", "), importance: dr.importance ?? "normal" }, dr.html),
+        });
         return null;
       }
       case "prepare_action": {

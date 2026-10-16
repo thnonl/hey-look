@@ -32,6 +32,7 @@
     "calendar.time.pm",
     "calendar.agenda.label",
     "calendar.dialog.notes",
-    "updates.status.version"
+    "updates.status.version",
+    "compose.bar.importance"
   ]
 }
