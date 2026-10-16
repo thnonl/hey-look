@@ -357,6 +357,8 @@ if (!args.has("--lint-only")) {
   assert.equal(parseCoded("SMTP send failed: permanent error"), null, "an ordinary sentence is not a code");
   assert.equal(backendText("PGP_NO_KEY|email=ann@x.y: whatever"), "You have no PGP key for ann@x.y.");
   assert.equal(backendText("CAL_SEND_FAILED|v=saved|detail=boom: x"), "The event was saved, but the invitations weren't sent: boom");
+  assert.equal(backendText("AI_HTTP|status=500|detail=Model overloaded%3A retry: x"), "The AI Assistant returned an error (500): Model overloaded: retry");
+  assert.equal(backendText("AI_HTTP|v=plain|status=502: x"), "The AI Assistant returned an error (502).", "no provider message: the plain sentence");
   assert.equal(backendText("NOT_A_KNOWN_CODE: text"), null, "an unknown code keeps the backend's text");
   setLangPref("fr");
   assert.equal(backendText("OUTBOX_SENDING: This message is being sent right now."), "Ce message est en cours d’envoi.");

@@ -431,11 +431,15 @@ function TranslateBox({ job }: { job: TranslateJob }) {
       <div className="summary tr-box" role="status">
         {head}
         <div className="tr-row">
-          <span className="busy-ring spin" aria-hidden />
-          <span className="busy-dots" aria-hidden>···</span>
-          <span className="tr-text">{t("reading.msg.translating", { lang: t(job.langKey as Key) })}</span>
-          <span className="muted small tr-time" aria-hidden>{elapsedLabel(now - job.startedAt)}</span>
-          <button className="link small" onClick={() => cancelTranslation(job.key)}>{t("common.cancel")}</button>
+          <span className="tr-main">
+            <span className="busy-ring spin" aria-hidden />
+            <span className="busy-dots" aria-hidden>···</span>
+            <span className="tr-text">{t("reading.msg.translating", { lang: t(job.langKey as Key) })}</span>
+          </span>
+          <span className="tr-side">
+            <span className="muted small tr-time" aria-hidden>{elapsedLabel(now - job.startedAt)}</span>
+            <button className="link small" onClick={() => cancelTranslation(job.key)}>{t("common.cancel")}</button>
+          </span>
         </div>
         {slowHint(job.startedAt, now) && <div className="muted small tr-hint">{t("reading.translate.slow")}</div>}
       </div>

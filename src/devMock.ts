@@ -1460,7 +1460,7 @@ export function installMock() {
         return new Promise((r) => setTimeout(() => r(["gpt-4o", "gpt-4o-mini", "gpt-4.1", "o3-mini", "text-embedding-3-small"]), 500));
       }
       case "ai_complete": {
-        // dev switches for the waiting states of an AI call: #slowai[=ms] answers after 20 s (or ms); #failai[=timeout|nokey|server|once] fails after 5 s ("once": the first call only)
+        // dev switches for the waiting states of an AI call: #slowai[=ms] answers after 20 s (or ms); #failai[=timeout|nokey|server|plain|once] fails after 5 s ("once": the first call only)
         const reply = String(a.system).startsWith("Translate")
           ? `[${/into (.+?)\./.exec(String(a.system))?.[1] ?? "?"}] ${String(a.prompt).slice(0, 600)}`
           : "• Linh shared the Q4 roadmap\n• Review requested before Thursday";
@@ -1468,7 +1468,8 @@ export function installMock() {
         const failures: Record<string, string> = {
           timeout: "AI_TIMEOUT|secs=180: The AI Assistant didn’t answer within 180 seconds.",
           nokey: "AI_NOT_CONFIGURED: AI not configured: set endpoint and model in Settings > AI",
-          server: 'AI error 503 Service Unavailable: {"error":"upstream overloaded"}',
+          server: "AI_HTTP|status=503|detail=upstream overloaded: The AI Assistant returned an error (503): upstream overloaded",
+          plain: "AI_HTTP|v=plain|status=502: The AI Assistant returned an error (502).",
         };
         if (failMode && (failMode[2] !== "once" || ++mockAiCalls === 1)) {
           return new Promise((_, rej) => setTimeout(() => rej(failures[failMode[2] ?? ""] ?? failures.server), 5000));

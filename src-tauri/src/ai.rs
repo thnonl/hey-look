@@ -34,14 +34,69 @@ async fn complete_within(endpoint: &str, key: &str, model: &str, system: &str, p
     }
     let resp = req.send().await.map_err(|e| if e.is_timeout() { timed_out(secs) } else { err(e) })?;
     let status = resp.status();
-    let body: serde_json::Value = resp.json().await.map_err(|e| if e.is_timeout() { timed_out(secs) } else { err(e) })?;
+    let text = resp.text().await.map_err(|e| if e.is_timeout() { timed_out(secs) } else { err(e) })?;
     if !status.is_success() {
-        return Err(format!("AI error {status}: {body}"));
+        return Err(http_error(status.as_u16(), &text, key));
     }
+    let body: serde_json::Value = serde_json::from_str(&text).map_err(err)?;
     body["choices"][0]["message"]["content"]
         .as_str()
         .map(|s| s.trim().to_string())
         .ok_or_else(|| format!("unexpected AI response: {body}"))
+}
+
+/// Longest provider message shown to the person (characters).
+const DETAIL_MAX: usize = 160;
+
+/// The coded error for a non-success answer: `AI_HTTP|status=500|detail=<what the provider said>: English text`, without `detail`
+/// (and with `v=plain`) when the answer has no readable message. Never carries the raw body, the request or the API key.
+fn http_error(status: u16, body: &str, key: &str) -> String {
+    match provider_message(body, key) {
+        Some(d) => crate::i18n::coded("AI_HTTP", &[("status", &status.to_string()), ("detail", &d)], &format!("The AI Assistant returned an error ({status}): {d}")),
+        None => crate::i18n::coded("AI_HTTP", &[("v", "plain"), ("status", &status.to_string())], &format!("The AI Assistant returned an error ({status}).")),
+    }
+}
+
+/// The short human message in an error answer of an OpenAI-compatible endpoint: `{"error":{"message":..}}`, `{"error":".."}`,
+/// `{"message":..}`, `{"detail":..}`, `{"error_description":..}` (also as the first element of an array), or a plain text body.
+/// None for an empty or HTML body, or a message that is itself JSON. One line, at most `DETAIL_MAX` characters, with the API key hidden.
+fn provider_message(body: &str, key: &str) -> Option<String> {
+    let body = body.trim();
+    let raw: String = match serde_json::from_str::<serde_json::Value>(body) {
+        Ok(v) => {
+            let v = if let Some(first) = v.as_array().and_then(|a| a.first()) { first.clone() } else { v };
+            let s = |x: &serde_json::Value| x.as_str().map(str::to_string);
+            s(&v["error"]["message"])
+                .or_else(|| s(&v["error"]))
+                .or_else(|| s(&v["message"]))
+                .or_else(|| s(&v["detail"]))
+                .or_else(|| s(&v["error_description"]))
+                .or_else(|| s(&v["error"]["detail"]))?
+        }
+        // not JSON: a plain text answer is the message, an HTML page is not
+        Err(_) if body.starts_with('<') => return None,
+        Err(_) => body.to_string(),
+    };
+    let mut line = raw.split_whitespace().collect::<Vec<_>>().join(" ");
+    if !key.trim().is_empty() && key.trim().len() >= 4 {
+        line = line.replace(key.trim(), "…");
+    }
+    // providers sometimes echo a (masked) key: any word that looks like one goes too
+    let mut words: Vec<&str> = Vec::new();
+    let mut after_bearer = false;
+    for w in line.split(' ') {
+        words.push(if after_bearer || w.starts_with("sk-") { "…" } else { w });
+        after_bearer = w == "Bearer";
+    }
+    line = words.join(" ");
+    if line.is_empty() || line.starts_with('{') || line.starts_with('[') {
+        return None;
+    }
+    if line.chars().count() > DETAIL_MAX {
+        let cut: String = line.chars().take(DETAIL_MAX - 1).collect();
+        line = format!("{}…", cut.trim_end());
+    }
+    Some(line)
 }
 
 /// OpenAI-compatible `GET {endpoint}/models`: the model ids the endpoint offers (sorted, unique).
@@ -94,6 +149,60 @@ mod tests {
         assert!(e.starts_with("AI_TIMEOUT|secs=1: "), "{e}");
         assert!(started.elapsed().as_secs() < 3, "gave up after the timeout, not after the server");
         holder.join().unwrap();
+    }
+
+    #[test]
+    fn provider_errors_become_a_short_coded_message() {
+        let e = http_error(500, r#"{"error":{"message":"The model is overloaded.","type":"server_error","code":null}}"#, "sk-secret-key-123");
+        assert_eq!(e, "AI_HTTP|status=500|detail=The model is overloaded.: The AI Assistant returned an error (500): The model is overloaded.");
+        // other common shapes
+        assert_eq!(provider_message(r#"{"error":"Model not found"}"#, "").as_deref(), Some("Model not found"));
+        assert_eq!(provider_message(r#"{"message":"Rate limit reached"}"#, "").as_deref(), Some("Rate limit reached"));
+        assert_eq!(provider_message(r#"{"detail":"Not authenticated"}"#, "").as_deref(), Some("Not authenticated"));
+        assert_eq!(provider_message(r#"[{"error":{"message":"Bad request","status":"INVALID_ARGUMENT"}}]"#, "").as_deref(), Some("Bad request"));
+        assert_eq!(provider_message("upstream connect error\n or disconnect", "").as_deref(), Some("upstream connect error or disconnect"));
+    }
+
+    #[test]
+    fn an_unreadable_answer_has_no_detail_and_never_raw_json() {
+        for body in ["", "   ", "<html><body>502 Bad Gateway</body></html>", r#"{"error":{"code":500}}"#, r#"{"error":"{\"nested\":1}"}"#, "{broken json"] {
+            assert_eq!(provider_message(body, ""), None, "{body}");
+        }
+        let e = http_error(502, "<html>x</html>", "");
+        assert_eq!(e, "AI_HTTP|v=plain|status=502: The AI Assistant returned an error (502).");
+        assert!(!e.contains('{') && !e.contains("html"));
+    }
+
+    #[test]
+    fn the_message_is_cut_and_never_shows_the_key() {
+        let long = format!(r#"{{"error":{{"message":"{}"}}}}"#, "word ".repeat(100));
+        let d = provider_message(&long, "").unwrap();
+        assert!(d.chars().count() <= DETAIL_MAX && d.ends_with('…'), "{d}");
+        let key = "sk-abcdef1234567890";
+        let d = provider_message(&format!(r#"{{"error":{{"message":"Incorrect API key provided: {key}. Use Bearer abc123 instead sk-proj-xyz"}}}}"#), key).unwrap();
+        assert!(!d.contains("abcdef") && !d.contains("abc123") && !d.contains("xyz"), "{d}");
+        assert_eq!(d, "Incorrect API key provided: …. Use Bearer … instead …");
+        // the coded text keeps the separators of the format intact
+        let e = http_error(400, r#"{"error":{"message":"a|b: c%d"}}"#, "");
+        assert!(e.starts_with("AI_HTTP|status=400|detail=a%7Cb%3A c%25d: "), "{e}");
+    }
+
+    /// End to end: a 500 with a JSON body from a local endpoint reaches the caller as the short coded error.
+    #[test]
+    fn an_error_answer_from_the_endpoint_is_the_short_coded_error() {
+        use std::io::Write;
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let port = listener.local_addr().unwrap().port();
+        let server = std::thread::spawn(move || {
+            let (mut sock, _) = listener.accept().unwrap();
+            let mut buf = [0u8; 8192];
+            let _ = sock.read(&mut buf);
+            let body = r#"{"error":{"message":"Model overloaded, try later","type":"server_error"}}"#;
+            let _ = write!(sock, "HTTP/1.1 500 Internal Server Error\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}", body.len(), body);
+        });
+        let r = tauri::async_runtime::block_on(complete_within(&format!("http://127.0.0.1:{port}"), "sk-test-key-0000", "m", "s", "p", 5));
+        assert_eq!(r.unwrap_err(), "AI_HTTP|status=500|detail=Model overloaded, try later: The AI Assistant returned an error (500): Model overloaded, try later");
+        server.join().unwrap();
     }
 
     #[test]

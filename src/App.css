@@ -403,7 +403,11 @@ button:focus-visible, [role="option"]:focus-visible, [role="treeitem"]:focus-vis
 .summary { margin: 10px 24px; padding: 11px 15px; border-radius: var(--r-md); background: var(--accent-soft); border-left: 3px solid var(--accent); }
 .rp-body .summary { margin: 10px 0; }
 .tr-row { display: flex; align-items: center; gap: 8px; margin-top: 6px; flex-wrap: wrap; }
+/* the sentence keeps a readable width and the time + Cancel drop to their own line when the card is narrow (a long translated sentence used to be squeezed to three lines) */
+.tr-main { display: flex; align-items: center; gap: 8px; flex: 1 1 15em; min-width: 0; }
+.tr-main .busy-ring { flex: none; }
 .tr-row .tr-text { flex: 1; min-width: 0; }
+.tr-side { display: inline-flex; align-items: center; gap: 12px; margin-left: auto; }
 .tr-row .tr-time { font-variant-numeric: tabular-nums; }
 .tr-hint { margin-top: 4px; }
 .tr-box.error .tr-row svg { color: var(--danger); flex: none; }
