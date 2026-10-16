@@ -5,7 +5,7 @@ import { EditorContent, Node as TipNode, useEditor, type Editor } from "@tiptap/
 import StarterKit from "@tiptap/starter-kit";
 import {
   BadgeCheck, Bold, CalendarClock, CalendarPlus, ChevronDown, FileText, ImagePlus, Info, Italic, Link2, List, ListOrdered, Lock, LockOpen, Paperclip, Save, Send, ShieldAlert, ShieldCheck, Sparkles, Trash2,
-  TriangleAlert, Underline as UIcon, X,
+  Moon, Sun, TriangleAlert, Underline as UIcon, X,
 } from "lucide-react";
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
@@ -14,6 +14,8 @@ import { eff } from "../prefs";
 import { kbd } from "../platform";
 import { ComposeInit, friendlyError, useStore } from "../store";
 import type { ComposeProbe, SavedDraft } from "../leaveCompose";
+import { PreviewBg, previewVars, rememberPreview, startPreview } from "../composePreview";
+import { setDarkRegion } from "../composePreviewDom";
 import { extractSignature, fillSignature, normalizeHtml, SIG_MARK } from "../signature";
 import { repairSignature, signatureGuard } from "../signatureGuard";
 import { fitInWindow } from "../fitInWindow";
@@ -421,6 +423,12 @@ export function Compose({ init }: { init: ComposeInit }) {
   const [picSel, setPicSel] = useState<PictureSel | null>(null);
   const [altOpen, setAltOpen] = useState(false);
   const [altText, setAltText] = useState("");
+  // "Preview as recipient": which background the body is shown on. A view-layer choice only (buildDraft never reads it)
+  const [pv, setPv] = useState<PreviewBg>(() => startPreview(prefs.mailCanvas));
+  const choosePreview = (p: PreviewBg) => {
+    rememberPreview(p);
+    setPv(p);
+  };
   // PGP: Encrypt is "on", "off", or "auto" (on while every recipient has a key); Sign is a plain switch
   const keysRev = useStore((s) => s.keysRev);
   const startMode = eff(prefs, accountId, "pgpEncrypt");
@@ -742,6 +750,13 @@ export function Compose({ init }: { init: ComposeInit }) {
       blk.classList.toggle("none", !html);
     });
   }, [editor, chosenSig, sigHeads]);
+
+  // the signature region is a mail's own colours: on the dark preview it gets the reading pane's dark recolouring (after the fill above)
+  useEffect(() => {
+    const regions = Array.from(editor?.view.dom.querySelectorAll<HTMLElement>(".sig-block .sig-body") ?? []);
+    regions.forEach((r) => setDarkRegion(r, pv === "dark"));
+    return () => regions.forEach((r) => setDarkRegion(r, false));
+  }, [editor, chosenSig, sigHeads, pv]);
 
   // switching the From account re-applies that account's Auto Cc/Bcc until the user edits those fields
   const changeAccount = (id: string) => {
@@ -1868,9 +1883,22 @@ export function Compose({ init }: { init: ComposeInit }) {
         </button>
         {link.node}
         <button className="icon-btn" title={kbd(t("compose.bar.insertPictureTip"))} aria-label={t("compose.fmt.insertPicture")} onClick={() => picRef.current?.click()}><ImagePlus size={14} /></button>
+        <span className="grow" />
+        {/* Preview as recipient: a plain pair of toggle buttons (Tab, Space / Enter). The mouse does not take the focus from the editor, so the caret and the selection stay */}
+        <div className="pv-switch" role="group" aria-label={t("compose.preview.label")}>
+          <span className="pv-label" aria-hidden="true">{t("compose.preview.label")}</span>
+          <div className="seg pv-seg">
+            <button type="button" className={pv === "light" ? "on" : ""} aria-pressed={pv === "light"} title={t("compose.preview.lightTip")} aria-label={t("compose.preview.lightTip")} onMouseDown={(e) => e.preventDefault()} onClick={() => choosePreview("light")}>
+              <Sun size={13} aria-hidden /><span className="pv-txt">{t("app.ribbon.themeLight")}</span>
+            </button>
+            <button type="button" className={pv === "dark" ? "on" : ""} aria-pressed={pv === "dark"} title={t("compose.preview.darkTip")} aria-label={t("compose.preview.darkTip")} onMouseDown={(e) => e.preventDefault()} onClick={() => choosePreview("dark")}>
+              <Moon size={13} aria-hidden /><span className="pv-txt">{t("app.ribbon.themeDark")}</span>
+            </button>
+          </div>
+        </div>
       </div>
 
-      <div className="cp-editor" ref={bodyRef} onScroll={() => editor && syncPicSel(editor)}>
+      <div className={`cp-editor cp-pv pv-${pv}`} style={previewVars(pv) as React.CSSProperties} ref={bodyRef} onScroll={() => editor && syncPicSel(editor)}>
         <EditorContent editor={editor} className="editor" />
         {picSel && (
           <>
