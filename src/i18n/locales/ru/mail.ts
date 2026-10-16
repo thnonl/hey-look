@@ -111,4 +111,19 @@ export default defineLocale<typeof ns.en>({
   "mail.pane.calendar": "Календарь",
   "mail.pane.mailTitle": "Почта (Ctrl+1)",
   "mail.pane.calendarTitle": "Календарь (Ctrl+2)",
+  // right-click menu of a list row
+  "mail.ctx.copySubject": "Копировать тему",
+  "mail.ctx.copyFailed": "Не удалось скопировать в буфер обмена",
+  "mail.ctx.onlyOne": "Доступно только для одной беседы за раз",
+  "mail.ctx.oneMailbox": "Доступно, только если беседы находятся в одном почтовом ящике",
+  // reordering the mailboxes (folder pane, Settings)
+  "mail.acct.moveUp": "Переместить выше",
+  "mail.acct.moveDown": "Переместить ниже",
+  "mail.acct.drag": "Перетащите, чтобы изменить порядок: {email}",
+  "mail.acct.moved": "{email}: позиция {n} из {total}",
+  "mail.acct.cancelled": "Изменение порядка отменено",
+  // the display name of a mailbox for screen readers: name, address
+  "mail.acct.labelAria": "{name}, {email}",
+  // the link menu of a message
+  "mail.link.copy": "Копировать адрес ссылки",
 });

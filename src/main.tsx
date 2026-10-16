@@ -3,6 +3,7 @@ import ReactDOM from "react-dom/client";
 import App from "./App";
 import { api } from "./api";
 import { applySavedLanguage } from "./bootLang";
+import { installContextGuard } from "./contextGuard";
 
 async function boot(): Promise<boolean> {
   // `npm run dev` in a plain browser has no Tauri backend: use fake data so the UI can be previewed.
@@ -12,6 +13,7 @@ async function boot(): Promise<boolean> {
   }
   // the saved language first: nothing is drawn, and no event handler exists yet, until it is applied (see bootLang.ts)
   await applySavedLanguage(api.getSetting);
+  installContextGuard(); // no native webview menu in a release build (see contextPolicy.ts)
   ReactDOM.createRoot(document.getElementById("root") as HTMLElement).render(
     <React.StrictMode>
       <App />

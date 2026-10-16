@@ -1,3 +1,4 @@
+import { accountLabel } from "../accountLabel";
 import { format } from "date-fns";
 import { Clock, Paperclip, Pin, Search, Star, Mail, X } from "lucide-react";
 import { Fragment, useEffect, useRef, useState } from "react";
@@ -69,7 +70,7 @@ export function SearchBox() {
   })();
   const setDate = (v: string) => change(setKey(q, "after", v === "today" ? format(new Date(), "yyyy-MM-dd") : v), true);
 
-  const mailboxLabel = accountId ? accounts.find((a) => a.id === accountId)?.email ?? t("app.search.thisMailbox") : t("app.search.allMailboxes");
+  const mailboxLabel = accountId ? (() => { const a = accounts.find((x) => x.id === accountId); return a ? accountLabel(a).text : t("app.search.thisMailbox"); })() : t("app.search.allMailboxes");
   const scopes: [SearchScope, string][] = [
     ["current", t("app.search.currentFolder")],
     ["account", accountId ? t("app.search.thisMailbox") : t("app.search.allFolders")],

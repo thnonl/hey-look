@@ -107,6 +107,25 @@ export default define({
     "mail.pane.calendar": "Calendar",
     "mail.pane.mailTitle": "Mail (Ctrl+1)",
     "mail.pane.calendarTitle": "Calendar (Ctrl+2)",
+
+    // right-click menu of a list row
+    "mail.ctx.copySubject": "Copy subject",
+    "mail.ctx.copyFailed": "Couldn’t copy to the clipboard",
+    "mail.ctx.onlyOne": "Available for one conversation at a time",
+    "mail.ctx.oneMailbox": "Available when the conversations are in one mailbox",
+
+    // reordering the mailboxes (folder pane, Settings)
+    "mail.acct.moveUp": "Move up",
+    "mail.acct.moveDown": "Move down",
+    "mail.acct.drag": "Drag to reorder {email}",
+    "mail.acct.moved": "{email} moved to position {n} of {total}",
+    "mail.acct.cancelled": "Reordering cancelled",
+
+    // the display name of a mailbox for screen readers: name, address
+    "mail.acct.labelAria": "{name}, {email}",
+
+    // the link menu of a message
+    "mail.link.copy": "Copy link address",
   },
   vi: {
     "mail.row.select": "Chọn",
@@ -206,6 +225,25 @@ export default define({
     "mail.pane.calendar": "Lịch",
     "mail.pane.mailTitle": "Thư (Ctrl+1)",
     "mail.pane.calendarTitle": "Lịch (Ctrl+2)",
+
+    // right-click menu of a list row
+    "mail.ctx.copySubject": "Sao chép chủ đề",
+    "mail.ctx.copyFailed": "Không thể sao chép vào bộ nhớ tạm",
+    "mail.ctx.onlyOne": "Chỉ dùng được cho một cuộc trò chuyện mỗi lần",
+    "mail.ctx.oneMailbox": "Chỉ dùng được khi các cuộc trò chuyện cùng một hộp thư",
+
+    // reordering the mailboxes (folder pane, Settings)
+    "mail.acct.moveUp": "Di chuyển lên",
+    "mail.acct.moveDown": "Di chuyển xuống",
+    "mail.acct.drag": "Kéo để sắp xếp lại {email}",
+    "mail.acct.moved": "{email} đã chuyển sang vị trí {n}/{total}",
+    "mail.acct.cancelled": "Đã hủy sắp xếp lại",
+
+    // the display name of a mailbox for screen readers: name, address
+    "mail.acct.labelAria": "{name}, {email}",
+
+    // the link menu of a message
+    "mail.link.copy": "Sao chép địa chỉ liên kết",
   },
   fr: {
     "mail.row.select": "Sélectionner",
@@ -305,5 +343,24 @@ export default define({
     "mail.pane.calendar": "Calendrier",
     "mail.pane.mailTitle": "Courrier (Ctrl+1)",
     "mail.pane.calendarTitle": "Calendrier (Ctrl+2)",
+
+    // right-click menu of a list row
+    "mail.ctx.copySubject": "Copier l’objet",
+    "mail.ctx.copyFailed": "Impossible de copier dans le presse-papiers",
+    "mail.ctx.onlyOne": "Disponible pour une seule conversation à la fois",
+    "mail.ctx.oneMailbox": "Disponible lorsque les conversations sont dans une seule boîte aux lettres",
+
+    // reordering the mailboxes (folder pane, Settings)
+    "mail.acct.moveUp": "Déplacer vers le haut",
+    "mail.acct.moveDown": "Déplacer vers le bas",
+    "mail.acct.drag": "Faire glisser pour réorganiser {email}",
+    "mail.acct.moved": "{email} déplacé en position {n} sur {total}",
+    "mail.acct.cancelled": "Réorganisation annulée",
+
+    // the display name of a mailbox for screen readers: name, address
+    "mail.acct.labelAria": "{name}, {email}",
+
+    // the link menu of a message
+    "mail.link.copy": "Copier l’adresse du lien",
   },
 });

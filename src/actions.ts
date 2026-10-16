@@ -31,21 +31,21 @@ const REPLY_HEADERS_WAIT_MS = 5000;
 /**
  * The headers of the message itself (Reply-To, its Message-ID, the References of the answer). The stored message only knows its
  * Message-ID: when the headers cannot be read (the server is not reachable and the message is not on this computer) the answer
- * still goes out, to From, linked by the ids the open conversation has.
+ * still goes out, to From, linked by the ids the conversation has (	hread: the open one, or the one the list's context menu answers).
  */
-async function headersOf(m: MessageFull): Promise<ReplyHeaders> {
+async function headersOf(m: MessageFull, thread: MessageFull[]): Promise<ReplyHeaders> {
   try {
     // a server that does not answer must not keep the answer from opening
     return await Promise.race([api.replyHeaders(m.id), new Promise<never>((_, no) => setTimeout(() => no(new Error("timeout")), REPLY_HEADERS_WAIT_MS))]);
   } catch {
-    const thread = useStore.getState().messages.map((x) => x.messageId);
-    return { messageId: m.messageId, replyTo: [], references: fallbackReferences(thread, m.messageId) };
+    return { messageId: m.messageId, replyTo: [], references: fallbackReferences(thread.map((x) => x.messageId), m.messageId) };
   }
 }
 
-export async function replyTo(m: MessageFull, all: boolean) {
+/** `thread`: the conversation the message belongs to (its Message-IDs are the fallback References of the answer); the open one unless the caller answers a conversation that is not open (the list's context menu). */
+export async function replyTo(m: MessageFull, all: boolean, thread: MessageFull[] = useStore.getState().messages) {
   const st = useStore.getState();
-  const h = await headersOf(m);
+  const h = await headersOf(m, thread);
   const mine = new Set(st.accounts.map((a) => a.email.toLowerCase()));
   const { to, cc, viaReplyTo } = replyTargets({ fromEmail: m.fromEmail, to: m.to, cc: m.cc, mine, replyTo: h.replyTo, all });
   st.openCompose({
@@ -69,11 +69,11 @@ export async function replyTo(m: MessageFull, all: boolean) {
   });
 }
 
-export async function forward(m: MessageFull) {
+export async function forward(m: MessageFull, thread: MessageFull[] = useStore.getState().messages) {
   const st = useStore.getState();
   if (m.confidential) return st.showToast(t("app.forward.confidential"), undefined, "info");
   // a forward is linked to the message it forwards (References, no In-Reply-To), also when that is a mail you sent yourself
-  const h = await headersOf(m);
+  const h = await headersOf(m, thread);
   // the attachments of the message go along (pictures in the body stay in the body); a file that cannot be fetched is told about, the rest comes
   const files = m.attachments.some((a) => !(a.inline && a.referenced) || (a.cid && m.html?.includes(`cid:${a.cid}`)))
     ? await (async () => {

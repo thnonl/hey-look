@@ -1,6 +1,7 @@
 import { listen } from "@tauri-apps/api/event";
 import { KeyRound, Lock, Plus, Trash2, Upload } from "lucide-react";
 import { openUpdateLink } from "../updates";
+import { Grip, useAccountReorder } from "./AccountReorder";
 import { ABOUT_LINKS } from "../aboutLinks";
 import { Fragment, ReactNode, useEffect, useRef, useState } from "react";
 import { Account, api, CalSource, Discovered, PgpKey, PROVIDERS, Rule, Signature, Template } from "../api";
@@ -1732,6 +1733,8 @@ export function Settings({ initial, focus, nonce }: { initial?: string; focus?: 
   const [tab, setTab] = useState<string>(start || (accounts.length === 0 ? "add-account" : "general"));
   const [mbTab, setMbTab] = useState<MbTab>(focus === "loadRemote" || focus === "maxDownload" ? "reading" : focus === "security" ? "security" : focus === "calendar" ? "calendar" : "composing");
   const close = () => setDialog(null);
+  const navRef = useRef<HTMLElement>(null);
+  const reorder = useAccountReorder(navRef);
   // Settings is already open and something asks for a tab (toast "What’s new", Command bar, the gear with a dot): switch to it
   const first = useRef(true);
   useEffect(() => {
@@ -1781,9 +1784,9 @@ export function Settings({ initial, focus, nonce }: { initial?: string; focus?: 
       </div>
     );
   };
-  const item = (k: string, l: ReactNode, sub = false) => (
+  const item = (k: string, l: ReactNode, sub = false, movable = false) => (
     <Fragment key={k}>
-      <button className={`${tab === k ? "active" : ""} ${sub ? "sub" : ""} ${tab === k && k.startsWith("mb:") ? "has-sub" : ""}`} aria-current={tab === k ? "page" : undefined} onClick={() => setTab(k)}>
+      <button data-reorder-focus={movable ? "" : undefined} className={`${tab === k ? "active" : ""} ${sub ? "sub" : ""} ${tab === k && k.startsWith("mb:") ? "has-sub" : ""}`} aria-current={tab === k ? "page" : undefined} onClick={() => setTab(k)}>
         {l}
       </button>
       {tab === k && k.startsWith("mb:") && sections(k)}
@@ -1793,16 +1796,23 @@ export function Settings({ initial, focus, nonce }: { initial?: string; focus?: 
   return (
     <Modal title={t("settings.title")} onClose={close} wide>
       <div className="settings">
-        <nav className="settings-nav" aria-label={t("settings.nav.sections")}>
+        <nav className="settings-nav" aria-label={t("settings.nav.sections")} ref={navRef}>
           <div className="nav-label">{t("settings.nav.app")}</div>
           {item("general", t("settings.general.title"))}
           {item("appearance", t("settings.appearance.title"))}
           <div className="nav-label">{t("settings.nav.mailboxes")}</div>
           {item("mb:all", t("settings.scope.allAccounts"))}
-          {accounts.map((a) => item(`mb:${a.id}`, <><span className="dot" style={{ background: accountColor(a, prefs.accent) }} />{a.email}</>, true))}
+          {accounts.map((a) => (
+            // the mailboxes can be moved here too (grip, Alt+Up / Alt+Down, menu): AccountReorder.tsx
+            <div key={a.id} className={`nav-acct ${reorder.dragging === a.id ? "reorder-src" : ""}`} data-reorder-id={a.id} {...reorder.entry(a.id)}>
+              {accounts.length > 1 && <Grip email={a.email} bind={reorder.grip(a.id)} dragging={reorder.dragging === a.id} />}
+              {item(`mb:${a.id}`, <><span className="dot" style={{ background: accountColor(a, prefs.accent) }} />{a.email}</>, true, true)}
+            </div>
+          ))}
           {item("add-account", t("settings.nav.addAccount"), true)}
           <div className="nav-label">{t("settings.nav.more")}</div>
           {MORE.map(([k, l]) => item(k, t(l)))}
+          {reorder.overlay}
         </nav>
         <div className="settings-body">
           {tab === "general" && <GeneralTab />}

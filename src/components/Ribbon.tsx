@@ -8,7 +8,8 @@ import { calTz, today } from "../calendar";
 import { useT } from "../i18n/react";
 import { friendlyError, useStore, scopeOf } from "../store";
 import { newEvent } from "./Calendar";
-import { accountsOf, canMoveToJunk, folderVisible } from "../junk";
+import { accountsOf, canMoveToJunk } from "../junk";
+import { moveChoices } from "../rowMenu";
 import { folderLabel } from "../prefs";
 import { snoozePresets } from "../util";
 import { Dropdown, MenuItem } from "./ui";
@@ -43,8 +44,7 @@ function HomeTab() {
   const scope = scopeOf(folder);
   // no Junk folder on the account(s): the actions that move mail there are off, with the reason (src/junk.ts)
   const junkOff: Partial<MenuItem> = canMoveToJunk(folders, accountsOf(threads, ids)) ? {} : { disabled: true, hint: t("mail.junk.none"), title: t("mail.junk.noneTip") };
-  const moveItems: MenuItem[] = folders
-    .filter((f) => f.accountId === acct && f.key !== scope && f.key !== "drafts" && f.key !== "sent" && folderVisible(folders, f.accountId, f.key))
+  const moveItems: MenuItem[] = moveChoices(folders, acct, scope)
     .map((f) => ({ label: folderLabel(f.key, f.name), onClick: () => void act(ids, "move", f.key, t("mail.done.moved", { folder: folderLabel(f.key, f.name) })) }));
   const anyUnread = (checked.size ? threads.filter((x) => checked.has(x.threadId)) : cur ? [cur] : []).some((x) => x.unread > 0);
   const flagged = cur?.flagged;

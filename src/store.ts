@@ -1,6 +1,7 @@
 import { create } from "zustand";
 import { api, Account, Att, BackfillProgress, CalendarInfo, CalEvent, CalSource, DraftSecurity, FolderInfo, Meeting, MessageFull, OutboxItem, SearchScope, ThreadSummary } from "./api";
 import { loadPlatform } from "./platform";
+import { orderAccounts } from "./accountOrder";
 import { hasMailAccounts } from "./mailControls";
 import { applyBackfill } from "./backfill";
 import { holdOpenThread } from "./openThread";
@@ -628,7 +629,7 @@ export const useStore = create<State>((set, get) => ({
       prefs = { ...prefs, ...stale };
       void api.setSetting("prefs", JSON.stringify(prefs)).catch(() => undefined);
     }
-    const accounts = storeMissingColors(rawAccounts, prefs.accent);
+    const accounts = orderAccounts(storeMissingColors(rawAccounts, prefs.accent), prefs.accountOrder); // the person's order (empty: as the backend gives them)
     applyPrefs(prefs);
     mirrorSettings(prefs);
     set({ accounts, prefs, loaded: true, module: prefs.lastModule === "calendar" ? "calendar" : "mail", calDate: today(calTz(prefs)) });
@@ -824,7 +825,7 @@ export const useStore = create<State>((set, get) => ({
     // the backend list is the truth (it also assigns the colour); fall back to what we were given
     let accounts = await api.listAccounts().catch(() => get().accounts);
     if (!accounts.some((a) => a.id === acc.id)) accounts = [...accounts.filter((a) => a.email !== acc.email), acc];
-    accounts = storeMissingColors(accounts, get().prefs.accent);
+    accounts = orderAccounts(storeMissingColors(accounts, get().prefs.accent), get().prefs.accountOrder); // a new account goes after the ones in the saved order
     // the selection moves to the new mailbox: a stale search / filter of the old view must not hide it
     set({ accounts, dialog: null, firstSync: acc.id, filter: "all" });
     get().showToast(t("errors.toast.accountAdded", { email: acc.email }), undefined, "success");
@@ -1247,6 +1248,8 @@ export const useStore = create<State>((set, get) => ({
     if ("maxDownload" in patch && patch.maxDownload !== get().prefs.maxDownload) set({ limited: {} });
     const languageChanged = "language" in patch && patch.language !== get().prefs.language;
     set({ prefs });
+    // every screen reads `accounts`: a new order shows everywhere at once (folder pane, Compose From, Settings)
+    if ("accountOrder" in patch) set((s) => ({ accounts: orderAccounts(s.accounts, prefs.accountOrder) }));
     applyPrefs(prefs);
     void api.setSetting("prefs", JSON.stringify(prefs));
     const mirrored = mirrorSettings(patch);

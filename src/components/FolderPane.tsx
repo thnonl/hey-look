@@ -1,7 +1,10 @@
 import {
   AlertTriangle, Archive, CalendarClock, CalendarDays, ChevronDown, ChevronRight, Clock, FileText, Flag, Folder, Inbox, MailOpen, OctagonAlert, Pin, Send, Star, Trash2,
 } from "lucide-react";
-import { ReactNode, useEffect } from "react";
+import { ReactNode, useEffect, useRef } from "react";
+import { accountLabel } from "../accountLabel";
+import { Grip, useAccountReorder } from "./AccountReorder";
+import { AcctName } from "./AcctName";
 import { CalSidebar } from "./Calendar";
 import { ReauthNotice } from "./SignInHelp";
 import { FolderInfo } from "../api";
@@ -30,6 +33,8 @@ const VIRTUAL_VIEWS = ["unread", "starred", "pinned", "snoozed", "scheduled"];
 export function FolderPane() {
   const t = useT();
   const { accounts, folders, folder, accountId, setView, prefs, setPrefs, syncErrors, sync, outbox, module, setModule, firstSync } = useStore();
+  const tree = useRef<HTMLDivElement>(null);
+  const reorder = useAccountReorder(tree); // the mailbox groups can be moved (grip, Alt+Up / Alt+Down, menu); see AccountReorder.tsx
   // a new account's group sits at the bottom of a long tree: bring its (selected) Inbox into view
   useEffect(() => {
     if (firstSync && accountId === firstSync) document.querySelector(".fp-tree .fp-row.active")?.scrollIntoView({ block: "nearest" });
@@ -104,15 +109,18 @@ export function FolderPane() {
     })
     .filter((f) => f.acct === null || accounts.some((a) => a.id === f.acct));
 
-  const acctName = (id: string | null) => accounts.find((a) => a.id === id)?.email ?? "";
+  const acctName = (id: string | null) => {
+    const a = accounts.find((x) => x.id === id);
+    return a ? accountLabel(a).text : "";
+  };
   const labelFor = (acct: string | null, key: string) => {
     const info: FolderInfo | undefined = folders.find((f) => f.accountId === acct && f.key === key);
     const base = folderLabel(key, info?.name);
     return acct ? `${base} — ${acctName(acct)}` : base;
   };
 
-  const head = (id: string, label: ReactNode) => (
-    <button className="fp-head" onClick={() => toggle(id)} aria-expanded={!collapsed(id)}>
+  const head = (id: string, label: ReactNode, movable = false) => (
+    <button className="fp-head" onClick={() => toggle(id)} aria-expanded={!collapsed(id)} data-reorder-focus={movable ? "" : undefined}>
       {collapsed(id) ? <ChevronRight size={12} /> : <ChevronDown size={12} />}
       {label}
     </button>
@@ -123,7 +131,7 @@ export function FolderPane() {
       {module === "calendar" ? (
         <CalSidebar />
       ) : (
-      <div className="fp-tree" role="tree" aria-label={t("mail.pane.folders")}>
+      <div className="fp-tree" role="tree" aria-label={t("mail.pane.folders")} ref={tree}>
       <div className="fp-group">
         {head("fav", t("mail.pane.favorites"))}
         {!collapsed("fav") && favs.filter((f) => folderVisible(folders, f.acct, f.key)).map((f) => row(f.acct, f.key, labelFor(f.acct, f.key)))}
@@ -140,12 +148,13 @@ export function FolderPane() {
         const custom = mine.filter((f) => f.key.startsWith("f:"));
         const error = syncErrors[a.id];
         return (
-          <div className="fp-group" key={a.id}>
+          <div className={`fp-group ${reorder.dragging === a.id ? "reorder-src" : ""}`} key={a.id} data-reorder-id={a.id} {...reorder.entry(a.id)}>
+            {accounts.length > 1 && <Grip email={accountLabel(a).text} bind={reorder.grip(a.id)} dragging={reorder.dragging === a.id} />}
             {head(
               a.id,
               <>
                 <span className="dot" style={{ background: accountColor(a, prefs.accent) }} />
-                <span className="ellipsis fp-acct">{a.email}</span>
+                <AcctName account={a} className="ellipsis fp-acct" />
                 {error && (
                   <span
                     className="fp-warn"
@@ -161,6 +170,7 @@ export function FolderPane() {
                   </span>
                 )}
               </>,
+              true,
             )}
             <ReauthNotice account={a} compact />
             {!collapsed(a.id) && (
@@ -182,6 +192,7 @@ export function FolderPane() {
           <CalendarDays size={15} aria-hidden /> {t("mail.pane.calendar")}
         </button>
       </nav>
+      {reorder.overlay}
     </aside>
   );
 }

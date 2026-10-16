@@ -101,4 +101,19 @@ export default defineLocale<typeof ns.en>({
   "mail.pane.calendar": "カレンダー",
   "mail.pane.mailTitle": "メール (Ctrl+1)",
   "mail.pane.calendarTitle": "カレンダー (Ctrl+2)",
+  // right-click menu of a list row
+  "mail.ctx.copySubject": "件名をコピー",
+  "mail.ctx.copyFailed": "クリップボードにコピーできませんでした",
+  "mail.ctx.onlyOne": "一度に1件の会話でのみ使用できます",
+  "mail.ctx.oneMailbox": "会話が1つのメールボックスにある場合のみ使用できます",
+  // reordering the mailboxes (folder pane, Settings)
+  "mail.acct.moveUp": "上へ移動",
+  "mail.acct.moveDown": "下へ移動",
+  "mail.acct.drag": "ドラッグして{email}の順序を変更",
+  "mail.acct.moved": "{email}を{total}件中{n}番目に移動しました",
+  "mail.acct.cancelled": "並べ替えをキャンセルしました",
+  // the display name of a mailbox for screen readers: name, address
+  "mail.acct.labelAria": "{name}、{email}",
+  // the link menu of a message
+  "mail.link.copy": "リンクのアドレスをコピー",
 });

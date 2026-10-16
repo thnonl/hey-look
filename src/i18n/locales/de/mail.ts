@@ -101,4 +101,19 @@ export default defineLocale<typeof ns.en>({
   "mail.pane.calendar": "Kalender",
   "mail.pane.mailTitle": "E-Mail (Ctrl+1)",
   "mail.pane.calendarTitle": "Kalender (Ctrl+2)",
+  // right-click menu of a list row
+  "mail.ctx.copySubject": "Betreff kopieren",
+  "mail.ctx.copyFailed": "Kopieren in die Zwischenablage nicht möglich",
+  "mail.ctx.onlyOne": "Nur für jeweils eine Unterhaltung verfügbar",
+  "mail.ctx.oneMailbox": "Nur verfügbar, wenn sich die Unterhaltungen in einem Postfach befinden",
+  // reordering the mailboxes (folder pane, Settings)
+  "mail.acct.moveUp": "Nach oben verschieben",
+  "mail.acct.moveDown": "Nach unten verschieben",
+  "mail.acct.drag": "Ziehen, um {email} neu anzuordnen",
+  "mail.acct.moved": "{email} an Position {n} von {total} verschoben",
+  "mail.acct.cancelled": "Neuanordnung abgebrochen",
+  // the display name of a mailbox for screen readers: name, address
+  "mail.acct.labelAria": "{name}, {email}",
+  // the link menu of a message
+  "mail.link.copy": "Linkadresse kopieren",
 });

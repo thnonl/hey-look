@@ -60,7 +60,9 @@ assert.equal(accountHasJunk([{ accountId: "a1", key: "junk" }, { accountId: "a1"
   assert.match(read("../src/components/FolderPane.tsx"), /favs\.filter\(\(f\) => folderVisible\(folders, f\.acct, f\.key\)\)/);
   const ribbon = read("../src/components/Ribbon.tsx");
   assert.match(ribbon, /\.\.\.junkOff \},\n\s*\{ label: t\("app\.ribbon\.blockSender"\)/);
-  assert.match(ribbon, /folderVisible\(folders, f\.accountId, f\.key\)/, "Move to > Junk");
+  // (1.0.6) the ribbon's Move to menu and the row context menu share moveChoices (src/rowMenu.ts), which applies folderVisible
+  assert.match(ribbon, /moveChoices\(folders, acct, scope\)/, "Move to > Junk");
+  assert.match(read("../src/rowMenu.ts"), /folderVisible\(folders, f\.accountId, f\.key\)/, "Move to > Junk (shared rule)");
   const reading = read("../src/components/ReadingPane.tsx");
   assert.match(reading, /moveJunk"\), onClick: .*\.\.\.junkOff/);
   assert.match(reading, /blockSender"\), onClick: .*\.\.\.junkOff/);
