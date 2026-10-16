@@ -7,6 +7,7 @@ import { fmtFull, fmtSize, plainToHtml, quoteHtml, sanitizeHtml } from "./util";
 import { fallbackReferences, replyTargets } from "./replyTargets";
 import { forwardFiles, MAX_FORWARD_BYTES } from "./forwardAttachments";
 import { forwardHeaderHtml } from "./quoteHeader";
+import { fromAccountFor } from "./fromAccount";
 
 export function targets(): string[] {
   const { checked, selected, compose } = useStore.getState();
@@ -49,7 +50,7 @@ export async function replyTo(m: MessageFull, all: boolean, thread: MessageFull[
   const mine = new Set(st.accounts.map((a) => a.email.toLowerCase()));
   const { to, cc, viaReplyTo } = replyTargets({ fromEmail: m.fromEmail, fromName: m.fromName, to: m.to, cc: m.cc, mine, replyTo: h.replyTo, headerFrom: h.from, headerTo: h.to, headerCc: h.cc, all });
   st.openCompose({
-    accountId: m.accountId,
+    accountId: fromAccountFor(st.accounts, m.accountId, st.prefs.defaultAccount),
     to,
     cc,
     subject: /^re:/i.test(m.subject) ? m.subject : `Re: ${m.subject}`,
@@ -86,8 +87,9 @@ export async function forward(m: MessageFull, thread: MessageFull[] = useStore.g
       })()
     : null;
   const html = files?.html ?? m.html;
+  // from the account that received the message, like Reply (the default account only when that one is gone)
   await st.openCompose({
-    accountId: m.accountId,
+    accountId: fromAccountFor(st.accounts, m.accountId, st.prefs.defaultAccount),
     references: h.references,
     subject: /^fwd?:/i.test(m.subject) ? m.subject : `Fwd: ${m.subject}`,
     attachments: files?.attachments,

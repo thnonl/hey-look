@@ -241,6 +241,7 @@ jobs:
           node --experimental-strip-types scripts/test-quote-header.mjs
           node --experimental-strip-types scripts/test-pasted-html.mjs
           node --experimental-strip-types scripts/test-send-size.mjs
+          node --experimental-strip-types scripts/test-from-account.mjs
           node --experimental-strip-types scripts/test-attach-name.mjs
           node --experimental-strip-types scripts/test-link-url.mjs
           node scripts/test-csp-ready.mjs

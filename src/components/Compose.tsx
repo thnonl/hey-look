@@ -22,6 +22,7 @@ import { fitInWindow } from "../fitInWindow";
 import { autosaveDue, snapshotDue, timing, type AutosaveWhy } from "../autosave";
 import { RecoveryWriter, type RecoveryForm } from "../recovery";
 import { cleanPastedHtml, isLocalPictureSrc, stripRemotePictures } from "../pastedHtml";
+import { fromAccountFor } from "../fromAccount";
 import { askFreshBeforeSend, isSizeRefusal, sendLimit, showSizeToast, wireSize } from "../sendSize";
 import { outgoingName, outgoingNames } from "../attachName";
 import { placePictureTools } from "../pictureToolsLayout";
@@ -370,7 +371,7 @@ interface PictureSel {
 export function Compose({ init }: { init: ComposeInit }) {
   const t = useT();
   const { accounts, openCompose, showToast, prefs, refresh, confirm, choose, setComposeDirty, setComposeSaver, setComposeProbe, aiConfigured, setDialog, beginSend } = useStore();
-  const [accountId, setAccountId] = useState(accounts.some((a) => a.id === init.accountId) ? init.accountId! : accounts.some((a) => a.id === prefs.defaultAccount) ? prefs.defaultAccount : accounts[0]?.id || init.accountId || "");
+  const [accountId, setAccountId] = useState(fromAccountFor(accounts, init.accountId, prefs.defaultAccount));
   const isFresh = !init.replaces && !init.isReply && !init.outboxId && !init.restore;
   // an opened draft / scheduled message / message that failed to send: its body already holds the signature, shown as the region again
   const editing = !!(init.replaces || init.outboxId || init.restore);
