@@ -259,7 +259,8 @@ jobs:
           node --experimental-strip-types scripts/test-sign-in.mjs
           node --experimental-strip-types scripts/test-popover-menu.mjs
           node --experimental-strip-types scripts/test-support-nudge.mjs
-          node scripts/test-site-languages.mjs
+          node scripts/generate-site-languages.mjs --check
+          node scripts/test-site-languages.mjs --strict
           node --experimental-strip-types scripts/test-site-commands.mjs
 
       # macOS code signing + notarisation (owner steps: CONTRIBUTING.md > Signing and notarisation). Only when the three certificate
