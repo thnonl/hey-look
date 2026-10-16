@@ -57,6 +57,10 @@ export interface ReplyHeaders {
   references: string[];
   /** the Reply-To addresses that are real addresses, as `Name <address>` / `address` */
   replyTo: string[];
+  /** From / To / Cc as the headers write them (`"Doe, John" <john@x.test>`): the stored message keeps the addresses only */
+  from?: string | null;
+  to?: string[];
+  cc?: string[];
 }
 
 export interface MessageFull {
@@ -575,7 +579,7 @@ export const api = {
   inlineImage: (messageId: string, cid: string) =>
     invoke<{ mime: string; dataBase64: string; name: string }>("inline_image", { messageId, cid }),
   /** The SIZE the SMTP server of the account names in its EHLO reply (bytes); null when it names none or could not be asked. */
-  smtpSizeLimit: (accountId: string) => invoke<number | null>("smtp_size_limit", { accountId }),
+  smtpSizeLimit: (accountId: string, refresh = false) => invoke<number | null>("smtp_size_limit", { accountId, refresh }),
   sendMessage: (draft: Draft, sendAt?: number | null, replaces?: string | null) =>
     invoke<string>("send_message", { draft, sendAt: sendAt ?? null, replaces: replaces ?? null }),
   /**

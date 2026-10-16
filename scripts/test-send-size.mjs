@@ -1,7 +1,7 @@
 // The size of a message on the wire (G-07 / CF-21): base64 + line breaks + part headers, against the server's SIZE or the usual 25 MB.
 // Run: node --experimental-strip-types scripts/test-send-size.mjs
 import assert from "node:assert/strict";
-import { ARMOR, USUAL_LIMIT, attachmentWire, base64Chars, base64Wire, partHeaders, pictureWire, sendLimit, wireSize, worthAsking } from "../src/sendSize.ts";
+import { ARMOR, USUAL_LIMIT, attachmentWire, base64Chars, base64Wire, isSizeRefusal, partHeaders, pictureWire, sendLimit, wireSize } from "../src/sendSize.ts";
 
 const MiB = 1024 * 1024;
 const b64 = (raw) => base64Chars(raw); // base64 text length of a raw size
@@ -47,9 +47,27 @@ assert.deepEqual(sendLimit(null), { bytes: USUAL_LIMIT, fromServer: false });
 assert.deepEqual(sendLimit(undefined), { bytes: USUAL_LIMIT, fromServer: false });
 assert.deepEqual(sendLimit(0), { bytes: USUAL_LIMIT, fromServer: false }, "SIZE 0 = no declared limit");
 assert.deepEqual(sendLimit(10_485_760), { bytes: 10_485_760, fromServer: true }, "the stub of the plan: SIZE 10485760");
-assert.deepEqual(sendLimit(35_882_577), { bytes: 35_882_577, fromServer: true }, "a server that takes more than 25 MB is believed");
-// a 24.9 MiB file against a 10 MiB server: over; against a 50 MiB server: fits
-assert.ok(w > sendLimit(10_485_760).bytes && w < sendLimit(50 * MiB).bytes);
-assert.ok(worthAsking(9 * MiB) && !worthAsking(1 * MiB));
+assert.deepEqual(sendLimit(35_882_577), { bytes: USUAL_LIMIT, fromServer: false }, "a server that takes more than 25 MB still gets the usual 25 MB: min(25 MB, SIZE)");
+assert.deepEqual(sendLimit(USUAL_LIMIT), { bytes: USUAL_LIMIT, fromServer: false });
+assert.deepEqual(sendLimit(USUAL_LIMIT - 1), { bytes: USUAL_LIMIT - 1, fromServer: true });
+// a 24.9 MiB file (34 MiB on the wire) is over a 10 MiB server and over the usual limit whatever a bigger server says; 8 MiB of files (10.9 on the wire) fits 25 MB but not a 10 MiB server
+assert.ok(w > sendLimit(10_485_760).bytes && w > sendLimit(50 * MiB).bytes);
+const w8 = wireSize({ attachments: [{ filename: "a.bin", base64Length: b64(8 * MiB) }] });
+assert.ok(w8 < sendLimit(50 * MiB).bytes && w8 > sendLimit(10 * MiB).bytes);
+
+// QA 19A BUG-16: the stub advertised SIZE 5000000 and the file was 4 MB (5,474,674 bytes on the wire): the old code asked only above 8 MiB
+const raw4mb = 4 * 1000 * 1000;
+const w4 = wireSize({ attachments: [{ filename: "four-mb.bin", base64Length: b64(raw4mb) }] });
+assert.ok(w4 > 5_000_000 && w4 < 5_600_000, `4 MB file -> ${w4} bytes on the wire`);
+assert.ok(w4 < USUAL_LIMIT, "it fits the usual limit, so only the server's SIZE can block it");
+assert.ok(w4 > sendLimit(5_000_000).bytes, "and the server's SIZE 5000000 blocks it");
+assert.equal(sendLimit(5_000_000).fromServer, true, "the message names the account's server");
+
+// a refused send: the backend's coded error
+assert.ok(isSizeRefusal("SMTP_TOO_LARGE|reply=552 5.3.4 Message size exceeds fixed limit: The message is larger than this server accepts."));
+assert.ok(isSizeRefusal(new Error("Error: SMTP_TOO_LARGE|reply=552: x")));
+assert.ok(!isSizeRefusal("SMTP_ATTACHMENT_BLOCKED|reply=552: x"));
+assert.ok(!isSizeRefusal("SMTP send failed: 552"));
+assert.ok(!isSizeRefusal(undefined));
 
 console.log("test-send-size: ok");

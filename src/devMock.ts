@@ -1289,8 +1289,14 @@ export function installMock() {
       case "remove_account": { const i = accounts.findIndex((x) => x.id === a.accountId); if (i >= 0) accounts.splice(i, 1); return null; }
       case "set_mail_available": ((window as unknown as { __mailAvailable?: boolean[] }).__mailAvailable ??= []).push(!!a.available); return null;
       // an Undo-window send is kept in the (mock) outbox until it is sent or taken back; every call is logged in window.__sendCalls
-      case "outbox_hold": { const w = window as unknown as { __sendCalls?: unknown[] }; (w.__sendCalls ??= []).push({ cmd: "hold", dueAt: a.dueAt, draft: a.draft }); return `hold-${Date.now()}`; }
-      case "outbox_hold_send": { const w = window as unknown as { __sendCalls?: unknown[] }; (w.__sendCalls ??= []).push({ cmd: "holdSend", id: a.id, keep: a.keep }); return null; }
+      case "outbox_hold": { const w = window as unknown as { __sendCalls?: unknown[]; __held?: Record<string, unknown> }; (w.__sendCalls ??= []).push({ cmd: "hold", dueAt: a.dueAt, draft: a.draft }); const id = `hold-${Date.now()}`; (w.__held ??= {})[id] = a.draft; return id; }
+      case "outbox_hold_send": {
+        const w = window as unknown as { __sendCalls?: unknown[]; __held?: Record<string, { subject?: string }> };
+        (w.__sendCalls ??= []).push({ cmd: "holdSend", id: a.id, keep: a.keep });
+        // a subject with [toolarge] is refused for its size like a server with a smaller limit does (dev check of the size message)
+        if (String(w.__held?.[a.id as string]?.subject ?? "").includes("[toolarge]")) throw "SMTP_TOO_LARGE|reply=552 5.3.4 Message size exceeds fixed limit: The message is larger than this server accepts. Remove attachments or shrink pictures. (Server reply: 552 5.3.4 Message size exceeds fixed limit)";
+        return null;
+      }
       case "quit_dialog": case "quit_cancelled": case "sends_flushed": case "show_window": case "frontend_ready": case "page_state": return null;
       case "update_defer": logUpdateCall({ cmd: "defer" }).kind = a.deferred ? "later" : "now"; return null;
       case "update_install": return mockInstall(!!a.restart, !!a.draftSaved);
@@ -1317,7 +1323,7 @@ export function installMock() {
       case "set_secret": return null;
       // the headers an answer needs (the real command reads them from the server's copy): Reply-To only on the probe message
       case "reply_headers": return a.messageId === "m-rt"
-        ? { messageId: "<m-rt@acme.example>", references: ["<root@acme.example>", "<m-rt@acme.example>"], replyTo: ['"Acme Support" <support@acme.example>'] }
+        ? { messageId: "<m-rt@acme.example>", references: ["<root@acme.example>", "<m-rt@acme.example>"], replyTo: ['"Acme Support" <support@acme.example>'], from: '"Acme No Reply" <no-reply@acme.example>', to: ["nam@example.com", '"Doe, John" <john@acme.example>', "JOHN@acme.example", "y@acme.example"], cc: ['"Cc, Person" <cc@acme.example>', "nam@gmail.com"] }
         : { messageId: `<${String(a.messageId)}@x>`, references: [`<${String(a.messageId)}@x>`], replyTo: [] };
       case "attachment_data": {
         const att = [m4, ...messages].find((x) => x.id === a.messageId)?.attachments.find((z) => z.index === a.index);
@@ -1536,10 +1542,12 @@ export function installMock() {
       case "calendar_import_ics": return { added: 2, updated: 1 };
       case "calendar_open_message": return { threadId: "t15", folder: "inbox", accountId: "a1" };
       // the SIZE of the mail server (dev check of the size limit: window.__smtpSize = 10485760)
-      case "smtp_size_limit": return (window as unknown as { __smtpSize?: number }).__smtpSize ?? null;
+      // (__smtpSizeAfterRefusal: what the server says when it is asked again after a refused send, `refresh`)
+      case "smtp_size_limit": { const w = window as unknown as { __smtpSize?: number; __smtpSizeAfterRefusal?: number; __sizeAsks?: boolean[] }; (w.__sizeAsks ??= []).push(!!a.refresh); return (a.refresh ? w.__smtpSizeAfterRefusal : undefined) ?? w.__smtpSize ?? null; }
       case "send_message": {
         // a subject with [fail] is rejected like Gmail rejects a program file (dev check of the failed-send path: __failedSendCheck)
         if (!a.sendAt && String((a.draft as { subject?: string }).subject).includes("[fail]")) throw "SMTP_ATTACHMENT_BLOCKED: The server rejected the attachment type. Gmail, Outlook and Yahoo refuse programs and scripts such as .exe, .bat, .js or .msi, even inside a zip file. Remove the attachment or share it as a link instead. (Server reply: (5.7.0 This message was blocked because its content presents a potential security issue. Please visit https://support.google.com/mail/?p=BlockedMessage to review our message content and attachment content guidelines. gsmtp)";
+        if (!a.sendAt && String((a.draft as { subject?: string }).subject).includes("[toolarge]")) throw "SMTP_TOO_LARGE|reply=552 5.3.4 Message size exceeds fixed limit: The message is larger than this server accepts. Remove attachments or shrink pictures. (Server reply: 552 5.3.4 Message size exceeds fixed limit)";
         if (!a.sendAt) return "sent";
         // a scheduled message shows up in the Scheduled list
         const d = a.draft as { accountId: string; to: string[]; cc: string[]; subject: string; text?: string; attachments?: unknown[] };

@@ -311,8 +311,11 @@ button:focus-visible, [role="option"]:focus-visible, [role="treeitem"]:focus-vis
 .fp-acct { flex: 1; min-width: 0; }
 /* reordering the mailboxes (components/AccountReorder.tsx): the grip at the left of a mailbox, the preview that follows the pointer, the line where it lands */
 .fp-group { position: relative; }
-.reorder-grip { position: absolute; left: 1px; top: 8px; z-index: 1; display: inline-flex; align-items: center; justify-content: center; width: 12px; height: 20px; color: var(--muted); border-radius: 3px; cursor: grab; touch-action: none; opacity: 0; transition: opacity .1s; }
-.fp-group:hover > .reorder-grip, .nav-acct:hover > .reorder-grip, .fp-group:focus-within > .reorder-grip, .nav-acct:focus-within > .reorder-grip, .reorder-grip.on { opacity: .8; }
+.reorder-grip { position: absolute; left: 1px; top: 0; bottom: 0; margin: auto 0; z-index: 1; line-height: 0; display: inline-flex; align-items: center; justify-content: center; width: 12px; height: 20px; color: var(--muted); border-radius: 3px; cursor: grab; touch-action: none; opacity: 0; transition: opacity .1s; }
+.fp-group:hover .reorder-grip, .nav-acct:hover > .reorder-grip, .fp-group:focus-within .reorder-grip, .nav-acct:focus-within > .reorder-grip, .reorder-grip.on { opacity: .8; }
+/* the grip is centred on the row of the mailbox name (the grip and the name button share this box), so it follows every text size and density */
+.fp-headrow { position: relative; }
+.reorder-grip svg { display: block; }
 .reorder-grip:hover { color: var(--fg); background: var(--bg3); }
 .reorder-grip.on { cursor: grabbing; }
 .fp-group.reorder-src, .nav-acct.reorder-src { opacity: .45; }

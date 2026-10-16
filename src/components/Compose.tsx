@@ -22,7 +22,7 @@ import { fitInWindow } from "../fitInWindow";
 import { autosaveDue, snapshotDue, timing, type AutosaveWhy } from "../autosave";
 import { RecoveryWriter, type RecoveryForm } from "../recovery";
 import { cleanPastedHtml, isLocalPictureSrc, stripRemotePictures } from "../pastedHtml";
-import { sendLimit, wireSize, worthAsking } from "../sendSize";
+import { isSizeRefusal, sendLimit, wireSize } from "../sendSize";
 import { outgoingName, outgoingNames } from "../attachName";
 import { placePictureTools } from "../pictureToolsLayout";
 import type { PictureToolsInput } from "../pictureToolsLayout";
@@ -30,7 +30,7 @@ import { blockedAttachmentExt, dataUriBytes, fileToBase64, fmtClock, fmtIn, fmtS
 import { calTz } from "../calendar";
 import { defaultMeeting, MeetingState, MeetingStrip, meetingToDraft } from "./Calendar";
 import { isEmail, singleLabelHostsOf } from "../addresses";
-import { addRecipients, addressOf, chipLabel, formatRecipient, hasRecipient, isImeEvent, openAtEnd, recipientKey, splitRecipients } from "../recipients";
+import { addRecipients, addressOf, chipLabel, formatRecipient, hasRecipient, isImeEvent, openAtEnd, placeRecipients, recipientKey, splitRecipients, type RcptField } from "../recipients";
 import { askUnlock } from "./Pgp";
 import { useContentProtection } from "../protect";
 import { editorKeyHandlers, isAltGraph } from "../composeKeys";
@@ -379,6 +379,19 @@ export function Compose({ init }: { init: ComposeInit }) {
   const [to, setTo] = useState<string[]>(init.to ?? []);
   const [cc, setCc] = useState<string[]>([...(init.cc ?? []), ...(autoCc(accountId) ? [autoCc(accountId)] : [])]);
   const [bcc, setBcc] = useState<string[]>([...(init.bcc ?? []), ...(autoBcc(accountId) ? [autoBcc(accountId)] : [])]);
+  /**
+   * What was typed, pasted, dropped or picked in a recipient field. An address lives in ONE field, the first of To, Cc, Bcc that has it
+   * (R19A-2): one that is already in an earlier field is not added again (a note says where it is), one that is in a later field moves up.
+   */
+  const changeField = (field: RcptField) => (next: string[]) => {
+    const r = placeRecipients({ to, cc, bcc }, field, next);
+    setTo(r.fields.to);
+    setCc(r.fields.cc);
+    setBcc(r.fields.bcc);
+    const name = (f: RcptField) => t(`compose.${f}`);
+    for (const x of r.skipped.slice(0, 3)) showToast(t("compose.rcpt.alreadyIn", { addr: x.addr, field: name(x.in) }), undefined, "info");
+    for (const x of r.moved.slice(0, 3)) showToast(t("compose.rcpt.movedUp", { addr: x.addr, from: name(x.from), to: name(field) }), undefined, "info");
+  };
   const [showCc, setShowCc] = useState(cc.length > 0 || bcc.length > 0);
   // the sender asked for answers to go to another address than From (Reply-To): said under To, with a way back to From
   const [replyNote, setReplyNote] = useState(init.replyNote ?? null);
@@ -874,15 +887,28 @@ export function Compose({ init }: { init: ComposeInit }) {
   };
 
   // What the server gets is the base64 text of every file in lines of 76 + part headers (about 4/3 more than the files): that is what the limit
-  // is checked against and what is shown (G-07). The limit is the server's SIZE (asked once the message is big), else the usual 25 MB.
+  // is checked against and what is shown (G-07). The limit is the smaller of the usual 25 MB and the server's SIZE (smtpsize.rs); the server is
+  // asked when the message is opened, when the account or the attachments change and before Send (the backend remembers the answer for a while).
   const [serverMax, setServerMax] = useState<Record<string, number | null>>({});
-  const askedLimit = useRef<Record<string, Promise<number | null>>>({});
-  const askServerLimit = (id: string): Promise<number | null> => {
+  const askingLimit = useRef<Partial<Record<string, Promise<number | null>>>>({});
+  const askServerLimit = (id: string, refresh = false): Promise<number | null> => {
     if (!id) return Promise.resolve(null);
-    askedLimit.current[id] ??= api.smtpSizeLimit(id).catch(() => null).then((v) => (setServerMax((m) => ({ ...m, [id]: v })), v));
-    return askedLimit.current[id];
+    // (one question at a time per account; a refresh after a refused send is always a new one)
+    if (!refresh && askingLimit.current[id]) return askingLimit.current[id];
+    const asked = api
+      .smtpSizeLimit(id, refresh)
+      .catch(() => null)
+      .then((v) => (setServerMax((m) => ({ ...m, [id]: v })), v))
+      .finally(() => {
+        if (askingLimit.current[id] === asked) delete askingLimit.current[id];
+      });
+    askingLimit.current[id] = asked;
+    return asked;
   };
   const limit = sendLimit(serverMax[accountId]);
+  /** "Attachments total 5.2 MB when sent; the limit for this account's server is 4.8 MB" (the server's own number), else the usual-limit wording */
+  const tooBigText = (size: number, lim: { bytes: number; fromServer: boolean }, key: "compose.att.tooBig" | "compose.att.totalTooBig") =>
+    lim.fromServer ? t("compose.att.tooBigServer", { size: fmtSize(size), limit: fmtSize(lim.bytes) }) : t(key, { size: fmtSize(size), limit: fmtSize(lim.bytes) });
   const wireOf = (files: Att[], picBytes: number, picCount: number) =>
     wireSize({ attachments: files.map((a) => ({ filename: a.filename, base64Length: a.dataBase64.length })), pictures: picCount ? [picBytes] : [], encrypted: encOn });
   const attBytes = wireOf(atts, 0, 0);
@@ -891,14 +917,15 @@ export function Compose({ init }: { init: ComposeInit }) {
   const overShown = useRef(false);
   const over = totalBytes > limit.bytes;
   useEffect(() => {
-    if (over && !overShown.current && touched.current) showToast(t("compose.att.totalTooBig", { size: fmtSize(totalBytes), limit: fmtSize(limit.bytes) }), undefined, "error");
+    if (over && !overShown.current && touched.current) showToast(tooBigText(totalBytes, limit, "compose.att.totalTooBig"), undefined, "error");
     overShown.current = over;
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [over]);
+  // (BUG-16: it used to be asked only for a message above 8 MiB, so a server that takes 5 MB was never found)
   useEffect(() => {
-    if (worthAsking(totalBytes)) void askServerLimit(accountId);
+    void askServerLimit(accountId);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [accountId, totalBytes > 0 && worthAsking(totalBytes)]);
+  }, [accountId, atts.length, pics.count]);
   /** attachments whose type Gmail, Outlook and Yahoo reject */
   const blockedAtts = atts.map((a) => ({ name: a.filename, ext: blockedAttachmentExt(a.filename) })).filter((a) => a.ext);
 
@@ -911,22 +938,40 @@ export function Compose({ init }: { init: ComposeInit }) {
     [],
   );
 
-  /**
-   * The error text when the message, as it goes on the wire (base64 + headers + the body), is over what the server takes; null when it
-   * fits. A message above 8 MiB asks the server for its SIZE first (smtpsize.rs); without an answer the usual 25 MB applies.
-   */
-  const sizeProblem = async (d: Draft): Promise<string | null> => {
-    const wire = wireSize({
+  /** Bytes of a finished draft on the wire (headers, text, files and pictures). */
+  const draftWire = (d: Draft) =>
+    wireSize({
       attachments: d.attachments.map((a) => ({ filename: a.filename, base64Length: a.dataBase64.length })),
       pictures: (d.inline ?? []).map((i) => Math.floor((i.dataBase64.length * 3) / 4)),
       htmlLength: d.html.length,
       textLength: d.text.length,
       encrypted: !!d.security?.encrypt,
     });
-    let max = serverMax[d.accountId];
-    if (max === undefined && worthAsking(wire)) max = await askServerLimit(d.accountId);
-    const lim = sendLimit(max);
-    return wire > lim.bytes ? t("compose.att.tooBig", { size: fmtSize(wire), limit: fmtSize(lim.bytes) }) : null;
+
+  /**
+   * The error text when the message, as it goes on the wire (base64 + headers + the body), is over what the server takes; null when it
+   * fits. The server is asked for its SIZE first (smtpsize.rs; from the backend's memory when it was asked a short time ago); without an
+   * answer within 10 seconds the limit known so far applies (the usual 25 MB).
+   */
+  const sizeProblem = async (d: Draft): Promise<string | null> => {
+    const wire = draftWire(d);
+    const max = await Promise.race([askServerLimit(d.accountId), new Promise<null>((r) => setTimeout(() => r(null), 10_000))]);
+    const lim = sendLimit(max ?? serverMax[d.accountId]);
+    return wire > lim.bytes ? tooBigText(wire, lim, "compose.att.tooBig") : null;
+  };
+
+  /**
+   * The toast for a send that failed. A refusal for the size says the same clear sentence as the check before Send, with the size of the
+   * message and the limit of the server (asked again, a refused send is the moment to know it); any other error keeps its own text.
+   */
+  const sendFailedText = async (e: unknown, d: Draft): Promise<string> => {
+    if (isSizeRefusal(e)) {
+      const wire = draftWire(d);
+      const lim = sendLimit(await askServerLimit(d.accountId, true));
+      // the server refused although the limit is unknown or bigger than the estimate: its own reply (translated) says it
+      if (wire > lim.bytes) return tooBigText(wire, lim, "compose.att.tooBig");
+    }
+    return t("compose.toast.sendFailed", { error: friendlyError(e) });
   };
 
   const sendNowFromEditor = async () => {
@@ -953,7 +998,7 @@ export function Compose({ init }: { init: ComposeInit }) {
       void refresh();
     } catch (e) {
       setBusy(false);
-      showToast(t("compose.toast.sendFailed", { error: friendlyError(e) }), undefined, "error");
+      showToast(await sendFailedText(e, d), undefined, "error");
       reopen(d);
     }
   };
@@ -1071,7 +1116,7 @@ export function Compose({ init }: { init: ComposeInit }) {
       } catch (e) {
         // quitting: the message stays in the outbox and goes out at the next start (REQ-48 c), nothing is reopened
         if (quitting) return;
-        showToast(t("compose.toast.sendFailed", { error: friendlyError(e) }), undefined, "error");
+        showToast(await sendFailedText(e, d), undefined, "error");
         reopen(d);
       } finally {
         done();
@@ -1806,7 +1851,7 @@ export function Compose({ init }: { init: ComposeInit }) {
           <label>{t("compose.from")}</label>
           <AccountPicker value={accountId} accounts={accounts} onChange={changeAccount} label={t("compose.from")} />
         </div>
-        <RecipientField label={t("compose.to")} values={to} onChange={setTo} autoFocus={to.length === 0 && !init.replaces} onTouch={touch} keys={encOn && ks ? ks.recipients : undefined} onKeyAction={keyAction} />
+        <RecipientField label={t("compose.to")} values={to} onChange={changeField("to")} autoFocus={to.length === 0 && !init.replaces} onTouch={touch} keys={encOn && ks ? ks.recipients : undefined} onKeyAction={keyAction} />
         {noteShown && replyNote && (
           <div className="note cf-replyto" role="status">
             <Info size={13} aria-hidden />
@@ -1818,8 +1863,8 @@ export function Compose({ init }: { init: ComposeInit }) {
         )}
         {showCc ? (
           <>
-            <RecipientField label={t("compose.cc")} values={cc} onChange={setCc} onTouch={() => ((ccTouched.current = true), touch())} keys={encOn && ks ? ks.recipients : undefined} onKeyAction={keyAction} />
-            {!meeting && <RecipientField label={t("compose.bcc")} values={bcc} onChange={setBcc} onTouch={() => ((ccTouched.current = true), touch())} keys={encOn && ks ? ks.recipients : undefined} onKeyAction={keyAction} />}
+            <RecipientField label={t("compose.cc")} values={cc} onChange={changeField("cc")} onTouch={() => ((ccTouched.current = true), touch())} keys={encOn && ks ? ks.recipients : undefined} onKeyAction={keyAction} />
+            {!meeting && <RecipientField label={t("compose.bcc")} values={bcc} onChange={changeField("bcc")} onTouch={() => ((ccTouched.current = true), touch())} keys={encOn && ks ? ks.recipients : undefined} onKeyAction={keyAction} />}
           </>
         ) : (
           <div className="cf-links">

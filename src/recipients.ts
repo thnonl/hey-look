@@ -190,6 +190,52 @@ export function addRecipients(list: readonly string[], more: readonly string[]):
   return out;
 }
 
+export type RcptField = "to" | "cc" | "bcc";
+export interface RcptFields {
+  to: string[];
+  cc: string[];
+  bcc: string[];
+}
+const FIELD_ORDER: readonly RcptField[] = ["to", "cc", "bcc"];
+
+/**
+ * An address belongs to ONE field: the first of To, Cc, Bcc that has it (QA 19A R19A-2; the send already used one RCPT per address). `next`
+ * is the new content of `field` (what was there plus what was typed, pasted, dropped or picked). An address that is new in it and already
+ * sits in an EARLIER field is not added (`skipped`: it is already there); one that sits in a LATER field is taken from there (`moved`: the
+ * field it was in), so the field the person is typing in wins whenever it comes first. Addresses that were in `field` before stay as they are.
+ */
+export function placeRecipients(
+  fields: RcptFields,
+  field: RcptField,
+  next: readonly string[],
+): { fields: RcptFields; skipped: { addr: string; in: RcptField }[]; moved: { addr: string; from: RcptField }[] } {
+  const here = FIELD_ORDER.indexOf(field);
+  const had = new Set(fields[field].map(recipientKey));
+  const out: RcptFields = { to: [...fields.to], cc: [...fields.cc], bcc: [...fields.bcc] };
+  const skipped: { addr: string; in: RcptField }[] = [];
+  const moved: { addr: string; from: RcptField }[] = [];
+  const kept: string[] = [];
+  for (const r of next) {
+    const k = recipientKey(r);
+    if (!had.has(k)) {
+      const earlier = FIELD_ORDER.slice(0, here).find((f) => fields[f].some((x) => recipientKey(x) === k));
+      if (earlier) {
+        if (!skipped.some((x) => recipientKey(x.addr) === k)) skipped.push({ addr: addressOf(r), in: earlier });
+        continue;
+      }
+      for (const f of FIELD_ORDER.slice(here + 1)) {
+        if (out[f].some((x) => recipientKey(x) === k)) {
+          out[f] = out[f].filter((x) => recipientKey(x) !== k);
+          moved.push({ addr: addressOf(r), from: f });
+        }
+      }
+    }
+    kept.push(r);
+  }
+  out[field] = kept;
+  return { fields: out, skipped, moved };
+}
+
 /** Keyboard / input events of an input method: Enter that confirms a half-converted word must not become a chip. */
 export function isImeEvent(e: { isComposing?: boolean; keyCode?: number; key?: string; nativeEvent?: { isComposing?: boolean; keyCode?: number } }): boolean {
   return !!(e.isComposing || e.nativeEvent?.isComposing || e.keyCode === 229 || e.nativeEvent?.keyCode === 229 || e.key === "Process");

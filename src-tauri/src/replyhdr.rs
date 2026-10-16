@@ -1,7 +1,7 @@
 //! What an answer to a message needs from the message's own headers: where the sender wants answers to go (Reply-To), the
 //! Message-ID to answer, and the References chain of the answer (RFC 5322 section 3.6.4).
 //! The stored message only keeps From / To / Cc as bare addresses and one merged list of reference ids (for threading), so this
-//! reads the headers of the message itself, as the server holds it.
+//! reads the headers of the message itself, as the server holds it (also the display names of From / To / Cc: Reply all keeps them).
 
 use serde::Serialize;
 
@@ -16,6 +16,27 @@ pub struct ReplyHeaders {
     pub references: Vec<String>,
     /// the Reply-To addresses that are real addresses, as `Name <address>` / `address` (empty: answer to From)
     pub reply_to: Vec<String>,
+    /// From / To / Cc as the headers write them, each as `"Name" <address>` / `address` (a name that only repeats the address is dropped)
+    pub from: Option<String>,
+    pub to: Vec<String>,
+    pub cc: Vec<String>,
+}
+
+/// The mailboxes of an address header with their display names (quoted names such as `"Doe, John"` stay whole).
+fn mailboxes(a: Option<&mail_parser::Address>) -> Vec<String> {
+    a.map(|a| {
+        a.iter()
+            .filter_map(|x| {
+                let email = x.address.as_deref()?.trim();
+                if !email.contains('@') {
+                    return None;
+                }
+                let name = x.name.as_deref().filter(|n| !n.trim().eq_ignore_ascii_case(email));
+                Some(crate::smtp::format_mailbox(name, email))
+            })
+            .collect()
+    })
+    .unwrap_or_default()
 }
 
 /// At most this many ids in the References of an answer, and this many characters (RFC 5322 line limit is 998; 986 leaves room for
@@ -74,7 +95,7 @@ pub fn from_raw(raw: &[u8]) -> ReplyHeaders {
                 .collect::<Vec<_>>()
         })
         .unwrap_or_default();
-    ReplyHeaders { references: chain(&refs, &irt, message_id.as_deref()), message_id, reply_to }
+    ReplyHeaders { references: chain(&refs, &irt, message_id.as_deref()), message_id, reply_to, from: mailboxes(m.from()).into_iter().next(), to: mailboxes(m.to()), cc: mailboxes(m.cc()) }
 }
 
 #[cfg(test)]
@@ -130,6 +151,22 @@ mod tests {
         // a Reply-To without a real address is ignored
         let h = from_raw(b"From: a@example.org\r\nReply-To: nobody\r\nMessage-ID: <m@example.org>\r\n\r\nx");
         assert!(h.reply_to.is_empty(), "{:?}", h.reply_to);
+
+        // QA 19A R19A-1: the names of From / To / Cc stay (the stored message keeps the addresses only)
+        let h = from_raw(
+            b"From: \"Lee, Ann\" <ann@example.org>\r\nTo: \"Doe, John\" <john@x.test>, plain@x.test, bob@x.test <bob@x.test>, =?utf-8?B?SMO8bGxlciwgw5xtaXQ=?= <u@x.test>\r\nCc: Team <team@x.test>\r\nMessage-ID: <m@example.org>\r\n\r\nx",
+        );
+        assert_eq!(h.from.as_deref(), Some("\"Lee, Ann\" <ann@example.org>"));
+        assert_eq!(
+            h.to,
+            vec!["\"Doe, John\" <john@x.test>".to_string(), "plain@x.test".to_string(), "bob@x.test".to_string(), "\"H\u{fc}ller, \u{dc}mit\" <u@x.test>".to_string()],
+            "{:?}",
+            h.to
+        );
+        assert_eq!(h.cc, vec!["\"Team\" <team@x.test>".to_string()]);
+        // a message without From / To / Cc
+        let h = from_raw(b"Message-ID: <m@example.org>\r\n\r\nx");
+        assert!(h.from.is_none() && h.to.is_empty() && h.cc.is_empty());
 
         // a message without a Message-ID (old mail sent by a client that left it to the server)
         let h = from_raw(b"From: a@example.org\r\n\r\nx");
