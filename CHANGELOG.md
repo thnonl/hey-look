@@ -11,6 +11,7 @@ Small fixes found while testing 1.0.3: event times, Archive and Delete errors, q
 - Flag and Pin: pressing the button several times quickly now ends in the state of your last click and stays there, as Mark read and Mark unread already do
 - Settings: long texts are no longer cut off with an ellipsis in any of the eight languages at a 960 px or 1280 px window (for example the default account in Russian, the Notifications choices and the PGP key list)
 - macOS: About, Services, Hide, Hide Others and Show All in the app menu now follow the language you chose, like Quit; Show All is new
+- Windows: when Windows refuses to show a notification, Hey Look! no longer hides the error. Send test in Settings > Notifications shows it, and the log (startup.log) gets a line saying the notification failed
 - Website: the logo keeps its size on phones, the top menu folds into the menu button before it can touch the buttons, long German words no longer run off the page, and the Theme and Animations buttons are described with whole sentences in every language
 
 ## 1.0.3 — 2026-10-16
