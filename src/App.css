@@ -22,6 +22,7 @@
   --accent-soft: color-mix(in srgb, var(--accent) 12%, var(--bg));
   --top: var(--top-lt, linear-gradient(135deg, color-mix(in srgb, var(--accent-base), black 22%) 0%, var(--accent-base) 100%));
   --top-fg: var(--top-fg-lt, #ffffff);
+  --top-ring: color-mix(in srgb, var(--accent-base), black 22%); /* the dot on the update button cuts out of the bar in the bar's colour */
   --top-field: var(--top-field-lt, rgba(255,255,255,.17)); --top-field-h: var(--top-field-h-lt, rgba(255,255,255,.24)); --top-hover: var(--top-hover-lt, rgba(255,255,255,.18));
   --danger: #b42318;
   --flag: #d92d20;
@@ -44,7 +45,7 @@
   :root:not([data-theme="light"]) {
     --bg: #1b1c20; --bg2: #232429; --bg3: #2d2f36; --sel: var(--accent-soft); --fg: #f1f2f4; --muted: #a2a8b3; --border: #34363e;
     --accent: color-mix(in srgb, var(--accent-base), white 40%); --accent-text: var(--accent-text-dk, var(--accent)); --accent-hover: color-mix(in srgb, var(--accent), white 16%); --accent-fg: var(--accent-fg-dk, #07121f); --accent-soft: color-mix(in srgb, var(--accent) 14%, var(--bg));
-    --top: linear-gradient(135deg, #25272d 0%, #2d3038 100%); --top-fg: #fff; --top-field: rgba(255,255,255,.17); --top-field-h: rgba(255,255,255,.24); --top-hover: rgba(255,255,255,.18); --flag: #f97066; --danger: #f97066; --good: #47cd89; --warn: #fdb022;
+    --top: linear-gradient(135deg, var(--top-dk-start, #25272d) 0%, var(--top-dk-end, #2d3038) 100%); --top-ring: var(--top-dk-end, #2d3038); --top-fg: #fff; --top-field: rgba(255,255,255,.17); --top-field-h: rgba(255,255,255,.24); --top-hover: rgba(255,255,255,.18); --flag: #f97066; --danger: #f97066; --good: #47cd89; --warn: #fdb022;
     --shadow-sm: 0 1px 2px rgba(0, 0, 0, .4); --shadow: 0 14px 36px rgba(0, 0, 0, .55), 0 2px 6px rgba(0, 0, 0, .4);
     color-scheme: dark;
   }
@@ -52,9 +53,18 @@
 :root[data-theme="dark"] {
   --bg: #1b1c20; --bg2: #232429; --bg3: #2d2f36; --sel: var(--accent-soft); --fg: #f1f2f4; --muted: #a2a8b3; --border: #34363e;
   --accent: color-mix(in srgb, var(--accent-base), white 40%); --accent-text: var(--accent-text-dk, var(--accent)); --accent-hover: color-mix(in srgb, var(--accent), white 16%); --accent-fg: var(--accent-fg-dk, #07121f); --accent-soft: color-mix(in srgb, var(--accent) 14%, var(--bg));
-  --top: linear-gradient(135deg, #25272d 0%, #2d3038 100%); --top-fg: #fff; --top-field: rgba(255,255,255,.17); --top-field-h: rgba(255,255,255,.24); --top-hover: rgba(255,255,255,.18); --flag: #f97066; --danger: #f97066; --good: #47cd89; --warn: #fdb022;
+  --top: linear-gradient(135deg, var(--top-dk-start, #25272d) 0%, var(--top-dk-end, #2d3038) 100%); --top-ring: var(--top-dk-end, #2d3038); --top-fg: #fff; --top-field: rgba(255,255,255,.17); --top-field-h: rgba(255,255,255,.24); --top-hover: rgba(255,255,255,.18); --flag: #f97066; --danger: #f97066; --good: #47cd89; --warn: #fdb022;
   --shadow-sm: 0 1px 2px rgba(0, 0, 0, .4); --shadow: 0 14px 36px rgba(0, 0, 0, .55), 0 2px 6px rgba(0, 0, 0, .4);
   color-scheme: dark;
+}
+/* Dark top bar = the primary colour as a DARK tint: --top-dk-start/-end are its hue at a fixed dark lightness (topBarDark.ts, set in
+   applyPrefs; contrast of the white bar text >= 7:1). Without them (no script yet) the bar is the neutral dark grey. In high-contrast
+   modes it stays that neutral grey. Light theme: unchanged (the bar is the primary colour). */
+@media (prefers-color-scheme: dark) and ((forced-colors: active) or (prefers-contrast: more)) {
+  :root:not([data-theme="light"]) { --top: linear-gradient(135deg, #25272d 0%, #2d3038 100%); --top-ring: #2d3038; }
+}
+@media (forced-colors: active), (prefers-contrast: more) {
+  :root[data-theme="dark"] { --top: linear-gradient(135deg, #25272d 0%, #2d3038 100%); --top-ring: #2d3038; }
 }
 
 /* Chinese and Japanese: Han characters look different per region, so the font follows the language (<html lang> is the registry code, and the
@@ -156,9 +166,7 @@ button:focus-visible, [role="option"]:focus-visible, [role="treeitem"]:focus-vis
 .update-status { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 10px; padding: 12px 0; border-bottom: 1px solid var(--border); }
 .icon-btn.has-dot { position: relative; }
 .icon-btn.has-dot::after { content: ""; position: absolute; top: 5px; right: 5px; width: 8px; height: 8px; border-radius: 50%;
-  background: var(--top-fg); box-shadow: 0 0 0 1.5px color-mix(in srgb, var(--accent-base), black 22%); }
-:root[data-theme="dark"] .icon-btn.has-dot::after { box-shadow: 0 0 0 1.5px #2d3038; }
-@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) .icon-btn.has-dot::after { box-shadow: 0 0 0 1.5px #2d3038; } }
+  background: var(--top-fg); box-shadow: 0 0 0 1.5px var(--top-ring); }
 .link-btn { min-height: 24px; background: none; border: 0; color: var(--fg); padding: 3px 8px; border-radius: var(--r-sm); display: inline-flex; align-items: center; gap: 4px; font-size: .9em; }
 .link-btn:hover { background: var(--bg3); }
 .avatar { border-radius: 50%; color: #fff; display: flex; align-items: center; justify-content: center; font-weight: 600; flex: none; user-select: none; letter-spacing: .02em; box-shadow: inset 0 0 0 1px rgba(255,255,255,.18); }
@@ -572,7 +580,8 @@ button.ov-tag:hover { background: color-mix(in srgb, var(--accent), transparent 
 .ap-wrap { margin: 12px 0 6px; }
 .ap-preview { border: 1px solid var(--border); border-radius: var(--r-md); overflow: hidden; background: var(--bg); color: var(--fg); height: 340px; display: flex; flex-direction: column; box-shadow: var(--shadow-sm); }
 .ap-preview[data-theme="light"] { --bg: #fff; --bg2: #f6f7f9; --bg3: #eceef2; --fg: #1f2328; --muted: #5b6470; --border: #e3e6eb; --accent: var(--accent-base); --accent-text: var(--accent-text-lt, var(--accent)); --accent-fg: var(--accent-fg-lt, #fff); --accent-soft: color-mix(in srgb, var(--accent) 12%, #fff); --sel: var(--accent-soft); --top: linear-gradient(135deg, color-mix(in srgb, var(--accent-base), black 22%), var(--accent-base)); --top-fg: #fff; --flag: #d92d20; color-scheme: light; }
-.ap-preview[data-theme="dark"] { --bg: #1b1c20; --bg2: #232429; --bg3: #2d2f36; --fg: #f1f2f4; --muted: #a2a8b3; --border: #34363e; --accent: color-mix(in srgb, var(--accent-base), white 40%); --accent-text: var(--accent-text-dk, var(--accent)); --accent-fg: var(--accent-fg-dk, #07121f); --accent-soft: color-mix(in srgb, var(--accent) 14%, #1b1c20); --sel: var(--accent-soft); --top: linear-gradient(135deg, #25272d, #2d3038); --top-fg: #fff; --flag: #f97066; color-scheme: dark; }
+.ap-preview[data-theme="dark"] { --bg: #1b1c20; --bg2: #232429; --bg3: #2d2f36; --fg: #f1f2f4; --muted: #a2a8b3; --border: #34363e; --accent: color-mix(in srgb, var(--accent-base), white 40%); --accent-text: var(--accent-text-dk, var(--accent)); --accent-fg: var(--accent-fg-dk, #07121f); --accent-soft: color-mix(in srgb, var(--accent) 14%, #1b1c20); --sel: var(--accent-soft); --top: linear-gradient(135deg, var(--top-dk-start, #25272d), var(--top-dk-end, #2d3038)); --top-fg: #fff; --flag: #f97066; color-scheme: dark; }
+@media (forced-colors: active), (prefers-contrast: more) { .ap-preview[data-theme="dark"] { --top: linear-gradient(135deg, #25272d, #2d3038); } }
 .ap-top { background: var(--top); color: var(--top-fg); padding: 0 12px; height: 30px; display: flex; align-items: center; gap: 7px; font-size: .86em; }
 .ap-search { margin-left: auto; margin-right: auto; display: inline-flex; align-items: center; gap: 5px; background: rgba(255,255,255,.18); border-radius: 6px; padding: 2px 30px 2px 8px; font-size: .86em; opacity: .9; }
 .ap-body { flex: 1; display: grid; grid-template-columns: 104px minmax(0, 1.2fr) minmax(0, 1fr); min-height: 0; }

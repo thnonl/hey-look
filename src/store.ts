@@ -20,6 +20,7 @@ import { resolveLang, setLangPref, t } from "./i18n";
 import { fmtNumber } from "./i18n/format";
 import { calTz, CalView, Day, rangeFor, systemTz, today } from "./calendar";
 import { accentText, accountColor, buttonAccent, clampMaxDownload, DEFAULT_PREFS, lightened, mergePrefs, Prefs, readableOn, staleAccountPrefs, topBar, validHex } from "./prefs";
+import { darkTopBar } from "./topBarDark";
 
 /** `quiet`: the caller tells a failure itself. `onSaved`: the caller says "Draft saved" itself (the pane makes no toast). */
 export interface ComposeSaveOpts {
@@ -472,6 +473,10 @@ function applyPrefs(p: Prefs) {
   root.style.setProperty("--top-field-lt", top.field);
   root.style.setProperty("--top-field-h-lt", top.fieldHover);
   root.style.setProperty("--top-hover-lt", top.hover);
+  // dark theme: the primary colour as a dark tint of the bar (hue only, capped lightness; see topBarDark.ts)
+  const topDk = darkTopBar(validHex(p.accent) ? p.accent : DEFAULT_PREFS.accent);
+  root.style.setProperty("--top-dk-start", topDk.start);
+  root.style.setProperty("--top-dk-end", topDk.end);
 }
 
 /** Apply read/unread/flag/pin changes to the lists right away; the backend call (IMAP) follows. */
