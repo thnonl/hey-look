@@ -257,7 +257,7 @@
   }
 
   /* ---------- 404: GitHub Pages serves one 404.html for every language directory, so the page reads the language from the address
-     (<base>/<dir>/...), loads that dictionary and points its links into that language. Eyes follow the pointer: shared pupils code above. ---------- */
+     (<base>/<dir>/...), loads that dictionary, translates every text of the page (data-i18n: text, data-i18n-aria: aria-label; header, nav and footer too) and points its links into that language. Eyes follow the pointer: shared pupils code above. ---------- */
   if (onNotFound && lg) {
     var basePath = new URL(document.baseURI).pathname, here = location.pathname;
     var seg = here.indexOf(basePath) === 0 ? here.slice(basePath.length).split('/')[0] : '';
@@ -269,6 +269,7 @@
         var hl = cur.getAttribute('hreflang');
         root.setAttribute('lang', hl); LANG = hl.split('-')[0];
         $$('[data-i18n]').forEach(function (el) { el.textContent = t(el.getAttribute('data-i18n')); });
+        $$('[data-i18n-aria]').forEach(function (el) { el.setAttribute('aria-label', t(el.getAttribute('data-i18n-aria'))); });
         document.title = t('nf.title');
         $$('a[href]').forEach(function (a) {
           var h = a.getAttribute('href');
@@ -276,6 +277,9 @@
         });
         $$('.lang-menu a', lg).forEach(function (a) { if (a === cur) a.setAttribute('aria-current', 'true'); else a.removeAttribute('aria-current'); });
         var lc = $('.lang-cur', lg); if (lc) lc.textContent = cur.getAttribute('data-short');
+        var lsum = $('summary', lg), lmenu = $('.lang-menu', lg); /* the menu block is generated (English labels): its labels come from the dictionary here */
+        if (lsum) { lsum.setAttribute('aria-label', t('nf.lang.cur', { lang: cur.textContent })); lsum.setAttribute('title', t('nf.lang')); }
+        if (lmenu) lmenu.setAttribute('aria-label', t('nf.lang'));
         applyTheme(pref); applyMotion();
       };
       document.head.appendChild(sc404);

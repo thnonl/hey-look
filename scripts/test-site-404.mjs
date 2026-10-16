@@ -6,6 +6,8 @@
 //   1. the <base href>, from an inline script in 404.html: /hey-look/ on github.io, / on any other host, . for file:// ;
 //   2. the language, from the first folder under the base (assets/site.js, the "404" block): a known language folder loads that
 //      dictionary (German 404 for /hey-look/de/nope.html); anything else stays English.
+// The whole page is then translated from that dictionary: heading, buttons, header navigation and footer (data-i18n / data-i18n-aria in
+// 404.html). Section 5 renders the page with each dictionary and compares its header and footer with the index page of that language.
 // The browser language (navigator.language) and any redirect are never used: the site is English at the root and the visitor picks
 // another language in the menu. This test runs the real inline script and the real address-to-folder lines of site.js in a vm with
 // a fake location, and checks the page, the dictionaries and the scripts for the things that would break that.
@@ -13,12 +15,13 @@ import fs from 'node:fs';
 import path from 'node:path';
 import vm from 'node:vm';
 import crypto from 'node:crypto';
-import { LANGS, DOCS } from './generate-site-languages.mjs';
+import { LANGS, DOCS, langBlock } from './generate-site-languages.mjs';
 
 const errors = [];
 const fail = (msg) => errors.push(msg);
 const read = (f) => fs.readFileSync(path.join(DOCS, f), 'utf8');
 const html = read('404.html');
+const dictOf = (code) => { const sb = { window: {} }; vm.runInNewContext(read(`assets/i18n/${code}.js`), sb); return sb.window.HL_I18N[code]; };
 const siteJs = read('assets/site.js');
 
 // ---------- 1. the inline <base> script ----------
@@ -96,6 +99,58 @@ for (const k of new Set([...html.matchAll(/data-i18n="(nf\.[^"]+)"/g)].map((x) =
 if (!/<html lang="en">/.test(html)) fail('404.html: <html lang> is not en (English is the default 404)');
 if (!/src="assets\/i18n\/en\.js"/.test(html) || !/src="assets\/site\.js"/.test(html)) fail('404.html: the English dictionary and site.js are not loaded');
 
+// ---------- 5. header navigation and footer are translated with the dictionaries ----------
+// Render 404.html the way site.js does (data-i18n: text of the element, data-i18n-aria: its aria-label) and compare the header and the
+// footer with the same part of the language's own index page: the same text nodes in the same order and the same aria-labels.
+// English is checked too (the dictionary must say what the page says).
+const decode = (s) => s.replace(/&copy;/g, '©').replace(/&rsquo;/g, '’').replace(/&amp;/g, '&').replace(/&nbsp;/g, ' ');
+const escText = (s) => s.replace(/&/g, '&amp;').replace(/</g, '&lt;');
+const escAttr = (s) => escText(s).replace(/"/g, '&quot;');
+function render(code) {
+  const dict = dictOf(code);
+  const get = (k) => (typeof dict[k] === 'string' ? dict[k] : '');
+  return html
+    .replace(/<(\w+)([^>]*?\sdata-i18n="([^"]+)"[^>]*)>([\s\S]*?)<\/\1>/g, (m, tag, attrs, k) => `<${tag}${attrs}>${escText(get(k))}</${tag}>`)
+    .replace(/<\w+[^>]*?\sdata-i18n-aria="([^"]+)"[^>]*>/g, (m, k) => m.replace(/\saria-label="[^"]*"/, ` aria-label="${escAttr(get(k))}"`));
+}
+function parts(page) {
+  const noLang = page.replace(/<!-- hl:lang-begin[\s\S]*?<!-- hl:lang-end -->/, '');
+  const head = noLang.slice(noLang.indexOf('<a class="skip"'), noLang.indexOf('</header>'));
+  const foot = noLang.slice(noLang.indexOf('<footer class="ftr">'), noLang.indexOf('</footer>'));
+  const text = (s) => s.replace(/<svg[\s\S]*?<\/svg>/g, '').split(/<[^>]*>/).map((x) => decode(x).trim()).filter(Boolean);
+  // the theme and animation buttons are labelled by site.js from the dictionary on every page, so their static label is not compared
+  const aria = (s) => [...s.replace(/<button id="(?:motion|theme)-btn"[^>]*>/g, '').matchAll(/\saria-label="([^"]*)"/g)].map((x) => decode(x[1]));
+  return { headText: text(head), footText: text(foot), headAria: aria(head), footAria: aria(foot) };
+}
+for (const l of LANGS) {
+  const got = parts(render(l.code));
+  const want = parts(read((l.dir ? l.dir + '/' : '') + 'index.html'));
+  for (const k of Object.keys(want)) {
+    if (JSON.stringify(got[k]) !== JSON.stringify(want[k])) {
+      const i = got[k].findIndex((x, j) => x !== want[k][j]);
+      fail(`404 in ${l.code}: ${k} differs from ${l.dir || '.'}${l.dir ? '/' : ''}index.html at item ${i}: "${got[k][i]}" vs "${want[k][i]}" (${got[k].length} vs ${want[k].length} items)`);
+    }
+  }
+}
+// the labels that site.js writes into the generated language menu come from the dictionary and say what the generator's block says
+for (const l of LANGS) {
+  const d = dictOf(l.code), sum = /<summary aria-label="([^"]*)" title="([^"]*)"/.exec(langBlock(l, 'index'));
+  if (d['nf.lang'] !== sum[2]) fail(`assets/i18n/${l.code}.js: nf.lang "${d['nf.lang']}" differs from the language menu title "${sum[2]}"`);
+  if ((d['nf.lang.cur'] || '').replace('{lang}', l.native) !== sum[1]) fail(`assets/i18n/${l.code}.js: nf.lang.cur gives "${(d['nf.lang.cur'] || '').replace('{lang}', l.native)}", the language menu says "${sum[1]}"`);
+}
+if (!siteJs.includes("$$('[data-i18n-aria]')") || !siteJs.includes("t('nf.lang.cur'")) fail('assets/site.js: the 404 block does not translate the data-i18n-aria attributes and the language menu labels');
+// every marker used on the page has a key in every dictionary
+const used = new Set([...html.matchAll(/data-i18n(?:-aria)?="([^"]+)"/g)].map((x) => x[1]));
+for (const l of LANGS) { const d = dictOf(l.code); for (const k of used) if (typeof d[k] !== 'string' || !d[k]) fail(`assets/i18n/${l.code}.js: key ${k} (used by 404.html) is missing or empty`); }
+// nothing visible is left without a marker (it would stay English on a translated 404), except the brand name and the number
+{
+  const body = html.slice(html.indexOf('<a class="skip"'), html.indexOf('<!-- hl:scripts-begin'))
+    .replace(/<svg[\s\S]*?<\/svg>/g, '').replace(/<!-- hl:lang-begin[\s\S]*?<!-- hl:lang-end -->/, '');
+  const unmarked = body.replace(/<(\w+)[^>]*\sdata-i18n="[^"]+"[^>]*>[\s\S]*?<\/\1>/g, '');
+  for (const x of unmarked.split(/<[^>]*>/).map((s) => decode(s).trim()).filter(Boolean)) if (x !== 'Hey Look!' && x !== '404') fail(`404.html: the visible text "${x}" has no data-i18n marker, it would stay English on a translated 404`);
+  for (const m of body.matchAll(/<[^>]*\saria-label="([^"]*)"[^>]*>/g)) if (!/data-i18n-aria=/.test(m[0]) && !/id="(motion|theme)-btn"/.test(m[0])) fail(`404.html: aria-label "${m[1]}" has no data-i18n-aria marker`);
+}
+
 // ---------- 4. no language guessing, no redirect ----------
 const scripts = fs.readdirSync(path.join(DOCS, 'assets')).filter((f) => f.endsWith('.js')).map((f) => 'assets/' + f);
 const pages = [];
@@ -110,4 +165,4 @@ for (const f of [...scripts, ...pages]) {
 }
 
 if (errors.length) { console.error(errors.map((e) => 'FAIL ' + e).join('\n')); process.exit(1); }
-console.log(`ok - test-site-404 (${dirs.length} language folders, base + language detection, no redirect or navigator.language)`);
+console.log(`ok - test-site-404 (${dirs.length} language folders, base + language detection, translated title/text/header/footer in ${LANGS.length} languages, no redirect or navigator.language)`);
