@@ -4,6 +4,7 @@ import { eff } from "./prefs";
 import { useStore } from "./store";
 import { actionTargets } from "./composeSelection";
 import { fmtFull, plainToHtml, quoteHtml, sanitizeHtml, splitAddrs } from "./util";
+import { forwardHeaderHtml } from "./quoteHeader";
 
 export function targets(): string[] {
   const { checked, selected, compose } = useStore.getState();
@@ -51,9 +52,11 @@ export function forward(m: MessageFull) {
   useStore.getState().openCompose({
     accountId: m.accountId,
     subject: /^fwd?:/i.test(m.subject) ? m.subject : `Fwd: ${m.subject}`,
-    bodyHtml: `<br><br>${t("app.forward.header")}<br>${t("app.forward.from")} ${m.fromName} &lt;${m.fromEmail}&gt;<br>${t("app.forward.date")} ${fmtFull(m.date)}<br>${t("app.forward.subject")} ${m.subject}<br>${t("app.forward.to")} ${m.to}<br><br>${
-      m.html ? sanitizeHtml(m.html, false).html : plainToHtml(m.text ?? "")
-    }`,
+    bodyHtml:
+      forwardHeaderHtml(
+        { header: t("app.forward.header"), from: t("app.forward.from"), date: t("app.forward.date"), subject: t("app.forward.subject"), to: t("app.forward.to") },
+        { fromName: m.fromName, fromEmail: m.fromEmail, dateText: fmtFull(m.date), subject: m.subject, to: m.to },
+      ) + (m.html ? sanitizeHtml(m.html, false).html : plainToHtml(m.text ?? "")),
   });
 }
 
