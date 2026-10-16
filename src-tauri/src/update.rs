@@ -21,16 +21,13 @@ const NOTES_MAX_CHARS: usize = 4000;
 const CHECK_TIMEOUT: Duration = Duration::from_secs(15);
 /// No new bytes for this long = the download failed.
 const STALL: Duration = Duration::from_secs(60);
-/// Automatic checks: at most every 6 h, every hour after a failed attempt.
-const EVERY_SECS: i64 = 6 * 3600;
-const RETRY_SECS: i64 = 3600;
-/// macOS (F-20): the app lives for days in the Dock (the close button only hides the window) and people relaunch it to look for an
-/// update, so the 6 h / 1 h gate above swallowed the toast: a launch or a window that comes back within 6 h of a check that saw nothing
-/// newer (or 1 h of a failed one) asked nothing and showed the cached "up to date". There a launch checks again when the last attempt is
-/// 5 minutes old, and a returning window after 2 h (15 min after a failed attempt). Other systems keep the gates above.
-const MAC_STARTUP_GAP_SECS: i64 = 300;
-const MAC_EVERY_SECS: i64 = 2 * 3600;
-const MAC_RETRY_SECS: i64 = 900;
+/// Automatic checks (F-20): a launch asks again once the last attempt is 5 minutes old (whatever it said), a window that comes back
+/// after 2 h, or 15 minutes after a failed attempt. It used to be 6 h / 1 h, and a Mac, whose app lives for days in the Dock, found the
+/// gate closed after a quit and relaunch: the stored "up to date" was shown instead of a freshly published version. The requests go to
+/// github.com's release-download redirect (not the REST API), at most one per 5 minutes per launch.
+const STARTUP_GAP_SECS: i64 = 300;
+const EVERY_SECS: i64 = 2 * 3600;
+const RETRY_SECS: i64 = 900;
 
 // ---------- types ----------
 
@@ -188,35 +185,26 @@ pub fn update_url_ok(raw: &str, version: &str, allow_local: bool) -> bool {
     })
 }
 
-/// Seconds an automatic trigger waits after the last attempt: 6 h (1 h after a failed attempt); on macOS see MAC_* above.
-pub fn gap_secs(os: &str, trigger: Trigger, last_ok: bool) -> i64 {
-    match (os == "macos", trigger, last_ok) {
-        (true, Trigger::Startup, _) => MAC_STARTUP_GAP_SECS,
-        (true, _, true) => MAC_EVERY_SECS,
-        (true, _, false) => MAC_RETRY_SECS,
-        (false, _, true) => EVERY_SECS,
-        (false, _, false) => RETRY_SECS,
+/// Seconds an automatic trigger waits after the last attempt: 5 minutes for a launch, else 2 h (15 minutes after a failed attempt).
+pub fn gap_secs(trigger: Trigger, last_ok: bool) -> i64 {
+    match (trigger, last_ok) {
+        (Trigger::Startup, _) => STARTUP_GAP_SECS,
+        (_, true) => EVERY_SECS,
+        (_, false) => RETRY_SECS,
     }
 }
 
-/// Whether a check may ask the server now, on the operating system `os` (`std::env::consts::OS`): a manual one always, an automatic one
-/// when the last attempt is old enough (`gap_secs`); a missing or future timestamp is due.
-pub fn due_on(os: &str, trigger: Trigger, now: i64, last: Option<i64>, last_ok: bool) -> bool {
+/// Whether a check may ask the server now: a manual one always, an automatic one when the last attempt is old enough (`gap_secs`);
+/// a missing or future timestamp is due.
+pub fn due(trigger: Trigger, now: i64, last: Option<i64>, last_ok: bool) -> bool {
     if trigger == Trigger::Manual {
         return true;
     }
     match last {
         None => true,
         Some(l) if l > now => true,
-        Some(l) => now - l >= gap_secs(os, trigger, last_ok),
+        Some(l) => now - l >= gap_secs(trigger, last_ok),
     }
-}
-
-/// Automatic checks: every 6 h, every hour after a failure; a missing or future timestamp is due. Manual is always due.
-/// (The gates of every system but macOS; the running app uses `due_on`.)
-#[cfg(test)]
-pub fn due(trigger: Trigger, now: i64, last: Option<i64>, last_ok: bool) -> bool {
-    due_on("other", trigger, now, last, last_ok)
 }
 
 /// The keys of `latest.json`'s `platforms` this copy of the app looks for, in the order the updater plugin tries them
@@ -473,8 +461,57 @@ pub async fn check_once<R: Runtime>(app: &AppHandle<R>, ctx: &Ctx) -> Checked {
             r.info = Some(info_from(ctx, &v.to_string(), notes.as_deref(), date, None));
             Checked { result: r, update: None }
         }
+        // the plugin calls every answer that is not a success "release not found"; only the status tells a missing release from a server
+        // that is busy or broken (F-20 follow-up)
+        Err(UpdErr::ReleaseNotFound) => status_failure(app, ctx).await,
         Err(e) => failed(ctx, &e),
     }
+}
+
+/// What a non-success HTTP status of the manifest means: 404 / 410 = there is no such release asset (the stored offer is gone), anything
+/// else (429, 5xx, 403, ...) = the server could not answer now: a failed check that keeps what the app already knows. `None` = a success.
+pub fn status_kind(status: u16) -> Option<(Kind, Option<String>)> {
+    match status {
+        200..=299 => None,
+        404 | 410 => Some((Kind::NoRelease, None)),
+        other => Some((Kind::Error, Some(format!("HTTP {other}")))),
+    }
+}
+
+/// The manifest URL of the updater (the debug override, else the first endpoint of tauri.conf.json).
+fn manifest_url<R: Runtime>(app: &AppHandle<R>, ctx: &Ctx) -> Option<reqwest::Url> {
+    if let Some(u) = &ctx.endpoint {
+        return Some(u.clone());
+    }
+    let cfg = app.config().plugins.0.get("updater")?;
+    reqwest::Url::parse(cfg.get("endpoints")?.as_array()?.first()?.as_str()?).ok()
+}
+
+/// The updater plugin did not say what the server answered (every non-success status is the same error to it): one more request for
+/// the status, only on this failure path (a successful check is still one request). A request that fails is offline / error as usual.
+async fn status_failure<R: Runtime>(app: &AppHandle<R>, ctx: &Ctx) -> Checked {
+    let mut r = ctx.result(Kind::NoRelease, Some(ctx.now));
+    let Some(url) = manifest_url(app, ctx) else { return Checked { result: r, update: None } };
+    let client = match reqwest::Client::builder().timeout(ctx.timeout).user_agent("hey-look-update-check").build() {
+        Ok(c) => c,
+        Err(_) => return Checked { result: r, update: None },
+    };
+    match client.get(url).header(reqwest::header::ACCEPT, "application/json").send().await {
+        Ok(resp) => match status_kind(resp.status().as_u16()) {
+            Some((kind, message)) => {
+                r.kind = kind;
+                r.message = message;
+            }
+            // it answered fine this time: the first answer was not usable, nothing else is known
+            None => {
+                r.kind = Kind::Error;
+                r.message = Some("GitHub sent an unexpected answer".to_string());
+            }
+        },
+        Err(e) if e.is_connect() || e.is_timeout() || e.is_request() => r.kind = Kind::Offline,
+        Err(_) => r.kind = Kind::Error,
+    }
+    Checked { result: r, update: None }
 }
 
 /// An updater error as a check result (REQ-14).
@@ -553,9 +590,12 @@ fn answer_text(r: &UpdateResult) -> String {
             r.info.as_ref().and_then(|i| i.asset.as_ref()).map(|a| a.name.as_str()).unwrap_or("none in the manifest")
         ),
         Kind::UpToDate => format!("up to date (running {}, latest {latest})", r.current),
-        Kind::NoRelease => "no release (the server answered with a status that is not a success)".to_string(),
+        Kind::NoRelease => "no release (the server answered 404: there is no latest.json)".to_string(),
         Kind::Offline => "offline (no answer from the server)".to_string(),
-        Kind::Error => format!("error: {}", r.message.as_deref().unwrap_or("-")),
+        Kind::Error => match r.message.as_deref().and_then(|m| m.strip_prefix("HTTP ")) {
+            Some(status) => format!("error (status {status})"),
+            None => format!("error: {}", r.message.as_deref().unwrap_or("-")),
+        },
         Kind::Disabled | Kind::Throttled => format!("{:?}", r.kind),
     }
 }
@@ -577,8 +617,8 @@ pub async fn run_check<R: Runtime>(app: &AppHandle<R>, db: &Db, busy: &AtomicBoo
         return without_request(db, ctx, Kind::Throttled);
     }
     let (last, last_ok) = (read_last_check(db), read_last_ok(db));
-    if !due_on(&ctx.platform.os, trigger, ctx.now, last, last_ok) {
-        let gap = gap_secs(&ctx.platform.os, trigger, last_ok);
+    if !due(trigger, ctx.now, last, last_ok) {
+        let gap = gap_secs(trigger, last_ok);
         let age = last.map_or(0, |l| ctx.now - l);
         note(
             ctx,
@@ -1060,51 +1100,35 @@ mod tests {
         use Trigger::*;
         let now = 1_000_000;
         assert!(due(Manual, now, Some(now), true));
+        assert!(due(Manual, now, Some(now), false));
+        // a launch: 5 minutes after the last attempt, whatever it said
+        for ok in [true, false] {
+            assert!(!due(Startup, now, Some(now), ok));
+            assert!(!due(Startup, now, Some(now - 299), ok));
+            assert!(due(Startup, now, Some(now - 300), ok));
+        }
+        // a window that comes back: 2 h, 15 minutes after a failed attempt
+        assert!(!due(Shown, now, Some(now - 7199), true));
+        assert!(due(Shown, now, Some(now - 7200), true));
+        assert!(!due(Shown, now, Some(now - 899), false));
+        assert!(due(Shown, now, Some(now - 900), false));
+        // missing or in the future
         for t in [Startup, Shown] {
-            assert!(!due(t, now, Some(now - 3599), true));
-            assert!(!due(t, now, Some(now - 3600), true));
-            assert!(!due(t, now, Some(now - 21599), true));
-            assert!(due(t, now, Some(now - 21600), true));
-            // after a failed attempt: 1 h
-            assert!(!due(t, now, Some(now - 3599), false));
-            assert!(due(t, now, Some(now - 3600), false));
-            // missing or in the future
             assert!(due(t, now, None, true));
             assert!(due(t, now, Some(now + 5), true));
         }
+        assert_eq!((gap_secs(Startup, true), gap_secs(Startup, false)), (300, 300));
+        assert_eq!((gap_secs(Shown, true), gap_secs(Shown, false)), (7200, 900));
     }
 
     #[test]
-    fn macos_checks_more_often_and_every_other_system_keeps_the_old_gates() {
-        use Trigger::*;
-        let now = 1_000_000;
-        // F-20: a launch within 6 h of a check that saw nothing new used to ask nothing
-        assert!(!due_on("macos", Startup, now, Some(now - 299), true));
-        assert!(due_on("macos", Startup, now, Some(now - 300), true));
-        assert!(due_on("macos", Startup, now, Some(now - 300), false), "a failed attempt does not hold a launch back for long either");
-        assert!(!due_on("macos", Startup, now, Some(now - 299), false));
-        // a window that comes back: 2 h, 15 min after a failed attempt
-        assert!(!due_on("macos", Shown, now, Some(now - 7199), true));
-        assert!(due_on("macos", Shown, now, Some(now - 7200), true));
-        assert!(!due_on("macos", Shown, now, Some(now - 899), false));
-        assert!(due_on("macos", Shown, now, Some(now - 900), false));
-        for t in [Startup, Shown, Manual] {
-            assert!(due_on("macos", t, now, None, true));
-            assert!(due_on("macos", t, now, Some(now + 5), true));
-        }
-        assert!(due_on("macos", Manual, now, Some(now), true));
-        // Windows, Linux and anything else: unchanged, 6 h and 1 h for both automatic triggers
-        for os in ["windows", "linux", "freebsd", ""] {
-            for t in [Startup, Shown] {
-                assert!(!due_on(os, t, now, Some(now - 301), true), "{os} {t:?}");
-                assert!(!due_on(os, t, now, Some(now - 21599), true), "{os} {t:?}");
-                assert!(due_on(os, t, now, Some(now - 21600), true), "{os} {t:?}");
-                assert!(!due_on(os, t, now, Some(now - 3599), false), "{os} {t:?}");
-                assert!(due_on(os, t, now, Some(now - 3600), false), "{os} {t:?}");
-                assert_eq!(gap_secs(os, t, true), 21600);
-                assert_eq!(gap_secs(os, t, false), 3600);
-            }
-            assert!(due_on(os, Manual, now, Some(now), true));
+    fn a_status_is_a_missing_release_only_when_it_is_404_or_410() {
+        assert_eq!(status_kind(200), None);
+        assert_eq!(status_kind(204), None);
+        assert_eq!(status_kind(404), Some((Kind::NoRelease, None)));
+        assert_eq!(status_kind(410), Some((Kind::NoRelease, None)));
+        for code in [403u16, 429, 500, 502, 503, 504, 400, 401] {
+            assert_eq!(status_kind(code), Some((Kind::Error, Some(format!("HTTP {code}")))), "{code}");
         }
     }
 
@@ -1464,21 +1488,15 @@ mod tests {
         Arc::new(Mutex::new(db::test_conn(&[])))
     }
 
-    /// The check as it runs on `os` (the gates differ on macOS); the tests below use Windows unless they say otherwise, so they mean the
-    /// same on every CI machine.
-    fn ctx_on(os: &str, base: &str, now: i64, current: &str) -> Ctx {
+    fn ctx(base: &str, now: i64, current: &str) -> Ctx {
         Ctx {
             endpoint: Some(reqwest::Url::parse(&format!("{base}/latest.json")).unwrap()),
             allow_local: true,
             now,
             timeout: Duration::from_secs(5),
             current: current.into(),
-            platform: Platform { os: os.into(), ..platform_info() },
+            platform: platform_info(),
         }
-    }
-
-    fn ctx(base: &str, now: i64, current: &str) -> Ctx {
-        ctx_on("windows", base, now, current)
     }
 
     fn run(app: &tauri::App<tauri::test::MockRuntime>, db: &Db, busy: &AtomicBool, c: &Ctx, t: Trigger) -> UpdateResult {
@@ -1558,8 +1576,11 @@ mod tests {
     #[test]
     fn stub_statuses_and_garbage() {
         assert_eq!(one(http(404, &[], "{}"), "1.0.0", 100).kind, Kind::NoRelease);
-        assert_eq!(one(http(500, &[], "{}"), "1.0.0", 100).kind, Kind::NoRelease);
-        assert_eq!(one(http(403, &[("x-ratelimit-remaining", "0")], "{}"), "1.0.0", 100).kind, Kind::NoRelease);
+        // a server that cannot answer now is an error, not "no release" (F-20 follow-up)
+        let r = one(http(500, &[], "{}"), "1.0.0", 100);
+        assert_eq!((r.kind, r.message.as_deref()), (Kind::Error, Some("HTTP 500")));
+        let r = one(http(403, &[("x-ratelimit-remaining", "0")], "{}"), "1.0.0", 100);
+        assert_eq!((r.kind, r.message.as_deref()), (Kind::Error, Some("HTTP 403")));
         let r = one(http(200, &[], "<html>login</html>"), "1.0.0", 100);
         assert_eq!((r.kind, r.message.as_deref()), (Kind::Error, Some("GitHub sent an unexpected answer")));
         let r = one(http(200, &[], &manifest("banana", "https://x/y")), "1.0.0", 100);
@@ -1583,13 +1604,15 @@ Content-Length: {}
         let app = app_for(&format!("{}/latest.json", s.base));
         let r = run(&app, &new_db(), &AtomicBool::new(false), &ctx(&s.base, 1, "1.0.0"), Trigger::Startup);
         std::thread::sleep(Duration::from_millis(300));
-        assert_eq!((r.kind, s.count("/latest.json")), (Kind::NoRelease, 1), "HTTP/1.0 404");
-        for (status, body) in [(404, ""), (500, "{}"), (200, "<html>"), (204, "")] {
+        // a status that is not a success costs one more request, the one that reads the status (the updater plugin only says "release not
+        // found"); every other answer is one request
+        assert_eq!((r.kind, s.count("/latest.json")), (Kind::NoRelease, 2), "HTTP/1.0 404: the check and the status request");
+        for (status, body, requests) in [(404, "", 2), (500, "{}", 2), (429, "{}", 2), (200, "<html>", 1), (204, "", 1)] {
             let s = stub(move |_| resp(http(status, &[], body)), None);
             let app = app_for(&format!("{}/latest.json", s.base));
             run(&app, &new_db(), &AtomicBool::new(false), &ctx(&s.base, 1, "1.0.0"), Trigger::Startup);
             std::thread::sleep(Duration::from_millis(300));
-            assert_eq!(s.count("/latest.json"), 1, "status {status}");
+            assert_eq!(s.count("/latest.json"), requests, "status {status}");
         }
     }
 
@@ -1600,11 +1623,11 @@ Content-Length: {}
         let app = app_for(&format!("{}/latest.json", s.base));
         run(&app, &db, &AtomicBool::new(false), &ctx(&s.base, 100, "1.0.0"), Trigger::Manual);
         assert_eq!(db::get_setting(&lock(&db), "update_last_ok").as_deref(), Some("0"));
-        // failed attempt: an automatic check is due again after 1 h, not before
+        // failed attempt: a returning window asks again after 15 minutes, not before
         let busy = AtomicBool::new(false);
-        assert_eq!(run(&app, &db, &busy, &ctx(&s.base, 100 + 3599, "1.0.0"), Trigger::Shown).kind, Kind::Throttled);
+        assert_eq!(run(&app, &db, &busy, &ctx(&s.base, 100 + 899, "1.0.0"), Trigger::Shown).kind, Kind::Throttled);
         assert_eq!(s.count("/latest.json"), 1);
-        assert_eq!(run(&app, &db, &busy, &ctx(&s.base, 100 + 3600, "1.0.0"), Trigger::Shown).kind, Kind::Error);
+        assert_eq!(run(&app, &db, &busy, &ctx(&s.base, 100 + 900, "1.0.0"), Trigger::Shown).kind, Kind::Error);
         assert_eq!(s.count("/latest.json"), 2);
     }
 
@@ -1662,8 +1685,8 @@ Content-Length: {}
         let first = run(&app, &db, &busy, &ctx(&s.base, 1000, "1.0.0"), Trigger::Startup);
         assert_eq!(first.kind, Kind::Available);
 
-        // within 6 h: no request, cached info
-        let r = run(&app, &db, &busy, &ctx(&s.base, 1000 + 21599, "1.0.0"), Trigger::Shown);
+        // within 2 h: no request, cached info
+        let r = run(&app, &db, &busy, &ctx(&s.base, 1000 + 7199, "1.0.0"), Trigger::Shown);
         assert_eq!((r.kind, r.from_cache, r.cached_kind), (Kind::Throttled, true, Some(Kind::Available)));
         assert_eq!(r.info.as_ref().unwrap().latest, "1.1.0");
         assert_eq!(r.checked_at, Some(1000));
@@ -1694,32 +1717,113 @@ Content-Length: {}
         assert_eq!(s.count("/latest.json"), 3);
     }
 
-    /// F-20 through the whole check: the user's Mac saw "up to date" (1.0.3) a little while ago, 1.0.4 is published, the app is launched again.
+    /// F-20 through the whole check, on every system: the user saw "up to date" (1.0.3) a little while ago, 1.0.4 is published, the app
+    /// is launched again.
     #[test]
-    fn macos_launch_asks_again_where_other_systems_show_the_stored_answer() {
+    fn a_launch_a_little_after_a_check_asks_again_instead_of_showing_the_stored_answer() {
         let s = manifest_stub(manifest("1.0.4", "https://github.com/thnonl/hey-look/releases/download/v1.0.4/HeyLook_1.0.4_darwin_universal.app.tar.gz"));
         let app = app_at(&format!("{}/latest.json", s.base), "1.0.3");
-        for (os, asks) in [("macos", true), ("windows", false), ("linux", false)] {
-            let db = new_db();
-            let busy = AtomicBool::new(false);
-            // an earlier check at t = 1000 found nothing newer: stored by hand, as a 1.0.3 check would have done
-            db::set_setting(&lock(&db), "update_last_check", "1000").unwrap();
-            db::set_setting(&lock(&db), "update_last_ok", "1").unwrap();
-            db::set_setting(&lock(&db), "update_cache", &cache("1.0.3", Kind::UpToDate, "1.0.3")).unwrap();
+        let db = new_db();
+        let busy = AtomicBool::new(false);
+        // an earlier check at t = 1000 found nothing newer: stored by hand, as a 1.0.3 check would have done
+        db::set_setting(&lock(&db), "update_last_check", "1000").unwrap();
+        db::set_setting(&lock(&db), "update_last_ok", "1").unwrap();
+        db::set_setting(&lock(&db), "update_cache", &cache("1.0.3", Kind::UpToDate, "1.0.3")).unwrap();
+        // a minute later the launch only shows the stored answer
+        let r = run(&app, &db, &busy, &ctx(&s.base, 1060, "1.0.3"), Trigger::Startup);
+        assert_eq!((r.kind, r.cached_kind), (Kind::Throttled, Some(Kind::UpToDate)));
+        assert_eq!(s.count("/latest.json"), 0);
+        // half an hour later it asks and finds the new version
+        let r = run(&app, &db, &busy, &ctx(&s.base, 1000 + 1800, "1.0.3"), Trigger::Startup);
+        assert_eq!((r.kind, r.info.as_ref().map(|i| i.latest.as_str())), (Kind::Available, Some("1.0.4")));
+        assert_eq!(s.count("/latest.json"), 1);
+        assert!(valid_cache(db::get_setting(&lock(&db), "update_cache").as_deref(), &v("1.0.3")).is_some_and(|c| c.0 == Kind::Available));
+        // two launches a minute apart: the second one does not ask again
+        let again = run(&app, &db, &busy, &ctx(&s.base, 1000 + 1800 + 60, "1.0.3"), Trigger::Startup);
+        assert_eq!((again.kind, again.cached_kind), (Kind::Throttled, Some(Kind::Available)));
+        assert_eq!(s.count("/latest.json"), 1);
+    }
+
+    /// F-20 follow-up: what each kind of answer does to the stored offer and to the retry delay. A server that cannot answer (429, 5xx, 403, a
+    /// timeout) is a FAILED check: the offer the app knows stays, the attempt is recorded as failed (retry after 5 minutes for a launch, 15
+    /// for a window), nothing is cleared. A 404 (there is no latest.json) is the only "no release", as before.
+    #[test]
+    fn a_server_that_cannot_answer_keeps_the_stored_offer_and_is_retried_soon() {
+        let state = Arc::new(Mutex::new(200u16));
+        let st = state.clone();
+        let s = stub(
+            move |_| match *st.lock().unwrap() {
+                200 => resp(http(200, &[], &manifest("1.1.0", "https://github.com/thnonl/hey-look/releases/download/v1.1.0/x.exe"))),
+                201 => resp(http(200, &[], &manifest("1.0.0", "https://github.com/thnonl/hey-look/releases/download/v1.0.0/x.exe"))),
+                code => resp(http(code, &[], "")),
+            },
+            None,
+        );
+        let app = app_for(&format!("{}/latest.json", s.base));
+        let db = new_db();
+        let busy = AtomicBool::new(false);
+        let at = |now: i64| ctx(&s.base, now, "1.0.0");
+        // 200 with a newer version
+        let r = run(&app, &db, &busy, &at(1000), Trigger::Manual);
+        assert_eq!((r.kind, r.info.as_ref().map(|i| i.latest.as_str())), (Kind::Available, Some("1.1.0")));
+        assert_eq!(s.count("/latest.json"), 1, "a good answer is one request");
+        let offer = db::get_setting(&lock(&db), "update_cache");
+        assert!(offer.as_deref().is_some_and(|c| !c.is_empty()));
+        // 429, 500, 503, 403: a failed check that keeps the offer
+        let mut now = 1000;
+        for code in [429u16, 500, 503, 403] {
+            now += 10_000;
+            *state.lock().unwrap() = code;
             let before = s.count("/latest.json");
-            let r = run(&app, &db, &busy, &ctx_on(os, &s.base, 1000 + 1800, "1.0.3"), Trigger::Startup);
-            if asks {
-                assert_eq!((r.kind, r.info.as_ref().map(|i| i.latest.as_str())), (Kind::Available, Some("1.0.4")), "{os}");
-                assert_eq!(s.count("/latest.json"), before + 1, "{os}");
-                assert!(valid_cache(db::get_setting(&lock(&db), "update_cache").as_deref(), &v("1.0.3")).is_some_and(|c| c.0 == Kind::Available));
-            } else {
-                assert_eq!((r.kind, r.cached_kind), (Kind::Throttled, Some(Kind::UpToDate)), "{os}");
-                assert_eq!(s.count("/latest.json"), before, "{os}");
-            }
-            // two launches a minute apart: the second one does not ask again anywhere
-            let again = run(&app, &db, &busy, &ctx_on(os, &s.base, 1000 + 1800 + 60, "1.0.3"), Trigger::Startup);
-            assert_eq!(again.kind, Kind::Throttled, "{os}");
+            let r = run(&app, &db, &busy, &at(now), Trigger::Shown);
+            assert_eq!(r.kind, Kind::Error, "{code}");
+            assert_eq!(r.message.as_deref(), Some(format!("HTTP {code}").as_str()), "{code}");
+            assert_eq!((r.from_cache, r.cached_kind), (true, Some(Kind::Available)), "{code}: the offer stays");
+            assert_eq!(r.info.as_ref().map(|i| i.latest.as_str()), Some("1.1.0"), "{code}");
+            assert_eq!(db::get_setting(&lock(&db), "update_cache"), offer, "{code}: the stored answer is not touched");
+            assert_eq!(db::get_setting(&lock(&db), "update_last_ok").as_deref(), Some("0"), "{code}: recorded as failed");
+            assert_eq!(s.count("/latest.json"), before + 2, "{code}: the check and the status request");
+            // the retry delay: a launch after 5 minutes, a window after 15
+            let busy2 = AtomicBool::new(false);
+            assert_eq!(run(&app, &db, &busy2, &at(now + 299), Trigger::Startup).kind, Kind::Throttled, "{code}");
+            assert_eq!(run(&app, &db, &busy2, &at(now + 899), Trigger::Shown).kind, Kind::Throttled, "{code}");
+            assert_eq!(s.count("/latest.json"), before + 2, "{code}: nothing asked before the delay");
+            // the throttled answer still carries the offer, so the toast logic keeps it
+            let t = run(&app, &db, &busy2, &at(now + 100), Trigger::Startup);
+            assert_eq!((t.kind, t.cached_kind), (Kind::Throttled, Some(Kind::Available)), "{code}");
         }
+        // a launch 5 minutes after a failure asks again and a good answer is good again
+        *state.lock().unwrap() = 200;
+        now += 300;
+        let r = run(&app, &db, &busy, &at(now), Trigger::Startup);
+        assert_eq!(r.kind, Kind::Available);
+        assert_eq!(db::get_setting(&lock(&db), "update_last_ok").as_deref(), Some("1"));
+        // 200 with the same version
+        *state.lock().unwrap() = 201;
+        now += 10_000;
+        let r = run(&app, &db, &busy, &at(now), Trigger::Manual);
+        assert_eq!((r.kind, r.info.as_ref().map(|i| i.latest.as_str())), (Kind::UpToDate, Some("1.0.0")));
+        assert_eq!(db::get_setting(&lock(&db), "update_last_ok").as_deref(), Some("1"));
+        // 404: there is no latest.json: "no release", the offer is gone
+        *state.lock().unwrap() = 200;
+        now += 10_000;
+        assert_eq!(run(&app, &db, &busy, &at(now), Trigger::Manual).kind, Kind::Available);
+        *state.lock().unwrap() = 404;
+        now += 10_000;
+        let r = run(&app, &db, &busy, &at(now), Trigger::Manual);
+        assert_eq!((r.kind, r.info, r.from_cache), (Kind::NoRelease, None, false));
+        assert!(valid_cache(db::get_setting(&lock(&db), "update_cache").as_deref(), &v("1.0.0")).is_none());
+        // a timeout is offline and keeps the offer too
+        *state.lock().unwrap() = 200;
+        now += 10_000;
+        assert_eq!(run(&app, &db, &busy, &at(now), Trigger::Manual).kind, Kind::Available);
+        let slow = stub(|_| Resp { raw: http(200, &[], "{}"), delay: Duration::from_secs(3), hold: Duration::ZERO }, None);
+        let slow_app = app_for(&format!("{}/latest.json", slow.base));
+        let mut c = ctx(&slow.base, now + 10_000, "1.0.0");
+        c.timeout = Duration::from_millis(400);
+        let r = run(&slow_app, &db, &busy, &c, Trigger::Manual);
+        assert_eq!((r.kind, r.from_cache, r.cached_kind), (Kind::Offline, true, Some(Kind::Available)));
+        assert_eq!(db::get_setting(&lock(&db), "update_last_ok").as_deref(), Some("0"));
     }
 
     /// The state of a user who saw 1.1.0 and now has no connection: a manual check fails and the offer stays.
