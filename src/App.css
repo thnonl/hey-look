@@ -1196,6 +1196,9 @@ span.spin { display: inline-block; width: 13px; height: 13px; border: 2px solid 
 .imp.imp-label { font-size: .82em; font-weight: 600; white-space: nowrap; }
 .rp-meta > .imp { margin: 1px 0 2px; }
 .cf-field > .imp { padding: 11px 14px 0 0; }
+/* Subject row: the words of the indicator never take room from the Subject text or its placeholder: in a narrow pane only the icon stays (the pressed toolbar button and the tooltip say the rest) */
+.cf-subject { container-type: inline-size; }
+@container (max-width: 480px) { .cf-subject > .imp .imp-text { display: none; } }
 .imp-group { display: inline-flex; align-items: center; gap: 2px; }
 .rb.imp-btn { padding: 7px 8px; }
 .rb.imp-btn.high { color: var(--imp-high); }

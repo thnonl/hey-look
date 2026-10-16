@@ -1828,7 +1828,7 @@ export function Compose({ init }: { init: ComposeInit }) {
             {!meeting && <button className="link" tabIndex={-1} title={kbd(t("compose.addBcc"))} onClick={() => setShowCc(true)}>{t("compose.bcc")}</button>}
           </div>
         )}
-        <div className="cf-field">
+        <div className="cf-field cf-subject">
           <label>{t("compose.subject")}</label>
           <input value={subject} onChange={(e) => (setSubject(e.target.value), touch())} placeholder={t("compose.subject.placeholder")} aria-label={t("compose.subject")} />
           <ImportanceMark level={importance} size={13} label />

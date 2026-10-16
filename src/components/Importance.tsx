@@ -19,9 +19,9 @@ export function ImportanceMark({ level, size = 12, label = false }: { level: Imp
   if (!shown) return null;
   const text = t(shown === "high" ? "mail.importance.high" : "mail.importance.low");
   return (
-    <span className={`imp imp-${shown} ${label ? "imp-label" : ""}`} {...(label ? {} : { role: "img", "aria-label": text, title: text })}>
+    <span className={`imp imp-${shown} ${label ? "imp-label" : ""}`} role="img" aria-label={text} title={text}>
       {shown === "high" ? <HighIcon size={size} /> : <ArrowDown size={size} strokeWidth={2.6} aria-hidden />}
-      {label && <span>{text}</span>}
+      {label && <span className="imp-text" aria-hidden="true">{text}</span>}
     </span>
   );
 }
