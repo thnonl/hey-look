@@ -555,6 +555,8 @@ export const api = {
   /** The conversation the saved draft is in once the sync has read it (null: not known before). */
   saveDraft: (draft: Draft, replaces?: string | null) =>
     invoke<string | null>("save_draft", { draft, replaces: replaces ?? null }),
+  /** To / Cc / Bcc of a saved draft with the display names, read from the draft's own headers (the synced copy has bare addresses and no Bcc). */
+  draftRecipients: (messageId: string) => invoke<{ to: string[]; cc: string[]; bcc: string[] }>("draft_recipients", { messageId }),
   listOutbox: () => invoke<OutboxItem[]>("list_outbox"),
   cancelOutbox: (id: string) => invoke<void>("cancel_outbox", { id }),
   /** Send was pressed with an Undo time: the message goes into the local outbox (not a scheduled message) until `dueAt` (unix seconds). */

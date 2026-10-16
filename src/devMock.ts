@@ -228,6 +228,8 @@ const hiddenCals = new Set<string>();
 /** Drafts saved in this page (save_draft), by thread. */
 const mockDrafts: Record<string, typeof messages> = {};
 let mockDraftSeq = 0;
+/** To / Cc / Bcc as the saved draft's headers have them, by message id (`draft_recipients`). */
+const mockDraftHeaders: Record<string, { to: string[]; cc: string[]; bcc: string[] }> = {};
 const dayOf = (sec: number) => Math.floor(sec / 86400);
 /** Repeats for the mock: daily / weekly with BYDAY, from the event's own start. */
 function expandMock(e: MockEvent, from: number, to: number): MockEvent[] {
@@ -1132,12 +1134,18 @@ export function installMock() {
         if (hashTokens().has("draftfail")) throw "mock: the server refused the draft"; // `#draftfail`: saving a draft fails (update restart asks what to do)
         w.__lastDraft = a.draft;
         // like the backend: the draft is a message of the Drafts folder, in the thread it gets from its Message-ID (the toast "Draft saved" opens it with Edit)
-        const dr = a.draft as { to: string[]; cc: string[]; subject: string; html: string; text: string; accountId: string };
+        const dr = a.draft as { to: string[]; cc: string[]; bcc?: string[]; subject: string; html: string; text: string; accountId: string };
         const tid = `dt${++mockDraftSeq}`;
-        mockDrafts[tid] = [{ ...messages[0], id: `a1:drafts:${tid}`, accountId: dr.accountId, folder: "drafts", subject: dr.subject || "(no subject)", fromName: "Nam", fromEmail: "nam@example.com", to: dr.to.join(", "), cc: dr.cc.join(", "), html: dr.html, text: dr.text, attachments: [], seen: true }];
+        // the draft is replaced, not added to (the backend appends the new one, then deletes the old one by its thread)
+        if (typeof a.replaces === "string") delete mockDrafts[a.replaces];
+        // the synced copy has bare To / Cc addresses and no Bcc; `draft_recipients` returns what the headers say
+        const bareOf = (l: string[]) => l.map((x) => /<([^>]+)>/.exec(x)?.[1] ?? x);
+        mockDrafts[tid] = [{ ...messages[0], id: `a1:drafts:${tid}`, accountId: dr.accountId, folder: "drafts", subject: dr.subject || "(no subject)", fromName: "Nam", fromEmail: "nam@example.com", to: bareOf(dr.to).join(", "), cc: bareOf(dr.cc).join(", "), html: dr.html, text: dr.text, attachments: [], seen: true }];
+        mockDraftHeaders[`a1:drafts:${tid}`] = { to: dr.to, cc: dr.cc, bcc: dr.bcc ?? [] };
         const done = () => tid;
         return hashTokens().has("draftslow") ? later(1500, done) : done(); // `#draftslow`: the save takes 1.5 s
       }
+      case "draft_recipients": return mockDraftHeaders[a.messageId as string] ?? { to: [], cc: [], bcc: [] };
       case "prepare_action": {
         // like the backend: the folder a move goes to is looked up before the move is queued. `#nocreate`: the server has no Archive / Trash
         // and refuses to create one (the error comes after the IMAP time, 1.2 s). `#stalefolder`: the saved folder list still names the

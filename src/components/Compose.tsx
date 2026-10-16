@@ -288,10 +288,14 @@ export async function openDraftThread(threadId: string, wait = false): Promise<b
   }
   // restore pictures and attachments so saving or sending the draft does not silently drop them
   const { html, attachments } = await messageToEditor(m);
+  // the recipients as they were typed (names, Bcc) come from the draft's own headers; the synced copy has bare To / Cc and no Bcc
+  const rc = await api.draftRecipients(m.id).catch(() => null);
+  const bare = (v: string) => (v ? v.split(",").map((x) => x.trim()).filter(Boolean) : []);
   await st.openCompose({
     accountId: m.accountId,
-    to: m.to ? m.to.split(",").map((x) => x.trim()) : [],
-    cc: m.cc ? m.cc.split(",").map((x) => x.trim()) : [],
+    to: rc?.to ?? bare(m.to),
+    cc: rc?.cc ?? bare(m.cc),
+    bcc: rc?.bcc,
     subject: m.subject === "(no subject)" ? "" : m.subject,
     bodyHtml: html ?? `<p>${(m.text ?? "").replace(/\n/g, "<br>")}</p>`,
     replaces: threadId,

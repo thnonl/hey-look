@@ -4,6 +4,7 @@ mod calendar;
 mod calsync;
 mod db;
 mod discover;
+mod draftmail;
 mod flagguard;
 mod ical;
 mod i18n;
@@ -3319,6 +3320,18 @@ async fn save_draft(state: tauri::State<'_, AppState>, draft: smtp::Draft, repla
     .await
 }
 
+/// To, Cc and Bcc of a saved draft with their display names, read from the headers of the message in the Drafts folder (the synced copy
+/// keeps bare To / Cc addresses and no Bcc). Opening a draft in Compose restores the chips from this.
+#[tauri::command]
+async fn draft_recipients(state: tauri::State<'_, AppState>, message_id: String) -> R<draftmail::DraftRecipients> {
+    let db = state.db.clone();
+    blocking(move || {
+        let (raw, _) = fetch_raw_for(&db, &message_id)?;
+        Ok(draftmail::recipients(&raw))
+    })
+    .await
+}
+
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
 struct OutboxItem {
@@ -4307,6 +4320,7 @@ pub fn run() {
             inline_image,
             send_message,
             save_draft,
+            draft_recipients,
             list_outbox,
             cancel_outbox,
             outbox_pending_count,

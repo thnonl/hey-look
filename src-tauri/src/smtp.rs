@@ -584,10 +584,10 @@ pub fn build_draft(acc: &Account, d: &Draft) -> R<Message> {
 }
 
 #[cfg(test)]
-mod tests {
+pub(crate) mod tests {
     use super::*;
 
-    fn account() -> Account {
+    pub(crate) fn account() -> Account {
         Account {
             id: "a1".into(),
             email: "me@example.com".into(),
@@ -606,7 +606,7 @@ mod tests {
         }
     }
 
-    fn draft(html: &str, inline: Vec<InlineImage>, attachments: Vec<Att>) -> Draft {
+    pub(crate) fn draft(html: &str, inline: Vec<InlineImage>, attachments: Vec<Att>) -> Draft {
         Draft {
             account_id: "a1".into(),
             to: vec!["ann@example.com".into()],
