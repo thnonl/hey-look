@@ -583,14 +583,29 @@ fn folder_for(db: &Db, acc: &Account, role: &str) -> R<String> {
     })
 }
 
-fn insert_parsed(c: &Connection, acc: &Account, role: &str, p: &mail::Parsed) -> R<String> {
+/// The conversation a message belongs to: its first reference, else its own Message-ID, else (no ID at all) its place in the folder.
+fn thread_id_of(acc_id: &str, role: &str, p: &mail::Parsed) -> String {
     let root = p
         .refs
         .first()
         .cloned()
         .or_else(|| p.message_id.clone())
-        .unwrap_or_else(|| format!("{}:{}:{}", acc.id, role, p.uid));
-    let thread_id = fnv(&format!("{}|{}", acc.id, root));
+        .unwrap_or_else(|| format!("{}:{}:{}", acc_id, role, p.uid));
+    fnv(&format!("{}|{}", acc_id, root))
+}
+
+/// The thread a just-saved draft will have once the sync has read it (None when the message has neither reference nor Message-ID, so
+/// its thread would depend on the uid the server gives it).
+fn draft_thread_id(acc_id: &str, raw: &[u8]) -> Option<String> {
+    let p = mail::parse(0, raw, true, false, 0)?;
+    if p.refs.is_empty() && p.message_id.is_none() {
+        return None;
+    }
+    Some(thread_id_of(acc_id, "drafts", &p))
+}
+
+fn insert_parsed(c: &Connection, acc: &Account, role: &str, p: &mail::Parsed) -> R<String> {
+    let thread_id = thread_id_of(&acc.id, role, p);
     c.execute(
         "INSERT OR REPLACE INTO messages(id,account_id,folder,uid,message_id,thread_id,subject,from_name,from_email,
            to_addrs,cc_addrs,date,snippet,body_html,body_text,seen,flagged,has_attach,attachments,list_unsub,list_unsub_post,pgp,pgp_raw,ics,cal_method)
@@ -3283,7 +3298,7 @@ async fn send_message(
 }
 
 #[tauri::command]
-async fn save_draft(state: tauri::State<'_, AppState>, draft: smtp::Draft, replaces: Option<String>) -> R<()> {
+async fn save_draft(state: tauri::State<'_, AppState>, draft: smtp::Draft, replaces: Option<String>) -> R<Option<String>> {
     let db = state.db.clone();
     blocking(move || {
         let acc = db::get_account(&lock(&db), &draft.account_id)?;
@@ -3296,7 +3311,8 @@ async fn save_draft(state: tauri::State<'_, AppState>, draft: smtp::Draft, repla
         if let Some(t) = replaces {
             let _ = action_impl(&db, vec![t], "delete_forever".into(), None, Some("drafts".into()));
         }
-        Ok(())
+        // the thread the draft gets in the local store (the toast "Draft saved" can open it again with Edit)
+        Ok(draft_thread_id(&acc.id, &raw))
     })
     .await
 }

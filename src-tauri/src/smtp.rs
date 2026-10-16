@@ -193,11 +193,20 @@ raw_recipients!(RawBcc, "Bcc");
 /// SMTP envelope from the recipient headers and refuses a message without one ("missing destination address, invalid envelope"), so
 /// a draft gets an explicit envelope (from the account to the account; it is never sent, the envelope is not part of the text) and
 /// recipients that are not valid addresses are written as typed. A message that is SENT is built strict (`lenient = false`).
+/// `<random@domain-of-the-account>`: no host name of this computer is written into the draft.
+fn draft_message_id(email: &str) -> String {
+    let domain = email.rsplit_once('@').map(|(_, d)| d.trim()).filter(|d| !d.is_empty()).unwrap_or("heylook.invalid");
+    format!("<{}@{}>", uuid::Uuid::new_v4().simple(), domain)
+}
+
 fn headers(acc: &Account, d: &Draft, lenient: bool) -> R<lettre::message::MessageBuilder> {
     let me = acc.email.parse::<Address>().map_err(err)?;
     let from = Mailbox::new(Some(acc.display_name.clone()).filter(|n| !n.is_empty()), me.clone());
     let mut b = Message::builder().from(from).subject(d.subject.clone());
     if lenient {
+        // A draft carries its own Message-ID: the sync derives the draft's thread from it, so Save draft can tell the app which thread the
+        // draft will be (an "Edit" action can open it again). Mail that is sent keeps getting its Message-ID from the server.
+        b = b.message_id(Some(draft_message_id(&acc.email)));
         b = b.envelope(lettre::address::Envelope::new(Some(me.clone()), vec![me]).map_err(err)?);
         // each list: typed addresses when every entry is one, else the text as written
         let all_ok = |l: &[String]| l.iter().all(|t| parse_mailbox(t).is_ok());
@@ -679,6 +688,34 @@ To:"), "no To header is invented: {out}");
         s.to = vec!["ann@".into()];
         assert!(build(&acc, &s).is_err());
         assert!(envelope(&acc, &s).is_err());
+    }
+
+    #[test]
+    fn a_saved_draft_says_which_thread_the_sync_will_put_it_in() {
+        let acc = account();
+        // a new message: its own Message-ID (account domain, no host name) is the thread root
+        let d = draft("<p>Hi</p>", vec![], vec![]);
+        let raw = build_draft(&acc, &d).unwrap().formatted();
+        let p = crate::mail::parse(41, &raw, true, false, 0).expect("the draft parses");
+        let id = p.message_id.clone().expect("a draft carries a Message-ID");
+        assert!(id.starts_with('<') && id.ends_with("@example.com>"), "{id}");
+        let tid = crate::draft_thread_id("a1", &raw).expect("thread of a new draft");
+        assert_eq!(tid, crate::thread_id_of("a1", "drafts", &p), "same thread as the sync gives it, whatever uid the server picks");
+        let again = crate::draft_thread_id("a1", &build_draft(&acc, &d).unwrap().formatted()).unwrap();
+        assert_ne!(tid, again, "two drafts are two threads");
+
+        // an answer: the thread of the mail it answers (its first reference)
+        let mut r = draft("<p>Re</p>", vec![], vec![]);
+        r.in_reply_to = Some("<orig@x.org>".into());
+        r.references = vec!["<root@x.org>".into(), "<orig@x.org>".into()];
+        let raw = build_draft(&acc, &r).unwrap().formatted();
+        let p = crate::mail::parse(42, &raw, true, false, 0).unwrap();
+        assert_eq!(crate::draft_thread_id("a1", &raw), Some(crate::thread_id_of("a1", "drafts", &p)));
+        assert_eq!(p.refs.first().map(String::as_str), Some("<root@x.org>"));
+
+        // sending is unchanged: no Message-ID is made here (the server writes it)
+        let sent = text(&build(&acc, &d).unwrap());
+        assert!(!sent.to_ascii_lowercase().contains("message-id:"), "{sent}");
     }
 
     #[test]
