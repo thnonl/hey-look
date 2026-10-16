@@ -837,10 +837,8 @@ mod platform_tests {
     /// ever compiled in for macOS (this reads the source, like the quit tests do).
     #[test]
     fn the_app_menu_follows_the_language_change() {
-        let src = include_str!("shell.rs").replace("
-", "
-");
-        let src = &src[..src.find("#[cfg(test)]").unwrap()];
+        let src = crate::test_guard::non_test_code(include_str!("shell.rs"));
+        let src = &src[..];
         assert!(src.contains("localize_app_menu(app, &menu)"), "mac_app_menu does not translate the app menu");
         let refresh = &src[src.find("pub fn refresh_language").unwrap()..];
         let refresh = &refresh[..refresh.find("

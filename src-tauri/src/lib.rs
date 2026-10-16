@@ -4599,9 +4599,9 @@ mod quit_tests {
     /// cannot be compiled on every machine that runs the tests).
     #[test]
     fn the_macos_quit_routes_go_through_the_flush() {
-        let lib = include_str!("lib.rs").replace("\r\n", "\n");
-        // (not this test's own text)
-        let lib = &lib[..lib.find("#[cfg(test)]").unwrap()];
+        // (not the test modules' own text; cut at the first test MODULE: a lone `#[cfg(test)]` fn in the code must not hide the rest)
+        let lib = crate::test_guard::non_test_code(include_str!("lib.rs"));
+        let lib = &lib[..];
         let shell = include_str!("shell.rs").replace("\r\n", "\n");
         let mac = include_str!("macquit.rs").replace("\r\n", "\n");
         // (1) the app menu's Quit (and Cmd+Q) is our own item: no predefined Quit item is ever put into a menu we build
@@ -4664,7 +4664,7 @@ mod quit_tests {
             }
             let src = std::fs::read_to_string(&path).unwrap();
             // the part that is not tests
-            let code = &src[..src.find("#[cfg(test)]").unwrap_or(src.len())];
+            let code = crate::test_guard::non_test_code(&src);
             let code: String = code.lines().filter(|l| !l.trim_start().starts_with("//")).collect::<Vec<_>>().join("\n");
             let exits = code.matches(".exit(").count() + code.matches("process::exit(").count() + code.matches("libc::_exit(").count();
             let restarts = code.matches(".restart()").count();
@@ -5412,7 +5412,7 @@ mod platform_tests {
 
 }
 
-// helper of the socket tests (after the first cfg(test): the source-reading tests above cut the file there)
+// helper of the socket tests (the source-reading tests cut the file at the first inline test module, `test_guard::non_test_code`)
 #[cfg(test)]
 mod test_guard;
 #[cfg(test)]
