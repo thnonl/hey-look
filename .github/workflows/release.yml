@@ -247,6 +247,13 @@ jobs:
           node --experimental-strip-types scripts/test-i18n-tools.mjs
           node --experimental-strip-types scripts/test-boot-lang.mjs
           node --experimental-strip-types scripts/i18n-status.mjs
+          node --experimental-strip-types scripts/i18n-status.mjs --strict --lang=vi
+          node --experimental-strip-types scripts/i18n-status.mjs --strict --lang=fr
+          node --experimental-strip-types scripts/i18n-status.mjs --strict --lang=zh-Hans
+          node --experimental-strip-types scripts/i18n-status.mjs --strict --lang=es
+          node --experimental-strip-types scripts/i18n-status.mjs --strict --lang=ja
+          node --experimental-strip-types scripts/i18n-status.mjs --strict --lang=de
+          node --experimental-strip-types scripts/i18n-status.mjs --strict --lang=ru
           node --experimental-strip-types scripts/test-language-switcher.mjs
           node --experimental-strip-types scripts/test-sign-in.mjs
           node --experimental-strip-types scripts/test-popover-menu.mjs

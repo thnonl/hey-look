@@ -17,4 +17,5 @@ The installers are not code-signed with a publisher certificate yet (the macOS a
 - Windows: if SmartScreen appears, choose "More info" > "Run anyway".
 - macOS: the app is not notarized. Drag it to Applications and start it once; when macOS says it was not opened, click Done, then open System Settings > Privacy & Security and choose Open Anyway. Details in the README.
 
-Tested on Windows 11 (x64), on macOS (universal build, ad-hoc signed, not notarized; MacBook Pro with Apple Silicon) and on Linux (AppImage, .deb; limited coverage). On macOS the Dock icon shows the unread number; native notifications are not available yet. Known limitations are listed in the README.
+<!-- TODO-QA-PLATFORMS: orchestrator finalises this line (macOS QA scope for 1.0.3; wording below is the 1.0.2 one, Windows 11 on real hardware had the full QA) -->
+Tested on Windows 11 (x64) on real hardware, on macOS (universal build, ad-hoc signed, not notarized; MacBook Pro with Apple Silicon) and on Linux (AppImage, .deb; limited coverage). On macOS the Dock icon shows the unread number; native notifications are not available yet. Known limitations are listed in the README.
