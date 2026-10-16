@@ -1,0 +1,125 @@
+// Who owns a key while the compose body has the focus (one key, one action) and AltGr never fires a shortcut.
+//  D-1 Ctrl+Shift+B in the body did two things (block quote + Show Bcc); D-2 Ctrl+K in the body opened the command bar instead of a link;
+//  D-6 Ctrl+Alt+digit / Ctrl+Alt+C (TipTap headings, code block) fired while typing AltGr characters; Ctrl+Enter also inserted a line break.
+// Run: node --experimental-strip-types scripts/test-compose-keys.mjs
+import assert from "node:assert/strict";
+import { existsSync, readdirSync, readFileSync } from "node:fs";
+import { editorKeyHandlers, inEditable, isAltGraph, keyAction } from "../src/composeKeys.ts";
+
+const ev = (key, mods = "", altGraphState = false) => ({
+  key,
+  ctrlKey: mods.includes("c"),
+  metaKey: mods.includes("m"),
+  altKey: mods.includes("a"),
+  shiftKey: mods.includes("s"),
+  getModifierState: (k) => k === "AltGraph" && altGraphState,
+});
+const body = { inEditor: true };
+const other = { inEditor: false };
+
+// --- D-2: Ctrl/Cmd+K -------------------------------------------------------------------------------------------------------------
+assert.equal(keyAction(ev("k", "c"), body), "insert-link", "Ctrl+K in the body is the link UI");
+assert.equal(keyAction(ev("K", "c"), body), "insert-link", "Caps Lock / uppercase key");
+assert.equal(keyAction(ev("k", "m"), body), "insert-link", "Cmd+K in the body (Mac)");
+assert.equal(keyAction(ev("k", "c"), other), "command-bar", "Ctrl+K in the list / other fields is the command bar");
+assert.equal(keyAction(ev("k", "m"), other), "command-bar", "Cmd+K (Mac) outside the editor");
+assert.equal(keyAction(ev("k", ""), body), "pass", "plain k is a letter");
+assert.equal(keyAction(ev("k", ""), other), "pass", "plain k outside the editor is the list shortcut (previous), not ours");
+
+// --- D-1: Ctrl/Cmd+Shift+B is the app's Show Bcc; the editor's block quote shortcut must not run ----------------------------------
+assert.equal(keyAction(ev("B", "cs"), body), "editor-skip");
+assert.equal(keyAction(ev("b", "cs"), body), "editor-skip");
+assert.equal(keyAction(ev("B", "ms"), body), "editor-skip", "Cmd+Shift+B (Mac)");
+assert.equal(keyAction(ev("b", "c"), body), "pass", "Ctrl+B stays Bold");
+assert.equal(keyAction(ev("b", "m"), body), "pass", "Cmd+B stays Bold");
+assert.equal(keyAction(ev("B", "cs"), other), "pass", "outside the editor the compose pane handler owns it");
+
+// --- Ctrl+Enter is Send (the editor's hard break must not run), Ctrl+Shift+Enter is Send later ------------------------------------
+for (const m of ["c", "m", "cs", "ms"]) assert.equal(keyAction(ev("Enter", m), body), "editor-skip", `Enter with ${m}`);
+assert.equal(keyAction(ev("Enter", ""), body), "pass", "plain Enter is a new paragraph");
+assert.equal(keyAction(ev("Enter", "s"), body), "pass", "Shift+Enter is a line break (editor)");
+
+// --- D-6: AltGr (Ctrl+Alt on Windows, AltGraph modifier state) never fires an editor or app shortcut ------------------------------
+const altGrChars = [["@", "q"], ["ć", "c"], ["²", "2"], ["³", "3"], ["\\", "ß"], ["{", "7"], ["[", "8"], ["]", "9"], ["}", "0"], ["|", "<"], ["~", "+"], ["€", "e"], ["ł", "l"], ["k", "k"], ["B", "b"]];
+for (const [key] of altGrChars) {
+  assert.equal(keyAction(ev(key, "ca", true), body), "editor-skip", `AltGr ${key} (Ctrl+Alt+AltGraph) in the editor`);
+  assert.equal(keyAction(ev(key, "ca", false), body), "editor-skip", `AltGr ${key} (Ctrl+Alt only: the browser does not report AltGraph)`);
+  assert.equal(keyAction(ev(key, "a", true), body), "editor-skip", `AltGraph state alone ${key}`);
+  assert.equal(keyAction(ev(key, "cas", true), body), "editor-skip", `AltGr+Shift ${key}`);
+  assert.equal(keyAction(ev(key, "ca", true), other), "pass", `AltGr ${key} outside the editor does nothing of ours`);
+}
+// the headings / code block / paragraph defaults of TipTap (Mod-Alt-0..6, Mod-Alt-C), also as real Ctrl+Alt and as Cmd+Option
+for (const d of ["0", "1", "2", "3", "4", "5", "6", "c", "C"]) {
+  for (const m of ["ca", "ma"]) assert.equal(keyAction(ev(d, m), body), "editor-skip", `Mod-Alt-${d} (${m})`);
+}
+assert.equal(keyAction(ev("k", "ca"), body), "editor-skip", "Ctrl+Alt+K is not the link shortcut");
+assert.equal(keyAction(ev("k", "ca"), other), "pass", "Ctrl+Alt+K does not open the command bar");
+assert.equal(keyAction(ev("k", "ca", true), other), "pass", "AltGr+K does not open the command bar");
+assert.ok(isAltGraph(ev("q", "ca")) && isAltGraph(ev("q", "", true)) && !isAltGraph(ev("q", "c")) && !isAltGraph(ev("q", "ma")), "isAltGraph");
+assert.ok(!isAltGraph({ key: "q", ctrlKey: false, metaKey: false, altKey: false, shiftKey: false }), "an event without getModifierState");
+
+// --- the shortcuts that stay editor shortcuts ------------------------------------------------------------------------------------
+const stay = [["i", "c"], ["u", "c"], ["z", "c"], ["y", "c"], ["z", "cs"], ["7", "cs"], ["8", "cs"], ["&", "cs"], ["*", "cs"], ["s", "cs"], ["e", "c"], ["a", "c"], ["Tab", ""], ["Backspace", "c"], ["Delete", "c"]];
+for (const [k, m] of stay) assert.equal(keyAction(ev(k, m), body), "pass", `${m}+${k} remains with the editor`);
+// the compose pane's own keys are not the editor's business
+for (const [k, m] of [["c", "cs"], ["p", "cs"], ["e", "cs"], ["g", "cs"], ["1", "c"], ["Enter", "a"]]) assert.notEqual(keyAction(ev(k, m), body), "insert-link");
+
+// --- editorKeyHandlers: ProseMirror hook ---------------------------------------------------------------------------------------
+{
+  let linked = 0;
+  const h = editorKeyHandlers(() => linked++).keydown;
+  const dom = (k, m, st = false) => ({ ...ev(k, m, st), prevented: false, preventDefault() { this.prevented = true; } });
+  const k = dom("k", "c");
+  assert.equal(h(null, k), true, "Ctrl+K handled");
+  assert.ok(k.prevented && linked === 1, "Ctrl+K opens the link UI and stops the browser default");
+  const alt = dom("@", "ca", true);
+  assert.equal(h(null, alt), true, "AltGr: ProseMirror skips its keymaps");
+  assert.equal(alt.prevented, false, "AltGr: the character is still typed (no preventDefault)");
+  const bq = dom("B", "cs");
+  assert.equal(h(null, bq), true);
+  assert.equal(bq.prevented, false, "the pane handler, not the editor, prevents and acts");
+  const bold = dom("b", "c");
+  assert.equal(h(null, bold), false, "Ctrl+B is left to the editor");
+  assert.equal(linked, 1);
+}
+assert.equal(inEditable(null), false);
+assert.equal(inEditable({}), false, "not an element");
+
+// --- source guards: wiring ---------------------------------------------------------------------------------------------------
+const read = (p) => readFileSync(new URL(`../${p}`, import.meta.url), "utf8").replace(/\r\n/g, "\n");
+const compose = read("src/components/Compose.tsx");
+const rich = read("src/components/RichEditor.tsx");
+const app = read("src/App.tsx");
+assert.match(compose, /handleDOMEvents: editorKeyHandlers\(/, "the compose body installs the key guard");
+assert.match(rich, /handleDOMEvents: editorKeyHandlers\(/, "the signature / template editor installs the key guard");
+assert.match(compose, /onClick=\{\(\) => linkRef\.current\(\)\}/, "the toolbar link button and Ctrl+K share one link UI");
+assert.match(compose, /if \(isAltGraph\(e\)\) return;/, "the compose pane shortcuts ignore AltGr");
+assert.match(app, /keyAction\(e, \{ inEditor: inEditable\(e\.target\) \}\)/, "the global Ctrl+K decision knows if an editor has the focus");
+assert.doesNotMatch(app, /e\.key\.toLowerCase\(\) === "k"\) \{\s*e\.preventDefault\(\);\s*st\.setCommandOpen/, "no unconditional Ctrl+K command bar");
+// Settings > Shortcuts keeps documenting Ctrl+K as the command bar; the Bcc tooltip documents Ctrl+Shift+B
+assert.match(read("src/i18n/ns/compose.ts"), /"compose\.addBcc": "Add Bcc \(Ctrl\+Shift\+B\)"/);
+
+// --- source guard: every TipTap default that collides is covered by the guard --------------------------------------------------
+// Read the keymaps of the installed TipTap extensions: any Mod-Alt-* / Mod-Shift-b / Mod-Enter must be skipped by keyAction.
+const tiptap = new URL("../node_modules/@tiptap/", import.meta.url);
+if (existsSync(tiptap)) {
+  const toEvent = (spec, meta) => {
+    const parts = spec.split("-");
+    const key = parts.pop();
+    const has = (n) => parts.includes(n);
+    return ev(key, `${meta ? "m" : "c"}${has("Alt") ? "a" : ""}${has("Shift") ? "s" : ""}`);
+  };
+  const specs = new Set();
+  for (const dir of readdirSync(tiptap)) {
+    const f = new URL(`${dir}/dist/index.js`, tiptap);
+    if (!existsSync(f)) continue;
+    for (const m of readFileSync(f, "utf8").matchAll(/["'`]((?:Mod|Shift|Alt|Ctrl)-[A-Za-z0-9${}._-]+)["'`]\s*[:\]]/g)) specs.add(m[1]);
+  }
+  const collide = [...specs].filter((s) => /^Mod-Alt-/.test(s) || /^Mod-Shift-[bB]$/.test(s) || s === "Mod-Enter");
+  assert.ok(collide.some((s) => s === "Mod-Shift-b") && collide.some((s) => s === "Mod-Enter") && collide.some((s) => s === "Mod-Alt-c" || s === "Mod-Alt-${level}"), `found the colliding TipTap defaults: ${collide}`);
+  for (const spec of collide) {
+    const keys = spec.includes("${level}") ? ["1", "2", "3", "4", "5", "6"].map((l) => spec.replace("${level}", l)) : [spec];
+    for (const s of keys) for (const meta of [false, true]) assert.equal(keyAction(toEvent(s, meta), body), "editor-skip", `TipTap ${s} (${meta ? "Cmd" : "Ctrl"}) must be skipped`);
+  }
+}
+console.log("compose-keys: all checks passed");

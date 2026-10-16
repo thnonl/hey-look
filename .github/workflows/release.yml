@@ -233,6 +233,7 @@ jobs:
           node --experimental-strip-types scripts/test-frame-sandbox.mjs
           node --experimental-strip-types scripts/test-addresses.mjs
           node scripts/test-compose-tab-order.mjs
+          node --experimental-strip-types scripts/test-compose-keys.mjs
           node --experimental-strip-types scripts/test-update-result.mjs
           node --experimental-strip-types scripts/test-sticky-timers.mjs
           node --experimental-strip-types scripts/test-toast-stack.mjs
