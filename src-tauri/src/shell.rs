@@ -264,7 +264,60 @@ pub fn mac_app_menu(app: &AppHandle) -> tauri::Result<Menu<tauri::Wry>> {
     if let Err(e) = replace_quit_item(app, &menu) {
         crate::startup::line("menu", &format!("the Quit item of the app menu could not be replaced ({e}): the terminate hook covers it"));
     }
+    if let Err(e) = localize_app_menu(app, &menu) {
+        crate::startup::line("menu", &format!("the app menu stays in English ({e})"));
+    }
     Ok(menu)
+}
+
+/// The predefined items of the app menu that carry text (About, Services, Hide, Hide Others, Show All), with the text each one gets: tauri builds
+/// them in English whatever the language of the app is. Kept to set the text again when the language changes.
+#[cfg_attr(not(target_os = "macos"), allow(dead_code))]
+static MAC_MENU_ITEMS: OnceLock<Vec<(PredefinedMenuItem<tauri::Wry>, crate::i18n::K)>> = OnceLock::new();
+
+/// Which text a predefined item of the app menu gets, told from the English label it is built with ("About Hey Look!", "Hide Hey Look!",
+/// "Services", "Hide Others", "Show All"). `None`: separators and anything else stay as they are.
+#[cfg_attr(not(target_os = "macos"), allow(dead_code))]
+fn mac_menu_slot(label: &str) -> Option<crate::i18n::K> {
+    use crate::i18n::K;
+    let label = label.replace('&', "");
+    match label.trim() {
+        "Services" => Some(K::MacServices),
+        "Hide Others" => Some(K::MacHideOthers),
+        "Show All" => Some(K::MacShowAll),
+        l if l.starts_with("About") => Some(K::MacAbout),
+        l if l.starts_with("Hide") => Some(K::MacHide),
+        _ => None,
+    }
+}
+
+/// Puts the language of the app on the predefined items of the app menu. macOS' standard menu has a Show All item right under Hide Others;
+/// tauri's default menu leaves it out, so it is added here.
+#[cfg_attr(not(target_os = "macos"), allow(dead_code))]
+fn localize_app_menu(app: &AppHandle, menu: &Menu<tauri::Wry>) -> Result<(), String> {
+    use crate::i18n::{tr, K};
+    let first = menu.items().map_err(|e| e.to_string())?.into_iter().next();
+    let Some(MenuItemKind::Submenu(app_menu)) = first else { return Err("the menu does not start with the app menu".into()) };
+    let mut found: Vec<(PredefinedMenuItem<tauri::Wry>, K)> = Vec::new();
+    let mut hide_others_at = None;
+    for (at, item) in app_menu.items().map_err(|e| e.to_string())?.into_iter().enumerate() {
+        let MenuItemKind::Predefined(p) = item else { continue };
+        let Some(k) = mac_menu_slot(&p.text().map_err(|e| e.to_string())?) else { continue };
+        p.set_text(tr(k)).map_err(|e| e.to_string())?;
+        if k == K::MacHideOthers {
+            hide_others_at = Some(at);
+        }
+        found.push((p, k));
+    }
+    if !found.iter().any(|(_, k)| *k == K::MacShowAll) {
+        if let Some(at) = hide_others_at {
+            let show = PredefinedMenuItem::show_all(app, Some(tr(K::MacShowAll))).map_err(|e| e.to_string())?;
+            app_menu.insert(&show, at + 1).map_err(|e| e.to_string())?;
+            found.push((show, K::MacShowAll));
+        }
+    }
+    let _ = MAC_MENU_ITEMS.set(found);
+    Ok(())
 }
 
 /// The app menu is the first submenu of the default menu and its Quit item the last item in it.
@@ -319,7 +372,7 @@ static TRAY_MAIL_ITEMS: OnceLock<(MenuItem<tauri::Wry>, MenuItem<tauri::Wry>)> =
 /// The other tray entries, kept to change their text when the language changes: open, pause, quit.
 static TRAY_OTHER_ITEMS: OnceLock<(MenuItem<tauri::Wry>, CheckMenuItem<tauri::Wry>, MenuItem<tauri::Wry>)> = OnceLock::new();
 
-/// The language changed (the UI mirrored it): the tray menu, the macOS Quit item and the tray tooltip follow at once.
+/// The language changed (the UI mirrored it): the tray menu, the macOS app menu (Quit, About, Hide ...) and the tray tooltip follow at once.
 pub fn refresh_language(app: &AppHandle, db: &Db) {
     use crate::i18n::{tr, K};
     if let Some((compose, sync)) = TRAY_MAIL_ITEMS.get() {
@@ -333,6 +386,9 @@ pub fn refresh_language(app: &AppHandle, db: &Db) {
     }
     if let Some(q) = MAC_QUIT_ITEM.get() {
         let _ = q.set_text(tr(K::MacQuit));
+    }
+    for (item, k) in MAC_MENU_ITEMS.get().into_iter().flatten() {
+        let _ = item.set_text(tr(*k));
     }
     update_badge(app, db);
 }
@@ -761,6 +817,37 @@ pub fn test_notification(app: &AppHandle, db: &Db) -> Result<(), String> {
 #[cfg(test)]
 mod platform_tests {
     use super::*;
+
+    #[test]
+    fn the_app_menu_items_are_told_apart_by_their_english_label() {
+        use crate::i18n::K;
+        assert_eq!(mac_menu_slot("About Hey Look!"), Some(K::MacAbout));
+        assert_eq!(mac_menu_slot("&About"), Some(K::MacAbout));
+        assert_eq!(mac_menu_slot("Services"), Some(K::MacServices));
+        assert_eq!(mac_menu_slot("Hide Hey Look!"), Some(K::MacHide));
+        assert_eq!(mac_menu_slot("Hide"), Some(K::MacHide));
+        assert_eq!(mac_menu_slot("Hide Others"), Some(K::MacHideOthers));
+        assert_eq!(mac_menu_slot("Show All"), Some(K::MacShowAll));
+        // separators and the Quit item (ours) are left alone
+        assert_eq!(mac_menu_slot(""), None);
+        assert_eq!(mac_menu_slot("Quit Hey Look!"), None);
+    }
+
+    /// The localised items are rebuilt with the language: the app menu code and the language refresh use the same list, and the menu code is only
+    /// ever compiled in for macOS (this reads the source, like the quit tests do).
+    #[test]
+    fn the_app_menu_follows_the_language_change() {
+        let src = include_str!("shell.rs").replace("
+", "
+");
+        let src = &src[..src.find("#[cfg(test)]").unwrap()];
+        assert!(src.contains("localize_app_menu(app, &menu)"), "mac_app_menu does not translate the app menu");
+        let refresh = &src[src.find("pub fn refresh_language").unwrap()..];
+        let refresh = &refresh[..refresh.find("
+}
+").unwrap()];
+        assert!(refresh.contains("MAC_MENU_ITEMS") && refresh.contains("MAC_QUIT_ITEM"), "{refresh}");
+    }
 
     #[test]
     fn tray_mail_entries_need_an_account() {

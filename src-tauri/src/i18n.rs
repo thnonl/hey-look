@@ -78,6 +78,11 @@ pub enum K {
     TrayPause,
     TrayQuit,
     MacQuit,
+    MacAbout,
+    MacServices,
+    MacHide,
+    MacHideOthers,
+    MacShowAll,
     ActArchive,
     ActDelete,
     ActRead,
@@ -103,7 +108,7 @@ pub enum K {
 }
 
 pub const ALL: &[K] = &[
-    K::TrayOpen, K::TrayCompose, K::TraySync, K::TrayPause, K::TrayQuit, K::MacQuit, K::ActArchive, K::ActDelete, K::ActRead, K::ActFlag,
+    K::TrayOpen, K::TrayCompose, K::TraySync, K::TrayPause, K::TrayQuit, K::MacQuit, K::MacAbout, K::MacServices, K::MacHide, K::MacHideOthers, K::MacShowAll, K::ActArchive, K::ActDelete, K::ActRead, K::ActFlag,
     K::ActReply, K::ActSnooze, K::TrayHintTitle, K::TrayHintMac, K::TrayHintLinux, K::TrayHintOther, K::TestTitle, K::TestLine1, K::TestLine2,
     K::EveryDay, K::EveryMonth, K::EveryYear, K::SaveAttachmentsTo, K::ChooseKeyFile,
     K::OpenPgpKeys, K::CalendarFile, K::SavePublicKey, K::SaveKeyBackup,
@@ -117,6 +122,12 @@ fn texts(k: K) -> [&'static str; 3] {
         K::TraySync => ["Check mail now", "Kiểm tra thư ngay", "Relever le courrier maintenant"],
         K::TrayPause => ["Pause notifications", "Tạm dừng thông báo", "Suspendre les notifications"],
         K::TrayQuit | K::MacQuit => ["Quit Hey Look!", "Thoát Hey Look!", "Quitter Hey Look!"],
+        // the macOS app menu (the English words are the ones macOS itself shows, the others the ones of each macOS language)
+        K::MacAbout => ["About Hey Look!", "Giới thiệu về Hey Look!", "À propos de Hey Look!"],
+        K::MacServices => ["Services", "Dịch vụ", "Services"],
+        K::MacHide => ["Hide Hey Look!", "Ẩn Hey Look!", "Masquer Hey Look!"],
+        K::MacHideOthers => ["Hide Others", "Ẩn các mục khác", "Masquer les autres"],
+        K::MacShowAll => ["Show All", "Hiện tất cả", "Tout afficher"],
         K::ActArchive => ["Archive", "Lưu trữ", "Archiver"],
         K::ActDelete => ["Delete", "Xóa", "Supprimer"],
         K::ActRead => ["Mark as read", "Đánh dấu đã đọc", "Marquer comme lu"],
@@ -452,6 +463,37 @@ mod tests {
         }
     }
 
+    /// Words that are the same in English and in that language (macOS calls the app menu's Services "Services" in French too).
+    const SAME_AS_ENGLISH: &[(Lang, K)] = &[(Lang::Fr, K::MacServices)];
+
+    /// The five items of the macOS app menu besides Quit (F-8: they stayed English while Quit followed the language).
+    const MAC_MENU: [K; 5] = [K::MacAbout, K::MacServices, K::MacHide, K::MacHideOthers, K::MacShowAll];
+
+    #[test]
+    fn every_language_has_the_macos_app_menu_items() {
+        for l in LANGS {
+            for k in MAC_MENU {
+                let text = tr_in(l, k);
+                assert!(!text.trim().is_empty(), "{l:?} {k:?}");
+                assert!(ALL.contains(&k), "{k:?} is not in ALL");
+                // the items that name the app keep its name; the others do not carry it
+                let named = matches!(k, K::MacAbout | K::MacHide);
+                assert_eq!(text.contains("Hey Look!"), named, "{l:?} {k:?}: {text:?}");
+                if l != Lang::En && !SAME_AS_ENGLISH.contains(&(l, k)) {
+                    assert_ne!(text, tr_in(Lang::En, k), "{l:?} {k:?} is still English");
+                }
+            }
+            // About and Hide differ from each other and from Quit (the app menu never shows two identical lines)
+            let mut seen = std::collections::HashSet::new();
+            for k in [K::MacAbout, K::MacServices, K::MacHide, K::MacHideOthers, K::MacShowAll, K::MacQuit] {
+                assert!(seen.insert(tr_in(l, k)), "{l:?} {k:?}: the same text as another app menu item");
+            }
+        }
+        assert_eq!(en(K::MacAbout), "About Hey Look!");
+        assert_eq!(en(K::MacHide), "Hide Hey Look!");
+        assert_eq!(en(K::MacShowAll), "Show All");
+    }
+
     #[test]
     fn every_text_exists_in_all_three_languages() {
         for k in ALL {
@@ -460,7 +502,7 @@ mod tests {
                 assert!(!s.trim().is_empty(), "{k:?} language {i} is empty");
             }
             assert_ne!(t[0], t[1], "{k:?}: the Vietnamese text is the English one") ;
-            assert_ne!(t[0], t[2], "{k:?}: the French text is the English one");
+            assert!(t[0] != t[2] || SAME_AS_ENGLISH.contains(&(Lang::Fr, *k)), "{k:?}: the French text is the English one");
         }
     }
 
@@ -513,7 +555,7 @@ mod tests {
                 assert_eq!(braces(text), braces(english), "{l:?} {k:?}: placeholders differ from English");
                 assert!(!text.contains('{') && !text.contains('}'), "{l:?} {k:?}: stray brace in {text:?}");
                 assert!(text.contains("Hey Look!") || !english.contains("Hey Look!"), "{l:?} {k:?}: the product name \"Hey Look!\" must stay where English has it ({text:?})");
-                if !matches!(l, Lang::En) {
+                if !matches!(l, Lang::En) && !SAME_AS_ENGLISH.contains(&(l, *k)) {
                     assert_ne!(text, english, "{l:?} {k:?}: still the English text");
                 }
                 assert_eq!(text, text.trim(), "{l:?} {k:?}: leading or trailing space");
