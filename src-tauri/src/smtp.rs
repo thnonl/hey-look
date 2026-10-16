@@ -234,6 +234,10 @@ fn headers(acc: &Account, d: &Draft, lenient: bool) -> R<lettre::message::Messag
         // draft will be (an "Edit" action can open it again). Mail that is sent keeps getting its Message-ID from the server.
         b = b.message_id(Some(draft_message_id(&acc.email)));
         b = b.envelope(lettre::address::Envelope::new(Some(me.clone()), vec![me]).map_err(err)?);
+        // The Bcc header stays in the DRAFT copy (QA round 17 BUG-01: lettre drops it by default, so a saved draft lost its Bcc recipients and
+        // sending the reopened draft silently skipped them). It is only the person's own Drafts folder; a message that is SENT is built below
+        // without it (the SMTP envelope carries the Bcc recipients, the message must not name them).
+        b = b.keep_bcc();
         // each list: typed addresses when every entry is one, else the text as written
         let all_ok = |l: &[String]| l.iter().all(|t| parse_mailbox(t).is_ok());
         let raw = |l: &[String]| l.iter().map(|t| t.trim()).filter(|t| !t.is_empty()).collect::<Vec<_>>().join(", ");
@@ -558,6 +562,18 @@ fn probe_starttls(acc: &Account, timeout: std::time::Duration) -> Result<(), Pro
     timed_out.map_or(Ok(()), |e| Err(Probe::ConnectTimedOut(e)))
 }
 
+/// A finished message as the SMTP DATA command carries it, and the copy to keep. lettre ends the data with CRLF "." CRLF, which supplies the
+/// line break after the last line, so a message that already ends with one would gain an empty line: the message is handed over without that
+/// last line break (`wire`), and the copy for the Sent folder is the bytes the server receives (`copy`, QA round 17 BUG-19: the Sent copy was
+/// two bytes shorter than the DATA that was sent).
+pub fn as_data(raw: &[u8]) -> (&[u8], Vec<u8>) {
+    let wire = raw.strip_suffix(b"\r\n").unwrap_or(raw);
+    let mut copy = Vec::with_capacity(wire.len() + 2);
+    copy.extend_from_slice(wire);
+    copy.extend_from_slice(b"\r\n");
+    (wire, copy)
+}
+
 /// Send an already finished message (encrypted/signed ones are built once, at schedule time).
 pub fn send_raw(acc: &Account, secret: &str, env: &lettre::address::Envelope, raw: &[u8]) -> R<()> {
     send_raw_with(acc, secret, env, raw, SEND_TIMEOUT)
@@ -653,12 +669,16 @@ pub fn build_draft(acc: &Account, d: &Draft) -> R<Message> {
 }
 
 #[cfg(test)]
-mod tests {
+pub(crate) mod tests {
     use super::*;
 
-    fn account() -> Account {
+    pub(crate) fn account() -> Account {
+        account_with_id("a1")
+    }
+
+    pub(crate) fn account_with_id(id: &str) -> Account {
         Account {
-            id: "a1".into(),
+            id: id.into(),
             email: "me@example.com".into(),
             display_name: "Me".into(),
             imap_host: "imap.example.com".into(),
@@ -675,7 +695,7 @@ mod tests {
         }
     }
 
-    fn draft(html: &str, inline: Vec<InlineImage>, attachments: Vec<Att>) -> Draft {
+    pub(crate) fn draft(html: &str, inline: Vec<InlineImage>, attachments: Vec<Att>) -> Draft {
         Draft {
             account_id: "a1".into(),
             to: vec!["ann@example.com".into()],
@@ -743,7 +763,7 @@ To:"), "no To header is invented: {out}");
         d.bcc = vec!["not an address".into()];
         let out = text(&build_draft(&acc, &d).expect("invalid recipients save"));
         assert!(out.contains("To: ann@, Carl <carl@example.com>"), "{out}");
-        assert!(!out.contains("not an address"), "{out}");
+        assert!(out.contains("Bcc: not an address"), "a half-typed Bcc is kept as typed too: {out}");
         // valid recipients are typed headers as before
         d.to = vec!["Ann <ann@example.com>".into()];
         d.bcc.clear();
@@ -840,6 +860,55 @@ To:") && !out.contains("undisclosed"), "{out}");
         let mut bad = draft("<p>Hi</p>", vec![], vec![]);
         bad.to = vec!["ann@example.com".into(), "ann@".into()];
         assert!(build(&acc, &bad).is_err());
+    }
+
+    /// QA round 17 BUG-01 (CF-1): the Bcc recipients were missing from the saved draft, so a reopened draft was sent without them.
+    #[test]
+    fn a_saved_draft_keeps_its_bcc_but_a_sent_message_never_names_it() {
+        let acc = account();
+        let mut d = draft("<p>Hi</p>", vec![], vec![]);
+        d.cc = vec!["cc@example.com".into()];
+        d.bcc = vec!["Quiet <quiet@example.com>".into(), "silent@example.com".into()];
+        let saved = text(&build_draft(&acc, &d).unwrap());
+        assert!(saved.contains("Bcc: Quiet <quiet@example.com>, silent@example.com"), "the draft copy has the Bcc header: {saved}");
+        // only the draft copy: what is sent has no Bcc header, whatever the route (plain, signed, encrypted)
+        let sent = text(&build(&acc, &d).unwrap());
+        assert!(!sent.to_ascii_lowercase().contains("bcc:"), "{sent}");
+        assert!(!sent.contains("quiet@example.com") && !sent.contains("silent@example.com"), "{sent}");
+        let signed = text(&build_signed(&acc, &d, false, &|_| Ok(("sig".to_string(), "pgp-sha256".to_string()))).unwrap());
+        assert!(!signed.to_ascii_lowercase().contains("bcc:"), "{signed}");
+        let enc = text(&build_encrypted(&acc, &d, false, &|_| Ok("armored".to_string())).unwrap());
+        assert!(!enc.to_ascii_lowercase().contains("bcc:"), "{enc}");
+        // ... while the SMTP envelope delivers to all of them
+        let env = build(&acc, &d).unwrap().envelope().clone();
+        let to: Vec<String> = env.to().iter().map(|a| a.to_string()).collect();
+        for a in ["ann@example.com", "cc@example.com", "quiet@example.com", "silent@example.com"] {
+            assert!(to.contains(&a.to_string()), "{a} is an envelope recipient: {to:?}");
+        }
+        // an encrypted draft (to your own key) keeps it in the outer headers as well
+        let encd = text(&build_encrypted(&acc, &d, true, &|_| Ok("armored".to_string())).unwrap());
+        assert!(encd.contains("Bcc: Quiet <quiet@example.com>, silent@example.com"), "{encd}");
+        // the draft copy is still never sent anywhere by its envelope: it is the account's own
+        let env = build_draft(&acc, &d).unwrap().envelope().clone();
+        assert_eq!(env.to().iter().map(|a| a.to_string()).collect::<Vec<_>>(), vec!["me@example.com"]);
+    }
+
+    /// A scheduled message and a message in its Undo time are stored as the JSON of the draft: the Bcc recipients are part of it, still
+    /// recipients of the envelope when it is built from the stored copy, and still not named in the message.
+    #[test]
+    fn the_stored_copy_of_a_queued_message_keeps_its_bcc() {
+        let acc = account();
+        let mut d = draft("<p>Hi</p>", vec![], vec![]);
+        d.bcc = vec!["quiet@example.com".into()];
+        let stored = serde_json::to_string(&d).unwrap();
+        assert!(stored.contains("\"bcc\":[\"quiet@example.com\"]"), "{stored}");
+        let back: Draft = serde_json::from_str(&stored).unwrap();
+        assert_eq!(back.bcc, d.bcc);
+        let msg = build(&acc, &back).unwrap();
+        assert!(msg.envelope().to().iter().any(|a| a.to_string() == "quiet@example.com"));
+        assert!(!text(&msg).to_ascii_lowercase().contains("bcc:"));
+        // a finished (prebuilt) message is sent to the same recipients through its envelope
+        assert!(envelope(&acc, &back).unwrap().to().iter().any(|a| a.to_string() == "quiet@example.com"));
     }
 
     #[test]
@@ -1222,6 +1291,55 @@ To:") && !out.contains("undisclosed"), "{out}");
         (port, rx)
     }
 
+    /// A minimal SMTP server that answers one message and hands back the DATA it received (dot-stuffing undone), as the server stores it.
+    fn data_server() -> (u16, std::sync::mpsc::Receiver<Vec<u8>>) {
+        use std::io::{BufRead, BufReader, Write};
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let port = listener.local_addr().unwrap().port();
+        let (tx, rx) = std::sync::mpsc::channel();
+        std::thread::spawn(move || {
+            let (sock, _) = listener.accept().unwrap();
+            let mut out = sock.try_clone().unwrap();
+            let mut input = BufReader::new(sock);
+            let _ = out.write_all(b"220 test ESMTP\r\n");
+            let mut line = Vec::new();
+            loop {
+                line.clear();
+                if input.read_until(b'\n', &mut line).unwrap_or(0) == 0 {
+                    return;
+                }
+                let cmd = String::from_utf8_lossy(&line).to_ascii_uppercase();
+                if cmd.starts_with("EHLO") {
+                    let _ = out.write_all(b"250-test\r\n250 AUTH PLAIN LOGIN\r\n");
+                } else if cmd.starts_with("AUTH") {
+                    let _ = out.write_all(b"235 ok\r\n");
+                } else if cmd.starts_with("DATA") {
+                    let _ = out.write_all(b"354 go\r\n");
+                    let mut data = Vec::new();
+                    loop {
+                        line.clear();
+                        if input.read_until(b'\n', &mut line).unwrap_or(0) == 0 {
+                            return;
+                        }
+                        if line == b".\r\n" {
+                            break;
+                        }
+                        // transparency (RFC 5321 4.5.2): a leading dot of a line was doubled
+                        data.extend_from_slice(if line.starts_with(b"..") { &line[1..] } else { &line });
+                    }
+                    let _ = tx.send(data);
+                    let _ = out.write_all(b"250 queued\r\n");
+                } else if cmd.starts_with("QUIT") {
+                    let _ = out.write_all(b"221 bye\r\n");
+                    return;
+                } else {
+                    let _ = out.write_all(b"250 ok\r\n");
+                }
+            }
+        });
+        (port, rx)
+    }
+
     /// QA round 17, BUG-17 (CF-13): EHLO carried the name of this computer ("NamPC"). It is the address literal `[127.0.0.1]` now, for the
     /// sent mail and for the connection checks, whatever the computer or the account is called.
     #[test]
@@ -1243,6 +1361,35 @@ To:") && !out.contains("undisclosed"), "{out}");
             let host = std::env::var("COMPUTERNAME").or_else(|_| std::env::var("HOSTNAME")).unwrap_or_default().to_lowercase();
             if !host.is_empty() {
                 assert!(ehlos.iter().all(|l| !l.to_lowercase().contains(&host) || host == "127.0.0.1"), "{ehlos:?}");
+            }
+        });
+    }
+
+    /// QA round 17 BUG-19 (MA-22): the copy that goes to the Sent folder is the DATA the server received, byte for byte.
+    #[test]
+    fn the_sent_copy_is_the_data_the_server_received() {
+        crate::test_guard::within(60, || {
+            let acc0 = account();
+            let mut d = draft("<p>Hi</p>", vec![], vec![]);
+            d.text = ".a line that starts with a dot\r\n\r\nthe end".into();
+            let msg = build(&acc0, &d).unwrap();
+            let raw = msg.formatted();
+            assert!(raw.ends_with(b"\r\n"), "lettre ends a message with a line break");
+            let mut without = raw.clone();
+            without.truncate(without.len() - 2);
+            // a message with and without the final line break (a finished PGP message may lack it)
+            for message in [raw.clone(), without] {
+                let (port, rx) = data_server();
+                let mut acc = account();
+                acc.smtp_host = "127.0.0.1".into();
+                acc.smtp_port = port;
+                acc.smtp_security = "none".into();
+                let (wire, copy) = as_data(&message);
+                send_raw(&acc, "secret", msg.envelope(), wire).expect("the fake server accepts the message");
+                let data = rx.recv_timeout(std::time::Duration::from_secs(10)).expect("DATA received");
+                assert_eq!(data, copy, "the Sent copy equals the DATA");
+                assert!(copy.ends_with(b"\r\n") && !copy.ends_with(b"\r\n\r\n"), "one line break at the end, no empty line added");
+                assert_eq!(&copy[..copy.len() - 2], &raw[..raw.len() - 2], "nothing else changed");
             }
         });
     }

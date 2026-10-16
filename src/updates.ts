@@ -447,10 +447,12 @@ export const useUpdates = create<UpdatesState>((set, get) => {
               }
               // discarded: no draft was written, so the result toast after the restart must not say the message is in Drafts
               void api.updateNote(`restart goes on: the draft could not be saved (${error}); the message is discarded`).catch(() => undefined);
+              await useStore.getState().composeEnd?.(); // "Restart and discard": the message must not come back at the next start
               st.setComposeDirty(false);
             } else {
               draftSaved = true;
               st.setComposeDirty(false);
+              await useStore.getState().composeEnd?.(); // (saved: no snapshot is needed; the process ends soon)
             }
           }
           await st.openCompose(null);

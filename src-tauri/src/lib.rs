@@ -4,6 +4,7 @@ mod calendar;
 mod calsync;
 mod db;
 mod discover;
+mod draftmail;
 mod flagguard;
 mod headerfold;
 mod ical;
@@ -26,6 +27,7 @@ mod openpgp;
 mod pgpmail;
 mod pgpstore;
 mod rawcache;
+mod recover;
 mod replyhdr;
 use oauth::Provider;
 mod schedule;
@@ -2272,6 +2274,11 @@ fn action_impl_in(db: &Db, thread_ids: Vec<String>, action: String, arg: Option<
     };
 
     let msgs = thread_msgs(&lock(db), &thread_ids)?;
+    act_on_refs(db, msgs, &action, dst_role.as_deref(), &scope, create_missing)
+}
+
+/// `action_impl` for messages that are already picked (not a whole conversation): one connection per account.
+fn act_on_refs(db: &Db, msgs: Vec<MsgRef>, action: &str, dst_role: Option<&str>, scope: &Option<String>, create_missing: bool) -> R<()> {
     let mut by_acct: HashMap<String, Vec<MsgRef>> = HashMap::new();
     for m in msgs {
         by_acct.entry(m.account_id.clone()).or_default().push(m);
@@ -2280,7 +2287,7 @@ fn action_impl_in(db: &Db, thread_ids: Vec<String>, action: String, arg: Option<
         let acc = db::get_account(&lock(db), &acct_id)?;
         let sec = secret(db, &acc)?;
         let mut s = mail::connect(&acc, &sec)?;
-        let done = act_on_session(db, &acc, &mut s, &list, &action, dst_role.as_deref(), &scope, create_missing);
+        let done = act_on_session(db, &acc, &mut s, &list, action, dst_role, scope, create_missing);
         let _ = s.logout();
         done?;
     }
@@ -3100,7 +3107,9 @@ fn send_now(db: &Db, d: &smtp::Draft) -> R<()> {
     let acc = db::get_account(&lock(db), &d.account_id)?;
     let sec = secret(db, &acc)?;
     let (raw, env) = finished_message(db, &acc, d)?;
-    smtp::send_raw(&acc, &smtp_secret(db, &acc)?, &env, &raw)?;
+    // the Sent copy is byte for byte the DATA the server received (smtp::as_data)
+    let (wire, raw) = smtp::as_data(&raw);
+    smtp::send_raw(&acc, &smtp_secret(db, &acc)?, &env, wire)?;
     let h = acc.smtp_host.to_lowercase();
     let auto_saves = h.contains("gmail") || h.contains("googlemail") || h.contains("office365") || h.contains("outlook");
     if !auto_saves {
@@ -3259,7 +3268,9 @@ async fn outbox_hold_send(app: tauri::AppHandle, state: tauri::State<'_, AppStat
 /// Remove the original draft after a message was sent or scheduled from it (so it is not duplicated).
 fn drop_replaced_draft(db: &Db, replaces: Option<String>) {
     if let Some(t) = replaces {
-        let _ = action_impl(db, vec![t], "delete_forever".into(), None, Some("drafts".into()));
+        if let Err(e) = draftmail::drop_draft(db, &t) {
+            startup::line("draft", &format!("the draft that a sent or scheduled message was written from could not be removed: {e}"));
+        }
     }
 }
 
@@ -3313,8 +3324,17 @@ async fn send_message(
     Ok("sent".into())
 }
 
+/// What Save draft tells the interface: the thread the draft will have, and the reference to give to the next save (or to the send) so that
+/// it replaces exactly this draft (`draftmail::drop_draft`).
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct SavedDraft {
+    thread_id: Option<String>,
+    draft_ref: Option<String>,
+}
+
 #[tauri::command]
-async fn save_draft(state: tauri::State<'_, AppState>, draft: smtp::Draft, replaces: Option<String>) -> R<Option<String>> {
+async fn save_draft(state: tauri::State<'_, AppState>, draft: smtp::Draft, replaces: Option<String>) -> R<SavedDraft> {
     let db = state.db.clone();
     blocking(move || {
         let acc = db::get_account(&lock(&db), &draft.account_id)?;
@@ -3325,12 +3345,62 @@ async fn save_draft(state: tauri::State<'_, AppState>, draft: smtp::Draft, repla
         mail::append(&mut s, &folder, &raw, true)?;
         let _ = s.logout();
         if let Some(t) = replaces {
-            let _ = action_impl(&db, vec![t], "delete_forever".into(), None, Some("drafts".into()));
+            if let Err(e) = draftmail::drop_draft(&db, &t) {
+                startup::line("draft", &format!("account {}: the draft that was replaced could not be removed: {e}", acc.id));
+            }
         }
         // the thread the draft gets in the local store (the toast "Draft saved" can open it again with Edit)
-        Ok(draft_thread_id(&acc.id, &raw))
+        Ok(SavedDraft { thread_id: draft_thread_id(&acc.id, &raw), draft_ref: draftmail::draft_ref(&acc.id, &raw) })
     })
     .await
+}
+
+/// To, Cc and Bcc of a saved draft with their display names, read from the headers of the message in the Drafts folder (the synced copy
+/// keeps bare To / Cc addresses and no Bcc). Opening a draft in Compose restores the chips from this.
+#[tauri::command]
+async fn draft_recipients(state: tauri::State<'_, AppState>, message_id: String) -> R<draftmail::DraftRecipients> {
+    let db = state.db.clone();
+    blocking(move || {
+        let (raw, _) = fetch_raw_for(&db, &message_id)?;
+        Ok(draftmail::recipients(&raw))
+    })
+    .await
+}
+
+/// Remove the draft a reference names (Discard on a new message whose autosave had made a draft).
+#[tauri::command]
+async fn discard_draft(state: tauri::State<'_, AppState>, reference: String) -> R<()> {
+    let db = state.db.clone();
+    blocking(move || draftmail::drop_draft(&db, &reference)).await
+}
+
+// ---------- crash recovery of the message being written (recover.rs) ----------
+
+/// Compose writes a snapshot of the message every few seconds while something changed.
+#[tauri::command]
+async fn recovery_save(state: tauri::State<'_, AppState>, snap: recover::SnapIn) -> R<()> {
+    let db = state.db.clone();
+    blocking(move || recover::save(&lock(&db), &snap, now())).await
+}
+
+/// The message was sent, discarded or saved: no snapshot is needed any more.
+#[tauri::command]
+async fn recovery_clear(state: tauri::State<'_, AppState>, id: String) -> R<()> {
+    let db = state.db.clone();
+    blocking(move || recover::clear(&lock(&db), &id)).await
+}
+
+/// Messages that were being written when the app ended without saving or sending them.
+#[tauri::command]
+async fn recovery_list(state: tauri::State<'_, AppState>) -> R<Vec<recover::Info>> {
+    let db = state.db.clone();
+    blocking(move || recover::list(&lock(&db))).await
+}
+
+#[tauri::command]
+async fn recovery_load(state: tauri::State<'_, AppState>, id: String) -> R<Option<recover::Loaded>> {
+    let db = state.db.clone();
+    blocking(move || recover::load(&lock(&db), &id)).await
 }
 
 #[derive(Serialize)]
@@ -4322,6 +4392,12 @@ pub fn run() {
             inline_image,
             send_message,
             save_draft,
+            draft_recipients,
+            discard_draft,
+            recovery_save,
+            recovery_clear,
+            recovery_list,
+            recovery_load,
             list_outbox,
             cancel_outbox,
             outbox_pending_count,

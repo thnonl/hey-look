@@ -1,5 +1,6 @@
 import { Channel, invoke } from "@tauri-apps/api/core";
 import { t } from "./i18n";
+import type { RecoveryInfo, RecoveryLoaded, SnapshotOut } from "./recovery";
 
 export interface Account {
   id: string;
@@ -405,6 +406,12 @@ export interface Draft {
   confidential?: boolean;
 }
 
+/** What Save draft says: the conversation the draft will be in once the sync has read it, and the reference that makes the next save (or a send) replace exactly this draft. */
+export interface DraftSaveResult {
+  threadId: string | null;
+  draftRef: string | null;
+}
+
 export type OutboxStatus = "pending" | "held" | "sending" | "failed" | "overdue";
 
 export interface OutboxItem {
@@ -562,9 +569,21 @@ export const api = {
     invoke<{ mime: string; dataBase64: string; name: string }>("inline_image", { messageId, cid }),
   sendMessage: (draft: Draft, sendAt?: number | null, replaces?: string | null) =>
     invoke<string>("send_message", { draft, sendAt: sendAt ?? null, replaces: replaces ?? null }),
-  /** The conversation the saved draft is in once the sync has read it (null: not known before). */
+  /**
+   * `replaces`: the draft this one takes the place of, a reference: `m:<message id>` of a draft that was opened, or the `draftRef` of an
+   * earlier save. Only that message is removed (a plain conversation id removes every draft of the conversation).
+   */
   saveDraft: (draft: Draft, replaces?: string | null) =>
-    invoke<string | null>("save_draft", { draft, replaces: replaces ?? null }),
+    invoke<DraftSaveResult>("save_draft", { draft, replaces: replaces ?? null }),
+  /** Remove the draft a reference names (Discard on a new message whose save made a draft). */
+  discardDraft: (reference: string) => invoke<void>("discard_draft", { reference }),
+  /** Crash recovery of the message being written (recover.rs): the snapshot is kept until the message is sent, discarded or saved. */
+  recoverySave: (snap: SnapshotOut) => invoke<void>("recovery_save", { snap }),
+  recoveryClear: (id: string) => invoke<void>("recovery_clear", { id }),
+  recoveryList: () => invoke<RecoveryInfo[]>("recovery_list"),
+  recoveryLoad: (id: string) => invoke<RecoveryLoaded | null>("recovery_load", { id }),
+  /** To / Cc / Bcc of a saved draft with the display names, read from the draft's own headers (the synced copy has bare addresses and no Bcc). */
+  draftRecipients: (messageId: string) => invoke<{ to: string[]; cc: string[]; bcc: string[] }>("draft_recipients", { messageId }),
   listOutbox: () => invoke<OutboxItem[]>("list_outbox"),
   cancelOutbox: (id: string) => invoke<void>("cancel_outbox", { id }),
   /** Send was pressed with an Undo time: the message goes into the local outbox (not a scheduled message) until `dueAt` (unix seconds). */

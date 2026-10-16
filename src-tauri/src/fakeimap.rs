@@ -22,6 +22,8 @@ pub struct State {
     pub log: Vec<String>,
     /// every message stored with APPEND: the folder and the bytes
     pub appended: Vec<(String, Vec<u8>)>,
+    /// what `UID SEARCH` answers (default: every message of the selected folder, the fake does not keep message text)
+    pub search_hits: Option<Vec<u32>>,
     deleted: BTreeSet<(String, u32)>,
     next_uid: u32,
 }
@@ -43,6 +45,7 @@ impl Fake {
             fail_moves: false,
             log: vec![],
             appended: vec![],
+            search_hits: None,
             deleted: BTreeSet::new(),
             next_uid: 1000,
         };
@@ -181,7 +184,7 @@ fn serve(c: TcpStream, shared: Arc<Mutex<State>>) {
                 out += &format!("{tag} OK [APPENDUID 1 {n}] APPEND done\r\n");
             }
         } else if upper.starts_with("UID SEARCH") {
-            let uids = selected.as_ref().and_then(|f| st.folders.get(f)).cloned().unwrap_or_default();
+            let uids = st.search_hits.clone().unwrap_or_else(|| selected.as_ref().and_then(|f| st.folders.get(f)).cloned().unwrap_or_default());
             out += &format!("* SEARCH{}\r\n{tag} OK SEARCH done\r\n", uids.iter().map(|u| format!(" {u}")).collect::<String>());
         } else if upper.starts_with("UID MOVE") || upper.starts_with("UID COPY") {
             let mv = upper.starts_with("UID MOVE");

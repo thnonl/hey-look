@@ -1,0 +1,368 @@
+//! What a saved draft says about its recipients (QA round 17 BUG-01 / BUG-10).
+//!
+//! The synced copy of a message keeps only bare To / Cc addresses (and nothing for Bcc), which is right for mail that was received but loses
+//! the display names and the Bcc recipients of a draft when it is opened again. A draft is read back from the headers of the message that
+//! was saved to the Drafts folder instead: To, Cc and Bcc as the person had them in the chips, names included.
+
+use serde::Serialize;
+
+#[derive(Serialize, Debug, Default, PartialEq)]
+pub struct DraftRecipients {
+    pub to: Vec<String>,
+    pub cc: Vec<String>,
+    pub bcc: Vec<String>,
+}
+
+/// Split a header value at the commas that separate recipients: not inside a quoted string, an angle-bracket address or a comment.
+fn split_list(v: &str) -> Vec<String> {
+    let (mut out, mut cur) = (vec![], String::new());
+    let (mut quoted, mut angle, mut comment, mut esc) = (false, false, 0u32, false);
+    for c in v.chars() {
+        if esc {
+            cur.push(c);
+            esc = false;
+            continue;
+        }
+        match c {
+            '\\' if quoted || comment > 0 => {
+                cur.push(c);
+                esc = true;
+                continue;
+            }
+            '"' if comment == 0 => quoted = !quoted,
+            '<' if !quoted && comment == 0 => angle = true,
+            '>' if !quoted && comment == 0 => angle = false,
+            '(' if !quoted => comment += 1,
+            ')' if !quoted && comment > 0 => comment -= 1,
+            ',' | ';' if !quoted && !angle && comment == 0 => {
+                if c == ';' && cur.contains(':') && !cur.trim_end().ends_with(':') {
+                    // the end of a group (`undisclosed-recipients:;`, `Team: a@x, b@x;`) is not a separator
+                    cur.push(c);
+                    continue;
+                }
+                out.push(std::mem::take(&mut cur));
+                continue;
+            }
+            _ => {}
+        }
+        cur.push(c);
+    }
+    out.push(cur);
+    out.into_iter().map(|p| p.trim().to_string()).filter(|p| !p.is_empty()).collect()
+}
+
+/// A display name that needs no quotes in the chip (letters of any script, digits, spaces and a few marks); anything else is quoted.
+fn plain_name(n: &str) -> bool {
+    n.chars().all(|c| c.is_alphanumeric() || matches!(c, ' ' | '.' | '\'' | '-' | '_'))
+}
+
+/// `Name <address>` the way a chip shows it, quoted only when the name needs it; just the address without a name.
+fn chip(name: Option<&str>, address: &str) -> String {
+    match name.map(str::trim).filter(|n| !n.is_empty() && *n != address) {
+        Some(n) if plain_name(n) => format!("{n} <{address}>"),
+        Some(n) => crate::smtp::format_mailbox(Some(n), address),
+        None => address.to_string(),
+    }
+}
+
+/// One recipient as written in the header. Parsed on its own (so encoded names are decoded and the address is split off); text that is
+/// not an address (`ann bob`, `ann@`: a half-typed draft keeps what was typed) is kept as it is.
+fn one(piece: &str) -> String {
+    let fake = format!("To: {piece}\r\n\r\n");
+    let parsed = mail_parser::MessageParser::default().parse(fake.as_bytes());
+    let addrs: Vec<(Option<String>, String)> = parsed
+        .as_ref()
+        .and_then(|m| m.to())
+        .map(|a| a.iter().filter_map(|x| x.address.as_ref().map(|ad| (x.name.as_ref().map(|n| n.to_string()), ad.to_string()))).collect())
+        .unwrap_or_default();
+    match addrs.as_slice() {
+        [(name, address)] if address.contains('@') => chip(name.as_deref(), address),
+        _ => piece.to_string(),
+    }
+}
+
+fn list(h: &crate::pgpmail::Headers, name: &str) -> Vec<String> {
+    crate::pgpmail::header(h, name).map(|v| split_list(v).iter().map(|p| one(p)).collect()).unwrap_or_default()
+}
+
+/// To, Cc and Bcc of a raw draft, as chips.
+pub fn recipients(raw: &[u8]) -> DraftRecipients {
+    let (h, _) = crate::pgpmail::parse_headers(raw);
+    DraftRecipients { to: list(&h, "To"), cc: list(&h, "Cc"), bcc: list(&h, "Bcc") }
+}
+
+// ---------------------------------------------------------------------------------------------------------------------------------
+// Which draft a save or a send replaces
+//
+// A draft used to be replaced by deleting every Drafts message of its conversation. That also removed a second draft of the same
+// conversation (two replies to one mail) and a version that another mail program had saved meanwhile (QA round 17, CF-20), and with an
+// autosave it would do so every half minute. A reference now names ONE message:
+//   m:<local message id>        a draft that was opened (the message the person opened)
+//   mid:<account>|<Message-ID>  a draft this app appended (found locally, else on the server: it may not be synced yet)
+//   <anything else>             a conversation, as before (older callers, the mock)
+
+#[derive(Debug, PartialEq)]
+pub enum Target {
+    Thread(String),
+    Local(String),
+    Mid { account: String, mid: String },
+}
+
+impl Target {
+    pub fn parse(s: &str) -> Target {
+        if let Some(id) = s.strip_prefix("m:") {
+            return Target::Local(id.to_string());
+        }
+        if let Some((account, mid)) = s.strip_prefix("mid:").and_then(|r| r.split_once('|')) {
+            return Target::Mid { account: account.to_string(), mid: mid.to_string() };
+        }
+        Target::Thread(s.to_string())
+    }
+}
+
+/// The Message-ID header of a raw message, with its angle brackets.
+fn message_id_of(raw: &[u8]) -> Option<String> {
+    let (h, _) = crate::pgpmail::parse_headers(raw);
+    crate::pgpmail::header(&h, "Message-ID").map(|v| v.trim().to_string()).filter(|v| v.starts_with('<') && v.ends_with('>'))
+}
+
+/// The reference to hand back to the interface for the draft that was just appended (`mid:` form).
+pub fn draft_ref(account_id: &str, raw: &[u8]) -> Option<String> {
+    message_id_of(raw).map(|m| format!("mid:{account_id}|{m}"))
+}
+
+/// A Message-ID that is safe to put into a SEARCH command in quotes.
+fn plain_mid(mid: &str) -> bool {
+    mid.len() > 2 && mid.starts_with('<') && mid.ends_with('>') && !mid.chars().any(|c| c.is_control() || c.is_whitespace() || matches!(c, '"' | '\\' | '(' | ')'))
+}
+
+/// Remove the messages of the Drafts folder that carry this Message-ID, as the server sees them.
+pub fn delete_by_message_id<T: std::io::Read + std::io::Write>(s: &mut imap::Session<T>, folder: &str, mid: &str) -> crate::db::R<usize> {
+    if !plain_mid(mid) {
+        return Err(format!("not a Message-ID: {mid}"));
+    }
+    s.select(folder).map_err(crate::db::err)?;
+    let mut uids: Vec<u32> = s.uid_search(format!("HEADER Message-ID \"{mid}\"")).map_err(crate::db::err)?.into_iter().collect();
+    uids.sort_unstable();
+    if uids.is_empty() {
+        return Ok(0);
+    }
+    crate::mail::delete_forever(s, folder, &uids)?;
+    Ok(uids.len())
+}
+
+/// The part of `drop_draft` that talks to one server: only the message(s) the reference names are removed, here and there.
+pub fn drop_on_session<T: std::io::Read + std::io::Write>(db: &crate::Db, acc: &crate::db::Account, s: &mut imap::Session<T>, target: &Target) -> crate::db::R<()> {
+    let drafts = Some("drafts".to_string());
+    let refs = match target {
+        Target::Thread(_) => return Err("a conversation is not dropped on a session".into()),
+        Target::Local(id) => local_refs(db, "id=?1 AND account_id=?2 AND folder='drafts'", &[id, &acc.id])?,
+        Target::Mid { mid, .. } => local_refs(db, "message_id=?1 AND account_id=?2 AND folder='drafts'", &[mid, &acc.id])?,
+    };
+    if !refs.is_empty() {
+        return crate::act_on_session(db, acc, s, &refs, "delete_forever", None, &drafts, false);
+    }
+    if let Target::Mid { mid, .. } = target {
+        // not in the local store (yet): ask the server
+        let folder = crate::folder_for(db, acc, "drafts")?;
+        delete_by_message_id(s, &folder, mid)?;
+    }
+    Ok(())
+}
+
+fn local_refs(db: &crate::Db, filter: &str, args: &[&String; 2]) -> crate::db::R<Vec<crate::MsgRef>> {
+    let c = crate::lock(db);
+    let mut st = c.prepare(&format!("SELECT account_id,folder,uid,id FROM messages WHERE {filter}")).map_err(crate::db::err)?;
+    let rows = st
+        .query_map(rusqlite::params![args[0], args[1]], |r| Ok(crate::MsgRef { account_id: r.get(0)?, role: r.get(1)?, uid: r.get(2)?, id: r.get(3)? }))
+        .map_err(crate::db::err)?;
+    rows.collect::<Result<Vec<_>, _>>().map_err(crate::db::err)
+}
+
+/// Remove the draft a reference names (see above): a save replaced it, or the message written from it was sent.
+pub fn drop_draft(db: &crate::Db, reference: &str) -> crate::db::R<()> {
+    let target = Target::parse(reference);
+    let account_id = match &target {
+        Target::Thread(t) => return crate::action_impl(db, vec![t.clone()], "delete_forever".into(), None, Some("drafts".into())),
+        Target::Local(id) => match crate::lock(db).query_row("SELECT account_id FROM messages WHERE id=?1 AND folder='drafts'", [id], |r| r.get::<_, String>(0)) {
+            Ok(a) => a,
+            // the message is not there any more (another program replaced or removed it): there is nothing of ours to remove
+            Err(_) => return Ok(()),
+        },
+        Target::Mid { account, .. } => account.clone(),
+    };
+    let acc = crate::db::get_account(&crate::lock(db), &account_id)?;
+    let sec = crate::secret(db, &acc)?;
+    let mut s = crate::mail::connect(&acc, &sec)?;
+    let done = drop_on_session(db, &acc, &mut s, &target);
+    let _ = s.logout();
+    done
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn raw(h: &str) -> Vec<u8> {
+        format!("From: me@example.com\r\n{h}Subject: x\r\n\r\nbody\r\n").into_bytes()
+    }
+
+    #[test]
+    fn names_and_bcc_come_back_from_the_headers() {
+        let r = recipients(&raw(
+            "To: =?utf-8?b?Tmd1eeG7hW4gVsSDbiBCw6k=?= <nguyen@example.test>, bob@example.test\r\nCc: cc@example.test\r\nBcc: \"Hidden, Person\" <bcc@example.test>\r\n",
+        ));
+        assert_eq!(r.to, vec!["Nguyễn Văn Bé <nguyen@example.test>", "bob@example.test"]);
+        assert_eq!(r.cc, vec!["cc@example.test"]);
+        assert_eq!(r.bcc, vec!["\"Hidden, Person\" <bcc@example.test>"], "a name with a comma stays one recipient, quoted");
+    }
+
+    #[test]
+    fn a_folded_list_and_a_name_with_special_characters() {
+        let r = recipients(&raw("To: \"Smith, John (Sales)\" <john@example.test>,\r\n \"O'Neil\" <on@example.test>,\r\n Ann <ann@example.test>\r\n"));
+        assert_eq!(r.to, vec!["\"Smith, John (Sales)\" <john@example.test>", "O'Neil <on@example.test>", "Ann <ann@example.test>"]);
+    }
+
+    #[test]
+    fn half_typed_recipients_are_kept_as_typed() {
+        let r = recipients(&raw("To: ann@, Carl <carl@example.test>, ann bob\r\n"));
+        assert_eq!(r.to, vec!["ann@", "Carl <carl@example.test>", "ann bob"]);
+    }
+
+    #[test]
+    fn no_header_no_recipients() {
+        assert_eq!(recipients(&raw("")), DraftRecipients::default());
+    }
+
+    #[test]
+    fn the_draft_the_backend_writes_is_read_back_whole() {
+        // the real writer: smtp::build_draft (names, a quoted comma, Bcc, an invalid entry kept as typed)
+        let mut d = crate::smtp::tests::draft("<p>Hi</p>", vec![], vec![]);
+        d.to = vec!["Nguyễn Văn Bé <nguyen@example.test>".into(), "bob@example.test".into()];
+        d.cc = vec!["\"Doe, Jane\" <jane@example.test>".into()];
+        d.bcc = vec!["Quiet <quiet@example.test>".into(), "silent@example.test".into()];
+        let bytes = crate::smtp::build_draft(&crate::smtp::tests::account(), &d).unwrap().formatted();
+        let r = recipients(&bytes);
+        assert_eq!(r.to, d.to);
+        assert_eq!(r.cc, d.cc);
+        assert_eq!(r.bcc, d.bcc);
+        // and with a half-typed entry in the list, the others are not lost
+        d.bcc = vec!["silent@".into(), "Quiet <quiet@example.test>".into()];
+        let bytes = crate::smtp::build_draft(&crate::smtp::tests::account(), &d).unwrap().formatted();
+        assert_eq!(recipients(&bytes).bcc, d.bcc);
+    }
+
+    // ---- which draft is replaced
+
+    use crate::fakeimap::Fake;
+    use rusqlite::params;
+
+    const ACC: &str = "a1";
+    const FMAP: &str = r#"{"inbox":"INBOX","drafts":"Drafts"}"#;
+
+    /// An account with Drafts messages: (uid, message id, thread).
+    fn setup(tag: &str, drafts: &[(u32, &str, &str)]) -> (crate::Db, crate::db::Account) {
+        let db = crate::quit_tests::test_db(tag);
+        let acc = crate::smtp::tests::account_with_id(ACC);
+        crate::db::insert_account(&crate::lock(&db), &acc).unwrap();
+        crate::db::set_setting(&crate::lock(&db), &format!("fmap:{ACC}"), FMAP).unwrap();
+        for (uid, mid, thread) in drafts {
+            crate::lock(&db)
+                .execute(
+                    "INSERT INTO messages(id,account_id,folder,uid,message_id,thread_id,subject,from_name,from_email,to_addrs,cc_addrs,date,snippet) VALUES(?1,?2,'drafts',?3,?4,?5,'s','n','me@example.com','','',1,'')",
+                    params![format!("{ACC}:drafts:{uid}"), ACC, uid, mid, thread],
+                )
+                .unwrap();
+        }
+        (db, acc)
+    }
+
+    fn local_uids(db: &crate::Db) -> Vec<u32> {
+        let c = crate::lock(db);
+        let mut st = c.prepare("SELECT uid FROM messages WHERE folder='drafts' ORDER BY uid").unwrap();
+        st.query_map([], |r| r.get(0)).unwrap().map(|r| r.unwrap()).collect()
+    }
+
+    #[test]
+    fn references_name_one_message() {
+        assert_eq!(Target::parse("m:a1:drafts:10"), Target::Local("a1:drafts:10".into()));
+        assert_eq!(Target::parse("mid:a1|<x@y.z>"), Target::Mid { account: "a1".into(), mid: "<x@y.z>".into() });
+        assert_eq!(Target::parse("0123abcd"), Target::Thread("0123abcd".into()), "a conversation id works as before");
+        // what a save hands back is the Message-ID of the draft it appended
+        let acc = crate::smtp::tests::account();
+        let raw = crate::smtp::build_draft(&acc, &crate::smtp::tests::draft("<p>Hi</p>", vec![], vec![])).unwrap().formatted();
+        let r = draft_ref("a1", &raw).expect("a draft has a Message-ID");
+        assert!(r.starts_with("mid:a1|<") && r.ends_with("@example.com>"), "{r}");
+        assert!(matches!(Target::parse(&r), Target::Mid { .. }));
+        assert_eq!(draft_ref("a1", b"Subject: x\r\n\r\nno id"), None);
+    }
+
+    /// QA round 17 CF-20: saving an opened draft removed every Drafts message of its conversation, also the version another mail program had
+    /// saved meanwhile. Now only the message that was opened goes.
+    #[test]
+    fn saving_an_opened_draft_removes_that_message_only() {
+        crate::test_guard::within(60, || {
+            let (db, acc) = setup("draft-local", &[(10, "<a@x>", "T"), (11, "<b@x>", "T"), (12, "<c@x>", "T2")]);
+            let fake = Fake::start(&[("INBOX", &[]), ("Drafts", &[10, 11, 12])]);
+            let mut s = fake.connect();
+            drop_on_session(&db, &acc, &mut s, &Target::parse("m:a1:drafts:10")).unwrap();
+            let _ = s.logout();
+            assert_eq!(fake.uids("Drafts"), Some(vec![11, 12]), "the other version of the same conversation stays on the server");
+            assert_eq!(local_uids(&db), vec![11, 12]);
+            // a message that is not in the local store any more (another program replaced it): nothing of ours to remove, nothing is touched
+            let (db, _) = setup("draft-local-gone", &[(11, "<b@x>", "T")]);
+            drop_draft(&db, "m:a1:drafts:10").expect("a vanished draft is not an error");
+            assert_eq!(local_uids(&db), vec![11]);
+        });
+    }
+
+    #[test]
+    fn a_draft_this_app_appended_is_found_by_its_message_id() {
+        crate::test_guard::within(60, || {
+            // known locally: removed by its uid, the neighbours stay
+            let (db, acc) = setup("draft-mid-local", &[(10, "<a@x>", "T"), (11, "<b@x>", "T")]);
+            let fake = Fake::start(&[("INBOX", &[]), ("Drafts", &[10, 11])]);
+            let mut s = fake.connect();
+            drop_on_session(&db, &acc, &mut s, &Target::parse("mid:a1|<b@x>")).unwrap();
+            let _ = s.logout();
+            assert_eq!(fake.uids("Drafts"), Some(vec![10]));
+            assert_eq!(local_uids(&db), vec![10]);
+            assert!(!fake.commands().iter().any(|c| c.to_uppercase().contains("SEARCH")), "no server search when the local store knows it");
+
+            // not synced yet: the server is asked for the Message-ID, and only what it finds is removed
+            let (db, acc) = setup("draft-mid-server", &[(10, "<a@x>", "T")]);
+            let fake = Fake::start(&[("INBOX", &[]), ("Drafts", &[10, 11, 12])]);
+            fake.state.lock().unwrap().search_hits = Some(vec![12]);
+            let mut s = fake.connect();
+            drop_on_session(&db, &acc, &mut s, &Target::parse("mid:a1|<fresh@x>")).unwrap();
+            let _ = s.logout();
+            assert_eq!(fake.uids("Drafts"), Some(vec![10, 11]));
+            assert!(fake.commands().iter().any(|c| c == "UID SEARCH HEADER Message-ID \"<fresh@x>\""), "{:?}", fake.commands());
+            assert_eq!(local_uids(&db), vec![10], "the local store is left to the next sync");
+
+            // nothing found: nothing deleted
+            let fake = Fake::start(&[("INBOX", &[]), ("Drafts", &[10])]);
+            fake.state.lock().unwrap().search_hits = Some(vec![]);
+            let mut s = fake.connect();
+            drop_on_session(&db, &acc, &mut s, &Target::parse("mid:a1|<none@x>")).unwrap();
+            let _ = s.logout();
+            assert_eq!(fake.uids("Drafts"), Some(vec![10]));
+            assert!(!fake.commands().iter().any(|c| c.to_uppercase().contains("STORE")));
+        });
+    }
+
+    #[test]
+    fn a_reference_cannot_inject_into_the_search() {
+        crate::test_guard::within(60, || {
+            let (db, acc) = setup("draft-mid-inject", &[]);
+            let fake = Fake::start(&[("INBOX", &[]), ("Drafts", &[10])]);
+            let mut s = fake.connect();
+            for bad in ["<a\" ALL>", "<a b@x>", "a@x", "<>", "<a\\b@x>"] {
+                assert!(drop_on_session(&db, &acc, &mut s, &Target::Mid { account: ACC.into(), mid: bad.into() }).is_err(), "{bad}");
+            }
+            let _ = s.logout();
+            assert!(!fake.commands().iter().any(|c| c.to_uppercase().contains("SEARCH")), "{:?}", fake.commands());
+            assert_eq!(fake.uids("Drafts"), Some(vec![10]));
+        });
+    }
+}
