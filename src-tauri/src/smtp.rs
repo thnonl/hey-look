@@ -489,6 +489,18 @@ fn probe_starttls(acc: &Account, timeout: std::time::Duration) -> Result<(), Pro
     timed_out.map_or(Ok(()), |e| Err(Probe::ConnectTimedOut(e)))
 }
 
+/// A finished message as the SMTP DATA command carries it, and the copy to keep. lettre ends the data with CRLF "." CRLF, which supplies the
+/// line break after the last line, so a message that already ends with one would gain an empty line: the message is handed over without that
+/// last line break (`wire`), and the copy for the Sent folder is the bytes the server receives (`copy`, QA round 17 BUG-19: the Sent copy was
+/// two bytes shorter than the DATA that was sent).
+pub fn as_data(raw: &[u8]) -> (&[u8], Vec<u8>) {
+    let wire = raw.strip_suffix(b"\r\n").unwrap_or(raw);
+    let mut copy = Vec::with_capacity(wire.len() + 2);
+    copy.extend_from_slice(wire);
+    copy.extend_from_slice(b"\r\n");
+    (wire, copy)
+}
+
 /// Send an already finished message (encrypted/signed ones are built once, at schedule time).
 pub fn send_raw(acc: &Account, secret: &str, env: &lettre::address::Envelope, raw: &[u8]) -> R<()> {
     send_raw_with(acc, secret, env, raw, SEND_TIMEOUT)
@@ -993,6 +1005,84 @@ To:"), "no To header is invented: {out}");
             }
         });
         (port, stop)
+    }
+
+    /// A minimal SMTP server that answers one message and hands back the DATA it received (dot-stuffing undone), as the server stores it.
+    fn data_server() -> (u16, std::sync::mpsc::Receiver<Vec<u8>>) {
+        use std::io::{BufRead, BufReader, Write};
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let port = listener.local_addr().unwrap().port();
+        let (tx, rx) = std::sync::mpsc::channel();
+        std::thread::spawn(move || {
+            let (sock, _) = listener.accept().unwrap();
+            let mut out = sock.try_clone().unwrap();
+            let mut input = BufReader::new(sock);
+            let _ = out.write_all(b"220 test ESMTP\r\n");
+            let mut line = Vec::new();
+            loop {
+                line.clear();
+                if input.read_until(b'\n', &mut line).unwrap_or(0) == 0 {
+                    return;
+                }
+                let cmd = String::from_utf8_lossy(&line).to_ascii_uppercase();
+                if cmd.starts_with("EHLO") {
+                    let _ = out.write_all(b"250-test\r\n250 AUTH PLAIN LOGIN\r\n");
+                } else if cmd.starts_with("AUTH") {
+                    let _ = out.write_all(b"235 ok\r\n");
+                } else if cmd.starts_with("DATA") {
+                    let _ = out.write_all(b"354 go\r\n");
+                    let mut data = Vec::new();
+                    loop {
+                        line.clear();
+                        if input.read_until(b'\n', &mut line).unwrap_or(0) == 0 {
+                            return;
+                        }
+                        if line == b".\r\n" {
+                            break;
+                        }
+                        // transparency (RFC 5321 4.5.2): a leading dot of a line was doubled
+                        data.extend_from_slice(if line.starts_with(b"..") { &line[1..] } else { &line });
+                    }
+                    let _ = tx.send(data);
+                    let _ = out.write_all(b"250 queued\r\n");
+                } else if cmd.starts_with("QUIT") {
+                    let _ = out.write_all(b"221 bye\r\n");
+                    return;
+                } else {
+                    let _ = out.write_all(b"250 ok\r\n");
+                }
+            }
+        });
+        (port, rx)
+    }
+
+    /// QA round 17 BUG-19 (MA-22): the copy that goes to the Sent folder is the DATA the server received, byte for byte.
+    #[test]
+    fn the_sent_copy_is_the_data_the_server_received() {
+        crate::test_guard::within(60, || {
+            let acc0 = account();
+            let mut d = draft("<p>Hi</p>", vec![], vec![]);
+            d.text = ".a line that starts with a dot\r\n\r\nthe end".into();
+            let msg = build(&acc0, &d).unwrap();
+            let raw = msg.formatted();
+            assert!(raw.ends_with(b"\r\n"), "lettre ends a message with a line break");
+            let mut without = raw.clone();
+            without.truncate(without.len() - 2);
+            // a message with and without the final line break (a finished PGP message may lack it)
+            for message in [raw.clone(), without] {
+                let (port, rx) = data_server();
+                let mut acc = account();
+                acc.smtp_host = "127.0.0.1".into();
+                acc.smtp_port = port;
+                acc.smtp_security = "none".into();
+                let (wire, copy) = as_data(&message);
+                send_raw(&acc, "secret", msg.envelope(), wire).expect("the fake server accepts the message");
+                let data = rx.recv_timeout(std::time::Duration::from_secs(10)).expect("DATA received");
+                assert_eq!(data, copy, "the Sent copy equals the DATA");
+                assert!(copy.ends_with(b"\r\n") && !copy.ends_with(b"\r\n\r\n"), "one line break at the end, no empty line added");
+                assert_eq!(&copy[..copy.len() - 2], &raw[..raw.len() - 2], "nothing else changed");
+            }
+        });
     }
 
     fn envelope_for_tests() -> lettre::address::Envelope {

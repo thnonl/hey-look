@@ -3087,7 +3087,9 @@ fn send_now(db: &Db, d: &smtp::Draft) -> R<()> {
     let acc = db::get_account(&lock(db), &d.account_id)?;
     let sec = secret(db, &acc)?;
     let (raw, env) = finished_message(db, &acc, d)?;
-    smtp::send_raw(&acc, &smtp_secret(db, &acc)?, &env, &raw)?;
+    // the Sent copy is byte for byte the DATA the server received (smtp::as_data)
+    let (wire, raw) = smtp::as_data(&raw);
+    smtp::send_raw(&acc, &smtp_secret(db, &acc)?, &env, wire)?;
     let h = acc.smtp_host.to_lowercase();
     let auto_saves = h.contains("gmail") || h.contains("googlemail") || h.contains("office365") || h.contains("outlook");
     if !auto_saves {
