@@ -4,6 +4,7 @@ import { loadPlatform } from "./platform";
 import { hasMailAccounts } from "./mailControls";
 import { applyBackfill } from "./backfill";
 import { holdOpenThread } from "./openThread";
+import { ReadIntents } from "./readIntent";
 import { calendarErrorText } from "./calendarSync";
 import { backendText } from "./backendErrors";
 import { needsSignIn } from "./signIn";
@@ -312,6 +313,8 @@ let readTimer: ReturnType<typeof setTimeout> | undefined;
 /** The view (folder, mailbox, search, filter ...) the shown list was read for, and the conversation `refresh` held in it (F-12). */
 let listKey = "";
 let heldOpen: string | null = null;
+/** F-16/F-17: the read / unread state asked for, until the server has it; lists and conversations read meanwhile are shown through it. */
+const readIntents = new ReadIntents((ids, read) => api.threadAction(ids, read ? "read" : "unread", undefined, scopeOf(useStore.getState().folder)));
 
 /** Folders `loadMore` cannot page back (cross-folder views and the outbox have no single IMAP folder). */
 const NO_PAGING = new Set(["starred", "pinned", "snoozed", "all", "scheduled"]);
@@ -595,11 +598,14 @@ export const useStore = create<State>((set, get) => ({
   reloadMessages: async () => {
     const { selected, folder } = get();
     if (!selected) return;
+    const tok = readIntents.begin();
     try {
-      const messages = await api.getThread(selected, scopeOf(folder));
+      const messages = readIntents.messages(selected, await api.getThread(selected, scopeOf(folder)), tok);
       if (get().selected === selected) set({ messages });
     } catch {
       /* keep what is shown */
+    } finally {
+      readIntents.end(tok);
     }
   },
 
@@ -643,7 +649,11 @@ export const useStore = create<State>((set, get) => ({
 
   refresh: async () => {
     const { folder, accountId, search, searchScope, focus, filter, prefs } = get();
-    const foldersP = api.listFolders().then((folders) => set({ folders }));
+    // (F-16/F-17) what is asked of the server while this read runs is laid over its answer; folder counts that predate it are not shown
+    const tok = readIntents.begin();
+    const foldersP = api.listFolders().then((folders) => {
+      if (!readIntents.changedSince(tok)) set({ folders });
+    });
     // scheduled messages feed the Scheduled view and its badge, so they are read on every refresh
     const outboxP = api.listOutbox().then((outbox) => set({ outbox })).catch(() => undefined);
     void api.refreshBadge().catch(() => undefined);
@@ -653,7 +663,7 @@ export const useStore = create<State>((set, get) => ({
         await Promise.all([foldersP, outboxP]);
         return;
       }
-      const fresh = await api.listThreads({
+      const fresh = readIntents.threads(await api.listThreads({
         accountId,
         folder,
         search,
@@ -663,7 +673,7 @@ export const useStore = create<State>((set, get) => ({
         flaggedOnly: filter === "flagged",
         sortAsc: prefs.sortAsc,
         scope: search.trim() ? searchScope : "current",
-      });
+      }), tok);
       // ignore a slow answer for a view the user already left
       const now = get();
       if (now.folder === folder && now.accountId === accountId && now.search === search) {
@@ -676,6 +686,7 @@ export const useStore = create<State>((set, get) => ({
       }
       await Promise.all([foldersP, outboxP]);
     } finally {
+      readIntents.end(tok);
       set({ loading: false });
     }
   },
@@ -819,7 +830,13 @@ export const useStore = create<State>((set, get) => ({
     set((s) => ({ selected: id, messages: [], ...(held ? { threads: s.threads.filter((t) => t.threadId !== held) } : {}) }));
     if (!id) return;
     const { folder, prefs } = get();
-    const messages = await api.getThread(id, scopeOf(folder));
+    const tok = readIntents.begin();
+    let messages: MessageFull[];
+    try {
+      messages = readIntents.messages(id, await api.getThread(id, scopeOf(folder)), tok);
+    } finally {
+      readIntents.end(tok);
+    }
     if (get().selected !== id) return;
     set({ messages });
     if (messages.some((m) => !m.seen) && prefs.markReadDelay >= 0) {
@@ -843,6 +860,20 @@ export const useStore = create<State>((set, get) => ({
   act: async (ids, action, arg, label) => {
     if (ids.length === 0) return;
     applyOptimistic(ids, action);
+    if (action === "read" || action === "unread") {
+      // (F-16/F-17) last write wins, one idempotent call per conversation at a time; see readIntent.ts
+      const r = await readIntents.set(ids, action === "read");
+      if (r.superseded) return; // a later click on the same conversations reports for both
+      if (r.failed.length > 0) {
+        get().showToast(t("errors.toast.failed", { error: friendlyError(r.error) }), undefined, "error");
+        const open = get().selected;
+        if (open && r.failed.includes(open)) void get().reloadMessages();
+      } else if (label) {
+        get().showToast(label, undefined, "success");
+      }
+      await get().refresh();
+      return;
+    }
     const { threads, selected, prefs, folder } = get();
     const moveLike = MOVE_LIKE.has(action);
     const removing = moveLike || action === "snooze";
