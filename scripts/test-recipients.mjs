@@ -1,7 +1,7 @@
 // Checks src/recipients.ts: the one parser for typed, pasted, dropped and reopened recipient lists, the IME guard and the duplicate rule.
 // Inputs are the compose test plan's (B-02, B-03, B-04, B-05, B-06, B-08, B-09, B-10). Run: node --experimental-strip-types scripts/test-recipients.mjs
 import assert from "node:assert/strict";
-import { addRecipients, addressOf, chipLabel, formatRecipient, isImeEvent, openAtEnd, recipientKey, splitRecipients } from "../src/recipients.ts";
+import { addRecipients, addressOf, chipLabel, formatRecipient, hasRecipient, isImeEvent, openAtEnd, recipientKey, splitRecipients } from "../src/recipients.ts";
 
 const eq = (text, want, why) => assert.deepEqual(splitRecipients(text), want, why ?? JSON.stringify(text));
 
@@ -78,4 +78,9 @@ assert.deepEqual(addRecipients(["Ann@X.test"], ["ann@x.test", "Bob <bob@y.test>"
 assert.deepEqual(addRecipients([], ["ann@x.test", "ann@x.test"]), ["ann@x.test"]);
 assert.deepEqual(addRecipients(["ann bob"], ["ANN BOB"]), ["ann bob"], "invalid entries too");
 assert.equal(recipientKey('"Doe, John" <J@X.com>'), "j@x.com");
+// BUG-15 (CF-28): To may be empty when Cc or Bcc has someone; a message with nobody is still refused
+assert.ok(hasRecipient({ to: ["a@x.test"], cc: [], bcc: [] }));
+assert.ok(hasRecipient({ to: [], cc: ["a@x.test"], bcc: [] }));
+assert.ok(hasRecipient({ to: [], cc: [], bcc: ["a@x.test"] }));
+assert.ok(!hasRecipient({ to: [], cc: [], bcc: [] }));
 console.log("recipients: all checks passed");

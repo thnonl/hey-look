@@ -203,3 +203,6 @@ export function chipLabel(recipient: string): string {
   const name = unquote(t.slice(0, lt));
   return name ? `${name} ${t.slice(lt)}` : t.slice(lt + 1, -1).trim();
 }
+
+/** Whether a message has someone to go to: To may be empty when Cc or Bcc has a recipient (Bcc-only mail is allowed). */
+export const hasRecipient = (d: { to: readonly string[]; cc: readonly string[]; bcc: readonly string[] }): boolean => d.to.length + d.cc.length + d.bcc.length > 0;

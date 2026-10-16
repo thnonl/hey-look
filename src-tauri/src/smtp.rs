@@ -269,6 +269,12 @@ fn headers(acc: &Account, d: &Draft, lenient: bool) -> R<lettre::message::Messag
         for c in &d.bcc {
             b = b.bcc(mailbox(c)?);
         }
+        // Bcc recipients only (Gmail and Outlook allow it): To says so, as RFC 5322 3.6.3 suggests. The envelope delivers the message; the
+        // Bcc header itself is never written.
+        if d.to.is_empty() && d.cc.is_empty() && !d.bcc.is_empty() {
+            b = b.header(RawTo("undisclosed-recipients:;".to_string()));
+            b = b.envelope(envelope_of(&me, d)?);
+        }
     }
     if let Some(r) = &d.in_reply_to {
         b = b.in_reply_to(r.clone());
@@ -381,14 +387,18 @@ pub fn build_encrypted(acc: &Account, d: &Draft, lenient: bool, encrypt: &dyn Fn
     headers(acc, d, lenient)?.multipart(outer).map_err(err)
 }
 
-/// Addresses of every recipient (To, Cc, Bcc) of a draft, for sending a prebuilt message.
-pub fn envelope(acc: &Account, d: &Draft) -> R<lettre::address::Envelope> {
-    let from = account_address(acc)?;
+/// The envelope of a message from `from` to every recipient (To, Cc, Bcc) of the draft.
+fn envelope_of(from: &Address, d: &Draft) -> R<lettre::address::Envelope> {
     let mut to: Vec<Address> = vec![];
     for r in d.to.iter().chain(d.cc.iter()).chain(d.bcc.iter()) {
         to.push(mailbox(r)?.email);
     }
-    lettre::address::Envelope::new(Some(from), to).map_err(err)
+    lettre::address::Envelope::new(Some(from.clone()), to).map_err(err)
+}
+
+/// Addresses of every recipient (To, Cc, Bcc) of a draft, for sending a prebuilt message.
+pub fn envelope(acc: &Account, d: &Draft) -> R<lettre::address::Envelope> {
+    envelope_of(&account_address(acc)?, d)
 }
 
 /// SMTP login name: the account email for OAuth, else the separate SMTP user, else the IMAP user.
@@ -716,6 +726,53 @@ To:"), "no To header is invented: {out}");
         s.to = vec!["ann@".into()];
         assert!(build(&acc, &s).is_err());
         assert!(envelope(&acc, &s).is_err());
+    }
+
+    /// QA round 17, BUG-15 (CF-28 / B-17): Gmail and Outlook send a message that has only Bcc recipients; so does this.
+    #[test]
+    fn a_message_with_only_bcc_recipients_can_be_sent() {
+        let acc = account();
+        let mut d = draft("<p>Hi</p>", vec![], vec![]);
+        d.to.clear();
+        d.bcc = vec!["Hidden <hidden@example.org>".into(), "other@example.org".into()];
+        let msg = build(&acc, &d).expect("Bcc only is built");
+        let raw = msg.formatted();
+        let out = String::from_utf8_lossy(&raw).into_owned();
+        // delivered to every Bcc address, from the account
+        let rcpt: Vec<String> = msg.envelope().to().iter().map(|a| a.to_string()).collect();
+        assert_eq!(rcpt, vec!["hidden@example.org", "other@example.org"]);
+        assert_eq!(msg.envelope().from().map(|a| a.to_string()).as_deref(), Some("me@example.com"));
+        // nobody sees the Bcc addresses; To says the recipients are not disclosed
+        assert!(!out.to_ascii_lowercase().contains("bcc:") && !out.contains("hidden@example.org") && !out.contains("other@example.org"), "{out}");
+        assert!(out.contains("To: undisclosed-recipients:;"), "{out}");
+        let p = mail_parser::MessageParser::default().parse(&raw[..]).unwrap();
+        assert!(p.bcc().is_none());
+        assert_eq!(p.to().map(|a| a.iter().filter(|x| x.address.is_some()).count()), Some(0), "no address in To");
+        assert!(crate::mail::parse(1, &raw, true, false, 0).unwrap().to.is_empty());
+        // the prebuilt-message route has the same envelope
+        assert_eq!(envelope(&acc, &d).unwrap().to().len(), 2);
+        // Cc only: Cc is shown, there is no To header
+        let mut cc_only = draft("<p>Hi</p>", vec![], vec![]);
+        cc_only.to.clear();
+        cc_only.cc = vec!["cc@example.org".into()];
+        let out = text(&build(&acc, &cc_only).unwrap());
+        assert!(out.contains("Cc: cc@example.org") && !out.contains("
+To:") && !out.contains("undisclosed"), "{out}");
+        // Bcc together with To: To is the visible one, no placeholder
+        let mut both = draft("<p>Hi</p>", vec![], vec![]);
+        both.bcc = vec!["hidden@example.org".into()];
+        let m = build(&acc, &both).unwrap();
+        assert!(!text(&m).contains("undisclosed") && !text(&m).contains("hidden@example.org"));
+        assert_eq!(m.envelope().to().len(), 2);
+        // really no recipient: still refused
+        let mut none = draft("<p>Hi</p>", vec![], vec![]);
+        none.to.clear();
+        assert!(build(&acc, &none).is_err());
+        // a signed or encrypted message to Bcc recipients only is built the same way
+        let mut s = d.clone();
+        s.security = None;
+        assert!(build_signed(&acc, &s, false, &|_| Ok(("sig".into(), "pgp-sha256".into()))).is_ok());
+        assert!(build_encrypted(&acc, &s, false, &|_| Ok("armored".into())).is_ok());
     }
 
     #[test]

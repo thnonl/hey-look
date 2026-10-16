@@ -23,7 +23,7 @@ import { blockedAttachmentExt, dataUriBytes, fileToBase64, fmtIn, fmtSize, fmtWh
 import { calTz } from "../calendar";
 import { defaultMeeting, MeetingState, MeetingStrip, meetingToDraft } from "./Calendar";
 import { isEmail, singleLabelHostsOf } from "../addresses";
-import { addRecipients, addressOf, chipLabel, formatRecipient, isImeEvent, openAtEnd, recipientKey, splitRecipients } from "../recipients";
+import { addRecipients, addressOf, chipLabel, formatRecipient, hasRecipient, isImeEvent, openAtEnd, recipientKey, splitRecipients } from "../recipients";
 import { askUnlock } from "./Pgp";
 import { useContentProtection } from "../protect";
 import { editLink, editorKeyHandlers, isAltGraph } from "../composeKeys";
@@ -840,7 +840,8 @@ export function Compose({ init }: { init: ComposeInit }) {
 
   const send = async (sendAt?: number) => {
     let d = buildDraft();
-    if (d.to.length === 0) return showToast(t("compose.err.noRecipient"), undefined, "error");
+    // To may stay empty when Cc or Bcc has someone (Gmail and Outlook allow it; a Bcc-only message shows undisclosed-recipients)
+    if (!hasRecipient(d)) return showToast(t("compose.err.noRecipient"), undefined, "error");
     const bad = [...d.to, ...d.cc, ...d.bcc].filter((a) => !EMAIL.test(bareAddress(a)));
     if (bad.length) return showToast(t("compose.err.checkAddress", { addr: bad[0] }), undefined, "error");
     if (meeting) {
@@ -864,7 +865,7 @@ export function Compose({ init }: { init: ComposeInit }) {
     const secured = await secureDraft(d);
     if (!secured) return;
     d = secured;
-    if (d.to.length === 0) return showToast(t("compose.err.noRecipient"), undefined, "error");
+    if (!hasRecipient(d)) return showToast(t("compose.err.noRecipient"), undefined, "error");
 
     if (sendAt) {
       if (sendAt * 1000 < Date.now() - 60_000) return showToast(t("compose.schedule.passed"), undefined, "error");
