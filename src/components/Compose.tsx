@@ -21,7 +21,7 @@ import { isEmail, singleLabelHostsOf } from "../addresses";
 import { askUnlock } from "./Pgp";
 import { useContentProtection } from "../protect";
 import { SchedulePicker } from "./SchedulePicker";
-import { AccountPicker, Dropdown, MenuList, useOutside } from "./ui";
+import { AccountPicker, Dropdown, MenuList, useFitInWindow, useOutside } from "./ui";
 import type { Key } from "../i18n";
 import { useT } from "../i18n/react";
 import { tx } from "../i18n/rich";
@@ -345,6 +345,8 @@ export function Compose({ init }: { init: ComposeInit }) {
   const schedRef = useRef<HTMLDivElement>(null);
   const bodyRef = useRef<HTMLDivElement>(null);
   useOutside(schedRef, () => setSchedOpen(false), schedOpen);
+  const schedPopRef = useRef<HTMLDivElement>(null);
+  useFitInWindow(schedPopRef, schedOpen);
 
   const touch = useCallback(() => {
     touched.current = true;
@@ -1203,7 +1205,7 @@ export function Compose({ init }: { init: ComposeInit }) {
             <ChevronDown size={14} />
           </button>
           {schedOpen && (
-            <div className="popover up sched-pop">
+            <div className="popover up sched-pop" ref={schedPopRef}>
               <SchedulePicker
                 initial={schedInitial}
                 primaryLabel={t("compose.bar.schedule")}

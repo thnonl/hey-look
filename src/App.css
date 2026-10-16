@@ -786,11 +786,14 @@ button.pill:hover { filter: brightness(.95); }
 .path-field code { max-width: 260px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; display: inline-block; vertical-align: middle; }
 
 /* ============================== 5. SCHEDULE SEND ============================== */
-.sched-pop { width: 340px; gap: 2px; }
+.sched-pop { gap: 2px; }
+/* as wide as .popover.up (300px), never wider than the window; the height is limited by useFitInWindow, so the popover scrolls instead of being cut off */
+.popover.up.sched-pop { width: min(300px, calc(100vw - 16px)); overflow-y: auto; }
 .sched-pop .menu-row .menu-hint { font-variant-numeric: tabular-nums; }
 .sched-tz { font-size: .8em; color: var(--muted); padding: 0 9px 4px; display: flex; align-items: center; gap: 5px; }
 .sched-custom { border-top: 1px solid var(--border); margin-top: 4px; padding: 8px 4px 2px; display: flex; flex-direction: column; gap: 6px; }
 .sched-custom .row-inline { margin: 0; }
+.sched-custom .sched-actions { flex-wrap: wrap; justify-content: flex-end; margin: 0; }
 .sched-custom .sched-fld.date { flex: 1.3; } .sched-custom .sched-fld.time { flex: 1; }
 .sched-custom .sched-fld { min-width: 0; }
 .sched-sum { font-size: .86em; }
