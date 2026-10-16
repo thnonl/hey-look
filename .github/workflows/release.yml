@@ -237,6 +237,7 @@ jobs:
           node --experimental-strip-types scripts/test-sticky-timers.mjs
           node --experimental-strip-types scripts/test-open-thread.mjs
           node --experimental-strip-types scripts/test-read-intent.mjs
+          node --experimental-strip-types scripts/test-flag-pin-intent.mjs
           node --experimental-strip-types scripts/test-prepare-move.mjs
           node --experimental-strip-types scripts/test-list-limit-footer.mjs
           node --experimental-strip-types scripts/test-link-copy.mjs

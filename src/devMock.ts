@@ -1106,6 +1106,8 @@ export function installMock() {
             else if (a.action === "unread") th.unread = Math.max(1, th.unread);
             else if (a.action === "star") th.flagged = true;
             else if (a.action === "unstar") th.flagged = false;
+            else if (a.action === "pin") th.pinned = true;
+            else if (a.action === "unpin") th.pinned = false;
           }
           return null;
         });
