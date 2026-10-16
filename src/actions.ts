@@ -1,10 +1,11 @@
 import { api, MessageFull, ReplyHeaders } from "./api";
 import { t } from "./i18n";
 import { eff } from "./prefs";
-import { useStore } from "./store";
+import { friendlyError, useStore } from "./store";
 import { actionTargets } from "./composeSelection";
-import { fmtFull, plainToHtml, quoteHtml, sanitizeHtml } from "./util";
+import { fmtFull, fmtSize, plainToHtml, quoteHtml, sanitizeHtml } from "./util";
 import { fallbackReferences, replyTargets } from "./replyTargets";
+import { forwardFiles, MAX_FORWARD_BYTES } from "./forwardAttachments";
 
 export function targets(): string[] {
   const { checked, selected, compose } = useStore.getState();
@@ -67,18 +68,38 @@ export async function replyTo(m: MessageFull, all: boolean) {
   });
 }
 
+/** Text for the header lines of a forward: markup characters are shown as typed, never read as HTML. */
+const esc = (x: string) => x.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+
 export async function forward(m: MessageFull) {
-  if (m.confidential) return useStore.getState().showToast(t("app.forward.confidential"), undefined, "info");
+  const st = useStore.getState();
+  if (m.confidential) return st.showToast(t("app.forward.confidential"), undefined, "info");
   // a forward is linked to the message it forwards (References, no In-Reply-To), also when that is a mail you sent yourself
   const h = await headersOf(m);
-  useStore.getState().openCompose({
+  // the attachments of the message go along (pictures in the body stay in the body); a file that cannot be fetched is told about, the rest comes
+  const files = m.attachments.some((a) => !(a.inline && a.referenced) || (a.cid && m.html?.includes(`cid:${a.cid}`)))
+    ? await (async () => {
+        const slow = setTimeout(() => st.showToast(t("compose.fwd.fetching"), undefined, "info"), 700);
+        try {
+          return await forwardFiles(m, (i) => api.attachmentData(m.id, i));
+        } finally {
+          clearTimeout(slow);
+        }
+      })()
+    : null;
+  const html = files?.html ?? m.html;
+  await st.openCompose({
     accountId: m.accountId,
     references: h.references,
     subject: /^fwd?:/i.test(m.subject) ? m.subject : `Fwd: ${m.subject}`,
-    bodyHtml: `<br><br>${t("app.forward.header")}<br>${t("app.forward.from")} ${m.fromName} &lt;${m.fromEmail}&gt;<br>${t("app.forward.date")} ${fmtFull(m.date)}<br>${t("app.forward.subject")} ${m.subject}<br>${t("app.forward.to")} ${m.to}<br><br>${
-      m.html ? sanitizeHtml(m.html, false).html : plainToHtml(m.text ?? "")
+    attachments: files?.attachments,
+    bodyHtml: `<br><br>${t("app.forward.header")}<br>${t("app.forward.from")} ${esc(m.fromName)} &lt;${esc(m.fromEmail)}&gt;<br>${t("app.forward.date")} ${fmtFull(m.date)}<br>${t("app.forward.subject")} ${esc(m.subject)}<br>${t("app.forward.to")} ${esc(m.to)}<br><br>${
+      html ? sanitizeHtml(html, false).html : plainToHtml(m.text ?? "")
     }`,
   });
+  // after Compose is open: what could not come along
+  for (const f of files?.failed ?? []) st.showToast(t("compose.fwd.failed", { name: f.name, error: friendlyError(f.error) }), undefined, "error");
+  if (files?.skipped.length) st.showToast(t("compose.fwd.tooBig", { max: fmtSize(MAX_FORWARD_BYTES), names: files.skipped.join(", ") }), undefined, "error");
 }
 
 /** Reply / reply-all using the user's default (or the explicit choice) on the last message of the open thread. */
