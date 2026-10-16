@@ -26,6 +26,7 @@ import { calTz, configureCalendar, addDays, addMonths, today as todayDay } from 
 import { catchupText, configureDates, fmtWhen } from "./util";
 import { frameAction, initFrame, useFrame } from "./winframe";
 import { startSupportNudge } from "./supportNudgeHost";
+import { inEditable, keyAction } from "./composeKeys";
 
 const clamp = (n: number, lo: number, hi: number) => Math.max(lo, Math.min(hi, n));
 
@@ -311,11 +312,14 @@ function App() {
     const onKey = (e: KeyboardEvent) => {
       const st = useStore.getState();
       const n = st.accounts.length;
-      if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "k") {
+      // Ctrl/Cmd+K: the command bar, except inside an editor (compose body), where it is the link UI of that editor
+      const ka = keyAction(e, { inEditor: inEditable(e.target) });
+      if (ka === "command-bar") {
         e.preventDefault();
         st.setCommandOpen(true);
         return;
       }
+      if (ka === "insert-link") return;
       if ((e.ctrlKey || e.metaKey) && e.shiftKey && e.key.toLowerCase() === "s" && st.selected && !st.compose && shortcutWorks(n, "mail-keys")) {
         // Save all attachments of the open conversation (the strip's "Save all" link)
         e.preventDefault();

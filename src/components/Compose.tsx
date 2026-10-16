@@ -20,6 +20,7 @@ import { defaultMeeting, MeetingState, MeetingStrip, meetingToDraft } from "./Ca
 import { isEmail, singleLabelHostsOf } from "../addresses";
 import { askUnlock } from "./Pgp";
 import { useContentProtection } from "../protect";
+import { editLink, editorKeyHandlers, isAltGraph } from "../composeKeys";
 import { SchedulePicker } from "./SchedulePicker";
 import { AccountPicker, Dropdown, MenuList, useFitInWindow, useOutside } from "./ui";
 import type { Key } from "../i18n";
@@ -435,6 +436,8 @@ export function Compose({ init }: { init: ComposeInit }) {
     setPics({ count, bytes });
   };
 
+  // Ctrl/Cmd+K in the body and the toolbar button open the same link UI (set after the editor exists)
+  const linkRef = useRef<() => void>(() => undefined);
   const editor = useEditor({
     extensions: [
       StarterKit,
@@ -445,6 +448,8 @@ export function Compose({ init }: { init: ComposeInit }) {
     // the accessible name belongs on the contenteditable node ProseMirror renders
     editorProps: {
       attributes: { "aria-label": t("compose.editor.body") },
+      // one key, one action: Ctrl+Shift+B / Ctrl+Enter / Ctrl+Alt+... (AltGr) never reach the editor shortcuts, Ctrl+K is the link UI
+      handleDOMEvents: editorKeyHandlers(() => linkRef.current()),
       handlePaste: (_view, event) => {
         const all = Array.from(event.clipboardData?.files ?? []);
         const images = all.filter((f) => PICTURE_TYPES.includes(f.type));
@@ -478,6 +483,10 @@ export function Compose({ init }: { init: ComposeInit }) {
     if (editor) countPictures(editor);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [editor]);
+
+  linkRef.current = () => {
+    if (editor) editLink(editor, (cur) => prompt(t("compose.fmt.linkPrompt"), cur));
+  };
 
   const [loaded, setLoaded] = useState(false);
   useEffect(() => {
@@ -1121,6 +1130,7 @@ export function Compose({ init }: { init: ComposeInit }) {
     <div
       className={`compose-pane ${dragging ? "dragging" : ""}`}
       onKeyDown={(e) => {
+        if (isAltGraph(e)) return; // AltGr (Ctrl+Alt) types a character: no app shortcut
         if ((e.ctrlKey || e.metaKey) && e.key === "Enter" && e.shiftKey) {
           e.preventDefault();
           setSchedOpen(true);
@@ -1400,10 +1410,7 @@ export function Compose({ init }: { init: ComposeInit }) {
           className="icon-btn"
           title={t("compose.fmt.link")}
           aria-label={t("compose.fmt.link")}
-          onClick={() => {
-            const url = prompt(t("compose.fmt.linkPrompt"));
-            if (url) editor?.chain().focus().extendMarkRange("link").setLink({ href: url }).run();
-          }}
+          onClick={() => linkRef.current()}
         >
           <Link2 size={14} />
         </button>
