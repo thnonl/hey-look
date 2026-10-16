@@ -189,7 +189,6 @@ export default defineLocale<typeof ns.en>({
   "compose.att.total": "发送时 {size}，上限 {limit}",
   "compose.att.blockedWarningOne": "Gmail、Outlook和Yahoo会拒绝{types}文件，即使它在zip压缩包中也一样。此邮件很可能被拒收：请移除它，或改用链接分享。",
   "compose.att.blockedWarningMany": "Gmail、Outlook和Yahoo会拒绝{types}文件，即使它们在zip压缩包中也一样。此邮件很可能被拒收：请移除它们，或改用链接分享。",
-  "compose.att.tooBig": "附件和图片发送时共{size}；上限为{limit}",
   "compose.att.totalTooBig": "附件发送时总计{size}；上限为{limit}",
   "compose.att.tooBigServer": "附件发送时总计{size}；此账户服务器的上限为{limit}",
   "compose.drop.label": "拖放文件",
