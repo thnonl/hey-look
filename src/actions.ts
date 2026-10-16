@@ -3,8 +3,8 @@ import { t } from "./i18n";
 import { eff } from "./prefs";
 import { useStore } from "./store";
 import { actionTargets } from "./composeSelection";
-import { fmtFull, plainToHtml, quoteHtml, sanitizeHtml, splitAddrs } from "./util";
-import { fallbackReferences } from "./replyTargets";
+import { fmtFull, plainToHtml, quoteHtml, sanitizeHtml } from "./util";
+import { fallbackReferences, replyTargets } from "./replyTargets";
 
 export function targets(): string[] {
   const { checked, selected, compose } = useStore.getState();
@@ -45,10 +45,7 @@ export async function replyTo(m: MessageFull, all: boolean) {
   const st = useStore.getState();
   const h = await headersOf(m);
   const mine = new Set(st.accounts.map((a) => a.email.toLowerCase()));
-  const fromMe = mine.has(m.fromEmail.toLowerCase());
-  const base = fromMe ? splitAddrs(m.to) : [m.fromEmail];
-  const to = Array.from(new Set((all ? [...base, ...splitAddrs(m.to)] : base).filter((e) => !mine.has(e.toLowerCase()))));
-  const cc = all ? splitAddrs(m.cc).filter((e) => !mine.has(e.toLowerCase())) : [];
+  const { to, cc, viaReplyTo } = replyTargets({ fromEmail: m.fromEmail, to: m.to, cc: m.cc, mine, replyTo: h.replyTo, all });
   st.openCompose({
     accountId: m.accountId,
     to,
@@ -59,6 +56,8 @@ export async function replyTo(m: MessageFull, all: boolean) {
     inReplyTo: h.messageId ?? m.messageId,
     references: h.references,
     isReply: true,
+    // the sender asked for answers to go to another address than From: Compose says so
+    replyNote: viaReplyTo ?? undefined,
     // an answer to confidential mail is confidential too
     confidential: m.confidential,
     // an answer to encrypted mail is encrypted too

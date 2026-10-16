@@ -444,6 +444,8 @@ button.att-chip:hover { background: var(--bg3); border-color: color-mix(in srgb,
 .cf-field > input, .cf-field > select { flex: 1; border: 0; background-color: transparent; padding: 9px 0; box-shadow: none !important; min-width: 0; }
 .cf-field > select { padding-right: 32px; }
 .cf-links { display: flex; gap: 14px; padding: 5px 0 5px 62px; }
+.cf-replyto { flex-wrap: wrap; padding: 5px 0 5px 62px; border-bottom: 1px solid var(--border); }
+.cf-replyto .link { min-height: 22px; }
 .cf-links .link { display: inline-flex; align-items: center; min-height: 24px; }
 .chips { flex: 1; display: flex; flex-wrap: wrap; gap: 5px; padding: 6px 0; align-items: center; min-width: 0; }
 .chips input { flex: 1; min-width: 140px; border: 0; background: none; padding: 4px 2px; box-shadow: none !important; }

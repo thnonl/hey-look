@@ -23,6 +23,8 @@ export default defineLocale<typeof ns.en>({
   "compose.rcpt.keyFoundFor": "Открытый ключ найден для {addr}",
   "compose.rcpt.noKeyOptions": "Нет открытого ключа для {addr} — варианты",
   "compose.rcpt.remove": "Убрать: {name}",
+  "compose.replyTo.note": "Ответ уйдёт на {replyTo} — адрес для ответа (Reply-To) в этом письме. Письмо отправлено с адреса {from}.",
+  "compose.replyTo.useFrom": "Ответить на {from}",
   "compose.rcpt.keyDialog": "Открытый ключ для {addr}",
   "compose.rcpt.keyExpired": "Срок действия ключа для {addr} истёк",
   "compose.rcpt.keyRevoked": "Ключ для {addr} отозван",

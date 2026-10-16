@@ -23,7 +23,7 @@ import { blockedAttachmentExt, dataUriBytes, fileToBase64, fmtIn, fmtSize, fmtWh
 import { calTz } from "../calendar";
 import { defaultMeeting, MeetingState, MeetingStrip, meetingToDraft } from "./Calendar";
 import { isEmail, singleLabelHostsOf } from "../addresses";
-import { addressOf, chipLabel, formatRecipient, isImeEvent, openAtEnd, splitRecipients } from "../recipients";
+import { addRecipients, addressOf, chipLabel, formatRecipient, isImeEvent, openAtEnd, recipientKey, splitRecipients } from "../recipients";
 import { askUnlock } from "./Pgp";
 import { useContentProtection } from "../protect";
 import { editLink, editorKeyHandlers, isAltGraph } from "../composeKeys";
@@ -361,6 +361,16 @@ export function Compose({ init }: { init: ComposeInit }) {
   const [cc, setCc] = useState<string[]>([...(init.cc ?? []), ...(autoCc(accountId) ? [autoCc(accountId)] : [])]);
   const [bcc, setBcc] = useState<string[]>([...(init.bcc ?? []), ...(autoBcc(accountId) ? [autoBcc(accountId)] : [])]);
   const [showCc, setShowCc] = useState(cc.length > 0 || bcc.length > 0);
+  // the sender asked for answers to go to another address than From (Reply-To): said under To, with a way back to From
+  const [replyNote, setReplyNote] = useState(init.replyNote ?? null);
+  const noteKeys = replyNote ? replyNote.replyTo.map(recipientKey) : [];
+  const noteShown = !!replyNote && to.some((x) => noteKeys.includes(recipientKey(x)));
+  const replyToFrom = () => {
+    if (!replyNote) return;
+    setTo(addRecipients([replyNote.from], to.filter((x) => !noteKeys.includes(recipientKey(x)))));
+    setReplyNote(null);
+    touch();
+  };
   const [subject, setSubject] = useState(init.subject ?? "");
   const [atts, setAtts] = useState<Att[]>(init.attachments ?? []);
   const [templates, setTemplates] = useState<Template[]>([]);
@@ -1528,6 +1538,13 @@ export function Compose({ init }: { init: ComposeInit }) {
           <AccountPicker value={accountId} accounts={accounts} onChange={changeAccount} label={t("compose.from")} />
         </div>
         <RecipientField label={t("compose.to")} values={to} onChange={setTo} autoFocus={to.length === 0 && !init.replaces} onTouch={touch} keys={encOn && ks ? ks.recipients : undefined} onKeyAction={keyAction} />
+        {noteShown && replyNote && (
+          <div className="note cf-replyto" role="status">
+            <Info size={13} aria-hidden />
+            <span>{t("compose.replyTo.note", { replyTo: replyNote.replyTo.map(chipLabel).join(", "), from: replyNote.from })}</span>
+            <button className="link" onClick={replyToFrom}>{t("compose.replyTo.useFrom", { from: replyNote.from })}</button>
+          </div>
+        )}
         {showCc ? (
           <>
             <RecipientField label={t("compose.cc")} values={cc} onChange={setCc} onTouch={() => ((ccTouched.current = true), touch())} keys={encOn && ks ? ks.recipients : undefined} onKeyAction={keyAction} />

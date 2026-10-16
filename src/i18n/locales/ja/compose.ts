@@ -24,6 +24,8 @@ export default defineLocale<typeof ns.en>({
   "compose.rcpt.keyFoundFor": "{addr}の公開鍵あり",
   "compose.rcpt.noKeyOptions": "{addr}の公開鍵がありません（オプションを表示）",
   "compose.rcpt.remove": "{name}を削除",
+  "compose.replyTo.note": "返信は、このメッセージの返信先アドレス（Reply-To）である{replyTo}に送られます。送信元は{from}です。",
+  "compose.replyTo.useFrom": "代わりに{from}に返信",
   "compose.rcpt.keyDialog": "{addr}の公開鍵",
   "compose.rcpt.keyExpired": "{addr}の鍵は期限切れです",
   "compose.rcpt.keyRevoked": "{addr}の鍵は失効しています",

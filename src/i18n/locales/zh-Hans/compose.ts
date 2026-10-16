@@ -23,6 +23,8 @@ export default defineLocale<typeof ns.en>({
   "compose.rcpt.keyFoundFor": "已找到{addr}的公钥",
   "compose.rcpt.noKeyOptions": "没有{addr}的公钥——选项",
   "compose.rcpt.remove": "移除{name}",
+  "compose.replyTo.note": "回复将发送到{replyTo}，即这封邮件的回复地址（Reply-To）。邮件发自{from}。",
+  "compose.replyTo.useFrom": "改为回复{from}",
   "compose.rcpt.keyDialog": "{addr}的公钥",
   "compose.rcpt.keyExpired": "{addr}的密钥已过期",
   "compose.rcpt.keyRevoked": "{addr}的密钥已被吊销",
