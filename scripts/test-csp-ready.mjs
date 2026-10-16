@@ -71,7 +71,7 @@ assert.ok(/srcDoc=\{srcDoc\}/.test(reading) && !/<iframe[^>]*src=\{/.test(readin
 
 // --- the attachment preview: pictures as data: URIs, PDF in a blob: frame, text as text ---------------------------------------------
 const att = read("src/components/Attachments.tsx");
-assert.ok(/URL\.createObjectURL\(new Blob\(/.test(att) && /<iframe title=\{cur\.name\} src=\{data\.url\}/.test(att), "PDF preview = blob: frame");
+assert.ok(/URL\.createObjectURL\(new Blob\(/.test(att) && /<iframe\s+title=\{cur\.name\}\s+src=\{data\.url\}/.test(att), "PDF preview = blob: frame");
 assert.ok(dir["frame-src"].includes("blob:"), "the PDF preview is a blob: iframe (checked: frame-src without blob: is a violation)");
 assert.ok(/setData\(\{ url: `data:\$\{d\.mime\};base64,/.test(att) && dir["img-src"].includes("data:"));
 assert.equal((att.match(/<iframe\b/g) ?? []).length, 1, "a new iframe: check frame-src");
