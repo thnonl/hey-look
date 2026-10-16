@@ -100,11 +100,8 @@ export function plainToHtml(text: string): string {
   return `<div style="white-space:pre-wrap">${esc}</div>`;
 }
 
-export function htmlToText(html: string): string {
-  const d = document.createElement("div");
-  d.innerHTML = html.replace(/<br\s*\/?>/gi, "\n").replace(/<\/(p|div|h\d|li)>/gi, "\n");
-  return (d.textContent ?? "").replace(/\n{3,}/g, "\n\n").trim();
-}
+// the text/plain alternative of a message (and the context given to the AI Assistant): htmlText.ts
+export { htmlToText } from "./htmlText";
 
 export function quoteHtml(m: { fromName: string; fromEmail: string; date: number; html: string | null; text: string | null }): string {
   const body = m.html ? sanitizeHtml(m.html, false).html : plainToHtml(m.text ?? "");
