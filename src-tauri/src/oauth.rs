@@ -307,7 +307,7 @@ impl Pending {
                         }
                         _ => {
                             // favicon etc.: not the redirect, keep waiting
-                            reply(&mut s, 404, &Outcome::Error { title: "Waiting for sign-in", reason: "This address is only used to finish signing in to Hey Look!.", next: "Return to Hey Look! to continue." });
+                            reply(&mut s, 404, &Outcome::Error { title: "Waiting for sign-in", reason: "This address is only used to finish signing in to Hey Look!", next: "Return to Hey Look! to continue." });
                         }
                     }
                 }

@@ -7,6 +7,9 @@
   var $$ = function (s, c) { return Array.prototype.slice.call((c || document).querySelectorAll(s)); };
   var root = document.documentElement;
   var HL = window.HL || { motionOn: function () { return false; }, resolvedTheme: function () { return 'light'; }, onTheme: function () { }, onMotion: function () { } };
+  /* texts come from assets/i18n/<code>.js through site.js (HL.t); a key that is missing shows as the key */
+  var T = HL.t || function (k) { return k; }, TN = HL.tn || function (k) { return k; }, RICH = HL.rich || function (k) { return k; };
+  var LOC = HL.locale ? HL.locale() : 'en';
   var mqDark = window.matchMedia ? window.matchMedia('(prefers-color-scheme: dark)') : { matches: false };
 
   /* ---------- colour helpers (same idea as the app's prefs.ts: keep accent text readable) ---------- */
@@ -73,7 +76,7 @@
       if (!isNews) {
         rSubj.textContent = r.getAttribute('data-subj'); rFrom.textContent = r.getAttribute('data-from');
         rAv.className = 'a-av r-av ' + $('.a-av', r).className.split(' ').pop(); rAv.textContent = $('.a-av', r).textContent;
-        rMeta.textContent = 'to me, ' + $('.a-time', r).textContent;
+        rMeta.textContent = T('story.to_me', { time: $('.a-time', r).textContent });
         rText.innerHTML = r.getAttribute('data-body').split('||').map(function (p) { return '<p>' + esc(p) + '</p>'; }).join('');
       }
       reveal(r);
@@ -82,7 +85,7 @@
     function move(d) {
       var al = alive(); if (!al.length) return;
       var i = al.indexOf(current()); i = Math.max(0, Math.min(al.length - 1, (i < 0 ? 0 : i) + d)); select(al[i]);
-      say('Selected: ' + al[i].getAttribute('data-subj'));
+      say(T('story.selected', { subj: al[i].getAttribute('data-subj') }));
     }
     function showEmpty() { var none = !alive().length; empty.hidden = !none; }
     function removeRow(r, msg, label) {
@@ -90,8 +93,8 @@
       var al = alive(), i = al.indexOf(r), nxt = al[i + 1] || al[i - 1];
       r.classList.add('out'); r.setAttribute('aria-hidden', 'true');
       if (nxt) select(nxt); showEmpty();
-      toast(msg, 6, function () { r.classList.remove('out'); r.removeAttribute('aria-hidden'); r.classList.remove('back'); void r.offsetWidth; r.classList.add('back'); select(r); showEmpty(); say('Undone. ' + r.getAttribute('data-subj') + ' is back in the Inbox.'); }, label);
-      say(msg + ' Undo is available for 6 seconds.');
+      toast(msg, 6, function () { r.classList.remove('out'); r.removeAttribute('aria-hidden'); r.classList.remove('back'); void r.offsetWidth; r.classList.add('back'); select(r); showEmpty(); say(T('story.undone', { subj: r.getAttribute('data-subj') })); }, label);
+      say(T('story.undo_hint', { msg: msg }));
     }
     function refill() { rows.forEach(function (r) { r.classList.remove('out'); r.removeAttribute('aria-hidden'); }); showEmpty(); select(rows[0]); hideToast(); }
 
@@ -127,30 +130,30 @@
       if (sendTimer) return;
       var left = hold;
       var paint = function () {
-        cstate(true, { n: left, h: 'Sending in ' + left + ' s', p: 'Held in your local outbox. You can still take it back.', undo: true, off: CIRC * (1 - left / hold) });
+        cstate(true, { n: left, h: T('story.sending_in', { n: left }), p: T('story.sending_p'), undo: true, off: CIRC * (1 - left / hold) });
       };
-      paint(); say('Sending in ' + hold + ' seconds. Undo is available.');
+      paint(); say(T('story.sending_say', { n: hold }));
       sendTimer = setInterval(function () {
         left--;
         if (left > 0) {
-          cn.textContent = left; ch.textContent = 'Sending in ' + left + ' s'; ring.style.strokeDashoffset = CIRC * (1 - left / hold);
+          cn.textContent = left; ch.textContent = T('story.sending_in', { n: left }); ring.style.strokeDashoffset = CIRC * (1 - left / hold);
         } else {
           clearInterval(sendTimer); sendTimer = null;
-          cstate(true, { n: '✓', h: 'Sent.', p: 'It left your outbox and went to your mail server.', again: 'Write another' });
-          say('Sent.');
+          cstate(true, { n: '✓', h: T('story.sent'), p: T('story.sent_p'), again: T('story.write_another') });
+          say(T('story.sent'));
         }
       }, 1000);
     }
     function undoSend() {
       clearInterval(sendTimer); sendTimer = null;
-      cstate(true, { n: '↺', h: 'Cancelled.', p: 'Nothing was sent. Your draft is right where you left it.', again: 'Back to the draft' });
-      say('Cancelled. Nothing was sent. Your draft is still here.');
+      cstate(true, { n: '↺', h: T('story.cancelled'), p: T('story.cancelled_p'), again: T('story.back_to_draft') });
+      say(T('story.cancelled_say'));
     }
     $$('.c-seg', comp).forEach(function (b) {
       b.addEventListener('click', function () {
         hold = parseInt(b.getAttribute('data-hold'), 10);
         $$('.c-seg', comp).forEach(function (o) { o.setAttribute('aria-pressed', o === b ? 'true' : 'false'); });
-        say('Undo window ' + hold + ' seconds.');
+        say(T('story.undo_window', { n: hold }));
       });
     });
     /* encrypt / sign */
@@ -165,8 +168,8 @@
         var on = b.getAttribute('aria-pressed') !== 'true'; b.setAttribute('aria-pressed', on ? 'true' : 'false');
         if (b.getAttribute('data-tog') === 'enc') {
           comp.setAttribute('data-enc', on ? '1' : '0'); cipherEl.hidden = !on; plain.hidden = on; keyok.hidden = !on;
-          say(on ? 'Encrypted to the recipient\'s key. The server would see only this.' : 'Encryption off.');
-        } else { seal.hidden = !on; say(on ? 'Signed.' : 'Signature off.'); }
+          say(T(on ? 'story.enc_on' : 'story.enc_off'));
+        } else { seal.hidden = !on; say(T(on ? 'story.sign_on' : 'story.sign_off')); }
       });
     });
     /* send later */
@@ -184,17 +187,17 @@
     laterBtn.addEventListener('click', function () { toggleMenu(laterBtn, laterMenu); });
     function schedule(when) {
       closeMenus(); schedCount = 1; setCount('sched', 1);
-      cstate(true, { noRing: true, h: 'Scheduled for ' + when + '.', p: 'It waits in your outbox. Hey Look! has to be running then. You can schedule up to one year ahead.', again: 'Cancel and keep writing' });
-      say('Scheduled for ' + when + '. The Scheduled folder now has 1 message.');
+      cstate(true, { noRing: true, h: T('story.scheduled', { when: when }), p: T('story.scheduled_p'), again: T('story.cancel_keep') });
+      say(T('story.scheduled_say', { when: when }));
     }
     $$('[data-when]', laterMenu).forEach(function (b) { b.addEventListener('click', function () { schedule(b.getAttribute('data-when')); }); });
     dt.addEventListener('change', function () {
       var d = new Date(dt.value), now = new Date();
       if (isNaN(d)) return;
-      if (d < now) { dtNote.textContent = 'Pick a time in the future.'; return; }
-      if (d > new Date(now.getTime() + 365 * 864e5)) { dtNote.textContent = 'Up to one year ahead.'; return; }
-      dtNote.textContent = 'Up to one year ahead.';
-      schedule(d.toLocaleString([], { weekday: 'short', month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' }));
+      if (d < now) { dtNote.textContent = T('story.dt_past'); return; }
+      if (d > new Date(now.getTime() + 365 * 864e5)) { dtNote.textContent = T('story.dt_limit'); return; }
+      dtNote.textContent = T('story.dt_limit');
+      schedule(d.toLocaleString(LOC, { weekday: 'short', month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' }));
     });
     function setCount(which, n) { var b = $('[data-count="' + which + '"]', app); b.textContent = n; b.classList.toggle('zero', !n); }
 
@@ -209,47 +212,51 @@
     $$('[data-snz]', snzMenu).forEach(function (b) {
       b.addEventListener('click', function () {
         closeMenus(); var w = b.getAttribute('data-snz');
-        if (w === 'custom') { toast('You can set your own times in Settings, More, Customize times.', 3); say('You can set your own times in Settings, under More, Customize times.'); return; }
+        if (w === 'custom') { toast(T('story.snz_custom'), 3); say(T('story.snz_custom_say')); return; }
         var r = current(); if (!r || snzRow) return;
         var al = alive(), i = al.indexOf(r), nxt = al[i + 1] || al[i - 1];
         snzRow = r; r.classList.add('out'); r.setAttribute('aria-hidden', 'true'); snzCount = 1; setCount('snooze', 1);
         if (nxt) select(nxt); showEmpty();
-        snzBanner('<span>Snoozed: ' + esc(r.getAttribute('data-subj')) + '. It returns to your Inbox <b>' + esc(w) + '</b>.</span><button type="button" class="r-btn" data-act="snz-skip">Jump ahead</button>');
-        say('Snoozed. It returns ' + w + '. The Snoozed folder now has 1 conversation.');
+        snzBanner('<span>' + RICH('story.snoozed', { subj: r.getAttribute('data-subj'), when: w }) + '</span><button type="button" class="r-btn" data-act="snz-skip">' + esc(T('story.jump_ahead')) + '</button>');
+        say(T('story.snz_say', { when: w }));
       });
     });
     function snzSkip() {
       var r = snzRow; if (!r) return;
       r.classList.remove('out'); r.removeAttribute('aria-hidden'); r.classList.remove('back'); void r.offsetWidth; r.classList.add('back'); select(r); showEmpty();
-      snzCount = 0; setCount('snooze', 0); snzBanner('<span>It came back to the Inbox. On Windows and Linux you would also get a notification.</span><button type="button" class="r-btn" data-act="snz-reset">OK</button>');
-      say('The conversation is back in the Inbox.');
+      snzCount = 0; setCount('snooze', 0); snzBanner('<span>' + esc(T('story.snz_back')) + '</span><button type="button" class="r-btn" data-act="snz-reset">' + esc(T('story.ok')) + '</button>');
+      say(T('story.snz_back_say'));
     }
 
     /* ----- command bar ----- */
     var pal = $('.a-pal', app), inp = $('.p-input', pal), list = $('.p-list', pal), pnote = $('.p-note', pal);
-    var cmds = JSON.parse(list.getAttribute('data-cmds')), hints = { 'New mail': 'c', 'Sync now': 'F5', 'Go to Mail': 'Ctrl 1', 'Go to Calendar': 'Ctrl 2', 'Archive conversation': 'e', 'Delete conversation': '#', 'Flag': '*', 'Pin': 'p', 'Mark as unread': 'u' };
+    /* The labels in data-cmds are translated in each page; the order is fixed. CMD_IDS names each position, so the logic below never reads the words. */
+    var CMD_IDS = ['new-mail', 'sync', 'new-event', 'go-calendar', 'go-mail', 'cal-month', 'cal-week', 'cal-agenda', 'settings', 'updates', 'sweep', 'theme-light', 'theme-dark', 'theme-system', 'toggle-pane', 'toggle-conv', 'toggle-focused', 'go-inbox', 'go-unread', 'go-flagged', 'go-pinned', 'go-snoozed', 'go-scheduled', 'go-sent', 'go-drafts', 'go-archive', 'go-junk', 'go-deleted', 'archive', 'delete', 'unread', 'flag', 'pin', 'all-accounts'];
+    var cmds = JSON.parse(list.getAttribute('data-cmds')).map(function (label, i) { return { id: CMD_IDS[i] || '', label: label }; });
+    var hints = { 'new-mail': 'c', 'sync': 'F5', 'go-mail': 'Ctrl 1', 'go-calendar': 'Ctrl 2', 'archive': 'e', 'delete': '#', 'flag': '*', 'pin': 'p', 'unread': 'u' };
     var shown = [], qi = 0;
     function render() {
       var toks = inp.value.trim().toLowerCase().split(/\s+/).filter(Boolean);
-      shown = cmds.filter(function (c) { var l = c.toLowerCase(); return toks.every(function (t) { return l.indexOf(t) >= 0; }); });
+      shown = cmds.filter(function (c) { var l = c.label.toLowerCase(); return toks.every(function (t) { return l.indexOf(t) >= 0; }); });
       qi = Math.min(qi, Math.max(0, shown.length - 1));
       var re = toks.length ? new RegExp('(' + toks.map(function (t) { return t.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'); }).join('|') + ')', 'ig') : null;
       list.innerHTML = shown.length ? shown.map(function (c, i) {
-        return '<li role="option" id="pal-o-' + i + '" data-i="' + i + '" aria-selected="' + (i === qi) + '"><span>' + (re ? esc(c).replace(re, '<mark>$1</mark>') : esc(c)) + '</span>' + (hints[c] ? '<kbd class="hint">' + hints[c] + '</kbd>' : '') + '</li>';
-      }).join('') : '<li role="presentation" class="none">No command matches. Try dark, pane or snooze.</li>';
+        return '<li role="option" id="pal-o-' + i + '" data-i="' + i + '" aria-selected="' + (i === qi) + '"><span>' + (re ? esc(c.label).replace(re, '<mark>$1</mark>') : esc(c.label)) + '</span>' + (hints[c.id] ? '<kbd class="hint">' + hints[c.id] + '</kbd>' : '') + '</li>';
+      }).join('') : '<li role="presentation" class="none">' + esc(T('story.cmd_none')) + '</li>';
       inp.setAttribute('aria-activedescendant', shown.length ? 'pal-o-' + qi : '');
-      pnote.textContent = shown.length + (shown.length === 1 ? ' command' : ' commands');
+      pnote.textContent = TN('story.cmd_count', shown.length);
       var s = $('[aria-selected="true"]', list); if (s) { var lb = list.getBoundingClientRect(), sb = s.getBoundingClientRect(); if (sb.top < lb.top) list.scrollTop -= lb.top - sb.top; else if (sb.bottom > lb.bottom) list.scrollTop += sb.bottom - lb.bottom; }
     }
     function runCmd(c) {
       var m = '';
-      if (/^Theme: (light|dark|system)$/.test(c)) { var t = c.slice(7); stageTheme = t === 'system' ? (mqDark.matches ? 'dark' : 'light') : t; syncTheme(); m = c + '. The window changed; the page around it did not.'; }
-      else if (c === 'Toggle reading pane position') { app.setAttribute('data-pane', app.getAttribute('data-pane') === 'right' ? 'bottom' : 'right'); m = 'Reading pane is now ' + app.getAttribute('data-pane') + '.'; }
-      else if (c === 'Toggle conversations') { var v = app.getAttribute('data-conv') === 'on' ? 'off' : 'on'; app.setAttribute('data-conv', v); m = 'Conversations ' + v + '.'; }
-      else if (c === 'Toggle Focused Inbox') { var f = app.getAttribute('data-focused') === 'on' ? 'off' : 'on'; app.setAttribute('data-focused', f); m = 'Focused Inbox ' + f + '.'; }
-      else if (c === 'Archive conversation') { removeRow(current(), 'Archived.'); m = 'Archived. (Undo is in the toast.)'; }
-      else if (c === 'Delete conversation') { removeRow(current(), 'Moved to Deleted Items.'); m = 'Moved to Deleted Items. (Undo is in the toast.)'; }
-      else m = c + ': the real app runs this. It is not wired up in this demo.';
+      var tm = /^theme-(light|dark|system)$/.exec(c.id);
+      if (tm) { var t = tm[1]; stageTheme = t === 'system' ? (mqDark.matches ? 'dark' : 'light') : t; syncTheme(); m = T('story.cmd_theme', { label: c.label }); }
+      else if (c.id === 'toggle-pane') { app.setAttribute('data-pane', app.getAttribute('data-pane') === 'right' ? 'bottom' : 'right'); m = T('story.pane_now', { pos: T(app.getAttribute('data-pane') === 'right' ? 'story.pos_right' : 'story.pos_bottom') }); }
+      else if (c.id === 'toggle-conv') { var v = app.getAttribute('data-conv') === 'on' ? 'off' : 'on'; app.setAttribute('data-conv', v); m = T('story.conv_state', { state: T('story.' + v) }); }
+      else if (c.id === 'toggle-focused') { var f = app.getAttribute('data-focused') === 'on' ? 'off' : 'on'; app.setAttribute('data-focused', f); m = T('story.focused_state', { state: T('story.' + f) }); }
+      else if (c.id === 'archive') { removeRow(current(), T('story.archived')); m = T('story.cmd_archived'); }
+      else if (c.id === 'delete') { removeRow(current(), T('story.deleted')); m = T('story.cmd_deleted'); }
+      else m = T('story.cmd_demo', { label: c.label });
       pnote.textContent = m; say(m);
     }
     inp.addEventListener('input', function () { qi = 0; render(); });
@@ -267,24 +274,24 @@
     function buildCal() {
       if (calBuilt) return; calBuilt = true;
       var n = new Date(), y = n.getFullYear(), m = n.getMonth(), first = new Date(y, m, 1), off = (first.getDay() + 6) % 7, days = new Date(y, m + 1, 0).getDate();
-      $('.k-month', app).textContent = n.toLocaleString('en', { month: 'long', year: 'numeric' });
+      $('.k-month', app).textContent = n.toLocaleString(LOC, { month: 'long', year: 'numeric' });
       var g = $('.k-grid', app), h = '';
-      ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'].forEach(function (d) { h += '<div class="wd">' + d + '</div>'; });
+      T('story.weekdays').split('|').forEach(function (d) { h += '<div class="wd">' + d + '</div>'; });
       var thu = 0; for (var d = n.getDate() + 1; d <= days; d++) { if (new Date(y, m, d).getDay() === 4) { thu = d; break; } }
       if (!thu) for (d = days; d >= 1; d--) { if (new Date(y, m, d).getDay() === 4) { thu = d; break; } }
       for (var i = 0; i < off; i++) h += '<div></div>';
       for (d = 1; d <= days; d++) h += '<div' + (d === n.getDate() ? ' class="today"' : '') + (d === thu ? ' data-ev="1"' : '') + '>' + d + '</div>';
       g.innerHTML = h; evCell = $('[data-ev]', g);
-      var wk = new Date(y, m, thu).toLocaleString('en', { weekday: 'long' }); $('.k-when', app).textContent = wk + ' ' + thu + ', 15:00 to 15:45 (your time zone)';
+      var wk = new Date(y, m, thu).toLocaleString(LOC, { weekday: 'long' }); $('.k-when', app).textContent = T('story.cal_when', { weekday: wk, day: thu });
     }
     kBtns.forEach(function (b) {
       b.addEventListener('click', function () {
         var v = b.getAttribute('data-rsvp'), old = $('.k-ev', evCell); if (old) old.remove();
         kBtns.forEach(function (o) { o.setAttribute('aria-pressed', o === b ? 'true' : 'false'); });
         var msg;
-        if (v === 'decline') msg = 'Declined. A reply goes out from the right mailbox.';
-        else { var e = document.createElement('span'); e.className = 'k-ev' + (v === 'tentative' ? ' tent' : ''); e.textContent = '15:00 Design review'; evCell.appendChild(e); msg = (v === 'accept' ? 'Accepted' : 'Tentative') + '. It is in your calendar and a reply goes out from the right mailbox.'; }
-        kNote.textContent = msg + ' Syncing with a Google or Microsoft calendar is optional, per mailbox. CalDAV may come in a later update.'; say(msg);
+        if (v === 'decline') msg = T('story.cal_declined');
+        else { var e = document.createElement('span'); e.className = 'k-ev' + (v === 'tentative' ? ' tent' : ''); e.textContent = T('story.cal_event'); evCell.appendChild(e); msg = T(v === 'accept' ? 'story.cal_accepted' : 'story.cal_tentative'); }
+        kNote.textContent = msg + ' ' + T('story.cal_note'); say(msg);
       });
     });
 
@@ -292,8 +299,8 @@
     var rbm = $('.rb-m', app), loadB = $('[data-act="load-img"]', app), resetB = $('[data-act="reset-img"]', app);
     function images(on) {
       news.classList.toggle('loaded', on); loadB.hidden = on; resetB.hidden = !on;
-      rbm.textContent = on ? 'Content loaded. The app downloaded the images itself where it could, so the sender now sees a request.' : 'Remote content is blocked. Nothing was requested from the sender.';
-      say(on ? 'Remote content loaded.' : 'Remote content blocked again.');
+      rbm.textContent = T(on ? 'story.img_loaded' : 'story.img_blocked');
+      say(T(on ? 'story.img_loaded_say' : 'story.img_blocked_say'));
       (on ? resetB : loadB).focus();
     }
 
@@ -302,7 +309,7 @@
       var b = e.target.closest && e.target.closest('[data-act]'); if (!b) return;
       switch (b.getAttribute('data-act')) {
         case 'key-j': move(1); break; case 'key-k': move(-1); break;
-        case 'key-e': case 'archive': removeRow(current(), 'Archived.'); break;
+        case 'key-e': case 'archive': removeRow(current(), T('story.archived')); break;
         case 'refill': refill(); break;
         case 'send': startSend(); break;
         case 'undo-send': undoSend(); break;
@@ -329,9 +336,9 @@
       var lk = k.length === 1 ? k.toLowerCase() : k;
       if (lk === 'j') { e.preventDefault(); move(1); }
       else if (lk === 'k') { e.preventDefault(); move(-1); }
-      else if (lk === 'e') { e.preventDefault(); removeRow(current(), 'Archived.'); }
-      else if (k === '#') { e.preventDefault(); removeRow(current(), 'Moved to Deleted Items.'); }
-      else if (k === '!') { e.preventDefault(); removeRow(current(), 'Moved to Junk.'); }
+      else if (lk === 'e') { e.preventDefault(); removeRow(current(), T('story.archived')); }
+      else if (k === '#') { e.preventDefault(); removeRow(current(), T('story.deleted')); }
+      else if (k === '!') { e.preventDefault(); removeRow(current(), T('story.junk')); }
       else if (lk === 's') { e.preventDefault(); toggleMenu(snzBtn, snzMenu); }
     });
     document.addEventListener('click', function (e) { if (!e.target.closest || !e.target.closest('.r-snz, .c-later')) closeMenus(); });
@@ -353,7 +360,7 @@
       if (leaving === 'snooze') { dropSnooze(); if (snzRow === null) { /* keep count */ } }
       if (id === 'undo' || id === 'later' || id === 'pgp') { if (id !== 'pgp') resetCompose(); }
       if (id === 'cal') buildCal();
-      if (id === 'images') { var nr = rows.filter(function (r) { return r.getAttribute('data-news') === '1'; })[0]; nr.classList.remove('out'); nr.removeAttribute('aria-hidden'); select(nr); images(false); say('Newsletter opened.'); }
+      if (id === 'images') { var nr = rows.filter(function (r) { return r.getAttribute('data-news') === '1'; })[0]; nr.classList.remove('out'); nr.removeAttribute('aria-hidden'); select(nr); images(false); say(T('story.newsletter')); }
       if ((id === 'triage' || id === 'snooze') && leaving === 'images') { select(alive()[0] || rows[0]); }
       if (id === 'snooze' && !alive().length) refill();
       hideToast();

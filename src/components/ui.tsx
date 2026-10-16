@@ -1,8 +1,9 @@
 import { Check, ChevronDown } from "lucide-react";
-import { ReactNode, useCallback, useEffect, useId, useRef, useState } from "react";
+import { ReactNode, useCallback, useEffect, useId, useLayoutEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { useT } from "../i18n/react";
 import { accountColor } from "../prefs";
+import { fitInWindow } from "../fitInWindow";
 import { menuOwners, pressIsOutside } from "../pressInside";
 import { useStore } from "../store";
 import { hue, initials } from "../util";
@@ -46,6 +47,29 @@ export function useOutside(ref: Ref | Ref[], onOut: () => void, active: boolean)
       document.removeEventListener("keydown", k);
     };
   }, [active, onOut, ref]);
+}
+
+/**
+ * Keeps an absolutely placed popover (CSS `left` / `top` next to its button) inside the window while `active`: it is moved sideways when an
+ * edge would be cut off (the compose pane is narrow at the minimum window width) and made scrollable when it is taller than the room below it.
+ * Nothing changes when it already fits. Measured when it opens and when the window is resized.
+ */
+export function useFitInWindow(ref: Ref, active: boolean) {
+  useLayoutEffect(() => {
+    const el = ref.current;
+    if (!active || !el) return;
+    const edge = 8;
+    const fit = () => {
+      el.style.marginLeft = "";
+      el.style.maxHeight = "";
+      const { shift, maxHeight } = fitInWindow(el.getBoundingClientRect(), window.innerWidth, window.innerHeight, edge);
+      if (shift) el.style.marginLeft = `${shift}px`;
+      if (maxHeight !== null) el.style.maxHeight = `${maxHeight}px`;
+    };
+    fit();
+    window.addEventListener("resize", fit);
+    return () => window.removeEventListener("resize", fit);
+  }, [ref, active]);
 }
 
 export function MenuList({ items, onDone }: { items: MenuItem[]; onDone: () => void }) {
