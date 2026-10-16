@@ -292,6 +292,7 @@ jobs:
           node --experimental-strip-types scripts/test-account-order.mjs
           node --experimental-strip-types scripts/test-account-label.mjs
           node --experimental-strip-types scripts/test-context-guard.mjs
+          node --experimental-strip-types scripts/test-top-bar-dark.mjs
           node --experimental-strip-types scripts/test-support-nudge.mjs
           node scripts/generate-site-languages.mjs --check
           node scripts/test-site-languages.mjs --strict
