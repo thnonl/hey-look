@@ -73,7 +73,7 @@ async function showMail(j: TranslateJob) {
   const st = store();
   st.setModule("mail");
   if (!st.threads.some((x) => x.threadId === j.threadId)) await st.setView(j.folder, j.accountId);
-  await store().select(j.threadId);
+  await store().openMail(j.threadId);
 }
 
 function settle(key: string, run: number, outcome: { result: string } | { error: unknown }) {

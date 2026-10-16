@@ -239,6 +239,7 @@ jobs:
           node --experimental-strip-types scripts/test-translate-jobs.mjs
           node --experimental-strip-types scripts/test-translate-box-layout.mjs
           node --experimental-strip-types scripts/test-open-thread.mjs
+          node --experimental-strip-types scripts/test-leave-compose.mjs
           node --experimental-strip-types scripts/test-read-intent.mjs
           node --experimental-strip-types scripts/test-flag-pin-intent.mjs
           node --experimental-strip-types scripts/test-prepare-move.mjs

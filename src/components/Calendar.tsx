@@ -792,7 +792,7 @@ function AgendaView({
 
 function EventPopover({ state, tz, color, onClose }: { state: PopState; tz: string; color: string; onClose: () => void }) {
   const t = useT();
-  const { showToast, choose, confirm, setDialog, bumpCal, setModule, setView, select } = useStore();
+  const { showToast, choose, confirm, setDialog, bumpCal, setModule, setView, openMail: openMailThread } = useStore();
   const ev = state.ev;
   const ref = useRef<HTMLDivElement>(null);
   useOutside(ref, onClose, true);
@@ -885,7 +885,7 @@ function EventPopover({ state, tz, color, onClose }: { state: PopState; tz: stri
       onClose();
       setModule("mail");
       await setView(r.folder, r.accountId);
-      await select(r.threadId);
+      await openMailThread(r.threadId);
     } catch (e) {
       showToast(friendlyError(e), undefined, "error");
     }

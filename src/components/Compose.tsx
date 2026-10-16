@@ -13,6 +13,7 @@ import { api, Att, Contact, Draft, DraftSecurity, errorCode, InlineImage, Messag
 import { eff } from "../prefs";
 import { kbd } from "../platform";
 import { ComposeInit, friendlyError, useStore } from "../store";
+import type { ComposeProbe, SavedDraft } from "../leaveCompose";
 import { extractSignature, fillSignature, normalizeHtml, SIG_MARK } from "../signature";
 import { blockedAttachmentExt, dataUriBytes, fileToBase64, fmtIn, fmtSize, fmtWhen, htmlToText, imageSize, PICTURE_TYPES, playSent, resizeImage, sanitizeHtml, shortKey, userName } from "../util";
 import { calTz } from "../calendar";
@@ -23,6 +24,7 @@ import { useContentProtection } from "../protect";
 import { SchedulePicker } from "./SchedulePicker";
 import { AccountPicker, Dropdown, MenuList, useFitInWindow, useOutside } from "./ui";
 import type { Key } from "../i18n";
+import { t as tNow } from "../i18n";
 import { useT } from "../i18n/react";
 import { tx } from "../i18n/rich";
 
@@ -250,6 +252,50 @@ export async function messageToEditor(m: MessageFull): Promise<{ html: string | 
   return { html, attachments };
 }
 
+/**
+ * Open a draft (a conversation of the Drafts folder) in Compose, with its pictures and attachments, asking for the key of an encrypted
+ * one. `wait`: the draft was only just saved, so the local copy may not be there yet: the sync is asked for it a few times.
+ * Returns whether Compose was opened.
+ */
+export async function openDraftThread(threadId: string, wait = false): Promise<boolean> {
+  const st = useStore.getState();
+  let msgs = await api.getThread(threadId, "drafts");
+  for (let i = 0; wait && !msgs.some((x) => x.folder === "drafts") && i < 4; i++) {
+    await useStore.getState().sync();
+    msgs = await api.getThread(threadId, "drafts");
+    if (!msgs.some((x) => x.folder === "drafts")) await new Promise((r) => setTimeout(r, 1200));
+  }
+  let m = msgs.filter((x) => x.folder === "drafts").pop() ?? msgs[msgs.length - 1];
+  if (!m) {
+    if (wait) st.showToast(tNow("compose.leave.draftNotFound"), undefined, "error");
+    return false;
+  }
+  // a draft that was encrypted to your own key needs the key (and its passphrase) to be opened again
+  if (m.security?.encrypted && m.security.decryption !== "ok") {
+    if (m.security.decryption === "locked" && m.security.lockedKey && (await askUnlock(m.security.lockedKey, "draft", m.security.lockedLabel ?? undefined))) {
+      m = await api.pgpDecryptMessage(m.id).catch(() => m);
+    }
+    if (m.security?.decryption !== "ok") {
+      if (m.security?.decryption !== "locked") st.showToast(tNow("mail.draft.cannotOpen", { error: friendlyError(m.security?.error ?? tNow("mail.draft.keyMissing")) }), undefined, "error");
+      return false;
+    }
+  }
+  // restore pictures and attachments so saving or sending the draft does not silently drop them
+  const { html, attachments } = await messageToEditor(m);
+  await st.openCompose({
+    accountId: m.accountId,
+    to: m.to ? m.to.split(",").map((x) => x.trim()) : [],
+    cc: m.cc ? m.cc.split(",").map((x) => x.trim()) : [],
+    subject: m.subject === "(no subject)" ? "" : m.subject,
+    bodyHtml: html ?? `<p>${(m.text ?? "").replace(/\n/g, "<br>")}</p>`,
+    replaces: threadId,
+    attachments,
+    security: m.security?.encrypted ? { encrypt: true, sign: false, attachPublicKey: false } : undefined,
+    confidential: m.confidential,
+  });
+  return true;
+}
+
 /** Replace cid: references with the pictures' data: URIs (used when a sent or scheduled draft is reopened). */
 export function picturesToEditor(html: string, pics: InlineImage[]): string {
   return pics.reduce((h, p) => h.split(`cid:${p.cid}`).join(`data:${p.mime};base64,${p.dataBase64}`), html);
@@ -282,7 +328,7 @@ interface PictureSel {
 
 export function Compose({ init }: { init: ComposeInit }) {
   const t = useT();
-  const { accounts, openCompose, showToast, prefs, refresh, confirm, choose, setComposeDirty, setComposeSaver, aiConfigured, setDialog, beginSend } = useStore();
+  const { accounts, openCompose, showToast, prefs, refresh, confirm, choose, setComposeDirty, setComposeSaver, setComposeProbe, aiConfigured, setDialog, beginSend } = useStore();
   const [accountId, setAccountId] = useState(accounts.some((a) => a.id === init.accountId) ? init.accountId! : accounts.some((a) => a.id === prefs.defaultAccount) ? prefs.defaultAccount : accounts[0]?.id || init.accountId || "");
   const isFresh = !init.replaces && !init.isReply && !init.outboxId && !init.restore;
   // an opened draft / scheduled message / message that failed to send: its body already holds the signature, shown as the region again
@@ -348,8 +394,13 @@ export function Compose({ init }: { init: ComposeInit }) {
   const schedPopRef = useRef<HTMLDivElement>(null);
   useFitInWindow(schedPopRef, schedOpen);
 
+  const revRef = useRef(0); // up with every edit: a save that was running while the person typed knows it
+  const attachingRef = useRef(0); // files / pictures being read into the message
+  const savedTid = useRef<string | null>(null); // the draft a "leave" save made: a second save replaces it instead of adding another
+  const baseline = useRef<{ text: string; pics: number } | null>(null); // the body as Compose opened it (a reply: the quote)
   const touch = useCallback(() => {
     touched.current = true;
+    revRef.current++;
     setComposeDirty(true);
   }, [setComposeDirty]);
 
@@ -477,6 +528,16 @@ export function Compose({ init }: { init: ComposeInit }) {
   useEffect(() => {
     if (editor) countPictures(editor);
     // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [editor]);
+
+  const bodyPictures = (ed: Editor) => {
+    let n = 0;
+    ed.state.doc.descendants((x) => { if (x.type.name === "image") n++; });
+    return n;
+  };
+  // the body as it opened (a reply: the quote), to tell what the person wrote from what Compose put there
+  useEffect(() => {
+    if (editor && !baseline.current) baseline.current = { text: editor.getText().trim(), pics: bodyPictures(editor) };
   }, [editor]);
 
   const [loaded, setLoaded] = useState(false);
@@ -826,16 +887,31 @@ export function Compose({ init }: { init: ComposeInit }) {
   };
 
   const saveDraft = useCallback(
-    async (close: boolean, quiet = false): Promise<boolean> => {
+    // `onSaved`: the caller (leaving this message, F-21) makes the toast itself, with an Edit button, once the pane is closed
+    async (close: boolean, quiet = false, onSaved?: (d: SavedDraft) => void): Promise<boolean> => {
       if (init.outboxId) return true; // a scheduled message is not a draft; "Move to Drafts" does that
+      const rev = revRef.current;
       try {
         const d = buildDraft();
         // a draft is only ever encrypted to your own key (no passphrase needed), and never signed
         const keepPrivate = !!d.security?.encrypt && eff(prefs, accountId, "pgpEncryptDrafts");
-        await api.saveDraft({ ...d, security: keepPrivate ? { encrypt: true, sign: false, attachPublicKey: false } : undefined }, init.replaces);
+        const tid = await api.saveDraft({ ...d, security: keepPrivate ? { encrypt: true, sign: false, attachPublicKey: false } : undefined }, savedTid.current ?? init.replaces);
         useStore.setState({ draftError: "" });
-        showToast(d.security?.encrypt && !keepPrivate ? t("compose.toast.draftSavedPlain") : t("compose.toast.draftSaved"), undefined, d.security?.encrypt && !keepPrivate ? "info" : "success");
-        setComposeDirty(false);
+        const plain = !!d.security?.encrypt && !keepPrivate;
+        if (onSaved) {
+          if (tid) savedTid.current = tid;
+          onSaved({
+            plain,
+            edit: () => {
+              if (!tid) return showToast(tNow("compose.leave.draftNotFound"), undefined, "error");
+              void openDraftThread(tid, true).catch((e) => showToast(friendlyError(e), undefined, "error"));
+            },
+          });
+        } else {
+          showToast(plain ? t("compose.toast.draftSavedPlain") : t("compose.toast.draftSaved"), undefined, plain ? "info" : "success");
+        }
+        // typed while the draft was on its way: it is not saved yet
+        if (revRef.current === rev) setComposeDirty(false);
         if (close) void openCompose(null);
         void useStore.getState().sync();
         return true;
@@ -866,8 +942,28 @@ export function Compose({ init }: { init: ComposeInit }) {
 
   // let the store save this draft when another message is opened over it
   useEffect(() => {
-    setComposeSaver((o) => saveDraft(false, o?.quiet));
+    setComposeSaver((o) => saveDraft(false, o?.quiet, o?.onSaved));
   }, [saveDraft, setComposeSaver]);
+  // what leaving this message needs to know: did the person write anything, are files still coming in
+  const probe = (): ComposeProbe => {
+    const b = baseline.current;
+    const text = editor?.getText().trim() ?? "";
+    const base = init.to ?? [];
+    const hasContent =
+      touched.current &&
+      (text !== (b?.text ?? "") ||
+        (editor ? bodyPictures(editor) : 0) !== (b?.pics ?? 0) ||
+        to.length !== base.length || to.some((x, i) => x !== base[i]) ||
+        subject.trim() !== (init.subject ?? "").trim() ||
+        atts.length !== (init.attachments?.length ?? 0));
+    return { hasContent, attaching: attachingRef.current > 0, rev: revRef.current };
+  };
+  const probeRef = useRef(probe);
+  probeRef.current = probe;
+  useEffect(() => {
+    setComposeProbe(() => probeRef.current());
+    return () => setComposeProbe(null);
+  }, [setComposeProbe]);
   // only when the composer goes away: forget the saver and the "unsaved" flag
   useEffect(
     () => () => {
@@ -911,7 +1007,18 @@ export function Compose({ init }: { init: ComposeInit }) {
     void openCompose(null);
   };
 
-  const addFiles = async (files: FileList | File[] | null) => {
+  /** Files and pictures are read in the background: leaving this message (F-21) waits for the ones still coming in. */
+  const reading = async <T,>(job: () => Promise<T>): Promise<T> => {
+    attachingRef.current++;
+    try {
+      return await job();
+    } finally {
+      attachingRef.current--;
+    }
+  };
+
+  const addFiles = (files: FileList | File[] | null) => reading(() => addFilesNow(files));
+  const addFilesNow = async (files: FileList | File[] | null) => {
     if (!files) return;
     const list: Att[] = [];
     for (const f of Array.from(files)) list.push({ filename: f.name || "pasted-image.png", mime: f.type || "application/octet-stream", dataBase64: await fileToBase64(f) });
@@ -926,7 +1033,8 @@ export function Compose({ init }: { init: ComposeInit }) {
   addFilesRef.current = async (files: File[]) => addFiles(files);
 
   /** A picture file into the body at the caret (Medium size), or attached when the format is not supported. */
-  const insertPictures = async (files: File[]) => {
+  const insertPictures = (files: File[]) => reading(() => insertPicturesNow(files));
+  const insertPicturesNow = async (files: File[]) => {
     const st = useStore.getState();
     const attach: File[] = [];
     for (const f of files) {

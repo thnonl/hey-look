@@ -13,11 +13,18 @@ import type { Jobs } from "./translateJobs";
 import { planRestore, startAdvance, touchAdvance, type Advance } from "./autoAdvance";
 import { accountsOf, canMoveToJunk, JUNK_ACTIONS } from "./junk";
 import { addToast, lazyText, type Lazy } from "./toastStack";
+import { leaveCompose as leaveComposePane, type ComposeProbe, type SavedDraft } from "./leaveCompose";
 export { lazyText, type Lazy };
 import { resolveLang, setLangPref, t } from "./i18n";
 import { fmtNumber } from "./i18n/format";
 import { calTz, CalView, Day, rangeFor, systemTz, today } from "./calendar";
 import { accentText, accountColor, buttonAccent, clampMaxDownload, DEFAULT_PREFS, lightened, mergePrefs, Prefs, readableOn, staleAccountPrefs, topBar, validHex } from "./prefs";
+
+/** `quiet`: the caller tells a failure itself. `onSaved`: the caller says "Draft saved" itself (the pane makes no toast). */
+export interface ComposeSaveOpts {
+  quiet?: boolean;
+  onSaved?: (d: SavedDraft) => void;
+}
 
 export interface ComposeInit {
   accountId?: string;
@@ -238,7 +245,9 @@ interface State {
   composeKey: number; // changes on every open so a new message never inherits the old one's state
   composeDirty: boolean;
   /** Saves the open message as a draft; resolves true when it was saved (false: the save failed, the message is still open). */
-  composeSaver: ((opts?: { quiet?: boolean }) => Promise<boolean | void>) | null;
+  composeSaver: ((opts?: ComposeSaveOpts) => Promise<boolean | void>) | null;
+  /** What the open message says about itself (written something? files still coming in?), for `leaveCompose`. */
+  composeProbe: (() => ComposeProbe) | null;
   dialog: Dialog;
   commandOpen: boolean;
   ribbonTab: RibbonTab;
@@ -280,12 +289,20 @@ interface State {
   loadMore: (manual?: boolean) => Promise<void>;
   onBackfill: (p: BackfillProgress) => void;
   select: (id: string | null) => Promise<void>;
+  /** The person opens a conversation (click, Enter, j / k, a notification): the message being written is left first (`leaveCompose`). */
+  openMail: (id: string) => Promise<void>;
+  /**
+   * Leave the message being written to read something else (F-21). Nothing written: it closes. Something written: it is saved as a draft
+   * ("Draft saved" with Edit) and closes; when the save fails it stays open and nothing is lost. Resolves true when no message is open.
+   */
+  leaveCompose: () => Promise<boolean>;
   toggleCheck: (id: string) => void;
   setChecked: (ids: string[]) => void;
   act: (ids: string[], action: string, arg?: string, label?: string) => Promise<void>;
   openCompose: (c: ComposeInit | null) => Promise<void>;
   setComposeDirty: (d: boolean) => void;
-  setComposeSaver: (f: ((opts?: { quiet?: boolean }) => Promise<boolean | void>) | null) => void;
+  setComposeSaver: (f: ((opts?: ComposeSaveOpts) => Promise<boolean | void>) | null) => void;
+  setComposeProbe: (f: (() => ComposeProbe) | null) => void;
   setDialog: (d: Dialog) => void;
   setCommandOpen: (o: boolean) => void;
   setRibbonTab: (t: RibbonTab) => void;
@@ -322,6 +339,8 @@ interface State {
   reloadMessages: () => Promise<void>;
 }
 
+/** The leave-compose run in progress: a second click while the draft is being saved waits for the same run. */
+let leaving: Promise<boolean> | null = null;
 let toastSeq = 0;
 let readTimer: ReturnType<typeof setTimeout> | undefined;
 /** The view (folder, mailbox, search, filter ...) the shown list was read for, and the conversation `refresh` held in it (F-12). */
@@ -556,6 +575,7 @@ export const useStore = create<State>((set, get) => ({
   composeKey: 0,
   composeDirty: false,
   composeSaver: null,
+  composeProbe: null,
   dialog: null,
   commandOpen: false,
   ribbonTab: "home",
@@ -912,6 +932,53 @@ export const useStore = create<State>((set, get) => ({
     }
   },
 
+  openMail: async (id) => {
+    if (get().compose && !(await get().leaveCompose())) return;
+    await get().select(id);
+  },
+
+  leaveCompose: () => {
+    leaving ??= (async () => {
+      const outcome = await leaveComposePane({
+        open: () => !!get().compose,
+        scheduled: () => !!get().compose?.outboxId,
+        dirty: () => get().composeDirty,
+        probe: () => get().composeProbe?.() ?? null,
+        // files being read in: up to 20 s, then the message stays open with a word about it
+        attached: async () => {
+          for (let i = 0; i < 200; i++) {
+            if (!get().composeProbe?.().attaching) return true;
+            await new Promise((r) => setTimeout(r, 100));
+          }
+          return false;
+        },
+        save: async (onSaved) => (get().composeSaver ? await get().composeSaver!({ onSaved }) : false),
+        askScheduled: async () =>
+          (await get().choose({
+            title: t("compose.leave.scheduledTitle"),
+            body: t("app.quit.discardBody"),
+            choices: [
+              { id: "keep", label: t("app.quit.keepEditing"), kind: "primary" },
+              { id: "discard", label: t("errors.ask.discard"), kind: "danger" },
+            ],
+          })) === "discard"
+            ? "discard"
+            : "keep",
+        close: () => get().openCompose(null),
+      });
+      if (outcome.kind === "saved") {
+        const d = outcome.saved;
+        get().showToast(d?.plain ? t("compose.toast.draftSavedPlain") : t("compose.toast.draftSaved"), undefined, d?.plain ? "info" : "success", d ? [{ label: t("common.edit"), run: d.edit }] : undefined);
+      } else if (outcome.kind === "stay" && outcome.why === "attaching") {
+        get().showToast(t("compose.leave.attaching"), undefined, "info");
+      }
+      return !get().compose;
+    })().finally(() => {
+      leaving = null;
+    });
+    return leaving;
+  },
+
   toggleCheck: (id) => {
     const c = new Set(get().checked);
     if (c.has(id)) c.delete(id);
@@ -1050,6 +1117,7 @@ export const useStore = create<State>((set, get) => ({
 
   setComposeDirty: (composeDirty) => set({ composeDirty }),
   setComposeSaver: (composeSaver) => set({ composeSaver }),
+  setComposeProbe: (composeProbe) => set({ composeProbe }),
   setDialog: (dialog) => set({ dialog }),
   setCommandOpen: (commandOpen) => set({ commandOpen }),
   setRibbonTab: (ribbonTab) => set({ ribbonTab }),
@@ -1180,7 +1248,7 @@ useStore.subscribe((s, prev) => {
   if (had && !has) {
     // an open Compose is closed WITHOUT saving: the account's local copy is gone, and the pane unmounts with the workspace
     useStore.setState({
-      search: "", selected: null, messages: [], threads: [], checked: new Set(), compose: null, composeDirty: false, composeSaver: null,
+      search: "", selected: null, messages: [], threads: [], checked: new Set(), compose: null, composeDirty: false, composeSaver: null, composeProbe: null,
       commandOpen: false, accountId: null, folder: "inbox", filter: "all", firstSync: null, dialog: s.dialog?.type === "settings" ? { type: "settings", tab: "add-account", nonce: Date.now() } : s.dialog,
     });
   }

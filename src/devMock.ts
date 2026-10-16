@@ -225,6 +225,9 @@ let calEvents: MockEvent[] = [
   ev("e17", "Yesterday's 1:1", at(-1, 14), at(-1, 14, 30), {}),
 ];
 const hiddenCals = new Set<string>();
+/** Drafts saved in this page (save_draft), by thread. */
+const mockDrafts: Record<string, typeof messages> = {};
+let mockDraftSeq = 0;
 const dayOf = (sec: number) => Math.floor(sec / 86400);
 /** Repeats for the mock: daily / weekly with BYDAY, from the event's own start. */
 function expandMock(e: MockEvent, from: number, to: number): MockEvent[] {
@@ -1049,6 +1052,7 @@ export function installMock() {
         return list.sort((x, y) => (f.folder === "inbox" && !f.sortAsc ? Number(y.pinned) - Number(x.pinned) : 0) || dir * (x.lastDate - y.lastDate));
       }
       case "get_thread":
+        if (mockDrafts[a.threadId as string]) return mockDrafts[a.threadId as string];
         if (a.threadId === "t9") return [ownLocked ? lockedMsg() : openedMsg()];
         if (a.threadId === "t25") return [encInvite(ownLocked)];
         if (threadInvite[a.threadId as string]) return threadInvite[a.threadId as string].map((id) => inviteMsgs[id]);
@@ -1127,7 +1131,12 @@ export function installMock() {
         w.__draftSaveCalls = (w.__draftSaveCalls ?? 0) + 1; // counted, so a check can see that discarding writes none (AC-74)
         if (hashTokens().has("draftfail")) throw "mock: the server refused the draft"; // `#draftfail`: saving a draft fails (update restart asks what to do)
         w.__lastDraft = a.draft;
-        return null;
+        // like the backend: the draft is a message of the Drafts folder, in the thread it gets from its Message-ID (the toast "Draft saved" opens it with Edit)
+        const dr = a.draft as { to: string[]; cc: string[]; subject: string; html: string; text: string; accountId: string };
+        const tid = `dt${++mockDraftSeq}`;
+        mockDrafts[tid] = [{ ...messages[0], id: `a1:drafts:${tid}`, accountId: dr.accountId, folder: "drafts", subject: dr.subject || "(no subject)", fromName: "Nam", fromEmail: "nam@example.com", to: dr.to.join(", "), cc: dr.cc.join(", "), html: dr.html, text: dr.text, attachments: [], seen: true }];
+        const done = () => tid;
+        return hashTokens().has("draftslow") ? later(1500, done) : done(); // `#draftslow`: the save takes 1.5 s
       }
       case "prepare_action": {
         // like the backend: the folder a move goes to is looked up before the move is queued. `#nocreate`: the server has no Archive / Trash
