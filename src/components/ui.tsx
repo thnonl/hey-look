@@ -335,7 +335,7 @@ export function AccountPicker({
         {a.displayName && <span className="ap-addr ellipsis">{a.email}</span>}
       </>
     ) : (
-      <span className="ap-name ellipsis">{none}</span>
+      <span className="ap-name wrap">{none}</span>
     );
   if (accounts.length === 1 && !none) {
     // a single mailbox: nothing to choose, show it as readable text

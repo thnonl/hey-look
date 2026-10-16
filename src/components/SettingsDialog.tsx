@@ -1253,7 +1253,6 @@ function SecurityPanel({ scope }: { scope: string | null }) {
       {scope ? (
         <Row label={t("settings.security.myKey")} hint={t("settings.security.myKeyHint")}>
           <select
-            style={{ maxWidth: 260 }}
             value={current}
             onChange={(e) => void api.pgpSetDefault(scope, e.target.value || null).then(bumpKeys).catch((er) => showToast(friendlyError(er), undefined, "error"))}
           >
@@ -1643,9 +1642,9 @@ function PgpTab() {
           </div>
         ) : own.map((k) => <KeyRow key={k.fingerprint} k={k} onOpen={() => open(k.fingerprint)} />)}
       </div>
-      <div className="set-card-head" style={{ marginTop: 18 }}>
+      <div className="set-card-head" style={{ marginTop: 18, flexWrap: "wrap" }}>
         <h4 style={{ margin: 0, flex: 1 }}>{t("settings.pgp.others")} <span className="muted small" style={{ fontWeight: 400 }}>· {others.length}</span></h4>
-        <input placeholder={t("settings.pgp.searchPlaceholder")} aria-label={t("settings.pgp.searchKeys")} style={{ width: 220 }} value={q} onChange={(e) => setQ(e.target.value)} />
+        <input placeholder={t("settings.pgp.searchPlaceholder")} aria-label={t("settings.pgp.searchKeys")} style={{ width: 340, maxWidth: "100%" }} value={q} onChange={(e) => setQ(e.target.value)} />
         <button className="btn small" onClick={() => setDialog({ type: "pgp-import", back: "pgp" })}><Upload size={13} /> {t("settings.pgp.import")}</button>
       </div>
       <div style={{ marginTop: 8 }}>
