@@ -1931,4 +1931,58 @@ To:") && !out.contains("undisclosed"), "{out}");
         let rebuilt = build(&account(), &serde_json::from_str::<Draft>(&stored).unwrap()).unwrap();
         assert!(text(&rebuilt).contains("Importance: high\r\n"));
     }
+
+    /// 1.0.6 integration: the features of the compose branches work together on every route that makes bytes (send, draft, signed,
+    /// encrypted): Importance + Message-ID + header folding + Bcc in drafts only + the outgoing sanitiser + the Sent copy equal to DATA.
+    #[test]
+    fn importance_message_id_folding_bcc_and_the_sanitiser_work_together() {
+        use crate::importance::Importance::High;
+        let acc = account();
+        let html = r#"<p>Hi</p><script>alert(1)</script><img src="\\host\share\x.png"><img src="file:///c:/x.png"><a href="javascript:alert(2)">x</a>"#;
+        let mut d = draft(html, vec![], vec![]);
+        d.importance = High;
+        d.to = (0..60).map(|i| format!("Person Number {i} <person{i}@example.org>")).collect();
+        d.bcc = vec!["Quiet <quiet@example.com>".into()];
+        d.references = (0..12).map(|i| format!("<ref{i}-0123456789abcdef0123456789abcdef@example.org>")).collect();
+        d.in_reply_to = Some("<parent@example.org>".into());
+        let head_of = |raw: &str| raw.split("\r\n\r\n").next().unwrap_or("").to_string();
+
+        // sent: the strict builder, then the wire form and the copy that is kept in Sent
+        let sent_msg = build(&acc, &d).unwrap();
+        let wired = wire(&sent_msg);
+        let (_, sent_copy) = as_data(&wired);
+        let sent = String::from_utf8_lossy(&sent_copy).into_owned();
+        assert!(sent.contains("Importance: high\r\n") && sent.contains("X-Priority: 1 (Highest)\r\n"), "{sent}");
+        assert_eq!(sent.matches("Message-ID: <").count(), 1, "{sent}");
+        assert!(head_of(&sent).contains("@example.com>"), "the id carries the account domain");
+        assert!(!sent.to_ascii_lowercase().contains("bcc:") && !sent.contains("quiet@example.com"), "a sent message never names the Bcc");
+        assert!(sent_msg.envelope().to().iter().any(|a| a.to_string() == "quiet@example.com"), "the envelope still delivers to the Bcc");
+        // lettre wraps To lists with display names itself (a little over 78 characters per line); the unquoted References are folded by headerfold.rs
+        assert!(head_of(&sent).lines().all(|l| l.len() <= 998), "no header line near the 998 limit: {}", head_of(&sent));
+        assert!(head_of(&sent).lines().filter(|l| l.starts_with(" <ref") || l.starts_with("References:")).all(|l| l.len() <= 78), "References is folded at 78: {}", head_of(&sent));
+        let parsed = mail_parser::MessageParser::default().parse(sent.as_bytes()).unwrap();
+        assert_eq!(parsed.to().map(|a| a.iter().filter(|x| x.address.is_some()).count()), Some(60), "unfolding gives the same 60 recipients");
+        for bad in ["<script", "alert(", "host", "file:", "javascript:"] {
+            assert!(!sent.contains(bad), "{bad} must not reach the wire: {sent}");
+        }
+
+        // the draft copy (APPEND to Drafts): Bcc and Importance are kept, the sanitiser and the folding ran as well
+        let saved = String::from_utf8_lossy(&wire(&build_draft(&acc, &d).unwrap())).into_owned();
+        assert!(saved.contains("Quiet <quiet@example.com>") && saved.contains("Importance: high\r\n"), "{saved}");
+        assert!(head_of(&saved).lines().all(|l| l.len() <= 998), "{}", head_of(&saved));
+        for bad in ["<script", "alert(", "file:", "javascript:"] {
+            assert!(!saved.contains(bad), "{bad} must not be saved either: {saved}");
+        }
+
+        // a signed and an encrypted message use the same header builder and the same sanitiser
+        let signed = text(&build_signed(&acc, &d, false, &signer).unwrap());
+        assert!(signed.contains("Importance: high\r\n") && signed.contains("Message-ID: <") && !signed.to_ascii_lowercase().contains("bcc:") && !signed.contains("<script"), "{signed}");
+        let enc = build_encrypted(&acc, &d, false, &|inner| {
+            assert!(!String::from_utf8_lossy(inner).contains("<script"), "the sanitiser runs before the encryption");
+            Ok("armored".into())
+        })
+        .unwrap();
+        let enc = text(&enc);
+        assert!(enc.contains("Importance: high\r\n") && enc.contains("Message-ID: <") && !enc.to_ascii_lowercase().contains("bcc:"), "{enc}");
+    }
 }
