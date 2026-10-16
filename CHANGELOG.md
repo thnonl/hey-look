@@ -22,6 +22,9 @@ Writing a message got safer and more complete: nothing you write is lost to a cr
 - Drafts: saving or sending a draft removes only that draft, not every draft of the conversation or a version saved in another mail program
 - The copy in the Sent folder is exactly the message that was sent (it was two bytes shorter)
 - Reply goes to the Reply-To address of the message when there is one, and says so under To (with a button to reply to the sender instead); Reply all adds the other people without repeating anyone, and your own addresses are left out
+- Writing a message: the size limit of the mail server is asked when a message opens and when files are added (it used to be asked only above 8 MB, so a server that takes 5 MB was never found). Send is stopped with the size of the message and the limit of your server, and a message the server still refuses says the same
+- Reply and Reply all keep the display name of the sender and of the people in To and Cc, also when it has a comma ("Doe, John")
+- Writing a message: a person is in one of To, Cc and Bcc only (the first one that has them); an address added again in a later field is not added and a note says where it already is
 - Forward carries the attachments of the original message (you can remove them before sending); pictures in the text stay in the text
 - Recipients: an address with a quoted name such as "Doe, John" <john@example.com> stays one recipient, also when pasted or dropped, and a list copied from a spreadsheet becomes one recipient per row
 - Recipients: the Enter key that confirms a conversion with a Japanese, Chinese or Korean input method no longer creates a recipient
