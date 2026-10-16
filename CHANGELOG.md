@@ -6,6 +6,7 @@ A few leftovers from 1.0.4: Cancel on an AI request, error messages that pile up
 
 ### Fixed
 
+- Notifications and the mail list no longer show link markup from marketing mail: a plain-text part that starts with "[View in browser](https://...tracking address...)" gave a notification (and a list row) full of that text. Markdown links now show their text, "View in browser", "Unsubscribe", "Click here" and their translations are left out, and addresses, tracking tokens, image and reference markers, HTML entities and invisible characters are removed. When little readable text is left, the notification shows the sender and the subject only; the preview line is cut at about 100 characters on a word, never inside an emoji or a letter with accents. Mail already in the list is cleaned once at the next start; search still finds every word and address of the message
 - Translate: Cancel now stops the request to the AI provider, not only the waiting, so a cancelled translation no longer keeps running (and costing tokens) in the background
 - Many failed translations no longer cover the mail list and the reading pane: at most three notices of the same kind stay on screen, the rest are folded into one "more notifications" row with Dismiss all
 - The notices about a translation (running, ready, failed) follow the language you choose, also when you change the language while they are on screen

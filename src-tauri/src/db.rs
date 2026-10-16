@@ -15,6 +15,7 @@ pub fn open(path: &Path) -> R<Connection> {
     crate::shard::open_all(&conn)?;
     // snippet repair walks the shards, so it runs once they are attached (a failure is retried at the next start)
     let _ = crate::snippet::fix_stored(&conn);
+    let _ = crate::snippet::fix_stored_links(&conn);
     Ok(conn)
 }
 

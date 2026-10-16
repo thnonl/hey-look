@@ -713,7 +713,7 @@ pub fn parse(uid: u32, raw: &[u8], seen: bool, flagged: bool, fallback_date: i64
     });
     let mut basis = crate::snippet::make(real_text.as_deref(), html.as_deref());
     if basis.is_empty() {
-        basis = text.as_deref().map(crate::snippet::clean_text).unwrap_or_default();
+        basis = text.as_deref().map(crate::snippet::preview_text).unwrap_or_default();
     }
     if basis.trim().is_empty() {
         if let Some(ev) = cal.as_ref().and_then(|c| c.events.first()) {
@@ -1221,6 +1221,21 @@ Content-Type: text/html; charset=utf-8
 --B--
 ");
         assert_eq!(parse(12, empty.as_bytes(), false, false, 0).unwrap().snippet, "Preview words Main content");
+    }
+
+    /// F-27: the text/plain alternative of a marketing mail starts with a Markdown link to a tracking address. The snippet (list row and
+    /// notification) has the readable preheader only; the stored text, which search reads, is the message as it came.
+    #[test]
+    fn markdown_link_markup_of_a_plain_text_part_stays_out_of_the_snippet_but_in_the_search_text() {
+        let text = "[View in browser](https://ecafgcd.r.af.d.sendibt2.com/tr/mr/Tri_95Hx3VWzJfQSa7ggBekbb0Elk9qsx0y6UH1lWEQ8lP4o2bJ6sXAn1ZcR7u?p=eyJ1IjoiMSJ9)\r\n\r\n\
+                    Ưu đãi lớn cho khách hàng thân thiết. Xem chi tiết tại https://shop.example/offer?id=77\r\n\r\n[Unsubscribe](https://ecafgcd.r.af.d.sendibt2.com/unsub/abc)\r\n";
+        let raw = format!("From: CellphoneS <hi@cellphones.example>\r\nSubject: =?utf-8?B?8J+UpSBN4bufIMSQ4bq3dCBD4buNYyBpUGhvbmUgRHVv?=\r\nMIME-Version: 1.0\r\nContent-Type: text/plain; charset=utf-8\r\n\r\n{text}");
+        let p = parse(20, raw.as_bytes(), false, false, 0).unwrap();
+        assert_eq!(p.snippet, "Ưu đãi lớn cho khách hàng thân thiết. Xem chi tiết tại");
+        let stored = p.text.unwrap();
+        for word in ["View in browser", "sendibt2.com", "khách hàng thân thiết", "shop.example/offer?id=77", "Unsubscribe"] {
+            assert!(stored.contains(word), "search text keeps {word:?}");
+        }
     }
 
     #[test]

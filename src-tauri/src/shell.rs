@@ -643,6 +643,20 @@ fn notification_body(line1: &str, line2: &str) -> String {
 {line2}") }
 }
 
+/// The two lines of a new-mail notification, the same text on every platform (the Windows toast shows them as its two text lines,
+/// `notification_body` joins them for macOS and Linux): the subject, cleaned a little (control characters out, white space
+/// collapsed), and the preview of the message (`snippet::notification_preview`: no link markup, addresses or "view in browser"
+/// lines, about 100 characters). The preview line is empty when it is switched off or when too little readable text is left;
+/// a message without a subject shows its preview in its place.
+fn message_lines(subject: &str, snippet: &str, show_preview: bool) -> (String, String) {
+    let subject = crate::snippet::notification_line(subject);
+    let preview = if show_preview { crate::snippet::notification_preview(snippet) } else { String::new() };
+    if subject.is_empty() {
+        return if preview.is_empty() { ("(no subject)".into(), String::new()) } else { (preview, String::new()) };
+    }
+    (subject, preview)
+}
+
 /// Failures of other notifications than "Send test" are only logged.
 fn toast_logged(app: &AppHandle, thread: String, title: &str, line1: &str, line2: &str, sound: &str, actions: &[String]) {
     if let Err(e) = toast(app, thread, title, line1, line2, sound, actions) {
@@ -721,9 +735,9 @@ pub fn notify_new(app: &AppHandle, db: &Db, new: &[NewMsg]) {
         return;
     }
     for n in list {
-        let snippet: String = if flag(n, "notifyPreview", true) { n.snippet.chars().take(140).collect() } else { String::new() };
+        let (line1, line2) = message_lines(&n.subject, &n.snippet, flag(n, "notifyPreview", true));
         let actions = notify_actions_for(&p, &n.account_id);
-        toast_logged(app, n.thread_id.clone(), &n.from, &n.subject, &snippet, &sound_for(n), &actions);
+        toast_logged(app, n.thread_id.clone(), &crate::snippet::notification_line(&n.from), &line1, &line2, &sound_for(n), &actions);
     }
 }
 
@@ -770,7 +784,8 @@ pub fn check_snoozes(app: &AppHandle, db: &Db) {
         let _ = lock(db).execute("UPDATE thread_meta SET snoozed_until=NULL WHERE thread_id=?1", [&tid]);
         let _ = action_impl(db, vec![tid.clone()], "unread".into(), None, None);
         if !quiet {
-            toast_logged(app, tid, &crate::i18n::snooze_ended(who.trim()), &subject, &snippet.chars().take(140).collect::<String>(), &sound, &actions);
+            let (line1, line2) = message_lines(&subject, &snippet, true);
+            toast_logged(app, tid, &crate::snippet::notification_line(&crate::i18n::snooze_ended(who.trim())), &line1, &line2, &sound, &actions);
         }
     }
     update_badge(app, db);
@@ -880,6 +895,34 @@ mod platform_tests {
     fn notification_text_is_subject_then_preview() {
         assert_eq!(notification_body("Subject", ""), "Subject");
         assert_eq!(notification_body("Subject", "Preview text"), "Subject\nPreview text");
+    }
+
+    #[test]
+    fn f27_a_marketing_mail_notification_has_no_link_markup_on_any_platform() {
+        // the stored snippet of the screenshot: a Markdown link to a tracking address (cut inside the address)
+        let snippet = "[View in browser](https://ecafgcd.r.af.d.sendibt2.com/tr/mr/Tri_95Hx3VWzJfQSa7ggBekbb0Elk9qsx0y6UH1lWEQ8lP4o2bJ6sXAn1ZcR7u?p=eyJ1IjoiMSJ9";
+        let (l1, l2) = message_lines("\u{1F525} Mở Đặt Cọc iPhone Duo", snippet, true);
+        assert_eq!((l1.as_str(), l2.as_str()), ("\u{1F525} Mở Đặt Cọc iPhone Duo", ""), "no third line");
+        // Windows: the toast gets l1 / l2 as its two text lines; macOS and Linux: the body is both lines joined
+        assert_eq!(notification_body(&l1, &l2), "\u{1F525} Mở Đặt Cọc iPhone Duo");
+        // the same marketing mail with a readable preheader: that is the third line, without markup
+        let snippet = "[View in browser](https://x.example/t) \u{1F525} Ưu đãi lớn cho khách hàng thân thiết. [Unsubscribe](https://x.example/u) https://x.example/z";
+        let (l1, l2) = message_lines("\u{1F525} Mở Đặt Cọc iPhone Duo", snippet, true);
+        assert_eq!(l2, "\u{1F525} Ưu đãi lớn cho khách hàng thân thiết.");
+        assert_eq!(notification_body(&l1, &l2), "\u{1F525} Mở Đặt Cọc iPhone Duo\n\u{1F525} Ưu đãi lớn cho khách hàng thân thiết.");
+        for bad in ["[", "](", "http", "://", "View in browser", "Unsubscribe"] {
+            assert!(!notification_body(&l1, &l2).contains(bad), "{bad:?}");
+        }
+        // preview switched off: the subject only; the subject is cleaned a little, a real one is not changed
+        assert_eq!(message_lines("Hello", "Some readable words here", false), ("Hello".into(), String::new()));
+        assert_eq!(message_lines("  Re:\t Q3\r\n report\u{0007} ", "Some readable words here", true), ("Re: Q3 report".into(), "Some readable words here".into()));
+        // a very long preview is cut to about 100 characters on a word
+        let long = "word ".repeat(100);
+        let (_, l2) = message_lines("Subject", &long, true);
+        assert!(l2.chars().count() <= 100 && l2.ends_with("word\u{2026}"), "{l2:?}");
+        // no subject: the preview takes its place, and with neither the notification still says something
+        assert_eq!(message_lines("", "Some readable words here", true), ("Some readable words here".into(), String::new()));
+        assert_eq!(message_lines(" \u{200B} ", "", true), ("(no subject)".into(), String::new()));
     }
 
     #[test]
