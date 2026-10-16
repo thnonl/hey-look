@@ -1516,6 +1516,12 @@ struct FolderInfo {
     total: u32,
 }
 
+/// Every account lists the six standard folders (inbox, sent, drafts, archive, trash, junk) plus the server's own folders, whether the
+/// server has the standard ones or not (QA v1.0.1 round 10, OBS-2: "Archive and Junk Email are listed when the server has neither").
+/// That is by design: Archive and Trash are what "Archive" and "Delete" move to, and a missing one is created the first time it is
+/// needed (F-14, `prepare_action`), so the row has to exist before the folder does. A row for a folder the server lacks is just empty;
+/// the app never claims it is a server folder. Junk is never created: marking mail as junk on a server without a Junk folder says
+/// at once that the folder is missing (`FOLDER_MISSING`), and the row fills as soon as the server has one (the next sync picks it up).
 #[tauri::command]
 fn list_folders(state: tauri::State<AppState>) -> R<Vec<FolderInfo>> {
     let c = lock(&state.db);
