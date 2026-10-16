@@ -1015,7 +1015,8 @@ export function installMock() {
       case "get_setting": return settings[a.key as string] ?? null;
       case "first_run_hint": { const d = Number(hashTokens().get("firstrun")); return d > 0 ? Date.now() - d * 86_400_000 : null; } // `#firstrun=90`: the database is 90 days old (an install from before the support reminder)
       case "set_setting": settings[a.key as string] = a.value as string; return null;
-      case "list_folders": return folders;
+      // #nojunk: the second mailbox's server has no Junk folder (the saved list does not name one): its Junk row and the Junk actions go
+      case "list_folders": return hashHas("nojunk") ? folders.map((f) => (f.accountId === "a2" && f.key === "junk" ? { ...f, listed: false } : f)) : folders;
       case "list_threads": {
         const f = a.filter as { folder: string; focus?: string; unreadOnly?: boolean; flaggedOnly?: boolean; sortAsc?: boolean; search?: string; scope?: string };
         const own = (a.filter as { accountId?: string | null }).accountId;

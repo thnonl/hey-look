@@ -299,6 +299,8 @@ export interface FolderInfo {
   name: string;
   unread: number;
   total: number;
+  /** the account's saved folder list names a server folder for this row (false for Junk: hide it, Junk is never created) */
+  listed?: boolean;
 }
 
 export interface SenderInfo {

@@ -8,6 +8,7 @@ import { FolderInfo } from "../api";
 import { accountColor, folderDepth, folderLabel } from "../prefs";
 import { useT } from "../i18n/react";
 import { kbd } from "../platform";
+import { folderVisible } from "../junk";
 import { useStore } from "../store";
 
 const ICONS: Record<string, ReactNode> = {
@@ -125,7 +126,7 @@ export function FolderPane() {
       <div className="fp-tree" role="tree" aria-label={t("mail.pane.folders")}>
       <div className="fp-group">
         {head("fav", t("mail.pane.favorites"))}
-        {!collapsed("fav") && favs.map((f) => row(f.acct, f.key, labelFor(f.acct, f.key)))}
+        {!collapsed("fav") && favs.filter((f) => folderVisible(folders, f.acct, f.key)).map((f) => row(f.acct, f.key, labelFor(f.acct, f.key)))}
       </div>
 
       <div className="fp-group">
@@ -164,7 +165,7 @@ export function FolderPane() {
             <ReauthNotice account={a} compact />
             {!collapsed(a.id) && (
               <>
-                {std.map((k) => row(a.id, k, folderLabel(k), 1))}
+                {std.filter((k) => folderVisible(folders, a.id, k)).map((k) => row(a.id, k, folderLabel(k), 1))}
                 {custom.map((f) => row(a.id, f.key, folderLabel(f.key, f.name), 1 + folderDepth(f.key, f.name), f.name))}
               </>
             )}

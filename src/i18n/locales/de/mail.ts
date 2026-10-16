@@ -33,6 +33,8 @@ export default defineLocale<typeof ns.en>({
   "mail.done.trashed": "In den Papierkorb verschoben",
   "mail.done.deleted": "Endgültig gelöscht",
   "mail.done.junk": "In Spam verschoben",
+  "mail.junk.none": "Kein Spam-Ordner",
+  "mail.junk.noneTip": "Dieses Postfach hat keinen Spam-Ordner, daher können keine Nachrichten in Spam verschoben werden.",
   "mail.done.blocked": "Absender blockiert",
   "mail.done.moved": "Nach „{folder}“ verschoben",
   "mail.done.snoozed": "Zurückgestellt: {when}",

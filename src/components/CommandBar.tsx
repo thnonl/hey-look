@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { newMailAccount } from "../actions";
 import { useLang, useT } from "../i18n/react";
+import { folderVisible } from "../junk";
 import { folderLabel } from "../prefs";
 import { newEvent } from "./Calendar";
 import { useStore } from "../store";
@@ -48,7 +49,7 @@ export function CommandBar() {
       { id: "Toggle reading pane position", label: t("app.cmd.toggleReadingPane"), run: () => s.setPrefs({ readingPane: s.prefs.readingPane === "right" ? "bottom" : "right" }) },
       { id: "Toggle conversations", label: t("app.cmd.toggleConversations"), run: () => s.setPrefs({ conversations: !s.prefs.conversations }) },
       { id: "Toggle Focused Inbox", label: t("app.cmd.toggleFocused"), run: () => s.setPrefs({ focused: !s.prefs.focused }) },
-      ...["inbox", "unread", "starred", "pinned", "snoozed", "scheduled", "sent", "drafts", "archive", "junk", "trash"].map((f) => ({
+      ...["inbox", "unread", "starred", "pinned", "snoozed", "scheduled", "sent", "drafts", "archive", "junk", "trash"].filter((f) => folderVisible(s.folders, s.accountId, f)).map((f) => ({
         id: `Go to ${f}`,
         label: t("app.cmd.goToFolder", { folder: folderLabel(f) }),
         run: () => void s.setView(f, s.accountId),

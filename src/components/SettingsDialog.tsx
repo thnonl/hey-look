@@ -6,6 +6,7 @@ import { Fragment, ReactNode, useEffect, useRef, useState } from "react";
 import { Account, api, CalSource, Discovered, PgpKey, PROVIDERS, Rule, Signature, Template } from "../api";
 import { calendarErrorCode, calendarSyncKind, providerName, serviceName, statusLine, truncatedNote } from "../calendarSync";
 import { ACCENT_PRESETS, ACCOUNT_PALETTE, accountColor, DEFAULT_PREFS, eff, folderLabel, isOverridden, MAX_DOWNLOAD_PRESETS, NOTIFY_ACTIONS, NOTIFY_SOUNDS, Overridable, Prefs, staleAccountPrefs, validHex } from "../prefs";
+import { folderVisible } from "../junk";
 import { friendlyError, useStore } from "../store";
 import { credStore, kbd, riskyHint, usePlatform } from "../platform";
 import { systemTz } from "../calendar";
@@ -1021,7 +1022,7 @@ function FoldersPanel({ scope }: { scope: string | null }) {
   const { folders, prefs, setPrefs } = useStore();
   const isFav = (id: string) => prefs.favorites.includes(id);
   const toggle = (id: string) => setPrefs({ favorites: isFav(id) ? prefs.favorites.filter((f) => f !== id) : [...prefs.favorites, id] });
-  const keys = scope ? folders.filter((f) => f.accountId === scope).map((f) => ({ key: f.key, label: folderLabel(f.key, f.name) })) : ["inbox", "drafts", "sent", "archive", "junk", "trash"].map((k) => ({ key: k, label: folderLabel(k) }));
+  const keys = (scope ? folders.filter((f) => f.accountId === scope).map((f) => ({ key: f.key, label: folderLabel(f.key, f.name) })) : ["inbox", "drafts", "sent", "archive", "junk", "trash"].map((k) => ({ key: k, label: folderLabel(k) }))).filter((k) => folderVisible(folders, scope, k.key));
   return (
     <>
       <div className="muted small pad">{scope ? t("settings.folders.account") : t("settings.folders.all")}</div>

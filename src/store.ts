@@ -11,6 +11,7 @@ import { backendText } from "./backendErrors";
 import { needsSignIn } from "./signIn";
 import type { Jobs } from "./translateJobs";
 import { planRestore, startAdvance, touchAdvance, type Advance } from "./autoAdvance";
+import { accountsOf, canMoveToJunk, JUNK_ACTIONS } from "./junk";
 import { addToast, lazyText, type Lazy } from "./toastStack";
 export { lazyText, type Lazy };
 import { resolveLang, setLangPref, t } from "./i18n";
@@ -922,6 +923,11 @@ export const useStore = create<State>((set, get) => ({
 
   act: async (ids, action, arg, label) => {
     if (ids.length === 0) return;
+    // (1.0.5) no Junk folder on the account: the buttons are off already; this is for the keyboard and any other way in
+    if (JUNK_ACTIONS.has(action) && !canMoveToJunk(get().folders, accountsOf(get().threads, ids))) {
+      get().showToast(t("mail.junk.noneTip"), undefined, "info");
+      return;
+    }
     if (!autoMarking) for (const [k, a] of advances) advances.set(k, touchAdvance(a, ids)); // the person acts on the mail the app advanced to
     applyOptimistic(ids, action);
     const intent = INTENT_OF.get(action);
