@@ -552,8 +552,9 @@ export const api = {
     invoke<{ mime: string; dataBase64: string; name: string }>("inline_image", { messageId, cid }),
   sendMessage: (draft: Draft, sendAt?: number | null, replaces?: string | null) =>
     invoke<string>("send_message", { draft, sendAt: sendAt ?? null, replaces: replaces ?? null }),
+  /** The conversation the saved draft is in once the sync has read it (null: not known before). */
   saveDraft: (draft: Draft, replaces?: string | null) =>
-    invoke<void>("save_draft", { draft, replaces: replaces ?? null }),
+    invoke<string | null>("save_draft", { draft, replaces: replaces ?? null }),
   listOutbox: () => invoke<OutboxItem[]>("list_outbox"),
   cancelOutbox: (id: string) => invoke<void>("cancel_outbox", { id }),
   /** Send was pressed with an Undo time: the message goes into the local outbox (not a scheduled message) until `dueAt` (unix seconds). */

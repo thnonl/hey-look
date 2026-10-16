@@ -119,7 +119,7 @@ function App() {
   useEffect(() => {
     const open = async (threadId: string) => {
       await useStore.getState().setView("inbox", null);
-      await useStore.getState().select(threadId);
+      await useStore.getState().openMail(threadId);
     };
     const subs = [
       listen("mail-synced", () => void useStore.getState().refresh()),
@@ -343,7 +343,9 @@ function App() {
         st.setModule(e.key === "2" ? "calendar" : "mail");
         return;
       }
-      if (st.compose || st.dialog || st.commandOpen || st.ask) return;
+      if (st.dialog || st.commandOpen || st.ask) return;
+      // a message being written stays as it is, except that j / k (focus outside its fields) go on to the next / previous conversation (F-21)
+      if (st.compose && !((e.key === "j" || e.key === "k") && st.module === "mail" && !e.ctrlKey && !e.metaKey && !e.altKey)) return;
       if (st.module === "calendar" && !e.ctrlKey && !e.metaKey && !e.altKey) {
         // Calendar: c new event, t today, ←/→ previous/next period, m / w / a Month / Week / Agenda
         const tz = calTz(st.prefs);
@@ -378,8 +380,12 @@ function App() {
       switch (e.key) {
         case "c": e.preventDefault(); void st.openCompose({ accountId: newMailAccount() }); break;
         case "/": e.preventDefault(); document.getElementById("search-input")?.focus(); break;
-        case "j": void st.select(st.threads[Math.min(idx + 1, st.threads.length - 1)]?.threadId ?? null); break;
-        case "k": void st.select(st.threads[Math.max(idx - 1, 0)]?.threadId ?? null); break;
+        case "j": case "k": {
+          const next = st.threads[e.key === "j" ? Math.min(idx + 1, st.threads.length - 1) : Math.max(idx - 1, 0)]?.threadId ?? null;
+          if (next) void st.openMail(next);
+          else if (!st.compose) void st.select(null);
+          break;
+        }
         case "e": void st.act(ids, "archive", undefined, t("mail.done.archived")); break;
         case "#": case "Delete": void st.act(ids, "trash", undefined, t("mail.done.trashed")); break;
         // the Mac "delete" key (Backspace) deletes the selected conversation too; not while typing (guarded above)

@@ -2,12 +2,12 @@ import { MessageFull } from "./api";
 import { t } from "./i18n";
 import { eff } from "./prefs";
 import { useStore } from "./store";
+import { actionTargets } from "./composeSelection";
 import { fmtFull, plainToHtml, quoteHtml, sanitizeHtml, splitAddrs } from "./util";
 
 export function targets(): string[] {
-  const { checked, selected } = useStore.getState();
-  if (checked.size > 0) return Array.from(checked);
-  return selected ? [selected] : [];
+  const { checked, selected, compose } = useStore.getState();
+  return actionTargets(checked, selected, !!compose); // none while a message is being written (F-21)
 }
 
 /**

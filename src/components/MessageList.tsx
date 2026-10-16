@@ -5,13 +5,12 @@ import { fmtNumber } from "../i18n/format";
 import { useLang, useT } from "../i18n/react";
 import { tx } from "../i18n/rich";
 import { t } from "../i18n";
-import { api, ThreadSummary } from "../api";
+import { ThreadSummary } from "../api";
 import { gmailSearchUrl, webmailQuery, webmailTargets, WebmailTarget } from "../webmail";
 import { accountColor, folderLabel, Prefs } from "../prefs";
 import { canPageBack, exhaustedKey, friendlyError, useStore } from "../store";
 import { dateGroup, fmtDate, snoozePresets, subjectText } from "../util";
-import { messageToEditor } from "./Compose";
-import { askUnlock } from "./Pgp";
+import { openDraftThread } from "./Compose";
 import { ScheduledList } from "./ScheduledList";
 import { EmptyState, SkeletonRows } from "./overlays";
 import { Avatar, Dropdown } from "./ui";
@@ -209,8 +208,8 @@ export function MessageList() {
   const tr = useT();
   const lang = useLang();
   const {
-    threads, folder, accountId, selected, select, checked, toggleCheck, setChecked, search, searchScope, setSearchScope,
-    prefs, focus, setFocus, filter, setFilter, accounts, openCompose, loading, loadMore, loadingMore, exhausted, limited, backfill, firstSync, setDialog,
+    threads, folder, accountId, selected, openMail, checked, toggleCheck, setChecked, search, searchScope, setSearchScope,
+    prefs, focus, setFocus, filter, setFilter, accounts, loading, loadMore, loadingMore, exhausted, limited, backfill, firstSync, setDialog,
   } = useStore();
   const scrollRef = useRef<HTMLDivElement>(null);
   const searching = search.trim().length > 0;
@@ -239,38 +238,14 @@ export function MessageList() {
 
   const openThread = (t: ThreadSummary) => {
     if (folder === "drafts") {
+      // a draft opens in Compose; the message being written is left first (saved as a draft when it holds something)
       void (async () => {
-        const msgs = await api.getThread(t.threadId, "drafts");
-        let m = msgs[msgs.length - 1];
-        if (!m) return;
-        // a draft that was encrypted to your own key needs the key (and its passphrase) to be opened again
-        const st = useStore.getState();
-        if (m.security?.encrypted && m.security.decryption !== "ok") {
-          if (m.security.decryption === "locked" && m.security.lockedKey && (await askUnlock(m.security.lockedKey, "draft", m.security.lockedLabel ?? undefined))) {
-            m = await api.pgpDecryptMessage(m.id).catch(() => m);
-          }
-          if (m.security?.decryption !== "ok") {
-            if (m.security?.decryption !== "locked") st.showToast(tr("mail.draft.cannotOpen", { error: friendlyError(m.security?.error ?? tr("mail.draft.keyMissing")) }), undefined, "error");
-            return;
-          }
-        }
-        // restore pictures and attachments so saving or sending the draft does not silently drop them
-        const { html, attachments } = await messageToEditor(m);
-        void openCompose({
-          accountId: m.accountId,
-          to: m.to ? m.to.split(",").map((x) => x.trim()) : [],
-          cc: m.cc ? m.cc.split(",").map((x) => x.trim()) : [],
-          subject: m.subject === "(no subject)" ? "" : m.subject,
-          bodyHtml: html ?? `<p>${(m.text ?? "").replace(/\n/g, "<br>")}</p>`,
-          replaces: t.threadId,
-          attachments,
-          security: m.security?.encrypted ? { encrypt: true, sign: false, attachPublicKey: false } : undefined,
-          confidential: m.confidential,
-        });
+        if (!(await useStore.getState().leaveCompose())) return;
+        await openDraftThread(t.threadId);
       })();
       return;
     }
-    void select(t.threadId);
+    void openMail(t.threadId);
   };
 
   // the flat list of lines (group headers + conversations) the virtual list draws from
