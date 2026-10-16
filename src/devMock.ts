@@ -1012,7 +1012,8 @@ export function installMock() {
     switch (cmd) {
       case "list_accounts": return accounts;
       case "idle_states": return { a1: "push" };
-      case "get_setting": return settings[a.key as string] ?? null;
+      // #aiset: the AI Assistant is set up (Translate / Summarize can be tried with #slowai / #failai)
+      case "get_setting": return settings[a.key as string] ?? (hashHas("aiset") && (a.key === "ai_endpoint" || a.key === "ai_model") ? "mock" : null);
       case "first_run_hint": { const d = Number(hashTokens().get("firstrun")); return d > 0 ? Date.now() - d * 86_400_000 : null; } // `#firstrun=90`: the database is 90 days old (an install from before the support reminder)
       case "set_setting": settings[a.key as string] = a.value as string; return null;
       // #nojunk: the second mailbox's server has no Junk folder (the saved list does not name one): its Junk row and the Junk actions go
