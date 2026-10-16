@@ -5,6 +5,7 @@ import { fmtNumber } from "../i18n/format";
 import { useLang, useT } from "../i18n/react";
 import { tx } from "../i18n/rich";
 import { t } from "../i18n";
+import { accountLabel } from "../accountLabel";
 import { api, ThreadSummary } from "../api";
 import { gmailSearchUrl, webmailQuery, webmailTargets, WebmailTarget } from "../webmail";
 import { accountColor, folderLabel, Prefs } from "../prefs";
@@ -12,6 +13,7 @@ import { canPageBack, exhaustedKey, friendlyError, useStore } from "../store";
 import { dateGroup, fmtDate, snoozePresets, subjectText } from "../util";
 import { messageToEditor } from "./Compose";
 import { askUnlock } from "./Pgp";
+import { AcctName } from "./AcctName";
 import { useRowContextMenu } from "./ListContextMenu";
 import { ScheduledList } from "./ScheduledList";
 import { EmptyState, SkeletonRows } from "./overlays";
@@ -221,7 +223,7 @@ export function MessageList() {
   const showTabs = folder === "inbox" && prefs.focused && !searching;
   const multi = checked.size > 0;
   const colors = new Map(accounts.map((a) => [a.id, accountColor(a, prefs.accent)]));
-  const labels = new Map(accounts.map((a) => [a.id, a.email]));
+  const labels = new Map(accounts.map((a) => [a.id, accountLabel(a).text])); // the display name, else the address
   const mixed = accounts.length > 1 && (!accountId || (searching && searchScope === "all"));
   const firstHere = !!firstSync && (!accountId || accountId === firstSync) && !searching && folder === "inbox";
   const pageable = canPageBack(folder, searching) && threads.length > 0;
@@ -361,7 +363,7 @@ export function MessageList() {
             {tr("mail.list.summary", { query: search.trim(), scope: scopeNote, n: threads.length })}
           </div>
         ) : (
-          accountId && <div className="ml-sub">{labels.get(accountId)}</div>
+          accountId && <div className="ml-sub ellipsis">{accounts.find((a) => a.id === accountId) ? <AcctName account={accounts.find((a) => a.id === accountId)!} className="" /> : labels.get(accountId)}</div>
         )}
         {pageable && prefs.sortAsc && !searching && (
           <div className="ml-progress" role="status">{pagingStatus}</div>

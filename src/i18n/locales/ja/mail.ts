@@ -110,4 +110,6 @@ export default defineLocale<typeof ns.en>({
   "mail.acct.drag": "ドラッグして{email}の順序を変更",
   "mail.acct.moved": "{email}を{total}件中{n}番目に移動しました",
   "mail.acct.cancelled": "並べ替えをキャンセルしました",
+  // the display name of a mailbox for screen readers: name, address
+  "mail.acct.labelAria": "{name}、{email}",
 });

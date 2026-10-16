@@ -2,7 +2,9 @@ import {
   AlertTriangle, Archive, CalendarClock, CalendarDays, ChevronDown, ChevronRight, Clock, FileText, Flag, Folder, Inbox, MailOpen, OctagonAlert, Pin, Send, Star, Trash2,
 } from "lucide-react";
 import { ReactNode, useEffect, useRef } from "react";
+import { accountLabel } from "../accountLabel";
 import { Grip, useAccountReorder } from "./AccountReorder";
+import { AcctName } from "./AcctName";
 import { CalSidebar } from "./Calendar";
 import { ReauthNotice } from "./SignInHelp";
 import { FolderInfo } from "../api";
@@ -107,7 +109,10 @@ export function FolderPane() {
     })
     .filter((f) => f.acct === null || accounts.some((a) => a.id === f.acct));
 
-  const acctName = (id: string | null) => accounts.find((a) => a.id === id)?.email ?? "";
+  const acctName = (id: string | null) => {
+    const a = accounts.find((x) => x.id === id);
+    return a ? accountLabel(a).text : "";
+  };
   const labelFor = (acct: string | null, key: string) => {
     const info: FolderInfo | undefined = folders.find((f) => f.accountId === acct && f.key === key);
     const base = folderLabel(key, info?.name);
@@ -144,12 +149,12 @@ export function FolderPane() {
         const error = syncErrors[a.id];
         return (
           <div className={`fp-group ${reorder.dragging === a.id ? "reorder-src" : ""}`} key={a.id} data-reorder-id={a.id} {...reorder.entry(a.id)}>
-            {accounts.length > 1 && <Grip email={a.email} bind={reorder.grip(a.id)} dragging={reorder.dragging === a.id} />}
+            {accounts.length > 1 && <Grip email={accountLabel(a).text} bind={reorder.grip(a.id)} dragging={reorder.dragging === a.id} />}
             {head(
               a.id,
               <>
                 <span className="dot" style={{ background: accountColor(a, prefs.accent) }} />
-                <span className="ellipsis fp-acct">{a.email}</span>
+                <AcctName account={a} className="ellipsis fp-acct" />
                 {error && (
                   <span
                     className="fp-warn"

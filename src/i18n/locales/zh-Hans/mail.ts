@@ -110,4 +110,6 @@ export default defineLocale<typeof ns.en>({
   "mail.acct.drag": "拖动以调整{email}的顺序",
   "mail.acct.moved": "{email}已移到第{n}位，共{total}位",
   "mail.acct.cancelled": "已取消重新排序",
+  // the display name of a mailbox for screen readers: name, address
+  "mail.acct.labelAria": "{name}，{email}",
 });

@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
+import { accountLabel } from "../accountLabel";
 import { newMailAccount } from "../actions";
 import { useLang, useT } from "../i18n/react";
 import { folderVisible } from "../junk";
@@ -63,7 +64,7 @@ export function CommandBar() {
         { id: cur?.flagged ? "Remove flag" : "Flag", label: cur?.flagged ? t("app.cmd.unflag") : t("app.cmd.flag"), run: () => void s.act(ids, cur?.flagged ? "unstar" : "star") },
         { id: cur?.pinned ? "Unpin" : "Pin", label: cur?.pinned ? t("app.cmd.unpin") : t("app.cmd.pin"), run: () => void s.act(ids, cur?.pinned ? "unpin" : "pin") },
       );
-    for (const a of s.accounts) list.push({ id: `Switch to ${a.id}`, label: t("app.cmd.switchTo", { email: a.email }), run: () => void s.setView(s.folder, a.id) });
+    for (const a of s.accounts) list.push({ id: `Switch to ${a.id}`, label: t("app.cmd.switchTo", { email: accountLabel(a).text }), run: () => void s.setView(s.folder, a.id) });
     list.push({ id: "Show all accounts", label: t("app.cmd.showAll"), run: () => void s.setView(s.folder, null) });
     // without an account only Settings, updates and the theme remain
     const byId = new Map(list.map((c) => [c.id, c]));

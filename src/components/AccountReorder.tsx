@@ -2,6 +2,7 @@ import { GripVertical } from "lucide-react";
 import { ReactNode, RefObject, useCallback, useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { accountColor } from "../prefs";
+import { accountLabel } from "../accountLabel";
 import { autoScrollStep, dropIndex, moveAccountTo, stepAccount } from "../accountOrder";
 import { isContextMenuKey } from "../contextMenu";
 import { useT } from "../i18n/react";
@@ -58,7 +59,10 @@ export function useAccountReorder(containerRef: RefObject<HTMLElement | null>) {
   const raf = useRef(0);
   const focusAfter = useRef<string | null>(null);
   const ids = accounts.map((a) => a.id);
-  const label = (id: string) => accounts.find((a) => a.id === id)?.email ?? id;
+  const label = (id: string) => {
+    const a = accounts.find((x) => x.id === id);
+    return a ? accountLabel(a).text : id;
+  };
 
   const items = () => Array.from(containerRef.current?.querySelectorAll<HTMLElement>("[data-reorder-id]") ?? []);
 
@@ -199,7 +203,7 @@ export function useAccountReorder(containerRef: RefObject<HTMLElement | null>) {
         <>
           <div className="reorder-ghost" style={{ left: view.x + 12, top: view.y - 14 }} aria-hidden>
             <span className="dot" style={{ background: accountColor(dragged, accent) }} />
-            <span className="ellipsis">{dragged.email}</span>
+            <span className="ellipsis">{accountLabel(dragged).text}</span>
           </div>
           {view.line && <div className="reorder-line" style={view.line} aria-hidden />}
         </>,

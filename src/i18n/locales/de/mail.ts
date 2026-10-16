@@ -110,4 +110,6 @@ export default defineLocale<typeof ns.en>({
   "mail.acct.drag": "Ziehen, um {email} neu anzuordnen",
   "mail.acct.moved": "{email} an Position {n} von {total} verschoben",
   "mail.acct.cancelled": "Neuanordnung abgebrochen",
+  // the display name of a mailbox for screen readers: name, address
+  "mail.acct.labelAria": "{name}, {email}",
 });

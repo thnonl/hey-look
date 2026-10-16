@@ -118,6 +118,9 @@ export default define({
     "mail.acct.drag": "Drag to reorder {email}",
     "mail.acct.moved": "{email} moved to position {n} of {total}",
     "mail.acct.cancelled": "Reordering cancelled",
+
+    // the display name of a mailbox for screen readers: name, address
+    "mail.acct.labelAria": "{name}, {email}",
   },
   vi: {
     "mail.row.select": "Chọn",
@@ -228,6 +231,9 @@ export default define({
     "mail.acct.drag": "Kéo để sắp xếp lại {email}",
     "mail.acct.moved": "{email} đã chuyển sang vị trí {n}/{total}",
     "mail.acct.cancelled": "Đã hủy sắp xếp lại",
+
+    // the display name of a mailbox for screen readers: name, address
+    "mail.acct.labelAria": "{name}, {email}",
   },
   fr: {
     "mail.row.select": "Sélectionner",
@@ -338,5 +344,8 @@ export default define({
     "mail.acct.drag": "Faire glisser pour réorganiser {email}",
     "mail.acct.moved": "{email} déplacé en position {n} sur {total}",
     "mail.acct.cancelled": "Réorganisation annulée",
+
+    // the display name of a mailbox for screen readers: name, address
+    "mail.acct.labelAria": "{name}, {email}",
   },
 });
