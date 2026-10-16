@@ -154,11 +154,29 @@ pub fn split_mailbox(s: &str) -> (Option<String>, String) {
     (None, t.to_string())
 }
 
+/// The address with its domain in the ASCII form (`user@bücher.example` -> `user@xn--bcher-kva.example`): lettre accepts an
+/// internationalized domain but writes it as it is, and a server without SMTPUTF8 refuses that in RCPT TO and in the headers. A domain
+/// that cannot be converted, or is ASCII already, stays as it is (lettre then judges it).
+pub fn ascii_address(email: &str) -> String {
+    match email.rsplit_once('@') {
+        Some((user, domain)) if !domain.is_ascii() => match idna::domain_to_ascii(domain) {
+            Ok(d) if !d.is_empty() => format!("{user}@{d}"),
+            _ => email.to_string(),
+        },
+        _ => email.to_string(),
+    }
+}
+
+/// The address of an account as lettre holds it (ASCII domain).
+fn account_address(acc: &Account) -> R<Address> {
+    ascii_address(acc.email.trim()).parse::<Address>().map_err(err)
+}
+
 /// Parse a recipient as the interface writes it. Unlike a strict RFC 5322 parse this accepts any display name, and still
 /// rejects an address that is not one.
 pub fn parse_mailbox(s: &str) -> R<Mailbox> {
     let (name, email) = split_mailbox(s);
-    let addr = email.parse::<Address>().map_err(|e| format!("bad address '{s}': {e}"))?;
+    let addr = ascii_address(&email).parse::<Address>().map_err(|e| format!("bad address '{s}': {e}"))?;
     Ok(Mailbox::new(name, addr))
 }
 
@@ -199,8 +217,16 @@ fn draft_message_id(email: &str) -> String {
     format!("<{}@{}>", uuid::Uuid::new_v4().simple(), domain)
 }
 
+/// `<random@domain-of-the-account>` for a message that is SENT: the Message-ID is made here, not left to lettre (which writes the name of this
+/// computer into it) or to the server (the Sent copy would not know it, and a reply to your own mail would have nothing to answer). The same
+/// bytes go to the server and into the Sent folder, so the copy carries the same id. The domain is the account's own address domain (as lettre
+/// holds it: an internationalized domain in its ASCII form), never `localhost` or a host name.
+fn sent_message_id(me: &Address) -> String {
+    format!("<{}@{}>", uuid::Uuid::new_v4().simple(), me.domain())
+}
+
 fn headers(acc: &Account, d: &Draft, lenient: bool) -> R<lettre::message::MessageBuilder> {
-    let me = acc.email.parse::<Address>().map_err(err)?;
+    let me = account_address(acc)?;
     let from = Mailbox::new(Some(acc.display_name.clone()).filter(|n| !n.is_empty()), me.clone());
     let mut b = Message::builder().from(from).subject(d.subject.clone());
     if lenient {
@@ -233,6 +259,7 @@ fn headers(acc: &Account, d: &Draft, lenient: bool) -> R<lettre::message::Messag
             b = b.header(RawBcc(raw(&d.bcc)));
         }
     } else {
+        b = b.message_id(Some(sent_message_id(&me)));
         for t in &d.to {
             b = b.to(mailbox(t)?);
         }
@@ -304,8 +331,9 @@ pub fn calendar_part(method: &str, ics: &str) -> R<SinglePart> {
 
 /// A small iMIP message (reply, update or cancellation): readable text plus the calendar part, from the account to the recipients.
 pub fn build_calendar_mail(acc: &Account, to: &[String], cc: &[String], subject: &str, text: &str, cal: &CalendarPart) -> R<Message> {
-    let from = Mailbox::new(Some(acc.display_name.clone()).filter(|n| !n.is_empty()), acc.email.parse::<Address>().map_err(err)?);
-    let mut b = Message::builder().from(from).subject(subject.to_string());
+    let me = account_address(acc)?;
+    let from = Mailbox::new(Some(acc.display_name.clone()).filter(|n| !n.is_empty()), me.clone());
+    let mut b = Message::builder().from(from).subject(subject.to_string()).message_id(Some(sent_message_id(&me)));
     for t in to {
         b = b.to(mailbox(t)?);
     }
@@ -355,7 +383,7 @@ pub fn build_encrypted(acc: &Account, d: &Draft, lenient: bool, encrypt: &dyn Fn
 
 /// Addresses of every recipient (To, Cc, Bcc) of a draft, for sending a prebuilt message.
 pub fn envelope(acc: &Account, d: &Draft) -> R<lettre::address::Envelope> {
-    let from: Address = acc.email.parse().map_err(err)?;
+    let from = account_address(acc)?;
     let mut to: Vec<Address> = vec![];
     for r in d.to.iter().chain(d.cc.iter()).chain(d.bcc.iter()) {
         to.push(mailbox(r)?.email);
@@ -713,9 +741,66 @@ To:"), "no To header is invented: {out}");
         assert_eq!(crate::draft_thread_id("a1", &raw), Some(crate::thread_id_of("a1", "drafts", &p)));
         assert_eq!(p.refs.first().map(String::as_str), Some("<root@x.org>"));
 
-        // sending is unchanged: no Message-ID is made here (the server writes it)
+        // the message that is sent gets its own, new id (a_sent_message_carries_its_own_message_id)
         let sent = text(&build(&acc, &d).unwrap());
-        assert!(!sent.to_ascii_lowercase().contains("message-id:"), "{sent}");
+        assert_eq!(sent.to_ascii_lowercase().matches("message-id:").count(), 1, "{sent}");
+    }
+
+    fn message_id_of(raw: &[u8]) -> String {
+        let p = mail_parser::MessageParser::default().parse(raw).unwrap();
+        format!("<{}>", p.message_id().expect("a Message-ID"))
+    }
+
+    /// QA round 17, BUG-11 (MA-03 / MA-04): a sent message had no Message-ID, so the Sent copy had none and a reply to your own mail had
+    /// nothing to answer. The id is made here, from the account's domain, once per message.
+    #[test]
+    fn a_sent_message_carries_its_own_message_id() {
+        let acc = account();
+        let d = draft("<p>Hi</p>", vec![], vec![]);
+        let one = build(&acc, &d).unwrap().formatted();
+        let two = build(&acc, &d).unwrap().formatted();
+        let (a, b) = (message_id_of(&one), message_id_of(&two));
+        assert!(a.ends_with("@example.com>") && a.starts_with('<'), "{a}");
+        assert_ne!(a, b, "a new id for every message");
+        let head = String::from_utf8_lossy(&one).to_ascii_lowercase();
+        assert_eq!(head.matches("\r\nmessage-id:").count(), 1, "exactly one Message-ID: {head}");
+        // never the name of this computer
+        if let Ok(host) = std::env::var("COMPUTERNAME").or_else(|_| std::env::var("HOSTNAME")) {
+            if !host.is_empty() && !"example.com".contains(&host.to_lowercase()) {
+                assert!(!head.contains(&host.to_lowercase()), "host name {host} leaked: {head}");
+            }
+        }
+        assert!(!head.contains("localhost"));
+        // the sent message and its Sent copy are the same bytes, so the same id; the app reads it back from the stored copy
+        let p = crate::mail::parse(5, &one, true, false, 0).unwrap();
+        assert_eq!(p.message_id.as_deref(), Some(a.as_str()));
+        // signed and encrypted messages carry it in the outer headers too
+        let signed = build_signed(&acc, &d, false, &|_| Ok(("-----BEGIN PGP SIGNATURE-----".into(), "pgp-sha256".into()))).unwrap().formatted();
+        assert!(message_id_of(&signed).ends_with("@example.com>"));
+        let enc = build_encrypted(&acc, &d, false, &|_| Ok("armored".into())).unwrap().formatted();
+        assert!(message_id_of(&enc).ends_with("@example.com>"));
+        // an internationalized domain is written in its ASCII form (the account's, and a recipient's)
+        let mut idn = account();
+        idn.email = "me@bücher.example".into();
+        assert!(message_id_of(&build(&idn, &d).unwrap().formatted()).ends_with("@xn--bcher-kva.example>"));
+        let mut to_idn = d.clone();
+        to_idn.to = vec!["Büro <user@bücher.example>".into()];
+        let out = build(&acc, &to_idn).unwrap();
+        assert_eq!(out.envelope().to()[0].to_string(), "user@xn--bcher-kva.example", "RCPT TO is ASCII");
+        assert!(String::from_utf8_lossy(&out.formatted()).contains("<user@xn--bcher-kva.example>"));
+        assert_eq!(envelope(&acc, &to_idn).unwrap().to()[0].to_string(), "user@xn--bcher-kva.example");
+        // an iMIP mail has one too
+        let cal = CalendarPart { method: "REPLY".into(), ics: "BEGIN:VCALENDAR\r\nEND:VCALENDAR\r\n".into() };
+        let m = build_calendar_mail(&acc, &["ann@example.com".to_string()], &[], "Accepted", "ok", &cal).unwrap().formatted();
+        assert!(message_id_of(&m).ends_with("@example.com>"));
+        // an answer to a message keeps its own id apart from In-Reply-To / References
+        let mut r = d.clone();
+        r.in_reply_to = Some("<orig@x.org>".into());
+        r.references = vec!["<root@x.org>".into(), "<orig@x.org>".into()];
+        let raw = build(&acc, &r).unwrap().formatted();
+        let p = mail_parser::MessageParser::default().parse(&raw).unwrap();
+        assert_ne!(format!("<{}>", p.message_id().unwrap()), "<orig@x.org>");
+        assert!(String::from_utf8_lossy(&raw).contains("In-Reply-To: <orig@x.org>\r\n"));
     }
 
     #[test]

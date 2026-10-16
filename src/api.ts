@@ -46,6 +46,15 @@ export interface ThreadSummary {
   invite?: "request" | "reply" | "cancel" | null;
 }
 
+/** What an answer to a message needs from the message's own headers (read from the server's copy). */
+export interface ReplyHeaders {
+  messageId: string | null;
+  /** References of the answer: the message's References (else its In-Reply-To) plus its Message-ID, cut to a sensible length */
+  references: string[];
+  /** the Reply-To addresses that are real addresses, as `Name <address>` / `address` */
+  replyTo: string[];
+}
+
 export interface MessageFull {
   id: string;
   accountId: string;
@@ -537,6 +546,7 @@ export const api = {
   saveRule: (rule: Rule) => invoke<void>("save_rule", { rule }),
   deleteRule: (id: string) => invoke<void>("delete_rule", { id }),
   getRaw: (messageId: string) => invoke<string>("get_raw", { messageId }),
+  replyHeaders: (messageId: string) => invoke<ReplyHeaders>("reply_headers", { messageId }),
   saveAttachments: (messageId: string, index?: number) =>
     invoke<string[]>("save_attachments", { messageId, index: index ?? null }),
   attachmentSaveAs: (messageId: string, index: number) =>

@@ -2383,6 +2383,7 @@ dependencies = [
  "fontdue",
  "gtk",
  "hickory-resolver",
+ "idna",
  "imap",
  "keyring",
  "lettre",
