@@ -70,6 +70,146 @@ pub fn is_tls_step_failure(raw: &str) -> bool {
     ["tls", "starttls", "handshake", "wrong version", "ssl"].iter().any(|k| l.contains(k))
 }
 
+pub(crate) const SILENT_TLS: &str = "no answer to the TLS handshake";
+pub(crate) const SILENT_STARTTLS: &str = "no answer to the STARTTLS request";
+
+/// Why a bounded connection probe (`probe_tls_handshake`, `probe_imap_starttls`, and the SMTP one in smtp.rs) gave up.
+pub(crate) enum Probe {
+    /// The server accepted the connection but did not answer in time while the connection was being secured (the text says what
+    /// was waited for: the TLS handshake, or the greeting and the STARTTLS reply).
+    Silent(&'static str),
+    /// The connection itself timed out (the text is the I/O error).
+    ConnectTimedOut(String),
+}
+
+impl Probe {
+    /// The error text: a silent server gets the secure connection hint, a timed out connection the usual connection words, put into
+    /// the caller’s own phrasing by `wrap`.
+    pub(crate) fn explain(self, host: &str, port: u16, wrap: impl Fn(&str) -> String) -> String {
+        match self {
+            Probe::Silent(what) => secure_connection_error(host, port, what),
+            Probe::ConnectTimedOut(e) => wrap(&format!("Connection error: {e}")),
+        }
+    }
+}
+
+/// Run the SSL/TLS handshake once on a socket that has read and write timeouts and throw the result away. A server that accepts the
+/// connection and then stays silent (a plain port, a firewall that swallows packets) is `Probe::Silent`; anything that is not a timeout
+/// (refused, a handshake that failed, an untrusted certificate) is `Ok` and left to the real connection, which words it as before.
+pub(crate) fn probe_tls_handshake(host: &str, port: u16, insecure: bool, timeout: std::time::Duration) -> Result<(), Probe> {
+    use std::net::ToSocketAddrs;
+    let Ok(connector) = native_tls::TlsConnector::builder().danger_accept_invalid_certs(insecure).danger_accept_invalid_hostnames(insecure).build() else { return Ok(()) };
+    let Ok(addrs) = (host, port).to_socket_addrs() else { return Ok(()) };
+    let mut timed_out = None;
+    for addr in addrs {
+        let sock = match std::net::TcpStream::connect_timeout(&addr, timeout) {
+            Ok(s) => s,
+            Err(e) if e.kind() == std::io::ErrorKind::TimedOut => {
+                timed_out = Some(e.to_string());
+                continue;
+            }
+            Err(_) => continue,
+        };
+        let _ = sock.set_read_timeout(Some(timeout));
+        let _ = sock.set_write_timeout(Some(timeout));
+        let started = std::time::Instant::now();
+        return match connector.connect(host, sock) {
+            Ok(mut stream) => {
+                let _ = stream.shutdown();
+                Ok(())
+            }
+            Err(native_tls::HandshakeError::WouldBlock(_)) => Err(Probe::Silent(SILENT_TLS)),
+            Err(native_tls::HandshakeError::Failure(e)) => {
+                use std::error::Error as _;
+                let io_timeout = e.source().and_then(|s| s.downcast_ref::<std::io::Error>()).is_some_and(|io| matches!(io.kind(), std::io::ErrorKind::TimedOut | std::io::ErrorKind::WouldBlock));
+                // platforms word a read that timed out differently, so the time the handshake took counts too
+                if io_timeout || started.elapsed() >= timeout.mul_f32(0.9) { Err(Probe::Silent(SILENT_TLS)) } else { Ok(()) }
+            }
+        };
+    }
+    timed_out.map_or(Ok(()), |e| Err(Probe::ConnectTimedOut(e)))
+}
+
+/// The STARTTLS probe of an IMAP server: the greeting, CAPABILITY and the STARTTLS request are run once on a socket whose reads are
+/// bound by one deadline (`timeout` for all three together), and the result is thrown away. `Probe::Silent` when the server accepts the
+/// connection and then stops answering (a port that waits for the client, such as an implicit TLS port used with STARTTLS, or a
+/// firewall that swallows packets); anything else (a refusal, a reply that is not IMAP, a server without STARTTLS) is `Ok` and left to
+/// the real connection, which words it as before.
+fn probe_imap_starttls(host: &str, port: u16, timeout: std::time::Duration) -> Result<(), Probe> {
+    use std::io::BufRead;
+    use std::net::ToSocketAddrs;
+    let Ok(addrs) = (host, port).to_socket_addrs() else { return Ok(()) };
+    let mut timed_out = None;
+    for addr in addrs {
+        let sock = match std::net::TcpStream::connect_timeout(&addr, timeout) {
+            Ok(s) => s,
+            Err(e) if e.kind() == std::io::ErrorKind::TimedOut => {
+                timed_out = Some(e.to_string());
+                continue;
+            }
+            Err(_) => continue,
+        };
+        let _ = sock.set_write_timeout(Some(timeout));
+        let deadline = std::time::Instant::now() + timeout;
+        let Ok(mut out) = sock.try_clone() else { return Ok(()) };
+        let mut input = std::io::BufReader::new(sock);
+        // The next line (`tag` None) or the next line that starts with `tag`. Err(()): the server did not answer in time.
+        // Ok(None): it went away or sent something that is not text.
+        let read = |input: &mut std::io::BufReader<std::net::TcpStream>, tag: Option<&str>| -> Result<Option<String>, ()> {
+            loop {
+                let left = deadline.saturating_duration_since(std::time::Instant::now());
+                if left.is_zero() {
+                    return Err(());
+                }
+                let _ = input.get_ref().set_read_timeout(Some(left));
+                let mut line = String::new();
+                match input.read_line(&mut line) {
+                    Ok(0) => return Ok(None),
+                    Ok(_) => match tag {
+                        None => return Ok(Some(line)),
+                        Some(t) if line.starts_with(t) => return Ok(Some(line)),
+                        Some(_) => {}
+                    },
+                    Err(e) if matches!(e.kind(), std::io::ErrorKind::TimedOut | std::io::ErrorKind::WouldBlock) => return Err(()),
+                    Err(_) => return Ok(None),
+                }
+            }
+        };
+        let silent = || Err(Probe::Silent(SILENT_STARTTLS));
+        match read(&mut input, None) {
+            Err(()) => return silent(),
+            Ok(Some(g)) if g.starts_with("* OK") => {}
+            _ => return Ok(()),
+        }
+        for (command, tag) in [("hl1 CAPABILITY\r\n", "hl1 "), ("hl2 STARTTLS\r\n", "hl2 ")] {
+            if out.write_all(command.as_bytes()).is_err() {
+                return Ok(());
+            }
+            match read(&mut input, Some(tag)) {
+                Err(()) => return silent(),
+                Ok(Some(r)) if r.starts_with(&format!("{tag}OK")) => {}
+                _ => return Ok(()),
+            }
+        }
+        let _ = out.write_all(b"hl3 LOGOUT\r\n");
+        return Ok(());
+    }
+    timed_out.map_or(Ok(()), |e| Err(Probe::ConnectTimedOut(e)))
+}
+
+/// The connection check of an account being added (and only that: a normal sync does not run it): before the real login the
+/// connection is secured once under `timeout` for the whole of it, so a server that cannot be secured and says nothing gets the secure
+/// connection hint after `timeout`, not the error of a 60 s socket timeout that reads as "the mail server did not respond". These are
+/// the words the SMTP side uses.
+pub fn probe_secure_connection(acc: &Account, timeout: std::time::Duration) -> R<()> {
+    let probed = if acc.imap_ssl {
+        probe_tls_handshake(&acc.imap_host, acc.imap_port, acc.tls_insecure, timeout)
+    } else {
+        probe_imap_starttls(&acc.imap_host, acc.imap_port, timeout)
+    };
+    probed.map_err(|p| p.explain(&acc.imap_host, acc.imap_port, |detail| detail.to_string()))
+}
+
 /// `secret` is the password, or the OAuth access token when `acc.auth` is an `oauth_*` method.
 pub fn connect(acc: &Account, secret: &str) -> R<Sess> {
     connect_with_socket(acc, secret).map(|(s, _)| s)
@@ -120,66 +260,186 @@ pub fn list_folders<T: Read + Write>(s: &mut imap::Session<T>) -> R<Listing> {
     use imap::types::NameAttribute as A;
     let names = s.list(Some(""), Some("*")).map_err(err)?;
     let delimiter = names.iter().find_map(|n| n.delimiter().map(str::to_string));
-    let mut map: HashMap<String, String> = HashMap::new();
-    map.insert("inbox".into(), "INBOX".into());
-    let mut custom: Vec<String> = vec![];
+    let mut entries: Vec<FolderEntry> = vec![];
     for n in names.iter() {
-        let name = n.name().to_string();
-        if name.eq_ignore_ascii_case("INBOX") {
-            continue;
-        }
-        let lower = name.to_lowercase();
-        let mut role: Option<&str> = None;
+        let mut e = FolderEntry { name: n.name().to_string(), delimiter: n.delimiter().map(str::to_string), role: None };
         let mut skip = false;
         for a in n.attributes() {
             match a {
                 A::NoSelect => skip = true,
                 A::Custom(c) => match c.to_lowercase().as_str() {
-                    "\\sent" => role = Some("sent"),
-                    "\\drafts" => role = Some("drafts"),
-                    "\\archive" | "\\all" => role = Some("archive"),
-                    "\\trash" => role = Some("trash"),
-                    "\\junk" => role = Some("junk"),
+                    "\\sent" => e.role = Some("sent"),
+                    "\\drafts" => e.role = Some("drafts"),
+                    "\\archive" | "\\all" => e.role = Some("archive"),
+                    "\\trash" => e.role = Some("trash"),
+                    "\\junk" => e.role = Some("junk"),
                     "\\flagged" | "\\important" => skip = true,
                     _ => {}
                 },
                 _ => {}
             }
         }
-        if skip {
-            continue;
-        }
-        if role.is_none() {
-            let leaf = lower.rsplit(['/', '.']).next().unwrap_or(&lower).to_string();
-            role = match leaf.as_str() {
-                "sent" | "sent items" | "sent mail" | "sent messages" => Some("sent"),
-                "drafts" | "draft" => Some("drafts"),
-                "archive" | "archives" => Some("archive"),
-                "trash" | "deleted items" | "deleted messages" | "bin" => Some("trash"),
-                "junk" | "spam" | "junk e-mail" | "junk email" => Some("junk"),
-                _ => None,
-            };
-        }
-        match role {
-            Some(r) if !map.contains_key(r) => {
-                map.insert(r.to_string(), name);
-            }
-            _ => custom.push(name),
+        if !skip {
+            entries.push(e);
         }
     }
-    for c in custom {
-        map.insert(format!("f:{c}"), c);
-    }
-    Ok(Listing { map, delimiter })
+    Ok(Listing { map: assign_roles(&entries), delimiter })
 }
 
-/// The name to create for a standard role the server lacks, or None for a role that is never created (junk, custom folders).
-/// Archive and Trash use their plain English names. A server that keeps every folder inside the INBOX namespace (`INBOX.Sent`, Courier and
+/// One selectable folder of a LIST answer: its name, the hierarchy delimiter and the role its SPECIAL-USE attribute gives it, if any.
+pub(crate) struct FolderEntry {
+    pub name: String,
+    pub delimiter: Option<String>,
+    pub role: Option<&'static str>,
+}
+
+/// role -> folder name for the standard roles, and `f:<name>` for every other folder. The server's SPECIAL-USE attributes decide first.
+/// A role no attribute names is taken from a folder's name, but only from a name that is a standard one (`role_by_name`) at the top
+/// level or just under the INBOX / Gmail namespace, so `Old/Trash`, `Trash-old` or `Archive 2019` stay folders of the person's own.
+/// When several folders qualify the shallowest wins, then the first listed.
+pub(crate) fn assign_roles(entries: &[FolderEntry]) -> HashMap<String, String> {
+    let mut map: HashMap<String, String> = HashMap::new();
+    map.insert("inbox".into(), "INBOX".into());
+    let mut taken = vec![false; entries.len()];
+    let mut pending = vec![];
+    for (i, e) in entries.iter().enumerate() {
+        if e.name.eq_ignore_ascii_case("INBOX") {
+            taken[i] = true;
+        } else if let Some(r) = e.role {
+            if !map.contains_key(r) {
+                map.insert(r.to_string(), e.name.clone());
+                taken[i] = true;
+            }
+        } else {
+            pending.push(i);
+        }
+    }
+    for r in ROLES.iter().copied().filter(|r| *r != "inbox") {
+        if map.contains_key(r) {
+            continue;
+        }
+        let best = pending.iter().copied().filter(|i| !taken[*i]).filter_map(|i| role_by_name(&entries[i].name, entries[i].delimiter.as_deref()).filter(|(role, _)| *role == r).map(|(_, depth)| (depth, i))).min();
+        if let Some((_, i)) = best {
+            map.insert(r.to_string(), entries[i].name.clone());
+            taken[i] = true;
+        }
+    }
+    for (i, e) in entries.iter().enumerate() {
+        if !taken[i] {
+            map.insert(format!("f:{}", e.name), e.name.clone());
+        }
+    }
+    map
+}
+
+/// The role a folder name stands for when the server flags none, and how deep the folder is (1 = top level, 2 = under a namespace
+/// folder). Only a whole name counts: the standard English names and the well-known ones of other languages, case-insensitive, with
+/// the accents and the modified UTF-7 of IMAP (`&AOk-` for `é`) taken out of the way. A folder that is deeper than the namespace
+/// level, or has anything more in its name (`Trash-old`, `Archive 2019`), is none of them.
+fn role_by_name(name: &str, delimiter: Option<&str>) -> Option<(&'static str, usize)> {
+    let name = decode_imap_utf7(name);
+    let parts: Vec<&str> = match delimiter {
+        Some(d) if !d.is_empty() => name.split(d).collect(),
+        _ => vec![name.as_str()],
+    };
+    let depth = match parts.as_slice() {
+        [_] => 1,
+        [ns, _] if ["inbox", "[gmail]", "[google mail]"].contains(&ns.to_lowercase().as_str()) => 2,
+        _ => return None,
+    };
+    let leaf = parts.last()?.trim().to_lowercase();
+    let role = match leaf.as_str() {
+        // English
+        "sent" | "sent items" | "sent mail" | "sent messages" => "sent",
+        "drafts" | "draft" => "drafts",
+        "archive" | "archives" => "archive",
+        "trash" | "deleted items" | "deleted messages" | "bin" => "trash",
+        "junk" | "spam" | "junk e-mail" | "junk email" => "junk",
+        // German
+        "gesendet" | "gesendete elemente" | "gesendete objekte" => "sent",
+        "entwürfe" => "drafts",
+        "archiv" => "archive",
+        "papierkorb" | "gelöschte elemente" | "gelöschte objekte" => "trash",
+        "junk-e-mail" => "junk",
+        // French
+        "envoyés" | "éléments envoyés" | "messages envoyés" => "sent",
+        "brouillons" => "drafts",
+        "corbeille" | "éléments supprimés" => "trash",
+        "courrier indésirable" | "pourriel" => "junk",
+        // Spanish
+        "enviados" | "elementos enviados" => "sent",
+        "borradores" => "drafts",
+        "archivo" => "archive",
+        "papelera" | "elementos eliminados" => "trash",
+        "correo no deseado" => "junk",
+        // Italian
+        "posta inviata" | "inviati" => "sent",
+        "bozze" => "drafts",
+        "archivio" => "archive",
+        "cestino" | "posta eliminata" => "trash",
+        "posta indesiderata" => "junk",
+        // Portuguese
+        "itens enviados" | "enviadas" => "sent",
+        "rascunhos" => "drafts",
+        "arquivo morto" => "archive",
+        "lixeira" | "itens excluídos" => "trash",
+        "lixo eletrônico" => "junk",
+        // Vietnamese
+        "thư đã gửi" => "sent",
+        "thư nháp" => "drafts",
+        "thùng rác" => "trash",
+        "thư rác" => "junk",
+        _ => return None,
+    };
+    Some((role, depth))
+}
+
+/// IMAP folder names are in modified UTF-7 (RFC 3501 5.1.3): `&` starts a run of UTF-16 in base64 (with `,` for `/`) that `-` ends, and
+/// `&-` is a plain `&`. Used only to compare a name; a run that does not decode is left as it was.
+fn decode_imap_utf7(s: &str) -> String {
+    use base64::Engine;
+    if !s.contains('&') {
+        return s.to_string();
+    }
+    let mut parts = s.split('&');
+    let mut out = parts.next().unwrap_or("").to_string();
+    for part in parts {
+        let Some(end) = part.find('-') else {
+            out.push('&');
+            out.push_str(part);
+            continue;
+        };
+        let (run, rest) = (&part[..end], &part[end + 1..]);
+        if run.is_empty() {
+            out.push('&');
+        } else {
+            let decoded = base64::engine::general_purpose::STANDARD_NO_PAD
+                .decode(run.replace(',', "/"))
+                .ok()
+                .filter(|b| b.len() % 2 == 0)
+                .and_then(|b| String::from_utf16(&b.chunks(2).map(|c| u16::from_be_bytes([c[0], c[1]])).collect::<Vec<_>>()).ok());
+            match decoded {
+                Some(text) => out.push_str(&text),
+                None => {
+                    out.push('&');
+                    out.push_str(run);
+                    out.push('-');
+                }
+            }
+        }
+        out.push_str(rest);
+    }
+    out
+}
+
+/// The name to create for a standard role the server lacks, or None for a role that is never created (drafts, junk, custom folders).
+/// Archive, Trash and Sent (for the copy of a sent message) use their plain English names. A server that keeps every folder inside the INBOX namespace (`INBOX.Sent`, Courier and
 /// older Dovecot setups) gets `INBOX.Archive`: a top-level folder is refused there.
 pub fn name_to_create(role: &str, listing: &Listing) -> Option<String> {
     let leaf = match role {
         "archive" => "Archive",
         "trash" => "Trash",
+        "sent" => "Sent",
         _ => return None,
     };
     let in_inbox_namespace = listing.delimiter.as_deref().is_some_and(|d| {
@@ -702,7 +962,7 @@ pub fn delete_forever<T: Read + Write>(s: &mut imap::Session<T>, src: &str, uids
     Ok(())
 }
 
-pub fn append(s: &mut Sess, folder: &str, raw: &[u8], draft: bool) -> R<()> {
+pub fn append<T: Read + Write>(s: &mut imap::Session<T>, folder: &str, raw: &[u8], draft: bool) -> R<()> {
     let flags: Vec<imap::types::Flag> = if draft {
         vec![imap::types::Flag::Seen, imap::types::Flag::Draft]
     } else {
@@ -1032,3 +1292,97 @@ Content-Type: text/html; charset=utf-8
         assert!(!is_confidential(b"From: a@example.com\r\n\r\nSensitivity: Confidential\r\n"));
     }
 }
+#[cfg(test)]
+mod folder_role_tests {
+    use super::*;
+
+    fn entry(name: &str, delimiter: &str, role: Option<&'static str>) -> FolderEntry {
+        FolderEntry { name: name.into(), delimiter: Some(delimiter.into()), role }
+    }
+
+    fn roles(entries: &[FolderEntry]) -> Vec<(String, String)> {
+        let mut v: Vec<_> = assign_roles(entries).into_iter().collect();
+        v.sort();
+        v
+    }
+
+    fn role_of(map: &HashMap<String, String>, folder: &str) -> Option<String> {
+        map.iter().find(|(_, v)| v.as_str() == folder).map(|(k, _)| k.clone())
+    }
+
+    #[test]
+    fn only_a_whole_standard_name_counts() {
+        let map = assign_roles(
+            &["Sent", "Drafts", "Archives", "Trash", "Spam"].map(|n| entry(n, "/", None)),
+        );
+        for (role, folder) in [("sent", "Sent"), ("drafts", "Drafts"), ("archive", "Archives"), ("trash", "Trash"), ("junk", "Spam")] {
+            assert_eq!(map.get(role).map(String::as_str), Some(folder));
+        }
+        // lookalikes: a prefix or suffix, another folder's subfolder, a longer name
+        let map = assign_roles(
+            &["Trash-old", "Archive 2019", "Sent Items 2018", "Old/Trash", "Work/Drafts", "a/b/Archive", "Spam folder", "Junkyard"].map(|n| entry(n, "/", None)),
+        );
+        for role in ["sent", "drafts", "archive", "trash", "junk"] {
+            assert!(!map.contains_key(role), "{role} was taken from a lookalike: {map:?}");
+        }
+        assert_eq!(map.len(), 1 + 8, "INBOX and the eight folders of the person");
+        assert!(map.contains_key("f:Trash-old") && map.contains_key("f:Archive 2019") && map.contains_key("f:Old/Trash"));
+    }
+
+    #[test]
+    fn the_servers_flags_win_over_names_and_over_the_order_of_the_list() {
+        // `Archive` is listed first, but the server says `Archives` is the archive; `Bin` has no flag, `Deleted` is the flagged trash
+        let map = assign_roles(&[entry("Archive", "/", None), entry("Archives", "/", Some("archive")), entry("Bin", "/", None), entry("Deleted", "/", Some("trash"))]);
+        assert_eq!(map.get("archive").map(String::as_str), Some("Archives"));
+        assert_eq!(map.get("trash").map(String::as_str), Some("Deleted"));
+        assert!(map.contains_key("f:Archive") && map.contains_key("f:Bin"), "the unflagged names stay folders: {map:?}");
+        // two flagged for one role: the first, as before; the other is a folder
+        let map = assign_roles(&[entry("[Gmail]/All Mail", "/", Some("archive")), entry("Old", "/", Some("archive"))]);
+        assert_eq!(map.get("archive").map(String::as_str), Some("[Gmail]/All Mail"));
+        assert!(map.contains_key("f:Old"));
+    }
+
+    #[test]
+    fn the_namespace_level_counts_and_the_top_level_goes_first() {
+        let r = |names: &[&str], d: &str| {
+            let map = assign_roles(&names.iter().map(|n| entry(n, d, None)).collect::<Vec<_>>());
+            ["sent", "trash", "archive"].map(|k| map.get(k).cloned())
+        };
+        assert_eq!(r(&["INBOX.Sent", "INBOX.Trash", "INBOX.Archive"], "."), [Some("INBOX.Sent".into()), Some("INBOX.Trash".into()), Some("INBOX.Archive".into())]);
+        assert_eq!(r(&["[Gmail]/Sent Mail", "[Gmail]/Trash"], "/"), [Some("[Gmail]/Sent Mail".into()), Some("[Gmail]/Trash".into()), None]);
+        // a top-level folder beats one in the namespace, whatever the order
+        assert_eq!(r(&["INBOX.Trash", "Trash"], "."), [None, Some("Trash".into()), None]);
+        // the delimiter of the server decides what a subfolder is: a dot in a name on a slash server is just a character
+        assert_eq!(r(&["Old.Trash"], "/"), [None, None, None]);
+        assert_eq!(r(&["Old/Trash"], "."), [None, None, None]);
+        // case does not matter
+        assert_eq!(r(&["TRASH", "sent"], "/"), [Some("sent".into()), Some("TRASH".into()), None]);
+    }
+
+    #[test]
+    fn standard_names_in_other_languages_and_in_modified_utf7_are_found() {
+        for (name, role) in [
+            ("Papierkorb", "trash"),
+            ("Gesendete Elemente", "sent"),
+            ("Entw&APw-rfe", "drafts"),
+            ("Corbeille", "trash"),
+            ("&AMk-l&AOk-ments envoy&AOk-s", "sent"),
+            ("Courrier ind&AOk-sirable", "junk"),
+            ("Brouillons", "drafts"),
+            ("Papelera", "trash"),
+            ("Thùng rác", "trash"),
+            ("Th&AbA- nh&AOE-p", "drafts"),
+        ] {
+            let map = assign_roles(&[entry(name, "/", None)]);
+            assert_eq!(role_of(&map, name).as_deref(), Some(role), "{name}: {map:?}");
+        }
+        // the same words with something added are the person's own
+        assert_eq!(role_of(&assign_roles(&[entry("Papierkorb alt", "/", None)]), "Papierkorb alt").as_deref(), Some("f:Papierkorb alt"));
+        assert_eq!(decode_imap_utf7("a&-b"), "a&b");
+        assert_eq!(decode_imap_utf7("&AOk-"), "é");
+        assert_eq!(decode_imap_utf7("&broken"), "&broken");
+        assert_eq!(decode_imap_utf7("&!!!-x"), "&!!!-x");
+        assert_eq!(roles(&[]), vec![("inbox".to_string(), "INBOX".to_string())]);
+    }
+}
+

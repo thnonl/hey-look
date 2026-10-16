@@ -236,16 +236,31 @@ jobs:
           node --experimental-strip-types scripts/test-update-result.mjs
           node --experimental-strip-types scripts/test-sticky-timers.mjs
           node --experimental-strip-types scripts/test-open-thread.mjs
+          node --experimental-strip-types scripts/test-read-intent.mjs
           node --experimental-strip-types scripts/test-list-limit-footer.mjs
           node --experimental-strip-types scripts/test-link-copy.mjs
           node --experimental-strip-types scripts/test-backfill-line.mjs
           node --experimental-strip-types scripts/test-about-links.mjs
           node --experimental-strip-types scripts/test-mail-canvas.mjs
           node --experimental-strip-types scripts/test-calendar-sync.mjs
+          node --experimental-strip-types scripts/test-datetime-fields.mjs
           node --experimental-strip-types scripts/test-i18n.mjs
+          node --experimental-strip-types scripts/test-i18n-tools.mjs
+          node --experimental-strip-types scripts/test-boot-lang.mjs
+          node --experimental-strip-types scripts/i18n-status.mjs
+          node --experimental-strip-types scripts/i18n-status.mjs --strict --lang=vi
+          node --experimental-strip-types scripts/i18n-status.mjs --strict --lang=fr
+          node --experimental-strip-types scripts/i18n-status.mjs --strict --lang=zh-Hans
+          node --experimental-strip-types scripts/i18n-status.mjs --strict --lang=es
+          node --experimental-strip-types scripts/i18n-status.mjs --strict --lang=ja
+          node --experimental-strip-types scripts/i18n-status.mjs --strict --lang=de
+          node --experimental-strip-types scripts/i18n-status.mjs --strict --lang=ru
           node --experimental-strip-types scripts/test-language-switcher.mjs
           node --experimental-strip-types scripts/test-sign-in.mjs
           node --experimental-strip-types scripts/test-popover-menu.mjs
+          node --experimental-strip-types scripts/test-support-nudge.mjs
+          node scripts/test-site-languages.mjs
+          node --experimental-strip-types scripts/test-site-commands.mjs
 
       # macOS code signing + notarisation (owner steps: CONTRIBUTING.md > Signing and notarisation). Only when the three certificate
       # secrets exist and this is not a test build; otherwise nothing changes: no APPLE_* variable is set (an EMPTY variable is not an

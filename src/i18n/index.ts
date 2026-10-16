@@ -1,30 +1,37 @@
 // UI translations: t("some.key", { name }) -> text in the chosen language.
 //
-//   - dictionaries: ns/*.ts (one file per feature area, English / Vietnamese / French side by side), gathered by en.ts / vi.ts / fr.ts.
-//     A key missing in vi or fr (or an extra one) fails `tsc`; scripts/test-i18n.mjs also compares the {placeholders}.
+//   - dictionaries: ns/*.ts (one file per feature area, English / Vietnamese / French side by side), gathered by en.ts / vi.ts / fr.ts;
+//     every later language has its own folder locales/<code>/ (one file per area, gathered by its index.ts).
+//     A key missing in a language (or an extra one) fails `tsc`; scripts/test-i18n.mjs also compares the {placeholders} and plural forms.
 //   - `t` is a plain function so non-React code (store, toasts, helpers) can use it. A component calls `useT()` (./react.ts) once, which
 //     re-renders it when the language changes; module-level helpers called while rendering use `t` directly.
-//   - the language comes from the Language setting (prefs.language): English (the default), Vietnamese or French; the OS language is not used.
+//   - the language comes from the Language setting (prefs.language): English (the default) or any language of the registry; the OS language is not used.
 //   - `en-XA` is a pseudo-locale (dev builds only): English made longer, accented and in brackets, to show text that is not translated
 //     or does not fit.
 // This file must stay loadable by `node --experimental-strip-types` (no JSX, no enums, imports with extension).
 import { en } from "./en.ts";
 import { vi } from "./vi.ts";
 import { fr } from "./fr.ts";
+import { zhHans } from "./locales/zh-Hans/index.ts";
+import { es } from "./locales/es/index.ts";
+import { ja } from "./locales/ja/index.ts";
+import { de } from "./locales/de/index.ts";
+import { ru } from "./locales/ru/index.ts";
 import { LANGUAGES } from "./languages.ts";
 import type { Language } from "./languages.ts";
 import type { Lang, LangPref, Msg, Params } from "./types.ts";
 
 export type { Lang, LangPref, Msg, Params } from "./types.ts";
 export { LANGUAGES } from "./languages.ts";
-export type { Language } from "./languages.ts";
+export type { Language, DateFormat, PluralCategory } from "./languages.ts";
 export type Key = keyof typeof en;
 
 /** The languages every language control offers (header menu, Welcome screen, Settings), in registry order; names in their own language. */
 export const LANGS: readonly (Language & { code: Lang })[] = [...LANGUAGES].sort((a, b) => a.sortOrder - b.sortOrder);
 export const PSEUDO = "en-XA";
 
-const DICTS: Record<Lang, Record<string, Msg>> = { en, vi, fr };
+// A language in the registry without a dictionary here fails `tsc`.
+const DICTS: Record<Lang, Record<string, Msg>> = { en, vi, fr, "zh-Hans": zhHans, es, ja, de, ru };
 /** Tag for Intl / toLocaleString: numbers, dates, time zone names. */
 const INTL = Object.fromEntries(LANGUAGES.map((l) => [l.code, l.intl])) as Record<Lang, string>;
 /** True for the code of a language in the registry. */
@@ -57,7 +64,7 @@ export function setLangPref(pref: LangPref | string | undefined): void {
   lang = next;
   pseudo = wantPseudo;
   version++;
-  if (typeof document !== "undefined") document.documentElement.lang = pseudo ? "en-XA" : lang;
+  if (typeof document !== "undefined") document.documentElement.lang = pseudo ? "en-XA" : lang; // the registry code is the BCP 47 tag (zh-Hans, ja ...): the CSS :lang() font stacks read it
   listeners.forEach((l) => l());
 }
 export const subscribeLang = (l: () => void): (() => void) => {
@@ -74,12 +81,16 @@ export const intlLocale = (): string => INTL[lang];
 // ---- translating --------------------------------------------------------------------------------------------------------------
 const PLACEHOLDER = /\{(\w+)\}/g;
 
-function pick(m: Msg, params: Params | undefined, language: Lang): string {
+const PLURAL_RULES = Object.fromEntries(LANGUAGES.map((l) => [l.code, new Intl.PluralRules(l.intl)])) as Record<Lang, Intl.PluralRules>;
+
+/** The text of a message for the count `n` in a language: a plain string as it is, a plural by CLDR category (Intl.PluralRules), `other` when a form is missing. */
+export function pickPlural(m: Msg, n: number, language: Lang): string {
   if (typeof m === "string") return m;
-  const n = Number(params?.n);
-  const cat = new Intl.PluralRules(INTL[language]).select(Number.isFinite(n) ? n : 1);
-  return cat === "one" ? m.one : m.other;
+  const cat = PLURAL_RULES[language].select(Number.isFinite(n) ? n : 1);
+  return m[cat] ?? m.other; // a form the language does not write (French "many" for millions, Spanish "many") is `other`
 }
+
+const pick = (m: Msg, params: Params | undefined, language: Lang): string => pickPlural(m, Number(params?.n), language);
 
 /** Text for `key` in the current language with `{name}` filled from `params`; a plural message uses `params.n`. */
 export function t(key: Key, params?: Params): string {

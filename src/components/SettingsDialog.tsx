@@ -9,6 +9,7 @@ import { ACCENT_PRESETS, ACCOUNT_PALETTE, accountColor, DEFAULT_PREFS, eff, fold
 import { friendlyError, useStore } from "../store";
 import { credStore, kbd, riskyHint, usePlatform } from "../platform";
 import { systemTz } from "../calendar";
+import { setEnabled as setNudgeEnabled } from "../supportNudge";
 import { fmtDay, fmtFpr, shortKey } from "../util";
 import { AppearancePreview } from "./AppearancePreview";
 import { RichEditor } from "./RichEditor";
@@ -175,6 +176,9 @@ function GeneralTab() {
         <select value={prefs.timeFormat} onChange={(e) => set("timeFormat", e.target.value as Prefs["timeFormat"])}>
           <option value="24">{t("settings.general.time24")}</option><option value="12">{t("settings.general.time12")}</option>
         </select>
+      </Row>
+      <Row label={t("settings.general.supportReminder")} hint={t("settings.general.supportReminderHint")}>
+        <Switch checked={prefs.supportNudge.enabled} onChange={(v) => set("supportNudge", setNudgeEnabled(prefs.supportNudge, v, Date.now()))} ariaLabel={t("settings.general.supportReminder")} />
       </Row>
       <h4>{t("settings.general.calendar")}</h4>
       <Row label={t("settings.general.weekStart")}>

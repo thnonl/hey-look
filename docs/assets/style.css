@@ -95,7 +95,8 @@ kbd { font: 600 .78em/1.5 var(--mono); background: var(--bg2); color: var(--fg);
 .nav a:hover { background: var(--bg3); }
 .nav a[aria-current="page"] { box-shadow: inset 0 -3px 0 var(--solid); }
 .hdr-r { margin-left: auto; display: flex; align-items: center; gap: 4px; }
-.hdr-dl { margin-left: 6px; }
+.hdr-dl { margin-left: 6px; white-space: nowrap; }
+.hdr-r { flex: none; } /* the button cluster keeps its size; the nav collapses (below) before anything is squeezed */
 .nav-toggle { display: none; }
 #theme-btn .i-sun, #theme-btn .i-moon { display: none; }
 [data-pref="light"] #theme-btn .i-auto, [data-pref="dark"] #theme-btn .i-auto { display: none; }
@@ -104,6 +105,21 @@ kbd { font: 600 .78em/1.5 var(--mono); background: var(--bg2); color: var(--fg);
 #motion-btn { width: auto; min-width: 44px; padding: 0 10px; }
 #motion-btn .m-lbl { font-size: .8rem; font-weight: 600; margin-left: 6px; white-space: nowrap; }
 @media (max-width: 1180px) { #motion-btn { width: 44px; padding: 0; } #motion-btn .m-lbl { display: none; } }
+/* language menu: a <details> of plain links, so it works without JavaScript */
+.lang { position: relative; }
+.lang > summary { list-style: none; display: inline-flex; align-items: center; justify-content: center; gap: 6px; min-width: 44px; height: 44px; padding: 0 10px; border-radius: 12px; cursor: pointer; color: var(--fg); font: 700 .8rem var(--font); letter-spacing: .04em; }
+.lang > summary::-webkit-details-marker { display: none; }
+.lang > summary:hover, .lang[open] > summary { background: var(--bg3); }
+.brand, .nav a { white-space: nowrap; }
+@media (max-width: 420px) { .hdr-in { gap: 8px; } .hdr-r { gap: 2px; } .hdr-dl { margin-left: 2px; } }
+@media (max-width: 350px) { .brand span { display: none; } }
+@media (max-width: 1180px) { .lang-cur { display: none; } .lang > summary { padding: 0; } .nav { margin-left: 6px; } .nav a { padding-inline: 8px; } }
+.lang-menu { position: absolute; right: 0; top: calc(100% + 8px); z-index: 120; margin: 0; padding: 6px; list-style: none; width: max-content; min-width: 200px; max-width: calc(100vw - 24px); background: var(--bg); border: 1px solid var(--line); border-radius: 14px; box-shadow: var(--shadow); }
+@media (max-width: 980px) { .lang { position: static; } .lang-menu { right: 12px; top: calc(100% + 6px); } } /* the menu hangs from the header, so it never leaves the screen */
+.lang-menu a { display: flex; align-items: center; justify-content: space-between; gap: 14px; min-height: 44px; padding: 8px 12px; border-radius: 10px; color: var(--fg); text-decoration: none; font-weight: 600; }
+.lang-menu a:hover { background: var(--bg3); }
+.lang-menu a[aria-current="true"] { background: var(--bg3); box-shadow: inset 3px 0 0 var(--solid); }
+.lang-menu a[aria-current="true"]::after { content: "\2713"; color: var(--accent-text); font-weight: 800; }
 #motion-btn .m-off { display: none; }
 #motion-btn[aria-pressed="true"] .m-on { display: none; }
 #motion-btn[aria-pressed="true"] .m-off { display: block; }
@@ -138,13 +154,13 @@ section { position: relative; }
 .hero { padding-block: clamp(16px, 2.4vw, 32px) clamp(20px, 2.4vw, 32px); overflow: hidden; }
 .hero-grid { display: grid; grid-template-columns: minmax(0, 7fr) minmax(0, 5fr); gap: clamp(28px, 4vw, 72px); align-items: center; }
 .hero-h { font-size: clamp(2.6rem, .8rem + 7.4vw, 5.2rem); line-height: .88; letter-spacing: -.062em; font-weight: 850; margin: 0 0 clamp(18px, 2.4vw, 32px); }
-.hl { display: block; overflow: hidden; padding: 0 0 .1em; margin-bottom: -.1em; }
+.hl { display: block; overflow: hidden; padding: .14em 0 .24em; margin: -.14em 0 -.24em; } /* padding and negative margin cancel out (layout unchanged) but keep ascenders and descenders (g, y, accents) inside the clip box */
 .hl > span { display: inline-block; animation: rise 1s var(--ease) both; }
 .hl2 > span { animation-delay: .1s; }
 .hl3 > span { animation-delay: .2s; white-space: nowrap; }
 @keyframes rise { from { transform: translateY(105%); } }
-.swap { display: inline-grid; vertical-align: top; position: relative; margin-left: -.02em; padding: .04em .28em .17em .66em; color: var(--on-solid); background: radial-gradient(circle at .34em 50%, var(--bg) 0 .075em, transparent .08em), var(--solid); clip-path: polygon(.5em 0, 100% 0, 100% 100%, .5em 100%, 0 50%); transition: width .55s var(--ease); line-height: 1; }
-.sw-w { grid-area: 1 / 1; display: flex; width: max-content; justify-self: start; overflow: hidden; visibility: hidden; padding: .06em 0 .14em; margin: -.06em 0 -.14em; }
+.swap { display: inline-grid; vertical-align: top; position: relative; margin-left: 0; padding: .04em .2em .17em .66em; color: var(--on-solid); background: radial-gradient(circle at .34em 50%, var(--bg) 0 .075em, transparent .08em), var(--solid); clip-path: polygon(.5em 0, 100% 0, 100% 100%, .5em 100%, 0 50%); transition: width .55s var(--ease); line-height: 1; }
+.sw-w { grid-area: 1 / 1; display: flex; width: max-content; justify-self: start; overflow: hidden; visibility: hidden; padding: .06em .08em .17em 0; margin: -.06em 0 -.17em; } /* the right padding is taken from the tag's own (.swap), so its size is unchanged, but the negative letter-spacing no longer shaves the last letter */
 .sw-w.on, .sw-w.out { visibility: visible; }
 .sw-w i { display: inline-block; font-style: normal; transform: translateY(115%); transition: transform .6s var(--ease); }
 .sw-w.on i { transform: none; }
@@ -509,6 +525,7 @@ button.r-btn:hover { background: var(--a-bg3); }
 
 /* ---------- features page ---------- */
 .layout { display: grid; grid-template-columns: 230px minmax(0, 1fr); gap: clamp(24px, 4vw, 64px); padding-block: clamp(28px, 4vw, 56px) clamp(48px, 7vw, 100px); align-items: start; }
+.layout > * { min-width: 0; } /* a grid item defaults to min-width:auto, so a long word or a wide table would stretch the whole page */
 .toc { position: sticky; top: 88px; font-size: .95rem; }
 .toc h2 { font: 700 .74rem var(--mono); letter-spacing: .14em; text-transform: uppercase; color: var(--muted); margin-bottom: 12px; }
 .toc ol { list-style: none; margin: 0; padding: 0; display: grid; gap: 2px; border-left: 2px solid var(--line); }
@@ -535,7 +552,7 @@ button.r-btn:hover { background: var(--a-bg3); }
 .dl-card.rec { box-shadow: 8px 8px 0 var(--solid); }
 .rec-b { display: none; position: absolute; top: -14px; left: 18px; background: var(--amber); color: #2a1a00; font: 800 .74rem var(--mono); letter-spacing: .1em; text-transform: uppercase; padding: 4px 12px; border-radius: 999px; }
 .dl-card.rec .rec-b { display: block; }
-.asset { display: grid; gap: 3px; } .asset .btn { justify-content: flex-start; } .asset .fn { font: .76rem var(--mono); color: var(--muted); overflow-wrap: anywhere; margin: 0; max-width: none; } .asset .sz { color: var(--muted); }
+.asset { display: grid; gap: 4px; } .asset .btn { margin-bottom: 6px; } .asset .btn { justify-content: flex-start; } .asset .fn { font: .76rem var(--mono); color: var(--muted); overflow-wrap: anywhere; margin: 0; max-width: none; } .asset .sz { color: var(--muted); }
 .dl-card details { border-top: 2px dashed var(--line); padding-top: 10px; }
 summary { cursor: pointer; font-weight: 700; min-height: 32px; display: flex; align-items: center; }
 details ol { padding-left: 1.2em; } details li { margin-bottom: .5em; }
@@ -605,7 +622,7 @@ details ol { padding-left: 1.2em; } details li { margin-bottom: .5em; }
   .lg-grid { grid-template-columns: 1fr; }
   .mk-grid { grid-template-columns: 1fr; } .mk-view { position: static; }
   .dl-grid, .steps3, .help-grid { grid-template-columns: minmax(0, 1fr); }
-  .layout { grid-template-columns: 1fr; } .toc { position: static; } .toc ol { grid-template-columns: repeat(auto-fill, minmax(190px, 1fr)); border-left: 0; gap: 0 18px; } .toc a { border-left: 0; padding-left: 0; }
+  .layout { grid-template-columns: minmax(0, 1fr); } .toc { position: static; } .toc ol { grid-template-columns: repeat(auto-fill, minmax(190px, 1fr)); border-left: 0; gap: 0 18px; } .toc a { border-left: 0; padding-left: 0; }
   .ftr-grid { grid-template-columns: 1fr 1fr; }
 }
 @media (max-width: 900px) {
@@ -620,12 +637,40 @@ details ol { padding-left: 1.2em; } details li { margin-bottom: .5em; }
   .nav.open { display: flex; } .nav a { padding: 13px 10px; font-size: 1.05rem; }
   .nav-toggle { display: inline-flex; }
   .hdr-dl span { display: none; } .hdr-dl { padding-inline: .7em; min-width: 44px; }
+  .hdr-r { flex: 0 1 auto; }
+}
+/* Languages with longer nav words: the compact header (icon-only motion and language buttons, tighter nav) also applies above 1180px, and the menu button takes over from the nav earlier than 980px, so the nav never crowds the Download button. The widths come from measuring each language with ~40px to spare. */
+@media (min-width: 981px) {
+  :is(:lang(vi), :lang(ru), :lang(de), :lang(es)) #motion-btn { width: 44px; padding: 0; } :is(:lang(vi), :lang(ru), :lang(de), :lang(es)) #motion-btn .m-lbl { display: none; }
+  :is(:lang(vi), :lang(ru), :lang(de), :lang(es)) .lang-cur { display: none; } :is(:lang(vi), :lang(ru), :lang(de), :lang(es)) .lang > summary { padding: 0; }
+  :is(:lang(vi), :lang(ru), :lang(de), :lang(es)) .nav { margin-left: 6px; } :is(:lang(vi), :lang(ru), :lang(de), :lang(es)) .nav a { padding-inline: 8px; }
+}
+@media (min-width: 981px) and (max-width: 995px) {
+  :lang(fr) .nav { display: none; position: absolute; left: 0; right: 0; top: 100%; flex-direction: column; margin: 0; padding: 10px 16px 16px; background: var(--bg); border-bottom: 1px solid var(--line); box-shadow: var(--shadow); }
+  :lang(fr) .nav.open { display: flex; } :lang(fr) .nav a { padding: 13px 10px; font-size: 1.05rem; }
+  :lang(fr) .nav-toggle { display: inline-flex; }
+}
+@media (min-width: 981px) and (max-width: 1040px) {
+  :lang(es) .nav { display: none; position: absolute; left: 0; right: 0; top: 100%; flex-direction: column; margin: 0; padding: 10px 16px 16px; background: var(--bg); border-bottom: 1px solid var(--line); box-shadow: var(--shadow); }
+  :lang(es) .nav.open { display: flex; } :lang(es) .nav a { padding: 13px 10px; font-size: 1.05rem; }
+  :lang(es) .nav-toggle { display: inline-flex; }
+}
+@media (min-width: 981px) and (max-width: 1090px) {
+  :is(:lang(ru), :lang(de)) .nav { display: none; position: absolute; left: 0; right: 0; top: 100%; flex-direction: column; margin: 0; padding: 10px 16px 16px; background: var(--bg); border-bottom: 1px solid var(--line); box-shadow: var(--shadow); }
+  :is(:lang(ru), :lang(de)) .nav.open { display: flex; } :is(:lang(ru), :lang(de)) .nav a { padding: 13px 10px; font-size: 1.05rem; }
+  :is(:lang(ru), :lang(de)) .nav-toggle { display: inline-flex; }
+}
+@media (min-width: 981px) and (max-width: 1120px) {
+  :lang(vi) .nav { display: none; position: absolute; left: 0; right: 0; top: 100%; flex-direction: column; margin: 0; padding: 10px 16px 16px; background: var(--bg); border-bottom: 1px solid var(--line); box-shadow: var(--shadow); }
+  :lang(vi) .nav.open { display: flex; } :lang(vi) .nav a { padding: 13px 10px; font-size: 1.05rem; }
+  :lang(vi) .nav-toggle { display: inline-flex; }
 }
 @media (max-width: 560px) {
   .ftr-grid { grid-template-columns: 1fr; }
   .pl { grid-template-columns: 48px 1fr; } .pl .btn { grid-column: 1 / -1; } .pl-i { width: 48px; height: 48px; }
   .hero-cta .btn { width: 100%; }
   .receipt { width: 92%; }
+  .receipt > .stamp { right: -2%; } /* keeps the rotated stamp inside the screen */
 }
 
 /* ---------- reduced motion / animations off ---------- */
@@ -730,3 +775,31 @@ details.hq[open] > summary::after { transform: translateY(-30%) rotate(-135deg);
 .bank-card img { display: block; width: 100%; height: auto; border: 2px solid var(--line); border-radius: 12px; background: #fff; }
 .bank-card figcaption { text-align: center; }
 .way.bank > p.vi-line { min-height: 0; }
+
+/* ---------- Simplified Chinese (zh-Hans): CJK fonts, no negative tracking, looser lines. Additive, only applies under lang="zh-Hans". ---------- */
+:root:lang(zh-Hans) {
+  --font: "Segoe UI Variable Display", "Segoe UI Variable Text", "Segoe UI", system-ui, -apple-system, "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei UI", "Microsoft YaHei", "Noto Sans CJK SC", "Noto Sans SC", "Source Han Sans SC", sans-serif;
+  --mono: ui-monospace, "Cascadia Mono", "SF Mono", "Roboto Mono", Consolas, "PingFang SC", "Microsoft YaHei UI", "Microsoft YaHei", "Noto Sans CJK SC", "Liberation Mono", monospace;
+}
+:lang(zh-Hans) body { line-height: 1.75; }
+:lang(zh-Hans) :is(h1, h2, h3, h4) { letter-spacing: 0; line-height: 1.3; font-weight: 700; }
+:lang(zh-Hans) .hero-h { letter-spacing: 0; line-height: 1.12; font-weight: 800; }
+:lang(zh-Hans) :is(.kicker, .st-n, .stage-cap, .mk-ctl legend, .ftr h2, .tbl thead th, .cmp thead th, .hq-tools label, .toc h2, .rec-b, .rc-h span, .receipt li b, .rc-t, .stamp, .tk-track, .brand, .lang > summary) { letter-spacing: .04em; }
+:lang(zh-Hans) .rc-t b, :lang(zh-Hans) .rc-t span { letter-spacing: 0; }
+:lang(zh-Hans) .brand { letter-spacing: -.01em; }
+:lang(zh-Hans) .btn { line-height: 1.3; }
+
+/* ===== :lang(ja) Japanese typography: additive, only applies to pages with lang="ja" (docs/ja/). Other languages keep their own separate blocks. ===== */
+:lang(ja) {
+  --font: "Segoe UI Variable Text", "Segoe UI", system-ui, -apple-system, "Hiragino Sans", "Hiragino Kaku Gothic ProN", "Yu Gothic UI", "Yu Gothic", "Meiryo UI", Meiryo, "Noto Sans CJK JP", "Noto Sans JP", sans-serif;
+  --mono: ui-monospace, "Cascadia Mono", "SF Mono", Consolas, "Hiragino Sans", "Yu Gothic UI", "Meiryo UI", "Noto Sans CJK JP", monospace;
+}
+body:lang(ja) { line-height: 1.8; line-break: strict; word-break: auto-phrase; overflow-wrap: break-word; }
+:lang(ja) :is(h1, h2, h3, h4) { letter-spacing: 0; line-height: 1.3; }
+:lang(ja) .hero-h { letter-spacing: -.01em; line-height: 1.12; }
+:lang(ja) :is(.kicker, .st-n, .stage-cap, .toc h2, .ftr h2, .mk-ctl legend, .hq-tools label, .rc-h span, .receipt li b, .tbl thead th, .cmp thead th, .cmp caption, .pay, .ft-tag, .rec-b, .hero-meta) { letter-spacing: .04em; }
+:lang(ja) :is(.btn, .tbl th, .tbl td, .cmp th, .cmp td) { line-break: strict; }
+:lang(ja) .app { line-height: 1.55; } /* the demo windows keep the compact row height of the English pages */
+:lang(ja) { --serif: ui-serif, "Iowan Old Style", Georgia, "Hiragino Mincho ProN", "Yu Mincho", YuMincho, "Noto Serif CJK JP", "Noto Serif JP", serif; }
+:lang(ja) .letter { line-height: 1.8; }
+/* ===== end :lang(ja) ===== */

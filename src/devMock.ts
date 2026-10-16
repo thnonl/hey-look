@@ -411,6 +411,17 @@ export async function applyDemoHash() {
       await wait(300);
       [...document.querySelectorAll<HTMLElement>("button")].find((b) => (b.getAttribute("aria-label") ?? b.title) === val || b.textContent?.trim() === val)?.click();
     } else if (k === "wait") await wait(Number(val) || 300);
+    else if (k === "nudge") {
+      // the support reminder: `nudge=now` shows the toast at once; `nudge=due` makes it due and the app 3 minutes old, then asks the real
+      // calm-moment check (focus, open dialogs, other toasts ...); the check also runs every 30 s. `nudge=state` prints the stored schedule.
+      const host = await import("./supportNudgeHost");
+      if (val === "now") host.showSupportNudge();
+      else if (val === "due") {
+        st().setPrefs({ supportNudge: { ...st().prefs.supportNudge, enabled: true, nextDueAt: Date.now() - 1000 } });
+        host.setSessionStartForTest(Date.now() - 3 * 60_000);
+        host.checkSupportNudge();
+      } else if (val === "state") console.info("[mock] supportNudge", JSON.stringify(st().prefs.supportNudge), JSON.stringify(host.currentMoment()));
+    }
     await wait(250);
   }
 }
@@ -506,8 +517,8 @@ async function mockCheckUpdate(trigger: string, prefsJson?: string) {
 // ---- the update flow (`#dl=<mode>`, `#sending`, `#draftfail`, `#afterupdate=ok|draft|fail`): a pretend download with the same events as Rust's channel.
 // Modes: ok (default; 9.8 MB over 6 s), nolength (no total), slow (60 s), stall (stops at 30 %, fails after 10 s), fail (fails at 40 %),
 // verifyfail, badurl, installfail, offline (fails at once), changed (the first one: GitHub has 1.2.0 now). `update_install` never restarts: it shows a toast and logs the call.
-type UpdateLogEntry = { trigger?: string; cmd?: string; restart?: boolean; note?: string; at: number; kind: string | null };
-function logUpdateCall(e: { trigger?: string; cmd?: string; restart?: boolean; note?: string }): UpdateLogEntry {
+type UpdateLogEntry = { trigger?: string; cmd?: string; restart?: boolean; draftSaved?: boolean; note?: string; at: number; kind: string | null };
+function logUpdateCall(e: { trigger?: string; cmd?: string; restart?: boolean; draftSaved?: boolean; note?: string }): UpdateLogEntry {
   const w = window as unknown as { __updateCalls?: UpdateLogEntry[] };
   const entry: UpdateLogEntry = { ...e, at: Date.now(), kind: null };
   (w.__updateCalls ??= []).push(entry);
@@ -574,8 +585,8 @@ async function mockDownload(ch: { onmessage: (e: unknown) => void }) {
   send({ event: "ready" });
   entry.kind = "ready";
 }
-async function mockInstall(restart: boolean) {
-  const entry = logUpdateCall({ cmd: "install", restart });
+async function mockInstall(restart: boolean, draftSaved: boolean) {
+  const entry = logUpdateCall({ cmd: "install", restart, draftSaved }); // `draftSaved`: the next start says "Your message is in Drafts" only when true
   if (hashTokens().get("dl") === "installfail") {
     entry.kind = "failed";
     throw "The installer couldn’t start";
@@ -999,6 +1010,7 @@ export function installMock() {
       case "list_accounts": return accounts;
       case "idle_states": return { a1: "push" };
       case "get_setting": return settings[a.key as string] ?? null;
+      case "first_run_hint": { const d = Number(hashTokens().get("firstrun")); return d > 0 ? Date.now() - d * 86_400_000 : null; } // `#firstrun=90`: the database is 90 days old (an install from before the support reminder)
       case "set_setting": settings[a.key as string] = a.value as string; return null;
       case "list_folders": return folders;
       case "list_threads": {
@@ -1081,24 +1093,35 @@ export function installMock() {
       case "list_rules": return [{ id: "r1", accountId: null, name: "Move newsletters", field: "from", op: "contains", value: "newsletter@example.com", action: "archive", arg: null, enabled: true }, { id: "r2", accountId: null, name: "", field: "subject", op: "contains", value: "a very long rule text that should be truncated in the list row", action: "trash", arg: null, enabled: false }];
       case "list_blocked": return [];
       case "thread_action": {
-        for (const id of (a.threadIds ?? a.ids ?? []) as string[]) {
-          const th = threads.find((x) => x.threadId === id);
-          if (!th) continue;
-          if (a.action === "read") th.unread = 0;
-          else if (a.action === "unread") th.unread = Math.max(1, th.unread);
-          else if (a.action === "star") th.flagged = true;
-          else if (a.action === "unstar") th.flagged = false;
-        }
-        return new Promise((r) => setTimeout(() => r(null), 600)); // slow like IMAP
+        // like the backend: the state changes when the server has done it (not at the call), after the IMAP time;
+        // `#slowflags` makes that time random (0.2 - 1.4 s) so calls finish out of order; every call is logged for checks
+        const w = window as unknown as { __threadActionCalls?: { ids: string[]; action: string; at: number }[] };
+        (w.__threadActionCalls ??= []).push({ ids: [...((a.threadIds ?? a.ids ?? []) as string[])], action: String(a.action), at: Date.now() });
+        const ms = hashTokens().has("slowflags") ? 200 + Math.random() * 1200 : 600;
+        return later(ms, () => {
+          for (const id of (a.threadIds ?? a.ids ?? []) as string[]) {
+            const th = threads.find((x) => x.threadId === id);
+            if (!th) continue;
+            if (a.action === "read") th.unread = 0;
+            else if (a.action === "unread") th.unread = Math.max(1, th.unread);
+            else if (a.action === "star") th.flagged = true;
+            else if (a.action === "unstar") th.flagged = false;
+          }
+          return null;
+        });
       }
       case "update_account": {
         const x = accounts.find((y) => y.id === a.accountId);
         if (x) { x.displayName = a.displayName as string; (x as { color: string | null }).color = (a.color as string | null) ?? null; }
         return null;
       }
-      case "save_draft":
-        if (hashTokens().has("draftfail")) throw "mock: the server refused the draft"; // `#draftfail`: saving a draft fails (update restart keeps Compose open)
-        (window as unknown as { __lastDraft: unknown }).__lastDraft = a.draft; return null;
+      case "save_draft": {
+        const w = window as unknown as { __draftSaveCalls?: number; __lastDraft: unknown };
+        w.__draftSaveCalls = (w.__draftSaveCalls ?? 0) + 1; // counted, so a check can see that discarding writes none (AC-74)
+        if (hashTokens().has("draftfail")) throw "mock: the server refused the draft"; // `#draftfail`: saving a draft fails (update restart asks what to do)
+        w.__lastDraft = a.draft;
+        return null;
+      }
       case "queue_action": return "token-" + Math.random().toString(36).slice(2);
       case "cancel_action": return true;
       case "load_older": {
@@ -1145,7 +1168,7 @@ export function installMock() {
       case "outbox_hold_send": { const w = window as unknown as { __sendCalls?: unknown[] }; (w.__sendCalls ??= []).push({ cmd: "holdSend", id: a.id, keep: a.keep }); return null; }
       case "quit_dialog": case "quit_cancelled": case "sends_flushed": case "show_window": case "frontend_ready": case "page_state": return null;
       case "update_defer": logUpdateCall({ cmd: "defer" }).kind = a.deferred ? "later" : "now"; return null;
-      case "update_install": return mockInstall(!!a.restart);
+      case "update_install": return mockInstall(!!a.restart, !!a.draftSaved);
       case "update_startup_ack": logUpdateCall({ cmd: "startupAck" }).kind = "ok"; return null;
       case "update_startup_state": {
         const t = hashTokens().get("afterupdate");

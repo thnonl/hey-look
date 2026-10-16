@@ -25,6 +25,7 @@ import { openUpdateLink, useUpdates } from "./updates";
 import { calTz, configureCalendar, addDays, addMonths, today as todayDay } from "./calendar";
 import { catchupText, configureDates, fmtWhen } from "./util";
 import { frameAction, initFrame, useFrame } from "./winframe";
+import { startSupportNudge } from "./supportNudgeHost";
 
 const clamp = (n: number, lo: number, hi: number) => Math.max(lo, Math.min(hi, n));
 
@@ -78,6 +79,11 @@ function App() {
     void useStore.getState().init();
     initFrame();
   }, []);
+
+  // the occasional support reminder: once the preferences are loaded, make sure its first due date exists and start looking for a calm moment
+  useEffect(() => {
+    if (loaded) void startSupportNudge();
+  }, [loaded]);
 
   // the page is up and has painted once: the backend shows the (hidden) window now, and reloads the page if this never arrives
   // (a timer, not requestAnimationFrame: a page in a hidden window gets no animation frames)
@@ -380,8 +386,8 @@ function App() {
         case "u": void st.act(ids, "unread"); break;
         case "p": void st.act(ids, cur?.pinned ? "unpin" : "pin"); break;
         case "*": void st.act(ids, cur?.flagged ? "unstar" : "star"); break;
-        // the Snooze button of the reading pane: its tooltip is translated but always ends with the key hint "(s)"
-        case "s": document.querySelector<HTMLButtonElement>('.reading-pane button[title$="(s)"]')?.click(); break;
+        // the Snooze button of the reading pane (found by its class: its tooltip is translated, and written with the punctuation of the language)
+        case "s": document.querySelector<HTMLButtonElement>(".reading-pane button.snooze-btn")?.click(); break;
         case "r": replyLast(false); break;
         case "a": replyLast(true); break;
         case "f": forwardLast(); break;

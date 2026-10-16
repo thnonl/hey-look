@@ -1,5 +1,28 @@
 # Changelog
 
+## 1.0.3 — 2026-10-16
+
+Hey Look! now speaks eight languages, dates and times have their own pickers, and more bugs found in testing are fixed.
+
+### Added
+
+- Languages: five more languages for the app, so there are now eight: English, Tiếng Việt, Français, 中文（简体）, Español, 日本語, Deutsch and Русский. English stays the default, and the language is always the one you choose; it is never taken from your computer’s language. Dates, times, the tray menu and notifications follow it. The new texts were written with AI help and have not been reviewed by native speakers yet, so they may contain mistakes
+- The website is translated into all eight languages too: English at the root and one folder per language (`/vi/`, `/fr/`, `/zh/`, `/es/`, `/ja/`, `/de/`, `/ru/`), with a language menu on every page
+- Date and time fields: the New event dialog, the meeting strip, Send later and the search filters no longer use the browser’s own date and time boxes. You type a date or time the way your language writes it, or pick it from a month grid or a time list; times follow the 12 or 24 hour setting of Settings > General
+- A small support reminder: about once every two months (the first one 1 to 4 weeks after you start using Hey Look!, and six months after you press “Buy me a coffee”) a note says you can support the project. It waits for a calm moment (never while you write a message, with a dialog open, or while something is sending or downloading), goes away by itself after 15 seconds, and stays on this computer. Press “Don’t remind me again” on it, or turn off Settings > General > Occasional support reminder
+
+### Fixed
+
+- Adding an IMAP account whose server accepts the connection and then says nothing (for example a port that does not speak IMAP, with STARTTLS) now shows the secure-connection hint after at most 20 seconds, as for SMTP. Before it waited about 80 seconds and said “The mail server did not respond”
+- Linux: saving an attachment when the Downloads folder is missing (never created, or moved away) now creates it; if that is not possible, or the folder cannot be written to, the files go to your home folder and Hey Look! says so. Before, the save failed with “No such file or directory”
+- Update restart: when you press Restart now while a message is open and it cannot be saved to Drafts, a question now asks what to do: Keep writing (nothing restarts) or Restart and discard. After a discard the update toast no longer says the message is in Drafts
+- Folders: a server folder is taken for the Sent, Drafts, Archive, Trash or Junk folder when the server flags it, or when its whole name is a standard one (English, German, French, Spanish, Italian, Portuguese, Vietnamese) at the top level or directly under INBOX. A folder such as `Trash-old`, `Archive 2019` or one inside another folder (`Old/Trash`) is no longer mistaken for it, and a flagged folder is no longer passed over for a plain one with a similar name
+- Sending: when the server has no Sent folder, Hey Look! now creates one (where the server allows it) and keeps the copy of the sent message there. The send itself, Undo and Send later are unchanged
+- The Send later popup stays inside the window when the window is 960 px wide or narrower: it moves sideways, scrolls when the window is short, and its buttons wrap
+- Spanish: the Inbox folder is called “Recibidos” (as in Gmail and Apple Mail), so the name fits the folder list
+- Mark read / Mark unread: pressing the button several times quickly now ends in the state of your last click and stays there. Before, the mail could keep switching between read and unread for a moment after you stopped clicking
+- Moving quickly from one unread mail to the next no longer turns a mail you just opened back to unread a moment later: the mail list now ignores a refresh that was started before your last change
+
 ## 1.0.2 — 2026-10-15
 
 Fixes for the mail list, the reading pane and Archive / Delete.

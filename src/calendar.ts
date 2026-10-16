@@ -3,8 +3,8 @@
 // of their dates and are always handled by date.
 import type { CalEvent, CalInvite } from "./api";
 import type { Prefs } from "./prefs";
-import { getLang, intlLocale, t } from "./i18n";
-import { fmtPattern } from "./i18n/format";
+import { intlLocale, t } from "./i18n";
+import { dateFormat, fmtDayRange, fmtPattern } from "./i18n/format";
 
 export type CalView = "month" | "week" | "agenda";
 
@@ -17,9 +17,12 @@ export interface Day {
 // Month and weekday names come from the language in use (date-fns locale), never from tables of words. `m` is 1-12, `wd` 0 = Sunday.
 const dayDate = (d: Day) => new Date(d.y, d.m - 1, d.d);
 export const monthShort = (m: number) => fmtPattern(new Date(2021, m - 1, 15), "MMM");
-// Vietnamese gets the 2-letter forms ("T2", "CN"): "Thứ 2" is too wide for a calendar column
-const wdAbbr = () => (getLang() === "vi" ? "EEEEEE" : "EEE");
-export const wdShort = (wd: number) => fmtPattern(new Date(2021, 7, 1 + wd), wdAbbr()); // 1 Aug 2021 = Sunday
+/** "1 Oct" / "1 thg 10" / "10月1日": the first of a month in a month grid. */
+export const fmtDayMonth = (d: Day) => fmtPattern(dayDate(d), "d MMM");
+// The weekday token of calendar columns and day labels comes from the language (registry `fmt.weekdayShort`): Vietnamese gets the
+// 2-letter forms ("T2", "CN") because "Thứ 2" is too wide for a column.
+const wdAbbr = () => dateFormat().weekdayShort ?? "EEE";
+export const wdShort = (wd: number) => fmtPattern(new Date(2021, 7, 1 + wd), "EEE", wdAbbr()); // 1 Aug 2021 = Sunday
 export const wdLong = (wd: number) => fmtPattern(new Date(2021, 7, 1 + wd), "EEEE");
 export const wdNarrow = (wd: number) => fmtPattern(new Date(2021, 7, 1 + wd), "EEEEE");
 const DAY_MS = 86_400_000;
@@ -198,8 +201,8 @@ export function fmtTime(sec: number, tz: string): string {
   return fmtClock(p.h, p.mi);
 }
 
-export const fmtDayLong = (d: Day) => fmtPattern(dayDate(d), `${wdAbbr()}, d MMM yyyy`);
-export const fmtDayShort = (d: Day) => fmtPattern(dayDate(d), `${wdAbbr()} d MMM`);
+export const fmtDayLong = (d: Day) => fmtPattern(dayDate(d), "EEE, d MMM yyyy", wdAbbr());
+export const fmtDayShort = (d: Day) => fmtPattern(dayDate(d), "EEE d MMM", wdAbbr());
 
 /** "UTC+7" / "UTC-5:30" for a zone at an instant. */
 export function tzOffsetLabel(tz: string, ms = Date.now()): string {
@@ -228,7 +231,11 @@ export function fmtRange(e: Pick<CalEvent, "start" | "end" | "allDay">, tz: stri
   if (e.allDay) {
     const allDay = t("calendar.allDay");
     if (sameDay(a, b)) return `${fmtDayLong(a)} · ${allDay}`;
-    return a.y === b.y && a.m === b.m ? `${a.d} – ${b.d} ${fmtPattern(dayDate(b), "MMM yyyy")} · ${allDay}` : `${fmtDayShort(a)} – ${fmtDayLong(b)} · ${allDay}`;
+    if (a.y === b.y && a.m === b.m) {
+      const range = fmtDayRange(a, b, "short");
+      return `${range ?? `${a.d} – ${b.d} ${fmtPattern(dayDate(b), "MMM yyyy")}`} · ${allDay}`;
+    }
+    return `${fmtDayShort(a)} – ${fmtDayLong(b)} · ${allDay}`;
   }
   if (sameDay(a, b)) {
     const end = e.end > e.start ? ` – ${fmtTime(e.end, tz)}` : "";
@@ -247,12 +254,14 @@ const monthYearLong = (d: Day) => new Intl.DateTimeFormat(intlLocale(), { month:
 
 export function monthTitle(d: Day) {
   const s = monthYearLong(d);
-  return getLang() === "vi" ? s.charAt(0).toLocaleUpperCase(intlLocale()) + s.slice(1) : s; // (French month titles stay lower case)
+  return dateFormat().capitalMonthTitle ? s.charAt(0).toLocaleUpperCase(intlLocale()) + s.slice(1) : s; // (French month titles stay lower case; registry `fmt.capitalMonthTitle`)
 }
 
 export function weekTitle(days: Day[]): string {
   const a = days[0];
   const b = days[6];
+  const range = fmtDayRange(a, b, a.m === b.m ? "long" : "short"); // ja, zh, ru ...: the range the way the language writes it
+  if (range) return range;
   if (a.m === b.m) return `${a.d} – ${b.d} ${monthYearLong(a)}`;
   if (a.y === b.y) return `${a.d} ${monthShort(a.m)} – ${b.d} ${monthShort(b.m)} ${a.y}`;
   return `${a.d} ${monthShort(a.m)} ${a.y} – ${b.d} ${monthShort(b.m)} ${b.y}`;
@@ -260,7 +269,7 @@ export function weekTitle(days: Day[]): string {
 
 // ---------------------------------------------------------------- input <-> instant
 
-/** `<input type="date">` / `<input type="time">` values for an instant in a zone. */
+/** The date ("yyyy-MM-dd") and time ("HH:mm") values of the date and time fields for an instant in a zone. */
 export function toInputs(sec: number, tz: string): { date: string; time: string } {
   const p = partsOf(sec * 1000, tz);
   return { date: `${p.y}-${pad(p.m)}-${pad(p.d)}`, time: `${pad(p.h)}:${pad(p.mi)}` };

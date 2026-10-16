@@ -57,6 +57,19 @@
   color-scheme: dark;
 }
 
+/* Chinese and Japanese: Han characters look different per region, so the font follows the language (<html lang> is the registry code, and the
+   language names in the menus carry their own lang). The Latin stack stays first, so Latin text, line height and widths do not change; only the
+   Han / kana glyphs come from the regional font: Windows (Microsoft YaHei UI, Yu Gothic UI), macOS (PingFang SC, Hiragino Sans), Linux (Noto Sans CJK).
+   Cyrillic, German and Spanish need nothing: the Latin stack covers them. */
+:root:lang(zh-Hans), [lang="zh-Hans"] { font-family: "Segoe UI Variable Text", "Segoe UI Variable", "Segoe UI", system-ui, "PingFang SC", "Microsoft YaHei UI", "Microsoft YaHei", "Noto Sans CJK SC", "Noto Sans SC", "Source Han Sans SC", sans-serif; }
+:root:lang(ja), [lang="ja"] { font-family: "Segoe UI Variable Text", "Segoe UI Variable", "Segoe UI", system-ui, "Hiragino Sans", "Hiragino Kaku Gothic ProN", "Yu Gothic UI", "Meiryo UI", "Noto Sans CJK JP", "Noto Sans JP", "Source Han Sans", sans-serif; }
+
+/* Chinese and Japanese line breaking (inherited by every text block): `strict` keeps small kana, the long-vowel mark and closing punctuation
+   (。、」) off the start of a line, so a paragraph does not end in a line that holds only "ん。"; `auto-phrase` (Chromium 119+, i.e. WebView2 and
+   current WebKitGTK; ignored where unknown) breaks Japanese between phrases instead of anywhere. Latin, Cyrillic and digits break as before. */
+:root:lang(zh-Hans), [lang="zh-Hans"] { line-break: strict; }
+:root:lang(ja), [lang="ja"] { line-break: strict; word-break: auto-phrase; }
+
 * { box-sizing: border-box; }
 html, body, #root { height: 100%; margin: 0; }
 body { background: var(--bg); color: var(--fg); overflow: hidden; -webkit-font-smoothing: antialiased; }
@@ -590,6 +603,23 @@ button.ov-tag:hover { background: color-mix(in srgb, var(--accent), transparent 
 .toast-x:hover { color: #fff; background: rgba(255,255,255,.12); }
 .toast-bar { position: absolute; left: 0; bottom: 0; height: 2px; background: rgba(255,255,255,.35); width: 100%; transform-origin: left; animation: drain var(--ttl, 5s) linear forwards; }
 @keyframes drain { to { transform: scaleX(0); } }
+/* the support reminder: a calm card in the theme's own colours (not the dark pill of the other toasts), text on top, buttons below */
+.toast.support { align-items: flex-start; background: var(--bg); color: var(--fg); border: 1px solid var(--border); padding: 12px 12px 14px 14px; gap: 11px; }
+.toast.support .toast-ico { color: var(--accent-text); margin-top: 2px; }
+.toast.support .toast-body { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 10px; }
+.toast.support .toast-text { flex: none; }
+.toast.support .toast-row { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 10px; }
+.toast.support .toast-act { background: transparent; color: var(--fg); border: 1px solid var(--border); font-weight: 600; }
+.toast.support .toast-act:hover { background: var(--bg3); }
+.toast.support .toast-act:first-child { background: var(--accent); color: var(--accent-fg); border-color: var(--accent); }
+.toast.support .toast-act:first-child:hover { background: var(--accent-hover); }
+.toast.support .toast-link { background: none; border: 0; padding: 2px 4px; margin-left: auto; color: var(--muted); font-size: .86em; text-decoration: underline; text-underline-offset: 2px; border-radius: 4px; }
+.toast.support .toast-link:hover { color: var(--fg); }
+.toast.support .toast-x { color: var(--muted); }
+.toast.support .toast-x:hover { color: var(--fg); background: var(--bg3); }
+.toast.support .toast-bar { background: var(--accent); opacity: .45; }
+.toast.support:hover .toast-bar, .toast.support:focus-within .toast-bar { animation-play-state: paused; }
+.toast.support button:focus-visible { outline: 2px solid var(--accent-text); outline-offset: 2px; }
 
 /* ===== welcome ===== */
 /* the card centres itself (auto margins, so a short window scrolls instead of clipping its top) */
@@ -756,13 +786,16 @@ button.pill:hover { filter: brightness(.95); }
 .path-field code { max-width: 260px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; display: inline-block; vertical-align: middle; }
 
 /* ============================== 5. SCHEDULE SEND ============================== */
-.sched-pop { width: 340px; gap: 2px; }
+.sched-pop { gap: 2px; }
+/* as wide as .popover.up (300px), never wider than the window; the height is limited by useFitInWindow, so the popover scrolls instead of being cut off */
+.popover.up.sched-pop { width: min(300px, calc(100vw - 16px)); overflow-y: auto; }
 .sched-pop .menu-row .menu-hint { font-variant-numeric: tabular-nums; }
 .sched-tz { font-size: .8em; color: var(--muted); padding: 0 9px 4px; display: flex; align-items: center; gap: 5px; }
 .sched-custom { border-top: 1px solid var(--border); margin-top: 4px; padding: 8px 4px 2px; display: flex; flex-direction: column; gap: 6px; }
 .sched-custom .row-inline { margin: 0; }
-.sched-custom input[type="date"] { flex: 1.3; } .sched-custom input[type="time"] { flex: 1; }
-.sched-custom input[aria-invalid="true"] { border-color: var(--danger); }
+.sched-custom .sched-actions { flex-wrap: wrap; justify-content: flex-end; margin: 0; }
+.sched-custom .sched-fld.date { flex: 1.3; } .sched-custom .sched-fld.time { flex: 1; }
+.sched-custom .sched-fld { min-width: 0; }
 .sched-sum { font-size: .86em; }
 .sched-sum b { font-weight: 650; }
 .sched-note { border-top: 1px solid var(--border); margin-top: 4px; padding: 8px 6px 2px; }
@@ -796,7 +829,7 @@ button.pill:hover { filter: brightness(.95); }
 .sched-picker-foot.warn { color: var(--warn); }
 .sched-presets .menu-row { justify-content: space-between; }
 .sched-presets .menu-hint { color: var(--muted); font-size: .86em; font-variant-numeric: tabular-nums; }
-.sched-custom label { font-size: .84em; color: var(--muted); display: flex; flex-direction: column; gap: 3px; }
+.sched-custom .sched-fld { font-size: .84em; color: var(--muted); display: flex; flex-direction: column; gap: 3px; }
 
 /* spinner dot used inline (Attachments, Scheduled list) */
 span.spin { display: inline-block; width: 13px; height: 13px; border: 2px solid var(--border); border-top-color: var(--accent); border-radius: 50%; vertical-align: -2px; flex: none; }
@@ -1034,19 +1067,36 @@ span.spin { display: inline-block; width: 13px; height: 13px; border: 2px solid 
 .invite .cal-tile[data-cancelled="1"] b { background: var(--danger); color: #fff; }
 
 /* new / edit event dialog and Compose meeting strip */
-.ev-form input:not([type="checkbox"]):not([type="date"]):not([type="time"]), .ev-form select, .ev-form textarea { width: 100%; box-sizing: border-box; }
+.ev-form input:not([type="checkbox"]), .ev-form select, .ev-form textarea { width: 100%; box-sizing: border-box; }
 /* When: start and end rows share one grid (date | time | hint) so their controls line up; the hint column is as wide as its longest translation */
 .ev-when { display: flex; flex-direction: column; gap: 8px; }
 .ev-when .when-dates { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) auto; gap: 8px 6px; align-items: center; }
 .ev-when .when-dates input { width: 100%; min-width: 0; box-sizing: border-box; }
-.ev-when .when-dates[data-allday] input { grid-column: span 2; }
+.ev-when .when-dates[data-allday] .dt-date { grid-column: span 2; }
 .ev-when .when-dates > .muted { white-space: nowrap; }
 .ev-form .tz { color: var(--muted); font-size: .86em; }
 .ev-form > label { align-self: start; padding-top: 8px; }
 .ev-invite .cf-field { border: 1px solid var(--border); border-radius: var(--r-sm); padding: 2px 8px; background: var(--bg); }
 .ev-invite .cf-field:focus-within { border-color: var(--accent); }
-.cp-event .when input[type="date"], .cp-event .when input[type="time"] { width: auto; }
+.cp-event .when .dt-date { width: 152px; } .cp-event .when .dt-time { width: 112px; }
 .cp-event > input { width: 100%; box-sizing: border-box; }
+
+/* date and time fields (components/DateTimeFields.tsx): a text field with a small button inside that opens the month grid / the list of times */
+.dt-field { position: relative; display: block; min-width: 0; }
+.dt-field > input { width: 100%; min-width: 0; box-sizing: border-box; padding-right: 30px; font-variant-numeric: tabular-nums; text-overflow: ellipsis; }
+.dt-field > input[aria-invalid="true"] { border-color: var(--danger); }
+.dt-pick { position: absolute; top: 50%; right: 4px; transform: translateY(-50%); width: 24px; height: 24px; padding: 0; display: inline-flex; align-items: center; justify-content: center; background: none; border: 0; border-radius: var(--r-sm); color: var(--muted); }
+.dt-pick:hover, .dt-field > input:focus + .dt-pick { color: var(--fg); }
+.dt-pick:hover { background: var(--bg3); }
+.fld-pop { background: var(--bg); border: 1px solid var(--border); border-radius: var(--r-md); box-shadow: var(--shadow); padding: 5px; }
+.fld-times { list-style: none; margin: 0; padding: 0; position: relative; overflow-y: auto; max-height: min(264px, var(--dd-max, 264px)); }
+.fld-times li { padding: 6px 12px; border-radius: var(--r-sm); cursor: pointer; white-space: nowrap; font-variant-numeric: tabular-nums; }
+.fld-times li:hover { background: var(--bg3); }
+.fld-times li.on { background: var(--accent-soft); color: var(--accent-text); font-weight: 650; }
+.fld-times li:focus-visible { outline: 2px solid var(--accent-text); outline-offset: -2px; }
+.fld-grid { width: 244px; }
+.fld-grid .mini-head { padding: 2px 4px 4px 8px; }
+.fld-today { display: block; margin: 4px auto 2px; }
 
 /* confidential mail: nothing in the message area can be selected (the mail frame has its own rule) */
 .rp-msg-body.confidential, .rp-msg-body.confidential * { -webkit-user-select: none; user-select: none; }

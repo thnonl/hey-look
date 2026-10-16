@@ -23,7 +23,8 @@ Get the latest version from [GitHub Releases](https://github.com/thnonl/hey-look
 - Undo send, send later, snooze, filters and sweep by sender
 - OpenPGP encryption and signing; calendar invitations with a local calendar, and optional two-way sync with Google Calendar and Outlook / Microsoft 365 calendars (turn it on per mailbox)
 - Confidential mail: a message marked Confidential is protected while it is open (no copy, print or screen capture on Windows and macOS), and the composer has a Confidential button
-- English (the default), Tiếng Việt and Français: switch in the header, in Settings > General or on the Welcome screen
+- Eight languages: English (the default), Tiếng Việt, Français, 中文（简体）, Español, 日本語, Deutsch and Русский; switch in the header, in Settings > General or on the Welcome screen. The language is the one you choose, never taken from your computer's. The website is available in the same eight languages
+- Date and time fields that follow your language and the 12 / 24 hour setting
 - Mail is shown on its original background in every theme; a button in the reading pane switches it to dark and remembers your choice
 - macOS: the Dock icon shows the unread number
 - Command bar (`Ctrl/Cmd+K`), keyboard shortcuts, light and dark themes with your own colour
@@ -68,8 +69,8 @@ Details and more in the [Help](https://thnonl.github.io/hey-look/help.html).
 - **Linux:** tested under WSL2 Ubuntu 22.04 with WSLg only (new-mail notifications with dunst; no tray test); needs a notification service for notifications.
 - **Google:** Google has not finished reviewing Hey Look!, so its sign-in page says “Google hasn’t verified this app” (choose **Advanced**, then **Go to Hey Look! (unsafe)**), and until the review is done **Sign in with Google and Google calendar sync are limited to the first 100 people**. Gmail also works with an app password. What to expect, and what to do: [Help](https://thnonl.github.io/hey-look/help.html#google-review).
 - **Calendar:** local events plus optional two-way sync with Google Calendar and Outlook / Microsoft 365 (per mailbox); repeating events from those calendars are read-only; CalDAV sync may come later. Some work or school organizations only let an administrator approve the Microsoft calendar permission. The sync was tested against simulated Google and Microsoft servers; a check with real accounts is still to be done.
-- **Languages:** the Vietnamese and French texts were written with AI help and have not been reviewed by native speakers yet, so they may contain mistakes. The Windows installer and the system menu items of macOS are not translated by Hey Look!.
-- **Folders:** Archive and Delete create an Archive or Trash folder when the server has none and allows it (a filter does not create folders; it reports the missing one). Drafts and Sent are not created.
+- **Languages:** the texts of every language except English (Vietnamese, French, Chinese, Spanish, Japanese, German, Russian) were written with AI help and have not been reviewed by native speakers yet, so they may contain mistakes. The Windows installer and the system menu items of macOS are not translated by Hey Look!.
+- **Folders:** Archive and Delete create an Archive or Trash folder when the server has none and allows it (a filter does not create folders; it reports the missing one). Drafts is not created. Sent is created for the copy of a sent message when the server has none.
 - **OpenPGP secret keys** are stored in the app's own database, protected by their passphrase, not in the system credential store.
 - **Undo send** does not survive a normal Quit: the message is sent at once. If Hey Look! is closed by force (an installer, Task Manager, a crash) while you are writing, or on macOS when you log out, restart or shut down, the unsaved text is lost; a message you already sent is kept and goes out at the next start.
 - **Windows:** overlay tools (for example RivaTuner Statistics Server) can crash the web view; Hey Look! restarts itself at most three times in ten minutes; exclude `hey-look.exe` and `msedgewebview2.exe` there.
@@ -89,7 +90,7 @@ OAuth clients, the code layout, releasing and how it works: [CONTRIBUTING.md](CO
 
 ## Support the project
 
-Hey Look! is free. If it helps you, you can [buy me a coffee](https://thnonl.github.io/hey-look/support.html): on [Ko-fi](https://ko-fi.com/namthnonl) or by bank transfer (the same link is under Settings > About).
+Hey Look! is free. If it helps you, you can [buy me a coffee](https://thnonl.github.io/hey-look/support.html): on [Ko-fi](https://ko-fi.com/namthnonl) or by bank transfer (the same link is under Settings > About). Hey Look! may show a small reminder about this about once every two months; Settings > General > Occasional support reminder turns it off.
 
 ## Security
 

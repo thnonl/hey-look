@@ -7,7 +7,7 @@ import { ReactNode, useCallback, useEffect, useMemo, useRef, useState } from "re
 import { api, CalEvent, CalInvite, errorCode, MessageFull, Rsvp } from "../api";
 import {
   addDays, addMonths, calTz, chipClass, cmpDay, configureCalendar, Day, dayKey, dayOfMs, dayStartMs, daysBetween, eventColor, eventDaySpan, eventLabel, eventsOnDay, fmtClock,
-  fmtClockRange, fmtDayLong, fmtDayShort, fmtRange, fmtTime, fromInputs, isUrl, joinLabel, joinShortName, layoutDay, monthGrid, monthShort, monthTitle, myStatusLabel, partsOf, personName,
+  fmtClockRange, fmtDayLong, fmtDayMonth, fmtDayShort, fmtRange, fmtTime, fromInputs, isUrl, joinLabel, joinShortName, layoutDay, monthGrid, monthShort, monthTitle, myStatusLabel, partsOf, personName,
   repeatKind, repeatRule, sameDay, today, toInputs, tzOffsetLabel, tzShortName, weekDays, weekStartOf, weekTitle, wdLong, wdNarrow, wdShort, CalView, MY_EVENTS_COLOR,
 } from "../calendar";
 import { accountColor } from "../prefs";
@@ -16,6 +16,7 @@ import { friendlyError, EventInit, useStore } from "../store";
 import { t } from "../i18n";
 import { useLang, useT } from "../i18n/react";
 import { tx } from "../i18n/rich";
+import { DateField, TimeField } from "./DateTimeFields";
 import { RecipientField } from "./Compose";
 import { EmptyState } from "./overlays";
 import { Avatar, Dropdown, FloatingMenu, Modal, Switch, useOutside } from "./ui";
@@ -609,7 +610,7 @@ function MonthView({
                 e.stopPropagation();
               }}
             >
-              <span className="mnum">{day.d === 1 ? `${day.d} ${monthShort(day.m)}` : day.d}</span>
+              <span className="mnum">{day.d === 1 ? fmtDayMonth(day) : day.d}</span>
               {loading && events.length === 0 ? (!other && day.d % 3 === 0 ? <div className="sk" style={{ height: 16, margin: "2px 2px" }} aria-hidden="true" /> : null) : shown.map((ev) => <Chip key={`${ev.id}:${ev.start}`} ev={ev} tz={tz} color={eventColor(ev, color)} openPop={openPop} />)}
               {more > 0 && (
                 <button type="button" className="ev-more" onClick={(e) => (e.stopPropagation(), setCalDate(day), setCalView("agenda"))}>
@@ -1219,11 +1220,11 @@ export function EventDialog({ eventId, init }: { eventId?: string; init?: EventI
         <div className="ev-when">
           {/* start and end share one grid (date | time | hint), so both rows get the same column widths in every state */}
           <div className="when-dates" data-allday={allDay || undefined}>
-            <input type="date" aria-label={t("calendar.dialog.startDate")} value={sd} onChange={(e) => (setSd(e.target.value), touch(), ed < e.target.value && setEd(e.target.value))} />
-            {!allDay && <input type="time" aria-label={t("calendar.dialog.startTime")} value={st} onChange={(e) => (setSt(e.target.value), touch())} />}
+            <DateField label={t("calendar.dialog.startDate")} tz={tz} value={sd} onChange={(v) => (setSd(v), touch(), ed < v && setEd(v))} />
+            {!allDay && <TimeField label={t("calendar.dialog.startTime")} value={st} onChange={(v) => (setSt(v), touch())} />}
             <span aria-hidden />
-            <input type="date" aria-label={t("calendar.dialog.endDate")} value={ed} onChange={(e) => (setEd(e.target.value), touch())} />
-            {!allDay && <input type="time" aria-label={t("calendar.dialog.endTime")} value={et} onChange={(e) => (setEt(e.target.value), touch())} />}
+            <DateField label={t("calendar.dialog.endDate")} tz={tz} value={ed} onChange={(v) => (setEd(v), touch())} />
+            {!allDay && <TimeField label={t("calendar.dialog.endTime")} value={et} onChange={(v) => (setEt(v), touch())} />}
             <span className="muted small">{allDay ? t("calendar.dialog.lastDay") : t("calendar.dialog.end")}</span>
           </div>
           <div className="when">
@@ -1347,11 +1348,11 @@ export function MeetingStrip({ value, onChange, tz }: { value: MeetingState; onC
     <div className="cp-event" role="group" aria-label={t("calendar.meeting.details")}>
       <label htmlFor="mt-sd">{t("calendar.dialog.when")}</label>
       <div className="when">
-        <input id="mt-sd" type="date" aria-label={t("calendar.dialog.startDate")} value={value.sd} onChange={(e) => set({ sd: e.target.value, ed: value.ed < e.target.value ? e.target.value : value.ed })} />
-        {!value.allDay && <input type="time" aria-label={t("calendar.dialog.startTime")} value={value.st} onChange={(e) => set({ st: e.target.value })} />}
+        <DateField id="mt-sd" label={t("calendar.dialog.startDate")} tz={tz} value={value.sd} onChange={(v) => set({ sd: v, ed: value.ed < v ? v : value.ed })} />
+        {!value.allDay && <TimeField label={t("calendar.dialog.startTime")} value={value.st} onChange={(v) => set({ st: v })} />}
         <span className="muted">–</span>
-        {!value.allDay && <input type="time" aria-label={t("calendar.dialog.endTime")} aria-invalid={!!problem || undefined} value={value.et} onChange={(e) => set({ et: e.target.value })} />}
-        <input type="date" aria-label={t("calendar.dialog.endDate")} aria-invalid={!!problem || undefined} value={value.ed} onChange={(e) => set({ ed: e.target.value })} />
+        {!value.allDay && <TimeField label={t("calendar.dialog.endTime")} invalid={!!problem} value={value.et} onChange={(v) => set({ et: v })} />}
+        <DateField label={t("calendar.dialog.endDate")} tz={tz} invalid={!!problem} value={value.ed} onChange={(v) => set({ ed: v })} />
         <Switch checked={value.allDay} onChange={(v) => set({ allDay: v })} label={t("calendar.allDay")} />
         <span className="tz">{value.allDay ? "" : tz}</span>
       </div>

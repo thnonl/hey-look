@@ -5,6 +5,7 @@ import { api, Contact, SearchScope } from "../api";
 import { useT } from "../i18n/react";
 import { tx } from "../i18n/rich";
 import { useStore } from "../store";
+import { DateField } from "./DateTimeFields";
 import { useOutside } from "./ui";
 
 // ---- tiny query helpers: the search box text is the single source of truth ("from:ann is:unread budget") ----
@@ -85,10 +86,10 @@ export function SearchBox() {
   const dateField = (label: string, key: string) => {
     const v = getKey(q, key);
     return (
-      <label className="sb-field">
-        <span>{label}</span>
-        <input type="date" value={/^\d{4}-\d{2}-\d{2}$/.test(v) ? v : ""} onChange={(e) => change(setKey(q, key, e.target.value), true)} />
-      </label>
+      <div className="sb-field">
+        <label htmlFor={`sb-${key}`}>{label}</label>
+        <DateField id={`sb-${key}`} allowEmpty value={/^\d{4}-\d{2}-\d{2}$/.test(v) ? v : ""} onChange={(d) => change(setKey(q, key, d), true)} />
+      </div>
     );
   };
 

@@ -120,9 +120,8 @@ let ring: { t: number; b: number }[] = [];
 let startedAt = 0;
 let countdownTimer: ReturnType<typeof setInterval> | undefined;
 let restarting = false;
-/** The sticky error toast of a restart that the failed draft save stopped (REQ-28 c). */
+/** The sticky error toast of a restart that stopped before the installer started (REQ-28 c). */
 const RESTART_STOPPED = "update-restart-stopped";
-const RESTART_STOPPED_TEXT = "updates.restartStopped" as const; // a dictionary key: translated where the toast is shown
 /** The 30 s timers of the sticky toasts above and the update result: one per toast, a new one replaces the old one (BUG-14). */
 const stickyTimer = stickyTimers((key) => useStore.getState().setStickyToast(key, null));
 
@@ -437,14 +436,27 @@ export const useUpdates = create<UpdatesState>((set, get) => {
               }
             })();
             if (saved !== true) {
-              // sticky: the save can take seconds on a slow server, and a toast of a few seconds was gone before anyone looked (QA BUG-13)
-              st.setStickyToast(RESTART_STOPPED, { text: t(RESTART_STOPPED_TEXT), kind: "error", closeLabel: t("common.close") });
-              stickyTimer.arm(RESTART_STOPPED);
-              void api.updateNote(`restart not started: the draft could not be saved (${useStore.getState().draftError || "no error text"}); the message stays open`).catch(() => undefined);
-              return stay("dirty");
+              // REQ-28 c, B variant: the person decides. Restarting would lose the text, so the default (focus, Esc) is to keep writing
+              const error = useStore.getState().draftError || t("app.quit.unknownError");
+              const c = await st.choose({
+                title: t("updates.ask.unsavedTitle"),
+                body: t("updates.ask.unsavedBody", { error }),
+                choices: [
+                  { id: "keep", label: t("updates.action.keepWriting"), kind: "primary" },
+                  { id: "restart", label: t("updates.action.restartDiscardMessage"), kind: "danger" },
+                ],
+              });
+              if (c !== "restart") {
+                void api.updateNote(`restart not started: the draft could not be saved (${error}); the message stays open`).catch(() => undefined);
+                return stay("dirty");
+              }
+              // discarded: no draft was written, so the result toast after the restart must not say the message is in Drafts
+              void api.updateNote(`restart goes on: the draft could not be saved (${error}); the message is discarded`).catch(() => undefined);
+              st.setComposeDirty(false);
+            } else {
+              draftSaved = true;
+              st.setComposeDirty(false);
             }
-            draftSaved = true;
-            st.setComposeDirty(false);
           }
           await st.openCompose(null);
         }
@@ -458,6 +470,7 @@ export const useUpdates = create<UpdatesState>((set, get) => {
       } catch (e) {
         // anything else that went wrong before the installer started must not end without a word
         useStore.getState().setStickyToast(RESTART_STOPPED, { text: t("updates.restartFailed", { error: friendlyError(e).replace(/\.$/, "") }), kind: "error", closeLabel: t("common.close") });
+        stickyTimer.arm(RESTART_STOPPED);
         void api.updateNote(`restart not started: ${friendlyError(e)}`).catch(() => undefined);
         if (get().flow.state === "waiting") setFlow({ state: "ready", countdown: null, asking: "none" });
       } finally {

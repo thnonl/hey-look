@@ -4,6 +4,7 @@ import { loadPlatform } from "./platform";
 import { hasMailAccounts } from "./mailControls";
 import { applyBackfill } from "./backfill";
 import { holdOpenThread } from "./openThread";
+import { ReadIntents } from "./readIntent";
 import { calendarErrorText } from "./calendarSync";
 import { backendText } from "./backendErrors";
 import { needsSignIn } from "./signIn";
@@ -101,6 +102,12 @@ export interface Toast {
   closeLabel?: string;
   /** Esc closes it (when nothing else that Esc closes is open) */
   escCloses?: boolean;
+  /** text on top, buttons in a row below it (a longer text), with the coffee icon: the support reminder */
+  support?: boolean;
+  /** a small text link after the buttons (the support reminder: "Don't remind me again"); pressing it closes the toast */
+  link?: ToastAction;
+  /** no "×": the buttons already close it */
+  hideClose?: boolean;
 }
 
 export interface Choice {
@@ -238,6 +245,8 @@ interface State {
   calRev: number;
   /** Messages being sent right now: waiting in the undo window or handed to the backend and not answered yet (an update restart waits for them). */
   sendsInFlight: number;
+  /** Attachment saves / opens under way (the support reminder waits for them). */
+  transfers: number;
   /** The app is flushing sends because it is about to quit (a failed send then goes to Drafts). */
   quitting: boolean;
   /** Why the last draft save failed (the quit dialog says it). */
@@ -271,11 +280,13 @@ interface State {
   /** A toast that stays until it is answered (or `null` to remove it); one per `key`, a new text replaces the old in place. */
   setStickyToast: (
     key: string,
-    spec: { text: string; kind?: Toast["kind"]; actions?: ToastAction[]; onDismiss?: () => void; closeLabel?: string; escCloses?: boolean } | null,
+    spec: { text: string; kind?: Toast["kind"]; actions?: ToastAction[]; onDismiss?: () => void; closeLabel?: string; escCloses?: boolean; support?: boolean; link?: ToastAction; hideClose?: boolean; ttl?: number } | null,
   ) => void;
   /** Count a message as being sent from now until `done()` is called. */
   /** A send is under way (its undo window counts). `flush` makes it go out at once (a quit); it is dropped when the send ends. */
   beginSend: (flush?: () => void) => () => void;
+  /** Count an attachment save / open as under way until the returned function is called. */
+  beginTransfer: () => () => void;
   confirm: (o: { title: string; body?: string; confirmLabel?: string; danger?: boolean }) => Promise<boolean>;
   choose: (o: { title: string; body?: string; choices: Choice[] }) => Promise<string>;
   resolveAsk: (id: string) => void;
@@ -302,6 +313,8 @@ let readTimer: ReturnType<typeof setTimeout> | undefined;
 /** The view (folder, mailbox, search, filter ...) the shown list was read for, and the conversation `refresh` held in it (F-12). */
 let listKey = "";
 let heldOpen: string | null = null;
+/** F-16/F-17: the read / unread state asked for, until the server has it; lists and conversations read meanwhile are shown through it. */
+const readIntents = new ReadIntents((ids, read) => api.threadAction(ids, read ? "read" : "unread", undefined, scopeOf(useStore.getState().folder)));
 
 /** Folders `loadMore` cannot page back (cross-folder views and the outbox have no single IMAP folder). */
 const NO_PAGING = new Set(["starred", "pinned", "snoozed", "all", "scheduled"]);
@@ -501,6 +514,7 @@ export const useStore = create<State>((set, get) => ({
   calError: null,
   calRev: 0,
   sendsInFlight: 0,
+  transfers: 0,
   quitting: false,
   draftError: "",
 
@@ -584,11 +598,14 @@ export const useStore = create<State>((set, get) => ({
   reloadMessages: async () => {
     const { selected, folder } = get();
     if (!selected) return;
+    const tok = readIntents.begin();
     try {
-      const messages = await api.getThread(selected, scopeOf(folder));
+      const messages = readIntents.messages(selected, await api.getThread(selected, scopeOf(folder)), tok);
       if (get().selected === selected) set({ messages });
     } catch {
       /* keep what is shown */
+    } finally {
+      readIntents.end(tok);
     }
   },
 
@@ -632,7 +649,11 @@ export const useStore = create<State>((set, get) => ({
 
   refresh: async () => {
     const { folder, accountId, search, searchScope, focus, filter, prefs } = get();
-    const foldersP = api.listFolders().then((folders) => set({ folders }));
+    // (F-16/F-17) what is asked of the server while this read runs is laid over its answer; folder counts that predate it are not shown
+    const tok = readIntents.begin();
+    const foldersP = api.listFolders().then((folders) => {
+      if (!readIntents.changedSince(tok)) set({ folders });
+    });
     // scheduled messages feed the Scheduled view and its badge, so they are read on every refresh
     const outboxP = api.listOutbox().then((outbox) => set({ outbox })).catch(() => undefined);
     void api.refreshBadge().catch(() => undefined);
@@ -642,7 +663,7 @@ export const useStore = create<State>((set, get) => ({
         await Promise.all([foldersP, outboxP]);
         return;
       }
-      const fresh = await api.listThreads({
+      const fresh = readIntents.threads(await api.listThreads({
         accountId,
         folder,
         search,
@@ -652,7 +673,7 @@ export const useStore = create<State>((set, get) => ({
         flaggedOnly: filter === "flagged",
         sortAsc: prefs.sortAsc,
         scope: search.trim() ? searchScope : "current",
-      });
+      }), tok);
       // ignore a slow answer for a view the user already left
       const now = get();
       if (now.folder === folder && now.accountId === accountId && now.search === search) {
@@ -665,6 +686,7 @@ export const useStore = create<State>((set, get) => ({
       }
       await Promise.all([foldersP, outboxP]);
     } finally {
+      readIntents.end(tok);
       set({ loading: false });
     }
   },
@@ -808,7 +830,13 @@ export const useStore = create<State>((set, get) => ({
     set((s) => ({ selected: id, messages: [], ...(held ? { threads: s.threads.filter((t) => t.threadId !== held) } : {}) }));
     if (!id) return;
     const { folder, prefs } = get();
-    const messages = await api.getThread(id, scopeOf(folder));
+    const tok = readIntents.begin();
+    let messages: MessageFull[];
+    try {
+      messages = readIntents.messages(id, await api.getThread(id, scopeOf(folder)), tok);
+    } finally {
+      readIntents.end(tok);
+    }
     if (get().selected !== id) return;
     set({ messages });
     if (messages.some((m) => !m.seen) && prefs.markReadDelay >= 0) {
@@ -832,6 +860,20 @@ export const useStore = create<State>((set, get) => ({
   act: async (ids, action, arg, label) => {
     if (ids.length === 0) return;
     applyOptimistic(ids, action);
+    if (action === "read" || action === "unread") {
+      // (F-16/F-17) last write wins, one idempotent call per conversation at a time; see readIntent.ts
+      const r = await readIntents.set(ids, action === "read");
+      if (r.superseded) return; // a later click on the same conversations reports for both
+      if (r.failed.length > 0) {
+        get().showToast(t("errors.toast.failed", { error: friendlyError(r.error) }), undefined, "error");
+        const open = get().selected;
+        if (open && r.failed.includes(open)) void get().reloadMessages();
+      } else if (label) {
+        get().showToast(label, undefined, "success");
+      }
+      await get().refresh();
+      return;
+    }
     const { threads, selected, prefs, folder } = get();
     const moveLike = MOVE_LIKE.has(action);
     const removing = moveLike || action === "snooze";
@@ -925,7 +967,7 @@ export const useStore = create<State>((set, get) => ({
       const others = s.toasts.filter((t) => t.key !== key);
       if (!spec) return { toasts: others };
       const old = s.toasts.find((t) => t.key === key);
-      const toast: Toast = { id: old?.id ?? ++toastSeq, text: spec.text, kind: spec.kind ?? "info", actions: spec.actions, ttl: 0, sticky: true, key, onDismiss: spec.onDismiss, closeLabel: spec.closeLabel, escCloses: spec.escCloses };
+      const toast: Toast = { id: old?.id ?? ++toastSeq, text: spec.text, kind: spec.kind ?? "info", actions: spec.actions, ttl: spec.ttl ?? 0, sticky: true, key, onDismiss: spec.onDismiss, closeLabel: spec.closeLabel, escCloses: spec.escCloses, support: spec.support, link: spec.link, hideClose: spec.hideClose };
       // in place when it exists (the countdown changes its text every second), else on top of the stack
       return { toasts: old ? s.toasts.map((t) => (t.key === key ? toast : t)) : [...others, toast].slice(-5) };
     }),
@@ -939,6 +981,16 @@ export const useStore = create<State>((set, get) => ({
       done = true;
       if (flush) sendFlushers.delete(flush);
       set((s) => ({ sendsInFlight: Math.max(0, s.sendsInFlight - 1) }));
+    };
+  },
+
+  beginTransfer: () => {
+    set((s) => ({ transfers: s.transfers + 1 }));
+    let done = false;
+    return () => {
+      if (done) return;
+      done = true;
+      set((s) => ({ transfers: Math.max(0, s.transfers - 1) }));
     };
   },
 

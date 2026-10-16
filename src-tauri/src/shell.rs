@@ -569,7 +569,7 @@ fn toast_linux(title: &str, body: &str, sound: &str) -> Result<(), String> {
 
 /// What "Send test" says when no notification service can show the notification (TC-165 (1)).
 /// (a coded error: the UI translates it, see `i18n::coded`)
-const NO_NOTIFICATION_SERVICE: &str = "NOTIFY_NO_SERVICE: no notification service is running on this desktop";
+const NO_NOTIFICATION_SERVICE: &str = "NOTIFY_NO_SERVICE: No notification service is running in this desktop environment.";
 
 /// What the user reads after "Couldn’t show a notification: ". The bus answers `ServiceUnknown` / `NameHasNoOwner` when no
 /// notification service runs (a bare window manager, WSL without a server); anything else is kept in the system's words.
@@ -838,7 +838,7 @@ mod platform_tests {
         let body = &src[src.find("fn toast_linux").unwrap()..];
         let body = &body[..body.find("\n}\n").unwrap()];
         assert!(body.contains("Err(NO_NOTIFICATION_SERVICE.into())") && !body.contains(concat!("did not ", "answer\".into()")), "{body}");
-        assert_eq!(NO_NOTIFICATION_SERVICE, "NOTIFY_NO_SERVICE: no notification service is running on this desktop");
+        assert_eq!(NO_NOTIFICATION_SERVICE, "NOTIFY_NO_SERVICE: No notification service is running in this desktop environment.");
     }
 
     #[test]

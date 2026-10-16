@@ -26,5 +26,5 @@ assert.ok(readme.includes(`[buy me a coffee](${ABOUT_LINKS[1].url})`));
 assert.ok(existsSync(new URL("../docs/support.html", import.meta.url)) && existsSync(new URL("../docs/index.html", import.meta.url)));
 
 // the changelog has the section of the next version at the top
-assert.match(read("CHANGELOG.md"), /^# Changelog\n\n## 1\.0\.2 — /);
+assert.match(read("CHANGELOG.md"), /^# Changelog\n\n## 1\.0\.3 — /);
 console.log("ok - test-about-links");

@@ -1,6 +1,6 @@
 //! A small in-memory IMAP server for tests: plain TCP on 127.0.0.1, one thread per connection, folders holding message UIDs.
 //! It speaks just enough IMAP for the folder and move code (LOGIN, LIST, SELECT, CREATE, SUBSCRIBE, UID MOVE / COPY / STORE /
-//! SEARCH, EXPUNGE, LOGOUT) and logs every command, so a test can also check what was NOT sent.
+//! SEARCH, APPEND, EXPUNGE, LOGOUT) and logs every command, so a test can also check what was NOT sent.
 use std::collections::{BTreeMap, BTreeSet};
 use std::io::{BufRead, BufReader, Write};
 use std::net::{SocketAddr, TcpListener, TcpStream};
@@ -20,6 +20,8 @@ pub struct State {
     pub fail_moves: bool,
     /// every command received, without its tag (`UID MOVE 3 "Archive"`)
     pub log: Vec<String>,
+    /// every message stored with APPEND: the folder and the bytes
+    pub appended: Vec<(String, Vec<u8>)>,
     deleted: BTreeSet<(String, u32)>,
     next_uid: u32,
 }
@@ -40,6 +42,7 @@ impl Fake {
             no_move: false,
             fail_moves: false,
             log: vec![],
+            appended: vec![],
             deleted: BTreeSet::new(),
             next_uid: 1000,
         };
@@ -155,6 +158,28 @@ fn serve(c: TcpStream, shared: Arc<Mutex<State>>) {
             }
         } else if upper.starts_with("SUBSCRIBE") {
             out += &format!("{tag} OK SUBSCRIBE done\r\n");
+        } else if upper.starts_with("APPEND") {
+            let (name, rest) = arg(&cmd[6..]);
+            let size: usize = rest.rfind('{').and_then(|i| rest[i + 1..].trim_end_matches('}').trim_end_matches('+').parse().ok()).unwrap_or(0);
+            if !st.folders.contains_key(&name) {
+                out += &format!("{tag} NO [TRYCREATE] no such mailbox\r\n");
+            } else {
+                // continuation request, then the literal and the end of its line
+                if w.write_all(b"+ go ahead\r\n").is_err() {
+                    return;
+                }
+                let mut bytes = vec![0u8; size];
+                if std::io::Read::read_exact(&mut r, &mut bytes).is_err() {
+                    return;
+                }
+                let mut tail = String::new();
+                let _ = r.read_line(&mut tail);
+                st.next_uid += 1;
+                let n = st.next_uid;
+                st.folders.get_mut(&name).unwrap().push(n);
+                st.appended.push((name, bytes));
+                out += &format!("{tag} OK [APPENDUID 1 {n}] APPEND done\r\n");
+            }
         } else if upper.starts_with("UID SEARCH") {
             let uids = selected.as_ref().and_then(|f| st.folders.get(f)).cloned().unwrap_or_default();
             out += &format!("* SEARCH{}\r\n{tag} OK SEARCH done\r\n", uids.iter().map(|u| format!(" {u}")).collect::<String>());
