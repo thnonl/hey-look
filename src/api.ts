@@ -550,6 +550,8 @@ export const api = {
   pickFolder: (title?: string) => invoke<string | null>("pick_folder", { title: title ?? null }),
   inlineImage: (messageId: string, cid: string) =>
     invoke<{ mime: string; dataBase64: string; name: string }>("inline_image", { messageId, cid }),
+  /** The SIZE the SMTP server of the account names in its EHLO reply (bytes); null when it names none or could not be asked. */
+  smtpSizeLimit: (accountId: string) => invoke<number | null>("smtp_size_limit", { accountId }),
   sendMessage: (draft: Draft, sendAt?: number | null, replaces?: string | null) =>
     invoke<string>("send_message", { draft, sendAt: sendAt ?? null, replaces: replaces ?? null }),
   /** The conversation the saved draft is in once the sync has read it (null: not known before). */

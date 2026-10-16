@@ -18,6 +18,7 @@ import { extractSignature, fillSignature, normalizeHtml, SIG_MARK } from "../sig
 import { repairSignature, signatureGuard } from "../signatureGuard";
 import { fitInWindow } from "../fitInWindow";
 import { cleanPastedHtml, isLocalPictureSrc, stripRemotePictures } from "../pastedHtml";
+import { sendLimit, wireSize, worthAsking } from "../sendSize";
 import { placePictureTools } from "../pictureToolsLayout";
 import type { PictureToolsInput } from "../pictureToolsLayout";
 import { blockedAttachmentExt, dataUriBytes, fileToBase64, fmtIn, fmtSize, fmtWhen, htmlToText, imageSize, PICTURE_TYPES, playSent, resizeImage, sanitizeHtml, shortKey, userName } from "../util";
@@ -34,7 +35,6 @@ import { t as tNow } from "../i18n";
 import { useT } from "../i18n/react";
 import { tx } from "../i18n/rich";
 
-const MAX_ATTACH_BYTES = 25 * 1024 * 1024;
 /** Whether this is an address the composer accepts (see addresses.ts: `qa@localhost` and the account hosts count). */
 const EMAIL = { test: (a: string) => isEmail(a, singleLabelHostsOf(useStore.getState().accounts)) };
 const bareAddress = (v: string) => (v.match(/<([^>]+)>/)?.[1] ?? v).trim();
@@ -788,8 +788,24 @@ export function Compose({ init }: { init: ComposeInit }) {
     return { ...out, security: final };
   };
 
-  const attBytes = atts.reduce((n, a) => n + approxBytes(a), 0);
-  const totalBytes = attBytes + pics.bytes;
+  // What the server gets is the base64 text of every file in lines of 76 + part headers (about 4/3 more than the files): that is what the limit
+  // is checked against and what is shown (G-07). The limit is the server's SIZE (asked once the message is big), else the usual 25 MB.
+  const [serverMax, setServerMax] = useState<Record<string, number | null>>({});
+  const askedLimit = useRef<Record<string, Promise<number | null>>>({});
+  const askServerLimit = (id: string): Promise<number | null> => {
+    if (!id) return Promise.resolve(null);
+    askedLimit.current[id] ??= api.smtpSizeLimit(id).catch(() => null).then((v) => (setServerMax((m) => ({ ...m, [id]: v })), v));
+    return askedLimit.current[id];
+  };
+  const limit = sendLimit(serverMax[accountId]);
+  const wireOf = (files: Att[], picBytes: number, picCount: number) =>
+    wireSize({ attachments: files.map((a) => ({ filename: a.filename, base64Length: a.dataBase64.length })), pictures: picCount ? [picBytes] : [], encrypted: encOn });
+  const attBytes = wireOf(atts, 0, 0);
+  const totalBytes = wireOf(atts, pics.bytes, pics.count);
+  useEffect(() => {
+    if (worthAsking(totalBytes)) void askServerLimit(accountId);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [accountId, totalBytes > 0 && worthAsking(totalBytes)]);
   /** attachments whose type Gmail, Outlook and Yahoo reject */
   const blockedAtts = atts.map((a) => ({ name: a.filename, ext: blockedAttachmentExt(a.filename) })).filter((a) => a.ext);
 
@@ -802,9 +818,30 @@ export function Compose({ init }: { init: ComposeInit }) {
     [],
   );
 
+  /**
+   * The error text when the message, as it goes on the wire (base64 + headers + the body), is over what the server takes; null when it
+   * fits. A message above 8 MiB asks the server for its SIZE first (smtpsize.rs); without an answer the usual 25 MB applies.
+   */
+  const sizeProblem = async (d: Draft): Promise<string | null> => {
+    const wire = wireSize({
+      attachments: d.attachments.map((a) => ({ filename: a.filename, base64Length: a.dataBase64.length })),
+      pictures: (d.inline ?? []).map((i) => Math.floor((i.dataBase64.length * 3) / 4)),
+      htmlLength: d.html.length,
+      textLength: d.text.length,
+      encrypted: !!d.security?.encrypt,
+    });
+    let max = serverMax[d.accountId];
+    if (max === undefined && worthAsking(wire)) max = await askServerLimit(d.accountId);
+    const lim = sendLimit(max);
+    return wire > lim.bytes ? t("compose.att.tooBig", { size: fmtSize(wire), limit: fmtSize(lim.bytes) }) : null;
+  };
+
   const sendNowFromEditor = async () => {
     if (!init.outboxId) return;
-    const d = await secureDraft(buildDraft());
+    const built = buildDraft();
+    const tooBig = await sizeProblem(built);
+    if (tooBig) return showToast(tooBig, undefined, "error");
+    const d = await secureDraft(built);
     if (!d) return;
     setBusy(true);
     try {
@@ -840,7 +877,8 @@ export function Compose({ init }: { init: ComposeInit }) {
       if (!d.subject.trim()) return showToast(t("compose.err.meetingSubject"), undefined, "error");
     }
     if (!accountId) return showToast(t("compose.err.noAccount"), undefined, "error");
-    if (totalBytes > MAX_ATTACH_BYTES) return showToast(t("compose.att.tooBig", { size: fmtSize(totalBytes) }), undefined, "error");
+    const tooBig = await sizeProblem(d);
+    if (tooBig) return showToast(tooBig, undefined, "error");
     if (!d.subject && !(await confirm({ title: t("compose.dlg.noSubject"), confirmLabel: t("compose.dlg.sendAnyway") }))) return;
     if (
       blockedAtts.length &&
@@ -1099,8 +1137,8 @@ export function Compose({ init }: { init: ComposeInit }) {
     for (const f of Array.from(files)) list.push({ filename: f.name || "pasted-image.png", mime: f.type || "application/octet-stream", dataBase64: await fileToBase64(f) });
     setAtts((a) => {
       const next = [...a, ...list];
-      const bytes = next.reduce((n, x) => n + approxBytes(x), 0) + pics.bytes;
-      if (bytes > MAX_ATTACH_BYTES) showToast(t("compose.att.totalTooBig", { size: fmtSize(bytes) }), undefined, "error");
+      const bytes = wireOf(next, pics.bytes, pics.count);
+      if (bytes > limit.bytes) showToast(t("compose.att.totalTooBig", { size: fmtSize(bytes), limit: fmtSize(limit.bytes) }), undefined, "error");
       return next;
     });
     touch();
@@ -1665,11 +1703,11 @@ export function Compose({ init }: { init: ComposeInit }) {
 
       {pics.count > 0 && (
         <div className="cp-size muted small cp-atts" aria-live="polite">
-          {t("compose.pic.count", { n: pics.count, size: fmtSize(totalBytes) })}
-          <div className={`progress ${totalBytes > MAX_ATTACH_BYTES ? "over" : ""}`} role="progressbar" aria-valuemin={0} aria-valuemax={25 * 1024 * 1024} aria-valuenow={totalBytes}>
-            <i style={{ width: `${Math.min(100, (totalBytes / MAX_ATTACH_BYTES) * 100)}%` }} />
+          {t("compose.pic.count", { n: pics.count, size: fmtSize(totalBytes), limit: fmtSize(limit.bytes) })}
+          <div className={`progress ${totalBytes > limit.bytes ? "over" : ""}`} role="progressbar" aria-valuemin={0} aria-valuemax={limit.bytes} aria-valuenow={totalBytes}>
+            <i style={{ width: `${Math.min(100, (totalBytes / limit.bytes) * 100)}%` }} />
           </div>
-          {totalBytes > MAX_ATTACH_BYTES && <span className="inline-err">{t("compose.pic.overLimit", { size: fmtSize(totalBytes) })}</span>}
+          {totalBytes > limit.bytes && <span className="inline-err">{t("compose.pic.overLimit", { size: fmtSize(totalBytes), limit: fmtSize(limit.bytes) })}</span>}
         </div>
       )}
 
@@ -1695,7 +1733,7 @@ export function Compose({ init }: { init: ComposeInit }) {
               <button className="icon-btn" aria-label={t("compose.att.removeAria", { name: a.filename })} onClick={() => (setAtts((x) => x.filter((_, j) => j !== i)), touch())}><X size={12} /></button>
             </span>
           ))}
-          <span className={`muted small ${attBytes > MAX_ATTACH_BYTES ? "err" : ""}`}>{t("compose.att.total", { size: fmtSize(attBytes) })}</span>
+          <span className={`muted small ${totalBytes > limit.bytes ? "err" : ""}`}>{t("compose.att.total", { size: fmtSize(attBytes), limit: fmtSize(limit.bytes) })}</span>
           {blockedAtts.length > 0 && (
             <span className="att-warn" role="alert">
               <TriangleAlert size={14} aria-hidden /> {t(blockedAtts.length === 1 ? "compose.att.blockedWarningOne" : "compose.att.blockedWarningMany", { types: [...new Set(blockedAtts.map((a) => a.ext))].join(", ") })}
