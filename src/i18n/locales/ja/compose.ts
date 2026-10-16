@@ -215,6 +215,7 @@ export default defineLocale<typeof ns.en>({
   "compose.recover.later": "あとで",
   "compose.recover.failed": "そのメッセージを復元できませんでした。",
   "compose.autosave.saved": "{time}に下書きを保存しました",
+  "compose.draft.bccUnread": "この下書きの Bcc の宛先を読み取れなかったため、表示されていません。送信する前に宛先を確認してください。",
   "compose.toast.movedToDrafts": "下書きに移動しました",
   "compose.toast.moveFailed": "下書きに移動できませんでした：{error}",
   "compose.toast.scheduleCancelled": "送信予約をキャンセルしました",

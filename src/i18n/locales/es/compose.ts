@@ -226,6 +226,7 @@ export default defineLocale<typeof ns.en>({
   "compose.recover.later": "Ahora no",
   "compose.recover.failed": "No se pudo restaurar ese mensaje.",
   "compose.autosave.saved": "Borrador guardado a las {time}",
+  "compose.draft.bccUnread": "No se pudieron leer los destinatarios en Cco de este borrador, así que no se muestran. Revisa los destinatarios antes de enviar.",
   "compose.toast.movedToDrafts": "Movido a Borradores",
   "compose.toast.moveFailed": "No se pudo mover a Borradores: {error}",
   "compose.toast.scheduleCancelled": "Envío programado cancelado",

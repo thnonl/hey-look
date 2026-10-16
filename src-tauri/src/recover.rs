@@ -181,6 +181,17 @@ mod tests {
         }
     }
 
+    /// The shape the interface sends (camelCase, `files: null` when the attachments did not change) and gets back.
+    #[test]
+    fn the_json_of_the_interface_is_understood() {
+        let s: SnapIn = serde_json::from_str(r#"{"id":"m-1","accountId":"a1","subject":"s","preview":"p","payload":"{}","files":null}"#).unwrap();
+        assert!(s.files.is_none() && s.account_id == "a1");
+        let s: SnapIn = serde_json::from_str(r#"{"id":"m-1","accountId":"a1","subject":"s","preview":"p","payload":"{}","files":[{"filename":"a.txt","mime":"text/plain","dataBase64":"eA=="}]}"#).unwrap();
+        assert_eq!(s.files.unwrap()[0].filename, "a.txt");
+        let i = serde_json::to_value(Info { id: "m".into(), account_id: "a1".into(), saved_at: 5, subject: "s".into(), preview: "p".into(), files: 2 }).unwrap();
+        assert_eq!(i, serde_json::json!({"id":"m","accountId":"a1","savedAt":5,"subject":"s","preview":"p","files":2}));
+    }
+
     fn dir(tag: &str) -> std::path::PathBuf {
         crate::shard::tests::temp_dir(tag)
     }

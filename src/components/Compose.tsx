@@ -292,6 +292,8 @@ export async function openDraftThread(threadId: string, wait = false): Promise<b
   const { html, attachments } = await messageToEditor(m);
   // the recipients as they were typed (names, Bcc) come from the draft's own headers; the synced copy has bare To / Cc and no Bcc
   const rc = await api.draftRecipients(m.id).catch(() => null);
+  // without the draft's own headers the Bcc recipients are unknown: say so, a send would leave them out
+  if (!rc) st.showToast(tNow("compose.draft.bccUnread"), undefined, "error");
   const bare = (v: string) => (v ? v.split(",").map((x) => x.trim()).filter(Boolean) : []);
   await st.openCompose({
     accountId: m.accountId,

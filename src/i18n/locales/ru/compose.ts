@@ -244,6 +244,7 @@ export default defineLocale<typeof ns.en>({
   "compose.recover.later": "Не сейчас",
   "compose.recover.failed": "Не удалось восстановить это письмо.",
   "compose.autosave.saved": "Черновик сохранён в {time}",
+  "compose.draft.bccUnread": "Не удалось прочитать получателей скрытой копии этого черновика, поэтому они не показаны. Проверьте получателей перед отправкой.",
   "compose.toast.movedToDrafts": "Перемещено в черновики",
   "compose.toast.moveFailed": "Не удалось переместить в черновики: {error}",
   "compose.toast.scheduleCancelled": "Запланированная отправка отменена",

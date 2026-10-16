@@ -214,6 +214,7 @@ export default defineLocale<typeof ns.en>({
   "compose.recover.later": "暂不",
   "compose.recover.failed": "无法恢复该邮件。",
   "compose.autosave.saved": "草稿已于 {time} 保存",
+  "compose.draft.bccUnread": "无法读取此草稿的密送收件人，因此未显示。发送前请检查收件人。",
   "compose.toast.movedToDrafts": "已移至草稿",
   "compose.toast.moveFailed": "无法移至草稿：{error}",
   "compose.toast.scheduleCancelled": "已取消定时发送",
