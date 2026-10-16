@@ -4,6 +4,7 @@
 import { api } from "./api";
 import { t } from "./i18n";
 import { offerRecovery, type RecoveryForm, type RecoveryLoaded } from "./recovery";
+import { initialImportance } from "./importance";
 import { useStore } from "./store";
 import { fmtWhen } from "./util";
 
@@ -34,6 +35,7 @@ export function composeFromSnapshot(l: RecoveryLoaded) {
     // the toggles as they were; the body holds its one signature region, as in a stored draft
     restore: { encrypt: f.encrypt === "on" || f.encrypt === "auto" ? f.encrypt : ("off" as const), sign: !!f.sign, attachKey: !!f.attachKey },
     confidential: !!f.confidential,
+    importance: initialImportance(f),
     // the snapshot keeps its id: the next snapshot of this message replaces it, and it goes when the message is sent, discarded or saved
     recoveryId: l.id,
   };

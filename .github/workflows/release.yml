@@ -270,6 +270,7 @@ jobs:
           node --experimental-strip-types scripts/test-calendar-sync.mjs
           node --experimental-strip-types scripts/test-datetime-fields.mjs
           node --experimental-strip-types scripts/test-event-when.mjs
+          node --experimental-strip-types scripts/test-importance.mjs
           node --experimental-strip-types scripts/test-i18n.mjs
           node --experimental-strip-types scripts/test-i18n-tools.mjs
           node --experimental-strip-types scripts/test-boot-lang.mjs

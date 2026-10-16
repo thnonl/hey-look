@@ -76,6 +76,7 @@ export function ScheduledList() {
         security: d.security,
         meeting: d.meeting ? { ...d.meeting, on: true } : undefined,
         confidential: d.confidential,
+        importance: d.importance,
         outboxId: o.id,
         sendAt: e.sendAt,
         outboxError: o.status === "failed" ? o.error ?? t("compose.scheduled.serverRefused") : undefined,

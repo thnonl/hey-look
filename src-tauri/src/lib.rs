@@ -10,6 +10,7 @@ mod headerfold;
 mod ical;
 mod i18n;
 mod identity;
+mod importance;
 mod idle;
 mod legacy_names;
 // the checked open of links and files on Linux; compiled everywhere so that its rules are tested everywhere
@@ -614,8 +615,8 @@ fn insert_parsed(c: &Connection, acc: &Account, role: &str, p: &mail::Parsed) ->
     let thread_id = thread_id_of(&acc.id, role, p);
     c.execute(
         "INSERT OR REPLACE INTO messages(id,account_id,folder,uid,message_id,thread_id,subject,from_name,from_email,
-           to_addrs,cc_addrs,date,snippet,body_html,body_text,seen,flagged,has_attach,attachments,list_unsub,list_unsub_post,pgp,pgp_raw,ics,cal_method)
-         VALUES(?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,?13,?14,?15,?16,?17,?18,?19,?20,?21,?22 | COALESCE((SELECT pgp FROM messages WHERE id=?1),0),?23,?24,?25)",
+           to_addrs,cc_addrs,date,snippet,body_html,body_text,seen,flagged,has_attach,attachments,list_unsub,list_unsub_post,pgp,pgp_raw,ics,cal_method,importance)
+         VALUES(?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,?13,?14,?15,?16,?17,?18,?19,?20,?21,?22 | COALESCE((SELECT pgp FROM messages WHERE id=?1),0),?23,?24,?25,?26)",
         params![
             format!("{}:{}:{}", acc.id, role, p.uid),
             acc.id,
@@ -642,7 +643,8 @@ fn insert_parsed(c: &Connection, acc: &Account, role: &str, p: &mail::Parsed) ->
             p.pgp as i64,
             p.pgp_raw,
             p.ics,
-            p.cal_method
+            p.cal_method,
+            p.importance.to_db()
         ],
     )
     .map_err(err)?;
@@ -1824,6 +1826,8 @@ struct ThreadSummary {
     confidential: bool,
     /// request | reply | cancel when a message of the conversation carries a calendar invitation
     invite: Option<String>,
+    /// high when a message of the conversation was sent with high importance, else low when one was sent with low importance
+    importance: importance::Importance,
 }
 
 #[tauri::command]
@@ -1951,7 +1955,7 @@ fn threads_for(c: &Connection, filter: ThreadFilter) -> R<Vec<ThreadSummary>> {
     }
     let sql = format!(
         "SELECT m.thread_id,m.id,m.account_id,m.folder,m.subject,m.from_name,m.from_email,m.snippet,m.date,m.seen,m.flagged,m.has_attach,
-                COALESCE(tm.pinned,0), tm.snoozed_until, m.list_unsub IS NOT NULL, m.pgp, m.cal_method
+                COALESCE(tm.pinned,0), tm.snoozed_until, m.list_unsub IS NOT NULL, m.pgp, m.cal_method, m.importance
          FROM messages m LEFT JOIN thread_meta tm ON tm.thread_id=m.thread_id
          WHERE {} ORDER BY m.date {} LIMIT 4000",
         w.join(" AND "),
@@ -1978,13 +1982,14 @@ fn threads_for(c: &Connection, filter: ThreadFilter) -> R<Vec<ThreadSummary>> {
                 r.get::<_, i64>(14)? != 0,
                 r.get::<_, i64>(15)?,
                 r.get::<_, Option<String>>(16)?,
+                r.get::<_, i64>(17)?,
             ))
         })
         .map_err(err)?;
     let mut order: Vec<String> = vec![];
     let mut map: HashMap<String, ThreadSummary> = HashMap::new();
     for row in rows {
-        let (tid, mid, acct, folder, subject, fname, femail, snippet, date, seen, flagged, att, pinned, snooze, bulk, pgp, cal) =
+        let (tid, mid, acct, folder, subject, fname, femail, snippet, date, seen, flagged, att, pinned, snooze, bulk, pgp, cal, imp) =
             row.map_err(err)?;
         let who = if fname.is_empty() { femail } else { fname };
         let key = if filter.flat { mid } else { tid.clone() };
@@ -2010,6 +2015,7 @@ fn threads_for(c: &Connection, filter: ThreadFilter) -> R<Vec<ThreadSummary>> {
                 signed: false,
                 confidential: false,
                 invite: None,
+                importance: importance::Importance::Normal,
             }
         });
         e.count += 1;
@@ -2022,6 +2028,11 @@ fn threads_for(c: &Connection, filter: ThreadFilter) -> R<Vec<ThreadSummary>> {
         e.encrypted |= pgp & 1 != 0;
         e.signed |= pgp & 2 != 0;
         e.confidential |= pgp & pgpmail::FLAG_CONFIDENTIAL as i64 != 0;
+        e.importance = match (e.importance, importance::Importance::from_db(imp)) {
+            (importance::Importance::High, _) | (_, importance::Importance::High) => importance::Importance::High,
+            (importance::Importance::Low, _) | (_, importance::Importance::Low) => importance::Importance::Low,
+            _ => importance::Importance::Normal,
+        };
         if e.invite.is_none() {
             e.invite = cal.filter(|m| matches!(m.as_str(), "request" | "reply" | "cancel"));
         }
@@ -2068,10 +2079,12 @@ pub(crate) struct MessageFull {
     ics: Option<String>,
     /// calendar invitation / update / cancellation / reply carried by this message
     invite: Option<calendar::CalInvite>,
+    /// how the sender marked it: normal | high | low
+    importance: importance::Importance,
 }
 
 const MESSAGE_COLS: &str = "id,account_id,folder,message_id,subject,from_name,from_email,to_addrs,cc_addrs,date,body_html,body_text,
-                    seen,flagged,attachments,list_unsub,pgp,pgp_raw,ics";
+                    seen,flagged,attachments,list_unsub,pgp,pgp_raw,ics,importance";
 
 fn row_message(r: &rusqlite::Row) -> rusqlite::Result<(MessageFull, i64, Option<Vec<u8>>)> {
     let att: String = r.get(14)?;
@@ -2098,6 +2111,7 @@ fn row_message(r: &rusqlite::Row) -> rusqlite::Result<(MessageFull, i64, Option<
             confidential: pgp & pgpmail::FLAG_CONFIDENTIAL as i64 != 0,
             ics: r.get(18)?,
             invite: None,
+            importance: importance::Importance::from_db(r.get(19)?),
         },
         pgp,
         r.get(17)?,
@@ -5068,7 +5082,7 @@ mod backfill_tests {
         mail::Parsed {
             uid, message_id: None, refs: vec![], subject: "s".into(), from_name: "n".into(), from_email: "e@example.com".into(), to: vec![], cc: vec![],
             date: uid as i64, snippet: String::new(), html: None, text: Some("t".into()), seen: true, flagged: false, attachments: vec![],
-            list_unsub: None, list_unsub_post: false, pgp: 0, pgp_raw: None, ics: None, cal_method: None,
+            list_unsub: None, list_unsub_post: false, pgp: 0, pgp_raw: None, ics: None, cal_method: None, importance: importance::Importance::Normal,
         }
     }
 
@@ -5429,6 +5443,97 @@ mod signed_flag_tests {
         for id in ["m2", "m3"] {
             assert_eq!(ensure_not_confidential(&c, id).unwrap_err(), "CONFIDENTIAL: This message is confidential, so that isn’t allowed.");
         }
+    }
+}
+
+/// F-24: importance read from received mail is stored, shown in the list and the reading pane, and changes nothing else.
+#[cfg(test)]
+mod importance_tests {
+    use super::*;
+    use importance::Importance::{self, *};
+
+    fn account() -> Account {
+        Account {
+            id: "a1".into(), email: "me@example.com".into(), display_name: "Me".into(), imap_host: "h".into(), imap_port: 993, imap_ssl: true,
+            smtp_host: "s".into(), smtp_port: 465, smtp_security: "ssl".into(), username: "u".into(), auth: "password".into(), color: None,
+            smtp_username: String::new(), tls_insecure: false,
+        }
+    }
+
+    fn raw(uid: u32, subject: &str, extra: &str) -> Vec<u8> {
+        format!("From: Ann <ann@example.com>\r\nTo: me@example.com\r\nSubject: {subject}\r\nMessage-ID: <m{uid}@example.com>\r\nDate: Mon, 12 Oct 2026 10:00:0{uid} +0000\r\n{extra}\r\nbody\r\n").into_bytes()
+    }
+
+    fn store(c: &Connection, uid: u32, subject: &str, extra: &str) {
+        let p = mail::parse(uid, &raw(uid, subject, extra), false, false, 0).unwrap();
+        insert_parsed(c, &account(), "inbox", &p).unwrap();
+    }
+
+    fn filter() -> ThreadFilter {
+        serde_json::from_str(r#"{"folder":"inbox"}"#).unwrap()
+    }
+
+    #[test]
+    fn received_importance_is_stored_listed_and_read_back_without_touching_order() {
+        let c = db::test_conn(&["a1"]);
+        store(&c, 1, "plain", "");
+        store(&c, 2, "urgent", "X-Priority: 1 (Highest)\r\nImportance: High\r\n");
+        store(&c, 3, "later", "Importance: low\r\n");
+        store(&c, 4, "outlook", "X-MSMail-Priority: High\r\n");
+        store(&c, 5, "old school", "Priority: non-urgent\r\n");
+        store(&c, 6, "three", "X-Priority: 3 (Normal)\r\n");
+        let list = threads_for(&c, filter()).unwrap();
+        let by: HashMap<String, Importance> = list.iter().map(|t| (t.subject.clone(), t.importance)).collect();
+        assert_eq!(by["plain"], Normal);
+        assert_eq!(by["urgent"], High);
+        assert_eq!(by["later"], Low);
+        assert_eq!(by["outlook"], High);
+        assert_eq!(by["old school"], Low);
+        assert_eq!(by["three"], Normal);
+        // order is by date as before (newest first), whatever the importance
+        let subjects: Vec<&str> = list.iter().map(|t| t.subject.as_str()).collect();
+        assert_eq!(subjects, ["three", "old school", "outlook", "later", "urgent", "plain"]);
+        // the reading pane
+        assert_eq!(message_full(&c, "a1:inbox:2").unwrap().importance, High);
+        assert_eq!(message_full(&c, "a1:inbox:3").unwrap().importance, Low);
+        assert_eq!(message_full(&c, "a1:inbox:1").unwrap().importance, Normal);
+        // wire names for the interface
+        let urgent = list.iter().find(|t| t.subject == "urgent").unwrap();
+        assert_eq!(serde_json::to_value(urgent).unwrap()["importance"], "high");
+        assert_eq!(serde_json::to_value(message_full(&c, "a1:inbox:3").unwrap()).unwrap()["importance"], "low");
+        // syncing the same message again with different headers updates the stored value (INSERT OR REPLACE)
+        store(&c, 1, "plain", "Importance: high\r\n");
+        assert_eq!(message_full(&c, "a1:inbox:1").unwrap().importance, High);
+    }
+
+    #[test]
+    fn a_conversation_shows_high_over_low_over_normal() {
+        let c = db::test_conn(&["a1"]);
+        // one thread: a root and replies that reference it
+        store(&c, 1, "topic", "");
+        store(&c, 2, "Re: topic", "In-Reply-To: <m1@example.com>\r\nReferences: <m1@example.com>\r\nImportance: low\r\n");
+        let l = threads_for(&c, filter()).unwrap();
+        assert_eq!(l.len(), 1);
+        assert_eq!(l[0].importance, Low);
+        store(&c, 3, "Re: topic", "In-Reply-To: <m1@example.com>\r\nReferences: <m1@example.com>\r\nX-Priority: 1\r\n");
+        let l = threads_for(&c, filter()).unwrap();
+        assert_eq!((l.len(), l[0].count, l[0].importance), (1, 3, High));
+    }
+
+    #[test]
+    fn a_sent_high_importance_message_comes_back_high_from_the_sent_folder() {
+        let c = db::test_conn(&["a1"]);
+        let acc = account();
+        let d = smtp::Draft {
+            account_id: "a1".into(), to: vec!["ann@example.com".into()], cc: vec![], bcc: vec![], subject: "Ship it".into(), html: "<p>x</p>".into(), text: "x".into(),
+            in_reply_to: None, references: vec![], attachments: vec![], inline: vec![], security: None, prebuilt: None, meeting: None, calendar: None,
+            confidential: false, importance: High,
+        };
+        let sent = smtp::build(&acc, &d).unwrap().formatted();
+        let p = mail::parse(1, &sent, true, false, 0).unwrap();
+        insert_parsed(&c, &acc, "sent", &p).unwrap();
+        let f: ThreadFilter = serde_json::from_str(r#"{"folder":"sent"}"#).unwrap();
+        assert_eq!(threads_for(&c, f).unwrap()[0].importance, High);
     }
 }
 

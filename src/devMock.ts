@@ -125,6 +125,14 @@ const mockThreadMsgs: Record<string, unknown[]> = {
   t14: [secMsg("m-ok2", "Weekly sync notes", "Bao Tran", "bao@contoso.com", { security: { encrypted: false, partial: false, decryption: "none", encryptedFor: [], signature: { status: "valid", signer: "Bao Tran", fingerprint: pgpKeys[3].fingerprint, keyId: pgpKeys[3].keyId, signedAt: now - 8 * H, verified: false, matchesFrom: true, inline: true } } }, "<p>Notes from today are below. Signed inline.</p>")],
 };
 
+// message importance (F-24): one High and one Low message in the Inbox
+threads.push(
+  t("timp-hi", "Please approve the change window today", ["Linh Tran"], "We need your sign-off before 17:00 so the release can go out tonight.", 0.8 * H, { unread: 1, importance: "high" }),
+  t("timp-lo", "FYI: newsletter archive has moved", ["Minh Pham"], "No action needed, just so you know where to find the old issues.", 1.4 * H, { importance: "low" }),
+);
+mockThreadMsgs["timp-hi"] = [secMsg("m-imp-hi", "Please approve the change window today", "Linh Tran", "linh@example.com", { importance: "high", seen: false }, "<p>Hi Nam,</p><p>We need your sign-off before 17:00 so the release can go out tonight.</p><p>— Linh</p>")];
+mockThreadMsgs["timp-lo"] = [secMsg("m-imp-lo", "FYI: newsletter archive has moved", "Minh Pham", "minh@example.com", { importance: "low" }, "<p>Hi Nam,</p><p>No action needed, just so you know where to find the old issues.</p><p>— Minh</p>")];
+
 const messages = [
   { id: "m1", accountId: "a1", folder: "inbox", messageId: "<1@x>", subject: "Q4 roadmap review", fromName: "Linh Tran", fromEmail: "linh@example.com", to: "nam@example.com", cc: "", date: now - 3 * H, html: body("Attaching the latest roadmap deck."), text: "Attaching the latest roadmap deck.", seen: true, flagged: false, attachments: [{ index: 0, name: "roadmap-q4.pdf", mime: "application/pdf", size: 482113 }], canUnsubscribe: false },
   { id: "m2", accountId: "a1", folder: "inbox", messageId: "<2@x>", subject: "Re: Q4 roadmap review", fromName: "Nam", fromEmail: "nam@example.com", to: "linh@example.com", cc: "", date: now - 2 * H, html: body("Thanks, looking now."), text: "Thanks, looking now.", seen: true, flagged: false, attachments: [], canUnsubscribe: false },
@@ -231,6 +239,8 @@ let calEvents: MockEvent[] = [
 const hiddenCals = new Set<string>();
 /** Drafts saved in this page (save_draft), by thread. */
 const mockDrafts: Record<string, typeof messages> = {};
+/** The row each saved draft has in the Drafts list (with its importance), by thread. */
+const mockDraftRows: Record<string, ReturnType<typeof t>> = {};
 let mockDraftSeq = 0;
 /** Crash recovery in the page (recover.rs): kept in localStorage, so reloading the page without discarding is the "crash" of a check. */
 const RECOVERY_KEY = "hl-mock-recovery";
@@ -243,6 +253,7 @@ const mockDraftRefs: Record<string, string> = {};
 function dropMockDraft(ref: string) {
   const tid = ref.startsWith("m:a1:drafts:") ? ref.slice("m:a1:drafts:".length) : mockDraftRefs[ref] ?? ref;
   delete mockDrafts[tid];
+  delete mockDraftRows[tid];
 }
 /** To / Cc / Bcc as the saved draft's headers have them, by message id (`draft_recipients`). */
 const mockDraftHeaders: Record<string, { to: string[]; cc: string[]; bcc: string[] }> = {};
@@ -1047,6 +1058,7 @@ export function installMock() {
         const own = (a.filter as { accountId?: string | null }).accountId;
         const q = (f.search ?? "").trim();
         if (own && own.startsWith("n")) return f.folder === "inbox" && synced.has(own) ? newThreads(own) : []; // an added account: empty until its first sync is done
+        if (f.folder === "drafts") return Object.values(mockDraftRows).reverse(); // newest saved first
         if (!(f.folder === "inbox" || f.folder === "unread" || f.folder === "all")) return [];
         // like the backend: a search over every mailbox ignores the selected one
         const scoped = own && !(q && f.scope === "all") ? own : null;
@@ -1153,13 +1165,15 @@ export function installMock() {
         if (hashTokens().has("draftfail")) throw "mock: the server refused the draft"; // `#draftfail`: saving a draft fails (update restart asks what to do)
         w.__lastDraft = a.draft;
         // like the backend: the draft is a message of the Drafts folder, in the thread it gets from its Message-ID (the toast "Draft saved" opens it with Edit)
-        const dr = a.draft as { to: string[]; cc: string[]; bcc?: string[]; subject: string; html: string; text: string; accountId: string };
+        const dr = a.draft as { to: string[]; cc: string[]; bcc?: string[]; subject: string; html: string; text: string; accountId: string; importance?: string };
         const tid = `dt${++mockDraftSeq}`;
         // the draft is replaced, not added to (the backend appends the new one, then deletes the one the reference names)
         if (typeof a.replaces === "string") dropMockDraft(a.replaces);
         // the synced copy has bare To / Cc addresses and no Bcc; `draft_recipients` returns what the headers say
         const bareOf = (l: string[]) => l.map((x) => /<([^>]+)>/.exec(x)?.[1] ?? x);
-        mockDrafts[tid] = [{ ...messages[0], id: `a1:drafts:${tid}`, accountId: dr.accountId, folder: "drafts", subject: dr.subject || "(no subject)", fromName: "Nam", fromEmail: "nam@example.com", to: bareOf(dr.to).join(", "), cc: bareOf(dr.cc).join(", "), html: dr.html, text: dr.text, attachments: [], seen: true }];
+        mockDrafts[tid] = [{ ...messages[0], id: `a1:drafts:${tid}`, accountId: dr.accountId, folder: "drafts", subject: dr.subject || "(no subject)", fromName: "Nam", fromEmail: "nam@example.com", to: bareOf(dr.to).join(", "), cc: bareOf(dr.cc).join(", "), html: dr.html, text: dr.text, attachments: [], seen: true, ...{ importance: dr.importance ?? "normal" } }];
+        // the draft shows up in Drafts; reopening it gives back what was saved, the importance included (the backend reads it from the headers)
+        mockDraftRows[tid] = t(tid, dr.subject || "(no subject)", [dr.to[0] ?? "(no recipient)"], dr.text.slice(0, 120), 0, { folder: "drafts", accountId: dr.accountId, importance: dr.importance ?? "normal" });
         mockDraftHeaders[`a1:drafts:${tid}`] = { to: dr.to, cc: dr.cc, bcc: dr.bcc ?? [] };
         mockDraftRefs[`mid:a1|<${tid}@mock>`] = tid;
         (window as unknown as { __draftCount: () => number }).__draftCount = () => Object.keys(mockDrafts).length; // for a check: drafts the page holds

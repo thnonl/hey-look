@@ -25,6 +25,7 @@
   --top-field: var(--top-field-lt, rgba(255,255,255,.17)); --top-field-h: var(--top-field-h-lt, rgba(255,255,255,.24)); --top-hover: var(--top-hover-lt, rgba(255,255,255,.18));
   --danger: #b42318;
   --flag: #d92d20;
+  --imp-high: var(--flag); --imp-low: #175cd3; /* message importance: red "!" / blue arrow */
   --good: #1a7f4b;
   --warn: #b54708;
   --r-sm: 6px;
@@ -44,7 +45,7 @@
   :root:not([data-theme="light"]) {
     --bg: #1b1c20; --bg2: #232429; --bg3: #2d2f36; --sel: var(--accent-soft); --fg: #f1f2f4; --muted: #a2a8b3; --border: #34363e;
     --accent: color-mix(in srgb, var(--accent-base), white 40%); --accent-text: var(--accent-text-dk, var(--accent)); --accent-hover: color-mix(in srgb, var(--accent), white 16%); --accent-fg: var(--accent-fg-dk, #07121f); --accent-soft: color-mix(in srgb, var(--accent) 14%, var(--bg));
-    --top: linear-gradient(135deg, #25272d 0%, #2d3038 100%); --top-fg: #fff; --top-field: rgba(255,255,255,.17); --top-field-h: rgba(255,255,255,.24); --top-hover: rgba(255,255,255,.18); --flag: #f97066; --danger: #f97066; --good: #47cd89; --warn: #fdb022;
+    --top: linear-gradient(135deg, #25272d 0%, #2d3038 100%); --top-fg: #fff; --top-field: rgba(255,255,255,.17); --top-field-h: rgba(255,255,255,.24); --top-hover: rgba(255,255,255,.18); --flag: #f97066; --danger: #f97066; --good: #47cd89; --warn: #fdb022; --imp-low: #53b1fd;
     --shadow-sm: 0 1px 2px rgba(0, 0, 0, .4); --shadow: 0 14px 36px rgba(0, 0, 0, .55), 0 2px 6px rgba(0, 0, 0, .4);
     color-scheme: dark;
   }
@@ -52,7 +53,7 @@
 :root[data-theme="dark"] {
   --bg: #1b1c20; --bg2: #232429; --bg3: #2d2f36; --sel: var(--accent-soft); --fg: #f1f2f4; --muted: #a2a8b3; --border: #34363e;
   --accent: color-mix(in srgb, var(--accent-base), white 40%); --accent-text: var(--accent-text-dk, var(--accent)); --accent-hover: color-mix(in srgb, var(--accent), white 16%); --accent-fg: var(--accent-fg-dk, #07121f); --accent-soft: color-mix(in srgb, var(--accent) 14%, var(--bg));
-  --top: linear-gradient(135deg, #25272d 0%, #2d3038 100%); --top-fg: #fff; --top-field: rgba(255,255,255,.17); --top-field-h: rgba(255,255,255,.24); --top-hover: rgba(255,255,255,.18); --flag: #f97066; --danger: #f97066; --good: #47cd89; --warn: #fdb022;
+  --top: linear-gradient(135deg, #25272d 0%, #2d3038 100%); --top-fg: #fff; --top-field: rgba(255,255,255,.17); --top-field-h: rgba(255,255,255,.24); --top-hover: rgba(255,255,255,.18); --flag: #f97066; --danger: #f97066; --good: #47cd89; --warn: #fdb022; --imp-low: #53b1fd;
   --shadow-sm: 0 1px 2px rgba(0, 0, 0, .4); --shadow: 0 14px 36px rgba(0, 0, 0, .55), 0 2px 6px rgba(0, 0, 0, .4);
   color-scheme: dark;
 }
@@ -1133,3 +1134,17 @@ span.spin { display: inline-block; width: 13px; height: 13px; border: 2px solid 
 .rp-msg-body.confidential, .rp-msg-body.confidential * { -webkit-user-select: none; user-select: none; }
 .conf-banner { display: flex; align-items: center; gap: 8px; }
 .conf-banner svg { flex: none; }
+
+/* message importance (High / Low): the mark in the list and reading pane, and the Compose toggle buttons */
+.imp { display: inline-flex; align-items: center; gap: 4px; flex: none; line-height: 1; }
+.imp-high { color: var(--imp-high); }
+.imp-low { color: var(--imp-low); }
+.imp.imp-label { font-size: .82em; font-weight: 600; white-space: nowrap; }
+.rp-meta > .imp { margin: 1px 0 2px; }
+.cf-field > .imp { padding: 11px 14px 0 0; }
+.imp-group { display: inline-flex; align-items: center; gap: 2px; }
+.rb.imp-btn { padding: 7px 8px; }
+.rb.imp-btn.high { color: var(--imp-high); }
+.rb.imp-btn.low { color: var(--imp-low); }
+.rb.imp-btn.high.on { background: color-mix(in srgb, var(--imp-high) 14%, var(--bg)); }
+.rb.imp-btn.low.on { background: color-mix(in srgb, var(--imp-low) 14%, var(--bg)); }

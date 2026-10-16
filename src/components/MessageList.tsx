@@ -11,6 +11,7 @@ import { accountColor, folderLabel, Prefs } from "../prefs";
 import { canPageBack, exhaustedKey, friendlyError, useStore } from "../store";
 import { dateGroup, fmtDate, snoozePresets, subjectText } from "../util";
 import { openDraftThread } from "./Compose";
+import { ImportanceMark } from "./Importance";
 import { ScheduledList } from "./ScheduledList";
 import { EmptyState, SkeletonRows } from "./overlays";
 import { Avatar, Dropdown } from "./ui";
@@ -86,6 +87,7 @@ export function ThreadRow({ t, selected, checked, prefs, showFolder, accountColo
           <span className="flags">
             {showFolder && <span className="where">{folderLabel(t.folder)}</span>}
             {t.count > 1 && prefs.conversations && <span className="count">{t.count}</span>}
+            <ImportanceMark level={t.importance} />
             {t.confidential && <ShieldAlert size={12} aria-label={tr("mail.row.confidential")} />}
             {t.encrypted && <Lock size={12} aria-label={tr("mail.row.encrypted")} />}
             {t.signed && !t.encrypted && <BadgeCheck size={12} aria-label={tr("mail.row.signed")} />}

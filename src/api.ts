@@ -1,6 +1,7 @@
 import { Channel, invoke } from "@tauri-apps/api/core";
 import { t } from "./i18n";
 import type { RecoveryInfo, RecoveryLoaded, SnapshotOut } from "./recovery";
+import type { Importance } from "./importance";
 
 export interface Account {
   id: string;
@@ -45,6 +46,8 @@ export interface ThreadSummary {
   confidential?: boolean;
   /** a message of the conversation carries a calendar invitation / reply / cancellation */
   invite?: "request" | "reply" | "cancel" | null;
+  /** the sender marked a message of the conversation High or Low importance (high wins); absent = normal */
+  importance?: Importance;
 }
 
 /** What an answer to a message needs from the message's own headers (read from the server's copy). */
@@ -79,6 +82,8 @@ export interface MessageFull {
   confidential?: boolean;
   /** calendar invitation, update, cancellation or reply carried by this message */
   invite?: CalInvite | null;
+  /** how the sender marked it; a reopened draft starts Compose with it */
+  importance?: Importance;
 }
 
 export type SigStatus = "valid" | "invalid" | "unknown_key" | "expired_key" | "revoked_key";
@@ -404,6 +409,8 @@ export interface Draft {
   meeting?: Meeting;
   /** send as confidential (Sensitivity: Company-Confidential) */
   confidential?: boolean;
+  /** High / Low add the importance headers; absent = Normal (no header) */
+  importance?: Importance;
 }
 
 /** What Save draft says: the conversation the draft will be in once the sync has read it, and the reference that makes the next save (or a send) replace exactly this draft. */

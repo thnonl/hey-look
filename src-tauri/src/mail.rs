@@ -570,6 +570,8 @@ pub struct Parsed {
     pub ics: Option<String>,
     /// lowercase iMIP method of that calendar data (request, reply, cancel, publish, ...)
     pub cal_method: Option<String>,
+    /// High / Low as the sender marked it (Importance, X-Priority, X-MSMail-Priority, Priority headers)
+    pub importance: crate::importance::Importance,
 }
 
 pub struct FolderFetch {
@@ -747,6 +749,7 @@ pub fn parse(uid: u32, raw: &[u8], seen: bool, flagged: bool, fallback_date: i64
         pgp_raw: keep.then(|| raw.to_vec()),
         ics,
         cal_method,
+        importance: crate::importance::from_raw(raw),
     })
 }
 

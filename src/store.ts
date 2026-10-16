@@ -11,6 +11,7 @@ import { backendText } from "./backendErrors";
 import { needsSignIn } from "./signIn";
 import type { Jobs } from "./translateJobs";
 import { AdvanceTracker, startAdvance } from "./autoAdvance";
+import type { Importance } from "./importance";
 import { accountsOf, canMoveToJunk, JUNK_ACTIONS } from "./junk";
 import { addToast, lazyText, type Lazy } from "./toastStack";
 import { mayOpenMail, selectionAfterCompose } from "./composeSelection";
@@ -60,6 +61,8 @@ export interface ComposeInit {
   confidential?: boolean;
   /** a message restored after the app ended unexpectedly: it keeps the id of its snapshot, so the next snapshot replaces it (recovery.ts) */
   recoveryId?: string;
+  /** only a reopened draft / scheduled message carries one; a new message, reply and forward start Normal */
+  importance?: Importance;
   /** start Compose as a meeting invitation ("Meeting" switched on) */
   meeting?: Partial<Meeting> & { on?: boolean };
 }

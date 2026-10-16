@@ -21,6 +21,8 @@ export interface RecoveryForm {
   sign: boolean;
   attachKey: boolean;
   confidential: boolean;
+  /** High / Low (F-24); left out for Normal and in snapshots of older versions */
+  importance?: "high" | "low";
 }
 
 /** What goes to the backend for one snapshot. `files` is null when the attachments are those of the previous snapshot. */

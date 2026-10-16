@@ -974,6 +974,7 @@ mod tests {
             meeting: None,
             calendar: None,
             confidential: false,
+            importance: Default::default(),
         }
     }
 
