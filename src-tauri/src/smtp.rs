@@ -263,7 +263,8 @@ fn exact_body(bytes: Vec<u8>) -> Body {
 
 /// The content: text/plain + text/html (+ related pictures), then the real attachments.
 fn body(d: &Draft) -> R<MultiPart> {
-    let html = SinglePart::html(d.html.clone());
+    // the allow-list sanitiser (outgoing.rs) is the last step before the HTML becomes a MIME part: send, schedule, hold, outbox and drafts
+    let html = SinglePart::html(crate::outgoing::clean_html(&d.html));
     let mut alt = if d.inline.is_empty() {
         MultiPart::alternative().singlepart(SinglePart::plain(d.text.clone())).singlepart(html)
     } else {

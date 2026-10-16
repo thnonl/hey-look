@@ -21,6 +21,7 @@ mod macquit;
 mod mail;
 mod oauth;
 mod oauth_page;
+mod outgoing;
 mod openpgp;
 mod pgpmail;
 mod pgpstore;
