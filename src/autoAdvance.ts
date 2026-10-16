@@ -55,3 +55,51 @@ export function planRestore(a: Advance, now: number, selected: string | null, ne
   if (now - a.at > REVERT_WITHIN_MS) return none; // they have been on it long enough to have read it
   return { reselect: a.from, markUnread: a.to !== null && a.wasUnread && !a.touched && !nextIsUnread ? a.to : null };
 }
+
+/** What `AdvanceTracker.mailBack` needs from the app (the store passes its own; a script passes fakes). */
+export interface RestoreDeps {
+  now: () => number;
+  /** the conversation that is selected now */
+  selected: () => string | null;
+  /** the list shows this conversation as unread */
+  isUnread: (id: string) => boolean;
+  select: (id: string) => Promise<void>;
+  markUnread: (id: string) => Promise<void>;
+}
+
+/** Most moves remembered (a move that went through leaves its record behind until it is pushed out). */
+const KEEP = 50;
+
+/**
+ * The records of the moves in flight, and the ONE way back for every way a move can end badly: the folder check failed during the Undo
+ * window, the server refused the MOVE after it, the move could not be queued, or the person pressed Undo. Each of them first makes the
+ * mail reappear in the list (the caller's refresh), then calls `mailBack(token)`: within REVERT_WITHIN_MS of the advance and while the
+ * person is still on the next mail, the selection goes back to the moved mail and the next mail goes back to unread (see above).
+ * A failure that comes later than that leaves the selection where it is (the person is reading the next mail); the moved mail is back
+ * in the list all the same, it only is not selected. A move that went through needs nothing.
+ */
+export class AdvanceTracker {
+  private moves = new Map<string, Advance>();
+
+  /** The app moved the selection after queueing the move `token`. */
+  record(token: string, a: Advance) {
+    this.moves.set(token, a);
+    if (this.moves.size > KEEP) this.moves.delete(this.moves.keys().next().value as string);
+  }
+
+  /** The person did something to these conversations themselves (the app's own mark-as-read when it opens a mail is not that). */
+  touch(ids: readonly string[]) {
+    for (const [k, a] of this.moves) this.moves.set(k, touchAdvance(a, ids));
+  }
+
+  /** The move `token` did not stay done (any path above): put the selection and the next mail's unread state back if the rule allows. */
+  async mailBack(token: string, deps: RestoreDeps): Promise<RestorePlan> {
+    const a = this.moves.get(token);
+    this.moves.delete(token);
+    if (!a) return { reselect: null, markUnread: null };
+    const plan = planRestore(a, deps.now(), deps.selected(), a.to !== null && deps.isUnread(a.to));
+    if (plan.reselect) await deps.select(plan.reselect);
+    if (plan.markUnread) await deps.markUnread(plan.markUnread);
+    return plan;
+  }
+}

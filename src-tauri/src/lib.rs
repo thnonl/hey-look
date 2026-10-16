@@ -1120,8 +1120,10 @@ fn run_pending(app: &tauri::AppHandle, items: Vec<Pending>, verify_wait: std::ti
             let _ = app.emit("action-verify-failed", VerifyFailed { id: p.id, error });
             continue;
         }
-        if let Err(e) = action_impl(&db, p.threads, p.action, p.arg, p.scope) {
-            let _ = app.emit("action-failed", e);
+        let id = p.id.clone();
+        if let Err(error) = action_impl(&db, p.threads, p.action, p.arg, p.scope) {
+            // the id says which queued move this was: the app puts the mail, the selection and the next mail's unread state back (autoAdvance.ts)
+            let _ = app.emit("action-failed", VerifyFailed { id, error });
         }
     }
     shell::update_badge(app, &db);

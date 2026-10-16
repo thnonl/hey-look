@@ -2,7 +2,7 @@ import { AlertTriangle, CheckCircle2, Coffee, Info, X } from "lucide-react";
 import { useEffect, useRef } from "react";
 import { useT } from "../i18n/react";
 import { fullErrorFor, lazyText, useStore } from "../store";
-import { stackItems } from "../toastStack";
+import { clearableOfKind, stackItems } from "../toastStack";
 
 /** Stack of toasts; a toast with Undo stays until its window ends. */
 export function Toasts() {
@@ -30,8 +30,9 @@ export function Toasts() {
       {stackItems(toasts).map((item) => {
         if ("more" in item) {
           // the older sticky / error toasts beyond the limit, folded into one row (they come back when a shown one goes)
-          const dismissAllHidden = () => {
-            for (const h of item.hidden) {
+          // "Dismiss all" clears every toast of this kind that stays until answered (the shown rows too, not only the folded ones)
+          const dismissAllOfKind = () => {
+            for (const h of clearableOfKind(useStore.getState().toasts, item.more)) {
               dismiss(h.id);
               h.onDismiss?.();
             }
@@ -40,7 +41,7 @@ export function Toasts() {
             <div key={`more-${item.more}`} className={`toast ${item.more} toast-more`}>
               <span className="toast-ico">{item.more === "error" ? <AlertTriangle size={16} /> : item.more === "success" ? <CheckCircle2 size={16} /> : <Info size={16} />}</span>
               <span className="toast-text">{tr("app.toast.more", { n: item.hidden.length })}</span>
-              <button className="toast-act" onClick={dismissAllHidden}>{tr("app.toast.dismissAll")}</button>
+              <button className="toast-act" onClick={dismissAllOfKind}>{tr("app.toast.dismissAll")}</button>
             </div>
           );
         }
