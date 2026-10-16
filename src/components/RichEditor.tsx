@@ -4,7 +4,9 @@ import Placeholder from "@tiptap/extension-placeholder";
 import { useRef } from "react";
 import { Bold, Italic, Link2, List, ListOrdered, Underline as UIcon } from "lucide-react";
 import { useT } from "../i18n/react";
-import { editLink, editorKeyHandlers } from "../composeKeys";
+import { kbd } from "../platform";
+import { editorKeyHandlers } from "../composeKeys";
+import { useLinkEditor } from "./LinkPopover";
 
 /** Small rich-text editor (signatures, templates): the user never has to write HTML. */
 export function RichEditor({ value, onChange, placeholder, minHeight = 140, label }: { value: string; onChange: (html: string) => void; placeholder?: string; minHeight?: number; label?: string }) {
@@ -17,9 +19,9 @@ export function RichEditor({ value, onChange, placeholder, minHeight = 140, labe
     content: value || "<p></p>",
     onUpdate: ({ editor }) => onChange(editor.isEmpty ? "" : editor.getHTML()),
   });
-  linkRef.current = () => {
-    if (editor) editLink(editor, (cur) => prompt(t("compose.fmt.linkPrompt"), cur));
-  };
+  const linkBtnRef = useRef<HTMLButtonElement>(null);
+  const link = useLinkEditor(editor, linkBtnRef);
+  linkRef.current = link.open;
   return (
     <div className="rich">
       <div className="rich-bar" role="toolbar" aria-label={t("compose.fmt.toolbar")}>
@@ -29,14 +31,18 @@ export function RichEditor({ value, onChange, placeholder, minHeight = 140, labe
         <button type="button" className="icon-btn" title={t("compose.fmt.bulleted")} aria-label={t("compose.fmt.bulleted")} onClick={() => editor?.chain().focus().toggleBulletList().run()}><List size={14} /></button>
         <button type="button" className="icon-btn" title={t("compose.fmt.numbered")} aria-label={t("compose.fmt.numbered")} onClick={() => editor?.chain().focus().toggleOrderedList().run()}><ListOrdered size={14} /></button>
         <button
+          ref={linkBtnRef}
           type="button"
           className="icon-btn"
-          title={t("compose.fmt.link")}
+          title={kbd(t("compose.fmt.linkTip"))}
           aria-label={t("compose.fmt.link")}
+          aria-haspopup="dialog"
+          aria-expanded={link.isOpen}
           onClick={() => linkRef.current()}
         >
           <Link2 size={14} />
         </button>
+        {link.node}
       </div>
       <EditorContent editor={editor} className="rich-body" style={{ minHeight }} />
     </div>

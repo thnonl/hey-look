@@ -1,5 +1,3 @@
-import type { Editor } from "@tiptap/react";
-
 // Who owns a key while the compose body (a ProseMirror contenteditable) has the focus. One key, one action:
 //  - Ctrl/Cmd+K       link UI inside an editor (like Outlook, Gmail, Word); the command bar everywhere else
 //  - Ctrl/Cmd+Shift+B the app's "Show Bcc" (tooltip "Add Bcc (Ctrl+Shift+B)"); the editor's block quote shortcut is off
@@ -89,26 +87,4 @@ export function editorKeyHandlers(onLink: () => void) {
       return a === "editor-skip";
     },
   };
-}
-
-/**
- * The link UI: the toolbar button and Ctrl/Cmd+K. With a selection it links the selection; in a link it edits (an empty address
- * removes) that link; at a bare caret it inserts the address as the link text. `ask` returns the address, or null when cancelled.
- */
-export function editLink(editor: Editor, ask: (current: string) => string | null) {
-  const current = (editor.getAttributes("link").href as string | undefined) ?? "";
-  const answer = ask(current);
-  if (answer === null) return;
-  const href = answer.trim();
-  const chain = editor.chain().focus();
-  if (!href) {
-    if (current) chain.extendMarkRange("link").unsetLink().run();
-    return;
-  }
-  if (editor.state.selection.empty && !editor.isActive("link")) {
-    const from = editor.state.selection.from;
-    chain.insertContent({ type: "text", text: href }).setTextSelection({ from, to: from + href.length }).setLink({ href }).setTextSelection(from + href.length).run();
-  } else {
-    chain.extendMarkRange("link").setLink({ href }).run();
-  }
 }

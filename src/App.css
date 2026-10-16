@@ -472,6 +472,15 @@ button.att-chip:hover { background: var(--bg3); border-color: color-mix(in srgb,
 .cp-foot { padding: 4px 20px 10px; }
 .popover { background: var(--bg); border: 1px solid var(--border); border-radius: var(--r-md); padding: 8px; box-shadow: var(--shadow); display: flex; flex-direction: column; gap: 4px; }
 .popover.up { position: absolute; top: calc(100% + 6px); left: 0; width: 300px; z-index: 12; animation: pop .12s var(--ease); }
+/* the link popover of the composer and the signature editor (LinkPopover.tsx): drawn in a portal, placed under the Link button */
+.popover.link-pop { position: fixed; z-index: var(--z-menu); padding: 12px; gap: 8px; animation: pop .12s var(--ease); box-sizing: border-box; }
+.link-pop-title { font-weight: 600; }
+.link-pop-field { display: flex; flex-direction: column; gap: 3px; font-size: .88em; color: var(--muted); }
+.link-pop-field input { font-size: 1rem; color: var(--fg); }
+.link-pop-err { color: var(--danger); font-size: .85em; }
+.link-pop input[aria-invalid="true"] { border-color: var(--danger); }
+.link-pop-btns { display: flex; align-items: center; gap: 8px; margin-top: 4px; flex-wrap: wrap; }
+.link-pop-btns .grow { flex: 1; }
 .row-inline { display: flex; gap: 8px; margin-top: 6px; }
 .row-inline input { flex: 1; min-width: 0; }
 

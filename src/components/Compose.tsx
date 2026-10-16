@@ -28,7 +28,8 @@ import { defaultMeeting, MeetingState, MeetingStrip, meetingToDraft } from "./Ca
 import { isEmail, singleLabelHostsOf } from "../addresses";
 import { askUnlock } from "./Pgp";
 import { useContentProtection } from "../protect";
-import { editLink, editorKeyHandlers, isAltGraph } from "../composeKeys";
+import { editorKeyHandlers, isAltGraph } from "../composeKeys";
+import { useLinkEditor } from "./LinkPopover";
 import { SchedulePicker } from "./SchedulePicker";
 import { AccountPicker, Dropdown, MenuList, useFitInWindow, useOutside } from "./ui";
 import type { Key } from "../i18n";
@@ -616,9 +617,10 @@ export function Compose({ init }: { init: ComposeInit }) {
     if (editor && !baseline.current) baseline.current = { text: editor.getText().trim(), pics: bodyPictures(editor) };
   }, [editor]);
 
-  linkRef.current = () => {
-    if (editor) editLink(editor, (cur) => prompt(t("compose.fmt.linkPrompt"), cur));
-  };
+  // the link popover (LinkPopover.tsx): the same one for the toolbar button and Ctrl/Cmd+K, drawn under the button
+  const linkBtnRef = useRef<HTMLButtonElement>(null);
+  const link = useLinkEditor(editor, linkBtnRef);
+  linkRef.current = link.open;
 
   const [loaded, setLoaded] = useState(false);
   useEffect(() => {
@@ -807,6 +809,14 @@ export function Compose({ init }: { init: ComposeInit }) {
     wireSize({ attachments: files.map((a) => ({ filename: a.filename, base64Length: a.dataBase64.length })), pictures: picCount ? [picBytes] : [], encrypted: encOn });
   const attBytes = wireOf(atts, 0, 0);
   const totalBytes = wireOf(atts, pics.bytes, pics.count);
+  // going over the limit by adding files or pictures says so once (and again after the message was back under it)
+  const overShown = useRef(false);
+  const over = totalBytes > limit.bytes;
+  useEffect(() => {
+    if (over && !overShown.current && touched.current) showToast(t("compose.att.totalTooBig", { size: fmtSize(totalBytes), limit: fmtSize(limit.bytes) }), undefined, "error");
+    overShown.current = over;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [over]);
   useEffect(() => {
     if (worthAsking(totalBytes)) void askServerLimit(accountId);
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -1140,12 +1150,7 @@ export function Compose({ init }: { init: ComposeInit }) {
     if (!files) return;
     const list: Att[] = [];
     for (const f of Array.from(files)) list.push({ filename: outgoingName(f.name || "pasted-image.png"), mime: f.type || "application/octet-stream", dataBase64: await fileToBase64(f) });
-    setAtts((a) => {
-      const next = [...a, ...list];
-      const bytes = wireOf(next, pics.bytes, pics.count);
-      if (bytes > limit.bytes) showToast(t("compose.att.totalTooBig", { size: fmtSize(bytes), limit: fmtSize(limit.bytes) }), undefined, "error");
-      return next;
-    });
+    setAtts((a) => [...a, ...list]); // (the size warning is the effect below: a state updater must not show toasts)
     touch();
   };
   addFilesRef.current = async (files: File[]) => addFiles(files);
@@ -1624,13 +1629,17 @@ export function Compose({ init }: { init: ComposeInit }) {
         <button className="icon-btn" title={t("compose.fmt.bulleted")} aria-label={t("compose.fmt.bulleted")} onClick={() => editor?.chain().focus().toggleBulletList().run()}><List size={14} /></button>
         <button className="icon-btn" title={t("compose.fmt.numbered")} aria-label={t("compose.fmt.numbered")} onClick={() => editor?.chain().focus().toggleOrderedList().run()}><ListOrdered size={14} /></button>
         <button
+          ref={linkBtnRef}
           className="icon-btn"
-          title={t("compose.fmt.link")}
+          title={kbd(t("compose.fmt.linkTip"))}
           aria-label={t("compose.fmt.link")}
+          aria-haspopup="dialog"
+          aria-expanded={link.isOpen}
           onClick={() => linkRef.current()}
         >
           <Link2 size={14} />
         </button>
+        {link.node}
         <button className="icon-btn" title={kbd(t("compose.bar.insertPictureTip"))} aria-label={t("compose.fmt.insertPicture")} onClick={() => picRef.current?.click()}><ImagePlus size={14} /></button>
       </div>
 
