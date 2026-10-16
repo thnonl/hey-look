@@ -600,8 +600,12 @@ pub(crate) mod tests {
     use super::*;
 
     pub(crate) fn account() -> Account {
+        account_with_id("a1")
+    }
+
+    pub(crate) fn account_with_id(id: &str) -> Account {
         Account {
-            id: "a1".into(),
+            id: id.into(),
             email: "me@example.com".into(),
             display_name: "Me".into(),
             imap_host: "imap.example.com".into(),

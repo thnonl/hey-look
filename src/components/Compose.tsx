@@ -298,7 +298,7 @@ export async function openDraftThread(threadId: string, wait = false): Promise<b
     bcc: rc?.bcc,
     subject: m.subject === "(no subject)" ? "" : m.subject,
     bodyHtml: html ?? `<p>${(m.text ?? "").replace(/\n/g, "<br>")}</p>`,
-    replaces: threadId,
+    replaces: `m:${m.id}`, // the message that was opened: saving or sending replaces that one, not other drafts of the conversation
     attachments,
     security: m.security?.encrypted ? { encrypt: true, sign: false, attachPublicKey: false } : undefined,
     confidential: m.confidential,
@@ -406,7 +406,9 @@ export function Compose({ init }: { init: ComposeInit }) {
 
   const revRef = useRef(0); // up with every edit: a save that was running while the person typed knows it
   const attachingRef = useRef(0); // files / pictures being read into the message
-  const savedTid = useRef<string | null>(null); // the draft a "leave" save made: a second save replaces it instead of adding another
+  const savedTid = useRef<string | null>(null); // the conversation of the draft a save made (the "Draft saved" toast opens it with Edit)
+  const savedDraftRef = useRef<string | null>(null); // that draft as a reference: a second save, a send or a discard replaces / removes exactly it
+  const replacesRef = () => savedDraftRef.current ?? init.replaces ?? null; // the draft this message takes the place of
   const baseline = useRef<{ text: string; pics: number } | null>(null); // the body as Compose opened it (a reply: the quote)
 
   // The picture toolbar is placed after it has been laid out: it wraps to more rows in a narrow pane, so its size is measured, then it
@@ -856,7 +858,7 @@ export function Compose({ init }: { init: ComposeInit }) {
           showToast(t("compose.toast.rescheduled", { when: fmtWhen(sendAt) }), undefined, "success");
         } else {
           const done = beginSend();
-          const res = await api.sendMessage(d, sendAt, init.replaces).finally(done);
+          const res = await api.sendMessage(d, sendAt, replacesRef()).finally(done);
           savedRef.current = true;
           const id = res.startsWith("scheduled:") ? res.slice("scheduled:".length) : null;
           const st = useStore.getState();
@@ -892,7 +894,7 @@ export function Compose({ init }: { init: ComposeInit }) {
     let heldId: string | null = null;
     if (wait > 0) {
       try {
-        heldId = await api.outboxHold(d, Math.floor(Date.now() / 1000) + wait, init.replaces);
+        heldId = await api.outboxHold(d, Math.floor(Date.now() / 1000) + wait, replacesRef());
       } catch (e) {
         showToast(t("compose.toast.sendFailed", { error: friendlyError(e) }), undefined, "error");
         reopen(d);
@@ -906,7 +908,7 @@ export function Compose({ init }: { init: ComposeInit }) {
       const quitting = useStore.getState().quitting;
       try {
         if (heldId) await api.outboxHoldSend(heldId, quitting);
-        else await api.sendMessage(d, null, init.replaces);
+        else await api.sendMessage(d, null, replacesRef());
         if (useStore.getState().prefs.sentSound) playSent();
         showToast(t("compose.toast.sent"), undefined, "success");
         void useStore.getState().sync();
@@ -958,11 +960,13 @@ export function Compose({ init }: { init: ComposeInit }) {
         const d = buildDraft();
         // a draft is only ever encrypted to your own key (no passphrase needed), and never signed
         const keepPrivate = !!d.security?.encrypt && eff(prefs, accountId, "pgpEncryptDrafts");
-        const tid = await api.saveDraft({ ...d, security: keepPrivate ? { encrypt: true, sign: false, attachPublicKey: false } : undefined }, savedTid.current ?? init.replaces);
+        const saved = await api.saveDraft({ ...d, security: keepPrivate ? { encrypt: true, sign: false, attachPublicKey: false } : undefined }, replacesRef());
+        const tid = saved.threadId;
+        if (tid) savedTid.current = tid;
+        if (saved.draftRef) savedDraftRef.current = saved.draftRef;
         useStore.setState({ draftError: "" });
         const plain = !!d.security?.encrypt && !keepPrivate;
         if (onSaved) {
-          if (tid) savedTid.current = tid;
           onSaved({
             plain,
             edit: () => {
@@ -1066,8 +1070,17 @@ export function Compose({ init }: { init: ComposeInit }) {
     }
     const dirty = touched.current && ((editor?.getText().trim().length ?? 0) > 0 || to.length > 0 || subject.trim() || atts.length > 0);
     if (dirty && !(await confirm({ title: t("compose.dlg.discardTitle"), body: t("compose.dlg.discardBody"), confirmLabel: t("compose.dlg.discard"), danger: true }))) return;
+    await dropSavedCopy();
     setComposeDirty(false);
     void openCompose(null);
+  };
+
+  /** A new message that a save made a draft of (a Save draft that was not closed, a later save of a leave): discarding it takes that draft away too. */
+  const dropSavedCopy = async () => {
+    const ref = savedDraftRef.current;
+    if (!ref || init.replaces) return; // a draft that was opened stays: it existed before this message was written
+    savedDraftRef.current = null;
+    await api.discardDraft(ref).catch(() => undefined);
   };
 
   /** Files and pictures are read in the background: leaving this message (F-21) waits for the ones still coming in. */
