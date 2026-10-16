@@ -66,6 +66,11 @@ export default defineLocale<typeof ns.en>({
   },
   "app.toast.dismiss": "Schließen",
   "app.toast.later": "Später",
+  "app.toast.more": {
+    one: "{n} weitere Benachrichtigung",
+    other: "{n} weitere Benachrichtigungen",
+  },
+  "app.toast.dismissAll": "Alle schließen",
   // ---- the occasional support reminder (src/supportNudgeHost.ts)
   "app.nudge.text": "Hey Look! ist kostenlos und wird von einer einzelnen Person entwickelt. Wenn es Ihnen Zeit spart, können Sie mir einen Kaffee spendieren.",
   "app.nudge.coffee": "Kaffee spendieren",

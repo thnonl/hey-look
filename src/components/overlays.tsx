@@ -2,6 +2,7 @@ import { AlertTriangle, CheckCircle2, Coffee, Info, X } from "lucide-react";
 import { useEffect, useRef } from "react";
 import { useT } from "../i18n/react";
 import { fullErrorFor, useStore } from "../store";
+import { stackItems } from "../toastStack";
 
 /** Stack of toasts; a toast with Undo stays until its window ends. */
 export function Toasts() {
@@ -26,7 +27,24 @@ export function Toasts() {
   }, []);
   return (
     <div className="toasts" role="status" aria-live="polite">
-      {toasts.map((t) => {
+      {stackItems(toasts).map((item) => {
+        if ("more" in item) {
+          // the older sticky / error toasts beyond the limit, folded into one row (they come back when a shown one goes)
+          const dismissAllHidden = () => {
+            for (const h of item.hidden) {
+              dismiss(h.id);
+              h.onDismiss?.();
+            }
+          };
+          return (
+            <div key={`more-${item.more}`} className={`toast ${item.more} toast-more`}>
+              <span className="toast-ico">{item.more === "error" ? <AlertTriangle size={16} /> : item.more === "success" ? <CheckCircle2 size={16} /> : <Info size={16} />}</span>
+              <span className="toast-text">{tr("app.toast.more", { n: item.hidden.length })}</span>
+              <button className="toast-act" onClick={dismissAllHidden}>{tr("app.toast.dismissAll")}</button>
+            </div>
+          );
+        }
+        const t = item.toast;
         const actions = t.actions?.map((a) => (
           <button
             key={a.label}

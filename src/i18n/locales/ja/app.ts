@@ -60,6 +60,8 @@ export default defineLocale<typeof ns.en>({
   "app.toast.leftover": { other: "Hey Look!の終了時に送信待ちだったメッセージ{n}件を送信しました。" },
   "app.toast.dismiss": "閉じる",
   "app.toast.later": "後で",
+  "app.toast.more": { other: "ほか{n}件の通知" },
+  "app.toast.dismissAll": "すべて閉じる",
   // ---- the occasional support reminder (src/supportNudgeHost.ts)
   "app.nudge.text": "Hey Look!は無料で、一人の開発者が作っています。お役に立てたなら、コーヒー1杯分の支援をいただけるとうれしいです。",
   "app.nudge.coffee": "コーヒーをおごる",

@@ -70,6 +70,13 @@ export default defineLocale<typeof ns.en>({
   },
   "app.toast.dismiss": "Закрыть",
   "app.toast.later": "Позже",
+  "app.toast.more": {
+    one: "Ещё {n} уведомление",
+    few: "Ещё {n} уведомления",
+    many: "Ещё {n} уведомлений",
+    other: "Ещё {n} уведомления",
+  },
+  "app.toast.dismissAll": "Закрыть все",
   // ---- the occasional support reminder (src/supportNudgeHost.ts)
   "app.nudge.text": "Hey Look! — бесплатное приложение, его делает один человек. Если оно экономит вам время, можете угостить меня кофе.",
   "app.nudge.coffee": "Угостить меня кофе",
