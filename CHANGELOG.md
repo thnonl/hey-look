@@ -7,7 +7,7 @@ Small fixes found while testing 1.0.3: event times, Archive and Delete errors, q
 ### Fixed
 
 - New event, Edit event and the meeting strip in a new message: when you change the start date or time, the end now moves with it and keeps the length of the event (an all-day event follows by days). Changing the end never moves the start; an end before the start is still refused when you save
-- Archive, Delete, Junk and Move: Hey Look! now finds or creates the target folder first. When the server refuses to create it, the mail stays where it is and the error shows at once. Before, "Archived" and Undo appeared first and the error came about 6 seconds later
+- Archive, Delete, Junk and Move: Hey Look! now checks the target folder before it moves the mail. A missing Archive or Trash is created again where the server allows it. When the folder cannot be found or created (also when it was removed on the server after the last sync), the mail stays where it is, the "Archived" message goes away and the error shows within a moment. Before, "Archived" and Undo appeared first and the error came about 7 seconds later. Junk and other folders are looked up but never created
 - Flag and Pin: pressing the button several times quickly now ends in the state of your last click and stays there, as Mark read and Mark unread already do
 - Settings: long texts are no longer cut off with an ellipsis in any of the eight languages at a 960 px or 1280 px window (for example the default account in Russian, the Notifications choices and the PGP key list)
 - macOS: About, Services, Hide, Hide Others and Show All in the app menu now follow the language you chose, like Quit; Show All is new
