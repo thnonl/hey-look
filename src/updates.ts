@@ -3,7 +3,8 @@
 import { copyToClipboard, openExternal } from "./open";
 import { stickyTimers } from "./stickyTimers";
 import { create } from "zustand";
-import { api, DlEvent, UpdateInfo, UpdateKind, UpdateResult, UpdateTrigger } from "./api";
+import { api, DlEvent, UpdateInfo, UpdateResult, UpdateTrigger } from "./api";
+import { announceBlocker, flowActive, isStaleOffer, pendingVersion, updateKindOf } from "./updateRules";
 import { t } from "./i18n";
 import { friendlyError, useStore } from "./store";
 import { useFrame } from "./winframe";
@@ -51,7 +52,8 @@ interface UpdatesState {
 
   markStartup: () => void;
   checkUpdate: (trigger: UpdateTrigger) => Promise<void>;
-  announceUpdate: () => void;
+  /** `from`: the trigger of the check this follows; a startup check always leaves a line in startup.log about the toast. */
+  announceUpdate: (from?: UpdateTrigger) => void;
   openSettingsAbout: (manual: boolean) => void;
   startUpdate: (source: "card" | "toast") => Promise<void>;
   cancelUpdate: () => void;
@@ -63,22 +65,10 @@ interface UpdatesState {
   startupCheck: () => Promise<void>;
 }
 
-/** A check that failed (offline / error) but carries the update the app already knew: the offer stays, with a quiet note. */
-export const isStaleOffer = (r: UpdateResult | null): boolean =>
-  !!r && (r.kind === "offline" || r.kind === "error") && !!r.info && r.cachedKind === "available";
+export { isStaleOffer, updateKindOf, flowActive, pendingVersion };
 
-/** The kind that counts for the UI: `throttled` / `disabled` stand for what their cached info says, a stale offer for `available`. */
-export const updateKindOf = (r: UpdateResult | null): UpdateKind | null =>
-  !r ? null : r.kind === "throttled" || r.kind === "disabled" ? (r.info ? r.cachedKind ?? null : null) : isStaleOffer(r) ? "available" : r.kind;
-
-/** A download is running or a package waits: automatic checks stay quiet. */
-export const flowActive = (f: UpdateFlow) => f.state !== "idle" && f.state !== "failed";
-
-/** The newer version the user has not skipped (drives the gear dot, the toast and the chip), else null. */
-export function pendingVersion(update: UpdateResult | null, skipped: string): string | null {
-  const latest = updateKindOf(update) === "available" ? update?.info?.latest ?? null : null;
-  return latest && latest !== skipped ? latest : null;
-}
+/** A line for `startup.log` (tag `update`) about what the page decided; never throws. */
+const note = (text: string) => void api.updateNote(text).catch(() => undefined);
 
 /** Open a link in the browser; if that fails the link is copied and an error toast says so. */
 export async function openUpdateLink(url: string, announce = false) {
@@ -321,7 +311,7 @@ export const useUpdates = create<UpdatesState>((set, get) => {
             set({ flow: IDLE, askedFor: null });
           }
         } else {
-          get().announceUpdate();
+          get().announceUpdate(trigger);
         }
         // a check that got an answer clears an old failure (the red chip and the error text) - the offer is shown again
         if (get().flow.state === "failed" && !holdOn && (r.kind === "available" || r.kind === "upToDate" || r.kind === "noRelease")) {
@@ -334,14 +324,19 @@ export const useUpdates = create<UpdatesState>((set, get) => {
       }
     },
 
-    announceUpdate: () => {
+    announceUpdate: (from) => {
       const { update, toastFor, flow } = get();
       const st = useStore.getState();
-      const v = pendingVersion(update, st.prefs.skippedUpdate);
-      const info = update?.info;
       // a stale offer (the last check failed) is no news: no toast from it
       // (an answer of kind `disabled` - automatic checks are off - is a remembered offer, not news: no toast, REQ-18 r3.4)
-      if (!v || !info || toastFor === v || flowActive(flow) || !windowFocused() || isStaleOffer(update) || update?.kind === "disabled") return;
+      const why = announceBlocker(update, toastFor, flow.state, st.prefs.skippedUpdate, windowFocused());
+      const v = pendingVersion(update, st.prefs.skippedUpdate);
+      const info = update?.info;
+      if (why || !v || !info) {
+        if (from === "startup") note(`new-version toast: none after the startup check - ${why ?? "no version"}`);
+        return;
+      }
+      note(`new-version toast: shown for ${v}${from ? ` (after the ${from} check)` : ""}`); // i18n-ok: a line for the log file, not UI text
       set({ toastFor: v });
       // stays until the user closes it (the × or Esc), no timer
       st.setStickyToast("update-available", {
