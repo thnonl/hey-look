@@ -220,4 +220,43 @@ const { t } = await import("../src/i18n/index.ts");
 assert.equal(t("calendar.dialog.pickDate"), "Choose date");
 assert.equal(t("calendar.dialog.pickTime"), "Choose time");
 
+// ---- the Send later popover stays inside the window (QA round 9, BUG-1: it was 9 px wider than the window at the minimum width of 960 px)
+const { fitInWindow } = await import("../src/fitInWindow.ts");
+const box = (left, width, top, height) => ({ left, right: left + width, top, bottom: top + height });
+assert.deepEqual(fitInWindow(box(100, 300, 100, 200), 944, 560), { shift: 0, maxHeight: null }, "fits: untouched");
+assert.deepEqual(fitInWindow(box(668, 300, 197, 417), 944, 780), { shift: -32, maxHeight: null }, "the round 9 case: 22 px past the right edge, 8 px of margin");
+assert.equal(fitInWindow(box(668, 300, 197, 200), 944, 560).shift, -32);
+assert.deepEqual(fitInWindow(box(641, 295, 200, 417), 944, 560), { shift: 0, maxHeight: 352 }, "taller than the room below: scrolls inside");
+assert.equal(fitInWindow(box(10, 300, 500, 417), 944, 560).maxHeight, 160, "never made smaller than 160 px");
+assert.equal(fitInWindow(box(-20, 300, 0, 100), 944, 560).shift, 28, "past the left edge: moved back in");
+assert.equal(fitInWindow(box(300, 400, 0, 100), 320, 560).shift, -292, "window narrower than the popover: the left edge wins");
+// every window size and popover position: after the shift the box is inside, or its left edge is at the margin when it is wider than the window
+for (let vw = 320; vw <= 1920; vw += 40) {
+  for (let left = -50; left <= vw; left += 37) {
+    for (const w of [200, 300, vw - 16, vw + 100]) {
+      const { shift } = fitInWindow(box(left, w, 0, 100), vw, 600);
+      const l = left + shift, r = l + w;
+      assert.ok(l >= 8 - 1e-9, `vw ${vw} left ${left} w ${w}: left edge ${l}`);
+      assert.ok(r <= vw - 8 + 1e-9 || l <= 8 + 1e-9, `vw ${vw} left ${left} w ${w}: right edge ${r}`);
+    }
+  }
+}
+{
+  const css = src("src/App.css");
+  const rule = css.match(/\.popover\.up\.sched-pop\s*\{([^}]*)\}/)?.[1] ?? "";
+  assert.ok(/width:\s*min\(\s*300px\s*,\s*calc\(100vw - 16px\)\s*\)/.test(rule), "Send later is never wider than the window");
+  assert.ok(/overflow-y:\s*auto/.test(rule), "and scrolls when it is taller than the room");
+  assert.ok(/\.sched-custom \.sched-actions\s*\{[^}]*flex-wrap:\s*wrap/.test(css), "Cancel / Schedule wrap in a narrow popover (longest labels: de, ru, vi, fr)");
+  const compose = src("src/components/Compose.tsx");
+  assert.ok(/useFitInWindow\(schedPopRef, schedOpen\)/.test(compose) && /className="popover up sched-pop" ref=\{schedPopRef\}/.test(compose), "Compose keeps the popover inside the window");
+}
+
+// ---- an all-day event chip draws its title once (QA round 9, BUG-2 was not a drawing bug: the title typed into the dialog was already doubled)
+{
+  const chip = cal.slice(cal.indexOf("function Chip("), cal.indexOf("const MAX_CHIPS"));
+  assert.equal(count(chip, /\{ev\.summary\}/g), 1, "the chip shows the summary once");
+  assert.equal(count(chip, /aria-label=\{eventLabel\(ev, tz\)\}/g), 1, "the accessible name is the one label, not the text plus the label");
+  assert.ok(!/sr-only|visually-hidden/.test(chip), "no hidden duplicate of the title");
+}
+
 console.log("datetime fields: ok");

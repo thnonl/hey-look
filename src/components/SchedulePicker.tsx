@@ -135,7 +135,7 @@ export function SchedulePicker({
           </div>
         )}
         {check.warn && <div className="note" style={{ color: "var(--warn)" }}>{check.warn}</div>}
-        <div className="row-inline" style={{ margin: 0, justifyContent: "flex-end" }}>
+        <div className="row-inline sched-actions">
           {onCancel && <button className="btn small" onClick={onCancel}>{t("common.cancel")}</button>}
           <button className="btn primary small" disabled={!valid || busy} onClick={() => check.ts !== null && onPick(check.ts)}>
             <CalendarClock size={13} /> {primaryLabel ?? t("compose.schedule.button")}
