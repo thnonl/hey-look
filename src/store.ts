@@ -13,6 +13,7 @@ import type { Jobs } from "./translateJobs";
 import { planRestore, startAdvance, touchAdvance, type Advance } from "./autoAdvance";
 import { accountsOf, canMoveToJunk, JUNK_ACTIONS } from "./junk";
 import { addToast, lazyText, type Lazy } from "./toastStack";
+import { mayOpenMail, selectionAfterCompose } from "./composeSelection";
 import { leaveCompose as leaveComposePane, type ComposeProbe, type SavedDraft } from "./leaveCompose";
 export { lazyText, type Lazy };
 import { resolveLang, setLangPref, t } from "./i18n";
@@ -299,7 +300,8 @@ interface State {
   toggleCheck: (id: string) => void;
   setChecked: (ids: string[]) => void;
   act: (ids: string[], action: string, arg?: string, label?: string) => Promise<void>;
-  openCompose: (c: ComposeInit | null) => Promise<void>;
+  /** `restore: false` (closing): the reading pane is not given back the mail that was open before writing (the caller opens another). */
+  openCompose: (c: ComposeInit | null, opts?: { restore?: boolean }) => Promise<void>;
   setComposeDirty: (d: boolean) => void;
   setComposeSaver: (f: ((opts?: ComposeSaveOpts) => Promise<boolean | void>) | null) => void;
   setComposeProbe: (f: (() => ComposeProbe) | null) => void;
@@ -341,6 +343,8 @@ interface State {
 
 /** The leave-compose run in progress: a second click while the draft is being saved waits for the same run. */
 let leaving: Promise<boolean> | null = null;
+/** The conversation that was open when the message being written was started (given back when it closes). */
+let composeBefore: string | null = null;
 let toastSeq = 0;
 let readTimer: ReturnType<typeof setTimeout> | undefined;
 /** The view (folder, mailbox, search, filter ...) the shown list was read for, and the conversation `refresh` held in it (F-12). */
@@ -900,6 +904,7 @@ export const useStore = create<State>((set, get) => ({
   },
 
   select: async (id) => {
+    if (!mayOpenMail(id, !!get().compose)) return; // while writing only `openMail` (which leaves the message first) opens a mail
     clearTimeout(readTimer);
     // the person moves on: the conversation `refresh` held in the list (F-12) goes now
     const held = heldOpen && heldOpen !== id ? heldOpen : null;
@@ -964,7 +969,7 @@ export const useStore = create<State>((set, get) => ({
           })) === "discard"
             ? "discard"
             : "keep",
-        close: () => get().openCompose(null),
+        close: () => get().openCompose(null, { restore: false }),
       });
       if (outcome.kind === "saved") {
         const d = outcome.saved;
@@ -1096,7 +1101,7 @@ export const useStore = create<State>((set, get) => ({
     await get().refresh();
   },
 
-  openCompose: async (compose) => {
+  openCompose: async (compose, opts) => {
     const st = get();
     if (compose && !hasMailAccounts(st.accounts.length)) return; // no account: there is nothing to send with
     if (compose && st.compose && st.composeDirty) {
@@ -1112,7 +1117,15 @@ export const useStore = create<State>((set, get) => ({
       if (choice === "keep") return;
       if (choice === "save") await get().composeSaver?.();
     }
-    set({ compose, composeKey: get().composeKey + 1, composeDirty: false, composeSaver: null });
+    // While writing, no mail is selected: nothing that works on "the selected mail" can reach the old one (F-21). Whoever opens a reply
+    // or a forward has built it from that mail already. It comes back when writing ends and no other mail was picked.
+    const before = get().compose ? composeBefore : get().selected;
+    composeBefore = compose ? before : null;
+    set({ compose, composeKey: get().composeKey + 1, composeDirty: false, composeSaver: null, ...(compose ? { selected: null, messages: [], checked: new Set<string>() } : {}) });
+    if (!compose && opts?.restore !== false) {
+      const back = selectionAfterCompose(before, get().selected, get().threads.map((x) => x.threadId));
+      if (back) await get().select(back);
+    }
   },
 
   setComposeDirty: (composeDirty) => set({ composeDirty }),
