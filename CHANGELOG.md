@@ -1,5 +1,44 @@
 # Changelog
 
+## 1.0.6 — 2026-10-16
+
+Writing a message got safer and more complete: nothing you write is lost to a crash any more, Bcc, names and Reply-To are kept, and the message that goes out is built the way other mail programs build theirs. The mail list, the mailboxes and the top bar got a few long-wanted touches.
+
+### Added
+
+- Mail list: right-click a conversation (or press the Menu key or Shift+F10) for a menu with Reply, Reply all, Forward, Mark read or unread, Flag, Pin, Snooze, Move to, Archive, Delete, Move to Junk, Copy sender email and Copy subject. With several conversations ticked, it works on all of them
+- Mailboxes: drag a mailbox in the folder pane or in Settings to put them in the order you like, or use Alt+Up and Alt+Down (also in the right-click menu of a mailbox). The order is kept
+- Mailboxes: the Display name of a mailbox is shown in the folder pane, the list header and the command bar instead of the address; the address is in the tooltip
+- Importance: when you write a message you can mark it High or Low (two buttons next to Confidential). The message carries the importance headers other mail programs understand. High and Low mail you receive shows a red "!" or a blue arrow in the list and a label in the reading pane. Mail that was already downloaded before this version shows no mark
+- Writing a message: Preview as recipient (Light / Dark) in the formatting toolbar shows how the message looks on a light or a dark background. It does not change what is sent
+- In the dark theme the top bar is tinted by the primary colour you chose in Settings > Appearance (it was always the same dark grey)
+- The browser's own right-click menu is no longer shown in the app. In text fields and for selected text the copy and paste menus stay, and links in a mail have their own menu
+- Writing a message: the message is saved to Drafts by itself about every 30 seconds while you change it (the same draft is replaced, never doubled), and a copy is kept on your computer every few seconds. If the app ends unexpectedly, the next start asks "Restore your unsaved message?" with Restore, Discard and Not now
+
+### Fixed
+
+- Drafts: the Bcc recipients are kept in a saved draft and come back when you reopen it. Before, a draft opened again and sent went out without them
+- Drafts: when you reopen a draft, the display names of To, Cc and Bcc are kept
+- Drafts: saving or sending a draft removes only that draft, not every draft of the conversation or a version saved in another mail program
+- The copy in the Sent folder is exactly the message that was sent (it was two bytes shorter)
+- Reply goes to the Reply-To address of the message when there is one, and says so under To (with a button to reply to the sender instead); Reply all adds the other people without repeating anyone, and your own addresses are left out
+- Forward carries the attachments of the original message (you can remove them before sending); pictures in the text stay in the text
+- Recipients: an address with a quoted name such as "Doe, John" <john@example.com> stays one recipient, also when pasted or dropped, and a list copied from a spreadsheet becomes one recipient per row
+- Recipients: the Enter key that confirms a conversion with a Japanese, Chinese or Korean input method no longer creates a recipient
+- Messages you send have their own Message-ID with your address domain (not the name of your computer), and the copy in Sent has the same one, so replies are linked to the right conversation
+- A message with only Bcc recipients can be sent (the To line then reads "undisclosed-recipients")
+- Long lists of recipients and long References are wrapped to 78 characters per line in the header, as the standard asks
+- The greeting the app sends to the mail server (EHLO) no longer contains the name of your computer
+- The plain-text version of a message keeps links as "text (address)", bullets and numbers, quotes and tables, so mail programs that show text only read it properly
+- An address that appears twice (also in To and Cc, or in different upper and lower case) is only sent to once
+- Pasting from a web page: pictures from the web are no longer fetched while you write (they are not pasted, with a short notice), and pictures that point to a file or a network path (\server\share) are never sent as picture sources
+- The header lines of a reply and of a forward (sender, subject, recipients) are shown as text, even when a name or subject contains markup
+- Ctrl+1 and Ctrl+2 with a button of the message toolbar selected no longer switches away and blanks the message you are writing
+- Attachments: the size is counted as it is sent (about a third more than the files), and the limit of your mail server is used when it tells one, so a message the server would refuse is stopped before sending with the real numbers
+- Attachments: file names are cleaned before sending (no folder part, no hidden or control characters, no reserved Windows names, a sensible length) and two files that end up with the same name get a number
+- Links: Insert link (button or Ctrl+K) opens a small dialog in the app with the address and an optional text, instead of the system prompt; Remove link is in it too
+- Writing a message: Report and Snooze (and every other button that needs a selected mail) are greyed out while a message is open and no mail is selected
+
 ## 1.0.5 — 2026-10-16
 
 A few leftovers from 1.0.4: Cancel on an AI request, error messages that pile up, a mail that turns read after a failed Archive, the Junk folder and the 404 page of the website.
