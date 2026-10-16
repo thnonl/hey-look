@@ -47,7 +47,7 @@
   "story.deleted": "Movido a la Papelera.",
   "story.junk": "Movido a Correo no deseado.",
   "story.undo_hint": "{msg} Puedes deshacerlo durante 6 segundos.",
-  "story.undone": "Deshecho. {subj} volvió a la Bandeja de entrada.",
+  "story.undone": "Deshecho. {subj} volvió a la bandeja de entrada.",
 
   "story.sending_in": "Enviando en {n} s",
   "story.sending_p": "Retenido en tu bandeja de salida local. Todavía puedes recuperarlo.",
@@ -73,12 +73,12 @@
 
   "story.snz_custom": "Puedes definir tus propios horarios en Configuración, Más, Personalizar horas.",
   "story.snz_custom_say": "Puedes definir tus propios horarios en Configuración, en Más, Personalizar horas.",
-  "story.snoozed": "Pospuesto: {subj}. Vuelve a tu Bandeja de entrada **{when}**.",
+  "story.snoozed": "Pospuesto: {subj}. Vuelve a tu bandeja de entrada **{when}**.",
   "story.jump_ahead": "Saltar hacia delante",
   "story.snz_say": "Pospuesto. Vuelve {when}. La carpeta Pospuestos tiene ahora 1 conversación.",
-  "story.snz_back": "Volvió a la Bandeja de entrada. En Windows y Linux recibirías además una notificación.",
+  "story.snz_back": "Volvió a la bandeja de entrada. En Windows y Linux recibirías además una notificación.",
   "story.ok": "Aceptar",
-  "story.snz_back_say": "La conversación está de vuelta en la Bandeja de entrada.",
+  "story.snz_back_say": "La conversación está de vuelta en la bandeja de entrada.",
 
   "story.cmd_none": "Ningún comando coincide. Prueba con oscuro, panel o pospu.",
   "story.cmd_count.one": "{n} comando",

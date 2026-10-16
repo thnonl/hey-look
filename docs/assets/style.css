@@ -95,7 +95,8 @@ kbd { font: 600 .78em/1.5 var(--mono); background: var(--bg2); color: var(--fg);
 .nav a:hover { background: var(--bg3); }
 .nav a[aria-current="page"] { box-shadow: inset 0 -3px 0 var(--solid); }
 .hdr-r { margin-left: auto; display: flex; align-items: center; gap: 4px; }
-.hdr-dl { margin-left: 6px; }
+.hdr-dl { margin-left: 6px; white-space: nowrap; }
+.hdr-r { flex: none; } /* the button cluster keeps its size; the nav collapses (below) before anything is squeezed */
 .nav-toggle { display: none; }
 #theme-btn .i-sun, #theme-btn .i-moon { display: none; }
 [data-pref="light"] #theme-btn .i-auto, [data-pref="dark"] #theme-btn .i-auto { display: none; }
@@ -158,8 +159,8 @@ section { position: relative; }
 .hl2 > span { animation-delay: .1s; }
 .hl3 > span { animation-delay: .2s; white-space: nowrap; }
 @keyframes rise { from { transform: translateY(105%); } }
-.swap { display: inline-grid; vertical-align: top; position: relative; margin-left: -.02em; padding: .04em .28em .17em .66em; color: var(--on-solid); background: radial-gradient(circle at .34em 50%, var(--bg) 0 .075em, transparent .08em), var(--solid); clip-path: polygon(.5em 0, 100% 0, 100% 100%, .5em 100%, 0 50%); transition: width .55s var(--ease); line-height: 1; }
-.sw-w { grid-area: 1 / 1; display: flex; width: max-content; justify-self: start; overflow: hidden; visibility: hidden; padding: .06em 0 .14em; margin: -.06em 0 -.14em; }
+.swap { display: inline-grid; vertical-align: top; position: relative; margin-left: 0; padding: .04em .2em .17em .66em; color: var(--on-solid); background: radial-gradient(circle at .34em 50%, var(--bg) 0 .075em, transparent .08em), var(--solid); clip-path: polygon(.5em 0, 100% 0, 100% 100%, .5em 100%, 0 50%); transition: width .55s var(--ease); line-height: 1; }
+.sw-w { grid-area: 1 / 1; display: flex; width: max-content; justify-self: start; overflow: hidden; visibility: hidden; padding: .06em .08em .17em 0; margin: -.06em 0 -.17em; } /* the right padding is taken from the tag's own (.swap), so its size is unchanged, but the negative letter-spacing no longer shaves the last letter */
 .sw-w.on, .sw-w.out { visibility: visible; }
 .sw-w i { display: inline-block; font-style: normal; transform: translateY(115%); transition: transform .6s var(--ease); }
 .sw-w.on i { transform: none; }
@@ -636,12 +637,40 @@ details ol { padding-left: 1.2em; } details li { margin-bottom: .5em; }
   .nav.open { display: flex; } .nav a { padding: 13px 10px; font-size: 1.05rem; }
   .nav-toggle { display: inline-flex; }
   .hdr-dl span { display: none; } .hdr-dl { padding-inline: .7em; min-width: 44px; }
+  .hdr-r { flex: 0 1 auto; }
+}
+/* Languages with longer nav words: the compact header (icon-only motion and language buttons, tighter nav) also applies above 1180px, and the menu button takes over from the nav earlier than 980px, so the nav never crowds the Download button. The widths come from measuring each language with ~40px to spare. */
+@media (min-width: 981px) {
+  :is(:lang(vi), :lang(ru), :lang(de), :lang(es)) #motion-btn { width: 44px; padding: 0; } :is(:lang(vi), :lang(ru), :lang(de), :lang(es)) #motion-btn .m-lbl { display: none; }
+  :is(:lang(vi), :lang(ru), :lang(de), :lang(es)) .lang-cur { display: none; } :is(:lang(vi), :lang(ru), :lang(de), :lang(es)) .lang > summary { padding: 0; }
+  :is(:lang(vi), :lang(ru), :lang(de), :lang(es)) .nav { margin-left: 6px; } :is(:lang(vi), :lang(ru), :lang(de), :lang(es)) .nav a { padding-inline: 8px; }
+}
+@media (min-width: 981px) and (max-width: 995px) {
+  :lang(fr) .nav { display: none; position: absolute; left: 0; right: 0; top: 100%; flex-direction: column; margin: 0; padding: 10px 16px 16px; background: var(--bg); border-bottom: 1px solid var(--line); box-shadow: var(--shadow); }
+  :lang(fr) .nav.open { display: flex; } :lang(fr) .nav a { padding: 13px 10px; font-size: 1.05rem; }
+  :lang(fr) .nav-toggle { display: inline-flex; }
+}
+@media (min-width: 981px) and (max-width: 1040px) {
+  :lang(es) .nav { display: none; position: absolute; left: 0; right: 0; top: 100%; flex-direction: column; margin: 0; padding: 10px 16px 16px; background: var(--bg); border-bottom: 1px solid var(--line); box-shadow: var(--shadow); }
+  :lang(es) .nav.open { display: flex; } :lang(es) .nav a { padding: 13px 10px; font-size: 1.05rem; }
+  :lang(es) .nav-toggle { display: inline-flex; }
+}
+@media (min-width: 981px) and (max-width: 1090px) {
+  :is(:lang(ru), :lang(de)) .nav { display: none; position: absolute; left: 0; right: 0; top: 100%; flex-direction: column; margin: 0; padding: 10px 16px 16px; background: var(--bg); border-bottom: 1px solid var(--line); box-shadow: var(--shadow); }
+  :is(:lang(ru), :lang(de)) .nav.open { display: flex; } :is(:lang(ru), :lang(de)) .nav a { padding: 13px 10px; font-size: 1.05rem; }
+  :is(:lang(ru), :lang(de)) .nav-toggle { display: inline-flex; }
+}
+@media (min-width: 981px) and (max-width: 1120px) {
+  :lang(vi) .nav { display: none; position: absolute; left: 0; right: 0; top: 100%; flex-direction: column; margin: 0; padding: 10px 16px 16px; background: var(--bg); border-bottom: 1px solid var(--line); box-shadow: var(--shadow); }
+  :lang(vi) .nav.open { display: flex; } :lang(vi) .nav a { padding: 13px 10px; font-size: 1.05rem; }
+  :lang(vi) .nav-toggle { display: inline-flex; }
 }
 @media (max-width: 560px) {
   .ftr-grid { grid-template-columns: 1fr; }
   .pl { grid-template-columns: 48px 1fr; } .pl .btn { grid-column: 1 / -1; } .pl-i { width: 48px; height: 48px; }
   .hero-cta .btn { width: 100%; }
   .receipt { width: 92%; }
+  .receipt > .stamp { right: -2%; } /* keeps the rotated stamp inside the screen */
 }
 
 /* ---------- reduced motion / animations off ---------- */
