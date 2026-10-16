@@ -43,7 +43,7 @@ export function Toasts() {
         return (
           <div key={t.id} className={`toast ${t.kind}${t.sticky && !t.ttl ? " sticky" : ""}${t.support ? " support" : ""}`} style={t.sticky && !t.ttl ? undefined : { ["--ttl" as string]: `${t.ttl}ms` }}>
             <span className="toast-ico">
-              {t.support ? <Coffee size={16} /> : t.kind === "error" ? <AlertTriangle size={16} /> : t.kind === "success" ? <CheckCircle2 size={16} /> : <Info size={16} />}
+              {t.busy ? <><span className="busy-ring spin" aria-hidden /><span className="busy-dots" aria-hidden>···</span></> : t.support ? <Coffee size={16} /> : t.kind === "error" ? <AlertTriangle size={16} /> : t.kind === "success" ? <CheckCircle2 size={16} /> : <Info size={16} />}
             </span>
             {t.support ? (
               <div className="toast-body">

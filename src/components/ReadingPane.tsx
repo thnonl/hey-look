@@ -1,6 +1,6 @@
 import { frameCsp, frameSandbox } from "../frameSandbox";
 import { openUpdateLink } from "../updates";
-import { Archive, Clock, Flag, Forward, MailX, MoreHorizontal, Moon, Pin, Reply, ReplyAll, Sparkles, Sun, Trash2, ChevronsDownUp, ChevronsUpDown, Mail, ShieldAlert } from "lucide-react";
+import { Archive, Clock, Flag, Forward, MailX, MoreHorizontal, Moon, Pin, Reply, ReplyAll, Sparkles, Sun, Trash2, ChevronsDownUp, ChevronsUpDown, Mail, ShieldAlert, AlertTriangle } from "lucide-react";
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { forward, replyTo } from "../actions";
 import { api, MessageFull } from "../api";
@@ -12,6 +12,8 @@ import { DARK_CANVAS, frameBaseCss, frameRootClass, toggleMailCanvas } from "../
 import { eff } from "../prefs";
 import { CONFIDENTIAL_FRAME_CSS, lockDocument, useContentProtection } from "../protect";
 import { friendlyError, useStore } from "../store";
+import { cancelTranslation, dismissTranslation, startTranslation } from "../translate";
+import { elapsedLabel, jobFor, slowHint, type TranslateJob } from "../translateJobs";
 import { fmtFull, fmtSize, plainToHtml, sanitizeHtml, snoozePresets, subjectText } from "../util";
 import { AttachmentStrip, Lightbox, LbItem } from "./Attachments";
 import { InviteCard } from "./Calendar";
@@ -412,13 +414,63 @@ const TRANSLATE_TO: { en: string; key: Key }[] = [
   { en: "Korean", key: "reading.lang.korean" },
 ];
 
+/** The translation of a message, where it appears: progress while it runs (it goes on when the person reads other mail), the error, the text. */
+function TranslateBox({ job }: { job: TranslateJob }) {
+  const t = useT();
+  const [now, setNow] = useState(() => Date.now());
+  const running = job.status === "running";
+  useEffect(() => {
+    if (!running) return;
+    setNow(Date.now());
+    const id = setInterval(() => setNow(Date.now()), 1000);
+    return () => clearInterval(id);
+  }, [running, job.run]);
+  const head = <b><Sparkles size={13} /> {t("reading.msg.translation")}</b>;
+  if (running)
+    return (
+      <div className="summary tr-box" role="status">
+        {head}
+        <div className="tr-row">
+          <span className="busy-ring spin" aria-hidden />
+          <span className="busy-dots" aria-hidden>···</span>
+          <span className="tr-text">{t("reading.msg.translating", { lang: t(job.langKey as Key) })}</span>
+          <span className="muted small tr-time" aria-hidden>{elapsedLabel(now - job.startedAt)}</span>
+          <button className="link small" onClick={() => cancelTranslation(job.key)}>{t("common.cancel")}</button>
+        </div>
+        {slowHint(job.startedAt, now) && <div className="muted small tr-hint">{t("reading.translate.slow")}</div>}
+      </div>
+    );
+  if (job.status === "failed")
+    return (
+      <div className="summary tr-box error" role="alert">
+        {head}
+        <div className="tr-row">
+          <AlertTriangle size={14} aria-hidden />
+          <span className="tr-text">{t("reading.translate.failed", { error: job.error ?? "" })}</span>
+        </div>
+        <div className="tr-actions">
+          <button className="link small" onClick={() => startTranslation(job)}>{t("common.retry")}</button>
+          <button className="link small" onClick={() => dismissTranslation(job.key)}>{t("reading.msg.dismiss")}</button>
+        </div>
+      </div>
+    );
+  return (
+    <div className="summary">
+      {head}
+      <div className="pre">{job.result}</div>
+      <button className="link small" onClick={() => dismissTranslation(job.key)}>{t("reading.msg.dismiss")}</button>
+    </div>
+  );
+}
+
 function MessageCard({ m, open, onToggle }: { m: MessageFull; open: boolean; onToggle: () => void }) {
   const t = useT();
   const { showToast, setDialog, prefs } = useStore();
   const frameRef = useRef<HTMLIFrameElement>(null);
   const cv = useCanvas();
   const canvasLabel = t("reading.canvas.label");
-  const [translated, setTranslated] = useState<string | null>(null);
+  // the translation is a job in the store (it keeps running when this pane shows other mail)
+  const job = useStore((s) => jobFor(s.translations, m.id));
   const [lightbox, setLightbox] = useState<{ items: { src: string; name: string }[]; index: number } | null>(null);
   const who = m.fromName || m.fromEmail;
   const conf = !!m.confidential;
@@ -459,21 +511,19 @@ function MessageCard({ m, open, onToggle }: { m: MessageFull; open: boolean; onT
     }
   };
 
-  const translate = async (lang: { en: string; key: Key }) => {
+  const translate = (lang: { en: string; key: Key }) => {
     if (needsCard(m)) return showToast(t("reading.ai.unlockThis"), undefined, "info");
     if (conf) return showToast(t("reading.ai.noConfidential"), undefined, "info");
-    showToast(t("reading.msg.translating", { lang: t(lang.key) }));
-    try {
-      setTranslated(
-        await api.aiComplete(
-          // i18n-ok: a prompt for the language model, not text the person reads
-          `Translate the email into ${lang.en}. Output only the translation, keep the formatting and line breaks.`,
-          (m.text ?? m.html?.replace(/<[^>]+>/g, " ") ?? "").slice(0, 12000),
-        ),
-      );
-    } catch (e) {
-      showToast(friendlyError(e), undefined, "error");
-    }
+    startTranslation({
+      messageId: m.id,
+      threadId: useStore.getState().selected ?? m.id,
+      folder: m.folder,
+      accountId: m.accountId,
+      subject: m.subject,
+      lang: lang.en,
+      langKey: lang.key,
+      text: (m.text ?? m.html?.replace(/<[^>]+>/g, " ") ?? "").slice(0, 12000),
+    });
   };
 
   const replyDefaultAll = eff(prefs, m.accountId, "replyDefault") === "replyAll";
@@ -511,7 +561,7 @@ function MessageCard({ m, open, onToggle }: { m: MessageFull; open: boolean; onT
                 },
                 { label: t("reading.msg.copySender"), onClick: () => void navigator.clipboard.writeText(m.fromEmail).then(() => showToast(t("reading.msg.copied"))) },
                 { divider: true },
-                ...TRANSLATE_TO.map((l) => ({ label: t("reading.msg.translateTo", { lang: t(l.key) }), onClick: () => void translate(l), disabled: needsCard(m) || conf })),
+                ...TRANSLATE_TO.map((l) => ({ label: t("reading.msg.translateTo", { lang: t(l.key) }), onClick: () => translate(l), disabled: needsCard(m) || conf })),
                 ...(m.canUnsubscribe ? [{ divider: true }, { label: t("reading.msg.unsubscribe"), onClick: () => void unsub() }] : []),
                 ...(m.attachments.length ? [{ divider: true }, { label: t("reading.msg.saveAllAtt"), disabled: conf, onClick: () => void saveAll(false) }] : []),
               ]}
@@ -536,13 +586,7 @@ function MessageCard({ m, open, onToggle }: { m: MessageFull; open: boolean; onT
               {tx("reading.msg.newsletter", { link: <button className="link" onClick={unsub}>{t("reading.msg.unsubscribe")}</button> })}
             </div>
           )}
-          {translated && (
-            <div className="summary">
-              <b><Sparkles size={13} /> {t("reading.msg.translation")}</b>
-              <div className="pre">{translated}</div>
-              <button className="link small" onClick={() => setTranslated(null)}>{t("reading.msg.dismiss")}</button>
-            </div>
-          )}
+          {job && <TranslateBox job={job} />}
           {needsCard(m) ? <EncCard m={m} /> : m.invite && !m.html?.trim() && !m.text?.trim() ? null : <MessageBody m={m} frameRef={frameRef} dark={cv.dark} onPictures={(items, index) => setLightbox({ items, index })} />}
           <AttachmentStrip m={m} />
           {lightbox && (

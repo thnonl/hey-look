@@ -22,6 +22,7 @@ export default defineLocale<typeof ns.en>({
   "backend.ATT_NOT_FOUND": "Anhang nicht gefunden",
   "backend.EMAIL_INVALID": "Geben Sie eine gültige E-Mail-Adresse ein",
   "backend.AI_NOT_CONFIGURED": "KI nicht eingerichtet: Legen Sie Endpunkt und Modell unter Einstellungen > KI-Assistent fest",
+  "backend.AI_TIMEOUT": "Der KI-Assistent hat nicht innerhalb von {secs} Sekunden geantwortet.",
   "backend.UPDATE_BUSY": "Ein Download läuft bereits.",
   "backend.UPDATE_NONE_READY": "Es ist kein Update zur Installation bereit.",
   "backend.OAUTH_CANCELLED": "Anmeldung bei {label} abgebrochen",

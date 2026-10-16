@@ -12,6 +12,7 @@ Small fixes found while testing 1.0.3: event times, Archive and Delete errors, q
 - Settings: long texts are no longer cut off with an ellipsis in any of the eight languages at a 960 px or 1280 px window (for example the default account in Russian, the Notifications choices and the PGP key list)
 - macOS: About, Services, Hide, Hide Others and Show All in the app menu now follow the language you chose, like Quit; Show All is new
 - Windows: when Windows refuses to show a notification, Hey Look! no longer hides the error. Send test in Settings > Notifications shows it, and the log (startup.log) gets a line saying the notification failed
+- Translate (More actions > Translate to ...): a long email no longer looks as if nothing happens. A notice with a spinner and a Cancel button stays on screen until the translation arrives, and the message shows a Translating box (with the time that has passed) where the translation will appear. The translation goes on when you open other mail or folders; when it is ready while you are elsewhere, a notice with Show takes you back to the mail. An error (no answer within 180 seconds, a provider error, no API key) replaces the spinner and offers Retry. The AI Assistant no longer waits for ever for an answer
 - Website: the logo keeps its size on phones, the top menu folds into the menu button before it can touch the buttons, long German words no longer run off the page, and the Theme and Animations buttons are described with whole sentences in every language
 
 ## 1.0.3 — 2026-10-16

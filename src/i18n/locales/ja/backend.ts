@@ -22,6 +22,7 @@ export default defineLocale<typeof ns.en>({
   "backend.ATT_NOT_FOUND": "添付ファイルが見つかりません",
   "backend.EMAIL_INVALID": "有効なメールアドレスを入力してください",
   "backend.AI_NOT_CONFIGURED": "AIが設定されていません。設定 > AIアシスタントでエンドポイントとモデルを指定してください",
+  "backend.AI_TIMEOUT": "AIアシスタントが{secs}秒以内に応答しませんでした。",
   "backend.UPDATE_BUSY": "ダウンロードは既に実行中です。",
   "backend.UPDATE_NONE_READY": "インストールできるアップデートはありません。",
   "backend.OAUTH_CANCELLED": "{label}のサインインがキャンセルされました",

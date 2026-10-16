@@ -624,6 +624,7 @@ const newThreads = (accountId: string) =>
 //   #backfill          simulates the background download of 500 Inbox messages (event backfill-progress) for the first mailbox (never beyond the "Max emails to download" cap)
 //                      the cap (setting max_download, Settings > Reading & sync) also makes load_older answer { limited: true } once a mailbox holds that many messages
 // `__mockMail` in the console: { calls (every load_older), opened (urls given to the browser), local, total, failIn }
+let mockAiCalls = 0;
 const hashHas = (k: string) => new RegExp(`(^|&)${k}(=|&|$)`).test(window.location.hash.slice(1));
 const hashNum = (k: string, d: number) => {
   const m = new RegExp(`(^|&)${k}=(\\d+)`).exec(window.location.hash.slice(1));
@@ -1458,7 +1459,23 @@ export function installMock() {
         if (String(a.endpoint).includes("bad")) throw "Models request failed (404 Not Found)"; // lets the error state be tried in the browser
         return new Promise((r) => setTimeout(() => r(["gpt-4o", "gpt-4o-mini", "gpt-4.1", "o3-mini", "text-embedding-3-small"]), 500));
       }
-      case "ai_complete": return "• Linh shared the Q4 roadmap\n• Review requested before Thursday";
+      case "ai_complete": {
+        // dev switches for the waiting states of an AI call: #slowai[=ms] answers after 20 s (or ms); #failai[=timeout|nokey|server|once] fails after 5 s ("once": the first call only)
+        const reply = String(a.system).startsWith("Translate")
+          ? `[${/into (.+?)\./.exec(String(a.system))?.[1] ?? "?"}] ${String(a.prompt).slice(0, 600)}`
+          : "• Linh shared the Q4 roadmap\n• Review requested before Thursday";
+        const failMode = /(^|&)failai(?:=([a-z]+))?(&|$)/.exec(window.location.hash.slice(1));
+        const failures: Record<string, string> = {
+          timeout: "AI_TIMEOUT|secs=180: The AI Assistant didn’t answer within 180 seconds.",
+          nokey: "AI_NOT_CONFIGURED: AI not configured: set endpoint and model in Settings > AI",
+          server: 'AI error 503 Service Unavailable: {"error":"upstream overloaded"}',
+        };
+        if (failMode && (failMode[2] !== "once" || ++mockAiCalls === 1)) {
+          return new Promise((_, rej) => setTimeout(() => rej(failures[failMode[2] ?? ""] ?? failures.server), 5000));
+        }
+        if (hashHas("slowai")) return new Promise((r) => setTimeout(() => r(reply), hashNum("slowai", 20000)));
+        return reply;
+      }
       case "get_autostart": return false;
       case "cancel_outbox": case "outbox_send_now": case "outbox_to_draft": {
         const i = mockOutbox.findIndex((x) => x.id === a.id);
