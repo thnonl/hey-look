@@ -422,6 +422,15 @@ fn smtp_user(acc: &Account) -> String {
 /// accepts and then stays silent (a plain SMTP port with SSL/TLS, a firewall that swallows packets) must not keep a send waiting that long.
 const SEND_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(30);
 
+/// What this program calls itself in EHLO: the address literal `[127.0.0.1]`. lettre's default is the name of this computer (a privacy leak:
+/// "NamPC" in the Received header of every message, and a spam signal). RFC 5321 4.1.4 asks for a fully qualified name or, when the client
+/// has none (a desktop behind NAT has no name of its own), an address literal. The account's domain is not used: a server may refuse a
+/// client that claims to be its own domain or somebody else's, and the literal says nothing about the person or the computer. Thunderbird
+/// also sends a literal. It is not configurable.
+fn ehlo_name() -> lettre::transport::smtp::extension::ClientId {
+    lettre::transport::smtp::extension::ClientId::Ipv4(std::net::Ipv4Addr::new(127, 0, 0, 1))
+}
+
 /// `timeout`: how long a connection step may take (lettre's own default is a minute); the checks made while an account is added use less.
 fn transport_with(acc: &Account, secret: &str, timeout: Option<std::time::Duration>) -> R<SmtpTransport> {
     let host = acc.smtp_host.as_str();
@@ -438,7 +447,7 @@ fn transport_with(acc: &Account, secret: &str, timeout: Option<std::time::Durati
             .map_err(err)?;
         b = b.tls(if acc.smtp_security == "ssl" { Tls::Wrapper(params) } else { Tls::Required(params) });
     }
-    let b = b.credentials(Credentials::new(smtp_user(acc), secret.to_string()));
+    let b = b.hello_name(ehlo_name()).credentials(Credentials::new(smtp_user(acc), secret.to_string()));
     let b = if timeout.is_some() { b.timeout(timeout) } else { b };
     Ok((if acc.auth.starts_with("oauth_") { b.authentication(vec![Mechanism::Xoauth2]) } else { b }).build())
 }
@@ -511,7 +520,7 @@ fn probe_starttls(acc: &Account, timeout: std::time::Duration) -> Result<(), Pro
             Ok(Some(g)) if g.starts_with("220") => {}
             _ => return Ok(()),
         }
-        if out.write_all(b"EHLO hey-look.local\r\n").is_err() {
+        if out.write_all(format!("EHLO {}\r\n", ehlo_name()).as_bytes()).is_err() {
             return Ok(());
         }
         match reply(&mut input) {
@@ -1122,6 +1131,68 @@ To:") && !out.contains("undisclosed"), "{out}");
             }
         });
         (port, stop)
+    }
+
+    /// A plain SMTP server that records the lines it receives and lets a whole mail through (no AUTH is offered). Returns its port and the
+    /// receiver of the lines.
+    fn recording_smtp_server() -> (u16, std::sync::mpsc::Receiver<String>) {
+        use std::io::{BufRead, BufReader, Write};
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let port = listener.local_addr().unwrap().port();
+        let (tx, rx) = std::sync::mpsc::channel::<String>();
+        std::thread::spawn(move || {
+            for conn in listener.incoming().flatten() {
+                let tx = tx.clone();
+                std::thread::spawn(move || {
+                    let _ = conn.set_read_timeout(Some(std::time::Duration::from_secs(10)));
+                    let mut w = conn.try_clone().unwrap();
+                    let _ = w.write_all(b"220 stub.test ESMTP\r\n");
+                    let mut data = false;
+                    for line in BufReader::new(conn).lines().map_while(Result::ok) {
+                        if data {
+                            data = line != ".";
+                            if !data {
+                                let _ = w.write_all(b"250 queued\r\n");
+                            }
+                            continue;
+                        }
+                        let _ = tx.send(line.clone());
+                        let up = line.to_uppercase();
+                        let reply: &[u8] = if up.starts_with("EHLO") { b"250 stub.test\r\n" } else if up.starts_with("DATA") { data = true; b"354 go\r\n" } else if up.starts_with("QUIT") { b"221 bye\r\n" } else { b"250 ok\r\n" };
+                        let _ = w.write_all(reply);
+                        if up.starts_with("QUIT") {
+                            break;
+                        }
+                    }
+                });
+            }
+        });
+        (port, rx)
+    }
+
+    /// QA round 17, BUG-17 (CF-13): EHLO carried the name of this computer ("NamPC"). It is the address literal `[127.0.0.1]` now, for the
+    /// sent mail and for the connection checks, whatever the computer or the account is called.
+    #[test]
+    fn ehlo_does_not_tell_the_name_of_this_computer() {
+        crate::test_guard::within(60, || {
+            let (port, lines) = recording_smtp_server();
+            let mut acc = account();
+            acc.smtp_host = "127.0.0.1".into();
+            acc.smtp_port = port;
+            acc.smtp_security = "none".into();
+            // the message is delivered or refused for lack of AUTH: either way the EHLO line is on record
+            let _ = send_raw(&acc, "secret", &envelope_for_tests(), b"Subject: x\r\n\r\nhi");
+            let _ = test(&acc, "secret");
+            let ehlos: Vec<String> = std::iter::from_fn(|| lines.recv_timeout(std::time::Duration::from_millis(300)).ok()).filter(|l| l.to_uppercase().starts_with("EHLO")).collect();
+            assert!(ehlos.len() >= 2, "{ehlos:?}");
+            for l in &ehlos {
+                assert_eq!(l, "EHLO [127.0.0.1]", "the address literal, nothing about this computer");
+            }
+            let host = std::env::var("COMPUTERNAME").or_else(|_| std::env::var("HOSTNAME")).unwrap_or_default().to_lowercase();
+            if !host.is_empty() {
+                assert!(ehlos.iter().all(|l| !l.to_lowercase().contains(&host) || host == "127.0.0.1"), "{ehlos:?}");
+            }
+        });
     }
 
     fn envelope_for_tests() -> lettre::address::Envelope {
