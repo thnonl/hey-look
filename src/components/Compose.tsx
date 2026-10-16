@@ -17,6 +17,7 @@ import type { ComposeProbe, SavedDraft } from "../leaveCompose";
 import { extractSignature, fillSignature, normalizeHtml, SIG_MARK } from "../signature";
 import { repairSignature, signatureGuard } from "../signatureGuard";
 import { fitInWindow } from "../fitInWindow";
+import { cleanPastedHtml, isLocalPictureSrc, stripRemotePictures } from "../pastedHtml";
 import { placePictureTools } from "../pictureToolsLayout";
 import type { PictureToolsInput } from "../pictureToolsLayout";
 import { blockedAttachmentExt, dataUriBytes, fileToBase64, fmtIn, fmtSize, fmtWhen, htmlToText, imageSize, PICTURE_TYPES, playSent, resizeImage, sanitizeHtml, shortKey, userName } from "../util";
@@ -44,6 +45,10 @@ const LARGE_PICTURE = 1024 * 1024;
 
 /** An inline picture: the same node as tiptap's image, plus the width and the file name we keep. */
 const PictureNode = Image.extend({
+  // only pictures that travel with the HTML (cid:, base64 data:) enter the document: a remote one is never shown, so it is never fetched while writing
+  parseHTML() {
+    return [{ tag: "img[src]", getAttrs: (el: HTMLElement | string) => (typeof el !== "string" && isLocalPictureSrc(el.getAttribute("src") ?? "") ? null : false) }];
+  },
   addAttributes() {
     return {
       ...this.parent?.(),
@@ -523,6 +528,7 @@ export function Compose({ init }: { init: ComposeInit }) {
 
   // Ctrl/Cmd+K in the body and the toolbar button open the same link UI (set after the editor exists)
   const linkRef = useRef<() => void>(() => undefined);
+  const pasteNote = useRef(false); // the "pictures from the web are not pasted" notice is shown once per message
   const editor = useEditor({
     extensions: [
       StarterKit,
@@ -535,6 +541,15 @@ export function Compose({ init }: { init: ComposeInit }) {
       attributes: { "aria-label": t("compose.editor.body") },
       // one key, one action: Ctrl+Shift+B / Ctrl+Enter / Ctrl+Alt+... (AltGr) never reach the editor shortcuts, Ctrl+K is the link UI
       handleDOMEvents: editorKeyHandlers(() => linkRef.current()),
+      // pasted / dropped HTML loses its remote pictures BEFORE the editor reads it: a tracking pixel or a UNC / file: picture is never requested
+      transformPastedHTML: (html: string) => {
+        const r = cleanPastedHtml(html);
+        if (r.removed && !pasteNote.current) {
+          pasteNote.current = true;
+          showToast(tNow("compose.paste.picturesRemoved"), undefined, "info");
+        }
+        return r.html;
+      },
       handlePaste: (_view, event) => {
         const all = Array.from(event.clipboardData?.files ?? []);
         const images = all.filter((f) => PICTURE_TYPES.includes(f.type));
@@ -549,7 +564,8 @@ export function Compose({ init }: { init: ComposeInit }) {
       },
     },
     // a new message: typed text, then the signature region, then (reply / forward) the quoted message
-    content: editing ? startDoc.current!.html : `<p></p>${SIG_MARK}${init.bodyHtml ?? "<p></p>"}`,
+    // a quoted or reopened body never brings a remote picture into the editor (the reader's "Load pictures" is the only place they load)
+    content: stripRemotePictures(editing ? startDoc.current!.html : `<p></p>${SIG_MARK}${init.bodyHtml ?? "<p></p>"}`).html,
     autofocus: (init.to?.length ?? 0) > 0 ? "start" : false,
     // a body from an older build may lack the paragraph above the signature region: add it without counting as an edit
     onCreate: ({ editor: ed }) => {

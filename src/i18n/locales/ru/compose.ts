@@ -147,6 +147,7 @@ export default defineLocale<typeof ns.en>({
   "compose.fmt.insertPicture": "Вставить изображение",
   "compose.editor.placeholder": "Напишите письмо…",
   "compose.editor.body": "Текст письма",
+  "compose.paste.picturesRemoved": "Изображения из интернета не вставляются. Чтобы добавить картинку, нажмите «Изображение».",
   // pictures in the body
   "compose.pic.options": "Параметры изображения",
   "compose.pic.size": "Размер",

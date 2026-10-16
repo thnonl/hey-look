@@ -145,6 +145,7 @@ export default define({
     "compose.fmt.insertPicture": "Insert picture",
     "compose.editor.placeholder": "Write your message…",
     "compose.editor.body": "Message body",
+    "compose.paste.picturesRemoved": "Pictures from the web are not pasted. Use Picture to insert an image.",
 
     // pictures in the body
     "compose.pic.options": "Picture options",
@@ -435,6 +436,7 @@ export default define({
     "compose.fmt.insertPicture": "Chèn ảnh",
     "compose.editor.placeholder": "Viết nội dung thư…",
     "compose.editor.body": "Nội dung thư",
+    "compose.paste.picturesRemoved": "Ảnh từ web không được dán vào thư. Hãy dùng nút Ảnh để chèn hình.",
 
     "compose.pic.options": "Tùy chọn ảnh",
     "compose.pic.size": "Kích thước",
@@ -719,6 +721,7 @@ export default define({
     "compose.fmt.insertPicture": "Insérer une image",
     "compose.editor.placeholder": "Écrivez votre message…",
     "compose.editor.body": "Corps du message",
+    "compose.paste.picturesRemoved": "Les images du web ne sont pas collées. Utilisez Image pour insérer une image.",
 
     "compose.pic.options": "Options de l’image",
     "compose.pic.size": "Taille",

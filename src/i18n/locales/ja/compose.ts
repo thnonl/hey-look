@@ -128,6 +128,7 @@ export default defineLocale<typeof ns.en>({
   "compose.fmt.insertPicture": "画像を挿入",
   "compose.editor.placeholder": "メッセージを入力…",
   "compose.editor.body": "メッセージ本文",
+  "compose.paste.picturesRemoved": "Webからの画像は貼り付けられません。画像を挿入するには「画像」を使ってください。",
   // pictures in the body
   "compose.pic.options": "画像のオプション",
   "compose.pic.size": "サイズ",

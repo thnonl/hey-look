@@ -127,6 +127,7 @@ export default defineLocale<typeof ns.en>({
   "compose.fmt.insertPicture": "插入图片",
   "compose.editor.placeholder": "写下您的邮件…",
   "compose.editor.body": "邮件正文",
+  "compose.paste.picturesRemoved": "不会粘贴来自网页的图片。请使用“图片”插入图片。",
   // pictures in the body
   "compose.pic.options": "图片选项",
   "compose.pic.size": "大小",

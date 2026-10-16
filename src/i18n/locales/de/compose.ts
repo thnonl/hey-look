@@ -136,6 +136,7 @@ export default defineLocale<typeof ns.en>({
   "compose.fmt.insertPicture": "Bild einfügen",
   "compose.editor.placeholder": "Nachricht schreiben…",
   "compose.editor.body": "Nachrichtentext",
+  "compose.paste.picturesRemoved": "Bilder aus dem Web werden nicht eingefügt. Mit „Bild“ fügen Sie ein Bild ein.",
   // pictures in the body
   "compose.pic.options": "Bildoptionen",
   "compose.pic.size": "Größe",

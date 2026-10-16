@@ -235,6 +235,7 @@ jobs:
           node scripts/test-compose-tab-order.mjs
           node --experimental-strip-types scripts/test-compose-keys.mjs
           node --experimental-strip-types scripts/test-quote-header.mjs
+          node --experimental-strip-types scripts/test-pasted-html.mjs
           node --experimental-strip-types scripts/test-update-result.mjs
           node --experimental-strip-types scripts/test-update-announce.mjs
           node scripts/test-latest-json-keys.mjs
