@@ -1093,15 +1093,22 @@ export function installMock() {
       case "list_rules": return [{ id: "r1", accountId: null, name: "Move newsletters", field: "from", op: "contains", value: "newsletter@example.com", action: "archive", arg: null, enabled: true }, { id: "r2", accountId: null, name: "", field: "subject", op: "contains", value: "a very long rule text that should be truncated in the list row", action: "trash", arg: null, enabled: false }];
       case "list_blocked": return [];
       case "thread_action": {
-        for (const id of (a.threadIds ?? a.ids ?? []) as string[]) {
-          const th = threads.find((x) => x.threadId === id);
-          if (!th) continue;
-          if (a.action === "read") th.unread = 0;
-          else if (a.action === "unread") th.unread = Math.max(1, th.unread);
-          else if (a.action === "star") th.flagged = true;
-          else if (a.action === "unstar") th.flagged = false;
-        }
-        return new Promise((r) => setTimeout(() => r(null), 600)); // slow like IMAP
+        // like the backend: the state changes when the server has done it (not at the call), after the IMAP time;
+        // `#slowflags` makes that time random (0.2 - 1.4 s) so calls finish out of order; every call is logged for checks
+        const w = window as unknown as { __threadActionCalls?: { ids: string[]; action: string; at: number }[] };
+        (w.__threadActionCalls ??= []).push({ ids: [...((a.threadIds ?? a.ids ?? []) as string[])], action: String(a.action), at: Date.now() });
+        const ms = hashTokens().has("slowflags") ? 200 + Math.random() * 1200 : 600;
+        return later(ms, () => {
+          for (const id of (a.threadIds ?? a.ids ?? []) as string[]) {
+            const th = threads.find((x) => x.threadId === id);
+            if (!th) continue;
+            if (a.action === "read") th.unread = 0;
+            else if (a.action === "unread") th.unread = Math.max(1, th.unread);
+            else if (a.action === "star") th.flagged = true;
+            else if (a.action === "unstar") th.flagged = false;
+          }
+          return null;
+        });
       }
       case "update_account": {
         const x = accounts.find((y) => y.id === a.accountId);
