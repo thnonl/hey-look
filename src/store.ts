@@ -9,6 +9,7 @@ import { StateIntents, type IntentKind } from "./readIntent";
 import { calendarErrorText } from "./calendarSync";
 import { backendText } from "./backendErrors";
 import { needsSignIn } from "./signIn";
+import type { Jobs } from "./translateJobs";
 import { resolveLang, setLangPref, t } from "./i18n";
 import { fmtNumber } from "./i18n/format";
 import { calTz, CalView, Day, rangeFor, systemTz, today } from "./calendar";
@@ -109,6 +110,8 @@ export interface Toast {
   link?: ToastAction;
   /** no "×": the buttons already close it */
   hideClose?: boolean;
+  /** work in progress: a spinner instead of the icon (static dots under reduced motion) */
+  busy?: boolean;
 }
 
 export interface Choice {
@@ -217,6 +220,9 @@ interface State {
   reauth: Record<string, "again" | "blocked">;
   setReauth: (accountId: string, kind: "again" | "blocked" | null) => void;
   toasts: Toast[];
+  /** Translations of messages, running and finished, by message and language (src/translateJobs.ts); they outlive the reading pane. */
+  translations: Jobs;
+  setTranslations: (f: (j: Jobs) => Jobs) => void;
   ask: AskState | null;
   passphrase: PassphraseAsk | null;
   /** bumps whenever keys are added, removed or unlocked, so key-dependent views refetch */
@@ -281,7 +287,7 @@ interface State {
   /** A toast that stays until it is answered (or `null` to remove it); one per `key`, a new text replaces the old in place. */
   setStickyToast: (
     key: string,
-    spec: { text: string; kind?: Toast["kind"]; actions?: ToastAction[]; onDismiss?: () => void; closeLabel?: string; escCloses?: boolean; support?: boolean; link?: ToastAction; hideClose?: boolean; ttl?: number } | null,
+    spec: { text: string; kind?: Toast["kind"]; actions?: ToastAction[]; onDismiss?: () => void; closeLabel?: string; escCloses?: boolean; support?: boolean; link?: ToastAction; hideClose?: boolean; busy?: boolean; ttl?: number } | null,
   ) => void;
   /** Count a message as being sent from now until `done()` is called. */
   /** A send is under way (its undo window counts). `flush` makes it go out at once (a quit); it is dropped when the send ends. */
@@ -516,6 +522,8 @@ export const useStore = create<State>((set, get) => ({
       return { reauth: next };
     }),
   toasts: [],
+  translations: {},
+  setTranslations: (f) => set((s) => ({ translations: f(s.translations) })),
   ask: null,
   passphrase: null,
   keysRev: 0,
@@ -1016,7 +1024,7 @@ export const useStore = create<State>((set, get) => ({
       const others = s.toasts.filter((t) => t.key !== key);
       if (!spec) return { toasts: others };
       const old = s.toasts.find((t) => t.key === key);
-      const toast: Toast = { id: old?.id ?? ++toastSeq, text: spec.text, kind: spec.kind ?? "info", actions: spec.actions, ttl: spec.ttl ?? 0, sticky: true, key, onDismiss: spec.onDismiss, closeLabel: spec.closeLabel, escCloses: spec.escCloses, support: spec.support, link: spec.link, hideClose: spec.hideClose };
+      const toast: Toast = { id: old?.id ?? ++toastSeq, text: spec.text, kind: spec.kind ?? "info", actions: spec.actions, ttl: spec.ttl ?? 0, sticky: true, key, onDismiss: spec.onDismiss, closeLabel: spec.closeLabel, escCloses: spec.escCloses, support: spec.support, link: spec.link, hideClose: spec.hideClose, busy: spec.busy };
       // in place when it exists (the countdown changes its text every second), else on top of the stack
       return { toasts: old ? s.toasts.map((t) => (t.key === key ? toast : t)) : [...others, toast].slice(-5) };
     }),

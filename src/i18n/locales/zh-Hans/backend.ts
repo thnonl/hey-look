@@ -22,6 +22,7 @@ export default defineLocale<typeof ns.en>({
   "backend.ATT_NOT_FOUND": "未找到附件",
   "backend.EMAIL_INVALID": "请输入有效的电子邮件地址",
   "backend.AI_NOT_CONFIGURED": "尚未配置AI：请在“设置 > AI助手”中设置端点和模型",
+  "backend.AI_TIMEOUT": "AI助手在{secs}秒内未响应。",
   "backend.UPDATE_BUSY": "已有下载正在进行。",
   "backend.UPDATE_NONE_READY": "没有可安装的更新。",
   "backend.OAUTH_CANCELLED": "已取消{label}登录",

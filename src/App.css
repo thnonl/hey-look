@@ -402,6 +402,13 @@ button:focus-visible, [role="option"]:focus-visible, [role="treeitem"]:focus-vis
 .rp-body { flex: 1; overflow-y: auto; overflow-x: auto; overflow-anchor: none; padding: 4px 24px 28px; }
 .summary { margin: 10px 24px; padding: 11px 15px; border-radius: var(--r-md); background: var(--accent-soft); border-left: 3px solid var(--accent); }
 .rp-body .summary { margin: 10px 0; }
+.tr-row { display: flex; align-items: center; gap: 8px; margin-top: 6px; flex-wrap: wrap; }
+.tr-row .tr-text { flex: 1; min-width: 0; }
+.tr-row .tr-time { font-variant-numeric: tabular-nums; }
+.tr-hint { margin-top: 4px; }
+.tr-box.error .tr-row svg { color: var(--danger); flex: none; }
+.tr-actions { display: flex; gap: 14px; margin-top: 6px; }
+.tr-box.error { background: color-mix(in srgb, var(--danger) 10%, var(--bg)); border-left-color: var(--danger); }
 .rp-msg { border-bottom: 1px solid var(--border); }
 .rp-msg-head { display: flex; flex-wrap: wrap; gap: 12px; align-items: center; padding: 12px 0; cursor: pointer; }
 .rp-meta { flex: 1 1 140px; min-width: 0; }
@@ -595,6 +602,10 @@ button.ov-tag:hover { background: color-mix(in srgb, var(--accent), transparent 
 .toasts { position: fixed; left: 50%; bottom: 22px; transform: translateX(-50%); display: flex; flex-direction: column-reverse; gap: 8px; z-index: var(--z-toast); width: min(520px, 92vw); pointer-events: none; }
 .toast { pointer-events: auto; position: relative; overflow: hidden; display: flex; align-items: center; gap: 10px; background: #26282e; color: #f4f5f7; padding: 11px 12px 11px 14px; border-radius: var(--r-md); box-shadow: var(--shadow); animation: pop .18s var(--ease); }
 .toast-ico { display: inline-flex; color: #8fb8ee; }
+/* work in progress (a translation): a ring that turns; under reduced motion the ring is replaced by static dots */
+.busy-dots { display: none; font-weight: 700; letter-spacing: 1px; line-height: 1; }
+.toast .spin { border-color: rgba(255,255,255,.28); border-top-color: #8fb8ee; width: 16px; height: 16px; vertical-align: middle; }
+@media (prefers-reduced-motion: reduce) { .busy-ring { display: none !important; } .busy-dots { display: inline; } }
 .toast.success .toast-ico { color: #47cd89; }
 .toast.error .toast-ico { color: #f97066; }
 .toast.error { box-shadow: var(--shadow), inset 3px 0 0 #f97066; }
