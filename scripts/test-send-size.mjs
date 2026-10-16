@@ -1,7 +1,7 @@
 // The size of a message on the wire (G-07 / CF-21): base64 + line breaks + part headers, against the server's SIZE or the usual 25 MB.
 // Run: node --experimental-strip-types scripts/test-send-size.mjs
 import assert from "node:assert/strict";
-import { ARMOR, USUAL_LIMIT, attachmentWire, base64Chars, base64Wire, isSizeRefusal, partHeaders, pictureWire, sendLimit, wireSize } from "../src/sendSize.ts";
+import { askFreshBeforeSend, ARMOR, USUAL_LIMIT, attachmentWire, base64Chars, base64Wire, isSizeRefusal, partHeaders, pictureWire, sendLimit, wireSize } from "../src/sendSize.ts";
 
 const MiB = 1024 * 1024;
 const b64 = (raw) => base64Chars(raw); // base64 text length of a raw size
@@ -62,6 +62,9 @@ assert.ok(w4 > 5_000_000 && w4 < 5_600_000, `4 MB file -> ${w4} bytes on the wir
 assert.ok(w4 < USUAL_LIMIT, "it fits the usual limit, so only the server's SIZE can block it");
 assert.ok(w4 > sendLimit(5_000_000).bytes, "and the server's SIZE 5000000 blocks it");
 assert.equal(sendLimit(5_000_000).fromServer, true, "the message names the account's server");
+
+// QA round 20 BUG-01: right before Send a message with files asks the server afresh (the cache must not hide a limit that just changed)
+assert.ok(askFreshBeforeSend(1, 0) && askFreshBeforeSend(0, 2) && !askFreshBeforeSend(0, 0));
 
 // a refused send: the backend's coded error
 assert.ok(isSizeRefusal("SMTP_TOO_LARGE|reply=552 5.3.4 Message size exceeds fixed limit: The message is larger than this server accepts."));

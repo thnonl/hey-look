@@ -57,5 +57,11 @@ export function sendLimit(serverMax: number | null | undefined): { bytes: number
   return serverMax && serverMax > 0 && serverMax < USUAL_LIMIT ? { bytes: serverMax, fromServer: true } : { bytes: USUAL_LIMIT, fromServer: false };
 }
 
+/**
+ * Whether the server is asked again right before Send whatever the backend remembers: a message with files (or pictures) is the one a limit
+ * matters for, and a limit the server changed a moment ago must be seen (QA round 20 BUG-01).
+ */
+export const askFreshBeforeSend = (fileCount: number, pictureCount: number): boolean => fileCount + pictureCount > 0;
+
 /** Whether a failed send was refused for its size (the backend's coded error `SMTP_TOO_LARGE`, smtp.rs explain_send_error). */
 export const isSizeRefusal = (e: unknown): boolean => /^SMTP_TOO_LARGE(?![A-Z0-9_])/.test(String(e instanceof Error ? e.message : e).replace(/^Error:\s*/, "").trim());

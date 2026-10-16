@@ -22,7 +22,7 @@ import { fitInWindow } from "../fitInWindow";
 import { autosaveDue, snapshotDue, timing, type AutosaveWhy } from "../autosave";
 import { RecoveryWriter, type RecoveryForm } from "../recovery";
 import { cleanPastedHtml, isLocalPictureSrc, stripRemotePictures } from "../pastedHtml";
-import { isSizeRefusal, sendLimit, wireSize } from "../sendSize";
+import { askFreshBeforeSend, isSizeRefusal, sendLimit, wireSize } from "../sendSize";
 import { outgoingName, outgoingNames } from "../attachName";
 import { placePictureTools } from "../pictureToolsLayout";
 import type { PictureToolsInput } from "../pictureToolsLayout";
@@ -950,12 +950,13 @@ export function Compose({ init }: { init: ComposeInit }) {
 
   /**
    * The error text when the message, as it goes on the wire (base64 + headers + the body), is over what the server takes; null when it
-   * fits. The server is asked for its SIZE first (smtpsize.rs; from the backend's memory when it was asked a short time ago); without an
+   * fits. The server is asked for its SIZE first (smtpsize.rs; for a message with files always afresh, else from the backend's minute of memory); without an
    * answer within 10 seconds the limit known so far applies (the usual 25 MB).
    */
   const sizeProblem = async (d: Draft): Promise<string | null> => {
     const wire = draftWire(d);
-    const max = await Promise.race([askServerLimit(d.accountId), new Promise<null>((r) => setTimeout(() => r(null), 10_000))]);
+    const fresh = askFreshBeforeSend(d.attachments.length, (d.inline ?? []).length);
+    const max = await Promise.race([askServerLimit(d.accountId, fresh), new Promise<null>((r) => setTimeout(() => r(null), 10_000))]);
     const lim = sendLimit(max ?? serverMax[d.accountId]);
     return wire > lim.bytes ? tooBigText(wire, lim, "compose.att.tooBig") : null;
   };
