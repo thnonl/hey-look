@@ -38,6 +38,23 @@ assert.deepEqual(go({ fromEmail: "me@gmail.com", to: "a@ext.test", replyTo: ["ot
 // nothing usable left: To is empty (Compose opens with an empty To)
 assert.deepEqual(go({ fromEmail: "me@example.com", to: "me@gmail.com" }).to, []);
 
+// Reply all with a Reply-To header (Mac QA 19A): the Reply-To address (valid, not mine) + the original From (when different) + the original To / Cc
+// without my addresses, each once (upper / lower case alike); plain Reply stays Reply-To only
+{
+  const o = { fromEmail: "news@list.test", replyTo: ["Desk <desk@list.test>"], to: "me@example.com, a@ext.test", cc: "desk@LIST.test, b@ext.test, me@gmail.com" };
+  assert.deepEqual(go({ ...o, all: false }).to, ["Desk <desk@list.test>"], "Reply: the Reply-To address only");
+  assert.deepEqual(go({ ...o, all: false }).cc, []);
+  const r = go({ ...o, all: true });
+  assert.deepEqual(r.to, ["Desk <desk@list.test>", "news@list.test", "a@ext.test"], "Reply all: Reply-To, From, original To");
+  assert.deepEqual(r.cc, ["b@ext.test"], "the Reply-To address that was also in Cc is in To only; mine are gone");
+  assert.deepEqual(r.viaReplyTo, { replyTo: ["Desk <desk@list.test>"], from: "news@list.test" });
+  // an invalid or my own Reply-To is not added: Reply all = From + To + Cc as before
+  assert.deepEqual(go({ ...o, replyTo: [], all: true }).to, ["news@list.test", "a@ext.test"]);
+  assert.deepEqual(go({ ...o, replyTo: ["me@example.com"], all: true }).to, ["news@list.test", "a@ext.test"]);
+  // Reply-To equal to From: once
+  assert.deepEqual(go({ ...o, replyTo: ["NEWS@list.test"], all: true }).to, ["NEWS@list.test", "a@ext.test"]);
+}
+
 // QA 19A R19A-1: display names stay (the stored To / Cc keep bare addresses; the headers of the message carry the names)
 const named = go({
   fromEmail: "john@x.test", fromName: "Doe, John", to: "me@example.com,ann@x.test", cc: "z@ext.test", all: true,
