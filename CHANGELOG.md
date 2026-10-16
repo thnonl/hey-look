@@ -11,6 +11,7 @@ A few leftovers from 1.0.4: Cancel on an AI request, error messages that pile up
 - The notices about a translation (running, ready, failed) follow the language you choose, also when you change the language while they are on screen
 - Archive and Delete: when the move is refused or you press Undo, the next mail that Hey Look! opened for you goes back to unread, if you did nothing with it in the first 10 seconds, and the selection returns to the mail you moved
 - Junk: the Junk folder and the actions that move mail to Junk (Move to Junk, Block sender, the ! key) are hidden or greyed out, with the hint "No Junk folder", when the mailbox has no Junk folder. Archive and Trash stay, they are created when you first use them
+- macOS: the "new version available" notice now appears when you start the app or come back to its window, also within a few hours of an earlier check. Before, a check that found nothing new (or failed) made the app skip the next ones for 6 hours (1 hour after a failure) even after quitting and starting it again, and only Settings > About found the update. On macOS the app now asks again at start when the last check is 5 minutes old, and when you return to the window after 2 hours (15 minutes after a failed check). Windows and Linux are unchanged. The log (startup.log) now says, for every check, whether it asked the server or why not, and why a notice did not appear
 - Website: the 404 page (page not found) is written in the language of the address in all eight languages, including the top menu and the footer
 
 ## 1.0.4 — 2026-10-16

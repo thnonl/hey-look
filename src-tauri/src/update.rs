@@ -24,6 +24,13 @@ const STALL: Duration = Duration::from_secs(60);
 /// Automatic checks: at most every 6 h, every hour after a failed attempt.
 const EVERY_SECS: i64 = 6 * 3600;
 const RETRY_SECS: i64 = 3600;
+/// macOS (F-20): the app lives for days in the Dock (the close button only hides the window) and people relaunch it to look for an
+/// update, so the 6 h / 1 h gate above swallowed the toast: a launch or a window that comes back within 6 h of a check that saw nothing
+/// newer (or 1 h of a failed one) asked nothing and showed the cached "up to date". There a launch checks again when the last attempt is
+/// 5 minutes old, and a returning window after 2 h (15 min after a failed attempt). Other systems keep the gates above.
+const MAC_STARTUP_GAP_SECS: i64 = 300;
+const MAC_EVERY_SECS: i64 = 2 * 3600;
+const MAC_RETRY_SECS: i64 = 900;
 
 // ---------- types ----------
 
@@ -181,16 +188,52 @@ pub fn update_url_ok(raw: &str, version: &str, allow_local: bool) -> bool {
     })
 }
 
-/// Automatic checks: every 6 h, every hour after a failure; a missing or future timestamp is due. Manual is always due.
-pub fn due(trigger: Trigger, now: i64, last: Option<i64>, last_ok: bool) -> bool {
+/// Seconds an automatic trigger waits after the last attempt: 6 h (1 h after a failed attempt); on macOS see MAC_* above.
+pub fn gap_secs(os: &str, trigger: Trigger, last_ok: bool) -> i64 {
+    match (os == "macos", trigger, last_ok) {
+        (true, Trigger::Startup, _) => MAC_STARTUP_GAP_SECS,
+        (true, _, true) => MAC_EVERY_SECS,
+        (true, _, false) => MAC_RETRY_SECS,
+        (false, _, true) => EVERY_SECS,
+        (false, _, false) => RETRY_SECS,
+    }
+}
+
+/// Whether a check may ask the server now, on the operating system `os` (`std::env::consts::OS`): a manual one always, an automatic one
+/// when the last attempt is old enough (`gap_secs`); a missing or future timestamp is due.
+pub fn due_on(os: &str, trigger: Trigger, now: i64, last: Option<i64>, last_ok: bool) -> bool {
     if trigger == Trigger::Manual {
         return true;
     }
     match last {
         None => true,
         Some(l) if l > now => true,
-        Some(l) => now - l >= if last_ok { EVERY_SECS } else { RETRY_SECS },
+        Some(l) => now - l >= gap_secs(os, trigger, last_ok),
     }
+}
+
+/// Automatic checks: every 6 h, every hour after a failure; a missing or future timestamp is due. Manual is always due.
+/// (The gates of every system but macOS; the running app uses `due_on`.)
+#[cfg(test)]
+pub fn due(trigger: Trigger, now: i64, last: Option<i64>, last_ok: bool) -> bool {
+    due_on("other", trigger, now, last, last_ok)
+}
+
+/// The keys of `latest.json`'s `platforms` this copy of the app looks for, in the order the updater plugin tries them
+/// (`<os>-<arch>-<installer>`, then `<os>-<arch>`; the plugin calls macOS `darwin` and the CPU `x86_64` / `aarch64`).
+pub fn manifest_keys(p: &Platform) -> Vec<String> {
+    let os = if p.os == "macos" { "darwin" } else { p.os.as_str() };
+    let arch = match p.arch.as_str() {
+        "x64" => "x86_64",
+        "arm64" => "aarch64",
+        other => other,
+    };
+    let mut keys = Vec::new();
+    if p.installer != "unknown" {
+        keys.push(format!("{os}-{arch}-{}", p.installer));
+    }
+    keys.push(format!("{os}-{arch}"));
+    keys
 }
 
 /// First `max` characters (never splits a character) and whether anything was cut. CRLF becomes LF.
@@ -472,24 +515,101 @@ impl UpdState {
     }
 }
 
+impl Trigger {
+    fn name(self) -> &'static str {
+        match self {
+            Trigger::Startup => "startup",
+            Trigger::Shown => "shown",
+            Trigger::Manual => "manual",
+        }
+    }
+}
+
+/// One line in `startup.log` per decision of a check (F-20: an automatic check that asks nothing and shows nothing left no trace, so
+/// nobody could tell a switched-off setting, a throttle and a failed request apart). Starts with the clock of the check, UTC.
+fn note(ctx: &Ctx, trigger: Trigger, what: &str) {
+    let at = chrono::DateTime::from_timestamp(ctx.now, 0).map(|d| d.format("%Y-%m-%d %H:%M:%SZ").to_string()).unwrap_or_default();
+    crate::startup::line("update", &format!("check {} {at}: {what}", trigger.name()));
+}
+
+/// What the stored answer says, for the log: `available 1.0.4`, `up to date (latest 1.0.3)` or `none`.
+fn cached_offer(db: &Db, ctx: &Ctx) -> String {
+    let cache = db::get_setting(&lock(db), "update_cache");
+    match parse_version(&ctx.current).and_then(|cur| valid_cache(cache.as_deref(), &cur)) {
+        Some((Kind::Available, i)) => format!("available {}", i.latest),
+        Some((_, i)) => format!("up to date (latest {})", i.latest),
+        None if cache.as_deref().is_none_or(|c| c.is_empty()) => "none".to_string(),
+        None => "none (the stored answer is for another version or unreadable)".to_string(),
+    }
+}
+
+/// The answer of a check, for the log.
+fn answer_text(r: &UpdateResult) -> String {
+    let latest = r.info.as_ref().map(|i| i.latest.as_str()).unwrap_or("-");
+    match r.kind {
+        Kind::Available => format!(
+            "available {latest} (running {}); installer for this system: {}",
+            r.current,
+            r.info.as_ref().and_then(|i| i.asset.as_ref()).map(|a| a.name.as_str()).unwrap_or("none in the manifest")
+        ),
+        Kind::UpToDate => format!("up to date (running {}, latest {latest})", r.current),
+        Kind::NoRelease => "no release (the server answered with a status that is not a success)".to_string(),
+        Kind::Offline => "offline (no answer from the server)".to_string(),
+        Kind::Error => format!("error: {}", r.message.as_deref().unwrap_or("-")),
+        Kind::Disabled | Kind::Throttled => format!("{:?}", r.kind),
+    }
+}
+
 /// The whole check: guard, switch, throttle, bookkeeping, request. `busy` is the in-flight guard; `ctx` carries the manifest
 /// URL and the clock (tests inject both).
 pub async fn run_check<R: Runtime>(app: &AppHandle<R>, db: &Db, busy: &AtomicBool, flow_active: bool, ctx: &Ctx, trigger: Trigger) -> UpdateResult {
-    let Some(_guard) = try_flag(busy) else { return without_request(db, ctx, Kind::Throttled) };
+    let Some(_guard) = try_flag(busy) else {
+        note(ctx, trigger, "skipped, another check is running");
+        return without_request(db, ctx, Kind::Throttled);
+    };
     let auto = trigger != Trigger::Manual;
     if auto && !shell::pbool(&shell::prefs(db), "checkUpdates", true) {
+        note(ctx, trigger, &format!("skipped, \"Check for updates automatically\" is off in Settings; stored answer: {}", cached_offer(db, ctx)));
         return without_request(db, ctx, Kind::Disabled);
     }
     if auto && flow_active {
+        note(ctx, trigger, "skipped, a download or a downloaded package is waiting");
         return without_request(db, ctx, Kind::Throttled);
     }
-    if !due(trigger, ctx.now, read_last_check(db), read_last_ok(db)) {
+    let (last, last_ok) = (read_last_check(db), read_last_ok(db));
+    if !due_on(&ctx.platform.os, trigger, ctx.now, last, last_ok) {
+        let gap = gap_secs(&ctx.platform.os, trigger, last_ok);
+        let age = last.map_or(0, |l| ctx.now - l);
+        note(
+            ctx,
+            trigger,
+            &format!(
+                "skipped, not due: the last attempt was {age} s ago and {} (an automatic check waits {gap} s, so the next one is in {} s); stored answer: {}",
+                if last_ok { "got an answer" } else { "failed" },
+                gap - age,
+                cached_offer(db, ctx)
+            ),
+        );
         return without_request(db, ctx, Kind::Throttled);
     }
+    note(
+        ctx,
+        trigger,
+        &format!(
+            "asking the server (running {}, {} {}, installer {}; looks for {}; the last attempt was {})",
+            ctx.current,
+            ctx.platform.os,
+            ctx.platform.arch,
+            ctx.platform.installer,
+            manifest_keys(&ctx.platform).join(" then "),
+            last.map_or("never".to_string(), |l| format!("{} s ago", ctx.now - l))
+        ),
+    );
     // the attempt is recorded before the request: a crash or a slow server must not cause a retry storm
     let _ = db::set_setting(&lock(db), "update_last_check", &ctx.now.to_string());
 
     let mut r = check_once(app, ctx).await.result;
+    note(ctx, trigger, &format!("answer: {}", answer_text(&r)));
     let ok = matches!(r.kind, Kind::Available | Kind::UpToDate | Kind::NoRelease);
     {
         let c = lock(db);
@@ -955,6 +1075,102 @@ mod tests {
     }
 
     #[test]
+    fn macos_checks_more_often_and_every_other_system_keeps_the_old_gates() {
+        use Trigger::*;
+        let now = 1_000_000;
+        // F-20: a launch within 6 h of a check that saw nothing new used to ask nothing
+        assert!(!due_on("macos", Startup, now, Some(now - 299), true));
+        assert!(due_on("macos", Startup, now, Some(now - 300), true));
+        assert!(due_on("macos", Startup, now, Some(now - 300), false), "a failed attempt does not hold a launch back for long either");
+        assert!(!due_on("macos", Startup, now, Some(now - 299), false));
+        // a window that comes back: 2 h, 15 min after a failed attempt
+        assert!(!due_on("macos", Shown, now, Some(now - 7199), true));
+        assert!(due_on("macos", Shown, now, Some(now - 7200), true));
+        assert!(!due_on("macos", Shown, now, Some(now - 899), false));
+        assert!(due_on("macos", Shown, now, Some(now - 900), false));
+        for t in [Startup, Shown, Manual] {
+            assert!(due_on("macos", t, now, None, true));
+            assert!(due_on("macos", t, now, Some(now + 5), true));
+        }
+        assert!(due_on("macos", Manual, now, Some(now), true));
+        // Windows, Linux and anything else: unchanged, 6 h and 1 h for both automatic triggers
+        for os in ["windows", "linux", "freebsd", ""] {
+            for t in [Startup, Shown] {
+                assert!(!due_on(os, t, now, Some(now - 301), true), "{os} {t:?}");
+                assert!(!due_on(os, t, now, Some(now - 21599), true), "{os} {t:?}");
+                assert!(due_on(os, t, now, Some(now - 21600), true), "{os} {t:?}");
+                assert!(!due_on(os, t, now, Some(now - 3599), false), "{os} {t:?}");
+                assert!(due_on(os, t, now, Some(now - 3600), false), "{os} {t:?}");
+                assert_eq!(gap_secs(os, t, true), 21600);
+                assert_eq!(gap_secs(os, t, false), 3600);
+            }
+            assert!(due_on(os, Manual, now, Some(now), true));
+        }
+    }
+
+    #[test]
+    fn the_manifest_keys_are_the_ones_the_updater_plugin_tries() {
+        let p = |os: &str, arch: &str, installer: &str| Platform { os: os.into(), arch: arch.into(), installer: installer.into(), label: String::new() };
+        assert_eq!(manifest_keys(&p("macos", "arm64", "app")), ["darwin-aarch64-app", "darwin-aarch64"]);
+        assert_eq!(manifest_keys(&p("macos", "x64", "app")), ["darwin-x86_64-app", "darwin-x86_64"]);
+        assert_eq!(manifest_keys(&p("windows", "x64", "nsis")), ["windows-x86_64-nsis", "windows-x86_64"]);
+        assert_eq!(manifest_keys(&p("windows", "x64", "msi")), ["windows-x86_64-msi", "windows-x86_64"]);
+        assert_eq!(manifest_keys(&p("linux", "x64", "deb")), ["linux-x86_64-deb", "linux-x86_64"]);
+        // a copy whose bundle type is unknown looks for the plain key only
+        assert_eq!(manifest_keys(&p("macos", "arm64", "unknown")), ["darwin-aarch64"]);
+    }
+
+    /// Every key the app can ask for exists in what the release workflow publishes (`make-latest-json.cjs`), for the universal macOS
+    /// build on both CPUs and for every installer type we ship. The same list is asserted from the other side by
+    /// scripts/test-latest-json-keys.mjs, with a manifest the script really generates.
+    #[test]
+    fn every_key_the_app_asks_for_is_published_by_the_release_script() {
+        let script = include_str!("../../.github/scripts/make-latest-json.cjs");
+        let published: Vec<&str> = script
+            .lines()
+            .filter_map(|l| l.trim().strip_prefix('"')?.split_once("\": \"").map(|(k, _)| k))
+            .filter(|k| k.contains('-'))
+            .collect();
+        assert!(published.contains(&"darwin-aarch64-app") && published.contains(&"windows-x86_64-nsis"), "parsed the script: {published:?}");
+        for (os, arch, installer) in [
+            ("macos", "arm64", "app"),
+            ("macos", "x64", "app"),
+            ("macos", "arm64", "unknown"),
+            ("windows", "x64", "nsis"),
+            ("windows", "x64", "msi"),
+            ("linux", "x64", "appimage"),
+            ("linux", "x64", "deb"),
+            ("linux", "x64", "rpm"),
+        ] {
+            let platform = Platform { os: os.into(), arch: arch.into(), installer: installer.into(), label: String::new() };
+            for key in manifest_keys(&platform) {
+                assert!(published.contains(&key.as_str()), "{os} {arch} {installer}: the app asks for {key}, the release does not publish it");
+            }
+        }
+    }
+
+    #[test]
+    fn the_log_tells_what_the_stored_answer_and_the_new_answer_are() {
+        let db = new_db();
+        let c = ctx("http://127.0.0.1:1", 10, "1.0.3");
+        assert_eq!(cached_offer(&db, &c), "none");
+        db::set_setting(&lock(&db), "update_cache", &cache("1.0.3", Kind::UpToDate, "1.0.3")).unwrap();
+        assert_eq!(cached_offer(&db, &c), "up to date (latest 1.0.3)");
+        db::set_setting(&lock(&db), "update_cache", &cache("1.0.3", Kind::Available, "1.0.4")).unwrap();
+        assert_eq!(cached_offer(&db, &c), "available 1.0.4");
+        db::set_setting(&lock(&db), "update_cache", &cache("1.0.2", Kind::Available, "1.0.4")).unwrap();
+        assert!(cached_offer(&db, &c).starts_with("none (the stored answer is for another version"));
+        let mut r = c.result(Kind::Available, Some(10));
+        r.info = Some(info("1.0.4"));
+        assert_eq!(answer_text(&r), "available 1.0.4 (running 1.0.3); installer for this system: none in the manifest");
+        r.kind = Kind::Error;
+        r.message = Some("boom".into());
+        assert_eq!(answer_text(&r), "error: boom");
+        r.kind = Kind::Offline;
+        assert!(answer_text(&r).starts_with("offline"));
+    }
+
+    #[test]
     fn truncation_keeps_characters_whole() {
         assert_eq!(truncate_notes("abc", 4000), ("abc".into(), false));
         assert_eq!(truncate_notes("abc", 3), ("abc".into(), false));
@@ -1248,15 +1464,21 @@ mod tests {
         Arc::new(Mutex::new(db::test_conn(&[])))
     }
 
-    fn ctx(base: &str, now: i64, current: &str) -> Ctx {
+    /// The check as it runs on `os` (the gates differ on macOS); the tests below use Windows unless they say otherwise, so they mean the
+    /// same on every CI machine.
+    fn ctx_on(os: &str, base: &str, now: i64, current: &str) -> Ctx {
         Ctx {
             endpoint: Some(reqwest::Url::parse(&format!("{base}/latest.json")).unwrap()),
             allow_local: true,
             now,
             timeout: Duration::from_secs(5),
             current: current.into(),
-            platform: platform_info(),
+            platform: Platform { os: os.into(), ..platform_info() },
         }
+    }
+
+    fn ctx(base: &str, now: i64, current: &str) -> Ctx {
+        ctx_on("windows", base, now, current)
     }
 
     fn run(app: &tauri::App<tauri::test::MockRuntime>, db: &Db, busy: &AtomicBool, c: &Ctx, t: Trigger) -> UpdateResult {
@@ -1470,6 +1692,34 @@ Content-Length: {}
         assert_eq!(db::get_setting(&lock(&db), "update_last_check").as_deref(), Some((1000 + 99999).to_string().as_str()));
         assert_eq!(run(&app, &db, &busy, &c, Trigger::Manual).kind, Kind::Available);
         assert_eq!(s.count("/latest.json"), 3);
+    }
+
+    /// F-20 through the whole check: the user's Mac saw "up to date" (1.0.3) a little while ago, 1.0.4 is published, the app is launched again.
+    #[test]
+    fn macos_launch_asks_again_where_other_systems_show_the_stored_answer() {
+        let s = manifest_stub(manifest("1.0.4", "https://github.com/thnonl/hey-look/releases/download/v1.0.4/HeyLook_1.0.4_darwin_universal.app.tar.gz"));
+        let app = app_at(&format!("{}/latest.json", s.base), "1.0.3");
+        for (os, asks) in [("macos", true), ("windows", false), ("linux", false)] {
+            let db = new_db();
+            let busy = AtomicBool::new(false);
+            // an earlier check at t = 1000 found nothing newer: stored by hand, as a 1.0.3 check would have done
+            db::set_setting(&lock(&db), "update_last_check", "1000").unwrap();
+            db::set_setting(&lock(&db), "update_last_ok", "1").unwrap();
+            db::set_setting(&lock(&db), "update_cache", &cache("1.0.3", Kind::UpToDate, "1.0.3")).unwrap();
+            let before = s.count("/latest.json");
+            let r = run(&app, &db, &busy, &ctx_on(os, &s.base, 1000 + 1800, "1.0.3"), Trigger::Startup);
+            if asks {
+                assert_eq!((r.kind, r.info.as_ref().map(|i| i.latest.as_str())), (Kind::Available, Some("1.0.4")), "{os}");
+                assert_eq!(s.count("/latest.json"), before + 1, "{os}");
+                assert!(valid_cache(db::get_setting(&lock(&db), "update_cache").as_deref(), &v("1.0.3")).is_some_and(|c| c.0 == Kind::Available));
+            } else {
+                assert_eq!((r.kind, r.cached_kind), (Kind::Throttled, Some(Kind::UpToDate)), "{os}");
+                assert_eq!(s.count("/latest.json"), before, "{os}");
+            }
+            // two launches a minute apart: the second one does not ask again anywhere
+            let again = run(&app, &db, &busy, &ctx_on(os, &s.base, 1000 + 1800 + 60, "1.0.3"), Trigger::Startup);
+            assert_eq!(again.kind, Kind::Throttled, "{os}");
+        }
     }
 
     /// The state of a user who saw 1.1.0 and now has no connection: a manual check fails and the offer stays.
