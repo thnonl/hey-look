@@ -269,15 +269,17 @@ section { position: relative; }
 .a-search span { flex: 1; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .a-search kbd { background: transparent; color: inherit; border-color: currentColor; }
 .a-sp { flex: 1; } .a-ico { display: flex; opacity: .9; }
-.a-body { flex: 1; min-height: 0; display: grid; grid-template-columns: 148px minmax(190px, 270px) minmax(0, 1fr); grid-template-areas: "f l r"; }
-.app[data-pane="bottom"] .a-body { grid-template-columns: 148px minmax(0, 1fr); grid-template-rows: minmax(120px, 46%) minmax(0, 1fr); grid-template-areas: "f l" "f r"; }
+.a-body { flex: 1; min-height: 0; display: grid; grid-template-columns: var(--fw, 148px) minmax(190px, 270px) minmax(0, 1fr); grid-template-areas: "f l r"; }
+/* Reading pane = Bottom: the app's own proportions (src/App.css .pane-bottom .workspace: minmax(180px, 42%) 1fr). The list is the short top row and SCROLLS; its rows keep their height (.a-row below is flex: none) */
+.app[data-pane="bottom"] .a-body { grid-template-columns: var(--fw, 148px) minmax(0, 1fr); grid-template-rows: minmax(180px, 42%) minmax(0, 1fr); grid-template-areas: "f l" "f r"; }
 .a-folders { grid-area: f; background: var(--a-bg2); border-right: 1px solid var(--a-line); padding: 8px 6px; display: flex; flex-direction: column; gap: 1px; overflow: hidden; }
-.a-acct { display: flex; align-items: center; gap: 4px; padding: 6px 8px 10px; font-weight: 700; font-size: .92em; }
-.a-acct span { margin-left: 4px; white-space: nowrap; }
-.a-dot { width: 9px; height: 9px; border-radius: 50%; display: inline-block; } .a-dot.d1 { background: #ea4335; } .a-dot.d2 { background: #0078d4; } .a-dot.d3 { background: #34a853; }
+.a-acct { display: flex; flex-wrap: wrap; align-items: center; gap: 4px; padding: 6px 8px 10px; font-weight: 700; font-size: .92em; }
+.a-acct span { margin-left: 4px; min-width: 0; overflow-wrap: anywhere; }
+.a-dot { width: 9px; height: 9px; border-radius: 50%; display: inline-block; flex: none; } .a-dot.d1 { background: #ea4335; } .a-dot.d2 { background: #0078d4; } .a-dot.d3 { background: #34a853; }
 .a-f { display: flex; align-items: center; gap: 8px; padding: 5px 8px; border-radius: 6px; color: var(--a-mut); font-size: .95em; white-space: nowrap; }
+.a-f > span { min-width: 0; overflow: hidden; text-overflow: ellipsis; } .a-f svg.ic { flex: none; }
 .a-f.on { background: var(--a-soft); color: var(--a-acc-t); font-weight: 600; }
-.a-f b { margin-left: auto; font-size: .82em; font-weight: 700; padding: 0 6px; border-radius: 9px; background: var(--a-acc); color: var(--a-acc-fg); min-width: 18px; text-align: center; }
+.a-f b { flex: none; margin-left: auto; font-size: .82em; font-weight: 700; padding: 0 6px; border-radius: 9px; background: var(--a-acc); color: var(--a-acc-fg); min-width: 18px; text-align: center; }
 .a-f b.zero { display: none; }
 .a-list { grid-area: l; border-right: 1px solid var(--a-line); display: flex; flex-direction: column; min-height: 0; min-width: 0; }
 .app[data-pane="bottom"] .a-list { border-right: 0; border-bottom: 1px solid var(--a-line); }
@@ -286,8 +288,7 @@ section { position: relative; }
 .a-tabs .on { color: var(--a-fg); border-bottom-color: var(--a-acc); }
 .app[data-focused="off"] .a-tabs { display: none; }
 .a-rows { flex: 1; min-height: 0; overflow: auto; display: flex; flex-direction: column; scrollbar-width: thin; }
-.app[data-oldest="on"] .a-rows { flex-direction: column-reverse; justify-content: flex-end; }
-.a-row { position: relative; display: flex; gap: 10px; padding: var(--row) 12px; border-bottom: 1px solid var(--a-line); max-height: 140px; overflow: hidden; transition: max-height .35s var(--ease), padding .35s var(--ease), opacity .3s, background .15s; }
+.a-row { position: relative; flex: none; display: flex; gap: 10px; padding: var(--row) 12px; border-bottom: 1px solid var(--a-line); max-height: 140px; overflow: hidden; transition: max-height .35s var(--ease), padding .35s var(--ease), opacity .3s, background .15s; }
 .a-row.out { max-height: 0; padding-block: 0; opacity: 0; border-bottom-width: 0; }
 .a-row.sel { background: var(--a-soft); box-shadow: inset 3px 0 0 var(--a-acc); }
 .a-row.back { animation: backin .9s var(--ease); }
@@ -426,6 +427,13 @@ button.r-btn:hover { background: var(--a-bg3); }
 /* appearance variables from the customiser */
 .app[data-density="medium"] { --row: 8px; } .app[data-density="compact"] { --row: 4px; }
 .app[data-density="compact"] .a-f { padding-block: 2px; } .app[data-density="medium"] .a-f { padding-block: 3.5px; }
+/* Compact is one line like the app's: small avatar, the name and time beside the subject, no preview line */
+.app[data-density="compact"] .a-row { align-items: center; }
+.app[data-density="compact"] .a-av { width: 20px; height: 20px; font-size: 8px; }
+.app[data-density="compact"] .a-main { display: flex; align-items: center; gap: 10px; }
+.app[data-density="compact"] .a-from { flex: 0 1 42%; max-width: 240px; min-width: 0; }
+.app[data-density="compact"] .a-subj { flex: 1 1 0; min-width: 0; }
+.app[data-density="compact"] .a-prev { display: none; }
 /* narrow window: the app's own responsive behaviour */
 @container app (max-width: 760px) {
   .a-body { grid-template-columns: minmax(190px, 270px) minmax(0, 1fr); grid-template-areas: "l r"; }
@@ -475,6 +483,8 @@ button.r-btn:hover { background: var(--a-bg3); }
 .mk-extra { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; justify-content: space-between; padding-top: 16px; border-top: 2px dashed var(--line); }
 .mk-view { position: sticky; top: 84px; }
 .mk-view .app { height: min(74vh, 560px); min-height: 420px; box-shadow: var(--shadow); }
+.mk-view .app { --fw: calc(80px + 6.9em); } /* the folder column grows with the text size, so its labels and badge stay whole */
+.mk-view .a-read { overflow: auto; scrollbar-width: thin; } /* a long message (big text, a narrow strip) scrolls like the app's reading pane instead of being cut */
 .mk-note { margin: 14px 0 0; font-size: .9rem; color: var(--muted); max-width: 60ch; }
 
 /* ---------- film ---------- */
