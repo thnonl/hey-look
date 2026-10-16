@@ -143,6 +143,9 @@ export default define({
     "compose.fmt.link": "Link",
     "compose.fmt.linkPrompt": "Link URL",
     "compose.fmt.insertPicture": "Insert picture",
+    "compose.preview.label": "Preview as recipient",
+    "compose.preview.lightTip": "Preview on a light background. The message itself does not change.",
+    "compose.preview.darkTip": "Preview on a dark background. The message itself does not change.",
     "compose.editor.placeholder": "Write your message…",
     "compose.editor.body": "Message body",
 
@@ -430,6 +433,9 @@ export default define({
     "compose.fmt.link": "Liên kết",
     "compose.fmt.linkPrompt": "URL liên kết",
     "compose.fmt.insertPicture": "Chèn ảnh",
+    "compose.preview.label": "Xem trước như người nhận",
+    "compose.preview.lightTip": "Xem trước trên nền sáng. Nội dung thư không thay đổi.",
+    "compose.preview.darkTip": "Xem trước trên nền tối. Nội dung thư không thay đổi.",
     "compose.editor.placeholder": "Viết nội dung thư…",
     "compose.editor.body": "Nội dung thư",
 
@@ -711,6 +717,9 @@ export default define({
     "compose.fmt.link": "Lien",
     "compose.fmt.linkPrompt": "URL du lien",
     "compose.fmt.insertPicture": "Insérer une image",
+    "compose.preview.label": "Aperçu côté destinataire",
+    "compose.preview.lightTip": "Aperçu sur fond clair. Le message lui-même n’est pas modifié.",
+    "compose.preview.darkTip": "Aperçu sur fond sombre. Le message lui-même n’est pas modifié.",
     "compose.editor.placeholder": "Écrivez votre message…",
     "compose.editor.body": "Corps du message",
 

@@ -454,7 +454,31 @@ button.att-chip:hover { background: var(--bg3); border-color: color-mix(in srgb,
 .suggest { position: absolute; top: 100%; left: 62px; right: 0; background: var(--bg); border: 1px solid var(--border); border-radius: var(--r-md); box-shadow: var(--shadow); z-index: 8; padding: 4px; animation: pop .1s var(--ease); }
 .suggest div { padding: 7px 10px; cursor: pointer; border-radius: var(--r-sm); }
 .suggest div:hover, .suggest div.hl { background: var(--bg3); }
-.cp-fmt { display: flex; gap: 2px; padding: 5px 16px; border-bottom: 1px solid var(--border); }
+.cp-fmt { display: flex; align-items: center; gap: 2px; padding: 5px 16px; border-bottom: 1px solid var(--border); container-type: inline-size; flex-wrap: wrap; }
+/* Preview as recipient (composePreview.ts): the body surface is shown light or dark; only colours change, never the message */
+.pv-switch { display: inline-flex; align-items: center; gap: 8px; min-width: 0; flex: none; }
+.pv-label { color: var(--muted); font-size: .86em; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.pv-seg { margin: 0; }
+.pv-seg button { display: inline-flex; align-items: center; gap: 5px; padding: 3px 10px; font-size: .9em; }
+@container (max-width: 560px) { .pv-label { display: none; } }
+@container (max-width: 400px) { .pv-txt { display: none; } .pv-seg button { padding: 4px 8px; } } /* a narrow pane: the sun and the moon alone (name and tooltip stay) */
+.cp-pv { background: var(--pv-bg); color: var(--pv-fg); }
+.cp-pv.pv-light { color-scheme: light; }
+.cp-pv.pv-dark { color-scheme: dark; }
+.cp-pv .tiptap { caret-color: var(--pv-fg); }
+.cp-pv ::selection { background: var(--pv-sel); color: var(--pv-fg); }
+.cp-pv .tiptap a { color: var(--pv-link); }
+.cp-pv .tiptap p.is-empty:first-child::before { color: var(--pv-muted); }
+.cp-pv .editor blockquote { border-left-color: var(--pv-rule); color: var(--pv-muted); }
+.cp-pv .editor code { background: var(--pv-code); color: inherit; }
+.cp-pv .editor hr { border-color: var(--pv-rule); }
+.cp-pv.pv-dark .editor img { filter: brightness(.9); }
+.cp-pv .sig-block { border-top-color: var(--pv-rule); }
+.cp-pv .sig-pick { color: var(--pv-muted); }
+.cp-pv .sig-body { color: var(--pv-fg); }
+.cp-pv .sig-body a { color: var(--pv-link); }
+.cp-pv .sig-select { background-color: var(--pv-bg); color: var(--pv-fg); border-color: var(--pv-rule); }
+.cp-pv .img-tools, .cp-pv .alt-pop { color: var(--fg); } /* the floating picture tools are app chrome: the app theme, not the preview */
 .cp-editor { flex: 1; overflow-y: auto; padding: 14px 20px; }
 .editor .tiptap { outline: none; min-height: 240px; line-height: 1.55; }
 .editor .tiptap p.is-empty:first-child::before { content: attr(data-placeholder); color: var(--muted); float: left; height: 0; pointer-events: none; }

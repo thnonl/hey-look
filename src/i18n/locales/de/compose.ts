@@ -134,6 +134,9 @@ export default defineLocale<typeof ns.en>({
   "compose.fmt.link": "Link",
   "compose.fmt.linkPrompt": "Link-URL",
   "compose.fmt.insertPicture": "Bild einfügen",
+  "compose.preview.label": "Vorschau als Empfänger",
+  "compose.preview.lightTip": "Vorschau auf hellem Hintergrund. Die Nachricht selbst ändert sich nicht.",
+  "compose.preview.darkTip": "Vorschau auf dunklem Hintergrund. Die Nachricht selbst ändert sich nicht.",
   "compose.editor.placeholder": "Nachricht schreiben…",
   "compose.editor.body": "Nachrichtentext",
   // pictures in the body

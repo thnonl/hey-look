@@ -145,6 +145,9 @@ export default defineLocale<typeof ns.en>({
   "compose.fmt.link": "Ссылка",
   "compose.fmt.linkPrompt": "Адрес ссылки",
   "compose.fmt.insertPicture": "Вставить изображение",
+  "compose.preview.label": "Предпросмотр у получателя",
+  "compose.preview.lightTip": "Предпросмотр на светлом фоне. Само письмо не меняется.",
+  "compose.preview.darkTip": "Предпросмотр на тёмном фоне. Само письмо не меняется.",
   "compose.editor.placeholder": "Напишите письмо…",
   "compose.editor.body": "Текст письма",
   // pictures in the body

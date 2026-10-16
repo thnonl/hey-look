@@ -126,6 +126,9 @@ export default defineLocale<typeof ns.en>({
   "compose.fmt.link": "リンク",
   "compose.fmt.linkPrompt": "リンクのURL",
   "compose.fmt.insertPicture": "画像を挿入",
+  "compose.preview.label": "受信者としてプレビュー",
+  "compose.preview.lightTip": "ライト背景でプレビューします。メッセージ自体は変わりません。",
+  "compose.preview.darkTip": "ダーク背景でプレビューします。メッセージ自体は変わりません。",
   "compose.editor.placeholder": "メッセージを入力…",
   "compose.editor.body": "メッセージ本文",
   // pictures in the body
