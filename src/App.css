@@ -279,6 +279,7 @@ button:focus-visible, [role="option"]:focus-visible, [role="treeitem"]:focus-vis
 .cf-field .acct-pick { border-color: transparent; background: transparent; padding: 8px 12px 8px 0; }
 .cf-field .acct-pick:hover { border-color: transparent; }
 .set-ctl .acct-pick-wrap { flex: none; width: 300px; max-width: 100%; }
+.acct-pick .ap-name.wrap { white-space: normal; overflow: visible; text-overflow: clip; overflow-wrap: anywhere; } /* "None (use the first account)": the whole text, on two lines if it must */
 .menu-row .dot { flex: none; }
 .menu-hint { color: var(--muted); font-size: .86em; }
 .menu-div { height: 1px; background: var(--border); margin: 5px 2px; }
@@ -506,17 +507,18 @@ button.att-chip:hover { background: var(--bg3); border-color: color-mix(in srgb,
 .mb-head h3 { margin: 0; }
 .mb-all { width: 36px; height: 36px; border-radius: 50%; background: var(--accent-soft); color: var(--accent-text); display: grid; place-items: center; font-size: 1.3em; font-weight: 700; flex: none; }
 .mb-body { margin-top: 6px; }
-.set-row { display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 14px 0; border-bottom: 1px solid var(--border); border-radius: 6px; }
-.set-lbl { flex: 1; min-width: 0; }
-.set-ctl { display: flex; align-items: center; gap: 8px; max-width: 62%; }
+.set-row { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 10px; padding: 14px 0; border-bottom: 1px solid var(--border); border-radius: 6px; }
+/* the label keeps at least 14em; a control that needs more room than is left (a long option in a long language) goes under the label, full width at most, instead of cutting its text */
+.set-lbl { flex: 1 1 14em; min-width: 0; }
+.set-ctl { display: flex; align-items: center; gap: 8px; max-width: 100%; margin-left: auto; }
 .set-ctl input:not([type]), .set-ctl input[type="text"] { width: 260px; }
 .ov { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; justify-content: flex-end; }
 /* a long option text must never push the control (or its override tag) out of the settings body */
 .set-ctl, .ov { min-width: 0; }
 .ov { max-width: 100%; }
 .set-ctl select, .ov select { min-width: 0; max-width: 100%; text-overflow: ellipsis; }
-.three { display: flex; gap: 6px; }
-.three select { max-width: 150px; }
+.three { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 6px; max-width: 100%; }
+.three select { flex: none; max-width: 100%; } /* a select keeps the width of its longest option; the three wrap instead of squeezing each other */
 .ov-tag { font-size: .78em; color: var(--muted); background: var(--bg3); border: 0; border-radius: 999px; padding: 2px 9px; white-space: nowrap; }
 .ov-tag.own { color: var(--accent-text); background: var(--accent-soft); font-weight: 650; }
 button.ov-tag { cursor: pointer; }
@@ -664,8 +666,6 @@ button.ov-tag:hover { background: color-mix(in srgb, var(--accent), transparent 
 /* segmented control that wraps instead of overflowing (mailbox pages have many tabs) */
 .seg { flex-wrap: wrap; max-width: 100%; }
 .seg button { white-space: nowrap; }
-.three { flex-wrap: wrap; justify-content: flex-end; }
-.three select { max-width: 132px; }
 
 /* accent color picker */
 .accents { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; margin: 6px 0 12px; }

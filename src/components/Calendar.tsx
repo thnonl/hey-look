@@ -17,6 +17,7 @@ import { t } from "../i18n";
 import { useLang, useT } from "../i18n/react";
 import { tx } from "../i18n/rich";
 import { DateField, TimeField } from "./DateTimeFields";
+import { moveStart } from "../dateTimeFields";
 import { RecipientField } from "./Compose";
 import { EmptyState } from "./overlays";
 import { Avatar, Dropdown, FloatingMenu, Modal, Switch, useOutside } from "./ui";
@@ -1097,6 +1098,15 @@ export function EventDialog({ eventId, init }: { eventId?: string; init?: EventI
   const [error, setError] = useState<string | null>(null);
   const [dirty, setDirty] = useState(false);
   const touch = () => setDirty(true);
+  // moving the start moves the end with it (same length); the end alone never moves the start
+  const moveStartTo = (change: { sd?: string; st?: string }) => {
+    const n = moveStart({ sd, st, ed, et }, change, allDay);
+    setSd(n.sd);
+    setSt(n.st);
+    setEd(n.ed);
+    setEt(n.et);
+    touch();
+  };
 
   useEffect(() => {
     if (!eventId) return;
@@ -1220,8 +1230,8 @@ export function EventDialog({ eventId, init }: { eventId?: string; init?: EventI
         <div className="ev-when">
           {/* start and end share one grid (date | time | hint), so both rows get the same column widths in every state */}
           <div className="when-dates" data-allday={allDay || undefined}>
-            <DateField label={t("calendar.dialog.startDate")} tz={tz} value={sd} onChange={(v) => (setSd(v), touch(), ed < v && setEd(v))} />
-            {!allDay && <TimeField label={t("calendar.dialog.startTime")} value={st} onChange={(v) => (setSt(v), touch())} />}
+            <DateField label={t("calendar.dialog.startDate")} tz={tz} value={sd} onChange={(v) => moveStartTo({ sd: v })} />
+            {!allDay && <TimeField label={t("calendar.dialog.startTime")} value={st} onChange={(v) => moveStartTo({ st: v })} />}
             <span aria-hidden />
             <DateField label={t("calendar.dialog.endDate")} tz={tz} value={ed} onChange={(v) => (setEd(v), touch())} />
             {!allDay && <TimeField label={t("calendar.dialog.endTime")} value={et} onChange={(v) => (setEt(v), touch())} />}
@@ -1348,8 +1358,8 @@ export function MeetingStrip({ value, onChange, tz }: { value: MeetingState; onC
     <div className="cp-event" role="group" aria-label={t("calendar.meeting.details")}>
       <label htmlFor="mt-sd">{t("calendar.dialog.when")}</label>
       <div className="when">
-        <DateField id="mt-sd" label={t("calendar.dialog.startDate")} tz={tz} value={value.sd} onChange={(v) => set({ sd: v, ed: value.ed < v ? v : value.ed })} />
-        {!value.allDay && <TimeField label={t("calendar.dialog.startTime")} value={value.st} onChange={(v) => set({ st: v })} />}
+        <DateField id="mt-sd" label={t("calendar.dialog.startDate")} tz={tz} value={value.sd} onChange={(v) => set(moveStart(value, { sd: v }, value.allDay))} />
+        {!value.allDay && <TimeField label={t("calendar.dialog.startTime")} value={value.st} onChange={(v) => set(moveStart(value, { st: v }, false))} />}
         <span className="muted">–</span>
         {!value.allDay && <TimeField label={t("calendar.dialog.endTime")} invalid={!!problem} value={value.et} onChange={(v) => set({ et: v })} />}
         <DateField label={t("calendar.dialog.endDate")} tz={tz} invalid={!!problem} value={value.ed} onChange={(v) => set({ ed: v })} />
