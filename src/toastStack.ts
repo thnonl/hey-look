@@ -30,6 +30,11 @@ export interface StackToast {
 /** Stays until answered, or an error: the toasts the limit is for. */
 export const isPersistent = (t: StackToast): boolean => !t.undo && (!!t.sticky || t.kind === "error");
 
+/** What "Dismiss all" on the "N more" row of `kind` clears: every persistent toast of that kind, the shown rows as well as the folded ones. */
+export function clearableOfKind<T extends StackToast>(toasts: readonly T[], kind: ToastKind): T[] {
+  return toasts.filter((t) => t.kind === kind && isPersistent(t));
+}
+
 export type StackItem<T extends StackToast> = { toast: T } | { more: ToastKind; hidden: T[] };
 
 /** The rows to show, in the order of `toasts`: each toast, or one "N more" row (`hidden` = the older toasts of that kind it stands for). */

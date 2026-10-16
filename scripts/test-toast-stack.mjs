@@ -2,7 +2,8 @@
 // back when a shown one goes); an identical error text does not stack. Normal toasts are never hidden. Behaviour of src/toastStack.ts.
 // Run: node --experimental-strip-types scripts/test-toast-stack.mjs
 import assert from "node:assert/strict";
-import { addToast, isPersistent, lazyText, MAX_PERSISTENT, stackItems } from "../src/toastStack.ts";
+import { readFileSync } from "node:fs";
+import { addToast, clearableOfKind, isPersistent, lazyText, MAX_PERSISTENT, stackItems } from "../src/toastStack.ts";
 import { setLangPref, t } from "../src/i18n/index.ts";
 
 let id = 0;
@@ -71,6 +72,24 @@ assert.equal(MAX_PERSISTENT, 3);
   assert.equal(addToast([s1], s2).length, 2, "two jobs keep their own toast (and Retry)");
   const u = toast("error", { text: "Failed: X", undo: () => {} });
   assert.equal(addToast([a], u).length, 2);
+}
+
+// 6b. "Dismiss all" of the "N more" row: every persistent toast of that kind (shown and folded), nothing of another kind, no timed toast
+{
+  const errs = Array.from({ length: 5 }, () => toast("error", { sticky: true }));
+  const timedErr = toast("error"); // a timed error is persistent too (it only is an error)
+  const undoErr = toast("error", { undo: () => {} });
+  const info = toast("info", { sticky: true });
+  const ok = toast("success", { ttl: 4500 });
+  const all = [...errs, undoErr, info, ok, timedErr];
+  const gone = clearableOfKind(all, "error").map((t) => t.id);
+  assert.deepEqual(gone, [...errs, timedErr].map((t) => t.id), "the shown rows and the folded ones");
+  assert.ok(!gone.includes(undoErr.id) && !gone.includes(info.id) && !gone.includes(ok.id));
+  // after clearing them the row is gone and the rest is untouched
+  const left = all.filter((t) => !gone.includes(t.id));
+  assert.deepEqual(rows(stackItems(left)), [undoErr.id, info.id, ok.id]);
+  assert.equal(stackItems(left).some((i) => "more" in i), false);
+  assert.equal(readFileSync(new URL("../src/components/overlays.tsx", import.meta.url), "utf8").includes("clearableOfKind(useStore.getState().toasts, item.more)"), true, "the row uses it");
 }
 
 // 7. a toast made from a translation key follows the language: the function gives the text of the language in use each time it is drawn
