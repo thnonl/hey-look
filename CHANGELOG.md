@@ -20,7 +20,8 @@ Hey Look! now speaks eight languages, dates and times have their own pickers, an
 - Sending: when the server has no Sent folder, Hey Look! now creates one (where the server allows it) and keeps the copy of the sent message there. The send itself, Undo and Send later are unchanged
 - The Send later popup stays inside the window when the window is 960 px wide or narrower: it moves sideways, scrolls when the window is short, and its buttons wrap
 - Spanish: the Inbox folder is called “Recibidos” (as in Gmail and Apple Mail), so the name fits the folder list
-<!-- F-16/F-17 -->
+- Mark read / Mark unread: pressing the button several times quickly now ends in the state of your last click and stays there. Before, the mail could keep switching between read and unread for a moment after you stopped clicking
+- Moving quickly from one unread mail to the next no longer turns a mail you just opened back to unread a moment later: the mail list now ignores a refresh that was started before your last change
 
 ## 1.0.2 — 2026-10-15
 
