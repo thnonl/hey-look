@@ -118,7 +118,7 @@ export function RecipientField({
   const commit = (raw: string) => {
     // one parser for typing, paste and drop (recipients.ts): a comma inside a quoted name does not end the recipient
     const parts = splitRecipients(raw);
-    if (parts.length === 0) return;
+    if (parts.length === 0) return /^[\s,;]*$/.test(raw) ? setText("") : undefined; // nothing but separators: the box is emptied
     onChange(addRecipients(values, parts)); // each address once, upper / lower case alike; the first spelling stays
     onTouch?.();
     setText("");
@@ -1542,8 +1542,10 @@ export function Compose({ init }: { init: ComposeInit }) {
         {noteShown && replyNote && (
           <div className="note cf-replyto" role="status">
             <Info size={13} aria-hidden />
-            <span>{t("compose.replyTo.note", { replyTo: replyNote.replyTo.map(chipLabel).join(", "), from: replyNote.from })}</span>
-            <button className="link" onClick={replyToFrom}>{t("compose.replyTo.useFrom", { from: replyNote.from })}</button>
+            <span className="grow">
+              {t("compose.replyTo.note", { replyTo: replyNote.replyTo.map(chipLabel).join(", "), from: replyNote.from })}{" "}
+              <button className="link" onClick={replyToFrom}>{t("compose.replyTo.useFrom", { from: replyNote.from })}</button>
+            </span>
           </div>
         )}
         {showCc ? (
