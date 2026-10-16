@@ -38,6 +38,30 @@ assert.deepEqual(go({ fromEmail: "me@gmail.com", to: "a@ext.test", replyTo: ["ot
 // nothing usable left: To is empty (Compose opens with an empty To)
 assert.deepEqual(go({ fromEmail: "me@example.com", to: "me@gmail.com" }).to, []);
 
+// QA 19A R19A-1: display names stay (the stored To / Cc keep bare addresses; the headers of the message carry the names)
+const named = go({
+  fromEmail: "john@x.test", fromName: "Doe, John", to: "me@example.com,ann@x.test", cc: "z@ext.test", all: true,
+  headerFrom: '"Doe, John" <john@x.test>', headerTo: ["me@example.com", '"Lee, Ann" <ann@x.test>'], headerCc: ['"Zed Z" <z@ext.test>'],
+});
+assert.deepEqual(named.to, ['"Doe, John" <john@x.test>', '"Lee, Ann" <ann@x.test>'], "the quoted names are kept in To");
+assert.deepEqual(named.cc, ['"Zed Z" <z@ext.test>'], "and in Cc");
+// plain Reply: the sender keeps the name (from the header, else from the stored name)
+assert.deepEqual(go({ fromEmail: "john@x.test", fromName: "Doe, John", headerFrom: '"Doe, John" <john@x.test>' }).to, ['"Doe, John" <john@x.test>']);
+assert.deepEqual(go({ fromEmail: "john@x.test", fromName: "Doe, John" }).to, ['"Doe, John" <john@x.test>'], "no headers: the stored name");
+assert.deepEqual(go({ fromEmail: "john@x.test", fromName: "John Doe" }).to, ["John Doe <john@x.test>"]);
+assert.deepEqual(go({ fromEmail: "john@x.test", fromName: "john@x.test" }).to, ["john@x.test"], "a name that only repeats the address is no name");
+assert.deepEqual(go({ fromEmail: "john@x.test", fromName: "" }).to, ["john@x.test"]);
+// a header From of another address is not used for the sender
+assert.deepEqual(go({ fromEmail: "john@x.test", headerFrom: "Other <other@x.test>" }).to, ["john@x.test"]);
+// my own sent message: the people I wrote to, with their names
+assert.deepEqual(go({ fromEmail: "me@example.com", to: "a@ext.test", headerTo: ['"Doe, John" <a@ext.test>'], all: false }).to, ['"Doe, John" <a@ext.test>']);
+// the same person in To (with a name) and Cc (bare): once, the first spelling, never in both lists
+const both = go({ all: true, headerTo: ["me@example.com", '"Doe, John" <j@x.test>'], headerCc: ["J@X.test", "k@x.test"], to: "me@example.com,j@x.test", cc: "j@x.test,k@x.test" });
+assert.deepEqual(both.to, ["x@ext.test", '"Doe, John" <j@x.test>']);
+assert.deepEqual(both.cc, ["k@x.test"]);
+// headers that could not be read (empty lists): the stored addresses
+assert.deepEqual(go({ all: true, headerTo: [], headerCc: [], headerFrom: null }), { to: ["x@ext.test", "y@ext.test"], cc: ["z@ext.test"], viaReplyTo: null });
+
 // the fallback when the headers cannot be read: the ids of the thread, then the message
 assert.deepEqual(fallbackReferences(["<a@x>", null, "<b@x>"], "<b@x>"), ["<a@x>", "<b@x>"]);
 assert.deepEqual(fallbackReferences([], "<b@x>"), ["<b@x>"]);

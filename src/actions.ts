@@ -47,7 +47,7 @@ export async function replyTo(m: MessageFull, all: boolean, thread: MessageFull[
   const st = useStore.getState();
   const h = await headersOf(m, thread);
   const mine = new Set(st.accounts.map((a) => a.email.toLowerCase()));
-  const { to, cc, viaReplyTo } = replyTargets({ fromEmail: m.fromEmail, to: m.to, cc: m.cc, mine, replyTo: h.replyTo, all });
+  const { to, cc, viaReplyTo } = replyTargets({ fromEmail: m.fromEmail, fromName: m.fromName, to: m.to, cc: m.cc, mine, replyTo: h.replyTo, headerFrom: h.from, headerTo: h.to, headerCc: h.cc, all });
   st.openCompose({
     accountId: m.accountId,
     to,

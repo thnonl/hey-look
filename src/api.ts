@@ -57,6 +57,10 @@ export interface ReplyHeaders {
   references: string[];
   /** the Reply-To addresses that are real addresses, as `Name <address>` / `address` */
   replyTo: string[];
+  /** From / To / Cc as the headers write them (`"Doe, John" <john@x.test>`): the stored message keeps the addresses only */
+  from?: string | null;
+  to?: string[];
+  cc?: string[];
 }
 
 export interface MessageFull {
