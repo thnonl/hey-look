@@ -4,6 +4,7 @@ mod calendar;
 mod calsync;
 mod db;
 mod discover;
+mod flagguard;
 mod ical;
 mod i18n;
 mod idle;
@@ -710,6 +711,22 @@ fn load_rules(c: &Connection) -> Vec<Rule> {
     .unwrap_or_default()
 }
 
+/// Write the server's read / flagged state of known messages into their rows - except those a read / flag action changed while the
+/// flags were being read (`started` = `flagguard` epoch before the fetch): the action's own state is newer than the server's answer.
+fn apply_server_flags(c: &Connection, guard: &flagguard::FlagGuard, started: u64, account_id: &str, role: &str, flags: &[(u32, bool, bool)]) -> R<()> {
+    for (uid, seen, flagged) in flags {
+        if guard.skip(&(account_id.to_string(), role.to_string(), *uid), started) {
+            continue;
+        }
+        c.execute(
+            "UPDATE messages SET seen=?1, flagged=?2 WHERE account_id=?3 AND folder=?4 AND uid=?5",
+            params![*seen as i64, *flagged as i64, account_id, role, uid],
+        )
+        .map_err(err)?;
+    }
+    Ok(())
+}
+
 fn sync_impl(db: &Db, account_id: &str) -> R<SyncResult> {
     let acc = db::get_account(&lock(db), account_id)?;
     let sec = secret(db, &acc)?;
@@ -734,6 +751,8 @@ fn sync_impl(db: &Db, account_id: &str) -> R<SyncResult> {
                 |r| Ok((r.get(0)?, r.get(1)?)),
             )
             .map_err(err)?;
+        // (F-16/F-17) flags of messages an action changes while this fetch runs are not written back: see `flagguard`
+        let flags_started = flagguard::GUARD.epoch();
         // the first sync of a folder is only a taste (the newest page, so the UI has mail at once); `backfill_run` brings the rest
         let ff = match mail::fetch_folder(&mut s, name, max_uid, min_uid, PAGE) {
             Ok(f) => f,
@@ -762,13 +781,7 @@ fn sync_impl(db: &Db, account_id: &str) -> R<SyncResult> {
         }
         if max_uid > 0 {
             let present: std::collections::HashSet<u32> = ff.flags.iter().map(|f| f.0).collect();
-            for (uid, seen, flagged) in &ff.flags {
-                c.execute(
-                    "UPDATE messages SET seen=?1, flagged=?2 WHERE account_id=?3 AND folder=?4 AND uid=?5",
-                    params![*seen as i64, *flagged as i64, account_id, role, uid],
-                )
-                .map_err(err)?;
-            }
+            apply_server_flags(&c, &flagguard::GUARD, flags_started, account_id, &role, &ff.flags)?;
             let mut st = c
                 .prepare("SELECT uid FROM messages WHERE account_id=?1 AND folder=?2 AND uid BETWEEN ?3 AND ?4")
                 .map_err(err)?;
@@ -2185,6 +2198,8 @@ fn act_on_session<T: std::io::Read + std::io::Write>(
         }
         match action {
             "read" | "unread" => {
+                // (F-16/F-17) a sync that read the old flags must not write them over this change: see `flagguard`
+                let _writing = flagguard::GUARD.writing(group.iter().map(|m| (acc.id.clone(), role.clone(), m.uid)));
                 mail::store_flag(s, &src, &uids, "\\Seen", action == "read")?;
                 let c = lock(db);
                 for m in &group {
@@ -2193,6 +2208,7 @@ fn act_on_session<T: std::io::Read + std::io::Write>(
                 }
             }
             "star" | "unstar" => {
+                let _writing = flagguard::GUARD.writing(group.iter().map(|m| (acc.id.clone(), role.clone(), m.uid)));
                 mail::store_flag(s, &src, &uids, "\\Flagged", action == "star")?;
                 let c = lock(db);
                 for m in &group {
@@ -5200,3 +5216,5 @@ mod test_guard;
 mod fakeimap;
 #[cfg(test)]
 mod foldermove_tests;
+#[cfg(test)]
+mod readrace_tests;
