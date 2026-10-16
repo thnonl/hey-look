@@ -14,6 +14,7 @@ import { eff } from "../prefs";
 import { kbd } from "../platform";
 import { ComposeInit, friendlyError, useStore } from "../store";
 import { extractSignature, fillSignature, normalizeHtml, SIG_MARK } from "../signature";
+import { repairSignature, signatureGuard } from "../signatureGuard";
 import { blockedAttachmentExt, dataUriBytes, fileToBase64, fmtIn, fmtSize, fmtWhen, htmlToText, imageSize, PICTURE_TYPES, playSent, resizeImage, sanitizeHtml, shortKey, userName } from "../util";
 import { calTz } from "../calendar";
 import { defaultMeeting, MeetingState, MeetingStrip, meetingToDraft } from "./Calendar";
@@ -68,6 +69,7 @@ const SignatureBlock = (cb: { mount: (el: HTMLElement) => void; unmount: (el: HT
     draggable: false,
     parseHTML: () => [{ tag: "div[data-sig-block]" }],
     renderHTML: () => ["div", { "data-sig-block": "" }],
+    addProseMirrorPlugins: () => [signatureGuard("signatureBlock")],
     addNodeView: () => () => {
       const dom = document.createElement("div");
       dom.className = "sig-block none";
@@ -461,12 +463,14 @@ export function Compose({ init }: { init: ComposeInit }) {
     // a new message: typed text, then the signature region, then (reply / forward) the quoted message
     content: editing ? startDoc.current!.html : `<p></p>${SIG_MARK}${init.bodyHtml ?? "<p></p>"}`,
     autofocus: (init.to?.length ?? 0) > 0 ? "start" : false,
-    onUpdate: ({ editor: ed }) => {
-      // the signature region cannot be deleted by accident (Backspace, select all): it comes back at the end
-      let has = false;
-      ed.state.doc.descendants((n) => { if (n.type.name === "signatureBlock") has = true; return !has; });
-      if (!has) ed.commands.insertContentAt(ed.state.doc.content.size, [{ type: "signatureBlock" }, { type: "paragraph" }]);
-      touch();
+    // a body from an older build may lack the paragraph above the signature region: add it without counting as an edit
+    onCreate: ({ editor: ed }) => {
+      const fix = repairSignature(ed.state, "signatureBlock", null);
+      if (fix) ed.view.dispatch(fix.setMeta("addToHistory", false).setMeta("signatureInit", true));
+    },
+    // the signature region itself cannot be deleted or moved by accident: signatureGuard (signatureGuard.ts) repairs it in place
+    onUpdate: ({ editor: ed, transaction }) => {
+      if (!transaction.getMeta("signatureInit")) touch();
       countPictures(ed);
       syncPicSel(ed);
     },
