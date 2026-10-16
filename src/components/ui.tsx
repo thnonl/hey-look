@@ -261,6 +261,7 @@ export function Dropdown({
   caret = true,
   wrapClass = "",
   matchWidth = false,
+  disabled = false,
 }: {
   children: ReactNode;
   items: MenuItem[];
@@ -272,6 +273,8 @@ export function Dropdown({
   wrapClass?: string;
   /** the menu is at least as wide as the button */
   matchWidth?: boolean;
+  /** the button itself is off (greyed, no menu); a surrounding disabled fieldset does the same */
+  disabled?: boolean;
 }) {
   const [open, setOpen] = useState(false);
   const ref = useRef<HTMLDivElement>(null);
@@ -285,6 +288,7 @@ export function Dropdown({
         className={className}
         title={title}
         aria-label={title}
+        disabled={disabled}
         aria-haspopup="menu"
         aria-expanded={open}
         onClick={() => {
@@ -301,7 +305,7 @@ export function Dropdown({
         {children}
         {caret && <ChevronDown size={12} className="caret" />}
       </button>
-      {open && <FloatingMenu anchor={ref} trigger={trigger} items={items} align={align} start={start.current} minWidth={matchWidth ? ref.current?.offsetWidth : undefined} onClose={close} />}
+      {open && !disabled && <FloatingMenu anchor={ref} trigger={trigger} items={items} align={align} start={start.current} minWidth={matchWidth ? ref.current?.offsetWidth : undefined} onClose={close} />}
     </div>
   );
 }

@@ -2,7 +2,8 @@
 // Behaviour of src/composeSelection.ts.
 // Run: node --experimental-strip-types scripts/test-compose-selection.mjs
 import assert from "node:assert/strict";
-import { actionTargets, mayOpenMail, selectionAfterCompose } from "../src/composeSelection.ts";
+import { readFileSync } from "node:fs";
+import { actionTargets, mayOpenMail, ribbonAvailability, selectionAfterCompose } from "../src/composeSelection.ts";
 
 const none = new Set();
 
@@ -15,6 +16,25 @@ assert.deepEqual(actionTargets(none, "t1", true), []);
 assert.deepEqual(actionTargets(new Set(["a", "b"]), "t1", true), []);
 // back after the message closes
 assert.deepEqual(actionTargets(none, "t1", false), ["t1"]);
+
+// the ribbon: ONE rule for every button that works on the selected mail (QA round 18 BUG-1: Report and Snooze looked usable while writing)
+const usable = (a) => [a.onSelection, a.reply, a.forward];
+assert.deepEqual(usable(ribbonAvailability(1, 1, false, false)), [true, true, true]);
+assert.deepEqual(usable(ribbonAvailability(2, 0, false, false)), [true, false, false], "ticked rows, no open conversation: no reply");
+assert.deepEqual(usable(ribbonAvailability(0, 0, false, false)), [false, false, false], "nothing selected");
+assert.deepEqual(usable(ribbonAvailability(1, 1, false, true)), [true, true, false], "no forward of confidential mail");
+// while writing every one of them is off, even if a conversation is still listed as open or ticked
+assert.deepEqual(usable(ribbonAvailability(1, 1, true, false)), [false, false, false]);
+assert.deepEqual(usable(ribbonAvailability(3, 5, true, false)), [false, false, false]);
+// every selection-dependent button of the Home tab (Delete, Archive, Report, Move to, Reply, Reply all, Forward, Mark read, Flag, Pin, Snooze)
+// takes its state from that function: no button decides on its own (source guard)
+const ribbon = readFileSync(new URL("../src/components/Ribbon.tsx", import.meta.url), "utf8");
+const home = ribbon.slice(ribbon.indexOf("function HomeTab"), ribbon.indexOf("function CalendarHomeTab"));
+assert.ok(home.includes("ribbonAvailability("));
+const dis = [...home.matchAll(/disabled={([^}]*)}/g)].map((m) => m[1]);
+assert.equal(dis.length, 11, "eleven buttons work on the selected mail");
+assert.ok(dis.every((d) => /^!?s*av.(onSelection|reply|forward)$/.test(d.trim())), `a ribbon button has its own rule: ${dis.join(" | ")}`);
+assert.ok(/disabled={disabled}>/.test(ribbon), "a menu button (Report, Move to, Snooze) is off itself, not only through its fieldset");
 
 // opening a mail while composing is refused (a refresh, an undo or an auto-advance must not select one); closing the selection is fine
 assert.equal(mayOpenMail("t2", true), false);
