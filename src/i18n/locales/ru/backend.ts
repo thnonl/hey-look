@@ -23,6 +23,8 @@ export default defineLocale<typeof ns.en>({
   "backend.EMAIL_INVALID": "Введите корректный адрес электронной почты",
   "backend.AI_NOT_CONFIGURED": "ИИ не настроен: укажите конечную точку и модель в разделе Настройки > ИИ-помощник",
   "backend.AI_TIMEOUT": "ИИ-помощник не ответил за {secs} с.",
+  "backend.AI_HTTP": "ИИ-помощник вернул ошибку ({status}): {detail}",
+  "backend.AI_HTTP.plain": "ИИ-помощник вернул ошибку ({status}).",
   "backend.UPDATE_BUSY": "Скачивание уже идёт.",
   "backend.UPDATE_NONE_READY": "Нет обновления, готового к установке.",
   "backend.OAUTH_CANCELLED": "Вход через {label} отменён",
