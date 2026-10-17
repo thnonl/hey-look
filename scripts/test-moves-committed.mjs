@@ -5,9 +5,9 @@
 //    that moment showed the message again. Now it stays hidden until the rows are changed (src-tauri/src/lib.rs COMMITTING, unit test in
 //    foldermove_tests.rs);
 //  - two re-reads of the list can be answered in either order and the older answer was laid over the newer one: only the last re-read started applies
-//    its answer (src/latestOnly.ts, used by \refresh\);
-//  - the backend now tells the main page when a move is done (\moves-committed\, the thread ids) and the page drops them from its list at that moment;
-//  - the page re-reads the list when its window is shown again (\app-shown\), not at the next 30 s refresh.
+//    its answer (src/latestOnly.ts, used by refresh);
+//  - the backend now tells the main page when a move is done (moves-committed, the thread ids) and the page drops them from its list at that moment;
+//  - the page re-reads the list when its window is shown again (app-shown), not at the next 30 s refresh.
 // Run: node --experimental-strip-types scripts/test-moves-committed.mjs
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
