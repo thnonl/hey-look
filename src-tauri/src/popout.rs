@@ -7,7 +7,8 @@
 //!   the window that has it), the hand-off data of each window (dropped with it) and its last known place;
 //! - the **geometry**: default sizes, the clamp to the work area of a monitor, a saved place that is used only while it is at least half
 //!   visible, the cascade for a second window of a kind, all as pure functions of monitors and rectangles (tested below);
-//! - the **commands**: `popout_open` / `popout_init` / `popout_ready` / `popout_focus` / `popout_close`, and the window events
+//! - the **commands**: `popout_open` / `popout_init` / `popout_ready` / `popout_focus` / `popout_close` / `popout_park` / `popout_destroy` /
+//!   `popout_set_key`, and the window events
 //!   (`on_window_event` in lib.rs hands every window that is not `main` to [`on_window_event`]).
 //!
 //! Who owns what (the strategy for the pages; the pages are in `src/popout/`)
@@ -396,6 +397,35 @@ impl Registry {
     pub fn ready_labels(&self) -> Vec<String> {
         self.entries.iter().filter(|e| e.ready).map(|e| e.label.clone()).collect()
     }
+
+    /// The window of `kind` that shows `key`, if any.
+    pub fn find_key(&self, kind: Kind, key: &str) -> Option<&Entry> {
+        self.entries.iter().find(|e| e.kind == kind && e.key.as_deref() == Some(key))
+    }
+
+    /// Change what a window shows (a draft that was saved is another draft, a window that is on its way out shows nothing any more and
+    /// frees its key). False when the window is not known, or another window of the kind already shows that key (the caller keeps its old
+    /// key; the lock of a draft is not given to two windows).
+    pub fn set_key(&mut self, label: &str, key: Option<String>) -> bool {
+        let Some(kind) = self.get(label).map(|e| e.kind) else { return false };
+        if let Some(k) = key.as_deref() {
+            if self.entries.iter().any(|e| e.kind == kind && e.label != label && e.key.as_deref() == Some(k)) {
+                return false;
+            }
+        }
+        match self.get_mut(label) {
+            Some(e) => {
+                e.key = key;
+                true
+            }
+            None => false,
+        }
+    }
+
+    /// How many windows of `kind` exist (every state: shown, parked, not ready yet).
+    pub fn count(&self, kind: Kind) -> usize {
+        self.entries.iter().filter(|e| e.kind == kind).count()
+    }
 }
 
 // ---------------------------------------------------------------- state and the window system
@@ -503,14 +533,26 @@ fn store_saved(app: &AppHandle, kind: Kind, saved: &Saved) {
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Opened {
-    /// "created" | "focused" | "tooMany"
+    /// "created" | "focused" | "tooMany" | "none" (only for `focus_only`: no window has the key)
     pub status: &'static str,
     pub label: Option<String>,
 }
 
 /// Open a window of `kind`, or focus the one that has `key`. Must not run on the main thread of the window system on Windows
-/// (creating a window waits for it): the command is async.
-pub fn open(app: &AppHandle, kind: Kind, key: Option<String>, init: Option<Value>) -> R<Opened> {
+/// (creating a window waits for it): the command is async. `focus_only`: never create; focus the window that has `key` or answer "none"
+/// (an inline editor asks this before it opens a draft: a draft is open in one editor only).
+pub fn open(app: &AppHandle, kind: Kind, key: Option<String>, init: Option<Value>, focus_only: bool) -> R<Opened> {
+    if focus_only {
+        let found = key.as_deref().and_then(|k| reg(app).find_key(kind, k).map(|e| e.label.clone()));
+        return Ok(match found {
+            Some(label) => {
+                log(&format!("{label}: asked for again, focused"));
+                bring_to_front(app, &label);
+                Opened { status: "focused", label: Some(label) }
+            }
+            None => Opened { status: "none", label: None },
+        });
+    }
     // (the cascade and the placement are decided together with the registration, under one lock)
     let token = new_token();
     let (label, cascade) = {
@@ -534,7 +576,10 @@ pub fn open(app: &AppHandle, kind: Kind, key: Option<String>, init: Option<Value
         }
     };
     match create(app, kind, &label, &token, cascade) {
-        Ok(()) => Ok(Opened { status: "created", label: Some(label) }),
+        Ok(()) => {
+            announce_counts(app);
+            Ok(Opened { status: "created", label: Some(label) })
+        }
         Err(e) => {
             reg(app).remove(&label);
             log(&format!("{label}: could not be created: {e}"));
@@ -652,15 +697,16 @@ pub fn on_window_event(window: &tauri::Window, event: &tauri::WindowEvent) {
                     store_saved(app, kind, &s);
                 }
                 log(&format!("{label}: closed"));
+                announce_counts(app);
             }
         }
         _ => {}
     }
 }
 
-/// **Extension point for WP6b** (a compose window with unsaved text saves to Drafts first, REQ-C11): decide whether a close request
-/// goes on. `true` = close now (today for every window); `false` = the window stays, and the page is expected to close it itself
-/// (`getCurrentWindow().close()` again, or `destroy()`) once it has saved.
+/// Decide whether a close request goes on on the native side: always (`true`). A compose window with unsaved text is kept open by its
+/// PAGE instead: it listens to the close request (`onCloseRequested`), which makes the window system hold the close back until the page
+/// has asked the person and ended the window itself (`popout_destroy`) or taken it out of sight (`popout_park`).
 fn on_close_requested(_app: &AppHandle, _label: &str) -> bool {
     true
 }
@@ -754,9 +800,9 @@ pub struct Init {
 /// Open a secondary window of `kind` ("compose" | "reader"), or focus the one that shows `key`. `init` is kept in the backend for the
 /// page (`popout_init`). Answers `{ status: "created" | "focused" | "tooMany", label }`; the 9th window is not an error.
 #[tauri::command]
-pub async fn popout_open(app: AppHandle, kind: String, key: Option<String>, init: Option<Value>) -> R<Opened> {
+pub async fn popout_open(app: AppHandle, kind: String, key: Option<String>, init: Option<Value>, focus_only: Option<bool>) -> R<Opened> {
     let kind = Kind::parse(&kind).ok_or_else(|| format!("unknown window kind: {kind}"))?;
-    open(&app, kind, key.filter(|k| !k.is_empty()), init)
+    open(&app, kind, key.filter(|k| !k.is_empty()), init, focus_only.unwrap_or(false))
 }
 
 /// The page of a secondary window asks who it is. The token of its address must be the one this window was made with.
@@ -796,6 +842,50 @@ pub fn popout_close(app: AppHandle, label: String) -> bool {
         Some(w) => w.close().is_ok(),
         None => false,
     }
+}
+
+/// Event to `main`: how many windows of each kind exist now, `{ compose, reader }`. The main page keeps the count (the support reminder does
+/// not appear while a compose window is open, REQ-W15). Sent when a window is created and when one is destroyed.
+pub const COUNT_EVENT: &str = "popout-count";
+
+fn announce_counts(app: &AppHandle) {
+    let (compose, reader) = {
+        let r = reg(app);
+        (r.count(Kind::Compose), r.count(Kind::Reader))
+    };
+    let _ = app.emit_to("main", COUNT_EVENT, serde_json::json!({ "compose": compose, "reader": reader }));
+}
+
+/// The calling window goes out of sight but stays alive: its page still has work to finish (a message in its Undo time, the send under way)
+/// and ends the window itself when that is done (`popout_destroy`). The key is freed, so asking for the same draft or reply again opens a
+/// new window instead of bringing back one that is on its way out. (The window brings itself back with `popout_focus` if the work fails.)
+#[tauri::command]
+pub fn popout_park(app: AppHandle, window: tauri::Window) -> bool {
+    let label = window.label().to_string();
+    if !is_secondary(&label) || !reg(&app).set_key(&label, None) {
+        return false;
+    }
+    log(&format!("{label}: parked (hidden, still running)"));
+    window.hide().is_ok()
+}
+
+/// The calling window ends now, without a close request (its page has decided: it was saved, discarded or sent). Only a secondary window,
+/// and only itself.
+#[tauri::command]
+pub fn popout_destroy(app: AppHandle, window: tauri::Window) -> bool {
+    let label = window.label().to_string();
+    if !is_secondary(&label) || reg(&app).get(&label).is_none() {
+        return false;
+    }
+    log(&format!("{label}: ended by its page"));
+    window.destroy().is_ok()
+}
+
+/// The calling window shows another thing now (a draft that a save made is another draft): its key follows, so the lock of a draft keeps
+/// holding. False when another window of the kind has that key.
+#[tauri::command]
+pub fn popout_set_key(app: AppHandle, window: tauri::Window, key: Option<String>) -> bool {
+    reg(&app).set_key(window.label(), key.filter(|k| !k.is_empty()))
 }
 
 // ---------------------------------------------------------------- AI requests of a window (REQ-R12)
@@ -916,6 +1006,21 @@ mod tests {
     }
 
     #[test]
+    fn the_compose_window_commands_act_on_the_caller_only_and_the_count_goes_to_main() {
+        let code = crate::test_guard::non_test_code(include_str!("popout.rs"));
+        // park / destroy / set_key take the calling window (stamped by the backend), never a label from the page
+        for f in ["fn popout_park(app: AppHandle, window: tauri::Window)", "fn popout_destroy(app: AppHandle, window: tauri::Window)", "fn popout_set_key(app: AppHandle, window: tauri::Window, key: Option<String>)"] {
+            assert!(code.contains(f), "{f}");
+        }
+        assert!(code.contains("window.hide()") && code.contains("window.destroy()"));
+        // the count of windows is told to the main page only
+        assert!(code.contains("app.emit_to(\"main\", COUNT_EVENT"));
+        assert!(!code.contains("app.emit(COUNT_EVENT"));
+        // creating and destroying a window both announce it
+        assert_eq!(code.matches("announce_counts(app);").count(), 2);
+    }
+
+    #[test]
     fn requests_and_answers_are_wired_to_the_right_windows() {
         let code = crate::test_guard::non_test_code(include_str!("popout.rs"));
         // a request goes to the main page only; an answer to the one window that asked; only a live secondary window asks, only main answers
@@ -1023,6 +1128,39 @@ mod tests {
         assert_eq!(r.entries.len(), MAX_SECONDARY);
         assert_eq!(ask(&mut r, Kind::Compose, Some("draft-1")), Request::Focus { label }, "focusing opens nothing, so the cap does not apply");
         assert_eq!(ask(&mut r, Kind::Compose, Some("draft-2")), Request::TooMany);
+    }
+
+    #[test]
+    fn a_draft_is_open_in_one_window_only_and_its_key_follows_the_saves() {
+        let mut r = Registry::default();
+        let Request::Create { label: a } = ask(&mut r, Kind::Compose, Some("draft:t1")) else { panic!() };
+        let Request::Create { label: b } = ask(&mut r, Kind::Compose, Some("draft:t2")) else { panic!() };
+        assert_eq!(r.find_key(Kind::Compose, "draft:t1").map(|e| e.label.clone()), Some(a.clone()));
+        assert!(r.find_key(Kind::Reader, "draft:t1").is_none(), "the key is per kind");
+        // a save made another draft of it: the key follows, the old one is free, and asking for it opens a new window
+        assert!(r.set_key(&a, Some(t("draft:t3"))));
+        assert!(r.find_key(Kind::Compose, "draft:t1").is_none());
+        assert_eq!(ask(&mut r, Kind::Compose, Some("draft:t3")), Request::Focus { label: a.clone() });
+        // the draft another window holds cannot be taken, and the caller keeps what it had
+        assert!(!r.set_key(&a, Some(t("draft:t2"))));
+        assert_eq!(r.get(&a).unwrap().key.as_deref(), Some("draft:t3"));
+        assert_eq!(r.get(&b).unwrap().key.as_deref(), Some("draft:t2"));
+        // setting the key it has is fine; an unknown window is refused
+        assert!(r.set_key(&a, Some(t("draft:t3"))));
+        assert!(!r.set_key("compose-99", Some(t("x"))));
+    }
+
+    #[test]
+    fn a_window_on_its_way_out_frees_its_key_but_still_counts() {
+        let mut r = Registry::default();
+        let Request::Create { label } = ask(&mut r, Kind::Compose, Some("re:m1")) else { panic!() };
+        assert_eq!(ask(&mut r, Kind::Compose, Some("re:m1")), Request::Focus { label: label.clone() });
+        assert!(r.set_key(&label, None), "parked: the key is freed");
+        assert_eq!(r.count(Kind::Compose), 1, "it still exists, so it still counts against the cap");
+        // a new reply to the same message opens a window of its own (the parked one is finishing a send)
+        assert!(matches!(ask(&mut r, Kind::Compose, Some("re:m1")), Request::Create { .. }));
+        assert_eq!(r.count(Kind::Compose), 2);
+        assert_eq!(r.count(Kind::Reader), 0);
     }
 
     #[test]
