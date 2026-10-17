@@ -16,7 +16,7 @@ import { denyIfConfidential, imageLock } from "../protect";
 import { friendlyError, useStore } from "../store";
 import { fmtSize } from "../util";
 import riskyExt from "../riskyExt.json";
-import { kbd, osNow } from "../platform";
+import { kbd, usePlatform } from "../platform";
 import { isFrameRefusal, nextPdfState, PDF_DRAW_WAIT_MS, pdfPreview, type PdfFrameState } from "../pdfFrame";
 import { importKeyFromMessage, isKeyAttachment } from "./Pgp";
 import { Dropdown, FOCUSABLE } from "./ui";
@@ -89,13 +89,13 @@ function KindIcon({ kind, size = 16 }: { kind: FileKind; size?: number }) {
 
 /**
  * Preview is offered for pictures, PDFs and small text files. A PDF is shown by the browser's own viewer, whose Save / Print /
- * right-click menu no lock of ours reaches, so confidential mail has no PDF preview (pictures and text are drawn by the app).
+ * right-click menu no lock of ours reaches, so confidential mail has no PDF preview (pictures and text are drawn by the app). Where the
+ * web view does not draw a PDF (macOS, Linux: see src-tauri/src/pdfmode.rs) the preview is a card that opens the file in the default app.
  */
 export function previewable(a: Pick<AttMeta, "name" | "mime" | "size">, confidential = false): "image" | "pdf" | "text" | null {
   const e = ext(a.name);
   if (a.mime.startsWith("image/") && a.size <= 25 * 1024 * 1024 && !["heic", "heif", "tif", "tiff"].includes(e)) return "image";
-  // WebKitGTK has no PDF viewer inside the page: on Linux a PDF opens with the default app instead; a confidential message has no preview
-  if (a.mime === "application/pdf" || e === "pdf") return a.size <= 25 * 1024 * 1024 && osNow() !== "linux" && !confidential ? "pdf" : null;
+  if (a.mime === "application/pdf" || e === "pdf") return a.size <= 25 * 1024 * 1024 && !confidential ? "pdf" : null;
   const textExt = ["txt", "log", "csv", "json", "xml", "md", "eml"];
   if ((a.mime.startsWith("text/") || textExt.includes(e)) && !RISKY_EXT.includes(e) && a.size <= 1024 * 1024) return "text";
   return null;
@@ -535,6 +535,8 @@ interface PvLoaded {
   notPdf?: boolean;
   /** sandbox of the PDF frame, undefined = none (pdfFrame.ts says why) */
   sandbox?: string;
+  /** this system does not draw a PDF in the window: the card is shown, no bytes were fetched (pdfmode.rs) */
+  card?: boolean;
 }
 
 /**
@@ -594,6 +596,26 @@ function PdfFrame({ url, sandbox, name, onOpen }: { url: string; sandbox?: strin
   );
 }
 
+/**
+ * The preview of a PDF where the web view does not draw one in the window (pdfmode.rs): the file, one sentence, Open (a temporary copy opened
+ * with the system's default app, the same path as the card's Open) and Save as.
+ */
+function PdfCard({ att, onOpen, onSave }: { att: Pick<AttMeta, "name" | "size">; onOpen: () => void; onSave: () => void }) {
+  const t = useT();
+  return (
+    <div className="pv-msg pv-card">
+      <span className="ft" data-kind="pdf" aria-hidden><span>PDF</span></span>
+      <b className="ellipsis pv-card-name" title={att.name}>{att.name}</b>
+      <span className="small">{fmtSize(att.size)}</span>
+      <div>{t("reading.pv.pdfOutside")}</div>
+      <div className="pv-card-acts">
+        <button className="btn primary" onClick={onOpen}><ExternalLink size={14} /> {t("reading.att.open")}</button>
+        <button className="btn" onClick={onSave}><Download size={14} /> {t("reading.att.saveAs")}</button>
+      </div>
+    </div>
+  );
+}
+
 /** Modal preview of attachments (pictures, PDF, small text), with ← → between previewable items. */
 export function PreviewDialog({ m, items, start, onClose }: { m: MessageFull; items: AttMeta[]; start: number; onClose: () => void }) {
   const t = useT();
@@ -608,6 +630,13 @@ export function PreviewDialog({ m, items, start, onClose }: { m: MessageFull; it
     let live = true;
     setData(null);
     const kind = previewable(cur, !!m.confidential);
+    if (kind === "pdf" && usePlatform.getState().pdfView === "card") {
+      // this system does not draw a PDF in the window: nothing to fetch, the card opens the file in the default app (pdfmode.rs)
+      setData({ url: "", card: true });
+      return () => {
+        live = false;
+      };
+    }
     void api
       .attachmentData(m.id, cur.index)
       .then((d) => {
@@ -664,6 +693,8 @@ export function PreviewDialog({ m, items, start, onClose }: { m: MessageFull; it
   const { box, trap } = useDialogFocus<HTMLDivElement>();
   if (!cur) return null;
   const kind = previewable(cur, !!m.confidential);
+  const openCur = () => void openAttachment(m, cur);
+  const saveCur = () => void saveAs(m, cur, (p) => savedToast(p, cur.name)).catch((e) => useStore.getState().showToast(() => t("reading.att.couldntSave", { name: cur.name, error: friendlyError(e) }), undefined, "error"));
   return createPortal(
     <div className="modal-back" onMouseDown={onClose}>
       <div ref={box} tabIndex={-1} onKeyDown={trap} className="modal pv-modal" role="dialog" aria-modal="true" aria-label={t("reading.att.previewName", { name: cur.name })} onMouseDown={(e) => e.stopPropagation()}>
@@ -677,8 +708,8 @@ export function PreviewDialog({ m, items, start, onClose }: { m: MessageFull; it
               <button className="icon-btn" aria-label={t("reading.pv.zoomIn")} onClick={() => setZoom((z) => (z === "fit" ? 1 : 2))}><ZoomIn size={15} /></button>
             </span>
           )}
-          {!m.confidential && <button className="btn small" onClick={() => void openAttachment(m, cur)}><ExternalLink size={13} /> {t("reading.att.open")}</button>}
-          {!m.confidential && <button className="btn small" onClick={() => void saveAs(m, cur, (p) => savedToast(p, cur.name)).catch((e) => useStore.getState().showToast(() => t("reading.att.couldntSave", { name: cur.name, error: friendlyError(e) }), undefined, "error"))}><Download size={13} /> {t("reading.att.saveAs")}</button>}
+          {!m.confidential && <button className="btn small" onClick={openCur}><ExternalLink size={13} /> {t("reading.att.open")}</button>}
+          {!m.confidential && <button className="btn small" onClick={saveCur}><Download size={13} /> {t("reading.att.saveAs")}</button>}
           <button className="icon-btn" aria-label={t("reading.pv.close")} onClick={onClose}><X size={16} /></button>
         </div>
         <div className="pv-stage">
@@ -692,12 +723,14 @@ export function PreviewDialog({ m, items, start, onClose }: { m: MessageFull; it
             <div className="pv-msg"><span className="spin" /> {t("common.loading")}</div>
           ) : data.error ? (
             <div className="pv-msg"><ImageOff size={28} /><div>{t("reading.pv.showFailed", { error: data.error })}</div></div>
+          ) : data.card ? (
+            <PdfCard att={cur} onOpen={openCur} onSave={saveCur} />
           ) : data.notPdf ? (
             <div className="pv-msg"><ImageOff size={28} /><div>{t("reading.pv.notPdf")}</div></div>
           ) : kind === "text" ? (
             <pre className="pv-text" {...(m.confidential ? { style: { userSelect: "none", WebkitUserSelect: "none" } as const, onCopy: noCopy, onCut: noCopy, onContextMenu: noCopy, onDragStart: noCopy } : {})}>{data.text}</pre>
           ) : kind === "pdf" ? (
-            <PdfFrame key={data.url} url={data.url} sandbox={data.sandbox} name={cur.name} onOpen={m.confidential ? undefined : () => void openAttachment(m, cur)} />
+            <PdfFrame key={data.url} url={data.url} sandbox={data.sandbox} name={cur.name} onOpen={m.confidential ? undefined : openCur} />
           ) : (
             <img
               src={data.url}

@@ -738,7 +738,7 @@ export const api = {
   /** What the page sees a moment after the window was shown: `visibilityState` and whether an animation frame arrived. */
   pageState: (visibility: string, frames: boolean) => invoke<void>("page_state", { visibility, frames }),
   setMailAvailable: (available: boolean) => invoke<void>("set_mail_available", { available }),
-  shellInfo: () => invoke<{ os: string; tray: boolean; testData?: string | null }>("shell_info"),
+  shellInfo: () => invoke<{ os: string; tray: boolean; testData?: string | null; pdfView?: string }>("shell_info"),
   checkUpdate: (trigger: UpdateTrigger) => invoke<UpdateResult>("check_update", { trigger }),
   /** Download and verify the update; progress arrives on `onEvent`. Resolves when the download has ended (ready, failed or cancelled). */
   updateDownload: (version: string, onEvent: (e: DlEvent) => void) => {

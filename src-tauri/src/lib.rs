@@ -31,6 +31,7 @@ mod mail;
 // the main window never leaves the app for a website (the PDF frame has no sandbox on Windows and macOS); the pure decision is compiled and tested everywhere
 #[cfg_attr(not(any(windows, target_os = "macos")), allow(dead_code))]
 mod navguard;
+mod pdfmode;
 mod oauth;
 mod oauth_page;
 mod outgoing;
@@ -1620,11 +1621,13 @@ struct ShellInfo {
     tray: bool,
     /// debug builds only: the test data folder in use (the About page says so)
     test_data: Option<String>,
+    /// how a PDF attachment is previewed here: "frame", "object" or "card" (pdfmode.rs)
+    pdf_view: &'static str,
 }
 
 #[tauri::command]
 fn shell_info() -> ShellInfo {
-    ShellInfo { os: std::env::consts::OS, tray: shell::tray_ready(), test_data: legacy_names::test_data_dir().map(|p| p.display().to_string()) }
+    ShellInfo { os: std::env::consts::OS, tray: shell::tray_ready(), test_data: legacy_names::test_data_dir().map(|p| p.display().to_string()), pdf_view: pdfmode::view().name() }
 }
 
 #[tauri::command]

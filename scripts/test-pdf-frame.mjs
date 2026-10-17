@@ -113,6 +113,21 @@ assert.match(att, /securitypolicyviolation/);
 const lib = read("src-tauri/src/lib.rs");
 assert.match(lib, /#\[cfg\(any\(windows, target_os = "macos"\)\)\]\s*\/\/[^\n]*\n\s*let builder = builder\.plugin\(navguard::plugin\(\)\);/, "navguard is registered on Windows and macOS");
 // the policy was not loosened for the macOS frame
-assert.doesNotMatch(conf.app.security.csp, /object-src [^;]*blob/);
+assert.doesNotMatch(conf.app.security.csp, /object-src [^;]*blob/, "the shipped policy keeps object-src 'none'; nothing changes it");
 assert.doesNotMatch(conf.app.security.csp, /frame-src [^;]*(https?:|\*|data:)/);
+
+// ---- 1.0.6 macfix3: macOS / Linux show a card by default; the experiment switch is read by the backend and reaches the page as pdfView
+const platform = read("src/platform.ts");
+assert.match(platform, /pdfView: "frame"/, "default before the backend answers: Windows' frame");
+assert.match(platform, /os === "windows" \? "frame" : "card"/, "an old backend that does not say: the frame only on Windows");
+assert.match(att, /usePlatform\.getState\(\)\.pdfView === "card"/);
+assert.match(att, /setData\(\{ url: "", card: true \}\)/, "the card fetches nothing");
+assert.match(att, /<PdfCard att=\{cur\} onOpen=\{openCur\} onSave=\{saveCur\} \/>/);
+assert.match(att, /t\("reading\.pv\.pdfOutside"\)/);
+assert.match(att, /const openCur = \(\) => void openAttachment\(m, cur\);/, "the card's Open is the card list's Open: a temporary copy in the default app");
+assert.doesNotMatch(att, /osNow\(\) !== "linux"/, "Linux shows the card too (it used to have no PDF preview at all)");
+const lib2 = read("src-tauri/src/lib.rs");
+assert.match(lib2, /pdf_view: pdfmode::view\(\)\.name\(\)/);
+const pm = read("src-tauri/src/pdfmode.rs");
+assert.doesNotMatch(pm, /HEYLOOK_PDF_INLINE|object-src/, "no experiment in this commit: the card is the default and nothing changes the policy");
 console.log("pdf-frame: all checks passed");
