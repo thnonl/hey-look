@@ -206,7 +206,6 @@ export function snapshotInWindow(l: RecoveryLoaded): boolean {
   }
 }
 
-
 /**
  * The snapshot as a draft for the Drafts folder: the pictures of the body (data: URIs) become inline parts with a cid: reference (as a normal
  * Save draft makes them), Bcc stays, the text part is made from the HTML. Null = it must not go to the server (the message was meant to be
