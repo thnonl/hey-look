@@ -53,6 +53,7 @@ for (const name of names) {
 const P = (t) => ({ type: "paragraph", content: [{ type: "text", text: t }] });
 const base = { family: "Calibri,Carlito,Arial,sans-serif", size: 11 };
 assert.equal(docToHtml({ type: "doc", content: [P("a")] }), '<p style="margin:0">a</p>');
+assert.equal(docToHtml({ type: "doc", content: [P("a	b")] }), '<p style="margin:0">a&nbsp;&nbsp;&nbsp;&nbsp;b</p>', "a tab (the cells of a pasted table row) is four no-break spaces: a recipient's client would fold a tab to one blank");
 assert.equal(docToHtml({ type: "doc", content: [{ type: "paragraph" }] }), '<p style="margin:0"><br></p>', "an empty paragraph keeps its height");
 assert.equal(wrapBase("<p>x</p>", { family: "'Segoe UI',Arial,sans-serif", size: 10.5 }), '<div style="font-family:\'Segoe UI\',Arial,sans-serif;font-size:10.5pt"><p>x</p></div>');
 // unwrapBase: only a box that holds the whole message and has exactly family + size
