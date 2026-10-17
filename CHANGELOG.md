@@ -41,6 +41,7 @@ Writing a message got safer and more complete: nothing you write is lost to a cr
 - Attachments: file names are cleaned before sending (no folder part, no hidden or control characters, no reserved Windows names, a sensible length) and two files that end up with the same name get a number
 - Links: Insert link (button or Ctrl+K) opens a small dialog in the app with the address and an optional text, instead of the system prompt; Remove link is in it too
 - Writing a message: Report and Snooze (and every other button that needs a selected mail) are greyed out while a message is open and no mail is selected
+- macOS: the app is now signed with a fixed certificate (self-signed, not notarized), so macOS keeps remembering which app may read your saved passwords across updates. Because the signature changes once, the first start after updating to this version asks about your saved passwords one more time
 
 ## 1.0.5 — 2026-10-16
 

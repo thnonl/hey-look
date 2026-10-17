@@ -77,7 +77,7 @@
   <section class="hq-group" id="g-install" aria-labelledby="g-install-h"><h2 id="g-install-h">安装和首次启动</h2>
 <details class="hq" id="windows"><summary>Windows：该下载哪个文件，以及SmartScreen警告</summary><div class="hq-a"><p>下载 <code>HeyLook_&lt;version&gt;_windows_x64-setup.exe</code>（Windows 10或11，64位；推荐）。<code>.msi</code>适用于集中管理的部署，本身不会安装WebView2；setup.exe则会安装。通过MSI更新时需要管理员权限。</p>
        <p>安装程序尚未经过代码签名。如果出现SmartScreen提示，请依次选择<strong>更多信息</strong>和<strong>仍要运行</strong>。</p></div></details>
-<details class="hq" id="macos"><summary>macOS：首次启动，三个步骤，只需一次</summary><div class="hq-a"><p>通用版<code>.dmg</code>适用于macOS 11或更高版本，支持Apple芯片和Intel。应用使用临时（ad-hoc）签名，但没有经过Apple公证，所以macOS会在首次启动时拦截一次。</p>
+<details class="hq" id="macos"><summary>macOS：首次启动，三个步骤，只需一次</summary><div class="hq-a"><p>通用版<code>.dmg</code>适用于macOS 11或更高版本，支持Apple芯片和Intel。应用使用自签名证书签名，但没有经过Apple公证，所以macOS会在首次启动时拦截一次。</p>
        <ol><li>打开<code>.dmg</code>，把 <strong>Hey Look!</strong> 拖到<strong>应用程序</strong>，然后从“应用程序”中启动它（不要从磁盘映像中启动）。</li>
        <li>macOS会提示“Hey Look!”未打开。点击<strong>完成</strong>，不要点“移到废纸篓”。</li>
        <li>打开<strong>系统设置 &gt; 隐私与安全性</strong>，滚动到<strong>安全性</strong>，点击提示 Hey Look! 的那条消息旁边的<strong>仍要打开</strong>，用密码或Touch ID确认，然后点击<strong>打开</strong>。</li></ol>

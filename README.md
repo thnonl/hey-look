@@ -39,7 +39,7 @@ Get the latest version from [GitHub Releases](https://github.com/thnonl/hey-look
   2. macOS says “Hey Look!” Not Opened (or “can’t be opened”). Click **Done**, not **Move to Trash**.
   3. Open **System Settings > Privacy & Security**, scroll to **Security**, click **Open Anyway** next to the message about Hey Look!, confirm with your password or Touch ID, then click **Open**.
 
-  You do this only once; versions that Hey Look! installs itself start normally. If you use Terminal, instead of steps 2 and 3 you can run `xattr -dr com.apple.quarantine "/Applications/Hey Look!.app"` once.
+  You do this only once; versions that Hey Look! installs itself start normally. The app is signed with a fixed, self-signed certificate (no Apple account behind it), so macOS keeps remembering which app may read your saved passwords from the Keychain across updates; the first start after updating from a version before 1.0.6 asks about it one more time. This is not notarization: the **Open Anyway** step above is still needed. If you use Terminal, instead of steps 2 and 3 you can run `xattr -dr com.apple.quarantine "/Applications/Hey Look!.app"` once.
 - **Linux:** links and attachments open with `xdg-open` (package `xdg-utils`), so a default browser and app must be set.
 
 ## Where your data lives
@@ -64,7 +64,7 @@ What syncs: your calendars, events from a year ago (Microsoft: to two years ahea
 
 Details and more in the [Help](https://thnonl.github.io/hey-look/help.html).
 
-- **macOS:** no native notifications (they need an Apple Developer ID, which the project does not have yet); the app is ad-hoc signed, not notarized; the first-start steps and log out / restart on this exact build were not tested. Only the Quit item of the app menu follows the app language; the other system menu items stay in the system language.
+- **macOS:** no native notifications (they need an Apple Developer ID, which the project does not have yet); the app is signed with the project’s own self-signed certificate (not an Apple one), not notarized; the first-start steps and log out / restart on this exact build were not tested. Only the Quit item of the app menu follows the app language; the other system menu items stay in the system language.
 - **Installers** are not code-signed with a publisher certificate yet; on Windows the tray Quit, running the installer over an open app and opening links in the browser were not tested on this release.
 - **Linux:** tested under WSL2 Ubuntu 22.04 with WSLg only (new-mail notifications with dunst; no tray test); needs a notification service for notifications.
 - **Google:** Google has not finished reviewing Hey Look!, so its sign-in page says “Google hasn’t verified this app” (choose **Advanced**, then **Go to Hey Look! (unsafe)**), and until the review is done **Sign in with Google and Google calendar sync are limited to the first 100 people**. Gmail also works with an app password. What to expect, and what to do: [Help](https://thnonl.github.io/hey-look/help.html#google-review).
