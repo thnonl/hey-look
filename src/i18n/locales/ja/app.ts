@@ -78,6 +78,8 @@ export default defineLocale<typeof ns.en>({
   "app.quit.quitDiscard": "終了して破棄",
   "app.popout.tooMany": "開いているウィンドウが多すぎます。ほかのウィンドウを開くには、どれかを閉じてください。",
   "app.popout.openFailed": "新しいウィンドウを開けませんでした（{error}）。",
+  "app.popout.mainUnreachable": "メイン ウィンドウに接続できませんでした。もう一度お試しください。",
+  "app.cmd.openInWindow": "新しいウィンドウで開く",
   "app.quit.sending": { other: "Hey Look!を終了する前に、メッセージ{n}件を送信しています…" },
   "app.quit.scheduledTitle": { other: "{n}件のメッセージが送信予約されています" },
   "app.quit.scheduledBody.one": "今終了すると、次にHey Look!を開いたときに送信されます。",

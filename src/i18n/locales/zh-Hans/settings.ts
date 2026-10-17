@@ -459,6 +459,8 @@ export default defineLocale<typeof ns.en>({
   "settings.keys.commandBar": "命令栏",
   "settings.keys.syncNow": "立即同步",
   "settings.keys.closeDeselect": "关闭 / 取消选择",
+  "settings.keys.openInWindow": "在新窗口中打开",
+  "settings.keys.closeWindow": "关闭邮件窗口",
   "settings.about.title": "关于",
   "settings.about.tagline": "{name}是一款使用Tauri、React和Rust构建的桌面邮件客户端。",
   "settings.about.testBuild": "测试版本：您的邮件、账户和设置保存在{dir}中，而不是通常的数据文件夹。",

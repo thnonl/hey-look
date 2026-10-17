@@ -12,6 +12,8 @@ import { accountColor, folderLabel, Prefs } from "../prefs";
 import { canPageBack, exhaustedKey, friendlyError, useStore } from "../store";
 import { dateGroup, fmtDate, snoozePresets, subjectText } from "../util";
 import { openDraftThread } from "./Compose";
+import { openReader } from "../popout/openReader";
+import { readerAllowed } from "../popout/readerLogic";
 import { ImportanceMark } from "./Importance";
 import { AcctName } from "./AcctName";
 import { useRowContextMenu } from "./ListContextMenu";
@@ -33,6 +35,8 @@ export interface ThreadRowProps {
   accountLabel?: string;
   hover?: ReactNode;
   onOpen?: () => void;
+  /** double-click, or Shift+Enter: the conversation in a window of its own (not on the select circle or the hover buttons) */
+  onOpenWindow?: () => void;
   onToggle?: () => void;
   /** position among the conversations of a list that is only partly in the DOM (1-based) and how many there are */
   posInSet?: number;
@@ -40,7 +44,7 @@ export interface ThreadRowProps {
 }
 
 /** One conversation in the list. Pure: the real list and the Appearance preview both render it. */
-export function ThreadRow({ t, selected, checked, prefs, showFolder, accountColor, accountLabel, hover, onOpen, onToggle, posInSet, setSize }: ThreadRowProps) {
+export function ThreadRow({ t, selected, checked, prefs, showFolder, accountColor, accountLabel, hover, onOpen, onOpenWindow, onToggle, posInSet, setSize }: ThreadRowProps) {
   const tr = useT();
   const who = t.participants.join(", ");
   const dense = prefs.density === "compact";
@@ -54,8 +58,14 @@ export function ThreadRow({ t, selected, checked, prefs, showFolder, accountColo
       data-thread={t.threadId}
       className={`ml-row ${selected ? "selected" : ""} ${t.unread ? "unread" : ""} ${checked ? "checked" : ""}`}
       onClick={onOpen}
+      onDoubleClick={(e) => {
+        if (onOpenWindow && !(e.target as Element).closest(".ml-lead, .hover-actions")) onOpenWindow();
+      }}
       onKeyDown={(e) => {
-        if (e.key === "Enter" || e.key === " ") {
+        if (e.key === "Enter" && e.shiftKey && !e.ctrlKey && !e.altKey && !e.metaKey && onOpenWindow) {
+          e.preventDefault();
+          onOpenWindow();
+        } else if (e.key === "Enter" || e.key === " ") {
           e.preventDefault();
           onOpen?.();
         }
@@ -304,6 +314,7 @@ export function MessageList() {
         accountLabel={labels.get(it.t.accountId)}
         hover={<HoverActions t={it.t} />}
         onOpen={() => openThread(it.t)}
+        onOpenWindow={readerAllowed(folder, it.t.folder) ? () => void openReader(it.t, folder) : undefined}
         onToggle={() => toggleCheck(it.t.threadId)}
         posInSet={it.pos}
         setSize={threads.length}

@@ -459,6 +459,8 @@ export default defineLocale<typeof ns.en>({
   "settings.keys.commandBar": "Палитра команд",
   "settings.keys.syncNow": "Синхронизировать",
   "settings.keys.closeDeselect": "Закрыть / отменить выбор",
+  "settings.keys.openInWindow": "Открыть в новом окне",
+  "settings.keys.closeWindow": "Закрыть окно сообщения",
   "settings.about.title": "О программе",
   "settings.about.tagline": "{name} — настольный почтовый клиент на Tauri, React и Rust.",
   "settings.about.testBuild": "Тестовая сборка: ваши письма, учётные записи и настройки хранятся в {dir}, а не в обычной папке данных.",

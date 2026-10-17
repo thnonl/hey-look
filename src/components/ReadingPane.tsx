@@ -1,7 +1,7 @@
 import { frameCsp, frameSandbox } from "../frameSandbox";
 import { openUpdateLink } from "../updates";
 import { guardFrame } from "../contextGuard";
-import { Archive, Clock, Flag, Forward, MailX, MoreHorizontal, Moon, Pin, Reply, ReplyAll, Sparkles, Sun, Trash2, ChevronsDownUp, ChevronsUpDown, Mail, ShieldAlert, AlertTriangle } from "lucide-react";
+import { Archive, Clock, ExternalLink, Flag, Forward, MailX, MoreHorizontal, Moon, Pin, Reply, ReplyAll, Sparkles, Sun, Trash2, ChevronsDownUp, ChevronsUpDown, Mail, ShieldAlert, AlertTriangle } from "lucide-react";
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { forward, replyTo } from "../actions";
 import { api, MessageFull } from "../api";
@@ -27,6 +27,8 @@ import { EmptyState } from "./overlays";
 import { ImportanceMark } from "./Importance";
 import { EncCard, importKeyFromMessage, isKeyAttachment, needsCard, SecBadges } from "./Pgp";
 import { Avatar, Dropdown } from "./ui";
+import { openReader } from "../popout/openReader";
+import { readerAllowed } from "../popout/readerLogic";
 
 // Remote images already fetched through the backend (url -> data: URI), shared by all messages.
 const imageCache = new Map<string, string>();
@@ -418,13 +420,13 @@ const LANG_NAME: Record<Lang, Key> = {
   de: "reading.lang.german",
   ru: "reading.lang.russian",
 };
-const TRANSLATE_TO: { en: string; key: Key }[] = [
+export const TRANSLATE_TO: { en: string; key: Key }[] = [
   ...LANGS.map((l) => ({ en: l.englishName, key: LANG_NAME[l.code] })),
   { en: "Korean", key: "reading.lang.korean" },
 ];
 
 /** An AI call under way, where it appears: ring, what is going on, the time and Cancel; a second line says where it is (Part 2 of 5). */
-function AiRunning({ title, text, detail, startedAt, onCancel }: { title: React.ReactNode; text: string; detail?: string; startedAt: number; onCancel: () => void }) {
+export function AiRunning({ title, text, detail, startedAt, onCancel }: { title: React.ReactNode; text: string; detail?: string; startedAt: number; onCancel: () => void }) {
   const t = useT();
   const [now, setNow] = useState(() => Date.now());
   useEffect(() => {
@@ -494,7 +496,25 @@ function TranslateBox({ job }: { job: TranslateJob }) {
   );
 }
 
-function MessageCard({ m, open, onToggle }: { m: MessageFull; open: boolean; onToggle: () => void }) {
+/** "Translate to ...": a confidential or still locked message is not sent to the AI Assistant. */
+export function translateMessage(m: MessageFull, lang: { en: string; key: Key }) {
+  const { showToast } = useStore.getState();
+  if (needsCard(m)) return showToast(t("reading.ai.unlockThis"), undefined, "info");
+  if (m.confidential) return showToast(t("reading.ai.noConfidential"), undefined, "info");
+  startTranslation({
+    messageId: m.id,
+    threadId: useStore.getState().selected ?? m.id,
+    folder: m.folder,
+    accountId: m.accountId,
+    subject: m.subject,
+    lang: lang.en,
+    langKey: lang.key,
+    // all of it: a long text is translated in parts (src/translateChunks.ts)
+    text: m.text ?? m.html?.replace(/<[^>]+>/g, " ") ?? "",
+  });
+}
+
+export function MessageCard({ m, open, onToggle }: { m: MessageFull; open: boolean; onToggle: () => void }) {
   const t = useT();
   const { showToast, setDialog, prefs } = useStore();
   const frameRef = useRef<HTMLIFrameElement>(null);
@@ -542,21 +562,7 @@ function MessageCard({ m, open, onToggle }: { m: MessageFull; open: boolean; onT
     }
   };
 
-  const translate = (lang: { en: string; key: Key }) => {
-    if (needsCard(m)) return showToast(t("reading.ai.unlockThis"), undefined, "info");
-    if (conf) return showToast(t("reading.ai.noConfidential"), undefined, "info");
-    startTranslation({
-      messageId: m.id,
-      threadId: useStore.getState().selected ?? m.id,
-      folder: m.folder,
-      accountId: m.accountId,
-      subject: m.subject,
-      lang: lang.en,
-      langKey: lang.key,
-      // all of it: a long text is translated in parts (src/translateChunks.ts)
-      text: m.text ?? m.html?.replace(/<[^>]+>/g, " ") ?? "",
-    });
-  };
+  const translate = (lang: { en: string; key: Key }) => translateMessage(m, lang);
 
   const replyDefaultAll = eff(prefs, m.accountId, "replyDefault") === "replyAll";
   return (
@@ -648,22 +654,10 @@ function MessageCard({ m, open, onToggle }: { m: MessageFull; open: boolean; onT
   );
 }
 
-export function ReadingPane() {
-  const t = useT();
-  const { selected, messages, threads, folders, act, showToast, prefs, aiConfigured, setDialog, confirm, checked } = useStore();
-  const [openIds, setOpenIds] = useState<Set<string>>(new Set());
-  const [summary, setSummary] = useState<string | null>(null);
-  const ai = useAiSlot("summarize");
-  const summ = threads.find((th) => th.threadId === selected);
-  const bodyRef = useRef<HTMLDivElement>(null);
-  // while confidential mail is on screen the window is hidden from screen capture and recording
-  useContentProtection(!!selected && messages.some((m) => m.confidential));
-
-  // a newly selected mail starts at the top - once, here, and nowhere else (nothing re-scrolls while it loads)
-  useEffect(() => {
-    if (bodyRef.current) bodyRef.current.scrollTop = 0;
-  }, [selected]);
-
+/**
+ * Keeps the reading position through a window resize (used by the reading pane and by the reader window): see the comment in the effect.
+ */
+export function useKeepReadingPosition() {
   // Keep the reading position through a window resize: the browser shifts scrollTop when the pane changes size and the
   // frame is re-measured (new zoom / height), so remember the position from before the resize and restore it by
   // proportion (scrollTop / scrollHeight) once the layout has settled. Only resizes: selecting a mail still starts at 0.
@@ -715,6 +709,25 @@ export function ReadingPane() {
       window.removeEventListener("resize", onResize);
     };
   }, []);
+}
+
+export function ReadingPane() {
+  const t = useT();
+  const { selected, messages, threads, folders, folder, act, showToast, prefs, aiConfigured, setDialog, confirm, checked } = useStore();
+  const [openIds, setOpenIds] = useState<Set<string>>(new Set());
+  const [summary, setSummary] = useState<string | null>(null);
+  const ai = useAiSlot("summarize");
+  const summ = threads.find((th) => th.threadId === selected);
+  const bodyRef = useRef<HTMLDivElement>(null);
+  // while confidential mail is on screen the window is hidden from screen capture and recording
+  useContentProtection(!!selected && messages.some((m) => m.confidential));
+
+  // a newly selected mail starts at the top - once, here, and nowhere else (nothing re-scrolls while it loads)
+  useEffect(() => {
+    if (bodyRef.current) bodyRef.current.scrollTop = 0;
+  }, [selected]);
+
+  useKeepReadingPosition();
 
   // another conversation: a summary still being made is dropped (its request too), so it is never shown on the wrong mail
   useEffect(() => ai.cancel, [selected]); // eslint-disable-line react-hooks/exhaustive-deps
@@ -811,6 +824,9 @@ export function ReadingPane() {
           >
             <MoreHorizontal size={16} />
           </Dropdown>
+          {readerAllowed(folder, summ.folder) && (
+            <button className="icon-btn" title={t("reading.popout.openTip")} aria-label={t("reading.popout.open")} onClick={() => void openReader(summ, folder)}><ExternalLink size={16} /></button>
+          )}
           {messages.length > 1 && (
             <button
               className="icon-btn"

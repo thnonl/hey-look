@@ -1301,3 +1301,23 @@ span.spin { display: inline-block; width: 13px; height: 13px; border: 2px solid 
 .popout-dev { display: grid; grid-template-columns: max-content 1fr; gap: 2px 12px; margin: 0; font-size: .9em; }
 .popout-dev dt { color: var(--muted); }
 .popout-dev dd { margin: 0; overflow-wrap: anywhere; }
+
+/* ===== reader window (src/popout/ReaderView.tsx): the reading pane under a toolbar of labelled buttons ===== */
+.reader-win { display: flex; flex-direction: column; height: 100vh; background: var(--bg); color: var(--fg); }
+.reader-bar { display: flex; align-items: center; flex-wrap: wrap; gap: 2px; row-gap: 4px; padding: 6px 10px; border-bottom: 1px solid var(--border); background: var(--bg2); }
+.reader-bar .rb { padding: 7px 9px; }
+.reader-bar .sep { align-self: stretch; width: 1px; margin: 4px 6px; background: var(--border); }
+.reader-bar .rb.grow { margin-left: auto; }
+.reader-bar .ai-btn { color: var(--accent-text); }
+.reader-bar .rb:disabled { opacity: .5; cursor: default; }
+/* under 640 px the buttons are icons (the name stays as the tooltip and the accessible name) */
+@media (max-width: 640px) { .reader-bar .rb > span { display: none; } .reader-bar .rb { padding: 8px; } }
+.reader-pane { min-height: 0; flex: 1; }
+.reader-pane .rp-head { display: flex; align-items: flex-start; gap: 8px; }
+.reader-pane .rp-head h1 { flex: 1; min-width: 0; font-size: 1.45em; font-weight: 650; letter-spacing: -.01em; line-height: 1.25; margin: 0 0 8px; overflow-wrap: anywhere; }
+.reader-pane .rp-head h1:focus { outline: none; }
+.reader-pane .rp-head .icon-btn { flex: none; }
+.reader-gone { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin: 10px 24px 0; }
+.reader-state { margin: auto; display: flex; flex-direction: column; align-items: center; gap: 10px; padding: 24px; text-align: center; max-width: 34em; }
+.reader-state p { margin: 0; overflow-wrap: anywhere; }
+.reader-state-actions { display: flex; gap: 8px; }

@@ -21,6 +21,13 @@ export default defineLocale<typeof ns.en>({
   "reading.preview.shuffle": "Создать другие примеры писем",
   // ---- reading pane: empty state and conversation toolbar
   "reading.pane.label": "Область чтения",
+  "reading.popout.open": "Открыть в новом окне",
+  "reading.popout.openTip": "Открыть в новом окне (Shift+Enter)",
+  "reading.popout.gone": "Это сообщение перемещено или удалено.",
+  "reading.popout.loadFailed": "Не удалось открыть это сообщение ({error}).",
+  "reading.popout.noId": "в этом окне нет беседы для показа",
+  "reading.popout.loading": "Открытие сообщения…",
+  "reading.popout.toolbar": "Действия с сообщением",
   "reading.empty.title": "Выберите письмо для чтения",
   "reading.empty.none": "Ничего не выбрано",
   "reading.empty.selected": "Выбрано элементов: {n}",

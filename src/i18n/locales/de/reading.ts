@@ -21,6 +21,13 @@ export default defineLocale<typeof ns.en>({
   "reading.preview.shuffle": "Andere Beispiel-E-Mails erzeugen",
   // ---- reading pane: empty state and conversation toolbar
   "reading.pane.label": "Lesebereich",
+  "reading.popout.open": "In neuem Fenster öffnen",
+  "reading.popout.openTip": "In neuem Fenster öffnen (Shift+Enter)",
+  "reading.popout.gone": "Diese Nachricht wurde verschoben oder gelöscht.",
+  "reading.popout.loadFailed": "Diese Nachricht konnte nicht geöffnet werden ({error}).",
+  "reading.popout.noId": "dieses Fenster hat keine Unterhaltung zum Anzeigen",
+  "reading.popout.loading": "Nachricht wird geöffnet …",
+  "reading.popout.toolbar": "Nachrichtenaktionen",
   "reading.empty.title": "Wählen Sie ein Element aus, um es zu lesen",
   "reading.empty.none": "Nichts ausgewählt",
   "reading.empty.selected": "{n} Elemente ausgewählt",

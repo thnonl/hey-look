@@ -3,6 +3,7 @@ import {
   ShieldQuestionMark, ShieldX, TriangleAlert, Trash2, Upload,
 } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { answerVia } from "../actions";
 import { api, errorCode, KeyAlgo, KeyInspect, MessageFull, MessageSecurity, PgpKey, SigInfo } from "../api";
 import { t, type Key } from "../i18n";
 import { useT } from "../i18n/react";
@@ -704,6 +705,7 @@ export function EncCard({ m }: { m: MessageFull }) {
 
 /** A public key attached to (or inside) a message, imported into the key store. Offers Undo for keys that are new. */
 export async function importKeyFromMessage(m: MessageFull, index: number) {
+  if (answerVia.importKey) return answerVia.importKey(m, index); // the reader window: the main window manages the keys
   const st = useStore.getState();
   try {
     const before = new Set((await api.pgpListKeys()).map((k) => k.fingerprint));

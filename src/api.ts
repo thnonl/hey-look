@@ -630,6 +630,12 @@ export const api = {
   popoutReady: () => invoke<void>("popout_ready"),
   popoutFocus: (label: string) => invoke<boolean>("popout_focus", { label }),
   popoutClose: (label: string) => invoke<boolean>("popout_close", { label }),
+  /** A secondary window asks the main page for something it owns (`popout-request`; the answer comes as the event `popout-reply`, see src/popout/request.ts). */
+  popoutRequest: (id: string, kind: string, payload: unknown) => invoke<void>("popout_request", { id, kind, payload: payload ?? null }),
+  /** The main page answers a request of the secondary window `to`. */
+  popoutReply: (to: string, id: string, ok: boolean, data: unknown, error: string | null) => invoke<void>("popout_reply", { to, id, ok, data: data ?? null, error }),
+  /** The pin and the snooze of a conversation (the messages carry the rest). */
+  threadMeta: (threadId: string) => invoke<{ pinned: boolean; snoozedUntil: number | null }>("thread_meta", { threadId }),
   /** The update restart: every open secondary window saves what it holds. False = a person keeps a window open (the restart must stop). */
   popoutSaveAll: () => invoke<boolean>("popout_save_all"),
   /** A secondary window's part of a quit (the counterparts of quitPageAlive / quitDialog / sendsFlushed, which the main page uses). */

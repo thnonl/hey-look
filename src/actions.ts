@@ -43,8 +43,15 @@ async function headersOf(m: MessageFull, thread: MessageFull[]): Promise<ReplyHe
   }
 }
 
+/**
+ * A secondary window (the reader) does not write messages itself: it sets these once, and an answer / forward is handed to the main window
+ * (src/popout/ReaderView.tsx; the main window never sets them).
+ */
+export const answerVia: { importKey?: (m: MessageFull, index: number) => void | Promise<void>; reply?: (m: MessageFull, all: boolean, thread: MessageFull[]) => void | Promise<void>; forward?: (m: MessageFull, thread: MessageFull[]) => void | Promise<void> } = {};
+
 /** `thread`: the conversation the message belongs to (its Message-IDs are the fallback References of the answer); the open one unless the caller answers a conversation that is not open (the list's context menu). */
 export async function replyTo(m: MessageFull, all: boolean, thread: MessageFull[] = useStore.getState().messages) {
+  if (answerVia.reply) return answerVia.reply(m, all, thread);
   const st = useStore.getState();
   const h = await headersOf(m, thread);
   const mine = new Set(st.accounts.map((a) => a.email.toLowerCase()));
@@ -71,6 +78,7 @@ export async function replyTo(m: MessageFull, all: boolean, thread: MessageFull[
 }
 
 export async function forward(m: MessageFull, thread: MessageFull[] = useStore.getState().messages) {
+  if (answerVia.forward) return answerVia.forward(m, thread);
   const st = useStore.getState();
   if (m.confidential) return st.showToast(t("app.forward.confidential"), undefined, "info");
   // a forward is linked to the message it forwards (References, no In-Reply-To), also when that is a mail you sent yourself

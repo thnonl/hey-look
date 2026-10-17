@@ -21,6 +21,13 @@ export default defineLocale<typeof ns.en>({
   "reading.preview.shuffle": "別のサンプルメールを生成",
   // ---- reading pane: empty state and conversation toolbar
   "reading.pane.label": "閲覧ウィンドウ",
+  "reading.popout.open": "新しいウィンドウで開く",
+  "reading.popout.openTip": "新しいウィンドウで開く (Shift+Enter)",
+  "reading.popout.gone": "このメッセージは移動または削除されました。",
+  "reading.popout.loadFailed": "このメッセージを開けませんでした（{error}）。",
+  "reading.popout.noId": "このウィンドウに表示する会話がありません",
+  "reading.popout.loading": "メッセージを開いています…",
+  "reading.popout.toolbar": "メッセージの操作",
   "reading.empty.title": "読むアイテムを選択してください",
   "reading.empty.none": "何も選択されていません",
   "reading.empty.selected": "{n}件のアイテムを選択中",

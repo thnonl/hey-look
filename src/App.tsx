@@ -24,6 +24,8 @@ import { runQuitFlush } from "./quitFlush";
 import { flushSends, friendlyError, moveDropped, moveRefused, useStore } from "./store";
 import { osNow } from "./platform";
 import { openUpdateLink, useUpdates } from "./updates";
+import { handlePopoutRequest } from "./popout/mainRequests";
+import type { Envelope } from "./popout/requestKinds";
 import { calTz, configureCalendar, addDays, addMonths, today as todayDay } from "./calendar";
 import { catchupText, configureDates, fmtWhen } from "./util";
 import { frameAction, initFrame, useFrame } from "./winframe";
@@ -132,6 +134,8 @@ function App() {
     };
     const subs = [
       listen("mail-synced", () => void useStore.getState().refresh()),
+      // a secondary window (the reader) asks for something the main page owns: mail state with its Undo, the preferences, a dialog, a message
+      listen<Envelope>("popout-request", (e) => void handlePopoutRequest(e.payload)),
       // a Google / Microsoft mailbox was signed out behind our back (the background sync got rejected): it shows "Sign in again"
       listen<{ accountId: string; state: "again" | "blocked" | null; error?: string }>("signin-state", (e) => {
         const st = useStore.getState();
