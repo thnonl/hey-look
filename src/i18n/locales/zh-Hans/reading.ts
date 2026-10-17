@@ -196,6 +196,7 @@ export default defineLocale<typeof ns.en>({
   "reading.pv.showFailed": "无法显示此文件。{error}",
   "reading.pv.notPdf": "此文件不是有效的 PDF，无法显示。你仍然可以打开或保存它。",
   "reading.pv.pdfNotDrawn": "无法在此处显示该预览。请改用默认应用打开此文件。",
+  "reading.pv.pdfOutside": "在此系统上，PDF 文件会用默认应用打开。",
   "reading.lb.label": "图片{name}",
   "reading.lb.prev": "上一张图片",
   "reading.lb.next": "下一张图片",

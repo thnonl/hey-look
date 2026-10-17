@@ -16,7 +16,7 @@ import { denyIfConfidential, imageLock } from "../protect";
 import { friendlyError, useStore } from "../store";
 import { fmtSize } from "../util";
 import riskyExt from "../riskyExt.json";
-import { kbd, osNow } from "../platform";
+import { kbd, usePlatform } from "../platform";
 import { isFrameRefusal, nextPdfState, PDF_DRAW_WAIT_MS, pdfPreview, type PdfFrameState } from "../pdfFrame";
 import { importKeyFromMessage, isKeyAttachment } from "./Pgp";
 import { Dropdown, FOCUSABLE } from "./ui";
@@ -89,13 +89,13 @@ function KindIcon({ kind, size = 16 }: { kind: FileKind; size?: number }) {
 
 /**
  * Preview is offered for pictures, PDFs and small text files. A PDF is shown by the browser's own viewer, whose Save / Print /
- * right-click menu no lock of ours reaches, so confidential mail has no PDF preview (pictures and text are drawn by the app).
+ * right-click menu no lock of ours reaches, so confidential mail has no PDF preview (pictures and text are drawn by the app). Where the
+ * web view does not draw a PDF (macOS, Linux: see src-tauri/src/pdfmode.rs) the preview is a card that opens the file in the default app.
  */
 export function previewable(a: Pick<AttMeta, "name" | "mime" | "size">, confidential = false): "image" | "pdf" | "text" | null {
   const e = ext(a.name);
   if (a.mime.startsWith("image/") && a.size <= 25 * 1024 * 1024 && !["heic", "heif", "tif", "tiff"].includes(e)) return "image";
-  // WebKitGTK has no PDF viewer inside the page: on Linux a PDF opens with the default app instead; a confidential message has no preview
-  if (a.mime === "application/pdf" || e === "pdf") return a.size <= 25 * 1024 * 1024 && osNow() !== "linux" && !confidential ? "pdf" : null;
+  if (a.mime === "application/pdf" || e === "pdf") return a.size <= 25 * 1024 * 1024 && !confidential ? "pdf" : null;
   const textExt = ["txt", "log", "csv", "json", "xml", "md", "eml"];
   if ((a.mime.startsWith("text/") || textExt.includes(e)) && !RISKY_EXT.includes(e) && a.size <= 1024 * 1024) return "text";
   return null;
@@ -535,19 +535,39 @@ interface PvLoaded {
   notPdf?: boolean;
   /** sandbox of the PDF frame, undefined = none (pdfFrame.ts says why) */
   sandbox?: string;
+  /** this system does not draw a PDF in the window: the card is shown, no bytes were fetched (pdfmode.rs) */
+  card?: boolean;
 }
 
 /**
  * The PDF frame of the preview. The engine's own viewer draws the PDF; when the engine cannot (the frame never reports that it loaded, or the
  * page's content security policy refuses it) the frame is replaced by a message and an Open button: a blank page is never the outcome
- * (pdfFrame.ts `nextPdfState`).
+ * (pdfFrame.ts `nextPdfState`). `view` "object" (the macOS / Linux experiment, pdfmode.rs) draws the PDF in an object element instead of a frame: its
+ * `load` is not relied on (no timeout), only a refusal by the policy replaces it. `onDiag` (experiment only) is told what the engine did with the
+ * PDF, for the Mac QA to read off the screen.
  */
-function PdfFrame({ url, sandbox, name, onOpen }: { url: string; sandbox?: string; name: string; onOpen?: () => void }) {
+function PdfFrame({ url, sandbox, name, view, onOpen, onDiag }: { url: string; sandbox?: string; name: string; view: "frame" | "object"; onOpen?: () => void; onDiag?: (line: string) => void }) {
   const t = useT();
   const [state, setState] = useState<PdfFrameState>("loading");
   const stateRef = useRef<PdfFrameState>("loading");
+  const el = useRef<HTMLIFrameElement & HTMLObjectElement>(null);
+  const seen = useRef<string[]>([]); // (every policy violation the page reports while this PDF is shown)
   const [why, setWhy] = useState(""); // (shown as the tooltip of the message: what a QA tester can read off the screen)
+  const describe = (note: string) => {
+    if (!onDiag) return;
+    const r = el.current?.getBoundingClientRect();
+    let doc = "no document";
+    try {
+      const d = el.current?.contentDocument;
+      if (d) doc = `document ${d.contentType}, ${d.querySelector("embed,object") ? "with" : "without"} embed`;
+    } catch {
+      doc = "document not reachable";
+    }
+    onDiag(`PDF ${view} test: ${note}; ${r ? `${Math.round(r.width)}x${Math.round(r.height)} px` : "no element"}; ${doc}; policy violations: ${seen.current.length ? seen.current.join(" | ") : "none"}`); // i18n-ok: experiment readout for the QA
+  };
   useEffect(() => {
+    seen.current = [];
+    onDiag?.(`PDF ${view} test: loading`); // i18n-ok: experiment readout for the QA
     const move = (ev: Parameters<typeof nextPdfState>[1], reason: string) => {
       const next = nextPdfState(stateRef.current, ev);
       if (next === stateRef.current) return;
@@ -555,16 +575,20 @@ function PdfFrame({ url, sandbox, name, onOpen }: { url: string; sandbox?: strin
       setState(next);
       if (next === "failed") setWhy(reason);
     };
-    const timer = setTimeout(() => move("timeout", `the frame did not report a load in ${PDF_DRAW_WAIT_MS / 1000} s`), PDF_DRAW_WAIT_MS);
+    const timer = view === "frame" ? setTimeout(() => move("timeout", `the frame did not report a load in ${PDF_DRAW_WAIT_MS / 1000} s`), PDF_DRAW_WAIT_MS) : undefined;
     const onViolation = (e: SecurityPolicyViolationEvent) => {
+      seen.current.push(`${e.effectiveDirective} ${e.blockedURI.slice(0, 24)}`);
       if (isFrameRefusal(e)) move("blocked", `refused by the content security policy (${e.effectiveDirective})`);
     };
     document.addEventListener("securitypolicyviolation", onViolation);
+    // the readout again once the engine has had time to draw (and to report a refusal)
+    const later = onDiag ? setTimeout(() => describe(stateRef.current === "loaded" ? "loaded" : "no load event yet"), 2500) : undefined;
     return () => {
       clearTimeout(timer);
+      clearTimeout(later);
       document.removeEventListener("securitypolicyviolation", onViolation);
     };
-  }, [url]);
+  }, [url]); // eslint-disable-line react-hooks/exhaustive-deps
   if (state === "failed") {
     return (
       <div className="pv-msg" title={why} style={{ display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: 12 }}>
@@ -574,14 +598,21 @@ function PdfFrame({ url, sandbox, name, onOpen }: { url: string; sandbox?: strin
       </div>
     );
   }
+  const loaded = () => {
+    stateRef.current = nextPdfState(stateRef.current, "load");
+    setState(stateRef.current);
+    describe("load event");
+  };
+  if (view === "object") return <object ref={el} className="pv-pdf" type="application/pdf" data={url} title={name} onLoad={loaded} />;
   return (
     <iframe
       title={name}
       src={url}
       sandbox={sandbox}
+      ref={el}
+      className="pv-pdf"
       onLoad={(e) => {
-        stateRef.current = nextPdfState(stateRef.current, "load");
-        setState(stateRef.current);
+        loaded();
         // no native webview menu in a text / html preview either (a PDF is drawn by the engine's own viewer, which keeps its menu)
         const f = e.currentTarget;
         try {
@@ -591,6 +622,26 @@ function PdfFrame({ url, sandbox, name, onOpen }: { url: string; sandbox?: strin
         }
       }}
     />
+  );
+}
+
+/**
+ * The preview of a PDF where the web view does not draw one in the window (pdfmode.rs): the file, one sentence, Open (a temporary copy opened
+ * with the system's default app, the same path as the card's Open) and Save as.
+ */
+function PdfCard({ att, onOpen, onSave }: { att: Pick<AttMeta, "name" | "size">; onOpen: () => void; onSave: () => void }) {
+  const t = useT();
+  return (
+    <div className="pv-msg pv-card">
+      <span className="ft" data-kind="pdf" aria-hidden><span>PDF</span></span>
+      <b className="ellipsis pv-card-name" title={att.name}>{att.name}</b>
+      <span className="small">{fmtSize(att.size)}</span>
+      <div>{t("reading.pv.pdfOutside")}</div>
+      <div className="pv-card-acts">
+        <button className="btn primary" onClick={onOpen}><ExternalLink size={14} /> {t("reading.att.open")}</button>
+        <button className="btn" onClick={onSave}><Download size={14} /> {t("reading.att.saveAs")}</button>
+      </div>
+    </div>
   );
 }
 
@@ -608,6 +659,13 @@ export function PreviewDialog({ m, items, start, onClose }: { m: MessageFull; it
     let live = true;
     setData(null);
     const kind = previewable(cur, !!m.confidential);
+    if (kind === "pdf" && usePlatform.getState().pdfView === "card") {
+      // this system does not draw a PDF in the window: nothing to fetch, the card opens the file in the default app (pdfmode.rs)
+      setData({ url: "", card: true });
+      return () => {
+        live = false;
+      };
+    }
     void api
       .attachmentData(m.id, cur.index)
       .then((d) => {
@@ -660,10 +718,15 @@ export function PreviewDialog({ m, items, start, onClose }: { m: MessageFull; it
   }, [list.length, onClose]);
 
   const [zoom, setZoom] = useState<"fit" | 1 | 2>("fit");
+  const pdfView = usePlatform((p) => p.pdfView);
+  const experiment = usePlatform((p) => p.pdfTest); // the Mac QA's switch (HEYLOOK_PDF_INLINE): show what the engine did
+  const [diag, setDiag] = useState("");
   const lock = imageLock(!!m.confidential);
   const { box, trap } = useDialogFocus<HTMLDivElement>();
   if (!cur) return null;
   const kind = previewable(cur, !!m.confidential);
+  const openCur = () => void openAttachment(m, cur);
+  const saveCur = () => void saveAs(m, cur, (p) => savedToast(p, cur.name)).catch((e) => useStore.getState().showToast(() => t("reading.att.couldntSave", { name: cur.name, error: friendlyError(e) }), undefined, "error"));
   return createPortal(
     <div className="modal-back" onMouseDown={onClose}>
       <div ref={box} tabIndex={-1} onKeyDown={trap} className="modal pv-modal" role="dialog" aria-modal="true" aria-label={t("reading.att.previewName", { name: cur.name })} onMouseDown={(e) => e.stopPropagation()}>
@@ -677,10 +740,11 @@ export function PreviewDialog({ m, items, start, onClose }: { m: MessageFull; it
               <button className="icon-btn" aria-label={t("reading.pv.zoomIn")} onClick={() => setZoom((z) => (z === "fit" ? 1 : 2))}><ZoomIn size={15} /></button>
             </span>
           )}
-          {!m.confidential && <button className="btn small" onClick={() => void openAttachment(m, cur)}><ExternalLink size={13} /> {t("reading.att.open")}</button>}
-          {!m.confidential && <button className="btn small" onClick={() => void saveAs(m, cur, (p) => savedToast(p, cur.name)).catch((e) => useStore.getState().showToast(() => t("reading.att.couldntSave", { name: cur.name, error: friendlyError(e) }), undefined, "error"))}><Download size={13} /> {t("reading.att.saveAs")}</button>}
+          {!m.confidential && <button className="btn small" onClick={openCur}><ExternalLink size={13} /> {t("reading.att.open")}</button>}
+          {!m.confidential && <button className="btn small" onClick={saveCur}><Download size={13} /> {t("reading.att.saveAs")}</button>}
           <button className="icon-btn" aria-label={t("reading.pv.close")} onClick={onClose}><X size={16} /></button>
         </div>
+        {experiment && kind === "pdf" && diag && <div className="muted small pv-diag" role="status">{diag}</div>}
         <div className="pv-stage">
           {list.length > 1 && (
             <>
@@ -692,12 +756,14 @@ export function PreviewDialog({ m, items, start, onClose }: { m: MessageFull; it
             <div className="pv-msg"><span className="spin" /> {t("common.loading")}</div>
           ) : data.error ? (
             <div className="pv-msg"><ImageOff size={28} /><div>{t("reading.pv.showFailed", { error: data.error })}</div></div>
+          ) : data.card ? (
+            <PdfCard att={cur} onOpen={openCur} onSave={saveCur} />
           ) : data.notPdf ? (
             <div className="pv-msg"><ImageOff size={28} /><div>{t("reading.pv.notPdf")}</div></div>
           ) : kind === "text" ? (
             <pre className="pv-text" {...(m.confidential ? { style: { userSelect: "none", WebkitUserSelect: "none" } as const, onCopy: noCopy, onCut: noCopy, onContextMenu: noCopy, onDragStart: noCopy } : {})}>{data.text}</pre>
           ) : kind === "pdf" ? (
-            <PdfFrame key={data.url} url={data.url} sandbox={data.sandbox} name={cur.name} onOpen={m.confidential ? undefined : () => void openAttachment(m, cur)} />
+            <PdfFrame key={data.url} url={data.url} sandbox={data.sandbox} name={cur.name} view={pdfView === "object" ? "object" : "frame"} onOpen={m.confidential ? undefined : openCur} onDiag={experiment ? setDiag : undefined} />
           ) : (
             <img
               src={data.url}
