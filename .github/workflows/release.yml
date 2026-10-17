@@ -261,6 +261,7 @@ jobs:
           node --experimental-strip-types scripts/test-translate-chunks.mjs
           node --experimental-strip-types scripts/test-ai-call.mjs
           node --experimental-strip-types scripts/test-ai-errors.mjs
+          node --experimental-strip-types scripts/test-ai-problem.mjs
           node --experimental-strip-types scripts/test-open-thread.mjs
           node --experimental-strip-types scripts/test-leave-compose.mjs
           node --experimental-strip-types scripts/test-autosave.mjs
@@ -323,6 +324,8 @@ jobs:
           node scripts/test-site-appearance.mjs --quick
           # Settings > AI Assistant stands still while it is used: the real layout, frame by frame, in the dev preview (two of the 12 combinations; the full run is `node scripts/test-ai-tab-layout.mjs`)
           node scripts/test-ai-tab-layout.mjs --quick
+          # the AI Assistant problem toast through every entry point (not set up, 401, 404, timeout ...): stays 20 s, leads to Settings > AI Assistant, Esc / X close it (full run: `node scripts/test-ai-guide.mjs`)
+          node scripts/test-ai-guide.mjs --quick
           # Settings > Add account and Calendar stand still while a sign-in runs and ends (two of the combinations; the full run is `node scripts/test-settings-layout.mjs`)
           node scripts/test-settings-layout.mjs --quick
           # the attachment preview and the picture viewer are on top of the whole window, in the main window and in the reader window

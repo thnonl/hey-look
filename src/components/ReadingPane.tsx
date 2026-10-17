@@ -21,6 +21,7 @@ import { cancelTranslation, dismissTranslation, jobErrorText, startTranslation }
 import { MAX_CHARS } from "../translateChunks";
 import { elapsedLabel, jobFor, slowHint, type TranslateJob } from "../translateJobs";
 import { useAiSlot } from "../useAiSlot";
+import { aiReady, leaveAiContext, showAiNotSetUp, showAiProblem } from "../aiGuide";
 import { fmtFull, fmtSize, plainToHtml, sanitizeHtml, snoozePresets, subjectText } from "../util";
 import { AttachmentStrip, Lightbox, LbItem } from "./Attachments";
 import { InviteCard } from "./Calendar";
@@ -499,10 +500,15 @@ function TranslateBox({ job }: { job: TranslateJob }) {
 }
 
 /** "Translate to ...": a confidential or still locked message is not sent to the AI Assistant. */
-export function translateMessage(m: MessageFull, lang: { en: string; key: Key }) {
+export async function translateMessage(m: MessageFull, lang: { en: string; key: Key }) {
   const { showToast } = useStore.getState();
   if (needsCard(m)) return showToast(t("reading.ai.unlockThis"), undefined, "info");
   if (m.confidential) return showToast(t("reading.ai.noConfidential"), undefined, "info");
+  // not set up: say so, with the way to Settings, instead of starting a job that can only fail
+  if (!(await aiReady())) {
+    showAiNotSetUp("translate");
+    return;
+  }
   startTranslation({
     messageId: m.id,
     threadId: useStore.getState().selected ?? m.id,
@@ -716,7 +722,7 @@ export function useKeepReadingPosition() {
 
 export function ReadingPane() {
   const t = useT();
-  const { selected, messages, threads, folders, folder, act, showToast, prefs, aiConfigured, setDialog, confirm, checked } = useStore();
+  const { selected, messages, threads, folders, folder, act, showToast, prefs, aiConfigured, confirm, checked } = useStore();
   const [openIds, setOpenIds] = useState<Set<string>>(new Set());
   const [summary, setSummary] = useState<string | null>(null);
   const ai = useAiSlot("summarize");
@@ -734,6 +740,8 @@ export function ReadingPane() {
 
   // another conversation: a summary still being made is dropped (its request too), so it is never shown on the wrong mail
   useEffect(() => ai.cancel, [selected]); // eslint-disable-line react-hooks/exhaustive-deps
+  // and the "Try again" of a failed summary is for that conversation: it goes with it
+  useEffect(() => () => leaveAiContext("summarize"), [selected]);
 
   useEffect(() => {
     setSummary(null);
@@ -759,8 +767,8 @@ export function ReadingPane() {
   const allOpen = messages.length > 0 && openIds.size === messages.length;
 
   const summarize = async () => {
-    if (!aiConfigured) {
-      setDialog({ type: "settings", tab: "ai" });
+    if (!(await aiReady())) {
+      showAiNotSetUp("summarize");
       return;
     }
     const readable = messages.filter((m) => !needsCard(m) && !m.confidential);
@@ -779,7 +787,7 @@ export function ReadingPane() {
       `${messages.some((m) => m.confidential) ? "" : `Subject: ${summ.subject}\n\n`}${body}`,
     );
     if (!out) return; // a click while one is under way, or Cancel: nothing to show
-    if ("error" in out) showToast(() => friendlyError(out.error), undefined, "error");
+    if ("error" in out) showAiProblem(out.error, { feature: "summarize", retry: () => void summarize(), tied: true });
     else setSummary(out.text);
   };
 

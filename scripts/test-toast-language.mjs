@@ -13,6 +13,7 @@ import { join, relative } from "node:path";
 import ts from "typescript";
 import { addToast, refreshed, toastText, toastTexts } from "../src/toastStack.ts";
 import { LANGS, setLangPref, t } from "../src/i18n/index.ts";
+import { aiProblemText, classifyAiError } from "../src/aiProblem.ts";
 
 const root = new URL("../", import.meta.url);
 
@@ -28,6 +29,11 @@ const SAMPLES = [
   ["mail.done.archived", undefined], // Archived ...
   ["common.undo", undefined], // ... with Undo
   ["compose.toast.sending", undefined], // the send / undo countdown
+  ["reading.aiProblem.title.summarize", undefined], // the AI Assistant problem toast (1.0.6): its title ...
+  ["reading.aiProblem.auth.cause", { status: 401 }], // ... what happened (with the status number) ...
+  ["reading.aiProblem.auth.step", undefined], // ... what to do ...
+  ["reading.aiProblem.openSettings", undefined], // ... and its two buttons
+  ["reading.aiProblem.tryAgain", undefined],
 ];
 for (const [key, params] of SAMPLES) {
   setLangPref("en");
@@ -49,6 +55,24 @@ for (const [key, params] of SAMPLES) {
   assert.equal(toastText(made), english, `${key}: and back`);
 }
 setLangPref("en");
+
+// the AI Assistant problem toast is one function that writes all three lines (title, cause, next step): it follows a language switch as a whole
+{
+  const p = classifyAiError("AI_HTTP|v=plain|status=429: x");
+  const made = toastTexts(() => aiProblemText("translate", p, ""));
+  const eager = toastTexts(aiProblemText("translate", p, ""));
+  setLangPref("en");
+  const english = toastText(made);
+  assert.equal(english.split("\n").length, 3);
+  for (const lang of LANGS.map((l) => l.code).filter((c) => c !== "en")) {
+    setLangPref(lang);
+    assert.equal(toastText(made), aiProblemText("translate", p, ""), `the AI problem toast is drawn in ${lang} after the switch`);
+    assert.notEqual(toastText(made), english, `${lang}: not English`);
+    assert.ok(toastText(made).includes("429"), `${lang}: the status stays`);
+    assert.equal(toastText(eager), english, "(a finished string keeps English: the bug)");
+  }
+  setLangPref("en");
+}
 
 // the same text made again after the switch is still "the same error": the older toast is written again before it is compared
 {
@@ -183,6 +207,7 @@ assert.match(store, /const \{ text: first, textFn \} = toastTexts\(text\);/);
 assert.match(store, /\.map\(refreshed\), \{ id, text: first, textFn,/, "older toasts are written again before an identical error is looked for");
 assert.match(store, /\.\.\.toastTexts\(spec\.text\)/, "the sticky ones too");
 const overlays = read("src/components/overlays.tsx");
+assert.match(read("src/aiGuide.ts"), /text: \(\) => aiProblemText\(/, "the AI problem toast is made from a function");
 assert.match(overlays, /const shown = toastText\(t\);/, "the stack draws the text when it paints");
 assert.ok(/useLang\(\)|useT\(\)/.test(overlays) || /tr\(/.test(overlays), "and repaints on a language switch");
 

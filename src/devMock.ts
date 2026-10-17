@@ -1665,7 +1665,7 @@ export function installMock() {
         return new Promise((r) => setTimeout(() => r(endpoint.includes("empty") ? [] : ["gpt-4o", "gpt-4o-mini", "gpt-4.1", "o3-mini", "text-embedding-3-small"]), hashNum("modelsms", 500)));
       }
       case "ai_complete": {
-        // dev switches for the waiting states of an AI call: #slowai[=ms] answers after 20 s (or ms); #failai[=timeout|nokey|server|plain|once] fails after 5 s ("once": the first call only)
+        // dev switches for the waiting states of an AI call: #slowai[=ms] answers after 20 s (or ms); #failai[=timeout|nokey|server|plain|auth|forbidden|model|url|busy|bad|network|total|cancelled|once] fails after 5 s (or #failaims=ms; "once": the first call only)
         const part = Number(/this is part (\d+)/.exec(String(a.system))?.[1] ?? 0);
         mockAiRequests.push({ id: String(a.jobId), part, chars: String(a.prompt).length });
         const reply = String(a.system).startsWith("Translate")
@@ -1681,9 +1681,19 @@ export function installMock() {
           nokey: "AI_NOT_CONFIGURED: AI not configured: set endpoint and model in Settings > AI",
           server: "AI_HTTP|status=503|detail=upstream overloaded: The AI Assistant returned an error (503): upstream overloaded",
           plain: "AI_HTTP|v=plain|status=502: The AI Assistant returned an error (502).",
+          // the problems the AI guidance toast sorts (src/aiProblem.ts); the words after the code are the backend's English text
+          auth: "AI_HTTP|status=401|detail=Incorrect API key provided: …. You can find your API key at the provider.: The AI Assistant returned an error (401): Incorrect API key provided",
+          forbidden: "AI_HTTP|v=plain|status=403: The AI Assistant returned an error (403).",
+          model: "AI_HTTP|status=404|detail=The model `gpt-9` does not exist or you do not have access to it.: The AI Assistant returned an error (404): The model does not exist",
+          url: "AI_HTTP|v=plain|status=404: The AI Assistant returned an error (404).",
+          busy: "AI_HTTP|status=429|detail=Rate limit reached for requests.: The AI Assistant returned an error (429): Rate limit reached for requests.",
+          bad: "AI_BAD_RESPONSE: The AI Assistant sent an answer the app can’t read.",
+          network: "error sending request for url (https://api.example.com/v1/chat/completions): error trying to connect: dns error: failed to lookup address information",
+          total: "AI_TIMEOUT_TOTAL|mins=15: The translation took longer than 15 minutes in all. Retry goes on where it stopped.",
+          cancelled: "AI_CANCELLED: The AI Assistant request was cancelled.",
         };
         if (failMode && (failMode[2] !== "once" || ++mockAiCalls === 1)) {
-          return new Promise((_, rej) => setTimeout(() => rej(failures[failMode[2] ?? ""] ?? failures.server), 5000));
+          return new Promise((_, rej) => setTimeout(() => rej(failures[failMode[2] ?? ""] ?? failures.server), hashNum("failaims", 5000)));
         }
         if (hashHas("slowai")) return new Promise((r) => setTimeout(() => r(reply), hashNum("slowai", 20000)));
         return reply;

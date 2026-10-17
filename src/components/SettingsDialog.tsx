@@ -1675,7 +1675,7 @@ function AiTab() {
       <div className="muted small">{t("settings.ai.intro")}</div>
       <div className="form">
         <label>{t("settings.ai.baseUrl")}</label>
-        <input aria-label={t("settings.ai.baseUrl")} placeholder="https://api.openai.com/v1" value={v.ai_endpoint} onChange={(e) => edit({ ai_endpoint: e.target.value })} />
+        <input id="set-aiBaseUrl" aria-label={t("settings.ai.baseUrl")} placeholder="https://api.openai.com/v1" value={v.ai_endpoint} onChange={(e) => edit({ ai_endpoint: e.target.value })} />
         {/* the link to remove the saved key sits on the label's line: it appears after Save without moving the fields below */}
         <div className="field">
           <div className="field-head">
@@ -1684,18 +1684,18 @@ function AiTab() {
               <button className="link small" onClick={() => void removeKey()}>{t("settings.ai.removeKey")}</button>
             )}
           </div>
-          <input ref={keyRef} aria-label={t("settings.ai.apiKey")} type="password" value={key} onChange={(e) => (setSaveErr(""), setKey(e.target.value))} placeholder={hasKey ? t("settings.add.savedIn", { store: credStore() }) : t("settings.ai.keyOptional")} />
+          <input ref={keyRef} id="set-aiKey" aria-label={t("settings.ai.apiKey")} type="password" value={key} onChange={(e) => (setSaveErr(""), setKey(e.target.value))} placeholder={hasKey ? t("settings.add.savedIn", { store: credStore() }) : t("settings.ai.keyOptional")} />
         </div>
         <label>{t("settings.ai.model")}</label>
         {asList ? (
-          <select aria-label={t("settings.ai.model")} value={v.ai_model} onChange={(e) => edit({ ai_model: e.target.value })} {...modelFocus}>
+          <select id="set-aiModel" aria-label={t("settings.ai.model")} value={v.ai_model} onChange={(e) => edit({ ai_model: e.target.value })} {...modelFocus}>
             {!v.ai_model && <option value="">{t("settings.ai.chooseModel")}</option>}
             {/* the saved model stays selectable even when the endpoint does not list it */}
             {v.ai_model && !models.includes(v.ai_model) && <option value={v.ai_model}>{t("settings.ai.modelSaved", { model: v.ai_model })}</option>}
             {models.map((m) => <option key={m} value={m}>{m}</option>)}
           </select>
         ) : (
-          <input aria-label={t("settings.ai.model")} value={v.ai_model} placeholder={t("settings.ai.modelPlaceholder")} onChange={(e) => edit({ ai_model: e.target.value })} {...modelFocus} />
+          <input id="set-aiModel" aria-label={t("settings.ai.model")} value={v.ai_model} placeholder={t("settings.ai.modelPlaceholder")} onChange={(e) => edit({ ai_model: e.target.value })} {...modelFocus} />
         )}
         <div className="ai-actions">
           <button className="btn primary" onClick={() => void save()}>{t("common.save")}</button>
@@ -1888,11 +1888,13 @@ export function Settings({ initial, focus, nonce }: { initial?: string; focus?: 
     if (!focus) return;
     const timer = setTimeout(() => {
       const el = document.getElementById(`set-${focus}`);
+      // a field of the AI Assistant tab (an AI problem sends the person to the one it is about): the cursor goes in, nothing scrolls or moves
+      if (focus.startsWith("ai")) return void el?.focus({ preventScroll: true });
       el?.scrollIntoView({ block: "center" });
       el?.classList.add("flash");
     }, 80);
     return () => clearTimeout(timer);
-  }, [focus, tab, mbTab]);
+  }, [focus, tab, mbTab, nonce]);
   // keep the selected navigation entry in view (the list scrolls on small windows)
   useEffect(() => {
     document.querySelector<HTMLElement>(".settings-nav button.active:not(.has-sub)")?.scrollIntoView({ block: "nearest" });

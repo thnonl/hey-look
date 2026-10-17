@@ -11,6 +11,7 @@ import { eff } from "../prefs";
 import { kbd } from "../platform";
 import { ComposeInit, friendlyError, useStore } from "../store";
 import { useAiSlot } from "../useAiSlot";
+import { aiReady, leaveAiContext, showAiNotSetUp, showAiProblem } from "../aiGuide";
 import type { ComposeProbe, SavedDraft } from "../leaveCompose";
 import { PreviewBg, previewVars, rememberPreview, startPreview } from "../composePreview";
 import { setDarkRegion } from "../composePreviewDom";
@@ -1688,7 +1689,10 @@ function ComposeBody({ init }: { init: ComposeInit }) {
       `Subject: ${subject}\nExisting draft:\n${editor?.getText() ?? ""}${context}\n\nInstruction: ${aiPrompt}`,
     );
     if (!out) return; // a click while one is under way, Cancel, or this window closed: nothing to apply
-    if ("error" in out) return showToast(() => friendlyError(out.error), undefined, "error");
+    if ("error" in out) {
+      showAiProblem(out.error, { feature: "write", retry: () => void letAiWrite(), tied: true });
+      return;
+    }
     editor?.commands.insertContentAt(0, out.text.split("\n").map((l) => `<p>${l.replace(/</g, "&lt;")}</p>`).join(""));
     setAiOpen(false);
     setAiPrompt("");
@@ -1697,10 +1701,16 @@ function ComposeBody({ init }: { init: ComposeInit }) {
 
   /** The "Write with AI" button: closing the bar while a text is being written drops the request (the bar is where Cancel is). */
   const toggleAi = () => {
-    if (!aiConfigured) return setDialog({ type: "settings", tab: "ai" });
+    if (!aiConfigured) {
+      // not set up: the toast says so and leads to Settings (the flag is read again first: it may have been set in another window)
+      void aiReady().then((ok) => (ok ? setAiOpen(true) : showAiNotSetUp("write")));
+      return;
+    }
     if (aiOpen) ai.cancel();
     setAiOpen((o) => !o);
   };
+  // the "Try again" of a failed text is for this message: it goes when the message is closed
+  useEffect(() => () => leaveAiContext("write"), []);
 
   const keyAction = (a: "import" | "paste") => setDialog({ type: "pgp-import", paste: a === "paste" });
 

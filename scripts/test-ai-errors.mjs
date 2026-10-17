@@ -55,9 +55,13 @@ const root = fileURLToPath(new URL("../", import.meta.url));
   assert.deepEqual(callers, ["src/aiCall.ts", "src/api.ts", "src/translate.ts", "src/translateRun.ts", "src/useAiSlot.ts"], "a new caller of the model must show its errors like these do (friendlyError) and be cancellable");
   const read = (p) => readFileSync(join(root, p), "utf8");
   // each screen that gets an outcome shows errors through friendlyError, never the raw value
-  assert.match(read("src/components/ReadingPane.tsx"), /"error" in out\) showToast\(\(\) => friendlyError\(out\.error\)/);
-  assert.match(read("src/components/Compose.tsx"), /"error" in out\) return showToast\(\(\) => friendlyError\(out\.error\)/);
+  // (1.0.6: through the one AI problem toast, src/aiGuide.ts, which writes the sentence of an error it has no text of its own for with friendlyError)
+  assert.match(read("src/components/ReadingPane.tsx"), /"error" in out\) showAiProblem\(out\.error, \{ feature: "summarize"/);
+  assert.match(read("src/popout/ReaderView.tsx"), /"error" in out\) showAiProblem\(out\.error, \{ feature: "summarize"/);
+  assert.match(read("src/components/Compose.tsx"), /"error" in out\) \{\s*showAiProblem\(out\.error, \{ feature: "write"/);
   assert.match(read("src/translate.ts"), /friendlyError\(outcome\.error\)/);
+  assert.match(read("src/translate.ts"), /showAiProblem\(j\.errorSource \?\? j\.error \?\? "", \{ feature: "translate"/);
+  assert.match(read("src/aiGuide.ts"), /aiProblemText\(o\.feature, p, friendlyError\(raw\)\)/);
   assert.match(read("src/components/SettingsDialog.tsx"), /setModelsErr\(cutAtWord\(friendlyError\(e\), \d+\)\)/); // the reason is friendlyError text, cut to fit the status slot
   // the Rust side: no error text is built from the answer, the request or the key
   const rs = read("src-tauri/src/ai.rs");

@@ -24,6 +24,7 @@ import { osNow, loadPlatform } from "../platform";
 import { useContentProtection } from "../protect";
 import { friendlyError, useStore } from "../store";
 import { useAiSlot } from "../useAiSlot";
+import { aiReady, showAiNotSetUp, showAiProblem } from "../aiGuide";
 import { configureDates, fmtFull, snoozePresets, subjectText } from "../util";
 import { senderOf } from "../rowMenu";
 import { askMain, cancelRunningTranslations, installReaderBridge } from "./readerBridge";
@@ -318,8 +319,8 @@ function Reader({ info }: { info: ReaderInit }) {
     frames[frames.length - 1]?.contentWindow?.print();
   };
   const summarize = async () => {
-    if (!aiConfigured) {
-      useStore.getState().setDialog({ type: "settings", tab: "ai" }); // opens in the main window
+    if (!(await aiReady())) {
+      showAiNotSetUp("summarize"); // its button opens Settings in the main window
       return;
     }
     const readable = messages.filter((m) => !needsCard(m) && !m.confidential);
@@ -338,7 +339,7 @@ function Reader({ info }: { info: ReaderInit }) {
       `${messages.some((m) => m.confidential) ? "" : `Subject: ${subject}\n\n`}${body}`,
     );
     if (!out) return;
-    if ("error" in out) st.showToast(() => friendlyError(out.error), undefined, "error");
+    if ("error" in out) showAiProblem(out.error, { feature: "summarize", retry: () => void summarize() });
     else setSummary(out.text);
   };
 
