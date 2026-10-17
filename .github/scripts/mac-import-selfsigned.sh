@@ -40,11 +40,24 @@ while IFS= read -r line; do
 done < <(security list-keychains -d user)
 security list-keychains -d user -s "$kc" ${existing[@]+"${existing[@]}"}
 
-# trust it for code signing: user trust settings first, the admin ones (sudo is passwordless on hosted runners) when that is refused
+# runs a command, gives up after $1 seconds (a trust change that waits for an authorisation dialog nobody can click would hang the job)
+with_timeout() {
+  local secs="$1"; shift
+  "$@" &
+  local pid=$!
+  ( sleep "$secs"; kill "$pid" 2>/dev/null ) &
+  local dog=$!
+  local rc=0
+  wait "$pid" || rc=$?
+  kill "$dog" 2>/dev/null || true
+  return "$rc"
+}
+
+# trust it for code signing: user trust settings first, the admin ones (sudo is passwordless on hosted runners) when that fails
 security find-certificate -c "$APPLE_SIGNING_IDENTITY" -p "$kc" > "$pem"
-if ! security add-trusted-cert -r trustRoot -p codeSign -k "$kc" "$pem"; then
-  echo "user trust settings refused, trying the admin ones"
-  sudo security add-trusted-cert -d -r trustRoot -p codeSign -k "$kc" "$pem"
+if ! with_timeout 60 security add-trusted-cert -r trustRoot -p codeSign -k "$kc" "$pem"; then
+  echo "user trust settings did not work, trying the admin ones"
+  with_timeout 60 sudo security add-trusted-cert -d -r trustRoot -p codeSign -k "$kc" "$pem"
 fi
 
 echo "Identities valid for code signing in the signing keychain:"
