@@ -107,6 +107,7 @@ AI Assistant
 - Confidential mail: Linux has no screenshot blocking (the window is hidden from screen capture and recording on Windows and macOS only)
 - macOS: a pop-out window that is closed leaves a small, invisible native window entry behind (about 1.4 MB each, not drawn); it is freed when you quit the app
 - macOS: native notifications are not available yet; they need an Apple Developer ID, and macOS may not show banners for a self-signed app
+- Linux: the app does not follow the KDE or GNOME colour scheme on its own; choose Light or Dark in Settings > Appearance
 - Linux: the x86_64 release packages (AppImage, .deb, .rpm) are not covered by the tests, which ran on an ARM virtual machine
 - Format Painter, AutoFormat and the mini toolbar are not included yet
 - There is no plain-text-only mode when writing a message
