@@ -3862,25 +3862,52 @@ static QUESTION_OPEN: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicB
 /// Where the page's messages during a quit go (`quitwait::Msg`: it got the request, it asks the person, it is done).
 static FLUSH_ACK: Mutex<Option<std::sync::mpsc::Sender<quitwait::Msg>>> = Mutex::new(None);
 
+/// The windows whose pages must answer the flush request of a quit before the app ends: they hold what the backend does not (a message
+/// being written, the Undo timers of messages that were just sent). Today that is the main window, once its page has loaded; a window
+/// whose page never loaded has nothing to finish. **The place to extend** when more windows exist (a compose or reader window popped out of
+/// the main one): return their labels as well, and give `quitwait::Msg` the label of the window that speaks so that `finish_sends_then`
+/// waits for each of them (it asks every target and waits until all have answered, each with the bounds of `quitwait.rs`).
+fn flush_targets(app: &tauri::AppHandle) -> Vec<String> {
+    if !startup::is_ready() || app.get_webview_window("main").is_none() {
+        return vec![];
+    }
+    vec!["main".to_string()]
+}
+
+/// Test seam for QA (`HEYLOOK_TEST_QUIT_PAGE=silent`): the page is not asked, so for the quit it is a page that never answers (a hung or dead
+/// page). The quit must then end after `quitwait::FIRST_SIGN_WAIT` with "the page did not answer". Anything else does nothing.
+fn test_silent_page() -> bool {
+    std::env::var("HEYLOOK_TEST_QUIT_PAGE").is_ok_and(|v| v == "silent")
+}
+
 /// Steps (b) to (d) of a quit (REQ-48): the page saves a dirty Compose (and asks when that fails), lets every message still in its
 /// "Undo" time go out at once and waits for the sends under way; only then `then` runs (queued actions, install, exit). The Undo timer and
 /// the open Compose live in the page, so the backend alone could not do this (QA BUG-M6: a quit during "Sending... Undo" lost the
 /// message). `then` is not run when the page answers "no" (the person chose to keep writing) or when a quit is already running.
 ///
 /// The wait is bounded in every phase (`quitwait.rs`): a page that says nothing for 8 s, one that works for more than 45 s and a question
-/// nobody answers within 60 s end in "go on" (QA Linux v1.0.6: the quit hung for minutes). Nothing is lost by that: a message being written
-/// has its recovery snapshot, a message in its Undo time is a row of the outbox that goes out at the next start.
+/// nobody answers within 60 s end in "go on" (hardening after a QA Linux run, v1.0.6, in which a quit seemed to hang; a direct launch could
+/// not repeat it). Nothing is lost by that: a message being written has its recovery snapshot, a message in its Undo time is a row of the
+/// outbox that goes out at the next start (tested in `a_quit_without_the_page_loses_no_send_and_no_draft`).
 fn finish_sends_then(app: &tauri::AppHandle, then: impl FnOnce(&tauri::AppHandle) + Send + 'static) {
     if QUIT_BUSY.swap(true, std::sync::atomic::Ordering::SeqCst) {
         return;
     }
     let (tx, rx) = std::sync::mpsc::channel::<quitwait::Msg>();
-    // a page that never loaded has nothing to finish
-    let asked = startup::is_ready() && app.get_webview_window("main").is_some();
+    let targets = flush_targets(app);
+    let asked = !targets.is_empty();
+    // one channel, so one speaking window until `quitwait::Msg` names its window (see `flush_targets`)
+    debug_assert!(targets.len() <= 1, "several windows must be told apart in quitwait::Msg before they are asked");
     if asked {
         *FLUSH_ACK.lock().unwrap_or_else(|p| p.into_inner()) = Some(tx);
         startup::stage(Some(app), &format!("quit: asking the page to save its draft and send what is waiting (window visible: {})", window_shown(app)));
-        let _ = app.emit("flush-sends", ());
+        if test_silent_page() {
+            startup::stage(Some(app), "quit: test seam HEYLOOK_TEST_QUIT_PAGE=silent: the page is not asked");
+        } else {
+            for label in &targets {
+                let _ = app.emit_to(label.as_str(), "flush-sends", ());
+            }
+        }
     }
     let app = app.clone();
     std::thread::spawn(move || {
@@ -4802,34 +4829,28 @@ mod quit_tests {
     fn the_quit_never_waits_for_ever() {
         let lib = crate::test_guard::non_test_code(include_str!("lib.rs"));
         let fin = &lib[lib.find("fn finish_sends_then").expect("finish_sends_then")..];
-        let fin = &fin[..fin.find("
-}
-").unwrap()];
+        let fin = &fin[..fin.find("\n}\n").unwrap()];
         assert!(fin.contains("quitwait::drive(") && fin.contains("quitwait::Limits::default()"), "{fin}");
         assert!(!fin.contains("USER_DIALOG") && !lib.contains("static USER_DIALOG"), "a flag that stops the clock lets a quit hang for ever");
         assert!(fin.contains("quit: asking the page to save its draft and send what is waiting"));
+        // which windows must answer is decided in one place
+        assert!(fin.contains("flush_targets(app)") && lib.contains("fn flush_targets(app: &tauri::AppHandle) -> Vec<String>"));
+        assert!(fin.contains("test_silent_page()") && lib.contains("HEYLOOK_TEST_QUIT_PAGE"));
         // every "go on" runs the rest of the sequence (queued actions, exit); only the person's "keep the window" does not
-        assert!(fin.contains("if matches!(verdict, quitwait::Verdict::Go(_)) {
-            then(&app);"), "{fin}");
+        assert!(fin.contains("if matches!(verdict, quitwait::Verdict::Go(_)) {\n            then(&app);"), "{fin}");
         let q = crate::test_guard::non_test_code(include_str!("quitwait.rs"));
         assert!(q.contains("FIRST_SIGN_WAIT: Duration = Duration::from_secs(8)") && q.contains("DIALOG_WAIT: Duration = Duration::from_secs(60)"));
         assert!(q.contains("the page did not answer in {} s, quitting"));
         // a question is answered in a window that can be seen
         let dialog = &lib[lib.find("fn quit_dialog").expect("quit_dialog")..];
-        let dialog = &dialog[..dialog.find("
-}
-").unwrap()];
+        let dialog = &dialog[..dialog.find("\n}\n").unwrap()];
         assert!(dialog.contains("window_shown(&app)") && dialog.contains("shell::show_main(&app)"), "{dialog}");
         // the watchdog is armed before anything of the end of the sequence can hang, and it ends the process
         let last = &lib[lib.find("fn quit_final").expect("quit_final")..];
-        let last = &last[..last.find("
-}
-").unwrap()];
+        let last = &last[..last.find("\n}\n").unwrap()];
         assert!(last.find("exit_watchdog(app)").unwrap() < last.find("flush_pending").unwrap(), "{last}");
         let dog = &lib[lib.find("fn exit_watchdog").expect("exit_watchdog")..];
-        let dog = &dog[..dog.find("
-}
-").unwrap()];
+        let dog = &dog[..dog.find("\n}\n").unwrap()];
         assert!(dog.contains("std::process::exit(0)") && dog.contains("EXIT_LIMIT"), "{dog}");
     }
 
@@ -4952,9 +4973,7 @@ mod quit_tests {
         assert!(close.contains("api.prevent_close();
                     request_quit("), "closing that quits must go through request_quit: {close}");
         let guard = &src[src.find("fn guard_exit").expect("guard_exit")..];
-        let guard = &guard[..guard.find("
-}
-").unwrap()];
+        let guard = &guard[..guard.find("\n}\n").unwrap()];
         assert!(guard.contains("request_quit(app)") && guard.contains("false"), "{guard}");
         assert!(src.contains("finish_sends_then(app, quit_final)") && src.contains("finish_sends_then(&app, quit_final)"));
         // the question comes before anything is flushed, sent or saved (REQ-48 a): `Cancel` changes nothing
