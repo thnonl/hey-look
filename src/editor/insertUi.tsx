@@ -412,8 +412,9 @@ function PictureHandles({ editor }: { editor: Editor }) {
     return sel instanceof NodeSelection && sel.node.type.name === "image" ? (editor.view.nodeDOM(sel.from) as HTMLImageElement | null) : null;
   };
   const box = useBox(editor, img);
+  const pane = useBox(editor, () => paneOf(editor));
   const [live, setLive] = useState<Box | null>(null);
-  if (!box) return null;
+  if (!box || !pane) return null;
   const shown = live ?? box;
   const down = (e: React.PointerEvent<HTMLElement>, dir: number) => {
     const el = img();
@@ -447,18 +448,19 @@ function PictureHandles({ editor }: { editor: Editor }) {
     window.addEventListener("pointerup", up);
     window.addEventListener("pointercancel", up);
   };
+  // (BUG-2) the handles are drawn in a box that has the size of the pane the editor scrolls in and clips them: a picture that is scrolled out
+  // of the pane keeps none of its handles over the To row or the attachment row; at the edge of the pane they are cut like the picture
   return createPortal(
-    <>
+    <div className="pic-handles" aria-hidden="true" style={{ left: pane.left, top: pane.top, width: pane.right - pane.left, height: pane.bottom - pane.top }}>
       {CORNERS.map((c) => (
         <i
           key={c.id}
           className="pic-handle"
-          aria-hidden="true"
-          style={{ left: (c.x ? shown.right : shown.left) - 5, top: (c.y ? shown.bottom : shown.top) - 5, cursor: c.cursor }}
+          style={{ left: (c.x ? shown.right : shown.left) - 5 - pane.left, top: (c.y ? shown.bottom : shown.top) - 5 - pane.top, cursor: c.cursor }}
           onPointerDown={(e) => down(e, c.dir)}
         />
       ))}
-    </>,
+    </div>,
     document.body,
   );
 }

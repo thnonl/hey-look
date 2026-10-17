@@ -1016,7 +1016,8 @@ button.pill:hover { filter: brightness(.95); }
 .img-tools .tool-btn.on { background: var(--accent-soft); color: var(--accent-text); }
 .link-bubble { align-items: center; padding: 3px 4px 3px 10px; gap: 2px; }
 .link-bubble-url { max-width: 240px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--muted); font-size: .86em; margin-right: 4px; }
-.pic-handle { position: fixed; z-index: calc(var(--z-menu) - 3); width: 10px; height: 10px; box-sizing: border-box; border-radius: 2px; background: var(--accent); border: 2px solid var(--bg); touch-action: none; }
+.pic-handles { position: fixed; z-index: calc(var(--z-menu) - 3); overflow: hidden; overflow: clip; pointer-events: none; } /* the box of the editor pane: it clips the handles (BUG-2) */
+.pic-handle { position: absolute; pointer-events: auto; width: 10px; height: 10px; box-sizing: border-box; border-radius: 2px; background: var(--accent); border: 2px solid var(--bg); touch-action: none; }
 .fmt-pop-table { width: 198px; }
 .tbl-grid { display: grid; grid-template-columns: repeat(10, 16px); gap: 2px; }
 .tbl-cell { width: 16px; height: 16px; padding: 0; box-sizing: border-box; border: 1px solid var(--border); border-radius: 2px; background: var(--bg); }
