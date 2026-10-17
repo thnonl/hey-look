@@ -20,6 +20,8 @@ export default defineLocale<typeof ns.en>({
   "backend.FOLDER_MISSING": "Der Ordner „{folder}“ wurde in diesem Konto nicht gefunden. Die E-Mail bleibt, wo sie ist.",
   "backend.FOLDER_NOT_CREATED": "Der Ordner „{folder}“ konnte in diesem Konto weder gefunden noch erstellt werden ({why}). Die E-Mail bleibt, wo sie ist.",
   "backend.ATT_NOT_FOUND": "Anhang nicht gefunden",
+  "backend.KEYRING_TIMEOUT": "Der Schlüsselbund des Systems ist gesperrt oder antwortet nicht. Entsperren Sie ihn (Passwörter und Schlüssel / KWallet) und versuchen Sie es erneut.",
+  "backend.ADD_CANCELLED": "Das Hinzufügen des Kontos wurde abgebrochen.",
   "backend.EMAIL_INVALID": "Geben Sie eine gültige E-Mail-Adresse ein",
   "backend.AI_NOT_CONFIGURED": "KI nicht eingerichtet: Legen Sie Endpunkt und Modell unter Einstellungen > KI-Assistent fest",
   "backend.AI_TIMEOUT": "Der KI-Assistent hat nicht innerhalb von {secs} Sekunden geantwortet.",

@@ -30,9 +30,9 @@ assert.equal(new Set(compose.map((i) => i.priority)).size, compose.length, "ever
   assert.deepEqual(layoutBar(compose, barWidth(compose) - 1).hidden, ["redo"]);
 }
 
-// the compact bar (signature, template) has no picture button
-assert.ok(!compact.some((i) => i.id === "picture"));
-assert.ok(layoutBar(compact, 5000).visible.length === compose.length - 1);
+// the compact bar (signature, template) has the picture button too (REQ-25); the editor shows it only when it takes pictures (FormatBar: host.insertPicture)
+assert.ok(compact.some((i) => i.id === "picture"));
+assert.ok(layoutBar(compact, 5000).visible.length === compose.length);
 
 // AC-17: in a compose pane of 360 px (16 px padding each side, the Light / Dark switch as two icons) B I U, Bulleted, Numbered, Link and Picture stay
 const pane360 = 360 - 2 * 16 - 66;

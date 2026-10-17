@@ -282,11 +282,107 @@ async fn add_account(
     smtp_password: Option<String>,
 ) -> R<Account> {
     let db = state.db.clone();
+    // this attempt's number: "Cancel" in the form cancels the attempts started up to now, a later one is its own
+    let attempt = ADD_STARTED.fetch_add(1, std::sync::atomic::Ordering::SeqCst) + 1;
     blocking(move || {
         let imap_login = |acc: &Account, pw: &str| imap_login_check(acc, pw, ADD_ACCOUNT_PROBE_TIMEOUT);
-        add_account_with(&db, input, &password_value, smtp_password, &imap_login, &smtp::test)
+        let cancelled = || ADD_CANCELLED_TO.load(std::sync::atomic::Ordering::SeqCst) >= attempt;
+        add_account_cancellable(&db, input, &password_value, smtp_password, &imap_login, &smtp::test, &cancelled, &keyring_store)
     })
     .await
+}
+
+/// The newest attempt to add an account that was started, and the newest one the person cancelled (the form's Cancel while it waits).
+static ADD_STARTED: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+static ADD_CANCELLED_TO: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+
+/// "Cancel" while the add account form waits (for the server, or for the system keyring): the attempt stops before it stores anything. The
+/// form does not wait for the answer; whatever the attempt still does is undone.
+#[tauri::command]
+fn cancel_add_account() {
+    ADD_CANCELLED_TO.store(ADD_STARTED.load(std::sync::atomic::Ordering::SeqCst), std::sync::atomic::Ordering::SeqCst);
+}
+
+/// How long the system credential store may take to answer while an account is added. A locked or absent keyring (Secret Service on Linux
+/// before the login keyring is unlocked) can leave the call waiting for ever.
+const KEYRING_WAIT: std::time::Duration = std::time::Duration::from_secs(30);
+
+/// The error of a credential store that did not answer in time (the UI shows its translation, `backend.KEYRING_TIMEOUT`).
+fn keyring_timeout_error() -> String {
+    i18n::coded("KEYRING_TIMEOUT", &[], "Your system keyring is locked or not answering. Unlock it (Passwords and Keys / KWallet) and try again.")
+}
+
+/// The error of an attempt the person cancelled (nothing was stored).
+fn add_cancelled_error() -> String {
+    i18n::coded("ADD_CANCELLED", &[], "Adding the account was cancelled.")
+}
+
+/// Run `set` (a call to the credential store) on a thread of its own and wait for it at most `wait`, looking at `cancelled` ten times a
+/// second. When the wait ends first the call is abandoned: if it ever finishes, `undo` removes what it stored, so nothing is left behind
+/// for an account that was not added. The answer of a keyring that answers is returned as it is.
+fn store_within(wait: std::time::Duration, cancelled: &dyn Fn() -> bool, set: impl FnOnce() -> R<()> + Send + 'static, undo: impl FnOnce() + Send + 'static) -> R<()> {
+    #[derive(PartialEq)]
+    enum Phase {
+        Running,
+        Done,
+        Abandoned,
+    }
+    let phase = std::sync::Arc::new(Mutex::new(Phase::Running));
+    let (tx, rx) = std::sync::mpsc::channel::<R<()>>();
+    let worker_phase = phase.clone();
+    std::thread::spawn(move || {
+        let r = set();
+        let abandoned = {
+            let mut p = worker_phase.lock().unwrap_or_else(|e| e.into_inner());
+            if *p == Phase::Abandoned {
+                true
+            } else {
+                *p = Phase::Done;
+                false
+            }
+        };
+        if abandoned {
+            if r.is_ok() {
+                undo();
+            }
+        } else {
+            let _ = tx.send(r);
+        }
+    });
+    let started = std::time::Instant::now();
+    loop {
+        match rx.recv_timeout(std::time::Duration::from_millis(100)) {
+            Ok(r) => return r,
+            Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => return Err("the credential store call ended without an answer".into()),
+            Err(std::sync::mpsc::RecvTimeoutError::Timeout) => {}
+        }
+        let (timed_out, cancel) = (started.elapsed() >= wait, cancelled());
+        if timed_out || cancel {
+            let mut p = phase.lock().unwrap_or_else(|e| e.into_inner());
+            if *p == Phase::Done {
+                // it answered just now: the answer is in the channel
+                drop(p);
+                return rx.recv().unwrap_or_else(|_| Err("the credential store call ended without an answer".into()));
+            }
+            *p = Phase::Abandoned;
+            return Err(if cancel { add_cancelled_error() } else { keyring_timeout_error() });
+        }
+    }
+}
+
+/// Store a secret in the system credential store (waiting at most [`KEYRING_WAIT`]).
+fn keyring_store(user: &str, value: &str, cancelled: &dyn Fn() -> bool) -> R<()> {
+    let (u, v, undo_user) = (user.to_string(), value.to_string(), user.to_string());
+    store_within(
+        KEYRING_WAIT,
+        cancelled,
+        move || identity::entry(&u).and_then(|e| e.set_password(&v)).map_err(|e| keyring_error_text(std::env::consts::OS, "save", &e.to_string())),
+        move || {
+            if let Ok(e) = identity::entry(&undo_user) {
+                let _ = e.delete_credential();
+            }
+        },
+    )
 }
 
 /// How long the IMAP server may take to greet and to answer the STARTTLS request (or the SSL/TLS handshake) while an account is added.
@@ -304,6 +400,7 @@ fn imap_login_check(acc: &Account, pw: &str, probe_timeout: std::time::Duration)
 /// The whole of "Add account": the connection checks come first and the first thing written (the password, then the account row)
 /// only after both have passed, so an add that is refused leaves nothing behind.
 /// `imap_login` and `smtp_check` are the two connection checks (the real ones, or stand-ins in tests).
+#[cfg(test)]
 fn add_account_with(
     db: &Db,
     input: AccountInput,
@@ -311,6 +408,21 @@ fn add_account_with(
     smtp_password: Option<String>,
     imap_login: &dyn Fn(&Account, &str) -> R<()>,
     smtp_check: &dyn Fn(&Account, &str) -> R<()>,
+) -> R<Account> {
+    add_account_cancellable(db, input, password_value, smtp_password, imap_login, smtp_check, &|| false, &keyring_store)
+}
+
+/// [`add_account_with`] that can be cancelled (`cancelled`) and whose credential store is `store(user, value, cancelled)` (stood in for in tests).
+#[allow(clippy::too_many_arguments)]
+fn add_account_cancellable(
+    db: &Db,
+    input: AccountInput,
+    password_value: &str,
+    smtp_password: Option<String>,
+    imap_login: &dyn Fn(&Account, &str) -> R<()>,
+    smtp_check: &dyn Fn(&Account, &str) -> R<()>,
+    cancelled: &dyn Fn() -> bool,
+    store: &dyn Fn(&str, &str, &dyn Fn() -> bool) -> R<()>,
 ) -> R<Account> {
     let acc = Account {
         id: uuid::Uuid::new_v4().to_string(),
@@ -332,18 +444,27 @@ fn add_account_with(
     let smtp_pw = smtp_password.clone().unwrap_or_else(|| password_value.to_string());
     let test_smtp = !acc.smtp_username.is_empty() || smtp_password.is_some();
     check_new_account(&acc, password_value, &smtp_pw, test_smtp, imap_login, smtp_check)?;
-    identity::entry(&acc.id)
-        .and_then(|e| e.set_password(password_value))
-        .map_err(|e| keyring_error_text(std::env::consts::OS, "save", &e.to_string()))?;
+    if cancelled() {
+        return Err(add_cancelled_error());
+    }
+    store(&acc.id, password_value, cancelled)?;
     if let Some(sp) = &smtp_password {
-        let stored = identity::entry(&format!("{}:smtp", acc.id)).and_then(|e| e.set_password(sp));
-        if let Err(e) = stored {
+        if let Err(e) = store(&format!("{}:smtp", acc.id), sp, cancelled) {
             // nothing half-added: the first secret goes again, no account row is made
             if let Ok(entry) = identity::entry(&acc.id) {
                 let _ = entry.delete_credential();
             }
-            return Err(keyring_error_text(std::env::consts::OS, "save", &e.to_string()));
+            return Err(e);
         }
+    }
+    if cancelled() {
+        // cancelled while the keyring was answering: the secrets go again, no account row is made
+        for user in [acc.id.clone(), format!("{}:smtp", acc.id)] {
+            if let Ok(entry) = identity::entry(&user) {
+                let _ = entry.delete_credential();
+            }
+        }
+        return Err(add_cancelled_error());
     }
     // the color is chosen and stored here, so every window shows the same one from the first moment
     let c = lock(db);
@@ -4705,6 +4826,7 @@ pub fn run() {
             winframe::frame_system_menu,
             list_accounts,
             add_account,
+            cancel_add_account,
             google_sign_in,
             oauth_cancel,
             reauth_account,
@@ -6370,6 +6492,75 @@ mod download_dir_tests {
 #[cfg(test)]
 mod platform_tests {
     use super::*;
+
+    #[test]
+    fn a_keyring_that_does_not_answer_ends_in_a_message_and_leaves_nothing() {
+        use std::sync::atomic::{AtomicBool, Ordering};
+        use std::time::{Duration, Instant};
+        // a locked keyring: the call answers only after 1.5 s; the wait is 300 ms
+        let stored = Arc::new(AtomicBool::new(false));
+        let undone = Arc::new(AtomicBool::new(false));
+        let (s, u) = (stored.clone(), undone.clone());
+        let t = Instant::now();
+        let e = store_within(
+            Duration::from_millis(300),
+            &|| false,
+            move || {
+                std::thread::sleep(Duration::from_millis(1500));
+                s.store(true, Ordering::SeqCst);
+                Ok(())
+            },
+            move || u.store(true, Ordering::SeqCst),
+        )
+        .expect_err("no answer in time");
+        assert!(t.elapsed() < Duration::from_millis(1200), "the form does not wait for the keyring: {:?}", t.elapsed());
+        assert!(e.starts_with("KEYRING_TIMEOUT: Your system keyring is locked or not answering. Unlock it (Passwords and Keys / KWallet) and try again."), "{e}");
+        // the keyring answers late: what it stored for the account that was never added is removed again
+        std::thread::sleep(Duration::from_millis(1500));
+        assert!(stored.load(Ordering::SeqCst) && undone.load(Ordering::SeqCst), "the late write is undone");
+    }
+
+    #[test]
+    fn a_keyring_that_answers_behaves_as_before() {
+        use std::sync::atomic::{AtomicBool, Ordering};
+        use std::time::Duration;
+        let undone = Arc::new(AtomicBool::new(false));
+        let u = undone.clone();
+        assert!(store_within(Duration::from_secs(5), &|| false, || Ok(()), move || u.store(true, Ordering::SeqCst)).is_ok());
+        // its own refusal comes back untouched
+        let e = store_within(Duration::from_secs(5), &|| false, || Err("no Secret Service".into()), || ()).unwrap_err();
+        assert_eq!(e, "no Secret Service");
+        std::thread::sleep(Duration::from_millis(200));
+        assert!(!undone.load(Ordering::SeqCst), "an answered write is kept");
+    }
+
+    #[test]
+    fn cancel_ends_the_wait_at_once() {
+        use std::sync::atomic::{AtomicBool, Ordering};
+        use std::time::{Duration, Instant};
+        let flag = Arc::new(AtomicBool::new(false));
+        let f = flag.clone();
+        std::thread::spawn(move || {
+            std::thread::sleep(Duration::from_millis(250));
+            f.store(true, Ordering::SeqCst);
+        });
+        let t = Instant::now();
+        let e = store_within(Duration::from_secs(30), &|| flag.load(Ordering::SeqCst), || {
+            std::thread::sleep(Duration::from_secs(2));
+            Ok(())
+        }, || ()).unwrap_err();
+        assert!(e.starts_with("ADD_CANCELLED"), "{e}");
+        assert!(t.elapsed() < Duration::from_secs(1), "{:?}", t.elapsed());
+    }
+
+    #[test]
+    fn the_wait_is_thirty_seconds_and_runs_off_the_ui_thread() {
+        assert_eq!(KEYRING_WAIT, std::time::Duration::from_secs(30));
+        // add_account is async and runs the add in `blocking` (a worker); the keyring call is on a thread of its own inside that
+        let code = include_str!("lib.rs");
+        let add = &code[code.find("async fn add_account(").unwrap()..];
+        assert!(add[..add.find("\n}\n").unwrap()].contains("blocking(move ||"));
+    }
 
     #[test]
     fn keyring_failures_are_explained_per_os() {

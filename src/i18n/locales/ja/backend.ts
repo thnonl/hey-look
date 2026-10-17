@@ -20,6 +20,8 @@ export default defineLocale<typeof ns.en>({
   "backend.FOLDER_MISSING": "このアカウントに{folder}フォルダーが見つかりませんでした。メールは元の場所に残ります。",
   "backend.FOLDER_NOT_CREATED": "このアカウントで{folder}フォルダーを見つけることも作成することもできませんでした（{why}）。メールは元の場所に残ります。",
   "backend.ATT_NOT_FOUND": "添付ファイルが見つかりません",
+  "backend.KEYRING_TIMEOUT": "システムのキーリングがロックされているか、応答していません。ロックを解除して（パスワードと鍵 / KWallet）、もう一度お試しください。",
+  "backend.ADD_CANCELLED": "アカウントの追加がキャンセルされました。",
   "backend.EMAIL_INVALID": "有効なメールアドレスを入力してください",
   "backend.AI_NOT_CONFIGURED": "AIが設定されていません。設定 > AIアシスタントでエンドポイントとモデルを指定してください",
   "backend.AI_TIMEOUT": "AIアシスタントが{secs}秒以内に応答しませんでした。",

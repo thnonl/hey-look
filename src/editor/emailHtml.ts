@@ -21,7 +21,7 @@
 import { normFamily, normSize, ptText, sizePt } from "./fonts.ts";
 import { normColor } from "./colors.ts";
 import { QUOTE_STYLE, quoteSentHtml } from "./quoteBlock.ts";
-import { defaultListStyle, marginCss, normListStyle, olType, tailCss, type BlockAttrs } from "./blockFormat.ts";
+import { defaultListStyle, dirAttr, marginCss, normListStyle, olType, tailCss, type BlockAttrs } from "./blockFormat.ts";
 
 export interface JsonNode {
   type?: string;
@@ -39,6 +39,8 @@ export interface BaseFont {
 
 const HEADING_FONT: Record<number, string> = { 1: "font-size:18pt;font-weight:bold", 2: "font-size:14pt;font-weight:bold", 3: "font-size:12pt;font-weight:bold" };
 const LIST_BOX = "margin:0 0 0 40px;padding:0";
+/** A right-to-left list has its indent on the right and says so (its markers move to the right with it). */
+const LIST_BOX_RTL = "margin:0 40px 0 0;padding:0;direction:rtl";
 
 /** The style of a paragraph: its margin box (indent, space after), then alignment and line spacing. */
 const paragraphStyle = (a: BlockAttrs): string => marginCss("0", "0", a) + tailCss(a);
@@ -187,6 +189,8 @@ function tableHtml(n: JsonNode, base?: BaseFont): string {
   return `<table border="${borders === "all" ? 1 : 0}" cellpadding="4" cellspacing="0" width="100%" style="border-collapse:collapse;width:100%"><tbody>${body}</tbody></table>`;
 }
 
+const listBox = (n: JsonNode): string => (n.attrs?.direction === "rtl" ? LIST_BOX_RTL : LIST_BOX);
+
 function listHtml(n: JsonNode, depth: number, base?: BaseFont): string {
   const items = (n.content ?? []).map((li) => itemHtml(li, depth, base)).join("");
   if (n.type === "orderedList") {
@@ -194,10 +198,10 @@ function listHtml(n: JsonNode, depth: number, base?: BaseFont): string {
     const type = olType(css);
     const start = Number(n.attrs?.start);
     const attrs = `${type !== "1" ? ` type="${type}"` : ""}${start > 1 ? ` start="${Math.round(start)}"` : ""}`;
-    return `<ol${attrs} style="list-style-type:${css};${LIST_BOX}">${items}</ol>`;
+    return `<ol${attrs}${dirAttr(n.attrs ?? {})} style="list-style-type:${css};${listBox(n)}">${items}</ol>`;
   }
   const css = normListStyle(false, n.attrs?.listStyle as string) ?? defaultListStyle(false, depth);
-  return `<ul style="list-style-type:${css};${LIST_BOX}">${items}</ul>`;
+  return `<ul${dirAttr(n.attrs ?? {})} style="list-style-type:${css};${listBox(n)}">${items}</ul>`;
 }
 
 /**
@@ -216,11 +220,11 @@ function blockHtml(n: JsonNode, depth = 0, base?: BaseFont): string {
   switch (n.type) {
     case "paragraph": {
       const inner = inlineHtml(n.content);
-      return `<p style="${paragraphStyle(blockAttrs(n))}">${inner || "<br>"}</p>`;
+      return `<p${dirAttr(blockAttrs(n))} style="${paragraphStyle(blockAttrs(n))}">${inner || "<br>"}</p>`;
     }
     case "heading": {
       const level = Math.min(3, Math.max(1, Number(n.attrs?.level) || 1));
-      return `<h${level} style="${headingStyle(level, blockAttrs(n))}">${inlineHtml(n.content, ["bold"])}</h${level}>`;
+      return `<h${level}${dirAttr(blockAttrs(n))} style="${headingStyle(level, blockAttrs(n))}">${inlineHtml(n.content, ["bold"])}</h${level}>`;
     }
     case "bulletList":
     case "orderedList":

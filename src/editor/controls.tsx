@@ -1,8 +1,8 @@
 import { NodeSelection } from "@tiptap/pm/state";
 import type { Editor } from "@tiptap/react";
 import {
-  AlignCenter, AlignJustify, AlignLeft, AlignRight, ArrowUpDown, Bold, ChevronDown, Highlighter, ImagePlus, IndentDecrease, IndentIncrease, Italic, Link2, List, ListOrdered, Minus,
-  Plus, RemoveFormatting, Redo2, Smile, Strikethrough, Subscript, Superscript, Table2, Underline as UnderlineIcon, Undo2,
+  AlignCenter, AlignJustify, AlignLeft, AlignRight, ArrowUpDown, Bold, CalendarClock, CaseSensitive, ChevronDown, Highlighter, ImagePlus, IndentDecrease, IndentIncrease, Italic, Link2, List, ListOrdered, Minus,
+  Omega, PilcrowLeft, PilcrowRight, Plus, RemoveFormatting, Redo2, Search, Smile, Strikethrough, Subscript, Superscript, Table2, Underline as UnderlineIcon, Undo2, ZoomIn,
 } from "lucide-react";
 import { Suspense, lazy, useEffect, useRef, useState, type ReactNode, type RefObject } from "react";
 import { FloatingMenu, type MenuItem } from "../components/ui";
@@ -13,7 +13,7 @@ import { FontColorPalette, HighlightPalette, type PaletteClose } from "./ColorPa
 import { DEFAULT_FONT_COLOR, pushRecent } from "./colors";
 import { LINE_HEIGHTS, type Align } from "./blockFormat";
 import {
-  selectionAlign, selectionHasSpaceAfter, selectionLineHeight, selectionListStyle, selectionStyle, listKind, type StyleName,
+  selectionAlign, selectionDirection, selectionHasSpaceAfter, selectionLineHeight, selectionListStyle, selectionStyle, listKind, setDirection, type StyleName,
 } from "./blockCommands";
 import {
   applyStyle, changeIndent, chooseListStyle, clearFormatting, focusText, insertHorizontalLine, toggleScript, selectionColor, selectionFamily, selectionSize, setAlignment, setFamily, setHighlight,
@@ -50,6 +50,8 @@ export interface BarState {
   highlight: Uniform<string>;
   /** the alignment over the selection (a mixed selection shows left) */
   align: Align | "left";
+  /** the text direction over the selection: "ltr" / "rtl", null when the selection has both (REQ-43) */
+  direction: "ltr" | "rtl" | null;
   /** the paragraph style (Normal, Heading 1-3, Quote, Code); null when the selection has several */
   style: StyleName | null;
   /** the line spacing ("1.5"; null = single, a mixed selection has no check) and whether every paragraph has space after it */
@@ -82,6 +84,7 @@ export function readBarState(editor: Editor, base: BaseFont): BarState {
     color: selectionColor(editor, "color", base),
     highlight: selectionColor(editor, "backgroundColor", base),
     align: selectionAlign(editor.state).value,
+    direction: selectionDirection(editor.state).mixed ? null : selectionDirection(editor.state).value === "rtl" ? "rtl" : "ltr",
     style: selectionStyle(editor.state).value,
     lineHeight: selectionLineHeight(editor.state).value,
     lineHeightMixed: selectionLineHeight(editor.state).mixed,
@@ -97,8 +100,12 @@ export function readBarState(editor: Editor, base: BaseFont): BarState {
 /** What the host of the toolbar (Compose, RichEditor) provides: the link UI of its editor and, for a message, the picture button. */
 export interface FormatHost {
   link: { open: () => void; isOpen: boolean; btnRef: RefObject<HTMLButtonElement | null> };
-  /** present in a message only (a signature or template has no picture button yet) */
+  /** present when the editor takes pictures (the message body, the signature and the template editor) */
   insertPicture?: () => void;
+  /** the message body shows the editor larger or smaller (REQ-49): the percentage and how it changes; not in a signature or template */
+  zoom?: { value: number; set: (percent: number) => void };
+  /** the message body has Find and replace (REQ-44): opens its panel */
+  find?: (mode: "find" | "replace") => void;
 }
 
 /** Roving tabindex: one control of the toolbar is a Tab stop, the arrow keys move between the others. */
@@ -563,6 +570,10 @@ const LazyTableMenu = lazy(() => import("./insertUi").then((m) => ({ default: m.
 const LazyEmojiMenu = lazy(() => import("./insertUi").then((m) => ({ default: m.EmojiMenu })));
 const TableMenuLazy = (p: MenuProps) => <Suspense fallback={null}><LazyTableMenu {...p} /></Suspense>;
 const EmojiMenuLazy = (p: MenuProps) => <Suspense fallback={null}><LazyEmojiMenu {...p} /></Suspense>;
+const LazySymbolMenu = lazy(() => import("./insertUi").then((m) => ({ default: m.SymbolMenu })));
+const LazyDateMenu = lazy(() => import("./insertUi").then((m) => ({ default: m.DateMenu })));
+const SymbolMenuLazy = (p: MenuProps) => <Suspense fallback={null}><LazySymbolMenu {...p} /></Suspense>;
+const DateMenuLazy = (p: MenuProps) => <Suspense fallback={null}><LazyDateMenu {...p} /></Suspense>;
 
 const tableControl: FormatControl = {
   id: "table", ...BAR_META.table, rove: ["table"],
@@ -575,6 +586,8 @@ function InsertMenu({ c, anchor, trigger, onClose }: MenuProps) {
   const items: MenuItem[] = [
     { label: c.t("compose.fmt.hr"), icon: <Minus size={IC} />, onClick: () => void insertHorizontalLine(c.editor) },
     { label: c.t("compose.insert.emoji"), icon: <Smile size={IC} />, hint: "›", onClick: () => c.openPicker("emoji", trigger) },
+    { label: c.t("compose.insert.symbol"), icon: <Omega size={IC} />, hint: "›", onClick: () => c.openPicker("symbol", trigger) },
+    { label: c.t("compose.insert.dateTime"), icon: <CalendarClock size={IC} />, hint: "›", onClick: () => c.openPicker("dateTime", trigger) },
   ];
   return <FloatingMenu anchor={anchor} trigger={trigger} items={items} minWidth={190} onClose={onClose} />;
 }
@@ -600,6 +613,32 @@ function SpacingMenu({ c, anchor, trigger, onClose }: MenuProps) {
       : { label: c.t("compose.fmt.spacingAddAfter"), onClick: () => void setSpaceAfterParagraph(c.editor, true) },
   ];
   return <FloatingMenu anchor={anchor} trigger={trigger} items={items} minWidth={230} onClose={onClose} />;
+}
+
+/** Change case: the five cases of the menu; the code that does it is fetched with the first use. */
+const CASES = [
+  ["sentence", "compose.fmt.case.sentence"],
+  ["lower", "compose.fmt.case.lower"],
+  ["upper", "compose.fmt.case.upper"],
+  ["title", "compose.fmt.case.title"],
+  ["toggle", "compose.fmt.case.toggle"],
+] as const;
+
+function CaseMenu({ c, anchor, trigger, onClose }: MenuProps) {
+  const items: MenuItem[] = CASES.map(([mode, label]) => ({
+    label: c.t(label),
+    onClick: () => void import("./changeCase").then((m) => (m.changeCase(c.editor, mode), focusText(c.editor))),
+  }));
+  return <FloatingMenu anchor={anchor} trigger={trigger} items={items} minWidth={210} onClose={onClose} />;
+}
+
+/** The zoom steps of the editor (REQ-49): display only, nothing of it is sent. */
+export const ZOOMS: readonly number[] = [75, 100, 125, 150, 200];
+
+function ZoomMenu({ c, anchor, trigger, onClose }: MenuProps) {
+  const z = c.host.zoom;
+  const items: MenuItem[] = ZOOMS.map((n) => ({ label: `${n}%`, checked: z?.value === n, onClick: () => (z?.set(n), focusText(c.editor)) }));
+  return <FloatingMenu anchor={anchor} trigger={trigger} items={items} minWidth={110} onClose={onClose} />;
 }
 
 // ---------------------------------------------------------------- colour and highlight (split buttons)
@@ -749,6 +788,28 @@ export const MORE_ITEMS: readonly MoreEntry[] = [
     picker: (c, anchor, trigger, close) => <SpacingMenu c={c} anchor={anchor} trigger={trigger} onClose={close} />,
   },
   {
+    id: "ltr", variants: ["compose", "compact"],
+    item: (c) => ({ label: c.t("compose.fmt.ltr"), icon: <PilcrowRight size={IC} />, checked: isOn(c.st.direction === "ltr"), onClick: () => void c.editor.chain().focus().command(({ state, dispatch }) => setDirection(null)(state, dispatch)).run() }),
+  },
+  {
+    id: "rtl", variants: ["compose", "compact"],
+    item: (c) => ({ label: c.t("compose.fmt.rtl"), icon: <PilcrowLeft size={IC} />, checked: isOn(c.st.direction === "rtl"), onClick: () => void c.editor.chain().focus().command(({ state, dispatch }) => setDirection("rtl")(state, dispatch)).run() }),
+  },
+  {
+    id: "case", variants: ["compose", "compact"],
+    item: (c) => ({ label: c.t("compose.fmt.case"), icon: <CaseSensitive size={IC} />, hint: "›", onClick: () => c.openPicker("case") }),
+    picker: (c, anchor, trigger, close) => <CaseMenu c={c} anchor={anchor} trigger={trigger} onClose={close} />,
+  },
+  {
+    id: "find", variants: ["compose"],
+    item: (c) => ({ label: c.t("compose.fmt.find"), icon: <Search size={IC} />, hint: kbd("Ctrl+F"), disabled: !c.host.find, onClick: () => c.host.find?.("find") }),
+  },
+  {
+    id: "zoom", variants: ["compose"],
+    item: (c) => ({ label: c.t("compose.fmt.zoom"), icon: <ZoomIn size={IC} />, hint: c.host.zoom && c.host.zoom.value !== 100 ? `${c.host.zoom.value}% ›` : "›", onClick: () => c.openPicker("zoom") }),
+    picker: (c, anchor, trigger, close) => <ZoomMenu c={c} anchor={anchor} trigger={trigger} onClose={close} />,
+  },
+  {
     id: "hr", variants: ["compose", "compact"],
     item: (c) => ({ label: c.t("compose.fmt.hr"), icon: <Minus size={IC} />, onClick: () => void insertHorizontalLine(c.editor) }),
   },
@@ -756,6 +817,16 @@ export const MORE_ITEMS: readonly MoreEntry[] = [
     id: "emoji", variants: ["compose", "compact"],
     item: (c) => ({ label: c.t("compose.insert.emoji"), icon: <Smile size={IC} />, hint: "›", onClick: () => c.openPicker("emoji") }),
     picker: (c, anchor, trigger, close) => <EmojiMenuLazy c={c} anchor={anchor} trigger={trigger} onClose={close} />,
+  },
+  {
+    id: "symbol", variants: ["compose", "compact"],
+    item: (c) => ({ label: c.t("compose.insert.symbol"), icon: <Omega size={IC} />, hint: "›", onClick: () => c.openPicker("symbol") }),
+    picker: (c, anchor, trigger, close) => <SymbolMenuLazy c={c} anchor={anchor} trigger={trigger} onClose={close} />,
+  },
+  {
+    id: "dateTime", variants: ["compose", "compact"],
+    item: (c) => ({ label: c.t("compose.insert.dateTime"), icon: <CalendarClock size={IC} />, hint: "›", onClick: () => c.openPicker("dateTime") }),
+    picker: (c, anchor, trigger, close) => <DateMenuLazy c={c} anchor={anchor} trigger={trigger} onClose={close} />,
   },
 ];
 

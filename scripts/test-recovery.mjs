@@ -3,7 +3,7 @@
 // a message and never sends it, discard removes it, anything else keeps it). Behaviour of src/recovery.ts.
 // Run: node --experimental-strip-types scripts/test-recovery.mjs
 import assert from "node:assert/strict";
-import { RecoveryWriter, offerRecovery } from "../src/recovery.ts";
+import { RecoveryWriter, offerRecovery, composeFromSnapshot, snapshotInWindow } from "../src/recovery.ts";
 
 const att = (n) => ({ filename: `${n}.txt`, mime: "text/plain", dataBase64: btoa(n) });
 const form = (subject) => ({ accountId: "a1", subject, preview: subject, payload: JSON.stringify({ subject }) });
@@ -265,6 +265,104 @@ function start(items, answers, over = {}) {
   assert.ok(!s.log.some((l) => l.startsWith("clear") || l.startsWith("open")), "not dropped, not opened");
   const bad = start([], [], { deps: { list: async () => Promise.reject(new Error("db")) } });
   assert.deepEqual(await offerRecovery(bad.deps), { restored: [], discarded: [], later: [], gone: [] });
+}
+
+// 12. N snapshots with windows: every question first, then N windows (WP5f B4). A window that opens while the next question is shown can
+// hide it (Linux): nothing is opened until the last question is answered. The ones the app cannot open stay for the next start.
+{
+  const items = Array.from({ length: 10 }, (_, i) => info("s" + i, "S" + i, 1000 - i));
+  const opened = [];
+  const s = start(items, items.map(() => "restore"), {
+    deps: {
+      inWindow: () => true,
+      open: async (l) => {
+        s.log.push(`open ${l.id}`);
+        if (opened.length >= 8) return false; // the cap of the app: 8 windows
+        opened.push(l.id);
+        return true;
+      },
+    },
+  });
+  const r = await offerRecovery(s.deps);
+  const firstOpen = s.log.findIndex((l) => l.startsWith("open"));
+  assert.equal(s.log.slice(0, firstOpen).filter((l) => l.startsWith("ask")).length, 10, "all ten questions come before the first window");
+  assert.deepEqual(opened, items.slice(0, 8).map((x) => x.id), "eight windows, in the order of the questions");
+  assert.deepEqual(r.restored, opened);
+  assert.deepEqual(r.later, ["s8", "s9"], "the two that did not fit stay for the next start (they are not cleared)");
+  assert.ok(!s.log.some((l) => l.startsWith("clear")));
+  // two snapshots: both restored, nothing waits for a pane
+  const two = start([info("a", "A", 2), info("b", "B", 1)], ["restore", "restore"], { deps: { inWindow: () => true } });
+  const r2 = await offerRecovery(two.deps);
+  assert.deepEqual(r2.restored, ["a", "b"]);
+  assert.deepEqual(two.log.filter((l) => l.startsWith("open")), ["open a", "open b"]);
+  // "not now" on the second still opens the first
+  const mix = start([info("a", "A", 2), info("b", "B", 1)], ["restore", "later"], { deps: { inWindow: () => true } });
+  const r3 = await offerRecovery(mix.deps);
+  assert.deepEqual(r3.restored, ["a"]);
+  assert.deepEqual(r3.later, ["b"]);
+  // discard of one, restore of the other
+  const d = start([info("a", "A", 2), info("b", "B", 1)], ["discard", "restore"], { deps: { inWindow: () => true } });
+  const r4 = await offerRecovery(d.deps);
+  assert.deepEqual(r4, { restored: ["b"], discarded: ["a"], later: [], gone: [] });
+}
+
+// 13. in the pane (the setting is off): the next snapshot is offered in this run as soon as the restored message is closed, sent or discarded
+{
+  const items = [info("one", "One", 3), info("two", "Two", 2), info("three", "Three", 1)];
+  const s = start(items, ["restore", "restore", "restore"]);
+  const run = offerRecovery(s.deps);
+  await new Promise((r) => setTimeout(r, 10));
+  assert.deepEqual(s.log, ["ask one", "load one", "open one"], "one message in the pane: no question over it");
+  for (const next of ["two", "three"]) {
+    s.state.composing = false; // closed / sent / discarded
+    s.state.idle.splice(0).forEach((r) => r());
+    await new Promise((r) => setTimeout(r, 10));
+    assert.ok(s.log.includes("open " + next), "offered and opened once the pane is free: " + next);
+  }
+  s.state.composing = false;
+  s.state.idle.splice(0).forEach((r) => r());
+  const r = await run;
+  assert.deepEqual(r.restored, ["one", "two", "three"]);
+}
+
+// 14. a window-mode snapshot between pane ones: the window is not held back until the end of a pane message
+{
+  const s = start([info("p", "Pane", 3), info("w", "Win", 2), info("q", "Pane2", 1)], ["restore", "restore", "restore"], { deps: { inWindow: (l) => l.id === "w" } });
+  const run = offerRecovery(s.deps);
+  await new Promise((r) => setTimeout(r, 10));
+  assert.deepEqual(s.log, ["ask p", "load p", "open p"]);
+  s.state.composing = false;
+  s.state.idle.splice(0).forEach((r) => r());
+  await new Promise((r) => setTimeout(r, 10));
+  assert.ok(s.log.indexOf("ask w") < s.log.indexOf("ask q"));
+  s.state.composing = false;
+  s.state.idle.splice(0).forEach((r) => r());
+  await run;
+  assert.ok(s.log.includes("open w") && s.log.includes("open q"));
+}
+
+// 15. what a snapshot gives back to Compose: Bcc, Cc, threading, toggles and the window flag
+{
+  const form = {
+    v: 1, to: ["a@x.org"], cc: ["c@x.org"], bcc: ["Hidden <b@x.org>", "z@x.org"], subject: "S", html: "<p>Hi</p>",
+    inReplyTo: "<m1@x.org>", references: ["<m0@x.org>", "<m1@x.org>"], replaces: null, isReply: true, encrypt: "off", sign: false, attachKey: false, confidential: false, win: true,
+  };
+  const l = { id: "r1", accountId: "a1", savedAt: 1, payload: JSON.stringify(form), files: [att("f")] };
+  const init = composeFromSnapshot(l);
+  assert.deepEqual(init.bcc, ["Hidden <b@x.org>", "z@x.org"], "Bcc survives the snapshot");
+  assert.deepEqual(init.cc, ["c@x.org"]);
+  assert.deepEqual(init.to, ["a@x.org"]);
+  assert.equal(init.inReplyTo, "<m1@x.org>");
+  assert.deepEqual(init.references, ["<m0@x.org>", "<m1@x.org>"]);
+  assert.equal(init.recoveryId, "r1");
+  assert.equal(init.attachments.length, 1);
+  assert.equal(snapshotInWindow(l), true);
+  assert.equal(snapshotInWindow({ ...l, payload: JSON.stringify({ ...form, win: undefined }) }), false);
+  // recipients only: no subject, no body text
+  const only = composeFromSnapshot({ ...l, payload: JSON.stringify({ v: 1, to: ["only@x.org"], cc: [], bcc: ["b@x.org"], subject: "", html: "" }) });
+  assert.deepEqual([only.to, only.bcc, only.subject, only.bodyHtml], [["only@x.org"], ["b@x.org"], "", ""]);
+  assert.equal(composeFromSnapshot({ ...l, payload: "not json" }), null);
+  assert.equal(composeFromSnapshot({ ...l, payload: JSON.stringify({ to: [] }) }), null, "no html: unreadable");
 }
 
 console.log("recovery: ok");

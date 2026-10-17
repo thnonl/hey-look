@@ -20,4 +20,7 @@ assert.match(css, /\.tr-row \{[^}]*flex-wrap: wrap;/, "the row wraps");
 assert.match(css, /\.tr-main \{[^}]*flex: 1 1 \d+(\.\d+)?em;[^}]*min-width: 0;/, "the sentence group keeps a readable basis and may shrink");
 assert.match(css, /\.tr-side \{[^}]*margin-left: auto;/, "timer + Cancel stay together, at the end of the row");
 assert.doesNotMatch(css, /\.tr-row \.tr-text \{[^}]*flex: 1 1 /, "the sentence alone is not a wrapping item (it would leave the ring on a line of its own)");
+// the failed box has the way to the settings next to Retry and Dismiss (WP5f), and its actions may wrap in a narrow pane
+assert.match(tsx, /className="tr-actions"[\s\S]*common\.retry[\s\S]*openAiSettings\(classifyAiError\(job\.errorSource \?\? job\.error \?\? ""\)\?\.focus\)[\s\S]*reading\.aiProblem\.openSettings[\s\S]*reading\.msg\.dismiss/, "a failed translation: Retry, Open AI Assistant settings (the field the problem is about), Dismiss");
+assert.match(css, /\.tr-actions \{[^}]*flex-wrap: wrap;/, "the actions wrap");
 console.log("ok - test-translate-box-layout");

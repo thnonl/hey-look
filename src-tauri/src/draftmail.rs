@@ -7,10 +7,15 @@
 use serde::Serialize;
 
 #[derive(Serialize, Debug, Default, PartialEq)]
+#[serde(rename_all = "camelCase")]
 pub struct DraftRecipients {
     pub to: Vec<String>,
     pub cc: Vec<String>,
     pub bcc: Vec<String>,
+    /// The message this draft answers (its In-Reply-To) and the chain it was threaded with (References): a reopened reply draft is sent with
+    /// the same threading headers as before it was saved (WP5f).
+    pub in_reply_to: Option<String>,
+    pub references: Vec<String>,
 }
 
 /// Split a header value at the commas that separate recipients: not inside a quoted string, an angle-bracket address or a comment.
@@ -85,10 +90,17 @@ fn list(h: &crate::pgpmail::Headers, name: &str) -> Vec<String> {
     crate::pgpmail::header(h, name).map(|v| split_list(v).iter().map(|p| one(p)).collect()).unwrap_or_default()
 }
 
-/// To, Cc and Bcc of a raw draft, as chips.
+/// To, Cc and Bcc of a raw draft, as chips, and its threading headers.
 pub fn recipients(raw: &[u8]) -> DraftRecipients {
     let (h, _) = crate::pgpmail::parse_headers(raw);
-    DraftRecipients { to: list(&h, "To"), cc: list(&h, "Cc"), bcc: list(&h, "Bcc") }
+    let ids = |name: &str| crate::pgpmail::header(&h, name).map(crate::replyhdr::ids_in).unwrap_or_default();
+    DraftRecipients {
+        to: list(&h, "To"),
+        cc: list(&h, "Cc"),
+        bcc: list(&h, "Bcc"),
+        in_reply_to: ids("In-Reply-To").into_iter().next(),
+        references: ids("References"),
+    }
 }
 
 // ---------------------------------------------------------------------------------------------------------------------------------
@@ -250,6 +262,25 @@ mod tests {
         d.bcc = vec!["silent@".into(), "Quiet <quiet@example.test>".into()];
         let bytes = crate::smtp::build_draft(&crate::smtp::tests::account(), &d).unwrap().formatted();
         assert_eq!(recipients(&bytes).bcc, d.bcc);
+    }
+
+    #[test]
+    fn a_reply_draft_gives_back_its_threading_headers() {
+        // the real writer, a reply with a long chain: In-Reply-To is the last id, References keep their order
+        let mut d = crate::smtp::tests::draft("<p>Hi</p>", vec![], vec![]);
+        d.references = vec!["<root@x.org>".into(), "<mid@x.org>".into(), "<orig@x.org>".into()];
+        d.in_reply_to = Some("<orig@x.org>".into());
+        let bytes = crate::smtp::build_draft(&crate::smtp::tests::account(), &d).unwrap().formatted();
+        let r = recipients(&bytes);
+        assert_eq!(r.in_reply_to.as_deref(), Some("<orig@x.org>"));
+        assert_eq!(r.references, d.references);
+        // a new message has neither
+        let d = crate::smtp::tests::draft("<p>Hi</p>", vec![], vec![]);
+        let r = recipients(&crate::smtp::build_draft(&crate::smtp::tests::account(), &d).unwrap().formatted());
+        assert_eq!((r.in_reply_to, r.references), (None, vec![]));
+        // a folded References header is read whole
+        let r = recipients(&raw("In-Reply-To: <b@x.org>\r\nReferences: <a@x.org>\r\n <b@x.org>\r\n"));
+        assert_eq!(r.references, vec!["<a@x.org>", "<b@x.org>"]);
     }
 
     // ---- which draft is replaced

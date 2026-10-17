@@ -11,8 +11,8 @@ import StarterKit from "@tiptap/starter-kit";
 import { EditorState, TextSelection } from "@tiptap/pm/state";
 import { BlockFormat } from "../src/editor/blockExtension.ts";
 import {
-  indentList, indentPlain, listKind, listsOf, resetBlockFormats, selectionAlign, selectionHasSpaceAfter, selectionLineHeight, selectionListStyle, selectionStyle,
-  setAlign, setLineHeight, setListStyle, setSpaceAfter, setStyle, textblocksOf,
+  indentList, indentPlain, listKind, listsOf, resetBlockFormats, selectionAlign, selectionDirection, selectionHasSpaceAfter, selectionLineHeight, selectionListStyle, selectionStyle,
+  setAlign, setDirection, setLineHeight, setListStyle, setSpaceAfter, setStyle, textblocksOf,
 } from "../src/editor/blockCommands.ts";
 import { docToHtml } from "../src/editor/emailHtml.ts";
 
@@ -245,6 +245,56 @@ const attrsOf = (state, needle) => {
   const d = doc(P("a"), UL(LI(P("b"), UL(LI(P("c"))))), P("d"));
   assert.deepEqual(textblocksOf(stateAt(d, pos(d, "a"), pos(d, "d", 1))).map((b) => b.node.textContent), ["a", "b", "c", "d"]);
   assert.deepEqual(textblocksOf(stateAt(d, pos(d, "c", 0))).map((b) => b.node.textContent), ["c"]);
+}
+
+// ---- text direction (REQ-43, AC-66)
+{
+  const d = doc(P("one"), P("two"), H(2, "head"), UL(LI(P("item1"), UL(LI(P("item2")))), LI(P("item3"))), P("tail"));
+  // a paragraph: right-to-left with the caret in it, only that one
+  let s = run(stateAt(d, pos(d, "two", 1)), setDirection("rtl"));
+  assert.equal(attrsOf(s, "two").direction, "rtl");
+  assert.equal(attrsOf(s, "one").direction, null);
+  assert.deepEqual(selectionDirection(s), { mixed: false, value: "rtl" });
+  assert.match(html(s), /<p dir="rtl" style="margin:0;direction:rtl;text-align:right">two<\/p>/, "dir, direction and the alignment it implies");
+  assert.deepEqual(selectionAlign(s), { mixed: false, value: "right" }, "the alignment icon shows right in a right-to-left paragraph");
+  // left-to-right again
+  s = run(s, setDirection(null));
+  assert.equal(attrsOf(s, "two").direction, null);
+  assert.equal(html(s), html(stateAt(d, 1)), "back to the document it was");
+  // right-to-left: "left" is a choice, "right" is the default; back to left-to-right drops the "left"
+  s = run(stateAt(d, pos(d, "two", 1)), setDirection("rtl"));
+  s = run(s, setAlign("left"));
+  assert.equal(attrsOf(s, "two").textAlign, "left");
+  assert.match(html(s), /direction:rtl;text-align:left">two/);
+  assert.deepEqual(selectionAlign(s), { mixed: false, value: "left" });
+  s = run(s, setAlign("right"));
+  assert.equal(attrsOf(s, "two").textAlign, null, "right is the default of a right-to-left paragraph");
+  s = run(s, setAlign("center"));
+  assert.match(html(s), /text-align:center">two/);
+  s = run(run(s, setAlign("left")), setDirection(null));
+  assert.equal(attrsOf(s, "two").textAlign, null, "the 'left' of a right-to-left paragraph does not stay when it is left-to-right again");
+  // a selection over a paragraph and a heading
+  s = run(stateAt(d, pos(d, "two", 1), pos(d, "head", 2)), setDirection("rtl"));
+  assert.equal(attrsOf(s, "two").direction, "rtl");
+  assert.equal(attrsOf(s, "head").direction, "rtl");
+  assert.match(html(s), /<h2 dir="rtl" style="font-size:14pt;font-weight:bold;margin:12pt 0 4pt;direction:rtl;text-align:right">head<\/h2>/);
+  // mixed
+  s = run(stateAt(d, pos(d, "one", 1), pos(d, "two", 1)), setDirection("rtl"));
+  s = run(stateAt(s.doc, pos(s.doc, "one", 1), pos(s.doc, "tail", 1)), (st, dispatch) => (dispatch?.(st.tr), true));
+  assert.equal(selectionDirection(s).mixed, true);
+  // a list: the whole list changes, the lists in it too, the items keep no direction of their own
+  s = run(stateAt(d, pos(d, "item3", 0)), setDirection("rtl"));
+  const lists = [];
+  s.doc.descendants((n) => void (n.type.name === "bulletList" && lists.push(n.attrs.direction)));
+  assert.deepEqual(lists, ["rtl", "rtl"], "the outer list and the one in it");
+  assert.equal(attrsOf(s, "item1").direction, null);
+  assert.match(html(s), /<ul dir="rtl" style="list-style-type:disc;margin:0 40px 0 0;padding:0;direction:rtl"><li>item1<ul dir="rtl" style="list-style-type:circle;margin:0 40px 0 0;padding:0;direction:rtl"><li>item2<\/li><\/ul><\/li><li>item3<\/li><\/ul>/);
+  assert.deepEqual(selectionDirection(stateAt(s.doc, pos(s.doc, "item2", 0))), { mixed: false, value: "rtl" }, "an item takes the direction of its list");
+  s = run(stateAt(s.doc, pos(s.doc, "item1", 0)), setDirection(null));
+  assert.equal(html(s), html(stateAt(d, 1)), "the whole list back");
+  // the indent is on the right of a right-to-left paragraph
+  const ind = doc(P("x", { direction: "rtl", indent: 2 }));
+  assert.match(docToHtml(ind.toJSON()), /<p dir="rtl" style="margin:0 80px 0 0;direction:rtl;text-align:right">x<\/p>/);
 }
 
 console.log("block-commands: all checks passed");

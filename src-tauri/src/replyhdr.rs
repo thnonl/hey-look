@@ -51,7 +51,7 @@ pub fn log_text(h: &ReplyHeaders, source: &str, own_emails: &[String]) -> String
 const MAX_REFS: usize = 20;
 const MAX_REFS_CHARS: usize = 986;
 
-fn ids_in(raw: &str) -> Vec<String> {
+pub fn ids_in(raw: &str) -> Vec<String> {
     let mut out = vec![];
     let mut rest = raw;
     while let Some(a) = rest.find('<') {

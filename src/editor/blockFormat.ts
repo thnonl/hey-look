@@ -4,17 +4,22 @@
 // (scripts/test-block-format.mjs).
 //
 //   alignment     text-align:center | right | justify     (left is no declaration: it is what a paragraph is)
-//   indent        margin-left:40px .. 320px               (steps of 40 px, 8 at most)
+//   indent        margin-left:40px .. 320px               (steps of 40 px, 8 at most; margin-right in a right-to-left block)
 //   line spacing  line-height:1.15 | 1.5 | 2              (1.0 is "single": no declaration, the font's own line height)
 //   space after   margin-bottom:10pt                      (a paragraph has none, a heading has 4pt; "Remove space after" writes 0)
 //   lists         list-style-type:disc|circle|square, decimal|lower-alpha|upper-alpha|lower-roman|upper-roman (+ type="a" on <ol>)
+//   direction     dir="rtl" style="direction:rtl;text-align:right" on a paragraph or heading, dir="rtl" on a list (REQ-43; left-to-right is no declaration)
 
 export type Align = "center" | "right" | "justify";
+/** Right-to-left text (REQ-43). Left-to-right is what a block is: no attribute. */
+export type Direction = "rtl";
 export type SpaceAfter = "add" | "none";
 
 /** The paragraph-level attributes of a paragraph or heading, as the editor's document stores them. */
 export interface BlockAttrs {
-  textAlign?: Align | null;
+  /** "left" is only stored in a right-to-left block (there, no declaration means right; in a left-to-right block it is the default and no attribute) */
+  textAlign?: Align | "left" | null;
+  direction?: Direction | null;
   indent?: number | null;
   lineHeight?: string | null;
   spaceAfter?: SpaceAfter | null;
@@ -45,6 +50,30 @@ export function lengthPx(value: string | null | undefined): number | null {
 export function normAlign(value: string | null | undefined): Align | null {
   const v = (value ?? "").trim().toLowerCase().replace(/^-(?:webkit|moz)-/, "");
   return v === "center" || v === "right" || v === "justify" ? v : null;
+}
+
+// ---------------------------------------------------------------- direction
+
+/** `dir` / `direction` -> the attribute: "rtl" or nothing (ltr and auto are what a block is without one). */
+export function normDirection(value: string | null | undefined): Direction | null {
+  return (value ?? "").trim().toLowerCase() === "rtl" ? "rtl" : null;
+}
+
+/**
+ * The alignment attribute of a block read from its HTML. In a right-to-left block no alignment means right, so a written `text-align:right` is the
+ * default again (null); `text-align:left` there is a choice and is kept as "left".
+ */
+export function alignFromHtml(rtl: boolean, value: string | null | undefined): Align | "left" | null {
+  const a = normAlign(value);
+  if (!rtl) return a;
+  if (a === "right") return null;
+  return a ?? ((value ?? "").trim().toLowerCase() === "left" ? "left" : null);
+}
+
+/** The alignment a block has on screen: its own, else the side its direction starts on. */
+export function effectiveAlign(a: BlockAttrs): Align | "left" {
+  const own = a.textAlign === "left" && a.direction === "rtl" ? "left" : normAlign(a.textAlign);
+  return own ?? (a.direction === "rtl" ? "right" : "left");
 }
 
 // ---------------------------------------------------------------- indent
@@ -89,11 +118,13 @@ export function spaceAfterFromMargin(value: string | null | undefined, heading: 
 
 // ---------------------------------------------------------------- the style of a block
 
-/** The tail of a block's style: alignment and line spacing. */
+/** The tail of a block's style: direction, alignment and line spacing. A right-to-left block always says where it is aligned (a client without `dir` support still shows it right). */
 export function tailCss(a: BlockAttrs): string {
   const out: string[] = [];
-  const align = normAlign(a.textAlign);
-  if (align) out.push(`text-align:${align}`);
+  const rtl = a.direction === "rtl";
+  if (rtl) out.push("direction:rtl");
+  const align = rtl ? effectiveAlign(a) : normAlign(a.textAlign);
+  if (align && (rtl || align !== "left")) out.push(`text-align:${align}`);
   const lh = normLineHeight(a.lineHeight);
   if (lh) out.push(`line-height:${lh}`);
   return out.length ? ";" + out.join(";") : "";
@@ -103,10 +134,14 @@ export function tailCss(a: BlockAttrs): string {
  * The `margin` of a block: `top` and `bottom` are the block's own (a paragraph 0 and 0, a heading 12pt and 4pt); the indent is the left margin and
  * "add / none" replace the bottom one. Written as one declaration, 1 .. 4 values.
  */
+/** The `dir` attribute of a block (with its leading blank), or nothing. */
+export const dirAttr = (a: { direction?: Direction | null }): string => (a.direction === "rtl" ? ' dir="rtl"' : "");
+
 export function marginCss(top: string, bottom: string, a: BlockAttrs): string {
   const after = a.spaceAfter === "add" ? SPACE_AFTER : a.spaceAfter === "none" ? "0" : bottom;
-  const left = clampIndent(a.indent) * INDENT_PX;
-  if (left) return `margin:${top} 0 ${after} ${left}px`;
+  const start = clampIndent(a.indent) * INDENT_PX;
+  // (the indent is on the side the text starts on: the right of a right-to-left block)
+  if (start) return a.direction === "rtl" ? `margin:${top} ${start}px ${after} 0` : `margin:${top} 0 ${after} ${start}px`;
   return top === "0" && after === "0" ? "margin:0" : `margin:${top} 0 ${after}`;
 }
 

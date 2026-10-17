@@ -2,9 +2,11 @@
 // which the backend sends to `main` only, with the label of the caller stamped on it). Registered next to the reader's handler in App.tsx.
 import { listen } from "@tauri-apps/api/event";
 import { api } from "../api";
-import { openDraftThread } from "../components/Compose";
+import { openDraftThread, picturesToEditor } from "../components/Compose";
 import { t } from "../i18n";
-import { useStore, type Dialog } from "../store";
+import { friendlyError, useStore, type Dialog } from "../store";
+import { fmtWhen } from "../util";
+import { startCompose } from "./composeOpen";
 import { parseComposeRequest } from "./composeRequests";
 import { setPopoutCounts } from "./popoutCount";
 
@@ -13,6 +15,41 @@ interface Envelope {
   from: string;
   kind: string;
   payload: unknown;
+}
+
+/**
+ * Undo of "Scheduled for ...": the message leaves the outbox and is opened again as a new message (the way the pane does it). It is held first, so
+ * the worker cannot send it in the moment between.
+ */
+async function undoScheduled(id: string): Promise<void> {
+  const st = useStore.getState();
+  try {
+    const e = await api.outboxOpenForEdit(id);
+    await api.cancelOutbox(id);
+    const d = e.draft;
+    await startCompose(
+      {
+        accountId: d.accountId,
+        to: d.to,
+        cc: d.cc,
+        bcc: d.bcc,
+        subject: d.subject,
+        bodyHtml: picturesToEditor(d.html, d.inline ?? []),
+        inReplyTo: d.inReplyTo ?? null,
+        references: d.references,
+        attachments: d.attachments,
+        security: d.security,
+        meeting: d.meeting ? { ...d.meeting, on: true } : undefined,
+        confidential: d.confidential,
+        importance: d.importance,
+        carried: true,
+      },
+      { shift: false },
+    );
+  } catch (err) {
+    st.showToast(() => friendlyError(err), undefined, "error");
+  }
+  void st.refresh();
 }
 
 /** Handle `env` when it is a compose window's request. Returns false for any other kind (the reader's handler takes those). */
@@ -33,6 +70,16 @@ export function handleComposeRequest(env: Envelope): boolean {
         p.plain ? "info" : "success",
         [{ label: () => t("common.edit"), run: () => void openDraftThread(p.threadId, true) }],
       );
+      break;
+    case "scheduled":
+      // (the same toast the pane makes: the main window owns the outbox, so Undo and View work here)
+      st.showToast(
+        () => t("compose.toast.scheduled", { when: fmtWhen(p.sendAt) }),
+        () => void undoScheduled(p.outboxId),
+        "success",
+        [{ label: () => t("compose.toast.view"), run: () => void useStore.getState().setView("scheduled") }],
+      );
+      void st.refresh();
       break;
     case "dialog":
       // Settings and the key dialogs are the main window's: it comes forward (it may sit in the tray)

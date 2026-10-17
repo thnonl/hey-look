@@ -1629,6 +1629,32 @@ To:") && !out.contains("undisclosed"), "{out}");
         }
     }
 
+    /// WP5f: a credential store that does not answer (locked Secret Service) or a Cancel while the add waits leaves no account row, and the
+    /// connection checks that came before are not repeated by a retry that follows.
+    #[test]
+    fn add_account_with_a_keyring_that_times_out_or_is_cancelled_saves_nothing() {
+        let ok = |_: &Account, _: &str| -> R<()> { Ok(()) };
+        let db = memory_db();
+        // the keyring did not answer
+        let timed_out = |_: &str, _: &str, _: &dyn Fn() -> bool| -> R<()> { Err(crate::keyring_timeout_error()) };
+        let e = crate::add_account_cancellable(&db, input(1, true, 1, "ssl"), "secret", None, &ok, &ok, &|| false, &timed_out).unwrap_err();
+        assert!(e.starts_with("KEYRING_TIMEOUT:"), "{e}");
+        assert_eq!(account_rows(&db), 0);
+        // cancelled before anything was stored: the keyring is not even asked
+        let asked = std::cell::Cell::new(0);
+        let counting = |_: &str, _: &str, _: &dyn Fn() -> bool| -> R<()> {
+            asked.set(asked.get() + 1);
+            Ok(())
+        };
+        let e = crate::add_account_cancellable(&db, input(1, true, 1, "ssl"), "secret", None, &ok, &ok, &|| true, &counting).unwrap_err();
+        assert!(e.starts_with("ADD_CANCELLED:"), "{e}");
+        assert_eq!((asked.get(), account_rows(&db)), (0, 0));
+        // a keyring that answers: the account is added as before
+        let a = crate::add_account_cancellable(&db, input(1, true, 1, "ssl"), "secret", None, &ok, &ok, &|| false, &counting).unwrap();
+        assert_eq!((asked.get(), account_rows(&db)), (1, 1));
+        assert_eq!(a.email, "qa@example.test");
+    }
+
     /// QA v1.0.1 round 2, BUG-1: an SMTP server that cannot be secured (a plain port or a silent one, with SSL/TLS or STARTTLS) gets the
     /// secure connection hint and no account is stored, whatever the security mode and whether the SMTP login is shared or separate.
     /// The IMAP login is stood in for by a check that passes: the point is what the SMTP side does to the add.

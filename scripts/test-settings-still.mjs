@@ -29,7 +29,9 @@ assert.match(oauth, /<button ref=\{goBtn\} className="btn primary"/, "the ref is
 
 // 2. Add account (other account): the error is in the slot under the card, the focus goes back to the Add button
 assert.doesNotMatch(imap.slice(0, imap.indexOf('<div className="signin-slot">')), /\{error &&/, "no error row above the Add button");
-assert.match(imap, /<div className="signin-slot">\{error && <div className="notice bad" role="alert">\{error\}<\/div>\}<\/div>/, "the error is in the slot");
+// (WP5f: while the add waits - for the server, or for a locked keyring - the same slot says Connecting... with a Cancel; the error takes its place when it ends)
+assert.match(imap, /<div className="signin-slot">\s*\{error \? \(\s*<div className="notice bad" role="alert">\{error\}<\/div>\s*\) : busy \? \([\s\S]*?onClick=\{cancel\}[\s\S]*?\) : null\}\s*<\/div>/, "the error, or Connecting... with Cancel, is in the slot");
+assert.doesNotMatch(imap.slice(0, imap.indexOf('<div className="signin-slot">')), /onClick=\{cancel\}/, "the Cancel is in the slot, not above the Add button");
 assert.match(imap, /<button ref=\{addBtn\} className="btn primary" disabled=\{busy \|\| !email \|\| !pw\}/, "the Add button takes the focus back");
 
 // 3. Calendar: one status slot, in one chain; the buttons and the list do not come and go with the consent

@@ -20,6 +20,8 @@ export default defineLocale<typeof ns.en>({
   "backend.FOLDER_MISSING": "В этой учётной записи не найдена папка «{folder}». Письмо остаётся на месте.",
   "backend.FOLDER_NOT_CREATED": "В этой учётной записи не удалось найти или создать папку «{folder}» ({why}). Письмо остаётся на месте.",
   "backend.ATT_NOT_FOUND": "вложение не найдено",
+  "backend.KEYRING_TIMEOUT": "Системная связка ключей заблокирована или не отвечает. Разблокируйте её («Пароли и ключи» / KWallet) и повторите попытку.",
+  "backend.ADD_CANCELLED": "Добавление учётной записи отменено.",
   "backend.EMAIL_INVALID": "Введите корректный адрес электронной почты",
   "backend.AI_NOT_CONFIGURED": "ИИ не настроен: укажите конечную точку и модель в разделе Настройки > ИИ-помощник",
   "backend.AI_TIMEOUT": "ИИ-помощник не ответил за {secs} с.",

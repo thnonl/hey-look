@@ -20,6 +20,8 @@ export default defineLocale<typeof ns.en>({
   "backend.FOLDER_MISSING": "No se encontró la carpeta {folder} en esta cuenta. El correo se queda donde está.",
   "backend.FOLDER_NOT_CREATED": "No se pudo encontrar ni crear la carpeta {folder} en esta cuenta ({why}). El correo se queda donde está.",
   "backend.ATT_NOT_FOUND": "adjunto no encontrado",
+  "backend.KEYRING_TIMEOUT": "El llavero del sistema está bloqueado o no responde. Desbloquéalo (Contraseñas y claves / KWallet) e inténtalo de nuevo.",
+  "backend.ADD_CANCELLED": "Se canceló la adición de la cuenta.",
   "backend.EMAIL_INVALID": "Introduce una dirección de correo válida",
   "backend.AI_NOT_CONFIGURED": "IA sin configurar: define el punto de conexión y el modelo en Configuración > Asistente de IA",
   "backend.AI_TIMEOUT": "El asistente de IA no respondió en {secs} segundos.",

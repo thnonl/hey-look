@@ -3,6 +3,8 @@
 // The storage is src-tauri/src/recover.rs.
 
 import type { Att } from "./api";
+import { initialImportance } from "./importance.ts";
+import type { ComposeInit } from "./store";
 
 /** The form of a message as the snapshot keeps it. The body is the editor's HTML with the signature in it and the pictures as data: URIs. */
 export interface RecoveryForm {
@@ -162,13 +164,62 @@ export interface RecoveryLoaded {
   files: Att[];
 }
 
+/** The message of a snapshot as Compose opens it, or null when the snapshot cannot be read. */
+export function composeFromSnapshot(l: RecoveryLoaded): ComposeInit | null {
+  let f: RecoveryForm;
+  try {
+    f = JSON.parse(l.payload) as RecoveryForm;
+  } catch {
+    return null;
+  }
+  const list = (v: unknown) => (Array.isArray(v) ? v.filter((x): x is string => typeof x === "string") : []);
+  if (typeof f !== "object" || f === null || typeof f.html !== "string") return null;
+  return {
+    accountId: l.accountId,
+    to: list(f.to),
+    cc: list(f.cc),
+    bcc: list(f.bcc),
+    subject: typeof f.subject === "string" ? f.subject : "",
+    bodyHtml: f.html,
+    inReplyTo: f.inReplyTo ?? null,
+    references: list(f.references),
+    replaces: f.replaces ?? undefined,
+    isReply: !!f.isReply,
+    attachments: l.files,
+    // the toggles as they were; the body holds its one signature region, as in a stored draft
+    restore: { encrypt: f.encrypt === "on" || f.encrypt === "auto" ? f.encrypt : ("off" as const), sign: !!f.sign, attachKey: !!f.attachKey },
+    confidential: !!f.confidential,
+    importance: initialImportance(f),
+    // the snapshot keeps its id: the next snapshot of this message replaces it, and it goes when the message is sent, discarded or saved
+    recoveryId: l.id,
+  };
+}
+
+/** Was the message of this snapshot written in a window of its own? Then it is restored in one. */
+export function snapshotInWindow(l: RecoveryLoaded): boolean {
+  try {
+    return (JSON.parse(l.payload) as { win?: unknown }).win === true;
+  } catch {
+    return false;
+  }
+}
+
 export interface RestoreDeps {
   list(): Promise<RecoveryInfo[]>;
   load(id: string): Promise<RecoveryLoaded | null>;
   /** "later" is also the answer of Esc and of a click outside */
   ask(info: RecoveryInfo): Promise<"restore" | "discard" | "later">;
-  /** open Compose with the snapshot (it keeps the snapshot's id, so the next snapshot replaces it) */
-  open(l: RecoveryLoaded): Promise<void>;
+  /**
+   * open Compose with the snapshot (it keeps the snapshot's id, so the next snapshot replaces it). false = it could not be opened (too many
+   * windows, no mailbox): the snapshot stays for the next start
+   */
+  open(l: RecoveryLoaded): Promise<boolean | void>;
+  /**
+   * This snapshot opens in a window of its own (the setting, or it was written in one): such a window does not take the pane, so the questions
+   * go on at once and every restored message is opened together after the last question. A question asked while a window has just come up
+   * can sit unseen behind it (Linux): all questions first, then the windows.
+   */
+  inWindow?(l: RecoveryLoaded): boolean;
   clear(id: string): Promise<void>;
   /** a message is being written */
   composing(): boolean;
@@ -198,9 +249,25 @@ export async function offerRecovery(d: RestoreDeps): Promise<RestoreResult> {
   } catch {
     return res;
   }
+  const windows: RecoveryLoaded[] = [];
+  // the messages that wait for a window: opened in the order of the questions, as many as the app allows (the rest stays for the next start)
+  const flush = async () => {
+    for (let k = 0; k < windows.length; k++) {
+      const ok = await d.open(windows[k]);
+      if (ok === false) {
+        res.later.push(...windows.slice(k).map((x) => x.id));
+        break;
+      }
+      res.restored.push(windows[k].id);
+    }
+    windows.length = 0;
+  };
   for (let i = 0; i < items.length; i++) {
     const info = items[i];
-    if (d.composing()) await d.whenIdle();
+    if (d.composing()) {
+      await flush();
+      await d.whenIdle();
+    }
     const answer = await d.ask(info);
     if (answer === "discard") {
       await d.clear(info.id);
@@ -217,14 +284,19 @@ export async function offerRecovery(d: RestoreDeps): Promise<RestoreResult> {
         res.gone.push(info.id);
         continue; // (kept: it may load at the next start)
       }
+      if (d.inWindow?.(l)) {
+        windows.push(l);
+        continue;
+      }
       if (d.composing()) await d.whenIdle();
-      await d.open(l);
-      res.restored.push(info.id);
+      if ((await d.open(l)) === false) res.later.push(info.id);
+      else res.restored.push(info.id);
     } else {
       // "not now" is for the rest as well: they are asked again at the next start
       res.later.push(...items.slice(i).map((x) => x.id));
       break;
     }
   }
+  await flush();
   return res;
 }

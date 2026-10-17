@@ -196,6 +196,8 @@ export default defineLocale<typeof ns.en>({
   "settings.composing.picAttach": "ファイルとして添付",
   "settings.composing.resize": "大きな画像を自動的に縮小する",
   "settings.composing.resizeHint": "1 MBを超える画像は、挿入時に幅1600 pxに縮小されます",
+  "settings.composing.altCheck": "送信前に代替テキストの有無を確認する",
+  "settings.composing.altCheckHint": "代替テキストのない画像を含むメッセージを送信する前に確認します。",
   "settings.composing.popout": "新規メール、返信、転送を別のウィンドウで開く",
   "settings.composing.popoutHint": "「新規メール」「返信」「転送」をクリックするときに Shift キーを押したままにすると、逆の動作になります。",
   "settings.composing.sigOnReply": "返信にも署名を追加する",

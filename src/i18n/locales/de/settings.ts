@@ -196,6 +196,8 @@ export default defineLocale<typeof ns.en>({
   "settings.composing.picAttach": "Als Dateien anhängen",
   "settings.composing.resize": "Große Bilder automatisch verkleinern",
   "settings.composing.resizeHint": "Bilder über 1 MB werden beim Einfügen auf 1600 px Breite verkleinert",
+  "settings.composing.altCheck": "Vor dem Senden auf fehlenden Alternativtext prüfen",
+  "settings.composing.altCheckHint": "Fragt nach, bevor eine Nachricht mit einem Bild ohne Alternativtext gesendet wird.",
   "settings.composing.popout": "Neue Nachrichten, Antworten und Weiterleitungen in einem separaten Fenster öffnen",
   "settings.composing.popoutHint": "Halten Sie die Umschalttaste gedrückt, wenn Sie auf Neue E-Mail, Antworten oder Weiterleiten klicken, um das Gegenteil zu tun.",
   "settings.composing.sigOnReply": "Signatur zu Antworten hinzufügen",

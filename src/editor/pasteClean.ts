@@ -16,7 +16,7 @@
 import { parseHtml, textOf, toHtml, MAX_DEPTH, type El, type Nd } from "./pasteTree.ts";
 import { normColor, parseRgb } from "./colors.ts";
 import { familyName, normFamily, sizePt, ptText } from "./fonts.ts";
-import { lengthPx, normAlign, normLineHeight, normListStyle, INDENT_PX } from "./blockFormat.ts";
+import { lengthPx, normAlign, normDirection, normLineHeight, normListStyle, INDENT_PX } from "./blockFormat.ts";
 import { htmlToText } from "../htmlText.ts";
 import { isLocalPictureSrc } from "../pastedHtml.ts";
 
@@ -237,6 +237,8 @@ const keyOf = (p: Props) => Object.entries(p).map(([k, v]) => `${k}=${v}`).join(
 interface Blk {
   /** null = left on purpose (it cancels an inherited alignment) */
   align?: string | null;
+  /** right-to-left text (`dir="rtl"` or `direction:rtl`, inherited by what is inside; left-to-right cancels it) */
+  rtl?: boolean;
   ml?: number;
   mb?: number;
   lh?: string;
@@ -263,6 +265,7 @@ function blockOf(parent: Blk, d: Decls, tag: string): Blk {
   const o: Blk = { ...parent };
   const a = d["text-align"];
   if (a) o.align = normAlign(a);
+  if (d.direction) o.rtl = normDirection(d.direction) === "rtl";
   if (tag === "center") o.align = "center";
   if (/^(?:p|h[1-6]|div|li|td|th|section|article|blockquote|center)$/.test(tag)) {
     const m = margins(d);
@@ -277,6 +280,7 @@ function blockOf(parent: Blk, d: Decls, tag: string): Blk {
 function blockStyle(b: Blk, tag: string, mode: PasteMode): string {
   if (mode === "text") return "";
   const out: string[] = [];
+  if (b.rtl) out.push("direction:rtl");
   if (b.align) out.push(`text-align:${b.align}`);
   if (b.ml && b.ml >= INDENT_PX / 2) out.push(`margin-left:${b.ml}px`);
   if (mode === "source") {
@@ -482,6 +486,7 @@ class Cleaner {
     const d: Decls = {};
     const a = e.attrs;
     if (a.align) d["text-align"] = a.align;
+    if (a.dir) d.direction = a.dir;
     if (e.tag === "font") {
       if (a.color) d.color = a.color;
       if (a.face) d["font-family"] = a.face;

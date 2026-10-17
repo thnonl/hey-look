@@ -20,6 +20,8 @@ export default defineLocale<typeof ns.en>({
   "backend.FOLDER_MISSING": "在此账户中找不到“{folder}”文件夹。邮件将保留在原处。",
   "backend.FOLDER_NOT_CREATED": "在此账户中找不到或无法创建“{folder}”文件夹（{why}）。邮件将保留在原处。",
   "backend.ATT_NOT_FOUND": "未找到附件",
+  "backend.KEYRING_TIMEOUT": "系统密钥环已锁定或没有响应。请将其解锁（“密码和密钥” / KWallet）后重试。",
+  "backend.ADD_CANCELLED": "已取消添加账户。",
   "backend.EMAIL_INVALID": "请输入有效的电子邮件地址",
   "backend.AI_NOT_CONFIGURED": "尚未配置AI：请在“设置 > AI助手”中设置端点和模型",
   "backend.AI_TIMEOUT": "AI助手在{secs}秒内未响应。",

@@ -485,7 +485,7 @@ body.reordering, body.reordering * { cursor: grabbing !important; user-select: n
 .tr-row .tr-time { font-variant-numeric: tabular-nums; }
 .tr-hint { margin-top: 4px; }
 .tr-box.error .tr-row svg { color: var(--danger); flex: none; }
-.tr-actions { display: flex; gap: 14px; margin-top: 6px; }
+.tr-actions { display: flex; flex-wrap: wrap; gap: 4px 14px; margin-top: 6px; }
 .tr-box.error { background: color-mix(in srgb, var(--danger) 10%, var(--bg)); border-left-color: var(--danger); }
 .rp-msg { border-bottom: 1px solid var(--border); }
 .rp-msg-head { display: flex; flex-wrap: wrap; gap: 12px; align-items: center; padding: 12px 0; cursor: pointer; }
@@ -979,8 +979,8 @@ button.pill:hover { filter: brightness(.95); }
 .dropzone { border: 1.5px dashed color-mix(in srgb, var(--border), var(--fg) 25%); border-radius: var(--r-md); padding: 22px; text-align: center; color: var(--muted); display: flex; flex-direction: column; align-items: center; gap: 6px; transition: border-color .12s, background .12s; }
 .dropzone.hot { border-color: var(--accent); background: var(--accent-soft); color: var(--accent-text); }
 /* ============================ 3. INLINE IMAGES ============================ */
-.editor .tiptap img { max-width: 100%; height: auto; border-radius: 4px; cursor: default; }
-.editor .tiptap img.ProseMirror-selectednode { outline: 2px solid var(--accent); outline-offset: 2px; }
+.editor .tiptap img, .rich-body .tiptap img { max-width: 100%; height: auto; border-radius: 4px; cursor: default; }
+.editor .tiptap img.ProseMirror-selectednode, .rich-body .tiptap img.ProseMirror-selectednode { outline: 2px solid var(--accent); outline-offset: 2px; }
 .img-wrap { position: relative; display: inline-block; max-width: 100%; }
 .img-wrap .handle { position: absolute; right: -5px; bottom: -5px; width: 10px; height: 10px; border-radius: 2px; background: var(--accent); border: 2px solid var(--bg); cursor: nwse-resize; }
 /* the picture toolbar: the anchor spans the pane (Compose.tsx sets its top and the box's margin-left once the toolbar is measured), the box is as wide as the toolbar needs but never wider than the pane, and the items wrap to a second row instead of overlapping */
@@ -999,8 +999,18 @@ button.pill:hover { filter: brightness(.95); }
 .editor .tiptap table[data-borders="outside"], .rich-body .tiptap table[data-borders="outside"] { border: 1px solid #999999; }
 .editor .tiptap table:is([data-borders="outside"], [data-borders="none"]) :is(td, th), .rich-body .tiptap table:is([data-borders="outside"], [data-borders="none"]) :is(td, th) { border: 1px dashed var(--border); } /* (a guide in the editor only: it is not sent) */
 .editor .tiptap .selectedCell::after, .rich-body .tiptap .selectedCell::after { content: ""; position: absolute; inset: 0; background: var(--accent-soft); pointer-events: none; }
-.editor .tiptap img[data-align="center"] { display: block; margin-left: auto; margin-right: auto; }
-.editor .tiptap img[data-align="right"] { display: block; margin-left: auto; margin-right: 0; }
+.editor .tiptap img[data-align="center"], .rich-body .tiptap img[data-align="center"] { display: block; margin-left: auto; margin-right: auto; }
+.editor .tiptap img[data-align="right"], .rich-body .tiptap img[data-align="right"] { display: block; margin-left: auto; margin-right: 0; }
+/* Find and replace (editor/FindBar.tsx): a panel at the top of the text (it scrolls away with it), the matches marked in the text */
+.find-bar { position: sticky; top: 0; z-index: 3; display: flex; flex-direction: column; gap: 4px; padding: 6px 8px; margin: 0 0 6px; background: var(--bg2); border: 1px solid var(--border); border-radius: var(--r-md); box-shadow: var(--shadow-sm, 0 1px 3px rgba(0,0,0,.12)); }
+.find-row { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 6px; min-width: 0; }
+.find-row input[type="text"] { flex: 1 1 120px; min-width: 0; height: 26px; padding: 0 8px; border: 1px solid var(--border); border-radius: var(--r-sm); background: var(--bg); color: var(--fg); font: inherit; }
+.find-count { flex: none; min-width: 0; color: var(--muted); font-size: .86em; white-space: nowrap; }
+.find-case { display: inline-flex; align-items: center; gap: 4px; flex: none; font-size: .86em; white-space: nowrap; color: var(--fg); }
+.find-close { flex: none; margin-inline-start: auto; }
+.find-bar .btn.small { flex: none; }
+.editor .tiptap .find-hit { background: color-mix(in srgb, var(--accent) 28%, transparent); border-radius: 2px; }
+.editor .tiptap .find-hit.find-cur { background: color-mix(in srgb, #ffc000 70%, transparent); outline: 1px solid #c79100; }
 .tbl-tools, .link-bubble { position: fixed; z-index: calc(var(--z-menu) - 2); flex-wrap: nowrap; }
 .tbl-dd { position: relative; display: inline-flex; }
 .img-tools .tool-btn.on { background: var(--accent-soft); color: var(--accent-text); }

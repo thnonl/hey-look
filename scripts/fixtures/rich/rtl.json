@@ -1,0 +1,196 @@
+{
+ "base": {
+  "family": "Calibri,Carlito,Arial,sans-serif",
+  "size": 11
+ },
+ "sig": null,
+ "doc": {
+  "type": "doc",
+  "content": [
+   {
+    "type": "paragraph",
+    "content": [
+     {
+      "type": "text",
+      "text": "A left-to-right paragraph"
+     }
+    ]
+   },
+   {
+    "type": "paragraph",
+    "attrs": {
+     "direction": "rtl"
+    },
+    "content": [
+     {
+      "type": "text",
+      "text": "مرحبا بكم في هي لوك"
+     }
+    ]
+   },
+   {
+    "type": "paragraph",
+    "attrs": {
+     "direction": "rtl",
+     "textAlign": "center"
+    },
+    "content": [
+     {
+      "type": "text",
+      "text": "שלום וברוכים הבאים"
+     }
+    ]
+   },
+   {
+    "type": "paragraph",
+    "attrs": {
+     "direction": "rtl",
+     "textAlign": "left"
+    },
+    "content": [
+     {
+      "type": "text",
+      "text": "Right-to-left, aligned left on purpose"
+     }
+    ]
+   },
+   {
+    "type": "paragraph",
+    "attrs": {
+     "direction": "rtl",
+     "indent": 2,
+     "lineHeight": "1.5",
+     "spaceAfter": "add"
+    },
+    "content": [
+     {
+      "type": "text",
+      "text": "مسافة بادئة وتباعد"
+     }
+    ]
+   },
+   {
+    "type": "heading",
+    "attrs": {
+     "level": 2,
+     "direction": "rtl"
+    },
+    "content": [
+     {
+      "type": "text",
+      "text": "عنوان"
+     }
+    ]
+   },
+   {
+    "type": "bulletList",
+    "attrs": {
+     "direction": "rtl"
+    },
+    "content": [
+     {
+      "type": "listItem",
+      "content": [
+       {
+        "type": "paragraph",
+        "content": [
+         {
+          "type": "text",
+          "text": "العنصر الأول"
+         }
+        ]
+       }
+      ]
+     },
+     {
+      "type": "listItem",
+      "content": [
+       {
+        "type": "paragraph",
+        "content": [
+         {
+          "type": "text",
+          "text": "العنصر الثاني"
+         }
+        ]
+       },
+       {
+        "type": "bulletList",
+        "attrs": {
+         "direction": "rtl"
+        },
+        "content": [
+         {
+          "type": "listItem",
+          "content": [
+           {
+            "type": "paragraph",
+            "content": [
+             {
+              "type": "text",
+              "text": "فرعي"
+             }
+            ]
+           }
+          ]
+         }
+        ]
+       }
+      ]
+     }
+    ]
+   },
+   {
+    "type": "orderedList",
+    "attrs": {
+     "direction": "rtl"
+    },
+    "content": [
+     {
+      "type": "listItem",
+      "content": [
+       {
+        "type": "paragraph",
+        "content": [
+         {
+          "type": "text",
+          "text": "واحد"
+         }
+        ]
+       }
+      ]
+     },
+     {
+      "type": "listItem",
+      "content": [
+       {
+        "type": "paragraph",
+        "content": [
+         {
+          "type": "text",
+          "text": "اثنان"
+         }
+        ]
+       }
+      ]
+     }
+    ]
+   },
+   {
+    "type": "paragraph",
+    "attrs": {
+     "direction": "rtl"
+    }
+   },
+   {
+    "type": "paragraph",
+    "content": [
+     {
+      "type": "text",
+      "text": "Back to left-to-right"
+     }
+    ]
+   }
+  ]
+ }
+}

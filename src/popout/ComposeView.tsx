@@ -145,6 +145,7 @@ export default function ComposeView({ label, init }: PopoutViewProps) {
         undoRef.current = undo;
         dispatchRef.current({ t: "undo-offer" });
       },
+      scheduled: (outboxId, sendAt) => notifyMain("scheduled", { outboxId, sendAt }),
       draftSaved: (threadId) => {
         lastThread.current = threadId;
         void api.popoutSetKey(draftKey(threadId)).catch(quiet); // the lock of a draft follows its saves

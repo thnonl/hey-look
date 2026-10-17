@@ -163,11 +163,11 @@ const doc = (...blocks) => ({ type: "doc", content: blocks });
   const ext = read("src/editor/extensions.ts");
   assert.ok(/openOnClick: false/.test(ext) && /defaultProtocol: "https"/.test(ext) && /isAllowedUri: \(url: string\) => checkLinkUrl\(url\)\.ok/.test(ext), "links: no open on click, https default, web / mail / tel only");
   assert.ok(/e\.ctrlKey/.test(ext) && /e\.metaKey/.test(ext) && /openExternal/.test(ext), "Ctrl (Cmd on a Mac) + click opens a link");
-  assert.ok(/kitExtensions\(\{ pictures: o\.pictures \?\? false, quote: o\.quote \}\)/.test(ext), "tables for every editor, the picture node only where it is asked for");
+  assert.ok(/kitExtensions\(\{ pictures: o\.pictures \?\? false, quote: o\.quote, find: !!o\.openFind \}\)/.test(ext), "tables for every editor, the picture node only where it is asked for");
   const kit = read("src/editor/kit.ts");
   assert.ok(/import\("\.\/kitExtensions"\)/.test(kit) && !/from "\.\/(tableExtension|pictureNode|kitExtensions)"/.test(kit), "the kit loads on demand");
   assert.ok(/useKit\(\) \? <ComposeBody init=\{init\} \/> : null/.test(read("src/components/Compose.tsx")) && /pictures: true/.test(read("src/components/Compose.tsx")), "Compose waits for the kit and asks for pictures");
-  assert.ok(/useKit\(\) \? <RichEditorBody/.test(read("src/components/RichEditor.tsx")) && !/pictures: true/.test(read("src/components/RichEditor.tsx")), "the signature editor waits for the kit and has no picture node");
+  assert.ok(/useKit\(\) \? <RichEditorBody/.test(read("src/components/RichEditor.tsx")) && !/pictures: true/.test(read("src/components/RichEditor.tsx")) && /baseExtensions\(\{[^}]*\bpictures\b/.test(read("src/components/RichEditor.tsx")), "the signature and template editors wait for the kit and have the picture node only when the caller asks for it (Settings does: REQ-25)");
   // the picture toolbar: alignment and link
   const compose = read("src/components/Compose.tsx");
   assert.ok(/role="radiogroup" aria-label=\{t\("compose\.pic\.align"\)\}/.test(compose) && /setPictureAlign/.test(compose) && /compose\.pic\.linkTip/.test(compose));

@@ -3,53 +3,15 @@
 
 import { api } from "./api";
 import { t } from "./i18n";
-import { offerRecovery, type RecoveryForm, type RecoveryLoaded } from "./recovery";
-import { initialImportance } from "./importance";
+import { composeFromSnapshot, offerRecovery, snapshotInWindow, type RecoveryLoaded } from "./recovery";
 import { useStore } from "./store";
 import { startCompose } from "./popout/composeOpen";
 import { fmtWhen } from "./util";
 
 let asked = false;
 
-/** The message of a snapshot as Compose opens it, or null when the snapshot cannot be read. */
-export function composeFromSnapshot(l: RecoveryLoaded) {
-  let f: RecoveryForm;
-  try {
-    f = JSON.parse(l.payload) as RecoveryForm;
-  } catch {
-    return null;
-  }
-  const list = (v: unknown) => (Array.isArray(v) ? v.filter((x): x is string => typeof x === "string") : []);
-  if (typeof f !== "object" || f === null || typeof f.html !== "string") return null;
-  return {
-    accountId: l.accountId,
-    to: list(f.to),
-    cc: list(f.cc),
-    bcc: list(f.bcc),
-    subject: typeof f.subject === "string" ? f.subject : "",
-    bodyHtml: f.html,
-    inReplyTo: f.inReplyTo ?? null,
-    references: list(f.references),
-    replaces: f.replaces ?? undefined,
-    isReply: !!f.isReply,
-    attachments: l.files,
-    // the toggles as they were; the body holds its one signature region, as in a stored draft
-    restore: { encrypt: f.encrypt === "on" || f.encrypt === "auto" ? f.encrypt : ("off" as const), sign: !!f.sign, attachKey: !!f.attachKey },
-    confidential: !!f.confidential,
-    importance: initialImportance(f),
-    // the snapshot keeps its id: the next snapshot of this message replaces it, and it goes when the message is sent, discarded or saved
-    recoveryId: l.id,
-  };
-}
-
-/** Was the message of this snapshot written in a window of its own? Then it is restored in one. */
-export function snapshotInWindow(l: RecoveryLoaded): boolean {
-  try {
-    return (JSON.parse(l.payload) as { win?: unknown }).win === true;
-  } catch {
-    return false;
-  }
-}
+/** Does the message of this snapshot come back in a window of its own? (It was written in one, or the setting says every message gets one.) */
+const inWindow = (l: RecoveryLoaded) => snapshotInWindow(l) || !!useStore.getState().prefs.popoutCompose;
 
 /** Once per start: offer back what was being written when the app ended without saving or sending it. Nothing is opened, saved or sent unasked. */
 export async function offerRestore(): Promise<void> {
@@ -82,8 +44,11 @@ export async function offerRestore(): Promise<void> {
         return;
       }
       // (a message written in a window comes back in one, whatever the setting; the others follow the setting)
-      await startCompose(init, { window: snapshotInWindow(l) || undefined, shift: false });
+      // Every snapshot has a window key of its own: two messages restored in the same moment are two windows, not one (the page and the backend
+      // both give the answer of an earlier ask to an ask for the same window).
+      return startCompose(init, { window: snapshotInWindow(l) || undefined, shift: false, key: inWindow(l) ? `recovery:${l.id}` : undefined });
     },
+    inWindow: (l) => inWindow(l),
     clear: (id) => api.recoveryClear(id),
     // (a restored message that opens in a window does not wait for the pane: the windows are independent of it)
     composing: () => !!st().compose && !st().prefs.popoutCompose,
