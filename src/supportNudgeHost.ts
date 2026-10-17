@@ -59,7 +59,7 @@ export function showSupportNudge() {
   save(shown(nudge(), Date.now()));
   const st = useStore.getState();
   st.setStickyToast(KEY, {
-    text: t("app.nudge.text"),
+    text: () => t("app.nudge.text"),
     kind: "info",
     support: true,
     hideClose: true,
@@ -68,16 +68,16 @@ export function showSupportNudge() {
     onDismiss: () => clearTimeout(hideTimer), // Esc
     actions: [
       {
-        label: t("app.nudge.coffee"),
+        label: () => t("app.nudge.coffee"),
         run: () => {
           clearTimeout(hideTimer);
           save(supported(nudge(), Date.now())); // supporters hear from us again in 6 months
           void openUpdateLink(SUPPORT_URL); // the same safe path as the About links (a failed open copies the link and says so)
         },
       },
-      { label: t("app.nudge.notNow"), run: () => clearTimeout(hideTimer) },
+      { label: () => t("app.nudge.notNow"), run: () => clearTimeout(hideTimer) },
     ],
-    link: { label: t("app.nudge.stop"), run: () => { clearTimeout(hideTimer); save(setEnabled(nudge(), false, Date.now())); } },
+    link: { label: () => t("app.nudge.stop"), run: () => { clearTimeout(hideTimer); save(setEnabled(nudge(), false, Date.now())); } },
   });
   arm(SHOW_MS);
 }

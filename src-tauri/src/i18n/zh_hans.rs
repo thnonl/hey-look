@@ -40,6 +40,14 @@ pub fn text(k: K) -> &'static str {
         K::CalendarFile => "日历文件",
         K::SavePublicKey => "保存公钥",
         K::SaveKeyBackup => "保存密钥备份",
+        K::LoadFailTitle => "Hey Look!无法加载窗口",
+        K::LoadFailWindows => "Hey Look!已启动，但其窗口无法加载应用界面。最可能的原因是 Microsoft Edge WebView2 Runtime 缺失或已损坏（请从 Microsoft 重新安装或修复），或有安全软件将其拦截。请选择“重试”再试一次，或打开日志文件夹查看发生了什么。",
+        K::LoadFailMac => "Hey Look!已启动，但其窗口无法加载应用界面。最可能的原因是 macOS 内置的网页引擎（WebKit）未能启动（例如系统更新被中断之后），或有安全软件将其拦截。请选择“重试”再试一次，或打开日志文件夹查看发生了什么。",
+        K::LoadFailLinux => "Hey Look!已启动，但其窗口无法加载应用界面。最可能的原因是 WebKitGTK 库（webkit2gtk-4.1）缺失、版本过旧或已损坏，或当前会话没有可用的图形显示。请选择“重试”再试一次，或打开日志文件夹查看发生了什么。",
+        K::LoadFailRetry => "重试",
+        K::LoadFailOpenLog => "打开日志文件夹",
+        K::LoadFailQuit => "退出",
+        K::LoadFailLog => "日志文件：",
     }
 }
 

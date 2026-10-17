@@ -45,7 +45,7 @@ function HomeTab() {
   // no Junk folder on the account(s): the actions that move mail there are off, with the reason (src/junk.ts)
   const junkOff: Partial<MenuItem> = canMoveToJunk(folders, accountsOf(threads, ids)) ? {} : { disabled: true, hint: t("mail.junk.none"), title: t("mail.junk.noneTip") };
   const moveItems: MenuItem[] = moveChoices(folders, acct, scope)
-    .map((f) => ({ label: folderLabel(f.key, f.name), onClick: () => void act(ids, "move", f.key, t("mail.done.moved", { folder: folderLabel(f.key, f.name) })) }));
+    .map((f) => ({ label: folderLabel(f.key, f.name), onClick: () => void act(ids, "move", f.key, () => t("mail.done.moved", { folder: folderLabel(f.key, f.name) })) }));
   const anyUnread = (checked.size ? threads.filter((x) => checked.has(x.threadId)) : cur ? [cur] : []).some((x) => x.unread > 0);
   const flagged = cur?.flagged;
   const pinned = cur?.pinned;
@@ -61,15 +61,15 @@ function HomeTab() {
         </button>
       </div>
       <div className="rg">
-        <Btn icon={<Trash2 size={16} />} label={t("common.delete")} disabled={!av.onSelection} onClick={() => void act(ids, "trash", undefined, folder === "trash" ? t("mail.done.deleted") : t("mail.done.trashed"))} />
-        <Btn icon={<Archive size={16} />} label={t("app.ribbon.archive")} disabled={!av.onSelection} onClick={() => void act(ids, "archive", undefined, t("mail.done.archived"))} />
+        <Btn icon={<Trash2 size={16} />} label={t("common.delete")} disabled={!av.onSelection} onClick={() => void act(ids, "trash", undefined, () => folder === "trash" ? t("mail.done.deleted") : t("mail.done.trashed"))} />
+        <Btn icon={<Archive size={16} />} label={t("app.ribbon.archive")} disabled={!av.onSelection} onClick={() => void act(ids, "archive", undefined, () => t("mail.done.archived"))} />
         <DdBtn
           icon={<OctagonAlert size={16} />}
           label={t("app.ribbon.report")}
           disabled={!av.onSelection}
           items={[
-            { label: t("app.ribbon.moveToJunk"), onClick: () => void act(ids, "junk", undefined, t("mail.done.junk")), ...junkOff },
-            { label: t("app.ribbon.blockSender"), onClick: () => void act(ids, "block", undefined, t("mail.done.blocked")), ...junkOff },
+            { label: t("app.ribbon.moveToJunk"), onClick: () => void act(ids, "junk", undefined, () => t("mail.done.junk")), ...junkOff },
+            { label: t("app.ribbon.blockSender"), onClick: () => void act(ids, "block", undefined, () => t("mail.done.blocked")), ...junkOff },
           ]}
         />
         <Btn icon={<BrushCleaning size={16} />} label={t("app.ribbon.sweep")} title={t("app.ribbon.sweepTitle")} onClick={() => setDialog({ type: "cleaner" })} />
@@ -95,7 +95,7 @@ function HomeTab() {
           disabled={!av.onSelection}
           items={snoozePresets(prefs.snoozeTimes).map((p) => ({
             label: p.label,
-            onClick: () => void act(ids, "snooze", String(p.ts), t("mail.done.snoozed", { when: p.label })),
+            onClick: () => void act(ids, "snooze", String(p.ts), () => t("mail.done.snoozed", { when: p.label })),
           }))}
         />
       </div>
@@ -113,7 +113,7 @@ function CalendarHomeTab() {
       showToast(t(r.added + r.updated === 1 ? "app.ribbon.imported.one" : "app.ribbon.imported.many", { added: r.added, updated: r.updated }), undefined, "success");
       bumpCal();
     } catch (e) {
-      showToast(t("app.ribbon.importFailed", { error: friendlyError(e) }), undefined, "error");
+      showToast(() => t("app.ribbon.importFailed", { error: friendlyError(e) }), undefined, "error");
     }
   };
   const view = prefs.calView;

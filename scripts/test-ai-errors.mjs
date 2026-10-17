@@ -55,8 +55,8 @@ const root = fileURLToPath(new URL("../", import.meta.url));
   assert.deepEqual(callers, ["src/aiCall.ts", "src/api.ts", "src/translate.ts", "src/translateRun.ts", "src/useAiSlot.ts"], "a new caller of the model must show its errors like these do (friendlyError) and be cancellable");
   const read = (p) => readFileSync(join(root, p), "utf8");
   // each screen that gets an outcome shows errors through friendlyError, never the raw value
-  assert.match(read("src/components/ReadingPane.tsx"), /"error" in out\) showToast\(friendlyError\(out\.error\)/);
-  assert.match(read("src/components/Compose.tsx"), /"error" in out\) return showToast\(friendlyError\(out\.error\)/);
+  assert.match(read("src/components/ReadingPane.tsx"), /"error" in out\) showToast\(\(\) => friendlyError\(out\.error\)/);
+  assert.match(read("src/components/Compose.tsx"), /"error" in out\) return showToast\(\(\) => friendlyError\(out\.error\)/);
   assert.match(read("src/translate.ts"), /friendlyError\(outcome\.error\)/);
   assert.match(read("src/components/SettingsDialog.tsx"), /setModelsErr\(friendlyError\(e\)\)/);
   // the Rust side: no error text is built from the answer, the request or the key

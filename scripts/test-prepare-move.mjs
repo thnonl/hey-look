@@ -19,7 +19,7 @@ assert.ok(iPrepare < iHide, "the folder is looked up before the mail leaves the 
 assert.ok(iPrepare < iQueue && iPrepare < iToast, "and before the move is queued and the success message is shown");
 // a failed look-up: the error toast, and `return` before anything is hidden
 const catchBlock = act.slice(act.indexOf("catch (e)", iPrepare), act.indexOf("} finally", iPrepare));
-assert.match(catchBlock, /showToast\(t\("errors\.toast\.failed", \{ error: friendlyError\(e\) \}\), undefined, "error"\);\s*return;/, "error shown at once, nothing hidden");
+assert.match(catchBlock, /showToast\(\(\) => t\("errors\.toast\.failed", \{ error: friendlyError\(e\) \}\), undefined, "error"\);\s*return;/, "error shown at once, nothing hidden");
 // a delete from the Trash (permanent) is not a move: no folder to look up
 assert.match(act, /const real = moveLike && action === "trash" && scope === "trash" \? "delete_forever" : action;/);
 assert.match(act, /if \(real !== "delete_forever"\) \{\s*for \(const id of ids\) preparing\.add\(id\);/);

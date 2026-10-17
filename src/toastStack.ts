@@ -16,6 +16,22 @@ export const MAX_PERSISTENT = 3;
 export type Lazy = string | (() => string);
 export const lazyText = (x: Lazy): string => (typeof x === "function" ? x() : x);
 
+/** The two text fields of a toast: `text` as it read when it was made or last looked at (what an identical error is recognised by), and `textFn`
+ *  that writes it again in the language in use (set when the toast was made from a function). */
+export interface LazyToast {
+  text: string;
+  textFn?: () => string;
+}
+
+/** The text fields of a new toast made from `text`. */
+export const toastTexts = (text: Lazy): LazyToast => ({ text: lazyText(text), textFn: typeof text === "function" ? text : undefined });
+
+/** The text a toast shows right now: written again when it was made from a function (a language switch since then is followed). */
+export const toastText = (t: LazyToast): string => (t.textFn ? t.textFn() : t.text);
+
+/** The toast with its `text` as it reads now. */
+export const refreshed = <T extends LazyToast>(t: T): T => (t.textFn ? { ...t, text: t.textFn() } : t);
+
 export type ToastKind = "info" | "success" | "error";
 
 /** The part of a toast this file looks at. */

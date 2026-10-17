@@ -45,6 +45,7 @@ mod snippet;
 mod update;
 mod winframe;
 mod startup;
+mod loadfail;
 mod webview_health;
 mod winproc;
 
@@ -4104,6 +4105,12 @@ pub(crate) fn request_quit(app: &tauri::AppHandle) {
         let _ = app.emit_to("main", "confirm-quit", serde_json::json!({ "count": count, "next": next }));
         return;
     }
+    finish_sends_then(app, quit_final);
+}
+
+/// Quit from the "could not load its window" message (startup.rs): the page that would be asked to save its draft and send what waits
+/// is not there (a page that answered after all is asked as usual), and the question about scheduled messages would go to nobody.
+pub(crate) fn quit_without_page(app: &tauri::AppHandle) {
     finish_sends_then(app, quit_final);
 }
 

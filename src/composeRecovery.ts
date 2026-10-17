@@ -67,7 +67,7 @@ export async function offerRestore(): Promise<void> {
       const init = composeFromSnapshot(l);
       if (!init) {
         // not a snapshot this version can read: it is of no use, and asking again at every start would not help
-        st().showToast(t("compose.recover.failed"), undefined, "error");
+        st().showToast(() => t("compose.recover.failed"), undefined, "error");
         await api.recoveryClear(l.id).catch(() => undefined);
         return;
       }
@@ -83,6 +83,6 @@ export async function offerRestore(): Promise<void> {
           done();
         });
       }),
-    failed: () => st().showToast(t("compose.recover.failed"), undefined, "error"),
+    failed: () => st().showToast(() => t("compose.recover.failed"), undefined, "error"),
   });
 }

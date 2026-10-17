@@ -308,7 +308,7 @@ export async function openDraftThread(threadId: string, wait = false): Promise<b
   }
   let m = msgs.filter((x) => x.folder === "drafts").pop() ?? msgs[msgs.length - 1];
   if (!m) {
-    if (wait) st.showToast(tNow("compose.leave.draftNotFound"), undefined, "error");
+    if (wait) st.showToast(() => tNow("compose.leave.draftNotFound"), undefined, "error");
     return false;
   }
   // a draft that was encrypted to your own key needs the key (and its passphrase) to be opened again
@@ -317,7 +317,7 @@ export async function openDraftThread(threadId: string, wait = false): Promise<b
       m = await api.pgpDecryptMessage(m.id).catch(() => m);
     }
     if (m.security?.decryption !== "ok") {
-      if (m.security?.decryption !== "locked") st.showToast(tNow("mail.draft.cannotOpen", { error: friendlyError(m.security?.error ?? tNow("mail.draft.keyMissing")) }), undefined, "error");
+      if (m.security?.decryption !== "locked") st.showToast(() => tNow("mail.draft.cannotOpen", { error: friendlyError(m.security?.error ?? tNow("mail.draft.keyMissing")) }), undefined, "error");
       return false;
     }
   }
@@ -326,7 +326,7 @@ export async function openDraftThread(threadId: string, wait = false): Promise<b
   // the recipients as they were typed (names, Bcc) come from the draft's own headers; the synced copy has bare To / Cc and no Bcc
   const rc = await api.draftRecipients(m.id).catch(() => null);
   // without the draft's own headers the Bcc recipients are unknown: say so, a send would leave them out
-  if (!rc) st.showToast(tNow("compose.draft.bccUnread"), undefined, "error");
+  if (!rc) st.showToast(() => tNow("compose.draft.bccUnread"), undefined, "error");
   await st.openCompose({
     accountId: m.accountId,
     to: rc?.to ?? (m.to ? splitRecipients(m.to) : []),
@@ -925,7 +925,7 @@ export function Compose({ init }: { init: ComposeInit }) {
     t(lim.fromServer ? "compose.att.tooBigServer" : "compose.att.totalTooBig", { size: fmtSize(size), limit: fmtSize(lim.bytes) });
   /** Shows it as THE size toast: an earlier one (files were added, then Send was pressed) goes, so one message is on the screen, never two (QA round 20 BUG-02). */
   const lastSizeToast = useRef<{ id: number | null }>({ id: null });
-  const showSizeError = (text: string) =>
+  const showSizeError = (text: string | (() => string)) =>
     showSizeToast(
       { showToast, dismissToast: useStore.getState().dismissToast, lastToastId: () => {
           const ts = useStore.getState().toasts;
@@ -942,7 +942,7 @@ export function Compose({ init }: { init: ComposeInit }) {
   const overShown = useRef(false);
   const over = totalBytes > limit.bytes;
   useEffect(() => {
-    if (over && !overShown.current && touched.current) showSizeError(tooBigText(totalBytes, limit));
+    if (over && !overShown.current && touched.current) showSizeError(() => tooBigText(totalBytes, limit));
     overShown.current = over;
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [over]);
@@ -978,26 +978,26 @@ export function Compose({ init }: { init: ComposeInit }) {
    * fits. The server is asked for its SIZE first (smtpsize.rs; for a message with files always afresh, else from the backend's minute of memory); without an
    * answer within 10 seconds the limit known so far applies (the usual 25 MB).
    */
-  const sizeProblem = async (d: Draft): Promise<string | null> => {
+  const sizeProblem = async (d: Draft): Promise<(() => string) | null> => {
     const wire = draftWire(d);
     const fresh = askFreshBeforeSend(d.attachments.length, (d.inline ?? []).length);
     const max = await Promise.race([askServerLimit(d.accountId, fresh), new Promise<null>((r) => setTimeout(() => r(null), 10_000))]);
     const lim = sendLimit(max ?? serverMax[d.accountId]);
-    return wire > lim.bytes ? tooBigText(wire, lim) : null;
+    return wire > lim.bytes ? () => tooBigText(wire, lim) : null;
   };
 
   /**
    * The toast for a send that failed. A refusal for the size says the same clear sentence as the check before Send, with the size of the
    * message and the limit of the server (asked again, a refused send is the moment to know it); any other error keeps its own text.
    */
-  const sendFailedText = async (e: unknown, d: Draft): Promise<string> => {
+  const sendFailedText = async (e: unknown, d: Draft): Promise<() => string> => {
     if (isSizeRefusal(e)) {
       const wire = draftWire(d);
       const lim = sendLimit(await askServerLimit(d.accountId, true));
       // the server refused although the limit is unknown or bigger than the estimate: its own reply (translated) says it
-      if (wire > lim.bytes) return tooBigText(wire, lim);
+      if (wire > lim.bytes) return () => tooBigText(wire, lim);
     }
-    return t("compose.toast.sendFailed", { error: friendlyError(e) });
+    return () => t("compose.toast.sendFailed", { error: friendlyError(e) });
   };
 
   const sendNowFromEditor = async () => {
@@ -1024,7 +1024,7 @@ export function Compose({ init }: { init: ComposeInit }) {
       void refresh();
     } catch (e) {
       setBusy(false);
-      showToast(await sendFailedText(e, d), undefined, "error");
+      showToast(await sendFailedText(e, d), undefined, "error"); // i18n-ok: sendFailedText gives a function
       reopen(d);
     }
   };
@@ -1038,16 +1038,16 @@ export function Compose({ init }: { init: ComposeInit }) {
   const send = async (sendAt?: number) => {
     let d = buildDraft();
     // To may stay empty when Cc or Bcc has someone (Gmail and Outlook allow it; a Bcc-only message shows undisclosed-recipients)
-    if (!hasRecipient(d)) return showToast(t("compose.err.noRecipient"), undefined, "error");
+    if (!hasRecipient(d)) return showToast(() => t("compose.err.noRecipient"), undefined, "error");
     const bad = [...d.to, ...d.cc, ...d.bcc].filter((a) => !EMAIL.test(bareAddress(a)));
-    if (bad.length) return showToast(t("compose.err.checkAddress", { addr: bad[0] }), undefined, "error");
+    if (bad.length) return showToast(() => t("compose.err.checkAddress", { addr: bad[0] }), undefined, "error");
     if (meeting) {
       const md = meetingToDraft(meeting, calTz(prefs));
-      if ("error" in md) return showToast(md.error, undefined, "error");
-      if (d.bcc.length) return showToast(t("compose.err.meetingBcc"), undefined, "error");
-      if (!d.subject.trim()) return showToast(t("compose.err.meetingSubject"), undefined, "error");
+      if ("error" in md) return showToast(() => t(md.errorKey), undefined, "error"); // (the key, so the toast follows a language switch)
+      if (d.bcc.length) return showToast(() => t("compose.err.meetingBcc"), undefined, "error");
+      if (!d.subject.trim()) return showToast(() => t("compose.err.meetingSubject"), undefined, "error");
     }
-    if (!accountId) return showToast(t("compose.err.noAccount"), undefined, "error");
+    if (!accountId) return showToast(() => t("compose.err.noAccount"), undefined, "error");
     const tooBig = await sizeProblem(d);
     if (tooBig) return showSizeError(tooBig);
     if (!d.subject && !(await confirm({ title: t("compose.dlg.noSubject"), confirmLabel: t("compose.dlg.sendAnyway") }))) return;
@@ -1063,10 +1063,10 @@ export function Compose({ init }: { init: ComposeInit }) {
     const secured = await secureDraft(d);
     if (!secured) return;
     d = secured;
-    if (!hasRecipient(d)) return showToast(t("compose.err.noRecipient"), undefined, "error");
+    if (!hasRecipient(d)) return showToast(() => t("compose.err.noRecipient"), undefined, "error");
 
     if (sendAt) {
-      if (sendAt * 1000 < Date.now() - 60_000) return showToast(t("compose.schedule.passed"), undefined, "error");
+      if (sendAt * 1000 < Date.now() - 60_000) return showToast(() => t("compose.schedule.passed"), undefined, "error");
       await settleSaves(); // (an autosave that is running tells which draft this message replaces)
       sendingRef.current = true; // the snapshot stays until the message is in the queue
       setBusy(true);
@@ -1084,20 +1084,20 @@ export function Compose({ init }: { init: ComposeInit }) {
           const id = res.startsWith("scheduled:") ? res.slice("scheduled:".length) : null;
           const st = useStore.getState();
           showToast(
-            t("compose.toast.scheduled", { when: fmtWhen(sendAt) }),
+            () => t("compose.toast.scheduled", { when: fmtWhen(sendAt) }),
             id
               ? () => {
-                  void api.cancelOutbox(id).then(() => reopen(d)).catch((e) => showToast(friendlyError(e), undefined, "error"));
+                  void api.cancelOutbox(id).then(() => reopen(d)).catch((e) => showToast(() => friendlyError(e), undefined, "error"));
                 }
               : undefined,
             "success",
-            [{ label: t("compose.toast.view"), run: () => void st.setView("scheduled") }],
+            [{ label: () => t("compose.toast.view"), run: () => void st.setView("scheduled") }],
           );
         }
         void refresh();
       } catch (e) {
         const code = errorCode(e);
-        showToast(code === "SCHEDULE_IN_PAST" ? friendlyError(e) : t("compose.toast.scheduleFailed", { error: friendlyError(e) }), undefined, "error");
+        showToast(() => code === "SCHEDULE_IN_PAST" ? friendlyError(e) : t("compose.toast.scheduleFailed", { error: friendlyError(e) }), undefined, "error");
         reopen(d);
       } finally {
         finishSend();
@@ -1121,7 +1121,7 @@ export function Compose({ init }: { init: ComposeInit }) {
       try {
         heldId = await api.outboxHold(d, Math.floor(Date.now() / 1000) + wait, replacesRef());
       } catch (e) {
-        showToast(t("compose.toast.sendFailed", { error: friendlyError(e) }), undefined, "error");
+        showToast(() => t("compose.toast.sendFailed", { error: friendlyError(e) }), undefined, "error");
         finishSend();
         reopen(d);
         return;
@@ -1142,7 +1142,7 @@ export function Compose({ init }: { init: ComposeInit }) {
       } catch (e) {
         // quitting: the message stays in the outbox and goes out at the next start (REQ-48 c), nothing is reopened
         if (quitting) return;
-        showToast(await sendFailedText(e, d), undefined, "error");
+        showToast(await sendFailedText(e, d), undefined, "error"); // i18n-ok: sendFailedText gives a function // i18n-ok: sendFailedText gives a function
         reopen(d);
       } finally {
         done();
@@ -1154,7 +1154,7 @@ export function Compose({ init }: { init: ComposeInit }) {
     timer = setTimeout(() => void run(), wait * 1000);
     if (wait > 0) {
       showToast(
-        t("compose.toast.sending"),
+        () => t("compose.toast.sending"),
         () => {
           // Undo: the message leaves the outbox (if it is already being sent it cannot be taken back)
           if (heldId) {
@@ -1165,7 +1165,7 @@ export function Compose({ init }: { init: ComposeInit }) {
                 done();
                 reopen(d);
               },
-              (e) => showToast(friendlyError(e), undefined, "error"),
+              (e) => showToast(() => friendlyError(e), undefined, "error"),
             );
             return;
           }
@@ -1213,12 +1213,12 @@ export function Compose({ init }: { init: ComposeInit }) {
           onSaved({
             plain,
             edit: () => {
-              if (!tid) return showToast(tNow("compose.leave.draftNotFound"), undefined, "error");
-              void openDraftThread(tid, true).catch((e) => showToast(friendlyError(e), undefined, "error"));
+              if (!tid) return showToast(() => tNow("compose.leave.draftNotFound"), undefined, "error");
+              void openDraftThread(tid, true).catch((e) => showToast(() => friendlyError(e), undefined, "error"));
             },
           });
         } else {
-          showToast(plain ? t("compose.toast.draftSavedPlain") : t("compose.toast.draftSaved"), undefined, plain ? "info" : "success");
+          showToast(() => plain ? t("compose.toast.draftSavedPlain") : t("compose.toast.draftSaved"), undefined, plain ? "info" : "success");
         }
         // typed while the draft was on its way: it is not saved yet
         if (revRef.current === rev) setComposeDirty(false);
@@ -1229,7 +1229,7 @@ export function Compose({ init }: { init: ComposeInit }) {
         if (auto) return false; // (the next try is later, see autosaveDue; the snapshot keeps the text meanwhile)
         // `quiet`: the caller (an update restart, a quit) tells the user itself
         useStore.setState({ draftError: friendlyError(e).replace(/\.$/, "") });
-        if (!quiet) showToast(t("compose.toast.saveFailed", { error: friendlyError(e) }), undefined, "error");
+        if (!quiet) showToast(() => t("compose.toast.saveFailed", { error: friendlyError(e) }), undefined, "error");
         return false;
       } finally {
         savingRef.current--;
@@ -1249,7 +1249,7 @@ export function Compose({ init }: { init: ComposeInit }) {
       void openCompose(null);
       void refresh();
     } catch (e) {
-      showToast(t("compose.toast.moveFailed", { error: friendlyError(e) }), undefined, "error");
+      showToast(() => t("compose.toast.moveFailed", { error: friendlyError(e) }), undefined, "error");
     }
   };
 
@@ -1416,7 +1416,7 @@ export function Compose({ init }: { init: ComposeInit }) {
         void openCompose(null);
         void refresh();
       } catch (e) {
-        showToast(friendlyError(e), undefined, "error");
+        showToast(() => friendlyError(e), undefined, "error");
       }
       return;
     }
@@ -1471,7 +1471,7 @@ export function Compose({ init }: { init: ComposeInit }) {
         src = await readDataUrl(f);
         size = await imageSize(src);
       } catch {
-        showToast(t("compose.pic.unsupported", { name: f.name }), undefined, "error");
+        showToast(() => t("compose.pic.unsupported", { name: f.name }), undefined, "error");
         attach.push(f);
         continue;
       }
@@ -1484,10 +1484,10 @@ export function Compose({ init }: { init: ComposeInit }) {
         } else {
           const original = src;
           showToast(
-            t("compose.pic.askResize", { size: fmtSize(f.size), w: size.w, h: size.h }),
+            () => t("compose.pic.askResize", { size: fmtSize(f.size), w: size.w, h: size.h }),
             undefined,
             "info",
-            [{ label: t("compose.pic.resize"), run: () => void resizeInEditor(original, f.type, f.name) }],
+            [{ label: () => t("compose.pic.resize"), run: () => void resizeInEditor(original, f.type, f.name) }],
           );
         }
       }
@@ -1584,7 +1584,7 @@ export function Compose({ init }: { init: ComposeInit }) {
       `Subject: ${subject}\nExisting draft:\n${editor?.getText() ?? ""}${context}\n\nInstruction: ${aiPrompt}`,
     );
     if (!out) return; // a click while one is under way, Cancel, or this window closed: nothing to apply
-    if ("error" in out) return showToast(friendlyError(out.error), undefined, "error");
+    if ("error" in out) return showToast(() => friendlyError(out.error), undefined, "error");
     editor?.commands.insertContentAt(0, out.text.split("\n").map((l) => `<p>${l.replace(/</g, "&lt;")}</p>`).join(""));
     setAiOpen(false);
     setAiPrompt("");

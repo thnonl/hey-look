@@ -100,8 +100,8 @@ export async function forward(m: MessageFull, thread: MessageFull[] = useStore.g
       ) + (html ? sanitizeHtml(html, false).html : plainToHtml(m.text ?? "")),
   });
   // after Compose is open: what could not come along
-  for (const f of files?.failed ?? []) st.showToast(t("compose.fwd.failed", { name: f.name, error: friendlyError(f.error) }), undefined, "error");
-  if (files?.skipped.length) st.showToast(t("compose.fwd.tooBig", { max: fmtSize(MAX_FORWARD_BYTES), names: files.skipped.join(", ") }), undefined, "error");
+  for (const f of files?.failed ?? []) st.showToast(() => t("compose.fwd.failed", { name: f.name, error: friendlyError(f.error) }), undefined, "error");
+  if (files?.skipped.length) st.showToast(() => t("compose.fwd.tooBig", { max: fmtSize(MAX_FORWARD_BYTES), names: files.skipped.join(", ") }), undefined, "error");
 }
 
 /** Reply / reply-all using the user's default (or the explicit choice) on the last message of the open thread. */

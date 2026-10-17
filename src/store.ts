@@ -14,7 +14,7 @@ import type { Jobs } from "./translateJobs";
 import { AdvanceTracker, startAdvance } from "./autoAdvance";
 import type { Importance } from "./importance";
 import { accountsOf, canMoveToJunk, JUNK_ACTIONS } from "./junk";
-import { addToast, lazyText, type Lazy } from "./toastStack";
+import { addToast, lazyText, refreshed, toastTexts, type Lazy } from "./toastStack";
 import { mayOpenMail, selectionAfterCompose } from "./composeSelection";
 import { leaveCompose as leaveComposePane, type ComposeProbe, type SavedDraft } from "./leaveCompose";
 export { lazyText, type Lazy };
@@ -313,7 +313,7 @@ interface State {
   leaveCompose: () => Promise<boolean>;
   toggleCheck: (id: string) => void;
   setChecked: (ids: string[]) => void;
-  act: (ids: string[], action: string, arg?: string, label?: string) => Promise<void>;
+  act: (ids: string[], action: string, arg?: string, label?: Lazy) => Promise<void>;
   /** `restore: false` (closing): the reading pane is not given back the mail that was open before writing (the caller opens another). */
   openCompose: (c: ComposeInit | null, opts?: { restore?: boolean }) => Promise<void>;
   setComposeDirty: (d: boolean) => void;
@@ -323,7 +323,8 @@ interface State {
   setDialog: (d: Dialog) => void;
   setCommandOpen: (o: boolean) => void;
   setRibbonTab: (t: RibbonTab) => void;
-  showToast: (text: string, undo?: () => void, kind?: Toast["kind"], actions?: ToastAction[]) => void;
+  /** `text` as a function is drawn each time the toast is painted (a toast made from a translation key follows a language switch); a plain string stays as it is */
+  showToast: (text: Lazy, undo?: () => void, kind?: Toast["kind"], actions?: ToastAction[]) => void;
   dismissToast: (id: number) => void;
   /** A toast that stays until it is answered (or `null` to remove it); one per `key`, a new text replaces the old in place. */
   setStickyToast: (
@@ -393,14 +394,14 @@ export function moveDropped(token: string, error: string) {
   if (!d) return; // Undo won
   const st = useStore.getState();
   if (d.dismiss != null) st.dismissToast(d.dismiss);
-  st.showToast(t("errors.toast.failed", { error: friendlyError(error) }), undefined, "error");
+  st.showToast(() => t("errors.toast.failed", { error: friendlyError(error) }), undefined, "error");
   void st.refresh().then(() => mailBack(token));
 }
 
 /** The server refused the move after the Undo window (the Undo toast is gone by then): the error is shown, the mail is back. */
 export function moveRefused(token: string, error: string) {
   const st = useStore.getState();
-  st.showToast(t("app.toast.actionFailed", { error: friendlyError(error) }), undefined, "error");
+  st.showToast(() => t("app.toast.actionFailed", { error: friendlyError(error) }), undefined, "error");
   void st.refresh().then(() => mailBack(token));
 }
 /** The action a yes/no state is set with: [yes, no] (always a set, never a toggle: a repeated call is harmless and the last one wins). */
@@ -806,10 +807,12 @@ export const useStore = create<State>((set, get) => ({
       // toasts and the tray badge are handled by the backend (it keeps syncing while the window is hidden)
       const results = await Promise.allSettled(accounts.map((a) => api.syncAccount(a.id)));
       const errors: Record<string, string> = {};
+      const reasons: Record<string, unknown> = {}; // what failed, as it came (the toast writes it in the language in use when it is drawn)
       const reauth: Record<string, "again" | "blocked"> = {};
       results.forEach((r, i) => {
         if (r.status !== "rejected") return;
         errors[accounts[i].id] = friendlyError(r.reason);
+        reasons[accounts[i].id] = r.reason;
         const again = needsSignIn(String(r.reason));
         if (again) reauth[accounts[i].id] = again;
       });
@@ -817,7 +820,7 @@ export const useStore = create<State>((set, get) => ({
       const first = Object.entries(errors)[0];
       if (first) {
         const acct = accounts.find((a) => a.id === first[0]);
-        get().showToast(t("errors.toast.withAccount", { account: acct?.email ?? t("errors.toast.accountFallback"), error: first[1] }), undefined, "error");
+        get().showToast(() => t("errors.toast.withAccount", { account: acct?.email ?? t("errors.toast.accountFallback"), error: friendlyError(reasons[first[0]]) }), undefined, "error");
       }
     } finally {
       // new mail may have arrived and a failed fetch may work now: scrolling may ask the server for older mail again
@@ -843,7 +846,7 @@ export const useStore = create<State>((set, get) => ({
       const msg = friendlyError(e);
       set((s) => ({ syncErrors: { ...s.syncErrors, [acc.id]: msg } }));
       get().setReauth(acc.id, needsSignIn(String(e)));
-      get().showToast(t("errors.toast.withAccount", { account: acc.email, error: msg }), undefined, "error");
+      get().showToast(() => t("errors.toast.withAccount", { account: acc.email, error: friendlyError(e) }), undefined, "error");
     } finally {
       set({ firstSync: null });
       await get().refresh();
@@ -911,7 +914,7 @@ export const useStore = create<State>((set, get) => ({
       if (!alive()) return;
       // with several mailboxes say which one failed
       const acct = targets.length > 1 ? get().accounts.find((x) => x.id === failing)?.email : undefined;
-      get().showToast(acct ? t("errors.toast.withAccount", { account: acct, error: friendlyError(e) }) : friendlyError(e), undefined, "error");
+      get().showToast(() => acct ? t("errors.toast.withAccount", { account: acct, error: friendlyError(e) }) : friendlyError(e), undefined, "error");
       set({ moreError: true });
     } finally {
       if (alive()) set({ loadingMore: false });
@@ -999,7 +1002,7 @@ export const useStore = create<State>((set, get) => ({
       });
       if (outcome.kind === "saved") {
         const d = outcome.saved;
-        get().showToast(d?.plain ? t("compose.toast.draftSavedPlain") : t("compose.toast.draftSaved"), undefined, d?.plain ? "info" : "success", d ? [{ label: t("common.edit"), run: d.edit }] : undefined);
+        get().showToast(() => d?.plain ? t("compose.toast.draftSavedPlain") : t("compose.toast.draftSaved"), undefined, d?.plain ? "info" : "success", d ? [{ label: () => t("common.edit"), run: d.edit }] : undefined);
       } else if (outcome.kind === "stay" && outcome.why === "attaching") {
         get().showToast(t("compose.leave.attaching"), undefined, "info");
       }
@@ -1034,7 +1037,7 @@ export const useStore = create<State>((set, get) => ({
       const r = await intents.set(ids, intent.want, intent.kind);
       if (r.superseded) return; // a later click on the same conversations reports for both
       if (r.failed.length > 0) {
-        get().showToast(t("errors.toast.failed", { error: friendlyError(r.error) }), undefined, "error");
+        get().showToast(() => t("errors.toast.failed", { error: friendlyError(r.error) }), undefined, "error");
         const open = get().selected;
         if (intent.kind === "read" && open && r.failed.includes(open)) void get().reloadMessages();
       } else if (label) {
@@ -1060,7 +1063,7 @@ export const useStore = create<State>((set, get) => ({
         try {
           verify = await api.prepareAction(ids, real, arg ?? null, scope ?? null);
         } catch (e) {
-          get().showToast(t("errors.toast.failed", { error: friendlyError(e) }), undefined, "error");
+          get().showToast(() => t("errors.toast.failed", { error: friendlyError(e) }), undefined, "error");
           return;
         } finally {
           for (const id of ids) preparing.delete(id);
@@ -1096,7 +1099,7 @@ export const useStore = create<State>((set, get) => ({
         }
         if (advance && label) {
           get().showToast(
-            label,
+            label, // i18n-ok: a function (Lazy) like the text of every toast
             () => {
               queued.undo(token); // Undo wins over a folder check that ends later
               void api.cancelAction(token).then(() => get().refresh()).then(() => mailBack(token));
@@ -1107,7 +1110,7 @@ export const useStore = create<State>((set, get) => ({
         }
       } catch (e) {
         advance = false;
-        get().showToast(t("errors.toast.failed", { error: friendlyError(e) }), undefined, "error");
+        get().showToast(() => t("errors.toast.failed", { error: friendlyError(e) }), undefined, "error");
         await get().refresh();
       }
       if (advance && selected && ids.includes(selected)) await get().select(nextSel);
@@ -1117,10 +1120,10 @@ export const useStore = create<State>((set, get) => ({
     try {
       await api.threadAction(ids, action, arg, scopeOf(folder));
       if (label) {
-        get().showToast(label, action === "snooze" ? () => void get().act(ids, "unsnooze") : undefined, "success");
+        get().showToast(label, action === "snooze" ? () => void get().act(ids, "unsnooze") : undefined, "success"); // i18n-ok: a function (Lazy)
       }
     } catch (e) {
-      get().showToast(t("errors.toast.failed", { error: friendlyError(e) }), undefined, "error");
+      get().showToast(() => t("errors.toast.failed", { error: friendlyError(e) }), undefined, "error");
     }
     if (removing && selected && ids.includes(selected)) await get().select(nextSel);
     await get().refresh();
@@ -1163,14 +1166,16 @@ export const useStore = create<State>((set, get) => ({
   setRibbonTab: (ribbonTab) => set({ ribbonTab }),
 
   showToast: (text, undo, kind, actions) => {
+    const { text: first, textFn } = toastTexts(text);
     // i18n note: this guess reads the English start of the text; a caller whose text is translated must pass `kind` itself
-    const k: Toast["kind"] = kind ?? (/^(failed|sync error|send failed|schedule failed|save|unsubscribe failed|cannot)/i.test(text) ? "error" : "info");
+    const k: Toast["kind"] = kind ?? (/^(failed|sync error|send failed|schedule failed|save|unsubscribe failed|cannot)/i.test(first) ? "error" : "info");
     const acts = actions?.slice(0, 2);
     // a toast with buttons stays long enough to be read and clicked
     const ttl = undo ? Math.max(5000, get().prefs.undoActionSeconds * 1000) : acts?.length || k === "error" ? 8000 : 4500;
     const id = ++toastSeq;
     // newest last; keep a short stack and never evict a toast that still has an Undo
-    set((s) => ({ toasts: addToast(s.toasts.filter((t) => t.undo || t.sticky || s.toasts.length < 4), { id, text, kind: k, undo, actions: acts, ttl }).slice(-5) }));
+    // (an identical error is recognised by its text in the language in use now, not the one the older toast was made in)
+    set((s) => ({ toasts: addToast(s.toasts.filter((t) => t.undo || t.sticky || s.toasts.length < 4).map(refreshed), { id, text: first, textFn, kind: k, undo, actions: acts, ttl }).slice(-5) }));
     setTimeout(() => get().dismissToast(id), ttl);
   },
 
@@ -1181,7 +1186,7 @@ export const useStore = create<State>((set, get) => ({
       const others = s.toasts.filter((t) => t.key !== key);
       if (!spec) return { toasts: others };
       const old = s.toasts.find((t) => t.key === key);
-      const toast: Toast = { id: old?.id ?? ++toastSeq, text: lazyText(spec.text), textFn: typeof spec.text === "function" ? spec.text : undefined, kind: spec.kind ?? "info", actions: spec.actions, ttl: spec.ttl ?? 0, sticky: true, key, onDismiss: spec.onDismiss, closeLabel: spec.closeLabel, escCloses: spec.escCloses, support: spec.support, link: spec.link, hideClose: spec.hideClose, busy: spec.busy };
+      const toast: Toast = { id: old?.id ?? ++toastSeq, ...toastTexts(spec.text), kind: spec.kind ?? "info", actions: spec.actions, ttl: spec.ttl ?? 0, sticky: true, key, onDismiss: spec.onDismiss, closeLabel: spec.closeLabel, escCloses: spec.escCloses, support: spec.support, link: spec.link, hideClose: spec.hideClose, busy: spec.busy };
       // in place when it exists (the countdown changes its text every second), else on top of the stack
       return { toasts: old ? s.toasts.map((t) => (t.key === key ? toast : t)) : [...others, toast].slice(-5) };
     }),

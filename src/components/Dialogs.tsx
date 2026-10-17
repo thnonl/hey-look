@@ -38,7 +38,7 @@ export function BulkCleaner() {
       await load();
       void refresh();
     } catch (e) {
-      showToast(friendlyError(e), undefined, "error");
+      showToast(() => friendlyError(e), undefined, "error");
     } finally {
       setBusy(null);
     }
@@ -81,7 +81,7 @@ export function ShowOriginal({ messageId }: { messageId: string }) {
   useEffect(() => {
     if (confidential) return;
     api.getRaw(messageId).then(setRaw).catch((e) => {
-      showToast(friendlyError(e), undefined, "error");
+      showToast(() => friendlyError(e), undefined, "error");
       setDialog(null);
     });
   }, [messageId]); // eslint-disable-line react-hooks/exhaustive-deps
