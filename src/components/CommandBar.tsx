@@ -60,9 +60,9 @@ export function CommandBar() {
     ];
     if (ids.length)
       list.push(
-        { id: "Archive conversation", label: t("app.cmd.archive"), run: () => void s.act(ids, "archive", undefined, t("mail.done.archived")) },
+        { id: "Archive conversation", label: t("app.cmd.archive"), run: () => void s.act(ids, "archive", undefined, () => t("mail.done.archived")) },
         ...(cur && readerAllowed(s.folder, cur.folder) ? [{ id: "Open in new window", label: t("app.cmd.openInWindow"), run: () => void openReader(cur, s.folder) }] : []),
-        { id: "Delete conversation", label: t("app.cmd.delete"), run: () => void s.act(ids, "trash", undefined, t("mail.done.trashed")) },
+        { id: "Delete conversation", label: t("app.cmd.delete"), run: () => void s.act(ids, "trash", undefined, () => t("mail.done.trashed")) },
         { id: "Mark as unread", label: t("app.cmd.markUnread"), run: () => void s.act(ids, "unread") },
         { id: cur?.flagged ? "Remove flag" : "Flag", label: cur?.flagged ? t("app.cmd.unflag") : t("app.cmd.flag"), run: () => void s.act(ids, cur?.flagged ? "unstar" : "star") },
         { id: cur?.pinned ? "Unpin" : "Pin", label: cur?.pinned ? t("app.cmd.unpin") : t("app.cmd.pin"), run: () => void s.act(ids, cur?.pinned ? "unpin" : "pin") },

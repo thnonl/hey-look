@@ -148,7 +148,7 @@ function App() {
         const shown = friendlyError(error ?? "");
         useStore.setState((x) => ({ syncErrors: { ...x.syncErrors, [accountId]: shown } }));
         const email = st.accounts.find((a) => a.id === accountId)?.email;
-        st.showToast(email ? tNow("errors.toast.withAccount", { account: email, error: shown }) : shown, undefined, "error");
+        st.showToast(() => email ? tNow("errors.toast.withAccount", { account: email, error: friendlyError(error ?? "") }) : friendlyError(error ?? ""), undefined, "error");
       }),
       // the background download of older Inbox mail: a status line in the list and a quiet, throttled re-read of it
       listen<BackfillProgress>("backfill-progress", (e) => useStore.getState().onBackfill(e.payload)),
@@ -171,9 +171,9 @@ function App() {
         void st.refresh();
         if (e.payload.status !== "failed") return;
         const subject = st.outbox.find((o) => o.id === e.payload.id)?.subject || t("app.noSubject");
-        st.showToast(t("app.toast.scheduledFailed", { subject }), undefined, "error", [
-          { label: t("common.retry"), run: () => void api.outboxRetry(e.payload.id).then(() => useStore.getState().refresh()) },
-          { label: t("app.action.open"), run: () => void useStore.getState().setView("scheduled") },
+        st.showToast(() => t("app.toast.scheduledFailed", { subject }), undefined, "error", [
+          { label: () => t("common.retry"), run: () => void api.outboxRetry(e.payload.id).then(() => useStore.getState().refresh()) },
+          { label: () => t("app.action.open"), run: () => void useStore.getState().setView("scheduled") },
         ]);
       }),
       // the calendar changed behind the view's back: sync processed an invitation, a reply or a cancellation
@@ -184,17 +184,17 @@ function App() {
       }),
       listen<{ eventId: string; title: string; line: string; joinUrl?: string | null }>("event-reminder", (e) => {
         const st = useStore.getState();
-        st.showToast(`${e.payload.title}${e.payload.line ? ` · ${e.payload.line}` : ""}`, undefined, "info", [
+        st.showToast(() => `${e.payload.title}${e.payload.line ? ` · ${e.payload.line}` : ""}`, undefined, "info", [
           // no account: the calendar is not on screen, so there is nothing to open
-          ...(hasMailAccounts(st.accounts.length) ? [{ label: t("app.action.open"), run: () => st.setModule("calendar") }] : []),
-          ...(e.payload.joinUrl ? [{ label: t("app.action.join"), run: () => void openUpdateLink(e.payload.joinUrl as string) }] : []),
+          ...(hasMailAccounts(st.accounts.length) ? [{ label: () => t("app.action.open"), run: () => st.setModule("calendar") }] : []),
+          ...(e.payload.joinUrl ? [{ label: () => t("app.action.join"), run: () => void openUpdateLink(e.payload.joinUrl as string) }] : []),
         ]);
       }),
       // the chosen save folder is gone: attachments went to Downloads instead (said once per session and folder)
       listen<{ configured: string; used: string }>("download-dir-fallback", (e) => {
         const st = useStore.getState();
-        st.showToast(t("app.toast.downloadDirFallback", { configured: e.payload.configured, used: e.payload.used }), undefined, "info", [
-          { label: t("app.action.changeFolder"), run: () => st.setDialog({ type: "settings", tab: "general" }) },
+        st.showToast(() => t("app.toast.downloadDirFallback", { configured: e.payload.configured, used: e.payload.used }), undefined, "info", [
+          { label: () => t("app.action.changeFolder"), run: () => st.setDialog({ type: "settings", tab: "general" }) },
         ]);
       }),
       // The rest of a quit (REQ-48 b, c): a message being written is saved to Drafts (and the person is asked when that fails), then every
@@ -248,11 +248,11 @@ function App() {
         useStore.getState().showToast(t("app.toast.leftover", { n }), undefined, "success");
       }),
       // a filter whose action failed on new mail (once per filter and error per run, REQ-52)
-      listen<string>("filter-failed", (e) => useStore.getState().showToast(e.payload, undefined, "error")),
+      listen<string>("filter-failed", (e) => useStore.getState().showToast(e.payload, undefined, "error")), // i18n-ok: the text comes from the backend
       listen<{ count: number }>("outbox-catchup", (e) => {
         const st = useStore.getState();
-        st.showToast(catchupText(e.payload.count), undefined, "success", [
-          { label: t("app.action.view"), run: () => void st.setView("scheduled") },
+        st.showToast(() => catchupText(e.payload.count), undefined, "success", [
+          { label: () => t("app.action.view"), run: () => void st.setView("scheduled") },
         ]);
       }),
       listen<{ count: number; next: number | null }>("confirm-quit", async (e) => {
@@ -396,11 +396,11 @@ function App() {
           else if (!st.compose) void st.select(null);
           break;
         }
-        case "e": void st.act(ids, "archive", undefined, t("mail.done.archived")); break;
-        case "#": case "Delete": void st.act(ids, "trash", undefined, t("mail.done.trashed")); break;
+        case "e": void st.act(ids, "archive", undefined, () => t("mail.done.archived")); break;
+        case "#": case "Delete": void st.act(ids, "trash", undefined, () => t("mail.done.trashed")); break;
         // the Mac "delete" key (Backspace) deletes the selected conversation too; not while typing (guarded above)
-        case "Backspace": if (osNow() === "macos") void st.act(ids, "trash", undefined, t("mail.done.trashed")); break;
-        case "!": void st.act(ids, "junk", undefined, t("mail.done.junk")); break;
+        case "Backspace": if (osNow() === "macos") void st.act(ids, "trash", undefined, () => t("mail.done.trashed")); break;
+        case "!": void st.act(ids, "junk", undefined, () => t("mail.done.junk")); break;
         case "u": void st.act(ids, "unread"); break;
         case "p": void st.act(ids, cur?.pinned ? "unpin" : "pin"); break;
         case "*": void st.act(ids, cur?.flagged ? "unstar" : "star"); break;

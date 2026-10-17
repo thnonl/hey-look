@@ -43,10 +43,10 @@ async function answer(t: ThreadSummary, kind: "reply" | "replyAll" | "forward") 
   else replyTo(last, kind === "replyAll", msgs);
 }
 
-async function copyOf(text: string | null, done: string, failed: string) {
+async function copyOf(text: string | null, done: () => string, failed: () => string) {
   const st = useStore.getState();
   if (text && (await copyToClipboard(text))) st.showToast(done, undefined, "success");
-  else st.showToast(failed, undefined, "error");
+  else st.showToast(failed, undefined, "error"); // i18n-ok: a function, see the parameters
 }
 
 const ICON = 14;
@@ -100,29 +100,29 @@ function RowMenu({ open, onClose }: { open: Open; onClose: () => void }) {
           : run(tr("mail.hover.pin"), <Pin size={ICON} />, () => void act(ids, "pin"));
       case "snooze":
         return run(tr("app.ribbon.snooze"), <Clock size={ICON} />, () => undefined, {
-          submenu: snoozePresets(prefs.snoozeTimes).map((p) => ({ label: p.label, onClick: () => void act(ids, "snooze", String(p.ts), tr("mail.done.snoozed", { when: p.label })) })),
+          submenu: snoozePresets(prefs.snoozeTimes).map((p) => ({ label: p.label, onClick: () => void act(ids, "snooze", String(p.ts), () => tr("mail.done.snoozed", { when: p.label })) })),
         });
       case "move": {
         const choices = moveChoices(folders, first.accountId, scopeOf(folder));
         return run(tr("app.ribbon.moveTo"), <FolderInput size={ICON} />, () => undefined, {
-          submenu: choices.map((f) => ({ label: folderLabel(f.key, f.name), onClick: () => void act(ids, "move", f.key, tr("mail.done.moved", { folder: folderLabel(f.key, f.name) })) })),
+          submenu: choices.map((f) => ({ label: folderLabel(f.key, f.name), onClick: () => void act(ids, "move", f.key, () => tr("mail.done.moved", { folder: folderLabel(f.key, f.name) })) })),
           ...(choices.length === 0 ? { disabled: true } : {}),
         });
       }
       case "archive":
-        return run(tr("app.ribbon.archive"), <Archive size={ICON} />, () => void act(ids, "archive", undefined, tr("mail.done.archived")));
+        return run(tr("app.ribbon.archive"), <Archive size={ICON} />, () => void act(ids, "archive", undefined, () => tr("mail.done.archived")));
       case "delete":
         return e.variant === "permanent"
-          ? run(tr("mail.hover.deleteForever"), <Trash2 size={ICON} />, () => void act(ids, "trash", undefined, tr("mail.done.deleted")))
-          : run(tr("common.delete"), <Trash2 size={ICON} />, () => void act(ids, "trash", undefined, tr("mail.done.trashed")));
+          ? run(tr("mail.hover.deleteForever"), <Trash2 size={ICON} />, () => void act(ids, "trash", undefined, () => tr("mail.done.deleted")))
+          : run(tr("common.delete"), <Trash2 size={ICON} />, () => void act(ids, "trash", undefined, () => tr("mail.done.trashed")));
       case "junk":
-        return run(tr("app.ribbon.moveToJunk"), <OctagonAlert size={ICON} />, () => void act(ids, "junk", undefined, tr("mail.done.junk")));
+        return run(tr("app.ribbon.moveToJunk"), <OctagonAlert size={ICON} />, () => void act(ids, "junk", undefined, () => tr("mail.done.junk")));
       case "copySender":
         return run(tr("reading.msg.copySender"), <AtSign size={ICON} />, () =>
-          void messagesOf(first).then((m) => copyOf(senderOf(m, new Set(accounts.map((a) => a.email.toLowerCase()))), tr("reading.msg.copied"), tr("mail.ctx.copyFailed"))).catch((err) =>
-            useStore.getState().showToast(tr("errors.toast.failed", { error: friendlyError(err) }), undefined, "error")));
+          void messagesOf(first).then((m) => copyOf(senderOf(m, new Set(accounts.map((a) => a.email.toLowerCase()))), () => tr("reading.msg.copied"), () => tr("mail.ctx.copyFailed"))).catch((err) =>
+            useStore.getState().showToast(() => tr("errors.toast.failed", { error: friendlyError(err) }), undefined, "error")));
       case "copySubject":
-        return run(tr("mail.ctx.copySubject"), <Type size={ICON} />, () => void copyOf(subjectText(first.subject), tr("reading.msg.copied"), tr("mail.ctx.copyFailed")));
+        return run(tr("mail.ctx.copySubject"), <Type size={ICON} />, () => void copyOf(subjectText(first.subject), () => tr("reading.msg.copied"), () => tr("mail.ctx.copyFailed")));
     }
   };
   const items: CtxItem[] = [

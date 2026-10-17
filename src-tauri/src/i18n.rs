@@ -105,6 +105,15 @@ pub enum K {
     CalendarFile,
     SavePublicKey,
     SaveKeyBackup,
+    // the window that could not load its page (startup.rs / loadfail.rs): the page is not there to translate it, so these come from here
+    LoadFailTitle,
+    LoadFailWindows,
+    LoadFailMac,
+    LoadFailLinux,
+    LoadFailRetry,
+    LoadFailOpenLog,
+    LoadFailQuit,
+    LoadFailLog,
 }
 
 /// Every text key; the tests walk it (the app itself matches on `K`).
@@ -114,6 +123,7 @@ pub const ALL: &[K] = &[
     K::ActReply, K::ActSnooze, K::TrayHintTitle, K::TrayHintMac, K::TrayHintLinux, K::TrayHintOther, K::TestTitle, K::TestLine1, K::TestLine2,
     K::EveryDay, K::EveryMonth, K::EveryYear, K::SaveAttachmentsTo, K::ChooseKeyFile,
     K::OpenPgpKeys, K::CalendarFile, K::SavePublicKey, K::SaveKeyBackup,
+    K::LoadFailTitle, K::LoadFailWindows, K::LoadFailMac, K::LoadFailLinux, K::LoadFailRetry, K::LoadFailOpenLog, K::LoadFailQuit, K::LoadFailLog,
 ];
 
 /// English, Vietnamese, French. The product name stays "Hey Look!".
@@ -164,6 +174,26 @@ fn texts(k: K) -> [&'static str; 3] {
         K::CalendarFile => ["Calendar file", "Tệp lịch", "Fichier de calendrier"],
         K::SavePublicKey => ["Save public key", "Lưu khóa công khai", "Enregistrer la clé publique"],
         K::SaveKeyBackup => ["Save a backup of your key", "Lưu bản sao lưu khóa của bạn", "Enregistrer une sauvegarde de votre clé"],
+        K::LoadFailTitle => ["Hey Look! could not load its window", "Hey Look! không thể tải cửa sổ của mình", "Hey Look! n’a pas pu charger sa fenêtre"],
+        K::LoadFailWindows => [
+            "Hey Look! started, but its window could not load the app’s interface. The most likely reasons are that the Microsoft Edge WebView2 Runtime is missing or damaged (reinstall or repair it from Microsoft), or that a security program is blocking it. Choose Retry to try again, or open the log folder to see what happened.",
+            "Hey Look! đã khởi động nhưng cửa sổ không tải được giao diện ứng dụng. Nguyên nhân thường gặp là Microsoft Edge WebView2 Runtime bị thiếu hoặc hỏng (hãy cài đặt lại hoặc sửa chữa từ Microsoft), hoặc một phần mềm bảo mật đang chặn nó. Chọn Thử lại để thử lần nữa, hoặc mở thư mục nhật ký để xem điều gì đã xảy ra.",
+            "Hey Look! a démarré, mais sa fenêtre n’a pas pu charger l’interface de l’application. Les causes les plus probables : le runtime Microsoft Edge WebView2 est absent ou endommagé (réinstallez-le ou réparez-le depuis Microsoft), ou un programme de sécurité le bloque. Choisissez Réessayer pour recommencer, ou ouvrez le dossier des journaux pour voir ce qui s’est passé.",
+        ],
+        K::LoadFailMac => [
+            "Hey Look! started, but its window could not load the app’s interface. The most likely reasons are that the web engine built into macOS (WebKit) did not start, for example after an interrupted system update, or that a security program is blocking it. Choose Retry to try again, or open the log folder to see what happened.",
+            "Hey Look! đã khởi động nhưng cửa sổ không tải được giao diện ứng dụng. Nguyên nhân thường gặp là công cụ web tích hợp trong macOS (WebKit) không khởi động được, chẳng hạn sau một lần cập nhật hệ thống bị gián đoạn, hoặc một phần mềm bảo mật đang chặn nó. Chọn Thử lại để thử lần nữa, hoặc mở thư mục nhật ký để xem điều gì đã xảy ra.",
+            "Hey Look! a démarré, mais sa fenêtre n’a pas pu charger l’interface de l’application. Les causes les plus probables : le moteur web intégré à macOS (WebKit) n’a pas démarré, par exemple après une mise à jour système interrompue, ou un programme de sécurité le bloque. Choisissez Réessayer pour recommencer, ou ouvrez le dossier des journaux pour voir ce qui s’est passé.",
+        ],
+        K::LoadFailLinux => [
+            "Hey Look! started, but its window could not load the app’s interface. The most likely reasons are that the WebKitGTK library (webkit2gtk-4.1) is missing, too old or damaged, or that the session has no working graphical display. Choose Retry to try again, or open the log folder to see what happened.",
+            "Hey Look! đã khởi động nhưng cửa sổ không tải được giao diện ứng dụng. Nguyên nhân thường gặp là thư viện WebKitGTK (webkit2gtk-4.1) bị thiếu, quá cũ hoặc hỏng, hoặc phiên làm việc không có màn hình đồ họa hoạt động. Chọn Thử lại để thử lần nữa, hoặc mở thư mục nhật ký để xem điều gì đã xảy ra.",
+            "Hey Look! a démarré, mais sa fenêtre n’a pas pu charger l’interface de l’application. Les causes les plus probables : la bibliothèque WebKitGTK (webkit2gtk-4.1) est absente, trop ancienne ou endommagée, ou la session n’a pas d’affichage graphique fonctionnel. Choisissez Réessayer pour recommencer, ou ouvrez le dossier des journaux pour voir ce qui s’est passé.",
+        ],
+        K::LoadFailRetry => ["Retry", "Thử lại", "Réessayer"],
+        K::LoadFailOpenLog => ["Open log folder", "Mở thư mục nhật ký", "Ouvrir le dossier des journaux"],
+        K::LoadFailQuit => ["Quit", "Thoát", "Quitter"],
+        K::LoadFailLog => ["Log file:", "Tệp nhật ký:", "Fichier journal :"],
     }
 }
 
@@ -275,6 +305,18 @@ pub fn tray_hint_in(l: Lang, os: &str) -> &'static str {
         "macos" => K::TrayHintMac,
         "linux" => K::TrayHintLinux,
         _ => K::TrayHintOther,
+    })
+}
+
+/// Body of the "could not load its window" dialog, per OS name (`std::env::consts::OS`): the likely reason is the web engine of that system.
+pub fn load_failed_body(os: &str) -> &'static str {
+    load_failed_body_in(lang(), os)
+}
+pub fn load_failed_body_in(l: Lang, os: &str) -> &'static str {
+    tr_in(l, match os {
+        "windows" => K::LoadFailWindows,
+        "macos" => K::LoadFailMac,
+        _ => K::LoadFailLinux,
     })
 }
 
@@ -611,7 +653,7 @@ mod tests {
     #[test]
     fn all_lists_every_variant() {
         // texts() is exhaustive; ALL must not forget one (the variant count is pinned by the last variant's position)
-        assert_eq!(ALL.len(), K::SaveKeyBackup as usize + 1);
+        assert_eq!(ALL.len(), K::LoadFailLog as usize + 1);
         let mut seen = std::collections::HashSet::new();
         for k in ALL {
             assert!(seen.insert(*k as usize), "{k:?} twice");
@@ -667,6 +709,25 @@ mod tests {
             }
             assert!(tray_hint_in(l, "macos").contains("Hey Look!"), "{l:?}");
         }
+    }
+
+    #[test]
+    fn the_load_failure_dialog_names_the_engine_of_the_system_in_every_language() {
+        for l in LANGS {
+            for (os, engine) in [("windows", "WebView2"), ("macos", "WebKit"), ("linux", "WebKitGTK")] {
+                let body = load_failed_body_in(l, os);
+                assert!(body.contains(engine), "{l:?} {os}: {body:?}");
+                assert!(body.len() > 60, "{l:?} {os}");
+            }
+            // an unknown system gets the Linux text (the web engine there is the one that is most often missing)
+            assert_eq!(load_failed_body_in(l, "freebsd"), load_failed_body_in(l, "linux"), "{l:?}");
+            // three different button labels (the dialog maps the answer back by label)
+            let labels = [tr_in(l, K::LoadFailRetry), tr_in(l, K::LoadFailOpenLog), tr_in(l, K::LoadFailQuit)];
+            assert!(labels[0] != labels[1] && labels[1] != labels[2] && labels[0] != labels[2], "{l:?}: {labels:?}");
+            assert!(tr_in(l, K::LoadFailTitle).contains("Hey Look!"), "{l:?}");
+        }
+        assert_eq!(en(K::LoadFailRetry), "Retry");
+        assert_eq!(en(K::LoadFailQuit), "Quit");
     }
 
     #[test]

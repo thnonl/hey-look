@@ -65,16 +65,17 @@ export const askFreshBeforeSend = (fileCount: number, pictureCount: number): boo
 
 /** What `showSizeToast` needs of the toast store (the store's own functions; a fake one in the test). */
 export interface ToastHost {
-  showToast(text: string, undo: undefined, kind: "error"): void;
+  /** a function text is drawn when the toast is painted (it follows a language switch) */
+  showToast(text: string | (() => string), undo: undefined, kind: "error"): void;
   dismissToast(id: number): void;
   /** the id of the newest toast, null when there is none */
   lastToastId(): number | null;
 }
 
 /** Shows `text` as THE too-big toast: the one this showed before (files added, then Send pressed, or Send pressed twice) is taken away first. */
-export function showSizeToast(host: ToastHost, last: { id: number | null }, text: string): void {
+export function showSizeToast(host: ToastHost, last: { id: number | null }, text: string | (() => string)): void {
   if (last.id !== null) host.dismissToast(last.id);
-  host.showToast(text, undefined, "error");
+  host.showToast(text, undefined, "error"); // i18n-ok: `text` may be a function (it follows a language switch)
   last.id = host.lastToastId();
 }
 

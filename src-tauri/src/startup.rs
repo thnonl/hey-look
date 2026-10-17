@@ -17,9 +17,15 @@
 //! the looks after a show ask the process and the window manager instead of reading pixels (the pixel read is a switch, off), a
 //! failure event of the web view restarts the app when the browser process is gone, and the escalation (re-assert the web view,
 //! hide + show, reload, restart) is bounded and says in `startup.log` which step cured the window or failed.
+//!
+//! 1.0.6: the end of every one of those roads (the page never reports itself, the restart is refused, nothing brings a dead page
+//! back) is no longer a blank window and a line in the log: the person gets a native message box that says the app could not
+//! load its interface and why that usually is, with Retry, Open log folder and Quit (`loadfail.rs` is the state machine; the
+//! texts are the Rust ones of `i18n`, since the page is what is missing).
 // (the restart, the failure reaction and the escalation need the Windows web view's events: other systems compile them unused)
 #![cfg_attr(not(windows), allow(dead_code))]
 use crate::webview_health::{self, BrowserState, Reaction};
+use crate::{i18n, loadfail};
 use std::io::Write;
 use std::sync::atomic::{AtomicBool, AtomicU32, Ordering};
 use std::sync::{Mutex, OnceLock};
@@ -295,15 +301,21 @@ pub fn mark_exiting() {
 /// their Undo time are safe in the outbox, queued actions are flushed first. The new process waits for this one and for the web
 /// view processes it leaves behind (`webview_health::wait_for_previous_run`).
 fn restart_app(app: &AppHandle, why: &str) {
+    restart_app_with(app, why, false);
+}
+
+/// `force`: the person asked for it (Retry in the error dialog), so the limit of `MAX_RESTARTS` does not apply (it is still recorded).
+fn restart_app_with(app: &AppHandle, why: &str, force: bool) {
     if RESTARTING.swap(true, Ordering::SeqCst) || EXITING.load(Ordering::SeqCst) {
         return;
     }
     let marker = LOG_DIR.get().map(|d| d.join("blank-restart.txt"));
     let history = marker.as_ref().and_then(|m| std::fs::read_to_string(m).ok()).map(|t| parse_history(&t)).unwrap_or_default();
     let now = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_secs() as i64).unwrap_or(0);
-    if !restart_allowed(&history, now) {
+    if !force && !restart_allowed(&history, now) {
         stage(Some(app), &format!("{why}: the app already restarted {MAX_RESTARTS} times in the last ten minutes: leaving the window as it is"));
         RESTARTING.store(false, Ordering::SeqCst);
+        report_dead_page(app, "no more restarts allowed");
         return;
     }
     let mut kept: Vec<i64> = history.into_iter().filter(|&t| now >= t && now - t <= RESTART_WINDOW_S).collect();
@@ -352,7 +364,7 @@ pub fn recover_dead_page(app: &AppHandle, why: &str) {
         stage(Some(app), &format!("{why}: reloading the page"));
         let before = READY_COUNT.load(Ordering::SeqCst);
         let t0 = Instant::now();
-        recover_page(
+        let cured = recover_page(
             |remedy| match remedy {
                 PageRemedy::Reload => reload_page(app),
                 PageRemedy::Navigate => navigate_to_app(app),
@@ -363,8 +375,12 @@ pub fn recover_dead_page(app: &AppHandle, why: &str) {
             |said| stage(Some(app), &said),
             || t0.elapsed().as_millis(),
         );
+        if cured.is_none() {
+            report_dead_page(app, "the page did not come back");
+        }
     } else {
         stage(Some(app), &format!("{why}: not reloading again (already {MAX_PAGE_RELOADS} times in this run)"));
+        report_dead_page(app, "the page process died again");
     }
 }
 
@@ -440,6 +456,42 @@ fn navigate_to_app(app: &AppHandle) {
     match w.url().map(|u| w.navigate(u)) {
         Ok(Ok(())) => {}
         Ok(Err(e)) | Err(e) => stage(Some(app), &format!("could not load the page's address again: {e}")),
+    }
+}
+
+/// The address the main window loads (`WebviewUrl::App`), worked out the way Tauri does: the dev server in a dev build, a frontend given as a
+/// URL, else the app protocol (`tauri://localhost`; on Windows its `http://tauri.localhost` form, `https` when the window asks for it). The web
+/// view's own `url()` cannot be used: until the first load has finished it is `about:blank` (found by the real test of Retry), and after a failed one it
+/// can be the browser's error page.
+pub fn app_address(dev: bool, dev_url: Option<&str>, dist_url: Option<&str>, windows: bool, https: bool) -> String {
+    match if dev { dev_url } else { dist_url } {
+        Some(u) => u.to_string(),
+        None if windows => format!("{}://tauri.localhost/", if https { "https" } else { "http" }),
+        None => "tauri://localhost".to_string(),
+    }
+}
+
+fn configured_address(app: &AppHandle) -> Option<tauri::Url> {
+    let cfg = app.config();
+    let dist = match cfg.build.frontend_dist.as_ref() {
+        Some(tauri::utils::config::FrontendDist::Url(u)) => Some(u.to_string()),
+        _ => None,
+    };
+    let https = cfg.app.windows.iter().find(|w| w.label == "main").is_some_and(|w| w.use_https_scheme);
+    let dev_url = cfg.build.dev_url.as_ref().map(|u| u.to_string());
+    tauri::Url::parse(&app_address(tauri::is_dev(), dev_url.as_deref(), dist.as_deref(), cfg!(windows), https)).ok()
+}
+
+/// Load the app's own address again (Retry in the error dialog).
+fn navigate_home(app: &AppHandle) {
+    let Some(w) = app.get_webview_window("main") else { return };
+    let Some(url) = configured_address(app) else {
+        stage(Some(app), "could not load the app's address again: no address");
+        return;
+    };
+    stage(Some(app), &format!("loading the app's address again: {url}"));
+    if let Err(e) = w.navigate(url) {
+        stage(Some(app), &format!("could not load the app's address again: {e}"));
     }
 }
 
@@ -526,7 +578,10 @@ fn escalate(app: &AppHandle, browser_gone: bool) {
             let why = if browser_gone { "the web view's browser process is gone" } else { "still blank after the reload" };
             restart_app(app, why);
         }
-        Step::GiveUp => stage(Some(app), "still blank after every step: leaving the window as it is"),
+        Step::GiveUp => {
+            stage(Some(app), "still blank after every step: leaving the window as it is");
+            report_dead_page(app, "the window stays blank");
+        }
     }
 }
 
@@ -579,44 +634,151 @@ fn window_paints(_app: &AppHandle) -> Option<bool> {
     None
 }
 
-/// Start watching: show the window when the page is ready (`show_at_start`: not a tray-only start), reload it when it never is.
+/// Only one guard talks to the person at a time: the one of the start, or one begun by `report_dead_page`.
+static GUARD_ACTIVE: AtomicBool = AtomicBool::new(false);
+
+/// Start watching: show the window when the page is ready (`show_at_start`: not a tray-only start), reload it when it never is, and when
+/// even that does not help tell the person (`loadfail::drive`).
 pub fn start(app: &AppHandle, show_at_start: bool) {
     stage(Some(app), &format!("window created hidden (show at start: {show_at_start})"));
     // which browser process the web view uses (joined from an earlier run or its own), and a listener for its failures
     webview_health::watch(app);
+    GUARD_ACTIVE.store(true, Ordering::SeqCst);
     crate::linuxview::watch(app);
     let app = app.clone();
     std::thread::spawn(move || {
-        watch(
-            || READY.load(Ordering::SeqCst),
-            std::thread::sleep,
-            |ev| match ev {
-                Event::Ready { waited_ms } => {
-                    if show_at_start {
-                        crate::shell::show_main(&app);
-                        stage(Some(&app), &format!("window shown, page ready after {waited_ms} ms"));
-                    } else {
-                        stage(Some(&app), &format!("page ready after {waited_ms} ms, window stays hidden (tray start)"));
-                    }
-                }
-                Event::NoSignal { attempt, will_reload } => {
-                    stage(Some(&app), &format!("no ready signal within {} s (attempt {})", READY_WAIT.as_secs(), attempt + 1));
-                    if show_at_start && attempt == 0 {
-                        crate::shell::show_main(&app);
-                        stage(Some(&app), "window shown without a ready signal");
-                    }
-                    if will_reload {
-                        if let Some(w) = app.get_webview_window("main") {
-                            let _ = w.eval("window.location.reload()");
-                        }
-                        stage(Some(&app), "reloading the page");
-                    } else {
-                        stage(Some(&app), "giving up: the page never reported itself");
-                    }
-                }
-            },
-        );
+        run_guard(&app, show_at_start, true, || READY.load(Ordering::SeqCst));
+        GUARD_ACTIVE.store(false, Ordering::SeqCst);
     });
+}
+
+/// The page is gone for good although the app tried everything it does by itself (the end of `webview_health`'s roads): tell the person,
+/// unless a guard is already doing so. `why` goes to the log.
+pub fn report_dead_page(app: &AppHandle, why: &str) {
+    if EXITING.load(Ordering::SeqCst) {
+        return;
+    }
+    if GUARD_ACTIVE.swap(true, Ordering::SeqCst) {
+        stage(Some(app), &format!("{why}: the person is already being told"));
+        return;
+    }
+    stage(Some(app), &format!("{why}: the page is gone for good, telling the person"));
+    let before = READY_COUNT.load(Ordering::SeqCst);
+    let app = app.clone();
+    std::thread::spawn(move || {
+        run_guard(&app, true, false, || READY_COUNT.load(Ordering::SeqCst) > before);
+        GUARD_ACTIVE.store(false, Ordering::SeqCst);
+    });
+}
+
+/// `loadfail::drive` with the real window, dialog and log.
+fn run_guard(app: &AppHandle, show_at_start: bool, first_watch: bool, ready: impl Fn() -> bool) {
+    let visible = || app.get_webview_window("main").map(|w| w.is_visible().unwrap_or(false)).unwrap_or(false);
+    let done = loadfail::drive(first_watch, &ready, visible, std::thread::sleep, |round| ask_load_failure(app, round), |ev| on_guard_event(app, show_at_start, ev));
+    if done == loadfail::Done::Quit {
+        // the page that would be asked to save and send is not there: the quit runs without asking it (a message in its Undo time
+        // stays in the outbox and goes out at the next start)
+        crate::quit_without_page(app);
+    }
+}
+
+fn on_guard_event(app: &AppHandle, show_at_start: bool, ev: loadfail::Ev) {
+    use loadfail::Ev;
+    match ev {
+        Ev::Watch(Event::Ready { waited_ms }) => {
+            if show_at_start {
+                crate::shell::show_main(app);
+                stage(Some(app), &format!("window shown, page ready after {waited_ms} ms"));
+            } else {
+                stage(Some(app), &format!("page ready after {waited_ms} ms, window stays hidden (tray start)"));
+            }
+        }
+        Ev::Watch(Event::NoSignal { attempt, will_reload }) => {
+            stage(Some(app), &format!("no ready signal within {} s (attempt {})", READY_WAIT.as_secs(), attempt + 1));
+            if show_at_start && attempt == 0 {
+                crate::shell::show_main(app);
+                stage(Some(app), "window shown without a ready signal");
+            }
+            if will_reload {
+                if let Some(w) = app.get_webview_window("main") {
+                    let _ = w.eval("window.location.reload()");
+                }
+                stage(Some(app), "reloading the page");
+            } else {
+                stage(Some(app), "giving up: the page never reported itself");
+            }
+        }
+        Ev::Waiting => stage(Some(app), "the window is hidden (tray start): the error about the page is shown when the window is opened"),
+        Ev::ErrorShown { round } => {
+            // the same words as the dialog, in English (the log is for whoever reads it with the person)
+            let reason = i18n::tr_in(i18n::Lang::En, load_failed_key());
+            stage(Some(app), &format!("the app could not load its interface (round {}): showing the error message. {reason}", round + 1));
+        }
+        Ev::OpenedLog => {
+            stage(Some(app), "error message: Open log folder");
+            open_log_folder(app);
+        }
+        Ev::Retrying { round } => {
+            stage(Some(app), &format!("error message: Retry (round {})", round + 1));
+            if let BrowserState::Exited(_) = webview_health::browser_state() {
+                // nothing can be loaded into a dead browser process; the person asked, so the limit on restarts does not apply
+                restart_app_with(app, "Retry, and the web view's browser process is gone", true);
+            } else {
+                navigate_home(app);
+            }
+        }
+        Ev::LateAnswer => stage(Some(app), "the page answered after all: no error message (or its answer is ignored)"),
+        Ev::Quitting => stage(Some(app), "error message: Quit"),
+    }
+}
+
+fn load_failed_key() -> i18n::K {
+    match std::env::consts::OS {
+        "windows" => i18n::K::LoadFailWindows,
+        "macos" => i18n::K::LoadFailMac,
+        _ => i18n::K::LoadFailLinux,
+    }
+}
+
+/// Show `startup.log` in the file manager (its folder when the file is not there yet).
+fn open_log_folder(app: &AppHandle) {
+    let Some(dir) = LOG_DIR.get() else { return };
+    #[cfg(target_os = "linux")]
+    let res = crate::linuxopen::open(&dir.to_string_lossy(), false);
+    #[cfg(not(target_os = "linux"))]
+    let res = {
+        use tauri_plugin_opener::OpenerExt;
+        let log = dir.join("startup.log");
+        if log.exists() { app.opener().reveal_item_in_dir(&log) } else { app.opener().open_path(dir.to_string_lossy(), None::<&str>) }.map_err(|e| e.to_string())
+    };
+    if let Err(e) = res {
+        stage(Some(app), &format!("could not open the log folder: {e}"));
+    }
+}
+
+/// The native message box (blocks until it is answered; this runs on the guard's own thread).
+fn ask_load_failure(app: &AppHandle, _round: u32) -> loadfail::Answer {
+    use tauri_plugin_dialog::{DialogExt, MessageDialogButtons, MessageDialogKind, MessageDialogResult};
+    let (retry, open_log, quit) = (i18n::tr(i18n::K::LoadFailRetry), i18n::tr(i18n::K::LoadFailOpenLog), i18n::tr(i18n::K::LoadFailQuit));
+    let log = LOG_DIR.get().map(|d| d.join("startup.log").display().to_string()).unwrap_or_default();
+    let body = format!("{}\n\n{} {}", i18n::load_failed_body(std::env::consts::OS), i18n::tr(i18n::K::LoadFailLog), log);
+    let mut dialog = app
+        .dialog()
+        .message(body)
+        .title(i18n::tr(i18n::K::LoadFailTitle))
+        .kind(MessageDialogKind::Error)
+        .buttons(MessageDialogButtons::YesNoCancelCustom(retry.into(), open_log.into(), quit.into()));
+    if let Some(w) = app.get_webview_window("main") {
+        dialog = dialog.parent(&w);
+    }
+    let label = match dialog.blocking_show_with_result() {
+        MessageDialogResult::Custom(s) => s,
+        MessageDialogResult::Yes => "Yes".into(),
+        MessageDialogResult::No => "No".into(),
+        MessageDialogResult::Ok => "Ok".into(),
+        MessageDialogResult::Cancel => "Cancel".into(),
+    };
+    loadfail::answer_from(&label, retry, open_log, quit)
 }
 
 #[cfg(test)]
@@ -841,6 +1003,52 @@ mod tests {
         let helper = &helper[..helper.find("\n}\n").unwrap()];
         assert!(helper.contains(".reload()") && !helper.contains(eval), "{helper}");
     }
+    #[test]
+    fn every_road_that_ends_in_a_window_that_stays_dead_tells_the_person() {
+        // 1.0.6: "leaving the window as it is" used to be the end (a blank window and a line in the log); each of them now ends in the error message
+        let code = include_str!("startup.rs").replace('\r', "");
+        let code = &code[..code.find(concat!("#[cfg(test)]", "\nmod tests")).unwrap()];
+        let part = |from: &str, to: &str| {
+            let a = code.find(from).unwrap_or_else(|| panic!("{from}"));
+            let rest = &code[a..];
+            rest[..rest.find(to).unwrap_or(rest.len())].to_string()
+        };
+        assert!(part("if !force && !restart_allowed", "return;").contains("report_dead_page"), "a refused restart");
+        assert!(part("let cured = recover_page(", "Reaction::LogOnly").contains("if cured.is_none()"), "a page that does not come back");
+        assert!(part("Step::GiveUp => {", "\n        }").contains("report_dead_page"), "the end of the ladder");
+        // the start's own guard: the wait loop is the first stage of the same machine, and nothing else shows the dialog
+        let start = part("pub fn start(", "/// The page is gone for good");
+        assert!(start.contains("run_guard(&app, show_at_start, true"), "{start}");
+        assert!(part("fn run_guard(", "fn on_guard_event").contains("loadfail::drive("));
+        // Quit does not go through the question about scheduled messages (it would be put to the page that is not there)
+        let quit = part("if done == loadfail::Done::Quit", "\n    }\n}");
+        assert!(quit.contains("quit_without_page") && !quit.contains("request_quit"), "{quit}");
+        // a Retry after a dead browser process restarts the app, any other Retry loads the app's own address again
+        let retry = part("Ev::Retrying { round } => {", "Ev::LateAnswer");
+        assert!(retry.contains("restart_app_with(app,") && retry.contains("true);") && retry.contains("navigate_home(app)"), "{retry}");
+        // the dialog and its texts: Rust side only (the page is what is missing), three buttons, the log path in the message
+        let ask = part("fn ask_load_failure(", "loadfail::answer_from(");
+        for needle in ["K::LoadFailTitle", "K::LoadFailRetry", "K::LoadFailOpenLog", "K::LoadFailQuit", "K::LoadFailLog", "YesNoCancelCustom", "MessageDialogKind::Error", "load_failed_body("] {
+            assert!(ask.contains(needle), "{needle}");
+        }
+    }
+
+    #[test]
+    fn the_address_retry_loads_is_the_apps_own_not_the_blank_page() {
+        // found by the real test: the web view's url() is about:blank before the first load, so Retry loaded nothing
+        assert_eq!(app_address(true, Some("http://localhost:1420/"), None, true, false), "http://localhost:1420/", "a dev build: the dev server");
+        assert_eq!(app_address(false, Some("http://localhost:1420/"), None, true, false), "http://tauri.localhost/", "a release build ignores devUrl");
+        assert_eq!(app_address(false, None, None, true, false), "http://tauri.localhost/");
+        assert_eq!(app_address(false, None, None, true, true), "https://tauri.localhost/");
+        assert_eq!(app_address(false, None, None, false, false), "tauri://localhost");
+        assert_eq!(app_address(false, None, Some("https://app.example/"), false, false), "https://app.example/");
+        // and the wiring: Retry does not read the web view's address
+        let code = include_str!("startup.rs").replace('\r', "");
+        let nav = &code[code.find("fn navigate_home(").unwrap()..];
+        let nav = &nav[..nav.find("\n}\n").unwrap()];
+        assert!(nav.contains("configured_address(app)") && !nav.contains(".url()"), "{nav}");
+    }
+
     #[test]
     fn the_window_is_never_shown_from_setup() {
         // the regression itself: `show_main` in `setup` showed the window before the page existed

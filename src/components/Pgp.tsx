@@ -185,7 +185,7 @@ export function GenerateKeyDialog({ accountId, back }: { accountId?: string; bac
         showToast(t("pgp.gen.backupSaved"), undefined, "success");
       }
     } catch (e) {
-      showToast(t("pgp.gen.backupFailed", { error: friendlyError(e) }), undefined, "error");
+      showToast(() => t("pgp.gen.backupFailed", { error: friendlyError(e) }), undefined, "error");
     }
   };
 
@@ -505,15 +505,15 @@ export function KeyDetailsDialog({ fingerprint, back }: { fingerprint: string; b
       {err && <div className="field-err" role="alert" style={{ marginTop: 8 }}><TriangleAlert size={13} />{err}</div>}
 
       <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginTop: 12 }}>
-        <button className="btn small" onClick={() => void api.pgpExportPublic(k.fingerprint).then((p) => p && showToast(t("pgp.details.savedTo", { path: p }), undefined, "success")).catch((e) => showToast(friendlyError(e), undefined, "error"))}>
+        <button className="btn small" onClick={() => void api.pgpExportPublic(k.fingerprint).then((p) => p && showToast(t("pgp.details.savedTo", { path: p }), undefined, "success")).catch((e) => showToast(() => friendlyError(e), undefined, "error"))}>
           <HardDriveDownload size={13} /> {t("pgp.details.exportPublic")}
         </button>
-        <button className="btn small" onClick={() => void api.pgpPublicArmored(k.fingerprint).then((a) => navigator.clipboard.writeText(a)).then(() => showToast(t("pgp.details.publicCopied"), undefined, "success")).catch((e) => showToast(friendlyError(e), undefined, "error"))}>
+        <button className="btn small" onClick={() => void api.pgpPublicArmored(k.fingerprint).then((a) => navigator.clipboard.writeText(a)).then(() => showToast(t("pgp.details.publicCopied"), undefined, "success")).catch((e) => showToast(() => friendlyError(e), undefined, "error"))}>
           <Copy size={13} /> {t("pgp.details.copyPublic")}
         </button>
         {k.hasSecret && (
           <>
-            <button className="btn small" onClick={() => void api.pgpExportSecret(k.fingerprint).then((p) => p && showToast(t("pgp.details.backupSavedTo", { path: p }), undefined, "success")).catch((e) => showToast(friendlyError(e), undefined, "error"))}>
+            <button className="btn small" onClick={() => void api.pgpExportSecret(k.fingerprint).then((p) => p && showToast(t("pgp.details.backupSavedTo", { path: p }), undefined, "success")).catch((e) => showToast(() => friendlyError(e), undefined, "error"))}>
               <FileKey size={13} /> {t("pgp.details.backupSecret")}
             </button>
             <button className="btn small" onClick={() => (setForm(form === "passphrase" ? null : "passphrase"), setErr(""))}>{t("pgp.details.changePassphrase")}</button>
@@ -687,7 +687,7 @@ export function EncCard({ m }: { m: MessageFull }) {
     try {
       replaceMessage(await api.pgpDecryptMessage(m.id));
     } catch (e) {
-      showToast(friendlyError(e), undefined, "error");
+      showToast(() => friendlyError(e), undefined, "error");
     }
   };
   return (
@@ -714,14 +714,14 @@ export async function importKeyFromMessage(m: MessageFull, index: number) {
     const fresh = keys.filter((k) => !before.has(k.fingerprint));
     const name = keys[0] ? userName(keyName(keys[0])) : t("pgp.fromMessage.theSender");
     st.showToast(
-      t("pgp.fromMessage.added", { name }),
+      () => t("pgp.fromMessage.added", { name }),
       fresh.length ? () => void Promise.all(fresh.map((k) => api.pgpDeleteKey(k.fingerprint, true))).then(() => useStore.getState().bumpKeys()) : undefined,
       "success",
     );
     // show the signature check again now that the key is known
     if (st.selected) void st.select(st.selected);
   } catch (e) {
-    st.showToast(t("pgp.fromMessage.failed", { error: friendlyError(e) }), undefined, "error");
+    st.showToast(() => t("pgp.fromMessage.failed", { error: friendlyError(e) }), undefined, "error");
   }
 }
 
