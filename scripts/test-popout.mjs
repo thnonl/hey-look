@@ -308,7 +308,35 @@ assert.equal(popoutTitle(readerTitleText("", "(no subject)")), "(no subject) –
 // ---- the wiring of the reader
 {
   const root = read("src/popout/PopoutRoot.tsx");
-  assert.ok(root.includes("useStore.setState({ prefs: p })") && root.includes("getCurrentWindow().setTheme("), "the root fills the preferences of the window's store and the title bar follows the theme (REQ-W8)");
+  assert.ok(root.includes("useStore.setState({ prefs: p })"), "the root fills the preferences of the window's store");
+  // ---- the title bar theme (1.0.6, Mac QA: a compose window made in Dark kept a black title bar): one backend function, wintheme.rs `apply_all`,
+  // gives every window the theme of the setting; no page and no creation path fixes a theme
+  for (const f of ["src/popout/PopoutRoot.tsx", "src/popout/ComposeView.tsx", "src/popout/ReaderView.tsx", "src/App.tsx", "src/store.ts"]) {
+    assert.ok(!read(f).includes("setTheme("), `${f} does not set the window theme (the backend does)`);
+  }
+  assert.ok(!read("src-tauri/capabilities/popout.json").includes("allow-set-theme"), "a pop-out page may not set its own theme");
+  const wt = read("src-tauri/src/wintheme.rs");
+  const lib = read("src-tauri/src/lib.rs");
+  const pop = read("src-tauri/src/popout.rs");
+  assert.ok(/mod wintheme;/.test(lib), "the module is part of the app");
+  // the setting: dark / light pin, everything else (system) follows the OS
+  assert.ok(wt.includes('Some("dark") => Some(Theme::Dark)') && wt.includes('Some("light") => Some(Theme::Light)') && wt.includes("_ => None,"), "only light and dark pin a theme; system follows the OS");
+  assert.ok(/Step::Release => \{\s*let _ = w\.set_theme\(None\);/.test(wt), "System is given to the windows as None (follow the OS)");
+  assert.equal(wt.split("\n#[cfg(test)]")[0].split(".set_theme(").length - 1, 2, "the native calls are Pin and Release, nothing else");
+  // every window comes through it: a pop-out (after its build, not in the builder), the main window (start-up), the setting, the OS event
+  const create = pop.slice(pop.indexOf("fn create("));
+  const createBody = create.slice(0, create.indexOf("\n}\n"));
+  assert.ok(createBody.indexOf("b.build()") < createBody.indexOf("crate::wintheme::apply_all(app)"), "a pop-out gets the theme right after it is built");
+  assert.ok(!/\.theme\(/.test(createBody), "the window builder is not given a theme");
+  assert.ok(lib.slice(lib.indexOf(".setup(|app|"), lib.indexOf(".on_window_event(")).includes("wintheme::apply_all(app.handle())"), "the main window at start-up");
+  const setSetting = lib.slice(lib.indexOf("fn set_setting("));
+  assert.ok(setSetting.slice(0, setSetting.indexOf("\n}\n")).includes("wintheme::apply_all(&app)"), "a change of the preferences");
+  const ev = lib.slice(lib.indexOf(".on_window_event("), lib.indexOf(".invoke_handler"));
+  assert.ok(ev.indexOf("tauri::WindowEvent::ThemeChanged") < ev.indexOf('window.label() != "main"') && ev.includes("wintheme::on_os_theme_changed"), "an OS theme change reported by any window, before the label is looked at");
+  // nowhere else is a window theme set
+  for (const [name, src] of [["lib.rs", lib], ["popout.rs", pop]]) {
+    assert.ok(!src.includes(".set_theme(") && !src.includes(".theme(Some"), `${name} does not set a theme by itself`);
+  }
   const views = read("src/popout/views.tsx");
   assert.ok(views.includes("reader: ReaderView,") && views.includes("compose: ComposeView,"), "the reader and the compose window are plugged in");
   // the main window answers requests; the reader asks, never writes

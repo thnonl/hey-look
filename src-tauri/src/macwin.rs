@@ -102,6 +102,59 @@ pub fn sweep(label: &str) -> Option<String> {
     Some(text)
 }
 
+/// Set the appearance of an `NSWindow` (title bar included) and redraw its frame. `dark`: `Some(true)` dark, `Some(false)` light, `None` follow
+/// the application (= the OS while the application has no appearance of its own, see wintheme.rs). For `None` the window is first given the
+/// appearance the application shows now and then `nil`: a window whose appearance did not follow the OS resolves it again (and redraws),
+/// and one that did loses nothing. Main thread (wintheme.rs calls it from `run_on_main_thread`).
+pub fn set_appearance(ns_window: *mut c_void, dark: Option<bool>) {
+    let w = ns_window as *mut AnyObject;
+    if w.is_null() {
+        return;
+    }
+    // SAFETY: the caller got `ns_window` from a live window on the main thread, where it runs; every object that comes back is checked for null
+    // before it is messaged, and the strings are constants.
+    unsafe {
+        let nil: *mut AnyObject = std::ptr::null_mut();
+        let named = |name: &CStr| -> *mut AnyObject {
+            let (Some(string), Some(appearance)) = (AnyClass::get(c"NSString"), AnyClass::get(c"NSAppearance")) else { return std::ptr::null_mut() };
+            let name: *mut AnyObject = msg_send![string, stringWithUTF8String: name.as_ptr()];
+            if name.is_null() {
+                return std::ptr::null_mut();
+            }
+            msg_send![appearance, appearanceNamed: name]
+        };
+        match dark {
+            Some(true) => {
+                let _: () = msg_send![w, setAppearance: named(c"NSAppearanceNameDarkAqua")];
+            }
+            Some(false) => {
+                let _: () = msg_send![w, setAppearance: named(c"NSAppearanceNameAqua")];
+            }
+            None => {
+                if let Some(app_class) = AnyClass::get(c"NSApplication") {
+                    let app: *mut AnyObject = msg_send![app_class, sharedApplication];
+                    if !app.is_null() {
+                        let now: *mut AnyObject = msg_send![app, effectiveAppearance];
+                        if !now.is_null() {
+                            let _: () = msg_send![w, setAppearance: now];
+                        }
+                    }
+                }
+                let _: () = msg_send![w, setAppearance: nil];
+            }
+        }
+        // the frame view (the parent of the content view) draws the title bar
+        let content: *mut AnyObject = msg_send![w, contentView];
+        if !content.is_null() {
+            let frame: *mut AnyObject = msg_send![content, superview];
+            if !frame.is_null() {
+                let _: () = msg_send![frame, setNeedsDisplay: Bool::YES];
+            }
+        }
+        let _: () = msg_send![w, invalidateShadow];
+    }
+}
+
 /// The system version, for the log ("Version 15.1 (Build 24B83)").
 pub fn os_version() -> String {
     // SAFETY: Foundation messages; null is checked.

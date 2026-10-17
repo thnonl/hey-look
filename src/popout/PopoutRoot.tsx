@@ -73,8 +73,7 @@ export default function PopoutRoot({ route }: { route: Exclude<Route, { kind: "m
         const p = mergePrefs(await api.getSetting("prefs"));
         applyPrefs(p);
         useStore.setState({ prefs: p }); // the views read the preferences from this window's own store (a read-only copy: nothing here writes them)
-        // the title bar follows the app theme (REQ-W8); "system" gives the choice back to the OS
-        void getCurrentWindow().setTheme(p.theme === "system" ? null : p.theme).catch(quiet);
+        // (the title bar is not set from here: the backend gives every window the theme of the setting, src-tauri/src/wintheme.rs)
       } catch {
         /* the defaults stay */
       }
