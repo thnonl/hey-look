@@ -23,7 +23,7 @@ export function RichEditor({ value, onChange, placeholder, minHeight = 140, labe
   const linkRef = useRef<() => void>(() => undefined);
   const barApi = useRef<FormatBarApi>(null);
   const editor = useEditor({
-    extensions: baseExtensions({ placeholder: placeholder ?? "", getBase: () => baseRef.current, focusToolbar: () => barApi.current?.focus() }),
+    extensions: baseExtensions({ placeholder: placeholder ?? "", getBase: () => baseRef.current, focusToolbar: () => barApi.current?.focus(), openStyles: () => barApi.current?.openStyles() }),
     // Ctrl/Cmd+K is the link UI here too; AltGr characters never trigger the editor shortcuts
     editorProps: { attributes: { "aria-label": label ?? t("compose.fmt.text") }, handleDOMEvents: editorKeyHandlers(() => linkRef.current()) },
     content: value || "<p></p>",

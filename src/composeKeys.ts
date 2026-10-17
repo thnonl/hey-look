@@ -2,7 +2,8 @@
 //  - Ctrl/Cmd+K       link UI inside an editor (like Outlook, Gmail, Word); the command bar everywhere else
 //  - Ctrl/Cmd+Shift+B the app's "Show Bcc" (tooltip "Add Bcc (Ctrl+Shift+B)"); the editor's block quote shortcut is off
 //  - Ctrl/Cmd+Enter   Send (and Ctrl/Cmd+Shift+Enter Send later); the editor's hard-break / exit-code shortcut is off
-//  - Ctrl/Cmd+Alt+... the editor's heading / code block / paragraph shortcuts (Mod-Alt-0..6, Mod-Alt-C) are off: on Windows AltGr
+//  - Ctrl/Cmd+Alt+... the editor's heading / code block / paragraph shortcuts (Mod-Alt-0..6, Mod-Alt-C) are off, except Heading 1-3 (Mod-Alt-1..3, the Styles
+//    menu's keys: see isHeadingKey, which lets the digit through only when it is really the digit and AltGr is not down): on Windows AltGr
 //    is reported as Ctrl+Alt, so those shortcuts fired while the user typed "@", "\", "{", "[", "|", "~", "€", "ć", "²" ...
 // Everything else in the editor (Ctrl+B / I / U, Ctrl+Z / Y / Shift+Z, Ctrl+Shift+7 / 8 lists, and the keys of editor/extensions.ts: Ctrl+= / Ctrl+Shift+= sub / superscript,
 // Ctrl+] / [ font size, Ctrl+Space / Ctrl+\ clear formatting, Alt+F10 toolbar) stays. The editor has no key for strikethrough or inline code any more (Outlook: Ctrl+E is Center).
@@ -28,9 +29,18 @@ export type KeyAction = "command-bar" | "insert-link" | "editor-skip" | "pass";
 /** AltGr: reported with the AltGraph modifier state, and on Windows also as Ctrl+Alt (Ctrl and Alt both down). Real Ctrl+Alt is treated the same: the app has no Ctrl+Alt shortcut. */
 export const isAltGraph = (e: KeyLike): boolean => e.getModifierState?.("AltGraph") === true || (e.ctrlKey && e.altKey && !e.metaKey);
 
+/**
+ * Ctrl/Cmd+Alt+1, 2, 3 are Heading 1-3 (Word, spec-rich-text.md 4.8). They are the one Ctrl+Alt shortcut the editor keeps, and only when the key really
+ * is the digit and the browser does not say AltGr is down: on a German keyboard AltGr+2 / AltGr+3 type ² and ³ (the key is then "²" / "³"), and
+ * on a French one the digit row types symbols, so neither is ever mistaken for a heading shortcut.
+ */
+export const isHeadingKey = (e: KeyLike): boolean =>
+  (e.ctrlKey || e.metaKey) && e.altKey && !e.shiftKey && (e.key === "1" || e.key === "2" || e.key === "3") && e.getModifierState?.("AltGraph") !== true;
+
 export function keyAction(e: KeyLike, ctx: { inEditor: boolean }): KeyAction {
   const mod = e.ctrlKey || e.metaKey;
   const k = e.key.length === 1 ? e.key.toLowerCase() : e.key;
+  if (ctx.inEditor && isHeadingKey(e)) return "pass";
   // AltGr + a letter or digit types a character: neither the editor's shortcuts nor the app's may run
   if (isAltGraph(e)) return ctx.inEditor ? "editor-skip" : "pass";
   if (mod && e.altKey && ctx.inEditor) return "editor-skip"; // Cmd+Option on a Mac: the editor's heading / code block shortcuts are off too

@@ -56,7 +56,7 @@ const sec = compose.slice(compose.indexOf("const currentSecurity"), compose.inde
 assert.ok(!PV.test(sec));
 // the preview state is only used to look: the class and variables of the body surface, the region effect and the toggle
 const uses = compose.split("\n").filter((l) => PV.test(l) || /\bsetPv\b/.test(l));
-for (const l of uses) assert.ok(/useState<PreviewBg>|setPv\(p\)|pv-\$\{pv\}|previewVars\(pv\)|pv === "dark"|pv === "light"|, pv\]\)|setPreviewMode\(editor, pv\)/.test(l), `preview state used only for display: ${l.trim()}`);
+for (const l of uses) assert.ok(/useState<PreviewBg>|setPv\(p\)|pv-\$\{pv\}|previewVars\(pv\)|pv === "dark"|pv === "light"|, pv\]\)|setPreviewMode\(editor, pv\)|<PreviewSwitch pv=\{pv\} onChoose=\{choosePreview\}/.test(l), `preview state used only for display: ${l.trim()}`);
 assert.match(compose, /className=\{`cp-editor cp-pv pv-\$\{pv\}`\} style=\{\{ \.\.\.previewVars\(pv\), "--cp-font": base\.family, "--cp-size": `\$\{base\.size\}pt` \} as React\.CSSProperties\}/);
 assert.ok(!/useStore\.setState\(\{[^}]*pv/.test(compose) && !/setPrefs\(\{[^}]*pv/.test(compose), "no new preference, nothing persisted");
 
@@ -74,14 +74,17 @@ assert.match(compose, /setDarkRegion\(r, pv === "dark"\)/);
 assert.match(compose, /querySelectorAll<HTMLElement>\("\.sig-block \.sig-body"\)/, "only the signature region is recoloured");
 assert.ok(!/useCallback|sanitizeHtml/.test(dom), "the region is recoloured in place, not rebuilt");
 
-// the toggle: two real buttons in a labelled group (Tab, Space, Enter), state announced with aria-pressed, the mouse leaves the focus in the editor
-const sw = compose.slice(compose.indexOf('className="pv-switch"'), compose.indexOf("</div>\n      </div>", compose.indexOf('className="pv-switch"')));
+// the toggle: two real buttons in a labelled group (Space, Enter), state announced with aria-pressed, the mouse leaves the focus in the editor.
+// They are part of the formatting toolbar's roving focus (one Tab stop for the whole bar, AC-18): the bar renders the switch as its trailing part
+const sw = read("src/editor/PreviewSwitch.tsx");
+assert.match(compose, /trailing=\{\{ ids: \["pv:light", "pv:dark"\], render: \(rove\) => <PreviewSwitch /);
 assert.match(sw, /role="group" aria-label=\{t\("compose\.preview\.label"\)\}/);
 assert.equal((sw.match(/<button type="button"/g) ?? []).length, 2);
 assert.equal((sw.match(/aria-pressed=/g) ?? []).length, 2);
 assert.equal((sw.match(/onMouseDown=\{\(e\) => e\.preventDefault\(\)\}/g) ?? []).length, 2, "the editor keeps its caret and selection");
 assert.equal((sw.match(/title=\{t\("compose\.preview\.(light|dark)Tip"\)\} aria-label=\{t\("compose\.preview\.(light|dark)Tip"\)\}/g) ?? []).length, 2, "tooltip and name");
-assert.ok(!/tabIndex/.test(sw), "both are in the Tab order");
+assert.equal((sw.match(/\{\.\.\.rove\("pv:(light|dark)"\)\}/g) ?? []).length, 2, "both take their tabIndex from the toolbar's roving focus: Tab goes from the toolbar to the body");
+assert.ok(!/tabIndex/.test(sw), "no Tab stop of their own");
 
 // the stylesheet: the surface, the caret, the selection and the placeholder follow the preview
 const appCss = read("src/App.css");

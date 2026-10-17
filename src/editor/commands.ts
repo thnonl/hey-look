@@ -1,9 +1,15 @@
 // Commands of the formatting toolbar and the keys that work on the editor's document: what the selection looks like (one font? one size? mixed?),
-// font family / size / colour / highlight, growing and shrinking the font, clearing the formatting. The toolbar and the key maps both call these.
+// font family / size / colour / highlight, growing and shrinking the font, clearing the formatting, and the paragraph formats (alignment, indent,
+// line spacing, lists, styles: the ProseMirror commands are in blockCommands.ts). The toolbar and the key maps both call these.
 
 import type { Editor } from "@tiptap/react";
 import type { Mark, Node as PmNode } from "@tiptap/pm/model";
 import { liftTarget } from "@tiptap/pm/transform";
+import type { Align } from "./blockFormat";
+import {
+  indentList, indentPlain, listKind, resetBlockFormats, setAlign, setLineHeight, setListStyle, setSpaceAfter, setStyle, textblocksOf,
+  type Command, type StyleName,
+} from "./blockCommands";
 import { normColor } from "./colors";
 import type { BaseFont } from "./emailHtml";
 import { normFamily, ptText, sizePt, stepSize } from "./fonts";
@@ -125,7 +131,7 @@ export function stepFontSize(editor: Editor, dir: 1 | -1, base: BaseFont): boole
 
 /**
  * Clear formatting (button, Ctrl+Space, Ctrl+\): font, size, colour, highlight, bold, italic, underline, strikethrough, sub/superscript and code go;
- * headings, code blocks and quotes become Normal text. Links, lists and pictures stay. With a caret the whole paragraph is cleared (as in Word).
+ * headings, code blocks and quotes become Normal text, alignment, indent and spacing go back to the defaults. Links, lists and pictures stay. With a caret the whole paragraph is cleared (as in Word).
  */
 export function clearFormatting(editor: Editor): boolean {
   const keep = new Set(["link"]);
@@ -167,6 +173,11 @@ export function clearFormatting(editor: Editor): boolean {
       }
       return true;
     })
+    .command(({ state, dispatch }) => {
+      // paragraph formats: alignment, indent, line spacing, space after (links, lists and pictures stay)
+      resetBlockFormats(state, dispatch);
+      return true;
+    })
     .run();
 }
 
@@ -179,4 +190,49 @@ export function toggleScript(editor: Editor, which: "subscript" | "superscript")
   const chain = editor.chain().focus();
   if (editor.isActive(which)) return chain.unsetMark(which).run();
   return chain.unsetMark(other).setMark(which).run();
+}
+
+// ---------------------------------------------------------------- paragraph formats (blockCommands.ts has the ProseMirror commands)
+
+/** Run a ProseMirror command on the editor's selection as one step, and leave the focus in the text. */
+function runBlock(editor: Editor, cmd: Command): boolean {
+  const ok = editor.chain().focus().command(({ state, dispatch }) => cmd(state, dispatch)).run();
+  focusText(editor);
+  return ok;
+}
+
+export const setAlignment = (editor: Editor, value: Align | "left"): boolean => runBlock(editor, setAlign(value));
+export const setSpacing = (editor: Editor, lineHeight: string | null): boolean => runBlock(editor, setLineHeight(lineHeight));
+export const setSpaceAfterParagraph = (editor: Editor, add: boolean): boolean => runBlock(editor, setSpaceAfter(add));
+export const applyStyle = (editor: Editor, name: StyleName): boolean => runBlock(editor, setStyle(name));
+
+/**
+ * Increase / decrease indent (Ctrl+T, Ctrl+Shift+T and the buttons): list items go one level in / out, any other paragraph or heading one 40 px step.
+ * True when there was a paragraph to act on, so the key is not left to the browser.
+ */
+export function changeIndent(editor: Editor, dir: 1 | -1): boolean {
+  if (!textblocksOf(editor.state).length) return false;
+  const ok = editor
+    .chain()
+    .focus()
+    .command(({ state, dispatch }) => (indentPlain(dir)(state, dispatch), true))
+    .command(({ state, dispatch }) => (indentList(dir)(state, dispatch), true))
+    .run();
+  focusText(editor);
+  return ok;
+}
+
+/** Choose the marker style of the selection's list; outside a list of that kind, the selection becomes one first (a list of the other kind is converted). */
+export function chooseListStyle(editor: Editor, ordered: boolean, style: string | null): boolean {
+  const chain = editor.chain().focus();
+  if (listKind(editor.state) !== (ordered ? "ordered" : "bullet")) (ordered ? chain.toggleOrderedList() : chain.toggleBulletList());
+  const ok = chain.command(({ state, dispatch }) => setListStyle(ordered, style)(state, dispatch)).run();
+  focusText(editor);
+  return ok;
+}
+
+export function insertHorizontalLine(editor: Editor): boolean {
+  const ok = editor.chain().focus().setHorizontalRule().run();
+  focusText(editor);
+  return ok;
 }

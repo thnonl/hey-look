@@ -113,3 +113,11 @@ export function stepSize(cur: number, dir: 1 | -1): number {
   for (let i = SIZES.length - 1; i >= 0; i--) if (SIZES[i] < cur - 1e-9) return SIZES[i];
   return SIZES[0];
 }
+
+/** A size typed into the size box ("14", "10,5", "12 pt") in pt, or null when it is no number or not within 1 - 400. */
+export function parseTypedSize(text: string): number | null {
+  const m = /^\s*(\d+(?:[.,]\d+)?)\s*(?:pt)?\s*$/i.exec(text);
+  if (!m) return null;
+  const n = Math.round(Number(m[1].replace(",", ".")) * 100) / 100;
+  return n >= 1 && n <= 400 ? n : null;
+}

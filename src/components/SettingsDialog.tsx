@@ -1712,13 +1712,15 @@ function ShortcutsTab() {
     ["Space / Enter", "settings.keys.preview"], ["Ctrl+S", "settings.keys.saveAs"], ["Ctrl+Shift+S", "settings.keys.saveAll"],
     ["Ctrl+1 / Ctrl+2", "settings.keys.mailCalendar"], ["c · t · ← / → · m / w / a", "settings.keys.calendarKeys"],
     ["Ctrl+] / Ctrl+[", "settings.keys.fontSize"], ["Ctrl+= / Ctrl+Shift+=", "settings.keys.subSuper"], [os === "macos" ? "Ctrl+\\" : "Ctrl+Space / Ctrl+\\", "compose.fmt.clear"], ["Alt+F10", "settings.keys.focusToolbar"],
+    ["Ctrl+Shift+L / 8", "compose.fmt.bulleted"], ["Ctrl+Shift+7", "compose.fmt.numbered"], ["Ctrl+L / E / R / Shift+J", "settings.keys.align"], ["Ctrl+T / Ctrl+Shift+T", "settings.keys.indent"],
+    ["Ctrl+Shift+S", "settings.keys.stylesMenu"], ["Ctrl+Shift+N / Ctrl+Alt+1-3", "settings.keys.styleKeys"],
     ["Ctrl+A", "settings.keys.selectAll"], ["Ctrl+K", "settings.keys.commandBar"], ["F5", "settings.keys.syncNow"], ["Esc", "settings.keys.closeDeselect"],
   ];
   return (
     <div>
       <h3>{t("settings.keys.title")}</h3>
       {rows.map(([k, d]) => (
-        <div key={k} className="set-row"><kbd>{kbd(os === "macos" && k === "#" ? "delete / #" : k, os)}</kbd><span>{t(d)}</span></div>
+        <div key={k + d} className="set-row"><kbd>{kbd(os === "macos" && k === "#" ? "delete / #" : k, os)}</kbd><span>{t(d)}</span></div>
       ))}
     </div>
   );

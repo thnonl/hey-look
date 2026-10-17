@@ -64,7 +64,7 @@ const BOTH: readonly Variant[] = ["compose", "compact"];
 /**
  * Priority = the place in the list of spec-rich-text.md 4.1 (x10): B I U, Bulleted, Numbered, Link, Picture, Font color, Highlight, Font, Size,
  * Styles, Align, Increase / Decrease indent, Strikethrough, Table, Insert, Clear formatting, Undo, Redo. Order = left to right. A later package
- * adds its controls here (Styles 130, Align 140 ...) with the numbers of that list.
+ * adds its controls here (Table 170 ...) with the numbers of that list.
  */
 export const BAR_META: Record<string, BarMeta> = {
   undo: { group: "history", order: 1, priority: 200, width: 28, variants: BOTH },
@@ -77,9 +77,16 @@ export const BAR_META: Record<string, BarMeta> = {
   strike: { group: "style", order: 33, priority: 160, width: 28, variants: BOTH },
   fontColor: { group: "colors", order: 40, priority: 80, width: 43, variants: BOTH },
   highlight: { group: "colors", order: 41, priority: 90, width: 43, variants: BOTH },
-  bulleted: { group: "lists", order: 50, priority: 40, width: 28, variants: BOTH },
-  numbered: { group: "lists", order: 51, priority: 50, width: 28, variants: BOTH },
+  // the list buttons are split buttons (the button and the arrow of its marker styles), narrow enough for the 360 px pane (AC-17)
+  bulleted: { group: "lists", order: 50, priority: 40, width: 37, variants: BOTH },
+  numbered: { group: "lists", order: 51, priority: 50, width: 37, variants: BOTH },
+  indentLess: { group: "lists", order: 52, priority: 155, width: 28, variants: BOTH },
+  indentMore: { group: "lists", order: 53, priority: 150, width: 28, variants: BOTH },
+  align: { group: "align", order: 60, priority: 140, width: 40, variants: BOTH },
+  styles: { group: "styles", order: 65, priority: 130, width: 108, variants: BOTH },
   link: { group: "insert", order: 70, priority: 60, width: 28, variants: BOTH },
   picture: { group: "insert", order: 71, priority: 70, width: 28, variants: ["compose"] },
+  // (72: Table, priority 170, a later package)
+  insert: { group: "insert", order: 73, priority: 180, width: 40, variants: BOTH },
   clear: { group: "clear", order: 90, priority: 190, width: 28, variants: BOTH },
 };
