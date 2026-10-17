@@ -39,7 +39,7 @@ type Decls = Record<string, string>;
 // ---------------------------------------------------------------- CSS
 
 /** `a:b;c:d` -> {a:b, c:d}; `;` inside quotes or brackets (a data: URL) does not split. */
-function decls(css: string): Decls {
+export function decls(css: string): Decls {
   const out: Decls = {};
   let cur = "";
   let q = "";
@@ -75,7 +75,7 @@ interface Rule {
 const MAX_RULES = 3000;
 
 /** A style sheet as [selector, body] pairs; comments and at-rules (@font-face, @page, @media ...) are left out. One pass: a hostile sheet cannot make it slow. */
-function ruleList(text: string): [string, string][] {
+export function ruleList(text: string): [string, string][] {
   let css = "";
   for (let p = 0; ; ) {
     const a = text.indexOf("/*", p);

@@ -22,6 +22,7 @@ import { PreviewSwitch } from "../editor/PreviewSwitch";
 import { setPreviewMode } from "../editor/previewColors";
 import { messageHtml } from "../editor/messageBody";
 import { unwrapBase, type BaseFont } from "../editor/emailHtml";
+import { extractQuote, quotePictureBytes } from "../editor/quoteBlock";
 import { baseFromPrefs } from "../editor/baseFont";
 import { repairSignature, signatureGuard } from "../signatureGuard";
 import { fitInWindow } from "../fitInWindow";
@@ -449,7 +450,8 @@ function ComposeBody({ init }: { init: ComposeInit }) {
   if (editing && !startDoc.current) {
     // the stored message is one box with the default font it was written in (editor/emailHtml.ts): the draft keeps that font
     const u = unwrapBase(init.bodyHtml ?? "");
-    startDoc.current = { ...extractSignature(u.html), base: u.base };
+    // the quoted original of a reply / forward is a block of its own again (editor/quoteBlock.ts), then the signature region
+    startDoc.current = { ...extractSignature(extractQuote(u.html).html), base: u.base };
   }
   // the default font of THIS message: the one the draft was written in, else the Settings > Composing choice at the time it was opened
   const [base] = useState<BaseFont>(() => startDoc.current?.base ?? baseFromPrefs(prefs));
@@ -689,6 +691,8 @@ function ComposeBody({ init }: { init: ComposeInit }) {
         count++;
         bytes += dataUriBytes(n.attrs.src);
       }
+      // the pictures inside the quoted original travel with the message too (they count toward its size, not toward the number of pictures)
+      if (n.type.name === "quoteBlock") bytes += quotePictureBytes(String(n.attrs.html ?? ""));
     });
     setPics({ count, bytes });
   };
@@ -696,9 +700,14 @@ function ComposeBody({ init }: { init: ComposeInit }) {
   // Ctrl/Cmd+K in the body and the toolbar button open the same link UI (set after the editor exists)
   const linkRef = useRef<() => void>(() => undefined);
   const pasteNote = useRef(false); // the "pictures from the web are not pasted" notice is shown once per message
+  const startContent = useRef<string | null>(null); // the editor's first content, made once (a big quote is not scanned again at every render)
   const editor = useEditor({
     extensions: [
-      ...baseExtensions({ placeholder: t("compose.editor.placeholder"), showOnlyCurrent: false, getBase: () => baseRef.current, focusToolbar: () => barApi.current?.focus(), openStyles: () => barApi.current?.openStyles(), pictures: true }),
+      ...baseExtensions({
+        placeholder: t("compose.editor.placeholder"), showOnlyCurrent: false, getBase: () => baseRef.current, focusToolbar: () => barApi.current?.focus(), openStyles: () => barApi.current?.openStyles(), pictures: true,
+        // the quoted original of a reply / forward: a protected block; "Edit quoted text" asks first (editor/quoteNode.ts)
+        quote: { base: () => baseRef.current, ask: () => confirm({ title: tNow("compose.quote.editTitle"), body: tNow("compose.quote.editBody"), confirmLabel: tNow("compose.quote.editConfirm") }) },
+      }),
       SignatureBlock({ mount: (el) => setSigHeads((h) => [...h, el]), unmount: (el) => setSigHeads((h) => h.filter((x) => x !== el)) }),
     ],
     // the accessible name belongs on the contenteditable node ProseMirror renders
@@ -730,7 +739,7 @@ function ComposeBody({ init }: { init: ComposeInit }) {
     },
     // a new message: typed text, then the signature region, then (reply / forward) the quoted message
     // a quoted or reopened body never brings a remote picture into the editor (the reader's "Load pictures" is the only place they load)
-    content: stripRemotePictures(editing ? startDoc.current!.html : `<p></p>${SIG_MARK}${init.bodyHtml ?? "<p></p>"}`).html,
+    content: (startContent.current ??= stripRemotePictures(editing ? startDoc.current!.html : `<p></p>${SIG_MARK}${extractQuote(init.bodyHtml ?? "<p></p>").html}`).html),
     autofocus: (init.to?.length ?? 0) > 0 ? "start" : false,
     // a body from an older build may lack the paragraph above the signature region: add it without counting as an edit
     onCreate: ({ editor: ed }) => {

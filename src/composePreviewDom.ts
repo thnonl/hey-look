@@ -18,16 +18,17 @@ export function clearDarkRegion(scope: Element): void {
 
 /**
  * Shows a region on the preview surface: dark (recoloured from the region's own colours, which are read first, with the dark base
- * colours already in place) or as it is. Safe to call again after the region's content changed.
+ * colours already in place) or as it is. Safe to call again after the region's content changed. `host`: where the sheet goes when the region is in a shadow
+ * tree (the quote block): the page's <head> cannot style it.
  */
-export function setDarkRegion(scope: HTMLElement, dark: boolean): void {
+export function setDarkRegion(scope: HTMLElement, dark: boolean, host?: ParentNode): void {
   clearDarkRegion(scope);
   if (!dark || !scope.innerHTML.trim()) return;
   const doc = scope.ownerDocument;
   try {
     const style = doc.createElement("style");
     style.textContent = buildDarkSheet(doc, DARK_CANVAS, scope);
-    doc.head.appendChild(style);
+    (host ?? doc.head).appendChild(style);
     sheets.set(scope, style);
     markDarkLogos(scope);
   } catch {

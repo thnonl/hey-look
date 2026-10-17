@@ -5,7 +5,7 @@
 //! attributes, URL schemes and CSS properties named below are written to the output (rebuilt from the parsed pieces, never copied), so
 //! whatever the editor, a paste, a signature, a template or a tampered database row put into the HTML, what leaves the computer is:
 //!   - no script, frame, object, embed, form, base, meta, link, style or svg content (and no comment / conditional comment);
-//!   - no event attributes, `srcset`, `background`, `data-*`, `contenteditable`, ProseMirror classes (only `class="sig"`);
+//!   - no event attributes, `srcset`, `background`, `data-*`, `contenteditable`, ProseMirror classes (only `class="sig"` and the quote block's `class="hl-quote"`);
 //!   - links only to http, https, mailto and tel; picture sources only `cid:`, `data:image/(png|jpeg|gif|webp);base64,...` (size cap) and
 //!     http(s); never `file:`, UNC (`\\host\share`), `//host`, `ftp:`, `javascript:`, `vbscript:`, `data:text/html`;
 //!   - `style` only with the properties of `CSS_PROPS` and values without `url()`, `expression()`, escapes, `@import`.
@@ -236,8 +236,11 @@ fn clean_attrs(tag: &str, attrs: &[(String, String)]) -> Vec<(String, String)> {
             (_, "style") => put("style", clean_style(v)),
             (_, "dir") => put("dir", Some(decode_entities(v).trim().to_ascii_lowercase()).filter(|d| matches!(d.as_str(), "ltr" | "rtl" | "auto"))),
             (_, "align") => put("align", Some(decode_entities(v).trim().to_ascii_lowercase()).filter(|d| matches!(d.as_str(), "left" | "right" | "center" | "justify"))),
-            // the signature region is found again by its class when a draft is opened; no other class is written
-            ("div", "class") => put("class", decode_entities(v).split_whitespace().any(|c| c.eq_ignore_ascii_case("sig")).then(|| "sig".to_string())),
+            // the signature region and the quote block of a reply / forward are found again by their class when a draft is opened; no other class is written
+            ("div", "class") => {
+                let kept: Vec<&str> = ["sig", "hl-quote"].into_iter().filter(|k| decode_entities(v).split_whitespace().any(|c| c.eq_ignore_ascii_case(k))).collect();
+                put("class", (!kept.is_empty()).then(|| kept.join(" ")))
+            }
             ("a", "href") => put("href", safe_href(v)),
             ("img", "src") => put("src", safe_src(v)),
             ("img", "alt") => put("alt", Some(decode_entities(v)).filter(|a| a.len() <= 1000)),
@@ -781,6 +784,39 @@ mod tests {
             n += 1;
         }
         assert!(n >= 26, "{n} golden files found");
+    }
+
+    /// The quoted originals of replies and forwards (spec-rich-text.md REQ-35; scripts/fixtures/quote/expected/*.html, written by editor/quoteClean.ts from Word, Outlook,
+    /// Gmail, Apple Mail, Thunderbird, a newsletter, a hostile mail ...): inside the quote block the sanitiser changes not a byte, so what the composer shows is what is sent.
+    #[test]
+    fn quoted_originals_pass_the_sanitiser_unchanged() {
+        let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../scripts/fixtures/quote/expected");
+        let mut n = 0;
+        for e in std::fs::read_dir(&dir).expect("scripts/fixtures/quote/expected exists") {
+            let path = e.unwrap().path();
+            if path.extension().and_then(|x| x.to_str()) != Some("html") {
+                continue;
+            }
+            let body = std::fs::read_to_string(&path).unwrap().replace("\r\n", "\n");
+            let body = body.trim_end_matches('\n');
+            let name = path.file_name().unwrap().to_string_lossy().into_owned();
+            let head = "On Fri, 16 Oct 2026, Ann Lee &lt;ann@example.com&gt; wrote:";
+            let reply = format!("<br><div class=\"hl-quote\"><div>{head}</div><blockquote style=\"margin:0 0 0 .8ex;border-left:2px solid #ccc;padding-left:1ex\">{body}</blockquote></div>");
+            assert_eq!(clean(&reply), reply, "{name}: the sanitiser changed a quoted original (reply)");
+            let fwd = format!("<br><div class=\"hl-quote\"><div>---------- Forwarded message ----------<br>From: Ann<br><br></div><div>{body}</div></div>");
+            assert_eq!(clean(&fwd), fwd, "{name}: the sanitiser changed a quoted original (forward)");
+            n += 1;
+        }
+        assert!(n >= 14, "{n} quoted originals found");
+    }
+
+    /// `hl-quote` (the quote block of a reply / forward) is the one class besides `sig` that is written, on a `div` only.
+    #[test]
+    fn quote_block_class_is_kept_and_no_other() {
+        assert_eq!(clean(r#"<div class="hl-quote">a</div>"#), r#"<div class="hl-quote">a</div>"#);
+        assert_eq!(clean(r#"<div class="x HL-Quote ProseMirror">a</div>"#), r#"<div class="hl-quote">a</div>"#);
+        assert_eq!(clean(r#"<div class="hl-quote sig">a</div>"#), r#"<div class="sig hl-quote">a</div>"#);
+        assert_eq!(clean(r#"<p class="hl-quote">a</p><span class="hl-quote">b</span><div class="hl-quote2">c</div>"#), "<p>a</p><span>b</span><div>c</div>");
     }
 
     /// The Insert group (spec-rich-text.md REQ-30..34, REQ-40): what the editor writes for tables (all / outside / no borders, header cells, cell shading, colspan and

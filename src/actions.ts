@@ -3,10 +3,11 @@ import { t } from "./i18n";
 import { eff } from "./prefs";
 import { friendlyError, useStore } from "./store";
 import { actionTargets } from "./composeSelection";
-import { fmtFull, fmtSize, plainToHtml, quoteHtml, sanitizeHtml } from "./util";
+import { fmtFull, fmtSize } from "./util";
 import { fallbackReferences, replyTargets } from "./replyTargets";
 import { forwardFiles, MAX_FORWARD_BYTES } from "./forwardAttachments";
-import { forwardHeaderHtml } from "./quoteHeader";
+import { quoteSentHtml } from "./editor/quoteBlock";
+import { forwardHeadHtml, headerValueHtml, senderHtml } from "./quoteHeader";
 import { fromAccountFor } from "./fromAccount";
 import { startCompose, type StartOpts } from "./popout/composeOpen";
 import { answerKey } from "./popout/entry";
@@ -52,6 +53,20 @@ async function headersOf(m: MessageFull, thread: MessageFull[]): Promise<ReplyHe
  */
 export const answerVia: { importKey?: (m: MessageFull, index: number) => void | Promise<void>; reply?: (m: MessageFull, all: boolean, thread: MessageFull[]) => void | Promise<void>; forward?: (m: MessageFull, thread: MessageFull[]) => void | Promise<void> } = {};
 
+/** How long a reply waits for the pictures of the message it quotes (they are fetched from the server when they are large), and how many bytes of them it takes. */
+const QUOTE_PICTURES_WAIT_MS = 8000;
+const QUOTE_PICTURES_MAX = 8 * 1024 * 1024;
+
+/**
+ * The quote block of an answer, in the form a stored message has it (editor/quoteBlock.ts): the original message cleaned to what can be sent
+ * (editor/quoteClean.ts, loaded now: the composer does not need it before a reply is made), with `head` above it. Compose turns it into the protected
+ * block. `html`: the body of the original, pictures already in it.
+ */
+async function quoteBlockOf(kind: "reply" | "forward", head: string, m: { html: string | null; text: string | null }): Promise<string> {
+  const { quoteOf } = await import("./editor/quoteClean");
+  return quoteSentHtml({ kind, head, html: quoteOf(m, t("compose.quote.cut")).html });
+}
+
 /** A new message from the open mailbox: in the main window, or in a window of its own when the setting or Shift says so (REQ-C1, C2). */
 export function newMail(o: StartOpts = {}) {
   return startCompose({ accountId: newMailAccount() }, { ...o, shift: o.shift ?? shiftNow() });
@@ -69,12 +84,21 @@ export async function replyTo(m: MessageFull, all: boolean, thread: MessageFull[
   const h = await headersOf(m, thread);
   const mine = new Set(st.accounts.map((a) => a.email.toLowerCase()));
   const { to, cc, viaReplyTo } = replyTargets({ fromEmail: m.fromEmail, fromName: m.fromName, to: m.to, cc: m.cc, mine, replyTo: h.replyTo, headerFrom: h.from, headerTo: h.to, headerCc: h.cc, all });
+  // the pictures the body shows but only references (cid:) come along into the quote, so they are not left as broken boxes in the answer
+  const pics = m.html && m.attachments.some((a) => a.inline && a.referenced && a.cid && m.html?.includes(`cid:${a.cid}`))
+    ? await Promise.race([
+        forwardFiles(m, (i) => api.attachmentData(m.id, i), QUOTE_PICTURES_MAX, "pictures").catch(() => null),
+        new Promise<null>((r) => setTimeout(() => r(null), QUOTE_PICTURES_WAIT_MS)),
+      ])
+    : null;
+  // the sender name, address and date come from the original message: escaped, never markup (quoteHeader.ts)
+  const head = t("app.quote.wrote", { date: headerValueHtml(fmtFull(m.date)), who: senderHtml(m.fromName, m.fromEmail) });
   void startCompose({
     accountId: fromAccountFor(st.accounts, m.accountId, st.prefs.defaultAccount),
     to,
     cc,
     subject: /^re:/i.test(m.subject) ? m.subject : `Re: ${m.subject}`,
-    bodyHtml: quoteHtml(m),
+    bodyHtml: await quoteBlockOf("reply", head, { html: pics?.html ?? m.html, text: m.text }),
     // the id of the message answered: its own (a mail you sent has the id this app gave it; a received one keeps the server's)
     inReplyTo: h.messageId ?? m.messageId,
     references: h.references,
@@ -115,11 +139,14 @@ export async function forward(m: MessageFull, thread: MessageFull[] = useStore.g
     references: h.references,
     subject: /^fwd?:/i.test(m.subject) ? m.subject : `Fwd: ${m.subject}`,
     attachments: files?.attachments,
-    bodyHtml:
-      forwardHeaderHtml(
+    bodyHtml: await quoteBlockOf(
+      "forward",
+      forwardHeadHtml(
         { header: t("app.forward.header"), from: t("app.forward.from"), date: t("app.forward.date"), subject: t("app.forward.subject"), to: t("app.forward.to") },
         { fromName: m.fromName, fromEmail: m.fromEmail, dateText: fmtFull(m.date), subject: m.subject, to: m.to },
-      ) + (html ? sanitizeHtml(html, false).html : plainToHtml(m.text ?? "")),
+      ),
+      { html, text: m.text },
+    ),
   }, { ...o, shift, key: answerKey("forward", m.id) });
   // after Compose is open: what could not come along
   for (const f of files?.failed ?? []) st.showToast(() => t("compose.fwd.failed", { name: f.name, error: friendlyError(f.error) }), undefined, "error");

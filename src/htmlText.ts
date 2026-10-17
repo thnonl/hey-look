@@ -18,6 +18,17 @@ const NAMED: Record<string, string> = {
   times: "×", divide: "÷", laquo: "«", raquo: "»", larr: "←", rarr: "→", para: "¶", shy: "", zwnj: "", zwj: "",
 };
 
+// HTML 4's Latin-1 entities (code 160 on, in order: nbsp iexcl cent ...) and the "special" and symbol ones mail still uses (newsletters write &auml; &szlig; &eacute; &nbsp; ...)
+const LATIN1 =
+  "nbsp iexcl cent pound curren yen brvbar sect uml copy ordf laquo not shy reg macr deg plusmn sup2 sup3 acute micro para middot cedil sup1 ordm raquo frac14 frac12 frac34 iquest Agrave Aacute Acirc Atilde Auml Aring AElig Ccedil Egrave Eacute Ecirc Euml Igrave Iacute Icirc Iuml ETH Ntilde Ograve Oacute Ocirc Otilde Ouml times Oslash Ugrave Uacute Ucirc Uuml Yacute THORN szlig agrave aacute acirc atilde auml aring aelig ccedil egrave eacute ecirc euml igrave iacute icirc iuml eth ntilde ograve oacute ocirc otilde ouml divide oslash ugrave uacute ucirc uuml yacute thorn yuml".split(" ");
+const MORE: Record<string, number> = {
+  OElig: 338, oelig: 339, Scaron: 352, scaron: 353, Yuml: 376, fnof: 402, circ: 710, tilde: 732, sbquo: 8218, bdquo: 8222, dagger: 8224, Dagger: 8225, permil: 8240, lsaquo: 8249, rsaquo: 8250,
+  prime: 8242, Prime: 8243, oline: 8254, frasl: 8260, lrm: 8206, rlm: 8207, uarr: 8593, darr: 8595, harr: 8596, rArr: 8658, hArr: 8660, minus: 8722, radic: 8730, infin: 8734, ne: 8800, le: 8804, ge: 8805,
+  asymp: 8776, sum: 8721, prod: 8719, part: 8706, nabla: 8711, hearts: 9829, diams: 9830, spades: 9824, clubs: 9827, loz: 9674, alpha: 945, beta: 946, gamma: 947, delta: 948, mu: 956, pi: 960, sigma: 963, omega: 969, Omega: 937,
+};
+for (const [i, n] of LATIN1.entries()) if (!(n in NAMED)) NAMED[n] = String.fromCodePoint(160 + i);
+for (const [n, cp] of Object.entries(MORE)) if (!(n in NAMED)) NAMED[n] = String.fromCodePoint(cp);
+
 /** `&amp;` `&#39;` `&#x1F680;` -> the character; an entity that is not known stays as written. */
 export function decodeEntities(s: string): string {
   return s.replace(/&(#x[0-9a-f]+|#\d+|[a-z][a-z0-9]*);/gi, (all, e: string) => {

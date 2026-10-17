@@ -27,10 +27,12 @@ export function embeddedBytes(html: string | null): number {
   return n;
 }
 
+/** `only: "pictures"` (a reply): just the pictures the body shows are fetched, the other attachments are left where they are. */
 export async function forwardFiles(
   m: { html: string | null; attachments: readonly AttMeta[] },
   fetchOne: (index: number) => Promise<{ name: string; mime: string; dataBase64: string }>,
   limit: number = MAX_FORWARD_BYTES,
+  only?: "pictures",
 ): Promise<ForwardFiles> {
   let html = m.html;
   let used = embeddedBytes(html);
@@ -39,6 +41,7 @@ export async function forwardFiles(
     // a picture that the body shows: embedded already, or a large one that still has to be fetched
     const shown = a.inline && a.referenced;
     if (shown && !(a.cid && html?.includes(`cid:${a.cid}`))) continue;
+    if (only === "pictures" && !shown) continue;
     if (used + a.size > limit) {
       out.skipped.push(a.name);
       continue;

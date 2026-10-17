@@ -45,7 +45,7 @@ for (const name of names) {
     if (name !== "security" && name !== "paste-hostile") continue; // (the second one is what the editor made of a hostile paste: scripts/fixtures/paste/hostile.html)
     assert.ok(!html.toLowerCase().includes(bad), `${name}: ${bad} in ${html}`);
   }
-  assert.ok(!/\sclass="(?!sig")/.test(html) && !/<style|\sid=|\sdata-/.test(html), `${name}: no class (except sig), id, data- or <style>`);
+  assert.ok(!/\sclass="(?!(?:sig|hl-quote)")/.test(html) && !/<style|\sid=|\sdata-/.test(html), `${name}: no class (except sig and the quote block's hl-quote), id, data- or <style>`);
   if (name === "kitchen-sink") assert.equal(inline.length, 1, "the picture is an inline part");
 }
 

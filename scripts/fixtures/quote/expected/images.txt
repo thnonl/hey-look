@@ -1,0 +1,8 @@
+On Fri, 16 Oct 2026, Ann Lee <ann@example.com> wrote:
+> Photos from the site visit:
+> [Red box]
+> [Site 1] [Site 2]
+> Logo (inline attachment that could not be fetched): Example logo
+> Pixels:
+> Vector: vector art and a local one: my picture
+> [Open the album] (https://example.com/album)

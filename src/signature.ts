@@ -24,7 +24,11 @@ export function extractSignature(html: string): { html: string; sig: string | nu
   // the signature of the message being written, not one inside the quoted message of a reply
   const sigs = [...doc.querySelectorAll("div.sig")].filter((d) => !d.closest("blockquote"));
   const el = sigs.length ? sigs[sigs.length - 1] : null;
-  if (!el) return { html: html + SIG_MARK + "<p></p>", sig: null };
+  if (!el) {
+    // no signature in the stored message: the region goes where a new reply has it, above the quoted original (editor/quoteBlock.ts), else at the end
+    const q = html.indexOf("<div data-quote-block=");
+    return { html: q >= 0 ? html.slice(0, q) + SIG_MARK + html.slice(q) : html + SIG_MARK + "<p></p>", sig: null };
+  }
   const sig = el.innerHTML.replace(LEAD, "").trim();
   const prev = el.previousElementSibling;
   if (prev && prev.tagName === "BR" && prev.nextSibling === el) prev.remove(); // the <br> sigBlockHtml put in front

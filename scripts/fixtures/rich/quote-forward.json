@@ -1,0 +1,35 @@
+{
+ "base": {
+  "family": "Calibri,Carlito,Arial,sans-serif",
+  "size": 11
+ },
+ "sig": "Nam Hoang<br><b>Hey Look!</b>",
+ "doc": {
+  "type": "doc",
+  "content": [
+   {
+    "type": "paragraph",
+    "content": [
+     {
+      "type": "text",
+      "text": "FYI, forwarding the budget."
+     }
+    ]
+   },
+   {
+    "type": "signatureBlock"
+   },
+   {
+    "type": "quoteBlock",
+    "attrs": {
+     "kind": "forward",
+     "head": "---------- Forwarded message ----------<br>From: Ann Lee &lt;ann@example.com&gt;<br>Date: Fri, 16 Oct 2026 09:12<br>Subject: Budget<br>To: nam@example.com<br><br>",
+     "html": "<div dir=\"ltr\"><div>Hi Tom,</div><div><br></div><div>The <b><span style=\"color:#C00000\">revised budget</span></b> is attached.</div><table border=\"1\" cellpadding=\"3\" cellspacing=\"0\" style=\"border-collapse:collapse\"><tr><td width=\"120\" style=\"background-color:#D9E2F3\">Region</td><td align=\"right\">Q1</td></tr><tr><td>EMEA</td><td align=\"right\">12</td></tr></table><div><span style=\"font-family:Georgia,serif;font-size:12pt\">Ann</span></div></div>"
+    }
+   },
+   {
+    "type": "paragraph"
+   }
+  ]
+ }
+}

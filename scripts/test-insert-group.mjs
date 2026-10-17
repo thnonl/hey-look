@@ -163,7 +163,7 @@ const doc = (...blocks) => ({ type: "doc", content: blocks });
   const ext = read("src/editor/extensions.ts");
   assert.ok(/openOnClick: false/.test(ext) && /defaultProtocol: "https"/.test(ext) && /isAllowedUri: \(url: string\) => checkLinkUrl\(url\)\.ok/.test(ext), "links: no open on click, https default, web / mail / tel only");
   assert.ok(/e\.ctrlKey/.test(ext) && /e\.metaKey/.test(ext) && /openExternal/.test(ext), "Ctrl (Cmd on a Mac) + click opens a link");
-  assert.ok(/kitExtensions\(\{ pictures: o\.pictures \?\? false \}\)/.test(ext), "tables for every editor, the picture node only where it is asked for");
+  assert.ok(/kitExtensions\(\{ pictures: o\.pictures \?\? false, quote: o\.quote \}\)/.test(ext), "tables for every editor, the picture node only where it is asked for");
   const kit = read("src/editor/kit.ts");
   assert.ok(/import\("\.\/kitExtensions"\)/.test(kit) && !/from "\.\/(tableExtension|pictureNode|kitExtensions)"/.test(kit), "the kit loads on demand");
   assert.ok(/useKit\(\) \? <ComposeBody init=\{init\} \/> : null/.test(read("src/components/Compose.tsx")) && /pictures: true/.test(read("src/components/Compose.tsx")), "Compose waits for the kit and asks for pictures");
