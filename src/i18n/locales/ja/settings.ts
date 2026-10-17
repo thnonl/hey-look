@@ -469,6 +469,8 @@ export default defineLocale<typeof ns.en>({
   "settings.keys.closeDeselect": "閉じる / 選択解除",
   "settings.keys.openInWindow": "新しいウィンドウで開く",
   "settings.keys.closeWindow": "メッセージ ウィンドウを閉じる",
+  "settings.keys.shiftCompose": "新規作成・返信・全員に返信・転送を新しいウィンドウで開く",
+  "settings.keys.popOutCompose": "作成中のメッセージを新しいウィンドウに移す",
   "settings.about.title": "バージョン情報",
   "settings.about.tagline": "{name}：Tauri、React、Rustで作られたデスクトップ用メールクライアントです。",
   "settings.about.testBuild": "テストビルド：メール、アカウント、設定は、通常のデータフォルダーではなく{dir}に保存されます。",

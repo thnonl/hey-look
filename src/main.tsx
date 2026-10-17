@@ -7,6 +7,7 @@ import { GuardMenuHost } from "./components/GuardMenuHost";
 import { installContextGuard } from "./contextGuard";
 import { loadPlatform } from "./platform";
 import PopoutRoot from "./popout/PopoutRoot";
+import { installModifierTracking } from "./popout/modifier";
 import { routeOf } from "./popout/route";
 
 // One bundle, several windows: the main window has no query, a secondary window (compose / reader) is opened by the backend at ?w=<kind>
@@ -36,6 +37,8 @@ async function boot(): Promise<boolean> {
 void boot().then(async (mock) => {
   // dev flag: lets a person open placeholder windows from the main window's console (window.__heylookPopout.open("compose"))
   if (route.kind === "main") void import("./popout/dev").then((m) => m.installPopoutDev());
+  // "hold Shift to do the opposite" for starting a message: the click or key being handled is noted (popout/modifier.ts)
+  if (route.kind === "main") installModifierTracking();
   // dev preview only: `#dark&cal=week&thread=t15` puts the mock app into a state (handy for screenshots)
   if (mock && window.location.hash.length > 1) {
     (await import("./devMock")).applyDemoHash();

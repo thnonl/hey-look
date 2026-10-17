@@ -1738,7 +1738,7 @@ function ShortcutsTab() {
   const t = useT();
   const os = usePlatform((s) => s.os);
   const rows: [string, Key][] = [
-    ["c", "settings.keys.newMail"], ["/", "settings.keys.search"], ["j / k", "settings.keys.nextPrev"], ["e", "settings.action.archive"], ["#", "common.delete"], ["!", "settings.filters.toJunk"],
+    ["c", "settings.keys.newMail"], ["Shift+C / R / A / F", "settings.keys.shiftCompose"], ["Ctrl+Shift+O", "settings.keys.popOutCompose"], ["/", "settings.keys.search"], ["j / k", "settings.keys.nextPrev"], ["e", "settings.action.archive"], ["#", "common.delete"], ["!", "settings.filters.toJunk"],
     ["s", "settings.action.snooze"], ["p", "settings.action.pin"], ["*", "settings.action.flag"], ["u", "settings.keys.markUnread"], ["r", "settings.action.reply"], ["a", "settings.composing.replyAll"], ["f", "settings.keys.forward"],
     ["Ctrl+Enter", "settings.keys.send"], ["Ctrl+Shift+Enter", "settings.keys.sendLater"], ["Ctrl+Shift+P", "settings.keys.insertPicture"], ["Ctrl+Shift+E", "settings.keys.encrypt"], ["Ctrl+Shift+G", "settings.keys.sign"],
     ["Space / Enter", "settings.keys.preview"], ["Ctrl+S", "settings.keys.saveAs"], ["Ctrl+Shift+S", "settings.keys.saveAll"],

@@ -99,7 +99,7 @@ function popout(handlers) {
   const d = {
     alive: () => log.push("alive"),
     done: (go) => log.push(`done:${go}`),
-    ctx: { dialog: (open) => log.push(`dialog:${open}`), showWindow: () => log.push("show") },
+    ctx: { why: "quit", dialog: (open) => log.push(`dialog:${open}`), showWindow: () => log.push("show") },
     handlers: () => handlers(log),
   };
   return { d, log };
@@ -164,7 +164,7 @@ function popout(handlers) {
 {
   const { readFileSync } = await import("node:fs");
   const root = readFileSync(new URL("../src/popout/PopoutRoot.tsx", import.meta.url), "utf8");
-  const listen = root.indexOf('listen("popout-flush"');
+  const listen = root.indexOf('>("popout-flush"');
   assert.ok(listen > 0 && listen < root.indexOf("api.popoutReady()"), "listener before ready");
   for (const call of ["api.popoutFlushAlive()", "api.popoutFlushDone(go)", "api.popoutFlushDialog(open)"]) assert.ok(root.includes(call), call);
   for (const main of ["api.sendsFlushed", "api.quitPageAlive", "api.quitDialog", '"flush-sends"']) assert.ok(!root.includes(main), `a pop-out must not use ${main}`);

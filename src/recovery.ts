@@ -23,6 +23,8 @@ export interface RecoveryForm {
   confidential: boolean;
   /** High / Low (F-24); left out for Normal and in snapshots of older versions */
   importance?: "high" | "low";
+  /** written in a window of its own: it is restored in one */
+  win?: true;
 }
 
 /** What goes to the backend for one snapshot. `files` is null when the attachments are those of the previous snapshot. */

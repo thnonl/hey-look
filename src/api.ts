@@ -499,9 +499,9 @@ export interface FrameInfo {
   snapLayouts: boolean;
 }
 
-/** What `popout_open` answers: a window was made, one that already shows the key was focused, or the cap of 8 windows is reached. */
+/** What `popout_open` answers: a window was made, one that already shows the key was focused, the cap of 8 windows is reached, or (focus-only ask) no window has the key. */
 export interface PopoutOpened {
-  status: "created" | "focused" | "tooMany";
+  status: "created" | "focused" | "tooMany" | "none";
   label: string | null;
 }
 /** What a secondary window learns about itself (`popout_init`). */
@@ -623,7 +623,7 @@ export const api = {
   /** The quit waits (`true`, for 60 s at most, and the window is brought to the front) or no longer waits (`false`) for an answer of the person. */
   quitDialog: (open: boolean) => invoke<void>("quit_dialog", { open }),
   /** Open a secondary window ("compose" | "reader"), or focus the one that already shows `key`; `init` waits in the backend for the new page. */
-  popoutOpen: (kind: "compose" | "reader", key?: string | null, init?: unknown) => invoke<PopoutOpened>("popout_open", { kind, key: key ?? null, init: init ?? null }),
+  popoutOpen: (kind: "compose" | "reader", key?: string | null, init?: unknown, focusOnly?: boolean) => invoke<PopoutOpened>("popout_open", { kind, key: key ?? null, init: init ?? null, focusOnly: focusOnly ?? null }),
   /** A secondary window asks who it is; `token` is the one in its address. */
   popoutInit: (token: string) => invoke<PopoutInfo>("popout_init", { token }),
   /** A secondary window's page is up (it listens for the quit request): the backend shows the window. */
@@ -636,6 +636,12 @@ export const api = {
   popoutReply: (to: string, id: string, ok: boolean, data: unknown, error: string | null) => invoke<void>("popout_reply", { to, id, ok, data: data ?? null, error }),
   /** The pin and the snooze of a conversation (the messages carry the rest). */
   threadMeta: (threadId: string) => invoke<{ pinned: boolean; snoozedUntil: number | null }>("thread_meta", { threadId }),
+  /** The calling window goes out of sight and keeps running (its message is still in the Undo time or on its way); it ends itself with `popoutDestroy`. */
+  popoutPark: () => invoke<boolean>("popout_park"),
+  /** The calling window ends now (its page has decided: saved, discarded or sent). */
+  popoutDestroy: () => invoke<boolean>("popout_destroy"),
+  /** The calling window shows another thing now (a draft that was saved is another draft): its key follows. False when another window has that key. */
+  popoutSetKey: (key: string | null) => invoke<boolean>("popout_set_key", { key }),
   /** The update restart: every open secondary window saves what it holds. False = a person keeps a window open (the restart must stop). */
   popoutSaveAll: () => invoke<boolean>("popout_save_all"),
   /** A secondary window's part of a quit (the counterparts of quitPageAlive / quitDialog / sendsFlushed, which the main page uses). */

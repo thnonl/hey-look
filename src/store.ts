@@ -63,6 +63,8 @@ export interface ComposeInit {
   confidential?: boolean;
   /** a message restored after the app ended unexpectedly: it keeps the id of its snapshot, so the next snapshot replaces it (recovery.ts) */
   recoveryId?: string;
+  /** a message that was moved here from another editor (moved to a window of its own, back after Undo): all of it is the person's writing, so it counts as changed and is never closed unasked */
+  carried?: boolean;
   /** only a reopened draft / scheduled message carries one; a new message, reply and forward start Normal */
   importance?: Importance;
   /** start Compose as a meeting invitation ("Meeting" switched on) */
@@ -315,8 +317,9 @@ interface State {
   setChecked: (ids: string[]) => void;
   /** `view`: the view the person acts from, when it is not the open one (a reader window asks for a move from the view it was opened in). */
   act: (ids: string[], action: string, arg?: string, label?: Lazy, view?: string) => Promise<void>;
-  /** `restore: false` (closing): the reading pane is not given back the mail that was open before writing (the caller opens another). */
-  openCompose: (c: ComposeInit | null, opts?: { restore?: boolean }) => Promise<void>;
+  /** `restore: false` (closing): the reading pane is not given back the mail that was open before writing (the caller opens another).
+   *  `sending`: the message is on its way, not over (the Undo time in seconds, 0 for none or a scheduled message); only a compose window reads it. */
+  openCompose: (c: ComposeInit | null, opts?: { restore?: boolean; sending?: number }) => Promise<void>;
   setComposeDirty: (d: boolean) => void;
   setComposeSaver: (f: ((opts?: ComposeSaveOpts) => Promise<boolean | void>) | null) => void;
   setComposeEnd: (f: ((o?: { dropDraft?: boolean }) => Promise<void>) | null) => void;

@@ -6,6 +6,8 @@ import {
 } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { api, AttMeta, errorCode, MessageFull } from "../api";
+import { startCompose } from "../popout/composeOpen";
+import { shiftNow } from "../popout/modifier";
 import { t, type Key } from "../i18n";
 import { useT } from "../i18n/react";
 import { eff } from "../prefs";
@@ -221,7 +223,7 @@ function afterSave(path: string, name: string, m: Pick<MessageFull, "id" | "from
 
 export function AttachmentCard({ m, a }: { m: MessageFull; a: AttMeta }) {
   const t = useT();
-  const { prefs, showToast, openCompose } = useStore();
+  const { prefs, showToast } = useStore();
   const [st, setSt] = useState<CardState>({ status: "idle" });
   const [preview, setPreview] = useState(false);
   const conf = !!m.confidential; // confidential mail: preview inside the app only, nothing leaves it
@@ -273,9 +275,10 @@ export function AttachmentCard({ m, a }: { m: MessageFull; a: AttMeta }) {
 
   const attachToNew = async () => {
     if (conf) return deny();
+    const shift = shiftNow(); // (read now: the file is fetched first)
     try {
       const d = await api.attachmentData(m.id, a.index);
-      void openCompose({ accountId: m.accountId, subject: "", attachments: [{ filename: d.name, mime: d.mime, dataBase64: d.dataBase64 }] });
+      void startCompose({ accountId: m.accountId, subject: "", attachments: [{ filename: d.name, mime: d.mime, dataBase64: d.dataBase64 }] }, { shift });
     } catch (e) {
       showToast(() => t("reading.att.couldntAttach", { name: a.name, error: friendlyError(e) }), undefined, "error");
     }

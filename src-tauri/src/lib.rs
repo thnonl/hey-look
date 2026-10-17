@@ -3921,6 +3921,12 @@ fn flush_event(label: &str) -> &'static str {
     if label == "main" { "flush-sends" } else { popout::FLUSH_EVENT }
 }
 
+/// What the request carries: nothing for the main page; a secondary window is told why it is asked (`quit` or `update`), because the question
+/// it may have to put to the person says "quit" or "restart".
+fn flush_payload(label: &str, why: &str) -> serde_json::Value {
+    if label == "main" { serde_json::Value::Null } else { serde_json::json!({ "why": why }) }
+}
+
 /// Test seam for QA (`HEYLOOK_TEST_QUIT_PAGE=silent`): the page is not asked, so for the quit it is a page that never answers (a hung or dead
 /// page). The quit must then end after `quitwait::FIRST_SIGN_WAIT` with "the page did not answer". Anything else does nothing.
 fn test_silent_page() -> bool {
@@ -3929,7 +3935,7 @@ fn test_silent_page() -> bool {
 
 /// Ask the windows of one step of a quit together and wait for each on a thread of its own, with the bounds of `quitwait.rs`. The
 /// channel of every window is in place before the first request goes out. (Generic over the runtime so that a test can use mock windows.)
-fn ask_windows<R: tauri::Runtime>(app: &tauri::AppHandle<R>, labels: &[String], limits: quitwait::Limits) -> Vec<(String, quitwait::Verdict)> {
+fn ask_windows<R: tauri::Runtime>(app: &tauri::AppHandle<R>, labels: &[String], limits: quitwait::Limits, why: &str) -> Vec<(String, quitwait::Verdict)> {
     let mut waits = vec![];
     for label in labels {
         let (tx, rx) = std::sync::mpsc::channel::<quitwait::Msg>();
@@ -3944,7 +3950,7 @@ fn ask_windows<R: tauri::Runtime>(app: &tauri::AppHandle<R>, labels: &[String], 
         if test_silent_page() {
             startup::stage(None, &format!("quit: test seam HEYLOOK_TEST_QUIT_PAGE=silent: the page of {label} is not asked"));
         } else {
-            let _ = app.emit_to(label.as_str(), flush_event(label), ());
+            let _ = app.emit_to(label.as_str(), flush_event(label), flush_payload(label, why));
         }
     }
     let answers: Vec<(String, quitwait::Verdict)> = std::thread::scope(|scope| {
@@ -4000,7 +4006,7 @@ fn finish_sends_then(app: &tauri::AppHandle, then: impl FnOnce(&tauri::AppHandle
     let app = app.clone();
     std::thread::spawn(move || {
         let limits = quitwait::Limits::default();
-        let (verdict, answers) = quitwait::run_steps(&quitwait::steps(&targets), |labels| ask_windows(&app, labels, limits));
+        let (verdict, answers) = quitwait::run_steps(&quitwait::steps(&targets), |labels| ask_windows(&app, labels, limits, "quit"));
         for (label, v) in &answers {
             let text = v.text(&limits);
             startup::stage(Some(&app), &if label == "main" { text } else { text.replacen("quit:", &format!("quit ({label}):"), 1) });
@@ -4108,7 +4114,7 @@ async fn popout_save_all(app: tauri::AppHandle) -> bool {
     let limits = quitwait::Limits::default();
     let (verdict, answers) = tauri::async_runtime::spawn_blocking({
         let app = app.clone();
-        move || quitwait::run_steps(&quitwait::steps(&targets), |labels| ask_windows(&app, labels, limits))
+        move || quitwait::run_steps(&quitwait::steps(&targets), |labels| ask_windows(&app, labels, limits, "update"))
     })
     .await
     .unwrap_or((quitwait::Verdict::Stay, vec![]));
@@ -4803,6 +4809,9 @@ pub fn run() {
             popout::popout_ready,
             popout::popout_focus,
             popout::popout_close,
+            popout::popout_park,
+            popout::popout_destroy,
+            popout::popout_set_key,
             popout::popout_request,
             popout::popout_reply,
             page_pong,
@@ -4953,7 +4962,7 @@ mod quit_tests {
         let limits = Limits { first_sign: Duration::from_millis(600), work: Duration::from_secs(5), dialog: Duration::from_secs(5) };
         let asked: Vec<String> = labels.iter().map(|l| l.to_string()).collect();
         let t0 = std::time::Instant::now();
-        let got = ask_windows(app.handle(), &asked, limits);
+        let got = ask_windows(app.handle(), &asked, limits, "quit");
         let by = |l: &str| got.iter().find(|(n, _)| n == l).map(|(_, v)| *v).unwrap();
         assert_eq!(by("compose-71"), Verdict::Go(Why::Answered));
         assert_eq!(by("reader-72"), Verdict::Go(Why::Answered));
@@ -5080,7 +5089,7 @@ mod quit_tests {
         let ask = &lib[lib.find("fn ask_windows").expect("ask_windows")..];
         let ask = &ask[..ask.find("\n}\n").unwrap()];
         assert!(ask.contains("quitwait::drive(") && fin.contains("quitwait::Limits::default()"), "{ask}");
-        assert!(fin.contains("quitwait::run_steps(&quitwait::steps(&targets)") && fin.contains("ask_windows(&app, labels, limits)"), "{fin}");
+        assert!(fin.contains("quitwait::run_steps(&quitwait::steps(&targets)") && fin.contains("ask_windows(&app, labels, limits, \"quit\")"), "{fin}");
         assert!(!fin.contains("USER_DIALOG") && !lib.contains("static USER_DIALOG"), "a flag that stops the clock lets a quit hang for ever");
         assert!(fin.contains("quit: asking the page to save its draft and send what is waiting"));
         // which windows must answer is decided in one place
@@ -5182,7 +5191,10 @@ mod quit_tests {
             assert!(code.contains(&format!("emit_to(\"main\", \"{ev}\"")), "{ev} is not sent to main");
         }
         // the flush request goes to the window that is asked (main: flush-sends, the others: popout-flush)
-        assert!(code.contains("app.emit_to(label.as_str(), flush_event(label), ())"));
+        assert!(code.contains("app.emit_to(label.as_str(), flush_event(label), flush_payload(label, why))"));
+        // the main page gets no payload; a secondary window is told whether the app quits or restarts for an update
+        assert_eq!(flush_payload("main", "quit"), serde_json::Value::Null);
+        assert_eq!(flush_payload("compose-2", "update"), serde_json::json!({ "why": "update" }));
         // these are for every window: the data they show changed
         for ev in ["mail-synced", "outbox-changed", "calendar-changed", "idle-state"] {
             assert!(code.contains(&format!("emit(\"{ev}\"")), "{ev} should stay a broadcast");

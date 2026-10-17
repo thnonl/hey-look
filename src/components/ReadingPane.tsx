@@ -4,6 +4,8 @@ import { guardFrame } from "../contextGuard";
 import { Archive, Clock, ExternalLink, Flag, Forward, MailX, MoreHorizontal, Moon, Pin, Reply, ReplyAll, Sparkles, Sun, Trash2, ChevronsDownUp, ChevronsUpDown, Mail, ShieldAlert, AlertTriangle } from "lucide-react";
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { forward, replyTo } from "../actions";
+import { startCompose } from "../popout/composeOpen";
+import { shiftNow } from "../popout/modifier";
 import { api, MessageFull } from "../api";
 import { setMailDark } from "../darkMail";
 import { LANGS, t, type Key, type Lang } from "../i18n";
@@ -538,11 +540,12 @@ export function MessageCard({ m, open, onToggle }: { m: MessageFull; open: boole
   }, [m.id, keyAtt?.index, importMode]);
 
   const unsub = async () => {
+    const shift = shiftNow(); // (read now: the server is asked first)
     try {
       const r = await api.unsubscribe(m.id);
       if (r.kind === "done") showToast(t("reading.msg.unsubscribed"), undefined, "success");
       else if (r.kind === "open") await openUpdateLink(r.target);
-      else void useStore.getState().openCompose({ accountId: m.accountId, to: [r.target.replace("mailto:", "").split("?")[0]], subject: "unsubscribe" });
+      else void startCompose({ accountId: m.accountId, to: [r.target.replace("mailto:", "").split("?")[0]], subject: "unsubscribe" }, { shift });
     } catch (e) {
       showToast(() => t("reading.msg.unsubscribeFailed", { error: friendlyError(e) }), undefined, "error");
     }

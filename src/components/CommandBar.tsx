@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { accountLabel } from "../accountLabel";
-import { newMailAccount } from "../actions";
+import { newMail } from "../actions";
 import { useLang, useT } from "../i18n/react";
 import { folderVisible } from "../junk";
 import { folderLabel } from "../prefs";
@@ -35,7 +35,7 @@ export function CommandBar() {
     const cur = s.threads.find((x) => x.threadId === s.selected);
     const list: Cmd[] = [
       { id: "Add account", label: t("app.cmd.addAccount"), run: () => s.setDialog({ type: "settings", tab: "add-account", nonce: Date.now() }) }, // listed only without an account
-      { id: "New mail", label: t("app.cmd.newMail"), run: () => s.openCompose({ accountId: newMailAccount() }) },
+      { id: "New mail", label: t("app.cmd.newMail"), run: () => void newMail() },
       { id: "Sync now", label: t("app.cmd.syncNow"), run: () => void s.sync() },
       { id: "New event", label: t("app.cmd.newEvent"), run: () => newEvent() },
       { id: "Go to Calendar", label: t("app.cmd.goCalendar"), run: () => s.setModule("calendar") },

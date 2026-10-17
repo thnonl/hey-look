@@ -7,6 +7,8 @@
 // and return `false` for "Keep writing".
 
 export interface FlushCtx {
+  /** Why the window is asked: the app quits, or restarts for an update (the question to the person says "quit" or "restart"). */
+  why: "quit" | "update";
   /** The quit waits (`true`, for 60 s at most) or no longer waits (`false`) for the person's answer. */
   dialog(open: boolean): void;
   /** Bring this window to the front (a question needs a window the person can see). */

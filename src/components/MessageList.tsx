@@ -11,7 +11,9 @@ import { gmailSearchUrl, webmailQuery, webmailTargets, WebmailTarget } from "../
 import { accountColor, folderLabel, Prefs } from "../prefs";
 import { canPageBack, exhaustedKey, friendlyError, useStore } from "../store";
 import { dateGroup, fmtDate, snoozePresets, subjectText } from "../util";
-import { openDraftThread } from "./Compose";
+import { openDraftInWindow, openDraftThread } from "./Compose";
+import { wantsWindow } from "../popout/composeOpen";
+import { shiftNow } from "../popout/modifier";
 import { openReader } from "../popout/openReader";
 import { readerAllowed } from "../popout/readerLogic";
 import { ImportanceMark } from "./Importance";
@@ -255,9 +257,11 @@ export function MessageList() {
   const openThread = (t: ThreadSummary) => {
     if (folder === "drafts") {
       // a draft opens in Compose; the message being written is left first (saved as a draft when it holds something)
+      const shift = shiftNow(); // (Shift+click does the opposite of the setting: a window, or the pane when the setting is on)
       void (async () => {
-        if (!(await useStore.getState().leaveCompose())) return;
-        await openDraftThread(t.threadId);
+        // (a draft that opens in a window leaves the message in the pane alone: the windows are independent of it)
+        if (!wantsWindow({ shift }) && !(await useStore.getState().leaveCompose())) return;
+        await openDraftThread(t.threadId, false, { shift });
       })();
       return;
     }
@@ -314,7 +318,7 @@ export function MessageList() {
         accountLabel={labels.get(it.t.accountId)}
         hover={<HoverActions t={it.t} />}
         onOpen={() => openThread(it.t)}
-        onOpenWindow={readerAllowed(folder, it.t.folder) ? () => void openReader(it.t, folder) : undefined}
+        onOpenWindow={folder === "drafts" ? () => void openDraftInWindow(it.t.threadId) : readerAllowed(folder, it.t.folder) ? () => void openReader(it.t, folder) : undefined}
         onToggle={() => toggleCheck(it.t.threadId)}
         posInSet={it.pos}
         setSize={threads.length}

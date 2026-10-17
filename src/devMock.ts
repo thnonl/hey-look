@@ -1324,10 +1324,19 @@ export function installMock() {
       }
       case "quit_dialog": case "quit_page_alive": case "quit_cancelled": case "sends_flushed": case "show_window": case "frontend_ready": case "page_state": return null;
       // secondary windows (src/popout): the dev preview of a pop-out is ?w=compose or ?w=reader in a plain browser tab
+      case "popout_park": case "popout_destroy": case "popout_set_key": return true;
       case "popout_init": {
         const q = new URLSearchParams(window.location.search);
         const kind = q.get("w") ?? "compose";
-        if (kind !== "reader") return { kind, label: "compose-1", key: null, init: null };
+        // the compose window in a plain browser tab: ?w=compose[&mock=reply|draft|new]
+        if (kind !== "reader") {
+          const m = q.get("mock");
+          const init =
+            m === "reply" ? { accountId: "a1", to: ["linh.tran@acme.example"], subject: "Re: Q4 roadmap review", isReply: true, inReplyTo: "<m1@acme.example>", bodyHtml: "<p>On Mon, Linh wrote:</p><blockquote><p>Could you review the milestones before Thursday?</p></blockquote>" }
+            : m === "draft" ? { accountId: "a1", to: ["alice@fabrikam.com"], subject: "Draft with text", replaces: "d1", bodyHtml: "<p>Saved draft text</p>" }
+            : m === "new" ? {} : null;
+          return { kind, label: "compose-1", key: null, init };
+        }
         // the reader window in a plain browser tab: ?w=reader&thread=t1[&folder=inbox][&view=inbox]
         const id = q.get("thread") ?? "t1";
         const th = threads.find((x) => x.threadId === id);

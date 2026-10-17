@@ -8,6 +8,9 @@ import { fallbackReferences, replyTargets } from "./replyTargets";
 import { forwardFiles, MAX_FORWARD_BYTES } from "./forwardAttachments";
 import { forwardHeaderHtml } from "./quoteHeader";
 import { fromAccountFor } from "./fromAccount";
+import { startCompose, type StartOpts } from "./popout/composeOpen";
+import { answerKey } from "./popout/entry";
+import { shiftNow } from "./popout/modifier";
 
 export function targets(): string[] {
   const { checked, selected, compose } = useStore.getState();
@@ -49,14 +52,24 @@ async function headersOf(m: MessageFull, thread: MessageFull[]): Promise<ReplyHe
  */
 export const answerVia: { importKey?: (m: MessageFull, index: number) => void | Promise<void>; reply?: (m: MessageFull, all: boolean, thread: MessageFull[]) => void | Promise<void>; forward?: (m: MessageFull, thread: MessageFull[]) => void | Promise<void> } = {};
 
-/** `thread`: the conversation the message belongs to (its Message-IDs are the fallback References of the answer); the open one unless the caller answers a conversation that is not open (the list's context menu). */
-export async function replyTo(m: MessageFull, all: boolean, thread: MessageFull[] = useStore.getState().messages) {
+/** A new message from the open mailbox: in the main window, or in a window of its own when the setting or Shift says so (REQ-C1, C2). */
+export function newMail(o: StartOpts = {}) {
+  return startCompose({ accountId: newMailAccount() }, { ...o, shift: o.shift ?? shiftNow() });
+}
+
+/**
+ * `thread`: the conversation the message belongs to (its Message-IDs are the fallback References of the answer); the open one unless the caller
+ * answers a conversation that is not open (the list's context menu). `o`: where the answer opens (composeOpen.ts): by the setting and Shift unless
+ * the caller says (the reader window always opens a compose window, REQ-R5). Shift is read now, from the click or key being handled.
+ */
+export async function replyTo(m: MessageFull, all: boolean, thread: MessageFull[] = useStore.getState().messages, o: StartOpts = {}) {
   if (answerVia.reply) return answerVia.reply(m, all, thread);
+  const shift = o.shift ?? shiftNow();
   const st = useStore.getState();
   const h = await headersOf(m, thread);
   const mine = new Set(st.accounts.map((a) => a.email.toLowerCase()));
   const { to, cc, viaReplyTo } = replyTargets({ fromEmail: m.fromEmail, fromName: m.fromName, to: m.to, cc: m.cc, mine, replyTo: h.replyTo, headerFrom: h.from, headerTo: h.to, headerCc: h.cc, all });
-  st.openCompose({
+  void startCompose({
     accountId: fromAccountFor(st.accounts, m.accountId, st.prefs.defaultAccount),
     to,
     cc,
@@ -74,11 +87,12 @@ export async function replyTo(m: MessageFull, all: boolean, thread: MessageFull[
     security: m.security?.encrypted
       ? { encrypt: true, sign: eff(st.prefs, m.accountId, "pgpSign"), attachPublicKey: eff(st.prefs, m.accountId, "pgpAttachKey") }
       : undefined,
-  });
+  }, { ...o, shift, key: answerKey(all ? "replyAll" : "reply", m.id) });
 }
 
-export async function forward(m: MessageFull, thread: MessageFull[] = useStore.getState().messages) {
+export async function forward(m: MessageFull, thread: MessageFull[] = useStore.getState().messages, o: StartOpts = {}) {
   if (answerVia.forward) return answerVia.forward(m, thread);
+  const shift = o.shift ?? shiftNow();
   const st = useStore.getState();
   if (m.confidential) return st.showToast(t("app.forward.confidential"), undefined, "info");
   // a forward is linked to the message it forwards (References, no In-Reply-To), also when that is a mail you sent yourself
@@ -96,7 +110,7 @@ export async function forward(m: MessageFull, thread: MessageFull[] = useStore.g
     : null;
   const html = files?.html ?? m.html;
   // from the account that received the message, like Reply (the default account only when that one is gone)
-  await st.openCompose({
+  await startCompose({
     accountId: fromAccountFor(st.accounts, m.accountId, st.prefs.defaultAccount),
     references: h.references,
     subject: /^fwd?:/i.test(m.subject) ? m.subject : `Fwd: ${m.subject}`,
@@ -106,18 +120,18 @@ export async function forward(m: MessageFull, thread: MessageFull[] = useStore.g
         { header: t("app.forward.header"), from: t("app.forward.from"), date: t("app.forward.date"), subject: t("app.forward.subject"), to: t("app.forward.to") },
         { fromName: m.fromName, fromEmail: m.fromEmail, dateText: fmtFull(m.date), subject: m.subject, to: m.to },
       ) + (html ? sanitizeHtml(html, false).html : plainToHtml(m.text ?? "")),
-  });
+  }, { ...o, shift, key: answerKey("forward", m.id) });
   // after Compose is open: what could not come along
   for (const f of files?.failed ?? []) st.showToast(() => t("compose.fwd.failed", { name: f.name, error: friendlyError(f.error) }), undefined, "error");
   if (files?.skipped.length) st.showToast(() => t("compose.fwd.tooBig", { max: fmtSize(MAX_FORWARD_BYTES), names: files.skipped.join(", ") }), undefined, "error");
 }
 
 /** Reply / reply-all using the user's default (or the explicit choice) on the last message of the open thread. */
-export function replyLast(all?: boolean) {
+export function replyLast(all?: boolean, o?: StartOpts) {
   const st = useStore.getState();
   const last = st.messages[st.messages.length - 1];
   if (!last) return;
-  void replyTo(last, all ?? eff(st.prefs, last.accountId, "replyDefault") === "replyAll");
+  void replyTo(last, all ?? eff(st.prefs, last.accountId, "replyDefault") === "replyAll", undefined, o);
 }
 
 export function forwardLast() {

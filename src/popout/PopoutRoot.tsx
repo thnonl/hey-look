@@ -51,11 +51,12 @@ export default function PopoutRoot({ route }: { route: Exclude<Route, { kind: "m
       try {
         stops.push(
           // a quit (or the update restart) asks this window to save what it holds and answer once
-          listen("popout-flush", () =>
+          listen<{ why?: string } | null>("popout-flush", (e) =>
             runPopoutFlush({
               alive: () => void api.popoutFlushAlive().catch(quiet),
               done: (go) => void api.popoutFlushDone(go).catch(quiet),
               ctx: {
+                why: e.payload?.why === "update" ? "update" : "quit",
                 dialog: (open) => void api.popoutFlushDialog(open).catch(quiet),
                 showWindow: () => void api.popoutFocus(label).catch(quiet),
               },

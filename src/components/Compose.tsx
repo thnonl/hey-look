@@ -2,7 +2,7 @@ import Image from "@tiptap/extension-image";
 import { NodeSelection } from "@tiptap/pm/state";
 import { EditorContent, Node as TipNode, useEditor, type Editor } from "@tiptap/react";
 import {
-  BadgeCheck, CalendarClock, CalendarPlus, ChevronDown, FileText, ImagePlus, Info, Lock, LockOpen, Paperclip, Save, Send, ShieldAlert, ShieldCheck, Sparkles, Trash2,
+  BadgeCheck, CalendarClock, CalendarPlus, ChevronDown, ExternalLink, FileText, ImagePlus, Info, Lock, LockOpen, Paperclip, Save, Send, ShieldAlert, ShieldCheck, Sparkles, Trash2,
   TriangleAlert, X,
 } from "lucide-react";
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
@@ -39,6 +39,11 @@ import { defaultMeeting, MeetingState, MeetingStrip, meetingToDraft } from "./Ca
 import { isEmail, singleLabelHostsOf } from "../addresses";
 import { addRecipients, addressOf, chipLabel, formatRecipient, hasRecipient, isImeEvent, openAtEnd, placeRecipients, recipientKey, splitRecipients, type RcptField } from "../recipients";
 import { askUnlock } from "./Pgp";
+import { composeSeam } from "../popout/composeSeam";
+import { focusDraftWindow, startCompose, wantsWindow, type StartOpts } from "../popout/composeOpen";
+import { draftKey } from "../popout/entry";
+import { shiftNow } from "../popout/modifier";
+import { openPopout } from "../popout/open";
 import { useContentProtection } from "../protect";
 import { editorKeyHandlers, isAltGraph } from "../composeKeys";
 import { useLinkEditor } from "./LinkPopover";
@@ -297,9 +302,14 @@ export async function messageToEditor(m: MessageFull): Promise<{ html: string | 
 /**
  * Open a draft (a conversation of the Drafts folder) in Compose, with its pictures and attachments, asking for the key of an encrypted
  * one. `wait`: the draft was only just saved, so the local copy may not be there yet: the sync is asked for it a few times.
- * Returns whether Compose was opened.
+ * Returns whether Compose was opened. It opens in the pane or in a window of its own like any message (the setting and Shift, or `o.window`);
+ * a draft is open in one editor only: when a window shows it already, that window comes forward and nothing is opened (REQ-C9).
  */
-export async function openDraftThread(threadId: string, wait = false): Promise<boolean> {
+export async function openDraftThread(threadId: string, wait = false, o: StartOpts = {}): Promise<boolean> {
+  const shift = o.shift ?? shiftNow(); // (read now: the draft is fetched first)
+  const key = draftKey(threadId);
+  const mine = ++latestDraftOpen;
+  if (await focusDraftWindow(key)) return true;
   const st = useStore.getState();
   let msgs = await api.getThread(threadId, "drafts");
   for (let i = 0; wait && !msgs.some((x) => x.folder === "drafts") && i < 4; i++) {
@@ -324,11 +334,12 @@ export async function openDraftThread(threadId: string, wait = false): Promise<b
   }
   // restore pictures and attachments so saving or sending the draft does not silently drop them
   const { html, attachments } = await messageToEditor(m);
+  if (mine !== latestDraftOpen) return false; // another draft was asked for meanwhile (the second click of a double click): only the last one opens
   // the recipients as they were typed (names, Bcc) come from the draft's own headers; the synced copy has bare To / Cc and no Bcc
   const rc = await api.draftRecipients(m.id).catch(() => null);
   // without the draft's own headers the Bcc recipients are unknown: say so, a send would leave them out
   if (!rc) st.showToast(() => tNow("compose.draft.bccUnread"), undefined, "error");
-  await st.openCompose({
+  await startCompose({
     accountId: m.accountId,
     to: rc?.to ?? (m.to ? splitRecipients(m.to) : []),
     cc: rc?.cc ?? (m.cc ? splitRecipients(m.cc) : []),
@@ -340,8 +351,25 @@ export async function openDraftThread(threadId: string, wait = false): Promise<b
     security: m.security?.encrypted ? { encrypt: true, sign: false, attachPublicKey: false } : undefined,
     confidential: m.confidential,
     importance: m.importance,
-  });
+  }, { ...o, shift, key });
+  // the draft is open in the pane (not in a window): a double click moves it to a window instead of opening it twice (openDraftInWindow)
+  if (!wantsWindow({ window: o.window, shift })) inlineDraft = { threadId, composeKey: useStore.getState().composeKey };
   return true;
+}
+
+/** The draft that was last opened in the pane, and which opening of the pane it was. */
+let inlineDraft: { threadId: string; composeKey: number } | null = null;
+/** Counts the openings of a draft: one that is overtaken by a newer one gives up. */
+let latestDraftOpen = 0;
+
+/**
+ * A draft in a window of its own (double click or Shift+Enter on a row of the Drafts folder, REQ-C1). The first click of a double click has
+ * opened it in the pane: when that is the draft still untouched it is closed first, so it is never open in two editors.
+ */
+export async function openDraftInWindow(threadId: string): Promise<boolean> {
+  const st = useStore.getState();
+  if (inlineDraft?.threadId === threadId && st.compose && st.composeKey === inlineDraft.composeKey && !st.composeDirty) await st.openCompose(null, { restore: false });
+  return openDraftThread(threadId, false, { window: true });
 }
 
 /** Replace cid: references with the pictures' data: URIs (used when a sent or scheduled draft is reopened). */
@@ -507,6 +535,7 @@ export function Compose({ init }: { init: ComposeInit }) {
   const snapRevRef = useRef(-1); // the revision the last snapshot covered
   const snapAtRef = useRef(0);
   const sendingRef = useRef(false); // the message is on its way out: its snapshot stays until the send is safe
+  const poppingRef = useRef(false); // the message is being moved to a window of its own: the window that opens must not make this pane autosave it
   const filesKeyRef = useRef<{ atts: Att[]; key: string } | null>(null);
   const [autosavedAt, setAutosavedAt] = useState<number | null>(null);
 
@@ -714,7 +743,7 @@ export function Compose({ init }: { init: ComposeInit }) {
   // the body as it opened (a reply: the quote), to tell what the person wrote from what Compose put there
   useEffect(() => {
     // (a restored message has nothing "as it opened": everything in it was written by the person, so it is content to keep)
-    if (editor && !baseline.current) baseline.current = init.recoveryId ? { text: "", pics: 0 } : { text: editor.getText().trim(), pics: bodyPictures(editor) };
+    if (editor && !baseline.current) baseline.current = init.recoveryId || init.carried ? { text: "", pics: 0 } : { text: editor.getText().trim(), pics: bodyPictures(editor) };
   }, [editor]);
 
   // the link popover (LinkPopover.tsx): the same one for the toolbar button and Ctrl/Cmd+K, drawn under the button
@@ -836,10 +865,10 @@ export function Compose({ init }: { init: ComposeInit }) {
     };
   };
 
-  const reopen = (d: Draft) => {
-    // the draft's pictures go back to data: URIs so the editor shows them again
+  /** The message as Compose opens it: the draft (its pictures back to data: URIs so the editor shows them), the toggles as they were. */
+  const initOf = (d: Draft, o: { replaces?: string; isReply: boolean; carried: boolean }): ComposeInit => {
     const bodyHtml = picturesToEditor(d.html, d.inline ?? []);
-    void useStore.getState().openCompose({
+    return {
       ...init,
       to: d.to,
       cc: d.cc,
@@ -848,16 +877,32 @@ export function Compose({ init }: { init: ComposeInit }) {
       bodyHtml,
       accountId: d.accountId,
       attachments: d.attachments,
-      replaces: init.replaces,
+      replaces: o.replaces,
       recoveryId: undefined, // (a new message: it gets a snapshot of its own)
-      isReply: false,
+      isReply: o.isReply,
+      carried: o.carried || undefined,
       security: d.security,
       confidential: d.confidential,
       importance: d.importance,
       // the toggles as they were when Send was pressed (the draft only knows what is active), the body with its one signature region
       restore: { encrypt: encIntent, sign: signOn, attachKey },
       meeting: d.meeting ? { ...d.meeting, on: true } : undefined,
-    });
+    };
+  };
+  // (in a window of its own the message that comes back after Undo or a failed send counts as changed: closing the window asks, it never loses it)
+  const reopen = (d: Draft) => void useStore.getState().openCompose(initOf(d, { replaces: init.replaces, isReply: false, carried: !!composeSeam() }));
+
+  /** Move this message to a window of its own (REQ-C3, C4): all of it as it is, nothing saved, nothing asked; the pane closes once the window exists. */
+  const popOut = async () => {
+    if (init.outboxId || composeSeam() || busy) return;
+    const moved = initOf(buildDraft(), { replaces: replacesRef() ?? undefined, isReply: !!init.isReply, carried: true });
+    poppingRef.current = true; // (the new window takes the focus: this pane losing it must not save a draft of what is moving)
+    if (!(await openPopout("compose", null, moved))) {
+      poppingRef.current = false;
+      return; // the pane stays as it is (the toast said why)
+    }
+    setComposeDirty(false);
+    void openCompose(null);
   };
 
   /**
@@ -1072,7 +1117,7 @@ export function Compose({ init }: { init: ComposeInit }) {
       sendingRef.current = true; // the snapshot stays until the message is in the queue
       setBusy(true);
       setComposeDirty(false);
-      void openCompose(null);
+      void openCompose(null, { sending: 0 });
       try {
         if (init.outboxId) {
           await api.outboxUpdate(init.outboxId, d, sendAt);
@@ -1110,8 +1155,8 @@ export function Compose({ init }: { init: ComposeInit }) {
     sendingRef.current = true; // the snapshot stays until the message is in the outbox (Undo time) or was handed to the server
     setBusy(true);
     setComposeDirty(false);
-    void openCompose(null);
     const wait = eff(prefs, accountId, "undoSeconds");
+    void openCompose(null, { sending: wait });
     let cancelled = false;
     let started = false;
     let timer: ReturnType<typeof setTimeout> | undefined;
@@ -1154,29 +1199,29 @@ export function Compose({ init }: { init: ComposeInit }) {
     const done = beginSend(() => void run());
     timer = setTimeout(() => void run(), wait * 1000);
     if (wait > 0) {
-      showToast(
-        () => t("compose.toast.sending"),
-        () => {
-          // Undo: the message leaves the outbox (if it is already being sent it cannot be taken back)
-          if (heldId) {
-            void api.cancelOutbox(heldId).then(
-              () => {
-                cancelled = true;
-                clearTimeout(timer);
-                done();
-                reopen(d);
-              },
-              (e) => showToast(() => friendlyError(e), undefined, "error"),
-            );
-            return;
-          }
-          cancelled = true;
-          clearTimeout(timer);
-          done();
-          reopen(d);
-        },
-        "info",
-      );
+      const undoSend = () => {
+        // Undo: the message leaves the outbox (if it is already being sent it cannot be taken back)
+        if (heldId) {
+          void api.cancelOutbox(heldId).then(
+            () => {
+              cancelled = true;
+              clearTimeout(timer);
+              done();
+              reopen(d);
+            },
+            (e) => showToast(() => friendlyError(e), undefined, "error"),
+          );
+          return;
+        }
+        cancelled = true;
+        clearTimeout(timer);
+        done();
+        reopen(d);
+      };
+      // in a window of its own the Undo button of the window's card takes the message back; in the main window it is the toast's
+      const seam = composeSeam();
+      if (seam) seam.undoOffer(undoSend);
+      else showToast(() => t("compose.toast.sending"), undoSend, "info");
     }
   };
 
@@ -1194,7 +1239,10 @@ export function Compose({ init }: { init: ComposeInit }) {
         const keepPrivate = !!d.security?.encrypt && eff(prefs, accountId, "pgpEncryptDrafts");
         const saved = await api.saveDraft({ ...d, security: keepPrivate ? { encrypt: true, sign: false, attachPublicKey: false } : undefined }, replacesRef());
         const tid = saved.threadId;
-        if (tid) savedTid.current = tid;
+        if (tid) {
+          savedTid.current = tid;
+          composeSeam()?.draftSaved(tid);
+        }
         if (saved.draftRef) savedDraftRef.current = saved.draftRef;
         // the draft on the server holds everything up to `rev`: the snapshot is not needed for it any more
         savedRevRef.current = rev;
@@ -1267,6 +1315,7 @@ export function Compose({ init }: { init: ComposeInit }) {
       v: 1, to, cc, bcc, subject, html,
       inReplyTo: init.inReplyTo ?? null, references: init.references ?? [], replaces: replacesRef(), isReply: !!init.isReply,
       encrypt: encIntent, sign: signOn, attachKey, confidential, importance: draftImportance(importance),
+      ...(composeSeam() ? { win: true as const } : {}),
     };
     return { accountId, subject, preview: editor.getText().trim().slice(0, 160), payload: JSON.stringify(form) };
   };
@@ -1299,7 +1348,7 @@ export function Compose({ init }: { init: ComposeInit }) {
     const p = probe();
     return {
       now: Date.now(), why, rev: revRef.current, savedRev: savedRevRef.current, changedAt: changedAtRef.current, lastTryAt: lastTryRef.current,
-      failures: failuresRef.current, hasContent: p.hasContent, attaching: p.attaching, saving: savingRef.current > 0, sending: sendingRef.current,
+      failures: failuresRef.current, hasContent: p.hasContent, attaching: p.attaching, saving: savingRef.current > 0, sending: sendingRef.current || poppingRef.current,
       scheduled: !!init.outboxId, plainWouldLeak: encOn && !eff(prefs, accountId, "pgpEncryptDrafts"),
     };
   };
@@ -1335,9 +1384,13 @@ export function Compose({ init }: { init: ComposeInit }) {
   }, []);
   // a restored message is something the person has not saved: it counts as changed from the start
   useEffect(() => {
-    if (init.recoveryId) touch();
+    if (init.recoveryId || init.carried) touch();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+  // the subject is the title of a window of its own
+  useEffect(() => {
+    composeSeam()?.title(subject);
+  }, [subject]);
 
   /** Wait until the saves that are running have finished (a send / discard must know which draft the last one made). */
   const settleSaves = async () => {
@@ -1366,7 +1419,7 @@ export function Compose({ init }: { init: ComposeInit }) {
   const probe = (): ComposeProbe => {
     const b = baseline.current;
     const text = editor?.getText().trim() ?? "";
-    const restored = !!init.recoveryId;
+    const restored = !!init.recoveryId || !!init.carried;
     const base = restored ? [] : init.to ?? [];
     const hasContent =
       touched.current &&
@@ -1680,6 +1733,11 @@ export function Compose({ init }: { init: ComposeInit }) {
           picRef.current?.click();
           return;
         }
+        if ((e.ctrlKey || e.metaKey) && e.shiftKey && !e.altKey && e.key.toLowerCase() === "o" && !init.outboxId && !composeSeam()) {
+          e.preventDefault();
+          void popOut();
+          return;
+        }
         if ((e.ctrlKey || e.metaKey) && e.shiftKey && e.key.toLowerCase() === "e") {
           e.preventDefault();
           toggleEncrypt();
@@ -1842,6 +1900,11 @@ export function Compose({ init }: { init: ComposeInit }) {
           <Sparkles size={15} /><span>{t("compose.bar.writeWithAi")}</span>
         </button>
         <div className="grow" />
+        {!init.outboxId && !composeSeam() && (
+          <button className="icon-btn" aria-label={t("compose.popout.popOut")} title={kbd(t("compose.popout.popOutTip"))} onClick={() => void popOut()}>
+            <ExternalLink size={16} />
+          </button>
+        )}
       </div>
 
       {init.outboxId && (

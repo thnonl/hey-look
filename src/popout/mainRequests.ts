@@ -3,6 +3,7 @@
 // the intent layer and the Undo window of `act`, `setPrefs` (the only writer of the preferences), the dialogs, `replyTo` / `forward`.
 // The answer goes back through the backend to that window (`popout_reply`).
 import { forward, replyTo } from "../actions";
+import { startCompose } from "./composeOpen";
 import { importKeyFromMessage } from "../components/Pgp";
 import { api, MessageFull } from "../api";
 import { t, type Key } from "../i18n";
@@ -31,12 +32,11 @@ async function run(env: Envelope): Promise<unknown> {
       st.setPrefs(p.patch);
       return null;
     case "compose": {
-      // until the compose window exists (WP6b) an answer opens in the main window, as it does from the reading pane
-      showMain();
       const m = p.req.message as unknown as MessageFull;
       const thread = p.req.threadMessageIds.map((messageId) => ({ messageId }) as unknown as MessageFull);
       // (not awaited: a message already being written asks its question in the main window; the reader has nothing to wait for)
-      const go = p.req.mode === "forward" ? forward(m, thread) : replyTo(m, p.req.mode === "replyAll", thread);
+      // (the reader is a window already: the answer always opens in a compose window of its own, whatever the setting says, REQ-R5)
+      const go = p.req.mode === "forward" ? forward(m, thread, { window: true, shift: false }) : replyTo(m, p.req.mode === "replyAll", thread, { window: true, shift: false });
       void go.catch((e) => st.showToast(() => friendlyError(e), undefined, "error"));
       return null;
     }
@@ -44,8 +44,7 @@ async function run(env: Envelope): Promise<unknown> {
       await importKeyFromMessage({ id: p.messageId } as unknown as MessageFull, p.index);
       return null;
     case "compose-new":
-      showMain();
-      void st.openCompose(p.req);
+      void startCompose(p.req, { window: true, shift: false });
       return null;
     case "dialog":
       showMain();
