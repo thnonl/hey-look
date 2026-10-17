@@ -78,7 +78,7 @@ assert.match(read("../src/App.tsx"), /listen<\{ id: string; error: string \}>\("
 assert.match(read("../src/api.ts"), /queueAction: .*verify = false\) =>\s*invoke<string>\("queue_action", \{ threadIds, action, arg, scope, delaySecs, verify \}\)/);
 // the backend side exists under the same names
 const lib = read("../src-tauri/src/lib.rs");
-assert.match(lib, /app\.emit\("action-verify-failed", VerifyFailed \{ id: task, error \}\)/);
+assert.match(lib, /app\.emit_to\("main", "action-verify-failed", VerifyFailed \{ id: task, error \}\)/);
 assert.match(lib, /if let Some\(Err\(error\)\) = p\.verify\.as_ref\(\)\.and_then\(\|v\| v\.wait\(verify_wait\)\)/, "a due move waits for its folder check and stops when it failed");
 assert.match(lib, /never move into a folder that was not checked/);
 console.log("queued-moves: all checks passed");

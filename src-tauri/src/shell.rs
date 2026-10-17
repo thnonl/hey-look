@@ -62,7 +62,7 @@ pub fn show_main(app: &AppHandle) {
             crate::linuxview::after_show(app);
         }
         // the UI re-checks for updates when the window comes back (throttled in update.rs)
-        let _ = app.emit("app-shown", ());
+        let _ = app.emit_to("main", "app-shown", ());
     }
 }
 
@@ -227,9 +227,15 @@ pub fn update_badge(app: &AppHandle, db: &Db) {
         }
         let _ = tray.set_tooltip(Some(crate::i18n::unread_tooltip(count)));
     }
+    // Windows: the badge goes on every window of the app (the main window and the secondary ones, which group under its taskbar button), so the
+    // taskbar shows it whichever window was active last
     #[cfg(windows)]
-    if let Some(w) = app.get_webview_window("main") {
-        let _ = w.set_overlay_icon(if count > 0 && task_style == "number" { Some(overlay_icon(count)) } else { None });
+    {
+        let icon = if count > 0 && task_style == "number" { Some(overlay_icon(count)) } else { None };
+        if let Some(w) = app.get_webview_window("main") {
+            let _ = w.set_overlay_icon(icon.clone());
+        }
+        crate::popout::set_overlay(app, icon);
     }
     // macOS Dock icon: the same number as the tray, off at 0 and with the "None" choice of the badge setting (shown as "Dock badge")
     #[cfg(target_os = "macos")]
@@ -444,7 +450,7 @@ pub fn setup_tray(app: &AppHandle, db: &Db) -> tauri::Result<()> {
             "open" => show_main(app),
             "compose" if MAIL_AVAILABLE.load(Ordering::Relaxed) => {
                 show_main(app);
-                let _ = app.emit("tray-compose", ());
+                let _ = app.emit_to("main", "tray-compose", ());
             }
             "sync" if MAIL_AVAILABLE.load(Ordering::Relaxed) => {
                 let app = app.clone();
@@ -521,11 +527,11 @@ fn handle_activation(app: &AppHandle, thread: &str, action: Option<String>) {
     match action.as_deref() {
         None | Some("") => {
             show_main(app);
-            let _ = app.emit("open-thread", json!({ "threadId": thread }));
+            let _ = app.emit_to("main", "open-thread", json!({ "threadId": thread }));
         }
         Some("reply") => {
             show_main(app);
-            let _ = app.emit("notify-reply", json!({ "threadId": thread }));
+            let _ = app.emit_to("main", "notify-reply", json!({ "threadId": thread }));
         }
         Some(a) => {
             if thread.is_empty() {
@@ -691,6 +697,8 @@ fn quiet_reason(app: &AppHandle, db: &Db) -> Option<String> {
         .get_webview_window("main")
         .map(|w| (w.is_focused().unwrap_or(false), w.is_visible().unwrap_or(false), w.is_minimized().unwrap_or(false)))
         .unwrap_or((false, false, false));
+    // "the app is in front" is any window of it: a focused secondary window counts like the main one (REQ-W13)
+    let (focused, visible, minimized) = if crate::popout::any_in_front(app) { (true, true, false) } else { (focused, visible, minimized) };
     quiet_because(paused, enabled, focused, visible, minimized, cfg!(target_os = "linux"))
 }
 

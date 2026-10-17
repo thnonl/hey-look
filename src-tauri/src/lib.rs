@@ -29,6 +29,7 @@ mod outgoing;
 mod openpgp;
 mod pgpmail;
 mod pgpstore;
+mod popout;
 mod quitwait;
 mod rawcache;
 mod recover;
@@ -951,7 +952,7 @@ fn run_sync(app: &tauri::AppHandle, db: &Db, account_id: &str) -> R<SyncResult> 
     let r = run_sync_inner(app, db, account_id);
     let change = track_signin(&mut SIGNIN_FLAGGED.lock().unwrap_or_else(|p| p.into_inner()), account_id, r.as_ref().err().map(String::as_str));
     if let Some(state) = change {
-        let _ = app.emit("signin-state", serde_json::json!({ "accountId": account_id, "state": state, "error": r.as_ref().err() }));
+        let _ = app.emit_to("main", "signin-state", serde_json::json!({ "accountId": account_id, "state": state, "error": r.as_ref().err() }));
     }
     r
 }
@@ -960,7 +961,7 @@ fn run_sync_inner(app: &tauri::AppHandle, db: &Db, account_id: &str) -> R<SyncRe
     let _guard = SYNC_LOCK.lock().unwrap_or_else(|p| p.into_inner());
     let r = sync_impl(db, account_id)?;
     for why in take_rule_errors_to_tell() {
-        let _ = app.emit("filter-failed", why);
+        let _ = app.emit_to("main", "filter-failed", why);
     }
     backfill_start(app, db, account_id);
     shell::notify_new(app, db, &r.new_inbox);
@@ -1130,7 +1131,7 @@ fn queue_action(
     std::thread::spawn(move || {
         let wanted: Vec<(String, String)> = targets.into_iter().map(|(a, d, _)| (a, d)).collect();
         if let Some(error) = verify_finished(&task, &gate, verify_targets(&db, &wanted)) {
-            let _ = app.emit("action-verify-failed", VerifyFailed { id: task, error });
+            let _ = app.emit_to("main", "action-verify-failed", VerifyFailed { id: task, error });
         }
     });
     id
@@ -1149,13 +1150,13 @@ fn run_pending(app: &tauri::AppHandle, items: Vec<Pending>, verify_wait: std::ti
     for p in items {
         // never move into a folder that was not checked: a failed check ends the move here
         if let Some(Err(error)) = p.verify.as_ref().and_then(|v| v.wait(verify_wait)) {
-            let _ = app.emit("action-verify-failed", VerifyFailed { id: p.id, error });
+            let _ = app.emit_to("main", "action-verify-failed", VerifyFailed { id: p.id, error });
             continue;
         }
         let id = p.id.clone();
         if let Err(error) = action_impl(&db, p.threads, p.action, p.arg, p.scope) {
             // the id says which queued move this was: the app puts the mail, the selection and the next mail's unread state back (autoAdvance.ts)
-            let _ = app.emit("action-failed", VerifyFailed { id, error });
+            let _ = app.emit_to("main", "action-failed", VerifyFailed { id, error });
         }
     }
     shell::update_badge(app, &db);
@@ -1483,7 +1484,7 @@ fn backfill_run(app: &tauri::AppHandle, db: &Db, account_id: &str) -> R<()> {
             step
         },
         &mut |ev| {
-            let _ = app.emit("backfill-progress", ev);
+            let _ = app.emit_to("main", "backfill-progress", ev);
         },
     );
     if let Some(mut s) = sess {
@@ -2839,7 +2840,7 @@ fn download_folder(app: &tauri::AppHandle, db: &Db) -> R<std::path::PathBuf> {
     // a chosen folder that is gone (or no Downloads folder that can be used, a bare Linux install) is no secret: say so (once per folder
     // and session) instead of quietly saving elsewhere
     if let Some(bad) = replaced.filter(|b| first_time_for(&DOWNLOAD_WARNED, b)) {
-        let _ = app.emit("download-dir-fallback", serde_json::json!({ "configured": bad, "used": dir.to_string_lossy() }));
+        let _ = app.emit_to("main", "download-dir-fallback", serde_json::json!({ "configured": bad, "used": dir.to_string_lossy() }));
     }
     Ok(dir)
 }
@@ -3847,10 +3848,10 @@ fn outbox_worker(app: tauri::AppHandle, db: Db) {
             let _ = deliver(&app, &db, &id, &payload, attempts, &mut late, &mut left, due_at);
         }
         if late > 0 {
-            let _ = app.emit("outbox-catchup", serde_json::json!({ "count": late }));
+            let _ = app.emit_to("main", "outbox-catchup", serde_json::json!({ "count": late }));
         }
         if left > 0 {
-            let _ = app.emit("outbox-leftover", serde_json::json!({ "count": left }));
+            let _ = app.emit_to("main", "outbox-leftover", serde_json::json!({ "count": left }));
         }
     }
 }
@@ -3859,25 +3860,82 @@ fn outbox_worker(app: tauri::AppHandle, db: Db) {
 static QUIT_BUSY: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
 /// The scheduled-messages question is on screen: a second quit request shows it, it does not ask again.
 static QUESTION_OPEN: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
-/// Where the page's messages during a quit go (`quitwait::Msg`: it got the request, it asks the person, it is done).
-static FLUSH_ACK: Mutex<Option<std::sync::mpsc::Sender<quitwait::Msg>>> = Mutex::new(None);
+/// Where the windows' messages during a quit go: one channel per window that was asked (`quitwait::Msg`: it got the request, it asks the
+/// person, it is done). Keyed by window label, so each window is waited for with a wait of its own.
+static FLUSH_ACK: Mutex<Vec<(String, std::sync::mpsc::Sender<quitwait::Msg>)>> = Mutex::new(Vec::new());
 
 /// The windows whose pages must answer the flush request of a quit before the app ends: they hold what the backend does not (a message
-/// being written, the Undo timers of messages that were just sent). Today that is the main window, once its page has loaded; a window
-/// whose page never loaded has nothing to finish. **The place to extend** when more windows exist (a compose or reader window popped out of
-/// the main one): return their labels as well, and give `quitwait::Msg` the label of the window that speaks so that `finish_sends_then`
-/// waits for each of them (it asks every target and waits until all have answered, each with the bounds of `quitwait.rs`).
+/// being written, the Undo timers of messages that were just sent). That is the main window once its page has loaded, and every secondary
+/// window (a compose or reader window popped out of the main one, popout.rs) whose page is ready; a window whose page never loaded has
+/// nothing to finish. A quit asks the secondary windows first and the main window last (`quitwait::steps`).
 fn flush_targets(app: &tauri::AppHandle) -> Vec<String> {
-    if !startup::is_ready() || app.get_webview_window("main").is_none() {
-        return vec![];
+    let mut targets = vec![];
+    if startup::is_ready() && app.get_webview_window("main").is_some() {
+        targets.push("main".to_string());
     }
-    vec!["main".to_string()]
+    targets.extend(popout::ready_labels(app));
+    targets
+}
+
+/// The event that asks a window to answer: the main page listens to `flush-sends`, a secondary window to `popout-flush`.
+fn flush_event(label: &str) -> &'static str {
+    if label == "main" { "flush-sends" } else { popout::FLUSH_EVENT }
 }
 
 /// Test seam for QA (`HEYLOOK_TEST_QUIT_PAGE=silent`): the page is not asked, so for the quit it is a page that never answers (a hung or dead
 /// page). The quit must then end after `quitwait::FIRST_SIGN_WAIT` with "the page did not answer". Anything else does nothing.
 fn test_silent_page() -> bool {
     std::env::var("HEYLOOK_TEST_QUIT_PAGE").is_ok_and(|v| v == "silent")
+}
+
+/// Ask the windows of one step of a quit together and wait for each on a thread of its own, with the bounds of `quitwait.rs`. The
+/// channel of every window is in place before the first request goes out. (Generic over the runtime so that a test can use mock windows.)
+fn ask_windows<R: tauri::Runtime>(app: &tauri::AppHandle<R>, labels: &[String], limits: quitwait::Limits) -> Vec<(String, quitwait::Verdict)> {
+    let mut waits = vec![];
+    for label in labels {
+        let (tx, rx) = std::sync::mpsc::channel::<quitwait::Msg>();
+        {
+            let mut acks = FLUSH_ACK.lock().unwrap_or_else(|p| p.into_inner());
+            acks.retain(|(l, _)| l != label);
+            acks.push((label.clone(), tx));
+        }
+        waits.push((label.clone(), rx));
+    }
+    for label in labels {
+        if test_silent_page() {
+            startup::stage(None, &format!("quit: test seam HEYLOOK_TEST_QUIT_PAGE=silent: the page of {label} is not asked"));
+        } else {
+            let _ = app.emit_to(label.as_str(), flush_event(label), ());
+        }
+    }
+    let answers: Vec<(String, quitwait::Verdict)> = std::thread::scope(|scope| {
+        let handles: Vec<_> = waits
+            .into_iter()
+            .map(|(label, rx)| {
+                scope.spawn(move || {
+                    let t0 = std::time::Instant::now();
+                    let who = quit_who(&label);
+                    let verdict = quitwait::drive(
+                        |t| rx.recv_timeout(t),
+                        || t0.elapsed(),
+                        limits,
+                        std::time::Duration::from_millis(200),
+                        |msg, phase| startup::stage(None, &format!("quit{who}: the page says {msg:?} ({phase})")),
+                    );
+                    (label, verdict)
+                })
+            })
+            .collect();
+        handles.into_iter().filter_map(|h| h.join().ok()).collect()
+    });
+    // the windows' ends of the channels stay only for a late answer to find nobody (a second quit starts new ones)
+    FLUSH_ACK.lock().unwrap_or_else(|p| p.into_inner()).retain(|(l, _)| !labels.contains(l));
+    answers
+}
+
+/// " (compose-1)" for a secondary window, nothing for the main page (the lines of its quit stay as QA knows them).
+fn quit_who(label: &str) -> String {
+    if label == "main" { String::new() } else { format!(" ({label})") }
 }
 
 /// Steps (b) to (d) of a quit (REQ-48): the page saves a dirty Compose (and asks when that fails), lets every message still in its
@@ -3889,44 +3947,28 @@ fn test_silent_page() -> bool {
 /// nobody answers within 60 s end in "go on" (hardening after a QA Linux run, v1.0.6, in which a quit seemed to hang; a direct launch could
 /// not repeat it). Nothing is lost by that: a message being written has its recovery snapshot, a message in its Undo time is a row of the
 /// outbox that goes out at the next start (tested in `a_quit_without_the_page_loses_no_send_and_no_draft`).
+///
+/// With secondary windows open (popout.rs) every one of them is asked first, together, each with a wait of its own; the main page is asked
+/// after them. One "no" from any window ends the quit.
 fn finish_sends_then(app: &tauri::AppHandle, then: impl FnOnce(&tauri::AppHandle) + Send + 'static) {
     if QUIT_BUSY.swap(true, std::sync::atomic::Ordering::SeqCst) {
         return;
     }
-    let (tx, rx) = std::sync::mpsc::channel::<quitwait::Msg>();
     let targets = flush_targets(app);
-    let asked = !targets.is_empty();
-    // one channel, so one speaking window until `quitwait::Msg` names its window (see `flush_targets`)
-    debug_assert!(targets.len() <= 1, "several windows must be told apart in quitwait::Msg before they are asked");
-    if asked {
-        *FLUSH_ACK.lock().unwrap_or_else(|p| p.into_inner()) = Some(tx);
-        startup::stage(Some(app), &format!("quit: asking the page to save its draft and send what is waiting (window visible: {})", window_shown(app)));
-        if test_silent_page() {
-            startup::stage(Some(app), "quit: test seam HEYLOOK_TEST_QUIT_PAGE=silent: the page is not asked");
-        } else {
-            for label in &targets {
-                let _ = app.emit_to(label.as_str(), "flush-sends", ());
-            }
-        }
+    if !targets.is_empty() {
+        startup::stage(Some(app), &format!("quit: asking the page to save its draft and send what is waiting (window visible: {}; windows asked: {})", window_shown(app), targets.join(", ")));
     }
     let app = app.clone();
     std::thread::spawn(move || {
         let limits = quitwait::Limits::default();
-        let verdict = if asked {
-            let t0 = std::time::Instant::now();
-            quitwait::drive(
-                |t| rx.recv_timeout(t),
-                || t0.elapsed(),
-                limits,
-                std::time::Duration::from_millis(200),
-                |msg, phase| startup::stage(Some(&app), &format!("quit: the page says {msg:?} ({phase})")),
-            )
-        } else {
-            quitwait::Verdict::Go(quitwait::Why::NotAsked)
-        };
-        // the page's end of the channel stays for a late answer to find nobody (a second quit starts a new one)
-        FLUSH_ACK.lock().unwrap_or_else(|p| p.into_inner()).take();
-        startup::stage(Some(&app), &verdict.text(&limits));
+        let (verdict, answers) = quitwait::run_steps(&quitwait::steps(&targets), |labels| ask_windows(&app, labels, limits));
+        for (label, v) in &answers {
+            let text = v.text(&limits);
+            startup::stage(Some(&app), &if label == "main" { text } else { text.replacen("quit:", &format!("quit ({label}):"), 1) });
+        }
+        if answers.is_empty() {
+            startup::stage(Some(&app), &verdict.text(&limits));
+        }
         if matches!(verdict, quitwait::Verdict::Go(_)) {
             then(&app);
         }
@@ -3939,34 +3981,103 @@ fn window_shown(app: &tauri::AppHandle) -> bool {
     app.get_webview_window("main").is_some_and(|w| w.is_visible().unwrap_or(false) && !w.is_minimized().unwrap_or(false))
 }
 
-/// A message of the page to the quit that is waiting for it. False when no quit is waiting.
-fn tell_quit(msg: quitwait::Msg) -> bool {
-    FLUSH_ACK.lock().unwrap_or_else(|p| p.into_inner()).as_ref().is_some_and(|tx| tx.send(msg).is_ok())
+/// A message of a window's page to the quit that is waiting for it. False when no quit is waiting for that window.
+fn tell_quit(label: &str, msg: quitwait::Msg) -> bool {
+    FLUSH_ACK.lock().unwrap_or_else(|p| p.into_inner()).iter().find(|(l, _)| l == label).is_some_and(|(_, tx)| tx.send(msg).is_ok())
 }
 
-/// The page has done its part (and saved its draft): `go` false = the person wants to keep the window open.
-#[tauri::command]
-fn sends_flushed(go: bool) {
-    if let Some(tx) = FLUSH_ACK.lock().unwrap_or_else(|p| p.into_inner()).take() {
+/// The window has done its part (and saved its draft): `go` false = the person wants to keep the window open. One answer per question.
+fn flush_answer(label: &str, go: bool) {
+    let tx = {
+        let mut acks = FLUSH_ACK.lock().unwrap_or_else(|p| p.into_inner());
+        acks.iter().position(|(l, _)| l == label).map(|i| acks.remove(i).1)
+    };
+    if let Some(tx) = tx {
         let _ = tx.send(quitwait::Msg::Answer(go));
     }
 }
 
+/// A window opened (`open` true) or closed a question to the person that the quit has to wait for (for 60 s at most). The window is
+/// brought to the front for it: a question in a window that sits in the tray could not be answered.
+fn flush_dialog(app: &tauri::AppHandle, label: &str, open: bool) {
+    if open && label == "main" && !window_shown(app) {
+        startup::stage(Some(app), "quit: the page asks a question and the window is not on screen: showing it");
+        shell::show_main(app);
+    } else if open && label != "main" && !popout::is_shown(app, label) {
+        startup::stage(Some(app), &format!("quit ({label}): the page asks a question and the window is not on screen: showing it"));
+        popout::bring_to_front(app, label);
+    }
+    tell_quit(label, quitwait::Msg::Dialog(open));
+}
+
+/// The page has done its part (and saved its draft): `go` false = the person wants to keep the window open.
+#[tauri::command]
+fn sends_flushed(window: tauri::Window, go: bool) {
+    flush_answer(window.label(), go);
+}
+
 /// The page got the request of the quit and is doing its part: the quit waits for it longer than for a page that says nothing.
 #[tauri::command]
-fn quit_page_alive() {
-    tell_quit(quitwait::Msg::Alive);
+fn quit_page_alive(window: tauri::Window) {
+    tell_quit(window.label(), quitwait::Msg::Alive);
 }
 
 /// The page opened (`true`) or closed (`false`) a question to the person that the quit has to wait for (for 60 s at most). The window is
 /// brought to the front for it: a question in a window that sits in the tray could not be answered.
 #[tauri::command]
-fn quit_dialog(app: tauri::AppHandle, open: bool) {
-    if open && !window_shown(&app) {
-        startup::stage(Some(&app), "quit: the page asks a question and the window is not on screen: showing it");
-        shell::show_main(&app);
+fn quit_dialog(app: tauri::AppHandle, window: tauri::Window, open: bool) {
+    flush_dialog(&app, window.label(), open);
+}
+
+/// A secondary window got `popout-flush` and is doing its part (the secondary counterpart of `quit_page_alive`).
+#[tauri::command]
+fn popout_flush_alive(window: tauri::Window) {
+    if popout::is_secondary(window.label()) {
+        tell_quit(window.label(), quitwait::Msg::Alive);
     }
-    tell_quit(quitwait::Msg::Dialog(open));
+}
+
+/// A secondary window opened or closed a question to the person (the secondary counterpart of `quit_dialog`).
+#[tauri::command]
+fn popout_flush_dialog(app: tauri::AppHandle, window: tauri::Window, open: bool) {
+    if popout::is_secondary(window.label()) {
+        flush_dialog(&app, window.label(), open);
+    }
+}
+
+/// A secondary window has saved what it holds: `go` false = the person keeps the window open (the secondary counterpart of `sends_flushed`).
+#[tauri::command]
+fn popout_flush_done(window: tauri::Window, go: bool) {
+    if popout::is_secondary(window.label()) {
+        flush_answer(window.label(), go);
+    }
+}
+
+/// Ask every secondary window to save what it holds, before the update restart saves the inline Compose (spec 3.4, "Update restart").
+/// Returns `true` when the restart may go on (every window answered, or gave up, or none is open) and `false` when a person keeps a window
+/// open (or a quit is running). The same bounded wait as a quit; no window is closed here (the restart ends them).
+#[tauri::command]
+async fn popout_save_all(app: tauri::AppHandle) -> bool {
+    let targets = popout::ready_labels(&app);
+    if targets.is_empty() {
+        return true;
+    }
+    if QUIT_BUSY.swap(true, std::sync::atomic::Ordering::SeqCst) {
+        return false;
+    }
+    startup::stage(Some(&app), &format!("update: asking the secondary windows to save what they hold: {}", targets.join(", ")));
+    let limits = quitwait::Limits::default();
+    let (verdict, answers) = tauri::async_runtime::spawn_blocking({
+        let app = app.clone();
+        move || quitwait::run_steps(&quitwait::steps(&targets), |labels| ask_windows(&app, labels, limits))
+    })
+    .await
+    .unwrap_or((quitwait::Verdict::Stay, vec![]));
+    for (label, v) in &answers {
+        startup::stage(Some(&app), &v.text(&limits).replacen("quit:", &format!("update ({label}):"), 1));
+    }
+    QUIT_BUSY.store(false, std::sync::atomic::Ordering::SeqCst);
+    matches!(verdict, quitwait::Verdict::Go(_))
 }
 
 /// The page needs the window in front of the person (a question about unsaved text while the app sat in the tray).
@@ -3990,7 +4101,7 @@ pub(crate) fn request_quit(app: &tauri::AppHandle) {
         startup::stage(Some(app), &format!("quit: {count} scheduled message(s) are waiting: asking the person first"));
         QUESTION_OPEN.store(true, std::sync::atomic::Ordering::SeqCst);
         shell::show_main(app);
-        let _ = app.emit("confirm-quit", serde_json::json!({ "count": count, "next": next }));
+        let _ = app.emit_to("main", "confirm-quit", serde_json::json!({ "count": count, "next": next }));
         return;
     }
     finish_sends_then(app, quit_final);
@@ -4178,8 +4289,12 @@ fn get_setting(state: tauri::State<AppState>, key: String) -> Option<String> {
 }
 
 #[tauri::command]
-fn set_setting(app: tauri::AppHandle, state: tauri::State<AppState>, key: String, value: String) -> R<()> {
+fn set_setting(app: tauri::AppHandle, window: tauri::Window, state: tauri::State<AppState>, key: String, value: String) -> R<()> {
     db::set_setting(&lock(&state.db), &key, &value)?;
+    // the preferences changed: every other window re-reads them (the main page is the only writer, popout.rs)
+    if key == "prefs" {
+        let _ = app.emit(popout::PREFS_EVENT, serde_json::json!({ "writer": window.label() }));
+    }
     // the UI mirrors its language here: the tray menu, the macOS Quit item and the tray tooltip follow at once (native texts, see i18n.rs)
     if key == "ui_language" && i18n::set_lang(&value) {
         shell::refresh_language(&app, &state.db);
@@ -4396,6 +4511,7 @@ pub fn run() {
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_updater::Builder::new().build())
         .setup(|app| {
+            app.manage(popout::State::default());
             // the data folder of this identifier (data saved under the old names is moved there once, see legacy_names.rs)
             let dir = legacy_names::data_dir(app.handle())?;
             app.manage(legacy_names::DataDir(dir.clone()));
@@ -4463,6 +4579,11 @@ pub fn run() {
             Ok(())
         })
         .on_window_event(|window, event| {
+            // a secondary window (compose / reader) closes only itself: it never hides to the tray and never starts a quit (popout.rs)
+            if window.label() != "main" {
+                popout::on_window_event(window, event);
+                return;
+            }
             if let tauri::WindowEvent::CloseRequested { api, .. } = event {
                 let db = window.app_handle().state::<AppState>().db.clone();
                 startup::stage(Some(window.app_handle()), &format!("window close requested (hides to the tray: {})", shell::close_to_tray(&db)));
@@ -4612,6 +4733,15 @@ pub fn run() {
             frontend_ready,
             sends_flushed,
             quit_page_alive,
+            popout_flush_alive,
+            popout_flush_dialog,
+            popout_flush_done,
+            popout_save_all,
+            popout::popout_open,
+            popout::popout_init,
+            popout::popout_ready,
+            popout::popout_focus,
+            popout::popout_close,
             page_pong,
             quit_dialog,
             quit_cancelled,
@@ -4723,29 +4853,74 @@ mod quit_tests {
     use super::*;
     use std::sync::mpsc::channel;
 
-    /// The page's messages reach the quit through the commands; an answer nobody waits for does nothing. (The waiting itself, with a page that
-    /// never answers, answers late or asks a question, is tested in quitwait.rs.)
+    /// The tests that use `FLUSH_ACK` (one global table of the quit that is running) take turns.
+    static FLUSH_TEST_LOCK: Mutex<()> = Mutex::new(());
+
+    /// A quit over real (mock) windows: every window gets its own request event, answers on its own, and the verdicts are told apart. This
+    /// is the wiring of `ask_windows` (events, the table of channels, one wait per window); the timing rules are tested in quitwait.rs.
+    #[test]
+    fn a_quit_asks_each_window_and_hears_each_one() {
+        use crate::quitwait::{Limits, Verdict, Why};
+        use std::time::Duration;
+        use tauri::{Listener, WebviewUrl, WebviewWindowBuilder};
+        let _one_at_a_time = FLUSH_TEST_LOCK.lock().unwrap_or_else(|p| p.into_inner());
+        let app = tauri::test::mock_builder().build(tauri::test::mock_context(tauri::test::noop_assets())).unwrap();
+        let labels = ["compose-71", "reader-72", "compose-73", "compose-74"];
+        for l in labels {
+            let w = WebviewWindowBuilder::new(&app, l, WebviewUrl::App("index.html".into())).build().unwrap();
+            // the page of the window: compose-71 saves and goes on, reader-72 works first, compose-73 keeps its message, compose-74 never answers
+            let who = l.to_string();
+            let go = l != "compose-73";
+            if l != "compose-74" {
+                w.listen(flush_event(l), move |_| {
+                    assert!(tell_quit(&who, crate::quitwait::Msg::Alive), "the table has a channel for {who} before the request goes out");
+                    flush_answer(&who, go);
+                });
+            }
+        }
+        let limits = Limits { first_sign: Duration::from_millis(600), work: Duration::from_secs(5), dialog: Duration::from_secs(5) };
+        let asked: Vec<String> = labels.iter().map(|l| l.to_string()).collect();
+        let t0 = std::time::Instant::now();
+        let got = ask_windows(app.handle(), &asked, limits);
+        let by = |l: &str| got.iter().find(|(n, _)| n == l).map(|(_, v)| *v).unwrap();
+        assert_eq!(by("compose-71"), Verdict::Go(Why::Answered));
+        assert_eq!(by("reader-72"), Verdict::Go(Why::Answered));
+        assert_eq!(by("compose-73"), Verdict::Stay, "the person kept the message: that window's own answer");
+        assert_eq!(by("compose-74"), Verdict::Go(Why::NoSign), "a page that says nothing is given up after the first-sign time");
+        assert_eq!(crate::quitwait::merge(&got.iter().map(|(_, v)| *v).collect::<Vec<_>>()), Verdict::Stay, "one no ends the quit");
+        assert!(t0.elapsed() < Duration::from_secs(4), "the windows were waited for together, not one after the other");
+        assert!(FLUSH_ACK.lock().unwrap().is_empty(), "the table is cleaned up for the next quit");
+    }
+
+    /// The page's messages reach the quit that asked its window; an answer nobody waits for does nothing. (The waiting itself, with a page
+    /// that never answers, answers late or asks a question, is tested in quitwait.rs.)
     #[test]
     fn the_pages_messages_travel_through_the_commands() {
         use crate::quitwait::Msg;
+        let _one_at_a_time = FLUSH_TEST_LOCK.lock().unwrap_or_else(|p| p.into_inner());
         let (tx, rx) = channel::<Msg>();
-        *FLUSH_ACK.lock().unwrap() = Some(tx);
-        assert!(tell_quit(Msg::Alive) && tell_quit(Msg::Dialog(true)) && tell_quit(Msg::Dialog(false)));
-        quit_page_alive();
-        sends_flushed(false);
+        let (tx2, rx2) = channel::<Msg>();
+        *FLUSH_ACK.lock().unwrap() = vec![("main".to_string(), tx), ("compose-1".to_string(), tx2)];
+        assert!(tell_quit("main", Msg::Alive) && tell_quit("main", Msg::Dialog(true)) && tell_quit("main", Msg::Dialog(false)));
+        assert!(tell_quit("compose-1", Msg::Alive));
+        assert!(!tell_quit("reader-9", Msg::Alive), "a window that was not asked has no channel");
+        flush_answer("main", false);
         let got: Vec<Msg> = rx.try_iter().collect();
-        assert_eq!(got, vec![Msg::Alive, Msg::Dialog(true), Msg::Dialog(false), Msg::Alive, Msg::Answer(false)]);
-        assert!(FLUSH_ACK.lock().unwrap().is_none(), "one answer per question");
-        // nobody waits: nothing happens, nothing blocks
-        assert!(!tell_quit(Msg::Alive));
-        sends_flushed(true);
-        quit_page_alive();
+        assert_eq!(got, vec![Msg::Alive, Msg::Dialog(true), Msg::Dialog(false), Msg::Answer(false)]);
+        assert_eq!(rx2.try_iter().collect::<Vec<_>>(), vec![Msg::Alive], "every window has a channel of its own");
+        assert_eq!(FLUSH_ACK.lock().unwrap().len(), 1, "one answer per question: main's channel is gone, compose-1 still waits");
+        // nobody waits for main any more: nothing happens, nothing blocks
+        assert!(!tell_quit("main", Msg::Alive));
+        flush_answer("main", true);
+        flush_answer("compose-1", true);
+        assert_eq!(rx2.try_iter().collect::<Vec<_>>(), vec![Msg::Answer(true)]);
+        assert!(FLUSH_ACK.lock().unwrap().is_empty());
         // a page that is gone: the sender is closed, the message is dropped
         let (tx, rx) = channel::<Msg>();
         drop(rx);
-        *FLUSH_ACK.lock().unwrap() = Some(tx);
-        assert!(!tell_quit(Msg::Alive));
-        FLUSH_ACK.lock().unwrap().take();
+        *FLUSH_ACK.lock().unwrap() = vec![("main".to_string(), tx)];
+        assert!(!tell_quit("main", Msg::Alive));
+        FLUSH_ACK.lock().unwrap().clear();
     }
 
     /// The quit that goes on WITHOUT the page (it never answered, kept working too long, or its question stayed open) loses nothing: what the
@@ -4830,21 +5005,28 @@ mod quit_tests {
         let lib = crate::test_guard::non_test_code(include_str!("lib.rs"));
         let fin = &lib[lib.find("fn finish_sends_then").expect("finish_sends_then")..];
         let fin = &fin[..fin.find("\n}\n").unwrap()];
-        assert!(fin.contains("quitwait::drive(") && fin.contains("quitwait::Limits::default()"), "{fin}");
+        let ask = &lib[lib.find("fn ask_windows").expect("ask_windows")..];
+        let ask = &ask[..ask.find("\n}\n").unwrap()];
+        assert!(ask.contains("quitwait::drive(") && fin.contains("quitwait::Limits::default()"), "{ask}");
+        assert!(fin.contains("quitwait::run_steps(&quitwait::steps(&targets)") && fin.contains("ask_windows(&app, labels, limits)"), "{fin}");
         assert!(!fin.contains("USER_DIALOG") && !lib.contains("static USER_DIALOG"), "a flag that stops the clock lets a quit hang for ever");
         assert!(fin.contains("quit: asking the page to save its draft and send what is waiting"));
         // which windows must answer is decided in one place
         assert!(fin.contains("flush_targets(app)") && lib.contains("fn flush_targets(app: &tauri::AppHandle) -> Vec<String>"));
-        assert!(fin.contains("test_silent_page()") && lib.contains("HEYLOOK_TEST_QUIT_PAGE"));
+        assert!(ask.contains("test_silent_page()") && lib.contains("HEYLOOK_TEST_QUIT_PAGE"));
+        // every window gets a wait of its own (a thread each), so one person's question does not use up another window's time
+        assert!(ask.contains("std::thread::scope") && ask.contains("scope.spawn"), "{ask}");
         // every "go on" runs the rest of the sequence (queued actions, exit); only the person's "keep the window" does not
         assert!(fin.contains("if matches!(verdict, quitwait::Verdict::Go(_)) {\n            then(&app);"), "{fin}");
         let q = crate::test_guard::non_test_code(include_str!("quitwait.rs"));
         assert!(q.contains("FIRST_SIGN_WAIT: Duration = Duration::from_secs(8)") && q.contains("DIALOG_WAIT: Duration = Duration::from_secs(60)"));
         assert!(q.contains("the page did not answer in {} s, quitting"));
         // a question is answered in a window that can be seen
-        let dialog = &lib[lib.find("fn quit_dialog").expect("quit_dialog")..];
+        let dialog = &lib[lib.find("fn flush_dialog").expect("flush_dialog")..];
         let dialog = &dialog[..dialog.find("\n}\n").unwrap()];
-        assert!(dialog.contains("window_shown(&app)") && dialog.contains("shell::show_main(&app)"), "{dialog}");
+        assert!(dialog.contains("window_shown(app)") && dialog.contains("shell::show_main(app)") && dialog.contains("popout::bring_to_front(app, label)"), "{dialog}");
+        let qd = &lib[lib.find("fn quit_dialog").expect("quit_dialog")..];
+        assert!(qd[..qd.find("\n}\n").unwrap()].contains("flush_dialog(&app, window.label(), open)"));
         // the watchdog is armed before anything of the end of the sequence can hang, and it ends the process
         let last = &lib[lib.find("fn quit_final").expect("quit_final")..];
         let last = &last[..last.find("\n}\n").unwrap()];
@@ -4852,6 +5034,88 @@ mod quit_tests {
         let dog = &lib[lib.find("fn exit_watchdog").expect("exit_watchdog")..];
         let dog = &dog[..dog.find("\n}\n").unwrap()];
         assert!(dog.contains("std::process::exit(0)") && dog.contains("EXIT_LIMIT"), "{dog}");
+    }
+
+    /// A secondary window (popout.rs) closes only itself: the close handler looks at the label before anything else, so no pop-out ever
+    /// hides to the tray or starts a quit (REQ-W9, risk R-2); the main window's close keeps its rules below the branch.
+    #[test]
+    fn closing_a_secondary_window_never_hides_or_quits() {
+        let src = crate::test_guard::non_test_code(include_str!("lib.rs"));
+        let h = &src[src.find(".on_window_event(").expect("window event handler")..];
+        let h = &h[..h.find(".invoke_handler").expect("end of handler")];
+        let branch = h.find("window.label() != \"main\"").expect("a branch on the label");
+        let close = h.find("tauri::WindowEvent::CloseRequested").expect("close handler");
+        assert!(branch < close, "the label is looked at before the close-to-tray / quit rules: {h}");
+        let arm = &h[branch..close];
+        assert!(arm.contains("popout::on_window_event(window, event);") && arm.contains("return;"), "{arm}");
+        // the secondary handler itself never hides, quits or asks for a quit
+        let pop = crate::test_guard::non_test_code(include_str!("popout.rs"));
+        let pop = &pop[pop.find("pub fn on_window_event").unwrap()..];
+        let pop = &pop[..pop.find("\n}\n").unwrap()];
+        for never in [".hide()", "request_quit", "close_to_tray", "app.exit", "show_main"] {
+            assert!(!pop.contains(never), "a secondary window must not use {never}: {pop}");
+        }
+    }
+
+    /// Every window the quit asks must be able to answer: the secondary windows are asked with their own event and answer with their own
+    /// commands, the main page with `flush-sends` and the old commands; the messages are matched by window label.
+    #[test]
+    fn every_asked_window_has_its_event_and_its_answer() {
+        let lib = crate::test_guard::non_test_code(include_str!("lib.rs"));
+        assert_eq!(flush_event("main"), "flush-sends");
+        assert_eq!(flush_event("compose-1"), "popout-flush");
+        assert_eq!(flush_event("reader-7"), popout::FLUSH_EVENT);
+        // the main page's commands take the label of the window that calls
+        for f in ["fn sends_flushed(window: tauri::Window", "fn quit_page_alive(window: tauri::Window", "fn quit_dialog(app: tauri::AppHandle, window: tauri::Window"] {
+            assert!(lib.contains(f), "{f}");
+        }
+        // the secondary windows have commands of their own, and only a secondary window may use them
+        for f in ["fn popout_flush_alive", "fn popout_flush_dialog", "fn popout_flush_done"] {
+            let body = &lib[lib.find(f).expect(f)..];
+            assert!(body[..body.find("\n}\n").unwrap()].contains("popout::is_secondary(window.label())"), "{f}");
+        }
+        // the secondary windows are asked before the main one, and only when their page is ready
+        let targets = &lib[lib.find("fn flush_targets").unwrap()..];
+        assert!(targets[..targets.find("\n}\n").unwrap()].contains("popout::ready_labels(app)"));
+        // the update restart asks them too, with the same bounded wait
+        let save = &lib[lib.find("async fn popout_save_all").unwrap()..];
+        let save = &save[..save.find("\n}\n").unwrap()];
+        assert!(save.contains("quitwait::run_steps(") && save.contains("QUIT_BUSY.swap"), "{save}");
+    }
+
+    /// `prefs-changed` goes out when (and only when) the `prefs` blob is written, with the writer's label (REQ-W11).
+    #[test]
+    fn prefs_changed_is_emitted_for_the_prefs_key_only() {
+        let lib = crate::test_guard::non_test_code(include_str!("lib.rs"));
+        let f = &lib[lib.find("fn set_setting(").unwrap()..];
+        let f = &f[..f.find("\n}\n").unwrap()];
+        assert!(f.contains("if key == \"prefs\" {") && f.contains("popout::PREFS_EVENT") && f.contains("window.label()"), "{f}");
+        assert_eq!(f.matches("popout::PREFS_EVENT").count(), 1);
+    }
+
+    /// REQ-W12: what is meant for the main page is sent to the main page only, so a secondary window never handles a quit, a tray click, a
+    /// toast click or the page's own bookkeeping. The events that every window needs stay broadcast.
+    #[test]
+    fn events_for_the_main_page_are_sent_to_it_only() {
+        let mut code = String::new();
+        for src in [include_str!("lib.rs"), include_str!("shell.rs"), include_str!("calendar.rs"), include_str!("winframe.rs"), include_str!("idle.rs")] {
+            code.push_str(&crate::test_guard::non_test_code(src));
+        }
+        let main_only = [
+            "confirm-quit", "tray-compose", "open-thread", "notify-reply", "app-shown", "signin-state", "backfill-progress", "action-verify-failed",
+            "action-failed", "outbox-leftover", "outbox-catchup", "filter-failed", "event-reminder", "download-dir-fallback", "frame-caption",
+        ];
+        for ev in main_only {
+            assert!(!code.contains(&format!("emit(\"{ev}\"")), "{ev} is broadcast");
+            assert!(code.contains(&format!("emit_to(\"main\", \"{ev}\"")), "{ev} is not sent to main");
+        }
+        // the flush request goes to the window that is asked (main: flush-sends, the others: popout-flush)
+        assert!(code.contains("app.emit_to(label.as_str(), flush_event(label), ())"));
+        // these are for every window: the data they show changed
+        for ev in ["mail-synced", "outbox-changed", "calendar-changed", "idle-state"] {
+            assert!(code.contains(&format!("emit(\"{ev}\"")), "{ev} should stay a broadcast");
+            assert!(!code.contains(&format!("emit_to(\"main\", \"{ev}\"")), "{ev} must reach every window");
+        }
     }
 
     pub(super) fn test_db(tag: &str) -> Db {
@@ -5080,6 +5344,101 @@ mod quit_tests {
     #[allow(dead_code)]
     fn macos_menu_wiring_type_checks() -> tauri::Builder<tauri::Wry> {
         tauri::Builder::<tauri::Wry>::default().menu(shell::mac_app_menu).on_menu_event(shell::mac_menu_event)
+    }
+}
+
+/// Who may call which command (REQ-S2): build.rs lists every command for the app manifest, capabilities/default.json grants all of them to
+/// the main window, capabilities/popout.json grants the secondary windows a short allowlist. A command added to `generate_handler!` and
+/// not to the other two lists would not be callable from any window, so these tests fail until it is placed.
+#[cfg(test)]
+mod capability_tests {
+    use std::collections::BTreeSet;
+
+    fn handler_commands() -> BTreeSet<String> {
+        let lib = crate::test_guard::non_test_code(include_str!("lib.rs"));
+        let at = lib.find("tauri::generate_handler![").expect("generate_handler");
+        let body = &lib[at + "tauri::generate_handler![".len()..];
+        let body = &body[..body.find("])").expect("end of the handler list")];
+        body.lines()
+            .map(|l| l.trim().trim_end_matches(','))
+            .filter(|l| !l.is_empty() && !l.starts_with("//"))
+            .map(|l| l.rsplit("::").next().unwrap().to_string())
+            .collect()
+    }
+
+    fn manifest_commands() -> BTreeSet<String> {
+        let b = include_str!("../build.rs");
+        let start = "const APP_COMMANDS: &[&str] = &[";
+        let body = &b[b.find(start).expect("APP_COMMANDS") + start.len()..];
+        let body = &body[..body.find("];").unwrap()];
+        body.split(',').map(|s| s.trim().trim_matches('"').to_string()).filter(|s| !s.is_empty()).collect()
+    }
+
+    fn capability(name: &str) -> serde_json::Value {
+        let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("capabilities").join(name);
+        serde_json::from_str(&std::fs::read_to_string(path).unwrap()).unwrap()
+    }
+
+    fn granted(cap: &serde_json::Value) -> BTreeSet<String> {
+        cap["permissions"].as_array().unwrap().iter().filter_map(|p| p.as_str()).filter_map(|p| p.strip_prefix("allow-")).map(|p| p.replace('-', "_")).collect()
+    }
+
+    fn windows(cap: &serde_json::Value) -> Vec<String> {
+        cap["windows"].as_array().unwrap().iter().map(|w| w.as_str().unwrap().to_string()).collect()
+    }
+
+    #[test]
+    fn every_command_is_in_the_manifest_and_granted_to_the_main_window() {
+        let handler = handler_commands();
+        assert!(handler.len() > 100 && handler.contains("popout_open") && handler.contains("frame_info"), "{handler:?}");
+        assert_eq!(handler, manifest_commands(), "build.rs APP_COMMANDS and generate_handler! differ");
+        let main = capability("default.json");
+        assert_eq!(windows(&main), ["main"]);
+        assert_eq!(handler, granted(&main), "capabilities/default.json and generate_handler! differ");
+    }
+
+    #[test]
+    fn the_secondary_windows_get_a_short_allowlist_without_the_dangerous_commands() {
+        let handler = handler_commands();
+        let pop = capability("popout.json");
+        assert_eq!(windows(&pop), ["compose-*", "reader-*"], "exactly the labels of popout.rs, and never main");
+        let ok = granted(&pop);
+        assert!(ok.is_subset(&handler), "granted but not a command: {:?}", ok.difference(&handler).collect::<Vec<_>>());
+        assert!(ok.len() < handler.len() / 2, "an allowlist, not everything");
+        // REQ-S2: denied for the secondary windows
+        let denied = [
+            // accounts and secrets
+            "add_account", "update_account", "remove_account", "google_sign_in", "microsoft_sign_in", "oauth_cancel", "reauth_account", "discover_server", "set_secret",
+            // PGP key management
+            "pgp_generate_key", "pgp_import_key", "pgp_import_from_message", "pgp_export_public", "pgp_export_secret", "pgp_delete_key", "pgp_set_verified", "pgp_set_default",
+            "pgp_change_passphrase", "pgp_set_expiry", "pgp_lock_all", "pgp_pick_key_file", "pgp_inspect_key",
+            // settings, rules, autostart, the lists of the main page
+            "set_setting", "save_rule", "delete_rule", "list_rules", "set_autostart", "get_autostart", "save_template", "delete_template", "save_signature", "delete_signature",
+            // updates
+            "check_update", "update_download", "update_cancel", "update_discard", "update_defer", "update_note", "update_install", "update_startup_state", "update_startup_ack",
+            // quit and the main page's start-up
+            "quit_now", "quit_cancelled", "sends_flushed", "quit_page_alive", "quit_dialog", "frontend_ready", "page_state", "page_pong", "show_window", "set_mail_available",
+            // calendar connections, sync triggers, mail actions that belong to the main page's intent layer
+            "calendar_connect", "calendar_disconnect", "calendar_sources", "calendar_set_sync", "calendar_sync_now", "sync_account", "refresh_badge", "thread_action",
+            "queue_action", "cancel_action", "sender_action", "load_older", "idle_states", "frame_info", "frame_caption_rect", "frame_system_menu", "test_notification",
+        ];
+        for c in denied {
+            assert!(handler.contains(c), "{c} is not a command any more: update this list");
+            assert!(!ok.contains(c), "a secondary window may call {c}");
+        }
+        // what they need to answer a quit: their own commands, not the main page's
+        for c in ["popout_flush_alive", "popout_flush_dialog", "popout_flush_done", "popout_init", "popout_ready"] {
+            assert!(ok.contains(c), "{c}");
+        }
+        // no window creates windows, and no page gets more of the window API than the spec lists (REQ-W1, S5)
+        let perms: Vec<&str> = pop["permissions"].as_array().unwrap().iter().filter_map(|p| p.as_str()).collect();
+        for p in &perms {
+            assert!(!p.contains("create-webview") && !p.contains("webview:allow") && !p.contains("allow-destroy") && !p.contains("set-fullscreen"), "{p}");
+        }
+        for p in ["core:window:allow-close", "core:window:allow-minimize", "core:window:allow-toggle-maximize", "core:window:allow-start-dragging", "core:window:allow-set-title", "core:window:allow-set-focus", "core:window:allow-set-content-protected", "core:window:allow-set-theme", "core:event:default"] {
+            assert!(perms.contains(&p), "{p}");
+        }
+        assert!(!perms.contains(&"core:default"), "core:default also grants what a pop-out does not need");
     }
 }
 

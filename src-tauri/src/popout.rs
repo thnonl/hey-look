@@ -1,0 +1,1159 @@
+//! Secondary windows ("pop-outs"): the window manager behind the compose and reader windows that can be moved out of the main
+//! window (spec "pop-out windows", phases 0-1; the windows themselves are WP6b / WP6c, this is the foundation).
+//!
+//! What lives here
+//! - the **registry**: which secondary windows exist, their labels (`compose-<n>` / `reader-<n>`, the counter only goes up in a run, so a
+//!   label is never reused), at most [`MAX_SECONDARY`] at a time, one window per `key` (a conversation, a draft: asking again focuses
+//!   the window that has it), the hand-off data of each window (dropped with it) and its last known place;
+//! - the **geometry**: default sizes, the clamp to the work area of a monitor, a saved place that is used only while it is at least half
+//!   visible, the cascade for a second window of a kind, all as pure functions of monitors and rectangles (tested below);
+//! - the **commands**: `popout_open` / `popout_init` / `popout_ready` / `popout_focus` / `popout_close`, and the window events
+//!   (`on_window_event` in lib.rs hands every window that is not `main` to [`on_window_event`]).
+//!
+//! Who owns what (the strategy for the pages; the pages are in `src/popout/`)
+//! - The backend and the database are the source of truth for mail, drafts, the outbox and the settings. Every window reads through
+//!   commands and refreshes on the broadcast events (`mail-synced`, `outbox-changed`, `calendar-changed`, `prefs-changed`).
+//! - The main page is the hub: it is the only writer of the `prefs` blob and the only owner of the intent layer (read / flag / pin),
+//!   queued moves with Undo, the Undo-send timer and `sendsInFlight`. A secondary window asks it through the backend; it never writes
+//!   `prefs` and never runs the quit, tray or update logic.
+//! - Events meant for the main page are sent with `emit_to("main", ..)`, so a secondary window never handles a quit, a tray click or a
+//!   toast click. A secondary window has its own JS store (nothing is shared between web views except through the backend).
+//!
+//! Lifecycle
+//! - A window is created hidden (no white flash), with the native title bar, without the HTML5 drop handler of the OS disabled for
+//!   the page (`disable_drag_drop_handler`, as the main window: the page handles drops), and shown when its page says it is ready
+//!   (`popout_ready`), or after [`READY_WAIT`] at the latest, when it is also reloaded once. Every step is a line of startup.log
+//!   (`[popout +ms] compose-1: ready`).
+//! - Closing a secondary window never hides to the tray and never quits (lib.rs `on_window_event` looks at the label first). A quit
+//!   asks every ready secondary window to answer first (`lib.rs` `flush_targets`, `quitwait::steps`); the extension point for a
+//!   window that must save before it closes is [`on_close_requested`].
+//! - Size and place are remembered per kind (settings `window.compose` / `window.reader`), written 500 ms after the last move or
+//!   resize and when the window is destroyed.
+use serde::{Deserialize, Serialize};
+use serde_json::Value;
+use std::sync::Mutex;
+use std::time::Duration;
+use tauri::{AppHandle, Manager, WebviewUrl, WebviewWindowBuilder};
+
+type R<T> = Result<T, String>;
+
+/// Most secondary windows (all kinds together) open at once (REQ-W6).
+pub const MAX_SECONDARY: usize = 8;
+/// A window whose page has not said it is ready after this long is shown anyway and reloaded once (REQ-W2).
+pub const READY_WAIT: Duration = Duration::from_secs(6);
+/// A moved or resized window is written down this long after the last change (REQ-W4).
+pub const SAVE_DEBOUNCE: Duration = Duration::from_millis(500);
+/// Move and resize events this soon after a window became ready are the window system settling, not the person.
+pub const SETTLE: Duration = Duration::from_millis(400);
+/// The offset of a second window of a kind, in logical pixels (REQ-W5).
+pub const CASCADE: i32 = 28;
+/// Event to a secondary window: save what you hold and answer (the secondary counterpart of the main page's `flush-sends`).
+pub const FLUSH_EVENT: &str = "popout-flush";
+/// Event to every window: the `prefs` blob changed (`{ writer: <label> }`); the main page is the only writer, the others re-read it.
+pub const PREFS_EVENT: &str = "prefs-changed";
+
+// ---------------------------------------------------------------- kinds
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Kind {
+    Compose,
+    Reader,
+}
+
+impl Kind {
+    pub fn parse(s: &str) -> Option<Kind> {
+        match s {
+            "compose" => Some(Kind::Compose),
+            "reader" => Some(Kind::Reader),
+            _ => None,
+        }
+    }
+
+    pub fn name(self) -> &'static str {
+        match self {
+            Kind::Compose => "compose",
+            Kind::Reader => "reader",
+        }
+    }
+
+    fn index(self) -> usize {
+        self as usize
+    }
+
+    /// The setting that remembers size and place of this kind (not in `prefs`: only the main page writes that).
+    pub fn setting_key(self) -> &'static str {
+        match self {
+            Kind::Compose => "window.compose",
+            Kind::Reader => "window.reader",
+        }
+    }
+
+    /// Default size, logical pixels, outer (frame and title bar included; REQ-W3).
+    pub fn default_size(self) -> (f64, f64) {
+        match self {
+            Kind::Compose => (760.0, 680.0),
+            Kind::Reader => (820.0, 720.0),
+        }
+    }
+
+    /// Smallest size, logical pixels (REQ-W3).
+    pub fn min_size(self) -> (f64, f64) {
+        match self {
+            Kind::Compose => (560.0, 440.0),
+            Kind::Reader => (520.0, 400.0),
+        }
+    }
+}
+
+/// The kind a window label belongs to: `compose-3` is a compose window, `main` and anything else is not a secondary window.
+pub fn kind_of_label(label: &str) -> Option<Kind> {
+    let (prefix, n) = label.split_once('-')?;
+    if n.is_empty() || !n.bytes().all(|b| b.is_ascii_digit()) {
+        return None;
+    }
+    Kind::parse(prefix)
+}
+
+/// Is this window label a secondary window (not `main`)?
+pub fn is_secondary(label: &str) -> bool {
+    kind_of_label(label).is_some()
+}
+
+// ---------------------------------------------------------------- geometry (pure)
+
+/// A rectangle in physical pixels of the virtual desktop.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct Rect {
+    pub x: i32,
+    pub y: i32,
+    pub w: i32,
+    pub h: i32,
+}
+
+impl Rect {
+    fn right(&self) -> i32 {
+        self.x + self.w
+    }
+
+    fn bottom(&self) -> i32 {
+        self.y + self.h
+    }
+
+    fn center(&self) -> (i32, i32) {
+        (self.x + self.w / 2, self.y + self.h / 2)
+    }
+
+    fn area(&self) -> i64 {
+        self.w.max(0) as i64 * self.h.max(0) as i64
+    }
+
+    fn overlap(&self, o: &Rect) -> i64 {
+        let w = (self.right().min(o.right()) - self.x.max(o.x)).max(0) as i64;
+        let h = (self.bottom().min(o.bottom()) - self.y.max(o.y)).max(0) as i64;
+        w * h
+    }
+
+    /// Differs by more than `tol` pixels in any of position and size (the window system rounds frames and DPI by a pixel or two).
+    pub fn differs(&self, o: &Rect, tol: i32) -> bool {
+        (self.x - o.x).abs() > tol || (self.y - o.y).abs() > tol || (self.w - o.w).abs() > tol || (self.h - o.h).abs() > tol
+    }
+
+    fn contains(&self, o: &Rect) -> bool {
+        o.x >= self.x && o.y >= self.y && o.right() <= self.right() && o.bottom() <= self.bottom()
+    }
+
+    fn contains_point(&self, p: (i32, i32)) -> bool {
+        p.0 >= self.x && p.0 < self.right() && p.1 >= self.y && p.1 < self.bottom()
+    }
+}
+
+/// A monitor: its work area (without the taskbar) in physical pixels and its scale factor.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct Mon {
+    pub work: Rect,
+    pub scale: f64,
+    pub primary: bool,
+}
+
+/// What is written to the setting of a kind: the outer position in physical pixels, the OUTER size (frame and title bar included) in logical
+/// pixels (so that it means the same on a monitor with another scale), and whether the window was maximized.
+#[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize)]
+pub struct Saved {
+    pub x: i32,
+    pub y: i32,
+    pub w: f64,
+    pub h: f64,
+    #[serde(default)]
+    pub maximized: bool,
+}
+
+/// Where and how large a new window opens. `rect` is the OUTER rectangle in physical pixels (the sizes of `Kind` are outer sizes too);
+/// `None` = no monitor is known, the system places it (and `size` is the logical size to ask for).
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct Placement {
+    pub rect: Option<Rect>,
+    pub size: (f64, f64),
+    pub maximized: bool,
+}
+
+/// The share of the work area a default size may use (REQ-W3: the 1620 x 648 display gets at most 583 px height).
+const DEFAULT_SHARE: f64 = 0.9;
+/// A saved place is used when at least this much of the window is on a connected monitor (REQ-W5).
+const VISIBLE_SHARE: f64 = 0.5;
+
+fn phys(logical: f64, scale: f64) -> i32 {
+    (logical * scale).round() as i32
+}
+
+/// The monitor a rectangle is mostly on; the one that holds its center when none overlaps; None when there is no monitor.
+fn monitor_of<'a>(mons: &'a [Mon], r: &Rect) -> Option<&'a Mon> {
+    mons.iter()
+        .filter(|m| r.overlap(&m.work) > 0)
+        .max_by_key(|m| r.overlap(&m.work))
+        .or_else(|| mons.iter().find(|m| m.work.contains_point(r.center())))
+}
+
+fn primary_of(mons: &[Mon]) -> Option<&Mon> {
+    mons.iter().find(|m| m.primary).or_else(|| mons.first())
+}
+
+/// Shift (never resize) a rectangle so that it lies inside the work area; if it is larger than the area it is aligned to the top left.
+fn clamp_into(r: Rect, work: &Rect) -> Rect {
+    let x = if r.w >= work.w { work.x } else { r.x.clamp(work.x, work.right() - r.w) };
+    let y = if r.h >= work.h { work.y } else { r.y.clamp(work.y, work.bottom() - r.h) };
+    Rect { x, y, ..r }
+}
+
+/// Size in physical pixels: the logical `want` on this monitor, never below `min` (when the area allows it) and never above `share` of the area.
+fn size_on(m: &Mon, want: (f64, f64), min: (f64, f64), share: f64) -> (i32, i32) {
+    let fit = |want: f64, min: f64, area: i32| {
+        let cap = ((area as f64) * share).floor() as i32;
+        phys(want, m.scale).max(phys(min, m.scale)).min(cap.max(1))
+    };
+    (fit(want.0, min.0, m.work.w), fit(want.1, min.1, m.work.h))
+}
+
+/// Where a window of `kind` opens (REQ-W3, W5). In order of preference:
+/// 1. `cascade_from` (the window of the same kind opened last, which is still open): +28 px right and down; when that would leave the
+///    work area it starts again at the place it would have had without the cascade (`base`);
+/// 2. the `saved` place, while at least half of it is on a connected monitor (clamped into that work area);
+/// 3. centred over `main` (when it is on screen), else over the primary monitor.
+pub fn place(kind: Kind, saved: Option<&Saved>, mons: &[Mon], main: Option<Rect>, cascade_from: Option<Rect>) -> Placement {
+    let default = kind.default_size();
+    let min = kind.min_size();
+    let size_of = |m: &Mon| match saved {
+        // a size the person chose is kept up to the whole work area
+        Some(s) if s.w >= 1.0 && s.h >= 1.0 => size_on(m, (s.w, s.h), min, 1.0),
+        _ => size_on(m, default, min, DEFAULT_SHARE),
+    };
+    let maximized = saved.is_some_and(|s| s.maximized);
+    let Some(fallback) = primary_of(mons) else {
+        return Placement { rect: None, size: saved.map(|s| (s.w, s.h)).unwrap_or(default), maximized };
+    };
+
+    // the place without the cascade
+    let base = (|| {
+        if let Some(s) = saved {
+            let m = monitor_of(mons, &Rect { x: s.x, y: s.y, w: 1, h: 1 }).or_else(|| {
+                // the saved corner may be off every monitor while part of the window is on one: look at the whole rectangle
+                let guess = Rect { x: s.x, y: s.y, w: phys(s.w, fallback.scale), h: phys(s.h, fallback.scale) };
+                monitor_of(mons, &guess)
+            });
+            if let Some(m) = m {
+                let (w, h) = size_of(m);
+                let r = Rect { x: s.x, y: s.y, w, h };
+                let seen: i64 = mons.iter().map(|mm| r.overlap(&mm.work)).sum();
+                if r.area() > 0 && (seen as f64) >= VISIBLE_SHARE * r.area() as f64 {
+                    return clamp_into(r, &m.work);
+                }
+            }
+        }
+        // centred over the main window when it is on screen, else over the primary monitor
+        let m = main.and_then(|r| monitor_of(mons, &r)).unwrap_or(fallback);
+        let (w, h) = size_of(m);
+        let (cx, cy) = match main {
+            Some(r) if monitor_of(mons, &r).is_some() => r.center(),
+            _ => m.work.center(),
+        };
+        clamp_into(Rect { x: cx - w / 2, y: cy - h / 2, w, h }, &m.work)
+    })();
+
+    let rect = match cascade_from {
+        Some(last) => {
+            let m = monitor_of(mons, &last).unwrap_or(fallback);
+            let step = phys(CASCADE as f64, m.scale);
+            let next = Rect { x: last.x + step, y: last.y + step, w: base.w, h: base.h };
+            if m.work.contains(&next) { next } else { base }
+        }
+        None => base,
+    };
+    Placement { rect: Some(rect), size: (rect.w as f64 / fallback_scale(mons, &rect), rect.h as f64 / fallback_scale(mons, &rect)), maximized }
+}
+
+fn fallback_scale(mons: &[Mon], r: &Rect) -> f64 {
+    monitor_of(mons, r).or_else(|| primary_of(mons)).map(|m| m.scale).filter(|s| *s > 0.0).unwrap_or(1.0)
+}
+
+// ---------------------------------------------------------------- registry (pure)
+
+#[derive(Clone, Debug)]
+pub struct Entry {
+    pub label: String,
+    pub kind: Kind,
+    /// What the window shows, when one thing may be open once only (a conversation id, a draft id); None = no such rule.
+    pub key: Option<String>,
+    /// Opaque token in the page address; the page quotes it in `popout_init`.
+    pub token: String,
+    /// The page said it is ready (`popout_ready`): it listens to the quit request now.
+    pub ready: bool,
+    /// When it said so. The events that follow the creation of a window (it is sized, placed and shown after it was built) are not the
+    /// person moving it: they are ignored until [`SETTLE`] after this.
+    pub ready_at: Option<std::time::Instant>,
+    /// Data for the page (a compose body, attachments): kept here and not in the address, dropped with the window.
+    pub init: Option<Value>,
+    /// The last known normal (not maximized, not minimized) outer rectangle, physical pixels, and its scale factor.
+    pub rect: Option<Rect>,
+    pub scale: f64,
+    pub maximized: bool,
+    /// Counts the real changes of place and size; the write 500 ms later happens only when nothing came after it.
+    pub moves: u64,
+    /// The person moved, resized or maximized this window after it opened: only then is its place worth remembering (the place it
+    /// was given, the default or a cascade step, is not "where the person likes it").
+    pub dirty: bool,
+}
+
+/// What `request` decided.
+#[derive(Debug, PartialEq, Eq)]
+pub enum Request {
+    /// Create this window.
+    Create { label: String },
+    /// A window with this key exists: focus it.
+    Focus { label: String },
+    /// [`MAX_SECONDARY`] windows are open.
+    TooMany,
+}
+
+#[derive(Default)]
+pub struct Registry {
+    /// Next number per kind; only ever goes up, so a label is never reused in a run.
+    next: [u32; 2],
+    pub entries: Vec<Entry>,
+}
+
+impl Registry {
+    /// Ask for a window. A key that is open already focuses that window (also when the cap is reached); otherwise the cap decides.
+    /// A created window is registered at once, so two requests at the same time cannot both pass the cap.
+    pub fn request(&mut self, kind: Kind, key: Option<&str>, token: String, init: Option<Value>) -> Request {
+        if let Some(k) = key {
+            if let Some(e) = self.entries.iter().find(|e| e.kind == kind && e.key.as_deref() == Some(k)) {
+                return Request::Focus { label: e.label.clone() };
+            }
+        }
+        if self.entries.len() >= MAX_SECONDARY {
+            return Request::TooMany;
+        }
+        self.next[kind.index()] += 1;
+        let label = format!("{}-{}", kind.name(), self.next[kind.index()]);
+        self.entries.push(Entry {
+            label: label.clone(),
+            kind,
+            key: key.map(String::from),
+            token,
+            ready: false,
+            ready_at: None,
+            init,
+            rect: None,
+            scale: 1.0,
+            maximized: false,
+            moves: 0,
+            dirty: false,
+        });
+        Request::Create { label }
+    }
+
+    pub fn get(&self, label: &str) -> Option<&Entry> {
+        self.entries.iter().find(|e| e.label == label)
+    }
+
+    pub fn get_mut(&mut self, label: &str) -> Option<&mut Entry> {
+        self.entries.iter_mut().find(|e| e.label == label)
+    }
+
+    /// Forget a window (destroyed, or it could not be created). Returns it, with its hand-off data.
+    pub fn remove(&mut self, label: &str) -> Option<Entry> {
+        let i = self.entries.iter().position(|e| e.label == label)?;
+        Some(self.entries.remove(i))
+    }
+
+    /// The rectangle of the window of `kind` opened last that is still open, leaving out `except` (the one being made): a new window of
+    /// the kind cascades from it.
+    pub fn newest_rect(&self, kind: Kind, except: &str) -> Option<Rect> {
+        self.entries.iter().rev().find(|e| e.kind == kind && e.label != except).and_then(|e| e.rect)
+    }
+
+    /// Labels of the windows whose page is ready, oldest first: the ones a quit asks.
+    pub fn ready_labels(&self) -> Vec<String> {
+        self.entries.iter().filter(|e| e.ready).map(|e| e.label.clone()).collect()
+    }
+}
+
+// ---------------------------------------------------------------- state and the window system
+
+pub struct State {
+    pub reg: Mutex<Registry>,
+}
+
+impl Default for State {
+    fn default() -> Self {
+        State { reg: Mutex::new(Registry::default()) }
+    }
+}
+
+fn reg(app: &AppHandle) -> std::sync::MutexGuard<'_, Registry> {
+    app.state::<State>().inner().reg.lock().unwrap_or_else(|p| p.into_inner())
+}
+
+/// Tokens in the page address: opaque, unguessable enough for "this is the page that this window was made for" (REQ-S3).
+fn new_token() -> String {
+    uuid::Uuid::new_v4().simple().to_string()
+}
+
+fn log(what: &str) {
+    crate::startup::line("popout", what);
+}
+
+/// Labels of the secondary windows that exist and whose page is ready (what a quit has to ask).
+pub fn ready_labels(app: &AppHandle) -> Vec<String> {
+    let labels = reg(app).ready_labels();
+    labels.into_iter().filter(|l| app.get_webview_window(l).is_some()).collect()
+}
+
+/// Bring a secondary window to the front (also from the tray or minimized).
+pub fn bring_to_front(app: &AppHandle, label: &str) {
+    if let Some(w) = app.get_webview_window(label) {
+        let _ = w.unminimize();
+        let _ = w.show();
+        let _ = w.set_focus();
+    }
+}
+
+/// Is this secondary window on screen (shown and not minimized)?
+pub fn is_shown(app: &AppHandle, label: &str) -> bool {
+    app.get_webview_window(label).is_some_and(|w| w.is_visible().unwrap_or(false) && !w.is_minimized().unwrap_or(false))
+}
+
+/// Is any secondary window focused and on screen? For "the app is in front": no desktop toast then (REQ-W13).
+pub fn any_in_front(app: &AppHandle) -> bool {
+    app.webview_windows().iter().any(|(label, w)| {
+        is_secondary(label) && w.is_focused().unwrap_or(false) && w.is_visible().unwrap_or(false) && !w.is_minimized().unwrap_or(false)
+    })
+}
+
+/// Set the same taskbar overlay badge on every secondary window (Windows), so the taskbar group shows it whichever window was active last (REQ-W14).
+#[cfg(windows)]
+pub fn set_overlay(app: &AppHandle, icon: Option<tauri::image::Image<'static>>) {
+    for (label, w) in app.webview_windows() {
+        if is_secondary(&label) {
+            let _ = w.set_overlay_icon(icon.clone());
+        }
+    }
+}
+
+fn monitors(app: &AppHandle) -> Vec<Mon> {
+    let primary = app.primary_monitor().ok().flatten().map(|m| *m.position());
+    app.available_monitors()
+        .unwrap_or_default()
+        .iter()
+        .map(|m| {
+            let a = m.work_area();
+            Mon {
+                work: Rect { x: a.position.x, y: a.position.y, w: a.size.width as i32, h: a.size.height as i32 },
+                scale: m.scale_factor(),
+                primary: primary == Some(*m.position()),
+            }
+        })
+        .collect()
+}
+
+/// The outer rectangle of the main window when it is on screen (shown, not minimized).
+fn main_rect(app: &AppHandle) -> Option<Rect> {
+    let w = app.get_webview_window("main")?;
+    if !w.is_visible().unwrap_or(false) || w.is_minimized().unwrap_or(false) {
+        return None;
+    }
+    let (p, s) = (w.outer_position().ok()?, w.outer_size().ok()?);
+    Some(Rect { x: p.x, y: p.y, w: s.width as i32, h: s.height as i32 })
+}
+
+fn load_saved(app: &AppHandle, kind: Kind) -> Option<Saved> {
+    let db = app.state::<crate::AppState>().db.clone();
+    let raw = crate::db::get_setting(&crate::lock(&db), kind.setting_key())?;
+    serde_json::from_str(&raw).ok()
+}
+
+fn store_saved(app: &AppHandle, kind: Kind, saved: &Saved) {
+    let db = app.state::<crate::AppState>().db.clone();
+    if let Ok(raw) = serde_json::to_string(saved) {
+        let _ = crate::db::set_setting(&crate::lock(&db), kind.setting_key(), &raw);
+    }
+}
+
+/// What `popout_open` answers.
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Opened {
+    /// "created" | "focused" | "tooMany"
+    pub status: &'static str,
+    pub label: Option<String>,
+}
+
+/// Open a window of `kind`, or focus the one that has `key`. Must not run on the main thread of the window system on Windows
+/// (creating a window waits for it): the command is async.
+pub fn open(app: &AppHandle, kind: Kind, key: Option<String>, init: Option<Value>) -> R<Opened> {
+    // (the cascade and the placement are decided together with the registration, under one lock)
+    let token = new_token();
+    let (label, cascade) = {
+        let mut r = reg(app);
+        match r.request(kind, key.as_deref(), token.clone(), init) {
+            Request::Focus { label } => {
+                drop(r);
+                log(&format!("{label}: asked for again, focused"));
+                bring_to_front(app, &label);
+                return Ok(Opened { status: "focused", label: Some(label) });
+            }
+            Request::TooMany => {
+                drop(r);
+                log(&format!("a {} window was asked for with {MAX_SECONDARY} open: refused", kind.name()));
+                return Ok(Opened { status: "tooMany", label: None });
+            }
+            Request::Create { label } => {
+                let before = r.newest_rect(kind, &label);
+                (label, before)
+            }
+        }
+    };
+    match create(app, kind, &label, &token, cascade) {
+        Ok(()) => Ok(Opened { status: "created", label: Some(label) }),
+        Err(e) => {
+            reg(app).remove(&label);
+            log(&format!("{label}: could not be created: {e}"));
+            Err(e)
+        }
+    }
+}
+
+fn create(app: &AppHandle, kind: Kind, label: &str, token: &str, cascade: Option<Rect>) -> R<()> {
+    let mons = monitors(app);
+    let placement = place(kind, load_saved(app, kind).as_ref(), &mons, main_rect(app), cascade);
+    let (min_w, min_h) = kind.min_size();
+    let url = WebviewUrl::App(format!("index.html?w={}&t={token}", kind.name()).into());
+    let mut b = WebviewWindowBuilder::new(app, label, url)
+        .title("Hey Look!")
+        .inner_size(placement.size.0, placement.size.1)
+        .min_inner_size(min_w, min_h)
+        .resizable(true)
+        .decorations(true)
+        .visible(false);
+    // the page handles file drops itself (HTML5 drop in the compose window), like the main window
+    b = b.disable_drag_drop_handler();
+    let win = b.build().map_err(|e| e.to_string())?;
+    if let Some(r) = placement.rect {
+        // the placement is the OUTER rectangle (frame and title bar included: what the person sees, and what is remembered); the window API sets
+        // the inner size, so the frame of this window is taken off (restoring an outer size as an inner one made a window grow at every open)
+        let (fw, fh) = match (win.outer_size(), win.inner_size()) {
+            (Ok(o), Ok(i)) => ((o.width as i32 - i.width as i32).max(0), (o.height as i32 - i.height as i32).max(0)),
+            _ => (0, 0),
+        };
+        let _ = win.set_size(tauri::PhysicalSize::new((r.w - fw).max(1) as u32, (r.h - fh).max(1) as u32));
+        let _ = win.set_position(tauri::PhysicalPosition::new(r.x, r.y));
+        let scale = fallback_scale(&mons, &r);
+        if let Some(e) = reg(app).get_mut(label) {
+            e.rect = Some(r);
+            e.scale = scale;
+        }
+    }
+    if placement.maximized {
+        let _ = win.maximize();
+    }
+    log(&format!("{label}: created hidden ({} x {} logical)", placement.size.0.round(), placement.size.1.round()));
+    watch_ready(app.clone(), label.to_string());
+    Ok(())
+}
+
+/// After [`READY_WAIT`] a window that did not report itself is shown and reloaded once (REQ-W2).
+fn watch_ready(app: AppHandle, label: String) {
+    std::thread::spawn(move || {
+        std::thread::sleep(READY_WAIT);
+        let ready = match reg(&app).get(&label) {
+            Some(e) => e.ready,
+            None => return, // closed meanwhile
+        };
+        if ready {
+            return;
+        }
+        let Some(w) = app.get_webview_window(&label) else { return };
+        if let Some(e) = reg(&app).get_mut(&label) {
+            e.ready_at.get_or_insert_with(std::time::Instant::now);
+        }
+        log(&format!("{label}: shown without signal, reloaded"));
+        let _ = w.show();
+        let _ = w.set_focus();
+        let _ = w.reload();
+    });
+}
+
+/// The page of a window is up and listens to the quit request: show the window (REQ-W2).
+pub fn mark_ready(app: &AppHandle, label: &str) {
+    let first = {
+        let mut r = reg(app);
+        match r.get_mut(label) {
+            Some(e) => {
+                e.ready_at.get_or_insert_with(std::time::Instant::now);
+                !std::mem::replace(&mut e.ready, true)
+            }
+            None => return,
+        }
+    };
+    if let Some(w) = app.get_webview_window(label) {
+        let _ = w.show();
+        let _ = w.set_focus();
+    }
+    if first {
+        log(&format!("{label}: ready"));
+        // the taskbar badge of the unread count (Windows) goes on the new window too
+        let db = app.state::<crate::AppState>().db.clone();
+        crate::shell::update_badge(app, &db);
+    }
+}
+
+/// Window events of a secondary window. `Moved` / `Resized` keep the place of its kind, `Destroyed` forgets the window.
+pub fn on_window_event(window: &tauri::Window, event: &tauri::WindowEvent) {
+    let label = window.label().to_string();
+    let Some(kind) = kind_of_label(&label) else { return };
+    let app = window.app_handle();
+    match event {
+        tauri::WindowEvent::CloseRequested { api, .. } => {
+            log(&format!("{label}: close requested"));
+            if !on_close_requested(app, &label) {
+                api.prevent_close();
+            }
+        }
+        tauri::WindowEvent::Moved(_) | tauri::WindowEvent::Resized(_) => note_geometry(app, window, &label),
+        tauri::WindowEvent::Destroyed => {
+            // write the place down now (the debounce may not have run yet), then forget the window and its hand-off data
+            let entry = reg(app).remove(&label);
+            if let Some(e) = entry {
+                if let Some(s) = saved_of(&e).filter(|_| e.dirty) {
+                    store_saved(app, kind, &s);
+                }
+                log(&format!("{label}: closed"));
+            }
+        }
+        _ => {}
+    }
+}
+
+/// **Extension point for WP6b** (a compose window with unsaved text saves to Drafts first, REQ-C11): decide whether a close request
+/// goes on. `true` = close now (today for every window); `false` = the window stays, and the page is expected to close it itself
+/// (`getCurrentWindow().close()` again, or `destroy()`) once it has saved.
+fn on_close_requested(_app: &AppHandle, _label: &str) -> bool {
+    true
+}
+
+/// A window moved or was resized: keep its place and, when it really changed, write it down [`SAVE_DEBOUNCE`] after the last change.
+fn note_geometry(app: &AppHandle, window: &tauri::Window, label: &str) {
+    let maximized = window.is_maximized().unwrap_or(false);
+    let odd = window.is_minimized().unwrap_or(false) || window.is_fullscreen().unwrap_or(false);
+    let now = match (window.outer_position(), window.outer_size()) {
+        (Ok(p), Ok(s)) => Some(Rect { x: p.x, y: p.y, w: s.width as i32, h: s.height as i32 }),
+        _ => None,
+    };
+    let scale = window.scale_factor().unwrap_or(1.0);
+    let moves = {
+        let mut r = reg(app);
+        let Some(e) = r.get_mut(label) else { return };
+        let settled = e.ready_at.is_some_and(|t| t.elapsed() >= SETTLE);
+        if !settled || !apply_geometry(e, now, scale, maximized, odd) {
+            return;
+        }
+        e.moves
+    };
+    let (app, label) = (app.clone(), label.to_string());
+    std::thread::spawn(move || {
+        std::thread::sleep(SAVE_DEBOUNCE);
+        let saved = {
+            let r = reg(&app);
+            match r.get(&label) {
+                Some(e) if e.moves == moves => saved_of(e).map(|s| (e.kind, s)),
+                _ => None,
+            }
+        };
+        if let Some((kind, s)) = saved {
+            store_saved(&app, kind, &s);
+        }
+    });
+}
+
+/// What a move / resize event does to the registry entry (pure). Returns true when the change is real, i.e. when it is to be written down.
+/// - minimized or full screen: odd rectangles, ignored;
+/// - maximized: only the flag is kept, the last normal rectangle stays (it is what restoring gives back);
+/// - otherwise the rectangle is taken when it differs from the known one by more than a couple of pixels: the events that follow the
+///   creation of the window (it is sized and placed after it was built) change nothing and are not a decision of the person.
+pub fn apply_geometry(e: &mut Entry, now: Option<Rect>, scale: f64, maximized: bool, odd: bool) -> bool {
+    if odd {
+        return false;
+    }
+    let mut changed = false;
+    if e.maximized != maximized {
+        e.maximized = maximized;
+        changed = true;
+    }
+    if !maximized {
+        if let Some(rect) = now {
+            if e.rect.is_none_or(|known| known.differs(&rect, 2)) {
+                e.rect = Some(rect);
+                e.scale = scale;
+                changed = true;
+            }
+        }
+    }
+    if changed {
+        e.moves += 1;
+        e.dirty = true;
+    }
+    changed
+}
+
+/// The state to write down for a window: its last normal rectangle (physical position, logical size) and whether it is maximized.
+fn saved_of(e: &Entry) -> Option<Saved> {
+    let r = e.rect?;
+    if r.w <= 0 || r.h <= 0 {
+        return None;
+    }
+    let s = if e.scale > 0.0 { e.scale } else { 1.0 };
+    Some(Saved { x: r.x, y: r.y, w: (r.w as f64 / s).round(), h: (r.h as f64 / s).round(), maximized: e.maximized })
+}
+
+// ---------------------------------------------------------------- commands
+
+/// What a page gets at start: who it is and the data its opener left for it.
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Init {
+    pub kind: &'static str,
+    pub label: String,
+    pub key: Option<String>,
+    pub init: Option<Value>,
+}
+
+/// Open a secondary window of `kind` ("compose" | "reader"), or focus the one that shows `key`. `init` is kept in the backend for the
+/// page (`popout_init`). Answers `{ status: "created" | "focused" | "tooMany", label }`; the 9th window is not an error.
+#[tauri::command]
+pub async fn popout_open(app: AppHandle, kind: String, key: Option<String>, init: Option<Value>) -> R<Opened> {
+    let kind = Kind::parse(&kind).ok_or_else(|| format!("unknown window kind: {kind}"))?;
+    open(&app, kind, key.filter(|k| !k.is_empty()), init)
+}
+
+/// The page of a secondary window asks who it is. The token of its address must be the one this window was made with.
+#[tauri::command]
+pub fn popout_init(app: AppHandle, window: tauri::Window, token: String) -> R<Init> {
+    let r = reg(&app);
+    let e = r.get(window.label()).ok_or("this is not a secondary window")?;
+    if e.token != token {
+        return Err("wrong token".into());
+    }
+    Ok(Init { kind: e.kind.name(), label: e.label.clone(), key: e.key.clone(), init: e.init.clone() })
+}
+
+/// The page of a secondary window is up (it listens to the quit request): show the window.
+#[tauri::command]
+pub fn popout_ready(app: AppHandle, window: tauri::Window) {
+    mark_ready(&app, window.label());
+}
+
+/// Bring a secondary window to the front.
+#[tauri::command]
+pub fn popout_focus(app: AppHandle, label: String) -> bool {
+    if reg(&app).get(&label).is_none() {
+        return false;
+    }
+    bring_to_front(&app, &label);
+    true
+}
+
+/// Close a secondary window from outside (the same path as its close button). False when there is no such window.
+#[tauri::command]
+pub fn popout_close(app: AppHandle, label: String) -> bool {
+    if reg(&app).get(&label).is_none() {
+        return false;
+    }
+    match app.get_webview_window(&label) {
+        Some(w) => w.close().is_ok(),
+        None => false,
+    }
+}
+
+// ---------------------------------------------------------------- tests
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    const KINDS: [Kind; 2] = [Kind::Compose, Kind::Reader];
+
+    fn t(s: &str) -> String {
+        s.to_string()
+    }
+
+    // ---- labels and kinds
+
+    #[test]
+    fn labels_tell_the_kind() {
+        assert_eq!(kind_of_label("compose-1"), Some(Kind::Compose));
+        assert_eq!(kind_of_label("reader-12"), Some(Kind::Reader));
+        for not in ["main", "compose", "compose-", "compose-x", "compose-1a", "reader--1", "Compose-1", "other-1", "", "-1"] {
+            assert_eq!(kind_of_label(not), None, "{not}");
+            assert!(!is_secondary(not));
+        }
+        assert!(is_secondary("compose-3"));
+        for k in KINDS {
+            assert_eq!(Kind::parse(k.name()), Some(k));
+            let (w, h) = (k.default_size(), k.min_size());
+            assert!(w.0 > h.0 && w.1 > h.1, "the default is larger than the minimum");
+        }
+        assert_eq!(Kind::Compose.default_size(), (760.0, 680.0));
+        assert_eq!(Kind::Reader.default_size(), (820.0, 720.0));
+        assert_eq!(Kind::Compose.min_size(), (560.0, 440.0));
+        assert_eq!(Kind::Reader.min_size(), (520.0, 400.0));
+        assert_ne!(Kind::Compose.setting_key(), Kind::Reader.setting_key());
+    }
+
+    // ---- registry
+
+    fn ask(r: &mut Registry, kind: Kind, key: Option<&str>) -> Request {
+        r.request(kind, key, t("tok"), None)
+    }
+
+    #[test]
+    fn labels_are_unique_and_never_reused() {
+        let mut r = Registry::default();
+        let mut seen = std::collections::HashSet::new();
+        for i in 0..3 {
+            for k in KINDS {
+                let Request::Create { label } = ask(&mut r, k, None) else { panic!("create {i}") };
+                assert!(seen.insert(label.clone()), "{label} twice");
+                assert_eq!(kind_of_label(&label), Some(k));
+            }
+        }
+        assert_eq!(r.entries.len(), 6);
+        // closing a window frees its slot, not its label
+        r.remove("compose-1").unwrap();
+        let Request::Create { label } = ask(&mut r, Kind::Compose, None) else { panic!() };
+        assert_eq!(label, "compose-4", "the counter only goes up");
+        assert!(r.remove("compose-1").is_none(), "gone is gone");
+    }
+
+    #[test]
+    fn at_most_eight_windows_all_kinds_together() {
+        let mut r = Registry::default();
+        for i in 0..MAX_SECONDARY {
+            let kind = if i % 2 == 0 { Kind::Compose } else { Kind::Reader };
+            assert!(matches!(ask(&mut r, kind, None), Request::Create { .. }), "window {i}");
+        }
+        assert_eq!(ask(&mut r, Kind::Compose, None), Request::TooMany);
+        assert_eq!(ask(&mut r, Kind::Reader, None), Request::TooMany);
+        assert_eq!(r.entries.len(), MAX_SECONDARY, "a refused request registers nothing");
+        // one closes: one more fits
+        r.remove("reader-1").unwrap();
+        assert!(matches!(ask(&mut r, Kind::Reader, None), Request::Create { .. }));
+        assert_eq!(ask(&mut r, Kind::Reader, None), Request::TooMany);
+    }
+
+    #[test]
+    fn a_key_that_is_open_is_focused_not_opened_again() {
+        let mut r = Registry::default();
+        let Request::Create { label: a } = ask(&mut r, Kind::Reader, Some("thread-1")) else { panic!() };
+        assert_eq!(ask(&mut r, Kind::Reader, Some("thread-1")), Request::Focus { label: a.clone() });
+        // another key, another kind with the same key, and no key at all open new windows
+        assert!(matches!(ask(&mut r, Kind::Reader, Some("thread-2")), Request::Create { .. }));
+        assert!(matches!(ask(&mut r, Kind::Compose, Some("thread-1")), Request::Create { .. }));
+        assert!(matches!(ask(&mut r, Kind::Reader, None), Request::Create { .. }));
+        assert!(matches!(ask(&mut r, Kind::Reader, None), Request::Create { .. }));
+        assert_eq!(r.entries.len(), 5);
+        // closed: the key is free again
+        r.remove(&a).unwrap();
+        assert!(matches!(ask(&mut r, Kind::Reader, Some("thread-1")), Request::Create { .. }));
+    }
+
+    #[test]
+    fn a_key_is_focused_even_when_the_cap_is_reached() {
+        let mut r = Registry::default();
+        let Request::Create { label } = ask(&mut r, Kind::Compose, Some("draft-1")) else { panic!() };
+        for _ in 1..MAX_SECONDARY {
+            ask(&mut r, Kind::Reader, None);
+        }
+        assert_eq!(r.entries.len(), MAX_SECONDARY);
+        assert_eq!(ask(&mut r, Kind::Compose, Some("draft-1")), Request::Focus { label }, "focusing opens nothing, so the cap does not apply");
+        assert_eq!(ask(&mut r, Kind::Compose, Some("draft-2")), Request::TooMany);
+    }
+
+    #[test]
+    fn hand_off_data_and_token_live_and_die_with_the_window() {
+        let mut r = Registry::default();
+        let Request::Create { label } = r.request(Kind::Compose, None, t("secret"), Some(serde_json::json!({"to": "a@example.com"}))) else { panic!() };
+        let e = r.get(&label).unwrap();
+        assert_eq!(e.token, "secret");
+        assert_eq!(e.init.as_ref().unwrap()["to"], "a@example.com");
+        assert!(!e.ready);
+        let gone = r.remove(&label).unwrap();
+        assert!(gone.init.is_some(), "handed back to the caller of remove");
+        assert!(r.get(&label).is_none(), "nothing of it is kept");
+    }
+
+    #[test]
+    fn only_windows_whose_page_is_ready_are_asked_to_answer_a_quit() {
+        let mut r = Registry::default();
+        for _ in 0..3 {
+            ask(&mut r, Kind::Compose, None);
+        }
+        assert!(r.ready_labels().is_empty());
+        r.get_mut("compose-2").unwrap().ready = true;
+        r.get_mut("compose-1").unwrap().ready = true;
+        assert_eq!(r.ready_labels(), ["compose-1", "compose-2"], "oldest first");
+        // the window a new one cascades from: the newest of its kind that is open, not itself, and only once its place is known
+        assert_eq!(r.newest_rect(Kind::Compose, "compose-3"), None, "no place known yet");
+        r.get_mut("compose-2").unwrap().rect = Some(Rect { x: 1, y: 2, w: 3, h: 4 });
+        assert_eq!(r.newest_rect(Kind::Compose, "compose-3"), Some(Rect { x: 1, y: 2, w: 3, h: 4 }));
+        assert_eq!(r.newest_rect(Kind::Compose, "compose-2"), None, "compose-3 is newer but has no place; compose-1 neither");
+        assert_eq!(r.newest_rect(Kind::Reader, "reader-1"), None);
+    }
+
+    // ---- geometry
+
+    fn mon(x: i32, y: i32, w: i32, h: i32, scale: f64, primary: bool) -> Mon {
+        Mon { work: Rect { x, y, w, h }, scale, primary }
+    }
+
+    fn rect(x: i32, y: i32, w: i32, h: i32) -> Rect {
+        Rect { x, y, w, h }
+    }
+
+    fn saved(x: i32, y: i32, w: f64, h: f64) -> Saved {
+        Saved { x, y, w, h, maximized: false }
+    }
+
+    fn big() -> Vec<Mon> {
+        vec![mon(0, 0, 1920, 1040, 1.0, true)]
+    }
+
+    #[test]
+    fn the_default_is_centred_over_the_main_window() {
+        let p = place(Kind::Compose, None, &big(), Some(rect(100, 50, 1280, 800)), None);
+        // 760 x 680, centre of main = (740, 450)
+        assert_eq!(p.rect, Some(rect(360, 110, 760, 680)));
+        assert_eq!(p.size, (760.0, 680.0));
+        let p = place(Kind::Reader, None, &big(), Some(rect(100, 50, 1280, 800)), None);
+        assert_eq!(p.rect.map(|r| (r.w, r.h)), Some((820, 720)));
+    }
+
+    #[test]
+    fn without_a_visible_main_window_the_primary_monitor_is_used() {
+        let mons = vec![mon(0, 0, 1920, 1040, 1.0, false), mon(1920, 0, 2560, 1400, 1.0, true)];
+        let p = place(Kind::Compose, None, &mons, None, None).rect.unwrap();
+        assert_eq!((p.x, p.y), (1920 + (2560 - 760) / 2, (1400 - 680) / 2));
+    }
+
+    #[test]
+    fn the_default_never_exceeds_90_percent_of_a_small_work_area() {
+        // the 1620 x 648 display of QA round 8: at most 583 px high
+        let mons = vec![mon(0, 0, 1620, 648, 1.0, true)];
+        let r = place(Kind::Compose, None, &mons, None, None).rect.unwrap();
+        assert_eq!((r.w, r.h), (760, 583));
+        assert!(mons[0].work.contains(&r));
+        // and the minimum is respected where the area allows it (440 <= 583)
+        let r = place(Kind::Reader, None, &mons, None, None).rect.unwrap();
+        assert_eq!((r.w, r.h), (820, 583));
+        // a tiny area: the window is the area, no larger
+        let tiny = vec![mon(0, 0, 500, 300, 1.0, true)];
+        let r = place(Kind::Compose, None, &tiny, None, None).rect.unwrap();
+        assert!(r.w <= 500 && r.h <= 300, "{r:?}");
+    }
+
+    #[test]
+    fn sizes_follow_the_scale_of_the_monitor() {
+        // 150 %: 760 x 680 logical = 1140 x 1020 physical, inside 90 % of 2560 x 1400 (the height 1020 <= 1260)
+        let mons = vec![mon(0, 0, 2560, 1400, 1.5, true)];
+        let p = place(Kind::Compose, None, &mons, None, None);
+        let r = p.rect.unwrap();
+        assert_eq!((r.w, r.h), (1140, 1020));
+        assert_eq!(p.size, (760.0, 680.0), "the logical size asked of the window system");
+    }
+
+    #[test]
+    fn a_saved_place_is_used_while_at_least_half_of_it_is_visible() {
+        let mons = big();
+        let s = saved(300, 200, 700.0, 600.0);
+        assert_eq!(place(Kind::Compose, Some(&s), &mons, None, None).rect, Some(rect(300, 200, 700, 600)));
+        // 60 % visible (hangs 40 % over the right edge): still used, and brought fully inside the area
+        let s = saved(1920 - 420, 200, 700.0, 600.0);
+        let r = place(Kind::Compose, Some(&s), &mons, None, None).rect.unwrap();
+        assert_eq!(r, rect(1920 - 700, 200, 700, 600), "clamped into the work area, not resized");
+        // only 30 % visible: the saved place is not used, the window is centred over main
+        let s = saved(1920 - 210, 200, 700.0, 600.0);
+        let r = place(Kind::Compose, Some(&s), &mons, Some(rect(0, 0, 1280, 800)), None).rect.unwrap();
+        assert_eq!(r, rect(640 - 350, 400 - 300, 700, 600), "the saved size is kept, the place is the fallback");
+        // a monitor that was unplugged: the saved place is off every monitor
+        let s = saved(3000, 100, 700.0, 600.0);
+        let r = place(Kind::Compose, Some(&s), &mons, None, None).rect.unwrap();
+        assert!(mons[0].work.contains(&r), "{r:?}");
+    }
+
+    #[test]
+    fn a_saved_place_on_another_monitor_stays_there() {
+        let mons = vec![mon(0, 0, 1920, 1040, 1.0, true), mon(1920, 0, 1920, 1040, 1.0, false)];
+        let s = saved(2200, 100, 700.0, 600.0);
+        assert_eq!(place(Kind::Compose, Some(&s), &mons, None, None).rect, Some(rect(2200, 100, 700, 600)));
+        // a window across the seam is half on each: visible
+        let s = saved(1700, 100, 700.0, 600.0);
+        assert!(place(Kind::Compose, Some(&s), &mons, None, None).rect.is_some());
+        // a monitor to the left of the primary has negative coordinates
+        let mons = vec![mon(0, 0, 1920, 1040, 1.0, true), mon(-1280, 0, 1280, 1024, 1.0, false)];
+        let s = saved(-1000, 50, 700.0, 600.0);
+        assert_eq!(place(Kind::Compose, Some(&s), &mons, None, None).rect, Some(rect(-1000, 50, 700, 600)));
+    }
+
+    #[test]
+    fn a_saved_size_is_kept_but_never_larger_than_the_work_area_or_below_the_minimum() {
+        let mons = vec![mon(0, 0, 1000, 700, 1.0, true)];
+        let r = place(Kind::Compose, Some(&saved(0, 0, 5000.0, 5000.0)), &mons, None, None).rect.unwrap();
+        assert_eq!((r.w, r.h), (1000, 700));
+        let r = place(Kind::Compose, Some(&saved(10, 10, 100.0, 100.0)), &mons, None, None).rect.unwrap();
+        assert_eq!((r.w, r.h), (560, 440), "the minimum of the kind");
+        // a nonsense size falls back to the default
+        let r = place(Kind::Compose, Some(&saved(10, 10, 0.0, -3.0)), &mons, None, None).rect.unwrap();
+        assert_eq!(r.w, 760.min((1000.0 * 0.9) as i32));
+        // maximized is carried
+        let s = Saved { maximized: true, ..saved(10, 10, 700.0, 600.0) };
+        assert!(place(Kind::Compose, Some(&s), &mons, None, None).maximized);
+    }
+
+    #[test]
+    fn a_second_window_of_a_kind_cascades_and_wraps() {
+        let mons = big();
+        let first = place(Kind::Compose, None, &mons, Some(rect(0, 0, 1280, 800)), None).rect.unwrap();
+        let second = place(Kind::Compose, None, &mons, Some(rect(0, 0, 1280, 800)), Some(first)).rect.unwrap();
+        assert_eq!((second.x, second.y), (first.x + CASCADE, first.y + CASCADE));
+        assert_eq!((second.w, second.h), (first.w, first.h));
+        // 150 %: the offset is 42 physical pixels
+        let m150 = vec![mon(0, 0, 2880, 1560, 1.5, true)];
+        let f = place(Kind::Compose, None, &m150, None, None).rect.unwrap();
+        let s = place(Kind::Compose, None, &m150, None, Some(f)).rect.unwrap();
+        assert_eq!((s.x - f.x, s.y - f.y), (42, 42));
+        // the next one would leave the work area: it starts again at the place it would have had
+        let low = rect(1920 - 760 - 10, 100, 760, 680);
+        let wrapped = place(Kind::Compose, None, &mons, Some(rect(0, 0, 1280, 800)), Some(low)).rect.unwrap();
+        assert_eq!(wrapped, first);
+        let low = rect(300, 1040 - 680, 760, 680);
+        assert_eq!(place(Kind::Compose, None, &mons, Some(rect(0, 0, 1280, 800)), Some(low)).rect.unwrap(), first);
+    }
+
+    #[test]
+    fn no_monitor_known_leaves_the_place_to_the_system() {
+        let p = place(Kind::Reader, None, &[], None, None);
+        assert_eq!(p.rect, None);
+        assert_eq!(p.size, (820.0, 720.0));
+        let p = place(Kind::Reader, Some(&saved(5, 5, 600.0, 500.0)), &[], None, None);
+        assert_eq!((p.rect, p.size), (None, (600.0, 500.0)));
+    }
+
+    #[test]
+    fn what_is_written_down_reads_back() {
+        let e = Entry {
+            label: t("compose-1"), kind: Kind::Compose, key: None, token: t("x"), ready: true, ready_at: None, init: None,
+            rect: Some(rect(100, 200, 1140, 1020)), scale: 1.5, maximized: false, moves: 1, dirty: true,
+        };
+        let s = saved_of(&e).unwrap();
+        assert_eq!(s, Saved { x: 100, y: 200, w: 760.0, h: 680.0, maximized: false });
+        let json = serde_json::to_string(&s).unwrap();
+        assert_eq!(serde_json::from_str::<Saved>(&json).unwrap(), s);
+        // an older or damaged value: missing "maximized" is fine, garbage is no place at all
+        assert!(serde_json::from_str::<Saved>(r#"{"x":1,"y":2,"w":3.0,"h":4.0}"#).is_ok());
+        assert!(serde_json::from_str::<Saved>("nonsense").is_err());
+        // nothing known yet, or an empty rectangle: nothing to write
+        assert_eq!(saved_of(&Entry { rect: None, ..e.clone() }), None);
+        assert_eq!(saved_of(&Entry { rect: Some(rect(0, 0, 0, 0)), ..e }), None);
+    }
+
+    fn entry() -> Entry {
+        Entry {
+            label: t("compose-1"), kind: Kind::Compose, key: None, token: t("x"), ready: false, ready_at: None, init: None,
+            rect: Some(rect(494, 258, 950, 850)), scale: 1.25, maximized: false, moves: 0, dirty: false,
+        }
+    }
+
+    #[test]
+    fn the_events_after_creation_are_not_a_decision_of_the_person() {
+        let mut e = entry();
+        // the window is sized and placed after it was built: the same rectangle (within a pixel or two of rounding)
+        assert!(!apply_geometry(&mut e, Some(rect(494, 258, 950, 850)), 1.25, false, false));
+        assert!(!apply_geometry(&mut e, Some(rect(495, 257, 951, 849)), 1.25, false, false));
+        assert_eq!((e.moves, e.dirty), (0, false), "nothing to write down");
+        assert_eq!(saved_of(&e).filter(|_| e.dirty), None, "and a close writes nothing either");
+    }
+
+    #[test]
+    fn a_move_or_a_resize_is_written_down_and_a_new_one_supersedes_it() {
+        let mut e = entry();
+        assert!(apply_geometry(&mut e, Some(rect(300, 150, 950, 850)), 1.25, false, false), "moved");
+        assert_eq!((e.moves, e.dirty, e.rect), (1, true, Some(rect(300, 150, 950, 850))));
+        assert!(apply_geometry(&mut e, Some(rect(300, 150, 875, 750)), 1.25, false, false), "resized");
+        assert_eq!(e.moves, 2, "the delayed write of move 1 sees that move 2 came after it and does not run");
+        let s = saved_of(&e).unwrap();
+        assert_eq!((s.x, s.y, s.w, s.h), (300, 150, 700.0, 600.0));
+        // another scale factor (the window crossed to another monitor) is remembered with the rectangle
+        assert!(apply_geometry(&mut e, Some(rect(2000, 100, 1200, 1000)), 2.0, false, false));
+        assert_eq!(saved_of(&e).map(|s| (s.w, s.h)), Some((600.0, 500.0)));
+    }
+
+    #[test]
+    fn minimized_and_full_screen_windows_report_nothing_worth_keeping() {
+        let mut e = entry();
+        assert!(!apply_geometry(&mut e, Some(rect(-32000, -32000, 160, 28)), 1.25, false, true), "minimized: Windows reports -32000");
+        assert_eq!((e.rect, e.dirty), (Some(rect(494, 258, 950, 850)), false));
+    }
+
+    #[test]
+    fn a_maximized_window_keeps_its_last_normal_rectangle_and_the_flag() {
+        let mut e = entry();
+        assert!(apply_geometry(&mut e, Some(rect(-10, -10, 1940, 1060)), 1.25, true, false), "maximized");
+        assert_eq!((e.maximized, e.rect, e.dirty), (true, Some(rect(494, 258, 950, 850)), true), "restoring gives the normal rectangle back");
+        assert!(saved_of(&e).unwrap().maximized);
+        // moving events while maximized change nothing more
+        assert!(!apply_geometry(&mut e, Some(rect(-8, -8, 1936, 1056)), 1.25, true, false));
+        // restored: the flag goes, the rectangle is the normal one again
+        assert!(apply_geometry(&mut e, Some(rect(494, 258, 950, 850)), 1.25, false, false), "the flag changed");
+        assert!(!e.maximized && !saved_of(&e).unwrap().maximized);
+    }
+
+    // ---- the window system (source guards)
+
+    /// A secondary window is created hidden, with the native title bar, and shown by its page (REQ-W1, W2, W8); nothing but the backend
+    /// creates windows.
+    #[test]
+    fn windows_are_made_hidden_by_the_backend_only() {
+        let src = crate::test_guard::non_test_code(include_str!("popout.rs"));
+        let create = &src[src.find("fn create(").unwrap()..];
+        let create = &create[..create.find("\n}\n").unwrap()];
+        for needle in [".visible(false)", ".decorations(true)", ".disable_drag_drop_handler()", "watch_ready("] {
+            assert!(create.contains(needle), "{needle}: {create}");
+        }
+        // the page opens as `index.html?w=<kind>&t=<token>`: no personal data in the address (REQ-S3)
+        assert!(create.contains(r#"format!("index.html?w={}&t={token}", kind.name())"#));
+        // no window is created from the pages: the permission to do so is granted to nobody
+        let caps = std::fs::read_dir(std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("capabilities")).unwrap();
+        for f in caps {
+            let text = std::fs::read_to_string(f.unwrap().path()).unwrap();
+            assert!(!text.contains("create-webview-window") && !text.contains("webview:allow-create"), "a page may create windows: {text}");
+        }
+    }
+}

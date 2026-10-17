@@ -154,7 +154,7 @@ const tracked = (token = "tok", a = adv()) => {
   assert.match(src, /if \(!autoMarking\) advances\.touch\(ids\)/);
   assert.doesNotMatch(src, /restoreAdvance/, "one way back only");
   assert.match(read("../src/App.tsx"), /listen<\{ id: string; error: string \}>\("action-failed", \(e\) => moveRefused\(e\.payload\.id, e\.payload\.error\)\)/);
-  assert.match(read("../src-tauri/src/lib.rs"), /app\.emit\("action-failed", VerifyFailed \{ id, error \}\)/, "the backend names the move");
+  assert.match(read("../src-tauri/src/lib.rs"), /app\.emit_to\("main", "action-failed", VerifyFailed \{ id, error \}\)/, "the backend names the move");
 }
 
 console.log("ok - test-auto-advance");
