@@ -647,7 +647,7 @@ fn create(app: &AppHandle, kind: Kind, label: &str, token: &str, cascade: Option
     let win = b.build().map_err(|e| e.to_string())?;
     native_hold(&win, label);
     // the title bar has the theme the setting asks of it (never one fixed here: System = follow the OS), wintheme.rs
-    crate::wintheme::apply_all(app);
+    crate::wintheme::apply_all(app, &format!("{label} created"));
     if let Some(r) = placement.rect {
         // the placement is the OUTER rectangle (frame and title bar included: what the person sees, and what is remembered); the window API sets
         // the inner size, so the frame of this window is taken off (restoring an outer size as an inner one made a window grow at every open)
@@ -1376,6 +1376,24 @@ mod tests {
         let Request::Create { label } = ask(&mut r, Kind::Compose, None) else { panic!() };
         assert_eq!(label, "compose-4", "the counter only goes up");
         assert!(r.remove("compose-1").is_none(), "gone is gone");
+    }
+
+    /// The frame theme (wintheme.rs) reaches `main` and every label this registry hands out, of both kinds, not only some of them.
+    #[test]
+    fn every_label_of_the_registry_gets_the_frame_theme() {
+        let mut r = Registry::default();
+        let mut labels = vec!["main".to_string()];
+        for _ in 0..3 {
+            for k in KINDS {
+                let Request::Create { label } = ask(&mut r, k, None) else { panic!("create") };
+                labels.push(label);
+            }
+        }
+        assert!(labels.iter().any(|l| l.starts_with("compose-")) && labels.iter().any(|l| l.starts_with("reader-")));
+        let themed = crate::wintheme::themed_labels(labels.clone());
+        for l in &labels {
+            assert!(themed.contains(l), "{l} does not get the frame theme");
+        }
     }
 
     #[test]

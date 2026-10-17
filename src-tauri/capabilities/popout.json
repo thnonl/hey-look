@@ -74,6 +74,7 @@
     "allow-popout-park",
     "allow-popout-destroy",
     "allow-popout-note",
+    "allow-window-theme-refresh",
     "allow-popout-set-key",
     "allow-popout-request",
     "allow-thread-meta",

@@ -21,6 +21,13 @@ import { AskHost, Toasts } from "../components/overlays";
 
 const quiet = () => undefined;
 
+/** Ask the backend to apply the frame (title bar) theme of this window again, and tell it what this page sees (for the log). */
+function askFrameTheme() {
+  const theme = document.documentElement.getAttribute("data-theme") ?? "system";
+  const dark = window.matchMedia?.("(prefers-color-scheme: dark)").matches ?? false;
+  void api.windowThemeRefresh(theme, dark).catch(quiet);
+}
+
 interface Known {
   label: string;
   key: string | null;
@@ -73,7 +80,9 @@ export default function PopoutRoot({ route }: { route: Exclude<Route, { kind: "m
         const p = mergePrefs(await api.getSetting("prefs"));
         applyPrefs(p);
         useStore.setState({ prefs: p }); // the views read the preferences from this window's own store (a read-only copy: nothing here writes them)
-        // (the title bar is not set from here: the backend gives every window the theme of the setting, src-tauri/src/wintheme.rs)
+        // (the title bar is not set from here: the backend gives every window the theme of the setting, src-tauri/src/wintheme.rs; this asks it to do
+        // it for this window once more, now that the page has its own theme class: the second way, for a window the first did not reach)
+        askFrameTheme();
       } catch {
         /* the defaults stay */
       }
@@ -116,6 +125,14 @@ export default function PopoutRoot({ route }: { route: Exclude<Route, { kind: "m
       for (const s of stops) void s.then((off) => off()).catch(quiet);
     };
   }, [route]);
+
+  // the colour scheme of this page changed (the OS went Dark <-> Light while the theme is System): the frame follows it, asked for here as well
+  useEffect(() => {
+    const mq = window.matchMedia?.("(prefers-color-scheme: dark)");
+    if (!mq) return;
+    mq.addEventListener("change", askFrameTheme);
+    return () => mq.removeEventListener("change", askFrameTheme);
+  }, []);
 
   // Ctrl+W (Cmd+W) closes the window by the same road as its close button; a view decides in `onCloseRequested` what that means for it
   useEffect(() => {

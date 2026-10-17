@@ -326,13 +326,19 @@ assert.equal(popoutTitle(readerTitleText("", "(no subject)")), "(no subject) –
   // every window comes through it: a pop-out (after its build, not in the builder), the main window (start-up), the setting, the OS event
   const create = pop.slice(pop.indexOf("fn create("));
   const createBody = create.slice(0, create.indexOf("\n}\n"));
-  assert.ok(createBody.indexOf("b.build()") < createBody.indexOf("crate::wintheme::apply_all(app)"), "a pop-out gets the theme right after it is built");
+  assert.ok(createBody.indexOf("b.build()") < createBody.indexOf("crate::wintheme::apply_all(app, "), "a pop-out gets the theme right after it is built");
   assert.ok(!/\.theme\(/.test(createBody), "the window builder is not given a theme");
-  assert.ok(lib.slice(lib.indexOf(".setup(|app|"), lib.indexOf(".on_window_event(")).includes("wintheme::apply_all(app.handle())"), "the main window at start-up");
+  assert.ok(lib.slice(lib.indexOf(".setup(|app|"), lib.indexOf(".on_window_event(")).includes("wintheme::apply_all(app.handle(), "), "the main window at start-up");
   const setSetting = lib.slice(lib.indexOf("fn set_setting("));
-  assert.ok(setSetting.slice(0, setSetting.indexOf("\n}\n")).includes("wintheme::apply_all(&app)"), "a change of the preferences");
+  assert.ok(setSetting.slice(0, setSetting.indexOf("\n}\n")).includes("wintheme::apply_all(&app, "), "a change of the preferences");
   const ev = lib.slice(lib.indexOf(".on_window_event("), lib.indexOf(".invoke_handler"));
   assert.ok(ev.indexOf("tauri::WindowEvent::ThemeChanged") < ev.indexOf('window.label() != "main"') && ev.includes("wintheme::on_os_theme_changed"), "an OS theme change reported by any window, before the label is looked at");
+  // the second way (macOS safety net): the page of a pop-out asks the backend to apply its own window again; the page never sets a theme itself
+  assert.ok(/windowThemeRefresh\(theme, dark\)/.test(root) && root.includes("(prefers-color-scheme: dark)"), "the pop-out page asks for its frame theme after it changed its own theme class, and when its colour scheme changes");
+  assert.ok(root.indexOf("applyPrefs(p);") < root.indexOf("askFrameTheme();"), "asked after the page applied its theme class");
+  assert.ok(read("src/api.ts").includes('invoke<void>("window_theme_refresh"'), "the api has the command");
+  assert.ok(lib.includes("wintheme::window_theme_refresh,") && read("src-tauri/build.rs").includes('"window_theme_refresh"'), "the command is registered and in the manifest");
+  for (const cap of ["default.json", "popout.json"]) assert.ok(read(`src-tauri/capabilities/${cap}`).includes('"allow-window-theme-refresh"'), `${cap} grants it`);
   // nowhere else is a window theme set
   for (const [name, src] of [["lib.rs", lib], ["popout.rs", pop]]) {
     assert.ok(!src.includes(".set_theme(") && !src.includes(".theme(Some"), `${name} does not set a theme by itself`);
