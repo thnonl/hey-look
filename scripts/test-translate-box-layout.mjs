@@ -15,6 +15,7 @@ const running = tsx.slice(tsx.indexOf("function AiRunning("), tsx.indexOf("funct
 assert.match(running, /<span className="tr-main">[\s\S]*busy-ring[\s\S]*tr-text[\s\S]*<\/span>\s*<span className="tr-side">[\s\S]*tr-time[\s\S]*onCancel[\s\S]*<\/span>/, "ring + sentence in .tr-main, timer + Cancel in .tr-side");
 assert.match(running, /\{detail && <div className="muted small tr-hint">/, "'Part 2 of 5' is a line of its own under the row: it cannot squeeze the sentence");
 assert.match(tsx, /<AiRunning[\s\S]*cancelTranslation\(job\.key\)/, "the translation uses it, with its own Cancel");
+assert.match(tsx, /<AiRunning[\s\S]*onCancel=\{ai\.cancel\}/, "so does Summarize");
 assert.match(css, /\.tr-row \{[^}]*flex-wrap: wrap;/, "the row wraps");
 assert.match(css, /\.tr-main \{[^}]*flex: 1 1 \d+(\.\d+)?em;[^}]*min-width: 0;/, "the sentence group keeps a readable basis and may shrink");
 assert.match(css, /\.tr-side \{[^}]*margin-left: auto;/, "timer + Cancel stay together, at the end of the row");

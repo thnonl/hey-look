@@ -275,6 +275,52 @@ mod tests {
         assert!(!jobs_lock().live.contains_key("job-cancel-1"), "the job is unregistered");
     }
 
+    /// Every feature that asks the model cancels the same way, by the id of its request (src/aiCall.ts `aiCallId`, src/translateJobs.ts
+    /// `aiJobId`): Summarize, Write with AI, and each part of a translation (and the automatic second try of a part, `.1`). The request is
+    /// dropped (the provider's connection closes), the call ends at once with AI_CANCELLED and the job is unregistered.
+    #[test]
+    fn summarize_write_and_translation_parts_are_cancelled_like_any_call() {
+        use std::time::Duration;
+        for id in ["summarize-k3j9x2-1", "write-k3j9x2-2", "translate-k3j9x2-7-3", "translate-k3j9x2-7-3.1"] {
+            let (port, seen, server) = slow_server(Duration::from_secs(5));
+            let ep = format!("http://127.0.0.1:{port}");
+            let started = std::time::Instant::now();
+            let call = tauri::async_runtime::spawn(async move { complete_job(&ep, "", "m", "s", "p", 30, Some(id)).await });
+            assert_eq!(seen.recv_timeout(Duration::from_secs(5)), Ok("request"), "{id}: the request reached the server");
+            cancel(id);
+            assert_eq!(tauri::async_runtime::block_on(call).unwrap().unwrap_err(), CANCELLED, "{id}");
+            assert!(started.elapsed() < Duration::from_secs(3), "{id}: ended at once");
+            assert_eq!(seen.recv_timeout(Duration::from_secs(3)), Ok("closed"), "{id}: the server saw the connection close");
+            server.join().unwrap();
+            assert!(!jobs_lock().live.contains_key(id), "{id}: unregistered");
+        }
+    }
+
+    /// The UI drops a request that timed out on its side and then asks again under a new id: the first id's cancel (which arrives after
+    /// that request ended, so it is only remembered) must not stop the second try, nor the next part of the translation.
+    #[test]
+    fn a_late_cancel_of_one_request_does_not_stop_the_next_try_or_part() {
+        use std::io::Write;
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let port = listener.local_addr().unwrap().port();
+        let server = std::thread::spawn(move || {
+            for word in ["eins", "zwei"] {
+                let (mut sock, _) = listener.accept().unwrap();
+                let mut buf = [0u8; 8192];
+                let _ = sock.read(&mut buf);
+                let body = format!(r#"{{"choices":[{{"message":{{"content":"{word}"}}}}]}}"#);
+                let _ = write!(sock, "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}", body.len(), body);
+            }
+        });
+        let ep = format!("http://127.0.0.1:{port}");
+        cancel("translate-late-1-0"); // the first try is over already: remembered, nothing to stop
+        let r = tauri::async_runtime::block_on(complete_job(&ep, "", "m", "s", "p", 5, Some("translate-late-1-0.1")));
+        assert_eq!(r.unwrap(), "eins", "the second try (own id) runs");
+        let r = tauri::async_runtime::block_on(complete_job(&ep, "", "m", "s", "p", 5, Some("translate-late-1-1")));
+        assert_eq!(r.unwrap(), "zwei", "the next part runs");
+        server.join().unwrap();
+    }
+
     /// A cancel that arrives before its call registered (the request overtaken) still ends the call, without any request.
     #[test]
     fn a_cancel_that_came_first_ends_the_call_without_a_request() {

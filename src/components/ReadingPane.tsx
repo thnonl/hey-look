@@ -18,6 +18,7 @@ import { friendlyError, useStore } from "../store";
 import { cancelTranslation, dismissTranslation, jobErrorText, startTranslation } from "../translate";
 import { MAX_CHARS } from "../translateChunks";
 import { elapsedLabel, jobFor, slowHint, type TranslateJob } from "../translateJobs";
+import { useAiSlot } from "../useAiSlot";
 import { fmtFull, fmtSize, plainToHtml, sanitizeHtml, snoozePresets, subjectText } from "../util";
 import { AttachmentStrip, Lightbox, LbItem } from "./Attachments";
 import { InviteCard } from "./Calendar";
@@ -652,7 +653,7 @@ export function ReadingPane() {
   const { selected, messages, threads, folders, act, showToast, prefs, aiConfigured, setDialog, confirm, checked } = useStore();
   const [openIds, setOpenIds] = useState<Set<string>>(new Set());
   const [summary, setSummary] = useState<string | null>(null);
-  const [busy, setBusy] = useState(false);
+  const ai = useAiSlot("summarize");
   const summ = threads.find((th) => th.threadId === selected);
   const bodyRef = useRef<HTMLDivElement>(null);
   // while confidential mail is on screen the window is hidden from screen capture and recording
@@ -715,6 +716,9 @@ export function ReadingPane() {
     };
   }, []);
 
+  // another conversation: a summary still being made is dropped (its request too), so it is never shown on the wrong mail
+  useEffect(() => ai.cancel, [selected]); // eslint-disable-line react-hooks/exhaustive-deps
+
   useEffect(() => {
     setSummary(null);
     setOpenIds(new Set(messages.length ? [messages[messages.length - 1].id] : []));
@@ -743,30 +747,24 @@ export function ReadingPane() {
       setDialog({ type: "settings", tab: "ai" });
       return;
     }
-    setBusy(true);
-    try {
-      const readable = messages.filter((m) => !needsCard(m) && !m.confidential);
-      if (readable.length === 0) {
-        showToast(messages.some((m) => m.confidential) ? t("reading.ai.noConfidential") : t("reading.ai.unlockEncrypted"), undefined, "info");
-        return;
-      }
-      const body = readable
-        .map((m) => `From: ${m.fromName} <${m.fromEmail}>\nDate: ${fmtFull(m.date)}\n\n${(m.text ?? "").slice(0, 4000)}`)
-        .join("\n\n-----\n\n")
-        .slice(0, 24000);
-      setSummary(
-        await api.aiComplete(
-          // i18n-ok: a prompt for the language model, not text the person reads
-          "You summarize email conversations. Reply with 2-5 concise bullet points covering key facts, decisions and requested actions. Use the language of the emails.",
-          // the subject of a thread with confidential mail may be that mail's, so it is left out
-          `${messages.some((m) => m.confidential) ? "" : `Subject: ${summ.subject}\n\n`}${body}`,
-        ),
-      );
-    } catch (e) {
-      showToast(friendlyError(e), undefined, "error");
-    } finally {
-      setBusy(false);
+    const readable = messages.filter((m) => !needsCard(m) && !m.confidential);
+    if (readable.length === 0) {
+      showToast(messages.some((m) => m.confidential) ? t("reading.ai.noConfidential") : t("reading.ai.unlockEncrypted"), undefined, "info");
+      return;
     }
+    const body = readable
+      .map((m) => `From: ${m.fromName} <${m.fromEmail}>\nDate: ${fmtFull(m.date)}\n\n${(m.text ?? "").slice(0, 4000)}`)
+      .join("\n\n-----\n\n")
+      .slice(0, 24000);
+    const out = await ai.run(
+      // i18n-ok: a prompt for the language model, not text the person reads
+      "You summarize email conversations. Reply with 2-5 concise bullet points covering key facts, decisions and requested actions. Use the language of the emails.",
+      // the subject of a thread with confidential mail may be that mail's, so it is left out
+      `${messages.some((m) => m.confidential) ? "" : `Subject: ${summ.subject}\n\n`}${body}`,
+    );
+    if (!out) return; // a click while one is under way, or Cancel: nothing to show
+    if ("error" in out) showToast(friendlyError(out.error), undefined, "error");
+    else setSummary(out.text);
   };
 
   const block = async () => {
@@ -826,13 +824,21 @@ export function ReadingPane() {
           <button
             className="btn small ai-btn"
             onClick={summarize}
-            disabled={busy}
+            disabled={ai.running}
             title={aiConfigured ? t("reading.head.summarizeTip") : t("reading.head.setupAiTip")}
           >
-            <Sparkles size={13} /> {busy ? t("reading.head.summarizing") : aiConfigured ? t("reading.head.summarize") : t("reading.head.setupAi")}
+            <Sparkles size={13} /> {ai.running ? t("reading.head.summarizing") : aiConfigured ? t("reading.head.summarize") : t("reading.head.setupAi")}
           </button>
         </div>
       </div>
+      {ai.running && ai.startedAt !== null && (
+        <AiRunning
+          title={<b><Sparkles size={13} /> {t("reading.head.summaryTitle")}</b>}
+          text={t("reading.head.summarizing")}
+          startedAt={ai.startedAt}
+          onCancel={ai.cancel}
+        />
+      )}
       {summary && (
         <div className="summary">
           <b><Sparkles size={13} /> {t("reading.head.summaryTitle")}</b>

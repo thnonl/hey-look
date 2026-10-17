@@ -13,6 +13,7 @@ import { api, Att, Contact, Draft, DraftSecurity, errorCode, InlineImage, Messag
 import { eff } from "../prefs";
 import { kbd } from "../platform";
 import { ComposeInit, friendlyError, useStore } from "../store";
+import { useAiSlot } from "../useAiSlot";
 import type { ComposeProbe, SavedDraft } from "../leaveCompose";
 import { PreviewBg, previewVars, rememberPreview, startPreview } from "../composePreview";
 import { setDarkRegion } from "../composePreviewDom";
@@ -425,7 +426,7 @@ export function Compose({ init }: { init: ComposeInit }) {
   const [sigHeads, setSigHeads] = useState<HTMLElement[]>([]);
   const [aiOpen, setAiOpen] = useState(false);
   const [aiPrompt, setAiPrompt] = useState("");
-  const [aiBusy, setAiBusy] = useState(false);
+  const ai = useAiSlot("write");
   const [busy, setBusy] = useState(false);
   // a meeting: To = required attendees, Cc = optional; sent as a calendar invitation
   const [meeting, setMeeting] = useState<MeetingState | null>(init.meeting ? defaultMeeting(calTz(prefs), init.meeting) : null);
@@ -1564,24 +1565,26 @@ export function Compose({ init }: { init: ComposeInit }) {
     if (!aiPrompt.trim()) return;
     // the draft and the reply context quote confidential mail
     if (init.confidential) return showToast(t("compose.ai.confidential"), undefined, "info");
-    setAiBusy(true);
-    try {
-      // i18n-ok: the prompt for the model, not UI text
-      const context = init.isReply ? `\n\nThe email being replied to:\n${htmlToText(init.bodyHtml ?? "").slice(0, 6000)}` : "";
-      const out = await api.aiComplete(
-        // i18n-ok: a prompt for the language model, not text the person reads
-        "You write email bodies. Output only the email body text (no subject line, no preamble). Match the language of the user's request and the tone requested.",
-        `Subject: ${subject}\nExisting draft:\n${editor?.getText() ?? ""}${context}\n\nInstruction: ${aiPrompt}`,
-      );
-      editor?.commands.insertContentAt(0, out.split("\n").map((l) => `<p>${l.replace(/</g, "&lt;")}</p>`).join(""));
-      setAiOpen(false);
-      setAiPrompt("");
-      touch();
-    } catch (e) {
-      showToast(friendlyError(e), undefined, "error");
-    } finally {
-      setAiBusy(false);
-    }
+    // i18n-ok: the prompt for the model, not UI text
+    const context = init.isReply ? `\n\nThe email being replied to:\n${htmlToText(init.bodyHtml ?? "").slice(0, 6000)}` : "";
+    const out = await ai.run(
+      // i18n-ok: a prompt for the language model, not text the person reads
+      "You write email bodies. Output only the email body text (no subject line, no preamble). Match the language of the user's request and the tone requested.",
+      `Subject: ${subject}\nExisting draft:\n${editor?.getText() ?? ""}${context}\n\nInstruction: ${aiPrompt}`,
+    );
+    if (!out) return; // a click while one is under way, Cancel, or this window closed: nothing to apply
+    if ("error" in out) return showToast(friendlyError(out.error), undefined, "error");
+    editor?.commands.insertContentAt(0, out.text.split("\n").map((l) => `<p>${l.replace(/</g, "&lt;")}</p>`).join(""));
+    setAiOpen(false);
+    setAiPrompt("");
+    touch();
+  };
+
+  /** The "Write with AI" button: closing the bar while a text is being written drops the request (the bar is where Cancel is). */
+  const toggleAi = () => {
+    if (!aiConfigured) return setDialog({ type: "settings", tab: "ai" });
+    if (aiOpen) ai.cancel();
+    setAiOpen((o) => !o);
   };
 
   const keyAction = (a: "import" | "paste") => setDialog({ type: "pgp-import", paste: a === "paste" });
@@ -1821,7 +1824,7 @@ export function Compose({ init }: { init: ComposeInit }) {
         <button
           className={`rb ${aiOpen ? "on" : ""}`}
           disabled={!!init.confidential}
-          onClick={() => (aiConfigured ? setAiOpen((o) => !o) : setDialog({ type: "settings", tab: "ai" }))}
+          onClick={toggleAi}
           title={init.confidential ? t("compose.bar.aiConfidentialTip") : aiConfigured ? t("compose.bar.aiTip") : t("compose.bar.aiSetupTip")}
         >
           <Sparkles size={15} /><span>{t("compose.bar.writeWithAi")}</span>
@@ -1855,7 +1858,8 @@ export function Compose({ init }: { init: ComposeInit }) {
             value={aiPrompt}
             onChange={(e) => setAiPrompt(e.target.value)}
           />
-          <button className="btn primary" disabled={aiBusy} onClick={() => void letAiWrite()}>{aiBusy ? t("compose.ai.writing") : t("compose.ai.write")}</button>
+          <button className="btn primary" disabled={ai.running} onClick={() => void letAiWrite()}>{ai.running ? t("compose.ai.writing") : t("compose.ai.write")}</button>
+          {ai.running && <button className="btn" onClick={ai.cancel}>{t("common.cancel")}</button>}
         </div>
       )}
 
