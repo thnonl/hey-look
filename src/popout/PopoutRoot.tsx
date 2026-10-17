@@ -13,7 +13,7 @@ import { listen } from "@tauri-apps/api/event";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { api } from "../api";
 import { mergePrefs } from "../prefs";
-import { applyPrefs } from "../store";
+import { applyPrefs, useStore } from "../store";
 import { currentFlushHandlers, runPopoutFlush } from "./flush";
 import type { Route } from "./route";
 import { VIEWS } from "./views";
@@ -38,7 +38,11 @@ export default function PopoutRoot({ route }: { route: Exclude<Route, { kind: "m
     let label = "";
     const readPrefs = async () => {
       try {
-        applyPrefs(mergePrefs(await api.getSetting("prefs")));
+        const p = mergePrefs(await api.getSetting("prefs"));
+        applyPrefs(p);
+        useStore.setState({ prefs: p }); // the views read the preferences from this window's own store (a read-only copy: nothing here writes them)
+        // the title bar follows the app theme (REQ-W8); "system" gives the choice back to the OS
+        void getCurrentWindow().setTheme(p.theme === "system" ? null : p.theme).catch(quiet);
       } catch {
         /* the defaults stay */
       }

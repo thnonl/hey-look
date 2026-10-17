@@ -178,7 +178,7 @@ assert.deepEqual(offenders, [], `toasts that keep the language they were made in
 const read = (p) => readFileSync(new URL(p, root), "utf8").replace(/\r\n/g, "\n");
 const store = read("src/store.ts");
 assert.match(store, /showToast: \(text: Lazy,/, "showToast takes a function");
-assert.match(store, /act: \(ids: string\[\], action: string, arg\?: string, label\?: Lazy\)/, "so does the text of an action's toast");
+assert.match(store, /act: \(ids: string\[\], action: string, arg\?: string, label\?: Lazy[,)]/, "so does the text of an action's toast");
 assert.match(store, /const \{ text: first, textFn \} = toastTexts\(text\);/);
 assert.match(store, /\.map\(refreshed\), \{ id, text: first, textFn,/, "older toasts are written again before an identical error is looked for");
 assert.match(store, /\.\.\.toastTexts\(spec\.text\)/, "the sticky ones too");

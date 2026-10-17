@@ -463,6 +463,8 @@ export default defineLocale<typeof ns.en>({
   "settings.keys.commandBar": "Befehlsleiste",
   "settings.keys.syncNow": "Jetzt synchronisieren",
   "settings.keys.closeDeselect": "Schließen / Auswahl aufheben",
+  "settings.keys.openInWindow": "In neuem Fenster öffnen",
+  "settings.keys.closeWindow": "Nachrichtenfenster schließen",
   "settings.about.title": "Info",
   "settings.about.tagline": "{name} – ein E-Mail-Programm für den Desktop, entwickelt mit Tauri, React und Rust.",
   "settings.about.testBuild": "Testversion: Ihre E-Mails, Konten und Einstellungen werden in {dir} gespeichert, nicht im normalen Datenordner.",
