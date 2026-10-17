@@ -5,6 +5,7 @@ import { DEFAULT_MAIL_CANVAS, MailCanvas, resolveMailCanvas } from "./mailCanvas
 import { DEFAULT_HIGHLIGHT, normColor } from "./editor/colors";
 import { DEFAULT_FONT_NAME, DEFAULT_FONT_SIZE } from "./editor/fonts";
 import { DEFAULT_NUDGE, NudgeState, normalizeNudge } from "./supportNudge";
+import { normalizeSidebar, SidebarMode } from "./sidebarState";
 export type NotifySound = "mail" | "default" | "im" | "reminder" | "sms" | "none";
 /** The labels are dictionary keys: show them with t() while rendering, so they follow the language. */
 export const NOTIFY_SOUNDS: [NotifySound, Key][] = [
@@ -132,6 +133,8 @@ export interface Prefs extends Overridable {
   collapsed: Record<string, boolean>; // folder pane groups
   folderW: number; // pane widths in px
   listW: number;
+  /** the side menu (folder pane): "auto" folds it to icons in a narrow window, "expanded" / "collapsed" are the person's own choice and win over the width; see sidebarState.ts */
+  sidebar: SidebarMode;
   accountPrefs: Record<string, Partial<Overridable>>;
 }
 
@@ -191,6 +194,7 @@ export const DEFAULT_PREFS: Prefs = {
   collapsed: {},
   folderW: 248,
   listW: 392,
+  sidebar: "auto",
   accountPrefs: {},
   // overridable (these are the "All accounts" values)
   notifications: true,
@@ -272,6 +276,7 @@ export function mergePrefs(raw: string | null): Prefs {
       // English unless the person chose another language (an unknown or older value counts as English)
       language: isLang(p.language) || p.language === "en-XA" ? p.language : "en",
       accountPrefs,
+      sidebar: normalizeSidebar(p.sidebar),
       accountOrder: Array.isArray(p.accountOrder) ? p.accountOrder.filter((x): x is string => typeof x === "string") : [],
       supportNudge: normalizeNudge(p.supportNudge),
       snoozeTimes: { ...DEFAULT_PREFS.snoozeTimes, ...(p.snoozeTimes ?? {}) },

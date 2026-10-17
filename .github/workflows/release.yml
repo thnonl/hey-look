@@ -313,6 +313,7 @@ jobs:
           node --experimental-strip-types scripts/test-row-menu.mjs
           node --experimental-strip-types scripts/test-account-order.mjs
           node --experimental-strip-types scripts/test-account-label.mjs
+          node --experimental-strip-types scripts/test-sidebar-state.mjs
           node --experimental-strip-types scripts/test-context-guard.mjs
           node --experimental-strip-types scripts/test-top-bar-dark.mjs
           node --experimental-strip-types scripts/test-support-nudge.mjs
@@ -332,6 +333,8 @@ jobs:
           node scripts/test-preview-layer.mjs --quick
           # the compose pane at the smallest sizes: formatting row and body always in view, the header scrolls, Tab order and popovers (four of the combinations; the full run is `node scripts/test-compose-fit.mjs`)
           node scripts/test-compose-fit.mjs --quick
+          # the side menu: icons or full by window width and by the person's choice, the peek over the panes, the minimum widths, tooltips (the full run is `node scripts/test-sidebar-collapse.mjs`)
+          node scripts/test-sidebar-collapse.mjs --quick
 
       # macOS code signing (owner steps: CONTRIBUTING.md > Signing and notarisation). Only when the three certificate secrets
       # (APPLE_CERTIFICATE, APPLE_CERTIFICATE_PASSWORD, APPLE_SIGNING_IDENTITY) exist and this is not a test build; otherwise nothing

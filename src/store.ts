@@ -269,6 +269,8 @@ interface State {
   composeProbe: (() => ComposeProbe) | null;
   dialog: Dialog;
   commandOpen: boolean;
+  /** counts up when something asks the side menu to open over the panes and stay (the control while it is squeezed, useSidebar.ts); FolderPane watches it */
+  sidebarPin: number;
   ribbonTab: RibbonTab;
   prefs: Prefs;
   aiConfigured: boolean;
@@ -615,6 +617,7 @@ export const useStore = create<State>((set, get) => ({
   composeProbe: null,
   dialog: null,
   commandOpen: false,
+  sidebarPin: 0,
   ribbonTab: "home",
   prefs: { ...DEFAULT_PREFS },
   aiConfigured: false,

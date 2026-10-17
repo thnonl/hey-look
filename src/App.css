@@ -178,6 +178,10 @@ button:focus-visible, [role="option"]:focus-visible, [role="treeitem"]:focus-vis
 .pane-bottom .workspace { grid-template-columns: var(--fw, 248px) 6px 1fr; grid-template-rows: minmax(180px, 42%) 1fr; }
 .pane-bottom .folder-pane, .pane-bottom .workspace > .splitter { grid-row: 1 / span 2; }
 .pane-bottom .reading-region { grid-column: 3; border-top: 1px solid var(--border); }
+.workspace { transition: grid-template-columns .2s var(--ease); } /* the side menu folds / opens: the columns glide to their new widths (a window resize changes no computed value, so it never glides) */
+.workspace.dragging { transition: none; } /* a splitter being dragged follows the pointer at once */
+.splitter.off { cursor: default; pointer-events: none; }
+.splitter.off::after { transition: none; }
 .splitter { cursor: col-resize; position: relative; background: transparent; touch-action: none; }
 .splitter::after { content: ""; position: absolute; inset: 0 2px; background: var(--border); transition: background .12s, inset .12s; }
 .splitter:hover::after, .splitter:focus-visible::after, .splitter:active::after { background: var(--accent); inset: 0 1px; }
@@ -304,7 +308,8 @@ button:focus-visible, [role="option"]:focus-visible, [role="treeitem"]:focus-vis
 .menu-head { padding: 4px 9px 5px; font-size: .86em; font-weight: 600; color: var(--muted); }
 
 /* ===== folder pane ===== */
-.folder-pane { background: var(--bg2); overflow-y: auto; padding: 8px 0 16px; min-height: 0; }
+.folder-pane { position: relative; min-height: 0; min-width: 0; } /* the grid cell; the scrolling box is .fp-surface (it leaves the cell as an overlay in a peek) */
+.fp-surface { background: var(--bg2); overflow-x: hidden; overflow-y: auto; padding: 8px 0 16px; box-sizing: border-box; height: 100%; display: flex; flex-direction: column; scroll-padding-bottom: 56px; } /* (what scrolls into view stays clear of the sticky Mail / Calendar bar) */
 .fp-group { margin-bottom: 4px; }
 .fp-head { display: flex; align-items: center; gap: 6px; width: 100%; background: none; border: 0; padding: 7px 14px; font-weight: 650; font-size: .86em; color: var(--muted); text-align: left; letter-spacing: .02em; }
 .fp-head:hover { color: var(--fg); background: var(--bg3); }
@@ -340,6 +345,42 @@ body.reordering, body.reordering * { cursor: grabbing !important; user-select: n
 .fp-star.on { color: #e0a100; display: inline-flex; }
 .fp-row:hover .fp-star, .fp-row:focus-within .fp-star { display: inline-flex; }
 .dot { width: 9px; height: 9px; border-radius: 50%; flex: none; display: inline-block; }
+
+/* side menu: the collapse / expand control, the icon column (.is-rail) and the peek (.is-peek, the full menu over the other panes); sidebarState.ts, sidebarPeek.ts */
+.fp-top { flex: none; display: flex; justify-content: flex-end; padding: 0 8px 4px; }
+.fp-toggle { width: 30px; height: 30px; }
+.fp-toggle:hover { background: var(--bg3); color: var(--fg); }
+.fp-toggle:focus-visible, .fp-avatar:focus-visible, .fp-row:focus-visible, .fp-cal:focus-visible { outline: 2px solid var(--accent-text); outline-offset: -2px; }
+.folder-pane.is-peek .fp-surface { position: absolute; z-index: 40; top: 0; bottom: 0; left: 0; width: var(--fw-full, 248px); height: auto; border-right: 1px solid var(--border); box-shadow: var(--shadow); animation: fp-peek .14s var(--ease); }
+@keyframes fp-peek { from { opacity: 0; transform: translateX(-10px); } to { opacity: 1; transform: none; } }
+.fp-pip, .fp-warnpip, .fp-sep, .fp-calrail { display: none; }
+.is-rail .fp-surface { scroll-padding-bottom: 92px; padding: 8px 0; align-items: stretch; scrollbar-width: none; } /* no room for a scrollbar in 56 px: more icons than the window is high are reached by the wheel, the keyboard or the touchpad; the last one is cut by the Mail / Calendar bar */
+.is-rail .fp-surface::-webkit-scrollbar { display: none; }
+.is-rail .fp-top { justify-content: center; padding: 0 0 4px; }
+.is-rail .fp-group { margin: 0; display: flex; flex-direction: column; align-items: center; }
+.is-rail .fp-sep { display: block; width: 28px; border: 0; border-top: 1px solid var(--border); margin: 5px 0; }
+.is-rail .fp-headrow { display: flex; justify-content: center; width: 100%; }
+.is-rail .fp-avatar { position: relative; width: 40px; height: 38px; padding: 0; justify-content: center; border-radius: var(--r-sm); background: none; }
+.is-rail .fp-avatar:hover { background: var(--bg3); }
+.is-rail .fp-avatar.on { background: var(--accent-soft); }
+.is-rail .fp-avatar .dot { width: 28px; height: 28px; display: grid; place-items: center; color: #fff; font-size: 13px; font-weight: 650; line-height: 1; box-shadow: inset 0 0 0 1px rgba(255,255,255,.18); user-select: none; }
+.is-rail .fp-avatar .dot::after { content: attr(data-initial); }
+
+.is-rail .fp-pip { display: block; position: absolute; top: 1px; right: -1px; min-width: 16px; height: 16px; padding: 0 4px; box-sizing: border-box; border-radius: 8px; background: var(--accent); color: var(--accent-fg); font-size: 10px; line-height: 16px; font-weight: 700; text-align: center; font-variant-numeric: tabular-nums; box-shadow: 0 0 0 2px var(--bg2); }
+.is-rail .fp-warnpip { display: block; position: absolute; bottom: 4px; right: 4px; width: 9px; height: 9px; border-radius: 50%; background: var(--warn); box-shadow: 0 0 0 2px var(--bg2); }
+.is-rail .reorder-grip { left: 0; }
+.is-rail .fp-row { width: 40px; height: 34px; box-sizing: border-box; padding: 0; margin: 1px 0; justify-content: center; gap: 0; }
+.is-rail .fp-row .fp-lbl { display: none; }
+.is-rail .fp-row .fp-badge { position: absolute; top: 0; right: 0; min-width: 16px; height: 16px; padding: 0 4px; box-sizing: border-box; border-radius: 8px; background: var(--accent); color: var(--accent-fg); font-size: 10px; line-height: 16px; font-weight: 700; text-align: center; box-shadow: 0 0 0 2px var(--bg2); }
+.is-rail .fp-row .fp-badge.err { background: var(--danger); color: #fff; }
+.is-rail .fp-modules { flex-direction: column; align-items: center; padding: 6px 0; margin-left: 0; margin-right: 0; width: 100%; box-sizing: border-box; }
+.is-rail .fp-modules button { flex: none; width: 40px; height: 36px; padding: 0; }
+.fp-mlbl { min-width: 0; }
+.is-rail .fp-mlbl { display: none; }
+.is-rail .fp-calrail { display: flex; }
+.fp-cal { width: 40px; height: 32px; display: grid; place-items: center; background: none; border: 0; border-radius: var(--r-sm); padding: 0; }
+.fp-cal:hover { background: var(--bg3); }
+.fp-cal-dot { width: 14px; height: 14px; border-radius: 4px; border: 2px solid; box-sizing: border-box; }
 
 /* ===== message list ===== */
 .msg-list { background: var(--bg); display: flex; flex-direction: column; min-height: 0; min-width: 0; }
@@ -1227,8 +1268,7 @@ span.spin { display: inline-block; width: 13px; height: 13px; border: 2px solid 
 .rsvp .btn.chosen { background: var(--accent-soft); border-color: var(--accent); color: var(--accent-text); font-weight: 650; }
 .conflict { display: inline-flex; align-items: center; gap: 5px; color: var(--warn); font-size: .86em; font-weight: 600; }
 /* module switch at the bottom of the folder pane */
-.folder-pane { display: flex; flex-direction: column; }
-.folder-pane > .fp-group { flex: none; }
+.fp-surface > .fp-group { flex: none; }
 .fp-modules { position: sticky; bottom: -16px; margin: auto 0 -16px; z-index: 2; display: flex; gap: 2px; padding: 6px 8px; border-top: 1px solid var(--border); background: var(--bg2); }
 .fp-modules button { flex: 1; display: inline-flex; align-items: center; justify-content: center; gap: 6px; background: none; border: 0; padding: 7px; border-radius: var(--r-sm); color: var(--muted); font-weight: 500; }
 .fp-modules button:hover { background: var(--bg3); color: var(--fg); }

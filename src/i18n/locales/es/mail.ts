@@ -101,6 +101,9 @@ export default defineLocale<typeof ns.en>({
   "mail.pane.calendar": "Calendario",
   "mail.pane.mailTitle": "Correo (Ctrl+1)",
   "mail.pane.calendarTitle": "Calendario (Ctrl+2)",
+  "mail.side.collapse": "Contraer el menú lateral",
+  "mail.side.expand": "Expandir el menú lateral",
+  "mail.side.unread": { one: "{n} sin leer", other: "{n} sin leer" },
   // right-click menu of a list row
   "mail.ctx.copySubject": "Copiar asunto",
   "mail.ctx.copyEmail": "Copiar dirección de correo",
