@@ -157,6 +157,18 @@ const m4 = {
   ],
 };
 
+// A real (tiny) PDF for the attachment preview: the app only draws bytes that start with %PDF-
+const MOCK_PDF = btoa("%PDF-1.1\n1 0 obj<</Type/Catalog/Pages 2 0 R>>endobj\n2 0 obj<</Type/Pages/Kids[3 0 R]/Count 1>>endobj\n3 0 obj<</Type/Page/Parent 2 0 R/MediaBox[0 0 300 200]/Contents 4 0 R/Resources<</Font<</F1 5 0 R>>>>>>endobj\n4 0 obj<</Length 43>>stream\nBT /F1 24 Tf 40 100 Td (Hello PDF) Tj ET\nendstream endobj\n5 0 obj<</Type/Font/Subtype/Type1/BaseFont/Helvetica>>endobj\ntrailer<</Root 1 0 R>>\n%%EOF\n");
+
+// A conversation of four messages whose FIRST one carries the attachments (a PDF, a text file, pictures): the preview and the picture viewer open
+// from a message that has later messages (each with sticky Reply buttons) below it. test-preview-layer.mjs opens thread "tlayer".
+const mockLayerMsgs = [
+  { ...m4, id: "ml1", subject: "Layering check", date: now - 9 * H, attachments: [...m4.attachments, { index: 4, name: "notes.txt", mime: "text/plain", size: 120, inline: false, cid: null, referenced: false }] },
+  ...[3, 2, 1].map((h, i) => ({ ...secMsg(`ml${i + 2}`, "Re: Layering check", i % 2 ? "Nam" : "Linh Tran", i % 2 ? "nam@example.com" : "linh@example.com", { date: now - h * H }, `<p>${["Thanks for the deck.", "One question about page 3.", "Answered below, ship it."][i]}</p>`) })),
+];
+mockThreadMsgs.tlayer = mockLayerMsgs;
+threads.push(t("tlayer", "Layering check", ["Linh Tran"], "A conversation whose first message has attachments.", 1 * H, { count: 4, hasAttach: true }));
+
 const folders = ["inbox", "drafts", "sent", "archive", "junk", "trash"].flatMap((k, i) =>
   accounts.map((a) => ({ accountId: a.id, key: k, name: k, unread: k === "inbox" ? (a.id === "a1" ? 4 : 2) : 0, total: 10 + i })),
 ).concat([{ accountId: "a1", key: "f:Projects/Hey Look", name: "Projects/Hey Look", unread: 0, total: 5 }, { accountId: "a1", key: "f:Clients/International customers/Very long folder name for layout testing", name: "Clients/International customers/Very long folder name for layout testing", unread: 0, total: 3 }]);
@@ -1390,10 +1402,10 @@ export function installMock() {
         ? { messageId: "<m-rt@acme.example>", references: ["<root@acme.example>", "<m-rt@acme.example>"], replyTo: ['"Acme Support" <support@acme.example>'], from: '"Acme No Reply" <no-reply@acme.example>', to: ["nam@example.com", '"Doe, John" <john@acme.example>', "JOHN@acme.example", "y@acme.example"], cc: ['"Cc, Person" <cc@acme.example>', "nam@gmail.com"] }
         : { messageId: `<${String(a.messageId)}@x>`, references: [`<${String(a.messageId)}@x>`], replyTo: [] };
       case "attachment_data": {
-        const att = [m4, ...messages].find((x) => x.id === a.messageId)?.attachments.find((z) => z.index === a.index);
+        const att = ([m4, ...messages, ...mockLayerMsgs] as { id: string; attachments: { index: number; name: string; mime: string }[] }[]).find((x) => x.id === a.messageId)?.attachments.find((z) => z.index === a.index);
         const name = att?.name ?? "file.pdf";
         const mime = att?.mime ?? "application/pdf";
-        return { name, mime, dataBase64: mime.startsWith("image/") ? PIC : btoa(`Mock contents of ${name}\n`) };
+        return { name, mime, dataBase64: mime.startsWith("image/") ? PIC : mime === "application/pdf" ? MOCK_PDF : btoa(`Mock contents of ${name}\n`) };
       }
       case "inline_image": return { mime: "image/png", dataBase64: PIC, name: "picture.png" };
       case "save_attachments": return ["C:/Users/Me/Downloads/logo.png"];
