@@ -6,7 +6,8 @@ import fs from 'node:fs';
 import path from 'node:path';
 import crypto from 'node:crypto';
 import vm from 'node:vm';
-import { LANGS, PAGES, DOCS, STUB, urlOf, fileOf, headBlock, langBlock, scriptsBlock } from './generate-site-languages.mjs';
+import { LANGS, PAGES, DOCS, STUB, urlOf, fileOf, headBlock, langBlock, scriptsBlock, seoBlock } from './generate-site-languages.mjs';
+import { versionOf } from './lib/site-seo.mjs';
 
 const strict = process.argv.includes('--strict');
 const errors = [];
@@ -16,14 +17,15 @@ const read = (f) => fs.readFileSync(f, 'utf8');
 const relDocs = (f) => path.relative(DOCS, f).replace(/\\/g, '/');
 
 // ---------- small html helpers (regex based; the pages are plain, hand-written html) ----------
-const BLOCKS = ['head', 'lang', 'scripts'];
+const BLOCKS = ['head', 'seo', 'lang', 'scripts'];
 const stripBlocks = (t) => BLOCKS.reduce((s, n) => s.replace(new RegExp(`<!-- hl:${n}-begin[^>]*-->[\\s\\S]*?<!-- hl:${n}-end -->`), ''), t);
 const stripComments = (t) => t.replace(/<!--[\s\S]*?-->/g, '');
 const body = (t) => stripComments(stripBlocks(t));
 const ids = (t) => [...body(t).replace(/<script[\s\S]*?<\/script>/g, '').matchAll(/\sid="([^"]+)"/g)].map((m) => m[1]);
 const attrs = (t, tag, attr) => [...body(t).matchAll(new RegExp(`<${tag}\\b[^>]*?\\s${attr}="([^"]*)"`, 'g'))].map((m) => m[1]);
 const headings = (t) => { const o = {}; for (const m of body(t).matchAll(/<h([1-6])\b/g)) o[m[1]] = (o[m[1]] || 0) + 1; return JSON.stringify(o); };
-const inlineScripts = (t) => [...stripComments(t).matchAll(/<script\b(?![^>]*\ssrc=)[^>]*>([\s\S]*?)<\/script>/g)].map((m) => m[1]);
+// executable inline scripts only: a JSON-LD block (type="application/ld+json") is data, the browser never runs it and the CSP does not apply to it
+const inlineScripts = (t) => [...stripComments(t).matchAll(/<script\b(?![^>]*\ssrc=)(?![^>]*\stype="application\/ld\+json")[^>]*>([\s\S]*?)<\/script>/g)].map((m) => m[1]);
 const csp = (t) => (/http-equiv="Content-Security-Policy" content="([^"]*)"/.exec(t) || [])[1];
 const external = (h) => /^[a-z][a-z0-9+.-]*:/i.test(h) || h.startsWith('//');
 const sameSet = (a, b) => { const A = new Set(a), B = new Set(b); return [[...A].filter((x) => !B.has(x)), [...B].filter((x) => !A.has(x))]; };
@@ -121,6 +123,7 @@ function checkCommon(lang, page, file, text) {
   pageCount++;
   // language plumbing: exactly what the generator writes
   if (page !== '404' && !text.includes(headBlock(lang, page))) fail(where, 'canonical/hreflang block is missing or out of date (run scripts/generate-site-languages.mjs)');
+  if (page !== '404' && !text.includes(seoBlock(lang, page, text, versionOf(enText.index)))) fail(where, 'Open Graph / Twitter / JSON-LD block is missing or out of date (run scripts/generate-site-languages.mjs)');
   if (!text.includes(langBlock(lang, page))) fail(where, 'language menu block is missing or out of date');
   if (!text.includes(scriptsBlock(lang, page))) fail(where, 'script block is missing or out of date');
   const m = /<html lang="([^"]*)"/.exec(text);

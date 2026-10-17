@@ -133,7 +133,7 @@
   "nf.nav.privacy": "Quyền riêng tư",
   "nf.menu": "Menu",
   "nf.lang": "Ngôn ngữ",
-  "nf.lang.cur": "Ngôn ngữ: {lang}",
+  "nf.lang.cur": "{short} (Ngôn ngữ: {lang})",
   "nf.eyes": "Hai con mắt đang nhìn quanh",
   "nf.thanks": "Cảm ơn bạn đã dùng Hey Look! Ứng dụng vẫn miễn phí và mã nguồn mở, còn việc ủng hộ là hoàn toàn tùy chọn. ",
   "nf.supportproject": "Ủng hộ dự án",

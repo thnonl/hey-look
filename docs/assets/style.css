@@ -268,7 +268,7 @@ section { position: relative; }
 }
 .app svg.ic { width: 1.1em; height: 1.1em; }
 .app kbd { font-size: .78em; background: var(--a-bg3); color: var(--a-fg); border-color: var(--a-line); }
-.app p, .app h4 { margin: 0; }
+.app p, .app h3, .app h4 { margin: 0; }
 .a-top { flex: none; display: flex; align-items: center; gap: 10px; height: 44px; padding: 0 12px; background: var(--a-top); color: var(--a-top-fg); }
 .a-logo svg { width: 24px; height: 24px; display: block; }
 .a-title { font-weight: 700; letter-spacing: -.01em; }
@@ -653,7 +653,7 @@ details ol { padding-left: 1.2em; } details li { margin-bottom: .5em; }
   .nav { display: none; position: absolute; left: 0; right: 0; top: 100%; flex-direction: column; margin: 0; padding: 10px 16px 16px; background: var(--bg); border-bottom: 1px solid var(--line); box-shadow: var(--shadow); }
   .nav.open { display: flex; } .nav a { padding: 13px 10px; font-size: 1.05rem; }
   .nav-toggle { display: inline-flex; }
-  .hdr-dl span { display: none; } .hdr-dl { padding-inline: .7em; min-width: 44px; }
+  .hdr-dl span { position: absolute; width: 1px; height: 1px; margin: -1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; } /* visually hidden, still the link's name */ .hdr-dl { padding-inline: .7em; min-width: 44px; }
   .hdr-r { flex: 0 1 auto; }
 }
 /* Set by site.js when the inline nav would touch the buttons (wider fonts, classic scrollbar): the same menu as at 980px and below, Download keeps its label. */
