@@ -119,9 +119,9 @@ function HoverActions({ t }: { t: ThreadSummary }) {
     </button>
   );
   const map: Record<string, ReactNode> = {
-    archive: btn("archive", tr("mail.hover.archive"), <Archive size={14} />, () => void act(ids, "archive", undefined, tr("mail.done.archived"))),
+    archive: btn("archive", tr("mail.hover.archive"), <Archive size={14} />, () => void act(ids, "archive", undefined, () => tr("mail.done.archived"))),
     delete: btn("delete", folder === "trash" ? tr("mail.hover.deleteForever") : tr("common.delete"), <Trash2 size={14} />, () =>
-      void act(ids, "trash", undefined, folder === "trash" ? tr("mail.done.deleted") : tr("mail.done.trashed"))),
+      void act(ids, "trash", undefined, () => folder === "trash" ? tr("mail.done.deleted") : tr("mail.done.trashed"))),
     flag: btn("flag", t.flagged ? tr("mail.hover.unflag") : tr("mail.hover.flag"), <Flag size={14} fill={t.flagged ? "currentColor" : "none"} />, () => void act(ids, t.flagged ? "unstar" : "star")),
     pin: btn("pin", t.pinned ? tr("mail.hover.unpin") : tr("mail.hover.pin"), <Pin size={14} fill={t.pinned ? "currentColor" : "none"} />, () => void act(ids, t.pinned ? "unpin" : "pin")),
     read: btn("read", t.unread ? tr("mail.hover.markRead") : tr("mail.hover.markUnread"), t.unread ? <MailOpen size={14} /> : <Mail size={14} />, () => void act(ids, t.unread ? "read" : "unread")),
@@ -131,7 +131,7 @@ function HoverActions({ t }: { t: ThreadSummary }) {
         className="icon-btn"
         caret={false}
         title={tr("mail.hover.snooze")}
-        items={snoozePresets(prefs.snoozeTimes).map((p) => ({ label: p.label, onClick: () => void act(ids, "snooze", String(p.ts), tr("mail.done.snoozed", { when: p.label })) }))}
+        items={snoozePresets(prefs.snoozeTimes).map((p) => ({ label: p.label, onClick: () => void act(ids, "snooze", String(p.ts), () => tr("mail.done.snoozed", { when: p.label })) }))}
       >
         <Clock size={14} />
       </Dropdown>
@@ -182,9 +182,9 @@ async function searchInWebmail({ account, webmail }: WebmailTarget, q: string) {
     const copying = copyText(q); // started inside the click, before anything is awaited
     await openExternal(webmail.home);
     if (await copying) st.showToast(t("mail.webmail.copied", { name: webmail.name }), undefined, "success");
-    else st.showToast(t("mail.webmail.copyFailed", { name: webmail.name, query: q }), undefined, "error");
+    else st.showToast(() => t("mail.webmail.copyFailed", { name: webmail.name, query: q }), undefined, "error");
   } catch (e) {
-    st.showToast(t("mail.webmail.openFailed", { name: webmail.name, error: friendlyError(e) }), undefined, "error");
+    st.showToast(() => t("mail.webmail.openFailed", { name: webmail.name, error: friendlyError(e) }), undefined, "error");
   }
 }
 

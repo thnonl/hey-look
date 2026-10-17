@@ -10,7 +10,7 @@ export function GuardMenuHost() {
   const t = useT();
   const menu = useGuardMenu((s) => s.menu);
   if (!menu) return null;
-  const fail = () => useStore.getState().showToast(t("mail.ctx.copyFailed"), undefined, "error");
+  const fail = () => useStore.getState().showToast(() => t("mail.ctx.copyFailed"), undefined, "error");
   const copy = (text: string) => void copyToClipboard(text).then((ok) => ok || fail());
   const link = menu.link;
   const items: CtxItem[] = [

@@ -440,7 +440,7 @@ function OAuthBlock({ kind, onAppPassword }: { kind: OAuthKind; onAppPassword: (
         setEnded(end);
       } else {
         setError(friendlyError(e)); // stay here: the message is next to the button, and in a toast
-        showToast(friendlyError(e), undefined, "error");
+        showToast(() => friendlyError(e), undefined, "error");
       }
     } finally {
       setBusy(false);
@@ -531,7 +531,7 @@ function ImapForm({ initialProvider = "custom" }: { initialProvider?: string }) 
     try {
       const d = await api.discoverServer(email);
       if (!d) {
-        showToast(t("settings.add.noServerFound"), undefined, "error");
+        showToast(() => t("settings.add.noServerFound"), undefined, "error");
         return;
       }
       setProvider("custom");
@@ -543,7 +543,7 @@ function ImapForm({ initialProvider = "custom" }: { initialProvider?: string }) 
       setInsecure(false);
       setFound(d);
     } catch (e) {
-      showToast(friendlyError(e), undefined, "error");
+      showToast(() => friendlyError(e), undefined, "error");
     } finally {
       setDetecting(false);
     }
@@ -566,7 +566,7 @@ function ImapForm({ initialProvider = "custom" }: { initialProvider?: string }) 
       void useStore.getState().accountAdded(acc);
     } catch (e) {
       setError(friendlyError(e)); // stay here with what was typed: the message is next to the button, and in a toast
-      showToast(friendlyError(e), undefined, "error");
+      showToast(() => friendlyError(e), undefined, "error");
     } finally {
       setBusy(false);
     }
@@ -1256,7 +1256,7 @@ function SecurityPanel({ scope }: { scope: string | null }) {
         <Row label={t("settings.security.myKey")} hint={t("settings.security.myKeyHint")}>
           <select
             value={current}
-            onChange={(e) => void api.pgpSetDefault(scope, e.target.value || null).then(bumpKeys).catch((er) => showToast(friendlyError(er), undefined, "error"))}
+            onChange={(e) => void api.pgpSetDefault(scope, e.target.value || null).then(bumpKeys).catch((er) => showToast(() => friendlyError(er), undefined, "error"))}
           >
             <option value="">{own.length ? t("settings.security.keyAuto") : t("settings.security.noKeyYet")}</option>
             {own.map((k) => <option key={k.fingerprint} value={k.fingerprint}>{k.expires ? t("settings.security.keyLabelExp", { key: shortKey(k.fingerprint), algo: k.algo, year: new Date(k.expires * 1000).getFullYear() }) : t("settings.security.keyLabel", { key: shortKey(k.fingerprint), algo: k.algo })}</option>)}
@@ -1359,8 +1359,7 @@ function TrayTab() {
     try {
       await api.testNotification();
     } catch (e) {
-      const text = friendlyError(e);
-      showToast(os === "windows" ? text : t("settings.tray.testFailed", { error: text }), undefined, "error");
+      showToast(() => os === "windows" ? friendlyError(e) : t("settings.tray.testFailed", { error: friendlyError(e) }), undefined, "error");
     }
   };
   const toggleAuto = async (v: boolean) => {
@@ -1368,7 +1367,7 @@ function TrayTab() {
       await api.setAutostart(v);
       setAutostart(v);
     } catch (e) {
-      showToast(friendlyError(e), undefined, "error");
+      showToast(() => friendlyError(e), undefined, "error");
     }
   };
   return (

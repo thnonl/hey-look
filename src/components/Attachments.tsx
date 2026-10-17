@@ -147,9 +147,9 @@ export async function openAttachment(m: Pick<MessageFull, "id" | "fromEmail">, a
   const h: OpenHooks = typeof hooks === "function" ? { onError: hooks } : hooks;
   const st = useStore.getState();
   const fail = (key: Key, e: unknown, retry: () => void) => {
-    const msg = t(key, { name: a.name, error: friendlyError(e) });
-    if (h.onError) h.onError(msg);
-    else st.showToast(msg, undefined, "error", [{ label: t("common.retry"), run: retry }]);
+    const msg = () => t(key, { name: a.name, error: friendlyError(e) });
+    if (h.onError) h.onError(msg()); // (a caller that shows it itself gets the text as it is now)
+    else st.showToast(msg, undefined, "error", [{ label: () => t("common.retry"), run: retry }]);
   };
   const attempt = async (confirmed: boolean): Promise<void> => {
     try {
@@ -203,7 +203,7 @@ const folderName = (path: string) => {
 
 /** Plain "saved" toast (no automatic open: used after a risky file was saved instead of opened, and by the preview's Save as). */
 function savedToast(path: string, name: string) {
-  useStore.getState().showToast(t("reading.att.savedTo", { name, folder: folderName(path) }), undefined, "success", [{ label: t("reading.att.showInFolder"), run: () => void api.attachmentReveal(path).catch(() => undefined) }]);
+  useStore.getState().showToast(() => t("reading.att.savedTo", { name, folder: folderName(path) }), undefined, "success", [{ label: () => t("reading.att.showInFolder"), run: () => void api.attachmentReveal(path).catch(() => undefined) }]);
 }
 
 /** Toast after a save, following the "After saving" setting. */
@@ -213,7 +213,7 @@ function afterSave(path: string, name: string, m: Pick<MessageFull, "id" | "from
   const open = { label: t("reading.att.open"), run: () => void openAttachment(m, a) };
   if (st.prefs.afterSave === "reveal") return void api.attachmentReveal(path).catch(() => undefined);
   if (st.prefs.afterSave === "open") return void openAttachment(m, a);
-  st.showToast(t("reading.att.savedTo", { name, folder: folderName(path) }), undefined, "success", [open, reveal]);
+  st.showToast(() => t("reading.att.savedTo", { name, folder: folderName(path) }), undefined, "success", [open, reveal]);
 }
 
 // ---------------------------------------------------------------- card
@@ -239,7 +239,7 @@ export function AttachmentCard({ m, a }: { m: MessageFull; a: AttMeta }) {
     } catch (e) {
       const msg = friendlyError(e);
       setSt({ status: "error", error: msg });
-      showToast(t("reading.att.saveFailed", { error: msg }), undefined, "error", [{ label: t("common.retry"), run: () => void save(false) }]);
+      showToast(() => t("reading.att.saveFailed", { error: friendlyError(e) }), undefined, "error", [{ label: () => t("common.retry"), run: () => void save(false) }]);
     } finally {
       end();
     }
@@ -276,7 +276,7 @@ export function AttachmentCard({ m, a }: { m: MessageFull; a: AttMeta }) {
       const d = await api.attachmentData(m.id, a.index);
       void openCompose({ accountId: m.accountId, subject: "", attachments: [{ filename: d.name, mime: d.mime, dataBase64: d.dataBase64 }] });
     } catch (e) {
-      showToast(t("reading.att.couldntAttach", { name: a.name, error: friendlyError(e) }), undefined, "error");
+      showToast(() => t("reading.att.couldntAttach", { name: a.name, error: friendlyError(e) }), undefined, "error");
     }
   };
 
@@ -400,15 +400,15 @@ export function AttachmentStrip({ m }: { m: MessageFull }) {
       if (!r) return; // cancelled
       const folder = r.dir.split(/[\\/]/).filter(Boolean).pop() ?? r.dir;
       if (r.failed.length === 0) {
-        showToast(t("reading.strip.savedMany", { n: r.saved.length, folder }), undefined, "success", [
-          { label: t("reading.att.showInFolder"), run: () => r.saved[0] && void api.attachmentReveal(r.saved[0]).catch(() => undefined) },
+        showToast(() => t("reading.strip.savedMany", { n: r.saved.length, folder }), undefined, "success", [
+          { label: () => t("reading.att.showInFolder"), run: () => r.saved[0] && void api.attachmentReveal(r.saved[0]).catch(() => undefined) },
         ]);
       } else {
         const f = r.failed[0];
-        showToast(t("reading.strip.savedPartial", { n: r.saved.length, total: m.attachments.length, name: f.name, error: f.error }), undefined, "error", [{ label: t("common.retry"), run: () => void runSaveAll(ask) }]);
+        showToast(() => t("reading.strip.savedPartial", { n: r.saved.length, total: m.attachments.length, name: f.name, error: f.error }), undefined, "error", [{ label: () => t("common.retry"), run: () => void runSaveAll(ask) }]);
       }
     } catch (e) {
-      showToast(t("reading.strip.saveAllFailed", { error: friendlyError(e) }), undefined, "error", [{ label: t("common.retry"), run: () => void runSaveAll(ask) }]);
+      showToast(() => t("reading.strip.saveAllFailed", { error: friendlyError(e) }), undefined, "error", [{ label: () => t("common.retry"), run: () => void runSaveAll(ask) }]);
     } finally {
       end();
       setSaveAll(null);
@@ -465,7 +465,7 @@ export function AttachmentStrip({ m }: { m: MessageFull }) {
                       /* reported below */
                     }
                   }
-                  showToast(t("reading.strip.picsSaved", { n, total: pictures.length }), undefined, n === pictures.length ? "success" : "error");
+                  showToast(() => t("reading.strip.picsSaved", { n, total: pictures.length }), undefined, n === pictures.length ? "success" : "error");
                 })() },
                 { divider: true },
                 { label: listPics ? t("reading.strip.hidePics") : t("reading.strip.listPics"), onClick: () => setListPics((v) => !v) },
@@ -574,7 +574,7 @@ export function PreviewDialog({ m, items, start, onClose }: { m: MessageFull; it
             </span>
           )}
           {!m.confidential && <button className="btn small" onClick={() => void openAttachment(m, cur)}><ExternalLink size={13} /> {t("reading.att.open")}</button>}
-          {!m.confidential && <button className="btn small" onClick={() => void saveAs(m, cur, (p) => savedToast(p, cur.name)).catch((e) => useStore.getState().showToast(t("reading.att.couldntSave", { name: cur.name, error: friendlyError(e) }), undefined, "error"))}><Download size={13} /> {t("reading.att.saveAs")}</button>}
+          {!m.confidential && <button className="btn small" onClick={() => void saveAs(m, cur, (p) => savedToast(p, cur.name)).catch((e) => useStore.getState().showToast(() => t("reading.att.couldntSave", { name: cur.name, error: friendlyError(e) }), undefined, "error"))}><Download size={13} /> {t("reading.att.saveAs")}</button>}
           <button className="icon-btn" aria-label={t("reading.pv.close")} onClick={onClose}><X size={16} /></button>
         </div>
         <div className="pv-stage">

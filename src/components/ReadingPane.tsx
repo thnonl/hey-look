@@ -503,7 +503,7 @@ function MessageCard({ m, open, onToggle }: { m: MessageFull; open: boolean; onT
       else if (r.kind === "open") await openUpdateLink(r.target);
       else void useStore.getState().openCompose({ accountId: m.accountId, to: [r.target.replace("mailto:", "").split("?")[0]], subject: "unsubscribe" });
     } catch (e) {
-      showToast(t("reading.msg.unsubscribeFailed", { error: friendlyError(e) }), undefined, "error");
+      showToast(() => t("reading.msg.unsubscribeFailed", { error: friendlyError(e) }), undefined, "error");
     }
   };
 
@@ -514,10 +514,10 @@ function MessageCard({ m, open, onToggle }: { m: MessageFull; open: boolean; onT
       const r = await api.attachmentSaveAll(m.id, ask || prefs.askWhereToSave);
       if (!r) return;
       const folder = r.dir.split(/[\\/]/).filter(Boolean).pop() ?? r.dir;
-      if (r.failed.length === 0) showToast(t("reading.strip.savedMany", { n: r.saved.length, folder }), undefined, "success", r.saved[0] ? [{ label: t("reading.att.showInFolder"), run: () => void api.attachmentReveal(r.saved[0]).catch(() => undefined) }] : undefined);
-      else showToast(t("reading.strip.savedPartial", { n: r.saved.length, total: m.attachments.length, name: r.failed[0].name, error: friendlyError(r.failed[0].error) }), undefined, "error", [{ label: t("common.retry"), run: () => void saveAll(ask) }]);
+      if (r.failed.length === 0) showToast(() => t("reading.strip.savedMany", { n: r.saved.length, folder }), undefined, "success", r.saved[0] ? [{ label: () => t("reading.att.showInFolder"), run: () => void api.attachmentReveal(r.saved[0]).catch(() => undefined) }] : undefined);
+      else showToast(() => t("reading.strip.savedPartial", { n: r.saved.length, total: m.attachments.length, name: r.failed[0].name, error: friendlyError(r.failed[0].error) }), undefined, "error", [{ label: () => t("common.retry"), run: () => void saveAll(ask) }]);
     } catch (e) {
-      showToast(t("reading.strip.saveAllFailed", { error: friendlyError(e) }), undefined, "error", [{ label: t("common.retry"), run: () => void saveAll(ask) }]);
+      showToast(() => t("reading.strip.saveAllFailed", { error: friendlyError(e) }), undefined, "error", [{ label: () => t("common.retry"), run: () => void saveAll(ask) }]);
     }
   };
 
@@ -742,7 +742,7 @@ export function ReadingPane() {
         ),
       );
     } catch (e) {
-      showToast(friendlyError(e), undefined, "error");
+      showToast(() => friendlyError(e), undefined, "error");
     } finally {
       setBusy(false);
     }
@@ -756,7 +756,7 @@ export function ReadingPane() {
       confirmLabel: t("reading.head.blockConfirm"),
       danger: true,
     });
-    if (ok) void act(id, "block", undefined, t("reading.head.blocked", { email: last.fromEmail }));
+    if (ok) void act(id, "block", undefined, () => t("reading.head.blocked", { email: last.fromEmail }));
   };
 
   return (
@@ -764,15 +764,15 @@ export function ReadingPane() {
       <div className="rp-head">
         <h2>{subjectText(summ.subject)}</h2>
         <div className="rp-tools">
-          <button className="icon-btn" title={t("reading.head.archiveTip")} aria-label={t("reading.head.archive")} onClick={() => void act(id, "archive", undefined, t("reading.head.archived"))}><Archive size={16} /></button>
-          <button className="icon-btn" title={t("reading.head.deleteTip")} aria-label={t("reading.head.delete")} onClick={() => void act(id, "trash", undefined, t("reading.head.trashed"))}><Trash2 size={16} /></button>
+          <button className="icon-btn" title={t("reading.head.archiveTip")} aria-label={t("reading.head.archive")} onClick={() => void act(id, "archive", undefined, () => t("reading.head.archived"))}><Archive size={16} /></button>
+          <button className="icon-btn" title={t("reading.head.deleteTip")} aria-label={t("reading.head.delete")} onClick={() => void act(id, "trash", undefined, () => t("reading.head.trashed"))}><Trash2 size={16} /></button>
           <Dropdown
             className="icon-btn snooze-btn"
             caret={false}
             title={t("reading.head.snoozeTip")}
             items={snoozePresets(prefs.snoozeTimes).map((p) => ({
               label: p.label,
-              onClick: () => void act(id, "snooze", String(p.ts), t("reading.head.snoozed", { label: p.label })),
+              onClick: () => void act(id, "snooze", String(p.ts), () => t("reading.head.snoozed", { label: p.label })),
             }))}
           >
             <Clock size={16} />
@@ -784,8 +784,8 @@ export function ReadingPane() {
             caret={false}
             title={t("reading.head.more")}
             items={[
-              { label: t("reading.head.markUnread"), icon: <MailX size={14} />, onClick: () => void act(id, "unread", undefined, t("reading.head.markedUnread")) },
-              { label: t("reading.head.moveJunk"), onClick: () => void act(id, "junk", undefined, t("reading.head.movedJunk")), ...junkOff },
+              { label: t("reading.head.markUnread"), icon: <MailX size={14} />, onClick: () => void act(id, "unread", undefined, () => t("reading.head.markedUnread")) },
+              { label: t("reading.head.moveJunk"), onClick: () => void act(id, "junk", undefined, () => t("reading.head.movedJunk")), ...junkOff },
               { divider: true },
               { label: t("reading.head.blockSender"), onClick: () => void block(), ...junkOff },
             ]}

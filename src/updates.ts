@@ -80,7 +80,7 @@ export async function openUpdateLink(url: string, announce = false) {
     // the toast says "copied" only when it was (on Linux it was not, QA BUG-L4)
     const copied = await copyToClipboard(url);
     showToast(
-      copied ? t("updates.toast.openFailedCopied") : t("updates.toast.openFailedNotCopied", { url: url.length > 100 ? url.slice(0, 100) + "…" : url }),
+      () => copied ? t("updates.toast.openFailedCopied") : t("updates.toast.openFailedNotCopied", { url: url.length > 100 ? url.slice(0, 100) + "…" : url }),
       undefined,
       "error",
     );
@@ -130,7 +130,7 @@ export const useUpdates = create<UpdatesState>((set, get) => {
     setFlow({ state: "failed", stage, message, countdown: null, asking: "none", canReinstall: stage === "install", speed: null, eta: null });
     const st = useStore.getState();
     if (windowFocused() && !st.dialog) {
-      st.showToast(t("updates.toast.failed", { version: v ?? "" }), undefined, "error", [{ label: t("updates.action.details"), run: () => get().openSettingsAbout(false) }]);
+      st.showToast(() => t("updates.toast.failed", { version: v ?? "" }), undefined, "error", [{ label: () => t("updates.action.details"), run: () => get().openSettingsAbout(false) }]);
     }
   };
 
@@ -188,10 +188,10 @@ export const useUpdates = create<UpdatesState>((set, get) => {
       setFlow({ state: "ready", countdown: null, asking: variant });
       set({ askedFor: v });
       toast({
-        text: askText(v, variant),
+        text: () => askText(v, variant),
         actions: [
-          { label: t("updates.action.restartNow"), run: () => void get().restartToUpdate() },
-          { label: t("updates.action.later"), run: () => get().deferUpdate() },
+          { label: () => t("updates.action.restartNow"), run: () => void get().restartToUpdate() },
+          { label: () => t("updates.action.later"), run: () => get().deferUpdate() },
         ],
         onDismiss: () => get().deferUpdate(),
       });
@@ -200,10 +200,10 @@ export const useUpdates = create<UpdatesState>((set, get) => {
     let left = 5;
     const show = () =>
       toast({
-        text: t("updates.countdown", { version: v, seconds: left }),
+        text: () => t("updates.countdown", { version: v, seconds: left }),
         actions: [
-          { label: t("updates.action.restartNow"), run: () => void get().restartToUpdate() },
-          { label: t("updates.action.notNow"), run: () => get().deferUpdate() },
+          { label: () => t("updates.action.restartNow"), run: () => void get().restartToUpdate() },
+          { label: () => t("updates.action.notNow"), run: () => get().deferUpdate() },
         ],
         onDismiss: () => get().deferUpdate(),
       });
@@ -340,12 +340,12 @@ export const useUpdates = create<UpdatesState>((set, get) => {
       set({ toastFor: v });
       // stays until the user closes it (the × or Esc), no timer
       st.setStickyToast("update-available", {
-        text: t("updates.available", { version: v }),
+        text: () => t("updates.available", { version: v }),
         actions: [
-          ...(info.asset ? [{ label: t("updates.action.update"), run: () => void get().startUpdate("toast") }] : []),
-          { label: t("updates.action.whatsNew"), run: () => get().openSettingsAbout(false) },
+          ...(info.asset ? [{ label: () => t("updates.action.update"), run: () => void get().startUpdate("toast") }] : []),
+          { label: () => t("updates.action.whatsNew"), run: () => get().openSettingsAbout(false) },
         ],
-        closeLabel: t("common.close"),
+        closeLabel: () => t("common.close"),
         escCloses: true,
       });
     },
@@ -466,7 +466,7 @@ export const useUpdates = create<UpdatesState>((set, get) => {
         }
       } catch (e) {
         // anything else that went wrong before the installer started must not end without a word
-        useStore.getState().setStickyToast(RESTART_STOPPED, { text: t("updates.restartFailed", { error: friendlyError(e).replace(/\.$/, "") }), kind: "error", closeLabel: t("common.close") });
+        useStore.getState().setStickyToast(RESTART_STOPPED, { text: () => t("updates.restartFailed", { error: friendlyError(e).replace(/\.$/, "") }), kind: "error", closeLabel: () => t("common.close") });
         stickyTimer.arm(RESTART_STOPPED);
         void api.updateNote(`restart not started: ${friendlyError(e)}`).catch(() => undefined);
         if (get().flow.state === "waiting") setFlow({ state: "ready", countdown: null, asking: "none" });
@@ -502,13 +502,13 @@ export const useUpdates = create<UpdatesState>((set, get) => {
         const st = useStore.getState();
         const key = "update-result";
         if (s.outcome === "updated") {
-          st.setStickyToast(key, { text: t(s.draft ? "updates.result.updatedDraft" : "updates.result.updated", { version: s.version ?? "" }), kind: "success", closeLabel: t("common.close") });
+          st.setStickyToast(key, { text: () => t(s.draft ? "updates.result.updatedDraft" : "updates.result.updated", { version: s.version ?? "" }), kind: "success", closeLabel: () => t("common.close") });
         } else if (s.outcome === "failed") {
           st.setStickyToast(key, {
-            text: t("updates.result.failed", { version: s.version ?? "" }),
+            text: () => t("updates.result.failed", { version: s.version ?? "" }),
             kind: "error",
-            actions: [{ label: t("updates.action.open"), run: () => get().openSettingsAbout(false) }],
-            closeLabel: t("common.close"),
+            actions: [{ label: () => t("updates.action.open"), run: () => get().openSettingsAbout(false) }],
+            closeLabel: () => t("common.close"),
           });
         } else {
           return;

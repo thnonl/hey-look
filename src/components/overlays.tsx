@@ -2,7 +2,7 @@ import { AlertTriangle, CheckCircle2, Coffee, Info, X } from "lucide-react";
 import { useEffect, useRef } from "react";
 import { useT } from "../i18n/react";
 import { fullErrorFor, lazyText, useStore } from "../store";
-import { clearableOfKind, stackItems } from "../toastStack";
+import { clearableOfKind, stackItems, toastText } from "../toastStack";
 
 /** Stack of toasts; a toast with Undo stays until its window ends. */
 export function Toasts() {
@@ -58,7 +58,7 @@ export function Toasts() {
             {lazyText(a.label)}
           </button>
         ));
-        const shown = t.textFn ? t.textFn() : t.text;
+        const shown = toastText(t);
         const text = <span className="toast-text" title={fullErrorFor(shown)}>{shown}</span>;
         return (
           <div key={t.id} className={`toast ${t.kind}${t.sticky && !t.ttl ? " sticky" : ""}${t.support ? " support" : ""}`} style={t.sticky && !t.ttl ? undefined : { ["--ttl" as string]: `${t.ttl}ms` }}>

@@ -250,6 +250,7 @@ jobs:
           node scripts/test-latest-json-keys.mjs
           node --experimental-strip-types scripts/test-sticky-timers.mjs
           node --experimental-strip-types scripts/test-toast-stack.mjs
+          node --experimental-strip-types scripts/test-toast-language.mjs
           node --experimental-strip-types scripts/test-translate-jobs.mjs
           node --experimental-strip-types scripts/test-translate-box-layout.mjs
           node --experimental-strip-types scripts/test-open-thread.mjs

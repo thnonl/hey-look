@@ -89,7 +89,7 @@ export function ScheduledList() {
         if (await askUnlock(locked[1], "decrypt")) return open(o, openSchedule);
         return;
       }
-      showToast(friendlyError(err), undefined, "error");
+      showToast(() => friendlyError(err), undefined, "error");
       void refresh();
     }
   };
@@ -100,9 +100,9 @@ export function ScheduledList() {
       await api.outboxSendNow(o.id);
       showToast(t("compose.scheduled.sentToast", { subject: o.subject || t("compose.noSubject") }), undefined, "success");
     } catch (err) {
-      showToast(t("compose.scheduled.failedToast", { subject: o.subject || t("compose.noSubject"), error: friendlyError(err) }), undefined, "error", [
-        { label: t("common.retry"), run: () => void api.outboxRetry(o.id).then(refresh) },
-        { label: t("compose.scheduled.open"), run: () => void open(o) },
+      showToast(() => t("compose.scheduled.failedToast", { subject: o.subject || t("compose.noSubject"), error: friendlyError(err) }), undefined, "error", [
+        { label: () => t("common.retry"), run: () => void api.outboxRetry(o.id).then(refresh) },
+        { label: () => t("compose.scheduled.open"), run: () => void open(o) },
       ]);
     } finally {
       setBusyId(null);
@@ -115,7 +115,7 @@ export function ScheduledList() {
       await api.outboxRetry(o.id);
       showToast(t("compose.scheduled.tryingAgain"), undefined, "info");
     } catch (err) {
-      showToast(friendlyError(err), undefined, "error");
+      showToast(() => friendlyError(err), undefined, "error");
     }
     void refresh();
   };
@@ -139,7 +139,7 @@ export function ScheduledList() {
         showToast(t("compose.toast.movedToDrafts"), undefined, "success");
       }
     } catch (err) {
-      showToast(friendlyError(err), undefined, "error");
+      showToast(() => friendlyError(err), undefined, "error");
     }
     void refresh();
   };

@@ -13,7 +13,7 @@ import {
 import { accountColor } from "../prefs";
 import { calendarName, calendarTitle, defaultCalendar, deleteConfirm, isSyncedCalendarId, pausedSources, readOnlyNote, writableCalendars } from "../calendarSync";
 import { friendlyError, EventInit, useStore } from "../store";
-import { t } from "../i18n";
+import { t, type Key } from "../i18n";
 import { useLang, useT } from "../i18n/react";
 import { tx } from "../i18n/rich";
 import { DateField, TimeField } from "./DateTimeFields";
@@ -128,7 +128,7 @@ export function InviteCard({ m }: { m: MessageFull }) {
       const p = await api.calendarSaveIcs({ messageId: m.id });
       if (p) showToast(t("calendar.toast.saved", { name: p.split(/[\\/]/).pop() ?? p }), undefined, "success");
     } catch (e) {
-      showToast(t("calendar.toast.saveFailed", { error: friendlyError(e) }), undefined, "error");
+      showToast(() => t("calendar.toast.saveFailed", { error: friendlyError(e) }), undefined, "error");
     }
   }
 
@@ -161,7 +161,7 @@ export function InviteCard({ m }: { m: MessageFull }) {
       useStore.getState().bumpCal();
       await useStore.getState().reloadMessages();
     } catch (e) {
-      showToast(t("calendar.toast.addFailed", { error: friendlyError(e) }), undefined, "error");
+      showToast(() => t("calendar.toast.addFailed", { error: friendlyError(e) }), undefined, "error");
     } finally {
       setAdding(false);
     }
@@ -175,7 +175,7 @@ export function InviteCard({ m }: { m: MessageFull }) {
       useStore.getState().bumpCal();
       await useStore.getState().reloadMessages();
     } catch (e) {
-      showToast(t("calendar.toast.removeFailed", { error: friendlyError(e) }), undefined, "error");
+      showToast(() => t("calendar.toast.removeFailed", { error: friendlyError(e) }), undefined, "error");
     }
   };
 
@@ -867,7 +867,7 @@ function EventPopover({ state, tz, color, onClose }: { state: PopState; tz: stri
       await api.calendarDeleteEvent(ev.id, notify);
       showToast(notify ? t("calendar.toast.cancelledNotified") : t("calendar.toast.deleted"), undefined, "success");
     } catch (e) {
-      showToast(friendlyError(e), undefined, errorCode(e) === "CAL_SEND_FAILED" ? "error" : "error");
+      showToast(() => friendlyError(e), undefined, errorCode(e) === "CAL_SEND_FAILED" ? "error" : "error");
     }
     bumpCal();
     onClose();
@@ -887,7 +887,7 @@ function EventPopover({ state, tz, color, onClose }: { state: PopState; tz: stri
       await setView(r.folder, r.accountId);
       await openMailThread(r.threadId);
     } catch (e) {
-      showToast(friendlyError(e), undefined, "error");
+      showToast(() => friendlyError(e), undefined, "error");
     }
   };
 
@@ -896,7 +896,7 @@ function EventPopover({ state, tz, color, onClose }: { state: PopState; tz: stri
       const p = await api.calendarSaveIcs({ eventId: ev.id });
       if (p) showToast(t("calendar.toast.saved", { name: p.split(/[\\/]/).pop() ?? p }), undefined, "success");
     } catch (e) {
-      showToast(t("calendar.toast.saveFailed", { error: friendlyError(e) }), undefined, "error");
+      showToast(() => t("calendar.toast.saveFailed", { error: friendlyError(e) }), undefined, "error");
     }
     onClose();
   };
@@ -1196,11 +1196,11 @@ export function EventDialog({ eventId, init }: { eventId?: string; init?: EventI
       const code = errorCode(err);
       if (code === "CAL_SEND_FAILED" || code === "CAL_CONFLICT" || code === "CAL_GONE") {
         // the invitations failed, or the service's version won: said once, the dialog closes (the calendar shows what is there now)
-        showToast(friendlyError(err), undefined, "error");
+        showToast(() => friendlyError(err), undefined, "error");
         setDialog(null);
       } else if (code === "CAL_OFFLINE") {
         // nothing was saved: the dialog stays open with what was typed
-        showToast(friendlyError(err), undefined, "error");
+        showToast(() => friendlyError(err), undefined, "error");
         setBusy(false);
       } else {
         setError(friendlyError(err));
@@ -1339,12 +1339,12 @@ export function defaultMeeting(tz: string, init?: { start?: number; end?: number
 }
 
 /** The meeting of a draft, or the reason it can't be sent. */
-export function meetingToDraft(m: MeetingState, tz: string): { meeting: { start: number; end: number; allDay: boolean; tzid: string | null; location: string | null } } | { error: string } {
+export function meetingToDraft(m: MeetingState, tz: string): { meeting: { start: number; end: number; allDay: boolean; tzid: string | null; location: string | null } } | { error: string; errorKey: Key } {
   const s = fromInputs(m.sd, m.st, tz, m.allDay);
   const e = fromInputs(m.ed, m.et, tz, m.allDay);
-  if (s === null || e === null) return { error: t("calendar.meeting.errDate") };
+  if (s === null || e === null) return { error: t("calendar.meeting.errDate"), errorKey: "calendar.meeting.errDate" };
   const end = m.allDay ? e + 86400 : e;
-  if (end <= s) return { error: t("calendar.meeting.errEnd") };
+  if (end <= s) return { error: t("calendar.meeting.errEnd"), errorKey: "calendar.meeting.errEnd" };
   return { meeting: { start: s, end, allDay: m.allDay, tzid: m.allDay ? null : tz, location: m.where.trim() || null } };
 }
 
