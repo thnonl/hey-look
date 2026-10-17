@@ -72,9 +72,52 @@ interface Rule {
   d: Decls;
 }
 
+const MAX_RULES = 3000;
+
+/** A style sheet as [selector, body] pairs; comments and at-rules (@font-face, @page, @media ...) are left out. One pass: a hostile sheet cannot make it slow. */
+function ruleList(text: string): [string, string][] {
+  let css = "";
+  for (let p = 0; ; ) {
+    const a = text.indexOf("/*", p);
+    if (a < 0) {
+      css += text.slice(p);
+      break;
+    }
+    css += text.slice(p, a);
+    const b = text.indexOf("*/", a + 2);
+    if (b < 0) break;
+    p = b + 2;
+  }
+  css = css.replace(/<!--|-->/g, "");
+  const out: [string, string][] = [];
+  for (let i = 0; i < css.length; ) {
+    const o = css.indexOf("{", i);
+    if (o < 0) break;
+    const sel = css.slice(Math.max(i, o - 300), o);
+    const t = sel.slice(Math.max(sel.lastIndexOf(";"), sel.lastIndexOf("}")) + 1).trim(); // (what an @import line or the end of the rule before leaves in front)
+    if (t.startsWith("@")) {
+      let depth = 1;
+      let j = o + 1;
+      while (j < css.length && depth) {
+        const ch = css[j++];
+        depth += ch === "{" ? 1 : ch === "}" ? -1 : 0;
+      }
+      i = j;
+      continue;
+    }
+    const c = css.indexOf("}", o);
+    if (c < 0) break;
+    out.push([t, css.slice(o + 1, c)]);
+    if (out.length >= MAX_RULES) break; // (Word writes about a hundred, a web page's whole sheet is never needed)
+    i = c + 1;
+  }
+  return out;
+}
+
 /** The simple rules of the <style> elements: `tag`, `.class`, `tag.class`, several separated by commas (what Word, Excel and Apple's programs write). */
 function readRules(root: El): Map<string, Rule[]> {
   const map = new Map<string, Rule[]>();
+  let count = 0;
   const walk = (e: El) => {
     for (const k of e.kids) {
       if (typeof k === "string") continue;
@@ -82,15 +125,15 @@ function readRules(root: El): Map<string, Rule[]> {
         walk(k);
         continue;
       }
-      const css = textOf(k).replace(/\/\*[\s\S]*?\*\/|<!--|-->/g, "").replace(/@[^{;]*\{(?:[^{}]*\{[^{}]*\})*[^{}]*\}|@[^{;]*;/g, "");
-      for (const m of css.matchAll(/([^{}]+)\{([^{}]*)\}/g)) {
-        const d = decls(m[2]);
-        for (const sel of m[1].split(",")) {
-          const s = /^\s*([a-z][a-z0-9]*)?(?:\.([\w-]+))?\s*$/i.exec(sel);
+      for (const [selectors, body] of ruleList(textOf(k).slice(0, 400_000))) {
+        if (count++ >= MAX_RULES) return;
+        const d = decls(body);
+        for (const sel of selectors.split(",")) {
+          const s = /^\s*([a-z][a-z0-9]*)?(?:\.([\w-]+))?\s*$/i.exec(sel.slice(0, 100));
           if (!s || (!s[1] && !s[2])) continue;
           const r: Rule = { tag: (s[1] ?? "").toLowerCase(), cls: s[2] ?? "", spec: (s[1] ? 1 : 0) + (s[2] ? 10 : 0), d };
           const key = r.cls || r.tag;
-          map.set(key, [...(map.get(key) ?? []), r]);
+          (map.get(key) ?? map.set(key, []).get(key)!).push(r);
         }
       }
     }
@@ -431,7 +474,7 @@ class Cleaner {
   o: PasteOpts;
   constructor(root: El, o: PasteOpts) {
     this.o = o;
-    this.rules = readRules(root);
+    this.rules = o.mode === "text" ? new Map() : readRules(root); // (Text only has no use for the look of anything)
   }
 
   /** the declarations that apply to an element: attributes of old HTML, then the rules of the style sheet, then its own style */
@@ -615,7 +658,7 @@ const hasBlock = (e: El): boolean => e.kids.some((k) => typeof k !== "string" &&
 // ---------------------------------------------------------------- the entry points
 
 /** True for the HTML of a copy made inside the editor (ProseMirror marks it): it is already in the editor's own form. */
-export const isInternalCopy = (html: string): boolean => html.includes("data-pm-slice");
+export const isInternalCopy = (html: string): boolean => /^\s*(?:<meta\b[^>]*>\s*)*<[a-z][a-z0-9]*\b[^>]*\sdata-pm-slice="\d+ \d+ [^"]*"/i.test(html.slice(0, 2000));
 
 /** The clipboard HTML as the clean HTML of the editor's schema. */
 export function cleanPaste(html: string, o: PasteOpts): PasteResult {
@@ -636,6 +679,16 @@ export function pasteText(html: string, tables = true): string {
 const NBSP = String.fromCharCode(160);
 
 /** Lines of text as paragraphs: one per line, a blank line stays a blank paragraph, the blanks that indent a line stay. */
+/**
+ * The HTML the editor's reader gets for a clipboard, in a mode: the cleaned HTML (a copy made inside the editor is left as it is), Text only made from the
+ * structure (list markers, table rows) or else from the plain text, and the plain text when the HTML had nothing left (a picture that could not be pasted).
+ */
+export function editorHtml(p: { html: string; text: string }, mode: PasteMode, tables: boolean, base: { family: string; size: number }): string {
+  if (mode === "text") return textToHtml(pasteText(p.html, tables) || p.text);
+  const html = isInternalCopy(p.html) ? p.html : cleanPaste(p.html, { mode, tables, base }).html;
+  return html || (p.text ? textToHtml(p.text) : "");
+}
+
 export function textToHtml(text: string): string {
   const lines = text.replace(/\r\n?/g, "\n").replace(/\n$/, "").split("\n");
   const esc = (s: string) => s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");

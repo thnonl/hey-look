@@ -22,11 +22,23 @@ const ENDS_P = new Set("address article aside blockquote center div dl fieldset 
 /** how deep the tree may get: a hostile paste cannot make a recursive walk overflow the stack */
 export const MAX_DEPTH = 120;
 
-const TAG = /<(\/?)([a-zA-Z][^\s/>]*)((?:[^>"']|"[^"]*"|'[^']*'){0,6000})>/y;
+const TAG = /^<(\/?)([a-zA-Z][^\s/>]*)([^]*)>$/;
 const ATTR = /([^\s"'<>/=]+)(?:\s*=\s*(?:"([^"]*)"|'([^']*)'|([^\s>]*)))?/g;
 
 /** `&amp;` `&#39;` `&copy;` ... to characters; a no-break space stays a no-break space (it is content in Word's empty paragraphs). */
 export const decode = (s: string): string => (s.includes("&") ? decodeEntities(s.replace(/&nbsp;|&#160;|&#xa0;/gi, " ")) : s);
+
+/** The end (after the `>`) of the tag that starts at `i`; a `>` inside quotes does not end it; -1 when it never ends. */
+function tagEnd(html: string, i: number): number {
+  let q = "";
+  for (let j = i + 1; j < html.length; j++) {
+    const c = html[j];
+    if (q) q = c === q ? "" : q;
+    else if (c === '"' || c === "'") q = c;
+    else if (c === ">") return j + 1;
+  }
+  return -1;
+}
 
 export function parseHtml(html: string): El {
   const root: El = { tag: "", attrs: {}, kids: [] };
@@ -44,6 +56,9 @@ export function parseHtml(html: string): El {
     return false;
   };
   let i = 0;
+  // what the tags that never end may cost altogether: a hostile paste of a million "<a " must not be quadratic
+  let lost = 0;
+  const budget = html.length * 3 + 50000;
   while (i < html.length) {
     const lt = html.indexOf("<", i);
     if (lt < 0) {
@@ -57,19 +72,20 @@ export function parseHtml(html: string): El {
       i = e < 0 ? html.length : e + 3; // comments, Word's <!--[if ...]> blocks and Chrome's <!--StartFragment--> go
       continue;
     }
-    TAG.lastIndex = i;
-    const m = TAG.exec(html);
-    if (!m) {
-      if (html[i + 1] === "!" || html[i + 1] === "?") {
-        const e = html.indexOf(">", i); // <!DOCTYPE>, <?xml ?>, Word's <![if !supportLists]> / <![endif]>
-        i = e < 0 ? html.length : e + 1;
-      } else {
-        top().kids.push("<");
-        i++;
-      }
+    if (html[i + 1] === "!" || html[i + 1] === "?") {
+      const e = html.indexOf(">", i); // <!DOCTYPE>, <?xml ?>, Word's <![if !supportLists]> / <![endif]>
+      i = e < 0 ? html.length : e + 1;
       continue;
     }
-    i = TAG.lastIndex;
+    const end = lost > budget ? -1 : tagEnd(html, i);
+    const m = end < 0 ? null : TAG.exec(html.slice(i, end));
+    if (!m) {
+      if (end < 0) lost += html.length - i; // (a "<" that starts no tag: a tag that never ends costs one look at the rest, and only a few such looks are made)
+      top().kids.push("<");
+      i++;
+      continue;
+    }
+    i = end;
     const tag = m[2].toLowerCase();
     if (m[1]) {
       close(tag, tag === "li" ? ["ul", "ol"] : /^t[dhr]$/.test(tag) ? ["table"] : []);

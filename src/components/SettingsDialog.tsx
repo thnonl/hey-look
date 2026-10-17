@@ -726,6 +726,7 @@ function ComposingPanel({ scope }: { scope: string | null }) {
         </Row>
       )}
       {scope === null && <DefaultFontRow />}
+      {scope === null && <PasteDefaultRow />}
     </>
   );
 }
@@ -750,6 +751,22 @@ function DefaultFontRow() {
       </div>
       {/* i18n-ok: a font sample, the same in every language */}
       <div className="font-sample" style={{ fontFamily: base.family, fontSize: `${base.size}pt` }} aria-hidden="true">Aa Bb Cc 123</div>
+    </Row>
+  );
+}
+
+/** Settings > Composing > When pasting from other apps: what Ctrl+V does with text copied from other programs (editor/pasteOptions.tsx); Ctrl+Shift+V is always text only. */
+function PasteDefaultRow() {
+  const t = useT();
+  const { prefs, setPrefs } = useStore();
+  const os = usePlatform((s) => s.os);
+  return (
+    <Row label={t("settings.composing.paste")} hint={kbd(t("settings.composing.pasteHint"), os)} id="pasteDefault">
+      <select aria-label={t("settings.composing.paste")} value={prefs.pasteDefault} onChange={(e) => setPrefs({ pasteDefault: e.target.value as Prefs["pasteDefault"] })}>
+        <option value="source">{t("compose.paste.keepSource")}</option>
+        <option value="merge">{t("compose.paste.merge")}</option>
+        <option value="text">{t("compose.paste.textOnly")}</option>
+      </select>
     </Row>
   );
 }
@@ -1713,6 +1730,7 @@ function ShortcutsTab() {
     ["Ctrl+] / Ctrl+[", "settings.keys.fontSize"], ["Ctrl+= / Ctrl+Shift+=", "settings.keys.subSuper"], [os === "macos" ? "Ctrl+\\" : "Ctrl+Space / Ctrl+\\", "compose.fmt.clear"], ["Alt+F10", "settings.keys.focusToolbar"],
     ["Ctrl+Shift+L / 8", "compose.fmt.bulleted"], ["Ctrl+Shift+7", "compose.fmt.numbered"], ["Ctrl+L / E / R / Shift+J", "settings.keys.align"], ["Ctrl+T / Ctrl+Shift+T", "settings.keys.indent"],
     ["Ctrl+Shift+S", "settings.keys.stylesMenu"], ["Ctrl+Shift+N / Ctrl+Alt+1-3", "settings.keys.styleKeys"],
+    ["Ctrl+Shift+V", "settings.keys.pasteText"], [os === "macos" ? "Cmd" : "Ctrl", "settings.keys.pasteOptions"],
     ["Ctrl+A", "settings.keys.selectAll"], ["Ctrl+K", "settings.keys.commandBar"], ["F5", "settings.keys.syncNow"], ["Esc", "settings.keys.closeDeselect"],
   ];
   return (
