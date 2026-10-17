@@ -102,12 +102,12 @@ function Reader({ info }: { info: ReaderInit }) {
 
   // ---- mark as read (REQ-R8): the rule of the reading pane, done by the main page
   const stateRequest = useCallback(
-    async (action: string, patch: Wanted, label?: string) => {
+    async (action: string, patch: Wanted, labelKey?: string) => {
       wanted.current = { ...wanted.current, ...patch };
       paint();
       redraw();
       pending.current++;
-      await askMain("thread-action", { threadId: info.threadId, action, label, view: info.view }, STATE_WAIT_MS);
+      await askMain("thread-action", { threadId: info.threadId, action, labelKey, view: info.view }, STATE_WAIT_MS);
       pending.current--;
       if (pending.current === 0) {
         // the last answer is in: the database says how it went (a failure is rolled back by reading it again)
@@ -275,10 +275,10 @@ function Reader({ info }: { info: ReaderInit }) {
   // ---- the actions
   const cancelRead = () => clearTimeout(readTimer.current); // a choice of the person about the read state ends the automatic one
   const move = useCallback(
-    async (action: string, label?: string, arg?: string) => {
+    async (action: string, labelKey?: string, labelParams?: Record<string, string>, arg?: string) => {
       setBusy(true);
       cancelRead();
-      const ok = await askMain("thread-action", { threadId: info.threadId, action, arg, label, view: info.view }, MOVE_WAIT_MS);
+      const ok = await askMain("thread-action", { threadId: info.threadId, action, arg, labelKey, labelParams, view: info.view }, MOVE_WAIT_MS);
       if (ok) closeWindow(); // REQ-R6: the window closes at once; the toast with Undo is in the main window
       else setBusy(false);
     },
@@ -301,7 +301,7 @@ function Reader({ info }: { info: ReaderInit }) {
   const toggleRead = () => {
     cancelRead();
     if (unread) void stateRequest("read", { unread: false });
-    else void stateRequest("unread", { unread: true }, t("reading.head.markedUnread"));
+    else void stateRequest("unread", { unread: true }, "reading.head.markedUnread");
   };
   const block = async () => {
     if (!last) return;
@@ -311,7 +311,7 @@ function Reader({ info }: { info: ReaderInit }) {
       confirmLabel: t("reading.head.blockConfirm"),
       danger: true,
     });
-    if (ok) void move("block", t("reading.head.blocked", { email: last.fromEmail }));
+    if (ok) void move("block", "reading.head.blocked", { email: last.fromEmail });
   };
   const printLast = () => {
     const frames = document.querySelectorAll<HTMLIFrameElement>(".rp-msg.open iframe.msg-frame");
@@ -338,7 +338,7 @@ function Reader({ info }: { info: ReaderInit }) {
       `${messages.some((m) => m.confidential) ? "" : `Subject: ${subject}\n\n`}${body}`,
     );
     if (!out) return;
-    if ("error" in out) st.showToast(friendlyError(out.error), undefined, "error");
+    if ("error" in out) st.showToast(() => friendlyError(out.error), undefined, "error");
     else setSummary(out.text);
   };
 
@@ -350,9 +350,9 @@ function Reader({ info }: { info: ReaderInit }) {
       case "reply": return doReply(false);
       case "replyAll": return doReply(true);
       case "forward": return doForward();
-      case "archive": return void move("archive", t("reading.head.archived"));
-      case "trash": return void move("trash", t("reading.head.trashed"));
-      case "junk": return junkOk ? void move("junk", t("reading.head.movedJunk")) : useStore.getState().showToast(t("mail.junk.noneTip"), undefined, "info");
+      case "archive": return void move("archive", "reading.head.archived");
+      case "trash": return void move("trash", "reading.head.trashed");
+      case "junk": return junkOk ? void move("junk", "reading.head.movedJunk") : useStore.getState().showToast(t("mail.junk.noneTip"), undefined, "info");
       case "unread": return toggleRead();
       case "pin": return togglePin();
       case "flag": return toggleFlag();
@@ -404,8 +404,8 @@ function Reader({ info }: { info: ReaderInit }) {
         {rb("replyAll", t("reading.msg.replyAll"), `${t("reading.msg.replyAll")} (a)`, "replyAll", () => doReply(true), <ReplyAll size={16} />)}
         {rb("forward", t("reading.msg.forward"), conf ? t("reading.msg.forwardBlocked") : `${t("reading.msg.forward")} (f)`, "forward", doForward, <Forward size={16} />, { disabled: conf })}
         <span className="sep" aria-hidden />
-        {rb("archive", t("reading.head.archive"), t("reading.head.archiveTip"), "archive", () => void move("archive", t("reading.head.archived")), <Archive size={16} />)}
-        {rb("delete", t("reading.head.delete"), t("reading.head.deleteTip"), "trash", () => void move("trash", t("reading.head.trashed")), <Trash2 size={16} />)}
+        {rb("archive", t("reading.head.archive"), t("reading.head.archiveTip"), "archive", () => void move("archive", "reading.head.archived"), <Archive size={16} />)}
+        {rb("delete", t("reading.head.delete"), t("reading.head.deleteTip"), "trash", () => void move("trash", "reading.head.trashed"), <Trash2 size={16} />)}
         <span className="sep" aria-hidden />
         {rb("flag", flagged ? t("mail.hover.unflag") : t("reading.head.flag"), t("reading.head.flagTip"), "flag", toggleFlag, <Flag size={16} fill={flagged ? "currentColor" : "none"} />, { on: flagged, sec: true })}
         {rb("unread", unread ? t("mail.hover.markRead") : t("reading.head.markUnread"), unread ? undefined : `${t("reading.head.markUnread")} (u)`, "unread", toggleRead, unread ? <Mail size={16} /> : <MailX size={16} />, { text: unread ? t("reading.popout.read") : t("reading.popout.unread"), sec: true })}
@@ -413,7 +413,7 @@ function Reader({ info }: { info: ReaderInit }) {
           className="rb snooze-btn sec"
           title={t("reading.head.snoozeTip")}
           disabled={locked || off("snooze")}
-          items={snoozePresets(prefs.snoozeTimes).map((p) => ({ label: p.label, onClick: () => void move("snooze", t("reading.head.snoozed", { label: p.label }), String(p.ts)) }))}
+          items={snoozePresets(prefs.snoozeTimes).map((p) => ({ label: p.label, onClick: () => void move("snooze", "reading.head.snoozed", { label: p.label }, String(p.ts)) }))}
         >
           <Clock size={16} />
           <span>{t("app.ribbon.snooze")}</span>
@@ -425,7 +425,7 @@ function Reader({ info }: { info: ReaderInit }) {
           disabled={locked}
           items={[
             { label: pinned ? t("mail.hover.unpin") : t("reading.head.pin"), icon: <Pin size={14} />, disabled: gone, onClick: togglePin },
-            { label: t("reading.head.moveJunk"), disabled: gone || !junkOk, title: junkOk ? undefined : t("mail.junk.noneTip"), onClick: () => void move("junk", t("reading.head.movedJunk")) },
+            { label: t("reading.head.moveJunk"), disabled: gone || !junkOk, title: junkOk ? undefined : t("mail.junk.noneTip"), onClick: () => void move("junk", "reading.head.movedJunk") },
             { label: t("reading.head.blockSender"), disabled: gone || !junkOk || !last, onClick: () => void block() },
             { divider: true },
             { label: t("reading.msg.showOriginal"), disabled: conf || !last, onClick: () => last && useStore.getState().setDialog({ type: "original", messageId: last.id }) },

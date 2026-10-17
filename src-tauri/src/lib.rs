@@ -2226,8 +2226,12 @@ struct ThreadMeta {
 
 #[tauri::command]
 fn thread_meta(state: tauri::State<AppState>, thread_id: String) -> R<ThreadMeta> {
-    let c = lock(&state.db);
-    let row: Option<(i64, Option<i64>)> = match c.query_row("SELECT pinned, snoozed_until FROM thread_meta WHERE thread_id=?1", [&thread_id], |r| Ok((r.get(0)?, r.get(1)?))) {
+    thread_meta_in(&lock(&state.db), &thread_id)
+}
+
+/// A conversation nobody pinned or snoozed has no row: not pinned, not snoozed.
+fn thread_meta_in(c: &Connection, thread_id: &str) -> R<ThreadMeta> {
+    let row: Option<(i64, Option<i64>)> = match c.query_row("SELECT pinned, snoozed_until FROM thread_meta WHERE thread_id=?1", [thread_id], |r| Ok((r.get(0)?, r.get(1)?))) {
         Ok(v) => Some(v),
         Err(rusqlite::Error::QueryReturnedNoRows) => None,
         Err(e) => return Err(err(e)),
@@ -5481,6 +5485,31 @@ mod capability_tests {
             assert!(perms.contains(&p), "{p}");
         }
         assert!(!perms.contains(&"core:default"), "core:default also grants what a pop-out does not need");
+    }
+}
+
+#[cfg(test)]
+mod thread_meta_tests {
+    use super::*;
+
+    #[test]
+    fn the_pin_and_the_snooze_of_a_conversation_are_read_from_thread_meta() {
+        let c = db::test_conn(&["a1"]);
+        let meta = |id: &str| thread_meta_in(&c, id).unwrap();
+        // no row: nothing is set
+        let none = meta("t-none");
+        assert!(!none.pinned && none.snoozed_until.is_none());
+        c.execute("INSERT INTO thread_meta(thread_id,pinned) VALUES('t-pin',1)", []).unwrap();
+        c.execute("INSERT INTO thread_meta(thread_id,snoozed_until) VALUES('t-snooze',1760000000)", []).unwrap();
+        c.execute("INSERT INTO thread_meta(thread_id,pinned,snoozed_until) VALUES('t-both',1,1760000001)", []).unwrap();
+        c.execute("INSERT INTO thread_meta(thread_id,pinned) VALUES('t-unpinned',0)", []).unwrap();
+        let (p, s, b, u) = (meta("t-pin"), meta("t-snooze"), meta("t-both"), meta("t-unpinned"));
+        assert!(p.pinned && p.snoozed_until.is_none());
+        assert!(!s.pinned && s.snoozed_until == Some(1_760_000_000));
+        assert!(b.pinned && b.snoozed_until == Some(1_760_000_001));
+        assert!(!u.pinned && u.snoozed_until.is_none(), "an unpinned conversation keeps its row");
+        // the answer the page reads: camelCase
+        assert_eq!(serde_json::to_value(&p).unwrap(), serde_json::json!({ "pinned": true, "snoozedUntil": null }));
     }
 }
 

@@ -10,7 +10,7 @@ import {
   allowedWhenGone, isFlagged, isGone, isUnread, markReadPlan, readerAllowed, readerInit, readerKey, readerTitleText, scopeOfView, threadScope, withWanted,
 } from "../src/popout/readerLogic.ts";
 import { Requester, UNREACHABLE } from "../src/popout/request.ts";
-import { parseRequest, READER_ACTIONS } from "../src/popout/requestKinds.ts";
+import { parseRequest, READER_ACTIONS, READER_LABELS } from "../src/popout/requestKinds.ts";
 
 const read = (f) => readFileSync(new URL(`../${f}`, import.meta.url), "utf8").replace(/\r\n/g, "\n");
 
@@ -250,7 +250,12 @@ assert.equal(popoutTitle(readerTitleText("", "(no subject)")), "(no subject) –
   // thread actions: the buttons of the toolbar, nothing else
   for (const a of ["read", "unread", "star", "unstar", "pin", "unpin", "archive", "trash", "junk", "block", "snooze", "unsnooze"]) assert.ok(READER_ACTIONS.has(a), a);
   for (const a of ["delete_forever", "move", "inbox", "sender_action", "", "ARCHIVE"]) assert.equal(READER_ACTIONS.has(a), false, a);
-  assert.deepEqual(ok("thread-action", { threadId: "t1", action: "archive", label: "Archived", view: "inbox" }).req, { threadId: "t1", action: "archive", arg: undefined, label: "Archived", view: "inbox" });
+  assert.deepEqual(ok("thread-action", { threadId: "t1", action: "archive", labelKey: "reading.head.archived", view: "inbox" }).req, { threadId: "t1", action: "archive", arg: undefined, labelKey: "reading.head.archived", labelParams: undefined, view: "inbox" });
+  // the toast text is a key the main window writes in the language in use (WP1's rule for toasts with Undo), never a finished string
+  for (const k of READER_LABELS) assert.ok(/^reading.head./.test(k), k);
+  bad("thread-action", { threadId: "t1", action: "archive", labelKey: "app.quit.keepWriting" });
+  bad("thread-action", { threadId: "t1", action: "archive", labelKey: "Archived" });
+  assert.deepEqual(ok("thread-action", { threadId: "t1", action: "block", labelKey: "reading.head.blocked", labelParams: { email: "x@y.z", n: 5 } }).req.labelParams, { email: "x@y.z" }, "only text values travel");
   bad("thread-action", { threadId: "t1", action: "delete_forever" });
   bad("thread-action", { action: "archive" });
   bad("thread-action", { threadId: "t1" });
@@ -258,7 +263,7 @@ assert.equal(popoutTitle(readerTitleText("", "(no subject)")), "(no subject) –
   bad("thread-action", { threadId: "t1", action: "snooze" });
   bad("thread-action", { threadId: "t1", action: "snooze", arg: "tomorrow" });
   assert.equal(ok("thread-action", { threadId: "t1", action: "snooze", arg: "1760000000" }).req.arg, "1760000000");
-  assert.equal(ok("thread-action", { threadId: "t1", action: "read", label: "x".repeat(1000) }).req.label.length, 300, "a label is cut");
+  assert.equal(ok("thread-action", { threadId: "t1", action: "snooze", arg: "1760000000", labelKey: "reading.head.snoozed", labelParams: { label: "x".repeat(1000) } }).req.labelParams.label.length, 200, "a value is cut");
   // preferences: the mail background and nothing else
   assert.deepEqual(ok("prefs", { mailCanvas: "dark" }).patch, { mailCanvas: "dark" });
   assert.deepEqual(ok("prefs", { mailCanvas: "original" }).patch, { mailCanvas: "original" });

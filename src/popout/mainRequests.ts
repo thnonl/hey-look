@@ -5,6 +5,7 @@
 import { forward, replyTo } from "../actions";
 import { importKeyFromMessage } from "../components/Pgp";
 import { api, MessageFull } from "../api";
+import { t, type Key } from "../i18n";
 import { calTz, today } from "../calendar";
 import { friendlyError, useStore, type Dialog } from "../store";
 import { parseRequest, type Envelope } from "./requestKinds";
@@ -18,7 +19,9 @@ async function run(env: Envelope): Promise<unknown> {
   const st = useStore.getState();
   switch (p.kind) {
     case "thread-action": {
-      const { threadId, action, arg, label, view } = p.req;
+      const { threadId, action, arg, labelKey, labelParams, view } = p.req;
+      // the toast text is made here, when it is drawn: it follows a change of language while the Undo time runs
+      const label = labelKey ? () => t(labelKey as Key, labelParams) : undefined;
       // the main page does it as it does for its own buttons: the intent layer for read / flag / pin, and for a move the Undo window with its
       // "Archived · Undo" toast (in the main window); the mail leaves the main list at once. `view` is the view the reader was opened from.
       await st.act([threadId], action, arg, label, view);
@@ -34,7 +37,7 @@ async function run(env: Envelope): Promise<unknown> {
       const thread = p.req.threadMessageIds.map((messageId) => ({ messageId }) as unknown as MessageFull);
       // (not awaited: a message already being written asks its question in the main window; the reader has nothing to wait for)
       const go = p.req.mode === "forward" ? forward(m, thread) : replyTo(m, p.req.mode === "replyAll", thread);
-      void go.catch((e) => st.showToast(friendlyError(e), undefined, "error"));
+      void go.catch((e) => st.showToast(() => friendlyError(e), undefined, "error"));
       return null;
     }
     case "import-key":

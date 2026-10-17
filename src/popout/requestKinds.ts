@@ -14,11 +14,20 @@ export const READER_ACTIONS: ReadonlySet<string> = new Set([
   "read", "unread", "star", "unstar", "pin", "unpin", "archive", "trash", "junk", "block", "snooze", "unsnooze",
 ]);
 
+/**
+ * The toast texts a reader may ask the main page to show (keys of the reading toolbar). The reader sends the key and its values, never the
+ * text: the toast is made in the main window and follows a language change while it is on screen.
+ */
+export const READER_LABELS: ReadonlySet<string> = new Set([
+  "reading.head.archived", "reading.head.trashed", "reading.head.movedJunk", "reading.head.markedUnread", "reading.head.snoozed", "reading.head.blocked",
+]);
+
 export interface ThreadActionReq {
   threadId: string;
   action: string;
   arg?: string;
-  label?: string;
+  labelKey?: string;
+  labelParams?: Record<string, string>;
   /** the view of the main window the conversation was opened from (the scope of a move) */
   view?: string;
 }
@@ -67,7 +76,12 @@ export function parseRequest(kind: string, payload: unknown): Parsed | { error: 
       if (!threadId || !action || !READER_ACTIONS.has(action)) return { error: "thread-action: not an action of a reader" };
       const arg = str(p.arg);
       if (action === "snooze" && !(arg && /^\d{1,12}$/.test(arg))) return { error: "thread-action: snooze needs a time" };
-      return { kind: "thread-action", req: { threadId, action, arg, label: str(p.label)?.slice(0, 300), view: str(p.view) } };
+      const labelKey = str(p.labelKey);
+      if (labelKey !== undefined && !READER_LABELS.has(labelKey)) return { error: "thread-action: not a text a reader may ask for" };
+      const labelParams = isObj(p.labelParams)
+        ? Object.fromEntries(Object.entries(p.labelParams).filter((e): e is [string, string] => typeof e[1] === "string").slice(0, 4).map(([k, v]) => [k, v.slice(0, 200)]))
+        : undefined;
+      return { kind: "thread-action", req: { threadId, action, arg, labelKey, labelParams, view: str(p.view) } };
     }
     case "prefs": {
       // the main page is the only writer of the preferences (REQ-W11): a reader may change the mail background and nothing else

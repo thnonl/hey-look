@@ -25,7 +25,7 @@ export async function askMain(kind: string, payload: unknown, timeoutMs?: number
     await requester.ask(kind, payload, timeoutMs);
     return true;
   } catch (e) {
-    useStore.getState().showToast(requestError(e), undefined, "error");
+    useStore.getState().showToast(() => requestError(e), undefined, "error");
     return false;
   }
 }
