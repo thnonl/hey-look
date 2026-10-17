@@ -49,15 +49,15 @@ assert.match(t("compose.preview.darkTip"), /dark background/);
 const compose = read("src/components/Compose.tsx");
 const from = compose.indexOf("const buildDraft = (): Draft => {");
 const draft = compose.slice(from, compose.indexOf("const reopen = ", from));
-assert.ok(from > 0 && draft.includes("editor?.getHTML()"), "found buildDraft");
+assert.ok(from > 0 && draft.includes("messageHtml(editor?.getJSON()"), "found buildDraft");
 const PV = /(?<![\w-])pv(?![\w-])/; // the state variable (not the "pv-" class names)
 assert.ok(!PV.test(draft) && !/preview|Preview|setDarkRegion|data-hm/.test(draft), "buildDraft does not read the preview");
 const sec = compose.slice(compose.indexOf("const currentSecurity"), compose.indexOf("const addFilesRef"));
 assert.ok(!PV.test(sec));
 // the preview state is only used to look: the class and variables of the body surface, the region effect and the toggle
 const uses = compose.split("\n").filter((l) => PV.test(l) || /\bsetPv\b/.test(l));
-for (const l of uses) assert.ok(/useState<PreviewBg>|setPv\(p\)|pv-\$\{pv\}|previewVars\(pv\)|pv === "dark"|pv === "light"|, pv\]\)/.test(l), `preview state used only for display: ${l.trim()}`);
-assert.match(compose, /className=\{`cp-editor cp-pv pv-\$\{pv\}`\} style=\{previewVars\(pv\) as React\.CSSProperties\}/);
+for (const l of uses) assert.ok(/useState<PreviewBg>|setPv\(p\)|pv-\$\{pv\}|previewVars\(pv\)|pv === "dark"|pv === "light"|, pv\]\)|setPreviewMode\(editor, pv\)/.test(l), `preview state used only for display: ${l.trim()}`);
+assert.match(compose, /className=\{`cp-editor cp-pv pv-\$\{pv\}`\} style=\{\{ \.\.\.previewVars\(pv\), "--cp-font": base\.family, "--cp-size": `\$\{base\.size\}pt` \} as React\.CSSProperties\}/);
 assert.ok(!/useStore\.setState\(\{[^}]*pv/.test(compose) && !/setPrefs\(\{[^}]*pv/.test(compose), "no new preference, nothing persisted");
 
 // the dark preview is the reading pane's transformation: the same buildDarkSheet, scoped to the signature region (the one place the composer holds a mail's own colours)

@@ -96,8 +96,12 @@ function openClose(mark: { type: string; attrs?: Record<string, unknown> }): [st
   }
 }
 
-/** The inline content of a block: text with its marks, hard breaks, and the (rare) inline picture. */
-function inlineHtml(nodes: JsonNode[] | undefined): string {
+/**
+ * The inline content of a block: text with its marks, hard breaks, and the (rare) inline picture. `skip`: marks that are not written (a heading is
+ * bold by its own style, so a bold mark in it says nothing; the editor reads that style back as a bold mark on every character, and without this
+ * a draft that was saved and reopened would gain a <strong> in every heading).
+ */
+function inlineHtml(nodes: JsonNode[] | undefined, skip: readonly string[] = []): string {
   const list = nodes ?? [];
   let out = "";
   list.forEach((n, i) => {
@@ -113,7 +117,7 @@ function inlineHtml(nodes: JsonNode[] | undefined): string {
     const atStart = i === 0 || list[i - 1].type === "hardBreak";
     const atEnd = i === list.length - 1 || list[i + 1].type === "hardBreak";
     let html = textHtml(n.text, atStart, atEnd);
-    const marks = [...(n.marks ?? [])].sort((a, b) => MARK_ORDER.indexOf(a.type) - MARK_ORDER.indexOf(b.type));
+    const marks = (n.marks ?? []).filter((m) => !skip.includes(m.type)).sort((a, b) => MARK_ORDER.indexOf(a.type) - MARK_ORDER.indexOf(b.type));
     for (let k = marks.length - 1; k >= 0; k--) {
       const oc = openClose(marks[k]);
       if (oc) html = oc[0] + html + oc[1];
@@ -160,7 +164,7 @@ function blockHtml(n: JsonNode, depth = 0): string {
     }
     case "heading": {
       const level = Math.min(3, Math.max(1, Number(n.attrs?.level) || 1));
-      return `<h${level} style="${HEADING_STYLE[level]}">${inlineHtml(n.content)}</h${level}>`;
+      return `<h${level} style="${HEADING_STYLE[level]}">${inlineHtml(n.content, ["bold"])}</h${level}>`;
     }
     case "bulletList":
     case "orderedList":

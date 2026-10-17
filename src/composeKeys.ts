@@ -4,7 +4,8 @@
 //  - Ctrl/Cmd+Enter   Send (and Ctrl/Cmd+Shift+Enter Send later); the editor's hard-break / exit-code shortcut is off
 //  - Ctrl/Cmd+Alt+... the editor's heading / code block / paragraph shortcuts (Mod-Alt-0..6, Mod-Alt-C) are off: on Windows AltGr
 //    is reported as Ctrl+Alt, so those shortcuts fired while the user typed "@", "\", "{", "[", "|", "~", "€", "ć", "²" ...
-// Everything else in the editor (Ctrl+B / I / U, Ctrl+Z / Y / Shift+Z, Ctrl+Shift+7 / 8 lists, Ctrl+Shift+S strike, Ctrl+E code) stays.
+// Everything else in the editor (Ctrl+B / I / U, Ctrl+Z / Y / Shift+Z, Ctrl+Shift+7 / 8 lists, and the keys of editor/extensions.ts: Ctrl+= / Ctrl+Shift+= sub / superscript,
+// Ctrl+] / [ font size, Ctrl+Space / Ctrl+\ clear formatting, Alt+F10 toolbar) stays. The editor has no key for strikethrough or inline code any more (Outlook: Ctrl+E is Center).
 
 /** The bits of a KeyboardEvent the decision needs (a plain object in the tests). */
 export type KeyLike = {

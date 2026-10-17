@@ -6,6 +6,8 @@ Writing a message got safer and more complete: nothing you write is lost to a cr
 
 ### Added
 
+- Writing a message: a fuller formatting toolbar in one row (more controls move into a More menu when the window is narrow): font, font size, strikethrough, subscript and superscript, font colour and text highlight colour with the Office palette (recent colours are remembered), clear all formatting, Undo and Redo. Keys: Ctrl+] and Ctrl+[ change the font size, Ctrl+= and Ctrl+Shift+= subscript and superscript, Ctrl+Space or Ctrl+\ clear the formatting, Alt+F10 goes to the toolbar. The signature and template editors have the same toolbar
+- Settings > Composing > Default font: the font and size new messages, replies and forwards start in (Calibri 11 pt). The message is sent with that font and without extra space between paragraphs, so the recipient sees what you saw; a saved draft keeps the font it was written in
 - Mail list: right-click a conversation (or press the Menu key or Shift+F10) for a menu with Reply, Reply all, Forward, Mark read or unread, Flag, Pin, Snooze, Move to, Archive, Delete, Move to Junk, Copy sender email and Copy subject. With several conversations ticked, it works on all of them
 - Mailboxes: drag a mailbox in the folder pane or in Settings to put them in the order you like, or use Alt+Up and Alt+Down (also in the right-click menu of a mailbox). The order is kept
 - Mailboxes: the Display name of a mailbox is shown in the folder pane, the list header and the command bar instead of the address; the address is in the tooltip

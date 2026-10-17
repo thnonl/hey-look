@@ -16,6 +16,7 @@ import { fillSignatureStr, messageHtml, swapPictures } from "../src/editor/messa
 import { FONTS, SIZES, familyName, fontOf, normFamily, normSize, sizePt, stackFor, stepSize } from "../src/editor/fonts.ts";
 import { HIGHLIGHTS, STANDARD, normColor, pushRecent, shadeOf, themeGrid } from "../src/editor/colors.ts";
 import { htmlToText } from "../src/htmlText.ts";
+import { darkHighlight, darkTextColor } from "../src/editor/darkColors.ts";
 
 const dir = join(dirname(fileURLToPath(import.meta.url)), "fixtures", "rich");
 const update = process.argv.includes("--update");
@@ -122,5 +123,13 @@ assert.equal(HIGHLIGHTS.length, 15);
 assert.deepEqual(pushRecent(["#111111", "#222222"], "#222222"), ["#222222", "#111111"], "a colour used again moves to the front");
 assert.equal(pushRecent(Array.from({ length: 10 }, (_, i) => `#0000${String(i).padStart(2, "0")}`), "#FFFFFF").length, 10, "ten at most");
 assert.deepEqual(pushRecent(["#111111"], "not a colour"), ["#111111"]);
+
+// ---- the dark preview (REQ-26): a picked colour is shown through the reading pane's recolouring, never changed
+assert.match(darkTextColor("#002060"), /^#[0-9A-F]{6}$/, "a hex colour comes back");
+assert.notEqual(darkTextColor("#002060"), "#002060", "dark blue on the dark canvas is lifted");
+assert.equal(darkTextColor("#FFC000"), "#FFC000", "a light colour that reads stays as picked");
+assert.equal(darkTextColor("#000000").toUpperCase() !== "#000000", true, "black is lifted");
+assert.equal(darkTextColor("not a colour"), "not a colour");
+assert.notEqual(darkHighlight("#FFFF00"), "#FFFF00", "a highlight gets its dark counterpart");
 
 console.log(`rich-golden: ${names.length} fixtures and the unit checks passed${update ? " (golden files written)" : ""}`);
