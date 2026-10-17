@@ -4582,7 +4582,7 @@ pub fn run() {
     // macOS: the app menu's Quit item (and Cmd+Q) goes through the quit sequence like the tray's (see shell::mac_app_menu)
     #[cfg(target_os = "macos")]
     let builder = builder.menu(shell::mac_app_menu).on_menu_event(shell::mac_menu_event);
-    #[cfg(windows)]
+    #[cfg(any(windows, target_os = "macos"))]
     // a frame of the window (the PDF preview has no sandbox here, see src/pdfFrame.ts) can never take the whole window to a website
     let builder = builder.plugin(navguard::plugin());
     let built = builder

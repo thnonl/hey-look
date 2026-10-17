@@ -17,7 +17,7 @@ import { friendlyError, useStore } from "../store";
 import { fmtSize } from "../util";
 import riskyExt from "../riskyExt.json";
 import { kbd, osNow } from "../platform";
-import { pdfPreview } from "../pdfFrame";
+import { isFrameRefusal, nextPdfState, PDF_DRAW_WAIT_MS, pdfPreview, type PdfFrameState } from "../pdfFrame";
 import { importKeyFromMessage, isKeyAttachment } from "./Pgp";
 import { Dropdown, FOCUSABLE } from "./ui";
 
@@ -537,6 +537,63 @@ interface PvLoaded {
   sandbox?: string;
 }
 
+/**
+ * The PDF frame of the preview. The engine's own viewer draws the PDF; when the engine cannot (the frame never reports that it loaded, or the
+ * page's content security policy refuses it) the frame is replaced by a message and an Open button: a blank page is never the outcome
+ * (pdfFrame.ts `nextPdfState`).
+ */
+function PdfFrame({ url, sandbox, name, onOpen }: { url: string; sandbox?: string; name: string; onOpen?: () => void }) {
+  const t = useT();
+  const [state, setState] = useState<PdfFrameState>("loading");
+  const stateRef = useRef<PdfFrameState>("loading");
+  useEffect(() => {
+    const move = (ev: Parameters<typeof nextPdfState>[1], why: string) => {
+      const next = nextPdfState(stateRef.current, ev);
+      if (next === stateRef.current) return;
+      stateRef.current = next;
+      setState(next);
+      // (startup.log, when this window may write there: a line for the next QA log)
+      if (next === "failed") void api.updateNote(`pdf preview: ${why}`).catch(() => undefined);
+    };
+    const timer = setTimeout(() => move("timeout", `the frame did not report a load in ${PDF_DRAW_WAIT_MS / 1000} s`), PDF_DRAW_WAIT_MS);
+    const onViolation = (e: SecurityPolicyViolationEvent) => {
+      if (isFrameRefusal(e)) move("blocked", `refused by the content security policy (${e.effectiveDirective})`);
+    };
+    document.addEventListener("securitypolicyviolation", onViolation);
+    return () => {
+      clearTimeout(timer);
+      document.removeEventListener("securitypolicyviolation", onViolation);
+    };
+  }, [url]);
+  if (state === "failed") {
+    return (
+      <div className="pv-msg">
+        <ImageOff size={28} />
+        <div>{t("reading.pv.pdfNotDrawn")}</div>
+        {onOpen && <button className="btn small" onClick={onOpen}><ExternalLink size={13} /> {t("reading.att.open")}</button>}
+      </div>
+    );
+  }
+  return (
+    <iframe
+      title={name}
+      src={url}
+      sandbox={sandbox}
+      onLoad={(e) => {
+        stateRef.current = nextPdfState(stateRef.current, "load");
+        setState(stateRef.current);
+        // no native webview menu in a text / html preview either (a PDF is drawn by the engine's own viewer, which keeps its menu)
+        const f = e.currentTarget;
+        try {
+          if (f.contentDocument) guardFrame(f, f.contentDocument);
+        } catch {
+          /* a frame we cannot reach */
+        }
+      }}
+    />
+  );
+}
+
 /** Modal preview of attachments (pictures, PDF, small text), with ← → between previewable items. */
 export function PreviewDialog({ m, items, start, onClose }: { m: MessageFull; items: AttMeta[]; start: number; onClose: () => void }) {
   const t = useT();
@@ -640,20 +697,7 @@ export function PreviewDialog({ m, items, start, onClose }: { m: MessageFull; it
           ) : kind === "text" ? (
             <pre className="pv-text" {...(m.confidential ? { style: { userSelect: "none", WebkitUserSelect: "none" } as const, onCopy: noCopy, onCut: noCopy, onContextMenu: noCopy, onDragStart: noCopy } : {})}>{data.text}</pre>
           ) : kind === "pdf" ? (
-            <iframe
-                title={cur.name}
-                src={data.url}
-                sandbox={data.sandbox}
-                onLoad={(e) => {
-                  // no native webview menu in a text / html preview either (a PDF is drawn by the engine's own viewer, which keeps its menu)
-                  const f = e.currentTarget;
-                  try {
-                    if (f.contentDocument) guardFrame(f, f.contentDocument);
-                  } catch {
-                    /* a frame we cannot reach */
-                  }
-                }}
-              />
+            <PdfFrame key={data.url} url={data.url} sandbox={data.sandbox} name={cur.name} onOpen={m.confidential ? undefined : () => void openAttachment(m, cur)} />
           ) : (
             <img
               src={data.url}

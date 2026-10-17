@@ -5,7 +5,7 @@
 // Run: node --experimental-strip-types scripts/test-pdf-frame.mjs
 import assert from "node:assert/strict";
 import fs from "node:fs";
-import { isPdfBytes, pdfFrameSandbox, pdfPreview } from "../src/pdfFrame.ts";
+import { isFrameRefusal, isMacWebView, isPdfBytes, nextPdfState, PDF_DRAW_WAIT_MS, pdfFrameSandbox, pdfPreview } from "../src/pdfFrame.ts";
 import { frameSandbox, isWebKit } from "../src/frameSandbox.ts";
 
 const bytes = (s) => Uint8Array.from(Buffer.from(s, "latin1"));
@@ -48,10 +48,35 @@ assert.notEqual(poly.blob.type, "text/html");
 assert.equal(pdfFrameSandbox(edge), null, "Windows (WebView2, Chromium): no sandbox attribute, or the viewer shows the blocked page");
 assert.equal(pdfFrameSandbox(chrome), null);
 assert.equal(pdfFrameSandbox(""), null);
-assert.equal(pdfFrameSandbox(mac), "allow-same-origin allow-scripts", "macOS (WKWebView) keeps what it always had");
-assert.equal(pdfFrameSandbox(gtk), "allow-same-origin allow-scripts", "WebKitGTK too (it has no PDF preview anyway, see previewable())");
+assert.equal(pdfFrameSandbox(mac), null, "macOS (WKWebView) draws nothing in a sandboxed frame either (Mac QA 1.0.6: blank): no sandbox attribute");
+assert.equal(pdfFrameSandbox(gtk), "allow-same-origin allow-scripts", "WebKitGTK keeps its sandbox (no PDF preview there anyway, see previewable(), and no navigation guard)");
 assert.equal(good.sandbox, null);
-assert.equal(pdfPreview(bytes("%PDF-1.4\nx"), mac).sandbox, "allow-same-origin allow-scripts");
+assert.equal(pdfPreview(bytes("%PDF-1.4\nx"), mac).sandbox, null);
+assert.equal(pdfPreview(bytes("%PDF-1.4\nx"), mac).blob.type, "application/pdf", "forced on macOS too");
+assert.equal(pdfPreview(bytes("<!doctype html><script>top.x=1</script>"), mac).ok, false, "no frame for HTML called .pdf on macOS");
+assert.equal(pdfPreview(bytes("%PDF-1.4\nx"), gtk).sandbox, "allow-same-origin allow-scripts");
+assert.equal(isMacWebView(mac), true);
+assert.equal(isMacWebView(gtk), false);
+assert.equal(isMacWebView(edge), false);
+// the unsandboxed frame exists only where the navigation guard is registered: Windows (Chromium) and macOS
+for (const ua of [edge, chrome, mac, "", gtk]) {
+  if (pdfFrameSandbox(ua) === null) assert.ok(isMacWebView(ua) || !isWebKit(ua), "an unsandboxed frame only on Chromium or on a Mac");
+}
+
+// ---- a preview that cannot draw says so (macOS cannot be run here: the states are, so a blank page cannot be the outcome)
+assert.equal(nextPdfState("loading", "load"), "loaded");
+assert.equal(nextPdfState("loading", "timeout"), "failed", "no load event in time: the message and the Open button");
+assert.equal(nextPdfState("loading", "blocked"), "failed", "the policy refused the frame");
+assert.equal(nextPdfState("loaded", "timeout"), "loaded", "a frame that loaded is not failed by the clock");
+assert.equal(nextPdfState("loaded", "blocked"), "failed");
+assert.equal(nextPdfState("failed", "load"), "failed", "a late load does not bring a replaced frame back");
+assert.ok(PDF_DRAW_WAIT_MS >= 3000 && PDF_DRAW_WAIT_MS <= 15000);
+assert.equal(isFrameRefusal({ blockedURI: "blob", effectiveDirective: "frame-src" }), true);
+assert.equal(isFrameRefusal({ blockedURI: "blob:tauri://localhost/x", effectiveDirective: "child-src" }), true);
+assert.equal(isFrameRefusal({ blockedURI: "blob", effectiveDirective: "object-src" }), true);
+assert.equal(isFrameRefusal({ blockedURI: "inline", effectiveDirective: "style-src" }), false, "an unrelated violation does not replace the PDF");
+assert.equal(isFrameRefusal({ blockedURI: "https://example.com/x.png", effectiveDirective: "img-src" }), false);
+assert.equal(isFrameRefusal({ blockedURI: "blob", effectiveDirective: "img-src" }), false);
 assert.equal(isWebKit(edge), false);
 assert.equal(isWebKit(mac), true);
 assert.equal(isWebKit(chrome), false);
@@ -80,7 +105,14 @@ for (const f of fs.readdirSync(new URL("../src/components", import.meta.url)).ma
 const conf = JSON.parse(read("src-tauri/tauri.conf.json"));
 assert.match(conf.app.security.csp, /frame-src blob:;/);
 assert.match(conf.app.security.csp, /object-src 'none'/);
-// the backend guard that stops a link in a PDF from taking the window to a website is registered on Windows
+// the failure message and its Open button exist, and a failed frame is replaced
+assert.match(att, /<PdfFrame key=\{data\.url\}/);
+assert.match(att, /t\("reading\.pv\.pdfNotDrawn"\)/);
+assert.match(att, /securitypolicyviolation/);
+// the backend guard that stops a link in a PDF from taking the window to a website is registered on Windows and on macOS
 const lib = read("src-tauri/src/lib.rs");
-assert.match(lib, /#\[cfg\(windows\)\]\s*\/\/[^\n]*\n\s*let builder = builder\.plugin\(navguard::plugin\(\)\);/, "navguard is registered on Windows");
+assert.match(lib, /#\[cfg\(any\(windows, target_os = "macos"\)\)\]\s*\/\/[^\n]*\n\s*let builder = builder\.plugin\(navguard::plugin\(\)\);/, "navguard is registered on Windows and macOS");
+// the policy was not loosened for the macOS frame
+assert.doesNotMatch(conf.app.security.csp, /object-src [^;]*blob/);
+assert.doesNotMatch(conf.app.security.csp, /frame-src [^;]*(https?:|\*|data:)/);
 console.log("pdf-frame: all checks passed");
