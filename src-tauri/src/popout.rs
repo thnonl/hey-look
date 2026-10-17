@@ -646,6 +646,8 @@ fn create(app: &AppHandle, kind: Kind, label: &str, token: &str, cascade: Option
     b = b.disable_drag_drop_handler();
     let win = b.build().map_err(|e| e.to_string())?;
     native_hold(&win, label);
+    // the title bar has the theme the setting asks of it (never one fixed here: System = follow the OS), wintheme.rs
+    crate::wintheme::apply_all(app);
     if let Some(r) = placement.rect {
         // the placement is the OUTER rectangle (frame and title bar included: what the person sees, and what is remembered); the window API sets
         // the inner size, so the frame of this window is taken off (restoring an outer size as an inner one made a window grow at every open)

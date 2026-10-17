@@ -53,6 +53,7 @@ mod smtpsize;
 mod snippet;
 mod update;
 mod winframe;
+mod wintheme;
 // the app that could not start (Windows: a native message box); the message selection is compiled and tested everywhere
 #[cfg_attr(not(windows), allow(dead_code))]
 mod startfail;
@@ -4616,6 +4617,8 @@ fn set_setting(app: tauri::AppHandle, window: tauri::Window, state: tauri::State
     // the preferences changed: every other window re-reads them (the main page is the only writer, popout.rs)
     if key == "prefs" {
         let _ = app.emit(popout::PREFS_EVENT, serde_json::json!({ "writer": window.label() }));
+        // the title bar of every window follows the theme setting (wintheme.rs)
+        wintheme::apply_all(&app);
     }
     // the UI mirrors its language here: the tray menu, the macOS Quit item and the tray tooltip follow at once (native texts, see i18n.rs)
     if key == "ui_language" && i18n::set_lang(&value) {
@@ -4890,6 +4893,8 @@ pub fn run() {
             std::thread::spawn(move || calsync::cmds::calsync_worker(sync_app));
 
             winframe::setup(app);
+            // the native frame of the main window follows the theme setting from the start (a pop-out gets it when it is created)
+            wintheme::apply_all(app.handle());
             shell::register_aumid(app.handle());
             // a missing tray is not fatal: without it the close button quits instead of hiding (shell::close_to_tray)
             if let Err(e) = shell::setup_tray(app.handle(), &db) {
@@ -4918,6 +4923,10 @@ pub fn run() {
             Ok(())
         })
         .on_window_event(|window, event| {
+            // the OS changed its theme (any window says so): with the System setting every window's frame follows (wintheme.rs)
+            if let tauri::WindowEvent::ThemeChanged(_) = event {
+                wintheme::on_os_theme_changed(window.app_handle());
+            }
             // a secondary window (compose / reader) closes only itself: it never hides to the tray and never starts a quit (popout.rs)
             if window.label() != "main" {
                 popout::on_window_event(window, event);
@@ -5799,7 +5808,7 @@ mod capability_tests {
         for p in &perms {
             assert!(!p.contains("create-webview") && !p.contains("webview:allow") && !p.contains("allow-destroy") && !p.contains("set-fullscreen"), "{p}");
         }
-        for p in ["core:window:allow-close", "core:window:allow-minimize", "core:window:allow-toggle-maximize", "core:window:allow-start-dragging", "core:window:allow-set-title", "core:window:allow-set-focus", "core:window:allow-set-content-protected", "core:window:allow-set-theme", "core:event:default"] {
+        for p in ["core:window:allow-close", "core:window:allow-minimize", "core:window:allow-toggle-maximize", "core:window:allow-start-dragging", "core:window:allow-set-title", "core:window:allow-set-focus", "core:window:allow-set-content-protected", "core:event:default"] {
             assert!(perms.contains(&p), "{p}");
         }
         assert!(!perms.contains(&"core:default"), "core:default also grants what a pop-out does not need");

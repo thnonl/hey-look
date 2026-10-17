@@ -98,6 +98,7 @@ AI Assistant
 - Find and replace on a Mac: the Replace row can be reached (a button with an arrow on the Find panel, a Replace item in the More menu, and Cmd+Shift+H); Windows and Linux keep Ctrl+H
 - The Symbol popup is as wide as its grid (the last column was cut off) and its symbols are readable in the dark theme
 - The More menu of the message toolbar fits the window, scrolls when it is longer than the room, shows a shadow where more rows wait, and keeps the row you reach with the arrow keys in view
+- macOS: the title bar of a window of its own (message or conversation) follows Light and Dark with the system again when the app theme is System; a message window opened in Dark mode kept a black title bar after the Mac went to Light. Every window now gets the title bar theme from one place when it opens, when you change the theme in Settings and when the system changes (it was set once, by the window itself)
 
 ### Known limitations
 
