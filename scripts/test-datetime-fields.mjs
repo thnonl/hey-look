@@ -248,7 +248,9 @@ for (let vw = 320; vw <= 1920; vw += 40) {
   assert.ok(/overflow-y:\s*auto/.test(rule), "and scrolls when it is taller than the room");
   assert.ok(/\.sched-custom \.sched-actions\s*\{[^}]*flex-wrap:\s*wrap/.test(css), "Cancel / Schedule wrap in a narrow popover (longest labels: de, ru, vi, fr)");
   const compose = src("src/components/Compose.tsx");
-  assert.ok(/useFitInWindow\(schedPopRef, schedOpen\)/.test(compose) && /className="popover up sched-pop" ref=\{schedPopRef\}/.test(compose), "Compose keeps the popover inside the window");
+  // (placed by usePinnedBelow: fixed under the split button, moved sideways / made scrollable to stay inside the window; the header of the pane scrolls and would cut off an absolute popover)
+  assert.ok(/usePinnedBelow\(schedPopRef, schedRef, schedOpen\)/.test(compose) && /className="popover up sched-pop pinned" ref=\{schedPopRef\}/.test(compose), "Compose keeps the popover inside the window");
+  assert.ok(/\.popover\.up\.pinned\s*\{[^}]*position:\s*fixed/.test(css), "a pinned popover is fixed");
 }
 
 // ---- an all-day event chip draws its title once (QA round 9, BUG-2 was not a drawing bug: the title typed into the dialog was already doubled)

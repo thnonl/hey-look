@@ -78,6 +78,7 @@ export default defineLocale<typeof ns.en>({
   "compose.bar.saveDraft": "Entwurf speichern",
   "compose.bar.templates": "Vorlagen",
   "compose.bar.noTemplates": "Noch keine Vorlagen (Einstellungen → Postfächer → Vorlagen)",
+  "compose.bar.more": "Weitere Aktionen",
   "compose.bar.writeWithAi": "Mit KI schreiben",
   "compose.bar.aiConfidentialTip": "Vertrauliche E-Mails werden nicht an den KI-Assistenten gesendet",
   "compose.bar.aiTip": "Mit KI schreiben oder umschreiben",

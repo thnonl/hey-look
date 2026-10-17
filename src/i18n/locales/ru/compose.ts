@@ -83,6 +83,7 @@ export default defineLocale<typeof ns.en>({
   "compose.bar.saveDraft": "Сохранить черновик",
   "compose.bar.templates": "Шаблоны",
   "compose.bar.noTemplates": "Шаблонов пока нет (Настройки → Почтовые ящики → Шаблоны)",
+  "compose.bar.more": "Другие действия",
   "compose.bar.writeWithAi": "Написать с ИИ",
   "compose.bar.aiConfidentialTip": "Конфиденциальные письма не отправляются ИИ-помощнику",
   "compose.bar.aiTip": "Написать или переписать с помощью ИИ",

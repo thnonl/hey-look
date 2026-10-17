@@ -78,6 +78,7 @@ export default defineLocale<typeof ns.en>({
   "compose.bar.saveDraft": "Guardar borrador",
   "compose.bar.templates": "Plantillas",
   "compose.bar.noTemplates": "Aún no hay plantillas (Configuración → Buzones → Plantillas)",
+  "compose.bar.more": "Más acciones",
   "compose.bar.writeWithAi": "Escribir con IA",
   "compose.bar.aiConfidentialTip": "El correo confidencial no se envía al Asistente de IA",
   "compose.bar.aiTip": "Escribir o reescribir con IA",
