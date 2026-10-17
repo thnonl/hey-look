@@ -104,10 +104,17 @@ const TRIGGER = {
   summarize: (win) => clickEl(win === 'reader' ? `document.querySelector('.reader-bar .ai-btn')` : `document.querySelector('.rp-tools .ai-btn')`),
   translate: (win) => chooseTranslate(win === 'reader' ? '.reader-bar' : '.rp-msg.open .rp-msg-actions'),
   write: async (win, problem) => {
-    const toggle = byText('.compose-pane .rb', `new RegExp(${JSON.stringify(WRITE_WORDS[curLang])})`);
-    if (problem === 'notset') return clickEl(toggle);
+    const re = `new RegExp(${JSON.stringify(WRITE_WORDS[curLang])})`;
+    // a small pane keeps the button in its "More" menu (src/composeFit.ts)
+    const toggle = async () => {
+      if (await evaluate(`!![...document.querySelectorAll('.compose-pane .rb')].find((e) => ${re}.test(e.textContent))`)) return clickEl(byText('.compose-pane .rb', re));
+      await clickEl(`document.querySelector('.compose-pane .rb.more')`);
+      await sleep(150);
+      return clickEl(byText('.menu-row', re));
+    };
+    if (problem === 'notset') return toggle();
     if (!(await evaluate(`!!document.querySelector('.cp-ai textarea')`))) {
-      await clickEl(toggle);
+      await toggle();
       await sleep(250);
     }
     if (!(await evaluate(`document.querySelector('.cp-ai textarea').value`))) {
