@@ -1357,7 +1357,7 @@ export default define({
     "settings.ai.modelsError": "Impossible de charger la liste des modèles ({error}). Saisissez plutôt un ID de modèle.",
     "settings.ai.noModels": "Le point de terminaison n’a renvoyé aucun modèle. Saisissez plutôt un ID de modèle.",
     "settings.ai.saved": "Paramètres de l’assistant IA enregistrés",
-    "settings.ai.saveFailed": "Impossible d’enregistrer ({error}). Ce que vous avez saisi est conservé : vous pouvez réessayer.",
+    "settings.ai.saveFailed": "Impossible d’enregistrer ({error}). Ce que vous avez saisi est conservé : vous pouvez réessayer.",
     "settings.ai.removeKeyFailed": "Impossible de supprimer la clé enregistrée ({error}).",
     "settings.pgp.title": "Chiffrement (PGP)",
     "settings.pgp.intro": "Clés OpenPGP pour chiffrer et signer les e-mails (PGP/MIME). Vos clés secrètes restent sur cet ordinateur, verrouillées par votre phrase secrète. Les clés ne sont jamais recherchées en ligne : vous les ajoutez vous-même.",
