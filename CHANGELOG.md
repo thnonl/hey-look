@@ -50,6 +50,7 @@ Writing a message got safer and more complete: nothing you write is lost to a cr
 - Summarize and Write with AI: both show that they are running and have a Cancel button (it drops the request to the provider); a second click while one is running starts nothing, and an answer that arrives after Cancel, or after you moved to another conversation or closed the message, is ignored
 - AI Assistant errors: an answer the app cannot read is now one sentence in your language, not the raw reply of the provider; an error about the connection no longer shows a password or a token that is part of the address in Settings
 - Attachments: the preview of a PDF shows the PDF on Windows again (it was a blank "blocked" page since the Windows web view does not run its PDF viewer inside a restricted frame). Only a file that really is a PDF is drawn; a file called .pdf that holds anything else says so and can still be opened or saved. A link inside a PDF no longer takes the whole app window to a web page
+- Start: when the app cannot start at all on Windows (for example the Microsoft WebView2 Runtime is missing or damaged) it now says so in a message in the language of Windows, with where to get the runtime and where the log file is, instead of closing without a word; macOS and Linux write the reason to the same log file
 
 ## 1.0.5 — 2026-10-16
 

@@ -48,6 +48,8 @@ pub fn text(k: K) -> &'static str {
         K::LoadFailOpenLog => "打开日志文件夹",
         K::LoadFailQuit => "退出",
         K::LoadFailLog => "日志文件：",
+        K::StartFailTitle => "Hey Look!无法启动",
+        K::StartFailBody => "Hey Look!无法启动，因为无法创建它的窗口。\n\n最常见的原因是缺少或损坏了 Microsoft WebView2 Runtime（微软提供的免费组件，应用程序用它来显示窗口）。请从 https://developer.microsoft.com/microsoft-edge/webview2/ 安装或修复它（选择“Evergreen Bootstrapper”或“Evergreen Standalone Installer”），然后重新启动 Hey Look!。\n\n出错的详细情况已保存在下面所示的日志文件中；如果问题仍然存在，请把该文件发给技术支持。",
     }
 }
 

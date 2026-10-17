@@ -81,6 +81,11 @@ static LOG_DIR: OnceLock<std::path::PathBuf> = OnceLock::new();
 /// Lines written before the data folder is known (the wait for the previous run's web view runs before the app exists).
 static EARLY: Mutex<Vec<String>> = Mutex::new(Vec::new());
 
+/// The data folder of the log, once it is known.
+pub fn log_dir() -> Option<std::path::PathBuf> {
+    LOG_DIR.get().cloned()
+}
+
 pub fn init_log_dir(dir: std::path::PathBuf) {
     if LOG_DIR.set(dir.clone()).is_ok() {
         let early = std::mem::take(&mut *EARLY.lock().unwrap_or_else(|p| p.into_inner()));
