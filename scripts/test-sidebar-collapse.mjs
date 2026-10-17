@@ -117,6 +117,32 @@ async function runConfig(c) {
     ok(s.pref === 'auto', `auto ${w}: resizing the window changed the saved choice to ${s.pref}`);
   }
 
+  // ===== 1b. the control stays at the top while the folder list scrolls (BUG-B2 of the v1.0.6 final QA), icons and full menu =====
+  for (const w of [960, 1280]) {
+    await resize(w, 360); // (short: the list of folders overflows in both states)
+    for (const mode of ['auto', 'expanded']) {
+      // "expanded" at 960 is the pinned overlay, at 1280 the column; "auto" is the icons at 960 and the full menu at 1280
+      await evaluate(`window.__store.getState().setPrefs({ sidebar: '${mode}' }); 1`);
+      await sleep(450);
+      const probe = `(() => { const sf = document.querySelector('.fp-surface'), t = document.querySelector('.fp-toggle'), a = sf.getBoundingClientRect(), b = t.getBoundingClientRect(); return { top: b.top - a.top, bottom: b.bottom - a.top, h: a.height, st: sf.scrollTop, over: sf.scrollHeight - sf.clientHeight, side: document.querySelector('.folder-pane').dataset.sidebar }; })()`;
+      const b0 = await evaluate(probe);
+      const label = `sticky control ${w} ${mode} (${b0.side})`;
+      ok(b0.over > 320, `${label}: the folder list does not overflow enough to scroll 300px (${b0.over}px)`);
+      await move(w < 1100 && b0.side === 'rail' ? 28 : 120, 200);
+      await cdp('Input.dispatchMouseEvent', { type: 'mouseWheel', x: 28, y: 200, deltaX: 0, deltaY: 300 });
+      await sleep(350);
+      const b1 = await evaluate(probe);
+      ok(b1.st > 100, `${label}: the folder list did not scroll (scrollTop ${b1.st})`);
+      ok(near(b1.top, b0.top, 0.5) && b1.top >= 0 && b1.bottom <= b1.h, `${label}: the control moved from y=${b0.top} to y=${b1.top} while the list scrolled (surface ${b1.h}px)`);
+      ok(await evaluate(`(() => { const t = document.querySelector('.fp-toggle'), r = t.getBoundingClientRect(); const e = document.elementFromPoint(r.left + r.width / 2, r.top + r.height / 2); return e === t || t.contains(e); })()`), `${label}: something covers the control after scrolling`);
+      await io.shot(`sticky-${w}-${mode}`);
+      await evaluate(`document.querySelector('.fp-surface').scrollTop = 0; 1`);
+    }
+    await move(700, 300);
+    await evaluate(`window.__store.getState().setPrefs({ sidebar: 'auto' }); 1`);
+  }
+  await resize(c.w, c.h);
+
   // ===== 2. what the icon column holds, names and tooltips =====
   await resize(960, c.h);
   await evaluate(`window.__store.getState().setView('inbox', 'a1'); 1`);
