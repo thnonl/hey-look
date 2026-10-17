@@ -8,17 +8,17 @@ import {
   cancelJob,
   closeToast,
   failJob,
-  finishJob,
+  nextPart,
+  partDone,
   removeJob,
   settleToast,
+  slowHint,
   SLOW_HINT_MS,
   startJob,
-  TRANSLATE_TIMEOUT_MS,
-  aiJobId,
-  withTimeout,
   type TranslateJob,
   type TranslateSpec,
 } from "./translateJobs";
+import { runParts } from "./translateRun";
 
 /** How long "Translation ready" waits for a click before it goes by itself (the translation stays in the mail). */
 const READY_MS = 30_000;
@@ -34,9 +34,12 @@ const current = (key: string, run: number): TranslateJob | undefined => {
   return j && j.run === run ? j : undefined;
 };
 
-/** Drop the request of a start at the backend (it closes the connection to the provider). Nothing to do when the call is over already. */
-function abortRequest(run: number) {
-  api.aiCancel(aiJobId(run)).catch(() => {});
+/** The request each running translation has at the backend right now (one at a time: the parts go in order). Cancel drops it. */
+const inFlight = new Map<string, { run: number; id: string }>();
+
+/** Drop a request at the backend (it closes the connection to the provider). Nothing to do when the call is over already. */
+function abortRequest(id: string) {
+  api.aiCancel(id).catch(() => {});
 }
 
 /** The person has this very mail open (not elsewhere, not in the calendar). */
@@ -53,9 +56,11 @@ export function jobErrorText(j: TranslateJob): string {
 
 function runningToast(j: TranslateJob, slow: boolean) {
   // functions, not final strings: the toast is drawn again in the language in use when the person switches language meanwhile
+  const { index, total } = nextPart(j);
   const text = () => {
     const base = t("reading.translate.toastRunning", { lang: t(j.langKey as Key), subject: subjectOf(j) });
-    return slow ? `${base} ${t("reading.translate.slow")}` : base;
+    const part = total > 1 ? ` · ${t("reading.translate.part", { n: index + 1, total })}` : "";
+    return `${base}${part}${slow ? ` ${t("reading.translate.slow")}` : ""}`;
   };
   store().setStickyToast(toastKey(j), {
     text,
@@ -76,16 +81,22 @@ async function showMail(j: TranslateJob) {
   await store().openMail(j.threadId);
 }
 
-function settle(key: string, run: number, outcome: { result: string } | { error: unknown }) {
-  clearTimeout(hintTimers.get(key));
-  hintTimers.delete(key);
-  const applied = "result" in outcome
-    ? finishJob(store().translations, key, run, outcome.result)
+/** An answer or an error of the request in flight. True when the job goes on with its next part. */
+function settle(key: string, run: number, outcome: { part: string } | { error: unknown }): boolean {
+  const applied = "part" in outcome
+    ? partDone(store().translations, key, run, outcome.part)
     : failJob(store().translations, key, run, friendlyError(outcome.error), String(outcome.error instanceof Error ? outcome.error.message : outcome.error));
-  if (!applied.applied) return; // cancelled or restarted meanwhile: this answer is of no interest
+  if (!applied.applied) return false; // cancelled or restarted meanwhile: this answer is of no interest
   const before = store().translations[key];
   store().setTranslations(() => applied.jobs);
   const j = applied.jobs[key];
+  if (j.status === "running") {
+    // part done, the next one is asked for: the toast says which
+    if (!j.toastClosed) runningToast(j, slowHint(j.startedAt, Date.now()));
+    return true;
+  }
+  clearTimeout(hintTimers.get(key));
+  hintTimers.delete(key);
   const tk = toastKey(j);
   const what = settleToast(j.status as "done" | "failed", viewing(j), before?.toastClosed ?? false);
   if (what === "close") {
@@ -108,6 +119,7 @@ function settle(key: string, run: number, outcome: { result: string } | { error:
   } else {
     store().setStickyToast(tk, null);
   }
+  return false;
 }
 
 /** Start translating (or show the finished translation again; a second start of a running one does nothing). */
@@ -126,24 +138,18 @@ export function startTranslation(spec: TranslateSpec): void {
       if (j && j.status === "running" && !j.toastClosed) runningToast(j, true);
     }, SLOW_HINT_MS),
   );
-  const secs = Math.round(TRANSLATE_TIMEOUT_MS / 1000);
-  withTimeout(
-    api.aiComplete(
-      // i18n-ok: a prompt for the language model, not text the person reads
-      `Translate the email into ${job.lang}. Output only the translation, keep the formatting and line breaks.`,
-      job.text,
-      aiJobId(run),
-    ),
-    TRANSLATE_TIMEOUT_MS,
-    () => {
-      abortRequest(run); // the UI gives up: the request to the provider must not go on in the background
-      // i18n-ok: a coded error, translated by backend.AI_TIMEOUT (the same sentence the backend sends after 180 s)
-      return new Error(`AI_TIMEOUT|secs=${secs}: The AI Assistant didn’t answer within ${secs} seconds.`);
+  void runParts(run, {
+    job: () => current(key, run),
+    complete: api.aiComplete,
+    abort: abortRequest,
+    flying: (id) => {
+      if (id) inFlight.set(key, { run, id });
+      else if (inFlight.get(key)?.run === run) inFlight.delete(key);
     },
-  ).then(
-    (result) => settle(key, run, { result }),
-    (error) => settle(key, run, { error }),
-  );
+    settle: (outcome) => settle(key, run, outcome),
+    now: Date.now,
+    sleep: (ms) => new Promise((r) => setTimeout(r, ms)),
+  });
 }
 
 /** Stop waiting for a running translation: the box and the toast go; an answer that still comes is ignored. */
@@ -154,7 +160,10 @@ export function cancelTranslation(key: string): void {
   hintTimers.delete(key);
   store().setTranslations((jobs) => cancelJob(jobs, key));
   store().setStickyToast(toastKey(j), null);
-  abortRequest(j.run);
+  // the parts go in order, so one request is in flight: drop it; the parts after it are never asked for (the job is gone)
+  const flying = inFlight.get(key);
+  inFlight.delete(key);
+  if (flying) abortRequest(flying.id);
 }
 
 /** "Hide translation" / "Dismiss" of an error: the job (and its cached result) goes. */

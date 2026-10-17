@@ -24,6 +24,8 @@ export default defineLocale<typeof ns.en>({
   "backend.AI_NOT_CONFIGURED": "IA sin configurar: define el punto de conexión y el modelo en Configuración > Asistente de IA",
   "backend.AI_TIMEOUT": "El asistente de IA no respondió en {secs} segundos.",
   "backend.AI_CANCELLED": "Se canceló la solicitud al asistente de IA.",
+  "backend.AI_TIMEOUT_TOTAL": "La traducción tardó más de {mins} minutos en total. Reintentar continúa donde se detuvo.",
+  "backend.AI_BAD_RESPONSE": "El asistente de IA envió una respuesta que la aplicación no puede leer.",
   "backend.AI_HTTP": "El asistente de IA devolvió un error ({status}): {detail}",
   "backend.AI_HTTP.plain": "El asistente de IA devolvió un error ({status}).",
   "backend.UPDATE_BUSY": "Ya hay una descarga en curso.",

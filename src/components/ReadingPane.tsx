@@ -8,6 +8,7 @@ import { api, MessageFull } from "../api";
 import { setMailDark } from "../darkMail";
 import { LANGS, t, type Key, type Lang } from "../i18n";
 import { useLang, useT } from "../i18n/react";
+import { fmtNumber } from "../i18n/format";
 import { tx } from "../i18n/rich";
 import { DARK_CANVAS, frameBaseCss, frameRootClass, toggleMailCanvas } from "../mailCanvas";
 import { eff } from "../prefs";
@@ -15,7 +16,9 @@ import { CONFIDENTIAL_FRAME_CSS, lockDocument, useContentProtection } from "../p
 import { accountsOf, canMoveToJunk } from "../junk";
 import { friendlyError, useStore } from "../store";
 import { cancelTranslation, dismissTranslation, jobErrorText, startTranslation } from "../translate";
+import { MAX_CHARS } from "../translateChunks";
 import { elapsedLabel, jobFor, slowHint, type TranslateJob } from "../translateJobs";
+import { useAiSlot } from "../useAiSlot";
 import { fmtFull, fmtSize, plainToHtml, sanitizeHtml, snoozePresets, subjectText } from "../util";
 import { AttachmentStrip, Lightbox, LbItem } from "./Attachments";
 import { InviteCard } from "./Calendar";
@@ -420,35 +423,49 @@ const TRANSLATE_TO: { en: string; key: Key }[] = [
   { en: "Korean", key: "reading.lang.korean" },
 ];
 
-/** The translation of a message, where it appears: progress while it runs (it goes on when the person reads other mail), the error, the text. */
-function TranslateBox({ job }: { job: TranslateJob }) {
+/** An AI call under way, where it appears: ring, what is going on, the time and Cancel; a second line says where it is (Part 2 of 5). */
+function AiRunning({ title, text, detail, startedAt, onCancel }: { title: React.ReactNode; text: string; detail?: string; startedAt: number; onCancel: () => void }) {
   const t = useT();
   const [now, setNow] = useState(() => Date.now());
-  const running = job.status === "running";
   useEffect(() => {
-    if (!running) return;
     setNow(Date.now());
     const id = setInterval(() => setNow(Date.now()), 1000);
     return () => clearInterval(id);
-  }, [running, job.run]);
-  const head = <b><Sparkles size={13} /> {t("reading.msg.translation")}</b>;
-  if (running)
-    return (
-      <div className="summary tr-box" role="status">
-        {head}
-        <div className="tr-row">
-          <span className="tr-main">
-            <span className="busy-ring spin" aria-hidden />
-            <span className="busy-dots" aria-hidden>···</span>
-            <span className="tr-text">{t("reading.msg.translating", { lang: t(job.langKey as Key) })}</span>
-          </span>
-          <span className="tr-side">
-            <span className="muted small tr-time" aria-hidden>{elapsedLabel(now - job.startedAt)}</span>
-            <button className="link small" onClick={() => cancelTranslation(job.key)}>{t("common.cancel")}</button>
-          </span>
-        </div>
-        {slowHint(job.startedAt, now) && <div className="muted small tr-hint">{t("reading.translate.slow")}</div>}
+  }, [startedAt]);
+  return (
+    <div className="summary tr-box" role="status">
+      {title}
+      <div className="tr-row">
+        <span className="tr-main">
+          <span className="busy-ring spin" aria-hidden />
+          <span className="busy-dots" aria-hidden>···</span>
+          <span className="tr-text">{text}</span>
+        </span>
+        <span className="tr-side">
+          <span className="muted small tr-time" aria-hidden>{elapsedLabel(now - startedAt)}</span>
+          <button className="link small" onClick={onCancel}>{t("common.cancel")}</button>
+        </span>
       </div>
+      {detail && <div className="muted small tr-hint">{detail}</div>}
+      {slowHint(startedAt, now) && <div className="muted small tr-hint">{t("reading.translate.slow")}</div>}
+    </div>
+  );
+}
+
+/** The translation of a message, where it appears: progress while it runs (it goes on when the person reads other mail), the error, the text. */
+function TranslateBox({ job }: { job: TranslateJob }) {
+  const t = useT();
+  const head = <b><Sparkles size={13} /> {t("reading.msg.translation")}</b>;
+  const total = job.parts.length;
+  if (job.status === "running")
+    return (
+      <AiRunning
+        title={head}
+        text={t("reading.msg.translating", { lang: t(job.langKey as Key) })}
+        detail={total > 1 ? t("reading.translate.part", { n: job.translated.length + 1, total }) : undefined}
+        startedAt={job.startedAt}
+        onCancel={() => cancelTranslation(job.key)}
+      />
     );
   if (job.status === "failed")
     return (
@@ -458,6 +475,9 @@ function TranslateBox({ job }: { job: TranslateJob }) {
           <AlertTriangle size={14} aria-hidden />
           <span className="tr-text">{t("reading.translate.failed", { error: jobErrorText(job) })}</span>
         </div>
+        {total > 1 && job.translated.length > 0 && (
+          <div className="muted small tr-hint">{t("reading.translate.resume", { done: job.translated.length, total, next: job.translated.length + 1 })}</div>
+        )}
         <div className="tr-actions">
           <button className="link small" onClick={() => startTranslation(job)}>{t("common.retry")}</button>
           <button className="link small" onClick={() => dismissTranslation(job.key)}>{t("reading.msg.dismiss")}</button>
@@ -468,6 +488,7 @@ function TranslateBox({ job }: { job: TranslateJob }) {
     <div className="summary">
       {head}
       <div className="pre">{job.result}</div>
+      {job.truncated && <div className="muted small tr-hint">{t("reading.translate.truncated", { n: fmtNumber(MAX_CHARS) })}</div>}
       <button className="link small" onClick={() => dismissTranslation(job.key)}>{t("reading.msg.dismiss")}</button>
     </div>
   );
@@ -532,7 +553,8 @@ function MessageCard({ m, open, onToggle }: { m: MessageFull; open: boolean; onT
       subject: m.subject,
       lang: lang.en,
       langKey: lang.key,
-      text: (m.text ?? m.html?.replace(/<[^>]+>/g, " ") ?? "").slice(0, 12000),
+      // all of it: a long text is translated in parts (src/translateChunks.ts)
+      text: m.text ?? m.html?.replace(/<[^>]+>/g, " ") ?? "",
     });
   };
 
@@ -631,7 +653,7 @@ export function ReadingPane() {
   const { selected, messages, threads, folders, act, showToast, prefs, aiConfigured, setDialog, confirm, checked } = useStore();
   const [openIds, setOpenIds] = useState<Set<string>>(new Set());
   const [summary, setSummary] = useState<string | null>(null);
-  const [busy, setBusy] = useState(false);
+  const ai = useAiSlot("summarize");
   const summ = threads.find((th) => th.threadId === selected);
   const bodyRef = useRef<HTMLDivElement>(null);
   // while confidential mail is on screen the window is hidden from screen capture and recording
@@ -694,6 +716,9 @@ export function ReadingPane() {
     };
   }, []);
 
+  // another conversation: a summary still being made is dropped (its request too), so it is never shown on the wrong mail
+  useEffect(() => ai.cancel, [selected]); // eslint-disable-line react-hooks/exhaustive-deps
+
   useEffect(() => {
     setSummary(null);
     setOpenIds(new Set(messages.length ? [messages[messages.length - 1].id] : []));
@@ -722,30 +747,24 @@ export function ReadingPane() {
       setDialog({ type: "settings", tab: "ai" });
       return;
     }
-    setBusy(true);
-    try {
-      const readable = messages.filter((m) => !needsCard(m) && !m.confidential);
-      if (readable.length === 0) {
-        showToast(messages.some((m) => m.confidential) ? t("reading.ai.noConfidential") : t("reading.ai.unlockEncrypted"), undefined, "info");
-        return;
-      }
-      const body = readable
-        .map((m) => `From: ${m.fromName} <${m.fromEmail}>\nDate: ${fmtFull(m.date)}\n\n${(m.text ?? "").slice(0, 4000)}`)
-        .join("\n\n-----\n\n")
-        .slice(0, 24000);
-      setSummary(
-        await api.aiComplete(
-          // i18n-ok: a prompt for the language model, not text the person reads
-          "You summarize email conversations. Reply with 2-5 concise bullet points covering key facts, decisions and requested actions. Use the language of the emails.",
-          // the subject of a thread with confidential mail may be that mail's, so it is left out
-          `${messages.some((m) => m.confidential) ? "" : `Subject: ${summ.subject}\n\n`}${body}`,
-        ),
-      );
-    } catch (e) {
-      showToast(friendlyError(e), undefined, "error");
-    } finally {
-      setBusy(false);
+    const readable = messages.filter((m) => !needsCard(m) && !m.confidential);
+    if (readable.length === 0) {
+      showToast(messages.some((m) => m.confidential) ? t("reading.ai.noConfidential") : t("reading.ai.unlockEncrypted"), undefined, "info");
+      return;
     }
+    const body = readable
+      .map((m) => `From: ${m.fromName} <${m.fromEmail}>\nDate: ${fmtFull(m.date)}\n\n${(m.text ?? "").slice(0, 4000)}`)
+      .join("\n\n-----\n\n")
+      .slice(0, 24000);
+    const out = await ai.run(
+      // i18n-ok: a prompt for the language model, not text the person reads
+      "You summarize email conversations. Reply with 2-5 concise bullet points covering key facts, decisions and requested actions. Use the language of the emails.",
+      // the subject of a thread with confidential mail may be that mail's, so it is left out
+      `${messages.some((m) => m.confidential) ? "" : `Subject: ${summ.subject}\n\n`}${body}`,
+    );
+    if (!out) return; // a click while one is under way, or Cancel: nothing to show
+    if ("error" in out) showToast(friendlyError(out.error), undefined, "error");
+    else setSummary(out.text);
   };
 
   const block = async () => {
@@ -805,13 +824,21 @@ export function ReadingPane() {
           <button
             className="btn small ai-btn"
             onClick={summarize}
-            disabled={busy}
+            disabled={ai.running}
             title={aiConfigured ? t("reading.head.summarizeTip") : t("reading.head.setupAiTip")}
           >
-            <Sparkles size={13} /> {busy ? t("reading.head.summarizing") : aiConfigured ? t("reading.head.summarize") : t("reading.head.setupAi")}
+            <Sparkles size={13} /> {ai.running ? t("reading.head.summarizing") : aiConfigured ? t("reading.head.summarize") : t("reading.head.setupAi")}
           </button>
         </div>
       </div>
+      {ai.running && ai.startedAt !== null && (
+        <AiRunning
+          title={<b><Sparkles size={13} /> {t("reading.head.summaryTitle")}</b>}
+          text={t("reading.head.summarizing")}
+          startedAt={ai.startedAt}
+          onCancel={ai.cancel}
+        />
+      )}
       {summary && (
         <div className="summary">
           <b><Sparkles size={13} /> {t("reading.head.summaryTitle")}</b>

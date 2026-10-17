@@ -24,6 +24,8 @@ export default defineLocale<typeof ns.en>({
   "backend.AI_NOT_CONFIGURED": "AIが設定されていません。設定 > AIアシスタントでエンドポイントとモデルを指定してください",
   "backend.AI_TIMEOUT": "AIアシスタントが{secs}秒以内に応答しませんでした。",
   "backend.AI_CANCELLED": "AIアシスタントへのリクエストをキャンセルしました。",
+  "backend.AI_TIMEOUT_TOTAL": "翻訳全体で{mins}分以上かかりました。「再試行」で中断したところから続けます。",
+  "backend.AI_BAD_RESPONSE": "AIアシスタントから、アプリが読み取れない応答が返されました。",
   "backend.AI_HTTP": "AIアシスタントがエラーを返しました（{status}）：{detail}",
   "backend.AI_HTTP.plain": "AIアシスタントがエラーを返しました（{status}）。",
   "backend.UPDATE_BUSY": "ダウンロードは既に実行中です。",

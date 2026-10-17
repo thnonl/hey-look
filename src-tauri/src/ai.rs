@@ -1,4 +1,4 @@
-use crate::db::{err, R};
+use crate::db::R;
 use serde_json::json;
 
 /// How long one completion may take before it is given up. A long email on a slow model can need a minute or two; the UI waits a little
@@ -99,7 +99,7 @@ async fn complete_within(endpoint: &str, key: &str, model: &str, system: &str, p
     }
     let url = format!("{}/chat/completions", endpoint.trim_end_matches('/'));
     // the whole exchange (connect, send, wait for the answer, read it) ends after `secs`: no request waits for ever
-    let client = reqwest::Client::builder().timeout(std::time::Duration::from_secs(secs)).build().map_err(err)?;
+    let client = reqwest::Client::builder().timeout(std::time::Duration::from_secs(secs)).build().map_err(net_error)?;
     let mut req = client.post(url).json(&json!({
         "model": model,
         "messages": [
@@ -111,17 +111,43 @@ async fn complete_within(endpoint: &str, key: &str, model: &str, system: &str, p
     if !key.is_empty() {
         req = req.bearer_auth(key);
     }
-    let resp = req.send().await.map_err(|e| if e.is_timeout() { timed_out(secs) } else { err(e) })?;
+    let resp = req.send().await.map_err(|e| if e.is_timeout() { timed_out(secs) } else { net_error(e) })?;
     let status = resp.status();
-    let text = resp.text().await.map_err(|e| if e.is_timeout() { timed_out(secs) } else { err(e) })?;
+    let text = resp.text().await.map_err(|e| if e.is_timeout() { timed_out(secs) } else { net_error(e) })?;
     if !status.is_success() {
         return Err(http_error(status.as_u16(), &text, key));
     }
-    let body: serde_json::Value = serde_json::from_str(&text).map_err(err)?;
-    body["choices"][0]["message"]["content"]
-        .as_str()
-        .map(|s| s.trim().to_string())
-        .ok_or_else(|| format!("unexpected AI response: {body}"))
+    reply_text(&text)
+}
+
+/// A failed request as text for the person: what failed and where, with the address cut down to scheme, host and path. reqwest names the
+/// whole URL, and the endpoint of the setting may carry a password (`user:pw@host`) or a token (`?key=…`) that must not reach a toast.
+fn net_error(e: reqwest::Error) -> String {
+    let shown = e.url().map(|u| {
+        let mut u = u.clone();
+        let _ = u.set_username("");
+        let _ = u.set_password(None);
+        u.set_query(None);
+        u.set_fragment(None);
+        u.to_string()
+    });
+    let what = e.without_url().to_string();
+    match shown {
+        Some(u) => format!("{what} for url ({u})"),
+        None => what,
+    }
+}
+
+/// The coded error for a success answer the app cannot use (not JSON, or no text in it). It never carries the answer: that is the
+/// provider's JSON, which the person must not be shown.
+fn bad_response() -> String {
+    crate::i18n::coded("AI_BAD_RESPONSE", &[], "The AI Assistant sent an answer the app can’t read.")
+}
+
+/// The text of a chat completion answer: `choices[0].message.content`.
+fn reply_text(answer: &str) -> R<String> {
+    let body: serde_json::Value = serde_json::from_str(answer).map_err(|_| bad_response())?;
+    body["choices"][0]["message"]["content"].as_str().map(|s| s.trim().to_string()).ok_or_else(bad_response)
 }
 
 /// Longest provider message shown to the person (characters).
@@ -184,14 +210,14 @@ pub async fn list_models(endpoint: &str, key: &str) -> R<Vec<String>> {
         return Ok(vec![]);
     }
     let url = format!("{}/models", endpoint.trim().trim_end_matches('/'));
-    let client = reqwest::Client::builder().timeout(std::time::Duration::from_secs(10)).build().map_err(err)?;
+    let client = reqwest::Client::builder().timeout(std::time::Duration::from_secs(10)).build().map_err(net_error)?;
     let mut req = client.get(url);
     if !key.is_empty() {
         req = req.bearer_auth(key);
     }
-    let resp = req.send().await.map_err(err)?;
+    let resp = req.send().await.map_err(net_error)?;
     let status = resp.status();
-    let body: serde_json::Value = resp.json().await.map_err(err)?;
+    let body: serde_json::Value = resp.json().await.map_err(net_error)?;
     if !status.is_success() {
         return Err(format!("Models request failed ({status})"));
     }
@@ -273,6 +299,52 @@ mod tests {
         assert_eq!(seen.recv_timeout(Duration::from_secs(3)), Ok("closed"), "the server saw the connection close");
         server.join().unwrap();
         assert!(!jobs_lock().live.contains_key("job-cancel-1"), "the job is unregistered");
+    }
+
+    /// Every feature that asks the model cancels the same way, by the id of its request (src/aiCall.ts `aiCallId`, src/translateJobs.ts
+    /// `aiJobId`): Summarize, Write with AI, and each part of a translation (and the automatic second try of a part, `.1`). The request is
+    /// dropped (the provider's connection closes), the call ends at once with AI_CANCELLED and the job is unregistered.
+    #[test]
+    fn summarize_write_and_translation_parts_are_cancelled_like_any_call() {
+        use std::time::Duration;
+        for id in ["summarize-k3j9x2-1", "write-k3j9x2-2", "translate-k3j9x2-7-3", "translate-k3j9x2-7-3.1"] {
+            let (port, seen, server) = slow_server(Duration::from_secs(5));
+            let ep = format!("http://127.0.0.1:{port}");
+            let started = std::time::Instant::now();
+            let call = tauri::async_runtime::spawn(async move { complete_job(&ep, "", "m", "s", "p", 30, Some(id)).await });
+            assert_eq!(seen.recv_timeout(Duration::from_secs(5)), Ok("request"), "{id}: the request reached the server");
+            cancel(id);
+            assert_eq!(tauri::async_runtime::block_on(call).unwrap().unwrap_err(), CANCELLED, "{id}");
+            assert!(started.elapsed() < Duration::from_secs(3), "{id}: ended at once");
+            assert_eq!(seen.recv_timeout(Duration::from_secs(3)), Ok("closed"), "{id}: the server saw the connection close");
+            server.join().unwrap();
+            assert!(!jobs_lock().live.contains_key(id), "{id}: unregistered");
+        }
+    }
+
+    /// The UI drops a request that timed out on its side and then asks again under a new id: the first id's cancel (which arrives after
+    /// that request ended, so it is only remembered) must not stop the second try, nor the next part of the translation.
+    #[test]
+    fn a_late_cancel_of_one_request_does_not_stop_the_next_try_or_part() {
+        use std::io::Write;
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let port = listener.local_addr().unwrap().port();
+        let server = std::thread::spawn(move || {
+            for word in ["eins", "zwei"] {
+                let (mut sock, _) = listener.accept().unwrap();
+                let mut buf = [0u8; 8192];
+                let _ = sock.read(&mut buf);
+                let body = format!(r#"{{"choices":[{{"message":{{"content":"{word}"}}}}]}}"#);
+                let _ = write!(sock, "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}", body.len(), body);
+            }
+        });
+        let ep = format!("http://127.0.0.1:{port}");
+        cancel("translate-late-1-0"); // the first try is over already: remembered, nothing to stop
+        let r = tauri::async_runtime::block_on(complete_job(&ep, "", "m", "s", "p", 5, Some("translate-late-1-0.1")));
+        assert_eq!(r.unwrap(), "eins", "the second try (own id) runs");
+        let r = tauri::async_runtime::block_on(complete_job(&ep, "", "m", "s", "p", 5, Some("translate-late-1-1")));
+        assert_eq!(r.unwrap(), "zwei", "the next part runs");
+        server.join().unwrap();
     }
 
     /// A cancel that arrives before its call registered (the request overtaken) still ends the call, without any request.
@@ -373,6 +445,73 @@ mod tests {
         let r = tauri::async_runtime::block_on(complete_within(&format!("http://127.0.0.1:{port}"), "sk-test-key-0000", "m", "s", "p", 5));
         assert_eq!(r.unwrap_err(), "AI_HTTP|status=500|detail=Model overloaded, try later: The AI Assistant returned an error (500): Model overloaded, try later");
         server.join().unwrap();
+    }
+
+    /// An answer that is not what a chat completion looks like never reaches the person as the provider's JSON.
+    #[test]
+    fn an_unusable_answer_is_a_short_coded_error_and_never_the_raw_json() {
+        let bad = "AI_BAD_RESPONSE: The AI Assistant sent an answer the app can’t read.";
+        for body in [
+            r#"{"choices":[]}"#,
+            r#"{"choices":[{"message":{"content":null,"tool_calls":[{"id":"call_1"}]}}]}"#,
+            r#"{"choices":[{"message":{"content":[{"type":"text","text":"hi"}]}}]}"#,
+            r#"{"id":"x","error":{"message":"odd"},"usage":{"total_tokens":12}}"#,
+            "<html>gateway page</html>",
+            "",
+            "not json at all",
+            "[1,2",
+        ] {
+            let e = reply_text(body).unwrap_err();
+            assert_eq!(e, bad, "{body}");
+            assert!(!e.contains('{') && !e.contains("choices") && !e.contains("tool_calls") && !e.contains("gateway"), "{e}");
+        }
+        assert_eq!(reply_text(r#"{"choices":[{"message":{"content":"  Hallo\n"}}]}"#).unwrap(), "Hallo");
+    }
+
+    /// Every error a call can end with is free of the API key and of anything that looks like raw JSON: a refused key echoed by the
+    /// provider, an answer that is not JSON, a connection that fails (reqwest names the URL, which may carry a password), a timeout, a cancel.
+    #[test]
+    fn no_error_of_a_call_shows_the_key_or_raw_json() {
+        use std::io::Write;
+        let key = "sk-live-0123456789abcdef";
+        let leaks = |e: &str, what: &str| {
+            assert!(!e.contains(key) && !e.contains("0123456789"), "{what}: the key is in {e}");
+            assert!(!e.contains('{') && !e.contains("\"error\"") && !e.contains("\"choices\""), "{what}: raw JSON in {e}");
+        };
+        // 1. the provider refuses and echoes the key in its JSON
+        for body in [
+            format!(r#"{{"error":{{"message":"Incorrect API key provided: {key}.","type":"invalid_request_error","param":null,"code":"invalid_api_key"}}}}"#),
+            format!(r#"{{"message":"Bearer {key} is not allowed"}}"#),
+            format!("Unauthorized: {key}"),
+            format!(r#"{{"error":"{{\"nested\":\"{key}\"}}"}}"#),
+            format!(r#"["{key}"]"#),
+        ] {
+            leaks(&http_error(401, &body, key), &body);
+        }
+        // 2. a 200 whose body is not a chat completion, and one that quotes the key
+        leaks(&reply_text(&format!(r#"{{"error":"{key}"}}"#)).unwrap_err(), "200 without text");
+        // 3. the connection fails: nobody listens; the endpoint of the setting carries a password and a token that must not come back
+        let ep = "http://person:hunter2pw@127.0.0.1:1/v1?token=qrst9876";
+        let e = tauri::async_runtime::block_on(complete_within(ep, key, "m", "s", "p", 5)).unwrap_err();
+        leaks(&e, "connection refused");
+        assert!(!e.contains("hunter2pw") && !e.contains("qrst9876"), "the endpoint's secrets are in {e}");
+        // 4. an answer that is not JSON at all, from a real endpoint
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let port = listener.local_addr().unwrap().port();
+        let server = std::thread::spawn(move || {
+            let (mut sock, _) = listener.accept().unwrap();
+            let mut buf = [0u8; 8192];
+            let _ = sock.read(&mut buf);
+            let body = "<html><body>welcome, this is the login page of the gateway</body></html>";
+            let _ = write!(sock, "HTTP/1.1 200 OK\r\nContent-Type: text/html\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}", body.len(), body);
+        });
+        let e = tauri::async_runtime::block_on(complete_within(&format!("http://127.0.0.1:{port}"), key, "m", "s", "p", 5)).unwrap_err();
+        server.join().unwrap();
+        leaks(&e, "html answer");
+        assert!(e.starts_with("AI_BAD_RESPONSE: ") && !e.contains("login page"), "{e}");
+        // 5. the coded timeout and the cancel carry nothing of the request
+        leaks(&timed_out(180), "timeout");
+        leaks(CANCELLED, "cancel");
     }
 
     #[test]

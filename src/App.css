@@ -470,7 +470,10 @@ button.att-chip:hover { background: var(--bg3); border-color: color-mix(in srgb,
 .split-btn { display: inline-flex; margin-right: 10px; position: relative; }
 .split-btn .btn:first-child { border-radius: var(--r-sm) 0 0 var(--r-sm); padding: 7px 18px; }
 .split-caret { border-radius: 0 var(--r-sm) var(--r-sm) 0 !important; padding: 7px 7px !important; border-left: 1px solid rgba(255,255,255,.4) !important; }
-.cp-ai { display: flex; gap: 8px; padding: 10px 14px; background: var(--accent-soft); border-bottom: 1px solid var(--border); }
+.cp-ai { display: flex; flex-wrap: wrap; gap: 8px; padding: 10px 14px; background: var(--accent-soft); border-bottom: 1px solid var(--border); }
+/* in a narrow window the buttons (Write / Writing… + Cancel) go under the text box instead of squeezing it to a few letters */
+.cp-ai textarea { flex: 1 1 14em; width: auto; min-width: 0; }
+.cp-ai .btn { white-space: nowrap; }
 .cp-fields { padding: 4px 20px 0; }
 .cf-field { display: flex; align-items: flex-start; gap: 8px; border-bottom: 1px solid var(--border); position: relative; }
 .cf-field label { width: 54px; color: var(--muted); font-size: .86em; padding-top: 11px; flex: none; }
