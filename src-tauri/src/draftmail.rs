@@ -148,14 +148,60 @@ fn plain_mid(mid: &str) -> bool {
     mid.len() > 2 && mid.starts_with('<') && mid.ends_with('>') && !mid.chars().any(|c| c.is_control() || c.is_whitespace() || matches!(c, '"' | '\\' | '(' | ')'))
 }
 
-/// Remove the messages of the Drafts folder that carry this Message-ID, as the server sees them.
+/// Most messages one replace operation removes. A draft has one Message-ID and one copy on the server; a few more are another program's
+/// duplicates. More than this after the check means something is wrong (a duplicated Message-ID is suspicious): nothing is removed.
+pub const MAX_REPLACED: usize = 5;
+/// Most answers of a SEARCH whose headers are looked at. A server that ignores HEADER answers with the whole folder; a Drafts folder is
+/// small, a bigger answer is not worth a download of the headers: nothing is removed (an extra stale draft costs nothing).
+const MAX_CANDIDATES: usize = 2000;
+const FETCH_CHUNK: usize = 200;
+
+/// Which of the SEARCH answers carry the wanted Message-ID, by their own headers. A SEARCH is only a hint (a server may ignore HEADER, match
+/// part of a word, or answer with the whole folder), so nothing is removed because it was found; it is removed because its header says so.
+/// An error (the headers cannot be fetched) is an error: the caller removes nothing.
+fn verified_uids<T: std::io::Read + std::io::Write>(s: &mut imap::Session<T>, candidates: &[u32], mid: &str) -> crate::db::R<Vec<u32>> {
+    let mut out = vec![];
+    for chunk in candidates.chunks(FETCH_CHUNK) {
+        let fetched = s.uid_fetch(crate::mail::uid_set(chunk), "(UID BODY.PEEK[HEADER.FIELDS (MESSAGE-ID)])").map_err(crate::db::err)?;
+        for f in fetched.iter() {
+            let (Some(uid), Some(head)) = (f.uid, f.header()) else { continue };
+            // only the UIDs that were asked about count, and only an exact, bracketed Message-ID
+            if chunk.contains(&uid) && message_id_of(head).as_deref() == Some(mid) {
+                out.push(uid);
+            }
+        }
+    }
+    out.sort_unstable();
+    out.dedup();
+    Ok(out)
+}
+
+/// Remove the messages of the Drafts folder that carry this Message-ID. The server's SEARCH only proposes; every candidate is checked by its
+/// own Message-ID header before anything is flagged. Never more than `MAX_REPLACED` go in one operation; when the check cannot be made (an
+/// error) or too many match, nothing is removed. Returns how many were removed.
 pub fn delete_by_message_id<T: std::io::Read + std::io::Write>(s: &mut imap::Session<T>, folder: &str, mid: &str) -> crate::db::R<usize> {
     if !plain_mid(mid) {
         return Err(format!("not a Message-ID: {mid}"));
     }
     s.select(folder).map_err(crate::db::err)?;
-    let mut uids: Vec<u32> = s.uid_search(format!("HEADER Message-ID \"{mid}\"")).map_err(crate::db::err)?.into_iter().collect();
-    uids.sort_unstable();
+    let mut found: Vec<u32> = s.uid_search(format!("HEADER Message-ID \"{mid}\"")).map_err(crate::db::err)?.into_iter().collect();
+    found.sort_unstable();
+    found.dedup();
+    if found.is_empty() {
+        return Ok(0);
+    }
+    if found.len() > MAX_CANDIDATES {
+        crate::startup::line("draft", &format!("{folder}: the search for {mid} answered with {} messages, too many to check: no draft was removed", found.len()));
+        return Ok(0);
+    }
+    let uids = verified_uids(s, &found, mid).map_err(|e| format!("{folder}: the answers of the search for {mid} could not be checked, no draft was removed ({e})"))?;
+    if uids.len() > MAX_REPLACED {
+        crate::startup::line("draft", &format!("{folder}: {} messages carry the Message-ID {mid}, more than {MAX_REPLACED}: no draft was removed", uids.len()));
+        return Ok(0);
+    }
+    if uids.len() < found.len() {
+        crate::startup::line("draft", &format!("{folder}: the search for {mid} answered with {} messages, {} of them carry it", found.len(), uids.len()));
+    }
     if uids.is_empty() {
         return Ok(0);
     }
@@ -360,10 +406,9 @@ mod tests {
             assert_eq!(local_uids(&db), vec![10]);
             assert!(!fake.commands().iter().any(|c| c.to_uppercase().contains("SEARCH")), "no server search when the local store knows it");
 
-            // not synced yet: the server is asked for the Message-ID, and only what it finds is removed
+            // not synced yet: the server is asked for the Message-ID, and only what it finds (and its header confirms) is removed
             let (db, acc) = setup("draft-mid-server", &[(10, "<a@x>", "T")]);
-            let fake = Fake::start(&[("INBOX", &[]), ("Drafts", &[10, 11, 12])]);
-            fake.state.lock().unwrap().search_hits = Some(vec![12]);
+            let fake = drafts_folder(&[(10, "<a@x>"), (11, "<b@x>"), (12, "<fresh@x>")]);
             let mut s = fake.connect();
             drop_on_session(&db, &acc, &mut s, &Target::parse("mid:a1|<fresh@x>")).unwrap();
             let _ = s.logout();
@@ -372,7 +417,7 @@ mod tests {
             assert_eq!(local_uids(&db), vec![10], "the local store is left to the next sync");
 
             // nothing found: nothing deleted
-            let fake = Fake::start(&[("INBOX", &[]), ("Drafts", &[10])]);
+            let fake = drafts_folder(&[(10, "<a@x>")]);
             fake.state.lock().unwrap().search_hits = Some(vec![]);
             let mut s = fake.connect();
             drop_on_session(&db, &acc, &mut s, &Target::parse("mid:a1|<none@x>")).unwrap();
@@ -394,6 +439,142 @@ mod tests {
             let _ = s.logout();
             assert!(!fake.commands().iter().any(|c| c.to_uppercase().contains("SEARCH")), "{:?}", fake.commands());
             assert_eq!(fake.uids("Drafts"), Some(vec![10]));
+        });
+    }
+
+    // ---- 1.0.6: a SEARCH only proposes, the headers decide (data safety)
+
+    fn msg(mid: &str) -> Vec<u8> {
+        format!("From: me@example.com\r\nMessage-ID: {mid}\r\nSubject: s\r\n\r\nbody\r\n").into_bytes()
+    }
+
+    /// A server whose Drafts folder holds these (uid, Message-ID) messages, with their text (so the fake can search and fetch headers).
+    fn drafts_folder(msgs: &[(u32, &str)]) -> Fake {
+        let fake = Fake::start(&[("INBOX", &[]), ("Drafts", &[])]);
+        for (uid, mid) in msgs {
+            fake.put_message("Drafts", *uid, &msg(mid));
+        }
+        fake
+    }
+
+    fn flagged(fake: &Fake) -> bool {
+        fake.commands().iter().any(|c| c.to_uppercase().contains("STORE") || c.to_uppercase().contains("EXPUNGE"))
+    }
+
+    fn delete(fake: &Fake, mid: &str) -> crate::db::R<usize> {
+        let mut s = fake.connect();
+        let r = delete_by_message_id(&mut s, "Drafts", mid);
+        let _ = s.logout();
+        r
+    }
+
+    /// A server whose SEARCH ignores HEADER answers with every message of the folder. It must lose nothing but the draft whose own header
+    /// says it is the one.
+    #[test]
+    fn a_server_that_ignores_header_in_a_search_loses_nothing() {
+        crate::test_guard::within(60, || {
+            let fake = drafts_folder(&[(10, "<a@x>"), (11, "<b@x>"), (12, "<old@x>"), (13, "<c@x>")]);
+            fake.state.lock().unwrap().search_ignores_header = true;
+            assert_eq!(delete(&fake, "<old@x>"), Ok(1));
+            assert_eq!(fake.uids("Drafts"), Some(vec![10, 11, 13]), "{:?}", fake.commands());
+            // the draft is not there any more (already removed by hand): the whole folder was proposed, nothing is removed
+            let before = fake.commands().len();
+            assert_eq!(delete(&fake, "<old@x>"), Ok(0));
+            assert_eq!(fake.uids("Drafts"), Some(vec![10, 11, 13]));
+            assert!(!fake.commands()[before..].iter().any(|c| c.to_uppercase().contains("STORE")), "{:?}", fake.commands());
+        });
+    }
+
+    /// A server that searches properly still replaces the draft in place, and only the answers whose header matches go.
+    #[test]
+    fn a_server_that_searches_properly_replaces_the_draft() {
+        crate::test_guard::within(60, || {
+            let fake = drafts_folder(&[(10, "<a@x>"), (11, "<old@x>"), (12, "<c@x>")]);
+            assert_eq!(delete(&fake, "<old@x>"), Ok(1));
+            assert_eq!(fake.uids("Drafts"), Some(vec![10, 12]));
+            assert!(fake.commands().iter().any(|c| c.starts_with("UID FETCH")), "the answer was checked: {:?}", fake.commands());
+            // an answer that is wrong (a loose match, a message that merely mentions the id) is dropped by the check
+            let fake = drafts_folder(&[(10, "<a@x>"), (11, "<old@x>"), (12, "<older@x>")]);
+            fake.state.lock().unwrap().search_hits = Some(vec![10, 11, 12]);
+            assert_eq!(delete(&fake, "<old@x>"), Ok(1));
+            assert_eq!(fake.uids("Drafts"), Some(vec![10, 12]));
+            // the id has to be the whole header, not a part of it
+            let fake = Fake::start(&[("INBOX", &[]), ("Drafts", &[])]);
+            fake.put_message("Drafts", 10, b"From: a@x\r\nMessage-ID: <old@x> <other@x>\r\nSubject: s\r\n\r\nb\r\n");
+            fake.put_message("Drafts", 11, b"From: a@x\r\nReferences: <old@x>\r\nMessage-ID: <z@x>\r\nSubject: s\r\n\r\nb\r\n");
+            fake.state.lock().unwrap().search_hits = Some(vec![10, 11]);
+            assert_eq!(delete(&fake, "<old@x>"), Ok(0));
+            assert_eq!(fake.uids("Drafts"), Some(vec![10, 11]));
+            assert!(!flagged(&fake), "{:?}", fake.commands());
+        });
+    }
+
+    /// A few copies of one Message-ID (another program's duplicates) are replaced; more than `MAX_REPLACED` is suspicious: none is removed.
+    #[test]
+    fn at_most_a_few_messages_are_removed_in_one_replace() {
+        crate::test_guard::within(60, || {
+            let copies = |n: u32| (0..n).map(|i| (20 + i, "<dup@x>")).chain([(10, "<keep@x>")]).collect::<Vec<_>>();
+            let fake = drafts_folder(&copies(MAX_REPLACED as u32));
+            assert_eq!(delete(&fake, "<dup@x>"), Ok(MAX_REPLACED));
+            assert_eq!(fake.uids("Drafts"), Some(vec![10]));
+            let fake = drafts_folder(&copies(MAX_REPLACED as u32 + 1));
+            assert_eq!(delete(&fake, "<dup@x>"), Ok(0));
+            assert_eq!(fake.uids("Drafts").map(|u| u.len()), Some(MAX_REPLACED + 2), "nothing was removed");
+            assert!(!flagged(&fake), "{:?}", fake.commands());
+            // a SEARCH that answers with a huge part of the folder is not even looked into
+            let fake = drafts_folder(&[(10, "<keep@x>")]);
+            fake.state.lock().unwrap().search_hits = Some((1..=(MAX_CANDIDATES as u32 + 1)).collect());
+            assert_eq!(delete(&fake, "<keep@x>"), Ok(0));
+            assert!(!flagged(&fake) && !fake.commands().iter().any(|c| c.starts_with("UID FETCH")), "{:?}", fake.commands());
+        });
+    }
+
+    /// When the headers cannot be fetched nothing can be checked: an error, and nothing is flagged or expunged.
+    #[test]
+    fn nothing_is_removed_when_the_answers_cannot_be_checked() {
+        crate::test_guard::within(60, || {
+            let fake = drafts_folder(&[(10, "<a@x>"), (11, "<old@x>")]);
+            fake.state.lock().unwrap().fail_fetch = true;
+            let e = delete(&fake, "<old@x>").unwrap_err();
+            assert!(e.contains("could not be checked"), "{e}");
+            assert_eq!(fake.uids("Drafts"), Some(vec![10, 11]));
+            assert!(!flagged(&fake), "{:?}", fake.commands());
+            // a message without a usable header (no Message-ID) is never "found"
+            let fake = Fake::start(&[("INBOX", &[]), ("Drafts", &[])]);
+            fake.put_message("Drafts", 10, b"From: a@x\r\nSubject: s\r\n\r\nb\r\n");
+            fake.state.lock().unwrap().search_hits = Some(vec![10]);
+            assert_eq!(delete(&fake, "<old@x>"), Ok(0));
+            assert_eq!(fake.uids("Drafts"), Some(vec![10]));
+        });
+    }
+
+    /// Save draft three times, as the app does it: append the new copy, then remove the previous one by the Message-ID the last save gave
+    /// back. Exactly one copy of the message stays, every other draft stays, with a server that searches and with one that ignores HEADER.
+    #[test]
+    fn save_draft_three_times_leaves_one_copy_and_the_other_drafts() {
+        crate::test_guard::within(60, || {
+            for ignores in [false, true] {
+                let fake = drafts_folder(&[(10, "<other-1@x>"), (11, "<other-2@x>")]);
+                fake.state.lock().unwrap().search_ignores_header = ignores;
+                let acc = crate::smtp::tests::account();
+                let mut reference: Option<String> = None;
+                for _ in 0..3 {
+                    let raw = crate::smtp::build_draft(&acc, &crate::smtp::tests::draft("<p>Hi</p>", vec![], vec![])).unwrap().formatted();
+                    let mut s = fake.connect();
+                    crate::mail::append(&mut s, "Drafts", &raw, true).unwrap();
+                    if let Some(Target::Mid { mid, .. }) = reference.as_deref().map(Target::parse) {
+                        assert_eq!(delete_by_message_id(&mut s, "Drafts", &mid), Ok(1), "ignores HEADER: {ignores}");
+                    }
+                    let _ = s.logout();
+                    reference = draft_ref("a1", &raw);
+                }
+                let all = fake.uids("Drafts").unwrap();
+                assert_eq!(all.len(), 3, "ignores HEADER: {ignores}: two other drafts and one copy of ours: {all:?}");
+                assert!(all.contains(&10) && all.contains(&11), "ignores HEADER: {ignores}: {all:?}");
+                let st = fake.state.lock().unwrap();
+                let ours = all.iter().filter(|u| st.messages.get(&("Drafts".to_string(), **u)).is_some_and(|m| String::from_utf8_lossy(m).contains("@example.com>"))).count();
+                assert_eq!(ours, 1, "ignores HEADER: {ignores}");
+            }
         });
     }
 }

@@ -3569,13 +3569,17 @@ async fn save_draft(state: tauri::State<'_, AppState>, draft: smtp::Draft, repla
         let folder = folder_for(&db, &acc, "drafts")?;
         mail::append(&mut s, &folder, &raw, true)?;
         let _ = s.logout();
+        let draft_ref = draftmail::draft_ref(&acc.id, &raw);
         if let Some(t) = replaces {
-            if let Err(e) = draftmail::drop_draft(&db, &t) {
+            // never remove the draft that was just appended (a reference to its own Message-ID)
+            if draft_ref.as_deref() == Some(t.as_str()) {
+                startup::line("draft", &format!("account {}: the draft to replace is the one just saved, nothing removed", acc.id));
+            } else if let Err(e) = draftmail::drop_draft(&db, &t) {
                 startup::line("draft", &format!("account {}: the draft that was replaced could not be removed: {e}", acc.id));
             }
         }
         // the thread the draft gets in the local store (the toast "Draft saved" can open it again with Edit)
-        Ok(SavedDraft { thread_id: draft_thread_id(&acc.id, &raw), draft_ref: draftmail::draft_ref(&acc.id, &raw) })
+        Ok(SavedDraft { thread_id: draft_thread_id(&acc.id, &raw), draft_ref })
     })
     .await
 }

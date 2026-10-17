@@ -89,6 +89,7 @@ AI Assistant
 - Settings no longer jump while you use them: in Settings > AI Assistant the model-list messages have a fixed place under Save, "Remove the saved key" is on the line of the API key label, and the Model box keeps its focus when the list arrives; in Add account and Settings > mailbox > Calendar the sign-in messages take turns in one place of fixed size under the button, and the focus goes back to the button when a sign-in ends
 - Settings > AI Assistant: when saving fails (a locked key store, a file that cannot be written) the reason is shown under Save in all languages and what you typed stays; before, nothing was shown
 - AI Assistant errors: an answer the app cannot read is one sentence in your language, not the raw reply of the provider; the message for an Assistant that is not set up says so in its title; an error about the connection no longer shows a password or a token that is part of the address in Settings; a failed translation in the message has an Open AI Assistant settings link
+- Save draft can no longer delete other drafts: when it replaces the previous copy of a draft, every message the mail server proposes is checked by its own Message-ID header first, so a server that ignores that search (and answers with every message) loses nothing; never more than 5 messages are removed in one replace, and if the check cannot be made the old copy is left in place (a stale copy, never a lost draft)
 
 ### Known limitations
 
