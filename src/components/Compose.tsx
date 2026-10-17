@@ -1,8 +1,7 @@
-import Image from "@tiptap/extension-image";
 import { NodeSelection } from "@tiptap/pm/state";
 import { EditorContent, Node as TipNode, useEditor, type Editor } from "@tiptap/react";
 import {
-  BadgeCheck, CalendarClock, CalendarPlus, ChevronDown, ExternalLink, FileText, ImagePlus, Info, Lock, LockOpen, Paperclip, Save, Send, ShieldAlert, ShieldCheck, Sparkles, Trash2,
+  AlignCenter, AlignLeft, AlignRight, BadgeCheck, CalendarClock, CalendarPlus, ChevronDown, ExternalLink, FileText, ImagePlus, Info, Link2, Lock, LockOpen, Paperclip, Save, Send, ShieldAlert, ShieldCheck, Sparkles, Trash2,
   TriangleAlert, X,
 } from "lucide-react";
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
@@ -17,6 +16,7 @@ import { PreviewBg, previewVars, rememberPreview, startPreview } from "../compos
 import { setDarkRegion } from "../composePreviewDom";
 import { extractSignature, normalizeHtml, SIG_MARK } from "../signature";
 import { baseExtensions } from "../editor/extensions";
+import { useKit } from "../editor/kit";
 import { FormatBar, type FormatBarApi } from "../editor/FormatBar";
 import { PreviewSwitch } from "../editor/PreviewSwitch";
 import { setPreviewMode } from "../editor/previewColors";
@@ -27,7 +27,7 @@ import { repairSignature, signatureGuard } from "../signatureGuard";
 import { fitInWindow } from "../fitInWindow";
 import { autosaveDue, snapshotDue, timing, type AutosaveWhy } from "../autosave";
 import { RecoveryWriter, type RecoveryForm } from "../recovery";
-import { cleanPastedHtml, isLocalPictureSrc, stripRemotePictures } from "../pastedHtml";
+import { cleanPastedHtml, stripRemotePictures } from "../pastedHtml";
 import { fromAccountFor } from "../fromAccount";
 import { askFreshBeforeSend, isSizeRefusal, sendLimit, showSizeToast, wireSize } from "../sendSize";
 import { outgoingName, outgoingNames } from "../attachName";
@@ -64,28 +64,6 @@ const MEDIUM = 480;
 const SIZES: [Key, number | null][] = [["compose.pic.small", 240], ["compose.pic.medium", MEDIUM], ["compose.pic.large", 720], ["compose.pic.original", null]];
 const LARGE_PICTURE = 1024 * 1024;
 
-/** An inline picture: the same node as tiptap's image, plus the width and the file name we keep. */
-const PictureNode = Image.extend({
-  // only pictures that travel with the HTML (cid:, base64 data:) enter the document: a remote one is never shown, so it is never fetched while writing
-  parseHTML() {
-    return [{ tag: "img[src]", getAttrs: (el: HTMLElement | string) => (typeof el !== "string" && isLocalPictureSrc(el.getAttribute("src") ?? "") ? null : false) }];
-  },
-  addAttributes() {
-    return {
-      ...this.parent?.(),
-      width: {
-        default: null,
-        parseHTML: (el: HTMLElement) => Number(el.getAttribute("width")) || null,
-        renderHTML: (a: Record<string, unknown>) => (a.width ? { width: a.width } : {}),
-      },
-      "data-name": {
-        default: null,
-        parseHTML: (el: HTMLElement) => el.getAttribute("data-name"),
-        renderHTML: (a: Record<string, unknown>) => (a["data-name"] ? { "data-name": a["data-name"] } : {}),
-      },
-    };
-  },
-}).configure({ inline: false, allowBase64: true });
 
 /**
  * The signature region of a message: an atom the user cannot type into or break. Its header holds the signature picker (React
@@ -398,11 +376,19 @@ interface PictureSel {
   width: number | null;
   alt: string;
   name: string;
+  /** "center" / "right", else left; the address of the link on the picture, "" for none */
+  align: string | null;
+  href: string;
   /** where the picture is in the scrolling body (see pictureToolsLayout.ts); the toolbar is placed from it once it is measured */
   geo: Omit<PictureToolsInput, "width" | "height">;
 }
 
 export function Compose({ init }: { init: ComposeInit }) {
+  // the table and picture nodes come in a chunk of their own (editor/kit.ts); the editor is made once they are there (fetched at start-up: no wait in practice)
+  return useKit() ? <ComposeBody init={init} /> : null;
+}
+
+function ComposeBody({ init }: { init: ComposeInit }) {
   const t = useT();
   const { accounts, openCompose, showToast, prefs, refresh, confirm, choose, setComposeDirty, setComposeSaver, setComposeProbe, aiConfigured, setDialog, beginSend } = useStore();
   const [accountId, setAccountId] = useState(fromAccountFor(accounts, init.accountId, prefs.defaultAccount));
@@ -632,6 +618,8 @@ export function Compose({ init }: { init: ComposeInit }) {
       width: (sel.node.attrs.width as number | null) ?? null,
       alt: (sel.node.attrs.alt as string | null) ?? "",
       name: (sel.node.attrs["data-name"] as string | null) ?? "picture",
+      align: (sel.node.attrs.align as string | null) ?? null,
+      href: (sel.node.attrs.href as string | null) ?? "",
       geo: {
         imgLeft: r.left - box.left,
         imgWidth: r.width,
@@ -661,8 +649,7 @@ export function Compose({ init }: { init: ComposeInit }) {
   const pasteNote = useRef(false); // the "pictures from the web are not pasted" notice is shown once per message
   const editor = useEditor({
     extensions: [
-      ...baseExtensions({ placeholder: t("compose.editor.placeholder"), showOnlyCurrent: false, getBase: () => baseRef.current, focusToolbar: () => barApi.current?.focus(), openStyles: () => barApi.current?.openStyles() }),
-      PictureNode,
+      ...baseExtensions({ placeholder: t("compose.editor.placeholder"), showOnlyCurrent: false, getBase: () => baseRef.current, focusToolbar: () => barApi.current?.focus(), openStyles: () => barApi.current?.openStyles(), pictures: true }),
       SignatureBlock({ mount: (el) => setSigHeads((h) => [...h, el]), unmount: (el) => setSigHeads((h) => h.filter((x) => x !== el)) }),
     ],
     // the accessible name belongs on the contenteditable node ProseMirror renders
@@ -1572,6 +1559,11 @@ export function Compose({ init }: { init: ComposeInit }) {
     editor.chain().setNodeSelection(picSel.pos).updateAttributes("image", { width: w }).run();
   };
 
+  const setPictureAlign = (a: "center" | "right" | null) => {
+    if (!picSel || !editor) return;
+    editor.chain().setNodeSelection(picSel.pos).updateAttributes("image", { align: a }).run();
+  };
+
   const savePictureAlt = () => {
     if (!picSel || !editor) return;
     editor.chain().setNodeSelection(picSel.pos).updateAttributes("image", { alt: altText.trim() }).run();
@@ -2034,6 +2026,14 @@ export function Compose({ init }: { init: ComposeInit }) {
                       </button>
                     ))}
                   </div>
+                  <div className="seg" role="radiogroup" aria-label={t("compose.pic.align")}>
+                    {([[null, "compose.fmt.alignLeft", <AlignLeft key="l" size={14} />], ["center", "compose.fmt.alignCenter", <AlignCenter key="c" size={14} />], ["right", "compose.fmt.alignRight", <AlignRight key="r" size={14} />]] as const).map(([a, label, icon]) => (
+                      <button key={label} role="radio" aria-checked={(picSel.align ?? null) === a} aria-label={t(label)} title={t(label)} className={(picSel.align ?? null) === a ? "on" : ""} onClick={() => setPictureAlign(a)}>
+                        {icon}
+                      </button>
+                    ))}
+                  </div>
+                  <button className={`icon-btn${picSel.href ? " on" : ""}`} aria-label={t("compose.fmt.link")} aria-pressed={!!picSel.href} title={kbd(t("compose.pic.linkTip"))} onClick={() => linkRef.current()}><Link2 size={14} /></button>
                   <button
                     className={`tool-btn ${picSel.alt ? "" : "no-alt"}`}
                     title={picSel.alt ? t("compose.pic.editAlt") : t("compose.pic.addAlt")}

@@ -914,6 +914,38 @@ button.pill:hover { filter: brightness(.95); }
 .img-tools .seg { margin: 0; flex-wrap: nowrap; }
 .img-tools .seg button { padding: 3px 9px; font-size: .86em; }
 .img-badge { position: absolute; left: 6px; bottom: 6px; font-size: .74em; background: rgba(0,0,0,.62); color: #fff; padding: 1px 7px; border-radius: 999px; }
+/* ---- Insert group (editor/insertUi.tsx): tables, picture alignment and handles, link bubble, emoji ---- */
+.editor .tiptap table, .rich-body .tiptap table { border-collapse: collapse; width: 100%; table-layout: auto; margin: 0; }
+.editor .tiptap :is(td, th), .rich-body .tiptap :is(td, th) { padding: 4px 6px; vertical-align: top; min-width: 1em; position: relative; text-align: left; }
+.editor .tiptap th, .rich-body .tiptap th { font-weight: bold; }
+.editor .tiptap table[data-borders="all"] :is(td, th), .rich-body .tiptap table[data-borders="all"] :is(td, th) { border: 1px solid #999999; }
+.editor .tiptap table[data-borders="outside"], .rich-body .tiptap table[data-borders="outside"] { border: 1px solid #999999; }
+.editor .tiptap table:is([data-borders="outside"], [data-borders="none"]) :is(td, th), .rich-body .tiptap table:is([data-borders="outside"], [data-borders="none"]) :is(td, th) { border: 1px dashed var(--border); } /* (a guide in the editor only: it is not sent) */
+.editor .tiptap .selectedCell::after, .rich-body .tiptap .selectedCell::after { content: ""; position: absolute; inset: 0; background: var(--accent-soft); pointer-events: none; }
+.editor .tiptap img[data-align="center"] { display: block; margin-left: auto; margin-right: auto; }
+.editor .tiptap img[data-align="right"] { display: block; margin-left: auto; margin-right: 0; }
+.tbl-tools, .link-bubble { position: fixed; z-index: calc(var(--z-menu) - 2); flex-wrap: nowrap; }
+.tbl-dd { position: relative; display: inline-flex; }
+.img-tools .tool-btn.on { background: var(--accent-soft); color: var(--accent-text); }
+.link-bubble { align-items: center; padding: 3px 4px 3px 10px; gap: 2px; }
+.link-bubble-url { max-width: 240px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--muted); font-size: .86em; margin-right: 4px; }
+.pic-handle { position: fixed; z-index: calc(var(--z-menu) - 3); width: 10px; height: 10px; box-sizing: border-box; border-radius: 2px; background: var(--accent); border: 2px solid var(--bg); touch-action: none; }
+.fmt-pop-table { width: 198px; }
+.tbl-grid { display: grid; grid-template-columns: repeat(10, 16px); gap: 2px; }
+.tbl-cell { width: 16px; height: 16px; padding: 0; box-sizing: border-box; border: 1px solid var(--border); border-radius: 2px; background: var(--bg); }
+.tbl-cell.on { background: var(--accent-soft); border-color: var(--accent); }
+.tbl-grid-label { font-size: .86em; color: var(--muted); text-align: center; min-height: 1.3em; margin: 2px 0; }
+.tbl-dialog { display: flex; flex-direction: column; gap: 10px; }
+.fmt-pop-emoji { width: 294px; }
+.emoji-tabs { display: flex; gap: 2px; }
+.emoji-tab { width: 32px; height: 30px; padding: 0; border: 0; border-radius: var(--r-sm); background: none; font-size: 17px; line-height: 1; }
+.emoji-tab:hover { background: var(--bg3); }
+.emoji-tab.on { background: var(--accent-soft); }
+.emoji-name { font-size: .82em; color: var(--muted); margin: 4px 0 2px; }
+.emoji-grid { display: grid; grid-template-columns: repeat(8, 32px); gap: 2px; }
+.emoji-btn { width: 32px; height: 32px; padding: 0; border: 0; border-radius: var(--r-sm); background: none; font-size: 19px; line-height: 1; font-family: "Segoe UI Emoji", "Apple Color Emoji", "Noto Color Emoji", sans-serif; }
+.emoji-btn:hover, .emoji-btn:focus-visible { background: var(--bg3); }
+.emoji-hint { font-size: .82em; color: var(--muted); margin-top: 6px; }
 .alt-pop { position: absolute; top: calc(100% + 4px); left: 0; z-index: 13; width: 320px; padding: 12px; gap: 8px; }
 .drop-zones { position: absolute; inset: 8px; display: grid; grid-template-rows: 1fr 96px; gap: 8px; z-index: 20; pointer-events: none; }
 .dz { border: 2px dashed color-mix(in srgb, var(--accent), transparent 40%); border-radius: var(--r-lg); background: color-mix(in srgb, var(--accent), transparent 92%); display: grid; place-items: center; color: var(--accent-text); font-weight: 650; text-align: center; gap: 4px; }

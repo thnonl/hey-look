@@ -4,6 +4,7 @@ import { useT } from "../i18n/react";
 import { baseFromPrefs } from "../editor/baseFont";
 import { docToHtml } from "../editor/emailHtml";
 import { baseExtensions } from "../editor/extensions";
+import { useKit } from "../editor/kit";
 import { FormatBar, type FormatBarApi } from "../editor/FormatBar";
 import { editorKeyHandlers } from "../composeKeys";
 import { useStore } from "../store";
@@ -13,7 +14,14 @@ import { useLinkEditor } from "./LinkPopover";
  * Small rich-text editor (signatures, templates): the user never has to write HTML. It has the extension set and the toolbar of the message
  * body (editor/extensions.ts, editor/FormatBar.tsx, compact variant) and stores the same email HTML the body is sent as (editor/emailHtml.ts).
  */
-export function RichEditor({ value, onChange, placeholder, minHeight = 140, label }: { value: string; onChange: (html: string) => void; placeholder?: string; minHeight?: number; label?: string }) {
+export function RichEditor(props: RichEditorProps) {
+  // the table nodes come in a chunk of their own (editor/kit.ts); the editor is made once they are there
+  return useKit() ? <RichEditorBody {...props} /> : <div className="rich" style={{ minHeight: (props.minHeight ?? 140) + 40 }} />;
+}
+
+interface RichEditorProps { value: string; onChange: (html: string) => void; placeholder?: string; minHeight?: number; label?: string }
+
+function RichEditorBody({ value, onChange, placeholder, minHeight = 140, label }: RichEditorProps) {
   const t = useT();
   const prefs = useStore((s) => s.prefs);
   // a signature is shown in the default font of new messages, as it will look in them
@@ -27,7 +35,7 @@ export function RichEditor({ value, onChange, placeholder, minHeight = 140, labe
     // Ctrl/Cmd+K is the link UI here too; AltGr characters never trigger the editor shortcuts
     editorProps: { attributes: { "aria-label": label ?? t("compose.fmt.text") }, handleDOMEvents: editorKeyHandlers(() => linkRef.current()) },
     content: value || "<p></p>",
-    onUpdate: ({ editor }) => onChange(editor.isEmpty ? "" : docToHtml(editor.getJSON())),
+    onUpdate: ({ editor }) => onChange(editor.isEmpty ? "" : docToHtml(editor.getJSON(), baseRef.current)),
   });
   const linkBtnRef = useRef<HTMLButtonElement>(null);
   const link = useLinkEditor(editor, linkBtnRef);

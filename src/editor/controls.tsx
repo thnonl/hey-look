@@ -1,9 +1,10 @@
+import { NodeSelection } from "@tiptap/pm/state";
 import type { Editor } from "@tiptap/react";
 import {
   AlignCenter, AlignJustify, AlignLeft, AlignRight, ArrowUpDown, Bold, ChevronDown, Highlighter, ImagePlus, IndentDecrease, IndentIncrease, Italic, Link2, List, ListOrdered, Minus,
-  Plus, RemoveFormatting, Redo2, Strikethrough, Subscript, Superscript, Underline as UnderlineIcon, Undo2,
+  Plus, RemoveFormatting, Redo2, Smile, Strikethrough, Subscript, Superscript, Table2, Underline as UnderlineIcon, Undo2,
 } from "lucide-react";
-import { useEffect, useRef, useState, type ReactNode, type RefObject } from "react";
+import { Suspense, lazy, useEffect, useRef, useState, type ReactNode, type RefObject } from "react";
 import { FloatingMenu, type MenuItem } from "../components/ui";
 import type { Key, Params } from "../i18n";
 import { useT } from "../i18n/react";
@@ -58,6 +59,10 @@ export interface BarState {
   /** the marker style of the selection's bulleted / numbered lists (null: none, or several) */
   bulletStyle: string | null;
   numberStyle: string | null;
+  /** the caret is in a table / in a link / a picture is selected: the floating tools of insertUi.tsx belong to it */
+  inTable: boolean;
+  inLink: boolean;
+  onPicture: boolean;
 }
 
 export function readBarState(editor: Editor, base: BaseFont): BarState {
@@ -83,6 +88,9 @@ export function readBarState(editor: Editor, base: BaseFont): BarState {
     spaceAfter: selectionHasSpaceAfter(editor.state),
     bulletStyle: selectionListStyle(editor.state, false).value,
     numberStyle: selectionListStyle(editor.state, true).value,
+    inTable: editor.isActive("table"),
+    inLink: editor.isActive("link"),
+    onPicture: editor.state.selection instanceof NodeSelection && editor.state.selection.node.type.name === "image",
   };
 }
 
@@ -111,8 +119,8 @@ export interface Ctx {
   rememberColor: (hex: string) => void;
   rememberHighlight: (hex: string) => void;
   rove: (id: string) => Rove;
-  /** open a control's picker from the More menu (it opens under the More button) */
-  openPicker: (id: string) => void;
+  /** open a control's picker from the More menu (it opens under the More button) or, with `at`, under that element (a row of the Insert menu) */
+  openPicker: (id: string, at?: RefObject<HTMLElement | null>) => void;
   /** which dropdown of the bar is open (font, size, align, styles, insert ...), and how to open or close one; `openVia` "key": the shortcut opened it, so Esc goes back to the text */
   open: string | null;
   openVia: "key" | null;
@@ -550,8 +558,24 @@ function listControl(ordered: boolean): FormatControl {
   };
 }
 
+// the table popover and the emoji picker are in the insertUi chunk (fetched when first opened; nothing of them is in the main bundle)
+const LazyTableMenu = lazy(() => import("./insertUi").then((m) => ({ default: m.TableMenu })));
+const LazyEmojiMenu = lazy(() => import("./insertUi").then((m) => ({ default: m.EmojiMenu })));
+const TableMenuLazy = (p: MenuProps) => <Suspense fallback={null}><LazyTableMenu {...p} /></Suspense>;
+const EmojiMenuLazy = (p: MenuProps) => <Suspense fallback={null}><LazyEmojiMenu {...p} /></Suspense>;
+
+const tableControl: FormatControl = {
+  id: "table", ...BAR_META.table, rove: ["table"],
+  bar: (c) => <IconMenu c={c} id="table" icon={<Table2 size={IC} aria-hidden="true" />} label={c.t("compose.table.button")} tip={c.t(c.st.inTable ? "compose.table.tools" : "compose.table.tip")} Menu={TableMenuLazy} />,
+  more: (c) => [{ label: c.t("compose.table.button"), icon: <Table2 size={IC} />, hint: "›", onClick: () => c.openPicker("table") }],
+  picker: (c, anchor, trigger, close) => <TableMenuLazy c={c} anchor={anchor} trigger={trigger} onClose={close} />,
+};
+
 function InsertMenu({ c, anchor, trigger, onClose }: MenuProps) {
-  const items: MenuItem[] = [{ label: c.t("compose.fmt.hr"), icon: <Minus size={IC} />, onClick: () => void insertHorizontalLine(c.editor) }];
+  const items: MenuItem[] = [
+    { label: c.t("compose.fmt.hr"), icon: <Minus size={IC} />, onClick: () => void insertHorizontalLine(c.editor) },
+    { label: c.t("compose.insert.emoji"), icon: <Smile size={IC} />, hint: "›", onClick: () => c.openPicker("emoji", trigger) },
+  ];
   return <FloatingMenu anchor={anchor} trigger={trigger} items={items} minWidth={190} onClose={onClose} />;
 }
 
@@ -705,6 +729,7 @@ export const CONTROLS: readonly FormatControl[] = [
     bar: (c) => <Tool c={c} id="picture" icon={<ImagePlus size={IC} />} label={c.t("compose.fmt.insertPicture")} tip={kbd(c.t("compose.bar.insertPictureTip"))} run={() => c.host.insertPicture?.()} />,
     more: (c) => [{ label: c.t("compose.fmt.insertPicture"), icon: <ImagePlus size={IC} />, hint: kbd("Ctrl+Shift+P"), onClick: () => c.host.insertPicture?.() }],
   },
+  tableControl,
   insertControl,
   toggle({ id: "clear", label: "compose.fmt.clear", tip: "compose.fmt.clearTip", icon: <RemoveFormatting size={IC} />, tipParams: () => ({ keys: osNow() === "macos" ? "Cmd+\\" : "Ctrl+Space" }), run: (c) => void clearFormatting(c.editor) }),
 ];
@@ -726,6 +751,11 @@ export const MORE_ITEMS: readonly MoreEntry[] = [
   {
     id: "hr", variants: ["compose", "compact"],
     item: (c) => ({ label: c.t("compose.fmt.hr"), icon: <Minus size={IC} />, onClick: () => void insertHorizontalLine(c.editor) }),
+  },
+  {
+    id: "emoji", variants: ["compose", "compact"],
+    item: (c) => ({ label: c.t("compose.insert.emoji"), icon: <Smile size={IC} />, hint: "›", onClick: () => c.openPicker("emoji") }),
+    picker: (c, anchor, trigger, close) => <EmojiMenuLazy c={c} anchor={anchor} trigger={trigger} onClose={close} />,
   },
 ];
 

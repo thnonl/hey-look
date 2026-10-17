@@ -27,6 +27,16 @@ export const PreviewColors = Extension.create({
             if (key.getState(state) !== "dark") return null;
             const out: Decoration[] = [];
             state.doc.descendants((node, pos) => {
+              // the shading of a table cell goes through the same recolouring as a highlight (the text in it is light, or lightened to read on it)
+              if (node.type.name === "tableCell" || node.type.name === "tableHeader") {
+                const shade = typeof node.attrs.background === "string" ? parseRgb(darkHighlight(node.attrs.background)) : null;
+                if (shade) {
+                  const decl = [`background-color:${rgbHex(shade)}`];
+                  if (contrast([230, 230, 230], shade) < 4.5) decl.push(`color:${rgbHex(lightText([230, 230, 230], shade, 4.5))}`);
+                  out.push(Decoration.node(pos, pos + node.nodeSize, { style: decl.join(";") }));
+                }
+                return;
+              }
               if (!node.isText) return;
               const ts = node.marks.find((m) => m.type.name === "textStyle");
               const fg = typeof ts?.attrs.color === "string" ? ts.attrs.color : "";

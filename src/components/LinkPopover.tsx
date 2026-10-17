@@ -1,8 +1,10 @@
+import { NodeSelection } from "@tiptap/pm/state";
 import { getMarkRange, type Editor } from "@tiptap/react";
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { checkLinkUrl, planLinkEdit } from "../linkUrl";
 import { useT } from "../i18n/react";
+import { openExternal } from "../open";
 import { useOutside } from "./ui";
 
 // The link UI of the composer and of the signature / template editor: a small popover with the address and (optionally) the text, opened by
@@ -21,12 +23,18 @@ export interface LinkTarget {
   inLink: boolean;
   /** the text can be changed here: nothing is selected, or the selection is inside one paragraph */
   canEditText: boolean;
+  /** the link is on a selected picture (its `href` attribute), not on text */
+  picture?: boolean;
 }
 
 /** Where the link UI works: the selection, or the whole link when the caret is inside one. */
 export function readLinkTarget(editor: Editor): LinkTarget {
   const { state } = editor;
   const sel = state.selection;
+  if (sel instanceof NodeSelection && sel.node.type.name === "image") {
+    const href = typeof sel.node.attrs.href === "string" ? sel.node.attrs.href : "";
+    return { from: sel.from, to: sel.to, text: "", href, inLink: !!href, canEditText: false, picture: true };
+  }
   const inLink = editor.isActive("link");
   const range = inLink ? getMarkRange(sel.$from, state.schema.marks.link) : null;
   const from = range ? range.from : sel.from;
@@ -43,6 +51,10 @@ export function readLinkTarget(editor: Editor): LinkTarget {
 
 /** Makes (or changes) the link in `target`; the text of a bare caret / a replaced text is inserted with the link on it. */
 export function applyLinkTarget(editor: Editor, target: LinkTarget, href: string, typedText: string): void {
+  if (target.picture) {
+    editor.chain().focus().setNodeSelection(target.from).updateAttributes("image", { href }).run();
+    return;
+  }
   const plan = planLinkEdit({ rangeEmpty: target.from === target.to, original: target.text, typed: typedText, href });
   const chain = editor.chain().focus();
   if (plan.kind === "mark") {
@@ -54,6 +66,10 @@ export function applyLinkTarget(editor: Editor, target: LinkTarget, href: string
 }
 
 export function removeLinkTarget(editor: Editor, target: LinkTarget): void {
+  if (target.picture) {
+    editor.chain().focus().setNodeSelection(target.from).updateAttributes("image", { href: null }).run();
+    return;
+  }
   editor.chain().focus().setTextSelection({ from: target.from, to: target.to }).unsetLink().setTextSelection(target.to).run();
 }
 
@@ -163,6 +179,9 @@ function LinkPopover({
       )}
       <div className="link-pop-btns">
         {target.inLink && <button type="button" className="btn link-pop-remove" onClick={onRemove}>{t("compose.link.remove")}</button>}
+        {target.inLink && checkLinkUrl(target.href).ok && (
+          <button type="button" className="btn link-pop-remove" onClick={() => void openExternal(target.href).catch(() => undefined)}>{t("compose.link.open")}</button>
+        )}
         <span className="grow" />
         <button type="button" className="btn" onClick={onClose}>{t("common.cancel")}</button>
         <button type="button" className="btn primary" disabled={!check.ok && check.reason === "empty"} onClick={apply}>{t("compose.link.apply")}</button>
