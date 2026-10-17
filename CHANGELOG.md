@@ -89,6 +89,11 @@ AI Assistant
 - Settings no longer jump while you use them: in Settings > AI Assistant the model-list messages have a fixed place under Save, "Remove the saved key" is on the line of the API key label, and the Model box keeps its focus when the list arrives; in Add account and Settings > mailbox > Calendar the sign-in messages take turns in one place of fixed size under the button, and the focus goes back to the button when a sign-in ends
 - Settings > AI Assistant: when saving fails (a locked key store, a file that cannot be written) the reason is shown under Save in all languages and what you typed stays; before, nothing was shown
 - AI Assistant errors: an answer the app cannot read is one sentence in your language, not the raw reply of the provider; the message for an Assistant that is not set up says so in its title; an error about the connection no longer shows a password or a token that is part of the address in Settings; a failed translation in the message has an Open AI Assistant settings link
+- A link inside a PDF attachment no longer takes the window away from the app: the window now stays in the app for every web address except the app's own (a link to another program on your own computer, such as 127.0.0.1, was let through before)
+- The button that folds the side menu stays at the top of the menu while the list of folders scrolls, in the full menu and in the column of icons
+- A message you deleted or archived leaves the list when its Undo time ends, also when the window was hidden to the tray at that time (it could stay listed until the next refresh); the list is read again when the window comes back
+- The corner handles of a selected picture are cut off with the editor when you scroll the message, instead of showing over the To row and the attachments
+- Closing a reply or a forward in which you typed nothing (Discard, or closing its window) no longer asks "Discard this message?"; a letter, an address or an attachment you added still asks
 
 ### Known limitations
 
