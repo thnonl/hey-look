@@ -1,7 +1,7 @@
 // The size of a message on the wire (G-07 / CF-21): base64 + line breaks + part headers, against the server's SIZE or the usual 25 MB.
 // Run: node --experimental-strip-types scripts/test-send-size.mjs
 import assert from "node:assert/strict";
-import { ARMOR, USUAL_LIMIT, attachmentWire, base64Chars, base64Wire, isSizeRefusal, partHeaders, pictureWire, sendLimit, wireSize } from "../src/sendSize.ts";
+import { askFreshBeforeSend, showSizeToast, ARMOR, USUAL_LIMIT, attachmentWire, base64Chars, base64Wire, isSizeRefusal, partHeaders, pictureWire, sendLimit, wireSize } from "../src/sendSize.ts";
 
 const MiB = 1024 * 1024;
 const b64 = (raw) => base64Chars(raw); // base64 text length of a raw size
@@ -63,11 +63,37 @@ assert.ok(w4 < USUAL_LIMIT, "it fits the usual limit, so only the server's SIZE 
 assert.ok(w4 > sendLimit(5_000_000).bytes, "and the server's SIZE 5000000 blocks it");
 assert.equal(sendLimit(5_000_000).fromServer, true, "the message names the account's server");
 
+// QA round 20 BUG-01: right before Send a message with files asks the server afresh (the cache must not hide a limit that just changed)
+assert.ok(askFreshBeforeSend(1, 0) && askFreshBeforeSend(0, 2) && !askFreshBeforeSend(0, 0));
+
 // a refused send: the backend's coded error
 assert.ok(isSizeRefusal("SMTP_TOO_LARGE|reply=552 5.3.4 Message size exceeds fixed limit: The message is larger than this server accepts."));
 assert.ok(isSizeRefusal(new Error("Error: SMTP_TOO_LARGE|reply=552: x")));
 assert.ok(!isSizeRefusal("SMTP_ATTACHMENT_BLOCKED|reply=552: x"));
 assert.ok(!isSizeRefusal("SMTP send failed: 552"));
 assert.ok(!isSizeRefusal(undefined));
+
+// QA round 20 BUG-02: a blocked Send leaves exactly ONE size toast, whatever came before (files added, Send pressed once or twice)
+{
+  let seq = 0;
+  let toasts = [];
+  const host = {
+    showToast: (text) => { toasts = [...toasts, { id: ++seq, text }]; },
+    dismissToast: (id) => { toasts = toasts.filter((t) => t.id !== id); },
+    lastToastId: () => (toasts.length ? toasts[toasts.length - 1].id : null),
+  };
+  const last = { id: null };
+  showSizeToast(host, last, "Attachments total 35.6 MB when sent; the limit is 25.0 MB"); // files were added
+  assert.equal(toasts.length, 1);
+  host.showToast("Saved"); // another toast in between stays
+  showSizeToast(host, last, "Attachments total 35.7 MB when sent; the limit is 25.0 MB"); // Send pressed: not the same size to the byte
+  assert.deepEqual(toasts.map((t) => t.text), ["Saved", "Attachments total 35.7 MB when sent; the limit is 25.0 MB"]);
+  showSizeToast(host, last, "Attachments total 35.7 MB when sent; the limit is 25.0 MB"); // Send pressed again
+  assert.equal(toasts.filter((t) => /^Attachments total/.test(t.text)).length, 1, "exactly one size message");
+  // the toast timed out meanwhile: the next one is shown normally
+  toasts = [];
+  showSizeToast(host, last, "Attachments total 36 MB when sent; the limit is 25.0 MB");
+  assert.equal(toasts.length, 1);
+}
 
 console.log("test-send-size: ok");

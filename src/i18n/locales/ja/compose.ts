@@ -190,7 +190,6 @@ export default defineLocale<typeof ns.en>({
   "compose.att.total": "送信時 {size} / 上限 {limit}",
   "compose.att.blockedWarningOne": "Gmail、Outlook、Yahooでは、zipファイルに入れていても{types}ファイルが拒否されます。このメッセージは拒否される可能性が高いため、ファイルを削除するか、代わりにリンクを共有してください。",
   "compose.att.blockedWarningMany": "Gmail、Outlook、Yahooでは、zipファイルに入れていても{types}ファイルが拒否されます。このメッセージは拒否される可能性が高いため、ファイルを削除するか、代わりにリンクを共有してください。",
-  "compose.att.tooBig": "添付ファイルと画像の送信時の合計は{size}です。上限は{limit}です",
   "compose.att.totalTooBig": "添付ファイルの送信時の合計は{size}です。上限は{limit}です",
   "compose.att.tooBigServer": "添付ファイルの送信時の合計は{size}です。このアカウントのサーバーの上限は{limit}です",
   "compose.drop.label": "ファイルをドロップ",

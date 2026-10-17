@@ -55,6 +55,32 @@ assert.deepEqual(go({ fromEmail: "me@example.com", to: "me@gmail.com" }).to, [])
   assert.deepEqual(go({ ...o, replyTo: ["NEWS@list.test"], all: true }).to, ["NEWS@list.test", "a@ext.test"]);
 }
 
+// Mac QA round 20: a Reply-To that is one of the person's OWN accounts is not answered to (replyTargets.ts: `own`, the `asked` filter) - the probe
+// with Reply-To qa2 looked like a lost Reply-To because qa2 was a second account of that profile. Several addresses: every non-own one stays, in order.
+{
+  const mine2 = new Set(["qa1@test.local", "qa2@test.local"]);
+  const q = (o) => replyTargets({ fromEmail: "sender@test.local", to: "qa1@test.local", cc: "cc2@test.local,qa1@test.local", mine: mine2, replyTo: [], all: false, ...o });
+  // Reply-To is an address that is not an account: Reply goes there, with the note; Reply all adds the sender and the others
+  const ok = q({ replyTo: ["RC ReplyTo <qa9@test.local>"] });
+  assert.deepEqual(ok.to, ["RC ReplyTo <qa9@test.local>"]);
+  assert.deepEqual(ok.viaReplyTo, { replyTo: ["RC ReplyTo <qa9@test.local>"], from: "sender@test.local" });
+  assert.deepEqual(q({ replyTo: ["RC ReplyTo <qa9@test.local>"], all: true }).to, ["RC ReplyTo <qa9@test.local>", "sender@test.local"]);
+  // Reply-To is my own second account (qa2): it is dropped, the answer goes to the sender, no note
+  const own = q({ replyTo: ["RC ReplyTo <qa2@test.local>"] });
+  assert.deepEqual(own.to, ["sender@test.local"]);
+  assert.equal(own.viaReplyTo, null);
+  const ownAll = q({ replyTo: ["RC ReplyTo <qa2@test.local>"], all: true });
+  assert.deepEqual([ownAll.to, ownAll.cc], [["sender@test.local"], ["cc2@test.local"]]);
+  // two Reply-To addresses, one of them mine: only the other one (what Mac QA saw: "Replies go to qa3")
+  const two = q({ replyTo: ["qa2@test.local", "qa3@test.local"] });
+  assert.deepEqual(two.to, ["qa3@test.local"]);
+  assert.deepEqual(two.viaReplyTo, { replyTo: ["qa3@test.local"], from: "sender@test.local" });
+  // several addresses that are not mine: all of them, in the order of the header, and the note lists all of them
+  const many = q({ replyTo: ["a@x.test", "B <b@x.test>", "c@x.test"], all: true });
+  assert.deepEqual(many.to, ["a@x.test", "B <b@x.test>", "c@x.test", "sender@test.local"]);
+  assert.deepEqual(many.viaReplyTo.replyTo, ["a@x.test", "B <b@x.test>", "c@x.test"]);
+}
+
 // QA 19A R19A-1: display names stay (the stored To / Cc keep bare addresses; the headers of the message carry the names)
 const named = go({
   fromEmail: "john@x.test", fromName: "Doe, John", to: "me@example.com,ann@x.test", cc: "z@ext.test", all: true,

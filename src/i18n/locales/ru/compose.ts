@@ -214,7 +214,6 @@ export default defineLocale<typeof ns.en>({
   "compose.att.total": "При отправке {size}, лимит {limit}",
   "compose.att.blockedWarningOne": "Gmail, Outlook и Yahoo отклоняют файлы {types}, даже внутри zip-архива. Это письмо, скорее всего, будет отклонено: удалите вложение или отправьте ссылку на него.",
   "compose.att.blockedWarningMany": "Gmail, Outlook и Yahoo отклоняют файлы {types}, даже внутри zip-архива. Это письмо, скорее всего, будет отклонено: удалите вложения или отправьте ссылки на них.",
-  "compose.att.tooBig": "Вложения и изображения при отправке занимают {size}; лимит — {limit}",
   "compose.att.totalTooBig": "Общий размер вложений при отправке — {size}; лимит — {limit}",
   "compose.att.tooBigServer": "Общий размер вложений при отправке — {size}; лимит сервера этой учётной записи — {limit}",
   "compose.drop.label": "Перетащите файлы",

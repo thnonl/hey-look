@@ -22,7 +22,8 @@ import { fitInWindow } from "../fitInWindow";
 import { autosaveDue, snapshotDue, timing, type AutosaveWhy } from "../autosave";
 import { RecoveryWriter, type RecoveryForm } from "../recovery";
 import { cleanPastedHtml, isLocalPictureSrc, stripRemotePictures } from "../pastedHtml";
-import { isSizeRefusal, sendLimit, wireSize } from "../sendSize";
+import { fromAccountFor } from "../fromAccount";
+import { askFreshBeforeSend, isSizeRefusal, sendLimit, showSizeToast, wireSize } from "../sendSize";
 import { outgoingName, outgoingNames } from "../attachName";
 import { placePictureTools } from "../pictureToolsLayout";
 import type { PictureToolsInput } from "../pictureToolsLayout";
@@ -370,7 +371,7 @@ interface PictureSel {
 export function Compose({ init }: { init: ComposeInit }) {
   const t = useT();
   const { accounts, openCompose, showToast, prefs, refresh, confirm, choose, setComposeDirty, setComposeSaver, setComposeProbe, aiConfigured, setDialog, beginSend } = useStore();
-  const [accountId, setAccountId] = useState(accounts.some((a) => a.id === init.accountId) ? init.accountId! : accounts.some((a) => a.id === prefs.defaultAccount) ? prefs.defaultAccount : accounts[0]?.id || init.accountId || "");
+  const [accountId, setAccountId] = useState(fromAccountFor(accounts, init.accountId, prefs.defaultAccount));
   const isFresh = !init.replaces && !init.isReply && !init.outboxId && !init.restore;
   // an opened draft / scheduled message / message that failed to send: its body already holds the signature, shown as the region again
   const editing = !!(init.replaces || init.outboxId || init.restore);
@@ -906,9 +907,20 @@ export function Compose({ init }: { init: ComposeInit }) {
     return asked;
   };
   const limit = sendLimit(serverMax[accountId]);
-  /** "Attachments total 5.2 MB when sent; the limit for this account's server is 4.8 MB" (the server's own number), else the usual-limit wording */
-  const tooBigText = (size: number, lim: { bytes: number; fromServer: boolean }, key: "compose.att.tooBig" | "compose.att.totalTooBig") =>
-    lim.fromServer ? t("compose.att.tooBigServer", { size: fmtSize(size), limit: fmtSize(lim.bytes) }) : t(key, { size: fmtSize(size), limit: fmtSize(lim.bytes) });
+  /** The one sentence for a message that is over the limit: "Attachments total 5.2 MB when sent; the limit for this account's server is 4.8 MB" (the server's own number), else the usual 25 MB wording. */
+  const tooBigText = (size: number, lim: { bytes: number; fromServer: boolean }) =>
+    t(lim.fromServer ? "compose.att.tooBigServer" : "compose.att.totalTooBig", { size: fmtSize(size), limit: fmtSize(lim.bytes) });
+  /** Shows it as THE size toast: an earlier one (files were added, then Send was pressed) goes, so one message is on the screen, never two (QA round 20 BUG-02). */
+  const lastSizeToast = useRef<{ id: number | null }>({ id: null });
+  const showSizeError = (text: string) =>
+    showSizeToast(
+      { showToast, dismissToast: useStore.getState().dismissToast, lastToastId: () => {
+          const ts = useStore.getState().toasts;
+          return ts.length ? ts[ts.length - 1].id : null;
+        } },
+      lastSizeToast.current,
+      text,
+    );
   const wireOf = (files: Att[], picBytes: number, picCount: number) =>
     wireSize({ attachments: files.map((a) => ({ filename: a.filename, base64Length: a.dataBase64.length })), pictures: picCount ? [picBytes] : [], encrypted: encOn });
   const attBytes = wireOf(atts, 0, 0);
@@ -917,7 +929,7 @@ export function Compose({ init }: { init: ComposeInit }) {
   const overShown = useRef(false);
   const over = totalBytes > limit.bytes;
   useEffect(() => {
-    if (over && !overShown.current && touched.current) showToast(tooBigText(totalBytes, limit, "compose.att.totalTooBig"), undefined, "error");
+    if (over && !overShown.current && touched.current) showSizeError(tooBigText(totalBytes, limit));
     overShown.current = over;
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [over]);
@@ -950,14 +962,15 @@ export function Compose({ init }: { init: ComposeInit }) {
 
   /**
    * The error text when the message, as it goes on the wire (base64 + headers + the body), is over what the server takes; null when it
-   * fits. The server is asked for its SIZE first (smtpsize.rs; from the backend's memory when it was asked a short time ago); without an
+   * fits. The server is asked for its SIZE first (smtpsize.rs; for a message with files always afresh, else from the backend's minute of memory); without an
    * answer within 10 seconds the limit known so far applies (the usual 25 MB).
    */
   const sizeProblem = async (d: Draft): Promise<string | null> => {
     const wire = draftWire(d);
-    const max = await Promise.race([askServerLimit(d.accountId), new Promise<null>((r) => setTimeout(() => r(null), 10_000))]);
+    const fresh = askFreshBeforeSend(d.attachments.length, (d.inline ?? []).length);
+    const max = await Promise.race([askServerLimit(d.accountId, fresh), new Promise<null>((r) => setTimeout(() => r(null), 10_000))]);
     const lim = sendLimit(max ?? serverMax[d.accountId]);
-    return wire > lim.bytes ? tooBigText(wire, lim, "compose.att.tooBig") : null;
+    return wire > lim.bytes ? tooBigText(wire, lim) : null;
   };
 
   /**
@@ -969,7 +982,7 @@ export function Compose({ init }: { init: ComposeInit }) {
       const wire = draftWire(d);
       const lim = sendLimit(await askServerLimit(d.accountId, true));
       // the server refused although the limit is unknown or bigger than the estimate: its own reply (translated) says it
-      if (wire > lim.bytes) return tooBigText(wire, lim, "compose.att.tooBig");
+      if (wire > lim.bytes) return tooBigText(wire, lim);
     }
     return t("compose.toast.sendFailed", { error: friendlyError(e) });
   };
@@ -978,7 +991,7 @@ export function Compose({ init }: { init: ComposeInit }) {
     if (!init.outboxId) return;
     const built = buildDraft();
     const tooBig = await sizeProblem(built);
-    if (tooBig) return showToast(tooBig, undefined, "error");
+    if (tooBig) return showSizeError(tooBig);
     const d = await secureDraft(built);
     if (!d) return;
     setBusy(true);
@@ -1023,7 +1036,7 @@ export function Compose({ init }: { init: ComposeInit }) {
     }
     if (!accountId) return showToast(t("compose.err.noAccount"), undefined, "error");
     const tooBig = await sizeProblem(d);
-    if (tooBig) return showToast(tooBig, undefined, "error");
+    if (tooBig) return showSizeError(tooBig);
     if (!d.subject && !(await confirm({ title: t("compose.dlg.noSubject"), confirmLabel: t("compose.dlg.sendAnyway") }))) return;
     if (
       blockedAtts.length &&

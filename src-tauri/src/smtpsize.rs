@@ -1,7 +1,7 @@
 //! The largest message the SMTP server of an account takes: the SIZE extension of EHLO (RFC 1870), e.g. `250-SIZE 35882577`.
 //! Compose uses it (the smaller of it and the usual 25 MB) when it checks the size of what is about to be sent (QA round 17, G-07 /
 //! CF-21; round 19A BUG-16). It is asked when a message is opened, when its attachments change and before Send, answered from a cache
-//! for a while (a limit is remembered for 10 minutes, a failed question for one minute), and every failure (no connection, no SIZE,
+//! for a short while (an answer is remembered for 60 seconds, a failed question too; QA round 20: 10 minutes left a changed limit unseen), and every failure (no connection, no SIZE,
 //! `SIZE 0` = no declared limit) is just "unknown": the usual limit then applies.
 
 use crate::db::{Account, R};
@@ -12,7 +12,7 @@ use std::time::{Duration, Instant};
 
 const EHLO_NAME: &str = "hey-look.local";
 const TIMEOUT: Duration = Duration::from_secs(8);
-const KEEP: Duration = Duration::from_secs(10 * 60);
+const KEEP: Duration = Duration::from_secs(60);
 const KEEP_FAILED: Duration = Duration::from_secs(60);
 
 /// `SIZE n` in the lines of an EHLO reply. `None` when the server does not name one or says 0 (no fixed limit).
@@ -118,15 +118,21 @@ fn cache_key(acc: &Account) -> String {
     format!("{}|{}:{}:{}:{}", acc.id, acc.smtp_host, acc.smtp_port, acc.smtp_security, acc.tls_insecure)
 }
 
-/// `probe`, remembered per account for a while. A limit stays for 10 minutes, a failure (the server did not answer) for one minute only,
-/// so a short outage does not hide a limit for long. `refresh` asks again whatever the cache holds (a send the server refused for its size).
+/// What the cache holds for `key` at `now`: `Some(answer)` while it is fresh (a limit for `KEEP`, a failed or empty answer for `KEEP_FAILED`).
+fn fresh(key: &str, now: Instant) -> Option<Option<u64>> {
+    let g = CACHE.lock().unwrap_or_else(|p| p.into_inner());
+    let (at, v) = g.get(key)?;
+    (now.saturating_duration_since(*at) < if v.is_some() { KEEP } else { KEEP_FAILED }).then_some(*v)
+}
+
+/// `probe`, remembered per account for a minute (a failure, the server did not answer, too, so a server that does not answer is not asked on
+/// every key press). `refresh` asks again whatever the cache holds: Compose does that right before Send when the message has files, and after a
+/// send the server refused for its size.
 pub fn limit_cached(acc: &Account, refresh: bool) -> Option<u64> {
     let key = cache_key(acc);
     if !refresh {
-        if let Some((at, v)) = CACHE.lock().unwrap_or_else(|p| p.into_inner()).get(&key) {
-            if at.elapsed() < if v.is_some() { KEEP } else { KEEP_FAILED } {
-                return *v;
-            }
+        if let Some(v) = fresh(&key, Instant::now()) {
+            return v;
         }
     }
     let v = probe(acc);
@@ -335,6 +341,22 @@ mod tests {
         // no STARTTLS and no SIZE on a starttls account: unknown
         let (port, _) = serve_kind(Kind::StartTls, &["250-test", "250 8BITMIME"], &["250 SIZE 99"], false);
         assert_eq!(probe(&with(account(port), "s5", "starttls")), None);
+    }
+
+    /// QA round 20 BUG-01: the old 10 minutes left a limit that the server changed unseen for minutes.
+    #[test]
+    fn an_answer_is_remembered_for_a_minute_only() {
+        let acc = with(account(1), "k1", "none");
+        let key = cache_key(&acc);
+        let t0 = Instant::now();
+        CACHE.lock().unwrap().insert(key.clone(), (t0, Some(5_000_000)));
+        assert_eq!(fresh(&key, t0 + Duration::from_secs(59)), Some(Some(5_000_000)));
+        assert_eq!(fresh(&key, t0 + Duration::from_secs(61)), None, "after a minute the server is asked again");
+        CACHE.lock().unwrap().insert(key.clone(), (t0, None));
+        assert_eq!(fresh(&key, t0 + Duration::from_secs(30)), Some(None), "a failed question is remembered for a short while");
+        assert_eq!(fresh(&key, t0 + Duration::from_secs(61)), None);
+        assert!(KEEP <= Duration::from_secs(60) && KEEP_FAILED <= Duration::from_secs(60));
+        forget("k1");
     }
 
     #[test]
