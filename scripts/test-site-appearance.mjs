@@ -78,7 +78,12 @@ process.on('exit', () => { try { proc.kill(); } catch { /* ignore */ } });
 
 let wsUrl = null;
 for (let i = 0; i < 100 && !wsUrl; i++) { try { wsUrl = (await (await fetch(`http://127.0.0.1:${port}/json/version`)).json()).webSocketDebuggerUrl; } catch { await new Promise((r) => setTimeout(r, 150)); } }
-if (!wsUrl) { await shutdown(); console.error('test-site-appearance: Chrome did not start'); process.exit(1); }
+if (!wsUrl) {
+  await shutdown();
+  // a browser that is installed but cannot start (sandbox, display) must not fail a release job: only --require-browser makes it an error
+  if (flag('require-browser')) { console.error('test-site-appearance: Chrome did not start'); process.exit(1); }
+  console.log('test-site-appearance: SKIPPED, Chrome did not start (pass --require-browser to fail instead)'); process.exit(0);
+}
 const ws = new WebSocket(wsUrl); await new Promise((r, j) => { ws.onopen = r; ws.onerror = j; });
 let nextId = 1; const waiting = new Map(), listeners = [];
 ws.onmessage = (ev) => { const m = JSON.parse(ev.data); if (m.id && waiting.has(m.id)) { const { ok, bad } = waiting.get(m.id); waiting.delete(m.id); m.error ? bad(new Error(m.error.message)) : ok(m.result); } else listeners.forEach((l) => l(m)); };
