@@ -7,7 +7,7 @@
 // Spec: spec-rich-text.md REQ-30..34, REQ-40, design 4.4, 4.5.
 
 import { ChevronDown, ExternalLink, Pencil, Unlink } from "lucide-react";
-import { useEffect, useLayoutEffect, useRef, useState, type RefObject } from "react";
+import { useEffect, useLayoutEffect, useReducer, useRef, useState, type RefObject } from "react";
 import { createPortal } from "react-dom";
 import { NodeSelection } from "@tiptap/pm/state";
 import type { Editor } from "@tiptap/react";
@@ -260,6 +260,12 @@ function ToolMenu({ label, items, onOpen }: { label: string; items: MenuItem[]; 
 
 function TableTools({ editor }: { editor: Editor }) {
   const t = useT();
+  // the checks of the menus and the Header row button follow every change of the document
+  const [, tick] = useReducer((n: number) => n + 1, 0);
+  useEffect(() => {
+    editor.on("transaction", tick);
+    return () => void editor.off("transaction", tick);
+  }, [editor]);
   const bar = useRef<HTMLDivElement>(null);
   const [menus, setMenus] = useState(0);
   const [shadeOpen, setShadeOpen] = useState(false);
@@ -277,7 +283,7 @@ function TableTools({ editor }: { editor: Editor }) {
     const pane = paneOf(editor).getBoundingClientRect();
     const w = el.offsetWidth;
     const h = el.offsetHeight;
-    if (box.bottom < pane.top + 12 || box.top > pane.bottom - 12) return setPos(null); // the table is scrolled out of the pane
+    if (box.bottom < pane.top || box.top > pane.bottom) return setPos(null); // the table is scrolled out of the pane
     const top = Math.max(pane.top + 4, box.top - h - 6);
     const { shift } = fitInWindow({ left: box.left, right: box.left + w, top, bottom: top + h }, pane.right, window.innerHeight, 6);
     setPos({ left: Math.max(pane.left + 4, box.left + shift), top });

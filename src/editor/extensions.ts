@@ -10,6 +10,7 @@
 
 import Placeholder from "@tiptap/extension-placeholder";
 import { Code } from "@tiptap/extension-code";
+import { Link } from "@tiptap/extension-link";
 import { HardBreak } from "@tiptap/extension-hard-break";
 import { Strike } from "@tiptap/extension-strike";
 import Subscript from "@tiptap/extension-subscript";
@@ -51,6 +52,19 @@ const Sup = Superscript.extend({
     return { "Mod-Shift-=": () => toggleScript(this.editor, "superscript"), "Mod-Shift-+": () => toggleScript(this.editor, "superscript") };
   },
 });
+
+/**
+ * The link mark of the editor (made with each editor). The editor's own is "inclusive" (text typed at the end of a link goes on being the link): in Word and
+ * Outlook the words typed after a link are not part of it, so this one is not. Web, mail and tel addresses only (linkUrl.ts), https for an address typed
+ * without a scheme, and no target / rel / class in the editor (the sent HTML has none either).
+ */
+const editorLink = () =>
+  Link.extend({ inclusive: false }).configure({
+    openOnClick: false,
+    defaultProtocol: "https",
+    HTMLAttributes: { target: null, rel: null, class: null, title: kbd(tNow("compose.link.openTip")) }, // (the tooltip is in the language of the moment the editor is made)
+    isAllowedUri: (url: string) => checkLinkUrl(url).ok,
+  });
 
 /**
  * Ctrl+click (Cmd+click on a Mac) on a link opens it in the default program; a plain click only moves the caret (spec REQ-30, AC-50). The editor's own
@@ -134,20 +148,9 @@ export interface BaseExtensionOptions {
 
 export function baseExtensions(o: BaseExtensionOptions): AnyExtension[] {
   return [
-    // headings 1-3 only (the Styles menu of Outlook); the editor's own Strike / Code shortcuts are replaced above
-    // links: web, mailto and tel only (linkUrl.ts); the address a person typed gets https://; no target / rel in the editor (the sent HTML has none either)
-    StarterKit.configure({
-      strike: false,
-      code: false,
-      hardBreak: false,
-      heading: { levels: [1, 2, 3] },
-      link: {
-        openOnClick: false,
-        defaultProtocol: "https",
-        HTMLAttributes: { target: null, rel: null, class: null, title: kbd(tNow("compose.link.openTip")) },
-        isAllowedUri: (url: string) => checkLinkUrl(url).ok,
-      },
-    }),
+    // headings 1-3 only (the Styles menu of Outlook); the editor's own Strike / Code shortcuts are replaced above; the link is editorLink()
+    StarterKit.configure({ strike: false, code: false, hardBreak: false, link: false, heading: { levels: [1, 2, 3] } }),
+    editorLink(),
     LinkOpen,
     LineBreak,
     NoKeyStrike,

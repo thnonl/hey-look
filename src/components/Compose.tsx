@@ -1561,7 +1561,7 @@ function ComposeBody({ init }: { init: ComposeInit }) {
 
   const setPictureAlign = (a: "center" | "right" | null) => {
     if (!picSel || !editor) return;
-    editor.chain().setNodeSelection(picSel.pos).updateAttributes("image", { align: a }).run();
+    editor.chain().focus().setNodeSelection(picSel.pos).updateAttributes("image", { align: a }).run(); // (the editor has the focus again: Ctrl+K links the picture next)
   };
 
   const savePictureAlt = () => {
