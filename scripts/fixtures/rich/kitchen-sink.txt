@@ -1,0 +1,20 @@
+Quarterly report
+Dear team,
+Results were strong, costs flat. Details at the dashboard (https://example.test/dash).
+[Chart & trend]
+- Revenue up
+  - EMEA
+  - APAC
+- Costs flat
+1. Approve budget
+2. Hire two engineers
+> Measure twice, cut once.
+SELECT 1;
+----------
+H2O, E=mc2 ~~old~~
+Best regards,
+Nam
+
+-- 
+Nam Hoang
+Hey Look! · heylook.app (https://heylook.app)

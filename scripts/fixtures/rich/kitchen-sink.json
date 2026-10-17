@@ -1,0 +1,336 @@
+{
+ "base": {
+  "family": "Calibri,Carlito,Arial,sans-serif",
+  "size": 11
+ },
+ "sig": "<p style=\"margin:0\">Nam Hoang</p><p style=\"margin:0\"><span style=\"color:#0070C0\">Hey Look!</span> &middot; <a href=\"https://heylook.app\">heylook.app</a></p>",
+ "doc": {
+  "type": "doc",
+  "content": [
+   {
+    "type": "heading",
+    "attrs": {
+     "level": 1
+    },
+    "content": [
+     {
+      "type": "text",
+      "text": "Quarterly report"
+     }
+    ]
+   },
+   {
+    "type": "paragraph",
+    "content": [
+     {
+      "type": "text",
+      "text": "Dear team,"
+     }
+    ]
+   },
+   {
+    "type": "paragraph",
+    "content": [
+     {
+      "type": "text",
+      "text": "Results were ",
+      "marks": [
+       {
+        "type": "textStyle",
+        "attrs": {
+         "fontFamily": "Georgia, serif",
+         "fontSize": "12pt"
+        }
+       }
+      ]
+     },
+     {
+      "type": "text",
+      "text": "strong",
+      "marks": [
+       {
+        "type": "bold"
+       },
+       {
+        "type": "textStyle",
+        "attrs": {
+         "color": "#00B050"
+        }
+       }
+      ]
+     },
+     {
+      "type": "text",
+      "text": ", costs ",
+      "marks": [
+       {
+        "type": "italic"
+       }
+      ]
+     },
+     {
+      "type": "text",
+      "text": "flat",
+      "marks": [
+       {
+        "type": "underline"
+       },
+       {
+        "type": "textStyle",
+        "attrs": {
+         "backgroundColor": "#FFFF00"
+        }
+       }
+      ]
+     },
+     {
+      "type": "text",
+      "text": ". Details at "
+     },
+     {
+      "type": "text",
+      "text": "the dashboard",
+      "marks": [
+       {
+        "type": "link",
+        "attrs": {
+         "href": "https://example.test/dash"
+        }
+       }
+      ]
+     },
+     {
+      "type": "text",
+      "text": "."
+     }
+    ]
+   },
+   {
+    "type": "image",
+    "attrs": {
+     "src": "data:image/png;base64,iVBORw0KGgo=",
+     "alt": "Chart & trend",
+     "width": 480,
+     "data-name": "chart.png"
+    }
+   },
+   {
+    "type": "bulletList",
+    "content": [
+     {
+      "type": "listItem",
+      "content": [
+       {
+        "type": "paragraph",
+        "content": [
+         {
+          "type": "text",
+          "text": "Revenue ",
+          "marks": [
+           {
+            "type": "bold"
+           }
+          ]
+         },
+         {
+          "type": "text",
+          "text": "up",
+          "marks": [
+           {
+            "type": "textStyle",
+            "attrs": {
+             "color": "#00B050"
+            }
+           }
+          ]
+         }
+        ]
+       },
+       {
+        "type": "bulletList",
+        "content": [
+         {
+          "type": "listItem",
+          "content": [
+           {
+            "type": "paragraph",
+            "content": [
+             {
+              "type": "text",
+              "text": "EMEA"
+             }
+            ]
+           }
+          ]
+         },
+         {
+          "type": "listItem",
+          "content": [
+           {
+            "type": "paragraph",
+            "content": [
+             {
+              "type": "text",
+              "text": "APAC"
+             }
+            ]
+           }
+          ]
+         }
+        ]
+       }
+      ]
+     },
+     {
+      "type": "listItem",
+      "content": [
+       {
+        "type": "paragraph",
+        "content": [
+         {
+          "type": "text",
+          "text": "Costs flat"
+         }
+        ]
+       }
+      ]
+     }
+    ]
+   },
+   {
+    "type": "orderedList",
+    "attrs": {
+     "start": 1
+    },
+    "content": [
+     {
+      "type": "listItem",
+      "content": [
+       {
+        "type": "paragraph",
+        "content": [
+         {
+          "type": "text",
+          "text": "Approve budget"
+         }
+        ]
+       }
+      ]
+     },
+     {
+      "type": "listItem",
+      "content": [
+       {
+        "type": "paragraph",
+        "content": [
+         {
+          "type": "text",
+          "text": "Hire two engineers"
+         }
+        ]
+       }
+      ]
+     }
+    ]
+   },
+   {
+    "type": "blockquote",
+    "content": [
+     {
+      "type": "paragraph",
+      "content": [
+       {
+        "type": "text",
+        "text": "Measure twice, cut once."
+       }
+      ]
+     }
+    ]
+   },
+   {
+    "type": "codeBlock",
+    "content": [
+     {
+      "type": "text",
+      "text": "SELECT 1;"
+     }
+    ]
+   },
+   {
+    "type": "horizontalRule"
+   },
+   {
+    "type": "paragraph",
+    "content": [
+     {
+      "type": "text",
+      "text": "H"
+     },
+     {
+      "type": "text",
+      "text": "2",
+      "marks": [
+       {
+        "type": "subscript"
+       }
+      ]
+     },
+     {
+      "type": "text",
+      "text": "O, E=mc"
+     },
+     {
+      "type": "text",
+      "text": "2",
+      "marks": [
+       {
+        "type": "superscript"
+       }
+      ]
+     },
+     {
+      "type": "text",
+      "text": " ~~"
+     },
+     {
+      "type": "text",
+      "text": "old",
+      "marks": [
+       {
+        "type": "strike"
+       }
+      ]
+     },
+     {
+      "type": "text",
+      "text": "~~"
+     }
+    ]
+   },
+   {
+    "type": "paragraph",
+    "content": [
+     {
+      "type": "text",
+      "text": "Best regards,"
+     }
+    ]
+   },
+   {
+    "type": "paragraph",
+    "content": [
+     {
+      "type": "text",
+      "text": "Nam"
+     }
+    ]
+   },
+   {
+    "type": "signatureBlock"
+   },
+   {
+    "type": "paragraph"
+   }
+  ]
+ }
+}

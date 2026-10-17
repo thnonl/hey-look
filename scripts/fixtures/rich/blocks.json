@@ -1,0 +1,127 @@
+{
+ "base": {
+  "family": "Calibri,Carlito,Arial,sans-serif",
+  "size": 11
+ },
+ "sig": null,
+ "doc": {
+  "type": "doc",
+  "content": [
+   {
+    "type": "heading",
+    "attrs": {
+     "level": 1
+    },
+    "content": [
+     {
+      "type": "text",
+      "text": "Heading 1"
+     }
+    ]
+   },
+   {
+    "type": "heading",
+    "attrs": {
+     "level": 2
+    },
+    "content": [
+     {
+      "type": "text",
+      "text": "Heading 2 "
+     },
+     {
+      "type": "text",
+      "text": "coloured",
+      "marks": [
+       {
+        "type": "textStyle",
+        "attrs": {
+         "color": "#C00000"
+        }
+       }
+      ]
+     }
+    ]
+   },
+   {
+    "type": "heading",
+    "attrs": {
+     "level": 3
+    },
+    "content": [
+     {
+      "type": "text",
+      "text": "Heading 3"
+     }
+    ]
+   },
+   {
+    "type": "paragraph",
+    "content": [
+     {
+      "type": "text",
+      "text": "Normal text"
+     }
+    ]
+   },
+   {
+    "type": "blockquote",
+    "content": [
+     {
+      "type": "paragraph",
+      "content": [
+       {
+        "type": "text",
+        "text": "quoted line one"
+       }
+      ]
+     },
+     {
+      "type": "paragraph",
+      "content": [
+       {
+        "type": "text",
+        "text": "quoted line two"
+       }
+      ]
+     },
+     {
+      "type": "blockquote",
+      "content": [
+       {
+        "type": "paragraph",
+        "content": [
+         {
+          "type": "text",
+          "text": "nested quote"
+         }
+        ]
+       }
+      ]
+     }
+    ]
+   },
+   {
+    "type": "codeBlock",
+    "content": [
+     {
+      "type": "text",
+      "text": "function f() {\n  return 1 < 2 && \"x\";\n}"
+     }
+    ]
+   },
+   {
+    "type": "horizontalRule"
+   },
+   {
+    "type": "paragraph",
+    "content": [
+     {
+      "type": "text",
+      "text": "after the rule"
+     }
+    ]
+   }
+  ]
+ }
+}

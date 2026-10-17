@@ -705,6 +705,62 @@ mod tests {
         assert_eq!(bad, "<td>x</td>");
     }
 
+    /// REQ-2 (spec-rich-text.md): every tag, attribute and style property the rich-text editor may write goes through unchanged.
+    #[test]
+    fn everything_the_editor_writes_is_allowed() {
+        for tag in ["p", "div", "span", "strong", "b", "em", "i", "u", "s", "sub", "sup", "ul", "ol", "li", "h1", "h2", "h3", "blockquote", "pre", "code", "table", "thead", "tbody", "tr", "th", "td"] {
+            let html = format!("<{tag}>x</{tag}>");
+            assert_eq!(clean(&html), html, "<{tag}>");
+        }
+        for html in ["<br>", "<hr>", r#"<img src="cid:a" alt="b" width="10" height="5">"#, r#"<a href="https://e.test/">x</a>"#, r#"<ol type="a" start="3"><li>x</li></ol>"#] {
+            assert_eq!(clean(html), html);
+        }
+        let attrs = [
+            r##"<td colspan="2" rowspan="2" bgcolor="#FFFF00" valign="top" align="center" width="50%">x</td>"##,
+            r#"<table border="1" cellpadding="4" cellspacing="0" width="100%">x</table>"#,
+            r#"<p dir="rtl" style="text-align:right">x</p>"#,
+        ];
+        for html in attrs {
+            assert_eq!(clean(html), html);
+        }
+        for prop in [
+            "font-family:Calibri,Carlito,Arial,sans-serif", "font-size:10.5pt", "font-weight:bold", "font-style:italic", "text-decoration:underline", "color:#C00000", "background-color:#FFFF00",
+            "text-align:justify", "line-height:1.15", "margin:0 0 0 40px", "margin-top:1px", "margin-right:1px", "margin-bottom:1px", "margin-left:1px", "padding:0", "padding-left:1ex",
+            "border:0", "border-top:1px solid #bfbfbf", "border-left:2px solid #ccc", "border-collapse:collapse", "width:100%", "height:auto", "max-width:100%", "vertical-align:top",
+            "list-style-type:lower-alpha", "direction:rtl", "white-space:pre-wrap",
+        ] {
+            let html = format!(r#"<span style="{prop}">x</span>"#);
+            assert_eq!(clean(&html), html, "{prop}");
+        }
+        // links: web, mail and phone only; the picture source of a message is its own part or a web address
+        for href in ["http://e.test/", "https://e.test/", "mailto:a@e.test", "tel:+49301"] {
+            assert_eq!(clean(&format!(r#"<a href="{href}">x</a>"#)), format!(r#"<a href="{href}">x</a>"#));
+        }
+        // and nothing else of the editor leaks: classes other than the signature's, ids, data-*
+        assert_eq!(clean(r#"<p class="x" id="y" data-z="1">a</p><div class="sig">b</div>"#), r#"<p>a</p><div class="sig">b</div>"#);
+    }
+
+    /// The golden files of the editor's serializer (scripts/fixtures/rich/*.html, checked against the editor documents by
+    /// scripts/test-rich-golden.mjs): the sanitiser must not change a byte of them, so what the editor writes is what leaves the computer.
+    #[test]
+    fn serializer_golden_files_pass_the_sanitiser_unchanged() {
+        let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../scripts/fixtures/rich");
+        let mut n = 0;
+        for e in std::fs::read_dir(&dir).expect("scripts/fixtures/rich exists") {
+            let path = e.unwrap().path();
+            if path.extension().and_then(|x| x.to_str()) != Some("html") {
+                continue;
+            }
+            let html = std::fs::read_to_string(&path).unwrap().replace("\r\n", "\n");
+            let html = html.trim_end_matches('\n');
+            let name = path.file_name().unwrap().to_string_lossy().into_owned();
+            let out = clean(html);
+            assert_eq!(out, html, "{name}: the sanitiser changed what the editor wrote");
+            n += 1;
+        }
+        assert!(n >= 10, "{n} golden files found");
+    }
+
     #[test]
     fn crlf_and_nul_cannot_break_attributes() {
         let out = clean("<a href=\"https://e.com/a\r\nb\u{0}c\">x</a><img src=\"cid:a\" alt=\"l1\r\nl2\">");

@@ -1,0 +1,101 @@
+{
+ "base": {
+  "family": "Calibri,Carlito,Arial,sans-serif",
+  "size": 11
+ },
+ "sig": null,
+ "doc": {
+  "type": "doc",
+  "content": [
+   {
+    "type": "paragraph",
+    "content": [
+     {
+      "type": "text",
+      "text": "<script>alert(1)</script> & <img src=x onerror=alert(2)>"
+     }
+    ]
+   },
+   {
+    "type": "paragraph",
+    "content": [
+     {
+      "type": "text",
+      "text": "evil link",
+      "marks": [
+       {
+        "type": "link",
+        "attrs": {
+         "href": "javascript:alert(1)"
+        }
+       }
+      ]
+     },
+     {
+      "type": "text",
+      "text": " data link",
+      "marks": [
+       {
+        "type": "link",
+        "attrs": {
+         "href": "data:text/html,<script>alert(1)</script>"
+        }
+       }
+      ]
+     },
+     {
+      "type": "text",
+      "text": " file link",
+      "marks": [
+       {
+        "type": "link",
+        "attrs": {
+         "href": "file:///C:/Windows/win.ini"
+        }
+       }
+      ]
+     },
+     {
+      "type": "text",
+      "text": " fine",
+      "marks": [
+       {
+        "type": "link",
+        "attrs": {
+         "href": "HTTPS://Example.test/Path"
+        }
+       }
+      ]
+     }
+    ]
+   },
+   {
+    "type": "paragraph",
+    "content": [
+     {
+      "type": "text",
+      "text": "spoofed style",
+      "marks": [
+       {
+        "type": "textStyle",
+        "attrs": {
+         "fontFamily": "x;position:fixed",
+         "color": "red;background:url(http://x/y)",
+         "fontSize": "9pt;top:0"
+        }
+       }
+      ]
+     }
+    ]
+   },
+   {
+    "type": "image",
+    "attrs": {
+     "src": "https://tracker.test/pixel.gif",
+     "alt": "\"><script>1</script>",
+     "width": 1
+    }
+   }
+  ]
+ }
+}
