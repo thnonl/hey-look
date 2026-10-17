@@ -28,6 +28,7 @@ import { baseFromPrefs } from "../editor/baseFont";
 import { repairSignature, signatureGuard } from "../signatureGuard";
 import { fitInWindow } from "../fitInWindow";
 import { BAR_ROW_MAX, isCompact } from "../composeFit";
+import { composeHasContent, isPersonEdit } from "../composeContent";
 import { autosaveDue, snapshotDue, timing, type AutosaveWhy } from "../autosave";
 import { RecoveryWriter, type RecoveryForm } from "../recovery";
 import { cleanPastedHtml, stripRemotePictures } from "../pastedHtml";
@@ -789,7 +790,7 @@ function ComposeBody({ init }: { init: ComposeInit }) {
     },
     // the signature region itself cannot be deleted or moved by accident: signatureGuard (signatureGuard.ts) repairs it in place
     onUpdate: ({ editor: ed, transaction }) => {
-      if (!transaction.getMeta("signatureInit")) touch();
+      if (isPersonEdit(transaction)) touch();
       countPictures(ed);
       syncPicSel(ed);
     },
@@ -1533,17 +1534,12 @@ function ComposeBody({ init }: { init: ComposeInit }) {
   // what leaving this message needs to know: did the person write anything, are files still coming in
   const probe = (): ComposeProbe => {
     const b = baseline.current;
-    const text = editor?.getText().trim() ?? "";
     const restored = !!init.recoveryId || !!init.carried;
-    const base = restored ? [] : init.to ?? [];
-    const hasContent =
-      touched.current &&
-      (text !== (b?.text ?? "") ||
-        (editor ? bodyPictures(editor) : 0) !== (b?.pics ?? 0) ||
-        to.length !== base.length || to.some((x, i) => x !== base[i]) ||
-        cc.length > (restored ? 0 : init.cc?.length ?? 0) || bcc.length > (restored ? 0 : init.bcc?.length ?? 0) ||
-        subject.trim() !== (restored ? "" : init.subject ?? "").trim() ||
-        atts.length !== (restored ? 0 : init.attachments?.length ?? 0));
+    const hasContent = composeHasContent(
+      touched.current,
+      { text: editor?.getText().trim() ?? "", pics: editor ? bodyPictures(editor) : 0, to, cc: cc.length, bcc: bcc.length, subject, atts: atts.length },
+      { text: b?.text ?? "", pics: b?.pics ?? 0, to: restored ? [] : init.to ?? [], cc: restored ? 0 : init.cc?.length ?? 0, bcc: restored ? 0 : init.bcc?.length ?? 0, subject: restored ? "" : init.subject ?? "", atts: restored ? 0 : init.attachments?.length ?? 0 },
+    );
     return { hasContent, attaching: attachingRef.current > 0, rev: revRef.current };
   };
   const probeRef = useRef(probe);
@@ -1589,8 +1585,10 @@ function ComposeBody({ init }: { init: ComposeInit }) {
       }
       return;
     }
-    const dirty = touched.current && ((editor?.getText().trim().length ?? 0) > 0 || to.length > 0 || subject.trim() || atts.length > 0);
-    if (dirty && !(await confirm({ title: t("compose.dlg.discardTitle"), body: t("compose.dlg.discardBody"), confirmLabel: t("compose.dlg.discard"), danger: true }))) return;
+    // the same rule as leaving, the autosave and the snapshot: a reply or forward with nothing written (the recipients, the subject, the quote
+    // and the signature are Compose's own) closes without asking, like an empty new message; a letter, an address or a file of the person's asks
+    const written = probe().hasContent || !!(pendingRcpt.current.to + pendingRcpt.current.cc + pendingRcpt.current.bcc).trim();
+    if (written && !(await confirm({ title: t("compose.dlg.discardTitle"), body: t("compose.dlg.discardBody"), confirmLabel: t("compose.dlg.discard"), danger: true }))) return;
     await dropSavedCopy();
     setComposeDirty(false);
     void openCompose(null);
