@@ -93,7 +93,7 @@ const LinkOpen = Extension.create({
 });
 
 /** Keys of the font and the formatting that are not a mark of their own. `getBase` is the default font of the message (what an unsized run is). */
-const FormatKeys = (getBase: () => BaseFont, focusToolbar?: () => void, openStyles?: () => void) =>
+const FormatKeys = (getBase: () => BaseFont, focusToolbar?: () => void, openStyles?: () => void, openFind?: (mode: "find" | "replace") => void) =>
   Extension.create({
     name: "formatKeys",
     // before the editor's own Ctrl+Alt+1..3 (heading toggles): the Styles menu and these keys do the same thing
@@ -124,6 +124,10 @@ const FormatKeys = (getBase: () => BaseFont, focusToolbar?: () => void, openStyl
         // Styles: the menu, Normal, Heading 1-3
         "Mod-Shift-s": () => (openStyles?.(), true),
         "Mod-Shift-n": () => applyStyle(this.editor, "normal"),
+        // Find and replace (the message body): Ctrl+F finds, Ctrl+H replaces (not on a Mac, where Cmd+H hides the app)
+        ...(openFind ? { "Mod-f": () => (openFind("find"), true), ...(osNow() === "macos" ? {} : { "Mod-h": () => (openFind("replace"), true) }) } : {}),
+        // Change case: Shift+F3 goes round lowercase, UPPERCASE, Capitalize Each Word (the code is fetched with the first use)
+        "Shift-F3": () => (void import("./changeCase").then((m) => m.changeCase(this.editor, null)), true),
         "Mod-Alt-1": () => applyStyle(this.editor, "h1"),
         "Mod-Alt-2": () => applyStyle(this.editor, "h2"),
         "Mod-Alt-3": () => applyStyle(this.editor, "h3"),
@@ -147,6 +151,8 @@ export interface BaseExtensionOptions {
   pictures?: boolean;
   /** the message body has the quote block of a reply / forward (quoteNode.ts) */
   quote?: QuoteOptions;
+  /** the message body has Find and replace: Ctrl+F / Ctrl+H call this with the panel to open */
+  openFind?: (mode: "find" | "replace") => void;
 }
 
 export function baseExtensions(o: BaseExtensionOptions): AnyExtension[] {
@@ -163,12 +169,12 @@ export function baseExtensions(o: BaseExtensionOptions): AnyExtension[] {
     // font family, size, colour and highlight are attributes of one `textStyle` mark: one <span style> in the HTML
     TextStyleKit.configure({ lineHeight: false }),
     BlockFormat,
-    FormatKeys(o.getBase, o.focusToolbar, o.openStyles),
+    FormatKeys(o.getBase, o.focusToolbar, o.openStyles, o.openFind),
     // paste and drop: the cleaning of Word / Excel / Outlook / Gmail / web HTML, the three paste options, Ctrl+Shift+V (pasteOptions.tsx)
     PasteHandling.configure({ getBase: o.getBase }),
     PreviewColors,
     // tables and the picture node (a chunk of their own: kit.ts)
-    ...kitExtensions({ pictures: o.pictures ?? false, quote: o.quote }),
+    ...kitExtensions({ pictures: o.pictures ?? false, quote: o.quote, find: !!o.openFind }),
     Placeholder.configure({ placeholder: o.placeholder ?? "", showOnlyCurrent: o.showOnlyCurrent ?? true }),
   ];
 }

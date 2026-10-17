@@ -184,7 +184,7 @@ assert.equal(html({ type: "blockquote", content: [P("q", { indent: 1 })] }), '<b
 // ---- wiring guards (the editor itself needs a browser; the dev mock checks the behaviour, these keep the pieces connected)
 const read = (p) => readFileSync(new URL("../" + p, import.meta.url), "utf8").replace(/\r\n/g, "\n");
 const ext = read("src/editor/extensions.ts");
-assert.match(ext, /BlockFormat,\n\s+FormatKeys\(o\.getBase, o\.focusToolbar, o\.openStyles\)/, "the block formats and the keys are in the one extension set (message, signature, template)");
+assert.match(ext, /BlockFormat,\n\s+FormatKeys\(o\.getBase, o\.focusToolbar, o\.openStyles, o\.openFind\)/, "the block formats and the keys are in the one extension set (message, signature, template)");
 for (const key of ["Mod-l", "Mod-e", "Mod-r", "Mod-Shift-j", "Mod-t", "Mod-Shift-t", "Mod-Shift-s", "Mod-Shift-n", "Mod-Alt-1", "Mod-Alt-2", "Mod-Alt-3", "Mod-Shift-l"]) assert.ok(ext.includes(`"${key}":`), `the key ${key}`);
 assert.match(ext, /priority: 1000/, "the keys come before the editor's own Ctrl+Alt+1..3");
 assert.match(ext, /hardBreak: false/, "the line break is the one with the empty-paragraph rule");

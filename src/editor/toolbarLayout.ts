@@ -85,7 +85,7 @@ export const BAR_META: Record<string, BarMeta> = {
   align: { group: "align", order: 60, priority: 140, width: 40, variants: BOTH },
   styles: { group: "styles", order: 65, priority: 130, width: 108, variants: BOTH },
   link: { group: "insert", order: 70, priority: 60, width: 28, variants: BOTH },
-  picture: { group: "insert", order: 71, priority: 70, width: 28, variants: ["compose"] },
+  picture: { group: "insert", order: 71, priority: 70, width: 28, variants: BOTH },
   table: { group: "insert", order: 72, priority: 170, width: 40, variants: BOTH },
   insert: { group: "insert", order: 73, priority: 180, width: 40, variants: BOTH },
   clear: { group: "clear", order: 90, priority: 190, width: 28, variants: BOTH },

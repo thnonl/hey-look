@@ -3,7 +3,7 @@
 // (emailHtml.ts), and reads the same forms back, so a draft that is saved and opened again is the same document (REQ-6).
 
 import { Extension } from "@tiptap/core";
-import { clampIndent, indentFromMargin, listStyleFromHtml, normAlign, normLineHeight, normListStyle, spaceAfterFromMargin, SPACE_AFTER, INDENT_PX } from "./blockFormat.ts";
+import { alignFromHtml, clampIndent, indentFromMargin, listStyleFromHtml, normAlign, normDirection, normLineHeight, normListStyle, spaceAfterFromMargin, SPACE_AFTER, INDENT_PX } from "./blockFormat.ts";
 
 type Attrs = Record<string, unknown>;
 
@@ -16,6 +16,9 @@ function listDepth(el: HTMLElement): number {
 
 const isHeading = (el: HTMLElement) => /^H[1-6]$/.test(el.tagName);
 
+/** Is this element's own text direction right-to-left (its `dir` attribute, else its `direction` style; not an inherited one)? */
+const isRtl = (el: HTMLElement) => normDirection(el.getAttribute("dir") || el.style.direction) === "rtl";
+
 export const BlockFormat = Extension.create({
   name: "blockFormat",
   addGlobalAttributes() {
@@ -25,13 +28,20 @@ export const BlockFormat = Extension.create({
         attributes: {
           textAlign: {
             default: null,
-            parseHTML: (el: HTMLElement) => normAlign(el.style.textAlign || el.getAttribute("align")),
-            renderHTML: (a: Attrs) => (normAlign(a.textAlign as string) ? { style: `text-align:${a.textAlign}` } : {}),
+            parseHTML: (el: HTMLElement) => alignFromHtml(isRtl(el), el.style.textAlign || el.getAttribute("align")),
+            renderHTML: (a: Attrs) => (normAlign(a.textAlign as string) || a.textAlign === "left" ? { style: `text-align:${a.textAlign}` } : {}),
+          },
+          // right-to-left text (REQ-43): dir="rtl" and direction:rtl; the browser then aligns the paragraph to the right by itself
+          direction: {
+            default: null,
+            parseHTML: (el: HTMLElement) => (isRtl(el) ? "rtl" : null),
+            renderHTML: (a: Attrs) => (a.direction === "rtl" ? { dir: "rtl", style: "direction:rtl" } : {}),
           },
           indent: {
             default: 0,
-            parseHTML: (el: HTMLElement) => indentFromMargin(el.style.marginLeft),
-            renderHTML: (a: Attrs) => (clampIndent(a.indent) > 0 ? { style: `margin-left:${clampIndent(a.indent) * INDENT_PX}px` } : {}),
+            // (the start side: the left of a left-to-right block, the right of a right-to-left one; the editor's own element says margin-inline-start)
+            parseHTML: (el: HTMLElement) => indentFromMargin(el.style.marginInlineStart || (isRtl(el) ? el.style.marginRight : el.style.marginLeft)),
+            renderHTML: (a: Attrs) => (clampIndent(a.indent) > 0 ? { style: `margin-inline-start:${clampIndent(a.indent) * INDENT_PX}px` } : {}),
           },
           lineHeight: {
             default: null,
@@ -51,6 +61,11 @@ export const BlockFormat = Extension.create({
       {
         types: ["bulletList", "orderedList"],
         attributes: {
+          direction: {
+            default: null,
+            parseHTML: (el: HTMLElement) => (isRtl(el) ? "rtl" : null),
+            renderHTML: (a: Attrs) => (a.direction === "rtl" ? { dir: "rtl", style: "direction:rtl" } : {}),
+          },
           // the marker the person chose; null = the one the nesting level gives (disc, circle, square / 1. a. i.)
           listStyle: {
             default: null,

@@ -39,6 +39,8 @@ export interface Overridable {
   inlinePictures: "inline" | "attach";
   /** resize pictures over 1 MB silently when inserting them */
   autoResizePictures: boolean;
+  /** ask before a message goes out with a picture that has no alt text (REQ-51; off by default) */
+  altCheck: boolean;
   /** receiving: inline pictures up to this size per picture are loaded with the message (0 = always) */
   inlineAutoLoadMB: 2 | 5 | 0;
   /** PGP: "possible" = Encrypt starts on only when every recipient has a key; "always" never turns itself off */
@@ -209,6 +211,7 @@ export const DEFAULT_PREFS: Prefs = {
   pushMail: true,
   inlinePictures: "inline",
   autoResizePictures: false,
+  altCheck: false,
   inlineAutoLoadMB: 2,
   pgpEncrypt: "possible",
   pgpSign: false,

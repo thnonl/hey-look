@@ -14,10 +14,13 @@ import type { Editor } from "@tiptap/react";
 import { FloatingMenu, Modal, type MenuItem } from "../components/ui";
 import { readLinkTarget, removeLinkTarget } from "../components/LinkPopover";
 import { fitInWindow } from "../fitInWindow";
+import { intlLocale } from "../i18n";
+import { fmtPattern } from "../i18n/format";
 import { useT } from "../i18n/react";
 import { checkLinkUrl } from "../linkUrl";
 import { openExternal } from "../open";
 import { kbd, osNow } from "../platform";
+import { fmtClock } from "../util";
 import { Panel, Sw, useSwatchName, type PaletteClose } from "./ColorPalette";
 import { STANDARD, sameColor, themeGrid } from "./colors";
 import type { BarState, Ctx, FormatHost } from "./controls";
@@ -471,6 +474,53 @@ export function InsertOverlays({ editor, st, host }: { editor: Editor; st: BarSt
       {st.onPicture && <PictureHandles editor={editor} />}
     </>
   );
+}
+
+// ---------------------------------------------------------------- symbol, date and time
+
+/** The 24 common symbols of REQ-41. */
+const SYMBOLS = "\u00a9 \u00ae \u2122 \u20ac \u00a3 \u00a5 \u00a7 \u00b6 \u00b0 \u00b1 \u00d7 \u00f7 \u2260 \u2264 \u2265 \u2192 \u2190 \u2191 \u2193 \u2022 \u2026 \u2014 \u2013 \u00bd".split(" ");
+
+/** Insert > Symbol: a grid of 24 symbols; a click puts one at the caret. */
+export function SymbolMenu({ c, anchor, trigger, onClose }: { c: Ctx; anchor: Anchor; trigger: Anchor; onClose: () => void }) {
+  const t = useT();
+  const done = (why: PaletteClose) => {
+    onClose();
+    if (why === "esc") trigger.current?.focus({ preventScroll: true });
+  };
+  const insert = (glyph: string) => {
+    onClose();
+    c.editor.chain().focus().insertContent(glyph).run();
+  };
+  return (
+    <Panel anchor={anchor} onClose={done} label={t("compose.insert.symbol")} className="fmt-pop-symbol">
+      <div className="emoji-grid" role="group" aria-label={t("compose.insert.symbol")}>
+        {SYMBOLS.map((g, i) => (
+          <button key={g} type="button" className="emoji-btn symbol-btn" data-row={Math.floor(i / 8)} data-col={i % 8} aria-label={g} onClick={() => insert(g)}>
+            {g}
+          </button>
+        ))}
+      </div>
+    </Panel>
+  );
+}
+
+/** The four ways Date & time writes now, in the language and the clock (12 / 24 hour) in use. */
+export function dateTimeChoices(now: Date, intl: string): string[] {
+  const secs = now.getTime() / 1000;
+  const long = new Intl.DateTimeFormat(intl, { day: "numeric", month: "long", year: "numeric" }).format(now);
+  return [
+    fmtPattern(now, "dd/MM/yyyy"),
+    new Intl.DateTimeFormat(intl, { weekday: "long", day: "numeric", month: "long", year: "numeric" }).format(now),
+    `${long}, ${fmtClock(secs)}`,
+    fmtClock(secs),
+  ];
+}
+
+/** Insert > Date & time: the four formats as menu rows; the text goes in at the caret (it is text, not a field that updates). */
+export function DateMenu({ c, anchor, trigger, onClose }: { c: Ctx; anchor: Anchor; trigger: Anchor; onClose: () => void }) {
+  const items: MenuItem[] = dateTimeChoices(new Date(), intlLocale()).map((text) => ({ label: text, onClick: () => void c.editor.chain().focus().insertContent(text).run() }));
+  return <FloatingMenu anchor={anchor} trigger={trigger} items={items} minWidth={250} onClose={onClose} />;
 }
 
 // ---------------------------------------------------------------- emoji

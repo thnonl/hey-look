@@ -189,6 +189,8 @@ export default defineLocale<typeof ns.en>({
   "settings.composing.picAttach": "Adjuntar como archivos",
   "settings.composing.resize": "Cambiar automáticamente el tamaño de las imágenes grandes",
   "settings.composing.resizeHint": "Las imágenes de más de 1 MB se reducen a 1600 px de ancho al insertarlas",
+  "settings.composing.altCheck": "Comprobar el texto alternativo que falta antes de enviar",
+  "settings.composing.altCheckHint": "Pregunta antes de enviar un mensaje con una imagen sin texto alternativo.",
   "settings.composing.popout": "Abrir los mensajes nuevos, las respuestas y los reenvíos en una ventana aparte",
   "settings.composing.popoutHint": "Mantén pulsada la tecla Mayús al hacer clic en Nuevo mensaje, Responder o Reenviar para hacer lo contrario.",
   "settings.composing.sigOnReply": "Añadir la firma a las respuestas",

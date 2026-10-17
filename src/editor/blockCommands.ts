@@ -7,7 +7,7 @@ import type { Node as PmNode, NodeType } from "@tiptap/pm/model";
 import type { EditorState, Transaction } from "@tiptap/pm/state";
 import { liftListItem, sinkListItem } from "@tiptap/pm/schema-list";
 import { findWrapping, liftTarget } from "@tiptap/pm/transform";
-import { clampIndent, defaultListStyle, normAlign, normListStyle, type Align } from "./blockFormat.ts";
+import { clampIndent, defaultListStyle, effectiveAlign, normListStyle, type Align, type BlockAttrs, type Direction } from "./blockFormat.ts";
 
 export type Command = (state: EditorState, dispatch?: (tr: Transaction) => void) => boolean;
 type Attrs = Record<string, unknown>;
@@ -79,12 +79,95 @@ function updateBlocks(state: EditorState, dispatch: ((tr: Transaction) => void) 
 // ---------------------------------------------------------------- alignment
 
 export function selectionAlign(state: EditorState): Same<Align | "left"> {
-  const u = same(formatted(state).map((b) => normAlign(b.node.attrs.textAlign as string) ?? "left"));
+  const u = same(formatted(state).map((b) => effectiveAlign(blockAttrsOf(state, b))));
   return { mixed: u.mixed, value: u.value ?? "left" };
 }
 
-/** Left is no attribute. */
-export const setAlign = (value: Align | "left"): Command => (state, dispatch) => updateBlocks(state, dispatch, () => ({ textAlign: value === "left" ? null : value }));
+/**
+ * Left is no attribute in a left-to-right block. In a right-to-left block no attribute means right, so right is the default there and left is
+ * the stored choice.
+ */
+export const setAlign = (value: Align | "left"): Command => (state, dispatch) =>
+  updateBlocks(state, dispatch, (n) => {
+    const rtl = effectiveDirection(state, n) === "rtl";
+    return { textAlign: rtl ? (value === "right" ? null : value) : value === "left" ? null : value };
+  });
+
+// ---------------------------------------------------------------- direction (REQ-43)
+
+/** The attributes of a block together with its direction, which a list item takes from its list. */
+function blockAttrsOf(state: EditorState, b: Blk): BlockAttrs {
+  const a = b.node.attrs as BlockAttrs;
+  return { ...a, direction: a.direction === "rtl" || listDirectionAt(state, b.pos) === "rtl" ? "rtl" : null };
+}
+
+/** The direction of the lists around the position: right-to-left when the innermost list says so. */
+function listDirectionAt(state: EditorState, pos: number): Direction | null {
+  const $p = state.doc.resolve(pos);
+  for (let d = $p.depth; d > 0; d--) {
+    const n = $p.node(d);
+    if (n.type.name === "bulletList" || n.type.name === "orderedList") return n.attrs.direction === "rtl" ? "rtl" : null;
+  }
+  return null;
+}
+
+function effectiveDirection(state: EditorState, node: PmNode): Direction | null {
+  if (node.attrs.direction === "rtl") return "rtl";
+  const hit = formatted(state).find((b) => b.node === node);
+  return hit ? listDirectionAt(state, hit.pos) : null;
+}
+
+/** The direction over the selection: the same everywhere, or mixed. null = left-to-right. */
+export function selectionDirection(state: EditorState): Same<Direction | null> {
+  const u = same(textblocksOf(state).map((b) => blockAttrsOf(state, b).direction ?? null));
+  return { mixed: u.mixed, value: u.value ?? null };
+}
+
+/**
+ * Left-to-right / right-to-left text for the paragraphs and headings of the selection. A list item takes the direction of its list, so the whole
+ * list (the outermost one around the selection, with the lists in it) changes together. Switching a block back to left-to-right keeps an alignment it
+ * was given on purpose, except the "left" that only a right-to-left block stores.
+ */
+export const setDirection = (dir: Direction | null): Command => (state, dispatch) => {
+  const blocks = textblocksOf(state).filter((b) => FORMATTED.has(b.node.type.name));
+  if (!blocks.length) return false;
+  if (dispatch) {
+    const tr = state.tr;
+    const done = new Set<number>();
+    const setList = (node: PmNode, pos: number) => {
+      // (the positions are those of the old document: attributes change in place, nothing moves)
+      if (done.has(pos)) return;
+      done.add(pos);
+      if ((node.attrs.direction ?? null) !== dir) tr.setNodeMarkup(pos, undefined, { ...node.attrs, direction: dir });
+      node.descendants((child, off) => {
+        if (child.type.name === "bulletList" || child.type.name === "orderedList") setList(child, pos + 1 + off);
+        return true;
+      });
+    };
+    for (const b of blocks) {
+      const $p = state.doc.resolve(b.pos);
+      let outer = -1;
+      for (let d = 1; d <= $p.depth; d++) {
+        const t = $p.node(d).type.name;
+        if (t === "bulletList" || t === "orderedList") {
+          outer = d;
+          break;
+        }
+      }
+      if (outer >= 0) {
+        setList($p.node(outer), $p.before(outer));
+        // (a paragraph of an item that had a direction of its own follows its list from now on)
+        if (b.node.attrs.direction) tr.setNodeMarkup(b.pos, undefined, { ...b.node.attrs, direction: null });
+      } else {
+        const a = b.node.attrs;
+        const leaveLeft = dir === null && a.textAlign === "left";
+        if ((a.direction ?? null) !== dir || leaveLeft) tr.setNodeMarkup(b.pos, undefined, { ...a, direction: dir, textAlign: leaveLeft ? null : a.textAlign });
+      }
+    }
+    dispatch(tr);
+  }
+  return true;
+};
 
 // ---------------------------------------------------------------- indent
 

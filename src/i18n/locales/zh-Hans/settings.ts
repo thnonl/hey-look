@@ -189,6 +189,8 @@ export default defineLocale<typeof ns.en>({
   "settings.composing.picAttach": "作为文件附加",
   "settings.composing.resize": "自动缩小大图片",
   "settings.composing.resizeHint": "超过1 MB的图片在插入时会缩小到宽度1600 px",
+  "settings.composing.altCheck": "发送前检查是否缺少替换文字",
+  "settings.composing.altCheckHint": "发送带有无替换文字图片的邮件前会先询问。",
   "settings.composing.popout": "在单独的窗口中打开新邮件、回复和转发",
   "settings.composing.popoutHint": "点击“新建邮件”“回复”或“转发”时按住 Shift 键，可执行相反的操作。",
   "settings.composing.sigOnReply": "回复时添加签名",

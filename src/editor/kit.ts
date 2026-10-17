@@ -17,8 +17,8 @@ export function loadKit(): Promise<void> {
   return pending;
 }
 
-/** The kit's extensions, or none while it has not arrived (the editor is not made then). `pictures`: the message body has the picture node, the signature editor does not; `quote`: the message body has the quote block of a reply / forward. */
-export const kitExtensions = (o: { pictures: boolean; quote?: QuoteOptions }): AnyExtension[] => (kit ? kit.kitExtensions(o) : []);
+/** The kit's extensions, or none while it has not arrived (the editor is not made then). `pictures`: the message body has the picture node, the signature editor does not; `quote`: the message body has the quote block of a reply / forward; `find`: the message body has Find and replace (Ctrl+F). */
+export const kitExtensions = (o: { pictures: boolean; quote?: QuoteOptions; find?: boolean }): AnyExtension[] => (kit ? kit.kitExtensions(o) : []);
 
 /** True once the kit is loaded; starts loading it. */
 export function useKit(): boolean {

@@ -1,0 +1,13 @@
+A left-to-right paragraph
+مرحبا بكم في هي لوك
+שלום וברוכים הבאים
+Right-to-left, aligned left on purpose
+مسافة بادئة وتباعد
+عنوان
+- العنصر الأول
+- العنصر الثاني
+  - فرعي
+1. واحد
+2. اثنان
+
+Back to left-to-right

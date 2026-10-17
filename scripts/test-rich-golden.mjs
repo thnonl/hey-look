@@ -47,6 +47,12 @@ for (const name of names) {
   }
   assert.ok(!/\sclass="(?!(?:sig|hl-quote)")/.test(html) && !/<style|\sid=|\sdata-/.test(html), `${name}: no class (except sig and the quote block's hl-quote), id, data- or <style>`);
   if (name === "kitchen-sink") assert.equal(inline.length, 1, "the picture is an inline part");
+  if (name === "signature-picture") {
+    // REQ-25 / AC-43: the logo of a signature is an inline related part (not an attachment) under the name it was added with
+    assert.equal(inline.length, 1, "the logo is an inline part");
+    assert.deepEqual([inline[0].name, inline[0].mime, inline[0].cid], ["logo.png", "image/png", "cid-1@heylook"]);
+    assert.ok(html.includes("src=\"cid:cid-1@heylook\"") && !html.includes("data:image") && !html.includes("data-name"), "cid reference, no data: picture, no editor attribute");
+  }
 }
 
 // ---- the serializer on its own

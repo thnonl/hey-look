@@ -4,7 +4,7 @@ import {
   AlignCenter, AlignLeft, AlignRight, BadgeCheck, CalendarClock, CalendarPlus, ChevronDown, ExternalLink, FileText, ImagePlus, Info, Link2, Lock, LockOpen, MoreHorizontal, Paperclip, Save, Send, ShieldAlert, ShieldCheck, Sparkles, Trash2,
   TriangleAlert, X,
 } from "lucide-react";
-import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { Suspense, lazy, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { api, Att, Contact, Draft, DraftSecurity, errorCode, InlineImage, MessageFull, OwnKeyStatus, RecipientStatus, Signature, Template } from "../api";
 import { eff } from "../prefs";
@@ -63,6 +63,9 @@ import { tx } from "../i18n/rich";
 const EMAIL = { test: (a: string) => isEmail(a, singleLabelHostsOf(useStore.getState().accounts)) };
 const bareAddress = addressOf;
 const approxBytes = (a: Att) => Math.floor((a.dataBase64.length * 3) / 4);
+// Find and replace: the panel is fetched when Ctrl+F is first pressed (editor/FindBar.tsx)
+const FindBar = lazy(() => import("../editor/FindBar").then((m) => ({ default: m.FindBar })));
+
 const MEDIUM = 480;
 const SIZES: [Key, number | null][] = [["compose.pic.small", 240], ["compose.pic.medium", MEDIUM], ["compose.pic.large", 720], ["compose.pic.original", null]];
 const LARGE_PICTURE = 1024 * 1024;
@@ -376,6 +379,16 @@ export async function openDraftInWindow(threadId: string): Promise<boolean> {
   return openDraftThread(threadId, false, { window: true });
 }
 
+/** The positions of the pictures of the body that have no alt text (the signature and the quoted message are not the body). */
+export function picturesWithoutAlt(editor: Editor): number[] {
+  const out: number[] = [];
+  editor.state.doc.descendants((n, pos) => {
+    if (n.type.name === "image" && !String(n.attrs.alt ?? "").trim()) out.push(pos);
+    return true;
+  });
+  return out;
+}
+
 /** Replace cid: references with the pictures' data: URIs (used when a sent or scheduled draft is reopened). */
 export function picturesToEditor(html: string, pics: InlineImage[]): string {
   // (the file name each picture was added with goes back on it, so the reopened message sends it under that name)
@@ -471,6 +484,12 @@ function ComposeBody({ init }: { init: ComposeInit }) {
   const [base] = useState<BaseFont>(() => startDoc.current?.base ?? baseFromPrefs(prefs));
   const baseRef = useRef(base);
   const barApi = useRef<FormatBarApi>(null);
+  /** the editor shown larger or smaller (REQ-49, More > Zoom): display only, for this message only */
+  const [zoom, setZoom] = useState(100);
+  /** Find and replace (REQ-44, Ctrl+F / Ctrl+H): the panel above the text; `nonce` brings the focus back to it when it is asked for again */
+  const [find, setFind] = useState<{ mode: "find" | "replace"; nonce: number } | null>(null);
+  const openFindRef = useRef<(mode: "find" | "replace") => void>(() => undefined);
+  openFindRef.current = (mode) => setFind((f) => ({ mode: mode === "replace" ? "replace" : f?.mode ?? "find", nonce: (f?.nonce ?? 0) + 1 }));
   const draftSig = useMemo<Signature | null>(
     () => (startDoc.current?.sig ? { id: "draft-signature", name: "", html: startDoc.current.sig, isDefault: false, accountId: null } : null),
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -726,6 +745,7 @@ function ComposeBody({ init }: { init: ComposeInit }) {
     extensions: [
       ...baseExtensions({
         placeholder: t("compose.editor.placeholder"), showOnlyCurrent: false, getBase: () => baseRef.current, focusToolbar: () => barApi.current?.focus(), openStyles: () => barApi.current?.openStyles(), pictures: true,
+        openFind: (mode) => openFindRef.current(mode),
         // the quoted original of a reply / forward: a protected block; "Edit quoted text" asks first (editor/quoteNode.ts)
         quote: { base: () => baseRef.current, ask: () => confirm({ title: tNow("compose.quote.editTitle"), body: tNow("compose.quote.editBody"), confirmLabel: tNow("compose.quote.editConfirm") }) },
       }),
@@ -1172,6 +1192,27 @@ function ComposeBody({ init }: { init: ComposeInit }) {
       }))
     )
       return;
+    // REQ-51 (Settings > Composing, off by default): a picture of the message without alt text is asked about before the message goes out
+    if (prefs.altCheck && editor) {
+      const missing = picturesWithoutAlt(editor);
+      if (missing.length) {
+        // (Esc and a click outside answer with the first choice: back to the message)
+        const answer = await choose({
+          title: t("compose.alt.checkTitle", { n: missing.length }),
+          body: t("compose.alt.checkBody"),
+          choices: [
+            { id: "fix", label: t("compose.alt.addAlt"), kind: "primary" },
+            { id: "send", label: t("compose.dlg.sendAnyway") },
+          ],
+        });
+        if (answer !== "send") {
+          // the first picture is selected and its alt text box opens
+          editor.chain().focus().setNodeSelection(missing[0]).run();
+          requestAnimationFrame(() => (setAltText(""), setAltOpen(true)));
+          return;
+        }
+      }
+    }
     const secured = await secureDraft(d);
     if (!secured) return;
     d = secured;
@@ -2104,14 +2145,15 @@ function ComposeBody({ init }: { init: ComposeInit }) {
 
       <div className="cp-fmt">
         <FormatBar
-          editor={editor} base={base} variant="compose" apiRef={barApi} host={{ link: { open: () => linkRef.current(), isOpen: link.isOpen, btnRef: linkBtnRef }, insertPicture: () => picRef.current?.click() }}
+          editor={editor} base={base} variant="compose" apiRef={barApi} host={{ link: { open: () => linkRef.current(), isOpen: link.isOpen, btnRef: linkBtnRef }, insertPicture: () => picRef.current?.click(), zoom: { value: zoom, set: setZoom }, find: (mode) => openFindRef.current(mode) }}
           trailing={{ ids: ["pv:light", "pv:dark"], render: (rove) => <PreviewSwitch pv={pv} onChoose={choosePreview} rove={rove} /> }}
         />
         {link.node}
       </div>
 
       <div className={`cp-editor cp-pv pv-${pv}`} style={{ ...previewVars(pv), "--cp-font": base.family, "--cp-size": `${base.size}pt` } as React.CSSProperties} ref={bodyRef} onScroll={() => editor && syncPicSel(editor)}>
-        <EditorContent editor={editor} className="editor" />
+        {find && editor && <Suspense fallback={null}><FindBar editor={editor} mode={find.mode} nonce={find.nonce} onClose={() => setFind(null)} /></Suspense>}
+        <EditorContent editor={editor} className="editor" style={zoom === 100 ? undefined : ({ zoom: zoom / 100 } as React.CSSProperties)} />
         {picSel && (
           <>
             <div
