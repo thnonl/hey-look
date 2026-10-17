@@ -7,10 +7,12 @@
 // What it owns (everything else in a language page is the translator's):
 //   - the lang attribute of <html>
 //   - the blocks between marker comments:   <!-- hl:head-begin ... -->  canonical + hreflang alternates
+//                                           <!-- hl:seo-begin ... -->   robots meta, Open Graph, Twitter card, icons, JSON-LD (scripts/lib/site-seo.mjs; built from the page's own title and description)
 //                                           <!-- hl:lang-begin ... -->  the language menu in the header
 //                                           <!-- hl:scripts-begin ... --> the dictionary and site scripts
 //   - relative asset paths in language pages (assets/ and media/ get a ../ in front)
-//   - docs/sitemap.xml (all pages in all languages with xhtml:link alternates; existing <lastmod> values are kept)
+//   - docs/sitemap.xml (all pages in all languages with xhtml:link alternates; <lastmod> = the date of the last git commit of that page, today when
+//     the page has uncommitted changes; with no usable git history (shallow clone, no git) the committed value is kept; --check never compares dates)
 //   - a missing language page (a stub: the English page with a STUB comment) and a missing docs/assets/i18n/<code>.js (a copy of en.js)
 // An existing language page is never recreated, and its title, description and body text are never rewritten.
 // The English pages get the same blocks. 404.html exists once, at the root (GitHub Pages serves no other); it has the menu and scripts only.
@@ -18,6 +20,8 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { execFileSync } from 'node:child_process';
+import { seoLines, versionOf } from './lib/site-seo.mjs';
 
 export const SITE = 'https://thnonl.github.io/hey-look/';
 // dir = folder under docs/ ('' = root), hreflang = BCP 47 tag for <html lang> and hreflang, label = "Language" in that language (menu name), colon = what follows the label before the language name (default ': '; French wants a no-break space before the colon, Chinese and Japanese the full-width colon)
@@ -48,6 +52,11 @@ export function headBlock(lang, page) {
   return [`<!-- hl:head-begin: ${NOTE} -->`, `<link rel="canonical" href="${urlOf(lang, page)}">`, ...alt, '<!-- hl:head-end -->'].join('\n');
 }
 
+// robots meta, Open Graph, Twitter card, icons and JSON-LD of a page; its title and description are the page's own (version = the English home page's)
+export function seoBlock(lang, page, text, version) {
+  return [`<!-- hl:seo-begin: ${NOTE} -->`, ...seoLines({ langs: LANGS, pages: PAGES, site: SITE, urlOf }, lang, page, text, version), '<!-- hl:seo-end -->'].join('\n');
+}
+
 const GLOBE = '<svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><circle cx="12" cy="12" r="9"/><path d="M3 12h18M12 3a14 14 0 0 1 0 18M12 3a14 14 0 0 0 0 18"/></svg>';
 
 // page = '404' gives links to the language home pages (a missing page has no counterpart)
@@ -60,7 +69,7 @@ export function langBlock(lang, page) {
   return [
     `<!-- hl:lang-begin: ${NOTE} -->`,
     '<details class="lang">',
-    `<summary aria-label="${lang.label}${lang.colon ?? ': '}${lang.native}" title="${lang.label}">${GLOBE}<span class="lang-cur">${lang.short}</span></summary>`,
+    `<summary aria-label="${lang.short} (${lang.label}${lang.colon ?? ': '}${lang.native})" title="${lang.label}">${GLOBE}<span class="lang-cur">${lang.short}</span></summary>`,
     `<ul class="lang-menu" aria-label="${lang.label}">`,
     ...items,
     '</ul>',
@@ -87,10 +96,13 @@ function setBlock(text, name, block, insert, where) {
 }
 
 // the three blocks, the lang attribute, and the ../ on asset paths; nothing else
-export function applyPlumbing(text, lang, page, where = page) {
+export function applyPlumbing(text, lang, page, where = page, version) {
   let t = text.replace(/<html lang="[^"]*"/, () => `<html lang="${lang.hreflang}"`);
   if (page !== '404') {
     t = setBlock(t, 'head', headBlock(lang, page), (s, b) => s.replace(/<link rel="icon"/, () => b + '\n<link rel="icon"'), where);
+  }
+  if (page !== '404') {
+    t = setBlock(t, 'seo', seoBlock(lang, page, t, version), (s, b) => s.replace(/<!-- hl:head-end -->/, (m) => m + '\n' + b), where);
   }
   t = setBlock(t, 'lang', langBlock(lang, page), (s, b) => s.replace(/(<div class="hdr-r">)\r?\n/, (m, d) => d + '\n' + b + '\n'), where);
   t = setBlock(t, 'scripts', scriptsBlock(lang, page), (s, b) =>
@@ -103,12 +115,31 @@ function readSitemap() {
   const file = path.join(DOCS, 'sitemap.xml');
   const old = new Map();
   if (fs.existsSync(file)) {
-    for (const m of fs.readFileSync(file, 'utf8').matchAll(/<url>\s*<loc>([^<]+)<\/loc>(?:\s*<lastmod>([^<]+)<\/lastmod>)?(?:\s*<priority>([^<]+)<\/priority>)?/g)) old.set(m[1], { lastmod: m[2], priority: m[3] });
+    for (const m of fs.readFileSync(file, 'utf8').matchAll(/<url>\s*<loc>([^<]+)<\/loc>(?:\s*<lastmod>([^<]+)<\/lastmod>)?/g)) old.set(m[1], { lastmod: m[2] });
   }
   return old;
 }
 
-export function buildSitemap(old) {
+// The date of the last git commit of each page (YYYY-MM-DD, the author date), today for a page with uncommitted changes. Returns null when git
+// has no usable history (not a repository, git missing, or a shallow clone such as the CI checkout): the caller then keeps the committed dates.
+const localDay = (d) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+export function gitDates(files) {
+  const git = (...a) => execFileSync('git', a, { cwd: DOCS, encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'], maxBuffer: 1 << 24 }).trim();
+  try {
+    if (git('rev-parse', '--is-shallow-repository') !== 'false') return null;
+    const lines = (a) => new Set(a.split('\n').filter(Boolean).map((x) => path.resolve(DOCS, x)));
+    const dirty = new Set([...lines(git('diff', '--relative', '--name-only', 'HEAD', '--', '.')), ...lines(git('ls-files', '--others', '--exclude-standard', '--', '.'))]);
+    const today = localDay(new Date()), out = new Map();
+    for (const file of files) {
+      const d = dirty.has(path.resolve(file)) ? today : git('log', '-1', '--format=%as', '--', file);
+      if (/^\d{4}-\d{2}-\d{2}$/.test(d)) out.set(file, d);
+    }
+    return out;
+  } catch { return null; }
+}
+
+// priority and changefreq are left out on purpose: Google ignores both, and a made-up 0.8 for every page says nothing
+export function buildSitemap(old, dates = null) {
   const out = ['<?xml version="1.0" encoding="UTF-8"?>', '<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9" xmlns:xhtml="http://www.w3.org/1999/xhtml">'];
   for (const page of PAGES) {
     const en = old.get(urlOf(EN, page)) || {};
@@ -116,8 +147,8 @@ export function buildSitemap(old) {
     alts.push(`    <xhtml:link rel="alternate" hreflang="x-default" href="${urlOf(EN, page)}"/>`);
     for (const l of LANGS) {
       const o = old.get(urlOf(l, page)) || {};
-      const lastmod = o.lastmod || en.lastmod, priority = o.priority || en.priority || (page === 'index' ? '1.0' : '0.8');
-      out.push('  <url>', `    <loc>${urlOf(l, page)}</loc>`, ...(lastmod ? [`    <lastmod>${lastmod}</lastmod>`] : []), `    <priority>${priority}</priority>`, ...alts, '  </url>');
+      const lastmod = (dates && dates.get(fileOf(l, page))) || o.lastmod || en.lastmod;
+      out.push('  <url>', `    <loc>${urlOf(l, page)}</loc>`, ...(lastmod ? [`    <lastmod>${lastmod}</lastmod>`] : []), ...alts, '  </url>');
     }
   }
   out.push('</urlset>', '');
@@ -140,8 +171,10 @@ function main() {
     if (!check) { fs.mkdirSync(path.dirname(file), { recursive: true }); fs.writeFileSync(file, text); }
   };
   const english = {};
+  const version = versionOf(fs.readFileSync(fileOf(EN, 'index'), 'utf8'));
+  if (!version) throw new Error('docs/index.html has no <span data-version>');
   for (const page of [...PAGES, '404']) {
-    english[page] = applyPlumbing(fs.readFileSync(fileOf(EN, page), 'utf8'), EN, page, page + ' (en)');
+    english[page] = applyPlumbing(fs.readFileSync(fileOf(EN, page), 'utf8'), EN, page, page + ' (en)', version);
     put(fileOf(EN, page), english[page]);
   }
   const enDict = fs.readFileSync(path.join(DOCS, 'assets/i18n/en.js'), 'utf8');
@@ -149,12 +182,13 @@ function main() {
     for (const page of PAGES) {
       const file = fileOf(lang, page);
       const cur = fs.existsSync(file) ? fs.readFileSync(file, 'utf8') : STUB + '\n' + english[page];
-      put(file, applyPlumbing(cur, lang, page, `${lang.dir}/${page}`));
+      put(file, applyPlumbing(cur, lang, page, `${lang.dir}/${page}`, version));
     }
     const dict = path.join(DOCS, `assets/i18n/${lang.code}.js`);
     if (!fs.existsSync(dict)) put(dict, stubDictionary(lang, enDict));
   }
-  put(path.join(DOCS, 'sitemap.xml'), buildSitemap(readSitemap()));
+  // --check compares the sitemap without the dates (they come from git history, which a shallow checkout does not have); a write refreshes them
+  put(path.join(DOCS, 'sitemap.xml'), buildSitemap(readSitemap(), check ? null : gitDates(LANGS.flatMap((l) => PAGES.map((p) => fileOf(l, p))))));
   console.log(changed.length ? changed.join('\n') : 'site languages: nothing to change');
   if (check && changed.length) { console.error(`site languages: ${changed.length} file(s) out of date; run node scripts/generate-site-languages.mjs`); process.exit(1); }
 }

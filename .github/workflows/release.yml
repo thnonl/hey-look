@@ -320,6 +320,7 @@ jobs:
           node scripts/generate-site-languages.mjs --check
           node scripts/test-site-languages.mjs --strict
           node scripts/test-site-404.mjs
+          node scripts/test-site-seo.mjs
           node --experimental-strip-types scripts/test-site-commands.mjs
           # the Appearance preview on the website, measured in the runner's Chrome (a sample of the combinations; the full run is `node scripts/test-site-appearance.mjs`)
           node scripts/test-site-appearance.mjs --quick

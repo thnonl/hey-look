@@ -1,0 +1,8 @@
+# Hey Look! website. Everything may be crawled, including /assets/ (the pages need them to render).
+# Note: GitHub Pages serves a project site under /hey-look/, and crawlers only read robots.txt at the host root
+# (https://thnonl.github.io/robots.txt), so this file is not read there. It is kept for a custom domain
+# and for reference. The sitemap is submitted in Google Search Console and Bing Webmaster Tools instead.
+User-agent: *
+Allow: /
+
+Sitemap: https://thnonl.github.io/hey-look/sitemap.xml

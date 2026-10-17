@@ -131,7 +131,7 @@
   "nf.nav.privacy": "プライバシー",
   "nf.menu": "メニュー",
   "nf.lang": "言語",
-  "nf.lang.cur": "言語：{lang}",
+  "nf.lang.cur": "{short} (言語：{lang})",
   "nf.eyes": "あたりを見回す二つの目",
   "nf.thanks": "Hey Look!をご利用いただき、ありがとうございます。今後も無料のオープンソースであり続けます。支援は任意です。",
   "nf.supportproject": "プロジェクトを支援する",

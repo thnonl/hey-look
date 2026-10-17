@@ -131,7 +131,7 @@
   "nf.nav.privacy": "隐私",
   "nf.menu": "菜单",
   "nf.lang": "语言",
-  "nf.lang.cur": "语言：{lang}",
+  "nf.lang.cur": "{short} (语言：{lang})",
   "nf.eyes": "两只眼睛在四处张望",
   "nf.thanks": "感谢你使用 Hey Look! 它会一直保持免费和开源，是否支持它完全由你决定。",
   "nf.supportproject": "支持本项目",

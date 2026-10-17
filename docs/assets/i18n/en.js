@@ -133,7 +133,7 @@
   "nf.nav.privacy": "Privacy",
   "nf.menu": "Menu",
   "nf.lang": "Language",
-  "nf.lang.cur": "Language: {lang}",
+  "nf.lang.cur": "{short} (Language: {lang})",
   "nf.eyes": "Two eyes looking around",
   "nf.thanks": "Thank you for using Hey Look! It stays free and open source, and supporting it is optional. ",
   "nf.supportproject": "Support the project",

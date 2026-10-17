@@ -136,7 +136,7 @@ for (const l of LANGS) {
 for (const l of LANGS) {
   const d = dictOf(l.code), sum = /<summary aria-label="([^"]*)" title="([^"]*)"/.exec(langBlock(l, 'index'));
   if (d['nf.lang'] !== sum[2]) fail(`assets/i18n/${l.code}.js: nf.lang "${d['nf.lang']}" differs from the language menu title "${sum[2]}"`);
-  if ((d['nf.lang.cur'] || '').replace('{lang}', l.native) !== sum[1]) fail(`assets/i18n/${l.code}.js: nf.lang.cur gives "${(d['nf.lang.cur'] || '').replace('{lang}', l.native)}", the language menu says "${sum[1]}"`);
+  if ((d['nf.lang.cur'] || '').replace('{lang}', l.native).replace('{short}', l.short) !== sum[1]) fail(`assets/i18n/${l.code}.js: nf.lang.cur gives "${(d['nf.lang.cur'] || '').replace('{lang}', l.native).replace('{short}', l.short)}", the language menu says "${sum[1]}"`);
 }
 if (!siteJs.includes("$$('[data-i18n-aria]')") || !siteJs.includes("t('nf.lang.cur'")) fail('assets/site.js: the 404 block does not translate the data-i18n-aria attributes and the language menu labels');
 // every marker used on the page has a key in every dictionary
