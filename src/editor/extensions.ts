@@ -124,8 +124,8 @@ const FormatKeys = (getBase: () => BaseFont, focusToolbar?: () => void, openStyl
         // Styles: the menu, Normal, Heading 1-3
         "Mod-Shift-s": () => (openStyles?.(), true),
         "Mod-Shift-n": () => applyStyle(this.editor, "normal"),
-        // Find and replace (the message body): Ctrl+F finds, Ctrl+H replaces (not on a Mac, where Cmd+H hides the app)
-        ...(openFind ? { "Mod-f": () => (openFind("find"), true), ...(osNow() === "macos" ? {} : { "Mod-h": () => (openFind("replace"), true) }) } : {}),
+        // Find and replace (the message body): Ctrl+F finds, Ctrl+H replaces (on a Mac Cmd+H hides the app: Cmd+Shift+H replaces; Cmd+Option+... keys are the app's, composeKeys.ts)
+        ...(openFind ? { "Mod-f": () => (openFind("find"), true), ...(osNow() === "macos" ? { "Mod-Shift-h": () => (openFind("replace"), true) } : { "Mod-h": () => (openFind("replace"), true) }) } : {}),
         // Change case: Shift+F3 goes round lowercase, UPPERCASE, Capitalize Each Word (the code is fetched with the first use)
         "Shift-F3": () => (void import("./changeCase").then((m) => m.changeCase(this.editor, null)), true),
         "Mod-Alt-1": () => applyStyle(this.editor, "h1"),

@@ -146,6 +146,10 @@ function App() {
     const stopHub = startComposeHub(); // the compose windows' requests and the count of open windows
     const subs = [
       listen("mail-synced", () => void useStore.getState().refresh()),
+      // an archive / delete / move whose Undo time is over has been done (also while the window was hidden to the tray): the messages leave the list now
+      listen<{ threadIds: string[] }>("moves-committed", (e) => useStore.getState().dropThreads(e.payload.threadIds)),
+      // the window comes back (from the tray, a second start): what changed meanwhile is read at once, not at the next 30 s refresh
+      listen("app-shown", () => void useStore.getState().refresh()),
       // a secondary window (the reader) asks for something the main page owns: mail state with its Undo, the preferences, a dialog, a message
       listen<Envelope>("popout-request", (e) => void handlePopoutRequest(e.payload)),
       // a Google / Microsoft mailbox was signed out behind our back (the background sync got rejected): it shows "Sign in again"

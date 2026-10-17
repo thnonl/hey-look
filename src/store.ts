@@ -6,6 +6,7 @@ import { hasMailAccounts } from "./mailControls";
 import { applyBackfill } from "./backfill";
 import { holdOpenThread } from "./openThread";
 import { QueuedMoves } from "./queuedMoves";
+import { Latest } from "./latestOnly";
 import { StateIntents, type IntentKind } from "./readIntent";
 import { calendarErrorText } from "./calendarSync";
 import { backendText } from "./backendErrors";
@@ -334,6 +335,8 @@ interface State {
   /** `text` as a function is drawn each time the toast is painted (a toast made from a translation key follows a language switch); a plain string stays as it is */
   showToast: (text: Lazy, undo?: () => void, kind?: Toast["kind"], actions?: ToastAction[]) => void;
   dismissToast: (id: number) => void;
+  /** The backend finished moving these conversations (their Undo time is over): they leave the open list now, without a re-read. */
+  dropThreads: (ids: string[]) => void;
   /** A toast that stays until it is answered (or `null` to remove it); one per `key`, a new text replaces the old in place. */
   setStickyToast: (
     key: string,
@@ -376,6 +379,8 @@ let listKey = "";
 let heldOpen: string | null = null;
 /** (OBS-1) Conversations whose move target is being looked up on the server. */
 const preparing = new Set<string>();
+/** The re-reads of the list that are running: only the last one started lays its answer over the list (a stale answer must not bring back a moved message). */
+const listReads = new Latest();
 /** (BUG-1) Moves waiting out their Undo window: see queuedMoves.ts. */
 const queued = new QueuedMoves();
 
@@ -768,6 +773,7 @@ export const useStore = create<State>((set, get) => ({
     const { folder, accountId, search, searchScope, focus, filter, prefs } = get();
     // (F-16/F-17) what is asked of the server while this read runs is laid over its answer; folder counts that predate it are not shown
     const tok = intents.begin();
+    const run = listReads.start();
     const foldersP = api.listFolders().then((folders) => {
       if (!intents.changedSince(tok)) set({ folders });
     });
@@ -793,7 +799,7 @@ export const useStore = create<State>((set, get) => ({
       }), tok);
       // ignore a slow answer for a view the user already left
       const now = get();
-      if (now.folder === folder && now.accountId === accountId && now.search === search) {
+      if (now.folder === folder && now.accountId === accountId && now.search === search && listReads.current(run)) {
         // F-12: reading the open mail can take it out of an Unread / Flagged list; it stays (and stays open) until the person leaves it
         const view = [folder, accountId, search, searchScope, focus, filter, prefs.conversations, prefs.sortAsc].join("|");
         const { threads, kept } = holdOpenThread(fresh, now.threads, now.selected, view === listKey);
@@ -1189,6 +1195,12 @@ export const useStore = create<State>((set, get) => ({
   },
 
   dismissToast: (id) => set((s) => ({ toasts: s.toasts.filter((t) => t.id !== id) })),
+
+  dropThreads: (ids) => {
+    const gone = new Set(ids);
+    if (!get().threads.some((x) => gone.has(x.threadId))) return;
+    set((s) => ({ threads: s.threads.filter((x) => !gone.has(x.threadId)), checked: new Set([...s.checked].filter((x) => !gone.has(x))) }));
+  },
 
   setStickyToast: (key, spec) =>
     set((s) => {

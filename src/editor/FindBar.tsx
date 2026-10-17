@@ -1,7 +1,7 @@
 // The Find and replace panel of the message body (spec-rich-text.md REQ-44, design 4.1): above the text, Find (Ctrl+F) with Match case, Previous / Next and
-// "{n} of {total}", and with Ctrl+H the Replace row with Replace and Replace all. The search is in findReplace.ts. A chunk of its own, fetched on first use.
+// "{n} of {total}", and the Replace row (Replace and Replace all) that a chevron button on every system, the Replace menu item, Ctrl+H (Ctrl+Shift+H on a Mac) open. The search is in findReplace.ts. A chunk of its own, fetched on first use.
 
-import { ChevronDown, ChevronUp, X } from "lucide-react";
+import { ChevronDown, ChevronRight, ChevronUp, X } from "lucide-react";
 import type { Editor } from "@tiptap/react";
 import { useEffect, useRef, useState } from "react";
 import { useStore } from "../store";
@@ -20,13 +20,18 @@ export function FindBar({ editor, mode, nonce, onClose }: { editor: Editor; mode
   const [matchCase, setMatchCase] = useState(false);
   const [state, setState] = useState<FindState>(() => getFind(editor.state));
   const [note, setNote] = useState("");
-
-  // opened (again): the search box takes the focus with its text selected; Ctrl+H goes to the Replace box
+  // the Replace row: opened by the chevron, or asked for (menu, key); it stays as the person left it when Find is asked for again
+  const [showReplace, setShowReplace] = useState(mode === "replace");
   useEffect(() => {
-    const el = mode === "replace" ? replaceRef.current ?? findRef.current : findRef.current;
+    if (mode === "replace") setShowReplace(true);
+  }, [mode, nonce]);
+
+  // opened (again), or the Replace row shown: the search box takes the focus with its text selected; asking for Replace goes to the Replace box
+  useEffect(() => {
+    const el = mode === "replace" && showReplace ? replaceRef.current ?? findRef.current : findRef.current;
     el?.focus();
     el?.select();
-  }, [mode, nonce]);
+  }, [mode, nonce, showReplace]);
   // the search runs while the text of the box changes; the document changing under the panel (typing, undo) is followed
   useEffect(() => {
     setState(setSearch(editor.view, query, matchCase));
@@ -61,7 +66,7 @@ export function FindBar({ editor, mode, nonce, onClose }: { editor: Editor; mode
       back();
     } else if (e.key === "Enter" && !e.ctrlKey && !e.metaKey && !e.altKey) {
       e.preventDefault();
-      if (e.currentTarget === replaceRef.current && mode === "replace") setState(replaceCurrent(editor.view, replaceWith));
+      if (e.target === replaceRef.current) setState(replaceCurrent(editor.view, replaceWith));
       else step(e.shiftKey ? -1 : 1);
     }
   };
@@ -75,6 +80,9 @@ export function FindBar({ editor, mode, nonce, onClose }: { editor: Editor; mode
   return (
     <div className="find-bar" role="search" aria-label={t("compose.find.find")} onKeyDown={onKey}>
       <div className="find-row">
+        <button type="button" className="icon-btn find-toggle" title={t("compose.find.replace")} aria-label={t("compose.find.replace")} aria-expanded={showReplace} onClick={() => setShowReplace((v) => !v)}>
+          {showReplace ? <ChevronDown size={14} aria-hidden="true" /> : <ChevronRight size={14} aria-hidden="true" />}
+        </button>
         <input ref={findRef} type="text" value={query} onChange={(e) => setQuery(e.target.value)} aria-label={t("compose.find.find")} placeholder={t("compose.find.find")} spellCheck={false} />
         <span className="find-count" role="status" aria-live="polite">{count}</span>
         <button type="button" className="icon-btn" title={t("compose.find.prev")} aria-label={t("compose.find.prev")} disabled={!total} onClick={() => step(-1)}><ChevronUp size={14} aria-hidden="true" /></button>
@@ -82,7 +90,7 @@ export function FindBar({ editor, mode, nonce, onClose }: { editor: Editor; mode
         <label className="find-case"><input type="checkbox" checked={matchCase} onChange={(e) => setMatchCase(e.target.checked)} /> {t("compose.find.matchCase")}</label>
         <button type="button" className="icon-btn find-close" title={t("common.close")} aria-label={t("common.close")} onClick={back}><X size={14} aria-hidden="true" /></button>
       </div>
-      {mode === "replace" && (
+      {showReplace && (
         <div className="find-row">
           <input ref={replaceRef} type="text" value={replaceWith} onChange={(e) => setReplaceWith(e.target.value)} aria-label={t("compose.find.replaceWith")} placeholder={t("compose.find.replaceWith")} spellCheck={false} />
           <button type="button" className="btn small" disabled={!total} onClick={() => setState(replaceCurrent(editor.view, replaceWith))}>{t("compose.find.replace")}</button>

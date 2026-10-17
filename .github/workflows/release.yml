@@ -267,10 +267,12 @@ jobs:
           node --experimental-strip-types scripts/test-autosave.mjs
           node --experimental-strip-types scripts/test-recovery.mjs
           node --experimental-strip-types scripts/test-compose-selection.mjs
+          node --experimental-strip-types scripts/test-compose-content.mjs
           node --experimental-strip-types scripts/test-read-intent.mjs
           node --experimental-strip-types scripts/test-flag-pin-intent.mjs
           node --experimental-strip-types scripts/test-prepare-move.mjs
           node --experimental-strip-types scripts/test-queued-moves.mjs
+          node --experimental-strip-types scripts/test-moves-committed.mjs
           node --experimental-strip-types scripts/test-auto-advance.mjs
           node --experimental-strip-types scripts/test-junk-folder.mjs
           node --experimental-strip-types scripts/test-list-limit-footer.mjs
@@ -339,6 +341,11 @@ jobs:
           node scripts/test-compose-fit.mjs --quick
           # the side menu: icons or full by window width and by the person's choice, the peek over the panes, the minimum widths, tooltips (the full run is `node scripts/test-sidebar-collapse.mjs`)
           node scripts/test-sidebar-collapse.mjs --quick
+          # the picture resize handles are clipped with the editor pane, and Discard on a reply with nothing typed closes without asking (real panes in the dev preview)
+          node scripts/test-picture-handles.mjs
+          node scripts/test-compose-discard.mjs
+          # the Symbol popup, the More menu, Find and replace (Replace row on every system) and the picture handles under the dialogs, at 960 x 560 and 1280 x 800
+          node scripts/test-compose-popups.mjs
 
       # macOS code signing (owner steps: CONTRIBUTING.md > Signing and notarisation). Only when the three certificate secrets
       # (APPLE_CERTIFICATE, APPLE_CERTIFICATE_PASSWORD, APPLE_SIGNING_IDENTITY) exist and this is not a test build; otherwise nothing

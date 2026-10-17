@@ -1199,8 +1199,36 @@ fn pending_lock() -> std::sync::MutexGuard<'static, Vec<Pending>> {
     PENDING.lock().unwrap_or_else(|p| p.into_inner())
 }
 
+/// The moves whose Undo time is over and that are being done right now (the server move, then the local rows): their threads stay hidden from
+/// the lists until that is finished. Without this the threads were in neither set while the move ran, so a list read in that moment (the 30 s
+/// refresh of the page, a sync) showed the message again, and a window that was hidden to the tray showed it after it was reopened (BUG-B3).
+static COMMITTING: Mutex<Vec<(String, Vec<String>)>> = Mutex::new(Vec::new());
+
+fn committing_lock() -> std::sync::MutexGuard<'static, Vec<(String, Vec<String>)>> {
+    COMMITTING.lock().unwrap_or_else(|p| p.into_inner())
+}
+
+/// Threads that a list must not show: waiting out their Undo time, or being moved right now.
 fn pending_thread_ids() -> std::collections::HashSet<String> {
-    pending_lock().iter().flat_map(|p| p.threads.iter().cloned()).collect()
+    // (always this order: a mover holds PENDING while it registers in COMMITTING, so a thread is never in neither)
+    let waiting = pending_lock();
+    let running = committing_lock();
+    waiting.iter().flat_map(|p| p.threads.iter().cloned()).chain(running.iter().flat_map(|(_, t)| t.iter().cloned())).collect()
+}
+
+/// Take the moves that are due (all of them when `due` is None) out of the waiting list and register them as running, in one step.
+fn take_due(due: Option<std::time::Instant>) -> Vec<Pending> {
+    let mut g = pending_lock();
+    let (taken, rest): (Vec<_>, Vec<_>) = std::mem::take(&mut *g).into_iter().partition(|p| due.map_or(true, |now| p.due <= now));
+    *g = rest;
+    let mut running = committing_lock();
+    running.extend(taken.iter().map(|p| (p.id.clone(), p.threads.clone())));
+    taken
+}
+
+/// The move is over (done or failed): its threads show in the lists again if they are still there.
+fn committing_done(id: &str) {
+    committing_lock().retain(|(i, _)| i != id);
 }
 
 fn queue(thread_ids: Vec<String>, action: String, arg: Option<String>, scope: Option<String>, delay_secs: u64, verify: Option<Arc<Verify>>) -> String {
@@ -1278,42 +1306,55 @@ fn cancel_action(id: String) -> bool {
     unqueue(&id)
 }
 
+/// The threads whose move is done, for the main page (`moves-committed`): it takes them out of its list at once.
+#[derive(Serialize, Clone)]
+#[serde(rename_all = "camelCase")]
+struct MovesCommitted {
+    thread_ids: Vec<String>,
+}
+
 fn run_pending(app: &tauri::AppHandle, items: Vec<Pending>, verify_wait: std::time::Duration) {
     if items.is_empty() {
         return;
     }
     let db = app.state::<AppState>().db.clone();
+    let mut moved: Vec<String> = vec![];
     for p in items {
         // never move into a folder that was not checked: a failed check ends the move here
         if let Some(Err(error)) = p.verify.as_ref().and_then(|v| v.wait(verify_wait)) {
+            committing_done(&p.id);
             let _ = app.emit_to("main", "action-verify-failed", VerifyFailed { id: p.id, error });
             continue;
         }
         let id = p.id.clone();
-        if let Err(error) = action_impl(&db, p.threads, p.action, p.arg, p.scope) {
+        let threads = p.threads.clone();
+        let done = action_impl(&db, p.threads, p.action, p.arg, p.scope);
+        // (the local rows are changed by now: the threads stop being hidden only here, so no list read in between shows them)
+        committing_done(&id);
+        match done {
+            Ok(()) => moved.extend(threads),
             // the id says which queued move this was: the app puts the mail, the selection and the next mail's unread state back (autoAdvance.ts)
-            let _ = app.emit_to("main", "action-failed", VerifyFailed { id, error });
+            Err(error) => {
+                let _ = app.emit_to("main", "action-failed", VerifyFailed { id, error });
+            }
         }
     }
     shell::update_badge(app, &db);
+    // the Undo time is over and the move is done: the page drops the messages from its list at this moment, whether its window is in front or
+    // hidden to the tray, and does not wait for a sync or a re-read to find out
+    if !moved.is_empty() {
+        let _ = app.emit_to("main", "moves-committed", MovesCommitted { thread_ids: moved });
+    }
     let _ = app.emit("mail-synced", ());
 }
 
 fn commit_due(app: &tauri::AppHandle) {
-    let due: Vec<Pending> = {
-        let mut g = pending_lock();
-        let now = std::time::Instant::now();
-        let (due, rest): (Vec<_>, Vec<_>) = std::mem::take(&mut *g).into_iter().partition(|p| p.due <= now);
-        *g = rest;
-        due
-    };
-    run_pending(app, due, VERIFY_WAIT);
+    run_pending(app, take_due(Some(std::time::Instant::now())), VERIFY_WAIT);
 }
 
 /// Run everything still waiting (called before the app quits).
 pub(crate) fn flush_pending(app: &tauri::AppHandle) {
-    let all: Vec<Pending> = std::mem::take(&mut *pending_lock());
-    run_pending(app, all, VERIFY_WAIT_AT_QUIT);
+    run_pending(app, take_due(None), VERIFY_WAIT_AT_QUIT);
 }
 
 fn pending_worker(app: tauri::AppHandle) {
@@ -5341,7 +5382,7 @@ mod quit_tests {
         }
         let main_only = [
             "confirm-quit", "tray-compose", "open-thread", "notify-reply", "app-shown", "signin-state", "backfill-progress", "action-verify-failed",
-            "action-failed", "outbox-leftover", "outbox-catchup", "filter-failed", "event-reminder", "download-dir-fallback", "frame-caption",
+            "action-failed", "moves-committed", "outbox-leftover", "outbox-catchup", "filter-failed", "event-reminder", "download-dir-fallback", "frame-caption",
         ];
         for ev in main_only {
             assert!(!code.contains(&format!("emit(\"{ev}\"")), "{ev} is broadcast");

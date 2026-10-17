@@ -142,4 +142,16 @@ assert.match(ext, /"Mod-h"/, "Ctrl+H in the body");
 assert.ok(!/from "\.\/findReplace/.test(ext + read("src/editor/controls.tsx") + read("src/components/Compose.tsx")), "findReplace.ts is never imported statically by the first bundle's code");
 assert.match(read("src/components/Compose.tsx"), /import\("\.\.\/editor\/FindBar"\)/, "the panel is fetched when it is first opened");
 
+// the Replace row is reachable on every system (Mac QA: Cmd+H hides the app and the menu item only opened Find)
+const has = (src, text, why) => assert.ok(src.includes(text), why);
+has(ext, '"Mod-Shift-h": () => (openFind("replace"), true)', "Cmd+Shift+H replaces on a Mac");
+has(ext, 'osNow() === "macos" ? { "Mod-Shift-h"', "the Mac key is only the Mac's");
+const ctl = read("src/editor/controls.tsx");
+has(ctl, 'id: "replace", variants: ["compose"]', "a Replace item in the More menu");
+has(ctl, 'c.host.find?.("replace")', "the Replace item opens the panel with the Replace row");
+const bar = read("src/editor/FindBar.tsx");
+has(bar, 'className="icon-btn find-toggle"', "a chevron button on every system");
+has(bar, "aria-expanded={showReplace}", "that says whether the Replace row is shown");
+has(bar, "{showReplace && (", "the Replace row follows the toggle, not only the mode it was opened in");
+has(read("src/components/SettingsDialog.tsx"), 'os === "macos" ? "Ctrl+F / Ctrl+Shift+H"', "Settings > Shortcuts lists the Mac key");
 console.log("find-replace: ok");

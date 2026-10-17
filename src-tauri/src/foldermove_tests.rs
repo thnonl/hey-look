@@ -565,3 +565,37 @@ fn when_no_sent_folder_can_be_made_the_copy_is_given_up_with_a_reason_and_nothin
     });
 }
 
+
+#[test]
+fn a_move_whose_undo_time_is_over_stays_hidden_from_the_lists_until_it_is_done() {
+    use std::time::{Duration, Instant};
+    // BUG-B3: a move that left the waiting list (its Undo time is over) and had not changed the local rows yet was in no set, so a list read in
+    // that moment (the page's 30 s re-read, a sync) showed the message again
+    let id = queue(vec!["t-b3-a".into(), "t-b3-b".into()], "trash".into(), None, Some("inbox".into()), 0, None);
+    let other = queue(vec!["t-b3-other".into()], "archive".into(), None, Some("inbox".into()), 600, None);
+    assert!(pending_thread_ids().contains("t-b3-a"), "waiting: hidden");
+    let taken = take_due(Some(Instant::now() + Duration::from_secs(1)));
+    assert!(taken.iter().any(|p| p.id == id), "the due move is taken");
+    assert!(!taken.iter().any(|p| p.id == other), "a move that is not due stays");
+    assert!(!pending_lock().iter().any(|p| p.id == id), "no longer waiting");
+    let hidden = pending_thread_ids();
+    assert!(hidden.contains("t-b3-a") && hidden.contains("t-b3-b"), "running: still hidden");
+    assert!(hidden.contains("t-b3-other"), "the waiting one is hidden too");
+    committing_done(&id);
+    let hidden = pending_thread_ids();
+    assert!(!hidden.contains("t-b3-a") && !hidden.contains("t-b3-b"), "done: the rows are as the move left them, the lists show what is there");
+    assert!(hidden.contains("t-b3-other"));
+    assert!(cancel_action(other));
+}
+
+#[test]
+fn the_page_is_told_when_a_move_is_done_and_the_list_drops_the_messages_then() {
+    let lib = crate::test_guard::non_test_code(include_str!("lib.rs"));
+    let run = &lib[lib.find("fn run_pending(").unwrap()..];
+    let run = &run[..run.find("fn commit_due(").unwrap()];
+    // the threads stop being hidden after the local rows are changed, then the page hears of it (to the main page only), then every window re-reads
+    let done = run.find("committing_done(&id);").unwrap();
+    let told = run.find("\"moves-committed\"").unwrap();
+    let synced = run.find("\"mail-synced\"").unwrap();
+    assert!(run.find("action_impl(").unwrap() < done && done < told && told < synced, "{run}");
+}

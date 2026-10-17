@@ -2,7 +2,7 @@ import { NodeSelection } from "@tiptap/pm/state";
 import type { Editor } from "@tiptap/react";
 import {
   AlignCenter, AlignJustify, AlignLeft, AlignRight, ArrowUpDown, Bold, CalendarClock, CaseSensitive, ChevronDown, Highlighter, ImagePlus, IndentDecrease, IndentIncrease, Italic, Link2, List, ListOrdered, Minus,
-  Omega, PilcrowLeft, PilcrowRight, Plus, RemoveFormatting, Redo2, Search, Smile, Strikethrough, Subscript, Superscript, Table2, Underline as UnderlineIcon, Undo2, ZoomIn,
+  Omega, PilcrowLeft, PilcrowRight, Plus, RemoveFormatting, Redo2, Replace, Search, Smile, Strikethrough, Subscript, Superscript, Table2, Underline as UnderlineIcon, Undo2, ZoomIn,
 } from "lucide-react";
 import { Suspense, lazy, useEffect, useRef, useState, type ReactNode, type RefObject } from "react";
 import { FloatingMenu, type MenuItem } from "../components/ui";
@@ -803,6 +803,11 @@ export const MORE_ITEMS: readonly MoreEntry[] = [
   {
     id: "find", variants: ["compose"],
     item: (c) => ({ label: c.t("compose.fmt.find"), icon: <Search size={IC} />, hint: kbd("Ctrl+F"), disabled: !c.host.find, onClick: () => c.host.find?.("find") }),
+  },
+  {
+    // opens the panel with the Replace row (Cmd+H hides the app on a Mac, so its key there is Cmd+Shift+H)
+    id: "replace", variants: ["compose"],
+    item: (c) => ({ label: c.t("compose.find.replace"), icon: <Replace size={IC} />, hint: kbd(osNow() === "macos" ? "Ctrl+Shift+H" : "Ctrl+H"), disabled: !c.host.find, onClick: () => c.host.find?.("replace") }),
   },
   {
     id: "zoom", variants: ["compose"],

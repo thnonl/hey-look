@@ -173,6 +173,7 @@ export function FloatingMenu({
   align = "left",
   minWidth,
   start = "first",
+  tall,
   onClose,
 }: {
   anchor: React.RefObject<HTMLElement | null>;
@@ -181,6 +182,8 @@ export function FloatingMenu({
   align?: "left" | "right";
   minWidth?: number;
   start?: "first" | "last";
+  /** a long menu (the editor's More menu): it may use the whole room there is, not 60 % of the window, and shows that it scrolls */
+  tall?: boolean;
   onClose: () => void;
 }) {
   const pop = useRef<HTMLDivElement>(null);
@@ -264,6 +267,7 @@ export function FloatingMenu({
     const go = (el?: HTMLElement) => {
       e.preventDefault();
       el?.focus();
+      el?.scrollIntoView({ block: "nearest" }); // (a row below the fold of a scrolling menu comes into view with the key that reached it)
     };
     if (e.key === "ArrowDown") go(list[(i + 1) % list.length]);
     else if (e.key === "ArrowUp") go(list[(i - 1 + list.length) % list.length]);
@@ -288,7 +292,7 @@ export function FloatingMenu({
   };
   const style = pos ? ({ top: pos.top, left: pos.left, "--dd-max": `${pos.max}px` } as React.CSSProperties) : { top: 0, left: 0, visibility: "hidden" as const };
   return createPortal(
-    <div ref={pop} className="dd-fixed" style={{ ...style, minWidth }} onKeyDown={onKeyDown}>
+    <div ref={pop} className="dd-fixed" data-tall={tall ? "" : undefined} style={{ ...style, minWidth }} onKeyDown={onKeyDown}>
       <MenuList items={items} onDone={() => shut(true)} />
     </div>,
     document.body,
