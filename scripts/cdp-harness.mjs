@@ -96,8 +96,9 @@ export function inputs({ cdp, evaluate }, shotDir, tag) {
     await cdp('Input.dispatchMouseEvent', { type: 'mousePressed', x, y, button: 'left', clickCount: 1 });
     await cdp('Input.dispatchMouseEvent', { type: 'mouseReleased', x, y, button: 'left', clickCount: 1 });
   };
-  const click = async (selector) => {
-    const [x, y] = await evaluate(`(() => { const r = document.querySelector(${JSON.stringify(selector)}).getBoundingClientRect(); return [r.left + r.width / 2, r.top + r.height / 2]; })()`);
+  const click = async (selector, which = 'first') => {
+    // a control that is not under its own centre (below the fold of the pane) is scrolled to first, as a person would; one in view is clicked where it is
+    const [x, y] = await evaluate(`(() => { const all = document.querySelectorAll(${JSON.stringify(selector)}), e = ${which === 'last' ? 'all[all.length - 1]' : 'all[0]'}; let r = e.getBoundingClientRect(); const hit = (x, y) => { const t = document.elementFromPoint(x, y); return !!t && e.contains(t); }; if (!hit(r.left + r.width / 2, r.top + r.height / 2)) { e.scrollIntoView({ block: 'nearest' }); r = e.getBoundingClientRect(); } return [r.left + r.width / 2, r.top + r.height / 2]; })()`);
     await clickAt(x, y);
   };
   const shot = async (name) => { if (!shotDir) return; fs.mkdirSync(shotDir, { recursive: true }); const r = await cdp('Page.captureScreenshot', { format: 'png' }); fs.writeFileSync(path.join(shotDir, `${tag}-${name}.png`), Buffer.from(r.data, 'base64')); };

@@ -83,9 +83,10 @@ async function exercise(cfg, tag, n) {
   const paneProbe = await evaluate(PROBE(`document.querySelector('.rp-body')`));
 
   // ---------- 1. the preview of a PDF, opened with the keyboard (Space on the card) ----------
-  await evaluate(`(() => { const c = [...document.querySelectorAll('.att-card')].find((x) => x.textContent.includes('agenda.pdf')); c.focus(); window.__opener = c; })()`);
+  // (a PDF has no preview on Linux, where the engine cannot draw it in the page: a picture stands in there)
+  await evaluate(`(() => { const name = /Linux/.test(navigator.userAgent) ? 'photo-orphan.png' : 'agenda.pdf'; const c = [...document.querySelectorAll('.att-card')].find((x) => x.textContent.includes(name)); c.focus(); window.__opener = c; })()`);
   await press(' ', 'Space');
-  await evaluate(`new Promise((ok, no) => { const t0 = Date.now(), t = setInterval(() => { if (document.querySelector('.pv-modal iframe, .pv-modal .pv-msg:not(:has(.spin))')) { clearInterval(t); ok(1); } else if (Date.now() - t0 > 8000) { clearInterval(t); no(new Error('the preview did not open')); } }, 50); })`).catch((e) => fail(cfg, e.message));
+  await evaluate(`new Promise((ok, no) => { const t0 = Date.now(), t = setInterval(() => { if (document.querySelector('.pv-modal iframe, .pv-modal img, .pv-modal .pv-msg:not(:has(.spin))')) { clearInterval(t); ok(1); } else if (Date.now() - t0 > 8000) { clearInterval(t); no(new Error('the preview did not open')); } }, 50); })`).catch((e) => fail(cfg, e.message));
   await sleep(300);
   await shot('preview-pdf');
   await checkDialog(cfg, '.modal-back', '.pv-modal', 'the preview', paneProbe, press);
