@@ -1,11 +1,9 @@
 import Image from "@tiptap/extension-image";
-import Placeholder from "@tiptap/extension-placeholder";
 import { NodeSelection } from "@tiptap/pm/state";
 import { EditorContent, Node as TipNode, useEditor, type Editor } from "@tiptap/react";
-import StarterKit from "@tiptap/starter-kit";
 import {
-  BadgeCheck, Bold, CalendarClock, CalendarPlus, ChevronDown, FileText, ImagePlus, Info, Italic, Link2, List, ListOrdered, Lock, LockOpen, Paperclip, Save, Send, ShieldAlert, ShieldCheck, Sparkles, Trash2,
-  Moon, Sun, TriangleAlert, Underline as UIcon, X,
+  BadgeCheck, CalendarClock, CalendarPlus, ChevronDown, FileText, ImagePlus, Info, Lock, LockOpen, Paperclip, Save, Send, ShieldAlert, ShieldCheck, Sparkles, Trash2,
+  Moon, Sun, TriangleAlert, X,
 } from "lucide-react";
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
@@ -17,7 +15,13 @@ import { useAiSlot } from "../useAiSlot";
 import type { ComposeProbe, SavedDraft } from "../leaveCompose";
 import { PreviewBg, previewVars, rememberPreview, startPreview } from "../composePreview";
 import { setDarkRegion } from "../composePreviewDom";
-import { extractSignature, fillSignature, normalizeHtml, SIG_MARK } from "../signature";
+import { extractSignature, normalizeHtml, SIG_MARK } from "../signature";
+import { baseExtensions } from "../editor/extensions";
+import { FormatBar, type FormatBarApi } from "../editor/FormatBar";
+import { setPreviewMode } from "../editor/previewColors";
+import { messageHtml } from "../editor/messageBody";
+import { unwrapBase, type BaseFont } from "../editor/emailHtml";
+import { baseFromPrefs } from "../editor/baseFont";
 import { repairSignature, signatureGuard } from "../signatureGuard";
 import { fitInWindow } from "../fitInWindow";
 import { autosaveDue, snapshotDue, timing, type AutosaveWhy } from "../autosave";
@@ -414,8 +418,16 @@ export function Compose({ init }: { init: ComposeInit }) {
   const [templates, setTemplates] = useState<Template[]>([]);
   const [sigs, setSigs] = useState<Signature[]>([]);
   // the message of an opened draft carries its signature as stored text: it is shown as the signature region again
-  const startDoc = useRef<{ html: string; sig: string | null } | null>(null);
-  if (editing && !startDoc.current) startDoc.current = extractSignature(init.bodyHtml ?? "");
+  const startDoc = useRef<{ html: string; sig: string | null; base: BaseFont | null } | null>(null);
+  if (editing && !startDoc.current) {
+    // the stored message is one box with the default font it was written in (editor/emailHtml.ts): the draft keeps that font
+    const u = unwrapBase(init.bodyHtml ?? "");
+    startDoc.current = { ...extractSignature(u.html), base: u.base };
+  }
+  // the default font of THIS message: the one the draft was written in, else the Settings > Composing choice at the time it was opened
+  const [base] = useState<BaseFont>(() => startDoc.current?.base ?? baseFromPrefs(prefs));
+  const baseRef = useRef(base);
+  const barApi = useRef<FormatBarApi>(null);
   const draftSig = useMemo<Signature | null>(
     () => (startDoc.current?.sig ? { id: "draft-signature", name: "", html: startDoc.current.sig, isDefault: false, accountId: null } : null),
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -619,8 +631,7 @@ export function Compose({ init }: { init: ComposeInit }) {
   const pasteNote = useRef(false); // the "pictures from the web are not pasted" notice is shown once per message
   const editor = useEditor({
     extensions: [
-      StarterKit,
-      Placeholder.configure({ placeholder: t("compose.editor.placeholder"), showOnlyCurrent: false }),
+      ...baseExtensions({ placeholder: t("compose.editor.placeholder"), showOnlyCurrent: false, getBase: () => baseRef.current, focusToolbar: () => barApi.current?.focus() }),
       PictureNode,
       SignatureBlock({ mount: (el) => setSigHeads((h) => [...h, el]), unmount: (el) => setSigHeads((h) => h.filter((x) => x !== el)) }),
     ],
@@ -668,6 +679,11 @@ export function Compose({ init }: { init: ComposeInit }) {
     },
     onSelectionUpdate: ({ editor: ed }) => syncPicSel(ed),
   });
+
+  // the dark preview shows the picked colours the way the reading pane would (a view change: the document keeps what was picked)
+  useEffect(() => {
+    if (editor) setPreviewMode(editor, pv);
+  }, [editor, pv]);
 
   // a resized window changes the pane the picture toolbar has to fit in, and a picture that has just loaded gets its real height
   useEffect(() => {
@@ -789,20 +805,16 @@ export function Compose({ init }: { init: ComposeInit }) {
    * so they travel as related parts and are not listed as attachments.
    */
   const buildDraft = (): Draft => {
-    const doc = new DOMParser().parseFromString(editor?.getHTML() ?? "", "text/html");
-    fillSignature(doc, chosenSig?.html ?? null);
-    const inline: InlineImage[] = [];
-    doc.querySelectorAll("img").forEach((img) => {
-      const src = img.getAttribute("src") ?? "";
-      const parts = dataUriParts(src);
-      if (!parts) return;
-      const cid = `${crypto.randomUUID()}@heylook`;
-      const name = img.getAttribute("data-name") || `picture-${inline.length + 1}.${parts.mime.split("/")[1]?.replace("jpeg", "jpg") ?? "img"}`;
-      inline.push({ cid, filename: name, mime: parts.mime, dataBase64: parts.b64 });
-      img.setAttribute("src", `cid:${cid}`);
-      img.removeAttribute("data-name");
+    // the editor's document -> the email HTML (editor/emailHtml.ts), the signature in place of its region, pictures as cid: parts, all in the default font's box
+    const m = messageHtml(editor?.getJSON() ?? { type: "doc", content: [] }, {
+      sig: chosenSig?.html ?? null,
+      base,
+      pictures: "cid",
+      newCid: () => `${crypto.randomUUID()}@heylook`,
+      fileName: (mime, n) => `picture-${n}.${mime.split("/")[1]?.replace("jpeg", "jpg") ?? "img"}`,
     });
-    const body = doc.body.innerHTML;
+    const inline: InlineImage[] = m.inline.map((i) => ({ cid: i.cid, filename: i.name, mime: i.mime, dataBase64: i.dataBase64 }));
+    const body = m.html;
     const md = meeting ? meetingToDraft(meeting, calTz(prefs)) : null;
     return {
       accountId,
@@ -1249,10 +1261,9 @@ export function Compose({ init }: { init: ComposeInit }) {
   /** The form of this message for the crash-recovery snapshot: the body as the editor has it (signature included, pictures as data: URIs). */
   const snapshotForm = () => {
     if (!editor) return null;
-    const doc = new DOMParser().parseFromString(editor.getHTML(), "text/html");
-    fillSignature(doc, chosenSig?.html ?? null);
+    const html = messageHtml(editor.getJSON(), { sig: chosenSig?.html ?? null, base, pictures: "data" }).html;
     const form: RecoveryForm = {
-      v: 1, to, cc, bcc, subject, html: doc.body.innerHTML,
+      v: 1, to, cc, bcc, subject, html,
       inReplyTo: init.inReplyTo ?? null, references: init.references ?? [], replaces: replacesRef(), isReply: !!init.isReply,
       encrypt: encIntent, sign: signOn, attachKey, confidential, importance: draftImportance(importance),
     };
@@ -1926,26 +1937,9 @@ export function Compose({ init }: { init: ComposeInit }) {
         </div>
       )}
 
-      <div className="cp-fmt" role="toolbar" aria-label={t("compose.fmt.toolbar")}>
-        <button className="icon-btn" title={kbd(t("compose.fmt.boldTip"))} aria-label={t("compose.fmt.bold")} onClick={() => editor?.chain().focus().toggleBold().run()}><Bold size={14} /></button>
-        <button className="icon-btn" title={kbd(t("compose.fmt.italicTip"))} aria-label={t("compose.fmt.italic")} onClick={() => editor?.chain().focus().toggleItalic().run()}><Italic size={14} /></button>
-        <button className="icon-btn" title={kbd(t("compose.fmt.underlineTip"))} aria-label={t("compose.fmt.underline")} onClick={() => editor?.chain().focus().toggleUnderline().run()}><UIcon size={14} /></button>
-        <button className="icon-btn" title={t("compose.fmt.bulleted")} aria-label={t("compose.fmt.bulleted")} onClick={() => editor?.chain().focus().toggleBulletList().run()}><List size={14} /></button>
-        <button className="icon-btn" title={t("compose.fmt.numbered")} aria-label={t("compose.fmt.numbered")} onClick={() => editor?.chain().focus().toggleOrderedList().run()}><ListOrdered size={14} /></button>
-        <button
-          ref={linkBtnRef}
-          className="icon-btn"
-          title={kbd(t("compose.fmt.linkTip"))}
-          aria-label={t("compose.fmt.link")}
-          aria-haspopup="dialog"
-          aria-expanded={link.isOpen}
-          onClick={() => linkRef.current()}
-        >
-          <Link2 size={14} />
-        </button>
+      <div className="cp-fmt">
+        <FormatBar editor={editor} base={base} variant="compose" apiRef={barApi} host={{ link: { open: () => linkRef.current(), isOpen: link.isOpen, btnRef: linkBtnRef }, insertPicture: () => picRef.current?.click() }} />
         {link.node}
-        <button className="icon-btn" title={kbd(t("compose.bar.insertPictureTip"))} aria-label={t("compose.fmt.insertPicture")} onClick={() => picRef.current?.click()}><ImagePlus size={14} /></button>
-        <span className="grow" />
         {/* Preview as recipient: a plain pair of toggle buttons (Tab, Space / Enter). The mouse does not take the focus from the editor, so the caret and the selection stay */}
         <div className="pv-switch" role="group" aria-label={t("compose.preview.label")}>
           <span className="pv-label" aria-hidden="true">{t("compose.preview.label")}</span>
@@ -1960,7 +1954,7 @@ export function Compose({ init }: { init: ComposeInit }) {
         </div>
       </div>
 
-      <div className={`cp-editor cp-pv pv-${pv}`} style={previewVars(pv) as React.CSSProperties} ref={bodyRef} onScroll={() => editor && syncPicSel(editor)}>
+      <div className={`cp-editor cp-pv pv-${pv}`} style={{ ...previewVars(pv), "--cp-font": base.family, "--cp-size": `${base.size}pt` } as React.CSSProperties} ref={bodyRef} onScroll={() => editor && syncPicSel(editor)}>
         <EditorContent editor={editor} className="editor" />
         {picSel && (
           <>

@@ -1,0 +1,4 @@
+<script>alert(1)</script> & <img src=x onerror=alert(2)>
+evil link data link file link fine (HTTPS://Example.test/Path)
+spoofed style
+["><script>1</script>]

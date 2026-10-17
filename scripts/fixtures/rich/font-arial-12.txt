@@ -1,0 +1,2 @@
+Arial 12 default
+Segoe UI

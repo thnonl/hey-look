@@ -85,6 +85,14 @@ eq("plain text with no markup", "plain text with no markup");
 eq('<p data-x="a>b">attribute with a &gt; inside</p>', "attribute with a > inside");
 eq("<p>unclosed <b>bold", "unclosed bold");
 
+// the editor's own forms (src/editor/emailHtml.ts): numbering types per level, an empty last item, a horizontal line, an empty paragraph that keeps its height
+eq('<ol style="list-style-type:decimal"><li>a<ol type="a" style="list-style-type:lower-alpha"><li>b<ol type="i"><li>c</li></ol></li><li>d</li></ol></li></ol>', "1. a\n  a. b\n    i. c\n  b. d");
+eq('<ol type="A"><li>x</li><li>y</li></ol><ol type="I" start="4"><li>z</li></ol>', "A. x\nB. y\nIV. z");
+eq("<ul><li>a</li><li></li></ul><p>after</p>", "- a\n-\nafter", "an empty last item keeps its marker on its own line");
+eq('<p style="margin:0">one</p><hr style="border:0"><p style="margin:0">two</p>', "one\n----------\ntwo");
+eq('<p style="margin:0">one</p><p style="margin:0"><br></p><p style="margin:0">three</p>', "one\n\nthree");
+eq("<blockquote><p>q</p><hr><p>r</p></blockquote>", "> q\n> ----------\n> r");
+
 // no tag or entity survives in a rich message
 const rich = '<p><strong>Bold</strong>, <em>italic</em> and <u>underline</u> &amp; more&nbsp;text</p><ul><li><p>one</p><ol><li><p>sub one</p></li></ol></li></ul><p><a href="https://example.test/x">a link</a></p><h2># not a heading</h2><p>done</p>';
 const out = htmlToText(rich);

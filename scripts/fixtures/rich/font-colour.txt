@@ -1,0 +1,5 @@
+Georgia 14
+Comic Sans quoted and unquoted stack
+red rgb short named highlight both
+10.5 pt 14.0pt 13px bold red 18
+empty style

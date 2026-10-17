@@ -33,6 +33,9 @@
     "calendar.agenda.label",
     "calendar.dialog.notes",
     "updates.status.version",
-    "compose.bar.importance"
+    "compose.bar.importance",
+    "compose.color.orange",
+    "compose.color.turquoise",
+    "compose.color.violet"
   ]
 }

@@ -3,12 +3,13 @@
 // quote marks, rows of a table, headings and line breaks, and no markup or entities.
 //
 //   <p>a</p><p>b</p>                 a / b on their own lines (an empty paragraph is a blank line)
-//   <ul><li>x</li></ul>              - x          (<ol>: 1. x, nested lists indented by two blanks per level)
+//   <ul><li>x</li></ul>              - x          (<ol>: 1. x, <ol type="a|A|i|I">: a. x, nested lists indented by two blanks per level)
 //   <a href="https://e.test/">docs</a>   docs (https://e.test/)   (just the address when the text is the address)
 //   <blockquote>..</blockquote>      every line starts with "> " ("> > " when nested)
 //   <table>                          cells separated by a tab, one row per line
 //   <h1>..<h6>                       the heading on a line of its own
 //   <br>                             a line break
+//   <hr>                             ----------
 //   <img alt="x">                    [x]
 
 const NAMED: Record<string, string> = {
@@ -85,6 +86,23 @@ function printableHref(href: string): string | null {
   return h;
 }
 
+/** The marker number of an ordered list item in the numbering of `<ol type>`: 1. a. A. i. I. */
+function marker(n: number, type: string): string {
+  if (type === "a" || type === "A") {
+    let s = "";
+    for (let k = n; k > 0; k = Math.floor((k - 1) / 26)) s = String.fromCharCode(97 + ((k - 1) % 26)) + s;
+    return type === "A" ? s.toUpperCase() : s;
+  }
+  if (type === "i" || type === "I") {
+    const R: [number, string][] = [[1000, "m"], [900, "cm"], [500, "d"], [400, "cd"], [100, "c"], [90, "xc"], [50, "l"], [40, "xl"], [10, "x"], [9, "ix"], [5, "v"], [4, "iv"], [1, "i"]];
+    let s = "";
+    let k = n;
+    for (const [v, r] of R) while (k >= v) (s += r), (k -= v);
+    return type === "I" ? s.toUpperCase() : s;
+  }
+  return String(n);
+}
+
 const same = (text: string, href: string): boolean => {
   const norm = (x: string) => x.trim().replace(/^mailto:/i, "").replace(/\/+$/, "").toLowerCase();
   return norm(text) === norm(href);
@@ -98,7 +116,7 @@ export function htmlToText(html: string): string {
   let pre = 0; // inside <pre> or white-space:pre*: line breaks of the source count
   let cell = 0; // inside a table cell: a line break is a blank
   let skip = ""; // inside <script> / <style> ...
-  const lists: { ordered: boolean; n: number }[] = [];
+  const lists: { ordered: boolean; n: number; type: string }[] = [];
   const links: { href: string | null; text: string }[] = [];
   const preStack: boolean[] = [];
 
@@ -194,10 +212,11 @@ export function htmlToText(html: string): string {
       case "ol":
         if (close) {
           lists.pop();
-          endLine();
+          if (lead > 0 && cur.length === lead) flush(); // an empty last item still shows its marker
+          else endLine();
         } else {
           endLine();
-          lists.push({ ordered: tag === "ol", n: (parseInt(attrs.start ?? "", 10) || 1) - 1 });
+          lists.push({ ordered: tag === "ol", n: (parseInt(attrs.start ?? "", 10) || 1) - 1, type: attrs.type ?? "1" });
         }
         break;
       case "li":
@@ -207,7 +226,7 @@ export function htmlToText(html: string): string {
           const l = lists[lists.length - 1];
           const indent = "  ".repeat(Math.max(0, lists.length - 1));
           if (l) l.n++;
-          put(indent + (l?.ordered ? `${l.n}. ` : "- "));
+          put(indent + (l?.ordered ? `${marker(l.n, l.type)}. ` : "- "));
           lead = cur.length;
         }
         break;
@@ -237,6 +256,10 @@ export function htmlToText(html: string): string {
         break;
       case "hr":
         endLine();
+        if (!cell) {
+          put("----------");
+          flush();
+        }
         break;
       case "a":
         if (close) {

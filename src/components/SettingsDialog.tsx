@@ -14,6 +14,8 @@ import { systemTz } from "../calendar";
 import { setEnabled as setNudgeEnabled } from "../supportNudge";
 import { fmtDay, fmtFpr, shortKey } from "../util";
 import { AppearancePreview } from "./AppearancePreview";
+import { baseFromPrefs } from "../editor/baseFont";
+import { FONTS, SIZES, stackFor } from "../editor/fonts";
 import { RichEditor } from "./RichEditor";
 import { UpdatesBlock } from "./Updates";
 import { ReauthNotice, SignInEnded, SignInWaiting, signInEnd, type SignInEnd } from "./SignInHelp";
@@ -723,7 +725,32 @@ function ComposingPanel({ scope }: { scope: string | null }) {
           <Switch checked={prefs.popoutCompose} onChange={(v) => setPrefs({ popoutCompose: v })} />
         </Row>
       )}
+      {scope === null && <DefaultFontRow />}
     </>
+  );
+}
+
+/** Settings > Composing > Default font: the family and size a new message, a reply and a forward start in (editor/baseFont.ts); the colour is Automatic. */
+function DefaultFontRow() {
+  const t = useT();
+  const { prefs, setPrefs } = useStore();
+  const base = baseFromPrefs(prefs);
+  // a name that is not in the list (an older value, a font typed by hand) stays selectable
+  const names = FONTS.some((f) => f.name === prefs.composeFontName) ? FONTS.map((f) => f.name) : [prefs.composeFontName, ...FONTS.map((f) => f.name)];
+  const sizes = SIZES.includes(prefs.composeFontSize) ? SIZES : [...SIZES, prefs.composeFontSize].sort((a, b) => a - b);
+  return (
+    <Row label={t("settings.composing.font")} hint={t("settings.composing.fontHint")} id="composeFont">
+      <div className="row-inline" style={{ margin: 0 }}>
+        <select aria-label={t("compose.fmt.font")} value={prefs.composeFontName} onChange={(e) => setPrefs({ composeFontName: e.target.value })} style={{ fontFamily: base.family }}>
+          {names.map((n) => <option key={n} value={n} style={{ fontFamily: stackFor(n) }}>{n}</option>)}
+        </select>
+        <select aria-label={t("compose.fmt.fontSize")} value={prefs.composeFontSize} onChange={(e) => setPrefs({ composeFontSize: Number(e.target.value) })} style={{ flex: "0 0 5em" }}>
+          {sizes.map((n) => <option key={n} value={n}>{n}</option>)}
+        </select>
+      </div>
+      {/* i18n-ok: a font sample, the same in every language */}
+      <div className="font-sample" style={{ fontFamily: base.family, fontSize: `${base.size}pt` }} aria-hidden="true">Aa Bb Cc 123</div>
+    </Row>
   );
 }
 
@@ -1684,6 +1711,7 @@ function ShortcutsTab() {
     ["Ctrl+Enter", "settings.keys.send"], ["Ctrl+Shift+Enter", "settings.keys.sendLater"], ["Ctrl+Shift+P", "settings.keys.insertPicture"], ["Ctrl+Shift+E", "settings.keys.encrypt"], ["Ctrl+Shift+G", "settings.keys.sign"],
     ["Space / Enter", "settings.keys.preview"], ["Ctrl+S", "settings.keys.saveAs"], ["Ctrl+Shift+S", "settings.keys.saveAll"],
     ["Ctrl+1 / Ctrl+2", "settings.keys.mailCalendar"], ["c · t · ← / → · m / w / a", "settings.keys.calendarKeys"],
+    ["Ctrl+] / Ctrl+[", "settings.keys.fontSize"], ["Ctrl+= / Ctrl+Shift+=", "settings.keys.subSuper"], [os === "macos" ? "Ctrl+\\" : "Ctrl+Space / Ctrl+\\", "compose.fmt.clear"], ["Alt+F10", "settings.keys.focusToolbar"],
     ["Ctrl+A", "settings.keys.selectAll"], ["Ctrl+K", "settings.keys.commandBar"], ["F5", "settings.keys.syncNow"], ["Esc", "settings.keys.closeDeselect"],
   ];
   return (

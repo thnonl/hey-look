@@ -31,5 +31,7 @@
   "updates.action.details",
   "updates.status.version",
   "mail.filter.button",
-  "mail.filter.active"
+  "mail.filter.active",
+  "compose.color.orange",
+  "compose.color.gold"
 ]

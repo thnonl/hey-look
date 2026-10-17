@@ -2,6 +2,8 @@ import { isLang, t } from "./i18n/index.ts";
 import type { Key, LangPref } from "./i18n/index.ts";
 import { pruneOrder } from "./accountOrder";
 import { DEFAULT_MAIL_CANVAS, MailCanvas, resolveMailCanvas } from "./mailCanvas";
+import { DEFAULT_HIGHLIGHT, normColor } from "./editor/colors";
+import { DEFAULT_FONT_NAME, DEFAULT_FONT_SIZE } from "./editor/fonts";
 import { DEFAULT_NUDGE, NudgeState, normalizeNudge } from "./supportNudge";
 export type NotifySound = "mail" | "default" | "im" | "reminder" | "sms" | "none";
 /** The labels are dictionary keys: show them with t() while rendering, so they follow the language. */
@@ -56,6 +58,12 @@ export interface Prefs extends Overridable {
   theme: "system" | "light" | "dark";
   /** the background HTML mail is read on: as the sender designed it, or dark (reading pane button) */
   mailCanvas: MailCanvas;
+  /** the font a new message, a reply and a forward start in (Settings > Composing > Default font): a font name of editor/fonts.ts and a size in pt */
+  composeFontName: string;
+  composeFontSize: number;
+  /** font colours used lately, newest first (the "Recent colors" of the Font color menu; the first is what the button applies), and the last highlight colour */
+  recentColors: string[];
+  highlightColor: string;
   /** primary (accent) color, #rrggbb */
   accent: string;
   density: "full" | "medium" | "compact";
@@ -129,6 +137,10 @@ export const DEFAULT_PREFS: Prefs = {
   language: "en",
   theme: "system",
   mailCanvas: DEFAULT_MAIL_CANVAS,
+  composeFontName: DEFAULT_FONT_NAME,
+  composeFontSize: DEFAULT_FONT_SIZE,
+  recentColors: [],
+  highlightColor: DEFAULT_HIGHLIGHT,
   accent: "#0f6cbd",
   density: "full",
   readingPane: "right",
@@ -249,6 +261,10 @@ export function mergePrefs(raw: string | null): Prefs {
       ...p,
       maxDownload: clampMaxDownload(p.maxDownload),
       mailCanvas: resolveMailCanvas(p.mailCanvas),
+      composeFontName: typeof p.composeFontName === "string" && p.composeFontName.trim() ? p.composeFontName.trim().slice(0, 60) : DEFAULT_FONT_NAME,
+      composeFontSize: typeof p.composeFontSize === "number" && p.composeFontSize >= 6 && p.composeFontSize <= 96 ? p.composeFontSize : DEFAULT_FONT_SIZE,
+      recentColors: Array.isArray(p.recentColors) ? p.recentColors.filter((c): c is string => typeof c === "string" && /^#[0-9A-F]{6}$/.test(normColor(c))).slice(0, 10) : [],
+      highlightColor: typeof p.highlightColor === "string" && /^#[0-9A-F]{6}$/.test(normColor(p.highlightColor)) ? normColor(p.highlightColor) : DEFAULT_HIGHLIGHT,
       // English unless the person chose another language (an unknown or older value counts as English)
       language: isLang(p.language) || p.language === "en-XA" ? p.language : "en",
       accountPrefs,

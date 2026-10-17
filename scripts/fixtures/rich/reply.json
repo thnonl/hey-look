@@ -1,0 +1,86 @@
+{
+ "base": {
+  "family": "Arial,Helvetica,sans-serif",
+  "size": 12
+ },
+ "sig": "Nam Hoang<br><b>Hey Look!</b>",
+ "doc": {
+  "type": "doc",
+  "content": [
+   {
+    "type": "paragraph",
+    "content": [
+     {
+      "type": "text",
+      "text": "Thanks, that works for me."
+     }
+    ]
+   },
+   {
+    "type": "signatureBlock"
+   },
+   {
+    "type": "paragraph"
+   },
+   {
+    "type": "paragraph"
+   },
+   {
+    "type": "paragraph",
+    "content": [
+     {
+      "type": "text",
+      "text": "On Fri, 16 Oct 2026, Ann <ann@example.test> wrote:"
+     }
+    ]
+   },
+   {
+    "type": "blockquote",
+    "content": [
+     {
+      "type": "paragraph",
+      "content": [
+       {
+        "type": "text",
+        "text": "Can we meet on Monday?"
+       }
+      ]
+     },
+     {
+      "type": "bulletList",
+      "content": [
+       {
+        "type": "listItem",
+        "content": [
+         {
+          "type": "paragraph",
+          "content": [
+           {
+            "type": "text",
+            "text": "agenda"
+           }
+          ]
+         }
+        ]
+       },
+       {
+        "type": "listItem",
+        "content": [
+         {
+          "type": "paragraph",
+          "content": [
+           {
+            "type": "text",
+            "text": "budget"
+           }
+          ]
+         }
+        ]
+       }
+      ]
+     }
+    ]
+   }
+  ]
+ }
+}

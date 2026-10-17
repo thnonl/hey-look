@@ -24,6 +24,8 @@ export interface MenuItem {
   lang?: string;
   /** extra text the type-ahead of the menu also matches (the English name of a language written in its own) */
   search?: string;
+  /** style of the label (a font name shown in its own face) */
+  style?: React.CSSProperties;
 }
 
 type Ref = React.RefObject<HTMLElement | null>;
@@ -97,7 +99,7 @@ export function MenuList({ items, onDone }: { items: MenuItem[]; onDone: () => v
           >
             <span className="menu-ico">{it.checked ? <Check size={14} /> : it.icon}</span>
             {it.dot && <span className="dot" style={{ background: it.dot }} />}
-            <span className="menu-lbl ellipsis" lang={it.lang}>{it.label}</span>
+            <span className="menu-lbl ellipsis" lang={it.lang} style={it.style}>{it.label}</span>
             {it.hint && <span className="menu-hint">{it.hint}</span>}
           </button>
         ),

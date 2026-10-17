@@ -1,0 +1,249 @@
+{
+ "base": {
+  "family": "Calibri,Carlito,Arial,sans-serif",
+  "size": 11
+ },
+ "sig": null,
+ "doc": {
+  "type": "doc",
+  "content": [
+   {
+    "type": "paragraph",
+    "content": [
+     {
+      "type": "text",
+      "text": "bold",
+      "marks": [
+       {
+        "type": "bold"
+       }
+      ]
+     },
+     {
+      "type": "text",
+      "text": " "
+     },
+     {
+      "type": "text",
+      "text": "italic",
+      "marks": [
+       {
+        "type": "italic"
+       }
+      ]
+     },
+     {
+      "type": "text",
+      "text": " "
+     },
+     {
+      "type": "text",
+      "text": "underline",
+      "marks": [
+       {
+        "type": "underline"
+       }
+      ]
+     },
+     {
+      "type": "text",
+      "text": " "
+     },
+     {
+      "type": "text",
+      "text": "strike",
+      "marks": [
+       {
+        "type": "strike"
+       }
+      ]
+     },
+     {
+      "type": "text",
+      "text": " "
+     },
+     {
+      "type": "text",
+      "text": "all four",
+      "marks": [
+       {
+        "type": "bold"
+       },
+       {
+        "type": "italic"
+       },
+       {
+        "type": "underline"
+       },
+       {
+        "type": "strike"
+       }
+      ]
+     }
+    ]
+   },
+   {
+    "type": "paragraph",
+    "content": [
+     {
+      "type": "text",
+      "text": "H"
+     },
+     {
+      "type": "text",
+      "text": "2",
+      "marks": [
+       {
+        "type": "subscript"
+       }
+      ]
+     },
+     {
+      "type": "text",
+      "text": "O and x"
+     },
+     {
+      "type": "text",
+      "text": "2",
+      "marks": [
+       {
+        "type": "superscript"
+       }
+      ]
+     },
+     {
+      "type": "text",
+      "text": " and "
+     },
+     {
+      "type": "text",
+      "text": "inline code",
+      "marks": [
+       {
+        "type": "code"
+       }
+      ]
+     }
+    ]
+   },
+   {
+    "type": "paragraph",
+    "content": [
+     {
+      "type": "text",
+      "text": "A "
+     },
+     {
+      "type": "text",
+      "text": "link",
+      "marks": [
+       {
+        "type": "link",
+        "attrs": {
+         "href": "https://example.test/a?b=1&c=2"
+        }
+       }
+      ]
+     },
+     {
+      "type": "text",
+      "text": ", a "
+     },
+     {
+      "type": "text",
+      "text": "bold link",
+      "marks": [
+       {
+        "type": "link",
+        "attrs": {
+         "href": "https://example.test/"
+        }
+       },
+       {
+        "type": "bold"
+       }
+      ]
+     },
+     {
+      "type": "text",
+      "text": " and "
+     },
+     {
+      "type": "text",
+      "text": "name@example.test",
+      "marks": [
+       {
+        "type": "link",
+        "attrs": {
+         "href": "mailto:name@example.test"
+        }
+       }
+      ]
+     },
+     {
+      "type": "text",
+      "text": " and "
+     },
+     {
+      "type": "text",
+      "text": "call",
+      "marks": [
+       {
+        "type": "link",
+        "attrs": {
+         "href": "tel:+4930123"
+        }
+       }
+      ]
+     }
+    ]
+   },
+   {
+    "type": "paragraph",
+    "content": [
+     {
+      "type": "text",
+      "text": "line one"
+     },
+     {
+      "type": "hardBreak"
+     },
+     {
+      "type": "text",
+      "text": "line two"
+     },
+     {
+      "type": "hardBreak"
+     },
+     {
+      "type": "text",
+      "text": "line three"
+     }
+    ]
+   },
+   {
+    "type": "paragraph",
+    "content": [
+     {
+      "type": "text",
+      "text": "a  b   c"
+     },
+     {
+      "type": "hardBreak"
+     },
+     {
+      "type": "text",
+      "text": " leading and trailing "
+     },
+     {
+      "type": "hardBreak"
+     },
+     {
+      "type": "text",
+      "text": "nbsp here & <tags> \"quoted\""
+     }
+    ]
+   }
+  ]
+ }
+}

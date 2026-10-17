@@ -1,47 +1,41 @@
 import { EditorContent, useEditor } from "@tiptap/react";
-import StarterKit from "@tiptap/starter-kit";
-import Placeholder from "@tiptap/extension-placeholder";
 import { useRef } from "react";
-import { Bold, Italic, Link2, List, ListOrdered, Underline as UIcon } from "lucide-react";
 import { useT } from "../i18n/react";
-import { kbd } from "../platform";
+import { baseFromPrefs } from "../editor/baseFont";
+import { docToHtml } from "../editor/emailHtml";
+import { baseExtensions } from "../editor/extensions";
+import { FormatBar, type FormatBarApi } from "../editor/FormatBar";
 import { editorKeyHandlers } from "../composeKeys";
+import { useStore } from "../store";
 import { useLinkEditor } from "./LinkPopover";
 
-/** Small rich-text editor (signatures, templates): the user never has to write HTML. */
+/**
+ * Small rich-text editor (signatures, templates): the user never has to write HTML. It has the extension set and the toolbar of the message
+ * body (editor/extensions.ts, editor/FormatBar.tsx, compact variant) and stores the same email HTML the body is sent as (editor/emailHtml.ts).
+ */
 export function RichEditor({ value, onChange, placeholder, minHeight = 140, label }: { value: string; onChange: (html: string) => void; placeholder?: string; minHeight?: number; label?: string }) {
   const t = useT();
+  const prefs = useStore((s) => s.prefs);
+  // a signature is shown in the default font of new messages, as it will look in them
+  const base = baseFromPrefs(prefs);
+  const baseRef = useRef(base);
+  baseRef.current = base;
   const linkRef = useRef<() => void>(() => undefined);
+  const barApi = useRef<FormatBarApi>(null);
   const editor = useEditor({
-    extensions: [StarterKit, Placeholder.configure({ placeholder: placeholder ?? "" })],
+    extensions: baseExtensions({ placeholder: placeholder ?? "", getBase: () => baseRef.current, focusToolbar: () => barApi.current?.focus() }),
     // Ctrl/Cmd+K is the link UI here too; AltGr characters never trigger the editor shortcuts
     editorProps: { attributes: { "aria-label": label ?? t("compose.fmt.text") }, handleDOMEvents: editorKeyHandlers(() => linkRef.current()) },
     content: value || "<p></p>",
-    onUpdate: ({ editor }) => onChange(editor.isEmpty ? "" : editor.getHTML()),
+    onUpdate: ({ editor }) => onChange(editor.isEmpty ? "" : docToHtml(editor.getJSON())),
   });
   const linkBtnRef = useRef<HTMLButtonElement>(null);
   const link = useLinkEditor(editor, linkBtnRef);
   linkRef.current = link.open;
   return (
-    <div className="rich">
-      <div className="rich-bar" role="toolbar" aria-label={t("compose.fmt.toolbar")}>
-        <button type="button" className="icon-btn" title={t("compose.fmt.bold")} aria-label={t("compose.fmt.bold")} onClick={() => editor?.chain().focus().toggleBold().run()}><Bold size={14} /></button>
-        <button type="button" className="icon-btn" title={t("compose.fmt.italic")} aria-label={t("compose.fmt.italic")} onClick={() => editor?.chain().focus().toggleItalic().run()}><Italic size={14} /></button>
-        <button type="button" className="icon-btn" title={t("compose.fmt.underline")} aria-label={t("compose.fmt.underline")} onClick={() => editor?.chain().focus().toggleUnderline().run()}><UIcon size={14} /></button>
-        <button type="button" className="icon-btn" title={t("compose.fmt.bulleted")} aria-label={t("compose.fmt.bulleted")} onClick={() => editor?.chain().focus().toggleBulletList().run()}><List size={14} /></button>
-        <button type="button" className="icon-btn" title={t("compose.fmt.numbered")} aria-label={t("compose.fmt.numbered")} onClick={() => editor?.chain().focus().toggleOrderedList().run()}><ListOrdered size={14} /></button>
-        <button
-          ref={linkBtnRef}
-          type="button"
-          className="icon-btn"
-          title={kbd(t("compose.fmt.linkTip"))}
-          aria-label={t("compose.fmt.link")}
-          aria-haspopup="dialog"
-          aria-expanded={link.isOpen}
-          onClick={() => linkRef.current()}
-        >
-          <Link2 size={14} />
-        </button>
+    <div className="rich" style={{ "--cp-font": base.family, "--cp-size": `${base.size}pt` } as React.CSSProperties}>
+      <div className="rich-bar">
+        <FormatBar editor={editor} base={base} variant="compact" apiRef={barApi} host={{ link: { open: () => linkRef.current(), isOpen: link.isOpen, btnRef: linkBtnRef } }} />
         {link.node}
       </div>
       <EditorContent editor={editor} className="rich-body" style={{ minHeight }} />
