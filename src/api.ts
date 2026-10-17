@@ -592,7 +592,8 @@ export const api = {
   discardDraft: (reference: string) => invoke<void>("discard_draft", { reference }),
   /** Crash recovery of the message being written (recover.rs): the snapshot is kept until the message is sent, discarded or saved. */
   recoverySave: (snap: SnapshotOut) => invoke<void>("recovery_save", { snap }),
-  recoveryClear: (id: string) => invoke<void>("recovery_clear", { id }),
+  /** `why` is for startup.log only ("draft saved" = the server has the text, otherwise the message is over). */
+  recoveryClear: (id: string, why?: string) => invoke<void>("recovery_clear", { id, why: why ?? null }),
   recoveryList: () => invoke<RecoveryInfo[]>("recovery_list"),
   recoveryLoad: (id: string) => invoke<RecoveryLoaded | null>("recovery_load", { id }),
   /** To / Cc / Bcc of a saved draft with the display names, read from the draft's own headers (the synced copy has bare addresses and no Bcc). */
