@@ -25,6 +25,7 @@ export default defineLocale<typeof ns.en>({
   "backend.AI_TIMEOUT": "Der KI-Assistent hat nicht innerhalb von {secs} Sekunden geantwortet.",
   "backend.AI_CANCELLED": "Die Anfrage an den KI-Assistenten wurde abgebrochen.",
   "backend.AI_TIMEOUT_TOTAL": "Die Übersetzung hat insgesamt länger als {mins} Minuten gedauert. „Erneut versuchen“ macht dort weiter, wo sie aufgehört hat.",
+  "backend.AI_BAD_RESPONSE": "Der KI-Assistent hat eine Antwort gesendet, die die App nicht lesen kann.",
   "backend.AI_HTTP": "Der KI-Assistent hat einen Fehler gemeldet ({status}): {detail}",
   "backend.AI_HTTP.plain": "Der KI-Assistent hat einen Fehler gemeldet ({status}).",
   "backend.UPDATE_BUSY": "Ein Download läuft bereits.",

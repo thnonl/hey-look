@@ -25,6 +25,7 @@ export default defineLocale<typeof ns.en>({
   "backend.AI_TIMEOUT": "AI助手在{secs}秒内未响应。",
   "backend.AI_CANCELLED": "已取消对AI助手的请求。",
   "backend.AI_TIMEOUT_TOTAL": "翻译总共花了超过 {mins} 分钟。点击“重试”将从中断处继续。",
+  "backend.AI_BAD_RESPONSE": "AI助手返回了应用无法读取的回复。",
   "backend.AI_HTTP": "AI助手返回了错误（{status}）：{detail}",
   "backend.AI_HTTP.plain": "AI助手返回了错误（{status}）。",
   "backend.UPDATE_BUSY": "已有下载正在进行。",

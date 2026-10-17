@@ -254,6 +254,7 @@ jobs:
           node --experimental-strip-types scripts/test-translate-box-layout.mjs
           node --experimental-strip-types scripts/test-translate-chunks.mjs
           node --experimental-strip-types scripts/test-ai-call.mjs
+          node --experimental-strip-types scripts/test-ai-errors.mjs
           node --experimental-strip-types scripts/test-open-thread.mjs
           node --experimental-strip-types scripts/test-leave-compose.mjs
           node --experimental-strip-types scripts/test-autosave.mjs

@@ -44,6 +44,7 @@ Writing a message got safer and more complete: nothing you write is lost to a cr
 - macOS: the app is now signed with a fixed certificate (self-signed, not notarized), so macOS keeps remembering which app may read your saved passwords across updates. Because the signature changes once, the first start after updating to this version asks about your saved passwords one more time
 - Translate: a long email is translated in full (up to 60,000 characters) instead of only its first 12,000: the text is cut at paragraphs, then at sentences, into parts of about 8,000 characters that are translated one after the other and put together in the layout of the original. The notice and the box say "Part 2 of 5"; Cancel stops the request and the parts not yet started; a part that fails on the network or with a 5xx answer is tried once more, and when it still fails, Retry goes on from that part without translating the finished parts again. Beyond 60,000 characters the first part is translated and a note says so
 - Summarize and Write with AI: both show that they are running and have a Cancel button (it drops the request to the provider); a second click while one is running starts nothing, and an answer that arrives after Cancel, or after you moved to another conversation or closed the message, is ignored
+- AI Assistant errors: an answer the app cannot read is now one sentence in your language, not the raw reply of the provider; an error about the connection no longer shows a password or a token that is part of the address in Settings
 
 ## 1.0.5 — 2026-10-16
 
