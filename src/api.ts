@@ -544,6 +544,8 @@ export const api = {
   openExternal: (url: string) => invoke<void>("open_external", { url }),
   /** text on the system clipboard through the backend (Linux only; see open.ts) */
   copyText: (text: string) => invoke<void>("copy_text", { text }),
+  /** the text and the HTML on the system clipboard through the backend (macOS only: Cmd+Shift+V in the editors, see editor/pasteOptions.tsx) */
+  readClipboardText: () => invoke<{ text: string; html: string }>("read_clipboard_text"),
   getAutostart: () => invoke<boolean>("get_autostart"),
   setAutostart: (enabled: boolean) => invoke<void>("set_autostart", { enabled }),
   syncAccount: (accountId: string) => invoke<SyncResult>("sync_account", { accountId }),

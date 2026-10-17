@@ -6,6 +6,7 @@ import { applySavedLanguage } from "./bootLang";
 import { GuardMenuHost } from "./components/GuardMenuHost";
 import { installContextGuard } from "./contextGuard";
 import { loadPlatform } from "./platform";
+import { installPlainPasteKey } from "./plainPasteKey";
 import PopoutRoot from "./popout/PopoutRoot";
 import { installModifierTracking } from "./popout/modifier";
 import { routeOf } from "./popout/route";
@@ -25,6 +26,7 @@ async function boot(): Promise<boolean> {
   // the main window reads the system (and whether this is a debug build) in the store's init(); a secondary window has no init(), and the menu rules need it
   if (route.kind !== "main") await loadPlatform();
   installContextGuard(); // no native webview menu in a release build (see contextPolicy.ts)
+  installPlainPasteKey(); // macOS: Cmd+Shift+V in a text box (WKWebView sends no paste event for it)
   ReactDOM.createRoot(document.getElementById("root") as HTMLElement).render(
     <React.StrictMode>
       {route.kind === "main" ? <App /> : <PopoutRoot route={route} />}

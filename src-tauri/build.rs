@@ -7,7 +7,7 @@ use std::path::Path;
 const APP_COMMANDS: &[&str] = &[
     "frame_info", "frame_caption_rect", "frame_system_menu", "list_accounts", "add_account", "google_sign_in", "oauth_cancel", "reauth_account",
     "google_env_configured", "microsoft_sign_in", "microsoft_env_configured", "microsoft_tenant", "discover_server", "update_account",
-    "remove_account", "sync_account", "refresh_badge", "test_notification", "open_external", "copy_text", "get_autostart", "set_autostart",
+    "remove_account", "sync_account", "refresh_badge", "test_notification", "open_external", "copy_text", "read_clipboard_text", "get_autostart", "set_autostart",
     "list_folders", "list_threads", "get_thread", "thread_action", "prepare_action", "list_senders", "sender_action", "list_blocked", "unblock",
     "list_rules", "save_rule", "delete_rule", "get_raw", "reply_headers", "save_attachments", "attachment_save_as", "attachment_save_all",
     "attachment_open", "attachment_reveal", "pick_folder", "inline_image", "send_message", "save_draft", "draft_recipients", "discard_draft",
