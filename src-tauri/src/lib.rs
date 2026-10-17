@@ -569,8 +569,10 @@ fn update_account(state: tauri::State<AppState>, account_id: String, display_nam
 }
 
 #[tauri::command]
-fn remove_account(state: tauri::State<AppState>, account_id: String) -> R<()> {
+fn remove_account(app: tauri::AppHandle, state: tauri::State<AppState>, account_id: String) -> R<()> {
     db::remove_account(&lock(&state.db), &account_id)?;
+    // the windows that show mail of this mailbox (a reader window) read their conversation again: it is gone
+    let _ = app.emit("mail-synced", ());
     smtpsize::forget(&account_id);
     // (the calendar grant of the mailbox goes with it)
     for name in [account_id.clone(), format!("{account_id}:smtp"), oauth::calendar_key(&account_id)] {
