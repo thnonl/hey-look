@@ -35,10 +35,11 @@ security set-key-partition-list -S apple-tool:,apple:,codesign: -s -k "$kcpw" "$
 # the keychain joins the search list (the existing ones stay)
 existing=()
 while IFS= read -r line; do
-  line="${line#\"}"; line="${line%\"}"; line="$(echo "$line" | sed 's/^[[:space:]]*//')"
+  line="$(echo "$line" | sed 's/^[[:space:]]*"//; s/"[[:space:]]*$//')"
   [ -n "$line" ] && existing+=("$line")
 done < <(security list-keychains -d user)
 security list-keychains -d user -s "$kc" ${existing[@]+"${existing[@]}"}
+echo "Keychain search list:"; security list-keychains -d user
 
 # runs a command, gives up after $1 seconds (a trust change that waits for an authorisation dialog nobody can click would hang the job)
 with_timeout() {
@@ -53,12 +54,10 @@ with_timeout() {
   return "$rc"
 }
 
-# trust it for code signing: user trust settings first, the admin ones (sudo is passwordless on hosted runners) when that fails
+# trust it for code signing with the admin trust settings (sudo is passwordless on hosted runners). The user trust settings
+# (add-trusted-cert without -d) wait for an authorisation dialog that nobody can click on a runner: tried on macos-26, they hang.
 security find-certificate -c "$APPLE_SIGNING_IDENTITY" -p "$kc" > "$pem"
-if ! with_timeout 60 security add-trusted-cert -r trustRoot -p codeSign -k "$kc" "$pem"; then
-  echo "user trust settings did not work, trying the admin ones"
-  with_timeout 60 sudo security add-trusted-cert -d -r trustRoot -p codeSign -k "$kc" "$pem"
-fi
+with_timeout 60 sudo security add-trusted-cert -d -r trustRoot -p codeSign -k "$kc" "$pem"
 
 echo "Identities valid for code signing in the signing keychain:"
 ids="$(security find-identity -v -p codesigning "$kc")"

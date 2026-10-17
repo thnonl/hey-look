@@ -3,8 +3,8 @@
 # identity that the macOS Keychain remembers for the app's saved passwords) is the same in every release:
 #   bash mac-verify-selfsigned.sh <Name.app> "<signing identity = certificate common name>" [<Name.app.tar.gz>]
 # Fails when: the bundle does not verify (--deep --strict), the signature is ad-hoc, the authority is not the identity, or the
-# designated requirement is not "identifier ... and certificate leaf = H"<hash of the certificate>"" (a requirement that names the
-# cdhash instead changes with every build). With a tar.gz (the updater package) the app inside must have the same requirement.
+# designated requirement is not "identifier ... and certificate root = H"<hash of the certificate>"" (for a self-signed certificate the
+# leaf is also the root, so codesign writes "root"; "leaf" is accepted too). A requirement that names the cdhash instead changes with every build. With a tar.gz (the updater package) the app inside must have the same requirement.
 # Prints the SHA-256 of the signing certificate (the identity) for the log.
 set -uo pipefail
 
@@ -24,7 +24,7 @@ echo "$req"
 dr="$(grep '^designated =>' <<<"$req" || true)"
 [ -n "$dr" ] || fail "no designated requirement printed"
 grep -q 'cdhash' <<<"$dr" && fail "the designated requirement is based on the cdhash (it would change with every build)"
-grep -q 'certificate leaf = H"[0-9a-f]\{40\}"' <<<"$dr" || fail "the designated requirement does not name the signing certificate"
+grep -q 'certificate \(leaf\|root\) = H"[0-9a-f]\{40\}"' <<<"$dr" || fail "the designated requirement does not name the signing certificate"
 
 # the signing certificate: leaf of the signature
 d="$(mktemp -d)"
@@ -33,7 +33,7 @@ d="$(mktemp -d)"
 echo "Signing certificate subject: $(openssl x509 -inform DER -in "$d/codesign0" -noout -subject)"
 echo "Signing certificate SHA-256: $(openssl x509 -inform DER -in "$d/codesign0" -noout -fingerprint -sha256 | cut -d= -f2)"
 leaf_sha1="$(openssl x509 -inform DER -in "$d/codesign0" -noout -fingerprint -sha1 | cut -d= -f2 | tr -d ':' | tr 'A-F' 'a-f')"
-grep -qF "H\"$leaf_sha1\"" <<<"$dr" || fail "the leaf hash in the requirement is not the hash of the signing certificate"
+grep -qF "H\"$leaf_sha1\"" <<<"$dr" || fail "the certificate hash in the requirement is not the hash of the signing certificate"
 rm -rf "$d"
 
 if [ -n "$tgz" ]; then
