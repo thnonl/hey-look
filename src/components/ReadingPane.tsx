@@ -564,7 +564,7 @@ function MessageCard({ m, open, onToggle }: { m: MessageFull; open: boolean; onT
       <div className="rp-msg-head" onClick={onToggle}>
         <Avatar name={who} size={40} />
         <div className="rp-meta">
-          <div className="rp-from ellipsis">
+          <div className="rp-from ellipsis" data-email={m.fromEmail}>
             <b>{who}</b>
             <span className="muted"> &lt;{m.fromEmail}&gt;</span>
           </div>
