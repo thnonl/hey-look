@@ -409,6 +409,16 @@ function OAuthBlock({ kind, onAppPassword }: { kind: OAuthKind; onAppPassword: (
   const [tenant, setTenant] = useState("");
   const [error, setError] = useState("");
   const [ended, setEnded] = useState<SignInEnd | null>(null);
+  const goBtn = useRef<HTMLButtonElement>(null);
+  const wasBusy = useRef(false);
+  // the sign-in ended without an account: the Cancel button that had the focus is gone, so the focus goes back to the button that started it
+  useEffect(() => {
+    if (busy) wasBusy.current = true;
+    else if (wasBusy.current) {
+      wasBusy.current = false;
+      if (!document.activeElement || document.activeElement === document.body) goBtn.current?.focus();
+    }
+  }, [busy]);
   // a sign-in is waiting for the browser: leaving this screen (closing Settings, switching the tab) ends the wait and frees the port
   const waiting = useRef(false);
   useEffect(() => () => { if (waiting.current) void api.oauthCancel().catch(() => undefined); }, []);
@@ -449,46 +459,52 @@ function OAuthBlock({ kind, onAppPassword }: { kind: OAuthKind; onAppPassword: (
     }
   };
   return (
-    <div className="set-card">
-      <h4>{t("settings.add.signInWith", { provider: cfg.label })}</h4>
-      <div className="muted small">{t("settings.add.noPassword", { provider: cfg.label })}</div>
-      <div className="form">
-        {!fromEnv && !cid && <div className="muted small" role="status">{t("settings.add.notAvailable", { provider: cfg.label })}</div>}
-        {!fromEnv && (
-          <details className="advanced">
-            <summary>{t("settings.add.advanced")}</summary>
-            <div className="form">
-              <label>{t("settings.add.clientId")}</label>
-              <input aria-label={t("settings.add.clientId")} value={cid} onChange={(e) => setCid(e.target.value)} placeholder={cfg.idPlaceholder} />
-              {kind === "google" && (
-                <>
-                  <label>{t("settings.add.clientSecret")}</label>
-                  <input aria-label={t("settings.add.clientSecret")} type="password" value={sec} onChange={(e) => setSec(e.target.value)} placeholder={secSaved ? t("settings.add.savedIn", { store: credStore() }) : ""} />
-                </>
-              )}
-            </div>
-          </details>
-        )}
-        {kind === "microsoft" && (
-          <>
-            <label>{t("settings.add.tenant")}</label>
-            <input aria-label={t("settings.add.tenant")} value={tenant} onChange={(e) => setTenant(e.target.value)} placeholder="common" />
-            <div className="muted small">{t("settings.add.tenantHint")}</div>
-          </>
-        )}
-        <label>{t("settings.add.displayNameOpt")}</label>
-        <input aria-label={t("settings.add.displayNameOpt")} placeholder={t("settings.add.yourName")} value={name} onChange={(e) => setName(e.target.value)} />
-        {error && <div className="notice bad" role="alert">{error}</div>}
-        {ended && <SignInEnded provider={kind} purpose="mail" end={ended} onAppPassword={kind === "google" ? onAppPassword : undefined} />}
-        <div className="row-inline">
-          <button className="btn primary" disabled={busy || (!fromEnv && !cid)} onClick={() => void go()}>
-            {busy ? t("settings.add.waitingFor", { provider: cfg.label }) : t("settings.add.signInWith", { provider: cfg.label })}
-          </button>
-          {busy && <button className="btn" autoFocus onClick={() => void api.oauthCancel()}>{t("common.cancel")}</button>}
+    <>
+      <div className="set-card">
+        <h4>{t("settings.add.signInWith", { provider: cfg.label })}</h4>
+        <div className="muted small">{t("settings.add.noPassword", { provider: cfg.label })}</div>
+        <div className="form">
+          {!fromEnv && (
+            <details className="advanced">
+              <summary>{t("settings.add.advanced")}</summary>
+              <div className="form">
+                <label>{t("settings.add.clientId")}</label>
+                <input aria-label={t("settings.add.clientId")} value={cid} onChange={(e) => setCid(e.target.value)} placeholder={cfg.idPlaceholder} />
+                {kind === "google" && (
+                  <>
+                    <label>{t("settings.add.clientSecret")}</label>
+                    <input aria-label={t("settings.add.clientSecret")} type="password" value={sec} onChange={(e) => setSec(e.target.value)} placeholder={secSaved ? t("settings.add.savedIn", { store: credStore() }) : ""} />
+                  </>
+                )}
+              </div>
+            </details>
+          )}
+          {kind === "microsoft" && (
+            <>
+              <label>{t("settings.add.tenant")}</label>
+              <input aria-label={t("settings.add.tenant")} value={tenant} onChange={(e) => setTenant(e.target.value)} placeholder="common" />
+              <div className="muted small">{t("settings.add.tenantHint")}</div>
+            </>
+          )}
+          <label>{t("settings.add.displayNameOpt")}</label>
+          <input aria-label={t("settings.add.displayNameOpt")} placeholder={t("settings.add.yourName")} value={name} onChange={(e) => setName(e.target.value)} />
+          <div className="row-inline">
+            <button ref={goBtn} className="btn primary" disabled={busy || (!fromEnv && !cid)} onClick={() => void go()}>
+              {busy ? t("settings.add.waitingFor", { provider: cfg.label }) : t("settings.add.signInWith", { provider: cfg.label })}
+            </button>
+            {busy && <button className="btn" autoFocus onClick={() => void api.oauthCancel()}>{t("common.cancel")}</button>}
+          </div>
         </div>
-        {busy && <SignInWaiting provider={kind} lead={t("signin.waiting.mail")} />}
       </div>
-    </div>
+      {/* what the sign-in is doing or how it ended: ONE slot of fixed size under the card, so the button above never moves (it used to be rows above and below it) */}
+      <div className="signin-slot">
+        {busy ? <SignInWaiting provider={kind} lead={t("signin.waiting.mail")} />
+          : ended ? <SignInEnded provider={kind} purpose="mail" end={ended} onAppPassword={kind === "google" ? onAppPassword : undefined} />
+          : error ? <div className="notice bad" role="alert">{error}</div>
+          : !fromEnv && !cid ? <div className="muted small" role="status">{t("settings.add.notAvailable", { provider: cfg.label })}</div>
+          : null}
+      </div>
+    </>
   );
 }
 
@@ -520,6 +536,16 @@ function ImapForm({ initialProvider = "custom" }: { initialProvider?: string }) 
   const [detecting, setDetecting] = useState(false);
   const [found, setFound] = useState<Discovered | null>(null);
   const [error, setError] = useState("");
+  const addBtn = useRef<HTMLButtonElement>(null);
+  const wasBusy = useRef(false);
+  // the attempt failed: the button was disabled while it ran (the focus fell off it), so the focus goes back to it
+  useEffect(() => {
+    if (busy) wasBusy.current = true;
+    else if (wasBusy.current) {
+      wasBusy.current = false;
+      if (!document.activeElement || document.activeElement === document.body) addBtn.current?.focus();
+    }
+  }, [busy]);
   const showAdv = provider === "custom" || provider === "bridge";
   const pick = (p: string) => {
     setProvider(p);
@@ -574,81 +600,84 @@ function ImapForm({ initialProvider = "custom" }: { initialProvider?: string }) 
     }
   };
   return (
-    <div className="set-card">
-      <h4>{t("settings.add.otherAccount")}</h4>
-      <div className="form">
-        <label>{t("settings.add.provider")}</label>
-        <select aria-label={t("settings.add.provider")} value={provider} onChange={(e) => pick(e.target.value)}>
-          {Object.entries(PROVIDERS).map(([k, v]) => <option key={k} value={k}>{v.label}</option>)}
-        </select>
-        {PROVIDERS[provider].hint && <div className="notice">{PROVIDERS[provider].hint}</div>}
-        <label>{t("settings.add.email")}</label>
-        <div className="row-inline">
-          <input aria-label={t("settings.add.email")} placeholder="name@example.com" value={email} onChange={(e) => setEmail(e.target.value)} />
-          <button className="btn" disabled={detecting || !email.includes("@")} onClick={() => void detect()} title={t("settings.add.detectTitle")}>
-            {detecting ? t("settings.add.detecting") : t("settings.add.detect")}
-          </button>
-        </div>
-        {found && (
-          <div className="notice">
-            {t(SOURCE_LABEL[found.source])} {found.source === "guess" ? `${t("settings.add.checkThem")} ` : ""}
-            {found.oauth && <>{t("settings.add.oauthAlso", { provider: found.oauth === "google" ? "Google" : "Microsoft" })}</>}
+    <>
+      <div className="set-card">
+        <h4>{t("settings.add.otherAccount")}</h4>
+        <div className="form">
+          <label>{t("settings.add.provider")}</label>
+          <select aria-label={t("settings.add.provider")} value={provider} onChange={(e) => pick(e.target.value)}>
+            {Object.entries(PROVIDERS).map(([k, v]) => <option key={k} value={k}>{v.label}</option>)}
+          </select>
+          {PROVIDERS[provider].hint && <div className="notice">{PROVIDERS[provider].hint}</div>}
+          <label>{t("settings.add.email")}</label>
+          <div className="row-inline">
+            <input aria-label={t("settings.add.email")} placeholder="name@example.com" value={email} onChange={(e) => setEmail(e.target.value)} />
+            <button className="btn" disabled={detecting || !email.includes("@")} onClick={() => void detect()} title={t("settings.add.detectTitle")}>
+              {detecting ? t("settings.add.detecting") : t("settings.add.detect")}
+            </button>
           </div>
-        )}
-        <label>{t("settings.add.displayName")}</label>
-        <input aria-label={t("settings.add.displayName")} placeholder={t("settings.add.yourName")} value={name} onChange={(e) => setName(e.target.value)} />
-        <label>{t("settings.add.password")}</label>
-        <input aria-label={t("settings.add.password")} type="password" value={pw} onChange={(e) => setPw(e.target.value)} />
-        {showAdv && (
-          <>
-            <label>{t("settings.add.username")}</label>
-            <input aria-label={t("settings.add.username")} placeholder="name@example.com" value={username} onChange={(e) => setUsername(e.target.value)} />
-            <label>{t("settings.add.imapServer")}</label>
-            <div className="row-inline">
-              <input aria-label={t("settings.add.imapHost")} placeholder="imap.example.com" value={adv.imapHost} onChange={(e) => setAdv({ ...adv, imapHost: e.target.value })} />
-              <input type="number" aria-label={t("settings.add.imapPort")} placeholder="993" value={adv.imapPort} onChange={(e) => setAdv({ ...adv, imapPort: Number(e.target.value) })} />
-              <select aria-label={t("settings.add.imapSecurity")} value={adv.imapSsl ? "ssl" : "starttls"} onChange={(e) => setAdv({ ...adv, imapSsl: e.target.value === "ssl" })}>
-                {/* i18n-ok: protocol names */}
-                <option value="ssl">SSL/TLS</option><option value="starttls">STARTTLS</option>
-              </select>
+          {found && (
+            <div className="notice">
+              {t(SOURCE_LABEL[found.source])} {found.source === "guess" ? `${t("settings.add.checkThem")} ` : ""}
+              {found.oauth && <>{t("settings.add.oauthAlso", { provider: found.oauth === "google" ? "Google" : "Microsoft" })}</>}
             </div>
-            <label>{t("settings.add.smtpServer")}</label>
-            <div className="row-inline">
-              <input aria-label={t("settings.add.smtpHost")} placeholder="smtp.example.com" value={adv.smtpHost} onChange={(e) => setAdv({ ...adv, smtpHost: e.target.value })} />
-              <input type="number" aria-label={t("settings.add.smtpPort")} placeholder="465" value={adv.smtpPort} onChange={(e) => setAdv({ ...adv, smtpPort: Number(e.target.value) })} />
-              <select aria-label={t("settings.add.smtpSecurity")} value={adv.smtpSecurity} onChange={(e) => setAdv({ ...adv, smtpSecurity: e.target.value as "ssl" | "starttls" })}>
-                {/* i18n-ok: protocol names */}
-                <option value="ssl">SSL/TLS</option><option value="starttls">STARTTLS</option>
-              </select>
-            </div>
-            <div className="row-inline">
-              <Switch checked={sepSmtp} onChange={setSepSmtp} label={t("settings.add.sepSmtp")} />
-            </div>
-            {sepSmtp && (
-              <>
-                <label>{t("settings.add.smtpUsername")}</label>
-                <input aria-label={t("settings.add.smtpUsername")} value={smtpUser} onChange={(e) => setSmtpUser(e.target.value)} placeholder={username || email} />
-                <label>{t("settings.add.smtpPasswordLabel")}</label>
-                <input aria-label={t("settings.add.smtpPassword")} type="password" value={smtpPw} onChange={(e) => setSmtpPw(e.target.value)} />
-              </>
-            )}
-            <div className="row-inline">
-              <Switch checked={insecure} onChange={setInsecure} label={t("settings.add.trustCert")} />
-            </div>
-            {insecure && (
-              <div className="notice">
-                {t("settings.add.trustCertWarning")}
+          )}
+          <label>{t("settings.add.displayName")}</label>
+          <input aria-label={t("settings.add.displayName")} placeholder={t("settings.add.yourName")} value={name} onChange={(e) => setName(e.target.value)} />
+          <label>{t("settings.add.password")}</label>
+          <input aria-label={t("settings.add.password")} type="password" value={pw} onChange={(e) => setPw(e.target.value)} />
+          {showAdv && (
+            <>
+              <label>{t("settings.add.username")}</label>
+              <input aria-label={t("settings.add.username")} placeholder="name@example.com" value={username} onChange={(e) => setUsername(e.target.value)} />
+              <label>{t("settings.add.imapServer")}</label>
+              <div className="row-inline">
+                <input aria-label={t("settings.add.imapHost")} placeholder="imap.example.com" value={adv.imapHost} onChange={(e) => setAdv({ ...adv, imapHost: e.target.value })} />
+                <input type="number" aria-label={t("settings.add.imapPort")} placeholder="993" value={adv.imapPort} onChange={(e) => setAdv({ ...adv, imapPort: Number(e.target.value) })} />
+                <select aria-label={t("settings.add.imapSecurity")} value={adv.imapSsl ? "ssl" : "starttls"} onChange={(e) => setAdv({ ...adv, imapSsl: e.target.value === "ssl" })}>
+                  {/* i18n-ok: protocol names */}
+                  <option value="ssl">SSL/TLS</option><option value="starttls">STARTTLS</option>
+                </select>
               </div>
-            )}
-          </>
-        )}
-        {error && <div className="notice bad" role="alert">{error}</div>}
-        <button className="btn primary" disabled={busy || !email || !pw} onClick={() => void add()}>
-          <Plus size={14} /> {busy ? t("settings.add.connecting") : t("settings.add.addAccount")}
-        </button>
-        <div className="muted small">{t("settings.add.passwordsStored", { store: credStore() })}</div>
+              <label>{t("settings.add.smtpServer")}</label>
+              <div className="row-inline">
+                <input aria-label={t("settings.add.smtpHost")} placeholder="smtp.example.com" value={adv.smtpHost} onChange={(e) => setAdv({ ...adv, smtpHost: e.target.value })} />
+                <input type="number" aria-label={t("settings.add.smtpPort")} placeholder="465" value={adv.smtpPort} onChange={(e) => setAdv({ ...adv, smtpPort: Number(e.target.value) })} />
+                <select aria-label={t("settings.add.smtpSecurity")} value={adv.smtpSecurity} onChange={(e) => setAdv({ ...adv, smtpSecurity: e.target.value as "ssl" | "starttls" })}>
+                  {/* i18n-ok: protocol names */}
+                  <option value="ssl">SSL/TLS</option><option value="starttls">STARTTLS</option>
+                </select>
+              </div>
+              <div className="row-inline">
+                <Switch checked={sepSmtp} onChange={setSepSmtp} label={t("settings.add.sepSmtp")} />
+              </div>
+              {sepSmtp && (
+                <>
+                  <label>{t("settings.add.smtpUsername")}</label>
+                  <input aria-label={t("settings.add.smtpUsername")} value={smtpUser} onChange={(e) => setSmtpUser(e.target.value)} placeholder={username || email} />
+                  <label>{t("settings.add.smtpPasswordLabel")}</label>
+                  <input aria-label={t("settings.add.smtpPassword")} type="password" value={smtpPw} onChange={(e) => setSmtpPw(e.target.value)} />
+                </>
+              )}
+              <div className="row-inline">
+                <Switch checked={insecure} onChange={setInsecure} label={t("settings.add.trustCert")} />
+              </div>
+              {insecure && (
+                <div className="notice">
+                  {t("settings.add.trustCertWarning")}
+                </div>
+              )}
+            </>
+          )}
+          <button ref={addBtn} className="btn primary" disabled={busy || !email || !pw} onClick={() => void add()}>
+            <Plus size={14} /> {busy ? t("settings.add.connecting") : t("settings.add.addAccount")}
+          </button>
+          <div className="muted small">{t("settings.add.passwordsStored", { store: credStore() })}</div>
+        </div>
       </div>
-    </div>
+      {/* how the attempt ended: one slot of fixed size under the card, so the Add button never moves (the error used to be a row above it) */}
+      <div className="signin-slot">{error && <div className="notice bad" role="alert">{error}</div>}</div>
+    </>
   );
 }
 
@@ -1169,6 +1198,8 @@ function CalendarPanel({ account }: { account: Account }) {
   const [ended, setEnded] = useState<SignInEnd | null>(null);
   const [now, setNow] = useState(() => Math.floor(Date.now() / 1000));
   const cancelBtn = useRef<HTMLButtonElement>(null);
+  const opener = useRef<HTMLElement | null>(null); // what started the consent (the switch or "Allow again"): it gets the focus back when the consent ends
+  const switchBox = useRef<HTMLSpanElement>(null);
   useEffect(() => void loadCalSources(), [loadCalSources]);
   // "Last synced 3 min ago" stays current
   useEffect(() => {
@@ -1178,7 +1209,18 @@ function CalendarPanel({ account }: { account: Account }) {
   // the Cancel button takes the focus when the switch is turned on and disabled
   useEffect(() => {
     if (connecting) cancelBtn.current?.focus();
+    else if (opener.current) {
+      // the consent ended and Cancel (which had the focus) is gone
+      const back = opener.current && document.contains(opener.current) && !(opener.current as HTMLButtonElement).disabled ? opener.current : switchBox.current?.querySelector("input");
+      opener.current = null;
+      if (!document.activeElement || document.activeElement === document.body) back?.focus();
+    }
   }, [connecting]);
+  // a message about the last attempt (the sign-in ended, a failure) is dropped when the sync state moves on by itself
+  useEffect(() => {
+    setErr(null);
+    setEnded(null);
+  }, [src?.status]);
   if (!kind) return <div className="muted">{t("settings.calendar.none")}</div>;
   const service = serviceName(kind);
   const clock = (sec: number) => new Intl.DateTimeFormat(intlLocale(), { hour: "2-digit", minute: "2-digit", timeZone: systemTz() }).format(new Date(sec * 1000));
@@ -1186,6 +1228,7 @@ function CalendarPanel({ account }: { account: Account }) {
   const connect = async () => {
     setErr(null);
     setEnded(null);
+    opener.current = document.activeElement as HTMLElement | null;
     setConnecting(true);
     try {
       await api.calendarConnect(account.id);
@@ -1209,6 +1252,8 @@ function CalendarPanel({ account }: { account: Account }) {
       danger: true,
     });
     if (!ok) return;
+    setErr(null);
+    setEnded(null);
     try {
       await api.calendarDisconnect(account.id);
     } catch (e) {
@@ -1227,31 +1272,34 @@ function CalendarPanel({ account }: { account: Account }) {
         hint={t("settings.calendar.syncHint", { service })}
         id="calendar"
       >
-        <Switch checked={on} disabled={connecting} onChange={(v) => void (v ? connect() : stop())} />
+        <span ref={switchBox}><Switch checked={on} disabled={connecting} onChange={(v) => void (v ? connect() : stop())} /></span>
       </Row>
+      {/* the buttons stay while a consent waits (they are off): they come and go with the connection, not with the status. They are above the slot, so the room the slot keeps for a long message is under the status line, not between a message and its button */}
+      {src && (
+        <div className="row-inline set-actions">
+          {line?.allow && <button className="btn primary" disabled={connecting} onClick={() => void connect()}>{t("settings.calendar.allowAgain")}</button>}
+          {line && line.syncNow !== "off" && (
+            <button className="btn small" disabled={connecting || line.syncNow === "disabled"} onClick={() => void api.calendarSyncNow(account.id).then(() => loadCalSources())}>{t("settings.calendar.syncNow")}</button>
+          )}
+        </div>
+      )}
+      {/* where the sync says what it is doing, one thing at a time and always in the same place: the sign-in waits, it ended, it failed, or how the sync is. A slot of fixed size, so nothing under it moves */}
       <div role="status" aria-live="polite" className="set-status">
-        {connecting && (
+        {connecting ? (
           <SignInWaiting provider={kind} lead={t("settings.calendar.allowInBrowser")} onCancel={() => void api.calendarCancelConnect()} cancelRef={cancelBtn} />
-        )}
-        {!connecting && line && (
+        ) : ended ? (
+          <SignInEnded provider={kind} purpose="calendar" end={ended} />
+        ) : err ? (
+          <div className="field-err" role="alert">{err}</div>
+        ) : line ? (
           <div className={line.tone === "bad" ? "notice bad" : "muted small"}>
             {line.text}
             {line.detail && <div style={{ marginTop: 2, fontSize: "0.9em", opacity: 0.8 }}>{line.detail}</div>}
             {note && <div>{note}</div>}
           </div>
-        )}
+        ) : null}
       </div>
-      {err && <div className="field-err" role="alert">{err}</div>}
-      {ended && !connecting && <SignInEnded provider={kind} purpose="calendar" end={ended} />}
-      {!connecting && src && line && (line.syncNow !== "off" || line.allow) && (
-        <div className="row-inline" style={{ margin: "6px 0 10px" }}>
-          {line.allow && <button className="btn primary" onClick={() => void connect()}>{t("settings.calendar.allowAgain")}</button>}
-          {line.syncNow !== "off" && (
-            <button className="btn small" disabled={line.syncNow === "disabled"} onClick={() => void api.calendarSyncNow(account.id).then(() => loadCalSources())}>{t("settings.calendar.syncNow")}</button>
-          )}
-        </div>
-      )}
-      {!connecting && src && src.calendars.length > 0 && (
+      {src && src.calendars.length > 0 && (
         <>
           <h4 style={{ margin: "16px 0 2px" }}>{t("settings.calendar.calendars")}</h4>
           <div className="muted small">{t("settings.calendar.calendarsHint")}</div>
@@ -1266,7 +1314,7 @@ function CalendarPanel({ account }: { account: Account }) {
                 </div>
               </div>
               <div className="set-ctl">
-                <Switch checked={c.syncOn} ariaLabel={t("settings.calendar.syncCal", { name: c.name })} onChange={(v) => void api.calendarSetSync(c.id, v).then(() => { bumpCal(); return loadCalSources(); }).catch((e) => setErr(friendlyError(e)))} />
+                <Switch checked={c.syncOn} ariaLabel={t("settings.calendar.syncCal", { name: c.name })} onChange={(v) => { setErr(null); void api.calendarSetSync(c.id, v).then(() => { bumpCal(); return loadCalSources(); }).catch((e) => setErr(friendlyError(e))); }} />
               </div>
             </div>
           ))}
