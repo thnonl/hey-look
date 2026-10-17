@@ -111,7 +111,7 @@ for (const name of names) {
   assert.equal(pasteText(read(join(dir, "excel.html"))), "Item\tQty\tPrice\nPens & ink\t12\t1,204.50\nPaper\t\tn/a");
   // with a table in the editor the table stays
   const t = cleanPaste(read(join(dir, "excel.html")), { mode: "source", tables: true, base: BASE }).html;
-  assert.ok(t.startsWith("<table><tr><td><p><strong>Item</strong></p></td>") && (t.match(/<tr>/g) ?? []).length === 3 && (t.match(/<td>/g) ?? []).length === 9, t);
+  assert.ok(t.startsWith('<table><tr><td bgcolor="#FFFF00"><p><strong>Item</strong></p></td>') && (t.match(/<tr>/g) ?? []).length === 3 && (t.match(/<td[ >]/g) ?? []).length === 9, t); // (the yellow header cells keep their shading)
   const o = results.outlook;
   assert.ok(!o.source.html.includes("Preheader") && !o.source.html.includes("<img"), "hidden text and file: / cid: pictures are gone");
   assert.equal(o.source.removed, 2, "two pictures could not be pasted");
@@ -280,6 +280,46 @@ for (const name of names) {
       assert.ok(ms < 5000, `${name} (${mode}): ${Math.round(ms)} ms`);
     }
   }
+}
+
+// ------------------------------------------------------------------------------------------------- tables kept (WP5d: the editor has table nodes)
+// scripts/fixtures/paste-tables/<name>.html -> expected/<name>.source.html and .merge.html with `tables: true`: a Word table (borders, shading, colspan), a table
+// copied from a web page (border attribute, header cells, shaded header) and a nested layout table (a tracking picture is dropped)
+{
+  const tdir = join(dirname(fileURLToPath(import.meta.url)), "fixtures", "paste-tables");
+  const texp = join(tdir, "expected");
+  if (update) mkdirSync(texp, { recursive: true });
+  const tnames = readdirSync(tdir).filter((f) => f.endsWith(".html")).map((f) => f.slice(0, -5)).sort();
+  assert.equal(tnames.length, 3);
+  const tres = {};
+  for (const name of tnames) {
+    const input = read(join(tdir, `${name}.html`));
+    for (const mode of ["source", "merge"]) {
+      const r = cleanPaste(input, { mode, tables: true, base: BASE });
+      tres[`${name}.${mode}`] = r;
+      const f = join(texp, `${name}.${mode}.html`);
+      if (update) writeFileSync(f, lines(r.html));
+      else {
+        assert.ok(existsSync(f), `${name}.${mode}.html is missing (run with --update)`);
+        assert.equal(lines(r.html), read(f), `paste-tables ${name}.${mode}.html differs from the expected file`);
+      }
+      for (const bad of ["mso-", "<o:p", "Mso", "<!--", "<style", " class=", " style=\"width", "tracker.example.test", "<img"]) assert.ok(!r.html.includes(bad), `${name}/${mode}: ${bad} in the output`);
+    }
+    // Keep text only: rows are lines, cells apart by a tab
+    assert.ok(!pasteText(input).includes("<"), `${name}: text only has no markup`);
+  }
+  const w = tres["word-table.source"].html;
+  assert.ok(w.includes('<table border="1">') && (w.match(/<tr>/g) ?? []).length === 2, "Word: bordered table, 2 rows");
+  assert.ok(w.includes('bgcolor="#D9E2F3"') && w.includes('colspan="2" bgcolor="#FFFF00"'), "Word: cell shading (a colour name too) and the colspan");
+  assert.ok(!tres["word-table.merge"].html.includes("#C00000") && tres["word-table.merge"].html.includes('bgcolor="#FFFF00"'), "Merge: the text colour goes, the shading of a cell stays");
+  const wb = tres["web-table.source"].html;
+  assert.ok(wb.includes('<table border="1">') && wb.includes('<th bgcolor="#F2F2F2">') && !wb.includes("#FFFFFF"), "web: border attribute, header cells with their shading, a white cell is no shading");
+  const lt = tres["layout-table.source"].html;
+  assert.ok(!lt.includes("border=") && (lt.match(/<table>/g) ?? []).length === 3 && lt.includes('bgcolor="#FFCC00"'), "layout: borderless nested tables stay, the shaded cell too");
+  assert.equal(pasteText(read(join(tdir, "word-table.html"))), ["Quarterly numbers", "Region	Q1	Q2", "EMEA	12 and 15"].join(String.fromCharCode(10)));
+  // the sizes of what a table can hold are capped like everything else: a million cells in one table are text of its own size, not a freeze
+  const big = "<table>" + "<tr>" + "<td>x</td>".repeat(200) + "</tr>".repeat(1) + "</table>";
+  assert.ok(cleanPaste(big, { mode: "source", tables: true }).html.length > 1000);
 }
 
 // nothing throws on garbage
