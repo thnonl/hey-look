@@ -53,6 +53,7 @@ Writing a message got safer and more complete: nothing you write is lost to a cr
 - AI Assistant errors: an answer the app cannot read is now one sentence in your language, not the raw reply of the provider; an error about the connection no longer shows a password or a token that is part of the address in Settings
 - Attachments: the preview of a PDF shows the PDF on Windows again (it was a blank "blocked" page since the Windows web view does not run its PDF viewer inside a restricted frame). Only a file that really is a PDF is drawn; a file called .pdf that holds anything else says so and can still be opened or saved. A link inside a PDF no longer takes the whole app window to a web page
 - Start: when the app cannot start at all on Windows (for example the Microsoft WebView2 Runtime is missing or damaged) it now says so in a message in the language of Windows, with where to get the runtime and where the log file is, instead of closing without a word; macOS and Linux write the reason to the same log file
+- Settings > AI Assistant no longer jumps while you use it: "Loading models…" and the messages about the model list have a fixed place under Save (they used to be inserted above it and pushed Save down and back on every key you typed), "Remove the saved key" is on the line of the API key label (it used to appear under the box after Save and move everything), the Model box keeps its focus and cursor when the model list arrives, and Remove the saved key leaves the focus in the API key box
 
 ## 1.0.5 — 2026-10-16
 

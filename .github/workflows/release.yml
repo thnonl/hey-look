@@ -256,6 +256,7 @@ jobs:
           node --experimental-strip-types scripts/test-toast-language.mjs
           node --experimental-strip-types scripts/test-translate-jobs.mjs
           node --experimental-strip-types scripts/test-translate-box-layout.mjs
+          node --experimental-strip-types scripts/test-ai-tab-still.mjs
           node --experimental-strip-types scripts/test-translate-chunks.mjs
           node --experimental-strip-types scripts/test-ai-call.mjs
           node --experimental-strip-types scripts/test-ai-errors.mjs
@@ -312,6 +313,8 @@ jobs:
           node --experimental-strip-types scripts/test-site-commands.mjs
           # the Appearance preview on the website, measured in the runner's Chrome (a sample of the combinations; the full run is `node scripts/test-site-appearance.mjs`)
           node scripts/test-site-appearance.mjs --quick
+          # Settings > AI Assistant stands still while it is used: the real layout, frame by frame, in the dev preview (two of the 12 combinations; the full run is `node scripts/test-ai-tab-layout.mjs`)
+          node scripts/test-ai-tab-layout.mjs --quick
 
       # macOS code signing (owner steps: CONTRIBUTING.md > Signing and notarisation). Only when the three certificate secrets
       # (APPLE_CERTIFICATE, APPLE_CERTIFICATE_PASSWORD, APPLE_SIGNING_IDENTITY) exist and this is not a test build; otherwise nothing
