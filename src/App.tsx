@@ -30,7 +30,7 @@ import { calTz, configureCalendar, addDays, addMonths, today as todayDay } from 
 import { catchupText, configureDates, fmtWhen } from "./util";
 import { frameAction, initFrame, useFrame } from "./winframe";
 import { startSupportNudge } from "./supportNudgeHost";
-import { offerRestore } from "./composeRecovery";
+import { recoverUnsaved, reshowRecoveryToast } from "./composeRecovery";
 import { composeSwallowsAppKey, inEditable, keyAction, moduleSwitchKey, sidebarToggleKey } from "./composeKeys";
 import { MIN_READER_W, RAIL_W, SPLITTER_W, sidebarLayout } from "./sidebarState";
 import { toggleSidebarNow, useWindowWidth } from "./useSidebar";
@@ -102,9 +102,9 @@ function App() {
     if (loaded) void startSupportNudge();
   }, [loaded]);
 
-  // a message that was being written when the app ended without saving or sending it is offered back (once per start)
+  // messages that were being written when the app ended without saving or sending them are saved as drafts, and one toast says so (once per start)
   useEffect(() => {
-    if (loaded && hasAccounts) void offerRestore();
+    if (loaded && hasAccounts) void recoverUnsaved();
   }, [loaded, hasAccounts]);
 
   // the page is up and has painted once: the backend shows the (hidden) window now, and reloads the page if this never arrives
@@ -307,6 +307,7 @@ function App() {
 
   useEffect(() => {
     const shown = () => {
+      reshowRecoveryToast(); // (a toast nobody answered comes back if anything took it off the screen while the window was hidden)
       const up = useUpdates.getState();
       if (!up.startupIssued) return; // the window gains focus at launch: that must not pre-empt the startup delay
       void up.checkUpdate("shown");

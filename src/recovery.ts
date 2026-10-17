@@ -1,9 +1,11 @@
-// Crash recovery of the message being written (QA round 17 BUG-02): the writer that keeps the snapshot up to date, and the question asked
-// at the next start. No UI and no Tauri here (the backend is passed in), so the sequence can be tested (scripts/test-recovery.mjs).
-// The storage is src-tauri/src/recover.rs.
+// Crash recovery of the message being written (QA round 17 BUG-02): the writer that keeps the snapshot up to date, and what the next start does
+// with what is left (1.0.6: it saves every snapshot as a real draft and only tells the person, no question). No UI and no Tauri here (the
+// backend is passed in), so the sequence can be tested (scripts/test-recovery.mjs). The storage is src-tauri/src/recover.rs.
 
-import type { Att } from "./api";
-import { initialImportance } from "./importance.ts";
+import type { Att, Draft } from "./api";
+import { swapPictures } from "./editor/messageBody.ts";
+import { htmlToText } from "./htmlText.ts";
+import { draftImportance, initialImportance } from "./importance.ts";
 import type { ComposeInit } from "./store";
 
 /** The form of a message as the snapshot keeps it. The body is the editor's HTML with the signature in it and the pictures as data: URIs. */
@@ -146,7 +148,7 @@ export class RecoveryWriter {
   }
 }
 
-/** A snapshot as the question shows it. */
+/** A snapshot as the start lists it. */
 export interface RecoveryInfo {
   id: string;
   accountId: string;
@@ -204,99 +206,142 @@ export function snapshotInWindow(l: RecoveryLoaded): boolean {
   }
 }
 
-export interface RestoreDeps {
-  list(): Promise<RecoveryInfo[]>;
-  load(id: string): Promise<RecoveryLoaded | null>;
-  /** "later" is also the answer of Esc and of a click outside */
-  ask(info: RecoveryInfo): Promise<"restore" | "discard" | "later">;
-  /**
-   * open Compose with the snapshot (it keeps the snapshot's id, so the next snapshot replaces it). false = it could not be opened (too many
-   * windows, no mailbox): the snapshot stays for the next start
-   */
-  open(l: RecoveryLoaded): Promise<boolean | void>;
-  /**
-   * This snapshot opens in a window of its own (the setting, or it was written in one): such a window does not take the pane, so the questions
-   * go on at once and every restored message is opened together after the last question. A question asked while a window has just come up
-   * can sit unseen behind it (Linux): all questions first, then the windows.
-   */
-  inWindow?(l: RecoveryLoaded): boolean;
-  clear(id: string): Promise<void>;
-  /** a message is being written */
-  composing(): boolean;
-  /** resolves when no message is being written */
-  whenIdle(): Promise<void>;
-  /** the snapshot could not be loaded */
-  failed(info: RecoveryInfo): void;
+
+/**
+ * The snapshot as a draft for the Drafts folder: the pictures of the body (data: URIs) become inline parts with a cid: reference (as a normal
+ * Save draft makes them), Bcc stays, the text part is made from the HTML. Null = it must not go to the server (the message was meant to be
+ * encrypted: a plain copy would defeat that) or the snapshot cannot be read. `recoveryId` is added by the backend.
+ */
+export function draftFromSnapshot(l: RecoveryLoaded): Draft | null {
+  const init = composeFromSnapshot(l);
+  if (!init) return null;
+  if (init.restore?.encrypt === "on") return null;
+  const swapped = swapPictures(init.bodyHtml ?? "", () => `${crypto.randomUUID()}@heylook`, (mime, n) => `picture-${n}.${mime.split("/")[1]?.replace("jpeg", "jpg") ?? "img"}`);
+  return {
+    accountId: l.accountId,
+    to: init.to ?? [],
+    cc: init.cc ?? [],
+    bcc: init.bcc ?? [],
+    subject: init.subject ?? "",
+    html: swapped.html,
+    text: htmlToText(swapped.html),
+    inReplyTo: init.inReplyTo ?? null,
+    references: init.references ?? [],
+    attachments: l.files,
+    inline: swapped.inline.map((i) => ({ cid: i.cid, filename: i.name, mime: i.mime, dataBase64: i.dataBase64 })),
+    confidential: init.confidential || undefined,
+    importance: draftImportance(init.importance ?? "normal"),
+  };
 }
 
-export interface RestoreResult {
-  restored: string[];
-  discarded: string[];
-  later: string[];
-  gone: string[];
+/** What the backend says about a snapshot it saved as a draft (src-tauri `recovery_save_draft`): `covered` = a draft saved at or after the snapshot was on the server already. */
+export interface RecoveredDraft {
+  status: "saved" | "covered";
+  threadId: string | null;
+  draftRef: string | null;
+}
+
+/** A message of the last session that the start kept: saved in Drafts, or still only on this computer. */
+export interface Kept {
+  id: string;
+  accountId: string;
+  subject: string;
+  savedAt: number;
+  where: "drafts" | "local";
+  /** the conversation of the draft (where === "drafts"), to open it like a draft of the Drafts folder */
+  threadId: string | null;
+  /** it was written in a window of its own */
+  inWindow: boolean;
+}
+
+/** A snapshot that could not be saved to the server is removed after this long (seconds); a start says so in the log and the person is not asked. */
+export const LOCAL_KEEP_SECS = 30 * 24 * 3600;
+
+export interface SettleDeps {
+  list(): Promise<RecoveryInfo[]>;
+  load(id: string): Promise<RecoveryLoaded | null>;
+  /** save the snapshot as a draft and remove it once it is confirmed; throws when that cannot be done (the snapshot stays) */
+  saveDraft(id: string, draft: Draft, replaces: string | null): Promise<RecoveredDraft>;
+  /** remove the snapshot (`why` goes to the log) */
+  clear(id: string, why: string): Promise<void>;
+  /** seconds since 1970 */
+  now(): number;
 }
 
 /**
- * The next start: every snapshot that is still there is offered, newest first, one at a time, and a message is only opened when no other one is
- * being written. Restore opens it (never sends it), Discard removes it, anything else keeps it (and the ones after it) for the next start: nothing is dropped or sent
- * without the person saying so.
+ * The next start (1.0.6): every snapshot that is still there is saved as a real draft, one after the other, newest first, without a question and
+ * without opening, sending or discarding anything. A snapshot that cannot be saved (no Drafts folder, no connection, the server refuses) stays
+ * on this computer and is reported as such; one older than 30 days is removed. Returns what was kept, newest first.
  */
-export async function offerRecovery(d: RestoreDeps): Promise<RestoreResult> {
-  const res: RestoreResult = { restored: [], discarded: [], later: [], gone: [] };
+export async function settleRecovery(d: SettleDeps): Promise<Kept[]> {
   let items: RecoveryInfo[];
   try {
     items = await d.list();
   } catch {
-    return res;
+    return [];
   }
-  const windows: RecoveryLoaded[] = [];
-  // the messages that wait for a window: opened in the order of the questions, as many as the app allows (the rest stays for the next start)
-  const flush = async () => {
-    for (let k = 0; k < windows.length; k++) {
-      const ok = await d.open(windows[k]);
-      if (ok === false) {
-        res.later.push(...windows.slice(k).map((x) => x.id));
-        break;
-      }
-      res.restored.push(windows[k].id);
+  const kept: Kept[] = [];
+  for (const info of [...items].sort((a, b) => b.savedAt - a.savedAt)) {
+    let l: RecoveryLoaded | null = null;
+    try {
+      l = await d.load(info.id);
+    } catch {
+      l = null;
     }
-    windows.length = 0;
-  };
-  for (let i = 0; i < items.length; i++) {
-    const info = items[i];
-    if (d.composing()) {
-      await flush();
-      await d.whenIdle();
+    if (!l) continue; // (it may load at the next start)
+    const init = composeFromSnapshot(l);
+    if (!init) {
+      // not a snapshot this version can read: it is of no use, and trying again at every start would not help
+      await d.clear(info.id, "unreadable").catch(() => undefined);
+      continue;
     }
-    const answer = await d.ask(info);
-    if (answer === "discard") {
-      await d.clear(info.id);
-      res.discarded.push(info.id);
-    } else if (answer === "restore") {
-      let l: RecoveryLoaded | null = null;
+    const base = { id: l.id, accountId: l.accountId, subject: (init.subject ?? "").trim(), savedAt: l.savedAt, inWindow: snapshotInWindow(l) };
+    const draft = draftFromSnapshot(l);
+    let saved: RecoveredDraft | null = null;
+    if (draft) {
       try {
-        l = await d.load(info.id);
+        saved = await d.saveDraft(l.id, draft, init.replaces ?? null);
       } catch {
-        l = null;
+        saved = null; // (the snapshot stays: the backend removes it only after the draft is confirmed)
       }
-      if (!l) {
-        d.failed(info);
-        res.gone.push(info.id);
-        continue; // (kept: it may load at the next start)
-      }
-      if (d.inWindow?.(l)) {
-        windows.push(l);
-        continue;
-      }
-      if (d.composing()) await d.whenIdle();
-      if ((await d.open(l)) === false) res.later.push(info.id);
-      else res.restored.push(info.id);
+    }
+    if (saved) {
+      kept.push({ ...base, where: "drafts", threadId: saved.threadId });
+    } else if (d.now() - l.savedAt > LOCAL_KEEP_SECS) {
+      await d.clear(l.id, "kept on this computer for more than 30 days").catch(() => undefined);
     } else {
-      // "not now" is for the rest as well: they are asked again at the next start
-      res.later.push(...items.slice(i).map((x) => x.id));
-      break;
+      kept.push({ ...base, where: "local", threadId: null });
     }
   }
-  await flush();
-  return res;
+  return kept;
+}
+
+export interface OpenKeptDeps {
+  /** a draft of the Drafts folder (Compose.openDraftThread): pane or window by the setting, `window` forces one; false = not opened */
+  openDraft(threadId: string, o: { window?: boolean; shift: boolean }): Promise<boolean>;
+  loadSnapshot(id: string): Promise<RecoveryLoaded | null>;
+  /** Compose with a message (popout/composeOpen.startCompose) */
+  start(init: ComposeInit, o: { window?: boolean; shift: boolean; key?: string }): Promise<boolean>;
+  /** the pop-out setting: every message opens in a window of its own */
+  popoutSetting(): boolean;
+  /** the message could not be found: tell the person */
+  notFound(): void;
+}
+
+/**
+ * Continue writing: the message opens the way a draft of the Drafts folder does, in the pane or in a window by the pop-out setting, and in a
+ * window whatever the setting says when it was written in one. A message that is only on this computer opens from its snapshot (which stays
+ * until the message is saved to the server or sent). Never sends or discards anything.
+ */
+export async function openKept(k: Kept, d: OpenKeptDeps): Promise<boolean> {
+  const window = k.inWindow || undefined; // (undefined: the setting decides)
+  if (k.where === "drafts" && k.threadId) return d.openDraft(k.threadId, { window, shift: false });
+  const l = await d.loadSnapshot(k.id);
+  const init = l && composeFromSnapshot(l);
+  if (!l || !init) {
+    d.notFound();
+    return false;
+  }
+  // every snapshot has a window key of its own: two messages opened together are two windows, not one
+  return d.start(init, { window, shift: false, key: k.inWindow || d.popoutSetting() ? `recovery:${l.id}` : undefined });
 }
