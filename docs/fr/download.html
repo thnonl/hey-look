@@ -119,7 +119,8 @@
         <li>Ouvrez <strong>Réglages Système &gt; Confidentialité et sécurité</strong>, faites défiler jusqu’à <strong>Sécurité</strong>, cliquez sur <strong>Ouvrir quand même</strong>, confirmez avec votre mot de passe ou Touch ID, puis cliquez sur <strong>Ouvrir</strong>.</li></ol>
         <p>Vous préférez le Terminal&nbsp;? Exécutez ceci une fois à la place des étapes 2 et 3&nbsp;:</p>
         <div class="copy"><code>xattr -dr com.apple.quarantine "/Applications/Hey Look!.app"</code><button class="btn btn-ghost btn-sm" type="button">Copier</button></div>
-        <p>Les mises à jour que Hey Look! installe lui-même démarrent normalement. L’icône du Dock affiche le nombre de messages non lus (Paramètres &gt; Notifications et zone de notification &gt; Pastille du Dock). Les notifications ne sont pas disponibles sous macOS dans cette version.</p></details>
+        <p>Les mises à jour que Hey Look! installe lui-même démarrent normalement. L’icône du Dock affiche le nombre de messages non lus (Paramètres &gt; Notifications et zone de notification &gt; Pastille du Dock). Les notifications ne sont pas disponibles sous macOS dans cette version.</p>
+        <p>Mise à jour depuis une version antérieure à 1.0.6&nbsp;: le Trousseau demande une fois de plus à propos de vos mots de passe enregistrés au premier démarrage, car l’application est désormais signée avec un certificat fixe. Les pièces jointes PDF s’ouvrent dans votre application par défaut (l’aperçu propose Ouvrir et Enregistrer sous).</p></details>
     </article>
     <article class="dl-card" id="card-linux"><span class="rec-b">Recommandé pour vous</span>
       <h2><svg class="ic" aria-hidden="true" focusable="false"><use href="#i-linux"/></svg>Linux</h2><p class="sub">Toute distribution avec l’AppImage, ou un paquet natif.</p>
@@ -128,7 +129,8 @@
       <div class="asset" data-asset="lin-rpm" data-pattern="HeyLook_&lt;version&gt;_linux_x86_64.rpm"><a class="btn btn-ghost" href="https://github.com/thnonl/hey-look/releases/latest" rel="noopener" data-label="Télécharger .rpm (Fedora, openSUSE)"><svg class="ic" aria-hidden="true" focusable="false"><use href="#i-download"/></svg><span class="t">Télécharger .rpm (Fedora, openSUSE)</span></a><span class="fn">HeyLook_&lt;version&gt;_linux_x86_64.rpm</span><small class="sz"></small></div>
       <details><summary>Notes pour Linux</summary>
         <p>Si votre bureau n’a pas de zone de notification, fermer la fenêtre quitte Hey Look!</p>
-        <p>Les liens et les pièces jointes s’ouvrent avec <code>xdg-open</code>. Les notifications nécessitent un service de notifications sur le bureau. Les mots de passe nécessitent que GNOME Keyring ou KWallet soit en cours d’exécution et déverrouillé.</p></details>
+        <p>Les liens et les pièces jointes s’ouvrent avec <code>xdg-open</code>. Les notifications nécessitent un service de notifications sur le bureau. Les mots de passe nécessitent que GNOME Keyring ou KWallet soit en cours d’exécution et déverrouillé.</p>
+        <p>L’icône de la zone de notification n’a pas d’action au clic&nbsp;: utilisez Open Hey Look! dans son menu. Les pièces jointes PDF s’ouvrent dans votre application par défaut (l’aperçu propose Ouvrir et Enregistrer sous).</p></details>
     </article>
   </div>
   <h2 class="h2s" id="all-files">Tous les fichiers</h2>

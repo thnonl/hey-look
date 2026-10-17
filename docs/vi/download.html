@@ -119,7 +119,8 @@
         <li>Mở <strong>System Settings &gt; Privacy &amp; Security</strong> (Cài đặt hệ thống &gt; Quyền riêng tư &amp; Bảo mật), cuộn đến <strong>Security</strong> (Bảo mật), nhấp <strong>Open Anyway</strong> (Vẫn mở), xác nhận bằng mật khẩu hoặc Touch ID, rồi nhấp <strong>Open</strong> (Mở).</li></ol>
         <p>Thích dùng Terminal hơn? Hãy chạy lệnh này một lần thay cho bước 2 và 3:</p>
         <div class="copy"><code>xattr -dr com.apple.quarantine "/Applications/Hey Look!.app"</code><button class="btn btn-ghost btn-sm" type="button">Sao chép</button></div>
-        <p>Các bản cập nhật do chính Hey Look! cài đặt sẽ khởi động bình thường. Biểu tượng Dock hiện số thư chưa đọc (Cài đặt &gt; Thông báo &amp; khay hệ thống &gt; Huy hiệu Dock). Thông báo chưa khả dụng trên macOS ở phiên bản này.</p></details>
+        <p>Các bản cập nhật do chính Hey Look! cài đặt sẽ khởi động bình thường. Biểu tượng Dock hiện số thư chưa đọc (Cài đặt &gt; Thông báo &amp; khay hệ thống &gt; Huy hiệu Dock). Thông báo chưa khả dụng trên macOS ở phiên bản này.</p>
+        <p>Cập nhật từ phiên bản trước 1.0.6: Chuỗi khóa (Keychain) hỏi về mật khẩu đã lưu của bạn thêm một lần ở lần khởi động đầu, vì ứng dụng nay được ký bằng một chứng chỉ cố định. Tệp đính kèm PDF mở bằng ứng dụng mặc định của bạn (bản xem trước có Mở và Lưu thành).</p></details>
     </article>
     <article class="dl-card" id="card-linux"><span class="rec-b">Gợi ý cho bạn</span>
       <h2><svg class="ic" aria-hidden="true" focusable="false"><use href="#i-linux"/></svg>Linux</h2><p class="sub">Bản phân phối nào cũng dùng được với AppImage, hoặc dùng gói gốc.</p>
@@ -128,7 +129,8 @@
       <div class="asset" data-asset="lin-rpm" data-pattern="HeyLook_&lt;version&gt;_linux_x86_64.rpm"><a class="btn btn-ghost" href="https://github.com/thnonl/hey-look/releases/latest" rel="noopener" data-label="Tải .rpm (Fedora, openSUSE)"><svg class="ic" aria-hidden="true" focusable="false"><use href="#i-download"/></svg><span class="t">Tải .rpm (Fedora, openSUSE)</span></a><span class="fn">HeyLook_&lt;version&gt;_linux_x86_64.rpm</span><small class="sz"></small></div>
       <details><summary>Ghi chú cho Linux</summary>
         <p>Nếu môi trường desktop của bạn không có khu vực khay hệ thống, đóng cửa sổ sẽ thoát Hey Look!</p>
-        <p>Liên kết và tệp đính kèm được mở bằng <code>xdg-open</code>. Thông báo cần có một dịch vụ thông báo trên desktop. Mật khẩu cần GNOME Keyring hoặc KWallet đang chạy và đã được mở khóa.</p></details>
+        <p>Liên kết và tệp đính kèm được mở bằng <code>xdg-open</code>. Thông báo cần có một dịch vụ thông báo trên desktop. Mật khẩu cần GNOME Keyring hoặc KWallet đang chạy và đã được mở khóa.</p>
+        <p>Biểu tượng khay hệ thống không phản ứng khi nhấp: hãy dùng Open Hey Look! trong menu của nó. Tệp đính kèm PDF mở bằng ứng dụng mặc định của bạn (bản xem trước có Mở và Lưu thành).</p></details>
     </article>
   </div>
   <h2 class="h2s" id="all-files">Tất cả các tệp</h2>

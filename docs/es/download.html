@@ -119,7 +119,8 @@
         <li>Abre <strong>Ajustes del Sistema &gt; Privacidad y seguridad</strong>, desplázate hasta <strong>Seguridad</strong>, haz clic en <strong>Abrir igualmente</strong>, confirma con tu contraseña o Touch ID y después haz clic en <strong>Abrir</strong>.</li></ol>
         <p>¿Prefieres Terminal? Ejecuta esto una vez en lugar de los pasos 2 y 3:</p>
         <div class="copy"><code>xattr -dr com.apple.quarantine "/Applications/Hey Look!.app"</code><button class="btn btn-ghost btn-sm" type="button">Copiar</button></div>
-        <p>Las actualizaciones que instala la propia Hey Look! se inician con normalidad. El icono del Dock muestra el número de no leídos (Configuración &gt; Notificaciones y bandeja del sistema &gt; Globo del Dock). Las notificaciones no están disponibles en macOS en esta versión.</p></details>
+        <p>Las actualizaciones que instala la propia Hey Look! se inician con normalidad. El icono del Dock muestra el número de no leídos (Configuración &gt; Notificaciones y bandeja del sistema &gt; Globo del Dock). Las notificaciones no están disponibles en macOS en esta versión.</p>
+        <p>Si actualizas desde una versión anterior a la 1.0.6, el Llavero vuelve a preguntar una vez por tus contraseñas guardadas en el primer inicio, porque la aplicación ahora se firma con un certificado fijo. Los adjuntos PDF se abren en tu aplicación predeterminada (la vista previa ofrece Abrir y Guardar como).</p></details>
     </article>
     <article class="dl-card" id="card-linux"><span class="rec-b">Recomendado para ti</span>
       <h2><svg class="ic" aria-hidden="true" focusable="false"><use href="#i-linux"/></svg>Linux</h2><p class="sub">Cualquier distribución compatible con AppImage o con un paquete nativo.</p>
@@ -128,7 +129,8 @@
       <div class="asset" data-asset="lin-rpm" data-pattern="HeyLook_&lt;version&gt;_linux_x86_64.rpm"><a class="btn btn-ghost" href="https://github.com/thnonl/hey-look/releases/latest" rel="noopener" data-label="Descargar .rpm (Fedora, openSUSE)"><svg class="ic" aria-hidden="true" focusable="false"><use href="#i-download"/></svg><span class="t">Descargar .rpm (Fedora, openSUSE)</span></a><span class="fn">HeyLook_&lt;version&gt;_linux_x86_64.rpm</span><small class="sz"></small></div>
       <details><summary>Notas para Linux</summary>
         <p>Si tu escritorio no tiene bandeja del sistema, al cerrar la ventana se cierra Hey Look!</p>
-        <p>Los enlaces y los adjuntos se abren con <code>xdg-open</code>. Las notificaciones necesitan un servicio de notificaciones en el escritorio. Las contraseñas necesitan que GNOME Keyring o KWallet estén en ejecución y desbloqueados.</p></details>
+        <p>Los enlaces y los adjuntos se abren con <code>xdg-open</code>. Las notificaciones necesitan un servicio de notificaciones en el escritorio. Las contraseñas necesitan que GNOME Keyring o KWallet estén en ejecución y desbloqueados.</p>
+        <p>El icono de la bandeja no tiene acción al hacer clic: usa Open Hey Look! en su menú. Los adjuntos PDF se abren en tu aplicación predeterminada (la vista previa ofrece Abrir y Guardar como).</p></details>
     </article>
   </div>
   <h2 class="h2s" id="all-files">Todos los archivos</h2>
