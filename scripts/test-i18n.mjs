@@ -416,7 +416,7 @@ function walk(dir) {
 }
 
 // files that never reach a user (dev mock data, the dictionaries themselves)
-const SKIP = [/[\\/]i18n[\\/]/, /[\\/]devMock/, /[\\/]fakeMail\.ts$/, /[\\/]devDarkCheck\.ts$/, /\.d\.ts$/];
+const SKIP = [/[\\/]i18n[\\/]/, /[\\/]devMock/, /[\\/]fakeMail\.ts$/, /[\\/]devDarkCheck\.ts$/, /[\\/]popout[\\/]devPanel\.tsx$/, /\.d\.ts$/];
 // words that stay as they are in every language
 const KEEP = /^(?:Hey Look!?|IMAP|SMTP|POP3?|OAuth2?|OpenPGP|PGP|S\/MIME|TLS|SSL|STARTTLS|iCloud|Gmail|Outlook|Google|Microsoft|Yahoo|Fastmail|GitHub|GreenMail|Hotmail|Office 365|Microsoft 365|ICS|iCal|HTML|URL|SHA-?\d*|CSV|PDF|JSON|UTC|GMT|Tauri|macOS|Windows|Linux)$/;
 const ATTRS = new Set(["title", "aria-label", "aria-description", "aria-roledescription", "aria-placeholder", "aria-valuetext", "placeholder", "alt", "label", "tooltip", "hint", "caption", "summary"]);

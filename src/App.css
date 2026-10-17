@@ -1208,3 +1208,9 @@ span.spin { display: inline-block; width: 13px; height: 13px; border: 2px solid 
 .rb.imp-btn.low { color: var(--imp-low); }
 .rb.imp-btn.high.on { background: color-mix(in srgb, var(--imp-high) 14%, var(--bg)); }
 .rb.imp-btn.low.on { background: color-mix(in srgb, var(--imp-low) 14%, var(--bg)); }
+
+/* Secondary windows (src/popout): the placeholder page and its dev panel; the real views bring their own styles */
+.popout-root { padding: 16px; display: flex; flex-direction: column; gap: 8px; align-items: flex-start; }
+.popout-dev { display: grid; grid-template-columns: max-content 1fr; gap: 2px 12px; margin: 0; font-size: .9em; }
+.popout-dev dt { color: var(--muted); }
+.popout-dev dd { margin: 0; overflow-wrap: anywhere; }

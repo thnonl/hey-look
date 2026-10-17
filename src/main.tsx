@@ -4,6 +4,12 @@ import App from "./App";
 import { api } from "./api";
 import { applySavedLanguage } from "./bootLang";
 import { installContextGuard } from "./contextGuard";
+import PopoutRoot from "./popout/PopoutRoot";
+import { routeOf } from "./popout/route";
+
+// One bundle, several windows: the main window has no query, a secondary window (compose / reader) is opened by the backend at ?w=<kind>
+// (src/popout/route.ts). A secondary window mounts <PopoutRoot /> and never the app.
+const route = routeOf(window.location.search);
 
 async function boot(): Promise<boolean> {
   // `npm run dev` in a plain browser has no Tauri backend: use fake data so the UI can be previewed.
@@ -16,13 +22,15 @@ async function boot(): Promise<boolean> {
   installContextGuard(); // no native webview menu in a release build (see contextPolicy.ts)
   ReactDOM.createRoot(document.getElementById("root") as HTMLElement).render(
     <React.StrictMode>
-      <App />
+      {route.kind === "main" ? <App /> : <PopoutRoot route={route} />}
     </React.StrictMode>,
   );
   return mock;
 }
 
 void boot().then(async (mock) => {
+  // dev flag: lets a person open placeholder windows from the main window's console (window.__heylookPopout.open("compose"))
+  if (route.kind === "main") void import("./popout/dev").then((m) => m.installPopoutDev());
   // dev preview only: `#dark&cal=week&thread=t15` puts the mock app into a state (handy for screenshots)
   if (mock && window.location.hash.length > 1) {
     (await import("./devMock")).applyDemoHash();

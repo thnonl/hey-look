@@ -406,6 +406,12 @@ export const useUpdates = create<UpdatesState>((set, get) => {
         stickyTimer.cancel(RESTART_STOPPED);
         let draftSaved = false;
         const stay = (asking: AskVariant) => setFlow({ state: "ready", countdown: null, asking });
+        // secondary windows (compose / reader pop-outs, src/popout) save what they hold first, each with the bounded wait of a quit; a person who
+        // keeps a window open stops the restart. With no such window open the call answers at once.
+        if (!(await api.popoutSaveAll().catch(() => true))) {
+          void api.updateNote("restart not started: a message window was kept open").catch(() => undefined);
+          return stay("dirty");
+        }
         if (st.compose) {
           if (st.compose.outboxId) {
             // a scheduled message stays scheduled as it was; unsaved edits to it are lost
