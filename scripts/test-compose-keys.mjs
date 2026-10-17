@@ -4,7 +4,7 @@
 // Run: node --experimental-strip-types scripts/test-compose-keys.mjs
 import assert from "node:assert/strict";
 import { existsSync, readdirSync, readFileSync } from "node:fs";
-import { composeSwallowsAppKey, editorKeyHandlers, inEditable, isAltGraph, keyAction, moduleSwitchKey } from "../src/composeKeys.ts";
+import { composeSwallowsAppKey, editorKeyHandlers, inEditable, isAltGraph, isHeadingKey, keyAction, moduleSwitchKey } from "../src/composeKeys.ts";
 
 const ev = (key, mods = "", altGraphState = false) => ({
   key,
@@ -48,10 +48,20 @@ for (const [key] of altGrChars) {
   assert.equal(keyAction(ev(key, "cas", true), body), "editor-skip", `AltGr+Shift ${key}`);
   assert.equal(keyAction(ev(key, "ca", true), other), "pass", `AltGr ${key} outside the editor does nothing of ours`);
 }
-// the headings / code block / paragraph defaults of TipTap (Mod-Alt-0..6, Mod-Alt-C), also as real Ctrl+Alt and as Cmd+Option
-for (const d of ["0", "1", "2", "3", "4", "5", "6", "c", "C"]) {
+// the headings 4-6 / code block / paragraph defaults of TipTap (Mod-Alt-0, 4..6, Mod-Alt-C), also as real Ctrl+Alt and as Cmd+Option
+for (const d of ["0", "4", "5", "6", "c", "C"]) {
   for (const m of ["ca", "ma"]) assert.equal(keyAction(ev(d, m), body), "editor-skip", `Mod-Alt-${d} (${m})`);
 }
+// Heading 1-3 (Ctrl+Alt+1..3, Cmd+Option+1..3): the editor keeps them, but only for the real digit and never when AltGr is down
+for (const d of ["1", "2", "3"]) {
+  for (const m of ["ca", "ma"]) assert.equal(keyAction(ev(d, m), body), "pass", `Mod-Alt-${d} (${m}) is a heading shortcut`);
+  assert.equal(keyAction(ev(d, "ca", true), body), "editor-skip", `AltGr + ${d} (AltGraph state) is not`);
+  assert.equal(keyAction(ev(d, "cas"), body), "editor-skip", `Ctrl+Alt+Shift+${d} is not`);
+  assert.equal(keyAction(ev(d, "ca"), other), "pass", `outside the editor nothing of ours`);
+}
+// German AltGr+2 / AltGr+3 type ² and ³ (the key is the character, not the digit); a French digit row types symbols
+for (const key of ["²", "³", "é", "\"", "&", "~", "#"]) assert.ok(!isHeadingKey(ev(key, "ca")), `${key} is not a heading shortcut`);
+assert.ok(!isHeadingKey(ev("1", "c")) && !isHeadingKey(ev("1", "a")), "the digit alone or with one modifier is not");
 assert.equal(keyAction(ev("k", "ca"), body), "editor-skip", "Ctrl+Alt+K is not the link shortcut");
 assert.equal(keyAction(ev("k", "ca"), other), "pass", "Ctrl+Alt+K does not open the command bar");
 assert.equal(keyAction(ev("k", "ca", true), other), "pass", "AltGr+K does not open the command bar");
@@ -116,10 +126,11 @@ if (existsSync(tiptap)) {
     if (!existsSync(f)) continue;
     for (const m of readFileSync(f, "utf8").matchAll(/["'`]((?:Mod|Shift|Alt|Ctrl)-[A-Za-z0-9${}._-]+)["'`]\s*[:\]]/g)) specs.add(m[1]);
   }
+  // (Mod-Alt-1..3 are the exception: extensions.ts takes them over, isHeadingKey above)
   const collide = [...specs].filter((s) => /^Mod-Alt-/.test(s) || /^Mod-Shift-[bB]$/.test(s) || s === "Mod-Enter");
   assert.ok(collide.some((s) => s === "Mod-Shift-b") && collide.some((s) => s === "Mod-Enter") && collide.some((s) => s === "Mod-Alt-c" || s === "Mod-Alt-${level}"), `found the colliding TipTap defaults: ${collide}`);
   for (const spec of collide) {
-    const keys = spec.includes("${level}") ? ["1", "2", "3", "4", "5", "6"].map((l) => spec.replace("${level}", l)) : [spec];
+    const keys = spec.includes("${level}") ? ["4", "5", "6"].map((l) => spec.replace("${level}", l)) : [spec];
     for (const s of keys) for (const meta of [false, true]) assert.equal(keyAction(toEvent(s, meta), body), "editor-skip", `TipTap ${s} (${meta ? "Cmd" : "Ctrl"}) must be skipped`);
   }
 }

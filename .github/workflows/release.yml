@@ -296,6 +296,8 @@ jobs:
           node --experimental-strip-types scripts/test-picture-tools.mjs
           node --experimental-strip-types scripts/test-rich-golden.mjs
           node --experimental-strip-types scripts/test-format-bar-layout.mjs
+          node --experimental-strip-types scripts/test-block-format.mjs
+          node --experimental-strip-types scripts/test-block-commands.mjs
           node --experimental-strip-types scripts/test-signature-guard.mjs
           node --experimental-strip-types scripts/test-row-menu.mjs
           node --experimental-strip-types scripts/test-account-order.mjs

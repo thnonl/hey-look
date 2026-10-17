@@ -36,6 +36,10 @@
     "compose.bar.importance",
     "compose.color.orange",
     "compose.color.turquoise",
-    "compose.color.violet"
+    "compose.color.violet",
+    "compose.fmt.styles",
+    "compose.fmt.stylesTip",
+    "compose.fmt.style.normal",
+    "compose.fmt.style.code"
   ]
 }

@@ -1,0 +1,22 @@
+Left, the default
+Centered
+Right
+A longer paragraph that is justified and has a line spacing of one and a half, so that a recipient sees the same rhythm of lines as the sender does in the editor.
+Indented by three steps
+Space after this paragraph
+No space after (the default)
+Everything: centered, indented once, double spacing, space after
+Line spacing 1.15
+Deepest indent
+Bold and a link (https://heylook.app/) in a right aligned paragraph
+
+Heading 1, right
+Heading 2 without space after
+Heading 3, indented twice, space after
+> A quoted paragraph, indented
+> Another one, centered
+- Plain item
+  - Nested plain
+- Centered item
+  - Nested under a centered item
+- Item with double spacing

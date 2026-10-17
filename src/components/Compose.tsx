@@ -3,7 +3,7 @@ import { NodeSelection } from "@tiptap/pm/state";
 import { EditorContent, Node as TipNode, useEditor, type Editor } from "@tiptap/react";
 import {
   BadgeCheck, CalendarClock, CalendarPlus, ChevronDown, FileText, ImagePlus, Info, Lock, LockOpen, Paperclip, Save, Send, ShieldAlert, ShieldCheck, Sparkles, Trash2,
-  Moon, Sun, TriangleAlert, X,
+  TriangleAlert, X,
 } from "lucide-react";
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
@@ -18,6 +18,7 @@ import { setDarkRegion } from "../composePreviewDom";
 import { extractSignature, normalizeHtml, SIG_MARK } from "../signature";
 import { baseExtensions } from "../editor/extensions";
 import { FormatBar, type FormatBarApi } from "../editor/FormatBar";
+import { PreviewSwitch } from "../editor/PreviewSwitch";
 import { setPreviewMode } from "../editor/previewColors";
 import { messageHtml } from "../editor/messageBody";
 import { unwrapBase, type BaseFont } from "../editor/emailHtml";
@@ -631,7 +632,7 @@ export function Compose({ init }: { init: ComposeInit }) {
   const pasteNote = useRef(false); // the "pictures from the web are not pasted" notice is shown once per message
   const editor = useEditor({
     extensions: [
-      ...baseExtensions({ placeholder: t("compose.editor.placeholder"), showOnlyCurrent: false, getBase: () => baseRef.current, focusToolbar: () => barApi.current?.focus() }),
+      ...baseExtensions({ placeholder: t("compose.editor.placeholder"), showOnlyCurrent: false, getBase: () => baseRef.current, focusToolbar: () => barApi.current?.focus(), openStyles: () => barApi.current?.openStyles() }),
       PictureNode,
       SignatureBlock({ mount: (el) => setSigHeads((h) => [...h, el]), unmount: (el) => setSigHeads((h) => h.filter((x) => x !== el)) }),
     ],
@@ -1938,20 +1939,11 @@ export function Compose({ init }: { init: ComposeInit }) {
       )}
 
       <div className="cp-fmt">
-        <FormatBar editor={editor} base={base} variant="compose" apiRef={barApi} host={{ link: { open: () => linkRef.current(), isOpen: link.isOpen, btnRef: linkBtnRef }, insertPicture: () => picRef.current?.click() }} />
+        <FormatBar
+          editor={editor} base={base} variant="compose" apiRef={barApi} host={{ link: { open: () => linkRef.current(), isOpen: link.isOpen, btnRef: linkBtnRef }, insertPicture: () => picRef.current?.click() }}
+          trailing={{ ids: ["pv:light", "pv:dark"], render: (rove) => <PreviewSwitch pv={pv} onChoose={choosePreview} rove={rove} /> }}
+        />
         {link.node}
-        {/* Preview as recipient: a plain pair of toggle buttons (Tab, Space / Enter). The mouse does not take the focus from the editor, so the caret and the selection stay */}
-        <div className="pv-switch" role="group" aria-label={t("compose.preview.label")}>
-          <span className="pv-label" aria-hidden="true">{t("compose.preview.label")}</span>
-          <div className="seg pv-seg">
-            <button type="button" className={pv === "light" ? "on" : ""} aria-pressed={pv === "light"} title={t("compose.preview.lightTip")} aria-label={t("compose.preview.lightTip")} onMouseDown={(e) => e.preventDefault()} onClick={() => choosePreview("light")}>
-              <Sun size={13} aria-hidden /><span className="pv-txt">{t("app.ribbon.themeLight")}</span>
-            </button>
-            <button type="button" className={pv === "dark" ? "on" : ""} aria-pressed={pv === "dark"} title={t("compose.preview.darkTip")} aria-label={t("compose.preview.darkTip")} onMouseDown={(e) => e.preventDefault()} onClick={() => choosePreview("dark")}>
-              <Moon size={13} aria-hidden /><span className="pv-txt">{t("app.ribbon.themeDark")}</span>
-            </button>
-          </div>
-        </div>
       </div>
 
       <div className={`cp-editor cp-pv pv-${pv}`} style={{ ...previewVars(pv), "--cp-font": base.family, "--cp-size": `${base.size}pt` } as React.CSSProperties} ref={bodyRef} onScroll={() => editor && syncPicSel(editor)}>

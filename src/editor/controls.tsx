@@ -1,17 +1,25 @@
 import type { Editor } from "@tiptap/react";
 import {
-  Bold, ChevronDown, Highlighter, ImagePlus, Italic, Link2, List, ListOrdered, RemoveFormatting, Redo2, Strikethrough, Subscript, Superscript, Underline as UnderlineIcon, Undo2,
+  AlignCenter, AlignJustify, AlignLeft, AlignRight, ArrowUpDown, Bold, ChevronDown, Highlighter, ImagePlus, IndentDecrease, IndentIncrease, Italic, Link2, List, ListOrdered, Minus,
+  Plus, RemoveFormatting, Redo2, Strikethrough, Subscript, Superscript, Underline as UnderlineIcon, Undo2,
 } from "lucide-react";
-import { useRef, useState, type ReactNode, type RefObject } from "react";
+import { useEffect, useRef, useState, type ReactNode, type RefObject } from "react";
 import { FloatingMenu, type MenuItem } from "../components/ui";
 import type { Key, Params } from "../i18n";
 import { useT } from "../i18n/react";
 import { kbd, osNow } from "../platform";
 import { FontColorPalette, HighlightPalette, type PaletteClose } from "./ColorPalette";
 import { DEFAULT_FONT_COLOR, pushRecent } from "./colors";
-import { clearFormatting, focusText, toggleScript, selectionColor, selectionFamily, selectionSize, setFamily, setHighlight, setSize, setTextColor, type Uniform } from "./commands";
+import { LINE_HEIGHTS, type Align } from "./blockFormat";
+import {
+  selectionAlign, selectionHasSpaceAfter, selectionLineHeight, selectionListStyle, selectionStyle, listKind, type StyleName,
+} from "./blockCommands";
+import {
+  applyStyle, changeIndent, chooseListStyle, clearFormatting, focusText, insertHorizontalLine, toggleScript, selectionColor, selectionFamily, selectionSize, setAlignment, setFamily, setHighlight,
+  setSize, setSpaceAfterParagraph, setSpacing, setTextColor, type Uniform,
+} from "./commands";
 import type { BaseFont } from "./emailHtml";
-import { FONTS, SIZES, familyName, fontOf, normFamily } from "./fonts";
+import { FONTS, SIZES, familyName, fontOf, normFamily, parseTypedSize } from "./fonts";
 import { BAR_META, type Variant } from "./toolbarLayout";
 
 export type { Variant };
@@ -39,6 +47,17 @@ export interface BarState {
   size: Uniform<number>;
   color: Uniform<string>;
   highlight: Uniform<string>;
+  /** the alignment over the selection (a mixed selection shows left) */
+  align: Align | "left";
+  /** the paragraph style (Normal, Heading 1-3, Quote, Code); null when the selection has several */
+  style: StyleName | null;
+  /** the line spacing ("1.5"; null = single, a mixed selection has no check) and whether every paragraph has space after it */
+  lineHeight: string | null;
+  lineHeightMixed: boolean;
+  spaceAfter: boolean;
+  /** the marker style of the selection's bulleted / numbered lists (null: none, or several) */
+  bulletStyle: string | null;
+  numberStyle: string | null;
 }
 
 export function readBarState(editor: Editor, base: BaseFont): BarState {
@@ -49,14 +68,21 @@ export function readBarState(editor: Editor, base: BaseFont): BarState {
     strike: editor.isActive("strike"),
     subscript: editor.isActive("subscript"),
     superscript: editor.isActive("superscript"),
-    bulletList: editor.isActive("bulletList"),
-    orderedList: editor.isActive("orderedList"),
+    bulletList: listKind(editor.state) === "bullet",
+    orderedList: listKind(editor.state) === "ordered",
     canUndo: editor.can().undo(),
     canRedo: editor.can().redo(),
     family: selectionFamily(editor, base),
     size: selectionSize(editor, base),
     color: selectionColor(editor, "color", base),
     highlight: selectionColor(editor, "backgroundColor", base),
+    align: selectionAlign(editor.state).value,
+    style: selectionStyle(editor.state).value,
+    lineHeight: selectionLineHeight(editor.state).value,
+    lineHeightMixed: selectionLineHeight(editor.state).mixed,
+    spaceAfter: selectionHasSpaceAfter(editor.state),
+    bulletStyle: selectionListStyle(editor.state, false).value,
+    numberStyle: selectionListStyle(editor.state, true).value,
   };
 }
 
@@ -87,6 +113,10 @@ export interface Ctx {
   rove: (id: string) => Rove;
   /** open a control's picker from the More menu (it opens under the More button) */
   openPicker: (id: string) => void;
+  /** which dropdown of the bar is open (font, size, align, styles, insert ...), and how to open or close one; `openVia` "key": the shortcut opened it, so Esc goes back to the text */
+  open: string | null;
+  openVia: "key" | null;
+  setOpen: (id: string | null) => void;
 }
 
 export interface FormatControl {
@@ -111,6 +141,8 @@ export interface MoreEntry {
   id: string;
   variants: readonly Variant[];
   item: (c: Ctx) => MenuItem;
+  /** a row that opens a menu (Line spacing): the menu, drawn under the More button */
+  picker?: (c: Ctx, anchor: RefObject<HTMLElement | null>, trigger: RefObject<HTMLElement | null>, close: () => void) => ReactNode;
 }
 
 // ---------------------------------------------------------------- shared pieces
@@ -171,9 +203,18 @@ function toggle(o: {
 
 const IC = 14;
 
-// ---------------------------------------------------------------- the font box and the size box
+// ---------------------------------------------------------------- the font box, the size box, the styles box
 
-function FontMenu({ c, anchor, trigger, onClose }: { c: Ctx; anchor: RefObject<HTMLElement | null>; trigger: RefObject<HTMLElement | null>; onClose: () => void }) {
+/** Where Esc sends the focus when a shortcut (Ctrl+Shift+S) opened the menu: back to the text. */
+function useTextTrigger(editor: Editor): RefObject<HTMLElement | null> {
+  const ref = useRef<HTMLElement | null>(null);
+  ref.current = { focus: () => focusText(editor) } as unknown as HTMLElement;
+  return ref;
+}
+
+type MenuProps = { c: Ctx; anchor: RefObject<HTMLElement | null>; trigger: RefObject<HTMLElement | null>; onClose: () => void };
+
+function FontMenu({ c, anchor, trigger, onClose }: MenuProps) {
   const cur = c.st.family;
   const baseName = familyName(c.base.family);
   const items: MenuItem[] = [
@@ -189,16 +230,38 @@ function FontMenu({ c, anchor, trigger, onClose }: { c: Ctx; anchor: RefObject<H
   return <FloatingMenu anchor={anchor} trigger={trigger} items={items} minWidth={200} onClose={onClose} />;
 }
 
-function SizeMenu({ c, anchor, trigger, onClose }: { c: Ctx; anchor: RefObject<HTMLElement | null>; trigger: RefObject<HTMLElement | null>; onClose: () => void }) {
+function SizeMenu({ c, anchor, trigger, onClose }: MenuProps) {
   const cur = c.st.size;
   const items: MenuItem[] = SIZES.map((s) => ({ label: String(s), checked: !cur.mixed && cur.value !== null && Math.abs(cur.value - s) < 1e-6, onClick: () => setSize(c.editor, s) }));
   return <FloatingMenu anchor={anchor} trigger={trigger} items={items} minWidth={72} onClose={onClose} />;
 }
 
+/** The rows of the Styles menu: the style, its name, its key, how the row looks. */
+const STYLE_ROWS: readonly { id: StyleName; label: Key; keys: string | null; look?: React.CSSProperties }[] = [
+  { id: "normal", label: "compose.fmt.style.normal", keys: "Ctrl+Shift+N" },
+  { id: "h1", label: "compose.fmt.style.h1", keys: "Ctrl+Alt+1", look: { fontWeight: 700, fontSize: "1.18em" } },
+  { id: "h2", label: "compose.fmt.style.h2", keys: "Ctrl+Alt+2", look: { fontWeight: 700, fontSize: "1.08em" } },
+  { id: "h3", label: "compose.fmt.style.h3", keys: "Ctrl+Alt+3", look: { fontWeight: 700 } },
+  { id: "quote", label: "compose.fmt.style.quote", keys: null, look: { fontStyle: "italic" } },
+  { id: "code", label: "compose.fmt.style.code", keys: null, look: { fontFamily: "Consolas, Menlo, 'Courier New', monospace" } },
+];
+
+function StylesMenu({ c, anchor, trigger, onClose }: MenuProps) {
+  const text = useTextTrigger(c.editor);
+  const items: MenuItem[] = STYLE_ROWS.map((r) => ({
+    label: c.t(r.label),
+    style: r.look,
+    hint: r.keys ? kbd(r.keys) : undefined,
+    checked: c.st.style === r.id,
+    onClick: () => void applyStyle(c.editor, r.id),
+  }));
+  return <FloatingMenu anchor={anchor} trigger={c.openVia === "key" ? text : trigger} items={items} minWidth={190} onClose={onClose} />;
+}
+
 function Box({ c, id, width, text, style, label, tip, Menu }: {
-  c: Ctx; id: string; width: number; text: string; style?: React.CSSProperties; label: string; tip: string; Menu: typeof FontMenu;
+  c: Ctx; id: string; width: number; text: string; style?: React.CSSProperties; label: string; tip: string; Menu: (p: MenuProps) => ReactNode;
 }) {
-  const [open, setOpen] = useState(false);
+  const open = c.open === id;
   const wrap = useRef<HTMLDivElement>(null);
   const btn = useRef<HTMLButtonElement>(null);
   return (
@@ -213,13 +276,13 @@ function Box({ c, id, width, text, style, label, tip, Menu }: {
         aria-haspopup="menu"
         aria-expanded={open}
         onMouseDown={keepSelection}
-        onClick={() => setOpen((o) => !o)}
-        onKeyDown={opensOnDown(() => setOpen(true))}
+        onClick={() => c.setOpen(open ? null : id)}
+        onKeyDown={opensOnDown(() => c.setOpen(id))}
       >
         <span className="fmt-box-txt ellipsis" style={style}>{text}</span>
         <ChevronDown size={12} className="caret" aria-hidden="true" />
       </button>
-      {open && <Menu c={c} anchor={wrap} trigger={btn} onClose={() => setOpen(false)} />}
+      {open && <Menu c={c} anchor={wrap} trigger={btn} onClose={() => c.setOpen(null)} />}
     </div>
   );
 }
@@ -230,21 +293,290 @@ const fontControl: FormatControl = {
     const cur = c.st.family;
     const name = cur.mixed ? "" : cur.value ? (fontOf(cur.value)?.name ?? familyName(cur.value)) : familyName(c.base.family);
     const stack = cur.mixed ? undefined : cur.value ?? c.base.family;
-    return <Box c={c} id="font" width={120} text={name} style={stack ? { fontFamily: normFamily(stack) } : undefined} label={c.t("compose.fmt.font")} tip={c.t("compose.fmt.font")} Menu={FontMenu} />;
+    return <Box c={c} id="font" width={BAR_META.font.width} text={name} style={stack ? { fontFamily: normFamily(stack) } : undefined} label={c.t("compose.fmt.font")} tip={c.t("compose.fmt.font")} Menu={FontMenu} />;
   },
   more: (c) => [{ label: c.t("compose.fmt.font"), hint: "›", onClick: () => c.openPicker("font") }],
   picker: (c, anchor, trigger, close) => <FontMenu c={c} anchor={anchor} trigger={trigger} onClose={close} />,
 };
 
+/**
+ * The size box is an editable combo (as in Word): type a number and press Enter (or Tab) to apply it; Esc or leaving the box puts the old value
+ * back. The arrow button and ArrowDown open the list of the usual sizes. A number outside 1 - 400, or text that is no number, is not applied.
+ */
+function SizeCombo({ c }: { c: Ctx }) {
+  const cur = c.st.size;
+  const shown = cur.mixed || cur.value === null ? "" : String(cur.value);
+  const [text, setText] = useState(shown);
+  const [dirty, setDirty] = useState(false);
+  const open = c.open === "size";
+  const wrap = useRef<HTMLDivElement>(null);
+  const input = useRef<HTMLInputElement>(null);
+  const label = c.t("compose.fmt.fontSize");
+  const optsLabel = c.t("compose.fmt.fontSizeOptions");
+  const rv = c.rove("size");
+  // the box follows the caret as long as the person is not typing in it
+  useEffect(() => {
+    if (!dirty) setText(shown);
+  }, [shown, dirty]);
+  const revert = () => {
+    setDirty(false);
+    setText(shown);
+  };
+  const commit = () => {
+    const n = parseTypedSize(text);
+    setDirty(false);
+    if (n === null) setText(shown);
+    else setSize(c.editor, n); // (the text has the focus again)
+  };
+  return (
+    <div className="fmt-dd fmt-combo" ref={wrap} style={{ width: BAR_META.size.width }}>
+      <input
+        ref={input}
+        type="text"
+        inputMode="decimal"
+        autoComplete="off"
+        spellCheck={false}
+        {...rv}
+        className="fmt-size-in"
+        value={text}
+        title={label}
+        aria-label={label}
+        onChange={(e) => {
+          setText(e.target.value);
+          setDirty(true);
+        }}
+        onFocus={(e) => {
+          rv.onFocus();
+          e.currentTarget.select();
+        }}
+        onBlur={() => dirty && revert()}
+        onKeyDown={(e) => {
+          if (e.key === "Enter" || (e.key === "Tab" && !e.shiftKey && dirty)) {
+            e.preventDefault();
+            e.stopPropagation();
+            commit();
+          } else if (e.key === "Escape") {
+            revert(); // (the bar puts the focus back in the text)
+          } else if (e.key === "ArrowDown") {
+            e.preventDefault();
+            e.stopPropagation();
+            c.setOpen("size");
+          } else if ((e.key === "ArrowLeft" || e.key === "ArrowRight" || e.key === "Home" || e.key === "End") && !e.altKey && !e.ctrlKey && !e.metaKey) {
+            // inside the text the arrows move the caret; at its edge (or with everything selected) they go on to the next control of the bar
+            const el = e.currentTarget;
+            const all = el.selectionStart === 0 && el.selectionEnd === el.value.length;
+            const edge = e.key === "ArrowLeft" ? el.selectionStart === 0 && (all || el.selectionEnd === 0) : e.key === "ArrowRight" ? el.selectionEnd === el.value.length && (all || el.selectionStart === el.value.length) : false;
+            if (!edge) e.stopPropagation();
+          }
+        }}
+      />
+      <button
+        type="button"
+        {...c.rove("size:opts")}
+        className="fmt-size-btn"
+        title={optsLabel}
+        aria-label={optsLabel}
+        aria-haspopup="menu"
+        aria-expanded={open}
+        onMouseDown={keepSelection}
+        onClick={() => c.setOpen(open ? null : "size")}
+        onKeyDown={opensOnDown(() => c.setOpen("size"))}
+      >
+        <ChevronDown size={12} className="caret" aria-hidden="true" />
+      </button>
+      {open && <SizeMenu c={c} anchor={wrap} trigger={input} onClose={() => c.setOpen(null)} />}
+    </div>
+  );
+}
+
 const sizeControl: FormatControl = {
-  id: "size", ...BAR_META.size, rove: ["size"],
-  bar: (c) => {
-    const cur = c.st.size;
-    return <Box c={c} id="size" width={52} text={cur.mixed || cur.value === null ? "" : String(cur.value)} label={c.t("compose.fmt.fontSize")} tip={c.t("compose.fmt.fontSize")} Menu={SizeMenu} />;
-  },
+  id: "size", ...BAR_META.size, rove: ["size", "size:opts"],
+  bar: (c) => <SizeCombo c={c} />,
   more: (c) => [{ label: c.t("compose.fmt.fontSize"), hint: "›", onClick: () => c.openPicker("size") }],
   picker: (c, anchor, trigger, close) => <SizeMenu c={c} anchor={anchor} trigger={trigger} onClose={close} />,
 };
+
+const STYLE_NAME: Record<StyleName, Key> = {
+  normal: "compose.fmt.style.normal", h1: "compose.fmt.style.h1", h2: "compose.fmt.style.h2", h3: "compose.fmt.style.h3", quote: "compose.fmt.style.quote", code: "compose.fmt.style.code",
+};
+
+const stylesControl: FormatControl = {
+  id: "styles", ...BAR_META.styles, rove: ["styles"],
+  bar: (c) => (
+    <Box c={c} id="styles" width={BAR_META.styles.width} text={c.st.style ? c.t(STYLE_NAME[c.st.style]) : ""} label={c.t("compose.fmt.styles")} tip={kbd(c.t("compose.fmt.stylesTip"))} Menu={StylesMenu} />
+  ),
+  more: (c) => [{ label: c.t("compose.fmt.styles"), hint: "›", onClick: () => c.openPicker("styles") }],
+  picker: (c, anchor, trigger, close) => <StylesMenu c={c} anchor={anchor} trigger={trigger} onClose={close} />,
+};
+
+// ---------------------------------------------------------------- alignment, lists, indent, insert
+
+const ALIGNS: readonly { id: Align | "left"; label: Key; icon: ReactNode }[] = [
+  { id: "left", label: "compose.fmt.alignLeft", icon: <AlignLeft size={IC} aria-hidden="true" /> },
+  { id: "center", label: "compose.fmt.alignCenter", icon: <AlignCenter size={IC} aria-hidden="true" /> },
+  { id: "right", label: "compose.fmt.alignRight", icon: <AlignRight size={IC} aria-hidden="true" /> },
+  { id: "justify", label: "compose.fmt.justify", icon: <AlignJustify size={IC} aria-hidden="true" /> },
+];
+const ALIGN_KEYS: Record<string, string> = { left: "Ctrl+L", center: "Ctrl+E", right: "Ctrl+R", justify: "Ctrl+Shift+J" };
+
+function AlignMenu({ c, anchor, trigger, onClose }: MenuProps) {
+  const items: MenuItem[] = ALIGNS.map((a) => ({ label: c.t(a.label), icon: a.icon, hint: kbd(ALIGN_KEYS[a.id]), checked: c.st.align === a.id, onClick: () => void setAlignment(c.editor, a.id) }));
+  return <FloatingMenu anchor={anchor} trigger={trigger} items={items} minWidth={200} onClose={onClose} />;
+}
+
+/** A button with an icon and a caret that opens a menu: the Align and the Insert controls. */
+function IconMenu({ c, id, icon, label, tip, Menu }: { c: Ctx; id: string; icon: ReactNode; label: string; tip: string; Menu: (p: MenuProps) => ReactNode }) {
+  const open = c.open === id;
+  const wrap = useRef<HTMLDivElement>(null);
+  const btn = useRef<HTMLButtonElement>(null);
+  return (
+    <div className="fmt-dd" ref={wrap}>
+      <button
+        ref={btn}
+        type="button"
+        {...c.rove(id)}
+        className="icon-btn fmt-btn fmt-drop"
+        title={tip}
+        aria-label={label}
+        aria-haspopup="menu"
+        aria-expanded={open}
+        onMouseDown={keepSelection}
+        onClick={() => c.setOpen(open ? null : id)}
+        onKeyDown={opensOnDown(() => c.setOpen(id))}
+      >
+        {icon}
+        <ChevronDown size={10} className="caret" aria-hidden="true" />
+      </button>
+      {open && <Menu c={c} anchor={wrap} trigger={btn} onClose={() => c.setOpen(null)} />}
+    </div>
+  );
+}
+
+const alignControl: FormatControl = {
+  id: "align", ...BAR_META.align, rove: ["align"],
+  bar: (c) => {
+    const cur = ALIGNS.find((a) => a.id === c.st.align) ?? ALIGNS[0];
+    return <IconMenu c={c} id="align" icon={cur.icon} label={c.t("compose.fmt.align")} tip={c.t("compose.fmt.align")} Menu={AlignMenu} />;
+  },
+  more: (c) => [{ label: c.t("compose.fmt.align"), icon: <AlignLeft size={IC} />, hint: "›", onClick: () => c.openPicker("align") }],
+  picker: (c, anchor, trigger, close) => <AlignMenu c={c} anchor={anchor} trigger={trigger} onClose={close} />,
+};
+
+const BULLETS: readonly { id: string; label: Key; sample: string }[] = [
+  { id: "disc", label: "compose.fmt.bullet.disc", sample: "•" },
+  { id: "circle", label: "compose.fmt.bullet.circle", sample: "◦" },
+  { id: "square", label: "compose.fmt.bullet.square", sample: "▪" },
+];
+const NUMBERS: readonly { id: string; label: Key; sample: string }[] = [
+  { id: "decimal", label: "compose.fmt.num.decimal", sample: "1." },
+  { id: "lower-alpha", label: "compose.fmt.num.lowerAlpha", sample: "a." },
+  { id: "upper-alpha", label: "compose.fmt.num.upperAlpha", sample: "A." },
+  { id: "lower-roman", label: "compose.fmt.num.lowerRoman", sample: "i." },
+  { id: "upper-roman", label: "compose.fmt.num.upperRoman", sample: "I." },
+];
+
+function ListStyleMenu({ c, ordered, anchor, trigger, onClose }: MenuProps & { ordered: boolean }) {
+  const cur = ordered ? c.st.numberStyle : c.st.bulletStyle;
+  // the sample of the marker is the row's icon (a check replaces it on the current style)
+  const items: MenuItem[] = (ordered ? NUMBERS : BULLETS).map((s) => ({
+    label: c.t(s.label), icon: <span className="fmt-sample" aria-hidden="true">{s.sample}</span>, checked: cur === s.id, onClick: () => void chooseListStyle(c.editor, ordered, s.id),
+  }));
+  return <FloatingMenu anchor={anchor} trigger={trigger} items={items} minWidth={230} onClose={onClose} />;
+}
+
+const toggleList = (c: Ctx, ordered: boolean): void => void (ordered ? c.editor.chain().focus().toggleOrderedList().run() : c.editor.chain().focus().toggleBulletList().run());
+
+/** The bulleted and numbered list buttons: the main part switches the list on and off, the arrow opens the marker styles. */
+function ListSplit({ c, ordered }: { c: Ctx; ordered: boolean }) {
+  const id = ordered ? "numbered" : "bulleted";
+  const on = ordered ? c.st.orderedList : c.st.bulletList;
+  const open = c.open === id;
+  const wrap = useRef<HTMLDivElement>(null);
+  const arrow = useRef<HTMLButtonElement>(null);
+  const label = c.t(ordered ? "compose.fmt.numbered" : "compose.fmt.bulleted");
+  const optsLabel = c.t(ordered ? "compose.fmt.numberOptions" : "compose.fmt.bulletOptions");
+  return (
+    <div className="fmt-split fmt-split-list" ref={wrap}>
+      <button
+        type="button"
+        {...c.rove(id)}
+        className={`icon-btn fmt-btn fmt-main${on ? " on" : ""}`}
+        title={kbd(c.t(ordered ? "compose.fmt.numberedTip" : "compose.fmt.bulletedTip"))}
+        aria-label={label}
+        aria-pressed={on}
+        onMouseDown={keepSelection}
+        onClick={() => {
+          toggleList(c, ordered);
+          focusText(c.editor);
+        }}
+      >
+        {ordered ? <ListOrdered size={IC} aria-hidden="true" /> : <List size={IC} aria-hidden="true" />}
+      </button>
+      <button
+        ref={arrow}
+        type="button"
+        {...c.rove(`${id}:opts`)}
+        className="icon-btn fmt-btn fmt-arrow"
+        title={optsLabel}
+        aria-label={optsLabel}
+        aria-haspopup="menu"
+        aria-expanded={open}
+        onMouseDown={keepSelection}
+        onClick={() => c.setOpen(open ? null : id)}
+        onKeyDown={opensOnDown(() => c.setOpen(id))}
+      >
+        <ChevronDown size={10} aria-hidden="true" />
+      </button>
+      {open && <ListStyleMenu c={c} ordered={ordered} anchor={wrap} trigger={arrow} onClose={() => c.setOpen(null)} />}
+    </div>
+  );
+}
+
+function listControl(ordered: boolean): FormatControl {
+  const id = ordered ? "numbered" : "bulleted";
+  return {
+    id, ...BAR_META[id], rove: [id, `${id}:opts`],
+    bar: (c) => <ListSplit c={c} ordered={ordered} />,
+    more: (c) => [
+      {
+        label: c.t(ordered ? "compose.fmt.numbered" : "compose.fmt.bulleted"),
+        icon: ordered ? <ListOrdered size={IC} /> : <List size={IC} />,
+        checked: isOn(ordered ? c.st.orderedList : c.st.bulletList),
+        onClick: () => toggleList(c, ordered),
+      },
+      { label: c.t(ordered ? "compose.fmt.numberOptions" : "compose.fmt.bulletOptions"), hint: "›", onClick: () => c.openPicker(id) },
+    ],
+    picker: (c, anchor, trigger, close) => <ListStyleMenu c={c} ordered={ordered} anchor={anchor} trigger={trigger} onClose={close} />,
+  };
+}
+
+function InsertMenu({ c, anchor, trigger, onClose }: MenuProps) {
+  const items: MenuItem[] = [{ label: c.t("compose.fmt.hr"), icon: <Minus size={IC} />, onClick: () => void insertHorizontalLine(c.editor) }];
+  return <FloatingMenu anchor={anchor} trigger={trigger} items={items} minWidth={190} onClose={onClose} />;
+}
+
+const insertControl: FormatControl = {
+  id: "insert", ...BAR_META.insert, rove: ["insert"],
+  bar: (c) => <IconMenu c={c} id="insert" icon={<Plus size={IC} aria-hidden="true" />} label={c.t("compose.fmt.insert")} tip={c.t("compose.fmt.insert")} Menu={InsertMenu} />,
+  // out of the bar, its rows (Horizontal line) are in the More menu anyway
+  more: () => [],
+  picker: (c, anchor, trigger, close) => <InsertMenu c={c} anchor={anchor} trigger={trigger} onClose={close} />,
+};
+
+/** Line spacing and space after the paragraph (a row of the More menu opens it). */
+function SpacingMenu({ c, anchor, trigger, onClose }: MenuProps) {
+  const items: MenuItem[] = [
+    ...LINE_HEIGHTS.map((n) => {
+      const value = n === 1 ? null : String(n);
+      return { label: n.toFixed(n === 1.15 ? 2 : 1), checked: !c.st.lineHeightMixed && c.st.lineHeight === value, onClick: () => void setSpacing(c.editor, value) };
+    }),
+    { divider: true },
+    c.st.spaceAfter
+      ? { label: c.t("compose.fmt.spacingRemoveAfter"), onClick: () => void setSpaceAfterParagraph(c.editor, false) }
+      : { label: c.t("compose.fmt.spacingAddAfter"), onClick: () => void setSpaceAfterParagraph(c.editor, true) },
+  ];
+  return <FloatingMenu anchor={anchor} trigger={trigger} items={items} minWidth={230} onClose={onClose} />;
+}
 
 // ---------------------------------------------------------------- colour and highlight (split buttons)
 
@@ -355,8 +687,12 @@ export const CONTROLS: readonly FormatControl[] = [
   toggle({ id: "strike", label: "compose.fmt.strike", tip: null, icon: <Strikethrough size={IC} />, on: (s) => s.strike, run: (c) => void c.editor.chain().focus().toggleStrike().run() }),
   colorControl,
   highlightControl,
-  toggle({ id: "bulleted", label: "compose.fmt.bulleted", tip: "compose.fmt.bulletedTip", icon: <List size={IC} />, on: (s) => s.bulletList, run: (c) => void c.editor.chain().focus().toggleBulletList().run() }),
-  toggle({ id: "numbered", label: "compose.fmt.numbered", tip: "compose.fmt.numberedTip", icon: <ListOrdered size={IC} />, on: (s) => s.orderedList, run: (c) => void c.editor.chain().focus().toggleOrderedList().run() }),
+  listControl(false),
+  listControl(true),
+  toggle({ id: "indentLess", label: "compose.fmt.indentLess", tip: "compose.fmt.indentLessTip", icon: <IndentDecrease size={IC} />, run: (c) => void changeIndent(c.editor, -1) }),
+  toggle({ id: "indentMore", label: "compose.fmt.indentMore", tip: "compose.fmt.indentMoreTip", icon: <IndentIncrease size={IC} />, run: (c) => void changeIndent(c.editor, 1) }),
+  alignControl,
+  stylesControl,
   {
     id: "link", ...BAR_META.link, rove: ["link"],
     bar: (c) => (
@@ -369,6 +705,7 @@ export const CONTROLS: readonly FormatControl[] = [
     bar: (c) => <Tool c={c} id="picture" icon={<ImagePlus size={IC} />} label={c.t("compose.fmt.insertPicture")} tip={kbd(c.t("compose.bar.insertPictureTip"))} run={() => c.host.insertPicture?.()} />,
     more: (c) => [{ label: c.t("compose.fmt.insertPicture"), icon: <ImagePlus size={IC} />, hint: kbd("Ctrl+Shift+P"), onClick: () => c.host.insertPicture?.() }],
   },
+  insertControl,
   toggle({ id: "clear", label: "compose.fmt.clear", tip: "compose.fmt.clearTip", icon: <RemoveFormatting size={IC} />, tipParams: () => ({ keys: osNow() === "macos" ? "Cmd+\\" : "Ctrl+Space" }), run: (c) => void clearFormatting(c.editor) }),
 ];
 
@@ -380,6 +717,15 @@ export const MORE_ITEMS: readonly MoreEntry[] = [
   {
     id: "superscript", variants: ["compose", "compact"],
     item: (c) => ({ label: c.t("compose.fmt.superscript"), icon: <Superscript size={IC} />, hint: kbd("Ctrl+Shift+="), checked: isOn(c.st.superscript), onClick: () => void toggleScript(c.editor, "superscript") }),
+  },
+  {
+    id: "spacing", variants: ["compose", "compact"],
+    item: (c) => ({ label: c.t("compose.fmt.spacing"), icon: <ArrowUpDown size={IC} />, hint: "›", onClick: () => c.openPicker("spacing") }),
+    picker: (c, anchor, trigger, close) => <SpacingMenu c={c} anchor={anchor} trigger={trigger} onClose={close} />,
+  },
+  {
+    id: "hr", variants: ["compose", "compact"],
+    item: (c) => ({ label: c.t("compose.fmt.hr"), icon: <Minus size={IC} />, onClick: () => void insertHorizontalLine(c.editor) }),
   },
 ];
 

@@ -728,6 +728,9 @@ mod tests {
             "text-align:justify", "line-height:1.15", "margin:0 0 0 40px", "margin-top:1px", "margin-right:1px", "margin-bottom:1px", "margin-left:1px", "padding:0", "padding-left:1ex",
             "border:0", "border-top:1px solid #bfbfbf", "border-left:2px solid #ccc", "border-collapse:collapse", "width:100%", "height:auto", "max-width:100%", "vertical-align:top",
             "list-style-type:lower-alpha", "direction:rtl", "white-space:pre-wrap",
+            // the paragraph formats (WP5b): space after, indent, alignment, line spacing, every marker of a list
+            "margin:0 0 10pt 40px", "margin:12pt 0 0 80px", "margin:0 0 0 320px", "margin:12pt 0 10pt", "text-align:center", "text-align:right", "line-height:1.5", "line-height:2", "line-height:1.15",
+            "list-style-type:disc", "list-style-type:circle", "list-style-type:square", "list-style-type:decimal", "list-style-type:upper-alpha", "list-style-type:lower-roman", "list-style-type:upper-roman",
         ] {
             let html = format!(r#"<span style="{prop}">x</span>"#);
             assert_eq!(clean(&html), html, "{prop}");
@@ -738,6 +741,25 @@ mod tests {
         }
         // and nothing else of the editor leaks: classes other than the signature's, ids, data-*
         assert_eq!(clean(r#"<p class="x" id="y" data-z="1">a</p><div class="sig">b</div>"#), r#"<p>a</p><div class="sig">b</div>"#);
+    }
+
+    /// REQ-17 .. REQ-20: the whole of what the paragraph formats write (editor/emailHtml.ts, blockFormat.ts) passes untouched, and a hostile value does not.
+    #[test]
+    fn paragraph_formats_pass_and_hostile_values_do_not() {
+        for html in [
+            r#"<p style="margin:0 0 10pt 40px;text-align:center;line-height:2">x</p>"#,
+            r#"<p style="margin:0 0 0 320px;text-align:justify;line-height:1.15">x</p>"#,
+            r#"<h2 style="font-size:14pt;font-weight:bold;margin:12pt 0 0 80px;text-align:right">x</h2>"#,
+            r#"<ol type="A" start="4" style="list-style-type:upper-alpha;margin:0 0 0 40px;padding:0"><li><p style="margin:0;text-align:center">x</p></li></ol>"#,
+            r#"<ol type="I" style="list-style-type:upper-roman;margin:0 0 0 40px;padding:0"><li>x</li></ol>"#,
+            r#"<ul style="list-style-type:square;margin:0 0 0 40px;padding:0"><li>x</li></ul>"#,
+        ] {
+            assert_eq!(clean(html), html);
+        }
+        // anything that is not a plain value of these properties is taken out, the rest of the paragraph stays
+        assert_eq!(clean(r#"<p style="text-align:center;line-height:expression(alert(1));margin:0">x</p>"#), r#"<p style="text-align:center;margin:0">x</p>"#);
+        assert_eq!(clean(r#"<ul style="list-style-type:url(javascript:x);margin:0">x</ul>"#), r#"<ul style="margin:0">x</ul>"#);
+        assert_eq!(clean(r#"<p style="margin-left:url(x)">x</p>"#), "<p>x</p>");
     }
 
     /// The golden files of the editor's serializer (scripts/fixtures/rich/*.html, checked against the editor documents by
@@ -758,7 +780,7 @@ mod tests {
             assert_eq!(out, html, "{name}: the sanitiser changed what the editor wrote");
             n += 1;
         }
-        assert!(n >= 10, "{n} golden files found");
+        assert!(n >= 12, "{n} golden files found");
     }
 
     #[test]
