@@ -1,0 +1,16 @@
+---------- Forwarded message ----------
+From: Ann
+
+Thanks for the quick turnaround! A few comments inline:
+
+1. The logo should be red, not yellow.
+2. See the design doc (https://www.example.com/design?utm_source=mail&utm_medium=link).
+
+On Thu, Oct 15, 2026 at 4:41 PM Lena Vu <lena@example.com> wrote:
+> Hi Tom,
+>
+> Please review the attached mockups.
+>
+> Lena Vu
+> Design Lead
+> example.com (https://example.com)

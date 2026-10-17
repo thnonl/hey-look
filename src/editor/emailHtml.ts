@@ -15,10 +15,12 @@
 //                  border="0" and cells with the padding only; a header cell is a <th> with font-weight:bold). With the message's default font the cells repeat it
 //                  (classic Outlook does not inherit a font into a table).
 //   picture        <img src alt width style="max-width:100%;height:auto">, in <a href> for a picture link, in <div style="text-align:center"> for centre / right
+//   quote block    <br><div class="hl-quote"><div>On .., Ann wrote:</div><blockquote style="..">the original</blockquote></div> (quoteBlock.ts; a forward has no blockquote)
 //   everything     inside one wrapper with the message's default font (`wrapBase`)
 
 import { normFamily, normSize, ptText, sizePt } from "./fonts.ts";
 import { normColor } from "./colors.ts";
+import { QUOTE_STYLE, quoteSentHtml } from "./quoteBlock.ts";
 import { defaultListStyle, marginCss, normListStyle, olType, tailCss, type BlockAttrs } from "./blockFormat.ts";
 
 export interface JsonNode {
@@ -42,7 +44,6 @@ const LIST_BOX = "margin:0 0 0 40px;padding:0";
 const paragraphStyle = (a: BlockAttrs): string => marginCss("0", "0", a) + tailCss(a);
 const headingStyle = (level: number, a: BlockAttrs): string => `${HEADING_FONT[level]};${marginCss("12pt", "4pt", a)}${tailCss(a)}`;
 const blockAttrs = (n: JsonNode): BlockAttrs => (n.attrs ?? {}) as BlockAttrs;
-export const QUOTE_STYLE = "margin:0 0 0 .8ex;border-left:2px solid #ccc;padding-left:1ex";
 export const MONO = "Consolas,Menlo,'Courier New',monospace";
 const PRE_STYLE = `font-family:${MONO};font-size:10pt;white-space:pre-wrap;background-color:#f4f4f4;padding:8px;margin:0`;
 const CODE_STYLE = `font-family:${MONO};font-size:10pt;background-color:#f4f4f4`;
@@ -238,6 +239,11 @@ function blockHtml(n: JsonNode, depth = 0, base?: BaseFont): string {
       return imageHtml(n, true);
     case "signatureBlock":
       return "<div data-sig-block></div>"; // the marker the signature is put in place of (signature.ts)
+    case "quoteBlock": {
+      // the quoted original of a reply / forward (quoteBlock.ts): written as it was cleaned, not re-read through the schema
+      const a = n.attrs ?? {};
+      return quoteSentHtml({ kind: a.kind === "forward" ? "forward" : "reply", head: String(a.head ?? ""), html: String(a.html ?? "") });
+    }
     case "text":
     case "hardBreak":
       return inlineHtml([n]);

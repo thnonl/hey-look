@@ -1,0 +1,18 @@
+On Fri, 16 Oct 2026, Ann Lee <ann@example.com> wrote:
+> Hi Tom,
+>
+> Short plain text mail, sent from a script:
+>
+>   * item one
+>   * item two with a long line that does not wrap because the mail was written in a plain text client and the sender never pressed Enter
+>
+> Visit https://example.com/path?a=1&b=2 or write to <ops@example.com>.
+> Special characters: < > & " ' and 100% done.
+>
+> > On Mon, Oct 12, 2026 at 11:05 AM, Ivan Petrov wrote:
+> > > Which option do we take?
+> > Option B.
+>
+> --
+> Nora Fox
+> Product
