@@ -1527,6 +1527,8 @@ function AiTab() {
   const [modelsState, setModelsState] = useState<"idle" | "loading" | "error">("idle");
   const [modelsErr, setModelsErr] = useState("");
   const [ready, setReady] = useState(false);
+  // Save (or Remove the saved key) failed: said in the slot under Save, in place of the model list's text, until something is typed or tried again
+  const [saveErr, setSaveErr] = useState("");
   // the Model control is a list when the endpoint listed models and a text box otherwise. It is never swapped under the user's hands: while
   // it has focus it keeps its kind (the list that arrives, or goes, is adopted when focus leaves), so focus and caret stay where they are
   const [modelFocused, setModelFocused] = useState(false);
@@ -1568,19 +1570,38 @@ function AiTab() {
       setReady(true);
     });
   }, []);
+  // typing clears it (an effect on the values would also clear an error that arrives right after Save emptied the key box)
+  const edit = (patch: Partial<typeof v>) => (setSaveErr(""), setV({ ...v, ...patch }));
   const save = async () => {
-    await Promise.all([api.setSetting("ai_endpoint", v.ai_endpoint), api.setSetting("ai_model", v.ai_model)]);
-    if (key.trim()) {
-      await api.setSecret("ai_key", key.trim());
-      setHasKey(true);
-      setKey("");
+    setSaveErr("");
+    try {
+      await Promise.all([api.setSetting("ai_endpoint", v.ai_endpoint), api.setSetting("ai_model", v.ai_model)]);
+      if (key.trim()) {
+        await api.setSecret("ai_key", key.trim());
+        setHasKey(true);
+        setKey("");
+      }
+      await refreshAi();
+      showToast(t("settings.ai.saved"), undefined, "success");
+    } catch (e) {
+      // what was typed stays in the boxes (nothing above is cleared before it worked); the reason is cut like the model list's so both lines of the slot hold the sentence
+      setSaveErr(t("settings.ai.saveFailed", { error: cutAtWord(friendlyError(e), 70) }));
     }
-    await refreshAi();
-    showToast(t("settings.ai.saved"), undefined, "success");
+  };
+  const removeKey = async () => {
+    setSaveErr("");
+    try {
+      await api.setSecret("ai_key", "");
+      setHasKey(false);
+      keyRef.current?.focus();
+    } catch (e) {
+      setSaveErr(t("settings.ai.removeKeyFailed", { error: cutAtWord(friendlyError(e), 70) }));
+    }
   };
   const modelFocus = { onFocus: () => (setHeldList(asList), setModelFocused(true)), onBlur: () => setModelFocused(false) };
   // what the model list is doing, in the slot under Save: the slot is always there (two lines high), so these texts coming and going move nothing
-  const status = modelsState === "loading" ? t("settings.ai.loadingModels")
+  const status = saveErr ? saveErr
+    : modelsState === "loading" ? t("settings.ai.loadingModels")
     : modelsState === "error" ? t("settings.ai.modelsError", { error: modelsErr })
     : models.length === 0 && v.ai_endpoint.trim() ? t("settings.ai.noModels") : "";
   return (
@@ -1589,31 +1610,31 @@ function AiTab() {
       <div className="muted small">{t("settings.ai.intro")}</div>
       <div className="form">
         <label>{t("settings.ai.baseUrl")}</label>
-        <input aria-label={t("settings.ai.baseUrl")} placeholder="https://api.openai.com/v1" value={v.ai_endpoint} onChange={(e) => setV({ ...v, ai_endpoint: e.target.value })} />
+        <input aria-label={t("settings.ai.baseUrl")} placeholder="https://api.openai.com/v1" value={v.ai_endpoint} onChange={(e) => edit({ ai_endpoint: e.target.value })} />
         {/* the link to remove the saved key sits on the label's line: it appears after Save without moving the fields below */}
         <div className="field">
           <div className="field-head">
             <label>{t("settings.ai.apiKey")}</label>
             {hasKey && (
-              <button className="link small" onClick={async () => { await api.setSecret("ai_key", ""); setHasKey(false); keyRef.current?.focus(); }}>{t("settings.ai.removeKey")}</button>
+              <button className="link small" onClick={() => void removeKey()}>{t("settings.ai.removeKey")}</button>
             )}
           </div>
-          <input ref={keyRef} aria-label={t("settings.ai.apiKey")} type="password" value={key} onChange={(e) => setKey(e.target.value)} placeholder={hasKey ? t("settings.add.savedIn", { store: credStore() }) : t("settings.ai.keyOptional")} />
+          <input ref={keyRef} aria-label={t("settings.ai.apiKey")} type="password" value={key} onChange={(e) => (setSaveErr(""), setKey(e.target.value))} placeholder={hasKey ? t("settings.add.savedIn", { store: credStore() }) : t("settings.ai.keyOptional")} />
         </div>
         <label>{t("settings.ai.model")}</label>
         {asList ? (
-          <select aria-label={t("settings.ai.model")} value={v.ai_model} onChange={(e) => setV({ ...v, ai_model: e.target.value })} {...modelFocus}>
+          <select aria-label={t("settings.ai.model")} value={v.ai_model} onChange={(e) => edit({ ai_model: e.target.value })} {...modelFocus}>
             {!v.ai_model && <option value="">{t("settings.ai.chooseModel")}</option>}
             {/* the saved model stays selectable even when the endpoint does not list it */}
             {v.ai_model && !models.includes(v.ai_model) && <option value={v.ai_model}>{t("settings.ai.modelSaved", { model: v.ai_model })}</option>}
             {models.map((m) => <option key={m} value={m}>{m}</option>)}
           </select>
         ) : (
-          <input aria-label={t("settings.ai.model")} value={v.ai_model} placeholder={t("settings.ai.modelPlaceholder")} onChange={(e) => setV({ ...v, ai_model: e.target.value })} {...modelFocus} />
+          <input aria-label={t("settings.ai.model")} value={v.ai_model} placeholder={t("settings.ai.modelPlaceholder")} onChange={(e) => edit({ ai_model: e.target.value })} {...modelFocus} />
         )}
         <div className="ai-actions">
           <button className="btn primary" onClick={() => void save()}>{t("common.save")}</button>
-          <div className="ai-status muted small" role="status" title={status || undefined}>{status}</div>
+          <div className={`ai-status small ${saveErr ? "bad" : "muted"}`} role="status" title={status || undefined}>{status}</div>
         </div>
       </div>
     </div>

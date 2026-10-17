@@ -1094,7 +1094,8 @@ export function installMock() {
       // #aiset: the AI Assistant is set up (Translate / Summarize can be tried with #slowai / #failai)
       case "get_setting": return settings[a.key as string] ?? (a.key === "prefs" && hashTokens().has("lang") ? JSON.stringify({ language: hashTokens().get("lang") }) : null) ?? (hashHas("aiset") && (a.key === "ai_endpoint" || a.key === "ai_model") ? "mock" : null);
       case "first_run_hint": { const d = Number(hashTokens().get("firstrun")); return d > 0 ? Date.now() - d * 86_400_000 : null; } // `#firstrun=90`: the database is 90 days old (an install from before the support reminder)
-      case "set_setting": settings[a.key as string] = a.value as string; if (persistSettings) localStorage.setItem("hl-mock-settings", JSON.stringify(settings)); return null;
+      // a settings save that fails (Settings > AI Assistant shows it under Save): a Base URL with "savefail" in it, a key "keyfail", and #removefail for Remove the saved key
+      case "set_setting": if (a.key === "ai_endpoint" && String(a.value).includes("savefail")) return later(200, () => { throw new Error("The settings database could not be written: disk I/O error (code 10)"); }); settings[a.key as string] = a.value as string; if (persistSettings) localStorage.setItem("hl-mock-settings", JSON.stringify(settings)); return null;
       // #nojunk: the second mailbox's server has no Junk folder (the saved list does not name one): its Junk row and the Junk actions go
       case "list_folders": return hashHas("nojunk") ? folders.map((f) => (f.accountId === "a2" && f.key === "junk" ? { ...f, listed: false } : f)) : folders;
       case "list_threads": {
@@ -1387,7 +1388,7 @@ export function installMock() {
         if (!busyUntil) busyUntil = Date.now() + 8000;
         return Date.now() < busyUntil;
       }
-      case "has_secret": return a.key === "ai_key" && mockSecrets.has("ai_key");
+      case "has_secret": return a.name === "ai_key" && mockSecrets.has("ai_key");
       case "google_env_configured": case "microsoft_env_configured": return false;
       case "microsoft_tenant": return "";
       case "discover_server": {
@@ -1396,7 +1397,8 @@ export function installMock() {
         const domain = email.split("@")[1] ?? "example.com";
         return { imapHost: `imap.${domain}`, imapPort: 993, imapSsl: true, smtpHost: `smtp.${domain}`, smtpPort: 587, smtpSecurity: "starttls", username: email, oauth: null, source: "autoconfig" };
       }
-      case "set_secret": if (a.key === "ai_key") { if (String(a.value ?? "")) mockSecrets.set("ai_key", String(a.value)); else mockSecrets.delete("ai_key"); } return null;
+      case "set_secret": if (a.name === "ai_key" && (String(a.value ?? "") === "keyfail" || (!String(a.value ?? "") && hashHas("removefail")))) return later(200, () => { throw new Error("The credential store refused the request: the keychain is locked (OSStatus -25308)"); });
+        if (a.name === "ai_key") { if (String(a.value ?? "")) mockSecrets.set("ai_key", String(a.value)); else mockSecrets.delete("ai_key"); } return null;
       // the headers an answer needs (the real command reads them from the server's copy): Reply-To only on the probe message
       case "reply_headers": return a.messageId === "m-rt"
         ? { messageId: "<m-rt@acme.example>", references: ["<root@acme.example>", "<m-rt@acme.example>"], replyTo: ['"Acme Support" <support@acme.example>'], from: '"Acme No Reply" <no-reply@acme.example>', to: ["nam@example.com", '"Doe, John" <john@acme.example>', "JOHN@acme.example", "y@acme.example"], cc: ['"Cc, Person" <cc@acme.example>', "nam@gmail.com"] }

@@ -718,6 +718,7 @@ button.ov-tag:hover { background: color-mix(in srgb, var(--accent), transparent 
 .field-head .link { flex: none; }
 /* Save and under it the status of the model list (Loading... / could not load / no models): a fixed two-line slot, so the texts coming and going move nothing */
 .form .ai-actions { display: flex; flex-direction: column; gap: 8px; }
+.ai-status.bad { color: var(--danger); }
 .ai-status { margin-bottom: -24px; /* its second line sits in the pane's bottom padding (28px), so a window that held this tab before still does */ height: 2.8em; line-height: 1.4; overflow: hidden; display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; }
 .advanced > summary { cursor: pointer; color: var(--muted); font-size: .86em; padding: 4px 0; min-height: 24px; }
 .advanced > .form { margin-top: 14px; }
