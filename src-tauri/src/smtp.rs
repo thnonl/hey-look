@@ -93,6 +93,10 @@ pub struct Draft {
     /// Outlook's Importance: High / Low add the importance headers (see importance.rs); Normal adds none. Old queued items have no field.
     #[serde(default)]
     pub importance: crate::importance::Importance,
+    /// Only for a DRAFT: the id of the crash-recovery snapshot of the message. It is written at the start of the draft's Message-ID, which is how the
+    /// next start finds the draft of a snapshot instead of making a second one (recover.rs). Never part of a message that is sent.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub recovery_id: Option<String>,
 }
 
 /// Outlook's Sensitivity header. Lettre has no typed header for it.
@@ -252,9 +256,10 @@ raw_recipients!(RawBcc, "Bcc");
 /// a draft gets an explicit envelope (from the account to the account; it is never sent, the envelope is not part of the text) and
 /// recipients that are not valid addresses are written as typed. A message that is SENT is built strict (`lenient = false`).
 /// `<random@domain-of-the-account>`: no host name of this computer is written into the draft.
-fn draft_message_id(email: &str) -> String {
+/// A draft of a message that has a crash-recovery snapshot starts it with the snapshot's id (`recover::draft_message_id`).
+fn draft_message_id(email: &str, recovery_id: Option<&str>) -> String {
     let domain = email.rsplit_once('@').map(|(_, d)| d.trim()).filter(|d| !d.is_empty()).unwrap_or("heylook.invalid");
-    format!("<{}@{}>", uuid::Uuid::new_v4().simple(), domain)
+    crate::recover::draft_message_id(recovery_id, domain, chrono::Utc::now().timestamp())
 }
 
 /// `<random@domain-of-the-account>` for a message that is SENT: the Message-ID is made here, not left to lettre (which writes the name of this
@@ -272,7 +277,7 @@ fn headers(acc: &Account, d: &Draft, lenient: bool) -> R<lettre::message::Messag
     if lenient {
         // A draft carries its own Message-ID: the sync derives the draft's thread from it, so Save draft can tell the app which thread the
         // draft will be (an "Edit" action can open it again). Mail that is sent keeps getting its Message-ID from the server.
-        b = b.message_id(Some(draft_message_id(&acc.email)));
+        b = b.message_id(Some(draft_message_id(&acc.email, d.recovery_id.as_deref())));
         b = b.envelope(lettre::address::Envelope::new(Some(me.clone()), vec![me]).map_err(err)?);
         // The Bcc header stays in the DRAFT copy (QA round 17 BUG-01: lettre drops it by default, so a saved draft lost its Bcc recipients and
         // sending the reopened draft silently skipped them). It is only the person's own Drafts folder; a message that is SENT is built below
@@ -758,6 +763,7 @@ pub(crate) mod tests {
             calendar: None,
             confidential: false,
             importance: Default::default(),
+            recovery_id: None,
         }
     }
 

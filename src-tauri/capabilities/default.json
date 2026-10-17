@@ -68,6 +68,7 @@
     "allow-recovery-clear",
     "allow-recovery-list",
     "allow-recovery-load",
+    "allow-recovery-save-draft",
     "allow-list-outbox",
     "allow-cancel-outbox",
     "allow-outbox-pending-count",

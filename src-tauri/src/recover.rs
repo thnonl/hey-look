@@ -2,7 +2,9 @@
 //!
 //! The text of a message that is being written lived only in the window: a kill, a crash or a power cut lost everything typed since the
 //! last Save draft. Compose now writes a snapshot of itself every few seconds (when something changed) and removes it as soon as the message
-//! is sent, discarded or saved; whatever is still here at the next start is offered back ("Restore unsaved message").
+//! is sent, discarded or saved; whatever is still here at the next start is saved as a real draft (1.0.6: no question any more, the interface
+//! tells the person with a toast) and the snapshot goes once the draft is confirmed on the server. When that cannot be done the snapshot stays
+//! and the message is kept on this computer.
 //!
 //! A snapshot is one row of `compose_recovery` (the form of the message, opaque JSON from the interface) plus its attachments in
 //! `compose_recovery_files` (the bytes, not base64). One transaction writes both, so a kill in the middle leaves the previous snapshot, never a
@@ -135,14 +137,75 @@ pub fn counts(c: &Connection) -> R<(usize, usize)> {
     Ok((rows as usize, hidden as usize))
 }
 
-/// The line `startup.log` gets when the start looks for snapshots: what was found and whether the question will be asked. `offered` is what
-/// `list` returned, `hidden` the rows of accounts that are not loaded. No subject, no text: only counts.
-pub fn decision_text(offered: usize, hidden: usize) -> String {
-    match (offered, hidden) {
+/// The line `startup.log` gets when the start looks for snapshots: what was found and what happens to it. `offered` is what `list`
+/// returned, `dropped` the rows of accounts that no longer exist (removed now). No subject, no text: only counts.
+pub fn decision_text(offered: usize, dropped: usize) -> String {
+    match (offered, dropped) {
         (0, 0) => "none".into(),
-        (0, h) => format!("skipped ({h} snapshot(s) belong to an account that is not loaded)"),
-        (n, 0) => format!("{n} snapshot(s) found, offering restore"),
-        (n, h) => format!("{n} snapshot(s) found, offering restore ({h} more belong to an account that is not loaded)"),
+        (0, d) => format!("{d} snapshot(s) of an account that no longer exists dropped"),
+        (n, 0) => format!("{n} snapshot(s) found, saving them as drafts"),
+        (n, d) => format!("{n} snapshot(s) found, saving them as drafts ({d} more of an account that no longer exists dropped)"),
+    }
+}
+
+// ---- the identity of a draft made from a snapshot --------------------------------------------------------------------------------
+//
+// Every draft Compose saves (autosave, Save draft, leaving) carries the id of its message's snapshot at the start of its Message-ID:
+// `<{snapshot id}.{seconds}.{random}@{domain of the account}>`. At the next start that is how a snapshot finds its draft on the server: a kill
+// between "the draft was saved" and "the snapshot was removed" must not turn into a second draft, and an older draft of the same message is
+// replaced, never joined by a copy.
+
+/// A snapshot id as it is written into a Message-ID (the ids of Compose are uuids).
+pub fn id_in_message_id(id: &str) -> bool {
+    valid_id(id)
+}
+
+/// The Message-ID of a draft: the snapshot id (when there is one) and the second it was saved, then a random part.
+pub fn draft_message_id(recovery_id: Option<&str>, domain: &str, secs: i64) -> String {
+    let random = uuid::Uuid::new_v4().simple();
+    match recovery_id.filter(|r| valid_id(r)) {
+        Some(r) => format!("<{r}.{secs}.{random}@{domain}>"),
+        None => format!("<{random}@{domain}>"),
+    }
+}
+
+/// What a Message-ID of a draft of this snapshot starts with (for the server's HEADER search and for checking its answer).
+pub fn message_id_prefix(recovery_id: &str) -> String {
+    format!("<{recovery_id}.")
+}
+
+/// The second a draft of snapshot `recovery_id` was saved, read from its Message-ID.
+pub fn saved_secs(message_id: &str, recovery_id: &str) -> Option<i64> {
+    let rest = message_id.trim().strip_prefix(&message_id_prefix(recovery_id))?;
+    rest.split(['.', '@']).next()?.parse().ok()
+}
+
+/// What to do with a snapshot at the start, given the drafts of the same message that are on the server: `(uid, Message-ID)` of each.
+#[derive(Debug, PartialEq)]
+pub enum Verdict {
+    /// a draft saved at or after the snapshot exists: it holds everything the snapshot has, the snapshot is only removed
+    Covered(u32),
+    /// save the snapshot as a draft and remove these older drafts of the same message, by uid (none = a new one)
+    Save { replace: Vec<u32> },
+}
+
+pub fn verdict(found: &[(u32, String)], recovery_id: &str, snapshot_saved_at: i64) -> Verdict {
+    let mut older = vec![];
+    let mut newest: Option<(i64, u32)> = None;
+    for (uid, mid) in found {
+        match saved_secs(mid, recovery_id) {
+            Some(secs) if secs >= snapshot_saved_at => {
+                if newest.is_none_or(|(s, _)| secs > s) {
+                    newest = Some((secs, *uid));
+                }
+            }
+            Some(_) => older.push(*uid),
+            None => {} // (not ours: left alone)
+        }
+    }
+    match newest {
+        Some((_, uid)) => Verdict::Covered(uid),
+        None => Verdict::Save { replace: older },
     }
 }
 
@@ -286,10 +349,10 @@ mod tests {
         assert!(list(&c).unwrap().is_empty(), "and it stays gone after the next start");
     }
 
-    /// The line the start-up log gets (Linux QA: a start without the question left no trace of why): what was found, what is hidden, and
-    /// whether the question is asked. Counts only, never text.
+    /// The line the start-up log gets (Linux QA: a start without the toast left no trace of why): what was found, what is dropped, and what
+    /// happens to the rest. Counts only, never text.
     #[test]
-    fn the_start_up_log_says_what_was_found_and_whether_the_question_is_asked() {
+    fn the_start_up_log_says_what_was_found_and_what_happens_to_it() {
         let d = dir("rec-log");
         let c = open(&d);
         account(&c, "a1");
@@ -297,18 +360,71 @@ mod tests {
         assert_eq!(say(&c), "none");
         save(&c, &snap("m1", "a1", "one", None), 1).unwrap();
         save(&c, &snap("m2", "a1", "two", None), 2).unwrap();
-        assert_eq!(say(&c), "2 snapshot(s) found, offering restore");
-        // rows of an account that is not loaded are counted apart and never offered
+        assert_eq!(say(&c), "2 snapshot(s) found, saving them as drafts");
+        // rows of an account that no longer exists are counted apart and never listed
         c.execute("INSERT INTO compose_recovery(id,account_id,saved_at,payload) VALUES('m3','ghost',5,'{}')", []).unwrap();
         assert_eq!(counts(&c).unwrap(), (3, 1));
-        assert_eq!(say(&c), "2 snapshot(s) found, offering restore (1 more belong to an account that is not loaded)");
+        assert_eq!(say(&c), "2 snapshot(s) found, saving them as drafts (1 more of an account that no longer exists dropped)");
+        // the start drops them (recovery_list): the next count is clean
+        assert_eq!(prune(&c).unwrap(), 1);
+        assert_eq!(counts(&c).unwrap(), (2, 0));
         clear(&c, "m1").unwrap();
         clear(&c, "m2").unwrap();
-        assert_eq!(say(&c), "skipped (1 snapshot(s) belong to an account that is not loaded)");
+        c.execute("INSERT INTO compose_recovery(id,account_id,saved_at,payload) VALUES('m3','ghost',5,'{}')", []).unwrap();
+        assert_eq!(say(&c), "1 snapshot(s) of an account that no longer exists dropped");
         // `clear` says whether a snapshot was really there (the log only mentions the ones that were)
         save(&c, &snap("m4", "a1", "four", None), 6).unwrap();
         assert_eq!((clear(&c, "m4").unwrap(), clear(&c, "m4").unwrap()), (1, 0));
         assert_eq!(short_id("0123456789abcdef"), "01234567");
+    }
+
+    /// 1.0.6: the identity of a draft made from a snapshot is the snapshot id at the start of its Message-ID.
+    #[test]
+    fn a_draft_of_a_snapshot_is_found_again_by_its_message_id() {
+        let rid = "0f8e7d6c-1111-4222-8333-444455556666";
+        let mid = draft_message_id(Some(rid), "example.com", 1_700_000_123);
+        assert!(mid.starts_with(&message_id_prefix(rid)) && mid.ends_with("@example.com>"), "{mid}");
+        assert_eq!(saved_secs(&mid, rid), Some(1_700_000_123));
+        assert_eq!(saved_secs(&mid, "other-id"), None, "another message's draft is not ours");
+        assert_eq!(saved_secs("<random@example.com>", rid), None);
+        // two saves in the same second still differ
+        assert_ne!(draft_message_id(Some(rid), "example.com", 5), draft_message_id(Some(rid), "example.com", 5));
+        // no snapshot id (or one that is not safe in a header and a search): a plain random id, as before
+        for bad in [None, Some(""), Some("a b"), Some("x\"y"), Some("a>b")] {
+            let m = draft_message_id(bad, "example.com", 5);
+            assert!(m.starts_with('<') && m.ends_with("@example.com>") && !m.contains("..") && m.matches('.').count() == 1, "{m}");
+        }
+        // the real writer puts it there, Compose's other drafts keep the plain form
+        let mut d = crate::smtp::tests::draft("<p>Hi</p>", vec![], vec![]);
+        d.recovery_id = Some(rid.into());
+        let raw = crate::smtp::build_draft(&crate::smtp::tests::account(), &d).unwrap().formatted();
+        let text = String::from_utf8_lossy(&raw).to_string();
+        let line = text.lines().find(|l| l.to_ascii_lowercase().starts_with("message-id:")).unwrap().to_string();
+        assert!(line.contains(&message_id_prefix(rid)), "{line}");
+        d.recovery_id = None;
+        let raw = crate::smtp::build_draft(&crate::smtp::tests::account(), &d).unwrap().formatted();
+        assert!(!String::from_utf8_lossy(&raw).contains(rid));
+        // it is only a draft's business: the payload of a queued message does not carry it unless set
+        assert!(!serde_json::to_string(&d).unwrap().contains("recoveryId"));
+    }
+
+    #[test]
+    fn a_snapshot_is_covered_by_a_newer_draft_replaces_an_older_one_or_makes_a_new_one() {
+        let rid = "aaaa-bbbb";
+        let mid = |secs: i64| format!("<{rid}.{secs}.x@example.com>");
+        // nothing on the server: a new draft
+        assert_eq!(verdict(&[], rid, 100), Verdict::Save { replace: vec![] });
+        // a draft saved after the snapshot (the kill came between the save and the removal of the snapshot): no second draft
+        assert_eq!(verdict(&[(7, mid(120))], rid, 100), Verdict::Covered(7));
+        // saved in the same second: the draft has it all too (the snapshot is written after the change, the draft after that)
+        assert_eq!(verdict(&[(7, mid(100))], rid, 100), Verdict::Covered(7));
+        // older than the snapshot (typed after the last save): the snapshot wins and the old draft goes, in place
+        assert_eq!(verdict(&[(7, mid(90))], rid, 100), Verdict::Save { replace: vec![7] });
+        // several: the newest one that covers decides; a stray older copy is left for the next save to replace
+        assert_eq!(verdict(&[(5, mid(90)), (9, mid(130)), (8, mid(110))], rid, 100), Verdict::Covered(9));
+        assert_eq!(verdict(&[(5, mid(80)), (6, mid(90))], rid, 100), Verdict::Save { replace: vec![5, 6] });
+        // a message that is not one of ours is never touched
+        assert_eq!(verdict(&[(5, "<other@x>".into())], rid, 100), Verdict::Save { replace: vec![] });
     }
 
     #[test]

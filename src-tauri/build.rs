@@ -11,7 +11,7 @@ const APP_COMMANDS: &[&str] = &[
     "list_folders", "list_threads", "get_thread", "thread_action", "prepare_action", "list_senders", "sender_action", "list_blocked", "unblock",
     "list_rules", "save_rule", "delete_rule", "get_raw", "reply_headers", "save_attachments", "attachment_save_as", "attachment_save_all",
     "attachment_open", "attachment_reveal", "pick_folder", "inline_image", "send_message", "save_draft", "draft_recipients", "discard_draft",
-    "recovery_save", "recovery_clear", "recovery_list", "recovery_load", "list_outbox", "cancel_outbox", "outbox_pending_count",
+    "recovery_save", "recovery_clear", "recovery_list", "recovery_load", "recovery_save_draft", "list_outbox", "cancel_outbox", "outbox_pending_count",
     "outbox_open_for_edit", "outbox_release", "outbox_update", "outbox_reschedule", "outbox_retry", "outbox_to_draft", "pgp_list_keys",
     "pgp_generate_key", "pgp_inspect_key", "pgp_import_key", "pgp_import_from_message", "pgp_pick_key_file", "pgp_public_armored",
     "pgp_export_public", "pgp_export_secret", "pgp_delete_key", "pgp_set_verified", "pgp_set_default", "pgp_change_passphrase", "pgp_set_expiry",
