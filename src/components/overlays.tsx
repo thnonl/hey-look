@@ -131,14 +131,14 @@ export function AskHost() {
     if (!ask) return;
     first.current?.focus();
     const onKey = (e: KeyboardEvent) => {
-      if (e.key === "Escape") resolve(ask.choices[0].id);
+      if (e.key === "Escape") resolve(ask.dismiss ?? ask.choices[0].id);
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
   }, [ask, resolve]);
   if (!ask) return null;
   return (
-    <div className="modal-back ask-back" onMouseDown={() => resolve(ask.choices[0].id)}>
+    <div className="modal-back ask-back" onMouseDown={() => resolve(ask.dismiss ?? ask.choices[0].id)}>
       <div className="ask" role="alertdialog" aria-modal="true" aria-label={ask.title} onMouseDown={(e) => e.stopPropagation()}>
         <h3>{ask.title}</h3>
         {ask.body && <p className="muted">{ask.body}</p>}

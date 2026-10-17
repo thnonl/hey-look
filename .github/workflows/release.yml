@@ -313,6 +313,10 @@ jobs:
           node --experimental-strip-types scripts/test-signature-guard.mjs
           node --experimental-strip-types scripts/test-quote.mjs
           node --experimental-strip-types scripts/test-quote-guard.mjs
+          node --experimental-strip-types scripts/test-quote-remote-policy.mjs
+          node --experimental-strip-types scripts/test-insert-pictures.mjs
+          node --experimental-strip-types scripts/test-header-text.mjs
+          node --experimental-strip-types scripts/test-popover-room.mjs
           node --experimental-strip-types scripts/test-change-case.mjs
           node --experimental-strip-types scripts/test-find-replace.mjs
           node --experimental-strip-types scripts/test-signature-picture.mjs
@@ -345,6 +349,10 @@ jobs:
           # the picture resize handles are clipped with the editor pane, and Discard on a reply with nothing typed closes without asking (real panes in the dev preview)
           node scripts/test-picture-handles.mjs
           node scripts/test-compose-discard.mjs
+          # several pictures at once, where a dropped picture goes, "Generate a key" ends, and Discard takes the autosaved draft along (real panes in the dev preview)
+          node scripts/test-compose-pictures.mjs
+          node scripts/test-pgp-generate.mjs
+          node scripts/test-discard-saved-draft.mjs
           # the Symbol popup, the More menu, Find and replace (Replace row on every system) and the picture handles under the dialogs, at 960 x 560 and 1280 x 800
           node scripts/test-compose-popups.mjs
 

@@ -988,6 +988,9 @@ button.pill:hover { filter: brightness(.95); }
 /* the picture toolbar: the anchor spans the pane (Compose.tsx sets its top and the box's margin-left once the toolbar is measured), the box is as wide as the toolbar needs but never wider than the pane, and the items wrap to a second row instead of overlapping */
 .img-tools-anchor { position: absolute; left: 0; right: 0; z-index: 9; pointer-events: none; }
 .img-tools-box { position: relative; width: max-content; max-width: calc(100% - 16px); pointer-events: auto; }
+/* The floating bars of the body (the picture toolbar and its resize handles) are below every popover and menu of the pane, and step aside while one is open: Send later
+   (a sticky action row of a small pane is a box of its own, which is why it has a z-index of its own above them, App.css `.cp-bar`), the suggestions, a recipient's key, a menu */
+body:has(.popover.pinned, .suggest.pinned, .dd-fixed) .img-tools-anchor, body:has(.popover.pinned, .suggest.pinned, .dd-fixed) .pic-handles { visibility: hidden; }
 .img-tools { display: flex; flex-wrap: wrap; align-items: center; gap: 2px; background: var(--bg); border: 1px solid var(--border); border-radius: var(--r-md); box-shadow: var(--shadow); padding: 3px; animation: pop .1s var(--ease); }
 .img-tools > * { flex: none; white-space: nowrap; }
 .img-tools .seg { margin: 0; flex-wrap: nowrap; }
@@ -1172,7 +1175,7 @@ span.spin { display: inline-block; width: 13px; height: 13px; border: 2px solid 
 .suggest.pinned, .popover.pinned, .popover.up.pinned { position: fixed; right: auto; bottom: auto; margin: 0; z-index: var(--z-menu); overflow-y: auto; box-sizing: border-box; }
 
 /* A small pane (composeFit.ts; Compose.tsx adds .compact): one row of actions (Send, Discard and Attach; Discard and Attach as icons) and the rest in More actions, closer rows of fields, a smaller box for the attachments */
-.compose-pane.compact .cp-bar { padding: 4px 10px; row-gap: 4px; position: sticky; top: 0; z-index: 3; background: var(--bg); } /* Send stays in reach while the fields under it scroll */
+.compose-pane.compact .cp-bar { padding: 4px 10px; row-gap: 4px; position: sticky; top: 0; z-index: calc(var(--z-menu) - 1); background: var(--bg); } /* Send stays in reach while the fields under it scroll */
 .compose-pane.compact .cp-ai { padding: 6px 10px; }
 .compose-pane.compact .cp-ai textarea { flex: 1 1 8em; height: 40px; min-height: 0; } /* the Write button stays beside the box, not under it */
 .compose-pane.compact .cp-bar .rb { padding: 7px; }

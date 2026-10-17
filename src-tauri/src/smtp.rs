@@ -152,6 +152,28 @@ fn importance_headers(mut b: lettre::message::MessageBuilder, level: crate::impo
     b
 }
 
+/// Header text that comes from received data (the subject of a reply, the names of the people answered): a line break, a tab and the other white-space
+/// separators become one space each (CR LF counts once), every other control character (C0, DEL, C1) is dropped. Nothing else changes (spaces, case and
+/// order stay: the subject decodes to exactly what the person sees). lettre encodes a raw CR LF inside an RFC 2047 word instead of refusing it, so there is no
+/// header injection without this, but the decoded text would still have two lines (QA round 2 BUG-1). The front end cleans the same way where an answer is made
+/// (src/headerText.ts); this is the defence at the point where the MIME is built.
+pub fn clean_header_text(s: &str) -> String {
+    let mut out = String::with_capacity(s.len());
+    let mut it = s.chars().peekable();
+    while let Some(c) = it.next() {
+        match c {
+            '\r' if it.peek() == Some(&'\n') => {
+                it.next();
+                out.push(' ');
+            }
+            '\r' | '\n' | '\t' | '\u{b}' | '\u{c}' | '\u{85}' | '\u{2028}' | '\u{2029}' => out.push(' '),
+            c if c.is_control() => {}
+            c => out.push(c),
+        }
+    }
+    out
+}
+
 /// A display name made safe to put in front of an address: control characters (header injection) are dropped and runs of
 /// white space collapse to one space.
 fn clean_name(n: &str) -> String {
@@ -272,8 +294,8 @@ fn sent_message_id(me: &Address) -> String {
 
 fn headers(acc: &Account, d: &Draft, lenient: bool) -> R<lettre::message::MessageBuilder> {
     let me = account_address(acc)?;
-    let from = Mailbox::new(Some(acc.display_name.clone()).filter(|n| !n.is_empty()), me.clone());
-    let mut b = Message::builder().from(from).subject(d.subject.clone());
+    let from = Mailbox::new(Some(clean_header_text(&acc.display_name)).filter(|n| !n.is_empty()), me.clone());
+    let mut b = Message::builder().from(from).subject(clean_header_text(&d.subject));
     if lenient {
         // A draft carries its own Message-ID: the sync derives the draft's thread from it, so Save draft can tell the app which thread the
         // draft will be (an "Edit" action can open it again). Mail that is sent keeps getting its Message-ID from the server.
@@ -285,7 +307,7 @@ fn headers(acc: &Account, d: &Draft, lenient: bool) -> R<lettre::message::Messag
         b = b.keep_bcc();
         // each list: typed addresses when every entry is one, else the text as written
         let all_ok = |l: &[String]| l.iter().all(|t| parse_mailbox(t).is_ok());
-        let raw = |l: &[String]| l.iter().map(|t| t.trim()).filter(|t| !t.is_empty()).collect::<Vec<_>>().join(", ");
+        let raw = |l: &[String]| l.iter().map(|t| clean_header_text(t)).map(|t| t.trim().to_string()).filter(|t| !t.is_empty()).collect::<Vec<_>>().join(", ");
         if all_ok(&d.to) {
             for t in &d.to {
                 b = b.to(mailbox(t)?);
@@ -327,11 +349,14 @@ fn headers(acc: &Account, d: &Draft, lenient: bool) -> R<lettre::message::Messag
             b = b.envelope(envelope_of(&me, d)?);
         }
     }
-    if let Some(r) = &d.in_reply_to {
-        b = b.in_reply_to(r.clone());
+    // the ids come from the message answered: one token each, no white space or control character inside
+    let id = |r: &str| clean_header_text(r).split_whitespace().collect::<Vec<_>>().join(" ");
+    if let Some(r) = d.in_reply_to.as_deref().map(id).filter(|r| !r.is_empty()) {
+        b = b.in_reply_to(r);
     }
-    if !d.references.is_empty() {
-        b = b.references(d.references.join(" "));
+    let refs: Vec<String> = d.references.iter().map(|r| id(r)).filter(|r| !r.is_empty()).collect();
+    if !refs.is_empty() {
+        b = b.references(refs.join(" "));
     }
     if d.confidential {
         b = b.header(Sensitivity("Company-Confidential".into()));
@@ -393,8 +418,8 @@ pub fn calendar_part(method: &str, ics: &str) -> R<SinglePart> {
 /// A small iMIP message (reply, update or cancellation): readable text plus the calendar part, from the account to the recipients.
 pub fn build_calendar_mail(acc: &Account, to: &[String], cc: &[String], subject: &str, text: &str, cal: &CalendarPart) -> R<Message> {
     let me = account_address(acc)?;
-    let from = Mailbox::new(Some(acc.display_name.clone()).filter(|n| !n.is_empty()), me.clone());
-    let mut b = Message::builder().from(from).subject(subject.to_string()).message_id(Some(sent_message_id(&me)));
+    let from = Mailbox::new(Some(clean_header_text(&acc.display_name)).filter(|n| !n.is_empty()), me.clone());
+    let mut b = Message::builder().from(from).subject(clean_header_text(subject)).message_id(Some(sent_message_id(&me)));
     for t in to {
         b = b.to(mailbox(t)?);
     }
@@ -1022,6 +1047,61 @@ To:") && !out.contains("undisclosed"), "{out}");
         assert_eq!(msg.envelope().to().len(), 130);
         // the body is not touched
         assert!(String::from_utf8_lossy(&raw).contains("<p>Hi</p>"));
+    }
+
+    /// QA round 2, BUG-1 (O-04): a reply to a message whose Subject held CR LF was sent with those bytes inside the encoded Subject (the mail library encodes a raw
+    /// line break instead of refusing it): no header injection, but the subject decoded to two lines. Every header text made from received data is cleaned when the
+    /// MIME is built: the subject, the names and ids of a reply, a draft's raw recipients.
+    #[test]
+    fn header_text_from_received_data_has_no_line_break_or_control_character() {
+        assert_eq!(clean_header_text("O04\r\nBcc: bcc@x.test"), "O04 Bcc: bcc@x.test");
+        assert_eq!(clean_header_text("a\nb\rc\td\u{b}e\u{c}f\u{85}g\u{2028}h\u{2029}i"), "a b c d e f g h i");
+        assert_eq!(clean_header_text("a\r\n\r\nb"), "a  b", "two breaks are two spaces; a typed double space is kept as it is");
+        assert_eq!(clean_header_text("a\u{0}b\u{1}c\u{1b}d\u{7f}e\u{80}f\u{9f}g"), "abcdefg");
+        for same in ["", "Re: plain", "  two  spaces  ", "Đỗ Văn Ánh", "東京 🚀 Привет", "a\u{a0}b", "\"Doe, John\" <john@x.test>"] {
+            assert_eq!(clean_header_text(same), same);
+        }
+        let hostile = ["x\r\nBcc: evil@x.test", "x\r\n\r\nBody injection", "x\n\rBcc: a", "\r\n\r\n", "a\r\n b\r\n\tc", "x\u{85}Bcc: a", "x\u{2028}Bcc: a", "a\u{0}\r\nb", "\u{1b}[31mred"];
+        for h in hostile {
+            let c = clean_header_text(h);
+            assert!(!c.chars().any(|ch| ch.is_control() || ch == '\u{2028}' || ch == '\u{2029}'), "{h:?} -> {c:?}");
+        }
+
+        let acc = account();
+        for subject in ["Re: O04\r\nBcc: bcc@x.test", "Re: \r\n\r\nHi\u{0}there", "Re: x\u{85}y\u{2028}z\tw"] {
+            let mut d = draft("<p>Hi</p>", vec![], vec![]);
+            d.subject = subject.into();
+            d.to = vec!["\"Evil\r\nBcc: e@x.test\" <ann@example.test>".into()];
+            d.references = vec!["<a@x.test>\r\nBcc: e@x.test".into(), "<b@x.test> <c@x.test>".into()];
+            d.in_reply_to = Some("<b@x.test>\r\n".into());
+            for lenient in [false, true] {
+                let msg = if lenient { build_draft(&acc, &d).unwrap() } else { build(&acc, &d).unwrap() };
+                let raw = wire(&msg);
+                let head_end = raw.windows(4).position(|w| w == b"\r\n\r\n").unwrap();
+                let head = String::from_utf8(raw[..head_end].to_vec()).unwrap();
+                // the headers are what a header block is: every line is a header or a fold of one, and no header the data made up exists
+                let names: Vec<&str> = head.split("\r\n").filter(|l| !l.starts_with(' ') && !l.starts_with('\t')).map(|l| l.split(':').next().unwrap()).collect();
+                assert!(!names.iter().any(|n| n.eq_ignore_ascii_case("bcc") && !lenient), "{subject:?}: a Bcc header appeared in a sent message\n{head}");
+                let p = mail_parser::MessageParser::default().parse(&raw[..]).unwrap();
+                let decoded = p.subject().unwrap();
+                assert!(!decoded.contains(['\r', '\n', '\u{0}', '\u{85}', '\u{2028}']), "{subject:?} decodes to {decoded:?}");
+                assert_eq!(decoded, clean_header_text(subject), "lenient={lenient}");
+                if !lenient {
+                    assert_eq!(msg.envelope().to().len(), 1, "one recipient, not the ones the name tried to add");
+                }
+                // the ids: one each, the reference list keeps its ids apart
+                let parsed = crate::mail::parse(3, &raw, true, false, 0).unwrap();
+                assert!(parsed.refs.iter().all(|r| !r.contains(['\r', '\n', ' '])), "{:?}", parsed.refs);
+                assert!(parsed.refs.contains(&"<b@x.test>".to_string()) && parsed.refs.contains(&"<c@x.test>".to_string()), "{:?}", parsed.refs);
+            }
+        }
+        // a calendar mail's subject too
+        let acc2 = account();
+        let cal = CalendarPart { method: "REPLY".into(), ics: "BEGIN:VCALENDAR\r\nEND:VCALENDAR\r\n".into() };
+        let msg = build_calendar_mail(&acc2, &["ann@example.test".into()], &[], "Accepted: Q4\r\nBcc: e@x.test", "ok", &cal).unwrap();
+        let raw = wire(&msg);
+        let p = mail_parser::MessageParser::default().parse(&raw[..]).unwrap();
+        assert_eq!(p.subject(), Some("Accepted: Q4 Bcc: e@x.test"));
     }
 
     fn message_id_of(raw: &[u8]) -> String {

@@ -32,6 +32,8 @@ import { composeHasContent, isPersonEdit } from "../composeContent";
 import { autosaveDue, snapshotDue, timing, type AutosaveWhy } from "../autosave";
 import { RecoveryWriter, type RecoveryForm } from "../recovery";
 import { cleanPastedHtml, stripRemotePictures } from "../pastedHtml";
+import { insertPictureNodes, type PictureAttrs } from "../editor/insertPictures";
+import { cleanHeaderText } from "../headerText";
 import { fromAccountFor } from "../fromAccount";
 import { askFreshBeforeSend, isSizeRefusal, sendLimit, showSizeToast, wireSize } from "../sendSize";
 import { outgoingName, outgoingNames } from "../attachName";
@@ -433,14 +435,16 @@ function ComposeBody({ init }: { init: ComposeInit }) {
   const t = useT();
   const { accounts, openCompose, showToast, prefs, refresh, confirm, choose, setComposeDirty, setComposeSaver, setComposeProbe, aiConfigured, setDialog, beginSend } = useStore();
   const [accountId, setAccountId] = useState(fromAccountFor(accounts, init.accountId, prefs.defaultAccount));
+  const accountRef = useRef(accountId); // (the editor's paste handler is made once: it reads the account of the moment from here)
+  accountRef.current = accountId;
   const isFresh = !init.replaces && !init.isReply && !init.outboxId && !init.restore;
   // an opened draft / scheduled message / message that failed to send: its body already holds the signature, shown as the region again
   const editing = !!(init.replaces || init.outboxId || init.restore);
   const autoCc = (id: string) => (isFresh ? eff(prefs, id, "autoCc").trim() : "");
   const autoBcc = (id: string) => (isFresh ? eff(prefs, id, "autoBcc").trim() : "");
-  const [to, setTo] = useState<string[]>(init.to ?? []);
-  const [cc, setCc] = useState<string[]>([...(init.cc ?? []), ...(autoCc(accountId) ? [autoCc(accountId)] : [])]);
-  const [bcc, setBcc] = useState<string[]>([...(init.bcc ?? []), ...(autoBcc(accountId) ? [autoBcc(accountId)] : [])]);
+  const [to, setTo] = useState<string[]>((init.to ?? []).map(cleanHeaderText)); // (from a received message, a draft or a link: never a line break in a header)
+  const [cc, setCc] = useState<string[]>([...(init.cc ?? []).map(cleanHeaderText), ...(autoCc(accountId) ? [autoCc(accountId)] : [])]);
+  const [bcc, setBcc] = useState<string[]>([...(init.bcc ?? []).map(cleanHeaderText), ...(autoBcc(accountId) ? [autoBcc(accountId)] : [])]);
   /**
    * What was typed, pasted, dropped or picked in a recipient field. An address lives in ONE field, the first of To, Cc, Bcc that has it
    * (R19A-2): one that is already in an earlier field is not added again (a note says where it is), one that is in a later field moves up.
@@ -465,7 +469,7 @@ function ComposeBody({ init }: { init: ComposeInit }) {
     setReplyNote(null);
     touch();
   };
-  const [subject, setSubject] = useState(init.subject ?? "");
+  const [subject, setSubject] = useState(cleanHeaderText(init.subject ?? ""));
   // the attachments of an opened draft / forward are shown (and sent) under a clean name: no folder, no hidden characters (O-05)
   const [atts, setAtts] = useState<Att[]>(() => {
     const names = outgoingNames((init.attachments ?? []).map((a) => a.filename));
@@ -595,6 +599,7 @@ function ComposeBody({ init }: { init: ComposeInit }) {
   const snapAtRef = useRef(0);
   const sendingRef = useRef(false); // the message is on its way out: its snapshot stays until the send is safe
   const poppingRef = useRef(false); // the message is being moved to a window of its own: the window that opens must not make this pane autosave it
+  const endingRef = useRef(false); // the message is over without a send (Discard, leaving it unsaved, a quit that drops it): nothing may save a draft of it from here on
   const filesKeyRef = useRef<{ atts: Att[]; key: string } | null>(null);
   const [autosavedAt, setAutosavedAt] = useState<number | null>(null);
 
@@ -769,7 +774,7 @@ function ComposeBody({ init }: { init: ComposeInit }) {
       handlePaste: (_view, event) => {
         const all = Array.from(event.clipboardData?.files ?? []);
         const images = all.filter((f) => PICTURE_TYPES.includes(f.type));
-        if (images.length === 0 || useStore.getState().prefs.inlinePictures !== "inline") return false;
+        if (images.length === 0 || eff(useStore.getState().prefs, accountRef.current, "inlinePictures") !== "inline") return false;
         // the picture goes into the body, so the Compose-wide paste handler must not attach it as well
         event.preventDefault();
         event.stopPropagation();
@@ -1465,7 +1470,7 @@ function ComposeBody({ init }: { init: ComposeInit }) {
     const p = probe();
     return {
       now: Date.now(), why, rev: revRef.current, savedRev: savedRevRef.current, changedAt: changedAtRef.current, lastTryAt: lastTryRef.current,
-      failures: failuresRef.current, hasContent: p.hasContent, attaching: p.attaching, saving: savingRef.current > 0, sending: sendingRef.current || poppingRef.current,
+      failures: failuresRef.current, hasContent: p.hasContent, attaching: p.attaching, saving: savingRef.current > 0, sending: sendingRef.current || poppingRef.current || endingRef.current,
       scheduled: !!init.outboxId, plainWouldLeak: encOn && !eff(prefs, accountId, "pgpEncryptDrafts"),
     };
   };
@@ -1516,6 +1521,7 @@ function ComposeBody({ init }: { init: ComposeInit }) {
   // The message in this pane is over without a send (the store tells us): no snapshot, and for Discard no draft an autosave made of a new message
   useEffect(() => {
     useStore.getState().setComposeEnd(async (o) => {
+      endingRef.current = true;
       await settleSaves();
       if (o?.dropDraft) await dropSavedCopy();
       await writer.clear();
@@ -1590,6 +1596,11 @@ function ComposeBody({ init }: { init: ComposeInit }) {
     // and the signature are Compose's own) closes without asking, like an empty new message; a letter, an address or a file of the person's asks
     const written = probe().hasContent || !!(pendingRcpt.current.to + pendingRcpt.current.cc + pendingRcpt.current.bcc).trim();
     if (written && !(await confirm({ title: t("compose.dlg.discardTitle"), body: t("compose.dlg.discardBody"), confirmLabel: t("compose.dlg.discard"), danger: true }))) return;
+    // An autosave that is on its way to the server when Discard is pressed (the question stayed open for a while, the window lost the focus) makes the draft only when
+    // it is done: removing "the saved copy" before that found none and left a stray draft ("(no subject)" in Drafts, v1.0.6 QA round 2 O4). No new one starts, the one that
+    // runs is waited for, then the copy goes.
+    endingRef.current = true;
+    await settleSaves();
     await dropSavedCopy();
     setComposeDirty(false);
     void openCompose(null);
@@ -1623,11 +1634,12 @@ function ComposeBody({ init }: { init: ComposeInit }) {
   };
   addFilesRef.current = async (files: File[]) => addFiles(files);
 
-  /** A picture file into the body at the caret (Medium size), or attached when the format is not supported. */
+  /** The picture files into the body at the caret (Medium size), in the order they were given; a format that is not supported is attached. */
   const insertPictures = (files: File[]) => reading(() => insertPicturesNow(files));
   const insertPicturesNow = async (files: File[]) => {
     const st = useStore.getState();
     const attach: File[] = [];
+    const pictures: PictureAttrs[] = [];
     for (const f of files) {
       if (!PICTURE_TYPES.includes(f.type)) {
         attach.push(f);
@@ -1659,8 +1671,10 @@ function ComposeBody({ init }: { init: ComposeInit }) {
           );
         }
       }
-      editor?.chain().focus().insertContent({ type: "image", attrs: { src: finalSrc, alt: "", "data-name": f.name, width: size.w > MEDIUM ? MEDIUM : null } }).run();
+      pictures.push({ src: finalSrc, alt: "", "data-name": f.name, width: size.w > MEDIUM ? MEDIUM : null });
     }
+    // all of them in one go: the caret is behind the last picture, so a second picture never takes the place of the first (editor/insertPictures.ts)
+    insertPictureNodes(editor, pictures);
     if (attach.length) {
       await addFiles(attach);
       if (files.length > attach.length) showToast(t("compose.pic.filesAttached", { n: attach.length }), undefined, "info");
@@ -1719,14 +1733,19 @@ function ComposeBody({ init }: { init: ComposeInit }) {
     setAltOpen(false);
   };
 
-  /** Drop on the top zone = into the message, bottom zone = attach. Other files never go into the body. */
-  const dropOn = (zone: "top" | "bottom", files: FileList | null) => {
+  /**
+   * Drop on the top zone = into the message, bottom zone = attach (what the person points at). A drop that lands on neither (the page's own drop, a drop
+   * before the zones are drawn) follows Settings > Composing > "Pasted and dropped pictures": into the message by default, attached when the setting says
+   * so. Other files never go into the body.
+   */
+  const dropOn = (zone: "top" | "bottom" | "setting", files: FileList | null) => {
     setDragging(false);
     setDragImages(false);
     setHotZone(null);
     if (!files || files.length === 0) return;
     const all = Array.from(files);
-    if (zone === "top") {
+    const where = zone === "setting" ? (eff(useStore.getState().prefs, accountId, "inlinePictures") === "inline" ? "top" : "bottom") : zone;
+    if (where === "top") {
       const images = all.filter((f) => PICTURE_TYPES.includes(f.type));
       const rest = all.filter((f) => !PICTURE_TYPES.includes(f.type));
       if (images.length) void insertPictures(images);
@@ -1922,8 +1941,8 @@ function ComposeBody({ init }: { init: ComposeInit }) {
       onDrop={(e) => {
         if (!e.dataTransfer.files.length) return;
         e.preventDefault();
-        // the drop zones handle drops on the pane; this is only the fallback
-        dropOn("bottom", e.dataTransfer.files);
+        // the drop zones handle drops on the pane; this is the fallback: the setting for pictures decides
+        dropOn("setting", e.dataTransfer.files);
       }}
       onPaste={(e) => {
         const files = Array.from(e.clipboardData.files);

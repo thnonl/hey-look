@@ -3,6 +3,7 @@ import { t } from "./i18n";
 import { eff } from "./prefs";
 import { friendlyError, useStore } from "./store";
 import { actionTargets } from "./composeSelection";
+import { cleanHeaderText } from "./headerText";
 import { fmtFull, fmtSize } from "./util";
 import { fallbackReferences, replyTargets } from "./replyTargets";
 import { forwardFiles, MAX_FORWARD_BYTES } from "./forwardAttachments";
@@ -83,7 +84,12 @@ export async function replyTo(m: MessageFull, all: boolean, thread: MessageFull[
   const st = useStore.getState();
   const h = await headersOf(m, thread);
   const mine = new Set(st.accounts.map((a) => a.email.toLowerCase()));
-  const { to, cc, viaReplyTo } = replyTargets({ fromEmail: m.fromEmail, fromName: m.fromName, to: m.to, cc: m.cc, mine, replyTo: h.replyTo, headerFrom: h.from, headerTo: h.to, headerCc: h.cc, all });
+  const targets = replyTargets({ fromEmail: m.fromEmail, fromName: m.fromName, to: m.to, cc: m.cc, mine, replyTo: h.replyTo, headerFrom: h.from, headerTo: h.to, headerCc: h.cc, all });
+  // what is written into the headers of the answer comes from the message answered: no line break or control character gets through (headerText.ts)
+  const to = targets.to.map(cleanHeaderText);
+  const cc = targets.cc.map(cleanHeaderText);
+  const viaReplyTo = targets.viaReplyTo;
+  const subject = cleanHeaderText(m.subject);
   // the pictures the body shows but only references (cid:) come along into the quote, so they are not left as broken boxes in the answer
   const pics = m.html && m.attachments.some((a) => a.inline && a.referenced && a.cid && m.html?.includes(`cid:${a.cid}`))
     ? await Promise.race([
@@ -97,7 +103,7 @@ export async function replyTo(m: MessageFull, all: boolean, thread: MessageFull[
     accountId: fromAccountFor(st.accounts, m.accountId, st.prefs.defaultAccount),
     to,
     cc,
-    subject: /^re:/i.test(m.subject) ? m.subject : `Re: ${m.subject}`,
+    subject: /^re:/i.test(subject) ? subject : `Re: ${subject}`,
     bodyHtml: await quoteBlockOf("reply", head, { html: pics?.html ?? m.html, text: m.text }),
     // the id of the message answered: its own (a mail you sent has the id this app gave it; a received one keeps the server's)
     inReplyTo: h.messageId ?? m.messageId,
@@ -133,11 +139,12 @@ export async function forward(m: MessageFull, thread: MessageFull[] = useStore.g
       })()
     : null;
   const html = files?.html ?? m.html;
+  const subject = cleanHeaderText(m.subject);
   // from the account that received the message, like Reply (the default account only when that one is gone)
   await startCompose({
     accountId: fromAccountFor(st.accounts, m.accountId, st.prefs.defaultAccount),
     references: h.references,
-    subject: /^fwd?:/i.test(m.subject) ? m.subject : `Fwd: ${m.subject}`,
+    subject: /^fwd?:/i.test(subject) ? subject : `Fwd: ${subject}`,
     attachments: files?.attachments,
     bodyHtml: await quoteBlockOf(
       "forward",
