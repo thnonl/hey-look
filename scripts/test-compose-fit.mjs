@@ -17,7 +17,7 @@
 //   node scripts/test-compose-fit.mjs --quick                 four combinations (what CI runs)
 //   node scripts/test-compose-fit.mjs --table                 also one line of measurements per combination
 //   node scripts/test-compose-fit.mjs --gallery --shots=<dir> pictures of the worst case at 960 x 560 and 1280 x 720 (the checks still run)
-//   node scripts/test-compose-fit.mjs --lang=en,de --shots=<dir>   (PNGs of every combination)
+//   node scripts/test-compose-fit.mjs --lang=en,de --size=960x560,1280x720 --shots=<dir>   (a part of the matrix; PNGs of every combination)
 //   node scripts/test-compose-fit.mjs --url=http://127.0.0.1:1420/    use a dev server that is already running
 //   node scripts/test-compose-fit.mjs --require-browser       fail (instead of skipping) when no Chrome/Chromium/Edge is installed
 import fs from 'node:fs';
@@ -47,7 +47,7 @@ if (flag('gallery')) {
   add({ mode: 'popout', lang: 'en', w: 560, h: 440, theme: 'light', scen: 'worst', deep: true });
 } else {
   const langs = (arg('lang') || 'en,de,ru').split(',');
-  const sizes = [[960, 560], [960, 532], [960, 520], [960, 480], [1280, 532], [1280, 720], [1920, 480], [1920, 1080]];
+  const sizes = [[960, 560], [960, 532], [960, 520], [960, 480], [1280, 532], [1280, 720], [1920, 480], [1920, 1080]].filter(([w, h]) => !arg('size') || arg('size').split(',').includes(`${w}x${h}`));
   let n = 0;
   // (every row on in every language, since the longer labels of German and Russian wrap; the other scenarios in English)
   for (const lang of langs) for (const [w, h] of sizes) for (const scen of lang === 'en' ? ['base', 'worst', 'many', 'meeting'] : ['base', 'worst']) {
@@ -257,6 +257,10 @@ async function typing(cfg) {
 async function popovers(cfg) {
   const inWindow = (what, o) => ok(cfg, !!o && o.l >= -1 && o.t >= -1 && o.r <= o.vw + 1 && o.b <= o.vh + 1 && o.hit, `${what} is cut off or covered: ${JSON.stringify(o)}`);
   const probe = (sel) => `(() => { const s = document.querySelector(${JSON.stringify(sel)}); if (!s) return null; const r = s.getBoundingClientRect(); const t = document.elementFromPoint(r.left + r.width / 2, r.top + Math.min(r.height / 2, 14)); return { l: r.left, t: r.top, r: r.right, b: r.bottom, hit: !!t && s.contains(t), vw: innerWidth, vh: innerHeight }; })()`;
+  // Send later by its key while the header is scrolled to the bottom (the button is out of view: the popover is placed inside the window, the button comes into view)
+  await evaluate(`(() => { const hd = document.querySelector('.cp-head'); hd.scrollTop = hd.scrollHeight; document.querySelector('.compose-pane').dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', ctrlKey: true, shiftKey: true, bubbles: true })); })()`); await sleep(250);
+  inWindow('the Send later popover opened by its key', await evaluate(probe('.sched-pop')));
+  await evaluate(`document.querySelector('.split-caret').click(); 1`); await sleep(150);
   // Send later
   await evaluate(`document.querySelector('.cp-head').scrollTop = 0; document.querySelector('.split-caret').click(); 1`); await sleep(250);
   inWindow('the Send later popover', await evaluate(probe('.sched-pop')));

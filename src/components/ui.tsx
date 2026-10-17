@@ -87,6 +87,7 @@ export function usePinnedBelow(pop: Ref, anchor: Ref, active: boolean, opts: { i
   useLayoutEffect(() => {
     const el = pop.current;
     if (!active || !el) return;
+    anchor.current?.scrollIntoView({ block: "nearest" }); // (opened by a key while its button is scrolled out of the header: it comes into view first)
     const place = () => {
       const a = anchor.current;
       if (!a) return;
@@ -103,7 +104,8 @@ export function usePinnedBelow(pop: Ref, anchor: Ref, active: boolean, opts: { i
       const room = Math.max(up ? above : below, 96);
       if (h > room) el.style.maxHeight = `${room}px`;
       el.style.left = `${left}px`;
-      el.style.top = `${up ? Math.max(edge, b.top - gap - Math.min(h, room)) : b.bottom + gap}px`;
+      const top = up ? b.top - gap - Math.min(h, room) : b.bottom + gap;
+      el.style.top = `${Math.max(edge, Math.min(top, window.innerHeight - edge - Math.min(h, room)))}px`; // (inside the window even when the anchor is scrolled out of it)
     };
     place();
     const scrolled = (ev: Event) => !el.contains(ev.target as Node) && place();
