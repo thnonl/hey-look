@@ -72,7 +72,12 @@ assert.ok(/srcDoc=\{srcDoc\}/.test(reading) && !/<iframe[^>]*src=\{/.test(readin
 
 // --- the attachment preview: pictures as data: URIs, PDF in a blob: frame, text as text ---------------------------------------------
 const att = read("src/components/Attachments.tsx");
-assert.ok(/URL\.createObjectURL\(new Blob\(/.test(att) && /<iframe\s+title=\{cur\.name\}\s+src=\{data\.url\}/.test(att), "PDF preview = blob: frame");
+// the blob is made in pdfFrame.ts (only bytes that start with %PDF-, always typed application/pdf) and the frame has no hard-coded sandbox:
+// WebView2's PDF viewer does not run in a sandboxed frame (1.0.6 WP1b), so on Chromium the frame has none; scripts/test-pdf-frame.mjs pins the rest
+const pdf = read("src/pdfFrame.ts");
+assert.ok(/URL\.createObjectURL\(pdf\.blob\)/.test(att) && !/URL\.createObjectURL\(new Blob\(/.test(att), "PDF preview = blob: frame, the blob comes from pdfPreview()");
+assert.ok(/new Blob\(\[bytes as BlobPart\], \{ type: "application\/pdf" \}\)/.test(pdf), "the PDF blob is typed application/pdf by the app");
+assert.ok(/<iframe\s+title=\{cur\.name\}\s+src=\{data\.url\}\s+sandbox=\{data\.sandbox\}/.test(att), "PDF preview = blob: frame");
 assert.ok(dir["frame-src"].includes("blob:"), "the PDF preview is a blob: iframe (checked: frame-src without blob: is a violation)");
 assert.ok(/setData\(\{ url: `data:\$\{d\.mime\};base64,/.test(att) && dir["img-src"].includes("data:"));
 assert.equal((att.match(/<iframe\b/g) ?? []).length, 1, "a new iframe: check frame-src");

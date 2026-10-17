@@ -23,6 +23,9 @@ mod macnotify;
 #[cfg(target_os = "macos")]
 mod macquit;
 mod mail;
+// the main window never leaves the app for a website (the Windows PDF frame has no sandbox); the pure decision is compiled and tested everywhere
+#[cfg_attr(not(windows), allow(dead_code))]
+mod navguard;
 mod oauth;
 mod oauth_page;
 mod outgoing;
@@ -4507,6 +4510,9 @@ pub fn run() {
     // macOS: the app menu's Quit item (and Cmd+Q) goes through the quit sequence like the tray's (see shell::mac_app_menu)
     #[cfg(target_os = "macos")]
     let builder = builder.menu(shell::mac_app_menu).on_menu_event(shell::mac_menu_event);
+    #[cfg(windows)]
+    // a frame of the window (the PDF preview has no sandbox here, see src/pdfFrame.ts) can never take the whole window to a website
+    let builder = builder.plugin(navguard::plugin());
     builder
         // a second launch just brings the running instance forward
         .plugin(tauri_plugin_single_instance::init(|app, _args, _cwd| {

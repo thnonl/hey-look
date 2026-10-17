@@ -14,6 +14,7 @@ import { friendlyError, useStore } from "../store";
 import { fmtSize } from "../util";
 import riskyExt from "../riskyExt.json";
 import { kbd, osNow } from "../platform";
+import { pdfPreview } from "../pdfFrame";
 import { importKeyFromMessage, isKeyAttachment } from "./Pgp";
 import { Dropdown } from "./ui";
 
@@ -496,6 +497,10 @@ interface PvLoaded {
   url: string;
   text?: string;
   error?: string;
+  /** the bytes of a ".pdf" are not a PDF: nothing is drawn (pdfFrame.ts) */
+  notPdf?: boolean;
+  /** sandbox of the PDF frame, undefined = none (pdfFrame.ts says why) */
+  sandbox?: string;
 }
 
 /** Modal preview of attachments (pictures, PDF, small text), with ← → between previewable items. */
@@ -522,10 +527,17 @@ export function PreviewDialog({ m, items, start, onClose }: { m: MessageFull; it
           return;
         }
         if (kind === "pdf") {
-          const url = URL.createObjectURL(new Blob([b64ToBytes(d.dataBase64) as BlobPart], { type: "application/pdf" }));
+          // only bytes that start with %PDF- get a frame, typed application/pdf and, on Chromium, without a sandbox (see pdfFrame.ts)
+          const pdf = pdfPreview(b64ToBytes(d.dataBase64), navigator.userAgent);
           if (urlRef.current) URL.revokeObjectURL(urlRef.current);
+          urlRef.current = null;
+          if (!pdf.ok) {
+            setData({ url: "", notPdf: true });
+            return;
+          }
+          const url = URL.createObjectURL(pdf.blob);
           urlRef.current = url;
-          setData({ url });
+          setData({ url, sandbox: pdf.sandbox ?? undefined });
           return;
         }
         setData({ url: `data:${d.mime};base64,${d.dataBase64}` });
@@ -588,13 +600,15 @@ export function PreviewDialog({ m, items, start, onClose }: { m: MessageFull; it
             <div className="pv-msg"><span className="spin" /> {t("common.loading")}</div>
           ) : data.error ? (
             <div className="pv-msg"><ImageOff size={28} /><div>{t("reading.pv.showFailed", { error: data.error })}</div></div>
+          ) : data.notPdf ? (
+            <div className="pv-msg"><ImageOff size={28} /><div>{t("reading.pv.notPdf")}</div></div>
           ) : kind === "text" ? (
             <pre className="pv-text" {...(m.confidential ? { style: { userSelect: "none", WebkitUserSelect: "none" } as const, onCopy: noCopy, onCut: noCopy, onContextMenu: noCopy, onDragStart: noCopy } : {})}>{data.text}</pre>
           ) : kind === "pdf" ? (
             <iframe
                 title={cur.name}
                 src={data.url}
-                sandbox="allow-same-origin allow-scripts"
+                sandbox={data.sandbox}
                 onLoad={(e) => {
                   // no native webview menu in a text / html preview either (a PDF is drawn by the engine's own viewer, which keeps its menu)
                   const f = e.currentTarget;

@@ -185,6 +185,7 @@ export default defineLocale<typeof ns.en>({
   "reading.pv.prev": "上一个附件",
   "reading.pv.next": "下一个附件",
   "reading.pv.showFailed": "无法显示此文件。{error}",
+  "reading.pv.notPdf": "此文件不是有效的 PDF，无法显示。你仍然可以打开或保存它。",
   "reading.lb.label": "图片{name}",
   "reading.lb.prev": "上一张图片",
   "reading.lb.next": "下一张图片",
