@@ -1,4 +1,4 @@
-import { Archive, AtSign, Clock, FolderInput, Flag, Forward, Mail, MailOpen, OctagonAlert, Pin, Reply, ReplyAll, Trash2, Type } from "lucide-react";
+import { Archive, AtSign, Clock, ExternalLink, FolderInput, Flag, Forward, Mail, MailOpen, OctagonAlert, Pin, Reply, ReplyAll, Trash2, Type } from "lucide-react";
 import { ReactNode, useRef, useState } from "react";
 import { forward, replyTo } from "../actions";
 import { api, MessageFull, ThreadSummary } from "../api";
@@ -11,6 +11,7 @@ import { folderLabel } from "../prefs";
 import { friendlyError, scopeOf, useStore } from "../store";
 import { snoozePresets, subjectText } from "../util";
 import { ContextMenu, CtxItem } from "./ContextMenu";
+import { openReader } from "../popout/openReader";
 
 interface Open {
   /** a new object per opening: the menu starts afresh when it is opened again */
@@ -77,6 +78,8 @@ function RowMenu({ open, onClose }: { open: Open; onClose: () => void }) {
     const off: Partial<CtxItem> = e.off ? { disabled: true, ...why(e.off) } : {};
     const run = (label: string, icon: ReactNode, onClick: () => void, extra: Partial<CtxItem> = {}): CtxItem => ({ label, icon, onClick, ...extra, ...off });
     switch (e.action) {
+      case "openWindow":
+        return run(tr("reading.popout.open"), <ExternalLink size={ICON} />, () => void openReader(first, folder));
       case "reply":
         return run(tr("app.ribbon.reply"), <Reply size={ICON} />, () => void answer(first, "reply"));
       case "replyAll":

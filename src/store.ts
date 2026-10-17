@@ -313,7 +313,8 @@ interface State {
   leaveCompose: () => Promise<boolean>;
   toggleCheck: (id: string) => void;
   setChecked: (ids: string[]) => void;
-  act: (ids: string[], action: string, arg?: string, label?: Lazy) => Promise<void>;
+  /** `view`: the view the person acts from, when it is not the open one (a reader window asks for a move from the view it was opened in). */
+  act: (ids: string[], action: string, arg?: string, label?: Lazy, view?: string) => Promise<void>;
   /** `restore: false` (closing): the reading pane is not given back the mail that was open before writing (the caller opens another). */
   openCompose: (c: ComposeInit | null, opts?: { restore?: boolean }) => Promise<void>;
   setComposeDirty: (d: boolean) => void;
@@ -1022,7 +1023,7 @@ export const useStore = create<State>((set, get) => ({
 
   setChecked: (ids) => set({ checked: new Set(ids) }),
 
-  act: async (ids, action, arg, label) => {
+  act: async (ids, action, arg, label, view) => {
     if (ids.length === 0) return;
     // (1.0.5) no Junk folder on the account: the buttons are off already; this is for the keyboard and any other way in
     if (JUNK_ACTIONS.has(action) && !canMoveToJunk(get().folders, accountsOf(get().threads, ids))) {
@@ -1048,7 +1049,7 @@ export const useStore = create<State>((set, get) => ({
     }
     const moveLike = MOVE_LIKE.has(action);
     // the view the person acted from (a move only touches the mail in it), and the action as the backend runs it
-    const scope = scopeOf(get().folder);
+    const scope = scopeOf(view ?? get().folder);
     const real = moveLike && action === "trash" && scope === "trash" ? "delete_forever" : action;
     let verify = false; // the saved folder list was trusted: the backend checks it during the Undo window
     if (moveLike) {
@@ -1118,7 +1119,7 @@ export const useStore = create<State>((set, get) => ({
     }
 
     try {
-      await api.threadAction(ids, action, arg, scopeOf(folder));
+      await api.threadAction(ids, action, arg, scopeOf(view ?? folder));
       if (label) {
         get().showToast(label, action === "snooze" ? () => void get().act(ids, "unsnooze") : undefined, "success"); // i18n-ok: a function (Lazy)
       }

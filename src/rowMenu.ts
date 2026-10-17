@@ -33,7 +33,7 @@ export interface MenuThread {
 }
 
 export type RowAction =
-  | "reply" | "replyAll" | "forward"
+  | "openWindow" | "reply" | "replyAll" | "forward"
   | "read" | "flag" | "pin" | "snooze" | "move"
   | "archive" | "delete" | "junk"
   | "copySender" | "copySubject";
@@ -69,6 +69,8 @@ export function rowMenu(threads: readonly MenuThread[], ctx: { view: string; fol
   const forward = answer("forward");
   if (!forward.off && threads[0]?.confidential) forward.off = "confidential";
   return [
+    answer("openWindow"), // (the reader window shows one conversation; in Drafts the draft is edited instead)
+    "-",
     answer("reply"),
     answer("replyAll"),
     forward,

@@ -7,6 +7,8 @@ import { folderLabel } from "../prefs";
 import { newEvent } from "./Calendar";
 import { useStore } from "../store";
 import { commandsFor } from "../mailControls";
+import { openReader } from "../popout/openReader";
+import { readerAllowed } from "../popout/readerLogic";
 import { useUpdates } from "../updates";
 
 interface Cmd {
@@ -59,6 +61,7 @@ export function CommandBar() {
     if (ids.length)
       list.push(
         { id: "Archive conversation", label: t("app.cmd.archive"), run: () => void s.act(ids, "archive", undefined, () => t("mail.done.archived")) },
+        ...(cur && readerAllowed(s.folder, cur.folder) ? [{ id: "Open in new window", label: t("app.cmd.openInWindow"), run: () => void openReader(cur, s.folder) }] : []),
         { id: "Delete conversation", label: t("app.cmd.delete"), run: () => void s.act(ids, "trash", undefined, () => t("mail.done.trashed")) },
         { id: "Mark as unread", label: t("app.cmd.markUnread"), run: () => void s.act(ids, "unread") },
         { id: cur?.flagged ? "Remove flag" : "Flag", label: cur?.flagged ? t("app.cmd.unflag") : t("app.cmd.flag"), run: () => void s.act(ids, cur?.flagged ? "unstar" : "star") },

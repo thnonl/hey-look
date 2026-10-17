@@ -18,6 +18,7 @@ import type { ComponentType } from "react";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { useT } from "../i18n/react";
 import { DevPanel } from "./devPanel";
+import ReaderView from "./ReaderView";
 import { popoutDevEnabled } from "./route";
 import type { PopoutKind } from "./route";
 
@@ -59,5 +60,5 @@ function Placeholder({ kind, label, keyOf, init }: PopoutViewProps) {
 
 export const VIEWS: Record<PopoutKind, ComponentType<PopoutViewProps>> = {
   compose: Placeholder, // WP6b
-  reader: Placeholder, // WP6c
+  reader: ReaderView,
 };

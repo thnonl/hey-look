@@ -22,11 +22,11 @@ const KEYS = ["inbox", "drafts", "sent", "archive", "junk", "trash"];
 const folders = [...KEYS.map((key) => ({ accountId: "a1", key, name: key, listed: true })), ...KEYS.map((key) => ({ accountId: "a2", key, name: key, listed: key !== "junk" }))];
 const byAction = (items) => Object.fromEntries(items.filter((x) => x !== "-").map((x) => [x.action, x]));
 const ids = (items) => items.filter((x) => x !== "-").map((x) => x.action);
-const ORDER = ["reply", "replyAll", "forward", "read", "flag", "pin", "snooze", "move", "archive", "delete", "junk", "copySender", "copySubject"];
+const ORDER = ["openWindow", "reply", "replyAll", "forward", "read", "flag", "pin", "snooze", "move", "archive", "delete", "junk", "copySender", "copySubject"];
 
 let m = rowMenu([th("a")], { view: "inbox", folders });
 assert.deepEqual(ids(m), ORDER, "the entries and their order");
-assert.deepEqual(m.map((x) => (x === "-" ? "-" : "e")).join(""), "eee-eeeee-eee-ee", "four groups: answer | state | file away | copy");
+assert.deepEqual(m.map((x) => (x === "-" ? "-" : "e")).join(""), "e-eee-eeeee-eee-ee", "five groups: open | answer | state | file away | copy");
 assert.ok(m.filter((x) => x !== "-").every((x) => !x.off), "one conversation in the inbox: nothing is off");
 assert.equal(byAction(m).read.variant, "markUnread", "a read conversation offers 'Mark as unread'");
 assert.equal(byAction(m).flag.variant, "flag");
@@ -48,7 +48,7 @@ assert.equal(m.pin.variant, "unpin");
 
 // several conversations: answer / copy entries are off, the rest acts on all
 m = byAction(rowMenu([th("a"), th("b")], { view: "inbox", folders }));
-for (const k of ["reply", "replyAll", "forward", "copySender", "copySubject"]) assert.equal(m[k].off, "many", `${k} needs one conversation`);
+for (const k of ["openWindow", "reply", "replyAll", "forward", "copySender", "copySubject"]) assert.equal(m[k].off, "many", `${k} needs one conversation`);
 for (const k of ["read", "flag", "pin", "snooze", "move", "archive", "delete", "junk"]) assert.ok(!m[k].off, `${k} works on several`);
 
 // Move to: one mailbox only
@@ -62,7 +62,7 @@ m = byAction(rowMenu([th("a"), th("b", { accountId: "a2" })], { view: "inbox", f
 assert.equal(m.junk.off, "junk", "one of two mailboxes has no Junk");
 // Drafts are edited, not answered
 m = byAction(rowMenu([th("a")], { view: "drafts", folders }));
-for (const k of ["reply", "replyAll", "forward"]) assert.equal(m[k].off, "draft");
+for (const k of ["openWindow", "reply", "replyAll", "forward"]) assert.equal(m[k].off, "draft");
 // confidential mail cannot be forwarded (the ribbon's rule); it can be answered
 m = byAction(rowMenu([th("a", { confidential: true })], { view: "inbox", folders }));
 assert.equal(m.forward.off, "confidential");

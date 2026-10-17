@@ -1,6 +1,6 @@
 // Dev-only: lets the UI run in a plain browser (npm run dev) with fake data, no Tauri backend.
 import { emit } from "@tauri-apps/api/event";
-import { mockIPC } from "@tauri-apps/api/mocks";
+import { mockIPC, mockWindows } from "@tauri-apps/api/mocks";
 import { gmailSearchUrl, toGmailQuery, toWebmailQuery, webmailOf, webmailTargets, WebmailId } from "./webmail";
 import { darkMessages, darkThreadRows } from "./devMockDark";
 import { extractSignature, fillSignatureHtml, normalizeHtml, SIG_MARK } from "./signature";
@@ -652,6 +652,8 @@ function mockNewAccount(email: string, displayName: string, auth: string, imapHo
   return acc;
 }
 const later = <T,>(ms: number, f: () => T) => new Promise<T>((res, rej) => setTimeout(() => { try { res(f()); } catch (e) { rej(e); } }, ms));
+/** Conversations a "move" of a secondary window took away (dev preview of the reader window). */
+const mockGone = new Set<string>();
 const newThreads = (accountId: string) =>
   [["Welcome to your new mailbox", "Mail Team", "Your account is connected. Everything arrives here.", 0.2 * H, 1], ["Getting started", "Mail Team", "Three quick tips for your inbox.", 3 * H, 0], ["Your first newsletter", "Digest", "Nothing to read yet, but this is how it looks.", 20 * H, 0]]
     .map(([subject, who, snippet, ago, unread], i) => t(`${accountId}-t${i}`, subject as string, [who as string], snippet as string, ago as number, { accountId, unread }));
@@ -1059,6 +1061,11 @@ export function installMock() {
   // `#autosave=3000`: the autosave waits 3 s instead of 30 s (and `#snapshot=1000` writes the crash-recovery snapshot every second): for a check
   const shortAutosave = Number(hashTokens().get("autosave"));
   if (shortAutosave > 0) (window as unknown as { __hlTiming: unknown }).__hlTiming = { autosaveMs: shortAutosave, snapshotMs: Number(hashTokens().get("snapshot")) || 1000 };
+  // dev preview of the secondary windows: a script takes a conversation away (`__mockGone.add("t1")`) and says so (`__mockEmit("mail-synced", null)`)
+  Object.assign(window, { __mockGone: mockGone, __mockEmit: (name: string, payload: unknown) => emit(name, payload) });
+  // a window object for `getCurrentWindow()` (a secondary window sets its title and theme; the label is the one the backend would give it)
+  const which = new URLSearchParams(window.location.search).get("w");
+  mockWindows(which === "reader" || which === "compose" ? `${which}-1` : "main");
   mockIPC(function handle(cmd, args): unknown {
     const a = (args ?? {}) as Record<string, unknown>;
     // a conversation's read / flag state is kept (as the server does), so the Unread and Flagged filters behave like the real list
@@ -1066,7 +1073,7 @@ export function installMock() {
       const msgs = handle(cmd, { ...a, raw: true });
       const th = threads.find((x) => x.threadId === a.threadId);
       if (!th || !Array.isArray(msgs) || msgs.length === 0) return msgs;
-      return msgs.map((m, i) => ({ ...m, seen: th.unread === 0 || i < msgs.length - 1 }));
+      return msgs.map((m, i) => ({ ...m, seen: th.unread === 0 || i < msgs.length - 1, flagged: th.flagged || m.flagged }));
     }
     switch (cmd) {
       case "list_accounts": return accounts;
@@ -1109,6 +1116,7 @@ export function installMock() {
         return list.sort((x, y) => (f.folder === "inbox" && !f.sortAsc ? Number(y.pinned) - Number(x.pinned) : 0) || dir * (x.lastDate - y.lastDate));
       }
       case "get_thread":
+        if (mockGone.has(a.threadId as string)) return []; // (dev preview of the reader: "This message was moved or deleted.")
         if (mockDrafts[a.threadId as string]) return mockDrafts[a.threadId as string];
         if (a.threadId === "t9") return [ownLocked ? lockedMsg() : openedMsg()];
         if (a.threadId === "t25") return [encInvite(ownLocked)];
@@ -1315,8 +1323,42 @@ export function installMock() {
       }
       case "quit_dialog": case "quit_page_alive": case "quit_cancelled": case "sends_flushed": case "show_window": case "frontend_ready": case "page_state": return null;
       // secondary windows (src/popout): the dev preview of a pop-out is ?w=compose or ?w=reader in a plain browser tab
-      case "popout_init": return { kind: new URLSearchParams(window.location.search).get("w") ?? "compose", label: "compose-1", key: null, init: null };
-      case "popout_open": return { status: "created", label: "compose-1" };
+      case "popout_init": {
+        const q = new URLSearchParams(window.location.search);
+        const kind = q.get("w") ?? "compose";
+        if (kind !== "reader") return { kind, label: "compose-1", key: null, init: null };
+        // the reader window in a plain browser tab: ?w=reader&thread=t1[&folder=inbox][&view=inbox]
+        const id = q.get("thread") ?? "t1";
+        const th = threads.find((x) => x.threadId === id);
+        const folder = q.get("folder") ?? th?.folder ?? "inbox";
+        return { kind, label: "reader-1", key: id, init: { threadId: id, accountId: th?.accountId ?? "a1", folder, view: q.get("view") ?? folder, subject: th?.subject ?? "" } };
+      }
+      // the main page is not there in a plain tab: a request of a secondary window is logged (window.__popoutRequests), applied to the mock
+      // conversations when it is a state change, and answered after a moment (`#reqfail` answers with an error, `#reqsilent` does not answer)
+      case "popout_request": {
+        const w = window as unknown as { __popoutRequests?: unknown[] };
+        (w.__popoutRequests ??= []).push({ id: a.id, kind: a.kind, payload: a.payload });
+        const p = (a.payload ?? {}) as Record<string, unknown>;
+        if (a.kind === "thread-action") {
+          const th = threads.find((x) => x.threadId === p.threadId);
+          if (th) {
+            const act = String(p.action);
+            if (act === "read") th.unread = 0;
+            else if (act === "unread") th.unread = Math.max(1, th.unread);
+            else if (act === "star") th.flagged = true;
+            else if (act === "unstar") th.flagged = false;
+            else if (act === "pin") th.pinned = true;
+            else if (act === "unpin") th.pinned = false;
+            else mockGone.add(th.threadId); // a move: the conversation is not where it was
+          }
+          later(200, () => void emit("thread-state", { threadIds: [p.threadId], action: p.action }));
+        }
+        if (!hashHas("reqsilent")) later(hashHas("reqslow") ? 1500 : 150, () => void emit("popout-reply", { id: a.id, ok: !hashHas("reqfail"), data: null, error: hashHas("reqfail") ? "mock: the main window refused" : null }));
+        return null;
+      }
+      case "thread_meta": return { pinned: !!threads.find((x) => x.threadId === a.threadId)?.pinned, snoozedUntil: null };
+      case "popout_reply": return null;
+      case "popout_open": ((window as unknown as { __popoutOpened?: unknown[] }).__popoutOpened ??= []).push({ kind: a.kind, key: a.key, init: a.init }); return { status: "created", label: "compose-1" };
       case "popout_save_all": return true;
       case "popout_ready": case "popout_flush_alive": case "popout_flush_dialog": case "popout_flush_done": case "popout_focus": case "popout_close": return null;
       case "update_defer": logUpdateCall({ cmd: "defer" }).kind = a.deferred ? "later" : "now"; return null;

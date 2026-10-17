@@ -1032,6 +1032,12 @@ mod tests {
         // the state event is a broadcast (every reader listens), set by `thread_action`
         let lib = crate::test_guard::non_test_code(include_str!("lib.rs"));
         assert!(lib.contains("app.emit(popout::THREAD_STATE_EVENT"));
+        // a reader window whose mailbox was removed reads its conversation again (it is gone)
+        let at = lib.find("fn remove_account(").expect("remove_account");
+        let body = &lib[at..at + lib[at..].find("
+}
+").unwrap()];
+        assert!(body.contains("app.emit(\"mail-synced\", ())"), "remove_account tells the windows");
     }
 
     fn t(s: &str) -> String {
