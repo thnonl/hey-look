@@ -1,0 +1,196 @@
+{
+ "base": {
+  "family": "Calibri,Carlito,Arial,sans-serif",
+  "size": 11
+ },
+ "sig": null,
+ "doc": {
+  "type": "doc",
+  "content": [
+   {
+    "type": "paragraph"
+   },
+   {
+    "type": "paragraph",
+    "content": [
+     {
+      "type": "text",
+      "text": "Hi Anna,"
+     }
+    ]
+   },
+   {
+    "type": "paragraph"
+   },
+   {
+    "type": "paragraph",
+    "content": [
+     {
+      "type": "text",
+      "text": "The signed copy is attached. Questions? Write to "
+     },
+     {
+      "type": "text",
+      "marks": [
+       {
+        "type": "link",
+        "attrs": {
+         "href": "mailto:support@example.com"
+        }
+       }
+      ],
+      "text": "support@example.com"
+     },
+     {
+      "type": "text",
+      "text": " or call "
+     },
+     {
+      "type": "text",
+      "marks": [
+       {
+        "type": "link",
+        "attrs": {
+         "href": "tel:+4930123456"
+        }
+       }
+      ],
+      "text": "+49 30 123456"
+     },
+     {
+      "type": "text",
+      "text": "."
+     }
+    ]
+   },
+   {
+    "type": "paragraph"
+   },
+   {
+    "type": "paragraph",
+    "content": [
+     {
+      "type": "text",
+      "marks": [
+       {
+        "type": "textStyle",
+        "attrs": {
+         "color": "#1F3864",
+         "fontFamily": "'Segoe UI',sans-serif",
+         "fontSize": "10pt"
+        }
+       },
+       {
+        "type": "bold"
+       }
+      ],
+      "text": "Nam Hoang"
+     },
+     {
+      "type": "hardBreak"
+     },
+     {
+      "type": "text",
+      "marks": [
+       {
+        "type": "textStyle",
+        "attrs": {
+         "color": "#1F3864",
+         "fontFamily": "'Segoe UI',sans-serif",
+         "fontSize": "10pt"
+        }
+       }
+      ],
+      "text": "Product Lead"
+     },
+     {
+      "type": "hardBreak"
+     },
+     {
+      "type": "text",
+      "marks": [
+       {
+        "type": "textStyle",
+        "attrs": {
+         "color": "#7F7F7F",
+         "fontFamily": "'Segoe UI',sans-serif",
+         "fontSize": "10pt"
+        }
+       }
+      ],
+      "text": "El Gaucho"
+     }
+    ]
+   },
+   {
+    "type": "paragraph"
+   },
+   {
+    "type": "paragraph",
+    "content": [
+     {
+      "type": "text",
+      "marks": [
+       {
+        "type": "bold"
+       }
+      ],
+      "text": "From:"
+     },
+     {
+      "type": "text",
+      "text": " Anna Berg <"
+     },
+     {
+      "type": "text",
+      "marks": [
+       {
+        "type": "link",
+        "attrs": {
+         "href": "mailto:anna@example.com"
+        }
+       }
+      ],
+      "text": "anna@example.com"
+     },
+     {
+      "type": "text",
+      "text": "> "
+     },
+     {
+      "type": "hardBreak"
+     },
+     {
+      "type": "text",
+      "marks": [
+       {
+        "type": "bold"
+       }
+      ],
+      "text": "Sent:"
+     },
+     {
+      "type": "text",
+      "text": " Monday, 12 October 2026 09:00"
+     },
+     {
+      "type": "hardBreak"
+     },
+     {
+      "type": "text",
+      "marks": [
+       {
+        "type": "bold"
+       }
+      ],
+      "text": "Subject:"
+     },
+     {
+      "type": "text",
+      "text": " Contract"
+     }
+    ]
+   }
+  ]
+ }
+}

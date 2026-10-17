@@ -8,7 +8,7 @@ import { Account, api, CalSource, Discovered, PgpKey, PROVIDERS, Rule, Signature
 import { calendarErrorCode, calendarSyncKind, providerName, serviceName, statusLine, truncatedNote } from "../calendarSync";
 import { ACCENT_PRESETS, ACCOUNT_PALETTE, accountColor, DEFAULT_PREFS, eff, folderLabel, isOverridden, MAX_DOWNLOAD_PRESETS, NOTIFY_ACTIONS, NOTIFY_SOUNDS, Overridable, Prefs, staleAccountPrefs, validHex } from "../prefs";
 import { folderVisible } from "../junk";
-import { friendlyError, useStore } from "../store";
+import { cutAtWord, friendlyError, useStore } from "../store";
 import { credStore, kbd, riskyHint, usePlatform } from "../platform";
 import { systemTz } from "../calendar";
 import { setEnabled as setNudgeEnabled } from "../supportNudge";
@@ -726,6 +726,7 @@ function ComposingPanel({ scope }: { scope: string | null }) {
         </Row>
       )}
       {scope === null && <DefaultFontRow />}
+      {scope === null && <PasteDefaultRow />}
     </>
   );
 }
@@ -750,6 +751,22 @@ function DefaultFontRow() {
       </div>
       {/* i18n-ok: a font sample, the same in every language */}
       <div className="font-sample" style={{ fontFamily: base.family, fontSize: `${base.size}pt` }} aria-hidden="true">Aa Bb Cc 123</div>
+    </Row>
+  );
+}
+
+/** Settings > Composing > When pasting from other apps: what Ctrl+V does with text copied from other programs (editor/pasteOptions.tsx); Ctrl+Shift+V is always text only. */
+function PasteDefaultRow() {
+  const t = useT();
+  const { prefs, setPrefs } = useStore();
+  const os = usePlatform((s) => s.os);
+  return (
+    <Row label={t("settings.composing.paste")} hint={kbd(t("settings.composing.pasteHint"), os)} id="pasteDefault">
+      <select aria-label={t("settings.composing.paste")} value={prefs.pasteDefault} onChange={(e) => setPrefs({ pasteDefault: e.target.value as Prefs["pasteDefault"] })}>
+        <option value="source">{t("compose.paste.keepSource")}</option>
+        <option value="merge">{t("compose.paste.merge")}</option>
+        <option value="text">{t("compose.paste.textOnly")}</option>
+      </select>
     </Row>
   );
 }
@@ -1527,6 +1544,12 @@ function AiTab() {
   const [modelsState, setModelsState] = useState<"idle" | "loading" | "error">("idle");
   const [modelsErr, setModelsErr] = useState("");
   const [ready, setReady] = useState(false);
+  // the Model control is a list when the endpoint listed models and a text box otherwise. It is never swapped under the user's hands: while
+  // it has focus it keeps its kind (the list that arrives, or goes, is adopted when focus leaves), so focus and caret stay where they are
+  const [modelFocused, setModelFocused] = useState(false);
+  const [heldList, setHeldList] = useState(false);
+  const asList = modelFocused ? heldList : models.length > 0;
+  const keyRef = useRef<HTMLInputElement>(null);
   useEffect(() => {
     if (!ready) return;
     if (!v.ai_endpoint.trim()) {
@@ -1546,7 +1569,7 @@ function AiTab() {
         .catch((e) => {
           if (stale) return;
           setModels([]);
-          setModelsErr(friendlyError(e));
+          setModelsErr(cutAtWord(friendlyError(e), 70)); // the status line below Save has two lines: a longer reason would push its second sentence out
           setModelsState("error");
         });
     }, 600);
@@ -1572,6 +1595,11 @@ function AiTab() {
     await refreshAi();
     showToast(t("settings.ai.saved"), undefined, "success");
   };
+  const modelFocus = { onFocus: () => (setHeldList(asList), setModelFocused(true)), onBlur: () => setModelFocused(false) };
+  // what the model list is doing, in the slot under Save: the slot is always there (two lines high), so these texts coming and going move nothing
+  const status = modelsState === "loading" ? t("settings.ai.loadingModels")
+    : modelsState === "error" ? t("settings.ai.modelsError", { error: modelsErr })
+    : models.length === 0 && v.ai_endpoint.trim() ? t("settings.ai.noModels") : "";
   return (
     <div>
       <h3>{t("settings.ai.title")}</h3>
@@ -1579,26 +1607,31 @@ function AiTab() {
       <div className="form">
         <label>{t("settings.ai.baseUrl")}</label>
         <input aria-label={t("settings.ai.baseUrl")} placeholder="https://api.openai.com/v1" value={v.ai_endpoint} onChange={(e) => setV({ ...v, ai_endpoint: e.target.value })} />
-        <label>{t("settings.ai.apiKey")}</label>
-        <input aria-label={t("settings.ai.apiKey")} type="password" value={key} onChange={(e) => setKey(e.target.value)} placeholder={hasKey ? t("settings.add.savedIn", { store: credStore() }) : t("settings.ai.keyOptional")} />
-        {hasKey && (
-          <button className="link small" onClick={async () => { await api.setSecret("ai_key", ""); setHasKey(false); }}>{t("settings.ai.removeKey")}</button>
-        )}
+        {/* the link to remove the saved key sits on the label's line: it appears after Save without moving the fields below */}
+        <div className="field">
+          <div className="field-head">
+            <label>{t("settings.ai.apiKey")}</label>
+            {hasKey && (
+              <button className="link small" onClick={async () => { await api.setSecret("ai_key", ""); setHasKey(false); keyRef.current?.focus(); }}>{t("settings.ai.removeKey")}</button>
+            )}
+          </div>
+          <input ref={keyRef} aria-label={t("settings.ai.apiKey")} type="password" value={key} onChange={(e) => setKey(e.target.value)} placeholder={hasKey ? t("settings.add.savedIn", { store: credStore() }) : t("settings.ai.keyOptional")} />
+        </div>
         <label>{t("settings.ai.model")}</label>
-        {models.length > 0 ? (
-          <select aria-label={t("settings.ai.model")} value={v.ai_model} onChange={(e) => setV({ ...v, ai_model: e.target.value })}>
+        {asList ? (
+          <select aria-label={t("settings.ai.model")} value={v.ai_model} onChange={(e) => setV({ ...v, ai_model: e.target.value })} {...modelFocus}>
             {!v.ai_model && <option value="">{t("settings.ai.chooseModel")}</option>}
             {/* the saved model stays selectable even when the endpoint does not list it */}
             {v.ai_model && !models.includes(v.ai_model) && <option value={v.ai_model}>{t("settings.ai.modelSaved", { model: v.ai_model })}</option>}
             {models.map((m) => <option key={m} value={m}>{m}</option>)}
           </select>
         ) : (
-          <input aria-label={t("settings.ai.model")} value={v.ai_model} placeholder={t("settings.ai.modelPlaceholder")} onChange={(e) => setV({ ...v, ai_model: e.target.value })} />
+          <input aria-label={t("settings.ai.model")} value={v.ai_model} placeholder={t("settings.ai.modelPlaceholder")} onChange={(e) => setV({ ...v, ai_model: e.target.value })} {...modelFocus} />
         )}
-        {modelsState === "loading" && <div className="muted small" role="status">{t("settings.ai.loadingModels")}</div>}
-        {modelsState === "error" && <div className="muted small" role="status">{t("settings.ai.modelsError", { error: modelsErr })}</div>}
-        {modelsState === "idle" && models.length === 0 && v.ai_endpoint.trim() && <div className="muted small" role="status">{t("settings.ai.noModels")}</div>}
-        <button className="btn primary" onClick={() => void save()}>{t("common.save")}</button>
+        <div className="ai-actions">
+          <button className="btn primary" onClick={() => void save()}>{t("common.save")}</button>
+          <div className="ai-status muted small" role="status" title={status || undefined}>{status}</div>
+        </div>
       </div>
     </div>
   );
@@ -1714,6 +1747,7 @@ function ShortcutsTab() {
     ["Ctrl+Shift+L / 8", "compose.fmt.bulleted"], ["Ctrl+Shift+7", "compose.fmt.numbered"], ["Ctrl+L / E / R / Shift+J", "settings.keys.align"], ["Ctrl+T / Ctrl+Shift+T", "settings.keys.indent"],
     ["Ctrl+Shift+S", "settings.keys.stylesMenu"], ["Ctrl+Shift+N / Ctrl+Alt+1-3", "settings.keys.styleKeys"],
     ["Ctrl+A", "settings.keys.selectAll"], ["Ctrl+K", "settings.keys.commandBar"], ["F5", "settings.keys.syncNow"], ["Esc", "settings.keys.closeDeselect"], ["Shift+Enter", "settings.keys.openInWindow"], ["Ctrl+W", "settings.keys.closeWindow"],
+    ["Ctrl+Shift+V", "settings.keys.pasteText"], [os === "macos" ? "Cmd" : "Ctrl", "settings.keys.pasteOptions"],
   ];
   return (
     <div>

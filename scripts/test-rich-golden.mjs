@@ -42,7 +42,7 @@ for (const name of names) {
   assert.ok(w.base && Math.abs(w.base.size - fx.base.size) < 1e-9 && w.base.family === fx.base.family, `${name}: the default font is in the wrapper`);
   assert.equal(wrapBase(w.html, w.base), html, `${name}: wrap(unwrap(x)) is x`);
   for (const bad of ["<script", "<style", "javascript:", "file:", "url(", ";position", "<img src=x", "class=\"ProseMirror", " data-", "<iframe"]) {
-    if (name !== "security") continue;
+    if (name !== "security" && name !== "paste-hostile") continue; // (the second one is what the editor made of a hostile paste: scripts/fixtures/paste/hostile.html)
     assert.ok(!html.toLowerCase().includes(bad), `${name}: ${bad} in ${html}`);
   }
   assert.ok(!/\sclass="(?!sig")/.test(html) && !/<style|\sid=|\sdata-/.test(html), `${name}: no class (except sig), id, data- or <style>`);
@@ -53,6 +53,7 @@ for (const name of names) {
 const P = (t) => ({ type: "paragraph", content: [{ type: "text", text: t }] });
 const base = { family: "Calibri,Carlito,Arial,sans-serif", size: 11 };
 assert.equal(docToHtml({ type: "doc", content: [P("a")] }), '<p style="margin:0">a</p>');
+assert.equal(docToHtml({ type: "doc", content: [P("a	b")] }), '<p style="margin:0">a&nbsp;&nbsp;&nbsp;&nbsp;b</p>', "a tab (the cells of a pasted table row) is four no-break spaces: a recipient's client would fold a tab to one blank");
 assert.equal(docToHtml({ type: "doc", content: [{ type: "paragraph" }] }), '<p style="margin:0"><br></p>', "an empty paragraph keeps its height");
 assert.equal(wrapBase("<p>x</p>", { family: "'Segoe UI',Arial,sans-serif", size: 10.5 }), '<div style="font-family:\'Segoe UI\',Arial,sans-serif;font-size:10.5pt"><p>x</p></div>');
 // unwrapBase: only a box that holds the whole message and has exactly family + size

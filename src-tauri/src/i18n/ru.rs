@@ -48,6 +48,8 @@ pub fn text(k: K) -> &'static str {
         K::LoadFailOpenLog => "Открыть папку журналов",
         K::LoadFailQuit => "Выйти",
         K::LoadFailLog => "Файл журнала:",
+        K::StartFailTitle => "Hey Look! не удалось запустить",
+        K::StartFailBody => "Hey Look! не удалось запустить, потому что не получилось создать его окно.\n\nЧаще всего причина в том, что Microsoft WebView2 Runtime (бесплатный компонент Microsoft, с помощью которого приложения показывают свои окна) отсутствует или повреждён. Установите или восстановите его по адресу https://developer.microsoft.com/microsoft-edge/webview2/ (выберите «Evergreen Bootstrapper» или «Evergreen Standalone Installer»), а затем снова запустите Hey Look!.\n\nПодробности сохранены в файле журнала, указанном ниже; если проблема останется, отправьте этот файл в службу поддержки.",
     }
 }
 

@@ -1,0 +1,130 @@
+{
+ "base": {
+  "family": "Calibri,Carlito,Arial,sans-serif",
+  "size": 11
+ },
+ "sig": null,
+ "doc": {
+  "type": "doc",
+  "content": [
+   {
+    "type": "paragraph",
+    "content": [
+     {
+      "type": "text",
+      "marks": [
+       {
+        "type": "bold"
+       }
+      ],
+      "text": "Item"
+     },
+     {
+      "type": "text",
+      "marks": [
+       {
+        "type": "textStyle"
+       }
+      ],
+      "text": "\t"
+     },
+     {
+      "type": "text",
+      "marks": [
+       {
+        "type": "bold"
+       }
+      ],
+      "text": "Qty"
+     },
+     {
+      "type": "text",
+      "marks": [
+       {
+        "type": "textStyle"
+       }
+      ],
+      "text": "\t"
+     },
+     {
+      "type": "text",
+      "marks": [
+       {
+        "type": "bold"
+       }
+      ],
+      "text": "Price"
+     }
+    ]
+   },
+   {
+    "type": "paragraph",
+    "content": [
+     {
+      "type": "text",
+      "text": "Pens & ink"
+     },
+     {
+      "type": "text",
+      "marks": [
+       {
+        "type": "textStyle"
+       }
+      ],
+      "text": "\t"
+     },
+     {
+      "type": "text",
+      "text": "12"
+     },
+     {
+      "type": "text",
+      "marks": [
+       {
+        "type": "textStyle"
+       }
+      ],
+      "text": "\t"
+     },
+     {
+      "type": "text",
+      "text": "1,204.50"
+     }
+    ]
+   },
+   {
+    "type": "paragraph",
+    "content": [
+     {
+      "type": "text",
+      "text": "Paper"
+     },
+     {
+      "type": "text",
+      "marks": [
+       {
+        "type": "textStyle"
+       }
+      ],
+      "text": "\t\t"
+     },
+     {
+      "type": "text",
+      "marks": [
+       {
+        "type": "textStyle",
+        "attrs": {
+         "color": "#FF0000"
+        }
+       },
+       {
+        "type": "italic"
+       }
+      ],
+      "text": "n/a"
+     }
+    ]
+   }
+  ]
+ }
+}

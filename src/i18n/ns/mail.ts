@@ -110,6 +110,9 @@ export default define({
 
     // right-click menu of a list row
     "mail.ctx.copySubject": "Copy subject",
+    "mail.ctx.copyEmail": "Copy email address",
+    "mail.ctx.selectAll": "Select all",
+    "mail.ctx.textMenu": "Text actions",
     "mail.ctx.copyFailed": "Couldn’t copy to the clipboard",
     "mail.ctx.onlyOne": "Available for one conversation at a time",
     "mail.ctx.oneMailbox": "Available when the conversations are in one mailbox",
@@ -228,6 +231,9 @@ export default define({
 
     // right-click menu of a list row
     "mail.ctx.copySubject": "Sao chép chủ đề",
+    "mail.ctx.copyEmail": "Sao chép địa chỉ email",
+    "mail.ctx.selectAll": "Chọn tất cả",
+    "mail.ctx.textMenu": "Thao tác với văn bản",
     "mail.ctx.copyFailed": "Không thể sao chép vào bộ nhớ tạm",
     "mail.ctx.onlyOne": "Chỉ dùng được cho một cuộc trò chuyện mỗi lần",
     "mail.ctx.oneMailbox": "Chỉ dùng được khi các cuộc trò chuyện cùng một hộp thư",
@@ -346,6 +352,9 @@ export default define({
 
     // right-click menu of a list row
     "mail.ctx.copySubject": "Copier l’objet",
+    "mail.ctx.copyEmail": "Copier l’adresse e-mail",
+    "mail.ctx.selectAll": "Tout sélectionner",
+    "mail.ctx.textMenu": "Actions sur le texte",
     "mail.ctx.copyFailed": "Impossible de copier dans le presse-papiers",
     "mail.ctx.onlyOne": "Disponible pour une seule conversation à la fois",
     "mail.ctx.oneMailbox": "Disponible lorsque les conversations sont dans une seule boîte aux lettres",

@@ -103,6 +103,9 @@ export default defineLocale<typeof ns.en>({
   "mail.pane.calendarTitle": "日历 (Ctrl+2)",
   // right-click menu of a list row
   "mail.ctx.copySubject": "复制主题",
+  "mail.ctx.copyEmail": "复制电子邮件地址",
+  "mail.ctx.selectAll": "全选",
+  "mail.ctx.textMenu": "文本操作",
   "mail.ctx.copyFailed": "无法复制到剪贴板",
   "mail.ctx.onlyOne": "一次只能用于一个对话",
   "mail.ctx.oneMailbox": "仅当这些对话位于同一邮箱时可用",

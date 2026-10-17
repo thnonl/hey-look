@@ -6,7 +6,7 @@
 // in Outlook, Ctrl+Shift+S the Styles menu); Subscript is Ctrl+=, Superscript Ctrl+Shift+=; Ctrl+] / Ctrl+[ (and Ctrl+Shift+> / <) grow and shrink
 // the font; Ctrl+Space and Ctrl+\ clear the formatting. Paragraph formats (Outlook's keys): Ctrl+L / E / R / Shift+J align left / centre / right / justify,
 // Ctrl+T / Ctrl+Shift+T indent more / less, Ctrl+Shift+S the Styles menu, Ctrl+Shift+N Normal, Ctrl+Alt+1..3 Heading 1-3 (never with AltGr: composeKeys.ts),
-// Ctrl+Shift+L / 8 bulleted, Ctrl+Shift+7 numbered list.
+// Ctrl+Shift+L / 8 bulleted, Ctrl+Shift+7 numbered list. Paste: Ctrl+V per the paste default, Ctrl+Shift+V text only (pasteOptions.tsx).
 
 import Placeholder from "@tiptap/extension-placeholder";
 import { Code } from "@tiptap/extension-code";
@@ -21,6 +21,7 @@ import { osNow } from "../platform";
 import type { BaseFont } from "./emailHtml";
 import { BlockFormat } from "./blockExtension";
 import { applyStyle, changeIndent, clearFormatting, setAlignment, stepFontSize, toggleScript } from "./commands";
+import { PasteHandling } from "./pasteOptions";
 import { PreviewColors } from "./previewColors";
 
 /**
@@ -112,6 +113,8 @@ export function baseExtensions(o: BaseExtensionOptions): AnyExtension[] {
     TextStyleKit.configure({ lineHeight: false }),
     BlockFormat,
     FormatKeys(o.getBase, o.focusToolbar, o.openStyles),
+    // paste and drop: the cleaning of Word / Excel / Outlook / Gmail / web HTML, the three paste options, Ctrl+Shift+V (pasteOptions.tsx)
+    PasteHandling.configure({ getBase: o.getBase }),
     PreviewColors,
     Placeholder.configure({ placeholder: o.placeholder ?? "", showOnlyCurrent: o.showOnlyCurrent ?? true }),
   ];

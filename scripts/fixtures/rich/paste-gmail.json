@@ -1,0 +1,480 @@
+{
+ "base": {
+  "family": "Calibri,Carlito,Arial,sans-serif",
+  "size": 11
+ },
+ "sig": null,
+ "doc": {
+  "type": "doc",
+  "content": [
+   {
+    "type": "paragraph",
+    "content": [
+     {
+      "type": "text",
+      "marks": [
+       {
+        "type": "textStyle",
+        "attrs": {
+         "color": "#222222",
+         "fontFamily": "Arial,Helvetica,sans-serif",
+         "fontSize": "10pt"
+        }
+       }
+      ],
+      "text": "Hi team,"
+     }
+    ]
+   },
+   {
+    "type": "paragraph"
+   },
+   {
+    "type": "paragraph",
+    "content": [
+     {
+      "type": "text",
+      "marks": [
+       {
+        "type": "textStyle",
+        "attrs": {
+         "color": "#222222",
+         "fontFamily": "Arial,Helvetica,sans-serif",
+         "fontSize": "10pt"
+        }
+       }
+      ],
+      "text": "Please read the "
+     },
+     {
+      "type": "text",
+      "marks": [
+       {
+        "type": "textStyle",
+        "attrs": {
+         "color": "#222222",
+         "fontFamily": "Arial,Helvetica,sans-serif",
+         "fontSize": "10pt"
+        }
+       },
+       {
+        "type": "bold"
+       }
+      ],
+      "text": "notes"
+     },
+     {
+      "type": "text",
+      "marks": [
+       {
+        "type": "textStyle",
+        "attrs": {
+         "color": "#222222",
+         "fontFamily": "Arial,Helvetica,sans-serif",
+         "fontSize": "10pt"
+        }
+       }
+      ],
+      "text": " "
+     },
+     {
+      "type": "text",
+      "marks": [
+       {
+        "type": "textStyle",
+        "attrs": {
+         "color": "#222222",
+         "fontFamily": "Arial,Helvetica,sans-serif",
+         "fontSize": "10pt"
+        }
+       },
+       {
+        "type": "italic"
+       }
+      ],
+      "text": "before"
+     },
+     {
+      "type": "text",
+      "marks": [
+       {
+        "type": "textStyle",
+        "attrs": {
+         "color": "#222222",
+         "fontFamily": "Arial,Helvetica,sans-serif",
+         "fontSize": "10pt"
+        }
+       }
+      ],
+      "text": " Friday:"
+     }
+    ]
+   },
+   {
+    "type": "bulletList",
+    "content": [
+     {
+      "type": "listItem",
+      "content": [
+       {
+        "type": "paragraph",
+        "content": [
+         {
+          "type": "text",
+          "marks": [
+           {
+            "type": "textStyle",
+            "attrs": {
+             "color": "#222222",
+             "fontFamily": "Arial,Helvetica,sans-serif",
+             "fontSize": "10pt"
+            }
+           }
+          ],
+          "text": "Item one"
+         }
+        ]
+       }
+      ]
+     },
+     {
+      "type": "listItem",
+      "content": [
+       {
+        "type": "paragraph",
+        "content": [
+         {
+          "type": "text",
+          "marks": [
+           {
+            "type": "textStyle",
+            "attrs": {
+             "color": "#222222",
+             "fontFamily": "Arial,Helvetica,sans-serif",
+             "fontSize": "10pt"
+            }
+           }
+          ],
+          "text": "Item two in "
+         },
+         {
+          "type": "text",
+          "marks": [
+           {
+            "type": "textStyle",
+            "attrs": {
+             "color": "#FF0000",
+             "fontFamily": "Arial,Helvetica,sans-serif",
+             "fontSize": "10pt"
+            }
+           }
+          ],
+          "text": "red"
+         }
+        ]
+       },
+       {
+        "type": "bulletList",
+        "content": [
+         {
+          "type": "listItem",
+          "content": [
+           {
+            "type": "paragraph",
+            "content": [
+             {
+              "type": "text",
+              "marks": [
+               {
+                "type": "textStyle",
+                "attrs": {
+                 "color": "#222222",
+                 "fontFamily": "Arial,Helvetica,sans-serif",
+                 "fontSize": "10pt"
+                }
+               }
+              ],
+              "text": "Nested"
+             }
+            ]
+           }
+          ]
+         }
+        ]
+       }
+      ]
+     }
+    ]
+   },
+   {
+    "type": "paragraph",
+    "attrs": {
+     "textAlign": "center"
+    },
+    "content": [
+     {
+      "type": "text",
+      "marks": [
+       {
+        "type": "textStyle",
+        "attrs": {
+         "color": "#222222",
+         "fontFamily": "Arial,Helvetica,sans-serif",
+         "fontSize": "10pt"
+        }
+       }
+      ],
+      "text": "Centered line"
+     }
+    ]
+   },
+   {
+    "type": "paragraph",
+    "content": [
+     {
+      "type": "text",
+      "marks": [
+       {
+        "type": "textStyle",
+        "attrs": {
+         "backgroundColor": "#FFFF00",
+         "color": "#222222",
+         "fontFamily": "Arial,Helvetica,sans-serif",
+         "fontSize": "10pt"
+        }
+       }
+      ],
+      "text": "highlighted"
+     },
+     {
+      "type": "text",
+      "marks": [
+       {
+        "type": "textStyle",
+        "attrs": {
+         "color": "#222222",
+         "fontFamily": "Arial,Helvetica,sans-serif",
+         "fontSize": "10pt"
+        }
+       }
+      ],
+      "text": " and "
+     },
+     {
+      "type": "text",
+      "marks": [
+       {
+        "type": "textStyle",
+        "attrs": {
+         "color": "#222222",
+         "fontFamily": "'courier new',monospace",
+         "fontSize": "10pt"
+        }
+       }
+      ],
+      "text": "monospace"
+     },
+     {
+      "type": "text",
+      "marks": [
+       {
+        "type": "textStyle",
+        "attrs": {
+         "color": "#222222",
+         "fontFamily": "Arial,Helvetica,sans-serif",
+         "fontSize": "10pt"
+        }
+       }
+      ],
+      "text": " and "
+     },
+     {
+      "type": "text",
+      "marks": [
+       {
+        "type": "textStyle",
+        "attrs": {
+         "color": "#222222",
+         "fontFamily": "Arial,Helvetica,sans-serif",
+         "fontSize": "14pt"
+        }
+       }
+      ],
+      "text": "large"
+     }
+    ]
+   },
+   {
+    "type": "paragraph",
+    "content": [
+     {
+      "type": "text",
+      "marks": [
+       {
+        "type": "link",
+        "attrs": {
+         "href": "https://example.com/doc?id=7&x=1"
+        }
+       },
+       {
+        "type": "textStyle",
+        "attrs": {
+         "fontFamily": "Arial,Helvetica,sans-serif",
+         "fontSize": "10pt"
+        }
+       }
+      ],
+      "text": "the doc"
+     },
+     {
+      "type": "text",
+      "marks": [
+       {
+        "type": "textStyle",
+        "attrs": {
+         "color": "#222222",
+         "fontFamily": "Arial,Helvetica,sans-serif",
+         "fontSize": "10pt"
+        }
+       }
+      ],
+      "text": " "
+     },
+     {
+      "type": "text",
+      "marks": [
+       {
+        "type": "textStyle",
+        "attrs": {
+         "fontFamily": "Arial,Helvetica,sans-serif",
+         "fontSize": "10pt"
+        }
+       }
+      ],
+      "text": "bad link"
+     }
+    ]
+   },
+   {
+    "type": "paragraph"
+   },
+   {
+    "type": "paragraph",
+    "content": [
+     {
+      "type": "text",
+      "marks": [
+       {
+        "type": "textStyle",
+        "attrs": {
+         "color": "#222222",
+         "fontFamily": "Arial,Helvetica,sans-serif",
+         "fontSize": "10pt"
+        }
+       }
+      ],
+      "text": "On Mon, Oct 12, 2026 at 9:00 AM Anna Berg <"
+     },
+     {
+      "type": "text",
+      "marks": [
+       {
+        "type": "link",
+        "attrs": {
+         "href": "mailto:anna@example.com"
+        }
+       },
+       {
+        "type": "textStyle",
+        "attrs": {
+         "fontFamily": "Arial,Helvetica,sans-serif",
+         "fontSize": "10pt"
+        }
+       }
+      ],
+      "text": "anna@example.com"
+     },
+     {
+      "type": "text",
+      "marks": [
+       {
+        "type": "textStyle",
+        "attrs": {
+         "color": "#222222",
+         "fontFamily": "Arial,Helvetica,sans-serif",
+         "fontSize": "10pt"
+        }
+       }
+      ],
+      "text": "> wrote:"
+     }
+    ]
+   },
+   {
+    "type": "blockquote",
+    "content": [
+     {
+      "type": "paragraph",
+      "content": [
+       {
+        "type": "text",
+        "marks": [
+         {
+          "type": "textStyle",
+          "attrs": {
+           "color": "#222222",
+           "fontFamily": "Arial,Helvetica,sans-serif",
+           "fontSize": "10pt"
+          }
+         }
+        ],
+        "text": "Quoted text"
+       }
+      ]
+     },
+     {
+      "type": "paragraph"
+     },
+     {
+      "type": "paragraph",
+      "content": [
+       {
+        "type": "text",
+        "marks": [
+         {
+          "type": "textStyle",
+          "attrs": {
+           "color": "#222222",
+           "fontFamily": "Arial,Helvetica,sans-serif",
+           "fontSize": "10pt"
+          }
+         }
+        ],
+        "text": "--"
+       }
+      ]
+     },
+     {
+      "type": "paragraph",
+      "content": [
+       {
+        "type": "text",
+        "marks": [
+         {
+          "type": "textStyle",
+          "attrs": {
+           "color": "#888888",
+           "fontFamily": "Arial,Helvetica,sans-serif",
+           "fontSize": "10pt"
+          }
+         }
+        ],
+        "text": "Anna"
+       }
+      ]
+     }
+    ]
+   }
+  ]
+ }
+}

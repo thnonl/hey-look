@@ -64,6 +64,8 @@ export interface Prefs extends Overridable {
   /** font colours used lately, newest first (the "Recent colors" of the Font color menu; the first is what the button applies), and the last highlight colour */
   recentColors: string[];
   highlightColor: string;
+  /** what Ctrl+V does with text copied from other programs (Settings > Composing > When pasting from other apps): keep its formatting, take the format around it, or text only */
+  pasteDefault: "source" | "merge" | "text";
   /** primary (accent) color, #rrggbb */
   accent: string;
   density: "full" | "medium" | "compact";
@@ -141,6 +143,7 @@ export const DEFAULT_PREFS: Prefs = {
   composeFontSize: DEFAULT_FONT_SIZE,
   recentColors: [],
   highlightColor: DEFAULT_HIGHLIGHT,
+  pasteDefault: "source",
   accent: "#0f6cbd",
   density: "full",
   readingPane: "right",
@@ -264,6 +267,7 @@ export function mergePrefs(raw: string | null): Prefs {
       composeFontName: typeof p.composeFontName === "string" && p.composeFontName.trim() ? p.composeFontName.trim().slice(0, 60) : DEFAULT_FONT_NAME,
       composeFontSize: typeof p.composeFontSize === "number" && p.composeFontSize >= 6 && p.composeFontSize <= 96 ? p.composeFontSize : DEFAULT_FONT_SIZE,
       recentColors: Array.isArray(p.recentColors) ? p.recentColors.filter((c): c is string => typeof c === "string" && /^#[0-9A-F]{6}$/.test(normColor(c))).slice(0, 10) : [],
+      pasteDefault: p.pasteDefault === "merge" || p.pasteDefault === "text" ? p.pasteDefault : "source",
       highlightColor: typeof p.highlightColor === "string" && /^#[0-9A-F]{6}$/.test(normColor(p.highlightColor)) ? normColor(p.highlightColor) : DEFAULT_HIGHLIGHT,
       // English unless the person chose another language (an unknown or older value counts as English)
       language: isLang(p.language) || p.language === "en-XA" ? p.language : "en",

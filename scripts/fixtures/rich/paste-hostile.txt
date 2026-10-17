@@ -1,0 +1,6 @@
+Hostile paste
+
+[shot]
+js js2 data file ok (HTTPS://Example.com/ok)
+fake signature
+expr

@@ -170,7 +170,7 @@ export function RecipientField({
           const ks = keys?.[addr];
           const noKey = !!ks && ks.status !== "ok";
           return (
-          <span key={v} className={`rchip ${EMAIL.test(bareAddress(v)) ? "" : "bad"} ${noKey ? "nokey" : ""}`} title={EMAIL.test(bareAddress(v)) ? (noKey ? t("compose.rcpt.noUsableKey", { addr }) : v) : t("compose.rcpt.notAddress")}>
+          <span key={v} data-email={EMAIL.test(bareAddress(v)) ? bareAddress(v) : undefined} className={`rchip ${EMAIL.test(bareAddress(v)) ? "" : "bad"} ${noKey ? "nokey" : ""}`} title={EMAIL.test(bareAddress(v)) ? (noKey ? t("compose.rcpt.noUsableKey", { addr }) : v) : t("compose.rcpt.notAddress")}>
             {ks && (ks.status === "ok" ? (
               <span className="rchip-key ok" title={t("compose.rcpt.keyFound")} role="img" aria-label={t("compose.rcpt.keyFoundFor", { addr })}><Lock size={11} /></span>
             ) : (

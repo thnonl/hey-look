@@ -58,7 +58,7 @@ const root = fileURLToPath(new URL("../", import.meta.url));
   assert.match(read("src/components/ReadingPane.tsx"), /"error" in out\) showToast\(\(\) => friendlyError\(out\.error\)/);
   assert.match(read("src/components/Compose.tsx"), /"error" in out\) return showToast\(\(\) => friendlyError\(out\.error\)/);
   assert.match(read("src/translate.ts"), /friendlyError\(outcome\.error\)/);
-  assert.match(read("src/components/SettingsDialog.tsx"), /setModelsErr\(friendlyError\(e\)\)/);
+  assert.match(read("src/components/SettingsDialog.tsx"), /setModelsErr\(cutAtWord\(friendlyError\(e\), \d+\)\)/); // the reason is friendlyError text, cut to fit the status slot
   // the Rust side: no error text is built from the answer, the request or the key
   const rs = read("src-tauri/src/ai.rs");
   const prod = rs.slice(0, rs.indexOf("#[cfg(test)]"));

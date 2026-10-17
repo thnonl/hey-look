@@ -526,6 +526,9 @@ button.att-chip:hover { background: var(--bg3); border-color: color-mix(in srgb,
 .fmt-ico i { display: block; width: 14px; height: 3px; border-radius: 1px; box-shadow: 0 0 0 1px var(--border); }
 .fmt-a { font-weight: 700; font-size: 14px; line-height: 14px; }
 .fmt-pop { position: fixed; z-index: var(--z-menu); width: 232px; box-sizing: border-box; gap: 4px; animation: pop .12s var(--ease); }
+/* the Paste options button after a paste (editor/pasteOptions.tsx): fixed under the end of the pasted text, the menu is a FloatingMenu */
+.paste-opt { position: fixed; z-index: calc(var(--z-menu) - 1); gap: 2px; padding: 3px 5px; min-height: 0; background: var(--bg); border: 1px solid var(--border); box-shadow: var(--shadow-sm); }
+.paste-opt:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
 .fmt-pop-head { margin-top: 4px; font-size: .82em; color: var(--muted); }
 .fmt-grid { display: grid; grid-template-columns: repeat(10, 18px); gap: 2px; }
 .fmt-grid-hl { grid-template-columns: repeat(5, 18px); }
@@ -712,6 +715,13 @@ button.ov-tag:hover { background: color-mix(in srgb, var(--accent), transparent 
 .form > label:not(.switch):not(:first-child) { margin-top: 16px; } /* field -> next label: 4 + 16 = 20px, so a label clearly belongs to the field below it */
 .form > label:not(.switch) + .row-inline { margin-top: 0; }
 .form label { font-size: .86em; color: var(--muted); }
+/* a field whose label line carries an action on the right ("Remove the saved key"): the action comes and goes without changing the height of the line */
+.form .field { display: flex; flex-direction: column; gap: 4px; }
+.field-head { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; }
+.field-head .link { flex: none; }
+/* Save and under it the status of the model list (Loading... / could not load / no models): a fixed two-line slot, so the texts coming and going move nothing */
+.form .ai-actions { display: flex; flex-direction: column; gap: 8px; }
+.ai-status { margin-bottom: -24px; /* its second line sits in the pane's bottom padding (28px), so a window that held this tab before still does */ height: 2.8em; line-height: 1.4; overflow: hidden; display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; }
 .advanced > summary { cursor: pointer; color: var(--muted); font-size: .86em; padding: 4px 0; min-height: 24px; }
 .advanced > .form { margin-top: 14px; }
 .list-row { display: flex; gap: 14px; align-items: center; padding: 10px 12px; border: 1px solid var(--border); border-radius: var(--r-md); margin-bottom: 6px; cursor: pointer; transition: background .12s, border-color .12s; }
