@@ -28,11 +28,11 @@ grep -q 'certificate \(leaf\|root\) = H"[0-9a-f]\{40\}"' <<<"$dr" || fail "the d
 
 # the signing certificate: leaf of the signature
 d="$(mktemp -d)"
-( cd "$d" && codesign -d --extract-certificates "$app" >/dev/null 2>&1 )
-[ -s "$d/codesign0" ] || fail "could not extract the signing certificate"
-echo "Signing certificate subject: $(openssl x509 -inform DER -in "$d/codesign0" -noout -subject)"
-echo "Signing certificate SHA-256: $(openssl x509 -inform DER -in "$d/codesign0" -noout -fingerprint -sha256 | cut -d= -f2)"
-leaf_sha1="$(openssl x509 -inform DER -in "$d/codesign0" -noout -fingerprint -sha1 | cut -d= -f2 | tr -d ':' | tr 'A-F' 'a-f')"
+codesign -d --extract-certificates="$d/cert" "$app" >/dev/null 2>&1
+[ -s "$d/cert0" ] || fail "could not extract the signing certificate"
+echo "Signing certificate subject: $(openssl x509 -inform DER -in "$d/cert0" -noout -subject)"
+echo "Signing certificate SHA-256: $(openssl x509 -inform DER -in "$d/cert0" -noout -fingerprint -sha256 | cut -d= -f2)"
+leaf_sha1="$(openssl x509 -inform DER -in "$d/cert0" -noout -fingerprint -sha1 | cut -d= -f2 | tr -d ':' | tr 'A-F' 'a-f')"
 grep -qF "H\"$leaf_sha1\"" <<<"$dr" || fail "the certificate hash in the requirement is not the hash of the signing certificate"
 rm -rf "$d"
 
