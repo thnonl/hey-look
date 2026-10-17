@@ -2480,6 +2480,7 @@ dependencies = [
  "unicode-segmentation",
  "urlencoding",
  "uuid",
+ "webkit2gtk",
  "webview2-com",
  "windows",
  "windows-version",

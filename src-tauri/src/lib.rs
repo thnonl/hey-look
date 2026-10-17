@@ -16,6 +16,7 @@ mod legacy_names;
 // the checked open of links and files on Linux; compiled everywhere so that its rules are tested everywhere
 #[cfg_attr(not(target_os = "linux"), allow(dead_code))]
 mod linuxopen;
+mod linuxview;
 // macOS notification diagnostic (HEYLOOK_MAC_NOTIFY); compiled everywhere so that its rules are tested everywhere
 #[cfg_attr(not(target_os = "macos"), allow(dead_code))]
 mod macnotify;
@@ -541,6 +542,12 @@ fn frontend_ready(app: tauri::AppHandle) {
 #[tauri::command]
 fn page_state(app: tauri::AppHandle, visibility: String, frames: bool) {
     startup::page_state(&app, &visibility, frames);
+}
+
+/// The page answers a ping of the backend (Linux, `linuxview.rs`: does the page still run after the window sat in the tray?).
+#[tauri::command]
+fn page_pong(nonce: u64, visibility: String) {
+    linuxview::pong(nonce, &visibility);
 }
 
 /// The frontend tells whether any account exists: without one the tray's "New mail" and "Check mail now" are disabled.
@@ -4435,6 +4442,7 @@ pub fn run() {
                 if shell::close_to_tray(&db) {
                     api.prevent_close();
                     let _ = window.hide();
+                    linuxview::note_hidden();
                     shell::tray_hint_once(window.app_handle(), &db);
                 } else {
                     // closing would quit: the page first finishes its sends and saves what is being written, and scheduled
@@ -4577,6 +4585,7 @@ pub fn run() {
             frontend_ready,
             sends_flushed,
             quit_page_alive,
+            page_pong,
             quit_dialog,
             quit_cancelled,
             show_window,
@@ -4686,7 +4695,6 @@ mod filter_tests {
 mod quit_tests {
     use super::*;
     use std::sync::mpsc::channel;
-    use std::time::Duration;
 
     /// The page's messages reach the quit through the commands; an answer nobody waits for does nothing. (The waiting itself, with a page that
     /// never answers, answers late or asks a question, is tested in quitwait.rs.)

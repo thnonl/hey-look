@@ -339,29 +339,38 @@ pub fn web_view_failed(app: &AppHandle, kind: i32, detail: &str) {
             std::thread::spawn(move || restart_app(&app, "the web view's browser process is gone"));
         }
         Reaction::Reload => {
-            std::thread::spawn(move || {
-                if PAGE_RELOADS.fetch_add(1, Ordering::SeqCst) < MAX_PAGE_RELOADS {
-                    stage(Some(&app), "a page process of the web view died: reloading the page");
-                    let before = READY_COUNT.load(Ordering::SeqCst);
-                    let t0 = Instant::now();
-                    recover_page(
-                        |remedy| match remedy {
-                            PageRemedy::Reload => reload_page(&app),
-                            PageRemedy::Navigate => navigate_to_app(&app),
-                            PageRemedy::Restart => restart_app(&app, "the page does not come back after a reload"),
-                        },
-                        || READY_COUNT.load(Ordering::SeqCst) > before,
-                        std::thread::sleep,
-                        |said| stage(Some(&app), &said),
-                        || t0.elapsed().as_millis(),
-                    );
-                } else {
-                    stage(Some(&app), "a page process of the web view died again: not reloading again");
-                }
-            });
+            std::thread::spawn(move || recover_dead_page(&app, "a page process of the web view died"));
         }
         Reaction::LogOnly => {}
     }
+}
+
+/// The page is gone (its process died) or does not answer: bring it back with the remedies of `recover_page`, at most `MAX_PAGE_RELOADS`
+/// times per run. Blocks until the page is back or every remedy was tried, so it runs on its own thread.
+pub fn recover_dead_page(app: &AppHandle, why: &str) {
+    if PAGE_RELOADS.fetch_add(1, Ordering::SeqCst) < MAX_PAGE_RELOADS {
+        stage(Some(app), &format!("{why}: reloading the page"));
+        let before = READY_COUNT.load(Ordering::SeqCst);
+        let t0 = Instant::now();
+        recover_page(
+            |remedy| match remedy {
+                PageRemedy::Reload => reload_page(app),
+                PageRemedy::Navigate => navigate_to_app(app),
+                PageRemedy::Restart => restart_app(app, "the page does not come back after a reload"),
+            },
+            || READY_COUNT.load(Ordering::SeqCst) > before,
+            std::thread::sleep,
+            |said| stage(Some(app), &said),
+            || t0.elapsed().as_millis(),
+        );
+    } else {
+        stage(Some(app), &format!("{why}: not reloading again (already {MAX_PAGE_RELOADS} times in this run)"));
+    }
+}
+
+/// Whether the app is closing (its web view's processes then end on purpose).
+pub fn is_exiting() -> bool {
+    EXITING.load(Ordering::SeqCst)
 }
 
 /// What brings back a page whose process died, in order, each tried only when the one before did not work.
@@ -575,6 +584,7 @@ pub fn start(app: &AppHandle, show_at_start: bool) {
     stage(Some(app), &format!("window created hidden (show at start: {show_at_start})"));
     // which browser process the web view uses (joined from an earlier run or its own), and a listener for its failures
     webview_health::watch(app);
+    crate::linuxview::watch(app);
     let app = app.clone();
     std::thread::spawn(move || {
         watch(
@@ -817,7 +827,13 @@ mod tests {
         let eval = concat!(".ev", "al(");
         let react = &code[code.find("Reaction::Reload => {").unwrap()..];
         let react = &react[..react.find("Reaction::LogOnly").unwrap()];
-        assert!(!react.contains(eval) && react.contains("recover_page("), "{react}");
+        assert!(!react.contains(eval) && react.contains("recover_dead_page("), "{react}");
+        // (the reaction and the Linux page checks share one function: remedies in order, each with the web view's own calls)
+        let dead = &code[code.find("pub fn recover_dead_page(").unwrap()..];
+        let dead = &dead[..dead.find("
+}
+").unwrap()];
+        assert!(!dead.contains(eval) && dead.contains("recover_page(") && dead.contains("reload_page(app)"), "{dead}");
         let step = &code[code.find("Step::Reload => {").unwrap()..];
         let step = &step[..step.find("Step::Restart =>").unwrap()];
         assert!(!step.contains(eval) && step.contains("reload_page(app)"), "{step}");

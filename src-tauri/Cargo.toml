@@ -87,6 +87,8 @@ zbus = "5"
 notify-rust = "4.18"
 # the system clipboard for copy_text (lib.rs); the version tauri and wry already use
 gtk = "0.18"
+# linuxview.rs: the web view's own signals (web process ended / not responding) and a redraw; the exact version tauri's runtime pins
+webkit2gtk = { version = "=2.0.2", features = ["v2_40"] }
 keyring = { version = "3", features = ["sync-secret-service", "crypto-rust"] }
 
 
