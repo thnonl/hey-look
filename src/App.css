@@ -632,9 +632,9 @@ button.att-chip:hover { background: var(--bg3); border-color: color-mix(in srgb,
 .sig-block.none { padding-top: 4px; }
 /* the quoted original of a reply / forward: a block of its own, read-only, with its own look (editor/quoteNode.ts); the original itself is drawn in a shadow tree */
 .quote-block { margin: 14px 0 6px; padding-top: 6px; cursor: default; }
-.quote-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 8px; color: var(--muted); font-size: .86em; line-height: 1.5; padding-bottom: 6px; }
-.quote-attr { min-width: 0; overflow-wrap: anywhere; padding-top: 4px; }
-.quote-tools { display: inline-flex; align-items: center; gap: 4px; flex: none; }
+.quote-head { display: flex; flex-wrap: wrap; align-items: flex-start; justify-content: space-between; gap: 2px 8px; color: var(--muted); font-size: .86em; line-height: 1.5; padding-bottom: 6px; }
+.quote-attr { flex: 1 1 220px; min-width: 0; overflow-wrap: anywhere; padding-top: 4px; }
+.quote-tools { display: inline-flex; align-items: center; gap: 4px; flex: none; margin-left: auto; }
 .quote-tools .link { font-size: inherit; min-height: 24px; }
 .quote-tools .icon-btn svg { transition: transform .12s; }
 .quote-note { color: var(--muted); font-size: .8em; padding: 0 0 6px; }
