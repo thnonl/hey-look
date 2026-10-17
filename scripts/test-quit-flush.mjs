@@ -4,6 +4,7 @@
 // Run: node --experimental-strip-types scripts/test-quit-flush.mjs
 import assert from "node:assert/strict";
 import { runQuitFlush } from "../src/quitFlush.ts";
+import { currentFlushHandlers, flushHandlerCount, registerFlushHandler, runPopoutFlush } from "../src/popout/flush.ts";
 
 /** Deps that write down what happens, in order. `unsaved` and `choice` set the situation. */
 function page({ unsaved = null, choice = "quit", inFlight = 0, flushThrows = false } = {}) {
@@ -88,6 +89,85 @@ function page({ unsaved = null, choice = "quit", inFlight = 0, flushThrows = fal
   const b = page({ flushThrows: true });
   assert.equal(await runQuitFlush(b.d), true);
   assert.deepEqual(b.log.filter((l) => l.startsWith("done")), ["done:true"]);
+}
+
+// ---- the part of a secondary window (pop-out): src/popout/flush.ts, answered to the backend with its own commands (popout_flush_*)
+
+/** Deps that write down what happens, in order; `handlers` are what the views registered. */
+function popout(handlers) {
+  const log = [];
+  const d = {
+    alive: () => log.push("alive"),
+    done: (go) => log.push(`done:${go}`),
+    ctx: { dialog: (open) => log.push(`dialog:${open}`), showWindow: () => log.push("show") },
+    handlers: () => handlers(log),
+  };
+  return { d, log };
+}
+
+// a window with nothing to save (the placeholder, an unchanged compose window): alive, then "go on" at once
+{
+  const { d, log } = popout(() => []);
+  assert.equal(await runPopoutFlush(d), true);
+  assert.deepEqual(log, ["alive", "done:true"]);
+}
+
+// handlers run in order; each may take time; the window answers once, after the last one
+{
+  const { d, log } = popout((l) => [async () => void l.push("save-a"), () => void l.push("save-b")]);
+  assert.equal(await runPopoutFlush(d), true);
+  assert.deepEqual(log, ["alive", "save-a", "save-b", "done:true"]);
+}
+
+// a handler that cannot save asks the person: the window first, then the backend is told a question is open, and closed again;
+// "Keep writing" (false) cancels the whole quit and nothing after it runs
+{
+  const { d, log } = popout((l) => [
+    async (ctx) => {
+      ctx.showWindow();
+      ctx.dialog(true);
+      ctx.dialog(false);
+      return false;
+    },
+    () => void l.push("must-not-run"),
+  ]);
+  assert.equal(await runPopoutFlush(d), false);
+  assert.deepEqual(log, ["alive", "show", "dialog:true", "dialog:false", "done:false"]);
+}
+
+// "Close and discard" (true) goes on
+{
+  const { d, log } = popout(() => [async () => true]);
+  assert.equal(await runPopoutFlush(d), true);
+  assert.deepEqual(log, ["alive", "done:true"]);
+}
+
+// whatever fails, the backend gets its answer exactly once (otherwise it would wait out its limit): the quit goes on
+{
+  const { d, log } = popout(() => [async () => { throw new Error("imap"); }]);
+  assert.equal(await runPopoutFlush(d), true);
+  assert.deepEqual(log.filter((l) => l.startsWith("done")), ["done:true"]);
+}
+
+// the registry: a view registers for its lifetime and removes itself
+{
+  assert.equal(flushHandlerCount(), 0);
+  const h = () => false;
+  const off = registerFlushHandler(h);
+  assert.deepEqual(currentFlushHandlers(), [h]);
+  off();
+  assert.equal(flushHandlerCount(), 0);
+}
+
+// the wiring: the root listens before it says it is ready (the backend asks only ready windows), and answers with the pop-out commands
+// (the quit commands of the main page are not granted to a pop-out)
+{
+  const { readFileSync } = await import("node:fs");
+  const root = readFileSync(new URL("../src/popout/PopoutRoot.tsx", import.meta.url), "utf8");
+  const listen = root.indexOf('listen("popout-flush"');
+  assert.ok(listen > 0 && listen < root.indexOf("api.popoutReady()"), "listener before ready");
+  for (const call of ["api.popoutFlushAlive()", "api.popoutFlushDone(go)", "api.popoutFlushDialog(open)"]) assert.ok(root.includes(call), call);
+  for (const main of ["api.sendsFlushed", "api.quitPageAlive", "api.quitDialog", '"flush-sends"']) assert.ok(!root.includes(main), `a pop-out must not use ${main}`);
 }
 
 console.log("quit flush ok");
