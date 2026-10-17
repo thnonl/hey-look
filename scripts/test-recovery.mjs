@@ -1,9 +1,9 @@
 // Crash recovery of the message being written (QA round 17 BUG-02): the writer that keeps the snapshot (one at a time, newest wins, attachments
-// only when they changed and the last send of them worked, nothing after the message is over), and the question at the next start (restore opens
-// a message and never sends it, discard removes it, anything else keeps it). Behaviour of src/recovery.ts.
+// only when they changed and the last send of them worked, nothing after the message is over), and what the next start does with what is left
+// (1.0.6: every snapshot is saved as a real draft without a question; what cannot be saved is kept on this computer). Behaviour of src/recovery.ts.
 // Run: node --experimental-strip-types scripts/test-recovery.mjs
 import assert from "node:assert/strict";
-import { RecoveryWriter, offerRecovery, composeFromSnapshot, snapshotInWindow } from "../src/recovery.ts";
+import { RecoveryWriter, composeFromSnapshot, draftFromSnapshot, settleRecovery, snapshotInWindow, LOCAL_KEEP_SECS } from "../src/recovery.ts";
 
 const att = (n) => ({ filename: `${n}.txt`, mime: "text/plain", dataBase64: btoa(n) });
 const form = (subject) => ({ accountId: "a1", subject, preview: subject, payload: JSON.stringify({ subject }) });
@@ -170,175 +170,138 @@ function backend() {
   assert.deepEqual(b.whys, ["draft saved", "message over"]);
 }
 
-// ---- the question at the next start
+// ---- the next start (1.0.6): no question, every snapshot is saved as a draft
 
-const info = (id, subject, savedAt = 100) => ({ id, accountId: "a1", savedAt, subject, preview: "", files: 0 });
-const loaded = (id) => ({ id, accountId: "a1", savedAt: 100, payload: "{}", files: [] });
+const NOW = 1_800_000_000;
+const snapForm = (o = {}) => ({
+  v: 1, to: ["a@x.org"], cc: [], bcc: [], subject: "S", html: "<p>Hi</p>", inReplyTo: null, references: [], replaces: null, isReply: false,
+  encrypt: "off", sign: false, attachKey: false, confidential: false, ...o,
+});
+const snap = (id, o = {}, over = {}) => ({ id, accountId: "a1", savedAt: NOW - 60, payload: JSON.stringify(snapForm(o)), files: [], ...over });
+const infoOf = (l) => ({ id: l.id, accountId: l.accountId, savedAt: l.savedAt, subject: "", preview: "", files: l.files.length });
 
-function start(items, answers, over = {}) {
+/** A backend with these snapshots. `over.save` decides per id: a result, or an Error (the server said no). */
+function start(snaps, over = {}) {
   const log = [];
-  const state = { composing: false, idle: [] };
-  const answer = [...answers];
+  const rows = new Map(snaps.map((l) => [l.id, l]));
+  const drafts = [];
   const deps = {
-    list: async () => items,
-    load: async (id) => (log.push(`load ${id}`), over.loadResult === undefined ? loaded(id) : over.loadResult),
-    ask: async (i) => (log.push(`ask ${i.id}`), answer.shift() ?? "later"),
-    open: async (l) => {
-      log.push(`open ${l.id}`);
-      state.composing = true;
+    list: async () => [...rows.values()].map(infoOf),
+    load: async (id) => (log.push(`load ${id}`), rows.get(id) ?? null),
+    saveDraft: async (id, draft, replaces) => {
+      log.push(`save ${id}`);
+      const r = over.save ? over.save(id, draft, replaces) : { status: "saved", threadId: `t-${id}`, draftRef: `mid:a1|<${id}@x>` };
+      if (r instanceof Error) throw r;
+      drafts.push({ id, draft, replaces });
+      rows.delete(id); // (the backend removes the snapshot once the draft is confirmed)
+      return r;
     },
-    clear: async (id) => void log.push(`clear ${id}`),
-    composing: () => state.composing,
-    whenIdle: () => new Promise((r) => state.idle.push(r)),
-    failed: (i) => void log.push(`failed ${i.id}`),
+    clear: async (id, why) => (log.push(`clear ${id} (${why})`), void rows.delete(id)),
+    now: () => NOW,
     ...over.deps,
   };
-  return { deps, log, state };
+  return { deps, log, rows, drafts };
 }
 
-// 6. nothing was left: nothing is asked
+// 6. nothing was left: nothing happens
 {
-  const s = start([], []);
-  const r = await offerRecovery(s.deps);
-  assert.deepEqual(r, { restored: [], discarded: [], later: [], gone: [] });
+  const s = start([]);
+  assert.deepEqual(await settleRecovery(s.deps), []);
   assert.deepEqual(s.log, []);
 }
 
-// 7. restore opens it (and does nothing else: no send, no clear: the snapshot lives on with the open message)
+// 7. N snapshots -> N drafts, no question, nothing is opened, sent or discarded; newest first; the snapshots are gone only because the backend
+//    removed them after the save
 {
-  const s = start([info("m1", "Plan")], ["restore"]);
-  const r = await offerRecovery(s.deps);
-  assert.deepEqual(s.log, ["ask m1", "load m1", "open m1"]);
-  assert.deepEqual(r.restored, ["m1"]);
+  const s = start([snap("old", {}, { savedAt: NOW - 500 }), snap("new", {}, { savedAt: NOW - 10 }), snap("mid", {}, { savedAt: NOW - 100 })]);
+  const kept = await settleRecovery(s.deps);
+  assert.deepEqual(kept.map((k) => [k.id, k.where]), [["new", "drafts"], ["mid", "drafts"], ["old", "drafts"]], "newest first, all in Drafts");
+  assert.deepEqual(s.drafts.map((d) => d.id), ["new", "mid", "old"], "three drafts saved");
+  assert.ok(s.log.every((l) => /^(load|save) /.test(l)), `only loads and saves, no clear/open/ask: ${s.log}`);
+  assert.deepEqual(kept.map((k) => k.threadId), ["t-new", "t-mid", "t-old"]);
+  assert.equal(s.rows.size, 0);
 }
 
-// 8. discard removes it; "not now" (also Esc) keeps it
+// 8. the draft: Bcc kept, pictures become inline parts (and the data: URIs leave the html), the text part is made, the draft it replaces is named
 {
-  const s = start([info("m1", "Plan")], ["discard"]);
-  const r = await offerRecovery(s.deps);
-  assert.deepEqual(s.log, ["ask m1", "clear m1"]);
-  assert.deepEqual(r.discarded, ["m1"]);
-  const k = start([info("m1", "Plan")], ["later"]);
-  const r2 = await offerRecovery(k.deps);
-  assert.deepEqual(k.log, ["ask m1"], "nothing is cleared or opened");
-  assert.deepEqual(r2.later, ["m1"]);
+  const png = "iVBORw0KGgo=";
+  const l = snap("p1", { to: ["Ann <a@x.org>"], cc: ["c@x.org"], bcc: ["Hidden <h@x.org>", "z@x.org"], subject: "Pic", html: `<p>Hi</p><img src="data:image/png;base64,${png}" data-name="my logo.png">`, inReplyTo: "<m1@x.org>", references: ["<m0@x.org>", "<m1@x.org>"], replaces: "mid:a1|<prev@x>", confidential: true, importance: "high" }, { files: [att("f")] });
+  const d = draftFromSnapshot(l);
+  assert.deepEqual(d.bcc, ["Hidden <h@x.org>", "z@x.org"], "Bcc is kept in the draft");
+  assert.deepEqual([d.to, d.cc, d.subject, d.inReplyTo, d.references], [["Ann <a@x.org>"], ["c@x.org"], "Pic", "<m1@x.org>", ["<m0@x.org>", "<m1@x.org>"]]);
+  assert.equal(d.inline.length, 1);
+  assert.deepEqual([d.inline[0].filename, d.inline[0].mime, d.inline[0].dataBase64], ["my logo.png", "image/png", png], "the name the picture was added with");
+  assert.ok(d.html.includes(`cid:${d.inline[0].cid}`) && !d.html.includes("data:image"), d.html);
+  assert.ok(d.text.includes("Hi"), "a text part");
+  assert.equal(d.attachments.length, 1);
+  assert.deepEqual([d.confidential, d.importance], [true, "high"]);
+  assert.equal(d.security, undefined, "a draft is plain here; an encrypted message is not saved from a snapshot");
+  const s = start([l]);
+  await settleRecovery(s.deps);
+  assert.equal(s.drafts[0].replaces, "mid:a1|<prev@x>", "the draft it takes the place of is passed on: replaced in place");
+  // normal importance leaves no header; an encrypted message is never sent to the server in plain text
+  assert.equal(draftFromSnapshot(snap("n1")).importance, undefined);
+  assert.equal(draftFromSnapshot(snap("e1", { encrypt: "on" })), null);
+  assert.equal(draftFromSnapshot(snap("bad", {}, { payload: "x" })), null);
 }
 
-// 9. several: newest first, one at a time; "not now" holds back the rest too; a restored one is open before the next question
+// 9. no Drafts folder / the server is down or refuses: nothing is lost, the snapshot stays and the message is "kept on this computer"
 {
-  const items = [info("new", "N", 300), info("mid", "M", 200), info("old", "O", 100)];
-  const s = start(items, ["discard", "restore", "restore"]);
-  const run = offerRecovery(s.deps);
-  await new Promise((r) => setTimeout(r, 10));
-  // "new" was discarded, "mid" restored and is open: the question for "old" waits until the pane is free
-  assert.deepEqual(s.log, ["ask new", "clear new", "ask mid", "load mid", "open mid"]);
-  s.state.composing = false;
-  s.state.idle.splice(0).forEach((r) => r());
-  const r = await run;
-  assert.deepEqual(s.log.slice(5), ["ask old", "load old", "open old"]);
-  assert.deepEqual(r, { restored: ["mid", "old"], discarded: ["new"], later: [], gone: [] });
-  const k = start(items, ["later", "restore", "restore"]);
-  const r2 = await offerRecovery(k.deps);
-  assert.deepEqual(k.log, ["ask new"], "not now: the rest is asked at the next start");
-  assert.deepEqual(r2.later, ["new", "mid", "old"]);
+  const s = start([snap("a"), snap("b", {}, { savedAt: NOW - 5 })], { save: () => new Error("this account has no Drafts folder") });
+  const kept = await settleRecovery(s.deps);
+  assert.deepEqual(kept.map((k) => [k.id, k.where, k.threadId]), [["b", "local", null], ["a", "local", null]]);
+  assert.equal(s.rows.size, 2, "both snapshots are still there");
+  assert.ok(!s.log.some((l) => l.startsWith("clear")), "nothing was removed");
+  // one fails, the others go on
+  const m = start([snap("x"), snap("y", {}, { savedAt: NOW - 5 }), snap("z", {}, { savedAt: NOW - 9 })], { save: (id) => (id === "y" ? new Error("APPEND refused") : { status: "saved", threadId: `t-${id}`, draftRef: null }) });
+  const k2 = await settleRecovery(m.deps);
+  assert.deepEqual(k2.map((k) => [k.id, k.where]), [["y", "local"], ["z", "drafts"], ["x", "drafts"]]);
+  assert.deepEqual([...m.rows.keys()], ["y"]);
+  // an encrypted message has no snapshot normally; if there is one it stays local and is never sent to the server
+  const e = start([snap("enc", { encrypt: "on" })]);
+  assert.deepEqual((await settleRecovery(e.deps)).map((k) => k.where), ["local"]);
+  assert.ok(!e.log.some((l) => l.startsWith("save")), "no save for an encrypted message");
 }
 
-// 10. a message is being written when the question comes: it waits, nothing is asked over it
+// 10. a draft of the same message is on the server already (the backend says "covered"): no second draft, reported as saved in Drafts
 {
-  const s = start([info("m1", "Plan")], ["restore"]);
-  s.state.composing = true;
-  const run = offerRecovery(s.deps);
-  await new Promise((r) => setTimeout(r, 10));
-  assert.deepEqual(s.log, [], "no question while the person is writing");
-  s.state.composing = false;
-  s.state.idle.splice(0).forEach((r) => r());
-  await run;
-  assert.deepEqual(s.log, ["ask m1", "load m1", "open m1"]);
+  const s = start([snap("dup")], { save: () => ({ status: "covered", threadId: "t-dup", draftRef: "mid:a1|<d@x>" }) });
+  const kept = await settleRecovery(s.deps);
+  assert.deepEqual(kept.map((k) => [k.where, k.threadId]), [["drafts", "t-dup"]]);
+  assert.equal(s.log.filter((l) => l.startsWith("save")).length, 1, "asked once; the backend decides it needs no second draft");
 }
 
-// 11. a snapshot that cannot be loaded is reported and kept; a list that fails asks nothing
+// 11. local-only snapshots older than 30 days are removed silently (with the reason for the log); newer ones stay; saved ones are never aged out
 {
-  const s = start([info("m1", "Plan"), info("m2", "Other", 50)], ["restore", "restore"], { loadResult: null });
-  const r = await offerRecovery(s.deps);
-  assert.deepEqual(s.log, ["ask m1", "load m1", "failed m1", "ask m2", "load m2", "failed m2"]);
-  assert.deepEqual(r.gone, ["m1", "m2"]);
-  assert.ok(!s.log.some((l) => l.startsWith("clear") || l.startsWith("open")), "not dropped, not opened");
-  const bad = start([], [], { deps: { list: async () => Promise.reject(new Error("db")) } });
-  assert.deepEqual(await offerRecovery(bad.deps), { restored: [], discarded: [], later: [], gone: [] });
+  assert.equal(LOCAL_KEEP_SECS, 30 * 24 * 3600);
+  const s = start([snap("ancient", {}, { savedAt: NOW - LOCAL_KEEP_SECS - 5 }), snap("recent", {}, { savedAt: NOW - LOCAL_KEEP_SECS + 600 })], { save: () => new Error("offline") });
+  const kept = await settleRecovery(s.deps);
+  assert.deepEqual(kept.map((k) => k.id), ["recent"], "the old one is not reported");
+  assert.ok(s.log.includes("clear ancient (kept on this computer for more than 30 days)"), s.log.join("\n"));
+  assert.deepEqual([...s.rows.keys()], ["recent"]);
+  // an old one that CAN be saved is saved (30 days only limits what stays on this computer)
+  const o = start([snap("old-ok", {}, { savedAt: NOW - 90 * 86400 })]);
+  assert.deepEqual((await settleRecovery(o.deps)).map((k) => k.where), ["drafts"]);
 }
 
-// 12. N snapshots with windows: every question first, then N windows (WP5f B4). A window that opens while the next question is shown can
-// hide it (Linux): nothing is opened until the last question is answered. The ones the app cannot open stay for the next start.
+// 12. a snapshot that cannot be read is removed (asking again would not help); one that cannot be loaded now stays for the next start; a failing list does nothing
 {
-  const items = Array.from({ length: 10 }, (_, i) => info("s" + i, "S" + i, 1000 - i));
-  const opened = [];
-  const s = start(items, items.map(() => "restore"), {
-    deps: {
-      inWindow: () => true,
-      open: async (l) => {
-        s.log.push(`open ${l.id}`);
-        if (opened.length >= 8) return false; // the cap of the app: 8 windows
-        opened.push(l.id);
-        return true;
-      },
-    },
-  });
-  const r = await offerRecovery(s.deps);
-  const firstOpen = s.log.findIndex((l) => l.startsWith("open"));
-  assert.equal(s.log.slice(0, firstOpen).filter((l) => l.startsWith("ask")).length, 10, "all ten questions come before the first window");
-  assert.deepEqual(opened, items.slice(0, 8).map((x) => x.id), "eight windows, in the order of the questions");
-  assert.deepEqual(r.restored, opened);
-  assert.deepEqual(r.later, ["s8", "s9"], "the two that did not fit stay for the next start (they are not cleared)");
-  assert.ok(!s.log.some((l) => l.startsWith("clear")));
-  // two snapshots: both restored, nothing waits for a pane
-  const two = start([info("a", "A", 2), info("b", "B", 1)], ["restore", "restore"], { deps: { inWindow: () => true } });
-  const r2 = await offerRecovery(two.deps);
-  assert.deepEqual(r2.restored, ["a", "b"]);
-  assert.deepEqual(two.log.filter((l) => l.startsWith("open")), ["open a", "open b"]);
-  // "not now" on the second still opens the first
-  const mix = start([info("a", "A", 2), info("b", "B", 1)], ["restore", "later"], { deps: { inWindow: () => true } });
-  const r3 = await offerRecovery(mix.deps);
-  assert.deepEqual(r3.restored, ["a"]);
-  assert.deepEqual(r3.later, ["b"]);
-  // discard of one, restore of the other
-  const d = start([info("a", "A", 2), info("b", "B", 1)], ["discard", "restore"], { deps: { inWindow: () => true } });
-  const r4 = await offerRecovery(d.deps);
-  assert.deepEqual(r4, { restored: ["b"], discarded: ["a"], later: [], gone: [] });
+  const s = start([snap("junk", {}, { payload: "not json" }), snap("gone"), snap("fine", {}, { savedAt: NOW - 1 })]);
+  const rows = s.rows;
+  s.deps.load = async (id) => (s.log.push(`load ${id}`), id === "gone" ? null : rows.get(id) ?? null);
+  const kept = await settleRecovery(s.deps);
+  assert.deepEqual(kept.map((k) => k.id), ["fine"]);
+  assert.ok(s.log.includes("clear junk (unreadable)"));
+  assert.ok(s.rows.has("gone"), "kept for the next start");
+  const f = start([snap("q")], { deps: { list: async () => { throw new Error("db"); } } });
+  assert.deepEqual(await settleRecovery(f.deps), []);
 }
 
-// 13. in the pane (the setting is off): the next snapshot is offered in this run as soon as the restored message is closed, sent or discarded
+// 13. where each message was written: a window message is marked so Continue opens it in a window
 {
-  const items = [info("one", "One", 3), info("two", "Two", 2), info("three", "Three", 1)];
-  const s = start(items, ["restore", "restore", "restore"]);
-  const run = offerRecovery(s.deps);
-  await new Promise((r) => setTimeout(r, 10));
-  assert.deepEqual(s.log, ["ask one", "load one", "open one"], "one message in the pane: no question over it");
-  for (const next of ["two", "three"]) {
-    s.state.composing = false; // closed / sent / discarded
-    s.state.idle.splice(0).forEach((r) => r());
-    await new Promise((r) => setTimeout(r, 10));
-    assert.ok(s.log.includes("open " + next), "offered and opened once the pane is free: " + next);
-  }
-  s.state.composing = false;
-  s.state.idle.splice(0).forEach((r) => r());
-  const r = await run;
-  assert.deepEqual(r.restored, ["one", "two", "three"]);
-}
-
-// 14. a window-mode snapshot between pane ones: the window is not held back until the end of a pane message
-{
-  const s = start([info("p", "Pane", 3), info("w", "Win", 2), info("q", "Pane2", 1)], ["restore", "restore", "restore"], { deps: { inWindow: (l) => l.id === "w" } });
-  const run = offerRecovery(s.deps);
-  await new Promise((r) => setTimeout(r, 10));
-  assert.deepEqual(s.log, ["ask p", "load p", "open p"]);
-  s.state.composing = false;
-  s.state.idle.splice(0).forEach((r) => r());
-  await new Promise((r) => setTimeout(r, 10));
-  assert.ok(s.log.indexOf("ask w") < s.log.indexOf("ask q"));
-  s.state.composing = false;
-  s.state.idle.splice(0).forEach((r) => r());
-  await run;
-  assert.ok(s.log.includes("open w") && s.log.includes("open q"));
+  const s = start([snap("w", { win: true }), snap("p", {}, { savedAt: NOW - 1 })]);
+  const kept = await settleRecovery(s.deps);
+  assert.deepEqual(kept.map((k) => [k.id, k.inWindow]), [["p", false], ["w", true]]);
 }
 
 // 15. what a snapshot gives back to Compose: Bcc, Cc, threading, toggles and the window flag
