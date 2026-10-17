@@ -351,4 +351,21 @@ assert.equal(popoutTitle(readerTitleText("", "(no subject)")), "(no subject) –
   assert.ok(reader.includes("cancelRunningTranslations()"));
 }
 
+// ---- the webview's own right-click menu stays off in the reader window too (owner rule)
+{
+  const main = read("src/main.tsx");
+  assert.ok(main.indexOf("installContextGuard();") > 0 && main.indexOf("installContextGuard();") < main.indexOf("ReactDOM.createRoot("), "the window guard is installed before any route is mounted (main, compose and reader)");
+  assert.ok(!main.includes("route.kind === \"main\" && installContextGuard"), "not only for the main route");
+  const reader = read("src/popout/ReaderView.tsx");
+  assert.ok(reader.includes("<GuardMenuHost />") && reader.includes("await loadPlatform()"), "the in-app menu host is mounted and the platform (debug build or not) is known");
+  assert.ok(!reader.includes("<iframe"), "the reader draws its frames only through the reading-pane components");
+  assert.ok(reader.includes("<MessageCard"), "the message body is the reading pane's MessageBody");
+  // those components guard their frames: the message body, and the attachment preview (PDF / text)
+  assert.ok(read("src/components/ReadingPane.tsx").includes("lockedNow.current ? undefined : guardFrame(frame, doc)"), "message frame guarded (confidential mail has no menu at all: lockDocument)");
+  assert.ok(read("src/components/ReadingPane.tsx").includes("lockDocument(doc)"));
+  assert.ok(read("src/components/Attachments.tsx").includes("guardFrame(f, f.contentDocument)"), "attachment preview frame guarded");
+  const html = read("src/components/ReadingPane.tsx") + read("src/components/Attachments.tsx");
+  assert.equal((html.match(/<iframe/g) || []).length, 2, "no other frame in the pieces the reader shows");
+}
+
 console.log("ok - test-popout");
