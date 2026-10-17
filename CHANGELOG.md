@@ -23,6 +23,8 @@ Writing a message got safer and more complete: nothing you write is lost to a cr
 
 ### Fixed
 
+- Mac: Cmd+Shift+V pastes the clipboard as plain text in the message you write (and in the signature and template editors, also in a window of its own); it pasted nothing before. In a text box such as To or Subject it pastes the text too. Cmd+V, Cmd+C, Cmd+X and Cmd+A are unchanged
+- Writing a message: after pasting formatted text and choosing Keep text only or Merge formatting in the Paste options, the text no longer stays bold when it was pasted at the start of a paragraph, and what you type next continues in the format you had before the paste
 - Drafts: the Bcc recipients are kept in a saved draft and come back when you reopen it. Before, a draft opened again and sent went out without them
 - Drafts: when you reopen a draft, the display names of To, Cc and Bcc are kept
 - Drafts: saving or sending a draft removes only that draft, not every draft of the conversation or a version saved in another mail program
