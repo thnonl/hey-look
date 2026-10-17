@@ -4721,6 +4721,81 @@ mod quit_tests {
         FLUSH_ACK.lock().unwrap().take();
     }
 
+    /// The quit that goes on WITHOUT the page (it never answered, kept working too long, or its question stayed open) loses nothing: what the
+    /// page holds is on disk by then. A message in its Undo time is an outbox row (`undo=1`) that the next start sends like a scheduled message
+    /// that came due, a scheduled message stays what it was, and the message being written is in its recovery snapshot, which the next start
+    /// offers. The test ends the "process" (drops the connection) after the wait and opens the database again, as the next start does.
+    #[test]
+    fn a_quit_without_the_page_loses_no_send_and_no_draft() {
+        use crate::quitwait::{drive, Limits, Msg, Verdict, Why};
+        use std::cell::Cell;
+        use std::sync::mpsc::RecvTimeoutError;
+        use std::time::Duration;
+
+        // three pages that do not finish: silent, working for ever, a question nobody answers
+        let pages: [(&str, Vec<(u64, Msg)>, Verdict); 3] = [
+            ("silent", vec![], Verdict::Go(Why::NoSign)),
+            ("working", vec![(500, Msg::Alive)], Verdict::Go(Why::WorkTooLong)),
+            ("question", vec![(500, Msg::Alive), (900, Msg::Dialog(true))], Verdict::Go(Why::DialogTooLong)),
+        ];
+        for (tag, script, want) in pages {
+            let dir = crate::shard::tests::temp_dir(&format!("quit-lost-{tag}"));
+            let path = dir.join("heylook.db");
+            {
+                let db: Db = Arc::new(Mutex::new(db::open(&path).unwrap()));
+                db::insert_account(&lock(&db), &crate::smtp::tests::account_with_id("a")).unwrap();
+                put_row(&db, "undo-msg", "undo", 1, now() + 20); // "Sending... Undo": the page's timer was still running
+                put_row(&db, "later-msg", "pending", 0, now() + 3600); // a scheduled message
+                recover::save(
+                    &lock(&db),
+                    &recover::SnapIn {
+                        id: "writing".into(),
+                        account_id: "a".into(),
+                        subject: "Plan".into(),
+                        preview: "Hi".into(),
+                        payload: r#"{"to":["ann@example.com"],"bcc":["quiet@example.com"],"html":"<p>Hi</p>"}"#.into(),
+                        files: None,
+                    },
+                    now(),
+                )
+                .unwrap();
+
+                // the wait, with a page that does what `script` says and a clock that moves 200 ms per look
+                let clock = Cell::new(Duration::ZERO);
+                let mut script: std::collections::VecDeque<(u64, Msg)> = script.into();
+                let verdict = drive(
+                    |t| match script.front() {
+                        Some(&(at, m)) if Duration::from_millis(at) <= clock.get() + t => {
+                            script.pop_front();
+                            clock.set(Duration::from_millis(at).max(clock.get()));
+                            Ok(m)
+                        }
+                        _ => {
+                            clock.set(clock.get() + t);
+                            Err(RecvTimeoutError::Timeout)
+                        }
+                    },
+                    || clock.get(),
+                    Limits::default(),
+                    Duration::from_millis(200),
+                    |_, _| {},
+                );
+                assert_eq!(verdict, want, "{tag}");
+                // (the quit then goes on: finish_sends_then runs `then` for every Go, see the_quit_never_waits_for_ever)
+            } // the process ends: nothing of it is left but the file
+
+            // the next start
+            let db: Db = Arc::new(Mutex::new(db::open(&path).unwrap()));
+            outbox_startup(&db);
+            assert_eq!(row(&db, "undo-msg"), ("pending".to_string(), 2), "{tag}: the message in its Undo time goes out at the next start");
+            assert_eq!(row(&db, "later-msg"), ("pending".to_string(), 0), "{tag}: the scheduled message is untouched");
+            let offered = recover::list(&lock(&db)).unwrap();
+            assert_eq!(offered.len(), 1, "{tag}: the message being written is offered back");
+            let l = recover::load(&lock(&db), "writing").unwrap().expect("there");
+            assert!(l.payload.contains("quiet@example.com"), "{tag}: with its Bcc");
+        }
+    }
+
     /// A quit must always finish (QA Linux v1.0.6): the wait for the page is the bounded one of quitwait.rs in every phase (no flag that
     /// stops the clock), the window is brought to the front for a question, and the end of the sequence has a watchdog.
     #[test]
@@ -4733,6 +4808,9 @@ mod quit_tests {
         assert!(fin.contains("quitwait::drive(") && fin.contains("quitwait::Limits::default()"), "{fin}");
         assert!(!fin.contains("USER_DIALOG") && !lib.contains("static USER_DIALOG"), "a flag that stops the clock lets a quit hang for ever");
         assert!(fin.contains("quit: asking the page to save its draft and send what is waiting"));
+        // every "go on" runs the rest of the sequence (queued actions, exit); only the person's "keep the window" does not
+        assert!(fin.contains("if matches!(verdict, quitwait::Verdict::Go(_)) {
+            then(&app);"), "{fin}");
         let q = crate::test_guard::non_test_code(include_str!("quitwait.rs"));
         assert!(q.contains("FIRST_SIGN_WAIT: Duration = Duration::from_secs(8)") && q.contains("DIALOG_WAIT: Duration = Duration::from_secs(60)"));
         assert!(q.contains("the page did not answer in {} s, quitting"));
