@@ -28,7 +28,9 @@ function webLink(text: string): LinkCheck {
   }
   // `https://bank.com@evil.test` reads as bank.com but goes to evil.test: no credentials in a link
   if ((url.protocol !== "http:" && url.protocol !== "https:") || url.username || url.password || !plausibleHost(url.hostname)) return { ok: false, reason: "invalid" };
-  return { ok: true, href: url.href };
+  // a bare address keeps no slash of its own: `heylook.app` -> https://heylook.app (spec AC-47); `https://heylook.app/` stays as typed
+  const bare = url.pathname === "/" && !url.search && !url.hash && !text.split(/[?#]/)[0].endsWith("/");
+  return { ok: true, href: bare ? url.href.slice(0, -1) : url.href };
 }
 
 /** What the person typed -> the address the link gets, or why it cannot be one. */

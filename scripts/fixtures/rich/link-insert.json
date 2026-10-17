@@ -1,0 +1,187 @@
+{
+ "base": {
+  "family": "Calibri,Carlito,Arial,sans-serif",
+  "size": 11
+ },
+ "doc": {
+  "type": "doc",
+  "content": [
+   {
+    "type": "paragraph",
+    "content": [
+     {
+      "type": "text",
+      "text": "Web: "
+     },
+     {
+      "type": "text",
+      "text": "Hey Look",
+      "marks": [
+       {
+        "type": "link",
+        "attrs": {
+         "href": "https://heylook.app"
+        }
+       }
+      ]
+     },
+     {
+      "type": "text",
+      "text": " and the address itself "
+     },
+     {
+      "type": "text",
+      "text": "https://heylook.app/docs",
+      "marks": [
+       {
+        "type": "link",
+        "attrs": {
+         "href": "https://heylook.app/docs"
+        }
+       }
+      ]
+     },
+     {
+      "type": "text",
+      "text": "."
+     }
+    ]
+   },
+   {
+    "type": "paragraph",
+    "content": [
+     {
+      "type": "text",
+      "text": "Mail: "
+     },
+     {
+      "type": "text",
+      "text": "write to QA",
+      "marks": [
+       {
+        "type": "link",
+        "attrs": {
+         "href": "mailto:qa@test.local"
+        }
+       }
+      ]
+     },
+     {
+      "type": "text",
+      "text": " or "
+     },
+     {
+      "type": "text",
+      "text": "qa@test.local",
+      "marks": [
+       {
+        "type": "link",
+        "attrs": {
+         "href": "mailto:qa@test.local"
+        }
+       }
+      ]
+     },
+     {
+      "type": "text",
+      "text": "."
+     }
+    ]
+   },
+   {
+    "type": "paragraph",
+    "content": [
+     {
+      "type": "text",
+      "text": "Phone: "
+     },
+     {
+      "type": "text",
+      "text": "+84 24 1234 5678",
+      "marks": [
+       {
+        "type": "link",
+        "attrs": {
+         "href": "tel:+842412345678"
+        }
+       }
+      ]
+     },
+     {
+      "type": "text",
+      "text": "."
+     }
+    ]
+   },
+   {
+    "type": "paragraph",
+    "content": [
+     {
+      "type": "text",
+      "text": "Refused: "
+     },
+     {
+      "type": "text",
+      "text": "script",
+      "marks": [
+       {
+        "type": "link",
+        "attrs": {
+         "href": "javascript:alert(1)"
+        }
+       }
+      ]
+     },
+     {
+      "type": "text",
+      "text": " file",
+      "marks": [
+       {
+        "type": "link",
+        "attrs": {
+         "href": "file:///c:/x"
+        }
+       }
+      ]
+     },
+     {
+      "type": "text",
+      "text": " ftp",
+      "marks": [
+       {
+        "type": "link",
+        "attrs": {
+         "href": "ftp://x.test/f"
+        }
+       }
+      ]
+     },
+     {
+      "type": "text",
+      "text": "."
+     }
+    ]
+   },
+   {
+    "type": "paragraph",
+    "content": [
+     {
+      "type": "text",
+      "text": "bold link",
+      "marks": [
+       {
+        "type": "link",
+        "attrs": {
+         "href": "https://example.test/?a=1&b=2"
+        }
+       },
+       {
+        "type": "bold"
+       }
+      ]
+     }
+    ]
+   }
+  ]
+ }
+}

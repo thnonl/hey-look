@@ -1,0 +1,5 @@
+Web: Hey Look (https://heylook.app) and the address itself https://heylook.app/docs.
+Mail: write to QA (mailto:qa@test.local) or qa@test.local.
+Phone: +84 24 1234 5678 (tel:+842412345678).
+Refused: script file ftp.
+bold link (https://example.test/?a=1&b=2)

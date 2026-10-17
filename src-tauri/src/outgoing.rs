@@ -780,7 +780,45 @@ mod tests {
             assert_eq!(out, html, "{name}: the sanitiser changed what the editor wrote");
             n += 1;
         }
-        assert!(n >= 20, "{n} golden files found");
+        assert!(n >= 26, "{n} golden files found");
+    }
+
+    /// The Insert group (spec-rich-text.md REQ-30..34, REQ-40): what the editor writes for tables (all / outside / no borders, header cells, cell shading, colspan and
+    /// rowspan), for pictures (alignment wrapper, picture link) and for emoji passes the sanitiser byte for byte; what a hostile document could add does not.
+    #[test]
+    fn insert_group_forms_pass_and_hostile_ones_do_not() {
+        let pic = r#"<div style="text-align:center"><a href="https://heylook.app"><img src="cid:a@x" alt="A" width="120" style="max-width:100%;height:auto;border:0"></a></div>"#;
+        assert_eq!(clean(pic), pic);
+        let mail = r#"<div style="text-align:right"><a href="mailto:qa@test.local"><img src="cid:b@x" alt="" style="max-width:100%;height:auto;border:0"></a></div>"#;
+        assert_eq!(clean(mail), mail);
+        let table = r##"<table border="0" cellpadding="4" cellspacing="0" width="100%" style="border-collapse:collapse;width:100%"><tbody><tr><th colspan="2" style="font-family:Calibri,Carlito,Arial,sans-serif;font-size:11pt;border-top:1px solid #999999;border-left:1px solid #999999;padding:4px 6px;vertical-align:top;font-weight:bold;text-align:left;background-color:#44546A" bgcolor="#44546A"><p style="margin:0">x</p></th></tr><tr><td rowspan="2" style="border-right:1px solid #999999;border-bottom:1px solid #999999;padding:4px 6px;vertical-align:top"><p style="margin:0"><br></p></td><td style="border:1px solid #999999;padding:4px 6px;vertical-align:top"><ul style="list-style-type:disc;margin:0 0 0 40px;padding:0"><li>a</li></ul></td></tr></tbody></table>"##;
+        assert_eq!(clean(table), table);
+        let emoji = "<p style=\"margin:0\">Great \u{1F600}\u{1F44D} \u{2764}\u{FE0F} \u{2705}</p>";
+        assert_eq!(clean(emoji), emoji);
+        // hostile: a script link on a picture, a url() / fixed-position / handler / background on a cell, a huge span
+        let bad = clean(r#"<a href="javascript:alert(1)"><img src="cid:a" alt="x" onerror="x()"></a><table><tr><td colspan="9999999" style="background:url(http://t.test/p.gif);position:fixed;background-color:#ff0000" background="http://t.test/b.png" bgcolor="red;x" onclick="x()">c</td></tr></table>"#);
+        assert_inert(&bad);
+        assert!(bad.starts_with(r#"<a><img src="cid:a" alt="x"></a>"#) && !bad.contains("t.test"), "{bad}");
+        assert!(!bad.contains("9999999") && !bad.contains("position"), "{bad}");
+    }
+
+    /// The tables the paste cleaner keeps (scripts/fixtures/paste-tables/expected: Word, a web page, a nested layout table) are written with attributes the sanitiser allows.
+    #[test]
+    fn pasted_table_fixtures_pass_the_sanitiser_unchanged() {
+        let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../scripts/fixtures/paste-tables/expected");
+        let mut n = 0;
+        for e in std::fs::read_dir(&dir).expect("scripts/fixtures/paste-tables/expected exists") {
+            let path = e.unwrap().path();
+            let name = path.file_name().unwrap().to_string_lossy().into_owned();
+            if !(name.ends_with(".source.html") || name.ends_with(".merge.html")) {
+                continue;
+            }
+            let html = std::fs::read_to_string(&path).unwrap().replace("\r\n", "\n").replace('\n', "");
+            // (the editor's own table parse and writer add `tbody`; what the cleaner hands over has none, which the sanitiser leaves alone)
+            assert_eq!(clean(&html), html, "{name}: the sanitiser changed what the paste cleaner produced");
+            n += 1;
+        }
+        assert!(n >= 6, "{n} cleaned table files found");
     }
 
     /// What the paste cleaner (src/editor/pasteClean.ts, stored files in scripts/fixtures/paste/expected) hands to the editor for Word, Excel, Outlook, Gmail,

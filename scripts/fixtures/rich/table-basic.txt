@@ -1,0 +1,5 @@
+Numbers for the review:
+Region	Q1	Q2
+EMEA	12	15
+APAC	9	11
+Thanks.

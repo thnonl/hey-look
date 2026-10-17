@@ -1,0 +1,10 @@
+Left (default):
+[A small picture]
+Centered:
+[Centered]
+Right, linked:
+[Linked] (https://heylook.app)
+Linked, no alignment:
+[Docs] (mailto:qa@test.local)
+A javascript link on a picture is not written:
+[Bad]
