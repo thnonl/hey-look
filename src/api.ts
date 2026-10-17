@@ -604,7 +604,9 @@ export const api = {
   outboxHold: (draft: Draft, dueAt: number, replaces?: string | null) => invoke<string>("outbox_hold", { draft, dueAt, replaces: replaces ?? null }),
   /** The Undo time of a held message is over (or a quit ends it): send it. `keep`: if that fails the row stays for the next start (quit). */
   outboxHoldSend: (id: string, keep: boolean) => invoke<void>("outbox_hold_send", { id, keep }),
-  /** The quit waits (`true`) or no longer waits (`false`) for an answer of the person. */
+  /** The page got the quit's `flush-sends` request and is doing its part: the backend then waits for the work, not just for a first sign. */
+  quitPageAlive: () => invoke<void>("quit_page_alive"),
+  /** The quit waits (`true`, for 60 s at most, and the window is brought to the front) or no longer waits (`false`) for an answer of the person. */
   quitDialog: (open: boolean) => invoke<void>("quit_dialog", { open }),
   /** The person cancelled the scheduled-messages question of a quit. */
   quitCancelled: () => invoke<void>("quit_cancelled"),

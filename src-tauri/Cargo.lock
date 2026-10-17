@@ -2449,6 +2449,7 @@ dependencies = [
  "imap",
  "keyring",
  "lettre",
+ "libc",
  "mail-parser",
  "native-tls",
  "notify-rust",
