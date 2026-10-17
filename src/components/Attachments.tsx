@@ -542,14 +542,32 @@ interface PvLoaded {
 /**
  * The PDF frame of the preview. The engine's own viewer draws the PDF; when the engine cannot (the frame never reports that it loaded, or the
  * page's content security policy refuses it) the frame is replaced by a message and an Open button: a blank page is never the outcome
- * (pdfFrame.ts `nextPdfState`).
+ * (pdfFrame.ts `nextPdfState`). `view` "object" (the macOS / Linux experiment, pdfmode.rs) draws the PDF in an object element instead of a frame: its
+ * `load` is not relied on (no timeout), only a refusal by the policy replaces it. `onDiag` (experiment only) is told what the engine did with the
+ * PDF, for the Mac QA to read off the screen.
  */
-function PdfFrame({ url, sandbox, name, onOpen }: { url: string; sandbox?: string; name: string; onOpen?: () => void }) {
+function PdfFrame({ url, sandbox, name, view, onOpen, onDiag }: { url: string; sandbox?: string; name: string; view: "frame" | "object"; onOpen?: () => void; onDiag?: (line: string) => void }) {
   const t = useT();
   const [state, setState] = useState<PdfFrameState>("loading");
   const stateRef = useRef<PdfFrameState>("loading");
+  const el = useRef<HTMLIFrameElement & HTMLObjectElement>(null);
+  const seen = useRef<string[]>([]); // (every policy violation the page reports while this PDF is shown)
   const [why, setWhy] = useState(""); // (shown as the tooltip of the message: what a QA tester can read off the screen)
+  const describe = (note: string) => {
+    if (!onDiag) return;
+    const r = el.current?.getBoundingClientRect();
+    let doc = "no document";
+    try {
+      const d = el.current?.contentDocument;
+      if (d) doc = `document ${d.contentType}, ${d.querySelector("embed,object") ? "with" : "without"} embed`;
+    } catch {
+      doc = "document not reachable";
+    }
+    onDiag(`PDF ${view} test: ${note}; ${r ? `${Math.round(r.width)}x${Math.round(r.height)} px` : "no element"}; ${doc}; policy violations: ${seen.current.length ? seen.current.join(" | ") : "none"}`); // i18n-ok: experiment readout for the QA
+  };
   useEffect(() => {
+    seen.current = [];
+    onDiag?.(`PDF ${view} test: loading`); // i18n-ok: experiment readout for the QA
     const move = (ev: Parameters<typeof nextPdfState>[1], reason: string) => {
       const next = nextPdfState(stateRef.current, ev);
       if (next === stateRef.current) return;
@@ -557,16 +575,20 @@ function PdfFrame({ url, sandbox, name, onOpen }: { url: string; sandbox?: strin
       setState(next);
       if (next === "failed") setWhy(reason);
     };
-    const timer = setTimeout(() => move("timeout", `the frame did not report a load in ${PDF_DRAW_WAIT_MS / 1000} s`), PDF_DRAW_WAIT_MS);
+    const timer = view === "frame" ? setTimeout(() => move("timeout", `the frame did not report a load in ${PDF_DRAW_WAIT_MS / 1000} s`), PDF_DRAW_WAIT_MS) : undefined;
     const onViolation = (e: SecurityPolicyViolationEvent) => {
+      seen.current.push(`${e.effectiveDirective} ${e.blockedURI.slice(0, 24)}`);
       if (isFrameRefusal(e)) move("blocked", `refused by the content security policy (${e.effectiveDirective})`);
     };
     document.addEventListener("securitypolicyviolation", onViolation);
+    // the readout again once the engine has had time to draw (and to report a refusal)
+    const later = onDiag ? setTimeout(() => describe(stateRef.current === "loaded" ? "loaded" : "no load event yet"), 2500) : undefined;
     return () => {
       clearTimeout(timer);
+      clearTimeout(later);
       document.removeEventListener("securitypolicyviolation", onViolation);
     };
-  }, [url]);
+  }, [url]); // eslint-disable-line react-hooks/exhaustive-deps
   if (state === "failed") {
     return (
       <div className="pv-msg" title={why} style={{ display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: 12 }}>
@@ -576,14 +598,21 @@ function PdfFrame({ url, sandbox, name, onOpen }: { url: string; sandbox?: strin
       </div>
     );
   }
+  const loaded = () => {
+    stateRef.current = nextPdfState(stateRef.current, "load");
+    setState(stateRef.current);
+    describe("load event");
+  };
+  if (view === "object") return <object ref={el} className="pv-pdf" type="application/pdf" data={url} title={name} onLoad={loaded} />;
   return (
     <iframe
       title={name}
       src={url}
       sandbox={sandbox}
+      ref={el}
+      className="pv-pdf"
       onLoad={(e) => {
-        stateRef.current = nextPdfState(stateRef.current, "load");
-        setState(stateRef.current);
+        loaded();
         // no native webview menu in a text / html preview either (a PDF is drawn by the engine's own viewer, which keeps its menu)
         const f = e.currentTarget;
         try {
@@ -689,6 +718,9 @@ export function PreviewDialog({ m, items, start, onClose }: { m: MessageFull; it
   }, [list.length, onClose]);
 
   const [zoom, setZoom] = useState<"fit" | 1 | 2>("fit");
+  const pdfView = usePlatform((p) => p.pdfView);
+  const experiment = usePlatform((p) => p.pdfTest); // the Mac QA's switch (HEYLOOK_PDF_INLINE): show what the engine did
+  const [diag, setDiag] = useState("");
   const lock = imageLock(!!m.confidential);
   const { box, trap } = useDialogFocus<HTMLDivElement>();
   if (!cur) return null;
@@ -712,6 +744,7 @@ export function PreviewDialog({ m, items, start, onClose }: { m: MessageFull; it
           {!m.confidential && <button className="btn small" onClick={saveCur}><Download size={13} /> {t("reading.att.saveAs")}</button>}
           <button className="icon-btn" aria-label={t("reading.pv.close")} onClick={onClose}><X size={16} /></button>
         </div>
+        {experiment && kind === "pdf" && diag && <div className="muted small pv-diag" role="status">{diag}</div>}
         <div className="pv-stage">
           {list.length > 1 && (
             <>
@@ -730,7 +763,7 @@ export function PreviewDialog({ m, items, start, onClose }: { m: MessageFull; it
           ) : kind === "text" ? (
             <pre className="pv-text" {...(m.confidential ? { style: { userSelect: "none", WebkitUserSelect: "none" } as const, onCopy: noCopy, onCut: noCopy, onContextMenu: noCopy, onDragStart: noCopy } : {})}>{data.text}</pre>
           ) : kind === "pdf" ? (
-            <PdfFrame key={data.url} url={data.url} sandbox={data.sandbox} name={cur.name} onOpen={m.confidential ? undefined : openCur} />
+            <PdfFrame key={data.url} url={data.url} sandbox={data.sandbox} name={cur.name} view={pdfView === "object" ? "object" : "frame"} onOpen={m.confidential ? undefined : openCur} onDiag={experiment ? setDiag : undefined} />
           ) : (
             <img
               src={data.url}

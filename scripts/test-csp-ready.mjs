@@ -96,7 +96,9 @@ for (const f of files) assert.ok(!/<form\b/.test(read(f)), `${f} has a <form>: f
 // the message frame carries `<base target="_blank">` (links open outside): a <base> without href is allowed under base-uri 'none'; one with href is not, and the sanitiser removes them
 assert.ok(/<base target="_blank">/.test(reading) && !/<base [^>]*href/.test(reading), "the frame's <base> has no href");
 assert.ok(/FORBID_TAGS: \[[^\]]*"base"/.test(read("src/util.ts")), "a mail's own <base href> is removed before it gets to the frame");
-assert.ok(!/<(embed|object)[\s>/]/.test(files.map(read).join("\n")), "an <embed> / <object> in the UI: object-src 'none' blocks it");
+assert.ok(!/<embed[\s>/]/.test(files.map(read).join("\n")), "an <embed> in the UI: object-src 'none' blocks it");
+// the one <object> is the PDF of the macOS / Linux experiment (HEYLOOK_PDF_INLINE=object), which runs under object-src blob: (pdfmode.rs)
+for (const f of files) assert.ok(f === "src/components/Attachments.tsx" ? (read(f).match(/<object\b/g) ?? []).length === 1 : !/<object[\s>/]/.test(read(f)), `${f}: an <object> in the UI`);
 
 // --- what Tauri does to the policy ---------------------------------------------------------------------------------------------------------
 // Tauri 2 sends the configured policy as the `Content-Security-Policy` header of the app's HTML (every system) and, at build time, adds a
@@ -121,7 +123,10 @@ assert.ok(!("dangerousDisableAssetCspModification" in conf.app.security), "Tauri
 const noUpdater = JSON.parse(read("src-tauri/tauri.no-updater.conf.json"));
 assert.ok(!noUpdater.app?.security || noUpdater.app.security.csp === undefined, "the other config does not change the policy");
 assert.ok(!existsSync(new URL("src/csp.json", root)));
-// a CSP is static: there is no runtime switch (no setting, no environment variable, no command reads or changes it)
+// the policy is the configured one: no setting, no command, no switch of its own reads or changes it. The only run-time change is the PDF
+// experiment of macOS / Linux (HEYLOOK_PDF_INLINE, pdfmode.rs): object-src 'none' becomes object-src blob:, nothing else, never on Windows
 assert.ok(!/HEYLOOK_[A-Z_]*CSP|csp_off|disable_csp/i.test(read("src-tauri/src/lib.rs")), "no runtime switch for the policy");
+assert.equal((read("src-tauri/src/lib.rs").match(/security\.csp/g) ?? []).length, 0, "lib.rs does not touch the policy itself");
+assert.ok(/config\.app\.security\.csp/.test(read("src-tauri/src/pdfmode.rs")));
 
 console.log("test-csp-ready: ok");

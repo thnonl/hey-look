@@ -1020,10 +1020,13 @@ button.pill:hover { filter: brightness(.95); }
 .pv-stage { flex: 1; min-height: 0; position: relative; display: grid; place-items: center; overflow: auto; background: var(--bg3); border-radius: 0 0 var(--r-lg) var(--r-lg); }
 .pv-stage img { max-width: calc(100% - 96px); max-height: calc(100% - 40px); box-shadow: var(--shadow); background: #fff; }
 .pv-stage iframe { width: 100%; height: 100%; border: 0; background: #fff; }
+/* the PDF (a frame, or an <object> in the macOS / Linux experiment) fills the stage by position, not by a percentage of a grid row, which an engine may resolve to nothing */
+.pv-stage .pv-pdf { position: absolute; inset: 0; width: 100%; height: 100%; border: 0; background: #fff; }
 .pv-card { gap: 10px; align-content: center; justify-items: center; max-width: 480px; margin: 0 auto; }
 .pv-card-name { max-width: 100%; color: var(--fg); font-size: 1.05em; }
 .pv-card-acts { display: flex; gap: 8px; margin-top: 6px; }
-.pv-nav { position: absolute; top: 50%; transform: translateY(-50%); width: 38px; height: 38px; border-radius: 50%; border: 1px solid var(--border); background: var(--bg); box-shadow: var(--shadow-sm); display: grid; place-items: center; color: var(--fg); }
+.pv-diag { padding: 3px 16px; border-bottom: 1px solid var(--border); user-select: text; }
+.pv-nav { z-index: 2; position: absolute; top: 50%; transform: translateY(-50%); width: 38px; height: 38px; border-radius: 50%; border: 1px solid var(--border); background: var(--bg); box-shadow: var(--shadow-sm); display: grid; place-items: center; color: var(--fg); }
 .pv-nav:hover { background: var(--bg2); }
 .pv-nav.prev { left: 14px; } .pv-nav.next { right: 14px; }
 .pv-zoom { display: inline-flex; align-items: center; gap: 2px; font-size: .86em; color: var(--muted); font-variant-numeric: tabular-nums; }

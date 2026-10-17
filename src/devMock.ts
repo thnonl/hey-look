@@ -1316,9 +1316,9 @@ export function installMock() {
         return (window as unknown as { __mockClipboard?: { text: string; html: string } }).__mockClipboard ?? { text: "", html: "" };
       case "plugin:app|version": return "1.0.0";
       // `#os=macos|linux` (per-OS copy and shortcut labels), `#notray` (Linux without a tray host), `#nonotify` (Send test fails)
-      case "shell_info": { // `#pdf=frame|card` picks the PDF preview (default: the frame on Windows, the card elsewhere)
+      case "shell_info": { // `#pdf=frame|object|card` picks the PDF preview (default: the frame on Windows, the card elsewhere)
         const os = hashTokens().get("os") || "windows";
-        return { os, tray: !hashTokens().has("notray"), testData: null, pdfView: hashTokens().get("pdf") || (os === "windows" ? "frame" : "card") };
+        return { os, tray: !hashTokens().has("notray"), testData: null, pdfView: hashTokens().get("pdf") || (os === "windows" ? "frame" : "card"), pdfTest: hashTokens().has("pdftest") };
       }
       case "test_notification":
         if (hashTokens().has("nonotify")) throw "no notification server is running";

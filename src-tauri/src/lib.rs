@@ -1623,11 +1623,13 @@ struct ShellInfo {
     test_data: Option<String>,
     /// how a PDF attachment is previewed here: "frame", "object" or "card" (pdfmode.rs)
     pdf_view: &'static str,
+    /// the PDF experiment of macOS / Linux is on (HEYLOOK_PDF_INLINE): the page shows a readout of what the engine did
+    pdf_test: bool,
 }
 
 #[tauri::command]
 fn shell_info() -> ShellInfo {
-    ShellInfo { os: std::env::consts::OS, tray: shell::tray_ready(), test_data: legacy_names::test_data_dir().map(|p| p.display().to_string()), pdf_view: pdfmode::view().name() }
+    ShellInfo { os: std::env::consts::OS, tray: shell::tray_ready(), test_data: legacy_names::test_data_dir().map(|p| p.display().to_string()), pdf_view: pdfmode::view().name(), pdf_test: pdfmode::experiment_on() }
 }
 
 #[tauri::command]
@@ -4570,7 +4572,9 @@ async fn ai_list_models(endpoint: String, key: Option<String>) -> R<Vec<String>>
 pub fn run() {
     startup::init_clock();
     // (the names shared with other copies of the app: credential store service, notification id; see identity.rs)
-    let context = tauri::generate_context!();
+    let mut context = tauri::generate_context!();
+    // (the policy of this run: the PDF experiment on macOS / Linux changes one directive, see pdfmode.rs)
+    pdfmode::apply_csp(context.config_mut());
     identity::init(&context.config().identifier);
     // a start that fails ends in a message the person can read, not in a silent exit (see startfail.rs)
     startfail::install_panic_hook();
