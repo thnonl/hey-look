@@ -33,5 +33,6 @@
   "mail.filter.button",
   "mail.filter.active",
   "compose.color.orange",
-  "compose.color.gold"
+  "compose.color.gold",
+  "compose.fmt.style.code"
 ]
