@@ -256,9 +256,16 @@ section { position: relative; }
   font: 400 var(--fs)/1.35 "Segoe UI Variable Text", "Segoe UI", system-ui, -apple-system, sans-serif; background: var(--a-bg); color: var(--a-fg);
   border-radius: 14px; overflow: hidden; border: 1px solid var(--a-line); text-align: left; letter-spacing: 0; }
 @media (prefers-color-scheme: dark) {
-  .app:not([data-theme="light"]) { --a-bg: #1b1c20; --a-bg2: #232429; --a-bg3: #2d2f36; --a-fg: #f1f2f4; --a-mut: #a2a8b3; --a-line: #34363e; --a-acc: color-mix(in srgb, var(--ac), #fff 40%); --a-acc-t: var(--a-acc); --a-acc-fg: #07121f; --a-top: linear-gradient(135deg, #25272d, #2d3038); }
+  .app:not([data-theme="light"]) { --a-bg: #1b1c20; --a-bg2: #232429; --a-bg3: #2d2f36; --a-fg: #f1f2f4; --a-mut: #a2a8b3; --a-line: #34363e; --a-acc: color-mix(in srgb, var(--ac), #fff 40%); --a-acc-t: var(--a-acc); --a-acc-fg: #07121f; --a-top: linear-gradient(135deg, var(--a-top-dk-s, #25272d), var(--a-top-dk-e, #2d3038)); }
 }
-.app[data-theme="dark"] { --a-bg: #1b1c20; --a-bg2: #232429; --a-bg3: #2d2f36; --a-fg: #f1f2f4; --a-mut: #a2a8b3; --a-line: #34363e; --a-acc: color-mix(in srgb, var(--ac), #fff 40%); --a-acc-t: var(--a-acc); --a-acc-fg: #07121f; --a-top: linear-gradient(135deg, #25272d, #2d3038); }
+.app[data-theme="dark"] { --a-bg: #1b1c20; --a-bg2: #232429; --a-bg3: #2d2f36; --a-fg: #f1f2f4; --a-mut: #a2a8b3; --a-line: #34363e; --a-acc: color-mix(in srgb, var(--ac), #fff 40%); --a-acc-t: var(--a-acc); --a-acc-fg: #07121f; --a-top: linear-gradient(135deg, var(--a-top-dk-s, #25272d), var(--a-top-dk-e, #2d3038)); }
+/* high contrast: the dark bar stays neutral, like the app (src/App.css): the tint is for the default contrast only */
+@media (prefers-color-scheme: dark) and ((forced-colors: active) or (prefers-contrast: more)) {
+  .app:not([data-theme="light"]) { --a-top: linear-gradient(135deg, #25272d, #2d3038); }
+}
+@media (forced-colors: active), (prefers-contrast: more) {
+  .app[data-theme="dark"] { --a-top: linear-gradient(135deg, #25272d, #2d3038); }
+}
 .app svg.ic { width: 1.1em; height: 1.1em; }
 .app kbd { font-size: .78em; background: var(--a-bg3); color: var(--a-fg); border-color: var(--a-line); }
 .app p, .app h4 { margin: 0; }

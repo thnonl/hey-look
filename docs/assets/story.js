@@ -40,6 +40,32 @@
     return { fg: best.fg, grad: 'linear-gradient(135deg, ' + mix(best.b, '#000000', 0.22) + ', ' + best.b + ')' };
   }
 
+  /* dark-theme top bar: the app (src/topBarDark.ts, F-31) shows the primary colour as a DARK tint there. Same formula, ported 1:1:
+     only the hue of the primary is used, at a fixed dark lightness (OKLCH L .255 -> .31) and a capped chroma that follows the primary's
+     own chroma (white / black / grey give the neutral bar); C is reduced until both ends are inside sRGB and have luminance <= .06.
+     Returns {start, end}, the two ends of the 135deg gradient (--a-top-dk-s / --a-top-dk-e in style.css). */
+  function darkTopBar(primary) {
+    var LS = 0.255, LE = 0.31, CMAX = 0.06, CFULL = 0.08, MAXLUM = 0.06;
+    var lin = function (v) { var c = v / 255; return c <= 0.04045 ? c / 12.92 : Math.pow((c + 0.055) / 1.055, 2.4); };
+    var enc = function (c) { return Math.round(255 * (c <= 0.0031308 ? 12.92 * c : 1.055 * Math.pow(c, 1 / 2.4) - 0.055)); };
+    var q = rgb(primary), r = lin(q[0]), g = lin(q[1]), b = lin(q[2]);
+    var l = Math.cbrt(0.4122214708 * r + 0.5363325363 * g + 0.0514459929 * b), m = Math.cbrt(0.2119034982 * r + 0.6806995451 * g + 0.1073969566 * b), s = Math.cbrt(0.0883024619 * r + 0.2817188376 * g + 0.6299787005 * b);
+    var oa = 1.9779984951 * l - 2.428592205 * m + 0.4505937099 * s, ob = 0.0259040371 * l + 0.7827717662 * m - 0.808675766 * s;
+    var pc = Math.sqrt(oa * oa + ob * ob), h = Math.atan2(ob, oa);
+    var linear = function (L, c) {
+      var a = c * Math.cos(h), bb = c * Math.sin(h), x = Math.pow(L + 0.3963377774 * a + 0.2158037573 * bb, 3), y = Math.pow(L - 0.1055613458 * a - 0.0638541728 * bb, 3), z = Math.pow(L - 0.0894841775 * a - 1.291485548 * bb, 3);
+      return [4.0767416621 * x - 3.3077115913 * y + 0.2309699292 * z, -1.2684380046 * x + 2.6097574011 * y - 0.3413193965 * z, -0.0041960863 * x - 0.7034186147 * y + 1.707614701 * z];
+    };
+    var rl = function (v) { return 0.2126 * v[0] + 0.7152 * v[1] + 0.0722 * v[2]; };
+    var fits = function (v) { return v.every(function (k) { return k >= 0 && k <= 1; }); };
+    var ok = function (v) { return fits(v) && rl(v) <= MAXLUM; };
+    var hx = function (v) { return '#' + v.map(function (k) { var n = enc(Math.min(1, Math.max(0, k))); return (n < 16 ? '0' : '') + n.toString(16); }).join(''); };
+    var c = CMAX * Math.min(1, pc / CFULL), st = linear(LS, c), en = linear(LE, c);
+    for (var i = 0; i < 40 && c > 0 && !(ok(st) && ok(en)); i++) { c *= 0.9; st = linear(LS, c); en = linear(LE, c); }
+    return { start: hx(st), end: hx(en) };
+  }
+  HL.darkTopBar = darkTopBar;
+
   /* =============================== the story stage =============================== */
   var stage = $('#stage');
   if (stage) (function () {
@@ -407,8 +433,9 @@
       if (S.theme === 'system') capp.removeAttribute('data-theme'); else capp.setAttribute('data-theme', S.theme);
       var a = accentSet(S.accent, res, res === 'dark' ? '#1b1c20' : '#ffffff');
       capp.style.setProperty('--ac', S.accent); capp.style.setProperty('--a-acc-t', a.text); capp.style.setProperty('--a-acc-fg', a.fg);
-      if (res === 'dark') { capp.style.removeProperty('--a-top'); capp.style.setProperty('--a-top-fg', '#ffffff'); }
-      else { var tp = topSet(S.accent); capp.style.setProperty('--a-top', tp.grad); capp.style.setProperty('--a-top-fg', tp.fg); }
+      /* light: the primary as the bar itself. dark: the primary as a dark tint, like the app (style.css builds the gradient from the two ends; forced-colors / prefers-contrast: more keep it neutral there) */
+      if (res === 'dark') { var dk = darkTopBar(S.accent); capp.style.removeProperty('--a-top'); capp.style.setProperty('--a-top-dk-s', dk.start); capp.style.setProperty('--a-top-dk-e', dk.end); capp.style.setProperty('--a-top-fg', '#ffffff'); }
+      else { var tp = topSet(S.accent); capp.style.removeProperty('--a-top-dk-s'); capp.style.removeProperty('--a-top-dk-e'); capp.style.setProperty('--a-top', tp.grad); capp.style.setProperty('--a-top-fg', tp.fg); }
       capp.setAttribute('data-density', S.density); capp.setAttribute('data-pane', S.pane);
       capp.setAttribute('data-preview', S.preview ? 'on' : 'off'); capp.setAttribute('data-conv', S.conv ? 'on' : 'off');
       capp.setAttribute('data-focused', S.focused ? 'on' : 'off'); capp.setAttribute('data-oldest', S.oldest ? 'on' : 'off');

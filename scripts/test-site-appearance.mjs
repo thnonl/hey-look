@@ -14,7 +14,8 @@
 // Theme x Primary colour (and custom colour) sweep, it asserts: no two message rows overlap; no row is shorter than its own content
 // (nothing is cut); the list rows keep their natural height (they scroll, they are never squeezed); the reading area is visible below
 // or beside the list and shows the subject; no horizontal overflow of the page, the window or any row; the console stays clean. A second
-// pass runs with prefers-reduced-motion. The page's own transitions are switched off while measuring (a half-finished transition would
+// pass runs with prefers-reduced-motion. In the dark theme the title bar of the window must carry the primary as the app does (the exact gradient ends of the
+// formula, live for every preset and custom colour, light unchanged), and stay neutral under prefers-contrast: more. The page's own transitions are switched off while measuring (a half-finished transition would
 // only measure the animation); the reduced-motion pass keeps the site's real CSS, which must still settle to the same layout.
 import fs from 'node:fs';
 import os from 'node:os';
@@ -23,6 +24,7 @@ import http from 'node:http';
 import net from 'node:net';
 import { spawn } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
+import { checkFormula, siteDarkTopBar } from './lib/site-top-bar.mjs';
 
 const DOCS = path.join(path.dirname(fileURLToPath(import.meta.url)), '..', 'docs');
 const arg = (name) => { const a = process.argv.find((x) => x.startsWith(`--${name}=`)); return a ? a.slice(name.length + 3) : null; };
@@ -33,6 +35,10 @@ const WIDTHS = (arg('width') || '375,768,1024,1280,1920').split(',').map(Number)
 const QUICK = flag('quick');
 const SHOTS = arg('shots');
 const FONT = arg('font'); // e.g. --font=Verdana: stress the layout with a wider font than the site's own (the CI machine has other fonts than a Windows PC)
+
+// the dark top bar's formula (docs/assets/story.js, the app's F-31 numbers): 7 presets + 10 edge colours, before any browser is needed (the rendered bar is measured below)
+const darkTopBar = siteDarkTopBar();
+checkFormula(darkTopBar);
 
 // ---------- the browser ----------
 function findChrome() {
@@ -165,7 +171,8 @@ function layoutCombos() {
 }
 const COMBOS = layoutCombos();
 const ACCENTS = ['#0f6cbd', '#0e7c86', '#1a7f4b', '#6d4aff', '#c2327d', '#c4570c', '#475569', 'custom'];
-const CUSTOM = ['#ff00aa', '#ffff00', '#000000', '#ffffff'];
+const CUSTOM = ['#ff00aa', '#ffff00', '#000000', '#ffffff', '#ff0000', '#00ff00', '#0000ff', '#808080', '#f3ecff', '#0a1030', '#7c8087']; // custom colours: the edge cases of the dark bar's formula
+const EXPECT = Object.fromEntries([...ACCENTS.filter((a) => a !== 'custom'), ...CUSTOM].map((h) => { const b = darkTopBar(h); return [h, [b.start, b.end]]; })); // the bar the formula gives for each colour
 
 const failures = []; let checked = 0, pages = 0; const t0 = Date.now();
 const warnings = new Map();
@@ -177,9 +184,9 @@ function report(tag, combo, bad) {
 }
 const name = (c) => Object.entries(c).map(([k, v]) => `${k}=${typeof v === 'number' && !['fs'].includes(k) ? (v ? 'on' : 'off') : v}`).join(' ');
 
-async function loadPage(lang, width, reduced, dark) {
+async function loadPage(lang, width, reduced, dark, more = false) {
   await cdp('Emulation.setDeviceMetricsOverride', { width, height: width <= 768 ? 900 : 1000, deviceScaleFactor: 1, mobile: false });
-  await cdp('Emulation.setEmulatedMedia', { features: [{ name: 'prefers-reduced-motion', value: reduced ? 'reduce' : 'no-preference' }, { name: 'prefers-color-scheme', value: dark ? 'dark' : 'light' }] });
+  await cdp('Emulation.setEmulatedMedia', { features: [{ name: 'prefers-reduced-motion', value: reduced ? 'reduce' : 'no-preference' }, { name: 'prefers-color-scheme', value: dark ? 'dark' : 'light' }, { name: 'prefers-contrast', value: more ? 'more' : 'no-preference' }] });
   consoleProblems = [];
   await cdp('Page.navigate', { url: `${base}/${lang === 'en' ? '' : lang + '/'}index.html` });
   for (let i = 0; i < 200; i++) { if (await evaluate(`document.readyState === 'complete' && !!document.getElementById('mk-form') && !!window.__mk`).catch(() => false)) break; await new Promise((r) => setTimeout(r, 50)); }
@@ -206,16 +213,35 @@ async function runPage(lang, width, { reduced = false, dark = false } = {}) {
     for (const [c, bad] of res) report(tag, name(c), bad);
   }
   // theme x primary colour: the colours never change the layout, but they must not break it (nor throw)
-  const sweep = await evaluate(`(async () => { const { form, color, set, tick, fire, measure } = window.__ctx; const out = [];
+  const sweep = await evaluate(`(async () => { const EXPECT = ${JSON.stringify(EXPECT)}; const { form, color, set, tick, fire, measure } = window.__ctx; const out = [];
     for (const k of ['density', 'pane', 'fs']) set(k, k === 'density' ? 'full' : k === 'pane' ? 'bottom' : 14);
     for (const k of ['preview', 'conv', 'focused']) tick(k, 1); tick('oldest', 0);
     let n = 0;
     for (const theme of ['light', 'dark', 'system']) for (const acc of ${JSON.stringify(ACCENTS)}) for (const cc of (acc === 'custom' ? ${JSON.stringify(CUSTOM)} : [null])) {
       set('theme', theme); set('accent', acc); if (cc) { color.value = cc; color.dispatchEvent(new Event('input', { bubbles: true })); } else fire();
       n++; const bad = measure(); if (bad.length) out.push([theme + ' ' + acc + ' ' + (cc || ''), bad.slice(0, 3)]);
-      const app = document.querySelector('.mk-view .app'); const top = getComputedStyle(app.querySelector('.a-top')).backgroundImage; if (!top || top === 'none') out.push([theme + ' ' + acc, ['the title bar has no background']]); }
+      const app = document.querySelector('.mk-view .app'); const top = getComputedStyle(app.querySelector('.a-top')).backgroundImage; if (!top || top === 'none') out.push([theme + ' ' + acc, ['the title bar has no background']]);
+      const col = acc === 'custom' ? cc : acc, res = theme === 'system' ? (matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light') : theme, want = EXPECT[col.toLowerCase()];
+      const rgbOf = (h) => 'rgb(' + [1, 3, 5].map((i) => parseInt(h.slice(i, i + 2), 16)).join(', ') + ')';
+      if (res === 'dark') { const ok = top.includes(rgbOf(want[0])) && top.includes(rgbOf(want[1])) && top.indexOf(rgbOf(want[0])) < top.indexOf(rgbOf(want[1])); if (!ok) out.push([theme + ' ' + acc + ' ' + (cc || ''), ['dark title bar is ' + top + ', expected the primary tint ' + want.join(' -> ')]]); }
+      else { if (top.includes(rgbOf(want[0])) || top.includes(rgbOf(want[1]))) out.push([theme + ' ' + acc + ' ' + (cc || ''), ['light title bar shows the dark tint: ' + top]]); if (app.style.getPropertyValue('--a-top-dk-s')) out.push([theme + ' ' + acc, ['light theme still carries --a-top-dk-s']]); } }
     set('theme', 'system'); set('accent', '#0f6cbd'); fire(); return { out, n }; })()`);
   checked += sweep.n; for (const [c, bad] of sweep.out) report(tag, c, bad);
+  if (consoleProblems.length) fail(tag, 'console', [...new Set(consoleProblems)].slice(0, 5).join('\n      '));
+}
+
+// prefers-contrast: more: the dark title bar stays neutral (like the app), the light one is unchanged
+async function contrastPass(lang, width) {
+  await loadPage(lang, width, false, true, true);
+  const tag = `${lang} ${width}px dark prefers-contrast:more`;
+  pages++; checked++;
+  const bad = await evaluate(`(() => { const { form, color, set, fire } = window.__ctx, out = [], app = document.querySelector('.mk-view .app'), top = () => getComputedStyle(app.querySelector('.a-top')).backgroundImage;
+    const NEUTRAL = ['rgb(37, 39, 45)', 'rgb(45, 48, 56)'];
+    if (!matchMedia('(prefers-contrast: more)').matches) out.push('prefers-contrast: more could not be emulated');
+    for (const theme of ['dark', 'system']) for (const acc of ['#0f6cbd', '#c2327d', '#c4570c', 'custom']) { set('theme', theme); set('accent', acc); if (acc === 'custom') { color.value = '#ffd400'; color.dispatchEvent(new Event('input', { bubbles: true })); } else fire(); const t = top(); if (!NEUTRAL.every((c) => t.includes(c))) out.push(theme + ' ' + acc + ': dark bar is not neutral under prefers-contrast: more: ' + t); }
+    set('theme', 'light'); set('accent', '#c2327d'); fire(); const l = top(); if (NEUTRAL.some((c) => l.includes(c)) || !/rgb/.test(l)) out.push('light bar changed under prefers-contrast: more: ' + l);
+    return out; })()`);
+  if (bad.length) fail(tag, 'bar', bad.join('\n      '));
   if (consoleProblems.length) fail(tag, 'console', [...new Set(consoleProblems)].slice(0, 5).join('\n      '));
 }
 
@@ -271,6 +297,7 @@ try {
   for (const lang of (QUICK ? ['en'] : LANGS)) await runPage(lang, 375, { reduced: true });
   await runPage('en', 1280, { reduced: true, dark: true });
   await runPage('en', 1280, { dark: true });
+  await contrastPass('en', 1280); await contrastPass('ja', 375);
   await scanPages();
   if (SHOTS) await shots();
 } finally { await shutdown(); }
