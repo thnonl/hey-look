@@ -5,6 +5,7 @@ import {
   FolderOpen, Image as ImageIcon, ImageOff, KeyRound, MoreHorizontal, Music, Paperclip, Presentation, ShieldAlert, X, ZoomIn, ZoomOut,
 } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import { api, AttMeta, errorCode, MessageFull } from "../api";
 import { startCompose } from "../popout/composeOpen";
 import { shiftNow } from "../popout/modifier";
@@ -18,7 +19,7 @@ import riskyExt from "../riskyExt.json";
 import { kbd, osNow } from "../platform";
 import { pdfPreview } from "../pdfFrame";
 import { importKeyFromMessage, isKeyAttachment } from "./Pgp";
-import { Dropdown } from "./ui";
+import { Dropdown, FOCUSABLE } from "./ui";
 
 // ---------------------------------------------------------------- file types
 
@@ -496,6 +497,36 @@ export function AttachmentStrip({ m }: { m: MessageFull }) {
 
 // ---------------------------------------------------------------- preview
 
+/**
+ * What both dialogs of this file share. They are drawn through a portal on <body>, not where the message is: a message of the reading pane sits in
+ * a `position: sticky` block, and a sticky block is a stacking context, so a dialog inside it was painted UNDER the Reply row and the head of every
+ * later message of the conversation (and the picture viewer, a child of the sticky message body, was sticky itself instead of fixed). On <body> the
+ * dialog's own z-index counts against the whole window. A portal moves the DOM only: React events still bubble to the card / message that opened
+ * it, and the theme variables are on :root, so nothing else changes.
+ *
+ * The focus goes into the dialog when it opens, Tab and Shift+Tab stay inside it, and it goes back to what opened the dialog when it closes.
+ * `first` names the control that takes the focus (default: the dialog itself).
+ */
+function useDialogFocus<T extends HTMLElement>(first?: () => HTMLElement | null) {
+  const box = useRef<T>(null);
+  useEffect(() => {
+    const opener = document.activeElement as HTMLElement | null;
+    (first?.() ?? box.current)?.focus({ preventScroll: true });
+    return () => {
+      if (opener && document.contains(opener)) opener.focus({ preventScroll: true });
+    };
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+  const trap = (e: React.KeyboardEvent) => {
+    if (e.key !== "Tab" || !box.current || !box.current.contains(e.target as Node)) return;
+    const list = Array.from(box.current.querySelectorAll<HTMLElement>(FOCUSABLE)).filter((x) => x.getClientRects().length > 0);
+    if (!list.length) return;
+    const active = document.activeElement;
+    if (e.shiftKey && (active === list[0] || active === box.current)) (e.preventDefault(), list[list.length - 1].focus());
+    else if (!e.shiftKey && active === list[list.length - 1]) (e.preventDefault(), list[0].focus());
+  };
+  return { box, trap };
+}
+
 interface PvLoaded {
   url: string;
   text?: string;
@@ -573,11 +604,12 @@ export function PreviewDialog({ m, items, start, onClose }: { m: MessageFull; it
 
   const [zoom, setZoom] = useState<"fit" | 1 | 2>("fit");
   const lock = imageLock(!!m.confidential);
+  const { box, trap } = useDialogFocus<HTMLDivElement>();
   if (!cur) return null;
   const kind = previewable(cur, !!m.confidential);
-  return (
+  return createPortal(
     <div className="modal-back" onMouseDown={onClose}>
-      <div className="modal pv-modal" role="dialog" aria-modal="true" aria-label={t("reading.att.previewName", { name: cur.name })} onMouseDown={(e) => e.stopPropagation()}>
+      <div ref={box} tabIndex={-1} onKeyDown={trap} className="modal pv-modal" role="dialog" aria-modal="true" aria-label={t("reading.att.previewName", { name: cur.name })} onMouseDown={(e) => e.stopPropagation()}>
         <div className="pv-head">
           <b className="pv-name ellipsis">{cur.name}</b>
           {list.length > 1 && <span className="muted small">{t("reading.pv.xOfY", { i: i + 1, total: list.length })}</span>}
@@ -632,7 +664,8 @@ export function PreviewDialog({ m, items, start, onClose }: { m: MessageFull; it
           )}
         </div>
       </div>
-    </div>
+    </div>,
+    document.body,
   );
 }
 
@@ -655,6 +688,7 @@ export function Lightbox({ items, index, onClose, onIndex, confidential }: { ite
   const [zoom, setZoom] = useState(0); // 0 = fit
   const [dims, setDims] = useState<{ w: number; h: number } | null>(null);
   const closeRef = useRef<HTMLButtonElement>(null);
+  const { box, trap } = useDialogFocus<HTMLDivElement>(() => closeRef.current);
 
   useEffect(() => {
     if (!cur) return;
@@ -668,7 +702,6 @@ export function Lightbox({ items, index, onClose, onIndex, confidential }: { ite
   }, [cur?.key]); // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
-    closeRef.current?.focus();
     // capture phase + stopPropagation: Escape closes only the lightbox and does not clear the open message behind it
     const onKey = (e: KeyboardEvent) => {
       if (e.key === "Escape") onClose();
@@ -685,8 +718,8 @@ export function Lightbox({ items, index, onClose, onIndex, confidential }: { ite
   }, [index, items.length, onClose, onIndex]);
 
   if (!cur) return null;
-  return (
-    <div className="lightbox" role="dialog" aria-modal="true" aria-label={t("reading.lb.label", { name: cur.name })}>
+  return createPortal(
+    <div ref={box} onKeyDown={trap} className="lightbox" role="dialog" aria-modal="true" aria-label={t("reading.lb.label", { name: cur.name })}>
       <div className="lb-bar">
         <b className="ellipsis" style={{ minWidth: 0 }}>{cur.name}</b>
         <span className="muted small">{t("reading.pv.xOfY", { i: index + 1, total: items.length })}{cur.size ? ` · ${fmtSize(cur.size)}` : ""}{dims ? ` · ${dims.w} × ${dims.h}` : ""}</span>
@@ -713,6 +746,7 @@ export function Lightbox({ items, index, onClose, onIndex, confidential }: { ite
           />
         )}
       </div>
-    </div>
+    </div>,
+    document.body,
   );
 }

@@ -414,6 +414,8 @@ export default defineLocale<typeof ns.en>({
   "settings.ai.modelsError": "No se pudo cargar la lista de modelos ({error}). Escribe un ID de modelo.",
   "settings.ai.noModels": "El punto de conexión no devolvió ningún modelo. Escribe un ID de modelo.",
   "settings.ai.saved": "Configuración del Asistente de IA guardada",
+  "settings.ai.saveFailed": "No se pudo guardar ({error}). Lo que escribiste sigue aquí; puedes intentarlo de nuevo.",
+  "settings.ai.removeKeyFailed": "No se pudo quitar la clave guardada ({error}).",
   "settings.pgp.title": "Cifrado (PGP)",
   "settings.pgp.intro": "Claves OpenPGP para cifrar y firmar el correo (PGP/MIME). Tus claves secretas se quedan en este equipo, protegidas con tu frase de contraseña. Las claves nunca se buscan en línea: las añades tú.",
   "settings.pgp.keyAria": "{name}, clave {key}. Abrir detalles",

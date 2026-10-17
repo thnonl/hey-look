@@ -721,9 +721,17 @@ button.ov-tag:hover { background: color-mix(in srgb, var(--accent), transparent 
 .field-head .link { flex: none; }
 /* Save and under it the status of the model list (Loading... / could not load / no models): a fixed two-line slot, so the texts coming and going move nothing */
 .form .ai-actions { display: flex; flex-direction: column; gap: 8px; }
+.ai-status.bad { color: var(--danger); }
 .ai-status { margin-bottom: -24px; /* its second line sits in the pane's bottom padding (28px), so a window that held this tab before still does */ height: 2.8em; line-height: 1.4; overflow: hidden; display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; }
 .advanced > summary { cursor: pointer; color: var(--muted); font-size: .86em; padding: 4px 0; min-height: 24px; }
 .advanced > .form { margin-top: 14px; }
+/* Add account / Calendar sync: what a sign-in is doing or how it ended is written into ONE slot of fixed size, under the control that started it (like .ai-status):
+   the waiting text, the notice that it ended, an error and the hint for a disabled button take turns in it, and nothing around it moves. The size holds the longest of them
+   (measured in every language by scripts/test-settings-layout.mjs); a text that would not fit grows the slot, which that test reports. */
+.signin-slot { min-height: 9em; overflow-wrap: anywhere; }
+.set-status { min-height: 7.5em; overflow-wrap: anywhere; }
+.signin-slot > .notice, .set-status > .notice { margin-bottom: 0; }
+.set-actions { margin: 6px 0 10px; min-height: 33px; align-items: center; } /* a primary button is 33px, a small one 24px: the row keeps its height in every state */
 .list-row { display: flex; gap: 14px; align-items: center; padding: 10px 12px; border: 1px solid var(--border); border-radius: var(--r-md); margin-bottom: 6px; cursor: pointer; transition: background .12s, border-color .12s; }
 .list-row:hover { background: var(--bg2); border-color: color-mix(in srgb, var(--border), var(--fg) 15%); }
 .list-row.inherited { cursor: default; background: var(--bg2); }

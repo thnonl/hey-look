@@ -414,6 +414,8 @@ export default defineLocale<typeof ns.en>({
   "settings.ai.modelsError": "モデルの一覧を読み込めませんでした（{error}）。代わりにモデルIDを入力してください。",
   "settings.ai.noModels": "エンドポイントからモデルが返されませんでした。代わりにモデルIDを入力してください。",
   "settings.ai.saved": "AIアシスタントの設定を保存しました",
+  "settings.ai.saveFailed": "保存できませんでした（{error}）。入力した内容はそのまま残っています。もう一度お試しください。",
+  "settings.ai.removeKeyFailed": "保存済みのキーを削除できませんでした（{error}）。",
   "settings.pgp.title": "暗号化（PGP）",
   "settings.pgp.intro": "メールの暗号化と署名に使うOpenPGP鍵（PGP/MIME）です。秘密鍵はこのコンピューターに保存され、パスフレーズでロックされます。鍵がオンラインで検索されることはありません。ご自身で追加してください。",
   "settings.pgp.keyAria": "{name}、鍵{key}。詳細を開く",

@@ -211,6 +211,42 @@ async function runConfig(cfg) {
   await waitFor('the unreachable address message', message);
   await fits('unreachable');
   await sleep(300);
+  // 8. Save fails (the mock refuses a Base URL with "savefail" in it, the key "keyfail", and Remove the saved key after #removefail): the reason is said in the
+  // slot under Save, nothing moves, and what was typed is still in the boxes
+  const value = (i) => evaluate(`document.querySelectorAll('.settings-body .form input, .settings-body .form select')[${i}].value`);
+  await phase('Save fails');
+  await typeInto(0, 'https://savefail.example.com/v1');
+  await typeInto(1, 'keep-me-123');
+  await focus(2); await press('Backspace', 'Backspace'); await typeText('gpt-4o-mini', 10);
+  await sleep(900);
+  await click('.settings-body .form .btn.primary');
+  await waitFor('the save error', `${last}.text.includes('disk I/O')`);
+  await fits('save failed');
+  await shot('save-failed');
+  if (await value(0) !== 'https://savefail.example.com/v1' || await value(1) !== 'keep-me-123' || await value(2) !== 'gpt-4o-mini') fail(cfg, `a failed save emptied or changed a box: ${await value(0)} / ${await value(1)} / ${await value(2)}`);
+  if (!(await evaluate(`document.querySelector('.settings-body .ai-status').classList.contains('bad')`))) fail(cfg, 'the save error is not marked as an error (colour)');
+  await typeInto(0, 'https://ok.example.com/v1'); // typing takes it away
+  if (await evaluate(`${last}.text.includes('disk I/O')`)) fail(cfg, 'the save error stayed after the Base URL was edited');
+  await phase('Save fails, key store');
+  await typeInto(1, 'keyfail');
+  await sleep(900);
+  await click('.settings-body .form .btn.primary');
+  await waitFor('the key store error', `${last}.text.includes('keychain')`);
+  await fits('key store');
+  if (await value(1) !== 'keyfail') fail(cfg, 'a failed save of the key emptied the key box');
+  if (await evaluate(`!!document.querySelector('.settings-body .form button.link')`)) fail(cfg, 'a failed save of the key shows "Remove the saved key"');
+  await phase('Remove the saved key fails');
+  await typeInto(1, 'sk-good-key');
+  await sleep(900);
+  await click('.settings-body .form .btn.primary'); // this one works: the key is saved
+  await waitFor('the saved key', `${last}.link`);
+  await sleep(400);
+  await evaluate(`location.hash = location.hash + '&removefail'`);
+  await click('.settings-body .form button.link');
+  await waitFor('the remove error', `${last}.text.includes('keychain')`);
+  await fits('remove key');
+  if (!(await evaluate(`!!document.querySelector('.settings-body .form button.link')`))) fail(cfg, 'the link to remove the saved key went away although removing failed');
+  await sleep(300);
 
   const log = await evaluate('window.__log');
   const first = log.find((e) => e.s)?.s;
@@ -245,7 +281,7 @@ async function runConfig(cfg) {
   // the transient messages really appeared, in the slot (otherwise this test would prove nothing)
   const texts = new Set(log.map((e) => e.s?.text).filter(Boolean));
   const longest = Math.max(0, ...[...texts].map((x) => x.length));
-  if (texts.size < 4) fail(cfg, `only ${texts.size} different status texts were seen (loading, no models, error, unreachable expected)`);
+  if (texts.size < 6) fail(cfg, `only ${texts.size} different status texts were seen (loading, no models, error, unreachable, save failed, key store expected)`);
   if (!log.some((e) => e.s?.text && e.s.pos.slot[3] > 0)) fail(cfg, 'the status slot has no height');
   console.log(`  ok ${tag}: ${log.length} layout changes, ${checks} frames compared, ${texts.size} status texts (longest ${longest} chars)`);
 }

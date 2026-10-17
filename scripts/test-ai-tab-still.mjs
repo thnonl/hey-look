@@ -28,12 +28,13 @@ assert.deepEqual(conditionals.map((l) => l.trim().slice(0, 12)), ["{asList ? ("]
 // 2. no message row is rendered conditionally: the status element is always there, after Save, and says nothing when there is nothing to say
 assert.equal((tab.match(/role="status"/g) || []).length, 1, "one live region (not one per message)");
 assert.doesNotMatch(tab, /modelsState === "(loading|error|idle)" &&\s*<div/, "no message row is inserted for Loading / error / no models");
-assert.match(tab, /<div className="ai-actions">\s*<button className="btn primary"[^\n]*\n\s*<div className="ai-status muted small" role="status"[^\n]*>\{status\}<\/div>\s*<\/div>/, "Save, then the status slot (the slot is under the button: nothing above it can move)");
-assert.match(tab, /const status = modelsState === "loading" \? [^\n]*\n\s*: modelsState === "error" \? [^\n]*\n\s*: models\.length === 0 && v\.ai_endpoint\.trim\(\) \? t\("settings\.ai\.noModels"\) : "";/, "the three messages are texts of one slot");
+assert.match(tab, /<div className="ai-actions">\s*<button className="btn primary"[^\n]*\n\s*<div className=\{\`ai-status small \$\{saveErr \? "bad" : "muted"\}\`\} role="status"[^\n]*>\{status\}<\/div>\s*<\/div>/, "Save, then the status slot (the slot is under the button: nothing above it can move)");
+assert.match(tab, /const status = saveErr \? saveErr\n\s*: modelsState === "loading" \? [^\n]*\n\s*: modelsState === "error" \? [^\n]*\n\s*: models\.length === 0 && v\.ai_endpoint\.trim\(\) \? t\("settings\.ai\.noModels"\) : "";/, "the messages (a failed save, loading, error, no models) are texts of one slot");
 assert.match(tab, /setModelsErr\(cutAtWord\(friendlyError\(e\), \d+\)\)/, "the error reason is cut so the two-line slot always shows the instruction after it");
 
 // 3. "Remove the saved key" sits on the key label's line (appears after Save without moving anything), and gives the focus back to the key box
-assert.match(tab, /<div className="field-head">\s*<label>\{t\("settings\.ai\.apiKey"\)\}<\/label>\s*\{hasKey && \(\s*<button className="link small" onClick=\{async \(\) => \{ await api\.setSecret\("ai_key", ""\); setHasKey\(false\); keyRef\.current\?\.focus\(\); \}\}>/, "the link is in .field-head, next to the label");
+assert.match(tab, /<div className="field-head">\s*<label>\{t\("settings\.ai\.apiKey"\)\}<\/label>\s*\{hasKey && \(\s*<button className="link small" onClick=\{\(\) => void removeKey\(\)\}>/, "the link is in .field-head, next to the label");
+assert.match(tab, /const removeKey = async \(\) => \{[\s\S]*?try \{\s*await api\.setSecret\("ai_key", ""\);\s*setHasKey\(false\);\s*keyRef\.current\?\.focus\(\);\s*\} catch/, "Remove the saved key gives the focus to the key box, and a failure is caught");
 assert.doesNotMatch(form, /<input[^\n]*type="password"[^\n]*\/>\s*\{hasKey/, "no link row after the key box");
 
 // 4. the Model control keeps its kind while it has focus (focus and caret stay; the list that arrives is adopted when focus leaves)
@@ -41,6 +42,12 @@ assert.match(tab, /const asList = modelFocused \? heldList : models\.length > 0;
 assert.match(tab, /onFocus: \(\) => \(setHeldList\(asList\), setModelFocused\(true\)\), onBlur: \(\) => setModelFocused\(false\)/, "focus / blur drive it");
 assert.equal((tab.match(/\{\.\.\.modelFocus\}/g) || []).length, 2, "both the list and the text box report focus");
 assert.doesNotMatch(form, /\bkey=\{(?!m\b)/, "no control is re-mounted by a changing key");
+
+// 4b. a failed save is said in the slot (and keeps what was typed): the save is in a try, the boxes are only emptied after it worked, typing clears the message
+assert.match(tab, /const save = async \(\) => \{\s*setSaveErr\(""\);\s*try \{[\s\S]*?\} catch \(e\) \{[\s\S]*?setSaveErr\(t\("settings\.ai\.saveFailed", \{ error: cutAtWord\(friendlyError\(e\), \d+\) \}\)\);/, "save() catches and says why in the slot");
+assert.ok(tab.indexOf('await api.setSecret("ai_key", key.trim());') < tab.indexOf('setKey("");'), "the key box is emptied only after the key was stored");
+assert.match(tab, /const edit = \(patch: Partial<typeof v>\) => \(setSaveErr\(""\), setV\(\{ \.\.\.v, \.\.\.patch \}\)\);/, "editing a field clears the save error");
+assert.match(css, /\.ai-status\.bad \{ color: var\(--danger\); \}/, "the save error is red");
 
 // 5. the CSS: a fixed-height slot, clamped, and a label line that is one flex row
 assert.match(css, /\.ai-status \{[^}]*\bheight: 2\.8em;[^}]*line-height: 1\.4;[^}]*overflow: hidden;[^}]*-webkit-line-clamp: 2;/, "the slot is exactly two lines high and cuts, it never grows");

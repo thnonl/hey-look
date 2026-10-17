@@ -414,6 +414,8 @@ export default defineLocale<typeof ns.en>({
   "settings.ai.modelsError": "Die Modellliste konnte nicht geladen werden ({error}). Geben Sie stattdessen eine Modell-ID ein.",
   "settings.ai.noModels": "Der Endpunkt hat keine Modelle zurückgegeben. Geben Sie stattdessen eine Modell-ID ein.",
   "settings.ai.saved": "Einstellungen des KI-Assistenten gespeichert",
+  "settings.ai.saveFailed": "Speichern fehlgeschlagen ({error}). Ihre Eingaben bleiben erhalten, Sie können es erneut versuchen.",
+  "settings.ai.removeKeyFailed": "Der gespeicherte Schlüssel konnte nicht entfernt werden ({error}).",
   "settings.pgp.title": "Verschlüsselung (PGP)",
   "settings.pgp.intro": "OpenPGP-Schlüssel zum Verschlüsseln und Signieren von E-Mails (PGP/MIME). Ihre geheimen Schlüssel bleiben auf diesem Computer, geschützt durch Ihre Passphrase. Schlüssel werden nie online gesucht: Sie fügen sie selbst hinzu.",
   "settings.pgp.keyAria": "{name}, Schlüssel {key}. Details öffnen",

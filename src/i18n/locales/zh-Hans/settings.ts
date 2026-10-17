@@ -414,6 +414,8 @@ export default defineLocale<typeof ns.en>({
   "settings.ai.modelsError": "无法加载模型列表（{error}）。请改为手动输入模型ID。",
   "settings.ai.noModels": "该端点未返回任何模型。请改为手动输入模型ID。",
   "settings.ai.saved": "AI助手设置已保存",
+  "settings.ai.saveFailed": "无法保存（{error}）。你输入的内容仍然保留，可以重试。",
+  "settings.ai.removeKeyFailed": "无法移除已保存的密钥（{error}）。",
   "settings.pgp.title": "加密（PGP）",
   "settings.pgp.intro": "用于加密和签名邮件（PGP/MIME）的OpenPGP密钥。您的私钥保存在这台电脑上，并由您的密码短语锁定。不会在线查找密钥：需要由您自行添加。",
   "settings.pgp.keyAria": "{name}，密钥{key}。打开详情",

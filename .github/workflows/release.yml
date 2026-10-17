@@ -257,6 +257,7 @@ jobs:
           node --experimental-strip-types scripts/test-translate-jobs.mjs
           node --experimental-strip-types scripts/test-translate-box-layout.mjs
           node --experimental-strip-types scripts/test-ai-tab-still.mjs
+          node --experimental-strip-types scripts/test-settings-still.mjs
           node --experimental-strip-types scripts/test-translate-chunks.mjs
           node --experimental-strip-types scripts/test-ai-call.mjs
           node --experimental-strip-types scripts/test-ai-errors.mjs
@@ -317,6 +318,10 @@ jobs:
           node scripts/test-site-appearance.mjs --quick
           # Settings > AI Assistant stands still while it is used: the real layout, frame by frame, in the dev preview (two of the 12 combinations; the full run is `node scripts/test-ai-tab-layout.mjs`)
           node scripts/test-ai-tab-layout.mjs --quick
+          # Settings > Add account and Calendar stand still while a sign-in runs and ends (two of the combinations; the full run is `node scripts/test-settings-layout.mjs`)
+          node scripts/test-settings-layout.mjs --quick
+          # the attachment preview and the picture viewer are on top of the whole window, in the main window and in the reader window
+          node scripts/test-preview-layer.mjs --quick
 
       # macOS code signing (owner steps: CONTRIBUTING.md > Signing and notarisation). Only when the three certificate secrets
       # (APPLE_CERTIFICATE, APPLE_CERTIFICATE_PASSWORD, APPLE_SIGNING_IDENTITY) exist and this is not a test build; otherwise nothing
