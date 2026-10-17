@@ -118,15 +118,16 @@ assert.equal(make(), inEnglish);
 // the English words are what the owner asked for
 setLangPref("en");
 const en = (raw, feature = "summarize") => aiProblemText(feature, classifyAiError(raw), "").split("\n");
-assert.deepEqual(en(NOT_SET_UP), ["Summarize did not work", "The AI Assistant is not set up yet.", "In Settings, enter the address of your AI provider, an API key and a model name."]);
+assert.deepEqual(en(NOT_SET_UP), ["AI Assistant is not set up", "Its address and model are not saved yet.", "In Settings, enter the address of your AI provider, an API key and a model name."]);
 assert.equal(en(http(401))[1], "The provider rejected the key (401).");
 assert.equal(en(http(404, "model"))[1], "The model name was not found.");
 assert.equal(en(http(503))[1], "The provider is busy, try again later (503).");
 assert.equal(en("AI_BAD_RESPONSE: x")[1], "The answer could not be read.");
 assert.equal(en("AI_TIMEOUT|secs=3: x")[1], "It took too long.");
 assert.equal(en("error sending request for url (http://x/)")[1], "Could not reach the address you entered.");
-assert.equal(en(NOT_SET_UP, "translate")[0], "Translate did not work");
-assert.equal(en(NOT_SET_UP, "write")[0], "Write with AI did not work");
+assert.equal(en(NOT_SET_UP, "translate")[0], "AI Assistant is not set up", "the title does not blame a feature");
+assert.equal(en(http(401), "translate")[0], "Translate did not work");
+assert.equal(en(http(401), "write")[0], "Write with AI did not work");
 
 // ---- 3. the wiring: one helper, one toast, every entry point ------------------------------------------------------------------------
 const guide = read("src/aiGuide.ts");

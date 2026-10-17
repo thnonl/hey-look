@@ -21,7 +21,8 @@ import { cancelTranslation, dismissTranslation, jobErrorText, startTranslation }
 import { MAX_CHARS } from "../translateChunks";
 import { elapsedLabel, jobFor, slowHint, type TranslateJob } from "../translateJobs";
 import { useAiSlot } from "../useAiSlot";
-import { aiReady, leaveAiContext, showAiNotSetUp, showAiProblem } from "../aiGuide";
+import { aiReady, leaveAiContext, openAiSettings, showAiNotSetUp, showAiProblem } from "../aiGuide";
+import { classifyAiError } from "../aiProblem";
 import { fmtFull, fmtSize, plainToHtml, sanitizeHtml, snoozePresets, subjectText } from "../util";
 import { AttachmentStrip, Lightbox, LbItem } from "./Attachments";
 import { InviteCard } from "./Calendar";
@@ -485,6 +486,8 @@ function TranslateBox({ job }: { job: TranslateJob }) {
         )}
         <div className="tr-actions">
           <button className="link small" onClick={() => startTranslation(job)}>{t("common.retry")}</button>
+          {/* the way to the field that is wrong (the key, the address, the model), as the toast of the other AI features has it */}
+          <button className="link small" onClick={() => void openAiSettings(classifyAiError(job.errorSource ?? job.error ?? "")?.focus)}>{t("reading.aiProblem.openSettings")}</button>
           <button className="link small" onClick={() => dismissTranslation(job.key)}>{t("reading.msg.dismiss")}</button>
         </div>
       </div>

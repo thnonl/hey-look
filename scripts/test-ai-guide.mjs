@@ -28,8 +28,8 @@ const THEMES = (arg('theme') || 'light').split(',');
 
 // what each problem looks like in the mock (#failai=<mode>), what the toast says in English, which field gets the cursor, whether it offers "Try again"
 const PROBLEMS = {
-  notset: { hash: '', cause: 'The AI Assistant is not set up yet.', field: 'set-aiBaseUrl', again: false },
-  nokey: { hash: 'aiset&failai=nokey', cause: 'The AI Assistant is not set up yet.', field: 'set-aiBaseUrl', again: false },
+  notset: { hash: '', cause: 'Its address and model are not saved yet.', field: 'set-aiBaseUrl', again: false },
+  nokey: { hash: 'aiset&failai=nokey', cause: 'Its address and model are not saved yet.', field: 'set-aiBaseUrl', again: false },
   auth: { hash: 'aiset&failai=auth', cause: 'The provider rejected the key (401).', field: 'set-aiKey', again: false },
   forbidden: { hash: 'aiset&failai=forbidden', cause: 'The provider rejected the key (403).', field: 'set-aiKey', again: false },
   model: { hash: 'aiset&failai=model', cause: 'The model name was not found.', field: 'set-aiModel', again: false },
@@ -165,7 +165,7 @@ async function scenario(entry, win, problem, lang, size) {
   check(ctx, info.hasX, 'no X');
   check(ctx, info.kind === (problem === 'notset' || problem === 'nokey' ? 'info' : 'error') || problem === 'nokey', `kind ${info.kind}`);
   if (english) {
-    check(ctx, info.title === ENGLISH[entry], `title "${info.title}"`);
+    check(ctx, info.title === (problem === 'notset' || problem === 'nokey' ? 'AI Assistant is not set up' : ENGLISH[entry]), `title "${info.title}"`);
     check(ctx, info.lines[0] === P.cause, `cause "${info.lines[0]}"`);
     check(ctx, info.lines.length === 2, `${info.lines.length} lines under the title`);
     check(ctx, info.buttons.includes('Open AI Assistant settings'), `buttons ${JSON.stringify(info.buttons)}`);

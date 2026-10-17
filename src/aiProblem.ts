@@ -92,7 +92,8 @@ export function aiProblemButtons(p: AiProblem, canRetry: boolean): ("tryAgain" |
  * paints the first one bold). `other` is the sentence of the error itself for a problem that has no sentence of its own.
  */
 export function aiProblemText(feature: AiFeature, p: AiProblem, other: string): string {
-  const title = t(`reading.aiProblem.title.${feature}`);
+  // (an Assistant that is not set up is not a failure of this feature: the title says what is wrong, whichever feature asked)
+  const title = p.kind === "notConfigured" ? t("reading.aiProblem.title.notSetUp") : t(`reading.aiProblem.title.${feature}`);
   const cause = p.kind === "other" ? other : t(`reading.aiProblem.${p.kind}.cause`, { status: p.status ?? "" });
   const step = t(`reading.aiProblem.${p.kind}.step`);
   return [title, cause, step].join("\n");
