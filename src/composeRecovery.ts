@@ -58,6 +58,17 @@ const toast = createRecoveryToast({
   pick: pickKept,
 });
 
+/** A sync that is running began before the drafts were saved (and a second ask while one runs does nothing): wait for it to end, then sync once more so that Drafts shows them. */
+function syncAfterSave(): void {
+  const go = () => void useStore.getState().sync();
+  if (!useStore.getState().syncing) return go();
+  const off = useStore.subscribe((s) => {
+    if (s.syncing) return;
+    off();
+    go();
+  });
+}
+
 /** The window was hidden (tray) and is shown again: a toast nobody answered is put back if anything took it off the screen. */
 export function reshowRecoveryToast(): void {
   toast.reshow();
@@ -67,7 +78,6 @@ export function reshowRecoveryToast(): void {
 export async function recoverUnsaved(): Promise<void> {
   if (started) return;
   started = true;
-  const st = () => useStore.getState();
   const kept = await settleRecovery({
     list: () => api.recoveryList(),
     load: (id) => api.recoveryLoad(id),
@@ -77,7 +87,7 @@ export async function recoverUnsaved(): Promise<void> {
   });
   if (kept.length === 0) return;
   // the drafts are on the server: let the Drafts folder show them
-  if (kept.some((k) => k.where === "drafts")) void st().sync();
+  if (kept.some((k) => k.where === "drafts")) syncAfterSave();
   toast.show(kept);
   // a message of the toast that is opened another way (its Compose is up) needs no more telling about
   useStore.subscribe((s, prev) => {

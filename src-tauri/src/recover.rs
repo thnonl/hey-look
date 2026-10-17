@@ -75,6 +75,10 @@ pub fn create_tables(c: &Connection) -> R<()> {
 /// Rows of removed accounts, and files of removed rows.
 pub fn prune(c: &Connection) -> R<usize> {
     let mut n = c.execute("DELETE FROM compose_recovery WHERE account_id NOT IN (SELECT id FROM accounts)", []).map_err(err)?;
+    if n > 0 {
+        // nothing to save them to: the person removed the mailbox (or an older version left them behind)
+        crate::startup::line("recovery", &format!("{n} snapshot(s) of an account that no longer exists dropped"));
+    }
     n += c.execute("DELETE FROM compose_recovery_files WHERE recovery_id NOT IN (SELECT id FROM compose_recovery)", []).map_err(err)?;
     Ok(n)
 }
