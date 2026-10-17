@@ -76,6 +76,10 @@ objc2 = "0.6"
 # macquit.rs: the block for the power-off notice (already in the lock file, tao and muda use it)
 block2 = "0.6"
 
+# quit watchdog (lib.rs `exit_watchdog`): a last way to end the process that skips the exit handlers of the libraries; already in the lock file
+[target.'cfg(unix)'.dependencies]
+libc = "0.2"
+
 [target.'cfg(target_os = "linux")'.dependencies]
 # asks the session bus whether a tray host exists (shell.rs); the notification plugin uses the same version
 zbus = "5"
@@ -83,6 +87,8 @@ zbus = "5"
 notify-rust = "4.18"
 # the system clipboard for copy_text (lib.rs); the version tauri and wry already use
 gtk = "0.18"
+# linuxview.rs: the web view's own signals (web process ended / not responding) and a redraw; the exact version tauri's runtime pins
+webkit2gtk = { version = "=2.0.2", features = ["v2_40"] }
 keyring = { version = "3", features = ["sync-secret-service", "crypto-rust"] }
 
 

@@ -58,6 +58,8 @@ pub fn show_main(app: &AppHandle) {
         // a window that was hidden (first show, a tray click after a --minimized start, a second start) is looked at: is the web view still running?
         if was_hidden {
             crate::startup::verify_painting(app);
+            // Linux: a window that sat in the tray may come back with a white page (linuxview.rs)
+            crate::linuxview::after_show(app);
         }
         // the UI re-checks for updates when the window comes back (throttled in update.rs)
         let _ = app.emit("app-shown", ());
@@ -456,6 +458,9 @@ pub fn setup_tray(app: &AppHandle, db: &Db) -> tauri::Result<()> {
             "quit" => crate::request_quit(app),
             _ => {}
         })
+        // Windows and macOS: a left click (double click) on the icon opens the window. Linux: the indicator service (libayatana-appindicator /
+        // StatusNotifier) never delivers click events to the app, so this does not run there: the menu entry "Open Hey Look!" is the way back,
+        // and the first-hide hint (`tray_hint_text`) names the menu only. Nothing in the app may promise a click on Linux.
         .on_tray_icon_event(|tray, event| {
             if let TrayIconEvent::Click { button: MouseButton::Left, button_state: MouseButtonState::Up, .. }
             | TrayIconEvent::DoubleClick { button: MouseButton::Left, .. } = event

@@ -20,6 +20,7 @@ import { Welcome } from "./components/Welcome";
 import { hasMailAccounts, shortcutWorks } from "./mailControls";
 import { t as tNow } from "./i18n";
 import { useT } from "./i18n/react";
+import { runQuitFlush } from "./quitFlush";
 import { flushSends, friendlyError, moveDropped, moveRefused, useStore } from "./store";
 import { osNow } from "./platform";
 import { openUpdateLink, useUpdates } from "./updates";
@@ -194,63 +195,48 @@ function App() {
       }),
       // The rest of a quit (REQ-48 b, c): a message being written is saved to Drafts (and the person is asked when that fails), then every
       // message still in its Undo time goes out now, for at most 20 s. The answer tells the backend whether the quit goes on.
-      listen("flush-sends", async () => {
-        let go = true;
-        try {
-          const s = useStore.getState();
-          if (s.compose && s.composeDirty) {
-            if (s.compose.outboxId) {
-              // a scheduled message being edited stays as it was
-              void api.showWindow().catch(() => undefined);
-              void api.quitDialog(true).catch(() => undefined);
-              const c = await s.choose({
+      listen("flush-sends", () => {
+        const swallow = () => undefined;
+        const ask = (kind: "scheduledEdit" | "notSaved") =>
+          kind === "scheduledEdit"
+            ? useStore.getState().choose({
                 title: t("app.quit.discardTitle"),
                 body: t("app.quit.discardBody"),
                 choices: [
                   { id: "keep", label: t("app.quit.keepEditing"), kind: "primary" },
                   { id: "quit", label: t("app.quit.quitDiscardChanges"), kind: "danger" },
                 ],
+              })
+            : useStore.getState().choose({
+                title: t("app.quit.notSavedTitle"),
+                body: t("app.quit.notSavedBody", { error: useStore.getState().draftError || t("app.quit.unknownError") }),
+                choices: [
+                  { id: "keep", label: t("app.quit.keepWriting"), kind: "primary" },
+                  { id: "quit", label: t("app.quit.quitDiscard"), kind: "danger" },
+                ],
               });
-              void api.quitDialog(false).catch(() => undefined);
-              go = c === "quit";
-            } else {
-              const saved = s.composeSaver ? await s.composeSaver({ quiet: true }) : false;
-              if (saved === true) {
-                await useStore.getState().composeEnd?.(); // (saved: no snapshot is needed; the process may end right after this)
-                await useStore.getState().openCompose(null);
-              } else {
-                void api.showWindow().catch(() => undefined);
-                void api.quitDialog(true).catch(() => undefined);
-                const c = await s.choose({
-                  title: t("app.quit.notSavedTitle"),
-                  body: t("app.quit.notSavedBody", { error: useStore.getState().draftError || t("app.quit.unknownError") }),
-                  choices: [
-                    { id: "keep", label: t("app.quit.keepWriting"), kind: "primary" },
-                    { id: "quit", label: t("app.quit.quitDiscard"), kind: "danger" },
-                  ],
-                });
-                void api.quitDialog(false).catch(() => undefined);
-                go = c === "quit";
-                if (go) {
-                  // "Quit and discard" was the answer: the message must not come back at the next start either
-                  await useStore.getState().composeEnd?.();
-                  useStore.setState({ composeDirty: false });
-                }
-              }
-            }
-          }
-          if (go) {
-            const n = useStore.getState().sendsInFlight;
-            if (n > 0) {
-              useStore.getState().showToast(t("app.quit.sending", { n }), undefined, "info");
-            }
-            await flushSends(20_000);
-          }
-        } catch {
-          /* quit anyway */
-        } finally {
-          void api.sendsFlushed(go).catch(() => undefined);
-        }
+        return runQuitFlush({
+          alive: () => void api.quitPageAlive().catch(swallow),
+          showWindow: () => void api.showWindow().catch(swallow),
+          dialog: (open) => void api.quitDialog(open).catch(swallow),
+          done: (go) => void api.sendsFlushed(go).catch(swallow),
+          unsaved: () => {
+            const s = useStore.getState();
+            return s.compose && s.composeDirty ? { scheduled: !!s.compose.outboxId, save: s.composeSaver } : null;
+          },
+          ask,
+          saved: async () => {
+            await useStore.getState().composeEnd?.();
+            await useStore.getState().openCompose(null);
+          },
+          discarded: async () => {
+            await useStore.getState().composeEnd?.();
+            useStore.setState({ composeDirty: false });
+          },
+          inFlight: () => useStore.getState().sendsInFlight,
+          tell: (n) => useStore.getState().showToast(t("app.quit.sending", { n }), undefined, "info"),
+          flush: flushSends,
+        });
       }),
       // messages that were in their Undo time when the last run ended went out now (REQ-49 d)
       listen<{ count: number }>("outbox-leftover", (e) => {

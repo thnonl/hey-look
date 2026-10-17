@@ -42,6 +42,8 @@ Writing a message got safer and more complete: nothing you write is lost to a cr
 - Links: Insert link (button or Ctrl+K) opens a small dialog in the app with the address and an optional text, instead of the system prompt; Remove link is in it too
 - Writing a message: Report and Snooze (and every other button that needs a selected mail) are greyed out while a message is open and no mail is selected
 - macOS: the app is now signed with a fixed certificate (self-signed, not notarized), so macOS keeps remembering which app may read your saved passwords across updates. Because the signature changes once, the first start after updating to this version asks about your saved passwords one more time
+- Quit: Quit always ends. The app waits at most 8 seconds for a window that does not answer, 45 seconds for one that is saving or sending, and 60 seconds for a question to you ("Quit and discard?"), and then quits; the message you were writing is kept as a recovery copy and a message in its Undo time goes out at the next start. A question that has to be answered is shown in front, also when the window was hidden in the tray. If the app is still alive 40 seconds after the quit began, it is ended
+- Linux: when the window comes back from the tray ("Open Hey Look!") the app checks that the page still runs and loads it again when it does not, instead of leaving a blank page; a web view process that ends is loaded again at once. On Linux the tray icon has no click action (the desktop's indicator service does not pass clicks on): use "Open Hey Look!" in its menu
 
 ## 1.0.5 — 2026-10-16
 
