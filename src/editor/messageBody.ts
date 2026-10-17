@@ -46,6 +46,23 @@ export function swapPictures(html: string, newCid: () => string, fileName: (mime
   return { html: out, inline };
 }
 
+const esc = (s: string) => s.replace(/&/g, "&amp;").replace(/"/g, "&quot;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+
+/**
+ * A stored message gives its pictures back to the editor as data: URIs, and the file name each one had is in the message's part, not in the
+ * HTML. This puts it back as the editor's `data-name` on the first `<img>` whose source holds `needle` (the picture's base64) and has no name yet,
+ * so a reopened draft sends the picture under the name it was added with (WP5f).
+ */
+export function nameInlinePicture(html: string, needle: string, name: string): string {
+  if (!needle || !name) return html;
+  let done = false;
+  return html.replace(/<img[^>]*>/gi, (tag) => {
+    if (done || NAME.test(tag) || !tag.includes(needle)) return tag;
+    done = true;
+    return tag.replace(/<img/i, `<img data-name="${esc(name)}"`);
+  });
+}
+
 /**
  * The message as it is stored and sent. `pictures: "cid"` turns the pictures into inline parts (send, draft); `"data"` keeps them as data:
  * URIs (the crash-recovery snapshot, which reopens in the editor).

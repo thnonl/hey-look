@@ -586,6 +586,8 @@ assert.equal(draftKey("t9"), "draft:t9");
   assert.ok("error" in parseComposeRequest("cw-toast", { text: "  " }));
   assert.deepEqual(parseComposeRequest("cw-draft-saved", { threadId: "t1", plain: true }), { kind: "draft-saved", threadId: "t1", plain: true });
   assert.ok("error" in parseComposeRequest("cw-draft-saved", {}));
+  assert.deepEqual(parseComposeRequest("cw-scheduled", { outboxId: "o1", sendAt: 1790000000 }), { kind: "scheduled", outboxId: "o1", sendAt: 1790000000 }, "Scheduled for ... with Undo and View is made in the main window");
+  assert.ok("error" in parseComposeRequest("cw-scheduled", { outboxId: "o1" }) && "error" in parseComposeRequest("cw-scheduled", { sendAt: 5 }) && "error" in parseComposeRequest("cw-scheduled", { outboxId: "o1", sendAt: "soon" }));
   assert.deepEqual(parseComposeRequest("cw-sync", null), { kind: "sync" });
   assert.deepEqual(parseComposeRequest("cw-refresh", 5), { kind: "refresh" });
   assert.deepEqual(parseComposeRequest("cw-dialog", { dialog: { type: "pgp-generate", accountId: "a1" } }), { kind: "dialog", dialog: { type: "pgp-generate", accountId: "a1" } });
@@ -618,7 +620,8 @@ assert.equal(draftKey("t9"), "draft:t9");
   for (const a of ["openCompose:", "sync:", "refresh:", "setDialog:", "showToast:"]) assert.ok(view.includes(a), a);
   assert.ok(view.indexOf("setReady(true)") > view.indexOf("openCompose:"), "Compose is drawn after the actions are replaced");
   // Compose.tsx: the seam is the only difference, and the main window (no seam) behaves as before
-  assert.equal(compose.match(/composeSeam\(\)/g).length, 8, "the places where Compose asks the seam");
+  assert.equal(compose.match(/composeSeam\(\)/g).length, 10, "the places where Compose asks the seam (two of them: a message scheduled in a window is announced by the main window, which owns the outbox)");
+  assert.ok(compose.includes("composeSeam()?.scheduled(") && view.includes("scheduled: (outboxId, sendAt) => notifyMain(\"scheduled\""), "Scheduled for ... with Undo and View comes from the main window");
   assert.ok(compose.includes("openCompose(null, { sending: wait })") && compose.includes("openCompose(null, { sending: 0 })"), "a send hands the message over, it does not end it");
   assert.ok(compose.includes('else showToast(() => t("compose.toast.sending"), undoSend, "info")'), "the main window still has the Undo toast");
   assert.ok(compose.includes("if (init.outboxId || composeSeam() || busy) return;"), "no pop-out of a scheduled message or from a window");

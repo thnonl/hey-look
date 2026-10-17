@@ -21,7 +21,7 @@ import { useKit } from "../editor/kit";
 import { FormatBar, type FormatBarApi } from "../editor/FormatBar";
 import { PreviewSwitch } from "../editor/PreviewSwitch";
 import { setPreviewMode } from "../editor/previewColors";
-import { messageHtml } from "../editor/messageBody";
+import { messageHtml, nameInlinePicture } from "../editor/messageBody";
 import { unwrapBase, type BaseFont } from "../editor/emailHtml";
 import { extractQuote, quotePictureBytes } from "../editor/quoteBlock";
 import { baseFromPrefs } from "../editor/baseFont";
@@ -96,7 +96,7 @@ const SignatureBlock = (cb: { mount: (el: HTMLElement) => void; unmount: (el: HT
 
 /** Recipient input with chips, address validation and keyboard-friendly suggestions. */
 export function RecipientField({
-  label, values, onChange, autoFocus, onTouch, keys, onKeyAction, hideLabel,
+  label, values, onChange, autoFocus, onTouch, onPending, keys, onKeyAction, hideLabel,
 }: {
   label: string;
   /** the label is only for screen readers (the caller shows its own) */
@@ -105,6 +105,8 @@ export function RecipientField({
   onChange: (v: string[]) => void;
   autoFocus?: boolean;
   onTouch?: () => void;
+  /** what is typed in the box and not yet a chip (tells the crash-recovery snapshot about an address that was typed and not confirmed) */
+  onPending?: (text: string) => void;
   /** PGP key status per address (lower case); shown on the chips while Encrypt is on */
   keys?: Record<string, RecipientStatus>;
   onKeyAction?: (a: "import" | "paste") => void;
@@ -114,6 +116,11 @@ export function RecipientField({
   const popRef = useRef<HTMLSpanElement>(null);
   useOutside(popRef, () => setKeyPop(null), keyPop !== null);
   const [text, setText] = useState("");
+  const pendingRef = useRef(onPending);
+  pendingRef.current = onPending;
+  useEffect(() => {
+    pendingRef.current?.(text);
+  }, [text]);
   const [sugg, setSugg] = useState<Contact[]>([]);
   const [hi, setHi] = useState(-1);
   const input = useRef<HTMLInputElement>(null);
@@ -278,9 +285,11 @@ export async function messageToEditor(m: MessageFull): Promise<{ html: string | 
   for (const a of m.attachments) {
     if (a.inline && a.referenced) {
       // embedded at sync time already, or still a cid: reference that is fetched now
-      if (a.cid && html?.includes(`cid:${a.cid}`)) {
-        const d = await api.attachmentData(m.id, a.index).catch(() => null);
-        if (d) html = html.split(`cid:${a.cid}`).join(`data:${d.mime};base64,${d.dataBase64}`);
+      const d = html && a.cid ? await api.attachmentData(m.id, a.index).catch(() => null) : null;
+      if (d && html) {
+        if (html.includes(`cid:${a.cid}`)) html = html.split(`cid:${a.cid}`).join(`data:${d.mime};base64,${d.dataBase64}`);
+        // (the part knows the file name the picture was added with; the HTML does not)
+        html = nameInlinePicture(html, d.dataBase64, a.name || d.name);
       }
       continue;
     }
@@ -336,6 +345,9 @@ export async function openDraftThread(threadId: string, wait = false, o: StartOp
     to: rc?.to ?? (m.to ? splitRecipients(m.to) : []),
     cc: rc?.cc ?? (m.cc ? splitRecipients(m.cc) : []),
     bcc: rc?.bcc,
+    // the threading headers of the saved draft: an answer that was saved goes out threaded as it would have before
+    inReplyTo: rc?.inReplyTo ?? null,
+    references: rc?.references ?? [],
     subject: m.subject === "(no subject)" ? "" : m.subject,
     bodyHtml: html ?? `<p>${(m.text ?? "").replace(/\n/g, "<br>")}</p>`,
     replaces: `m:${m.id}`, // the message that was opened: saving or sending replaces that one, not other drafts of the conversation
@@ -366,7 +378,8 @@ export async function openDraftInWindow(threadId: string): Promise<boolean> {
 
 /** Replace cid: references with the pictures' data: URIs (used when a sent or scheduled draft is reopened). */
 export function picturesToEditor(html: string, pics: InlineImage[]): string {
-  return pics.reduce((h, p) => h.split(`cid:${p.cid}`).join(`data:${p.mime};base64,${p.dataBase64}`), html);
+  // (the file name each picture was added with goes back on it, so the reopened message sends it under that name)
+  return pics.reduce((h, p) => nameInlinePicture(h.split(`cid:${p.cid}`).join(`data:${p.mime};base64,${p.dataBase64}`), p.dataBase64, p.filename), html);
 }
 
 const dataUriParts = (uri: string) => {
@@ -522,6 +535,13 @@ function ComposeBody({ init }: { init: ComposeInit }) {
   const signRef = useRef<HTMLDivElement>(null);
   const signCaretRef = useRef<HTMLButtonElement>(null);
   const touched = useRef(false);
+  /** the address typed in To / Cc / Bcc and not yet confirmed as a chip (a crash right then still keeps it, in the snapshot) */
+  const pendingRcpt = useRef({ to: "", cc: "", bcc: "" });
+  const pending = (k: "to" | "cc" | "bcc") => (v: string) => {
+    if (pendingRcpt.current[k] === v) return;
+    pendingRcpt.current[k] = v;
+    if (v.trim()) touch();
+  };
   const ccTouched = useRef(false);
   const savedRef = useRef(false); // an outbox item was saved, moved or sent from here (nothing to release)
   const fileRef = useRef<HTMLInputElement>(null);
@@ -1171,20 +1191,25 @@ function ComposeBody({ init }: { init: ComposeInit }) {
           showToast(t("compose.toast.rescheduled", { when: fmtWhen(sendAt) }), undefined, "success");
         } else {
           const done = beginSend();
-          const res = await api.sendMessage(d, sendAt, replacesRef()).finally(done);
+          const res = await api
+            .sendMessage(d, sendAt, replacesRef())
+            // (a window of its own ends now: the main window, which owns the outbox, makes the toast with Undo and View)
+            .then((r) => (r.startsWith("scheduled:") && composeSeam()?.scheduled(r.slice("scheduled:".length), sendAt), r))
+            .finally(done);
           savedRef.current = true;
           const id = res.startsWith("scheduled:") ? res.slice("scheduled:".length) : null;
           const st = useStore.getState();
-          showToast(
-            () => t("compose.toast.scheduled", { when: fmtWhen(sendAt) }),
-            id
-              ? () => {
-                  void api.cancelOutbox(id).then(() => reopen(d)).catch((e) => showToast(() => friendlyError(e), undefined, "error"));
-                }
-              : undefined,
-            "success",
-            [{ label: () => t("compose.toast.view"), run: () => void st.setView("scheduled") }],
-          );
+          if (!(id && composeSeam()))
+            showToast(
+              () => t("compose.toast.scheduled", { when: fmtWhen(sendAt) }),
+              id
+                ? () => {
+                    void api.cancelOutbox(id).then(() => reopen(d)).catch((e) => showToast(() => friendlyError(e), undefined, "error"));
+                  }
+                : undefined,
+              "success",
+              [{ label: () => t("compose.toast.view"), run: () => void st.setView("scheduled") }],
+            );
         }
         void refresh();
       } catch (e) {
@@ -1357,8 +1382,10 @@ function ComposeBody({ init }: { init: ComposeInit }) {
   const snapshotForm = () => {
     if (!editor) return null;
     const html = messageHtml(editor.getJSON(), { sig: chosenSig?.html ?? null, base, pictures: "data" }).html;
+    // an address typed and not yet confirmed is kept too (the snapshot is the safety net for a crash, not a message to send)
+    const withPending = (list: string[], k: "to" | "cc" | "bcc") => addRecipients(list, splitRecipients(pendingRcpt.current[k]));
     const form: RecoveryForm = {
-      v: 1, to, cc, bcc, subject, html,
+      v: 1, to: withPending(to, "to"), cc: withPending(cc, "cc"), bcc: withPending(bcc, "bcc"), subject, html,
       inReplyTo: init.inReplyTo ?? null, references: init.references ?? [], replaces: replacesRef(), isReply: !!init.isReply,
       encrypt: encIntent, sign: signOn, attachKey, confidential, importance: draftImportance(importance),
       ...(composeSeam() ? { win: true as const } : {}),
@@ -1378,7 +1405,8 @@ function ComposeBody({ init }: { init: ComposeInit }) {
     return filesKeyRef.current.key;
   };
   const writeSnapshot = (force = false) => {
-    const p = probe();
+    // anything in To / Cc / Bcc / Subject / the body is worth a snapshot: it is a local file, nothing goes to the server for it
+    const p = { ...probe(), hasContent: probe().hasContent || !!(pendingRcpt.current.to + pendingRcpt.current.cc + pendingRcpt.current.bcc).trim() };
     const size = (editor?.state.doc.content.size ?? 0) + (pics.bytes ?? 0);
     const due = force
       ? p.hasContent && !init.outboxId && !encOn && revRef.current !== snapRevRef.current
@@ -2015,7 +2043,7 @@ function ComposeBody({ init }: { init: ComposeInit }) {
           <label>{t("compose.from")}</label>
           <AccountPicker value={accountId} accounts={accounts} onChange={changeAccount} label={t("compose.from")} />
         </div>
-        <RecipientField label={t("compose.to")} values={to} onChange={changeField("to")} autoFocus={to.length === 0 && !init.replaces} onTouch={touch} keys={encOn && ks ? ks.recipients : undefined} onKeyAction={keyAction} />
+        <RecipientField label={t("compose.to")} values={to} onChange={changeField("to")} autoFocus={to.length === 0 && !init.replaces} onTouch={touch} onPending={pending("to")} keys={encOn && ks ? ks.recipients : undefined} onKeyAction={keyAction} />
         {noteShown && replyNote && (
           <div className="note cf-replyto" role="status">
             <Info size={13} aria-hidden />
@@ -2027,8 +2055,8 @@ function ComposeBody({ init }: { init: ComposeInit }) {
         )}
         {showCc ? (
           <>
-            <RecipientField label={t("compose.cc")} values={cc} onChange={changeField("cc")} onTouch={() => ((ccTouched.current = true), touch())} keys={encOn && ks ? ks.recipients : undefined} onKeyAction={keyAction} />
-            {!meeting && <RecipientField label={t("compose.bcc")} values={bcc} onChange={changeField("bcc")} onTouch={() => ((ccTouched.current = true), touch())} keys={encOn && ks ? ks.recipients : undefined} onKeyAction={keyAction} />}
+            <RecipientField label={t("compose.cc")} values={cc} onChange={changeField("cc")} onTouch={() => ((ccTouched.current = true), touch())} onPending={pending("cc")} keys={encOn && ks ? ks.recipients : undefined} onKeyAction={keyAction} />
+            {!meeting && <RecipientField label={t("compose.bcc")} values={bcc} onChange={changeField("bcc")} onTouch={() => ((ccTouched.current = true), touch())} onPending={pending("bcc")} keys={encOn && ks ? ks.recipients : undefined} onKeyAction={keyAction} />}
           </>
         ) : (
           <div className="cf-links">

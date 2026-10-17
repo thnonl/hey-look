@@ -16,6 +16,8 @@ export type ComposeReq =
   | { kind: "toast"; text: string; level: "info" | "success" | "error" }
   /** "Draft saved" with the way back to the draft */
   | { kind: "draft-saved"; threadId: string; plain: boolean }
+  /** the message was scheduled: "Scheduled for ..." with Undo and View, made where the outbox lives (the main window) */
+  | { kind: "scheduled"; outboxId: string; sendAt: number }
   | { kind: "dialog"; dialog: ComposeDialogReq }
   | { kind: "sync" }
   | { kind: "refresh" };
@@ -38,6 +40,12 @@ export function parseComposeRequest(kind: string, payload: unknown): ComposeReq 
       const threadId = str(p.threadId);
       if (!threadId) return { error: "draft-saved: no draft" };
       return { kind: "draft-saved", threadId, plain: p.plain === true };
+    }
+    case "scheduled": {
+      const outboxId = str(p.outboxId);
+      const sendAt = typeof p.sendAt === "number" && Number.isFinite(p.sendAt) ? p.sendAt : null;
+      if (!outboxId || sendAt === null) return { error: "scheduled: no message or no time" };
+      return { kind: "scheduled", outboxId, sendAt };
     }
     case "dialog": {
       const d = isObj(p.dialog) ? p.dialog : null;
