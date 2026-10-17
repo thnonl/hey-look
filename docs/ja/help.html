@@ -113,10 +113,12 @@
        <li>macOSに「“Hey Look!”は開かれませんでした」と表示されます。<strong>完了</strong>をクリックします（「ゴミ箱に入れる」ではありません）。</li>
        <li><strong>システム設定 &gt; プライバシーとセキュリティ</strong>を開き、<strong>セキュリティ</strong>までスクロールして、Hey Look!に関するメッセージの横の<strong>このまま開く</strong>をクリックします。パスワードまたはTouch IDで確認したら、<strong>開く</strong>をクリックします。</li></ol>
        <p>ターミナルを使う場合は、手順2と3の代わりに、次のコマンドを1回実行してください: <code>xattr -dr com.apple.quarantine "/Applications/Hey Look!.app"</code></p>
-       <p>Hey Look!自身がインストールするバージョンは、通常どおり起動します。Dockアイコンには未読数が表示されます（設定 &gt; 通知とトレイ &gt; Dockのバッジ）。このバージョンのmacOSでは、通知は利用できません。</p></div></details>
+       <p>Hey Look!自身がインストールするバージョンは、通常どおり起動します。Dockアイコンには未読数が表示されます（設定 &gt; 通知とトレイ &gt; Dockのバッジ）。このバージョンのmacOSでは、通知は利用できません。</p>
+       <p>1.0.6より前のバージョンからアップデートした場合、アプリが固定の証明書で署名されるようになったため、最初の起動でキーチェーンが保存済みのパスワードについてもう一度尋ねます。PDFの添付ファイルは既定のアプリで開きます（プレビューには「開く」と「名前を付けて保存」があります）。</p></div></details>
 <details class="hq" id="linux"><summary>Linux: AppImage、.deb、.rpm</summary><div class="hq-a"><p><code>HeyLook_&lt;version&gt;_linux_amd64.AppImage</code> はあらゆるディストリビューションで動作します。<code>.deb</code> はDebianとUbuntu用、<code>.rpm</code>（<code>_linux_x86_64.rpm</code>）はFedoraとopenSUSE用です。<code>.deb</code> と <code>.rpm</code> のインストールではパスワードを求められます。</p>
        <p>デスクトップにトレイ領域がない場合、ウィンドウを閉じるとHey Look!が終了します。</p>
-       <p>リンクと添付ファイルは <code>xdg-open</code>（xdg-utilsパッケージ。次に <code>gio</code> と <code>sensible-browser</code> が試されます）で開くため、既定のブラウザーと既定のアプリが必要です。通知には通知サービスが必要です（ウィンドウマネージャーだけの環境ではdunstなどが必要です）。パスワードの保存には、GNOMEキーリングまたはKWalletが実行中でロック解除されている必要があります。</p></div></details>
+       <p>リンクと添付ファイルは <code>xdg-open</code>（xdg-utilsパッケージ。次に <code>gio</code> と <code>sensible-browser</code> が試されます）で開くため、既定のブラウザーと既定のアプリが必要です。通知には通知サービスが必要です（ウィンドウマネージャーだけの環境ではdunstなどが必要です）。パスワードの保存には、GNOMEキーリングまたはKWalletが実行中でロック解除されている必要があります。</p>
+       <p>トレイアイコンにはクリック操作がありません。メニューの Open Hey Look! を使ってください。PDFの添付ファイルは既定のアプリで開きます（プレビューには「開く」と「名前を付けて保存」があります）。</p></div></details>
 <details class="hq" id="blank"><summary>Windows: 開いて数秒後にウィンドウが真っ白になる</summary><div class="hq-a"><p>他のプログラムのグラフィックスにフックするオーバーレイツール（たとえばMSI Afterburnerに付属のRivaTuner Statistics Server）は、Hey Look!を描画しているWebビューをクラッシュさせることがあります。Hey Look!はこれを検知し、原因をデータフォルダーの <code>startup.log</code> に書き込んで、自動で再起動します（10分間に最大3回まで）。それでも繰り返し起こる場合は、そのツールで <code>hey-look.exe</code> と <code>msedgewebview2.exe</code> を除外してください。</p></div></details>
   </section>
   <section class="hq-group" id="g-accounts" aria-labelledby="g-accounts-h"><h2 id="g-accounts-h">アカウントとメールボックス</h2>
@@ -149,7 +151,15 @@
        <tr><td><kbd>s</kbd></td><td>スヌーズ</td><td><kbd>!</kbd></td><td>迷惑メールに移動</td></tr><tr><td><kbd>p</kbd></td><td>ピン留め</td><td><kbd>*</kbd></td><td>フラグ</td></tr><tr><td><kbd>u</kbd></td><td>未読にする</td><td><kbd>Ctrl</kbd> <kbd>A</kbd></td><td>すべて選択（macOSではCmd）</td></tr>
        <tr><td><kbd>Ctrl</kbd> <kbd>K</kbd></td><td>コマンドバー（macOSではCmd）</td><td><kbd>Ctrl</kbd> <kbd>Enter</kbd></td><td>作成中に送信（macOSではCmd）</td></tr><tr><td><kbd>F5</kbd></td><td>今すぐ同期</td><td><kbd>Esc</kbd></td><td>閉じる、選択を解除</td></tr>
        <tr><td><kbd>F11</kbd></td><td>全画面表示（Windows）</td><td><kbd>Ctrl</kbd> <kbd>1</kbd> <kbd>/</kbd> <kbd>Ctrl</kbd> <kbd>2</kbd></td><td>メール / カレンダー</td></tr><tr><td><kbd>c</kbd> <kbd>t</kbd> <kbd>m</kbd> <kbd>w</kbd> <kbd>a</kbd></td><td>カレンダー: 新しい予定、今日、月、週、スケジュール</td><td><kbd>←</kbd> <kbd>→</kbd></td><td>カレンダー: 前へ、次へ</td></tr>
+       <tr><td><kbd>Ctrl</kbd> <kbd>B</kbd></td><td>サイドメニュー: 折りたたむ／開く</td><td><kbd>Ctrl</kbd> <kbd>K</kbd></td><td>作成中にリンク</td></tr>
+       <tr><td><kbd>Shift</kbd> <kbd>c</kbd> <kbd>r</kbd> <kbd>a</kbd> <kbd>f</kbd></td><td>新規メール・返信・全員に返信・転送を別ウィンドウで</td><td><kbd>Shift</kbd> <kbd>Enter</kbd></td><td>会話を別ウィンドウで開く</td></tr>
+       <tr><td><kbd>Ctrl</kbd> <kbd>F</kbd> <kbd>/</kbd> <kbd>Ctrl</kbd> <kbd>H</kbd></td><td>作成中に検索、置換</td><td><kbd>Shift</kbd> <kbd>F3</kbd></td><td>作成中に大文字小文字を変更</td></tr>
+       <tr><td><kbd>Ctrl</kbd> <kbd>Shift</kbd> <kbd>V</kbd></td><td>テキストのみ貼り付け</td><td><kbd>Ctrl</kbd> <kbd>Shift</kbd> <kbd>O</kbd></td><td>作成中のメッセージを別ウィンドウに移す</td></tr>
        </tbody></table></div></div></details>
+<details class="hq" id="own-window"><summary>別ウィンドウで書く・読む</summary><div class="hq-a"><p>［新規メール］［返信］［全員に返信］［転送］をクリックするときにShiftを押したまま（またはShift+C、R、A、F）、下書きをダブルクリック、または作成中に［別ウィンドウ］（Ctrl+Shift+O）を押します。別ウィンドウで読むには、会話をダブルクリックするかShift+Enterを押します。<strong>設定 &gt; 作成 &gt; 新規メール、返信、転送を別のウィンドウで開く</strong>で別ウィンドウを通常の方法にでき、その場合Shiftの動作は逆になります。最大8つまで開け、各ウィンドウは大きさと位置を記憶します。メッセージのあるウィンドウを閉じると、保存・破棄・キャンセルを尋ねます。終了やアップデートの際は、まず各ウィンドウのメッセージが下書きに保存されます。</p></div></details>
+<details class="hq" id="write-tips"><summary>作成中の書式、貼り付け、保存</summary><div class="hq-a"><p>書式ツールバーは1行です。ウィンドウが狭いときは、より多くのコントロールが［その他］メニュー（検索と置換、大文字小文字の変更、文字の方向、ズーム、行間）に移ります。Word、Excel、Webページ、その他のアプリから貼り付けた内容は整えられ、［貼り付けのオプション］ボタンで元の書式を保持、書式を合わせる、テキストのみ、を選べます。既定の動作は<strong>設定 &gt; 作成</strong>で決めます。返信は元のメールの見た目を保つブロックに引用されます。</p>
+       <p>メッセージは約30秒ごとに自動で下書きに保存され、コピーがお使いのコンピューターに保存されます。アプリが予期せず終了した場合、次回の起動時に「保存されていないメッセージを復元しますか？」と尋ねます。</p></div></details>
+<details class="hq" id="side-menu"><summary>サイドメニューとメールボックスの順序</summary><div class="hq-a"><p>フォルダー欄の上部のボタン、または<kbd>Ctrl</kbd> <kbd>B</kbd>（<kbd>Cmd</kbd> <kbd>B</kbd>）で、欄をアイコンの列に折りたためます。各メールボックスはその色と未読数で表されます。幅が1100pxより狭いウィンドウでは自動で折りたたまれます。<strong>設定 &gt; 外観 &gt; サイドメニュー</strong>で「自動」「常に展開」「常にアイコンのみ」を選べます。メールボックスをドラッグ（またはAlt+上、Alt+下）して順序を変え、設定で表示名を付けられます。</p></div></details>
 <details class="hq" id="undo"><summary>送信取り消し、アーカイブの取り消し、送信予約</summary><div class="hq-a"><p><strong>送信取り消し:</strong> 送信を押すと、メッセージは0、5、10、20、30、60秒のあいだ（既定は10秒）ローカルの送信トレイで待機し、「取り消し」で中止できます。Hey Look!が強制的に閉じられた場合（クラッシュ、タスクマネージャー、インストーラー）は、次回の起動時に送信されます。通常どおり<strong>終了</strong>すると、待機中のメッセージはすぐに送信されます。</p>
        <p><strong>アーカイブ、削除、迷惑メール</strong>は、3、6、10、15、30秒後（既定は6秒）にサーバーへ反映されるので、それまでは元に戻せます。</p>
        <p><strong>送信予約:</strong> プリセット、または1年先までの任意の日時を選べます。アプリ内の処理が送信するため、Hey Look!が起動している必要があります。アプリが閉じている間に送信時刻を過ぎたメッセージは、既定では次回の起動時に送信されます。「先に確認する」設定にすると、代わりに「期限超過」として待機します。一時的なエラーは、5分間隔で最大3回再試行されます。</p></div></details>
@@ -167,7 +177,7 @@
 <details class="hq" id="leaves"><summary>このコンピューターから外に出るものは？</summary><div class="hq-a"><p>次の送信先以外には何も送信されません: お使いのメールサーバー、GoogleとMicrosoftのサインインサービス、カレンダー同期をオンにしたメールボックスの場合のみGoogleカレンダーとMicrosoft Graph、<strong>設定の自動検出</strong>を押したときのThunderbird ISPDBとお使いのドメイン自身の自動設定用アドレス（ドメインがサーバー設定を公開している場所）、設定したAIエンドポイント、読み込みを許可した画像の配信元サーバー、「登録解除」リンクを押したときの送信者のアドレス、そしてアップデート確認のためのgithub.com（GitHubはお使いのIPアドレスを確認できます。アップデートに同意すると、インストーラーはgithub.comから届きます）。</p>
        <p>ソースコードに、アナリティクスやクラッシュレポートのコードはありません。これはソースコードで確認したもので、ネットワークキャプチャによる確認ではありません。<a href="privacy.html">プライバシーポリシー</a>をご覧ください。</p></div></details>
 <details class="hq" id="images"><summary>リモート画像とトラッキングピクセル</summary><div class="hq-a"><p>リモート画像と背景画像は、許可するまでブロックされます（1回限り、メールボックス単位、または常時）。トラッキングピクセルはリモート画像なので、ほかと一緒にブロックされます。アプリにトラッカーのリストはありません。許可した画像は、アプリが可能な限り自分でダウンロードします。自分で取得できないものは、Webビューが直接リクエストすることがあります。表示テキストが、別の場所を指すWebアドレスになっているリンクは、確認を求めます。実行ファイルの添付ファイルを開くときも、先に確認します。</p></div></details>
-<details class="hq" id="ai"><summary>AIアシスタント（任意）</summary><div class="hq-a"><p>設定したエンドポイント（ローカルサーバーを含む、OpenAI互換の任意のAPI）とだけ、ボタンを押したときにのみ通信します。要約では会話の読み取れるメッセージを最大24,000文字、翻訳では最大60,000文字、AIで作成では下書き、件名、返信の場合は返信先メッセージの最大6,000文字を送信します。アシスタントは読み取れるテキストを読むため、復号されたOpenPGPの内容も送信されます。キーはシステムの資格情報ストアに保存されます。</p></div></details>
+<details class="hq" id="ai"><summary>AIアシスタント（任意）</summary><div class="hq-a"><p>設定したエンドポイント（ローカルサーバーを含む、OpenAI互換の任意のAPI）とだけ、ボタンを押したときにのみ通信します。要約では会話の読み取れるメッセージを最大24,000文字、翻訳では最大60,000文字、AIで作成では下書き、件名、返信の場合は返信先メッセージの最大6,000文字を送信します。アシスタントは読み取れるテキストを読むため、復号されたOpenPGPの内容も送信されます。キーはシステムの資格情報ストアに保存されます。 長いメールは約8,000文字ずつの部分に分けて翻訳され、［キャンセル］で止められます。アシスタントが使えないときは、メッセージが画面に残り、そのボタンから設定の該当する入力欄が開きます。</p></div></details>
 <details class="hq" id="remove"><summary>アンインストールして、すべてを削除する</summary><div class="hq-a"><p>Hey Look!でアカウントを削除し（<strong>設定 &gt; メールボックス &gt; アカウント &gt; アカウントを削除</strong>。メールはサーバーに残ります）、アプリをアンインストールしてから、データフォルダー（「データはどこにありますか？」を参照）と、システムの資格情報ストア内の <code>heylook&hellip;</code> エントリを削除してください。</p></div></details>
   </section>
   <section class="hq-group" id="g-pgp" aria-labelledby="g-pgp-h"><h2 id="g-pgp-h">OpenPGPの基本</h2>
@@ -180,15 +190,15 @@
 <details class="hq" id="vuln"><summary>セキュリティの問題</summary><div class="hq-a"><p>非公開で報告してください。<a href="https://github.com/thnonl/hey-look/security" rel="noopener">github.com/thnonl/hey-look/security</a> を開いて「Report a vulnerability」を選ぶか、<a href="mailto:namth.onl@gmail.com">namth.onl@gmail.com</a> 宛にメールしてください。公開のIssueは作成しないでください。<a href="security.html">セキュリティ</a>をご覧ください。</p></div></details>
   </section>
   <section class="hq-group" id="g-limits" aria-labelledby="g-limits-h"><h2 id="g-limits-h">既知の制限</h2>
-<details class="hq" id="lim"><summary>Hey Look!がまだ対応していないこと</summary><div class="hq-a"><ul><li>macOSには通知がありません（Dockアイコンには未読数が表示されます）。アプリのメニューのうち、アプリの言語に従うのは「終了」項目だけです。「印刷」メニュー項目はWindowsとLinuxのみです。Linuxでは、通知にボタンがありません。</li>
+<details class="hq" id="lim"><summary>Hey Look!がまだ対応していないこと</summary><div class="hq-a"><ul><li>macOSには通知がありません（Dockアイコンには未読数が表示されます）。アプリはプロジェクト独自の証明書で署名されていて、公証されていません。「印刷」メニューの項目はWindowsとLinuxにだけあります。Linuxでは通知にボタンがなく、トレイアイコンにはクリック操作がなく、「機密」メッセージは画面キャプチャから隠されません。</li>
        <li>インストーラーはコード署名されておらず、macOS版のアプリは公証されていません。</li>
        <li>プッシュ（IMAP IDLE）は、対応するサーバーの受信トレイが対象です。ほかのフォルダーや、プッシュに対応しないサーバーは、ポーリング（既定は2分ごと）で取得されます。</li>
        <li>検索の対象は、このコンピューターにダウンロード済みのメールです。</li>
        <li>カレンダーの同期はGoogleとMicrosoftが対象です。CalDAVやその他のサービスは、今後のアップデートで対応する可能性があります。GoogleでのサインインとGoogleカレンダーの同期は、Googleの審査が完了するまで最初の100人に限定されます（<a href="#google-review">「このアプリはGoogleで確認されていません」と表示される</a>をご覧ください）。繰り返しの予定の1回分だけを編集することはできません。共有受信トレイはありません。</li>
        <li>Hey Look!は、存在しない標準フォルダー（下書き、送信済み、アーカイブ、ごみ箱）を作成しません。それらが必要な操作ではエラーが表示されます。</li>
-       <li>作成中にHey Look!が強制的に閉じられた場合や、macOSでログアウト、再起動、シャットダウンした場合は、未保存のテキストが失われます。すでに送信したメッセージは保持され、次回の起動時に送信されます。</li>
+       <li>作成中のメッセージは約30秒ごとに下書きに保存され、コピーがお使いのコンピューターに保存されます。Hey Look!が強制終了された場合、またはmacOSでログアウト、再起動、シャットダウンした場合は、次回の起動時に復元を提案します（最後の数秒の文字は失われることがあり、暗号化をオンにしたメッセージはコピーされません）。送信済みのメッセージは保持され、次回の起動時に送信されます。</li>
        <li>カレンダーの更新とキャンセルのメールは、差出人アドレスが主催者と一致する場合に受け付けられます。DKIM、SPF、S/MIMEの検証は行いません。</li>
-       <li>インターフェースは既定で英語で、設定でベトナム語、フランス語、中国語（簡体字）、スペイン語、日本語、ドイツ語、ロシア語を選べます。これらの翻訳はAIの助けを借りて書かれており、ネイティブスピーカーによる確認はまだ行われていないため、誤りが含まれる可能性があります。今後のアップデートで言語が増える可能性があります。</li></ul></div></details>
+       <li>インターフェースは既定で英語で、設定でベトナム語、フランス語、中国語（簡体字）、スペイン語、日本語、ドイツ語、ロシア語を選べます。これらの翻訳はAIの助けを借りて書かれており、ネイティブスピーカーによる確認はまだ行われていないため、誤りが含まれる可能性があります。今後のアップデートで言語が増える可能性があります。</li><li>PDFをアプリ内で表示できるのはWindowsだけで、macOSとLinuxでは既定のアプリで開きます。メッセージの作成にテキストのみのモードはなく、書式のコピー／貼り付け、オートフォーマット、ミニツールバーはまだありません。</li></ul></div></details>
   </section>
   </div>
   <p class="hq-none" id="hq-none" hidden>一致する質問がありません。別の単語を試すか、<a href="https://github.com/thnonl/hey-look/issues" rel="noopener">GitHubで質問</a>してください。</p>

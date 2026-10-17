@@ -119,7 +119,8 @@
         <li>Откройте <strong>Системные настройки &gt; Конфиденциальность и безопасность</strong>, прокрутите до раздела <strong>Безопасность</strong>, нажмите <strong>Всё равно открыть</strong>, подтвердите паролем или Touch ID и нажмите <strong>Открыть</strong>.</li></ol>
         <p>Предпочитаете Терминал? Выполните это один раз вместо шагов 2 и 3:</p>
         <div class="copy"><code>xattr -dr com.apple.quarantine "/Applications/Hey Look!.app"</code><button class="btn btn-ghost btn-sm" type="button">Копировать</button></div>
-        <p>Обновления, которые Hey Look! устанавливает сам, запускаются как обычно. Значок в Dock показывает число непрочитанных (Настройки &gt; Уведомления и трей &gt; Индикатор на значке в Dock). В этой версии уведомления в macOS недоступны.</p></details>
+        <p>Обновления, которые Hey Look! устанавливает сам, запускаются как обычно. Значок в Dock показывает число непрочитанных (Настройки &gt; Уведомления и трей &gt; Индикатор на значке в Dock). В этой версии уведомления в macOS недоступны.</p>
+        <p>При обновлении с версии до 1.0.6 связка ключей при первом запуске ещё раз спросит о ваших сохранённых паролях, потому что теперь приложение подписано постоянным сертификатом. Вложения PDF открываются в приложении по умолчанию (в предпросмотре есть «Открыть» и «Сохранить как»).</p></details>
     </article>
     <article class="dl-card" id="card-linux"><span class="rec-b">Рекомендуем для вас</span>
       <h2><svg class="ic" aria-hidden="true" focusable="false"><use href="#i-linux"/></svg>Linux</h2><p class="sub">Любой дистрибутив: AppImage или нативный пакет.</p>
@@ -128,7 +129,8 @@
       <div class="asset" data-asset="lin-rpm" data-pattern="HeyLook_&lt;version&gt;_linux_x86_64.rpm"><a class="btn btn-ghost" href="https://github.com/thnonl/hey-look/releases/latest" rel="noopener" data-label="Скачать .rpm (Fedora, openSUSE)"><svg class="ic" aria-hidden="true" focusable="false"><use href="#i-download"/></svg><span class="t">Скачать .rpm (Fedora, openSUSE)</span></a><span class="fn">HeyLook_&lt;version&gt;_linux_x86_64.rpm</span><small class="sz"></small></div>
       <details><summary>Заметки для Linux</summary>
         <p>Если на вашем рабочем столе нет системного трея, закрытие окна завершает Hey Look!</p>
-        <p>Ссылки и вложения открываются через <code>xdg-open</code>. Для уведомлений нужна служба уведомлений на рабочем столе. Для паролей должны быть запущены и разблокированы GNOME Keyring или KWallet.</p></details>
+        <p>Ссылки и вложения открываются через <code>xdg-open</code>. Для уведомлений нужна служба уведомлений на рабочем столе. Для паролей должны быть запущены и разблокированы GNOME Keyring или KWallet.</p>
+        <p>У значка в трее нет действия по щелчку: используйте Open Hey Look! в его меню. Вложения PDF открываются в приложении по умолчанию (в предпросмотре есть «Открыть» и «Сохранить как»).</p></details>
     </article>
   </div>
   <h2 class="h2s" id="all-files">Все файлы</h2>

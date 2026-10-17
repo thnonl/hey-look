@@ -113,10 +113,12 @@
        <li>macOS会提示“Hey Look!”未打开。点击<strong>完成</strong>，不要点“移到废纸篓”。</li>
        <li>打开<strong>系统设置 &gt; 隐私与安全性</strong>，滚动到<strong>安全性</strong>，点击提示 Hey Look! 的那条消息旁边的<strong>仍要打开</strong>，用密码或Touch ID确认，然后点击<strong>打开</strong>。</li></ol>
        <p>想用“终端”？可以只运行一次下面的命令，代替第2步和第3步：<code>xattr -dr com.apple.quarantine "/Applications/Hey Look!.app"</code></p>
-       <p>Hey Look! 自行安装的版本可以正常启动。程序坞图标会显示未读数（设置 &gt; 通知与托盘 &gt; 程序坞角标）。此版本在macOS上不提供通知。</p></div></details>
+       <p>Hey Look! 自行安装的版本可以正常启动。程序坞图标会显示未读数（设置 &gt; 通知与托盘 &gt; 程序坞角标）。此版本在macOS上不提供通知。</p>
+       <p>从1.0.6之前的版本更新：首次启动时，钥匙串会再次询问你保存的密码，因为应用现在使用固定的证书签名。PDF附件用你的默认应用打开（预览提供“打开”和“另存为”）。</p></div></details>
 <details class="hq" id="linux"><summary>Linux：AppImage、.deb或.rpm</summary><div class="hq-a"><p><code>HeyLook_&lt;version&gt;_linux_amd64.AppImage</code>可在任何发行版上运行；<code>.deb</code>适用于Debian和Ubuntu；<code>.rpm</code>（<code>_linux_x86_64.rpm</code>）适用于Fedora和openSUSE。安装<code>.deb</code>和<code>.rpm</code>时会要求输入你的密码。</p>
        <p>如果你的桌面没有托盘区域，关闭窗口就会退出 Hey Look!。</p>
-       <p>链接和附件通过 <code>xdg-open</code> 打开（属于xdg-utils软件包；接下来会依次尝试<code>gio</code>和<code>sensible-browser</code>），所以你需要有默认浏览器和默认应用。通知需要通知服务（只有窗口管理器的环境需要自行安装一个，例如dunst）。密码保存需要GNOME Keyring或KWallet正在运行并已解锁。</p></div></details>
+       <p>链接和附件通过 <code>xdg-open</code> 打开（属于xdg-utils软件包；接下来会依次尝试<code>gio</code>和<code>sensible-browser</code>），所以你需要有默认浏览器和默认应用。通知需要通知服务（只有窗口管理器的环境需要自行安装一个，例如dunst）。密码保存需要GNOME Keyring或KWallet正在运行并已解锁。</p>
+       <p>托盘图标点击没有动作：请使用其菜单里的 Open Hey Look!。PDF附件用你的默认应用打开（预览提供“打开”和“另存为”）。</p></div></details>
 <details class="hq" id="blank"><summary>Windows：窗口打开几秒后变成空白</summary><div class="hq-a"><p>会挂钩其他程序图形输出的覆盖层工具（例如随MSI Afterburner一同提供的RivaTuner Statistics Server）可能会让绘制 Hey Look! 界面的网页视图崩溃。Hey Look! 会检测到崩溃，把原因写入其数据文件夹中的<code>startup.log</code>，并自行重启（十分钟内最多三次）。如果问题持续出现，请在该工具中将<code>hey-look.exe</code>和<code>msedgewebview2.exe</code>排除在外。</p></div></details>
   </section>
   <section class="hq-group" id="g-accounts" aria-labelledby="g-accounts-h"><h2 id="g-accounts-h">账户和邮箱</h2>
@@ -149,7 +151,15 @@
        <tr><td><kbd>s</kbd></td><td>延后</td><td><kbd>!</kbd></td><td>移至垃圾邮件</td></tr><tr><td><kbd>p</kbd></td><td>固定</td><td><kbd>*</kbd></td><td>标记</td></tr><tr><td><kbd>u</kbd></td><td>标记为未读</td><td><kbd>Ctrl</kbd> <kbd>A</kbd></td><td>全选（macOS上用Cmd）</td></tr>
        <tr><td><kbd>Ctrl</kbd> <kbd>K</kbd></td><td>命令栏（macOS上用Cmd）</td><td><kbd>Ctrl</kbd> <kbd>Enter</kbd></td><td>写邮件时发送（macOS上用Cmd）</td></tr><tr><td><kbd>F5</kbd></td><td>立即同步</td><td><kbd>Esc</kbd></td><td>关闭、取消选择</td></tr>
        <tr><td><kbd>F11</kbd></td><td>全屏（Windows）</td><td><kbd>Ctrl</kbd> <kbd>1</kbd> <kbd>/</kbd> <kbd>Ctrl</kbd> <kbd>2</kbd></td><td>邮件 / 日历</td></tr><tr><td><kbd>c</kbd> <kbd>t</kbd> <kbd>m</kbd> <kbd>w</kbd> <kbd>a</kbd></td><td>日历：新建事件、今天、月、周、日程</td><td><kbd>←</kbd> <kbd>→</kbd></td><td>日历：上一个、下一个</td></tr>
+       <tr><td><kbd>Ctrl</kbd> <kbd>B</kbd></td><td>侧边菜单：折叠或展开</td><td><kbd>Ctrl</kbd> <kbd>K</kbd></td><td>写信时插入链接</td></tr>
+       <tr><td><kbd>Shift</kbd> <kbd>c</kbd> <kbd>r</kbd> <kbd>a</kbd> <kbd>f</kbd></td><td>在独立窗口中新建邮件、回复、全部回复、转发</td><td><kbd>Shift</kbd> <kbd>Enter</kbd></td><td>在独立窗口中打开对话</td></tr>
+       <tr><td><kbd>Ctrl</kbd> <kbd>F</kbd> <kbd>/</kbd> <kbd>Ctrl</kbd> <kbd>H</kbd></td><td>写信时查找、替换</td><td><kbd>Shift</kbd> <kbd>F3</kbd></td><td>写信时更改大小写</td></tr>
+       <tr><td><kbd>Ctrl</kbd> <kbd>Shift</kbd> <kbd>V</kbd></td><td>只粘贴文本</td><td><kbd>Ctrl</kbd> <kbd>Shift</kbd> <kbd>O</kbd></td><td>把正在写的邮件移到独立窗口</td></tr>
        </tbody></table></div></div></details>
+<details class="hq" id="own-window"><summary>在独立窗口中写信或阅读</summary><div class="hq-a"><p>点击“新建邮件”“回复”“全部回复”或“转发”时按住Shift（或按Shift+C、R、A、F），双击草稿，或在写信时点击“弹出窗口”（Ctrl+Shift+O）。要在独立窗口中阅读，双击一个对话或按Shift+Enter。<strong>设置 &gt; 写邮件 &gt; 在单独的窗口中打开新邮件、回复和转发</strong>可把独立窗口设为默认方式，此时Shift的作用相反。最多可同时打开8个窗口；每个窗口都记住大小和位置，关闭有邮件的窗口会询问保存、放弃或取消。退出或更新时，会先把每个窗口里的邮件保存到草稿。</p></div></details>
+<details class="hq" id="write-tips"><summary>写信时的格式、粘贴和保存</summary><div class="hq-a"><p>格式工具栏只有一行；窗口较窄时，更多按钮会移到“更多”菜单里（查找和替换、更改大小写、文字方向、缩放、间距）。从Word、Excel、网页或其他应用粘贴的内容会被清理，“粘贴选项”按钮可让你保留源格式、合并格式或只保留文本；默认方式在<strong>设置 &gt; 写邮件</strong>里设定。回复会把原邮件引用在一个保留原样的块里。</p>
+       <p>邮件大约每30秒自动保存到草稿，并在你的电脑上保存一份副本。如果应用意外结束，下次启动时会询问“要恢复未保存的邮件吗？”。</p></div></details>
+<details class="hq" id="side-menu"><summary>侧边菜单和邮箱顺序</summary><div class="hq-a"><p>文件夹窗格顶部的按钮，或<kbd>Ctrl</kbd> <kbd>B</kbd>（<kbd>Cmd</kbd> <kbd>B</kbd>），可把窗格折叠成一列图标：每个邮箱显示为它的颜色和未读数。窗口窄于1100像素时会自动折叠；<strong>设置 &gt; 外观 &gt; 侧边菜单</strong>里可选择“自动”“始终展开”或“始终仅显示图标”。拖动邮箱可改变顺序（或使用Alt+上和Alt+下），并可在设置里为它设置显示名称。</p></div></details>
 <details class="hq" id="undo"><summary>撤消发送、归档撤消，以及定时发送</summary><div class="hq-a"><p><strong>撤消发送：</strong>点击发送后，邮件会在本地发件箱中等待0、5、10、20、30或60秒（默认10秒），点击“撤消”即可取消发送。如果 Hey Look! 被强制关闭（崩溃、任务管理器、安装程序），邮件会在下次启动时发出。正常<strong>退出</strong>则会立即发出仍在等待的邮件。</p>
        <p><strong>归档、删除和移至垃圾邮件</strong>的操作会在3、6、10、15或30秒后（默认6秒）才应用到服务器，所以你可以撤消。</p>
        <p><strong>定时发送：</strong>选一个预设，或任意日期和时间，最长可安排到一年后。邮件由应用内部的后台任务发出，所以 Hey Look! 必须正在运行。发送时间在应用关闭期间已过的邮件，默认会在下次启动时发出；如果把设置改为“先询问我”，它就会作为“已逾期”等待你处理。遇到临时错误最多重试3次，每次间隔5分钟。</p></div></details>
@@ -167,7 +177,7 @@
 <details class="hq" id="leaves"><summary>哪些内容会离开我的电脑？</summary><div class="hq-a"><p>除了以下这些地方，不会向任何地方发送任何内容：你的邮件服务器；Google和Microsoft的登录服务；Google日历和Microsoft Graph（仅限你开启了日历同步的邮箱）；你点击<strong>检测设置</strong>时的Thunderbird ISPDB和你自己域名的autoconfig地址（域名公布其服务器设置的位置）；你配置的AI端点；你允许加载的图片背后的服务器；你点击“取消订阅”链接时该链接背后的发件人地址；以及用于检查更新的github.com（GitHub能看到你的IP地址；你同意更新后，安装包也来自github.com）。</p>
        <p>源代码里没有分析或崩溃报告代码。这是通过查看源代码确认的，而不是靠网络抓包。详见<a href="privacy.html">隐私政策</a>。</p></div></details>
 <details class="hq" id="images"><summary>远程图片和跟踪像素</summary><div class="hq-a"><p>远程图片和背景图片在你允许之前一直被阻止（允许一次、按邮箱允许，或始终允许）。跟踪像素就是一张远程图片，所以会和其他图片一起被阻止；应用没有跟踪器名单。你允许加载的图片，应用会尽量自己下载；对于它自己无法获取的图片，网页视图可能会直接请求。链接上显示的文字是网址、但实际指向别处时，会请你确认；打开可执行文件附件前也会先询问。</p></div></details>
-<details class="hq" id="ai"><summary>AI助手（可选）</summary><div class="hq-a"><p>它只会与你配置的端点通信（任何兼容OpenAI的API，包括本地服务器），而且只在你点击按钮时才通信。总结最多发送一个对话中可读邮件的24,000个字符，翻译最多60,000个字符，“用AI撰写”则会发送你的草稿、主题，回复邮件时还会发送你所回复邮件的最多6,000个字符。解密后的OpenPGP内容也会一并发送，因为助手读取的是可读文本。密钥保存在你系统的凭据存储中。</p></div></details>
+<details class="hq" id="ai"><summary>AI助手（可选）</summary><div class="hq-a"><p>它只会与你配置的端点通信（任何兼容OpenAI的API，包括本地服务器），而且只在你点击按钮时才通信。总结最多发送一个对话中可读邮件的24,000个字符，翻译最多60,000个字符，“用AI撰写”则会发送你的草稿、主题，回复邮件时还会发送你所回复邮件的最多6,000个字符。解密后的OpenPGP内容也会一并发送，因为助手读取的是可读文本。密钥保存在你系统的凭据存储中。 长邮件会按约8,000个字符一部分来翻译，点击“取消”即可停止。如果助手无法使用，屏幕上会留下一条提示，它的按钮会打开设置中对应的字段。</p></div></details>
 <details class="hq" id="remove"><summary>卸载，并清除所有内容</summary><div class="hq-a"><p>先在 Hey Look! 中移除你的账户（<strong>设置 &gt; 邮箱 &gt; 账户 &gt; 移除账户</strong>；邮件仍留在服务器上），然后卸载应用，再删除它的数据文件夹（见“我的数据存放在哪里？”）以及系统凭据存储中所有名称形如<code>heylook&hellip;</code>的条目。</p></div></details>
   </section>
   <section class="hq-group" id="g-pgp" aria-labelledby="g-pgp-h"><h2 id="g-pgp-h">OpenPGP基础</h2>
@@ -180,15 +190,15 @@
 <details class="hq" id="vuln"><summary>安全问题</summary><div class="hq-a"><p>请私下报告：打开<a href="https://github.com/thnonl/hey-look/security" rel="noopener">github.com/thnonl/hey-look/security</a>并选择“Report a vulnerability”（报告漏洞），或写信到<a href="mailto:namth.onl@gmail.com">namth.onl@gmail.com</a>。请不要公开提交议题。详见<a href="security.html">安全</a>。</p></div></details>
   </section>
   <section class="hq-group" id="g-limits" aria-labelledby="g-limits-h"><h2 id="g-limits-h">已知限制</h2>
-<details class="hq" id="lim"><summary>Hey Look! 目前还做不到什么</summary><div class="hq-a"><ul><li>在macOS上没有通知（不过程序坞图标会显示未读数）；应用菜单中只有“退出”一项会跟随应用语言；“打印”菜单项仅限Windows和Linux。在Linux上，通知没有按钮。</li>
+<details class="hq" id="lim"><summary>Hey Look! 目前还做不到什么</summary><div class="hq-a"><ul><li>macOS上没有通知（程序坞图标会显示未读数）；应用使用项目自己的证书签名，未经公证；“打印”菜单项只在Windows和Linux上有。Linux上通知没有按钮，托盘图标点击没有动作，“机密”邮件也不会对屏幕截图隐藏。</li>
        <li>安装程序没有经过代码签名，macOS版应用也没有经过公证。</li>
        <li>推送（IMAP IDLE）只覆盖支持该功能的服务器的收件箱；其他文件夹以及不支持推送的服务器通过轮询获取（默认每2分钟一次）。</li>
        <li>搜索只涵盖已下载到这台电脑上的邮件。</li>
        <li>日历同步支持Google和Microsoft；CalDAV和其他服务可能会在以后的更新中提供。在Google完成审核之前，Google登录和Google日历同步仅限前100位用户使用（参见<a href="#google-review">Google提示“Google未验证此应用”</a>）。无法编辑重复事件中单独的某一次。没有共享收件箱。</li>
        <li>Hey Look! 不会创建缺少的标准文件夹（草稿、已发送、归档、已删除邮件）；需要用到它们的操作会显示错误。</li>
-       <li>如果你在写邮件时 Hey Look! 被强制关闭，或者在macOS上注销、重启或关机，尚未保存的文字会丢失；已经发送的邮件会被保留，并在下次启动时发出。</li>
+       <li>你正在写的邮件大约每30秒保存到草稿，并在你的电脑上保存一份副本。如果Hey Look!被强制结束，或在macOS上注销、重启、关机，下次启动时会提示恢复（最后几秒的文字可能丢失，开启了加密的邮件不会被复制）。已发送的邮件会保留，并在下次启动时发出。</li>
        <li>当发件人地址与组织者一致时，日历的更新和取消邮件才会被接受。不做DKIM、SPF或S/MIME检查。</li>
-       <li>界面默认为英语，在设置中可选择越南语、法语、简体中文、西班牙语、日语、德语和俄语。这些译文是借助AI撰写的，尚未经过母语使用者审校，可能有错误；更多语言可能会在以后的更新中提供。</li></ul></div></details>
+       <li>界面默认为英语，在设置中可选择越南语、法语、简体中文、西班牙语、日语、德语和俄语。这些译文是借助AI撰写的，尚未经过母语使用者审校，可能有错误；更多语言可能会在以后的更新中提供。</li><li>只有在Windows上，PDF才在应用内显示；在macOS和Linux上，PDF会用你的默认应用打开。写信时没有纯文本模式，格式刷、自动套用格式和浮动迷你工具栏暂时还没有。</li></ul></div></details>
   </section>
   </div>
   <p class="hq-none" id="hq-none" hidden>没有匹配的问题。试试换一个词，或者<a href="https://github.com/thnonl/hey-look/issues" rel="noopener">到GitHub上提问</a>。</p>

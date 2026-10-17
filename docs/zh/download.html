@@ -119,7 +119,8 @@
         <li>打开<strong>系统设置 &gt; 隐私与安全性</strong>，滚动到<strong>安全性</strong>，点击<strong>仍要打开</strong>，用密码或Touch ID确认，然后点击<strong>打开</strong>。</li></ol>
         <p>想用“终端”？可以只运行一次下面的命令，代替第2步和第3步：</p>
         <div class="copy"><code>xattr -dr com.apple.quarantine "/Applications/Hey Look!.app"</code><button class="btn btn-ghost btn-sm" type="button">复制</button></div>
-        <p>Hey Look! 自行安装的更新可以正常启动。程序坞图标会显示未读数（设置 &gt; 通知与托盘 &gt; 程序坞角标）。此版本在macOS上不提供通知。</p></details>
+        <p>Hey Look! 自行安装的更新可以正常启动。程序坞图标会显示未读数（设置 &gt; 通知与托盘 &gt; 程序坞角标）。此版本在macOS上不提供通知。</p>
+        <p>从1.0.6之前的版本更新：首次启动时，钥匙串会再次询问你保存的密码，因为应用现在使用固定的证书签名。PDF附件用你的默认应用打开（预览提供“打开”和“另存为”）。</p></details>
     </article>
     <article class="dl-card" id="card-linux"><span class="rec-b">为你推荐</span>
       <h2><svg class="ic" aria-hidden="true" focusable="false"><use href="#i-linux"/></svg>Linux</h2><p class="sub">任何发行版都可使用AppImage，也可使用原生安装包。</p>
@@ -128,7 +129,8 @@
       <div class="asset" data-asset="lin-rpm" data-pattern="HeyLook_&lt;version&gt;_linux_x86_64.rpm"><a class="btn btn-ghost" href="https://github.com/thnonl/hey-look/releases/latest" rel="noopener" data-label="下载.rpm（Fedora、openSUSE）"><svg class="ic" aria-hidden="true" focusable="false"><use href="#i-download"/></svg><span class="t">下载.rpm（Fedora、openSUSE）</span></a><span class="fn">HeyLook_&lt;version&gt;_linux_x86_64.rpm</span><small class="sz"></small></div>
       <details><summary>Linux使用须知</summary>
         <p>如果你的桌面没有托盘区域，关闭窗口就会退出 Hey Look!。</p>
-        <p>链接和附件通过 <code>xdg-open</code> 打开。通知需要桌面上有通知服务。密码保存需要GNOME Keyring或KWallet正在运行并已解锁。</p></details>
+        <p>链接和附件通过 <code>xdg-open</code> 打开。通知需要桌面上有通知服务。密码保存需要GNOME Keyring或KWallet正在运行并已解锁。</p>
+        <p>托盘图标点击没有动作：请使用其菜单里的 Open Hey Look!。PDF附件用你的默认应用打开（预览提供“打开”和“另存为”）。</p></details>
     </article>
   </div>
   <h2 class="h2s" id="all-files">全部文件</h2>

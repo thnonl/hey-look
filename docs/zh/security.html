@@ -101,12 +101,12 @@
 <article class="prose">
 
 <h2 id="protect">Hey Look! 如何保护你</h2>
-<ul><li>服务器必须提供TLS或STARTTLS。只提供未加密连接的服务器无法添加。</li><li>Google和Microsoft登录在服务商自己的窗口中使用带PKCE的OAuth 2.0。应用保存的是令牌，而不是你的密码。</li><li>密码、OAuth令牌和AI密钥保存在系统的凭据存储中。</li><li>OpenPGP私钥是例外：它们存放在应用的数据库中，用你的密码短语加锁，不在凭据存储里。多次输入错误的密码短语后，需等待30秒才能解锁。</li><li>邮件显示在一个不运行脚本、采用严格内容策略的框架中，没有iframe、object、embed或表单。</li><li>远程图片在你允许之前一直被阻止，跟踪像素因此无法加载。</li><li>如果链接上显示的文字是一个网址，但实际指向另一个主机，会请你确认。这不是通用的钓鱼检测。</li><li>打开可执行文件或脚本附件前会先询问。</li><li>“信任此证书”默认关闭。它是按账户设置的选项，会为该账户关闭证书检查。</li></ul>
+<ul><li>服务器必须提供TLS或STARTTLS。只提供未加密连接的服务器无法添加。</li><li>Google和Microsoft登录在服务商自己的窗口中使用带PKCE的OAuth 2.0。应用保存的是令牌，而不是你的密码。</li><li>密码、OAuth令牌和AI密钥保存在系统的凭据存储中。</li><li>OpenPGP私钥是例外：它们存放在应用的数据库中，用你的密码短语加锁，不在凭据存储里。多次输入错误的密码短语后，需等待30秒才能解锁。</li><li>邮件显示在一个不运行脚本、采用严格内容策略的框架中，没有iframe、object、embed或表单。</li><li>远程图片在你允许之前一直被阻止，跟踪像素因此无法加载。</li><li>如果链接上显示的文字是一个网址，但实际指向另一个主机，会请你确认。这不是通用的钓鱼检测。</li><li>打开可执行文件或脚本附件前会先询问。</li><li>“信任此证书”默认关闭。它是按账户设置的选项，会为该账户关闭证书检查。</li><li>应用自己的窗口在内容安全策略（Content Security Policy）下运行：只运行应用自己的脚本（没有内联或远程脚本），窗口只连接应用本身。</li><li>从网页或其他程序粘贴的文本会被清理：脚本、表单和事件处理程序不会带入，写信时也不会下载远程图片。</li></ul>
 <h2 id="signed">更新经过签名</h2><p>应用会到GitHub检查是否有新版本，并且只接受形如<code>https://github.com/thnonl/hey-look/releases/download/&lt;tag&gt;/&lt;file&gt;</code>的下载地址。它会用应用内置的公钥验证minisign签名，并在一个可以取消的5秒倒计时后重启。Windows上会自动安装更新；macOS和Linux需要你的许可。</p>
-<h2 id="codesign">安装程序尚未经过代码签名</h2><p>Windows SmartScreen和macOS Gatekeeper会在首次启动时发出警告，因为Windows和macOS的安装程序没有经过代码签名，macOS版也没有经过公证。首次启动的步骤见<a href="download.html#install-notes">下载页面</a>。我们希望将来能为安装程序签名；想了解怎样才能帮上忙，请看<a href="support.html">支持</a>。</p>
+<h2 id="codesign">安装程序尚未经过代码签名</h2><p>Windows SmartScreen和macOS Gatekeeper会在首次启动时发出警告，因为Windows和macOS的安装程序没有经过代码签名，macOS版也没有经过公证。首次启动的步骤见<a href="download.html#install-notes">下载页面</a>。我们希望将来能为安装程序签名；想了解怎样才能帮上忙，请看<a href="support.html">支持</a>。 macOS应用使用项目自己的自签名证书签名（背后没有Apple账户）；这让钥匙串在更新后仍能认出这个应用，但这不是公证。</p>
 <h2 id="report">报告漏洞</h2><p>请通过GitHub私下报告安全问题：打开<a href="https://github.com/thnonl/hey-look/security" rel="noopener">github.com/thnonl/hey-look/security</a>并选择“Report a vulnerability”（报告漏洞）。请不要公开提交议题。你也可以写信到<a href="mailto:namth.onl@gmail.com">namth.onl@gmail.com</a>。Hey Look! 是业余时间做的，所以回复可能要等一阵子，也不承诺任何响应时间。</p>
 <h2 id="limit">已知限制</h2>
-<ul><li>当发件人地址与已存储的组织者一致时，日历邀请的更新和取消才会被接受。不做DKIM、SPF或S/MIME检查，因此伪造的发件人地址可能会更改或取消你收到的事件。邮件服务商通常会拒绝这类伪造。</li><li>OpenPGP尚未与其他OpenPGP软件做过互通测试。</li><li>AI助手会把你要询问的文字发送到你配置的端点，包括解密后的OpenPGP内容。对该端点而言，这些内容不是保密的。</li><li>“无分析”的说法是通过查看源代码确认的，而不是靠网络抓包。</li><li>不声称做过任何第三方安全审计。</li></ul>
+<ul><li>当发件人地址与已存储的组织者一致时，日历邀请的更新和取消才会被接受。不做DKIM、SPF或S/MIME检查，因此伪造的发件人地址可能会更改或取消你收到的事件。邮件服务商通常会拒绝这类伪造。</li><li>OpenPGP尚未与其他OpenPGP软件做过互通测试。</li><li>AI助手会把你要询问的文字发送到你配置的端点，包括解密后的OpenPGP内容。对该端点而言，这些内容不是保密的。</li><li>“无分析”的说法是通过查看源代码确认的，而不是靠网络抓包。</li><li>不声称做过任何第三方安全审计。</li><li>标为“机密”的邮件只在Windows和macOS上对屏幕截图和录屏隐藏；它无法阻止用相机拍摄屏幕。</li></ul>
 </article></div>
 </main>
 <footer class="ftr">

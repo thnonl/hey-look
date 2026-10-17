@@ -119,7 +119,8 @@
         <li><strong>システム設定 &gt; プライバシーとセキュリティ</strong>を開き、<strong>セキュリティ</strong>までスクロールして、<strong>このまま開く</strong>をクリックします。パスワードまたはTouch IDで確認したら、<strong>開く</strong>をクリックします。</li></ol>
         <p>ターミナルを使う場合は、手順2と3の代わりに、次のコマンドを1回実行してください。</p>
         <div class="copy"><code>xattr -dr com.apple.quarantine "/Applications/Hey Look!.app"</code><button class="btn btn-ghost btn-sm" type="button">コピー</button></div>
-        <p>Hey Look!自身がインストールするアップデートは、通常どおり起動します。Dockアイコンには未読数が表示されます（設定 &gt; 通知とトレイ &gt; Dockのバッジ）。このバージョンのmacOSでは、通知は利用できません。</p></details>
+        <p>Hey Look!自身がインストールするアップデートは、通常どおり起動します。Dockアイコンには未読数が表示されます（設定 &gt; 通知とトレイ &gt; Dockのバッジ）。このバージョンのmacOSでは、通知は利用できません。</p>
+        <p>1.0.6より前のバージョンからアップデートした場合、アプリが固定の証明書で署名されるようになったため、最初の起動でキーチェーンが保存済みのパスワードについてもう一度尋ねます。PDFの添付ファイルは既定のアプリで開きます（プレビューには「開く」と「名前を付けて保存」があります）。</p></details>
     </article>
     <article class="dl-card" id="card-linux"><span class="rec-b">おすすめ</span>
       <h2><svg class="ic" aria-hidden="true" focusable="false"><use href="#i-linux"/></svg>Linux</h2><p class="sub">AppImageに対応するあらゆるディストリビューション、またはネイティブパッケージ。</p>
@@ -128,7 +129,8 @@
       <div class="asset" data-asset="lin-rpm" data-pattern="HeyLook_&lt;version&gt;_linux_x86_64.rpm"><a class="btn btn-ghost" href="https://github.com/thnonl/hey-look/releases/latest" rel="noopener" data-label=".rpm（Fedora、openSUSE）をダウンロード"><svg class="ic" aria-hidden="true" focusable="false"><use href="#i-download"/></svg><span class="t">.rpm（Fedora、openSUSE）をダウンロード</span></a><span class="fn">HeyLook_&lt;version&gt;_linux_x86_64.rpm</span><small class="sz"></small></div>
       <details><summary>Linuxについての注意</summary>
         <p>デスクトップにトレイ領域がない場合、ウィンドウを閉じるとHey Look!が終了します。</p>
-        <p>リンクと添付ファイルは <code>xdg-open</code> で開きます。通知には、デスクトップ側に通知サービスが必要です。パスワードの保存には、GNOMEキーリングまたはKWalletが実行中でロック解除されている必要があります。</p></details>
+        <p>リンクと添付ファイルは <code>xdg-open</code> で開きます。通知には、デスクトップ側に通知サービスが必要です。パスワードの保存には、GNOMEキーリングまたはKWalletが実行中でロック解除されている必要があります。</p>
+        <p>トレイアイコンにはクリック操作がありません。メニューの Open Hey Look! を使ってください。PDFの添付ファイルは既定のアプリで開きます（プレビューには「開く」と「名前を付けて保存」があります）。</p></details>
     </article>
   </div>
   <h2 class="h2s" id="all-files">すべてのファイル</h2>
