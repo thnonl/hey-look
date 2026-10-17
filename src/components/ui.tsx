@@ -4,6 +4,7 @@ import { createPortal } from "react-dom";
 import { useT } from "../i18n/react";
 import { accountColor } from "../prefs";
 import { fitInWindow } from "../fitInWindow";
+import { popoverFloor, type ToastBox } from "../popoverRoom";
 import { menuOwners, pressIsOutside } from "../pressInside";
 import { useStore } from "../store";
 import { hue, initials } from "../util";
@@ -29,6 +30,14 @@ export interface MenuItem {
 }
 
 type Ref = React.RefObject<HTMLElement | null>;
+
+/** The toast stack as it is now (null when there is no toast): a popover keeps above it (popoverRoom.ts). */
+function toastBox(): ToastBox | null {
+  const stack = document.querySelector(".toasts");
+  if (!stack?.firstElementChild) return null;
+  const r = stack.getBoundingClientRect();
+  return { left: r.left, right: r.right, top: r.top };
+}
 
 /** Calls onOut on a press outside of every given element (or on Escape) while active. */
 export function useOutside(ref: Ref | Ref[], onOut: () => void, active: boolean) {
@@ -98,20 +107,35 @@ export function usePinnedBelow(pop: Ref, anchor: Ref, active: boolean, opts: { i
       if (match) el.style.width = `${Math.max(0, b.right - left0)}px`;
       const left = Math.max(edge, Math.min(left0, window.innerWidth - edge - el.offsetWidth));
       const h = el.offsetHeight;
-      const below = window.innerHeight - edge - (b.bottom + gap);
+      // the toast stack is in the way of the lower part of the window while a toast shows: the popover ends above it
+      const floor = popoverFloor(window.innerHeight, edge, left, left + el.offsetWidth, toastBox());
+      const below = floor - (b.bottom + gap);
       const above = b.top - gap - edge;
       const up = h > below && above > below;
       const room = Math.max(up ? above : below, 96);
-      if (h > room) el.style.maxHeight = `${room}px`;
+      // always a limit, not only when it is too tall now: a popover that grows after it was placed (a custom time opens under the presets) scrolls instead of running off the window
+      el.style.maxHeight = `${room}px`;
       el.style.left = `${left}px`;
       const top = up ? b.top - gap - Math.min(h, room) : b.bottom + gap;
-      el.style.top = `${Math.max(edge, Math.min(top, window.innerHeight - edge - Math.min(h, room)))}px`; // (inside the window even when the anchor is scrolled out of it)
+      el.style.top = `${Math.max(edge, Math.min(top, floor - Math.min(h, room)))}px`; // (inside the window even when the anchor is scrolled out of it)
     };
     place();
     const scrolled = (ev: Event) => !el.contains(ev.target as Node) && place();
     window.addEventListener("resize", place);
     window.addEventListener("scroll", scrolled, true);
+    // a toast that comes or goes changes the room (the stack is drawn after this render), and so does the popover growing
+    let frame = 0;
+    const later = () => {
+      cancelAnimationFrame(frame);
+      frame = requestAnimationFrame(place);
+    };
+    const unsub = useStore.subscribe((s, prev) => s.toasts !== prev.toasts && later());
+    const grown = typeof ResizeObserver === "undefined" ? null : new ResizeObserver(later);
+    grown?.observe(el);
     return () => {
+      cancelAnimationFrame(frame);
+      unsub();
+      grown?.disconnect();
       window.removeEventListener("resize", place);
       window.removeEventListener("scroll", scrolled, true);
     };
@@ -211,15 +235,17 @@ export function FloatingMenu({
       close.current();
       return;
     }
-    const below = window.innerHeight - edge - (b.bottom + gap);
+    const want = align === "right" ? b.right - p.width : b.left;
+    const left = Math.max(edge, Math.min(want, window.innerWidth - p.width - edge));
+    // (a toast on show is in the way of the lower part of the window: the menu ends above it)
+    const floor = popoverFloor(window.innerHeight, edge, left, left + p.width, toastBox());
+    const below = floor - (b.bottom + gap);
     const above = b.top - gap - edge;
     // down when it fits, else up when it fits, else the roomier side with the list made scrollable
     const up = p.height > below && (p.height <= above || above > below);
     const room = up ? above : below;
     const raw = up ? b.top - gap - Math.min(p.height, room) : b.bottom + gap;
-    const top = Math.max(edge, Math.min(raw, window.innerHeight - edge - Math.min(p.height, room)));
-    const want = align === "right" ? b.right - p.width : b.left;
-    const left = Math.max(edge, Math.min(want, window.innerWidth - p.width - edge));
+    const top = Math.max(edge, Math.min(raw, floor - Math.min(p.height, room)));
     setPos({ top, left, max: room });
   }, [anchor, align]);
   // lets a "press outside" handler of the popover this menu was opened from tell that a press on a row is not outside (pressInside.ts)

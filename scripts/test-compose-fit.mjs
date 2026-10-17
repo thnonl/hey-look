@@ -11,7 +11,9 @@
 // (no scroll of the pane, of the page, no displacement); in a plain new message every field down to Subject is in view at 960 x 520; many recipients
 // do not grow past their own box. The deep combinations also drive the keyboard (Tab from To reaches Subject, then the formatting row, then the body,
 // always inside the pane, the field in view; Shift+Tab back), type into To / Subject / the body frame by frame (nothing moves), and open the popovers
-// that live in the header (suggestions, Send later, More actions, the Sign menu): each fully inside the window and on top of what is under it.
+// that live in the header (suggestions, Send later, More actions, the Sign menu): each fully inside the window and on top of what is under it. Then the same
+// with a picture selected in the body (its floating toolbar and handles) and a toast on show (BUG-A1-4, v1.0.6 QA round 2): the Send later popover is inside the
+// window, above the picture toolbar (which steps aside), clear of the toast stack, and its last button can be reached by scrolling it.
 //
 //   node scripts/test-compose-fit.mjs                         the full matrix (about 5 minutes)
 //   node scripts/test-compose-fit.mjs --quick                 four combinations (what CI runs)
@@ -279,6 +281,38 @@ async function popovers(cfg) {
   }
 }
 
+// the picture toolbar and a toast must not sit on a popover of the header (QA round 2, BUG-A1-4: at 960 x 560 with a picture selected the toolbar was drawn over Send later and a toast over its footer)
+async function popoverOverPicture(cfg) {
+  const PNG = `(() => { const c = document.createElement('canvas'); c.width = 1400; c.height = 900; const g = c.getContext('2d'); g.fillStyle = '#3366aa'; g.fillRect(0, 0, 1400, 900); return c.toDataURL('image/png'); })()`;
+  await evaluate(`(() => { const ed = document.querySelector('.cp-editor .tiptap').editor; ed.chain().focus().insertContent({ type: 'image', attrs: { src: ${PNG}, alt: '', width: 480 } }).run(); window.__store.getState().showToast('Picture resized to 1.2 MB', () => {}, 'success'); document.querySelector('.cp-head').scrollTop = 0; document.querySelector('.split-caret').click(); return 1; })()`);
+  await sleep(450);
+  const g = await evaluate(`(() => {
+    const pop = document.querySelector('.sched-pop'); if (!pop) return null;
+    const R = (e) => { const r = e.getBoundingClientRect(); return { l: r.left, t: r.top, r: r.right, b: r.bottom }; };
+    const P = R(pop), toast = document.querySelector('.toasts .toast'), tools = document.querySelector('.img-tools-anchor'), handles = document.querySelector('.pic-handles');
+    const hits = (x, y) => { const e = document.elementFromPoint(x, y); return !!e && pop.contains(e); };
+    const pts = [[P.l + 12, P.t + 12], [(P.l + P.r) / 2, P.t + 12], [P.r - 12, P.t + 12], [P.l + 12, (P.t + P.b) / 2], [P.r - 12, (P.t + P.b) / 2], [P.l + 12, P.b - 6], [(P.l + P.r) / 2, P.b - 6], [P.r - 12, P.b - 6]];
+    pop.scrollTop = pop.scrollHeight;
+    const foot = [...pop.querySelectorAll('button')].pop(), F = foot && R(foot);
+    const footHit = !!F && (() => { const e = document.elementFromPoint((F.l + F.r) / 2, (F.t + F.b) / 2); return !!e && foot.contains(e); })();
+    const T = toast && R(toast);
+    return { P, vw: innerWidth, vh: innerHeight, covered: pts.filter(([x, y]) => !hits(x, y)).length, toast: T, overlapsToast: !!T && P.l < T.r && P.r > T.l && P.t < T.b && P.b > T.t,
+      toolsHidden: !tools || getComputedStyle(tools).visibility === 'hidden', handlesHidden: !handles || getComputedStyle(handles).visibility === 'hidden', footHit, foot: F };
+  })()`);
+  ok(cfg, !!g, 'the Send later popover did not open with a picture selected');
+  if (g) {
+    ok(cfg, g.P.l >= -1 && g.P.t >= -1 && g.P.r <= g.vw + 1 && g.P.b <= g.vh + 1, `the Send later popover is cut off by the window with a picture selected: ${JSON.stringify(g.P)} in ${g.vw} x ${g.vh}`);
+    ok(cfg, g.covered === 0, `the Send later popover is covered by something else at ${g.covered} of 8 points (the picture toolbar or a toast)`);
+    ok(cfg, !g.overlapsToast, `a toast covers the Send later popover: popover ${JSON.stringify(g.P)}, toast ${JSON.stringify(g.toast)}`);
+    ok(cfg, g.toolsHidden && g.handlesHidden, 'the picture toolbar / handles stay drawn while the Send later popover is open');
+    ok(cfg, g.footHit, `the last button of the Send later popover cannot be reached by scrolling it: ${JSON.stringify(g.foot)}`);
+  }
+  // back to how it was: the popover closed, the toast gone, the picture out of the body
+  await evaluate(`(() => { document.querySelector('.split-caret').click(); const st = window.__store.getState(); for (const t of st.toasts) st.dismissToast(t.id); const ed = document.querySelector('.cp-editor .tiptap').editor; let at = -1, size = 0; ed.state.doc.descendants((n, pos) => { if (at < 0 && n.type.name === 'image') { at = pos; size = n.nodeSize; } }); if (at >= 0) ed.view.dispatch(ed.state.tr.delete(at, at + size)); return 1; })()`);
+  await sleep(250);
+  ok(cfg, !(await evaluate(`!!document.querySelector('.sched-pop')`)), 'the Send later popover did not close');
+}
+
 // ---------- run ----------
 try {
   for (const cfg of CONFIGS) {
@@ -292,6 +326,7 @@ try {
         await keyboard(cfg);
         await typing(cfg);
         await popovers(cfg);
+        await popoverOverPicture(cfg);
         layout(cfg, await evaluate(GEO), 'after typing');
         await shot(cfg, 'end');
       }
