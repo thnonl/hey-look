@@ -1,13 +1,13 @@
-// BUG-12 / CF-16: the main webview has no Content-Security-Policy (`"csp": null` in src-tauri/tauri.conf.json). Turning one on is not
-// provable without a real Tauri window (the IPC channel, the nonces Tauri adds, WKWebView), so the config is NOT changed yet. This test
-// keeps the PROPOSED policy honest: every directive is derived from a fact about the front-end code, and the facts are checked here, so
-// the day the policy is switched on nothing in the app has silently grown a need the policy does not cover.
+// BUG-12 / CF-16: the main webview's Content-Security-Policy (`app.security.csp` in src-tauri/tauri.conf.json, switched on in 1.0.6).
+// This test keeps the policy honest: every directive is derived from a fact about the front-end code, and the facts are checked here, so
+// nothing in the app can silently grow a need the policy does not cover (a fetch, a remote script or font, an asset: picture, a new iframe).
+// A CSP is static: there is no runtime switch. `devCsp` stays unset (the dev server needs inline scripts and a websocket).
 // Run: node scripts/test-csp-ready.mjs
 import assert from "node:assert/strict";
 import { existsSync, readdirSync, readFileSync, statSync } from "node:fs";
 import { join } from "node:path";
 
-/** The proposed policy for `app.security.csp` (and `devCsp` stays null: the dev server needs inline scripts and a websocket). */
+/** The policy for `app.security.csp`. Tauri sends it as a response header with the app's HTML (all platforms), see the notes under the directives. */
 export const PROPOSED_CSP = [
   "default-src 'self'",
   "script-src 'self'",
@@ -15,10 +15,11 @@ export const PROPOSED_CSP = [
   "img-src 'self' data: blob: https: http:",
   "font-src 'self' data:",
   "connect-src 'self' ipc: http://ipc.localhost",
-  "frame-src blob: data: about:",
+  "frame-src blob:",
   "object-src 'none'",
-  "base-uri 'self'",
+  "base-uri 'none'",
   "form-action 'none'",
+  "frame-ancestors 'none'",
 ].join("; ");
 
 const root = new URL("../", import.meta.url);
@@ -83,10 +84,39 @@ const css = read("src/App.css");
 assert.ok(!/url\(\s*["']?(https?:)?\/\//.test(css) && !/@import/.test(css) && !/@font-face/.test(css), "App.css loads something remote (or has @font-face: font-src)");
 assert.ok(!/url\(["']?data:(?!image\/svg)/.test(css), "App.css has a non-svg data: URL");
 
-// --- the config today, and what a future switch has to do -------------------------------------------------------------------------------
+// --- directives that are there for defence only: the code must not need them either ------------------------------------------------------
+assert.ok(dir["base-uri"].join(" ") === "'none'" && dir["form-action"].join(" ") === "'none'" && dir["object-src"].join(" ") === "'none'");
+assert.equal(dir["frame-ancestors"].join(" "), "'none'", "nothing may frame the app (a header directive: Tauri sends the policy as a response header, a <meta> would ignore it)");
+for (const f of files) assert.ok(!/<form\b/.test(read(f)), `${f} has a <form>: form-action 'none' would stop its submit`);
+// the message frame carries `<base target="_blank">` (links open outside): a <base> without href is allowed under base-uri 'none'; one with href is not, and the sanitiser removes them
+assert.ok(/<base target="_blank">/.test(reading) && !/<base [^>]*href/.test(reading), "the frame's <base> has no href");
+assert.ok(/FORBID_TAGS: \[[^\]]*"base"/.test(read("src/util.ts")), "a mail's own <base href> is removed before it gets to the frame");
+assert.ok(!/<(embed|object)[\s>/]/.test(files.map(read).join("\n")), "an <embed> / <object> in the UI: object-src 'none' blocks it");
+
+// --- what Tauri does to the policy ---------------------------------------------------------------------------------------------------------
+// Tauri 2 sends the configured policy as the `Content-Security-Policy` header of the app's HTML (every system) and, at build time, adds a
+// nonce or a hash to `script-src` / `style-src` for every inline <script>, every inline <style> and every <script src="http...">
+// of that HTML. A nonce or hash in a directive makes the browser IGNORE 'unsafe-inline' there: the message frame's <style> and the
+// style attributes of the page would stop working. The HTML has none of those, so nothing is added (checked on the source and, when
+// there is one, on the build), and the switch that would turn the modification off stays at its default.
+const noInline = (name, text) => {
+  assert.ok(!/<style/i.test(text), `${name} has an inline <style>: Tauri would put a nonce in style-src and 'unsafe-inline' would stop working`);
+  assert.ok(!/<script(?![^>]*src=)/i.test(text), `${name} has an inline <script>`);
+  assert.ok(!/<script[^>]*src="https?:/i.test(text), `${name} has a script from another origin`);
+};
+noInline("index.html", html);
+if (existsSync(new URL("dist/index.html", root))) noInline("dist/index.html", read("dist/index.html"));
+
+// --- the config -----------------------------------------------------------------------------------------------------------------------------
 const conf = JSON.parse(read("src-tauri/tauri.conf.json"));
-assert.ok(conf.app.security.csp === null || typeof conf.app.security.csp === "string");
-if (typeof conf.app.security.csp === "string") assert.equal(conf.app.security.csp, PROPOSED_CSP, "tauri.conf.json csp differs from the proposal checked here");
+assert.equal(typeof conf.app.security.csp, "string", "the policy is on (BUG-12)");
+assert.equal(conf.app.security.csp, PROPOSED_CSP, "tauri.conf.json csp differs from the policy checked here");
+assert.ok(!("devCsp" in conf.app.security) && !("dev-csp" in conf.app.security), "devCsp stays unset: the dev server needs inline scripts and a websocket");
+assert.ok(!("dangerousDisableAssetCspModification" in conf.app.security), "Tauri's own additions to the policy stay at their default");
+const noUpdater = JSON.parse(read("src-tauri/tauri.no-updater.conf.json"));
+assert.ok(!noUpdater.app?.security || noUpdater.app.security.csp === undefined, "the other config does not change the policy");
 assert.ok(!existsSync(new URL("src/csp.json", root)));
+// a CSP is static: there is no runtime switch (no setting, no environment variable, no command reads or changes it)
+assert.ok(!/HEYLOOK_[A-Z_]*CSP|csp_off|disable_csp/i.test(read("src-tauri/src/lib.rs")), "no runtime switch for the policy");
 
 console.log("test-csp-ready: ok");
