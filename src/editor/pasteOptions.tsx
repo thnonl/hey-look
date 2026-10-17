@@ -3,6 +3,7 @@
 //
 //   Ctrl+V        the paste default (Settings > Composing > When pasting from other apps): Keep source formatting, Merge formatting or Keep text only
 //   Ctrl+Shift+V  always text only (ProseMirror hands us the plain text; a Word list still gets its markers, from the HTML we read ourselves)
+//   Cmd+Shift+V   (macOS) the same, but WKWebView sends no paste event for it: the key press is caught here and the clipboard is read by the backend
 //   in Code style text only (ProseMirror does that itself)
 //   a drop        the same cleaning as a paste, with the default; no button
 //   the button    appears after a rich paste, opens with a click or with the Ctrl (Cmd on a Mac) key pressed and released alone, shows the three
@@ -18,9 +19,11 @@ import type { EditorView } from "@tiptap/pm/view";
 import { ChevronDown, ClipboardPaste } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import { createRoot, type Root } from "react-dom/client";
+import { api } from "../api";
 import { FloatingMenu, type MenuItem } from "../components/ui";
 import { useT } from "../i18n/react";
 import { osNow } from "../platform";
+import { isCmdShiftV } from "../plainPasteKey";
 import { useStore } from "../store";
 import type { BaseFont } from "./emailHtml";
 import type { PasteMode } from "./pasteClean";
@@ -214,12 +217,31 @@ export const PasteHandling = Extension.create<{ getBase: () => BaseFont }>({
     let overlay: Overlay | null = null;
     let lone = false; // the Ctrl key went down and nothing else since
     let shift = false; // Ctrl+Shift+V (ProseMirror reads it the same way)
+    let plainAt = 0; // when Cmd+Shift+V was last handled by hand (macOS)
     const isMod = (e: KeyboardEvent) => e.key === "Control" || (osNow() === "macos" && e.key === "Meta");
     const begin = (e: ClipboardEvent | DragEvent, drop: boolean) => {
       const p = readClipboard("clipboardData" in e ? e.clipboardData : (e as DragEvent).dataTransfer);
       current = p && { ...p, drop, ...(shift && !drop ? { mode: "text" as const, plain: true } : {}) };
       queueMicrotask(() => (current = null));
       return false;
+    };
+    /**
+     * macOS, Cmd+Shift+V: text only, from the clipboard the backend reads. The page gets no
+     * paste event for these keys and the web view's own clipboard read asks for a click, so ProseMirror is given the text the way its pasteText does.
+     */
+    const pasteTextOnly = async (v: EditorView) => {
+      let clip;
+      try {
+        clip = await api.readClipboardText();
+      } catch {
+        return; // no clipboard text we can read: nothing is pasted (a paste of a picture only has no text either)
+      }
+      if (v.isDestroyed || !v.editable || !v.hasFocus()) return;
+      const text = clip.text || (core ? core.pasteText(clip.html, Boolean(v.state.schema.nodes.table)) : "");
+      if (!text) return;
+      current = { html: clip.html, text, mode: "text", plain: true, drop: false };
+      queueMicrotask(() => (current = null));
+      v.pasteText(text);
     };
     return [
       new Plugin<PasteInfo | null>({
@@ -245,11 +267,20 @@ export const PasteHandling = Extension.create<{ getBase: () => BaseFont }>({
         },
         props: {
           handleDOMEvents: {
-            paste: (_v, e) => begin(e, false),
+            // (a paste event that does come after a Cmd+Shift+V we have handled is the same paste: ignored)
+            paste: (_v, e) => (Date.now() - plainAt < 150 ? (e.preventDefault(), true) : begin(e, false)),
             drop: (_v, e) => begin(e, true),
-            keydown: (_v, e) => {
+            keydown: (v, e) => {
               shift = e.shiftKey;
               lone = isMod(e) ? lone || !e.repeat : false;
+              if (osNow() === "macos" && isCmdShiftV(e)) {
+                e.preventDefault();
+                if (!e.repeat) {
+                  plainAt = Date.now();
+                  void pasteTextOnly(v);
+                }
+                return true;
+              }
               return false;
             },
             keyup: (v, e) => {

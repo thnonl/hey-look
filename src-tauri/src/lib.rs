@@ -21,6 +21,8 @@ mod linuxview;
 #[cfg_attr(not(target_os = "macos"), allow(dead_code))]
 mod macnotify;
 #[cfg(target_os = "macos")]
+mod macclip;
+#[cfg(target_os = "macos")]
 mod macquit;
 mod mail;
 // the main window never leaves the app for a website (the Windows PDF frame has no sandbox); the pure decision is compiled and tested everywhere
@@ -3101,6 +3103,27 @@ async fn copy_text(app: tauri::AppHandle, text: String) -> R<()> {
     }
 }
 
+/// The text on the system clipboard (plain text and HTML, either may be empty). The page calls this only on macOS, for Cmd+Shift+V in the
+/// editors: WKWebView sends no `paste` event for that key (it is not an accelerator of the Edit menu), and `navigator.clipboard.readText()`
+/// would ask the person to click a "Paste" button first. Other systems report that it is not available (they paste through the `paste` event).
+#[derive(serde::Serialize)]
+struct ClipboardText {
+    text: String,
+    html: String,
+}
+
+#[tauri::command]
+async fn read_clipboard_text() -> R<ClipboardText> {
+    #[cfg(target_os = "macos")]
+    {
+        blocking(|| macclip::read().map(|c| ClipboardText { text: c.text, html: c.html })).await
+    }
+    #[cfg(not(target_os = "macos"))]
+    {
+        Err("reading the clipboard from the backend is only available on macOS".into())
+    }
+}
+
 /// Write an attachment to the temp folder and open it with the default app. Programs and scripts need
 /// `confirmed = true`; otherwise the error starts with `ATT_RISKY` (unless the user turned the warning off).
 #[tauri::command]
@@ -4687,6 +4710,7 @@ pub fn run() {
             test_notification,
             open_external,
             copy_text,
+            read_clipboard_text,
             get_autostart,
             set_autostart,
             list_folders,

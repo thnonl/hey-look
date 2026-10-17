@@ -1312,6 +1312,8 @@ export function installMock() {
       case "copy_text": // (Linux asks the backend for the clipboard; `#copyfail` makes it fail)
         if (hashTokens().has("copyfail")) throw "mock: no clipboard";
         console.info("[mock] clipboard:", a.text); return null;
+      case "read_clipboard_text": // (macOS reads the clipboard for Cmd+Shift+V; a dev check sets window.__mockClipboard = { text, html })
+        return (window as unknown as { __mockClipboard?: { text: string; html: string } }).__mockClipboard ?? { text: "", html: "" };
       case "plugin:app|version": return "1.0.0";
       // `#os=macos|linux` (per-OS copy and shortcut labels), `#notray` (Linux without a tray host), `#nonotify` (Send test fails)
       case "shell_info": return { os: hashTokens().get("os") || "windows", tray: !hashTokens().has("notray"), testData: null };

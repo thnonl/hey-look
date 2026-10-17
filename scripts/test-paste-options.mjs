@@ -76,7 +76,7 @@ assert.ok(/pasteDefault: p\.pasteDefault === "merge" \|\| p\.pasteDefault === "t
 const ext = read("src/editor/extensions.ts");
 assert.ok(ext.includes("PasteHandling.configure({ getBase: o.getBase })"), "every editor of the shared extension set has the paste handling");
 const plug = read("src/editor/pasteOptions.tsx");
-for (const hook of ["transformPastedHTML", "clipboardTextParser", "transformPasted:", "handleKeyDown", 'paste: (_v, e) => begin(e, false)', 'drop: (_v, e) => begin(e, true)']) assert.ok(plug.includes(hook), `hook ${hook}`);
+for (const hook of ["transformPastedHTML", "clipboardTextParser", "transformPasted:", "handleKeyDown", 'begin(e, false)', 'drop: (_v, e) => begin(e, true)']) assert.ok(plug.includes(hook), `hook ${hook}`);
 assert.ok(plug.includes('e.key !== "Escape"') && plug.includes("stopPropagation"), "Esc dismisses the button and does nothing else");
 assert.ok(/isMod = .*"Control".*osNow\(\) === "macos" && e\.key === "Meta"/.test(plug), "Ctrl alone (Cmd on a Mac) opens the menu");
 assert.ok(plug.includes("lone = isMod(e) ? lone || !e.repeat : false") && plug.includes("was && isMod(e)"), "only a Ctrl pressed and released alone, not the Ctrl of Ctrl+V");
@@ -85,6 +85,16 @@ assert.ok(plug.includes("tr.getMeta(\"appendedTransaction\")") && plug.includes(
 assert.ok(plug.includes('aria-haspopup="menu"') && plug.includes("aria-label={t(\"compose.paste.options\")}") && plug.includes('role="status"'), "accessible name, popup, live announcement");
 assert.ok(plug.includes("const asked = useRef(nonce)") && plug.includes("nonce !== asked.current"), "a new paste's button starts closed, whatever the count of the earlier Ctrl presses");
 assert.ok(plug.includes("<FloatingMenu") && plug.includes("trigger={trigger}"), "the menu is the app's menu: arrows, Esc, focus back to the text");
+// Cmd+Shift+V on a Mac: no paste event from WKWebView, so the key is caught and the clipboard is read by the backend (behaviour: test-paste-mac.mjs)
+assert.ok(plug.includes('osNow() === "macos" && isCmdShiftV(e)') && plug.includes("api.readClipboardText()") && plug.includes("v.pasteText(text)"), "Cmd+Shift+V on a Mac pastes text only from the backend clipboard");
+const key = read("src/plainPasteKey.ts");
+assert.ok(key.includes("e.metaKey && e.shiftKey && !e.altKey && !e.ctrlKey") && key.includes('e.key.toLowerCase() === "v"'), "Cmd+Shift+V only; Cmd+Option keys belong to composeKeys");
+assert.ok(read("src/main.tsx").includes("installPlainPasteKey()"), "text boxes too");
+const lib = read("src-tauri/src/lib.rs");
+assert.ok(lib.includes("async fn read_clipboard_text()") && lib.includes("read_clipboard_text,") && lib.includes("mod macclip;"), "the command is registered");
+assert.ok(read("src-tauri/build.rs").includes('"read_clipboard_text"') && read("src-tauri/capabilities/default.json").includes("allow-read-clipboard-text") && read("src-tauri/capabilities/popout.json").includes("allow-read-clipboard-text"), "manifest, main and pop-out windows (compose-*) may call it");
+const mac = read("src-tauri/src/macclip.rs");
+assert.ok(mac.includes("generalPasteboard") && mac.includes("stringForType") && !/setString|clearContents|writeObjects/.test(mac), "the backend only reads the clipboard");
 const dlg = read("src/components/SettingsDialog.tsx");
 assert.ok(dlg.includes("function PasteDefaultRow") && dlg.includes("{scope === null && <PasteDefaultRow />}") && dlg.includes('"settings.keys.pasteText"'), "Settings: the row and the shortcut");
 assert.ok(read("src/components/Compose.tsx").includes("transformPastedHTML") && read("src/components/Compose.tsx").includes("cleanPastedHtml"), "Compose's own pass (remote pictures, the notice) still runs first");

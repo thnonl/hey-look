@@ -66,6 +66,7 @@
     "allow-unsubscribe",
     "allow-open-external",
     "allow-copy-text",
+    "allow-read-clipboard-text",
     "allow-popout-open",
     "allow-popout-init",
     "allow-popout-ready",
