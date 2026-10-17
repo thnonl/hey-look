@@ -37,7 +37,8 @@ export interface SnapshotOut {
 
 export interface RecoveryBackend {
   save(s: SnapshotOut): Promise<void>;
-  clear(id: string): Promise<void>;
+  /** `why` only goes to startup.log */
+  clear(id: string, why?: string): Promise<void>;
 }
 
 /**
@@ -112,7 +113,7 @@ export class RecoveryWriter {
     this.pending = null;
     await this.running?.catch(() => undefined);
     try {
-      await this.backend.clear(this.id);
+      await this.backend.clear(this.id, "message over");
     } catch {
       // a snapshot that stays is offered at the next start: nothing is lost by this
     }
@@ -129,7 +130,7 @@ export class RecoveryWriter {
     if (this.closed || this.pending) return; // (cleared meanwhile, or something newer is waiting: it is the one to keep)
     this.stored = null;
     try {
-      await this.backend.clear(this.id);
+      await this.backend.clear(this.id, "draft saved");
     } catch {
       // the snapshot stays: it is offered at the next start (an old copy of a message that is saved)
     }

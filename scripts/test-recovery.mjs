@@ -10,7 +10,7 @@ const form = (subject) => ({ accountId: "a1", subject, preview: subject, payload
 
 /** A backend that remembers what it was given; `gate` holds a save until `release()` and `fail` makes saves fail. */
 function backend() {
-  const b = { saves: [], clears: [], fail: 0, gate: null, stored: null };
+  const b = { saves: [], clears: [], whys: [], fail: 0, gate: null, stored: null };
   b.api = {
     save: async (s) => {
       if (b.gate) await b.gate.promise;
@@ -21,8 +21,9 @@ function backend() {
       b.saves.push(s);
       b.stored = { ...s, files: s.files ?? b.stored?.files ?? [] };
     },
-    clear: async (id) => {
+    clear: async (id, why) => {
       b.clears.push(id);
+      b.whys.push(why);
       b.stored = null;
     },
   };
@@ -156,6 +157,17 @@ function backend() {
   const w3 = new RecoveryWriter("m3", backend().api);
   await w3.clear();
   await w3.release();
+}
+
+// 5b. the reason goes to the backend, for startup.log ("snapshot removed (draft saved)" or "message over")
+{
+  const b = backend();
+  const w = new RecoveryWriter("m1", b.api);
+  w.write(form("a"), "k", () => []);
+  await w.idle();
+  await w.release();
+  await w.clear();
+  assert.deepEqual(b.whys, ["draft saved", "message over"]);
 }
 
 // ---- the question at the next start

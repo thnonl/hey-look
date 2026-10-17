@@ -3401,25 +3401,63 @@ async fn discard_draft(state: tauri::State<'_, AppState>, reference: String) -> 
 
 // ---------- crash recovery of the message being written (recover.rs) ----------
 
+/// Snapshots written in this run whose first write was logged, and how many writes failed (the log says the first failure and then every
+/// tenth: a disk that stays full must not fill `startup.log`).
+static RECOVERY_SEEN: Mutex<Vec<String>> = Mutex::new(Vec::new());
+static RECOVERY_FAILED: std::sync::atomic::AtomicU32 = std::sync::atomic::AtomicU32::new(0);
+
+fn recovery_log(text: &str) {
+    startup::line("recovery", text);
+}
+
 /// Compose writes a snapshot of the message every few seconds while something changed.
 #[tauri::command]
 async fn recovery_save(state: tauri::State<'_, AppState>, snap: recover::SnapIn) -> R<()> {
     let db = state.db.clone();
-    blocking(move || recover::save(&lock(&db), &snap, now())).await
+    let (id, bytes, files) = (snap.id.clone(), snap.payload.len(), snap.files.as_ref().map(|f| f.len()));
+    let r = blocking(move || recover::save(&lock(&db), &snap, now())).await;
+    match &r {
+        Ok(()) => {
+            let mut seen = RECOVERY_SEEN.lock().unwrap_or_else(|p| p.into_inner());
+            if !seen.contains(&id) && seen.len() < 50 {
+                seen.push(id.clone());
+                recovery_log(&format!("snapshot saved (message {}, {bytes} bytes{})", recover::short_id(&id), files.map(|n| format!(", {n} file(s)")).unwrap_or_default()));
+            }
+        }
+        Err(e) => {
+            let n = RECOVERY_FAILED.fetch_add(1, std::sync::atomic::Ordering::SeqCst) + 1;
+            if n == 1 || n % 10 == 0 {
+                recovery_log(&format!("snapshot of message {} could not be written ({n} failed so far): {}", recover::short_id(&id), e.chars().take(160).collect::<String>()));
+            }
+        }
+    }
+    r
 }
 
-/// The message was sent, discarded or saved: no snapshot is needed any more.
+/// The message was sent, discarded or saved: no snapshot is needed any more. `why` is for the log only.
 #[tauri::command]
-async fn recovery_clear(state: tauri::State<'_, AppState>, id: String) -> R<()> {
+async fn recovery_clear(state: tauri::State<'_, AppState>, id: String, why: Option<String>) -> R<()> {
     let db = state.db.clone();
-    blocking(move || recover::clear(&lock(&db), &id)).await
+    let log_id = id.clone();
+    let removed = blocking(move || recover::clear(&lock(&db), &id)).await?;
+    if removed > 0 {
+        recovery_log(&format!("snapshot removed ({}; message {})", why.as_deref().unwrap_or("message over").chars().take(60).collect::<String>(), recover::short_id(&log_id)));
+    }
+    Ok(())
 }
 
-/// Messages that were being written when the app ended without saving or sending them.
+/// Messages that were being written when the app ended without saving or sending them. The decision is logged (what was found, and whether
+/// the question will be asked), so a start that shows no question can be told from one that had nothing to offer.
 #[tauri::command]
 async fn recovery_list(state: tauri::State<'_, AppState>) -> R<Vec<recover::Info>> {
     let db = state.db.clone();
-    blocking(move || recover::list(&lock(&db))).await
+    let (list, counts) = blocking(move || {
+        let c = lock(&db);
+        Ok((recover::list(&c)?, recover::counts(&c)?))
+    })
+    .await?;
+    recovery_log(&recover::decision_text(list.len(), counts.1));
+    Ok(list)
 }
 
 #[tauri::command]

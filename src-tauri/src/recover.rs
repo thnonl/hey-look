@@ -118,12 +118,37 @@ pub fn save(c: &Connection, s: &SnapIn, now: i64) -> R<()> {
     tx.commit().map_err(err)
 }
 
-/// The message was sent, discarded or saved: nothing to recover. Not an error when there is nothing.
-pub fn clear(c: &Connection, id: &str) -> R<()> {
+/// The message was sent, discarded or saved: nothing to recover. Not an error when there is nothing. Returns how many snapshots were removed
+/// (0 or 1), so the log can say whether a snapshot was really there.
+pub fn clear(c: &Connection, id: &str) -> R<usize> {
     let tx = c.unchecked_transaction().map_err(err)?;
     tx.execute("DELETE FROM compose_recovery_files WHERE recovery_id=?1", [id]).map_err(err)?;
-    tx.execute("DELETE FROM compose_recovery WHERE id=?1", [id]).map_err(err)?;
-    tx.commit().map_err(err)
+    let n = tx.execute("DELETE FROM compose_recovery WHERE id=?1", [id]).map_err(err)?;
+    tx.commit().map_err(err)?;
+    Ok(n)
+}
+
+/// How many snapshot rows there are, and how many of them belong to an account that is not loaded (never offered). For the start-up log.
+pub fn counts(c: &Connection) -> R<(usize, usize)> {
+    let rows: i64 = c.query_row("SELECT COUNT(*) FROM compose_recovery", [], |r| r.get(0)).map_err(err)?;
+    let hidden: i64 = c.query_row("SELECT COUNT(*) FROM compose_recovery WHERE account_id NOT IN (SELECT id FROM accounts)", [], |r| r.get(0)).map_err(err)?;
+    Ok((rows as usize, hidden as usize))
+}
+
+/// The line `startup.log` gets when the start looks for snapshots: what was found and whether the question will be asked. `offered` is what
+/// `list` returned, `hidden` the rows of accounts that are not loaded. No subject, no text: only counts.
+pub fn decision_text(offered: usize, hidden: usize) -> String {
+    match (offered, hidden) {
+        (0, 0) => "none".into(),
+        (0, h) => format!("skipped ({h} snapshot(s) belong to an account that is not loaded)"),
+        (n, 0) => format!("{n} snapshot(s) found, offering restore"),
+        (n, h) => format!("{n} snapshot(s) found, offering restore ({h} more belong to an account that is not loaded)"),
+    }
+}
+
+/// The first 8 characters of a snapshot id, for the log.
+pub fn short_id(id: &str) -> String {
+    id.chars().take(8).collect()
 }
 
 /// What a start finds: newest first, only snapshots of accounts that exist.
@@ -259,6 +284,31 @@ mod tests {
         }
         let c = open(&d);
         assert!(list(&c).unwrap().is_empty(), "and it stays gone after the next start");
+    }
+
+    /// The line the start-up log gets (Linux QA: a start without the question left no trace of why): what was found, what is hidden, and
+    /// whether the question is asked. Counts only, never text.
+    #[test]
+    fn the_start_up_log_says_what_was_found_and_whether_the_question_is_asked() {
+        let d = dir("rec-log");
+        let c = open(&d);
+        account(&c, "a1");
+        let say = |c: &Connection| decision_text(list(c).unwrap().len(), counts(c).unwrap().1);
+        assert_eq!(say(&c), "none");
+        save(&c, &snap("m1", "a1", "one", None), 1).unwrap();
+        save(&c, &snap("m2", "a1", "two", None), 2).unwrap();
+        assert_eq!(say(&c), "2 snapshot(s) found, offering restore");
+        // rows of an account that is not loaded are counted apart and never offered
+        c.execute("INSERT INTO compose_recovery(id,account_id,saved_at,payload) VALUES('m3','ghost',5,'{}')", []).unwrap();
+        assert_eq!(counts(&c).unwrap(), (3, 1));
+        assert_eq!(say(&c), "2 snapshot(s) found, offering restore (1 more belong to an account that is not loaded)");
+        clear(&c, "m1").unwrap();
+        clear(&c, "m2").unwrap();
+        assert_eq!(say(&c), "skipped (1 snapshot(s) belong to an account that is not loaded)");
+        // `clear` says whether a snapshot was really there (the log only mentions the ones that were)
+        save(&c, &snap("m4", "a1", "four", None), 6).unwrap();
+        assert_eq!((clear(&c, "m4").unwrap(), clear(&c, "m4").unwrap()), (1, 0));
+        assert_eq!(short_id("0123456789abcdef"), "01234567");
     }
 
     #[test]

@@ -483,7 +483,7 @@ export function Compose({ init }: { init: ComposeInit }) {
   // kill or a crash loses nothing: the next start offers it back.
   const recoveryId = useRef<string>(init.recoveryId ?? crypto.randomUUID()).current;
   const writerRef = useRef<RecoveryWriter | null>(null);
-  writerRef.current ??= new RecoveryWriter(recoveryId, { save: (s) => api.recoverySave(s), clear: (id) => api.recoveryClear(id) });
+  writerRef.current ??= new RecoveryWriter(recoveryId, { save: (s) => api.recoverySave(s), clear: (id, why) => api.recoveryClear(id, why) });
   const writer = writerRef.current;
   const savingRef = useRef(0); // saves that are running (autosave, Save draft, leaving)
   const savedRevRef = useRef(0); // the revision the last successful save covered
