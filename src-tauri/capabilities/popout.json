@@ -61,6 +61,7 @@
     "allow-calendar-respond",
     "allow-calendar-add-from-message",
     "allow-calendar-save-ics",
+    "allow-calendar-delete-event",
     "allow-unsubscribe",
     "allow-open-external",
     "allow-copy-text",
@@ -69,6 +70,8 @@
     "allow-popout-ready",
     "allow-popout-focus",
     "allow-popout-close",
+    "allow-popout-request",
+    "allow-thread-meta",
     "allow-popout-flush-alive",
     "allow-popout-flush-dialog",
     "allow-popout-flush-done"

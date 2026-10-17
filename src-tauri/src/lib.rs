@@ -2213,6 +2213,27 @@ fn get_thread(state: tauri::State<AppState>, thread_id: String, scope: Option<St
         .collect())
 }
 
+/// What the database knows about a conversation beyond its messages (the pin and the snooze of `thread_meta`): the reader window draws its
+/// Pin button from it.
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct ThreadMeta {
+    pinned: bool,
+    snoozed_until: Option<i64>,
+}
+
+#[tauri::command]
+fn thread_meta(state: tauri::State<AppState>, thread_id: String) -> R<ThreadMeta> {
+    let c = lock(&state.db);
+    let row: Option<(i64, Option<i64>)> = match c.query_row("SELECT pinned, snoozed_until FROM thread_meta WHERE thread_id=?1", [&thread_id], |r| Ok((r.get(0)?, r.get(1)?))) {
+        Ok(v) => Some(v),
+        Err(rusqlite::Error::QueryReturnedNoRows) => None,
+        Err(e) => return Err(err(e)),
+    };
+    let (pinned, snoozed_until) = row.unwrap_or((0, None));
+    Ok(ThreadMeta { pinned: pinned != 0, snoozed_until })
+}
+
 // ---------- thread actions ----------
 
 struct MsgRef {
@@ -2591,6 +2612,7 @@ fn folder_not_created(role: &str, why: &str) -> String {
 
 #[tauri::command]
 async fn thread_action(
+    app: tauri::AppHandle,
     state: tauri::State<'_, AppState>,
     thread_ids: Vec<String>,
     action: String,
@@ -2604,7 +2626,11 @@ async fn thread_action(
     } else {
         (action, scope)
     };
-    blocking(move || action_impl(&db, thread_ids, action, arg, scope)).await
+    let (ids, what) = (thread_ids.clone(), action.clone());
+    blocking(move || action_impl(&db, thread_ids, action, arg, scope)).await?;
+    // a reader window open on one of these conversations shows the new state (read / flag / pin / snooze) from the database
+    let _ = app.emit(popout::THREAD_STATE_EVENT, serde_json::json!({ "threadIds": ids, "action": what }));
+    Ok(())
 }
 
 // ---------- senders (bulk cleaner) ----------
@@ -4466,7 +4492,7 @@ async fn fetch_remote_images(urls: Vec<String>) -> R<HashMap<String, String>> {
 }
 
 #[tauri::command]
-async fn ai_complete(state: tauri::State<'_, AppState>, system: String, prompt: String, job_id: Option<String>) -> R<String> {
+async fn ai_complete(window: tauri::Window, state: tauri::State<'_, AppState>, system: String, prompt: String, job_id: Option<String>) -> R<String> {
     let (ep, key, model) = {
         let c = lock(&state.db);
         (
@@ -4475,6 +4501,8 @@ async fn ai_complete(state: tauri::State<'_, AppState>, system: String, prompt: 
             db::get_setting(&c, "ai_model").unwrap_or_default(),
         )
     };
+    // a call of a reader window stops with the window (REQ-R12)
+    let _tracked = job_id.as_deref().and_then(|id| popout::track_ai(window.label(), id));
     ai::complete(&ep, &key, &model, &system, &prompt, job_id.as_deref()).await
 }
 
@@ -4633,6 +4661,7 @@ pub fn run() {
             list_folders,
             list_threads,
             get_thread,
+            thread_meta,
             thread_action,
             prepare_action,
             list_senders,
@@ -4749,6 +4778,8 @@ pub fn run() {
             popout::popout_ready,
             popout::popout_focus,
             popout::popout_close,
+            popout::popout_request,
+            popout::popout_reply,
             page_pong,
             quit_dialog,
             quit_cancelled,
@@ -5428,13 +5459,15 @@ mod capability_tests {
             // calendar connections, sync triggers, mail actions that belong to the main page's intent layer
             "calendar_connect", "calendar_disconnect", "calendar_sources", "calendar_set_sync", "calendar_sync_now", "sync_account", "refresh_badge", "thread_action",
             "queue_action", "cancel_action", "sender_action", "load_older", "idle_states", "frame_info", "frame_caption_rect", "frame_system_menu", "test_notification",
+            // a secondary window asks the main page (popout_request); only the main page answers
+            "popout_reply", "popout_save_all",
         ];
         for c in denied {
             assert!(handler.contains(c), "{c} is not a command any more: update this list");
             assert!(!ok.contains(c), "a secondary window may call {c}");
         }
         // what they need to answer a quit: their own commands, not the main page's
-        for c in ["popout_flush_alive", "popout_flush_dialog", "popout_flush_done", "popout_init", "popout_ready"] {
+        for c in ["popout_flush_alive", "popout_flush_dialog", "popout_flush_done", "popout_init", "popout_ready", "popout_request", "thread_meta"] {
             assert!(ok.contains(c), "{c}");
         }
         // no window creates windows, and no page gets more of the window API than the spec lists (REQ-W1, S5)

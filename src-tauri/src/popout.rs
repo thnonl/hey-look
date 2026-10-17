@@ -31,9 +31,10 @@
 //!   resize and when the window is destroyed.
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
+use std::collections::HashMap;
 use std::sync::Mutex;
 use std::time::Duration;
-use tauri::{AppHandle, Manager, WebviewUrl, WebviewWindowBuilder};
+use tauri::{AppHandle, Emitter, Manager, WebviewUrl, WebviewWindowBuilder};
 
 type R<T> = Result<T, String>;
 
@@ -641,6 +642,10 @@ pub fn on_window_event(window: &tauri::Window, event: &tauri::WindowEvent) {
         tauri::WindowEvent::Moved(_) | tauri::WindowEvent::Resized(_) => note_geometry(app, window, &label),
         tauri::WindowEvent::Destroyed => {
             // write the place down now (the debounce may not have run yet), then forget the window and its hand-off data
+            // what the window still asked of the AI Assistant is dropped with it (REQ-R12)
+            for id in take_ai(&label) {
+                crate::ai::cancel(&id);
+            }
             let entry = reg(app).remove(&label);
             if let Some(e) = entry {
                 if let Some(s) = saved_of(&e).filter(|_| e.dirty) {
@@ -793,6 +798,90 @@ pub fn popout_close(app: AppHandle, label: String) -> bool {
     }
 }
 
+// ---------------------------------------------------------------- AI requests of a window (REQ-R12)
+
+/// The `ai_complete` calls (with a job id) that secondary windows have under way, by window label: a translation or a summary that a reader
+/// started stops when that window is destroyed, however it was closed (the page cannot be relied on to say so on its way out).
+fn ai_jobs() -> &'static Mutex<HashMap<String, Vec<String>>> {
+    static JOBS: std::sync::OnceLock<Mutex<HashMap<String, Vec<String>>>> = std::sync::OnceLock::new();
+    JOBS.get_or_init(Default::default)
+}
+
+fn ai_jobs_lock() -> std::sync::MutexGuard<'static, HashMap<String, Vec<String>>> {
+    ai_jobs().lock().unwrap_or_else(|p| p.into_inner())
+}
+
+/// A call under way that belongs to a secondary window; it is forgotten when this value is dropped (the call ended).
+pub struct AiTrack {
+    label: String,
+    id: String,
+}
+
+impl Drop for AiTrack {
+    fn drop(&mut self) {
+        let mut g = ai_jobs_lock();
+        if let Some(v) = g.get_mut(&self.label) {
+            v.retain(|i| i != &self.id);
+            if v.is_empty() {
+                g.remove(&self.label);
+            }
+        }
+    }
+}
+
+/// Note an AI call of `label` (nothing for the main window: its calls are the page's own). Keep the result until the call is over.
+pub fn track_ai(label: &str, id: &str) -> Option<AiTrack> {
+    if !is_secondary(label) {
+        return None;
+    }
+    ai_jobs_lock().entry(label.to_string()).or_default().push(id.to_string());
+    Some(AiTrack { label: label.to_string(), id: id.to_string() })
+}
+
+/// The calls a window still has under way (for the window that is being destroyed).
+pub fn take_ai(label: &str) -> Vec<String> {
+    ai_jobs_lock().remove(label).unwrap_or_default()
+}
+
+// ---------------------------------------------------------------- requests to the main page (REQ-S4)
+
+/// Event to `main` only: a secondary window asks the main page to do something it owns (read / flag / pin / moves with Undo, a dialog of
+/// the main window, a compose window ...). `{ id, from, kind, payload }`; `from` is stamped here, never taken from the page.
+pub const REQUEST_EVENT: &str = "popout-request";
+/// Event to one secondary window: the main page's answer to a request, `{ id, ok, data, error }`.
+pub const REPLY_EVENT: &str = "popout-reply";
+/// Event to every window: threads changed state (read, flag, pin, snooze) by `thread_action`, `{ threadIds, action }`. A reader re-reads.
+pub const THREAD_STATE_EVENT: &str = "thread-state";
+
+/// The envelope the main page receives. `from` is the label of the calling window, set by the backend (a payload that carries its own
+/// `from` stays inside `payload`).
+pub fn request_envelope(from: &str, id: &str, kind: &str, payload: Value) -> Value {
+    serde_json::json!({ "id": id, "from": from, "kind": kind, "payload": payload })
+}
+
+/// A secondary window asks the main page for something (the main page owns mail state, prefs and the compose windows). Only a live
+/// secondary window may ask. The answer comes as the event [`REPLY_EVENT`] to the caller; no answer within 5 s is the caller's timeout.
+#[tauri::command]
+pub fn popout_request(app: AppHandle, window: tauri::Window, id: String, kind: String, payload: Option<Value>) -> R<()> {
+    let from = window.label().to_string();
+    if reg(&app).get(&from).is_none() {
+        return Err("this is not a secondary window".into());
+    }
+    app.emit_to("main", REQUEST_EVENT, request_envelope(&from, &id, &kind, payload.unwrap_or(Value::Null))).map_err(|e| e.to_string())
+}
+
+/// The main page answers a request of the secondary window `to`. Only the main window may answer. A window that is gone is no error.
+#[tauri::command]
+pub fn popout_reply(app: AppHandle, window: tauri::Window, to: String, id: String, ok: bool, data: Option<Value>, error: Option<String>) -> R<()> {
+    if window.label() != "main" {
+        return Err("only the main window answers a request".into());
+    }
+    if reg(&app).get(&to).is_none() {
+        return Ok(());
+    }
+    app.emit_to(to.as_str(), REPLY_EVENT, serde_json::json!({ "id": id, "ok": ok, "data": data, "error": error })).map_err(|e| e.to_string())
+}
+
 // ---------------------------------------------------------------- tests
 
 #[cfg(test)]
@@ -800,6 +889,45 @@ mod tests {
     use super::*;
 
     const KINDS: [Kind; 2] = [Kind::Compose, Kind::Reader];
+
+    #[test]
+    fn the_ai_calls_of_a_window_are_known_until_they_end_or_the_window_goes() {
+        let a = track_ai("reader-90", "translate-1-0").expect("a secondary window is tracked");
+        let b = track_ai("reader-90", "summarize-2").unwrap();
+        let other = track_ai("reader-91", "translate-9-0").unwrap();
+        assert!(track_ai("main", "summarize-3").is_none(), "the main window's calls are its own");
+        drop(a); // that call ended by itself
+        assert_eq!(take_ai("reader-90"), vec!["summarize-2".to_string()], "only what is still under way");
+        assert!(take_ai("reader-90").is_empty(), "taken once");
+        drop(b); // ends after the window went: nothing to forget, no panic
+        assert_eq!(take_ai("reader-91"), vec!["translate-9-0".to_string()], "another window's calls are not touched");
+        drop(other);
+        assert!(take_ai("reader-91").is_empty());
+    }
+
+    #[test]
+    fn a_request_is_stamped_with_the_caller_and_keeps_the_payload_apart() {
+        let spoof = serde_json::json!({ "from": "main", "action": "archive" });
+        let e = request_envelope("reader-2", "r7", "thread-action", spoof.clone());
+        assert_eq!(e["from"], "reader-2");
+        assert_eq!(e["id"], "r7");
+        assert_eq!(e["kind"], "thread-action");
+        assert_eq!(e["payload"], spoof, "the payload is data: a `from` inside it changes nothing");
+    }
+
+    #[test]
+    fn requests_and_answers_are_wired_to_the_right_windows() {
+        let code = crate::test_guard::non_test_code(include_str!("popout.rs"));
+        // a request goes to the main page only; an answer to the one window that asked; only a live secondary window asks, only main answers
+        assert!(code.contains("app.emit_to(\"main\", REQUEST_EVENT"));
+        assert!(code.contains("app.emit_to(to.as_str(), REPLY_EVENT"));
+        assert!(!code.contains("app.emit(REQUEST_EVENT") && !code.contains("app.emit(REPLY_EVENT"));
+        assert!(code.contains("if reg(&app).get(&from).is_none()"));
+        assert!(code.contains("if window.label() != \"main\""));
+        // the state event is a broadcast (every reader listens), set by `thread_action`
+        let lib = crate::test_guard::non_test_code(include_str!("lib.rs"));
+        assert!(lib.contains("app.emit(popout::THREAD_STATE_EVENT"));
+    }
 
     fn t(s: &str) -> String {
         s.to_string()
