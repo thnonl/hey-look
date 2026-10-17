@@ -1,0 +1,23 @@
+Bullets
+- Filled square
+- Hollow circle
+- Filled circle, the default
+  - Hollow circle by level
+    - Filled square by level
+      - Back to a filled circle
+- Own style below
+  - Square on level two
+Numbers
+1. Numbers, the default
+  a. Letters by level
+    i. Roman by level
+2. Second
+a. Lowercase letters
+A. Uppercase letters
+B. Next
+i. Lowercase Roman
+IV. Uppercase Roman, from four
+V. Five
+1. Mixed
+  - Bullets under numbers
+    A. Own style on level three

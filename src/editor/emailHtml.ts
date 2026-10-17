@@ -5,13 +5,16 @@
 // Pure (no imports, no DOM): a plain Node script tests it against stored files (scripts/test-rich-golden.mjs).
 //
 //   paragraph      <p style="margin:0">..</p>          (an empty one: <p style="margin:0"><br></p>, so it keeps its height)
+//                  with paragraph formats: <p style="margin:0 0 10pt 80px;text-align:center;line-height:1.5"> (blockFormat.ts)
 //   heading 1-3    <h1 style="font-size:18pt;font-weight:bold;margin:12pt 0 4pt">
 //   lists          <ul style="list-style-type:disc;margin:0 0 0 40px;padding:0"> / <ol type="a" style="list-style-type:lower-alpha;..">
+//                  (the marker is the list's own style, else the one its nesting level gives: disc, circle, square / 1. a. i.)
 //   text styles    <span style="font-family:..;font-size:..pt;color:#..;background-color:#..">, <strong> <em> <u> <s> <sub> <sup>
 //   everything     inside one wrapper with the message's default font (`wrapBase`)
 
 import { normFamily, normSize, ptText, sizePt } from "./fonts.ts";
 import { normColor } from "./colors.ts";
+import { defaultListStyle, marginCss, normListStyle, olType, tailCss, type BlockAttrs } from "./blockFormat.ts";
 
 export interface JsonNode {
   type?: string;
@@ -27,15 +30,13 @@ export interface BaseFont {
   size: number;
 }
 
-const P_STYLE = "margin:0";
-const HEADING_STYLE: Record<number, string> = {
-  1: "font-size:18pt;font-weight:bold;margin:12pt 0 4pt",
-  2: "font-size:14pt;font-weight:bold;margin:12pt 0 4pt",
-  3: "font-size:12pt;font-weight:bold;margin:12pt 0 4pt",
-};
+const HEADING_FONT: Record<number, string> = { 1: "font-size:18pt;font-weight:bold", 2: "font-size:14pt;font-weight:bold", 3: "font-size:12pt;font-weight:bold" };
 const LIST_BOX = "margin:0 0 0 40px;padding:0";
-const BULLETS = ["disc", "circle", "square"] as const;
-const NUMBERS: readonly [string, string][] = [["decimal", "1"], ["lower-alpha", "a"], ["lower-roman", "i"]];
+
+/** The style of a paragraph: its margin box (indent, space after), then alignment and line spacing. */
+const paragraphStyle = (a: BlockAttrs): string => marginCss("0", "0", a) + tailCss(a);
+const headingStyle = (level: number, a: BlockAttrs): string => `${HEADING_FONT[level]};${marginCss("12pt", "4pt", a)}${tailCss(a)}`;
+const blockAttrs = (n: JsonNode): BlockAttrs => (n.attrs ?? {}) as BlockAttrs;
 export const QUOTE_STYLE = "margin:0 0 0 .8ex;border-left:2px solid #ccc;padding-left:1ex";
 export const MONO = "Consolas,Menlo,'Courier New',monospace";
 const PRE_STYLE = `font-family:${MONO};font-size:10pt;white-space:pre-wrap;background-color:#f4f4f4;padding:8px;margin:0`;
@@ -139,19 +140,24 @@ function imageHtml(n: JsonNode): string {
 function listHtml(n: JsonNode, depth: number): string {
   const items = (n.content ?? []).map((li) => itemHtml(li, depth)).join("");
   if (n.type === "orderedList") {
-    const [css, type] = NUMBERS[depth % NUMBERS.length];
+    const css = normListStyle(true, n.attrs?.listStyle as string) ?? defaultListStyle(true, depth);
+    const type = olType(css);
     const start = Number(n.attrs?.start);
     const attrs = `${type !== "1" ? ` type="${type}"` : ""}${start > 1 ? ` start="${Math.round(start)}"` : ""}`;
     return `<ol${attrs} style="list-style-type:${css};${LIST_BOX}">${items}</ol>`;
   }
-  return `<ul style="list-style-type:${BULLETS[depth % BULLETS.length]};${LIST_BOX}">${items}</ul>`;
+  const css = normListStyle(false, n.attrs?.listStyle as string) ?? defaultListStyle(false, depth);
+  return `<ul style="list-style-type:${css};${LIST_BOX}">${items}</ul>`;
 }
 
-/** A list item: the text of its first paragraph straight in the <li> (what Outlook and Gmail write), its other blocks after it. */
+/**
+ * A list item: the text of its first paragraph straight in the <li> (what Outlook and Gmail write), its other blocks after it. A first paragraph
+ * with a format of its own (centred, line spacing ...) keeps its <p>, which carries the style.
+ */
 function itemHtml(li: JsonNode, depth: number): string {
   const kids = li.content ?? [];
   const rest = kids.slice(1);
-  const simple = kids[0]?.type === "paragraph" && rest.every((k) => k.type === "bulletList" || k.type === "orderedList");
+  const simple = kids[0]?.type === "paragraph" && paragraphStyle(blockAttrs(kids[0])) === "margin:0" && rest.every((k) => k.type === "bulletList" || k.type === "orderedList");
   if (simple) return `<li>${inlineHtml(kids[0].content)}${rest.map((k) => listHtml(k, depth + 1)).join("")}</li>`;
   return `<li>${kids.map((k) => blockHtml(k, depth + 1)).join("")}</li>`;
 }
@@ -160,11 +166,11 @@ function blockHtml(n: JsonNode, depth = 0): string {
   switch (n.type) {
     case "paragraph": {
       const inner = inlineHtml(n.content);
-      return `<p style="${P_STYLE}">${inner || "<br>"}</p>`;
+      return `<p style="${paragraphStyle(blockAttrs(n))}">${inner || "<br>"}</p>`;
     }
     case "heading": {
       const level = Math.min(3, Math.max(1, Number(n.attrs?.level) || 1));
-      return `<h${level} style="${HEADING_STYLE[level]}">${inlineHtml(n.content, ["bold"])}</h${level}>`;
+      return `<h${level} style="${headingStyle(level, blockAttrs(n))}">${inlineHtml(n.content, ["bold"])}</h${level}>`;
     }
     case "bulletList":
     case "orderedList":
