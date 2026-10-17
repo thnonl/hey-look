@@ -57,14 +57,14 @@ const marksOf = (s) => {
   s.content.firstChild.forEach((n) => (out[n.text] = n.marks.map((m) => m.type.name).sort().join("+")));
   return out;
 };
-assert.deepEqual(marksOf(inherit(slice, at(3), "source")), { own: "textStyle", bare: "" }, "Keep source takes nothing");
+assert.deepEqual(marksOf(inherit(slice, at(3).marks(), "source")), { own: "textStyle", bare: "" }, "Keep source takes nothing");
 // inside "styled" (bold, link, font, size, colour)
-assert.deepEqual(marksOf(inherit(slice, at(3), "merge")), { own: "textStyle", bare: "textStyle" }, "Merge: the font, size and colour around the caret only, and not over a text's own");
-assert.deepEqual(marksOf(inherit(slice, at(3), "text")), { own: "bold+textStyle", bare: "bold+textStyle" }, "Text only: like typing there, but never a link");
+assert.deepEqual(marksOf(inherit(slice, at(3).marks(), "merge")), { own: "textStyle", bare: "textStyle" }, "Merge: the font, size and colour around the caret only, and not over a text's own");
+assert.deepEqual(marksOf(inherit(slice, at(3).marks(), "text")), { own: "bold+textStyle", bare: "bold+textStyle" }, "Text only: like typing there, but never a link");
 // the caret in plain text: nothing to take
-assert.deepEqual(marksOf(inherit(slice, at(8), "merge")), { own: "textStyle", bare: "" });
-assert.deepEqual(marksOf(inherit(slice, at(8), "text")), { own: "textStyle", bare: "" });
-const m = inherit(slice, at(3), "merge").content.firstChild.lastChild.marks[0];
+assert.deepEqual(marksOf(inherit(slice, at(8).marks(), "merge")), { own: "textStyle", bare: "" });
+assert.deepEqual(marksOf(inherit(slice, at(8).marks(), "text")), { own: "textStyle", bare: "" });
+const m = inherit(slice, at(3).marks(), "merge").content.firstChild.lastChild.marks[0];
 assert.ok(m.attrs.fontFamily === "Arial" && m.attrs.fontSize === "14pt" && m.attrs.color === "#0000FF", "the whole text style of the caret");
 
 // ---- the paste default in the preferences

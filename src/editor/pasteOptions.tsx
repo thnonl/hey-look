@@ -12,7 +12,7 @@
 // Pictures in the clipboard (a screenshot) are Compose's own paste handler; pictures that are not data: pictures never get here (pasteClean.ts).
 
 import { Extension } from "@tiptap/core";
-import { DOMParser as PmParser, type ResolvedPos, type Slice } from "@tiptap/pm/model";
+import { DOMParser as PmParser, type Mark, type ResolvedPos, type Slice } from "@tiptap/pm/model";
 import { Plugin, PluginKey, TextSelection } from "@tiptap/pm/state";
 import type { EditorView } from "@tiptap/pm/view";
 import { ChevronDown, ClipboardPaste } from "lucide-react";
@@ -24,7 +24,7 @@ import { osNow } from "../platform";
 import { useStore } from "../store";
 import type { BaseFont } from "./emailHtml";
 import type { PasteMode } from "./pasteClean";
-import { inherit } from "./pasteMarks";
+import { caretMarks, inherit } from "./pasteMarks";
 
 interface Payload {
   html: string;
@@ -34,12 +34,14 @@ interface Payload {
   plain?: boolean;
 }
 
-/** The last rich paste, while its button is shown: the clipboard we read, the range it went to, the choice that was applied. */
+/** The last rich paste, while its button is shown: the clipboard we read, the range it went to, the choice that was applied, and the format the caret had before it. */
 interface PasteInfo {
   payload: Payload;
   from: number;
   to: number;
   mode: PasteMode;
+  /** what the person would have typed in at the caret before the paste (caretMarks): Merge and Keep text only take it, and leave the caret in it */
+  marks: readonly Mark[];
 }
 
 const key = new PluginKey<PasteInfo | null>("pasteOptions");
@@ -55,10 +57,10 @@ let core: Core | null = null;
 const loadCore = () => void import("./pasteClean").then((m) => (core = m));
 
 /** The slice for a clipboard in a mode, parsed like ProseMirror parses a paste (used to do a paste again with another choice). */
-function sliceFor(c: Core, view: EditorView, p: Payload, mode: PasteMode, $at: ResolvedPos, base: BaseFont): Slice {
+function sliceFor(c: Core, view: EditorView, p: Payload, mode: PasteMode, $at: ResolvedPos, around: readonly Mark[], base: BaseFont): Slice {
   const html = c.editorHtml(p, mode, Boolean(view.state.schema.nodes.table), base);
   const dom = new window.DOMParser().parseFromString(`<body>${html}</body>`, "text/html").body; // (an inert document: nothing in it is loaded or run)
-  return inherit(PmParser.fromSchema(view.state.schema).parseSlice(dom, { context: $at }), $at, mode);
+  return inherit(PmParser.fromSchema(view.state.schema).parseSlice(dom, { context: $at }), around, mode);
 }
 
 /** Do the paste again in another mode, in place. */
@@ -67,10 +69,14 @@ function switchTo(view: EditorView, info: PasteInfo, mode: PasteMode, base: Base
   const from = Math.min(info.from, size);
   const to = Math.min(info.to, size);
   if (!core) return;
-  const slice = sliceFor(core, view, info.payload, mode, view.state.doc.resolve(from), base);
+  const slice = sliceFor(core, view, info.payload, mode, view.state.doc.resolve(from), info.marks, base);
   const tr = view.state.tr.replaceRange(from, to, slice);
   const end = tr.mapping.map(to, 1);
-  tr.setSelection(TextSelection.near(tr.doc.resolve(end), -1)).setMeta("paste", true).setMeta("uiEvent", "paste").setMeta(key, { ...info, mode, from, to: end }).scrollIntoView();
+  tr.setSelection(TextSelection.near(tr.doc.resolve(end), -1));
+  // Keep source leaves the caret in the format of the text it ends in (no stored marks: setSelection has cleared them); Merge and Keep text only leave it in the
+  // format the caret had before the paste, not in the bold of the text just replaced
+  if (mode !== "source") tr.setStoredMarks(info.marks);
+  tr.setMeta("paste", true).setMeta("uiEvent", "paste").setMeta(key, { ...info, mode, from, to: end }).scrollIntoView();
   view.dispatch(tr);
   view.focus();
 }
@@ -224,12 +230,18 @@ export const PasteHandling = Extension.create<{ getBase: () => BaseFont }>({
             const meta = tr.getMeta(key) as PasteInfo | null | undefined;
             if (meta !== undefined) return meta;
             if (tr.getMeta("uiEvent") === "paste" && current && !current.drop && !current.plain && current.html) {
-              return { payload: current, from: tr.mapping.map(old.selection.from, -1), to: state.selection.to, mode: current.mode };
+              return { payload: current, from: tr.mapping.map(old.selection.from, -1), to: state.selection.to, mode: current.mode, marks: caretMarks(old) };
             }
             if (!prev) return null;
             if (tr.docChanged && !tr.getMeta("appendedTransaction")) return null; // typing or any other edit
             return tr.docChanged ? { ...prev, from: tr.mapping.map(prev.from, -1), to: tr.mapping.map(prev.to, 1) } : prev;
           },
+        },
+        // A Merge / Keep text only paste leaves the caret in the format it had before (not in the bold of the text that came with it), like a switch to them does
+        appendTransaction: (trs, _old, state) => {
+          const info = key.getState(state);
+          if (!info || info.mode === "source" || !state.selection.empty || !trs.some((tr) => tr.getMeta("uiEvent") === "paste" && tr.getMeta(key) === undefined)) return null;
+          return state.tr.setStoredMarks(info.marks);
         },
         props: {
           handleDOMEvents: {
@@ -264,7 +276,7 @@ export const PasteHandling = Extension.create<{ getBase: () => BaseFont }>({
             return PmParser.fromSchema(v.state.schema).parseSlice(dom, { preserveWhitespace: false, context: $ctx });
           },
           // Merge and Text only take the format around the caret; typed-like text (no HTML) always does
-          transformPasted: (slice, v, plain) => (current && !current.drop ? inherit(slice, v.state.selection.$from, plain || !current.html ? "text" : current.mode) : slice),
+          transformPasted: (slice, v, plain) => (current && !current.drop ? inherit(slice, caretMarks(v.state), plain || !current.html ? "text" : current.mode) : slice),
         },
         view: (v) => {
           overlay = new Overlay(v, getBase);
