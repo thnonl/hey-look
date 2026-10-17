@@ -666,6 +666,7 @@ const newThreads = (accountId: string) =>
 // `__mockMail` in the console: { calls (every load_older), opened (urls given to the browser), local, total, failIn }
 let mockAiCalls = 0;
 /** the job ids the page cancelled (ai_cancel): a dev check can read them from window.__mockAiCancelled */
+const mockSecrets = new Map<string, string>(); // the AI key saved in Settings (the real one is in the OS credential store)
 const mockAiCancelled: string[] = ((window as unknown as { __mockAiCancelled?: string[] }).__mockAiCancelled = []);
 const hashHas = (k: string) => new RegExp(`(^|&)${k}(=|&|$)`).test(window.location.hash.slice(1));
 const hashNum = (k: string, d: number) => {
@@ -1332,7 +1333,7 @@ export function installMock() {
         if (!busyUntil) busyUntil = Date.now() + 8000;
         return Date.now() < busyUntil;
       }
-      case "has_secret": return false;
+      case "has_secret": return a.key === "ai_key" && mockSecrets.has("ai_key");
       case "google_env_configured": case "microsoft_env_configured": return false;
       case "microsoft_tenant": return "";
       case "discover_server": {
@@ -1341,7 +1342,7 @@ export function installMock() {
         const domain = email.split("@")[1] ?? "example.com";
         return { imapHost: `imap.${domain}`, imapPort: 993, imapSsl: true, smtpHost: `smtp.${domain}`, smtpPort: 587, smtpSecurity: "starttls", username: email, oauth: null, source: "autoconfig" };
       }
-      case "set_secret": return null;
+      case "set_secret": if (a.key === "ai_key") { if (String(a.value ?? "")) mockSecrets.set("ai_key", String(a.value)); else mockSecrets.delete("ai_key"); } return null;
       // the headers an answer needs (the real command reads them from the server's copy): Reply-To only on the probe message
       case "reply_headers": return a.messageId === "m-rt"
         ? { messageId: "<m-rt@acme.example>", references: ["<root@acme.example>", "<m-rt@acme.example>"], replyTo: ['"Acme Support" <support@acme.example>'], from: '"Acme No Reply" <no-reply@acme.example>', to: ["nam@example.com", '"Doe, John" <john@acme.example>', "JOHN@acme.example", "y@acme.example"], cc: ['"Cc, Person" <cc@acme.example>', "nam@gmail.com"] }
@@ -1578,8 +1579,14 @@ export function installMock() {
       }
       case "suggest_contacts": return [{ name: "Linh Tran", email: "linh@example.com" }];
       case "ai_list_models": {
-        if (String(a.endpoint).includes("bad")) throw "Models request failed (404 Not Found)"; // lets the error state be tried in the browser
-        return new Promise((r) => setTimeout(() => r(["gpt-4o", "gpt-4o-mini", "gpt-4.1", "o3-mini", "text-embedding-3-small"]), 500));
+        // like the real command: a key typed in Settings but not saved yet wins over the saved one; `#modelsms=N` sets the answer time (500 ms default)
+        const endpoint = String(a.endpoint);
+        const key = String(a.key ?? "") || mockSecrets.get("ai_key") || "";
+        if (endpoint.includes("bad")) throw "Models request failed (404 Not Found)"; // lets the error state be tried in the browser
+        // a half-typed address cannot be reached; a "keyed" address needs a key (typed or saved); an "empty" one lists nothing
+        if (!/^https?:\/\/[^/\s]+\.[a-z]{2,}(\/|$)/i.test(endpoint)) throw `error sending request for url (${endpoint}/models): error trying to connect: dns error: failed to lookup address information`;
+        if (endpoint.includes("keyed") && !key) throw "Models request failed (401 Unauthorized)";
+        return new Promise((r) => setTimeout(() => r(endpoint.includes("empty") ? [] : ["gpt-4o", "gpt-4o-mini", "gpt-4.1", "o3-mini", "text-embedding-3-small"]), hashNum("modelsms", 500)));
       }
       case "ai_complete": {
         // dev switches for the waiting states of an AI call: #slowai[=ms] answers after 20 s (or ms); #failai[=timeout|nokey|server|plain|once] fails after 5 s ("once": the first call only)
