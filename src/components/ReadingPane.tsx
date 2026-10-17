@@ -8,6 +8,7 @@ import { api, MessageFull } from "../api";
 import { setMailDark } from "../darkMail";
 import { LANGS, t, type Key, type Lang } from "../i18n";
 import { useLang, useT } from "../i18n/react";
+import { fmtNumber } from "../i18n/format";
 import { tx } from "../i18n/rich";
 import { DARK_CANVAS, frameBaseCss, frameRootClass, toggleMailCanvas } from "../mailCanvas";
 import { eff } from "../prefs";
@@ -15,6 +16,7 @@ import { CONFIDENTIAL_FRAME_CSS, lockDocument, useContentProtection } from "../p
 import { accountsOf, canMoveToJunk } from "../junk";
 import { friendlyError, useStore } from "../store";
 import { cancelTranslation, dismissTranslation, jobErrorText, startTranslation } from "../translate";
+import { MAX_CHARS } from "../translateChunks";
 import { elapsedLabel, jobFor, slowHint, type TranslateJob } from "../translateJobs";
 import { fmtFull, fmtSize, plainToHtml, sanitizeHtml, snoozePresets, subjectText } from "../util";
 import { AttachmentStrip, Lightbox, LbItem } from "./Attachments";
@@ -420,35 +422,49 @@ const TRANSLATE_TO: { en: string; key: Key }[] = [
   { en: "Korean", key: "reading.lang.korean" },
 ];
 
-/** The translation of a message, where it appears: progress while it runs (it goes on when the person reads other mail), the error, the text. */
-function TranslateBox({ job }: { job: TranslateJob }) {
+/** An AI call under way, where it appears: ring, what is going on, the time and Cancel; a second line says where it is (Part 2 of 5). */
+function AiRunning({ title, text, detail, startedAt, onCancel }: { title: React.ReactNode; text: string; detail?: string; startedAt: number; onCancel: () => void }) {
   const t = useT();
   const [now, setNow] = useState(() => Date.now());
-  const running = job.status === "running";
   useEffect(() => {
-    if (!running) return;
     setNow(Date.now());
     const id = setInterval(() => setNow(Date.now()), 1000);
     return () => clearInterval(id);
-  }, [running, job.run]);
-  const head = <b><Sparkles size={13} /> {t("reading.msg.translation")}</b>;
-  if (running)
-    return (
-      <div className="summary tr-box" role="status">
-        {head}
-        <div className="tr-row">
-          <span className="tr-main">
-            <span className="busy-ring spin" aria-hidden />
-            <span className="busy-dots" aria-hidden>···</span>
-            <span className="tr-text">{t("reading.msg.translating", { lang: t(job.langKey as Key) })}</span>
-          </span>
-          <span className="tr-side">
-            <span className="muted small tr-time" aria-hidden>{elapsedLabel(now - job.startedAt)}</span>
-            <button className="link small" onClick={() => cancelTranslation(job.key)}>{t("common.cancel")}</button>
-          </span>
-        </div>
-        {slowHint(job.startedAt, now) && <div className="muted small tr-hint">{t("reading.translate.slow")}</div>}
+  }, [startedAt]);
+  return (
+    <div className="summary tr-box" role="status">
+      {title}
+      <div className="tr-row">
+        <span className="tr-main">
+          <span className="busy-ring spin" aria-hidden />
+          <span className="busy-dots" aria-hidden>···</span>
+          <span className="tr-text">{text}</span>
+        </span>
+        <span className="tr-side">
+          <span className="muted small tr-time" aria-hidden>{elapsedLabel(now - startedAt)}</span>
+          <button className="link small" onClick={onCancel}>{t("common.cancel")}</button>
+        </span>
       </div>
+      {detail && <div className="muted small tr-hint">{detail}</div>}
+      {slowHint(startedAt, now) && <div className="muted small tr-hint">{t("reading.translate.slow")}</div>}
+    </div>
+  );
+}
+
+/** The translation of a message, where it appears: progress while it runs (it goes on when the person reads other mail), the error, the text. */
+function TranslateBox({ job }: { job: TranslateJob }) {
+  const t = useT();
+  const head = <b><Sparkles size={13} /> {t("reading.msg.translation")}</b>;
+  const total = job.parts.length;
+  if (job.status === "running")
+    return (
+      <AiRunning
+        title={head}
+        text={t("reading.msg.translating", { lang: t(job.langKey as Key) })}
+        detail={total > 1 ? t("reading.translate.part", { n: job.translated.length + 1, total }) : undefined}
+        startedAt={job.startedAt}
+        onCancel={() => cancelTranslation(job.key)}
+      />
     );
   if (job.status === "failed")
     return (
@@ -458,6 +474,9 @@ function TranslateBox({ job }: { job: TranslateJob }) {
           <AlertTriangle size={14} aria-hidden />
           <span className="tr-text">{t("reading.translate.failed", { error: jobErrorText(job) })}</span>
         </div>
+        {total > 1 && job.translated.length > 0 && (
+          <div className="muted small tr-hint">{t("reading.translate.resume", { done: job.translated.length, total, next: job.translated.length + 1 })}</div>
+        )}
         <div className="tr-actions">
           <button className="link small" onClick={() => startTranslation(job)}>{t("common.retry")}</button>
           <button className="link small" onClick={() => dismissTranslation(job.key)}>{t("reading.msg.dismiss")}</button>
@@ -468,6 +487,7 @@ function TranslateBox({ job }: { job: TranslateJob }) {
     <div className="summary">
       {head}
       <div className="pre">{job.result}</div>
+      {job.truncated && <div className="muted small tr-hint">{t("reading.translate.truncated", { n: fmtNumber(MAX_CHARS) })}</div>}
       <button className="link small" onClick={() => dismissTranslation(job.key)}>{t("reading.msg.dismiss")}</button>
     </div>
   );
@@ -532,7 +552,8 @@ function MessageCard({ m, open, onToggle }: { m: MessageFull; open: boolean; onT
       subject: m.subject,
       lang: lang.en,
       langKey: lang.key,
-      text: (m.text ?? m.html?.replace(/<[^>]+>/g, " ") ?? "").slice(0, 12000),
+      // all of it: a long text is translated in parts (src/translateChunks.ts)
+      text: m.text ?? m.html?.replace(/<[^>]+>/g, " ") ?? "",
     });
   };
 

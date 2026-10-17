@@ -385,10 +385,12 @@ if (!args.has("--lint-only")) {
     if (HANDLED_ELSEWHERE.has(code)) continue;
     if (!Object.keys(en).some((k) => k === `backend.${code}` || k.startsWith(`backend.${code}.`))) fail(`Rust sends the code ${code} but the dictionary has no backend.${code}`);
   }
+  // codes the UI makes itself, in the same shape, because it gives up before the backend can (src/translateJobs.ts totalTimeoutError)
+  const UI_CODES = new Set(["AI_TIMEOUT_TOTAL"]);
   for (const k of Object.keys(en)) {
     if (!k.startsWith("backend.")) continue;
     const code = k.slice("backend.".length).split(".")[0];
-    if (!rustCodes.has(code)) fail(`${k}: no Rust code sends ${code}`);
+    if (!rustCodes.has(code) && !UI_CODES.has(code)) fail(`${k}: no Rust code sends ${code}`);
   }
   // calendar sync sentences: each one the Rust code can say is recognised by a pattern of BACKEND_ERRORS (else it would stay English)
   const calRust = ["calsync/write.rs", "calsync/cmds.rs"].map((f) => readFileSync(join(rustDir, f), "utf8")).join("\n").split("\n").filter((l) => !/assert|starts_with/.test(l)).join("\n");

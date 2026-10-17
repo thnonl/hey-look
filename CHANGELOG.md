@@ -42,6 +42,7 @@ Writing a message got safer and more complete: nothing you write is lost to a cr
 - Links: Insert link (button or Ctrl+K) opens a small dialog in the app with the address and an optional text, instead of the system prompt; Remove link is in it too
 - Writing a message: Report and Snooze (and every other button that needs a selected mail) are greyed out while a message is open and no mail is selected
 - macOS: the app is now signed with a fixed certificate (self-signed, not notarized), so macOS keeps remembering which app may read your saved passwords across updates. Because the signature changes once, the first start after updating to this version asks about your saved passwords one more time
+- Translate: a long email is translated in full (up to 60,000 characters) instead of only its first 12,000: the text is cut at paragraphs, then at sentences, into parts of about 8,000 characters that are translated one after the other and put together in the layout of the original. The notice and the box say "Part 2 of 5"; Cancel stops the request and the parts not yet started; a part that fails on the network or with a 5xx answer is tried once more, and when it still fails, Retry goes on from that part without translating the finished parts again. Beyond 60,000 characters the first part is translated and a note says so
 
 ## 1.0.5 — 2026-10-16
 

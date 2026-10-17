@@ -672,6 +672,22 @@ const hashNum = (k: string, d: number) => {
   const m = new RegExp(`(^|&)${k}=(\\d+)`).exec(window.location.hash.slice(1));
   return m ? Number(m[2]) : d;
 };
+// #longmail[=chars]: the last message of "Q4 roadmap review" is a long text (default 30000 characters: numbered paragraphs of numbered sentences),
+// to try the translation in parts. #slowai=3000 makes every part take 3 s. #failpart=3[&failtimes=2]: part 3 answers a 503 the first 2 times it is asked
+// (one automatic second try, then the error with Retry, which goes on from that part). window.__mockAiRequests lists every ai_complete call (id, part, chars).
+if (hashHas("longmail")) {
+  const want = hashNum("longmail", 30000);
+  let text = "";
+  for (let n = 1; text.length < want; n++) {
+    const sentences = Array.from({ length: 5 }, (_, k) => `Sentence ${k + 1} of paragraph ${n} says that the milestone review needs a decision before Thursday.`).join(" ");
+    text += `${text ? "\n\n" : ""}Paragraph ${n}. ${sentences}`;
+  }
+  const last = messages[2];
+  last.text = text.slice(0, want);
+  last.html = `<div style="font-family:sans-serif">${last.text.split("\n\n").map((x) => `<p>${x}</p>`).join("")}</div>`;
+}
+const mockAiRequests: { id: string; part: number; chars: number }[] = ((window as unknown as { __mockAiRequests?: unknown[] }).__mockAiRequests = []) as never;
+const mockPartFails = new Map<number, number>();
 type MockRow = ReturnType<typeof t>;
 /** The "Max emails to download" cap as the backend reads it (setting `max_download`: default 2000, clamped to 100..5000). */
 const mockCap = () => {
@@ -1562,9 +1578,15 @@ export function installMock() {
       }
       case "ai_complete": {
         // dev switches for the waiting states of an AI call: #slowai[=ms] answers after 20 s (or ms); #failai[=timeout|nokey|server|plain|once] fails after 5 s ("once": the first call only)
+        const part = Number(/this is part (\d+)/.exec(String(a.system))?.[1] ?? 0);
+        mockAiRequests.push({ id: String(a.jobId), part, chars: String(a.prompt).length });
         const reply = String(a.system).startsWith("Translate")
-          ? `[${/into (.+?)\./.exec(String(a.system))?.[1] ?? "?"}] ${String(a.prompt).slice(0, 600)}`
+          ? `[${/into (.+?)\./.exec(String(a.system))?.[1] ?? "?"}${part ? ` · part ${part}` : ""}] ${String(a.prompt).slice(0, part ? 120 : 600)}`
           : "• Linh shared the Q4 roadmap\n• Review requested before Thursday";
+        if (part && part === hashNum("failpart", 0) && (mockPartFails.get(part) ?? 0) < hashNum("failtimes", 2)) {
+          mockPartFails.set(part, (mockPartFails.get(part) ?? 0) + 1);
+          return new Promise((_, rej) => setTimeout(() => rej("AI_HTTP|status=503|detail=upstream overloaded: The AI Assistant returned an error (503): upstream overloaded"), 800));
+        }
         const failMode = /(^|&)failai(?:=([a-z]+))?(&|$)/.exec(window.location.hash.slice(1));
         const failures: Record<string, string> = {
           timeout: "AI_TIMEOUT|secs=180: The AI Assistant didn’t answer within 180 seconds.",

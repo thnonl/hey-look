@@ -4,16 +4,28 @@
  * This file is the pure part: the states and what may happen from each, with no store, no timers of its own and no UI, so a script
  * can test it (scripts/test-translate-jobs.mjs). src/translate.ts runs the requests and drives the toast and the store.
  *
+ * A long text is translated in parts, one request after the other (src/translateChunks.ts cuts it): the job keeps the parts and the
+ * translated ones so far, so a failure in part 3 of 5 keeps parts 1 and 2 and Retry goes on with part 3.
+ *
  *   start -> running -> done      (the result is kept for the session: "cache")
- *                    -> failed    (shown with Retry / Dismiss; Retry starts it again)
+ *                    -> failed    (shown with Retry / Dismiss; Retry goes on from the part that failed)
  *   cancel: a running job is dropped; its answer, when it still comes, is ignored (the run number no longer matches)
  */
+import { AI_TIMEOUT_MS, aiCallId, withTimeout } from "./aiCall.ts";
+import { joinParts, planChunks } from "./translateChunks.ts";
+
+export { withTimeout };
 
 /** Shown after this long without an answer: "This can take a minute for a long email". */
 export const SLOW_HINT_MS = 5_000;
 /** The UI gives up on a request after this long. The backend gives up after 180 s (src-tauri/src/ai.rs) and says so in a coded error,
  *  so this one is only the safety net behind it (a hung webview call must never leave a spinner for ever). */
-export const TRANSLATE_TIMEOUT_MS = 190_000;
+export const TRANSLATE_TIMEOUT_MS = AI_TIMEOUT_MS;
+/** The whole translation (all its parts) gives up after this long, counted from the start or from a Retry; the parts done are kept.
+ *  Five requests at the full 180 s fit; a text of the cap (60,000 characters, 8 parts or a few more) on a normal model takes minutes. */
+export const TRANSLATE_TOTAL_MS = 15 * 60_000;
+/** The automatic second try of a part that failed on the network or with a 5xx answer waits this long first. */
+export const RETRY_DELAY_MS = 1_500;
 /** Finished translations kept per session; the oldest go first (a running job is never dropped). */
 export const MAX_FINISHED = 30;
 
@@ -31,7 +43,7 @@ export interface TranslateSpec {
   lang: string;
   /** dictionary key of the name shown to the person */
   langKey: string;
-  /** the text to translate */
+  /** the text to translate, all of it (the parts are cut from it when the job starts) */
   text: string;
 }
 
@@ -50,14 +62,22 @@ export interface TranslateJob extends TranslateSpec {
   errorSource?: string;
   /** the person closed the toast with its "x": the job goes on, only the toast is gone */
   toastClosed: boolean;
+  /** the text cut into the requests to make (at least one) and what stood between them */
+  parts: string[];
+  seps: string[];
+  /** the text was longer than MAX_CHARS: only its beginning is translated */
+  truncated: boolean;
+  /** the translated parts so far, in order; the next request is for part number `translated.length` (0-based) */
+  translated: string[];
 }
 
 export type Jobs = Readonly<Record<string, TranslateJob>>;
 
-const bootId = Math.random().toString(36).slice(2, 8);
 /** The id of the backend request of a start (`ai_complete` / `ai_cancel`): unique per start and per run of the app, so a call left from
- *  before a page reload can never be taken for a new one. */
-export const aiJobId = (run: number): string => `translate-${bootId}-${run}`;
+ *  before a page reload can never be taken for a new one. With `part` it is the request for that part; `attempt` is the automatic second
+ *  try of it (a new id: a cancel that came after the first try ended must not stop the second). Cancel drops the ids in flight. */
+export const aiJobId = (run: number, part?: number, attempt = 0): string =>
+  aiCallId("translate", run, part === undefined ? "" : `-${part}${attempt ? `.${attempt}` : ""}`);
 
 export const jobKey = (messageId: string, lang: string): string => `${messageId}\u0000${lang}`;
 
@@ -66,15 +86,51 @@ const touch = () => ++touchSeq;
 
 /**
  * Start a translation. Nothing starts (`start: false`) when the same message and language is already running (a second click) or already
- * done (the cached translation is shown again, newest). A failed one starts again (Retry). `run` must be a number never used before.
+ * done (the cached translation is shown again, newest). A failed one starts again (Retry) and goes on with the part that failed: the
+ * parts done before are kept (when the text is the same). `run` must be a number never used before.
  */
 export function startJob(jobs: Jobs, spec: TranslateSpec, now: number, run: number): { jobs: Jobs; start: boolean; key: string } {
   const key = jobKey(spec.messageId, spec.lang);
   const old = jobs[key];
   if (old?.status === "running") return { jobs, start: false, key };
   if (old?.status === "done") return { jobs: { ...jobs, [key]: { ...old, touched: touch() } }, start: false, key };
-  const job: TranslateJob = { ...spec, key, status: "running", run, startedAt: now, touched: touch(), toastClosed: false };
+  const resume = old?.status === "failed" && old.text === spec.text ? old : undefined;
+  const plan = resume ?? planChunks(spec.text);
+  const job: TranslateJob = {
+    ...spec,
+    key,
+    status: "running",
+    run,
+    startedAt: now,
+    touched: touch(),
+    result: undefined,
+    error: undefined,
+    errorSource: undefined,
+    toastClosed: false,
+    parts: plan.parts,
+    seps: plan.seps,
+    truncated: plan.truncated,
+    translated: resume ? resume.translated : [],
+  };
   return { jobs: { ...jobs, [key]: job }, start: true, key };
+}
+
+/** The part a running job asks for now: its number (0-based), how many there are, and its text. */
+export function nextPart(job: TranslateJob): { index: number; total: number; text: string } {
+  return { index: job.translated.length, total: job.parts.length, text: job.parts[job.translated.length] ?? "" };
+}
+
+/**
+ * The answer for the next part arrived. The job goes on (`done: false`: the next part is asked for) or, with the last part, is finished with
+ * the parts put together (`done: true`). Ignored (`applied: false`) when the job was cancelled, restarted or is not running any more.
+ */
+export function partDone(jobs: Jobs, key: string, run: number, text: string): { jobs: Jobs; applied: boolean; done: boolean } {
+  const j = jobs[key];
+  if (!j || j.run !== run || j.status !== "running" || j.translated.length >= j.parts.length) return { jobs, applied: false, done: false };
+  const translated = [...j.translated, text];
+  if (translated.length < j.parts.length) return { jobs: { ...jobs, [key]: { ...j, translated, touched: touch() } }, applied: true, done: false };
+  const r = finishJob({ ...jobs, [key]: { ...j, translated } }, key, run, joinParts(translated, j.seps));
+  return { jobs: r.jobs, applied: r.applied, done: r.applied };
 }
 
 /** The answer arrived. Ignored (`applied: false`) when the job was cancelled, restarted or is not running any more. */
@@ -143,23 +199,6 @@ export function elapsedLabel(ms: number): string {
   return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, "0")}`;
 }
 
-/** The promise, or `onTimeout()` as a rejection after `ms`: whichever comes first. The timer is cleared either way. */
-export function withTimeout<T>(p: Promise<T>, ms: number, onTimeout: () => unknown): Promise<T> {
-  return new Promise<T>((resolve, reject) => {
-    const timer = setTimeout(() => reject(onTimeout()), ms);
-    p.then(
-      (v) => {
-        clearTimeout(timer);
-        resolve(v);
-      },
-      (e) => {
-        clearTimeout(timer);
-        reject(e);
-      },
-    );
-  });
-}
-
 function dropOldFinished(jobs: Jobs): Jobs {
   const finished = Object.values(jobs).filter((j) => j.status === "done");
   if (finished.length <= MAX_FINISHED) return jobs;
@@ -167,4 +206,20 @@ function dropOldFinished(jobs: Jobs): Jobs {
   const next = { ...jobs };
   for (const j of drop) delete next[j.key];
   return next;
+}
+
+/** The prompt of a part. A text in one part is asked for as it always was; with several, the model is told which part it has so that it
+ *  translates just that and adds no introduction or closing. */
+export function partPrompt(lang: string, index: number, total: number): string {
+  // i18n-ok: a prompt for the language model, not text the person reads
+  const base = `Translate the email into ${lang}. Output only the translation, keep the formatting and line breaks.`;
+  // i18n-ok: a prompt for the language model, not text the person reads
+  return total > 1 ? `${base} This email is long and is sent in ${total} parts; this is part ${index + 1}. Translate only this part and add nothing before or after it.` : base;
+}
+
+/** The coded error of a translation that used up TRANSLATE_TOTAL_MS (translated by `backend.AI_TIMEOUT_TOTAL`). The parts done are kept. */
+export function totalTimeoutError(): Error {
+  const mins = Math.round(TRANSLATE_TOTAL_MS / 60_000);
+  // i18n-ok: a coded error, translated by backend.AI_TIMEOUT_TOTAL
+  return new Error(`AI_TIMEOUT_TOTAL|mins=${mins}: The translation took longer than ${mins} minutes in all. Retry goes on where it stopped.`);
 }

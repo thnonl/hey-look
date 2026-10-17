@@ -136,7 +136,7 @@
 <details class="hq" id="leaves"><summary>哪些内容会离开我的电脑？</summary><div class="hq-a"><p>除了以下这些地方，不会向任何地方发送任何内容：你的邮件服务器；Google和Microsoft的登录服务；Google日历和Microsoft Graph（仅限你开启了日历同步的邮箱）；你点击<strong>检测设置</strong>时的Thunderbird ISPDB和你自己域名的autoconfig地址（域名公布其服务器设置的位置）；你配置的AI端点；你允许加载的图片背后的服务器；你点击“取消订阅”链接时该链接背后的发件人地址；以及用于检查更新的github.com（GitHub能看到你的IP地址；你同意更新后，安装包也来自github.com）。</p>
        <p>源代码里没有分析或崩溃报告代码。这是通过查看源代码确认的，而不是靠网络抓包。详见<a href="privacy.html">隐私政策</a>。</p></div></details>
 <details class="hq" id="images"><summary>远程图片和跟踪像素</summary><div class="hq-a"><p>远程图片和背景图片在你允许之前一直被阻止（允许一次、按邮箱允许，或始终允许）。跟踪像素就是一张远程图片，所以会和其他图片一起被阻止；应用没有跟踪器名单。你允许加载的图片，应用会尽量自己下载；对于它自己无法获取的图片，网页视图可能会直接请求。链接上显示的文字是网址、但实际指向别处时，会请你确认；打开可执行文件附件前也会先询问。</p></div></details>
-<details class="hq" id="ai"><summary>AI助手（可选）</summary><div class="hq-a"><p>它只会与你配置的端点通信（任何兼容OpenAI的API，包括本地服务器），而且只在你点击按钮时才通信。总结最多发送一个对话中可读邮件的24,000个字符，翻译最多12,000个字符，“用AI撰写”则会发送你的草稿、主题，回复邮件时还会发送你所回复邮件的最多6,000个字符。解密后的OpenPGP内容也会一并发送，因为助手读取的是可读文本。密钥保存在你系统的凭据存储中。</p></div></details>
+<details class="hq" id="ai"><summary>AI助手（可选）</summary><div class="hq-a"><p>它只会与你配置的端点通信（任何兼容OpenAI的API，包括本地服务器），而且只在你点击按钮时才通信。总结最多发送一个对话中可读邮件的24,000个字符，翻译最多60,000个字符，“用AI撰写”则会发送你的草稿、主题，回复邮件时还会发送你所回复邮件的最多6,000个字符。解密后的OpenPGP内容也会一并发送，因为助手读取的是可读文本。密钥保存在你系统的凭据存储中。</p></div></details>
 <details class="hq" id="remove"><summary>卸载，并清除所有内容</summary><div class="hq-a"><p>先在 Hey Look! 中移除你的账户（<strong>设置 &gt; 邮箱 &gt; 账户 &gt; 移除账户</strong>；邮件仍留在服务器上），然后卸载应用，再删除它的数据文件夹（见“我的数据存放在哪里？”）以及系统凭据存储中所有名称形如<code>heylook&hellip;</code>的条目。</p></div></details>
   </section>
   <section class="hq-group" id="g-pgp" aria-labelledby="g-pgp-h"><h2 id="g-pgp-h">OpenPGP基础</h2>
