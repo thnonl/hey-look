@@ -28,6 +28,8 @@ export default defineLocale<typeof ns.en>({
   "reading.popout.noId": "このウィンドウに表示する会話がありません",
   "reading.popout.loading": "メッセージを開いています…",
   "reading.popout.toolbar": "メッセージの操作",
+  "reading.popout.unread": "未読",
+  "reading.popout.read": "既読",
   "reading.empty.title": "読むアイテムを選択してください",
   "reading.empty.none": "何も選択されていません",
   "reading.empty.selected": "{n}件のアイテムを選択中",

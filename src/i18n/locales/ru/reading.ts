@@ -28,6 +28,8 @@ export default defineLocale<typeof ns.en>({
   "reading.popout.noId": "в этом окне нет беседы для показа",
   "reading.popout.loading": "Открытие сообщения…",
   "reading.popout.toolbar": "Действия с сообщением",
+  "reading.popout.unread": "Не прочитано",
+  "reading.popout.read": "Прочитано",
   "reading.empty.title": "Выберите письмо для чтения",
   "reading.empty.none": "Ничего не выбрано",
   "reading.empty.selected": "Выбрано элементов: {n}",

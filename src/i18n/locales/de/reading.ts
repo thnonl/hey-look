@@ -28,6 +28,8 @@ export default defineLocale<typeof ns.en>({
   "reading.popout.noId": "dieses Fenster hat keine Unterhaltung zum Anzeigen",
   "reading.popout.loading": "Nachricht wird geöffnet …",
   "reading.popout.toolbar": "Nachrichtenaktionen",
+  "reading.popout.unread": "Ungelesen",
+  "reading.popout.read": "Gelesen",
   "reading.empty.title": "Wählen Sie ein Element aus, um es zu lesen",
   "reading.empty.none": "Nichts ausgewählt",
   "reading.empty.selected": "{n} Elemente ausgewählt",

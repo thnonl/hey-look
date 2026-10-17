@@ -9,7 +9,7 @@
 import { AlertTriangle, Archive, ChevronsDownUp, ChevronsUpDown, Clock, Flag, Forward, Mail, MailX, MoreHorizontal, Pin, Reply, ReplyAll, Sparkles, Trash2 } from "lucide-react";
 import { listen } from "@tauri-apps/api/event";
 import { getCurrentWindow } from "@tauri-apps/api/window";
-import { useCallback, useEffect, useMemo, useReducer, useRef, useState } from "react";
+import { useCallback, useEffect, useLayoutEffect, useMemo, useReducer, useRef, useState } from "react";
 import { forward, replyTo } from "../actions";
 import { api, type MessageFull } from "../api";
 import { AiRunning, MessageCard, TRANSLATE_TO, translateMessage, useKeepReadingPosition } from "../components/ReadingPane";
@@ -83,6 +83,7 @@ function Reader({ info }: { info: ReaderInit }) {
   const ai = useAiSlot("summarize");
   const bodyRef = useRef<HTMLDivElement>(null);
   const titleRef = useRef<HTMLHeadingElement>(null);
+  const barRef = useRef<HTMLDivElement>(null);
 
   // what the database said last, what this window asked for since, and the bookkeeping of the loads
   const base = useRef<MessageFull[]>([]);
@@ -90,7 +91,7 @@ function Reader({ info }: { info: ReaderInit }) {
   const goneRef = useRef(false);
   const loadSeq = useRef(0);
   const pending = useRef(0); // state requests under way
-  const planned = useRef(new Set<string>()); // unread messages the mark-as-read rule has looked at
+  const known = useRef(new Set<string>()); // the messages this window has seen: the mark-as-read rule looks at a message once
   const readTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
   const loadRef = useRef<(first?: boolean) => Promise<void>>(async () => undefined);
 
@@ -118,12 +119,13 @@ function Reader({ info }: { info: ReaderInit }) {
   );
   const planRead = useCallback(
     (msgs: MessageFull[]) => {
-      const fresh = msgs.filter((m) => !m.seen && !planned.current.has(m.id));
-      if (fresh.length === 0) return;
-      fresh.forEach((m) => planned.current.add(m.id));
-      const plan = markReadPlan(msgs, useStore.getState().prefs.markReadDelay);
-      clearTimeout(readTimer.current);
+      // only what arrived since the last look is judged: the conversation as it was opened, and a reply that comes in while it is open.
+      // Mail the person marks unread here is not marked read again by this rule.
+      const fresh = msgs.filter((m) => !known.current.has(m.id));
+      fresh.forEach((m) => known.current.add(m.id));
+      const plan = markReadPlan(fresh, useStore.getState().prefs.markReadDelay);
       if (plan.kind === "none") return;
+      clearTimeout(readTimer.current);
       const go = () => {
         if (!goneRef.current) void stateRequest("read", { unread: false });
       };
@@ -176,6 +178,9 @@ function Reader({ info }: { info: ReaderInit }) {
     let off: (() => void) | undefined;
     const subs: Array<Promise<() => void>> = [];
     let timer: ReturnType<typeof setTimeout> | undefined;
+    // the AI Assistant may have been set up in Settings (main window) since this window opened
+    const onFocus = () => void useStore.getState().refreshAi();
+    window.addEventListener("focus", onFocus);
     const later = () => {
       // events come in bursts (a sync, several actions): one read after a short pause
       clearTimeout(timer);
@@ -202,6 +207,7 @@ function Reader({ info }: { info: ReaderInit }) {
       dead = true;
       clearTimeout(timer);
       clearTimeout(readTimer.current);
+      window.removeEventListener("focus", onFocus);
       off?.();
       for (const s of subs) void s.then((f) => f()).catch(quiet);
       cancelRunningTranslations();
@@ -232,6 +238,23 @@ function Reader({ info }: { info: ReaderInit }) {
     document.title = w;
     void getCurrentWindow().setTitle(w).catch(quiet);
   }, [title, lang]);
+
+  // the toolbar shows its labels while they fit, then keeps them on the main buttons only, then shows icons only (name and shortcut in the
+  // tooltip): the window may be as narrow as 520 px, and the labels are longer in some languages (REQ-R4)
+  useLayoutEffect(() => {
+    const bar = barRef.current;
+    if (!bar) return;
+    // two steps: first the secondary buttons (flag, read state, snooze) lose their words, then all of them
+    const fit = () => {
+      bar.classList.remove("part", "compact");
+      if (bar.scrollWidth > bar.clientWidth + 1) bar.classList.add("part");
+      if (bar.scrollWidth > bar.clientWidth + 1) bar.classList.add("compact");
+    };
+    fit();
+    const ro = new ResizeObserver(fit);
+    ro.observe(bar);
+    return () => ro.disconnect();
+  }, [lang, phase, gone, ai.running, aiConfigured, messages.length === 0]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // initial focus: the subject, so that a screen reader says it (5.4); Tab then goes toolbar > message
   useEffect(() => {
@@ -366,17 +389,17 @@ function Reader({ info }: { info: ReaderInit }) {
     );
   }
 
-  const rb = (key: string, label: string, tip: string | undefined, a: ReaderAction, onClick: () => void, icon: React.ReactNode, extra?: { on?: boolean; disabled?: boolean; why?: string }) => (
-    <button key={key} className={`rb ${extra?.on ? "on" : ""}`} title={extra?.why ?? tip ?? label} aria-label={label} aria-pressed={extra?.on} disabled={locked || off(a) || extra?.disabled} onClick={onClick}>
+  const rb = (key: string, label: string, tip: string | undefined, a: ReaderAction, onClick: () => void, icon: React.ReactNode, extra?: { on?: boolean; disabled?: boolean; why?: string; text?: string; sec?: boolean }) => (
+    <button key={key} className={`rb ${extra?.on ? "on" : ""} ${extra?.sec ? "sec" : ""}`} title={extra?.why ?? tip ?? label} aria-label={label} aria-pressed={extra?.on} disabled={locked || off(a) || extra?.disabled} onClick={onClick}>
       {icon}
-      <span>{label}</span>
+      <span>{extra?.text ?? label}</span>
     </button>
   );
   const sender = last ? senderOf(messages, new Set(useStore.getState().accounts.map((a) => a.email.toLowerCase()))) : null;
 
   return (
     <div className="reader-win">
-      <div className="reader-bar" role="toolbar" aria-label={t("reading.popout.toolbar")}>
+      <div className="reader-bar" ref={barRef} role="toolbar" aria-label={t("reading.popout.toolbar")}>
         {rb("reply", t("reading.msg.reply"), `${t("reading.msg.reply")} (r)`, "reply", () => doReply(false), <Reply size={16} />)}
         {rb("replyAll", t("reading.msg.replyAll"), `${t("reading.msg.replyAll")} (a)`, "replyAll", () => doReply(true), <ReplyAll size={16} />)}
         {rb("forward", t("reading.msg.forward"), conf ? t("reading.msg.forwardBlocked") : `${t("reading.msg.forward")} (f)`, "forward", doForward, <Forward size={16} />, { disabled: conf })}
@@ -384,10 +407,10 @@ function Reader({ info }: { info: ReaderInit }) {
         {rb("archive", t("reading.head.archive"), t("reading.head.archiveTip"), "archive", () => void move("archive", t("reading.head.archived")), <Archive size={16} />)}
         {rb("delete", t("reading.head.delete"), t("reading.head.deleteTip"), "trash", () => void move("trash", t("reading.head.trashed")), <Trash2 size={16} />)}
         <span className="sep" aria-hidden />
-        {rb("flag", flagged ? t("mail.hover.unflag") : t("reading.head.flag"), t("reading.head.flagTip"), "flag", toggleFlag, <Flag size={16} fill={flagged ? "currentColor" : "none"} />, { on: flagged })}
-        {rb("unread", unread ? t("mail.hover.markRead") : t("reading.head.markUnread"), unread ? undefined : `${t("reading.head.markUnread")} (u)`, "unread", toggleRead, unread ? <Mail size={16} /> : <MailX size={16} />)}
+        {rb("flag", flagged ? t("mail.hover.unflag") : t("reading.head.flag"), t("reading.head.flagTip"), "flag", toggleFlag, <Flag size={16} fill={flagged ? "currentColor" : "none"} />, { on: flagged, sec: true })}
+        {rb("unread", unread ? t("mail.hover.markRead") : t("reading.head.markUnread"), unread ? undefined : `${t("reading.head.markUnread")} (u)`, "unread", toggleRead, unread ? <Mail size={16} /> : <MailX size={16} />, { text: unread ? t("reading.popout.read") : t("reading.popout.unread"), sec: true })}
         <Dropdown
-          className="rb snooze-btn"
+          className="rb snooze-btn sec"
           title={t("reading.head.snoozeTip")}
           disabled={locked || off("snooze")}
           items={snoozePresets(prefs.snoozeTimes).map((p) => ({ label: p.label, onClick: () => void move("snooze", t("reading.head.snoozed", { label: p.label }), String(p.ts)) }))}
@@ -414,7 +437,6 @@ function Reader({ info }: { info: ReaderInit }) {
           ]}
         >
           <MoreHorizontal size={16} />
-          <span>{t("reading.head.more")}</span>
         </Dropdown>
         <button className="rb ai-btn grow" onClick={summarize} disabled={ai.running || messages.length === 0} title={aiConfigured ? t("reading.head.summarizeTip") : t("reading.head.setupAiTip")}>
           <Sparkles size={16} />

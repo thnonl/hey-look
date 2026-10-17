@@ -28,6 +28,8 @@ export default defineLocale<typeof ns.en>({
   "reading.popout.noId": "此窗口没有可显示的会话",
   "reading.popout.loading": "正在打开邮件…",
   "reading.popout.toolbar": "邮件操作",
+  "reading.popout.unread": "未读",
+  "reading.popout.read": "已读",
   "reading.empty.title": "选择要阅读的项目",
   "reading.empty.none": "未选择任何项目",
   "reading.empty.selected": "已选择{n}项",
