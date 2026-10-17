@@ -1,0 +1,14 @@
+Project update
+Status: the release is on track, see the plan.
+Red text in Calibri 11 highlighted 14 pt
+Centered and underlined
+
+1. Plan
+  1. Design
+    1. Wireframes (red)
+  2. Build
+2. Ship
+- Apples
+  - Fuji
+    - Gala
+Indented paragraph.

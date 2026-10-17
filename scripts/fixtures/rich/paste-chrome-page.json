@@ -1,0 +1,346 @@
+{
+ "base": {
+  "family": "Calibri,Carlito,Arial,sans-serif",
+  "size": 11
+ },
+ "sig": null,
+ "doc": {
+  "type": "doc",
+  "content": [
+   {
+    "type": "heading",
+    "attrs": {
+     "lineHeight": "1.25",
+     "spaceAfter": "add",
+     "level": 2
+    },
+    "content": [
+     {
+      "type": "text",
+      "marks": [
+       {
+        "type": "textStyle",
+        "attrs": {
+         "fontFamily": "Roboto,Arial,sans-serif",
+         "fontSize": "18pt"
+        }
+       }
+      ],
+      "text": "Release notes"
+     }
+    ]
+   },
+   {
+    "type": "paragraph",
+    "attrs": {
+     "lineHeight": "1.5",
+     "spaceAfter": "add"
+    },
+    "content": [
+     {
+      "type": "text",
+      "marks": [
+       {
+        "type": "textStyle",
+        "attrs": {
+         "color": "#202124",
+         "fontFamily": "Roboto,Arial,sans-serif",
+         "fontSize": "12pt"
+        }
+       }
+      ],
+      "text": "The "
+     },
+     {
+      "type": "text",
+      "marks": [
+       {
+        "type": "textStyle",
+        "attrs": {
+         "color": "#202124",
+         "fontFamily": "Roboto,Arial,sans-serif",
+         "fontSize": "12pt"
+        }
+       },
+       {
+        "type": "bold"
+       }
+      ],
+      "text": "new editor"
+     },
+     {
+      "type": "text",
+      "marks": [
+       {
+        "type": "textStyle",
+        "attrs": {
+         "color": "#202124",
+         "fontFamily": "Roboto,Arial,sans-serif",
+         "fontSize": "12pt"
+        }
+       }
+      ],
+      "text": " keeps your "
+     },
+     {
+      "type": "text",
+      "marks": [
+       {
+        "type": "textStyle",
+        "attrs": {
+         "color": "#202124",
+         "fontFamily": "Roboto,Arial,sans-serif",
+         "fontSize": "12pt"
+        }
+       },
+       {
+        "type": "italic"
+       }
+      ],
+      "text": "formatting"
+     },
+     {
+      "type": "text",
+      "marks": [
+       {
+        "type": "textStyle",
+        "attrs": {
+         "color": "#202124",
+         "fontFamily": "Roboto,Arial,sans-serif",
+         "fontSize": "12pt"
+        }
+       }
+      ],
+      "text": ". See "
+     },
+     {
+      "type": "text",
+      "marks": [
+       {
+        "type": "link",
+        "attrs": {
+         "href": "https://example.com/notes#top"
+        }
+       },
+       {
+        "type": "textStyle",
+        "attrs": {
+         "fontFamily": "Roboto,Arial,sans-serif",
+         "fontSize": "12pt"
+        }
+       }
+      ],
+      "text": "the full notes"
+     },
+     {
+      "type": "text",
+      "marks": [
+       {
+        "type": "textStyle",
+        "attrs": {
+         "color": "#202124",
+         "fontFamily": "Roboto,Arial,sans-serif",
+         "fontSize": "12pt"
+        }
+       }
+      ],
+      "text": " or "
+     },
+     {
+      "type": "text",
+      "marks": [
+       {
+        "type": "textStyle",
+        "attrs": {
+         "fontFamily": "Roboto,Arial,sans-serif",
+         "fontSize": "12pt"
+        }
+       }
+      ],
+      "text": "a relative link"
+     },
+     {
+      "type": "text",
+      "marks": [
+       {
+        "type": "textStyle",
+        "attrs": {
+         "color": "#202124",
+         "fontFamily": "Roboto,Arial,sans-serif",
+         "fontSize": "12pt"
+        }
+       }
+      ],
+      "text": "."
+     }
+    ]
+   },
+   {
+    "type": "bulletList",
+    "content": [
+     {
+      "type": "listItem",
+      "content": [
+       {
+        "type": "paragraph",
+        "content": [
+         {
+          "type": "text",
+          "marks": [
+           {
+            "type": "textStyle",
+            "attrs": {
+             "color": "#202124",
+             "fontFamily": "Roboto,Arial,sans-serif",
+             "fontSize": "12pt"
+            }
+           }
+          ],
+          "text": "Paste cleanup"
+         }
+        ]
+       }
+      ]
+     },
+     {
+      "type": "listItem",
+      "content": [
+       {
+        "type": "paragraph",
+        "content": [
+         {
+          "type": "text",
+          "marks": [
+           {
+            "type": "textStyle",
+            "attrs": {
+             "color": "#202124",
+             "fontFamily": "Roboto,Arial,sans-serif",
+             "fontSize": "12pt"
+            }
+           }
+          ],
+          "text": "Paste options"
+         }
+        ]
+       },
+       {
+        "type": "orderedList",
+        "attrs": {
+         "type": "a"
+        },
+        "content": [
+         {
+          "type": "listItem",
+          "content": [
+           {
+            "type": "paragraph",
+            "content": [
+             {
+              "type": "text",
+              "marks": [
+               {
+                "type": "textStyle",
+                "attrs": {
+                 "color": "#202124",
+                 "fontFamily": "Roboto,Arial,sans-serif",
+                 "fontSize": "12pt"
+                }
+               }
+              ],
+              "text": "Keep source"
+             }
+            ]
+           }
+          ]
+         },
+         {
+          "type": "listItem",
+          "content": [
+           {
+            "type": "paragraph",
+            "content": [
+             {
+              "type": "text",
+              "marks": [
+               {
+                "type": "textStyle",
+                "attrs": {
+                 "color": "#202124",
+                 "fontFamily": "Roboto,Arial,sans-serif",
+                 "fontSize": "12pt"
+                }
+               }
+              ],
+              "text": "Merge"
+             }
+            ]
+           }
+          ]
+         }
+        ]
+       }
+      ]
+     }
+    ]
+   },
+   {
+    "type": "codeBlock",
+    "content": [
+     {
+      "type": "text",
+      "text": "npm install\nnpm run build"
+     }
+    ]
+   },
+   {
+    "type": "paragraph",
+    "content": [
+     {
+      "type": "text",
+      "marks": [
+       {
+        "type": "textStyle",
+        "attrs": {
+         "color": "#5F6368",
+         "fontFamily": "Roboto,Arial,sans-serif",
+         "fontSize": "9.75pt"
+        }
+       }
+      ],
+      "text": "Posted "
+     },
+     {
+      "type": "text",
+      "marks": [
+       {
+        "type": "textStyle",
+        "attrs": {
+         "backgroundColor": "#FFFFCC",
+         "color": "#5F6368",
+         "fontFamily": "Roboto,Arial,sans-serif",
+         "fontSize": "9.75pt"
+        }
+       }
+      ],
+      "text": "today"
+     },
+     {
+      "type": "text",
+      "marks": [
+       {
+        "type": "textStyle",
+        "attrs": {
+         "color": "#5F6368",
+         "fontFamily": "Roboto,Arial,sans-serif",
+         "fontSize": "9.75pt"
+        }
+       }
+      ],
+      "text": " by the team."
+     }
+    ]
+   }
+  ]
+ }
+}

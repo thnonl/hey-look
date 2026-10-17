@@ -526,6 +526,9 @@ button.att-chip:hover { background: var(--bg3); border-color: color-mix(in srgb,
 .fmt-ico i { display: block; width: 14px; height: 3px; border-radius: 1px; box-shadow: 0 0 0 1px var(--border); }
 .fmt-a { font-weight: 700; font-size: 14px; line-height: 14px; }
 .fmt-pop { position: fixed; z-index: var(--z-menu); width: 232px; box-sizing: border-box; gap: 4px; animation: pop .12s var(--ease); }
+/* the Paste options button after a paste (editor/pasteOptions.tsx): fixed under the end of the pasted text, the menu is a FloatingMenu */
+.paste-opt { position: fixed; z-index: calc(var(--z-menu) - 1); gap: 2px; padding: 3px 5px; min-height: 0; background: var(--bg); border: 1px solid var(--border); box-shadow: var(--shadow-sm); }
+.paste-opt:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
 .fmt-pop-head { margin-top: 4px; font-size: .82em; color: var(--muted); }
 .fmt-grid { display: grid; grid-template-columns: repeat(10, 18px); gap: 2px; }
 .fmt-grid-hl { grid-template-columns: repeat(5, 18px); }

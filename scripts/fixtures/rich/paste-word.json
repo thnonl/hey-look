@@ -1,0 +1,344 @@
+{
+ "base": {
+  "family": "Calibri,Carlito,Arial,sans-serif",
+  "size": 11
+ },
+ "sig": null,
+ "doc": {
+  "type": "doc",
+  "content": [
+   {
+    "type": "heading",
+    "attrs": {
+     "lineHeight": "1.07",
+     "spaceAfter": "none",
+     "level": 1
+    },
+    "content": [
+     {
+      "type": "text",
+      "marks": [
+       {
+        "type": "textStyle",
+        "attrs": {
+         "color": "#2F5496",
+         "fontFamily": "'Calibri Light',sans-serif",
+         "fontSize": "16pt"
+        }
+       }
+      ],
+      "text": "Project update"
+     }
+    ]
+   },
+   {
+    "type": "paragraph",
+    "attrs": {
+     "lineHeight": "1.07",
+     "spaceAfter": "add"
+    },
+    "content": [
+     {
+      "type": "text",
+      "marks": [
+       {
+        "type": "bold"
+       }
+      ],
+      "text": "Status:"
+     },
+     {
+      "type": "text",
+      "text": " the "
+     },
+     {
+      "type": "text",
+      "marks": [
+       {
+        "type": "textStyle",
+        "attrs": {
+         "color": "#FF0000"
+        }
+       }
+      ],
+      "text": "release"
+     },
+     {
+      "type": "text",
+      "text": " is "
+     },
+     {
+      "type": "text",
+      "marks": [
+       {
+        "type": "italic"
+       }
+      ],
+      "text": "on track"
+     },
+     {
+      "type": "text",
+      "text": ", see the "
+     },
+     {
+      "type": "text",
+      "marks": [
+       {
+        "type": "link",
+        "attrs": {
+         "href": "https://example.com/plan?a=1&b=2"
+        }
+       }
+      ],
+      "text": "plan"
+     },
+     {
+      "type": "text",
+      "text": "."
+     }
+    ]
+   },
+   {
+    "type": "paragraph",
+    "attrs": {
+     "lineHeight": "1.07",
+     "spaceAfter": "add"
+    },
+    "content": [
+     {
+      "type": "text",
+      "marks": [
+       {
+        "type": "textStyle",
+        "attrs": {
+         "color": "#FF0000"
+        }
+       }
+      ],
+      "text": "Red text in Calibri 11"
+     },
+     {
+      "type": "text",
+      "marks": [
+       {
+        "type": "textStyle",
+        "attrs": {
+         "backgroundColor": "#FFFF00",
+         "fontFamily": "'Times New Roman',serif",
+         "fontSize": "14pt"
+        }
+       }
+      ],
+      "text": " highlighted 14 pt"
+     }
+    ]
+   },
+   {
+    "type": "paragraph",
+    "attrs": {
+     "textAlign": "center",
+     "lineHeight": "1.07",
+     "spaceAfter": "add"
+    },
+    "content": [
+     {
+      "type": "text",
+      "marks": [
+       {
+        "type": "underline"
+       }
+      ],
+      "text": "Centered and underlined"
+     }
+    ]
+   },
+   {
+    "type": "paragraph",
+    "attrs": {
+     "lineHeight": "1.07",
+     "spaceAfter": "add"
+    }
+   },
+   {
+    "type": "orderedList",
+    "content": [
+     {
+      "type": "listItem",
+      "content": [
+       {
+        "type": "paragraph",
+        "content": [
+         {
+          "type": "text",
+          "marks": [
+           {
+            "type": "bold"
+           }
+          ],
+          "text": "Plan"
+         }
+        ]
+       },
+       {
+        "type": "orderedList",
+        "attrs": {
+         "type": "a"
+        },
+        "content": [
+         {
+          "type": "listItem",
+          "content": [
+           {
+            "type": "paragraph",
+            "content": [
+             {
+              "type": "text",
+              "text": "Design"
+             }
+            ]
+           },
+           {
+            "type": "orderedList",
+            "attrs": {
+             "type": "i"
+            },
+            "content": [
+             {
+              "type": "listItem",
+              "content": [
+               {
+                "type": "paragraph",
+                "content": [
+                 {
+                  "type": "text",
+                  "marks": [
+                   {
+                    "type": "textStyle",
+                    "attrs": {
+                     "color": "#FF0000"
+                    }
+                   }
+                  ],
+                  "text": "Wireframes (red)"
+                 }
+                ]
+               }
+              ]
+             }
+            ]
+           }
+          ]
+         },
+         {
+          "type": "listItem",
+          "content": [
+           {
+            "type": "paragraph",
+            "content": [
+             {
+              "type": "text",
+              "text": "Build"
+             }
+            ]
+           }
+          ]
+         }
+        ]
+       }
+      ]
+     },
+     {
+      "type": "listItem",
+      "content": [
+       {
+        "type": "paragraph",
+        "content": [
+         {
+          "type": "text",
+          "marks": [
+           {
+            "type": "bold"
+           }
+          ],
+          "text": "Ship"
+         }
+        ]
+       }
+      ]
+     }
+    ]
+   },
+   {
+    "type": "bulletList",
+    "content": [
+     {
+      "type": "listItem",
+      "content": [
+       {
+        "type": "paragraph",
+        "content": [
+         {
+          "type": "text",
+          "text": "Apples"
+         }
+        ]
+       },
+       {
+        "type": "bulletList",
+        "content": [
+         {
+          "type": "listItem",
+          "content": [
+           {
+            "type": "paragraph",
+            "content": [
+             {
+              "type": "text",
+              "text": "Fuji"
+             }
+            ]
+           },
+           {
+            "type": "bulletList",
+            "content": [
+             {
+              "type": "listItem",
+              "content": [
+               {
+                "type": "paragraph",
+                "content": [
+                 {
+                  "type": "text",
+                  "text": "Gala"
+                 }
+                ]
+               }
+              ]
+             }
+            ]
+           }
+          ]
+         }
+        ]
+       }
+      ]
+     }
+    ]
+   },
+   {
+    "type": "paragraph",
+    "attrs": {
+     "indent": 1,
+     "lineHeight": "1.07",
+     "spaceAfter": "add"
+    },
+    "content": [
+     {
+      "type": "text",
+      "text": "Indented paragraph."
+     }
+    ]
+   }
+  ]
+ }
+}

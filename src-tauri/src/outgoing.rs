@@ -780,7 +780,28 @@ mod tests {
             assert_eq!(out, html, "{name}: the sanitiser changed what the editor wrote");
             n += 1;
         }
-        assert!(n >= 12, "{n} golden files found");
+        assert!(n >= 20, "{n} golden files found");
+    }
+
+    /// What the paste cleaner (src/editor/pasteClean.ts, stored files in scripts/fixtures/paste/expected) hands to the editor for Word, Excel, Outlook, Gmail,
+    /// Google Docs, Chrome, Firefox, Safari and Apple Notes clipboards in the Keep source and Merge modes: the sanitiser has nothing to take away
+    /// (a tag, an attribute or a style the cleaner lets through but the sanitiser refuses would be lost silently on send), and nothing hostile is left.
+    #[test]
+    fn paste_cleaner_output_passes_the_sanitiser_unchanged() {
+        let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../scripts/fixtures/paste/expected");
+        let mut n = 0;
+        for e in std::fs::read_dir(&dir).expect("scripts/fixtures/paste/expected exists") {
+            let path = e.unwrap().path();
+            let name = path.file_name().unwrap().to_string_lossy().into_owned();
+            if !(name.ends_with(".source.html") || name.ends_with(".merge.html")) {
+                continue;
+            }
+            // (the stored files have one block per line to read a diff: the cleaner writes none)
+            let html = std::fs::read_to_string(&path).unwrap().replace("\r\n", "\n").replace('\n', "");
+            assert_eq!(clean(&html), html, "{name}: the sanitiser changed what the paste cleaner produced");
+            n += 1;
+        }
+        assert!(n >= 18, "{n} cleaned files found");
     }
 
     #[test]

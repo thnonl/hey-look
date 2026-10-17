@@ -1,0 +1,9 @@
+Release notes
+The new editor keeps your formatting. See the full notes (https://example.com/notes#top) or a relative link.
+- Paste cleanup
+- Paste options
+  a. Keep source
+  b. Merge
+npm install
+npm run build
+Posted today by the team.

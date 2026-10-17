@@ -1,0 +1,185 @@
+{
+ "base": {
+  "family": "Calibri,Carlito,Arial,sans-serif",
+  "size": 11
+ },
+ "sig": null,
+ "doc": {
+  "type": "doc",
+  "content": [
+   {
+    "type": "paragraph",
+    "content": [
+     {
+      "type": "text",
+      "marks": [
+       {
+        "type": "textStyle",
+        "attrs": {
+         "fontFamily": "'.AppleSystemUIFont'",
+         "fontSize": "18pt"
+        }
+       },
+       {
+        "type": "bold"
+       }
+      ],
+      "text": "Trip notes"
+     }
+    ]
+   },
+   {
+    "type": "paragraph",
+    "content": [
+     {
+      "type": "text",
+      "marks": [
+       {
+        "type": "textStyle",
+        "attrs": {
+         "fontFamily": "'Helvetica Neue'",
+         "fontSize": "9.75pt"
+        }
+       }
+      ],
+      "text": "Leave at "
+     },
+     {
+      "type": "text",
+      "marks": [
+       {
+        "type": "textStyle",
+        "attrs": {
+         "fontFamily": "'Helvetica Neue'",
+         "fontSize": "9.75pt"
+        }
+       },
+       {
+        "type": "bold"
+       }
+      ],
+      "text": "7:30"
+     },
+     {
+      "type": "text",
+      "marks": [
+       {
+        "type": "textStyle",
+        "attrs": {
+         "fontFamily": "'Helvetica Neue'",
+         "fontSize": "9.75pt"
+        }
+       }
+      ],
+      "text": ", bring "
+     },
+     {
+      "type": "text",
+      "marks": [
+       {
+        "type": "textStyle",
+        "attrs": {
+         "color": "#DC2E1B",
+         "fontFamily": "'Helvetica Neue'",
+         "fontSize": "9.75pt"
+        }
+       },
+       {
+        "type": "italic"
+       }
+      ],
+      "text": "tickets"
+     },
+     {
+      "type": "text",
+      "marks": [
+       {
+        "type": "textStyle",
+        "attrs": {
+         "fontFamily": "'Helvetica Neue'",
+         "fontSize": "9.75pt"
+        }
+       }
+      ],
+      "text": "."
+     }
+    ]
+   },
+   {
+    "type": "paragraph"
+   },
+   {
+    "type": "bulletList",
+    "content": [
+     {
+      "type": "listItem",
+      "content": [
+       {
+        "type": "paragraph",
+        "content": [
+         {
+          "type": "text",
+          "marks": [
+           {
+            "type": "textStyle",
+            "attrs": {
+             "fontFamily": "'Helvetica Neue'",
+             "fontSize": "9.75pt"
+            }
+           }
+          ],
+          "text": "Passport"
+         }
+        ]
+       }
+      ]
+     },
+     {
+      "type": "listItem",
+      "content": [
+       {
+        "type": "paragraph",
+        "content": [
+         {
+          "type": "text",
+          "marks": [
+           {
+            "type": "textStyle",
+            "attrs": {
+             "fontFamily": "'Helvetica Neue'",
+             "fontSize": "9.75pt"
+            }
+           }
+          ],
+          "text": "Charger"
+         }
+        ]
+       }
+      ]
+     }
+    ]
+   },
+   {
+    "type": "paragraph",
+    "attrs": {
+     "textAlign": "center"
+    },
+    "content": [
+     {
+      "type": "text",
+      "marks": [
+       {
+        "type": "textStyle",
+        "attrs": {
+         "fontFamily": "'Helvetica Neue'",
+         "fontSize": "9.75pt"
+        }
+       }
+      ],
+      "text": "Centered\twith a tab"
+     }
+    ]
+   }
+  ]
+ }
+}

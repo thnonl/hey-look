@@ -124,12 +124,19 @@ export function stripRemotePictures(html: string): { html: string; removed: numb
 }
 
 /** HTML from the clipboard or a drop, ready for the editor: remote pictures removed, and no copy of the signature region (a pasted
- *  `data-sig-block` element would become a second signature). */
+ *  `data-sig-block` element would become a second signature). A `cid:` picture goes too: it points into the message it was copied from, and
+ *  nothing here could ever show it. */
 export function cleanPastedHtml(html: string): { html: string; removed: number } {
   const r = stripRemotePictures(html);
+  let removed = r.removed;
   const out = rewriteTags(r.html, (t) => {
-    if (t.end || !t.attrs.some((a) => a.name === "data-sig-block")) return null;
+    if (t.end) return null;
+    if (t.name === "img" && /^cid:/i.test(decodeEntities(t.attrs.find((a) => a.name === "src")?.value ?? "").replace(/[\t\n\r]/g, "").trim())) {
+      removed++;
+      return "";
+    }
+    if (!t.attrs.some((a) => a.name === "data-sig-block")) return null;
     return `<${t.name}${t.attrs.filter((a) => a.name !== "data-sig-block").map((a) => " " + a.raw).join("")}${t.selfClosing ? "/" : ""}>`;
   });
-  return { html: out, removed: r.removed };
+  return { html: out, removed };
 }
