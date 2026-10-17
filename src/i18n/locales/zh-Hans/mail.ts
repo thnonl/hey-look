@@ -101,6 +101,9 @@ export default defineLocale<typeof ns.en>({
   "mail.pane.calendar": "日历",
   "mail.pane.mailTitle": "邮件 (Ctrl+1)",
   "mail.pane.calendarTitle": "日历 (Ctrl+2)",
+  "mail.side.collapse": "折叠侧边菜单",
+  "mail.side.expand": "展开侧边菜单",
+  "mail.side.unread": { other: "{n}封未读" },
   // right-click menu of a list row
   "mail.ctx.copySubject": "复制主题",
   "mail.ctx.copyEmail": "复制电子邮件地址",

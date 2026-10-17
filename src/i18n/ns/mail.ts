@@ -107,6 +107,9 @@ export default define({
     "mail.pane.calendar": "Calendar",
     "mail.pane.mailTitle": "Mail (Ctrl+1)",
     "mail.pane.calendarTitle": "Calendar (Ctrl+2)",
+    "mail.side.collapse": "Collapse side menu",
+    "mail.side.expand": "Expand side menu",
+    "mail.side.unread": { one: "{n} unread", other: "{n} unread" },
 
     // right-click menu of a list row
     "mail.ctx.copySubject": "Copy subject",
@@ -228,6 +231,9 @@ export default define({
     "mail.pane.calendar": "Lịch",
     "mail.pane.mailTitle": "Thư (Ctrl+1)",
     "mail.pane.calendarTitle": "Lịch (Ctrl+2)",
+    "mail.side.collapse": "Thu gọn menu bên",
+    "mail.side.expand": "Mở rộng menu bên",
+    "mail.side.unread": { one: "{n} chưa đọc", other: "{n} chưa đọc" },
 
     // right-click menu of a list row
     "mail.ctx.copySubject": "Sao chép chủ đề",
@@ -349,6 +355,9 @@ export default define({
     "mail.pane.calendar": "Calendrier",
     "mail.pane.mailTitle": "Courrier (Ctrl+1)",
     "mail.pane.calendarTitle": "Calendrier (Ctrl+2)",
+    "mail.side.collapse": "Réduire le menu latéral",
+    "mail.side.expand": "Développer le menu latéral",
+    "mail.side.unread": { one: "{n} non lu", other: "{n} non lus" },
 
     // right-click menu of a list row
     "mail.ctx.copySubject": "Copier l’objet",

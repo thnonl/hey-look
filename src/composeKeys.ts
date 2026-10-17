@@ -68,6 +68,12 @@ export function moduleSwitchKey(e: KeyLike, ctx: { inField: boolean; inCompose: 
   return e.key === "1" ? "go-mail" : e.key === "2" ? "go-calendar" : null;
 }
 
+/** Ctrl/Cmd+B folds or opens the side menu. Not in a field, not in the message being written (Bold is Ctrl+B there), not with a dialog open. */
+export function sidebarToggleKey(e: KeyLike, ctx: { inField: boolean; inCompose: boolean; modalOpen: boolean }): boolean {
+  if (ctx.inField || ctx.inCompose || ctx.modalOpen || isAltGraph(e)) return false;
+  return (e.ctrlKey || e.metaKey) && !e.shiftKey && !e.altKey && e.key.toLowerCase() === "b";
+}
+
 /**
  * Whether an open compose pane swallows an app key. With a message open every mailbox shortcut is off, except j / k when the focus is
  * outside the pane (the list or the folder pane): those still go on to the next / previous conversation (F-21). Inside the pane nothing runs.

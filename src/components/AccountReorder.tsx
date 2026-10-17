@@ -213,7 +213,7 @@ export function useAccountReorder(containerRef: RefObject<HTMLElement | null>) {
       {menu && <ContextMenu key={menu.id} at={menu.at} items={menuItems(menu.id)} label={label(menu.id)} keyboard={menu.keyboard} returnTo={menu.from} onClose={() => setMenu(null)} />}
     </>
   );
-  return { grip, entry, overlay, dragging: view?.id ?? null };
+  return { grip, entry, overlay, dragging: view?.id ?? null, menuOpen: !!menu };
 }
 
 /** The grip a mailbox is picked up by (`bind` is what `useAccountReorder().grip(id)` returns). Hidden from assistive technology: Alt+Up / Alt+Down and the menu are the keyboard way. */

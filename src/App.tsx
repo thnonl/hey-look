@@ -31,13 +31,17 @@ import { catchupText, configureDates, fmtWhen } from "./util";
 import { frameAction, initFrame, useFrame } from "./winframe";
 import { startSupportNudge } from "./supportNudgeHost";
 import { offerRestore } from "./composeRecovery";
-import { composeSwallowsAppKey, inEditable, keyAction, moduleSwitchKey } from "./composeKeys";
+import { composeSwallowsAppKey, inEditable, keyAction, moduleSwitchKey, sidebarToggleKey } from "./composeKeys";
+import { MIN_READER_W, RAIL_W, SPLITTER_W, sidebarLayout } from "./sidebarState";
+import { toggleSidebarNow, useWindowWidth } from "./useSidebar";
 
 const clamp = (n: number, lo: number, hi: number) => Math.max(lo, Math.min(hi, n));
 
 /** Drag handle between two panes; the width is committed (saved) on release. */
-function Splitter({ which, label, value, min, max, onLive, onCommit }: { which: "folder" | "list"; label: string; value: number; min: number; max: number; onLive: (w: number) => void; onCommit: (w: number) => void }) {
+function Splitter({ which, label, value, min, max, onLive, onCommit, disabled }: { which: "folder" | "list"; label: string; value: number; min: number; max: number; onLive: (w: number) => void; onCommit: (w: number) => void; disabled?: boolean }) {
   const drag = useRef<{ x: number; w: number } | null>(null);
+  // the side menu folded to icons has no width to change: the line stays (it is the edge of the pane), the drag and the keys are off
+  if (disabled) return <div className="splitter off" aria-hidden />;
   return (
     <div
       className="splitter"
@@ -77,6 +81,13 @@ function App() {
   const setPrefs = useStore((s) => s.setPrefs);
   const customFrame = useFrame((f) => f.custom);
   const [live, setLive] = useState<{ f?: number; l?: number }>({});
+  const width = useWindowWidth();
+  const readingPane = prefs.readingPane;
+  // the side menu: in full or as a column of icons (sidebarState.ts); the width of the window and the person's own choice decide
+  const fw = live.f ?? prefs.folderW;
+  const lw = live.l ?? prefs.listW;
+  // (decided from the saved widths: a splitter being dragged never folds the menu under the pointer; its limits below keep the reading pane at its minimum)
+  const folded = sidebarLayout({ mode: prefs.sidebar, width, folderW: prefs.folderW, listW: prefs.listW, bottomPane: readingPane === "bottom" }).collapsed;
 
   configureDates(prefs);
   configureCalendar(prefs);
@@ -355,6 +366,12 @@ function App() {
         st.setModule(go === "go-calendar" ? "calendar" : "mail");
         return;
       }
+      // Ctrl/Cmd+B: fold or open the side menu (not in the message being written: there it is Bold)
+      if (sidebarToggleKey(e, { inField: false, inCompose, modalOpen })) {
+        e.preventDefault();
+        toggleSidebarNow();
+        return;
+      }
       if (modalOpen) return;
       // a message being written stays as it is, except that j / k (focus outside the pane) go on to the next / previous conversation (F-21);
       // the compose pane is modal for the keys that act on the mailbox, whichever of its buttons has the focus (A-24)
@@ -422,24 +439,26 @@ function App() {
 
   if (!loaded) return <div className="app-loading" data-tauri-drag-region={customFrame ? "" : undefined}>Hey Look!</div>;
 
-  const fw = live.f ?? prefs.folderW;
-  const lw = live.l ?? prefs.listW;
+  // how far the splitters may go: the reading pane keeps its minimum width (with the reading pane below there is no such limit)
+  const right = readingPane === "right";
+  const folderMax = right && !folded ? clamp(width - lw - 2 * SPLITTER_W - MIN_READER_W, 180, 360) : 360;
+  const listMax = right ? clamp(width - (folded ? RAIL_W : fw) - 2 * SPLITTER_W - MIN_READER_W, 300, 680) : 680;
   return (
     <div className={`app pane-${prefs.readingPane}`}>
       <TopBar />
       {hasAccounts ? (
         <>
           <Ribbon />
-          <div className="workspace" style={{ ["--fw" as string]: `${fw}px`, ["--lw" as string]: `${lw}px` }}>
-            <FolderPane />
-            <Splitter which="folder" label={t("app.splitter.folder")} value={fw} min={180} max={360} onLive={(w) => setLive((s) => ({ ...s, f: w }))} onCommit={(w) => (setLive((s) => ({ ...s, f: undefined })), setPrefs({ folderW: w }))} />
+          <div className={`workspace ${live.f !== undefined || live.l !== undefined ? "dragging" : ""}`} style={{ ["--fw" as string]: `${folded ? RAIL_W : fw}px`, ["--fw-full" as string]: `${fw}px`, ["--lw" as string]: `${lw}px` }}>
+            <FolderPane collapsed={folded} />
+            <Splitter which="folder" disabled={folded} label={t("app.splitter.folder")} value={fw} min={180} max={folderMax} onLive={(w) => setLive((s) => ({ ...s, f: w }))} onCommit={(w) => (setLive((s) => ({ ...s, f: undefined })), setPrefs({ folderW: w }))} />
             {module === "calendar" ? (
               <CalendarView />
             ) : (
               <>
                 <MessageList />
                 {prefs.readingPane === "right" && (
-                  <Splitter which="list" label={t("app.splitter.list")} value={lw} min={300} max={680} onLive={(w) => setLive((s) => ({ ...s, l: w }))} onCommit={(w) => (setLive((s) => ({ ...s, l: undefined })), setPrefs({ listW: w }))} />
+                  <Splitter which="list" label={t("app.splitter.list")} value={lw} min={300} max={listMax} onLive={(w) => setLive((s) => ({ ...s, l: w }))} onCommit={(w) => (setLive((s) => ({ ...s, l: undefined })), setPrefs({ listW: w }))} />
                 )}
               </>
             )}

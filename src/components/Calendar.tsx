@@ -967,6 +967,39 @@ function EventPopover({ state, tz, color, onClose }: { state: PopState; tz: stri
 
 // =============================================================== sidebar (folder pane in Calendar mode)
 
+/** A synced calendar keeps its own colour; a mailbox's invitations use the mailbox colour. */
+function calendarColor(c: { id: string; remote?: boolean; color?: string | null; accountId: string | null }, accounts: { id: string }[], accent: string): string {
+  const acct = accounts.find((a) => a.id === c.accountId) as Parameters<typeof accountColor>[0] | undefined;
+  return c.id === "local" ? MY_EVENTS_COLOR : c.remote && c.color ? c.color : acct ? accountColor(acct, accent) : c.color || "var(--accent)";
+}
+
+/** The calendar list of the side menu while it is folded to icons: one coloured dot per calendar, filled while it is shown; the name is the tooltip. */
+export function CalRail() {
+  const t = useT();
+  const { prefs, calendars, bumpCal, accounts } = useStore();
+  const cals = calendars.length ? calendars : [{ id: "local", name: t("calendar.myEvents"), color: MY_EVENTS_COLOR, accountId: null, visible: true }];
+  return (
+    <div className="fp-group fp-calrail" role="group" aria-label={t("calendar.side.calendars")}>
+      {cals.map((c) => {
+        const col = calendarColor(c, accounts, prefs.accent);
+        return (
+          <button
+            key={c.id}
+            type="button"
+            className={`fp-cal ${c.visible ? "on" : ""}`}
+            aria-pressed={c.visible}
+            aria-label={calendarTitle(c)}
+            title={calendarTitle(c)}
+            onClick={() => void api.calendarSetVisible(c.id, !c.visible).then(() => bumpCal())}
+          >
+            <span className="fp-cal-dot" style={{ background: c.visible ? col : "transparent", borderColor: col }} />
+          </button>
+        );
+      })}
+    </div>
+  );
+}
+
 export function CalSidebar() {
   const t = useT();
   const { prefs, calDate, calEvents, calendars, calSources, setCalDate, setPrefs, setDialog, bumpCal, accounts } = useStore();
@@ -1025,9 +1058,7 @@ export function CalSidebar() {
         <div className="fp-head" style={{ cursor: "default" }}>{t("calendar.side.calendars")}</div>
         <div className="cal-list">
           {cals.map((c) => {
-            const acct = accounts.find((a) => a.id === c.accountId);
-            // a synced calendar keeps its own colour; a mailbox's invitations use the mailbox colour
-            const col = c.id === "local" ? MY_EVENTS_COLOR : c.remote && c.color ? c.color : acct ? accountColor(acct, prefs.accent) : c.color || "var(--accent)";
+            const col = calendarColor(c, accounts, prefs.accent);
             return (
               <label key={c.id}>
                 <input
