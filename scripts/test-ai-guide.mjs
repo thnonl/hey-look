@@ -14,6 +14,7 @@
 //   node scripts/test-ai-guide.mjs --quick            Summarize x (not set up, 401, timeout), Translate x timeout, Write x not set up, then the Settings button from every window (what CI runs, about 4 minutes)
 //   node scripts/test-ai-guide.mjs --wait=20000       how long the toast must stay (ms)
 //   node scripts/test-ai-guide.mjs --shots=<dir> --lang=en,de --size=960x560,1280x720 --theme=light,dark    PNGs of the toast and of the field it leads to
+//   (--only-popouts with --shots: just the pictures of the reader and compose windows)
 //   node scripts/test-ai-guide.mjs --url=http://127.0.0.1:1420/     use a dev server that is already running
 //   node scripts/test-ai-guide.mjs --require-browser  fail (instead of skipping) when no Chrome/Chromium/Edge is installed
 import { arg, flag, inputs, sleep, startHarness } from './cdp-harness.mjs';
@@ -268,7 +269,7 @@ try {
       await sh.shot(name);
     };
     const problems = arg('problems') ? arg('problems').split(',') : SHOTS ? ['notset', 'auth', 'model', 'url', 'timeout', 'bad', 'busy', 'network'] : lang === 'en' ? [...CORE, ...EXTRA] : ['notset', 'auth'];
-    for (const problem of problems) for (const entry of ENTRIES) {
+    for (const problem of flag('only-popouts') ? [] : problems) for (const entry of ENTRIES) {
       if (QUICK && !(entry === 'summarize' || (entry === 'translate' && problem === 'timeout') || (entry === 'write' && problem === 'notset'))) continue;
       if (SHOTS && entry !== 'summarize' && problem !== 'notset' && problem !== 'auth') continue;
       await scenario(entry, 'main', problem, lang, size);
@@ -276,7 +277,7 @@ try {
     }
     if (SHOTS) {
       // the page the Settings button leads to: the cursor is in the field the problem is about
-      for (const problem of ['notset', 'auth', 'model', 'url']) await settingsClick('summarize', 'main', problem, lang, size);
+      for (const problem of flag('only-popouts') ? [] : ['notset', 'auth', 'model', 'url']) await settingsClick('summarize', 'main', problem, lang, size);
       // and the same toast in the reader window and in the compose window
       await scenario('summarize', 'reader', 'auth', lang, size);
       await scenario('translate', 'reader', 'timeout', lang, size);
