@@ -47,6 +47,17 @@ pub const READY_WAIT: Duration = Duration::from_secs(6);
 pub const SAVE_DEBOUNCE: Duration = Duration::from_millis(500);
 /// Move and resize events this soon after a window became ready are the window system settling, not the person.
 pub const SETTLE: Duration = Duration::from_millis(400);
+/// A page that said it is ready has this long to say that it drew its view; else the window is reloaded once (see [`watch_content`]).
+pub const CONTENT_WAIT: Duration = Duration::from_secs(8);
+/// Ending a window ([`retire`]): the pause between taking it out of sight and asking for its end (a separate step of the event loop, never
+/// inside the page's own call), how often the end is checked, when the end is asked for again, and when the window is given up.
+pub const RETIRE_DELAY: Duration = Duration::from_millis(40);
+pub const RETIRE_POLL: Duration = Duration::from_millis(50);
+pub const RETIRE_AGAIN: Duration = Duration::from_millis(700);
+pub const RETIRE_GIVE_UP: Duration = Duration::from_millis(2500);
+/// After a window is gone: when its native window is checked and finished by hand, and when the count of windows is logged a second time.
+pub const SWEEP_AFTER: Duration = Duration::from_millis(400);
+pub const COUNT_AFTER: Duration = Duration::from_secs(3);
 /// The offset of a second window of a kind, in logical pixels (REQ-W5).
 pub const CASCADE: i32 = 28;
 /// Event to a secondary window: save what you hold and answer (the secondary counterpart of the main page's `flush-sends`).
@@ -322,6 +333,10 @@ pub struct Entry {
     /// The person moved, resized or maximized this window after it opened: only then is its place worth remembering (the place it
     /// was given, the default or a cascade step, is not "where the person likes it").
     pub dirty: bool,
+    /// The window is on its way out ([`retire`]): it is never shown, never asked to answer a quit, does not count, and its key is free.
+    pub retiring: bool,
+    /// The page drew its view and said so (`popout_note("content", ..)`). A page that says it is ready but never draws is reloaded once.
+    pub content: bool,
 }
 
 /// What `request` decided.
@@ -347,7 +362,7 @@ impl Registry {
     /// A created window is registered at once, so two requests at the same time cannot both pass the cap.
     pub fn request(&mut self, kind: Kind, key: Option<&str>, token: String, init: Option<Value>) -> Request {
         if let Some(k) = key {
-            if let Some(e) = self.entries.iter().find(|e| e.kind == kind && e.key.as_deref() == Some(k)) {
+            if let Some(e) = self.entries.iter().find(|e| e.kind == kind && !e.retiring && e.key.as_deref() == Some(k)) {
                 return Request::Focus { label: e.label.clone() };
             }
         }
@@ -369,6 +384,8 @@ impl Registry {
             maximized: false,
             moves: 0,
             dirty: false,
+            retiring: false,
+            content: false,
         });
         Request::Create { label }
     }
@@ -395,7 +412,23 @@ impl Registry {
 
     /// Labels of the windows whose page is ready, oldest first: the ones a quit asks.
     pub fn ready_labels(&self) -> Vec<String> {
-        self.entries.iter().filter(|e| e.ready).map(|e| e.label.clone()).collect()
+        self.entries.iter().filter(|e| e.ready && !e.retiring).map(|e| e.label.clone()).collect()
+    }
+
+    /// May this window be put on screen now? Not when it is on its way out, and not before its page said it is ready (or the wait for that
+    /// ran out): a window shown early is a blank white window, which is what a second "open" of a key whose window was still being created
+    /// used to do.
+    pub fn may_show(&self, label: &str) -> bool {
+        self.get(label).is_some_and(|e| !e.retiring && (e.ready || e.ready_at.is_some()))
+    }
+
+    /// Mark a window as on its way out and free its key. `None`: not known. `Some(true)`: this call started it; `Some(false)`: it was already.
+    pub fn start_retire(&mut self, label: &str) -> Option<bool> {
+        let e = self.get_mut(label)?;
+        let first = !e.retiring;
+        e.retiring = true;
+        e.key = None;
+        Some(first)
     }
 
     /// The window of `kind` that shows `key`, if any.
@@ -422,9 +455,9 @@ impl Registry {
         }
     }
 
-    /// How many windows of `kind` exist (every state: shown, parked, not ready yet).
+    /// How many windows of `kind` exist (every state: shown, parked, not ready yet; not the ones on their way out: the person ended those).
     pub fn count(&self, kind: Kind) -> usize {
-        self.entries.iter().filter(|e| e.kind == kind).count()
+        self.entries.iter().filter(|e| e.kind == kind && !e.retiring).count()
     }
 }
 
@@ -461,6 +494,12 @@ pub fn ready_labels(app: &AppHandle) -> Vec<String> {
 
 /// Bring a secondary window to the front (also from the tray or minimized).
 pub fn bring_to_front(app: &AppHandle, label: &str) {
+    // a window that is on its way out, or whose page is not up yet, is not put on screen (a window shown early is a blank white one; the page
+    // shows it itself when it is ready)
+    if !reg(app).may_show(label) {
+        log(&format!("{label}: not brought to the front (not ready yet, or on its way out)"));
+        return;
+    }
     if let Some(w) = app.get_webview_window(label) {
         let _ = w.unminimize();
         let _ = w.show();
@@ -541,7 +580,9 @@ pub struct Opened {
 /// Open a window of `kind`, or focus the one that has `key`. Must not run on the main thread of the window system on Windows
 /// (creating a window waits for it): the command is async. `focus_only`: never create; focus the window that has `key` or answer "none"
 /// (an inline editor asks this before it opens a draft: a draft is open in one editor only).
-pub fn open(app: &AppHandle, kind: Kind, key: Option<String>, init: Option<Value>, focus_only: bool) -> R<Opened> {
+pub fn open(app: &AppHandle, from: &str, kind: Kind, key: Option<String>, init: Option<Value>, focus_only: bool) -> R<Opened> {
+    // (what was asked, by whom: the next log tells a reader window from a compose window and which gesture asked twice; the key is an opaque id)
+    log(&format!("open requested by {from}: {} key={} {}", kind.name(), key.as_deref().unwrap_or("-"), if focus_only { "(focus only)" } else { "" }));
     if focus_only {
         let found = key.as_deref().and_then(|k| reg(app).find_key(kind, k).map(|e| e.label.clone()));
         return Ok(match found {
@@ -577,6 +618,7 @@ pub fn open(app: &AppHandle, kind: Kind, key: Option<String>, init: Option<Value
     };
     match create(app, kind, &label, &token, cascade) {
         Ok(()) => {
+            log(&format!("{label}: {} window created for key {}", kind.name(), key.as_deref().unwrap_or("-")));
             announce_counts(app);
             Ok(Opened { status: "created", label: Some(label) })
         }
@@ -603,6 +645,7 @@ fn create(app: &AppHandle, kind: Kind, label: &str, token: &str, cascade: Option
     // the page handles file drops itself (HTML5 drop in the compose window), like the main window
     b = b.disable_drag_drop_handler();
     let win = b.build().map_err(|e| e.to_string())?;
+    native_hold(&win, label);
     if let Some(r) = placement.rect {
         // the placement is the OUTER rectangle (frame and title bar included: what the person sees, and what is remembered); the window API sets
         // the inner size, so the frame of this window is taken off (restoring an outer size as an inner one made a window grow at every open)
@@ -626,11 +669,13 @@ fn create(app: &AppHandle, kind: Kind, label: &str, token: &str, cascade: Option
     Ok(())
 }
 
-/// After [`READY_WAIT`] a window that did not report itself is shown and reloaded once (REQ-W2).
+/// After [`READY_WAIT`] a window that did not report itself is shown and reloaded once (REQ-W2). A window that was ended meanwhile is
+/// left alone: it must not be put on screen again.
 fn watch_ready(app: AppHandle, label: String) {
     std::thread::spawn(move || {
         std::thread::sleep(READY_WAIT);
         let ready = match reg(&app).get(&label) {
+            Some(e) if e.retiring => return, // on its way out
             Some(e) => e.ready,
             None => return, // closed meanwhile
         };
@@ -648,24 +693,65 @@ fn watch_ready(app: AppHandle, label: String) {
     });
 }
 
+/// After a window said it is ready, its page has [`CONTENT_WAIT`] to say that it drew something. A web view whose content process died or
+/// whose script stopped is a white window that answers nothing: it is logged and reloaded once, and the log says if that did not help.
+fn watch_content(app: AppHandle, label: String, reloaded: bool) {
+    std::thread::spawn(move || {
+        std::thread::sleep(CONTENT_WAIT);
+        let drawn = match reg(&app).get(&label) {
+            Some(e) if e.retiring => return,
+            Some(e) => e.content,
+            None => return,
+        };
+        if drawn {
+            return;
+        }
+        if reloaded {
+            log(&format!("{label}: still no content {} s after the reload", CONTENT_WAIT.as_secs()));
+            return;
+        }
+        let Some(w) = app.get_webview_window(&label) else { return };
+        log(&format!("{label}: ready but no content after {} s: reloading once", CONTENT_WAIT.as_secs()));
+        let _ = w.reload();
+        watch_content(app, label, true);
+    });
+}
+
+/// A page tells the log something (errors of the page, "content" = it drew its view). Only for secondary windows; the text is cut short.
+pub fn note(app: &AppHandle, label: &str, kind: &str, text: &str) {
+    if kind == "content" {
+        if let Some(e) = reg(app).get_mut(label) {
+            e.content = true;
+        }
+    }
+    let text: String = text.chars().take(300).collect();
+    log(&format!("{label}: page says {kind}: {text}"));
+}
+
 /// The page of a window is up and listens to the quit request: show the window (REQ-W2).
 pub fn mark_ready(app: &AppHandle, label: &str) {
-    let first = {
+    let (first, show) = {
         let mut r = reg(app);
         match r.get_mut(label) {
             Some(e) => {
                 e.ready_at.get_or_insert_with(std::time::Instant::now);
-                !std::mem::replace(&mut e.ready, true)
+                (!std::mem::replace(&mut e.ready, true), !e.retiring)
             }
             None => return,
         }
     };
+    if !show {
+        // ended before its page was up (the person closed it, or a second open raced with it): it stays out of sight
+        log(&format!("{label}: ready after it was ended: not shown"));
+        return;
+    }
     if let Some(w) = app.get_webview_window(label) {
         let _ = w.show();
         let _ = w.set_focus();
     }
     if first {
         log(&format!("{label}: ready"));
+        watch_content(app.clone(), label.to_string(), false);
         // the taskbar badge of the unread count (Windows) goes on the new window too
         let db = app.state::<crate::AppState>().db.clone();
         crate::shell::update_badge(app, &db);
@@ -679,9 +765,15 @@ pub fn on_window_event(window: &tauri::Window, event: &tauri::WindowEvent) {
     let app = window.app_handle();
     match event {
         tauri::WindowEvent::CloseRequested { api, .. } => {
-            log(&format!("{label}: close requested"));
+            log(&format!("{label}: close requested ({} window)", kind.name()));
             if !on_close_requested(app, &label) {
                 api.prevent_close();
+            } else if kind == Kind::Reader {
+                // a reader window has no page that asks first: its close goes through, so it is on its way out from now on
+                // (it stops counting, takes no more shows, frees its key)
+                if reg(app).start_retire(&label) == Some(true) {
+                    announce_counts(app);
+                }
             }
         }
         tauri::WindowEvent::Moved(_) | tauri::WindowEvent::Resized(_) => note_geometry(app, window, &label),
@@ -698,6 +790,7 @@ pub fn on_window_event(window: &tauri::Window, event: &tauri::WindowEvent) {
                 }
                 log(&format!("{label}: closed"));
                 announce_counts(app);
+                after_destroyed(app, &label);
             }
         }
         _ => {}
@@ -800,9 +893,9 @@ pub struct Init {
 /// Open a secondary window of `kind` ("compose" | "reader"), or focus the one that shows `key`. `init` is kept in the backend for the
 /// page (`popout_init`). Answers `{ status: "created" | "focused" | "tooMany", label }`; the 9th window is not an error.
 #[tauri::command]
-pub async fn popout_open(app: AppHandle, kind: String, key: Option<String>, init: Option<Value>, focus_only: Option<bool>) -> R<Opened> {
+pub async fn popout_open(app: AppHandle, window: tauri::Window, kind: String, key: Option<String>, init: Option<Value>, focus_only: Option<bool>) -> R<Opened> {
     let kind = Kind::parse(&kind).ok_or_else(|| format!("unknown window kind: {kind}"))?;
-    open(&app, kind, key.filter(|k| !k.is_empty()), init, focus_only.unwrap_or(false))
+    open(&app, window.label(), kind, key.filter(|k| !k.is_empty()), init, focus_only.unwrap_or(false))
 }
 
 /// The page of a secondary window asks who it is. The token of its address must be the one this window was made with.
@@ -869,16 +962,193 @@ pub fn popout_park(app: AppHandle, window: tauri::Window) -> bool {
     window.hide().is_ok()
 }
 
+/// A page tells the log something about itself: `kind` "content" (it drew its view), "error" (a script error or an unhandled rejection) or
+/// "info". Only a live secondary window, only about itself.
+#[tauri::command]
+pub fn popout_note(app: AppHandle, window: tauri::Window, kind: String, text: String) {
+    let label = window.label();
+    if is_secondary(label) && reg(&app).get(label).is_some() && matches!(kind.as_str(), "content" | "error" | "info") {
+        note(&app, label, &kind, &text);
+    }
+}
+
 /// The calling window ends now, without a close request (its page has decided: it was saved, discarded or sent). Only a secondary window,
-/// and only itself.
+/// and only itself. The answer is given at once and the window is ended by [`retire`], not inside this call: destroying a window from the
+/// IPC call of its own page is the order that is suspected of leaving windows behind on a Mac.
 #[tauri::command]
 pub fn popout_destroy(app: AppHandle, window: tauri::Window) -> bool {
     let label = window.label().to_string();
     if !is_secondary(&label) || reg(&app).get(&label).is_none() {
         return false;
     }
-    log(&format!("{label}: ended by its page"));
-    window.destroy().is_ok()
+    retire(&app, &label, "ended by its page")
+}
+
+// ---------------------------------------------------------------- the end of a window
+
+/// What the end of a window needs next (pure, so the order of the steps is tested without a window system).
+#[derive(Debug, PartialEq, Eq, Clone, Copy)]
+pub enum RetireStep {
+    /// the window is gone: verified
+    Done,
+    /// keep looking
+    Wait,
+    /// it is still there after [`RETIRE_AGAIN`]: ask for its end once more
+    DestroyAgain,
+    /// it is still there after [`RETIRE_GIVE_UP`]: forget it (the registry and the counts must not depend on it)
+    GiveUp,
+}
+
+pub fn retire_step(elapsed: Duration, gone: bool, asked_again: bool) -> RetireStep {
+    if gone {
+        RetireStep::Done
+    } else if elapsed >= RETIRE_GIVE_UP {
+        RetireStep::GiveUp
+    } else if elapsed >= RETIRE_AGAIN && !asked_again {
+        RetireStep::DestroyAgain
+    } else {
+        RetireStep::Wait
+    }
+}
+
+/// End a secondary window whatever the order of create / ready / close / end was. In this order, each step in the log:
+/// 1. it is marked as on its way out (the registry: its key is free, it does not count, it is never shown or asked to answer a quit);
+/// 2. it is taken out of sight (`hide`);
+/// 3. after a short pause, on the event loop and not inside the call that asked, its end is asked for (`destroy`);
+/// 4. the end is looked for (the window object is gone); if it is still there after a while its end is asked for once more, and after a
+///    longer while it is given up and forgotten;
+/// 5. when it is gone, [`after_destroyed`] checks what the window system says and finishes the native window by hand (macOS).
+///
+/// Returns false when there is no such window. Safe to call twice.
+pub fn retire(app: &AppHandle, label: &str, why: &str) -> bool {
+    let first = match reg(app).start_retire(label) {
+        Some(first) => first,
+        None => return false,
+    };
+    if !first {
+        log(&format!("{label}: {why}: already on its way out"));
+        return true;
+    }
+    log(&format!("{label}: {why}"));
+    announce_counts(app);
+    let (app, label) = (app.clone(), label.to_string());
+    std::thread::spawn(move || retire_steps(&app, &label));
+    true
+}
+
+fn retire_steps(app: &AppHandle, label: &str) {
+    let started = std::time::Instant::now();
+    match app.get_webview_window(label) {
+        Some(w) => match w.hide() {
+            Ok(()) => log(&format!("{label}: hidden")),
+            Err(e) => log(&format!("{label}: could not be hidden: {e}")),
+        },
+        None => log(&format!("{label}: no window object any more")),
+    }
+    std::thread::sleep(RETIRE_DELAY);
+    log(&format!("{label}: destroy scheduled"));
+    destroy_on_event_loop(app, label);
+    let mut asked_again = false;
+    loop {
+        std::thread::sleep(RETIRE_POLL);
+        let gone = app.get_webview_window(label).is_none();
+        match retire_step(started.elapsed(), gone, asked_again) {
+            RetireStep::Done => {
+                log(&format!("{label}: gone (verified) after {} ms", started.elapsed().as_millis()));
+                return;
+            }
+            RetireStep::Wait => {}
+            RetireStep::DestroyAgain => {
+                asked_again = true;
+                log(&format!("{label}: still present: closing again"));
+                destroy_on_event_loop(app, label);
+            }
+            RetireStep::GiveUp => {
+                log(&format!("{label}: still present after {} ms: forgotten", started.elapsed().as_millis()));
+                for id in take_ai(label) {
+                    crate::ai::cancel(&id);
+                }
+                reg(app).remove(label);
+                announce_counts(app);
+                after_destroyed(app, label);
+                return;
+            }
+        }
+    }
+}
+
+/// Ask for the end of a window as a task of the event loop (it runs on the main thread, in a step of its own).
+fn destroy_on_event_loop(app: &AppHandle, label: &str) {
+    let (handle, name) = (app.clone(), label.to_string());
+    if let Err(e) = app.run_on_main_thread(move || match handle.get_webview_window(&name) {
+        Some(w) => {
+            if let Err(e) = w.destroy() {
+                log(&format!("{name}: destroy was refused: {e}"));
+            }
+        }
+        None => log(&format!("{name}: destroy: no window object any more")),
+    }) {
+        log(&format!("{label}: destroy could not be scheduled: {e}"));
+    }
+}
+
+/// A window is gone (its `Destroyed` event came, or it was given up): say how many windows the app and the window system still list, now and a
+/// little later, and finish its native window by hand (macOS). The lines in the log are the proof that windows are released.
+fn after_destroyed(app: &AppHandle, label: &str) {
+    let mut left: Vec<String> = app.webview_windows().keys().cloned().collect();
+    left.sort();
+    log(&format!("{label}: {} window(s) left in the app: {}", left.len(), left.join(", ")));
+    let (app, label) = (app.clone(), label.to_string());
+    std::thread::spawn(move || {
+        std::thread::sleep(SWEEP_AFTER);
+        let name = label.clone();
+        let _ = app.run_on_main_thread(move || {
+            if let Some(text) = native_sweep(&name) {
+                log(&format!("{name}: {text}"));
+            }
+        });
+        std::thread::sleep(COUNT_AFTER);
+        let (handle, name) = (app.clone(), label.clone());
+        let _ = app.run_on_main_thread(move || {
+            let mut left: Vec<String> = handle.webview_windows().keys().cloned().collect();
+            left.sort();
+            log(&format!("{name}: {} s after closing: {} window(s) left in the app ({}){}", COUNT_AFTER.as_secs(), left.len(), left.join(", "), native_summary()));
+        });
+    });
+}
+
+/// macOS: keep a reference to the native window so that its end can be checked and finished (macwin.rs). Nothing on other systems.
+#[cfg(target_os = "macos")]
+fn native_hold(win: &tauri::WebviewWindow, label: &str) {
+    static VERSION: std::sync::Once = std::sync::Once::new();
+    VERSION.call_once(|| log(&format!("macOS {}", crate::macwin::os_version())));
+    match win.ns_window() {
+        Ok(p) if crate::macwin::hold(label, p) => {}
+        Ok(_) => log(&format!("{label}: the native window is null")),
+        Err(e) => log(&format!("{label}: no native window: {e}")),
+    }
+}
+#[cfg(not(target_os = "macos"))]
+fn native_hold(_win: &tauri::WebviewWindow, _label: &str) {}
+
+/// Main thread. The line for the log about the native window (finished by hand and released), if one was held.
+#[cfg(target_os = "macos")]
+fn native_sweep(label: &str) -> Option<String> {
+    crate::macwin::sweep(label)
+}
+#[cfg(not(target_os = "macos"))]
+fn native_sweep(_label: &str) -> Option<String> {
+    None
+}
+
+/// Main thread. ", NSApp lists n window(s), m visible" on macOS, nothing elsewhere.
+#[cfg(target_os = "macos")]
+fn native_summary() -> String {
+    format!(", {}", crate::macwin::windows_summary())
+}
+#[cfg(not(target_os = "macos"))]
+fn native_summary() -> String {
+    String::new()
 }
 
 /// The calling window shows another thing now (a draft that a save made is another draft): its key follows, so the lock of a draft keeps
@@ -1012,12 +1282,26 @@ mod tests {
         for f in ["fn popout_park(app: AppHandle, window: tauri::Window)", "fn popout_destroy(app: AppHandle, window: tauri::Window)", "fn popout_set_key(app: AppHandle, window: tauri::Window, key: Option<String>)"] {
             assert!(code.contains(f), "{f}");
         }
-        assert!(code.contains("window.hide()") && code.contains("window.destroy()"));
+        // park hides the caller; destroy does NOT end the window inside the page's own call: it hands over to `retire`
+        assert!(code.contains("window.hide()"));
+        let destroy = &code[code.find("pub fn popout_destroy").unwrap()..];
+        let destroy = &destroy[..destroy.find("
+}
+").unwrap()];
+        assert!(destroy.contains("retire(&app, &label, \"ended by its page\")") && !destroy.contains(".destroy()") && !destroy.contains(".close()"), "{destroy}");
         // the count of windows is told to the main page only
         assert!(code.contains("app.emit_to(\"main\", COUNT_EVENT"));
         assert!(!code.contains("app.emit(COUNT_EVENT"));
         // creating and destroying a window both announce it
-        assert_eq!(code.matches("announce_counts(app);").count(), 2);
+        assert!(code.contains("            announce_counts(app);
+            Ok(Opened { status: \"created\""));
+        let destroyed = &code[code.find("tauri::WindowEvent::Destroyed =>").unwrap()..];
+        assert!(destroyed[..destroyed.find("_ => {}").unwrap()].contains("announce_counts(app);"));
+        // ending a window also announces it (the count leaves out a window on its way out)
+        let retire = &code[code.find("pub fn retire(").unwrap()..];
+        assert!(retire[..retire.find("
+}
+").unwrap()].contains("announce_counts(app);"));
     }
 
     #[test]
@@ -1167,6 +1451,85 @@ mod tests {
         assert!(matches!(ask(&mut r, Kind::Compose, Some("re:m1")), Request::Create { .. }));
         assert_eq!(r.count(Kind::Compose), 2);
         assert_eq!(r.count(Kind::Reader), 0);
+    }
+
+    #[test]
+    fn a_window_that_is_ended_is_out_of_every_list_at_once() {
+        let mut r = Registry::default();
+        let Request::Create { label } = ask(&mut r, Kind::Compose, Some("draft:t1")) else { panic!() };
+        r.get_mut(&label).unwrap().ready = true;
+        assert_eq!(r.ready_labels(), [label.clone()]);
+        assert_eq!(r.start_retire(&label), Some(true), "the first call starts it");
+        assert_eq!(r.start_retire(&label), Some(false), "asking twice is harmless");
+        assert_eq!(r.start_retire("compose-99"), None);
+        assert!(r.ready_labels().is_empty(), "a quit does not ask a window that is going");
+        assert_eq!(r.count(Kind::Compose), 0, "the person ended it: it is not an open compose window any more");
+        assert!(!r.may_show(&label));
+        assert!(r.get(&label).is_some(), "it is forgotten when its Destroyed event comes, not before");
+        // the same draft opened again is a new window, not a focus of the one that is going
+        let Request::Create { label: again } = ask(&mut r, Kind::Compose, Some("draft:t1")) else { panic!("a retiring window must not take a focus request") };
+        assert_ne!(again, label);
+    }
+
+    #[test]
+    fn a_window_is_shown_only_when_its_page_is_ready_or_the_wait_ran_out() {
+        let mut r = Registry::default();
+        let Request::Create { label } = ask(&mut r, Kind::Reader, Some("t1")) else { panic!() };
+        // a second open of the same conversation while the first window is still being made: it must not put the blank window on screen
+        assert_eq!(ask(&mut r, Kind::Reader, Some("t1")), Request::Focus { label: label.clone() });
+        assert!(!r.may_show(&label), "created hidden, page not up: not shown");
+        r.get_mut(&label).unwrap().ready = true;
+        assert!(r.may_show(&label));
+        // the wait ran out (the window is shown without a signal)
+        let Request::Create { label: slow } = ask(&mut r, Kind::Reader, Some("t2")) else { panic!() };
+        r.get_mut(&slow).unwrap().ready_at = Some(std::time::Instant::now());
+        assert!(r.may_show(&slow));
+        assert!(!r.may_show("reader-99"), "no such window");
+    }
+
+    #[test]
+    fn the_end_of_a_window_is_asked_again_and_then_given_up() {
+        use RetireStep::*;
+        let ms = Duration::from_millis;
+        assert_eq!(retire_step(ms(0), false, false), Wait);
+        assert_eq!(retire_step(ms(100), true, false), Done, "gone: verified, whenever");
+        assert_eq!(retire_step(ms(2400), true, true), Done);
+        assert_eq!(retire_step(RETIRE_AGAIN - ms(1), false, false), Wait);
+        assert_eq!(retire_step(RETIRE_AGAIN, false, false), DestroyAgain, "still there: closing again, once");
+        assert_eq!(retire_step(RETIRE_AGAIN + ms(100), false, true), Wait);
+        assert_eq!(retire_step(RETIRE_GIVE_UP, false, true), GiveUp);
+        assert_eq!(retire_step(RETIRE_GIVE_UP, false, false), GiveUp, "never waits for ever");
+        assert!(RETIRE_DELAY < RETIRE_POLL && RETIRE_POLL < RETIRE_AGAIN && RETIRE_AGAIN < RETIRE_GIVE_UP);
+    }
+
+    #[test]
+    fn every_system_ends_a_window_by_the_same_road_and_nothing_ends_one_inside_a_page_call() {
+        let code = crate::test_guard::non_test_code(include_str!("popout.rs"));
+        // the steps, in this order, each with its line in the log
+        let steps = &code[code.find("fn retire_steps(").unwrap()..];
+        let steps = &steps[..steps.find("\n}\n").unwrap()];
+        let at = |needle: &str| steps.find(needle).unwrap_or_else(|| panic!("{needle} is missing in retire_steps"));
+        assert!(at("w.hide()") < at("destroy scheduled") && at("destroy scheduled") < at("destroy_on_event_loop(app, label)"));
+        assert!(at("destroy_on_event_loop(app, label)") < at("gone (verified)") && at("still present: closing again") < at("forgotten"));
+        assert!(steps.contains("hidden") && steps.contains("RetireStep::DestroyAgain") && steps.contains("RetireStep::GiveUp"));
+        // the end is a task of the event loop, and it is the only place a window is destroyed
+        let task = &code[code.find("fn destroy_on_event_loop(").unwrap()..];
+        assert!(task[..task.find("\n}\n").unwrap()].contains("run_on_main_thread") && task.contains("w.destroy()"));
+        assert_eq!(code.matches(".destroy()").count(), 1, "one place destroys a window");
+        // no #[cfg(target_os)] around the road itself: the macOS-only parts are the native hold / sweep / summary functions
+        let road = &code[code.find("pub fn retire(").unwrap()..code.find("/// macOS: keep a reference to the native window").unwrap()];
+        assert!(!road.contains("cfg(target_os") && !road.contains("cfg(windows"), "the end of a window is the same on every system");
+        assert_eq!(code.matches("#[cfg(target_os = \"macos\")]").count(), 3, "native_hold, native_sweep, native_summary");
+        // a window that was ended is never put on screen again: by a second open, by its own page getting ready late, by the wait for the page
+        assert!(code.contains("if !reg(app).may_show(label) {"));
+        let ready = &code[code.find("pub fn mark_ready(").unwrap()..];
+        assert!(ready[..ready.find("\n}\n").unwrap()].contains("e.retiring"));
+        let watch = &code[code.find("fn watch_ready(").unwrap()..];
+        assert!(watch[..watch.find("\n}\n").unwrap()].contains("e.retiring"));
+        // the native window is kept at creation, and finished once the window is gone
+        assert!(code.contains("native_hold(&win, label);") && code.contains("native_sweep(&name)"));
+        // the log counts the windows left, at once and later
+        assert!(code.contains("window(s) left in the app") && code.contains("s after closing"));
     }
 
     #[test]
@@ -1342,7 +1705,7 @@ mod tests {
     fn what_is_written_down_reads_back() {
         let e = Entry {
             label: t("compose-1"), kind: Kind::Compose, key: None, token: t("x"), ready: true, ready_at: None, init: None,
-            rect: Some(rect(100, 200, 1140, 1020)), scale: 1.5, maximized: false, moves: 1, dirty: true,
+            rect: Some(rect(100, 200, 1140, 1020)), scale: 1.5, maximized: false, moves: 1, dirty: true, retiring: false, content: false,
         };
         let s = saved_of(&e).unwrap();
         assert_eq!(s, Saved { x: 100, y: 200, w: 760.0, h: 680.0, maximized: false });
@@ -1359,7 +1722,7 @@ mod tests {
     fn entry() -> Entry {
         Entry {
             label: t("compose-1"), kind: Kind::Compose, key: None, token: t("x"), ready: false, ready_at: None, init: None,
-            rect: Some(rect(494, 258, 950, 850)), scale: 1.25, maximized: false, moves: 0, dirty: false,
+            rect: Some(rect(494, 258, 950, 850)), scale: 1.25, maximized: false, moves: 0, dirty: false, retiring: false, content: false,
         }
     }
 

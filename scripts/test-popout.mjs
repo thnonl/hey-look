@@ -12,6 +12,8 @@ import { carryToasts, parseComposeRequest } from "../src/popout/composeRequests.
 import {
   allowedWhenGone, isFlagged, isGone, isUnread, markReadPlan, readerAllowed, readerInit, readerKey, readerTitleText, scopeOfView, threadScope, withWanted,
 } from "../src/popout/readerLogic.ts";
+import { Coalescer, OPEN_COALESCE_MS, openId } from "../src/popout/coalesce.ts";
+import { rowWindowTarget } from "../src/popout/readerLogic.ts";
 import { Requester, UNREACHABLE } from "../src/popout/request.ts";
 import { parseRequest, READER_ACTIONS, READER_LABELS } from "../src/popout/requestKinds.ts";
 
@@ -638,7 +640,7 @@ assert.equal(draftKey("t9"), "draft:t9");
   assert.ok(mr.includes("forward(m, thread, { window: true, shift: false })") && mr.includes("replyTo(m, p.req.mode === \"replyAll\", thread, { window: true, shift: false })"));
   // a draft: one editor, a double click or Shift+Enter opens a window
   const list = read("src/components/MessageList.tsx");
-  assert.ok(list.includes('folder === "drafts" ? () => void openDraftInWindow('), "double click / Shift+Enter on a draft");
+  assert.ok(list.includes('rowWindowTarget(folder, it.t.folder) === "draft" ? () => void openDraftInWindow('), "double click / Shift+Enter on a draft");
   assert.ok(compose.includes("if (await focusDraftWindow(key)) return true;") && compose.includes("if (mine !== latestDraftOpen) return false;"));
   // the crash restore: a message written in a window comes back in one
   const rec = read("src/composeRecovery.ts");
@@ -655,6 +657,47 @@ assert.equal(draftKey("t9"), "draft:t9");
   for (const f of ["src/popout/composeHub.ts", "src/popout/composeBridge.ts", "src/popout/ComposeView.tsx"]) {
     assert.ok(!/setSetting\(\s*["']prefs["']/.test(read(f)), `${f} writes the preferences`);
   }
+}
+
+// ---- one gesture opens one window (Mac QA 1.0.6 macfix2): the row decides reader or draft, and a repeated ask is the same ask
+assert.equal(rowWindowTarget("inbox", "inbox"), "reader", "a received mail is read, never written");
+assert.equal(rowWindowTarget("starred", "inbox"), "reader");
+assert.equal(rowWindowTarget("all", "inbox"), "reader");
+assert.equal(rowWindowTarget("sent", "sent"), "reader");
+assert.equal(rowWindowTarget("drafts", "drafts"), "draft", "only the Drafts folder opens the compose window on a double click");
+assert.equal(rowWindowTarget("all", "drafts"), "none", "a draft found in a cross-folder view opens nothing by double click");
+assert.equal(rowWindowTarget("scheduled", "outbox"), "none");
+for (const [view, folder] of [["inbox", "inbox"], ["unread", "inbox"], ["pinned", "inbox"], ["archive", "archive"], ["trash", "trash"], ["junk", "junk"]]) {
+  assert.notEqual(rowWindowTarget(view, folder), "draft", `${view}/${folder}`);
+}
+{
+  const c = new Coalescer(OPEN_COALESCE_MS);
+  let made = 0;
+  const open = (id, at) => c.run(id, at, () => ++made);
+  const id = openId("reader", "thread-1");
+  assert.equal(open(id, 1000), 1);
+  assert.equal(open(id, 1260), 1, "the second click of a double click, 0.26 s later: the same window, nothing made");
+  assert.equal(made, 1);
+  assert.equal(open(openId("reader", "thread-2"), 1270), 2, "another conversation is another ask");
+  assert.equal(open(openId("compose", "thread-1"), 1280), 3, "another kind is another ask");
+  assert.equal(open(id, 1000 + OPEN_COALESCE_MS), 4, "a later ask is a new gesture");
+  // a message without a key (New mail) is one ask too, and a failed ask may be repeated at once
+  const n = openId("compose", null);
+  assert.equal(n, "compose:-");
+  assert.equal(open(n, 5000), 5);
+  assert.equal(open(n, 5100), 5, "two quick clicks on New mail open one window");
+  c.forget(n);
+  assert.equal(open(n, 5150), 6, "after a refusal (too many windows) the person may try again");
+  assert.equal(open(n, 5000 + OPEN_COALESCE_MS * 2), 7);
+}
+{
+  const openTs = read("src/popout/open.ts");
+  assert.ok(openTs.includes("asked.run(id, Date.now(), () => openOnce(") && openTs.includes("asked.forget(id)"), "every ask for a window goes through the coalescer");
+  const list = read("src/components/MessageList.tsx");
+  assert.ok(list.includes('rowWindowTarget(folder, it.t.folder) === "draft"') && list.includes('rowWindowTarget(folder, it.t.folder) === "reader"'), "the row's double click uses the one decision");
+  const root = read("src/popout/PopoutRoot.tsx");
+  assert.ok(root.includes('api.popoutNote("content"') && root.includes('window.addEventListener("error"') && root.includes('"unhandledrejection"'), "a page tells the log about its errors and that it drew");
+  assert.ok(JSON.parse(read("src-tauri/capabilities/popout.json")).permissions.includes("allow-popout-note"));
 }
 
 console.log("ok - test-popout");

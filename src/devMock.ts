@@ -1340,6 +1340,7 @@ export function installMock() {
       case "quit_dialog": case "quit_page_alive": case "quit_cancelled": case "sends_flushed": case "show_window": case "frontend_ready": case "page_state": return null;
       // secondary windows (src/popout): the dev preview of a pop-out is ?w=compose or ?w=reader in a plain browser tab
       case "popout_park": case "popout_destroy": case "popout_set_key": return true;
+      case "popout_note": return null;
       case "popout_init": {
         const q = new URLSearchParams(window.location.search);
         const kind = q.get("w") ?? "compose";

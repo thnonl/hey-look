@@ -3,13 +3,24 @@
 import { api } from "../api";
 import { t } from "../i18n";
 import { friendlyError, useStore } from "../store";
+import { Coalescer, openId } from "./coalesce";
 import type { PopoutKind } from "./route";
+
+/** Two asks for the same window within a moment are one gesture (a double click is two clicks): the second gets the answer of the first. */
+const asked = new Coalescer<Promise<boolean>>();
 
 /**
  * `key` makes the window unique (a conversation id, a draft id): asking again focuses the window that has it. `init` is kept in the backend
  * for the new page (`api.popoutInit`). Resolves to true when a window was created or focused; false after it told the person why not.
  */
-export async function openPopout(kind: PopoutKind, key?: string | null, init?: unknown): Promise<boolean> {
+export function openPopout(kind: PopoutKind, key?: string | null, init?: unknown): Promise<boolean> {
+  const id = openId(kind, key);
+  const p = asked.run(id, Date.now(), () => openOnce(kind, key, init));
+  void p.then((ok) => ok || asked.forget(id));
+  return p;
+}
+
+async function openOnce(kind: PopoutKind, key?: string | null, init?: unknown): Promise<boolean> {
   const toast = useStore.getState().showToast;
   try {
     const r = await api.popoutOpen(kind, key ?? null, init ?? null);

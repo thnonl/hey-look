@@ -195,6 +195,7 @@ export default defineLocale<typeof ns.en>({
   "reading.pv.next": "次の添付ファイル",
   "reading.pv.showFailed": "このファイルを表示できませんでした。{error}",
   "reading.pv.notPdf": "このファイルは有効な PDF ではないため、表示できません。開くか保存することはできます。",
+  "reading.pv.pdfNotDrawn": "このプレビューはここでは表示できませんでした。代わりに、既定のアプリでファイルを開いてください。",
   "reading.lb.label": "画像{name}",
   "reading.lb.prev": "前の画像",
   "reading.lb.next": "次の画像",

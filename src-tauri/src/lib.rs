@@ -24,9 +24,12 @@ mod macnotify;
 mod macclip;
 #[cfg(target_os = "macos")]
 mod macquit;
+// the native window of a pop-out, finished by hand once it is gone (popout.rs)
+#[cfg(target_os = "macos")]
+mod macwin;
 mod mail;
-// the main window never leaves the app for a website (the Windows PDF frame has no sandbox); the pure decision is compiled and tested everywhere
-#[cfg_attr(not(windows), allow(dead_code))]
+// the main window never leaves the app for a website (the PDF frame has no sandbox on Windows and macOS); the pure decision is compiled and tested everywhere
+#[cfg_attr(not(any(windows, target_os = "macos")), allow(dead_code))]
 mod navguard;
 mod oauth;
 mod oauth_page;
@@ -4582,7 +4585,7 @@ pub fn run() {
     // macOS: the app menu's Quit item (and Cmd+Q) goes through the quit sequence like the tray's (see shell::mac_app_menu)
     #[cfg(target_os = "macos")]
     let builder = builder.menu(shell::mac_app_menu).on_menu_event(shell::mac_menu_event);
-    #[cfg(windows)]
+    #[cfg(any(windows, target_os = "macos"))]
     // a frame of the window (the PDF preview has no sandbox here, see src/pdfFrame.ts) can never take the whole window to a website
     let builder = builder.plugin(navguard::plugin());
     let built = builder
@@ -4835,6 +4838,7 @@ pub fn run() {
             popout::popout_close,
             popout::popout_park,
             popout::popout_destroy,
+            popout::popout_note,
             popout::popout_set_key,
             popout::popout_request,
             popout::popout_reply,

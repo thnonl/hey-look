@@ -77,7 +77,7 @@ const att = read("src/components/Attachments.tsx");
 const pdf = read("src/pdfFrame.ts");
 assert.ok(/URL\.createObjectURL\(pdf\.blob\)/.test(att) && !/URL\.createObjectURL\(new Blob\(/.test(att), "PDF preview = blob: frame, the blob comes from pdfPreview()");
 assert.ok(/new Blob\(\[bytes as BlobPart\], \{ type: "application\/pdf" \}\)/.test(pdf), "the PDF blob is typed application/pdf by the app");
-assert.ok(/<iframe\s+title=\{cur\.name\}\s+src=\{data\.url\}\s+sandbox=\{data\.sandbox\}/.test(att), "PDF preview = blob: frame");
+assert.ok(/<iframe\s+title=\{name\}\s+src=\{url\}\s+sandbox=\{sandbox\}/.test(att) && /<PdfFrame key=\{data\.url\} url=\{data\.url\} sandbox=\{data\.sandbox\}/.test(att), "PDF preview = blob: frame");
 assert.ok(dir["frame-src"].includes("blob:"), "the PDF preview is a blob: iframe (checked: frame-src without blob: is a violation)");
 assert.ok(/setData\(\{ url: `data:\$\{d\.mime\};base64,/.test(att) && dir["img-src"].includes("data:"));
 assert.equal((att.match(/<iframe\b/g) ?? []).length, 1, "a new iframe: check frame-src");
