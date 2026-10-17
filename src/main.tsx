@@ -3,7 +3,9 @@ import ReactDOM from "react-dom/client";
 import App from "./App";
 import { api } from "./api";
 import { applySavedLanguage } from "./bootLang";
+import { GuardMenuHost } from "./components/GuardMenuHost";
 import { installContextGuard } from "./contextGuard";
+import { loadPlatform } from "./platform";
 import PopoutRoot from "./popout/PopoutRoot";
 import { routeOf } from "./popout/route";
 
@@ -19,10 +21,13 @@ async function boot(): Promise<boolean> {
   }
   // the saved language first: nothing is drawn, and no event handler exists yet, until it is applied (see bootLang.ts)
   await applySavedLanguage(api.getSetting);
+  // the main window reads the system (and whether this is a debug build) in the store's init(); a secondary window has no init(), and the menu rules need it
+  if (route.kind !== "main") await loadPlatform();
   installContextGuard(); // no native webview menu in a release build (see contextPolicy.ts)
   ReactDOM.createRoot(document.getElementById("root") as HTMLElement).render(
     <React.StrictMode>
       {route.kind === "main" ? <App /> : <PopoutRoot route={route} />}
+      <GuardMenuHost />
     </React.StrictMode>,
   );
   return mock;
