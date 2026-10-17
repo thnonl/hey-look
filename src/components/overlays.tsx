@@ -19,6 +19,9 @@ export function Toasts() {
       if (!(document.activeElement instanceof Element) || !document.activeElement.closest(".toasts")) return;
       const t = [...st.toasts].reverse().find((x) => x.escCloses);
       if (!t) return;
+      // this Esc is the toast's: the app's own Esc (close the open conversation) must not act on it as well
+      e.preventDefault();
+      e.stopPropagation();
       st.dismissToast(t.id);
       t.onDismiss?.();
     };
@@ -59,13 +62,20 @@ export function Toasts() {
           </button>
         ));
         const shown = toastText(t);
-        const text = <span className="toast-text" title={fullErrorFor(shown)}>{shown}</span>;
+        // a toast with guidance: the first line is the title, the others say what happened and what to do
+        const lines = t.guide ? shown.split("\n") : null;
+        const text = lines ? (
+          <span className="toast-text toast-lines" title={fullErrorFor(shown)}>
+            <b className="toast-title">{lines[0]}</b>
+            {lines.slice(1).map((l, i) => <span key={i} className="toast-line">{l}</span>)}
+          </span>
+        ) : <span className="toast-text" title={fullErrorFor(shown)}>{shown}</span>;
         return (
-          <div key={t.id} className={`toast ${t.kind}${t.sticky && !t.ttl ? " sticky" : ""}${t.support ? " support" : ""}`} style={t.sticky && !t.ttl ? undefined : { ["--ttl" as string]: `${t.ttl}ms` }}>
+          <div key={t.id} className={`toast ${t.kind}${t.sticky && !t.ttl ? " sticky" : ""}${t.support ? " support" : ""}${t.guide ? " guide" : ""}`} style={t.sticky && !t.ttl ? undefined : { ["--ttl" as string]: `${t.ttl}ms` }}>
             <span className="toast-ico">
               {t.busy ? <><span className="busy-ring spin" aria-hidden /><span className="busy-dots" aria-hidden>···</span></> : t.support ? <Coffee size={16} /> : t.kind === "error" ? <AlertTriangle size={16} /> : t.kind === "success" ? <CheckCircle2 size={16} /> : <Info size={16} />}
             </span>
-            {t.support ? (
+            {t.support || t.guide ? (
               <div className="toast-body">
                 {text}
                 <div className="toast-row">

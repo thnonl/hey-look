@@ -840,6 +840,16 @@ button.ov-tag:hover { background: color-mix(in srgb, var(--accent), transparent 
 .toast.support .toast-x { color: var(--muted); }
 .toast.support .toast-x:hover { color: var(--fg); background: var(--bg3); }
 .toast.support .toast-bar { background: var(--accent); opacity: .45; }
+/* a problem with guidance (the AI Assistant): title, what happened, what to do, and the buttons in a row below; it stays until it is answered */
+.toast.guide { align-items: flex-start; padding: 12px 12px 12px 14px; gap: 11px; }
+.toast.guide .toast-ico { margin-top: 1px; }
+.toast.guide .toast-body { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 10px; }
+.toast.guide .toast-lines { flex: none; display: flex; flex-direction: column; gap: 3px; }
+.toast.guide .toast-title { font-weight: 650; }
+.toast.guide .toast-line { color: #d5d9e0; overflow-wrap: anywhere; }
+.toast.guide .toast-row { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 10px; }
+.toast.guide .toast-x { margin-top: -1px; }
+.toast.guide button:focus-visible { outline: 2px solid #8fb8ee; outline-offset: 2px; }
 .toast.support:hover .toast-bar, .toast.support:focus-within .toast-bar { animation-play-state: paused; }
 .toast.support button:focus-visible { outline: 2px solid var(--accent-text); outline-offset: 2px; }
 

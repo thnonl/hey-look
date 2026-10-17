@@ -4,6 +4,7 @@ import { api } from "./api";
 import { t, type Key } from "./i18n";
 import { friendlyError, useStore } from "./store";
 import { stickyTimers } from "./stickyTimers";
+import { showAiProblem } from "./aiGuide";
 import {
   cancelJob,
   closeToast,
@@ -98,7 +99,14 @@ function settle(key: string, run: number, outcome: { part: string } | { error: u
   clearTimeout(hintTimers.get(key));
   hintTimers.delete(key);
   const tk = toastKey(j);
-  const what = settleToast(j.status as "done" | "failed", viewing(j), before?.toastClosed ?? false);
+  if (j.status === "failed") {
+    // the progress toast goes; the problem is told once, in the toast for AI problems (what happened, what to do, Settings, Try again).
+    // The box in the mail keeps the error and its Retry.
+    store().setStickyToast(tk, null);
+    showAiProblem(j.errorSource ?? j.error ?? "", { feature: "translate", retry: () => startTranslation(j) });
+    return false;
+  }
+  const what = settleToast("done", viewing(j), before?.toastClosed ?? false);
   if (what === "close") {
     store().setStickyToast(tk, null);
   } else if (what === "ready") {
@@ -109,13 +117,6 @@ function settle(key: string, run: number, outcome: { part: string } | { error: u
       closeLabel: () => t("common.close"),
     });
     readyTimers.arm(tk, READY_MS);
-  } else if (what === "error") {
-    store().setStickyToast(tk, {
-      text: () => t("reading.translate.failed", { error: jobErrorText(j) }),
-      kind: "error",
-      actions: [{ label: () => t("common.retry"), run: () => startTranslation(j) }],
-      closeLabel: () => t("common.close"),
-    });
   } else {
     store().setStickyToast(tk, null);
   }
