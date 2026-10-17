@@ -28,5 +28,9 @@ export function useKit(): boolean {
   return ready;
 }
 
-// (start-up: the first editor opens a moment later and finds it there)
-if (typeof window !== "undefined") setTimeout(() => void loadKit(), 800);
+// (start-up: the first editor opens a moment later and finds it there; the table, link and picture tools of insertUi.tsx follow, so the first click in a link or a table
+// shows its bubble or bar at once)
+if (typeof window !== "undefined") {
+  setTimeout(() => void loadKit(), 800);
+  setTimeout(() => void import("./insertUi"), 2500);
+}
