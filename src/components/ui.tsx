@@ -292,7 +292,7 @@ export function FloatingMenu({
   };
   const style = pos ? ({ top: pos.top, left: pos.left, "--dd-max": `${pos.max}px` } as React.CSSProperties) : { top: 0, left: 0, visibility: "hidden" as const };
   return createPortal(
-    <div ref={pop} className={`dd-fixed${tall ? " tall" : ""}`} style={{ ...style, minWidth }} onKeyDown={onKeyDown}>
+    <div ref={pop} className="dd-fixed" data-tall={tall ? "" : undefined} style={{ ...style, minWidth }} onKeyDown={onKeyDown}>
       <MenuList items={items} onDone={() => shut(true)} />
     </div>,
     document.body,

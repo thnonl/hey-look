@@ -73,7 +73,7 @@ async function run(w, h, theme) {
   // ---- More
   await evaluate(`document.querySelector('.ProseMirror').editor.commands.focus(); 1`);
   await openMore();
-  const m0 = await evaluate(`(() => { const d = document.querySelector('.dd-fixed'), m = d.querySelector('.menu'), r = d.getBoundingClientRect(); return { top: r.top, bottom: r.bottom, vh: innerHeight, sh: m.scrollHeight, ch: m.clientHeight, oy: getComputedStyle(m).overflowY, tall: d.classList.contains('tall'), rows: m.querySelectorAll('[role^=menuitem]').length }; })()`);
+  const m0 = await evaluate(`(() => { const d = document.querySelector('.dd-fixed'), m = d.querySelector('.menu'), r = d.getBoundingClientRect(); return { top: r.top, bottom: r.bottom, vh: innerHeight, sh: m.scrollHeight, ch: m.clientHeight, oy: getComputedStyle(m).overflowY, tall: d.hasAttribute('data-tall'), rows: m.querySelectorAll('[role^=menuitem]').length }; })()`);
   check(`${tag}: More is inside the window`, () => assert.ok(m0.top >= 0 && m0.bottom <= m0.vh, JSON.stringify(m0)));
   check(`${tag}: More scrolls when it is taller than the room`, () => { assert.ok(m0.tall); if (m0.sh > m0.ch + 1) assert.match(m0.oy, /auto|scroll/); });
   const inBox = `(() => { const m = document.querySelector('.dd-fixed .menu'), b = m.getBoundingClientRect(), r = document.activeElement.getBoundingClientRect(); return { ok: r.top >= b.top - 1 && r.bottom <= b.bottom + 1, last: document.activeElement === [...m.querySelectorAll('[role^=menuitem]')].pop(), label: document.activeElement.textContent.trim().slice(0, 20) }; })()`;
