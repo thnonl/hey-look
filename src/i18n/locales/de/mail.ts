@@ -103,6 +103,9 @@ export default defineLocale<typeof ns.en>({
   "mail.pane.calendarTitle": "Kalender (Ctrl+2)",
   // right-click menu of a list row
   "mail.ctx.copySubject": "Betreff kopieren",
+  "mail.ctx.copyEmail": "E-Mail-Adresse kopieren",
+  "mail.ctx.selectAll": "Alles auswählen",
+  "mail.ctx.textMenu": "Textaktionen",
   "mail.ctx.copyFailed": "Kopieren in die Zwischenablage nicht möglich",
   "mail.ctx.onlyOne": "Nur für jeweils eine Unterhaltung verfügbar",
   "mail.ctx.oneMailbox": "Nur verfügbar, wenn sich die Unterhaltungen in einem Postfach befinden",

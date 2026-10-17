@@ -113,6 +113,9 @@ export default defineLocale<typeof ns.en>({
   "mail.pane.calendarTitle": "Календарь (Ctrl+2)",
   // right-click menu of a list row
   "mail.ctx.copySubject": "Копировать тему",
+  "mail.ctx.copyEmail": "Копировать адрес электронной почты",
+  "mail.ctx.selectAll": "Выделить всё",
+  "mail.ctx.textMenu": "Действия с текстом",
   "mail.ctx.copyFailed": "Не удалось скопировать в буфер обмена",
   "mail.ctx.onlyOne": "Доступно только для одной беседы за раз",
   "mail.ctx.oneMailbox": "Доступно, только если беседы находятся в одном почтовом ящике",
