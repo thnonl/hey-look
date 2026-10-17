@@ -2,7 +2,7 @@ import Image from "@tiptap/extension-image";
 import { NodeSelection } from "@tiptap/pm/state";
 import { EditorContent, Node as TipNode, useEditor, type Editor } from "@tiptap/react";
 import {
-  BadgeCheck, CalendarClock, CalendarPlus, ChevronDown, ExternalLink, FileText, ImagePlus, Info, Lock, LockOpen, Paperclip, Save, Send, ShieldAlert, ShieldCheck, Sparkles, Trash2,
+  BadgeCheck, CalendarClock, CalendarPlus, ChevronDown, ExternalLink, FileText, ImagePlus, Info, Lock, LockOpen, MoreHorizontal, Paperclip, Save, Send, ShieldAlert, ShieldCheck, Sparkles, Trash2,
   TriangleAlert, X,
 } from "lucide-react";
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
@@ -25,6 +25,7 @@ import { unwrapBase, type BaseFont } from "../editor/emailHtml";
 import { baseFromPrefs } from "../editor/baseFont";
 import { repairSignature, signatureGuard } from "../signatureGuard";
 import { fitInWindow } from "../fitInWindow";
+import { BAR_ROW_MAX, isCompact } from "../composeFit";
 import { autosaveDue, snapshotDue, timing, type AutosaveWhy } from "../autosave";
 import { RecoveryWriter, type RecoveryForm } from "../recovery";
 import { cleanPastedHtml, isLocalPictureSrc, stripRemotePictures } from "../pastedHtml";
@@ -49,8 +50,8 @@ import { editorKeyHandlers, isAltGraph } from "../composeKeys";
 import { useLinkEditor } from "./LinkPopover";
 import { SchedulePicker } from "./SchedulePicker";
 import { ImportanceButtons, ImportanceMark } from "./Importance";
-import { draftImportance, initialImportance, type Importance } from "../importance";
-import { AccountPicker, Dropdown, MenuList, useFitInWindow, useOutside } from "./ui";
+import { draftImportance, initialImportance, pressImportance, type Importance } from "../importance";
+import { AccountPicker, Dropdown, FloatingMenu, usePinnedBelow, useOutside, type MenuItem } from "./ui";
 import type { Key } from "../i18n";
 import { t as tNow } from "../i18n";
 import { useT } from "../i18n/react";
@@ -136,9 +137,20 @@ export function RecipientField({
   const [sugg, setSugg] = useState<Contact[]>([]);
   const [hi, setHi] = useState(-1);
   const input = useRef<HTMLInputElement>(null);
+  const fieldRef = useRef<HTMLDivElement>(null);
+  const chipsRef = useRef<HTMLDivElement>(null);
+  const suggRef = useRef<HTMLDivElement>(null);
+  // the popovers of the field are fixed: the header of the compose pane scrolls in a low window, and a scroll box would cut off an absolute one
+  usePinnedBelow(popRef, fieldRef, keyPop !== null, { inset: 62 });
+  usePinnedBelow(suggRef, fieldRef, sugg.length > 0, { inset: 62, match: true }, sugg);
   useEffect(() => {
     if (autoFocus) input.current?.focus();
   }, [autoFocus]);
+  // many recipients: the box has a height of its own (App.css .chips) and shows the end, where the next one is typed
+  useEffect(() => {
+    const c = chipsRef.current;
+    if (c && document.activeElement === input.current) c.scrollTop = c.scrollHeight;
+  }, [values.length]);
 
   const commit = (raw: string) => {
     // one parser for typing, paste and drop (recipients.ts): a comma inside a quoted name does not end the recipient
@@ -162,9 +174,9 @@ export function RecipientField({
   };
 
   return (
-    <div className="cf-field rcpt" onClick={() => input.current?.focus()}>
+    <div className="cf-field rcpt" ref={fieldRef} onClick={() => input.current?.focus()}>
       {!hideLabel && <label>{label}</label>}
-      <div className="chips">
+      <div className="chips" ref={chipsRef}>
         {values.map((v) => {
           const addr = bareAddress(v).toLowerCase();
           const ks = keys?.[addr];
@@ -249,7 +261,7 @@ export function RecipientField({
         />
       </div>
       {keyPop && keys?.[keyPop] && (
-        <span className="suggest popover" role="dialog" aria-label={t("compose.rcpt.keyDialog", { addr: keyPop })} ref={popRef} style={{ width: 340, right: "auto", left: 62, padding: 12, gap: 8, display: "flex", flexDirection: "column" }} onClick={(e) => e.stopPropagation()}>
+        <span className="suggest pinned popover" role="dialog" aria-label={t("compose.rcpt.keyDialog", { addr: keyPop })} ref={popRef} style={{ width: 340, padding: 12, gap: 8, display: "flex", flexDirection: "column" }} onClick={(e) => e.stopPropagation()}>
           <span style={{ display: "flex", gap: 8, alignItems: "center" }}><TriangleAlert size={15} className="warn-ico" /><b>{keys[keyPop].status === "expired" ? t("compose.rcpt.keyExpired", { addr: keyPop }) : keys[keyPop].status === "revoked" ? t("compose.rcpt.keyRevoked", { addr: keyPop }) : t("compose.rcpt.keyMissing", { addr: keyPop })}</b></span>
           <span className="muted small">
             {keys[keyPop].status === "missing"
@@ -264,7 +276,7 @@ export function RecipientField({
         </span>
       )}
       {sugg.length > 0 && (
-        <div className="suggest" role="listbox">
+        <div className="suggest pinned" role="listbox" ref={suggRef}>
           {sugg.map((c, i) => (
             <div key={c.email} role="option" aria-selected={i === hi} className={i === hi ? "hl" : ""} onMouseDown={(e) => (e.preventDefault(), pick(c))} onMouseEnter={() => setHi(i)}>
               {c.name ? `${c.name} ` : ""}
@@ -498,10 +510,28 @@ export function Compose({ init }: { init: ComposeInit }) {
   const [signOn, setSignOn] = useState(init.restore ? init.restore.sign : init.security ? init.security.sign : eff(prefs, accountId, "pgpSign"));
   const [attachKey, setAttachKey] = useState(init.restore ? init.restore.attachKey : init.security ? init.security.attachPublicKey : eff(prefs, accountId, "pgpAttachKey"));
   const [signMenu, setSignMenu] = useState(false);
+  // how much room the pane has (composeFit.ts): a small one shows the actions as icons and More; the measure is the pane, not the window
+  const paneRef = useRef<HTMLDivElement>(null);
+  const [compact, setCompact] = useState(false);
+  const [barWraps, setBarWraps] = useState(false); // the actions did not fit in one row (a long name of Send, a scheduled message): then the row scrolls away with the fields instead of staying put
+  useLayoutEffect(() => {
+    const el = paneRef.current;
+    if (!el) return;
+    const bar = el.querySelector<HTMLElement>(".cp-bar");
+    const measure = () => {
+      setCompact(isCompact(el.clientWidth, el.clientHeight));
+      setBarWraps(!!bar && bar.offsetHeight > BAR_ROW_MAX);
+    };
+    measure();
+    const ro = new ResizeObserver(measure);
+    ro.observe(el);
+    if (bar) ro.observe(bar);
+    return () => ro.disconnect();
+  }, []);
   const [secDetails, setSecDetails] = useState(false);
   const [ks, setKs] = useState<{ own: OwnKeyStatus | null; recipients: Record<string, RecipientStatus> } | null>(null);
   const signRef = useRef<HTMLDivElement>(null);
-  useOutside(signRef, () => setSignMenu(false), signMenu);
+  const signCaretRef = useRef<HTMLButtonElement>(null);
   const touched = useRef(false);
   const ccTouched = useRef(false);
   const savedRef = useRef(false); // an outbox item was saved, moved or sent from here (nothing to release)
@@ -511,7 +541,7 @@ export function Compose({ init }: { init: ComposeInit }) {
   const bodyRef = useRef<HTMLDivElement>(null);
   useOutside(schedRef, () => setSchedOpen(false), schedOpen);
   const schedPopRef = useRef<HTMLDivElement>(null);
-  useFitInWindow(schedPopRef, schedOpen);
+  usePinnedBelow(schedPopRef, schedRef, schedOpen); // fixed: the header scrolls in a low window, and a scroll box would cut off an absolute popover
 
   const revRef = useRef(0); // up with every edit: a save that was running while the person typed knows it
   const attachingRef = useRef(0); // files / pictures being read into the message
@@ -611,6 +641,25 @@ export function Compose({ init }: { init: ComposeInit }) {
     setSignOn(!signOn);
     touch();
   };
+  const toggleMeeting = () => {
+    if (meeting) setMeeting(null);
+    else {
+      if (bcc.length) {
+        setBcc([]);
+        showToast(t("compose.meeting.bccRemoved"), undefined, "info");
+      }
+      setMeeting(defaultMeeting(calTz(prefs)));
+    }
+    touch();
+  };
+  /** The rows of the menu at the Sign button: sign this message, attach the public key, the signing key, the keys. */
+  const signItems: MenuItem[] = [
+    { label: t("compose.bar.signThis"), checked: signOn, hint: kbd("Ctrl+Shift+G"), disabled: !own, onClick: toggleSign },
+    { label: t("compose.bar.attachPublicKey"), checked: attachKey, disabled: !own, onClick: () => (setAttachKey(!attachKey), touch()) },
+    { divider: true },
+    ...(own ? [{ label: t("compose.bar.signingKey", { key: shortKey(own.fingerprint) }), icon: <ShieldCheck size={14} />, onClick: () => setDialog({ type: "pgp-key", fingerprint: own.fingerprint }) }] : [{ label: t("compose.bar.noKeyYet"), disabled: true }]),
+    { label: own ? t("compose.bar.manageKeys") : t("compose.bar.setUpEncryption"), onClick: () => (own ? setDialog({ type: "settings", tab: "pgp" }) : setDialog({ type: "pgp-generate", accountId })) },
+  ];
   /** What this message will do, as sent to the backend. */
   const currentSecurity = (): DraftSecurity | undefined =>
     encOn || signActive ? { encrypt: encOn, sign: signActive, attachPublicKey: attachKey && (encOn || signActive) } : undefined;
@@ -1704,9 +1753,31 @@ export function Compose({ init }: { init: ComposeInit }) {
   const pastDue = !!init.outboxId && !!init.sendAt && init.sendAt * 1000 < Date.now() - 60_000;
   const imgSelected = !!picSel;
 
+  // a small pane (composeFit.ts) keeps these actions in "More actions" (the row of buttons has no room for them); a dot on the button says one is on
+  const moreOn = !!meeting || encOn || signActive || confidential || importance !== "normal" || aiOpen;
+  const moreItems: MenuItem[] = [
+    { label: t("compose.bar.picture"), icon: <ImagePlus size={14} />, hint: kbd("Ctrl+Shift+P"), title: kbd(t("compose.bar.insertPictureTip")), onClick: () => picRef.current?.click() },
+    { divider: true },
+    { label: t("compose.bar.meeting"), icon: <CalendarPlus size={14} />, checked: !!meeting, title: t("compose.bar.meetingTip"), onClick: toggleMeeting },
+    { label: t("compose.bar.encrypt"), icon: encOn ? <Lock size={14} /> : <LockOpen size={14} />, checked: encOn, hint: kbd("Ctrl+Shift+E"), title: encTitle, onClick: toggleEncrypt },
+    { label: t("compose.bar.sign"), icon: <BadgeCheck size={14} />, checked: signActive, hint: kbd("Ctrl+Shift+G"), title: own ? kbd(t("compose.bar.signTip")) : encTitle, onClick: toggleSign },
+    ...signItems.slice(1), // (the first row is the Sign row above)
+    { divider: true },
+    { label: t("compose.bar.confidential"), icon: <ShieldAlert size={14} />, checked: confidential, title: confidential ? t("compose.bar.confidentialOnTip") : t("compose.bar.confidentialOffTip"), onClick: () => (setConfidential(!confidential), touch()) },
+    { label: t("mail.importance.high"), checked: importance === "high", onClick: () => (setImportance(pressImportance(importance, "high")), touch()) },
+    { label: t("mail.importance.low"), checked: importance === "low", onClick: () => (setImportance(pressImportance(importance, "low")), touch()) },
+    { divider: true },
+    ...(init.outboxId ? [] : [{ label: t("compose.bar.saveDraft"), icon: <Save size={14} />, onClick: () => void saveDraft(true) }]),
+    { label: t("compose.bar.templates"), icon: <FileText size={14} />, disabled: true },
+    ...(myTemplates.length ? myTemplates.map((tpl) => ({ label: tpl.name, onClick: () => applyTemplate(tpl) })) : [{ label: t("compose.bar.noTemplates"), disabled: true }]),
+    { divider: true },
+    { label: t("compose.bar.writeWithAi"), icon: <Sparkles size={14} />, checked: aiOpen, disabled: !!init.confidential, title: init.confidential ? t("compose.bar.aiConfidentialTip") : aiConfigured ? t("compose.bar.aiTip") : t("compose.bar.aiSetupTip"), onClick: toggleAi },
+  ];
+
   return (
     <div
-      className={`compose-pane ${dragging ? "dragging" : ""}`}
+      ref={paneRef}
+      className={`compose-pane ${dragging ? "dragging" : ""} ${compact ? "compact" : ""} ${compact && barWraps ? "bar-wraps" : ""}`}
       onKeyDown={(e) => {
         if (isImeEvent(e)) return; // a key that belongs to an input method (Subject, To, Cc, Bcc): no app shortcut
         if (isAltGraph(e)) return; // AltGr (Ctrl+Alt) types a character: no app shortcut
@@ -1783,10 +1854,12 @@ export function Compose({ init }: { init: ComposeInit }) {
         }
       }}
     >
+      {/* the header (actions, banners, fields, strips) is the part that gives way: App.css `.cp-head` scrolls when the pane is low, so the formatting row and the body below are never pushed out of view */}
+      <div className="cp-head">
       <div className="cp-bar">
         <div className="split-btn" ref={schedRef}>
           <button className="btn primary" disabled={busy} onClick={() => void (init.outboxId ? send(init.sendAt) : send())} title={init.outboxId ? t("compose.bar.scheduleTip") : kbd(t("compose.bar.sendTip"))}>
-            {init.outboxId ? <><CalendarClock size={14} /> {t("compose.bar.schedule")}</> : meeting ? <><CalendarPlus size={14} /> {t("compose.bar.sendInvite")}</> : <><Send size={14} /> {t("compose.bar.send")}</>}
+            {init.outboxId ? <><CalendarClock size={14} /> <span className="btn-lbl">{t("compose.bar.schedule")}</span></> : meeting ? <><CalendarPlus size={14} /> <span className="btn-lbl">{t("compose.bar.sendInvite")}</span></> : <><Send size={14} /> <span className="btn-lbl">{t("compose.bar.send")}</span></>}
           </button>
           <button
             className="btn primary split-caret"
@@ -1799,7 +1872,7 @@ export function Compose({ init }: { init: ComposeInit }) {
             <ChevronDown size={14} />
           </button>
           {schedOpen && (
-            <div className="popover up sched-pop" ref={schedPopRef}>
+            <div className="popover up sched-pop pinned" ref={schedPopRef}>
               <SchedulePicker
                 initial={schedInitial}
                 primaryLabel={t("compose.bar.schedule")}
@@ -1814,9 +1887,9 @@ export function Compose({ init }: { init: ComposeInit }) {
         {init.outboxId ? (
           <button className="rb" onClick={() => void moveToDrafts()}><Save size={15} /><span>{t("compose.bar.moveToDrafts")}</span></button>
         ) : null}
-        <button className="rb" onClick={() => void discard()}><Trash2 size={15} /><span>{t("compose.bar.discard")}</span></button>
-        <button className="rb" onClick={() => fileRef.current?.click()}><Paperclip size={15} /><span>{t("compose.bar.attach")}</span></button>
-        <button className="rb" onClick={() => picRef.current?.click()} title={kbd(t("compose.bar.insertPictureTip"))}><ImagePlus size={15} /><span>{t("compose.bar.picture")}</span></button>
+        <button className="rb" title={compact ? t("compose.bar.discard") : undefined} onClick={() => void discard()}><Trash2 size={15} /><span>{t("compose.bar.discard")}</span></button>
+        <button className="rb" title={compact ? t("compose.bar.attach") : undefined} onClick={() => fileRef.current?.click()}><Paperclip size={15} /><span>{t("compose.bar.attach")}</span></button>
+        {!compact && <button className="rb" onClick={() => picRef.current?.click()} title={kbd(t("compose.bar.insertPictureTip"))}><ImagePlus size={15} /><span>{t("compose.bar.picture")}</span></button>}
         <input ref={fileRef} type="file" multiple hidden onChange={(e) => (void addFiles(e.target.files), (e.target.value = ""))} />
         <input
           ref={picRef}
@@ -1826,21 +1899,19 @@ export function Compose({ init }: { init: ComposeInit }) {
           hidden
           onChange={(e) => (e.target.files && void insertPictures(Array.from(e.target.files)), (e.target.value = ""))}
         />
+        {compact ? (
+          // a small pane: the rest of the actions in one menu (a dot says that one of them is on)
+          <Dropdown className="rb more" caret={false} title={t("compose.bar.more")} items={moreItems}>
+            <MoreHorizontal size={15} />
+            {moreOn && <i className="more-dot" aria-hidden />}
+          </Dropdown>
+        ) : (
+        <>
         <button
           className={`rb ${meeting ? "on" : ""}`}
           aria-pressed={!!meeting}
           title={t("compose.bar.meetingTip")}
-          onClick={() => {
-            if (meeting) setMeeting(null);
-            else {
-              if (bcc.length) {
-                setBcc([]);
-                showToast(t("compose.meeting.bccRemoved"), undefined, "info");
-              }
-              setMeeting(defaultMeeting(calTz(prefs)));
-            }
-            touch();
-          }}
+          onClick={toggleMeeting}
         >
           <CalendarPlus size={15} /><span>{t("compose.bar.meeting")}</span>
         </button>
@@ -1857,23 +1928,11 @@ export function Compose({ init }: { init: ComposeInit }) {
           <button className={`rb ${signActive ? "on" : ""}`} aria-pressed={signActive} aria-disabled={!own} title={own ? kbd(t("compose.bar.signTip")) : encTitle} onClick={toggleSign}>
             <BadgeCheck size={15} /><span>{t("compose.bar.sign")}</span>
           </button>
-          <button className="rb caret" aria-label={t("compose.bar.signOptions")} aria-haspopup="menu" aria-expanded={signMenu} title={t("compose.bar.signOptions")} onClick={() => setSignMenu((o) => !o)}>
+          <button ref={signCaretRef} className="rb caret" aria-label={t("compose.bar.signOptions")} aria-haspopup="menu" aria-expanded={signMenu} title={t("compose.bar.signOptions")} onClick={() => setSignMenu((o) => !o)}>
             <ChevronDown size={12} />
           </button>
-          {signMenu && (
-            <div className="dd-pop left" style={{ width: 300 }}>
-              <MenuList
-                onDone={() => setSignMenu(false)}
-                items={[
-                  { label: t("compose.bar.signThis"), checked: signOn, hint: kbd("Ctrl+Shift+G"), disabled: !own, onClick: toggleSign },
-                  { label: t("compose.bar.attachPublicKey"), checked: attachKey, disabled: !own, onClick: () => (setAttachKey(!attachKey), touch()) },
-                  { divider: true },
-                  ...(own ? [{ label: t("compose.bar.signingKey", { key: shortKey(own.fingerprint) }), icon: <ShieldCheck size={14} />, onClick: () => setDialog({ type: "pgp-key", fingerprint: own.fingerprint }) }] : [{ label: t("compose.bar.noKeyYet"), disabled: true }]),
-                  { label: own ? t("compose.bar.manageKeys") : t("compose.bar.setUpEncryption"), onClick: () => (own ? setDialog({ type: "settings", tab: "pgp" }) : setDialog({ type: "pgp-generate", accountId })) },
-                ]}
-              />
-            </div>
-          )}
+          {/* a menu of its own layer: the header scrolls in a low window and would cut off one that is inside it */}
+          {signMenu && <FloatingMenu anchor={signRef} trigger={signCaretRef} minWidth={300} items={signItems} onClose={() => setSignMenu(false)} />}
         </div>
         <button
           className={`rb ${confidential ? "on" : ""}`}
@@ -1899,6 +1958,8 @@ export function Compose({ init }: { init: ComposeInit }) {
         >
           <Sparkles size={15} /><span>{t("compose.bar.writeWithAi")}</span>
         </button>
+        </>
+        )}
         <div className="grow" />
         {!init.outboxId && !composeSeam() && (
           <button className="icon-btn" aria-label={t("compose.popout.popOut")} title={kbd(t("compose.popout.popOutTip"))} onClick={() => void popOut()}>
@@ -2000,6 +2061,7 @@ export function Compose({ init }: { init: ComposeInit }) {
           </dl>
         </div>
       )}
+      </div>
 
       <div className="cp-fmt">
         <FormatBar
@@ -2081,6 +2143,8 @@ export function Compose({ init }: { init: ComposeInit }) {
         )}
       </div>
 
+      {/* under the body: the pictures' size, the attachments, the notes; a box of its own height (App.css `.cp-tail`), the body keeps its room */}
+      <div className="cp-tail">
       {pics.count > 0 && (
         <div className="cp-size muted small cp-atts" aria-live="polite">
           {t("compose.pic.count", { n: pics.count, size: fmtSize(totalBytes), limit: fmtSize(limit.bytes) })}
@@ -2121,14 +2185,16 @@ export function Compose({ init }: { init: ComposeInit }) {
           )}
         </div>
       )}
-      {((draftsHint && !init.outboxId) || autosavedAt) && (
+      {/* always there when it is not a scheduled message (empty until there is something to say): the line appearing at the first autosave used to move what is above it */}
+      {!init.outboxId && (
         <div className="muted small cp-foot">
-          {draftsHint && !init.outboxId ? t("compose.banner.editingDraft") : ""}
-          {draftsHint && !init.outboxId && autosavedAt ? " " : ""}
+          {draftsHint ? t("compose.banner.editingDraft") : ""}
+          {draftsHint && autosavedAt ? " " : ""}
           {autosavedAt ? t("compose.autosave.saved", { time: fmtClock(Math.floor(autosavedAt / 1000)) }) : ""}
         </div>
       )}
       {init.outboxId && <div className="muted small cp-foot">{t("compose.banner.keepsSchedule")}</div>}
+      </div>
       {dragging && (
         <div className="drop-zones" aria-label={t("compose.drop.label")}>
           {dragImages && (

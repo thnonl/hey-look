@@ -79,6 +79,7 @@ export default defineLocale<typeof ns.en>({
   "compose.bar.saveDraft": "下書きを保存",
   "compose.bar.templates": "テンプレート",
   "compose.bar.noTemplates": "テンプレートはまだありません（設定 → メールボックス → テンプレート）",
+  "compose.bar.more": "その他の操作",
   "compose.bar.writeWithAi": "AIで作成",
   "compose.bar.aiConfidentialTip": "機密メールはAIアシスタントに送信されません",
   "compose.bar.aiTip": "AIで作成または書き直し",

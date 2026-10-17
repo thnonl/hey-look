@@ -78,6 +78,7 @@ export default defineLocale<typeof ns.en>({
   "compose.bar.saveDraft": "保存草稿",
   "compose.bar.templates": "模板",
   "compose.bar.noTemplates": "还没有模板（设置 → 邮箱 → 模板）",
+  "compose.bar.more": "更多操作",
   "compose.bar.writeWithAi": "用AI撰写",
   "compose.bar.aiConfidentialTip": "机密邮件不会发送给AI助手",
   "compose.bar.aiTip": "用AI撰写或改写",

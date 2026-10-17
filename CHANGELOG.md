@@ -23,6 +23,7 @@ Writing a message got safer and more complete: nothing you write is lost to a cr
 
 ### Fixed
 
+- Writing a message at the smallest window size (the main window at 960 x 560, or the window of its own at its smallest): the formatting row and the message body are always in view and the body keeps room for about eight lines; before, the rows of buttons and fields filled the whole pane and pushed both out of view. When the pane is narrow or low the actions are one row of icons (Send, Discard, Attach) with a More actions menu for the rest, the fields above the message scroll instead of pushing it out, and many recipients or attachments get a box of their own with a scroll bar. The suggestions, the Send later popover and the Sign menu are no longer cut off by the scrolling fields, and the Signature picker no longer runs out of a narrow pane
 - Mac: Cmd+Shift+V pastes the clipboard as plain text in the message you write (and in the signature and template editors, also in a window of its own); it pasted nothing before. In a text box such as To or Subject it pastes the text too. Cmd+V, Cmd+C, Cmd+X and Cmd+A are unchanged
 - Writing a message: after pasting formatted text and choosing Keep text only or Merge formatting in the Paste options, the text no longer stays bold when it was pasted at the start of a paragraph, and what you type next continues in the format you had before the paste
 - Drafts: the Bcc recipients are kept in a saved draft and come back when you reopen it. Before, a draft opened again and sent went out without them

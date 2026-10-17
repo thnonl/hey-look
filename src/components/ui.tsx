@@ -76,6 +76,46 @@ export function useFitInWindow(ref: Ref, active: boolean) {
   }, [ref, active]);
 }
 
+/**
+ * Places a `position: fixed` popover (class `pinned`) under `anchor` (above it when there is more room there), inside the window, with its
+ * list made scrollable when it is taller than the room. The header of the compose pane scrolls when the window is low, and a scroll box
+ * cuts off an absolutely placed popover; a fixed one is not cut. `inset`: px from the left of the anchor; `match`: as wide as the
+ * anchor from there. Measured when it opens, when `dep` changes (the suggestions), and when the window or any box around it scrolls.
+ */
+export function usePinnedBelow(pop: Ref, anchor: Ref, active: boolean, opts: { inset?: number; match?: boolean } = {}, dep?: unknown) {
+  const { inset = 0, match = false } = opts;
+  useLayoutEffect(() => {
+    const el = pop.current;
+    if (!active || !el) return;
+    const place = () => {
+      const a = anchor.current;
+      if (!a) return;
+      const b = a.getBoundingClientRect();
+      const edge = 8, gap = 4;
+      el.style.maxHeight = "";
+      const left0 = b.left + inset;
+      if (match) el.style.width = `${Math.max(0, b.right - left0)}px`;
+      const left = Math.max(edge, Math.min(left0, window.innerWidth - edge - el.offsetWidth));
+      const h = el.offsetHeight;
+      const below = window.innerHeight - edge - (b.bottom + gap);
+      const above = b.top - gap - edge;
+      const up = h > below && above > below;
+      const room = Math.max(up ? above : below, 96);
+      if (h > room) el.style.maxHeight = `${room}px`;
+      el.style.left = `${left}px`;
+      el.style.top = `${up ? Math.max(edge, b.top - gap - Math.min(h, room)) : b.bottom + gap}px`;
+    };
+    place();
+    const scrolled = (ev: Event) => !el.contains(ev.target as Node) && place();
+    window.addEventListener("resize", place);
+    window.addEventListener("scroll", scrolled, true);
+    return () => {
+      window.removeEventListener("resize", place);
+      window.removeEventListener("scroll", scrolled, true);
+    };
+  }, [pop, anchor, active, inset, match, dep]);
+}
+
 export function MenuList({ items, onDone }: { items: MenuItem[]; onDone: () => void }) {
   return (
     <div className="menu" role="menu">
