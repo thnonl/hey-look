@@ -39,6 +39,13 @@ fn mailboxes(a: Option<&mail_parser::Address>) -> Vec<String> {
     .unwrap_or_default()
 }
 
+/// The line for startup.log: where the headers came from (`body`: the message was downloaded already, `fetch`: asked from the server), how many
+/// Reply-To addresses it has and how many of them are the person's own accounts (the page does not answer to those).
+pub fn log_text(h: &ReplyHeaders, source: &str, own_emails: &[String]) -> String {
+    let own = h.reply_to.iter().filter(|r| own_emails.iter().any(|e| e.trim().eq_ignore_ascii_case(crate::smtp::split_mailbox(r).1.trim()))).count();
+    format!("reply headers: source={source}, reply-to={} address(es), own removed={own}", h.reply_to.len())
+}
+
 /// At most this many ids in the References of an answer, and this many characters (RFC 5322 line limit is 998; 986 leaves room for
 /// the field name).
 const MAX_REFS: usize = 20;
@@ -172,5 +179,130 @@ mod tests {
         let h = from_raw(b"From: a@example.org\r\n\r\nx");
         assert_eq!(h.message_id, None);
         assert!(h.references.is_empty());
+    }
+
+    // ---- QA 20 (Mac, GreenMail): where Reply-To comes from and what the reply path does with it
+
+    /// A message as a small mail server stores it: Return-Path / Received in front, `eol` as line ending, a Reply-To with several addresses folded
+    /// over two lines.
+    fn stored_message(eol: &str) -> Vec<u8> {
+        [
+            "Return-Path: <sender@test.local>",
+            "Received: from localhost (localhost [127.0.0.1]) by test.local; Sat, 17 Oct 2026 10:00:00 +0000",
+            "From: RC Sender <sender@test.local>",
+            "Reply-To: RC ReplyTo <qa2@test.local>,",
+            "\t\"Third, Person\" <qa3@test.local>",
+            "To: qa1@test.local",
+            "Subject: RC106 reply-to probe",
+            "Message-ID: <1.2@test.local>",
+            "",
+            "body",
+            "",
+        ]
+        .join(eol)
+        .into_bytes()
+    }
+
+    #[test]
+    fn a_folded_reply_to_with_several_addresses_is_read_whole_with_either_line_ending() {
+        for eol in ["\r\n", "\n"] {
+            let h = from_raw(&stored_message(eol));
+            assert_eq!(h.reply_to, vec!["\"RC ReplyTo\" <qa2@test.local>".to_string(), "\"Third, Person\" <qa3@test.local>".to_string()], "eol {eol:?}: {:?}", h.reply_to);
+            assert_eq!(h.from.as_deref(), Some("\"RC Sender\" <sender@test.local>"));
+        }
+    }
+
+    #[test]
+    fn the_log_line_says_how_many_reply_to_addresses_are_the_persons_own() {
+        let h = from_raw(&stored_message("\r\n"));
+        let own = vec!["qa1@test.local".to_string(), "QA2@test.local".to_string()];
+        assert_eq!(log_text(&h, "body", &own), "reply headers: source=body, reply-to=2 address(es), own removed=1");
+        assert_eq!(log_text(&h, "fetch", &[]), "reply headers: source=fetch, reply-to=2 address(es), own removed=0");
+        assert_eq!(log_text(&from_raw(b"From: a@x.test\r\n\r\nx"), "fetch", &own), "reply headers: source=fetch, reply-to=0 address(es), own removed=0");
+    }
+
+    /// A tiny IMAP server that answers `UID FETCH` with `fetch` (the untagged part, written by the test) and everything else the way a session needs.
+    fn serve_fetch(fetch: Vec<u8>) -> u16 {
+        use std::io::{BufRead, Write};
+        let l = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let port = l.local_addr().unwrap().port();
+        std::thread::spawn(move || {
+            for c in l.incoming().flatten() {
+                let fetch = fetch.clone();
+                std::thread::spawn(move || {
+                    let mut w = c.try_clone().unwrap();
+                    let mut r = std::io::BufReader::new(c);
+                    w.write_all(b"* OK GreenMail-like ready\r\n").unwrap();
+                    let mut line = String::new();
+                    loop {
+                        line.clear();
+                        if r.read_line(&mut line).unwrap_or(0) == 0 {
+                            return;
+                        }
+                        let (tag, cmd) = line.trim_end().split_once(' ').unwrap_or(("*", ""));
+                        let up = cmd.to_uppercase();
+                        if up.starts_with("SELECT") {
+                            w.write_all(format!("* 3 EXISTS\r\n* 0 RECENT\r\n* OK [UIDVALIDITY 1] ok\r\n{tag} OK [READ-WRITE] done\r\n").as_bytes()).unwrap();
+                        } else if up.starts_with("UID FETCH") {
+                            w.write_all(&fetch).unwrap();
+                            w.write_all(format!("{tag} OK FETCH completed\r\n").as_bytes()).unwrap();
+                        } else if up.starts_with("LOGOUT") {
+                            w.write_all(format!("* BYE bye\r\n{tag} OK done\r\n").as_bytes()).unwrap();
+                            return;
+                        } else {
+                            w.write_all(format!("{tag} OK {cmd} done\r\n").as_bytes()).unwrap();
+                        }
+                    }
+                });
+            }
+        });
+        port
+    }
+
+    fn untagged(n: u32, items: &str, section: &str, raw: &[u8]) -> Vec<u8> {
+        let mut out = format!("* {n} FETCH ({items}{section} {{{}}}\r\n", raw.len()).into_bytes();
+        out.extend_from_slice(raw);
+        out.extend_from_slice(b")\r\n");
+        out
+    }
+
+    fn session(port: u16) -> imap::Session<std::net::TcpStream> {
+        let mut c = imap::Client::new(std::net::TcpStream::connect(("127.0.0.1", port)).unwrap());
+        c.read_greeting().unwrap();
+        c.login("u", "p").map_err(|e| e.0).unwrap()
+    }
+
+    /// What the app reads when a message is downloaded (`UID FETCH n BODY.PEEK[]`), for servers that word the answer differently: the Reply-To
+    /// must come out of every one of them, and from the right message.
+    #[test]
+    fn reply_to_survives_the_ways_servers_answer_a_fetch() {
+        let raw = stored_message("\r\n");
+        let other = b"From: someone@else.test\r\nTo: qa1@test.local\r\nMessage-ID: <other@test.local>\r\n\r\nnot this one\r\n".to_vec();
+        let lf = stored_message("\n");
+        let variants: Vec<(&str, Vec<u8>)> = vec![
+            ("standard", untagged(1, "UID 5 ", "BODY[]", &raw)),
+            ("flags before the UID", untagged(1, "FLAGS (\\Seen) UID 5 INTERNALDATE \"17-Oct-2026 10:00:00 +0000\" ", "BODY[]", &raw)),
+            ("UID after the body", {
+                let mut v = format!("* 1 FETCH (BODY[] {{{}}}\r\n", raw.len()).into_bytes();
+                v.extend_from_slice(&raw);
+                v.extend_from_slice(b" UID 5)\r\n");
+                v
+            }),
+            ("lower case item names", untagged(1, "uid 5 ", "body[]", &raw)),
+            ("another message's item first", [untagged(2, "UID 9 ", "BODY[]", &other), untagged(1, "UID 5 ", "BODY[]", &raw)].concat()),
+            ("a message stored with LF only", untagged(1, "UID 5 ", "BODY[]", &lf)),
+            ("an unrelated untagged line before", [b"* 3 EXISTS\r\n* FLAGS (\\Seen)\r\n".to_vec(), untagged(1, "UID 5 ", "BODY[]", &raw)].concat()),
+        ];
+        for (name, answer) in variants {
+            let mut s = session(serve_fetch(answer));
+            let got = crate::mail::fetch_raw(&mut s, "INBOX", 5).unwrap_or_else(|e| panic!("{name}: {e}"));
+            let h = from_raw(&got);
+            assert_eq!(h.reply_to.len(), 2, "{name}: {:?}", h.reply_to);
+            assert_eq!(h.reply_to[0], "\"RC ReplyTo\" <qa2@test.local>", "{name}: in order");
+            assert_eq!(h.message_id.as_deref(), Some("<1.2@test.local>"), "{name}: the right message");
+        }
+        // a server that has no body for the message (NIL): an error the caller explains, never a wrong message
+        let mut s = session(serve_fetch(b"* 1 FETCH (UID 5 BODY[] NIL)\r\n".to_vec()));
+        assert!(crate::mail::fetch_raw(&mut s, "INBOX", 5).is_err());
     }
 }

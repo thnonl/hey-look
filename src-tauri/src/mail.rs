@@ -919,11 +919,13 @@ pub fn fetch_older(s: &mut Sess, folder: &str, below_uid: u32, count: usize) -> 
     Ok((out, exhausted))
 }
 
-pub fn fetch_raw(s: &mut Sess, folder: &str, uid: u32) -> R<Vec<u8>> {
+pub fn fetch_raw<T: Read + Write>(s: &mut imap::Session<T>, folder: &str, uid: u32) -> R<Vec<u8>> {
     s.select(folder).map_err(err)?;
     let f = s.uid_fetch(uid.to_string(), "BODY.PEEK[]").map_err(err)?;
+    // the answer for this UID (a server that sends other messages' items along must not give us the wrong message), else the first one
     f.iter()
-        .next()
+        .find(|m| m.uid == Some(uid))
+        .or_else(|| f.iter().next())
         .and_then(|m| m.body().map(|b| b.to_vec()))
         .ok_or_else(|| "MSG_NOT_ON_SERVER: message not found on server".into())
 }

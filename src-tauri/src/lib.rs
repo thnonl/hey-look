@@ -2811,8 +2811,16 @@ async fn get_raw(state: tauri::State<'_, AppState>, message_id: String) -> R<Str
 async fn reply_headers(state: tauri::State<'_, AppState>, message_id: String) -> R<replyhdr::ReplyHeaders> {
     let db = state.db.clone();
     blocking(move || {
+        let downloaded = rawcache::get(&message_id).is_some();
         let (raw, _) = fetch_raw_for(&db, &message_id)?;
-        Ok(replyhdr::from_raw(&raw))
+        let h = replyhdr::from_raw(&raw);
+        // so that a Reply that did not go where the sender asked can be explained afterwards (the page drops the Reply-To addresses that are the person's own accounts)
+        let own: Vec<String> = lock(&db)
+            .prepare("SELECT email FROM accounts")
+            .and_then(|mut q| q.query_map([], |r| r.get::<_, String>(0))?.collect())
+            .unwrap_or_default();
+        startup::line("reply", &replyhdr::log_text(&h, if downloaded { "body" } else { "fetch" }, &own));
+        Ok(h)
     })
     .await
 }
