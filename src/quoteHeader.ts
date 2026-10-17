@@ -27,13 +27,18 @@ export interface ForwardLabels {
   to: string;
 }
 
-/** The block above a forwarded message, ending with a blank line. `dateText` is the already formatted date. */
-export function forwardHeaderHtml(labels: ForwardLabels, m: { fromName: string; fromEmail: string; dateText: string; subject: string; to: string }): string {
+/** The lines above a forwarded message (the header, From, Date, Subject, To), ending with a blank line; `dateText` is the already formatted date. */
+export function forwardHeadHtml(labels: ForwardLabels, m: { fromName: string; fromEmail: string; dateText: string; subject: string; to: string }): string {
   return (
-    `<br><br>${headerValueHtml(labels.header)}` +
+    `${headerValueHtml(labels.header)}` +
     `<br>${headerValueHtml(labels.from)} ${senderHtml(m.fromName, m.fromEmail)}` +
     `<br>${headerValueHtml(labels.date)} ${headerValueHtml(m.dateText)}` +
     `<br>${headerValueHtml(labels.subject)} ${headerValueHtml(m.subject)}` +
     `<br>${headerValueHtml(labels.to)} ${headerValueHtml(m.to)}<br><br>`
   );
+}
+
+/** The block above a forwarded message, ending with a blank line. `dateText` is the already formatted date. */
+export function forwardHeaderHtml(labels: ForwardLabels, m: { fromName: string; fromEmail: string; dateText: string; subject: string; to: string }): string {
+  return `<br><br>${forwardHeadHtml(labels, m)}`;
 }

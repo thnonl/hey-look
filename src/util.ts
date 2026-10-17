@@ -4,7 +4,6 @@ import blockedExt from "./blockedExt.json";
 import { fmtNumber, fmtPattern } from "./i18n/format";
 import { intlLocale, t } from "./i18n";
 import { splitRecipients } from "./recipients";
-import { headerValueHtml, senderHtml } from "./quoteHeader";
 import type { Prefs } from "./prefs";
 
 let timePat = "HH:mm";
@@ -103,13 +102,6 @@ export function plainToHtml(text: string): string {
 
 // the text/plain alternative of a message (and the context given to the AI Assistant): htmlText.ts
 export { htmlToText } from "./htmlText";
-
-export function quoteHtml(m: { fromName: string; fromEmail: string; date: number; html: string | null; text: string | null }): string {
-  const body = m.html ? sanitizeHtml(m.html, false).html : plainToHtml(m.text ?? "");
-  // the sender name, address and date come from the original message: escaped, never markup (quoteHeader.ts)
-  const who = senderHtml(m.fromName, m.fromEmail);
-  return `<br><br><div>${t("app.quote.wrote", { date: headerValueHtml(fmtFull(m.date)), who })}</div><blockquote style="margin:0 0 0 .8ex;border-left:2px solid #ccc;padding-left:1ex">${body}</blockquote>`;
-}
 
 export function snoozePresets(times: Prefs["snoozeTimes"]): { label: string; ts: number }[] {
   const at = (d: Date, h: number) => {

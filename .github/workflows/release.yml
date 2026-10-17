@@ -307,6 +307,8 @@ jobs:
           node scripts/test-paste-mac.mjs
           node --experimental-strip-types scripts/test-insert-group.mjs
           node --experimental-strip-types scripts/test-signature-guard.mjs
+          node --experimental-strip-types scripts/test-quote.mjs
+          node --experimental-strip-types scripts/test-quote-guard.mjs
           node --experimental-strip-types scripts/test-row-menu.mjs
           node --experimental-strip-types scripts/test-account-order.mjs
           node --experimental-strip-types scripts/test-account-label.mjs

@@ -27,6 +27,7 @@ import type { BaseFont } from "./emailHtml";
 import { BlockFormat } from "./blockExtension";
 import { applyStyle, changeIndent, clearFormatting, setAlignment, stepFontSize, toggleScript } from "./commands";
 import { kitExtensions } from "./kit";
+import type { QuoteOptions } from "./quoteNode";
 import { PasteHandling } from "./pasteOptions";
 import { PreviewColors } from "./previewColors";
 
@@ -144,6 +145,8 @@ export interface BaseExtensionOptions {
   openStyles?: () => void;
   /** the editor takes pictures (the message body; a signature or template does not) */
   pictures?: boolean;
+  /** the message body has the quote block of a reply / forward (quoteNode.ts) */
+  quote?: QuoteOptions;
 }
 
 export function baseExtensions(o: BaseExtensionOptions): AnyExtension[] {
@@ -165,7 +168,7 @@ export function baseExtensions(o: BaseExtensionOptions): AnyExtension[] {
     PasteHandling.configure({ getBase: o.getBase }),
     PreviewColors,
     // tables and the picture node (a chunk of their own: kit.ts)
-    ...kitExtensions({ pictures: o.pictures ?? false }),
+    ...kitExtensions({ pictures: o.pictures ?? false, quote: o.quote }),
     Placeholder.configure({ placeholder: o.placeholder ?? "", showOnlyCurrent: o.showOnlyCurrent ?? true }),
   ];
 }

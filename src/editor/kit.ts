@@ -5,6 +5,7 @@
 
 import type { AnyExtension } from "@tiptap/react";
 import { useEffect, useState } from "react";
+import type { QuoteOptions } from "./quoteNode";
 
 type Kit = typeof import("./kitExtensions");
 let kit: Kit | null = null;
@@ -16,8 +17,8 @@ export function loadKit(): Promise<void> {
   return pending;
 }
 
-/** The kit's extensions, or none while it has not arrived (the editor is not made then). `pictures`: the message body has the picture node, the signature editor does not. */
-export const kitExtensions = (o: { pictures: boolean }): AnyExtension[] => (kit ? kit.kitExtensions(o) : []);
+/** The kit's extensions, or none while it has not arrived (the editor is not made then). `pictures`: the message body has the picture node, the signature editor does not; `quote`: the message body has the quote block of a reply / forward. */
+export const kitExtensions = (o: { pictures: boolean; quote?: QuoteOptions }): AnyExtension[] => (kit ? kit.kitExtensions(o) : []);
 
 /** True once the kit is loaded; starts loading it. */
 export function useKit(): boolean {

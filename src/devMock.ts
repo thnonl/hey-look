@@ -904,6 +904,11 @@ export function installMock() {
     const failAt = hashNum("failolder", 0);
     if (failAt) mockMail.failIn = failAt;
     (window as unknown as { __mockMail: typeof mockMail }).__mockMail = mockMail;
+    // dev check of the quote block (a reply / forward of any original): `__mockAddThread("q1", "Subject", { html, text, fromName, fromEmail, attachments })` adds a conversation with that one message to the first Inbox
+    (window as unknown as { __mockAddThread: unknown }).__mockAddThread = (id: string, subject: string, over: Record<string, unknown> = {}) => {
+      threads.unshift(t(id, subject, [String(over.fromName ?? "Sender")], "", 0.1 * H));
+      mockThreadMsgs[id] = [secMsg(`m-${id}`, subject, String(over.fromName ?? "Sender"), String(over.fromEmail ?? "sender@example.org"), over, (over.html as string | null | undefined) ?? null)];
+    };
     if (hashHas("backfill")) {
       // the background download: 50 more Inbox messages of the first mailbox every 450 ms, up to 1000 (or what the server has)
       void (async () => {

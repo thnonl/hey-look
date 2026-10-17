@@ -630,6 +630,19 @@ button.att-chip:hover { background: var(--bg3); border-color: color-mix(in srgb,
 .sig-body p { margin: 0 0 .5em; }
 .sig-block.none .sig-body { display: none; }
 .sig-block.none { padding-top: 4px; }
+/* the quoted original of a reply / forward: a block of its own, read-only, with its own look (editor/quoteNode.ts); the original itself is drawn in a shadow tree */
+.quote-block { margin: 14px 0 6px; padding-top: 6px; cursor: default; }
+.quote-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 8px; color: var(--muted); font-size: .86em; line-height: 1.5; padding-bottom: 6px; }
+.quote-attr { min-width: 0; overflow-wrap: anywhere; padding-top: 4px; }
+.quote-tools { display: inline-flex; align-items: center; gap: 4px; flex: none; }
+.quote-tools .link { font-size: inherit; min-height: 24px; }
+.quote-tools .icon-btn svg { transition: transform .12s; }
+.quote-note { color: var(--muted); font-size: .8em; padding: 0 0 6px; }
+.quote-note[hidden] { display: none; }
+.quote-block.collapsed .quote-host, .quote-block.collapsed .quote-note { display: none; }
+.quote-block.collapsed .quote-tools [data-act="toggle"] svg { transform: rotate(-90deg); }
+.quote-block.ProseMirror-selectednode { outline: 2px solid var(--accent); outline-offset: 2px; border-radius: 2px; }
+.cp-pv .quote-head, .cp-pv .quote-note { color: var(--pv-muted); }
 .cp-atts { padding: 8px 20px; border-top: 1px solid var(--border); margin: 0; }
 .cp-foot { padding: 4px 20px 10px; }
 .popover { background: var(--bg); border: 1px solid var(--border); border-radius: var(--r-md); padding: 8px; box-shadow: var(--shadow); display: flex; flex-direction: column; gap: 4px; }
