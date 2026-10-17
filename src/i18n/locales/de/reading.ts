@@ -194,6 +194,7 @@ export default defineLocale<typeof ns.en>({
   "reading.pv.prev": "Vorheriger Anhang",
   "reading.pv.next": "Nächster Anhang",
   "reading.pv.showFailed": "Diese Datei konnte nicht angezeigt werden. {error}",
+  "reading.pv.notPdf": "Diese Datei ist kein gültiges PDF und kann nicht angezeigt werden. Sie können sie trotzdem öffnen oder speichern.",
   "reading.lb.label": "Bild {name}",
   "reading.lb.prev": "Vorheriges Bild",
   "reading.lb.next": "Nächstes Bild",

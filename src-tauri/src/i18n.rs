@@ -114,6 +114,9 @@ pub enum K {
     LoadFailOpenLog,
     LoadFailQuit,
     LoadFailLog,
+    // the app that could not start at all (startfail.rs): Windows only, the window and the page do not exist to say it
+    StartFailTitle,
+    StartFailBody,
 }
 
 /// Every text key; the tests walk it (the app itself matches on `K`).
@@ -124,6 +127,7 @@ pub const ALL: &[K] = &[
     K::EveryDay, K::EveryMonth, K::EveryYear, K::SaveAttachmentsTo, K::ChooseKeyFile,
     K::OpenPgpKeys, K::CalendarFile, K::SavePublicKey, K::SaveKeyBackup,
     K::LoadFailTitle, K::LoadFailWindows, K::LoadFailMac, K::LoadFailLinux, K::LoadFailRetry, K::LoadFailOpenLog, K::LoadFailQuit, K::LoadFailLog,
+    K::StartFailTitle, K::StartFailBody,
 ];
 
 /// English, Vietnamese, French. The product name stays "Hey Look!".
@@ -194,6 +198,12 @@ fn texts(k: K) -> [&'static str; 3] {
         K::LoadFailOpenLog => ["Open log folder", "Mở thư mục nhật ký", "Ouvrir le dossier des journaux"],
         K::LoadFailQuit => ["Quit", "Thoát", "Quitter"],
         K::LoadFailLog => ["Log file:", "Tệp nhật ký:", "Fichier journal :"],
+        K::StartFailTitle => ["Hey Look! could not start", "Hey Look! không thể khởi động", "Hey Look! n’a pas pu démarrer"],
+        K::StartFailBody => [
+            "Hey Look! could not start because its window could not be created.\n\nMost often the cause is that the Microsoft WebView2 Runtime, a free Microsoft component that apps use to show their windows, is missing or damaged. Install or repair it from https://developer.microsoft.com/microsoft-edge/webview2/ (choose the “Evergreen Bootstrapper” or the “Evergreen Standalone Installer”), then start Hey Look! again.\n\nWhat went wrong was saved in the log file named below; send it to support if the problem stays.",
+            "Hey Look! không khởi động được vì không tạo được cửa sổ của mình.\n\nNguyên nhân thường gặp nhất là Microsoft WebView2 Runtime, một thành phần miễn phí của Microsoft mà các ứng dụng dùng để hiển thị cửa sổ, bị thiếu hoặc hỏng. Hãy cài đặt hoặc sửa chữa nó tại https://developer.microsoft.com/microsoft-edge/webview2/ (chọn “Evergreen Bootstrapper” hoặc “Evergreen Standalone Installer”), rồi mở lại Hey Look!.\n\nĐiều gì đã xảy ra được lưu trong tệp nhật ký nêu bên dưới; nếu sự cố vẫn còn, hãy gửi tệp này cho bộ phận hỗ trợ.",
+            "Hey Look! n’a pas pu démarrer, car sa fenêtre n’a pas pu être créée.\n\nLa cause la plus fréquente est que le runtime Microsoft WebView2, un composant Microsoft gratuit que les applications utilisent pour afficher leurs fenêtres, est absent ou endommagé. Installez-le ou réparez-le depuis https://developer.microsoft.com/microsoft-edge/webview2/ (choisissez « Evergreen Bootstrapper » ou « Evergreen Standalone Installer »), puis relancez Hey Look!.\n\nCe qui s’est passé est enregistré dans le fichier journal indiqué ci-dessous ; envoyez-le au support si le problème persiste.",
+        ],
     }
 }
 
@@ -653,7 +663,7 @@ mod tests {
     #[test]
     fn all_lists_every_variant() {
         // texts() is exhaustive; ALL must not forget one (the variant count is pinned by the last variant's position)
-        assert_eq!(ALL.len(), K::LoadFailLog as usize + 1);
+        assert_eq!(ALL.len(), K::StartFailBody as usize + 1);
         let mut seen = std::collections::HashSet::new();
         for k in ALL {
             assert!(seen.insert(*k as usize), "{k:?} twice");

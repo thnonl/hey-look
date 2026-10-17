@@ -231,6 +231,7 @@ jobs:
         run: |
           node --experimental-strip-types scripts/test-mail-controls.mjs
           node --experimental-strip-types scripts/test-frame-sandbox.mjs
+          node --experimental-strip-types scripts/test-pdf-frame.mjs
           node --experimental-strip-types scripts/test-addresses.mjs
           node --experimental-strip-types scripts/test-recipients.mjs
           node --experimental-strip-types scripts/test-reply-targets.mjs

@@ -8,8 +8,12 @@
  * handler and `javascript:` link, and the HTML is sanitized before it gets here. Chromium (WebView2 on Windows) keeps the strict sandbox.
  */
 export function frameSandbox(userAgent: string): string {
-  const webkit = /AppleWebKit/i.test(userAgent) && !/Chrome|Chromium|Edg\//i.test(userAgent);
-  return webkit ? "allow-same-origin allow-modals allow-scripts" : "allow-same-origin allow-modals";
+  return isWebKit(userAgent) ? "allow-same-origin allow-modals allow-scripts" : "allow-same-origin allow-modals";
+}
+
+/** Safari's engine (WKWebView, WebKitGTK) as opposed to Chromium (WebView2): the user agent says AppleWebKit and none of Chrome / Chromium / Edg. */
+export function isWebKit(userAgent: string): boolean {
+  return /AppleWebKit/i.test(userAgent) && !/Chrome|Chromium|Edg\//i.test(userAgent);
 }
 
 /** The frame's Content-Security-Policy: whatever `base` says plus an explicit ban on scripts. */

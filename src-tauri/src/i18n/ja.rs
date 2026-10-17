@@ -48,6 +48,8 @@ pub fn text(k: K) -> &'static str {
         K::LoadFailOpenLog => "ログフォルダーを開く",
         K::LoadFailQuit => "終了",
         K::LoadFailLog => "ログファイル：",
+        K::StartFailTitle => "Hey Look!を起動できませんでした",
+        K::StartFailBody => "ウィンドウを作成できなかったため、Hey Look!を起動できませんでした。\n\nよくある原因は、アプリがウィンドウを表示するために使う Microsoft の無料コンポーネント「Microsoft WebView2 Runtime」が見つからないか、壊れていることです。https://developer.microsoft.com/microsoft-edge/webview2/ からインストールまたは修復し（「Evergreen Bootstrapper」または「Evergreen Standalone Installer」を選択）、Hey Look!をもう一度起動してください。\n\n何が起きたかは、下に示すログファイルに保存されています。問題が解決しない場合は、このファイルをサポートに送ってください。",
     }
 }
 

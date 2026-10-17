@@ -23,6 +23,9 @@ mod macnotify;
 #[cfg(target_os = "macos")]
 mod macquit;
 mod mail;
+// the main window never leaves the app for a website (the Windows PDF frame has no sandbox); the pure decision is compiled and tested everywhere
+#[cfg_attr(not(windows), allow(dead_code))]
+mod navguard;
 mod oauth;
 mod oauth_page;
 mod outgoing;
@@ -44,6 +47,9 @@ mod smtpsize;
 mod snippet;
 mod update;
 mod winframe;
+// the app that could not start (Windows: a native message box); the message selection is compiled and tested everywhere
+#[cfg_attr(not(windows), allow(dead_code))]
+mod startfail;
 mod startup;
 mod loadfail;
 mod webview_health;
@@ -4531,6 +4537,12 @@ pub fn run() {
     // (the names shared with other copies of the app: credential store service, notification id; see identity.rs)
     let context = tauri::generate_context!();
     identity::init(&context.config().identifier);
+    // a start that fails ends in a message the person can read, not in a silent exit (see startfail.rs)
+    startfail::install_panic_hook();
+    #[cfg(windows)]
+    if startfail::webview_runtime_missing() {
+        startfail::fail_start("the Microsoft WebView2 Runtime was not found on this computer");
+    }
     // a restart or an installer relaunch starts this process while the previous run's web view processes are still going away: a web
     // view created now would join them and die with them (see webview_health.rs)
     webview_health::wait_for_previous_run();
@@ -4541,7 +4553,10 @@ pub fn run() {
     // macOS: the app menu's Quit item (and Cmd+Q) goes through the quit sequence like the tray's (see shell::mac_app_menu)
     #[cfg(target_os = "macos")]
     let builder = builder.menu(shell::mac_app_menu).on_menu_event(shell::mac_menu_event);
-    builder
+    #[cfg(windows)]
+    // a frame of the window (the PDF preview has no sandbox here, see src/pdfFrame.ts) can never take the whole window to a website
+    let builder = builder.plugin(navguard::plugin());
+    let built = builder
         // a second launch just brings the running instance forward
         .plugin(tauri_plugin_single_instance::init(|app, _args, _cwd| {
             startup::stage(Some(app), "a second start was handed to this instance: showing the window");
@@ -4552,6 +4567,10 @@ pub fn run() {
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_updater::Builder::new().build())
         .setup(|app| {
+            // (test seam of a debug build: the setup stops, as it does when the data folder or the database cannot be opened)
+            if startfail::seam().as_deref() == Some("setup") {
+                return Err("test: the setup was stopped on purpose (HEYLOOK_TEST_START_FAIL=setup)".into());
+            }
             app.manage(popout::State::default());
             // the data folder of this identifier (data saved under the old names is moved there once, see legacy_names.rs)
             let dir = legacy_names::data_dir(app.handle())?;
@@ -4797,9 +4816,18 @@ pub fn run() {
             update::outbox_busy,
             idle::idle_states
         ])
-        .build(context)
-        .expect("error while building tauri application")
-        .run(|app, event| match event {
+        .build(context);
+    // (test seam of a debug build: pretend that the builder failed)
+    let built = if startfail::seam().as_deref() == Some("build") { Err(tauri::Error::Io(std::io::Error::other("test: Builder::build() was made to fail (HEYLOOK_TEST_START_FAIL=build)"))) } else { built };
+    let app = match built {
+        Ok(app) => app,
+        Err(e) => {
+            // Windows: the message box and the end of the process happen inside; the other systems get the line in startup.log and the panic they always had
+            startfail::fail_start(&format!("Builder::build() failed: {e}"));
+            panic!("error while building tauri application: {e}");
+        }
+    };
+    app.run(|app, event| match event {
             // Dock icon / Finder / Spotlight while the window is hidden
             #[cfg(target_os = "macos")]
             tauri::RunEvent::Reopen { .. } => shell::show_main(app),
@@ -5357,6 +5385,7 @@ mod quit_tests {
     ///   process when that sequence hangs, 40 s after `quit_final` began (the page's part is over by then, see quitwait.rs).
     /// - update.rs `update_install`: the page saved the draft and waited for the sends before it asked for the install (REQ-27 / 28).
     /// - startup.rs: the restart for a dead web view (the page is gone, there is nothing to ask; Undo-window messages are in the outbox).
+    /// - startfail.rs: the app could not start (Windows message box, then exit code 1): there is no page and no draft or send yet.
     #[test]
     fn every_place_that_ends_the_process_is_known() {
         let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("src");
@@ -5379,7 +5408,7 @@ mod quit_tests {
         found.sort();
         assert_eq!(
             found,
-            vec![("lib.rs".to_string(), 3, 0), ("startup.rs".to_string(), 0, 1), ("update.rs".to_string(), 1, 1)],
+            vec![("lib.rs".to_string(), 3, 0), ("startfail.rs".to_string(), 1, 0), ("startup.rs".to_string(), 0, 1), ("update.rs".to_string(), 1, 1)],
             "a way to end or restart the process was added or removed: make sure it goes through the quit sequence (request_quit) or is justified in the comment above"
         );
     }
