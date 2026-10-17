@@ -449,7 +449,10 @@ pub fn setup_tray(app: &AppHandle, db: &Db) -> tauri::Result<()> {
         .on_menu_event(move |app, event| match event.id().as_ref() {
             "open" => show_main(app),
             "compose" if MAIL_AVAILABLE.load(Ordering::Relaxed) => {
-                show_main(app);
+                // with "open new messages in a separate window" on, the message gets its own window and the main window stays where it is (REQ-C2)
+                if !compose_in_window(app) {
+                    show_main(app);
+                }
                 let _ = app.emit_to("main", "tray-compose", ());
             }
             "sync" if MAIL_AVAILABLE.load(Ordering::Relaxed) => {
@@ -840,9 +843,31 @@ pub fn test_notification(app: &AppHandle, db: &Db) -> Result<(), String> {
     )
 }
 
+/// Does a plain "New mail" open a window of its own? (Settings > Composing, `prefs.popoutCompose`, default off.) Read from the stored
+/// preferences: the tray must know before the page is asked.
+fn compose_in_window(app: &AppHandle) -> bool {
+    let st = app.state::<AppState>();
+    let raw = db::get_setting(&lock(&st.db), "prefs");
+    prefs_open_in_window(raw.as_deref())
+}
+
+fn prefs_open_in_window(raw: Option<&str>) -> bool {
+    raw.and_then(|s| serde_json::from_str::<Value>(s).ok()).and_then(|v| v.get("popoutCompose").and_then(Value::as_bool)).unwrap_or(false)
+}
+
 #[cfg(test)]
 mod platform_tests {
     use super::*;
+
+    #[test]
+    fn the_tray_new_mail_reads_the_window_setting_from_the_stored_preferences() {
+        assert!(!prefs_open_in_window(None), "no preferences stored yet: off");
+        assert!(!prefs_open_in_window(Some("not json")));
+        assert!(!prefs_open_in_window(Some("{}")), "an older blob without the field: off");
+        assert!(!prefs_open_in_window(Some(r#"{"popoutCompose":false}"#)));
+        assert!(!prefs_open_in_window(Some(r#"{"popoutCompose":"yes"}"#)), "only a real true counts");
+        assert!(prefs_open_in_window(Some(r#"{"language":"en","popoutCompose":true}"#)));
+    }
 
     #[test]
     fn the_app_menu_items_are_told_apart_by_their_english_label() {

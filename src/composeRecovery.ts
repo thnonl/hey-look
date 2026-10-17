@@ -6,6 +6,7 @@ import { t } from "./i18n";
 import { offerRecovery, type RecoveryForm, type RecoveryLoaded } from "./recovery";
 import { initialImportance } from "./importance";
 import { useStore } from "./store";
+import { startCompose } from "./popout/composeOpen";
 import { fmtWhen } from "./util";
 
 let asked = false;
@@ -41,6 +42,15 @@ export function composeFromSnapshot(l: RecoveryLoaded) {
   };
 }
 
+/** Was the message of this snapshot written in a window of its own? Then it is restored in one. */
+export function snapshotInWindow(l: RecoveryLoaded): boolean {
+  try {
+    return (JSON.parse(l.payload) as { win?: unknown }).win === true;
+  } catch {
+    return false;
+  }
+}
+
 /** Once per start: offer back what was being written when the app ended without saving or sending it. Nothing is opened, saved or sent unasked. */
 export async function offerRestore(): Promise<void> {
   if (asked) return;
@@ -71,10 +81,12 @@ export async function offerRestore(): Promise<void> {
         await api.recoveryClear(l.id).catch(() => undefined);
         return;
       }
-      await st().openCompose(init);
+      // (a message written in a window comes back in one, whatever the setting; the others follow the setting)
+      await startCompose(init, { window: snapshotInWindow(l) || undefined, shift: false });
     },
     clear: (id) => api.recoveryClear(id),
-    composing: () => !!st().compose,
+    // (a restored message that opens in a window does not wait for the pane: the windows are independent of it)
+    composing: () => !!st().compose && !st().prefs.popoutCompose,
     whenIdle: () =>
       new Promise<void>((done) => {
         const off = useStore.subscribe((s) => {

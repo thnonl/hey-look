@@ -4,6 +4,7 @@ import { api } from "./api";
 import { SUPPORT_URL } from "./aboutLinks";
 import { t } from "./i18n";
 import { ensureSchedule, decide, Moment, SHOW_MS, setEnabled, shown, supported } from "./supportNudge";
+import { composeWindowsOpen } from "./popout/popoutCount";
 import { useStore } from "./store";
 import { openUpdateLink, useUpdates } from "./updates";
 import { useFrame } from "./winframe";
@@ -30,7 +31,7 @@ export function currentMoment(): Moment {
   return {
     focused: useFrame.getState().focused && document.visibilityState === "visible" && document.hasFocus(),
     sessionMs: Date.now() - sessionStart,
-    composing: !!s.compose,
+    composing: !!s.compose || composeWindowsOpen() > 0, // (a message in a window of its own counts, REQ-W15)
     modalOpen: !!(s.dialog || s.ask || s.passphrase || s.commandOpen),
     toastShowing: s.toasts.length > 0,
     busy: s.sendsInFlight > 0 || s.transfers > 0 || flow === "downloading" || flow === "verifying" || flow === "installing",

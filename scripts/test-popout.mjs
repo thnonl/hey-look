@@ -5,7 +5,10 @@
 import assert from "node:assert/strict";
 import { readFileSync, readdirSync } from "node:fs";
 import { isPopout, popoutDevEnabled, popoutTitle, routeOf } from "../src/popout/route.ts";
-import { opensInWindow, shiftOnly } from "../src/popout/entry.ts";
+import { answerKey, draftKey, opensInWindow, shiftOnly } from "../src/popout/entry.ts";
+import { MODIFIER_WINDOW_MS, noteInput, resetModifier, shiftNow } from "../src/popout/modifier.ts";
+import { closeAction, composeFlush, GRACE_MS, runClose, secondsLeft, START, step, UNDO_SETTLE_MS } from "../src/popout/composeWindow.ts";
+import { carryToasts, parseComposeRequest } from "../src/popout/composeRequests.ts";
 import {
   allowedWhenGone, isFlagged, isGone, isUnread, markReadPlan, readerAllowed, readerInit, readerKey, readerTitleText, scopeOfView, threadScope, withWanted,
 } from "../src/popout/readerLogic.ts";
@@ -60,7 +63,7 @@ assert.equal(shiftOnly(ev({ shiftKey: true, ctrlKey: true })), false, "Ctrl+Shif
 assert.equal(shiftOnly(ev({ shiftKey: true, metaKey: true })), false);
 assert.equal(shiftOnly(ev({ shiftKey: true, altKey: true })), false);
 
-// ---- the setting: stored, default off, and nothing reads it yet (WP6b does). (prefs.ts cannot be imported by node: read its text)
+// ---- the setting: stored, default off, and only the entry code reads it. (prefs.ts cannot be imported by node: read its text)
 {
   const prefs = read("src/prefs.ts");
   assert.ok(/popoutCompose: boolean;/.test(prefs), "the field");
@@ -77,7 +80,8 @@ assert.equal(shiftOnly(ev({ shiftKey: true, altKey: true })), false);
     }
   };
   walk("src");
-  assert.deepEqual(users.sort(), ["src/components/SettingsDialog.tsx", "src/popout/entry.ts", "src/prefs.ts"], `only the definition, the comment and the toggle mention it: ${users}`);
+  // the definition, the toggle, the comments of the entry rule, the one place that applies it (startCompose / wantsWindow) and the restore after a crash
+  assert.deepEqual(users.sort(), ["src/components/SettingsDialog.tsx", "src/composeRecovery.ts", "src/popout/composeOpen.ts", "src/popout/entry.ts", "src/prefs.ts"], `who mentions it: ${users}`);
 }
 {
   const dlg = read("src/components/SettingsDialog.tsx");
@@ -105,7 +109,7 @@ assert.equal(shiftOnly(ev({ shiftKey: true, altKey: true })), false);
   }
   // the views are the place WP6b / WP6c plug in
   const views = read("src/popout/views.tsx");
-  assert.ok(/export const VIEWS: Record<PopoutKind,/.test(views) && views.includes("compose: Placeholder") && views.includes("reader: ReaderView,"));
+  assert.ok(/export const VIEWS: Record<PopoutKind,/.test(views) && views.includes("compose: ComposeView") && views.includes("reader: ReaderView"));
   // the backend commands this page uses exist
   const api = read("src/api.ts");
   for (const c of ["popout_open", "popout_init", "popout_ready", "popout_focus", "popout_close", "popout_save_all", "popout_flush_alive", "popout_flush_dialog", "popout_flush_done"]) {
@@ -304,7 +308,7 @@ assert.equal(popoutTitle(readerTitleText("", "(no subject)")), "(no subject) –
   const root = read("src/popout/PopoutRoot.tsx");
   assert.ok(root.includes("useStore.setState({ prefs: p })") && root.includes("getCurrentWindow().setTheme("), "the root fills the preferences of the window's store and the title bar follows the theme (REQ-W8)");
   const views = read("src/popout/views.tsx");
-  assert.ok(views.includes("reader: ReaderView,") && views.includes("compose: Placeholder"), "the reader is plugged in, compose is still WP6b's");
+  assert.ok(views.includes("reader: ReaderView,") && views.includes("compose: ComposeView,"), "the reader and the compose window are plugged in");
   // the main window answers requests; the reader asks, never writes
   const app = read("src/App.tsx");
   assert.ok(app.includes('listen<Envelope>("popout-request"') && app.includes("handlePopoutRequest(e.payload)"), "the main page listens for the requests of the windows");
@@ -366,6 +370,290 @@ assert.equal(popoutTitle(readerTitleText("", "(no subject)")), "(no subject) –
   assert.ok(read("src/components/Attachments.tsx").includes("guardFrame(f, f.contentDocument)"), "attachment preview frame guarded");
   const html = read("src/components/ReadingPane.tsx") + read("src/components/Attachments.tsx");
   assert.equal((html.match(/<iframe/g) || []).length, 2, "no other frame in the pieces the reader shows");
+}
+
+// =====================================================================================================================================
+// The compose window (WP6b)
+// =====================================================================================================================================
+
+// ---- Shift for every way of starting a message: the click or key being handled is noted, and only for a moment
+{
+  const ev = (o) => ({ shiftKey: false, ctrlKey: false, altKey: false, metaKey: false, ...o });
+  resetModifier();
+  assert.equal(shiftNow(1000), false, "nothing noted yet");
+  noteInput(ev({ shiftKey: true }), 1000);
+  assert.equal(shiftNow(1000), true);
+  assert.equal(shiftNow(1000 + MODIFIER_WINDOW_MS), true, "still the same click");
+  assert.equal(shiftNow(1000 + MODIFIER_WINDOW_MS + 1), false, "a call long after the click is not a Shift call");
+  noteInput(ev({}), 2000);
+  assert.equal(shiftNow(2000), false, "the next plain click clears it");
+  noteInput(ev({ shiftKey: true, ctrlKey: true }), 3000);
+  assert.equal(shiftNow(3000), false, "Ctrl+Shift is another shortcut");
+  resetModifier();
+}
+
+// ---- which window shows what
+assert.equal(answerKey("reply", "m1"), "re:m1");
+assert.equal(answerKey("replyAll", "m1"), "ra:m1");
+assert.equal(answerKey("forward", "m1"), "fw:m1");
+assert.notEqual(answerKey("reply", "m1"), answerKey("replyAll", "m1"), "Reply and Reply all are two windows");
+assert.equal(draftKey("t9"), "draft:t9");
+
+// ---- the phases of a compose window around a send (REQ-C8)
+{
+  const run = (events, from = START) => {
+    let s = from;
+    const fx = [];
+    for (const e of events) {
+      const r = step(s, e);
+      s = r.s;
+      fx.push(...r.fx);
+    }
+    return { s, fx };
+  };
+  const T = 1_000_000;
+  // counting: the card shows, Undo works once Compose hands it over, the time runs out, the send ends, the window ends after the grace time
+  let r = run([{ t: "handoff", wait: 10, now: T }]);
+  assert.equal(r.s.phase, "count");
+  assert.equal(r.s.endsAt, T + 10_000);
+  assert.deepEqual(r.fx, [], "the window stays: it shows the countdown");
+  assert.equal(secondsLeft(r.s.endsAt, T), 10);
+  assert.equal(secondsLeft(r.s.endsAt, T + 9_100), 1, "never below 1 while it runs");
+  assert.equal(secondsLeft(null, T), 0);
+  r = run([{ t: "undo-offer" }], r.s);
+  assert.equal(r.s.canUndo, true);
+  r = run([{ t: "sends", n: 1, now: T + 1 }, { t: "tick", now: T + 5_000 }], r.s);
+  assert.equal(r.s.phase, "count", "not over yet");
+  r = run([{ t: "tick", now: T + 10_000 }], r.s);
+  assert.equal(r.s.phase, "work", "the Undo time is over: sending, no Undo any more");
+  assert.equal(r.s.canUndo, false);
+  r = run([{ t: "sends", n: 0, now: T + 12_000 }], r.s);
+  assert.deepEqual(r.fx, ["grace"], "the send ended: a failure would bring the editor back within the grace time");
+  r = run([{ t: "grace", now: T + 12_000 + GRACE_MS }], r.s);
+  assert.deepEqual(r.fx, ["destroy"]);
+  assert.equal(r.s.phase, "over");
+
+  // Undo: the cancel ends the send first and then the editor comes back; the window must not end in between
+  r = run([{ t: "handoff", wait: 10, now: T }, { t: "undo-offer" }, { t: "sends", n: 1, now: T }, { t: "undo-start", now: T + 3_000 }, { t: "sends", n: 0, now: T + 3_001 }], START);
+  assert.deepEqual(r.fx, ["grace"]);
+  const early = run([{ t: "grace", now: T + 3_001 + GRACE_MS }], r.s);
+  assert.deepEqual(early.fx, ["grace"], "Undo is being cancelled: wait for the editor");
+  r = run([{ t: "reopen" }, { t: "grace", now: T + 3_001 + GRACE_MS }], r.s);
+  assert.equal(r.s.phase, "edit", "the editor is back");
+  assert.deepEqual(r.fx.filter((x) => x === "destroy"), [], "nothing ends");
+  // an Undo that failed (the send was already on its way) does not keep the window for ever
+  r = run([{ t: "handoff", wait: 10, now: T }, { t: "sends", n: 1, now: T }, { t: "undo-start", now: T + 9_900 }, { t: "tick", now: T + 10_000 }, { t: "sends", n: 0, now: T + 10_500 }], START);
+  r = run([{ t: "grace", now: T + 9_900 + UNDO_SETTLE_MS + 1 }], r.s);
+  assert.deepEqual(r.fx, ["destroy"], "after the settle time the window ends");
+
+  // a failed send: the error brings the editor back before the send is counted as over
+  r = run([{ t: "handoff", wait: 0, now: T }, { t: "sends", n: 1, now: T }, { t: "reopen" }, { t: "sends", n: 0, now: T + 50 }], START);
+  assert.equal(r.s.phase, "edit");
+  assert.deepEqual(r.fx, ["park", "show"], "closed at once (no Undo time), shown again when the message comes back");
+  assert.equal(r.s.parked, false);
+  // the schedule path ends its send before the editor comes back: the grace time covers it
+  r = run([{ t: "handoff", wait: 0, now: T }, { t: "sends", n: 1, now: T }, { t: "sends", n: 0, now: T + 10 }, { t: "reopen" }, { t: "grace", now: T + 10 + GRACE_MS }], START);
+  assert.equal(r.s.phase, "edit");
+  assert.ok(!r.fx.includes("destroy"), "the window is not ended under the editor that came back");
+  // no Undo time: the window is gone at once (parked) and ends when the send has gone
+  r = run([{ t: "handoff", wait: 0, now: T }, { t: "sends", n: 1, now: T }, { t: "sends", n: 0, now: T + 200 }, { t: "grace", now: T + 200 + GRACE_MS }], START);
+  assert.deepEqual(r.fx, ["park", "grace", "destroy"]);
+  // a message that was only saved, discarded or closed: the window ends at once
+  assert.deepEqual(run([{ t: "end" }]).fx, ["destroy"]);
+  // the person closes the window while it counts down: out of sight, still running, once
+  r = run([{ t: "handoff", wait: 10, now: T }, { t: "close" }, { t: "close" }], START);
+  assert.deepEqual(r.fx, ["park"]);
+  assert.equal(r.s.phase, "count", "the countdown goes on");
+  assert.deepEqual(run([{ t: "close" }]).fx, [], "while editing the close button is the close dialog's business");
+  // a second send started meanwhile keeps the window
+  r = run([{ t: "handoff", wait: 0, now: T }, { t: "sends", n: 1, now: T }, { t: "sends", n: 0, now: T + 1 }, { t: "sends", n: 1, now: T + 2 }, { t: "grace", now: T + 1 + GRACE_MS }], START);
+  assert.ok(!r.fx.includes("destroy"));
+}
+
+// ---- closing the window (REQ-C11)
+{
+  const f = (o) => ({ phase: "edit", dirty: false, hasContent: false, attaching: false, ...o });
+  assert.equal(closeAction(f({})), "end", "nothing changed");
+  assert.equal(closeAction(f({ dirty: true })), "end", "typed and deleted again: nothing to keep");
+  assert.equal(closeAction(f({ dirty: false, hasContent: true })), "end", "saved already (an autosave) or opened as it is");
+  assert.equal(closeAction(f({ dirty: true, hasContent: true })), "ask");
+  assert.equal(closeAction(f({ dirty: true, hasContent: true, attaching: true })), "attaching", "files still coming in");
+  assert.equal(closeAction(f({ phase: "count" })), "park");
+  assert.equal(closeAction(f({ phase: "work", dirty: true, hasContent: true })), "park");
+  assert.equal(closeAction(f({ phase: "over" })), "end");
+
+  const make = (facts, answers) => {
+    const log = [];
+    const q = { ...answers };
+    return {
+      log,
+      d: {
+        facts: () => facts,
+        ask: async () => (log.push("ask"), q.ask),
+        save: async () => (log.push("save"), q.save),
+        askFailed: async () => (log.push("askFailed"), q.askFailed),
+        discard: async () => void log.push("discard"),
+        park: () => void log.push("park"),
+        end: () => void log.push("end"),
+        attaching: () => void log.push("attaching"),
+        savedDraft: () => void log.push("savedDraft"),
+      },
+    };
+  };
+  const changed = f({ dirty: true, hasContent: true });
+  let m = make(f({}), {});
+  assert.equal(await runClose(m.d), "ended");
+  assert.deepEqual(m.log, ["end"], "an empty message closes without a question");
+  m = make(changed, { ask: "cancel" });
+  assert.equal(await runClose(m.d), "cancelled");
+  assert.deepEqual(m.log, ["ask"], "Cancel keeps everything");
+  m = make(changed, { ask: "save", save: true });
+  assert.equal(await runClose(m.d), "saved");
+  assert.deepEqual(m.log, ["ask", "save", "savedDraft", "end"], "saved first, the main window told, then the window ends");
+  m = make(changed, { ask: "discard" });
+  assert.equal(await runClose(m.d), "discarded");
+  assert.deepEqual(m.log, ["ask", "discard", "end"]);
+  m = make(changed, { ask: "save", save: false, askFailed: "keep" });
+  assert.equal(await runClose(m.d), "kept");
+  assert.deepEqual(m.log, ["ask", "save", "askFailed"], "a failed save never ends the window");
+  m = make(changed, { ask: "save", save: false, askFailed: "discard" });
+  assert.equal(await runClose(m.d), "discarded");
+  assert.deepEqual(m.log, ["ask", "save", "askFailed", "discard", "end"]);
+  m = make(f({ phase: "count" }), {});
+  assert.equal(await runClose(m.d), "parked");
+  assert.deepEqual(m.log, ["park"]);
+  m = make({ ...changed, attaching: true }, {});
+  assert.equal(await runClose(m.d), "attaching");
+  assert.deepEqual(m.log, ["attaching"]);
+}
+
+// ---- quit and update restart (REQ-C12)
+{
+  const make = (o) => {
+    const log = [];
+    return {
+      log,
+      d: {
+        phase: () => o.phase ?? "edit",
+        dirty: () => !!o.dirty,
+        hasContent: () => o.hasContent ?? true,
+        save: async () => (log.push("save"), o.save ?? true),
+        ask: async (why) => (log.push(`ask:${why}`), o.answer ?? "keep"),
+        showWindow: () => log.push("show"),
+        dialog: (open) => log.push(`dialog:${open}`),
+        discarded: async () => void log.push("discarded"),
+        flushSends: async () => void log.push("flushSends"),
+      },
+    };
+  };
+  let m = make({});
+  assert.equal(await composeFlush(m.d, "quit"), true);
+  assert.deepEqual(m.log, [], "nothing changed: nothing to do");
+  m = make({ dirty: true });
+  assert.equal(await composeFlush(m.d, "quit"), true);
+  assert.deepEqual(m.log, ["save"], "saved quietly, no question");
+  m = make({ dirty: true, hasContent: false });
+  assert.equal(await composeFlush(m.d, "quit"), true);
+  assert.deepEqual(m.log, [], "typed and deleted: no empty draft");
+  m = make({ dirty: true, save: false, answer: "keep" });
+  assert.equal(await composeFlush(m.d, "quit"), false, "Keep writing cancels the whole quit");
+  assert.deepEqual(m.log, ["save", "show", "dialog:true", "ask:quit", "dialog:false"]);
+  m = make({ dirty: true, save: false, answer: "discard" });
+  assert.equal(await composeFlush(m.d, "update"), true);
+  assert.deepEqual(m.log, ["save", "show", "dialog:true", "ask:update", "dialog:false", "discarded"], "the question knows it is an update");
+  m = make({ phase: "count" });
+  assert.equal(await composeFlush(m.d, "quit"), true);
+  assert.deepEqual(m.log, ["flushSends"], "a message in its Undo time goes out now (and is waited for)");
+  m = make({ phase: "work", dirty: true });
+  assert.equal(await composeFlush(m.d, "update"), true);
+  assert.deepEqual(m.log, ["flushSends"]);
+  // a question that throws still closes the dialog bracket (the backend must stop waiting for the person)
+  m = make({ dirty: true, save: false });
+  m.d.ask = async () => { throw new Error("x"); };
+  await assert.rejects(() => composeFlush(m.d, "quit"));
+  assert.deepEqual(m.log, ["save", "show", "dialog:true", "dialog:false"]);
+}
+
+// ---- what a compose window may tell the main window (REQ-S4)
+{
+  assert.equal(parseComposeRequest("thread-action", {}), null, "the reader's kinds are not ours");
+  assert.equal(parseComposeRequest("compose", {}), null);
+  assert.deepEqual(parseComposeRequest("cw-toast", { text: "Message sent", level: "success" }), { kind: "toast", text: "Message sent", level: "success" });
+  assert.equal(parseComposeRequest("cw-toast", { text: "x", level: "weird" }).level, "info");
+  assert.equal(parseComposeRequest("cw-toast", { text: "x".repeat(900) }).text.length, 400);
+  assert.ok("error" in parseComposeRequest("cw-toast", { text: "  " }));
+  assert.deepEqual(parseComposeRequest("cw-draft-saved", { threadId: "t1", plain: true }), { kind: "draft-saved", threadId: "t1", plain: true });
+  assert.ok("error" in parseComposeRequest("cw-draft-saved", {}));
+  assert.deepEqual(parseComposeRequest("cw-sync", null), { kind: "sync" });
+  assert.deepEqual(parseComposeRequest("cw-refresh", 5), { kind: "refresh" });
+  assert.deepEqual(parseComposeRequest("cw-dialog", { dialog: { type: "pgp-generate", accountId: "a1" } }), { kind: "dialog", dialog: { type: "pgp-generate", accountId: "a1" } });
+  assert.deepEqual(parseComposeRequest("cw-dialog", { dialog: { type: "settings", tab: "pgp" } }), { kind: "dialog", dialog: { type: "settings", tab: "pgp", focus: undefined } });
+  for (const bad of [{ type: "cleaner" }, { type: "original", messageId: "m" }, { type: "event" }, { type: "pgp-key" }, null]) {
+    assert.ok("error" in parseComposeRequest("cw-dialog", { dialog: bad }), JSON.stringify(bad));
+  }
+  assert.ok("error" in parseComposeRequest("cw-quit", {}));
+  assert.ok("error" in parseComposeRequest("cw-", {}));
+  // the toasts that go to the main window when the window ends: those raised at or after the hand-over
+  const raised = [{ at: 100, kind: "info" }, { at: 900, kind: "success" }, { at: 1000, kind: "success" }];
+  assert.deepEqual(carryToasts(raised, 900).map((x) => x.at), [900, 1000]);
+  assert.deepEqual(carryToasts([], 0), []);
+}
+
+// ---- the wiring of the compose window
+{
+  const view = read("src/popout/ComposeView.tsx");
+  const compose = read("src/components/Compose.tsx");
+  // a window never writes the preferences and handles no main-window event
+  for (const never of ["setPrefs", 'setSetting("prefs"', 'listen("flush-sends"', "tray-compose", "open-thread", "frontendReady", ".init()"]) {
+    assert.ok(!view.includes(never), `ComposeView must not use ${never}`);
+  }
+  // it asks to be closed through its page: the close request is held back, the window ends itself or goes out of sight
+  assert.ok(view.includes("onCloseRequested(") && view.includes("e.preventDefault()"), "the close request is held back until the person answered");
+  assert.ok(view.includes("api.popoutDestroy()") && view.includes("api.popoutPark()"));
+  assert.ok(view.includes("registerFlushHandler(") && view.includes("composeFlush("), "a quit and an update restart ask the window");
+  assert.ok(view.includes("<PassphraseHost />") && view.includes("<GuardMenuHost />"), "the passphrase question and the in-app menu are drawn in this window");
+  // the store actions that mean something else in a window are replaced before Compose is drawn
+  for (const a of ["openCompose:", "sync:", "refresh:", "setDialog:", "showToast:"]) assert.ok(view.includes(a), a);
+  assert.ok(view.indexOf("setReady(true)") > view.indexOf("openCompose:"), "Compose is drawn after the actions are replaced");
+  // Compose.tsx: the seam is the only difference, and the main window (no seam) behaves as before
+  assert.equal(compose.match(/composeSeam\(\)/g).length, 8, "the places where Compose asks the seam");
+  assert.ok(compose.includes("openCompose(null, { sending: wait })") && compose.includes("openCompose(null, { sending: 0 })"), "a send hands the message over, it does not end it");
+  assert.ok(compose.includes('else showToast(() => t("compose.toast.sending"), undoSend, "info")'), "the main window still has the Undo toast");
+  assert.ok(compose.includes("if (init.outboxId || composeSeam() || busy) return;"), "no pop-out of a scheduled message or from a window");
+  assert.ok(compose.includes('e.key.toLowerCase() === "o"') && compose.includes("compose.popout.popOutTip"), "Ctrl+Shift+O and the button");
+  assert.ok(compose.includes("init.recoveryId || init.carried"), "a moved message counts as changed");
+  // every way of starting a message goes through startCompose; none opens the pane by itself any more
+  for (const [file, never] of [["src/components/Ribbon.tsx", "openCompose("], ["src/components/CommandBar.tsx", "openCompose("], ["src/components/Attachments.tsx", "openCompose("], ["src/components/ReadingPane.tsx", ".openCompose("], ["src/actions.ts", "st.openCompose("]]) {
+    assert.ok(!read(file).includes(never), `${file} starts a message with ${never}`);
+  }
+  const app = read("src/App.tsx");
+  assert.ok(app.includes('case "c": case "C":') && app.includes('case "r": case "R":') && app.includes('case "a": case "A":') && app.includes('case "f": case "F":'), "Shift+C / R / A / F");
+  assert.ok(app.includes("newMail({ shift: false })"), "the tray follows the setting only");
+  assert.ok(app.includes("replyLast(undefined, { shift: false })"), "a notification's Reply follows the setting only");
+  assert.ok(app.includes("startComposeHub()"));
+  assert.ok(read("src/main.tsx").includes('if (route.kind === "main") installModifierTracking();'));
+  // the reader answers in a compose window, whatever the setting says (REQ-R5)
+  const mr = read("src/popout/mainRequests.ts");
+  assert.ok(mr.includes("forward(m, thread, { window: true, shift: false })") && mr.includes("replyTo(m, p.req.mode === \"replyAll\", thread, { window: true, shift: false })"));
+  // a draft: one editor, a double click or Shift+Enter opens a window
+  const list = read("src/components/MessageList.tsx");
+  assert.ok(list.includes('folder === "drafts" ? () => void openDraftInWindow('), "double click / Shift+Enter on a draft");
+  assert.ok(compose.includes("if (await focusDraftWindow(key)) return true;") && compose.includes("if (mine !== latestDraftOpen) return false;"));
+  // the crash restore: a message written in a window comes back in one
+  const rec = read("src/composeRecovery.ts");
+  assert.ok(rec.includes("snapshotInWindow(l)") && compose.includes("win: true as const"));
+  // the support reminder counts a compose window as writing
+  assert.ok(read("src/supportNudgeHost.ts").includes("composeWindowsOpen() > 0"));
+  // the backend: the new commands are in the compose window's allowlist; the count and the hub
+  const cap = JSON.parse(read("src-tauri/capabilities/popout.json")).permissions;
+  for (const c of ["allow-popout-park", "allow-popout-destroy", "allow-popout-set-key", "allow-popout-request", "allow-cancel-outbox", "allow-save-draft", "allow-outbox-hold", "allow-outbox-hold-send", "allow-send-message"]) {
+    assert.ok(cap.includes(c), c);
+  }
+  const hub = read("src/popout/composeHub.ts");
+  assert.ok(hub.includes('listen<Envelope>("popout-request"') && hub.includes('listen<{ compose?: number; reader?: number }>("popout-count"') && hub.includes('startsWith("compose-")'), "only a compose window's requests");
+  for (const f of ["src/popout/composeHub.ts", "src/popout/composeBridge.ts", "src/popout/ComposeView.tsx"]) {
+    assert.ok(!/setSetting\(\s*["']prefs["']/.test(read(f)), `${f} writes the preferences`);
+  }
 }
 
 console.log("ok - test-popout");

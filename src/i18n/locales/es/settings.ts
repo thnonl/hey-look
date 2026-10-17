@@ -465,6 +465,8 @@ export default defineLocale<typeof ns.en>({
   "settings.keys.closeDeselect": "Cerrar / deseleccionar",
   "settings.keys.openInWindow": "Abrir en una ventana nueva",
   "settings.keys.closeWindow": "Cerrar una ventana de mensaje",
+  "settings.keys.shiftCompose": "Mensaje nuevo, responder, responder a todos o reenviar en una ventana nueva",
+  "settings.keys.popOutCompose": "Mover el mensaje que estás escribiendo a una ventana nueva",
   "settings.about.title": "Acerca de",
   "settings.about.tagline": "{name} — un cliente de correo de escritorio creado con Tauri, React y Rust.",
   "settings.about.testBuild": "Compilación de prueba: tu correo, tus cuentas y tu configuración se guardan en {dir}, no en la carpeta de datos habitual.",

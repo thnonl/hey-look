@@ -1,7 +1,7 @@
 import { listen } from "@tauri-apps/api/event";
 import { useEffect, useRef, useState } from "react";
 import "./App.css";
-import { forwardLast, newMailAccount, replyLast, targets } from "./actions";
+import { forwardLast, newMail, replyLast, targets } from "./actions";
 import { api, BackfillProgress } from "./api";
 import { CalendarView, EventDialog, newEvent } from "./components/Calendar";
 import { CommandBar } from "./components/CommandBar";
@@ -25,6 +25,7 @@ import { flushSends, friendlyError, moveDropped, moveRefused, useStore } from ".
 import { osNow } from "./platform";
 import { openUpdateLink, useUpdates } from "./updates";
 import { handlePopoutRequest } from "./popout/mainRequests";
+import { startComposeHub } from "./popout/composeHub";
 import type { Envelope } from "./popout/requestKinds";
 import { calTz, configureCalendar, addDays, addMonths, today as todayDay } from "./calendar";
 import { catchupText, configureDates, fmtWhen } from "./util";
@@ -132,6 +133,7 @@ function App() {
       await useStore.getState().setView("inbox", null);
       await useStore.getState().openMail(threadId);
     };
+    const stopHub = startComposeHub(); // the compose windows' requests and the count of open windows
     const subs = [
       listen("mail-synced", () => void useStore.getState().refresh()),
       // a secondary window (the reader) asks for something the main page owns: mail state with its Undo, the preferences, a dialog, a message
@@ -155,7 +157,8 @@ function App() {
       listen("tray-compose", () => {
         const st = useStore.getState();
         if (!hasMailAccounts(st.accounts.length)) return; // no account: nothing to write with
-        void st.openCompose({ accountId: newMailAccount() });
+        // follows the setting; with it on, a window opens (the tray did not show the main window, shell.rs)
+        void newMail({ shift: false });
       }),
       listen<{ id: string; error: string }>("action-verify-failed", (e) => moveDropped(e.payload.id, e.payload.error)),
       // a queued move the server refused after the Undo window (the payload names the move)
@@ -163,7 +166,7 @@ function App() {
       listen<{ threadId: string }>("open-thread", (e) => void open(e.payload.threadId)),
       listen<{ threadId: string }>("notify-reply", async (e) => {
         await open(e.payload.threadId);
-        replyLast();
+        replyLast(undefined, { shift: false }); // (the setting decides; no click or key is being handled)
       }),
       // scheduled sends: state changes from the worker, catch-up after a closed period, quit guard
       listen<{ id: string; status: string; error?: string }>("outbox-changed", (e) => {
@@ -274,6 +277,7 @@ function App() {
       }),
     ];
     return () => {
+      stopHub();
       subs.forEach((p) => void p.then((off) => off()).catch(() => undefined));
     };
   }, []);
@@ -388,7 +392,8 @@ function App() {
       const idx = st.threads.findIndex((x) => x.threadId === st.selected);
       const cur = st.threads[idx];
       switch (e.key) {
-        case "c": e.preventDefault(); void st.openCompose({ accountId: newMailAccount() }); break;
+        // Shift+C / R / A / F do the opposite of c / r / a / f: a window of its own, or the pane when the setting is on (modifier.ts reads the Shift)
+        case "c": case "C": e.preventDefault(); void newMail(); break;
         case "/": e.preventDefault(); document.getElementById("search-input")?.focus(); break;
         case "j": case "k": {
           const next = st.threads[e.key === "j" ? Math.min(idx + 1, st.threads.length - 1) : Math.max(idx - 1, 0)]?.threadId ?? null;
@@ -406,9 +411,9 @@ function App() {
         case "*": void st.act(ids, cur?.flagged ? "unstar" : "star"); break;
         // the Snooze button of the reading pane (found by its class: its tooltip is translated, and written with the punctuation of the language)
         case "s": document.querySelector<HTMLButtonElement>(".reading-pane button.snooze-btn")?.click(); break;
-        case "r": replyLast(false); break;
-        case "a": replyLast(true); break;
-        case "f": forwardLast(); break;
+        case "r": case "R": replyLast(false); break;
+        case "a": case "A": replyLast(true); break;
+        case "f": case "F": forwardLast(); break;
         case "Escape": st.setChecked([]); void st.select(null); break;
       }
     };

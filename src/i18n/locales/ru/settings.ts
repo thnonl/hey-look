@@ -465,6 +465,8 @@ export default defineLocale<typeof ns.en>({
   "settings.keys.closeDeselect": "Закрыть / отменить выбор",
   "settings.keys.openInWindow": "Открыть в новом окне",
   "settings.keys.closeWindow": "Закрыть окно сообщения",
+  "settings.keys.shiftCompose": "Новое письмо, ответ, ответ всем или пересылка в новом окне",
+  "settings.keys.popOutCompose": "Перенести пишущееся письмо в новое окно",
   "settings.about.title": "О программе",
   "settings.about.tagline": "{name} — настольный почтовый клиент на Tauri, React и Rust.",
   "settings.about.testBuild": "Тестовая сборка: ваши письма, учётные записи и настройки хранятся в {dir}, а не в обычной папке данных.",

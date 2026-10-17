@@ -2,7 +2,7 @@ import {
   Archive, BrushCleaning, CalendarDays, CalendarPlus, CalendarRange, Clock, List as ListIcon, Upload, Command, FolderInput, Flag, Forward, Info, Keyboard, MailOpen, MailPlus, Mail, OctagonAlert, Pin, Reply, ReplyAll, Trash2,
 } from "lucide-react";
 import { ReactNode } from "react";
-import { forwardLast, newMailAccount, replyLast, targets } from "../actions";
+import { forwardLast, newMail, replyLast, targets } from "../actions";
 import { api } from "../api";
 import { calTz, today } from "../calendar";
 import { useT } from "../i18n/react";
@@ -37,7 +37,7 @@ function DdBtn({ icon, label, items, disabled }: { icon: ReactNode; label: strin
 
 function HomeTab() {
   const t = useT();
-  const { act, openCompose, setDialog, threads, selected, checked, messages, accounts, folders, folder, accountId, prefs, compose } = useStore();
+  const { act, setDialog, threads, selected, checked, messages, accounts, folders, folder, accountId, prefs, compose } = useStore();
   const ids = targets();
   const cur = threads.find((x) => x.threadId === selected);
   const acct = cur?.accountId ?? accountId ?? accounts[0]?.id;
@@ -55,7 +55,7 @@ function HomeTab() {
   return (
     <div className="ribbon-row home">
       <div className="rg">
-        <button className="rb primary" onClick={() => openCompose({ accountId: newMailAccount() })}>
+        <button className="rb primary" onClick={() => void newMail()}>
           <MailPlus size={18} />
           <span>{t("app.ribbon.newMail")}</span>
         </button>

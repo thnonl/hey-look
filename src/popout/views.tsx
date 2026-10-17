@@ -10,14 +10,13 @@
 //   thread's messages, signatures, templates, contacts, the settings. Refresh on the broadcast events `mail-synced`, `outbox-changed`,
 //   `calendar-changed` and `prefs-changed`.
 // - Owned by the main page and asked for, never done here: the `prefs` blob (only the main page writes it), read / flag / pin intents,
-//   moves with Undo, the Undo-send timer and `sendsInFlight`, the quit / tray / update logic. A view that needs one of them sends a request
-//   through the backend to the main page (WP6b adds `popout_request`); events meant for the main page are sent to `main` only.
+//   moves with Undo, the quit / tray / update logic. A view that needs one of them sends a request through the backend to the main page
+//   (`popout_request`); events meant for the main page are sent to `main` only. (A compose window keeps the Undo-send timer of its own
+//   message itself: when it is closed during the Undo time it goes out of sight and stays alive until the message has gone, ComposeView.tsx.)
 // - Hand-off data (a compose body, attachments) is read once with `api.popoutInit(token)`; it lives in the backend until the window is
 //   destroyed, so a reload of the page can read it again.
 import type { ComponentType } from "react";
-import { getCurrentWindow } from "@tauri-apps/api/window";
-import { useT } from "../i18n/react";
-import { DevPanel } from "./devPanel";
+import ComposeView from "./ComposeView";
 import ReaderView from "./ReaderView";
 import { popoutDevEnabled } from "./route";
 import type { PopoutKind } from "./route";
@@ -32,8 +31,6 @@ export interface PopoutViewProps {
   init: unknown;
 }
 
-const close = () => void getCurrentWindow().close().catch(() => undefined);
-
 export const devFlagOn = () => {
   let stored: string | null = null;
   try {
@@ -44,21 +41,7 @@ export const devFlagOn = () => {
   return popoutDevEnabled(import.meta.env.DEV, stored);
 };
 
-/** Stands in for a view that does not exist yet. A person cannot reach it (nothing opens a window yet); the dev flag shows what it knows. */
-function Placeholder({ kind, label, keyOf, init }: PopoutViewProps) {
-  const t = useT();
-  const dev = devFlagOn();
-  return (
-    <div className="popout-root" data-popout={kind} data-label={label}>
-      {dev && <DevPanel kind={kind} label={label} keyOf={keyOf} init={init} />}
-      <p>
-        <button className="btn" onClick={close}>{t("common.close")}</button>
-      </p>
-    </div>
-  );
-}
-
 export const VIEWS: Record<PopoutKind, ComponentType<PopoutViewProps>> = {
-  compose: Placeholder, // WP6b
+  compose: ComposeView,
   reader: ReaderView,
 };
