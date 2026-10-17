@@ -72,6 +72,8 @@ export interface Prefs extends Overridable {
   undoActionSeconds: number; // Undo window for archive / delete / junk
   sentSound: boolean;
   closeToTray: boolean;
+  /** open new messages, replies and forwards in a separate window (Shift on the click / key does the opposite); stored only until the compose window exists (WP6b), see popout/entry.ts */
+  popoutCompose: boolean;
   /** Save folder for attachments; null = the system Downloads folder */
   downloadDir: string | null;
   /** ask for a location on every Save */
@@ -142,6 +144,7 @@ export const DEFAULT_PREFS: Prefs = {
   undoActionSeconds: 6,
   sentSound: true,
   closeToTray: true,
+  popoutCompose: false,
   downloadDir: null,
   askWhereToSave: false,
   afterSave: "notify",
