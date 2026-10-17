@@ -503,7 +503,7 @@ function simulateWindowFrame(): boolean {
 
 // ---- update check (`#update=<kind>`, `#openfail`): fixed answers, read from the URL hash on every call.
 // Kinds: available, uptodate (default), newer, norelease, offline, ratelimited, error, noasset, slow, empty, long.
-// The throttle, the 6 h rule and the stored state are Rust only: here every manual call answers, automatic calls answer `disabled` when the switch is off.
+// The throttle, the timing rules (launch, window return, retry) and the stored state are Rust only: here every manual call answers, automatic calls answer `disabled` when the switch is off.
 const hashTokens = () => new Map(window.location.hash.slice(1).split("&").filter(Boolean).map((t) => { const [k, v = ""] = t.split("="); return [k, decodeURIComponent(v)] as [string, string]; }));
 const UPDATE_SAMPLE_NOTES = [
   "## Highlights", "- Faster search in large mailboxes", "* **Bold** item with `code`", "[a link](https://example.com)", "",

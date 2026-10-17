@@ -101,7 +101,7 @@ export interface Prefs extends Overridable {
   scheduledCatchUp: "send" | "ask";
   /** retry network failures of scheduled messages 3 times, 5 minutes apart */
   retryScheduled: boolean;
-  /** ask GitHub for a newer version when the app starts or comes back from the tray (at most every 6 hours) */
+  /** ask GitHub for a newer version when the app starts or comes back from the tray (after a couple of hours when the window comes back; see update.rs) */
   checkUpdates: boolean;
   /** version the user chose to skip in the update notice ("" = none) */
   skippedUpdate: string;
