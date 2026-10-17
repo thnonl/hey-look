@@ -18,6 +18,8 @@ pub struct State {
     pub no_move: bool,
     /// `UID MOVE` and `UID COPY` answer `NO` (a full mailbox, no permission)
     pub fail_moves: bool,
+    /// `UID FETCH` answers `NO` (a server that cannot give the headers back: nothing can be verified)
+    pub fail_fetch: bool,
     /// every command received, without its tag (`UID MOVE 3 "Archive"`)
     pub log: Vec<String>,
     /// every message stored with APPEND: the folder and the bytes
@@ -48,6 +50,7 @@ impl Fake {
             refuse_create: false,
             no_move: false,
             fail_moves: false,
+            fail_fetch: false,
             log: vec![],
             appended: vec![],
             search_hits: None,
@@ -147,7 +150,9 @@ fn serve(c: TcpStream, shared: Arc<Mutex<State>>) {
         let mut st = shared.lock().unwrap();
         st.log.push(cmd.to_string());
         let mut out = String::new();
-        if upper.starts_with("LOGIN") {
+        if st.fail_fetch && upper.starts_with("UID FETCH") {
+            out += &format!("{tag} NO [SERVERBUG] fetch failed\r\n");
+        } else if upper.starts_with("LOGIN") {
             out += &format!("{tag} OK logged in\r\n");
         } else if upper.starts_with("CAPABILITY") {
             out += &format!("* CAPABILITY IMAP4rev1{}\r\n{tag} OK done\r\n", if st.no_move { "" } else { " MOVE" });
