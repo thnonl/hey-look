@@ -1314,6 +1314,11 @@ export function installMock() {
         return null;
       }
       case "quit_dialog": case "quit_page_alive": case "quit_cancelled": case "sends_flushed": case "show_window": case "frontend_ready": case "page_state": return null;
+      // secondary windows (src/popout): the dev preview of a pop-out is ?w=compose or ?w=reader in a plain browser tab
+      case "popout_init": return { kind: new URLSearchParams(window.location.search).get("w") ?? "compose", label: "compose-1", key: null, init: null };
+      case "popout_open": return { status: "created", label: "compose-1" };
+      case "popout_save_all": return true;
+      case "popout_ready": case "popout_flush_alive": case "popout_flush_dialog": case "popout_flush_done": case "popout_focus": case "popout_close": return null;
       case "update_defer": logUpdateCall({ cmd: "defer" }).kind = a.deferred ? "later" : "now"; return null;
       case "update_install": return mockInstall(!!a.restart, !!a.draftSaved);
       case "update_startup_ack": logUpdateCall({ cmd: "startupAck" }).kind = "ok"; return null;

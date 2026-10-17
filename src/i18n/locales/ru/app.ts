@@ -91,6 +91,8 @@ export default defineLocale<typeof ns.en>({
   "app.quit.unknownError": "неизвестная ошибка",
   "app.quit.keepWriting": "Продолжить писать",
   "app.quit.quitDiscard": "Выйти и удалить",
+  "app.popout.tooMany": "Открыто слишком много окон. Закройте одно, чтобы открыть другое.",
+  "app.popout.openFailed": "Не удалось открыть новое окно ({error}).",
   "app.quit.sending": {
     one: "Отправка {n} письма перед выходом из Hey Look!…",
     few: "Отправка {n} писем перед выходом из Hey Look!…",

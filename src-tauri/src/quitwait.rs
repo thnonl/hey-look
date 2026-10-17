@@ -13,6 +13,11 @@
 //!    Undo time is a row of the outbox (`undo=1`) that goes out at the next start (`outbox_startup`).
 //!
 //! The state machine is pure (it is given the time), so a test drives it with a clock of its own.
+//!
+//! Several windows (pop-outs, see popout.rs): every window that exists is asked, each with a wait of its own (so the time one person
+//! takes for a question does not count against another window), in two steps: first all the secondary windows together (each saves what
+//! it holds), then the main window (which saves its inline Compose and lets the sends go out, including those handed over by the
+//! secondary ones). Any window whose person chooses to keep writing ends the whole quit: nothing after it is asked, nothing is sent early.
 use std::sync::mpsc::RecvTimeoutError;
 use std::time::Duration;
 
@@ -87,6 +92,45 @@ impl Verdict {
             Verdict::Stay => "quit: the page is done (go on: false), the window stays".into(),
         }
     }
+}
+
+/// The order of a quit over several windows: the secondary windows first (together), the main window last. Empty steps are left out.
+/// `targets` are window labels; the label of the main window is `main`.
+pub fn steps(targets: &[String]) -> Vec<Vec<String>> {
+    let secondary: Vec<String> = targets.iter().filter(|l| l.as_str() != "main").cloned().collect();
+    let main: Vec<String> = targets.iter().filter(|l| l.as_str() == "main").cloned().collect();
+    [secondary, main].into_iter().filter(|s| !s.is_empty()).collect()
+}
+
+/// The one verdict of several windows asked together: "stay" as soon as one person chose to keep the window; otherwise "go on", with the
+/// reason of the first window that did not simply answer (for the log), or "answered" when every window did.
+pub fn merge(verdicts: &[Verdict]) -> Verdict {
+    if verdicts.iter().any(|v| *v == Verdict::Stay) {
+        return Verdict::Stay;
+    }
+    let odd = verdicts.iter().find(|v| !matches!(v, Verdict::Go(Why::Answered)));
+    odd.copied().unwrap_or(Verdict::Go(Why::Answered))
+}
+
+/// Run the steps of a quit: `ask` asks the windows of one step together and returns the verdict of each. Stops after the first step in
+/// which a window said "stay": the later steps are not asked. Returns every (window, verdict) in the order asked, and the final verdict
+/// ("go on" when no step said stay, and also when there was nothing to ask).
+pub fn run_steps(steps: &[Vec<String>], mut ask: impl FnMut(&[String]) -> Vec<(String, Verdict)>) -> (Verdict, Vec<(String, Verdict)>) {
+    let mut all = vec![];
+    let mut last = Verdict::Go(Why::NotAsked);
+    for step in steps {
+        let got = ask(step);
+        let v = merge(&got.iter().map(|(_, v)| *v).collect::<Vec<_>>());
+        all.extend(got);
+        if v == Verdict::Stay {
+            return (v, all);
+        }
+        // (a later step that only answered must not hide the reason of an earlier one that did not)
+        if matches!(last, Verdict::Go(Why::NotAsked | Why::Answered)) {
+            last = v;
+        }
+    }
+    (last, all)
 }
 
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -311,6 +355,85 @@ mod tests {
         assert_eq!(v, Verdict::Go(Why::DialogTooLong));
         assert!((61_000..61_300).contains(&at), "at {at} ms");
         assert!(v.text(&Limits::default()).contains("not answered in 60 s"));
+    }
+
+    fn names(v: &[&str]) -> Vec<String> {
+        v.iter().map(|s| s.to_string()).collect()
+    }
+
+    #[test]
+    fn the_secondary_windows_are_asked_before_the_main_window() {
+        assert_eq!(steps(&names(&["main", "compose-1", "reader-2"])), vec![names(&["compose-1", "reader-2"]), names(&["main"])]);
+        assert_eq!(steps(&names(&["compose-1"])), vec![names(&["compose-1"])]);
+        assert_eq!(steps(&names(&["main"])), vec![names(&["main"])]);
+        assert!(steps(&[]).is_empty(), "no window, no step");
+    }
+
+    #[test]
+    fn any_window_that_keeps_its_message_stops_the_quit() {
+        let go = Verdict::Go(Why::Answered);
+        assert_eq!(merge(&[]), go);
+        assert_eq!(merge(&[go, go]), go);
+        assert_eq!(merge(&[go, Verdict::Stay, go]), Verdict::Stay);
+        assert_eq!(merge(&[Verdict::Go(Why::NoSign), Verdict::Stay]), Verdict::Stay, "a window that said nothing does not hide another's no");
+        assert_eq!(merge(&[go, Verdict::Go(Why::NoSign), Verdict::Go(Why::WorkTooLong)]), Verdict::Go(Why::NoSign), "go on, with the first odd reason");
+    }
+
+    /// A fake window system: every window is a script run with its own clock (as the real ones are, on threads of their own).
+    fn windows(scripts: Vec<(&'static str, Vec<(u64, Msg)>)>) -> impl FnMut(&[String]) -> Vec<(String, Verdict)> {
+        move |labels: &[String]| {
+            labels
+                .iter()
+                .map(|l| {
+                    let script = scripts.iter().find(|(n, _)| n == l).map(|(_, s)| s.clone()).unwrap_or_default();
+                    (l.clone(), run(script, Limits::default()).0)
+                })
+                .collect()
+        }
+    }
+
+    #[test]
+    fn a_quit_over_many_windows_asks_each_with_a_wait_of_its_own() {
+        let all = names(&["main", "compose-1", "compose-2", "reader-3"]);
+        // everybody answers "go on"; one asks a question for 50 s first (longer than the 45 s of the working time), another is silent
+        let ask = windows(vec![
+            ("compose-1", vec![(300, Msg::Alive), (1000, Msg::Dialog(true)), (51_000, Msg::Dialog(false)), (51_100, Msg::Answer(true))]),
+            ("compose-2", vec![]),
+            ("reader-3", vec![(100, Msg::Answer(true))]),
+            ("main", vec![(100, Msg::Alive), (500, Msg::Answer(true))]),
+        ]);
+        let (v, all_v) = run_steps(&steps(&all), ask);
+        assert_eq!(v, Verdict::Go(Why::NoSign), "the silent window is given up after 8 s and the quit goes on; the reason is the first odd one");
+        let by = |l: &str| all_v.iter().find(|(n, _)| n == l).unwrap().1;
+        assert_eq!(by("compose-1"), Verdict::Go(Why::Answered), "its question took longer than the working time and was not cut off");
+        assert_eq!(by("compose-2"), Verdict::Go(Why::NoSign));
+        assert_eq!(by("main"), Verdict::Go(Why::Answered));
+        assert_eq!(all_v.iter().map(|(n, _)| n.as_str()).collect::<Vec<_>>().last(), Some(&"main"), "main is asked last");
+    }
+
+    #[test]
+    fn a_no_from_a_secondary_window_ends_the_quit_before_main_is_asked() {
+        let all = names(&["main", "compose-1", "compose-2"]);
+        let mut asked: Vec<Vec<String>> = vec![];
+        let mut inner = windows(vec![("compose-1", vec![(100, Msg::Answer(true))]), ("compose-2", vec![(200, Msg::Alive), (300, Msg::Answer(false))]), ("main", vec![(100, Msg::Answer(true))])]);
+        let (v, got) = run_steps(&steps(&all), |l| {
+            asked.push(l.to_vec());
+            inner(l)
+        });
+        assert_eq!(v, Verdict::Stay);
+        assert_eq!(asked, vec![names(&["compose-1", "compose-2"])], "main was not asked: nothing is sent early");
+        assert_eq!(got.len(), 2);
+        // a no from main ends it too
+        let (v, _) = run_steps(&steps(&all), windows(vec![("compose-1", vec![(100, Msg::Answer(true))]), ("compose-2", vec![(100, Msg::Answer(true))]), ("main", vec![(100, Msg::Answer(false))])]));
+        assert_eq!(v, Verdict::Stay);
+    }
+
+    #[test]
+    fn nothing_to_ask_is_not_a_reason_to_wait() {
+        let (v, got) = run_steps(&[], |_| panic!("nobody to ask"));
+        assert_eq!((v, got.len()), (Verdict::Go(Why::NotAsked), 0));
+        let (v, _) = run_steps(&steps(&names(&["main"])), windows(vec![("main", vec![(10, Msg::Answer(true))])]));
+        assert_eq!(v, Verdict::Go(Why::Answered));
     }
 
     /// The same with a real channel and a page on a thread, with short limits.

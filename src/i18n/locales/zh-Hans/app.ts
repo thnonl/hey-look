@@ -76,6 +76,8 @@ export default defineLocale<typeof ns.en>({
   "app.quit.unknownError": "未知错误",
   "app.quit.keepWriting": "继续写",
   "app.quit.quitDiscard": "退出并放弃",
+  "app.popout.tooMany": "打开的窗口太多了。请先关闭一个，再打开新的。",
+  "app.popout.openFailed": "无法打开新窗口（{error}）。",
   "app.quit.sending": { other: "正在发送{n}封邮件，完成后Hey Look!将退出…" },
   "app.quit.scheduledTitle": { other: "有{n}封邮件已设为定时发送" },
   "app.quit.scheduledBody.one": "如果现在退出，它将在您下次打开Hey Look!时发送。",

@@ -667,6 +667,7 @@ function AddAccountTab() {
 // ---------------------------------------------------------------- Mailbox panels (scope = null | accountId)
 function ComposingPanel({ scope }: { scope: string | null }) {
   const t = useT();
+  const { prefs, setPrefs } = useStore();
   const [sigs, setSigs] = useState<Signature[]>([]);
   useEffect(() => void api.listSignatures().then(setSigs), []);
   const usable = sigs.filter((s) => !s.accountId || s.accountId === scope || scope === null);
@@ -716,6 +717,12 @@ function ComposingPanel({ scope }: { scope: string | null }) {
       <OvRow scope={scope} k="signatureOnReply" label={t("settings.composing.sigOnReply")}>
         {(v, set) => <Switch checked={v} onChange={set} />}
       </OvRow>
+      {/* one setting for the whole app, not per mailbox. Stored only: the compose window that reads it comes with WP6b (popout/entry.ts) */}
+      {scope === null && (
+        <Row label={t("settings.composing.popout")} hint={t("settings.composing.popoutHint")}>
+          <Switch checked={prefs.popoutCompose} onChange={(v) => setPrefs({ popoutCompose: v })} />
+        </Row>
+      )}
     </>
   );
 }

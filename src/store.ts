@@ -468,7 +468,7 @@ function mirrorSettings(p: Partial<Prefs>): Promise<unknown>[] {
   return pending;
 }
 
-function applyPrefs(p: Prefs) {
+export function applyPrefs(p: Prefs) {
   setLangPref(p.language);
   const root = document.documentElement;
   if (p.theme === "system") root.removeAttribute("data-theme");

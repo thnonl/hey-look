@@ -1214,7 +1214,7 @@ fn reminder_worker_pass(app: &tauri::AppHandle, db: &Db, fired: &mut HashSet<(St
         };
         let mins = ((e.start - t) / 60).max(0);
         let title = crate::i18n::event_reminder(&e.summary, mins);
-        let _ = app.emit("event-reminder", serde_json::json!({ "eventId": e.id, "title": title, "line": line2, "joinUrl": e.join_url, "start": e.start }));
+        let _ = app.emit_to("main", "event-reminder", serde_json::json!({ "eventId": e.id, "title": title, "line": line2, "joinUrl": e.join_url, "start": e.start }));
         crate::shell::notify_reminder(app, db, &title, &line2);
     }
     if fired.len() > 2000 {

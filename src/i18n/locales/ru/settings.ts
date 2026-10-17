@@ -189,6 +189,8 @@ export default defineLocale<typeof ns.en>({
   "settings.composing.picAttach": "Прикреплять как файлы",
   "settings.composing.resize": "Автоматически уменьшать большие изображения",
   "settings.composing.resizeHint": "Изображения больше 1 МБ при вставке уменьшаются до 1600 px по ширине",
+  "settings.composing.popout": "Открывать новые письма, ответы и пересылки в отдельном окне",
+  "settings.composing.popoutHint": "Удерживайте Shift, нажимая «Новое письмо», «Ответить» или «Переслать», чтобы сделать наоборот.",
   "settings.composing.sigOnReply": "Добавлять подпись в ответы",
   "settings.sig.emptyAccount": "У этой учётной записи нет собственных подписей. Используются подписи из раздела «Все учётные записи».",
   "settings.sig.empty": "Подписей пока нет.",

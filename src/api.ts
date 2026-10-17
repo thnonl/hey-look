@@ -499,6 +499,20 @@ export interface FrameInfo {
   snapLayouts: boolean;
 }
 
+/** What `popout_open` answers: a window was made, one that already shows the key was focused, or the cap of 8 windows is reached. */
+export interface PopoutOpened {
+  status: "created" | "focused" | "tooMany";
+  label: string | null;
+}
+/** What a secondary window learns about itself (`popout_init`). */
+export interface PopoutInfo {
+  kind: "compose" | "reader";
+  label: string;
+  key: string | null;
+  /** the hand-off data the opener left in the backend (never in the address) */
+  init: unknown;
+}
+
 export const api = {
   frameInfo: () => invoke<FrameInfo>("frame_info"),
   /** Reports the caption button group (CSS px); true = the OS hit-tests it (Snap Layouts, press/hover via events). */
@@ -608,6 +622,20 @@ export const api = {
   quitPageAlive: () => invoke<void>("quit_page_alive"),
   /** The quit waits (`true`, for 60 s at most, and the window is brought to the front) or no longer waits (`false`) for an answer of the person. */
   quitDialog: (open: boolean) => invoke<void>("quit_dialog", { open }),
+  /** Open a secondary window ("compose" | "reader"), or focus the one that already shows `key`; `init` waits in the backend for the new page. */
+  popoutOpen: (kind: "compose" | "reader", key?: string | null, init?: unknown) => invoke<PopoutOpened>("popout_open", { kind, key: key ?? null, init: init ?? null }),
+  /** A secondary window asks who it is; `token` is the one in its address. */
+  popoutInit: (token: string) => invoke<PopoutInfo>("popout_init", { token }),
+  /** A secondary window's page is up (it listens for the quit request): the backend shows the window. */
+  popoutReady: () => invoke<void>("popout_ready"),
+  popoutFocus: (label: string) => invoke<boolean>("popout_focus", { label }),
+  popoutClose: (label: string) => invoke<boolean>("popout_close", { label }),
+  /** The update restart: every open secondary window saves what it holds. False = a person keeps a window open (the restart must stop). */
+  popoutSaveAll: () => invoke<boolean>("popout_save_all"),
+  /** A secondary window's part of a quit (the counterparts of quitPageAlive / quitDialog / sendsFlushed, which the main page uses). */
+  popoutFlushAlive: () => invoke<void>("popout_flush_alive"),
+  popoutFlushDialog: (open: boolean) => invoke<void>("popout_flush_dialog", { open }),
+  popoutFlushDone: (go: boolean) => invoke<void>("popout_flush_done", { go }),
   /** The person cancelled the scheduled-messages question of a quit. */
   quitCancelled: () => invoke<void>("quit_cancelled"),
   outboxPendingCount: () => invoke<{ count: number; next: number | null }>("outbox_pending_count"),

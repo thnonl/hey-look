@@ -189,6 +189,8 @@ export default defineLocale<typeof ns.en>({
   "settings.composing.picAttach": "Als Dateien anhängen",
   "settings.composing.resize": "Große Bilder automatisch verkleinern",
   "settings.composing.resizeHint": "Bilder über 1 MB werden beim Einfügen auf 1600 px Breite verkleinert",
+  "settings.composing.popout": "Neue Nachrichten, Antworten und Weiterleitungen in einem separaten Fenster öffnen",
+  "settings.composing.popoutHint": "Halten Sie die Umschalttaste gedrückt, wenn Sie auf Neue E-Mail, Antworten oder Weiterleiten klicken, um das Gegenteil zu tun.",
   "settings.composing.sigOnReply": "Signatur zu Antworten hinzufügen",
   "settings.sig.emptyAccount": "Keine eigene Signatur. Dieses Konto verwendet die Signaturen von „Alle Konten“.",
   "settings.sig.empty": "Noch keine Signaturen.",
