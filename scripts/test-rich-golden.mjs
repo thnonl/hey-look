@@ -42,7 +42,7 @@ for (const name of names) {
   assert.ok(w.base && Math.abs(w.base.size - fx.base.size) < 1e-9 && w.base.family === fx.base.family, `${name}: the default font is in the wrapper`);
   assert.equal(wrapBase(w.html, w.base), html, `${name}: wrap(unwrap(x)) is x`);
   for (const bad of ["<script", "<style", "javascript:", "file:", "url(", ";position", "<img src=x", "class=\"ProseMirror", " data-", "<iframe"]) {
-    if (name !== "security") continue;
+    if (name !== "security" && name !== "paste-hostile") continue; // (the second one is what the editor made of a hostile paste: scripts/fixtures/paste/hostile.html)
     assert.ok(!html.toLowerCase().includes(bad), `${name}: ${bad} in ${html}`);
   }
   assert.ok(!/\sclass="(?!sig")/.test(html) && !/<style|\sid=|\sdata-/.test(html), `${name}: no class (except sig), id, data- or <style>`);

@@ -1,0 +1,15 @@
+Hi team,
+
+Please read the notes before Friday:
+- Item one
+- Item two in red
+  - Nested
+Centered line
+highlighted and monospace and large
+the doc (https://example.com/doc?id=7&x=1) bad link
+
+On Mon, Oct 12, 2026 at 9:00 AM Anna Berg <anna@example.com> wrote:
+> Quoted text
+>
+> --
+> Anna

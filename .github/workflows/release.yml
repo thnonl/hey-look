@@ -298,6 +298,8 @@ jobs:
           node --experimental-strip-types scripts/test-format-bar-layout.mjs
           node --experimental-strip-types scripts/test-block-format.mjs
           node --experimental-strip-types scripts/test-block-commands.mjs
+          node --experimental-strip-types scripts/test-paste-clean.mjs
+          node --experimental-strip-types scripts/test-paste-options.mjs
           node --experimental-strip-types scripts/test-signature-guard.mjs
           node --experimental-strip-types scripts/test-row-menu.mjs
           node --experimental-strip-types scripts/test-account-order.mjs

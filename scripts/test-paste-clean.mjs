@@ -157,6 +157,10 @@ for (const name of names) {
   assert.equal(c("Version:0.9\r\nStartHTML:0000000105\r\nEndHTML:0000000200\r\nStartFragment:0000000141\r\nEndFragment:0000000164\r\n<html><body>\r\n<!--StartFragment--><p>x</p><!--EndFragment-->\r\n</body></html>"), "<p>x</p>");
   assert.equal(c("just text"), "<p>just text</p>");
   assert.equal(c(""), "");
+  // the style sheet: class and tag rules, comments, at-rules with blocks inside, the most specific rule wins and the element's own style beats it
+  assert.equal(c("<style>/* c */ @import url(x.css); @media print { p.a { color: blue } } @font-face { font-family: F } p { color: green } .a { color: red; font-weight: bold } p.a { font-style: italic } </style><p class=a>x</p><p class=b style='color:#0000ff'>y</p>"), '<p><strong><em><span style="color:#FF0000">x</span></em></strong></p><p><span style="color:#0000FF">y</span></p>'.replace("<p><span", "<p><span"));
+  assert.equal(c("<style>a{b</style><p>x</p>"), "<p>x</p>", "an unfinished rule");
+  assert.equal(c("<style>@media x { p { color:red }</style><p>x</p>"), "<p>x</p>", "an unfinished at-rule");
   assert.equal(c("   \n  "), "");
   // whitespace of the source is not text; a no-break space is
   assert.equal(c("<div>\n  <p>a\n   b</p>\n  <p>  c  </p>\n</div>"), "<p>a b</p><p>c</p>");
@@ -223,7 +227,8 @@ for (const name of names) {
   assert.equal(c(`<img src="${PNG}">`, {}).includes("<img"), true);
   assert.equal(cleanPaste(`<img src="${PNG}">t`, { mode: "text" }).html, "<p>t</p>", "Text only has no pictures");
   // internal copies are left alone by the plugin
-  assert.ok(isInternalCopy('<p data-pm-slice="1 1 []">x</p>') && !isInternalCopy("<p>x</p>"));
+  assert.ok(isInternalCopy('<p data-pm-slice="1 1 []">x</p>') && isInternalCopy("<meta charset='utf-8'><ul data-pm-slice=\"1 1 [&quot;ul&quot;]\" style=\"a\"><li>x</li></ul>") && !isInternalCopy("<p>x</p>"));
+  assert.ok(!isInternalCopy("<p>about data-pm-slice=\"1 1 []\"</p>") && !isInternalCopy('<p><b data-pm-slice="1 1 []">x</b></p>'), "only the marker on the first element of ProseMirror's own copy counts");
   // Text only
   assert.equal(pasteText("<p>a</p><p></p><p>b<br>c</p><ul><li>x<ol><li>y</li></ol></li></ul><blockquote>q</blockquote><a href='https://x.test/'>link</a>"), "a\n\nb\nc\n- x\n  1. y\n> q\nlink");
   assert.equal(pasteText("<h1>T</h1><pre>c1\nc2</pre><hr><p>t</p>"), "T\nc1\nc2\n----------\nt");
@@ -249,6 +254,32 @@ for (const name of names) {
   const t1 = performance.now();
   cleanPaste(items, { mode: "source" });
   assert.ok(performance.now() - t1 < 2000, "a long Word list");
+}
+
+// hostile input costs time in proportion to its size, not its square (a tag that never ends, quotes that never close, a million rules)
+{
+  const cases = {
+    "a million <a ": "<a ".repeat(300_000),
+    "quotes that never close": '<a b="'.repeat(150_000),
+    "comments that never end": "<!--".repeat(250_000),
+    "unclosed tags": "<p".repeat(400_000),
+    "unclosed style comments": "<style>" + "/*".repeat(200_000) + "</style><p>x</p>",
+    "at-signs in a style": "<style>" + "@".repeat(300_000) + "</style><p>x</p>",
+    "braces in a style": "<style>" + "a{".repeat(150_000) + "</style><p>x</p>",
+    "70 000 rules": "<style>" + "p.a{color:red}".repeat(70_000) + "</style>" + '<p class="a">x</p>'.repeat(5000),
+    "a long Word list": Array.from({ length: 30_000 }, (_, i) => `<p style='mso-list:l${i % 7} level${1 + (i % 9)} lfo1'><span style='mso-list:Ignore'>1.</span>x</p>`).join(""),
+    "200 000 spans": "<span>a</span>".repeat(200_000),
+    "2000 nested lists": "<ul><li>".repeat(2000) + "x",
+  };
+  for (const [name, h] of Object.entries(cases)) {
+    for (const mode of ["source", "text"]) {
+      const t0 = performance.now();
+      const r = mode === "text" ? pasteText(h) : cleanPaste(h, { mode }).html;
+      const ms = performance.now() - t0;
+      assert.equal(typeof r, "string");
+      assert.ok(ms < 5000, `${name} (${mode}): ${Math.round(ms)} ms`);
+    }
+  }
 }
 
 // nothing throws on garbage

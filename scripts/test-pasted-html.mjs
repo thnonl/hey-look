@@ -78,4 +78,10 @@ const rb = stripRemotePictures(big);
 assert.equal(rb.removed, 50_000);
 assert.ok(Date.now() - t0 < 3000, "50 000 tags took " + (Date.now() - t0) + " ms");
 
+// --- a pasted cid: picture (Outlook, Word) points into the message it was copied from: removed and counted as one that could not be pasted -------
+const rc = cleanPastedHtml(`<p>a</p><img src="cid:image001.png@01D8C4A1.5E3F0A50" alt="x"><IMG SRC='CID:b@c'><img src="data:image/png;base64,AAAA"><img src=" cid:d">`);
+assert.deepEqual(rc, { html: '<p>a</p><img src="data:image/png;base64,AAAA">', removed: 3 });
+// (a reply / draft body keeps its cid pictures: only the paste path removes them)
+assert.deepEqual(stripRemotePictures('<img src="cid:a@b">'), { html: '<img src="cid:a@b">', removed: 0 });
+
 console.log("test-pasted-html: ok");

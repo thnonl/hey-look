@@ -1,0 +1,6 @@
+Agenda
+Welcome and review
+- Budget
+- Roadmap
+
+Copied from Safari (https://www.example.org/page) with a trailing break

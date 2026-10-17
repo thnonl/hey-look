@@ -1,0 +1,182 @@
+{
+ "base": {
+  "family": "Calibri,Carlito,Arial,sans-serif",
+  "size": 11
+ },
+ "sig": null,
+ "doc": {
+  "type": "doc",
+  "content": [
+   {
+    "type": "paragraph",
+    "content": [
+     {
+      "type": "text",
+      "marks": [
+       {
+        "type": "textStyle",
+        "attrs": {
+         "fontFamily": "Arial,sans-serif"
+        }
+       },
+       {
+        "type": "bold"
+       }
+      ],
+      "text": "Agenda"
+     }
+    ]
+   },
+   {
+    "type": "paragraph",
+    "attrs": {
+     "lineHeight": "1.38"
+    },
+    "content": [
+     {
+      "type": "text",
+      "marks": [
+       {
+        "type": "textStyle",
+        "attrs": {
+         "fontFamily": "Arial,sans-serif"
+        }
+       },
+       {
+        "type": "italic"
+       }
+      ],
+      "text": "Welcome and "
+     },
+     {
+      "type": "text",
+      "marks": [
+       {
+        "type": "textStyle",
+        "attrs": {
+         "color": "#FF0000",
+         "fontFamily": "Arial,sans-serif"
+        }
+       },
+       {
+        "type": "underline"
+       }
+      ],
+      "text": "review"
+     }
+    ]
+   },
+   {
+    "type": "bulletList",
+    "content": [
+     {
+      "type": "listItem",
+      "content": [
+       {
+        "type": "paragraph",
+        "attrs": {
+         "lineHeight": "1.38"
+        },
+        "content": [
+         {
+          "type": "text",
+          "marks": [
+           {
+            "type": "textStyle",
+            "attrs": {
+             "fontFamily": "Arial,sans-serif"
+            }
+           }
+          ],
+          "text": "Budget"
+         }
+        ]
+       }
+      ]
+     },
+     {
+      "type": "listItem",
+      "content": [
+       {
+        "type": "paragraph",
+        "attrs": {
+         "lineHeight": "1.38"
+        },
+        "content": [
+         {
+          "type": "text",
+          "marks": [
+           {
+            "type": "textStyle",
+            "attrs": {
+             "fontFamily": "Arial,sans-serif"
+            }
+           }
+          ],
+          "text": "Roadmap"
+         }
+        ]
+       }
+      ]
+     }
+    ]
+   },
+   {
+    "type": "paragraph",
+    "content": [
+     {
+      "type": "hardBreak"
+     },
+     {
+      "type": "text",
+      "marks": [
+       {
+        "type": "textStyle",
+        "attrs": {
+         "fontFamily": "-apple-system,BlinkMacSystemFont,'Helvetica Neue',sans-serif",
+         "fontSize": "12.75pt"
+        }
+       }
+      ],
+      "text": "Copied from "
+     },
+     {
+      "type": "text",
+      "marks": [
+       {
+        "type": "link",
+        "attrs": {
+         "href": "https://www.example.org/page"
+        }
+       },
+       {
+        "type": "textStyle",
+        "attrs": {
+         "fontFamily": "-apple-system,BlinkMacSystemFont,'Helvetica Neue',sans-serif",
+         "fontSize": "12.75pt"
+        }
+       }
+      ],
+      "text": "Safari"
+     },
+     {
+      "type": "text",
+      "text": " "
+     },
+     {
+      "type": "text",
+      "marks": [
+       {
+        "type": "textStyle",
+        "attrs": {
+         "fontSize": "12.75pt"
+        }
+       }
+      ],
+      "text": "with a trailing break"
+     }
+    ]
+   }
+  ]
+ }
+}
