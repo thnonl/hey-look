@@ -56,10 +56,10 @@ const esc = (s: string) => s.replace(/&/g, "&amp;").replace(/"/g, "&quot;").repl
 export function nameInlinePicture(html: string, needle: string, name: string): string {
   if (!needle || !name) return html;
   let done = false;
-  return html.replace(/<img[^>]*>/gi, (tag) => {
+  return html.replace(/<img\b[^>]*>/gi, (tag) => {
     if (done || NAME.test(tag) || !tag.includes(needle)) return tag;
     done = true;
-    return tag.replace(/<img/i, `<img data-name="${esc(name)}"`);
+    return tag.replace(/<img\b/i, `<img data-name="${esc(name)}"`);
   });
 }
 

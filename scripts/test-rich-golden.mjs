@@ -12,7 +12,7 @@ import { existsSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { docToHtml, unwrapBase, wrapBase } from "../src/editor/emailHtml.ts";
-import { fillSignatureStr, messageHtml, swapPictures } from "../src/editor/messageBody.ts";
+import { fillSignatureStr, messageHtml, nameInlinePicture, swapPictures } from "../src/editor/messageBody.ts";
 import { FONTS, SIZES, familyName, fontOf, normFamily, normSize, sizePt, stackFor, stepSize } from "../src/editor/fonts.ts";
 import { HIGHLIGHTS, STANDARD, normColor, pushRecent, shadeOf, themeGrid } from "../src/editor/colors.ts";
 import { htmlToText } from "../src/htmlText.ts";
@@ -138,5 +138,22 @@ assert.equal(darkTextColor("#FFC000"), "#FFC000", "a light colour that reads sta
 assert.equal(darkTextColor("#000000").toUpperCase() !== "#000000", true, "black is lifted");
 assert.equal(darkTextColor("not a colour"), "not a colour");
 assert.notEqual(darkHighlight("#FFFF00"), "#FFFF00", "a highlight gets its dark counterpart");
+
+// ---- a reopened draft sends its pictures under the name they were added with (WP5f B2): the stored message gives the picture back as a data: URI, its part knows the name
+{
+  const b64 = "iVBORw0KGgo" + "A".repeat(40) + "/+=";
+  const html = '<p>a</p><img src="data:image/png;base64,' + b64 + '" alt="" width="240" style="max-width:100%;height:auto"><p><img src="data:image/png;base64,OTHER"></p>';
+  const named = nameInlinePicture(html, b64, "my logo.png");
+  assert.match(named, /<img data-name="my logo\.png" src="data:image\/png;base64,iVBORw0KGgo/, "the first picture that holds the bytes gets the name");
+  assert.equal((named.match(/data-name/g) ?? []).length, 1, "only that picture");
+  assert.equal(nameInlinePicture(named, b64, "other.png"), named, "a picture that has a name keeps it");
+  assert.equal(nameInlinePicture(html, "NOT-THERE", "x.png"), html, "no picture holds the bytes: nothing changes");
+  assert.equal(nameInlinePicture(html, b64, ""), html, "no name: nothing changes");
+  assert.match(nameInlinePicture(html, b64, 'a "q" & <b>.png'), /data-name="a &quot;q&quot; &amp; &lt;b&gt;\.png"/, "the name is escaped");
+  // and the name goes out again: swapPictures takes it as the file name of the part and removes the editor's attribute
+  const out = swapPictures(named, () => "cid-1", (m, i) => "picture-" + i);
+  assert.equal(out.inline[0].name, "my logo.png", "the sent part is 'my logo.png', not picture-1.png");
+  assert.ok(!out.html.includes("data-name"));
+}
 
 console.log(`rich-golden: ${names.length} fixtures and the unit checks passed${update ? " (golden files written)" : ""}`);
