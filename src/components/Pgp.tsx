@@ -157,6 +157,7 @@ export function GenerateKeyDialog({ accountId, back }: { accountId?: string; bac
   const [busy, setBusy] = useState(false);
   const [key, setKey] = useState<PgpKey | null>(null);
   const [saved, setSaved] = useState<string | null>(null);
+  const [saving, setSaving] = useState(false);
   const strength = passphraseStrength(pw);
   const strengthKeys: Key[] = ["pgp.strength.none", "pgp.strength.weak", "pgp.strength.okay", "pgp.strength.good", "pgp.strength.strong"];
 
@@ -177,7 +178,8 @@ export function GenerateKeyDialog({ accountId, back }: { accountId?: string; bac
   };
 
   const backup = async () => {
-    if (!key) return;
+    if (!key || saving) return;
+    setSaving(true); // (the file dialog is the system's: a second click must not open another one behind it)
     try {
       const path = await api.pgpExportSecret(key.fingerprint);
       if (path) {
@@ -186,16 +188,32 @@ export function GenerateKeyDialog({ accountId, back }: { accountId?: string; bac
       }
     } catch (e) {
       showToast(() => t("pgp.gen.backupFailed", { error: friendlyError(e) }), undefined, "error");
+    } finally {
+      setSaving(false);
     }
   };
 
+  /**
+   * Done, the X and Esc all come here. A key that was not backed up asks first. Esc and a click outside the question answer "stay": they used to answer
+   * with its first button, "Back up now", which opened the system's save dialog (sometimes behind this window) instead of ever closing the dialog (v1.0.6 QA).
+   */
+  const asking = useRef(false);
   const close = async () => {
+    if (asking.current || saving) return;
     if (key && !saved) {
-      const choice = await choose({
-        title: t("pgp.gen.closeTitle"),
-        body: t("pgp.gen.closeBody"),
-        choices: [{ id: "backup", label: t("pgp.gen.backupNow"), kind: "primary" }, { id: "close", label: t("pgp.gen.closeAnyway") }],
-      });
+      asking.current = true;
+      let choice: string;
+      try {
+        choice = await choose({
+          title: t("pgp.gen.closeTitle"),
+          body: t("pgp.gen.closeBody"),
+          choices: [{ id: "backup", label: t("pgp.gen.backupNow"), kind: "primary" }, { id: "close", label: t("pgp.gen.closeAnyway") }],
+          dismiss: "stay",
+        });
+      } finally {
+        asking.current = false;
+      }
+      if (choice === "stay") return;
       if (choice === "backup") return void backup();
     }
     closeDlg();
@@ -252,7 +270,7 @@ export function GenerateKeyDialog({ accountId, back }: { accountId?: string; bac
           <div className="note"><Info size={14} /><span>{t("pgp.gen.backupNote")}</span></div>
           {saved && <div className="notice good">{t("pgp.gen.backupSavedTo", { path: saved })}</div>}
           <div className="ask-actions">
-            <button className="btn" onClick={() => void backup()}><HardDriveDownload size={14} /> {saved ? t("pgp.gen.saveAnother") : t("pgp.gen.saveBackup")}</button>
+            <button className="btn" disabled={saving} aria-busy={saving} onClick={() => void backup()}><HardDriveDownload size={14} /> {saved ? t("pgp.gen.saveAnother") : t("pgp.gen.saveBackup")}</button>
             <button className="btn primary" onClick={() => void close()}>{t("common.done")}</button>
           </div>
         </div>

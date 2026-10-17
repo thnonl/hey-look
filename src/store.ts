@@ -152,6 +152,8 @@ export interface AskState {
   title: string;
   body?: string;
   choices: Choice[];
+  /** the answer of Esc and of a click outside; the first choice when not given (a question whose first button does something must give another) */
+  dismiss?: string;
   resolve: (id: string) => void;
 }
 
@@ -348,7 +350,7 @@ interface State {
   /** Count an attachment save / open as under way until the returned function is called. */
   beginTransfer: () => () => void;
   confirm: (o: { title: string; body?: string; confirmLabel?: string; danger?: boolean }) => Promise<boolean>;
-  choose: (o: { title: string; body?: string; choices: Choice[] }) => Promise<string>;
+  choose: (o: { title: string; body?: string; choices: Choice[]; dismiss?: string }) => Promise<string>;
   resolveAsk: (id: string) => void;
   /** Asks for the passphrase of a key and unlocks it. Resolves true when it is unlocked, false when cancelled. */
   askPassphrase: (o: { fingerprint: string; reason: UnlockReason; label?: string }) => Promise<boolean>;
@@ -1236,7 +1238,7 @@ export const useStore = create<State>((set, get) => ({
 
   choose: (o) =>
     new Promise<string>((resolve) => {
-      set({ ask: { title: o.title, body: o.body, choices: o.choices, resolve } });
+      set({ ask: { title: o.title, body: o.body, choices: o.choices, dismiss: o.dismiss, resolve } });
     }),
 
   confirm: async (o) => {
