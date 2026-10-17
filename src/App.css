@@ -354,9 +354,8 @@ body.reordering, body.reordering * { cursor: grabbing !important; user-select: n
 .folder-pane.is-peek .fp-surface { position: absolute; z-index: 40; top: 0; bottom: 0; left: 0; width: var(--fw-full, 248px); height: auto; border-right: 1px solid var(--border); box-shadow: var(--shadow); animation: fp-peek .14s var(--ease); }
 @keyframes fp-peek { from { opacity: 0; transform: translateX(-10px); } to { opacity: 1; transform: none; } }
 .fp-pip, .fp-warnpip, .fp-sep, .fp-calrail { display: none; }
-.is-rail .fp-surface { scroll-padding-bottom: 92px; padding: 8px 0; align-items: stretch; scrollbar-gutter: stable both-edges; }
-.is-rail .fp-surface::-webkit-scrollbar { width: 4px; } /* a thin one: more icons than the window is high are reached by scrolling */
-.is-rail .fp-surface::-webkit-scrollbar-thumb { background: color-mix(in srgb, var(--muted), transparent 55%); border-radius: 2px; }
+.is-rail .fp-surface { scroll-padding-bottom: 92px; padding: 8px 0; align-items: stretch; scrollbar-width: none; } /* no room for a scrollbar in 56 px: more icons than the window is high are reached by the wheel, the keyboard or the touchpad; the last one is cut by the Mail / Calendar bar */
+.is-rail .fp-surface::-webkit-scrollbar { display: none; }
 .is-rail .fp-top { justify-content: center; padding: 0 0 4px; }
 .is-rail .fp-group { margin: 0; display: flex; flex-direction: column; align-items: center; }
 .is-rail .fp-sep { display: block; width: 28px; border: 0; border-top: 1px solid var(--border); margin: 5px 0; }

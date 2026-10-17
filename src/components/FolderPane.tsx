@@ -62,6 +62,11 @@ export function FolderPane({ collapsed: folded }: { collapsed: boolean }) {
     if (firstSync && accountId === firstSync) document.querySelector(".fp-tree .fp-row.active")?.scrollIntoView({ block: "nearest" });
   }, [firstSync, accountId]);
 
+  // in the icon column the chosen folder (or mailbox) can be below the fold of a low window: bring it into view
+  useEffect(() => {
+    if (rail) (document.querySelector(".fp-tree .fp-row.active") ?? document.querySelector(".fp-tree .fp-avatar.on"))?.scrollIntoView({ block: "nearest" });
+  }, [rail, accountId, folder]);
+
   const isFav = (acct: string | null, key: string) => prefs.favorites.includes(`${acct ?? "*"}|${key}`);
   const toggleFav = (acct: string | null, key: string) => {
     const id = `${acct ?? "*"}|${key}`;
