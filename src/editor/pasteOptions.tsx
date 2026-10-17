@@ -118,15 +118,23 @@ function PasteButton({ view, info, nonce, base }: { view: EditorView; info: Past
   const btn = useRef<HTMLButtonElement>(null);
   const [open, setOpen] = useState(false);
   const trigger = useRef<HTMLElement | null>(view.dom as HTMLElement);
+  // the Ctrl key asks for the menu by counting up; a button that is shown for a new paste starts with the count it finds, closed
+  const asked = useRef(nonce);
   useEffect(() => {
-    if (nonce) setOpen(true);
+    if (nonce !== asked.current) {
+      asked.current = nonce;
+      setOpen(true);
+    }
   }, [nonce]);
   const at = place(view, info.to);
   const items: MenuItem[] = MODES.map((m) => ({ label: t(MODE_LABEL[m]), checked: info.mode === m, onClick: () => switchTo(view, info, m, base) }));
   const mod = osNow() === "macos" ? "Cmd" : "Ctrl";
+  // the announcement is put into the live region after it is on the page (a region that arrives with its text is not read by every screen reader)
+  const [said, say] = useState("");
+  useEffect(() => say(t("compose.paste.available", { key: mod })), []); // eslint-disable-line react-hooks/exhaustive-deps
   return (
     <>
-      <div className="sr-only" role="status">{t("compose.paste.available", { key: mod })}</div>
+      <div className="sr-only" role="status">{said}</div>
       {at && (
         <button
           ref={btn}

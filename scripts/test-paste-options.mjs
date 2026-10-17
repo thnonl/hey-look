@@ -83,6 +83,7 @@ assert.ok(plug.includes("lone = isMod(e) ? lone || !e.repeat : false") && plug.i
 assert.ok(plug.includes('mode: "text" as const, plain: true') && plug.includes("!current.plain"), "Ctrl+Shift+V is text only and has no button");
 assert.ok(plug.includes("tr.getMeta(\"appendedTransaction\")") && plug.includes("return null; // typing or any other edit"), "typing or another edit hides the button, a transaction added by a plugin (autolink) does not");
 assert.ok(plug.includes('aria-haspopup="menu"') && plug.includes("aria-label={t(\"compose.paste.options\")}") && plug.includes('role="status"'), "accessible name, popup, live announcement");
+assert.ok(plug.includes("const asked = useRef(nonce)") && plug.includes("nonce !== asked.current"), "a new paste's button starts closed, whatever the count of the earlier Ctrl presses");
 assert.ok(plug.includes("<FloatingMenu") && plug.includes("trigger={trigger}"), "the menu is the app's menu: arrows, Esc, focus back to the text");
 const dlg = read("src/components/SettingsDialog.tsx");
 assert.ok(dlg.includes("function PasteDefaultRow") && dlg.includes("{scope === null && <PasteDefaultRow />}") && dlg.includes('"settings.keys.pasteText"'), "Settings: the row and the shortcut");
