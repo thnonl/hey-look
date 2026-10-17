@@ -97,7 +97,7 @@ AI Assistant
 - macOS: a pop-out window that is closed leaves a small, invisible native window entry behind (about 1.4 MB each, not drawn); it is freed when you quit the app
 - macOS: native notifications are not available yet; they need an Apple Developer ID, and macOS may not show banners for a self-signed app
 - Linux: the x86_64 release packages (AppImage, .deb, .rpm) are not covered by the tests, which ran on an ARM virtual machine
-- Format Painter, AutoFormat and the mini toolbar are planned for 1.0.7
+- Format Painter, AutoFormat and the mini toolbar are not included yet
 - There is no plain-text-only mode when writing a message
 
 ## 1.0.5 — 2026-10-16

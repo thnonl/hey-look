@@ -292,7 +292,7 @@ function App() {
     };
   }, []);
 
-  // update check: once about 8 s after the UI is ready, then whenever the window comes back (the backend throttles to once per 6 h)
+  // update check: once about 8 s after the UI is ready, then whenever the window comes back (the backend throttles: 5 minutes after the last attempt at launch, 2 h on return, 15 minutes after a failure)
   useEffect(() => {
     if (!loaded) return;
     // how the last update went (after an update restart) is told first, then the startup check runs

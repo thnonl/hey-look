@@ -491,7 +491,7 @@ export default defineLocale<typeof ns.en>({
   "settings.about.testBuild": "Compilación de prueba: tu correo, tus cuentas y tu configuración se guardan en {dir}, no en la carpeta de datos habitual.",
   "settings.about.privacy": "Todas las funciones están siempre activadas. Sin licencia, sin suscripción, sin cuenta en la nube. El correo va directamente entre esta aplicación y tus servidores de correo; las funciones de IA solo usan el punto de conexión que configures. Las comprobaciones de actualizaciones consultan a GitHub (github.com) cuál es la última versión; las actualizaciones solo se descargan de GitHub después de que lo aceptes. Puedes desactivar las comprobaciones automáticas más abajo.",
   "settings.about.autoCheck": "Buscar actualizaciones automáticamente",
-  "settings.about.autoCheckHint": "Cuando Hey Look! se inicia o vuelve de la bandeja del sistema, como máximo cada 6 horas. Solo se consulta a GitHub; tu correo y tus cuentas nunca se envían.",
+  "settings.about.autoCheckHint": "Cuando Hey Look! se inicia, y cuando su ventana vuelve pasadas un par de horas, busca una versión nueva (y lo intenta de nuevo a los 15 minutos si falla). Solo se consulta a GitHub; tu correo y tus cuentas nunca se envían.",
   "settings.about.website": "Sitio web",
   "settings.about.coffee": "Invítame a un café",
   "settings.about.source": "Código fuente",
