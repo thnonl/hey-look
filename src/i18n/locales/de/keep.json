@@ -34,5 +34,7 @@
   "mail.filter.active",
   "compose.color.orange",
   "compose.color.gold",
-  "compose.fmt.style.code"
+  "compose.fmt.style.code",
+  "compose.link.bubble",
+  "compose.emoji.smileys"
 ]

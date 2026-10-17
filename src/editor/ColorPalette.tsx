@@ -14,7 +14,7 @@ import { HIGHLIGHTS, STANDARD, sameColor, themeGrid, type Swatch } from "./color
 const colorKey = (id: string) => `compose.color.${id}` as Key;
 
 /** The name of a swatch for the tooltip and the screen reader: "Blue, lighter 40%". */
-function useSwatchName() {
+export function useSwatchName() {
   const t = useT();
   return (s: Swatch): string => {
     const name = t(colorKey(s.id));
@@ -54,7 +54,7 @@ function moveFocus(e: React.KeyboardEvent, panel: HTMLElement | null) {
 export type PaletteClose = "pick" | "esc" | "away";
 
 /** A popover drawn on <body> under `anchor`, kept inside the window; a press outside, Esc or a resize closes it. */
-function Panel({ anchor, onClose, label, children, className }: { anchor: React.RefObject<HTMLElement | null>; onClose: (why: PaletteClose) => void; label: string; children: React.ReactNode; className?: string }) {
+export function Panel({ anchor, onClose, label, children, className }: { anchor: React.RefObject<HTMLElement | null>; onClose: (why: PaletteClose) => void; label: string; children: React.ReactNode; className?: string }) {
   const ref = useRef<HTMLDivElement>(null);
   const [pos, setPos] = useState<{ top: number; left: number } | null>(null);
   const close = useRef(onClose);
@@ -109,7 +109,7 @@ function Panel({ anchor, onClose, label, children, className }: { anchor: React.
   );
 }
 
-function Sw({ s, name, row, col, current, onPick }: { s: Swatch; name: string; row: number; col: number; current: boolean; onPick: (hex: string) => void }) {
+export function Sw({ s, name, row, col, current, onPick }: { s: Swatch; name: string; row: number; col: number; current: boolean; onPick: (hex: string) => void }) {
   return (
     <button
       type="button"

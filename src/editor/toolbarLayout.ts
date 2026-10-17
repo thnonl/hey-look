@@ -64,7 +64,7 @@ const BOTH: readonly Variant[] = ["compose", "compact"];
 /**
  * Priority = the place in the list of spec-rich-text.md 4.1 (x10): B I U, Bulleted, Numbered, Link, Picture, Font color, Highlight, Font, Size,
  * Styles, Align, Increase / Decrease indent, Strikethrough, Table, Insert, Clear formatting, Undo, Redo. Order = left to right. A later package
- * adds its controls here (Table 170 ...) with the numbers of that list.
+ * adds its controls here with the numbers of that list.
  */
 export const BAR_META: Record<string, BarMeta> = {
   undo: { group: "history", order: 1, priority: 200, width: 28, variants: BOTH },
@@ -86,7 +86,7 @@ export const BAR_META: Record<string, BarMeta> = {
   styles: { group: "styles", order: 65, priority: 130, width: 108, variants: BOTH },
   link: { group: "insert", order: 70, priority: 60, width: 28, variants: BOTH },
   picture: { group: "insert", order: 71, priority: 70, width: 28, variants: ["compose"] },
-  // (72: Table, priority 170, a later package)
+  table: { group: "insert", order: 72, priority: 170, width: 40, variants: BOTH },
   insert: { group: "insert", order: 73, priority: 180, width: 40, variants: BOTH },
   clear: { group: "clear", order: 90, priority: 190, width: 28, variants: BOTH },
 };

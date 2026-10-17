@@ -1817,6 +1817,7 @@ function ShortcutsTab() {
     ["Ctrl+Shift+S", "settings.keys.stylesMenu"], ["Ctrl+Shift+N / Ctrl+Alt+1-3", "settings.keys.styleKeys"],
     ["Ctrl+A", "settings.keys.selectAll"], ["Ctrl+K", "settings.keys.commandBar"], ["F5", "settings.keys.syncNow"], ["Esc", "settings.keys.closeDeselect"], ["Shift+Enter", "settings.keys.openInWindow"], ["Ctrl+W", "settings.keys.closeWindow"],
     ["Ctrl+Shift+V", "settings.keys.pasteText"], [os === "macos" ? "Cmd" : "Ctrl", "settings.keys.pasteOptions"],
+    ["Ctrl+K", "settings.keys.insertLink"], ["Ctrl+Click", "settings.keys.openLink"], ["Tab / Shift+Tab", "settings.keys.tableCells"],
   ];
   return (
     <div>

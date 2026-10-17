@@ -305,6 +305,7 @@ jobs:
           node --experimental-strip-types scripts/test-paste-options.mjs
           node scripts/test-paste-switch.mjs
           node scripts/test-paste-mac.mjs
+          node --experimental-strip-types scripts/test-insert-group.mjs
           node --experimental-strip-types scripts/test-signature-guard.mjs
           node --experimental-strip-types scripts/test-row-menu.mjs
           node --experimental-strip-types scripts/test-account-order.mjs

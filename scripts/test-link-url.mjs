@@ -8,21 +8,24 @@ const ok = (input, href) => assert.deepEqual(checkLinkUrl(input), { ok: true, hr
 const no = (input, reason) => assert.deepEqual(checkLinkUrl(input), { ok: false, reason }, JSON.stringify(input));
 
 // web addresses
-ok("https://example.com", "https://example.com/");
+ok("https://example.com", "https://example.com");
+ok("https://example.com/", "https://example.com/");
+ok("heylook.app", "https://heylook.app"); // AC-47
+ok("https://example.com?x=1", "https://example.com/?x=1");
 ok("https://example.com/a/b?x=1&y=2#frag", "https://example.com/a/b?x=1&y=2#frag");
 ok("HTTP://Example.COM/Path", "http://example.com/Path");
-ok("  https://example.com  ", "https://example.com/");
+ok("  https://example.com  ", "https://example.com");
 ok("http://localhost:3000/app", "http://localhost:3000/app");
-ok("http://192.168.1.10:8080", "http://192.168.1.10:8080/");
+ok("http://192.168.1.10:8080", "http://192.168.1.10:8080");
 ok("http://[::1]:8080/x", "http://[::1]:8080/x");
 // a bare domain gets https://
-ok("example.com", "https://example.com/");
+ok("example.com", "https://example.com");
 ok("www.example.com/path?q=1", "https://www.example.com/path?q=1");
 ok("example.com:8080/x", "https://example.com:8080/x");
-ok("localhost:3000", "https://localhost:3000/");
-ok("sub.domain.co.uk", "https://sub.domain.co.uk/");
+ok("localhost:3000", "https://localhost:3000");
+ok("sub.domain.co.uk", "https://sub.domain.co.uk");
 ok("//example.com/x", "https://example.com/x");
-ok("münchen.de", "https://xn--mnchen-3ya.de/");
+ok("münchen.de", "https://xn--mnchen-3ya.de");
 // email and phone
 ok("ann@example.com", "mailto:ann@example.com");
 ok("first.last+tag@sub.example.co.uk", "mailto:first.last+tag@sub.example.co.uk");

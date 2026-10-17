@@ -10,6 +10,11 @@
 //   lists          <ul style="list-style-type:disc;margin:0 0 0 40px;padding:0"> / <ol type="a" style="list-style-type:lower-alpha;..">
 //                  (the marker is the list's own style, else the one its nesting level gives: disc, circle, square / 1. a. i.)
 //   text styles    <span style="font-family:..;font-size:..pt;color:#..;background-color:#..">, <strong> <em> <u> <s> <sub> <sup>
+//   table          <table border="1" cellpadding="4" cellspacing="0" width="100%" style="border-collapse:collapse;width:100%"><tbody><tr><td style="border:1px solid #999999;
+//                  padding:4px 6px;vertical-align:top" bgcolor="#..">..</td></tr></tbody></table> (outside borders: the edge cells carry the border sides; no borders:
+//                  border="0" and cells with the padding only; a header cell is a <th> with font-weight:bold). With the message's default font the cells repeat it
+//                  (classic Outlook does not inherit a font into a table).
+//   picture        <img src alt width style="max-width:100%;height:auto">, in <a href> for a picture link, in <div style="text-align:center"> for centre / right
 //   everything     inside one wrapper with the message's default font (`wrapBase`)
 
 import { normFamily, normSize, ptText, sizePt } from "./fonts.ts";
@@ -43,6 +48,8 @@ const PRE_STYLE = `font-family:${MONO};font-size:10pt;white-space:pre-wrap;backg
 const CODE_STYLE = `font-family:${MONO};font-size:10pt;background-color:#f4f4f4`;
 const HR_STYLE = "border:0;border-top:1px solid #bfbfbf;margin:8pt 0";
 const IMG_STYLE = "max-width:100%;height:auto";
+const TABLE_RULE = "1px solid #999999";
+const CELL_BOX = "padding:4px 6px;vertical-align:top";
 
 /** The only addresses a link may have (the sanitiser in outgoing.rs says the same). */
 const SAFE_HREF = /^(?:https?:\/\/|mailto:|tel:)/i;
@@ -103,8 +110,10 @@ function openClose(mark: { type: string; attrs?: Record<string, unknown> }): [st
  * bold by its own style, so a bold mark in it says nothing; the editor reads that style back as a bold mark on every character, and without this
  * a draft that was saved and reopened would gain a <strong> in every heading).
  */
-function inlineHtml(nodes: JsonNode[] | undefined, skip: readonly string[] = []): string {
+let boldInHeader = 0;
+function inlineHtml(nodes: JsonNode[] | undefined, skipIn: readonly string[] = []): string {
   const list = nodes ?? [];
+  const skip = boldInHeader ? [...skipIn, "bold"] : skipIn;
   let out = "";
   list.forEach((n, i) => {
     if (n.type === "hardBreak") {
@@ -129,17 +138,56 @@ function inlineHtml(nodes: JsonNode[] | undefined, skip: readonly string[] = [])
   return out;
 }
 
-function imageHtml(n: JsonNode): string {
+/** A picture. `block`: it stands on its own, so the alignment (centre, right) is a `div` around it; a picture link is an `<a>` around it either way. */
+function imageHtml(n: JsonNode, block = false): string {
   const a = n.attrs ?? {};
   const src = typeof a.src === "string" ? a.src : "";
   if (!src) return "";
   const width = Number(a.width) > 0 ? ` width="${Math.round(Number(a.width))}"` : "";
   const name = typeof a["data-name"] === "string" && a["data-name"] ? ` data-name="${escAttr(a["data-name"] as string)}"` : "";
-  return `<img src="${escAttr(src)}" alt="${escAttr(typeof a.alt === "string" ? a.alt : "")}"${width} style="${IMG_STYLE}"${name}>`;
+  const href = typeof a.href === "string" && SAFE_HREF.test(a.href.trim()) ? a.href.trim() : "";
+  const img = `<img src="${escAttr(src)}" alt="${escAttr(typeof a.alt === "string" ? a.alt : "")}"${width} style="${IMG_STYLE}${href ? ";border:0" : ""}"${name}>`;
+  const linked = href ? `<a href="${escAttr(href)}">${img}</a>` : img;
+  return block && (a.align === "center" || a.align === "right") ? `<div style="text-align:${a.align}">${linked}</div>` : linked;
 }
 
-function listHtml(n: JsonNode, depth: number): string {
-  const items = (n.content ?? []).map((li) => itemHtml(li, depth)).join("");
+/** The border sides a cell draws in a table with outside borders only: the edge cells of the grid. */
+function edgeBorders(ri: number, rows: number, ci: number, cols: number): string {
+  const sides: string[] = [];
+  if (ri === 0) sides.push(`border-top:${TABLE_RULE}`);
+  if (ci === cols - 1) sides.push(`border-right:${TABLE_RULE}`);
+  if (ri === rows - 1) sides.push(`border-bottom:${TABLE_RULE}`);
+  if (ci === 0) sides.push(`border-left:${TABLE_RULE}`);
+  return sides.join(";");
+}
+
+function tableHtml(n: JsonNode, base?: BaseFont): string {
+  const borders = n.attrs?.borders === "outside" || n.attrs?.borders === "none" ? (n.attrs.borders as string) : "all";
+  const rows = (n.content ?? []).filter((r) => r.type === "tableRow");
+  const font = base ? `${baseStyle(base)};` : "";
+  const body = rows
+    .map((row, ri) => {
+      const cells = row.content ?? [];
+      const tds = cells.map((c, ci) => {
+        const a = c.attrs ?? {};
+        const th = c.type === "tableHeader";
+        const edges = borders === "all" ? `border:${TABLE_RULE}` : borders === "outside" ? edgeBorders(ri, rows.length, ci, cells.length) : "";
+        const bg = typeof a.background === "string" && /^#[0-9a-f]{6}$/i.test(a.background) ? a.background.toUpperCase() : "";
+        const style = `${font}${edges ? edges + ";" : ""}${CELL_BOX}${th ? ";font-weight:bold;text-align:left" : ""}${bg ? `;background-color:${bg}` : ""}`;
+        const span = (name: string, v: unknown) => (Number(v) > 1 ? ` ${name}="${Math.min(100, Math.round(Number(v)))}"` : "");
+        if (th) boldInHeader++; // (a header cell is bold by its own style: a bold mark in it says nothing, as in a heading)
+        const inner = (c.content ?? []).map((k) => blockHtml(k, 0, base)).join(""); // (a list in a cell is a first-level list)
+        if (th) boldInHeader--;
+        return `<${th ? "th" : "td"}${span("colspan", a.colspan)}${span("rowspan", a.rowspan)} style="${style}"${bg ? ` bgcolor="${bg}"` : ""}>${inner}</${th ? "th" : "td"}>`;
+      });
+      return `<tr>${tds.join("")}</tr>`;
+    })
+    .join("");
+  return `<table border="${borders === "all" ? 1 : 0}" cellpadding="4" cellspacing="0" width="100%" style="border-collapse:collapse;width:100%"><tbody>${body}</tbody></table>`;
+}
+
+function listHtml(n: JsonNode, depth: number, base?: BaseFont): string {
+  const items = (n.content ?? []).map((li) => itemHtml(li, depth, base)).join("");
   if (n.type === "orderedList") {
     const css = normListStyle(true, n.attrs?.listStyle as string) ?? defaultListStyle(true, depth);
     const type = olType(css);
@@ -155,15 +203,15 @@ function listHtml(n: JsonNode, depth: number): string {
  * A list item: the text of its first paragraph straight in the <li> (what Outlook and Gmail write), its other blocks after it. A first paragraph
  * with a format of its own (centred, line spacing ...) keeps its <p>, which carries the style.
  */
-function itemHtml(li: JsonNode, depth: number): string {
+function itemHtml(li: JsonNode, depth: number, base?: BaseFont): string {
   const kids = li.content ?? [];
   const rest = kids.slice(1);
   const simple = kids[0]?.type === "paragraph" && paragraphStyle(blockAttrs(kids[0])) === "margin:0" && rest.every((k) => k.type === "bulletList" || k.type === "orderedList");
-  if (simple) return `<li>${inlineHtml(kids[0].content)}${rest.map((k) => listHtml(k, depth + 1)).join("")}</li>`;
-  return `<li>${kids.map((k) => blockHtml(k, depth + 1)).join("")}</li>`;
+  if (simple) return `<li>${inlineHtml(kids[0].content)}${rest.map((k) => listHtml(k, depth + 1, base)).join("")}</li>`;
+  return `<li>${kids.map((k) => blockHtml(k, depth + 1, base)).join("")}</li>`;
 }
 
-function blockHtml(n: JsonNode, depth = 0): string {
+function blockHtml(n: JsonNode, depth = 0, base?: BaseFont): string {
   switch (n.type) {
     case "paragraph": {
       const inner = inlineHtml(n.content);
@@ -175,9 +223,11 @@ function blockHtml(n: JsonNode, depth = 0): string {
     }
     case "bulletList":
     case "orderedList":
-      return listHtml(n, depth);
+      return listHtml(n, depth, base);
+    case "table":
+      return tableHtml(n, base);
     case "blockquote":
-      return `<blockquote style="${QUOTE_STYLE}">${(n.content ?? []).map((k) => blockHtml(k, depth)).join("")}</blockquote>`;
+      return `<blockquote style="${QUOTE_STYLE}">${(n.content ?? []).map((k) => blockHtml(k, depth, base)).join("")}</blockquote>`;
     case "codeBlock": {
       const text = (n.content ?? []).map((k) => k.text ?? "").join("");
       return `<pre style="${PRE_STYLE}">${escText(text)}</pre>`;
@@ -185,20 +235,20 @@ function blockHtml(n: JsonNode, depth = 0): string {
     case "horizontalRule":
       return `<hr style="${HR_STYLE}">`;
     case "image":
-      return imageHtml(n);
+      return imageHtml(n, true);
     case "signatureBlock":
       return "<div data-sig-block></div>"; // the marker the signature is put in place of (signature.ts)
     case "text":
     case "hardBreak":
       return inlineHtml([n]);
     default:
-      return (n.content ?? []).map((k) => blockHtml(k, depth)).join("");
+      return (n.content ?? []).map((k) => blockHtml(k, depth, base)).join("");
   }
 }
 
-/** The body of a message: the blocks of the document, one after the other (no wrapper: see `wrapBase`). */
-export function docToHtml(doc: JsonNode): string {
-  return (doc.content ?? []).map((n) => blockHtml(n)).join("");
+/** The body of a message: the blocks of the document, one after the other (no wrapper: see `wrapBase`). `base`: the default font, repeated on the cells of a table. */
+export function docToHtml(doc: JsonNode, base?: BaseFont): string {
+  return (doc.content ?? []).map((n) => blockHtml(n, 0, base)).join("");
 }
 
 /** The style of the wrapper: the default font of the message, family and size. */

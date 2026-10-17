@@ -593,7 +593,7 @@ class Cleaner {
         return;
       case "table":
         if (this.o.tables) {
-          o.push("table");
+          o.push("table", this.bordered(n) ? { border: "1" } : {}); // (the border style the editor's table has: all borders, else none)
           kids();
           o.pop();
         } else this.table(n, next);
@@ -610,6 +610,8 @@ class Cleaner {
         if (this.o.tables) {
           const at: Record<string, string> = {};
           for (const k of ["colspan", "rowspan"]) if (/^\d{1,3}$/.test(n.attrs[k] ?? "") && n.attrs[k] !== "1") at[k] = n.attrs[k];
+          const shade = mode === "text" ? "" : this.shading(n, d);
+          if (shade) at.bgcolor = shade;
           o.push(tag, at);
           kids();
           o.pop();
@@ -623,6 +625,31 @@ class Cleaner {
       kids();
       o.end();
     } else kids();
+  }
+
+  /** Whether a table is drawn with borders: its `border` attribute, or borders on its cells (Word and Excel write them as styles on every cell). */
+  bordered(t: El): boolean {
+    if (Number(t.attrs.border) > 0) return true;
+    let seen = 0;
+    const visit = (e: El): boolean => {
+      for (const k of e.kids) {
+        if (typeof k === "string" || seen > 60) continue;
+        if (k.tag === "td" || k.tag === "th") {
+          seen++;
+          const d = this.declsOf(k);
+          if (["border", "border-top", "border-right", "border-bottom", "border-left"].some((p) => d[p] && !/\b(?:none|hidden)\b/i.test(d[p]) && !/^\s*0/.test(d[p]))) return true;
+        } else if (/^(?:thead|tbody|tfoot|tr)$/.test(k.tag) && visit(k)) return true;
+      }
+      return false;
+    };
+    return visit(t);
+  }
+
+  /** The shading of a cell as `#RRGGBB`: its `bgcolor` or background colour; white (the page) and no colour give "". */
+  shading(c: El, d: Decls): string {
+    const bg = d["background-color"] || (d.background ?? "").split(/\s+/).find((x) => /^#|^rgb|^[a-z]{3,20}$/i.test(x)) || c.attrs.bgcolor || "";
+    const hex = colorOf(bg);
+    return /^#[0-9A-F]{6}$/i.test(hex) && hex.toUpperCase() !== "#FFFFFF" ? hex.toUpperCase() : "";
   }
 
   /** A table in an editor without tables: rows of plain cells become lines (cells separated by a tab), anything else is unfolded into its blocks. */

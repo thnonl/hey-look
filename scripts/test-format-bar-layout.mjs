@@ -12,7 +12,7 @@ const compact = items("compact");
 // Strikethrough, (Table), Insert, Clear formatting, Undo, Redo
 const byPriority = [...compose].sort((a, b) => a.priority - b.priority).map((i) => i.id);
 assert.deepEqual(byPriority, [
-  "bold", "italic", "underline", "bulleted", "numbered", "link", "picture", "fontColor", "highlight", "font", "size", "styles", "align", "indentMore", "indentLess", "strike", "insert", "clear", "undo", "redo",
+  "bold", "italic", "underline", "bulleted", "numbered", "link", "picture", "fontColor", "highlight", "font", "size", "styles", "align", "indentMore", "indentLess", "strike", "table", "insert", "clear", "undo", "redo",
 ]);
 assert.equal(new Set(compose.map((i) => i.order)).size, compose.length, "every control has a place of its own");
 assert.equal(new Set(compose.map((i) => i.priority)).size, compose.length, "every control has a priority of its own");
@@ -23,7 +23,7 @@ assert.equal(new Set(compose.map((i) => i.priority)).size, compose.length, "ever
   assert.deepEqual(full.hidden, []);
   assert.deepEqual(full.visible, [...byPriority].sort((a, b) => BAR_META[a].order - BAR_META[b].order));
   // the bar reads as the spec's picture: Undo Redo | Font Size | B I U S | colours | Bulleted Numbered Decrease Increase | Align | Styles | Link Picture Insert | Clear
-  assert.deepEqual(full.visible, ["undo", "redo", "font", "size", "bold", "italic", "underline", "strike", "fontColor", "highlight", "bulleted", "numbered", "indentLess", "indentMore", "align", "styles", "link", "picture", "insert", "clear"]);
+  assert.deepEqual(full.visible, ["undo", "redo", "font", "size", "bold", "italic", "underline", "strike", "fontColor", "highlight", "bulleted", "numbered", "indentLess", "indentMore", "align", "styles", "link", "picture", "table", "insert", "clear"]);
   // and exactly as wide as the bar needs
   assert.equal(layoutBar(compose, barWidth(compose)).hidden.length, 0);
   assert.equal(layoutBar(compose, barWidth(compose) - 1).hidden.length, 1, "one pixel less: the least important control (Redo) goes");

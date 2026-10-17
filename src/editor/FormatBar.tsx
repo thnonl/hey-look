@@ -1,6 +1,6 @@
 import { useEditorState, type Editor } from "@tiptap/react";
 import { Ellipsis } from "lucide-react";
-import { Fragment, useCallback, useImperativeHandle, useLayoutEffect, useMemo, useRef, useState, type ReactNode, type Ref } from "react";
+import { Fragment, Suspense, lazy, useCallback, useImperativeHandle, useLayoutEffect, useMemo, useRef, useState, type ReactNode, type Ref, type RefObject } from "react";
 import { FloatingMenu, type MenuItem } from "../components/ui";
 import { useT } from "../i18n/react";
 import { useStore } from "../store";
@@ -25,6 +25,9 @@ export interface BarTrailing {
   render: (rove: (id: string) => Rove) => ReactNode;
 }
 
+// the floating tools of the table, the link and the picture (insertUi.tsx) are fetched when the caret first gets into one of them
+const InsertOverlays = lazy(() => import("./insertUi").then((m) => ({ default: m.InsertOverlays })));
+
 const same = (a: BarState | null, b: BarState | null) => JSON.stringify(a) === JSON.stringify(b);
 
 /**
@@ -44,6 +47,7 @@ export function FormatBar({ editor, base, host, variant, apiRef, trailing }: { e
   const [active, setActive] = useState("");
   const [moreOpen, setMoreOpen] = useState(false);
   const [picker, setPicker] = useState<string | null>(null);
+  const [pickerAt, setPickerAt] = useState<RefObject<HTMLElement | null> | null>(null);
   const [openId, setOpenId] = useState<string | null>(null);
   const [openVia, setOpenVia] = useState<"key" | null>(null);
 
@@ -94,8 +98,9 @@ export function FormatBar({ editor, base, host, variant, apiRef, trailing }: { e
     rememberColor: (hex) => setPrefs({ recentColors: pushRecent(prefs.recentColors, hex) }),
     rememberHighlight: (hex) => setPrefs({ highlightColor: hex }),
     rove,
-    openPicker: (id) => {
+    openPicker: (id, at) => {
       setOpenVia(null);
+      setPickerAt(at ?? null);
       setPicker(id);
     },
     open: openId,
@@ -170,8 +175,9 @@ export function FormatBar({ editor, base, host, variant, apiRef, trailing }: { e
         <Ellipsis size={14} aria-hidden="true" />
       </button>
       {moreOpen && <FloatingMenu anchor={moreBtn} items={moreRows} align="right" onClose={() => setMoreOpen(false)} />}
-      {pickerControl?.picker?.(ctx, moreBtn, moreBtn, () => setPicker(null))}
+      {pickerControl?.picker?.(ctx, pickerAt ?? moreBtn, pickerAt ?? moreBtn, () => (setPicker(null), setPickerAt(null)))}
       </div>
+      {(st.inTable || st.inLink || st.onPicture) && <Suspense fallback={null}><InsertOverlays editor={editor} st={st} host={host} /></Suspense>}
       {trailing?.render(rove)}
     </div>
   );

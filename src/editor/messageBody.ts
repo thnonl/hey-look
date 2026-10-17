@@ -54,7 +54,7 @@ export function messageHtml(
   doc: JsonNode,
   o: { sig: string | null; base: BaseFont; pictures: "cid"; newCid: () => string; fileName: (mime: string, n: number) => string } | { sig: string | null; base: BaseFont; pictures: "data" },
 ): { html: string; inline: InlinePicture[] } {
-  const filled = fillSignatureStr(docToHtml(doc), o.sig);
+  const filled = fillSignatureStr(docToHtml(doc, o.base), o.sig);
   if (o.pictures === "data") return { html: wrapBase(filled, o.base), inline: [] };
   const s = swapPictures(filled, o.newCid, o.fileName);
   return { html: wrapBase(s.html, o.base), inline: s.inline };

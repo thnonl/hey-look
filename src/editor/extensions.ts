@@ -10,17 +10,23 @@
 
 import Placeholder from "@tiptap/extension-placeholder";
 import { Code } from "@tiptap/extension-code";
+import { Link } from "@tiptap/extension-link";
 import { HardBreak } from "@tiptap/extension-hard-break";
 import { Strike } from "@tiptap/extension-strike";
 import Subscript from "@tiptap/extension-subscript";
 import Superscript from "@tiptap/extension-superscript";
 import { TextStyleKit } from "@tiptap/extension-text-style";
+import { Plugin } from "@tiptap/pm/state";
 import { Extension, type AnyExtension } from "@tiptap/react";
 import StarterKit from "@tiptap/starter-kit";
-import { osNow } from "../platform";
+import { t as tNow } from "../i18n";
+import { checkLinkUrl } from "../linkUrl";
+import { openExternal } from "../open";
+import { kbd, osNow } from "../platform";
 import type { BaseFont } from "./emailHtml";
 import { BlockFormat } from "./blockExtension";
 import { applyStyle, changeIndent, clearFormatting, setAlignment, stepFontSize, toggleScript } from "./commands";
+import { kitExtensions } from "./kit";
 import { PasteHandling } from "./pasteOptions";
 import { PreviewColors } from "./previewColors";
 
@@ -44,6 +50,44 @@ const Sub = Subscript.extend({
 const Sup = Superscript.extend({
   addKeyboardShortcuts() {
     return { "Mod-Shift-=": () => toggleScript(this.editor, "superscript"), "Mod-Shift-+": () => toggleScript(this.editor, "superscript") };
+  },
+});
+
+/**
+ * The link mark of the editor (made with each editor). The editor's own is "inclusive" (text typed at the end of a link goes on being the link): in Word and
+ * Outlook the words typed after a link are not part of it, so this one is not. Web, mail and tel addresses only (linkUrl.ts), https for an address typed
+ * without a scheme, and no target / rel / class in the editor (the sent HTML has none either).
+ */
+const editorLink = () =>
+  Link.extend({ inclusive: false }).configure({
+    openOnClick: false,
+    defaultProtocol: "https",
+    HTMLAttributes: { target: null, rel: null, class: null, title: kbd(tNow("compose.link.openTip")) }, // (the tooltip is in the language of the moment the editor is made)
+    isAllowedUri: (url: string) => checkLinkUrl(url).ok,
+  });
+
+/**
+ * Ctrl+click (Cmd+click on a Mac) on a link opens it in the default program; a plain click only moves the caret (spec REQ-30, AC-50). The editor's own
+ * "open on click" is off: it opened the link in a new window on every click.
+ */
+const LinkOpen = Extension.create({
+  name: "linkOpen",
+  addProseMirrorPlugins() {
+    return [
+      new Plugin({
+        props: {
+          handleClick: (_view, _pos, e) => {
+            if (!(osNow() === "macos" ? e.metaKey : e.ctrlKey) || e.button !== 0) return false;
+            const a = (e.target as HTMLElement | null)?.closest?.("a[href]");
+            const check = checkLinkUrl(a?.getAttribute("href") ?? "");
+            if (!check.ok) return false;
+            e.preventDefault();
+            void openExternal(check.href).catch(() => undefined);
+            return true;
+          },
+        },
+      }),
+    ];
   },
 });
 
@@ -98,12 +142,16 @@ export interface BaseExtensionOptions {
   focusToolbar?: () => void;
   /** Ctrl+Shift+S: open the Styles menu */
   openStyles?: () => void;
+  /** the editor takes pictures (the message body; a signature or template does not) */
+  pictures?: boolean;
 }
 
 export function baseExtensions(o: BaseExtensionOptions): AnyExtension[] {
   return [
-    // headings 1-3 only (the Styles menu of Outlook); the editor's own Strike / Code shortcuts are replaced above
-    StarterKit.configure({ strike: false, code: false, hardBreak: false, heading: { levels: [1, 2, 3] } }),
+    // headings 1-3 only (the Styles menu of Outlook); the editor's own Strike / Code shortcuts are replaced above; the link is editorLink()
+    StarterKit.configure({ strike: false, code: false, hardBreak: false, link: false, heading: { levels: [1, 2, 3] } }),
+    editorLink(),
+    LinkOpen,
     LineBreak,
     NoKeyStrike,
     NoKeyCode,
@@ -116,6 +164,8 @@ export function baseExtensions(o: BaseExtensionOptions): AnyExtension[] {
     // paste and drop: the cleaning of Word / Excel / Outlook / Gmail / web HTML, the three paste options, Ctrl+Shift+V (pasteOptions.tsx)
     PasteHandling.configure({ getBase: o.getBase }),
     PreviewColors,
+    // tables and the picture node (a chunk of their own: kit.ts)
+    ...kitExtensions({ pictures: o.pictures ?? false }),
     Placeholder.configure({ placeholder: o.placeholder ?? "", showOnlyCurrent: o.showOnlyCurrent ?? true }),
   ];
 }
