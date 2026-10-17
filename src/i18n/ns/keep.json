@@ -40,6 +40,7 @@
     "compose.fmt.styles",
     "compose.fmt.stylesTip",
     "compose.fmt.style.normal",
-    "compose.fmt.style.code"
+    "compose.fmt.style.code",
+    "compose.emoji.smileys"
   ]
 }
