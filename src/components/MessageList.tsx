@@ -15,7 +15,7 @@ import { openDraftInWindow, openDraftThread } from "./Compose";
 import { wantsWindow } from "../popout/composeOpen";
 import { shiftNow } from "../popout/modifier";
 import { openReader } from "../popout/openReader";
-import { readerAllowed } from "../popout/readerLogic";
+import { rowWindowTarget } from "../popout/readerLogic";
 import { ImportanceMark } from "./Importance";
 import { AcctName } from "./AcctName";
 import { useRowContextMenu } from "./ListContextMenu";
@@ -318,7 +318,7 @@ export function MessageList() {
         accountLabel={labels.get(it.t.accountId)}
         hover={<HoverActions t={it.t} />}
         onOpen={() => openThread(it.t)}
-        onOpenWindow={folder === "drafts" ? () => void openDraftInWindow(it.t.threadId) : readerAllowed(folder, it.t.folder) ? () => void openReader(it.t, folder) : undefined}
+        onOpenWindow={rowWindowTarget(folder, it.t.folder) === "draft" ? () => void openDraftInWindow(it.t.threadId) : rowWindowTarget(folder, it.t.folder) === "reader" ? () => void openReader(it.t, folder) : undefined}
         onToggle={() => toggleCheck(it.t.threadId)}
         posInSet={it.pos}
         setSize={threads.length}

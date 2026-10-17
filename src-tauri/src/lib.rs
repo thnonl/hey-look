@@ -24,9 +24,12 @@ mod macnotify;
 mod macclip;
 #[cfg(target_os = "macos")]
 mod macquit;
+// the native window of a pop-out, finished by hand once it is gone (popout.rs)
+#[cfg(target_os = "macos")]
+mod macwin;
 mod mail;
-// the main window never leaves the app for a website (the Windows PDF frame has no sandbox); the pure decision is compiled and tested everywhere
-#[cfg_attr(not(windows), allow(dead_code))]
+// the main window never leaves the app for a website (the PDF frame has no sandbox on Windows and macOS); the pure decision is compiled and tested everywhere
+#[cfg_attr(not(any(windows, target_os = "macos")), allow(dead_code))]
 mod navguard;
 mod oauth;
 mod oauth_page;
@@ -4835,6 +4838,7 @@ pub fn run() {
             popout::popout_close,
             popout::popout_park,
             popout::popout_destroy,
+            popout::popout_note,
             popout::popout_set_key,
             popout::popout_request,
             popout::popout_reply,

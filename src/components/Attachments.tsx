@@ -546,14 +546,14 @@ function PdfFrame({ url, sandbox, name, onOpen }: { url: string; sandbox?: strin
   const t = useT();
   const [state, setState] = useState<PdfFrameState>("loading");
   const stateRef = useRef<PdfFrameState>("loading");
+  const [why, setWhy] = useState(""); // (shown as the tooltip of the message: what a QA tester can read off the screen)
   useEffect(() => {
-    const move = (ev: Parameters<typeof nextPdfState>[1], why: string) => {
+    const move = (ev: Parameters<typeof nextPdfState>[1], reason: string) => {
       const next = nextPdfState(stateRef.current, ev);
       if (next === stateRef.current) return;
       stateRef.current = next;
       setState(next);
-      // (startup.log, when this window may write there: a line for the next QA log)
-      if (next === "failed") void api.updateNote(`pdf preview: ${why}`).catch(() => undefined);
+      if (next === "failed") setWhy(reason);
     };
     const timer = setTimeout(() => move("timeout", `the frame did not report a load in ${PDF_DRAW_WAIT_MS / 1000} s`), PDF_DRAW_WAIT_MS);
     const onViolation = (e: SecurityPolicyViolationEvent) => {
@@ -567,7 +567,7 @@ function PdfFrame({ url, sandbox, name, onOpen }: { url: string; sandbox?: strin
   }, [url]);
   if (state === "failed") {
     return (
-      <div className="pv-msg">
+      <div className="pv-msg" title={why} style={{ display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: 12 }}>
         <ImageOff size={28} />
         <div>{t("reading.pv.pdfNotDrawn")}</div>
         {onOpen && <button className="btn small" onClick={onOpen}><ExternalLink size={13} /> {t("reading.att.open")}</button>}

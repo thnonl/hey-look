@@ -30,6 +30,15 @@ export function readerAllowed(view: string, folder: string): boolean {
   return view !== "drafts" && view !== "scheduled" && folder !== "drafts";
 }
 
+/**
+ * What a double click (or Shift+Enter) on a row of the list opens: a draft is edited (the compose window), a conversation is read (the reader
+ * window), the Scheduled list and anything else opens nothing. The decision is only about the row, never about the setting for new messages.
+ */
+export function rowWindowTarget(view: string, folder: string): "draft" | "reader" | "none" {
+  if (view === "drafts") return "draft";
+  return readerAllowed(view, folder) ? "reader" : "none";
+}
+
 /** Views of the main window that are not one IMAP folder (the move scope of such a view is "every folder the view can show"). */
 const VIRTUAL = new Set(["starred", "pinned", "snoozed", "all", "scheduled"]);
 

@@ -31,6 +31,38 @@ export default function PopoutRoot({ route }: { route: Exclude<Route, { kind: "m
   const [known, setKnown] = useState<Known | null>(null);
   const [failed, setFailed] = useState(false);
 
+  // what goes wrong in this page goes to startup.log too (a white window with no console to look at; Mac QA 1.0.6 had one)
+  useEffect(() => {
+    const say = (text: string) => void api.popoutNote("error", text).catch(quiet);
+    const onError = (e: ErrorEvent) => say(`${e.message} (${(e.filename || "").split("/").pop()}:${e.lineno}:${e.colno})`);
+    const onRejection = (e: PromiseRejectionEvent) => say(`unhandled rejection: ${e.reason instanceof Error ? e.reason.message : String(e.reason)}`);
+    window.addEventListener("error", onError);
+    window.addEventListener("unhandledrejection", onRejection);
+    return () => {
+      window.removeEventListener("error", onError);
+      window.removeEventListener("unhandledrejection", onRejection);
+    };
+  }, []);
+
+  // the view was drawn: it has something with a size. Looked at every half second for 7 s (a slow start under load is not a blank window); the
+  // backend reloads a window that is "ready" but never says so within 8 s, once (popout.rs `watch_content`)
+  useEffect(() => {
+    if (!known) return;
+    const t0 = Date.now();
+    const id = setInterval(() => {
+      const box = document.getElementById("root")?.firstElementChild?.getBoundingClientRect();
+      const drawn = !!box && box.width > 0 && box.height > 0 && document.body.innerText.trim().length + document.querySelectorAll("button, input, [contenteditable]").length > 0;
+      if (drawn) {
+        clearInterval(id);
+        void api.popoutNote("content", `drawn ${Math.round(box!.width)} x ${Math.round(box!.height)} after ${Date.now() - t0} ms`).catch(quiet);
+      } else if (Date.now() - t0 > 7000) {
+        clearInterval(id);
+        void api.popoutNote("error", "the view has nothing on screen 7 s after it was mounted").catch(quiet);
+      }
+    }, 500);
+    return () => clearInterval(id);
+  }, [known]);
+
   useEffect(() => {
     if (route.kind === "invalid") return;
     let dead = false;
