@@ -52,6 +52,7 @@ const escAttr = (s: string) => s.replace(/&/g, "&amp;").replace(/"/g, "&quot;").
 /** Text as HTML: a no-break space is `&nbsp;`; of a run of blanks only the first stays a plain blank, and a blank at the edge of a line is a no-break one, so nothing collapses. */
 function textHtml(raw: string, atStart: boolean, atEnd: boolean): string {
   let s = escText(raw).replace(/ /g, "&nbsp;").replace(/\r\n?|\n/g, " ");
+  s = s.replace(/\t/g, "&nbsp;&nbsp;&nbsp;&nbsp;"); // (a tab, e.g. the cells of a pasted table row: a recipient's client would fold it to one blank)
   s = s.replace(/ {2,}/g, (run) => " " + "&nbsp;".repeat(run.length - 1));
   if (atStart) s = s.replace(/^ /, "&nbsp;");
   if (atEnd) s = s.replace(/ $/, "&nbsp;");
