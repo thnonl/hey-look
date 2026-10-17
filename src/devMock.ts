@@ -276,7 +276,7 @@ function dropMockDraft(ref: string) {
   delete mockDraftRows[tid];
 }
 /** To / Cc / Bcc as the saved draft's headers have them, by message id (`draft_recipients`). */
-const mockDraftHeaders: Record<string, { to: string[]; cc: string[]; bcc: string[] }> = {};
+const mockDraftHeaders: Record<string, { to: string[]; cc: string[]; bcc: string[]; inReplyTo?: string | null; references?: string[] }> = {};
 const dayOf = (sec: number) => Math.floor(sec / 86400);
 /** Repeats for the mock: daily / weekly with BYDAY, from the event's own start. */
 function expandMock(e: MockEvent, from: number, to: number): MockEvent[] {
@@ -1156,6 +1156,9 @@ export function installMock() {
       case "add_account": {
         const inp = a.input as { email: string; displayName: string; imapHost: string; smtpHost: string };
         if (a.passwordValue === "wrong") return later(900, () => { throw new Error("AUTH: login failed: invalid credentials"); });
+        // a locked system keyring: the password "locked" answers with the timeout after 2.5 s, "hang" does not answer within a minute (Cancel ends the wait)
+        if (a.passwordValue === "locked") return later(2500, () => { throw new Error("KEYRING_TIMEOUT: Your system keyring is locked or not answering. Unlock it (Passwords and Keys / KWallet) and try again."); });
+        if (a.passwordValue === "hang") return later(60000, () => { throw new Error("ADD_CANCELLED: Adding the account was cancelled."); });
         return later(1200, () => mockNewAccount(inp.email, inp.displayName || inp.email.split("@")[0], "password", inp.imapHost, inp.smtpHost));
       }
       case "google_sign_in": case "microsoft_sign_in": {
@@ -1165,6 +1168,7 @@ export function installMock() {
           mockNewAccount(g ? `new.user${newSeq + 1}@gmail.com` : `new.user${newSeq + 1}@outlook.com`, String(a.displayName || "New User"), g ? "oauth_google" : "oauth_microsoft", g ? "imap.gmail.com" : "outlook.office365.com", g ? "smtp.gmail.com" : "smtp.office365.com"));
         return later(1200, () => mockNewAccount(g ? `new.user${newSeq + 1}@gmail.com` : `new.user${newSeq + 1}@outlook.com`, String(a.displayName || "New User"), g ? "oauth_google" : "oauth_microsoft", g ? "imap.gmail.com" : "outlook.office365.com", g ? "smtp.gmail.com" : "smtp.office365.com"));
       }
+      case "cancel_add_account": return null;
       case "oauth_cancel": oauthCancel?.(); oauthCancel = null; return null;
       case "reauth_account": {
         const acc = accounts.find((x) => x.id === a.accountId);
@@ -1216,7 +1220,7 @@ export function installMock() {
         if (hashTokens().has("draftfail")) throw "mock: the server refused the draft"; // `#draftfail`: saving a draft fails (update restart asks what to do)
         w.__lastDraft = a.draft;
         // like the backend: the draft is a message of the Drafts folder, in the thread it gets from its Message-ID (the toast "Draft saved" opens it with Edit)
-        const dr = a.draft as { to: string[]; cc: string[]; bcc?: string[]; subject: string; html: string; text: string; accountId: string; importance?: string };
+        const dr = a.draft as { to: string[]; cc: string[]; bcc?: string[]; inReplyTo?: string | null; references?: string[]; subject: string; html: string; text: string; accountId: string; importance?: string };
         const tid = `dt${++mockDraftSeq}`;
         // the draft is replaced, not added to (the backend appends the new one, then deletes the one the reference names)
         if (typeof a.replaces === "string") dropMockDraft(a.replaces);
@@ -1225,7 +1229,7 @@ export function installMock() {
         mockDrafts[tid] = [{ ...messages[0], id: `a1:drafts:${tid}`, accountId: dr.accountId, folder: "drafts", subject: dr.subject || "(no subject)", fromName: "Nam", fromEmail: "nam@example.com", to: bareOf(dr.to).join(", "), cc: bareOf(dr.cc).join(", "), html: dr.html, text: dr.text, attachments: [], seen: true, ...{ importance: dr.importance ?? "normal" } }];
         // the draft shows up in Drafts; reopening it gives back what was saved, the importance included (the backend reads it from the headers)
         mockDraftRows[tid] = t(tid, dr.subject || "(no subject)", [dr.to[0] ?? "(no recipient)"], dr.text.slice(0, 120), 0, { folder: "drafts", accountId: dr.accountId, importance: dr.importance ?? "normal" });
-        mockDraftHeaders[`a1:drafts:${tid}`] = { to: dr.to, cc: dr.cc, bcc: dr.bcc ?? [] };
+        mockDraftHeaders[`a1:drafts:${tid}`] = { to: dr.to, cc: dr.cc, bcc: dr.bcc ?? [], inReplyTo: dr.inReplyTo ?? null, references: dr.references ?? [] };
         mockDraftRefs[`mid:a1|<${tid}@mock>`] = tid;
         (window as unknown as { __draftCount: () => number }).__draftCount = () => Object.keys(mockDrafts).length; // for a check: drafts the page holds
         const done = () => ({ threadId: tid, draftRef: `mid:a1|<${tid}@mock>` });

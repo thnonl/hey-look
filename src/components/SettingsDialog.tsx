@@ -576,7 +576,16 @@ function ImapForm({ initialProvider = "custom" }: { initialProvider?: string }) 
       setDetecting(false);
     }
   };
+  /** which attempt is the one on screen: Cancel (or a newer attempt) leaves an older one without a voice */
+  const attempt = useRef(0);
+  const cancel = () => {
+    attempt.current++;
+    setBusy(false);
+    setError("");
+    void api.cancelAddAccount().catch(() => undefined);
+  };
   const add = async () => {
+    const mine = ++attempt.current;
     setBusy(true);
     setError("");
     try {
@@ -593,10 +602,11 @@ function ImapForm({ initialProvider = "custom" }: { initialProvider?: string }) 
       // closes this dialog, opens the new account's Inbox and starts its first sync
       void useStore.getState().accountAdded(acc);
     } catch (e) {
+      if (mine !== attempt.current) return; // (cancelled: the person has gone on; nothing was stored)
       setError(friendlyError(e)); // stay here with what was typed: the message is next to the button, and in a toast
       showToast(() => friendlyError(e), undefined, "error");
     } finally {
-      setBusy(false);
+      if (mine === attempt.current) setBusy(false);
     }
   };
   return (
@@ -676,7 +686,16 @@ function ImapForm({ initialProvider = "custom" }: { initialProvider?: string }) 
         </div>
       </div>
       {/* how the attempt ended: one slot of fixed size under the card, so the Add button never moves (the error used to be a row above it) */}
-      <div className="signin-slot">{error && <div className="notice bad" role="alert">{error}</div>}</div>
+      <div className="signin-slot">
+        {error ? (
+          <div className="notice bad" role="alert">{error}</div>
+        ) : busy ? (
+          // the wait for the server, or for a locked keyring, can be long: it can be ended
+          <div className="notice" role="status">
+            {t("settings.add.connecting")} <button className="link" onClick={cancel}>{t("common.cancel")}</button>
+          </div>
+        ) : null}
+      </div>
     </>
   );
 }
@@ -873,7 +892,7 @@ function SignaturesPanel({ scope }: { scope: string | null }) {
           <label>{t("settings.form.name")}</label>
           <input aria-label={t("settings.form.name")} placeholder={t("settings.sig.namePlaceholder")} value={cur.name} onChange={(e) => setCur({ ...cur, name: e.target.value })} />
           <label>{t("settings.composing.signature")}</label>
-          <RichEditor key={cur.id} label={t("settings.composing.signature")} value={cur.html} onChange={(html) => setCur((c) => (c ? { ...c, html } : c))} placeholder={t("settings.sig.bodyPlaceholder")} />
+          <RichEditor pictures key={cur.id} label={t("settings.composing.signature")} value={cur.html} onChange={(html) => setCur((c) => (c ? { ...c, html } : c))} placeholder={t("settings.sig.bodyPlaceholder")} />
           <Switch checked={cur.isDefault} onChange={(v) => setCur({ ...cur, isDefault: v })} label={scope ? t("settings.sig.defaultThis") : t("settings.sig.defaultAll")} />
           <div className="row-inline">
             <button className="btn primary" onClick={async () => { await api.saveSignature(cur); setCur(null); void load(); }}>{t("common.save")}</button>
@@ -917,7 +936,7 @@ function TemplatesPanel({ scope }: { scope: string | null }) {
           <label>{t("settings.tpl.subjectOpt")}</label>
           <input aria-label={t("settings.tpl.subjectOpt")} placeholder={t("settings.tpl.subjectPlaceholder")} value={cur.subject} onChange={(e) => setCur({ ...cur, subject: e.target.value })} />
           <label>{t("settings.tpl.message")}</label>
-          <RichEditor key={cur.id} label={t("settings.tpl.message")} value={cur.body} onChange={(body) => setCur((c) => (c ? { ...c, body } : c))} minHeight={180} />
+          <RichEditor pictures key={cur.id} label={t("settings.tpl.message")} value={cur.body} onChange={(body) => setCur((c) => (c ? { ...c, body } : c))} minHeight={180} />
           <div className="row-inline">
             <button className="btn primary" onClick={async () => { await api.saveTemplate(cur); setCur(null); void load(); }}>{t("common.save")}</button>
             <button className="btn" onClick={() => setCur(null)}>{t("common.cancel")}</button>

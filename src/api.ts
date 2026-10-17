@@ -523,6 +523,8 @@ export const api = {
   idleStates: () => invoke<Record<string, string>>("idle_states"),
   addAccount: (input: AccountInput, passwordValue: string, smtpPassword?: string) =>
     invoke<Account>("add_account", { input, passwordValue, smtpPassword: smtpPassword || null }),
+  /** "Cancel" while the add account form waits: the attempt stops before it stores anything */
+  cancelAddAccount: () => invoke<void>("cancel_add_account"),
   discoverServer: (email: string) => invoke<Discovered | null>("discover_server", { email }),
   googleEnvConfigured: () => invoke<boolean>("google_env_configured"),
   googleSignIn: (clientId: string, clientSecret: string, displayName: string) =>
@@ -613,7 +615,7 @@ export const api = {
   recoveryList: () => invoke<RecoveryInfo[]>("recovery_list"),
   recoveryLoad: (id: string) => invoke<RecoveryLoaded | null>("recovery_load", { id }),
   /** To / Cc / Bcc of a saved draft with the display names, read from the draft's own headers (the synced copy has bare addresses and no Bcc). */
-  draftRecipients: (messageId: string) => invoke<{ to: string[]; cc: string[]; bcc: string[] }>("draft_recipients", { messageId }),
+  draftRecipients: (messageId: string) => invoke<{ to: string[]; cc: string[]; bcc: string[]; inReplyTo?: string | null; references?: string[] }>("draft_recipients", { messageId }),
   listOutbox: () => invoke<OutboxItem[]>("list_outbox"),
   cancelOutbox: (id: string) => invoke<void>("cancel_outbox", { id }),
   /** Send was pressed with an Undo time: the message goes into the local outbox (not a scheduled message) until `dueAt` (unix seconds). */

@@ -20,6 +20,7 @@
     "allow-frame-system-menu",
     "allow-list-accounts",
     "allow-add-account",
+    "allow-cancel-add-account",
     "allow-google-sign-in",
     "allow-oauth-cancel",
     "allow-reauth-account",
