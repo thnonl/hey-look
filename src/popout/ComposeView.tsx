@@ -230,8 +230,8 @@ export default function ComposeView({ label, init }: PopoutViewProps) {
           save,
           ask: async (why) => {
             const a = await choose({
-              title: tNow("app.quit.notSavedTitle"),
-              body: tNow(why === "update" ? "compose.popout.notSavedBody" : "app.quit.notSavedBody", { error: st.getState().draftError || tNow("app.quit.unknownError") }),
+              title: tNow(why === "update" ? "updates.ask.unsavedTitle" : "app.quit.notSavedTitle"),
+              body: tNow(why === "update" ? "updates.ask.unsavedBody" : "app.quit.notSavedBody", { error: st.getState().draftError || tNow("app.quit.unknownError") }),
               choices: [
                 { id: "keep", label: tNow("app.quit.keepWriting"), kind: "primary" },
                 { id: "discard", label: tNow(why === "update" ? "updates.action.restartDiscardMessage" : "app.quit.quitDiscard"), kind: "danger" },

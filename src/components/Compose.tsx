@@ -535,6 +535,7 @@ export function Compose({ init }: { init: ComposeInit }) {
   const snapRevRef = useRef(-1); // the revision the last snapshot covered
   const snapAtRef = useRef(0);
   const sendingRef = useRef(false); // the message is on its way out: its snapshot stays until the send is safe
+  const poppingRef = useRef(false); // the message is being moved to a window of its own: the window that opens must not make this pane autosave it
   const filesKeyRef = useRef<{ atts: Att[]; key: string } | null>(null);
   const [autosavedAt, setAutosavedAt] = useState<number | null>(null);
 
@@ -895,7 +896,11 @@ export function Compose({ init }: { init: ComposeInit }) {
   const popOut = async () => {
     if (init.outboxId || composeSeam() || busy) return;
     const moved = initOf(buildDraft(), { replaces: replacesRef() ?? undefined, isReply: !!init.isReply, carried: true });
-    if (!(await openPopout("compose", null, moved))) return; // the pane stays as it is (the toast said why)
+    poppingRef.current = true; // (the new window takes the focus: this pane losing it must not save a draft of what is moving)
+    if (!(await openPopout("compose", null, moved))) {
+      poppingRef.current = false;
+      return; // the pane stays as it is (the toast said why)
+    }
     setComposeDirty(false);
     void openCompose(null);
   };
@@ -1343,7 +1348,7 @@ export function Compose({ init }: { init: ComposeInit }) {
     const p = probe();
     return {
       now: Date.now(), why, rev: revRef.current, savedRev: savedRevRef.current, changedAt: changedAtRef.current, lastTryAt: lastTryRef.current,
-      failures: failuresRef.current, hasContent: p.hasContent, attaching: p.attaching, saving: savingRef.current > 0, sending: sendingRef.current,
+      failures: failuresRef.current, hasContent: p.hasContent, attaching: p.attaching, saving: savingRef.current > 0, sending: sendingRef.current || poppingRef.current,
       scheduled: !!init.outboxId, plainWouldLeak: encOn && !eff(prefs, accountId, "pgpEncryptDrafts"),
     };
   };

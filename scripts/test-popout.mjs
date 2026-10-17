@@ -622,6 +622,7 @@ assert.equal(draftKey("t9"), "draft:t9");
   assert.ok(compose.includes("if (init.outboxId || composeSeam() || busy) return;"), "no pop-out of a scheduled message or from a window");
   assert.ok(compose.includes('e.key.toLowerCase() === "o"') && compose.includes("compose.popout.popOutTip"), "Ctrl+Shift+O and the button");
   assert.ok(compose.includes("init.recoveryId || init.carried"), "a moved message counts as changed");
+  assert.ok(compose.includes("poppingRef.current = true") && compose.includes("sending: sendingRef.current || poppingRef.current"), "moving a message to a window must not make the pane autosave it (the window takes the focus)");
   // every way of starting a message goes through startCompose; none opens the pane by itself any more
   for (const [file, never] of [["src/components/Ribbon.tsx", "openCompose("], ["src/components/CommandBar.tsx", "openCompose("], ["src/components/Attachments.tsx", "openCompose("], ["src/components/ReadingPane.tsx", ".openCompose("], ["src/actions.ts", "st.openCompose("]]) {
     assert.ok(!read(file).includes(never), `${file} starts a message with ${never}`);
