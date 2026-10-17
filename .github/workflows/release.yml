@@ -344,6 +344,8 @@ jobs:
           # the picture resize handles are clipped with the editor pane, and Discard on a reply with nothing typed closes without asking (real panes in the dev preview)
           node scripts/test-picture-handles.mjs
           node scripts/test-compose-discard.mjs
+          # the Symbol popup, the More menu, Find and replace (Replace row on every system) and the picture handles under the dialogs, at 960 x 560 and 1280 x 800
+          node scripts/test-compose-popups.mjs
 
       # macOS code signing (owner steps: CONTRIBUTING.md > Signing and notarisation). Only when the three certificate secrets
       # (APPLE_CERTIFICATE, APPLE_CERTIFICATE_PASSWORD, APPLE_SIGNING_IDENTITY) exist and this is not a test build; otherwise nothing

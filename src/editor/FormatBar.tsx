@@ -174,7 +174,7 @@ export function FormatBar({ editor, base, host, variant, apiRef, trailing }: { e
       >
         <Ellipsis size={14} aria-hidden="true" />
       </button>
-      {moreOpen && <FloatingMenu anchor={moreBtn} items={moreRows} align="right" onClose={() => setMoreOpen(false)} />}
+      {moreOpen && <FloatingMenu anchor={moreBtn} items={moreRows} align="right" tall onClose={() => setMoreOpen(false)} />}
       {pickerControl?.picker?.(ctx, pickerAt ?? moreBtn, pickerAt ?? moreBtn, () => (setPicker(null), setPickerAt(null)))}
       </div>
       {(st.inTable || st.inLink || st.onPicture) && <Suspense fallback={null}><InsertOverlays editor={editor} st={st} host={host} /></Suspense>}

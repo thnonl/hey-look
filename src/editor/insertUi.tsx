@@ -407,6 +407,18 @@ const CORNERS = [
 
 /** Four handles at the corners of the selected picture: dragging one resizes it with the same proportions (the `width` of the picture, 40 px up to its own size). */
 function PictureHandles({ editor }: { editor: Editor }) {
+  // (6) only while the editor has the focus: with a dialog or another window in front the handles are not drawn (they were painted over Settings)
+  const [focused, setFocused] = useState(editor.isFocused);
+  useEffect(() => {
+    const on = () => setFocused(true);
+    const off = () => setFocused(false);
+    editor.on("focus", on);
+    editor.on("blur", off);
+    return () => {
+      editor.off("focus", on);
+      editor.off("blur", off);
+    };
+  }, [editor]);
   const img = () => {
     const sel = editor.state.selection;
     return sel instanceof NodeSelection && sel.node.type.name === "image" ? (editor.view.nodeDOM(sel.from) as HTMLImageElement | null) : null;
@@ -414,7 +426,7 @@ function PictureHandles({ editor }: { editor: Editor }) {
   const box = useBox(editor, img);
   const pane = useBox(editor, () => paneOf(editor));
   const [live, setLive] = useState<Box | null>(null);
-  if (!box || !pane) return null;
+  if (!box || !pane || !focused) return null;
   const shown = live ?? box;
   const down = (e: React.PointerEvent<HTMLElement>, dir: number) => {
     const el = img();

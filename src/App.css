@@ -273,6 +273,8 @@ button:focus-visible, [role="option"]:focus-visible, [role="treeitem"]:focus-vis
 /* the Dropdown / FloatingMenu menu is drawn in a portal on <body> and placed from its anchor (ui.tsx): above dialogs (--z-modal) and below confirm questions */
 .dd-fixed { position: fixed; z-index: var(--z-menu); animation: pop .12s var(--ease); }
 .dd-fixed .menu { max-height: min(60vh, var(--dd-max, 60vh)); }
+/* a long menu (More of the editor): as tall as the room is, never taller than the window, with a shadow where more rows wait (a Mac draws no scroll bar at rest) */
+.dd-fixed.tall .menu { max-height: min(calc(100vh - 12px), var(--dd-max, calc(100vh - 12px))); overscroll-behavior: contain; background: linear-gradient(var(--bg) 30%, transparent) 0 0 / 100% 24px no-repeat local, linear-gradient(transparent, var(--bg) 70%) 0 100% / 100% 24px no-repeat local, radial-gradient(farthest-side at 50% 0, rgba(0, 0, 0, .3), transparent) 0 0 / 100% 8px no-repeat scroll, radial-gradient(farthest-side at 50% 100%, rgba(0, 0, 0, .3), transparent) 0 100% / 100% 8px no-repeat scroll, var(--bg); }
 .caret { opacity: .6; }
 .menu { min-width: 200px; background: var(--bg); border: 1px solid var(--border); border-radius: var(--r-md); box-shadow: var(--shadow); padding: 5px; max-height: 60vh; overflow-y: auto; }
 .menu-row { display: flex; align-items: center; gap: 8px; width: 100%; text-align: left; background: none; border: 0; border-radius: var(--r-sm); padding: 7px 9px; cursor: pointer; }
@@ -1007,6 +1009,7 @@ button.pill:hover { filter: brightness(.95); }
 .find-row input[type="text"] { flex: 1 1 120px; min-width: 0; height: 26px; padding: 0 8px; border: 1px solid var(--border); border-radius: var(--r-sm); background: var(--bg); color: var(--fg); font: inherit; }
 .find-count { flex: none; min-width: 0; color: var(--muted); font-size: .86em; white-space: nowrap; }
 .find-case { display: inline-flex; align-items: center; gap: 4px; flex: none; font-size: .86em; white-space: nowrap; color: var(--fg); }
+.find-toggle { flex: none; }
 .find-close { flex: none; margin-inline-start: auto; }
 .find-bar .btn.small { flex: none; }
 .editor .tiptap .find-hit { background: color-mix(in srgb, var(--accent) 28%, transparent); border-radius: 2px; }
@@ -1016,7 +1019,7 @@ button.pill:hover { filter: brightness(.95); }
 .img-tools .tool-btn.on { background: var(--accent-soft); color: var(--accent-text); }
 .link-bubble { align-items: center; padding: 3px 4px 3px 10px; gap: 2px; }
 .link-bubble-url { max-width: 240px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--muted); font-size: .86em; margin-right: 4px; }
-.pic-handles { position: fixed; z-index: calc(var(--z-menu) - 3); overflow: hidden; overflow: clip; pointer-events: none; } /* the box of the editor pane: it clips the handles (BUG-2) */
+.pic-handles { position: fixed; z-index: calc(var(--z-modal) - 10); overflow: hidden; overflow: clip; pointer-events: none; } /* the box of the editor pane: it clips the handles (BUG-2) */
 .pic-handle { position: absolute; pointer-events: auto; width: 10px; height: 10px; box-sizing: border-box; border-radius: 2px; background: var(--accent); border: 2px solid var(--bg); touch-action: none; }
 .fmt-pop-table { width: 198px; }
 .tbl-grid { display: grid; grid-template-columns: repeat(10, 16px); gap: 2px; }
@@ -1024,7 +1027,7 @@ button.pill:hover { filter: brightness(.95); }
 .tbl-cell.on { background: var(--accent-soft); border-color: var(--accent); }
 .tbl-grid-label { font-size: .86em; color: var(--muted); text-align: center; min-height: 1.3em; margin: 2px 0; }
 .tbl-dialog { display: flex; flex-direction: column; gap: 10px; }
-.fmt-pop-emoji { width: 294px; }
+.fmt-pop-emoji, .fmt-pop-symbol { width: 294px; }
 .emoji-tabs { display: flex; gap: 2px; }
 .emoji-tab { width: 32px; height: 30px; padding: 0; border: 0; border-radius: var(--r-sm); background: none; font-size: 17px; line-height: 1; }
 .emoji-tab:hover { background: var(--bg3); }
@@ -1033,6 +1036,8 @@ button.pill:hover { filter: brightness(.95); }
 .emoji-grid { display: grid; grid-template-columns: repeat(8, 32px); gap: 2px; }
 .emoji-btn { width: 32px; height: 32px; padding: 0; border: 0; border-radius: var(--r-sm); background: none; font-size: 19px; line-height: 1; font-family: "Segoe UI Emoji", "Apple Color Emoji", "Noto Color Emoji", sans-serif; }
 .emoji-btn:hover, .emoji-btn:focus-visible { background: var(--bg3); }
+.emoji-btn { color: var(--fg); } /* (a button's own colour is black: the symbols were nearly invisible on the dark panel) */
+.symbol-btn { font-family: "Segoe UI Symbol", "Segoe UI", -apple-system, "Helvetica Neue", "Noto Sans", sans-serif; font-variant-emoji: text; font-size: 18px; }
 .emoji-hint { font-size: .82em; color: var(--muted); margin-top: 6px; }
 .alt-pop { position: absolute; top: calc(100% + 4px); left: 0; z-index: 13; width: 320px; padding: 12px; gap: 8px; }
 .drop-zones { position: absolute; inset: 8px; display: grid; grid-template-rows: 1fr 96px; gap: 8px; z-index: 20; pointer-events: none; }

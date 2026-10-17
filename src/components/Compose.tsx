@@ -487,10 +487,10 @@ function ComposeBody({ init }: { init: ComposeInit }) {
   const barApi = useRef<FormatBarApi>(null);
   /** the editor shown larger or smaller (REQ-49, More > Zoom): display only, for this message only */
   const [zoom, setZoom] = useState(100);
-  /** Find and replace (REQ-44, Ctrl+F / Ctrl+H): the panel above the text; `nonce` brings the focus back to it when it is asked for again */
+  /** Find and replace (REQ-44, Ctrl+F / Ctrl+H, Cmd+Shift+H on a Mac, the Replace item and the chevron of the panel): the panel above the text; `nonce` brings the focus back to it when it is asked for again */
   const [find, setFind] = useState<{ mode: "find" | "replace"; nonce: number } | null>(null);
   const openFindRef = useRef<(mode: "find" | "replace") => void>(() => undefined);
-  openFindRef.current = (mode) => setFind((f) => ({ mode: mode === "replace" ? "replace" : f?.mode ?? "find", nonce: (f?.nonce ?? 0) + 1 }));
+  openFindRef.current = (mode) => setFind((f) => ({ mode, nonce: (f?.nonce ?? 0) + 1 }));
   const draftSig = useMemo<Signature | null>(
     () => (startDoc.current?.sig ? { id: "draft-signature", name: "", html: startDoc.current.sig, isDefault: false, accountId: null } : null),
     // eslint-disable-next-line react-hooks/exhaustive-deps

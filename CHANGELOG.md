@@ -94,6 +94,10 @@ AI Assistant
 - A message you deleted or archived leaves the list when its Undo time ends, also when the window was hidden to the tray at that time (it could stay listed until the next refresh); the list is read again when the window comes back
 - The corner handles of a selected picture are cut off with the editor when you scroll the message, instead of showing over the To row and the attachments
 - Closing a reply or a forward in which you typed nothing (Discard, or closing its window) no longer asks "Discard this message?"; a letter, an address or an attachment you added still asks
+- The corner handles of a selected picture are no longer drawn over the Settings dialog or other windows: they show only while the message has the focus
+- Find and replace on a Mac: the Replace row can be reached (a button with an arrow on the Find panel, a Replace item in the More menu, and Cmd+Shift+H); Windows and Linux keep Ctrl+H
+- The Symbol popup is as wide as its grid (the last column was cut off) and its symbols are readable in the dark theme
+- The More menu of the message toolbar fits the window, scrolls when it is longer than the room, shows a shadow where more rows wait, and keeps the row you reach with the arrow keys in view
 
 ### Known limitations
 
