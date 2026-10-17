@@ -163,6 +163,33 @@ pub fn delete_by_message_id<T: std::io::Read + std::io::Write>(s: &mut imap::Ses
     Ok(uids.len())
 }
 
+/// The drafts of the Drafts folder that were made from this crash-recovery snapshot: `(uid, Message-ID)`. The server is asked with a HEADER search
+/// on the start of the Message-ID (recover.rs) and its answer is CHECKED against the headers it gives back: a server whose SEARCH ignores
+/// HEADER (or matches loosely) answers with every message, and none of those may count as "the draft of this snapshot".
+pub fn find_by_recovery_id<T: std::io::Read + std::io::Write>(s: &mut imap::Session<T>, folder: &str, recovery_id: &str) -> crate::db::R<Vec<(u32, String)>> {
+    if !crate::recover::id_in_message_id(recovery_id) {
+        return Err(format!("not a snapshot id: {recovery_id}"));
+    }
+    let prefix = crate::recover::message_id_prefix(recovery_id);
+    s.select(folder).map_err(crate::db::err)?;
+    let mut uids: Vec<u32> = s.uid_search(format!("HEADER Message-ID \"{prefix}\"")).map_err(crate::db::err)?.into_iter().collect();
+    if uids.is_empty() {
+        return Ok(vec![]);
+    }
+    uids.sort_unstable();
+    let set = uids.iter().map(|u| u.to_string()).collect::<Vec<_>>().join(",");
+    let fetched = s.uid_fetch(set, "(UID BODY.PEEK[HEADER])").map_err(crate::db::err)?;
+    let mut out = vec![];
+    for f in fetched.iter() {
+        let (Some(uid), Some(head)) = (f.uid, f.header()) else { continue };
+        if let Some(mid) = message_id_of(head).filter(|m| m.starts_with(&prefix)) {
+            out.push((uid, mid));
+        }
+    }
+    out.sort();
+    Ok(out)
+}
+
 /// The part of `drop_draft` that talks to one server: only the message(s) the reference names are removed, here and there.
 pub fn drop_on_session<T: std::io::Read + std::io::Write>(db: &crate::Db, acc: &crate::db::Account, s: &mut imap::Session<T>, target: &Target) -> crate::db::R<()> {
     let drafts = Some("drafts".to_string());
@@ -379,6 +406,50 @@ mod tests {
             let _ = s.logout();
             assert_eq!(fake.uids("Drafts"), Some(vec![10]));
             assert!(!fake.commands().iter().any(|c| c.to_uppercase().contains("STORE")));
+        });
+    }
+
+    /// 1.0.6: the draft of a crash-recovery snapshot is found by the snapshot id at the start of its Message-ID, and only drafts that really
+    /// carry it count, whatever the server's SEARCH does.
+    #[test]
+    fn the_draft_of_a_snapshot_is_found_by_the_id_in_its_message_id() {
+        crate::test_guard::within(60, || {
+            let rid = "0f8e7d6c-1111-4222-8333-444455556666";
+            let msg = |mid: &str| format!("From: me@example.com\r\nMessage-ID: {mid}\r\nSubject: s\r\n\r\nbody\r\n").into_bytes();
+            let mine = format!("<{rid}.1700000100.aaaa@example.com>");
+            let fake = Fake::start(&[("INBOX", &[]), ("Drafts", &[])]);
+            fake.put_message("Drafts", 10, &msg("<other@example.com>"));
+            fake.put_message("Drafts", 11, &msg(&mine));
+            fake.put_message("Drafts", 12, &msg(&format!("<{rid}.1700000200.bbbb@example.com>")));
+            fake.put_message("Drafts", 13, &msg("<ffff-eeee.1700000100.cccc@example.com>"));
+            let mut s = fake.connect();
+            let found = find_by_recovery_id(&mut s, "Drafts", rid).unwrap();
+            assert_eq!(found.iter().map(|f| f.0).collect::<Vec<_>>(), vec![11, 12]);
+            assert_eq!(found[0].1, mine);
+            // a server whose SEARCH ignores HEADER answers with every message: the headers decide, nothing else is "ours"
+            fake.state.lock().unwrap().search_ignores_header = true;
+            let found = find_by_recovery_id(&mut s, "Drafts", rid).unwrap();
+            assert_eq!(found.iter().map(|f| f.0).collect::<Vec<_>>(), vec![11, 12], "{:?}", fake.commands());
+            // nothing of ours in the folder
+            let none = find_by_recovery_id(&mut s, "Drafts", "1111-2222").unwrap();
+            assert!(none.is_empty());
+            // and an id that is not safe in a search is refused before anything is sent
+            let before = fake.commands().len();
+            assert!(find_by_recovery_id(&mut s, "Drafts", "a\" ALL").is_err());
+            assert_eq!(fake.commands().len(), before);
+            let _ = s.logout();
+            // a draft this app appends is found by the next look (APPEND keeps the text)
+            let acc = crate::smtp::tests::account();
+            let mut d = crate::smtp::tests::draft("<p>Hi</p>", vec![], vec![]);
+            d.recovery_id = Some(rid.into());
+            let raw = crate::smtp::build_draft(&acc, &d).unwrap().formatted();
+            let mut s = fake.connect();
+            crate::mail::append(&mut s, "Drafts", &raw, true).unwrap();
+            fake.state.lock().unwrap().search_ignores_header = false;
+            let found = find_by_recovery_id(&mut s, "Drafts", rid).unwrap();
+            assert_eq!(found.len(), 3, "{found:?}");
+            assert!(crate::recover::saved_secs(&found[2].1, rid).is_some_and(|t| t > 1_700_000_000));
+            let _ = s.logout();
         });
     }
 

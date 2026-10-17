@@ -1,6 +1,6 @@
 import { Channel, invoke } from "@tauri-apps/api/core";
 import { t } from "./i18n";
-import type { RecoveryInfo, RecoveryLoaded, SnapshotOut } from "./recovery";
+import type { RecoveredDraft, RecoveryInfo, RecoveryLoaded, SnapshotOut } from "./recovery";
 import type { Importance } from "./importance";
 
 export interface Account {
@@ -415,6 +415,8 @@ export interface Draft {
   confidential?: boolean;
   /** High / Low add the importance headers; absent = Normal (no header) */
   importance?: Importance;
+  /** only for Save draft: the id of the message's crash-recovery snapshot, written into the draft's Message-ID so the next start finds it again (recover.rs) */
+  recoveryId?: string;
 }
 
 /** What Save draft says: the conversation the draft will be in once the sync has read it, and the reference that makes the next save (or a send) replace exactly this draft. */
@@ -614,6 +616,8 @@ export const api = {
   recoveryClear: (id: string, why?: string) => invoke<void>("recovery_clear", { id, why: why ?? null }),
   recoveryList: () => invoke<RecoveryInfo[]>("recovery_list"),
   recoveryLoad: (id: string) => invoke<RecoveryLoaded | null>("recovery_load", { id }),
+  /** The start saves a snapshot as a real draft (replacing the draft it takes the place of, never joining a draft of the same message) and removes it once the draft is confirmed. Rejects when that cannot be done: the snapshot stays. */
+  recoverySaveDraft: (id: string, draft: Draft, replaces: string | null) => invoke<RecoveredDraft>("recovery_save_draft", { id, draft, replaces }),
   /** To / Cc / Bcc of a saved draft with the display names, read from the draft's own headers (the synced copy has bare addresses and no Bcc). */
   draftRecipients: (messageId: string) => invoke<{ to: string[]; cc: string[]; bcc: string[]; inReplyTo?: string | null; references?: string[] }>("draft_recipients", { messageId }),
   listOutbox: () => invoke<OutboxItem[]>("list_outbox"),

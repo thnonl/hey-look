@@ -975,6 +975,7 @@ mod tests {
             calendar: None,
             confidential: false,
             importance: Default::default(),
+            recovery_id: None,
         }
     }
 

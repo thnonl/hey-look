@@ -3687,18 +3687,96 @@ async fn recovery_clear(state: tauri::State<'_, AppState>, id: String, why: Opti
     Ok(())
 }
 
-/// Messages that were being written when the app ended without saving or sending them. The decision is logged (what was found, and whether
-/// the question will be asked), so a start that shows no question can be told from one that had nothing to offer.
+/// Messages that were being written when the app ended without saving or sending them. The decision is logged (what was found and what
+/// happens to it), so a start that shows no toast can be told from one that had nothing to keep. Snapshots of an account that no longer
+/// exists are dropped here, with a line in the log.
 #[tauri::command]
 async fn recovery_list(state: tauri::State<'_, AppState>) -> R<Vec<recover::Info>> {
     let db = state.db.clone();
-    let (list, counts) = blocking(move || {
+    let (list, dropped) = blocking(move || {
         let c = lock(&db);
-        Ok((recover::list(&c)?, recover::counts(&c)?))
+        let dropped = recover::counts(&c)?.1;
+        if dropped > 0 {
+            recover::prune(&c)?;
+        }
+        Ok((recover::list(&c)?, dropped))
     })
     .await?;
-    recovery_log(&recover::decision_text(list.len(), counts.1));
+    recovery_log(&recover::decision_text(list.len(), dropped));
     Ok(list)
+}
+
+/// What saving a snapshot as a draft tells the interface (`status`: `saved` = the draft was appended now, `covered` = a draft saved at or after
+/// the snapshot was on the server already and no second one was made) and the draft to open from it.
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct RecoveredDraft {
+    status: &'static str,
+    thread_id: Option<String>,
+    draft_ref: Option<String>,
+}
+
+/// 1.0.6: the snapshot `id` is saved as a real draft, the way Save draft does it (APPEND to the Drafts folder with \Draft and \Seen, Bcc kept,
+/// the draft it takes the place of removed), and removed once the draft is confirmed. A draft of the same message that is on the server already
+/// (found by the snapshot id at the start of its Message-ID) is never joined by a second one: a newer or equal one covers the snapshot, an older one
+/// is replaced. Any failure (no Drafts folder, no connection, a refused APPEND) is an error and the snapshot stays, nothing is lost.
+#[tauri::command]
+async fn recovery_save_draft(state: tauri::State<'_, AppState>, id: String, mut draft: smtp::Draft, replaces: Option<String>) -> R<RecoveredDraft> {
+    let db = state.db.clone();
+    let short = recover::short_id(&id);
+    let r = blocking(move || save_recovered(&db, &id, &mut draft, replaces)).await;
+    match &r {
+        Ok(d) => recovery_log(&format!("snapshot {short} {}", if d.status == "covered" { "is covered by a draft that is on the server already" } else { "saved as a draft" })),
+        Err(e) => recovery_log(&format!("snapshot {short} could not be saved as a draft, kept on this computer: {}", e.chars().take(160).collect::<String>())),
+    }
+    r
+}
+
+fn save_recovered(db: &Db, id: &str, draft: &mut smtp::Draft, replaces: Option<String>) -> R<RecoveredDraft> {
+    let snap = recover::load(&lock(db), id)?.ok_or("this snapshot is gone")?;
+    if snap.account_id != draft.account_id {
+        return Err("the snapshot belongs to another account".into());
+    }
+    if draft.security.as_ref().is_some_and(|s| s.encrypt || s.sign) {
+        // (Compose writes no snapshot of an encrypted message; if one exists it is not saved to the server in plain text)
+        return Err("an encrypted message is not saved from a snapshot".into());
+    }
+    let acc = db::get_account(&lock(db), &draft.account_id)?;
+    let folder = folder_for(db, &acc, "drafts")?;
+    let sec = secret(db, &acc)?;
+    let mut s = mail::connect(&acc, &sec)?;
+    let done: R<RecoveredDraft> = (|| {
+        let found = draftmail::find_by_recovery_id(&mut s, &folder, id)?;
+        match recover::verdict(&found, id, snap.saved_at) {
+            recover::Verdict::Covered(uid) => {
+                let raw = mail::fetch_raw(&mut s, &folder, uid)?;
+                Ok(RecoveredDraft { status: "covered", thread_id: draft_thread_id(&acc.id, &raw), draft_ref: draftmail::draft_ref(&acc.id, &raw) })
+            }
+            recover::Verdict::Save { replace } => {
+                draft.recovery_id = Some(id.to_string());
+                let raw = draft_bytes(db, &acc, draft)?;
+                mail::append(&mut s, &folder, &raw, true)?;
+                // the draft is on the server: what it replaces goes (a failure here is only logged, like Save draft). The older drafts of this
+                // very message are removed by the uids that were checked against their headers, on this session.
+                if let Err(e) = mail::delete_forever(&mut s, &folder, &replace) {
+                    startup::line("draft", &format!("account {}: an older draft of this message could not be removed: {e}", acc.id));
+                }
+                if let Some(t) = replaces {
+                    if let Err(e) = draftmail::drop_draft(db, &t) {
+                        startup::line("draft", &format!("account {}: the draft that was replaced could not be removed: {e}", acc.id));
+                    }
+                }
+                Ok(RecoveredDraft { status: "saved", thread_id: draft_thread_id(&acc.id, &raw), draft_ref: draftmail::draft_ref(&acc.id, &raw) })
+            }
+        }
+    })();
+    let _ = s.logout();
+    let saved = done?;
+    // confirmed: only now does the snapshot go
+    if recover::clear(&lock(db), id)? > 0 {
+        recovery_log(&format!("snapshot removed (draft saved at start; message {})", recover::short_id(id)));
+    }
+    Ok(saved)
 }
 
 #[tauri::command]
@@ -4916,6 +4994,7 @@ pub fn run() {
             recovery_clear,
             recovery_list,
             recovery_load,
+            recovery_save_draft,
             list_outbox,
             cancel_outbox,
             outbox_pending_count,
@@ -6415,7 +6494,7 @@ mod importance_tests {
         let d = smtp::Draft {
             account_id: "a1".into(), to: vec!["ann@example.com".into()], cc: vec![], bcc: vec![], subject: "Ship it".into(), html: "<p>x</p>".into(), text: "x".into(),
             in_reply_to: None, references: vec![], attachments: vec![], inline: vec![], security: None, prebuilt: None, meeting: None, calendar: None,
-            confidential: false, importance: High,
+            confidential: false, importance: High, recovery_id: None,
         };
         let sent = smtp::build(&acc, &d).unwrap().formatted();
         let p = mail::parse(1, &sent, true, false, 0).unwrap();

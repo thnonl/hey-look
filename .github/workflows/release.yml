@@ -266,6 +266,7 @@ jobs:
           node --experimental-strip-types scripts/test-leave-compose.mjs
           node --experimental-strip-types scripts/test-autosave.mjs
           node --experimental-strip-types scripts/test-recovery.mjs
+          node --experimental-strip-types scripts/test-recovery-toast.mjs
           node --experimental-strip-types scripts/test-compose-selection.mjs
           node --experimental-strip-types scripts/test-compose-content.mjs
           node --experimental-strip-types scripts/test-read-intent.mjs

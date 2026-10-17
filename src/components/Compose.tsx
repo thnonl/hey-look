@@ -1350,7 +1350,8 @@ function ComposeBody({ init }: { init: ComposeInit }) {
         const d = buildDraft();
         // a draft is only ever encrypted to your own key (no passphrase needed), and never signed
         const keepPrivate = !!d.security?.encrypt && eff(prefs, accountId, "pgpEncryptDrafts");
-        const saved = await api.saveDraft({ ...d, security: keepPrivate ? { encrypt: true, sign: false, attachPublicKey: false } : undefined }, replacesRef());
+        // (`recoveryId`: the draft carries the id of this message's snapshot, so the next start finds it and never makes a second draft of it)
+        const saved = await api.saveDraft({ ...d, recoveryId, security: keepPrivate ? { encrypt: true, sign: false, attachPublicKey: false } : undefined }, replacesRef());
         const tid = saved.threadId;
         if (tid) {
           savedTid.current = tid;

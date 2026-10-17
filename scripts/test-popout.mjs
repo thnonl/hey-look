@@ -646,8 +646,8 @@ assert.equal(draftKey("t9"), "draft:t9");
   assert.ok(list.includes('rowWindowTarget(folder, it.t.folder) === "draft" ? () => void openDraftInWindow('), "double click / Shift+Enter on a draft");
   assert.ok(compose.includes("if (await focusDraftWindow(key)) return true;") && compose.includes("if (mine !== latestDraftOpen) return false;"));
   // the crash restore: a message written in a window comes back in one
-  const rec = read("src/composeRecovery.ts");
-  assert.ok(rec.includes("snapshotInWindow(l)") && compose.includes("win: true as const"));
+  const rec = read("src/recovery.ts");
+  assert.ok(rec.includes("inWindow: snapshotInWindow(l)") && rec.includes("const window = k.inWindow || undefined") && compose.includes("win: true as const"));
   // the support reminder counts a compose window as writing
   assert.ok(read("src/supportNudgeHost.ts").includes("composeWindowsOpen() > 0"));
   // the backend: the new commands are in the compose window's allowlist; the count and the hub

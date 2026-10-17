@@ -1249,6 +1249,18 @@ export function installMock() {
       case "recovery_list":
         return Object.values(recoveryRead()).filter((x) => accounts.some((acc) => acc.id === x.accountId)).sort((x, y) => y.savedAt - x.savedAt).map(({ payload: _p, files, ...i }) => ({ ...i, files: files.length }));
       case "recovery_load": return recoveryRead()[String(a.id)] ?? null;
+      case "recovery_save_draft": {
+        // like the backend: `#nodrafts` = the account has no Drafts folder, `#draftfail` = the server refuses; the snapshot stays then. Else the
+        // snapshot is saved as a draft (the same as Save draft) and removed.
+        if (hashTokens().has("nodrafts")) throw "this account has no Drafts folder";
+        const saved = handle("save_draft", { draft: a.draft, replaces: a.replaces }) as { threadId: string; draftRef: string };
+        const all = recoveryRead();
+        delete all[String(a.id)];
+        recoveryWrite(all);
+        const w = window as unknown as { __recoveredDrafts?: string[] };
+        (w.__recoveredDrafts ??= []).push(String(a.id));
+        return { status: "saved", ...saved };
+      }
       case "draft_recipients": return mockDraftHeaders[a.messageId as string] ?? { to: [], cc: [], bcc: [] };
       case "prepare_action": {
         // like the backend: the folder a move goes to is looked up before the move is queued. `#nocreate`: the server has no Archive / Trash

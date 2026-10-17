@@ -24,6 +24,11 @@ pub struct State {
     pub appended: Vec<(String, Vec<u8>)>,
     /// what `UID SEARCH` answers (default: every message of the selected folder, the fake does not keep message text)
     pub search_hits: Option<Vec<u32>>,
+    /// message text by (folder, uid): what APPEND stores and `put_message` adds. `UID FETCH ... BODY[HEADER]` / `BODY[]` answer from it, and a
+    /// `HEADER <name> "<text>"` search looks into it (unless `search_ignores_header`)
+    pub messages: BTreeMap<(String, u32), Vec<u8>>,
+    /// a server whose SEARCH does not look at HEADER: it answers with every message of the folder
+    pub search_ignores_header: bool,
     deleted: BTreeSet<(String, u32)>,
     next_uid: u32,
 }
@@ -46,6 +51,8 @@ impl Fake {
             log: vec![],
             appended: vec![],
             search_hits: None,
+            messages: BTreeMap::new(),
+            search_ignores_header: false,
             deleted: BTreeSet::new(),
             next_uid: 1000,
         };
@@ -83,6 +90,16 @@ impl Fake {
 
     pub fn put_folder(&self, folder: &str, uids: &[u32]) {
         self.state.lock().unwrap().folders.insert(folder.to_string(), uids.to_vec());
+    }
+
+    /// A message with text in a folder (its uid is added to the folder).
+    pub fn put_message(&self, folder: &str, uid: u32, raw: &[u8]) {
+        let mut st = self.state.lock().unwrap();
+        let f = st.folders.entry(folder.to_string()).or_default();
+        if !f.contains(&uid) {
+            f.push(uid);
+        }
+        st.messages.insert((folder.to_string(), uid), raw.to_vec());
     }
 
     pub fn commands(&self) -> Vec<String> {
@@ -180,11 +197,35 @@ fn serve(c: TcpStream, shared: Arc<Mutex<State>>) {
                 st.next_uid += 1;
                 let n = st.next_uid;
                 st.folders.get_mut(&name).unwrap().push(n);
+                st.messages.insert((name.clone(), n), bytes.clone());
                 st.appended.push((name, bytes));
                 out += &format!("{tag} OK [APPENDUID 1 {n}] APPEND done\r\n");
             }
+        } else if upper.starts_with("UID FETCH") {
+            let (set, rest) = arg(&cmd[9..]);
+            let want = uid_list(&set);
+            let whole = rest.to_uppercase().contains("BODY.PEEK[]") || rest.to_uppercase().contains("BODY[]");
+            if let Some(src) = selected.clone() {
+                for (i, u) in st.folders[&src].iter().enumerate() {
+                    let Some(raw) = st.messages.get(&(src.clone(), *u)).filter(|_| want.contains(u)) else { continue };
+                    let head_end = raw.windows(4).position(|w| w == b"\r\n\r\n").map(|p| p + 4).unwrap_or(raw.len());
+                    let (section, bytes) = if whole { ("BODY[]", &raw[..]) } else { ("BODY[HEADER]", &raw[..head_end]) };
+                    out += &format!("* {} FETCH (UID {u} {section} {{{}}}\r\n", i + 1, bytes.len());
+                    out += &String::from_utf8_lossy(bytes);
+                    out += ")\r\n";
+                }
+            }
+            out += &format!("{tag} OK FETCH done\r\n");
         } else if upper.starts_with("UID SEARCH") {
-            let uids = st.search_hits.clone().unwrap_or_else(|| selected.as_ref().and_then(|f| st.folders.get(f)).cloned().unwrap_or_default());
+            let header_text = upper.find("HEADER ").and_then(|_| cmd.split('"').nth(1)).map(str::to_string);
+            let in_folder = selected.as_ref().and_then(|f| st.folders.get(f)).cloned().unwrap_or_default();
+            let looked = match (&header_text, &selected) {
+                (Some(text), Some(f)) if !st.search_ignores_header && st.messages.keys().any(|(mf, _)| mf == f) => Some(
+                    in_folder.iter().copied().filter(|u| st.messages.get(&(f.clone(), *u)).is_some_and(|m| String::from_utf8_lossy(m).contains(text.as_str()))).collect::<Vec<u32>>(),
+                ),
+                _ => None,
+            };
+            let uids = st.search_hits.clone().or(looked).unwrap_or(in_folder);
             out += &format!("* SEARCH{}\r\n{tag} OK SEARCH done\r\n", uids.iter().map(|u| format!(" {u}")).collect::<String>());
         } else if upper.starts_with("UID MOVE") || upper.starts_with("UID COPY") {
             let mv = upper.starts_with("UID MOVE");
