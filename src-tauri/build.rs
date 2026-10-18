@@ -25,7 +25,7 @@ const APP_COMMANDS: &[&str] = &[
     "update_download", "update_cancel", "update_discard", "update_defer", "update_note", "set_mail_available", "frontend_ready", "sends_flushed",
     "quit_page_alive", "popout_flush_alive", "popout_flush_dialog", "popout_flush_done", "popout_save_all", "popout_open", "popout_init",
     "popout_ready", "popout_focus", "popout_close", "popout_park", "popout_destroy", "popout_note", "popout_set_key", "popout_request", "popout_reply", "thread_meta", "page_pong", "quit_dialog", "quit_cancelled", "show_window", "page_state", "update_install",
-    "update_startup_state", "update_startup_ack", "outbox_busy", "idle_states",
+    "update_startup_state", "update_startup_ack", "outbox_busy", "idle_states", "window_theme_refresh",
 ];
 
 /// Variables read from the environment (or a `.env` file) at build time and embedded in the binary.

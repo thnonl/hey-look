@@ -1,22 +1,30 @@
 //! The theme of the native frame (title bar) of every window, main, compose and reader.
 //!
-//! One function, [`apply_all`], tells every open window what the app theme setting asks of its frame. It is called from three places and
-//! nowhere else: when a window is created (`popout::create`; the main window at start-up in lib.rs `setup`), when the `prefs` blob is written
-//! (`set_setting`), and when the OS theme changes (`WindowEvent::ThemeChanged` of any window, see [`on_os_theme_changed`]).
+//! One function, [`apply_all`], tells every open window what the app theme setting asks of its frame. It is called when a window is created
+//! (`popout::create`; the main window at start-up in lib.rs `setup`), when the `prefs` blob is written (`set_setting`), when the OS theme changes
+//! (see [`on_os_theme_changed`]) and by the watchdog on macOS; the page of a pop-out can also ask for its own window to be done again
+//! ([`window_theme_refresh`], the second, independent way). Every call writes a line to startup.log (`[wintheme +ms] ...`).
 //!
 //! The rule: "light" and "dark" pin the frame to that theme; "system" (and anything else, an unreadable blob, no blob yet) pins nothing: the
 //! windows are told `None` = follow the OS. A theme is never fixed at creation: the window builder is not given one.
 //!
-//! Why on macOS the native part does more (Mac QA 1.0.6, a compose pop-out created in Dark mode kept a black title bar after the OS went to
-//! Light, with the app theme on System, while the main window and other pop-outs followed): tao's `set_theme` on macOS sets the appearance of the
-//! whole application (`NSApp`), not of the window, and only the page of a pop-out used to call it, once, when the window opened. So nothing
-//! looked at a window again when the OS changed, and nothing could reach an `NSWindow` whose own appearance or cached frame drawing had not
-//! followed. Here every `NSWindow` gets its appearance set (an explicit one for light / dark, and for System first the one the application
-//! shows now and then `nil`, which makes the window resolve its appearance again) and its frame redrawn.
-use std::sync::atomic::{AtomicBool, Ordering};
+//! macOS (Mac QA 1.0.6, build 0121a65: a compose pop-out kept its title bar through every theme change, in both directions, while
+//! the main window and the reader pop-outs followed). tao's `set_theme` sets the appearance of the whole application (`NSApp`), never of an
+//! `NSWindow`, so the frame of a window only changes when the window follows `NSApp`; a window that has an appearance of its own (or whose
+//! frame is not drawn again) does not. The previous fix called `NSWindow.setAppearance:` for the windows tauri lists, but nothing in the log
+//! could tell whether it ran, for which windows, or what AppKit answered. Now, on the main thread, `macwin::apply_appearance` sets the
+//! application and every titled window (also those tauri does not list) to the explicit appearance (Dark => DarkAqua, Light => Aqua) or to
+//! nil (System), reads back `appearance` and `effectiveAppearance` of each, logs them, and repairs a window that differs (MISMATCH). The OS
+//! change is watched three ways: tao's `ThemeChanged`, the system notification itself (`macwin::observe_theme_change`) and a watchdog that looks at
+//! every window every few seconds. The page of a pop-out asks for a re-apply whenever it changes its own theme.
+use std::sync::atomic::{AtomicBool, AtomicU8, Ordering};
 use std::sync::Mutex;
 use std::time::{Duration, Instant};
 use tauri::{AppHandle, Manager, Theme};
+
+fn log(what: &str) {
+    crate::startup::line("wintheme", what);
+}
 
 /// What the preferences ask of the frame: `Some` for "light" / "dark", `None` ("follow the OS") for "system" and for anything else.
 pub fn choice_of(prefs: Option<&str>) -> Option<Theme> {
@@ -25,6 +33,15 @@ pub fn choice_of(prefs: Option<&str>) -> Option<Theme> {
         Some("dark") => Some(Theme::Dark),
         Some("light") => Some(Theme::Light),
         _ => None,
+    }
+}
+
+/// The setting as the log writes it.
+pub fn setting_name(choice: Option<Theme>) -> &'static str {
+    match choice {
+        Some(Theme::Dark) => "dark",
+        Some(Theme::Light) => "light",
+        _ => "system",
     }
 }
 
@@ -47,6 +64,60 @@ pub fn step(choice: Option<Theme>, was_pinned: bool, always_release: bool) -> St
     }
 }
 
+/// The windows that get the frame theme: all of them, whatever their label (`main`, `compose-<n>`, `reader-<n>`, anything a later version
+/// adds). Sorted, for the log. There is no filter on purpose: the previous fix reached some windows and not others, and a label test is one
+/// of the places that could have done it.
+pub fn themed_labels(all: impl IntoIterator<Item = String>) -> Vec<String> {
+    let mut v: Vec<String> = all.into_iter().collect();
+    v.sort();
+    v.dedup();
+    v
+}
+
+/// Is an appearance name a dark one ("NSAppearanceNameDarkAqua", "...VibrantDark", "...AccessibilityHighContrastDarkAqua")? `None` for
+/// "nil" and for anything that is not a name.
+#[cfg_attr(not(target_os = "macos"), allow(dead_code))]
+pub fn dark_from_name(name: &str) -> Option<bool> {
+    if !name.starts_with("NSAppearanceName") {
+        return None;
+    }
+    Some(name.contains("Dark"))
+}
+
+/// "dark" / "light" / "?" for the log.
+#[cfg_attr(not(target_os = "macos"), allow(dead_code))]
+pub fn dark_text(dark: Option<bool>) -> &'static str {
+    match dark {
+        Some(true) => "dark",
+        Some(false) => "light",
+        None => "?",
+    }
+}
+
+/// Does a window show what was asked? `dark`: the target (`None` = System: no appearance of its own); `own`: the name of the window's own
+/// appearance read back ("nil" = none); `shown`: whether the appearance it shows (`effectiveAppearance`) is dark; `expected`: whether it has
+/// to show a dark one (the target, or for System what the application shows). `Some(reason)` when it differs: a MISMATCH.
+#[cfg_attr(not(target_os = "macos"), allow(dead_code))]
+pub fn judge(dark: Option<bool>, own: &str, shown: Option<bool>, expected: Option<bool>) -> Option<String> {
+    match dark {
+        Some(d) => {
+            let want = if d { "NSAppearanceNameDarkAqua" } else { "NSAppearanceNameAqua" };
+            if own != want {
+                return Some(format!("its own appearance is {own}, it has to be {want}"));
+            }
+        }
+        None => {
+            if own != "nil" {
+                return Some(format!("its own appearance is {own}, it has to be nil"));
+            }
+        }
+    }
+    match (expected, shown) {
+        (Some(e), Some(s)) if e != s => Some(format!("it shows {} but has to show {}", dark_text(Some(s)), dark_text(Some(e)))),
+        _ => None,
+    }
+}
+
 fn pinned() -> &'static AtomicBool {
     static PINNED: AtomicBool = AtomicBool::new(false);
     &PINNED
@@ -57,6 +128,9 @@ fn last_apply() -> &'static Mutex<Option<Instant>> {
     &LAST
 }
 
+/// What the last apply asked for, for the watchdog: 0 nothing applied yet, 1 system, 2 light, 3 dark.
+static TARGET: AtomicU8 = AtomicU8::new(0);
+
 /// The theme the stored preferences ask of the frame (`None` = follow the OS).
 fn choice(app: &AppHandle) -> Option<Theme> {
     let st = app.try_state::<crate::AppState>()?;
@@ -65,37 +139,82 @@ fn choice(app: &AppHandle) -> Option<Theme> {
     choice_of(raw.as_deref())
 }
 
+/// Tell one window what the library has to be told (the only two native theme calls of the app are here).
+fn tell(w: &tauri::WebviewWindow, step: Step) {
+    match step {
+        Step::Pin(t) => {
+            let _ = w.set_theme(Some(t));
+        }
+        Step::Release => {
+            let _ = w.set_theme(None);
+        }
+        Step::Nothing => {}
+    }
+}
+
 /// Apply the current theme choice to every open window (visible, hidden or parked). Safe to call from any thread, as often as needed.
-pub fn apply_all(app: &AppHandle) {
+/// `why` goes to the log.
+pub fn apply_all(app: &AppHandle, why: &str) {
     *last_apply().lock().unwrap_or_else(|p| p.into_inner()) = Some(Instant::now());
     let choice = choice(app);
+    TARGET.store(
+        match choice {
+            None => 1,
+            Some(Theme::Light) => 2,
+            Some(_) => 3,
+        },
+        Ordering::SeqCst,
+    );
     let was_pinned = match choice {
         Some(_) => pinned().swap(true, Ordering::SeqCst),
         None => pinned().swap(false, Ordering::SeqCst),
     };
     let step = step(choice, was_pinned, cfg!(target_os = "macos"));
-    for (_, w) in app.webview_windows() {
-        match step {
-            Step::Pin(t) => {
-                let _ = w.set_theme(Some(t));
-            }
-            Step::Release => {
-                let _ = w.set_theme(None);
-            }
-            Step::Nothing => {}
-        }
+    let windows = app.webview_windows();
+    for w in windows.values() {
+        tell(w, step);
     }
-    native(app, choice);
+    let labels = themed_labels(windows.keys().cloned());
+    log(&format!("{} -> applied to {} windows: [{}] ({why}; library step {step:?})", setting_name(choice), labels.len(), labels.join(", ")));
+    native(app, choice, why.to_string(), None);
 }
 
-/// The OS theme changed (any window reports it). Only a System setting follows the OS; an explicit one stays as it is.
-pub fn on_os_theme_changed(app: &AppHandle) {
+/// The page of a pop-out asks for its own window to be done again (it changed its own theme class, or its colour scheme changed): the
+/// second way, independent of [`apply_all`] and its triggers. `page_theme` / `prefers_dark`: what the page sees, for the log.
+pub fn refresh_window(app: &AppHandle, label: &str, page_theme: &str, prefers_dark: Option<bool>) {
+    let choice = choice(app);
+    let step = step(choice, pinned().load(Ordering::SeqCst), cfg!(target_os = "macos"));
+    let found = app.get_webview_window(label);
+    if let Some(w) = &found {
+        tell(w, step);
+    }
+    let page: String = page_theme.chars().filter(|c| c.is_ascii_alphanumeric() || *c == '-').take(16).collect();
+    log(&format!(
+        "{label}: its page asks for the frame theme again (page data-theme '{page}', page prefers dark: {prefers_dark:?}); setting {}; window {}",
+        setting_name(choice),
+        if found.is_some() { "found" } else { "NOT FOUND" }
+    ));
+    native(app, choice, format!("{label} page request"), Some(label.to_string()));
+}
+
+/// A page asks for its own window's frame theme to be applied again (src/popout/PopoutRoot.tsx).
+#[tauri::command]
+pub fn window_theme_refresh(app: AppHandle, window: tauri::Window, page_theme: Option<String>, prefers_dark: Option<bool>) {
+    refresh_window(&app, window.label(), page_theme.as_deref().unwrap_or(""), prefers_dark);
+}
+
+/// The OS theme changed (`source` says which way it was noticed). Only a System setting follows the OS; an explicit one stays as it is.
+pub fn on_os_theme_changed(app: &AppHandle, source: &str) {
     static SCHEDULED: AtomicBool = AtomicBool::new(false);
-    if choice(app).is_some() {
+    log(&format!("OS theme event: {source}"));
+    let c = choice(app);
+    if c.is_some() {
+        log(&format!("  not followed: the setting is {}", setting_name(c)));
         return;
     }
     // the answer of a theme change that our own call caused (some platforms report one) is not a change of the OS
     if last_apply().lock().unwrap_or_else(|p| p.into_inner()).is_some_and(|t| t.elapsed() < Duration::from_millis(400)) {
+        log("  not followed: within 400 ms of our own apply");
         return;
     }
     // every window reports the same change; and the system says what its theme is a moment after it said that it changed
@@ -106,25 +225,101 @@ pub fn on_os_theme_changed(app: &AppHandle) {
     std::thread::spawn(move || {
         std::thread::sleep(Duration::from_millis(150));
         SCHEDULED.store(false, Ordering::SeqCst);
-        apply_all(&app);
+        apply_all(&app, "OS theme change");
+        // once more when the dust has settled: what the application answers can lag behind the notification
+        std::thread::sleep(Duration::from_millis(900));
+        apply_all(&app, "OS theme change, settled");
     });
 }
 
-/// macOS: the appearance of every `NSWindow` itself (main thread), see the module text.
+/// The label and `NSWindow` of every window tauri lists (main thread). A window whose handle cannot be had is logged, never skipped silently.
 #[cfg(target_os = "macos")]
-fn native(app: &AppHandle, choice: Option<Theme>) {
+fn native_windows(app: &AppHandle) -> Vec<(String, *mut std::ffi::c_void)> {
+    let mut v = Vec::new();
+    for (label, w) in app.webview_windows() {
+        match std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| w.ns_window())) {
+            Ok(Ok(p)) => v.push((label, p)),
+            Ok(Err(e)) => log(&format!("{label}: no native window: {e}")),
+            Err(_) => log(&format!("{label}: the native window lookup panicked")),
+        }
+    }
+    v.sort_by(|a, b| a.0.cmp(&b.0));
+    v
+}
+
+/// macOS: the appearance of every `NSWindow` itself (main thread), read back and logged, see the module text. `only`: just that window.
+#[cfg(target_os = "macos")]
+fn native(app: &AppHandle, choice: Option<Theme>, why: String, only: Option<String>) {
     let dark = choice.map(|t| t == Theme::Dark);
     let handle = app.clone();
-    let _ = app.run_on_main_thread(move || {
-        for (_, w) in handle.webview_windows() {
-            if let Ok(p) = w.ns_window() {
-                crate::macwin::set_appearance(p, dark);
-            }
+    let queued = app.run_on_main_thread(move || {
+        let known = native_windows(&handle);
+        let report = crate::macwin::apply_appearance(dark, &known, only.as_deref());
+        for l in &report.lines {
+            log(&format!("  {l}"));
+        }
+        log(&format!(
+            "  native appearance applied ({why}): {} window line(s), {} MISMATCH, macOS shows {}",
+            report.lines.len().saturating_sub(1),
+            report.mismatches,
+            crate::macwin::system_style()
+        ));
+    });
+    if let Err(e) = queued {
+        log(&format!("the native part could not be queued on the main thread: {e}"));
+    }
+}
+#[cfg(not(target_os = "macos"))]
+fn native(_app: &AppHandle, _choice: Option<Theme>, _why: String, _only: Option<String>) {}
+
+/// macOS: how often the watchdog looks at the windows.
+#[cfg(target_os = "macos")]
+const WATCH_EVERY: Duration = Duration::from_secs(2);
+
+/// macOS: watch the OS colour mode in two more ways than tao's `ThemeChanged` (the system notification, and a watchdog that compares what
+/// every window shows with what it has to show and applies again when they differ). Call once, at start-up.
+#[cfg(target_os = "macos")]
+pub fn watch_os(app: &AppHandle) {
+    static APP: std::sync::OnceLock<AppHandle> = std::sync::OnceLock::new();
+    if APP.set(app.clone()).is_err() {
+        return;
+    }
+    let seen = crate::macwin::observe_theme_change(|| {
+        if let Some(app) = APP.get() {
+            on_os_theme_changed(app, "AppleInterfaceThemeChangedNotification");
+        }
+    });
+    log(&format!("watching the OS colour mode: notification {}, watchdog every {} s", seen.err().unwrap_or_else(|| "observed".into()), WATCH_EVERY.as_secs()));
+    let app = app.clone();
+    std::thread::spawn(move || {
+        static STREAK: std::sync::atomic::AtomicU32 = std::sync::atomic::AtomicU32::new(0);
+        loop {
+            std::thread::sleep(WATCH_EVERY);
+            let dark = match TARGET.load(Ordering::SeqCst) {
+                0 => continue, // nothing applied yet
+                1 => None,
+                2 => Some(false),
+                _ => Some(true),
+            };
+            let handle = app.clone();
+            let _ = app.run_on_main_thread(move || {
+                let known = native_windows(&handle);
+                let off = crate::macwin::mismatched(dark, &known);
+                if off.is_empty() {
+                    STREAK.store(0, Ordering::SeqCst);
+                    return;
+                }
+                // a window that cannot be set right is not logged and retried every two seconds for ever: three tries, then one in thirty
+                let n = STREAK.load(Ordering::SeqCst).saturating_add(1);
+                STREAK.store(n, Ordering::SeqCst);
+                if n <= 3 || n % 15 == 0 {
+                    log(&format!("watchdog: [{}] do not show what the setting asks (check #{n}): applying again", off.join(", ")));
+                    apply_all(&handle, "watchdog");
+                }
+            });
         }
     });
 }
-#[cfg(not(target_os = "macos"))]
-fn native(_app: &AppHandle, _choice: Option<Theme>) {}
 
 #[cfg(test)]
 mod tests {
@@ -138,6 +333,7 @@ mod tests {
         for none in [Some(r#"{"theme":"system"}"#), Some(r#"{}"#), Some(r#"{"theme":7}"#), Some(r#"{"theme":"Dark"}"#), Some("not json"), Some(""), None] {
             assert_eq!(choice_of(none), None, "{none:?}");
         }
+        assert_eq!([setting_name(Some(Theme::Dark)), setting_name(Some(Theme::Light)), setting_name(None)], ["dark", "light", "system"]);
     }
 
     #[test]
@@ -153,8 +349,58 @@ mod tests {
         assert!(!matches!(step(None, true, true), Step::Pin(_)));
     }
 
-    /// Every way a window comes to be, and every reason its frame has to change, goes through `apply_all`: the guards below fail when a
-    /// new path is added without it, or when a page (or another file) fixes a theme by itself.
+    /// Every window gets the frame theme, whatever its label: `main`, every `compose-<n>` and `reader-<n>`, and a label no code knows yet.
+    #[test]
+    fn every_label_is_covered() {
+        let labels: Vec<String> = ["main", "compose-1", "reader-2", "compose-12", "reader-30", "future-window"].iter().map(|s| s.to_string()).collect();
+        let got = themed_labels(labels.clone());
+        for l in &labels {
+            assert!(got.contains(l), "{l} is left out: {got:?}");
+        }
+        assert_eq!(got.len(), labels.len());
+        assert_eq!(themed_labels(vec!["b".into(), "a".into(), "b".into()]), ["a", "b"], "sorted, once each");
+        assert!(themed_labels(Vec::<String>::new()).is_empty());
+        // the code that walks the windows does not filter by label or kind
+        let me = crate::test_guard::non_test_code(include_str!("wintheme.rs"));
+        let apply = &me[me.find("pub fn apply_all(").unwrap()..];
+        let apply = &apply[..apply.find("\n}\n").unwrap()];
+        assert!(apply.contains("app.webview_windows()") && !apply.contains("is_secondary") && !apply.contains("== \"main\"") && !apply.contains("kind_of_label"), "{apply}");
+        let mac = crate::test_guard::non_test_code(include_str!("macwin.rs"));
+        let walk = &mac[mac.find("pub fn apply_appearance(").unwrap()..];
+        let walk = &walk[..walk.find("\n}\n").unwrap()];
+        assert!(walk.contains("app_window_list()") && walk.contains("is_titled(w)"), "windows tauri does not list are reached too: {walk}");
+        assert!(!walk.contains("is_secondary") && !walk.contains("kind_of_label"), "{walk}");
+    }
+
+    #[test]
+    fn what_a_window_has_to_show_is_judged_by_its_own_appearance_and_the_one_it_shows() {
+        const DARK: &str = "NSAppearanceNameDarkAqua";
+        const LIGHT: &str = "NSAppearanceNameAqua";
+        // appearance names
+        assert_eq!(dark_from_name(DARK), Some(true));
+        assert_eq!(dark_from_name(LIGHT), Some(false));
+        assert_eq!(dark_from_name("NSAppearanceNameVibrantDark"), Some(true));
+        assert_eq!(dark_from_name("NSAppearanceNameAccessibilityHighContrastDarkAqua"), Some(true));
+        assert_eq!(dark_from_name("NSAppearanceNameAccessibilityHighContrastAqua"), Some(false));
+        assert_eq!((dark_from_name("nil"), dark_from_name("?"), dark_from_name("")), (None, None, None));
+        // pinned: the window's own appearance has to be the named one, and it has to show it
+        assert_eq!(judge(Some(true), DARK, Some(true), Some(true)), None);
+        assert_eq!(judge(Some(false), LIGHT, Some(false), Some(false)), None);
+        assert!(judge(Some(true), LIGHT, Some(false), Some(true)).is_some(), "an old light pin on a window that has to be dark");
+        assert!(judge(Some(true), "nil", Some(false), Some(true)).is_some(), "no appearance of its own where one is pinned");
+        assert!(judge(Some(false), LIGHT, Some(true), Some(false)).unwrap().contains("shows dark"), "own appearance right, shown one wrong");
+        // System: no appearance of its own, and it shows what the application shows
+        assert_eq!(judge(None, "nil", Some(false), Some(false)), None);
+        assert_eq!(judge(None, "nil", Some(true), Some(true)), None);
+        assert!(judge(None, DARK, Some(true), Some(true)).unwrap().contains("nil"), "a window that kept an appearance of its own");
+        assert!(judge(None, "nil", Some(true), Some(false)).unwrap().contains("shows dark but has to show light"), "the compose case: stuck dark under a light OS");
+        // unknown readings are not mismatches by themselves
+        assert_eq!(judge(None, "nil", None, Some(true)), None);
+        assert_eq!(judge(None, "nil", Some(true), None), None);
+    }
+
+    /// Every window path, and every reason a frame has to change, goes through the one function: the guards below fail when a new path is
+    /// added without it, or when a page (or another file) fixes a theme by itself.
     #[test]
     fn every_window_path_goes_through_the_one_function() {
         let code = |s: &str| crate::test_guard::non_test_code(s);
@@ -163,18 +409,18 @@ mod tests {
         // creation: a secondary window (inside `create`, after the build) and the main window (start-up)
         let create = &pop[pop.find("fn create(").unwrap()..];
         let create = &create[..create.find("\n}\n").unwrap()];
-        assert!(create.find("b.build()").unwrap() < create.find("crate::wintheme::apply_all(app)").expect("create applies the theme"), "{create}");
-        assert!(!create.contains(".theme("), "a theme is never fixed at creation: {create}");
+        assert!(create.find("b.build()").unwrap() < create.find("crate::wintheme::apply_all(app, ").expect("create applies the theme"), "{create}");
         let setup = &lib[lib.find(".setup(|app|").unwrap()..lib.find(".on_window_event(").unwrap()];
-        assert!(setup.contains("wintheme::apply_all(app.handle())"), "the main window gets its theme at start-up");
+        assert!(setup.contains("wintheme::apply_all(app.handle(), "), "the main window gets its theme at start-up");
+        assert!(setup.contains("wintheme::watch_os(app.handle())"), "the OS colour mode is watched on macOS");
         // the setting changes
         let set = &lib[lib.find("fn set_setting(").unwrap()..];
         let set = &set[..set.find("\n}\n").unwrap()];
-        assert!(set.contains("if key == \"prefs\" {") && set.contains("wintheme::apply_all(&app)"), "{set}");
+        assert!(set.contains("if key == \"prefs\" {") && set.contains("wintheme::apply_all(&app, "), "{set}");
         // the OS changes: any window, before the label is looked at
         let ev = &lib[lib.find(".on_window_event(").unwrap()..lib.find(".invoke_handler").unwrap()];
         let theme = ev.find("tauri::WindowEvent::ThemeChanged").expect("the OS theme event is handled");
-        assert!(theme < ev.find("window.label() != \"main\"").unwrap() && ev.contains("wintheme::on_os_theme_changed(window.app_handle())"), "{ev}");
+        assert!(theme < ev.find("window.label() != \"main\"").unwrap() && ev.contains("wintheme::on_os_theme_changed(window.app_handle(), "), "{ev}");
         // nothing else sets a window theme or builds a window with one: the native calls are in this file (and macwin.rs) only
         for (name, src) in [("lib.rs", &lib), ("popout.rs", &pop)] {
             assert!(!src.contains(".set_theme(") && !src.contains(".theme(Some"), "{name} sets a theme by itself");
@@ -183,14 +429,67 @@ mod tests {
         assert_eq!(me.matches(".set_theme(").count(), 2, "Pin and Release are the only two native calls");
     }
 
+    /// Nothing fixes a theme when a window is made: the builder is not given one, and neither is the window configuration.
+    #[test]
+    fn a_window_is_never_made_with_a_fixed_theme() {
+        let pop = crate::test_guard::non_test_code(include_str!("popout.rs"));
+        let create = &pop[pop.find("fn create(").unwrap()..];
+        let create = &create[..create.find("\n}\n").unwrap()];
+        let chain = &create[create.find("WebviewWindowBuilder::new").unwrap()..create.find("b.build()").unwrap()];
+        assert!(!chain.contains(".theme(") && !chain.contains("preferred_theme") && !chain.contains("title_bar_style"), "{chain}");
+        let conf: serde_json::Value = serde_json::from_str(include_str!("../tauri.conf.json")).unwrap();
+        for w in conf["app"]["windows"].as_array().cloned().unwrap_or_default() {
+            assert!(w.get("theme").is_none(), "the window configuration fixes a theme: {w}");
+        }
+        // no window object other than the builder in popout.rs exists (the main window comes from the configuration)
+        assert_eq!(pop.matches("WebviewWindowBuilder::new").count(), 1);
+        let lib = crate::test_guard::non_test_code(include_str!("lib.rs"));
+        assert!(!lib.contains("WebviewWindowBuilder") && !lib.contains("WindowBuilder::new"));
+    }
+
     /// The System setting hands the choice to the OS (`None`), it never turns into a theme.
     #[test]
     fn system_means_follow_the_os() {
         let me = crate::test_guard::non_test_code(include_str!("wintheme.rs"));
-        assert!(me.contains("Step::Release => {\n                let _ = w.set_theme(None);"));
+        assert!(me.contains("Step::Release => {\n            let _ = w.set_theme(None);"));
         assert!(me.contains("_ => None,"), "an unknown value follows the OS");
-        // the page does not choose a theme for its window any more
+        // the page does not choose a theme for its window itself: it only asks the backend to apply the setting again
         let cap = include_str!("../capabilities/popout.json");
         assert!(!cap.contains("allow-set-theme"), "a pop-out page may not fix its own theme");
+        // macwin: nil for System, the named appearance only for an explicit choice
+        let mac = crate::test_guard::non_test_code(include_str!("macwin.rs"));
+        let f = &mac[mac.find("unsafe fn appearance_for(").unwrap()..];
+        let f = &f[..f.find("\n}\n").unwrap()];
+        assert!(f.contains("let Some(dark) = dark else { return std::ptr::null_mut() };"), "{f}");
+    }
+
+    /// The runtime self-check and the log lines the Mac QA reads.
+    #[test]
+    fn the_native_part_reads_back_and_logs() {
+        let mac = crate::test_guard::non_test_code(include_str!("macwin.rs"));
+        let walk = &mac[mac.find("pub fn apply_appearance(").unwrap()..];
+        let walk = &walk[..walk.find("\n}\n").unwrap()];
+        for needle in ["read_back(w)", "crate::wintheme::judge(", "MISMATCH", "app, setAppearance", "was {own0} / {eff0}, now {own} / {eff}"] {
+            assert!(walk.contains(needle), "{needle}");
+        }
+        assert!(mac.contains("setAppearance: appearance_for(dark)") && mac.contains("effectiveAppearance"));
+        let me = crate::test_guard::non_test_code(include_str!("wintheme.rs"));
+        for needle in ["-> applied to {} windows: [{}]", "OS theme event: {source}", "{} MISMATCH", "watchdog: [{}]", "its page asks for the frame theme again"] {
+            assert!(me.contains(needle), "{needle}");
+        }
+    }
+
+    /// The page's way (`window_theme_refresh`) is wired in the three places a command needs, for the main page and the pop-outs.
+    #[test]
+    fn the_page_can_ask_for_its_window_to_be_done_again() {
+        let lib = crate::test_guard::non_test_code(include_str!("lib.rs"));
+        assert!(lib.contains("wintheme::window_theme_refresh,"));
+        assert!(include_str!("../build.rs").contains("\"window_theme_refresh\""));
+        for cap in [include_str!("../capabilities/default.json"), include_str!("../capabilities/popout.json")] {
+            assert!(cap.contains("\"allow-window-theme-refresh\""));
+        }
+        let root = include_str!("../../src/popout/PopoutRoot.tsx");
+        assert!(root.contains("api.windowThemeRefresh("), "the pop-out page asks after it changed its own theme");
+        assert!(include_str!("../../src/api.ts").contains("invoke<void>(\"window_theme_refresh\""));
     }
 }

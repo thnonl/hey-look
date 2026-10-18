@@ -4622,7 +4622,7 @@ fn set_setting(app: tauri::AppHandle, window: tauri::Window, state: tauri::State
     if key == "prefs" {
         let _ = app.emit(popout::PREFS_EVENT, serde_json::json!({ "writer": window.label() }));
         // the title bar of every window follows the theme setting (wintheme.rs)
-        wintheme::apply_all(&app);
+        wintheme::apply_all(&app, "theme setting changed");
     }
     // the UI mirrors its language here: the tray menu, the macOS Quit item and the tray tooltip follow at once (native texts, see i18n.rs)
     if key == "ui_language" && i18n::set_lang(&value) {
@@ -4898,7 +4898,9 @@ pub fn run() {
 
             winframe::setup(app);
             // the native frame of the main window follows the theme setting from the start (a pop-out gets it when it is created)
-            wintheme::apply_all(app.handle());
+            wintheme::apply_all(app.handle(), "start");
+            #[cfg(target_os = "macos")]
+            wintheme::watch_os(app.handle());
             shell::register_aumid(app.handle());
             // a missing tray is not fatal: without it the close button quits instead of hiding (shell::close_to_tray)
             if let Err(e) = shell::setup_tray(app.handle(), &db) {
@@ -4928,8 +4930,8 @@ pub fn run() {
         })
         .on_window_event(|window, event| {
             // the OS changed its theme (any window says so): with the System setting every window's frame follows (wintheme.rs)
-            if let tauri::WindowEvent::ThemeChanged(_) = event {
-                wintheme::on_os_theme_changed(window.app_handle());
+            if let tauri::WindowEvent::ThemeChanged(theme) = event {
+                wintheme::on_os_theme_changed(window.app_handle(), &format!("tao ThemeChanged({theme:?}) of {}", window.label()));
             }
             // a secondary window (compose / reader) closes only itself: it never hides to the tray and never starts a quit (popout.rs)
             if window.label() != "main" {
@@ -5101,6 +5103,7 @@ pub fn run() {
             popout::popout_park,
             popout::popout_destroy,
             popout::popout_note,
+            wintheme::window_theme_refresh,
             popout::popout_set_key,
             popout::popout_request,
             popout::popout_reply,
