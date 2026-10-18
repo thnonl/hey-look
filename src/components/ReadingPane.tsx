@@ -76,7 +76,7 @@ function remoteImageUrls(html: string): string[] {
 function pictureHtml(html: string, m: MessageFull, loaded: Record<string, string>, state: Record<string, { status: "loading" | "failed"; error?: string }>): string {
   const doc = new DOMParser().parseFromString(html, "text/html");
   // a remote picture that is blocked: a box of the size the mail gave it with an icon and the alt text (nothing at all for a tracking pixel); not announced, not clickable -
-  // the banner above the message ("Show pictures") is the way to load them
+  // the banner above the message ("Load content") is the way to load them
   doc.querySelectorAll("img[data-hl-blocked]").forEach((img) => {
     const size = blockedPictureBox({ width: img.getAttribute("width"), height: img.getAttribute("height"), style: img.getAttribute("style") });
     if (size.hidden) return img.remove();
