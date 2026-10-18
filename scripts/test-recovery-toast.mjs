@@ -46,7 +46,7 @@ function screen() {
     assert.ok(a, `no button "${label}" among ${s.spec.actions.map((x) => x.label())}`);
     s.spec = null;
     a.run();
-    await new Promise((r) => setTimeout(r, 0));
+    await new Promise((r) => setImmediate(r));
   };
   /** the X, or Esc on a button */
   s.close = () => {

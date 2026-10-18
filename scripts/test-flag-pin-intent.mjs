@@ -9,7 +9,7 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { StateIntents } from "../src/readIntent.ts";
 
-const tick = () => new Promise((r) => setTimeout(r, 0));
+const tick = () => new Promise((r) => setImmediate(r));
 
 /** A backend whose calls finish when told. `server[kind][id]` is the state each conversation has on the server. */
 function backend(initial = {}) {

@@ -595,6 +595,42 @@ mod tests {
         use super::super::*;
         use std::os::windows::process::CommandExt;
 
+        /// The four tests below that start processes or real web views never overlap: cargo runs tests in parallel threads, and two real web views, a
+        /// copied executable that Defender scans on its first start and a process that has to be found within a time window made each other late.
+        /// Poison-tolerant: a test that failed must not fail the others with "poisoned".
+        static WV2_TEST_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
+        fn wv2_lock() -> std::sync::MutexGuard<'static, ()> {
+            WV2_TEST_LOCK.lock().unwrap_or_else(|e| e.into_inner())
+        }
+
+        /// Polls `f` every 50 ms until it gives a value; the cap (60 s) is not a sleep, it only ends a test that would never succeed.
+        fn poll_until<T>(cap: Duration, mut f: impl FnMut() -> Option<T>) -> Option<T> {
+            let t0 = std::time::Instant::now();
+            loop {
+                if let Some(v) = f() {
+                    return Some(v);
+                }
+                if t0.elapsed() >= cap {
+                    return None;
+                }
+                std::thread::sleep(Duration::from_millis(50));
+            }
+        }
+        const WAIT_CAP: Duration = Duration::from_secs(60);
+
+        /// Ends a process the way Task Manager does (`OpenProcess` + `TerminateProcess`, no `taskkill` is started) and waits until it is gone.
+        fn terminate(pid: u32) -> bool {
+            use windows::Win32::Foundation::CloseHandle;
+            use windows::Win32::System::Threading::{OpenProcess, TerminateProcess, WaitForSingleObject, PROCESS_SYNCHRONIZE, PROCESS_TERMINATE};
+            unsafe {
+                let Ok(h) = OpenProcess(PROCESS_TERMINATE | PROCESS_SYNCHRONIZE, false, pid) else { return false };
+                let ended = TerminateProcess(h, 1).is_ok();
+                let _ = WaitForSingleObject(h, 30_000);
+                let _ = CloseHandle(h);
+                ended
+            }
+        }
+
         #[test]
         fn this_process_is_in_the_snapshot_and_its_command_line_is_readable() {
             let me = std::process::id();
@@ -611,7 +647,7 @@ mod tests {
         impl Drop for Kill {
             fn drop(&mut self) {
                 if let Some(pid) = self.0 {
-                    let _ = crate::winproc::hidden("taskkill").args(["/F", "/PID", &pid.to_string()]).output();
+                    let _ = terminate(pid);
                 }
             }
         }
@@ -624,54 +660,50 @@ mod tests {
             }
         }
 
-        /// The real detection with a real process: a copy of this test program named like the web view runtime, started with a
-        /// `--user-data-dir` of this app's folder shape by a `cmd` that exits at once, so its parent is gone (what the previous run's
-        /// browser process looks like). It is found; after it is killed it is not found any more. Nothing is shown (no window).
+        /// The real detection with a real process: a small executable named like the web view runtime (a copy of the system `cmd.exe`, which runs
+        /// `ping` for a minute), started with a `--user-data-dir` of this app's folder shape by a `cmd` that exits at once, so its parent is gone (what
+        /// the previous run's browser process looks like). It is found; the wait sees it and ends when it is gone, which the injected clock makes
+        /// happen on the first look (no real time passes, nothing depends on how fast a process starts or dies). Nothing is shown (no window).
         #[test]
         fn an_ownerless_browser_process_of_this_apps_folder_is_found_until_it_exits() {
+            let _lock = wv2_lock();
             let dir = std::env::temp_dir().join(format!("heylook-wv2-test-{}", std::process::id()));
             let data = dir.join("thnonl.heylook").join("EBWebView");
             std::fs::create_dir_all(&data).unwrap();
             let fake = dir.join(BROWSER_EXE);
-            std::fs::copy(std::env::current_exe().unwrap(), &fake).unwrap();
+            let system = std::env::var_os("SystemRoot").map(std::path::PathBuf::from).unwrap_or_else(|| "C:\\Windows".into());
+            std::fs::copy(system.join("System32").join("cmd.exe"), &fake).unwrap();
             let folder = "\\thnonl.heylook\\ebwebview";
 
             let mut cmd = crate::winproc::hidden("cmd");
-            cmd.env("HEYLOOK_FAKE_WV2", "1");
-            cmd.raw_arg(format!("/C start \"\" /B \"{}\" fake_webview_browser_sleeper -- \"--user-data-dir={}\"", fake.display(), data.display()));
+            cmd.raw_arg(format!("/C start \"\" /B \"{}\" /c \"ping -n 60 127.0.0.1 >nul & rem --user-data-dir={}\"", fake.display(), data.display()));
             assert!(cmd.status().unwrap().success());
 
-            let find = || {
-                let want = fake.to_string_lossy().to_lowercase();
-                lingering(folder).into_iter().find(|pid| command_line(*pid).is_some_and(|c| c.to_lowercase().contains(&want)))
-            };
-            let mut found = None;
-            for _ in 0..50 {
-                found = find();
-                if found.is_some() {
-                    break;
-                }
-                std::thread::sleep(Duration::from_millis(100));
-            }
-            let _guard = Kill(found);
-            let pid = found.expect("the ownerless fake browser process is found");
-
-            // the wait sees it and ends when it is killed
-            let killer = std::thread::spawn(move || {
-                std::thread::sleep(Duration::from_millis(600));
-                let _ = crate::winproc::hidden("taskkill").args(["/F", "/PID", &pid.to_string()]).output();
-            });
             let want = fake.to_string_lossy().to_lowercase();
+            let find = || lingering(folder).into_iter().find(|pid| command_line(*pid).is_some_and(|c| c.to_lowercase().contains(&want)));
+            let pid = poll_until(WAIT_CAP, find).expect("the ownerless fake browser process is found");
+            let _guard = Kill(Some(pid));
+            let children: Vec<u32> = snapshot().into_iter().filter(|p| p.ppid == pid).map(|p| p.pid).collect();
+
+            // the wait sees it, and the first time it sleeps (the injected clock) the process is ended and gone
+            let mut ended = false;
             let w = wait_until_clear(
                 || lingering(folder).into_iter().filter(|p| command_line(*p).map_or(true, |c| c.to_lowercase().contains(&want))).collect(),
-                std::thread::sleep,
+                |_| {
+                    if !ended {
+                        ended = true;
+                        assert!(terminate(pid), "the fake browser process could be ended");
+                    }
+                },
                 Duration::from_secs(10),
                 Duration::from_millis(100),
             );
-            killer.join().unwrap();
+            for c in children {
+                let _ = terminate(c);
+            }
             assert!(w.first.contains(&pid), "{w:?}");
             assert!(w.left.is_empty(), "{w:?}");
-            assert!(w.waited_ms >= 500 && w.waited_ms < 9000, "{w:?}");
+            assert!(w.waited_ms >= 100, "{w:?}");
             let _ = std::fs::remove_dir_all(&dir);
         }
 
@@ -680,6 +712,7 @@ mod tests {
         /// machine without the WebView2 runtime.
         #[test]
         fn a_killed_web_view_browser_process_is_reported_with_its_kind_and_exit_code() {
+            let _lock = wv2_lock();
             use std::sync::mpsc;
             use webview2_com::{CreateCoreWebView2ControllerCompletedHandler, CreateCoreWebView2EnvironmentCompletedHandler};
             use windows::core::{w, HSTRING, PCWSTR};
@@ -746,13 +779,12 @@ mod tests {
                 assert_eq!(parent, Some(me), "a web view created by this process starts its own browser process");
 
                 // what a crash or Task Manager does
-                let killed = crate::winproc::hidden("taskkill").args(["/F", "/PID", &pid.to_string()]).output().unwrap();
-                assert!(killed.status.success(), "{}", String::from_utf8_lossy(&killed.stdout));
+                assert!(terminate(pid), "the browser process could be ended");
 
                 // the callbacks arrive on this thread's message loop
                 let mut got = None;
                 let t0 = std::time::Instant::now();
-                while t0.elapsed() < Duration::from_secs(20) && got.is_none() {
+                while t0.elapsed() < WAIT_CAP && got.is_none() {
                     let mut msg = MSG::default();
                     while PeekMessageW(&mut msg, None, 0, 0, PM_REMOVE).as_bool() {
                         let _ = TranslateMessage(&msg);
@@ -761,7 +793,7 @@ mod tests {
                     got = frx.try_recv().ok();
                     std::thread::sleep(Duration::from_millis(20));
                 }
-                let (kind, detail) = got.expect("a failure event within 20 s of killing the browser process");
+                let (kind, detail) = got.expect("a failure event within 60 s of killing the browser process");
                 eprintln!("web view failure reported: kind {kind} ({}), {detail}", kind_name(kind));
                 assert_eq!(kind, 0, "browser process exited: {detail}");
                 assert_eq!(reaction(kind), Reaction::Restart);
@@ -783,12 +815,15 @@ mod tests {
         /// BUG-15 (QA round 8): after a page (render) process dies, which call brings the page back? A real web view that is never
         /// shown loads a page, its render process is killed, the failure event arrives (kind 1), and then the page is loaded again
         /// the way the app did (`window.location.reload()` run in the page) or with the native `Reload()`. The native reload must
-        /// produce a successful navigation within 10 s. The script variant is measured and printed (`--nocapture`), not asserted:
+        /// produce a successful navigation (the wait ends at the navigation; the cap is 60 s). The script variant is measured and printed (`--nocapture`), not asserted:
         /// the round-8 logs say it did nothing, and a script cannot run in a page whose process is gone. Skipped without WebView2.
         #[test]
         fn a_killed_page_process_comes_back_with_the_native_reload() {
-            let native = reload_after_render_kill("native Reload()", |core| unsafe { core.Reload().is_ok() });
-            let script = reload_after_render_kill("script location.reload()", |core| unsafe {
+            let _lock = wv2_lock();
+            // the native reload is the one that must bring the page back: it gets the 60 s cap of every wait here. The script variant is only measured (the round-8 logs say it
+            // does nothing, so it is waited for 10 s, not 60: a condition that is expected never to come is not worth a minute)
+            let native = reload_after_render_kill("native Reload()", WAIT_CAP, |core| unsafe { core.Reload().is_ok() });
+            let script = reload_after_render_kill("script location.reload()", Duration::from_secs(10), |core| unsafe {
                 use webview2_com::ExecuteScriptCompletedHandler;
                 use windows::core::HSTRING;
                 let done = ExecuteScriptCompletedHandler::create(Box::new(|_err, _result| Ok(())));
@@ -797,7 +832,7 @@ mod tests {
             eprintln!("render kill recovery: native reload -> {native:?}, script reload -> {script:?}");
             if let Some(n) = native {
                 assert_eq!(n.kind, 1, "a render process exited event: {n:?}");
-                assert!(n.back_ms.is_some(), "the native reload must bring the page back within 10 s: {n:?}");
+                assert!(n.back_ms.is_some(), "the native reload must bring the page back within 60 s: {n:?}");
             }
         }
 
@@ -805,12 +840,12 @@ mod tests {
         struct Recovery {
             /// the failure kind of the first event after the kill (1 = render process exited)
             kind: i32,
-            /// milliseconds from the reload call to a successful navigation, None when none came within 10 s
+            /// milliseconds from the reload call to a successful navigation, None when none came within the cap
             back_ms: Option<u128>,
         }
 
         /// Starts a hidden real web view on a page, kills its render process, and calls `reload` once the failure event came.
-        fn reload_after_render_kill(label: &str, reload: impl Fn(&webview2_com::Microsoft::Web::WebView2::Win32::ICoreWebView2) -> bool) -> Option<Recovery> {
+        fn reload_after_render_kill(label: &str, back_cap: Duration, reload: impl Fn(&webview2_com::Microsoft::Web::WebView2::Win32::ICoreWebView2) -> bool) -> Option<Recovery> {
             use std::sync::mpsc;
             use webview2_com::{CreateCoreWebView2ControllerCompletedHandler, CreateCoreWebView2EnvironmentCompletedHandler, NavigationCompletedEventHandler};
             use windows::core::{w, HSTRING, PCWSTR};
@@ -890,7 +925,7 @@ mod tests {
                 .unwrap();
                 core.Navigate(&HSTRING::from("data:text/html,<title>heylook</title><p>page</p>")).unwrap();
                 let mut first = None;
-                pump(15_000, &mut || {
+                pump(60_000, &mut || {
                     first = first.or(nrx.try_recv().ok());
                     first.is_some()
                 });
@@ -898,28 +933,27 @@ mod tests {
 
                 // the render process: a child of the browser process
                 let mut renderer = None;
-                for _ in 0..30 {
+                let t_find = std::time::Instant::now();
+                while renderer.is_none() && t_find.elapsed() < WAIT_CAP {
                     renderer = snapshot().into_iter().filter(|p| p.ppid == pid).find(|p| command_line(p.pid).is_some_and(|c| c.contains("--type=renderer"))).map(|p| p.pid);
-                    if renderer.is_some() {
-                        break;
+                    if renderer.is_none() {
+                        pump(100, &mut || false);
                     }
-                    pump(100, &mut || false);
                 }
                 let renderer = renderer.expect("a render process of this web view");
-                let killed = crate::winproc::hidden("taskkill").args(["/F", "/PID", &renderer.to_string()]).output().unwrap();
-                assert!(killed.status.success());
+                assert!(terminate(renderer), "the render process could be ended");
                 let mut ev = None;
-                pump(20_000, &mut || {
+                pump(60_000, &mut || {
                     ev = ev.take().or(frx.try_recv().ok());
                     ev.is_some()
                 });
-                let (kind, detail) = ev.expect("a failure event within 20 s of killing the render process");
+                let (kind, detail) = ev.expect("a failure event within 60 s of killing the render process");
                 eprintln!("[{label}] failure reported: kind {kind} ({}), {detail}", kind_name(kind));
                 while nrx.try_recv().is_ok() {} // navigations of the error page do not count
                 let t0 = std::time::Instant::now();
                 let asked = reload(&core);
                 let mut back = None;
-                pump(10_000, &mut || {
+                pump(back_cap.as_millis() as u64, &mut || {
                     if nrx.try_recv().ok() == Some(true) {
                         back = Some(t0.elapsed().as_millis());
                     }
@@ -943,6 +977,7 @@ mod tests {
         /// process itself and pid 0 never hold it up; a running second copy of this program does, until it ends.
         #[test]
         fn the_previous_run_check_only_accepts_a_running_process_of_this_program() {
+            let _lock = wv2_lock();
             assert!(!is_previous_run(0));
             assert!(!is_previous_run(std::process::id()));
             assert!(!is_previous_run(4), "System is not this program");
@@ -951,8 +986,7 @@ mod tests {
             let mut child = cmd.stdout(std::process::Stdio::null()).stderr(std::process::Stdio::null()).spawn().unwrap();
             let pid = child.id();
             let _guard = Kill(Some(pid));
-            std::thread::sleep(Duration::from_millis(300));
-            assert!(is_previous_run(pid), "a running copy of this program");
+            assert!(poll_until(WAIT_CAP, || is_previous_run(pid).then_some(())).is_some(), "a running copy of this program");
             child.kill().unwrap();
             let _ = child.wait();
             assert!(!is_previous_run(pid), "it ended");

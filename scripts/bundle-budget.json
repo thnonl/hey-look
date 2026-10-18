@@ -1,0 +1,38 @@
+{
+  "policy": "Bundle budget of the production frontend, checked by scripts/check-bundle-budget.mjs (CI static shard). KB = 1,000 bytes. Raising a value = a change of this file in the branch, with a `history` entry and a reason, approved by the BA at the merge. Every value needs a reason; the script refuses the file otherwise.",
+  "initialJsGzip": {
+    "bytes": 783042,
+    "reason": "Interim (B1). Measured on feature/v107-wp9a (747,042 B, entry chunk + static import closure, gzip level 9 per file) + 36,000 B allowance for the 1.0.7 work packages that land before WP9c. Lowered by WP9c and WP9d (final: 370,000 B, WP9d must land at 330,000 B or less)."
+  },
+  "initialJsRaw": {
+    "bytes": 2762417,
+    "reason": "Interim (B2). Measured 2,652,417 B + 110,000 B allowance for WP2 to WP8 and WP13. Final: 1,300,000 B (WP9d)."
+  },
+  "langChunkGzip": null,
+  "lazyChunkGzip": {
+    "bytes": 170000,
+    "reason": "B4. No lazy chunk of the 1.0.7 release is above 21 KB gzip today; 170 KB leaves room for the PDF.js module of WP5 only through a named exception."
+  },
+  "cssGzip": {
+    "bytes": 26005,
+    "reason": "B5. Measured 22,005 B + 4,000 B allowance; one render-blocking stylesheet. Final: 26,000 B."
+  },
+  "exceptions": [],
+  "mustBeLazy": [
+    { "module": "src/editor/kitExtensions.ts", "reason": "tables and picture node, fetched 800 ms after start", "since": "1.0.5" },
+    { "module": "src/editor/insertUi.tsx", "reason": "Symbol / Date / Table toolbar rows, fetched 2.5 s after start", "since": "1.0.5" },
+    { "module": "src/editor/pasteClean.ts", "reason": "paste cleaner, loaded on the first paste", "since": "1.0.5" },
+    { "module": "src/editor/quoteClean.ts", "reason": "quote cleaner, loaded on demand", "since": "1.0.5" },
+    { "module": "src/editor/FindBar.tsx", "reason": "Find bar, loaded when opened", "since": "1.0.5" },
+    { "module": "src/editor/changeCase.ts", "reason": "Change case, loaded when used", "since": "1.0.5" },
+    { "module": "src/editor/findReplace.ts", "reason": "Find and replace, loaded when used", "since": "1.0.5" }
+  ],
+  "neverShipped": [
+    { "module": "src/devMock.ts", "reason": "dev preview mock backend (45 KB); W9.9: its import sits inside `if (import.meta.env.DEV ...)` in main.tsx" },
+    { "module": "src/devDarkCheck.ts", "reason": "dev self-check of the dark mail rendering, imported by devMock only" },
+    { "module": "src/popout/dev.ts", "reason": "dev aid that opens placeholder windows from the console; only imported when import.meta.env.DEV" }
+  ],
+  "history": [
+    { "date": "2026-10-19", "branch": "feature/v107-wp9a", "field": "all", "old": null, "new": "interim budgets", "reason": "First version: measured on the branch head (cf70a5a + W9.9) plus the allowances of spec-107-wp9 section 2.1." }
+  ]
+}

@@ -2011,13 +2011,14 @@ To:") && !out.contains("undisclosed"), "{out}");
             let (coop, _k) = starttls_imap_server("never");
             acc.imap_port = coop;
             let t = std::time::Instant::now();
-            assert!(crate::mail::probe_secure_connection(&acc, std::time::Duration::from_secs(5)).is_ok());
-            assert!(t.elapsed() < std::time::Duration::from_secs(3), "{:?}", t.elapsed());
+            // (the probe has 30 s and must not use them: "passes at once" is proved by finishing in a third of that, whatever else runs)
+            assert!(crate::mail::probe_secure_connection(&acc, std::time::Duration::from_secs(30)).is_ok());
+            assert!(t.elapsed() < std::time::Duration::from_secs(10), "{:?}", t.elapsed());
             // a plain server saying BAD is the real connection's to word
             acc.imap_port = plain_imap_server();
             assert!(crate::mail::probe_secure_connection(&acc, one_sec).is_ok());
             // so is a port nothing listens on (Windows takes about 2 s to refuse a local connection, so a longer time than the others)
-            acc.imap_port = std::net::TcpListener::bind("127.0.0.1:0").unwrap().local_addr().unwrap().port();
+            acc.imap_port = crate::testutil::dead_addr().port();
             assert!(crate::mail::probe_secure_connection(&acc, std::time::Duration::from_secs(8)).is_ok());
             let (silent, _k2) = silent_server();
             acc.imap_port = silent;

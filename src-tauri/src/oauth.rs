@@ -615,7 +615,7 @@ mod tests {
         assert!(matches!(fail(json!({ "error": "invalid_request", "error_description": "AADSTS700016: Application was not found" })), TokenFail::NotSetUp(_)));
         assert!(matches!(fail(json!({ "error": "temporarily_unavailable" })), TokenFail::Other(_)));
         // no network
-        let dead = std::net::TcpListener::bind("127.0.0.1:0").unwrap().local_addr().unwrap();
+        let dead = crate::testutil::dead_addr();
         assert!(matches!(refresh_at(&format!("http://{dead}/t"), "cid", "", "rt", None), Err(TokenFail::Offline(_))));
         // and into the sync layer's errors
         use crate::calsync::SyncErr;

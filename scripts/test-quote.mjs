@@ -91,7 +91,7 @@ for (const file of names) {
   // every line of a quoted reply starts with "> " in the plain part (blank quote lines are ">")
   const lines = text.split("\n").slice(1).filter((l) => l !== "");
   assert.ok(lines.every((l) => l.startsWith(">")), `${name}: the plain part quotes every line`);
-  assert.ok(!/&(?:nbsp|amp|lt|gt|quot|#\d+);|<\/?(?:p|br|div|span|b|i|u|a|font|table|tr|td|th|ul|ol|li|img|blockquote|pre)/i.test(text), `${name}: no markup or entities in the plain part`);
+  assert.ok(!/&(?:nbsp|amp|lt|gt|quot|#\d+);|<\/?(?:p|br|div|span|b|i|u|a|font|table|tr|td|th|ul|ol|li|img|blockquote|pre)\b/i.test(text), `${name}: no markup or entities in the plain part`);
 }
 
 // ------------------------------------------------------------------------------------------------- what each original must keep or lose

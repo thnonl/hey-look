@@ -17,11 +17,9 @@
 //   node scripts/test-ai-tab-layout.mjs --require-browser      fail (instead of skipping) when no Chrome/Chromium/Edge is installed
 //   CHROME_PATH=/path/to/chrome overrides the browser lookup. No dependencies (Node 22+, global WebSocket).
 import fs from 'node:fs';
-import os from 'node:os';
 import path from 'node:path';
-import net from 'node:net';
-import { spawn } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
+import { startHarness, sleep } from './cdp-harness.mjs';
 
 const ROOT = path.join(path.dirname(fileURLToPath(import.meta.url)), '..');
 const arg = (name) => { const a = process.argv.find((x) => x.startsWith(`--${name}=`)); return a ? a.slice(name.length + 3) : null; };
@@ -31,62 +29,10 @@ const CONFIGS = [];
 if (QUICK) CONFIGS.push({ lang: 'en', w: 960, h: 560, theme: 'light' }, { lang: 'de', w: 1280, h: 720, theme: 'dark' });
 else for (const lang of (arg('lang') || 'en,de').split(',')) for (const size of (arg('size') || '960x560,1280x720').split(',')) for (const theme of (arg('theme') || 'light,dark').split(',')) CONFIGS.push({ lang, w: Number(size.split('x')[0]), h: Number(size.split('x')[1]), theme });
 const SHOTS = arg('shots');
-const skip = (why) => { if (flag('require-browser')) { console.error(`test-ai-tab-layout: ${why}`); process.exit(1); } console.log(`test-ai-tab-layout: SKIPPED, ${why} (pass --require-browser to fail instead)`); process.exit(0); };
 
-// ---------- the browser ----------
-function findChrome() {
-  const env = process.env.CHROME_PATH; if (env && fs.existsSync(env)) return env;
-  const win = [process.env.LOCALAPPDATA, process.env.ProgramFiles, process.env['ProgramFiles(x86)']].filter(Boolean);
-  const list = [
-    ...win.map((b) => path.join(b, 'Google/Chrome/Application/chrome.exe')),
-    ...win.map((b) => path.join(b, 'Chromium/Application/chrome.exe')),
-    ...win.map((b) => path.join(b, 'Microsoft/Edge/Application/msedge.exe')),
-    '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome', '/Applications/Chromium.app/Contents/MacOS/Chromium',
-    '/usr/bin/google-chrome', '/usr/bin/google-chrome-stable', '/usr/bin/chromium', '/usr/bin/chromium-browser', '/snap/bin/chromium',
-  ];
-  return list.find((p) => fs.existsSync(p)) || null;
-}
-const chrome = findChrome();
-if (!chrome) skip('no Chrome/Chromium/Edge found (set CHROME_PATH)');
-const freePort = async (from) => { for (let p = from; p < from + 100; p++) { const ok = await new Promise((r) => { const s = net.createServer(); s.once('error', () => r(false)); s.listen(p, '127.0.0.1', () => s.close(() => r(true))); }); if (ok) return p; } throw new Error(`no free port from ${from}`); };
-const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
-
-// ---------- the app: a vite dev server of this checkout (the dev preview has the mock backend) ----------
-let vite = null, base = arg('url');
-if (!base) {
-  const vitePort = await freePort(5480);
-  vite = spawn(process.execPath, [path.join(ROOT, 'node_modules/vite/bin/vite.js'), '--port', String(vitePort), '--strictPort', '--host', '127.0.0.1'], { cwd: ROOT, stdio: 'ignore' });
-  base = `http://127.0.0.1:${vitePort}/`;
-}
-const cdpPort = await freePort(9500);
-const profile = fs.mkdtempSync(path.join(os.tmpdir(), 'hl-aitab-'));
-const proc = spawn(chrome, ['--headless=new', '--disable-gpu', '--no-first-run', '--no-default-browser-check', '--disable-extensions', '--hide-scrollbars', `--user-data-dir=${profile}`, `--remote-debugging-port=${cdpPort}`, '--remote-allow-origins=*', ...(process.platform === 'linux' ? ['--no-sandbox'] : []), 'about:blank'], { stdio: 'ignore' });
-let closed = false;
-async function shutdown() {
-  if (closed) return; closed = true;
-  try { proc.kill(); } catch { /* ignore */ }
-  try { vite?.kill(); } catch { /* ignore */ }
-  await sleep(400);
-  try { fs.rmSync(profile, { recursive: true, force: true, maxRetries: 5, retryDelay: 200 }); } catch { /* it is in the temp folder anyway */ }
-}
-process.on('exit', () => { try { proc.kill(); } catch { /* ignore */ } try { vite?.kill(); } catch { /* ignore */ } });
-
-let wsUrl = null;
-for (let i = 0; i < 100 && !wsUrl; i++) { try { wsUrl = (await (await fetch(`http://127.0.0.1:${cdpPort}/json/version`)).json()).webSocketDebuggerUrl; } catch { await sleep(150); } }
-if (!wsUrl) { await shutdown(); skip('Chrome did not start'); }
-let up = false;
-for (let i = 0; i < 200 && !up; i++) { try { up = (await fetch(base)).ok; } catch { await sleep(300); } }
-if (!up) { await shutdown(); skip(`the dev server did not answer at ${base}`); }
-
-const ws = new WebSocket(wsUrl); await new Promise((r, j) => { ws.onopen = r; ws.onerror = j; });
-let nextId = 1; const waiting = new Map();
-ws.onmessage = (ev) => { const m = JSON.parse(ev.data); if (m.id && waiting.has(m.id)) { const { ok, bad } = waiting.get(m.id); waiting.delete(m.id); m.error ? bad(new Error(m.error.message)) : ok(m.result); } };
-const send = (method, params = {}, sessionId) => new Promise((ok, bad) => { const id = nextId++; waiting.set(id, { ok, bad }); ws.send(JSON.stringify({ id, method, params, sessionId })); });
-const { targetId } = await send('Target.createTarget', { url: 'about:blank' });
-const { sessionId } = await send('Target.attachToTarget', { targetId, flatten: true });
-const cdp = (method, params) => send(method, params, sessionId);
-const evaluate = async (expression) => { const r = await cdp('Runtime.evaluate', { expression, returnByValue: true, awaitPromise: true }); if (r.exceptionDetails) throw new Error(r.exceptionDetails.exception?.description || r.exceptionDetails.text); return r.result.value; };
-await cdp('Runtime.enable'); await cdp('Page.enable');
+// ---------- the browser and the app: a vite dev server of this checkout (the dev preview has the mock backend) ----------
+// Both run on ports they bound themselves (scripts/cdp-harness.mjs), so this test cannot meet another one started at the same moment.
+const { base, cdp, evaluate, shutdown } = await startHarness('test-ai-tab-layout', { vitePort0: 5480 });
 
 // ---------- the page side: a layout sample on every frame ----------
 const PAGE = `(() => {

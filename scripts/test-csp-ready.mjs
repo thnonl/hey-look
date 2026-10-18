@@ -107,9 +107,9 @@ for (const f of files) assert.ok(f === "src/components/Attachments.tsx" ? (read(
 // style attributes of the page would stop working. The HTML has none of those, so nothing is added (checked on the source and, when
 // there is one, on the build), and the switch that would turn the modification off stays at its default.
 const noInline = (name, text) => {
-  assert.ok(!/<style/i.test(text), `${name} has an inline <style>: Tauri would put a nonce in style-src and 'unsafe-inline' would stop working`);
-  assert.ok(!/<script(?![^>]*src=)/i.test(text), `${name} has an inline <script>`);
-  assert.ok(!/<script[^>]*src="https?:/i.test(text), `${name} has a script from another origin`);
+  assert.ok(!/<style\b/i.test(text), `${name} has an inline <style>: Tauri would put a nonce in style-src and 'unsafe-inline' would stop working`);
+  assert.ok(!/<script\b(?![^>]*\bsrc=)/i.test(text), `${name} has an inline <script>`);
+  assert.ok(!/<script\b[^>]*\bsrc="https?:/i.test(text), `${name} has a script from another origin`);
 };
 noInline("index.html", html);
 if (existsSync(new URL("dist/index.html", root))) noInline("dist/index.html", read("dist/index.html"));
