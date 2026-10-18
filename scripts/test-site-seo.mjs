@@ -145,9 +145,12 @@ function checkPage(lang, page, file) {
   if (!/<link rel="icon" href="(?:\.\.\/)?assets\/icon-48\.png" sizes="48x48" type="image\/png">/.test(text)) fail(where, 'no 48x48 PNG favicon');
   if (!/<link rel="apple-touch-icon" href="(?:\.\.\/)?assets\/apple-touch-icon\.png">/.test(text)) fail(where, 'no apple-touch-icon');
 
-  // JSON-LD
+  // JSON-LD: the home page (WebSite + SoftwareApplication) and the download page (SoftwareApplication) have one block; every other page has none
+  // (a BreadcrumbList is not used: no page shows a breadcrumb trail, and structured data must describe what the page shows)
   const blocks = [...text.matchAll(/<script type="application\/ld\+json">([\s\S]*?)<\/script>/g)].map((x) => x[1]);
-  if (blocks.length !== 1) { fail(where, `${blocks.length} JSON-LD blocks, expected 1`); return; }
+  const wantTypes = page === 'index' ? ['WebSite', 'SoftwareApplication'] : page === 'download' ? ['SoftwareApplication'] : [];
+  if (blocks.length !== (wantTypes.length ? 1 : 0)) { fail(where, `${blocks.length} JSON-LD blocks, expected ${wantTypes.length ? 1 : 0}`); return; }
+  if (!wantTypes.length) return;
   let doc;
   try { doc = JSON.parse(blocks[0]); } catch (e) { fail(where, 'JSON-LD does not parse: ' + e.message); return; }
   if (doc['@context'] !== 'https://schema.org') fail(where, 'JSON-LD @context is not https://schema.org');
@@ -159,7 +162,6 @@ function checkPage(lang, page, file) {
     const urls = JSON.stringify(v).match(/https?:\/\/[^"]+/g) || [];
     for (const u of urls) if (!u.startsWith(SITE) && !u.startsWith('https://github.com/thnonl') && u !== 'https://schema.org') fail(where, `JSON-LD ${n['@type']}.${k} has a foreign URL ${u}`);
   }
-  const wantTypes = page === 'index' ? ['WebSite', 'SoftwareApplication'] : page === 'download' ? ['SoftwareApplication', 'BreadcrumbList'] : ['BreadcrumbList'];
   if (JSON.stringify(nodes.map((n) => n['@type'])) !== JSON.stringify(wantTypes)) fail(where, `JSON-LD types are ${nodes.map((n) => n['@type'])}, expected ${wantTypes}`);
   for (const [site] of byType('WebSite').map((n) => [n])) {
     if (site.name !== 'Hey Look!' || site.url !== urlOf(lang, 'index') || site.inLanguage !== lang.hreflang) fail(where, 'JSON-LD WebSite name, url or inLanguage is wrong');
@@ -179,14 +181,6 @@ function checkPage(lang, page, file) {
     if (JSON.stringify(app.inLanguage) !== JSON.stringify(LANGS.map((l) => l.hreflang))) fail(where, 'inLanguage is not the language list of the site');
     if (app.image !== SITE + OG_IMAGE_PATH) fail(where, 'image is not the preview picture');
     if (page === 'index' ? app.screenshot !== SITE + SCREENSHOT_PATH : app.screenshot !== undefined) fail(where, 'screenshot belongs on the home page only (the poster is shown there)');
-  }
-  for (const bc of byType('BreadcrumbList')) {
-    const it = bc.itemListElement || [];
-    if (it.length !== 2 || it[0].position !== 1 || it[1].position !== 2) fail(where, 'BreadcrumbList must have 2 items, positions 1 and 2');
-    else {
-      if (it[0].item !== urlOf(lang, 'index') || it[0].name !== 'Hey Look!') fail(where, 'BreadcrumbList item 1 is not the home page of this language');
-      if (it[1].item !== urlOf(lang, page) || it[1].name !== pageName(title)) fail(where, 'BreadcrumbList item 2 is not this page (name = the title without the brand)');
-    }
   }
 }
 
@@ -222,6 +216,12 @@ checkPage(EN, '404', path.join(DOCS, '404.html'));
     else if (lm > new Date(Date.now() + 36e5 * 14).toISOString().slice(0, 10)) fail('sitemap.xml', `<lastmod> ${lm} is in the future`);
   }
   if (/<priority>|<changefreq>/.test(xml)) fail('sitemap.xml', '<priority> / <changefreq> are not used (search engines ignore them)');
+}
+
+// ---------- no BreadcrumbList anywhere: no page shows a breadcrumb trail, and markup must describe what the page shows ----------
+{
+  const walk = (dir) => fs.readdirSync(dir, { withFileTypes: true }).flatMap((e) => (e.isDirectory() ? walk(path.join(dir, e.name)) : [path.join(dir, e.name)]));
+  for (const f of walk(DOCS)) if (/\.(html|js|css|xml|txt|json|svg)$/i.test(f) && /BreadcrumbList/.test(read(f))) fail(path.relative(DOCS, f).replace(/\\/g, '/'), 'mentions BreadcrumbList (the markup was dropped on purpose: no page shows a breadcrumb trail)');
 }
 
 // ---------- the Search Console file, no manifest to forget ----------

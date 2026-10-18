@@ -47,7 +47,7 @@ export const versionOf = (englishIndexText) => (/<span data-version>([^<]+)<\/sp
 /** JSON-LD objects for one page (an array: one <script> each is not needed, they go into one @graph) */
 export function graphFor(ctx, lang, page, text, version) {
   const { langs, site, urlOf } = ctx;
-  const { title, description } = pageMeta(text);
+  const { description } = pageMeta(text);
   const home = urlOf(lang, 'index'), url = urlOf(lang, page);
   const out = [];
   if (page === 'index') {
@@ -68,15 +68,7 @@ export function graphFor(ctx, lang, page, text, version) {
       ...(page === 'index' ? { screenshot: site + SCREENSHOT_PATH } : {}),
     });
   }
-  if (page !== 'index') {
-    out.push({
-      '@type': 'BreadcrumbList', '@id': url + '#breadcrumb',
-      itemListElement: [
-        { '@type': 'ListItem', position: 1, name: BRAND, item: home },
-        { '@type': 'ListItem', position: 2, name: pageName(title), item: url },
-      ],
-    });
-  }
+  // No BreadcrumbList: no page shows a breadcrumb trail, and structured data must describe what the page shows
   return out;
 }
 
@@ -97,7 +89,9 @@ export function seoLines(ctx, lang, page, text, version) {
     `<link rel="apple-touch-icon" href="${up}assets/apple-touch-icon.png">`,
   ];
   const graph = graphFor(ctx, lang, page, text, version);
-  const doc = graph.length === 1 ? { '@context': 'https://schema.org', ...graph[0] } : { '@context': 'https://schema.org', '@graph': graph };
-  lines.push('<script type="application/ld+json">', jsonLd(doc), '</script>');
+  if (graph.length) { // the home page (WebSite + SoftwareApplication) and the download page (SoftwareApplication); the other pages carry none
+    const doc = graph.length === 1 ? { '@context': 'https://schema.org', ...graph[0] } : { '@context': 'https://schema.org', '@graph': graph };
+    lines.push('<script type="application/ld+json">', jsonLd(doc), '</script>');
+  }
   return lines;
 }
