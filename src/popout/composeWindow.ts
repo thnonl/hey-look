@@ -107,20 +107,25 @@ export interface CloseFacts {
   hasContent: boolean;
   /** a file or picture is still being read into the message */
   attaching: boolean;
+  /** the window edits a scheduled message (it is paused while it is open): it is not a draft, so it is never saved by the close */
+  scheduled?: boolean;
 }
 
-export type CloseAction = "end" | "park" | "ask" | "attaching";
+export type CloseAction = "end" | "park" | "ask" | "ask-scheduled" | "attaching";
 
 /**
  * - counting or sending: out of sight, the message goes on its way (REQ-C8);
  * - nothing changed, or nothing written (typed and deleted again): closes without a question;
  * - files still coming in: stays, the person is told;
- * - changed, with content: Save / Discard / Cancel.
+ * - changed, with content: Save / Discard / Cancel;
+ * - a scheduled message: nothing changed closes (the pause is released, the schedule stays); changed asks "Keep editing / Discard" like the pane does when it
+ *   is left (compose.leave.scheduledTitle): a scheduled message is not a draft, and no content check applies (W2.10).
  */
 export function closeAction(f: CloseFacts): CloseAction {
   if (f.phase === "count" || f.phase === "work") return "park";
   if (f.phase === "over") return "end";
   if (f.attaching) return "attaching";
+  if (f.scheduled) return f.dirty ? "ask-scheduled" : "end";
   if (!f.dirty || !f.hasContent) return "end";
   return "ask";
 }
@@ -131,6 +136,8 @@ export interface CloseDeps {
   facts(): CloseFacts;
   /** Save / Discard / Cancel */
   ask(): Promise<CloseAnswer>;
+  /** a scheduled message with unsaved changes: keep editing, or close and leave the schedule as it was */
+  askScheduled?(): Promise<"keep" | "discard">;
   /** save to Drafts without a message of its own; false = it failed */
   save(): Promise<boolean>;
   /** "Your message isn't saved": keep writing, or close and discard */
@@ -162,6 +169,10 @@ export async function runClose(d: CloseDeps): Promise<CloseOutcome> {
     case "attaching":
       d.attaching();
       return "attaching";
+    case "ask-scheduled":
+      if ((await d.askScheduled?.()) !== "discard") return "cancelled";
+      d.end(); // (the window releases the pause as it ends; the changes are dropped, the schedule is what it was)
+      return "discarded";
     case "ask":
       break;
   }
@@ -191,6 +202,9 @@ export interface FlushDeps {
   phase(): Phase;
   dirty(): boolean;
   hasContent(): boolean;
+  /** the window edits a scheduled message: nothing is saved, its pause is released and the schedule stays (W2.10) */
+  scheduled?(): boolean;
+  release?(): Promise<void>;
   /** save to Drafts without a message of its own */
   save(): Promise<boolean>;
   /** "Your message isn't saved": keep writing, or quit (restart) and discard */
@@ -212,6 +226,10 @@ export async function composeFlush(d: FlushDeps, why: FlushWhy): Promise<boolean
   const phase = d.phase();
   if (phase === "count" || phase === "work") {
     await d.flushSends();
+    return true;
+  }
+  if (phase === "edit" && d.scheduled?.()) {
+    await d.release?.(); // (changes are not saved: a scheduled message is not a draft; it goes out at its time)
     return true;
   }
   if (phase === "edit" && d.dirty() && d.hasContent()) {

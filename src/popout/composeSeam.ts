@@ -12,6 +12,11 @@ export interface ComposeSeam {
   draftSaved(threadId: string): void;
   /** The message was scheduled (it is in the outbox, `outboxId`): the main window shows "Scheduled for ..." with Undo and View, this window ends. */
   scheduled(outboxId: string, sendAt: number): void;
+  /**
+   * The scheduled message this window holds paused (`outbox_open_for_edit`) is not this window's any more: it was rescheduled, sent now, deleted or moved
+   * to Drafts. Whatever else ends the window releases the pause (the schedule stays), W2.10.
+   */
+  scheduledHandled(): void;
   /** The subject changed: it is the title of the window. */
   title(subject: string): void;
   /** Move the message being written to a window of its own; only the inline Compose has this (the window is the window already). */

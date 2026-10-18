@@ -51,6 +51,7 @@ import { focusDraftWindow, startCompose, wantsWindow, type StartOpts } from "../
 import { draftKey } from "../popout/entry";
 import { shiftNow } from "../popout/modifier";
 import { openPopout } from "../popout/open";
+import { outboxKey } from "../popout/entry";
 import { useContentProtection } from "../protect";
 import { editorKeyHandlers, isAltGraph } from "../composeKeys";
 import { useLinkEditor } from "./LinkPopover";
@@ -443,7 +444,7 @@ function noteInlineDraft(tid: string): void {
 }
 
 /** Bring the main window forward and put the caret in the pane's body. Resolves to true (the draft is shown: nothing else is to be opened). */
-function focusInlineEditor(): boolean {
+export function focusInlineEditor(): boolean {
   void api.showWindow().catch(() => undefined);
   const body = document.querySelector<HTMLElement>(".compose-pane .ProseMirror");
   body?.focus();
@@ -672,6 +673,11 @@ function ComposeBody({ init }: { init: ComposeInit }) {
   };
   const ccTouched = useRef(false);
   const savedRef = useRef(false); // an outbox item was saved, moved or sent from here (nothing to release)
+  /** The scheduled message was rescheduled, sent now, deleted or moved to Drafts from here (or handed to a window): nothing to release; a window is told (W2.10). */
+  const scheduleDone = () => {
+    savedRef.current = true;
+    composeSeam()?.scheduledHandled();
+  };
   const fileRef = useRef<HTMLInputElement>(null);
   const picRef = useRef<HTMLInputElement>(null);
   const schedRef = useRef<HTMLDivElement>(null);
@@ -1108,19 +1114,25 @@ function ComposeBody({ init }: { init: ComposeInit }) {
     };
   };
   // (in a window of its own the message that comes back after Undo or a failed send counts as changed: closing the window asks, it never loses it)
-  const reopen = (d: Draft) => void useStore.getState().openCompose(initOf(d, { replaces: init.replaces, isReply: false, carried: !!composeSeam() }));
+  // (`unscheduled`: the scheduled message is gone from the outbox, so what comes back is an ordinary message)
+  const reopen = (d: Draft, unscheduled = false) => {
+    const back = initOf(d, { replaces: init.replaces, isReply: false, carried: !!composeSeam() });
+    void useStore.getState().openCompose(unscheduled ? { ...back, outboxId: undefined, sendAt: undefined, outboxError: undefined } : back);
+  };
 
   /** Move this message to a window of its own (REQ-C3, C4): all of it as it is, nothing saved, nothing asked; the pane closes once the window exists. */
   const popOut = async () => {
-    if (init.outboxId || composeSeam() || busy) return;
+    if (composeSeam() || busy) return;
     // "carried" = the window starts as a message with changes nobody saved: closing it asks, and it autosaves when it loses the focus. A pane that is as it was
     // opened (an opened draft nobody touched, a reply with nothing written) moves as it is: closing that window ends it at once and writes nothing (W2.2)
-    const moved = initOf(buildDraft(), { replaces: replacesRef() ?? undefined, isReply: !!init.isReply, carried: touched.current || !!savedDraftRef.current });
+    // (a scheduled message keeps its pause: the window holds it from now on, so this pane must not release it as it closes; the "Change time" picker is not reopened)
+    const moved = { ...initOf(buildDraft(), { replaces: replacesRef() ?? undefined, isReply: !!init.isReply, carried: touched.current || !!savedDraftRef.current }), openSchedule: undefined };
     poppingRef.current = true; // (the new window takes the focus: this pane losing it must not save a draft of what is moving)
-    if (!(await openPopout("compose", null, moved))) {
+    if (!(await openPopout("compose", init.outboxId ? outboxKey(init.outboxId) : null, moved))) {
       poppingRef.current = false;
       return; // the pane stays as it is (the toast said why)
     }
+    if (init.outboxId) savedRef.current = true;
     setComposeDirty(false);
     void openCompose(null);
   };
@@ -1274,11 +1286,13 @@ function ComposeBody({ init }: { init: ComposeInit }) {
     const d = await secureDraft(built);
     if (!d) return;
     setBusy(true);
+    let cancelled = false;
     try {
       await api.cancelOutbox(init.outboxId);
-      savedRef.current = true;
+      cancelled = true;
+      scheduleDone();
       setComposeDirty(false);
-      void openCompose(null);
+      void openCompose(null, { sending: 0 }); // (a window waits for the send under way before it ends)
       const done = beginSend();
       try {
         await api.sendMessage(d, null, null);
@@ -1291,7 +1305,7 @@ function ComposeBody({ init }: { init: ComposeInit }) {
     } catch (e) {
       setBusy(false);
       showToast(await sendFailedText(e, d), undefined, "error"); // i18n-ok: sendFailedText gives a function
-      reopen(d);
+      reopen(d, cancelled);
     }
   };
 
@@ -1358,11 +1372,18 @@ function ComposeBody({ init }: { init: ComposeInit }) {
       sendingRef.current = true; // the snapshot stays until the message is in the queue
       setBusy(true);
       setComposeDirty(false);
+      // (a scheduled message keeps its pause until the update has gone through: this pane closes first and must not release it as it goes; a failed update brings the editor back holding it)
+      if (init.outboxId) savedRef.current = true;
       void openCompose(null, { sending: 0 });
       try {
         if (init.outboxId) {
-          await api.outboxUpdate(init.outboxId, d, sendAt);
-          savedRef.current = true;
+          const done = beginSend(); // (a window ends when the last send of it is over)
+          try {
+            await api.outboxUpdate(init.outboxId, d, sendAt);
+          } finally {
+            done();
+          }
+          scheduleDone();
           showToast(t("compose.toast.rescheduled", { when: fmtWhen(sendAt) }), undefined, "success");
         } else {
           const done = beginSend();
@@ -1540,7 +1561,7 @@ function ComposeBody({ init }: { init: ComposeInit }) {
     if (!init.outboxId) return;
     try {
       await moveScheduledToDrafts(init.outboxId);
-      savedRef.current = true;
+      scheduleDone();
       setComposeDirty(false);
       showToast(t("compose.toast.movedToDrafts"), undefined, "success");
       void openCompose(null);
@@ -1720,7 +1741,7 @@ function ComposeBody({ init }: { init: ComposeInit }) {
       try {
         if (choice === "delete") await api.cancelOutbox(init.outboxId);
         else await moveScheduledToDrafts(init.outboxId);
-        savedRef.current = true;
+        scheduleDone();
         setComposeDirty(false);
         showToast(choice === "delete" ? t("compose.toast.scheduleCancelled") : t("compose.toast.movedToDrafts"), undefined, "success");
         void openCompose(null);
@@ -2192,7 +2213,7 @@ function ComposeBody({ init }: { init: ComposeInit }) {
           picRef.current?.click();
           return;
         }
-        if ((e.ctrlKey || e.metaKey) && e.shiftKey && !e.altKey && e.key.toLowerCase() === "o" && !init.outboxId && !composeSeam()) {
+        if ((e.ctrlKey || e.metaKey) && e.shiftKey && !e.altKey && e.key.toLowerCase() === "o" && !composeSeam()) {
           e.preventDefault();
           void popOut();
           return;
@@ -2305,7 +2326,7 @@ function ComposeBody({ init }: { init: ComposeInit }) {
           </Dropdown>
         )}
         <div className="grow" />
-        {!init.outboxId && !composeSeam() && (
+        {!composeSeam() && (
           <button className="icon-btn" data-fit="fixed" aria-label={t("compose.popout.popOut")} title={kbd(t("compose.popout.popOutTip"))} onClick={() => void popOut()}>
             <ExternalLink size={16} />
           </button>

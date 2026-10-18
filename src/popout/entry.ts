@@ -28,3 +28,8 @@ export function answerKey(mode: AnswerMode, messageId: string): string {
 export function draftKey(threadId: string): string {
   return `draft:${threadId}`;
 }
+
+/** A scheduled message opened for editing is open in one editor only (W2.10): its pause (`outbox_open_for_edit`) belongs to that editor. */
+export function outboxKey(outboxId: string): string {
+  return `outbox:${outboxId}`;
+}

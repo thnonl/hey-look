@@ -57,7 +57,14 @@ export default function ComposeView({ label, init }: PopoutViewProps) {
   const since = useRef(0);
   const closing = useRef(false);
   const undoBtn = useRef<HTMLButtonElement>(null);
+  /** the scheduled message this window holds paused (opened for editing); null when it is not this window's to release any more (W2.10) */
+  const held = useRef<string | null>(isObj(init) && typeof init.outboxId === "string" ? init.outboxId : null);
 
+  const releasePause = useCallback(async () => {
+    const id = held.current;
+    held.current = null;
+    if (id) await api.outboxRelease(id).catch(quiet);
+  }, []);
   const run = useCallback((fx: Fx) => {
     switch (fx) {
       case "park":
@@ -69,13 +76,15 @@ export default function ComposeView({ label, init }: PopoutViewProps) {
       case "grace":
         setTimeout(() => dispatchRef.current({ t: "grace", now: Date.now() }), 400);
         break;
-      case "destroy":
+      case "destroy": {
         // what the person should still see (Message sent, Draft saved ...) is shown in the main window; then the window ends
         for (const x of carryToasts(raised.current, since.current)) notifyMain("toast", { text: lazyText(x.text), level: x.kind });
-        void api.popoutDestroy().catch(quiet);
+        // a scheduled message that was only looked at goes back to its schedule before the window is gone (the page may not run its clean-up)
+        void releasePause().then(() => api.popoutDestroy().catch(quiet));
         break;
+      }
     }
-  }, [label]);
+  }, [label, releasePause]);
   const dispatchRef = useRef<(e: Ev) => void>(quiet);
   const dispatch = useCallback(
     (e: Ev) => {
@@ -105,6 +114,7 @@ export default function ComposeView({ label, init }: PopoutViewProps) {
     st.setState({
       openCompose: async (c, opts) => {
         if (c) {
+          held.current = c.outboxId ?? null; // (a scheduled message that came back as an ordinary one is not held)
           setEditor((prev) => ({ init: c, n: (prev?.n ?? 0) + 1 }));
           dispatchRef.current({ t: "reopen" });
           return;
@@ -146,6 +156,9 @@ export default function ComposeView({ label, init }: PopoutViewProps) {
         dispatchRef.current({ t: "undo-offer" });
       },
       scheduled: (outboxId, sendAt) => notifyMain("scheduled", { outboxId, sendAt }),
+      scheduledHandled: () => {
+        held.current = null;
+      },
       draftSaved: (threadId) => {
         lastThread.current = threadId;
         void api.popoutSetKey(draftKey(threadId)).catch(quiet); // the lock of a draft follows its saves
@@ -177,8 +190,19 @@ export default function ComposeView({ label, init }: PopoutViewProps) {
         await runClose({
           facts: () => {
             const p = st.getState().composeProbe?.();
-            return { phase: winRef.current.phase, dirty: st.getState().composeDirty, hasContent: !!p?.hasContent, attaching: !!p?.attaching };
+            return { phase: winRef.current.phase, dirty: st.getState().composeDirty, hasContent: !!p?.hasContent, attaching: !!p?.attaching, scheduled: held.current !== null };
           },
+          askScheduled: async () =>
+            (await choose({
+              title: tNow("compose.leave.scheduledTitle"),
+              body: tNow("app.quit.discardBody"),
+              choices: [
+                { id: "keep", label: tNow("app.quit.keepEditing"), kind: "primary" },
+                { id: "discard", label: tNow("errors.ask.discard"), kind: "danger" },
+              ],
+            })) === "discard"
+              ? "discard"
+              : "keep",
           ask: async () => {
             const a = await choose({
               title: tNow("compose.popout.closeTitle"),
@@ -230,6 +254,8 @@ export default function ComposeView({ label, init }: PopoutViewProps) {
           phase: () => winRef.current.phase,
           dirty: () => st.getState().composeDirty,
           hasContent: () => !!st.getState().composeProbe?.().hasContent,
+          scheduled: () => held.current !== null,
+          release: releasePause,
           save,
           ask: async (why) => {
             const a = await choose({

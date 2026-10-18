@@ -5,7 +5,7 @@
 import assert from "node:assert/strict";
 import { readFileSync, readdirSync } from "node:fs";
 import { isPopout, popoutDevEnabled, popoutTitle, routeOf } from "../src/popout/route.ts";
-import { answerKey, draftKey, opensInWindow, shiftOnly } from "../src/popout/entry.ts";
+import { answerKey, draftKey, opensInWindow, outboxKey, shiftOnly } from "../src/popout/entry.ts";
 import { MODIFIER_WINDOW_MS, noteInput, resetModifier, shiftNow } from "../src/popout/modifier.ts";
 import { closeAction, composeFlush, GRACE_MS, runClose, secondsLeft, START, step, UNDO_SETTLE_MS } from "../src/popout/composeWindow.ts";
 import { carryToasts, parseComposeRequest } from "../src/popout/composeRequests.ts";
@@ -689,11 +689,13 @@ assert.equal(draftKey("t9"), "draft:t9");
   for (const a of ["openCompose:", "sync:", "refresh:", "setDialog:", "showToast:"]) assert.ok(view.includes(a), a);
   assert.ok(view.indexOf("setReady(true)") > view.indexOf("openCompose:"), "Compose is drawn after the actions are replaced");
   // Compose.tsx: the seam is the only difference, and the main window (no seam) behaves as before
-  assert.equal(compose.match(/composeSeam\(\)/g).length, 12, "the places where Compose asks the seam (two of them: a message scheduled in a window is announced by the main window, which owns the outbox; two for the draft the pane shows, W2.11)");
+  assert.equal(compose.match(/composeSeam\(\)/g).length, 13, "the places where Compose asks the seam (two of them: a message scheduled in a window is announced by the main window, which owns the outbox; two for the draft the pane shows, W2.11; one tells a window that the scheduled message it holds paused is handled, W2.10)");
   assert.ok(compose.includes("composeSeam()?.scheduled(") && view.includes("scheduled: (outboxId, sendAt) => notifyMain(\"scheduled\""), "Scheduled for ... with Undo and View comes from the main window");
   assert.ok(compose.includes("openCompose(null, { sending: wait })") && compose.includes("openCompose(null, { sending: 0 })"), "a send hands the message over, it does not end it");
   assert.ok(compose.includes('else showToast(() => t("compose.toast.sending"), undoSend, "info")'), "the main window still has the Undo toast");
-  assert.ok(compose.includes("if (init.outboxId || composeSeam() || busy) return;"), "no pop-out of a scheduled message or from a window");
+  assert.ok(compose.includes("if (composeSeam() || busy) return;"), "no pop-out from a window (a scheduled message pops out like any other, W2.10)");
+  assert.ok(compose.includes('openPopout("compose", init.outboxId ? outboxKey(init.outboxId) : null, moved)') && compose.includes("if (init.outboxId) savedRef.current = true;"), "a scheduled message moves to a window keyed outbox:<id> and the pane does not release its pause as it closes");
+  assert.ok(!compose.includes("!init.outboxId && !composeSeam() && (") && !compose.includes('"o" && !init.outboxId'), "the Pop out button and Ctrl+Shift+O are there for a scheduled message too");
   assert.ok(compose.includes('e.key.toLowerCase() === "o"') && compose.includes("compose.popout.popOutTip"), "Ctrl+Shift+O and the button");
   assert.ok(compose.includes("init.recoveryId || init.carried"), "a moved message counts as changed");
   // ... but only one that is changed: a pane as it was opened moves as it is (no question, no autosave in the window, nothing written; 1.0.7 WP2a QA BUG-2), and a
@@ -731,6 +733,39 @@ assert.equal(draftKey("t9"), "draft:t9");
     assert.ok(read("src/composeRecovery.ts").includes("openDraftThread(threadId, true, o)") && read("src/popout/composeHub.ts").includes("openDraftThread(p.threadId, true)") && compose.includes("void openDraftThread(tid, true)"));
     assert.ok(compose.includes("return openDraftThread(threadId, false, { window: true });"), "openDraftInWindow asks the same check");
     for (const f of ["src/components/CommandBar.tsx", "src/components/ListContextMenu.tsx", "src/components/Ribbon.tsx", "src/App.tsx"]) assert.ok(!read(f).includes("api.getThread(") || !read(f).includes("startCompose"), `${f} opens a draft by itself`);
+  }
+  // W2.10: Edit in the Scheduled list is a way of starting a message like the others, and a second Edit focuses the editor that has it
+  {
+    const sl = read("src/components/ScheduledList.tsx");
+    assert.ok(sl.includes("}, { shift, key });") && sl.includes("startCompose({") && !sl.includes("openCompose("), "the Scheduled list starts the message through startCompose with an outbox: key");
+    assert.ok(sl.indexOf("focusInlineEditor()") < sl.indexOf("focusDraftWindow(key)") && sl.indexOf("focusDraftWindow(key)") < sl.indexOf("api.outboxOpenForEdit("), "an editor that has the message is asked before the message is paused for edit");
+    assert.ok(sl.includes("api.outboxRelease(o.id)"), "a message that could not be shown goes back to its schedule");
+    assert.equal(outboxKey("ob1"), "outbox:ob1");
+    const view = read("src/popout/ComposeView.tsx");
+    assert.ok(view.includes("scheduled: held.current !== null") && view.includes("compose.leave.scheduledTitle") && view.includes("void releasePause().then(() => api.popoutDestroy()"), "the window asks the scheduled question and releases the pause as it ends");
+    assert.ok(view.includes("scheduledHandled: () => {") && compose.includes("composeSeam()?.scheduledHandled();"), "a rescheduled / sent / deleted / moved message is not released");
+    assert.ok(compose.includes("const done = beginSend(); // (a window ends when the last send of it is over)") && compose.includes("void openCompose(null, { sending: 0 }); // (a window waits for the send under way before it ends)"), "Schedule and Send now count as a send, so the window waits and ends");
+    const cap = JSON.parse(read("src-tauri/capabilities/popout.json")).permissions;
+    for (const c of ["allow-outbox-open-for-edit", "allow-outbox-update", "allow-outbox-release", "allow-outbox-to-draft", "allow-cancel-outbox", "allow-outbox-send-now"]) assert.ok(cap.includes(c), c);
+    // the close table of a scheduled message
+    const f = (o) => ({ phase: "edit", dirty: false, hasContent: true, attaching: false, scheduled: true, ...o });
+    assert.equal(closeAction(f({})), "end", "nothing changed: closes, the schedule stays");
+    assert.equal(closeAction(f({ hasContent: false })), "end");
+    assert.equal(closeAction(f({ dirty: true })), "ask-scheduled", "changed: asked, whatever the content");
+    assert.equal(closeAction(f({ dirty: true, hasContent: false })), "ask-scheduled");
+    assert.equal(closeAction(f({ dirty: true, attaching: true })), "attaching");
+    assert.equal(closeAction(f({ phase: "work", dirty: true })), "park");
+    const log = [];
+    const d = (answer) => ({ facts: () => f({ dirty: true }), ask: async () => (log.push("ask"), "save"), save: async () => (log.push("save"), true), askFailed: async () => "keep", discard: async () => void log.push("discard"), askScheduled: async () => (log.push("askScheduled"), answer), park() {}, end: () => void log.push("end"), attaching() {}, savedDraft: () => void log.push("savedDraft") });
+    assert.equal(await runClose(d("keep")), "cancelled");
+    assert.deepEqual(log.splice(0), ["askScheduled"], "Keep editing keeps everything: nothing saved, nothing ended");
+    assert.equal(await runClose(d("discard")), "discarded");
+    assert.deepEqual(log.splice(0), ["askScheduled", "end"], "Discard: the window ends (and releases the pause); no draft is saved, nothing is put back");
+    // quit and update restart: changes are not saved, the pause is released, the schedule stays
+    const fl = [];
+    const fd = { phase: () => "edit", dirty: () => true, hasContent: () => true, scheduled: () => true, release: async () => void fl.push("release"), save: async () => (fl.push("save"), true), ask: async () => "keep", showWindow() {}, dialog() {}, discarded: async () => void fl.push("discarded"), flushSends: async () => void fl.push("flushSends") };
+    assert.equal(await composeFlush(fd, "quit"), true);
+    assert.deepEqual(fl, ["release"]);
   }
   // W2.12: a window answers to every key it was given (the registry keeps the reply key after a save)
   { const reg = read("src-tauri/src/popout.rs"); assert.ok(reg.includes("fn a_window_keeps_its_answer_key_after_a_save()") && reg.includes("pub keys: Vec<String>,") && reg.includes("keys: key.map(String::from).into_iter().collect()"), "popout.rs holds a list of keys"); }

@@ -198,3 +198,5 @@ static | node --experimental-strip-types scripts/test-reply-to.mjs
 ui-a | node scripts/test-reply-to-setting.mjs --require-browser
 # a recipient chip dragged with the mouse from To to Cc to Bcc and back (a real browser drag): moved, same field and other places do nothing, a duplicate is not added again, the target is outlined, the change is an edit, the chip carries no text
 ui-a | node scripts/test-chip-drag.mjs --require-browser
+# a scheduled message edited in a compose window: the banner and bar, X with and without a change (the pause is released, the schedule stays), Schedule / Send now / Discard choices, Pop out of a scheduled message from the pane, Scheduled > Edit follows the setting and a second Edit focuses the editor that has it
+ui-b | node scripts/test-popout-scheduled.mjs --require-browser
