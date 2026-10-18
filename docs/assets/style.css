@@ -654,7 +654,7 @@ details ol { padding-left: 1.2em; } details li { margin-bottom: .5em; }
   .nav { display: none; position: absolute; left: 0; right: 0; top: 100%; flex-direction: column; margin: 0; padding: 10px 16px 16px; background: var(--bg); border-bottom: 1px solid var(--line); box-shadow: var(--shadow); }
   .nav.open { display: flex; } .nav a { padding: 13px 10px; font-size: 1.05rem; }
   .nav-toggle { display: inline-flex; }
-  .hdr-dl span { position: absolute; width: 1px; height: 1px; margin: -1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; } /* visually hidden, still the link's name */ .hdr-dl { padding-inline: .7em; min-width: 44px; }
+  .hdr-dl span { position: absolute; width: 1px; height: 1px; margin: -1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; } /* visually hidden, still the link's name */ .hdr-dl { padding-inline: .7em; min-width: 44px; min-height: 44px; }
   .hdr-r { flex: 0 1 auto; }
 }
 /* Set by site.js when the inline nav would touch the buttons (wider fonts, classic scrollbar): the same menu as at 980px and below, Download keeps its label. */
@@ -687,17 +687,17 @@ details ol { padding-left: 1.2em; } details li { margin-bottom: .5em; }
   :lang(vi) .nav.open { display: flex; } :lang(vi) .nav a { padding: 13px 10px; font-size: 1.05rem; }
   :lang(vi) .nav-toggle { display: inline-flex; }
 }
-/* Phones: the five header buttons get a little narrower and the logo a little smaller, so logo + wordmark + buttons fit from 371px up; below that the wordmark goes and the logo stays. If a wider font still does not fit, the wordmark is cut with an ellipsis (it never pushes the buttons out and never squeezes the logo). */
+/* Phones: the five header buttons keep their 44 x 44 px touch size (the Download button is icon-only here and 44 px high from 980px down); the logo gets a little smaller and the wordmark goes at 400px and below (the logo keeps its name "Hey Look! home"), so the buttons fit from 320px up. If a wider font still does not fit above 400px, the wordmark is cut with an ellipsis (it never pushes the buttons out and never squeezes the logo). */
 @media (max-width: 480px) {
   .hdr-in { gap: 8px; }
   .hdr-r { gap: 2px; }
-  .hdr-r .icon-btn, .hdr-r #motion-btn, .hdr-r .lang > summary { width: 38px; min-width: 38px; padding: 0; }
-  .hdr-r .hdr-dl { min-width: 38px; padding-inline: 0; margin-left: 2px; }
+  .hdr-r .icon-btn, .hdr-r #motion-btn, .hdr-r .lang > summary { width: 44px; min-width: 44px; padding: 0; }
+  .hdr-r .hdr-dl { min-width: 44px; padding-inline: 0; margin-left: 2px; }
   .brand { gap: 8px; }
   .brand svg { width: 30px; height: 30px; }
   .brand span { font-size: 1.05rem; overflow: hidden; text-overflow: ellipsis; padding-right: .08em; }
 }
-@media (max-width: 370px) { .brand span { display: none; } }
+@media (max-width: 400px) { .brand span { display: none; } }
 @media (max-width: 560px) {
   .ftr-grid { grid-template-columns: 1fr; }
   .pl { grid-template-columns: 48px 1fr; } .pl .btn { grid-column: 1 / -1; } .pl-i { width: 48px; height: 48px; }
