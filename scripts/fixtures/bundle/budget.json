@@ -1,0 +1,42 @@
+{
+  "policy": "fixture",
+  "initialJsGzip": {
+    "bytes": 100000,
+    "reason": "fixture"
+  },
+  "initialJsRaw": {
+    "bytes": 100000,
+    "reason": "fixture"
+  },
+  "langChunkGzip": null,
+  "lazyChunkGzip": {
+    "bytes": 100000,
+    "reason": "fixture"
+  },
+  "cssGzip": {
+    "bytes": 100000,
+    "reason": "fixture"
+  },
+  "exceptions": [],
+  "mustBeLazy": [
+    {
+      "module": "src/editor/FindBar.tsx",
+      "reason": "lazy in the fixture",
+      "since": "t"
+    }
+  ],
+  "neverShipped": [
+    {
+      "module": "src/devFake.ts",
+      "reason": "absent in the fixture"
+    }
+  ],
+  "history": [
+    {
+      "date": "2026-10-19",
+      "branch": "fixture",
+      "field": "all",
+      "reason": "fixture"
+    }
+  ]
+}

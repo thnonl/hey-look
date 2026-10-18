@@ -1,0 +1,92 @@
+{
+  "html": "<!doctype html>\n<html lang=\"en\">\n  <head>\n    <meta charset=\"UTF-8\" />\n    <title>fixture</title>\n    <script type=\"module\" crossorigin src=\"/assets/index-a.js\"></script>\n    <link rel=\"modulepreload\" crossorigin href=\"/assets/react-b.js\">\n    <link rel=\"modulepreload\" crossorigin href=\"/assets/api-c.js\">\n    <link rel=\"modulepreload\" crossorigin href=\"/assets/store-d.js\">\n    <link rel=\"stylesheet\" crossorigin href=\"/assets/index-g.css\">\n  </head>\n  <body><div id=\"root\"></div></body>\n</html>\n",
+  "entryModules": [
+    "src/main.tsx"
+  ],
+  "importers": {
+    "src/main.tsx": [],
+    "src/App.tsx": [
+      "src/main.tsx"
+    ],
+    "src/editor/kitExtensions.ts": [
+      "src/App.tsx"
+    ],
+    "src/editor/FindBar.tsx": [],
+    "src/devMock.ts": [],
+    "node_modules/react/index.js": [
+      "src/main.tsx"
+    ],
+    "src/api.ts": [
+      "src/App.tsx"
+    ],
+    "src/store.ts": [
+      "src/App.tsx"
+    ]
+  },
+  "chunks": [
+    {
+      "file": "assets/index-a.js",
+      "isEntry": true,
+      "imports": [
+        "assets/react-b.js",
+        "assets/api-c.js",
+        "assets/store-d.js"
+      ],
+      "dynamicImports": [],
+      "modules": {
+        "src/main.tsx": 1200,
+        "src/App.tsx": 4000
+      }
+    },
+    {
+      "file": "assets/react-b.js",
+      "isEntry": false,
+      "imports": [],
+      "dynamicImports": [],
+      "modules": {
+        "node_modules/react/index.js": 8000
+      }
+    },
+    {
+      "file": "assets/api-c.js",
+      "isEntry": false,
+      "imports": [],
+      "dynamicImports": [],
+      "modules": {
+        "src/api.ts": 2000
+      }
+    },
+    {
+      "file": "assets/store-d.js",
+      "isEntry": false,
+      "imports": [
+        "assets/api-c.js"
+      ],
+      "dynamicImports": [],
+      "modules": {
+        "src/store.ts": 3000,
+        "src/editor/kitExtensions.ts": 800
+      }
+    },
+    {
+      "file": "assets/editor-e.js",
+      "isEntry": false,
+      "imports": [
+        "assets/react-b.js"
+      ],
+      "dynamicImports": [],
+      "modules": {
+        "src/editor/FindBar.tsx": 4500
+      }
+    },
+    {
+      "file": "assets/dev-f.js",
+      "isEntry": false,
+      "imports": [],
+      "dynamicImports": [],
+      "modules": {
+        "src/devMock.ts": 2900
+      }
+    }
+  ]
+}
