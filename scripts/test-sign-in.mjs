@@ -8,7 +8,7 @@ import { calendarErrorText, statusLine } from "../src/calendarSync.ts";
 import { backendText } from "../src/backendErrors.ts";
 
 assert.equal(GOOGLE_REVIEW_PENDING, true, "1.0.1 ships while Google has not verified the app");
-assert.equal(GOOGLE_REVIEW_HELP_URL, "https://thnonl.github.io/hey-look/help.html#google-review");
+assert.equal(GOOGLE_REVIEW_HELP_URL, "https://heylook.namthai.site/help.html#google-review");
 
 // ---- how a sign-in ended (the texts are what the Rust code sends)
 const mail = (code, label, rest = "") => `${code}|label=${label}${rest}: whatever`;

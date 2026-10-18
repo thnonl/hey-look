@@ -7,8 +7,8 @@ import { ABOUT_LINKS } from "../src/aboutLinks.ts";
 const read = (p) => readFileSync(new URL(`../${p}`, import.meta.url), "utf8").replace(/\r\n/g, "\n");
 
 assert.deepEqual(ABOUT_LINKS.map((l) => [l.text, l.url]), [
-  ["Website", "https://thnonl.github.io/hey-look/"],
-  ["Buy me a coffee", "https://thnonl.github.io/hey-look/support.html"],
+  ["Website", "https://heylook.namthai.site/"],
+  ["Buy me a coffee", "https://heylook.namthai.site/support.html"],
   ["Source code", "https://github.com/thnonl/hey-look"],
 ]);
 
@@ -26,5 +26,5 @@ assert.ok(readme.includes(`[buy me a coffee](${ABOUT_LINKS[1].url})`));
 assert.ok(existsSync(new URL("../docs/support.html", import.meta.url)) && existsSync(new URL("../docs/index.html", import.meta.url)));
 
 // the changelog has the section of the next version at the top
-assert.match(read("CHANGELOG.md"), /^# Changelog\n\n## 1.0.6 — /);
+assert.match(read("CHANGELOG.md"), /^# Changelog\n\n## 1.0.7 — /);
 console.log("ok - test-about-links");

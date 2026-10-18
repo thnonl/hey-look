@@ -1,11 +1,12 @@
 #!/usr/bin/env node
 // Checks how the website's 404 page finds its language, without a browser (no dependencies). Run:  node scripts/test-site-404.mjs
 //
-// GitHub Pages serves docs/404.html for EVERY missing address, whatever the folder (https://thnonl.github.io/hey-look/de/nope.html and
-// https://thnonl.github.io/hey-look/nope.html get the same file). So the page works out two things from the address alone:
-//   1. the <base href>, from an inline script in 404.html: /hey-look/ on github.io, / on any other host, . for file:// ;
+// GitHub Pages serves docs/404.html for EVERY missing address, whatever the folder (https://heylook.namthai.site/de/nope.html and
+// https://heylook.namthai.site/nope.html get the same file). So the page works out two things from the address alone:
+//   1. the <base href>, from an inline script in 404.html: / on the custom domain and on any other host, /<project>/ on a *.github.io
+//      project site (kept as a fallback), . for file:// ;
 //   2. the language, from the first folder under the base (assets/site.js, the "404" block): a known language folder loads that
-//      dictionary (German 404 for /hey-look/de/nope.html); anything else stays English.
+//      dictionary (German 404 for /de/nope.html); anything else stays English.
 // The whole page is then translated from that dictionary: heading, buttons, header navigation and footer (data-i18n / data-i18n-aria in
 // 404.html). Section 5 renders the page with each dictionary and compares its header and footer with the index page of that language.
 // The browser language (navigator.language) and any redirect are never used: the site is English at the root and the visitor picks
@@ -33,8 +34,15 @@ function baseFor(location) {
   try { vm.runInNewContext(inline[0] || '', sandbox); } catch (e) { return 'ERROR ' + e.message; }
   return (/<base href="([^"]*)">/.exec(written) || [])[1];
 }
+const site = (pathname) => ({ protocol: 'https:', hostname: 'heylook.namthai.site', pathname });
+// a *.github.io project site (the address before the custom domain; GitHub now redirects it, the script still copes)
 const gh = (pathname) => ({ protocol: 'https:', hostname: 'thnonl.github.io', pathname });
 const BASE_CASES = [
+  [site('/nope.html'), '/'],
+  [site('/nope'), '/'],
+  [site('/de/nope.html'), '/'],
+  [site('/zh/a/b/c.html'), '/'],
+  [site('/'), '/'],
   [gh('/hey-look/nope.html'), '/hey-look/'],
   [gh('/hey-look/nope'), '/hey-look/'],
   [gh('/hey-look/de/nope.html'), '/hey-look/'],
@@ -58,7 +66,7 @@ if (cspHash !== realHash) fail(`404.html: the CSP hash of the inline script (${c
 const m = /var basePath = (new URL\(document\.baseURI\)\.pathname), here = (location\.pathname);\s*\n\s*var seg = ([^;\n]+);/.exec(siteJs);
 if (!m) fail('assets/site.js: the 404 block ("var basePath = ..., here = ...; var seg = ...;") was not found or changed shape: update this test with it');
 const segOf = (base, pathname) => vm.runInNewContext(m[3], {
-  basePath: new URL(base, 'https://thnonl.github.io').pathname, here: pathname, location: { pathname }, document: { baseURI: new URL(base, 'https://thnonl.github.io').href },
+  basePath: new URL(base, 'https://heylook.namthai.site').pathname, here: pathname, location: { pathname }, document: { baseURI: new URL(base, 'https://heylook.namthai.site').href },
 });
 const dirs = LANGS.filter((l) => l.dir).map((l) => l.dir);
 const menuDirs = [...html.matchAll(/data-dir="([^"]*)"/g)].map((x) => x[1]).filter(Boolean);
@@ -80,6 +88,7 @@ if (m) {
   // the same on a host without a project folder (base /)
   for (const d of dirs) { const got = langOf(segOf('/', `/${d}/nope.html`)); if (got !== d) fail(`site.js 404 language for /${d}/nope.html with base /: ${got}`); }
   if (langOf(segOf('/', '/nope.html')) !== 'en') fail('site.js 404 language for /nope.html with base /: not English');
+  for (const p of ['/', '/de.html', '/DE/nope.html', '/xx/nope.html', '/devil/x.html', '/assets/nope.png']) if (langOf(segOf('/', p)) !== 'en') fail(`site.js 404 language for ${p} with base /: not English`);
 }
 
 // ---------- 3. what the language page needs ----------
