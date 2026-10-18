@@ -1,5 +1,9 @@
 # Changelog
 
+## 1.0.7 — xx
+
+- The website moved to https://heylook.namthai.site/ (the old thnonl.github.io/hey-look/ addresses are redirected there)
+
 ## 1.0.6 — 2026-10-18
 
 Writing a message got much more complete and much safer, and messages can now be written and read in windows of their own. Nothing you write is lost to a crash any more, the message that goes out is built the way other mail programs build theirs, and the mail list, the mailboxes, the side menu and the AI Assistant got a number of long-wanted touches.

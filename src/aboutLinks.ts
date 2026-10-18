@@ -3,7 +3,7 @@
 import { t } from "./i18n/index.ts";
 
 /** The support page ("Buy me a coffee"): Settings > About and the occasional support reminder open the same address. */
-export const SUPPORT_URL = "https://thnonl.github.io/hey-look/support.html";
+export const SUPPORT_URL = "https://heylook.namthai.site/support.html";
 
 export interface AboutLink {
   text: string;
@@ -12,7 +12,7 @@ export interface AboutLink {
 
 // `text` is read when the link is drawn, so it follows the language in use
 export const ABOUT_LINKS: readonly AboutLink[] = [
-  { get text() { return t("settings.about.website"); }, url: "https://thnonl.github.io/hey-look/" },
+  { get text() { return t("settings.about.website"); }, url: "https://heylook.namthai.site/" },
   { get text() { return t("settings.about.coffee"); }, url: SUPPORT_URL },
   { get text() { return t("settings.about.source"); }, url: "https://github.com/thnonl/hey-look" },
 ];
