@@ -347,6 +347,7 @@ export default defineLocale<typeof ns.en>({
   "compose.pic.overLimit": "Die Nachricht ist beim Senden {size} groß – über dem Limit von {limit}. Verkleinern Sie Bilder oder entfernen Sie Anhänge.",
   "compose.pic.unsupported": "„{name}“ konnte nicht eingefügt werden: Dieses Bildformat wird nicht unterstützt. Es wurde stattdessen angehängt.",
   "compose.pic.resized": "{name} auf 1600 px verkleinert ({size})",
+  "compose.pic.resizedGif": "{name} auf 1600 px verkleinert ({size}) und in PNG umgewandelt: Die Animation bleibt nicht erhalten",
   "compose.alt.checkTitle": {"one":"{n} Bild hat keinen Alternativtext","other":"{n} Bilder haben keinen Alternativtext"},
   "compose.alt.checkBody": "Menschen, die einen Screenreader nutzen, erfahren nicht, was darauf zu sehen ist.",
   "compose.alt.addAlt": "Alternativtext hinzufügen",

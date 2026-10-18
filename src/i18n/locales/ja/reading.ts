@@ -61,6 +61,7 @@ export default defineLocale<typeof ns.en>({
   "reading.head.summarize": "要約",
   "reading.head.setupAi": "AIを設定",
   "reading.head.summaryTitle": "会話の要約",
+  "reading.head.summaryCut": "長い会話のため、最初の部分のみを要約しました。",
   "reading.head.blockTitle": "{email}をブロックしますか？",
   "reading.head.blockBody": "この送信者からのメールは迷惑メールに移動します。送信者は「ブロックした送信者」（設定 → ブロックした送信者）に追加され、そこで解除できます。",
   "reading.head.blockConfirm": "送信者をブロック",

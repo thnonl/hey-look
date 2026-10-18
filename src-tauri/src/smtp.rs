@@ -97,6 +97,10 @@ pub struct Draft {
     /// next start finds the draft of a snapshot instead of making a second one (recover.rs). Never part of a message that is sent.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub recovery_id: Option<String>,
+    /// Only for a DRAFT: the meeting switch of Compose as the interface wrote it (base64url JSON, see src/meetingDraft.ts). It goes into the private header
+    /// `X-HeyLook-Meeting` of the draft so that a reopened draft shows its meeting again (v1.0.6 QA round 3 BUG-R3-4). Never part of a message that is sent.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub meeting_form: Option<String>,
 }
 
 /// Outlook's Sensitivity header. Lettre has no typed header for it.
@@ -272,6 +276,7 @@ macro_rules! raw_recipients {
 raw_recipients!(RawTo, "To");
 raw_recipients!(RawCc, "Cc");
 raw_recipients!(RawBcc, "Bcc");
+raw_recipients!(RawMeeting, "X-HeyLook-Meeting");
 
 /// `lenient`: for a DRAFT. A draft is saved as it is: no recipient, a half-typed one, an empty subject all save. lettre derives the
 /// SMTP envelope from the recipient headers and refuses a message without one ("missing destination address, invalid envelope"), so
@@ -305,6 +310,10 @@ fn headers(acc: &Account, d: &Draft, lenient: bool) -> R<lettre::message::Messag
         // sending the reopened draft silently skipped them). It is only the person's own Drafts folder; a message that is SENT is built below
         // without it (the SMTP envelope carries the Bcc recipients, the message must not name them).
         b = b.keep_bcc();
+        // the meeting of the message (a private header, DRAFT copies only: `headers(.., false)`, the one a message is sent with, never writes it)
+        if let Some(blob) = d.meeting_form.as_deref().and_then(crate::draftmail::meeting_blob) {
+            b = b.header(RawMeeting(crate::draftmail::meeting_header_value(&blob)));
+        }
         // each list: typed addresses when every entry is one, else the text as written
         let all_ok = |l: &[String]| l.iter().all(|t| parse_mailbox(t).is_ok());
         let raw = |l: &[String]| l.iter().map(|t| clean_header_text(t)).map(|t| t.trim().to_string()).filter(|t| !t.is_empty()).collect::<Vec<_>>().join(", ");
@@ -789,6 +798,7 @@ pub(crate) mod tests {
             confidential: false,
             importance: Default::default(),
             recovery_id: None,
+            meeting_form: None,
         }
     }
 
@@ -2096,5 +2106,111 @@ To:") && !out.contains("undisclosed"), "{out}");
         .unwrap();
         let enc = text(&enc);
         assert!(enc.contains("Importance: high\r\n") && enc.contains("Message-ID: <") && !enc.to_ascii_lowercase().contains("bcc:"), "{enc}");
+    }
+}
+
+/// BUG-R3-4: the meeting of a draft travels in a private header of the DRAFT copy and nowhere else.
+#[cfg(test)]
+mod meeting_form_tests {
+    use super::tests::{account, draft};
+    use super::*;
+
+    const BLOB: &str = "eyJ2IjoxLCJ0eiI6IkFzaWEvSG9fQ2hpX01pbmgiLCJzZCI6IjIwMjYtMTAtMjAiLCJzdCI6IjA5OjAwIiwiZWQiOiIyMDI2LTEwLTIwIiwiZXQiOiIxMDowMCIsImFsbERheSI6ZmFsc2UsIndoZXJlIjoiUm9vbSAxIn0";
+
+    fn with_meeting(form: Option<&str>) -> Draft {
+        let mut d = draft("<p>Hi</p>", vec![], vec![]);
+        d.meeting_form = form.map(str::to_string);
+        d
+    }
+
+    fn names(raw: &[u8]) -> Vec<String> {
+        let (h, _) = crate::pgpmail::parse_headers(raw);
+        h.into_iter().map(|(k, _)| k.to_ascii_lowercase()).collect()
+    }
+
+    #[test]
+    fn a_draft_writes_the_header_and_reads_it_back() {
+        let raw = build_draft(&account(), &with_meeting(Some(BLOB))).unwrap().formatted();
+        assert_eq!(names(&raw).iter().filter(|n| *n == "x-heylook-meeting").count(), 1);
+        assert_eq!(crate::draftmail::recipients(&raw).meeting.as_deref(), Some(BLOB));
+        // no line of the header block is too long for a mail server (RFC 5322: 998)
+        let head = String::from_utf8_lossy(&raw).split("\r\n\r\n").next().unwrap().to_string();
+        assert!(head.lines().all(|l| l.len() <= 998), "{head}");
+    }
+
+    /// A long value (a long location) is written in folded pieces and still comes back whole.
+    #[test]
+    fn a_long_value_is_folded_and_comes_back_whole() {
+        let long: String = "aB3-_".repeat(400); // 2000 characters
+        let raw = build_draft(&account(), &with_meeting(Some(&long))).unwrap().formatted();
+        let head = String::from_utf8_lossy(&raw).split("\r\n\r\n").next().unwrap().to_string();
+        assert!(head.lines().all(|l| l.len() <= 998), "a header line is too long");
+        assert_eq!(crate::draftmail::recipients(&raw).meeting.as_deref(), Some(long.as_str()));
+    }
+
+    /// MA-05: the message that is SENT (plain, signed, with a scheduled copy) never has the header, whatever the draft carries.
+    #[test]
+    fn a_sent_message_never_has_the_header() {
+        let d = with_meeting(Some(BLOB));
+        let sent = build(&account(), &d).unwrap().formatted();
+        assert!(!names(&sent).contains(&"x-heylook-meeting".to_string()));
+        assert!(!String::from_utf8_lossy(&sent).contains(BLOB));
+        let signed = build_signed(&account(), &d, false, &|_: &[u8]| Ok(("sig".into(), "pgp-sha256".into()))).unwrap().formatted();
+        assert!(!String::from_utf8_lossy(&signed).contains(BLOB));
+        // the wire form (what the SMTP server gets and what the Sent folder keeps) is the same bytes
+        assert!(!String::from_utf8_lossy(&wire(&build(&account(), &d).unwrap())).contains("X-HeyLook"));
+    }
+
+    /// A draft without a meeting is as it was: no header, and the queue's JSON has no new field.
+    #[test]
+    fn a_draft_without_a_meeting_is_unchanged() {
+        let d = with_meeting(None);
+        let raw = build_draft(&account(), &d).unwrap().formatted();
+        assert!(!names(&raw).contains(&"x-heylook-meeting".to_string()));
+        assert_eq!(crate::draftmail::recipients(&raw).meeting, None);
+        assert!(!serde_json::to_string(&d).unwrap().contains("meetingForm"));
+        // an item queued by an older version loads
+        let json = serde_json::to_string(&d).unwrap();
+        assert!(serde_json::from_str::<Draft>(&json).unwrap().meeting_form.is_none());
+    }
+
+    /// A value that is not ours (other alphabet, too long, empty) is not written and not read.
+    #[test]
+    fn a_malformed_or_oversized_value_is_ignored() {
+        for bad in ["", "   ", "not base64url!", "a=b", "<script>", &"A".repeat(crate::draftmail::MEETING_MAX + 1)] {
+            let raw = build_draft(&account(), &with_meeting(Some(bad))).unwrap().formatted();
+            assert!(!names(&raw).contains(&"x-heylook-meeting".to_string()), "written for {bad:?}");
+        }
+        // a header that was written by somebody else
+        for bad in ["not base64url!", "a=b", "", &"A".repeat(crate::draftmail::MEETING_MAX + 1)] {
+            let raw = format!("From: me@example.com\r\nX-HeyLook-Meeting: {bad}\r\nSubject: x\r\n\r\nbody\r\n");
+            assert_eq!(crate::draftmail::recipients(raw.as_bytes()).meeting, None, "read for {bad:?}");
+        }
+        // at the limit it is still read
+        let ok = "A".repeat(crate::draftmail::MEETING_MAX);
+        let raw = format!("From: me@example.com\r\nX-HeyLook-Meeting: {ok}\r\nSubject: x\r\n\r\nbody\r\n");
+        assert_eq!(crate::draftmail::recipients(raw.as_bytes()).meeting.as_deref(), Some(ok.as_str()));
+    }
+
+    /// A server that drops the header: the copy this computer kept (by account and Message-ID) gives the meeting back; another draft has none.
+    #[test]
+    fn a_server_that_drops_the_header_loses_nothing() {
+        let c = crate::db::test_conn(&["a1"]);
+        let raw = build_draft(&account(), &with_meeting(Some(BLOB))).unwrap().formatted();
+        crate::draftmail::remember_meeting(&c, "a1", &raw, BLOB);
+        // what the server hands back: the same message without the private header
+        let text = String::from_utf8_lossy(&raw).to_string();
+        let stripped: String = text.split("\r\n").filter(|l| !l.starts_with("X-HeyLook-Meeting") && !l.starts_with(' ')).collect::<Vec<_>>().join("\r\n");
+        assert!(!stripped.contains("X-HeyLook-Meeting"));
+        assert_eq!(crate::draftmail::recipients(stripped.as_bytes()).meeting, None);
+        assert_eq!(crate::draftmail::recall_meeting(&c, "a1", stripped.as_bytes()).as_deref(), Some(BLOB));
+        assert_eq!(crate::draftmail::recall_meeting(&c, "a2", stripped.as_bytes()), None, "another account");
+        let other = build_draft(&account(), &with_meeting(Some(BLOB))).unwrap().formatted();
+        assert_eq!(crate::draftmail::recall_meeting(&c, "a1", &other), None, "another draft");
+        // old copies go when a new one is written, and a copy of a removed account is pruned
+        c.execute("INSERT INTO settings(key,value) VALUES('dmeet:a1|<old@x>', '1|AAAA'), ('dmeet:gone|<z@x>', '9999999999|AAAA')", []).unwrap();
+        crate::draftmail::remember_meeting(&c, "a1", &other, BLOB);
+        assert!(crate::db::get_setting(&c, "dmeet:a1|<old@x>").is_none());
+        assert_eq!(crate::draftmail::recall_meeting(&c, "a1", &other).as_deref(), Some(BLOB));
     }
 }

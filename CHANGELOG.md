@@ -73,6 +73,13 @@ AI Assistant
 
 ### Fixed
 
+- A meeting is kept when a message is saved as a draft and opened again: the Meeting button stays on with its times, place and "Send invite" (also after a crash recovery, in a window of its own and after Undo); a private header of the draft in the Drafts folder carries it and is never part of a message that is sent
+- The Send later popover, and every other popover and menu of the message, stay whole inside a small window (960 x 560 and lower): the presets, the date and time and the footer fit or scroll in one box, panels open above their button when there is more room, and the alt text popover of a picture is no longer cut off
+- The picture toolbar and the resize handles no longer overlap: the handles sit inside the corners of the picture, and the toolbar keeps clear of the picture's edges
+- A picture that is made smaller and re-encoded (a GIF becomes a PNG) is named for what it is (photo.png), in the message, the draft and the sent message, and the notice says that the animation is not kept
+- Summarize says when only the first part of a long conversation was summarized, like Translate does
+- The notice "AI Assistant is not set up" goes away when you save the AI settings
+- A screen reader reads Snooze as "Snooze" (the tooltip with its key, "Snooze (s)", stays)
 - Choosing several pictures at once (the Picture button, a drop or a paste, and in the signature editor) puts all of them in the message, in the order you chose them, and the cursor is behind the last one; before, only the last picture stayed
 - A picture file dropped on the message window follows Settings > Composing > Pasted and dropped pictures (in the message by default, attached when you chose that); the "Drop to insert in the message" and "Drop here to attach" areas still do what they say, and other files are always attached
 - Generate a key (Settings > Encryption, and Set up encryption in a message): Esc, and a click outside the question "Close without a backup?", no longer open the save dialog of the backup instead of leaving the dialog; Done and the X ask once, Close anyway closes the dialog, and Back up now saves the backup so that Done closes it

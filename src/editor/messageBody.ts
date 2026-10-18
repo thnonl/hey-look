@@ -23,6 +23,24 @@ export interface InlinePicture {
   name: string;
 }
 
+const PICTURE_EXT: Record<string, string> = { "image/png": "png", "image/jpeg": "jpg", "image/gif": "gif", "image/webp": "webp" };
+const SAME_TYPE: Record<string, string[]> = { "image/png": ["png"], "image/jpeg": ["jpg", "jpeg", "jpe", "jfif"], "image/gif": ["gif"], "image/webp": ["webp"] };
+const PICTURE_NAME_EXT = /\.(png|jpe?g|jpe|jfif|gif|webp|bmp|tiff?|heic|avif|svg)$/i;
+
+/**
+ * The file name of a picture whose bytes are `mime`: the name when its extension already says so, else the extension of the type (`e09-anim.gif` that was
+ * made a PNG is `e09-anim.png`; a name without a picture extension gets one). A type that is not a picture the editor knows leaves the name alone.
+ * The part type, its file name and its bytes then agree (v1.0.6 QA round 3, BUG-R3-3: a resized GIF went out as image/png under a .gif name).
+ */
+export function nameForMime(name: string, mime: string): string {
+  const type = mime.toLowerCase();
+  const ext = PICTURE_EXT[type];
+  if (!ext) return name;
+  const m = /\.([^./\\]+)$/.exec(name);
+  if (m && SAME_TYPE[type].includes(m[1].toLowerCase())) return name;
+  return PICTURE_NAME_EXT.test(name) ? name.replace(PICTURE_NAME_EXT, `.${ext}`) : `${name}.${ext}`;
+}
+
 const unesc = (s: string) => s.replace(/&quot;/g, '"').replace(/&lt;/g, "<").replace(/&gt;/g, ">").replace(/&amp;/g, "&");
 const SRC = /\ssrc\s*=\s*(?:"([^"]*)"|'([^']*)')/i;
 const NAME = /\sdata-name\s*=\s*(?:"([^"]*)"|'([^']*)')/i;
@@ -40,7 +58,9 @@ export function swapPictures(html: string, newCid: () => string, fileName: (mime
     if (!src || !m) return tag.replace(NAME, ""); // (the editor's file name never leaves)
     const cid = newCid();
     const n = NAME.exec(tag);
-    inline.push({ cid, mime: m[1], dataBase64: m[2], name: (n ? unesc(n[1] ?? n[2] ?? "") : "") || fileName(m[1], inline.length + 1) });
+    // (the name is the one the picture was added with, made to say what the bytes are: a picture that was re-encoded keeps no stale extension)
+    const given = n ? unesc(n[1] ?? n[2] ?? "") : "";
+    inline.push({ cid, mime: m[1], dataBase64: m[2], name: given ? nameForMime(given, m[1]) : fileName(m[1], inline.length + 1) });
     return tag.replace(SRC, ` src="cid:${cid}"`).replace(NAME, "");
   });
   return { html: out, inline };

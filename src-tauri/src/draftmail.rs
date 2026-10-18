@@ -16,6 +16,56 @@ pub struct DraftRecipients {
     /// the same threading headers as before it was saved (WP5f).
     pub in_reply_to: Option<String>,
     pub references: Vec<String>,
+    /// The meeting that was switched on in Compose when the draft was saved (base64url JSON written by src/meetingDraft.ts, checked here only for
+    /// its alphabet and size; the interface checks what is in it). From the private header `X-HeyLook-Meeting` of the draft, else from the copy this
+    /// computer kept (`remember_meeting`: a server may drop headers it does not know). v1.0.6 QA round 3 BUG-R3-4.
+    pub meeting: Option<String>,
+}
+
+// ---------------------------------------------------------------------------------------------------------------------------------
+// The meeting of a draft
+
+/// The private header that carries the meeting. Only DRAFT copies have it (smtp::headers writes it for a draft and never for a message that is sent).
+pub const MEETING_HEADER: &str = "X-HeyLook-Meeting";
+/// Longest meeting value accepted, written or read (a meeting is a few lines; anything bigger is not one of ours).
+pub const MEETING_MAX: usize = 4096;
+/// Longest piece of the header value on one line: the value has no spaces of its own, so it is written in pieces that mail software may fold between.
+const MEETING_LINE: usize = 64;
+
+/// The meeting value when it is one we could have written (base64url alphabet, not empty, not too long; white space from folding ignored), else None.
+pub fn meeting_blob(v: &str) -> Option<String> {
+    let s: String = v.split_whitespace().collect();
+    (!s.is_empty() && s.len() <= MEETING_MAX && s.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'-' || b == b'_')).then_some(s)
+}
+
+/// The header value for a meeting value: pieces of at most `MEETING_LINE` characters separated by a space (a long header line is not allowed to run
+/// past 998 characters, and a folding point needs white space).
+pub fn meeting_header_value(blob: &str) -> String {
+    blob.as_bytes().chunks(MEETING_LINE).map(|c| String::from_utf8_lossy(c).into_owned()).collect::<Vec<_>>().join(" ")
+}
+
+/// How long this computer keeps the meeting of a draft it saved (the copy is only a fallback for a server that drops the header).
+const MEETING_KEEP_SECS: i64 = 60 * 24 * 3600;
+
+fn meeting_key(account_id: &str, raw: &[u8]) -> Option<String> {
+    message_id_of(raw).map(|m| format!("dmeet:{account_id}|{m}"))
+}
+
+/// Keep the meeting of the draft that was just appended, keyed by its account and Message-ID (older copies than `MEETING_KEEP_SECS` go).
+pub fn remember_meeting(c: &rusqlite::Connection, account_id: &str, raw: &[u8], blob: &str) {
+    let (Some(key), Some(blob)) = (meeting_key(account_id, raw), meeting_blob(blob)) else { return };
+    let now = chrono::Utc::now().timestamp();
+    let _ = crate::db::set_setting(c, &key, &format!("{now}|{blob}"));
+    let _ = c.execute(
+        "DELETE FROM settings WHERE key LIKE 'dmeet:%' AND CAST(substr(value, 1, instr(value, '|') - 1) AS INTEGER) < ?1",
+        [now - MEETING_KEEP_SECS],
+    );
+}
+
+/// The meeting this computer kept for the draft with this Message-ID.
+pub fn recall_meeting(c: &rusqlite::Connection, account_id: &str, raw: &[u8]) -> Option<String> {
+    let v = crate::db::get_setting(c, &meeting_key(account_id, raw)?)?;
+    meeting_blob(v.split_once('|')?.1)
 }
 
 /// Split a header value at the commas that separate recipients: not inside a quoted string, an angle-bracket address or a comment.
@@ -100,6 +150,7 @@ pub fn recipients(raw: &[u8]) -> DraftRecipients {
         bcc: list(&h, "Bcc"),
         in_reply_to: ids("In-Reply-To").into_iter().next(),
         references: ids("References"),
+        meeting: crate::pgpmail::header(&h, MEETING_HEADER).and_then(meeting_blob),
     }
 }
 
@@ -133,7 +184,7 @@ impl Target {
 }
 
 /// The Message-ID header of a raw message, with its angle brackets.
-fn message_id_of(raw: &[u8]) -> Option<String> {
+pub(crate) fn message_id_of(raw: &[u8]) -> Option<String> {
     let (h, _) = crate::pgpmail::parse_headers(raw);
     crate::pgpmail::header(&h, "Message-ID").map(|v| v.trim().to_string()).filter(|v| v.starts_with('<') && v.ends_with('>'))
 }

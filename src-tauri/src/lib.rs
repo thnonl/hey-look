@@ -3449,9 +3449,20 @@ fn draft_bytes(db: &Db, acc: &Account, d: &smtp::Draft) -> R<Vec<u8>> {
         if let Some(pre) = &d.prebuilt {
             return base64::engine::general_purpose::STANDARD.decode(pre).map_err(err);
         }
-        return Ok(smtp::wire(&pgpstore::build_secure(&lock(db), acc, d, true)?));
+        // the meeting header is plain text outside the encryption: an encrypted draft keeps its meeting on this computer only (`remember_meeting`)
+        let mut d = d.clone();
+        d.meeting_form = None;
+        return Ok(smtp::wire(&pgpstore::build_secure(&lock(db), acc, &d, true)?));
     }
     Ok(smtp::wire(&smtp::build_draft(acc, d)?))
+}
+
+/// The meeting of a draft that was just appended is also kept on this computer, by Message-ID: a server that drops the header it does not know
+/// would otherwise take the meeting with it (BUG-R3-4). Failures do not matter: the header is the copy that travels.
+fn remember_draft_meeting(db: &Db, acc: &Account, raw: &[u8], d: &smtp::Draft) {
+    if let Some(blob) = d.meeting_form.as_deref() {
+        draftmail::remember_meeting(&lock(db), &acc.id, raw, blob);
+    }
 }
 
 /// Queue a finished message (MIME is built at send time from the stored draft) for `send_at`.
@@ -3614,6 +3625,7 @@ async fn save_draft(state: tauri::State<'_, AppState>, draft: smtp::Draft, repla
         let folder = folder_for(&db, &acc, "drafts")?;
         mail::append(&mut s, &folder, &raw, true)?;
         let _ = s.logout();
+        remember_draft_meeting(&db, &acc, &raw, &draft);
         let draft_ref = draftmail::draft_ref(&acc.id, &raw);
         if let Some(t) = replaces {
             // never remove the draft that was just appended (a reference to its own Message-ID)
@@ -3636,7 +3648,13 @@ async fn draft_recipients(state: tauri::State<'_, AppState>, message_id: String)
     let db = state.db.clone();
     blocking(move || {
         let (raw, _) = fetch_raw_for(&db, &message_id)?;
-        Ok(draftmail::recipients(&raw))
+        let mut r = draftmail::recipients(&raw);
+        if r.meeting.is_none() {
+            // the server dropped the private header (or the draft is encrypted): the copy this computer kept when the draft was saved
+            let acct: Option<String> = lock(&db).query_row("SELECT account_id FROM messages WHERE id=?1", [&message_id], |x| x.get(0)).ok();
+            r.meeting = acct.and_then(|a| draftmail::recall_meeting(&lock(&db), &a, &raw));
+        }
+        Ok(r)
     })
     .await
 }
@@ -3764,6 +3782,7 @@ fn save_recovered(db: &Db, id: &str, draft: &mut smtp::Draft, replaces: Option<S
                 draft.recovery_id = Some(id.to_string());
                 let raw = draft_bytes(db, &acc, draft)?;
                 mail::append(&mut s, &folder, &raw, true)?;
+                remember_draft_meeting(db, &acc, &raw, draft);
                 // the draft is on the server: what it replaces goes (a failure here is only logged, like Save draft). The older drafts of this
                 // very message are removed by the uids that were checked against their headers, on this session.
                 if let Err(e) = mail::delete_forever(&mut s, &folder, &replace) {
@@ -4055,6 +4074,7 @@ async fn outbox_to_draft(app: tauri::AppHandle, state: tauri::State<'_, AppState
         let folder = folder_for(&db, &acc, "drafts")?;
         mail::append(&mut s, &folder, &raw, true)?;
         let _ = s.logout();
+        remember_draft_meeting(&db, &acc, &raw, &d);
         let c = lock(&db);
         c.execute("DELETE FROM outbox WHERE id=?1", [&id]).map_err(err)?;
         calendar::forget_prepared(&c, &payload);
@@ -6513,7 +6533,7 @@ mod importance_tests {
         let d = smtp::Draft {
             account_id: "a1".into(), to: vec!["ann@example.com".into()], cc: vec![], bcc: vec![], subject: "Ship it".into(), html: "<p>x</p>".into(), text: "x".into(),
             in_reply_to: None, references: vec![], attachments: vec![], inline: vec![], security: None, prebuilt: None, meeting: None, calendar: None,
-            confidential: false, importance: High, recovery_id: None,
+            confidential: false, importance: High, recovery_id: None, meeting_form: None,
         };
         let sent = smtp::build(&acc, &d).unwrap().formatted();
         let p = mail::parse(1, &sent, true, false, 0).unwrap();

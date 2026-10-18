@@ -317,6 +317,10 @@ jobs:
           node --experimental-strip-types scripts/test-insert-pictures.mjs
           node --experimental-strip-types scripts/test-header-text.mjs
           node --experimental-strip-types scripts/test-popover-room.mjs
+          node --experimental-strip-types scripts/test-meeting-draft.mjs
+          node --experimental-strip-types scripts/test-picture-rename.mjs
+          node --experimental-strip-types scripts/test-summary-text.mjs
+          node --experimental-strip-types scripts/test-snooze-label.mjs
           node --experimental-strip-types scripts/test-change-case.mjs
           node --experimental-strip-types scripts/test-find-replace.mjs
           node --experimental-strip-types scripts/test-signature-picture.mjs
@@ -348,6 +352,12 @@ jobs:
           node scripts/test-sidebar-collapse.mjs --quick
           # the picture resize handles are clipped with the editor pane, and Discard on a reply with nothing typed closes without asking (real panes in the dev preview)
           node scripts/test-picture-handles.mjs
+          # the picture toolbar and the resize handles never overlap (the handles are measured too), and every popover and menu of the message, ALL its boxes, is inside the window at 946 x 552 and 946 x 480
+          node scripts/test-picture-toolbar.mjs
+          node scripts/test-popover-fit.mjs --quick
+          node scripts/test-ai-save-toast.mjs
+          # a meeting survives Save draft and the crash-recovery snapshot in the real pane (the header side is `cargo test --lib meeting_form`)
+          node scripts/test-meeting-compose.mjs
           node scripts/test-compose-discard.mjs
           # the top strip of the message and conversation windows follows the theme (the root of the compose page is not fixed; macOS paints the title bar from it)
           node scripts/test-popout-theme.mjs

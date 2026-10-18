@@ -245,7 +245,8 @@ for (let vw = 320; vw <= 1920; vw += 40) {
   const css = src("src/App.css");
   const rule = css.match(/\.popover\.up\.sched-pop\s*\{([^}]*)\}/)?.[1] ?? "";
   assert.ok(/width:\s*min\(\s*300px\s*,\s*calc\(100vw - 16px\)\s*\)/.test(rule), "Send later is never wider than the window");
-  assert.ok(/overflow-y:\s*auto/.test(rule), "and scrolls when it is taller than the room");
+  // (the dialog inside the frame is the one box that scrolls: a box of its own taller than its frame stuck out of the window, QA round 3 BUG-R3-1)
+  assert.ok(/\.sched-pop > \.sched-picker\s*\{[^}]*overflow-y:\s*auto/.test(css), "and scrolls when it is taller than the room");
   assert.ok(/\.sched-custom \.sched-actions\s*\{[^}]*flex-wrap:\s*wrap/.test(css), "Cancel / Schedule wrap in a narrow popover (longest labels: de, ru, vi, fr)");
   const compose = src("src/components/Compose.tsx");
   // (placed by usePinnedBelow: fixed under the split button, moved sideways / made scrollable to stay inside the window; the header of the pane scrolls and would cut off an absolute popover)

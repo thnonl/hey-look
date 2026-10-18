@@ -21,12 +21,11 @@ import { useKit } from "../editor/kit";
 import { FormatBar, type FormatBarApi } from "../editor/FormatBar";
 import { PreviewSwitch } from "../editor/PreviewSwitch";
 import { setPreviewMode } from "../editor/previewColors";
-import { messageHtml, nameInlinePicture } from "../editor/messageBody";
+import { messageHtml, nameForMime, nameInlinePicture } from "../editor/messageBody";
 import { unwrapBase, type BaseFont } from "../editor/emailHtml";
 import { extractQuote, quotePictureBytes } from "../editor/quoteBlock";
 import { baseFromPrefs } from "../editor/baseFont";
 import { repairSignature, signatureGuard } from "../signatureGuard";
-import { fitInWindow } from "../fitInWindow";
 import { BAR_ROW_MAX, isCompact } from "../composeFit";
 import { composeHasContent, isPersonEdit } from "../composeContent";
 import { autosaveDue, snapshotDue, timing, type AutosaveWhy } from "../autosave";
@@ -42,6 +41,8 @@ import type { PictureToolsInput } from "../pictureToolsLayout";
 import { blockedAttachmentExt, dataUriBytes, fileToBase64, fmtClock, fmtIn, fmtSize, fmtWhen, htmlToText, imageSize, PICTURE_TYPES, playSent, resizeImage, sanitizeHtml, shortKey, userName } from "../util";
 import { calTz } from "../calendar";
 import { defaultMeeting, MeetingState, MeetingStrip, meetingToDraft } from "./Calendar";
+import { fromInputs, toInputs } from "../calendar";
+import { decodeMeeting, encodeMeeting, meetingWire, restoreMeeting } from "../meetingDraft";
 import { isEmail, singleLabelHostsOf } from "../addresses";
 import { addRecipients, addressOf, chipLabel, formatRecipient, hasRecipient, isImeEvent, openAtEnd, placeRecipients, recipientKey, splitRecipients, type RcptField } from "../recipients";
 import { askUnlock } from "./Pgp";
@@ -361,6 +362,8 @@ export async function openDraftThread(threadId: string, wait = false, o: StartOp
     security: m.security?.encrypted ? { encrypt: true, sign: false, attachPublicKey: false } : undefined,
     confidential: m.confidential,
     importance: m.importance,
+    // the meeting that was on when the draft was saved: from its private header (else the copy this computer kept), checked here (meetingDraft.ts)
+    meetingForm: decodeMeeting(rc?.meeting) ?? undefined,
   }, { ...o, shift, key });
   // the draft is open in the pane (not in a window): a double click moves it to a window instead of opening it twice (openDraftInWindow)
   if (!wantsWindow({ window: o.window, shift })) inlineDraft = { threadId, composeKey: useStore.getState().composeKey };
@@ -508,7 +511,10 @@ function ComposeBody({ init }: { init: ComposeInit }) {
   const ai = useAiSlot("write");
   const [busy, setBusy] = useState(false);
   // a meeting: To = required attendees, Cc = optional; sent as a calendar invitation
-  const [meeting, setMeeting] = useState<MeetingState | null>(init.meeting ? defaultMeeting(calTz(prefs), init.meeting) : null);
+  // (a reopened draft, snapshot or moved message brings the strip as it was: `meetingForm`; the start values of "Meeting" otherwise)
+  const [meeting, setMeeting] = useState<MeetingState | null>(
+    init.meetingForm ? restoreMeeting(init.meetingForm, calTz(prefs), { fromInputs, toInputs }) : init.meeting ? defaultMeeting(calTz(prefs), init.meeting) : null,
+  );
   const [schedOpen, setSchedOpen] = useState(!!init.openSchedule);
   const [dragging, setDragging] = useState(false);
   const [dragImages, setDragImages] = useState(false);
@@ -606,6 +612,11 @@ function ComposeBody({ init }: { init: ComposeInit }) {
   // The picture toolbar is placed after it has been laid out: it wraps to more rows in a narrow pane, so its size is measured, then it
   // goes above / below the picture and inside the pane (pictureToolsLayout.ts). The alt text popover opens under it, also inside the pane.
   const toolsRef = useRef<HTMLDivElement>(null);
+  // the alt text popover is a layer of its own (a portal on <body>, fixed): under the toolbar or above it, inside the window and above a toast, scrolling when it is
+  // taller than the room (a small window: the pane is only a few lines high, an absolute popover inside it was cut off)
+  const toolsBoxRef = useRef<HTMLDivElement>(null);
+  const altPopRef = useRef<HTMLDivElement>(null);
+  usePinnedBelow(altPopRef, toolsBoxRef, altOpen && !!picSel);
   useLayoutEffect(() => {
     const anchor = toolsRef.current;
     if (!picSel || !anchor) return;
@@ -615,13 +626,6 @@ function ComposeBody({ init }: { init: ComposeInit }) {
     const { left, top } = placePictureTools({ ...geo, width: box.offsetWidth, height: box.offsetHeight });
     box.style.marginLeft = `${left}px`;
     anchor.style.top = `${top}px`;
-    const pop = box.querySelector<HTMLElement>(".alt-pop");
-    if (pop) {
-      pop.style.maxWidth = `${Math.max(0, geo.paneWidth - 16)}px`;
-      pop.style.marginLeft = "";
-      const at = left + pop.offsetLeft;
-      pop.style.marginLeft = `${fitInWindow({ left: at, right: at + pop.offsetWidth, top: 0, bottom: 0 }, geo.paneWidth, Infinity).shift}px`;
-    }
   });
 
   const touch = useCallback(() => {
@@ -954,6 +958,8 @@ function ComposeBody({ init }: { init: ComposeInit }) {
       confidential: confidential || undefined,
       importance: draftImportance(importance),
       meeting: md && "meeting" in md ? md.meeting : undefined,
+      // the strip as typed, also when its times are not valid yet: a saved draft, a window the message moves to and Undo give it back (meetingDraft.ts)
+      meetingForm: meeting ? encodeMeeting(meeting, calTz(prefs)) : undefined,
     };
   };
 
@@ -979,6 +985,7 @@ function ComposeBody({ init }: { init: ComposeInit }) {
       // the toggles as they were when Send was pressed (the draft only knows what is active), the body with its one signature region
       restore: { encrypt: encIntent, sign: signOn, attachKey },
       meeting: d.meeting ? { ...d.meeting, on: true } : undefined,
+      meetingForm: decodeMeeting(d.meetingForm) ?? undefined,
     };
   };
   // (in a window of its own the message that comes back after Undo or a failed send counts as changed: closing the window asks, it never loses it)
@@ -1404,7 +1411,7 @@ function ComposeBody({ init }: { init: ComposeInit }) {
       }
     },
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [to, cc, bcc, subject, atts, accountId, sigId, editor, encOn, signActive, attachKey, confidential, importance],
+    [to, cc, bcc, subject, atts, accountId, sigId, editor, encOn, signActive, attachKey, confidential, importance, meeting],
   );
 
   const moveToDrafts = async () => {
@@ -1436,6 +1443,7 @@ function ComposeBody({ init }: { init: ComposeInit }) {
       v: 1, to: withPending(to, "to"), cc: withPending(cc, "cc"), bcc: withPending(bcc, "bcc"), subject, html,
       inReplyTo: init.inReplyTo ?? null, references: init.references ?? [], replaces: replacesRef(), isReply: !!init.isReply,
       encrypt: encIntent, sign: signOn, attachKey, confidential, importance: draftImportance(importance),
+      ...(meeting ? { meeting: meetingWire(meeting, calTz(prefs)) } : {}),
       ...(composeSeam() ? { win: true as const } : {}),
     };
     return { accountId, subject, preview: editor.getText().trim().slice(0, 160), payload: JSON.stringify(form) };
@@ -1656,11 +1664,13 @@ function ComposeBody({ init }: { init: ComposeInit }) {
         continue;
       }
       let finalSrc = src;
+      let finalName = f.name;
       if (f.size > LARGE_PICTURE) {
         if (st.prefs.autoResizePictures) {
           const r = await resizeImage(src, f.type, 1600);
           finalSrc = r.dataUrl;
-          showToast(t("compose.pic.resized", { name: f.name, size: fmtSize(dataUriBytes(finalSrc)) }), undefined, "success");
+          finalName = nameForMime(f.name, r.mime); // (a GIF made a PNG is no .gif any more)
+          showToast(t(f.type === "image/gif" ? "compose.pic.resizedGif" : "compose.pic.resized", { name: finalName, size: fmtSize(dataUriBytes(finalSrc)) }), undefined, "success");
         } else {
           const original = src;
           showToast(
@@ -1671,7 +1681,7 @@ function ComposeBody({ init }: { init: ComposeInit }) {
           );
         }
       }
-      pictures.push({ src: finalSrc, alt: "", "data-name": f.name, width: size.w > MEDIUM ? MEDIUM : null });
+      pictures.push({ src: finalSrc, alt: "", "data-name": finalName, width: size.w > MEDIUM ? MEDIUM : null });
     }
     // all of them in one go: the caret is behind the last picture, so a second picture never takes the place of the first (editor/insertPictures.ts)
     insertPictureNodes(editor, pictures);
@@ -1691,8 +1701,9 @@ function ComposeBody({ init }: { init: ComposeInit }) {
       if (at === null && n.type.name === "image" && n.attrs.src === original) at = pos;
     });
     if (at === null) return;
-    editor.chain().setNodeSelection(at).updateAttributes("image", { src: r.dataUrl }).run();
-    showToast(t("compose.pic.resized", { name, size: fmtSize(dataUriBytes(r.dataUrl)) }), undefined, "success");
+    const newName = nameForMime(name, r.mime); // (the name says what the bytes are: a GIF made a PNG is `name.png`, in the message, the draft and the sent part)
+    editor.chain().setNodeSelection(at).updateAttributes("image", { src: r.dataUrl, "data-name": newName }).run();
+    showToast(t(mime === "image/gif" ? "compose.pic.resizedGif" : "compose.pic.resized", { name: newName, size: fmtSize(dataUriBytes(r.dataUrl)) }), undefined, "success");
   };
 
   const setPictureSize = (w: number | null) => {
@@ -1720,7 +1731,7 @@ function ComposeBody({ init }: { init: ComposeInit }) {
     editor.chain().setNodeSelection(picSel.pos).deleteSelection().run();
     if (parts) {
       const ext = parts.mime.split("/")[1]?.replace("jpeg", "jpg") ?? "img";
-      setAtts((a) => [...a, { filename: outgoingName(picSel.name !== "picture" ? picSel.name : `picture.${ext}`), mime: parts.mime, dataBase64: parts.b64 }]);
+      setAtts((a) => [...a, { filename: outgoingName(picSel.name !== "picture" ? nameForMime(picSel.name, parts.mime) : `picture.${ext}`), mime: parts.mime, dataBase64: parts.b64 }]);
     }
     setPicSel(null);
     touch();
@@ -2186,7 +2197,7 @@ function ComposeBody({ init }: { init: ComposeInit }) {
                 editor?.commands.focus();
               }}
             >
-              <div className="img-tools-box">
+              <div className="img-tools-box" ref={toolsBoxRef}>
                 <div className="img-tools" role="toolbar" aria-label={t("compose.pic.options")}>
                   <div className="seg" role="radiogroup" aria-label={t("compose.pic.size")}>
                     {SIZES.map(([label, w]) => (
@@ -2215,8 +2226,8 @@ function ComposeBody({ init }: { init: ComposeInit }) {
                   <button className="tool-btn" onClick={pictureAsAttachment}>{t("compose.pic.asAttachment")}</button>
                   <button className="icon-btn" aria-label={t("compose.pic.remove")} title={t("compose.pic.removeTip")} onClick={removePicture}><Trash2 size={14} /></button>
                 </div>
-                {altOpen && (
-                  <div className="popover alt-pop" role="dialog" aria-label={t("compose.pic.altText")}>
+                {altOpen && createPortal(
+                  <div className="popover alt-pop pinned" role="dialog" aria-label={t("compose.pic.altText")} ref={altPopRef}>
                     <label className="small muted" htmlFor="alt-text-field">{t("compose.pic.altText")}</label>
                     <textarea id="alt-text-field" value={altText} onChange={(e) => setAltText(e.target.value)} autoFocus placeholder={t("compose.pic.altPlaceholder")} />
                     <div className="helper">{t("compose.pic.altHelp")}</div>
@@ -2224,7 +2235,8 @@ function ComposeBody({ init }: { init: ComposeInit }) {
                       <button className="btn small" onClick={() => setAltOpen(false)}>{t("common.cancel")}</button>
                       <button className="btn primary small" onClick={savePictureAlt}>{t("common.save")}</button>
                     </div>
-                  </div>
+                  </div>,
+                  document.body,
                 )}
               </div>
             </div>

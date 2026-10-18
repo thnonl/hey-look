@@ -417,6 +417,8 @@ export interface Draft {
   importance?: Importance;
   /** only for Save draft: the id of the message's crash-recovery snapshot, written into the draft's Message-ID so the next start finds it again (recover.rs) */
   recoveryId?: string;
+  /** the meeting switch of Compose as saved with a draft (base64url JSON, meetingDraft.ts): the draft's private header `X-HeyLook-Meeting`; never part of a sent message */
+  meetingForm?: string;
 }
 
 /** What Save draft says: the conversation the draft will be in once the sync has read it, and the reference that makes the next save (or a send) replace exactly this draft. */
@@ -619,7 +621,7 @@ export const api = {
   /** The start saves a snapshot as a real draft (replacing the draft it takes the place of, never joining a draft of the same message) and removes it once the draft is confirmed. Rejects when that cannot be done: the snapshot stays. */
   recoverySaveDraft: (id: string, draft: Draft, replaces: string | null) => invoke<RecoveredDraft>("recovery_save_draft", { id, draft, replaces }),
   /** To / Cc / Bcc of a saved draft with the display names, read from the draft's own headers (the synced copy has bare addresses and no Bcc). */
-  draftRecipients: (messageId: string) => invoke<{ to: string[]; cc: string[]; bcc: string[]; inReplyTo?: string | null; references?: string[] }>("draft_recipients", { messageId }),
+  draftRecipients: (messageId: string) => invoke<{ to: string[]; cc: string[]; bcc: string[]; inReplyTo?: string | null; references?: string[]; meeting?: string | null }>("draft_recipients", { messageId }),
   listOutbox: () => invoke<OutboxItem[]>("list_outbox"),
   cancelOutbox: (id: string) => invoke<void>("cancel_outbox", { id }),
   /** Send was pressed with an Undo time: the message goes into the local outbox (not a scheduled message) until `dueAt` (unix seconds). */

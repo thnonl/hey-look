@@ -292,7 +292,8 @@ async function popoverOverPicture(cfg) {
     const P = R(pop), toast = document.querySelector('.toasts .toast'), tools = document.querySelector('.img-tools-anchor'), handles = document.querySelector('.pic-handles');
     const hits = (x, y) => { const e = document.elementFromPoint(x, y); return !!e && pop.contains(e); };
     const pts = [[P.l + 12, P.t + 12], [(P.l + P.r) / 2, P.t + 12], [P.r - 12, P.t + 12], [P.l + 12, (P.t + P.b) / 2], [P.r - 12, (P.t + P.b) / 2], [P.l + 12, P.b - 6], [(P.l + P.r) / 2, P.b - 6], [P.r - 12, P.b - 6]];
-    pop.scrollTop = pop.scrollHeight;
+    const scroller = pop.querySelector('.sched-picker') || pop; // (the dialog inside the popover is the box that scrolls: scripts/test-popover-fit.mjs measures all its boxes)
+    scroller.scrollTop = scroller.scrollHeight;
     const foot = [...pop.querySelectorAll('button')].pop(), F = foot && R(foot);
     const footHit = !!F && (() => { const e = document.elementFromPoint((F.l + F.r) / 2, (F.t + F.b) / 2); return !!e && foot.contains(e); })();
     const T = toast && R(toast);

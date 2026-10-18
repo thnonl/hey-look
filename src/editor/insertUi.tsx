@@ -19,6 +19,7 @@ import { fmtPattern } from "../i18n/format";
 import { useT } from "../i18n/react";
 import { checkLinkUrl } from "../linkUrl";
 import { openExternal } from "../open";
+import { HANDLE_SIZE } from "../pictureToolsLayout";
 import { kbd, osNow } from "../platform";
 import { fmtClock } from "../util";
 import { Panel, Sw, useSwatchName, type PaletteClose } from "./ColorPalette";
@@ -468,7 +469,8 @@ function PictureHandles({ editor }: { editor: Editor }) {
         <i
           key={c.id}
           className="pic-handle"
-          style={{ left: (c.x ? shown.right : shown.left) - 5 - pane.left, top: (c.y ? shown.bottom : shown.top) - 5 - pane.top, cursor: c.cursor }}
+          // (inside the corner of the picture, so a toolbar that is above, below or over the picture never touches one: pictureToolsLayout.ts)
+          style={{ left: (c.x ? shown.right - HANDLE_SIZE : shown.left) - pane.left, top: (c.y ? shown.bottom - HANDLE_SIZE : shown.top) - pane.top, cursor: c.cursor }}
           onPointerDown={(e) => down(e, c.dir)}
         />
       ))}

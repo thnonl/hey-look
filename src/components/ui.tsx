@@ -4,7 +4,7 @@ import { createPortal } from "react-dom";
 import { useT } from "../i18n/react";
 import { accountColor } from "../prefs";
 import { fitInWindow } from "../fitInWindow";
-import { popoverFloor, type ToastBox } from "../popoverRoom";
+import { placePopover, type ToastBox } from "../popoverRoom";
 import { menuOwners, pressIsOutside } from "../pressInside";
 import { useStore } from "../store";
 import { hue, initials } from "../util";
@@ -32,7 +32,7 @@ export interface MenuItem {
 type Ref = React.RefObject<HTMLElement | null>;
 
 /** The toast stack as it is now (null when there is no toast): a popover keeps above it (popoverRoom.ts). */
-function toastBox(): ToastBox | null {
+export function toastBox(): ToastBox | null {
   const stack = document.querySelector(".toasts");
   if (!stack?.firstElementChild) return null;
   const r = stack.getBoundingClientRect();
@@ -101,23 +101,14 @@ export function usePinnedBelow(pop: Ref, anchor: Ref, active: boolean, opts: { i
       const a = anchor.current;
       if (!a) return;
       const b = a.getBoundingClientRect();
-      const edge = 8, gap = 4;
       el.style.maxHeight = "";
-      const left0 = b.left + inset;
-      if (match) el.style.width = `${Math.max(0, b.right - left0)}px`;
-      const left = Math.max(edge, Math.min(left0, window.innerWidth - edge - el.offsetWidth));
-      const h = el.offsetHeight;
-      // the toast stack is in the way of the lower part of the window while a toast shows: the popover ends above it
-      const floor = popoverFloor(window.innerHeight, edge, left, left + el.offsetWidth, toastBox());
-      const below = floor - (b.bottom + gap);
-      const above = b.top - gap - edge;
-      const up = h > below && above > below;
-      const room = Math.max(up ? above : below, 96);
+      if (match) el.style.width = `${Math.max(0, b.right - (b.left + inset))}px`;
+      // (popoverRoom.ts: below the anchor or above it, inside the window, above the toast stack, which is in the way of the lower part of the window while a toast shows)
+      const p = placePopover(b, { w: el.offsetWidth, h: el.offsetHeight }, { w: window.innerWidth, h: window.innerHeight }, { edge: 8, gap: 4, inset, toasts: toastBox(), minRoom: 96 });
       // always a limit, not only when it is too tall now: a popover that grows after it was placed (a custom time opens under the presets) scrolls instead of running off the window
-      el.style.maxHeight = `${room}px`;
-      el.style.left = `${left}px`;
-      const top = up ? b.top - gap - Math.min(h, room) : b.bottom + gap;
-      el.style.top = `${Math.max(edge, Math.min(top, floor - Math.min(h, room)))}px`; // (inside the window even when the anchor is scrolled out of it)
+      el.style.maxHeight = `${p.max}px`;
+      el.style.left = `${p.left}px`;
+      el.style.top = `${p.top}px`;
     };
     place();
     const scrolled = (ev: Event) => !el.contains(ev.target as Node) && place();
@@ -228,26 +219,24 @@ export function FloatingMenu({
     const p = pop.current?.getBoundingClientRect();
     const b = anchor.current?.getBoundingClientRect();
     if (!p || !b) return;
-    const gap = 4;
     const edge = 6;
     // a trigger scrolled out of view (a dialog body, a list) has nowhere sensible to anchor the menu: close it instead of placing it off-screen
     if (b.bottom < edge || b.top > window.innerHeight - edge || b.right < edge || b.left > window.innerWidth - edge) {
       close.current();
       return;
     }
-    const want = align === "right" ? b.right - p.width : b.left;
-    const left = Math.max(edge, Math.min(want, window.innerWidth - p.width - edge));
-    // (a toast on show is in the way of the lower part of the window: the menu ends above it)
-    const floor = popoverFloor(window.innerHeight, edge, left, left + p.width, toastBox());
-    const below = floor - (b.bottom + gap);
-    const above = b.top - gap - edge;
-    // down when it fits, else up when it fits, else the roomier side with the list made scrollable
-    const up = p.height > below && (p.height <= above || above > below);
-    const room = up ? above : below;
-    const raw = up ? b.top - gap - Math.min(p.height, room) : b.bottom + gap;
-    const top = Math.max(edge, Math.min(raw, floor - Math.min(p.height, room)));
-    setPos({ top, left, max: room });
+    // down when it fits, else up when it fits, else the roomier side with the list made scrollable; a toast on show is in the way of the lower part of the window: the menu ends above it
+    const { top, left, max } = placePopover(b, { w: p.width, h: p.height }, { w: window.innerWidth, h: window.innerHeight }, { edge, gap: 4, align, toasts: toastBox() });
+    setPos({ top, left, max });
   }, [anchor, align]);
+  // the box can be wider once it is placed than it was when it was measured (a scroll bar appears when the list is made scrollable, the width left of the
+  // button limits it): its right edge goes back inside the window
+  useLayoutEffect(() => {
+    const r = pop.current?.getBoundingClientRect();
+    if (!pos || !r) return;
+    const over = r.right - (window.innerWidth - 6);
+    if (over > 0.5) setPos({ ...pos, left: Math.max(6, pos.left - over) });
+  }, [pos]);
   // lets a "press outside" handler of the popover this menu was opened from tell that a press on a row is not outside (pressInside.ts)
   useEffect(() => {
     const el = pop.current;
@@ -331,6 +320,7 @@ export function Dropdown({
   items,
   className = "",
   title,
+  label,
   align = "left",
   caret = true,
   wrapClass = "",
@@ -341,6 +331,8 @@ export function Dropdown({
   items: MenuItem[];
   className?: string;
   title?: string;
+  /** the accessible name when it is not the tooltip (a tooltip that ends in the key of the action, "Snooze (s)", is not what a screen reader should say) */
+  label?: string;
   align?: "left" | "right";
   caret?: boolean;
   /** class of the wrapper (to size the control) */
@@ -361,7 +353,7 @@ export function Dropdown({
         ref={trigger}
         className={className}
         title={title}
-        aria-label={title}
+        aria-label={label ?? title}
         disabled={disabled}
         aria-haspopup="menu"
         aria-expanded={open}

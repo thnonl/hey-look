@@ -12,7 +12,7 @@ import { friendlyError, useStore } from "./store";
 export const AI_PROBLEM_KEY = "ai-problem";
 
 /** The feature of the toast on screen and whether its "Try again" belongs to what is on screen (a summary of this conversation, the message being written). */
-let shown: { feature: AiFeature; tied: boolean } | null = null;
+let shown: { feature: AiFeature; tied: boolean; notSetUp: boolean } | null = null;
 
 /** The first field of the AI Assistant tab that is still empty (the address, then the model). */
 async function missingField(): Promise<"aiBaseUrl" | "aiModel"> {
@@ -49,7 +49,7 @@ export function showAiProblem(raw: unknown, o: { feature: AiFeature; retry?: () 
   if (!p) return false;
   const settings = { label: () => t("reading.aiProblem.openSettings"), run: () => void openAiSettings(p.focus) };
   const again = { label: () => t("reading.aiProblem.tryAgain"), run: () => o.retry?.() };
-  shown = { feature: o.feature, tied: !!o.retry && !!o.tied && p.retry };
+  shown = { feature: o.feature, tied: !!o.retry && !!o.tied && p.retry, notSetUp: p.kind === "notConfigured" };
   useStore.getState().setStickyToast(AI_PROBLEM_KEY, {
     // a function: the toast is written again in the language in use when the person switches language while it is on screen
     text: () => aiProblemText(o.feature, p, friendlyError(raw)),
@@ -63,6 +63,17 @@ export function showAiProblem(raw: unknown, o: { feature: AiFeature; retry?: () 
 }
 
 export const showAiNotSetUp = (feature: AiFeature) => showAiProblem(NOT_SET_UP, { feature });
+
+/**
+ * The AI settings were saved and the Assistant now has an address and a model: the toast "AI Assistant is not set up" is answered, so it goes (v1.0.6 QA round 3: it
+ * stayed on screen after the settings were saved). Any other problem (a refused key, an unknown model) stays: saving does not say that it is fixed.
+ */
+export function aiSettingsSaved(): void {
+  if (shown?.notSetUp && useStore.getState().aiConfigured) {
+    shown = null;
+    useStore.getState().setStickyToast(AI_PROBLEM_KEY, null);
+  }
+}
 
 /** What a "Try again" was for is gone (another conversation, the message was closed): the toast goes with it. One without a retry stays, it is about the settings. */
 export function leaveAiContext(feature: AiFeature): void {

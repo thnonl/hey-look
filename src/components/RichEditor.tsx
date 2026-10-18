@@ -7,6 +7,7 @@ import { baseExtensions } from "../editor/extensions";
 import { useKit } from "../editor/kit";
 import { FormatBar, type FormatBarApi } from "../editor/FormatBar";
 import { insertPictureNodes } from "../editor/insertPictures";
+import { nameForMime } from "../editor/messageBody";
 import { fitSignaturePicture, initialWidth } from "../editor/signaturePicture";
 import { editorKeyHandlers } from "../composeKeys";
 import { useStore } from "../store";
@@ -64,7 +65,7 @@ function RichEditorBody({ value, onChange, placeholder, minHeight = 140, label, 
           continue;
         }
         if (fit.resized) showToast(() => t("compose.sigpic.resized", { name: f.name, size: fmtSize(dataUriBytes(fit.dataUrl)) }), undefined, "info");
-        insertPictureNodes(editor, [{ src: fit.dataUrl, alt: "", "data-name": f.name, width: initialWidth(fit.w) }]); // (the caret is behind it: the next file goes after it, not over it)
+        insertPictureNodes(editor, [{ src: fit.dataUrl, alt: "", "data-name": nameForMime(f.name, fit.mime), width: initialWidth(fit.w) }]); // (the caret is behind it: the next file goes after it, not over it)
       } catch {
         showToast(() => t("compose.sigpic.unsupported", { name: f.name }), undefined, "error");
       }

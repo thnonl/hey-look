@@ -5,7 +5,8 @@ import { createPortal } from "react-dom";
 import { checkLinkUrl, planLinkEdit } from "../linkUrl";
 import { useT } from "../i18n/react";
 import { openExternal } from "../open";
-import { useOutside } from "./ui";
+import { placePopover } from "../popoverRoom";
+import { toastBox, useOutside } from "./ui";
 
 // The link UI of the composer and of the signature / template editor: a small popover with the address and (optionally) the text, opened by
 // the toolbar button and by Ctrl/Cmd+K. It replaces the native `window.prompt` (title "tauri.localhost says", blocks the renderer, may not work in
@@ -123,9 +124,13 @@ function LinkPopover({
     const r = a.getBoundingClientRect();
     const w = Math.min(WIDTH, window.innerWidth - 16);
     el.style.width = `${w}px`;
-    el.style.left = `${Math.max(8, Math.min(r.left, window.innerWidth - w - 8))}px`;
-    const below = r.bottom + 6;
-    el.style.top = `${below + el.offsetHeight > window.innerHeight - 8 ? Math.max(8, r.top - 6 - el.offsetHeight) : below}px`;
+    el.style.maxHeight = "";
+    // (popoverRoom.ts: below the button or above it, inside the window and above a toast; a popover taller than the room scrolls)
+    const p = placePopover(r, { w, h: el.offsetHeight }, { w: window.innerWidth, h: window.innerHeight }, { edge: 8, gap: 6, toasts: toastBox(), minRoom: 96 });
+    el.style.maxHeight = `${p.max}px`;
+    el.style.overflowY = "auto";
+    el.style.left = `${p.left}px`;
+    el.style.top = `${p.top}px`;
   });
   useEffect(() => {
     addr.current?.focus();
