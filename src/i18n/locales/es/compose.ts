@@ -347,6 +347,7 @@ export default defineLocale<typeof ns.en>({
   "compose.pic.overLimit": "El mensaje pesa {size} al enviarse, por encima del límite de {limit}. Reduce el tamaño de las imágenes o quita adjuntos.",
   "compose.pic.unsupported": "No se pudo insertar “{name}”: este formato de imagen no es compatible. Se adjuntó en su lugar.",
   "compose.pic.resized": "Se cambió el tamaño de {name} a 1600 px ({size})",
+  "compose.pic.resizedGif": "Se cambió el tamaño de {name} a 1600 px ({size}) y se convirtió a PNG: la animación no se conserva",
   "compose.alt.checkTitle": {"one":"{n} imagen no tiene texto alternativo","other":"{n} imágenes no tienen texto alternativo"},
   "compose.alt.checkBody": "Las personas que usan lectores de pantalla no sabrán qué muestran.",
   "compose.alt.addAlt": "Agregar texto alternativo",

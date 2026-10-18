@@ -339,6 +339,7 @@ export default defineLocale<typeof ns.en>({
   "compose.pic.overLimit": "送信時のメッセージのサイズは{size}で、上限の{limit}を超えています。画像のサイズを小さくするか、添付ファイルを削除してください。",
   "compose.pic.unsupported": "「{name}」を挿入できませんでした。この画像形式には対応していないため、代わりに添付しました。",
   "compose.pic.resized": "{name}を幅1600 pxに縮小しました（{size}）",
+  "compose.pic.resizedGif": "{name}を幅1600 pxに縮小し、PNGに変換しました（{size}）。アニメーションは保持されません",
   "compose.alt.checkTitle": {"other":"代替テキストのない画像が {n} 枚あります"},
   "compose.alt.checkBody": "スクリーン リーダーを使う人には、画像の内容が伝わりません。",
   "compose.alt.addAlt": "代替テキストを追加",

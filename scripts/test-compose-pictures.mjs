@@ -119,6 +119,42 @@ try {
   await evaluate(`(() => { const dt = __mk(['one.png', 'two.png']); __ev('paste', ${ED}.view.dom, dt); return 1; })()`);
   await settle();
   await check('paste with the setting "Attach as files": attached, not in the body', async () => { assert.deepEqual((await evaluate(BODY)).imgs, []); assert.deepEqual(await evaluate(CHIPS), ['one.png', 'two.png']); });
+
+  // ---------- a big GIF that is made smaller is a PNG afterwards: the name, the part type and the toast say so (v1.0.6 QA round 3, BUG-R3-3: image/png under e09-anim.gif)
+  // (a real 1x1 GIF padded past 1 MB with comment blocks; the page re-encodes it on a canvas, so the bytes are PNG)
+  const BIG_GIF = `window.__bigGif = (name) => { const base = Uint8Array.from(atob('R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7'), (x) => x.charCodeAt(0)); const body = base.slice(0, base.length - 1);
+    const comment = [0x21, 0xfe]; for (let i = 0; i < 4200; i++) { comment.push(255); for (let k = 0; k < 255; k++) comment.push(65); } comment.push(0);
+    const out = new Uint8Array(body.length + comment.length + 1); out.set(body, 0); out.set(comment, body.length); out[out.length - 1] = 0x3b; return new File([out], name, { type: 'image/gif' }); }; 1`;
+  const bigGifIn = (name) => evaluate(`(() => { const dt = new DataTransfer(); dt.items.add(__bigGif(${JSON.stringify(name)})); const i = document.querySelector('input[type=file][accept*="image"]'); i.files = dt.files; i.dispatchEvent(new Event('change', { bubbles: true })); return 1; })()`);
+  const TOASTS = `[...document.querySelectorAll('.toasts .toast')].map((e) => e.innerText.replace(/\\s+/g, ' ')).join(' | ')`;
+  const lastDraft = async () => { await evaluate(`[...document.querySelectorAll('button')].find((b) => /^Save draft$/.test(b.textContent.trim())).click(); 1`); await sleep(900); return JSON.parse(await evaluate(`JSON.stringify(window.__lastDraft || null)`)); };
+  // automatic: the setting is on
+  await fresh({ autoResizePictures: true });
+  await evaluate(BIG_GIF);
+  await bigGifIn('e09-anim.gif');
+  await sleep(1800);
+  await check('big GIF, auto-resize on: the picture is named .png in the editor', async () => assert.deepEqual((await evaluate(BODY)).imgs, ['e09-anim.png']));
+  await check('big GIF, auto-resize on: the toast names the .png and says the animation is not kept', async () => { const t = await evaluate(TOASTS); assert.match(t, /Resized e09-anim\.png to 1600 px/); assert.match(t, /converted to PNG: the animation is not kept/); assert.doesNotMatch(t, /\.gif/); });
+  await check('big GIF, auto-resize on: the draft part is image/png named .png, the HTML refers to it', async () => {
+    const d = await lastDraft();
+    assert.deepEqual(d.inline.map((p) => [p.mime, p.filename]), [['image/png', 'e09-anim.png']]);
+    assert.ok(atob(d.inline[0].dataBase64.slice(0, 12)).startsWith('\u0089PNG'), 'the bytes are a PNG');
+  });
+  // asked: the Resize button of the prompt
+  await fresh();
+  await evaluate(BIG_GIF);
+  await bigGifIn('e09-anim.gif');
+  await sleep(1200);
+  await check('big GIF, asked: the prompt comes and the picture is a GIF as it is', async () => { assert.deepEqual((await evaluate(BODY)).imgs, ['e09-anim.gif']); assert.match(await evaluate(TOASTS), /Resize it to 1600 px wide/); });
+  await evaluate(`[...document.querySelectorAll('.toasts .toast button')].find((b) => /^Resize$/.test(b.textContent.trim())).click(); 1`);
+  await sleep(1800);
+  await check('big GIF, Resize clicked: the name becomes .png and the toast says the animation is lost', async () => { assert.deepEqual((await evaluate(BODY)).imgs, ['e09-anim.png']); assert.match(await evaluate(TOASTS), /Resized e09-anim\.png to 1600 px.*converted to PNG: the animation is not kept/); });
+  await check('big GIF, Resize clicked: the draft part is image/png under the .png name', async () => { const d = await lastDraft(); assert.deepEqual(d.inline.map((p) => [p.mime, p.filename]), [['image/png', 'e09-anim.png']]); });
+  // a GIF that is NOT re-encoded stays a GIF (small file: no prompt, nothing converted)
+  await fresh();
+  await evaluate(`(() => { const dt = new DataTransfer(); dt.items.add(new File([Uint8Array.from(atob('R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7'), (x) => x.charCodeAt(0))], 'small.gif', { type: 'image/gif' })); const i = document.querySelector('input[type=file][accept*="image"]'); i.files = dt.files; i.dispatchEvent(new Event('change', { bubbles: true })); return 1; })()`);
+  await sleep(900);
+  await check('a small GIF stays a GIF: name, type, bytes', async () => { assert.deepEqual((await evaluate(BODY)).imgs, ['small.gif']); const d = await lastDraft(); assert.deepEqual(d.inline.map((p) => [p.mime, p.filename]), [['image/gif', 'small.gif']]); });
 } finally { await H.shutdown(); }
 
 if (failures.length) { console.error(`test-compose-pictures: ${failures.length} failure(s)\n - ${failures.join('\n - ')}`); process.exit(1); }
