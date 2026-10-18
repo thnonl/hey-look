@@ -113,7 +113,7 @@ jobs:
     env:
       GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
 
       - id: mk
         run: |
@@ -146,7 +146,7 @@ jobs:
     runs-on: ${{ matrix.platform }}
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
 
       - name: Install Linux dependencies
         if: runner.os == 'Linux'
@@ -156,16 +156,17 @@ jobs:
             libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf \
             libssl-dev libdbus-1-dev pkg-config
 
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
         with:
           node-version: 22
           cache: npm
 
-      - uses: dtolnay/rust-toolchain@stable
+      - uses: dtolnay/rust-toolchain@b725eda525362e7cf34af9a7243cac1e3f01a7ec # stable branch (a SHA pin needs the toolchain named)
         with:
+          toolchain: stable
           targets: ${{ runner.os == 'macOS' && 'aarch64-apple-darwin,x86_64-apple-darwin' || '' }}
 
-      - uses: swatinem/rust-cache@v2
+      - uses: swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
         with:
           workspaces: src-tauri -> target
 
@@ -505,7 +506,7 @@ jobs:
             echo "notarize=true" >> "$GITHUB_OUTPUT"
           fi
 
-      - uses: tauri-apps/tauri-action@v1
+      - uses: tauri-apps/tauri-action@1deb371b0cd8bd54025b384f1cd735e725c4060f # v1.0.0
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           # Embedded into the binary at build time (see src-tauri/build.rs).
@@ -596,7 +597,7 @@ jobs:
 
       - name: Upload the unsigned Windows installers
         if: runner.os == 'Windows' && needs.plan.outputs.signpath == 'true' && steps.sign.outputs.profile == 'release'
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
           name: windows-unsigned
           path: unsigned/*
@@ -606,7 +607,7 @@ jobs:
       # macOS update package (.app.tar.gz, not an installer artifact) that its signature belongs to
       - name: Keep the signatures of a dry run
         if: github.event_name == 'workflow_dispatch'
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
           name: signatures-${{ runner.os }}
           path: |
@@ -716,17 +717,17 @@ jobs:
           fi
           echo "::warning::The SIGNPATH_* variables are set but the secret SIGNPATH_API_TOKEN is not: the Windows installers stay unsigned"
 
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
         if: steps.cfg.outputs.enabled == 'true'
 
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
         if: steps.cfg.outputs.enabled == 'true'
         with:
           node-version: 22
 
       - name: Download the unsigned installers
         if: steps.cfg.outputs.enabled == 'true'
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
         with:
           name: windows-unsigned
           path: unsigned
@@ -735,7 +736,7 @@ jobs:
       - name: Hand the installers to SignPath
         id: up
         if: steps.cfg.outputs.enabled == 'true'
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
           name: windows-for-signpath
           path: unsigned/*
@@ -743,7 +744,7 @@ jobs:
 
       - name: Sign with SignPath
         if: steps.cfg.outputs.enabled == 'true'
-        uses: signpath/github-action-submit-signing-request@v3
+        uses: signpath/github-action-submit-signing-request@f6d04783b4569d051e0c80105fe66e82819d0092 # v3.0
         with:
           api-token: ${{ secrets.SIGNPATH_API_TOKEN }}
           organization-id: ${{ vars.SIGNPATH_ORGANIZATION_ID }}
@@ -829,7 +830,7 @@ jobs:
 
       - name: Keep the signed installers of a dry run
         if: steps.cfg.outputs.enabled == 'true' && github.event_name != 'push'
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
           name: windows-signed
           path: out/*
@@ -844,7 +845,7 @@ jobs:
       GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
       ID: ${{ needs.create-release.outputs.id }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
 
       # With the variable REQUIRE_WIN_SIGNING=true (set at go-live of Windows signing) nothing is published unless SignPath signed the installers.
       - name: Windows signing required?
