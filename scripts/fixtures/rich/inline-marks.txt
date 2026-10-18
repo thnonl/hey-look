@@ -4,6 +4,6 @@ A link (https://example.test/a?b=1&c=2), a bold link (https://example.test/) and
 line one
 line two
 line three
-a b c
+a  b   c
 leading and trailing
 nbsp here & <tags> "quoted"

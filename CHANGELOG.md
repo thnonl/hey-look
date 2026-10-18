@@ -30,6 +30,7 @@
 - A draft from before 1.0.6 that forwards a message with a signature keeps your own signature in the signature box
 - A recipient whose key can only sign now reads "their key can only sign, not encrypt" (in the strip and in the recipient's key popover) instead of "no public key"
 - Every header line of a message you send, save as a draft or keep in Sent is at most 78 characters, also for a long list of recipients with quoted names (a name is cut at a space inside its quotes only when nothing else fits) and for the header lines of attachments and pictures (a long media type or file name); a signed message is folded before it is signed, so its signature stays valid
+- A plain-text message you read, reply to or forward keeps its layout: runs of spaces, an indent, a tab, an ASCII table and blank lines are all there in the reader, in the quote and in the plain-text part of the reply (the layout was lost when the text became HTML); mail that is already stored keeps what it has until it is read from the server again. The plain-text part of a message you write also keeps the spaces you typed
 
 ## 1.0.6 — 2026-10-18
 
