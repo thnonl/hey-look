@@ -11,7 +11,7 @@ import { eff } from "../prefs";
 import { kbd } from "../platform";
 import { ComposeInit, friendlyError, useStore } from "../store";
 import { useAiSlot } from "../useAiSlot";
-import { aiReady, leaveAiContext, showAiNotSetUp, showAiProblem } from "../aiGuide";
+import { aiReady, clearAiProblem, leaveAiContext, showAiNotSetUp, showAiProblem } from "../aiGuide";
 import type { ComposeProbe, SavedDraft } from "../leaveCompose";
 import { PreviewBg, previewVars, rememberPreview, startPreview } from "../composePreview";
 import { setDarkRegion } from "../composePreviewDom";
@@ -1799,6 +1799,7 @@ function ComposeBody({ init }: { init: ComposeInit }) {
     if (init.confidential) return showToast(t("compose.ai.confidential"), undefined, "info");
     // i18n-ok: the prompt for the model, not UI text
     const context = init.isReply ? `\n\nThe email being replied to:\n${htmlToText(init.bodyHtml ?? "").slice(0, 6000)}` : "";
+    clearAiProblem(); // (the toast of an earlier problem goes while this request runs)
     const out = await ai.run(
       // i18n-ok: a prompt for the language model, not text the person reads
       "You write email bodies. Output only the email body text (no subject line, no preamble). Match the language of the user's request and the tone requested.",

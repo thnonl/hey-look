@@ -75,6 +75,15 @@ export function aiSettingsSaved(): void {
   }
 }
 
+/**
+ * The person starts a new AI request (Summarize, Translate, Write with AI, also through "Try again"): the problem of the one before is no longer the truth, so its toast goes at once.
+ * If the new request fails, its own toast shows (`showAiProblem`); if the Assistant is not set up, the "not set up" one does.
+ */
+export function clearAiProblem(): void {
+  shown = null;
+  useStore.getState().setStickyToast(AI_PROBLEM_KEY, null);
+}
+
 /** What a "Try again" was for is gone (another conversation, the message was closed): the toast goes with it. One without a retry stays, it is about the settings. */
 export function leaveAiContext(feature: AiFeature): void {
   if (shown && shown.feature === feature && shown.tied) {

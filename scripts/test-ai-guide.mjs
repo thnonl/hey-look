@@ -9,6 +9,8 @@
 //     without scrolling; from a pop-out window it asks the main window (the request of the channel is logged by the mock);
 //   - the X closes it, and so does Esc while the focus is on its buttons;
 //   - the person's own Cancel (AI_CANCELLED) shows nothing.
+//   - a NEW request removes the toast of the old problem at once (Summarize again, or Try again, in the main window and the reader window): no problem toast while it
+//     runs, exactly one when it fails (W1.8, 1.0.7).
 //
 //   node scripts/test-ai-guide.mjs                    all problems x all entry points (about 8 minutes: every scenario waits 20 s)
 //   node scripts/test-ai-guide.mjs --quick            Summarize x (not set up, 401, timeout), Translate x timeout, Write x not set up, then the Settings button from every window (what CI runs, about 4 minutes)
@@ -266,6 +268,37 @@ async function cancelled(entry, win) {
   check(ctx, (await toastInfo()).count === 0, 'a call the person cancelled shows a problem');
 }
 
+/**
+ * A new request removes the toast of the old problem at once (W1.8, 1.0.7). The first Summarize fails (after 2.5 s in the mock), the toast shows; the second request - by the
+ * Summarize button, or by "Try again" on the toast - is pending for 2.5 s: during that time there is NO problem toast; when it fails there is exactly one.
+ */
+async function newRequestClears(win, viaTryAgain) {
+  const ctx = `new request ${win} ${viaTryAgain ? 'try again' : 'summarize again'}`;
+  const hash = 'lang=en&aiset&failaims=2500&failai=timeout';
+  if (win === 'main') {
+    await open('', hash, 1280, 720, MAIN_READY);
+    await evaluate(`window.__store.getState().openMail('t1'); 1`);
+    await evaluate(`new Promise((ok) => { const t = setInterval(() => { if (document.querySelector('.rp-msg.open .rp-msg-actions')) { clearInterval(t); ok(1); } }, 50); })`);
+  } else {
+    await open('?w=reader&thread=t1', hash, 1280, 720, `document.querySelector('.reader-bar .ai-btn') && document.querySelector('.rp-msg')`);
+  }
+  await sleep(500);
+  await TRIGGER.summarize(win);
+  check(ctx, await waitToast(6000), 'no toast after the first failure');
+  await sleep(400);
+  check(ctx, (await toastInfo()).count === 1, 'not one toast after the first failure');
+  if (viaTryAgain) await clickEl(byText('.toasts .toast.guide .toast-act', '/^Try again$/'));
+  else await TRIGGER.summarize(win);
+  await sleep(500); // (the request is pending: the mock answers after 2.5 s)
+  check(ctx, (await toastInfo()).count === 0, 'the old problem toast stays while the new request runs');
+  await sleep(1200);
+  check(ctx, (await toastInfo()).count === 0, 'a problem toast shows while the new request still runs');
+  check(ctx, await waitToast(6000), 'no toast after the second failure');
+  await sleep(500);
+  const info = await toastInfo();
+  check(ctx, info.count === 1, `${info.count} problem toasts after the second failure, expected one`);
+}
+
 const t0 = Date.now();
 try {
   for (const lang of LANGS) for (const size of SIZES) for (const theme of THEMES) {
@@ -301,6 +334,11 @@ try {
     }
     for (const entry of ENTRIES) await cancelled(entry, 'main');
     if (!QUICK) { await cancelled('summarize', 'reader'); await cancelled('write', 'compose'); }
+    if (lang === 'en' && !SHOTS) {
+      await newRequestClears('main', false);
+      await newRequestClears('main', true);
+      await newRequestClears('reader', false);
+    }
   }
 } catch (e) { failures.push(`crashed: ${e.stack || e}`); }
 finally { await H.shutdown(); }

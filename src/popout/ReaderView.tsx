@@ -25,7 +25,7 @@ import { osNow, loadPlatform } from "../platform";
 import { useContentProtection } from "../protect";
 import { friendlyError, useStore } from "../store";
 import { useAiSlot } from "../useAiSlot";
-import { aiReady, showAiNotSetUp, showAiProblem } from "../aiGuide";
+import { aiReady, clearAiProblem, showAiNotSetUp, showAiProblem } from "../aiGuide";
 import { summaryBody } from "../summaryText";
 import { configureDates, fmtFull, snoozePresets, subjectText } from "../util";
 import { senderOf } from "../rowMenu";
@@ -334,6 +334,7 @@ function Reader({ info }: { info: ReaderInit }) {
       return;
     }
     const { body, cut } = summaryBody(readable.map((m) => ({ head: `From: ${m.fromName} <${m.fromEmail}>\nDate: ${fmtFull(m.date)}`, text: m.text ?? "" })));
+    clearAiProblem(); // (the toast of an earlier problem goes while this request runs)
     const out = await ai.run(
       // i18n-ok: a prompt for the language model, not text the person reads
       "You summarize email conversations. Reply with 2-5 concise bullet points covering key facts, decisions and requested actions. Use the language of the emails.",
