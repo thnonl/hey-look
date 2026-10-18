@@ -35,6 +35,8 @@
 - A plain-text message you read, reply to or forward keeps its layout: runs of spaces, an indent, a tab, an ASCII table and blank lines are all there in the reader, in the quote and in the plain-text part of the reply (the layout was lost when the text became HTML); mail that is already stored keeps what it has until it is read from the server again. The plain-text part of a message you write also keeps the spaces you typed
 - Settings > Mailboxes > (mailbox) has a "Reply-to address": replies to the mail you send from that mailbox go to it (every message, its copy in Sent and its drafts carry the header; nothing is written when it is the mailbox's own address; a text that is not one address is refused with "Enter a valid email address")
 - A recipient in To, Cc or Bcc can be dragged with the mouse to another of the three fields (the field it is dropped on is outlined); the change counts as an edit
+- A draft that is open in the message pane is not opened a second time in a window (Shift, a double click of a changed draft, Shift+Enter, "Open in new window", the Edit button of the "Draft saved" message): the pane gets the focus
+- A reply window keeps answering to its message after its first save: Reply on the same mail again brings that window forward instead of opening a second one
 
 ## 1.0.6 — 2026-10-18
 

@@ -11,7 +11,7 @@ import { gmailSearchUrl, webmailQuery, webmailTargets, WebmailTarget } from "../
 import { accountColor, folderLabel, Prefs } from "../prefs";
 import { canPageBack, exhaustedKey, friendlyError, useStore } from "../store";
 import { dateGroup, fmtDate, snoozePresets, subjectText } from "../util";
-import { openDraftInWindow, openDraftThread } from "./Compose";
+import { inlineHasDraft, openDraftInWindow, openDraftThread } from "./Compose";
 import { wantsWindow } from "../popout/composeOpen";
 import { shiftNow } from "../popout/modifier";
 import { openReader } from "../popout/openReader";
@@ -241,8 +241,9 @@ export function MessageList() {
       // a draft opens in Compose; the message being written is left first (saved as a draft when it holds something)
       const shift = shiftNow(); // (Shift+click does the opposite of the setting: a window, or the pane when the setting is on)
       void (async () => {
+        // (the draft the pane shows already: the pane is not left, it gets the focus, W2.11)
         // (a draft that opens in a window leaves the message in the pane alone: the windows are independent of it)
-        if (!wantsWindow({ shift }) && !(await useStore.getState().leaveCompose())) return;
+        if (!inlineHasDraft(t.threadId) && !wantsWindow({ shift }) && !(await useStore.getState().leaveCompose())) return;
         await openDraftThread(t.threadId, false, { shift });
       })();
       return;

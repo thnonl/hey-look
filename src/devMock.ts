@@ -1447,7 +1447,12 @@ export function installMock() {
       }
       case "thread_meta": return { pinned: !!threads.find((x) => x.threadId === a.threadId)?.pinned, snoozedUntil: null };
       case "popout_reply": return null;
-      case "popout_open": ((window as unknown as { __popoutOpened?: unknown[] }).__popoutOpened ??= []).push({ kind: a.kind, key: a.key, init: a.init }); return { status: "created", label: "compose-1" };
+      case "popout_open": {
+        const w = window as unknown as { __popoutOpened?: unknown[]; __popoutOpens?: number };
+        (w.__popoutOpened ??= []).push({ kind: a.kind, key: a.key, init: a.init, focusOnly: !!a.focusOnly });
+        if (!a.focusOnly) w.__popoutOpens = (w.__popoutOpens ?? 0) + 1; // (windows asked for, not the "is one open?" questions)
+        return { status: "created", label: "compose-1" };
+      }
       case "popout_save_all": return true;
       case "popout_ready": case "popout_flush_alive": case "popout_flush_dialog": case "popout_flush_done": case "popout_focus": case "popout_close": return null;
       case "update_defer": logUpdateCall({ cmd: "defer" }).kind = a.deferred ? "later" : "now"; return null;

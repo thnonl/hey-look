@@ -689,7 +689,7 @@ assert.equal(draftKey("t9"), "draft:t9");
   for (const a of ["openCompose:", "sync:", "refresh:", "setDialog:", "showToast:"]) assert.ok(view.includes(a), a);
   assert.ok(view.indexOf("setReady(true)") > view.indexOf("openCompose:"), "Compose is drawn after the actions are replaced");
   // Compose.tsx: the seam is the only difference, and the main window (no seam) behaves as before
-  assert.equal(compose.match(/composeSeam\(\)/g).length, 10, "the places where Compose asks the seam (two of them: a message scheduled in a window is announced by the main window, which owns the outbox)");
+  assert.equal(compose.match(/composeSeam\(\)/g).length, 12, "the places where Compose asks the seam (two of them: a message scheduled in a window is announced by the main window, which owns the outbox; two for the draft the pane shows, W2.11)");
   assert.ok(compose.includes("composeSeam()?.scheduled(") && view.includes("scheduled: (outboxId, sendAt) => notifyMain(\"scheduled\""), "Scheduled for ... with Undo and View comes from the main window");
   assert.ok(compose.includes("openCompose(null, { sending: wait })") && compose.includes("openCompose(null, { sending: 0 })"), "a send hands the message over, it does not end it");
   assert.ok(compose.includes('else showToast(() => t("compose.toast.sending"), undoSend, "info")'), "the main window still has the Undo toast");
@@ -719,6 +719,21 @@ assert.equal(draftKey("t9"), "draft:t9");
   const list = read("src/components/MessageList.tsx");
   assert.ok(list.includes('rowWindowTarget(folder, it.t.folder) === "draft" ? () => void openDraftInWindow('), "double click / Shift+Enter on a draft");
   assert.ok(compose.includes("if (await focusDraftWindow(key)) return true;") && compose.includes("if (mine !== latestDraftOpen) return false;"));
+  // W2.11: ONE check for every entry point, in openDraftThread, before anything is read: the draft the pane shows gets the focus and nothing else opens
+  {
+    const open = compose.slice(compose.indexOf("export async function openDraftThread("), compose.indexOf("/** The positions of the pictures of the body"));
+    const at = (needle) => { const i = open.indexOf(needle); assert.ok(i >= 0, needle); return i; };
+    assert.ok(at("if (inlineHasDraft(threadId)) return focusInlineEditor();") < at("if (await focusDraftWindow(key))") && at("focusDraftWindow(key)") < at("api.getThread("), "the pane is asked first, before a window and before the draft is read");
+    assert.ok(compose.includes("noteInlineDraft(tid);"), "a save makes its new conversation the pane's too (an autosave replaces the draft)");
+    assert.ok(compose.includes("return !composeSeam() && !!st.compose && !!inlineDraft && inlineDraft.composeKey === st.composeKey && inlineDraft.tids.has(threadId);"), "a window has no pane");
+    assert.ok(list.includes("if (!inlineHasDraft(t.threadId) && !wantsWindow({ shift }) && !(await useStore.getState().leaveCompose())) return;"), "a click on the row of the draft in the pane does not leave the pane first");
+    // every other way to a draft ends in openDraftThread (the toast's Edit, the crash restore, the hub's Edit; Shift+Enter and the menu go through openDraftInWindow)
+    assert.ok(read("src/composeRecovery.ts").includes("openDraftThread(threadId, true, o)") && read("src/popout/composeHub.ts").includes("openDraftThread(p.threadId, true)") && compose.includes("void openDraftThread(tid, true)"));
+    assert.ok(compose.includes("return openDraftThread(threadId, false, { window: true });"), "openDraftInWindow asks the same check");
+    for (const f of ["src/components/CommandBar.tsx", "src/components/ListContextMenu.tsx", "src/components/Ribbon.tsx", "src/App.tsx"]) assert.ok(!read(f).includes("api.getThread(") || !read(f).includes("startCompose"), `${f} opens a draft by itself`);
+  }
+  // W2.12: a window answers to every key it was given (the registry keeps the reply key after a save)
+  { const reg = read("src-tauri/src/popout.rs"); assert.ok(reg.includes("fn a_window_keeps_its_answer_key_after_a_save()") && reg.includes("pub keys: Vec<String>,") && reg.includes("keys: key.map(String::from).into_iter().collect()"), "popout.rs holds a list of keys"); }
   // the crash restore: a message written in a window comes back in one
   const rec = read("src/recovery.ts");
   assert.ok(rec.includes("inWindow: snapshotInWindow(l)") && rec.includes("const window = k.inWindow || undefined") && compose.includes("win: true as const"));

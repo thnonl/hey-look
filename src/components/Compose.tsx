@@ -362,6 +362,9 @@ export async function openDraftThread(threadId: string, wait = false, o: StartOp
   const shift = o.shift ?? shiftNow(); // (read now: the draft is fetched first)
   const key = draftKey(threadId);
   const mine = ++latestDraftOpen;
+  // the one check of every entry point (click, double click, Shift, Enter, context menu, command bar, the toast's Edit, crash restore): the pane
+  // already shows this draft, so it gets the focus and nothing else opens, before anything is read (W2.11)
+  if (inlineHasDraft(threadId)) return focusInlineEditor();
   if (await focusDraftWindow(key)) return true;
   const st = useStore.getState();
   let msgs = await api.getThread(threadId, "drafts");
@@ -392,6 +395,7 @@ export async function openDraftThread(threadId: string, wait = false, o: StartOp
   const rc = await api.draftRecipients(m.id).catch(() => null);
   // without the draft's own headers the Bcc recipients are unknown: say so, a send would leave them out
   if (!rc) st.showToast(() => tNow("compose.draft.bccUnread"), undefined, "error");
+  const keyBefore = st.composeKey;
   await startCompose({
     accountId: m.accountId,
     to: rc?.to ?? (m.to ? splitRecipients(m.to) : []),
@@ -411,13 +415,40 @@ export async function openDraftThread(threadId: string, wait = false, o: StartOp
     // the meeting that was on when the draft was saved: from its private header (else the copy this computer kept), checked here (meetingDraft.ts)
     meetingForm: decodeMeeting(rc?.meeting) ?? undefined,
   }, { ...o, shift, key });
-  // the draft is open in the pane (not in a window): a double click moves it to a window instead of opening it twice (openDraftInWindow)
-  if (!wantsWindow({ window: o.window, shift })) inlineDraft = { threadId, composeKey: useStore.getState().composeKey };
+  // the draft is open in the pane (not in a window): a double click moves it to a window instead of opening it twice (openDraftInWindow), and
+  // asking for it again focuses the pane (a question about another message in the pane, answered with Cancel, leaves the pane as it was)
+  if (!wantsWindow({ window: o.window, shift }) && useStore.getState().composeKey !== keyBefore) inlineDraft = { threadId, composeKey: useStore.getState().composeKey, tids: new Set([threadId]) };
   return true;
 }
 
-/** The draft that was last opened in the pane, and which opening of the pane it was. */
-let inlineDraft: { threadId: string; composeKey: number } | null = null;
+/**
+ * The draft that was last opened in the pane, which opening of the pane it was, and the conversations of the Drafts folder it is: the one it was
+ * opened from and the ones its saves made (an autosave replaces the draft, so the list shows it under a new id).
+ */
+let inlineDraft: { threadId: string; composeKey: number; tids: Set<string> } | null = null;
+
+/** The pane that is open now shows this conversation of the Drafts folder. (Never true in a compose window: it has no pane.) */
+export function inlineHasDraft(threadId: string): boolean {
+  const st = useStore.getState();
+  return !composeSeam() && !!st.compose && !!inlineDraft && inlineDraft.composeKey === st.composeKey && inlineDraft.tids.has(threadId);
+}
+
+/** The pane's message got a draft (a save): that conversation is the pane's too. Called by the Compose of the pane. */
+function noteInlineDraft(tid: string): void {
+  if (composeSeam()) return;
+  const st = useStore.getState();
+  if (!st.compose) return;
+  if (!inlineDraft || inlineDraft.composeKey !== st.composeKey) inlineDraft = { threadId: tid, composeKey: st.composeKey, tids: new Set() };
+  inlineDraft.tids.add(tid);
+}
+
+/** Bring the main window forward and put the caret in the pane's body. Resolves to true (the draft is shown: nothing else is to be opened). */
+function focusInlineEditor(): boolean {
+  void api.showWindow().catch(() => undefined);
+  const body = document.querySelector<HTMLElement>(".compose-pane .ProseMirror");
+  body?.focus();
+  return true;
+}
 /** Counts the openings of a draft: one that is overtaken by a newer one gives up. */
 let latestDraftOpen = 0;
 
@@ -1458,6 +1489,7 @@ function ComposeBody({ init }: { init: ComposeInit }) {
         if (tid) {
           savedTid.current = tid;
           composeSeam()?.draftSaved(tid);
+          noteInlineDraft(tid);
         }
         if (saved.draftRef) savedDraftRef.current = saved.draftRef;
         // the draft on the server holds everything up to `rev`: the snapshot is not needed for it any more
