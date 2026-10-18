@@ -72,7 +72,7 @@ const all = [src({ id: "1" }), src({ id: "2", status: "auth" }), src({ id: "3", 
 assert.deepEqual(pausedSources(all).map((s) => s.id), ["2", "3"], "only the states that need the person");
 
 // ---- read-only notes (AC-10)
-assert.equal(readOnlyNote({ readOnly: "repeating" }, "Work · me@x.y", "Google Calendar"), "Repeating events of Work can be changed in Google Calendar for now.");
+assert.equal(readOnlyNote({ readOnly: "repeating" }, "Work · me@x.y", "Google Calendar"), "Repeating events of Work can only be changed in Google Calendar for now.");
 assert.equal(readOnlyNote({ readOnly: "calendar" }, "Holidays · me@x.y", "Google Calendar"), "Holidays is read only.");
 assert.equal(readOnlyNote({ readOnly: "organizer" }, "Work · me@x.y", "Google Calendar"), "Only the organizer can change this event.");
 assert.equal(readOnlyNote({ readOnly: null }, "Work", "Google Calendar"), null);

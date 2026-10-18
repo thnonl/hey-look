@@ -253,10 +253,10 @@ export default defineLocale<typeof ns.en>({
   "calendar.sync.details": "Detalles: {reason}",
   "calendar.sync.truncated": "Solo se descargó una parte de {name}: tiene más de 25 000 eventos.",
   "calendar.sync.ownApp": "su propia aplicación",
-  "calendar.sync.readOnlyRepeating": "Por ahora, los eventos periódicos de {calendar} se pueden cambiar en {service}.",
+  "calendar.sync.readOnlyRepeating": "Por ahora, los eventos periódicos de {calendar} solo se pueden cambiar en {service}.",
   "calendar.sync.readOnlyCalendar": "{calendar} es de solo lectura.",
   "calendar.sync.readOnlyOrganizer": "Solo el organizador puede cambiar este evento.",
-  "calendar.sync.repeatAddOnly": "Por ahora, los eventos periódicos se pueden añadir a {calendar} en {service}.",
+  "calendar.sync.repeatAddOnly": "Por ahora, los eventos periódicos solo se pueden añadir a {calendar} en {service}.",
   // ---- errors the backend reports as "CAL_xxx: text" (translated when the text is one the app knows)
   "calendar.err.offline": "No tienes conexión. Los cambios en {calendar} necesitan conexión.",
   "calendar.err.conflict": "Este evento se cambió en {service}, así que se muestra su última versión.",

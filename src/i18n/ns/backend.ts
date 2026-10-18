@@ -119,7 +119,7 @@ export default define({
     "backend.SCHEDULE_TOO_FAR": "Hãy chọn ngày trong vòng một năm.",
     "backend.NOTIFY_NO_SERVICE": "Không có dịch vụ thông báo nào đang chạy trên máy tính này.",
     "backend.NOTIFY_MAC_UNAVAILABLE": "chưa dùng được trên macOS ở phiên bản này",
-    "backend.PGP_LOCKED_OUT": "Quá nhiều lần thử. Hãy đợi 30 giây.",
+    "backend.PGP_LOCKED_OUT": "Quá nhiều lần thử. Hãy chờ 30 giây.",
     "backend.PGP_NO_KEY": "Bạn chưa có khóa PGP cho {email}.",
     "backend.PGP_BAD_PASSPHRASE": "Sai cụm mật khẩu.",
     "backend.PGP_NEEDS_PASSPHRASE": "Khóa bí mật này chưa có cụm mật khẩu. Hãy đặt một cụm (ít nhất 8 ký tự) để lưu khóa an toàn.",

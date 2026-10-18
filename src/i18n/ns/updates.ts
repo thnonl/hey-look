@@ -224,7 +224,7 @@ export default define({
     "updates.hint.password": "Bạn sẽ được yêu cầu nhập mật khẩu để cài đặt.",
 
     "updates.flow.downloading": "Đang tải… {received}",
-    "updates.flow.downloadingOf": "Đang tải… {received} trên {total} ({percent}%)",
+    "updates.flow.downloadingOf": "Đang tải… {received}/{total} ({percent}%)",
     "updates.flow.verifying": "Đang xác minh tệp tải xuống…",
     "updates.flow.starting": "Đang bắt đầu…",
     "updates.flow.keepWorking": "Bạn có thể tiếp tục làm việc.",
@@ -245,7 +245,7 @@ export default define({
     "updates.progress.verifying": "Đang xác minh",
     "updates.progress.downloading": "Đang tải, {received}",
     "updates.progress.percent": "{percent}%, {received}",
-    "updates.progress.percentOf": "{percent}%, {received} trên {total}",
+    "updates.progress.percentOf": "{percent}%, {received}/{total}",
     "updates.failed.verify": "Tệp tải xuống bị hỏng hoặc chữ ký không khớp. Không có gì được cài đặt.",
     "updates.failed.badurl": "Liên kết cập nhật không thuộc các bản phát hành của Hey Look! Không có gì được tải xuống.",
     "updates.failed.install": "Không cài đặt được bản cập nhật: {message}.",

@@ -28,7 +28,7 @@ export default defineLocale<typeof ns.en>({
   "errors.limit": "Достигнут лимит загрузки (писем на ящик: {n}). Увеличьте его в разделе Настройки > Почтовые ящики > Чтение и синхронизация.",
   // ---- questions of store.ts
   "errors.ask.unsentTitle": "У вас есть неотправленное письмо",
-  "errors.ask.unsentBody": "Если открыть другое письмо, то письмо, которое вы пишете, будет закрыто.",
+  "errors.ask.unsentBody": "При открытии другого письма письмо, которое вы пишете, будет закрыто.",
   "errors.ask.keepWriting": "Продолжить писать",
   "errors.ask.saveContinue": "Сохранить черновик и продолжить",
   "errors.ask.discard": "Удалить",

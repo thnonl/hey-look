@@ -49,7 +49,7 @@ export default defineLocale<typeof ns.en>({
   "mail.list.summary": { one: "„{query}“ · {scope} · {n} Ergebnis", other: "„{query}“ · {scope} · {n} Ergebnisse" },
   "mail.group.pinned": "Angeheftet",
   "mail.tabs.focused": "Relevant",
-  "mail.tabs.other": "Sonstige",
+  "mail.tabs.other": "Weitere",
   "mail.filter.all": "Alle",
   "mail.filter.unread": "Ungelesen",
   "mail.filter.flagged": "Gekennzeichnet",

@@ -106,7 +106,7 @@
   "story.cal_event": "15:00 Họp rà soát thiết kế",
   "story.cal_declined": "Đã từ chối. Phản hồi được gửi đi từ đúng hộp thư.",
   "story.cal_accepted": "Đã chấp nhận. Sự kiện nằm trong lịch của bạn và một phản hồi được gửi đi từ đúng hộp thư.",
-  "story.cal_tentative": "Dự kiến. Sự kiện nằm trong lịch của bạn và một phản hồi được gửi đi từ đúng hộp thư.",
+  "story.cal_tentative": "Tạm chấp nhận. Sự kiện nằm trong lịch của bạn và một phản hồi được gửi đi từ đúng hộp thư.",
   "story.cal_note": "Đồng bộ với lịch Google hoặc Microsoft là tùy chọn, đặt riêng cho từng hộp thư. CalDAV có thể có trong một bản cập nhật sau này.",
 
   "story.img_loaded": "Đã tải nội dung. Ứng dụng đã tự tải ảnh về nếu có thể, nên giờ người gửi thấy một yêu cầu.",

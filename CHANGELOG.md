@@ -59,6 +59,7 @@ AI Assistant
 
 ### Changed
 
+- Languages: the Vietnamese, French, Chinese, Spanish, Japanese, German and Russian texts of the app and the website were reviewed again by language specialists (one word for one thing, consistent tone, short labels, spacing and punctuation)
 - The app window runs under a Content Security Policy: only the app's own scripts run (no inline or remote scripts), and the app talks only to itself and to its own Rust side
 - Quit always ends. The app waits at most 8 seconds for a window that does not answer, 45 seconds for one that is saving or sending, and 60 seconds for a question to you ("Quit and discard?"), then quits; the message you were writing is kept as a recovery copy and a message in its Undo time goes out at the next start. A question that has to be answered is shown in front, also when the window was hidden in the tray. If the app is still alive 40 seconds after the quit began, it is ended
 - Linux: when the window comes back from the tray ("Open Hey Look!") the app checks that the page still runs and loads it again when it does not, instead of leaving a blank page; a web view process that ends is loaded again at once. The tray icon has no click action on Linux (the desktop's indicator service does not pass clicks on): use "Open Hey Look!" in its menu

@@ -116,7 +116,7 @@ export default defineLocale<typeof ns.en>({
   "app.ribbon.tabHelp": "Ayuda",
   "app.ribbon.newMail": "Nuevo mensaje",
   "app.ribbon.archive": "Archivar",
-  "app.ribbon.report": "Informar",
+  "app.ribbon.report": "Notificar",
   "app.ribbon.moveToJunk": "Mover a Correo no deseado",
   "app.ribbon.blockSender": "Bloquear remitente",
   "app.ribbon.sweep": "Limpiar",

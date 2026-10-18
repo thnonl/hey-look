@@ -23,7 +23,7 @@ pub fn text(k: K) -> &'static str {
         K::ActRead => "标记为已读",
         K::ActFlag => "标记",
         K::ActReply => "回复",
-        K::ActSnooze => "延后",
+        K::ActSnooze => "稍后提醒",
         K::TrayHintTitle => "Hey Look!仍在运行",
         K::TrayHintMac => "它会在菜单栏中持续检查您的邮件。点击程序坞或菜单栏中的Hey Look!图标即可再次打开。",
         K::TrayHintLinux => "它会在托盘中持续检查您的邮件。要退出，请在托盘图标的菜单中选择“退出Hey Look!”。",
@@ -41,15 +41,15 @@ pub fn text(k: K) -> &'static str {
         K::SavePublicKey => "保存公钥",
         K::SaveKeyBackup => "保存密钥备份",
         K::LoadFailTitle => "Hey Look!无法加载窗口",
-        K::LoadFailWindows => "Hey Look!已启动，但其窗口无法加载应用界面。最可能的原因是 Microsoft Edge WebView2 Runtime 缺失或已损坏（请从 Microsoft 重新安装或修复），或有安全软件将其拦截。请选择“重试”再试一次，或打开日志文件夹查看发生了什么。",
-        K::LoadFailMac => "Hey Look!已启动，但其窗口无法加载应用界面。最可能的原因是 macOS 内置的网页引擎（WebKit）未能启动（例如系统更新被中断之后），或有安全软件将其拦截。请选择“重试”再试一次，或打开日志文件夹查看发生了什么。",
-        K::LoadFailLinux => "Hey Look!已启动，但其窗口无法加载应用界面。最可能的原因是 WebKitGTK 库（webkit2gtk-4.1）缺失、版本过旧或已损坏，或当前会话没有可用的图形显示。请选择“重试”再试一次，或打开日志文件夹查看发生了什么。",
+        K::LoadFailWindows => "Hey Look!已启动，但其窗口无法加载应用界面。最可能的原因是Microsoft Edge WebView2 Runtime缺失或已损坏（请从Microsoft重新安装或修复），或有安全软件将其拦截。请选择“重试”再试一次，或打开日志文件夹查看发生了什么。",
+        K::LoadFailMac => "Hey Look!已启动，但其窗口无法加载应用界面。最可能的原因是macOS内置的网页引擎（WebKit）未能启动（例如系统更新被中断之后），或有安全软件将其拦截。请选择“重试”再试一次，或打开日志文件夹查看发生了什么。",
+        K::LoadFailLinux => "Hey Look!已启动，但其窗口无法加载应用界面。最可能的原因是WebKitGTK库（webkit2gtk-4.1）缺失、版本过旧或已损坏，或当前会话没有可用的图形显示。请选择“重试”再试一次，或打开日志文件夹查看发生了什么。",
         K::LoadFailRetry => "重试",
         K::LoadFailOpenLog => "打开日志文件夹",
         K::LoadFailQuit => "退出",
         K::LoadFailLog => "日志文件：",
         K::StartFailTitle => "Hey Look!无法启动",
-        K::StartFailBody => "Hey Look!无法启动，因为无法创建它的窗口。\n\n最常见的原因是缺少或损坏了 Microsoft WebView2 Runtime（微软提供的免费组件，应用程序用它来显示窗口）。请从 https://developer.microsoft.com/microsoft-edge/webview2/ 安装或修复它（选择“Evergreen Bootstrapper”或“Evergreen Standalone Installer”），然后重新启动 Hey Look!。\n\n出错的详细情况已保存在下面所示的日志文件中；如果问题仍然存在，请把该文件发给技术支持。",
+        K::StartFailBody => "Hey Look!无法启动，因为无法创建它的窗口。\n\n最常见的原因是缺少或损坏了Microsoft WebView2 Runtime（微软提供的免费组件，应用程序用它来显示窗口）。请从 https://developer.microsoft.com/microsoft-edge/webview2/ 安装或修复它（选择“Evergreen Bootstrapper”或“Evergreen Standalone Installer”），然后重新启动Hey Look!。\n\n出错的详细情况已保存在下面所示的日志文件中；如果问题仍然存在，请把该文件发给技术支持。",
     }
 }
 
@@ -68,7 +68,7 @@ pub fn new_messages(n: usize) -> String {
 
 /// Title of the notification for a snoozed conversation that came back.
 pub fn snooze_ended(who: &str) -> String {
-    format!("延后时间已到：{who}")
+    format!("稍后提醒：{who}")
 }
 
 /// Event reminder title: the event starts now (`minutes` = 0) or in `minutes` minutes.

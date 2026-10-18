@@ -43,7 +43,7 @@ export default define({
     "common.close": "Fermer",
     "common.save": "Enregistrer",
     "common.delete": "Supprimer",
-    "common.remove": "Supprimer",
+    "common.remove": "Retirer",
     "common.edit": "Modifier",
     "common.done": "Terminé",
     "common.off": "Désactivé",

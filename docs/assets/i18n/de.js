@@ -34,7 +34,7 @@
 
   "kofi.button": "Mich unterstützen",
 
-  "dl.loading": "api.github.com wird nach der neuesten Version gefragt...",
+  "dl.loading": "api.github.com wird nach der neuesten Version gefragt…",
   "dl.latest": "Neueste Version: {tag}",
   "dl.notes": "Versionshinweise auf GitHub",
   "dl.error": "Die neueste Version gibt es bei GitHub Releases.",
@@ -94,7 +94,7 @@
   "story.pos_right": "rechts",
   "story.pos_bottom": "unten",
   "story.conv_state": "Unterhaltungen: {state}.",
-  "story.focused_state": "Posteingang mit Relevanz: {state}.",
+  "story.focused_state": "Fokussierter Posteingang: {state}.",
   "story.on": "an",
   "story.off": "aus",
   "story.cmd_archived": "Archiviert. („Rückgängig“ steht im Hinweis.)",

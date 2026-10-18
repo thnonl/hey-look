@@ -6,7 +6,7 @@
 <meta http-equiv="Content-Security-Policy" content="default-src 'none'; img-src 'self' data:; media-src 'self'; style-src 'self'; script-src 'self'; connect-src https://api.github.com; base-uri 'self'; form-action 'none'">
 <meta name="referrer" content="strict-origin-when-cross-origin">
 <title>セキュリティ - Hey Look!</title>
-<meta name="description" content="Hey Look!がメールを守る仕組み、アップデートの署名方法、既知の制限（インストーラーはコード署名なし）、脆弱性の報告方法を説明します。">
+<meta name="description" content="Hey Look!がメールを守る仕組み、アップデートの署名方法、既知の制限（インストーラーはまだコード署名されていません）、脆弱性の報告方法を説明します。">
 <meta name="color-scheme" content="light dark">
 <meta name="theme-color" content="#f4f5f7" media="(prefers-color-scheme: light)">
 <meta name="theme-color" content="#131417" media="(prefers-color-scheme: dark)">
@@ -27,7 +27,7 @@
 <meta property="og:type" content="website">
 <meta property="og:site_name" content="Hey Look!">
 <meta property="og:title" content="セキュリティ - Hey Look!">
-<meta property="og:description" content="Hey Look!がメールを守る仕組み、アップデートの署名方法、既知の制限（インストーラーはコード署名なし）、脆弱性の報告方法を説明します。">
+<meta property="og:description" content="Hey Look!がメールを守る仕組み、アップデートの署名方法、既知の制限（インストーラーはまだコード署名されていません）、脆弱性の報告方法を説明します。">
 <meta property="og:url" content="https://thnonl.github.io/hey-look/ja/security.html">
 <meta property="og:locale" content="ja_JP">
 <meta property="og:locale:alternate" content="en_US">
@@ -44,7 +44,7 @@
 <meta property="og:image:alt" content="受信トレイを表示したHey Look!のメールクライアントの画面と、英語のキャッチコピー「Mail without the rent」。">
 <meta name="twitter:card" content="summary_large_image">
 <meta name="twitter:title" content="セキュリティ - Hey Look!">
-<meta name="twitter:description" content="Hey Look!がメールを守る仕組み、アップデートの署名方法、既知の制限（インストーラーはコード署名なし）、脆弱性の報告方法を説明します。">
+<meta name="twitter:description" content="Hey Look!がメールを守る仕組み、アップデートの署名方法、既知の制限（インストーラーはまだコード署名されていません）、脆弱性の報告方法を説明します。">
 <meta name="twitter:image" content="https://thnonl.github.io/hey-look/assets/og-image.jpg">
 <meta name="twitter:image:alt" content="受信トレイを表示したHey Look!のメールクライアントの画面と、英語のキャッチコピー「Mail without the rent」。">
 <link rel="icon" href="../assets/icon-48.png" sizes="48x48" type="image/png">
@@ -87,8 +87,8 @@
 </ul>
 </details>
 <!-- hl:lang-end -->
-      <button id="motion-btn" class="icon-btn" type="button" aria-pressed="false" aria-label="アニメーション: オン。オフにする" title="アニメーション"><svg class="ic m-on" aria-hidden="true" focusable="false"><use href="#i-motion"/></svg><svg class="ic m-off" aria-hidden="true" focusable="false"><use href="#i-pause"/></svg></button>
-      <button id="theme-btn" class="icon-btn" type="button" aria-label="テーマ: 自動。ライトに切り替える"><svg class="ic i-auto" aria-hidden="true" focusable="false"><use href="#i-auto"/></svg><svg class="ic i-sun" aria-hidden="true" focusable="false"><use href="#i-sun"/></svg><svg class="ic i-moon" aria-hidden="true" focusable="false"><use href="#i-moon"/></svg></button>
+      <button id="motion-btn" class="icon-btn" type="button" aria-pressed="false" aria-label="アニメーション：オン。オフにする" title="アニメーション"><svg class="ic m-on" aria-hidden="true" focusable="false"><use href="#i-motion"/></svg><svg class="ic m-off" aria-hidden="true" focusable="false"><use href="#i-pause"/></svg></button>
+      <button id="theme-btn" class="icon-btn" type="button" aria-label="テーマ：自動。ライトに切り替える"><svg class="ic i-auto" aria-hidden="true" focusable="false"><use href="#i-auto"/></svg><svg class="ic i-sun" aria-hidden="true" focusable="false"><use href="#i-sun"/></svg><svg class="ic i-moon" aria-hidden="true" focusable="false"><use href="#i-moon"/></svg></button>
       <a class="btn btn-primary btn-sm hdr-dl" href="download.html"><svg class="ic" aria-hidden="true" focusable="false"><use href="#i-download"/></svg><span>ダウンロード</span></a>
       <button class="nav-toggle icon-btn" type="button" aria-expanded="false" aria-controls="site-nav" aria-label="メニュー"><svg class="ic" aria-hidden="true" focusable="false"><use href="#i-menu"/></svg></button>
     </div>
@@ -96,17 +96,17 @@
   </div>
 </header>
 <main id="main">
-<section class="page-head"><div class="wrap"><p class="kicker">セキュリティ</p><h1>私たちにできること、そしてその限界</h1><div class="callout"><p><strong>お知らせ:</strong> この日本語版は、利便性のために提供している参考訳です。内容に相違がある場合は、英語版が正式なものとして優先されます。英語版は、ページ上部の言語メニューから開けます。</p></div><p class="lead">事実だけを記します。結果を約束することは、誰にもできません。</p></div></section>
-<div class="wrap layout"><aside class="toc" aria-label="このページの内容"><h2>このページの内容</h2><ol><li><a href="#protect">Hey Look!があなたを守る方法</a></li><li><a href="#signed">アップデートは署名されています</a></li><li><a href="#codesign">インストーラーはコード署名されていません</a></li><li><a href="#report">脆弱性を報告する</a></li><li><a href="#limit">既知の制限</a></li></ol></aside>
+<section class="page-head"><div class="wrap"><p class="kicker">セキュリティ</p><h1>私たちにできること、そしてその限界</h1><div class="callout"><p><strong>お知らせ：</strong>この日本語版は、利便性のために提供している参考訳です。内容に相違がある場合は、英語版が正式なものとして優先されます。英語版は、ページ上部の言語メニューから開けます。</p></div><p class="lead">事実のみを記載します。結果を保証することは誰にもできないため、それは約束しません。</p></div></section>
+<div class="wrap layout"><aside class="toc" aria-label="このページの内容"><h2>このページの内容</h2><ol><li><a href="#protect">Hey Look!による保護</a></li><li><a href="#signed">アップデートは署名されています</a></li><li><a href="#codesign">インストーラーはコード署名されていません</a></li><li><a href="#report">脆弱性を報告する</a></li><li><a href="#limit">既知の制限</a></li></ol></aside>
 <article class="prose">
 
-<h2 id="protect">Hey Look!があなたを守る方法</h2>
-<ul><li>サーバーはTLSまたはSTARTTLSに対応している必要があります。暗号化されていない接続しか提供しないサーバーは追加できません。</li><li>GoogleとMicrosoftのサインインは、プロバイダー自身のウィンドウで、PKCEを用いたOAuth 2.0 を使います。アプリが保存するのはトークンで、パスワードではありません。</li><li>パスワード、OAuthトークン、AIのAPIキーは、システムの資格情報ストアに保管されます。</li><li>OpenPGPの秘密鍵は例外で、パスフレーズで保護してアプリのデータベースに保存され、資格情報ストアには保存されません。パスフレーズを何度も間違えると、ロック解除まで30秒待つ必要があります。</li><li>メッセージは、スクリプトを無効にし、厳格なコンテンツポリシーを適用した、iframe、object、embed、フォームを含まないフレーム内に表示されます。</li><li>リモート画像は、許可するまでブロックされるため、トラッキングピクセルは動作しません。</li><li>表示テキストが、別のホストを指すWebアドレスになっているリンクは、確認を求めます。これは一般的なフィッシング対策ではありません。</li><li>実行ファイルやスクリプトの添付ファイルを開くときは、先に確認が表示されます。</li><li>「この証明書を信頼する」は既定でオフです。アカウントごとの選択であり、そのアカウントの証明書チェックをオフにします。</li><li>アプリ自身のウィンドウは、コンテンツセキュリティポリシー（Content Security Policy）の下で動作します。アプリ自身のスクリプトだけが実行され（インラインやリモートのスクリプトはなし）、ウィンドウが接続するのはアプリ自身だけです。</li><li>Webページや他のプログラムから貼り付けたテキストは整えられます。スクリプト、フォーム、イベントハンドラーは取り込まれず、作成中にリモートの画像は取得されません。</li></ul>
-<h2 id="signed">アップデートは署名されています</h2><p>アプリはGitHubで新しいバージョンを確認し、<code>https://github.com/thnonl/hey-look/releases/download/&lt;tag&gt;/&lt;file&gt;</code> の形式のダウンロードアドレスのみを受け付けます。アプリに組み込まれた公開鍵でminisignの署名を検証し、キャンセル可能な5秒のカウントダウンのあとに再起動します。Windowsでは更新が自動でインストールされ、macOSとLinuxではお客様の許可が必要です。</p>
-<h2 id="codesign">インストーラーはまだコード署名されていません</h2><p>WindowsとmacOSのインストーラーはコード署名されておらず、macOS版は公証もされていないため、初回起動時にWindows SmartScreenとmacOS Gatekeeperが警告を表示します。初回起動の手順は<a href="download.html#install-notes">ダウンロードページ</a>にあります。コード署名は、実現したい項目のひとつです。助けになることについては<a href="support.html">支援ページ</a>をご覧ください。 macOSアプリはプロジェクト独自の自己署名証明書で署名されています（Appleのアカウントは関係しません）。これによりキーチェーンはアップデートをまたいでアプリを認識し続けられますが、公証ではありません。</p>
-<h2 id="report">脆弱性を報告する</h2><p>セキュリティ上の問題は、GitHubを通じて非公開で報告してください。<a href="https://github.com/thnonl/hey-look/security" rel="noopener">github.com/thnonl/hey-look/security</a> を開いて「Report a vulnerability」を選びます。公開のIssueは作成しないでください。<a href="mailto:namth.onl@gmail.com">namth.onl@gmail.com</a> 宛にメールすることもできます。Hey Look!は空いた時間に作っているため、返答に時間がかかることがあり、返答までの時間を約束するものではありません。</p>
+<h2 id="protect">Hey Look!による保護</h2>
+<ul><li>サーバーはTLSまたはSTARTTLSに対応している必要があります。暗号化されていない接続しか提供しないサーバーは追加できません。</li><li>GoogleとMicrosoftのサインインでは、プロバイダー自身のウィンドウで、PKCEを用いたOAuth 2.0を使います。アプリが保存するのはトークンで、パスワードは保存しません。</li><li>パスワード、OAuthトークン、AIのAPIキーは、システムの資格情報ストアに保管されます。</li><li>例外はOpenPGPの秘密鍵で、資格情報ストアではなく、パスフレーズで保護された状態でアプリのデータベースに保存されます。パスフレーズを何度も間違えると、ロック解除まで30秒待つ必要があります。</li><li>メッセージは、スクリプトが無効で、厳格なコンテンツポリシーが適用され、iframe、object、embed、フォームを含まないフレーム内に表示されます。</li><li>リモート画像は、許可するまでブロックされるため、トラッキングピクセルは動作しません。</li><li>表示テキストがWebアドレスで、実際には別のホストを指しているリンクを開くときは、確認が表示されます。これは汎用的なフィッシング検出ではありません。</li><li>実行ファイルやスクリプトの添付ファイルを開くときは、先に確認が表示されます。</li><li>「このサーバーの証明書を信頼する」は既定でオフです。アカウントごとに選ぶ設定で、オンにするとそのアカウントの証明書の検証が無効になります。</li><li>アプリ自身のウィンドウは、コンテンツセキュリティポリシー（Content Security Policy）の下で動作します。実行されるのはアプリ自身のスクリプトだけで（インラインスクリプトやリモートスクリプトは実行されません）、ウィンドウの接続先はアプリ自身に限られます。</li><li>Webページや他のプログラムから貼り付けたテキストは、自動で整理されます。スクリプト、フォーム、イベントハンドラーは取り込まれず、作成中にリモート画像が取得されることもありません。</li></ul>
+<h2 id="signed">アップデートは署名されています</h2><p>アプリはGitHubで新しいバージョンを確認し、<code>https://github.com/thnonl/hey-look/releases/download/&lt;tag&gt;/&lt;file&gt;</code>の形式のダウンロードアドレスのみを受け付けます。アプリに組み込まれた公開鍵でminisignの署名を検証し、5秒のカウントダウン（キャンセル可能）のあとに再起動します。Windowsではアップデートが自動でインストールされ、macOSとLinuxではユーザーの許可が必要です。</p>
+<h2 id="codesign">インストーラーはまだコード署名されていません</h2><p>WindowsとmacOSのインストーラーはコード署名されておらず、macOS版は公証も受けていないため、初回起動時にWindows SmartScreenとmacOS Gatekeeperが警告を表示します。初回起動の手順は<a href="download.html#install-notes">ダウンロードページ</a>にあります。コード署名は今後実現したい項目のひとつです。どのような支援が役立つかは<a href="support.html">支援ページ</a>をご覧ください。macOSアプリはプロジェクト独自の自己署名証明書で署名されています（Appleのアカウントによる署名ではありません）。これにより、アップデート後もキーチェーンがアプリを同じアプリとして認識し続けられますが、公証とは異なります。</p>
+<h2 id="report">脆弱性を報告する</h2><p>セキュリティ上の問題は、GitHubを通じて非公開で報告してください。<a href="https://github.com/thnonl/hey-look/security" rel="noopener">github.com/thnonl/hey-look/security</a>を開いて「Report a vulnerability」を選びます。公開のIssueは作成しないでください。<a href="mailto:namth.onl@gmail.com">namth.onl@gmail.com</a>宛てにメールで報告することもできます。Hey Look!は空き時間に開発しているため、返信までに時間がかかる場合があります。また、返信までの期間はお約束できません。</p>
 <h2 id="limit">既知の制限</h2>
-<ul><li>カレンダーの招待の更新とキャンセルは、差出人アドレスが保存済みの主催者と一致する場合に受け付けられます。DKIM、SPF、S/MIMEの検証は行わないため、差出人アドレスが偽装されると、受信した予定が変更またはキャンセルされる可能性があります。通常、メールプロバイダーはそのようななりすましを拒否します。</li><li>OpenPGPは、他のOpenPGPソフトウェアとの動作をまだ検証していません。</li><li>AIアシスタントは、依頼の対象となるテキスト（復号されたOpenPGPの内容を含む）を、設定したエンドポイントに送信します。そのエンドポイントに対して内容は秘匿されません。</li><li>「アナリティクスなし」という記載は、ソースコードで確認したもので、ネットワークキャプチャによる確認ではありません。</li><li>第三者によるセキュリティ監査を受けたとは主張しません。</li><li>「機密」にしたメッセージが画面キャプチャや録画から隠されるのは、WindowsとmacOSだけです。画面を撮影されることは防げません。</li></ul>
+<ul><li>カレンダーの招待の更新とキャンセルは、差出人（From）アドレスが保存済みの主催者と一致する場合に受け付けられます。DKIM、SPF、S/MIMEの検証は行わないため、差出人アドレスが偽装されると、受信した予定が変更またはキャンセルされる可能性があります。通常、こうしたなりすましはメールプロバイダーによって拒否されます。</li><li>OpenPGP機能と他のOpenPGPソフトウェアとの相互運用性は、まだ検証されていません。</li><li>AIアシスタントは、依頼の対象となるテキスト（復号されたOpenPGPの内容を含む）を、設定したエンドポイントに送信します。そのエンドポイントに対して内容は秘匿されません。</li><li>「アナリティクスなし」という記載は、ソースコードを調べて確認したもので、ネットワークキャプチャによる検証ではありません。</li><li>第三者によるセキュリティ監査を受けたとは主張していません。</li><li>「機密」に設定したメッセージが画面キャプチャや録画から隠されるのは、WindowsとmacOSのみです。また、画面をカメラで撮影されることは防げません。</li></ul>
 </article></div>
 </main>
 <footer class="ftr">

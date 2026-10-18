@@ -19,5 +19,5 @@ export default defineLocale<typeof ns.en>({
   "common.retry": "重试",
   "common.copy": "复制",
   "common.loading": "正在加载…",
-  "common.undo": "撤消",
+  "common.undo": "撤销",
 });
