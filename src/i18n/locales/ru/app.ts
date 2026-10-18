@@ -112,6 +112,7 @@ export default defineLocale<typeof ns.en>({
   "app.quit.scheduledBodyNext.one": "Если выйти сейчас, оно будет отправлено при следующем запуске Hey Look! Срок отправки: {when}.",
   "app.quit.scheduledBodyNext.many": "Если выйти сейчас, они будут отправлены при следующем запуске Hey Look! Ближайший срок отправки: {when}.",
   "app.quit.keepRunning": "Оставить в трее",
+  "app.quit.keepRunningMac": "Оставить в строке меню",
   "app.quit.quitAnyway": "Всё равно выйти",
   // ---- top bar and window controls
   "app.top.sync": "Синхронизировать (F5)",
@@ -131,6 +132,8 @@ export default defineLocale<typeof ns.en>({
   "app.ribbon.tabView": "Вид",
   "app.ribbon.tabHelp": "Справка",
   "app.ribbon.newMail": "Новое письмо",
+  "app.newMail.waiting": "Новое письмо откроется, как только почтовые ящики будут готовы…",
+  "app.newMail.failed": "Не удалось открыть новое письмо.",
   "app.ribbon.archive": "Архивировать",
   "app.ribbon.report": "Сообщить",
   "app.ribbon.moveToJunk": "Переместить в спам",

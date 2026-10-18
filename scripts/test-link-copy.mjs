@@ -17,10 +17,11 @@ const lib = read("src-tauri/src/lib.rs");
 // 1. the toast: the copy is awaited, "copied" only when it worked, the link is shown when it did not
 const fn = updates.slice(updates.indexOf("export async function openUpdateLink"));
 const body = fn.slice(0, fn.indexOf("\n}\n"));
-assert.match(body, /const copied = await copyToClipboard\(url\)/, "waits for the copy");
-assert.match(body, /copied \? t\("updates\.toast\.openFailedCopied"\)/, "REQ wording when it was copied");
+assert.match(body, /const copied = await copyToClipboard\(linkToCopy\(url\)\)/, "waits for the copy (of the address for a mailto link, of the link otherwise)");
+const openFailed = read("src/openFailed.ts");
+assert.match(openFailed, /copied \? \{ key: "updates\.toast\.openFailedCopied" \}/, "REQ wording when it was copied");
 assert.equal(en["updates.toast.openFailedCopied"], "Couldn’t open your browser. The link is copied to the clipboard.");
-assert.match(body, /t\("updates\.toast\.openFailedNotCopied", \{ url:/, "otherwise the link is in the toast");
+assert.match(openFailed, /key: "updates\.toast\.openFailedNotCopied", vars: \{ url: cut\(url\) \}/, "otherwise the link is in the toast");
 assert.match(en["updates.toast.openFailedNotCopied"], /couldn’t be copied\. The link: \{url\}/);
 assert.ok(!/void navigator\.clipboard/.test(body), "no fire-and-forget copy");
 

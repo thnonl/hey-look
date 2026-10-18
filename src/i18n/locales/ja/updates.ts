@@ -31,6 +31,8 @@ export default defineLocale<typeof ns.en>({
   "updates.toast.opening": "ブラウザーでダウンロードを開いています…",
   "updates.toast.openFailedCopied": "ブラウザーを開けませんでした。リンクをクリップボードにコピーしました。",
   "updates.toast.openFailedNotCopied": "ブラウザーを開けず、リンクもコピーできませんでした。リンク：{url}",
+  "updates.toast.mailtoFailedCopied": "既定のメールアプリを開けませんでした。アドレスをクリップボードにコピーしました。",
+  "updates.toast.mailtoFailedNotCopied": "既定のメールアプリを開けず、アドレスもコピーできませんでした。アドレス：{address}",
   "updates.toast.failed": "{version}へのアップデートに失敗しました。",
   "updates.toast.changed": "GitHub上のアップデートが{version}に変わりました。何もダウンロードされていません。",
   "updates.toast.downloading": "Hey Look! {version}をダウンロードしています。作業は続けられます。",

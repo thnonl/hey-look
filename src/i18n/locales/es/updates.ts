@@ -31,6 +31,8 @@ export default defineLocale<typeof ns.en>({
   "updates.toast.opening": "Abriendo la descarga en tu navegador…",
   "updates.toast.openFailedCopied": "No se pudo abrir tu navegador. El enlace se copió en el portapapeles.",
   "updates.toast.openFailedNotCopied": "No se pudo abrir tu navegador ni copiar el enlace. El enlace: {url}",
+  "updates.toast.mailtoFailedCopied": "No se pudo abrir tu aplicación de correo predeterminada. La dirección se copió en el portapapeles.",
+  "updates.toast.mailtoFailedNotCopied": "No se pudo abrir tu aplicación de correo predeterminada ni copiar la dirección. La dirección: {address}",
   "updates.toast.failed": "Falló la actualización a {version}.",
   "updates.toast.changed": "La actualización de GitHub cambió a {version}. No se descargó nada.",
   "updates.toast.downloading": "Descargando Hey Look! {version}. Puedes seguir trabajando.",

@@ -31,6 +31,8 @@ export default defineLocale<typeof ns.en>({
   "updates.toast.opening": "Открытие страницы скачивания в браузере…",
   "updates.toast.openFailedCopied": "Не удалось открыть браузер. Ссылка скопирована в буфер обмена.",
   "updates.toast.openFailedNotCopied": "Не удалось открыть браузер и скопировать ссылку. Ссылка: {url}",
+  "updates.toast.mailtoFailedCopied": "Не удалось открыть почтовую программу по умолчанию. Адрес скопирован в буфер обмена.",
+  "updates.toast.mailtoFailedNotCopied": "Не удалось открыть почтовую программу по умолчанию и скопировать адрес. Адрес: {address}",
   "updates.toast.failed": "Не удалось обновить до версии {version}.",
   "updates.toast.changed": "Обновление на GitHub изменилось: теперь это версия {version}. Ничего не скачано.",
   "updates.toast.downloading": "Скачивание Hey Look! {version}. Можно продолжать работу.",

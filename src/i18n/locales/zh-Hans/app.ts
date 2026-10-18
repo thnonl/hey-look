@@ -87,6 +87,7 @@ export default defineLocale<typeof ns.en>({
   "app.quit.scheduledBodyNext.one": "如果现在退出，它将在您下次打开Hey Look!时发送。下一封应于{when}发送。",
   "app.quit.scheduledBodyNext.many": "如果现在退出，它们将在您下次打开Hey Look!时发送。下一封应于{when}发送。",
   "app.quit.keepRunning": "在托盘中继续运行",
+  "app.quit.keepRunningMac": "在菜单栏中继续运行",
   "app.quit.quitAnyway": "仍然退出",
   // ---- top bar and window controls
   "app.top.sync": "立即同步 (F5)",
@@ -106,6 +107,8 @@ export default defineLocale<typeof ns.en>({
   "app.ribbon.tabView": "视图",
   "app.ribbon.tabHelp": "帮助",
   "app.ribbon.newMail": "新建邮件",
+  "app.newMail.waiting": "邮箱准备就绪后将立即打开新邮件…",
+  "app.newMail.failed": "无法打开新邮件。",
   "app.ribbon.archive": "归档",
   "app.ribbon.report": "报告",
   "app.ribbon.moveToJunk": "移至垃圾邮件",

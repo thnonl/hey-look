@@ -96,6 +96,7 @@ export default defineLocale<typeof ns.en>({
   "app.quit.scheduledBodyNext.one": "Si sales ahora, se enviará la próxima vez que abras Hey Look! Próximo envío: {when}.",
   "app.quit.scheduledBodyNext.many": "Si sales ahora, se enviarán la próxima vez que abras Hey Look! Próximo envío: {when}.",
   "app.quit.keepRunning": "Seguir en la bandeja del sistema",
+  "app.quit.keepRunningMac": "Seguir en la barra de menús",
   "app.quit.quitAnyway": "Salir de todos modos",
   // ---- top bar and window controls
   "app.top.sync": "Sincronizar ahora (F5)",
@@ -115,6 +116,8 @@ export default defineLocale<typeof ns.en>({
   "app.ribbon.tabView": "Vista",
   "app.ribbon.tabHelp": "Ayuda",
   "app.ribbon.newMail": "Nuevo mensaje",
+  "app.newMail.waiting": "Abriendo un mensaje nuevo en cuanto tus buzones estén listos…",
+  "app.newMail.failed": "No se pudo abrir un mensaje nuevo.",
   "app.ribbon.archive": "Archivar",
   "app.ribbon.report": "Notificar",
   "app.ribbon.moveToJunk": "Mover a Correo no deseado",

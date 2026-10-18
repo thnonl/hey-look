@@ -150,3 +150,5 @@ static | node --experimental-strip-types scripts/test-site-top-bar-dark.mjs
 ui-a | node scripts/test-outside-press.mjs --require-browser
 # Tab and Shift+Tab stop only on visible controls: the compose header with Meeting on (no zero-size file input) and Settings > Appearance (the preview is inert), real key events
 ui-a | node scripts/test-tab-stops.mjs --require-browser
+# a failed email link names the default mail app and copies only the address; the quit question and the Send later picker say "menu bar" on macOS
+static | node --experimental-strip-types scripts/test-open-failed-text.mjs

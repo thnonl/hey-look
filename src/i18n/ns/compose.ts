@@ -476,6 +476,7 @@ export default define({
     "compose.schedule.foot": "Hey Look! sends from this computer. If it’s closed at that time, the message goes out the next time you open it.",
     "compose.schedule.quitWarning": "Closing the window quits Hey Look!, so this message only goes out when you open it again.",
     "compose.schedule.keepInTray": "Keep running in the tray",
+    "compose.schedule.keepInMenuBar": "Keep running in the menu bar",
 
     // Scheduled list
     "compose.scheduled.needsAttention": "Needs attention",
@@ -980,6 +981,7 @@ export default define({
     "compose.schedule.foot": "Hey Look! gửi thư từ máy tính này. Nếu ứng dụng đang đóng vào giờ đó, thư sẽ được gửi vào lần mở tiếp theo.",
     "compose.schedule.quitWarning": "Đóng cửa sổ sẽ thoát Hey Look!, nên thư này chỉ được gửi khi bạn mở lại ứng dụng.",
     "compose.schedule.keepInTray": "Tiếp tục chạy ở khay hệ thống",
+    "compose.schedule.keepInMenuBar": "Tiếp tục chạy trên thanh menu",
 
     "compose.scheduled.needsAttention": "Cần chú ý",
     "compose.scheduled.today": "Hôm nay",
@@ -1483,6 +1485,7 @@ export default define({
     "compose.schedule.foot": "Hey Look! envoie depuis cet ordinateur. Si l’application est fermée à ce moment-là, le message part à sa prochaine ouverture.",
     "compose.schedule.quitWarning": "En fermant la fenêtre, vous quittez Hey Look!, donc ce message ne partira qu’à sa prochaine ouverture.",
     "compose.schedule.keepInTray": "Continuer à fonctionner dans la zone de notification",
+    "compose.schedule.keepInMenuBar": "Rester dans la barre des menus",
 
     "compose.scheduled.needsAttention": "À traiter",
     "compose.scheduled.today": "Aujourd’hui",

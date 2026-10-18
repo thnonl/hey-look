@@ -1,6 +1,7 @@
 // In-app updates, UI side: the result of the check, the download / ready / install flow and its toasts.
 // The backend (src-tauri/src/update.rs) does the work: this keeps the state the card, the top-bar chip and the toasts show.
 import { copyToClipboard, openExternal } from "./open";
+import { failedOpenText, linkToCopy } from "./openFailed";
 import { stickyTimers } from "./stickyTimers";
 import { create } from "zustand";
 import { api, DlEvent, UpdateInfo, UpdateResult, UpdateTrigger } from "./api";
@@ -77,13 +78,10 @@ export async function openUpdateLink(url: string, announce = false) {
     await openExternal(url);
     if (announce) showToast(t("updates.toast.opening"), undefined, "info");
   } catch {
-    // the toast says "copied" only when it was (on Linux it was not, QA BUG-L4)
-    const copied = await copyToClipboard(url);
-    showToast(
-      () => copied ? t("updates.toast.openFailedCopied") : t("updates.toast.openFailedNotCopied", { url: url.length > 100 ? url.slice(0, 100) + "…" : url }),
-      undefined,
-      "error",
-    );
+    // the toast says "copied" only when it was (on Linux it was not, QA BUG-L4); an email link names the mail app and copies the address only (openFailed.ts)
+    const copied = await copyToClipboard(linkToCopy(url));
+    const text = failedOpenText(url, copied);
+    showToast(() => t(text.key, text.vars), undefined, "error");
   }
 }
 
