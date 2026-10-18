@@ -67,15 +67,29 @@ export function sidebarLayout(i: SidebarInput): SidebarLayout {
   }
 }
 
+/** What the control does with the overlay (the full menu over the list and the reading pane): open it pinned, close it, or leave it. */
+export type OverlayAction = "open" | "close" | "none";
+
+/** Whether the full menu would fit next to the list and the reading pane (the layout of the setting "expanded" is not squeezed). */
+export function sidebarHasRoom(i: SidebarInput): boolean {
+  return !sidebarLayout({ ...i, mode: "expanded" }).squeezed;
+}
+
 /**
- * What the collapse / expand control does. It shows the state of the layout, not of the setting:
- *  - open now: fold it ("collapsed")
- *  - icons now: open it ("expanded"); when that leaves no room, `pin` asks for the overlay to stay open until it is dismissed
- *  - squeezed already (the setting is "expanded"): the setting stays, the overlay is pinned
+ * What the collapse / expand control (the button and Ctrl+B / Cmd+B) does. It follows what is on screen; the saved setting changes only where the menu can sit next to the
+ * list (Outlook: in a narrow window the folder pane button shows and hides the pane as a flyout over the list, it does not change the layout):
+ *  - full menu now: fold it, the setting becomes "collapsed"
+ *  - icons now, and room for the full menu: open it in place, the setting becomes "expanded"; an overlay that was open (hover) closes
+ *  - icons now, no room: the setting stays; the overlay (the full menu over the panes) closes when it is open and opens pinned when it is not
  */
-export function toggleSidebar(i: SidebarInput): { mode: SidebarMode; pin: boolean } {
-  const now = sidebarLayout(i);
-  if (!now.collapsed) return { mode: "collapsed", pin: false };
-  const next: SidebarMode = "expanded";
-  return { mode: next, pin: sidebarLayout({ ...i, mode: next }).squeezed };
+export function toggleSidebar(i: SidebarInput, overlayOpen: boolean): { mode: SidebarMode; overlay: OverlayAction } {
+  if (!sidebarLayout(i).collapsed) return { mode: "collapsed", overlay: "none" };
+  if (sidebarHasRoom(i)) return { mode: "expanded", overlay: "close" };
+  return { mode: i.mode, overlay: overlayOpen ? "close" : "open" };
+}
+
+/** What the control shows: "open" (label "Collapse side menu", PanelLeftClose, aria-expanded) while the full menu is on screen - in place, or as the overlay when it has no room - else "closed". A hover overlay with room for the menu in place is still "closed": the control would open it in place. */
+export function sidebarControlOpen(i: SidebarInput, overlayOpen: boolean): boolean {
+  if (!sidebarLayout(i).collapsed) return true;
+  return overlayOpen && !sidebarHasRoom(i);
 }

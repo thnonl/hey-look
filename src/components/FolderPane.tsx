@@ -14,7 +14,8 @@ import { kbd } from "../platform";
 import { folderVisible } from "../junk";
 import { useStore } from "../store";
 import { useSidebarPeek } from "../sidebarPeek";
-import { toggleSidebarNow } from "../useSidebar";
+import { sidebarControlOpen, toggleSidebar } from "../sidebarState";
+import { sidebarInput, useWindowWidth } from "../useSidebar";
 
 const ICONS: Record<string, ReactNode> = {
   inbox: <Inbox size={16} />,
@@ -44,19 +45,33 @@ const RAIL_BADGE_KEYS = ["inbox", "unread", "junk"];
 export function FolderPane({ collapsed: folded }: { collapsed: boolean }) {
   const t = useT();
   const { accounts, folders, folder, accountId, setView, prefs, setPrefs, syncErrors, sync, outbox, module, setModule, firstSync, reauth } = useStore();
-  const pinReq = useStore((s) => s.sidebarPin);
+  const toggleReq = useStore((s) => s.sidebarToggle);
+  useWindowWidth(); // (the control follows the window: whether the full menu would fit next to the panes)
   const tree = useRef<HTMLDivElement>(null);
   const reorder = useAccountReorder(tree); // the mailbox groups can be moved (grip, Alt+Up / Alt+Down, menu); see AccountReorder.tsx
   const peek = useSidebarPeek(folded, reorder.dragging !== null || reorder.menuOpen);
   const rail = folded && !peek.open; // icons only; a peek is the full menu over the panes
-  // the control asked for the menu to stay open over the panes (it is open in the setting but there is no room next to the other panes)
-  const seenPin = useRef(pinReq);
-  useEffect(() => {
-    if (pinReq !== seenPin.current) {
-      seenPin.current = pinReq;
+  // the control and Ctrl+B / Cmd+B (sidebarState.ts `toggleSidebar`): fold or open the menu in place, or - with no room next to the list - open the overlay pinned or close it
+  const onToggle = () => {
+    const r = toggleSidebar(sidebarInput(), peek.open);
+    if (r.mode !== prefs.sidebar) setPrefs({ sidebar: r.mode }); // (the person's own choice from now on)
+    if (r.overlay === "close") peek.close();
+    else if (r.overlay === "open") {
       peek.pin();
+      // the keyboard goes into the menu: the selected folder (or the first row)
+      requestAnimationFrame(() => {
+        const pane = peek.bind.ref.current;
+        (pane?.querySelector<HTMLElement>(".fp-row.active") ?? pane?.querySelector<HTMLElement>(".fp-row"))?.focus({ preventScroll: true });
+      });
     }
-  }, [pinReq]); // eslint-disable-line react-hooks/exhaustive-deps
+  };
+  const seenToggle = useRef(toggleReq);
+  useEffect(() => {
+    if (toggleReq !== seenToggle.current) {
+      seenToggle.current = toggleReq;
+      onToggle();
+    }
+  }, [toggleReq]); // eslint-disable-line react-hooks/exhaustive-deps
   // a new account's group sits at the bottom of a long tree: bring its (selected) Inbox into view
   useEffect(() => {
     if (firstSync && accountId === firstSync) document.querySelector(".fp-tree .fp-row.active")?.scrollIntoView({ block: "nearest" });
@@ -193,7 +208,8 @@ export function FolderPane({ collapsed: folded }: { collapsed: boolean }) {
     );
   };
 
-  const toggleLabel = folded ? t("mail.side.expand") : t("mail.side.collapse");
+  const shown = sidebarControlOpen(sidebarInput(), peek.open); // the full menu is on screen (in place, or as the overlay when there is no room): the control folds it
+  const toggleLabel = shown ? t("mail.side.collapse") : t("mail.side.expand");
   const favRows = collapsed("fav") ? [] : favs.filter((f) => folderVisible(folders, f.acct, f.key)).map((f) => row(f.acct, f.key, labelFor(f.acct, f.key)));
   const viewRows = collapsed("views") ? [] : VIRTUAL_VIEWS.map((k) => row(null, k, folderLabel(k)));
 
@@ -208,12 +224,12 @@ export function FolderPane({ collapsed: folded }: { collapsed: boolean }) {
       <div className="fp-top">
         <button
           className="icon-btn fp-toggle"
-          aria-expanded={!folded}
+          aria-expanded={shown}
           aria-label={toggleLabel}
           title={kbd(`${toggleLabel} (Ctrl+B)`)}
-          onClick={toggleSidebarNow}
+          onClick={onToggle}
         >
-          {folded ? <PanelLeftOpen size={16} aria-hidden /> : <PanelLeftClose size={16} aria-hidden />}
+          {shown ? <PanelLeftClose size={16} aria-hidden /> : <PanelLeftOpen size={16} aria-hidden />}
         </button>
       </div>
       {module === "calendar" ? (

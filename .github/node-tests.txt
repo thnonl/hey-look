@@ -119,7 +119,7 @@ ui-a | node scripts/test-preview-layer.mjs --quick --require-browser
 ui-a | node scripts/test-compose-fit.mjs --quick --require-browser
 # an open compose shows the placeholder and the accessible name of the body, and an open signature / template editor its accessible name, in the language in use after a language switch (and back); typed text and undo survive
 ui-a | node scripts/test-placeholder-lang.mjs --require-browser
-# the side menu: icons or full by window width and by the person's choice, the peek over the panes, the minimum widths, tooltips (the full run is `node scripts/test-sidebar-collapse.mjs`)
+# the side menu: icons or full by window width and by the person's choice, the peek over the panes, Ctrl+B in a narrow window (overlay, label, focus, the saved choice stays), the minimum widths, tooltips (the full run is `node scripts/test-sidebar-collapse.mjs`)
 ui-b | node scripts/test-sidebar-collapse.mjs --quick --require-browser
 # the picture resize handles are clipped with the editor pane, and Discard on a reply with nothing typed closes without asking (real panes in the dev preview)
 ui-a | node scripts/test-picture-handles.mjs --require-browser
