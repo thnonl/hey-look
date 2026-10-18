@@ -1,6 +1,8 @@
 # Changelog
 
-## 1.0.7 — xx
+## 1.0.7 (unreleased)
+
+### Changed
 
 - The website moved to https://heylook.namthai.site/ (the old thnonl.github.io/hey-look/ addresses are redirected there)
 
