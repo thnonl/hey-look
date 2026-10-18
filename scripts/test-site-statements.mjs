@@ -179,6 +179,20 @@ const REMOVED = [
       ['ru', 'Быстро войдите в Gmail с помощью своей учётной записи Google.', ['google-data.html']],
     ],
   },
+  // W10.1b: L3: security.html update sentence
+  {
+    row: 'W10.1b',
+    items: [
+      ['en', 'On Windows the update installs by itself; macOS and Linux need your permission.', ['security.html']],
+      ['vi', 'Trên Windows, bản cập nhật tự cài đặt; macOS và Linux cần được bạn cho phép.', ['security.html']],
+      ['fr', 'Sous Windows, la mise à jour s’installe toute seule ; macOS et Linux demandent votre autorisation.', ['security.html']],
+      ['zh', 'Windows上会自动安装更新；macOS和Linux需要您的许可。', ['security.html']],
+      ['es', 'En Windows la actualización se instala sola; macOS y Linux necesitan tu permiso.', ['security.html']],
+      ['ja', 'Windowsではアップデートが自動でインストールされ、macOSとLinuxではユーザーの許可が必要です。', ['security.html']],
+      ['de', 'Unter Windows installiert sich das Update von selbst; macOS und Linux brauchen Ihre Erlaubnis.', ['security.html']],
+      ['ru', 'В Windows обновление устанавливается само; в macOS и Linux нужно ваше разрешение.', ['security.html']],
+    ],
+  },
 ];
 
 const errors = [];
