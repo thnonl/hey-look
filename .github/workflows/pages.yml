@@ -1,6 +1,6 @@
 name: Pages
 
-# Deploys the website in docs/ to GitHub Pages (https://thnonl.github.io/hey-look/). The site is plain files: nothing is built.
+# Deploys the website in docs/ to GitHub Pages (https://heylook.namthai.site/). The site is plain files: nothing is built.
 # It runs when docs/ or this file changes on main or release/v1.0.0, or by hand. It never touches releases or tags.
 on:
   push:

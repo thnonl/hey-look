@@ -8,6 +8,7 @@
 - A blocked remote picture in a message you read is drawn as a box of the size the message gave it (48 x 48 when it gave none) with an icon and the picture's description; tracking pixels are not drawn at all. "Show pictures" loads the real pictures
 - The Week view of the calendar fits 08:00 to 20:00 on the screen when the window is tall enough (the hours are between 32 and 48 px high), so an evening event is no longer hidden below the fold
 - A failed email link (no mail program on the computer) says "default mail app" and copies only the address; on a Mac the quit question and the Send later popover say "menu bar" instead of "tray"
+- The website moved to https://heylook.namthai.site/ (the old thnonl.github.io/hey-look/ addresses are redirected there)
 
 ### Fixed
 

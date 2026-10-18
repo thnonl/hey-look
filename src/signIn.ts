@@ -13,7 +13,7 @@ import type { Key } from "./i18n/index.ts";
 export const GOOGLE_REVIEW_PENDING = true;
 
 /** The Help entry that explains Google's warning page (opened in the system browser). */
-export const GOOGLE_REVIEW_HELP_URL = "https://thnonl.github.io/hey-look/help.html#google-review";
+export const GOOGLE_REVIEW_HELP_URL = "https://heylook.namthai.site/help.html#google-review";
 
 export type SignInProvider = "google" | "microsoft";
 export const providerLabel = (p: SignInProvider): string => (p === "google" ? "Google" : "Microsoft");

@@ -2,15 +2,15 @@
 
 A fast, private desktop mail client for Windows, macOS and Linux. Free and open source, no ads, no account needed.
 
-[![Hey Look! intro](docs/media/preview.gif)](https://thnonl.github.io/hey-look/#film)
+[![Hey Look! intro](docs/media/preview.gif)](https://heylook.namthai.site/#film)
 
-[Watch the full intro video with sound](https://thnonl.github.io/hey-look/#film)
+[Watch the full intro video with sound](https://heylook.namthai.site/#film)
 
-**Website:** https://thnonl.github.io/hey-look/ · **Help and FAQ:** https://thnonl.github.io/hey-look/help.html
+**Website:** https://heylook.namthai.site/ · **Help and FAQ:** https://heylook.namthai.site/help.html
 
 ## Download
 
-Get the latest version from [GitHub Releases](https://github.com/thnonl/hey-look/releases/latest) or the [download page](https://thnonl.github.io/hey-look/download.html).
+Get the latest version from [GitHub Releases](https://github.com/thnonl/hey-look/releases/latest) or the [download page](https://heylook.namthai.site/download.html).
 
 - **Windows 10 / 11:** `HeyLook_<version>_windows_x64-setup.exe` (or `.msi`)
 - **macOS 11+ (Apple silicon and Intel):** `HeyLook_<version>_darwin_universal.dmg`
@@ -88,12 +88,12 @@ What syncs: your calendars, events from a year ago (Microsoft: to two years ahea
 
 ## Known limitations
 
-Details and more in the [Help](https://thnonl.github.io/hey-look/help.html).
+Details and more in the [Help](https://heylook.namthai.site/help.html).
 
 - **macOS:** no native notifications (they need an Apple Developer ID, which the project does not have yet, and macOS may not show banners for a self-signed app); the app is signed with the project’s own self-signed certificate (not an Apple one), not notarized. PDF files open in your default app (the preview offers Open and Save as). A pop-out window that you close leaves a small, invisible native window entry behind (about 1.4 MB each) until you quit the app.
 - **Installers** are not code-signed with a publisher certificate yet; on Windows the tray Quit, running the installer over an open app and opening links in the browser were not tested on this release.
 - **Linux:** tested on a KDE desktop in an ARM virtual machine; the x86_64 packages (AppImage, .deb, .rpm) are built the same way but are not covered by that test. It needs a notification service for notifications. PDF files open in your default app (the preview offers Open and Save as). A Confidential message is not protected from screen capture. The tray icon has no click action (the desktop's indicator service does not pass clicks on): open the window with **Open Hey Look!** in the tray menu. The app does not follow the desktop colour scheme on its own: choose Light or Dark in Settings > Appearance.
-- **Google:** Google has not finished reviewing Hey Look!, so its sign-in page says “Google hasn’t verified this app” (choose **Advanced**, then **Go to Hey Look! (unsafe)**), and until the review is done **Sign in with Google and Google calendar sync are limited to the first 100 people**. Gmail also works with an app password. What to expect, and what to do: [Help](https://thnonl.github.io/hey-look/help.html#google-review).
+- **Google:** Google has not finished reviewing Hey Look!, so its sign-in page says “Google hasn’t verified this app” (choose **Advanced**, then **Go to Hey Look! (unsafe)**), and until the review is done **Sign in with Google and Google calendar sync are limited to the first 100 people**. Gmail also works with an app password. What to expect, and what to do: [Help](https://heylook.namthai.site/help.html#google-review).
 - **Calendar:** local events plus optional two-way sync with Google Calendar and Outlook / Microsoft 365 (per mailbox); repeating events from those calendars are read-only; CalDAV sync may come later. Some work or school organizations only let an administrator approve the Microsoft calendar permission. The sync was tested against simulated Google and Microsoft servers; a check with real accounts is still to be done.
 - **Languages:** the texts of every language except English (Vietnamese, French, Chinese, Spanish, Japanese, German, Russian) were written with AI help and checked by language specialists. The Windows installer and the system menu items of macOS are not translated by Hey Look!.
 - **Writing:** there is no plain-text-only mode. Format Painter, AutoFormat and the mini toolbar are not included yet.
@@ -117,7 +117,7 @@ OAuth clients, the code layout, releasing and how it works: [CONTRIBUTING.md](CO
 
 ## Support the project
 
-Hey Look! is free. If it helps you, you can [buy me a coffee](https://thnonl.github.io/hey-look/support.html): on [Ko-fi](https://ko-fi.com/namthnonl) or by bank transfer (the same link is under Settings > About). Hey Look! may show a small reminder about this about once every two months; Settings > General > Occasional support reminder turns it off.
+Hey Look! is free. If it helps you, you can [buy me a coffee](https://heylook.namthai.site/support.html): on [Ko-fi](https://ko-fi.com/namthnonl) or by bank transfer (the same link is under Settings > About). Hey Look! may show a small reminder about this about once every two months; Settings > General > Occasional support reminder turns it off.
 
 ## Security
 

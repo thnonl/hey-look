@@ -7,8 +7,8 @@ import { ABOUT_LINKS } from "../src/aboutLinks.ts";
 const read = (p) => readFileSync(new URL(`../${p}`, import.meta.url), "utf8").replace(/\r\n/g, "\n");
 
 assert.deepEqual(ABOUT_LINKS.map((l) => [l.text, l.url]), [
-  ["Website", "https://thnonl.github.io/hey-look/"],
-  ["Buy me a coffee", "https://thnonl.github.io/hey-look/support.html"],
+  ["Website", "https://heylook.namthai.site/"],
+  ["Buy me a coffee", "https://heylook.namthai.site/support.html"],
   ["Source code", "https://github.com/thnonl/hey-look"],
 ]);
 
