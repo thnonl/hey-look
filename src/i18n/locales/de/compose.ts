@@ -17,7 +17,6 @@ export default defineLocale<typeof ns.en>({
   "compose.addCc": "Cc hinzufügen (Ctrl+Shift+C)",
   "compose.addBcc": "Bcc hinzufügen (Ctrl+Shift+B)",
   // recipient chips and the missing-key popover
-  "compose.rcpt.noUsableKey": "Kein verwendbarer öffentlicher Schlüssel für {addr}",
   "compose.rcpt.notAddress": "Das sieht nicht wie eine E-Mail-Adresse aus",
   "compose.rcpt.keyFound": "Öffentlicher Schlüssel gefunden",
   "compose.rcpt.keyFoundFor": "Öffentlicher Schlüssel für {addr} gefunden",
