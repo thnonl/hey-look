@@ -115,8 +115,8 @@ ui-a | node scripts/test-ai-guide.mjs --quick --require-browser
 ui-a | node scripts/test-settings-layout.mjs --quick --require-browser
 # the attachment preview and the picture viewer are on top of the whole window, in the main window and in the reader window
 ui-a | node scripts/test-preview-layer.mjs --quick --require-browser
-# the compose pane at the smallest sizes: formatting row and body always in view, the header scrolls, Tab order and popovers (eight of the combinations, with Meeting on at 946 x 552 and in a 308 px pane; the full run is `node scripts/test-compose-fit.mjs`)
-ui-a | node scripts/test-compose-fit.mjs --quick --require-browser
+# the compose pane at the smallest sizes: formatting row and body always in view, the header scrolls, Tab order and popovers, the labelled action row is one row in de and ru with the rest in More actions (eleven of the combinations, with Meeting on at 946 x 552 and in a 308 px pane; the full run is `node scripts/test-compose-fit.mjs`)
+ui-a | node --experimental-strip-types scripts/test-compose-fit.mjs --quick --require-browser
 # an open compose shows the placeholder and the accessible name of the body, and an open signature / template editor its accessible name, in the language in use after a language switch (and back); typed text and undo survive
 ui-a | node scripts/test-placeholder-lang.mjs --require-browser
 # the side menu: icons or full by window width and by the person's choice, the peek over the panes, Ctrl+B in a narrow window (overlay, label, focus, the saved choice stays), the minimum widths, tooltips (the full run is `node scripts/test-sidebar-collapse.mjs`)
@@ -164,3 +164,5 @@ static | node --experimental-strip-types scripts/test-top-bar-contrast.mjs
 static | node --experimental-strip-types scripts/test-blocked-picture.mjs
 # the Week view hour height (08:00 to 20:00 fit when the window allows, 32 to 48 px) and the click-to-create time that follows it
 static | node --experimental-strip-types scripts/test-week-hours.mjs
+# the labelled action row of the compose pane: resize from 1900 to 600 px and back, a language switch, the rows of More actions, a moved action works, Tab reaches More actions
+ui-a | node scripts/test-compose-overflow.mjs --require-browser

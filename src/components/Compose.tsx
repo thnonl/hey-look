@@ -26,7 +26,7 @@ import { unwrapBase, type BaseFont } from "../editor/emailHtml";
 import { extractQuote, quotePictureBytes } from "../editor/quoteBlock";
 import { baseFromPrefs } from "../editor/baseFont";
 import { repairSignature, signatureGuard } from "../signatureGuard";
-import { BAR_ROW_MAX, isCompact } from "../composeFit";
+import { BAR_ITEMS, BAR_ROW_MAX, isCompact, keptItems, overflowCount, type BarItem } from "../composeFit";
 import { composeHasContent, isPersonEdit } from "../composeContent";
 import { autosaveDue, snapshotDue, timing, type AutosaveWhy } from "../autosave";
 import { RecoveryWriter, type RecoveryForm } from "../recovery";
@@ -545,6 +545,9 @@ function ComposeBody({ init }: { init: ComposeInit }) {
   // how much room the pane has (composeFit.ts): a small one shows the actions as icons and More; the measure is the pane, not the window
   const paneRef = useRef<HTMLDivElement>(null);
   const [compact, setCompact] = useState(false);
+  const [paneW, setPaneW] = useState(0); // (a pane that grows or shrinks re-fits the labelled row)
+  const [movedCount, setMovedCount] = useState(0); // how many actions of the labelled row went into "More actions", from the end (composeFit.ts)
+  const fitProbeRef = useRef<HTMLDivElement>(null); // the hidden copy of the movable actions: their natural widths
   const [barWraps, setBarWraps] = useState(false); // the actions did not fit in one row (a long name of Send, a scheduled message): then the row scrolls away with the fields instead of staying put
   useLayoutEffect(() => {
     const el = paneRef.current;
@@ -552,6 +555,7 @@ function ComposeBody({ init }: { init: ComposeInit }) {
     const bar = el.querySelector<HTMLElement>(".cp-bar");
     const measure = () => {
       setCompact(isCompact(el.clientWidth, el.clientHeight));
+      setPaneW(el.clientWidth);
       setBarWraps(!!bar && bar.offsetHeight > BAR_ROW_MAX);
     };
     measure();
@@ -1882,25 +1886,148 @@ function ComposeBody({ init }: { init: ComposeInit }) {
   const imgSelected = !!picSel;
 
   // a small pane (composeFit.ts) keeps these actions in "More actions" (the row of buttons has no room for them); a dot on the button says one is on
-  const moreOn = !!meeting || encOn || signActive || confidential || importance !== "normal" || aiOpen;
-  const moreItems: MenuItem[] = [
-    { label: t("compose.bar.picture"), icon: <ImagePlus size={14} />, hint: kbd("Ctrl+Shift+P"), title: kbd(t("compose.bar.insertPictureTip")), onClick: () => picRef.current?.click() },
-    { divider: true },
-    { label: t("compose.bar.meeting"), icon: <CalendarPlus size={14} />, checked: !!meeting, title: t("compose.bar.meetingTip"), onClick: toggleMeeting },
-    { label: t("compose.bar.encrypt"), icon: encOn ? <Lock size={14} /> : <LockOpen size={14} />, checked: encOn, hint: kbd("Ctrl+Shift+E"), title: encTitle, onClick: toggleEncrypt },
-    { label: t("compose.bar.sign"), icon: <BadgeCheck size={14} />, checked: signActive, hint: kbd("Ctrl+Shift+G"), title: own ? kbd(t("compose.bar.signTip")) : encTitle, onClick: toggleSign },
-    ...signItems.slice(1), // (the first row is the Sign row above)
-    { divider: true },
-    { label: t("compose.bar.confidential"), icon: <ShieldAlert size={14} />, checked: confidential, title: confidential ? t("compose.bar.confidentialOnTip") : t("compose.bar.confidentialOffTip"), onClick: () => (setConfidential(!confidential), touch()) },
-    { label: t("mail.importance.high"), checked: importance === "high", onClick: () => (setImportance(pressImportance(importance, "high")), touch()) },
-    { label: t("mail.importance.low"), checked: importance === "low", onClick: () => (setImportance(pressImportance(importance, "low")), touch()) },
-    { divider: true },
-    ...(init.outboxId ? [] : [{ label: t("compose.bar.saveDraft"), icon: <Save size={14} />, onClick: () => void saveDraft(true) }]),
-    { label: t("compose.bar.templates"), icon: <FileText size={14} />, disabled: true },
-    ...(myTemplates.length ? myTemplates.map((tpl) => ({ label: tpl.name, onClick: () => applyTemplate(tpl) })) : [{ label: t("compose.bar.noTemplates"), disabled: true }]),
-    { divider: true },
-    { label: t("compose.bar.writeWithAi"), icon: <Sparkles size={14} />, checked: aiOpen, disabled: !!init.confidential, title: init.confidential ? t("compose.bar.aiConfidentialTip") : aiConfigured ? t("compose.bar.aiTip") : t("compose.bar.aiSetupTip"), onClick: toggleAi },
-  ];
+  // The labelled row of a roomy pane is one row in every language: what does not fit moves into "More actions", from the end (composeFit.ts `overflowCount`).
+  const barOrder: BarItem[] = BAR_ITEMS.filter((id) => id !== "saveDraft" || !init.outboxId);
+  const movedIds: BarItem[] = compact ? barOrder : barOrder.slice(keptItems(barOrder, movedCount).length);
+  const isMoved = (id: BarItem) => movedIds.includes(id);
+  const itemOn: Record<BarItem, boolean> = { picture: false, meeting: !!meeting, encrypt: encOn, sign: signActive, confidential, importance: importance !== "normal", saveDraft: false, templates: false, ai: aiOpen };
+  const moreOn = movedIds.some((id) => itemOn[id]); // a dot on the button says that one of the actions inside is on
+  // the rows of "More actions": the moved actions in the order of the row, in sections (picture / meeting, encrypt, sign / confidential, importance / save, templates / AI), a divider between two sections
+  const menuRows: Record<BarItem, MenuItem[]> = {
+    picture: [{ label: t("compose.bar.picture"), icon: <ImagePlus size={14} />, hint: kbd("Ctrl+Shift+P"), title: kbd(t("compose.bar.insertPictureTip")), onClick: () => picRef.current?.click() }],
+    meeting: [{ label: t("compose.bar.meeting"), icon: <CalendarPlus size={14} />, checked: !!meeting, title: t("compose.bar.meetingTip"), onClick: toggleMeeting }],
+    encrypt: [{ label: t("compose.bar.encrypt"), icon: encOn ? <Lock size={14} /> : <LockOpen size={14} />, checked: encOn, hint: kbd("Ctrl+Shift+E"), title: encTitle, onClick: toggleEncrypt }],
+    sign: [
+      { label: t("compose.bar.sign"), icon: <BadgeCheck size={14} />, checked: signActive, hint: kbd("Ctrl+Shift+G"), title: own ? kbd(t("compose.bar.signTip")) : encTitle, onClick: toggleSign },
+      ...signItems.slice(1), // (the first row is the Sign row above)
+    ],
+    confidential: [{ label: t("compose.bar.confidential"), icon: <ShieldAlert size={14} />, checked: confidential, title: confidential ? t("compose.bar.confidentialOnTip") : t("compose.bar.confidentialOffTip"), onClick: () => (setConfidential(!confidential), touch()) }],
+    importance: [
+      { label: t("mail.importance.high"), checked: importance === "high", onClick: () => (setImportance(pressImportance(importance, "high")), touch()) },
+      { label: t("mail.importance.low"), checked: importance === "low", onClick: () => (setImportance(pressImportance(importance, "low")), touch()) },
+    ],
+    saveDraft: [{ label: t("compose.bar.saveDraft"), icon: <Save size={14} />, onClick: () => void saveDraft(true) }],
+    templates: [
+      { label: t("compose.bar.templates"), icon: <FileText size={14} />, disabled: true },
+      ...(myTemplates.length ? myTemplates.map((tpl) => ({ label: tpl.name, onClick: () => applyTemplate(tpl) })) : [{ label: t("compose.bar.noTemplates"), disabled: true }]),
+    ],
+    ai: [{ label: t("compose.bar.writeWithAi"), icon: <Sparkles size={14} />, checked: aiOpen, disabled: !!init.confidential, title: init.confidential ? t("compose.bar.aiConfidentialTip") : aiConfigured ? t("compose.bar.aiTip") : t("compose.bar.aiSetupTip"), onClick: toggleAi }],
+  };
+  const SECTION: Record<BarItem, number> = { picture: 0, meeting: 1, encrypt: 1, sign: 1, confidential: 2, importance: 2, saveDraft: 3, templates: 3, ai: 4 };
+  const moreItems: MenuItem[] = movedIds.flatMap((id, i) => [...(i > 0 && SECTION[id] !== SECTION[movedIds[i - 1]] ? [{ divider: true } as MenuItem] : []), ...menuRows[id]]);
+
+  // The labelled row is one row: how many of the movable actions fit is decided from the measured widths (a hidden copy of them, `cp-probe`), after every render and so also
+  // after a resize of the pane (paneW), a language switch and a change of a label. The widths do not depend on what the row looks like now, so it does not flicker or oscillate.
+  useLayoutEffect(() => {
+    const bar = paneRef.current?.querySelector<HTMLElement>(".cp-bar");
+    const probe = fitProbeRef.current;
+    if (compact || !bar || !probe) return;
+    const box = (el: Element) => {
+      const cs = getComputedStyle(el);
+      return el.getBoundingClientRect().width + (parseFloat(cs.marginLeft) || 0) + (parseFloat(cs.marginRight) || 0);
+    };
+    const cs = getComputedStyle(bar);
+    const more = probe.querySelector<HTMLElement>('[data-fit="more"]');
+    const n = overflowCount({
+      available: bar.clientWidth - (parseFloat(cs.paddingLeft) || 0) - (parseFloat(cs.paddingRight) || 0),
+      fixed: [...bar.querySelectorAll<HTMLElement>(":scope > [data-fit=fixed]")].map(box),
+      movable: barOrder.map((id) => { const el = probe.querySelector<HTMLElement>(`[data-fit="${id}"]`); return el ? box(el) : 0; }),
+      more: more ? box(more) : 0,
+      gap: parseFloat(cs.columnGap) || undefined,
+    });
+    setMovedCount((c) => (c === n ? c : n));
+  });
+  void paneW;
+
+  /**
+   * One movable action of the labelled row. `probe`: the copy in the hidden measuring row (no refs, no menu): its natural width is what `overflowCount` is given.
+   * The compact layout has none of them in the row (they are all in "More actions").
+   */
+  const barItem = (id: BarItem, probe = false): React.ReactNode => {
+    switch (id) {
+      case "picture":
+        return (
+          <button key={id} data-fit={id} className="rb" onClick={() => picRef.current?.click()} title={kbd(t("compose.bar.insertPictureTip"))}>
+            <ImagePlus size={15} /><span>{t("compose.bar.picture")}</span>
+          </button>
+        );
+      case "meeting":
+        return (
+          <button key={id} data-fit={id} className={`rb ${meeting ? "on" : ""}`} aria-pressed={!!meeting} title={t("compose.bar.meetingTip")} onClick={toggleMeeting}>
+            <CalendarPlus size={15} /><span>{t("compose.bar.meeting")}</span>
+          </button>
+        );
+      case "encrypt":
+        return (
+          <button
+            key={id}
+            data-fit={id}
+            className={`rb ${encOn && noKeyAddrs.length === 0 && canEnc ? "on" : encOn ? "warn" : ""}`}
+            aria-pressed={encOn}
+            aria-disabled={!own}
+            title={encTitle}
+            onClick={toggleEncrypt}
+          >
+            {encOn ? <Lock size={15} /> : <LockOpen size={15} />}<span>{t("compose.bar.encrypt")}</span>
+          </button>
+        );
+      case "sign":
+        return (
+          <div key={id} data-fit={id} className="dd" ref={probe ? undefined : signRef}>
+            <button className={`rb ${signActive ? "on" : ""}`} aria-pressed={signActive} aria-disabled={!own} title={own ? kbd(t("compose.bar.signTip")) : encTitle} onClick={toggleSign}>
+              <BadgeCheck size={15} /><span>{t("compose.bar.sign")}</span>
+            </button>
+            <button ref={probe ? undefined : signCaretRef} className="rb caret" aria-label={t("compose.bar.signOptions")} aria-haspopup="menu" aria-expanded={signMenu} title={t("compose.bar.signOptions")} onClick={() => setSignMenu((o) => !o)}>
+              <ChevronDown size={12} />
+            </button>
+            {/* a menu of its own layer: the header scrolls in a low window and would cut off one that is inside it */}
+            {!probe && signMenu && <FloatingMenu anchor={signRef} trigger={signCaretRef} minWidth={300} items={signItems} onClose={() => setSignMenu(false)} />}
+          </div>
+        );
+      case "confidential":
+        return (
+          <button
+            key={id}
+            data-fit={id}
+            className={`rb ${confidential ? "on" : ""}`}
+            aria-pressed={confidential}
+            title={confidential ? t("compose.bar.confidentialOnTip") : t("compose.bar.confidentialOffTip")}
+            onClick={() => (setConfidential(!confidential), touch())}
+          >
+            <ShieldAlert size={15} /><span>{t("compose.bar.confidential")}</span>
+          </button>
+        );
+      case "importance":
+        return <div key={id} data-fit={id} className="imp-wrap"><ImportanceButtons value={importance} onChange={(v) => (setImportance(v), touch())} /></div>;
+      case "saveDraft":
+        return (
+          <button key={id} data-fit={id} className="rb" onClick={() => void saveDraft(true)}>
+            <Save size={15} /><span>{t("compose.bar.saveDraft")}</span>
+          </button>
+        );
+      case "templates":
+        return (
+          <div key={id} data-fit={id} className="dd-wrap">
+            <Dropdown className="rb" items={myTemplates.length ? myTemplates.map((tpl) => ({ label: tpl.name, onClick: () => applyTemplate(tpl) })) : [{ label: t("compose.bar.noTemplates"), disabled: true }]}>
+              <FileText size={15} /><span>{t("compose.bar.templates")}</span>
+            </Dropdown>
+          </div>
+        );
+      case "ai":
+        return (
+          <button
+            key={id}
+            data-fit={id}
+            className={`rb ${aiOpen ? "on" : ""}`}
+            disabled={!!init.confidential}
+            onClick={toggleAi}
+            title={init.confidential ? t("compose.bar.aiConfidentialTip") : aiConfigured ? t("compose.bar.aiTip") : t("compose.bar.aiSetupTip")}
+          >
+            <Sparkles size={15} /><span>{t("compose.bar.writeWithAi")}</span>
+          </button>
+        );
+    }
+  };
 
   return (
     <div
@@ -1983,9 +2110,16 @@ function ComposeBody({ init }: { init: ComposeInit }) {
       }}
     >
       {/* the header (actions, banners, fields, strips) is the part that gives way: App.css `.cp-head` scrolls when the pane is low, so the formatting row and the body below are never pushed out of view */}
+      {!compact && createPortal(
+        <div ref={fitProbeRef} className="cp-probe" aria-hidden="true" inert>
+          {barOrder.map((id) => barItem(id, true))}
+          <button className="rb more" data-fit="more" tabIndex={-1}><MoreHorizontal size={15} /></button>
+        </div>,
+        document.body,
+      )}
       <div className="cp-head">
       <div className="cp-bar">
-        <div className="split-btn" ref={schedRef}>
+        <div className="split-btn" ref={schedRef} data-fit="fixed">
           <button className="btn primary" disabled={busy} onClick={() => void (init.outboxId ? send(init.sendAt) : send())} title={init.outboxId ? t("compose.bar.scheduleTip") : kbd(t("compose.bar.sendTip"))}>
             {init.outboxId ? <><CalendarClock size={14} /> <span className="btn-lbl">{t("compose.bar.schedule")}</span></> : meeting ? <><CalendarPlus size={14} /> <span className="btn-lbl">{t("compose.bar.sendInvite")}</span></> : <><Send size={14} /> <span className="btn-lbl">{t("compose.bar.send")}</span></>}
           </button>
@@ -2013,11 +2147,11 @@ function ComposeBody({ init }: { init: ComposeInit }) {
           )}
         </div>
         {init.outboxId ? (
-          <button className="rb" onClick={() => void moveToDrafts()}><Save size={15} /><span>{t("compose.bar.moveToDrafts")}</span></button>
+          <button className="rb" data-fit="fixed" onClick={() => void moveToDrafts()}><Save size={15} /><span>{t("compose.bar.moveToDrafts")}</span></button>
         ) : null}
-        <button className="rb" title={compact ? t("compose.bar.discard") : undefined} onClick={() => void discard()}><Trash2 size={15} /><span>{t("compose.bar.discard")}</span></button>
-        <button className="rb" title={compact ? t("compose.bar.attach") : undefined} onClick={() => fileRef.current?.click()}><Paperclip size={15} /><span>{t("compose.bar.attach")}</span></button>
-        {!compact && <button className="rb" onClick={() => picRef.current?.click()} title={kbd(t("compose.bar.insertPictureTip"))}><ImagePlus size={15} /><span>{t("compose.bar.picture")}</span></button>}
+        <button className="rb" data-fit="fixed" title={compact ? t("compose.bar.discard") : undefined} onClick={() => void discard()}><Trash2 size={15} /><span>{t("compose.bar.discard")}</span></button>
+        <button className="rb" data-fit="fixed" title={compact ? t("compose.bar.attach") : undefined} onClick={() => fileRef.current?.click()}><Paperclip size={15} /><span>{t("compose.bar.attach")}</span></button>
+        {!isMoved("picture") && barItem("picture")}
         <input ref={fileRef} type="file" multiple hidden aria-hidden="true" tabIndex={-1} onChange={(e) => (void addFiles(e.target.files), (e.target.value = ""))} />
         <input
           ref={picRef}
@@ -2029,70 +2163,17 @@ function ComposeBody({ init }: { init: ComposeInit }) {
           tabIndex={-1}
           onChange={(e) => (e.target.files && void insertPictures(Array.from(e.target.files)), (e.target.value = ""))}
         />
-        {compact ? (
-          // a small pane: the rest of the actions in one menu (a dot says that one of them is on)
+        {barOrder.filter((id) => id !== "picture" && !isMoved(id)).map((id) => barItem(id))}
+        {movedIds.length > 0 && (
+          // the rest of the actions in one menu (a dot says that one of them is on): a small pane has all of them there, a labelled row the ones that did not fit
           <Dropdown className="rb more" caret={false} title={t("compose.bar.more")} items={moreItems}>
             <MoreHorizontal size={15} />
             {moreOn && <i className="more-dot" aria-hidden />}
           </Dropdown>
-        ) : (
-        <>
-        <button
-          className={`rb ${meeting ? "on" : ""}`}
-          aria-pressed={!!meeting}
-          title={t("compose.bar.meetingTip")}
-          onClick={toggleMeeting}
-        >
-          <CalendarPlus size={15} /><span>{t("compose.bar.meeting")}</span>
-        </button>
-        <button
-          className={`rb ${encOn && noKeyAddrs.length === 0 && canEnc ? "on" : encOn ? "warn" : ""}`}
-          aria-pressed={encOn}
-          aria-disabled={!own}
-          title={encTitle}
-          onClick={toggleEncrypt}
-        >
-          {encOn ? <Lock size={15} /> : <LockOpen size={15} />}<span>{t("compose.bar.encrypt")}</span>
-        </button>
-        <div className="dd" ref={signRef}>
-          <button className={`rb ${signActive ? "on" : ""}`} aria-pressed={signActive} aria-disabled={!own} title={own ? kbd(t("compose.bar.signTip")) : encTitle} onClick={toggleSign}>
-            <BadgeCheck size={15} /><span>{t("compose.bar.sign")}</span>
-          </button>
-          <button ref={signCaretRef} className="rb caret" aria-label={t("compose.bar.signOptions")} aria-haspopup="menu" aria-expanded={signMenu} title={t("compose.bar.signOptions")} onClick={() => setSignMenu((o) => !o)}>
-            <ChevronDown size={12} />
-          </button>
-          {/* a menu of its own layer: the header scrolls in a low window and would cut off one that is inside it */}
-          {signMenu && <FloatingMenu anchor={signRef} trigger={signCaretRef} minWidth={300} items={signItems} onClose={() => setSignMenu(false)} />}
-        </div>
-        <button
-          className={`rb ${confidential ? "on" : ""}`}
-          aria-pressed={confidential}
-          title={confidential ? t("compose.bar.confidentialOnTip") : t("compose.bar.confidentialOffTip")}
-          onClick={() => (setConfidential(!confidential), touch())}
-        >
-          <ShieldAlert size={15} /><span>{t("compose.bar.confidential")}</span>
-        </button>
-        <ImportanceButtons value={importance} onChange={(v) => (setImportance(v), touch())} />
-        {!init.outboxId && <button className="rb" onClick={() => void saveDraft(true)}><Save size={15} /><span>{t("compose.bar.saveDraft")}</span></button>}
-        <Dropdown
-          className="rb"
-          items={myTemplates.length ? myTemplates.map((tpl) => ({ label: tpl.name, onClick: () => applyTemplate(tpl) })) : [{ label: t("compose.bar.noTemplates"), disabled: true }]}
-        >
-          <FileText size={15} /><span>{t("compose.bar.templates")}</span>
-        </Dropdown>
-        <button
-          className={`rb ${aiOpen ? "on" : ""}`}
-          disabled={!!init.confidential}
-          onClick={toggleAi}
-          title={init.confidential ? t("compose.bar.aiConfidentialTip") : aiConfigured ? t("compose.bar.aiTip") : t("compose.bar.aiSetupTip")}
-        >
-          <Sparkles size={15} /><span>{t("compose.bar.writeWithAi")}</span>
-        </button>
-        </>
         )}
         <div className="grow" />
         {!init.outboxId && !composeSeam() && (
-          <button className="icon-btn" aria-label={t("compose.popout.popOut")} title={kbd(t("compose.popout.popOutTip"))} onClick={() => void popOut()}>
+          <button className="icon-btn" data-fit="fixed" aria-label={t("compose.popout.popOut")} title={kbd(t("compose.popout.popOutTip"))} onClick={() => void popOut()}>
             <ExternalLink size={16} />
           </button>
         )}

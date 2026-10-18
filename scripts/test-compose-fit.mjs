@@ -5,6 +5,10 @@
 // scrolled by the focus. Now the pane has three boxes (App.css `.cp-head`, `.cp-fmt` + `.cp-editor`, `.cp-tail`): the header scrolls and gives way,
 // the formatting row never moves, the body keeps 180 px; in a pane below 600 x 480 px the actions are one row (Send, Discard, Attach as icons) plus "More actions".
 //
+// W1.7 (1.0.7): the labelled row of a roomy pane is ONE row in every language too: what does not fit goes into "More actions" from the end (the pure rule, composeFit.ts
+// `overflowCount`, is checked at the top of this script; every combination below checks the row: one row, nothing sticking out, the order, More only when something moved, the hidden
+// measuring copy off screen and inert). scripts/test-compose-overflow.mjs drives the row (resize, language switch, the menu, the keys).
+//
 // This opens the compose pane in the dev preview (src/devMock.ts; in the main window and as the compose window `?w=compose`) with every optional row
 // switched on, in the matrix of window sizes, languages and themes, and asserts per combination: the formatting row is fully inside the pane and is
 // what is under its own pixels; the body is at least 180 px high, inside the pane and what is under its own pixels; nothing sticks out of the pane
@@ -29,6 +33,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { arg, flag, inputs, ROOT, sleep, startHarness } from './cdp-harness.mjs';
+import { BAR_ITEMS, keptItems, overflowCount } from '../src/composeFit.ts';
 
 const QUICK = flag('quick');
 const SHOTS = arg('shots');
@@ -51,6 +56,10 @@ if (flag('gallery')) {
   add({ mode: 'main', lang: 'de', w: 1280, h: 720, theme: 'dark', scen: 'many' });
   add({ mode: 'main', lang: 'en', w: 960, h: 520, theme: 'dark', scen: 'base' });
   add({ mode: 'popout', lang: 'en', w: 560, h: 440, theme: 'light', scen: 'worst', deep: true });
+  // the labelled row is one row in German and Russian (W1.7): what does not fit is in More actions
+  add({ mode: 'popout', lang: 'de', w: 960, h: 560, theme: 'light', scen: 'worst' });
+  add({ mode: 'popout', lang: 'ru', w: 960, h: 560, theme: 'dark', scen: 'worst' });
+  add({ mode: 'main', lang: 'de', w: 1280, h: 800, theme: 'dark', scen: 'worst' });
   // Meeting on at the least window (946 x 552 = a 960 x 560 window): switched on in a new message (English) and in a reply (Russian, long texts)
   add({ mode: 'main', lang: 'en', w: 946, h: 552, theme: 'light', scen: 'meetingNew' });
   add({ mode: 'main', lang: 'ru', w: 946, h: 552, theme: 'dark', scen: 'meetingReply' });
@@ -68,6 +77,37 @@ if (flag('gallery')) {
   }
   for (const lang of langs) for (const [w, h] of [[946, 552], [946, 480]]) for (const scen of ['meetingNew', 'meetingReply']) add({ mode: 'main', lang, w, h, theme: lang === 'en' ? 'light' : 'dark', scen });
   for (const lang of langs) for (const [w, h] of [[560, 440], [760, 680], [560, 560]]) for (const scen of lang === 'en' ? ['base', 'worst', 'many'] : ['worst']) add({ mode: 'popout', lang, w, h, theme: scen === 'worst' ? 'dark' : 'light', scen, deep: lang === 'en' && scen === 'worst' });
+}
+
+const ORDER = [...BAR_ITEMS]; // (no scheduled message here: Save draft is in the row)
+
+// the pure part of the fit (src/composeFit.ts overflowCount): which actions go into "More actions"
+{
+  const assert = (await import('node:assert/strict')).default;
+  const fixed = [150, 80, 90]; // Send + caret, Discard, Attach
+  const movable = [70, 100, 90, 100, 110, 70, 100, 110, 130]; // Picture ... Write with AI
+  const total = (xs) => xs.reduce((a, b) => a + b, 0);
+  const all = total(fixed) + total(movable) + 2 * (fixed.length + movable.length - 1);
+  assert.equal(overflowCount({ available: all, fixed, movable, more: 30 }), 0, 'everything fits: no More');
+  assert.equal(overflowCount({ available: all + 500, fixed, movable, more: 30 }), 0);
+  assert.equal(overflowCount({ available: all - 1, fixed, movable, more: 30 }), 1, 'one pixel short: the last action (Write with AI) moves');
+  // 2 px gaps; with More: fixed 3 + kept + More
+  const need = (kept) => total(fixed) + total(movable.slice(0, kept)) + 30 + 2 * (fixed.length + kept);
+  for (let kept = movable.length - 1; kept >= 0; kept--) {
+    assert.equal(overflowCount({ available: need(kept), fixed, movable, more: 30 }), movable.length - kept, `room for ${kept} actions and More`);
+    if (kept > 0) assert.equal(overflowCount({ available: need(kept) - 1, fixed, movable, more: 30 }), movable.length - kept + 1, `one pixel less moves one more (${kept})`);
+  }
+  assert.equal(overflowCount({ available: 100, fixed, movable, more: 30 }), movable.length, 'no room at all: everything is in More (Send, Discard, Attach stay)');
+  assert.equal(overflowCount({ available: 0, fixed, movable, more: 30 }), 0, 'not measured: unchanged');
+  assert.equal(overflowCount({ available: Number.NaN, fixed, movable, more: 30 }), 0);
+  // more actions never fit fewer: the number is monotonic in the room
+  let last = movable.length;
+  for (let room = 0; room <= all + 10; room++) { const n = overflowCount({ available: room || 1, fixed, movable, more: 30 }); assert.ok(n <= last || room === 0, `moved ${n} at ${room} px after ${last}`); last = n; }
+  assert.deepEqual(keptItems(BAR_ITEMS, 0), [...BAR_ITEMS]);
+  assert.deepEqual(keptItems(BAR_ITEMS, 2), ['picture', 'meeting', 'encrypt', 'sign', 'confidential', 'importance', 'saveDraft']);
+  assert.deepEqual(keptItems(BAR_ITEMS, 9), []);
+  assert.deepEqual(keptItems(BAR_ITEMS, 20), []);
+  assert.deepEqual([...BAR_ITEMS], ['picture', 'meeting', 'encrypt', 'sign', 'confidential', 'importance', 'saveDraft', 'templates', 'ai'], 'the order of the row of the spec');
 }
 
 const H = await startHarness('test-compose-fit', { vitePort0: 5560, cdpPort0: 9560 });
@@ -99,23 +139,18 @@ const INIT = {
 };
 const EXTRAS = { base: [], worst: ['encrypt', 'sign', 'confidential', 'high', 'ai'], many: ['ai'], meeting: ['encrypt', 'sign', 'confidential', 'ai'], meetingNew: ['meeting'], meetingReply: [] };
 
-// press a header action wherever it is: a button of the row (a pane of 600 px or more) or a row of "More actions" (a small one)
-const ACT = `(() => {
-  const bar = document.querySelector('.cp-bar');
-  const more = bar.querySelector('.rb.more');
-  const pressed = [...bar.querySelectorAll('[aria-pressed]')];      // Meeting, Encrypt, Sign, Confidential, High, Low
-  const ai = bar.querySelector('.grow').previousElementSibling;
-  const roomy = { meeting: pressed[0], encrypt: pressed[1], sign: pressed[2], confidential: pressed[3], high: pressed[4], ai };
-  return { more, roomy };
-})()`;
+// press a header action wherever it is: a button of the row, or - when it did not fit the row, or in a small pane - a row of "More actions"
+const BAR_SEL = { meeting: '[data-fit=meeting]', encrypt: '[data-fit=encrypt]', sign: '[data-fit=sign] > button.rb:first-child', confidential: '[data-fit=confidential]', high: '[data-fit=importance] .imp-btn.high', ai: '[data-fit=ai]' };
 async function act(name) {
-  const compact = await evaluate(`!!document.querySelector('.cp-bar .rb.more')`);
-  if (!compact) return evaluate(`(() => { const b = ({ meeting: 0, encrypt: 1, sign: 2, confidential: 3, high: 4 })[${JSON.stringify(name)}]; const bar = document.querySelector('.cp-bar'); const p = [...bar.querySelectorAll('[aria-pressed]')]; const el = ${JSON.stringify(name)} === 'ai' ? bar.querySelector('.grow').previousElementSibling : p[b]; el.click(); return 1; })()`);
-  // More actions: the rows with a check state, in order: Meeting, Encrypt, Sign, Attach my public key, Confidential, High, Low, Write with AI
-  const index = { meeting: 0, encrypt: 1, sign: 2, confidential: 4, high: 5, ai: 7 }[name];
+  const sel = BAR_SEL[name];
+  if (await evaluate(`(() => { const e = document.querySelector('.cp-bar ${sel}'); if (!e) return false; e.click(); return true; })()`)) return;
+  // the label of the action: from the hidden copy of the row (a roomy pane); a small pane has no row of labels: the rows of More actions with a check state, in order
+  // Meeting, Encrypt, Sign, Attach my public key, Confidential, High, Low, Write with AI
+  const label = await evaluate(`(() => { const e = document.querySelector('.cp-probe ${sel}'); return e ? (e.getAttribute('aria-label') || e.textContent.trim()) : null; })()`);
   await evaluate(`document.querySelector('.cp-bar .rb.more').click()`);
   await sleep(120);
-  await evaluate(`document.querySelectorAll('.dd-fixed [role=menuitemradio]')[${index}].click()`);
+  if (label) await evaluate(`(() => { const r = [...document.querySelectorAll('.dd-fixed [role^=menuitem]')].find((x) => x.textContent.trim().startsWith(${JSON.stringify(label)})); r.click(); return 1; })()`);
+  else await evaluate(`document.querySelectorAll('.dd-fixed [role=menuitemradio]')[${{ meeting: 0, encrypt: 1, sign: 2, confidential: 4, high: 5, ai: 7 }[name]}].click()`);
   await sleep(120);
 }
 
@@ -137,6 +172,9 @@ const GEO = `(() => {
     paneScroll: [pane.scrollHeight, pane.clientHeight], pageScroll: document.scrollingElement.scrollTop + document.body.scrollTop, displaced: Math.abs(P.t - RR.t) > 0.5 || Math.abs(P.b - RR.b) > 0.5 || Math.abs(P.l - RR.l) > 0.5,
     chips: rc.map((c) => c && c.h), more: !!pane.querySelector('.rb.more'), vw: innerWidth, vh: innerHeight,
     bar: R(pane.querySelector('.cp-bar')), aiBar: !!pane.querySelector('.cp-ai'),
+    // the labelled row: which movable actions are in it (their order is the order of the row), where its last child ends, whether the hidden copy that is measured is off screen and out of reach
+    fit: [...pane.querySelectorAll('.cp-bar > [data-fit]:not([data-fit=fixed])')].map((e) => e.getAttribute('data-fit')), kidsRight: Math.max(...[...pane.querySelectorAll('.cp-bar > *')].map((e) => e.getBoundingClientRect().right)),
+    probe: (() => { const p = document.querySelector('.cp-probe'); if (!p) return null; const r = p.getBoundingClientRect(); return { off: r.right < 0, inert: p.hasAttribute('inert'), hidden: p.getAttribute('aria-hidden') === 'true', hiddenVisibility: getComputedStyle(p).visibility === 'hidden', inPane: !!p.closest('.compose-pane') }; })(),
   };
 })()`;
 
@@ -259,7 +297,17 @@ function layout(cfg, g, when) {
   ok(cfg, !g.displaced, `${w}the pane is displaced in its region`);
   ok(cfg, g.fmt && g.ed && g.fmt.b <= g.ed.t + 0.5, `${w}the formatting row is not above the body`);
   ok(cfg, g.compact === (g.pane.w < 600 || g.pane.h < 480), `${w}compact is ${g.compact} for a pane of ${g.pane.w} x ${g.pane.h}`);
-  ok(cfg, g.more === g.compact, `${w}"More actions" is ${g.more ? 'there' : 'missing'} in a ${g.compact ? 'compact' : 'roomy'} pane`);
+  if (g.compact) ok(cfg, g.more, `${w}"More actions" is missing in a compact pane`);
+  else {
+    // the labelled row is ONE row in every language (W1.7): what does not fit is in "More actions", from the end; the row keeps its order; nothing sticks out of it
+    ok(cfg, g.bar.h <= 52, `${w}the labelled action row is ${g.bar.h} px high: it wrapped`);
+    ok(cfg, g.kidsRight <= g.bar.r - 14 + 0.5, `${w}the labelled row sticks out: its last item ends at ${g.kidsRight}, the row's room ends at ${g.bar.r - 14}`);
+    const kept = keptItems(ORDER, ORDER.length - g.fit.length);
+    ok(cfg, JSON.stringify(g.fit) === JSON.stringify(kept), `${w}the row keeps ${g.fit.join(',')}, which is not the start of ${ORDER.join(',')}`);
+    ok(cfg, g.more === (g.fit.length < ORDER.length), `${w}"More actions" is ${g.more ? 'there' : 'missing'} with ${g.fit.length} of ${ORDER.length} actions in the row`);
+    ok(cfg, g.fit.includes('importance') || g.more, `${w}the Importance pair is neither in the row nor in "More actions"`);
+    ok(cfg, !!g.probe && g.probe.off && g.probe.inert && g.probe.hidden && g.probe.hiddenVisibility && !g.probe.inPane, `${w}the hidden copy of the row is not off screen / inert / aria-hidden / outside the pane: ${JSON.stringify(g.probe)}`);
+  }
   // many recipients stay in a box of their own height (App.css .chips: 124 px, 64 px in a small pane)
   for (const h of g.chips) ok(cfg, h === null || h <= (g.compact ? 64 : 124) + 1, `${w}a recipient box grew to ${h} px`);
   // a small pane: the actions are ONE row (the longest names of Send are cut, not wrapped), so the row can stay put above the fields
