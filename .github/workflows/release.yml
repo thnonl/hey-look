@@ -123,8 +123,6 @@ jobs:
       GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
-        with:
-          persist-credentials: false # the token must not stay in .git/config where npm scripts and tests could read it
 
       - id: mk
         run: |
@@ -558,7 +556,6 @@ jobs:
         with:
           name: windows-unsigned
           path: unsigned/*
-          retention-days: 7
           if-no-files-found: error
 
       # tauri-action keeps only the installers as workflow artifacts: keep the updater signatures of a dry run too, and the
@@ -701,8 +698,6 @@ jobs:
           echo "::warning::The SIGNPATH_* variables are set but the secret SIGNPATH_API_TOKEN is not: the Windows installers stay unsigned"
 
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
-        with:
-          persist-credentials: false # the token must not stay in .git/config where npm scripts and tests could read it
         if: steps.cfg.outputs.enabled == 'true'
 
       - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
@@ -834,8 +829,6 @@ jobs:
       ID: ${{ needs.create-release.outputs.id }}
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
-        with:
-          persist-credentials: false # the token must not stay in .git/config where npm scripts and tests could read it
 
       # With the variable REQUIRE_WIN_SIGNING=true (set at go-live of Windows signing) nothing is published unless SignPath signed the installers.
       - name: Windows signing required?
