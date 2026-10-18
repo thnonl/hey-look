@@ -346,8 +346,10 @@ jobs:
           node scripts/test-settings-layout.mjs --quick
           # the attachment preview and the picture viewer are on top of the whole window, in the main window and in the reader window
           node scripts/test-preview-layer.mjs --quick
-          # the compose pane at the smallest sizes: formatting row and body always in view, the header scrolls, Tab order and popovers (four of the combinations; the full run is `node scripts/test-compose-fit.mjs`)
+          # the compose pane at the smallest sizes: formatting row and body always in view, the header scrolls, Tab order and popovers (eight of the combinations, with Meeting on at 946 x 552 and in a 308 px pane; the full run is `node scripts/test-compose-fit.mjs`)
           node scripts/test-compose-fit.mjs --quick
+          # an open compose shows the placeholder of the body in the language in use after a language switch (and back)
+          node scripts/test-placeholder-lang.mjs
           # the side menu: icons or full by window width and by the person's choice, the peek over the panes, the minimum widths, tooltips (the full run is `node scripts/test-sidebar-collapse.mjs`)
           node scripts/test-sidebar-collapse.mjs --quick
           # the picture resize handles are clipped with the editor pane, and Discard on a reply with nothing typed closes without asking (real panes in the dev preview)

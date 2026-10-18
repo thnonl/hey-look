@@ -348,6 +348,8 @@ export default defineLocale<typeof ns.en>({
   "compose.pic.unsupported": "No se pudo insertar “{name}”: este formato de imagen no es compatible. Se adjuntó en su lugar.",
   "compose.pic.resized": "Se cambió el tamaño de {name} a 1600 px ({size})",
   "compose.pic.resizedGif": "Se cambió el tamaño de {name} a 1600 px ({size}) y se convirtió a PNG: la animación no se conserva",
+  "compose.pic.convertedGif": "{name} se convirtió a PNG ({size}): la animación no se conserva",
+  "compose.pic.recompressed": "Se redujo el peso de {name} ({size})",
   "compose.alt.checkTitle": {"one":"{n} imagen no tiene texto alternativo","other":"{n} imágenes no tienen texto alternativo"},
   "compose.alt.checkBody": "Las personas que usan lectores de pantalla no sabrán qué muestran.",
   "compose.alt.addAlt": "Añadir texto alternativo",

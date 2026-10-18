@@ -3,7 +3,7 @@
 // checked on the sent message (scripts of the QA kit: mimecheck MA-18) and in the dev preview (scripts/test-compose-pictures.mjs).
 // Run: node --experimental-strip-types scripts/test-picture-rename.mjs
 import assert from "node:assert/strict";
-import { nameForMime, swapPictures } from "../src/editor/messageBody.ts";
+import { nameForMime, reencodeToastKey, swapPictures } from "../src/editor/messageBody.ts";
 
 // 1. the name follows the type of the bytes
 for (const [name, mime, want] of [
@@ -46,5 +46,17 @@ const swap = (h) => swapPictures(h, () => `cid${++n}@heylook`, (mime, i) => `pic
   const e = swap(html("a &amp; b.gif", "image/png"));
   assert.equal(e.inline[0].name, "a & b.png");
 }
+
+// 3. the toast after a big picture was re-encoded does not claim a resize that did not happen (v1.0.6 Mac QA: a 900 px wide GIF "resized to 1600 px")
+for (const [mime, width, want] of [
+  ["image/gif", 900, "compose.pic.convertedGif"],
+  ["image/gif", 1600, "compose.pic.convertedGif"],
+  ["image/gif", 1601, "compose.pic.resizedGif"],
+  ["image/gif", 4000, "compose.pic.resizedGif"],
+  ["image/png", 900, "compose.pic.recompressed"],
+  ["image/jpeg", 1600, "compose.pic.recompressed"],
+  ["image/jpeg", 3000, "compose.pic.resized"],
+  ["image/webp", 1601, "compose.pic.resized"],
+]) assert.equal(reencodeToastKey(mime, width), want, `${mime} ${width} px`);
 
 console.log("test-picture-rename: ok");

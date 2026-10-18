@@ -339,6 +339,8 @@ export default defineLocale<typeof ns.en>({
   "compose.pic.unsupported": "无法插入“{name}”：不支持此图片格式。已改为作为附件添加。",
   "compose.pic.resized": "已将{name}缩小到1600 px（{size}）",
   "compose.pic.resizedGif": "已将{name}缩小到1600 px（{size}）并转换为PNG：不会保留动画",
+  "compose.pic.convertedGif": "已将{name}转换为PNG（{size}）：不会保留动画",
+  "compose.pic.recompressed": "已压缩{name}（{size}）",
   "compose.alt.checkTitle": {"other":"{n}张图片没有替代文字"},
   "compose.alt.checkBody": "使用屏幕阅读器的人将无法得知图片的内容。",
   "compose.alt.addAlt": "添加替代文字",

@@ -29,6 +29,15 @@ pub struct WindowInfo {
     pub y: i32,
     pub width: u32,
     pub height: u32,
+    /// the same frame in logical (CSS-like) pixels: physical / scale (a 960 x 560 window on a Retina Mac is 1920 x 1120 physical)
+    #[serde(rename = "logicalX")]
+    pub logical_x: f64,
+    #[serde(rename = "logicalY")]
+    pub logical_y: f64,
+    #[serde(rename = "logicalWidth")]
+    pub logical_width: f64,
+    #[serde(rename = "logicalHeight")]
+    pub logical_height: f64,
     pub scale: f64,
     /// `main`, `compose`, `reader` or `other`
     pub kind: String,
@@ -415,7 +424,7 @@ pub mod tests {
 
     impl Fake {
         pub fn new() -> Arc<Fake> {
-            let w = |label: &str, kind: &str| WindowInfo { label: label.into(), title: "Hey Look!".into(), visible: true, focused: label == "main", x: 10, y: 20, width: 800, height: 600, scale: 1.5, kind: kind.into() };
+            let w = |label: &str, kind: &str| WindowInfo { label: label.into(), title: "Hey Look!".into(), visible: true, focused: label == "main", x: 10, y: 20, width: 800, height: 600, logical_x: 10.0 / 1.5, logical_y: 20.0 / 1.5, logical_width: 800.0 / 1.5, logical_height: 600.0 / 1.5, scale: 1.5, kind: kind.into() };
             Arc::new(Fake {
                 windows: vec![w("main", "main"), w("reader-1", "reader")],
                 log: Mutex::new(vec![]),
@@ -494,6 +503,10 @@ pub mod tests {
         assert_eq!(v[0]["label"], "main");
         assert_eq!(v[1]["kind"], "reader");
         assert_eq!(v[0]["scale"], 1.5);
+        assert_eq!(v[0]["width"], 800);
+        // the logical frame: physical / scale
+        assert!((v[0]["logicalWidth"].as_f64().unwrap() - 800.0 / 1.5).abs() < 1e-9 && (v[0]["logicalHeight"].as_f64().unwrap() - 400.0).abs() < 1e-9);
+        assert!(v[0]["logicalX"].is_number() && v[0]["logicalY"].is_number());
         // no token
         let (st, _) = raw(s.port, &format!("GET /windows HTTP/1.1\r\nHost: 127.0.0.1:{}\r\n\r\n", s.port));
         assert_eq!(st, 401);

@@ -16,12 +16,12 @@ import type { ComposeProbe, SavedDraft } from "../leaveCompose";
 import { PreviewBg, previewVars, rememberPreview, startPreview } from "../composePreview";
 import { setDarkRegion } from "../composePreviewDom";
 import { extractSignature, normalizeHtml, SIG_MARK } from "../signature";
-import { baseExtensions } from "../editor/extensions";
+import { baseExtensions, refreshPlaceholder } from "../editor/extensions";
 import { useKit } from "../editor/kit";
 import { FormatBar, type FormatBarApi } from "../editor/FormatBar";
 import { PreviewSwitch } from "../editor/PreviewSwitch";
 import { setPreviewMode } from "../editor/previewColors";
-import { messageHtml, nameForMime, nameInlinePicture } from "../editor/messageBody";
+import { messageHtml, nameForMime, nameInlinePicture, reencodeToastKey, RESIZE_WIDTH } from "../editor/messageBody";
 import { unwrapBase, type BaseFont } from "../editor/emailHtml";
 import { extractQuote, quotePictureBytes } from "../editor/quoteBlock";
 import { baseFromPrefs } from "../editor/baseFont";
@@ -679,9 +679,18 @@ function ComposeBody({ init }: { init: ComposeInit }) {
     setSignOn(!signOn);
     touch();
   };
+  // Meeting switched on: the header scrolls to the strip (When, Where), which is below the fold of a low pane. Before, the strip showed only as a sliver cut through by the lower
+  // edge of the header (v1.0.6 Linux QA: "the formatting row covers the Where row"), and a row scrolled into view by a focus could hide under the sticky action row.
+  const revealMeeting = useRef(false);
+  useLayoutEffect(() => {
+    if (!revealMeeting.current || !meeting) return;
+    revealMeeting.current = false;
+    paneRef.current?.querySelector(".cp-event")?.scrollIntoView({ block: "start" });
+  }, [meeting]);
   const toggleMeeting = () => {
     if (meeting) setMeeting(null);
     else {
+      revealMeeting.current = true;
       if (bcc.length) {
         setBcc([]);
         showToast(t("compose.meeting.bccRemoved"), undefined, "info");
@@ -754,7 +763,7 @@ function ComposeBody({ init }: { init: ComposeInit }) {
   const editor = useEditor({
     extensions: [
       ...baseExtensions({
-        placeholder: t("compose.editor.placeholder"), showOnlyCurrent: false, getBase: () => baseRef.current, focusToolbar: () => barApi.current?.focus(), openStyles: () => barApi.current?.openStyles(), pictures: true,
+        placeholder: () => tNow("compose.editor.placeholder"), showOnlyCurrent: false, getBase: () => baseRef.current, focusToolbar: () => barApi.current?.focus(), openStyles: () => barApi.current?.openStyles(), pictures: true,
         openFind: (mode) => openFindRef.current(mode),
         // the quoted original of a reply / forward: a protected block; "Edit quoted text" asks first (editor/quoteNode.ts)
         quote: { base: () => baseRef.current, ask: () => confirm({ title: tNow("compose.quote.editTitle"), body: tNow("compose.quote.editBody"), confirmLabel: tNow("compose.quote.editConfirm") }) },
@@ -805,6 +814,10 @@ function ComposeBody({ init }: { init: ComposeInit }) {
     },
     onSelectionUpdate: ({ editor: ed }) => syncPicSel(ed),
   });
+
+  // the placeholder follows the language while the message is open (a compose that was open when the language was switched kept the old text)
+  const placeholderText = t("compose.editor.placeholder");
+  useEffect(() => refreshPlaceholder(editor), [editor, placeholderText]);
 
   // the dark preview shows the picked colours the way the reading pane would (a view change: the document keeps what was picked)
   useEffect(() => {
@@ -1644,6 +1657,8 @@ function ComposeBody({ init }: { init: ComposeInit }) {
 
   /** The picture files into the body at the caret (Medium size), in the order they were given; a format that is not supported is attached. */
   const insertPictures = (files: File[]) => reading(() => insertPicturesNow(files));
+  /** The toast after a big picture was re-encoded (editor/messageBody.ts reencodeToastKey: "to 1600 px" only when the picture was wider). */
+  const resizedToast = (mime: string, width: number, name: string, dataUrl: string) => t(reencodeToastKey(mime, width), { name, size: fmtSize(dataUriBytes(dataUrl)) });
   const insertPicturesNow = async (files: File[]) => {
     const st = useStore.getState();
     const attach: File[] = [];
@@ -1667,10 +1682,10 @@ function ComposeBody({ init }: { init: ComposeInit }) {
       let finalName = f.name;
       if (f.size > LARGE_PICTURE) {
         if (st.prefs.autoResizePictures) {
-          const r = await resizeImage(src, f.type, 1600);
+          const r = await resizeImage(src, f.type, RESIZE_WIDTH);
           finalSrc = r.dataUrl;
           finalName = nameForMime(f.name, r.mime); // (a GIF made a PNG is no .gif any more)
-          showToast(t(f.type === "image/gif" ? "compose.pic.resizedGif" : "compose.pic.resized", { name: finalName, size: fmtSize(dataUriBytes(finalSrc)) }), undefined, "success");
+          showToast(resizedToast(f.type, size.w, finalName, finalSrc), undefined, "success");
         } else {
           const original = src;
           showToast(
@@ -1695,7 +1710,7 @@ function ComposeBody({ init }: { init: ComposeInit }) {
   /** Replace the picture (matched by its data: URI) with a 1600 px version. */
   const resizeInEditor = async (original: string, mime: string, name: string) => {
     if (!editor) return;
-    const r = await resizeImage(original, mime, 1600);
+    const r = await resizeImage(original, mime, RESIZE_WIDTH);
     let at: number | null = null;
     editor.state.doc.descendants((n, pos) => {
       if (at === null && n.type.name === "image" && n.attrs.src === original) at = pos;
@@ -1703,7 +1718,7 @@ function ComposeBody({ init }: { init: ComposeInit }) {
     if (at === null) return;
     const newName = nameForMime(name, r.mime); // (the name says what the bytes are: a GIF made a PNG is `name.png`, in the message, the draft and the sent part)
     editor.chain().setNodeSelection(at).updateAttributes("image", { src: r.dataUrl, "data-name": newName }).run();
-    showToast(t(mime === "image/gif" ? "compose.pic.resizedGif" : "compose.pic.resized", { name: newName, size: fmtSize(dataUriBytes(r.dataUrl)) }), undefined, "success");
+    showToast(resizedToast(mime, (await imageSize(original)).w, newName, r.dataUrl), undefined, "success");
   };
 
   const setPictureSize = (w: number | null) => {

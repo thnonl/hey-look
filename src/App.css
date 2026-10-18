@@ -509,7 +509,8 @@ button.att-chip:hover { background: var(--bg3); border-color: color-mix(in srgb,
 .compose-pane { position: absolute; inset: 0; background: var(--bg); display: flex; flex-direction: column; z-index: 5; animation: fade .15s; min-height: 0; overflow: hidden; overflow: clip; /* nothing of it sticks out of the pane: the page never scrolls to a field, a box of the pane does (cp-head, cp-tail, cp-editor) */ }
 /* The three boxes of the pane. The formatting row (.cp-fmt) never moves; the body keeps --cp-body-min (composeFit.ts BODY_MIN) however low the pane is; the header above them (actions, banners, From / To / Cc / Subject, strips) gives way and scrolls, the attachments under them have a height of their own. */
 .compose-pane { --cp-body-min: 180px; }
-.cp-head { flex: 0 1 auto; min-height: 56px; overflow-y: auto; overscroll-behavior: contain; }
+.cp-head { flex: 0 1 auto; min-height: 56px; overflow-y: auto; overscroll-behavior: contain; scroll-padding-bottom: 12px; } /* (what a focus or scrollIntoView brings in stays clear of the formatting row under the header) */
+.compose-pane.compact:not(.bar-wraps) .cp-head { scroll-padding-top: 46px; } /* ... and of the sticky action row at its top (.cp-bar) */
 .cp-tail { flex: 0 0 auto; max-height: 132px; overflow-y: auto; overscroll-behavior: contain; }
 .cp-fmt { flex: none; }
 .compose-pane.dragging { outline: 2px dashed var(--accent); outline-offset: -8px; }
@@ -1465,8 +1466,8 @@ span.spin { display: inline-block; width: 13px; height: 13px; border: 2px solid 
 .dt-pick { position: absolute; top: 50%; right: 4px; transform: translateY(-50%); width: 24px; height: 24px; padding: 0; display: inline-flex; align-items: center; justify-content: center; background: none; border: 0; border-radius: var(--r-sm); color: var(--muted); }
 .dt-pick:hover, .dt-field > input:focus + .dt-pick { color: var(--fg); }
 .dt-pick:hover { background: var(--bg3); }
-.fld-pop { background: var(--bg); border: 1px solid var(--border); border-radius: var(--r-md); box-shadow: var(--shadow); padding: 5px; }
-.fld-times { list-style: none; margin: 0; padding: 0; position: relative; overflow-y: auto; max-height: min(264px, var(--dd-max, 264px)); }
+.fld-pop { background: var(--bg); border: 1px solid var(--border); border-radius: var(--r-md); box-shadow: var(--shadow); padding: 5px; box-sizing: border-box; max-height: var(--dd-max, none); overflow-y: auto; overscroll-behavior: contain; } /* the panel (the date grid with its Today button, the list of times) is never taller than the room placePopover gave it (--dd-max, popoverRoom.ts): it scrolls inside, so nothing runs past the window; the border and padding are inside this box (v1.0.6 CI: a Linux runner's taller font put the grid's Today button 13 px below a 480 px window) */
+.fld-times { list-style: none; margin: 0; padding: 0; position: relative; overflow-y: auto; max-height: min(264px, calc(var(--dd-max, 276px) - 12px)); }
 .fld-times li { padding: 6px 12px; border-radius: var(--r-sm); cursor: pointer; white-space: nowrap; font-variant-numeric: tabular-nums; }
 .fld-times li:hover { background: var(--bg3); }
 .fld-times li.on { background: var(--accent-soft); color: var(--accent-text); font-weight: 650; }

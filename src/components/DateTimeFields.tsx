@@ -49,7 +49,7 @@ function FieldPopup({
     const edge = 6;
     if (b.bottom < edge || b.top > window.innerHeight - edge) return close.current(false); // the field was scrolled out of view
     // (popoverRoom.ts: below the field or above it, inside the window, above a toast)
-    const { top, left, max } = placePopover(b, { w: p.width, h: p.height }, { w: window.innerWidth, h: window.innerHeight }, { edge, gap: 4, toasts: toastBox() });
+    const { top, left, max } = placePopover(b, { w: p.width, h: p.height }, { w: window.innerWidth, h: window.innerHeight }, { edge, gap: 4, toasts: toastBox(), minRoom: 96 });
     setPos({ top, left, max });
   }, [anchor]);
   useEffect(() => {
@@ -173,6 +173,7 @@ function DateGrid({ value, tz, weekStart, onPick }: { value: string; tz?: string
   useEffect(() => {
     const el = grid.current?.querySelector<HTMLElement>("button[data-cursor]");
     el?.focus({ preventScroll: true }); // the focus follows the cursor
+    el?.scrollIntoView({ block: "nearest" }); // (the panel scrolls when the window is low: the day with the focus, then the Today button below, come into view)
   }, [cursor]);
   const go = (d: Day) => setCursor(d);
   const onKey = (e: React.KeyboardEvent) => {

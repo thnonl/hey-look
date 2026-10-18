@@ -17,6 +17,9 @@
 //   node scripts/test-popover-fit.mjs --quick         the two sizes, English, light (what CI runs)
 //   node scripts/test-popover-fit.mjs                 the full matrix
 //   node scripts/test-popover-fit.mjs --shots=<dir>   a picture of each popover
+//   node scripts/test-popover-fit.mjs --font="DejaVu Sans" | --css="..."   every font of the page replaced by this one / an extra style sheet for the run: the Linux
+//                                                    runner has wider, taller fonts than the dev machine, and a popover that fits here must fit there (CI uses the runner's own;
+//                                                    e.g. --css=".fld-grid button { height: 34px } .fld-times li { padding: 9px 12px }" for taller date and time panels)
 //   node scripts/test-popover-fit.mjs --require-browser | --url=http://127.0.0.1:1420/
 import fs from 'node:fs';
 import path from 'node:path';
@@ -24,6 +27,8 @@ import { arg, flag, sleep, startHarness } from './cdp-harness.mjs';
 
 const QUICK = flag('quick');
 const SHOTS = arg('shots');
+const FONT = arg('font');
+const EXTRA_CSS = arg('css');
 const H = await startHarness('test-popover-fit', { vitePort0: 5620, cdpPort0: 9620 });
 const { evaluate, cdp } = H;
 const failures = [];
@@ -59,7 +64,9 @@ const PAGE = `(() => {
     const R = (e) => { const r = e.getBoundingClientRect(); return { t: Math.round(r.top * 10) / 10, b: Math.round(r.bottom * 10) / 10, l: Math.round(r.left * 10) / 10, r: Math.round(r.right * 10) / 10 }; };
     const name = (e) => e.tagName.toLowerCase() + '.' + String(e.className).trim().split(/\\s+/).slice(0, 3).join('.') + (e.getAttribute('role') ? '[' + e.getAttribute('role') + ']' : '');
     const roots = boxes.filter((e) => !boxes.some((o) => o !== e && o.contains(e)));
-    const outside = boxes.map((e) => ({ name: name(e), ...R(e) })).filter((r) => r.t < -0.5 || r.l < -0.5 || r.b > vh + 0.5 || r.r > vw + 0.5);
+    // (a box inside a box that scrolls is measured by the part that can be seen: the scroll box itself must lie in the window, what it holds is reached by scrolling, see unreachable)
+    const seen = (e) => { const r = R(e); for (let a = e.parentElement; a; a = a.parentElement) { if (!boxes.includes(a) || !/auto|scroll/.test(getComputedStyle(a).overflowY)) continue; const p = a.getBoundingClientRect(); r.t = Math.max(r.t, p.top); r.b = Math.min(r.b, p.bottom); } return r; };
+    const outside = boxes.map((e) => ({ name: name(e), ...seen(e) })).filter((r) => r.t < -0.5 || r.l < -0.5 || r.b > vh + 0.5 || r.r > vw + 0.5);
     // the outermost box is what is under its own pixels (three points along its top edge band and one near the bottom)
     const covered = roots.flatMap((e) => { const r = e.getBoundingClientRect(); const pts = [[r.left + r.width / 2, r.top + Math.min(14, r.height / 2)], [r.left + 12, r.top + Math.min(14, r.height / 2)], [r.right - 12, r.top + Math.min(14, r.height / 2)], [r.left + r.width / 2, r.bottom - 6]]; return pts.filter(([x, y]) => x >= 0 && y >= 0 && x <= vw && y <= vh && !(() => { const t = document.elementFromPoint(x, y); return !!t && e.contains(t); })()).map(([x, y]) => name(e) + ' at ' + Math.round(x) + ',' + Math.round(y) + ' under ' + (() => { const t = document.elementFromPoint(x, y); return t ? name(t) : 'nothing'; })()); });
     // every control reached by scrolling: whole inside its root and inside the window
@@ -97,6 +104,7 @@ async function open(cfg) {
   }
   await evaluate(`new Promise((ok, no) => { const t0 = Date.now(), t = setInterval(() => { if (document.querySelector('.compose-pane .cp-editor .tiptap')?.editor) { clearInterval(t); ok(1); } else if (Date.now() - t0 > 15000) { clearInterval(t); no(new Error('compose did not start')); } }, 100); })`);
   await sleep(700);
+  if (FONT || EXTRA_CSS) await evaluate(`(() => { const s = document.createElement('style'); s.textContent = ${JSON.stringify((FONT ? `*, *::before, *::after { font-family: ${FONT}, sans-serif !important; }` : '') + (EXTRA_CSS ?? ''))}; document.head.appendChild(s); return 1; })()`);
   await evaluate(PAGE);
 }
 
