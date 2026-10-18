@@ -281,9 +281,8 @@
         });
         $$('.lang-menu a', lg).forEach(function (a) { if (a === cur) a.setAttribute('aria-current', 'true'); else a.removeAttribute('aria-current'); });
         var lc = $('.lang-cur', lg); if (lc) lc.textContent = cur.getAttribute('data-short');
-        var lsum = $('summary', lg), lmenu = $('.lang-menu', lg); /* the menu block is generated (English labels): its labels come from the dictionary here */
+        var lsum = $('summary', lg); /* the menu block is generated (English labels): the summary's labels come from the dictionary here */
         if (lsum) { lsum.setAttribute('aria-label', t('nf.lang.cur', { lang: cur.textContent, short: cur.getAttribute('data-short') })); lsum.setAttribute('title', t('nf.lang')); }
-        if (lmenu) lmenu.setAttribute('aria-label', t('nf.lang'));
         applyTheme(pref); applyMotion();
         root.classList.remove('nf-wait'); /* the inline script of 404.html hid the page (visibility) until the translation was in; a timer there shows it anyway after 1.5 s */
       };

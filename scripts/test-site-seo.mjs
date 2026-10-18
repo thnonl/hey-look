@@ -5,6 +5,9 @@
 // size, external links with rel=noopener, lang attribute = folder, no noindex except on 404.html. Site-wide: robots.txt, sitemap.xml, the
 // preview picture and icons (their pixel size and weight), the Search Console file.
 //
+// Markup, by hand (a dev check, not part of CI; needs the network once):  npx --yes html-validate@9.4.1 --config scripts/site-src/htmlvalidate.json docs/*.html docs/ja/*.html
+//   (recommended rules, none relaxed; the two controls it would change carry a [html-validate-disable-next ... -- reason] comment in docs/index.html).
+//
 // Lengths are measured in display width, because a search result is cut by pixels, not characters: a letter counts 1, a CJK character
 // (Chinese, Japanese) counts 2. Title <= 60, description 120..160. The title ends with the brand ("Features - Hey Look!").
 import fs from 'node:fs';
@@ -51,6 +54,18 @@ const pngSize = (buf) => buf.slice(1, 4).toString() === 'PNG' ? { w: buf.readUIn
 const enIndex = read(fileOf(EN, 'index'));
 const version = versionOf(enIndex);
 if (!version || !/^\d+\.\d+\.\d+/.test(version)) fail('index.html', `<span data-version> is "${version}", expected a version number`);
+// softwareVersion (JSON-LD) comes from that span: the 8 home pages show the same one, and it is the newest RELEASED version of the CHANGELOG
+// (the first "## x.y.z — date" heading; "## x.y.z (unreleased)" has no date and is skipped). Bumping the span is a release step.
+for (const l of LANGS) {
+  const v = versionOf(read(fileOf(l, 'index')));
+  if (v !== version) fail(`${l.dir || '.'}/index.html`, `<span data-version> is "${v}", the English home page has "${version}": the 8 home pages must show the same version`);
+}
+{
+  const log = fs.readFileSync(path.join(DOCS, '..', 'CHANGELOG.md'), 'utf8');
+  const rel = /^## (\d+\.\d+\.\d+) [—–-] \d{4}-\d{2}-\d{2}\s*$/m.exec(log);
+  if (!rel) fail('CHANGELOG.md', 'no released version heading ("## x.y.z — YYYY-MM-DD") found');
+  else if (rel[1] !== version) fail('index.html', `<span data-version> is ${version}, the newest released version in CHANGELOG.md is ${rel[1]}: the span (and softwareVersion) follow the CHANGELOG when a version is released`);
+}
 
 // ---------- the preview picture and the icons ----------
 {
