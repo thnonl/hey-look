@@ -129,6 +129,20 @@ const REMOVED = [
       ['ru', 'В Windows обновление устанавливается само; в macOS и Linux нужно разрешение.', ['index.html']],
     ],
   },
+  // W10.2a: update-check timing: at most every 2 hours, 15 minutes after a failure; no "a couple of hours"
+  {
+    row: 'W10.2a',
+    items: [
+      ['en', 'after a couple of hours', ['help.html']],
+      ['vi', 'sau vài giờ', ['help.html']],
+      ['fr', 'après quelques heures', ['help.html']],
+      ['zh', '隔了几个小时重新回来时', ['help.html']],
+      ['es', 'tras un par de horas', ['help.html']],
+      ['ja', '数時間ぶりに前面に戻ったとき', ['help.html']],
+      ['de', 'nach ein paar Stunden zurückkehrt', ['help.html']],
+      ['ru', 'спустя пару часов', ['help.html']],
+    ],
+  },
 ];
 
 const errors = [];
