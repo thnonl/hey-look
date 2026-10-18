@@ -692,6 +692,12 @@ fn page_pong(nonce: u64, visibility: String) {
     linuxview::pong(nonce, &visibility);
 }
 
+/// The page takes the "New mail" of the tray menu that is still waiting for it (see `shell::TRAY_COMPOSE_PENDING`): true once per request.
+#[tauri::command]
+fn take_tray_compose() -> bool {
+    shell::TRAY_COMPOSE_PENDING.swap(false, std::sync::atomic::Ordering::SeqCst)
+}
+
 /// The frontend tells whether any account exists: without one the tray's "New mail" and "Check mail now" are disabled.
 #[tauri::command]
 fn set_mail_available(available: bool) {
@@ -1794,11 +1800,28 @@ struct ShellInfo {
     pdf_view: &'static str,
     /// the PDF experiment of macOS / Linux is on (HEYLOOK_PDF_INLINE): the page shows a readout of what the engine did
     pdf_test: bool,
+    /// debug builds only, `HEYLOOK_TEST_COPY_FAIL=1`: every copy to the clipboard fails (QA of the "Couldn't copy" toasts)
+    copy_fail: bool,
+    /// debug builds only, `HEYLOOK_TEST_ACCOUNTS_DELAY_MS=<ms>`: the page waits that long before it takes the mailboxes it has read (QA of "New mail" while they are not read yet)
+    accounts_delay_ms: u64,
+}
+
+/// A debug build can make every copy fail (`HEYLOOK_TEST_COPY_FAIL=1`), to see the error toasts of the Copy buttons. Never in a release build.
+fn copy_forced_to_fail() -> bool {
+    cfg!(debug_assertions) && std::env::var("HEYLOOK_TEST_COPY_FAIL").is_ok_and(|v| v == "1")
+}
+
+/// A debug build can make the page wait before it takes the mailboxes (`HEYLOOK_TEST_ACCOUNTS_DELAY_MS`, at most 120 s). Never in a release build.
+fn accounts_delay_ms() -> u64 {
+    if !cfg!(debug_assertions) {
+        return 0;
+    }
+    std::env::var("HEYLOOK_TEST_ACCOUNTS_DELAY_MS").ok().and_then(|v| v.trim().parse::<u64>().ok()).unwrap_or(0).min(120_000)
 }
 
 #[tauri::command]
 fn shell_info() -> ShellInfo {
-    ShellInfo { os: std::env::consts::OS, tray: shell::tray_ready(), test_data: legacy_names::test_data_dir().map(|p| p.display().to_string()), pdf_view: pdfmode::view().name(), pdf_test: pdfmode::experiment_on() }
+    ShellInfo { os: std::env::consts::OS, tray: shell::tray_ready(), test_data: legacy_names::test_data_dir().map(|p| p.display().to_string()), pdf_view: pdfmode::view().name(), pdf_test: pdfmode::experiment_on(), copy_fail: copy_forced_to_fail(), accounts_delay_ms: accounts_delay_ms() }
 }
 
 #[tauri::command]
@@ -3252,12 +3275,16 @@ async fn open_external(app: tauri::AppHandle, url: String) -> R<()> {
     blocking(move || open_target(&app, &url, true)).await
 }
 
-/// Put text on the system clipboard. The page calls this only on Linux, where the web view's own clipboard call
+/// Put text on the system clipboard. The page calls this first on Linux and macOS, where the web view's own clipboard call
 /// (`navigator.clipboard`) is not available to a page that does not run in a secure context or has no user gesture left (the
-/// "link is copied" toast after a failed open copied nothing, QA BUG-L4); the text goes to the GTK clipboard the web view and
-/// every other GTK program use. Other systems report that it is not available.
+/// "link is copied" toast after a failed open copied nothing, QA BUG-L4; a copy that follows a backend call, "Copy public key", is refused by
+/// WKWebView). Linux: the text goes to the GTK clipboard the web view and every other GTK program use. macOS: the general pasteboard
+/// (`macclip::write`). Both run on the main thread and give up after 3 s. Windows reports that it is not available (the page's clipboard works).
 #[tauri::command]
 async fn copy_text(app: tauri::AppHandle, text: String) -> R<()> {
+    if copy_forced_to_fail() {
+        return Err("the clipboard is switched off for this test run".into());
+    }
     #[cfg(target_os = "linux")]
     {
         blocking(move || {
@@ -3273,10 +3300,22 @@ async fn copy_text(app: tauri::AppHandle, text: String) -> R<()> {
         })
         .await
     }
-    #[cfg(not(target_os = "linux"))]
+    #[cfg(target_os = "macos")]
+    {
+        blocking(move || {
+            let (tx, rx) = std::sync::mpsc::channel();
+            app.run_on_main_thread(move || {
+                let _ = tx.send(macclip::write(&text));
+            })
+            .map_err(err)?;
+            rx.recv_timeout(std::time::Duration::from_secs(3)).map_err(|_| "the clipboard did not answer".to_string())?
+        })
+        .await
+    }
+    #[cfg(not(any(target_os = "linux", target_os = "macos")))]
     {
         let _ = (app, text);
-        Err("copying from the backend is only available on Linux".into())
+        Err("copying from the backend is only available on Linux and macOS".into())
     }
 }
 
@@ -3327,14 +3366,30 @@ async fn attachment_open(app: tauri::AppHandle, state: tauri::State<'_, AppState
     .await
 }
 
-/// Show a saved file selected in Explorer / Finder.
+/// Show a saved file selected in Explorer / Finder / the file manager. On Linux the file manager must be on the session bus to select the
+/// file; when it is not, the folder that holds the file is opened instead (`linuxopen::reveal_fallback_dir`), and only when that fails too
+/// the error goes to the page (which shows it, `src/reveal.ts`). Windows and macOS: Explorer / Finder select the file, no fallback.
 #[tauri::command]
-fn attachment_reveal(app: tauri::AppHandle, path: String) -> R<()> {
-    let p = std::path::PathBuf::from(&path);
-    if !p.is_absolute() || !p.exists() {
-        return Err("FILE_GONE: That file no longer exists.".into());
-    }
-    app.opener().reveal_item_in_dir(p).map_err(err)
+async fn attachment_reveal(app: tauri::AppHandle, path: String) -> R<()> {
+    blocking(move || {
+        let p = std::path::PathBuf::from(&path);
+        if !p.is_absolute() || !p.exists() {
+            return Err("FILE_GONE: That file no longer exists.".to_string());
+        }
+        let shown = app.opener().reveal_item_in_dir(&p).map_err(err);
+        #[cfg(target_os = "linux")]
+        {
+            if shown.is_err() {
+                if let Some(dir) = linuxopen::reveal_fallback_dir(&p) {
+                    if linuxopen::open(&dir.to_string_lossy(), false).is_ok() {
+                        return Ok(());
+                    }
+                }
+            }
+        }
+        shown
+    })
+    .await
 }
 
 /// Native folder picker (used for "Save to" in Settings).
@@ -5120,6 +5175,7 @@ pub fn run() {
             update::update_defer,
             update::update_note,
             set_mail_available,
+            take_tray_compose,
             frontend_ready,
             sends_flushed,
             quit_page_alive,
@@ -5827,7 +5883,7 @@ mod capability_tests {
             // updates
             "check_update", "update_download", "update_cancel", "update_discard", "update_defer", "update_note", "update_install", "update_startup_state", "update_startup_ack",
             // quit and the main page's start-up
-            "quit_now", "quit_cancelled", "sends_flushed", "quit_page_alive", "quit_dialog", "frontend_ready", "page_state", "page_pong", "show_window", "set_mail_available",
+            "quit_now", "quit_cancelled", "sends_flushed", "quit_page_alive", "quit_dialog", "frontend_ready", "page_state", "page_pong", "show_window", "set_mail_available", "take_tray_compose",
             // calendar connections, sync triggers, mail actions that belong to the main page's intent layer
             "calendar_connect", "calendar_disconnect", "calendar_sources", "calendar_set_sync", "calendar_sync_now", "sync_account", "refresh_badge", "thread_action",
             "queue_action", "cancel_action", "sender_action", "load_older", "idle_states", "frame_info", "frame_caption_rect", "frame_system_menu", "test_notification",

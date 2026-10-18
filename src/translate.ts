@@ -4,7 +4,7 @@ import { api } from "./api";
 import { t, type Key } from "./i18n";
 import { friendlyError, useStore } from "./store";
 import { stickyTimers } from "./stickyTimers";
-import { showAiProblem } from "./aiGuide";
+import { clearAiProblem, showAiProblem } from "./aiGuide";
 import {
   cancelJob,
   closeToast,
@@ -128,6 +128,7 @@ export function startTranslation(spec: TranslateSpec): void {
   const started = startJob(store().translations, spec, Date.now(), ++runSeq);
   store().setTranslations(() => started.jobs);
   if (!started.start) return;
+  clearAiProblem(); // (the toast of an earlier problem goes while this translation runs)
   const job = started.jobs[started.key];
   const { key, run } = job;
   readyTimers.cancel(toastKey(job));

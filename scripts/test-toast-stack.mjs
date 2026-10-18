@@ -3,7 +3,7 @@
 // Run: node --experimental-strip-types scripts/test-toast-stack.mjs
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
-import { addToast, clearableOfKind, isPersistent, lazyText, MAX_PERSISTENT, stackItems } from "../src/toastStack.ts";
+import { addToast, clearableOfKind, isPersistent, lazyText, MAX_PERSISTENT, MAX_TIMED, stackItems, trimToasts } from "../src/toastStack.ts";
 import { setLangPref, t } from "../src/i18n/index.ts";
 
 let id = 0;
@@ -110,6 +110,54 @@ assert.equal(MAX_PERSISTENT, 3);
   assert.equal(lazyText(retry), "Retry");
   // a plain string (every other toast) stays as it is
   assert.equal(lazyText("Saved"), "Saved");
+}
+
+// 8. trimToasts (W1.9, 1.0.7): the limit of the state is for timed toasts only; a sticky toast (a running translation ...) is never removed to make room
+{
+  const ids = (l) => l.map((t) => t.id);
+  assert.equal(MAX_TIMED, 5);
+  // 7 sticky + 3 timed: nothing to remove (3 timed are within the limit), every sticky toast is kept
+  const sticky = Array.from({ length: 7 }, () => toast("info", { sticky: true }));
+  const timed = Array.from({ length: 3 }, () => toast("success", { ttl: 4500 }));
+  assert.deepEqual(ids(trimToasts([...sticky, ...timed])), ids([...sticky, ...timed]));
+  // 7 sticky + 6 timed: the oldest timed one goes, all 7 sticky stay
+  const six = Array.from({ length: 6 }, () => toast("success", { ttl: 4500 }));
+  const out = trimToasts([...sticky.slice(0, 3), ...six, ...sticky.slice(3)]);
+  assert.equal(out.filter((t) => t.sticky).length, 7, "no sticky toast is removed");
+  assert.deepEqual(ids(out.filter((t) => !t.sticky)), ids(six.slice(1)), "the oldest timed toast goes");
+  assert.deepEqual(ids(out), ids([...sticky.slice(0, 3), ...six.slice(1), ...sticky.slice(3)]), "the order is kept");
+  // 8 timed: the 5 newest
+  const eight = Array.from({ length: 8 }, () => toast("success", { ttl: 4500 }));
+  assert.deepEqual(ids(trimToasts(eight)), ids(eight.slice(3)));
+  // Undo toasts are kept before plain ones: 3 with Undo (oldest) and 4 plain -> the 3 oldest plain ones go
+  const undos = Array.from({ length: 3 }, () => toast("success", { ttl: 8000, undo: () => {} }));
+  const plain = Array.from({ length: 4 }, () => toast("info", { ttl: 4500 }));
+  assert.deepEqual(ids(trimToasts([...undos, ...plain])), ids([...undos, plain[2], plain[3]]), "plain toasts go before Undo toasts");
+  // only Undo toasts over the limit: the oldest Undo goes (last resort)
+  const six2 = Array.from({ length: 6 }, () => toast("success", { ttl: 8000, undo: () => {} }));
+  assert.deepEqual(ids(trimToasts(six2)), ids(six2.slice(1)));
+  // a timed error is timed too
+  const errs = Array.from({ length: 6 }, () => toast("error"));
+  assert.deepEqual(ids(trimToasts(errs)), ids(errs.slice(1)));
+  // within the limit: the same list, a copy
+  const few = [toast("info"), toast("info", { sticky: true })];
+  assert.deepEqual(trimToasts(few), few);
+  assert.notEqual(trimToasts(few), few);
+  // the AC of the row: 6 running translations (sticky) and 5 Undo toasts: all 11 stay
+  const jobs = Array.from({ length: 6 }, () => toast("info", { sticky: true }));
+  let list = [...jobs];
+  const deletes = [];
+  for (let i = 0; i < 5; i++) { const u = toast("success", { ttl: 8000, undo: () => {} }); deletes.push(u); list = trimToasts(addToast(list, u)); }
+  assert.deepEqual(ids(list), ids([...jobs, ...deletes]), "6 running translations + 5 Undo toasts: every Undo toast and every job toast is there");
+  // the stack still folds the jobs: 3 rows per kind at most, "N more" for the rest
+  assert.equal(stackItems(list).filter((i) => "more" in i).length, 1);
+}
+
+// 9. the store trims through trimToasts and does not cut the sticky ones
+{
+  const store = readFileSync(new URL("../src/store.ts", import.meta.url), "utf8");
+  assert.match(store, /toasts: trimToasts\(addToast\(s\.toasts\.map\(refreshed\)/, "showToast trims through trimToasts");
+  assert.ok(!/slice\(-5\)/.test(store), "no hard cut to 5 toasts left in the store");
 }
 
 console.log("ok - test-toast-stack");

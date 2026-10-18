@@ -4,6 +4,7 @@ import {
 } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { answerVia } from "../actions";
+import { copyToClipboard } from "../open";
 import { api, errorCode, KeyAlgo, KeyInspect, MessageFull, MessageSecurity, PgpKey, SigInfo } from "../api";
 import { t, type Key } from "../i18n";
 import { useT } from "../i18n/react";
@@ -32,7 +33,7 @@ function CopyButton({ text, label }: { text: string; label?: string }) {
   const t = useT();
   const showToast = useStore((s) => s.showToast);
   return (
-    <button className="link small" onClick={() => void navigator.clipboard.writeText(text).then(() => showToast(t("pgp.copied"), undefined, "success"))}>
+    <button className="link small" onClick={() => void copyToClipboard(text).then((ok) => (ok ? showToast(t("pgp.copied"), undefined, "success") : showToast(() => t("mail.ctx.copyFailed"), undefined, "error")))}>
       {label ?? t("common.copy")}
     </button>
   );
@@ -526,7 +527,7 @@ export function KeyDetailsDialog({ fingerprint, back }: { fingerprint: string; b
         <button className="btn small" onClick={() => void api.pgpExportPublic(k.fingerprint).then((p) => p && showToast(t("pgp.details.savedTo", { path: p }), undefined, "success")).catch((e) => showToast(() => friendlyError(e), undefined, "error"))}>
           <HardDriveDownload size={13} /> {t("pgp.details.exportPublic")}
         </button>
-        <button className="btn small" onClick={() => void api.pgpPublicArmored(k.fingerprint).then((a) => navigator.clipboard.writeText(a)).then(() => showToast(t("pgp.details.publicCopied"), undefined, "success")).catch((e) => showToast(() => friendlyError(e), undefined, "error"))}>
+        <button className="btn small" onClick={() => void api.pgpPublicArmored(k.fingerprint).then(copyToClipboard).then((ok) => (ok ? showToast(t("pgp.details.publicCopied"), undefined, "success") : showToast(() => t("mail.ctx.copyFailed"), undefined, "error"))).catch((e) => showToast(() => friendlyError(e), undefined, "error"))}>
           <Copy size={13} /> {t("pgp.details.copyPublic")}
         </button>
         {k.hasSecret && (

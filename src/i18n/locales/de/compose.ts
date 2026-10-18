@@ -462,6 +462,7 @@ export default defineLocale<typeof ns.en>({
   "compose.schedule.foot": "Hey Look! sendet von diesem Computer aus. Ist die App zu diesem Zeitpunkt geschlossen, wird die Nachricht beim nächsten Öffnen gesendet.",
   "compose.schedule.quitWarning": "Wenn Sie das Fenster schließen, wird Hey Look! beendet. Diese Nachricht wird daher erst gesendet, wenn Sie die App erneut öffnen.",
   "compose.schedule.keepInTray": "Im Infobereich weiterlaufen",
+  "compose.schedule.keepInMenuBar": "In der Menüleiste weiterlaufen",
   // Scheduled list
   "compose.scheduled.needsAttention": "Handlungsbedarf",
   "compose.scheduled.today": "Heute",

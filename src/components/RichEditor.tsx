@@ -3,7 +3,7 @@ import { useEffect, useRef } from "react";
 import { useT } from "../i18n/react";
 import { baseFromPrefs } from "../editor/baseFont";
 import { docToHtml } from "../editor/emailHtml";
-import { baseExtensions, refreshPlaceholder } from "../editor/extensions";
+import { baseExtensions, refreshPlaceholder, setEditorLabel } from "../editor/extensions";
 import { useKit } from "../editor/kit";
 import { FormatBar, type FormatBarApi } from "../editor/FormatBar";
 import { insertPictureNodes } from "../editor/insertPictures";
@@ -48,6 +48,8 @@ function RichEditorBody({ value, onChange, placeholder, minHeight = 140, label, 
     onUpdate: ({ editor }) => onChange(editor.isEmpty ? "" : docToHtml(editor.getJSON(), baseRef.current)),
   });
   useEffect(() => refreshPlaceholder(editor), [editor, placeholder]); // (a signature / template editor stays open while the language is switched)
+  const name = label ?? t("compose.fmt.text");
+  useEffect(() => setEditorLabel(editor, name), [editor, name]);
   const linkBtnRef = useRef<HTMLButtonElement>(null);
   const link = useLinkEditor(editor, linkBtnRef);
   linkRef.current = link.open;

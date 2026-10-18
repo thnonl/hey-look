@@ -3,7 +3,9 @@ import { useId, useMemo, useRef, useState } from "react";
 import { t } from "../i18n";
 import { useT } from "../i18n/react";
 import { tx } from "../i18n/rich";
+import { osNow } from "../platform";
 import { useStore } from "../store";
+import { scheduleKeepKey } from "../trayWords";
 import { formatTime } from "../dateTimeFields";
 import { DateField, TimeField } from "./DateTimeFields";
 import { fmtIn, fmtWhen, parseLocal, snoozePresets, zoneLabel } from "../util";
@@ -148,7 +150,7 @@ export function SchedulePicker({
         {!prefs.closeToTray && (
           <div className="warn">
             {t("compose.schedule.quitWarning")}{" "}
-            <button className="link" onClick={() => useStore.getState().setPrefs({ closeToTray: true })}>{t("compose.schedule.keepInTray")}</button>
+            <button className="link" onClick={() => useStore.getState().setPrefs({ closeToTray: true })}>{t(scheduleKeepKey(osNow()))}</button>
           </div>
         )}
       </div>

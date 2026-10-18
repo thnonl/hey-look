@@ -147,6 +147,7 @@
     "allow-update-defer",
     "allow-update-note",
     "allow-set-mail-available",
+    "allow-take-tray-compose",
     "allow-frontend-ready",
     "allow-sends-flushed",
     "allow-quit-page-alive",

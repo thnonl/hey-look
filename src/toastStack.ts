@@ -80,6 +80,26 @@ export function stackItems<T extends StackToast>(toasts: readonly T[], max = MAX
   return out;
 }
 
+/** The most timed toasts (the ones that go by themselves) the state keeps. Sticky toasts (a running job, an update, an AI problem, recovery) have no limit here:
+ *  they leave when their owner removes them or the person closes them, and `stackItems` folds the ones beyond `MAX_PERSISTENT` into "N more". */
+export const MAX_TIMED = 5;
+
+/** `list` (oldest first) kept to `max` timed toasts: the oldest ones without Undo go first, then the oldest with Undo. A sticky toast is never removed. */
+export function trimToasts<T extends { sticky?: boolean; undo?: unknown }>(list: readonly T[], max = MAX_TIMED): T[] {
+  let excess = list.filter((t) => !t.sticky).length - max;
+  if (excess <= 0) return [...list];
+  const drop = new Set<T>();
+  for (const withUndo of [false, true]) {
+    for (const t of list) {
+      if (excess > 0 && !t.sticky && !!t.undo === withUndo) {
+        drop.add(t);
+        excess--;
+      }
+    }
+  }
+  return list.filter((t) => !drop.has(t));
+}
+
 /** `toasts` plus `next` (last = newest). Older error toasts with the same text that have nothing to undo are replaced, not stacked
  *  (a sticky toast has its `key` for that: a new one of the same key replaces the old in place, and two jobs keep their own Retry). */
 export function addToast<T extends StackToast>(toasts: readonly T[], next: T): T[] {

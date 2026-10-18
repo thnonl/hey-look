@@ -78,6 +78,8 @@ export function sanitizeHtml(html: string, allowRemote: boolean): { html: string
         if (v && /^(https?:)?\/\//i.test(v)) {
           node.removeAttribute(attr);
           blocked++;
+          // a picture whose address was removed is drawn as a box of its size (ReadingPane.tsx pictureHtml, blockedPicture.ts)
+          if (attr === "src" && node.tagName === "IMG") node.setAttribute("data-hl-blocked", "1");
         }
       }
       const st = node.getAttribute?.("style");

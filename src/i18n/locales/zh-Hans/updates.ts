@@ -31,6 +31,8 @@ export default defineLocale<typeof ns.en>({
   "updates.toast.opening": "正在浏览器中打开下载页面…",
   "updates.toast.openFailedCopied": "无法打开浏览器。链接已复制到剪贴板。",
   "updates.toast.openFailedNotCopied": "无法打开浏览器，也无法复制链接。链接：{url}",
+  "updates.toast.mailtoFailedCopied": "无法打开默认邮件应用。电子邮件地址已复制到剪贴板。",
+  "updates.toast.mailtoFailedNotCopied": "无法打开默认邮件应用，也无法复制电子邮件地址。电子邮件地址：{address}",
   "updates.toast.failed": "更新到{version}失败。",
   "updates.toast.changed": "GitHub上的更新已变为{version}。未下载任何内容。",
   "updates.toast.downloading": "正在下载Hey Look! {version}。您可以继续工作。",

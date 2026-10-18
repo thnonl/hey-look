@@ -24,7 +24,7 @@ export function AppearancePreview() {
   let last = "";
   return (
     <div className="ap-wrap">
-      <div className={`ap-preview pane-${prefs.readingPane}`} data-theme={dark ? "dark" : "light"} data-density={prefs.density} style={{ fontSize: prefs.fontSize }} aria-hidden>
+      <div className={`ap-preview pane-${prefs.readingPane}`} data-theme={dark ? "dark" : "light"} data-density={prefs.density} style={{ fontSize: prefs.fontSize }} aria-hidden inert>
         <div className="ap-top">
           <img src={logo} alt="" width={16} height={16} />
           <b>Hey Look!</b>
@@ -57,7 +57,7 @@ export function AppearancePreview() {
               return (
                 <Fragment key={th.threadId}>
                   {showGroup && <div className="ml-group">{group}</div>}
-                  <ThreadRow t={th} prefs={prefs} selected={i === 0} />
+                  <ThreadRow t={th} prefs={prefs} selected={i === 0} inPreview />
                 </Fragment>
               );
             })}

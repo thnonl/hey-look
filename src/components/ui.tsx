@@ -53,10 +53,10 @@ export function useOutside(ref: Ref | Ref[], onOut: () => void, active: boolean)
       e.stopPropagation(); // Esc closes only this popover: the global Esc (clear selection) and an open dialog must not react as well
       onOut();
     };
-    document.addEventListener("mousedown", h);
+    document.addEventListener("mousedown", h, true); // capture phase: a dialog box (Modal) and the title bar's drag script stop the press before it bubbles up
     document.addEventListener("keydown", k);
     return () => {
-      document.removeEventListener("mousedown", h);
+      document.removeEventListener("mousedown", h, true);
       document.removeEventListener("keydown", k);
     };
   }, [active, onOut, ref]);
@@ -272,12 +272,12 @@ export function FloatingMenu({
     };
     const gone = () => shut(false);
     const scroll = (e: Event) => !pop.current?.contains(e.target as Node) && shut(false); // scrolling the menu itself is fine
-    document.addEventListener("mousedown", down);
+    document.addEventListener("mousedown", down, true); // capture phase (see useOutside)
     document.addEventListener("keydown", key);
     window.addEventListener("resize", gone);
     window.addEventListener("scroll", scroll, true); // any scroll container moving the anchor would leave the menu behind
     return () => {
-      document.removeEventListener("mousedown", down);
+      document.removeEventListener("mousedown", down, true);
       document.removeEventListener("keydown", key);
       window.removeEventListener("resize", gone);
       window.removeEventListener("scroll", scroll, true);

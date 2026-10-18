@@ -5,7 +5,7 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { sidebarToggleKey } from "../src/composeKeys.ts";
 import {
-  AUTO_COLLAPSE_BELOW, MIN_READER_W, RAIL_W, SIDEBAR_MODES, SPLITTER_W, normalizeSidebar, sidebarFits, sidebarLayout, toggleSidebar,
+  AUTO_COLLAPSE_BELOW, MIN_READER_W, RAIL_W, SIDEBAR_MODES, SPLITTER_W, normalizeSidebar, sidebarControlOpen, sidebarFits, sidebarLayout, toggleSidebar,
 } from "../src/sidebarState.ts";
 
 const base = { folderW: 248, listW: 392, bottomPane: false };
@@ -77,22 +77,46 @@ for (const mode of SIDEBAR_MODES) {
 // the same width and the same inputs always give the same answer (the layout never depends on what was measured: no feedback loop)
 assert.deepEqual(at("auto", 1234), at("auto", 1234));
 
-// 8. the control: fold when open, open when icons; the setting is the person's own from then on
-assert.deepEqual(toggleSidebar({ ...base, mode: "auto", width: 1280 }), { mode: "collapsed", pin: false });
-assert.deepEqual(toggleSidebar({ ...base, mode: "expanded", width: 1920 }), { mode: "collapsed", pin: false });
-assert.deepEqual(toggleSidebar({ ...base, mode: "auto", width: 1920 }), { mode: "collapsed", pin: false });
-assert.deepEqual(toggleSidebar({ ...base, mode: "collapsed", width: 1280 }), { mode: "expanded", pin: false });
-assert.deepEqual(toggleSidebar({ ...base, mode: "auto", width: 1199 }), { mode: "collapsed", pin: false }, "1199 is open in auto");
-assert.deepEqual(toggleSidebar({ ...base, mode: "auto", width: 1099 }), { mode: "expanded", pin: false }, "icons at 1099 (447 px of reading pane when open): the menu opens in its place");
-assert.deepEqual(toggleSidebar({ ...base, mode: "auto", width: 960 }), { mode: "expanded", pin: true }, "no room: the choice is saved and the menu opens over the list");
-assert.deepEqual(toggleSidebar({ ...base, mode: "expanded", width: 960 }), { mode: "expanded", pin: true }, "squeezed: the setting stays, the overlay is pinned");
-assert.deepEqual(toggleSidebar({ ...base, mode: "collapsed", width: 960 }), { mode: "expanded", pin: true });
-// a second press on a pinned overlay's control (squeezed) never turns the setting into "collapsed" by accident
+// 8. the control (W1.6, 1.0.7): it follows what is on screen. The saved setting changes only where the menu can sit next to the list; in a narrow window the control shows and
+// hides the menu as an overlay and leaves the setting alone. Rows of the table of the spec (input: the layout, whether the overlay is open):
+//   full menu                 -> fold it, setting "collapsed"
+//   icons, room               -> open in place, setting "expanded", the overlay closes (open or not)
+//   icons, no room, overlay   -> close the overlay, setting unchanged
+//   icons, no room, closed    -> open the overlay pinned, setting unchanged
+const tg = (o, overlay = false) => toggleSidebar({ ...base, ...o }, overlay);
+assert.deepEqual(tg({ mode: "auto", width: 1280 }), { mode: "collapsed", overlay: "none" });
+assert.deepEqual(tg({ mode: "expanded", width: 1920 }), { mode: "collapsed", overlay: "none" });
+assert.deepEqual(tg({ mode: "auto", width: 1920 }), { mode: "collapsed", overlay: "none" });
+assert.deepEqual(tg({ mode: "auto", width: 1199 }), { mode: "collapsed", overlay: "none" }, "1199 is open in auto");
+assert.deepEqual(tg({ mode: "collapsed", width: 1280 }), { mode: "expanded", overlay: "close" }, "icons by choice, room: open in place");
+assert.deepEqual(tg({ mode: "auto", width: 1099 }), { mode: "expanded", overlay: "close" }, "icons at 1099 (447 px of reading pane when open): the menu opens in its place");
+assert.deepEqual(tg({ mode: "auto", width: 1099 }, true), { mode: "expanded", overlay: "close" }, "a hover overlay with room: the menu opens in place and the overlay closes");
+assert.deepEqual(tg({ mode: "auto", width: 960 }), { mode: "auto", overlay: "open" }, "no room: the setting stays automatic, the overlay opens pinned");
+assert.deepEqual(tg({ mode: "auto", width: 1000 }), { mode: "auto", overlay: "open" }, "1000 x 700 (AC-1.6.1)");
+assert.deepEqual(tg({ mode: "auto", width: 1000 }, true), { mode: "auto", overlay: "close" }, "the overlay is open: Ctrl+B closes it, the setting stays");
+assert.deepEqual(tg({ mode: "expanded", width: 960 }), { mode: "expanded", overlay: "open" }, "squeezed: the setting stays, the overlay is pinned");
+assert.deepEqual(tg({ mode: "expanded", width: 960 }, true), { mode: "expanded", overlay: "close" });
+assert.deepEqual(tg({ mode: "collapsed", width: 960 }), { mode: "collapsed", overlay: "open" }, "folded by choice, no room: the overlay, the choice stays");
+assert.deepEqual(tg({ mode: "collapsed", width: 960 }, true), { mode: "collapsed", overlay: "close" });
+// the bottom reading pane shares the width with the list only: the full menu has room at 960 there
+assert.deepEqual(toggleSidebar({ ...base, mode: "auto", width: 1000, bottomPane: true }, false), { mode: "expanded", overlay: "close" });
+// Ctrl+B any number of times in a narrow window never changes the setting (the old control saved "expanded" and could never close the overlay)
 {
-  let m = "auto";
-  for (let i = 0; i < 3; i++) m = toggleSidebar({ ...base, mode: m, width: 960 }).mode;
-  assert.equal(m, "expanded");
+  let m = "auto", open = false;
+  for (let i = 0; i < 6; i++) {
+    const r = toggleSidebar({ ...base, mode: m, width: 960 }, open);
+    m = r.mode;
+    open = r.overlay === "open" ? true : r.overlay === "close" ? false : open;
+    assert.equal(open, i % 2 === 0, `press ${i + 1}: the overlay is ${i % 2 === 0 ? "open" : "closed"}`);
+  }
+  assert.equal(m, "auto");
 }
+// what the control shows (label "Collapse side menu", PanelLeftClose, aria-expanded true) while the full menu is on screen
+assert.equal(sidebarControlOpen({ ...base, mode: "auto", width: 1400 }, false), true, "full menu");
+assert.equal(sidebarControlOpen({ ...base, mode: "collapsed", width: 1400 }, false), false, "icons, room");
+assert.equal(sidebarControlOpen({ ...base, mode: "collapsed", width: 1400 }, true), false, "a hover overlay with room: the control would open it in place");
+assert.equal(sidebarControlOpen({ ...base, mode: "auto", width: 1000 }, false), false, "icons, no room, overlay closed");
+assert.equal(sidebarControlOpen({ ...base, mode: "auto", width: 1000 }, true), true, "icons, no room, overlay open");
 
 // 9. Ctrl/Cmd+B: not in a field, not in the message being written (Bold), not with a dialog open, not with AltGr, not with Shift / Alt
 const ev = (key, mods = "") => ({ key, ctrlKey: mods.includes("c"), metaKey: mods.includes("m"), altKey: mods.includes("a"), shiftKey: mods.includes("s"), getModifierState: () => false });
@@ -119,7 +143,9 @@ const app = read("src/App.tsx");
 assert.match(app, /sidebarLayout\(\{ mode: prefs\.sidebar/);
 assert.match(app, /sidebarToggleKey\(e,/);
 const pane = read("src/components/FolderPane.tsx");
-assert.match(pane, /aria-expanded=\{!folded\}/, "the control says whether the menu is open");
+assert.match(pane, /aria-expanded=\{shown\}/, "the control says whether the menu is on screen");
+assert.match(pane, /toggleSidebar\(sidebarInput\(\), peek\.open\)/, "the control asks the rule with the state of the overlay");
+assert.match(read("src/useSidebar.ts"), /sidebarToggle: s\.sidebarToggle \+ 1/, "Ctrl+B asks the menu, which knows its overlay");
 assert.match(pane, /Ctrl\+B/);
 const settings = read("src/components/SettingsDialog.tsx");
 for (const v of ["auto", "expanded", "collapsed"]) assert.match(settings, new RegExp(`<option value="${v}">`), `Settings > Appearance offers ${v}`);

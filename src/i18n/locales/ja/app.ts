@@ -87,6 +87,7 @@ export default defineLocale<typeof ns.en>({
   "app.quit.scheduledBodyNext.one": "今終了すると、次にHey Look!を開いたときに送信されます。次の送信予定は{when}です。",
   "app.quit.scheduledBodyNext.many": "今終了すると、次にHey Look!を開いたときに送信されます。次の送信予定は{when}です。",
   "app.quit.keepRunning": "トレイで実行を続ける",
+  "app.quit.keepRunningMac": "メニューバーで実行を続ける",
   "app.quit.quitAnyway": "このまま終了",
   // ---- top bar and window controls
   "app.top.sync": "今すぐ同期 (F5)",
@@ -106,6 +107,8 @@ export default defineLocale<typeof ns.en>({
   "app.ribbon.tabView": "表示",
   "app.ribbon.tabHelp": "ヘルプ",
   "app.ribbon.newMail": "新規メール",
+  "app.newMail.waiting": "メールボックスの準備ができ次第、新規メッセージを開きます…",
+  "app.newMail.failed": "新規メッセージを開けませんでした。",
   "app.ribbon.archive": "アーカイブ",
   "app.ribbon.report": "報告",
   "app.ribbon.moveToJunk": "迷惑メールに移動",

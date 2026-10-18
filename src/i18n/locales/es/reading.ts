@@ -164,6 +164,7 @@ export default defineLocale<typeof ns.en>({
   "reading.att.openAnyway": "Abrir de todos modos",
   "reading.att.couldntSave": "No se pudo guardar {name}: {error}",
   "reading.att.couldntOpen": "No se pudo abrir {name}: {error}",
+  "reading.att.couldntReveal": "No se pudo mostrar {name} en su carpeta: {error}",
   "reading.att.savedTo": "Se guardó {name} en {folder}",
   "reading.att.showInFolder": "Mostrar en la carpeta",
   "reading.att.open": "Abrir",

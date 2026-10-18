@@ -21,6 +21,14 @@ const waitFor = async (js, ms = 8000) => { const t0 = Date.now(); while (Date.no
 const PANE = `!!document.querySelector('.compose-pane .cp-editor .tiptap')?.editor`;
 const STRIP = `(() => { const s = document.querySelector('.cp-event'); if (!s) return null; const v = (id) => document.getElementById(id)?.value ?? null; const m = [...document.querySelectorAll('.compose-pane [aria-pressed]')].find((b) => /Meeting/.test(b.textContent)); return { where: v('mt-where'), pressed: m ? m.getAttribute('aria-pressed') : null, send: [...document.querySelectorAll('.cp-bar .btn.primary')].map((b) => b.textContent.trim())[0], text: s.innerText.replace(/\\s+/g, ' ').trim() }; })()`;
 const clickText = (sel, re) => evaluate(`(() => { const b = [...document.querySelectorAll(${JSON.stringify(sel)})].find((x) => ${re}.test(x.textContent.trim())); if (!b) return false; b.click(); return true; })()`);
+// a header action: its button in the row, or (W1.7: what did not fit the row) its row in "More actions"
+const barAction = async (re) => {
+  if (await clickText('.cp-bar button', re)) return true;
+  if (!(await evaluate(`!!document.querySelector('.cp-bar .rb.more')`))) return false;
+  await evaluate(`document.querySelector('.cp-bar .rb.more').click(); 1`);
+  await sleep(200);
+  return clickText('.dd-fixed [role^=menuitem]', re);
+};
 const lastDraft = async () => JSON.parse(await evaluate(`JSON.stringify(window.__lastDraft || null)`));
 const mod = (path) => `import(${JSON.stringify(path)})`;
 
@@ -35,13 +43,13 @@ try {
   // ---------- a draft with a meeting
   await fresh({ accountId: 'a1', to: ['alice@fabrikam.com'], subject: 'Plan the launch', bodyHtml: '<p>Agenda</p>' });
   assert.equal(await evaluate(`document.querySelector('.cp-event')`), null);
-  assert.ok(await clickText('.cp-bar button', /^Meeting$/), 'no Meeting button');
+  assert.ok(await barAction(/^Meeting$/), 'no Meeting button');
   assert.ok(await waitFor(`!!document.querySelector('.cp-event')`), 'no strip');
   await evaluate(`(() => { const i = document.getElementById('mt-where'); Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value').set.call(i, 'Room 1 à'); i.dispatchEvent(new Event('input', { bubbles: true })); return 1; })()`);
   await sleep(300);
   const before = await evaluate(STRIP);
   await check('Meeting on: the strip has the place and the button says Send invite', () => { assert.equal(before.where, 'Room 1 à'); assert.equal(before.send, 'Send invite'); });
-  await clickText('.cp-bar button', /^Save draft$/);
+  await barAction(/^Save draft$/);
   await sleep(1200);
   const d1 = await lastDraft();
   const form = await evaluate(`${mod('/src/meetingDraft.ts')}.then((m) => m.decodeMeeting(window.__lastDraft.meetingForm))`);
@@ -59,14 +67,14 @@ try {
   const after = await evaluate(STRIP);
   await check('reopened draft: Meeting is pressed, the strip has the place, the button says Send invite', () => { assert.equal(after.pressed, 'true'); assert.equal(after.where, 'Room 1 à'); assert.equal(after.send, 'Send invite'); });
   await check('reopened draft: the strip shows the same times as before', () => assert.equal(after.text, before.text));
-  await clickText('.cp-bar button', /^Save draft$/);
+  await barAction(/^Save draft$/);
   await sleep(1200);
   const d2 = await lastDraft();
   await check('saved again: the same meeting (no drift of the times)', () => { assert.deepEqual(d2.meeting, d1.meeting); assert.equal(d2.meetingForm, d1.meetingForm); });
 
   // ---------- a draft without a meeting is unchanged
   await fresh({ accountId: 'a1', to: ['alice@fabrikam.com'], subject: 'No meeting here', bodyHtml: '<p>Hello</p>' });
-  await clickText('.cp-bar button', /^Save draft$/);
+  await barAction(/^Save draft$/);
   await sleep(1200);
   const d3 = await lastDraft();
   await check('no meeting: the draft has no meeting and no form', () => { assert.equal(d3.meeting, undefined); assert.equal(d3.meetingForm, undefined); });
@@ -77,7 +85,7 @@ try {
 
   // ---------- the snapshot (a crash): the meeting is in it, restoring opens the strip again
   await fresh({ accountId: 'a1', to: ['alice@fabrikam.com'], subject: 'Crash test', bodyHtml: '<p>text</p>' });
-  await clickText('.cp-bar button', /^Meeting$/);
+  await barAction(/^Meeting$/);
   assert.ok(await waitFor(`!!document.querySelector('.cp-event')`));
   await evaluate(`(() => { const i = document.getElementById('mt-where'); Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value').set.call(i, 'Hall B'); i.dispatchEvent(new Event('input', { bubbles: true })); return 1; })()`);
   await evaluate(`document.querySelector('.cp-editor .tiptap').editor.commands.insertContent(' more'); 1`);

@@ -50,4 +50,16 @@ assert.ok(/className="dd-fixed"/.test(ui), "the portal element keeps the class p
 const menuList = ui.slice(ui.indexOf("export function MenuList"), ui.indexOf("const ITEMS"));
 assert.ok(/onClick=/.test(menuList) && !/onMouseDown|onPointerDown/.test(menuList));
 
+// W1.1 / W1.2: every outside-press listener is on document in the CAPTURE phase. A bubble listener never runs for a press inside a dialog (the
+// Modal box stops it) or on the Windows title bar (Tauri's drag script stops it).
+for (const f of ["src/components/ui.tsx", "src/components/DateTimeFields.tsx", "src/editor/ColorPalette.tsx", "src/components/ContextMenu.tsx"]) {
+  const src = readFileSync(new URL("../" + f, import.meta.url), "utf8");
+  const adds = [...src.matchAll(/document\.(add|remove)EventListener\("mousedown",\s*(\w+)(,\s*true)?\)/g)];
+  assert.ok(adds.length >= 2, f + " must keep its outside-press listener");
+  for (const m of adds) assert.ok(m[3], f + ": document." + m[1] + 'EventListener("mousedown", ' + m[2] + ") needs the capture flag (true)");
+}
+// a press inside a message's frame is relayed to the window's document so the popovers of the main window close
+const guard = readFileSync(new URL("../src/contextGuard.ts", import.meta.url), "utf8");
+assert.ok(/frame\.dispatchEvent\(new MouseEvent\("mousedown", \{ bubbles: true \}\)\)/.test(guard), "guardFrame must relay a frame press to the parent document");
+
 console.log("popover menu rules: ok");

@@ -1,6 +1,7 @@
 import { Archive, Ban, MailMinus, Trash2 } from "lucide-react";
 import { useEffect, useState } from "react";
 import { api, SenderInfo } from "../api";
+import { copyToClipboard } from "../open";
 import { useT } from "../i18n/react";
 import { isConfidentialId } from "../protect";
 import { friendlyError, useStore } from "../store";
@@ -89,7 +90,7 @@ export function ShowOriginal({ messageId }: { messageId: string }) {
     <Modal title={t("app.original.title")} onClose={() => setDialog(null)} wide>
       {confidential ? <div className="muted">{t("app.original.confidential")}</div> : raw === null ? <div className="muted">{t("app.original.fetching")}</div> : (
         <>
-          <button className="btn small" onClick={() => void navigator.clipboard.writeText(raw).then(() => showToast(t("app.original.copied")))}>{t("common.copy")}</button>
+          <button className="btn small" onClick={() => void copyToClipboard(raw).then((ok) => (ok ? showToast(t("app.original.copied")) : showToast(() => t("mail.ctx.copyFailed"), undefined, "error")))}>{t("common.copy")}</button>
           <pre className="original">{raw}</pre>
         </>
       )}

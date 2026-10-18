@@ -450,6 +450,7 @@ export default defineLocale<typeof ns.en>({
   "compose.schedule.foot": "Hey Look!从这台电脑发送。如果届时它已关闭，邮件将在您下次打开时发出。",
   "compose.schedule.quitWarning": "关闭窗口会退出Hey Look!，因此这封邮件只有在您再次打开它时才会发出。",
   "compose.schedule.keepInTray": "在托盘中继续运行",
+  "compose.schedule.keepInMenuBar": "在菜单栏中继续运行",
   // Scheduled list
   "compose.scheduled.needsAttention": "需要处理",
   "compose.scheduled.today": "今天",

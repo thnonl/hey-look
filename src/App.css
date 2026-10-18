@@ -516,6 +516,12 @@ button.att-chip:hover { background: var(--bg3); border-color: color-mix(in srgb,
 .compose-pane.dragging { outline: 2px dashed var(--accent); outline-offset: -8px; }
 .drop-hint { position: absolute; inset: 0; background: color-mix(in srgb, var(--accent), transparent 90%); display: grid; place-items: center; font-weight: 650; font-size: 1.2em; color: var(--accent-text); pointer-events: none; }
 .cp-bar { display: flex; align-items: center; gap: 2px; row-gap: 8px; padding: 8px 14px; border-bottom: 1px solid var(--border); flex-wrap: wrap; }
+/* the labelled row (a pane of 600 x 480 px or more) is ONE row in every language: what does not fit is in "More actions" (composeFit.ts overflowCount, Compose.tsx) */
+.compose-pane:not(.compact) .cp-bar { flex-wrap: nowrap; }
+.cp-bar > .imp-wrap, .cp-bar > .dd-wrap { display: contents; }
+/* the hidden copy of the movable actions whose natural widths are measured: off screen, not in the tab order (inert), not read out (aria-hidden) */
+.cp-probe { position: absolute; left: -10000px; top: 0; display: flex; align-items: center; gap: 2px; white-space: nowrap; visibility: hidden; pointer-events: none; }
+.cp-probe .imp-wrap, .cp-probe .dd-wrap { display: inline-flex; }
 .split-btn { display: inline-flex; margin-right: 10px; position: relative; }
 .split-btn .btn:first-child { border-radius: var(--r-sm) 0 0 var(--r-sm); padding: 7px 18px; }
 .split-caret { border-radius: 0 var(--r-sm) var(--r-sm) 0 !important; padding: 7px 7px !important; border-left: 1px solid rgba(255,255,255,.4) !important; }
@@ -1348,8 +1354,8 @@ span.spin { display: inline-block; width: 13px; height: 13px; border: 2px solid 
 .wk-dh { position: sticky; top: 0; z-index: 2; background: var(--bg); border-bottom: 1px solid var(--border); padding: 6px 8px; font-size: .82em; color: var(--muted); }
 .wk-dh b { display: block; font-size: 1.5em; color: var(--fg); font-weight: 600; }
 .wk-dh.today b { color: var(--accent-text); }
-.wk-hour { height: 48px; font-size: .74em; color: var(--muted); text-align: right; padding-right: 8px; transform: translateY(-7px); }
-.wk-col { position: relative; border-left: 1px solid var(--border); background: repeating-linear-gradient(to bottom, transparent 0 47px, var(--border) 47px 48px); }
+.wk-hour { height: var(--hour-px, 48px); font-size: .74em; color: var(--muted); text-align: right; padding-right: 8px; transform: translateY(-7px); }
+.wk-col { position: relative; border-left: 1px solid var(--border); background: repeating-linear-gradient(to bottom, transparent 0 calc(var(--hour-px, 48px) - 1px), var(--border) calc(var(--hour-px, 48px) - 1px) var(--hour-px, 48px)); }
 .wk-ev { position: absolute; left: 3px; right: 3px; border-radius: 5px; padding: 3px 6px; font-size: .78em; line-height: 1.3; overflow: hidden; border-left: 3px solid var(--ev, var(--accent)); background: color-mix(in srgb, var(--ev, var(--accent)) 18%, var(--bg)); }
 .wk-ev b { display: block; font-weight: 650; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .now-line { position: absolute; left: 0; right: 0; height: 2px; background: var(--danger); z-index: 1; }

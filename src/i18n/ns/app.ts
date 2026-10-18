@@ -98,6 +98,7 @@ export default define({
     "app.quit.scheduledBodyNext.one": "If you quit now, it will be sent the next time you open Hey Look! The next one is due {when}.",
     "app.quit.scheduledBodyNext.many": "If you quit now, they will be sent the next time you open Hey Look! The next one is due {when}.",
     "app.quit.keepRunning": "Keep running in tray",
+    "app.quit.keepRunningMac": "Keep running in the menu bar",
     "app.quit.quitAnyway": "Quit anyway",
 
     // ---- top bar and window controls
@@ -119,6 +120,8 @@ export default define({
     "app.ribbon.tabView": "View",
     "app.ribbon.tabHelp": "Help",
     "app.ribbon.newMail": "New mail",
+    "app.newMail.waiting": "Opening a new message as soon as your mailboxes are ready…",
+    "app.newMail.failed": "Couldn’t open a new message.",
     "app.ribbon.archive": "Archive",
     "app.ribbon.report": "Report",
     "app.ribbon.moveToJunk": "Move to Junk",
@@ -357,6 +360,7 @@ export default define({
     "app.quit.scheduledBodyNext.one": "Nếu thoát bây giờ, thư sẽ được gửi vào lần tới bạn mở Hey Look! Thư kế tiếp đến hạn lúc {when}.",
     "app.quit.scheduledBodyNext.many": "Nếu thoát bây giờ, các thư sẽ được gửi vào lần tới bạn mở Hey Look! Thư kế tiếp đến hạn lúc {when}.",
     "app.quit.keepRunning": "Tiếp tục chạy trong khay hệ thống",
+    "app.quit.keepRunningMac": "Tiếp tục chạy trên thanh menu",
     "app.quit.quitAnyway": "Vẫn thoát",
 
     "app.top.sync": "Đồng bộ ngay (F5)",
@@ -376,6 +380,8 @@ export default define({
     "app.ribbon.tabView": "Xem",
     "app.ribbon.tabHelp": "Trợ giúp",
     "app.ribbon.newMail": "Thư mới",
+    "app.newMail.waiting": "Sẽ mở thư mới ngay khi các hộp thư của bạn sẵn sàng…",
+    "app.newMail.failed": "Không mở được thư mới.",
     "app.ribbon.archive": "Lưu trữ",
     "app.ribbon.report": "Báo cáo",
     "app.ribbon.moveToJunk": "Chuyển vào Thư rác",
@@ -611,6 +617,7 @@ export default define({
     "app.quit.scheduledBodyNext.one": "Si vous quittez maintenant, il sera envoyé à la prochaine ouverture de Hey Look! Le suivant est prévu {when}.",
     "app.quit.scheduledBodyNext.many": "Si vous quittez maintenant, ils seront envoyés à la prochaine ouverture de Hey Look! Le suivant est prévu {when}.",
     "app.quit.keepRunning": "Rester dans la zone de notification",
+    "app.quit.keepRunningMac": "Rester dans la barre des menus",
     "app.quit.quitAnyway": "Quitter quand même",
 
     "app.top.sync": "Synchroniser maintenant (F5)",
@@ -630,6 +637,8 @@ export default define({
     "app.ribbon.tabView": "Affichage",
     "app.ribbon.tabHelp": "Aide",
     "app.ribbon.newMail": "Nouveau message",
+    "app.newMail.waiting": "Ouverture d’un nouveau message dès que vos boîtes aux lettres sont prêtes…",
+    "app.newMail.failed": "Impossible d’ouvrir un nouveau message.",
     "app.ribbon.archive": "Archiver",
     "app.ribbon.report": "Signaler",
     "app.ribbon.moveToJunk": "Déplacer vers Courrier indésirable",

@@ -748,7 +748,9 @@ export const api = {
   /** What the page sees a moment after the window was shown: `visibilityState` and whether an animation frame arrived. */
   pageState: (visibility: string, frames: boolean) => invoke<void>("page_state", { visibility, frames }),
   setMailAvailable: (available: boolean) => invoke<void>("set_mail_available", { available }),
-  shellInfo: () => invoke<{ os: string; tray: boolean; testData?: string | null; pdfView?: string; pdfTest?: boolean }>("shell_info"),
+  /** the "New mail" of the tray / menu bar menu, if the page has not taken it yet (true once per request; see shell.rs) */
+  takeTrayCompose: () => invoke<boolean>("take_tray_compose"),
+  shellInfo: () => invoke<{ os: string; tray: boolean; testData?: string | null; pdfView?: string; pdfTest?: boolean; copyFail?: boolean; accountsDelayMs?: number }>("shell_info"),
   checkUpdate: (trigger: UpdateTrigger) => invoke<UpdateResult>("check_update", { trigger }),
   /** Download and verify the update; progress arrives on `onEvent`. Resolves when the download has ended (ready, failed or cancelled). */
   updateDownload: (version: string, onEvent: (e: DlEvent) => void) => {

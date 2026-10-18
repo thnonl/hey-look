@@ -195,4 +195,15 @@ export function refreshPlaceholder(editor: Editor | null | undefined): void {
   editor.unregisterPlugin(PLACEHOLDER_KEY);
   for (const p of plugins) editor.registerPlugin(p);
 }
+/**
+ * Puts the accessible name on the node ProseMirror renders (`aria-label` of the contenteditable). It goes through the editor's props: ProseMirror
+ * applies `attributes` itself and takes a plain `setAttribute` back at its next update. Typed text, selection and undo history are not touched.
+ */
+export function setEditorLabel(editor: Editor | null | undefined, label: string): void {
+  if (!editor || editor.isDestroyed) return;
+  const props = editor.options.editorProps;
+  const attrs = (props?.attributes ?? {}) as Record<string, string>;
+  if (attrs["aria-label"] === label) return;
+  editor.setOptions({ editorProps: { ...props, attributes: { ...attrs, "aria-label": label } } });
+}
 const PLACEHOLDER_KEY = "tiptap__placeholder"; // (the key of the plugin of @tiptap/extensions)

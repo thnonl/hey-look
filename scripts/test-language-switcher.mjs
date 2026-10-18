@@ -46,7 +46,7 @@ assert.ok(/CHIPS_MAX/.test(sw) && /LANGS\.length > CHIPS_MAX/.test(sw), "the Wel
 assert.ok(/<Dropdown\b/.test(sw), "the menu is the shared Dropdown");
 for (const k of ["ArrowDown", "ArrowUp", "Home", "End", "Escape"]) assert.ok(ui.includes(`"${k}"`), `FloatingMenu handles ${k}`);
 assert.ok(/type-ahead/.test(read("src/components/ui.tsx")) && /startsWith\(prefix\)/.test(ui), "FloatingMenu has type-ahead");
-assert.ok(/addEventListener\("mousedown", down\)/.test(ui) && /\.contains\(n\)/.test(ui), "outside press closes the menu through contains() on the event target");
+assert.ok(/addEventListener\("mousedown", down, true\)/.test(ui) && /\.contains\(n\)/.test(ui), "outside press closes the menu through contains() on the event target (capture phase, W1.1)");
 const menuCode = ui.slice(ui.indexOf("export function FloatingMenu"), ui.indexOf("export function Dropdown"));
 assert.ok(!/onBlur|"blur"|focusout/.test(menuCode), "the menu never closes on blur");
 assert.ok(/\.dd-fixed \.menu \{[^}]*max-height/.test(css), "the menu has a max-height (scrolls)");

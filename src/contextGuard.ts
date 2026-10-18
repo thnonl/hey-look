@@ -196,15 +196,20 @@ export function guardFrame(frame: HTMLIFrameElement, doc: Document): () => void 
   const onKey = (e: KeyboardEvent) => handleKey(doc, e, frame);
   const close = (e: KeyboardEvent) => isContextMenuKey(e) || closeGuardMenu();
   const closeAny = () => closeGuardMenu();
+  // a press in the frame never reaches the window's document: tell the popovers of the main window (their outside-press listeners are on document, capture phase)
+  const press = () => {
+    closeGuardMenu();
+    frame.dispatchEvent(new MouseEvent("mousedown", { bubbles: true }));
+  };
   doc.addEventListener("contextmenu", onContext, true);
   doc.addEventListener("keydown", onKey, true);
-  doc.addEventListener("mousedown", closeAny, true);
+  doc.addEventListener("mousedown", press, true);
   doc.addEventListener("keydown", close, true);
   doc.addEventListener("scroll", closeAny, true);
   return () => {
     doc.removeEventListener("contextmenu", onContext, true);
     doc.removeEventListener("keydown", onKey, true);
-    doc.removeEventListener("mousedown", closeAny, true);
+    doc.removeEventListener("mousedown", press, true);
     doc.removeEventListener("keydown", close, true);
     doc.removeEventListener("scroll", closeAny, true);
   };

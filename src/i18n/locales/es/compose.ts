@@ -462,6 +462,7 @@ export default defineLocale<typeof ns.en>({
   "compose.schedule.foot": "Hey Look! envía desde este equipo. Si está cerrado a esa hora, el mensaje sale la próxima vez que lo abras.",
   "compose.schedule.quitWarning": "Al cerrar la ventana se cierra Hey Look!, así que este mensaje solo saldrá cuando lo vuelvas a abrir.",
   "compose.schedule.keepInTray": "Seguir en la bandeja del sistema",
+  "compose.schedule.keepInMenuBar": "Seguir en la barra de menús",
   // Scheduled list
   "compose.scheduled.needsAttention": "Requiere atención",
   "compose.scheduled.today": "Hoy",

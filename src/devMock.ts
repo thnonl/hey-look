@@ -1339,7 +1339,7 @@ export function installMock() {
       // `#os=macos|linux` (per-OS copy and shortcut labels), `#notray` (Linux without a tray host), `#nonotify` (Send test fails)
       case "shell_info": { // `#pdf=frame|object|card` picks the PDF preview (default: the frame on Windows, the card elsewhere)
         const os = hashTokens().get("os") || "windows";
-        return { os, tray: !hashTokens().has("notray"), testData: null, pdfView: hashTokens().get("pdf") || (os === "windows" ? "frame" : "card"), pdfTest: hashTokens().has("pdftest") };
+        return { os, tray: !hashTokens().has("notray"), testData: null, pdfView: hashTokens().get("pdf") || (os === "windows" ? "frame" : "card"), pdfTest: hashTokens().has("pdftest"), copyFail: hashTokens().has("copyfail"), accountsDelayMs: hashNum("accountsdelay", 0) }; // `#accountsdelay=<ms>`: the store takes the mailboxes that late (New mail before they are read)
       }
       case "test_notification":
         if (hashTokens().has("nonotify")) throw "no notification server is running";
@@ -1351,6 +1351,7 @@ export function installMock() {
       case "update_discard": logUpdateCall({ cmd: "discard" }).kind = "ok"; return null;
       // the last account can be removed in the mock (Settings > account > Remove): the Welcome screen returns
       case "remove_account": { const i = accounts.findIndex((x) => x.id === a.accountId); if (i >= 0) accounts.splice(i, 1); return null; }
+      case "take_tray_compose": { const w = window as unknown as { __trayCompose?: boolean }; const pending = !!w.__trayCompose; w.__trayCompose = false; return pending; } // (a dev check sets window.__trayCompose = true)
       case "set_mail_available": ((window as unknown as { __mailAvailable?: boolean[] }).__mailAvailable ??= []).push(!!a.available); return null;
       // an Undo-window send is kept in the (mock) outbox until it is sent or taken back; every call is logged in window.__sendCalls
       case "outbox_hold": { const w = window as unknown as { __sendCalls?: unknown[]; __held?: Record<string, unknown> }; (w.__sendCalls ??= []).push({ cmd: "hold", dueAt: a.dueAt, draft: a.draft }); const id = `hold-${Date.now()}`; (w.__held ??= {})[id] = a.draft; return id; }

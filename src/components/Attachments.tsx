@@ -13,6 +13,7 @@ import { t, type Key } from "../i18n";
 import { useT } from "../i18n/react";
 import { eff } from "../prefs";
 import { denyIfConfidential, imageLock } from "../protect";
+import { revealSaved } from "../reveal";
 import { friendlyError, useStore } from "../store";
 import { fmtSize } from "../util";
 import riskyExt from "../riskyExt.json";
@@ -207,15 +208,15 @@ const folderName = (path: string) => {
 
 /** Plain "saved" toast (no automatic open: used after a risky file was saved instead of opened, and by the preview's Save as). */
 function savedToast(path: string, name: string) {
-  useStore.getState().showToast(() => t("reading.att.savedTo", { name, folder: folderName(path) }), undefined, "success", [{ label: () => t("reading.att.showInFolder"), run: () => void api.attachmentReveal(path).catch(() => undefined) }]);
+  useStore.getState().showToast(() => t("reading.att.savedTo", { name, folder: folderName(path) }), undefined, "success", [{ label: () => t("reading.att.showInFolder"), run: () => void revealSaved(path) }]);
 }
 
 /** Toast after a save, following the "After saving" setting. */
 function afterSave(path: string, name: string, m: Pick<MessageFull, "id" | "fromEmail">, a: AttMeta) {
   const st = useStore.getState();
-  const reveal = { label: t("reading.att.showInFolder"), run: () => void api.attachmentReveal(path).catch(() => undefined) };
+  const reveal = { label: t("reading.att.showInFolder"), run: () => void revealSaved(path) };
   const open = { label: t("reading.att.open"), run: () => void openAttachment(m, a) };
-  if (st.prefs.afterSave === "reveal") return void api.attachmentReveal(path).catch(() => undefined);
+  if (st.prefs.afterSave === "reveal") return void revealSaved(path);
   if (st.prefs.afterSave === "open") return void openAttachment(m, a);
   st.showToast(() => t("reading.att.savedTo", { name, folder: folderName(path) }), undefined, "success", [open, reveal]);
 }
@@ -310,7 +311,7 @@ export function AttachmentCard({ m, a }: { m: MessageFull; a: AttMeta }) {
       ) : st.status === "done" ? (
         <>
           <button className="icon-btn" title={t("reading.att.open")} aria-label={t("reading.att.openName", { name: a.name })} onClick={open}><ExternalLink size={14} /></button>
-          <button className="icon-btn" title={t("reading.att.showInFolder")} aria-label={t("reading.att.showNameInFolder", { name: a.name })} onClick={() => st.path && void api.attachmentReveal(st.path)}><FolderOpen size={14} /></button>
+          <button className="icon-btn" title={t("reading.att.showInFolder")} aria-label={t("reading.att.showNameInFolder", { name: a.name })} onClick={() => st.path && void revealSaved(st.path)}><FolderOpen size={14} /></button>
         </>
       ) : isKey ? (
         <button className="btn small" onClick={() => void importKeyFromMessage(m, a.index)} aria-label={t("reading.att.importKeyFrom", { name: a.name })}>{t("reading.att.importKey")}</button>
@@ -406,7 +407,7 @@ export function AttachmentStrip({ m }: { m: MessageFull }) {
       const folder = r.dir.split(/[\\/]/).filter(Boolean).pop() ?? r.dir;
       if (r.failed.length === 0) {
         showToast(() => t("reading.strip.savedMany", { n: r.saved.length, folder }), undefined, "success", [
-          { label: () => t("reading.att.showInFolder"), run: () => r.saved[0] && void api.attachmentReveal(r.saved[0]).catch(() => undefined) },
+          { label: () => t("reading.att.showInFolder"), run: () => r.saved[0] && void revealSaved(r.saved[0]) },
         ]);
       } else {
         const f = r.failed[0];

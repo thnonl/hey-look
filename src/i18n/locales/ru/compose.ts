@@ -475,6 +475,7 @@ export default defineLocale<typeof ns.en>({
   "compose.schedule.foot": "Hey Look! отправляет письма с этого компьютера. Если в назначенное время программа закрыта, письмо уйдёт при следующем запуске.",
   "compose.schedule.quitWarning": "Закрытие окна завершает работу Hey Look!, поэтому это письмо уйдёт только после следующего запуска.",
   "compose.schedule.keepInTray": "Продолжать работу в трее",
+  "compose.schedule.keepInMenuBar": "Продолжать работу в строке меню",
   // Scheduled list
   "compose.scheduled.needsAttention": "Требуют внимания",
   "compose.scheduled.today": "Сегодня",

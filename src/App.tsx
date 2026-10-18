@@ -22,6 +22,7 @@ import { useT } from "./i18n/react";
 import { runQuitFlush } from "./quitFlush";
 import { flushSends, friendlyError, moveDropped, moveRefused, useStore } from "./store";
 import { osNow } from "./platform";
+import { quitKeepKey } from "./trayWords";
 import { openUpdateLink, useUpdates } from "./updates";
 import { handlePopoutRequest } from "./popout/mainRequests";
 import { startComposeHub } from "./popout/composeHub";
@@ -144,6 +145,7 @@ function App() {
       await useStore.getState().openMail(threadId);
     };
     const stopHub = startComposeHub(); // the compose windows' requests and the count of open windows
+    const takeTrayCompose = () => void api.takeTrayCompose().then((pending) => pending && newMail({ shift: false })).catch(() => undefined);
     const subs = [
       listen("mail-synced", () => void useStore.getState().refresh()),
       // an archive / delete / move whose Undo time is over has been done (also while the window was hidden to the tray): the messages leave the list now
@@ -168,12 +170,9 @@ function App() {
       }),
       // the background download of older Inbox mail: a status line in the list and a quiet, throttled re-read of it
       listen<BackfillProgress>("backfill-progress", (e) => useStore.getState().onBackfill(e.payload)),
-      listen("tray-compose", () => {
-        const st = useStore.getState();
-        if (!hasMailAccounts(st.accounts.length)) return; // no account: nothing to write with
-        // follows the setting; with it on, a window opens (the tray did not show the main window, shell.rs)
-        void newMail({ shift: false });
-      }),
+      // follows the setting; with it on, a window opens (the tray did not show the main window, shell.rs). The backend keeps the request until the page has
+      // taken it (an event sent before this page listens is lost); while the mailboxes are not read yet it waits in the queue of newMail
+      listen("tray-compose", () => takeTrayCompose()),
       listen<{ id: string; error: string }>("action-verify-failed", (e) => moveDropped(e.payload.id, e.payload.error)),
       // a queued move the server refused after the Undo window (the payload names the move)
       listen<{ id: string; error: string }>("action-failed", (e) => moveRefused(e.payload.id, e.payload.error)),
@@ -282,7 +281,7 @@ function App() {
             : t(n === 1 ? "app.quit.scheduledBody.one" : "app.quit.scheduledBody.many"),
           choices: [
             { id: "cancel", label: t("common.cancel") },
-            { id: "keep", label: t("app.quit.keepRunning"), kind: "primary" },
+            { id: "keep", label: t(quitKeepKey(osNow())), kind: "primary" },
             { id: "quit", label: t("app.quit.quitAnyway"), kind: "danger" },
           ],
         });
@@ -290,6 +289,8 @@ function App() {
         else await api.quitCancelled().catch(() => undefined); // Cancel / Keep running: nothing else happens, a later quit asks again
       }),
     ];
+    // a "New mail" of the tray menu from before this page listened (the first moments of a start)
+    void Promise.all(subs).then(takeTrayCompose).catch(() => undefined);
     return () => {
       stopHub();
       subs.forEach((p) => void p.then((off) => off()).catch(() => undefined));
@@ -356,6 +357,12 @@ function App() {
       if (e.key === "F5") {
         e.preventDefault();
         if (shortcutWorks(n, "sync")) void st.sync();
+        return;
+      }
+      // the mailboxes are not read yet (the first second of a start): "c" is kept and opens the message when they are (newMailQueue.ts)
+      if (!st.loaded && (e.key === "c" || e.key === "C") && !e.ctrlKey && !e.metaKey && !e.altKey && !(e.target instanceof Element && e.target.closest("input,textarea,select,[contenteditable=true]"))) {
+        e.preventDefault();
+        void newMail();
         return;
       }
       // no account: no mail shortcut (search, new mail, navigation, actions, Ctrl+1 / 2 ...) is live
@@ -442,7 +449,12 @@ function App() {
     return () => window.removeEventListener("keydown", onKey);
   }, []);
 
-  if (!loaded) return <div className="app-loading" data-tauri-drag-region={customFrame ? "" : undefined}>Hey Look!</div>;
+  if (!loaded) return (
+    <div className="app-loading" data-tauri-drag-region={customFrame ? "" : undefined}>
+      Hey Look!
+      <Toasts /> {/* (a kept New mail says so here, and says when it could not be done) */}
+    </div>
+  );
 
   // how far the splitters may go: the reading pane keeps its minimum width (with the reading pane below there is no such limit)
   const right = readingPane === "right";

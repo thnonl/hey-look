@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { SidebarInput, toggleSidebar as nextToggle } from "./sidebarState";
+import type { SidebarInput } from "./sidebarState";
 import { useStore } from "./store";
 
 /** The window width, kept up to date on resize (once per frame). The panes fill the window, so this is the width the layout has. */
@@ -27,10 +27,10 @@ export function sidebarInput(): SidebarInput {
   return { mode: p.sidebar, width: window.innerWidth, folderW: p.folderW, listW: p.listW, bottomPane: p.readingPane === "bottom" };
 }
 
-/** The collapse / expand control (button and Ctrl+B): the choice is saved, so it is the person's own from now on. */
+/**
+ * Ctrl+B / Cmd+B: asks the side menu to do what its button does. The menu knows whether its overlay is open (sidebarPeek.ts), so it answers the request
+ * (FolderPane.tsx); the rule is `toggleSidebar` in sidebarState.ts.
+ */
 export function toggleSidebarNow() {
-  const st = useStore.getState();
-  const r = nextToggle(sidebarInput());
-  if (r.mode !== st.prefs.sidebar) st.setPrefs({ sidebar: r.mode });
-  if (r.pin) useStore.setState((s) => ({ sidebarPin: s.sidebarPin + 1 }));
+  useStore.setState((s) => ({ sidebarToggle: s.sidebarToggle + 1 }));
 }

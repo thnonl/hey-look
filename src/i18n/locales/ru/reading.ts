@@ -164,6 +164,7 @@ export default defineLocale<typeof ns.en>({
   "reading.att.openAnyway": "Всё равно открыть",
   "reading.att.couldntSave": "Не удалось сохранить {name}: {error}",
   "reading.att.couldntOpen": "Не удалось открыть {name}: {error}",
+  "reading.att.couldntReveal": "Не удалось показать {name} в папке: {error}",
   "reading.att.savedTo": "Сохранено в {folder}: {name}",
   "reading.att.showInFolder": "Показать в папке",
   "reading.att.open": "Открыть",

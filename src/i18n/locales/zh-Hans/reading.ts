@@ -164,6 +164,7 @@ export default defineLocale<typeof ns.en>({
   "reading.att.openAnyway": "仍然打开",
   "reading.att.couldntSave": "无法保存{name}：{error}",
   "reading.att.couldntOpen": "无法打开{name}：{error}",
+  "reading.att.couldntReveal": "无法在文件夹中显示{name}：{error}",
   "reading.att.savedTo": "已将{name}保存到{folder}",
   "reading.att.showInFolder": "在文件夹中显示",
   "reading.att.open": "打开",

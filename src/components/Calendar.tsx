@@ -3,7 +3,7 @@ import {
   CalendarCheck, CalendarDays, CalendarPlus, CalendarX, Check, ChevronDown, ChevronLeft, ChevronRight, ChevronUp, CircleCheck, Clock, Download, History, Info, MapPin,
   Mail, MoreHorizontal, RefreshCw, Repeat, TriangleAlert, UserRound, Video, X,
 } from "lucide-react";
-import { ReactNode, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { ReactNode, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { api, CalEvent, CalInvite, errorCode, MessageFull, Rsvp } from "../api";
 import {
   addDays, addMonths, calTz, chipClass, cmpDay, configureCalendar, Day, dayKey, dayOfMs, dayStartMs, daysBetween, eventColor, eventDaySpan, eventLabel, eventsOnDay, fmtClock,
@@ -11,6 +11,7 @@ import {
   repeatKind, repeatRule, sameDay, today, toInputs, tzOffsetLabel, tzShortName, weekDays, weekStartOf, weekTitle, wdLong, wdNarrow, wdShort, CalView, MY_EVENTS_COLOR,
 } from "../calendar";
 import { accountColor } from "../prefs";
+import { HOUR_PX_MAX, hourHeight, minuteFromY } from "../weekHours";
 import { calendarName, calendarTitle, defaultCalendar, deleteConfirm, isSyncedCalendarId, pausedSources, readOnlyNote, writableCalendars } from "../calendarSync";
 import { friendlyError, EventInit, useStore } from "../store";
 import { t, type Key } from "../i18n";
@@ -25,7 +26,6 @@ import { Avatar, Dropdown, FloatingMenu, Modal, Switch, useOutside } from "./ui"
 const EMAIL = /^[^\s@<>"]+@[^\s@<>"]+\.[^\s@<>"]+$/;
 const bare = (v: string) => (v.match(/<([^>]+)>/)?.[1] ?? v).trim();
 const nameOf = (v: string) => (v.includes("<") ? v.split("<")[0].trim().replace(/^"|"$/g, "") : "");
-const HOUR_PX = 48;
 
 async function open(url: string) {
   if (!/^https?:\/\//i.test(url)) return;
@@ -636,12 +636,32 @@ function WeekView({
   const days = useMemo(() => weekDays(anchor, weekStart), [anchor, weekStart]);
   const scroller = useRef<HTMLDivElement>(null);
   const [sbw, setSbw] = useState(0);
+  // the hour height: 08:00 to 20:00 fit the visible grid when the window allows (weekHours.ts), measured again when the window is resized
+  const [hourPx, setHourPx] = useState(HOUR_PX_MAX);
+  const hourPxRef = useRef(hourPx);
+  hourPxRef.current = hourPx;
+  useLayoutEffect(() => {
+    const el = scroller.current;
+    if (!el) return;
+    const fit = () => setHourPx(hourHeight(el.clientHeight));
+    fit();
+    const ro = new ResizeObserver(fit);
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, []);
+  // the time at the top of the grid stays where it was when the hours get taller or shorter
+  const shownPx = useRef(hourPx);
+  useLayoutEffect(() => {
+    const el = scroller.current;
+    if (el && shownPx.current !== hourPx) el.scrollTop = (el.scrollTop / shownPx.current) * hourPx;
+    shownPx.current = hourPx;
+  }, [hourPx]);
   useEffect(() => {
     const el = scroller.current;
     if (!el) return;
     // working hours first: 08:00, or earlier when it is early in the morning today
     const h = days.some((d) => sameDay(d, todayD)) ? Math.min(Math.max(partsOf(Date.now(), tz).h - 1, 0), 8) : 8;
-    el.scrollTop = h * HOUR_PX - (h > 0 ? 8 : 0);
+    el.scrollTop = h * hourPxRef.current - (h > 0 ? 8 : 0);
     setSbw(el.offsetWidth - el.clientWidth);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [days[0].y, days[0].m, days[0].d]);
@@ -665,7 +685,7 @@ function WeekView({
         </div>
       ))}
     </div>
-    <div className="week" ref={scroller}>
+    <div className="week" ref={scroller} style={{ "--hour-px": `${hourPx}px` } as React.CSSProperties}>
       <div className="wk-hours" aria-hidden="true">
         {hours.map((h) => <div key={h} className="wk-hour">{h === 0 ? "" : fmtClock(h, 0)}</div>)}
       </div>
@@ -683,14 +703,14 @@ function WeekView({
             role="gridcell"
             onDoubleClick={(e) => {
               const r = e.currentTarget.getBoundingClientRect();
-              const mins = Math.max(0, Math.min(23 * 60 + 30, Math.round(((e.clientY - r.top) / HOUR_PX) * 2) * 30));
+              const mins = minuteFromY(e.clientY - r.top, hourPx);
               newOnDay(d, tz, Math.floor(mins / 60), mins % 60);
             }}
           >
             {placed.map(({ ev: p, lane, lanes }) => {
               const ev = p.ev;
-              const top = ((p.start - dayStart) / 3600) * HOUR_PX;
-              const h = Math.max(((p.end - p.start) / 3600) * HOUR_PX, 20);
+              const top = ((p.start - dayStart) / 3600) * hourPx;
+              const h = Math.max(((p.end - p.start) / 3600) * hourPx, 20);
               return (
                 <button
                   key={`${ev.id}:${ev.start}`}
@@ -707,7 +727,7 @@ function WeekView({
                 </button>
               );
             })}
-            {sameDay(d, todayD) && <div className="now-line" style={{ top: ((nowP.h * 60 + nowP.mi) / 60) * HOUR_PX }} aria-hidden="true" />}
+            {sameDay(d, todayD) && <div className="now-line" style={{ top: ((nowP.h * 60 + nowP.mi) / 60) * hourPx }} aria-hidden="true" />}
           </div>
         );
       })}
