@@ -15,7 +15,7 @@ export default defineLocale<typeof ns.en>({
   "reading.preview.sent": "Gesendet",
   "reading.preview.drafts": "Entwürfe",
   "reading.preview.archive": "Archiv",
-  "reading.preview.focused": "Relevant",
+  "reading.preview.focused": "Fokussiert",
   "reading.preview.other": "Weitere",
   "reading.preview.pinned": "Angeheftet",
   "reading.preview.shuffle": "Andere Beispiel-E-Mails erzeugen",

@@ -396,7 +396,7 @@ export default defineLocale<typeof ns.en>({
   "settings.tray.dockBadge": "Badge am Dock-Symbol",
   "settings.tray.taskbarBadge": "Badge am Taskleistensymbol",
   "settings.tray.countOther": "E-Mails unter „Weitere“ (Massenmails) mitzählen",
-  "settings.tray.countOtherHint": "Aus = Die Zahlen enthalten nur Unterhaltungen unter „Relevant“, damit Newsletter sie nicht aufblähen",
+  "settings.tray.countOtherHint": "Aus = Die Zahlen enthalten nur Unterhaltungen unter „Fokussiert“, damit Newsletter sie nicht aufblähen",
   "settings.tray.autostartWindows": "Hey Look! bei der Anmeldung bei Windows starten",
   "settings.tray.autostart": "Hey Look! bei der Anmeldung starten",
   "settings.tray.startsOpen": "Startet mit geöffnetem Fenster",
