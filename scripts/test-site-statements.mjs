@@ -33,6 +33,36 @@ const REMOVED = [
       ['ru', 'Мобильных приложений нет. Только для компьютера.'],
     ],
   },
+  // W10.14: no promise of more languages or of a theme editor (owner decision)
+  {
+    row: 'W10.14',
+    items: [
+      ['en', 'More languages than these eight may come in a later update.'],
+      ['en', 'No full theme editor'],
+      ['en', 'There is no full theme editor.'],
+      ['vi', 'Nhiều ngôn ngữ hơn tám ngôn ngữ này có thể có trong một bản cập nhật sau này.'],
+      ['vi', 'Không có trình chỉnh sửa giao diện đầy đủ'],
+      ['vi', 'Không có trình chỉnh sửa giao diện đầy đủ.'],
+      ['fr', 'D’autres langues que ces huit pourraient arriver dans une prochaine mise à jour.'],
+      ['fr', 'Pas d’éditeur de thème complet'],
+      ['fr', 'Il n’y a pas d’éditeur de thème complet.'],
+      ['zh', '除这八种语言之外的更多语言，可能会在以后的更新中提供。'],
+      ['zh', '没有完整的主题编辑器'],
+      ['zh', '没有完整的主题编辑器。'],
+      ['es', 'Más idiomas además de estos ocho podrían llegar en una actualización posterior.'],
+      ['es', 'Sin un editor de temas completo'],
+      ['es', 'No hay un editor de temas completo.'],
+      ['ja', 'この8言語以外の言語は、今後のアップデートで追加される可能性があります。'],
+      ['ja', '完全なテーマエディターはありません'],
+      ['ja', '完全なテーマエディターはありません。'],
+      ['de', 'Weitere Sprachen als diese acht kommen möglicherweise mit einem späteren Update.'],
+      ['de', 'Kein vollständiger Design-Editor'],
+      ['de', 'Einen vollständigen Design-Editor gibt es nicht.'],
+      ['ru', 'Другие языки, кроме этих восьми, возможно, появятся в одном из следующих обновлений.'],
+      ['ru', 'Полноценного редактора тем нет'],
+      ['ru', 'Полноценного редактора тем нет.'],
+    ],
+  },
 ];
 
 const errors = [];
