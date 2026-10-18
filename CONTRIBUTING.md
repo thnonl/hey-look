@@ -92,6 +92,16 @@ cargo check --manifest-path src-tauri/Cargo.toml
 
 Debug builds (`tauri dev`, `tauri build --debug`) can run on a throw-away data folder: set `HEYLOOK_DATA_DIR` to a folder, or put a file `heylook-data-dir.txt` (first line = folder) next to the executable (it survives an installer-driven update), and the app keeps its database and files there (release builds ignore both). Testing on a copy of real data, and the system credential store, which cannot be redirected, are covered in `src-tauri/src/legacy_names.rs`.
 
+### Tests
+
+The node tests are listed in `.github/node-tests.txt` (`static`, `ui-a`, `ui-b`; each new line has a `#` comment line above it) and run by CI shard by shard. The Rust tests are `cargo test --lib`. Five rules keep them from failing under load, or beside each other, for no reason in the product:
+
+1. **Wait for a condition, never for a time.** Poll with `until(condition, cap)`; the cap (10 s or more in UI tests, 30 s or more for processes and web views) is not a sleep, it only ends a test that would never succeed. In a page, wait on the page's own clock (animation frames, `animation.finished`).
+2. **A time requirement of the product is measured where it happens**: in the page with `performance.now()` or event timestamps, or as process CPU time (`process.cpuUsage()`); never as the wall time of a CDP or process round trip. Speed against size is checked by running the same input at n and 2n and comparing (linear work costs about 2x, quadratic 4x).
+3. **"Does not wait for X" is tested with an X that takes much longer than the bound** (at least 3 times).
+4. **Each test owns its resources**: its own dev server and browser on ports the program itself bound (`scripts/cdp-harness.mjs`; a starting port is only a hint), its own temp folder, and in Rust an address that nothing can listen on (`testutil::dead_addr()`), not a port that was free a moment ago. Tests that start real web views or processes at the same time hold one lock.
+5. **No retry, no `#[ignore]`, no quarantine** to make a test green. A quarantine needs the owner's OK and a `#` reason line with the finding ID, and is never used for a product bug. A wait with a longer cap is fine; a longer limit on the thing being measured is not.
+
 ### Project layout
 
 ```

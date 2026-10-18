@@ -178,3 +178,7 @@ ui-a | node scripts/test-compose-restore.mjs --require-browser
 static | node scripts/check-bundle-budget.mjs
 # the gate's own checks on small fixtures (scripts/fixtures/bundle): the initial set from index.html, the gzip sums, every kind of violation, a budget file without reasons is refused
 static | node scripts/check-bundle-budget.mjs --selftest
+# no control character (a raw backspace where \b was meant, a raw NUL) in src/, src-tauri/src/ and scripts/: such a regex cannot fail, and grep takes the file for binary
+static | node scripts/test-source-chars.mjs
+# the UI test harness gives every test its own dev server and browser on ports the program bound itself: two harnesses started together with the same starting ports get different servers and cannot see each other's page
+ui-a | node scripts/test-harness-isolation.mjs --require-browser
