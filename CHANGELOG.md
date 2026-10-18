@@ -1,5 +1,27 @@
 # Changelog
 
+## 1.0.7 (unreleased)
+
+### Changed
+
+- The action row of a message you write is always one row, in every language: what does not fit (Write with AI, Templates, Save draft, Importance, Confidential, Sign, Encrypt, Meeting, Picture, in that order) moves into "More actions", and comes back when the window grows; Send, Discard and Attach never move
+- A blocked remote picture in a message you read is drawn as a box of the size the message gave it (48 x 48 when it gave none) with an icon and the picture's description; tracking pixels are not drawn at all. "Show pictures" loads the real pictures
+- The Week view of the calendar fits 08:00 to 20:00 on the screen when the window is tall enough (the hours are between 32 and 48 px high), so an evening event is no longer hidden below the fold
+- A failed email link (no mail program on the computer) says "default mail app" and copies only the address; on a Mac the quit question and the Send later popover say "menu bar" instead of "tray"
+
+### Fixed
+
+- A press elsewhere closes an open menu, calendar popup or colour palette inside a dialog (Settings, New event, the key dialogs), on the top bar of Windows (the logo, the title, an empty part of the bar) and inside the text of a message you read
+- New mail opened in the first moments after the start is no longer lost: a request that comes while the mailboxes are still being read (the button, the key C, the command bar, the tray or menu bar icon menu) is kept and opens when they are ready, with a message and a spinner while it waits, and "Couldn't open a new message" with Retry after 30 seconds
+- Ctrl+B (Cmd+B) and the side menu button follow what is on screen in a narrow window: the full menu opens over the list with the keyboard focus on the selected folder, the button reads "Collapse side menu", and the next press closes it; your saved choice is not changed
+- The accessible name of the message body, the signature editor and the template editor follows a language switch while they are open
+- A hidden file picker no longer takes a Tab stop in the message header; the preview in Settings > Appearance is a picture only (nothing in it takes the focus or reacts to a click)
+- "Show in folder" says when it could not show the file (for example after the file was moved or deleted) instead of doing nothing, and on Linux it opens the folder when the file manager cannot select the file
+- Every Copy button (View original, encryption keys, Copy sender email, the webmail search) works on Linux and on a Mac and says "Couldn't copy to the clipboard" when it could not copy
+- A new Summarize, Translate or Write with AI removes the message about the earlier AI problem at once
+- Starting a sixth translation, or deleting mail while translations run, no longer removes the message of a running translation; only the short-lived messages are limited to five
+- The text of the search box on the light top bar is tested for contrast against its field for every accent colour (no change was needed)
+
 ## 1.0.6 — 2026-10-18
 
 Writing a message got much more complete and much safer, and messages can now be written and read in windows of their own. Nothing you write is lost to a crash any more, the message that goes out is built the way other mail programs build theirs, and the mail list, the mailboxes, the side menu and the AI Assistant got a number of long-wanted touches.
