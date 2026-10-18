@@ -87,6 +87,16 @@ const PAGE = `(() => {
   return 1;
 })()`;
 
+/**
+ * Waits, on the PAGE's clock, until nothing moves: no running animation or transition, every picture loaded, and the open boxes, the compose pane and the
+ * scroll positions at the same place for 4 frames in a row. It replaces the fixed pauses of this test (a pause is too short on a busy machine and too long on
+ * an idle one; a picture that is decoded late moved the whole pane after the pause and put a popover under an input).
+ */
+const SETTLE = `new Promise((done) => { const R = (e) => { if (!e) return ''; const r = e.getBoundingClientRect(); return [r.x, r.y, r.width, r.height, e.scrollTop].map((n) => Math.round(n * 10) / 10).join(); }; const key = () => [R(document.querySelector('.compose-pane')), R(document.querySelector('.cp-head')), R(document.querySelector('.cp-editor')), R(document.querySelector('.cp-editor .tiptap')), ...(window.__boxes ? window.__boxes().map(R) : []), ...[...document.querySelectorAll('.toasts .toast')].map(R), innerWidth, innerHeight].join('|'); const t0 = performance.now(); let last = '', n = 0; const tick = () => { const k = key(), busy = document.getAnimations().some((a) => a.playState === 'running' || a.playState === 'pending') || [...document.images].some((i) => !i.complete); if (k === last && !busy) n++; else { n = 0; last = k; } if (n >= 4) return done(true); if (performance.now() - t0 > 15000) return done(false); requestAnimationFrame(tick); }; requestAnimationFrame(tick); })`;
+const settle = () => evaluate(SETTLE);
+/** Polls `expr` in the page until it is true (the cap is not a sleep: it only matters when the test fails). */
+const waitUntil = async (expr, cap = 60000) => { const t0 = Date.now(); while (Date.now() - t0 < cap) { let v = false; try { v = await evaluate(expr); } catch { /* between two renders: not yet */ } if (v) return true; await sleep(25); } return false; };
+
 async function open(cfg) {
   const hash = `lang=${cfg.lang}&aiset`;
   const init = `{ accountId: 'a1', to: ['alice@fabrikam.com', 'linh.tran@acme.example'], cc: ['bob@northwind.io'], subject: 'Re: Q4 contract call', isReply: true, inReplyTo: '<m1@x>', bodyHtml: '<p>Hello</p>' }`;
@@ -97,13 +107,13 @@ async function open(cfg) {
     await cdp('Emulation.setDeviceMetricsOverride', { width: cfg.w, height: cfg.h, deviceScaleFactor: 1, mobile: false });
     await cdp('Page.navigate', { url: 'about:blank' });
     await cdp('Page.navigate', { url: `${H.base}?w=compose&mock=reply#${hash}` });
-    await sleep(600);
+    await settle();
     // the dev mock sets window.__store from a dynamic import: on a slow runner it is not there after a fixed pause
     await evaluate(`new Promise((ok, no) => { const t0 = Date.now(), t = setInterval(() => { if (window.__store) { clearInterval(t); ok(1); } else if (Date.now() - t0 > 20000) { clearInterval(t); no(new Error("window.__store never appeared")); } }, 100); })`);
     await evaluate(`window.__store.getState().setPrefs({ theme: ${JSON.stringify(cfg.theme)} }); 1`);
   }
   await evaluate(`new Promise((ok, no) => { const t0 = Date.now(), t = setInterval(() => { if (document.querySelector('.compose-pane .cp-editor .tiptap')?.editor) { clearInterval(t); ok(1); } else if (Date.now() - t0 > 15000) { clearInterval(t); no(new Error('compose did not start')); } }, 100); })`);
-  await sleep(700);
+  await settle();
   if (FONT || EXTRA_CSS) await evaluate(`(() => { const s = document.createElement('style'); s.textContent = ${JSON.stringify((FONT ? `*, *::before, *::after { font-family: ${FONT}, sans-serif !important; }` : '') + (EXTRA_CSS ?? ''))}; document.head.appendChild(s); return 1; })()`);
   await evaluate(PAGE);
 }
@@ -115,7 +125,8 @@ async function probe(cfg, label, openJs, { expect = 1, shotName = null, after = 
   if (before) await before();
   const what = await evaluate(openJs);
   if (what === 'skip') return false;
-  await sleep(420);
+  await waitUntil(`window.__boxes().length >= ${expect}`);
+  await settle();
   const g = await evaluate(`window.__fit()`);
   if (flag('table')) console.log(`${tag}: ${g.n} boxes ${g.names.join(' ')}; outside ${g.outside.length}, covered ${g.covered.length}, unreachable ${g.unreachable.length}`);
   ok(tag, g.n >= expect, `nothing opened (${g.n} boxes)`);
@@ -127,11 +138,11 @@ async function probe(cfg, label, openJs, { expect = 1, shotName = null, after = 
     if (after) await after(tag, g);
     await shot(`${cfg.mode}-${cfg.lang}-${cfg.w}x${cfg.h}-${cfg.theme}`, shotName ?? label);
   }
-  await press('Escape', 'Escape'); await sleep(200);
+  await press('Escape', 'Escape'); await settle();
   // (a popover that was opened from a popover: a second Escape)
-  if (await evaluate(`window.__boxes().length`)) { await press('Escape', 'Escape'); await sleep(200); }
+  if (await evaluate(`window.__boxes().length`)) { await press('Escape', 'Escape'); await settle(); }
   await evaluate(`document.querySelectorAll('.dd-fixed, .sched-pop').length ? (document.body.click(), 1) : 1`);
-  await sleep(100);
+  await settle();
   return true;
 }
 
@@ -154,7 +165,7 @@ const centerOf = (sel) => evaluate(`(() => { const e = document.querySelector(${
 async function scrolledPickers(cfg) {
   const t = `${cfg.mode} ${cfg.lang} ${cfg.w}x${cfg.h} ${cfg.theme} Send later scrolled`;
   const reopen = async () => {
-    await evaluate(`document.querySelector('.cp-head').scrollTop = 0; (document.querySelector('.sched-pop') ? 0 : document.querySelector('.split-caret').click()); 1`); await sleep(350);
+    await evaluate(`document.querySelector('.cp-head').scrollTop = 0; (document.querySelector('.sched-pop') ? 0 : document.querySelector('.split-caret').click()); 1`); await settle();
   };
   const scrollTop = () => evaluate(`document.querySelector('.sched-picker')?.scrollTop ?? -1`);
   for (const how of ['wheel', 'scrollIntoView']) {
@@ -163,37 +174,37 @@ async function scrolledPickers(cfg) {
       await reopen();
       const dims = await evaluate(`(() => { const e = document.querySelector('.sched-picker'); return e ? [e.scrollHeight, e.clientHeight] : null; })()`);
       if (flag('table')) console.log(t + ' picker scrollHeight/clientHeight ' + JSON.stringify(dims));
-      if (!dims || dims[0] <= dims[1] + 1) { await evaluate(`document.querySelector('.sched-pop') && document.querySelector('.split-caret').click(); 1`); await sleep(200); return; } // (a window high enough: nothing scrolls)
+      if (!dims || dims[0] <= dims[1] + 1) { await evaluate(`document.querySelector('.sched-pop') && document.querySelector('.split-caret').click(); 1`); await settle(); return; } // (a window high enough: nothing scrolls)
       if (how === 'wheel') { const c = await centerOf('.sched-picker'); await mouse('mouseWheel', c[0], c[1], { button: 'none', clickCount: 0, deltaX: 0, deltaY: 60 }); }
       else await evaluate(`document.querySelector('.sched-picker .sched-fld.${which} .dt-pick').scrollIntoView({ block: 'nearest' }); 1`);
-      await sleep(300);
+      await settle();
       const before = await scrollTop();
       ok(t, before > 0, `${how}: the picker did not scroll (${before}; scrollHeight ${dims[0]}, clientHeight ${dims[1]})`);
       const c = await centerOf(`.sched-picker .sched-fld.${which} .dt-pick`);
       const hit = await evaluate(`(() => { const e = document.elementFromPoint(${c[0]}, ${c[1]}); return !!e && !!e.closest('.sched-fld.${which} .dt-pick'); })()`);
       ok(t, hit, `${how}: the ${which} button is not under its own pixels after the scroll`);
       await realClick(c[0], c[1]);
-      await sleep(500);
+      await settle();
       const n = await evaluate(`document.querySelectorAll('.fld-pop').length`);
       const after = await scrollTop();
       if (flag('table')) console.log(`${t} ${how} ${which}: picker ${dims[0]}/${dims[1]}, scrollTop ${before} -> ${after}, panels ${n}`);
       ok(t, n === 1, `${how}: clicking the ${which} button after the picker was scrolled (${before}) opened ${n} panels`);
       ok(t, after > 0 || n === 0 && before === 0, `${how}: the ${which} picker opened and the schedule picker jumped to the top (${before} -> ${after})`);
       await shot(`${cfg.mode}-${cfg.lang}-${cfg.w}x${cfg.h}-${cfg.theme}`, `scrolled-${how}-${which}`);
-      await press('Escape', 'Escape'); await sleep(200);
+      await press('Escape', 'Escape'); await settle();
     }
   }
   // the header of the pane scrolls under the popover (it is placed again): the schedule picker keeps its place
   await reopen();
   const dims = await evaluate(`(() => { const e = document.querySelector('.sched-picker'), h = document.querySelector('.cp-head'); return e && [e.scrollHeight - e.clientHeight, h.scrollHeight - h.clientHeight]; })()`);
   if (dims && dims[0] > 1 && dims[1] > 3) {
-    await evaluate(`document.querySelector('.sched-picker').scrollTop = 40; 1`); await sleep(200);
+    await evaluate(`document.querySelector('.sched-picker').scrollTop = 40; 1`); await settle();
     const before = await scrollTop();
-    await evaluate(`document.querySelector('.cp-head').scrollTop = 3; 1`); await sleep(500);
+    await evaluate(`document.querySelector('.cp-head').scrollTop = 3; 1`); await settle();
     const after = await scrollTop();
     ok(t, before > 0 && after === before, `the pane header was scrolled and the schedule picker moved (${before} -> ${after})`);
   }
-  await evaluate(`document.querySelector('.sched-pop') && document.querySelector('.split-caret').click(); 1`); await sleep(250);
+  await evaluate(`document.querySelector('.sched-pop') && document.querySelector('.split-caret').click(); 1`); await settle();
 }
 
 async function run(cfg) {
@@ -220,10 +231,12 @@ async function run(cfg) {
   // the rows of the two "More" menus that open a panel on their own: Symbol, Emoji, Insert table, colours
   const moreOf = (bar) => bar === '.fmt-tb' ? `document.querySelector('.fmt-more').click()` : `document.querySelector('.cp-bar .rb.more')?.click()`;
   for (const row of ['Symbol', 'Emoji', 'Table', 'Font color', 'Highlight']) {
-    await evaluate(`${moreOf('.fmt-tb')}; 1`); await sleep(300);
+    await evaluate(`${moreOf('.fmt-tb')}; 1`); await settle();
     const has = await evaluate(ROW(row));
-    if (has === 'skip') { await press('Escape', 'Escape'); await sleep(150); continue; }
-    await sleep(420);
+    if (has === 'skip') { await press('Escape', 'Escape'); await settle(); continue; }
+    // (Symbol and Emoji are lazy chunks: on a busy machine the dev server needs a while to send them; Table may open no box)
+    await waitUntil(`window.__boxes().length >= 1`, row === 'Table' ? 3000 : 60000);
+    await settle();
     const g = await evaluate(`window.__fit()`);
     const t = `${cfg.mode} ${cfg.lang} ${cfg.w}x${cfg.h} ${cfg.theme} More > ${row}`;
     // (the menu closed and the panel stands: measure the panel only)
@@ -234,18 +247,18 @@ async function run(cfg) {
       ok(t, g.unreachable.length === 0, `controls that cannot be reached: ${g.unreachable.join('; ')}`);
       await shot(`${cfg.mode}-${cfg.lang}-${cfg.w}x${cfg.h}-${cfg.theme}`, `more-${row}`);
     }
-    await press('Escape', 'Escape'); await sleep(200);
-    if (await evaluate(`window.__boxes().length`)) { await press('Escape', 'Escape'); await sleep(200); }
+    await press('Escape', 'Escape'); await settle();
+    if (await evaluate(`window.__boxes().length`)) { await press('Escape', 'Escape'); await settle(); }
     await evaluate(`window.__seen = new Set(document.querySelectorAll(${JSON.stringify(SEL)})); 1`);
   }
   // Send later: its date and time pickers (panels drawn on their own) and with a toast on show
-  await evaluate(`document.querySelector('.cp-head').scrollTop = 0; document.querySelector('.split-caret').click(); 1`); await sleep(350);
+  await evaluate(`document.querySelector('.cp-head').scrollTop = 0; document.querySelector('.split-caret').click(); 1`); await settle();
   for (const which of ['date', 'time']) {
     await probe(cfg, `Send later > ${which} picker`, `(() => { const b = document.querySelector('.sched-picker .sched-fld.${which} .dt-pick'); if (!b) return 'skip'; b.click(); return 1; })()`, { shotName: `sendlater-${which}` });
     // (Escape closed the picker only; the popover under it is still there)
-    if (!(await evaluate(`!!document.querySelector('.sched-pop')`))) { await evaluate(`document.querySelector('.split-caret').click(); 1`); await sleep(350); }
+    if (!(await evaluate(`!!document.querySelector('.sched-pop')`))) { await evaluate(`document.querySelector('.split-caret').click(); 1`); await settle(); }
   }
-  await evaluate(`document.querySelector('.sched-pop') && document.querySelector('.split-caret').click(); 1`); await sleep(250);
+  await evaluate(`document.querySelector('.sched-pop') && document.querySelector('.split-caret').click(); 1`); await settle();
   await scrolledPickers(cfg);
   // the suggestions of To
   await probe(cfg, 'To suggestions', `1`, { shotName: 'suggestions', before: async () => { await evaluate(`document.querySelector('.cp-fields .rcpt input').focus(); 1`); await cdp('Input.insertText', { text: 'li' }); } });
@@ -256,10 +269,11 @@ async function run(cfg) {
   // a picture: its toolbar and the alt text popover, then Send later with the picture selected and a toast
   const PNG = `(() => { const c = document.createElement('canvas'); c.width = 1400; c.height = 900; const g = c.getContext('2d'); g.fillStyle = '#3366aa'; g.fillRect(0, 0, 1400, 900); return c.toDataURL('image/png'); })()`;
   await evaluate(`(() => { const ed = document.querySelector('.cp-editor .tiptap').editor; ed.chain().focus().insertContent({ type: 'image', attrs: { src: ${PNG}, alt: '', width: 420 } }).run(); return 1; })()`);
-  await sleep(500);
+  await waitUntil(`[...document.querySelectorAll('.cp-editor .tiptap img')].length > 0 && [...document.querySelectorAll('.cp-editor .tiptap img')].every((i) => i.complete && i.naturalWidth > 0)`);
+  await settle();
   await probe(cfg, 'Alt text popover', `(() => { const b = [...document.querySelectorAll('.img-tools .tool-btn')].find((x) => x.getAttribute('aria-haspopup') === 'dialog'); if (!b) return 'skip'; b.click(); return 1; })()`, { shotName: 'alt-text' });
   await evaluate(`(() => { const ed = document.querySelector('.cp-editor .tiptap').editor; let at = -1; ed.state.doc.descendants((n, p) => { if (at < 0 && n.type.name === 'image') at = p; }); ed.chain().focus().setNodeSelection(at).run(); window.__store.getState().showToast('Picture resized to 1.2 MB', () => {}, 'success'); document.querySelector('.cp-head').scrollTop = 0; return 1; })()`);
-  await sleep(500);
+  await settle();
   await probe(cfg, 'Send later with a picture and a toast', `(() => { document.querySelector('.split-caret').click(); return 1; })()`, {
     shotName: 'sendlater-picture-toast',
     after: async (tag, g) => {

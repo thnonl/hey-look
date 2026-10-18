@@ -37,6 +37,9 @@ const same = (a, b) => (Array.isArray(a) ? a.length === b.length && a.every((x, 
 // ---------- the page side: a layout sample on every frame ----------
 // `kind`: 'add' (the card of Add account) or 'cal' (the Calendar panel of a mailbox)
 const PAGE = (kind) => `(() => {
+  // a button gives a 1 px press nudge while the pointer is down (.btn:active { transform: translateY(1px) }, a .06 s transition): visual feedback, not layout. On a busy machine a frame
+  // lands in the middle of a click and the button seems to have moved by up to 1 px; the sampler measures the layout, so the nudge is switched off while measuring.
+  if (!document.getElementById('__nonudge')) { const st = document.createElement('style'); st.id = '__nonudge'; st.textContent = '.btn:active:not(:disabled) { transform: none !important; }'; document.head.appendChild(st); }
   const R = (el) => { if (!el) return null; const r = el.getBoundingClientRect(); return [r.left, r.top, r.width, r.height].map((n) => Math.round(n * 10) / 10); };
   // the button that starts a sign-in changes its words ("Sign in with Google" / "Waiting for Google..."): its place and height must not change, its width follows the words
   const P = (el) => { const r = R(el); return r && [r[0], r[1], r[3]]; };

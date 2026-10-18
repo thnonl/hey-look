@@ -337,19 +337,19 @@ async function runConfig(c) {
   await resize(1280, c.h);
   layoutOk('1280', await state(), 'open', 1280);
   // the control folds it; the three columns glide without a jump. The sampler runs from before the click to the end of the glide and records every frame.
-  // The glide itself is read from the page's animations (the transition that carries the columns: its property and its duration, and its own `finished`), never from
+  // The glide itself is read from the page's own events (the `transitionrun` of the columns with the duration the CSS declares for them), never from
   // how many frames a CDP session happened to get or how soon the CDP call returned.
   const sample = async (action, toW) => {
     await evaluate(`(() => { window.__s = []; window.__sstop = false; const t0 = performance.now(); const tick = () => { const p = document.querySelector('.folder-pane').getBoundingClientRect(), l = document.querySelector('.msg-list').getBoundingClientRect(), r = document.querySelector('.reading-region').getBoundingClientRect(); window.__s.push([performance.now() - t0, p.width, l.left, l.top, r.left, r.top, document.documentElement.scrollWidth - innerWidth, window.scrollY]); if (!window.__sstop && performance.now() - t0 < 15000) requestAnimationFrame(tick); }; tick(); })()`);
+    // every transition the page starts is noted when it starts (the `transitionrun` event, with the duration the CSS declares for that property), however late the
+    // click's re-render comes on a busy machine
+    await evaluate(`(() => { window.__glide = []; if (!window.__glideOn) { window.__glideOn = true; document.addEventListener('transitionrun', (e) => { const cs = getComputedStyle(e.target), props = cs.transitionProperty.split(',').map((x) => x.trim()), durs = cs.transitionDuration.split(',').map((x) => x.trim()); let i = props.indexOf(e.propertyName); if (i < 0) i = props.indexOf('all'); const d = durs[Math.max(i, 0) % durs.length]; window.__glide.push({ prop: e.propertyName, ms: parseFloat(d) * (d.endsWith('ms') ? 1 : 1000) }); }, true); } return 1; })()`);
     await until('window.__s.length >= 3');
     await action();
-    // (document.getAnimations() brings the style up to date, so the transition that the click started is already there)
-    const glide = await evaluate(`document.getAnimations().filter((a) => a.transitionProperty).map((a) => ({ prop: a.transitionProperty, ms: a.effect.getTiming().duration }))`);
-    await evaluate(`Promise.all(document.getAnimations().map((a) => a.finished.catch(() => null))).then(() => 1)`);
     ok((await until(`Math.abs(document.querySelector('.folder-pane').getBoundingClientRect().width - ${toW}) < 0.5`)) >= 0, `the menu never got to ${toW}px`);
     await settle();
     await evaluate('window.__sstop = true; 1');
-    return { frames: await evaluate(`window.__s`), glide };
+    return { frames: await evaluate(`window.__s`), glide: await evaluate(`window.__glide`) };
   };
   const steady = (label, r, from, to, glides) => {
     const s = r.frames;
