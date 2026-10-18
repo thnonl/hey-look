@@ -237,23 +237,30 @@ for (const name of names) {
 }
 
 // ------------------------------------------------------------------------------------------------- size and time (AC-84: 1 MB of HTML in 2 s)
+// The limits are CPU seconds of this process (user + system), not the wall clock: on a busy machine the wall time of the same work is several times
+// longer while the CPU time stays about the same, so a test of the wall time failed under load without any change of the code (WP9b, REQ-9.3.3).
+/** Runs `fn` and returns { value, ms } with ms = the CPU time it used. */
+const cpuRun = (fn) => {
+  const u0 = process.cpuUsage();
+  const value = fn();
+  const u = process.cpuUsage(u0);
+  return { value, ms: (u.user + u.system) / 1000 };
+};
 {
   const para = '<p class=MsoNormal style="margin:0cm 0cm 8pt;line-height:107%"><span style="font-size:11pt;font-family:Calibri,sans-serif;color:red">Lorem ipsum <b>dolor</b> sit <a href="https://example.com/a?b=1&amp;c=2">amet</a>, consectetur adipiscing elit.</span><o:p></o:p></p>\n';
   const big = "<html><body>" + para.repeat(Math.ceil(1_000_000 / para.length)) + "</body></html>";
   assert.ok(big.length >= 1_000_000);
   for (const mode of ["source", "merge", "text"]) {
-    const t0 = performance.now();
-    const r = mode === "text" ? pasteText(big) : cleanPaste(big, { mode }).html;
-    const ms = performance.now() - t0;
+    const { value: r, ms } = cpuRun(() => (mode === "text" ? pasteText(big) : cleanPaste(big, { mode }).html));
     assert.ok(r.length > 100_000, `${mode}: output`);
-    assert.ok(ms < 2000, `${mode}: 1 MB took ${Math.round(ms)} ms`);
-    console.log(`  1 MB, ${mode}: ${Math.round(ms)} ms`);
+    assert.ok(ms < 2000, `${mode}: 1 MB took ${Math.round(ms)} ms of CPU`);
+    console.log(`  1 MB, ${mode}: ${Math.round(ms)} ms CPU`);
   }
   // 20 000 small list paragraphs (a long Word list)
   const items = Array.from({ length: 20000 }, (_, i) => `<p class=MsoListParagraph style='mso-list:l0 level${1 + (i % 3)} lfo1'><span style='mso-list:Ignore'>${["1.", "a.", "i."][i % 3]}</span>item ${i}</p>`).join("");
-  const t1 = performance.now();
-  cleanPaste(items, { mode: "source" });
-  assert.ok(performance.now() - t1 < 2000, "a long Word list");
+  const { ms: listMs } = cpuRun(() => cleanPaste(items, { mode: "source" }));
+  assert.ok(listMs < 2000, `a long Word list: ${Math.round(listMs)} ms of CPU`);
+  console.log(`  20 000 list paragraphs: ${Math.round(listMs)} ms CPU`);
 }
 
 // hostile input costs time in proportion to its size, not its square (a tag that never ends, quotes that never close, a million rules)
@@ -273,12 +280,35 @@ for (const name of names) {
   };
   for (const [name, h] of Object.entries(cases)) {
     for (const mode of ["source", "text"]) {
-      const t0 = performance.now();
-      const r = mode === "text" ? pasteText(h) : cleanPaste(h, { mode }).html;
-      const ms = performance.now() - t0;
+      const { value: r, ms } = cpuRun(() => (mode === "text" ? pasteText(h) : cleanPaste(h, { mode }).html));
       assert.equal(typeof r, "string");
-      assert.ok(ms < 5000, `${name} (${mode}): ${Math.round(ms)} ms`);
+      assert.ok(ms < 5000, `${name} (${mode}): ${Math.round(ms)} ms of CPU`);
+      console.log(`  ${name} (${mode}): ${Math.round(ms)} ms CPU`);
     }
+  }
+}
+
+// Linear, not quadratic, and independent of the machine: the same input at size n and at 2n. Linear work costs about 2x, quadratic work 4x; the limit is 3x.
+// Each size is measured up to three times and the best (lowest) CPU time of each counts, so one slow turn (a garbage collection, a busy neighbour) cannot decide.
+{
+  const grow = {
+    "a million <a ": (n) => "<a ".repeat(n),
+    "unclosed tags": (n) => "<p".repeat(n),
+    "200 000 spans": (n) => "<span>a</span>".repeat(n),
+    "70 000 rules": (n) => "<style>" + "p.a{color:red}".repeat(n) + "</style>" + '<p class="a">x</p>'.repeat(Math.floor(n / 14)),
+  };
+  const sizes = { "a million <a ": 300_000, "unclosed tags": 400_000, "200 000 spans": 200_000, "70 000 rules": 70_000 };
+  for (const [name, make] of Object.entries(grow)) {
+    const n = sizes[name];
+    const small = make(n), large = make(2 * n);
+    let best1 = Infinity, best2 = Infinity, ratio = Infinity;
+    for (let round = 0; round < 3 && !(ratio < 3); round++) {
+      best1 = Math.min(best1, cpuRun(() => cleanPaste(small, { mode: "source" })).ms);
+      best2 = Math.min(best2, cpuRun(() => cleanPaste(large, { mode: "source" })).ms);
+      ratio = best2 / Math.max(best1, 1);
+    }
+    console.log(`  scaling ${name}: ${Math.round(best1)} ms CPU at n, ${Math.round(best2)} ms at 2n, ratio ${ratio.toFixed(2)}`);
+    assert.ok(ratio < 3, `${name}: twice the input took ${ratio.toFixed(2)} x the CPU time (${Math.round(best1)} -> ${Math.round(best2)} ms), more than linear`);
   }
 }
 

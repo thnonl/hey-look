@@ -84,7 +84,10 @@ async function openTab(cfg, tab, extraHash = '') {
   await H.openApp(hashFor(cfg, extraHash), cfg.w, cfg.h);
   await evaluate(`window.__store.getState().setPrefs({ theme: ${JSON.stringify(cfg.theme)} }); window.__store.getState().setDialog(${JSON.stringify(tab)}); 1`);
 }
-const waitFor = async (cfg, scenario, what, expr, ms = 8000) => { const t0 = Date.now(); while (Date.now() - t0 < ms) { if (await evaluate(expr)) return true; await sleep(40); } fail(cfg, scenario, `timed out waiting for ${what}`); return false; };
+const waitFor = async (cfg, scenario, what, expr, ms = 20000) => { ms = Math.max(ms, 10000); const t0 = Date.now(); while (Date.now() - t0 < ms) { let v = false; try { v = await evaluate(expr); } catch { /* between two renders: not yet */ } if (v) return true; await sleep(40); } fail(cfg, scenario, `timed out waiting for ${what}`); return false; }; // (the cap is not a sleep: it only matters when the test fails)
+/** Waits, on the page's clock, until nothing moves: no running animation or transition, the dialog and the settings body at the same place, and the frame log (once the sampler runs) without a new entry, for 4 frames in a row. */
+const SETTLE = `new Promise((done) => { const R = (s) => { const e = document.querySelector(s); if (!e) return ''; const r = e.getBoundingClientRect(); return [r.x, r.y, r.width, r.height, e.scrollTop].join(); }; const key = () => [R('.modal'), R('.settings-body'), window.__log ? window.__log.length : -1, innerWidth, innerHeight].join('|'); const t0 = performance.now(); let last = '', n = 0; const tick = () => { const k = key(), running = document.getAnimations().some((a) => a.playState === 'running' || a.playState === 'pending'); if (k === last && !running) n++; else { n = 0; last = k; } if (n >= 4) return done(true); if (performance.now() - t0 > 10000) return done(false); requestAnimationFrame(tick); }; requestAnimationFrame(tick); })`;
+const settle = () => evaluate(SETTLE);
 
 /** Add account, Google or Microsoft: the browser sign-in ends every way the mock knows; the card never moves. */
 async function runOAuth(cfg, kind) {
@@ -94,14 +97,14 @@ async function runOAuth(cfg, kind) {
   const { typeText, press, click, shot } = inputs(H, SHOTS, tag);
   await waitFor(cfg, scenario, 'the Add account tab', `!!document.querySelector('.settings-body .set-card')`);
   if (kind === 'microsoft') await evaluate(`document.querySelectorAll('.settings-body .seg button')[1].click()`);
-  await sleep(200);
+  await settle();
   // the Advanced section holds the client id; it is opened first (opening it is the person's own layout change)
   await evaluate(`document.querySelector('.settings-body .set-card summary').click()`);
-  await sleep(250);
+  await waitFor(cfg, scenario, 'the Advanced section', `document.querySelector('.settings-body .set-card details').open`); await settle();
   // a small window scrolls: the pane starts where the client id box and the sign-in button are both in view (a person who types the id and clicks the button)
   await evaluate(`(() => { const b = document.querySelector('.settings-body'), i = b.querySelector('.set-card details input'), p = b.querySelector('.set-card .btn.primary'); b.scrollTop += (p.getBoundingClientRect().bottom + i.getBoundingClientRect().top) / 2 - (b.getBoundingClientRect().top + b.clientHeight / 2); })()`);
   await evaluate(PAGE('add'));
-  await sleep(120);
+  await waitFor(cfg, scenario, 'the first sample', `window.__log.length > 0`);
   const phase = (n) => evaluate(`window.__phase = ${JSON.stringify(n)}`);
   const last = `(window.__log.filter((e) => e.s).slice(-1)[0] || { s: {} }).s`;
   const setHash = (extra) => evaluate(`location.hash = ${JSON.stringify(hashFor(cfg, extra))}`);
@@ -115,7 +118,8 @@ async function runOAuth(cfg, kind) {
     await click(primary);
     await waitFor(cfg, scenario, `the wait of the ${what} sign-in`, `${last}.hasCancel`, 3000);
     await waitFor(cfg, scenario, `the end of the ${what} sign-in`, `!${last}.hasCancel`, 6000);
-    await sleep(350);
+    await waitFor(cfg, scenario, `the message of the ${what} sign-in`, expectText === 'bad' ? `${last}.bad` : `${last}.text.length > 20`);
+    await settle();
     if (expectText === 'bad' ? !(await evaluate(`${last}.bad`)) : !(await evaluate(`${last}.text.length > 20`))) fail(cfg, scenario, `the ${what} message is not shown (${await evaluate(`${last}.text`)})`);
     await fits(what);
     await shot(what.replace(/\W+/g, '-'));
@@ -127,7 +131,7 @@ async function runOAuth(cfg, kind) {
   await phase('type the client id');
   await evaluate(`(() => { const i = document.querySelector('.settings-body .set-card details input'); i.focus(); })()`);
   await typeText('client-id-12345', 30);
-  await sleep(200);
+  await waitFor(cfg, scenario, 'the typed client id', `document.querySelector('.settings-body .set-card details input').value === 'client-id-12345'`); await settle();
   const typingFocus = await evaluate(`${last}.active`);
   if (typingFocus !== 'input') fail(cfg, scenario, `typing the client id: the focus is on "${typingFocus}"`);
   await shot('client-id');
@@ -136,14 +140,14 @@ async function runOAuth(cfg, kind) {
   await setHash('signin=slow');
   await click(primary);
   await waitFor(cfg, scenario, 'the waiting message and Cancel', `${last}.hasCancel`);
-  await sleep(500);
+  await waitFor(cfg, scenario, 'the waiting text', `${last}.slotText.length > 0`); await settle();
   await fits('waiting');
   await shot('waiting');
   if (await evaluate(`Math.abs(${last}.cancelTop - ${last}.primaryTop) > 1`)) fail(cfg, scenario, 'Cancel is not on the line of the sign-in button');
   await phase('Cancel');
   await click('.settings-body .set-card .row-inline .btn:not(.primary)');
   await waitFor(cfg, scenario, 'the end of the wait', `!${last}.hasCancel`);
-  await sleep(400);
+  await settle();
   await fits('cancelled');
   await shot('cancelled');
   const afterCancel = await evaluate(`${last}.active`);
@@ -153,7 +157,7 @@ async function runOAuth(cfg, kind) {
   await ended('refused', 'denied', 'notice');
   await ended('blocked', 'blocked', 'notice');
   await ended('error', 'error', 'bad');
-  await sleep(300);
+  await settle();
   report(cfg, scenario, await evaluate('window.__log'), (log) => {
     const texts = new Set(log.map((e) => e.s?.text).filter(Boolean));
     if (texts.size < 5) fail(cfg, scenario, `only ${texts.size} different messages were seen (waiting, cancelled, timeout, refused, blocked, error expected)`);
@@ -170,14 +174,14 @@ async function runImap(cfg) {
   const { typeText, press, click, shot } = inputs(H, SHOTS, tag);
   await waitFor(cfg, scenario, 'the Add account tab', `!!document.querySelector('.settings-body .set-card')`);
   await evaluate(`document.querySelectorAll('.settings-body .seg button')[2].click()`);
-  await sleep(250);
+  await waitFor(cfg, scenario, 'the account fields', `document.querySelectorAll('.settings-body .set-card input').length >= 3`); await settle();
   const field = (i) => evaluate(`(() => { const e = document.querySelectorAll('.settings-body .set-card input')[${i}]; e.focus(); })()`);
   await field(0); await typeText('sam@fastmail.test', 5);
   await field(2); await typeText('wrong', 5); // the mock refuses this password
-  await sleep(200);
+  await waitFor(cfg, scenario, 'the typed password', `document.querySelectorAll('.settings-body .set-card input')[2].value === 'wrong'`); await settle();
   await evaluate(`(() => { const b = document.querySelector('.settings-body'); b.scrollTop = b.scrollHeight; })()`);
   await evaluate(PAGE('add'));
-  await sleep(120);
+  await waitFor(cfg, scenario, 'the first sample', `window.__log.length > 0`);
   const phase = (n) => evaluate(`window.__phase = ${JSON.stringify(n)}`);
   const last = `(window.__log.filter((e) => e.s).slice(-1)[0] || { s: {} }).s`;
   const add = '.settings-body .set-card .btn.primary';
@@ -187,7 +191,7 @@ async function runImap(cfg) {
     await waitFor(cfg, scenario, 'the Connecting wait', `!!document.querySelector('.settings-body .set-card .btn.primary:disabled')`, 2000);
     await waitFor(cfg, scenario, 'the old error to go while it connects', `!${last}.bad`, 2000); // (the sample of the frame before the click may still show it)
     await waitFor(cfg, scenario, 'the error', `${last}.bad`, 5000);
-    await sleep(350);
+    await settle();
     if ((await evaluate(`${last}.slotOverflow`)) > 1) fail(cfg, scenario, 'the error does not fit its slot');
     await shot(`error-${n}`);
     const act = await evaluate(`${last}.active`);
@@ -205,13 +209,13 @@ async function runCalendar(cfg, connected) {
   await openTab(cfg, { type: 'settings', tab: 'mb:a2', focus: 'calendar' }, connected ? 'calsync=ok' : '');
   const { click, shot } = inputs(H, SHOTS, tag);
   await waitFor(cfg, scenario, 'the Calendar panel', `!!document.querySelector('#set-calendar')`);
-  await sleep(500);
+  await settle();
   await evaluate(PAGE('cal'));
-  await sleep(120);
+  await waitFor(cfg, scenario, 'the first sample', `window.__log.length > 0`);
   const phase = (n) => evaluate(`window.__phase = ${JSON.stringify(n)}`);
   const last = `(window.__log.filter((e) => e.s).slice(-1)[0] || { s: {} }).s`;
   const setHash = (extra) => evaluate(`location.hash = ${JSON.stringify(hashFor(cfg, extra))}`);
-  const state = async (st, text) => { await phase(`state ${st}`); await evaluate(`window.__mockCalSync.state(${JSON.stringify(st)})`); if (text) await waitFor(cfg, scenario, `the "${st}" status`, `${last}.text.includes(${JSON.stringify(text)})`, 3000); else await sleep(250); await sleep(200); if ((await evaluate(`${last}.slotOverflow`)) > 1) fail(cfg, scenario, `the "${st}" status does not fit its slot: ${await evaluate(`${last}.slotOverflow`)}px too much`); await shot(`state-${st}`); };
+  const state = async (st, text) => { await phase(`state ${st}`); await evaluate(`window.__mockCalSync.state(${JSON.stringify(st)})`); if (text) await waitFor(cfg, scenario, `the "${st}" status`, `${last}.text.includes(${JSON.stringify(text)})`, 3000); else await settle(); await settle(); if ((await evaluate(`${last}.slotOverflow`)) > 1) fail(cfg, scenario, `the "${st}" status does not fit its slot: ${await evaluate(`${last}.slotOverflow`)}px too much`); await shot(`state-${st}`); };
   const sw = '#set-calendar .switch';
   const fitsNow = async (what) => { const o = await evaluate(`${last}.slotOverflow`); if (o > 1) fail(cfg, scenario, `the ${what} message does not fit its slot: ${o}px too much`); };
   if (connected) {
@@ -220,24 +224,27 @@ async function runCalendar(cfg, connected) {
     // Sync now: syncing, then back to Last synced
     await phase('Sync now');
     await click('.mb-body .row-inline .btn.small');
-    await sleep(1800);
+    // the mock ends the sync by itself (calendar_sync_now: syncing, then ok): wait for both, on the state the page shows
+    await waitFor(cfg, scenario, 'the sync to start', `window.__mockCalSync.get().status === 'syncing'`);
+    await waitFor(cfg, scenario, 'the sync to end', `window.__mockCalSync.get().status === 'ok'`);
+    await settle();
     // access ended: Allow again starts a consent that waits (Cancel) and ends in every way
     await state('auth');
     await phase('Allow again waits');
     await setHash('calslow');
     await click('.mb-body .row-inline .btn.primary');
-    await sleep(500);
+    await waitFor(cfg, scenario, 'the waiting consent', `${last}.waiting`); await settle();
     await fitsNow('waiting');
     await shot('allow-waiting');
     await click('.set-status button.link', 'last'); // (Cancel is the last link of the waiting text: "What does this mean?" comes first)
-    await sleep(500);
+    await waitFor(cfg, scenario, 'the end of the wait', `!${last}.waiting`); await settle();
     for (const why of ['timeout', 'denied', 'wrong', 'partial', 'blocked']) {
       await phase(`Allow again ends: ${why}`);
       await setHash(`calfail=${why}`);
       await click('.mb-body .row-inline .btn.primary');
       await waitFor(cfg, scenario, `the wait of the "${why}" consent`, `${last}.waiting`, 3000);
       await waitFor(cfg, scenario, `the end of the "${why}" consent`, `!${last}.waiting && ${last}.text.length > 20`, 6000);
-      await sleep(350);
+      await settle();
       await fitsNow(why);
       await shot(`allow-${why}`);
     }
@@ -248,12 +255,12 @@ async function runCalendar(cfg, connected) {
     await setHash('calslow');
     await click(sw);
     await waitFor(cfg, scenario, 'the waiting message', `${last}.waiting`, 4000);
-    await sleep(400);
+    await settle();
     await fitsNow('waiting');
     await shot('waiting');
     await phase('Cancel');
     await click('.set-status button.link', 'last'); // (Cancel is the last link of the waiting text: "What does this mean?" comes first)
-    await sleep(600);
+    await waitFor(cfg, scenario, 'the end of the wait', `!${last}.waiting`); await settle();
     await fitsNow('cancelled');
     await shot('cancelled');
     for (const why of ['timeout', 'denied', 'wrong', 'partial', 'blocked']) {
@@ -262,12 +269,12 @@ async function runCalendar(cfg, connected) {
       await click(sw);
       await waitFor(cfg, scenario, `the wait of the "${why}" consent`, `${last}.waiting`, 3000);
       await waitFor(cfg, scenario, `the end of the "${why}" consent`, `!${last}.waiting && ${last}.text.length > 20`, 6000);
-      await sleep(350);
+      await settle();
       await fitsNow(why);
       await shot(why);
     }
   }
-  await sleep(300);
+  await settle();
   report(cfg, scenario, await evaluate('window.__log'), (log) => {
     const texts = new Set(log.map((e) => e.s?.text).filter(Boolean));
     if (texts.size < (connected ? 12 : 4)) fail(cfg, scenario, `only ${texts.size} different status texts were seen`);
