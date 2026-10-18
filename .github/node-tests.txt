@@ -1,0 +1,148 @@
+static | node --experimental-strip-types scripts/test-mail-controls.mjs
+static | node --experimental-strip-types scripts/test-frame-sandbox.mjs
+static | node --experimental-strip-types scripts/test-pdf-frame.mjs
+static | node --experimental-strip-types scripts/test-addresses.mjs
+static | node --experimental-strip-types scripts/test-recipients.mjs
+static | node --experimental-strip-types scripts/test-reply-targets.mjs
+static | node --experimental-strip-types scripts/test-html-text.mjs
+static | node --experimental-strip-types scripts/test-forward-attachments.mjs
+static | node scripts/test-compose-tab-order.mjs
+static | node --experimental-strip-types scripts/test-compose-keys.mjs
+static | node --experimental-strip-types scripts/test-quote-header.mjs
+static | node --experimental-strip-types scripts/test-pasted-html.mjs
+static | node --experimental-strip-types scripts/test-send-size.mjs
+static | node --experimental-strip-types scripts/test-from-account.mjs
+static | node --experimental-strip-types scripts/test-attach-name.mjs
+static | node --experimental-strip-types scripts/test-link-url.mjs
+static | node scripts/test-csp-ready.mjs
+static | node --experimental-strip-types scripts/test-update-result.mjs
+static | node --experimental-strip-types scripts/test-update-announce.mjs
+static | node --experimental-strip-types scripts/test-quit-flush.mjs
+static | node --experimental-strip-types scripts/test-popout.mjs
+static | node scripts/test-latest-json-keys.mjs
+static | node --experimental-strip-types scripts/test-sticky-timers.mjs
+static | node --experimental-strip-types scripts/test-toast-stack.mjs
+static | node --experimental-strip-types scripts/test-toast-language.mjs
+static | node --experimental-strip-types scripts/test-translate-jobs.mjs
+static | node --experimental-strip-types scripts/test-translate-box-layout.mjs
+static | node --experimental-strip-types scripts/test-ai-tab-still.mjs
+static | node --experimental-strip-types scripts/test-settings-still.mjs
+static | node --experimental-strip-types scripts/test-translate-chunks.mjs
+static | node --experimental-strip-types scripts/test-ai-call.mjs
+static | node --experimental-strip-types scripts/test-ai-errors.mjs
+static | node --experimental-strip-types scripts/test-ai-problem.mjs
+static | node --experimental-strip-types scripts/test-open-thread.mjs
+static | node --experimental-strip-types scripts/test-leave-compose.mjs
+static | node --experimental-strip-types scripts/test-autosave.mjs
+static | node --experimental-strip-types scripts/test-recovery.mjs
+static | node --experimental-strip-types scripts/test-recovery-toast.mjs
+static | node --experimental-strip-types scripts/test-compose-selection.mjs
+static | node --experimental-strip-types scripts/test-compose-content.mjs
+static | node --experimental-strip-types scripts/test-read-intent.mjs
+static | node --experimental-strip-types scripts/test-flag-pin-intent.mjs
+static | node --experimental-strip-types scripts/test-prepare-move.mjs
+static | node --experimental-strip-types scripts/test-queued-moves.mjs
+static | node --experimental-strip-types scripts/test-moves-committed.mjs
+static | node --experimental-strip-types scripts/test-auto-advance.mjs
+static | node --experimental-strip-types scripts/test-junk-folder.mjs
+static | node --experimental-strip-types scripts/test-list-limit-footer.mjs
+static | node --experimental-strip-types scripts/test-link-copy.mjs
+static | node --experimental-strip-types scripts/test-backfill-line.mjs
+static | node --experimental-strip-types scripts/test-about-links.mjs
+static | node --experimental-strip-types scripts/test-mail-canvas.mjs
+static | node --experimental-strip-types scripts/test-compose-preview.mjs
+static | node --experimental-strip-types scripts/test-calendar-sync.mjs
+static | node --experimental-strip-types scripts/test-datetime-fields.mjs
+static | node --experimental-strip-types scripts/test-event-when.mjs
+static | node --experimental-strip-types scripts/test-importance.mjs
+static | node --experimental-strip-types scripts/test-i18n.mjs
+static | node --experimental-strip-types scripts/test-i18n-tools.mjs
+static | node --experimental-strip-types scripts/test-boot-lang.mjs
+static | node --experimental-strip-types scripts/i18n-status.mjs
+static | node --experimental-strip-types scripts/i18n-status.mjs --strict --lang=vi
+static | node --experimental-strip-types scripts/i18n-status.mjs --strict --lang=fr
+static | node --experimental-strip-types scripts/i18n-status.mjs --strict --lang=zh-Hans
+static | node --experimental-strip-types scripts/i18n-status.mjs --strict --lang=es
+static | node --experimental-strip-types scripts/i18n-status.mjs --strict --lang=ja
+static | node --experimental-strip-types scripts/i18n-status.mjs --strict --lang=de
+static | node --experimental-strip-types scripts/i18n-status.mjs --strict --lang=ru
+static | node --experimental-strip-types scripts/test-language-switcher.mjs
+static | node --experimental-strip-types scripts/test-sign-in.mjs
+static | node --experimental-strip-types scripts/test-popover-menu.mjs
+static | node --experimental-strip-types scripts/test-picture-tools.mjs
+static | node --experimental-strip-types scripts/test-rich-golden.mjs
+static | node --experimental-strip-types scripts/test-format-bar-layout.mjs
+static | node --experimental-strip-types scripts/test-block-format.mjs
+static | node --experimental-strip-types scripts/test-block-commands.mjs
+static | node --experimental-strip-types scripts/test-paste-clean.mjs
+static | node --experimental-strip-types scripts/test-paste-options.mjs
+ui-a | node scripts/test-paste-switch.mjs --require-browser
+ui-a | node scripts/test-paste-mac.mjs --require-browser
+static | node --experimental-strip-types scripts/test-insert-group.mjs
+static | node --experimental-strip-types scripts/test-signature-guard.mjs
+static | node --experimental-strip-types scripts/test-quote.mjs
+static | node --experimental-strip-types scripts/test-quote-guard.mjs
+static | node --experimental-strip-types scripts/test-quote-remote-policy.mjs
+static | node --experimental-strip-types scripts/test-insert-pictures.mjs
+static | node --experimental-strip-types scripts/test-header-text.mjs
+static | node --experimental-strip-types scripts/test-popover-room.mjs
+static | node --experimental-strip-types scripts/test-meeting-draft.mjs
+static | node --experimental-strip-types scripts/test-picture-rename.mjs
+static | node --experimental-strip-types scripts/test-summary-text.mjs
+static | node --experimental-strip-types scripts/test-snooze-label.mjs
+static | node --experimental-strip-types scripts/test-change-case.mjs
+static | node --experimental-strip-types scripts/test-find-replace.mjs
+static | node --experimental-strip-types scripts/test-signature-picture.mjs
+static | node --experimental-strip-types scripts/test-row-menu.mjs
+static | node --experimental-strip-types scripts/test-account-order.mjs
+static | node --experimental-strip-types scripts/test-account-label.mjs
+static | node --experimental-strip-types scripts/test-sidebar-state.mjs
+static | node --experimental-strip-types scripts/test-context-guard.mjs
+static | node --experimental-strip-types scripts/test-top-bar-dark.mjs
+static | node --experimental-strip-types scripts/test-support-nudge.mjs
+static | node scripts/generate-site-languages.mjs --check
+static | node scripts/test-site-languages.mjs --strict
+static | node scripts/test-site-404.mjs
+static | node scripts/test-site-seo.mjs
+static | node --experimental-strip-types scripts/test-site-commands.mjs
+# the Appearance preview on the website, measured in the runner's Chrome (a sample of the combinations; the full run is `node scripts/test-site-appearance.mjs`)
+ui-b | node scripts/test-site-appearance.mjs --quick --require-browser
+# Settings > AI Assistant stands still while it is used: the real layout, frame by frame, in the dev preview (two of the 12 combinations; the full run is `node scripts/test-ai-tab-layout.mjs`)
+ui-b | node scripts/test-ai-tab-layout.mjs --quick --require-browser
+# the AI Assistant problem toast through every entry point (not set up, 401, 404, timeout ...): stays 20 s, leads to Settings > AI Assistant, Esc / X close it (full run: `node scripts/test-ai-guide.mjs`)
+ui-a | node scripts/test-ai-guide.mjs --quick --require-browser
+# Settings > Add account and Calendar stand still while a sign-in runs and ends (two of the combinations; the full run is `node scripts/test-settings-layout.mjs`)
+ui-a | node scripts/test-settings-layout.mjs --quick --require-browser
+# the attachment preview and the picture viewer are on top of the whole window, in the main window and in the reader window
+ui-a | node scripts/test-preview-layer.mjs --quick --require-browser
+# the compose pane at the smallest sizes: formatting row and body always in view, the header scrolls, Tab order and popovers (eight of the combinations, with Meeting on at 946 x 552 and in a 308 px pane; the full run is `node scripts/test-compose-fit.mjs`)
+ui-a | node scripts/test-compose-fit.mjs --quick --require-browser
+# an open compose shows the placeholder of the body in the language in use after a language switch (and back)
+ui-a | node scripts/test-placeholder-lang.mjs --require-browser
+# the side menu: icons or full by window width and by the person's choice, the peek over the panes, the minimum widths, tooltips (the full run is `node scripts/test-sidebar-collapse.mjs`)
+ui-b | node scripts/test-sidebar-collapse.mjs --quick --require-browser
+# the picture resize handles are clipped with the editor pane, and Discard on a reply with nothing typed closes without asking (real panes in the dev preview)
+ui-a | node scripts/test-picture-handles.mjs --require-browser
+# the picture toolbar and the resize handles never overlap (the handles are measured too), and every popover and menu of the message, ALL its boxes, is inside the window at 946 x 552 and 946 x 480
+ui-a | node scripts/test-picture-toolbar.mjs --require-browser
+ui-b | node scripts/test-popover-fit.mjs --quick --require-browser
+ui-b | node scripts/test-ai-save-toast.mjs --require-browser
+# a meeting survives Save draft and the crash-recovery snapshot in the real pane (the header side is `cargo test --lib meeting_form`)
+ui-b | node scripts/test-meeting-compose.mjs --require-browser
+ui-b | node scripts/test-compose-discard.mjs --require-browser
+# the top strip of the message and conversation windows follows the theme (the root of the compose page is not fixed; macOS paints the title bar from it)
+ui-b | node scripts/test-popout-theme.mjs --require-browser
+# several pictures at once, where a dropped picture goes, "Generate a key" ends, and Discard takes the autosaved draft along (real panes in the dev preview)
+ui-a | node scripts/test-compose-pictures.mjs --require-browser
+ui-a | node scripts/test-pgp-generate.mjs --require-browser
+ui-b | node scripts/test-discard-saved-draft.mjs --require-browser
+# the Symbol popup, the More menu, Find and replace (Replace row on every system) and the picture handles under the dialogs, at 960 x 560 and 1280 x 800
+ui-b | node scripts/test-compose-popups.mjs --require-browser
+# the debug-only test bridge stays out of release builds (sources, workflow check) and its client sends what the protocol says (the Rust side: `cargo test --lib testbridge`)
+static | node scripts/test-test-bridge.mjs
+
+# the scripts of the release workflow itself: their fixtures also run in the publish job of a tag run; here they fail a dry run early
+static | bash .github/scripts/test-check-release-assets.sh
+static | node .github/scripts/verify-update-sigs.cjs --selftest
+# was not run by CI before
+static | node --experimental-strip-types scripts/test-site-top-bar-dark.mjs
