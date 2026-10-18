@@ -556,6 +556,7 @@ jobs:
         with:
           name: windows-unsigned
           path: unsigned/*
+          retention-days: 7
           if-no-files-found: error
 
       # tauri-action keeps only the installers as workflow artifacts: keep the updater signatures of a dry run too, and the
@@ -569,6 +570,7 @@ jobs:
             src-tauri/target/**/bundle/**/*.sig
             src-tauri/target/**/bundle/macos/*.app.tar.gz
           if-no-files-found: ${{ steps.sign.outputs.signed == 'true' && 'error' || 'ignore' }}
+          retention-days: 14
 
       - name: Check ad-hoc signature
         if: runner.os == 'macOS' && steps.apple.outputs.signed != 'true'
@@ -634,6 +636,30 @@ jobs:
             spctl -a -t open --context context:primary-signature -vv "$dmg" || echo "::notice::Gatekeeper does not accept the disk image itself (it is not notarised); check the dmg on a Mac as in CONTRIBUTING.md"
             xcrun stapler validate "$dmg" || echo "::notice::The disk image has no stapled ticket (expected: only the app inside is stapled)"
           fi
+
+      # What this job made, on the run page (also when a step failed): was it signed, which files, how big, without opening the log.
+      - name: Build summary
+        if: always()
+        shell: bash
+        env:
+          NAME: ${{ matrix.name }}
+          PROFILE: ${{ steps.sign.outputs.profile }}
+          SIGNED: ${{ steps.sign.outputs.signed }}
+          MAC_SIGNED: ${{ steps.apple.outputs.signed }}
+          MAC_KIND: ${{ steps.apple.outputs.kind }}
+          SIGNPATH: ${{ needs.plan.outputs.signpath }}
+        run: |
+          {
+            echo "### Build ($NAME)"
+            echo "profile \`${PROFILE:-?}\`, update signatures \`${SIGNED:-?}\`, SignPath after the build \`${SIGNPATH:-?}\`"
+            if [ "$RUNNER_OS" = macOS ]; then echo "macOS signing: signed \`${MAC_SIGNED:-?}\`, certificate \`${MAC_KIND:-none}\`"; fi
+            echo
+            echo "| file (made in the last 3 hours) | KB |"
+            echo "|---|---:|"
+            find src-tauri/target -path '*/bundle/*' -type f -mmin -180 \( -name '*-setup.exe' -o -name '*.msi' -o -name '*.dmg' -o -name '*.app.tar.gz' -o -name '*.AppImage' -o -name '*.deb' -o -name '*.rpm' -o -name '*.sig' \) 2>/dev/null | sort | while IFS= read -r f; do
+              printf '| %s | %s |\n' "$(basename "$f")" "$(( $(wc -c < "$f") / 1024 ))"
+            done
+          } >> "$GITHUB_STEP_SUMMARY"
 
   sign-windows:
     # OFF unless the three repo variables SIGNPATH_ORGANIZATION_ID, SIGNPATH_PROJECT_SLUG, SIGNPATH_SIGNING_POLICY_SLUG exist (the plan job
