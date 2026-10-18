@@ -8,7 +8,7 @@ export const BRAND = 'Hey Look!';
 export const REPO = 'https://github.com/thnonl/hey-look';
 export const OG_IMAGE_PATH = 'assets/og-image.jpg';
 export const OG_SIZE = { width: 1200, height: 630 };
-export const SCREENSHOT_PATH = 'media/poster.webp';
+export const SCREENSHOT_PATH = 'media/poster-1280.webp'; // the sharper poster of the film (media/poster.webp, 768 px, is the one in the HTML)
 
 // Open Graph locale per language folder, and the alt text of the preview picture (it shows the app window and the English words "Mail without the rent")
 export const LOCALE = { en: 'en_US', vi: 'vi_VN', fr: 'fr_FR', zh: 'zh_CN', es: 'es_ES', ja: 'ja_JP', de: 'de_DE', ru: 'ru_RU' };

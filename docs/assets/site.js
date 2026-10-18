@@ -203,6 +203,9 @@
   /* ---------- film: plays muted when it scrolls into view, never with reduced motion or "animations off" ---------- */
   $$('[data-video-slot]').forEach(function (slot) {
     var v = $('video', slot), miss = $('.vmiss', slot), srcs = $$('source', v);
+    /* the HTML carries the small poster (768 px: a phone loads nothing more); a wide or dense screen gets the sharper 1280 px one, never on Data Saver */
+    var saver = navigator.connection && navigator.connection.saveData, p0 = v.getAttribute('poster') || '';
+    if (!saver && /poster\.webp$/.test(p0) && (window.matchMedia('(min-width: 800px)').matches || window.innerWidth * (window.devicePixelRatio || 1) > 1100)) v.setAttribute('poster', p0.replace(/poster\.webp$/, 'poster-1280.webp'));
     var fail = function () { miss.hidden = false; };
     if (srcs.length) srcs[srcs.length - 1].addEventListener('error', fail);
     v.addEventListener('error', fail);

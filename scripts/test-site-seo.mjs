@@ -37,6 +37,15 @@ function jpegSize(buf) {
   }
   return null;
 }
+// width and height of a WebP file (lossy VP8, lossless VP8L or extended VP8X), from its RIFF header; null when it is not one
+function webpInfo(buf) {
+  if (buf.length < 30 || buf.toString('latin1', 0, 4) !== 'RIFF' || buf.toString('latin1', 8, 12) !== 'WEBP') return null;
+  const kind = buf.toString('latin1', 12, 16);
+  if (kind === 'VP8 ') return buf[23] === 0x9d && buf[24] === 0x01 && buf[25] === 0x2a ? { kind, w: buf.readUInt16LE(26) & 0x3fff, h: buf.readUInt16LE(28) & 0x3fff } : null;
+  if (kind === 'VP8L') { if (buf[20] !== 0x2f) return null; const b = buf.readUInt32LE(21); return { kind, w: (b & 0x3fff) + 1, h: ((b >>> 14) & 0x3fff) + 1 }; }
+  if (kind === 'VP8X') return { kind, w: buf.readUIntLE(24, 3) + 1, h: buf.readUIntLE(27, 3) + 1 };
+  return null;
+}
 const pngSize = (buf) => buf.slice(1, 4).toString() === 'PNG' ? { w: buf.readUInt32BE(16), h: buf.readUInt32BE(20) } : null;
 
 const enIndex = read(fileOf(EN, 'index'));
@@ -60,6 +69,34 @@ if (!version || !/^\d+\.\d+\.\d+/.test(version)) fail('index.html', `<span data-
   }
   if (!fs.existsSync(path.join(DOCS, 'assets/favicon.svg'))) fail('assets/favicon.svg', 'missing');
   if (!fs.existsSync(path.join(DOCS, SCREENSHOT_PATH))) fail(SCREENSHOT_PATH, 'missing (the JSON-LD screenshot)');
+
+  // the film's two posters (W10.5): a small one in the HTML (phones), a sharper one that site.js puts in on wide screens; the 1920 px master is not served
+  const POSTERS = [['media/poster.webp', 768, 432, 30000], ['media/poster-1280.webp', 1280, 720, 70000]];
+  for (const [f, w, h, max] of POSTERS) {
+    const p = path.join(DOCS, f);
+    if (!fs.existsSync(p)) { fail(f, 'missing (node scripts/make-site-images.mjs)'); continue; }
+    const buf = fs.readFileSync(p), info = webpInfo(buf);
+    if (!info) fail(f, 'is not a WebP file');
+    else if (info.w !== w || info.h !== h) fail(f, `is ${info.w}x${info.h}, expected ${w}x${h} (a WebP)`);
+    if (buf.length > max) fail(f, `${buf.length} bytes, expected <= ${max}`);
+  }
+  if (SCREENSHOT_PATH !== 'media/poster-1280.webp') fail('scripts/lib/site-seo.mjs', `SCREENSHOT_PATH is ${SCREENSHOT_PATH}, expected media/poster-1280.webp (the JSON-LD screenshot of the home page)`);
+  const master = path.join(DOCS, '..', 'scripts/site-src/poster-master.webp');
+  const mi = fs.existsSync(master) ? webpInfo(fs.readFileSync(master)) : null;
+  if (!mi || mi.w !== 1920 || mi.h !== 1080) fail('scripts/site-src/poster-master.webp', `the 1920x1080 master (the input of make-site-images.mjs) is missing or is ${mi && mi.w}x${mi && mi.h}`);
+  const walk = (dir) => fs.readdirSync(dir, { withFileTypes: true }).flatMap((e) => (e.isDirectory() ? walk(path.join(dir, e.name)) : [path.join(dir, e.name)]));
+  for (const f of walk(DOCS).filter((x) => /\.webp$/i.test(x))) {
+    const info = webpInfo(fs.readFileSync(f));
+    if (info && info.w > 1280) fail(path.relative(DOCS, f).replace(/\\/g, '/'), `is ${info.w} px wide: nothing wider than the 1280 px poster is served (the 1920 px master lives in scripts/site-src/)`);
+  }
+  // the HTML names the small poster on the home page of every language; site.js swaps in the sharper one
+  for (const l of LANGS) {
+    const t = read(fileOf(l, 'index')), m = /<video\b[^>]*\sposter="([^"]*)"/.exec(t);
+    const want = `${l.dir ? '../' : ''}media/poster.webp`;
+    if (!m || m[1] !== want) fail(`${l.dir || '.'}/index.html`, `the film's poster is ${m && m[1]}, expected ${want}`);
+  }
+  const siteJs = read(path.join(DOCS, 'assets/site.js'));
+  if (!/poster-1280\.webp/.test(siteJs) || !/saveData/.test(siteJs) || !/min-width: 800px/.test(siteJs)) fail('assets/site.js', 'the film block must put poster-1280.webp in on wide screens (min-width: 800px or more than 1100 device pixels) and never on Data Saver (saveData)');
 }
 
 // ---------- the pages ----------
