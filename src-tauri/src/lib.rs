@@ -3500,15 +3500,16 @@ fn finished_message(db: &Db, acc: &Account, d: &smtp::Draft) -> R<(Vec<u8>, lett
     Ok((smtp::wire(&msg), msg.envelope().clone()))
 }
 
-/// What goes into the Drafts folder: encrypted to the account's own key when the draft is encrypted.
+/// What goes into the Drafts folder. THE RULE (W2.4): a draft is encrypted to your own key only, whoever its recipients are and whether or not
+/// their keys are known; the recipients' keys are used when the message is sent. "Encrypt drafts" off is decided by the page: it sends such a
+/// draft without `security`, and it is stored as a plain draft.
 fn draft_bytes(db: &Db, acc: &Account, d: &smtp::Draft) -> R<Vec<u8>> {
     let sec = d.security.clone().unwrap_or_default();
     if sec.encrypt {
-        if let Some(pre) = &d.prebuilt {
-            return base64::engine::general_purpose::STANDARD.decode(pre).map_err(err);
-        }
+        // a scheduled message that was sealed is for its recipients and the account ("Move to Drafts"): it is opened with your key and encrypted
+        // again for your key only, so the stored draft is like every other one (a locked key asks for its passphrase: PGP_LOCKED)
+        let mut d = if d.prebuilt.is_some() { pgpstore::unseal_from_outbox(&lock(db), acc, d)? } else { d.clone() };
         // the meeting header is plain text outside the encryption: an encrypted draft keeps its meeting on this computer only (`remember_meeting`)
-        let mut d = d.clone();
         d.meeting_form = None;
         return Ok(smtp::wire(&pgpstore::build_secure(&lock(db), acc, &d, true)?));
     }

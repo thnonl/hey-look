@@ -45,7 +45,7 @@ import { fromInputs, toInputs } from "../calendar";
 import { decodeMeeting, encodeMeeting, meetingWire, restoreMeeting } from "../meetingDraft";
 import { isEmail, singleLabelHostsOf } from "../addresses";
 import { addRecipients, addressOf, chipLabel, formatRecipient, hasRecipient, isImeEvent, openAtEnd, placeRecipients, recipientKey, splitRecipients, type RcptField } from "../recipients";
-import { askUnlock } from "./Pgp";
+import { askUnlock, moveScheduledToDrafts } from "./Pgp";
 import { composeSeam } from "../popout/composeSeam";
 import { focusDraftWindow, startCompose, wantsWindow, type StartOpts } from "../popout/composeOpen";
 import { draftKey } from "../popout/entry";
@@ -62,6 +62,7 @@ import type { Key } from "../i18n";
 import { t as tNow } from "../i18n";
 import { useT } from "../i18n/react";
 import { tx } from "../i18n/rich";
+import { keyProblemKey } from "../keyStatus";
 
 /** Whether this is an address the composer accepts (see addresses.ts: `qa@localhost` and the account hosts count). */
 const EMAIL = { test: (a: string) => isEmail(a, singleLabelHostsOf(useStore.getState().accounts)) };
@@ -256,12 +257,8 @@ export function RecipientField({
       </div>
       {keyPop && keys?.[keyPop] && (
         <span className="suggest pinned popover" role="dialog" aria-label={t("compose.rcpt.keyDialog", { addr: keyPop })} ref={popRef} style={{ width: 340, padding: 12, gap: 8, display: "flex", flexDirection: "column" }} onClick={(e) => e.stopPropagation()}>
-          <span style={{ display: "flex", gap: 8, alignItems: "center" }}><TriangleAlert size={15} className="warn-ico" /><b>{keys[keyPop].status === "expired" ? t("compose.rcpt.keyExpired", { addr: keyPop }) : keys[keyPop].status === "revoked" ? t("compose.rcpt.keyRevoked", { addr: keyPop }) : t("compose.rcpt.keyMissing", { addr: keyPop })}</b></span>
-          <span className="muted small">
-            {keys[keyPop].status === "missing"
-              ? t("compose.rcpt.missingHelp")
-              : t("compose.rcpt.unusableHelp")}
-          </span>
+          <span style={{ display: "flex", gap: 8, alignItems: "center" }}><TriangleAlert size={15} className="warn-ico" /><b>{t(keyProblemKey(keys[keyPop].status, "chipTitle"), { addr: keyPop })}</b></span>
+          <span className="muted small">{t(keyProblemKey(keys[keyPop].status, "chipHelp"))}</span>
           <span style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
             <button className="btn small primary" onClick={() => (setKeyPop(null), onKeyAction?.("import"))}>{t("compose.rcpt.importKey")}</button>
             <button className="btn small" onClick={() => (setKeyPop(null), onKeyAction?.("paste"))}>{t("compose.rcpt.pasteKey")}</button>
@@ -1440,7 +1437,7 @@ function ComposeBody({ init }: { init: ComposeInit }) {
   const moveToDrafts = async () => {
     if (!init.outboxId) return;
     try {
-      await api.outboxToDraft(init.outboxId);
+      await moveScheduledToDrafts(init.outboxId);
       savedRef.current = true;
       setComposeDirty(false);
       showToast(t("compose.toast.movedToDrafts"), undefined, "success");
@@ -1620,7 +1617,7 @@ function ComposeBody({ init }: { init: ComposeInit }) {
       }
       try {
         if (choice === "delete") await api.cancelOutbox(init.outboxId);
-        else await api.outboxToDraft(init.outboxId);
+        else await moveScheduledToDrafts(init.outboxId);
         savedRef.current = true;
         setComposeDirty(false);
         showToast(choice === "delete" ? t("compose.toast.scheduleCancelled") : t("compose.toast.movedToDrafts"), undefined, "success");
@@ -1883,7 +1880,7 @@ function ComposeBody({ init }: { init: ComposeInit }) {
       return {
         cls: "warn",
         icon: <TriangleAlert size={15} />,
-        body: <>{st === "expired" ? tx("compose.sec.theirExpired", { addr: <b>{firstMissing}</b> }) : st === "revoked" ? tx("compose.sec.theirRevoked", { addr: <b>{firstMissing}</b> }) : noKeyAddrs.length > 1 ? tx("compose.sec.noKeyMore", { addr: <b>{firstMissing}</b> }, { n: noKeyAddrs.length - 1 }) : tx("compose.sec.noKey", { addr: <b>{firstMissing}</b> })}</>,
+        body: <>{st === "expired" || st === "revoked" || st === "signOnly" ? tx(keyProblemKey(st, "strip"), { addr: <b>{firstMissing}</b> }) : noKeyAddrs.length > 1 ? tx("compose.sec.noKeyMore", { addr: <b>{firstMissing}</b> }, { n: noKeyAddrs.length - 1 }) : tx("compose.sec.noKey", { addr: <b>{firstMissing}</b> })}</>,
         actions: (
           <>
             <button className="link" onClick={() => keyAction("import")}>{t("compose.rcpt.importKey")}</button><span className="muted">·</span>

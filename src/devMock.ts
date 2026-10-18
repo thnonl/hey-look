@@ -1542,6 +1542,7 @@ export function installMock() {
           own: ownKey ? { fingerprint: ownKey.fingerprint, canSign: true, canEncrypt: true, unlocked: !ownLocked, expired: false } : null,
           recipients: (a.addresses as string[]).map((addr) => {
             const k = keyFor(addr.toLowerCase());
+            if (/^sign[-.]?only@/.test(addr)) return { address: addr, status: "signOnly" }; // (a key for sign-only@... can only sign: the dev preview's stand-in for the QA fixture sign-only.asc)
             if (!k) return { address: addr, status: "missing" };
             return { address: addr, status: k.revoked ? "revoked" : k.expired ? "expired" : "ok", fingerprint: k.fingerprint, verified: k.verified, expires: k.expires };
           }),

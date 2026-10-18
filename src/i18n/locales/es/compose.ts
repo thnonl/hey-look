@@ -33,6 +33,8 @@ export default defineLocale<typeof ns.en>({
   "compose.rcpt.keyDialog": "Clave pública de {addr}",
   "compose.rcpt.keyExpired": "La clave de {addr} caducó",
   "compose.rcpt.keyRevoked": "La clave de {addr} fue revocada",
+  "compose.rcpt.keySignOnly": "La clave de {addr} solo sirve para firmar, no para cifrar",
+  "compose.rcpt.signOnlyHelp": "Esta clave permite comprobar firmas, pero no cifrar. Pide una clave pública que permita cifrar o impórtala desde un archivo.",
   "compose.rcpt.keyMissing": "Falta la clave pública de {addr}",
   "compose.rcpt.missingHelp": "El correo cifrado solo se puede enviar a personas de las que tengas la clave pública. Pídeles que te la envíen o impórtala desde un archivo.",
   "compose.rcpt.unusableHelp": "Ya no puedes cifrar para esta clave. Pide una clave pública nueva o impórtala desde un archivo.",
@@ -104,6 +106,7 @@ export default defineLocale<typeof ns.en>({
   "compose.sec.openSettings": "Abrir configuración",
   "compose.sec.theirExpired": "No se puede cifrar para {addr}: su clave caducó.",
   "compose.sec.theirRevoked": "No se puede cifrar para {addr}: su clave fue revocada.",
+  "compose.sec.theirSignOnly": "No se puede cifrar para {addr}: su clave solo sirve para firmar, no para cifrar.",
   "compose.sec.noKey": "Todavía no se puede cifrar: falta la clave pública de {addr}.",
   "compose.sec.noKeyMore": {
     one: "Todavía no se puede cifrar: falta la clave pública de {addr} y de {n} destinatario más.",

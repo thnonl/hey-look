@@ -9,7 +9,7 @@ import type { Key } from "../i18n";
 import { useT } from "../i18n/react";
 import { fmtWhen, zoneLabel } from "../util";
 import { EmptyState } from "./overlays";
-import { askUnlock } from "./Pgp";
+import { askUnlock, moveScheduledToDrafts } from "./Pgp";
 
 type Group = "Needs attention" | "Today" | "Tomorrow" | "Later";
 
@@ -137,7 +137,7 @@ export function ScheduledList() {
         await api.cancelOutbox(o.id);
         showToast(t("compose.toast.scheduleCancelled"), undefined, "success");
       } else if (choice === "drafts") {
-        await api.outboxToDraft(o.id);
+        await moveScheduledToDrafts(o.id);
         showToast(t("compose.toast.movedToDrafts"), undefined, "success");
       }
     } catch (err) {

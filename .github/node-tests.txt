@@ -166,3 +166,7 @@ static | node --experimental-strip-types scripts/test-blocked-picture.mjs
 static | node --experimental-strip-types scripts/test-week-hours.mjs
 # the labelled action row of the compose pane: resize from 1900 to 600 px and back, a language switch, the rows of More actions, a moved action works, Tab reaches More actions
 ui-a | node scripts/test-compose-overflow.mjs --require-browser
+# a key that can only sign is told apart from "no public key": the pure text choice for the strip and the chip popover, the status type, the three texts in the 8 languages
+static | node --experimental-strip-types scripts/test-key-status.mjs
+# whom a stored draft is for (the own key only; plain with "Encrypt drafts" off): every road to Drafts goes through draft_bytes, "Move to Drafts" asks for a locked key (the bytes: `cargo test --lib pgpstore`)
+static | node --experimental-strip-types scripts/test-draft-encryption.mjs

@@ -371,7 +371,7 @@ pub struct OwnStatus {
 #[serde(rename_all = "camelCase")]
 pub struct RecipientStatus {
     address: String,
-    /// ok | missing | expired | revoked
+    /// ok | missing | expired | revoked | signOnly (a stored key that can check signatures but has nothing to encrypt with)
     status: String,
     fingerprint: Option<String>,
     verified: Option<bool>,
@@ -386,9 +386,12 @@ pub struct RecipientsResult {
 
 #[tauri::command]
 pub fn pgp_recipient_status(state: tauri::State<AppState>, account_id: String, addresses: Vec<String>) -> R<RecipientsResult> {
-    let c = lock(&state.db);
-    let acc = crate::db::get_account(&c, &account_id)?;
-    let store = load_store(&c)?;
+    recipient_status(&lock(&state.db), &account_id, &addresses)
+}
+
+fn recipient_status(c: &Connection, account_id: &str, addresses: &[String]) -> R<RecipientsResult> {
+    let acc = crate::db::get_account(c, account_id)?;
+    let store = load_store(c)?;
     let own = store.own_key(&acc).map(|k| {
         let usable = openpgp::encryption_key(&k.public, now()).is_ok();
         OwnStatus {
@@ -408,6 +411,7 @@ pub fn pgp_recipient_status(state: tauri::State<AppState>, account_id: String, a
                 (Some(k), _) => RecipientStatus { address: e, status: "ok".into(), fingerprint: Some(k.info.fingerprint.clone()), verified: Some(k.verified), expires: k.info.expires },
                 (None, Some(Unusable::Revoked)) => RecipientStatus { address: e, status: "revoked".into(), fingerprint: None, verified: None, expires: None },
                 (None, Some(Unusable::Expired(at))) => RecipientStatus { address: e, status: "expired".into(), fingerprint: None, verified: None, expires: Some(at) },
+                (None, Some(Unusable::NoEncryptionKey)) => RecipientStatus { address: e, status: "signOnly".into(), fingerprint: None, verified: None, expires: None },
                 (None, _) => RecipientStatus { address: e, status: "missing".into(), fingerprint: None, verified: None, expires: None },
             }
         })
@@ -1174,6 +1178,140 @@ mod tests {
         let text = String::from_utf8(msg.formatted()).unwrap();
         assert!(text.contains("BEGIN PGP MESSAGE") && !text.contains("secret plan"));
         assert!(!text.contains("BEGIN PGP SIGNATURE"));
+    }
+
+    // ---- 1.0.7 W2.4: whom is a stored draft encrypted to? (investigation, then the permanent tests)
+
+    /// The armored PGP message inside a multipart/encrypted draft.
+    fn pgp_block(raw: &[u8]) -> Vec<u8> {
+        let t = String::from_utf8_lossy(raw);
+        let a = t.find("-----BEGIN PGP MESSAGE-----").expect("an encrypted draft has a PGP message");
+        let end = "-----END PGP MESSAGE-----";
+        let b = t.find(end).expect("end of the PGP message") + end.len();
+        t[a..b].as_bytes().to_vec()
+    }
+
+    fn share(c: Connection) -> crate::Db {
+        Arc::new(Mutex::new(c))
+    }
+
+    /// The key ids of the encryption keys of a stored certificate (its subkeys; the primary key of a Cv25519 key only signs).
+    fn subkey_ids(db: &crate::Db, fpr: &str) -> Vec<String> {
+        let store = load_store(&lock(db)).unwrap();
+        openpgp::all_key_ids(&store.by_fpr(fpr).unwrap().public)[1..].to_vec()
+    }
+
+    /// Step 1: a draft with Encrypt on, one recipient without a key (ann) and one with (bob): what the APPEND carries is encrypted to the account's own
+    /// key and to nobody else, whatever the recipients; the strip's "no public key for ann" is about sending.
+    #[test]
+    fn an_encrypted_draft_is_for_the_own_key_only() {
+        crate::test_guard::within(60, || {
+            let (c, acc, _g) = setup();
+            let own = add_own(&c, "me@example.com", "my-pass-1234");
+            let (_, bob) = add_contact(&c, "bob@example.com");
+            let db = share(c);
+            let d = draft(&acc, &["ann@example.com", "bob@example.com"], &["carl@example.com"], true, false);
+            // the recipient status the strip is built from: ann has no key, bob has one
+            let store = load_store(&lock(&db)).unwrap();
+            assert!(store.key_for_email("ann@example.com").0.is_none());
+            assert!(store.key_for_email("bob@example.com").0.is_some());
+            // what Save draft / the autosave / the quit save append: the bytes `save_draft_on` puts into Drafts
+            let fake = crate::fakeimap::Fake::start(&[("INBOX", &[]), ("Drafts", &[])]);
+            crate::db::set_setting(&lock(&db), "fmap:a1", r#"{"inbox":"INBOX","drafts":"Drafts"}"#).unwrap();
+            let raw = crate::draft_bytes(&db, &acc, &d).unwrap();
+            let mut s = fake.connect();
+            crate::save_draft_on(&db, &acc, &mut s, &raw, None).unwrap();
+            let _ = s.logout();
+            let appended = fake.state.lock().unwrap().appended.clone();
+            assert_eq!(appended.len(), 1);
+            let wire = String::from_utf8_lossy(&appended[0].1).to_string();
+            assert!(wire.contains("multipart/encrypted") && wire.contains("BEGIN PGP MESSAGE") && !wire.contains("secret plan"), "{wire}");
+            let ids = openpgp::encrypted_for(&pgp_block(&appended[0].1)).unwrap();
+            assert_eq!(ids, subkey_ids(&db, &own), "exactly the own encryption subkey, no recipient: {ids:?}");
+            assert!(!ids.iter().any(|i| subkey_ids(&db, &bob).contains(i)), "bob's key is not in the draft");
+            // the Bcc recipient is in the headers of a draft (it is the person's own copy) but never in the encryption
+            assert!(!wire.contains("secret plan"));
+        });
+    }
+
+    /// Step 2: Encrypt on, "Encrypt drafts" off: the page sends the draft WITHOUT security (Compose.saveDraft: `keepPrivate ? {encrypt...} : undefined`),
+    /// so the backend appends a plain draft; the backend never decides this itself (a draft that does carry `encrypt` is always encrypted).
+    #[test]
+    fn a_draft_without_security_is_stored_plain_and_one_with_it_is_encrypted() {
+        let (c, acc, _g) = setup();
+        add_own(&c, "me@example.com", "my-pass-1234");
+        let db = share(c);
+        let mut d = draft(&acc, &["ann@example.com"], &[], true, false);
+        d.security = None; // what the page sends when "Encrypt drafts" is off
+        let plain = String::from_utf8_lossy(&crate::draft_bytes(&db, &acc, &d).unwrap()).to_string();
+        assert!(!plain.contains("BEGIN PGP MESSAGE") && plain.contains("secret plan"), "{plain}");
+        d.security = Some(Security { encrypt: true, sign: false, attach_public_key: false }); // what it sends when it is on
+        let enc = String::from_utf8_lossy(&crate::draft_bytes(&db, &acc, &d).unwrap()).to_string();
+        assert!(enc.contains("BEGIN PGP MESSAGE") && !enc.contains("secret plan"));
+        // a draft is never signed, and Sign alone stores a plain draft
+        d.security = Some(Security { encrypt: false, sign: true, attach_public_key: true });
+        let signed = String::from_utf8_lossy(&crate::draft_bytes(&db, &acc, &d).unwrap()).to_string();
+        assert!(!signed.contains("BEGIN PGP") && signed.contains("secret plan"));
+    }
+
+    /// Step 3: "Move to Drafts" of a scheduled message that was sealed (encrypted to bob and to the account at schedule time): the stored draft must be
+    /// for the own key only, like every other draft.
+    #[test]
+    fn a_moved_scheduled_message_is_stored_for_the_own_key_only() {
+        crate::test_guard::within(60, || {
+            let (c, acc, _g) = setup();
+            let own = add_own(&c, "me@example.com", "my-pass-1234");
+            unlock_key(&load_store(&c).unwrap(), &own, "my-pass-1234", false).unwrap();
+            let (_, bob) = add_contact(&c, "bob@example.com");
+            let db = share(c);
+            let sealed = seal_for_outbox(&lock(&db), &acc, &draft(&acc, &["bob@example.com"], &[], true, false)).unwrap();
+            // (what the outbox holds: the message for bob and for the account)
+            let at_schedule = openpgp::encrypted_for(&pgp_block(&base64::engine::general_purpose::STANDARD.decode(sealed.prebuilt.as_ref().unwrap()).unwrap())).unwrap();
+            assert!(at_schedule.iter().any(|i| subkey_ids(&db, &bob).contains(i)), "the sealed message is for bob: {at_schedule:?}");
+            let raw = crate::draft_bytes(&db, &acc, &sealed).unwrap();
+            let ids = openpgp::encrypted_for(&pgp_block(&raw)).unwrap();
+            assert_eq!(ids, subkey_ids(&db, &own), "the moved draft is for the own key only: {ids:?}");
+            // and it opens again with the own key and holds the text
+            let store = load_store(&lock(&db)).unwrap();
+            let verified = HashSet::new();
+            let key = unlocked_keys();
+            let ctx = Ctx { unlocked: key.iter().collect(), locked: vec![], publics: &store.publics, verified: &verified };
+            let o = pgpmail::open(&raw, &ctx);
+            assert_eq!(o.security.decryption, "ok", "{:?}", o.security);
+            let p = crate::mail::parse(1, o.plain.as_ref().unwrap(), true, false, 0).unwrap();
+            assert!(p.text.unwrap().contains("the secret plan"));
+            // a locked key asks for the passphrase instead of storing something unreadable or too open
+            lock_all_now();
+            assert_eq!(crate::draft_bytes(&db, &acc, &sealed).unwrap_err(), format!("PGP_LOCKED:{own}"));
+        });
+    }
+
+    /// 1.0.7 W2.6: a recipient whose only key cannot encrypt is told apart from one with no key at all (the chip and the strip say so).
+    #[test]
+    fn a_key_that_can_only_sign_is_reported_as_sign_only() {
+        let (c, _acc, _g) = setup();
+        add_own(&c, "me@example.com", "my-pass-1234");
+        let only_signing = |email: &str| {
+            let sk = openpgp::generate(Algo::Cv25519, &format!("Sign <{email}>"), None, "x-pass-12345").unwrap();
+            let mut pk = sk.to_public_key();
+            pk.public_subkeys.clear(); // a certificate without an encryption subkey
+            save_key(&c, &pk, None, false, "paste").unwrap();
+        };
+        only_signing("sign@example.com");
+        only_signing("both@example.com");
+        add_contact(&c, "both@example.com"); // the same address also has a key that can encrypt: that one wins
+        add_contact(&c, "bob@example.com");
+        let ask = |list: &[&str]| -> Vec<(String, String)> {
+            let list: Vec<String> = list.iter().map(|a| a.to_string()).collect();
+            recipient_status(&c, "a1", &list).unwrap().recipients.into_iter().map(|r| (r.address, r.status)).collect()
+        };
+        let got = ask(&["sign@example.com", "nobody@example.com", "bob@example.com", "both@example.com", "SIGN@Example.com"]);
+        let status = |a: &str| got.iter().find(|(x, _)| x == a).map(|(_, s)| s.as_str());
+        assert_eq!(status("sign@example.com"), Some("signOnly"));
+        assert_eq!(status("nobody@example.com"), Some("missing"), "no key at all is still 'no public key'");
+        assert_eq!(status("bob@example.com"), Some("ok"));
+        assert_eq!(status("both@example.com"), Some("ok"), "another usable key for the address wins");
+        assert_eq!(got.last().map(|(_, s)| s.as_str()), Some("signOnly"), "the address is matched without regard to case");
     }
 
     #[test]

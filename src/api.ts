@@ -241,7 +241,8 @@ export interface Meeting {
 }
 
 export type KeyAlgo = "cv25519" | "rsa3072";
-export type KeyStatus = "ok" | "missing" | "expired" | "revoked";
+/** `signOnly` (1.0.7): the key for the address can check signatures but has no key to encrypt with */
+export type KeyStatus = "ok" | "missing" | "expired" | "revoked" | "signOnly";
 
 export interface PgpKey {
   /** 40 hex characters, no spaces */
