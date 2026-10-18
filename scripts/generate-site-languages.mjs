@@ -23,7 +23,7 @@ import { fileURLToPath } from 'node:url';
 import { execFileSync } from 'node:child_process';
 import { seoLines, versionOf } from './lib/site-seo.mjs';
 
-export const SITE = 'https://thnonl.github.io/hey-look/';
+export const SITE = 'https://heylook.namthai.site/';
 // dir = folder under docs/ ('' = root), hreflang = BCP 47 tag for <html lang> and hreflang, label = "Language" in that language (menu name), colon = what follows the label before the language name (default ': '; French wants a no-break space before the colon, Chinese and Japanese the full-width colon)
 export const LANGS = [
   { code: 'en', dir: '', hreflang: 'en', native: 'English', short: 'EN', label: 'Language' },
