@@ -234,6 +234,31 @@ unsafe fn read_back(w: *mut AnyObject) -> (String, String, Option<bool>) {
     }
 }
 
+/// The windows to work on: the ones tauri lists (`known`, only the one named by `only` when given) and, without `only`, every other titled
+/// window of `[NSApp windows]` (labelled `ns#<window number>`).
+///
+/// SAFETY (caller): main thread; the pointers of `known` are live windows.
+unsafe fn work_list(known: &[(String, *mut c_void)], only: Option<&str>) -> Vec<(String, *mut AnyObject)> {
+    let mut work: Vec<(String, *mut AnyObject)> = Vec::new();
+    for (label, p) in known {
+        if !p.is_null() && only.is_none_or(|o| o == label) {
+            work.push((label.clone(), *p as *mut AnyObject));
+        }
+    }
+    if only.is_none() {
+        // SAFETY: Objective-C messages to live AppKit windows (main thread, caller).
+        unsafe {
+            for w in app_window_list() {
+                if is_titled(w) && !work.iter().any(|(_, k)| *k == w) {
+                    let number: isize = msg_send![w, windowNumber];
+                    work.push((format!("ns#{number}"), w));
+                }
+            }
+        }
+    }
+    work
+}
+
 /// Give windows the appearance `dark` asks for (`Some(true)` dark, `Some(false)` light, `None` = no appearance of their own: follow the OS),
 /// and read back what each one has. Main thread (wintheme.rs calls it from `run_on_main_thread`).
 ///
@@ -266,21 +291,7 @@ pub fn apply_appearance(dark: Option<bool>, known: &[(String, *mut c_void)], onl
             "application: appearance {app_own} / effective {app_eff}; windows have to show {}",
             crate::wintheme::dark_text(expected)
         ));
-        let mut work: Vec<(String, *mut AnyObject)> = Vec::new();
-        for (label, p) in known {
-            if !p.is_null() && only.is_none_or(|o| o == label) {
-                work.push((label.clone(), *p as *mut AnyObject));
-            }
-        }
-        if only.is_none() {
-            for w in app_window_list() {
-                if is_titled(w) && !work.iter().any(|(_, k)| *k == w) {
-                    let number: isize = msg_send![w, windowNumber];
-                    work.push((format!("ns#{number}"), w));
-                }
-            }
-        }
-        for (label, w) in work {
+        for (label, w) in work_list(known, only) {
             let number: isize = msg_send![w, windowNumber];
             let visible: Bool = msg_send![w, isVisible];
             let class = text(msg_send![w, className]);
@@ -320,6 +331,290 @@ pub fn apply_appearance(dark: Option<bool>, known: &[(String, *mut c_void)], onl
         }
     }
     report
+}
+
+// ---- the title bar repaint strategies (titlebar.rs) and the description of a window for the log ----
+
+/// An autoreleased `NSString` from text (a NUL inside is cut off). Null when it cannot be made.
+///
+/// SAFETY (caller): main thread.
+unsafe fn nsstring(s: &str) -> *mut AnyObject {
+    let cut = s.split('\0').next().unwrap_or("");
+    let (Ok(c), Some(class)) = (std::ffi::CString::new(cut), AnyClass::get(c"NSString")) else { return std::ptr::null_mut() };
+    // SAFETY: a class message with a NUL-terminated C string that lives through the call.
+    unsafe { msg_send![class, stringWithUTF8String: c.as_ptr()] }
+}
+
+/// Does `obj` answer the selector `name`? (A message it does not answer would raise an Objective-C exception, which is not catchable here.)
+unsafe fn answers(obj: *mut AnyObject, name: &CStr) -> bool {
+    if obj.is_null() {
+        return false;
+    }
+    // SAFETY: `obj` is a live Objective-C object (non-null); `respondsToSelector:` is an NSObject method.
+    unsafe {
+        let sel = objc2::runtime::Sel::register(name);
+        let r: Bool = msg_send![obj, respondsToSelector: sel];
+        r.as_bool()
+    }
+}
+
+/// `[obj valueForKey:key]` described as text (an NSValue of a rect reads "NSRect: {{0, 0}, {980, 580}}"), "-" when `obj` has no such getter.
+/// Used instead of calling a getter that returns a struct, so no struct type has to be described to the runtime.
+unsafe fn key_text(obj: *mut AnyObject, key: &CStr) -> String {
+    // SAFETY: only asked when `obj` answers the getter named like the key; the value and its description are checked for null.
+    unsafe {
+        if !answers(obj, key) {
+            return "-".into();
+        }
+        let k = nsstring(key.to_str().unwrap_or(""));
+        if k.is_null() {
+            return "?".into();
+        }
+        let value: *mut AnyObject = msg_send![obj, valueForKey: k];
+        if value.is_null() {
+            return "nil".into();
+        }
+        text(msg_send![value, description]).replace("NSRect: ", "")
+    }
+}
+
+/// The description of an object (`NSColor` and the like), "nil" for null.
+unsafe fn describe_object(o: *mut AnyObject) -> String {
+    if o.is_null() {
+        return "nil".into();
+    }
+    // SAFETY: `o` is a live object, non-null.
+    unsafe { text(msg_send![o, description]) }
+}
+
+/// The class names and frames of the direct subviews of a view, "[A {{x, y}, {w, h}}, B ...]" (at most 8).
+unsafe fn subviews_text(view: *mut AnyObject) -> String {
+    if view.is_null() {
+        return "nil".into();
+    }
+    // SAFETY: `view` is a live NSView (non-null); the list and its entries are checked for null.
+    unsafe {
+        let list: *mut AnyObject = msg_send![view, subviews];
+        if list.is_null() {
+            return "[]".into();
+        }
+        let n: usize = msg_send![list, count];
+        let mut parts = Vec::new();
+        for i in 0..n.min(8) {
+            let v: *mut AnyObject = msg_send![list, objectAtIndex: i];
+            if !v.is_null() {
+                parts.push(format!("{} {}", text(msg_send![v, className]), key_text(v, c"frame")));
+            }
+        }
+        if n > 8 {
+            parts.push(format!("... {n} in all"));
+        }
+        format!("[{}]", parts.join(", "))
+    }
+}
+
+/// What a window is, for the log: everything that could make its title bar be painted differently from the title bar of another window
+/// (style mask incl. the full-size content view bit, transparent title bar, title visibility, background colour, key / visible, document-edited
+/// flag, sharing type, level, frames and the subviews of the content and of the frame view). Main thread.
+pub fn describe(label: &str, w: *mut c_void) -> String {
+    let w = w as *mut AnyObject;
+    if w.is_null() {
+        return format!("{label}: no window");
+    }
+    // SAFETY: `w` is a live NSWindow (tauri's `ns_window` or a member of `[NSApp windows]`) on the main thread; every returned object is
+    // checked before it is messaged, and the getters of other objects are asked only when the object answers them.
+    unsafe {
+        let number: isize = msg_send![w, windowNumber];
+        let mask: usize = msg_send![w, styleMask];
+        let transparent: Bool = msg_send![w, titlebarAppearsTransparent];
+        let vis: isize = msg_send![w, titleVisibility];
+        let background = describe_object(msg_send![w, backgroundColor]);
+        let opaque: Bool = msg_send![w, isOpaque];
+        let key: Bool = msg_send![w, isKeyWindow];
+        let visible: Bool = msg_send![w, isVisible];
+        let edited: Bool = msg_send![w, isDocumentEdited];
+        let sharing: usize = msg_send![w, sharingType];
+        let level: isize = msg_send![w, level];
+        let shadow: Bool = msg_send![w, hasShadow];
+        let title = text(msg_send![w, title]);
+        let content: *mut AnyObject = msg_send![w, contentView];
+        let frame_view: *mut AnyObject = if content.is_null() { std::ptr::null_mut() } else { msg_send![content, superview] };
+        let class = if content.is_null() { "nil".to_string() } else { text(msg_send![content, className]) };
+        let frame_class = if frame_view.is_null() { "nil".to_string() } else { text(msg_send![frame_view, className]) };
+        format!(
+            "{label} [#{number}] title '{title}': styleMask {mask:#x} (titled {}, fullSizeContentView {}), titlebarAppearsTransparent {}, titleVisibility {vis}, \
+             backgroundColor {background} (opaque {}), key {}, visible {}, documentEdited {}, sharingType {sharing}, level {level}, hasShadow {}; \
+             window frame {}, contentLayoutRect {}; contentView {class} {} with subviews {}; frame view {frame_class} with subviews {}",
+            mask & 1 != 0,
+            mask & (1 << 15) != 0,
+            transparent.as_bool(),
+            opaque.as_bool(),
+            key.as_bool(),
+            visible.as_bool(),
+            edited.as_bool(),
+            shadow.as_bool(),
+            key_text(w, c"frame"),
+            key_text(w, c"contentLayoutRect"),
+            if content.is_null() { "-".to_string() } else { key_text(content, c"frame") },
+            subviews_text(content),
+            subviews_text(frame_view),
+        )
+    }
+}
+
+/// [`describe`] for every window of the work list (`known` / `only` as in [`apply_appearance`]). Main thread.
+pub fn describe_all(known: &[(String, *mut c_void)], only: Option<&str>) -> Vec<String> {
+    // SAFETY: main thread (caller); the pointers are live windows.
+    let list = unsafe { work_list(known, only) };
+    list.into_iter().map(|(label, w)| describe(&label, w as *mut c_void)).collect()
+}
+
+/// `setNeedsDisplay:YES` on a view and, recursively, on all its subviews; counts the views, and the title bar views (class name has "Titlebar").
+unsafe fn invalidate_tree(v: *mut AnyObject, depth: usize, views: &mut usize, titlebar_views: &mut usize) {
+    if v.is_null() || depth > 24 {
+        return;
+    }
+    // SAFETY: `v` is a live NSView (non-null, from `subviews` of a live view); main thread.
+    unsafe {
+        let _: () = msg_send![v, setNeedsDisplay: Bool::YES];
+        *views += 1;
+        if text(msg_send![v, className]).contains("Titlebar") {
+            *titlebar_views += 1;
+        }
+        let list: *mut AnyObject = msg_send![v, subviews];
+        if list.is_null() {
+            return;
+        }
+        let n: usize = msg_send![list, count];
+        for i in 0..n {
+            let child: *mut AnyObject = msg_send![list, objectAtIndex: i];
+            invalidate_tree(child, depth + 1, views, titlebar_views);
+        }
+    }
+}
+
+/// Windows put out of sight by `OrderOut` and not yet brought back by `OrderFront`: the window pointer and whether it was the key window.
+fn hidden() -> &'static Mutex<Vec<(usize, bool)>> {
+    static HIDDEN: OnceLock<Mutex<Vec<(usize, bool)>>> = OnceLock::new();
+    HIDDEN.get_or_init(Default::default)
+}
+
+/// The label of a window pointer among tauri's windows, or `ns#<number>`.
+unsafe fn window_label(known: &[(String, *mut c_void)], w: *mut AnyObject) -> String {
+    match known.iter().find(|(_, p)| *p as *mut AnyObject == w) {
+        Some((l, _)) => l.clone(),
+        None => {
+            // SAFETY: `w` is a live NSWindow (caller).
+            let number: isize = unsafe { msg_send![w, windowNumber] };
+            format!("ns#{number}")
+        }
+    }
+}
+
+/// One step of a repaint strategy on the windows (`known` / `only` as in [`apply_appearance`]), with the appearance `dark` the windows have
+/// to end up with (the target of the setting at the time of the call: `None` = System). One line of the log per window. Main thread.
+pub fn run_act(act: crate::titlebar::Act, dark: Option<bool>, known: &[(String, *mut c_void)], only: Option<&str>) -> Vec<String> {
+    use crate::titlebar::Act;
+    let mut out = Vec::new();
+    // SAFETY: main thread (caller); every pointer comes from AppKit or from tauri's live windows and is checked for null before use.
+    unsafe {
+        // what the windows have to show, for the flip: the target, or (System) what the application shows
+        let app = shared_app();
+        let expected = dark.or_else(|| if app.is_null() { None } else { effective(app).1 });
+        if act == Act::OrderFront {
+            // every window put out of sight comes back, whichever run took it (and only if it still exists)
+            let list: Vec<(usize, bool)> = std::mem::take(&mut *hidden().lock().unwrap_or_else(|p| p.into_inner()));
+            let alive = app_window_list();
+            let none: *mut AnyObject = std::ptr::null_mut();
+            for (ptr, was_key) in list {
+                let w = ptr as *mut AnyObject;
+                if !alive.contains(&w) {
+                    out.push(format!("window {ptr:#x} is gone: not brought back"));
+                    continue;
+                }
+                if was_key {
+                    let _: () = msg_send![w, makeKeyAndOrderFront: none];
+                } else {
+                    let _: () = msg_send![w, orderFront: none];
+                }
+                let visible: Bool = msg_send![w, isVisible];
+                out.push(format!("{}: brought back (was key {was_key}), visible {}", window_label(known, w), visible.as_bool()));
+            }
+            return out;
+        }
+        for (label, w) in work_list(known, only) {
+            match act {
+                Act::Invalidate => {
+                    let content: *mut AnyObject = msg_send![w, contentView];
+                    let frame: *mut AnyObject = if content.is_null() { content } else { msg_send![content, superview] };
+                    let (mut views, mut bars) = (0, 0);
+                    invalidate_tree(frame, 0, &mut views, &mut bars);
+                    let _: () = msg_send![w, invalidateShadow];
+                    let _: () = msg_send![w, displayIfNeeded];
+                    out.push(format!("{label}: {views} view(s) marked for redraw ({bars} title bar view(s)), displayIfNeeded"));
+                }
+                Act::FlipOpposite => {
+                    let Some(e) = expected else {
+                        out.push(format!("{label}: not flipped (the application shows no known appearance to be the opposite of)"));
+                        continue;
+                    };
+                    let _: () = msg_send![w, setAppearance: appearance_for(Some(!e))];
+                    let (own, eff, _) = read_back(w);
+                    out.push(format!("{label}: flipped to {} ({own} / {eff})", crate::wintheme::dark_text(Some(!e))));
+                }
+                Act::FlipRestore => {
+                    let _: () = msg_send![w, setAppearance: appearance_for(dark)];
+                    let content: *mut AnyObject = msg_send![w, contentView];
+                    let frame: *mut AnyObject = if content.is_null() { content } else { msg_send![content, superview] };
+                    if !frame.is_null() {
+                        let _: () = msg_send![frame, setNeedsDisplay: Bool::YES];
+                    }
+                    let _: () = msg_send![w, invalidateShadow];
+                    let _: () = msg_send![w, displayIfNeeded];
+                    let (own, eff, eff_dark) = read_back(w);
+                    let bad = crate::wintheme::judge(dark, &own, eff_dark, expected).map(|b| format!(" MISMATCH ({b})")).unwrap_or_default();
+                    out.push(format!("{label}: set to {} again ({own} / {eff}){bad}", if dark.is_some() { "the pinned appearance" } else { "none of its own (System)" }));
+                }
+                Act::TitleCycle => {
+                    let old = text(msg_send![w, title]);
+                    let vis: isize = msg_send![w, titleVisibility];
+                    let other: isize = if vis == 0 { 1 } else { 0 };
+                    // a different string that looks the same (a zero-width space on the end), the title hidden, the window told to update
+                    let _: () = msg_send![w, setTitle: nsstring(&format!("{old}\u{200B}"))];
+                    let _: () = msg_send![w, setTitleVisibility: other];
+                    let _: () = msg_send![w, update];
+                    let _: () = msg_send![w, displayIfNeeded];
+                    let _: () = msg_send![w, setTitle: nsstring(&old)];
+                    let _: () = msg_send![w, setTitleVisibility: vis];
+                    let _: () = msg_send![w, update];
+                    let _: () = msg_send![w, displayIfNeeded];
+                    out.push(format!("{label}: title '{old}' set to another string and back, titleVisibility {vis} -> {other} -> {vis}, update"));
+                }
+                Act::OrderOut => {
+                    let visible: Bool = msg_send![w, isVisible];
+                    if !visible.as_bool() {
+                        out.push(format!("{label}: not visible, left alone"));
+                        continue;
+                    }
+                    let key: Bool = msg_send![w, isKeyWindow];
+                    let none: *mut AnyObject = std::ptr::null_mut();
+                    hidden().lock().unwrap_or_else(|p| p.into_inner()).push((w as usize, key.as_bool()));
+                    let _: () = msg_send![w, orderOut: none];
+                    out.push(format!("{label}: put out of sight (was key {})", key.as_bool()));
+                }
+                Act::TransparentToggle => {
+                    let before: Bool = msg_send![w, titlebarAppearsTransparent];
+                    let _: () = msg_send![w, setTitlebarAppearsTransparent: Bool::new(!before.as_bool())];
+                    let _: () = msg_send![w, displayIfNeeded];
+                    let _: () = msg_send![w, setTitlebarAppearsTransparent: before];
+                    let _: () = msg_send![w, displayIfNeeded];
+                    out.push(format!("{label}: titlebarAppearsTransparent {} -> {} -> {}", before.as_bool(), !before.as_bool(), before.as_bool()));
+                }
+                Act::OrderFront | Act::PageNudge => {} // OrderFront is handled above; the page nudge is not native
+            }
+        }
+    }
+    out
 }
 
 /// The titled windows whose shown appearance differs from what `dark` asks for (see [`apply_appearance`] for the meaning), by label or

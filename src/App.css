@@ -1484,8 +1484,12 @@ span.spin { display: inline-block; width: 13px; height: 13px; border: 2px solid 
 
 /* Secondary windows (src/popout): the placeholder page and its dev panel; the real views bring their own styles */
 .popout-root { padding: 16px; display: flex; flex-direction: column; gap: 8px; align-items: flex-start; }
-/* the compose window: the pane fills it (.compose-pane is absolute), and the card that shows the Undo time in its place */
-.popout-compose { position: fixed; inset: 0; background: var(--bg); color: var(--fg); }
+/* the compose window: the pane fills it (.compose-pane is absolute), and the card that shows the Undo time in its place.
+   NOT position: fixed. On macOS the web view runs under the title bar (tauri's default title bar style has a full-size content view) and WebKit
+   fills that strip from the colour of a fixed element at the top edge, which it samples once and does not take again when a theme variable
+   changes: a compose window kept the title bar colour of the theme it was opened in (the reader and the main window, whose root is not fixed,
+   take the page background, which follows). The same box without being fixed: the whole viewport, the containing block of the pane. */
+.popout-compose { position: relative; width: 100%; height: 100vh; background: var(--bg); color: var(--fg); }
 .popout-sending { position: absolute; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 14px; padding: 24px; text-align: center; }
 .popout-sending .ps-line { display: flex; align-items: center; gap: 10px; font-size: 1.2em; font-weight: 600; }
 .popout-dev { display: grid; grid-template-columns: max-content 1fr; gap: 2px 12px; margin: 0; font-size: .9em; }

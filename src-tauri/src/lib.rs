@@ -27,6 +27,9 @@ mod macquit;
 // the native window of a pop-out, finished by hand once it is gone (popout.rs)
 #[cfg(target_os = "macos")]
 mod macwin;
+// the macOS title bar repaint strategies (HEYLOOK_TITLEBAR_MODE); pure, so compiled and tested everywhere
+#[cfg_attr(not(target_os = "macos"), allow(dead_code))]
+mod titlebar;
 mod mail;
 // the main window never leaves the app for a website (the PDF frame has no sandbox on Windows and macOS); the pure decision is compiled and tested everywhere
 #[cfg_attr(not(any(windows, target_os = "macos")), allow(dead_code))]

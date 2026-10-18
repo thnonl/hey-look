@@ -18,6 +18,7 @@ import { currentFlushHandlers, runPopoutFlush } from "./flush";
 import type { Route } from "./route";
 import { VIEWS } from "./views";
 import { AskHost, Toasts } from "../components/overlays";
+import { nudgeTopEdge, topStripInfo } from "./titlebarNudge";
 
 const quiet = () => undefined;
 
@@ -26,6 +27,14 @@ function askFrameTheme() {
   const theme = document.documentElement.getAttribute("data-theme") ?? "system";
   const dark = window.matchMedia?.("(prefers-color-scheme: dark)").matches ?? false;
   void api.windowThemeRefresh(theme, dark).catch(quiet);
+  // what the top of this page is painted with (macOS: the web view runs under the title bar), once the page has laid out its new theme
+  requestAnimationFrame(() => {
+    try {
+      void api.popoutNote("strip", topStripInfo()).catch(quiet);
+    } catch {
+      /* the log line is a nicety */
+    }
+  });
 }
 
 interface Known {
@@ -62,6 +71,8 @@ export default function PopoutRoot({ route }: { route: Exclude<Route, { kind: "m
       if (drawn) {
         clearInterval(id);
         void api.popoutNote("content", `drawn ${Math.round(box!.width)} x ${Math.round(box!.height)} after ${Date.now() - t0} ms`).catch(quiet);
+        // the top strip of the drawn view (macOS paints the title bar from it): the first reading above was taken while the page was still a placeholder
+        void api.popoutNote("strip", `view drawn: ${topStripInfo()}`).catch(quiet);
       } else if (Date.now() - t0 > 7000) {
         clearInterval(id);
         void api.popoutNote("error", "the view has nothing on screen 7 s after it was mounted").catch(quiet);
@@ -132,6 +143,15 @@ export default function PopoutRoot({ route }: { route: Exclude<Route, { kind: "m
     if (!mq) return;
     mq.addEventListener("change", askFrameTheme);
     return () => mq.removeEventListener("change", askFrameTheme);
+  }, []);
+
+  // the backend asks for the top edge to be laid out again (macOS title bar repaint mode 7 / 8, src-tauri/src/titlebar.rs)
+  useEffect(() => {
+    const off = listen("titlebar-nudge", () => {
+      const n = nudgeTopEdge();
+      void api.popoutNote("strip", `nudged ${n} element(s) at the top edge`).catch(quiet);
+    });
+    return () => void off.then((f) => f()).catch(quiet);
   }, []);
 
   // Ctrl+W (Cmd+W) closes the window by the same road as its close button; a view decides in `onCloseRequested` what that means for it
