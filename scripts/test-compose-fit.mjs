@@ -175,10 +175,31 @@ const MEETING_ROWS = (rest) => `(() => {
   head.scrollTop = 0;
   return { fails, rows: rows.length };
 })()`;
+// where a focused control is, against the part of the header that shows (not under the sticky action row, not past the formatting row) and on top
+const FOCUSED = `(() => {
+  const pane = document.querySelector('.compose-pane'), head = pane.querySelector('.cp-head'), fmt = pane.querySelector('.cp-fmt'), bar = pane.querySelector('.cp-bar'), a = document.activeElement;
+  if (!a || !head.contains(a)) return { inHead: false, name: a ? a.tagName + '.' + String(a.className) : 'nothing' };
+  const H = head.getBoundingClientRect(), F = fmt.getBoundingClientRect(), r = a.getBoundingClientRect();
+  const top = H.top + (getComputedStyle(bar).position === 'sticky' ? bar.getBoundingClientRect().height : 0), bottom = Math.min(H.bottom, F.top);
+  const t = document.elementFromPoint(r.left + r.width / 2, Math.max(top + 1, Math.min(bottom - 1, r.top + r.height / 2)));
+  return { inHead: true, name: a.tagName.toLowerCase() + (a.id ? '#' + a.id : '') + (a.getAttribute('aria-label') ? '[' + a.getAttribute('aria-label') + ']' : '') + '.' + String(a.className).trim().split(/\s+/)[0], whole: r.top >= top - 1 && r.bottom <= bottom + 1, y: [Math.round(r.top), Math.round(r.bottom)], room: [Math.round(top), Math.round(bottom)], hit: !!t && (a.contains(t) || t.contains(a)), isWhere: a.id === 'mt-where' };
+})()`;
 async function meetingRows(cfg) {
   const g = await evaluate(MEETING_ROWS(cfg.scen === 'meetingNew'));
   ok(cfg, g.rows >= 6, `Meeting on: only ${g.rows} header rows were checked`);
   for (const f of g.fails) ok(cfg, false, `Meeting on: ${f}`);
+  // Tab from Subject through the strip into Where (and the Where field focused directly): every stop is scrolled whole into the part of the header that shows
+  await evaluate(`document.querySelector('.cp-head').scrollTop = 0; document.querySelector('.cf-subject input').focus(); 1`);
+  let a = await evaluate(FOCUSED), stops = 0;
+  while (!a.isWhere && stops < 14) {
+    await press('Tab', 'Tab'); await sleep(80); a = await evaluate(FOCUSED); stops++;
+    if (!a.inHead) break;
+    ok(cfg, a.y[1] === a.y[0] || (a.whole && a.hit), `Meeting on: Tab stop ${a.name} is not whole and on top in the header: y ${a.y} in ${a.room}, hit ${a.hit}`);
+  }
+  ok(cfg, a.isWhere, `Meeting on: Tab from Subject did not reach Where within ${stops} stops (stopped on ${a.name})`);
+  await evaluate(`document.activeElement.blur(); document.querySelector('.cp-head').scrollTop = 0; document.querySelector('#mt-where').focus(); 1`); await sleep(80); // (blurred first: focusing the element that has the focus scrolls nothing)
+  a = await evaluate(FOCUSED);
+  ok(cfg, a.isWhere && a.whole && a.hit, `Meeting on: Where, focused from the top of the header, is not whole and on top: ${JSON.stringify(a)}`);
 }
 
 async function open(cfg) {
