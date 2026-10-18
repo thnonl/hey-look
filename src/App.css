@@ -520,7 +520,7 @@ button.att-chip:hover { background: var(--bg3); border-color: color-mix(in srgb,
 .compose-pane:not(.compact) .cp-bar { flex-wrap: nowrap; }
 .cp-bar > .imp-wrap, .cp-bar > .dd-wrap { display: contents; }
 /* the hidden copy of the movable actions whose natural widths are measured: off screen, not in the tab order (inert), not read out (aria-hidden) */
-.cp-probe { position: fixed; left: -10000px; top: 0; display: flex; align-items: center; gap: 2px; white-space: nowrap; visibility: hidden; pointer-events: none; }
+.cp-probe { position: absolute; left: -10000px; top: 0; display: flex; align-items: center; gap: 2px; white-space: nowrap; visibility: hidden; pointer-events: none; }
 .cp-probe .imp-wrap, .cp-probe .dd-wrap { display: inline-flex; }
 .split-btn { display: inline-flex; margin-right: 10px; position: relative; }
 .split-btn .btn:first-child { border-radius: var(--r-sm) 0 0 var(--r-sm); padding: 7px 18px; }
