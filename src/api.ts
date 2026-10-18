@@ -649,7 +649,7 @@ export const api = {
   /** The calling window ends now (its page has decided: saved, discarded or sent). */
   popoutDestroy: () => invoke<boolean>("popout_destroy"),
   /** A line for startup.log from a secondary window: "content" (the view was drawn), "error" (a script error), "info". */
-  popoutNote: (kind: "content" | "error" | "info", text: string) => invoke<void>("popout_note", { kind, text }),
+  popoutNote: (kind: "content" | "error" | "info" | "strip", text: string) => invoke<void>("popout_note", { kind, text }),
   /** The page changed its own theme (or its colour scheme changed): the backend applies the frame theme of this window again (macOS title bar; the second way next to the backend's own triggers). What the page sees goes to startup.log. */
   windowThemeRefresh: (pageTheme: string, prefersDark: boolean) => invoke<void>("window_theme_refresh", { pageTheme, prefersDark }),
   /** The calling window shows another thing now (a draft that was saved is another draft): its key follows. False when another window has that key. */

@@ -17,6 +17,13 @@
 //! nil (System), reads back `appearance` and `effectiveAppearance` of each, logs them, and repairs a window that differs (MISMATCH). The OS
 //! change is watched three ways: tao's `ThemeChanged`, the system notification itself (`macwin::observe_theme_change`) and a watchdog that looks at
 //! every window every few seconds. The page of a pop-out asks for a re-apply whenever it changes its own theme.
+//!
+//! Third attempt (Mac QA 1.0.6, build 142359b: every property read back right, yet the painted title bar of a compose window never changed): the
+//! window's appearance was never the problem. tauri's default title bar style on macOS has a full-size content view, so the web view runs UNDER the
+//! title bar and what is painted there comes from the page (WebKit takes the colour from the page background, or from a fixed element at the top
+//! edge). The compose page was the only root that was `position: fixed` (App.css `.popout-compose`); that is fixed at the source. What remains here
+//! is a documented safety net and an experiment: after every apply the steps of `HEYLOOK_TITLEBAR_MODE` (titlebar.rs, run by [`run_strategy`])
+//! are taken and every window is described in the log (`macwin::describe`), so the next Mac log shows what differs between window kinds.
 use std::sync::atomic::{AtomicBool, AtomicU8, Ordering};
 use std::sync::Mutex;
 use std::time::{Duration, Instant};
@@ -179,9 +186,47 @@ pub fn apply_all(app: &AppHandle, why: &str) {
     native(app, choice, why.to_string(), None);
 }
 
+/// Repaint strategies running now (macOS), and when the last one ended. The flip step gives a window the opposite appearance for a moment, which
+/// also moves the colour scheme the web view reports to its page; the page then asks for its window again (`window_theme_refresh`), which
+/// would start the next strategy, which flips ... So the page's request is not taken while a strategy runs or for [`QUIET`] after it. The OS
+/// change itself reaches us by the system notification and tao's event, which are not held back.
+static STRATEGIES: std::sync::atomic::AtomicU32 = std::sync::atomic::AtomicU32::new(0);
+const QUIET: Duration = Duration::from_millis(800);
+
+fn strategy_ended() -> &'static Mutex<Option<Instant>> {
+    static ENDED: Mutex<Option<Instant>> = Mutex::new(None);
+    &ENDED
+}
+
+/// Is a repaint strategy running, or did one end less than [`QUIET`] ago?
+fn strategy_quiet() -> bool {
+    STRATEGIES.load(Ordering::SeqCst) > 0 || strategy_ended().lock().unwrap_or_else(|p| p.into_inner()).is_some_and(|t| t.elapsed() < QUIET)
+}
+
+/// Counts a running strategy; when dropped (the thread ended, or panicked) the strategy is over and the quiet time starts.
+#[cfg_attr(not(target_os = "macos"), allow(dead_code))]
+struct Running;
+#[cfg_attr(not(target_os = "macos"), allow(dead_code))]
+impl Running {
+    fn start() -> Running {
+        STRATEGIES.fetch_add(1, Ordering::SeqCst);
+        Running
+    }
+}
+impl Drop for Running {
+    fn drop(&mut self) {
+        *strategy_ended().lock().unwrap_or_else(|p| p.into_inner()) = Some(Instant::now());
+        STRATEGIES.fetch_sub(1, Ordering::SeqCst);
+    }
+}
+
 /// The page of a pop-out asks for its own window to be done again (it changed its own theme class, or its colour scheme changed): the
 /// second way, independent of [`apply_all`] and its triggers. `page_theme` / `prefers_dark`: what the page sees, for the log.
 pub fn refresh_window(app: &AppHandle, label: &str, page_theme: &str, prefers_dark: Option<bool>) {
+    if strategy_quiet() {
+        log(&format!("{label}: its page asks for the frame theme again (page data-theme '{}', page prefers dark: {prefers_dark:?}): not taken, a repaint strategy is running or has just ended", page_theme.chars().filter(|c| c.is_ascii_alphanumeric() || *c == '-').take(16).collect::<String>()));
+        return;
+    }
     let choice = choice(app);
     let step = step(choice, pinned().load(Ordering::SeqCst), cfg!(target_os = "macos"));
     let found = app.get_webview_window(label);
@@ -247,11 +292,30 @@ fn native_windows(app: &AppHandle) -> Vec<(String, *mut std::ffi::c_void)> {
     v
 }
 
-/// macOS: the appearance of every `NSWindow` itself (main thread), read back and logged, see the module text. `only`: just that window.
+/// What the last apply asked for, as the appearance the windows have to end with: `None` = System (no appearance of their own).
+#[cfg(target_os = "macos")]
+fn target_dark() -> Option<bool> {
+    match TARGET.load(Ordering::SeqCst) {
+        2 => Some(false),
+        3 => Some(true),
+        _ => None,
+    }
+}
+
+/// macOS: the appearance of every `NSWindow` itself (main thread), read back and logged, see the module text; then what each window is (the
+/// properties that decide how its title bar is painted) and the repaint strategy of `HEYLOOK_TITLEBAR_MODE` (titlebar.rs). `only`: just that window.
 #[cfg(target_os = "macos")]
 fn native(app: &AppHandle, choice: Option<Theme>, why: String, only: Option<String>) {
+    use std::panic::{catch_unwind, AssertUnwindSafe};
+    static MODE_NOTE: AtomicBool = AtomicBool::new(false);
+    let (mode, note) = crate::titlebar::mode();
+    if let Some(n) = note.filter(|_| !MODE_NOTE.swap(true, Ordering::SeqCst)) {
+        log(&format!("HEYLOOK_TITLEBAR_MODE: {n}"));
+    }
     let dark = choice.map(|t| t == Theme::Dark);
     let handle = app.clone();
+    let for_strategy = only.clone();
+    let strategy_why = why.clone();
     let queued = app.run_on_main_thread(move || {
         let known = native_windows(&handle);
         let report = crate::macwin::apply_appearance(dark, &known, only.as_deref());
@@ -264,10 +328,94 @@ fn native(app: &AppHandle, choice: Option<Theme>, why: String, only: Option<Stri
             report.mismatches,
             crate::macwin::system_style()
         ));
+        // what each window is, to read what differs between a compose and a reader window (a panic here must never take the app down)
+        log(&format!("  title bar mode {} ({why})", crate::titlebar::mode_text(mode)));
+        match catch_unwind(AssertUnwindSafe(|| crate::macwin::describe_all(&known, only.as_deref()))) {
+            Ok(lines) => lines.iter().for_each(|l| log(&format!("  window: {l}"))),
+            Err(_) => log("  window: the description of the windows panicked"),
+        }
     });
     if let Err(e) = queued {
         log(&format!("the native part could not be queued on the main thread: {e}"));
+        return;
     }
+    run_strategy(app, strategy_why, for_strategy);
+}
+
+/// Ask the pages (all, or the one named) to lay out their top edge again (`titlebar-nudge`, src/popout/titlebarNudge.ts).
+#[cfg_attr(not(target_os = "macos"), allow(dead_code))]
+fn nudge_pages(app: &AppHandle, only: Option<&str>) -> usize {
+    use tauri::Emitter;
+    let mut n = 0;
+    for label in app.webview_windows().keys() {
+        if only.is_none_or(|o| o == label) {
+            let _ = app.emit_to(label.as_str(), "titlebar-nudge", ());
+            n += 1;
+        }
+    }
+    n
+}
+
+/// macOS: the steps of the chosen repaint mode, one after the other with a pause between them (`titlebar::STEP_GAP`), each on the main thread,
+/// each logged. Every step reads the CURRENT target, so a run that is overtaken by a newer apply cannot leave an old appearance behind (a flip
+/// always ends with the target; a window put out of sight is always brought back).
+#[cfg(target_os = "macos")]
+fn run_strategy(app: &AppHandle, why: String, only: Option<String>) {
+    use crate::titlebar::{plan, Act, STEP_GAP};
+    use std::panic::{catch_unwind, AssertUnwindSafe};
+    let steps = plan(crate::titlebar::mode().0);
+    if steps.is_empty() {
+        log("  strategy: none (mode 0, the control)");
+        return;
+    }
+    let app = app.clone();
+    let running = Running::start(); // (counted before the thread starts, so a request that comes in at once is already held back)
+    std::thread::spawn(move || {
+        let _running = running;
+        let total = steps.len();
+        for (i, act) in steps.iter().enumerate() {
+            std::thread::sleep(STEP_GAP);
+            let head = format!("  strategy step {}/{} {} ({why})", i + 1, total, act.name());
+            if *act == Act::PageNudge {
+                log(&format!("{head}: asked {} page(s) to lay out the top edge again", nudge_pages(&app, only.as_deref())));
+                continue;
+            }
+            let (tx, rx) = std::sync::mpsc::channel();
+            let (handle, a, o) = (app.clone(), *act, only.clone());
+            let queued = app.run_on_main_thread(move || {
+                let known = native_windows(&handle);
+                let lines = catch_unwind(AssertUnwindSafe(|| crate::macwin::run_act(a, target_dark(), &known, o.as_deref())))
+                    .unwrap_or_else(|_| vec!["the step panicked".to_string()]);
+                let _ = tx.send(lines);
+            });
+            if let Err(e) = queued {
+                log(&format!("{head}: could not be queued on the main thread: {e}"));
+                continue;
+            }
+            match rx.recv_timeout(Duration::from_secs(3)) {
+                Ok(lines) => {
+                    log(&head);
+                    lines.iter().for_each(|l| log(&format!("    {l}")));
+                }
+                Err(_) => log(&format!("{head}: no answer from the main thread within 3 s")),
+            }
+        }
+        // what the windows are once the strategy is done
+        std::thread::sleep(STEP_GAP);
+        let (handle, o) = (app.clone(), only.clone());
+        let (tx, rx) = std::sync::mpsc::channel();
+        let queued = app.run_on_main_thread(move || {
+            let known = native_windows(&handle);
+            let lines = catch_unwind(AssertUnwindSafe(|| crate::macwin::describe_all(&known, o.as_deref()))).unwrap_or_default();
+            let _ = tx.send(lines);
+        });
+        if queued.is_ok() {
+            if let Ok(lines) = rx.recv_timeout(Duration::from_secs(3)) {
+                log(&format!("  strategy done ({why}); the windows now:"));
+                lines.iter().for_each(|l| log(&format!("    window: {l}")));
+            }
+        }
+    });
 }
 #[cfg(not(target_os = "macos"))]
 fn native(_app: &AppHandle, _choice: Option<Theme>, _why: String, _only: Option<String>) {}
@@ -290,6 +438,8 @@ pub fn watch_os(app: &AppHandle) {
         }
     });
     log(&format!("watching the OS colour mode: notification {}, watchdog every {} s", seen.err().unwrap_or_else(|| "observed".into()), WATCH_EVERY.as_secs()));
+    let (mode, note) = crate::titlebar::mode();
+    log(&format!("title bar repaint mode (HEYLOOK_TITLEBAR_MODE): {}{}", crate::titlebar::mode_text(mode), note.map(|n| format!(" - {n}")).unwrap_or_default()));
     let app = app.clone();
     std::thread::spawn(move || {
         static STREAK: std::sync::atomic::AtomicU32 = std::sync::atomic::AtomicU32::new(0);
@@ -368,8 +518,11 @@ mod tests {
         let mac = crate::test_guard::non_test_code(include_str!("macwin.rs"));
         let walk = &mac[mac.find("pub fn apply_appearance(").unwrap()..];
         let walk = &walk[..walk.find("\n}\n").unwrap()];
-        assert!(walk.contains("app_window_list()") && walk.contains("is_titled(w)"), "windows tauri does not list are reached too: {walk}");
-        assert!(!walk.contains("is_secondary") && !walk.contains("kind_of_label"), "{walk}");
+        assert!(walk.contains("work_list(known, only)"), "{walk}");
+        let list = &mac[mac.find("unsafe fn work_list(").unwrap()..];
+        let list = &list[..list.find("\n}\n").unwrap()];
+        assert!(list.contains("app_window_list()") && list.contains("is_titled(w)"), "windows tauri does not list are reached too: {list}");
+        assert!(!walk.contains("is_secondary") && !walk.contains("kind_of_label") && !list.contains("is_secondary") && !list.contains("kind_of_label"), "{walk}{list}");
     }
 
     #[test]
@@ -477,6 +630,82 @@ mod tests {
         for needle in ["-> applied to {} windows: [{}]", "OS theme event: {source}", "{} MISMATCH", "watchdog: [{}]", "its page asks for the frame theme again"] {
             assert!(me.contains(needle), "{needle}");
         }
+    }
+
+    /// The repaint strategies (titlebar.rs) are wired the same way for every window: each apply logs the mode and describes every window, the
+    /// steps run on the main thread one after the other, none of them looks at a label, and every step of a plan has its code.
+    #[test]
+    fn the_repaint_strategies_reach_every_window_and_are_logged() {
+        let me = crate::test_guard::non_test_code(include_str!("wintheme.rs"));
+        let native = &me[me.find("fn native(app: &AppHandle, choice").unwrap()..];
+        let native = &native[..native.find("\n}\n").unwrap()];
+        for needle in ["crate::titlebar::mode()", "title bar mode {}", "describe_all(&known", "catch_unwind", "run_strategy(app, "] {
+            assert!(native.contains(needle), "native() lacks {needle}");
+        }
+        let run = &me[me.find("fn run_strategy(").unwrap()..];
+        let run = &run[..run.find("\n}\n").unwrap()];
+        for needle in ["plan(crate::titlebar::mode().0)", "STEP_GAP", "run_on_main_thread", "target_dark()", "strategy step {}/{} {}", "nudge_pages("] {
+            assert!(run.contains(needle), "run_strategy() lacks {needle}");
+        }
+        assert!(!run.contains("kind_of_label") && !run.contains("is_secondary") && !run.contains("\"main\""), "a strategy is for every window");
+        // every step of every plan is done by macwin::run_act (the page nudge is the one that is not native)
+        let mac = crate::test_guard::non_test_code(include_str!("macwin.rs"));
+        let act = &mac[mac.find("pub fn run_act(").unwrap()..];
+        let act = &act[..act.find("\n}\n").unwrap()];
+        for m in 0..=crate::titlebar::MAX_MODE {
+            for a in crate::titlebar::plan(m) {
+                let variant = format!("{a:?}");
+                assert!(act.contains(&format!("Act::{variant}")), "mode {m}: {variant} has no code in macwin::run_act");
+            }
+        }
+        assert!(act.contains("work_list(known, only)") && !act.contains("kind_of_label") && !act.contains("is_secondary"), "{act}");
+        // a window put out of sight is remembered and brought back, the key one as the key window
+        assert!(act.contains("hidden()") && act.contains("makeKeyAndOrderFront") && act.contains("orderOut"), "{act}");
+        // the log shows what decides how a title bar is painted
+        for needle in ["styleMask", "fullSizeContentView", "titlebarAppearsTransparent", "titleVisibility", "backgroundColor", "isKeyWindow", "isVisible", "documentEdited", "sharingType", "level"] {
+            assert!(mac.contains(needle), "macwin::describe lacks {needle}");
+        }
+        // the variable is named in titlebar.rs, which reads it once; here only in a log line
+        assert!(include_str!("titlebar.rs").contains("std::env::var(\"HEYLOOK_TITLEBAR_MODE\")"));
+        assert!(!me.contains("env::var"), "wintheme.rs does not read the environment itself");
+    }
+
+    /// The flip makes the page's colour scheme change for a moment and the page asks for its window again: that request is held back while a
+    /// strategy runs and for a short time after it, otherwise the strategy would start itself again for ever.
+    #[test]
+    fn a_page_request_is_held_back_while_a_strategy_runs() {
+        assert!(!strategy_quiet(), "nothing runs at the start");
+        let running = Running::start();
+        assert!(strategy_quiet(), "a strategy is running");
+        drop(running);
+        assert!(strategy_quiet(), "and for a moment after it");
+        std::thread::sleep(QUIET + Duration::from_millis(100));
+        assert!(!strategy_quiet(), "then the page may ask again");
+        let me = crate::test_guard::non_test_code(include_str!("wintheme.rs"));
+        let refresh = &me[me.find("pub fn refresh_window(").unwrap()..];
+        let refresh = &refresh[..refresh.find("\n}\n").unwrap()];
+        assert!(refresh.find("strategy_quiet()").unwrap() < refresh.find("tell(w, step)").unwrap(), "the request is judged before anything is done");
+        let run = &me[me.find("fn run_strategy(").unwrap()..];
+        assert!(run.contains("Running::start()"), "a strategy counts itself");
+    }
+
+    /// The source of the compose title bar bug (Mac QA 1.0.6, third attempt): on macOS the web view runs under the title bar and WebKit takes the
+    /// colour there from the page; the root of the compose page was `position: fixed`, the only one, and its colour was taken once.
+    #[test]
+    fn the_root_of_the_compose_page_is_not_fixed_to_the_window() {
+        let css = include_str!("../../src/App.css");
+        let rule = css.lines().find(|l| l.starts_with(".popout-compose {")).expect("the .popout-compose rule");
+        assert!(!rule.contains("fixed") && !rule.contains("sticky"), "{rule}");
+        assert!(rule.contains("position: relative") && rule.contains("height: 100vh"), "{rule}");
+        // the other roots of a window of its own are not fixed either
+        for sel in [".reader-win {", ".popout-root {"] {
+            let r = css.lines().find(|l| l.starts_with(sel)).unwrap_or_else(|| panic!("{sel}"));
+            assert!(!r.contains("position: fixed") && !r.contains("position: sticky"), "{r}");
+        }
+        // the page side: it logs what its top strip is painted with and answers the nudge
+        let root = include_str!("../../src/popout/PopoutRoot.tsx");
+        assert!(root.contains("topStripInfo()") && root.contains("listen(\"titlebar-nudge\""));
+        assert!(include_str!("popout.rs").contains("\"strip\""), "the backend takes the strip note");
     }
 
     /// The page's way (`window_theme_refresh`) is wired in the three places a command needs, for the main page and the pop-outs.

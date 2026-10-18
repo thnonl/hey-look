@@ -726,7 +726,7 @@ pub fn note(app: &AppHandle, label: &str, kind: &str, text: &str) {
             e.content = true;
         }
     }
-    let text: String = text.chars().take(300).collect();
+    let text: String = text.chars().take(600).collect();
     log(&format!("{label}: page says {kind}: {text}"));
 }
 
@@ -965,11 +965,11 @@ pub fn popout_park(app: AppHandle, window: tauri::Window) -> bool {
 }
 
 /// A page tells the log something about itself: `kind` "content" (it drew its view), "error" (a script error or an unhandled rejection) or
-/// "info". Only a live secondary window, only about itself.
+/// "info" or "strip" (what the top of the page is painted with, the macOS title bar). Only a live secondary window, only about itself.
 #[tauri::command]
 pub fn popout_note(app: AppHandle, window: tauri::Window, kind: String, text: String) {
     let label = window.label();
-    if is_secondary(label) && reg(&app).get(label).is_some() && matches!(kind.as_str(), "content" | "error" | "info") {
+    if is_secondary(label) && reg(&app).get(label).is_some() && matches!(kind.as_str(), "content" | "error" | "info" | "strip") {
         note(&app, label, &kind, &text);
     }
 }
