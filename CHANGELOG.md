@@ -29,6 +29,7 @@
 - A signed or encrypted message that was scheduled goes out with the date of the send, not the day it was scheduled; a Reply sets Answered and a Forward sets Forwarded on the original on the mail server once the message is sent (other mail programs show these)
 - A draft from before 1.0.6 that forwards a message with a signature keeps your own signature in the signature box
 - A recipient whose key can only sign now reads "their key can only sign, not encrypt" (in the strip and in the recipient's key popover) instead of "no public key"
+- Every header line of a message you send, save as a draft or keep in Sent is at most 78 characters, also for a long list of recipients with quoted names (a name is cut at a space inside its quotes only when nothing else fits) and for the header lines of attachments and pictures (a long media type or file name); a signed message is folded before it is signed, so its signature stays valid
 
 ## 1.0.6 — 2026-10-18
 

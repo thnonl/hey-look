@@ -470,8 +470,8 @@ pub fn build(acc: &Account, d: &Draft) -> R<Message> {
     headers(acc, d, false)?.multipart(body(d)?).map_err(err)
 }
 
-/// The finished message as it goes on the wire and into the Sent / Drafts folder: lettre's text with the lines of the header block folded
-/// to 78 characters (headerfold.rs; lettre leaves a long To / Cc / References list on one line).
+/// The finished message as it goes on the wire and into the Sent / Drafts folder: lettre's text with the lines of the header block and of every
+/// part's header block folded to 78 characters (headerfold.rs; lettre leaves a long To / Cc / References list or media type on one line).
 pub fn wire(m: &Message) -> Vec<u8> {
     crate::headerfold::fold(m.formatted())
 }
@@ -480,7 +480,8 @@ pub fn wire(m: &Message) -> Vec<u8> {
 /// line break that belongs to the next boundary line.
 pub fn build_signed(acc: &Account, d: &Draft, lenient: bool, sign: &dyn Fn(&[u8]) -> R<(String, String)>) -> R<Message> {
     let inner = body(d)?;
-    let mut bytes = inner.formatted();
+    // the part headers are folded BEFORE the signature is made: `wire` folds the finished message the same way, so the signed bytes are the ones sent
+    let mut bytes = crate::headerfold::fold(inner.formatted());
     if bytes.ends_with(b"\r\n") {
         bytes.truncate(bytes.len() - 2);
     }
@@ -494,7 +495,8 @@ pub fn build_signed(acc: &Account, d: &Draft, lenient: bool, sign: &dyn Fn(&[u8]
 
 /// multipart/encrypted (RFC 3156): a control part and the armored OpenPGP message.
 pub fn build_encrypted(acc: &Account, d: &Draft, lenient: bool, encrypt: &dyn Fn(&[u8]) -> R<String>) -> R<Message> {
-    let armored = encrypt(&body(d)?.formatted())?;
+    // what is encrypted has its part headers folded as well (the finished message folds only what it shows: the two parts of the envelope)
+    let armored = encrypt(&crate::headerfold::fold(body(d)?.formatted()))?;
     let control = SinglePart::builder().header(ContentType::parse("application/pgp-encrypted").map_err(err)?).body(String::from("Version: 1"));
     let data = SinglePart::builder()
         .header(ContentType::parse("application/octet-stream; name=\"encrypted.asc\"").map_err(err)?)
@@ -1169,6 +1171,143 @@ To:") && !out.contains("undisclosed"), "{out}");
         assert_eq!(msg.envelope().to().len(), 130);
         // the body is not touched
         assert!(String::from_utf8_lossy(&raw).contains("<p>Hi</p>"));
+    }
+
+    /// A header line is fine when it is at most 78 octets, or when it is a continuation line that holds one single token (an address or an
+    /// encoded word) longer than 76 octets: that one cannot be cut and stands alone.
+    fn assert_lines_fit(lines: &[String], what: &str) {
+        for l in lines {
+            let token = l.trim().trim_end_matches(',');
+            assert!(l.len() <= 78 || (l.starts_with(' ') && !token.contains(' ') && token.len() > 76), "{what}: {} octets: {l}", l.len());
+        }
+    }
+
+    /// W2.8: names of 10 to 70 characters, some with commas, quotes and backslashes, and an address of 90 characters: every header line is at most 78
+    /// characters (an unbreakable token stands alone), unfolding gives the typed names back and the envelope is unchanged.
+    #[test]
+    fn long_quoted_names_and_a_long_address_are_folded_at_78_characters() {
+        let acc = account();
+        let words = ["Alpha", "Bravo", "Charlie", "Delta", "Echo", "Foxtrot", "Golf", "Hotel", "India", "Juliet"];
+        let mut names = vec![];
+        for i in 0..100usize {
+            let want = 10 + i * 60 / 99;
+            let mut n = String::new();
+            let mut k = i;
+            while n.len() < want {
+                if !n.is_empty() {
+                    n.push(' ');
+                }
+                n.push_str(words[k % words.len()]);
+                k += 3;
+            }
+            n.truncate(want);
+            let n = n.trim_end().to_string();
+            // pieces without white space at their ends: the reader keeps a double space as written only in some libraries
+            let (h, t) = (n.len() / 2, n.len() / 3);
+            let (a, b, c) = (n[..t].trim(), n[t..h].trim(), n[h..].trim());
+            names.push(match i % 5 {
+                1 => format!("{}, {}", n[..h].trim(), c),
+                2 => format!("{a} \"{b}\" {c}"),
+                3 => format!("{} \\ {c}", n[..h].trim()),
+                _ => n,
+            });
+        }
+        let typed = |name: &str, i: usize| format!("\"{}\" <q{i:03}@example.test>", name.replace('\\', "\\\\").replace('"', "\\\""));
+        let long_addr = format!("<{}@{}.example.test>", "x".repeat(40), "h".repeat(34));
+        assert_eq!(long_addr.len(), 90);
+        let mut d = draft("<p>Hi</p>", vec![], vec![]);
+        d.to = names.iter().enumerate().map(|(i, n)| typed(n, i)).collect();
+        d.to.push(format!("Wide Address {long_addr}"));
+        d.to.push(format!("{}@{}.example.test", "y".repeat(40), "h".repeat(34)));
+        d.cc = names.iter().enumerate().take(40).map(|(i, n)| typed(n, 500 + i)).collect();
+        let msg = build(&acc, &d).unwrap();
+        let raw = wire(&msg);
+        let head_end = raw.windows(4).position(|w| w == b"\r\n\r\n").unwrap();
+        let head = String::from_utf8(raw[..head_end].to_vec()).expect("headers are ASCII");
+        let lines: Vec<String> = head.split("\r\n").map(String::from).collect();
+        assert_lines_fit(&lines, "sent");
+        assert!(lines.iter().any(|l| l.trim().trim_end_matches(',') == long_addr), "the 90-character address stands alone on its line: {head}");
+        // the names read back as typed
+        let p = mail_parser::MessageParser::default().parse(&raw[..]).unwrap();
+        let got: Vec<Option<String>> = p.to().unwrap().iter().map(|a| a.name.as_deref().map(String::from)).collect();
+        assert_eq!(got.len(), 102);
+        for (i, n) in names.iter().enumerate() {
+            assert_eq!(got[i].as_deref(), Some(n.as_str()), "name {i}");
+        }
+        assert_eq!(p.cc().unwrap().iter().count(), 40);
+        for (i, a) in p.cc().unwrap().iter().enumerate() {
+            assert_eq!(a.name.as_deref(), Some(names[i].as_str()), "cc name {i}");
+        }
+        // the envelope is the same as without folding: 102 To + 40 Cc recipients
+        assert_eq!(msg.envelope().to().len(), 142);
+        // a draft copy and a signed copy are folded the same way
+        for (what, raw) in [("draft", wire(&build_draft(&acc, &d).unwrap())), ("signed", wire(&build_signed(&acc, &d, false, &signer).unwrap()))] {
+            let he = raw.windows(4).position(|w| w == b"\r\n\r\n").unwrap();
+            let lines: Vec<String> = String::from_utf8(raw[..he].to_vec()).unwrap().split("\r\n").map(String::from).collect();
+            assert_lines_fit(&lines, what);
+        }
+    }
+
+    /// Every physical header line of every part of a message (the top-level block and the block after each boundary line), with its place.
+    fn header_lines_of_all_parts(raw: &[u8]) -> Vec<String> {
+        let text = String::from_utf8_lossy(raw).into_owned();
+        let (mut out, mut in_head) = (vec![], true);
+        for l in text.split("\r\n") {
+            if in_head {
+                if l.is_empty() {
+                    in_head = false;
+                } else {
+                    out.push(l.to_string());
+                }
+            } else if l.starts_with("--") {
+                // a boundary line: a part header block follows (the closing boundary has no header block, but it is followed by the next
+                // boundary or by the end, which holds no header-looking line)
+                in_head = !l.ends_with("--");
+            }
+        }
+        out
+    }
+
+    /// W2.9: an attachment name of 120 characters in Vietnamese and Japanese, a long ASCII one and a long media type: no header line of any part is over 78
+    /// characters (a single token longer than that stands alone on its line), the name arrives unchanged, a signed message still verifies.
+    #[test]
+    fn part_headers_of_a_long_non_ascii_attachment_name_are_folded() {
+        let acc = account();
+        let b64 = |b: &[u8]| base64::engine::general_purpose::STANDARD.encode(b);
+        let viet_jp = "Báo cáo tài chính quý bốn năm hai nghìn hai mươi sáu của công ty 東京支店 売上報告書 最終版 すべてのデータ.pdf";
+        let ascii = "a long plain file name with spaces and (brackets) that goes on and on and on and on for quite a while.txt";
+        let docx = "application/vnd.openxmlformats-officedocument.wordprocessingml.document";
+        let pic_name = "Ảnh chụp màn hình rất dài của cuộc họp 会議のスクリーンショット 二〇二六年十月.png";
+        let atts = vec![
+            Att { filename: viet_jp.into(), mime: "application/pdf".into(), data_base64: b64(b"%PDF") },
+            Att { filename: ascii.into(), mime: "text/plain".into(), data_base64: b64(b"text") },
+            Att { filename: "Quarterly figures.docx".into(), mime: docx.into(), data_base64: b64(b"PK") },
+        ];
+        let pic = InlineImage { cid: "c1".into(), filename: pic_name.into(), mime: "image/png".into(), data_base64: b64(&[1u8, 2, 3]) };
+        let d = draft("<p>Hi</p><img src=\"cid:c1\">", vec![pic], atts);
+
+        // the reader of the app itself (mail.rs, mail-parser underneath)
+        let names_of = |raw: &[u8]| crate::mail::parse(1, raw, true, false, 0).unwrap().attachments.iter().map(|a| a.name.clone()).collect::<Vec<_>>();
+        let sent = wire(&build(&acc, &d).unwrap());
+        let draft_copy = wire(&build_draft(&acc, &d).unwrap());
+        let signed_input = std::cell::RefCell::new(vec![]);
+        let signed = wire(&build_signed(&acc, &d, false, &|b: &[u8]| { *signed_input.borrow_mut() = b.to_vec(); Ok(("sig".into(), "pgp-sha256".into())) }).unwrap());
+        let encrypted_inner = std::cell::RefCell::new(vec![]);
+        let enc = wire(&build_encrypted(&acc, &d, false, &|inner| { *encrypted_inner.borrow_mut() = inner.to_vec(); Ok("armored".into()) }).unwrap());
+        let inner = encrypted_inner.borrow().clone();
+        for (what, raw) in [("sent", &sent), ("draft", &draft_copy), ("signed", &signed), ("encrypted", &enc), ("what is encrypted", &inner)] {
+            assert_lines_fit(&header_lines_of_all_parts(raw), what);
+        }
+        for (what, raw) in [("sent", &sent), ("draft", &draft_copy), ("signed", &signed)] {
+            let names = names_of(raw);
+            for want in [viet_jp, ascii, "Quarterly figures.docx", pic_name] {
+                assert!(names.iter().any(|n| n == want), "{what}: {want} not in {names:?}");
+            }
+        }
+        // the signature covers the entity exactly as it stands in the finished message (folding after signing would break it)
+        let signed_input = signed_input.borrow().clone();
+        assert!(signed.windows(signed_input.len()).any(|w| w == &signed_input[..]), "the signed bytes are in the message as they were signed");
+        assert!(signed.starts_with(b"From:") || String::from_utf8_lossy(&signed).contains("multipart/signed"));
     }
 
     /// QA round 2, BUG-1 (O-04): a reply to a message whose Subject held CR LF was sent with those bytes inside the encoded Subject (the mail library encodes a raw
