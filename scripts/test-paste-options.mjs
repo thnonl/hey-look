@@ -94,7 +94,7 @@ const lib = read("src-tauri/src/lib.rs");
 assert.ok(lib.includes("async fn read_clipboard_text()") && lib.includes("read_clipboard_text,") && lib.includes("mod macclip;"), "the command is registered");
 assert.ok(read("src-tauri/build.rs").includes('"read_clipboard_text"') && read("src-tauri/capabilities/default.json").includes("allow-read-clipboard-text") && read("src-tauri/capabilities/popout.json").includes("allow-read-clipboard-text"), "manifest, main and pop-out windows (compose-*) may call it");
 const mac = read("src-tauri/src/macclip.rs");
-assert.ok(mac.includes("generalPasteboard") && mac.includes("stringForType") && !/setString|clearContents|writeObjects/.test(mac), "the backend only reads the clipboard");
+assert.ok(mac.includes("generalPasteboard") && mac.includes("stringForType") && !/writeObjects/.test(mac) && /pub fn write\(text: &str\)/.test(mac), "the backend reads the clipboard for pasting; its one write is the plain text of a Copy button (W1.11)");
 const dlg = read("src/components/SettingsDialog.tsx");
 assert.ok(dlg.includes("function PasteDefaultRow") && dlg.includes("{scope === null && <PasteDefaultRow />}") && dlg.includes('"settings.keys.pasteText"'), "Settings: the row and the shortcut");
 assert.ok(read("src/components/Compose.tsx").includes("transformPastedHTML") && read("src/components/Compose.tsx").includes("cleanPastedHtml"), "Compose's own pass (remote pictures, the notice) still runs first");
