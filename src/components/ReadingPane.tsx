@@ -19,6 +19,7 @@ import { accountsOf, canMoveToJunk } from "../junk";
 import { friendlyError, useStore } from "../store";
 import { cancelTranslation, dismissTranslation, jobErrorText, startTranslation } from "../translate";
 import { MAX_CHARS } from "../translateChunks";
+import { summaryBody } from "../summaryText";
 import { elapsedLabel, jobFor, slowHint, type TranslateJob } from "../translateJobs";
 import { useAiSlot } from "../useAiSlot";
 import { aiReady, leaveAiContext, openAiSettings, showAiNotSetUp, showAiProblem } from "../aiGuide";
@@ -728,6 +729,7 @@ export function ReadingPane() {
   const { selected, messages, threads, folders, folder, act, showToast, prefs, aiConfigured, confirm, checked } = useStore();
   const [openIds, setOpenIds] = useState<Set<string>>(new Set());
   const [summary, setSummary] = useState<string | null>(null);
+  const [summaryCut, setSummaryCut] = useState(false); // the conversation was longer than what was sent: the card says so
   const ai = useAiSlot("summarize");
   const summ = threads.find((th) => th.threadId === selected);
   const bodyRef = useRef<HTMLDivElement>(null);
@@ -748,6 +750,7 @@ export function ReadingPane() {
 
   useEffect(() => {
     setSummary(null);
+    setSummaryCut(false);
     setOpenIds(new Set(messages.length ? [messages[messages.length - 1].id] : []));
   }, [selected, messages.length]);
 
@@ -779,10 +782,7 @@ export function ReadingPane() {
       showToast(messages.some((m) => m.confidential) ? t("reading.ai.noConfidential") : t("reading.ai.unlockEncrypted"), undefined, "info");
       return;
     }
-    const body = readable
-      .map((m) => `From: ${m.fromName} <${m.fromEmail}>\nDate: ${fmtFull(m.date)}\n\n${(m.text ?? "").slice(0, 4000)}`)
-      .join("\n\n-----\n\n")
-      .slice(0, 24000);
+    const { body, cut } = summaryBody(readable.map((m) => ({ head: `From: ${m.fromName} <${m.fromEmail}>\nDate: ${fmtFull(m.date)}`, text: m.text ?? "" })));
     const out = await ai.run(
       // i18n-ok: a prompt for the language model, not text the person reads
       "You summarize email conversations. Reply with 2-5 concise bullet points covering key facts, decisions and requested actions. Use the language of the emails.",
@@ -791,7 +791,7 @@ export function ReadingPane() {
     );
     if (!out) return; // a click while one is under way, or Cancel: nothing to show
     if ("error" in out) showAiProblem(out.error, { feature: "summarize", retry: () => void summarize(), tied: true });
-    else setSummary(out.text);
+    else (setSummary(out.text), setSummaryCut(cut));
   };
 
   const block = async () => {
@@ -816,6 +816,7 @@ export function ReadingPane() {
             className="icon-btn snooze-btn"
             caret={false}
             title={t("reading.head.snoozeTip")}
+            label={t("mail.hover.snooze")}
             items={snoozePresets(prefs.snoozeTimes).map((p) => ({
               label: p.label,
               onClick: () => void act(id, "snooze", String(p.ts), () => t("reading.head.snoozed", { label: p.label })),
@@ -873,6 +874,7 @@ export function ReadingPane() {
         <div className="summary">
           <b><Sparkles size={13} /> {t("reading.head.summaryTitle")}</b>
           <div className="pre">{summary}</div>
+          {summaryCut && <div className="muted small tr-hint">{t("reading.head.summaryCut")}</div>}
         </div>
       )}
       <div className="rp-body" ref={bodyRef}>

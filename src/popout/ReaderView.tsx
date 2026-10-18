@@ -25,6 +25,7 @@ import { useContentProtection } from "../protect";
 import { friendlyError, useStore } from "../store";
 import { useAiSlot } from "../useAiSlot";
 import { aiReady, showAiNotSetUp, showAiProblem } from "../aiGuide";
+import { summaryBody } from "../summaryText";
 import { configureDates, fmtFull, snoozePresets, subjectText } from "../util";
 import { senderOf } from "../rowMenu";
 import { askMain, cancelRunningTranslations, installReaderBridge } from "./readerBridge";
@@ -80,6 +81,7 @@ function Reader({ info }: { info: ReaderInit }) {
   const [busy, setBusy] = useState(false); // a move waits for the main window
   const [openIds, setOpenIds] = useState<Set<string>>(new Set());
   const [summary, setSummary] = useState<string | null>(null);
+  const [summaryCut, setSummaryCut] = useState(false); // the conversation was longer than what was sent: the card says so
   const [, redraw] = useReducer((n: number) => n + 1, 0);
   const ai = useAiSlot("summarize");
   const bodyRef = useRef<HTMLDivElement>(null);
@@ -225,6 +227,7 @@ function Reader({ info }: { info: ReaderInit }) {
   // a new message arrives: it is open and the older ones fold, as in the reading pane; a summary of the old conversation is dropped
   useEffect(() => {
     setSummary(null);
+    setSummaryCut(false);
     setOpenIds(new Set(messages.length ? [messages[messages.length - 1].id] : []));
   }, [messages.length]);
   useEffect(() => ai.cancel, []); // eslint-disable-line react-hooks/exhaustive-deps
@@ -329,10 +332,7 @@ function Reader({ info }: { info: ReaderInit }) {
       st.showToast(messages.some((m) => m.confidential) ? t("reading.ai.noConfidential") : t("reading.ai.unlockEncrypted"), undefined, "info");
       return;
     }
-    const body = readable
-      .map((m) => `From: ${m.fromName} <${m.fromEmail}>\nDate: ${fmtFull(m.date)}\n\n${(m.text ?? "").slice(0, 4000)}`)
-      .join("\n\n-----\n\n")
-      .slice(0, 24000);
+    const { body, cut } = summaryBody(readable.map((m) => ({ head: `From: ${m.fromName} <${m.fromEmail}>\nDate: ${fmtFull(m.date)}`, text: m.text ?? "" })));
     const out = await ai.run(
       // i18n-ok: a prompt for the language model, not text the person reads
       "You summarize email conversations. Reply with 2-5 concise bullet points covering key facts, decisions and requested actions. Use the language of the emails.",
@@ -340,7 +340,7 @@ function Reader({ info }: { info: ReaderInit }) {
     );
     if (!out) return;
     if ("error" in out) showAiProblem(out.error, { feature: "summarize", retry: () => void summarize() });
-    else setSummary(out.text);
+    else (setSummary(out.text), setSummaryCut(cut));
   };
 
   // keys (REQ-R13): the table is readerKey; nothing while typing, nothing behind a dialog
@@ -413,6 +413,7 @@ function Reader({ info }: { info: ReaderInit }) {
         <Dropdown
           className="rb snooze-btn sec"
           title={t("reading.head.snoozeTip")}
+          label={t("app.ribbon.snooze")}
           disabled={locked || off("snooze")}
           items={snoozePresets(prefs.snoozeTimes).map((p) => ({ label: p.label, onClick: () => void move("snooze", "reading.head.snoozed", { label: p.label }, String(p.ts)) }))}
         >
@@ -471,6 +472,7 @@ function Reader({ info }: { info: ReaderInit }) {
           <div className="summary">
             <b><Sparkles size={13} /> {t("reading.head.summaryTitle")}</b>
             <div className="pre">{summary}</div>
+            {summaryCut && <div className="muted small tr-hint">{t("reading.head.summaryCut")}</div>}
           </div>
         )}
         <div className="rp-body" ref={bodyRef}>

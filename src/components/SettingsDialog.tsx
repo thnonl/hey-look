@@ -7,6 +7,7 @@ import { Fragment, ReactNode, useEffect, useRef, useState } from "react";
 import { Account, api, CalSource, Discovered, PgpKey, PROVIDERS, Rule, Signature, Template } from "../api";
 import { calendarErrorCode, calendarSyncKind, providerName, serviceName, statusLine, truncatedNote } from "../calendarSync";
 import { ACCENT_PRESETS, ACCOUNT_PALETTE, accountColor, DEFAULT_PREFS, eff, folderLabel, isOverridden, MAX_DOWNLOAD_PRESETS, NOTIFY_ACTIONS, NOTIFY_SOUNDS, Overridable, Prefs, staleAccountPrefs, validHex } from "../prefs";
+import { aiSettingsSaved } from "../aiGuide";
 import { normalizeSidebar } from "../sidebarState";
 import { folderVisible } from "../junk";
 import { cutAtWord, friendlyError, useStore } from "../store";
@@ -1681,6 +1682,7 @@ function AiTab() {
         setKey("");
       }
       await refreshAi();
+      aiSettingsSaved(); // (the toast "AI Assistant is not set up" is answered by this save)
       showToast(t("settings.ai.saved"), undefined, "success");
     } catch (e) {
       // what was typed stays in the boxes (nothing above is cleared before it worked); the reason is cut like the model list's so both lines of the slot hold the sentence

@@ -61,6 +61,7 @@ export default defineLocale<typeof ns.en>({
   "reading.head.summarize": "总结",
   "reading.head.setupAi": "设置AI",
   "reading.head.summaryTitle": "对话摘要",
+  "reading.head.summaryCut": "这段对话较长，仅摘要了前面的部分。",
   "reading.head.blockTitle": "阻止{email}？",
   "reading.head.blockBody": "此发件人的邮件将移至垃圾邮件，并将该发件人加入“已阻止的发件人”（设置 → 已阻止的发件人），您可以在那里撤消。",
   "reading.head.blockConfirm": "阻止发件人",
