@@ -15,7 +15,8 @@
 // (nothing is cut); the list rows keep their natural height (they scroll, they are never squeezed); the reading area is visible below
 // or beside the list and shows the subject; no horizontal overflow of the page, the window or any row; the console stays clean. A second
 // pass runs with prefers-reduced-motion. In the dark theme the title bar of the window must carry the primary as the app does (the exact gradient ends of the
-// formula, live for every preset and custom colour, light unchanged), and stay neutral under prefers-contrast: more. The page's own transitions are switched off while measuring (a half-finished transition would
+// formula, live for every preset and custom colour, light unchanged), and stay neutral under prefers-contrast: more. A last pass measures the
+// header on a phone (320, 375 and 414 px, the 8 home pages and 404.html): every button and the logo link at least 44 x 44 px (the logo itself does not move), no overlap, no sideways scroll. The page's own transitions are switched off while measuring (a half-finished transition would
 // only measure the animation); the reduced-motion pass keeps the site's real CSS, which must still settle to the same layout.
 import fs from 'node:fs';
 import os from 'node:os';
@@ -273,6 +274,56 @@ async function scanPages() {
   }
 }
 
+// the header on a phone (W10.9): each of the five buttons (language, animations, theme, Download, menu) is at least 44 x 44 px, none overlaps another or leaves
+// the screen, the page does not scroll sideways, and the word "Hey Look!" beside the logo shows above 400 px and is gone at 400 px and below (the logo keeps its
+// accessible name). The 8 home pages and 404.html at 320, 375 and 414 px, light and dark (the quick run: light everywhere, dark on the English pages).
+const HEADER_FN = `(() => {
+  const out = [], de = document.documentElement, R = (el) => el.getBoundingClientRect();
+  if (de.scrollWidth > innerWidth) out.push('the page scrolls sideways (' + de.scrollWidth + ' > ' + innerWidth + ')');
+  const btns = [...document.querySelectorAll('.hdr-r .lang > summary, .hdr-r #motion-btn, .hdr-r #theme-btn, .hdr-r .hdr-dl, .hdr-r .nav-toggle')].map((e) => ({ e, b: R(e), name: e.getAttribute('aria-label') || e.id || e.className }));
+  if (btns.length !== 5) out.push('expected 5 header buttons, found ' + btns.length);
+  for (const { b, name } of btns) {
+    if (b.width < 43.5 || b.height < 43.5) out.push('"' + name + '" is ' + b.width.toFixed(1) + ' x ' + b.height.toFixed(1) + ' px, expected at least 44 x 44');
+    if (b.right > innerWidth + 0.5 || b.left < -0.5) out.push('"' + name + '" is off the screen (' + b.left.toFixed(1) + '..' + b.right.toFixed(1) + ' of ' + innerWidth + ')');
+  }
+  const sorted = [...btns].sort((x, y) => x.b.left - y.b.left);
+  sorted.forEach((x, i) => { if (i && x.b.left < sorted[i - 1].b.right - 0.5) out.push('"' + x.name + '" overlaps "' + sorted[i - 1].name + '" by ' + (sorted[i - 1].b.right - x.b.left).toFixed(1) + ' px'); });
+  const brand = document.querySelector('header .brand'), word = brand && brand.querySelector('span'), logo = brand && brand.querySelector('svg');
+  if (!brand || !word || !logo) out.push('no brand link in the header');
+  else {
+    const shown = getComputedStyle(word).display !== 'none' && R(word).width > 0;
+    if (innerWidth > 400 && !shown) out.push('the word "Hey Look!" is hidden at ' + innerWidth + ' px, it shows above 400 px');
+    if (innerWidth <= 400 && shown) out.push('the word "Hey Look!" is still shown at ' + innerWidth + ' px, it goes at 400 px and below');
+    if (!(brand.getAttribute('aria-label') || '').trim()) out.push('the logo link has no accessible name');
+    if (R(logo).width < 28) out.push('the logo is squeezed to ' + R(logo).width.toFixed(1) + ' px');
+    if (R(brand).right > Math.min(...btns.map((x) => x.b.left)) + 0.5) out.push('the logo / brand reaches into the buttons');
+    // BUG-1 (QA 1.0.7): the logo link is a tap target too, 44 x 44 px; its padding is taken back by a negative margin, so the logo itself sits exactly at the page gutter
+    const bb = R(brand);
+    if (bb.width < 43.5 || bb.height < 43.5) out.push('the logo link is ' + bb.width.toFixed(1) + ' x ' + bb.height.toFixed(1) + ' px, expected at least 44 x 44');
+    const row = brand.parentElement, rs = getComputedStyle(row), gutter = R(row).left + parseFloat(rs.paddingLeft) + parseFloat(rs.borderLeftWidth);
+    if (Math.abs(R(logo).left - gutter) > 0.5) out.push('the logo moved: it starts at ' + R(logo).left.toFixed(1) + ' px, the page gutter is at ' + gutter.toFixed(1) + ' px');
+    const mid = (R(logo).top + R(logo).bottom) / 2, rowMid = (R(row).top + R(row).bottom) / 2;
+    if (Math.abs(mid - rowMid) > 1) out.push('the logo is not centred in the header row (' + mid.toFixed(1) + ' vs ' + rowMid.toFixed(1) + ')');
+  }
+  return out;
+})()`;
+async function headerPass() {
+  const pagesOf = LANGS.map((l) => `${l === 'en' ? '' : l + '/'}index.html`).concat('404.html');
+  for (const dark of [false, true]) for (const width of [320, 375, 414]) for (const p of pagesOf) {
+    if (dark && QUICK && !(p === 'index.html' || p === '404.html')) continue;
+    await cdp('Emulation.setDeviceMetricsOverride', { width, height: 800, deviceScaleFactor: 1, mobile: false });
+    await cdp('Emulation.setEmulatedMedia', { features: [{ name: 'prefers-reduced-motion', value: 'no-preference' }, { name: 'prefers-color-scheme', value: dark ? 'dark' : 'light' }] });
+    consoleProblems = [];
+    await cdp('Page.navigate', { url: `${base}/${p}` });
+    for (let i = 0; i < 200; i++) { if (await evaluate("document.readyState === 'complete'").catch(() => false)) break; await new Promise((r) => setTimeout(r, 50)); }
+    await evaluate('new Promise((r) => (document.fonts ? document.fonts.ready : Promise.resolve()).then(() => setTimeout(r, 100)))');
+    const bad = await evaluate(HEADER_FN);
+    pages++; checked++;
+    if (bad.length) fail(`${p} ${width}px${dark ? ' dark' : ''}`, 'header', bad.join('\n      '));
+    if (consoleProblems.length) fail(`${p} ${width}px${dark ? ' dark' : ''}`, 'console', [...new Set(consoleProblems)].slice(0, 5).join('\n      '));
+  }
+}
+
 async function shots() {
   fs.mkdirSync(SHOTS, { recursive: true });
   const KEY = [
@@ -299,6 +350,7 @@ try {
   await runPage('en', 1280, { dark: true });
   await contrastPass('en', 1280); await contrastPass('ja', 375);
   await scanPages();
+  await headerPass();
   if (SHOTS) await shots();
 } finally { await shutdown(); }
 

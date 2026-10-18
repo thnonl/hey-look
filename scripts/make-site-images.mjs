@@ -3,7 +3,10 @@
 //   docs/assets/og-image.jpg          1200x630, the picture Open Graph / Twitter cards show (og:image, twitter:image)
 //   docs/assets/apple-touch-icon.png  180x180, opaque (iOS draws its own corners)
 //   docs/assets/icon-48.png           48x48, a bitmap favicon next to favicon.svg (search engines ask for a multiple of 48 px)
-// The inputs are docs/assets/favicon.svg and docs/media/poster.webp, so a new poster gives a new preview picture. The files are committed:
+//   docs/media/poster.webp            768x432, <= 30,000 bytes, the film's poster in the HTML (a phone slot is about 343 px wide)
+//   docs/media/poster-1280.webp       1280x720, <= 70,000 bytes, the sharper poster site.js puts in on wide screens (the slot is at most 1080 px wide)
+// The inputs are docs/assets/favicon.svg and scripts/site-src/poster-master.webp (1920x1080, never served: it is not under docs/), so a new master
+// gives new posters and a new preview picture. The posters are the best WebP quality that fits their byte limit. The files are committed:
 // CI does not run this (it needs a browser); test-site-seo.mjs checks that they exist, their size in pixels and in bytes.
 // CHROME_PATH overrides the browser lookup.
 import fs from 'node:fs';
@@ -28,7 +31,8 @@ const freePort = (from) => new Promise((ok) => { const s = net.createServer(); s
 
 const svg = fs.readFileSync(path.join(DOCS, 'assets/favicon.svg'), 'utf8');
 const mark = 'data:image/svg+xml;base64,' + Buffer.from(svg).toString('base64');
-const poster = pathToFileURL(path.join(DOCS, 'media/poster.webp')).href;
+const MASTER = fileURLToPath(new URL('./site-src/poster-master.webp', import.meta.url));
+const poster = pathToFileURL(MASTER).href;
 
 // 1200x630: text on the left, the real app window (cropped from the film's poster) bleeding off the right and bottom edge
 const OG = `<!doctype html><meta charset="utf-8"><style>
@@ -81,6 +85,26 @@ try {
     fs.writeFileSync(path.join(DOCS, out), Buffer.from(data, 'base64'));
     console.log(`wrote docs/${out} (${w}x${h}, ${fs.statSync(path.join(DOCS, out)).size} bytes)`);
   };
+  // the film's posters: the master scaled to w x h on a canvas and encoded as WebP at the highest quality that stays within maxBytes
+  const masterUri = 'data:image/webp;base64,' + fs.readFileSync(MASTER).toString('base64');
+  const makePoster = async (w, h, maxBytes, out) => {
+    const r = await cdp('Runtime.evaluate', { awaitPromise: true, returnByValue: true, expression: `(async () => {
+      const img = new Image(); img.src = ${JSON.stringify(masterUri)}; await img.decode();
+      const c = document.createElement('canvas'); c.width = ${w}; c.height = ${h};
+      const g = c.getContext('2d'); g.imageSmoothingEnabled = true; g.imageSmoothingQuality = 'high'; g.drawImage(img, 0, 0, ${w}, ${h});
+      const blob = (q) => new Promise((ok) => c.toBlob(ok, 'image/webp', q));
+      let lo = 0.3, hi = 0.99, best = null;
+      for (let i = 0; i < 10; i++) { const q = (lo + hi) / 2, b = await blob(q); if (b.size <= ${maxBytes}) { best = { q, b }; lo = q; } else hi = q; }
+      if (!best) return null;
+      const buf = new Uint8Array(await best.b.arrayBuffer()); let s = ''; for (let i = 0; i < buf.length; i += 0x8000) s += String.fromCharCode.apply(null, buf.subarray(i, i + 0x8000));
+      return { q: best.q, b64: btoa(s) };
+    })()` });
+    if (!r.result.value) throw new Error(`${out}: no WebP quality fits ${maxBytes} bytes`);
+    fs.writeFileSync(path.join(DOCS, out), Buffer.from(r.result.value.b64, 'base64'));
+    console.log(`wrote docs/${out} (${w}x${h}, ${fs.statSync(path.join(DOCS, out)).size} bytes, quality ${r.result.value.q.toFixed(3)})`);
+  };
+  await makePoster(768, 432, 30000, 'media/poster.webp');
+  await makePoster(1280, 720, 70000, 'media/poster-1280.webp');
   await shoot(OG, 1200, 630, 'assets/og-image.jpg', 'jpeg', 86);
   await shoot(icon(180, '#0f6cbd'), 180, 180, 'assets/apple-touch-icon.png', 'png');
   await shoot(icon(48, 'transparent'), 48, 48, 'assets/icon-48.png', 'png');

@@ -7,8 +7,9 @@
 //      project site (kept as a fallback), . for file:// ;
 //   2. the language, from the first folder under the base (assets/site.js, the "404" block): a known language folder loads that
 //      dictionary (German 404 for /de/nope.html); anything else stays English.
-// The whole page is then translated from that dictionary: heading, buttons, header navigation and footer (data-i18n / data-i18n-aria in
-// 404.html). Section 5 renders the page with each dictionary and compares its header and footer with the index page of that language.
+// The whole page is then translated from that dictionary: heading, buttons, header navigation, footer and the meta description (data-i18n /
+// data-i18n-aria in 404.html, nf.desc). Under a language folder the inline script hides the page (class nf-wait on <html>, style.css) until
+// that has happened, so the English text never shows first; a 1500 ms timer in the same script shows it whatever happens. Section 5 renders the page with each dictionary and compares its header and footer with the index page of that language.
 // The browser language (navigator.language) and any redirect are never used: the site is English at the root and the visitor picks
 // another language in the menu. This test runs the real inline script and the real address-to-folder lines of site.js in a vm with
 // a fake location, and checks the page, the dictionaries and the scripts for the things that would break that.
@@ -28,12 +29,18 @@ const siteJs = read('assets/site.js');
 // ---------- 1. the inline <base> script ----------
 const inline = [...html.matchAll(/<script\b(?![^>]*\ssrc=)[^>]*>([\s\S]*?)<\/script>/g)].map((m) => m[1]);
 if (inline.length !== 1) fail(`404.html: expected exactly one inline script (the <base> one), found ${inline.length}`);
-function baseFor(location) {
+// runs the real inline script with a fake location, document and timer: what it writes (the <base>), the classes it puts on <html>, the timers it sets
+function runInline(location) {
   let written = '';
-  const sandbox = { location, document: { write: (s) => { written += s; } } };
-  try { vm.runInNewContext(inline[0] || '', sandbox); } catch (e) { return 'ERROR ' + e.message; }
-  return (/<base href="([^"]*)">/.exec(written) || [])[1];
+  const classes = new Set(), timers = [];
+  const sandbox = {
+    location, setTimeout: (fn, ms) => { timers.push({ fn, ms }); return timers.length; },
+    document: { write: (s) => { written += s; }, documentElement: { classList: { add: (c) => classes.add(c), remove: (c) => classes.delete(c) } } },
+  };
+  try { vm.runInNewContext(inline[0] || '', sandbox); } catch (e) { return { base: 'ERROR ' + e.message, classes, timers }; }
+  return { base: (/<base href="([^"]*)">/.exec(written) || [])[1], classes, timers };
 }
+const baseFor = (location) => runInline(location).base;
 const site = (pathname) => ({ protocol: 'https:', hostname: 'heylook.namthai.site', pathname });
 // a *.github.io project site (the address before the custom domain; GitHub now redirects it, the script still copes)
 const gh = (pathname) => ({ protocol: 'https:', hostname: 'thnonl.github.io', pathname });
@@ -55,6 +62,36 @@ const BASE_CASES = [
 for (const [loc, want] of BASE_CASES) {
   const got = baseFor(loc);
   if (got !== want) fail(`404.html <base> for ${loc.hostname || loc.protocol}${loc.pathname}: got ${got}, want ${want}`);
+}
+
+// under a language folder the page is hidden (class nf-wait on <html>, see style.css) until site.js has translated it, so the English text is never
+// seen first; a timer shows the page after 1500 ms whatever happens (a failed dictionary shows the English page). Anywhere else: no class, no timer.
+{
+  const dirsNow = LANGS.filter((l) => l.dir).map((l) => l.dir);
+  const WAIT_CASES = [
+    ...dirsNow.flatMap((d) => [[site(`/${d}/nope.html`), true], [site(`/${d}/a/b/c`), true], [site(`/${d}/`), true], [gh(`/hey-look/${d}/nope.html`), true], [{ protocol: 'http:', hostname: 'localhost', pathname: `/${d}/nope.html` }, true]]),
+    [site('/nope.html'), false], [site('/nope'), false], [site('/'), false], [site('/de.html'), false], [site('/DE/nope.html'), false], [site('/xx/nope.html'), false], [site('/devil/x.html'), false], [site('/en/nope.html'), false], [site('/assets/nope.png'), false],
+    [gh('/hey-look/nope.html'), false], [gh('/hey-look/'), false], [gh('/hey-look/en/nope.html'), false], [gh('/de/nope.html'), false],
+    [{ protocol: 'http:', hostname: '127.0.0.1', pathname: '/nope.html' }, false],
+    [{ protocol: 'file:', hostname: '', pathname: 'C:/x/docs/de/404.html' }, false],
+  ];
+  for (const [loc, want] of WAIT_CASES) {
+    const r = runInline(loc), has = r.classes.has('nf-wait'), where = `${loc.hostname || loc.protocol}${loc.pathname}`;
+    if (has !== want) fail(`404.html inline script for ${where}: nf-wait ${has ? 'set' : 'not set'}, want ${want ? 'set' : 'not set'}`);
+    if (want) {
+      if (r.timers.length !== 1 || r.timers[0].ms !== 1500) fail(`404.html inline script for ${where}: expected one fallback timer of 1500 ms, got ${JSON.stringify(r.timers.map((t) => t.ms))}`);
+      else { r.timers[0].fn(); if (r.classes.has('nf-wait')) fail(`404.html inline script for ${where}: the 1500 ms fallback does not remove nf-wait`); }
+    } else if (r.timers.length) fail(`404.html inline script for ${where}: sets a timer outside a language folder`);
+  }
+  // the language folders the script knows are the language folders of the site
+  const known = (/\/\^\(([a-z|]+)\)\$\//.exec(inline[0] || '') || [])[1];
+  if (!known || JSON.stringify(known.split('|').sort()) !== JSON.stringify([...dirsNow].sort())) fail(`404.html inline script: the folder list (${known}) differs from the language folders ${dirsNow}`);
+}
+{
+  const css = read('assets/style.css');
+  if (!/\.nf-wait body\s*\{\s*visibility:\s*hidden;?\s*\}/.test(css)) fail('assets/style.css: no ".nf-wait body { visibility: hidden }" rule (the 404 would flash in English under a language folder)');
+  if (!/root\.classList\.remove\('nf-wait'\)/.test(siteJs) || (siteJs.match(/classList\.remove\('nf-wait'\)/g) || []).length < 2) fail('assets/site.js: the 404 block must remove nf-wait after the translation and when the dictionary fails to load');
+  if (!siteJs.includes("t('nf.desc')") || !/meta\[name="description"\]/.test(siteJs)) fail('assets/site.js: the 404 block does not set the meta description from nf.desc');
 }
 
 // the inline script is allowed by its hash in the page's CSP
@@ -96,7 +133,7 @@ for (const l of LANGS.filter((x) => x.dir)) {
   if (!fs.existsSync(path.join(DOCS, 'assets/i18n', l.code + '.js'))) fail(`assets/i18n/${l.code}.js is missing: the ${l.dir}/ 404 has no dictionary`);
   else {
     const dict = read(`assets/i18n/${l.code}.js`);
-    for (const k of ['nf.title', 'nf.h1a', 'nf.h1b', 'nf.lead', 'nf.home', 'nf.download', 'nf.support']) {
+    for (const k of ['nf.title', 'nf.desc', 'nf.h1a', 'nf.h1b', 'nf.lead', 'nf.home', 'nf.download', 'nf.support']) {
       if (!new RegExp(`"${k.replace('.', '\\.')}"\\s*:`).test(dict)) fail(`assets/i18n/${l.code}.js: key ${k} (used by the 404 page) is missing`);
     }
   }
@@ -104,6 +141,11 @@ for (const l of LANGS.filter((x) => x.dir)) {
 for (const k of new Set([...html.matchAll(/data-i18n="(nf\.[^"]+)"/g)].map((x) => x[1]))) {
   const en = read('assets/i18n/en.js');
   if (!new RegExp(`"${k.replace('.', '\\.')}"\\s*:`).test(en)) fail(`assets/i18n/en.js: key ${k} (used by 404.html) is missing`);
+}
+{ // the meta description of the English page is the dictionary's nf.desc; under a language folder site.js writes that language's nf.desc into it
+  const d = (/<meta name="description" content="([^"]*)"/.exec(html) || [])[1], en = dictOf('en');
+  if (d !== en['nf.desc']) fail(`404.html: meta description "${d}" differs from nf.desc of en.js "${en['nf.desc']}"`);
+  for (const l of LANGS.filter((x) => x.dir)) if (dictOf(l.code)['nf.desc'] === en['nf.desc']) fail(`assets/i18n/${l.code}.js: nf.desc is still the English text`);
 }
 if (!/<html lang="en">/.test(html)) fail('404.html: <html lang> is not en (English is the default 404)');
 if (!/src="assets\/i18n\/en\.js"/.test(html) || !/src="assets\/site\.js"/.test(html)) fail('404.html: the English dictionary and site.js are not loaded');
@@ -174,4 +216,4 @@ for (const f of [...scripts, ...pages]) {
 }
 
 if (errors.length) { console.error(errors.map((e) => 'FAIL ' + e).join('\n')); process.exit(1); }
-console.log(`ok - test-site-404 (${dirs.length} language folders, base + language detection, translated title/text/header/footer in ${LANGS.length} languages, no redirect or navigator.language)`);
+console.log(`ok - test-site-404 (${dirs.length} language folders, base + language detection, hidden until translated (nf-wait, 1500 ms fallback), translated title/description/text/header/footer in ${LANGS.length} languages, no redirect or navigator.language)`);

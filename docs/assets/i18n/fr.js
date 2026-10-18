@@ -116,6 +116,7 @@
   "story.newsletter": "Newsletter ouverte.",
 
   "nf.title": "Page introuvable - Hey Look!",
+  "nf.desc": "Cette page est introuvable.",
   "nf.h1a": "Hé, regardez !",
   "nf.h1b": "Cette page n’est pas ici.",
   "nf.lead": "Le lien est peut-être ancien ou mal saisi. Voici sans doute où vous voulez aller.",

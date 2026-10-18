@@ -70,7 +70,7 @@ export function langBlock(lang, page) {
     `<!-- hl:lang-begin: ${NOTE} -->`,
     '<details class="lang">',
     `<summary aria-label="${lang.short} (${lang.label}${lang.colon ?? ': '}${lang.native})" title="${lang.label}">${GLOBE}<span class="lang-cur">${lang.short}</span></summary>`,
-    `<ul class="lang-menu" aria-label="${lang.label}">`,
+    '<ul class="lang-menu">',  // no aria-label here: html-validate (aria-label-misuse) does not allow one on a list, and the summary above already names the menu
     ...items,
     '</ul>',
     '</details>',

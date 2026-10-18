@@ -5,6 +5,9 @@
 // size, external links with rel=noopener, lang attribute = folder, no noindex except on 404.html. Site-wide: robots.txt, sitemap.xml, the
 // preview picture and icons (their pixel size and weight), the Search Console file.
 //
+// Markup, by hand (a dev check, not part of CI; needs the network once):  npx --yes html-validate@9.4.1 --config scripts/site-src/htmlvalidate.json docs/*.html docs/ja/*.html
+//   (recommended rules, none relaxed; the two controls it would change carry a [html-validate-disable-next ... -- reason] comment in docs/index.html).
+//
 // Lengths are measured in display width, because a search result is cut by pixels, not characters: a letter counts 1, a CJK character
 // (Chinese, Japanese) counts 2. Title <= 60, description 120..160. The title ends with the brand ("Features - Hey Look!").
 import fs from 'node:fs';
@@ -37,11 +40,32 @@ function jpegSize(buf) {
   }
   return null;
 }
+// width and height of a WebP file (lossy VP8, lossless VP8L or extended VP8X), from its RIFF header; null when it is not one
+function webpInfo(buf) {
+  if (buf.length < 30 || buf.toString('latin1', 0, 4) !== 'RIFF' || buf.toString('latin1', 8, 12) !== 'WEBP') return null;
+  const kind = buf.toString('latin1', 12, 16);
+  if (kind === 'VP8 ') return buf[23] === 0x9d && buf[24] === 0x01 && buf[25] === 0x2a ? { kind, w: buf.readUInt16LE(26) & 0x3fff, h: buf.readUInt16LE(28) & 0x3fff } : null;
+  if (kind === 'VP8L') { if (buf[20] !== 0x2f) return null; const b = buf.readUInt32LE(21); return { kind, w: (b & 0x3fff) + 1, h: ((b >>> 14) & 0x3fff) + 1 }; }
+  if (kind === 'VP8X') return { kind, w: buf.readUIntLE(24, 3) + 1, h: buf.readUIntLE(27, 3) + 1 };
+  return null;
+}
 const pngSize = (buf) => buf.slice(1, 4).toString() === 'PNG' ? { w: buf.readUInt32BE(16), h: buf.readUInt32BE(20) } : null;
 
 const enIndex = read(fileOf(EN, 'index'));
 const version = versionOf(enIndex);
 if (!version || !/^\d+\.\d+\.\d+/.test(version)) fail('index.html', `<span data-version> is "${version}", expected a version number`);
+// softwareVersion (JSON-LD) comes from that span: the 8 home pages show the same one, and it is the newest RELEASED version of the CHANGELOG
+// (the first "## x.y.z — date" heading; "## x.y.z (unreleased)" has no date and is skipped). Bumping the span is a release step.
+for (const l of LANGS) {
+  const v = versionOf(read(fileOf(l, 'index')));
+  if (v !== version) fail(`${l.dir || '.'}/index.html`, `<span data-version> is "${v}", the English home page has "${version}": the 8 home pages must show the same version`);
+}
+{
+  const log = fs.readFileSync(path.join(DOCS, '..', 'CHANGELOG.md'), 'utf8');
+  const rel = /^## (\d+\.\d+\.\d+) [—–-] \d{4}-\d{2}-\d{2}\s*$/m.exec(log);
+  if (!rel) fail('CHANGELOG.md', 'no released version heading ("## x.y.z — YYYY-MM-DD") found');
+  else if (rel[1] !== version) fail('index.html', `<span data-version> is ${version}, the newest released version in CHANGELOG.md is ${rel[1]}: the span (and softwareVersion) follow the CHANGELOG when a version is released`);
+}
 
 // ---------- the preview picture and the icons ----------
 {
@@ -60,6 +84,34 @@ if (!version || !/^\d+\.\d+\.\d+/.test(version)) fail('index.html', `<span data-
   }
   if (!fs.existsSync(path.join(DOCS, 'assets/favicon.svg'))) fail('assets/favicon.svg', 'missing');
   if (!fs.existsSync(path.join(DOCS, SCREENSHOT_PATH))) fail(SCREENSHOT_PATH, 'missing (the JSON-LD screenshot)');
+
+  // the film's two posters (W10.5): a small one in the HTML (phones), a sharper one that site.js puts in on wide screens; the 1920 px master is not served
+  const POSTERS = [['media/poster.webp', 768, 432, 30000], ['media/poster-1280.webp', 1280, 720, 70000]];
+  for (const [f, w, h, max] of POSTERS) {
+    const p = path.join(DOCS, f);
+    if (!fs.existsSync(p)) { fail(f, 'missing (node scripts/make-site-images.mjs)'); continue; }
+    const buf = fs.readFileSync(p), info = webpInfo(buf);
+    if (!info) fail(f, 'is not a WebP file');
+    else if (info.w !== w || info.h !== h) fail(f, `is ${info.w}x${info.h}, expected ${w}x${h} (a WebP)`);
+    if (buf.length > max) fail(f, `${buf.length} bytes, expected <= ${max}`);
+  }
+  if (SCREENSHOT_PATH !== 'media/poster-1280.webp') fail('scripts/lib/site-seo.mjs', `SCREENSHOT_PATH is ${SCREENSHOT_PATH}, expected media/poster-1280.webp (the JSON-LD screenshot of the home page)`);
+  const master = path.join(DOCS, '..', 'scripts/site-src/poster-master.webp');
+  const mi = fs.existsSync(master) ? webpInfo(fs.readFileSync(master)) : null;
+  if (!mi || mi.w !== 1920 || mi.h !== 1080) fail('scripts/site-src/poster-master.webp', `the 1920x1080 master (the input of make-site-images.mjs) is missing or is ${mi && mi.w}x${mi && mi.h}`);
+  const walk = (dir) => fs.readdirSync(dir, { withFileTypes: true }).flatMap((e) => (e.isDirectory() ? walk(path.join(dir, e.name)) : [path.join(dir, e.name)]));
+  for (const f of walk(DOCS).filter((x) => /\.webp$/i.test(x))) {
+    const info = webpInfo(fs.readFileSync(f));
+    if (info && info.w > 1280) fail(path.relative(DOCS, f).replace(/\\/g, '/'), `is ${info.w} px wide: nothing wider than the 1280 px poster is served (the 1920 px master lives in scripts/site-src/)`);
+  }
+  // the HTML names the small poster on the home page of every language; site.js swaps in the sharper one
+  for (const l of LANGS) {
+    const t = read(fileOf(l, 'index')), m = /<video\b[^>]*\sposter="([^"]*)"/.exec(t);
+    const want = `${l.dir ? '../' : ''}media/poster.webp`;
+    if (!m || m[1] !== want) fail(`${l.dir || '.'}/index.html`, `the film's poster is ${m && m[1]}, expected ${want}`);
+  }
+  const siteJs = read(path.join(DOCS, 'assets/site.js'));
+  if (!/poster-1280\.webp/.test(siteJs) || !/saveData/.test(siteJs) || !/min-width: 800px/.test(siteJs)) fail('assets/site.js', 'the film block must put poster-1280.webp in on wide screens (min-width: 800px or more than 1100 device pixels) and never on Data Saver (saveData)');
 }
 
 // ---------- the pages ----------
@@ -145,9 +197,12 @@ function checkPage(lang, page, file) {
   if (!/<link rel="icon" href="(?:\.\.\/)?assets\/icon-48\.png" sizes="48x48" type="image\/png">/.test(text)) fail(where, 'no 48x48 PNG favicon');
   if (!/<link rel="apple-touch-icon" href="(?:\.\.\/)?assets\/apple-touch-icon\.png">/.test(text)) fail(where, 'no apple-touch-icon');
 
-  // JSON-LD
+  // JSON-LD: the home page (WebSite + SoftwareApplication) and the download page (SoftwareApplication) have one block; every other page has none
+  // (a BreadcrumbList is not used: no page shows a breadcrumb trail, and structured data must describe what the page shows)
   const blocks = [...text.matchAll(/<script type="application\/ld\+json">([\s\S]*?)<\/script>/g)].map((x) => x[1]);
-  if (blocks.length !== 1) { fail(where, `${blocks.length} JSON-LD blocks, expected 1`); return; }
+  const wantTypes = page === 'index' ? ['WebSite', 'SoftwareApplication'] : page === 'download' ? ['SoftwareApplication'] : [];
+  if (blocks.length !== (wantTypes.length ? 1 : 0)) { fail(where, `${blocks.length} JSON-LD blocks, expected ${wantTypes.length ? 1 : 0}`); return; }
+  if (!wantTypes.length) return;
   let doc;
   try { doc = JSON.parse(blocks[0]); } catch (e) { fail(where, 'JSON-LD does not parse: ' + e.message); return; }
   if (doc['@context'] !== 'https://schema.org') fail(where, 'JSON-LD @context is not https://schema.org');
@@ -159,7 +214,6 @@ function checkPage(lang, page, file) {
     const urls = JSON.stringify(v).match(/https?:\/\/[^"]+/g) || [];
     for (const u of urls) if (!u.startsWith(SITE) && !u.startsWith('https://github.com/thnonl') && u !== 'https://schema.org') fail(where, `JSON-LD ${n['@type']}.${k} has a foreign URL ${u}`);
   }
-  const wantTypes = page === 'index' ? ['WebSite', 'SoftwareApplication'] : page === 'download' ? ['SoftwareApplication', 'BreadcrumbList'] : ['BreadcrumbList'];
   if (JSON.stringify(nodes.map((n) => n['@type'])) !== JSON.stringify(wantTypes)) fail(where, `JSON-LD types are ${nodes.map((n) => n['@type'])}, expected ${wantTypes}`);
   for (const [site] of byType('WebSite').map((n) => [n])) {
     if (site.name !== 'Hey Look!' || site.url !== urlOf(lang, 'index') || site.inLanguage !== lang.hreflang) fail(where, 'JSON-LD WebSite name, url or inLanguage is wrong');
@@ -179,14 +233,6 @@ function checkPage(lang, page, file) {
     if (JSON.stringify(app.inLanguage) !== JSON.stringify(LANGS.map((l) => l.hreflang))) fail(where, 'inLanguage is not the language list of the site');
     if (app.image !== SITE + OG_IMAGE_PATH) fail(where, 'image is not the preview picture');
     if (page === 'index' ? app.screenshot !== SITE + SCREENSHOT_PATH : app.screenshot !== undefined) fail(where, 'screenshot belongs on the home page only (the poster is shown there)');
-  }
-  for (const bc of byType('BreadcrumbList')) {
-    const it = bc.itemListElement || [];
-    if (it.length !== 2 || it[0].position !== 1 || it[1].position !== 2) fail(where, 'BreadcrumbList must have 2 items, positions 1 and 2');
-    else {
-      if (it[0].item !== urlOf(lang, 'index') || it[0].name !== 'Hey Look!') fail(where, 'BreadcrumbList item 1 is not the home page of this language');
-      if (it[1].item !== urlOf(lang, page) || it[1].name !== pageName(title)) fail(where, 'BreadcrumbList item 2 is not this page (name = the title without the brand)');
-    }
   }
 }
 
@@ -222,6 +268,12 @@ checkPage(EN, '404', path.join(DOCS, '404.html'));
     else if (lm > new Date(Date.now() + 36e5 * 14).toISOString().slice(0, 10)) fail('sitemap.xml', `<lastmod> ${lm} is in the future`);
   }
   if (/<priority>|<changefreq>/.test(xml)) fail('sitemap.xml', '<priority> / <changefreq> are not used (search engines ignore them)');
+}
+
+// ---------- no BreadcrumbList anywhere: no page shows a breadcrumb trail, and markup must describe what the page shows ----------
+{
+  const walk = (dir) => fs.readdirSync(dir, { withFileTypes: true }).flatMap((e) => (e.isDirectory() ? walk(path.join(dir, e.name)) : [path.join(dir, e.name)]));
+  for (const f of walk(DOCS)) if (/\.(html|js|css|xml|txt|json|svg)$/i.test(f) && /BreadcrumbList/.test(read(f))) fail(path.relative(DOCS, f).replace(/\\/g, '/'), 'mentions BreadcrumbList (the markup was dropped on purpose: no page shows a breadcrumb trail)');
 }
 
 // ---------- the Search Console file, no manifest to forget ----------
