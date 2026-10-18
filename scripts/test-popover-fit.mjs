@@ -91,6 +91,8 @@ async function open(cfg) {
     await cdp('Page.navigate', { url: 'about:blank' });
     await cdp('Page.navigate', { url: `${H.base}?w=compose&mock=reply#${hash}` });
     await sleep(600);
+    // the dev mock sets window.__store from a dynamic import: on a slow runner it is not there after a fixed pause
+    await evaluate(`new Promise((ok, no) => { const t0 = Date.now(), t = setInterval(() => { if (window.__store) { clearInterval(t); ok(1); } else if (Date.now() - t0 > 20000) { clearInterval(t); no(new Error("window.__store never appeared")); } }, 100); })`);
     await evaluate(`window.__store.getState().setPrefs({ theme: ${JSON.stringify(cfg.theme)} }); 1`);
   }
   await evaluate(`new Promise((ok, no) => { const t0 = Date.now(), t = setInterval(() => { if (document.querySelector('.compose-pane .cp-editor .tiptap')?.editor) { clearInterval(t); ok(1); } else if (Date.now() - t0 > 15000) { clearInterval(t); no(new Error('compose did not start')); } }, 100); })`);
