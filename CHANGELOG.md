@@ -29,6 +29,8 @@
 - A signed or encrypted message that was scheduled goes out with the date of the send, not the day it was scheduled; a Reply sets Answered and a Forward sets Forwarded on the original on the mail server once the message is sent (other mail programs show these)
 - A draft from before 1.0.6 that forwards a message with a signature keeps your own signature in the signature box
 - A recipient whose key can only sign now reads "their key can only sign, not encrypt" (in the strip and in the recipient's key popover) instead of "no public key"
+- A draft you opened from Drafts and popped out into a window without changing anything closes at once: no "Save your message?" question, nothing is written to the server (the window used to save the draft again when it lost the focus, so Discard wrote it twice); after "Discard changes" the Drafts list shows the draft again at once instead of staying empty until the next sync
+- The tooltip of a recipient chip names the same key problem as its popover ("The key for ... can only sign, not encrypt", expired, revoked, no public key)
 
 ## 1.0.6 — 2026-10-18
 

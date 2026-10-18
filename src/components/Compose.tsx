@@ -177,7 +177,7 @@ export function RecipientField({
           const ks = keys?.[addr];
           const noKey = !!ks && ks.status !== "ok";
           return (
-          <span key={v} data-email={EMAIL.test(bareAddress(v)) ? bareAddress(v) : undefined} className={`rchip ${EMAIL.test(bareAddress(v)) ? "" : "bad"} ${noKey ? "nokey" : ""}`} title={EMAIL.test(bareAddress(v)) ? (noKey ? t("compose.rcpt.noUsableKey", { addr }) : v) : t("compose.rcpt.notAddress")}>
+          <span key={v} data-email={EMAIL.test(bareAddress(v)) ? bareAddress(v) : undefined} className={`rchip ${EMAIL.test(bareAddress(v)) ? "" : "bad"} ${noKey ? "nokey" : ""}`} title={EMAIL.test(bareAddress(v)) ? (noKey ? t(keyProblemKey(ks?.status, "chipTitle"), { addr }) : v) : t("compose.rcpt.notAddress")}>
             {ks && (ks.status === "ok" ? (
               <span className="rchip-key ok" title={t("compose.rcpt.keyFound")} role="img" aria-label={t("compose.rcpt.keyFoundFor", { addr })}><Lock size={11} /></span>
             ) : (
@@ -589,7 +589,9 @@ function ComposeBody({ init }: { init: ComposeInit }) {
   const revRef = useRef(0); // up with every edit: a save that was running while the person typed knows it
   const attachingRef = useRef(0); // files / pictures being read into the message
   const savedTid = useRef<string | null>(null); // the conversation of the draft a save made (the "Draft saved" toast opens it with Edit)
-  const savedDraftRef = useRef<string | null>(null); // that draft as a reference: a second save, a send or a discard replaces / removes exactly it
+  // that draft as a reference: a second save, a send or a discard replaces / removes exactly it. A window that an opened draft was moved into after a save (the
+  // pane autosaved it, or Save draft was pressed) starts with that draft: Discard there puts the opened version back instead of leaving the edits (W2.2)
+  const savedDraftRef = useRef<string | null>(openedDraft && init.replaces && !init.replaces.startsWith("m:") ? init.replaces : null);
   const replacesRef = () => savedDraftRef.current ?? init.replaces ?? null; // the draft this message takes the place of
   const baseline = useRef<{ text: string; pics: number } | null>(null); // the body as Compose opened it (a reply: the quote)
 
@@ -1017,7 +1019,9 @@ function ComposeBody({ init }: { init: ComposeInit }) {
   /** Move this message to a window of its own (REQ-C3, C4): all of it as it is, nothing saved, nothing asked; the pane closes once the window exists. */
   const popOut = async () => {
     if (init.outboxId || composeSeam() || busy) return;
-    const moved = initOf(buildDraft(), { replaces: replacesRef() ?? undefined, isReply: !!init.isReply, carried: true });
+    // "carried" = the window starts as a message with changes nobody saved: closing it asks, and it autosaves when it loses the focus. A pane that is as it was
+    // opened (an opened draft nobody touched, a reply with nothing written) moves as it is: closing that window ends it at once and writes nothing (W2.2)
+    const moved = initOf(buildDraft(), { replaces: replacesRef() ?? undefined, isReply: !!init.isReply, carried: touched.current || !!savedDraftRef.current });
     poppingRef.current = true; // (the new window takes the focus: this pane losing it must not save a draft of what is moving)
     if (!(await openPopout("compose", null, moved))) {
       poppingRef.current = false;
@@ -1668,7 +1672,7 @@ function ComposeBody({ init }: { init: ComposeInit }) {
         return false;
       }
       savedDraftRef.current = null;
-      return true;
+      return true; // (the backend reads Drafts again and tells every window: the version put back is not in the local list yet, the saved copy that went is not there any more)
     }
     if (init.replaces) return true; // some other message that was written from a draft: that draft existed before this message was written
     savedDraftRef.current = null;

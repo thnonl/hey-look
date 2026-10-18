@@ -624,9 +624,22 @@ pub fn open(app: &AppHandle, from: &str, kind: Kind, key: Option<String>, init: 
         }
         Err(e) => {
             reg(app).remove(&label);
-            log(&format!("{label}: could not be created: {e}"));
+            log(&format!("{label}: could not be created: {e}{}", creation_hint(&e)));
             Err(e)
         }
+    }
+}
+
+/// What the log adds to a window that could not be created. "failed to send message to the webview" is not about this window: the event loop of the app
+/// takes no messages, so every window call fails from then on (a new window, hiding or ending one) until the app is started again. On Windows the loop
+/// listens at an internal window of the class "Tao Thread Event Target"; that window is listed among the top-level windows of the process, and a tool that
+/// posts WM_CLOSE to every one of them (the 1.0.7 WP2a QA helper did) destroys it. Nothing in the app does that, and a retry cannot help: the line says so,
+/// so a log is not read as a fault of the window that was asked for (QA BUG-1: the same on 1.0.6, with the same helper).
+fn creation_hint(e: &str) -> &'static str {
+    if e.contains("failed to send message to the webview") {
+        " (the event loop of the app takes no messages: its internal window is gone, e.g. WM_CLOSE sent to every window of the process; no window can be opened until the app is started again)"
+    } else {
+        ""
     }
 }
 
@@ -1489,6 +1502,77 @@ mod tests {
         // the same draft opened again is a new window, not a focus of the one that is going
         let Request::Create { label: again } = ask(&mut r, Kind::Compose, Some("draft:t1")) else { panic!("a retiring window must not take a focus request") };
         assert_ne!(again, label);
+    }
+
+    /// 1.0.7 WP2a QA BUG-1: "a draft that was popped out and closed cannot be popped out again". The registry side of that, 20 times over, by every road a
+    /// window ends by: the page ends it (retire, then Destroyed), the window system destroys it at once (Destroyed only), and a window that was given up.
+    /// The same key always gets a NEW window with a NEW label (never a focus of the one that is gone, never a refusal), and nothing is left behind.
+    #[test]
+    fn a_closed_draft_window_can_be_opened_again_every_time() {
+        let mut r = Registry::default();
+        let mut seen = std::collections::HashSet::new();
+        let mut last: Option<String> = None;
+        for i in 0..20 {
+            let Request::Create { label } = ask(&mut r, Kind::Compose, Some("draft:mid:acc|<d1@x>")) else { panic!("open {i}: the closed draft did not get a new window") };
+            assert!(seen.insert(label.clone()), "open {i}: {label} was used before");
+            assert_eq!(r.find_key(Kind::Compose, "draft:mid:acc|<d1@x>").map(|e| e.label.clone()), Some(label.clone()));
+            // a second ask while it is open is a focus, as before
+            assert_eq!(ask(&mut r, Kind::Compose, Some("draft:mid:acc|<d1@x>")), Request::Focus { label: label.clone() });
+            // the page says it is ready, the draft's key follows a save (set_key), then the window ends
+            r.get_mut(&label).unwrap().ready = true;
+            assert!(r.set_key(&label, Some(format!("draft:mid:acc|<d{i}@x>"))));
+            assert!(r.set_key(&label, Some("draft:mid:acc|<d1@x>".into())));
+            match i % 3 {
+                0 => {
+                    // ended by its page: out of sight and key freed at once, forgotten when the window system says it is destroyed
+                    assert_eq!(r.start_retire(&label), Some(true));
+                    assert!(r.find_key(Kind::Compose, "draft:mid:acc|<d1@x>").is_none(), "its key is free while it is going");
+                    assert!(r.remove(&label).is_some());
+                }
+                1 => assert!(r.remove(&label).is_some(), "destroyed by the window system without a retire"),
+                _ => {
+                    // given up after the wait (the window object never went): forgotten all the same
+                    assert_eq!(r.start_retire(&label), Some(true));
+                    assert!(r.remove(&label).is_some());
+                    assert!(r.remove(&label).is_none(), "forgotten once");
+                }
+            }
+            assert!(r.entries.is_empty(), "open {i}: {:?} left behind", r.entries.iter().map(|e| &e.label).collect::<Vec<_>>());
+            if let Some(prev) = &last {
+                assert_ne!(prev, &label);
+            }
+            last = Some(label);
+        }
+        assert_eq!(seen.len(), 20);
+    }
+
+    /// A window that could not be created is taken out again (`open` does that), so it holds no slot and no key: the next open of the same draft works, and
+    /// the cap is not eaten by the failures.
+    #[test]
+    fn a_window_that_could_not_be_created_holds_no_slot_and_no_key() {
+        let mut r = Registry::default();
+        for i in 0..(MAX_SECONDARY * 3) {
+            let Request::Create { label } = ask(&mut r, Kind::Compose, Some("draft:t1")) else { panic!("try {i}: refused after earlier failures") };
+            assert_eq!(r.entries.len(), 1);
+            assert!(r.remove(&label).is_some()); // the creation failed
+            assert!(r.entries.is_empty() && r.find_key(Kind::Compose, "draft:t1").is_none());
+        }
+        // and then it works
+        assert!(matches!(ask(&mut r, Kind::Compose, Some("draft:t1")), Request::Create { .. }));
+        // the code takes the entry out before anything else on a failure
+        let code = crate::test_guard::non_test_code(include_str!("popout.rs"));
+        let open = &code[code.find("pub fn open(").unwrap()..code.find("fn creation_hint(").unwrap()];
+        let failed = &open[open.find("Err(e) => {").unwrap()..];
+        assert!(failed.find("reg(app).remove(&label)").unwrap() < failed.find("could not be created").unwrap());
+    }
+
+    #[test]
+    fn the_log_says_when_the_event_loop_itself_stopped_taking_messages() {
+        // a window call that fails with this text is not about that window: the hint is added to the line, and only to that error
+        let e = "runtime error: failed to send message to the webview";
+        assert!(creation_hint(e).contains("event loop") && creation_hint(e).contains("WM_CLOSE") && creation_hint(e).contains("started again"));
+        assert_eq!(creation_hint("failed to create window: out of memory"), "");
+        assert_eq!(creation_hint(""), "");
     }
 
     #[test]

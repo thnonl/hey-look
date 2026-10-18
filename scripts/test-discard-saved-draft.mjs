@@ -270,6 +270,94 @@ try {
       assert.equal(await count(), 0);
     });
   }
+
+  // ---------- 1.0.7 WP2a fix 1 (QA BUG-2): a draft moved into a window the way it was opened is not "changed" there: closing the window asks nothing and writes
+  // nothing (before, the window counted every moved message as changed: the question showed, and losing the focus autosaved the original again, so a
+  // Discard wrote it twice). A message that has changes, or that a save has replaced, still moves as changed.
+  const popped = () => evaluate(`(window.__popoutOpened || []).slice(-1)[0] || null`);
+  const popOutPane = async () => { await evaluate(`document.querySelector('button[aria-label="Pop out"]').click(); 1`); await sleep(700); };
+  async function openedClean() {
+    await H.openApp('lang=en', 1280, 720);
+    await evaluate(`window.__hlTiming = { autosaveMs: 500, snapshotMs: 300 }; window.__store.getState().openCompose({ accountId: 'a1', to: ['alice@fabrikam.com'], subject: 'D1', bodyHtml: '<p>Original text</p>' }); 1`);
+    await waitPane();
+    await evaluate(`document.querySelector('.cp-editor .tiptap').editor.commands.insertContent(' '); 1`);
+    await evaluate(`window.__store.getState().composeSaver({ quiet: true }); 1`);
+    await sleep(700);
+    await evaluate(`window.__store.getState().openCompose(null); 1`);
+    await sleep(300);
+    await openFromDrafts((await drafts())[0].id);
+    await sleep(500);
+  }
+  {
+    await openedClean();
+    await popOutPane();
+    await check('pane: an opened draft nobody touched moves to a window as it is (not "carried")', async () => {
+      const p = await popped();
+      assert.ok(p && p.kind === 'compose', 'no window was asked for');
+      assert.ok(!p.init.carried, `carried: ${p.init.carried}`);
+      assert.equal(p.init.openedDraft, true);
+      assert.ok(p.init.replaces.startsWith('m:'), p.init.replaces);
+      assert.equal(await paneUp(), false, 'the pane closes once the window exists');
+    });
+    await openedClean();
+    await evaluate(`document.querySelector('.cp-editor .tiptap').editor.commands.focus('end'); 1`);
+    await io.typeText(' more', 6);
+    await popOutPane();
+    await check('pane: an opened draft with changes moves as carried (the window asks when it is closed)', async () => {
+      const p = await popped();
+      assert.equal(p.init.carried, true);
+      assert.equal(p.init.openedDraft, true);
+    });
+    await openedAndEdited(); // edited, and the autosave replaced the opened version
+    await popOutPane();
+    await check('pane: an opened draft that a save replaced moves as carried, with the reference of the saved copy', async () => {
+      const p = await popped();
+      assert.equal(p.init.carried, true);
+      assert.ok(p.init.replaces.startsWith('mid:'), p.init.replaces);
+      assert.equal(p.init.openedDraft, true);
+    });
+  }
+  async function windowOf(mock, timers = 'autosave=500&snapshot=300') {
+    await H.openApp(`lang=en&${timers}`, 1280, 720);
+    await H.cdp('Page.navigate', { url: 'about:blank' });
+    await H.cdp('Page.navigate', { url: `${H.base}?w=compose&mock=${mock}#lang=en&${timers}` });
+    await sleep(800);
+    for (let i = 0; i < 60 && !(await paneUp()); i++) await sleep(100);
+    await sleep(600);
+  }
+  {
+    await windowOf('opened');
+    await leaveWindow(); // the window loses the focus: a changed message would autosave now
+    await sleep(1500);
+    const saves = await evaluate(`window.__draftSaveCalls || 0`);
+    await evaluate(`window.__mockEmit('tauri://close-requested', null); 1`);
+    await sleep(1000);
+    await check('window: an opened draft moved as it was opened: losing the focus writes nothing, X closes it without a question', async () => {
+      assert.equal(saves, 0, 'it saved by itself');
+      assert.equal(await dialog(), null, 'a question was asked');
+      assert.equal(await evaluate(`window.__draftSaveCalls || 0`), 0);
+      assert.ok(!(await evaluate(`window.__discardChanges`)), 'something was put back');
+    });
+    await windowOf('openedcarried');
+    await leaveWindow();
+    await sleep(1500);
+    await evaluate(`window.__mockEmit('tauri://close-requested', null); 1`);
+    await sleep(800);
+    await check('window: an opened draft moved WITH changes still autosaves and asks when it is closed', async () => {
+      assert.equal(await evaluate(`window.__draftSaveCalls || 0`), 1);
+      const q = await dialog();
+      assert.ok(q && /Save your message\?/.test(q.text), JSON.stringify(q));
+      assert.deepEqual(q.buttons, ['Cancel', 'Save', 'Discard']);
+    });
+    await windowOf('openedsaved', 'autosave=600000&snapshot=600000'); // (no autosave of its own in the window: the saved copy it takes back is the one the pane made)
+    await evaluate(`window.__mockEmit('tauri://close-requested', null); 1`);
+    await sleep(800);
+    await press('Discard', '[role=alertdialog] button');
+    await sleep(1000);
+    await check('window: an opened draft that the pane had saved (a mid: reference): Discard asks the backend to put the opened version back', async () => {
+      assert.equal(await evaluate(`window.__discardChanges`), 1, 'the window did not know the saved copy it has to take back');
+    });
+  }
 } finally { await H.shutdown(); }
 
 if (failures.length) { console.error(`test-discard-saved-draft: ${failures.length} failure(s)\n - ${failures.join('\n - ')}`); process.exit(1); }

@@ -17,7 +17,6 @@ export default defineLocale<typeof ns.en>({
   "compose.addCc": "Добавить копию (Ctrl+Shift+C)",
   "compose.addBcc": "Добавить скрытую копию (Ctrl+Shift+B)",
   // recipient chips and the missing-key popover
-  "compose.rcpt.noUsableKey": "Нет подходящего открытого ключа для {addr}",
   "compose.rcpt.notAddress": "Это не похоже на адрес электронной почты",
   "compose.rcpt.keyFound": "Открытый ключ найден",
   "compose.rcpt.keyFoundFor": "Открытый ключ найден для {addr}",
