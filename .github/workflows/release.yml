@@ -184,6 +184,44 @@ jobs:
           SHARD: ${{ matrix.shard }}
         run: bash .github/scripts/run-node-tests.sh "$SHARD"
 
+  rust-tests:
+    # `cargo test` of src-tauri (112 test modules: i18n, capabilities, test bridge, calendar sync, outbox, mail parsing ...). CI never ran them
+    # before; the release checklist only names them. Same image and system packages as the Linux build. The frontend is not needed to compile
+    # the tests, but the app macro wants the folder of the built frontend to exist, so an empty stand-in is made.
+    needs: plan
+    if: ${{ needs.plan.outputs.tests == 'true' }}
+    name: Rust tests
+    runs-on: ubuntu-22.04
+    timeout-minutes: 45
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          persist-credentials: false
+
+      - name: Install Linux dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y             libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf             libssl-dev libdbus-1-dev pkg-config
+
+      - uses: dtolnay/rust-toolchain@b725eda525362e7cf34af9a7243cac1e3f01a7ec # stable branch (a SHA pin needs the toolchain named)
+        with:
+          toolchain: stable
+
+      - uses: swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+        with:
+          workspaces: src-tauri -> target
+
+      - name: Run cargo test
+        working-directory: src-tauri
+        env:
+          RUST_BACKTRACE: 1
+        run: |
+          mkdir -p ../dist
+          [ -e ../dist/index.html ] || echo '<!doctype html><title>stand-in</title>' > ../dist/index.html
+          cargo test --locked
+
   build:
     needs: [plan, create-release]
     # Runs after create-release on tag runs, and on its own (create-release skipped) on dry runs.
@@ -225,6 +263,7 @@ jobs:
       - uses: swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
         with:
           workspaces: src-tauri -> target
+          save-if: ${{ github.ref_type != 'tag' }}
 
       # Is there a signing key? Tag run: it must be there. Dry run: signed with it, or built unsigned (with a warning) without.
       # A test build (test_version) is never signed. The key itself is never printed.
@@ -600,8 +639,8 @@ jobs:
     # With them: SignPath signs the two Windows installers after the build (it waits for the owner's approval in SignPath), the update
     # signatures are made again from the signed files, checked (verify-update-sigs.cjs, Authenticode = Valid) and replace the unsigned
     # assets of the draft (--clobber). A failure anywhere stops the release: publish needs this job. Owner steps: CONTRIBUTING.md.
-    needs: [plan, create-release, build, node-tests]
-    if: ${{ !cancelled() && needs.plan.outputs.signpath == 'true' && needs.build.result == 'success' && contains(fromJSON('["success","skipped"]'), needs.node-tests.result) && (needs.create-release.result == 'success' || needs.create-release.result == 'skipped') }}
+    needs: [plan, create-release, build, node-tests, rust-tests]
+    if: ${{ !cancelled() && needs.plan.outputs.signpath == 'true' && needs.build.result == 'success' && contains(fromJSON('["success","skipped"]'), needs.node-tests.result) && contains(fromJSON('["success","skipped"]'), needs.rust-tests.result) && (needs.create-release.result == 'success' || needs.create-release.result == 'skipped') }}
     runs-on: windows-latest
     timeout-minutes: 180
     permissions:
@@ -753,11 +792,11 @@ jobs:
 
   publish:
     # Runs only when create-release and all three builds succeeded and sign-windows either succeeded or was not wanted (skipped).
-    needs: [create-release, build, sign-windows, node-tests]
+    needs: [create-release, build, sign-windows, node-tests, rust-tests]
     timeout-minutes: 30
     permissions:
       contents: write # uploads latest.json and publishes the release
-    if: ${{ !cancelled() && github.event_name == 'push' && needs.create-release.result == 'success' && needs.build.result == 'success' && needs.node-tests.result == 'success' && contains(fromJSON('["success","skipped"]'), needs.sign-windows.result) }}
+    if: ${{ !cancelled() && github.event_name == 'push' && needs.create-release.result == 'success' && needs.build.result == 'success' && needs.node-tests.result == 'success' && needs.rust-tests.result == 'success' && contains(fromJSON('["success","skipped"]'), needs.sign-windows.result) }}
     runs-on: ubuntu-latest
     env:
       GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
