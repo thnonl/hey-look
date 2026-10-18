@@ -20,8 +20,10 @@ export interface Account {
   tlsInsecure: boolean;
   auth: "password" | "oauth_google" | "oauth_microsoft";
   color?: string | null;
+  /** Own Reply-To of the mail sent from this mailbox: one bare address, empty or missing = none (Settings > mailbox). */
+  replyTo?: string;
 }
-export type AccountInput = Omit<Account, "id" | "auth" | "color">;
+export type AccountInput = Omit<Account, "id" | "auth" | "color" | "replyTo">;
 
 export interface ThreadSummary {
   threadId: string;
@@ -553,8 +555,9 @@ export const api = {
   oauthCancel: () => invoke<void>("oauth_cancel"),
   /** Sign in again to a mailbox whose sign-in ended: the same address, the same account (nothing is added). */
   reauthAccount: (accountId: string) => invoke<Account>("reauth_account", { accountId }),
-  updateAccount: (accountId: string, displayName: string, color: string | null) =>
-    invoke<void>("update_account", { accountId, displayName, color }),
+  /** `replyTo` undefined leaves the Reply-To as it is; a text that is not one address fails with EMAIL_INVALID (nothing is saved). */
+  updateAccount: (accountId: string, displayName: string, color: string | null, replyTo?: string) =>
+    invoke<void>("update_account", { accountId, displayName, color, replyTo }),
   removeAccount: (accountId: string) => invoke<void>("remove_account", { accountId }),
   refreshBadge: () => invoke<void>("refresh_badge"),
   testNotification: () => invoke<void>("test_notification"),

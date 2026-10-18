@@ -576,7 +576,7 @@ pub(crate) mod tests {
             let acc = crate::db::Account {
                 id: id.into(), email: format!("{id}@x.example"), display_name: "N".into(), imap_host: "h".into(), imap_port: 993, imap_ssl: true,
                 smtp_host: "s".into(), smtp_port: 465, smtp_security: "ssl".into(), username: "u".into(), auth: "password".into(), color: None,
-                smtp_username: String::new(), tls_insecure: false,
+                smtp_username: String::new(), tls_insecure: false, reply_to: String::new(),
             };
             crate::db::insert_account(&c, &acc).unwrap();
         }
@@ -611,7 +611,7 @@ pub(crate) mod tests {
         let acc = crate::db::Account {
             id: A.into(), email: "a@x.example".into(), display_name: "N".into(), imap_host: "h".into(), imap_port: 993, imap_ssl: true,
             smtp_host: "s".into(), smtp_port: 465, smtp_security: "ssl".into(), username: "u".into(), auth: "password".into(), color: None,
-            smtp_username: String::new(), tls_insecure: false,
+            smtp_username: String::new(), tls_insecure: false, reply_to: String::new(),
         };
         crate::db::insert_account(&c, &acc).unwrap();
         put(&c, "a1", A, 1, "one");
@@ -703,7 +703,7 @@ pub(crate) mod tests {
             let acc = crate::db::Account {
                 id: A.into(), email: "a@x.example".into(), display_name: "N".into(), imap_host: "h".into(), imap_port: 993, imap_ssl: true,
                 smtp_host: "s".into(), smtp_port: 465, smtp_security: "ssl".into(), username: "u".into(), auth: "password".into(), color: None,
-                smtp_username: String::new(), tls_insecure: false,
+                smtp_username: String::new(), tls_insecure: false, reply_to: String::new(),
             };
             crate::db::insert_account(&c, &acc).unwrap();
         }

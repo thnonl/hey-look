@@ -6,6 +6,7 @@ import { darkMessages, darkThreadRows } from "./devMockDark";
 import { extractSignature, fillSignatureHtml, normalizeHtml, SIG_MARK } from "./signature";
 import { ACCOUNT_PALETTE, accountColor, pickAccountColor } from "./prefs";
 import { setSimulatedWindow } from "./winframe";
+import { parseReplyTo } from "./replyTo";
 import type { LangPref } from "./i18n";
 
 const now = Math.floor(Date.now() / 1000);
@@ -1213,7 +1214,10 @@ export function installMock() {
       }
       case "update_account": {
         const x = accounts.find((y) => y.id === a.accountId);
-        if (x) { x.displayName = a.displayName as string; (x as { color: string | null }).color = (a.color as string | null) ?? null; }
+        // like the backend: a Reply-To that is not one bare address is refused before anything is saved
+        const rt = typeof a.replyTo === "string" ? parseReplyTo(a.replyTo) : undefined;
+        if (rt === null) throw "EMAIL_INVALID: Enter a valid email address";
+        if (x) { x.displayName = a.displayName as string; (x as { color: string | null }).color = (a.color as string | null) ?? null; if (rt !== undefined) (x as { replyTo?: string }).replyTo = rt; }
         return null;
       }
       case "save_draft": {

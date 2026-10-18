@@ -1,0 +1,18 @@
+Hi Tom,
+
+The numbers (kept as a table, columns aligned with spaces):
+
+Item        Qty    Price   Note
+----        ---    -----   ----
+Tea           2     3.50   1 < 2 & 3 > 2 stay text
+Coffee       10    12.00   2 > 1
+
+    indented by four spaces
+        and by eight
+col	tab	stop
+
+
+Two blank lines above, a link https://example.com/a?b=1&c=2 on this one.
+
+-- 
+Nora Fox

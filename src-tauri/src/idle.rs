@@ -821,7 +821,7 @@ mod tests {
         let mut a = Account {
             id: "a".into(), email: "x@example.test".into(), display_name: "X".into(), imap_host: "h".into(), imap_port: 993, imap_ssl: true,
             smtp_host: "s".into(), smtp_port: 465, smtp_security: "ssl".into(), username: "u".into(), auth: "password".into(), color: None,
-            smtp_username: String::new(), tls_insecure: false,
+            smtp_username: String::new(), tls_insecure: false, reply_to: String::new(),
         };
         let f = fingerprint(&a);
         a.display_name = "Y".into();
@@ -950,7 +950,7 @@ mod tests {
             let a = Account {
                 id: "odd".into(), email: "x@example.test".into(), display_name: "X".into(), imap_host: "127.0.0.1".into(), imap_port: 1, imap_ssl: false,
                 smtp_host: "s".into(), smtp_port: 465, smtp_security: "ssl".into(), username: "u".into(), auth: "password".into(), color: None,
-                smtp_username: String::new(), tls_insecure: false,
+                smtp_username: String::new(), tls_insecure: false, reply_to: String::new(),
             };
             Ok((a, "pw".into()))
         }

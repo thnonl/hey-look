@@ -2,8 +2,8 @@ On Fri, 16 Oct 2026, Ann Lee <ann@example.com> wrote:
 > Hi Lena,
 >
 > The revised budget is attached. Key points:
-> · Travel is capped at EUR 4,000
-> · Training moves to Q3
+> ·         Travel is capped at EUR 4,000
+> ·         Training moves to Q3
 >
 > Region	Q1
 > EMEA	12

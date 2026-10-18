@@ -446,6 +446,7 @@ fn add_account_cancellable(
         color: None,
         smtp_username: input.smtp_username.trim().to_string(),
         tls_insecure: input.tls_insecure,
+        reply_to: String::new(),
     };
     let smtp_password = smtp_password.filter(|p| !p.is_empty());
     let smtp_pw = smtp_password.clone().unwrap_or_else(|| password_value.to_string());
@@ -626,6 +627,7 @@ async fn oauth_sign_in(
         color: existing.as_ref().and_then(|a| a.color.clone()),
         smtp_username: String::new(),
         tls_insecure: false,
+        reply_to: String::new(),
     };
     identity::entry(&acc.id)
         .and_then(|e| e.set_password(&signed.refresh_token))
@@ -705,14 +707,10 @@ fn set_mail_available(available: bool) {
 }
 
 #[tauri::command]
-fn update_account(state: tauri::State<AppState>, account_id: String, display_name: String, color: Option<String>) -> R<()> {
-    lock(&state.db)
-        .execute(
-            "UPDATE accounts SET display_name=?1, color=?2 WHERE id=?3",
-            params![display_name, color, account_id],
-        )
-        .map_err(err)?;
-    Ok(())
+fn update_account(state: tauri::State<AppState>, account_id: String, display_name: String, color: Option<String>, reply_to: Option<String>) -> R<()> {
+    // `reply_to` None: the setting stays as it is (the colour and name callers do not know it); a text that is not one address is refused before anything is written
+    let reply_to = reply_to.map(|r| smtp::check_reply_to(&r)).transpose()?;
+    db::update_profile(&lock(&state.db), &account_id, &display_name, color.as_deref(), reply_to.as_deref())
 }
 
 #[tauri::command]
@@ -5885,7 +5883,7 @@ mod quit_tests {
         let acc = Account {
             id: "a1".into(), email: "me@example.com".into(), display_name: "Me".into(), imap_host: "h".into(), imap_port: 993, imap_ssl: true,
             smtp_host: "s".into(), smtp_port: 465, smtp_security: "ssl".into(), username: "u".into(), auth: "password".into(), color: None,
-            smtp_username: String::new(), tls_insecure: false,
+            smtp_username: String::new(), tls_insecure: false, reply_to: String::new(),
         };
         db::insert_account(&lock(&db), &acc).unwrap();
         let listed = |db: &Db| -> HashMap<String, bool> {
@@ -5917,7 +5915,7 @@ mod quit_tests {
         let acc = Account {
             id: "a1".into(), email: "me@example.com".into(), display_name: "Me".into(), imap_host: "h".into(), imap_port: 993, imap_ssl: true,
             smtp_host: "s".into(), smtp_port: 465, smtp_security: "ssl".into(), username: "u".into(), auth: "password".into(), color: None,
-            smtp_username: String::new(), tls_insecure: false,
+            smtp_username: String::new(), tls_insecure: false, reply_to: String::new(),
         };
         db::set_setting(&lock(&db), "fmap:a1", r#"{"inbox":"INBOX","drafts":"Entwürfe"}"#).unwrap();
         assert_eq!(folder_for(&db, &acc, "drafts").unwrap(), "Entwürfe");
@@ -6372,7 +6370,7 @@ mod backfill_tests {
         Account {
             id: ACC.into(), email: "me@example.com".into(), display_name: "Me".into(), imap_host: "h".into(), imap_port: 993, imap_ssl: true,
             smtp_host: "s".into(), smtp_port: 465, smtp_security: "ssl".into(), username: "u".into(), auth: "password".into(), color: None,
-            smtp_username: String::new(), tls_insecure: false,
+            smtp_username: String::new(), tls_insecure: false, reply_to: String::new(),
         }
     }
 
@@ -6661,7 +6659,7 @@ mod backfill_tests {
         let acc = db::Account {
             id: ACC.into(), email: "a@b.c".into(), display_name: "N".into(), imap_host: "h".into(), imap_port: 993, imap_ssl: true,
             smtp_host: "s".into(), smtp_port: 465, smtp_security: "ssl".into(), username: "u".into(), auth: "password".into(), color: None,
-            smtp_username: String::new(), tls_insecure: false,
+            smtp_username: String::new(), tls_insecure: false, reply_to: String::new(),
         };
         let msg = |uid: u32| mail::parse(uid, format!("From: x@y.z
 Subject: m{uid}
@@ -6761,7 +6759,7 @@ mod importance_tests {
         Account {
             id: "a1".into(), email: "me@example.com".into(), display_name: "Me".into(), imap_host: "h".into(), imap_port: 993, imap_ssl: true,
             smtp_host: "s".into(), smtp_port: 465, smtp_security: "ssl".into(), username: "u".into(), auth: "password".into(), color: None,
-            smtp_username: String::new(), tls_insecure: false,
+            smtp_username: String::new(), tls_insecure: false, reply_to: String::new(),
         }
     }
 
@@ -6839,6 +6837,36 @@ mod importance_tests {
         insert_parsed(&c, &acc, "sent", &p).unwrap();
         let f: ThreadFilter = serde_json::from_str(r#"{"folder":"sent"}"#).unwrap();
         assert_eq!(threads_for(&c, f).unwrap()[0].importance, High);
+    }
+
+    /// W2.21: the Reply-To saved in Settings (`update_profile`, as the command does) is read back with the mailbox and written into the message that is
+    /// finished for sending; a mailbox that has none, or whose own address it is, writes none.
+    #[test]
+    fn a_mailbox_reply_to_saved_in_settings_reaches_the_message_that_is_sent() {
+        let c = db::test_conn(&["a1"]);
+        let mine = account();
+        db::insert_account(&c, &mine).unwrap();
+        let own = mine.email.clone();
+        assert_eq!(mine.id, "a1");
+        let d = smtp::Draft {
+            account_id: "a1".into(), to: vec!["ann@example.com".into()], cc: vec![], bcc: vec![], subject: "Hi".into(), html: "<p>x</p>".into(), text: "x".into(),
+            in_reply_to: None, references: vec![], attachments: vec![], inline: vec![], security: None, prebuilt: None, meeting: None, calendar: None,
+            confidential: false, importance: Default::default(), recovery_id: None, meeting_form: None, answers: None,
+        };
+        let reply_to = |c: &Connection| {
+            let acc = db::get_account(c, "a1").unwrap();
+            let shared: Db = Arc::new(Mutex::new(Connection::open_in_memory().unwrap()));
+            let (raw, _) = finished_message(&shared, &acc, &d).unwrap();
+            let (h, _) = pgpmail::parse_headers(&raw);
+            h.into_iter().filter(|(n, _)| n.eq_ignore_ascii_case("reply-to")).map(|(_, v)| v.trim().to_string()).collect::<Vec<_>>()
+        };
+        assert!(reply_to(&c).is_empty(), "none until it is set");
+        db::update_profile(&c, "a1", "Me", None, Some("team@x.test")).unwrap();
+        assert_eq!(reply_to(&c), vec!["team@x.test".to_string()]);
+        db::update_profile(&c, "a1", "Me renamed", Some("#0f6cbd"), None).unwrap();
+        assert_eq!(reply_to(&c), vec!["team@x.test".to_string()], "a new name or colour leaves it");
+        db::update_profile(&c, "a1", "Me", None, Some(&own)).unwrap();
+        assert!(reply_to(&c).is_empty(), "the mailbox's own address needs no header");
     }
 }
 

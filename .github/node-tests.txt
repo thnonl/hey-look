@@ -192,3 +192,9 @@ static | node scripts/check-bundle-budget.mjs --selftest
 static | node scripts/test-source-chars.mjs
 # the UI test harness gives every test its own dev server and browser on ports the program bound itself: two harnesses started together with the same starting ports get different servers and cannot see each other's page
 ui-a | node scripts/test-harness-isolation.mjs --require-browser
+# the own Reply-To of a mailbox: what the Settings field accepts (empty or one bare address, no name part, no list) and that the command, the row, the migration and both message builders are wired (the header itself: `cargo test --lib`)
+static | node --experimental-strip-types scripts/test-reply-to.mjs
+# Settings > mailbox > Reply-to address in the dev preview: saved when the field is left, an invalid text shows "Enter a valid email address" and leaves the old value, empty clears it, not shown for All accounts, label and hint fit at 960 x 560 in 8 languages
+ui-a | node scripts/test-reply-to-setting.mjs --require-browser
+# a recipient chip dragged with the mouse from To to Cc to Bcc and back (a real browser drag): moved, same field and other places do nothing, a duplicate is not added again, the target is outlined, the change is an edit, the chip carries no text
+ui-a | node scripts/test-chip-drag.mjs --require-browser

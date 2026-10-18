@@ -133,6 +133,7 @@ export function htmlToText(html: string): string {
 
   const mark = () => (quote ? "> ".repeat(quote) : "");
   const flush = () => {
+    if (lead === 0 && cur.trim() === "") cur = ""; // (a line of nothing but no-break spaces, Word's empty paragraph, is an empty line)
     const line = cur === "" && quote ? mark().trimEnd() : mark() + cur;
     // one blank line is enough, and the text does not open with one
     if (!(cur === "" && (lines.length === 0 || lines[lines.length - 1] === line))) lines.push(line);
@@ -150,7 +151,7 @@ export function htmlToText(html: string): string {
   /** end the line only when it holds something (the start / end of a block) */
   const endLine = () => {
     if (cell) return brk();
-    if (cur.length > lead) flush();
+    if (cur.length > lead && cur.slice(lead).trim() !== "") flush();
   };
   const put = (s: string) => {
     if (!s) return;
@@ -158,7 +159,8 @@ export function htmlToText(html: string): string {
     for (const l of links) l.text += s;
   };
   const text = (raw: string) => {
-    let s = decodeEntities(raw).replace(/[​-‍⁠﻿]/g, "");
+    // a no-break space keeps its width (the layout of a quoted plain-text mail, W2.25): it is told apart from a blank until the lines are done
+    let s = decodeEntities(raw.replace(/&(?:nbsp|#160|#xa0);/gi, "\u00a0")).replace(/[​-‍⁠﻿]/g, "");
     if (pre) {
       const parts = s.replace(/\r\n?/g, "\n").split("\n");
       parts.forEach((p, k) => {
@@ -167,9 +169,11 @@ export function htmlToText(html: string): string {
       });
       return;
     }
-    s = s.replace(/[\s]+/g, " ");
+    s = s.replace(/[^\S\u00a0]+/g, " ");
     // white space at the start of a line (or after another blank) is the layout of the source, not text
-    if (cur === "" || /[\s]$/.test(cur)) s = s.replace(/^ /, "");
+    if (cur === "" || /[^\S\u00a0]$/.test(cur)) s = s.replace(/^ /, "");
+    // a single no-break space in front of a line is a mail program's habit (Outlook), an indent is two or more
+    if (cur === "") s = s.replace(/^\u00a0(?![ \u00a0])/, "");
     put(s);
   };
 
@@ -259,7 +263,7 @@ export function htmlToText(html: string): string {
       case "th":
         if (!close) {
           if (cell) {
-            cur = cur.replace(/ +$/, "");
+            cur = cur.replace(/[ \u00a0]+$/, "");
             put("\t");
           }
           cell = 1;
@@ -292,6 +296,7 @@ export function htmlToText(html: string): string {
   }
   if (cur !== "") flush();
   return lines
+    .map((l) => l.replace(/\u00a0/g, " "))
     .map((l) => (l === "-- " || l.endsWith("> -- ") ? l : l.replace(/[ \t]+$/, "")))
     .join("\n")
     .replace(/\n{3,}/g, "\n\n")

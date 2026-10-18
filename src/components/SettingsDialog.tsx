@@ -5,6 +5,9 @@ import { Grip, useAccountReorder } from "./AccountReorder";
 import { ABOUT_LINKS } from "../aboutLinks";
 import { Fragment, ReactNode, useEffect, useRef, useState } from "react";
 import { Account, api, CalSource, Discovered, PgpKey, PROVIDERS, Rule, Signature, Template } from "../api";
+import { singleLabelHostsOf } from "../addresses";
+import { backendText } from "../backendErrors";
+import { parseReplyTo } from "../replyTo";
 import { calendarErrorCode, calendarSyncKind, providerName, serviceName, statusLine, truncatedNote } from "../calendarSync";
 import { ACCENT_PRESETS, ACCOUNT_PALETTE, accountColor, DEFAULT_PREFS, eff, folderLabel, isOverridden, MAX_DOWNLOAD_PRESETS, NOTIFY_ACTIONS, NOTIFY_SOUNDS, Overridable, Prefs, staleAccountPrefs, validHex } from "../prefs";
 import { aiSettingsSaved } from "../aiGuide";
@@ -1155,14 +1158,32 @@ function ProfilePanel({ account }: { account: Account }) {
   const t = useT();
   const accent = useStore((s) => s.prefs.accent);
   const color = accountColor(account, accent);
+  const accounts = useStore((s) => s.accounts);
+  const [replyErr, setReplyErr] = useState<string | null>(null);
   const upd = async (patch: Partial<Account>) => {
     const n = { ...account, ...patch };
-    await api.updateAccount(account.id, n.displayName, n.color ?? null);
+    await api.updateAccount(account.id, n.displayName, n.color ?? null, patch.replyTo);
     useStore.setState((s) => ({ accounts: s.accounts.map((x) => (x.id === account.id ? n : x)) }));
+  };
+  // Reply-To: saved when the field is left; a text that is not one address shows the error and leaves the saved value as it was
+  const saveReplyTo = async (text: string) => {
+    const v = parseReplyTo(text, singleLabelHostsOf(accounts));
+    if (v === null) return setReplyErr(t("backend.EMAIL_INVALID"));
+    if (v === (account.replyTo ?? "")) return setReplyErr(null);
+    try {
+      await upd({ replyTo: v });
+      setReplyErr(null);
+    } catch (e) {
+      setReplyErr(backendText(String(e)) ?? friendlyError(e));
+    }
   };
   return (
     <>
       <Row label={t("settings.add.displayName")} hint={t("settings.profile.displayNameHint")}><input defaultValue={account.displayName} placeholder={t("settings.add.yourName")} onBlur={(e) => void upd({ displayName: e.target.value })} /></Row>
+      <Row label={t("settings.profile.replyTo")} hint={t("settings.profile.replyToHint")} id="replyTo">
+        <input key={account.id} type="text" inputMode="email" autoComplete="off" spellCheck={false} defaultValue={account.replyTo ?? ""} aria-invalid={replyErr ? true : undefined} aria-describedby={replyErr ? "set-replyTo-err" : undefined} onChange={() => setReplyErr(null)} onBlur={(e) => void saveReplyTo(e.target.value)} />
+        {replyErr && <div className="field-err" id="set-replyTo-err" role="alert">{replyErr}</div>}
+      </Row>
       <Row label={t("settings.profile.color")} hint={t("settings.profile.colorHint")}>
         <div className="accents" role="radiogroup" aria-label={t("settings.profile.mailboxColor")} style={{ margin: 0, gap: 8, justifyContent: "flex-end" }}>
           {ACCOUNT_PALETTE.map((hex) => (
