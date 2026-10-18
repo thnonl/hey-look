@@ -349,6 +349,8 @@ jobs:
           # the picture resize handles are clipped with the editor pane, and Discard on a reply with nothing typed closes without asking (real panes in the dev preview)
           node scripts/test-picture-handles.mjs
           node scripts/test-compose-discard.mjs
+          # the top strip of the message and conversation windows follows the theme (the root of the compose page is not fixed; macOS paints the title bar from it)
+          node scripts/test-popout-theme.mjs
           # several pictures at once, where a dropped picture goes, "Generate a key" ends, and Discard takes the autosaved draft along (real panes in the dev preview)
           node scripts/test-compose-pictures.mjs
           node scripts/test-pgp-generate.mjs
