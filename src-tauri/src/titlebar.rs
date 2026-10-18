@@ -48,8 +48,8 @@ impl Act {
     }
 }
 
-/// The mode used when the variable is not set (or not a mode): invalidate + flip + title cycle.
-pub const DEFAULT_MODE: u8 = 6;
+/// The mode used when the variable is not set (or not a mode): 0 = no forced repaint. The Mac QA found (37ae699) that the page fix alone (the compose root no longer position: fixed) makes every title bar follow; the forced-repaint modes stay as an experiment switch.
+pub const DEFAULT_MODE: u8 = 0;
 /// The highest mode.
 pub const MAX_MODE: u8 = 8;
 /// The pause before every step (the "next run-loop tick" of the flip is one of these).
@@ -66,7 +66,7 @@ pub fn parse_mode(raw: Option<&str>) -> (u8, Option<String>) {
 }
 
 /// The steps of a mode, in order. 0 = none (control); 1 invalidate; 2 flip; 3 title cycle; 4 order out / front; 5 transparent toggle;
-/// 6 = 1 + 2 + 3 (the default); 7 = the page nudge only; 8 = 6 + the page nudge.
+/// 6 = 1 + 2 + 3; 7 = the page nudge only; 8 = 6 + the page nudge.
 pub fn plan(mode: u8) -> Vec<Act> {
     use Act::*;
     match mode {
@@ -102,10 +102,10 @@ mod tests {
     use Act::*;
 
     #[test]
-    fn the_variable_picks_the_mode_and_the_default_is_six() {
-        assert_eq!(parse_mode(None), (6, None));
-        assert_eq!(parse_mode(Some("")), (6, None));
-        assert_eq!(parse_mode(Some("  ")), (6, None));
+    fn the_variable_picks_the_mode_and_the_default_is_zero() {
+        assert_eq!(parse_mode(None), (0, None));
+        assert_eq!(parse_mode(Some("")), (0, None));
+        assert_eq!(parse_mode(Some("  ")), (0, None));
         for m in 0..=MAX_MODE {
             assert_eq!(parse_mode(Some(&m.to_string())), (m, None));
         }
@@ -115,7 +115,7 @@ mod tests {
             assert_eq!(m, DEFAULT_MODE, "{bad}");
             assert!(note.unwrap().contains("not a mode"), "{bad}: says why");
         }
-        assert_eq!(DEFAULT_MODE, 6);
+        assert_eq!(DEFAULT_MODE, 0);
     }
 
     #[test]
