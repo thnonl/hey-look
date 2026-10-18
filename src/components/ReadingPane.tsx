@@ -7,6 +7,7 @@ import { forward, replyTo } from "../actions";
 import { startCompose } from "../popout/composeOpen";
 import { shiftNow } from "../popout/modifier";
 import { api, MessageFull } from "../api";
+import { copyToClipboard } from "../open";
 import { setMailDark } from "../darkMail";
 import { LANGS, t, type Key, type Lang } from "../i18n";
 import { useLang, useT } from "../i18n/react";
@@ -611,7 +612,7 @@ export function MessageCard({ m, open, onToggle }: { m: MessageFull; open: boole
                   label: t("reading.msg.createEvent"),
                   onClick: () => setDialog({ type: "event", init: { summary: m.subject.replace(/^((re|fwd?):\s*)+/i, ""), description: conf ? "" : (m.text ?? "").trim().slice(0, 1500) } }),
                 },
-                { label: t("reading.msg.copySender"), onClick: () => void navigator.clipboard.writeText(m.fromEmail).then(() => showToast(t("reading.msg.copied"))) },
+                { label: t("reading.msg.copySender"), onClick: () => void copyToClipboard(m.fromEmail).then((ok) => (ok ? showToast(t("reading.msg.copied")) : showToast(() => t("mail.ctx.copyFailed"), undefined, "error"))) },
                 { divider: true },
                 ...TRANSLATE_TO.map((l) => ({ label: t("reading.msg.translateTo", { lang: t(l.key) }), onClick: () => translate(l), disabled: needsCard(m) || conf })),
                 ...(m.canUnsubscribe ? [{ divider: true }, { label: t("reading.msg.unsubscribe"), onClick: () => void unsub() }] : []),

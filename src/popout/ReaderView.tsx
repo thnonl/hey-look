@@ -12,6 +12,7 @@ import { getCurrentWindow } from "@tauri-apps/api/window";
 import { useCallback, useEffect, useLayoutEffect, useMemo, useReducer, useRef, useState } from "react";
 import { forward, replyTo } from "../actions";
 import { api, type MessageFull } from "../api";
+import { copyToClipboard } from "../open";
 import { AiRunning, MessageCard, TRANSLATE_TO, translateMessage, useKeepReadingPosition } from "../components/ReadingPane";
 import { GuardMenuHost } from "../components/GuardMenuHost";
 import { ShowOriginal } from "../components/Dialogs";
@@ -433,7 +434,7 @@ function Reader({ info }: { info: ReaderInit }) {
             { label: t("reading.msg.showOriginal"), disabled: conf || !last, onClick: () => last && useStore.getState().setDialog({ type: "original", messageId: last.id }) },
             ...(osNow() === "macos" ? [] : [{ label: t("reading.msg.print"), disabled: conf, onClick: printLast }]),
             { label: t("reading.msg.createEvent"), disabled: !last, onClick: () => last && useStore.getState().setDialog({ type: "event", init: { summary: last.subject.replace(/^((re|fwd?):\s*)+/i, ""), description: conf ? "" : (last.text ?? "").trim().slice(0, 1500) } }) },
-            { label: t("reading.msg.copySender"), disabled: !sender, onClick: () => sender && void navigator.clipboard.writeText(sender).then(() => useStore.getState().showToast(t("reading.msg.copied"))) },
+            { label: t("reading.msg.copySender"), disabled: !sender, onClick: () => sender && void copyToClipboard(sender).then((ok) => (ok ? useStore.getState().showToast(t("reading.msg.copied")) : useStore.getState().showToast(() => t("mail.ctx.copyFailed"), undefined, "error"))) },
             { divider: true },
             ...TRANSLATE_TO.map((l) => ({ label: t("reading.msg.translateTo", { lang: t(l.key) }), disabled: conf || !last || needsCard(last), onClick: () => last && translateMessage(last, l) })),
           ]}

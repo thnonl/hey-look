@@ -1,5 +1,5 @@
 import { Archive, BadgeCheck, Calendar, CalendarCheck, CalendarX, Check, CheckCheck, Clock, Flag, FolderOpen, Lock, Mail, MailOpen, Paperclip, Pin, SearchX, ShieldAlert, Trash2 } from "lucide-react";
-import { openExternal } from "../open";
+import { copyToClipboard, openExternal } from "../open";
 import { ReactNode, useCallback, useMemo, useRef } from "react";
 import { fmtNumber } from "../i18n/format";
 import { useLang, useT } from "../i18n/react";
@@ -162,27 +162,6 @@ function HoverActions({ t }: { t: ThreadSummary }) {
 /** A line of the list: a conversation, or the header of its group. */
 type ListItem = VItem & ({ kind: "group"; label: string } | { kind: "row"; t: ThreadSummary; pos: number });
 
-/** Copies text for the clipboard; false when the webview refuses (no permission, no focus). */
-async function copyText(text: string): Promise<boolean> {
-  try {
-    await navigator.clipboard.writeText(text);
-    return true;
-  } catch {
-    try {
-      const ta = document.createElement("textarea");
-      ta.value = text;
-      ta.style.cssText = "position:fixed;opacity:0";
-      document.body.appendChild(ta);
-      ta.select();
-      const ok = document.execCommand("copy");
-      ta.remove();
-      return ok;
-    } catch {
-      return false;
-    }
-  }
-}
-
 /**
  * Gmail has a documented search link and opens straight on the results. The other webmails have none that we know of, so the
  * search is copied and their home page is opened: the person pastes it into the webmail's own search box.
@@ -194,7 +173,7 @@ async function searchInWebmail({ account, webmail }: WebmailTarget, q: string) {
       await openExternal(gmailSearchUrl(account.email, q));
       return;
     }
-    const copying = copyText(q); // started inside the click, before anything is awaited
+    const copying = copyToClipboard(q); // started inside the click, before anything is awaited
     await openExternal(webmail.home);
     if (await copying) st.showToast(t("mail.webmail.copied", { name: webmail.name }), undefined, "success");
     else st.showToast(() => t("mail.webmail.copyFailed", { name: webmail.name, query: q }), undefined, "error");

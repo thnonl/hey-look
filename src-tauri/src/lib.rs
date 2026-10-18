@@ -1794,11 +1794,18 @@ struct ShellInfo {
     pdf_view: &'static str,
     /// the PDF experiment of macOS / Linux is on (HEYLOOK_PDF_INLINE): the page shows a readout of what the engine did
     pdf_test: bool,
+    /// debug builds only, `HEYLOOK_TEST_COPY_FAIL=1`: every copy to the clipboard fails (QA of the "Couldn't copy" toasts)
+    copy_fail: bool,
+}
+
+/// A debug build can make every copy fail (`HEYLOOK_TEST_COPY_FAIL=1`), to see the error toasts of the Copy buttons. Never in a release build.
+fn copy_forced_to_fail() -> bool {
+    cfg!(debug_assertions) && std::env::var("HEYLOOK_TEST_COPY_FAIL").is_ok_and(|v| v == "1")
 }
 
 #[tauri::command]
 fn shell_info() -> ShellInfo {
-    ShellInfo { os: std::env::consts::OS, tray: shell::tray_ready(), test_data: legacy_names::test_data_dir().map(|p| p.display().to_string()), pdf_view: pdfmode::view().name(), pdf_test: pdfmode::experiment_on() }
+    ShellInfo { os: std::env::consts::OS, tray: shell::tray_ready(), test_data: legacy_names::test_data_dir().map(|p| p.display().to_string()), pdf_view: pdfmode::view().name(), pdf_test: pdfmode::experiment_on(), copy_fail: copy_forced_to_fail() }
 }
 
 #[tauri::command]
@@ -3252,12 +3259,16 @@ async fn open_external(app: tauri::AppHandle, url: String) -> R<()> {
     blocking(move || open_target(&app, &url, true)).await
 }
 
-/// Put text on the system clipboard. The page calls this only on Linux, where the web view's own clipboard call
+/// Put text on the system clipboard. The page calls this first on Linux and macOS, where the web view's own clipboard call
 /// (`navigator.clipboard`) is not available to a page that does not run in a secure context or has no user gesture left (the
-/// "link is copied" toast after a failed open copied nothing, QA BUG-L4); the text goes to the GTK clipboard the web view and
-/// every other GTK program use. Other systems report that it is not available.
+/// "link is copied" toast after a failed open copied nothing, QA BUG-L4; a copy that follows a backend call, "Copy public key", is refused by
+/// WKWebView). Linux: the text goes to the GTK clipboard the web view and every other GTK program use. macOS: the general pasteboard
+/// (`macclip::write`). Both run on the main thread and give up after 3 s. Windows reports that it is not available (the page's clipboard works).
 #[tauri::command]
 async fn copy_text(app: tauri::AppHandle, text: String) -> R<()> {
+    if copy_forced_to_fail() {
+        return Err("the clipboard is switched off for this test run".into());
+    }
     #[cfg(target_os = "linux")]
     {
         blocking(move || {
@@ -3273,10 +3284,22 @@ async fn copy_text(app: tauri::AppHandle, text: String) -> R<()> {
         })
         .await
     }
-    #[cfg(not(target_os = "linux"))]
+    #[cfg(target_os = "macos")]
+    {
+        blocking(move || {
+            let (tx, rx) = std::sync::mpsc::channel();
+            app.run_on_main_thread(move || {
+                let _ = tx.send(macclip::write(&text));
+            })
+            .map_err(err)?;
+            rx.recv_timeout(std::time::Duration::from_secs(3)).map_err(|_| "the clipboard did not answer".to_string())?
+        })
+        .await
+    }
+    #[cfg(not(any(target_os = "linux", target_os = "macos")))]
     {
         let _ = (app, text);
-        Err("copying from the backend is only available on Linux".into())
+        Err("copying from the backend is only available on Linux and macOS".into())
     }
 }
 
