@@ -16,7 +16,7 @@ import type { ComposeProbe, SavedDraft } from "../leaveCompose";
 import { PreviewBg, previewVars, rememberPreview, startPreview } from "../composePreview";
 import { setDarkRegion } from "../composePreviewDom";
 import { extractSignature, normalizeHtml, SIG_MARK } from "../signature";
-import { baseExtensions, refreshPlaceholder } from "../editor/extensions";
+import { baseExtensions, refreshPlaceholder, setEditorLabel } from "../editor/extensions";
 import { useKit } from "../editor/kit";
 import { FormatBar, type FormatBarApi } from "../editor/FormatBar";
 import { PreviewSwitch } from "../editor/PreviewSwitch";
@@ -818,6 +818,9 @@ function ComposeBody({ init }: { init: ComposeInit }) {
   // the placeholder follows the language while the message is open (a compose that was open when the language was switched kept the old text)
   const placeholderText = t("compose.editor.placeholder");
   useEffect(() => refreshPlaceholder(editor), [editor, placeholderText]);
+  // and so does its accessible name
+  const bodyLabel = t("compose.editor.body");
+  useEffect(() => setEditorLabel(editor, bodyLabel), [editor, bodyLabel]);
 
   // the dark preview shows the picked colours the way the reading pane would (a view change: the document keeps what was picked)
   useEffect(() => {
