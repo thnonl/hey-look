@@ -558,7 +558,8 @@ jobs:
           node .github/scripts/check-no-test-bridge.cjs --selftest
           targets=()
           for f in src-tauri/target/release/hey-look src-tauri/target/release/hey-look.exe src-tauri/target/*-apple-darwin/release/hey-look; do
-            if [ -f "$f" ]; then targets+=("$f"); fi
+            # (Git Bash on Windows reports the extensionless name as a file because hey-look.exe exists: skip it there)
+            if [ -f "$f" ]; then case "$RUNNER_OS:$f" in Windows:*/hey-look) ;; *) targets+=("$f") ;; esac; fi
           done
           for d in src-tauri/target/release/bundle/macos src-tauri/target/universal-apple-darwin/release/bundle/macos; do
             if [ -d "$d" ]; then targets+=("$d"); fi

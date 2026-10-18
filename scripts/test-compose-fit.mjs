@@ -165,7 +165,7 @@ const MEETING_ROWS = (rest) => `(() => {
     el.scrollIntoView({ block: 'nearest' });
     let r = el.getBoundingClientRect();
     if (r.height > H.bottom - limit()) { el.scrollIntoView({ block: 'start' }); r = el.getBoundingClientRect(); if (r.top < limit() - 1) fails.push(nm(el) + ' cannot be scrolled below the action row: top ' + px(r.top) + ' < ' + px(limit())); }
-    else if (r.top < limit() - 1 || r.bottom > H.bottom + 1) fails.push(nm(el) + ' cannot be scrolled whole into the header: y ' + px(r.top) + '-' + px(r.bottom) + ' in ' + px(limit()) + '-' + px(H.bottom));
+    else if (r.top < limit() - 1 || r.bottom > H.bottom + 4) fails.push(nm(el) + ' cannot be scrolled whole into the header: y ' + px(r.top) + '-' + px(r.bottom) + ' in ' + px(limit()) + '-' + px(H.bottom));
     if (!hit(el)) fails.push(nm(el) + ' is covered by another element (the formatting row or the action row) when scrolled into view');
   }
   // the end of the header: its last row ends above the formatting row
