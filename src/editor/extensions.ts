@@ -17,7 +17,7 @@ import Subscript from "@tiptap/extension-subscript";
 import Superscript from "@tiptap/extension-superscript";
 import { TextStyleKit } from "@tiptap/extension-text-style";
 import { Plugin } from "@tiptap/pm/state";
-import { Extension, type AnyExtension } from "@tiptap/react";
+import { Extension, type AnyExtension, type Editor } from "@tiptap/react";
 import StarterKit from "@tiptap/starter-kit";
 import { t as tNow } from "../i18n";
 import { checkLinkUrl } from "../linkUrl";
@@ -138,7 +138,8 @@ const FormatKeys = (getBase: () => BaseFont, focusToolbar?: () => void, openStyl
   });
 
 export interface BaseExtensionOptions {
-  placeholder?: string;
+  /** the text of the empty paragraph; a function is read whenever the editor builds the placeholder (the language can change while the editor is open: `refreshPlaceholder`) */
+  placeholder?: string | (() => string);
   /** the placeholder is shown in every empty paragraph (the message body) or only in the current one */
   showOnlyCurrent?: boolean;
   /** the default font of the message, read when a font command needs it */
@@ -178,3 +179,20 @@ export function baseExtensions(o: BaseExtensionOptions): AnyExtension[] {
     Placeholder.configure({ placeholder: o.placeholder ?? "", showOnlyCurrent: o.showOnlyCurrent ?? true }),
   ];
 }
+
+/**
+ * The placeholder in the language in use, also in an editor that is open when the language is switched. The Placeholder extension builds its decorations once (in the
+ * message body, showOnlyCurrent: false) and again only for a paragraph that changes, so the text its function returned then stays on the paragraphs that are there.
+ * This builds the plugin again: its state starts from the document and asks the option function (which reads t()) for every empty paragraph; the other plugins, the
+ * document and the undo history are not touched.
+ */
+export function refreshPlaceholder(editor: Editor | null | undefined): void {
+  if (!editor || editor.isDestroyed) return;
+  const ext = editor.extensionManager.extensions.find((e) => e.name === "placeholder");
+  const make = ext?.config.addProseMirrorPlugins as ((this: unknown) => Plugin[]) | undefined;
+  if (!ext || !make) return;
+  const plugins = make.call({ name: ext.name, options: ext.options, storage: ext.storage, editor, parent: null });
+  editor.unregisterPlugin(PLACEHOLDER_KEY);
+  for (const p of plugins) editor.registerPlugin(p);
+}
+const PLACEHOLDER_KEY = "tiptap__placeholder"; // (the key of the plugin of @tiptap/extensions)

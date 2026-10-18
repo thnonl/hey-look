@@ -16,7 +16,7 @@ import type { ComposeProbe, SavedDraft } from "../leaveCompose";
 import { PreviewBg, previewVars, rememberPreview, startPreview } from "../composePreview";
 import { setDarkRegion } from "../composePreviewDom";
 import { extractSignature, normalizeHtml, SIG_MARK } from "../signature";
-import { baseExtensions } from "../editor/extensions";
+import { baseExtensions, refreshPlaceholder } from "../editor/extensions";
 import { useKit } from "../editor/kit";
 import { FormatBar, type FormatBarApi } from "../editor/FormatBar";
 import { PreviewSwitch } from "../editor/PreviewSwitch";
@@ -763,7 +763,7 @@ function ComposeBody({ init }: { init: ComposeInit }) {
   const editor = useEditor({
     extensions: [
       ...baseExtensions({
-        placeholder: t("compose.editor.placeholder"), showOnlyCurrent: false, getBase: () => baseRef.current, focusToolbar: () => barApi.current?.focus(), openStyles: () => barApi.current?.openStyles(), pictures: true,
+        placeholder: () => tNow("compose.editor.placeholder"), showOnlyCurrent: false, getBase: () => baseRef.current, focusToolbar: () => barApi.current?.focus(), openStyles: () => barApi.current?.openStyles(), pictures: true,
         openFind: (mode) => openFindRef.current(mode),
         // the quoted original of a reply / forward: a protected block; "Edit quoted text" asks first (editor/quoteNode.ts)
         quote: { base: () => baseRef.current, ask: () => confirm({ title: tNow("compose.quote.editTitle"), body: tNow("compose.quote.editBody"), confirmLabel: tNow("compose.quote.editConfirm") }) },
@@ -814,6 +814,10 @@ function ComposeBody({ init }: { init: ComposeInit }) {
     },
     onSelectionUpdate: ({ editor: ed }) => syncPicSel(ed),
   });
+
+  // the placeholder follows the language while the message is open (a compose that was open when the language was switched kept the old text)
+  const placeholderText = t("compose.editor.placeholder");
+  useEffect(() => refreshPlaceholder(editor), [editor, placeholderText]);
 
   // the dark preview shows the picked colours the way the reading pane would (a view change: the document keeps what was picked)
   useEffect(() => {
