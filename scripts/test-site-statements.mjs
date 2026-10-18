@@ -165,6 +165,20 @@ const REMOVED = [
       ['de', 'Einstellungen > Konto hinzufügen > Anderes E-Mail-Konto', ['help.html']],
     ],
   },
+  // W10.3: L2: the stray Gmail callout on the Google API data use page
+  {
+    row: 'W10.3',
+    items: [
+      ['en', 'Sign in to Gmail quickly with your Google account.', ['google-data.html']],
+      ['vi', 'Đăng nhập Gmail nhanh chóng bằng tài khoản Google của bạn.', ['google-data.html']],
+      ['fr', 'Connectez-vous rapidement à Gmail avec votre compte Google.', ['google-data.html']],
+      ['zh', '用您的Google账户快速登录Gmail。', ['google-data.html']],
+      ['es', 'Inicia sesión en Gmail rápidamente con tu cuenta de Google.', ['google-data.html']],
+      ['ja', 'Googleアカウントで、Gmailにすばやくサインインできます。', ['google-data.html']],
+      ['de', 'Melden Sie sich mit Ihrem Google-Konto schnell bei Gmail an.', ['google-data.html']],
+      ['ru', 'Быстро войдите в Gmail с помощью своей учётной записи Google.', ['google-data.html']],
+    ],
+  },
 ];
 
 const errors = [];
