@@ -212,6 +212,7 @@ jobs:
       - uses: swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
         with:
           workspaces: src-tauri -> target
+          save-if: ${{ github.ref_type != 'tag' }}
 
       - name: Run cargo test
         working-directory: src-tauri
@@ -263,6 +264,8 @@ jobs:
       - uses: swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
         with:
           workspaces: src-tauri -> target
+          # A tag run cannot read the caches of the branch it was cut from (only its own ref and main), so its cache would never be used again
+          # and only costs a minute and up to 1 GB of the 10 GB the repository may keep. Dry runs on a branch save: the next dry run of it reuses them.
           save-if: ${{ github.ref_type != 'tag' }}
 
       # Is there a signing key? Tag run: it must be there. Dry run: signed with it, or built unsigned (with a warning) without.
