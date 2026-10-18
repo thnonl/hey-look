@@ -15,6 +15,10 @@
 // with a picture selected in the body (its floating toolbar and handles) and a toast on show (BUG-A1-4, v1.0.6 QA round 2): the Send later popover is inside the
 // window, above the picture toolbar (which steps aside), clear of the toast stack, and its last button can be reached by scrolling it.
 //
+// Meeting on (Linux QA at 960 x 560: "the Where row is partly covered by the formatting row"): the header box ends at the top of the formatting row (never below),
+// and every row of the header (From ... Subject, When, Where, the note, the strips) can be scrolled into the part of the header that is not under the sticky action row
+// and is what is under its own pixels, never the formatting row or the action row. Switching Meeting on brings the strip into view (When and Where whole).
+//
 //   node scripts/test-compose-fit.mjs                         the full matrix (about 5 minutes)
 //   node scripts/test-compose-fit.mjs --quick                 four combinations (what CI runs)
 //   node scripts/test-compose-fit.mjs --table                 also one line of measurements per combination
@@ -47,6 +51,12 @@ if (flag('gallery')) {
   add({ mode: 'main', lang: 'de', w: 1280, h: 720, theme: 'dark', scen: 'many' });
   add({ mode: 'main', lang: 'en', w: 960, h: 520, theme: 'dark', scen: 'base' });
   add({ mode: 'popout', lang: 'en', w: 560, h: 440, theme: 'light', scen: 'worst', deep: true });
+  // Meeting on at the least window (946 x 552 = a 960 x 560 window): switched on in a new message (English) and in a reply (Russian, long texts)
+  add({ mode: 'main', lang: 'en', w: 946, h: 552, theme: 'light', scen: 'meetingNew' });
+  add({ mode: 'main', lang: 'ru', w: 946, h: 552, theme: 'dark', scen: 'meetingReply' });
+  // (the pane is only 308 px wide in the real app at that window: the window of 768 px of this preview has the same pane)
+  add({ mode: 'main', lang: 'en', w: 768, h: 552, theme: 'dark', scen: 'meetingNew' });
+  add({ mode: 'main', lang: 'ru', w: 768, h: 552, theme: 'light', scen: 'meetingReply' });
 } else {
   const langs = (arg('lang') || 'en,de,ru').split(',');
   const sizes = [[960, 560], [960, 532], [960, 520], [960, 480], [1280, 532], [1280, 720], [1920, 480], [1920, 1080]].filter(([w, h]) => !arg('size') || arg('size').split(',').includes(`${w}x${h}`));
@@ -56,6 +66,7 @@ if (flag('gallery')) {
     n++;
     add({ mode: 'main', lang, w, h, theme: n % 2 ? 'light' : 'dark', scen, deep: lang === 'en' && scen === 'worst' && [[960, 520], [960, 560], [1280, 720], [1920, 480]].some(([a, b]) => a === w && b === h) });
   }
+  for (const lang of langs) for (const [w, h] of [[946, 552], [946, 480]]) for (const scen of ['meetingNew', 'meetingReply']) add({ mode: 'main', lang, w, h, theme: lang === 'en' ? 'light' : 'dark', scen });
   for (const lang of langs) for (const [w, h] of [[560, 440], [760, 680], [560, 560]]) for (const scen of lang === 'en' ? ['base', 'worst', 'many'] : ['worst']) add({ mode: 'popout', lang, w, h, theme: scen === 'worst' ? 'dark' : 'light', scen, deep: lang === 'en' && scen === 'worst' });
 }
 
@@ -83,8 +94,10 @@ const INIT = {
   worst: `{ accountId: 'a1', to: ['alice@fabrikam.com', 'linh.tran@acme.example'], cc: ['bob@northwind.io'], bcc: ['carol@example.com'], subject: 'Re: Q4 contract call', isReply: true, inReplyTo: '<m1@x>', bodyHtml: ${JSON.stringify(quote)}, attachments: ${JSON.stringify(atts)} }`,
   many: `{ accountId: 'a1', to: ${many}, cc: ${many}, subject: 'Many recipients', attachments: ${JSON.stringify(atts)} }`,
   meeting: `{ accountId: 'a1', to: ['alice@fabrikam.com'], cc: ['bob@northwind.io'], subject: 'Q4 contract call', meeting: { on: true }, attachments: ${JSON.stringify(atts)} }`,
+  meetingNew: `{ accountId: 'a1', to: ['alice@fabrikam.com'], subject: 'Q4 contract call' }`, // (Meeting is switched on by its button, see EXTRAS)
+  meetingReply: `{ accountId: 'a1', to: ['alice@fabrikam.com'], cc: ['bob@northwind.io'], subject: 'Re: Q4 contract call', isReply: true, inReplyTo: '<m1@x>', bodyHtml: '<p>Hello</p>', meeting: { on: true } }`,
 };
-const EXTRAS = { base: [], worst: ['encrypt', 'sign', 'confidential', 'high', 'ai'], many: ['ai'], meeting: ['encrypt', 'sign', 'confidential', 'ai'] };
+const EXTRAS = { base: [], worst: ['encrypt', 'sign', 'confidential', 'high', 'ai'], many: ['ai'], meeting: ['encrypt', 'sign', 'confidential', 'ai'], meetingNew: ['meeting'], meetingReply: [] };
 
 // press a header action wherever it is: a button of the row (a pane of 600 px or more) or a row of "More actions" (a small one)
 const ACT = `(() => {
@@ -126,6 +139,47 @@ const GEO = `(() => {
     bar: R(pane.querySelector('.cp-bar')), aiBar: !!pane.querySelector('.cp-ai'),
   };
 })()`;
+
+// Meeting on: the header against the formatting row, row by row (see the top of the file). `rest`: right after Meeting was switched on.
+const MEETING_ROWS = (rest) => `(() => {
+  const pane = document.querySelector('.compose-pane'), head = pane.querySelector('.cp-head'), fmt = pane.querySelector('.cp-fmt'), bar = pane.querySelector('.cp-bar');
+  const fails = [], H = head.getBoundingClientRect(), F = fmt.getBoundingClientRect();
+  const limit = () => H.top + (getComputedStyle(bar).position === 'sticky' ? bar.getBoundingClientRect().height : 0); // (the sticky action row covers the top of the header)
+  const hit = (el) => { const r = el.getBoundingClientRect(); const lo = limit() + 1, hi = Math.min(H.bottom, F.top) - 1; const y = Math.max(lo, Math.min(hi, r.top + r.height / 2)); const t = document.elementFromPoint(r.left + Math.min(r.width / 2, 60), y); return !!t && el.contains(t); };
+  const nm = (el) => el.tagName.toLowerCase() + (el.id ? '#' + el.id : '') + '.' + String(el.className).trim().split(/\\s+/)[0] + ' "' + (el.textContent || '').trim().slice(0, 20) + '"';
+  const px = (n) => Math.round(n);
+  if (H.bottom > F.top + 0.5) fails.push('the header ends at y ' + px(H.bottom) + ', below the top of the formatting row (y ' + px(F.top) + ')');
+  if (!pane.querySelector('.cp-event')) fails.push('the meeting strip is not there');
+  if (${rest}) {
+    // right after switching Meeting on: the strip starts under the action row; when it fits the header it is whole, else its upper part (When) is what shows, not a row cut through
+    const ev = pane.querySelector('.cp-event');
+    if (ev) {
+      const r = ev.getBoundingClientRect(), room = H.bottom - limit();
+      if (r.top < limit() - 1 || r.top > limit() + 12) fails.push('at rest the meeting strip starts at y ' + px(r.top) + ', not under the action row (y ' + px(limit()) + ')');
+      if (r.height <= room && r.bottom > H.bottom + 1) fails.push('at rest the meeting strip (' + px(r.height) + ' px) fits the header (' + px(room) + ' px) but is cut at its lower edge: ends at y ' + px(r.bottom) + ' > ' + px(H.bottom));
+    }
+  }
+  // every row, scrolled into view: inside the part of the header that is not under the action row, and on top
+  const rows = [...pane.querySelectorAll('.cp-fields .cf-field, .cp-fields .cf-links, .cp-event > label, .cp-event .when, #mt-where, .cp-event ~ .note, .cp-event ~ .sec-strip')].filter((e) => e.getBoundingClientRect().height > 0);
+  for (const el of rows) {
+    el.scrollIntoView({ block: 'nearest' });
+    let r = el.getBoundingClientRect();
+    if (r.height > H.bottom - limit()) { el.scrollIntoView({ block: 'start' }); r = el.getBoundingClientRect(); if (r.top < limit() - 1) fails.push(nm(el) + ' cannot be scrolled below the action row: top ' + px(r.top) + ' < ' + px(limit())); }
+    else if (r.top < limit() - 1 || r.bottom > H.bottom + 1) fails.push(nm(el) + ' cannot be scrolled whole into the header: y ' + px(r.top) + '-' + px(r.bottom) + ' in ' + px(limit()) + '-' + px(H.bottom));
+    if (!hit(el)) fails.push(nm(el) + ' is covered by another element (the formatting row or the action row) when scrolled into view');
+  }
+  // the end of the header: its last row ends above the formatting row
+  head.scrollTop = head.scrollHeight;
+  const kids = [...head.children].filter((e) => e.getBoundingClientRect().height > 0), last = kids[kids.length - 1];
+  if (last && last.getBoundingClientRect().bottom > Math.min(H.bottom, F.top) + 1) fails.push('the last row of the header (' + nm(last) + ') ends at y ' + px(last.getBoundingClientRect().bottom) + ', below the formatting row (y ' + px(F.top) + ')');
+  head.scrollTop = 0;
+  return { fails, rows: rows.length };
+})()`;
+async function meetingRows(cfg) {
+  const g = await evaluate(MEETING_ROWS(cfg.scen === 'meetingNew'));
+  ok(cfg, g.rows >= 6, `Meeting on: only ${g.rows} header rows were checked`);
+  for (const f of g.fails) ok(cfg, false, `Meeting on: ${f}`);
+}
 
 async function open(cfg) {
   const hash = `lang=${cfg.lang}&aiset`;
@@ -323,6 +377,7 @@ try {
       if (flag('table') && g) console.log(`${tag(cfg)}: pane ${Math.round(g.pane.w)}x${Math.round(g.pane.h)} ${g.compact ? 'compact' : 'roomy'}; formatting row ${g.fmtIn && g.fmtHit ? 'in view' : 'NOT in view'} (y ${Math.round(g.fmt.t - g.pane.t)}); body ${Math.round(g.ed.h)} px${g.edIn && g.edHit ? '' : ' NOT in view'}; header ${g.head ? Math.round(g.head.h) + (g.headScrolls ? ' (scrolls)' : '') : 'n/a'}; page scrolled ${g.pageScroll}; pane overflow ${g.paneScroll[0] - g.paneScroll[1]}`);
       layout(cfg, g, 'start');
       await shot(cfg, 'start');
+      if (cfg.scen.startsWith('meeting')) { await meetingRows(cfg); await shot(cfg, 'meeting'); }
       if (cfg.deep) {
         await keyboard(cfg);
         await typing(cfg);

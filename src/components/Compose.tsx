@@ -679,9 +679,18 @@ function ComposeBody({ init }: { init: ComposeInit }) {
     setSignOn(!signOn);
     touch();
   };
+  // Meeting switched on: the header scrolls to the strip (When, Where), which is below the fold of a low pane. Before, the strip showed only as a sliver cut through by the lower
+  // edge of the header (v1.0.6 Linux QA: "the formatting row covers the Where row"), and a row scrolled into view by a focus could hide under the sticky action row.
+  const revealMeeting = useRef(false);
+  useLayoutEffect(() => {
+    if (!revealMeeting.current || !meeting) return;
+    revealMeeting.current = false;
+    paneRef.current?.querySelector(".cp-event")?.scrollIntoView({ block: "start" });
+  }, [meeting]);
   const toggleMeeting = () => {
     if (meeting) setMeeting(null);
     else {
+      revealMeeting.current = true;
       if (bcc.length) {
         setBcc([]);
         showToast(t("compose.meeting.bccRemoved"), undefined, "info");
