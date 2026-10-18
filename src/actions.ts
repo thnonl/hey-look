@@ -10,6 +10,8 @@ import { forwardFiles, MAX_FORWARD_BYTES } from "./forwardAttachments";
 import { quoteSentHtml } from "./editor/quoteBlock";
 import { forwardHeadHtml, headerValueHtml, senderHtml } from "./quoteHeader";
 import { fromAccountFor } from "./fromAccount";
+import { hasMailAccounts } from "./mailControls";
+import { NewMailQueue } from "./newMailQueue";
 import { startCompose, type StartOpts } from "./popout/composeOpen";
 import { answerKey } from "./popout/entry";
 import { shiftNow } from "./popout/modifier";
@@ -68,9 +70,35 @@ async function quoteBlockOf(kind: "reply" | "forward", head: string, m: { html: 
   return quoteSentHtml({ kind, head, html: quoteOf(m, t("compose.quote.cut")).html });
 }
 
+const NEW_MAIL_TOAST = "new-mail";
+
+/**
+ * New mail never ends silently (newMailQueue.ts): while the mailboxes are being read (the first second of a start) the request is kept, with a message that
+ * has a spinner, and opens when they are read; 30 s without that, the message says it could not be done and has Retry. No mailbox at all: nothing, the Welcome screen is the answer.
+ */
+const newMailQueue = new NewMailQueue<StartOpts>({
+  ready: () => {
+    const s = useStore.getState();
+    return !s.loaded ? "wait" : hasMailAccounts(s.accounts.length) ? "ready" : "none";
+  },
+  serve: (o) => void startCompose({ accountId: newMailAccount() }, o),
+  say: (s) => {
+    const st = useStore.getState();
+    if (s === "waiting") st.setStickyToast(NEW_MAIL_TOAST, { text: () => t("app.newMail.waiting"), kind: "info", busy: true, hideClose: true });
+    else if (s === "failed") st.setStickyToast(NEW_MAIL_TOAST, { text: () => t("app.newMail.failed"), kind: "error", actions: [{ label: () => t("common.retry"), run: () => newMailQueue.request(newMailQueue.retryOptions() ?? {}) }] });
+    else st.setStickyToast(NEW_MAIL_TOAST, null);
+  },
+  now: Date.now,
+  later: (ms, f) => {
+    const id = setTimeout(f, ms);
+    return () => clearTimeout(id);
+  },
+});
+useStore.subscribe(() => newMailQueue.check()); // (the mailboxes were read: a kept request opens)
+
 /** A new message from the open mailbox: in the main window, or in a window of its own when the setting or Shift says so (REQ-C1, C2). */
-export function newMail(o: StartOpts = {}) {
-  return startCompose({ accountId: newMailAccount() }, { ...o, shift: o.shift ?? shiftNow() });
+export function newMail(o: StartOpts = {}): void {
+  newMailQueue.request({ ...o, shift: o.shift ?? shiftNow() }); // (Shift is read now, from the click or key being handled)
 }
 
 /**

@@ -154,3 +154,7 @@ ui-a | node scripts/test-tab-stops.mjs --require-browser
 static | node --experimental-strip-types scripts/test-open-failed-text.mjs
 # "Show in folder" goes through one helper and never fails silently (the page side; the Linux folder fallback is `cargo test --lib linuxopen`)
 static | node --experimental-strip-types scripts/test-reveal.mjs
+# New mail never ends silently: the kept request with a fake clock (one request, served once, dropped without a mailbox, 30 s -> error with Retry), and the wiring of the entry points
+static | node --experimental-strip-types scripts/test-new-mail-queue.mjs
+# New mail pressed while the mailboxes are not read yet (key c, the tray request kept by the backend) opens one message when they arrive, with the message on the loading screen (the 30 s error case: `--full`)
+ui-a | node scripts/test-new-mail-wait.mjs --require-browser

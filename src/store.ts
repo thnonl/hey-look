@@ -1,6 +1,6 @@
 import { create } from "zustand";
 import { api, Account, Att, BackfillProgress, CalendarInfo, CalEvent, CalSource, DraftSecurity, FolderInfo, Meeting, MessageFull, OutboxItem, SearchScope, ThreadSummary } from "./api";
-import { loadPlatform } from "./platform";
+import { loadPlatform, usePlatform } from "./platform";
 import { orderAccounts } from "./accountOrder";
 import { hasMailAccounts } from "./mailControls";
 import { applyBackfill } from "./backfill";
@@ -657,6 +657,8 @@ export const useStore = create<State>((set, get) => ({
     const accounts = orderAccounts(storeMissingColors(rawAccounts, prefs.accent), prefs.accountOrder); // the person's order (empty: as the backend gives them)
     applyPrefs(prefs);
     mirrorSettings(prefs);
+    const wait = usePlatform.getState().accountsDelayMs; // (a debug build can slow the start down on purpose, to try "New mail" before the mailboxes are read)
+    if (wait > 0) await new Promise((r) => setTimeout(r, wait));
     set({ accounts, prefs, loaded: true, module: prefs.lastModule === "calendar" ? "calendar" : "mail", calDate: today(calTz(prefs)) });
     if (prefs.lastModule === "calendar") void get().loadCalendar();
     void get().refreshAi();

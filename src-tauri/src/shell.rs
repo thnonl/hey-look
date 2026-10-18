@@ -373,6 +373,10 @@ fn tray_host_present(probe: Option<bool>) -> bool {
 
 /// Whether at least one account exists. The tray entries "New mail" and "Check mail now" work only then (the Welcome screen has no mail controls).
 static MAIL_AVAILABLE: AtomicBool = AtomicBool::new(true);
+/// "New mail" was chosen in the tray / menu bar menu and the main page has not taken the request yet. An event sent before the page listens is lost (the first
+/// second of a start, or a page that is still loading), so the request is also kept here: the page asks `take_tray_compose` when the event arrives and once more
+/// after it registered its listeners (W1.3).
+pub static TRAY_COMPOSE_PENDING: AtomicBool = AtomicBool::new(false);
 static TRAY_MAIL_ITEMS: OnceLock<(MenuItem<tauri::Wry>, MenuItem<tauri::Wry>)> = OnceLock::new();
 /// The other tray entries, kept to change their text when the language changes: open, pause, quit.
 static TRAY_OTHER_ITEMS: OnceLock<(MenuItem<tauri::Wry>, CheckMenuItem<tauri::Wry>, MenuItem<tauri::Wry>)> = OnceLock::new();
@@ -453,6 +457,7 @@ pub fn setup_tray(app: &AppHandle, db: &Db) -> tauri::Result<()> {
                 if !compose_in_window(app) {
                     show_main(app);
                 }
+                TRAY_COMPOSE_PENDING.store(true, Ordering::SeqCst);
                 let _ = app.emit_to("main", "tray-compose", ());
             }
             "sync" if MAIL_AVAILABLE.load(Ordering::Relaxed) => {

@@ -692,6 +692,12 @@ fn page_pong(nonce: u64, visibility: String) {
     linuxview::pong(nonce, &visibility);
 }
 
+/// The page takes the "New mail" of the tray menu that is still waiting for it (see `shell::TRAY_COMPOSE_PENDING`): true once per request.
+#[tauri::command]
+fn take_tray_compose() -> bool {
+    shell::TRAY_COMPOSE_PENDING.swap(false, std::sync::atomic::Ordering::SeqCst)
+}
+
 /// The frontend tells whether any account exists: without one the tray's "New mail" and "Check mail now" are disabled.
 #[tauri::command]
 fn set_mail_available(available: bool) {
@@ -1796,6 +1802,8 @@ struct ShellInfo {
     pdf_test: bool,
     /// debug builds only, `HEYLOOK_TEST_COPY_FAIL=1`: every copy to the clipboard fails (QA of the "Couldn't copy" toasts)
     copy_fail: bool,
+    /// debug builds only, `HEYLOOK_TEST_ACCOUNTS_DELAY_MS=<ms>`: the page waits that long before it takes the mailboxes it has read (QA of "New mail" while they are not read yet)
+    accounts_delay_ms: u64,
 }
 
 /// A debug build can make every copy fail (`HEYLOOK_TEST_COPY_FAIL=1`), to see the error toasts of the Copy buttons. Never in a release build.
@@ -1803,9 +1811,17 @@ fn copy_forced_to_fail() -> bool {
     cfg!(debug_assertions) && std::env::var("HEYLOOK_TEST_COPY_FAIL").is_ok_and(|v| v == "1")
 }
 
+/// A debug build can make the page wait before it takes the mailboxes (`HEYLOOK_TEST_ACCOUNTS_DELAY_MS`, at most 120 s). Never in a release build.
+fn accounts_delay_ms() -> u64 {
+    if !cfg!(debug_assertions) {
+        return 0;
+    }
+    std::env::var("HEYLOOK_TEST_ACCOUNTS_DELAY_MS").ok().and_then(|v| v.trim().parse::<u64>().ok()).unwrap_or(0).min(120_000)
+}
+
 #[tauri::command]
 fn shell_info() -> ShellInfo {
-    ShellInfo { os: std::env::consts::OS, tray: shell::tray_ready(), test_data: legacy_names::test_data_dir().map(|p| p.display().to_string()), pdf_view: pdfmode::view().name(), pdf_test: pdfmode::experiment_on(), copy_fail: copy_forced_to_fail() }
+    ShellInfo { os: std::env::consts::OS, tray: shell::tray_ready(), test_data: legacy_names::test_data_dir().map(|p| p.display().to_string()), pdf_view: pdfmode::view().name(), pdf_test: pdfmode::experiment_on(), copy_fail: copy_forced_to_fail(), accounts_delay_ms: accounts_delay_ms() }
 }
 
 #[tauri::command]
@@ -5159,6 +5175,7 @@ pub fn run() {
             update::update_defer,
             update::update_note,
             set_mail_available,
+            take_tray_compose,
             frontend_ready,
             sends_flushed,
             quit_page_alive,
@@ -5866,7 +5883,7 @@ mod capability_tests {
             // updates
             "check_update", "update_download", "update_cancel", "update_discard", "update_defer", "update_note", "update_install", "update_startup_state", "update_startup_ack",
             // quit and the main page's start-up
-            "quit_now", "quit_cancelled", "sends_flushed", "quit_page_alive", "quit_dialog", "frontend_ready", "page_state", "page_pong", "show_window", "set_mail_available",
+            "quit_now", "quit_cancelled", "sends_flushed", "quit_page_alive", "quit_dialog", "frontend_ready", "page_state", "page_pong", "show_window", "set_mail_available", "take_tray_compose",
             // calendar connections, sync triggers, mail actions that belong to the main page's intent layer
             "calendar_connect", "calendar_disconnect", "calendar_sources", "calendar_set_sync", "calendar_sync_now", "sync_account", "refresh_badge", "thread_action",
             "queue_action", "cancel_action", "sender_action", "load_older", "idle_states", "frame_info", "frame_caption_rect", "frame_system_menu", "test_notification",
