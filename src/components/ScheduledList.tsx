@@ -2,6 +2,7 @@ import { AlertTriangle, CalendarClock, CalendarX, Pencil, RotateCw, Send, X } fr
 import { useMemo, useState } from "react";
 import { api, errorCode, OutboxItem } from "../api";
 import { picturesToEditor } from "./Compose";
+import { decodeMeeting } from "../meetingDraft";
 import { kbd } from "../platform";
 import { friendlyError, useStore } from "../store";
 import type { Key } from "../i18n";
@@ -75,6 +76,7 @@ export function ScheduledList() {
         attachments: d.attachments,
         security: d.security,
         meeting: d.meeting ? { ...d.meeting, on: true } : undefined,
+        meetingForm: decodeMeeting(d.meetingForm) ?? undefined, // (the strip as it was: an all-day meeting keeps its dates)
         confidential: d.confidential,
         importance: d.importance,
         outboxId: o.id,

@@ -14,6 +14,7 @@ import { needsSignIn } from "./signIn";
 import type { Jobs } from "./translateJobs";
 import { AdvanceTracker, startAdvance } from "./autoAdvance";
 import type { Importance } from "./importance";
+import type { MeetingWire } from "./meetingDraft";
 import { accountsOf, canMoveToJunk, JUNK_ACTIONS } from "./junk";
 import { addToast, lazyText, refreshed, toastTexts, type Lazy } from "./toastStack";
 import { mayOpenMail, selectionAfterCompose } from "./composeSelection";
@@ -70,6 +71,8 @@ export interface ComposeInit {
   importance?: Importance;
   /** start Compose as a meeting invitation ("Meeting" switched on) */
   meeting?: Partial<Meeting> & { on?: boolean };
+  /** the meeting of a reopened draft, snapshot or moved message, as the strip had it (it wins over `meeting`; meetingDraft.ts) */
+  meetingForm?: MeetingWire;
 }
 
 /** What the New / Edit event dialog starts with. */

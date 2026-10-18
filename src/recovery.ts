@@ -6,6 +6,7 @@ import type { Att, Draft } from "./api";
 import { swapPictures } from "./editor/messageBody.ts";
 import { htmlToText } from "./htmlText.ts";
 import { draftImportance, initialImportance } from "./importance.ts";
+import { encodeMeeting, readMeetingWire, type MeetingWire } from "./meetingDraft.ts";
 import type { ComposeInit } from "./store";
 
 /** The form of a message as the snapshot keeps it. The body is the editor's HTML with the signature in it and the pictures as data: URIs. */
@@ -27,6 +28,8 @@ export interface RecoveryForm {
   confidential: boolean;
   /** High / Low (F-24); left out for Normal and in snapshots of older versions */
   importance?: "high" | "low";
+  /** the meeting strip, when "Meeting" was on (BUG-R3-4); left out otherwise and in snapshots of older versions */
+  meeting?: MeetingWire;
   /** written in a window of its own: it is restored in one */
   win?: true;
 }
@@ -192,6 +195,7 @@ export function composeFromSnapshot(l: RecoveryLoaded): ComposeInit | null {
     restore: { encrypt: f.encrypt === "on" || f.encrypt === "auto" ? f.encrypt : ("off" as const), sign: !!f.sign, attachKey: !!f.attachKey },
     confidential: !!f.confidential,
     importance: initialImportance(f),
+    meetingForm: readMeetingWire(f.meeting) ?? undefined, // (anything that is not a meeting form of ours is ignored: the message opens without one)
     // the snapshot keeps its id: the next snapshot of this message replaces it, and it goes when the message is sent, discarded or saved
     recoveryId: l.id,
   };
@@ -230,6 +234,7 @@ export function draftFromSnapshot(l: RecoveryLoaded): Draft | null {
     inline: swapped.inline.map((i) => ({ cid: i.cid, filename: i.name, mime: i.mime, dataBase64: i.dataBase64 })),
     confidential: init.confidential || undefined,
     importance: draftImportance(init.importance ?? "normal"),
+    meetingForm: init.meetingForm ? encodeMeeting(init.meetingForm, init.meetingForm.tz) : undefined,
   };
 }
 

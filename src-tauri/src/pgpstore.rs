@@ -976,6 +976,7 @@ mod tests {
             confidential: false,
             importance: Default::default(),
             recovery_id: None,
+            meeting_form: None,
         }
     }
 
