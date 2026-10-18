@@ -49,5 +49,5 @@ for (const rule of [".hl-bp{", "border:1px dashed #9aa3af", "border-radius:6px",
   assert.ok(pane.includes(rule), `the frame's style sheet has ${rule}`);
 }
 assert.ok(!/\.hl-bp[^{]*\{[^}]*cursor:\s*pointer/.test(pane), "the box is not clickable");
-assert.match(read("src/i18n/ns/reading.ts"), /"reading\.body\.blocked"/, "the banner with Show pictures stays the way to load them");
+assert.match(read("src/i18n/ns/reading.ts"), /"reading\.body\.blocked"/, "the banner with its 'Load content' action stays the way to load them");
 console.log("ok - test-blocked-picture");

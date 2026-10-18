@@ -110,7 +110,7 @@ assert.equal(NEW_MAIL_WAIT_MS, 30_000);
   assert.equal(r.served.length, 0);
 }
 
-// 5. 30 s without being served: "failed" replaces "waiting", the request is dropped; Retry is a new request
+// 5. 30 s without being served: "failed" replaces "waiting"; Retry is a new request
 {
   const r = rig();
   r.q.request({ shift: false });
@@ -121,15 +121,67 @@ assert.equal(NEW_MAIL_WAIT_MS, 30_000);
   assert.equal(lastSaid(r), "failed", "after 30 s");
   assert.equal(r.q.waiting, false);
   assert.equal(r.served.length, 0);
-  // the mailboxes arrive later: the dropped request is not served (the person has been told)
-  r.ready = "ready";
-  r.q.check();
-  assert.equal(r.served.length, 0);
-  // Retry
+  // Retry while the mailboxes are still not read is a new wait (5b); Retry after they arrived opens one
   assert.deepEqual(r.q.retryOptions(), { shift: false });
+  r.ready = "ready";
   r.q.request(r.q.retryOptions());
   assert.deepEqual(r.served, [{ shift: false }], "Retry opens one");
   assert.equal(lastSaid(r), null, "the error message goes");
+  r.q.check();
+  assert.equal(r.served.length, 1, "and the request that was given up is not served as well");
+}
+
+// 5a. the mailboxes arrive after the error message: the message goes by itself and the message the person asked for opens, once (QA O-4)
+{
+  const r = rig();
+  r.q.request({ shift: true });
+  r.advance(30_000);
+  assert.equal(lastSaid(r), "failed");
+  r.advance(10_000);
+  assert.equal(lastSaid(r), "failed", "while they are not read the message stays (with Retry)");
+  assert.equal(r.served.length, 0);
+  r.ready = "ready";
+  r.q.check();
+  assert.deepEqual(r.served, [{ shift: true }], "the request opens with the options of the press");
+  assert.equal(lastSaid(r), null, "the error message goes");
+  r.q.check();
+  r.advance(60_000);
+  assert.equal(r.served.length, 1, "opened once");
+  assert.equal(lastSaid(r), null);
+}
+
+// 5c. they arrive after the error message and there is no mailbox: the message goes, nothing opens
+{
+  const r = rig();
+  r.q.request({ shift: false });
+  r.advance(30_000);
+  r.ready = "none";
+  r.q.check();
+  assert.equal(r.served.length, 0);
+  assert.equal(lastSaid(r), null);
+}
+
+// 5d. the person closed the error message: the request is not wanted any more, nothing opens when the mailboxes arrive
+{
+  const r = rig();
+  r.q.request({ shift: false });
+  r.advance(30_000);
+  r.q.dismiss();
+  r.ready = "ready";
+  r.q.check();
+  assert.equal(r.served.length, 0);
+}
+
+// 5e. a new press after the error message replaces the request that was given up (one message only)
+{
+  const r = rig();
+  r.q.request({ shift: true });
+  r.advance(30_000);
+  r.q.request({ shift: false });
+  assert.equal(lastSaid(r), "waiting");
+  r.ready = "ready";
+  r.q.check();
+  assert.deepEqual(r.served, [{ shift: false }], "one message, with the options of the last press");
 }
 
 // 5b. Retry while the mailboxes are still not read: a new wait with a new 30 s
@@ -161,6 +213,7 @@ assert.equal(NEW_MAIL_WAIT_MS, 30_000);
 const actions = read("src/actions.ts");
 assert.match(actions, /new NewMailQueue/);
 assert.match(actions, /ready: \(\) => \{[\s\S]*!s\.loaded \? "wait"/, "wait while the store has not read the mailboxes");
+assert.match(actions, /onDismiss: \(\) => newMailQueue\.dismiss\(\)/, "closing the error message drops the request");
 assert.match(actions, /export function newMail\(/);
 assert.match(read("src/components/Ribbon.tsx"), /newMail\(\)/);
 assert.match(read("src/components/CommandBar.tsx"), /run: \(\) => void newMail\(\)/);

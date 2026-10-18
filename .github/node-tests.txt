@@ -115,7 +115,7 @@ ui-a | node scripts/test-ai-guide.mjs --quick --require-browser
 ui-a | node scripts/test-settings-layout.mjs --quick --require-browser
 # the attachment preview and the picture viewer are on top of the whole window, in the main window and in the reader window
 ui-a | node scripts/test-preview-layer.mjs --quick --require-browser
-# the compose pane at the smallest sizes: formatting row and body always in view, the header scrolls, Tab order and popovers, the labelled action row is one row in de and ru with the rest in More actions (eleven of the combinations, with Meeting on at 946 x 552 and in a 308 px pane; the full run is `node scripts/test-compose-fit.mjs`)
+# the compose pane at the smallest sizes: formatting row and body always in view, the header scrolls, Tab order and popovers, the labelled action row is one row in de and ru with the rest in More actions (twelve of the combinations, with Meeting on at 946 x 552, in a 308 px pane and in a window 80 px lower than the least one; the full run is `node scripts/test-compose-fit.mjs`, about 8 minutes, 91 combinations)
 ui-a | node --experimental-strip-types scripts/test-compose-fit.mjs --quick --require-browser
 # an open compose shows the placeholder and the accessible name of the body, and an open signature / template editor its accessible name, in the language in use after a language switch (and back); typed text and undo survive
 ui-a | node scripts/test-placeholder-lang.mjs --require-browser

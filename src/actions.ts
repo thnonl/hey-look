@@ -74,7 +74,8 @@ const NEW_MAIL_TOAST = "new-mail";
 
 /**
  * New mail never ends silently (newMailQueue.ts): while the mailboxes are being read (the first second of a start) the request is kept, with a message that
- * has a spinner, and opens when they are read; 30 s without that, the message says it could not be done and has Retry. No mailbox at all: nothing, the Welcome screen is the answer.
+ * has a spinner, and opens when they are read; 30 s without that, the message says it could not be done and has Retry - and when they are read after that, the message goes and the
+ * message the person asked for opens (once). No mailbox at all: nothing, the Welcome screen is the answer.
  */
 const newMailQueue = new NewMailQueue<StartOpts>({
   ready: () => {
@@ -85,7 +86,7 @@ const newMailQueue = new NewMailQueue<StartOpts>({
   say: (s) => {
     const st = useStore.getState();
     if (s === "waiting") st.setStickyToast(NEW_MAIL_TOAST, { text: () => t("app.newMail.waiting"), kind: "info", busy: true, hideClose: true });
-    else if (s === "failed") st.setStickyToast(NEW_MAIL_TOAST, { text: () => t("app.newMail.failed"), kind: "error", actions: [{ label: () => t("common.retry"), run: () => newMailQueue.request(newMailQueue.retryOptions() ?? {}) }] });
+    else if (s === "failed") st.setStickyToast(NEW_MAIL_TOAST, { text: () => t("app.newMail.failed"), kind: "error", actions: [{ label: () => t("common.retry"), run: () => newMailQueue.request(newMailQueue.retryOptions() ?? {}) }], onDismiss: () => newMailQueue.dismiss(), closeLabel: () => t("app.toast.dismiss") });
     else st.setStickyToast(NEW_MAIL_TOAST, null);
   },
   now: Date.now,

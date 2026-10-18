@@ -6,7 +6,7 @@
 //   compose     a new message with Meeting on, 946 x 552 and 1280 x 800 (and as the compose window of its own at 560 x 440): from To through the header to the
 //               body and back with Shift+Tab. Every stop: a box with a size, whole inside the window, not a file input, not inside a hidden / display:none element,
 //               an outline or other visible sign of focus. Every <input type=file> of the page has hidden, aria-hidden and tabIndex -1.
-//   appearance  Settings > Appearance: a Tab walk through the whole tab never stops inside .ap-preview (the preview is inert) and does reach "Shuffle"
+//   appearance  Settings > Appearance: a Tab walk through the whole tab never stops inside .ap-preview (the preview is inert) and does reach "Generate different sample mail"
 //
 //   node scripts/test-tab-stops.mjs [--require-browser | --url=http://127.0.0.1:1420/]
 import { sleep, startHarness } from './cdp-harness.mjs';
@@ -128,11 +128,11 @@ async function appearanceWalk() {
     const s = await evaluate(STOP);
     if (process.env.TABDEBUG) console.log('A Tab', i + 1, s.name);
     ok(!s.inPreview, `Tab ${i + 1}: the focus is inside the preview (${s.name})`);
-    if (/Shuffle|different sample mail/.test(s.name)) shuffle = true; // (its accessible name)
+    if (/different sample mail/.test(s.name)) shuffle = true; // (its accessible name)
     if (shuffle && i > 60) break;
     if (s.name === 'body') break;
   }
-  ok(shuffle, 'Tab never reached "Shuffle"');
+  ok(shuffle, 'Tab never reached "Generate different sample mail"');
 }
 
 try {
