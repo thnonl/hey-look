@@ -259,6 +259,28 @@ fn account_address(acc: &Account) -> R<Address> {
     ascii_address(acc.email.trim()).parse::<Address>().map_err(err)
 }
 
+/// The Reply-To of mail sent from `acc` (1.0.7 W2.21): the mailbox's own setting (an IDN domain in its ASCII form, like every address), none when
+/// it is empty or the mailbox's own address (a reply would go there anyway).
+fn reply_to_of(acc: &Account) -> Option<Mailbox> {
+    let addr = ascii_address(acc.reply_to.trim()).parse::<Address>().ok()?;
+    let me = account_address(acc).ok()?;
+    (!addr.to_string().eq_ignore_ascii_case(&me.to_string())).then(|| Mailbox::new(None, addr))
+}
+
+/// A Reply-To as the setting stores it: empty, or ONE bare address (no name part, no list). The same rule as the field in Settings.
+pub fn check_reply_to(text: &str) -> R<String> {
+    let t = text.trim();
+    if t.is_empty() {
+        return Ok(String::new());
+    }
+    let bad = || "EMAIL_INVALID: Enter a valid email address".to_string();
+    if t.chars().any(|c| c.is_whitespace() || c.is_control() || matches!(c, '<' | '>' | ',' | ';' | '"' | '(' | ')')) {
+        return Err(bad());
+    }
+    ascii_address(t).parse::<Address>().map_err(|_| bad())?;
+    Ok(t.to_string())
+}
+
 /// Parse a recipient as the interface writes it. Unlike a strict RFC 5322 parse this accepts any display name, and still
 /// rejects an address that is not one.
 pub fn parse_mailbox(s: &str) -> R<Mailbox> {
@@ -319,6 +341,9 @@ fn headers(acc: &Account, d: &Draft, lenient: bool) -> R<lettre::message::Messag
     let me = account_address(acc)?;
     let from = Mailbox::new(Some(clean_header_text(&acc.display_name)).filter(|n| !n.is_empty()), me.clone());
     let mut b = Message::builder().from(from).subject(clean_header_text(&d.subject));
+    if let Some(rt) = reply_to_of(acc) {
+        b = b.reply_to(rt);
+    }
     if lenient {
         // A draft carries its own Message-ID: the sync derives the draft's thread from it, so Save draft can tell the app which thread the
         // draft will be (an "Edit" action can open it again). Mail that is sent keeps getting its Message-ID from the server.
@@ -451,6 +476,9 @@ pub fn build_calendar_mail(acc: &Account, to: &[String], cc: &[String], subject:
     let me = account_address(acc)?;
     let from = Mailbox::new(Some(clean_header_text(&acc.display_name)).filter(|n| !n.is_empty()), me.clone());
     let mut b = Message::builder().from(from).subject(clean_header_text(subject)).message_id(Some(sent_message_id(&me)));
+    if let Some(rt) = reply_to_of(acc) {
+        b = b.reply_to(rt);
+    }
     for t in to {
         b = b.to(mailbox(t)?);
     }
@@ -833,6 +861,7 @@ pub(crate) mod tests {
             color: None,
             smtp_username: String::new(),
             tls_insecure: false,
+            reply_to: String::new(),
         }
     }
 
@@ -1308,6 +1337,50 @@ To:") && !out.contains("undisclosed"), "{out}");
         let signed_input = signed_input.borrow().clone();
         assert!(signed.windows(signed_input.len()).any(|w| w == &signed_input[..]), "the signed bytes are in the message as they were signed");
         assert!(signed.starts_with(b"From:") || String::from_utf8_lossy(&signed).contains("multipart/signed"));
+    }
+
+    /// W2.21: the mailbox's own Reply-To is written in every message sent from it (sent, Sent copy, draft, signed, encrypted, meeting reply), in the
+    /// outer headers, unless it is empty or the From address (any case); another mailbox uses its own value; a name part or a list is refused.
+    #[test]
+    fn a_mailbox_reply_to_is_written_unless_it_is_the_from_address() {
+        let reply_lines = |raw: &[u8]| {
+            let (h, _) = crate::pgpmail::parse_headers(raw);
+            h.iter().filter(|(n, _)| n.eq_ignore_ascii_case("reply-to")).map(|(_, v)| v.trim().to_string()).collect::<Vec<_>>()
+        };
+        let mut acc = account();
+        acc.reply_to = "team@x.test".into();
+        let d = draft("<p>Hi</p>", vec![], vec![]);
+        let team = vec!["team@x.test".to_string()];
+        assert_eq!(reply_lines(&wire(&build(&acc, &d).unwrap())), team, "sent (and so the Sent copy: the same bytes)");
+        assert_eq!(reply_lines(&wire(&build_draft(&acc, &d).unwrap())), team, "a saved draft");
+        assert_eq!(reply_lines(&wire(&build_signed(&acc, &d, false, &signer).unwrap())), team, "signed: the outer header");
+        assert_eq!(reply_lines(&wire(&build_encrypted(&acc, &d, false, &|_| Ok("armored".into())).unwrap())), team, "encrypted: the outer header");
+        let cal = CalendarPart { method: "REPLY".into(), ics: "BEGIN:VCALENDAR\r\nEND:VCALENDAR\r\n".into() };
+        assert_eq!(reply_lines(&wire(&build_calendar_mail(&acc, &["org@x.test".to_string()], &[], "Accepted", "ok", &cal).unwrap())), team, "a meeting reply");
+        // the envelope and the other headers do not change
+        let msg = build(&acc, &d).unwrap();
+        assert_eq!(msg.envelope().to().iter().map(|a| a.to_string()).collect::<Vec<_>>(), vec!["ann@example.com".to_string()]);
+        // the From address in any case, or nothing: no header
+        for same in ["me@example.com", "Me@Example.COM", " me@example.com "] {
+            acc.reply_to = same.into();
+            assert!(reply_lines(&wire(&build(&acc, &d).unwrap())).is_empty(), "{same:?}");
+        }
+        acc.reply_to = String::new();
+        assert!(reply_lines(&wire(&build(&acc, &d).unwrap())).is_empty());
+        // a mailbox that has none does not use another one's (the draft names the mailbox it is sent from)
+        let mut other = account_with_id("a2");
+        other.email = "other@example.com".into();
+        assert!(reply_lines(&wire(&build(&other, &d).unwrap())).is_empty());
+        // an internationalized domain goes as its ASCII form
+        acc.reply_to = "team@bücher.example".into();
+        assert_eq!(reply_lines(&wire(&build(&acc, &d).unwrap())), vec!["team@xn--bcher-kva.example".to_string()]);
+        // what the setting accepts: empty or one bare address
+        assert_eq!(check_reply_to("  Team@X.test ").unwrap(), "Team@X.test");
+        assert_eq!(check_reply_to("").unwrap(), "");
+        assert_eq!(check_reply_to("   ").unwrap(), "");
+        for bad in ["not an address", "Team <team@x.test>", "a@x.test, b@x.test", "a@x.test;b@x.test", "\"Team\" <a@x.test>", "team", "@x.test", "team@", "a b@x.test", "team@x.test\r\nBcc: evil@x.test"] {
+            assert!(check_reply_to(bad).unwrap_err().starts_with("EMAIL_INVALID:"), "{bad:?}");
+        }
     }
 
     /// QA round 2, BUG-1 (O-04): a reply to a message whose Subject held CR LF was sent with those bytes inside the encoded Subject (the mail library encodes a raw

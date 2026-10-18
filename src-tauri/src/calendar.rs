@@ -1514,6 +1514,7 @@ mod tests {
             color: None,
             smtp_username: String::new(),
             tls_insecure: false,
+            reply_to: String::new(),
         }
     }
 

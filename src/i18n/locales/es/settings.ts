@@ -320,6 +320,8 @@ export default defineLocale<typeof ns.en>({
   "settings.folder.unread": "No leídos",
   "settings.folder.all": "Todo el correo",
   "settings.profile.displayNameHint": "Se muestra a los destinatarios como nombre del remitente",
+  "settings.profile.replyTo": "Dirección de respuesta",
+  "settings.profile.replyToHint": "Las respuestas a los mensajes que envíes desde este buzón van a esta dirección. Déjalo vacío para recibirlas aquí.",
   "settings.profile.color": "Color",
   "settings.profile.colorHint": "Marca esta cuenta en el panel de carpetas y en las listas combinadas",
   "settings.profile.mailboxColor": "Color del buzón",

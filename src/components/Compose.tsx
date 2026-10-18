@@ -102,9 +102,13 @@ const SignatureBlock = (cb: { mount: (el: HTMLElement) => void; unmount: (el: HT
     },
   });
 
+/** The chip being dragged between the fields of one message (W2.21): which message (`scope`), the field it comes from and the recipient. Only mouse drags set it. */
+let chipDrag: { scope: string; from: RcptField; chip: string } | null = null;
+const CHIP_DRAG = "application/x-heylook-recipient";
+
 /** Recipient input with chips, address validation and keyboard-friendly suggestions. */
 export function RecipientField({
-  label, values, onChange, autoFocus, onTouch, onPending, keys, onKeyAction, hideLabel,
+  label, values, onChange, autoFocus, onTouch, onPending, keys, onKeyAction, hideLabel, field, dragScope, onChipDrop,
 }: {
   label: string;
   /** the label is only for screen readers (the caller shows its own) */
@@ -118,9 +122,15 @@ export function RecipientField({
   /** PGP key status per address (lower case); shown on the chips while Encrypt is on */
   keys?: Record<string, RecipientStatus>;
   onKeyAction?: (a: "import" | "paste") => void;
+  /** which field of the message this is, and the id of the message: the chips can be dragged to another field of the same message (To, Cc, Bcc) */
+  field?: RcptField;
+  dragScope?: string;
+  /** a chip of another field was dropped here (the caller moves it) */
+  onChipDrop?: (chip: string, from: RcptField) => void;
 }) {
   const t = useT();
   const [keyPop, setKeyPop] = useState<string | null>(null);
+  const [dropOver, setDropOver] = useState(false);
   const popRef = useRef<HTMLSpanElement>(null);
   useOutside(popRef, () => setKeyPop(null), keyPop !== null);
   const [text, setText] = useState("");
@@ -169,7 +179,31 @@ export function RecipientField({
   };
 
   return (
-    <div className="cf-field rcpt" ref={fieldRef} onClick={() => input.current?.focus()}>
+    <div
+      className={`cf-field rcpt${dropOver ? " drop-target" : ""}`}
+      ref={fieldRef}
+      onClick={() => input.current?.focus()}
+      // a chip of this message dragged from another field is dropped here (a drag of anything else, text included, is left to the input)
+      onDragOver={(e) => {
+        const d = chipDrag;
+        if (!field || !onChipDrop || !d || d.scope !== dragScope || !e.dataTransfer.types.includes(CHIP_DRAG)) return;
+        e.preventDefault();
+        e.dataTransfer.dropEffect = d.from === field ? "none" : "move";
+        setDropOver(d.from !== field);
+      }}
+      onDragLeave={(e) => {
+        if (!e.currentTarget.contains(e.relatedTarget as Node | null)) setDropOver(false);
+      }}
+      onDrop={(e) => {
+        setDropOver(false);
+        if (!field || !onChipDrop || !chipDrag || chipDrag.scope !== dragScope || !e.dataTransfer.types.includes(CHIP_DRAG)) return;
+        e.preventDefault();
+        e.stopPropagation();
+        const d = chipDrag;
+        chipDrag = null;
+        if (d.from !== field) onChipDrop(d.chip, d.from);
+      }}
+    >
       {!hideLabel && <label>{label}</label>}
       <div className="chips" ref={chipsRef}>
         {values.map((v) => {
@@ -177,7 +211,21 @@ export function RecipientField({
           const ks = keys?.[addr];
           const noKey = !!ks && ks.status !== "ok";
           return (
-          <span key={v} data-email={EMAIL.test(bareAddress(v)) ? bareAddress(v) : undefined} className={`rchip ${EMAIL.test(bareAddress(v)) ? "" : "bad"} ${noKey ? "nokey" : ""}`} title={EMAIL.test(bareAddress(v)) ? (noKey ? t("compose.rcpt.noUsableKey", { addr }) : v) : t("compose.rcpt.notAddress")}>
+          <span
+            key={v}
+            data-email={EMAIL.test(bareAddress(v)) ? bareAddress(v) : undefined}
+            draggable={!!field && !!onChipDrop}
+            onDragStart={(e) => {
+              if (!field || !onChipDrop) return;
+              chipDrag = { scope: dragScope ?? "", from: field, chip: v };
+              e.dataTransfer.effectAllowed = "move";
+              e.dataTransfer.setData(CHIP_DRAG, v); // (no text flavour: dropped in another program or on the message text it does nothing)
+            }}
+            onDragEnd={() => {
+              chipDrag = null;
+              setDropOver(false);
+            }}
+            className={`rchip ${EMAIL.test(bareAddress(v)) ? "" : "bad"} ${noKey ? "nokey" : ""}`} title={EMAIL.test(bareAddress(v)) ? (noKey ? t("compose.rcpt.noUsableKey", { addr }) : v) : t("compose.rcpt.notAddress")}>
             {ks && (ks.status === "ok" ? (
               <span className="rchip-key ok" title={t("compose.rcpt.keyFound")} role="img" aria-label={t("compose.rcpt.keyFoundFor", { addr })}><Lock size={11} /></span>
             ) : (
@@ -460,6 +508,21 @@ function ComposeBody({ init }: { init: ComposeInit }) {
     const name = (f: RcptField) => t(`compose.${f}`);
     for (const x of r.skipped.slice(0, 3)) showToast(t("compose.rcpt.alreadyIn", { addr: x.addr, field: name(x.in) }), undefined, "info");
     for (const x of r.moved.slice(0, 3)) showToast(t("compose.rcpt.movedUp", { addr: x.addr, from: name(x.from), to: name(field) }), undefined, "info");
+  };
+  /**
+   * A chip dragged from one field to another (W2.21): it leaves the field it was in and goes to the end of the other (an address that is there
+   * already is not added again). Counts as an edit.
+   */
+  const dragScope = useRef(`cf${Math.random().toString(36).slice(2)}`).current;
+  const moveChip = (to_: RcptField) => (chip: string, from: RcptField) => {
+    const lists = { to, cc, bcc };
+    if (from === to_ || !lists[from].includes(chip)) return;
+    const next = { ...lists, [from]: lists[from].filter((x) => x !== chip), [to_]: addRecipients(lists[to_], [chip]) };
+    setTo(next.to);
+    setCc(next.cc);
+    setBcc(next.bcc);
+    if (to_ !== "to") ccTouched.current = true;
+    touch();
   };
   const [showCc, setShowCc] = useState(cc.length > 0 || bcc.length > 0);
   // the sender asked for answers to go to another address than From (Reply-To): said under To, with a way back to From
@@ -2249,7 +2312,7 @@ function ComposeBody({ init }: { init: ComposeInit }) {
           <label>{t("compose.from")}</label>
           <AccountPicker value={accountId} accounts={accounts} onChange={changeAccount} label={t("compose.from")} />
         </div>
-        <RecipientField label={t("compose.to")} values={to} onChange={changeField("to")} autoFocus={to.length === 0 && !init.replaces} onTouch={touch} onPending={pending("to")} keys={encOn && ks ? ks.recipients : undefined} onKeyAction={keyAction} />
+        <RecipientField label={t("compose.to")} field="to" dragScope={dragScope} onChipDrop={moveChip("to")} values={to} onChange={changeField("to")} autoFocus={to.length === 0 && !init.replaces} onTouch={touch} onPending={pending("to")} keys={encOn && ks ? ks.recipients : undefined} onKeyAction={keyAction} />
         {noteShown && replyNote && (
           <div className="note cf-replyto" role="status">
             <Info size={13} aria-hidden />
@@ -2261,8 +2324,8 @@ function ComposeBody({ init }: { init: ComposeInit }) {
         )}
         {showCc ? (
           <>
-            <RecipientField label={t("compose.cc")} values={cc} onChange={changeField("cc")} onTouch={() => ((ccTouched.current = true), touch())} onPending={pending("cc")} keys={encOn && ks ? ks.recipients : undefined} onKeyAction={keyAction} />
-            {!meeting && <RecipientField label={t("compose.bcc")} values={bcc} onChange={changeField("bcc")} onTouch={() => ((ccTouched.current = true), touch())} onPending={pending("bcc")} keys={encOn && ks ? ks.recipients : undefined} onKeyAction={keyAction} />}
+            <RecipientField label={t("compose.cc")} field="cc" dragScope={dragScope} onChipDrop={moveChip("cc")} values={cc} onChange={changeField("cc")} onTouch={() => ((ccTouched.current = true), touch())} onPending={pending("cc")} keys={encOn && ks ? ks.recipients : undefined} onKeyAction={keyAction} />
+            {!meeting && <RecipientField label={t("compose.bcc")} field="bcc" dragScope={dragScope} onChipDrop={moveChip("bcc")} values={bcc} onChange={changeField("bcc")} onTouch={() => ((ccTouched.current = true), touch())} onPending={pending("bcc")} keys={encOn && ks ? ks.recipients : undefined} onKeyAction={keyAction} />}
           </>
         ) : (
           <div className="cf-links">

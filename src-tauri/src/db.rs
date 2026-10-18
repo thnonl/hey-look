@@ -95,6 +95,8 @@ pub fn migrate(conn: &Connection) -> R<()> {
     add_column(conn, "ALTER TABLE accounts ADD COLUMN color TEXT")?;
     add_column(conn, "ALTER TABLE accounts ADD COLUMN smtp_username TEXT NOT NULL DEFAULT ''")?;
     add_column(conn, "ALTER TABLE accounts ADD COLUMN tls_insecure INTEGER NOT NULL DEFAULT 0")?;
+    // the address replies to the mail sent from this mailbox go to (Reply-To), empty = none (1.0.7 W2.21)
+    add_column(conn, "ALTER TABLE accounts ADD COLUMN reply_to TEXT NOT NULL DEFAULT ''")?;
     // synced calendar events: the provider's id / version tag / series / kind, and why the event cannot be edited here
     // (0 = it can, 1 = read-only calendar, 2 = repeating, 3 = organized by someone else; see calsync::store)
     add_column(conn, "ALTER TABLE events ADD COLUMN remote_id TEXT")?;
@@ -159,6 +161,9 @@ pub struct Account {
     /// Accept self-signed / private-CA / mismatched certificates (IMAP and SMTP).
     #[serde(default)]
     pub tls_insecure: bool,
+    /// Own Reply-To of the mail sent from this mailbox (one bare address, empty = none). Not written when it is the mailbox's own address.
+    #[serde(default)]
+    pub reply_to: String,
 }
 
 fn default_auth() -> String {
@@ -168,7 +173,7 @@ fn default_auth() -> String {
 pub fn list_accounts(c: &Connection) -> R<Vec<Account>> {
     let mut st = c
         .prepare(
-            "SELECT id,email,display_name,imap_host,imap_port,imap_ssl,smtp_host,smtp_port,smtp_security,username,auth,color,smtp_username,tls_insecure
+            "SELECT id,email,display_name,imap_host,imap_port,imap_ssl,smtp_host,smtp_port,smtp_security,username,auth,color,smtp_username,tls_insecure,reply_to
              FROM accounts ORDER BY rowid",
         )
         .map_err(err)?;
@@ -182,7 +187,7 @@ pub fn list_accounts(c: &Connection) -> R<Vec<Account>> {
 
 pub fn get_account(c: &Connection, id: &str) -> R<Account> {
     c.query_row(
-        "SELECT id,email,display_name,imap_host,imap_port,imap_ssl,smtp_host,smtp_port,smtp_security,username,auth,color,smtp_username,tls_insecure
+        "SELECT id,email,display_name,imap_host,imap_port,imap_ssl,smtp_host,smtp_port,smtp_security,username,auth,color,smtp_username,tls_insecure,reply_to
          FROM accounts WHERE id=?1",
         [id],
         row_account,
@@ -206,6 +211,7 @@ fn row_account(r: &rusqlite::Row) -> rusqlite::Result<Account> {
         color: r.get(11)?,
         smtp_username: r.get(12)?,
         tls_insecure: r.get::<_, i64>(13)? != 0,
+        reply_to: r.get(14)?,
     })
 }
 
@@ -243,8 +249,8 @@ pub fn pick_account_color<'a, I: IntoIterator<Item = Option<&'a str>>>(used: I) 
 
 pub fn insert_account(c: &Connection, a: &Account) -> R<()> {
     c.execute(
-        "INSERT OR REPLACE INTO accounts(id,email,display_name,imap_host,imap_port,imap_ssl,smtp_host,smtp_port,smtp_security,username,auth,color,smtp_username,tls_insecure)
-         VALUES(?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,?13,?14)",
+        "INSERT OR REPLACE INTO accounts(id,email,display_name,imap_host,imap_port,imap_ssl,smtp_host,smtp_port,smtp_security,username,auth,color,smtp_username,tls_insecure,reply_to)
+         VALUES(?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,?13,?14,?15)",
         params![
             a.id,
             a.email,
@@ -259,12 +265,22 @@ pub fn insert_account(c: &Connection, a: &Account) -> R<()> {
             a.auth,
             a.color,
             a.smtp_username,
-            a.tls_insecure as i64
+            a.tls_insecure as i64,
+            a.reply_to
         ],
     )
     .map_err(err)?;
     // its mail file (created empty on first use, a no-op when it exists)
     crate::shard::ensure(c, &a.id)
+}
+
+/// Settings > mailbox > Name and colour (and Reply-To when it is given; `None` leaves it as it is).
+pub fn update_profile(c: &Connection, id: &str, display_name: &str, color: Option<&str>, reply_to: Option<&str>) -> R<()> {
+    c.execute("UPDATE accounts SET display_name=?1, color=?2 WHERE id=?3", params![display_name, color, id]).map_err(err)?;
+    if let Some(r) = reply_to {
+        c.execute("UPDATE accounts SET reply_to=?1 WHERE id=?2", params![r, id]).map_err(err)?;
+    }
+    Ok(())
 }
 
 pub fn remove_account(c: &Connection, id: &str) -> R<()> {
@@ -504,6 +520,40 @@ mod tests {
         add_column(&c, "ALTER TABLE t ADD COLUMN b TEXT").unwrap();
         add_column(&c, "ALTER TABLE t ADD COLUMN b TEXT").unwrap();
         assert!(add_column(&c, "ALTER TABLE missing ADD COLUMN b TEXT").is_err());
+    }
+
+    /// W2.21: a database from before 1.0.7 (no `reply_to` column) opens, gets the column with an empty value and keeps its mailboxes; the setting is
+    /// saved with the name and colour (`None` leaves it), and goes with the row when the mailbox is removed.
+    #[test]
+    fn an_old_database_gets_the_reply_to_column_and_a_mailbox_keeps_its_value() {
+        let c = Connection::open_in_memory().unwrap();
+        migrate(&c).unwrap();
+        c.execute("INSERT INTO accounts(id,email,display_name,imap_host,imap_port,imap_ssl,smtp_host,smtp_port,smtp_security,username) VALUES('a1','a1@x.example','N','h',993,1,'s',465,'ssl','u')", []).unwrap();
+        c.execute("ALTER TABLE accounts DROP COLUMN reply_to", []).unwrap(); // (1.0.6: the column was not there)
+        assert!(c.prepare("SELECT reply_to FROM accounts").is_err());
+        migrate(&c).unwrap();
+        let a = get_account(&c, "a1").unwrap();
+        assert_eq!((a.display_name.as_str(), a.reply_to.as_str()), ("N", ""), "the old row is intact, the new value is empty");
+        // saved with the profile; None (the colour and name callers) leaves it as it is
+        update_profile(&c, "a1", "Nam", Some("#0f6cbd"), Some("team@x.test")).unwrap();
+        update_profile(&c, "a1", "Nam T", Some("#13803c"), None).unwrap();
+        let a = get_account(&c, "a1").unwrap();
+        assert_eq!((a.display_name.as_str(), a.color.as_deref(), a.reply_to.as_str()), ("Nam T", Some("#13803c"), "team@x.test"));
+        assert_eq!(list_accounts(&c).unwrap()[0].reply_to, "team@x.test");
+        update_profile(&c, "a1", "Nam T", Some("#13803c"), Some("")).unwrap();
+        assert_eq!(get_account(&c, "a1").unwrap().reply_to, "", "an empty text clears it");
+        // an account written by insert_account keeps it; an old JSON without the field reads as empty
+        let mut b = get_account(&c, "a1").unwrap();
+        b.id = "a2".into();
+        b.reply_to = "other@x.test".into();
+        insert_account(&c, &b).unwrap();
+        assert_eq!(get_account(&c, "a2").unwrap().reply_to, "other@x.test");
+        let json: serde_json::Value = serde_json::to_value(&b).unwrap();
+        let mut old = json.as_object().unwrap().clone();
+        old.remove("replyTo");
+        assert_eq!(serde_json::from_value::<Account>(serde_json::Value::Object(old)).unwrap().reply_to, "");
+        remove_account(&c, "a2").unwrap();
+        assert!(get_account(&c, "a2").is_err());
     }
 
     fn put_account(c: &Connection, id: &str) {

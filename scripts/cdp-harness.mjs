@@ -100,7 +100,10 @@ export async function startHarness(name, { vitePort0 = 5480 } = {}) {
 
   const ws = new WebSocket(wsUrl); await new Promise((r, j) => { ws.onopen = r; ws.onerror = j; });
   let nextId = 1; const waiting = new Map();
-  ws.onmessage = (ev) => { const m = JSON.parse(ev.data); if (m.id && waiting.has(m.id)) { const { ok, bad } = waiting.get(m.id); waiting.delete(m.id); m.error ? bad(new Error(m.error.message)) : ok(m.result); } };
+  const listeners = new Set();
+  ws.onmessage = (ev) => { const m = JSON.parse(ev.data); if (m.id && waiting.has(m.id)) { const { ok, bad } = waiting.get(m.id); waiting.delete(m.id); m.error ? bad(new Error(m.error.message)) : ok(m.result); } else if (m.method) for (const l of listeners) if (l.method === m.method) l.cb(m.params); };
+  /** Calls `cb(params)` for every CDP event `method` of this page (e.g. `Input.dragIntercepted`); returns the function that stops it. */
+  const on = (method, cb) => { const l = { method, cb }; listeners.add(l); return () => listeners.delete(l); };
   const send = (method, params = {}, sessionId) => new Promise((ok, bad) => { const id = nextId++; waiting.set(id, { ok, bad }); ws.send(JSON.stringify({ id, method, params, sessionId })); });
   const { targetId } = await send('Target.createTarget', { url: 'about:blank' });
   const { sessionId } = await send('Target.attachToTarget', { targetId, flatten: true });
@@ -119,7 +122,7 @@ export async function startHarness(name, { vitePort0 = 5480 } = {}) {
       try { await evaluate(`new Promise((ok, no) => { const t0 = Date.now(), t = setInterval(() => { if (window.__store && window.__store.getState().accounts.length) { clearInterval(t); ok(1); } else if (Date.now() - t0 > 15000) { clearInterval(t); no(new Error('app did not start')); } }, 100); })`); return; } catch (e) { if (attempt === 4) throw e; }
     }
   };
-  return { base, cdp, evaluate, shutdown, openApp, vitePort, cdpPort };
+  return { base, cdp, evaluate, shutdown, openApp, on, vitePort, cdpPort };
 }
 
 /** Mouse, keyboard and screenshots on a CDP session. */
