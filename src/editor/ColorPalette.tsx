@@ -3,7 +3,8 @@ import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { useT } from "../i18n/react";
 import type { Key } from "../i18n";
-import { fitInWindow } from "../fitInWindow";
+import { placePopover } from "../popoverRoom";
+import { toastBox } from "../components/ui";
 import { pressIsOutside } from "../pressInside";
 import { HIGHLIGHTS, STANDARD, sameColor, themeGrid, type Swatch } from "./colors";
 
@@ -56,19 +57,15 @@ export type PaletteClose = "pick" | "esc" | "away";
 /** A popover drawn on <body> under `anchor`, kept inside the window; a press outside, Esc or a resize closes it. */
 export function Panel({ anchor, onClose, label, children, className }: { anchor: React.RefObject<HTMLElement | null>; onClose: (why: PaletteClose) => void; label: string; children: React.ReactNode; className?: string }) {
   const ref = useRef<HTMLDivElement>(null);
-  const [pos, setPos] = useState<{ top: number; left: number } | null>(null);
+  const [pos, setPos] = useState<{ top: number; left: number; max: number } | null>(null);
   const close = useRef(onClose);
   close.current = onClose;
   useLayoutEffect(() => {
     const p = ref.current?.getBoundingClientRect();
     const b = anchor.current?.getBoundingClientRect();
     if (!p || !b) return;
-    const edge = 8;
-    const below = window.innerHeight - edge - (b.bottom + 4);
-    const up = p.height > below && b.top - 4 - edge > below;
-    const top = Math.max(edge, up ? b.top - 4 - p.height : b.bottom + 4);
-    const { shift } = fitInWindow({ left: b.left, right: b.left + p.width, top, bottom: top + p.height }, window.innerWidth, window.innerHeight, edge);
-    setPos({ top, left: b.left + shift });
+    // below the button or above it, inside the window and above a toast; a panel taller than the room scrolls (popoverRoom.ts)
+    setPos(placePopover(b, { w: p.width, h: p.height }, { w: window.innerWidth, h: window.innerHeight }, { edge: 8, gap: 4, toasts: toastBox() }));
   }, [anchor]);
   // the focus goes into the palette once it is shown (a hidden element cannot take it): on the current colour, else on the first swatch
   const placed = pos !== null;
@@ -100,7 +97,7 @@ export function Panel({ anchor, onClose, label, children, className }: { anchor:
       role="dialog"
       aria-label={label}
       className={`popover fmt-pop ${className ?? ""}`}
-      style={pos ? { top: pos.top, left: pos.left } : { top: 0, left: 0, visibility: "hidden" }}
+      style={pos ? { top: pos.top, left: pos.left, maxHeight: pos.max, overflowY: "auto" } : { top: 0, left: 0, visibility: "hidden" }}
       onKeyDown={(e) => moveFocus(e, ref.current)}
     >
       {children}

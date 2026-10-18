@@ -990,7 +990,7 @@ button.pill:hover { filter: brightness(.95); }
 .img-tools-box { position: relative; width: max-content; max-width: calc(100% - 16px); pointer-events: auto; }
 /* The floating bars of the body (the picture toolbar and its resize handles) are below every popover and menu of the pane, and step aside while one is open: Send later
    (a sticky action row of a small pane is a box of its own, which is why it has a z-index of its own above them, App.css `.cp-bar`), the suggestions, a recipient's key, a menu */
-body:has(.popover.pinned, .suggest.pinned, .dd-fixed) .img-tools-anchor, body:has(.popover.pinned, .suggest.pinned, .dd-fixed) .pic-handles { visibility: hidden; }
+body:has(.popover.pinned:not(.alt-pop), .suggest.pinned, .dd-fixed) .img-tools-anchor, body:has(.popover.pinned:not(.alt-pop), .suggest.pinned, .dd-fixed) .pic-handles { visibility: hidden; }
 .img-tools { display: flex; flex-wrap: wrap; align-items: center; gap: 2px; background: var(--bg); border: 1px solid var(--border); border-radius: var(--r-md); box-shadow: var(--shadow); padding: 3px; animation: pop .1s var(--ease); }
 .img-tools > * { flex: none; white-space: nowrap; }
 .img-tools .seg { margin: 0; flex-wrap: nowrap; }
@@ -1042,7 +1042,7 @@ body:has(.popover.pinned, .suggest.pinned, .dd-fixed) .img-tools-anchor, body:ha
 .emoji-btn { color: var(--fg); } /* (a button's own colour is black: the symbols were nearly invisible on the dark panel) */
 .symbol-btn { font-family: "Segoe UI Symbol", "Segoe UI", -apple-system, "Helvetica Neue", "Noto Sans", sans-serif; font-variant-emoji: text; font-size: 18px; }
 .emoji-hint { font-size: .82em; color: var(--muted); margin-top: 6px; }
-.alt-pop { position: absolute; top: calc(100% + 4px); left: 0; z-index: 13; width: 320px; padding: 12px; gap: 8px; }
+.alt-pop { width: min(320px, calc(100vw - 16px)); padding: 12px; gap: 8px; } /* (a layer of its own: .popover.pinned, placed by usePinnedBelow under the toolbar or above it) */
 .drop-zones { position: absolute; inset: 8px; display: grid; grid-template-rows: 1fr 96px; gap: 8px; z-index: 20; pointer-events: none; }
 .dz { border: 2px dashed color-mix(in srgb, var(--accent), transparent 40%); border-radius: var(--r-lg); background: color-mix(in srgb, var(--accent), transparent 92%); display: grid; place-items: center; color: var(--accent-text); font-weight: 650; text-align: center; gap: 4px; }
 .dz.hot { background: color-mix(in srgb, var(--accent), transparent 80%); border-style: solid; }
@@ -1119,7 +1119,22 @@ body:has(.popover.pinned, .suggest.pinned, .dd-fixed) .img-tools-anchor, body:ha
 /* ============================== 5. SCHEDULE SEND ============================== */
 .sched-pop { gap: 2px; }
 /* as wide as .popover.up (300px), never wider than the window; the height is limited by useFitInWindow, so the popover scrolls instead of being cut off */
-.popover.up.sched-pop { width: min(300px, calc(100vw - 16px)); overflow-y: auto; }
+.popover.up.sched-pop { width: min(300px, calc(100vw - 16px)); }
+/* the popover is the frame (border, padding and the room usePinnedBelow gives it); the dialog inside it is the box that holds the presets, the date and time and the footer, and the only
+   one that scrolls: a box of its own that is taller than its frame would stick out of the window (QA round 3, BUG-R3-1: y 189 - 593 in a window 552 high) */
+.popover.up.sched-pop.pinned { overflow: hidden; }
+.sched-pop > .sched-picker { min-height: 0; overflow-y: auto; overscroll-behavior: contain; }
+/* a low window (a 960 x 560 window is 552 px high, and the popover hangs under the action row): closer rows, so the presets, the date and time and the footer fit without scrolling */
+@media (max-height: 640px) {
+  .popover.up.sched-pop { padding-top: 4px; padding-bottom: 4px; }
+  .sched-pop .sb-title { margin-bottom: 3px; }
+  .sched-pop .sched-tz { padding-bottom: 2px; }
+  .sched-pop .sched-presets .menu-row { padding-top: 2px; padding-bottom: 2px; }
+  .sched-pop .sched-custom { margin-top: 3px; padding-top: 6px; gap: 4px; }
+  .sched-pop .sched-picker-foot { margin-top: 3px; padding-top: 4px; line-height: 1.3; }
+  .sched-pop .sched-picker-foot .warn { margin-top: 2px; }
+  .sched-pop .sched-picker > .link.small { margin-top: 2px !important; }
+}
 .sched-pop .menu-row .menu-hint { font-variant-numeric: tabular-nums; }
 .sched-tz { font-size: .8em; color: var(--muted); padding: 0 9px 4px; display: flex; align-items: center; gap: 5px; }
 .sched-custom { border-top: 1px solid var(--border); margin-top: 4px; padding: 8px 4px 2px; display: flex; flex-direction: column; gap: 6px; }
