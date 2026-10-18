@@ -76,6 +76,7 @@ AI Assistant
 
 - A meeting is kept when a message is saved as a draft and opened again: the Meeting button stays on with its times, place and "Send invite" (also after a crash recovery, in a window of its own and after Undo); a private header of the draft in the Drafts folder carries it and is never part of a message that is sent
 - The Send later popover, and every other popover and menu of the message, stay whole inside a small window (960 x 560 and lower): the presets, the date and time and the footer fit or scroll in one box, panels open above their button when there is more room, and the alt text popover of a picture is no longer cut off
+- In the Send later popover of a low window, "Choose time" opens the time list also after the popover was scrolled (it did nothing and the popover jumped to the top); scrolling the window around it no longer resets the scroll of the popover
 - The picture toolbar and the resize handles no longer overlap: the handles sit inside the corners of the picture, and the toolbar keeps clear of the picture's edges
 - A picture that is made smaller and re-encoded (a GIF becomes a PNG) is named for what it is (photo.png), in the message, the draft and the sent message, and the notice says that the animation is not kept
 - Summarize says when only the first part of a long conversation was summarized, like Translate does
