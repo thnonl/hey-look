@@ -16,7 +16,10 @@
 // or beside the list and shows the subject; no horizontal overflow of the page, the window or any row; the console stays clean. A second
 // pass runs with prefers-reduced-motion. In the dark theme the title bar of the window must carry the primary as the app does (the exact gradient ends of the
 // formula, live for every preset and custom colour, light unchanged), and stay neutral under prefers-contrast: more. A last pass measures the
-// header on a phone (320, 375 and 414 px, the 8 home pages and 404.html): every button and the logo link at least 44 x 44 px (the logo itself does not move), no overlap, no sideways scroll. The page's own transitions are switched off while measuring (a half-finished transition would
+// header on a phone (320, 375 and 414 px, the 8 home pages and 404.html): every button and the logo link at least 44 x 44 px (the logo itself does not move), no overlap, no sideways scroll.
+// The test never touches the network (scripts/lib/hermetic-net.mjs): the one call the site makes, the latest release from api.github.com on the download pages, is answered with a canned release, and any
+// other external request is refused and fails the run. The download page is also measured when that call fails (403 rate limit, 500, offline): it shows the static version and the Releases link, and the
+// console holds exactly the one expected 'Failed to load resource' line for that URL, nothing else. The page's own transitions are switched off while measuring (a half-finished transition would
 // only measure the animation); the reduced-motion pass keeps the site's real CSS, which must still settle to the same layout.
 import fs from 'node:fs';
 import path from 'node:path';
@@ -24,6 +27,7 @@ import http from 'node:http';
 import { fileURLToPath } from 'node:url';
 import { checkFormula, siteDarkTopBar } from './lib/site-top-bar.mjs';
 import { launchChrome } from './cdp-harness.mjs';
+import { installHermeticNet, releaseStub, LATEST_RELEASE_URL, CANNED_TAG } from './lib/hermetic-net.mjs';
 
 const DOCS = path.join(path.dirname(fileURLToPath(import.meta.url)), '..', 'docs');
 const arg = (name) => { const a = process.argv.find((x) => x.startsWith(`--${name}=`)); return a ? a.slice(name.length + 3) : null; };
@@ -92,13 +96,18 @@ const cdp = (method, params) => send(method, params, sessionId);
 const evaluate = async (expression) => { const r = await cdp('Runtime.evaluate', { expression, returnByValue: true, awaitPromise: true }); if (r.exceptionDetails) throw new Error(r.exceptionDetails.exception?.description || r.exceptionDetails.text); return r.result.value; };
 
 let consoleProblems = [];
+// the failed-resource line of the stubbed API call that a failing answer is supposed to produce (only while a download page is measured with a failing stub; everywhere else it is a problem)
+let expectLoadFail = false; const expectedLoadFails = [];
+const isExpectedLoadFail = (e) => expectLoadFail && e.level === 'error' && e.url === LATEST_RELEASE_URL && /^Failed to load resource: (the server responded with a status of \d+|net::ERR_[A-Z_]+)/.test(e.text);
 listeners.push((m) => {
   if (m.sessionId !== sessionId) return;
   if (m.method === 'Runtime.exceptionThrown') consoleProblems.push('exception: ' + (m.params.exceptionDetails.exception?.description || m.params.exceptionDetails.text));
   else if (m.method === 'Runtime.consoleAPICalled' && (m.params.type === 'error' || m.params.type === 'warning')) consoleProblems.push(`console.${m.params.type}: ` + m.params.args.map((a) => a.value ?? a.description).join(' '));
+  else if (m.method === 'Log.entryAdded' && isExpectedLoadFail(m.params.entry)) expectedLoadFails.push(m.params.entry.text);
   else if (m.method === 'Log.entryAdded' && (m.params.entry.level === 'error' || m.params.entry.level === 'warning')) consoleProblems.push(`log ${m.params.entry.level}: ${m.params.entry.text} ${m.params.entry.url || ''}`);
 });
 await cdp('Runtime.enable'); await cdp('Log.enable'); await cdp('Page.enable');
+const net = await installHermeticNet({ cdp, on: (h) => listeners.push(h), stub: releaseStub('ok') });
 
 // ---------- the page-side measurement ----------
 const PAGE_FN = `(() => {
@@ -315,6 +324,49 @@ async function headerPass() {
   }
 }
 
+// the one network call of the home and download pages (the latest release): answered by the stub, and when the answer is a failure the page falls back to the version written in docs/assets/site.js and to the Releases page
+const STATIC_VERSION = /rel\.tag_name\.replace\([^)]*\) : '(\d+\.\d+\.\d+)'/.exec(fs.readFileSync(path.join(DOCS, 'assets', 'site.js'), 'utf8'))?.[1];
+const DOWNLOAD_FN = `(() => ({ state: document.getElementById('dl-status')?.getAttribute('data-state') ?? null, versions: [...document.querySelectorAll('[data-version]')].map((e) => e.textContent),
+  buttons: [...document.querySelectorAll('[data-asset] a.btn')].map((a) => ({ href: a.getAttribute('href'), disabled: a.getAttribute('aria-disabled') === 'true' })),
+  fb: (() => { const f = document.getElementById('dl-fallback'); return f ? { hidden: f.hidden, href: f.getAttribute('href') } : null; })() }))()`;
+async function downloadPass(mode, langs) {
+  net.stub = releaseStub(mode);
+  for (const lang of langs) for (const page of ['index', 'download']) {
+    const where = `${lang} ${page}.html, api.github.com answers ${mode === 'ok' ? '200 (canned)' : mode}`;
+    pages++; checked++;
+    await cdp('Emulation.setDeviceMetricsOverride', { width: 1280, height: 900, deviceScaleFactor: 1, mobile: false });
+    consoleProblems = []; expectedLoadFails.length = 0; net.reset(); expectLoadFail = mode !== 'ok';
+    await cdp('Page.navigate', { url: `${base}/${lang === 'en' ? '' : lang + '/'}${page}.html` });
+    let r = null;
+    for (let i = 0; i < 200; i++) { r = await evaluate(DOWNLOAD_FN).catch(() => null); if (r && r.state) break; await new Promise((x) => setTimeout(x, 50)); }
+    await new Promise((x) => setTimeout(x, 200)); // late console lines
+    expectLoadFail = false;
+    const bad = [];
+    const calls = net.requests.filter((q) => q.url === LATEST_RELEASE_URL).length;
+    if (calls !== 1) bad.push(`the page asked api.github.com ${calls} times, expected once`);
+    if (!r || !r.state) bad.push('the download status never left "loading"');
+    else if (mode === 'ok') {
+      if (r.state !== 'ok') bad.push(`status is "${r.state}", expected "ok"`);
+      if ((page === 'index' && !r.versions.length) || r.versions.some((v) => v !== CANNED_TAG.slice(1))) bad.push(`the version shown is ${JSON.stringify(r.versions)}, expected only ${CANNED_TAG.slice(1)}`);
+      if ((page === 'download' && !r.buttons.length) || r.buttons.some((b) => b.disabled || !b.href?.startsWith(`https://github.com/thnonl/hey-look/releases/download/${CANNED_TAG}/`))) bad.push(`the download buttons do not point at the canned assets: ${JSON.stringify(r.buttons)}`);
+      if (r.fb && !r.fb.hidden) bad.push('the "all downloads" fallback link is shown although the release was read');
+      if (expectedLoadFails.length) bad.push('a failed-resource line with a good answer: ' + expectedLoadFails.join(' | '));
+    } else {
+      if (r.state !== 'error') bad.push(`status is "${r.state}", expected "error"`);
+      if (!STATIC_VERSION) bad.push('the static fallback version could not be read from docs/assets/site.js');
+      else if ((page === 'index' && !r.versions.length) || r.versions.some((v) => v !== STATIC_VERSION)) bad.push(`the version shown is ${JSON.stringify(r.versions)}, expected the static ${STATIC_VERSION}`);
+      if ((page === 'download' && !r.buttons.length) || r.buttons.some((b) => b.disabled || b.href !== 'https://github.com/thnonl/hey-look/releases/latest')) bad.push(`the download buttons do not lead to the Releases page: ${JSON.stringify(r.buttons)}`);
+      if (page === 'download' && (!r.fb || r.fb.hidden || r.fb.href !== 'https://github.com/thnonl/hey-look/releases/latest')) bad.push(`the fallback link is not shown / does not point at the latest release: ${JSON.stringify(r.fb)}`);
+      // the one expected line, and it names this failure (a second line, an exception or a warning stays in consoleProblems)
+      const want = mode === 'offline' ? /net::ERR_/ : new RegExp('status of ' + mode + '\\b');
+      if (expectedLoadFails.length !== 1 || !want.test(expectedLoadFails[0])) bad.push(`expected exactly one failed-resource console line for api.github.com (${mode}), saw ${JSON.stringify(expectedLoadFails)}`);
+    }
+    if (bad.length) fail(where, 'download', bad.join('\n      '));
+    if (consoleProblems.length) fail(where, 'console', [...new Set(consoleProblems)].slice(0, 5).join('\n      '));
+  }
+  net.stub = releaseStub('ok');
+}
+
 async function shots() {
   fs.mkdirSync(SHOTS, { recursive: true });
   const KEY = [
@@ -342,9 +394,14 @@ try {
   await contrastPass('en', 1280); await contrastPass('ja', 375);
   await scanPages();
   await headerPass();
+  // the download page against a good answer, a rate limit (what a CI runner gets), a server error and no network
+  await downloadPass('ok', LANGS);
+  for (const mode of ['403', '500', 'offline']) await downloadPass(mode, QUICK ? LANGS.slice(0, 2) : LANGS);
   if (SHOTS) await shots();
 } finally { await shutdown(); }
 
+// the test is hermetic: nothing but this machine and the stubbed release call was asked for
+if (net.external.length) fail('network', 'external requests', 'the pages asked for hosts nobody stubbed (they were refused): ' + [...new Set(net.external)].join(', '));
 const secs = ((Date.now() - t0) / 1000).toFixed(0);
 for (const [w, n] of warnings) console.log(`  note: ${w}in ${n} combinations (ends in an ellipsis; allowed)`);
 if (failures.length) { console.error(`test-site-appearance: FAILED (${checked} combinations on ${pages} pages, ${secs}s)\n\n  ` + failures.join('\n  ')); process.exit(1); }
