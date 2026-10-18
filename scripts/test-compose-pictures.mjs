@@ -134,7 +134,7 @@ try {
   await bigGifIn('e09-anim.gif');
   await sleep(1800);
   await check('big GIF, auto-resize on: the picture is named .png in the editor', async () => assert.deepEqual((await evaluate(BODY)).imgs, ['e09-anim.png']));
-  await check('big GIF, auto-resize on: the toast names the .png and says the animation is not kept', async () => { const t = await evaluate(TOASTS); assert.match(t, /Resized e09-anim\.png to 1600 px/); assert.match(t, /converted to PNG: the animation is not kept/); assert.doesNotMatch(t, /\.gif/); });
+  await check('big GIF, auto-resize on: the toast names the .png and says the animation is not kept', async () => { const t = await evaluate(TOASTS); assert.match(t, /Converted e09-anim\.png to PNG \(.*\): the animation is not kept/); assert.doesNotMatch(t, /1600|Resized/, 'a 1 px picture was not resized'); assert.doesNotMatch(t, /\.gif/); });
   await check('big GIF, auto-resize on: the draft part is image/png named .png, the HTML refers to it', async () => {
     const d = await lastDraft();
     assert.deepEqual(d.inline.map((p) => [p.mime, p.filename]), [['image/png', 'e09-anim.png']]);
@@ -148,7 +148,7 @@ try {
   await check('big GIF, asked: the prompt comes and the picture is a GIF as it is', async () => { assert.deepEqual((await evaluate(BODY)).imgs, ['e09-anim.gif']); assert.match(await evaluate(TOASTS), /Resize it to 1600 px wide/); });
   await evaluate(`[...document.querySelectorAll('.toasts .toast button')].find((b) => /^Resize$/.test(b.textContent.trim())).click(); 1`);
   await sleep(1800);
-  await check('big GIF, Resize clicked: the name becomes .png and the toast says the animation is lost', async () => { assert.deepEqual((await evaluate(BODY)).imgs, ['e09-anim.png']); assert.match(await evaluate(TOASTS), /Resized e09-anim\.png to 1600 px.*converted to PNG: the animation is not kept/); });
+  await check('big GIF, Resize clicked: the name becomes .png and the toast says the animation is lost', async () => { assert.deepEqual((await evaluate(BODY)).imgs, ['e09-anim.png']); const t = await evaluate(TOASTS); assert.match(t, /Converted e09-anim\.png to PNG \(.*\): the animation is not kept/); assert.doesNotMatch(t.replace(/Resize it to 1600 px wide/g, ''), /1600|Resized/); });
   await check('big GIF, Resize clicked: the draft part is image/png under the .png name', async () => { const d = await lastDraft(); assert.deepEqual(d.inline.map((p) => [p.mime, p.filename]), [['image/png', 'e09-anim.png']]); });
   // a GIF that is NOT re-encoded stays a GIF (small file: no prompt, nothing converted)
   await fresh();

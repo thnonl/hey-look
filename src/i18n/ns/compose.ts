@@ -1369,7 +1369,7 @@ export default define({
     "compose.pic.unsupported": "Impossible d’insérer « {name} » : ce format d’image n’est pas pris en charge. Elle a été jointe à la place.",
     "compose.pic.resized": "Image {name} redimensionnée à 1600 px ({size})",
     "compose.pic.resizedGif": "Image {name} redimensionnée à 1600 px ({size}) et convertie en PNG : l’animation n’est pas conservée",
-    "compose.pic.convertedGif": "Image {name} convertie en PNG ({size}) : l’animation n’est pas conservée",
+    "compose.pic.convertedGif": "Image {name} convertie en PNG ({size}) : l’animation n’est pas conservée",
     "compose.pic.recompressed": "Image {name} compressée ({size})",
     "compose.alt.checkTitle": {"one":"{n} image n’a pas de texte alternatif","other":"{n} images n’ont pas de texte alternatif"},
     "compose.alt.checkBody": "Les personnes qui utilisent un lecteur d’écran ne sauront pas ce qu’elles montrent.",
