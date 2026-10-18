@@ -82,11 +82,11 @@ export function Panel({ anchor, onClose, label, children, className }: { anchor:
       close.current("esc");
     };
     const gone = () => close.current("away");
-    document.addEventListener("mousedown", down);
+    document.addEventListener("mousedown", down, true); // capture phase (see useOutside in ui.tsx)
     document.addEventListener("keydown", key);
     window.addEventListener("resize", gone);
     return () => {
-      document.removeEventListener("mousedown", down);
+      document.removeEventListener("mousedown", down, true);
       document.removeEventListener("keydown", key);
       window.removeEventListener("resize", gone);
     };

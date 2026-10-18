@@ -75,12 +75,12 @@ function FieldPopup({
       const n = e.target as Node;
       if (!pop.current?.contains(n) && (n === document || n.contains(anchor.current))) close.current(false);
     };
-    document.addEventListener("mousedown", down);
+    document.addEventListener("mousedown", down, true); // capture phase (see useOutside in ui.tsx)
     document.addEventListener("keydown", key);
     window.addEventListener("resize", gone);
     window.addEventListener("scroll", scroll, true);
     return () => {
-      document.removeEventListener("mousedown", down);
+      document.removeEventListener("mousedown", down, true);
       document.removeEventListener("keydown", key);
       window.removeEventListener("resize", gone);
       window.removeEventListener("scroll", scroll, true);

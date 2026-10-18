@@ -146,3 +146,5 @@ static | bash .github/scripts/test-check-release-assets.sh
 static | node .github/scripts/verify-update-sigs.cjs --selftest
 # was not run by CI before
 static | node --experimental-strip-types scripts/test-site-top-bar-dark.mjs
+# a press elsewhere closes an open popover: inside a dialog, on the Windows title bar (with a copy of Tauri's drag script) and inside the message text; real mouse presses in the dev preview
+ui-a | node scripts/test-outside-press.mjs --require-browser
