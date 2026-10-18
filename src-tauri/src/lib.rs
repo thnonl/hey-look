@@ -1168,6 +1168,9 @@ fn sync_worker(app: tauri::AppHandle) {
 struct Pending {
     id: String,
     threads: Vec<String>,
+    /// (W2.5) the messages of those conversations at the moment the move was queued: the move acts on exactly these, not on what the conversations hold
+    /// when the Undo time is over (a sync in between can thread another message into one, or reuse an id). `None` for what is not a move of mail.
+    msgs: Option<Vec<MsgRef>>,
     action: String,
     arg: Option<String>,
     scope: Option<String>,
@@ -1244,11 +1247,42 @@ fn committing_done(id: &str) {
     committing_lock().retain(|(i, _)| i != id);
 }
 
-fn queue(thread_ids: Vec<String>, action: String, arg: Option<String>, scope: Option<String>, delay_secs: u64, verify: Option<Arc<Verify>>) -> String {
+/// The first characters of a queued move's token: what the log calls it.
+fn short_token(id: &str) -> &str {
+    &id[..id.len().min(8)]
+}
+
+/// The messages of a log line: `folder:UID` of each and the first characters of the account id (no subject, no address; short, the log is small), at most 12.
+fn describe_msgs(msgs: &[MsgRef]) -> String {
+    let mut accounts: Vec<&str> = msgs.iter().map(|m| short_token(&m.account_id)).collect();
+    accounts.sort_unstable();
+    accounts.dedup();
+    let shown: Vec<String> = msgs.iter().take(12).map(|m| format!("{}:{}", m.role, m.uid)).collect();
+    format!("{} message(s) of {} [{}{}]", msgs.len(), accounts.join("+"), shown.join(" "), if msgs.len() > shown.len() { " ..." } else { "" })
+}
+
+/// Does this action move mail out of the folder it is in (the actions that wait out an Undo time)?
+fn is_queued_move(action: &str) -> bool {
+    matches!(action, "archive" | "trash" | "junk" | "inbox" | "move" | "delete_forever" | "block")
+}
+
+fn queue(thread_ids: Vec<String>, msgs: Option<Vec<MsgRef>>, action: String, arg: Option<String>, scope: Option<String>, delay_secs: u64, verify: Option<Arc<Verify>>) -> String {
     let id = uuid::Uuid::new_v4().to_string();
+    startup::line(
+        "action",
+        &format!(
+            "queued {}: {action} from {} in {delay_secs} s, {} conversation(s) [{}], {}",
+            short_token(&id),
+            scope.as_deref().unwrap_or("any folder"),
+            thread_ids.len(),
+            thread_ids.iter().take(12).cloned().collect::<Vec<_>>().join(" "),
+            msgs.as_deref().map(describe_msgs).unwrap_or_else(|| "resolved when it runs (not a move of mail)".into()),
+        ),
+    );
     pending_lock().push(Pending {
         id: id.clone(),
         threads: thread_ids,
+        msgs,
         action,
         arg,
         scope,
@@ -1299,11 +1333,23 @@ fn queue_action(
 ) -> String {
     let db = state.db.clone();
     let targets = if verify == Some(true) { move_targets(&db, &thread_ids, &action, arg.as_deref(), &scope).unwrap_or_default() } else { vec![] };
+    // (W2.5) which messages this is about is decided now, when the person pressed the key, not when the Undo time is over
+    let msgs = if is_queued_move(&action) {
+        match thread_msgs(&lock(&db), &thread_ids) {
+            Ok(m) => Some(m),
+            Err(e) => {
+                startup::line("action", &format!("the messages of the conversations could not be read at queue time, the move will resolve them when it runs: {e}"));
+                None
+            }
+        }
+    } else {
+        None
+    };
     if targets.is_empty() {
-        return queue(thread_ids, action, arg, scope, delay_secs, None);
+        return queue(thread_ids, msgs, action, arg, scope, delay_secs, None);
     }
     let gate = Verify::new();
-    let id = queue(thread_ids, action, arg, scope, delay_secs, Some(gate.clone()));
+    let id = queue(thread_ids, msgs, action, arg, scope, delay_secs, Some(gate.clone()));
     let task = id.clone();
     std::thread::spawn(move || {
         let wanted: Vec<(String, String)> = targets.into_iter().map(|(a, d, _)| (a, d)).collect();
@@ -1316,7 +1362,9 @@ fn queue_action(
 
 #[tauri::command]
 fn cancel_action(id: String) -> bool {
-    unqueue(&id)
+    let cancelled = unqueue(&id);
+    startup::line("action", &format!("undo {}: {}", short_token(&id), if cancelled { "the move was still waiting and is cancelled" } else { "not waiting (already running, done or never queued): nothing cancelled" }));
+    cancelled
 }
 
 /// The threads whose move is done, for the main page (`moves-committed`): it takes them out of its list at once.
@@ -1341,7 +1389,8 @@ fn run_pending(app: &tauri::AppHandle, items: Vec<Pending>, verify_wait: std::ti
         }
         let id = p.id.clone();
         let threads = p.threads.clone();
-        let done = action_impl(&db, p.threads, p.action, p.arg, p.scope);
+        let done = run_queued(&db, p, &mut |m, a, d, s, c| act_on_refs(&db, m, a, d, s, c));
+        startup::line("action", &format!("done {}: {}", short_token(&id), match &done { Ok(()) => "ok".to_string(), Err(e) => format!("failed: {}", e.chars().take(160).collect::<String>()) }));
         // (the local rows are changed by now: the threads stop being hidden only here, so no list read in between shows them)
         committing_done(&id);
         match done {
@@ -1359,6 +1408,47 @@ fn run_pending(app: &tauri::AppHandle, items: Vec<Pending>, verify_wait: std::ti
         let _ = app.emit_to("main", "moves-committed", MovesCommitted { thread_ids: moved });
     }
     let _ = app.emit("mail-synced", ());
+}
+
+/// The doer of a queued move: moves these messages (as `act_on_refs` does). A seam for the tests, which run it against a fake server.
+type MoveMessages<'a> = &'a mut dyn FnMut(Vec<MsgRef>, &str, Option<&str>, &Option<String>, bool) -> R<()>;
+
+/// What a queued move does when its Undo time is over (W2.5): it acts on the messages it was queued with. One that has left the folder it was in
+/// meanwhile (moved by another program, removed by a sync) is skipped, a message that arrived in the conversation since stays where it is.
+fn run_queued(db: &Db, p: Pending, act: MoveMessages) -> R<()> {
+    let Some(queued) = p.msgs else {
+        return action_impl(db, p.threads, p.action, p.arg, p.scope);
+    };
+    let live = still_there(db, &queued);
+    startup::line(
+        "action",
+        &format!("running {}: {} from {}, queued with {} message(s), {} still there: {}", short_token(&p.id), p.action, p.scope.as_deref().unwrap_or("any folder"), queued.len(), live.len(), describe_msgs(&live)),
+    );
+    if live.is_empty() {
+        return Ok(());
+    }
+    if p.action == "block" {
+        // block the senders of those messages, then move them to Junk
+        {
+            let c = lock(db);
+            for m in live.iter().filter(|m| m.role != "sent") {
+                c.execute("INSERT OR IGNORE INTO blocked(email) SELECT DISTINCT from_email FROM messages WHERE id=?1", [&m.id]).map_err(err)?;
+            }
+        }
+        return act(live, "junk", Some("junk"), &p.scope, true);
+    }
+    let dst = dst_role_of(&p.action, &p.arg)?;
+    act(live, &p.action, dst.as_deref(), &p.scope, true)
+}
+
+/// The queued messages that are still in the folder and at the UID they were queued with.
+fn still_there(db: &Db, queued: &[MsgRef]) -> Vec<MsgRef> {
+    let c = lock(db);
+    queued
+        .iter()
+        .filter(|m| c.query_row("SELECT 1 FROM messages WHERE id=?1 AND account_id=?2 AND folder=?3 AND uid=?4", params![m.id, m.account_id, m.role, m.uid], |_| Ok(())).is_ok())
+        .cloned()
+        .collect()
 }
 
 fn commit_due(app: &tauri::AppHandle) {
@@ -2450,6 +2540,7 @@ fn thread_meta_in(c: &Connection, thread_id: &str) -> R<ThreadMeta> {
 
 // ---------- thread actions ----------
 
+#[derive(Clone, Debug)]
 struct MsgRef {
     account_id: String,
     role: String,
@@ -2529,14 +2620,19 @@ fn action_impl_in(db: &Db, thread_ids: Vec<String>, action: String, arg: Option<
         _ => {}
     }
 
-    let dst_role: Option<String> = match action.as_str() {
-        "archive" | "trash" | "junk" | "inbox" => Some(action.clone()),
-        "move" => Some(arg.clone().ok_or("move needs a destination folder")?),
-        _ => None,
-    };
+    let dst_role = dst_role_of(&action, &arg)?;
 
     let msgs = thread_msgs(&lock(db), &thread_ids)?;
     act_on_refs(db, msgs, &action, dst_role.as_deref(), &scope, create_missing)
+}
+
+/// The folder role a move goes to (None: not a move into a folder).
+fn dst_role_of(action: &str, arg: &Option<String>) -> R<Option<String>> {
+    Ok(match action {
+        "archive" | "trash" | "junk" | "inbox" => Some(action.to_string()),
+        "move" => Some(arg.clone().ok_or("move needs a destination folder")?),
+        _ => None,
+    })
 }
 
 /// `action_impl` for messages that are already picked (not a whole conversation): one connection per account.

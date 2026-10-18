@@ -23,6 +23,7 @@
 - Discard on a draft you opened from Drafts and changed asks "Discard your changes?" and puts the draft back the way it was when you opened it (the edits an autosave saved no longer stay in Drafts); a new message keeps the old question
 - A new message that was autosaved and then emptied (all text, recipients and files removed) leaves no draft behind when you close it, move to another mail or close its window
 - "Move to Drafts" of an encrypted scheduled message stores the draft for your own key only, like every other draft (it was also encrypted for the recipients); a locked key asks for its passphrase first
+- Delete, Archive and Move act on the messages they were pressed on: a message that arrives in the conversation during the Undo time stays in the Inbox; each queued move, Undo and finished move is written to the log (no subjects or addresses)
 - A recipient whose key can only sign now reads "their key can only sign, not encrypt" (in the strip and in the recipient's key popover) instead of "no public key"
 
 ## 1.0.6 — 2026-10-18
