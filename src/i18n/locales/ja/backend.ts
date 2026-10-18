@@ -53,7 +53,7 @@ export default defineLocale<typeof ns.en>({
   "backend.PGP_NOTHING_TO_IMPORT": "ASCIIアーマー形式の鍵を貼り付けるか、ファイルを選んでください。",
   "backend.PGP_ATT_SECRET_KEY": "この添付ファイルには秘密鍵が含まれています。設定の「暗号化（PGP）」からインポートしてください。",
   "backend.PGP_KEY_NOT_FOUND": "鍵が見つかりません。",
-  "backend.PGP_NO_SECRET_PART": "この鍵の秘密鍵部分はこのコンピューターにありません。",
+  "backend.PGP_NO_SECRET_PART": "この鍵の秘密鍵は、このコンピューターにありません。",
   "backend.PGP_NOT_OWN_KEY": "自分の鍵を選んでください。",
   "backend.PGP_EXTEND_OWN_ONLY": "有効期限を延長できるのは自分の鍵だけです。",
   "backend.PGP_BAD_KEY": "OpenPGP鍵ではないようです。",

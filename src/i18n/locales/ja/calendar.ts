@@ -103,7 +103,7 @@ export default defineLocale<typeof ns.en>({
   // ---- invitation card (reading pane)
   "calendar.invite.unreadable": "この招待を読み取れませんでした（カレンダーデータが無効です）。",
   "calendar.invite.confidentialNoSource": "機密メールは、保存したりソースとして表示したりできません。",
-  "calendar.invite.showOriginal": "原文を表示",
+  "calendar.invite.showOriginal": "元のメッセージを表示",
   "calendar.invite.replyAria": "会議への返答：{summary}",
   "calendar.invite.reply.accepted": "{who}が「{summary}」を承諾しました",
   "calendar.invite.reply.declined": "{who}が「{summary}」を辞退しました",
@@ -253,10 +253,10 @@ export default defineLocale<typeof ns.en>({
   "calendar.sync.details": "詳細：{reason}",
   "calendar.sync.truncated": "{name}は一部しかダウンロードされていません。予定が25,000件を超えています。",
   "calendar.sync.ownApp": "サービス独自のアプリ",
-  "calendar.sync.readOnlyRepeating": "{calendar}の繰り返しの予定は、今のところ{service}で変更できます。",
+  "calendar.sync.readOnlyRepeating": "{calendar}の繰り返しの予定は、今のところ{service}でのみ変更できます。",
   "calendar.sync.readOnlyCalendar": "{calendar}は読み取り専用です。",
   "calendar.sync.readOnlyOrganizer": "この予定を変更できるのは主催者だけです。",
-  "calendar.sync.repeatAddOnly": "{calendar}への繰り返しの予定の追加は、今のところ{service}で行えます。",
+  "calendar.sync.repeatAddOnly": "{calendar}への繰り返しの予定の追加は、今のところ{service}でのみ行えます。",
   // ---- errors the backend reports as "CAL_xxx: text" (translated when the text is one the app knows)
   "calendar.err.offline": "オフラインです。{calendar}を変更するには接続が必要です。",
   "calendar.err.conflict": "この予定は{service}で変更されたため、最新バージョンを表示しています。",
@@ -274,5 +274,5 @@ export default defineLocale<typeof ns.en>({
   "calendar.err.timeout": "カレンダーのサインインがタイムアウトしました。スイッチをオンにして、もう一度お試しください。",
   "calendar.err.cancelled": "カレンダーのサインインがキャンセルされました。",
   "calendar.err.wrongAccount": "{signedIn}でアクセスを許可しました。このメールボックスのカレンダーを同期するには、{mailbox}でサインインしてください。",
-  "calendar.err.partial": "Hey Look!は、要求したカレンダーの権限をすべて必要とします。スイッチをもう一度オンにして、すべてのボックスにチェックを入れたままにしてください。",
+  "calendar.err.partial": "Hey Look!は、要求したカレンダーの権限をすべて必要とします。スイッチをもう一度オンにして、すべてのチェックボックスをオンのままにしてください。",
 });

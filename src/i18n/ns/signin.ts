@@ -28,7 +28,7 @@ export default define({
   },
   vi: {
     "signin.waiting.mail": "Hãy hoàn tất trong trình duyệt của bạn.",
-    "signin.google.hint": "Nếu Google hiện cảnh báo “Google hasn’t verified this app”, hãy chọn Advanced, rồi Go to Hey Look! (unsafe). Hey Look! đang chờ Google xem xét.",
+    "signin.google.hint": "Nếu Google hiện cảnh báo “Google hasn’t verified this app”, hãy chọn Advanced (Nâng cao), rồi Go to Hey Look! (unsafe) (Đi tới Hey Look! (không an toàn)). Hey Look! đang chờ Google xem xét.",
     "signin.google.learn": "Điều này nghĩa là gì?",
     "signin.end.timeout": "Đăng nhập {provider} đã hết thời gian chờ.",
     "signin.end.cancelled": "Đã hủy đăng nhập {provider}.",
@@ -48,7 +48,7 @@ export default define({
   },
   fr: {
     "signin.waiting.mail": "Terminez dans votre navigateur.",
-    "signin.google.hint": "Si Google affiche l’avertissement « Google hasn’t verified this app », choisissez Advanced, puis Go to Hey Look! (unsafe). Hey Look! attend l’examen de Google.",
+    "signin.google.hint": "Si Google affiche l’avertissement « Google n’a pas validé cette application » (Google hasn’t verified this app), choisissez Paramètres avancés (Advanced), puis Accéder à Hey Look! (non sécurisé) (Go to Hey Look! (unsafe)). Hey Look! attend l’examen de Google.",
     "signin.google.learn": "Que signifie ceci ?",
     "signin.end.timeout": "Délai de connexion à {provider} dépassé.",
     "signin.end.cancelled": "Connexion à {provider} annulée.",

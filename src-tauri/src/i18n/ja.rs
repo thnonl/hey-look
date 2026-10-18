@@ -41,15 +41,15 @@ pub fn text(k: K) -> &'static str {
         K::SavePublicKey => "公開鍵を保存",
         K::SaveKeyBackup => "鍵のバックアップを保存",
         K::LoadFailTitle => "Hey Look!のウィンドウを読み込めませんでした",
-        K::LoadFailWindows => "Hey Look!は起動しましたが、ウィンドウがアプリの画面を読み込めませんでした。考えられる主な原因は、Microsoft Edge WebView2 Runtime がない、または破損している（Microsoft から再インストールまたは修復してください）、あるいはセキュリティソフトがブロックしていることです。「再試行」でもう一度試すか、ログフォルダーを開いて状況を確認してください。",
-        K::LoadFailMac => "Hey Look!は起動しましたが、ウィンドウがアプリの画面を読み込めませんでした。考えられる主な原因は、macOS に組み込まれたウェブエンジン（WebKit）が起動しなかった（システムアップデートが中断された後など）、あるいはセキュリティソフトがブロックしていることです。「再試行」でもう一度試すか、ログフォルダーを開いて状況を確認してください。",
-        K::LoadFailLinux => "Hey Look!は起動しましたが、ウィンドウがアプリの画面を読み込めませんでした。考えられる主な原因は、WebKitGTK ライブラリ（webkit2gtk-4.1）がない、古すぎる、または破損している、あるいはセッションで使えるグラフィック表示がないことです。「再試行」でもう一度試すか、ログフォルダーを開いて状況を確認してください。",
+        K::LoadFailWindows => "Hey Look!は起動しましたが、ウィンドウがアプリの画面を読み込めませんでした。考えられる主な原因は、Microsoft Edge WebView2 Runtimeがない、または破損している（Microsoft から再インストールまたは修復してください）、あるいはセキュリティソフトがブロックしていることです。「再試行」でもう一度試すか、ログフォルダーを開いて状況を確認してください。",
+        K::LoadFailMac => "Hey Look!は起動しましたが、ウィンドウがアプリの画面を読み込めませんでした。考えられる主な原因は、macOSに組み込まれたWebエンジン（WebKit）が起動しなかった（システムアップデートが中断された後など）、あるいはセキュリティソフトがブロックしていることです。「再試行」でもう一度試すか、ログフォルダーを開いて状況を確認してください。",
+        K::LoadFailLinux => "Hey Look!は起動しましたが、ウィンドウがアプリの画面を読み込めませんでした。考えられる主な原因は、WebKitGTKライブラリ（webkit2gtk-4.1）がない、古すぎる、または破損している、あるいはセッションで使えるグラフィック表示がないことです。「再試行」でもう一度試すか、ログフォルダーを開いて状況を確認してください。",
         K::LoadFailRetry => "再試行",
         K::LoadFailOpenLog => "ログフォルダーを開く",
         K::LoadFailQuit => "終了",
         K::LoadFailLog => "ログファイル：",
         K::StartFailTitle => "Hey Look!を起動できませんでした",
-        K::StartFailBody => "ウィンドウを作成できなかったため、Hey Look!を起動できませんでした。\n\nよくある原因は、アプリがウィンドウを表示するために使う Microsoft の無料コンポーネント「Microsoft WebView2 Runtime」が見つからないか、壊れていることです。https://developer.microsoft.com/microsoft-edge/webview2/ からインストールまたは修復し（「Evergreen Bootstrapper」または「Evergreen Standalone Installer」を選択）、Hey Look!をもう一度起動してください。\n\n何が起きたかは、下に示すログファイルに保存されています。問題が解決しない場合は、このファイルをサポートに送ってください。",
+        K::StartFailBody => "ウィンドウを作成できなかったため、Hey Look!を起動できませんでした。\n\nよくある原因は、アプリがウィンドウを表示するために使うMicrosoftの無料コンポーネント「Microsoft WebView2 Runtime」が見つからないか、壊れていることです。https://developer.microsoft.com/microsoft-edge/webview2/ からインストールまたは修復し（「Evergreen Bootstrapper」または「Evergreen Standalone Installer」を選択）、Hey Look!をもう一度起動してください。\n\n詳しい状況は、下に示すログファイルに記録されています。問題が解決しない場合は、このファイルをサポートに送ってください。",
     }
 }
 

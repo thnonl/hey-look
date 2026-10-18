@@ -135,7 +135,7 @@ fn texts(k: K) -> [&'static str; 3] {
     match k {
         K::TrayOpen => ["Open Hey Look!", "Mở Hey Look!", "Ouvrir Hey Look!"],
         K::TrayCompose => ["New mail", "Thư mới", "Nouveau message"],
-        K::TraySync => ["Check mail now", "Kiểm tra thư ngay", "Relever le courrier maintenant"],
+        K::TraySync => ["Check mail now", "Kiểm tra thư ngay", "Vérifier le courrier maintenant"],
         K::TrayPause => ["Pause notifications", "Tạm dừng thông báo", "Suspendre les notifications"],
         K::TrayQuit | K::MacQuit => ["Quit Hey Look!", "Thoát Hey Look!", "Quitter Hey Look!"],
         // the macOS app menu (the English words are the ones macOS itself shows, the others the ones of each macOS language)
@@ -154,17 +154,17 @@ fn texts(k: K) -> [&'static str; 3] {
         K::TrayHintMac => [
             "It keeps checking your mail from the menu bar. Click the Hey Look! icon in the Dock or the menu bar to open it again.",
             "Ứng dụng vẫn kiểm tra thư từ thanh menu. Nhấp vào biểu tượng Hey Look! trong Dock hoặc thanh menu để mở lại.",
-            "Il continue de relever votre courrier depuis la barre des menus. Cliquez sur l’icône Hey Look! dans le Dock ou la barre des menus pour le rouvrir.",
+            "Il continue de vérifier votre courrier depuis la barre des menus. Cliquez sur l’icône Hey Look! dans le Dock ou la barre des menus pour le rouvrir.",
         ],
         K::TrayHintLinux => [
             "It keeps checking your mail from the tray. Choose Quit Hey Look! in the tray icon’s menu to exit.",
             "Ứng dụng vẫn kiểm tra thư từ khay hệ thống. Chọn Thoát Hey Look! trong menu của biểu tượng khay để thoát.",
-            "Il continue de relever votre courrier depuis la zone de notification. Choisissez Quitter Hey Look! dans le menu de l’icône pour le fermer.",
+            "Il continue de vérifier votre courrier depuis la zone de notification. Choisissez Quitter Hey Look! dans le menu de l’icône pour le fermer.",
         ],
         K::TrayHintOther => [
             "It keeps checking your mail from the tray. Right-click the tray icon and choose Quit to exit.",
             "Ứng dụng vẫn kiểm tra thư từ khay hệ thống. Nhấp chuột phải vào biểu tượng khay và chọn Thoát để thoát.",
-            "Il continue de relever votre courrier depuis la zone de notification. Faites un clic droit sur l’icône et choisissez Quitter pour le fermer.",
+            "Il continue de vérifier votre courrier depuis la zone de notification. Faites un clic droit sur l’icône et choisissez Quitter pour le fermer.",
         ],
         K::TestTitle => ["Hey Look! test notification", "Thông báo thử của Hey Look!", "Notification de test de Hey Look!"],
         K::TestLine1 => ["Notifications are working", "Thông báo đang hoạt động", "Les notifications fonctionnent"],

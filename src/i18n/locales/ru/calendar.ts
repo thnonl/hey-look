@@ -215,7 +215,7 @@ export default defineLocale<typeof ns.en>({
   "calendar.dialog.calendar": "Календарь",
   "calendar.dialog.reminder": "Напоминание",
   "calendar.dialog.notes": "Заметки",
-  "calendar.dialog.discardTitle": "Не сохранять это событие?",
+  "calendar.dialog.discardTitle": "Закрыть без сохранения изменений?",
   "calendar.dialog.discardBody": "Ваши изменения не сохранены.",
   "calendar.dialog.discard": "Не сохранять",
   "calendar.dialog.saving": "Сохранение…",
@@ -288,5 +288,5 @@ export default defineLocale<typeof ns.en>({
   "calendar.err.timeout": "Время ожидания входа в календарь истекло. Включите переключатель, чтобы повторить попытку.",
   "calendar.err.cancelled": "Вход в календарь отменён.",
   "calendar.err.wrongAccount": "Вы разрешили доступ для {signedIn}. Чтобы синхронизировать календарь этого ящика, войдите как {mailbox}.",
-  "calendar.err.partial": "Hey Look! нужны все запрошенные разрешения для календаря. Снова включите переключатель и не снимайте ни один флажок.",
+  "calendar.err.partial": "Hey Look! нужны все запрошенные разрешения для календаря. Снова включите переключатель и оставьте отмеченными все пункты.",
 });

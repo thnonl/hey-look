@@ -49,7 +49,7 @@ pub fn text(k: K) -> &'static str {
         K::LoadFailQuit => "Salir",
         K::LoadFailLog => "Archivo de registro:",
         K::StartFailTitle => "Hey Look! no pudo iniciarse",
-        K::StartFailBody => "Hey Look! no pudo iniciarse porque no se pudo crear su ventana.\n\nLo más habitual es que falte o esté dañado Microsoft WebView2 Runtime, un componente gratuito de Microsoft que las aplicaciones usan para mostrar sus ventanas. Instálelo o repárelo desde https://developer.microsoft.com/microsoft-edge/webview2/ (elija «Evergreen Bootstrapper» o «Evergreen Standalone Installer») y vuelva a abrir Hey Look!.\n\nLo ocurrido se guardó en el archivo de registro indicado abajo; si el problema continúa, envíelo al soporte.",
+        K::StartFailBody => "Hey Look! no pudo iniciarse porque no se pudo crear su ventana.\n\nLo más habitual es que falte o esté dañado Microsoft WebView2 Runtime, un componente gratuito de Microsoft que las aplicaciones usan para mostrar sus ventanas. Instálalo o repáralo desde https://developer.microsoft.com/microsoft-edge/webview2/ (elige «Evergreen Bootstrapper» o «Evergreen Standalone Installer») y vuelve a abrir Hey Look!.\n\nLo ocurrido se guardó en el archivo de registro indicado abajo; si el problema continúa, envíalo a soporte.",
     }
 }
 
