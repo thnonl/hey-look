@@ -20,7 +20,6 @@
 - Every Copy button (View original, encryption keys, Copy sender email, the webmail search) works on Linux and on a Mac and says "Couldn't copy to the clipboard" when it could not copy
 - A new Summarize, Translate or Write with AI removes the message about the earlier AI problem at once
 - Starting a sixth translation, or deleting mail while translations run, no longer removes the message of a running translation; only the short-lived messages are limited to five
-- The text of the search box on the light top bar is tested for contrast against its field for every accent colour (no change was needed)
 
 ## 1.0.6 — 2026-10-18
 
