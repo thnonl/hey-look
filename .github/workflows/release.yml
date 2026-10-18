@@ -150,7 +150,7 @@ jobs:
     # after the other, in front of the installer build. They need no Rust and no installer, so they run beside the three builds, in shards
     # (the list says which test is in which shard) on the same image as before. All shards must pass before anything is signed or published.
     needs: plan
-    if: ${{ needs.plan.outputs.tests == true }}
+    if: ${{ needs.plan.outputs.tests == 'true' }}
     name: Node tests (${{ matrix.shard }})
     runs-on: ubuntu-22.04
     timeout-minutes: 30
@@ -172,7 +172,7 @@ jobs:
 
       # same files as the Linux build of a test build sees
       - name: Set test version
-        if: github.event_name == workflow_dispatch && github.event.inputs.test_version != 
+        if: github.event_name == 'workflow_dispatch' && github.event.inputs.test_version != ''
         env:
           TEST_VERSION: ${{ github.event.inputs.test_version }}
         run: node .github/scripts/set-version.cjs "$TEST_VERSION"
@@ -203,7 +203,9 @@ jobs:
       - name: Install Linux dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y             libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf             libssl-dev libdbus-1-dev pkg-config
+          sudo apt-get install -y \
+            libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf \
+            libssl-dev libdbus-1-dev pkg-config
 
       - uses: dtolnay/rust-toolchain@b725eda525362e7cf34af9a7243cac1e3f01a7ec # stable branch (a SHA pin needs the toolchain named)
         with:
