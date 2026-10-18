@@ -31,8 +31,9 @@ on:
         required: false
         default: "false"
 
+# Least privilege: read-only by default; every job that needs more says so itself.
 permissions:
-  contents: write
+  contents: read
 
 # One run per ref and kind at a time. A newer manual run of the same kind (and the same platforms) on the same ref cancels the one
 # that is still building; a tag run is never cancelled.
@@ -44,6 +45,8 @@ jobs:
   plan:
     # Which platforms to build: a tag run builds all three; a manual run builds what `platforms` names.
     runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions: {}
     outputs:
       matrix: ${{ steps.plan.outputs.matrix }}
       signpath: ${{ steps.plan.outputs.signpath }}
@@ -108,12 +111,17 @@ jobs:
     # Tag runs only. Creates the one draft release that all build jobs upload into.
     if: github.event_name == 'push'
     runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: write # creates the draft release
     outputs:
       id: ${{ steps.mk.outputs.id }}
     env:
       GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          persist-credentials: false # the token must not stay in .git/config where npm scripts and tests could read it
 
       - id: mk
         run: |
@@ -144,9 +152,15 @@ jobs:
 
     name: Build (${{ matrix.name }})
     runs-on: ${{ matrix.platform }}
+    # a cold-cache tag build of the macOS universal app takes about 24 minutes; a hung job must not run for the 6 hour default
+    timeout-minutes: 60
+    permissions:
+      contents: write # tauri-action uploads the installers into the draft release (tag runs only; a job cannot ask for this per event)
 
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          persist-credentials: false # the token must not stay in .git/config where npm scripts and tests could read it
 
       - name: Install Linux dependencies
         if: runner.os == 'Linux'
@@ -178,9 +192,10 @@ jobs:
         env:
           KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
           TEST_VERSION: ${{ github.event.inputs.test_version }}
+          EVENT: ${{ github.event_name }}
         run: |
           NOUPD="--config src-tauri/tauri.no-updater.conf.json"
-          if [ "${{ github.event_name }}" = "push" ]; then
+          if [ "$EVENT" = "push" ]; then
             if [ -z "$KEY" ]; then
               echo "::error::TAURI_SIGNING_PRIVATE_KEY is not set: a release must be signed"
               exit 1
@@ -220,9 +235,12 @@ jobs:
       # The updater public key must be in tauri.conf.json (warning only for an unsigned dry run).
       - name: Verify version and updater key
         shell: bash
+        env:
+          EVENT: ${{ github.event_name }}
+          PUBKEY: ${{ steps.sign.outputs.pubkey }}
         run: |
-          if [ "${{ github.event_name }}" = "push" ]; then V="${GITHUB_REF_NAME#v}"; else V="-"; fi
-          node .github/scripts/verify-version.cjs "$V" . --pubkey=${{ steps.sign.outputs.pubkey }}
+          if [ "$EVENT" = "push" ]; then V="${GITHUB_REF_NAME#v}"; else V="-"; fi
+          node .github/scripts/verify-version.cjs "$V" . --pubkey="$PUBKEY"
 
       - run: npm ci
 
@@ -718,6 +736,8 @@ jobs:
           echo "::warning::The SIGNPATH_* variables are set but the secret SIGNPATH_API_TOKEN is not: the Windows installers stay unsigned"
 
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          persist-credentials: false # the token must not stay in .git/config where npm scripts and tests could read it
         if: steps.cfg.outputs.enabled == 'true'
 
       - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
@@ -839,6 +859,9 @@ jobs:
   publish:
     # Runs only when create-release and all three builds succeeded and sign-windows either succeeded or was not wanted (skipped).
     needs: [create-release, build, sign-windows]
+    timeout-minutes: 30
+    permissions:
+      contents: write # uploads latest.json and publishes the release
     if: ${{ !cancelled() && github.event_name == 'push' && needs.create-release.result == 'success' && needs.build.result == 'success' && contains(fromJSON('["success","skipped"]'), needs.sign-windows.result) }}
     runs-on: ubuntu-latest
     env:
@@ -846,6 +869,8 @@ jobs:
       ID: ${{ needs.create-release.outputs.id }}
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          persist-credentials: false # the token must not stay in .git/config where npm scripts and tests could read it
 
       # With the variable REQUIRE_WIN_SIGNING=true (set at go-live of Windows signing) nothing is published unless SignPath signed the installers.
       - name: Windows signing required?
