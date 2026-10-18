@@ -3350,14 +3350,30 @@ async fn attachment_open(app: tauri::AppHandle, state: tauri::State<'_, AppState
     .await
 }
 
-/// Show a saved file selected in Explorer / Finder.
+/// Show a saved file selected in Explorer / Finder / the file manager. On Linux the file manager must be on the session bus to select the
+/// file; when it is not, the folder that holds the file is opened instead (`linuxopen::reveal_fallback_dir`), and only when that fails too
+/// the error goes to the page (which shows it, `src/reveal.ts`). Windows and macOS: Explorer / Finder select the file, no fallback.
 #[tauri::command]
-fn attachment_reveal(app: tauri::AppHandle, path: String) -> R<()> {
-    let p = std::path::PathBuf::from(&path);
-    if !p.is_absolute() || !p.exists() {
-        return Err("FILE_GONE: That file no longer exists.".into());
-    }
-    app.opener().reveal_item_in_dir(p).map_err(err)
+async fn attachment_reveal(app: tauri::AppHandle, path: String) -> R<()> {
+    blocking(move || {
+        let p = std::path::PathBuf::from(&path);
+        if !p.is_absolute() || !p.exists() {
+            return Err("FILE_GONE: That file no longer exists.".to_string());
+        }
+        let shown = app.opener().reveal_item_in_dir(&p).map_err(err);
+        #[cfg(target_os = "linux")]
+        {
+            if shown.is_err() {
+                if let Some(dir) = linuxopen::reveal_fallback_dir(&p) {
+                    if linuxopen::open(&dir.to_string_lossy(), false).is_ok() {
+                        return Ok(());
+                    }
+                }
+            }
+        }
+        shown
+    })
+    .await
 }
 
 /// Native folder picker (used for "Save to" in Settings).

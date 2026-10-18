@@ -152,3 +152,5 @@ ui-a | node scripts/test-outside-press.mjs --require-browser
 ui-a | node scripts/test-tab-stops.mjs --require-browser
 # a failed email link names the default mail app and copies only the address; the quit question and the Send later picker say "menu bar" on macOS
 static | node --experimental-strip-types scripts/test-open-failed-text.mjs
+# "Show in folder" goes through one helper and never fails silently (the page side; the Linux folder fallback is `cargo test --lib linuxopen`)
+static | node --experimental-strip-types scripts/test-reveal.mjs

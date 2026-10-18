@@ -42,6 +42,15 @@ pub fn open(target: &str, is_url: bool) -> Result<(), String> {
     launch_first(&launchers(target, is_url, on_wsl()), &env, WAIT, is_url)
 }
 
+/// "Show in folder" fallback: when the file manager cannot select a file (it is not on the session bus), the folder that holds it is opened instead.
+/// The folder of an absolute path; `None` for a relative path and for a root (which has no parent).
+pub fn reveal_fallback_dir(path: &std::path::Path) -> Option<std::path::PathBuf> {
+    if !path.is_absolute() {
+        return None;
+    }
+    path.parent().map(|p| p.to_path_buf())
+}
+
 /// WSL runs a Linux userland on Windows: `wslview` (package `wslu`) hands the link to the Windows default program.
 fn on_wsl() -> bool {
     std::env::var_os("WSL_DISTRO_NAME").is_some()
@@ -173,6 +182,16 @@ mod tests {
 
     fn v(pairs: &[(&str, &str)]) -> Vec<(String, String)> {
         pairs.iter().map(|(k, v)| (k.to_string(), v.to_string())).collect()
+    }
+
+    #[test]
+    fn reveal_fallback_opens_the_folder_of_the_file() {
+        use std::path::{Path, PathBuf};
+        let (file, folder, root) = if cfg!(windows) { (r"C:\Users\a\Downloads\report.pdf", r"C:\Users\a\Downloads", r"C:\") } else { ("/home/a/Downloads/report.pdf", "/home/a/Downloads", "/") };
+        assert_eq!(reveal_fallback_dir(Path::new(file)), Some(PathBuf::from(folder)));
+        assert_eq!(reveal_fallback_dir(Path::new(root)), None, "a root has no folder above it");
+        assert_eq!(reveal_fallback_dir(Path::new("report.pdf")), None, "a relative path is not shown");
+        assert_eq!(reveal_fallback_dir(Path::new("")), None);
     }
 
     /// A launcher that exits with `code` (an existing program on every system the tests run on).

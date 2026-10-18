@@ -8,6 +8,7 @@ import { startCompose } from "../popout/composeOpen";
 import { shiftNow } from "../popout/modifier";
 import { api, MessageFull } from "../api";
 import { copyToClipboard } from "../open";
+import { revealSaved } from "../reveal";
 import { setMailDark } from "../darkMail";
 import { LANGS, t, type Key, type Lang } from "../i18n";
 import { useLang, useT } from "../i18n/react";
@@ -569,7 +570,7 @@ export function MessageCard({ m, open, onToggle }: { m: MessageFull; open: boole
       const r = await api.attachmentSaveAll(m.id, ask || prefs.askWhereToSave);
       if (!r) return;
       const folder = r.dir.split(/[\\/]/).filter(Boolean).pop() ?? r.dir;
-      if (r.failed.length === 0) showToast(() => t("reading.strip.savedMany", { n: r.saved.length, folder }), undefined, "success", r.saved[0] ? [{ label: () => t("reading.att.showInFolder"), run: () => void api.attachmentReveal(r.saved[0]).catch(() => undefined) }] : undefined);
+      if (r.failed.length === 0) showToast(() => t("reading.strip.savedMany", { n: r.saved.length, folder }), undefined, "success", r.saved[0] ? [{ label: () => t("reading.att.showInFolder"), run: () => void revealSaved(r.saved[0]) }] : undefined);
       else showToast(() => t("reading.strip.savedPartial", { n: r.saved.length, total: m.attachments.length, name: r.failed[0].name, error: friendlyError(r.failed[0].error) }), undefined, "error", [{ label: () => t("common.retry"), run: () => void saveAll(ask) }]);
     } catch (e) {
       showToast(() => t("reading.strip.saveAllFailed", { error: friendlyError(e) }), undefined, "error", [{ label: () => t("common.retry"), run: () => void saveAll(ask) }]);
