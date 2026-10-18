@@ -5,7 +5,9 @@
 //   - one kept request at most: more presses while it waits add nothing;
 //   - the mailboxes are read and there is one at least: it is served once, at once;
 //   - the mailboxes are read and there is none: it is dropped without a word (the Welcome screen is the answer);
-//   - 30 s after the first press it is still not served: the waiting message is replaced by "Couldn't open a new message" with Retry, and the request is dropped.
+//   - 30 s after the first press it is still not served: the waiting message is replaced by "Couldn't open a new message" with Retry. The request stays (as the one the
+//     message offers to retry): when the mailboxes are read after that, the message goes and the message opens, once; when they are read and there is none, the message goes and
+//     nothing opens; closing the message drops the request; Retry (or any new press) makes a new request.
 
 /** What the app can do with a request now: `wait` = it cannot yet (the mailboxes are not read), `ready` = it can, `none` = it never can (no mailbox). */
 export type Readiness = "wait" | "ready" | "none";
@@ -28,6 +30,8 @@ export const NEW_MAIL_WAIT_MS = 30_000;
 
 export class NewMailQueue<O> {
   private pending: { o: O; since: number; stop: () => void } | null = null;
+  /** the request that was given up after 30 s (its error message shows): served when the mailboxes are read after all */
+  private expired: O | null = null;
   /** the options of the last request: Retry makes the same one again */
   private last: O | null = null;
 
@@ -49,6 +53,7 @@ export class NewMailQueue<O> {
 
   request(o: O): void {
     this.last = o;
+    this.expired = null; // (the earlier request that was given up is this one now)
     if (this.pending) {
       // a press while one is kept adds nothing; if the app can open it by now, the kept one is served (not a second)
       this.check();
@@ -69,11 +74,26 @@ export class NewMailQueue<O> {
   /** Whatever the app can do may have changed (the mailboxes were read): serves or drops a kept request. */
   check(): void {
     const p = this.pending;
-    if (!p) return;
+    if (!p) return this.checkExpired();
     const r = this.io.ready();
     if (r === "wait") return;
     this.finish();
     if (r === "ready") this.io.serve(p.o);
+  }
+
+  /** The person closed the error message: the request that was given up is not wanted any more. */
+  dismiss(): void {
+    this.expired = null;
+  }
+
+  private checkExpired(): void {
+    const o = this.expired;
+    if (o === null) return;
+    const r = this.io.ready();
+    if (r === "wait") return;
+    this.expired = null;
+    this.io.say(null); // (the error message goes: the app is ready)
+    if (r === "ready") this.io.serve(o);
   }
 
   private timeout(): void {
@@ -83,6 +103,7 @@ export class NewMailQueue<O> {
     if (r !== "wait") return this.check(); // (it can be served after all)
     p.stop();
     this.pending = null;
+    this.expired = p.o;
     this.io.say("failed");
   }
 

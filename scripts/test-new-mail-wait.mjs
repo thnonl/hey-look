@@ -5,7 +5,8 @@
 //            screen, and when the mailboxes arrive ONE message opens and the toast is gone
 //   tray     a "New mail" of the tray menu that reached the backend before the page listened (the backend keeps it, `take_tray_compose`): it opens when the mailboxes arrive
 //   none     with no mailbox at all the key does nothing and says nothing (the Welcome screen)
-//   (--full) the delay is longer than 30 s: after 30 s the message is replaced by "Couldn't open a new message." with Retry, and Retry opens one message
+//   (--full) the delay is longer than 30 s: after 30 s the message is replaced by "Couldn't open a new message." with Retry; the mailboxes arriving later clear it and open one
+//            message by themselves; Retry while they are not read waits again; closing the message drops the request (about 2 minutes)
 //
 //   node scripts/test-new-mail-wait.mjs [--full] [--require-browser | --url=http://127.0.0.1:1420/]
 import { flag, sleep, startHarness } from './cdp-harness.mjs';
@@ -87,21 +88,55 @@ try {
   ok(await composes() === 1, 'the key c did not open a message when the mailboxes were read');
 
   if (FULL) {
+    // the delay is longer than 30 s: after 30 s the error message with Retry; then (a) the mailboxes arrive: the message goes and ONE message opens by itself (QA O-4),
+    // (b) Retry while they are not read is a new wait and ONE message opens when they arrive, (c) closing the error message drops the request
+    const errorToast = async () => {
+      const f = await toast();
+      ok(!!f && /Couldn’t open a new message\./.test(f.text), `after 30 s: ${JSON.stringify(f)}`);
+      ok(!!f && f.buttons.includes('Retry'), `no Retry: ${JSON.stringify(f)}`);
+    };
     tag = 'timeout';
-    await load('lang=en&accountsdelay=36000');
+    await load('lang=en&accountsdelay=33000');
     await sleep(500);
     await keyC();
     ok(!!(await toast()), 'no message while the request waits (full)');
-    await sleep(30_500);
-    const f = await toast();
-    ok(!!f && /Couldn’t open a new message\./.test(f.text), `after 30 s: ${JSON.stringify(f)}`);
-    ok(!!f && f.buttons.includes('Retry'), `no Retry: ${JSON.stringify(f)}`);
+    await sleep(30_000);
+    await errorToast();
     await untilUi(12_000);
+    await sleep(1500);
+    ok(await composes() === 1, `${await composes()} messages after the mailboxes arrived behind the error message, expected one`);
+    ok(!(await toast()), `the error message is still there: ${JSON.stringify(await toast())}`);
+    await sleep(1000);
+    ok(await composes() === 1, 'the request was served twice');
+
+    tag = 'timeout-retry';
+    await load('lang=en&accountsdelay=33000');
     await sleep(500);
-    ok(await composes() === 0, 'the dropped request opened a message');
+    await keyC();
+    await sleep(30_000);
+    await errorToast();
     await evaluate(`[...document.querySelectorAll('.toasts .toast .toast-act')].find((b) => b.textContent.trim() === 'Retry').click(); 1`);
+    await sleep(300);
+    const again = await toast();
+    ok(!!again && /Opening a new message/.test(again.text), `Retry before the mailboxes arrived should wait again: ${JSON.stringify(again)}`);
+    ok(await composes() === 0, 'Retry opened a message before the mailboxes arrived');
+    await untilUi(12_000);
     await sleep(1500);
     ok(await composes() === 1, `${await composes()} messages after Retry, expected one`);
+    ok(!(await toast()), 'a message is still shown after the message opened');
+
+    tag = 'timeout-close';
+    await load('lang=en&accountsdelay=33000');
+    await sleep(500);
+    await keyC();
+    await sleep(30_000);
+    await errorToast();
+    await evaluate(`document.querySelector('.toasts .toast .toast-x').click(); 1`);
+    await sleep(200);
+    ok(!(await toast()), 'the error message did not close');
+    await untilUi(12_000);
+    await sleep(1500);
+    ok(await composes() === 0, 'a closed error message still opened a message');
   }
 } catch (e) {
   ok(false, `threw: ${e.stack || e.message}`);
