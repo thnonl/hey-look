@@ -695,6 +695,7 @@ details ol { padding-left: 1.2em; } details li { margin-bottom: .5em; }
   .hdr-r .hdr-dl { min-width: 44px; padding-inline: 0; margin-left: 2px; }
   .brand { gap: 8px; }
   .brand svg { width: 30px; height: 30px; }
+  .hdr .brand { padding: 7px; margin: -7px; } /* the logo link is 30 x 30 px to the eye and 44 x 44 px to a finger (30 + 2 x 7): the padding adds the touch area and the equal negative margin takes it back out of the layout, nothing moves */
   .brand span { font-size: 1.05rem; overflow: hidden; text-overflow: ellipsis; padding-right: .08em; }
 }
 @media (max-width: 400px) { .brand span { display: none; } }

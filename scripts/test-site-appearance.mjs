@@ -16,7 +16,7 @@
 // or beside the list and shows the subject; no horizontal overflow of the page, the window or any row; the console stays clean. A second
 // pass runs with prefers-reduced-motion. In the dark theme the title bar of the window must carry the primary as the app does (the exact gradient ends of the
 // formula, live for every preset and custom colour, light unchanged), and stay neutral under prefers-contrast: more. A last pass measures the
-// header on a phone (320, 375 and 414 px, the 8 home pages and 404.html): every button at least 44 x 44 px, no overlap, no sideways scroll. The page's own transitions are switched off while measuring (a half-finished transition would
+// header on a phone (320, 375 and 414 px, the 8 home pages and 404.html): every button and the logo link at least 44 x 44 px (the logo itself does not move), no overlap, no sideways scroll. The page's own transitions are switched off while measuring (a half-finished transition would
 // only measure the animation); the reduced-motion pass keeps the site's real CSS, which must still settle to the same layout.
 import fs from 'node:fs';
 import os from 'node:os';
@@ -297,6 +297,13 @@ const HEADER_FN = `(() => {
     if (!(brand.getAttribute('aria-label') || '').trim()) out.push('the logo link has no accessible name');
     if (R(logo).width < 28) out.push('the logo is squeezed to ' + R(logo).width.toFixed(1) + ' px');
     if (R(brand).right > Math.min(...btns.map((x) => x.b.left)) + 0.5) out.push('the logo / brand reaches into the buttons');
+    // BUG-1 (QA 1.0.7): the logo link is a tap target too, 44 x 44 px; its padding is taken back by a negative margin, so the logo itself sits exactly at the page gutter
+    const bb = R(brand);
+    if (bb.width < 43.5 || bb.height < 43.5) out.push('the logo link is ' + bb.width.toFixed(1) + ' x ' + bb.height.toFixed(1) + ' px, expected at least 44 x 44');
+    const row = brand.parentElement, rs = getComputedStyle(row), gutter = R(row).left + parseFloat(rs.paddingLeft) + parseFloat(rs.borderLeftWidth);
+    if (Math.abs(R(logo).left - gutter) > 0.5) out.push('the logo moved: it starts at ' + R(logo).left.toFixed(1) + ' px, the page gutter is at ' + gutter.toFixed(1) + ' px');
+    const mid = (R(logo).top + R(logo).bottom) / 2, rowMid = (R(row).top + R(row).bottom) / 2;
+    if (Math.abs(mid - rowMid) > 1) out.push('the logo is not centred in the header row (' + mid.toFixed(1) + ' vs ' + rowMid.toFixed(1) + ')');
   }
   return out;
 })()`;
