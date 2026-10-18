@@ -54,8 +54,9 @@ async function run(w, h) {
   let g = await geo();
   check(`${tag}: four handles while the picture is in view`, () => assert.equal(g.count, 4));
   check(`${tag}: the handle box is the pane and clips`, () => { assert.ok(g.box, 'no .pic-handles box'); for (const k of ['l', 't', 'r', 'b']) assert.ok(Math.abs(g.box[k] - g.pane[k]) <= 1, `box ${k} ${g.box[k]} vs pane ${g.pane[k]}`); assert.match(g.boxClip, /hidden|clip/); });
-  check(`${tag}: handles at the corners of the picture`, () => {
-    const cx = [g.img.l, g.img.r, g.img.l, g.img.r], cy = [g.img.t, g.img.t, g.img.b, g.img.b];
+  check(`${tag}: handles in the corners of the picture, inside it`, () => {
+    // (inside the picture's corners: a toolbar above, below or over the picture never touches one, v1.0.6 QA round 3, BUG-R3-2)
+    const cx = [g.img.l + 5, g.img.r - 5, g.img.l + 5, g.img.r - 5], cy = [g.img.t + 5, g.img.t + 5, g.img.b - 5, g.img.b - 5];
     g.handles.forEach((hd, i) => { assert.ok(Math.abs((hd.r.l + hd.r.r) / 2 - cx[i]) <= 1.5 && Math.abs((hd.r.t + hd.r.b) / 2 - cy[i]) <= 1.5, `handle ${i} at ${hd.r.l},${hd.r.t} want ${cx[i]},${cy[i]}`); });
   });
   check(`${tag}: a handle inside the pane takes the pointer`, () => { const inside = g.handles.filter((hd) => hd.hits.every((x) => !x.outside)); assert.ok(inside.length >= 2, `${inside.length} handles inside`); for (const hd of inside) assert.ok(hd.hits.every((x) => x.on), 'a handle inside the pane is not under the pointer'); });
@@ -76,7 +77,7 @@ async function run(w, h) {
   await evaluate(`document.querySelector('.cp-editor').scrollTop = 0; 1`);
   await sleep(300);
   g = await geo();
-  check(`${tag}: scrolled back, the handles are back at the picture`, () => assert.ok(Math.abs((g.handles[0].r.l + g.handles[0].r.r) / 2 - g.img.l) <= 1.5 && Math.abs((g.handles[0].r.t + g.handles[0].r.b) / 2 - g.img.t) <= 1.5));
+  check(`${tag}: scrolled back, the handles are back at the picture`, () => assert.ok(Math.abs((g.handles[0].r.l + g.handles[0].r.r) / 2 - (g.img.l + 5)) <= 1.5 && Math.abs((g.handles[0].r.t + g.handles[0].r.b) / 2 - (g.img.t + 5)) <= 1.5));
 }
 
 try {
