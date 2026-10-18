@@ -9,7 +9,7 @@ import type ns from "../../ns/signin.ts";
 
 export default defineLocale<typeof ns.en>({
   "signin.waiting.mail": "ブラウザーで操作を完了してください。",
-  "signin.google.hint": "Googleに「Google hasn’t verified this app」と表示された場合は、「Advanced」を選び、続けて「Go to Hey Look! (unsafe)」を選んでください。Hey Look!はGoogleの審査待ちです。",
+  "signin.google.hint": "Googleに「Google はこのアプリを確認していません」（英語では “Google hasn’t verified this app”）と表示された場合は、「詳細」（Advanced）を選び、続けて「Hey Look!（安全ではないページ）に移動」（Go to Hey Look! (unsafe)）を選んでください。Hey Look!はGoogleの審査待ちです。",
   "signin.google.learn": "これはどういう意味ですか？",
   "signin.end.timeout": "{provider}のサインインがタイムアウトしました。",
   "signin.end.cancelled": "{provider}のサインインがキャンセルされました。",

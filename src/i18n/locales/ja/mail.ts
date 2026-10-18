@@ -8,6 +8,8 @@ export default defineLocale<typeof ns.en>({
   "mail.row.select": "選択",
   "mail.row.unread": "未読",
   "mail.row.confidential": "機密",
+  "mail.importance.high": "重要度：高",
+  "mail.importance.low": "重要度：低",
   "mail.row.encrypted": "暗号化済み",
   "mail.row.signed": "署名済み",
   "mail.row.invite": "会議の招待",
@@ -33,6 +35,8 @@ export default defineLocale<typeof ns.en>({
   "mail.done.trashed": "ごみ箱に移動しました",
   "mail.done.deleted": "完全に削除しました",
   "mail.done.junk": "迷惑メールに移動しました",
+  "mail.junk.none": "迷惑メールフォルダーなし",
+  "mail.junk.noneTip": "このメールボックスには迷惑メールフォルダーがないため、メールを迷惑メールに移動できません。",
   "mail.done.blocked": "送信者をブロックしました",
   "mail.done.moved": "{folder}に移動しました",
   "mail.done.snoozed": "スヌーズ：{when}",
@@ -97,4 +101,25 @@ export default defineLocale<typeof ns.en>({
   "mail.pane.calendar": "カレンダー",
   "mail.pane.mailTitle": "メール (Ctrl+1)",
   "mail.pane.calendarTitle": "カレンダー (Ctrl+2)",
+  "mail.side.collapse": "サイドメニューを折りたたむ",
+  "mail.side.expand": "サイドメニューを展開",
+  "mail.side.unread": { other: "未読{n}件" },
+  // right-click menu of a list row
+  "mail.ctx.copySubject": "件名をコピー",
+  "mail.ctx.copyEmail": "メールアドレスをコピー",
+  "mail.ctx.selectAll": "すべて選択",
+  "mail.ctx.textMenu": "テキストの操作",
+  "mail.ctx.copyFailed": "クリップボードにコピーできませんでした",
+  "mail.ctx.onlyOne": "一度に1件の会話でのみ使用できます",
+  "mail.ctx.oneMailbox": "会話が1つのメールボックスにある場合のみ使用できます",
+  // reordering the mailboxes (folder pane, Settings)
+  "mail.acct.moveUp": "上へ移動",
+  "mail.acct.moveDown": "下へ移動",
+  "mail.acct.drag": "ドラッグして{email}の順序を変更",
+  "mail.acct.moved": "{email}を{total}件中{n}番目に移動しました",
+  "mail.acct.cancelled": "並べ替えをキャンセルしました",
+  // the display name of a mailbox for screen readers: name, address
+  "mail.acct.labelAria": "{name}、{email}",
+  // the link menu of a message
+  "mail.link.copy": "リンクのアドレスをコピー",
 });

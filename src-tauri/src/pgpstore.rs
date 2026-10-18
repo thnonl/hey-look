@@ -871,7 +871,7 @@ pub fn seal_for_outbox(c: &Connection, acc: &Account, d: &Draft) -> R<Draft> {
     }
     let msg = build_secure(c, acc, d, false)?;
     let mut out = d.clone();
-    out.prebuilt = Some(base64::engine::general_purpose::STANDARD.encode(msg.formatted()));
+    out.prebuilt = Some(base64::engine::general_purpose::STANDARD.encode(crate::smtp::wire(&msg)));
     if sec.encrypt {
         // never keep the plaintext next to the ciphertext
         out.html = String::new();
@@ -974,6 +974,9 @@ mod tests {
             meeting: None,
             calendar: None,
             confidential: false,
+            importance: Default::default(),
+            recovery_id: None,
+            meeting_form: None,
         }
     }
 

@@ -919,7 +919,7 @@ fn to_ics_event(e: &CalEvent) -> IcsEvent {
 
 fn send_message(db: &Db, acc: &Account, msg: lettre::Message) -> R<()> {
     let secret = crate::smtp_secret(db, acc)?;
-    crate::smtp::send_raw(acc, &secret, msg.envelope(), &msg.formatted())
+    crate::smtp::send_raw(acc, &secret, msg.envelope(), &crate::smtp::wire(&msg))
 }
 
 fn iso_part(method: &str, ev: &IcsEvent) -> crate::smtp::CalendarPart {
@@ -1214,7 +1214,7 @@ fn reminder_worker_pass(app: &tauri::AppHandle, db: &Db, fired: &mut HashSet<(St
         };
         let mins = ((e.start - t) / 60).max(0);
         let title = crate::i18n::event_reminder(&e.summary, mins);
-        let _ = app.emit("event-reminder", serde_json::json!({ "eventId": e.id, "title": title, "line": line2, "joinUrl": e.join_url, "start": e.start }));
+        let _ = app.emit_to("main", "event-reminder", serde_json::json!({ "eventId": e.id, "title": title, "line": line2, "joinUrl": e.join_url, "start": e.start }));
         crate::shell::notify_reminder(app, db, &title, &line2);
     }
     if fired.len() > 2000 {
@@ -1944,6 +1944,9 @@ END:VCALENDAR
             meeting: Some(crate::smtp::Meeting { start: ts(2026, 10, 20, 9, 0), end: ts(2026, 10, 20, 10, 0), all_day: false, tzid: Some("Asia/Ho_Chi_Minh".into()), location: Some("Room 1".into()), rrule: None }),
             calendar: None,
             confidential: false,
+            importance: Default::default(),
+            recovery_id: None,
+            meeting_form: None,
         };
         prepare_meeting(&c, &mut d).unwrap();
         let cal = d.calendar.clone().unwrap();
@@ -2349,6 +2352,9 @@ END:VCALENDAR
                 meeting: Some(crate::smtp::Meeting { start: ts(2026, 10, 21, 9, 0), end: ts(2026, 10, 21, 10, 0), all_day: false, tzid: None, location: None, rrule: None }),
                 calendar: None,
                 confidential: false,
+                importance: Default::default(),
+                recovery_id: None,
+            meeting_form: None,
             };
             prepare_meeting(&c, &mut d).unwrap();
             let back = ical::parse(&d.calendar.as_ref().unwrap().ics).unwrap();
@@ -2377,6 +2383,9 @@ END:VCALENDAR
             meeting: Some(crate::smtp::Meeting { start: ts(2026, 10, 21, 9, 0), end: ts(2026, 10, 21, 10, 0), all_day: false, tzid: None, location: None, rrule: None }),
             calendar: None,
             confidential: false,
+            importance: Default::default(),
+            recovery_id: None,
+            meeting_form: None,
         };
         prepare_meeting(&c, &mut d).unwrap();
         let ev = d.calendar.as_ref().unwrap().ics.clone();

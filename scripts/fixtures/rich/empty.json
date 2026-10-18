@@ -1,0 +1,21 @@
+{
+ "base": {
+  "family": "Calibri,Carlito,Arial,sans-serif",
+  "size": 11
+ },
+ "sig": null,
+ "doc": {
+  "type": "doc",
+  "content": [
+   {
+    "type": "paragraph"
+   },
+   {
+    "type": "signatureBlock"
+   },
+   {
+    "type": "paragraph"
+   }
+  ]
+ }
+}

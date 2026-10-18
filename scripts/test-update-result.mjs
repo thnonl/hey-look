@@ -17,11 +17,11 @@ const card = read("src/components/Updates.tsx");
 // 1. The result toast is sticky (it was a 4.5 s toast, gone before anyone looked), closes itself after 30 s, and the page tells the backend once it showed it.
 const start = updates.slice(updates.indexOf("startupCheck: async () => {"));
 const body = start.slice(0, start.indexOf("\n    },\n"));
-assert.match(body, /setStickyToast\(key, \{ text: t\(s\.draft \? "updates\.result\.updatedDraft" : "updates\.result\.updated"/, "success result is a sticky toast");
+assert.match(body, /setStickyToast\(key, \{ text: \(\) => t\(s\.draft \? "updates\.result\.updatedDraft" : "updates\.result\.updated"/, "success result is a sticky toast");
 assert.equal(en["updates.result.updated"], "Hey Look! is updated to {version}.");
 assert.equal(en["updates.result.updatedDraft"], "Hey Look! is updated to {version}. Your message is in Drafts.");
 assert.match(body, /kind: "success"/);
-assert.match(body, /text: t\("updates\.result\.failed", \{ version: s\.version/, "REQ-30 failed install");
+assert.match(body, /text: \(\) => t\("updates\.result\.failed", \{ version: s\.version/, "REQ-30 failed install");
 assert.equal(en["updates.result.failed"], "The update to {version} didn’t finish. You can try again in Settings > About.", "REQ-30 wording of the failed install");
 assert.match(body, /stickyTimer\.arm\(key\)/, "it goes after 30 s (one timer per toast, see stickyTimers.ts, BUG-14)");
 assert.ok(body.indexOf("setStickyToast(key, {") < body.indexOf("api.updateStartupAck()"), "the ack comes after the toast is shown");

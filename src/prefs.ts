@@ -1,7 +1,11 @@
 import { isLang, t } from "./i18n/index.ts";
 import type { Key, LangPref } from "./i18n/index.ts";
+import { pruneOrder } from "./accountOrder";
 import { DEFAULT_MAIL_CANVAS, MailCanvas, resolveMailCanvas } from "./mailCanvas";
+import { DEFAULT_HIGHLIGHT, normColor } from "./editor/colors";
+import { DEFAULT_FONT_NAME, DEFAULT_FONT_SIZE } from "./editor/fonts";
 import { DEFAULT_NUDGE, NudgeState, normalizeNudge } from "./supportNudge";
+import { normalizeSidebar, SidebarMode } from "./sidebarState";
 export type NotifySound = "mail" | "default" | "im" | "reminder" | "sms" | "none";
 /** The labels are dictionary keys: show them with t() while rendering, so they follow the language. */
 export const NOTIFY_SOUNDS: [NotifySound, Key][] = [
@@ -36,6 +40,8 @@ export interface Overridable {
   inlinePictures: "inline" | "attach";
   /** resize pictures over 1 MB silently when inserting them */
   autoResizePictures: boolean;
+  /** ask before a message goes out with a picture that has no alt text (REQ-51; off by default) */
+  altCheck: boolean;
   /** receiving: inline pictures up to this size per picture are loaded with the message (0 = always) */
   inlineAutoLoadMB: 2 | 5 | 0;
   /** PGP: "possible" = Encrypt starts on only when every recipient has a key; "always" never turns itself off */
@@ -55,6 +61,14 @@ export interface Prefs extends Overridable {
   theme: "system" | "light" | "dark";
   /** the background HTML mail is read on: as the sender designed it, or dark (reading pane button) */
   mailCanvas: MailCanvas;
+  /** the font a new message, a reply and a forward start in (Settings > Composing > Default font): a font name of editor/fonts.ts and a size in pt */
+  composeFontName: string;
+  composeFontSize: number;
+  /** font colours used lately, newest first (the "Recent colors" of the Font color menu; the first is what the button applies), and the last highlight colour */
+  recentColors: string[];
+  highlightColor: string;
+  /** what Ctrl+V does with text copied from other programs (Settings > Composing > When pasting from other apps): keep its formatting, take the format around it, or text only */
+  pasteDefault: "source" | "merge" | "text";
   /** primary (accent) color, #rrggbb */
   accent: string;
   density: "full" | "medium" | "compact";
@@ -71,6 +85,8 @@ export interface Prefs extends Overridable {
   undoActionSeconds: number; // Undo window for archive / delete / junk
   sentSound: boolean;
   closeToTray: boolean;
+  /** open new messages, replies and forwards in a separate window (Shift on the click / key does the opposite); stored only until the compose window exists (WP6b), see popout/entry.ts */
+  popoutCompose: boolean;
   /** Save folder for attachments; null = the system Downloads folder */
   downloadDir: string | null;
   /** ask for a location on every Save */
@@ -85,7 +101,7 @@ export interface Prefs extends Overridable {
   scheduledCatchUp: "send" | "ask";
   /** retry network failures of scheduled messages 3 times, 5 minutes apart */
   retryScheduled: boolean;
-  /** ask GitHub for a newer version when the app starts or comes back from the tray (at most every 6 hours) */
+  /** ask GitHub for a newer version when the app starts or comes back from the tray (after a couple of hours when the window comes back; see update.rs) */
   checkUpdates: boolean;
   /** version the user chose to skip in the update notice ("" = none) */
   skippedUpdate: string;
@@ -111,12 +127,16 @@ export interface Prefs extends Overridable {
   countOtherMail: boolean; // include "Other" (bulk) mail in unread counts
   recentSearches: string[];
   defaultAccount: string; // "" = first account
+  /** account ids in the order the person arranged them (empty = the order the backend gives, i.e. the order they were added); see accountOrder.ts */
+  accountOrder: string[];
   snoozeTimes: { evening: number; tomorrow: number; weekend: number; nextWeek: number }; // hour of day
   hoverActions: string[]; // archive | delete | flag | pin | read | snooze
   favorites: string[]; // "<accountId|*>|<folder key>"
   collapsed: Record<string, boolean>; // folder pane groups
   folderW: number; // pane widths in px
   listW: number;
+  /** the side menu (folder pane): "auto" folds it to icons in a narrow window, "expanded" / "collapsed" are the person's own choice and win over the width; see sidebarState.ts */
+  sidebar: SidebarMode;
   accountPrefs: Record<string, Partial<Overridable>>;
 }
 
@@ -124,6 +144,11 @@ export const DEFAULT_PREFS: Prefs = {
   language: "en",
   theme: "system",
   mailCanvas: DEFAULT_MAIL_CANVAS,
+  composeFontName: DEFAULT_FONT_NAME,
+  composeFontSize: DEFAULT_FONT_SIZE,
+  recentColors: [],
+  highlightColor: DEFAULT_HIGHLIGHT,
+  pasteDefault: "source",
   accent: "#0f6cbd",
   density: "full",
   readingPane: "right",
@@ -139,6 +164,7 @@ export const DEFAULT_PREFS: Prefs = {
   undoActionSeconds: 6,
   sentSound: true,
   closeToTray: true,
+  popoutCompose: false,
   downloadDir: null,
   askWhereToSave: false,
   afterSave: "notify",
@@ -163,12 +189,14 @@ export const DEFAULT_PREFS: Prefs = {
   countOtherMail: false,
   recentSearches: [],
   defaultAccount: "",
+  accountOrder: [],
   snoozeTimes: { evening: 18, tomorrow: 8, weekend: 9, nextWeek: 8 },
   hoverActions: ["archive", "delete", "flag", "pin"],
   favorites: ["*|inbox", "*|sent", "*|drafts"],
   collapsed: {},
   folderW: 248,
   listW: 392,
+  sidebar: "auto",
   accountPrefs: {},
   // overridable (these are the "All accounts" values)
   notifications: true,
@@ -187,6 +215,7 @@ export const DEFAULT_PREFS: Prefs = {
   pushMail: true,
   inlinePictures: "inline",
   autoResizePictures: false,
+  altCheck: false,
   inlineAutoLoadMB: 2,
   pgpEncrypt: "possible",
   pgpSign: false,
@@ -242,9 +271,16 @@ export function mergePrefs(raw: string | null): Prefs {
       ...p,
       maxDownload: clampMaxDownload(p.maxDownload),
       mailCanvas: resolveMailCanvas(p.mailCanvas),
+      composeFontName: typeof p.composeFontName === "string" && p.composeFontName.trim() ? p.composeFontName.trim().slice(0, 60) : DEFAULT_FONT_NAME,
+      composeFontSize: typeof p.composeFontSize === "number" && p.composeFontSize >= 6 && p.composeFontSize <= 96 ? p.composeFontSize : DEFAULT_FONT_SIZE,
+      recentColors: Array.isArray(p.recentColors) ? p.recentColors.filter((c): c is string => typeof c === "string" && /^#[0-9A-F]{6}$/.test(normColor(c))).slice(0, 10) : [],
+      pasteDefault: p.pasteDefault === "merge" || p.pasteDefault === "text" ? p.pasteDefault : "source",
+      highlightColor: typeof p.highlightColor === "string" && /^#[0-9A-F]{6}$/.test(normColor(p.highlightColor)) ? normColor(p.highlightColor) : DEFAULT_HIGHLIGHT,
       // English unless the person chose another language (an unknown or older value counts as English)
       language: isLang(p.language) || p.language === "en-XA" ? p.language : "en",
       accountPrefs,
+      sidebar: normalizeSidebar(p.sidebar),
+      accountOrder: Array.isArray(p.accountOrder) ? p.accountOrder.filter((x): x is string => typeof x === "string") : [],
       supportNudge: normalizeNudge(p.supportNudge),
       snoozeTimes: { ...DEFAULT_PREFS.snoozeTimes, ...(p.snoozeTimes ?? {}) },
     };
@@ -269,6 +305,8 @@ export function staleAccountPrefs(prefs: Prefs, accountIds: string[]): Partial<P
     return acct === "*" || known.has(acct);
   });
   if (favs.length !== (prefs.favorites ?? []).length) out.favorites = favs;
+  const order = pruneOrder(prefs.accountOrder ?? [], accountIds);
+  if (order) out.accountOrder = order;
   const col = Object.entries(prefs.collapsed ?? {});
   if (col.some(([k]) => UUID_LIKE.test(k) && !known.has(k))) out.collapsed = Object.fromEntries(col.filter(([k]) => !UUID_LIKE.test(k) || known.has(k)));
   return out;

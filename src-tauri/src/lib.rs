@@ -4,38 +4,69 @@ mod calendar;
 mod calsync;
 mod db;
 mod discover;
+mod draftmail;
 mod flagguard;
+mod headerfold;
 mod ical;
 mod i18n;
+mod identity;
+mod importance;
 mod idle;
 mod legacy_names;
 // the checked open of links and files on Linux; compiled everywhere so that its rules are tested everywhere
 #[cfg_attr(not(target_os = "linux"), allow(dead_code))]
 mod linuxopen;
+mod linuxview;
 // macOS notification diagnostic (HEYLOOK_MAC_NOTIFY); compiled everywhere so that its rules are tested everywhere
 #[cfg_attr(not(target_os = "macos"), allow(dead_code))]
 mod macnotify;
 #[cfg(target_os = "macos")]
+mod macclip;
+#[cfg(target_os = "macos")]
 mod macquit;
+// the native window of a pop-out, finished by hand once it is gone (popout.rs)
+#[cfg(target_os = "macos")]
+mod macwin;
+// the macOS title bar repaint strategies (HEYLOOK_TITLEBAR_MODE); pure, so compiled and tested everywhere
+#[cfg_attr(not(target_os = "macos"), allow(dead_code))]
+mod titlebar;
 mod mail;
+// the main window never leaves the app for a website (the PDF frame has no sandbox on Windows and macOS); the pure decision is compiled and tested everywhere
+#[cfg_attr(not(any(windows, target_os = "macos")), allow(dead_code))]
+mod navguard;
+mod pdfmode;
 mod oauth;
 mod oauth_page;
+mod outgoing;
 mod openpgp;
 mod pgpmail;
 mod pgpstore;
+mod popout;
+mod quitwait;
 mod rawcache;
+mod recover;
+mod replyhdr;
 use oauth::Provider;
 mod schedule;
 mod sessionend;
 mod shard;
 mod shell;
 mod smtp;
+mod smtpsize;
 mod snippet;
 mod update;
 mod winframe;
+mod wintheme;
+// the app that could not start (Windows: a native message box); the message selection is compiled and tested everywhere
+#[cfg_attr(not(windows), allow(dead_code))]
+mod startfail;
 mod startup;
+mod loadfail;
 mod webview_health;
 mod winproc;
+// debug builds only: the QA's remote control of the windows (off unless the environment asks for it, see testbridge/mod.rs); a release build has none of it
+#[cfg(debug_assertions)]
+mod testbridge;
 
 use base64::Engine;
 use db::{err, Account, R};
@@ -48,9 +79,6 @@ use tauri_plugin_dialog::DialogExt;
 use tauri_plugin_opener::OpenerExt;
 
 type Db = Arc<Mutex<Connection>>;
-
-/// Name under which passwords, tokens and secrets are kept in the system credential store.
-pub(crate) const KEYRING_SERVICE: &str = "heylook";
 
 struct AppState {
     db: Db,
@@ -69,7 +97,7 @@ fn lock(db: &Db) -> std::sync::MutexGuard<'_, Connection> {
 }
 
 fn password(account_id: &str) -> R<String> {
-    keyring::Entry::new(KEYRING_SERVICE, account_id).and_then(|e| e.get_password()).map_err(|e| match e {
+    identity::entry(account_id).and_then(|e| e.get_password()).map_err(|e| match e {
         keyring::Error::NoEntry => format!("no stored password: {e}"),
         other => keyring_error_text(std::env::consts::OS, "read", &other.to_string()),
     })
@@ -138,7 +166,7 @@ fn client_secret_key(p: Provider) -> &'static str {
 const SECRET_NAMES: [&str; 3] = ["ai_key", "google_client_secret", "microsoft_client_secret"];
 
 fn secret_get(name: &str) -> Option<String> {
-    keyring::Entry::new(KEYRING_SERVICE, &format!("secret:{name}"))
+    identity::entry(&format!("secret:{name}"))
         .ok()?
         .get_password()
         .ok()
@@ -146,7 +174,7 @@ fn secret_get(name: &str) -> Option<String> {
 }
 
 fn secret_set(name: &str, value: &str) -> R<()> {
-    let e = keyring::Entry::new(KEYRING_SERVICE, &format!("secret:{name}")).map_err(err)?;
+    let e = identity::entry(&format!("secret:{name}")).map_err(err)?;
     if value.is_empty() {
         let _ = e.delete_credential();
         Ok(())
@@ -212,7 +240,7 @@ fn secret(db: &Db, acc: &Account) -> R<String> {
 /// Password (or token) for SMTP: the separate SMTP password when one is stored, else the IMAP secret.
 fn smtp_secret(db: &Db, acc: &Account) -> R<String> {
     if Provider::from_auth(&acc.auth).is_none() {
-        if let Some(pw) = keyring::Entry::new(KEYRING_SERVICE, &format!("{}:smtp", acc.id)).ok().and_then(|e| e.get_password().ok()) {
+        if let Some(pw) = identity::entry(&format!("{}:smtp", acc.id)).ok().and_then(|e| e.get_password().ok()) {
             return Ok(pw);
         }
     }
@@ -261,11 +289,107 @@ async fn add_account(
     smtp_password: Option<String>,
 ) -> R<Account> {
     let db = state.db.clone();
+    // this attempt's number: "Cancel" in the form cancels the attempts started up to now, a later one is its own
+    let attempt = ADD_STARTED.fetch_add(1, std::sync::atomic::Ordering::SeqCst) + 1;
     blocking(move || {
         let imap_login = |acc: &Account, pw: &str| imap_login_check(acc, pw, ADD_ACCOUNT_PROBE_TIMEOUT);
-        add_account_with(&db, input, &password_value, smtp_password, &imap_login, &smtp::test)
+        let cancelled = || ADD_CANCELLED_TO.load(std::sync::atomic::Ordering::SeqCst) >= attempt;
+        add_account_cancellable(&db, input, &password_value, smtp_password, &imap_login, &smtp::test, &cancelled, &keyring_store)
     })
     .await
+}
+
+/// The newest attempt to add an account that was started, and the newest one the person cancelled (the form's Cancel while it waits).
+static ADD_STARTED: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+static ADD_CANCELLED_TO: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+
+/// "Cancel" while the add account form waits (for the server, or for the system keyring): the attempt stops before it stores anything. The
+/// form does not wait for the answer; whatever the attempt still does is undone.
+#[tauri::command]
+fn cancel_add_account() {
+    ADD_CANCELLED_TO.store(ADD_STARTED.load(std::sync::atomic::Ordering::SeqCst), std::sync::atomic::Ordering::SeqCst);
+}
+
+/// How long the system credential store may take to answer while an account is added. A locked or absent keyring (Secret Service on Linux
+/// before the login keyring is unlocked) can leave the call waiting for ever.
+const KEYRING_WAIT: std::time::Duration = std::time::Duration::from_secs(30);
+
+/// The error of a credential store that did not answer in time (the UI shows its translation, `backend.KEYRING_TIMEOUT`).
+fn keyring_timeout_error() -> String {
+    i18n::coded("KEYRING_TIMEOUT", &[], "Your system keyring is locked or not answering. Unlock it (Passwords and Keys / KWallet) and try again.")
+}
+
+/// The error of an attempt the person cancelled (nothing was stored).
+fn add_cancelled_error() -> String {
+    i18n::coded("ADD_CANCELLED", &[], "Adding the account was cancelled.")
+}
+
+/// Run `set` (a call to the credential store) on a thread of its own and wait for it at most `wait`, looking at `cancelled` ten times a
+/// second. When the wait ends first the call is abandoned: if it ever finishes, `undo` removes what it stored, so nothing is left behind
+/// for an account that was not added. The answer of a keyring that answers is returned as it is.
+fn store_within(wait: std::time::Duration, cancelled: &dyn Fn() -> bool, set: impl FnOnce() -> R<()> + Send + 'static, undo: impl FnOnce() + Send + 'static) -> R<()> {
+    #[derive(PartialEq)]
+    enum Phase {
+        Running,
+        Done,
+        Abandoned,
+    }
+    let phase = std::sync::Arc::new(Mutex::new(Phase::Running));
+    let (tx, rx) = std::sync::mpsc::channel::<R<()>>();
+    let worker_phase = phase.clone();
+    std::thread::spawn(move || {
+        let r = set();
+        let abandoned = {
+            let mut p = worker_phase.lock().unwrap_or_else(|e| e.into_inner());
+            if *p == Phase::Abandoned {
+                true
+            } else {
+                *p = Phase::Done;
+                false
+            }
+        };
+        if abandoned {
+            if r.is_ok() {
+                undo();
+            }
+        } else {
+            let _ = tx.send(r);
+        }
+    });
+    let started = std::time::Instant::now();
+    loop {
+        match rx.recv_timeout(std::time::Duration::from_millis(100)) {
+            Ok(r) => return r,
+            Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => return Err("the credential store call ended without an answer".into()),
+            Err(std::sync::mpsc::RecvTimeoutError::Timeout) => {}
+        }
+        let (timed_out, cancel) = (started.elapsed() >= wait, cancelled());
+        if timed_out || cancel {
+            let mut p = phase.lock().unwrap_or_else(|e| e.into_inner());
+            if *p == Phase::Done {
+                // it answered just now: the answer is in the channel
+                drop(p);
+                return rx.recv().unwrap_or_else(|_| Err("the credential store call ended without an answer".into()));
+            }
+            *p = Phase::Abandoned;
+            return Err(if cancel { add_cancelled_error() } else { keyring_timeout_error() });
+        }
+    }
+}
+
+/// Store a secret in the system credential store (waiting at most [`KEYRING_WAIT`]).
+fn keyring_store(user: &str, value: &str, cancelled: &dyn Fn() -> bool) -> R<()> {
+    let (u, v, undo_user) = (user.to_string(), value.to_string(), user.to_string());
+    store_within(
+        KEYRING_WAIT,
+        cancelled,
+        move || identity::entry(&u).and_then(|e| e.set_password(&v)).map_err(|e| keyring_error_text(std::env::consts::OS, "save", &e.to_string())),
+        move || {
+            if let Ok(e) = identity::entry(&undo_user) {
+                let _ = e.delete_credential();
+            }
+        },
+    )
 }
 
 /// How long the IMAP server may take to greet and to answer the STARTTLS request (or the SSL/TLS handshake) while an account is added.
@@ -283,6 +407,7 @@ fn imap_login_check(acc: &Account, pw: &str, probe_timeout: std::time::Duration)
 /// The whole of "Add account": the connection checks come first and the first thing written (the password, then the account row)
 /// only after both have passed, so an add that is refused leaves nothing behind.
 /// `imap_login` and `smtp_check` are the two connection checks (the real ones, or stand-ins in tests).
+#[cfg(test)]
 fn add_account_with(
     db: &Db,
     input: AccountInput,
@@ -290,6 +415,21 @@ fn add_account_with(
     smtp_password: Option<String>,
     imap_login: &dyn Fn(&Account, &str) -> R<()>,
     smtp_check: &dyn Fn(&Account, &str) -> R<()>,
+) -> R<Account> {
+    add_account_cancellable(db, input, password_value, smtp_password, imap_login, smtp_check, &|| false, &keyring_store)
+}
+
+/// [`add_account_with`] that can be cancelled (`cancelled`) and whose credential store is `store(user, value, cancelled)` (stood in for in tests).
+#[allow(clippy::too_many_arguments)]
+fn add_account_cancellable(
+    db: &Db,
+    input: AccountInput,
+    password_value: &str,
+    smtp_password: Option<String>,
+    imap_login: &dyn Fn(&Account, &str) -> R<()>,
+    smtp_check: &dyn Fn(&Account, &str) -> R<()>,
+    cancelled: &dyn Fn() -> bool,
+    store: &dyn Fn(&str, &str, &dyn Fn() -> bool) -> R<()>,
 ) -> R<Account> {
     let acc = Account {
         id: uuid::Uuid::new_v4().to_string(),
@@ -311,18 +451,27 @@ fn add_account_with(
     let smtp_pw = smtp_password.clone().unwrap_or_else(|| password_value.to_string());
     let test_smtp = !acc.smtp_username.is_empty() || smtp_password.is_some();
     check_new_account(&acc, password_value, &smtp_pw, test_smtp, imap_login, smtp_check)?;
-    keyring::Entry::new(KEYRING_SERVICE, &acc.id)
-        .and_then(|e| e.set_password(password_value))
-        .map_err(|e| keyring_error_text(std::env::consts::OS, "save", &e.to_string()))?;
+    if cancelled() {
+        return Err(add_cancelled_error());
+    }
+    store(&acc.id, password_value, cancelled)?;
     if let Some(sp) = &smtp_password {
-        let stored = keyring::Entry::new(KEYRING_SERVICE, &format!("{}:smtp", acc.id)).and_then(|e| e.set_password(sp));
-        if let Err(e) = stored {
+        if let Err(e) = store(&format!("{}:smtp", acc.id), sp, cancelled) {
             // nothing half-added: the first secret goes again, no account row is made
-            if let Ok(entry) = keyring::Entry::new(KEYRING_SERVICE, &acc.id) {
+            if let Ok(entry) = identity::entry(&acc.id) {
                 let _ = entry.delete_credential();
             }
-            return Err(keyring_error_text(std::env::consts::OS, "save", &e.to_string()));
+            return Err(e);
         }
+    }
+    if cancelled() {
+        // cancelled while the keyring was answering: the secrets go again, no account row is made
+        for user in [acc.id.clone(), format!("{}:smtp", acc.id)] {
+            if let Ok(entry) = identity::entry(&user) {
+                let _ = entry.delete_credential();
+            }
+        }
+        return Err(add_cancelled_error());
     }
     // the color is chosen and stored here, so every window shows the same one from the first moment
     let c = lock(db);
@@ -478,7 +627,7 @@ async fn oauth_sign_in(
         smtp_username: String::new(),
         tls_insecure: false,
     };
-    keyring::Entry::new(KEYRING_SERVICE, &acc.id)
+    identity::entry(&acc.id)
         .and_then(|e| e.set_password(&signed.refresh_token))
         .map_err(|e| keyring_error_text(std::env::consts::OS, "save", &e.to_string()))?;
     oauth::cache_token(&acc.id, &signed.access_token, 3300);
@@ -493,7 +642,7 @@ async fn oauth_sign_in(
     if let Err(e) = verified {
         // a new mailbox that cannot be used leaves no token behind (an existing one keeps the token it has just been given)
         if existing.is_none() {
-            if let Ok(entry) = keyring::Entry::new(KEYRING_SERVICE, &acc.id) {
+            if let Ok(entry) = identity::entry(&acc.id) {
                 let _ = entry.delete_credential();
             }
             oauth::forget_token(&acc.id);
@@ -537,6 +686,12 @@ fn page_state(app: tauri::AppHandle, visibility: String, frames: bool) {
     startup::page_state(&app, &visibility, frames);
 }
 
+/// The page answers a ping of the backend (Linux, `linuxview.rs`: does the page still run after the window sat in the tray?).
+#[tauri::command]
+fn page_pong(nonce: u64, visibility: String) {
+    linuxview::pong(nonce, &visibility);
+}
+
 /// The frontend tells whether any account exists: without one the tray's "New mail" and "Check mail now" are disabled.
 #[tauri::command]
 fn set_mail_available(available: bool) {
@@ -555,11 +710,14 @@ fn update_account(state: tauri::State<AppState>, account_id: String, display_nam
 }
 
 #[tauri::command]
-fn remove_account(state: tauri::State<AppState>, account_id: String) -> R<()> {
+fn remove_account(app: tauri::AppHandle, state: tauri::State<AppState>, account_id: String) -> R<()> {
     db::remove_account(&lock(&state.db), &account_id)?;
+    // the windows that show mail of this mailbox (a reader window) read their conversation again: it is gone
+    let _ = app.emit("mail-synced", ());
+    smtpsize::forget(&account_id);
     // (the calendar grant of the mailbox goes with it)
     for name in [account_id.clone(), format!("{account_id}:smtp"), oauth::calendar_key(&account_id)] {
-        if let Ok(e) = keyring::Entry::new(KEYRING_SERVICE, &name) {
+        if let Ok(e) = identity::entry(&name) {
             let _ = e.delete_credential();
         }
     }
@@ -585,18 +743,33 @@ fn folder_for(db: &Db, acc: &Account, role: &str) -> R<String> {
     })
 }
 
-fn insert_parsed(c: &Connection, acc: &Account, role: &str, p: &mail::Parsed) -> R<String> {
+/// The conversation a message belongs to: its first reference, else its own Message-ID, else (no ID at all) its place in the folder.
+fn thread_id_of(acc_id: &str, role: &str, p: &mail::Parsed) -> String {
     let root = p
         .refs
         .first()
         .cloned()
         .or_else(|| p.message_id.clone())
-        .unwrap_or_else(|| format!("{}:{}:{}", acc.id, role, p.uid));
-    let thread_id = fnv(&format!("{}|{}", acc.id, root));
+        .unwrap_or_else(|| format!("{}:{}:{}", acc_id, role, p.uid));
+    fnv(&format!("{}|{}", acc_id, root))
+}
+
+/// The thread a just-saved draft will have once the sync has read it (None when the message has neither reference nor Message-ID, so
+/// its thread would depend on the uid the server gives it).
+fn draft_thread_id(acc_id: &str, raw: &[u8]) -> Option<String> {
+    let p = mail::parse(0, raw, true, false, 0)?;
+    if p.refs.is_empty() && p.message_id.is_none() {
+        return None;
+    }
+    Some(thread_id_of(acc_id, "drafts", &p))
+}
+
+fn insert_parsed(c: &Connection, acc: &Account, role: &str, p: &mail::Parsed) -> R<String> {
+    let thread_id = thread_id_of(&acc.id, role, p);
     c.execute(
         "INSERT OR REPLACE INTO messages(id,account_id,folder,uid,message_id,thread_id,subject,from_name,from_email,
-           to_addrs,cc_addrs,date,snippet,body_html,body_text,seen,flagged,has_attach,attachments,list_unsub,list_unsub_post,pgp,pgp_raw,ics,cal_method)
-         VALUES(?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,?13,?14,?15,?16,?17,?18,?19,?20,?21,?22 | COALESCE((SELECT pgp FROM messages WHERE id=?1),0),?23,?24,?25)",
+           to_addrs,cc_addrs,date,snippet,body_html,body_text,seen,flagged,has_attach,attachments,list_unsub,list_unsub_post,pgp,pgp_raw,ics,cal_method,importance)
+         VALUES(?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,?13,?14,?15,?16,?17,?18,?19,?20,?21,?22 | COALESCE((SELECT pgp FROM messages WHERE id=?1),0),?23,?24,?25,?26)",
         params![
             format!("{}:{}:{}", acc.id, role, p.uid),
             acc.id,
@@ -623,7 +796,8 @@ fn insert_parsed(c: &Connection, acc: &Account, role: &str, p: &mail::Parsed) ->
             p.pgp as i64,
             p.pgp_raw,
             p.ics,
-            p.cal_method
+            p.cal_method,
+            p.importance.to_db()
         ],
     )
     .map_err(err)?;
@@ -921,7 +1095,7 @@ fn run_sync(app: &tauri::AppHandle, db: &Db, account_id: &str) -> R<SyncResult> 
     let r = run_sync_inner(app, db, account_id);
     let change = track_signin(&mut SIGNIN_FLAGGED.lock().unwrap_or_else(|p| p.into_inner()), account_id, r.as_ref().err().map(String::as_str));
     if let Some(state) = change {
-        let _ = app.emit("signin-state", serde_json::json!({ "accountId": account_id, "state": state, "error": r.as_ref().err() }));
+        let _ = app.emit_to("main", "signin-state", serde_json::json!({ "accountId": account_id, "state": state, "error": r.as_ref().err() }));
     }
     r
 }
@@ -930,7 +1104,7 @@ fn run_sync_inner(app: &tauri::AppHandle, db: &Db, account_id: &str) -> R<SyncRe
     let _guard = SYNC_LOCK.lock().unwrap_or_else(|p| p.into_inner());
     let r = sync_impl(db, account_id)?;
     for why in take_rule_errors_to_tell() {
-        let _ = app.emit("filter-failed", why);
+        let _ = app.emit_to("main", "filter-failed", why);
     }
     backfill_start(app, db, account_id);
     shell::notify_new(app, db, &r.new_inbox);
@@ -992,7 +1166,39 @@ struct Pending {
     arg: Option<String>,
     scope: Option<String>,
     due: std::time::Instant,
+    /// (BUG-1) the check, running during the Undo window, that the saved folder this move goes to still exists on the server
+    verify: Option<Arc<Verify>>,
 }
+
+/// The outcome of the folder check of one queued move. The check runs on its own thread; the move waits for it (`wait`) and does not
+/// send anything to a folder that was not checked, unless the check is taking longer than `max` (a slow or offline server: then the move
+/// is tried as before, and its own folder look-up on failure still applies).
+struct Verify {
+    result: Mutex<Option<R<()>>>,
+    done: std::sync::Condvar,
+}
+
+impl Verify {
+    fn new() -> Arc<Verify> {
+        Arc::new(Verify { result: Mutex::new(None), done: std::sync::Condvar::new() })
+    }
+
+    fn finish(&self, r: R<()>) {
+        *self.result.lock().unwrap_or_else(|p| p.into_inner()) = Some(r);
+        self.done.notify_all();
+    }
+
+    /// The result of the check, waiting at most `max` for it; None when it is still running.
+    fn wait(&self, max: std::time::Duration) -> Option<R<()>> {
+        let g = self.result.lock().unwrap_or_else(|p| p.into_inner());
+        let (g, _) = self.done.wait_timeout_while(g, max, |r| r.is_none()).unwrap_or_else(|p| p.into_inner());
+        g.clone()
+    }
+}
+
+/// How long a due move waits for its folder check (a flush at quit does not hold the app up as long).
+const VERIFY_WAIT: std::time::Duration = std::time::Duration::from_secs(20);
+const VERIFY_WAIT_AT_QUIT: std::time::Duration = std::time::Duration::from_secs(4);
 
 static PENDING: Mutex<Vec<Pending>> = Mutex::new(Vec::new());
 
@@ -1000,13 +1206,39 @@ fn pending_lock() -> std::sync::MutexGuard<'static, Vec<Pending>> {
     PENDING.lock().unwrap_or_else(|p| p.into_inner())
 }
 
-fn pending_thread_ids() -> std::collections::HashSet<String> {
-    pending_lock().iter().flat_map(|p| p.threads.iter().cloned()).collect()
+/// The moves whose Undo time is over and that are being done right now (the server move, then the local rows): their threads stay hidden from
+/// the lists until that is finished. Without this the threads were in neither set while the move ran, so a list read in that moment (the 30 s
+/// refresh of the page, a sync) showed the message again, and a window that was hidden to the tray showed it after it was reopened (BUG-B3).
+static COMMITTING: Mutex<Vec<(String, Vec<String>)>> = Mutex::new(Vec::new());
+
+fn committing_lock() -> std::sync::MutexGuard<'static, Vec<(String, Vec<String>)>> {
+    COMMITTING.lock().unwrap_or_else(|p| p.into_inner())
 }
 
-/// Hide the threads now and run the action on the server after `delay_secs`, unless it is cancelled.
-#[tauri::command]
-fn queue_action(thread_ids: Vec<String>, action: String, arg: Option<String>, scope: Option<String>, delay_secs: u64) -> String {
+/// Threads that a list must not show: waiting out their Undo time, or being moved right now.
+fn pending_thread_ids() -> std::collections::HashSet<String> {
+    // (always this order: a mover holds PENDING while it registers in COMMITTING, so a thread is never in neither)
+    let waiting = pending_lock();
+    let running = committing_lock();
+    waiting.iter().flat_map(|p| p.threads.iter().cloned()).chain(running.iter().flat_map(|(_, t)| t.iter().cloned())).collect()
+}
+
+/// Take the moves that are due (all of them when `due` is None) out of the waiting list and register them as running, in one step.
+fn take_due(due: Option<std::time::Instant>) -> Vec<Pending> {
+    let mut g = pending_lock();
+    let (taken, rest): (Vec<_>, Vec<_>) = std::mem::take(&mut *g).into_iter().partition(|p| due.map_or(true, |now| p.due <= now));
+    *g = rest;
+    let mut running = committing_lock();
+    running.extend(taken.iter().map(|p| (p.id.clone(), p.threads.clone())));
+    taken
+}
+
+/// The move is over (done or failed): its threads show in the lists again if they are still there.
+fn committing_done(id: &str) {
+    committing_lock().retain(|(i, _)| i != id);
+}
+
+fn queue(thread_ids: Vec<String>, action: String, arg: Option<String>, scope: Option<String>, delay_secs: u64, verify: Option<Arc<Verify>>) -> String {
     let id = uuid::Uuid::new_v4().to_string();
     pending_lock().push(Pending {
         id: id.clone(),
@@ -1015,47 +1247,121 @@ fn queue_action(thread_ids: Vec<String>, action: String, arg: Option<String>, sc
         arg,
         scope,
         due: std::time::Instant::now() + std::time::Duration::from_secs(delay_secs),
+        verify,
     });
     id
 }
 
-#[tauri::command]
-fn cancel_action(id: String) -> bool {
+/// Remove a queued move; true when it was still waiting.
+fn unqueue(id: &str) -> bool {
     let mut g = pending_lock();
     let before = g.len();
     g.retain(|p| p.id != id);
     g.len() != before
 }
 
-fn run_pending(app: &tauri::AppHandle, items: Vec<Pending>) {
+/// The app is told that a queued move was dropped because its folder is gone and cannot be made: the mail is back in the list.
+#[derive(Serialize, Clone)]
+#[serde(rename_all = "camelCase")]
+struct VerifyFailed {
+    id: String,
+    error: String,
+}
+
+/// A folder check ended. A failure drops the move if it is still waiting (Undo already took it: nothing to do; the move is already
+/// running: it sees the failure itself, `run_pending`) and returns the error for the app to show.
+fn verify_finished(id: &str, v: &Verify, result: R<()>) -> Option<String> {
+    let failed = result.clone().err();
+    v.finish(result);
+    let error = failed?;
+    unqueue(id).then_some(error)
+}
+
+/// Hide the threads now and run the action on the server after `delay_secs`, unless it is cancelled. `verify`: the saved folder list was
+/// trusted for the folder this move goes to (see `prepare_action`), so it is looked up on the server now, while the Undo window runs; when
+/// it is gone and cannot be made, the move is dropped and the app gets `action-verify-failed`.
+#[tauri::command]
+fn queue_action(
+    app: tauri::AppHandle,
+    state: tauri::State<AppState>,
+    thread_ids: Vec<String>,
+    action: String,
+    arg: Option<String>,
+    scope: Option<String>,
+    delay_secs: u64,
+    verify: Option<bool>,
+) -> String {
+    let db = state.db.clone();
+    let targets = if verify == Some(true) { move_targets(&db, &thread_ids, &action, arg.as_deref(), &scope).unwrap_or_default() } else { vec![] };
+    if targets.is_empty() {
+        return queue(thread_ids, action, arg, scope, delay_secs, None);
+    }
+    let gate = Verify::new();
+    let id = queue(thread_ids, action, arg, scope, delay_secs, Some(gate.clone()));
+    let task = id.clone();
+    std::thread::spawn(move || {
+        let wanted: Vec<(String, String)> = targets.into_iter().map(|(a, d, _)| (a, d)).collect();
+        if let Some(error) = verify_finished(&task, &gate, verify_targets(&db, &wanted)) {
+            let _ = app.emit_to("main", "action-verify-failed", VerifyFailed { id: task, error });
+        }
+    });
+    id
+}
+
+#[tauri::command]
+fn cancel_action(id: String) -> bool {
+    unqueue(&id)
+}
+
+/// The threads whose move is done, for the main page (`moves-committed`): it takes them out of its list at once.
+#[derive(Serialize, Clone)]
+#[serde(rename_all = "camelCase")]
+struct MovesCommitted {
+    thread_ids: Vec<String>,
+}
+
+fn run_pending(app: &tauri::AppHandle, items: Vec<Pending>, verify_wait: std::time::Duration) {
     if items.is_empty() {
         return;
     }
     let db = app.state::<AppState>().db.clone();
+    let mut moved: Vec<String> = vec![];
     for p in items {
-        if let Err(e) = action_impl(&db, p.threads, p.action, p.arg, p.scope) {
-            let _ = app.emit("action-failed", e);
+        // never move into a folder that was not checked: a failed check ends the move here
+        if let Some(Err(error)) = p.verify.as_ref().and_then(|v| v.wait(verify_wait)) {
+            committing_done(&p.id);
+            let _ = app.emit_to("main", "action-verify-failed", VerifyFailed { id: p.id, error });
+            continue;
+        }
+        let id = p.id.clone();
+        let threads = p.threads.clone();
+        let done = action_impl(&db, p.threads, p.action, p.arg, p.scope);
+        // (the local rows are changed by now: the threads stop being hidden only here, so no list read in between shows them)
+        committing_done(&id);
+        match done {
+            Ok(()) => moved.extend(threads),
+            // the id says which queued move this was: the app puts the mail, the selection and the next mail's unread state back (autoAdvance.ts)
+            Err(error) => {
+                let _ = app.emit_to("main", "action-failed", VerifyFailed { id, error });
+            }
         }
     }
     shell::update_badge(app, &db);
+    // the Undo time is over and the move is done: the page drops the messages from its list at this moment, whether its window is in front or
+    // hidden to the tray, and does not wait for a sync or a re-read to find out
+    if !moved.is_empty() {
+        let _ = app.emit_to("main", "moves-committed", MovesCommitted { thread_ids: moved });
+    }
     let _ = app.emit("mail-synced", ());
 }
 
 fn commit_due(app: &tauri::AppHandle) {
-    let due: Vec<Pending> = {
-        let mut g = pending_lock();
-        let now = std::time::Instant::now();
-        let (due, rest): (Vec<_>, Vec<_>) = std::mem::take(&mut *g).into_iter().partition(|p| p.due <= now);
-        *g = rest;
-        due
-    };
-    run_pending(app, due);
+    run_pending(app, take_due(Some(std::time::Instant::now())), VERIFY_WAIT);
 }
 
 /// Run everything still waiting (called before the app quits).
 pub(crate) fn flush_pending(app: &tauri::AppHandle) {
-    let all: Vec<Pending> = std::mem::take(&mut *pending_lock());
-    run_pending(app, all);
+    run_pending(app, take_due(None), VERIFY_WAIT_AT_QUIT);
 }
 
 fn pending_worker(app: tauri::AppHandle) {
@@ -1362,7 +1668,7 @@ fn backfill_run(app: &tauri::AppHandle, db: &Db, account_id: &str) -> R<()> {
             step
         },
         &mut |ev| {
-            let _ = app.emit("backfill-progress", ev);
+            let _ = app.emit_to("main", "backfill-progress", ev);
         },
     );
     if let Some(mut s) = sess {
@@ -1484,11 +1790,15 @@ struct ShellInfo {
     tray: bool,
     /// debug builds only: the test data folder in use (the About page says so)
     test_data: Option<String>,
+    /// how a PDF attachment is previewed here: "frame", "object" or "card" (pdfmode.rs)
+    pdf_view: &'static str,
+    /// the PDF experiment of macOS / Linux is on (HEYLOOK_PDF_INLINE): the page shows a readout of what the engine did
+    pdf_test: bool,
 }
 
 #[tauri::command]
 fn shell_info() -> ShellInfo {
-    ShellInfo { os: std::env::consts::OS, tray: shell::tray_ready(), test_data: legacy_names::test_data_dir().map(|p| p.display().to_string()) }
+    ShellInfo { os: std::env::consts::OS, tray: shell::tray_ready(), test_data: legacy_names::test_data_dir().map(|p| p.display().to_string()), pdf_view: pdfmode::view().name(), pdf_test: pdfmode::experiment_on() }
 }
 
 #[tauri::command]
@@ -1514,14 +1824,28 @@ struct FolderInfo {
     name: String,
     unread: u32,
     total: u32,
+    /// the account's saved folder list (`fmap:<id>`) names a server folder for this one. The app hides the Junk row and disables
+    /// "Mark as junk" where this is false for `junk` (Junk is never created); Archive and Trash rows stay (created on first use).
+    listed: bool,
 }
 
+/// Every account lists the six standard folders (inbox, sent, drafts, archive, trash, junk) plus the server's own folders, whether the
+/// server has the standard ones or not (QA v1.0.1 round 10, OBS-2: "Archive and Junk Email are listed when the server has neither").
+/// That is by design: Archive and Trash are what "Archive" and "Delete" move to, and a missing one is created the first time it is
+/// needed (F-14, `prepare_action`), so the row has to exist before the folder does. A row for a folder the server lacks is just empty;
+/// the app never claims it is a server folder. Junk is never created: marking mail as junk on a server without a Junk folder says
+/// at once that the folder is missing (`FOLDER_MISSING`), and the row fills as soon as the server has one (the next sync picks it up).
+/// (1.0.5) The rows stay, but each says whether the saved list names the folder (`listed`): the app hides the Junk row of an account
+/// whose list has no Junk, and a Junk folder the server gains later is listed by the next sync (it rewrites the saved list).
 #[tauri::command]
 fn list_folders(state: tauri::State<AppState>) -> R<Vec<FolderInfo>> {
-    let c = lock(&state.db);
-    let accounts = db::list_accounts(&c)?;
+    folder_infos(&lock(&state.db))
+}
+
+fn folder_infos(c: &Connection) -> R<Vec<FolderInfo>> {
+    let accounts = db::list_accounts(c)?;
     let mut counts: HashMap<(String, String), (u32, u32)> = HashMap::new();
-    let p: serde_json::Value = db::get_setting(&c, "prefs")
+    let p: serde_json::Value = db::get_setting(c, "prefs")
         .and_then(|s| serde_json::from_str(&s).ok())
         .unwrap_or(serde_json::Value::Null);
     // unread numbers count conversations, and (with Focused Inbox on) leave bulk mail out of the inbox figure
@@ -1546,7 +1870,7 @@ fn list_folders(state: tauri::State<AppState>) -> R<Vec<FolderInfo>> {
     drop(st);
     let mut out = vec![];
     for a in accounts {
-        let map: HashMap<String, String> = db::get_setting(&c, &format!("fmap:{}", a.id))
+        let map: HashMap<String, String> = db::get_setting(c, &format!("fmap:{}", a.id))
             .and_then(|s| serde_json::from_str(&s).ok())
             .unwrap_or_default();
         let mut keys: Vec<String> = mail::ROLES.iter().map(|r| r.to_string()).collect();
@@ -1558,6 +1882,7 @@ fn list_folders(state: tauri::State<AppState>) -> R<Vec<FolderInfo>> {
             out.push(FolderInfo {
                 account_id: a.id.clone(),
                 name: map.get(&k).cloned().unwrap_or_else(|| k.clone()),
+                listed: map.contains_key(&k),
                 key: k,
                 unread,
                 total,
@@ -1699,6 +2024,8 @@ struct ThreadSummary {
     confidential: bool,
     /// request | reply | cancel when a message of the conversation carries a calendar invitation
     invite: Option<String>,
+    /// high when a message of the conversation was sent with high importance, else low when one was sent with low importance
+    importance: importance::Importance,
 }
 
 #[tauri::command]
@@ -1826,7 +2153,7 @@ fn threads_for(c: &Connection, filter: ThreadFilter) -> R<Vec<ThreadSummary>> {
     }
     let sql = format!(
         "SELECT m.thread_id,m.id,m.account_id,m.folder,m.subject,m.from_name,m.from_email,m.snippet,m.date,m.seen,m.flagged,m.has_attach,
-                COALESCE(tm.pinned,0), tm.snoozed_until, m.list_unsub IS NOT NULL, m.pgp, m.cal_method
+                COALESCE(tm.pinned,0), tm.snoozed_until, m.list_unsub IS NOT NULL, m.pgp, m.cal_method, m.importance
          FROM messages m LEFT JOIN thread_meta tm ON tm.thread_id=m.thread_id
          WHERE {} ORDER BY m.date {} LIMIT 4000",
         w.join(" AND "),
@@ -1853,13 +2180,14 @@ fn threads_for(c: &Connection, filter: ThreadFilter) -> R<Vec<ThreadSummary>> {
                 r.get::<_, i64>(14)? != 0,
                 r.get::<_, i64>(15)?,
                 r.get::<_, Option<String>>(16)?,
+                r.get::<_, i64>(17)?,
             ))
         })
         .map_err(err)?;
     let mut order: Vec<String> = vec![];
     let mut map: HashMap<String, ThreadSummary> = HashMap::new();
     for row in rows {
-        let (tid, mid, acct, folder, subject, fname, femail, snippet, date, seen, flagged, att, pinned, snooze, bulk, pgp, cal) =
+        let (tid, mid, acct, folder, subject, fname, femail, snippet, date, seen, flagged, att, pinned, snooze, bulk, pgp, cal, imp) =
             row.map_err(err)?;
         let who = if fname.is_empty() { femail } else { fname };
         let key = if filter.flat { mid } else { tid.clone() };
@@ -1885,6 +2213,7 @@ fn threads_for(c: &Connection, filter: ThreadFilter) -> R<Vec<ThreadSummary>> {
                 signed: false,
                 confidential: false,
                 invite: None,
+                importance: importance::Importance::Normal,
             }
         });
         e.count += 1;
@@ -1897,6 +2226,11 @@ fn threads_for(c: &Connection, filter: ThreadFilter) -> R<Vec<ThreadSummary>> {
         e.encrypted |= pgp & 1 != 0;
         e.signed |= pgp & 2 != 0;
         e.confidential |= pgp & pgpmail::FLAG_CONFIDENTIAL as i64 != 0;
+        e.importance = match (e.importance, importance::Importance::from_db(imp)) {
+            (importance::Importance::High, _) | (_, importance::Importance::High) => importance::Importance::High,
+            (importance::Importance::Low, _) | (_, importance::Importance::Low) => importance::Importance::Low,
+            _ => importance::Importance::Normal,
+        };
         if e.invite.is_none() {
             e.invite = cal.filter(|m| matches!(m.as_str(), "request" | "reply" | "cancel"));
         }
@@ -1943,10 +2277,12 @@ pub(crate) struct MessageFull {
     ics: Option<String>,
     /// calendar invitation / update / cancellation / reply carried by this message
     invite: Option<calendar::CalInvite>,
+    /// how the sender marked it: normal | high | low
+    importance: importance::Importance,
 }
 
 const MESSAGE_COLS: &str = "id,account_id,folder,message_id,subject,from_name,from_email,to_addrs,cc_addrs,date,body_html,body_text,
-                    seen,flagged,attachments,list_unsub,pgp,pgp_raw,ics";
+                    seen,flagged,attachments,list_unsub,pgp,pgp_raw,ics,importance";
 
 fn row_message(r: &rusqlite::Row) -> rusqlite::Result<(MessageFull, i64, Option<Vec<u8>>)> {
     let att: String = r.get(14)?;
@@ -1973,6 +2309,7 @@ fn row_message(r: &rusqlite::Row) -> rusqlite::Result<(MessageFull, i64, Option<
             confidential: pgp & pgpmail::FLAG_CONFIDENTIAL as i64 != 0,
             ics: r.get(18)?,
             invite: None,
+            importance: importance::Importance::from_db(r.get(19)?),
         },
         pgp,
         r.get(17)?,
@@ -2063,6 +2400,31 @@ fn get_thread(state: tauri::State<AppState>, thread_id: String, scope: Option<St
         .collect())
 }
 
+/// What the database knows about a conversation beyond its messages (the pin and the snooze of `thread_meta`): the reader window draws its
+/// Pin button from it.
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct ThreadMeta {
+    pinned: bool,
+    snoozed_until: Option<i64>,
+}
+
+#[tauri::command]
+fn thread_meta(state: tauri::State<AppState>, thread_id: String) -> R<ThreadMeta> {
+    thread_meta_in(&lock(&state.db), &thread_id)
+}
+
+/// A conversation nobody pinned or snoozed has no row: not pinned, not snoozed.
+fn thread_meta_in(c: &Connection, thread_id: &str) -> R<ThreadMeta> {
+    let row: Option<(i64, Option<i64>)> = match c.query_row("SELECT pinned, snoozed_until FROM thread_meta WHERE thread_id=?1", [thread_id], |r| Ok((r.get(0)?, r.get(1)?))) {
+        Ok(v) => Some(v),
+        Err(rusqlite::Error::QueryReturnedNoRows) => None,
+        Err(e) => return Err(err(e)),
+    };
+    let (pinned, snoozed_until) = row.unwrap_or((0, None));
+    Ok(ThreadMeta { pinned: pinned != 0, snoozed_until })
+}
+
 // ---------- thread actions ----------
 
 struct MsgRef {
@@ -2151,6 +2513,11 @@ fn action_impl_in(db: &Db, thread_ids: Vec<String>, action: String, arg: Option<
     };
 
     let msgs = thread_msgs(&lock(db), &thread_ids)?;
+    act_on_refs(db, msgs, &action, dst_role.as_deref(), &scope, create_missing)
+}
+
+/// `action_impl` for messages that are already picked (not a whole conversation): one connection per account.
+fn act_on_refs(db: &Db, msgs: Vec<MsgRef>, action: &str, dst_role: Option<&str>, scope: &Option<String>, create_missing: bool) -> R<()> {
     let mut by_acct: HashMap<String, Vec<MsgRef>> = HashMap::new();
     for m in msgs {
         by_acct.entry(m.account_id.clone()).or_default().push(m);
@@ -2159,7 +2526,7 @@ fn action_impl_in(db: &Db, thread_ids: Vec<String>, action: String, arg: Option<
         let acc = db::get_account(&lock(db), &acct_id)?;
         let sec = secret(db, &acc)?;
         let mut s = mail::connect(&acc, &sec)?;
-        let done = act_on_session(db, &acc, &mut s, &list, &action, dst_role.as_deref(), &scope, create_missing);
+        let done = act_on_session(db, &acc, &mut s, &list, action, dst_role, scope, create_missing);
         let _ = s.logout();
         done?;
     }
@@ -2273,30 +2640,137 @@ fn move_to_role<T: std::io::Read + std::io::Write>(
             Err(e) => first_error = Some(e),
         }
     }
+    let (name, created) = resolve_folder(db, acc, s, folders, dst, create_missing)?;
+    if !created && tried.as_ref() == Some(&name) {
+        // the server has the folder we tried: the move failed for another reason
+        return Err(first_error.unwrap_or_else(|| folder_missing(dst)));
+    }
+    mail::move_to(s, src, uids, &name)
+}
+
+/// The server folder for a role, looked up on the server: the saved list is replaced by a fresh LIST (once per action), and a standard
+/// Archive / Trash the server still lacks is created when `create_missing`. Returns the folder name and whether it was just created.
+fn resolve_folder<T: std::io::Read + std::io::Write>(
+    db: &Db,
+    acc: &Account,
+    s: &mut imap::Session<T>,
+    folders: &mut Folders,
+    dst: &str,
+    create_missing: bool,
+) -> R<(String, bool)> {
     if folders.listing.is_none() {
         let listing = mail::list_folders(s)?;
         folders.map = listing.map.clone();
         folders.listing = Some(listing);
         save_fmap(db, &acc.id, &folders.map)?;
     }
-    let (name, created) = match folders.map.get(dst).cloned() {
-        Some(n) => (n, false),
-        None => {
-            let create = if create_missing { folders.listing.as_ref().and_then(|l| mail::name_to_create(dst, l)) } else { None };
-            let Some(create) = create else {
-                return Err(if create_missing { folder_missing(dst) } else { format!("no '{dst}' folder on this account") });
-            };
-            mail::create_folder(s, &create).map_err(|why| folder_not_created(dst, &why))?;
-            folders.map.insert(dst.to_string(), create.clone());
-            save_fmap(db, &acc.id, &folders.map)?;
-            (create, true)
-        }
-    };
-    if !created && tried.as_ref() == Some(&name) {
-        // the server has the folder we tried: the move failed for another reason
-        return Err(first_error.unwrap_or_else(|| folder_missing(dst)));
+    if let Some(n) = folders.map.get(dst).cloned() {
+        return Ok((n, false));
     }
-    mail::move_to(s, src, uids, &name)
+    let create = if create_missing { folders.listing.as_ref().and_then(|l| mail::name_to_create(dst, l)) } else { None };
+    let Some(create) = create else {
+        return Err(if create_missing { folder_missing(dst) } else { format!("no '{dst}' folder on this account") });
+    };
+    mail::create_folder(s, &create).map_err(|why| folder_not_created(dst, &why))?;
+    folders.map.insert(dst.to_string(), create.clone());
+    save_fmap(db, &acc.id, &folders.map)?;
+    Ok((create, true))
+}
+
+/// (OBS-1) Make sure the folder a move is going to exists BEFORE the person is told "Archived": the saved list is trusted when it names
+/// the folder (the usual case: no server call at all), otherwise the server is asked and a missing Archive / Trash is created now.
+/// When that is impossible the error is the one the move would have given after the Undo time, but at once, and nothing was queued.
+fn prepare_on_session<T: std::io::Read + std::io::Write>(db: &Db, acc: &Account, s: &mut imap::Session<T>, dst: &str) -> R<()> {
+    let mut folders = Folders { map: fmap(db, &acc.id), listing: None };
+    if folders.map.contains_key(dst) {
+        return Ok(());
+    }
+    resolve_folder(db, acc, s, &mut folders, dst, true).map(|_| ())
+}
+
+/// Every (account, destination role, whether the saved folder list names that folder) a move of these conversations goes to, with the same
+/// skips as the move itself (`act_on_session`: the view it is done from, mail already there, a delete from the Trash that removes for good).
+/// Not a move (read, star, pin, snooze ...): nothing.
+fn move_targets(db: &Db, thread_ids: &[String], action: &str, arg: Option<&str>, scope: &Option<String>) -> R<Vec<(String, String, bool)>> {
+    let dst = match action {
+        "archive" | "trash" | "junk" | "inbox" => action,
+        "block" => "junk",
+        "move" => arg.ok_or("move needs a destination folder")?,
+        _ => return Ok(vec![]),
+    };
+    let msgs = thread_msgs(&lock(db), thread_ids)?;
+    let mut out: Vec<(String, String, bool)> = vec![];
+    for m in msgs {
+        let allowed = match scope {
+            Some(sc) => &m.role == sc,
+            None => !matches!(m.role.as_str(), "sent" | "drafts" | "trash" | "junk"),
+        };
+        if !allowed || m.role == dst || (dst == "trash" && m.role == "trash") {
+            continue;
+        }
+        if !out.iter().any(|(a, d, _)| *a == m.account_id && d == dst) {
+            let cached = fmap(db, &m.account_id).contains_key(dst);
+            out.push((m.account_id.clone(), dst.to_string(), cached));
+        }
+    }
+    Ok(out)
+}
+
+/// The accounts and destination roles whose saved folder list does not name the destination (those need the server now: `prepare_on_session`).
+#[cfg(test)]
+fn targets_to_prepare(db: &Db, thread_ids: &[String], action: &str, arg: Option<&str>, scope: &Option<String>) -> R<Vec<(String, String)>> {
+    Ok(move_targets(db, thread_ids, action, arg, scope)?.into_iter().filter(|t| !t.2).map(|t| (t.0, t.1)).collect())
+}
+
+/// Resolve (find, refresh, create) the destination folder of a move on the server, before the move is queued, for the folders the saved
+/// list does not name. Returns true when the saved list was trusted for at least one destination: the caller must then have it checked
+/// in the background while the Undo window runs (`queue_action` with `verify`), because the folder may be gone since the last sync (BUG-1).
+fn prepare_action_impl(db: &Db, thread_ids: &[String], action: &str, arg: Option<&str>, scope: &Option<String>) -> R<bool> {
+    let targets = move_targets(db, thread_ids, action, arg, scope)?;
+    for (acct_id, dst, _) in targets.iter().filter(|t| !t.2) {
+        let acc = db::get_account(&lock(db), acct_id)?;
+        let sec = secret(db, &acc)?;
+        let mut s = mail::connect(&acc, &sec)?;
+        let done = prepare_on_session(db, &acc, &mut s, dst);
+        let _ = s.logout();
+        done?;
+    }
+    Ok(targets.iter().any(|t| t.2))
+}
+
+/// (BUG-1) Look at the server for the folder a move goes to although the saved folder list names it: a fresh LIST replaces the saved list
+/// (a renamed folder is found), a folder that is gone is created again (Archive / Trash), and when that is impossible the same coded error
+/// as in `prepare_on_session` comes back. Nothing is moved.
+fn verify_on_session<T: std::io::Read + std::io::Write>(db: &Db, acc: &Account, s: &mut imap::Session<T>, dst: &str) -> R<()> {
+    let mut folders = Folders { map: fmap(db, &acc.id), listing: None };
+    resolve_folder(db, acc, s, &mut folders, dst, true).map(|_| ())
+}
+
+fn verify_targets(db: &Db, targets: &[(String, String)]) -> R<()> {
+    for (acct_id, dst) in targets {
+        let acc = db::get_account(&lock(db), acct_id)?;
+        let sec = secret(db, &acc)?;
+        let mut s = mail::connect(&acc, &sec)?;
+        let done = verify_on_session(db, &acc, &mut s, dst);
+        let _ = s.logout();
+        done?;
+    }
+    Ok(())
+}
+
+/// (OBS-1) Called by the app before it hides the mail and shows "Archived" / "Deleted ...": fails at once when the target folder cannot be
+/// found or created, so the success message never comes before the error. The answer says whether the saved folder list was trusted for a
+/// folder (true = ask `queue_action` to check it on the server during the Undo window).
+#[tauri::command]
+async fn prepare_action(
+    state: tauri::State<'_, AppState>,
+    thread_ids: Vec<String>,
+    action: String,
+    arg: Option<String>,
+    scope: Option<String>,
+) -> R<bool> {
+    let db = state.db.clone();
+    blocking(move || prepare_action_impl(&db, &thread_ids, &action, arg.as_deref(), &scope)).await
 }
 
 fn save_fmap(db: &Db, account_id: &str, map: &HashMap<String, String>) -> R<()> {
@@ -2329,6 +2803,7 @@ fn folder_not_created(role: &str, why: &str) -> String {
 
 #[tauri::command]
 async fn thread_action(
+    app: tauri::AppHandle,
     state: tauri::State<'_, AppState>,
     thread_ids: Vec<String>,
     action: String,
@@ -2342,7 +2817,11 @@ async fn thread_action(
     } else {
         (action, scope)
     };
-    blocking(move || action_impl(&db, thread_ids, action, arg, scope)).await
+    let (ids, what) = (thread_ids.clone(), action.clone());
+    blocking(move || action_impl(&db, thread_ids, action, arg, scope)).await?;
+    // a reader window open on one of these conversations shows the new state (read / flag / pin / snooze) from the database
+    let _ = app.emit(popout::THREAD_STATE_EVENT, serde_json::json!({ "threadIds": ids, "action": what }));
+    Ok(())
 }
 
 // ---------- senders (bulk cleaner) ----------
@@ -2553,13 +3032,33 @@ async fn get_raw(state: tauri::State<'_, AppState>, message_id: String) -> R<Str
     Ok(String::from_utf8_lossy(&raw).into_owned())
 }
 
+/// The headers an answer to this message needs (Reply-To, Message-ID, the References of the answer), read from the message as the server
+/// holds it. Only headers: allowed for confidential mail too (the answer to it is confidential as well).
+#[tauri::command]
+async fn reply_headers(state: tauri::State<'_, AppState>, message_id: String) -> R<replyhdr::ReplyHeaders> {
+    let db = state.db.clone();
+    blocking(move || {
+        let downloaded = rawcache::get(&message_id).is_some();
+        let (raw, _) = fetch_raw_for(&db, &message_id)?;
+        let h = replyhdr::from_raw(&raw);
+        // so that a Reply that did not go where the sender asked can be explained afterwards (the page drops the Reply-To addresses that are the person's own accounts)
+        let own: Vec<String> = lock(&db)
+            .prepare("SELECT email FROM accounts")
+            .and_then(|mut q| q.query_map([], |r| r.get::<_, String>(0))?.collect())
+            .unwrap_or_default();
+        startup::line("reply", &replyhdr::log_text(&h, if downloaded { "body" } else { "fetch" }, &own));
+        Ok(h)
+    })
+    .await
+}
+
 /// Folder for "Save" (Settings → Attachments), falling back to the system Downloads folder, and then to the home folder.
 fn download_folder(app: &tauri::AppHandle, db: &Db) -> R<std::path::PathBuf> {
     let (dir, replaced) = pick_save_dir(setting(db, "download_dir").as_deref(), app.path().download_dir().ok(), app.path().home_dir().ok())?;
     // a chosen folder that is gone (or no Downloads folder that can be used, a bare Linux install) is no secret: say so (once per folder
     // and session) instead of quietly saving elsewhere
     if let Some(bad) = replaced.filter(|b| first_time_for(&DOWNLOAD_WARNED, b)) {
-        let _ = app.emit("download-dir-fallback", serde_json::json!({ "configured": bad, "used": dir.to_string_lossy() }));
+        let _ = app.emit_to("main", "download-dir-fallback", serde_json::json!({ "configured": bad, "used": dir.to_string_lossy() }));
     }
     Ok(dir)
 }
@@ -2781,6 +3280,27 @@ async fn copy_text(app: tauri::AppHandle, text: String) -> R<()> {
     }
 }
 
+/// The text on the system clipboard (plain text and HTML, either may be empty). The page calls this only on macOS, for Cmd+Shift+V in the
+/// editors: WKWebView sends no `paste` event for that key (it is not an accelerator of the Edit menu), and `navigator.clipboard.readText()`
+/// would ask the person to click a "Paste" button first. Other systems report that it is not available (they paste through the `paste` event).
+#[derive(serde::Serialize)]
+struct ClipboardText {
+    text: String,
+    html: String,
+}
+
+#[tauri::command]
+async fn read_clipboard_text() -> R<ClipboardText> {
+    #[cfg(target_os = "macos")]
+    {
+        blocking(|| macclip::read().map(|c| ClipboardText { text: c.text, html: c.html })).await
+    }
+    #[cfg(not(target_os = "macos"))]
+    {
+        Err("reading the clipboard from the backend is only available on macOS".into())
+    }
+}
+
 /// Write an attachment to the temp folder and open it with the default app. Programs and scripts need
 /// `confirmed = true`; otherwise the error starts with `ATT_RISKY` (unless the user turned the warning off).
 #[tauri::command]
@@ -2860,7 +3380,9 @@ fn send_now(db: &Db, d: &smtp::Draft) -> R<()> {
     let acc = db::get_account(&lock(db), &d.account_id)?;
     let sec = secret(db, &acc)?;
     let (raw, env) = finished_message(db, &acc, d)?;
-    smtp::send_raw(&acc, &smtp_secret(db, &acc)?, &env, &raw)?;
+    // the Sent copy is byte for byte the DATA the server received (smtp::as_data)
+    let (wire, raw) = smtp::as_data(&raw);
+    smtp::send_raw(&acc, &smtp_secret(db, &acc)?, &env, wire)?;
     let h = acc.smtp_host.to_lowercase();
     let auto_saves = h.contains("gmail") || h.contains("googlemail") || h.contains("office365") || h.contains("outlook");
     if !auto_saves {
@@ -2920,7 +3442,7 @@ fn finished_message(db: &Db, acc: &Account, d: &smtp::Draft) -> R<(Vec<u8>, lett
     }
     let sec = d.security.clone().unwrap_or_default();
     let msg = if sec.encrypt || sec.sign { pgpstore::build_secure(&lock(db), acc, d, false)? } else { smtp::build(acc, d)? };
-    Ok((msg.formatted(), msg.envelope().clone()))
+    Ok((smtp::wire(&msg), msg.envelope().clone()))
 }
 
 /// What goes into the Drafts folder: encrypted to the account's own key when the draft is encrypted.
@@ -2930,9 +3452,20 @@ fn draft_bytes(db: &Db, acc: &Account, d: &smtp::Draft) -> R<Vec<u8>> {
         if let Some(pre) = &d.prebuilt {
             return base64::engine::general_purpose::STANDARD.decode(pre).map_err(err);
         }
-        return Ok(pgpstore::build_secure(&lock(db), acc, d, true)?.formatted());
+        // the meeting header is plain text outside the encryption: an encrypted draft keeps its meeting on this computer only (`remember_meeting`)
+        let mut d = d.clone();
+        d.meeting_form = None;
+        return Ok(smtp::wire(&pgpstore::build_secure(&lock(db), acc, &d, true)?));
     }
-    Ok(smtp::build_draft(acc, d)?.formatted())
+    Ok(smtp::wire(&smtp::build_draft(acc, d)?))
+}
+
+/// The meeting of a draft that was just appended is also kept on this computer, by Message-ID: a server that drops the header it does not know
+/// would otherwise take the meeting with it (BUG-R3-4). Failures do not matter: the header is the copy that travels.
+fn remember_draft_meeting(db: &Db, acc: &Account, raw: &[u8], d: &smtp::Draft) {
+    if let Some(blob) = d.meeting_form.as_deref() {
+        draftmail::remember_meeting(&lock(db), &acc.id, raw, blob);
+    }
 }
 
 /// Queue a finished message (MIME is built at send time from the stored draft) for `send_at`.
@@ -3019,7 +3552,9 @@ async fn outbox_hold_send(app: tauri::AppHandle, state: tauri::State<'_, AppStat
 /// Remove the original draft after a message was sent or scheduled from it (so it is not duplicated).
 fn drop_replaced_draft(db: &Db, replaces: Option<String>) {
     if let Some(t) = replaces {
-        let _ = action_impl(db, vec![t], "delete_forever".into(), None, Some("drafts".into()));
+        if let Err(e) = draftmail::drop_draft(db, &t) {
+            startup::line("draft", &format!("the draft that a sent or scheduled message was written from could not be removed: {e}"));
+        }
     }
 }
 
@@ -3073,8 +3608,17 @@ async fn send_message(
     Ok("sent".into())
 }
 
+/// What Save draft tells the interface: the thread the draft will have, and the reference to give to the next save (or to the send) so that
+/// it replaces exactly this draft (`draftmail::drop_draft`).
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct SavedDraft {
+    thread_id: Option<String>,
+    draft_ref: Option<String>,
+}
+
 #[tauri::command]
-async fn save_draft(state: tauri::State<'_, AppState>, draft: smtp::Draft, replaces: Option<String>) -> R<()> {
+async fn save_draft(state: tauri::State<'_, AppState>, draft: smtp::Draft, replaces: Option<String>) -> R<SavedDraft> {
     let db = state.db.clone();
     blocking(move || {
         let acc = db::get_account(&lock(&db), &draft.account_id)?;
@@ -3084,12 +3628,191 @@ async fn save_draft(state: tauri::State<'_, AppState>, draft: smtp::Draft, repla
         let folder = folder_for(&db, &acc, "drafts")?;
         mail::append(&mut s, &folder, &raw, true)?;
         let _ = s.logout();
+        remember_draft_meeting(&db, &acc, &raw, &draft);
+        let draft_ref = draftmail::draft_ref(&acc.id, &raw);
         if let Some(t) = replaces {
-            let _ = action_impl(&db, vec![t], "delete_forever".into(), None, Some("drafts".into()));
+            // never remove the draft that was just appended (a reference to its own Message-ID)
+            if draft_ref.as_deref() == Some(t.as_str()) {
+                startup::line("draft", &format!("account {}: the draft to replace is the one just saved, nothing removed", acc.id));
+            } else if let Err(e) = draftmail::drop_draft(&db, &t) {
+                startup::line("draft", &format!("account {}: the draft that was replaced could not be removed: {e}", acc.id));
+            }
         }
-        Ok(())
+        // the thread the draft gets in the local store (the toast "Draft saved" can open it again with Edit)
+        Ok(SavedDraft { thread_id: draft_thread_id(&acc.id, &raw), draft_ref })
     })
     .await
+}
+
+/// To, Cc and Bcc of a saved draft with their display names, read from the headers of the message in the Drafts folder (the synced copy
+/// keeps bare To / Cc addresses and no Bcc). Opening a draft in Compose restores the chips from this.
+#[tauri::command]
+async fn draft_recipients(state: tauri::State<'_, AppState>, message_id: String) -> R<draftmail::DraftRecipients> {
+    let db = state.db.clone();
+    blocking(move || {
+        let (raw, _) = fetch_raw_for(&db, &message_id)?;
+        let mut r = draftmail::recipients(&raw);
+        if r.meeting.is_none() {
+            // the server dropped the private header (or the draft is encrypted): the copy this computer kept when the draft was saved
+            let acct: Option<String> = lock(&db).query_row("SELECT account_id FROM messages WHERE id=?1", [&message_id], |x| x.get(0)).ok();
+            r.meeting = acct.and_then(|a| draftmail::recall_meeting(&lock(&db), &a, &raw));
+        }
+        Ok(r)
+    })
+    .await
+}
+
+/// Remove the draft a reference names (Discard on a new message whose autosave had made a draft).
+#[tauri::command]
+async fn discard_draft(state: tauri::State<'_, AppState>, reference: String) -> R<()> {
+    let db = state.db.clone();
+    blocking(move || draftmail::drop_draft(&db, &reference)).await
+}
+
+// ---------- crash recovery of the message being written (recover.rs) ----------
+
+/// Snapshots written in this run whose first write was logged, and how many writes failed (the log says the first failure and then every
+/// tenth: a disk that stays full must not fill `startup.log`).
+static RECOVERY_SEEN: Mutex<Vec<String>> = Mutex::new(Vec::new());
+static RECOVERY_FAILED: std::sync::atomic::AtomicU32 = std::sync::atomic::AtomicU32::new(0);
+
+fn recovery_log(text: &str) {
+    startup::line("recovery", text);
+}
+
+/// Compose writes a snapshot of the message every few seconds while something changed.
+#[tauri::command]
+async fn recovery_save(state: tauri::State<'_, AppState>, snap: recover::SnapIn) -> R<()> {
+    let db = state.db.clone();
+    let (id, bytes, files) = (snap.id.clone(), snap.payload.len(), snap.files.as_ref().map(|f| f.len()));
+    let r = blocking(move || recover::save(&lock(&db), &snap, now())).await;
+    match &r {
+        Ok(()) => {
+            let mut seen = RECOVERY_SEEN.lock().unwrap_or_else(|p| p.into_inner());
+            if !seen.contains(&id) && seen.len() < 50 {
+                seen.push(id.clone());
+                recovery_log(&format!("snapshot saved (message {}, {bytes} bytes{})", recover::short_id(&id), files.map(|n| format!(", {n} file(s)")).unwrap_or_default()));
+            }
+        }
+        Err(e) => {
+            let n = RECOVERY_FAILED.fetch_add(1, std::sync::atomic::Ordering::SeqCst) + 1;
+            if n == 1 || n % 10 == 0 {
+                recovery_log(&format!("snapshot of message {} could not be written ({n} failed so far): {}", recover::short_id(&id), e.chars().take(160).collect::<String>()));
+            }
+        }
+    }
+    r
+}
+
+/// The message was sent, discarded or saved: no snapshot is needed any more. `why` is for the log only.
+#[tauri::command]
+async fn recovery_clear(state: tauri::State<'_, AppState>, id: String, why: Option<String>) -> R<()> {
+    let db = state.db.clone();
+    let log_id = id.clone();
+    let removed = blocking(move || recover::clear(&lock(&db), &id)).await?;
+    if removed > 0 {
+        recovery_log(&format!("snapshot removed ({}; message {})", why.as_deref().unwrap_or("message over").chars().take(60).collect::<String>(), recover::short_id(&log_id)));
+    }
+    Ok(())
+}
+
+/// Messages that were being written when the app ended without saving or sending them. The decision is logged (what was found and what
+/// happens to it), so a start that shows no toast can be told from one that had nothing to keep. Snapshots of an account that no longer
+/// exists are dropped here, with a line in the log.
+#[tauri::command]
+async fn recovery_list(state: tauri::State<'_, AppState>) -> R<Vec<recover::Info>> {
+    let db = state.db.clone();
+    let (list, dropped) = blocking(move || {
+        let c = lock(&db);
+        let dropped = recover::counts(&c)?.1;
+        if dropped > 0 {
+            recover::prune(&c)?;
+        }
+        Ok((recover::list(&c)?, dropped))
+    })
+    .await?;
+    recovery_log(&recover::decision_text(list.len(), dropped));
+    Ok(list)
+}
+
+/// What saving a snapshot as a draft tells the interface (`status`: `saved` = the draft was appended now, `covered` = a draft saved at or after
+/// the snapshot was on the server already and no second one was made) and the draft to open from it.
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct RecoveredDraft {
+    status: &'static str,
+    thread_id: Option<String>,
+    draft_ref: Option<String>,
+}
+
+/// 1.0.6: the snapshot `id` is saved as a real draft, the way Save draft does it (APPEND to the Drafts folder with \Draft and \Seen, Bcc kept,
+/// the draft it takes the place of removed), and removed once the draft is confirmed. A draft of the same message that is on the server already
+/// (found by the snapshot id at the start of its Message-ID) is never joined by a second one: a newer or equal one covers the snapshot, an older one
+/// is replaced. Any failure (no Drafts folder, no connection, a refused APPEND) is an error and the snapshot stays, nothing is lost.
+#[tauri::command]
+async fn recovery_save_draft(state: tauri::State<'_, AppState>, id: String, mut draft: smtp::Draft, replaces: Option<String>) -> R<RecoveredDraft> {
+    let db = state.db.clone();
+    let short = recover::short_id(&id);
+    let r = blocking(move || save_recovered(&db, &id, &mut draft, replaces)).await;
+    match &r {
+        Ok(d) => recovery_log(&format!("snapshot {short} {}", if d.status == "covered" { "is covered by a draft that is on the server already" } else { "saved as a draft" })),
+        Err(e) => recovery_log(&format!("snapshot {short} could not be saved as a draft, kept on this computer: {}", e.chars().take(160).collect::<String>())),
+    }
+    r
+}
+
+fn save_recovered(db: &Db, id: &str, draft: &mut smtp::Draft, replaces: Option<String>) -> R<RecoveredDraft> {
+    let snap = recover::load(&lock(db), id)?.ok_or("this snapshot is gone")?;
+    if snap.account_id != draft.account_id {
+        return Err("the snapshot belongs to another account".into());
+    }
+    if draft.security.as_ref().is_some_and(|s| s.encrypt || s.sign) {
+        // (Compose writes no snapshot of an encrypted message; if one exists it is not saved to the server in plain text)
+        return Err("an encrypted message is not saved from a snapshot".into());
+    }
+    let acc = db::get_account(&lock(db), &draft.account_id)?;
+    let folder = folder_for(db, &acc, "drafts")?;
+    let sec = secret(db, &acc)?;
+    let mut s = mail::connect(&acc, &sec)?;
+    let done: R<RecoveredDraft> = (|| {
+        let found = draftmail::find_by_recovery_id(&mut s, &folder, id)?;
+        match recover::verdict(&found, id, snap.saved_at) {
+            recover::Verdict::Covered(uid) => {
+                let raw = mail::fetch_raw(&mut s, &folder, uid)?;
+                Ok(RecoveredDraft { status: "covered", thread_id: draft_thread_id(&acc.id, &raw), draft_ref: draftmail::draft_ref(&acc.id, &raw) })
+            }
+            recover::Verdict::Save { replace } => {
+                draft.recovery_id = Some(id.to_string());
+                let raw = draft_bytes(db, &acc, draft)?;
+                mail::append(&mut s, &folder, &raw, true)?;
+                remember_draft_meeting(db, &acc, &raw, draft);
+                // the draft is on the server: what it replaces goes (a failure here is only logged, like Save draft). The older drafts of this
+                // very message are removed by the uids that were checked against their headers, on this session.
+                if let Err(e) = mail::delete_forever(&mut s, &folder, &replace) {
+                    startup::line("draft", &format!("account {}: an older draft of this message could not be removed: {e}", acc.id));
+                }
+                if let Some(t) = replaces {
+                    if let Err(e) = draftmail::drop_draft(db, &t) {
+                        startup::line("draft", &format!("account {}: the draft that was replaced could not be removed: {e}", acc.id));
+                    }
+                }
+                Ok(RecoveredDraft { status: "saved", thread_id: draft_thread_id(&acc.id, &raw), draft_ref: draftmail::draft_ref(&acc.id, &raw) })
+            }
+        }
+    })();
+    let _ = s.logout();
+    let saved = done?;
+    // confirmed: only now does the snapshot go
+    if recover::clear(&lock(db), id)? > 0 {
+        recovery_log(&format!("snapshot removed (draft saved at start; message {})", recover::short_id(id)));
+    }
+    Ok(saved)
+}
+
+#[tauri::command]
+async fn recovery_load(state: tauri::State<'_, AppState>, id: String) -> R<Option<recover::Loaded>> {
+    let db = state.db.clone();
+    blocking(move || recover::load(&lock(&db), &id)).await
 }
 
 #[derive(Serialize)]
@@ -3354,6 +4077,7 @@ async fn outbox_to_draft(app: tauri::AppHandle, state: tauri::State<'_, AppState
         let folder = folder_for(&db, &acc, "drafts")?;
         mail::append(&mut s, &folder, &raw, true)?;
         let _ = s.logout();
+        remember_draft_meeting(&db, &acc, &raw, &d);
         let c = lock(&db);
         c.execute("DELETE FROM outbox WHERE id=?1", [&id]).map_err(err)?;
         calendar::forget_prepared(&c, &payload);
@@ -3465,10 +4189,10 @@ fn outbox_worker(app: tauri::AppHandle, db: Db) {
             let _ = deliver(&app, &db, &id, &payload, attempts, &mut late, &mut left, due_at);
         }
         if late > 0 {
-            let _ = app.emit("outbox-catchup", serde_json::json!({ "count": late }));
+            let _ = app.emit_to("main", "outbox-catchup", serde_json::json!({ "count": late }));
         }
         if left > 0 {
-            let _ = app.emit("outbox-leftover", serde_json::json!({ "count": left }));
+            let _ = app.emit_to("main", "outbox-leftover", serde_json::json!({ "count": left }));
         }
     }
 }
@@ -3477,79 +4201,230 @@ fn outbox_worker(app: tauri::AppHandle, db: Db) {
 static QUIT_BUSY: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
 /// The scheduled-messages question is on screen: a second quit request shows it, it does not ask again.
 static QUESTION_OPEN: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
-/// The page is asking the person something (a draft that could not be saved): the quit waits for the answer, however long it takes.
-static USER_DIALOG: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
-/// Where the page's answer to `flush-sends` goes: `true` = go on quitting, `false` = the person chose to keep the window open.
-static FLUSH_ACK: Mutex<Option<std::sync::mpsc::Sender<bool>>> = Mutex::new(None);
-/// How long a quit waits for the page (it holds the sends for at most 20 s itself; this only guards against a page that hangs).
-const FLUSH_WAIT: std::time::Duration = std::time::Duration::from_secs(45);
+/// Where the windows' messages during a quit go: one channel per window that was asked (`quitwait::Msg`: it got the request, it asks the
+/// person, it is done). Keyed by window label, so each window is waited for with a wait of its own.
+static FLUSH_ACK: Mutex<Vec<(String, std::sync::mpsc::Sender<quitwait::Msg>)>> = Mutex::new(Vec::new());
+
+/// The windows whose pages must answer the flush request of a quit before the app ends: they hold what the backend does not (a message
+/// being written, the Undo timers of messages that were just sent). That is the main window once its page has loaded, and every secondary
+/// window (a compose or reader window popped out of the main one, popout.rs) whose page is ready; a window whose page never loaded has
+/// nothing to finish. A quit asks the secondary windows first and the main window last (`quitwait::steps`).
+fn flush_targets(app: &tauri::AppHandle) -> Vec<String> {
+    let mut targets = vec![];
+    if startup::is_ready() && app.get_webview_window("main").is_some() {
+        targets.push("main".to_string());
+    }
+    targets.extend(popout::ready_labels(app));
+    targets
+}
+
+/// The event that asks a window to answer: the main page listens to `flush-sends`, a secondary window to `popout-flush`.
+fn flush_event(label: &str) -> &'static str {
+    if label == "main" { "flush-sends" } else { popout::FLUSH_EVENT }
+}
+
+/// What the request carries: nothing for the main page; a secondary window is told why it is asked (`quit` or `update`), because the question
+/// it may have to put to the person says "quit" or "restart".
+fn flush_payload(label: &str, why: &str) -> serde_json::Value {
+    if label == "main" { serde_json::Value::Null } else { serde_json::json!({ "why": why }) }
+}
+
+/// Test seam for QA (`HEYLOOK_TEST_QUIT_PAGE=silent`): the page is not asked, so for the quit it is a page that never answers (a hung or dead
+/// page). The quit must then end after `quitwait::FIRST_SIGN_WAIT` with "the page did not answer". Anything else does nothing.
+fn test_silent_page() -> bool {
+    std::env::var("HEYLOOK_TEST_QUIT_PAGE").is_ok_and(|v| v == "silent")
+}
+
+/// Ask the windows of one step of a quit together and wait for each on a thread of its own, with the bounds of `quitwait.rs`. The
+/// channel of every window is in place before the first request goes out. (Generic over the runtime so that a test can use mock windows.)
+fn ask_windows<R: tauri::Runtime>(app: &tauri::AppHandle<R>, labels: &[String], limits: quitwait::Limits, why: &str) -> Vec<(String, quitwait::Verdict)> {
+    let mut waits = vec![];
+    for label in labels {
+        let (tx, rx) = std::sync::mpsc::channel::<quitwait::Msg>();
+        {
+            let mut acks = FLUSH_ACK.lock().unwrap_or_else(|p| p.into_inner());
+            acks.retain(|(l, _)| l != label);
+            acks.push((label.clone(), tx));
+        }
+        waits.push((label.clone(), rx));
+    }
+    for label in labels {
+        if test_silent_page() {
+            startup::stage(None, &format!("quit: test seam HEYLOOK_TEST_QUIT_PAGE=silent: the page of {label} is not asked"));
+        } else {
+            let _ = app.emit_to(label.as_str(), flush_event(label), flush_payload(label, why));
+        }
+    }
+    let answers: Vec<(String, quitwait::Verdict)> = std::thread::scope(|scope| {
+        let handles: Vec<_> = waits
+            .into_iter()
+            .map(|(label, rx)| {
+                scope.spawn(move || {
+                    let t0 = std::time::Instant::now();
+                    let who = quit_who(&label);
+                    let verdict = quitwait::drive(
+                        |t| rx.recv_timeout(t),
+                        || t0.elapsed(),
+                        limits,
+                        std::time::Duration::from_millis(200),
+                        |msg, phase| startup::stage(None, &format!("quit{who}: the page says {msg:?} ({phase})")),
+                    );
+                    (label, verdict)
+                })
+            })
+            .collect();
+        handles.into_iter().filter_map(|h| h.join().ok()).collect()
+    });
+    // the windows' ends of the channels stay only for a late answer to find nobody (a second quit starts new ones)
+    FLUSH_ACK.lock().unwrap_or_else(|p| p.into_inner()).retain(|(l, _)| !labels.contains(l));
+    answers
+}
+
+/// " (compose-1)" for a secondary window, nothing for the main page (the lines of its quit stay as QA knows them).
+fn quit_who(label: &str) -> String {
+    if label == "main" { String::new() } else { format!(" ({label})") }
+}
 
 /// Steps (b) to (d) of a quit (REQ-48): the page saves a dirty Compose (and asks when that fails), lets every message still in its
 /// "Undo" time go out at once and waits for the sends under way; only then `then` runs (queued actions, install, exit). The Undo timer and
 /// the open Compose live in the page, so the backend alone could not do this (QA BUG-M6: a quit during "Sending... Undo" lost the
 /// message). `then` is not run when the page answers "no" (the person chose to keep writing) or when a quit is already running.
+///
+/// The wait is bounded in every phase (`quitwait.rs`): a page that says nothing for 8 s, one that works for more than 45 s and a question
+/// nobody answers within 60 s end in "go on" (hardening after a QA Linux run, v1.0.6, in which a quit seemed to hang; a direct launch could
+/// not repeat it). Nothing is lost by that: a message being written has its recovery snapshot, a message in its Undo time is a row of the
+/// outbox that goes out at the next start (tested in `a_quit_without_the_page_loses_no_send_and_no_draft`).
+///
+/// With secondary windows open (popout.rs) every one of them is asked first, together, each with a wait of its own; the main page is asked
+/// after them. One "no" from any window ends the quit.
 fn finish_sends_then(app: &tauri::AppHandle, then: impl FnOnce(&tauri::AppHandle) + Send + 'static) {
     if QUIT_BUSY.swap(true, std::sync::atomic::Ordering::SeqCst) {
         return;
     }
-    USER_DIALOG.store(false, std::sync::atomic::Ordering::SeqCst);
-    let (tx, rx) = std::sync::mpsc::channel::<bool>();
-    // a page that never loaded has nothing to finish
-    let asked = startup::is_ready() && app.get_webview_window("main").is_some();
-    if asked {
-        *FLUSH_ACK.lock().unwrap_or_else(|p| p.into_inner()) = Some(tx);
-        startup::stage(Some(app), "quit: asking the page to save its draft and send what is waiting");
-        let _ = app.emit("flush-sends", ());
+    let targets = flush_targets(app);
+    if !targets.is_empty() {
+        startup::stage(Some(app), &format!("quit: asking the page to save its draft and send what is waiting (window visible: {}; windows asked: {})", window_shown(app), targets.join(", ")));
     }
     let app = app.clone();
     std::thread::spawn(move || {
-        let go = after_flush(asked, &rx, FLUSH_WAIT, &USER_DIALOG);
-        startup::stage(Some(&app), &format!("quit: the page is done (go on: {go})"));
-        if go {
+        let limits = quitwait::Limits::default();
+        let (verdict, answers) = quitwait::run_steps(&quitwait::steps(&targets), |labels| ask_windows(&app, labels, limits, "quit"));
+        for (label, v) in &answers {
+            let text = v.text(&limits);
+            startup::stage(Some(&app), &if label == "main" { text } else { text.replacen("quit:", &format!("quit ({label}):"), 1) });
+        }
+        if answers.is_empty() {
+            startup::stage(Some(&app), &verdict.text(&limits));
+        }
+        if matches!(verdict, quitwait::Verdict::Go(_)) {
             then(&app);
         }
         QUIT_BUSY.store(false, std::sync::atomic::Ordering::SeqCst);
     });
 }
 
-/// Whether the quit goes on: the page's answer when it was asked, `true` when it was not asked or gave no answer within `wait`
-/// (the time a dialog to the person is open does not count).
-fn after_flush(asked: bool, rx: &std::sync::mpsc::Receiver<bool>, wait: std::time::Duration, dialog: &std::sync::atomic::AtomicBool) -> bool {
-    use std::sync::mpsc::RecvTimeoutError;
-    if !asked {
-        return true;
+/// Is the main window on screen (shown and not minimized)? For the log.
+fn window_shown(app: &tauri::AppHandle) -> bool {
+    app.get_webview_window("main").is_some_and(|w| w.is_visible().unwrap_or(false) && !w.is_minimized().unwrap_or(false))
+}
+
+/// A message of a window's page to the quit that is waiting for it. False when no quit is waiting for that window.
+fn tell_quit(label: &str, msg: quitwait::Msg) -> bool {
+    FLUSH_ACK.lock().unwrap_or_else(|p| p.into_inner()).iter().find(|(l, _)| l == label).is_some_and(|(_, tx)| tx.send(msg).is_ok())
+}
+
+/// The window has done its part (and saved its draft): `go` false = the person wants to keep the window open. One answer per question.
+fn flush_answer(label: &str, go: bool) {
+    let tx = {
+        let mut acks = FLUSH_ACK.lock().unwrap_or_else(|p| p.into_inner());
+        acks.iter().position(|(l, _)| l == label).map(|i| acks.remove(i).1)
+    };
+    if let Some(tx) = tx {
+        let _ = tx.send(quitwait::Msg::Answer(go));
     }
-    let tick = std::time::Duration::from_millis(200);
-    let mut waited = std::time::Duration::ZERO;
-    loop {
-        match rx.recv_timeout(tick) {
-            Ok(go) => return go,
-            Err(RecvTimeoutError::Disconnected) => return true,
-            Err(RecvTimeoutError::Timeout) => {
-                if !dialog.load(std::sync::atomic::Ordering::SeqCst) {
-                    waited += tick;
-                    if waited >= wait {
-                        return true;
-                    }
-                }
-            }
-        }
+}
+
+/// A window opened (`open` true) or closed a question to the person that the quit has to wait for (for 60 s at most). The window is
+/// brought to the front for it: a question in a window that sits in the tray could not be answered.
+fn flush_dialog(app: &tauri::AppHandle, label: &str, open: bool) {
+    if open && label == "main" && !window_shown(app) {
+        startup::stage(Some(app), "quit: the page asks a question and the window is not on screen: showing it");
+        shell::show_main(app);
+    } else if open && label != "main" && !popout::is_shown(app, label) {
+        startup::stage(Some(app), &format!("quit ({label}): the page asks a question and the window is not on screen: showing it"));
+        popout::bring_to_front(app, label);
     }
+    tell_quit(label, quitwait::Msg::Dialog(open));
 }
 
 /// The page has done its part (and saved its draft): `go` false = the person wants to keep the window open.
 #[tauri::command]
-fn sends_flushed(go: bool) {
-    USER_DIALOG.store(false, std::sync::atomic::Ordering::SeqCst);
-    if let Some(tx) = FLUSH_ACK.lock().unwrap_or_else(|p| p.into_inner()).take() {
-        let _ = tx.send(go);
+fn sends_flushed(window: tauri::Window, go: bool) {
+    flush_answer(window.label(), go);
+}
+
+/// The page got the request of the quit and is doing its part: the quit waits for it longer than for a page that says nothing.
+#[tauri::command]
+fn quit_page_alive(window: tauri::Window) {
+    tell_quit(window.label(), quitwait::Msg::Alive);
+}
+
+/// The page opened (`true`) or closed (`false`) a question to the person that the quit has to wait for (for 60 s at most). The window is
+/// brought to the front for it: a question in a window that sits in the tray could not be answered.
+#[tauri::command]
+fn quit_dialog(app: tauri::AppHandle, window: tauri::Window, open: bool) {
+    flush_dialog(&app, window.label(), open);
+}
+
+/// A secondary window got `popout-flush` and is doing its part (the secondary counterpart of `quit_page_alive`).
+#[tauri::command]
+fn popout_flush_alive(window: tauri::Window) {
+    if popout::is_secondary(window.label()) {
+        tell_quit(window.label(), quitwait::Msg::Alive);
     }
 }
 
-/// The page opened (`true`) or closed (`false`) a dialog that the quit has to wait for.
+/// A secondary window opened or closed a question to the person (the secondary counterpart of `quit_dialog`).
 #[tauri::command]
-fn quit_dialog(open: bool) {
-    USER_DIALOG.store(open, std::sync::atomic::Ordering::SeqCst);
+fn popout_flush_dialog(app: tauri::AppHandle, window: tauri::Window, open: bool) {
+    if popout::is_secondary(window.label()) {
+        flush_dialog(&app, window.label(), open);
+    }
+}
+
+/// A secondary window has saved what it holds: `go` false = the person keeps the window open (the secondary counterpart of `sends_flushed`).
+#[tauri::command]
+fn popout_flush_done(window: tauri::Window, go: bool) {
+    if popout::is_secondary(window.label()) {
+        flush_answer(window.label(), go);
+    }
+}
+
+/// Ask every secondary window to save what it holds, before the update restart saves the inline Compose (spec 3.4, "Update restart").
+/// Returns `true` when the restart may go on (every window answered, or gave up, or none is open) and `false` when a person keeps a window
+/// open (or a quit is running). The same bounded wait as a quit; no window is closed here (the restart ends them).
+#[tauri::command]
+async fn popout_save_all(app: tauri::AppHandle) -> bool {
+    let targets = popout::ready_labels(&app);
+    if targets.is_empty() {
+        return true;
+    }
+    if QUIT_BUSY.swap(true, std::sync::atomic::Ordering::SeqCst) {
+        return false;
+    }
+    startup::stage(Some(&app), &format!("update: asking the secondary windows to save what they hold: {}", targets.join(", ")));
+    let limits = quitwait::Limits::default();
+    let (verdict, answers) = tauri::async_runtime::spawn_blocking({
+        let app = app.clone();
+        move || quitwait::run_steps(&quitwait::steps(&targets), |labels| ask_windows(&app, labels, limits, "update"))
+    })
+    .await
+    .unwrap_or((quitwait::Verdict::Stay, vec![]));
+    for (label, v) in &answers {
+        startup::stage(Some(&app), &v.text(&limits).replacen("quit:", &format!("update ({label}):"), 1));
+    }
+    QUIT_BUSY.store(false, std::sync::atomic::Ordering::SeqCst);
+    matches!(verdict, quitwait::Verdict::Go(_))
 }
 
 /// The page needs the window in front of the person (a question about unsaved text while the app sat in the tray).
@@ -3573,17 +4448,49 @@ pub(crate) fn request_quit(app: &tauri::AppHandle) {
         startup::stage(Some(app), &format!("quit: {count} scheduled message(s) are waiting: asking the person first"));
         QUESTION_OPEN.store(true, std::sync::atomic::Ordering::SeqCst);
         shell::show_main(app);
-        let _ = app.emit("confirm-quit", serde_json::json!({ "count": count, "next": next }));
+        let _ = app.emit_to("main", "confirm-quit", serde_json::json!({ "count": count, "next": next }));
         return;
     }
     finish_sends_then(app, quit_final);
 }
 
+/// Quit from the "could not load its window" message (startup.rs): the page that would be asked to save its draft and send what waits
+/// is not there (a page that answered after all is asked as usual), and the question about scheduled messages would go to nobody.
+pub(crate) fn quit_without_page(app: &tauri::AppHandle) {
+    finish_sends_then(app, quit_final);
+}
+
 /// Steps (d) and (e): queued archive / delete actions are committed, then the app exits (install on quit runs in `ExitRequested`).
 fn quit_final(app: &tauri::AppHandle) {
+    exit_watchdog(app);
+    startup::stage(Some(app), "quit: committing the queued actions");
     flush_pending(app);
     QUITTING.store(true, std::sync::atomic::Ordering::SeqCst);
+    startup::stage(Some(app), "quit: asking the event loop to exit");
     app.exit(0);
+}
+
+/// How long the quit sequence may take from `quit_final` to the end of the process (queued actions up to a few seconds, the exit itself).
+const EXIT_LIMIT: std::time::Duration = std::time::Duration::from_secs(40);
+
+/// A quit must end the process: when something after the page's part hangs (a server that does not answer a queued move, the tray icon
+/// or the web view going down, the event loop not handling the exit), the process is ended after `EXIT_LIMIT`. Everything that matters is
+/// on disk by then: messages in their Undo time are outbox rows, the message being written has its snapshot, mail actions that did not
+/// run are picked up by the next sync.
+fn exit_watchdog(app: &tauri::AppHandle) {
+    let app = app.clone();
+    std::thread::spawn(move || {
+        std::thread::sleep(EXIT_LIMIT);
+        startup::stage(Some(&app), &format!("quit: the process is still alive {} s after the quit began: ending it now", EXIT_LIMIT.as_secs()));
+        #[cfg(unix)]
+        std::thread::spawn(|| {
+            // `exit` runs the handlers of the libraries (GTK, WebKit), which may be what hangs: a second way out that skips them
+            std::thread::sleep(std::time::Duration::from_secs(3));
+            // SAFETY: `_exit` ends the process at once; nothing is left to clean up that matters (see above)
+            unsafe { libc::_exit(0) };
+        });
+        std::process::exit(0);
+    });
 }
 
 /// "Quit anyway" in the scheduled-messages question: the rest of the sequence (draft, sends, queued actions, install).
@@ -3735,8 +4642,14 @@ fn get_setting(state: tauri::State<AppState>, key: String) -> Option<String> {
 }
 
 #[tauri::command]
-fn set_setting(app: tauri::AppHandle, state: tauri::State<AppState>, key: String, value: String) -> R<()> {
+fn set_setting(app: tauri::AppHandle, window: tauri::Window, state: tauri::State<AppState>, key: String, value: String) -> R<()> {
     db::set_setting(&lock(&state.db), &key, &value)?;
+    // the preferences changed: every other window re-reads them (the main page is the only writer, popout.rs)
+    if key == "prefs" {
+        let _ = app.emit(popout::PREFS_EVENT, serde_json::json!({ "writer": window.label() }));
+        // the title bar of every window follows the theme setting (wintheme.rs)
+        wintheme::apply_all(&app, "theme setting changed");
+    }
     // the UI mirrors its language here: the tray menu, the macOS Quit item and the tray tooltip follow at once (native texts, see i18n.rs)
     if key == "ui_language" && i18n::set_lang(&value) {
         shell::refresh_language(&app, &state.db);
@@ -3901,7 +4814,7 @@ async fn fetch_remote_images(urls: Vec<String>) -> R<HashMap<String, String>> {
 }
 
 #[tauri::command]
-async fn ai_complete(state: tauri::State<'_, AppState>, system: String, prompt: String) -> R<String> {
+async fn ai_complete(window: tauri::Window, state: tauri::State<'_, AppState>, system: String, prompt: String, job_id: Option<String>) -> R<String> {
     let (ep, key, model) = {
         let c = lock(&state.db);
         (
@@ -3910,7 +4823,15 @@ async fn ai_complete(state: tauri::State<'_, AppState>, system: String, prompt: 
             db::get_setting(&c, "ai_model").unwrap_or_default(),
         )
     };
-    ai::complete(&ep, &key, &model, &system, &prompt).await
+    // a call of a reader window stops with the window (REQ-R12)
+    let _tracked = job_id.as_deref().and_then(|id| popout::track_ai(window.label(), id));
+    ai::complete(&ep, &key, &model, &system, &prompt, job_id.as_deref()).await
+}
+
+/// Cancel the `ai_complete` call that was started with this `job_id`: its request to the provider is dropped.
+#[tauri::command]
+fn ai_cancel(job_id: String) {
+    ai::cancel(&job_id);
 }
 
 #[tauri::command]
@@ -3923,17 +4844,34 @@ async fn ai_list_models(endpoint: String, key: Option<String>) -> R<Vec<String>>
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     startup::init_clock();
+    // (the names shared with other copies of the app: credential store service, notification id; see identity.rs)
+    let mut context = tauri::generate_context!();
+    // (the policy of this run: the PDF experiment on macOS / Linux changes one directive, see pdfmode.rs)
+    pdfmode::apply_csp(context.config_mut());
+    identity::init(&context.config().identifier);
+    // a start that fails ends in a message the person can read, not in a silent exit (see startfail.rs)
+    startfail::install_panic_hook();
+    #[cfg(windows)]
+    if startfail::webview_runtime_missing() {
+        startfail::fail_start("the Microsoft WebView2 Runtime was not found on this computer");
+    }
     // a restart or an installer relaunch starts this process while the previous run's web view processes are still going away: a web
     // view created now would join them and die with them (see webview_health.rs)
     webview_health::wait_for_previous_run();
     let builder = tauri::Builder::default();
+    // debug builds only: when the bridge is on, its page side (console buffer, input helpers) goes into every window
+    #[cfg(debug_assertions)]
+    let builder = if testbridge::requested().is_some() { builder.plugin(testbridge::plugin()) } else { builder };
     // macOS and Linux notifications (Windows has its own toasts in shell.rs)
     #[cfg(not(windows))]
     let builder = builder.plugin(tauri_plugin_notification::init());
     // macOS: the app menu's Quit item (and Cmd+Q) goes through the quit sequence like the tray's (see shell::mac_app_menu)
     #[cfg(target_os = "macos")]
     let builder = builder.menu(shell::mac_app_menu).on_menu_event(shell::mac_menu_event);
-    builder
+    #[cfg(any(windows, target_os = "macos"))]
+    // a frame of the window (the PDF preview has no sandbox here, see src/pdfFrame.ts) can never take the whole window to a website
+    let builder = builder.plugin(navguard::plugin());
+    let built = builder
         // a second launch just brings the running instance forward
         .plugin(tauri_plugin_single_instance::init(|app, _args, _cwd| {
             startup::stage(Some(app), "a second start was handed to this instance: showing the window");
@@ -3944,6 +4882,11 @@ pub fn run() {
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_updater::Builder::new().build())
         .setup(|app| {
+            // (test seam of a debug build: the setup stops, as it does when the data folder or the database cannot be opened)
+            if startfail::seam().as_deref() == Some("setup") {
+                return Err("test: the setup was stopped on purpose (HEYLOOK_TEST_START_FAIL=setup)".into());
+            }
+            app.manage(popout::State::default());
             // the data folder of this identifier (data saved under the old names is moved there once, see legacy_names.rs)
             let dir = legacy_names::data_dir(app.handle())?;
             app.manage(legacy_names::DataDir(dir.clone()));
@@ -3983,6 +4926,10 @@ pub fn run() {
             std::thread::spawn(move || calsync::cmds::calsync_worker(sync_app));
 
             winframe::setup(app);
+            // the native frame of the main window follows the theme setting from the start (a pop-out gets it when it is created)
+            wintheme::apply_all(app.handle(), "start");
+            #[cfg(target_os = "macos")]
+            wintheme::watch_os(app.handle());
             shell::register_aumid(app.handle());
             // a missing tray is not fatal: without it the close button quits instead of hiding (shell::close_to_tray)
             if let Err(e) = shell::setup_tray(app.handle(), &db) {
@@ -4008,15 +4955,28 @@ pub fn run() {
             // when its page has reported itself (not here: see startup.rs), and the page is reloaded if it never does.
             let show_at_start = !std::env::args().any(|a| a == "--minimized") || !shell::tray_ready();
             startup::start(app.handle(), show_at_start);
+            // debug builds only; does nothing unless the environment asks for the bridge
+            #[cfg(debug_assertions)]
+            testbridge::start(app.handle());
             Ok(())
         })
         .on_window_event(|window, event| {
+            // the OS changed its theme (any window says so): with the System setting every window's frame follows (wintheme.rs)
+            if let tauri::WindowEvent::ThemeChanged(theme) = event {
+                wintheme::on_os_theme_changed(window.app_handle(), &format!("tao ThemeChanged({theme:?}) of {}", window.label()));
+            }
+            // a secondary window (compose / reader) closes only itself: it never hides to the tray and never starts a quit (popout.rs)
+            if window.label() != "main" {
+                popout::on_window_event(window, event);
+                return;
+            }
             if let tauri::WindowEvent::CloseRequested { api, .. } = event {
                 let db = window.app_handle().state::<AppState>().db.clone();
                 startup::stage(Some(window.app_handle()), &format!("window close requested (hides to the tray: {})", shell::close_to_tray(&db)));
                 if shell::close_to_tray(&db) {
                     api.prevent_close();
                     let _ = window.hide();
+                    linuxview::note_hidden();
                     shell::tray_hint_once(window.app_handle(), &db);
                 } else {
                     // closing would quit: the page first finishes its sends and saves what is being written, and scheduled
@@ -4032,6 +4992,7 @@ pub fn run() {
             winframe::frame_system_menu,
             list_accounts,
             add_account,
+            cancel_add_account,
             google_sign_in,
             oauth_cancel,
             reauth_account,
@@ -4047,12 +5008,15 @@ pub fn run() {
             test_notification,
             open_external,
             copy_text,
+            read_clipboard_text,
             get_autostart,
             set_autostart,
             list_folders,
             list_threads,
             get_thread,
+            thread_meta,
             thread_action,
+            prepare_action,
             list_senders,
             sender_action,
             list_blocked,
@@ -4061,6 +5025,7 @@ pub fn run() {
             save_rule,
             delete_rule,
             get_raw,
+            reply_headers,
             save_attachments,
             attachment_save_as,
             attachment_save_all,
@@ -4070,6 +5035,13 @@ pub fn run() {
             inline_image,
             send_message,
             save_draft,
+            draft_recipients,
+            discard_draft,
+            recovery_save,
+            recovery_clear,
+            recovery_list,
+            recovery_load,
+            recovery_save_draft,
             list_outbox,
             cancel_outbox,
             outbox_pending_count,
@@ -4096,6 +5068,7 @@ pub fn run() {
             pgpstore::pgp_unlock,
             pgpstore::pgp_lock_all,
             pgpstore::pgp_recipient_status,
+            smtpsize::smtp_size_limit,
             pgpstore::pgp_decrypt_message,
             outbox_send_now,
             outbox_hold,
@@ -4137,6 +5110,7 @@ pub fn run() {
             set_secret,
             has_secret,
             ai_complete,
+            ai_cancel,
             ai_list_models,
             shell_info,
             update::check_update,
@@ -4148,6 +5122,24 @@ pub fn run() {
             set_mail_available,
             frontend_ready,
             sends_flushed,
+            quit_page_alive,
+            popout_flush_alive,
+            popout_flush_dialog,
+            popout_flush_done,
+            popout_save_all,
+            popout::popout_open,
+            popout::popout_init,
+            popout::popout_ready,
+            popout::popout_focus,
+            popout::popout_close,
+            popout::popout_park,
+            popout::popout_destroy,
+            popout::popout_note,
+            wintheme::window_theme_refresh,
+            popout::popout_set_key,
+            popout::popout_request,
+            popout::popout_reply,
+            page_pong,
             quit_dialog,
             quit_cancelled,
             show_window,
@@ -4158,9 +5150,18 @@ pub fn run() {
             update::outbox_busy,
             idle::idle_states
         ])
-        .build(tauri::generate_context!())
-        .expect("error while building tauri application")
-        .run(|app, event| match event {
+        .build(context);
+    // (test seam of a debug build: pretend that the builder failed)
+    let built = if startfail::seam().as_deref() == Some("build") { Err(tauri::Error::Io(std::io::Error::other("test: Builder::build() was made to fail (HEYLOOK_TEST_START_FAIL=build)"))) } else { built };
+    let app = match built {
+        Ok(app) => app,
+        Err(e) => {
+            // Windows: the message box and the end of the process happen inside; the other systems get the line in startup.log and the panic they always had
+            startfail::fail_start(&format!("Builder::build() failed: {e}"));
+            panic!("error while building tauri application: {e}");
+        }
+    };
+    app.run(|app, event| match event {
             // Dock icon / Finder / Spotlight while the window is hidden
             #[cfg(target_os = "macos")]
             tauri::RunEvent::Reopen { .. } => shell::show_main(app),
@@ -4174,6 +5175,7 @@ pub fn run() {
                 }
                 // from here the exit goes on: the web view's processes ending is no failure
                 startup::mark_exiting();
+                startup::stage(Some(app), &format!("exit: the exit goes on (code {code:?})"));
                 // a downloaded update the user chose to keep for later is installed now
                 update::install_on_exit(app);
             }
@@ -4184,9 +5186,11 @@ pub fn run() {
                     startup::stage(Some(app), "exit: the process ends without the quit sequence (a terminate that was not stopped)");
                 }
                 startup::mark_exiting();
+                startup::stage(Some(app), "exit: the event loop ended, closing the push sessions and committing the queued actions");
                 idle::shutdown();
                 flush_pending(app);
                 update::install_on_exit(app);
+                startup::stage(Some(app), "exit: done, the process ends");
             }
             _ => {}
         });
@@ -4254,38 +5258,273 @@ mod filter_tests {
 mod quit_tests {
     use super::*;
     use std::sync::mpsc::channel;
-    use std::time::Duration;
 
+    /// The tests that use `FLUSH_ACK` (one global table of the quit that is running) take turns.
+    static FLUSH_TEST_LOCK: Mutex<()> = Mutex::new(());
+
+    /// A quit over real (mock) windows: every window gets its own request event, answers on its own, and the verdicts are told apart. This
+    /// is the wiring of `ask_windows` (events, the table of channels, one wait per window); the timing rules are tested in quitwait.rs.
     #[test]
-    fn the_quit_waits_for_the_page_and_respects_its_answer() {
-        let (tx, rx) = channel::<bool>();
-        // not asked (the page never loaded): go on at once
-        let no_dialog = std::sync::atomic::AtomicBool::new(false);
-        assert!(after_flush(false, &rx, Duration::from_secs(5), &no_dialog));
-        // the page says "done": go on; "keep the window": stop
-        tx.send(true).unwrap();
-        assert!(after_flush(true, &rx, Duration::from_secs(5), &no_dialog));
-        tx.send(false).unwrap();
-        assert!(!after_flush(true, &rx, Duration::from_secs(5), &no_dialog));
-        // no answer in time (a page that hangs): go on, the app must not stay alive for ever
+    fn a_quit_asks_each_window_and_hears_each_one() {
+        use crate::quitwait::{Limits, Verdict, Why};
+        use std::time::Duration;
+        use tauri::{Listener, WebviewUrl, WebviewWindowBuilder};
+        let _one_at_a_time = FLUSH_TEST_LOCK.lock().unwrap_or_else(|p| p.into_inner());
+        let app = tauri::test::mock_builder().build(tauri::test::mock_context(tauri::test::noop_assets())).unwrap();
+        let labels = ["compose-71", "reader-72", "compose-73", "compose-74"];
+        for l in labels {
+            let w = WebviewWindowBuilder::new(&app, l, WebviewUrl::App("index.html".into())).build().unwrap();
+            // the page of the window: compose-71 saves and goes on, reader-72 works first, compose-73 keeps its message, compose-74 never answers
+            let who = l.to_string();
+            let go = l != "compose-73";
+            if l != "compose-74" {
+                w.listen(flush_event(l), move |_| {
+                    assert!(tell_quit(&who, crate::quitwait::Msg::Alive), "the table has a channel for {who} before the request goes out");
+                    flush_answer(&who, go);
+                });
+            }
+        }
+        let limits = Limits { first_sign: Duration::from_millis(600), work: Duration::from_secs(5), dialog: Duration::from_secs(5) };
+        let asked: Vec<String> = labels.iter().map(|l| l.to_string()).collect();
         let t0 = std::time::Instant::now();
-        assert!(after_flush(true, &rx, Duration::from_millis(150), &no_dialog));
-        assert!(t0.elapsed() < Duration::from_secs(3));
-        // a dialog to the person is open: the time limit does not run, the answer decides however late it comes
-        let (tx3, rx3) = channel::<bool>();
-        let open = std::sync::atomic::AtomicBool::new(true);
-        std::thread::spawn(move || {
-            std::thread::sleep(Duration::from_millis(900));
-            tx3.send(false).unwrap();
-        });
-        assert!(!after_flush(true, &rx3, Duration::from_millis(200), &open), "a quit does not run away from an open question");
-        // the answer travels through the command
-        let (tx2, rx2) = channel::<bool>();
-        *FLUSH_ACK.lock().unwrap() = Some(tx2);
-        sends_flushed(false);
-        assert_eq!(rx2.recv_timeout(Duration::from_secs(1)), Ok(false));
-        assert!(FLUSH_ACK.lock().unwrap().is_none(), "one answer per question");
-        sends_flushed(true); // an answer nobody waits for does nothing
+        let got = ask_windows(app.handle(), &asked, limits, "quit");
+        let by = |l: &str| got.iter().find(|(n, _)| n == l).map(|(_, v)| *v).unwrap();
+        assert_eq!(by("compose-71"), Verdict::Go(Why::Answered));
+        assert_eq!(by("reader-72"), Verdict::Go(Why::Answered));
+        assert_eq!(by("compose-73"), Verdict::Stay, "the person kept the message: that window's own answer");
+        assert_eq!(by("compose-74"), Verdict::Go(Why::NoSign), "a page that says nothing is given up after the first-sign time");
+        assert_eq!(crate::quitwait::merge(&got.iter().map(|(_, v)| *v).collect::<Vec<_>>()), Verdict::Stay, "one no ends the quit");
+        assert!(t0.elapsed() < Duration::from_secs(4), "the windows were waited for together, not one after the other");
+        assert!(FLUSH_ACK.lock().unwrap().is_empty(), "the table is cleaned up for the next quit");
+    }
+
+    /// The page's messages reach the quit that asked its window; an answer nobody waits for does nothing. (The waiting itself, with a page
+    /// that never answers, answers late or asks a question, is tested in quitwait.rs.)
+    #[test]
+    fn the_pages_messages_travel_through_the_commands() {
+        use crate::quitwait::Msg;
+        let _one_at_a_time = FLUSH_TEST_LOCK.lock().unwrap_or_else(|p| p.into_inner());
+        let (tx, rx) = channel::<Msg>();
+        let (tx2, rx2) = channel::<Msg>();
+        *FLUSH_ACK.lock().unwrap() = vec![("main".to_string(), tx), ("compose-1".to_string(), tx2)];
+        assert!(tell_quit("main", Msg::Alive) && tell_quit("main", Msg::Dialog(true)) && tell_quit("main", Msg::Dialog(false)));
+        assert!(tell_quit("compose-1", Msg::Alive));
+        assert!(!tell_quit("reader-9", Msg::Alive), "a window that was not asked has no channel");
+        flush_answer("main", false);
+        let got: Vec<Msg> = rx.try_iter().collect();
+        assert_eq!(got, vec![Msg::Alive, Msg::Dialog(true), Msg::Dialog(false), Msg::Answer(false)]);
+        assert_eq!(rx2.try_iter().collect::<Vec<_>>(), vec![Msg::Alive], "every window has a channel of its own");
+        assert_eq!(FLUSH_ACK.lock().unwrap().len(), 1, "one answer per question: main's channel is gone, compose-1 still waits");
+        // nobody waits for main any more: nothing happens, nothing blocks
+        assert!(!tell_quit("main", Msg::Alive));
+        flush_answer("main", true);
+        flush_answer("compose-1", true);
+        assert_eq!(rx2.try_iter().collect::<Vec<_>>(), vec![Msg::Answer(true)]);
+        assert!(FLUSH_ACK.lock().unwrap().is_empty());
+        // a page that is gone: the sender is closed, the message is dropped
+        let (tx, rx) = channel::<Msg>();
+        drop(rx);
+        *FLUSH_ACK.lock().unwrap() = vec![("main".to_string(), tx)];
+        assert!(!tell_quit("main", Msg::Alive));
+        FLUSH_ACK.lock().unwrap().clear();
+    }
+
+    /// The quit that goes on WITHOUT the page (it never answered, kept working too long, or its question stayed open) loses nothing: what the
+    /// page holds is on disk by then. A message in its Undo time is an outbox row (`undo=1`) that the next start sends like a scheduled message
+    /// that came due, a scheduled message stays what it was, and the message being written is in its recovery snapshot, which the next start
+    /// offers. The test ends the "process" (drops the connection) after the wait and opens the database again, as the next start does.
+    #[test]
+    fn a_quit_without_the_page_loses_no_send_and_no_draft() {
+        use crate::quitwait::{drive, Limits, Msg, Verdict, Why};
+        use std::cell::Cell;
+        use std::sync::mpsc::RecvTimeoutError;
+        use std::time::Duration;
+
+        // three pages that do not finish: silent, working for ever, a question nobody answers
+        let pages: [(&str, Vec<(u64, Msg)>, Verdict); 3] = [
+            ("silent", vec![], Verdict::Go(Why::NoSign)),
+            ("working", vec![(500, Msg::Alive)], Verdict::Go(Why::WorkTooLong)),
+            ("question", vec![(500, Msg::Alive), (900, Msg::Dialog(true))], Verdict::Go(Why::DialogTooLong)),
+        ];
+        for (tag, script, want) in pages {
+            let dir = crate::shard::tests::temp_dir(&format!("quit-lost-{tag}"));
+            let path = dir.join("heylook.db");
+            {
+                let db: Db = Arc::new(Mutex::new(db::open(&path).unwrap()));
+                db::insert_account(&lock(&db), &crate::smtp::tests::account_with_id("a")).unwrap();
+                put_row(&db, "undo-msg", "undo", 1, now() + 20); // "Sending... Undo": the page's timer was still running
+                put_row(&db, "later-msg", "pending", 0, now() + 3600); // a scheduled message
+                recover::save(
+                    &lock(&db),
+                    &recover::SnapIn {
+                        id: "writing".into(),
+                        account_id: "a".into(),
+                        subject: "Plan".into(),
+                        preview: "Hi".into(),
+                        payload: r#"{"to":["ann@example.com"],"bcc":["quiet@example.com"],"html":"<p>Hi</p>"}"#.into(),
+                        files: None,
+                    },
+                    now(),
+                )
+                .unwrap();
+
+                // the wait, with a page that does what `script` says and a clock that moves 200 ms per look
+                let clock = Cell::new(Duration::ZERO);
+                let mut script: std::collections::VecDeque<(u64, Msg)> = script.into();
+                let verdict = drive(
+                    |t| match script.front() {
+                        Some(&(at, m)) if Duration::from_millis(at) <= clock.get() + t => {
+                            script.pop_front();
+                            clock.set(Duration::from_millis(at).max(clock.get()));
+                            Ok(m)
+                        }
+                        _ => {
+                            clock.set(clock.get() + t);
+                            Err(RecvTimeoutError::Timeout)
+                        }
+                    },
+                    || clock.get(),
+                    Limits::default(),
+                    Duration::from_millis(200),
+                    |_, _| {},
+                );
+                assert_eq!(verdict, want, "{tag}");
+                // (the quit then goes on: finish_sends_then runs `then` for every Go, see the_quit_never_waits_for_ever)
+            } // the process ends: nothing of it is left but the file
+
+            // the next start
+            let db: Db = Arc::new(Mutex::new(db::open(&path).unwrap()));
+            outbox_startup(&db);
+            assert_eq!(row(&db, "undo-msg"), ("pending".to_string(), 2), "{tag}: the message in its Undo time goes out at the next start");
+            assert_eq!(row(&db, "later-msg"), ("pending".to_string(), 0), "{tag}: the scheduled message is untouched");
+            let offered = recover::list(&lock(&db)).unwrap();
+            assert_eq!(offered.len(), 1, "{tag}: the message being written is offered back");
+            let l = recover::load(&lock(&db), "writing").unwrap().expect("there");
+            assert!(l.payload.contains("quiet@example.com"), "{tag}: with its Bcc");
+        }
+    }
+
+    /// A quit must always finish (QA Linux v1.0.6): the wait for the page is the bounded one of quitwait.rs in every phase (no flag that
+    /// stops the clock), the window is brought to the front for a question, and the end of the sequence has a watchdog.
+    #[test]
+    fn the_quit_never_waits_for_ever() {
+        let lib = crate::test_guard::non_test_code(include_str!("lib.rs"));
+        let fin = &lib[lib.find("fn finish_sends_then").expect("finish_sends_then")..];
+        let fin = &fin[..fin.find("\n}\n").unwrap()];
+        let ask = &lib[lib.find("fn ask_windows").expect("ask_windows")..];
+        let ask = &ask[..ask.find("\n}\n").unwrap()];
+        assert!(ask.contains("quitwait::drive(") && fin.contains("quitwait::Limits::default()"), "{ask}");
+        assert!(fin.contains("quitwait::run_steps(&quitwait::steps(&targets)") && fin.contains("ask_windows(&app, labels, limits, \"quit\")"), "{fin}");
+        assert!(!fin.contains("USER_DIALOG") && !lib.contains("static USER_DIALOG"), "a flag that stops the clock lets a quit hang for ever");
+        assert!(fin.contains("quit: asking the page to save its draft and send what is waiting"));
+        // which windows must answer is decided in one place
+        assert!(fin.contains("flush_targets(app)") && lib.contains("fn flush_targets(app: &tauri::AppHandle) -> Vec<String>"));
+        assert!(ask.contains("test_silent_page()") && lib.contains("HEYLOOK_TEST_QUIT_PAGE"));
+        // every window gets a wait of its own (a thread each), so one person's question does not use up another window's time
+        assert!(ask.contains("std::thread::scope") && ask.contains("scope.spawn"), "{ask}");
+        // every "go on" runs the rest of the sequence (queued actions, exit); only the person's "keep the window" does not
+        assert!(fin.contains("if matches!(verdict, quitwait::Verdict::Go(_)) {\n            then(&app);"), "{fin}");
+        let q = crate::test_guard::non_test_code(include_str!("quitwait.rs"));
+        assert!(q.contains("FIRST_SIGN_WAIT: Duration = Duration::from_secs(8)") && q.contains("DIALOG_WAIT: Duration = Duration::from_secs(60)"));
+        assert!(q.contains("the page did not answer in {} s, quitting"));
+        // a question is answered in a window that can be seen
+        let dialog = &lib[lib.find("fn flush_dialog").expect("flush_dialog")..];
+        let dialog = &dialog[..dialog.find("\n}\n").unwrap()];
+        assert!(dialog.contains("window_shown(app)") && dialog.contains("shell::show_main(app)") && dialog.contains("popout::bring_to_front(app, label)"), "{dialog}");
+        let qd = &lib[lib.find("fn quit_dialog").expect("quit_dialog")..];
+        assert!(qd[..qd.find("\n}\n").unwrap()].contains("flush_dialog(&app, window.label(), open)"));
+        // the watchdog is armed before anything of the end of the sequence can hang, and it ends the process
+        let last = &lib[lib.find("fn quit_final").expect("quit_final")..];
+        let last = &last[..last.find("\n}\n").unwrap()];
+        assert!(last.find("exit_watchdog(app)").unwrap() < last.find("flush_pending").unwrap(), "{last}");
+        let dog = &lib[lib.find("fn exit_watchdog").expect("exit_watchdog")..];
+        let dog = &dog[..dog.find("\n}\n").unwrap()];
+        assert!(dog.contains("std::process::exit(0)") && dog.contains("EXIT_LIMIT"), "{dog}");
+    }
+
+    /// A secondary window (popout.rs) closes only itself: the close handler looks at the label before anything else, so no pop-out ever
+    /// hides to the tray or starts a quit (REQ-W9, risk R-2); the main window's close keeps its rules below the branch.
+    #[test]
+    fn closing_a_secondary_window_never_hides_or_quits() {
+        let src = crate::test_guard::non_test_code(include_str!("lib.rs"));
+        let h = &src[src.find(".on_window_event(").expect("window event handler")..];
+        let h = &h[..h.find(".invoke_handler").expect("end of handler")];
+        let branch = h.find("window.label() != \"main\"").expect("a branch on the label");
+        let close = h.find("tauri::WindowEvent::CloseRequested").expect("close handler");
+        assert!(branch < close, "the label is looked at before the close-to-tray / quit rules: {h}");
+        let arm = &h[branch..close];
+        assert!(arm.contains("popout::on_window_event(window, event);") && arm.contains("return;"), "{arm}");
+        // the secondary handler itself never hides, quits or asks for a quit
+        let pop = crate::test_guard::non_test_code(include_str!("popout.rs"));
+        let pop = &pop[pop.find("pub fn on_window_event").unwrap()..];
+        let pop = &pop[..pop.find("\n}\n").unwrap()];
+        for never in [".hide()", "request_quit", "close_to_tray", "app.exit", "show_main"] {
+            assert!(!pop.contains(never), "a secondary window must not use {never}: {pop}");
+        }
+    }
+
+    /// Every window the quit asks must be able to answer: the secondary windows are asked with their own event and answer with their own
+    /// commands, the main page with `flush-sends` and the old commands; the messages are matched by window label.
+    #[test]
+    fn every_asked_window_has_its_event_and_its_answer() {
+        let lib = crate::test_guard::non_test_code(include_str!("lib.rs"));
+        assert_eq!(flush_event("main"), "flush-sends");
+        assert_eq!(flush_event("compose-1"), "popout-flush");
+        assert_eq!(flush_event("reader-7"), popout::FLUSH_EVENT);
+        // the main page's commands take the label of the window that calls
+        for f in ["fn sends_flushed(window: tauri::Window", "fn quit_page_alive(window: tauri::Window", "fn quit_dialog(app: tauri::AppHandle, window: tauri::Window"] {
+            assert!(lib.contains(f), "{f}");
+        }
+        // the secondary windows have commands of their own, and only a secondary window may use them
+        for f in ["fn popout_flush_alive", "fn popout_flush_dialog", "fn popout_flush_done"] {
+            let body = &lib[lib.find(f).expect(f)..];
+            assert!(body[..body.find("\n}\n").unwrap()].contains("popout::is_secondary(window.label())"), "{f}");
+        }
+        // the secondary windows are asked before the main one, and only when their page is ready
+        let targets = &lib[lib.find("fn flush_targets").unwrap()..];
+        assert!(targets[..targets.find("\n}\n").unwrap()].contains("popout::ready_labels(app)"));
+        // the update restart asks them too, with the same bounded wait
+        let save = &lib[lib.find("async fn popout_save_all").unwrap()..];
+        let save = &save[..save.find("\n}\n").unwrap()];
+        assert!(save.contains("quitwait::run_steps(") && save.contains("QUIT_BUSY.swap"), "{save}");
+    }
+
+    /// `prefs-changed` goes out when (and only when) the `prefs` blob is written, with the writer's label (REQ-W11).
+    #[test]
+    fn prefs_changed_is_emitted_for_the_prefs_key_only() {
+        let lib = crate::test_guard::non_test_code(include_str!("lib.rs"));
+        let f = &lib[lib.find("fn set_setting(").unwrap()..];
+        let f = &f[..f.find("\n}\n").unwrap()];
+        assert!(f.contains("if key == \"prefs\" {") && f.contains("popout::PREFS_EVENT") && f.contains("window.label()"), "{f}");
+        assert_eq!(f.matches("popout::PREFS_EVENT").count(), 1);
+    }
+
+    /// REQ-W12: what is meant for the main page is sent to the main page only, so a secondary window never handles a quit, a tray click, a
+    /// toast click or the page's own bookkeeping. The events that every window needs stay broadcast.
+    #[test]
+    fn events_for_the_main_page_are_sent_to_it_only() {
+        let mut code = String::new();
+        for src in [include_str!("lib.rs"), include_str!("shell.rs"), include_str!("calendar.rs"), include_str!("winframe.rs"), include_str!("idle.rs")] {
+            code.push_str(&crate::test_guard::non_test_code(src));
+        }
+        let main_only = [
+            "confirm-quit", "tray-compose", "open-thread", "notify-reply", "app-shown", "signin-state", "backfill-progress", "action-verify-failed",
+            "action-failed", "moves-committed", "outbox-leftover", "outbox-catchup", "filter-failed", "event-reminder", "download-dir-fallback", "frame-caption",
+        ];
+        for ev in main_only {
+            assert!(!code.contains(&format!("emit(\"{ev}\"")), "{ev} is broadcast");
+            assert!(code.contains(&format!("emit_to(\"main\", \"{ev}\"")), "{ev} is not sent to main");
+        }
+        // the flush request goes to the window that is asked (main: flush-sends, the others: popout-flush)
+        assert!(code.contains("app.emit_to(label.as_str(), flush_event(label), flush_payload(label, why))"));
+        // the main page gets no payload; a secondary window is told whether the app quits or restarts for an update
+        assert_eq!(flush_payload("main", "quit"), serde_json::Value::Null);
+        assert_eq!(flush_payload("compose-2", "update"), serde_json::json!({ "why": "update" }));
+        // these are for every window: the data they show changed
+        for ev in ["mail-synced", "outbox-changed", "calendar-changed", "idle-state"] {
+            assert!(code.contains(&format!("emit(\"{ev}\"")), "{ev} should stay a broadcast");
+            assert!(!code.contains(&format!("emit_to(\"main\", \"{ev}\"")), "{ev} must reach every window");
+        }
     }
 
     pub(super) fn test_db(tag: &str) -> Db {
@@ -4347,6 +5586,40 @@ mod quit_tests {
         assert_eq!(gone, 0, "running: the row leaves and Compose reopens");
     }
 
+    /// (1.0.5) The folder list says which rows the saved folder list names: the app hides Junk where it is not named (Junk is never
+    /// created) and keeps Archive / Trash (created on first use). A sync rewrites the saved list, so a Junk folder the server gained later
+    /// is named after it.
+    #[test]
+    fn the_folder_list_says_which_folders_the_saved_list_names() {
+        let db = test_db("listed");
+        let acc = Account {
+            id: "a1".into(), email: "me@example.com".into(), display_name: "Me".into(), imap_host: "h".into(), imap_port: 993, imap_ssl: true,
+            smtp_host: "s".into(), smtp_port: 465, smtp_security: "ssl".into(), username: "u".into(), auth: "password".into(), color: None,
+            smtp_username: String::new(), tls_insecure: false,
+        };
+        db::insert_account(&lock(&db), &acc).unwrap();
+        let listed = |db: &Db| -> HashMap<String, bool> {
+            folder_infos(&lock(db)).unwrap().into_iter().filter(|f| f.account_id == "a1").map(|f| (f.key, f.listed)).collect()
+        };
+        // never synced: nothing is named, every standard row is still there
+        let none = listed(&db);
+        assert_eq!(none.len(), 6);
+        assert!(none.values().all(|l| !l));
+        // a server without a Junk folder
+        db::set_setting(&lock(&db), "fmap:a1", r#"{"inbox":"INBOX","sent":"Sent","f:Work":"Work"}"#).unwrap();
+        let l = listed(&db);
+        assert_eq!((l["inbox"], l["sent"], l["f:Work"]), (true, true, true));
+        assert!(!l["junk"], "no Junk folder in the saved list");
+        assert!(l.contains_key("junk") && l.contains_key("archive") && l.contains_key("trash"), "the standard rows are still listed");
+        assert!(!l["archive"] && !l["trash"], "created on first use, so not named yet");
+        // the server gains a Junk folder: the next sync writes the list again and Junk is named
+        db::set_setting(&lock(&db), "fmap:a1", r#"{"inbox":"INBOX","sent":"Sent","f:Work":"Work","junk":"Spam"}"#).unwrap();
+        let l = listed(&db);
+        assert!(l["junk"]);
+        let spam = folder_infos(&lock(&db)).unwrap().into_iter().find(|f| f.key == "junk").unwrap();
+        assert_eq!(spam.name, "Spam");
+    }
+
     /// QA BUG-M4 / M8: a folder the server lacks is named in the error; one it has is used.
     #[test]
     fn a_missing_folder_is_named_in_the_error() {
@@ -4373,9 +5646,7 @@ mod quit_tests {
         assert!(close.contains("api.prevent_close();
                     request_quit("), "closing that quits must go through request_quit: {close}");
         let guard = &src[src.find("fn guard_exit").expect("guard_exit")..];
-        let guard = &guard[..guard.find("
-}
-").unwrap()];
+        let guard = &guard[..guard.find("\n}\n").unwrap()];
         assert!(guard.contains("request_quit(app)") && guard.contains("false"), "{guard}");
         assert!(src.contains("finish_sends_then(app, quit_final)") && src.contains("finish_sends_then(&app, quit_final)"));
         // the question comes before anything is flushed, sent or saved (REQ-48 a): `Cancel` changes nothing
@@ -4396,9 +5667,9 @@ mod quit_tests {
     /// cannot be compiled on every machine that runs the tests).
     #[test]
     fn the_macos_quit_routes_go_through_the_flush() {
-        let lib = include_str!("lib.rs").replace("\r\n", "\n");
-        // (not this test's own text)
-        let lib = &lib[..lib.find("#[cfg(test)]").unwrap()];
+        // (not the test modules' own text; cut at the first test MODULE: a lone `#[cfg(test)]` fn in the code must not hide the rest)
+        let lib = crate::test_guard::non_test_code(include_str!("lib.rs"));
+        let lib = &lib[..];
         let shell = include_str!("shell.rs").replace("\r\n", "\n");
         let mac = include_str!("macquit.rs").replace("\r\n", "\n");
         // (1) the app menu's Quit (and Cmd+Q) is our own item: no predefined Quit item is ever put into a menu we build
@@ -4447,9 +5718,11 @@ mod quit_tests {
 
     /// Every place that ends the process or restarts it, outside of tests: a new one fails here until it is looked at (does the page
     /// save its draft and send what waits first? the quit sequence is `request_quit` -> `quit_final`). Known and justified:
-    /// - lib.rs `quit_final`: the end of the quit sequence itself.
+    /// - lib.rs `quit_final`: the end of the quit sequence itself; `exit_watchdog` (`process::exit`, and `libc::_exit` on Unix) ends the
+    ///   process when that sequence hangs, 40 s after `quit_final` began (the page's part is over by then, see quitwait.rs).
     /// - update.rs `update_install`: the page saved the draft and waited for the sends before it asked for the install (REQ-27 / 28).
     /// - startup.rs: the restart for a dead web view (the page is gone, there is nothing to ask; Undo-window messages are in the outbox).
+    /// - startfail.rs: the app could not start (Windows message box, then exit code 1): there is no page and no draft or send yet.
     #[test]
     fn every_place_that_ends_the_process_is_known() {
         let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("src");
@@ -4461,7 +5734,7 @@ mod quit_tests {
             }
             let src = std::fs::read_to_string(&path).unwrap();
             // the part that is not tests
-            let code = &src[..src.find("#[cfg(test)]").unwrap_or(src.len())];
+            let code = crate::test_guard::non_test_code(&src);
             let code: String = code.lines().filter(|l| !l.trim_start().starts_with("//")).collect::<Vec<_>>().join("\n");
             let exits = code.matches(".exit(").count() + code.matches("process::exit(").count() + code.matches("libc::_exit(").count();
             let restarts = code.matches(".restart()").count();
@@ -4472,7 +5745,7 @@ mod quit_tests {
         found.sort();
         assert_eq!(
             found,
-            vec![("lib.rs".to_string(), 1, 0), ("startup.rs".to_string(), 0, 1), ("update.rs".to_string(), 1, 1)],
+            vec![("lib.rs".to_string(), 3, 0), ("startfail.rs".to_string(), 1, 0), ("startup.rs".to_string(), 0, 1), ("update.rs".to_string(), 1, 1)],
             "a way to end or restart the process was added or removed: make sure it goes through the quit sequence (request_quit) or is justified in the comment above"
         );
     }
@@ -4481,6 +5754,128 @@ mod quit_tests {
     #[allow(dead_code)]
     fn macos_menu_wiring_type_checks() -> tauri::Builder<tauri::Wry> {
         tauri::Builder::<tauri::Wry>::default().menu(shell::mac_app_menu).on_menu_event(shell::mac_menu_event)
+    }
+}
+
+/// Who may call which command (REQ-S2): build.rs lists every command for the app manifest, capabilities/default.json grants all of them to
+/// the main window, capabilities/popout.json grants the secondary windows a short allowlist. A command added to `generate_handler!` and
+/// not to the other two lists would not be callable from any window, so these tests fail until it is placed.
+#[cfg(test)]
+mod capability_tests {
+    use std::collections::BTreeSet;
+
+    fn handler_commands() -> BTreeSet<String> {
+        let lib = crate::test_guard::non_test_code(include_str!("lib.rs"));
+        let at = lib.find("tauri::generate_handler![").expect("generate_handler");
+        let body = &lib[at + "tauri::generate_handler![".len()..];
+        let body = &body[..body.find("])").expect("end of the handler list")];
+        body.lines()
+            .map(|l| l.trim().trim_end_matches(','))
+            .filter(|l| !l.is_empty() && !l.starts_with("//"))
+            .map(|l| l.rsplit("::").next().unwrap().to_string())
+            .collect()
+    }
+
+    fn manifest_commands() -> BTreeSet<String> {
+        let b = include_str!("../build.rs");
+        let start = "const APP_COMMANDS: &[&str] = &[";
+        let body = &b[b.find(start).expect("APP_COMMANDS") + start.len()..];
+        let body = &body[..body.find("];").unwrap()];
+        body.split(',').map(|s| s.trim().trim_matches('"').to_string()).filter(|s| !s.is_empty()).collect()
+    }
+
+    fn capability(name: &str) -> serde_json::Value {
+        let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("capabilities").join(name);
+        serde_json::from_str(&std::fs::read_to_string(path).unwrap()).unwrap()
+    }
+
+    fn granted(cap: &serde_json::Value) -> BTreeSet<String> {
+        cap["permissions"].as_array().unwrap().iter().filter_map(|p| p.as_str()).filter_map(|p| p.strip_prefix("allow-")).map(|p| p.replace('-', "_")).collect()
+    }
+
+    fn windows(cap: &serde_json::Value) -> Vec<String> {
+        cap["windows"].as_array().unwrap().iter().map(|w| w.as_str().unwrap().to_string()).collect()
+    }
+
+    #[test]
+    fn every_command_is_in_the_manifest_and_granted_to_the_main_window() {
+        let handler = handler_commands();
+        assert!(handler.len() > 100 && handler.contains("popout_open") && handler.contains("frame_info"), "{handler:?}");
+        assert_eq!(handler, manifest_commands(), "build.rs APP_COMMANDS and generate_handler! differ");
+        let main = capability("default.json");
+        assert_eq!(windows(&main), ["main"]);
+        assert_eq!(handler, granted(&main), "capabilities/default.json and generate_handler! differ");
+    }
+
+    #[test]
+    fn the_secondary_windows_get_a_short_allowlist_without_the_dangerous_commands() {
+        let handler = handler_commands();
+        let pop = capability("popout.json");
+        assert_eq!(windows(&pop), ["compose-*", "reader-*"], "exactly the labels of popout.rs, and never main");
+        let ok = granted(&pop);
+        assert!(ok.is_subset(&handler), "granted but not a command: {:?}", ok.difference(&handler).collect::<Vec<_>>());
+        assert!(ok.len() < handler.len() / 2, "an allowlist, not everything");
+        // REQ-S2: denied for the secondary windows
+        let denied = [
+            // accounts and secrets
+            "add_account", "update_account", "remove_account", "google_sign_in", "microsoft_sign_in", "oauth_cancel", "reauth_account", "discover_server", "set_secret",
+            // PGP key management
+            "pgp_generate_key", "pgp_import_key", "pgp_import_from_message", "pgp_export_public", "pgp_export_secret", "pgp_delete_key", "pgp_set_verified", "pgp_set_default",
+            "pgp_change_passphrase", "pgp_set_expiry", "pgp_lock_all", "pgp_pick_key_file", "pgp_inspect_key",
+            // settings, rules, autostart, the lists of the main page
+            "set_setting", "save_rule", "delete_rule", "list_rules", "set_autostart", "get_autostart", "save_template", "delete_template", "save_signature", "delete_signature",
+            // updates
+            "check_update", "update_download", "update_cancel", "update_discard", "update_defer", "update_note", "update_install", "update_startup_state", "update_startup_ack",
+            // quit and the main page's start-up
+            "quit_now", "quit_cancelled", "sends_flushed", "quit_page_alive", "quit_dialog", "frontend_ready", "page_state", "page_pong", "show_window", "set_mail_available",
+            // calendar connections, sync triggers, mail actions that belong to the main page's intent layer
+            "calendar_connect", "calendar_disconnect", "calendar_sources", "calendar_set_sync", "calendar_sync_now", "sync_account", "refresh_badge", "thread_action",
+            "queue_action", "cancel_action", "sender_action", "load_older", "idle_states", "frame_info", "frame_caption_rect", "frame_system_menu", "test_notification",
+            // a secondary window asks the main page (popout_request); only the main page answers
+            "popout_reply", "popout_save_all",
+        ];
+        for c in denied {
+            assert!(handler.contains(c), "{c} is not a command any more: update this list");
+            assert!(!ok.contains(c), "a secondary window may call {c}");
+        }
+        // what they need to answer a quit: their own commands, not the main page's
+        for c in ["popout_flush_alive", "popout_flush_dialog", "popout_flush_done", "popout_init", "popout_ready", "popout_request", "thread_meta"] {
+            assert!(ok.contains(c), "{c}");
+        }
+        // no window creates windows, and no page gets more of the window API than the spec lists (REQ-W1, S5)
+        let perms: Vec<&str> = pop["permissions"].as_array().unwrap().iter().filter_map(|p| p.as_str()).collect();
+        for p in &perms {
+            assert!(!p.contains("create-webview") && !p.contains("webview:allow") && !p.contains("allow-destroy") && !p.contains("set-fullscreen"), "{p}");
+        }
+        for p in ["core:window:allow-close", "core:window:allow-minimize", "core:window:allow-toggle-maximize", "core:window:allow-start-dragging", "core:window:allow-set-title", "core:window:allow-set-focus", "core:window:allow-set-content-protected", "core:event:default"] {
+            assert!(perms.contains(&p), "{p}");
+        }
+        assert!(!perms.contains(&"core:default"), "core:default also grants what a pop-out does not need");
+    }
+}
+
+#[cfg(test)]
+mod thread_meta_tests {
+    use super::*;
+
+    #[test]
+    fn the_pin_and_the_snooze_of_a_conversation_are_read_from_thread_meta() {
+        let c = db::test_conn(&["a1"]);
+        let meta = |id: &str| thread_meta_in(&c, id).unwrap();
+        // no row: nothing is set
+        let none = meta("t-none");
+        assert!(!none.pinned && none.snoozed_until.is_none());
+        c.execute("INSERT INTO thread_meta(thread_id,pinned) VALUES('t-pin',1)", []).unwrap();
+        c.execute("INSERT INTO thread_meta(thread_id,snoozed_until) VALUES('t-snooze',1760000000)", []).unwrap();
+        c.execute("INSERT INTO thread_meta(thread_id,pinned,snoozed_until) VALUES('t-both',1,1760000001)", []).unwrap();
+        c.execute("INSERT INTO thread_meta(thread_id,pinned) VALUES('t-unpinned',0)", []).unwrap();
+        let (p, s, b, u) = (meta("t-pin"), meta("t-snooze"), meta("t-both"), meta("t-unpinned"));
+        assert!(p.pinned && p.snoozed_until.is_none());
+        assert!(!s.pinned && s.snoozed_until == Some(1_760_000_000));
+        assert!(b.pinned && b.snoozed_until == Some(1_760_000_001));
+        assert!(!u.pinned && u.snoozed_until.is_none(), "an unpinned conversation keeps its row");
+        // the answer the page reads: camelCase
+        assert_eq!(serde_json::to_value(&p).unwrap(), serde_json::json!({ "pinned": true, "snoozedUntil": null }));
     }
 }
 
@@ -4702,7 +6097,7 @@ mod backfill_tests {
         mail::Parsed {
             uid, message_id: None, refs: vec![], subject: "s".into(), from_name: "n".into(), from_email: "e@example.com".into(), to: vec![], cc: vec![],
             date: uid as i64, snippet: String::new(), html: None, text: Some("t".into()), seen: true, flagged: false, attachments: vec![],
-            list_unsub: None, list_unsub_post: false, pgp: 0, pgp_raw: None, ics: None, cal_method: None,
+            list_unsub: None, list_unsub_post: false, pgp: 0, pgp_raw: None, ics: None, cal_method: None, importance: importance::Importance::Normal,
         }
     }
 
@@ -5066,6 +6461,97 @@ mod signed_flag_tests {
     }
 }
 
+/// F-24: importance read from received mail is stored, shown in the list and the reading pane, and changes nothing else.
+#[cfg(test)]
+mod importance_tests {
+    use super::*;
+    use importance::Importance::{self, *};
+
+    fn account() -> Account {
+        Account {
+            id: "a1".into(), email: "me@example.com".into(), display_name: "Me".into(), imap_host: "h".into(), imap_port: 993, imap_ssl: true,
+            smtp_host: "s".into(), smtp_port: 465, smtp_security: "ssl".into(), username: "u".into(), auth: "password".into(), color: None,
+            smtp_username: String::new(), tls_insecure: false,
+        }
+    }
+
+    fn raw(uid: u32, subject: &str, extra: &str) -> Vec<u8> {
+        format!("From: Ann <ann@example.com>\r\nTo: me@example.com\r\nSubject: {subject}\r\nMessage-ID: <m{uid}@example.com>\r\nDate: Mon, 12 Oct 2026 10:00:0{uid} +0000\r\n{extra}\r\nbody\r\n").into_bytes()
+    }
+
+    fn store(c: &Connection, uid: u32, subject: &str, extra: &str) {
+        let p = mail::parse(uid, &raw(uid, subject, extra), false, false, 0).unwrap();
+        insert_parsed(c, &account(), "inbox", &p).unwrap();
+    }
+
+    fn filter() -> ThreadFilter {
+        serde_json::from_str(r#"{"folder":"inbox"}"#).unwrap()
+    }
+
+    #[test]
+    fn received_importance_is_stored_listed_and_read_back_without_touching_order() {
+        let c = db::test_conn(&["a1"]);
+        store(&c, 1, "plain", "");
+        store(&c, 2, "urgent", "X-Priority: 1 (Highest)\r\nImportance: High\r\n");
+        store(&c, 3, "later", "Importance: low\r\n");
+        store(&c, 4, "outlook", "X-MSMail-Priority: High\r\n");
+        store(&c, 5, "old school", "Priority: non-urgent\r\n");
+        store(&c, 6, "three", "X-Priority: 3 (Normal)\r\n");
+        let list = threads_for(&c, filter()).unwrap();
+        let by: HashMap<String, Importance> = list.iter().map(|t| (t.subject.clone(), t.importance)).collect();
+        assert_eq!(by["plain"], Normal);
+        assert_eq!(by["urgent"], High);
+        assert_eq!(by["later"], Low);
+        assert_eq!(by["outlook"], High);
+        assert_eq!(by["old school"], Low);
+        assert_eq!(by["three"], Normal);
+        // order is by date as before (newest first), whatever the importance
+        let subjects: Vec<&str> = list.iter().map(|t| t.subject.as_str()).collect();
+        assert_eq!(subjects, ["three", "old school", "outlook", "later", "urgent", "plain"]);
+        // the reading pane
+        assert_eq!(message_full(&c, "a1:inbox:2").unwrap().importance, High);
+        assert_eq!(message_full(&c, "a1:inbox:3").unwrap().importance, Low);
+        assert_eq!(message_full(&c, "a1:inbox:1").unwrap().importance, Normal);
+        // wire names for the interface
+        let urgent = list.iter().find(|t| t.subject == "urgent").unwrap();
+        assert_eq!(serde_json::to_value(urgent).unwrap()["importance"], "high");
+        assert_eq!(serde_json::to_value(message_full(&c, "a1:inbox:3").unwrap()).unwrap()["importance"], "low");
+        // syncing the same message again with different headers updates the stored value (INSERT OR REPLACE)
+        store(&c, 1, "plain", "Importance: high\r\n");
+        assert_eq!(message_full(&c, "a1:inbox:1").unwrap().importance, High);
+    }
+
+    #[test]
+    fn a_conversation_shows_high_over_low_over_normal() {
+        let c = db::test_conn(&["a1"]);
+        // one thread: a root and replies that reference it
+        store(&c, 1, "topic", "");
+        store(&c, 2, "Re: topic", "In-Reply-To: <m1@example.com>\r\nReferences: <m1@example.com>\r\nImportance: low\r\n");
+        let l = threads_for(&c, filter()).unwrap();
+        assert_eq!(l.len(), 1);
+        assert_eq!(l[0].importance, Low);
+        store(&c, 3, "Re: topic", "In-Reply-To: <m1@example.com>\r\nReferences: <m1@example.com>\r\nX-Priority: 1\r\n");
+        let l = threads_for(&c, filter()).unwrap();
+        assert_eq!((l.len(), l[0].count, l[0].importance), (1, 3, High));
+    }
+
+    #[test]
+    fn a_sent_high_importance_message_comes_back_high_from_the_sent_folder() {
+        let c = db::test_conn(&["a1"]);
+        let acc = account();
+        let d = smtp::Draft {
+            account_id: "a1".into(), to: vec!["ann@example.com".into()], cc: vec![], bcc: vec![], subject: "Ship it".into(), html: "<p>x</p>".into(), text: "x".into(),
+            in_reply_to: None, references: vec![], attachments: vec![], inline: vec![], security: None, prebuilt: None, meeting: None, calendar: None,
+            confidential: false, importance: High, recovery_id: None, meeting_form: None,
+        };
+        let sent = smtp::build(&acc, &d).unwrap().formatted();
+        let p = mail::parse(1, &sent, true, false, 0).unwrap();
+        insert_parsed(&c, &acc, "sent", &p).unwrap();
+        let f: ThreadFilter = serde_json::from_str(r#"{"folder":"sent"}"#).unwrap();
+        assert_eq!(threads_for(&c, f).unwrap()[0].importance, High);
+    }
+}
+
 #[cfg(test)]
 mod download_dir_tests {
     use super::*;
@@ -5176,6 +6662,75 @@ mod platform_tests {
     use super::*;
 
     #[test]
+    fn a_keyring_that_does_not_answer_ends_in_a_message_and_leaves_nothing() {
+        use std::sync::atomic::{AtomicBool, Ordering};
+        use std::time::{Duration, Instant};
+        // a locked keyring: the call answers only after 1.5 s; the wait is 300 ms
+        let stored = Arc::new(AtomicBool::new(false));
+        let undone = Arc::new(AtomicBool::new(false));
+        let (s, u) = (stored.clone(), undone.clone());
+        let t = Instant::now();
+        let e = store_within(
+            Duration::from_millis(300),
+            &|| false,
+            move || {
+                std::thread::sleep(Duration::from_millis(1500));
+                s.store(true, Ordering::SeqCst);
+                Ok(())
+            },
+            move || u.store(true, Ordering::SeqCst),
+        )
+        .expect_err("no answer in time");
+        assert!(t.elapsed() < Duration::from_millis(1200), "the form does not wait for the keyring: {:?}", t.elapsed());
+        assert!(e.starts_with("KEYRING_TIMEOUT: Your system keyring is locked or not answering. Unlock it (Passwords and Keys / KWallet) and try again."), "{e}");
+        // the keyring answers late: what it stored for the account that was never added is removed again
+        std::thread::sleep(Duration::from_millis(1500));
+        assert!(stored.load(Ordering::SeqCst) && undone.load(Ordering::SeqCst), "the late write is undone");
+    }
+
+    #[test]
+    fn a_keyring_that_answers_behaves_as_before() {
+        use std::sync::atomic::{AtomicBool, Ordering};
+        use std::time::Duration;
+        let undone = Arc::new(AtomicBool::new(false));
+        let u = undone.clone();
+        assert!(store_within(Duration::from_secs(5), &|| false, || Ok(()), move || u.store(true, Ordering::SeqCst)).is_ok());
+        // its own refusal comes back untouched
+        let e = store_within(Duration::from_secs(5), &|| false, || Err("no Secret Service".into()), || ()).unwrap_err();
+        assert_eq!(e, "no Secret Service");
+        std::thread::sleep(Duration::from_millis(200));
+        assert!(!undone.load(Ordering::SeqCst), "an answered write is kept");
+    }
+
+    #[test]
+    fn cancel_ends_the_wait_at_once() {
+        use std::sync::atomic::{AtomicBool, Ordering};
+        use std::time::{Duration, Instant};
+        let flag = Arc::new(AtomicBool::new(false));
+        let f = flag.clone();
+        std::thread::spawn(move || {
+            std::thread::sleep(Duration::from_millis(250));
+            f.store(true, Ordering::SeqCst);
+        });
+        let t = Instant::now();
+        let e = store_within(Duration::from_secs(30), &|| flag.load(Ordering::SeqCst), || {
+            std::thread::sleep(Duration::from_secs(2));
+            Ok(())
+        }, || ()).unwrap_err();
+        assert!(e.starts_with("ADD_CANCELLED"), "{e}");
+        assert!(t.elapsed() < Duration::from_secs(1), "{:?}", t.elapsed());
+    }
+
+    #[test]
+    fn the_wait_is_thirty_seconds_and_runs_off_the_ui_thread() {
+        assert_eq!(KEYRING_WAIT, std::time::Duration::from_secs(30));
+        // add_account is async and runs the add in `blocking` (a worker); the keyring call is on a thread of its own inside that
+        let code = include_str!("lib.rs");
+        let add = &code[code.find("async fn add_account(").unwrap()..];
+        assert!(add[..add.find("\n}\n").unwrap()].contains("blocking(move ||"));
+    }
+
+    #[test]
     fn keyring_failures_are_explained_per_os() {
         let l = keyring_error_text("linux", "save", "boom");
         assert!(l.starts_with("Couldn’t save the password: no system keyring is available. On Linux, start and unlock GNOME Keyring or KWallet"), "{l}");
@@ -5209,7 +6764,7 @@ mod platform_tests {
 
 }
 
-// helper of the socket tests (after the first cfg(test): the source-reading tests above cut the file there)
+// helper of the socket tests (the source-reading tests cut the file at the first inline test module, `test_guard::non_test_code`)
 #[cfg(test)]
 mod test_guard;
 #[cfg(test)]
@@ -5218,3 +6773,5 @@ mod fakeimap;
 mod foldermove_tests;
 #[cfg(test)]
 mod readrace_tests;
+#[cfg(test)]
+mod testbridge_guard;

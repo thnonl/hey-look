@@ -178,6 +178,211 @@ fn junk_and_folders_the_person_made_are_never_created() {
     });
 }
 
+// ---- OBS-1 (1.0.4): the folder is looked up / created BEFORE the person is told "Archived" (`prepare_on_session`)
+
+fn prepare(db: &Db, acc: &Account, fake: &Fake, dst: &str) -> R<()> {
+    let mut s = fake.connect();
+    let done = prepare_on_session(db, acc, &mut s, dst);
+    let _ = s.logout();
+    done
+}
+
+#[test]
+fn preparing_creates_a_missing_archive_without_moving_anything_and_the_move_then_finds_it() {
+    test_guard::within(60, || {
+        let (db, acc) = setup("obs1-create", NO_ARCHIVE, &[1, 2]);
+        let fake = Fake::start(&[("INBOX", &[1, 2]), ("Sent", &[])]);
+        prepare(&db, &acc, &fake, "archive").unwrap();
+        assert_eq!(fake.uids("Archive"), Some(vec![]), "Archive exists now and holds nothing");
+        assert_eq!(fake.uids("INBOX"), Some(vec![1, 2]), "no mail moved yet");
+        assert_eq!(local_folder(&db, 1).as_deref(), Some("inbox"));
+        assert_eq!(saved(&db).get("archive").map(String::as_str), Some("Archive"));
+        // the queued move runs later with the saved list: no LIST and no second CREATE
+        let (lists, creates) = (sent(&fake, "LIST"), sent(&fake, "CREATE"));
+        run(&db, &acc, &fake, 1, "archive", true).unwrap();
+        assert_eq!((sent(&fake, "LIST"), sent(&fake, "CREATE")), (lists, creates));
+        assert_eq!(fake.uids("Archive").map(|u| u.len()), Some(1));
+    });
+}
+
+#[test]
+fn preparing_fails_at_once_when_the_server_refuses_the_folder_and_nothing_changes() {
+    test_guard::within(60, || {
+        let (db, acc) = setup("obs1-refused", NO_ARCHIVE, &[1, 2]);
+        let fake = Fake::start(&[("INBOX", &[1, 2])]);
+        fake.state.lock().unwrap().refuse_create = true;
+        for role in ["archive", "trash"] {
+            let e = prepare(&db, &acc, &fake, role).unwrap_err();
+            assert!(e.starts_with(&format!("FOLDER_NOT_CREATED|folder={}|why=", role_label(role))), "{e}");
+        }
+        assert!(saved(&db).get("archive").is_none() && saved(&db).get("trash").is_none(), "nothing was saved for a folder that does not exist");
+        assert_eq!(fake.uids("INBOX"), Some(vec![1, 2]));
+        assert_eq!(local_folder(&db, 1).as_deref(), Some("inbox"));
+        // junk and a folder of the person's own are never created: the same immediate error
+        let e = prepare(&db, &acc, &fake, "junk").unwrap_err();
+        assert!(e.starts_with("FOLDER_MISSING|folder=Junk"), "{e}");
+        // the folder shows up later: preparing finds it
+        fake.put_folder("Archive", &[]);
+        prepare(&db, &acc, &fake, "archive").unwrap();
+        assert_eq!(saved(&db).get("archive").map(String::as_str), Some("Archive"));
+    });
+}
+
+#[test]
+fn preparing_with_a_saved_folder_asks_the_server_for_nothing_and_a_found_folder_is_not_created() {
+    test_guard::within(60, || {
+        let (db, acc) = setup("obs1-saved", r#"{"inbox":"INBOX","archive":"Archive"}"#, &[1]);
+        let fake = Fake::start(&[("INBOX", &[1]), ("Archive", &[])]);
+        prepare(&db, &acc, &fake, "archive").unwrap();
+        assert!(fake.commands().iter().all(|c| !c.to_uppercase().starts_with("LIST") && !c.to_uppercase().starts_with("CREATE")), "{:?}", fake.commands());
+        // not saved, but the server has it (SPECIAL-USE): found by LIST, not created
+        let (db, acc) = setup("obs1-found", NO_ARCHIVE, &[1]);
+        let fake = Fake::start(&[("INBOX", &[1]), ("Deleted Items", &[])]);
+        fake.state.lock().unwrap().special.insert("Deleted Items".into(), "\\Trash".into());
+        prepare(&db, &acc, &fake, "trash").unwrap();
+        assert_eq!(sent(&fake, "CREATE"), 0);
+        assert_eq!(saved(&db).get("trash").map(String::as_str), Some("Deleted Items"));
+    });
+}
+
+#[test]
+fn only_a_move_to_a_folder_the_saved_list_lacks_needs_the_server() {
+    let (db, _acc) = setup("obs1-targets", r#"{"inbox":"INBOX","archive":"Archive"}"#, &[1, 2]);
+    let ids = vec!["t1".to_string(), "t2".to_string()];
+    let inbox = Some("inbox".to_string());
+    let want = |action: &str, arg: Option<&str>, scope: &Option<String>| targets_to_prepare(&db, &ids, action, arg, scope).unwrap();
+    assert_eq!(want("archive", None, &inbox), Vec::<(String, String)>::new(), "the saved list names Archive");
+    assert_eq!(want("trash", None, &inbox), vec![(ACC.to_string(), "trash".to_string())], "once per account, however many conversations");
+    assert_eq!(want("junk", None, &inbox), vec![(ACC.to_string(), "junk".to_string())]);
+    assert_eq!(want("block", None, &inbox), vec![(ACC.to_string(), "junk".to_string())], "blocking sends the mail to Junk");
+    assert_eq!(want("move", Some("f:Work"), &inbox), vec![(ACC.to_string(), "f:Work".to_string())]);
+    assert!(targets_to_prepare(&db, &ids, "move", None, &inbox).is_err(), "a move needs a destination");
+    // (BUG-1) the targets also say whether the saved list was trusted: those are the ones checked during the Undo window
+    let all = move_targets(&db, &ids, "archive", None, &inbox).unwrap();
+    assert_eq!(all, vec![(ACC.to_string(), "archive".to_string(), true)]);
+    assert_eq!(move_targets(&db, &ids, "trash", None, &inbox).unwrap(), vec![(ACC.to_string(), "trash".to_string(), false)]);
+    assert_eq!(want("inbox", None, &inbox), Vec::<(String, String)>::new(), "already in the inbox");
+    assert!(want("read", None, &inbox).is_empty() && want("star", None, &inbox).is_empty() && want("pin", None, &inbox).is_empty(), "other actions need no folder");
+    // a view the mail is not in is not touched by the move (the same rule as the move itself)
+    assert!(want("trash", None, &Some("sent".to_string())).is_empty());
+    // the trash view's delete removes for good, it is not a move
+    lock(&db).execute("UPDATE messages SET folder='trash' WHERE id='m2'", []).unwrap();
+    assert!(targets_to_prepare(&db, &["t2".to_string()], "trash", None, &Some("trash".to_string())).unwrap().is_empty());
+}
+
+// ---- BUG-1 (1.0.4, QA round 11): the saved list names the folder but the server no longer has it. The folder is checked on the server
+// while the Undo window runs (`verify_on_session`, `Verify`); a move never goes to a folder that was not checked.
+
+fn verify(db: &Db, acc: &Account, fake: &Fake, dst: &str) -> R<()> {
+    let mut s = fake.connect();
+    let done = verify_on_session(db, acc, &mut s, dst);
+    let _ = s.logout();
+    done
+}
+
+const SAVED_ARCHIVE: &str = r#"{"inbox":"INBOX","archive":"Archive"}"#;
+
+#[test]
+fn a_saved_folder_that_is_gone_and_cannot_be_made_fails_the_check_before_anything_is_sent() {
+    test_guard::within(60, || {
+        // the QA case: the list still names Archive, the server deleted it, CREATE is refused
+        let (db, acc) = setup("bug1-refused", SAVED_ARCHIVE, &[1, 2]);
+        let fake = Fake::start(&[("INBOX", &[1, 2]), ("Sent", &[])]);
+        fake.state.lock().unwrap().refuse_create = true;
+        let e = verify(&db, &acc, &fake, "archive").unwrap_err();
+        assert!(e.starts_with("FOLDER_NOT_CREATED|folder=Archive|why="), "{e}");
+        assert_eq!(sent(&fake, "UID MOVE") + sent(&fake, "UID COPY"), 0, "no MOVE and no COPY was sent");
+        assert_eq!(sent(&fake, "LIST"), 1, "the server was asked once");
+        let s = saved(&db);
+        assert!(s.get("archive").is_none(), "the saved list was refreshed and no longer names Archive: {s:?}");
+        assert_eq!(s.get("inbox").map(String::as_str), Some("INBOX"));
+        assert_eq!(fake.uids("INBOX"), Some(vec![1, 2]));
+        assert_eq!(local_folder(&db, 1).as_deref(), Some("inbox"), "the mail is still listed in the Inbox here");
+        // a later Archive does not trust the old name any more: the app asks the server again before it says "Archived"
+        assert_eq!(targets_to_prepare(&db, &["t1".to_string()], "archive", None, &Some("inbox".to_string())).unwrap(), vec![(ACC.to_string(), "archive".to_string())]);
+    });
+}
+
+#[test]
+fn a_saved_folder_that_is_gone_is_made_again_when_the_server_allows_it() {
+    test_guard::within(60, || {
+        let (db, acc) = setup("bug1-recreate", SAVED_ARCHIVE, &[1]);
+        let fake = Fake::start(&[("INBOX", &[1])]);
+        verify(&db, &acc, &fake, "archive").unwrap();
+        assert_eq!(fake.uids("Archive"), Some(vec![]));
+        assert_eq!(sent(&fake, "CREATE"), 1);
+        assert_eq!(sent(&fake, "UID MOVE") + sent(&fake, "UID COPY"), 0, "the check moves nothing");
+        // Junk and a folder of the person's own are find-only, as before: a missing one is an error, nothing is created
+        let e = verify(&db, &acc, &fake, "junk").unwrap_err();
+        assert!(e.starts_with("FOLDER_MISSING|folder=Junk"), "{e}");
+        assert_eq!(sent(&fake, "CREATE"), 1);
+    });
+}
+
+#[test]
+fn a_saved_folder_that_exists_is_checked_once_and_the_move_comes_after() {
+    test_guard::within(60, || {
+        let (db, acc) = setup("bug1-exists", SAVED_ARCHIVE, &[1, 2]);
+        let fake = Fake::start(&[("INBOX", &[1, 2]), ("Archive", &[])]);
+        verify(&db, &acc, &fake, "archive").unwrap();
+        assert_eq!(sent(&fake, "LIST"), 1, "one look at the server");
+        assert_eq!(sent(&fake, "CREATE") + sent(&fake, "UID MOVE") + sent(&fake, "UID COPY"), 0, "the check only looks");
+        assert_eq!(saved(&db).get("archive").map(String::as_str), Some("Archive"));
+        // the move that follows goes straight to it
+        run(&db, &acc, &fake, 1, "archive", true).unwrap();
+        assert_eq!(sent(&fake, "LIST"), 1, "the move needed no second look");
+        assert_eq!(fake.uids("Archive").map(|u| u.len()), Some(1));
+        assert_eq!(fake.uids("INBOX"), Some(vec![2]));
+        // the order on the wire: the LIST came before the MOVE
+        let cmds = fake.commands();
+        let at = |w: &str| cmds.iter().position(|c| c.to_uppercase().starts_with(w));
+        assert!(at("LIST") < at("UID MOVE").or(at("UID COPY")), "{cmds:?}");
+    });
+}
+
+#[test]
+fn a_saved_folder_that_was_renamed_is_found_by_the_check_and_the_saved_list_follows() {
+    test_guard::within(60, || {
+        let (db, acc) = setup("bug1-renamed", SAVED_ARCHIVE, &[1]);
+        let fake = Fake::start(&[("INBOX", &[1]), ("Archives", &[])]);
+        verify(&db, &acc, &fake, "archive").unwrap();
+        assert_eq!(saved(&db).get("archive").map(String::as_str), Some("Archives"));
+        assert_eq!(sent(&fake, "CREATE"), 0);
+        run(&db, &acc, &fake, 1, "archive", true).unwrap();
+        assert_eq!(fake.uids("Archives").map(|u| u.len()), Some(1));
+    });
+}
+
+#[test]
+fn the_folder_check_decides_the_queued_move_and_undo_wins() {
+    use std::time::Duration;
+    let queued = |gate: &Arc<Verify>| queue(vec!["t".into()], "archive".into(), None, Some("inbox".into()), 600, Some(gate.clone()));
+    let waiting = |id: &str| pending_lock().iter().any(|p| p.id == id);
+    // not finished yet: the move waits (None), and a finished check is remembered
+    let gate = Verify::new();
+    assert!(gate.wait(Duration::from_millis(10)).is_none());
+    gate.finish(Ok(()));
+    assert_eq!(gate.wait(Duration::from_millis(10)), Some(Ok(())));
+    // a check that fails drops a move that is still waiting and hands the error to the app
+    let gate = Verify::new();
+    let id = queued(&gate);
+    assert!(waiting(&id));
+    assert_eq!(verify_finished(&id, &gate, Err("FOLDER_NOT_CREATED|folder=Archive|why=x: nope".into())).as_deref(), Some("FOLDER_NOT_CREATED|folder=Archive|why=x: nope"));
+    assert!(!waiting(&id), "the move is gone, nothing will be sent");
+    assert_eq!(gate.wait(Duration::from_millis(10)), Some(Err("FOLDER_NOT_CREATED|folder=Archive|why=x: nope".to_string())), "a move that was already due sees the failure");
+    // Undo first: the failed check is ignored (no error for a move the person took back)
+    let gate = Verify::new();
+    let id = queued(&gate);
+    assert!(cancel_action(id.clone()));
+    assert_eq!(verify_finished(&id, &gate, Err("FOLDER_MISSING|folder=Archive: gone".into())), None);
+    // a check that succeeds changes nothing
+    let gate = Verify::new();
+    let id = queued(&gate);
+    assert_eq!(verify_finished(&id, &gate, Ok(())), None);
+    assert!(waiting(&id), "the move stays queued and runs at the end of the Undo window");
+    assert!(cancel_action(id));
+}
+
 #[test]
 fn a_filter_does_not_create_folders_and_keeps_the_old_message() {
     test_guard::within(60, || {
@@ -360,3 +565,37 @@ fn when_no_sent_folder_can_be_made_the_copy_is_given_up_with_a_reason_and_nothin
     });
 }
 
+
+#[test]
+fn a_move_whose_undo_time_is_over_stays_hidden_from_the_lists_until_it_is_done() {
+    use std::time::{Duration, Instant};
+    // BUG-B3: a move that left the waiting list (its Undo time is over) and had not changed the local rows yet was in no set, so a list read in
+    // that moment (the page's 30 s re-read, a sync) showed the message again
+    let id = queue(vec!["t-b3-a".into(), "t-b3-b".into()], "trash".into(), None, Some("inbox".into()), 0, None);
+    let other = queue(vec!["t-b3-other".into()], "archive".into(), None, Some("inbox".into()), 600, None);
+    assert!(pending_thread_ids().contains("t-b3-a"), "waiting: hidden");
+    let taken = take_due(Some(Instant::now() + Duration::from_secs(1)));
+    assert!(taken.iter().any(|p| p.id == id), "the due move is taken");
+    assert!(!taken.iter().any(|p| p.id == other), "a move that is not due stays");
+    assert!(!pending_lock().iter().any(|p| p.id == id), "no longer waiting");
+    let hidden = pending_thread_ids();
+    assert!(hidden.contains("t-b3-a") && hidden.contains("t-b3-b"), "running: still hidden");
+    assert!(hidden.contains("t-b3-other"), "the waiting one is hidden too");
+    committing_done(&id);
+    let hidden = pending_thread_ids();
+    assert!(!hidden.contains("t-b3-a") && !hidden.contains("t-b3-b"), "done: the rows are as the move left them, the lists show what is there");
+    assert!(hidden.contains("t-b3-other"));
+    assert!(cancel_action(other));
+}
+
+#[test]
+fn the_page_is_told_when_a_move_is_done_and_the_list_drops_the_messages_then() {
+    let lib = crate::test_guard::non_test_code(include_str!("lib.rs"));
+    let run = &lib[lib.find("fn run_pending(").unwrap()..];
+    let run = &run[..run.find("fn commit_due(").unwrap()];
+    // the threads stop being hidden after the local rows are changed, then the page hears of it (to the main page only), then every window re-reads
+    let done = run.find("committing_done(&id);").unwrap();
+    let told = run.find("\"moves-committed\"").unwrap();
+    let synced = run.find("\"mail-synced\"").unwrap();
+    assert!(run.find("action_impl(").unwrap() < done && done < told && told < synced, "{run}");
+}

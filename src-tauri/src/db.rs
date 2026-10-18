@@ -15,6 +15,7 @@ pub fn open(path: &Path) -> R<Connection> {
     crate::shard::open_all(&conn)?;
     // snippet repair walks the shards, so it runs once they are attached (a failure is retried at the next start)
     let _ = crate::snippet::fix_stored(&conn);
+    let _ = crate::snippet::fix_stored_links(&conn);
     Ok(conn)
 }
 
@@ -102,6 +103,8 @@ pub fn migrate(conn: &Connection) -> R<()> {
     add_column(conn, "ALTER TABLE events ADD COLUMN remote_kind TEXT")?;
     add_column(conn, "ALTER TABLE events ADD COLUMN read_only INTEGER NOT NULL DEFAULT 0")?;
     conn.execute_batch("CREATE INDEX IF NOT EXISTS idx_events_remote ON events(calendar_id, remote_id);").map_err(err)?;
+    // the message being written, kept until it is sent, discarded or saved (crash recovery, see recover.rs)
+    crate::recover::create_tables(conn)?;
     // scheduled sends: when it was queued and how many delivery attempts failed so far
     add_column(conn, "ALTER TABLE outbox ADD COLUMN created_at INTEGER NOT NULL DEFAULT 0")?;
     add_column(conn, "ALTER TABLE outbox ADD COLUMN attempts INTEGER NOT NULL DEFAULT 0")?;
@@ -300,16 +303,22 @@ pub fn prune_orphans(c: &Connection) -> R<usize> {
     }
     // folder maps (and "downloaded to the oldest message" marks, `exhausted:<id>:<folder>`) of removed accounts
     let keys: Vec<String> = {
-        let mut st = c.prepare("SELECT key FROM settings WHERE key LIKE 'fmap:%' OR key LIKE 'exhausted:%'").map_err(err)?;
+        let mut st = c.prepare("SELECT key FROM settings WHERE key LIKE 'fmap:%' OR key LIKE 'exhausted:%' OR key LIKE 'dmeet:%'").map_err(err)?;
         let rows = st.query_map([], |r| r.get::<_, String>(0)).map_err(err)?.collect::<Result<Vec<_>, _>>().map_err(err)?;
         rows
     };
     for k in keys {
-        let owner = k.strip_prefix("exhausted:").map(|r| r.split(':').next().unwrap_or("")).unwrap_or_else(|| k.trim_start_matches("fmap:"));
+        let owner = match (k.strip_prefix("exhausted:"), k.strip_prefix("dmeet:")) {
+            (Some(r), _) => r.split(':').next().unwrap_or(""),
+            (_, Some(r)) => r.split('|').next().unwrap_or(""), // (the meeting a saved draft kept, draftmail.rs: `dmeet:<account>|<Message-ID>`)
+            _ => k.trim_start_matches("fmap:"),
+        };
         if !ids.contains(owner) {
             n += c.execute("DELETE FROM settings WHERE key=?1", [&k]).map_err(err)?;
         }
     }
+    // what a removed account was writing when the app ended
+    n += crate::recover::prune(c)?;
     // synced calendars (and their events and tombstones) of a mailbox that is gone, or of a calendar that is gone
     n += crate::calsync::store::prune_orphans(c)?;
     // calendars hidden by the user: "invites:<account>" of a removed account, or a synced calendar that no longer exists

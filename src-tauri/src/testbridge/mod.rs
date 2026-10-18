@@ -1,0 +1,162 @@
+//! Test bridge: a remote control of the windows for QA, in DEBUG builds only (`#[cfg(debug_assertions)] mod testbridge;` in lib.rs; a release
+//! build has none of this code, none of its strings, and no command, capability or setting that mentions it).
+//!
+//! Why: WKWebView (macOS) has no remote debugging port, so a macOS tester could only click by screen coordinates and could not read the DOM.
+//! The bridge gives the same things the Windows tests get from CDP: run a script in a window, click / type / press keys by selector, read
+//! the console, list windows, take a picture of a window.
+//!
+//! * OFF unless the environment variable [`ENV_VAR`] is a port number (`0` = pick a free one). Anything else is off, and an off bridge
+//!   writes nothing to the log.
+//! * When on, ONE line goes to startup.log: `test bridge: listening on 127.0.0.1:<port>, token <64 hex>`. The token is random per run. The line is pinned:
+//!   when startup.log reaches its size cap and starts over, it is written again at the top (a long session lost it once). The same facts are in
+//!   `test-bridge.json` in the data folder (`{port, token, pid, started}`, mode 0600 on macOS / Linux), written at start and removed when the app ends
+//!   cleanly; a script reads that file first.
+//! * 127.0.0.1 only. Every request needs the token (`Authorization: Bearer` or `X-Bridge-Token`), a Host of `127.0.0.1:<port>` or
+//!   `localhost:<port>` and no Origin of a web page; no CORS headers; bodies up to 1 MB; one request at a time per window (see `http.rs`).
+//! * No command is registered for the page to call: scripts go in through the web view's own script call and the answers come back
+//!   through its completion handler (`native.rs`). The page cannot reach the bridge, and nothing here reads files or runs programs.
+//! * A QA build also has its own identifier and data folder, and the person's installed release app has no bridge at all.
+
+mod http;
+mod js;
+mod native;
+mod server;
+
+/// The environment variable that switches the bridge on.
+pub const ENV_VAR: &str = "HEYLOOK_TEST_BRIDGE";
+
+/// The port the value asks for: all ASCII digits, 0 to 65535. `None` (= off) for everything else, an empty value included.
+pub fn port_from_value(v: Option<&str>) -> Option<u16> {
+    let v = v?;
+    if v.is_empty() || v.len() > 5 || !v.bytes().all(|b| b.is_ascii_digit()) {
+        return None;
+    }
+    v.parse::<u16>().ok()
+}
+
+/// The port this run was asked to listen on, `None` when the bridge is off.
+pub fn requested() -> Option<u16> {
+    port_from_value(std::env::var(ENV_VAR).ok().as_deref())
+}
+
+/// 32 random bytes from the operating system, as 64 hex characters.
+pub fn new_token() -> Result<String, String> {
+    use rand::{TryRng, rngs::SysRng};
+    let mut bytes = [0u8; 32];
+    SysRng.try_fill_bytes(&mut bytes).map_err(|e| format!("no random bytes from the system: {e}"))?;
+    Ok(bytes.iter().map(|b| format!("{b:02x}")).collect())
+}
+
+/// The file in the data folder that tells a script where the bridge is (it is also in startup.log).
+pub const INFO_FILE: &str = "test-bridge.json";
+
+/// What `INFO_FILE` holds. `started` is RFC 3339 (UTC).
+pub fn info_json(port: u16, token: &str, pid: u32, started: &str) -> String {
+    serde_json::json!({ "port": port, "token": token, "pid": pid, "started": started }).to_string()
+}
+
+/// Writes `INFO_FILE` into the data folder (only the owner can read it on macOS / Linux: it holds the token).
+fn write_info(port: u16, token: &str) {
+    let Some(dir) = crate::startup::log_dir() else { return };
+    let text = info_json(port, token, std::process::id(), &chrono::Utc::now().to_rfc3339());
+    let path = dir.join(INFO_FILE);
+    let mut o = std::fs::OpenOptions::new();
+    o.write(true).create(true).truncate(true);
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::OpenOptionsExt;
+        o.mode(0o600);
+    }
+    match o.open(&path).and_then(|mut f| std::io::Write::write_all(&mut f, text.as_bytes())) {
+        Ok(()) => {
+            // (a file that already existed keeps its old mode: set it again)
+            #[cfg(unix)]
+            {
+                use std::os::unix::fs::PermissionsExt;
+                let _ = std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o600));
+            }
+        }
+        Err(e) => crate::startup::line("bridge", &format!("test bridge: could not write {INFO_FILE}: {e}")),
+    }
+}
+
+/// Removes `INFO_FILE` (the app ends cleanly: the file would point at a bridge that is gone).
+fn remove_info() {
+    if let Some(dir) = crate::startup::log_dir() {
+        let _ = std::fs::remove_file(dir.join(INFO_FILE));
+    }
+}
+
+/// The page side, as an initialization script of every window (console ring buffer, safe JSON, input helpers); and the removal of `INFO_FILE` when the app ends.
+pub fn plugin<R: tauri::Runtime>() -> tauri::plugin::TauriPlugin<R> {
+    tauri::plugin::Builder::new("testbridge")
+        .js_init_script(js::BRIDGE_JS.to_string())
+        .on_event(|_app, event| {
+            if matches!(event, tauri::RunEvent::Exit) {
+                remove_info();
+            }
+        })
+        .build()
+}
+
+/// Starts the server when the environment asks for it (the data folder, and with it the log, is known by now).
+pub fn start(app: &tauri::AppHandle) {
+    let Some(port) = requested() else { return };
+    let token = match new_token() {
+        Ok(t) => t,
+        Err(e) => return crate::startup::line("bridge", &format!("test bridge: not started: {e}")),
+    };
+    match server::start(std::sync::Arc::new(native::TauriDriver { app: app.clone() }), port, token.clone()) {
+        Ok(running) => {
+            crate::startup::line_pinned("bridge", &format!("test bridge: listening on 127.0.0.1:{}, token {token}", running.port));
+            write_info(running.port, &token);
+        }
+        Err(e) => crate::startup::line("bridge", &format!("test bridge: not started: {e}")),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn only_a_port_number_switches_it_on() {
+        assert_eq!(port_from_value(Some("0")), Some(0));
+        assert_eq!(port_from_value(Some("8123")), Some(8123));
+        assert_eq!(port_from_value(Some("65535")), Some(65535));
+        assert_eq!(port_from_value(Some("1")), Some(1));
+        for off in [None, Some(""), Some("true"), Some("on"), Some("yes"), Some("65536"), Some("-1"), Some("+80"), Some(" 80"), Some("80 "), Some("8.0"), Some("0x50"), Some("123456"), Some("\u{ff18}\u{ff10}")] {
+            assert_eq!(port_from_value(off), None, "{off:?}");
+        }
+    }
+
+    #[test]
+    fn the_token_is_64_hex_and_new_every_time() {
+        let a = new_token().unwrap();
+        let b = new_token().unwrap();
+        assert_eq!(a.len(), 64);
+        assert!(a.bytes().all(|c| c.is_ascii_digit() || (b'a'..=b'f').contains(&c)));
+        assert_ne!(a, b);
+    }
+
+    #[test]
+    fn the_info_file_has_port_token_pid_and_start() {
+        let v: serde_json::Value = serde_json::from_str(&info_json(53211, &"ab".repeat(32), 4242, "2026-10-18T10:00:00+00:00")).unwrap();
+        assert_eq!(v["port"], 53211);
+        assert_eq!(v["token"], "ab".repeat(32));
+        assert_eq!(v["pid"], 4242);
+        assert_eq!(v["started"], "2026-10-18T10:00:00+00:00");
+        assert_eq!(v.as_object().unwrap().len(), 4);
+        // written at start with the log line, removed with the app's end, 0600 where there are modes
+        let src = include_str!("mod.rs");
+        assert!(src.contains("write_info(running.port, &token);") && src.contains("remove_info();") && src.contains("o.mode(0o600)"));
+    }
+
+    #[test]
+    fn the_log_line_has_the_documented_shape() {
+        let src = include_str!("mod.rs");
+        assert!(src.contains("test bridge: listening on 127.0.0.1:{}, token {token}"));
+        // the only place that logs is `start`, and it returns before that when the bridge is off
+        assert!(src.contains("let Some(port) = requested() else { return };"));
+    }
+}

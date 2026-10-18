@@ -9,9 +9,6 @@ use tauri::menu::{CheckMenuItem, Menu, MenuEvent, MenuItem, MenuItemKind, Predef
 use tauri::tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent};
 use tauri::{AppHandle, Emitter, Manager};
 
-#[cfg(windows)]
-pub const AUMID: &str = "thnonl.heylook";
-
 // ---------- prefs ----------
 
 pub fn prefs(db: &Db) -> Value {
@@ -61,9 +58,11 @@ pub fn show_main(app: &AppHandle) {
         // a window that was hidden (first show, a tray click after a --minimized start, a second start) is looked at: is the web view still running?
         if was_hidden {
             crate::startup::verify_painting(app);
+            // Linux: a window that sat in the tray may come back with a white page (linuxview.rs)
+            crate::linuxview::after_show(app);
         }
         // the UI re-checks for updates when the window comes back (throttled in update.rs)
-        let _ = app.emit("app-shown", ());
+        let _ = app.emit_to("main", "app-shown", ());
     }
 }
 
@@ -228,9 +227,15 @@ pub fn update_badge(app: &AppHandle, db: &Db) {
         }
         let _ = tray.set_tooltip(Some(crate::i18n::unread_tooltip(count)));
     }
+    // Windows: the badge goes on every window of the app (the main window and the secondary ones, which group under its taskbar button), so the
+    // taskbar shows it whichever window was active last
     #[cfg(windows)]
-    if let Some(w) = app.get_webview_window("main") {
-        let _ = w.set_overlay_icon(if count > 0 && task_style == "number" { Some(overlay_icon(count)) } else { None });
+    {
+        let icon = if count > 0 && task_style == "number" { Some(overlay_icon(count)) } else { None };
+        if let Some(w) = app.get_webview_window("main") {
+            let _ = w.set_overlay_icon(icon.clone());
+        }
+        crate::popout::set_overlay(app, icon);
     }
     // macOS Dock icon: the same number as the tray, off at 0 and with the "None" choice of the badge setting (shown as "Dock badge")
     #[cfg(target_os = "macos")]
@@ -264,7 +269,60 @@ pub fn mac_app_menu(app: &AppHandle) -> tauri::Result<Menu<tauri::Wry>> {
     if let Err(e) = replace_quit_item(app, &menu) {
         crate::startup::line("menu", &format!("the Quit item of the app menu could not be replaced ({e}): the terminate hook covers it"));
     }
+    if let Err(e) = localize_app_menu(app, &menu) {
+        crate::startup::line("menu", &format!("the app menu stays in English ({e})"));
+    }
     Ok(menu)
+}
+
+/// The predefined items of the app menu that carry text (About, Services, Hide, Hide Others, Show All), with the text each one gets: tauri builds
+/// them in English whatever the language of the app is. Kept to set the text again when the language changes.
+#[cfg_attr(not(target_os = "macos"), allow(dead_code))]
+static MAC_MENU_ITEMS: OnceLock<Vec<(PredefinedMenuItem<tauri::Wry>, crate::i18n::K)>> = OnceLock::new();
+
+/// Which text a predefined item of the app menu gets, told from the English label it is built with ("About Hey Look!", "Hide Hey Look!",
+/// "Services", "Hide Others", "Show All"). `None`: separators and anything else stay as they are.
+#[cfg_attr(not(target_os = "macos"), allow(dead_code))]
+fn mac_menu_slot(label: &str) -> Option<crate::i18n::K> {
+    use crate::i18n::K;
+    let label = label.replace('&', "");
+    match label.trim() {
+        "Services" => Some(K::MacServices),
+        "Hide Others" => Some(K::MacHideOthers),
+        "Show All" => Some(K::MacShowAll),
+        l if l.starts_with("About") => Some(K::MacAbout),
+        l if l.starts_with("Hide") => Some(K::MacHide),
+        _ => None,
+    }
+}
+
+/// Puts the language of the app on the predefined items of the app menu. macOS' standard menu has a Show All item right under Hide Others;
+/// tauri's default menu leaves it out, so it is added here.
+#[cfg_attr(not(target_os = "macos"), allow(dead_code))]
+fn localize_app_menu(app: &AppHandle, menu: &Menu<tauri::Wry>) -> Result<(), String> {
+    use crate::i18n::{tr, K};
+    let first = menu.items().map_err(|e| e.to_string())?.into_iter().next();
+    let Some(MenuItemKind::Submenu(app_menu)) = first else { return Err("the menu does not start with the app menu".into()) };
+    let mut found: Vec<(PredefinedMenuItem<tauri::Wry>, K)> = Vec::new();
+    let mut hide_others_at = None;
+    for (at, item) in app_menu.items().map_err(|e| e.to_string())?.into_iter().enumerate() {
+        let MenuItemKind::Predefined(p) = item else { continue };
+        let Some(k) = mac_menu_slot(&p.text().map_err(|e| e.to_string())?) else { continue };
+        p.set_text(tr(k)).map_err(|e| e.to_string())?;
+        if k == K::MacHideOthers {
+            hide_others_at = Some(at);
+        }
+        found.push((p, k));
+    }
+    if !found.iter().any(|(_, k)| *k == K::MacShowAll) {
+        if let Some(at) = hide_others_at {
+            let show = PredefinedMenuItem::show_all(app, Some(tr(K::MacShowAll))).map_err(|e| e.to_string())?;
+            app_menu.insert(&show, at + 1).map_err(|e| e.to_string())?;
+            found.push((show, K::MacShowAll));
+        }
+    }
+    let _ = MAC_MENU_ITEMS.set(found);
+    Ok(())
 }
 
 /// The app menu is the first submenu of the default menu and its Quit item the last item in it.
@@ -319,7 +377,7 @@ static TRAY_MAIL_ITEMS: OnceLock<(MenuItem<tauri::Wry>, MenuItem<tauri::Wry>)> =
 /// The other tray entries, kept to change their text when the language changes: open, pause, quit.
 static TRAY_OTHER_ITEMS: OnceLock<(MenuItem<tauri::Wry>, CheckMenuItem<tauri::Wry>, MenuItem<tauri::Wry>)> = OnceLock::new();
 
-/// The language changed (the UI mirrored it): the tray menu, the macOS Quit item and the tray tooltip follow at once.
+/// The language changed (the UI mirrored it): the tray menu, the macOS app menu (Quit, About, Hide ...) and the tray tooltip follow at once.
 pub fn refresh_language(app: &AppHandle, db: &Db) {
     use crate::i18n::{tr, K};
     if let Some((compose, sync)) = TRAY_MAIL_ITEMS.get() {
@@ -333,6 +391,9 @@ pub fn refresh_language(app: &AppHandle, db: &Db) {
     }
     if let Some(q) = MAC_QUIT_ITEM.get() {
         let _ = q.set_text(tr(K::MacQuit));
+    }
+    for (item, k) in MAC_MENU_ITEMS.get().into_iter().flatten() {
+        let _ = item.set_text(tr(*k));
     }
     update_badge(app, db);
 }
@@ -388,8 +449,11 @@ pub fn setup_tray(app: &AppHandle, db: &Db) -> tauri::Result<()> {
         .on_menu_event(move |app, event| match event.id().as_ref() {
             "open" => show_main(app),
             "compose" if MAIL_AVAILABLE.load(Ordering::Relaxed) => {
-                show_main(app);
-                let _ = app.emit("tray-compose", ());
+                // with "open new messages in a separate window" on, the message gets its own window and the main window stays where it is (REQ-C2)
+                if !compose_in_window(app) {
+                    show_main(app);
+                }
+                let _ = app.emit_to("main", "tray-compose", ());
             }
             "sync" if MAIL_AVAILABLE.load(Ordering::Relaxed) => {
                 let app = app.clone();
@@ -403,6 +467,9 @@ pub fn setup_tray(app: &AppHandle, db: &Db) -> tauri::Result<()> {
             "quit" => crate::request_quit(app),
             _ => {}
         })
+        // Windows and macOS: a left click (double click) on the icon opens the window. Linux: the indicator service (libayatana-appindicator /
+        // StatusNotifier) never delivers click events to the app, so this does not run there: the menu entry "Open Hey Look!" is the way back,
+        // and the first-hide hint (`tray_hint_text`) names the menu only. Nothing in the app may promise a click on Linux.
         .on_tray_icon_event(|tray, event| {
             if let TrayIconEvent::Click { button: MouseButton::Left, button_state: MouseButtonState::Up, .. }
             | TrayIconEvent::DoubleClick { button: MouseButton::Left, .. } = event
@@ -424,8 +491,9 @@ pub fn register_aumid(app: &AppHandle) {
     let Some(data) = app.try_state::<crate::legacy_names::DataDir>() else { return };
     let icon = data.0.join("icon.png");
     let _ = std::fs::write(&icon, include_bytes!("../icons/128x128.png"));
-    let key = format!(r"HKCU\Software\Classes\AppUserModelId\{AUMID}");
-    for (name, val) in [("DisplayName", "Hey Look!"), ("IconUri", icon.to_str().unwrap_or(""))] {
+    let key = format!(r"HKCU\Software\Classes\AppUserModelId\{}", crate::identity::aumid());
+    let display = if crate::identity::isolated() { "Hey Look! (test copy)" } else { "Hey Look!" };
+    for (name, val) in [("DisplayName", display), ("IconUri", icon.to_str().unwrap_or(""))] {
         let _ = crate::winproc::hidden("reg").args(["add", &key, "/v", name, "/t", "REG_SZ", "/d", val, "/f"]).output();
     }
 }
@@ -462,11 +530,11 @@ fn handle_activation(app: &AppHandle, thread: &str, action: Option<String>) {
     match action.as_deref() {
         None | Some("") => {
             show_main(app);
-            let _ = app.emit("open-thread", json!({ "threadId": thread }));
+            let _ = app.emit_to("main", "open-thread", json!({ "threadId": thread }));
         }
         Some("reply") => {
             show_main(app);
-            let _ = app.emit("notify-reply", json!({ "threadId": thread }));
+            let _ = app.emit_to("main", "notify-reply", json!({ "threadId": thread }));
         }
         Some(a) => {
             if thread.is_empty() {
@@ -502,7 +570,7 @@ fn toast(app: &AppHandle, thread: String, title: &str, line1: &str, line2: &str,
         "sms" => Some(Sound::SMS),
         _ => Some(Sound::Mail),
     };
-    let mut t = Toast::new(AUMID).title(title).text1(line1);
+    let mut t = Toast::new(crate::identity::aumid()).title(title).text1(line1);
     if !line2.is_empty() {
         t = t.text2(line2);
     }
@@ -517,8 +585,8 @@ fn toast(app: &AppHandle, thread: String, title: &str, line1: &str, line2: &str,
         handle_activation(&app, &thread, action);
         Ok(())
     });
-    let _ = t.show();
-    Ok(())
+    // (the result was dropped here: a toast that Windows refused was reported as shown by "Send test" and left no line in startup.log)
+    t.show().map_err(|e| e.to_string().split_whitespace().collect::<Vec<_>>().join(" ").chars().take(120).collect())
 }
 
 /// macOS and Linux: a plain native notification (no buttons; clicking it has the system's default effect only).
@@ -589,6 +657,20 @@ fn notification_body(line1: &str, line2: &str) -> String {
 {line2}") }
 }
 
+/// The two lines of a new-mail notification, the same text on every platform (the Windows toast shows them as its two text lines,
+/// `notification_body` joins them for macOS and Linux): the subject, cleaned a little (control characters out, white space
+/// collapsed), and the preview of the message (`snippet::notification_preview`: no link markup, addresses or "view in browser"
+/// lines, about 100 characters). The preview line is empty when it is switched off or when too little readable text is left;
+/// a message without a subject shows its preview in its place.
+fn message_lines(subject: &str, snippet: &str, show_preview: bool) -> (String, String) {
+    let subject = crate::snippet::notification_line(subject);
+    let preview = if show_preview { crate::snippet::notification_preview(snippet) } else { String::new() };
+    if subject.is_empty() {
+        return if preview.is_empty() { ("(no subject)".into(), String::new()) } else { (preview, String::new()) };
+    }
+    (subject, preview)
+}
+
 /// Failures of other notifications than "Send test" are only logged.
 fn toast_logged(app: &AppHandle, thread: String, title: &str, line1: &str, line2: &str, sound: &str, actions: &[String]) {
     if let Err(e) = toast(app, thread, title, line1, line2, sound, actions) {
@@ -618,6 +700,8 @@ fn quiet_reason(app: &AppHandle, db: &Db) -> Option<String> {
         .get_webview_window("main")
         .map(|w| (w.is_focused().unwrap_or(false), w.is_visible().unwrap_or(false), w.is_minimized().unwrap_or(false)))
         .unwrap_or((false, false, false));
+    // "the app is in front" is any window of it: a focused secondary window counts like the main one (REQ-W13)
+    let (focused, visible, minimized) = if crate::popout::any_in_front(app) { (true, true, false) } else { (focused, visible, minimized) };
     quiet_because(paused, enabled, focused, visible, minimized, cfg!(target_os = "linux"))
 }
 
@@ -667,9 +751,9 @@ pub fn notify_new(app: &AppHandle, db: &Db, new: &[NewMsg]) {
         return;
     }
     for n in list {
-        let snippet: String = if flag(n, "notifyPreview", true) { n.snippet.chars().take(140).collect() } else { String::new() };
+        let (line1, line2) = message_lines(&n.subject, &n.snippet, flag(n, "notifyPreview", true));
         let actions = notify_actions_for(&p, &n.account_id);
-        toast_logged(app, n.thread_id.clone(), &n.from, &n.subject, &snippet, &sound_for(n), &actions);
+        toast_logged(app, n.thread_id.clone(), &crate::snippet::notification_line(&n.from), &line1, &line2, &sound_for(n), &actions);
     }
 }
 
@@ -716,7 +800,8 @@ pub fn check_snoozes(app: &AppHandle, db: &Db) {
         let _ = lock(db).execute("UPDATE thread_meta SET snoozed_until=NULL WHERE thread_id=?1", [&tid]);
         let _ = action_impl(db, vec![tid.clone()], "unread".into(), None, None);
         if !quiet {
-            toast_logged(app, tid, &crate::i18n::snooze_ended(who.trim()), &subject, &snippet.chars().take(140).collect::<String>(), &sound, &actions);
+            let (line1, line2) = message_lines(&subject, &snippet, true);
+            toast_logged(app, tid, &crate::snippet::notification_line(&crate::i18n::snooze_ended(who.trim())), &line1, &line2, &sound, &actions);
         }
     }
     update_badge(app, db);
@@ -758,9 +843,60 @@ pub fn test_notification(app: &AppHandle, db: &Db) -> Result<(), String> {
     )
 }
 
+/// Does a plain "New mail" open a window of its own? (Settings > Composing, `prefs.popoutCompose`, default off.) Read from the stored
+/// preferences: the tray must know before the page is asked.
+fn compose_in_window(app: &AppHandle) -> bool {
+    let st = app.state::<AppState>();
+    let raw = db::get_setting(&lock(&st.db), "prefs");
+    prefs_open_in_window(raw.as_deref())
+}
+
+fn prefs_open_in_window(raw: Option<&str>) -> bool {
+    raw.and_then(|s| serde_json::from_str::<Value>(s).ok()).and_then(|v| v.get("popoutCompose").and_then(Value::as_bool)).unwrap_or(false)
+}
+
 #[cfg(test)]
 mod platform_tests {
     use super::*;
+
+    #[test]
+    fn the_tray_new_mail_reads_the_window_setting_from_the_stored_preferences() {
+        assert!(!prefs_open_in_window(None), "no preferences stored yet: off");
+        assert!(!prefs_open_in_window(Some("not json")));
+        assert!(!prefs_open_in_window(Some("{}")), "an older blob without the field: off");
+        assert!(!prefs_open_in_window(Some(r#"{"popoutCompose":false}"#)));
+        assert!(!prefs_open_in_window(Some(r#"{"popoutCompose":"yes"}"#)), "only a real true counts");
+        assert!(prefs_open_in_window(Some(r#"{"language":"en","popoutCompose":true}"#)));
+    }
+
+    #[test]
+    fn the_app_menu_items_are_told_apart_by_their_english_label() {
+        use crate::i18n::K;
+        assert_eq!(mac_menu_slot("About Hey Look!"), Some(K::MacAbout));
+        assert_eq!(mac_menu_slot("&About"), Some(K::MacAbout));
+        assert_eq!(mac_menu_slot("Services"), Some(K::MacServices));
+        assert_eq!(mac_menu_slot("Hide Hey Look!"), Some(K::MacHide));
+        assert_eq!(mac_menu_slot("Hide"), Some(K::MacHide));
+        assert_eq!(mac_menu_slot("Hide Others"), Some(K::MacHideOthers));
+        assert_eq!(mac_menu_slot("Show All"), Some(K::MacShowAll));
+        // separators and the Quit item (ours) are left alone
+        assert_eq!(mac_menu_slot(""), None);
+        assert_eq!(mac_menu_slot("Quit Hey Look!"), None);
+    }
+
+    /// The localised items are rebuilt with the language: the app menu code and the language refresh use the same list, and the menu code is only
+    /// ever compiled in for macOS (this reads the source, like the quit tests do).
+    #[test]
+    fn the_app_menu_follows_the_language_change() {
+        let src = crate::test_guard::non_test_code(include_str!("shell.rs"));
+        let src = &src[..];
+        assert!(src.contains("localize_app_menu(app, &menu)"), "mac_app_menu does not translate the app menu");
+        let refresh = &src[src.find("pub fn refresh_language").unwrap()..];
+        let refresh = &refresh[..refresh.find("
+}
+").unwrap()];
+        assert!(refresh.contains("MAC_MENU_ITEMS") && refresh.contains("MAC_QUIT_ITEM"), "{refresh}");
+    }
 
     #[test]
     fn tray_mail_entries_need_an_account() {
@@ -800,6 +936,34 @@ mod platform_tests {
     }
 
     #[test]
+    fn f27_a_marketing_mail_notification_has_no_link_markup_on_any_platform() {
+        // the stored snippet of the screenshot: a Markdown link to a tracking address (cut inside the address)
+        let snippet = "[View in browser](https://ecafgcd.r.af.d.sendibt2.com/tr/mr/Tri_95Hx3VWzJfQSa7ggBekbb0Elk9qsx0y6UH1lWEQ8lP4o2bJ6sXAn1ZcR7u?p=eyJ1IjoiMSJ9";
+        let (l1, l2) = message_lines("\u{1F525} Mở Đặt Cọc iPhone Duo", snippet, true);
+        assert_eq!((l1.as_str(), l2.as_str()), ("\u{1F525} Mở Đặt Cọc iPhone Duo", ""), "no third line");
+        // Windows: the toast gets l1 / l2 as its two text lines; macOS and Linux: the body is both lines joined
+        assert_eq!(notification_body(&l1, &l2), "\u{1F525} Mở Đặt Cọc iPhone Duo");
+        // the same marketing mail with a readable preheader: that is the third line, without markup
+        let snippet = "[View in browser](https://x.example/t) \u{1F525} Ưu đãi lớn cho khách hàng thân thiết. [Unsubscribe](https://x.example/u) https://x.example/z";
+        let (l1, l2) = message_lines("\u{1F525} Mở Đặt Cọc iPhone Duo", snippet, true);
+        assert_eq!(l2, "\u{1F525} Ưu đãi lớn cho khách hàng thân thiết.");
+        assert_eq!(notification_body(&l1, &l2), "\u{1F525} Mở Đặt Cọc iPhone Duo\n\u{1F525} Ưu đãi lớn cho khách hàng thân thiết.");
+        for bad in ["[", "](", "http", "://", "View in browser", "Unsubscribe"] {
+            assert!(!notification_body(&l1, &l2).contains(bad), "{bad:?}");
+        }
+        // preview switched off: the subject only; the subject is cleaned a little, a real one is not changed
+        assert_eq!(message_lines("Hello", "Some readable words here", false), ("Hello".into(), String::new()));
+        assert_eq!(message_lines("  Re:\t Q3\r\n report\u{0007} ", "Some readable words here", true), ("Re: Q3 report".into(), "Some readable words here".into()));
+        // a very long preview is cut to about 100 characters on a word
+        let long = "word ".repeat(100);
+        let (_, l2) = message_lines("Subject", &long, true);
+        assert!(l2.chars().count() <= 100 && l2.ends_with("word\u{2026}"), "{l2:?}");
+        // no subject: the preview takes its place, and with neither the notification still says something
+        assert_eq!(message_lines("", "Some readable words here", true), ("Some readable words here".into(), String::new()));
+        assert_eq!(message_lines(" \u{200B} ", "", true), ("(no subject)".into(), String::new()));
+    }
+
+    #[test]
     fn the_still_running_notice_names_the_right_place() {
         assert!(tray_hint_text("windows").contains("Right-click the tray icon"));
         assert!(tray_hint_text("macos").contains("Dock") && tray_hint_text("macos").contains("menu bar"));
@@ -829,6 +993,15 @@ mod platform_tests {
         let logged = &src[src.find("fn toast_logged(").unwrap()..];
         let logged = &logged[..logged.find("\n}\n").unwrap()];
         assert!(logged.contains("startup::line(\"notify\""), "a failed notification is in startup.log too");
+    }
+
+    #[test]
+    fn a_windows_toast_that_fails_is_reported_not_swallowed() {
+        // F-18 check: `let _ = t.show()` hid every WinRT error from "Send test" and from startup.log (toast_logged)
+        let src = include_str!("shell.rs");
+        let toast = &src[src.find("fn toast(app: &AppHandle, thread: String").unwrap()..];
+        let toast = &toast[..toast.find("\n}\n").unwrap()];
+        assert!(toast.contains("t.show().map_err(") && !toast.contains("let _ = t.show()"), "{toast}");
     }
 
     #[test]

@@ -2,6 +2,7 @@ import { AlertTriangle, CalendarClock, CalendarX, Pencil, RotateCw, Send, X } fr
 import { useMemo, useState } from "react";
 import { api, errorCode, OutboxItem } from "../api";
 import { picturesToEditor } from "./Compose";
+import { decodeMeeting } from "../meetingDraft";
 import { kbd } from "../platform";
 import { friendlyError, useStore } from "../store";
 import type { Key } from "../i18n";
@@ -75,7 +76,9 @@ export function ScheduledList() {
         attachments: d.attachments,
         security: d.security,
         meeting: d.meeting ? { ...d.meeting, on: true } : undefined,
+        meetingForm: decodeMeeting(d.meetingForm) ?? undefined, // (the strip as it was: an all-day meeting keeps its dates)
         confidential: d.confidential,
+        importance: d.importance,
         outboxId: o.id,
         sendAt: e.sendAt,
         outboxError: o.status === "failed" ? o.error ?? t("compose.scheduled.serverRefused") : undefined,
@@ -88,7 +91,7 @@ export function ScheduledList() {
         if (await askUnlock(locked[1], "decrypt")) return open(o, openSchedule);
         return;
       }
-      showToast(friendlyError(err), undefined, "error");
+      showToast(() => friendlyError(err), undefined, "error");
       void refresh();
     }
   };
@@ -99,9 +102,9 @@ export function ScheduledList() {
       await api.outboxSendNow(o.id);
       showToast(t("compose.scheduled.sentToast", { subject: o.subject || t("compose.noSubject") }), undefined, "success");
     } catch (err) {
-      showToast(t("compose.scheduled.failedToast", { subject: o.subject || t("compose.noSubject"), error: friendlyError(err) }), undefined, "error", [
-        { label: t("common.retry"), run: () => void api.outboxRetry(o.id).then(refresh) },
-        { label: t("compose.scheduled.open"), run: () => void open(o) },
+      showToast(() => t("compose.scheduled.failedToast", { subject: o.subject || t("compose.noSubject"), error: friendlyError(err) }), undefined, "error", [
+        { label: () => t("common.retry"), run: () => void api.outboxRetry(o.id).then(refresh) },
+        { label: () => t("compose.scheduled.open"), run: () => void open(o) },
       ]);
     } finally {
       setBusyId(null);
@@ -114,7 +117,7 @@ export function ScheduledList() {
       await api.outboxRetry(o.id);
       showToast(t("compose.scheduled.tryingAgain"), undefined, "info");
     } catch (err) {
-      showToast(friendlyError(err), undefined, "error");
+      showToast(() => friendlyError(err), undefined, "error");
     }
     void refresh();
   };
@@ -138,7 +141,7 @@ export function ScheduledList() {
         showToast(t("compose.toast.movedToDrafts"), undefined, "success");
       }
     } catch (err) {
-      showToast(friendlyError(err), undefined, "error");
+      showToast(() => friendlyError(err), undefined, "error");
     }
     void refresh();
   };

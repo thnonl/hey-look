@@ -8,6 +8,8 @@ export default defineLocale<typeof ns.en>({
   "mail.row.select": "Seleccionar",
   "mail.row.unread": "No leído",
   "mail.row.confidential": "Confidencial",
+  "mail.importance.high": "Importancia alta",
+  "mail.importance.low": "Importancia baja",
   "mail.row.encrypted": "Cifrado",
   "mail.row.signed": "Firmado",
   "mail.row.invite": "Invitación a reunión",
@@ -33,6 +35,8 @@ export default defineLocale<typeof ns.en>({
   "mail.done.trashed": "Movido a la Papelera",
   "mail.done.deleted": "Eliminado definitivamente",
   "mail.done.junk": "Movido a Correo no deseado",
+  "mail.junk.none": "Sin carpeta de correo no deseado",
+  "mail.junk.noneTip": "Este buzón no tiene una carpeta de correo no deseado, así que no se puede mover correo a Correo no deseado.",
   "mail.done.blocked": "Remitente bloqueado",
   "mail.done.moved": "Movido a {folder}",
   "mail.done.snoozed": "Pospuesto: {when}",
@@ -97,4 +101,25 @@ export default defineLocale<typeof ns.en>({
   "mail.pane.calendar": "Calendario",
   "mail.pane.mailTitle": "Correo (Ctrl+1)",
   "mail.pane.calendarTitle": "Calendario (Ctrl+2)",
+  "mail.side.collapse": "Contraer el menú lateral",
+  "mail.side.expand": "Expandir el menú lateral",
+  "mail.side.unread": { one: "{n} sin leer", other: "{n} sin leer" },
+  // right-click menu of a list row
+  "mail.ctx.copySubject": "Copiar asunto",
+  "mail.ctx.copyEmail": "Copiar dirección de correo",
+  "mail.ctx.selectAll": "Seleccionar todo",
+  "mail.ctx.textMenu": "Acciones de texto",
+  "mail.ctx.copyFailed": "No se pudo copiar al portapapeles",
+  "mail.ctx.onlyOne": "Disponible solo para una conversación a la vez",
+  "mail.ctx.oneMailbox": "Disponible cuando las conversaciones están en un solo buzón",
+  // reordering the mailboxes (folder pane, Settings)
+  "mail.acct.moveUp": "Mover hacia arriba",
+  "mail.acct.moveDown": "Mover hacia abajo",
+  "mail.acct.drag": "Arrastrar para reordenar {email}",
+  "mail.acct.moved": "{email} movida a la posición {n} de {total}",
+  "mail.acct.cancelled": "Reordenación cancelada",
+  // the display name of a mailbox for screen readers: name, address
+  "mail.acct.labelAria": "{name}, {email}",
+  // the link menu of a message
+  "mail.link.copy": "Copiar dirección del enlace",
 });

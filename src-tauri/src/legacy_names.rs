@@ -18,7 +18,7 @@ use std::path::{Path, PathBuf};
 const OLD_ID: &str = "asia.elgaucho.heymail";
 const OLD_DB: &str = "heymail.db";
 const NEW_DB: &str = "heylook.db";
-/// Credential store service name of the first builds (the new one is `crate::KEYRING_SERVICE`).
+/// Credential store service name of the first builds (the current one is `identity::keyring_service()`).
 const OLD_KEYRING_SERVICE: &str = "hey-mail";
 #[cfg(windows)]
 const OLD_AUMID: &str = "asia.elgaucho.heylook";
@@ -324,13 +324,13 @@ pub struct SystemCreds;
 
 impl Creds for SystemCreds {
     fn get(&self, service: &str, user: &str) -> Option<String> {
-        keyring::Entry::new(service, user).ok()?.get_password().ok().filter(|s| !s.is_empty())
+        crate::identity::entry_in(service, user).ok()?.get_password().ok().filter(|s| !s.is_empty())
     }
     fn set(&self, service: &str, user: &str, value: &str) -> bool {
-        keyring::Entry::new(service, user).and_then(|e| e.set_password(value)).is_ok()
+        crate::identity::entry_in(service, user).and_then(|e| e.set_password(value)).is_ok()
     }
     fn delete(&self, service: &str, user: &str) {
-        if let Ok(e) = keyring::Entry::new(service, user) {
+        if let Ok(e) = crate::identity::entry_in(service, user) {
             let _ = e.delete_credential();
         }
     }
@@ -376,7 +376,7 @@ pub fn migrate_keyring(db: &Db, secret_names: &[&str]) {
             }
         }
     }
-    let (moved, ok) = migrate_creds(&SystemCreds, crate::KEYRING_SERVICE, &users);
+    let (moved, ok) = migrate_creds(&SystemCreds, crate::identity::keyring_service(), &users);
     if moved > 0 {
         eprintln!("data migration: moved {moved} saved password(s) / token(s) to the new credential name");
     }

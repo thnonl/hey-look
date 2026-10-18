@@ -1,10 +1,14 @@
+import { guardFrame } from "../contextGuard";
 import { listen } from "@tauri-apps/api/event";
 import {
   Archive, Calendar, Check, ChevronLeft, ChevronRight, Download, ExternalLink, File, FileCode, FileSpreadsheet, FileText, Film, FolderDown,
   FolderOpen, Image as ImageIcon, ImageOff, KeyRound, MoreHorizontal, Music, Paperclip, Presentation, ShieldAlert, X, ZoomIn, ZoomOut,
 } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import { api, AttMeta, errorCode, MessageFull } from "../api";
+import { startCompose } from "../popout/composeOpen";
+import { shiftNow } from "../popout/modifier";
 import { t, type Key } from "../i18n";
 import { useT } from "../i18n/react";
 import { eff } from "../prefs";
@@ -12,9 +16,10 @@ import { denyIfConfidential, imageLock } from "../protect";
 import { friendlyError, useStore } from "../store";
 import { fmtSize } from "../util";
 import riskyExt from "../riskyExt.json";
-import { kbd, osNow } from "../platform";
+import { kbd, usePlatform } from "../platform";
+import { isFrameRefusal, nextPdfState, PDF_DRAW_WAIT_MS, pdfPreview, type PdfFrameState } from "../pdfFrame";
 import { importKeyFromMessage, isKeyAttachment } from "./Pgp";
-import { Dropdown } from "./ui";
+import { Dropdown, FOCUSABLE } from "./ui";
 
 // ---------------------------------------------------------------- file types
 
@@ -84,13 +89,13 @@ function KindIcon({ kind, size = 16 }: { kind: FileKind; size?: number }) {
 
 /**
  * Preview is offered for pictures, PDFs and small text files. A PDF is shown by the browser's own viewer, whose Save / Print /
- * right-click menu no lock of ours reaches, so confidential mail has no PDF preview (pictures and text are drawn by the app).
+ * right-click menu no lock of ours reaches, so confidential mail has no PDF preview (pictures and text are drawn by the app). Where the
+ * web view does not draw a PDF (macOS, Linux: see src-tauri/src/pdfmode.rs) the preview is a card that opens the file in the default app.
  */
 export function previewable(a: Pick<AttMeta, "name" | "mime" | "size">, confidential = false): "image" | "pdf" | "text" | null {
   const e = ext(a.name);
   if (a.mime.startsWith("image/") && a.size <= 25 * 1024 * 1024 && !["heic", "heif", "tif", "tiff"].includes(e)) return "image";
-  // WebKitGTK has no PDF viewer inside the page: on Linux a PDF opens with the default app instead; a confidential message has no preview
-  if (a.mime === "application/pdf" || e === "pdf") return a.size <= 25 * 1024 * 1024 && osNow() !== "linux" && !confidential ? "pdf" : null;
+  if (a.mime === "application/pdf" || e === "pdf") return a.size <= 25 * 1024 * 1024 && !confidential ? "pdf" : null;
   const textExt = ["txt", "log", "csv", "json", "xml", "md", "eml"];
   if ((a.mime.startsWith("text/") || textExt.includes(e)) && !RISKY_EXT.includes(e) && a.size <= 1024 * 1024) return "text";
   return null;
@@ -146,9 +151,9 @@ export async function openAttachment(m: Pick<MessageFull, "id" | "fromEmail">, a
   const h: OpenHooks = typeof hooks === "function" ? { onError: hooks } : hooks;
   const st = useStore.getState();
   const fail = (key: Key, e: unknown, retry: () => void) => {
-    const msg = t(key, { name: a.name, error: friendlyError(e) });
-    if (h.onError) h.onError(msg);
-    else st.showToast(msg, undefined, "error", [{ label: t("common.retry"), run: retry }]);
+    const msg = () => t(key, { name: a.name, error: friendlyError(e) });
+    if (h.onError) h.onError(msg()); // (a caller that shows it itself gets the text as it is now)
+    else st.showToast(msg, undefined, "error", [{ label: () => t("common.retry"), run: retry }]);
   };
   const attempt = async (confirmed: boolean): Promise<void> => {
     try {
@@ -202,7 +207,7 @@ const folderName = (path: string) => {
 
 /** Plain "saved" toast (no automatic open: used after a risky file was saved instead of opened, and by the preview's Save as). */
 function savedToast(path: string, name: string) {
-  useStore.getState().showToast(t("reading.att.savedTo", { name, folder: folderName(path) }), undefined, "success", [{ label: t("reading.att.showInFolder"), run: () => void api.attachmentReveal(path).catch(() => undefined) }]);
+  useStore.getState().showToast(() => t("reading.att.savedTo", { name, folder: folderName(path) }), undefined, "success", [{ label: () => t("reading.att.showInFolder"), run: () => void api.attachmentReveal(path).catch(() => undefined) }]);
 }
 
 /** Toast after a save, following the "After saving" setting. */
@@ -212,14 +217,14 @@ function afterSave(path: string, name: string, m: Pick<MessageFull, "id" | "from
   const open = { label: t("reading.att.open"), run: () => void openAttachment(m, a) };
   if (st.prefs.afterSave === "reveal") return void api.attachmentReveal(path).catch(() => undefined);
   if (st.prefs.afterSave === "open") return void openAttachment(m, a);
-  st.showToast(t("reading.att.savedTo", { name, folder: folderName(path) }), undefined, "success", [open, reveal]);
+  st.showToast(() => t("reading.att.savedTo", { name, folder: folderName(path) }), undefined, "success", [open, reveal]);
 }
 
 // ---------------------------------------------------------------- card
 
 export function AttachmentCard({ m, a }: { m: MessageFull; a: AttMeta }) {
   const t = useT();
-  const { prefs, showToast, openCompose } = useStore();
+  const { prefs, showToast } = useStore();
   const [st, setSt] = useState<CardState>({ status: "idle" });
   const [preview, setPreview] = useState(false);
   const conf = !!m.confidential; // confidential mail: preview inside the app only, nothing leaves it
@@ -238,7 +243,7 @@ export function AttachmentCard({ m, a }: { m: MessageFull; a: AttMeta }) {
     } catch (e) {
       const msg = friendlyError(e);
       setSt({ status: "error", error: msg });
-      showToast(t("reading.att.saveFailed", { error: msg }), undefined, "error", [{ label: t("common.retry"), run: () => void save(false) }]);
+      showToast(() => t("reading.att.saveFailed", { error: friendlyError(e) }), undefined, "error", [{ label: () => t("common.retry"), run: () => void save(false) }]);
     } finally {
       end();
     }
@@ -271,11 +276,12 @@ export function AttachmentCard({ m, a }: { m: MessageFull; a: AttMeta }) {
 
   const attachToNew = async () => {
     if (conf) return deny();
+    const shift = shiftNow(); // (read now: the file is fetched first)
     try {
       const d = await api.attachmentData(m.id, a.index);
-      void openCompose({ accountId: m.accountId, subject: "", attachments: [{ filename: d.name, mime: d.mime, dataBase64: d.dataBase64 }] });
+      void startCompose({ accountId: m.accountId, subject: "", attachments: [{ filename: d.name, mime: d.mime, dataBase64: d.dataBase64 }] }, { shift });
     } catch (e) {
-      showToast(t("reading.att.couldntAttach", { name: a.name, error: friendlyError(e) }), undefined, "error");
+      showToast(() => t("reading.att.couldntAttach", { name: a.name, error: friendlyError(e) }), undefined, "error");
     }
   };
 
@@ -399,15 +405,15 @@ export function AttachmentStrip({ m }: { m: MessageFull }) {
       if (!r) return; // cancelled
       const folder = r.dir.split(/[\\/]/).filter(Boolean).pop() ?? r.dir;
       if (r.failed.length === 0) {
-        showToast(t("reading.strip.savedMany", { n: r.saved.length, folder }), undefined, "success", [
-          { label: t("reading.att.showInFolder"), run: () => r.saved[0] && void api.attachmentReveal(r.saved[0]).catch(() => undefined) },
+        showToast(() => t("reading.strip.savedMany", { n: r.saved.length, folder }), undefined, "success", [
+          { label: () => t("reading.att.showInFolder"), run: () => r.saved[0] && void api.attachmentReveal(r.saved[0]).catch(() => undefined) },
         ]);
       } else {
         const f = r.failed[0];
-        showToast(t("reading.strip.savedPartial", { n: r.saved.length, total: m.attachments.length, name: f.name, error: f.error }), undefined, "error", [{ label: t("common.retry"), run: () => void runSaveAll(ask) }]);
+        showToast(() => t("reading.strip.savedPartial", { n: r.saved.length, total: m.attachments.length, name: f.name, error: f.error }), undefined, "error", [{ label: () => t("common.retry"), run: () => void runSaveAll(ask) }]);
       }
     } catch (e) {
-      showToast(t("reading.strip.saveAllFailed", { error: friendlyError(e) }), undefined, "error", [{ label: t("common.retry"), run: () => void runSaveAll(ask) }]);
+      showToast(() => t("reading.strip.saveAllFailed", { error: friendlyError(e) }), undefined, "error", [{ label: () => t("common.retry"), run: () => void runSaveAll(ask) }]);
     } finally {
       end();
       setSaveAll(null);
@@ -464,7 +470,7 @@ export function AttachmentStrip({ m }: { m: MessageFull }) {
                       /* reported below */
                     }
                   }
-                  showToast(t("reading.strip.picsSaved", { n, total: pictures.length }), undefined, n === pictures.length ? "success" : "error");
+                  showToast(() => t("reading.strip.picsSaved", { n, total: pictures.length }), undefined, n === pictures.length ? "success" : "error");
                 })() },
                 { divider: true },
                 { label: listPics ? t("reading.strip.hidePics") : t("reading.strip.listPics"), onClick: () => setListPics((v) => !v) },
@@ -491,10 +497,152 @@ export function AttachmentStrip({ m }: { m: MessageFull }) {
 
 // ---------------------------------------------------------------- preview
 
+/**
+ * What both dialogs of this file share. They are drawn through a portal on <body>, not where the message is: a message of the reading pane sits in
+ * a `position: sticky` block, and a sticky block is a stacking context, so a dialog inside it was painted UNDER the Reply row and the head of every
+ * later message of the conversation (and the picture viewer, a child of the sticky message body, was sticky itself instead of fixed). On <body> the
+ * dialog's own z-index counts against the whole window. A portal moves the DOM only: React events still bubble to the card / message that opened
+ * it, and the theme variables are on :root, so nothing else changes.
+ *
+ * The focus goes into the dialog when it opens, Tab and Shift+Tab stay inside it, and it goes back to what opened the dialog when it closes.
+ * `first` names the control that takes the focus (default: the dialog itself).
+ */
+function useDialogFocus<T extends HTMLElement>(first?: () => HTMLElement | null) {
+  const box = useRef<T>(null);
+  useEffect(() => {
+    const opener = document.activeElement as HTMLElement | null;
+    (first?.() ?? box.current)?.focus({ preventScroll: true });
+    return () => {
+      if (opener && document.contains(opener)) opener.focus({ preventScroll: true });
+    };
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+  const trap = (e: React.KeyboardEvent) => {
+    if (e.key !== "Tab" || !box.current || !box.current.contains(e.target as Node)) return;
+    const list = Array.from(box.current.querySelectorAll<HTMLElement>(FOCUSABLE)).filter((x) => x.getClientRects().length > 0);
+    if (!list.length) return;
+    const active = document.activeElement;
+    if (e.shiftKey && (active === list[0] || active === box.current)) (e.preventDefault(), list[list.length - 1].focus());
+    else if (!e.shiftKey && active === list[list.length - 1]) (e.preventDefault(), list[0].focus());
+  };
+  return { box, trap };
+}
+
 interface PvLoaded {
   url: string;
   text?: string;
   error?: string;
+  /** the bytes of a ".pdf" are not a PDF: nothing is drawn (pdfFrame.ts) */
+  notPdf?: boolean;
+  /** sandbox of the PDF frame, undefined = none (pdfFrame.ts says why) */
+  sandbox?: string;
+  /** this system does not draw a PDF in the window: the card is shown, no bytes were fetched (pdfmode.rs) */
+  card?: boolean;
+}
+
+/**
+ * The PDF frame of the preview. The engine's own viewer draws the PDF; when the engine cannot (the frame never reports that it loaded, or the
+ * page's content security policy refuses it) the frame is replaced by a message and an Open button: a blank page is never the outcome
+ * (pdfFrame.ts `nextPdfState`). `view` "object" (the macOS / Linux experiment, pdfmode.rs) draws the PDF in an object element instead of a frame: its
+ * `load` is not relied on (no timeout), only a refusal by the policy replaces it. `onDiag` (experiment only) is told what the engine did with the
+ * PDF, for the Mac QA to read off the screen.
+ */
+function PdfFrame({ url, sandbox, name, view, onOpen, onDiag }: { url: string; sandbox?: string; name: string; view: "frame" | "object"; onOpen?: () => void; onDiag?: (line: string) => void }) {
+  const t = useT();
+  const [state, setState] = useState<PdfFrameState>("loading");
+  const stateRef = useRef<PdfFrameState>("loading");
+  const el = useRef<HTMLIFrameElement & HTMLObjectElement>(null);
+  const seen = useRef<string[]>([]); // (every policy violation the page reports while this PDF is shown)
+  const [why, setWhy] = useState(""); // (shown as the tooltip of the message: what a QA tester can read off the screen)
+  const describe = (note: string) => {
+    if (!onDiag) return;
+    const r = el.current?.getBoundingClientRect();
+    let doc = "no document";
+    try {
+      const d = el.current?.contentDocument;
+      if (d) doc = `document ${d.contentType}, ${d.querySelector("embed,object") ? "with" : "without"} embed`;
+    } catch {
+      doc = "document not reachable";
+    }
+    onDiag(`PDF ${view} test: ${note}; ${r ? `${Math.round(r.width)}x${Math.round(r.height)} px` : "no element"}; ${doc}; policy violations: ${seen.current.length ? seen.current.join(" | ") : "none"}`); // i18n-ok: experiment readout for the QA
+  };
+  useEffect(() => {
+    seen.current = [];
+    onDiag?.(`PDF ${view} test: loading`); // i18n-ok: experiment readout for the QA
+    const move = (ev: Parameters<typeof nextPdfState>[1], reason: string) => {
+      const next = nextPdfState(stateRef.current, ev);
+      if (next === stateRef.current) return;
+      stateRef.current = next;
+      setState(next);
+      if (next === "failed") setWhy(reason);
+    };
+    const timer = view === "frame" ? setTimeout(() => move("timeout", `the frame did not report a load in ${PDF_DRAW_WAIT_MS / 1000} s`), PDF_DRAW_WAIT_MS) : undefined;
+    const onViolation = (e: SecurityPolicyViolationEvent) => {
+      seen.current.push(`${e.effectiveDirective} ${e.blockedURI.slice(0, 24)}`);
+      if (isFrameRefusal(e)) move("blocked", `refused by the content security policy (${e.effectiveDirective})`);
+    };
+    document.addEventListener("securitypolicyviolation", onViolation);
+    // the readout again once the engine has had time to draw (and to report a refusal)
+    const later = onDiag ? setTimeout(() => describe(stateRef.current === "loaded" ? "loaded" : "no load event yet"), 2500) : undefined;
+    return () => {
+      clearTimeout(timer);
+      clearTimeout(later);
+      document.removeEventListener("securitypolicyviolation", onViolation);
+    };
+  }, [url]); // eslint-disable-line react-hooks/exhaustive-deps
+  if (state === "failed") {
+    return (
+      <div className="pv-msg" title={why} style={{ display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: 12 }}>
+        <ImageOff size={28} />
+        <div>{t("reading.pv.pdfNotDrawn")}</div>
+        {onOpen && <button className="btn small" onClick={onOpen}><ExternalLink size={13} /> {t("reading.att.open")}</button>}
+      </div>
+    );
+  }
+  const loaded = () => {
+    stateRef.current = nextPdfState(stateRef.current, "load");
+    setState(stateRef.current);
+    describe("load event");
+  };
+  if (view === "object") return <object ref={el} className="pv-pdf" type="application/pdf" data={url} title={name} onLoad={loaded} />;
+  return (
+    <iframe
+      title={name}
+      src={url}
+      sandbox={sandbox}
+      ref={el}
+      className="pv-pdf"
+      onLoad={(e) => {
+        loaded();
+        // no native webview menu in a text / html preview either (a PDF is drawn by the engine's own viewer, which keeps its menu)
+        const f = e.currentTarget;
+        try {
+          if (f.contentDocument) guardFrame(f, f.contentDocument);
+        } catch {
+          /* a frame we cannot reach */
+        }
+      }}
+    />
+  );
+}
+
+/**
+ * The preview of a PDF where the web view does not draw one in the window (pdfmode.rs): the file, one sentence, Open (a temporary copy opened
+ * with the system's default app, the same path as the card's Open) and Save as.
+ */
+function PdfCard({ att, onOpen, onSave }: { att: Pick<AttMeta, "name" | "size">; onOpen: () => void; onSave: () => void }) {
+  const t = useT();
+  return (
+    <div className="pv-msg pv-card">
+      <span className="ft" data-kind="pdf" aria-hidden><span>PDF</span></span>
+      <b className="ellipsis pv-card-name" title={att.name}>{att.name}</b>
+      <span className="small">{fmtSize(att.size)}</span>
+      <div>{t("reading.pv.pdfOutside")}</div>
+      <div className="pv-card-acts">
+        <button className="btn primary" onClick={onOpen}><ExternalLink size={14} /> {t("reading.att.open")}</button>
+        <button className="btn" onClick={onSave}><Download size={14} /> {t("reading.att.saveAs")}</button>
+      </div>
+    </div>
+  );
 }
 
 /** Modal preview of attachments (pictures, PDF, small text), with ← → between previewable items. */
@@ -511,6 +659,13 @@ export function PreviewDialog({ m, items, start, onClose }: { m: MessageFull; it
     let live = true;
     setData(null);
     const kind = previewable(cur, !!m.confidential);
+    if (kind === "pdf" && usePlatform.getState().pdfView === "card") {
+      // this system does not draw a PDF in the window: nothing to fetch, the card opens the file in the default app (pdfmode.rs)
+      setData({ url: "", card: true });
+      return () => {
+        live = false;
+      };
+    }
     void api
       .attachmentData(m.id, cur.index)
       .then((d) => {
@@ -521,10 +676,17 @@ export function PreviewDialog({ m, items, start, onClose }: { m: MessageFull; it
           return;
         }
         if (kind === "pdf") {
-          const url = URL.createObjectURL(new Blob([b64ToBytes(d.dataBase64) as BlobPart], { type: "application/pdf" }));
+          // only bytes that start with %PDF- get a frame, typed application/pdf and, on Chromium, without a sandbox (see pdfFrame.ts)
+          const pdf = pdfPreview(b64ToBytes(d.dataBase64), navigator.userAgent);
           if (urlRef.current) URL.revokeObjectURL(urlRef.current);
+          urlRef.current = null;
+          if (!pdf.ok) {
+            setData({ url: "", notPdf: true });
+            return;
+          }
+          const url = URL.createObjectURL(pdf.blob);
           urlRef.current = url;
-          setData({ url });
+          setData({ url, sandbox: pdf.sandbox ?? undefined });
           return;
         }
         setData({ url: `data:${d.mime};base64,${d.dataBase64}` });
@@ -556,12 +718,18 @@ export function PreviewDialog({ m, items, start, onClose }: { m: MessageFull; it
   }, [list.length, onClose]);
 
   const [zoom, setZoom] = useState<"fit" | 1 | 2>("fit");
+  const pdfView = usePlatform((p) => p.pdfView);
+  const experiment = usePlatform((p) => p.pdfTest); // the Mac QA's switch (HEYLOOK_PDF_INLINE): show what the engine did
+  const [diag, setDiag] = useState("");
   const lock = imageLock(!!m.confidential);
+  const { box, trap } = useDialogFocus<HTMLDivElement>();
   if (!cur) return null;
   const kind = previewable(cur, !!m.confidential);
-  return (
+  const openCur = () => void openAttachment(m, cur);
+  const saveCur = () => void saveAs(m, cur, (p) => savedToast(p, cur.name)).catch((e) => useStore.getState().showToast(() => t("reading.att.couldntSave", { name: cur.name, error: friendlyError(e) }), undefined, "error"));
+  return createPortal(
     <div className="modal-back" onMouseDown={onClose}>
-      <div className="modal pv-modal" role="dialog" aria-modal="true" aria-label={t("reading.att.previewName", { name: cur.name })} onMouseDown={(e) => e.stopPropagation()}>
+      <div ref={box} tabIndex={-1} onKeyDown={trap} className="modal pv-modal" role="dialog" aria-modal="true" aria-label={t("reading.att.previewName", { name: cur.name })} onMouseDown={(e) => e.stopPropagation()}>
         <div className="pv-head">
           <b className="pv-name ellipsis">{cur.name}</b>
           {list.length > 1 && <span className="muted small">{t("reading.pv.xOfY", { i: i + 1, total: list.length })}</span>}
@@ -572,10 +740,11 @@ export function PreviewDialog({ m, items, start, onClose }: { m: MessageFull; it
               <button className="icon-btn" aria-label={t("reading.pv.zoomIn")} onClick={() => setZoom((z) => (z === "fit" ? 1 : 2))}><ZoomIn size={15} /></button>
             </span>
           )}
-          {!m.confidential && <button className="btn small" onClick={() => void openAttachment(m, cur)}><ExternalLink size={13} /> {t("reading.att.open")}</button>}
-          {!m.confidential && <button className="btn small" onClick={() => void saveAs(m, cur, (p) => savedToast(p, cur.name)).catch((e) => useStore.getState().showToast(t("reading.att.couldntSave", { name: cur.name, error: friendlyError(e) }), undefined, "error"))}><Download size={13} /> {t("reading.att.saveAs")}</button>}
+          {!m.confidential && <button className="btn small" onClick={openCur}><ExternalLink size={13} /> {t("reading.att.open")}</button>}
+          {!m.confidential && <button className="btn small" onClick={saveCur}><Download size={13} /> {t("reading.att.saveAs")}</button>}
           <button className="icon-btn" aria-label={t("reading.pv.close")} onClick={onClose}><X size={16} /></button>
         </div>
+        {experiment && kind === "pdf" && diag && <div className="muted small pv-diag" role="status">{diag}</div>}
         <div className="pv-stage">
           {list.length > 1 && (
             <>
@@ -587,10 +756,14 @@ export function PreviewDialog({ m, items, start, onClose }: { m: MessageFull; it
             <div className="pv-msg"><span className="spin" /> {t("common.loading")}</div>
           ) : data.error ? (
             <div className="pv-msg"><ImageOff size={28} /><div>{t("reading.pv.showFailed", { error: data.error })}</div></div>
+          ) : data.card ? (
+            <PdfCard att={cur} onOpen={openCur} onSave={saveCur} />
+          ) : data.notPdf ? (
+            <div className="pv-msg"><ImageOff size={28} /><div>{t("reading.pv.notPdf")}</div></div>
           ) : kind === "text" ? (
             <pre className="pv-text" {...(m.confidential ? { style: { userSelect: "none", WebkitUserSelect: "none" } as const, onCopy: noCopy, onCut: noCopy, onContextMenu: noCopy, onDragStart: noCopy } : {})}>{data.text}</pre>
           ) : kind === "pdf" ? (
-            <iframe title={cur.name} src={data.url} sandbox="allow-same-origin allow-scripts" />
+            <PdfFrame key={data.url} url={data.url} sandbox={data.sandbox} name={cur.name} view={pdfView === "object" ? "object" : "frame"} onOpen={m.confidential ? undefined : openCur} onDiag={experiment ? setDiag : undefined} />
           ) : (
             <img
               src={data.url}
@@ -601,7 +774,8 @@ export function PreviewDialog({ m, items, start, onClose }: { m: MessageFull; it
           )}
         </div>
       </div>
-    </div>
+    </div>,
+    document.body,
   );
 }
 
@@ -624,6 +798,7 @@ export function Lightbox({ items, index, onClose, onIndex, confidential }: { ite
   const [zoom, setZoom] = useState(0); // 0 = fit
   const [dims, setDims] = useState<{ w: number; h: number } | null>(null);
   const closeRef = useRef<HTMLButtonElement>(null);
+  const { box, trap } = useDialogFocus<HTMLDivElement>(() => closeRef.current);
 
   useEffect(() => {
     if (!cur) return;
@@ -637,7 +812,6 @@ export function Lightbox({ items, index, onClose, onIndex, confidential }: { ite
   }, [cur?.key]); // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
-    closeRef.current?.focus();
     // capture phase + stopPropagation: Escape closes only the lightbox and does not clear the open message behind it
     const onKey = (e: KeyboardEvent) => {
       if (e.key === "Escape") onClose();
@@ -654,8 +828,8 @@ export function Lightbox({ items, index, onClose, onIndex, confidential }: { ite
   }, [index, items.length, onClose, onIndex]);
 
   if (!cur) return null;
-  return (
-    <div className="lightbox" role="dialog" aria-modal="true" aria-label={t("reading.lb.label", { name: cur.name })}>
+  return createPortal(
+    <div ref={box} onKeyDown={trap} className="lightbox" role="dialog" aria-modal="true" aria-label={t("reading.lb.label", { name: cur.name })}>
       <div className="lb-bar">
         <b className="ellipsis" style={{ minWidth: 0 }}>{cur.name}</b>
         <span className="muted small">{t("reading.pv.xOfY", { i: index + 1, total: items.length })}{cur.size ? ` · ${fmtSize(cur.size)}` : ""}{dims ? ` · ${dims.w} × ${dims.h}` : ""}</span>
@@ -682,6 +856,7 @@ export function Lightbox({ items, index, onClose, onIndex, confidential }: { ite
           />
         )}
       </div>
-    </div>
+    </div>,
+    document.body,
   );
 }

@@ -11,5 +11,6 @@
   "settings.profile.color",
   "settings.reading.minutes",
   "settings.server.push",
-  "settings.sound.sms"
+  "settings.sound.sms",
+  "compose.fmt.style.normal"
 ]

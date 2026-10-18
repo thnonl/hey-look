@@ -7,6 +7,8 @@ export default define({
     "mail.row.select": "Select",
     "mail.row.unread": "Unread",
     "mail.row.confidential": "Confidential",
+    "mail.importance.high": "High importance",
+    "mail.importance.low": "Low importance",
     "mail.row.encrypted": "Encrypted",
     "mail.row.signed": "Signed",
     "mail.row.invite": "Meeting invitation",
@@ -34,6 +36,8 @@ export default define({
     "mail.done.trashed": "Moved to Deleted Items",
     "mail.done.deleted": "Deleted permanently",
     "mail.done.junk": "Moved to Junk",
+    "mail.junk.none": "No Junk folder",
+    "mail.junk.noneTip": "This mailbox has no Junk folder, so mail can’t be moved to Junk.",
     "mail.done.blocked": "Sender blocked",
     "mail.done.moved": "Moved to {folder}",
     "mail.done.snoozed": "Snoozed: {when}",
@@ -103,11 +107,38 @@ export default define({
     "mail.pane.calendar": "Calendar",
     "mail.pane.mailTitle": "Mail (Ctrl+1)",
     "mail.pane.calendarTitle": "Calendar (Ctrl+2)",
+    "mail.side.collapse": "Collapse side menu",
+    "mail.side.expand": "Expand side menu",
+    "mail.side.unread": { one: "{n} unread", other: "{n} unread" },
+
+    // right-click menu of a list row
+    "mail.ctx.copySubject": "Copy subject",
+    "mail.ctx.copyEmail": "Copy email address",
+    "mail.ctx.selectAll": "Select all",
+    "mail.ctx.textMenu": "Text actions",
+    "mail.ctx.copyFailed": "Couldn’t copy to the clipboard",
+    "mail.ctx.onlyOne": "Available for one conversation at a time",
+    "mail.ctx.oneMailbox": "Available when the conversations are in one mailbox",
+
+    // reordering the mailboxes (folder pane, Settings)
+    "mail.acct.moveUp": "Move up",
+    "mail.acct.moveDown": "Move down",
+    "mail.acct.drag": "Drag to reorder {email}",
+    "mail.acct.moved": "{email} moved to position {n} of {total}",
+    "mail.acct.cancelled": "Reordering cancelled",
+
+    // the display name of a mailbox for screen readers: name, address
+    "mail.acct.labelAria": "{name}, {email}",
+
+    // the link menu of a message
+    "mail.link.copy": "Copy link address",
   },
   vi: {
     "mail.row.select": "Chọn",
     "mail.row.unread": "Chưa đọc",
     "mail.row.confidential": "Thư mật",
+    "mail.importance.high": "Tầm quan trọng cao",
+    "mail.importance.low": "Tầm quan trọng thấp",
     "mail.row.encrypted": "Đã mã hóa",
     "mail.row.signed": "Đã ký",
     "mail.row.invite": "Lời mời họp",
@@ -133,6 +164,8 @@ export default define({
     "mail.done.trashed": "Đã chuyển vào Thùng rác",
     "mail.done.deleted": "Đã xóa vĩnh viễn",
     "mail.done.junk": "Đã chuyển vào Thư rác",
+    "mail.junk.none": "Không có thư mục Thư rác",
+    "mail.junk.noneTip": "Hộp thư này không có thư mục Thư rác nên không thể chuyển thư vào Thư rác.",
     "mail.done.blocked": "Đã chặn người gửi",
     "mail.done.moved": "Đã chuyển đến {folder}",
     "mail.done.snoozed": "Đã tạm ẩn: {when}",
@@ -151,7 +184,7 @@ export default define({
     "mail.filter.flagged": "Đã gắn cờ",
     "mail.filter.button": "Lọc",
     "mail.filter.active": "Lọc: {name}",
-    "mail.list.limitReached": "Đã đạt giới hạn tải về ({max} thư mỗi hộp thư). Tăng giới hạn trong {link}.",
+    "mail.list.limitReached": "Đã đạt giới hạn tải xuống ({max} thư mỗi hộp thư). Tăng giới hạn trong {link}.",
     "mail.list.limitLink": "Cài đặt > Hộp thư > Đọc thư & đồng bộ",
     "mail.list.reachedEnd": "Đã đến cuối danh sách",
     "mail.list.loadOlder": "Tải thư cũ hơn",
@@ -163,7 +196,7 @@ export default define({
     "mail.list.yourAccount": "tài khoản của bạn",
 
     "mail.empty.noResults": "Không có kết quả",
-    "mail.empty.searchedAll": "Chỉ tìm trong thư đã tải về máy này. Thư cũ hơn được tải khi bạn cuộn trong thư mục.",
+    "mail.empty.searchedAll": "Chỉ tìm trong thư đã tải xuống máy này. Thư cũ hơn được tải khi bạn cuộn trong thư mục.",
     "mail.empty.searchHint": "Hãy thử từ khác, hoặc tìm trong mọi thư mục.",
     "mail.empty.searchAll": "Tìm trong tất cả hộp thư",
     "mail.empty.noMatch": "Không có thư nào khớp bộ lọc này",
@@ -190,7 +223,7 @@ export default define({
     "mail.pane.quickViews": "Chế độ xem nhanh",
     "mail.pane.addFav": "Thêm vào Mục yêu thích",
     "mail.pane.removeFav": "Xóa khỏi Mục yêu thích",
-    "mail.pane.failedTitle": { one: "{n} thư đã lên lịch gửi thất bại", other: "{n} thư đã lên lịch gửi thất bại" },
+    "mail.pane.failedTitle": { one: "{n} thư đã lên lịch gửi không thành công", other: "{n} thư đã lên lịch gửi không thành công" },
     "mail.pane.failedBadge": { one: "{n} lỗi", other: "{n} lỗi" },
     "mail.pane.retry": "{error}\nNhấp để thử lại",
     "mail.pane.switch": "Chuyển giữa Thư và Lịch",
@@ -198,11 +231,38 @@ export default define({
     "mail.pane.calendar": "Lịch",
     "mail.pane.mailTitle": "Thư (Ctrl+1)",
     "mail.pane.calendarTitle": "Lịch (Ctrl+2)",
+    "mail.side.collapse": "Thu gọn menu bên",
+    "mail.side.expand": "Mở rộng menu bên",
+    "mail.side.unread": { one: "{n} chưa đọc", other: "{n} chưa đọc" },
+
+    // right-click menu of a list row
+    "mail.ctx.copySubject": "Sao chép chủ đề",
+    "mail.ctx.copyEmail": "Sao chép địa chỉ email",
+    "mail.ctx.selectAll": "Chọn tất cả",
+    "mail.ctx.textMenu": "Thao tác với văn bản",
+    "mail.ctx.copyFailed": "Không thể sao chép vào bộ nhớ tạm",
+    "mail.ctx.onlyOne": "Chỉ dùng được cho một cuộc trò chuyện mỗi lần",
+    "mail.ctx.oneMailbox": "Chỉ dùng được khi các cuộc trò chuyện cùng một hộp thư",
+
+    // reordering the mailboxes (folder pane, Settings)
+    "mail.acct.moveUp": "Di chuyển lên",
+    "mail.acct.moveDown": "Di chuyển xuống",
+    "mail.acct.drag": "Kéo để sắp xếp lại {email}",
+    "mail.acct.moved": "{email} đã chuyển sang vị trí {n}/{total}",
+    "mail.acct.cancelled": "Đã hủy sắp xếp lại",
+
+    // the display name of a mailbox for screen readers: name, address
+    "mail.acct.labelAria": "{name}, {email}",
+
+    // the link menu of a message
+    "mail.link.copy": "Sao chép địa chỉ liên kết",
   },
   fr: {
     "mail.row.select": "Sélectionner",
     "mail.row.unread": "Non lu",
     "mail.row.confidential": "Confidentiel",
+    "mail.importance.high": "Importance haute",
+    "mail.importance.low": "Importance faible",
     "mail.row.encrypted": "Chiffré",
     "mail.row.signed": "Signé",
     "mail.row.invite": "Invitation à une réunion",
@@ -228,6 +288,8 @@ export default define({
     "mail.done.trashed": "Déplacé vers la Corbeille",
     "mail.done.deleted": "Supprimé définitivement",
     "mail.done.junk": "Déplacé vers Courrier indésirable",
+    "mail.junk.none": "Aucun dossier Courrier indésirable",
+    "mail.junk.noneTip": "Cette boîte aux lettres n’a pas de dossier Courrier indésirable : impossible d’y déplacer des messages.",
     "mail.done.blocked": "Expéditeur bloqué",
     "mail.done.moved": "Déplacé vers {folder}",
     "mail.done.snoozed": "Mis en attente : {when}",
@@ -293,5 +355,30 @@ export default define({
     "mail.pane.calendar": "Calendrier",
     "mail.pane.mailTitle": "Courrier (Ctrl+1)",
     "mail.pane.calendarTitle": "Calendrier (Ctrl+2)",
+    "mail.side.collapse": "Réduire le menu latéral",
+    "mail.side.expand": "Développer le menu latéral",
+    "mail.side.unread": { one: "{n} non lu", other: "{n} non lus" },
+
+    // right-click menu of a list row
+    "mail.ctx.copySubject": "Copier l’objet",
+    "mail.ctx.copyEmail": "Copier l’adresse e-mail",
+    "mail.ctx.selectAll": "Tout sélectionner",
+    "mail.ctx.textMenu": "Actions sur le texte",
+    "mail.ctx.copyFailed": "Impossible de copier dans le presse-papiers",
+    "mail.ctx.onlyOne": "Disponible pour une seule conversation à la fois",
+    "mail.ctx.oneMailbox": "Disponible lorsque les conversations sont dans une seule boîte aux lettres",
+
+    // reordering the mailboxes (folder pane, Settings)
+    "mail.acct.moveUp": "Déplacer vers le haut",
+    "mail.acct.moveDown": "Déplacer vers le bas",
+    "mail.acct.drag": "Faire glisser pour réorganiser {email}",
+    "mail.acct.moved": "{email} déplacé en position {n} sur {total}",
+    "mail.acct.cancelled": "Réorganisation annulée",
+
+    // the display name of a mailbox for screen readers: name, address
+    "mail.acct.labelAria": "{name}, {email}",
+
+    // the link menu of a message
+    "mail.link.copy": "Copier l’adresse du lien",
   },
 });

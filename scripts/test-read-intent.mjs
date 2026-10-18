@@ -7,7 +7,7 @@
 // Run: node --experimental-strip-types scripts/test-read-intent.mjs
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
-import { ReadIntents } from "../src/readIntent.ts";
+import { StateIntents as ReadIntents } from "../src/readIntent.ts";
 
 const tick = () => new Promise((r) => setTimeout(r, 0));
 
@@ -265,21 +265,23 @@ const th = (id, unread) => ({ threadId: id, unread });
   }
 }
 
-// 10. store.ts: read / unread go through the intents, and every list / conversation read is shown through them.
+// 10. store.ts: read / unread (and, since 1.0.4, flag and pin: scripts/test-flag-pin-intent.mjs) go through the intents, and every list /
+//     conversation read is shown through them.
 const store = readFileSync(new URL("../src/store.ts", import.meta.url), "utf8").replace(/\r\n/g, "\n");
-assert.match(store, /import \{ ReadIntents \} from "\.\/readIntent"/);
-assert.match(store, /const readIntents = new ReadIntents\(\(ids, read\) => api\.threadAction\(ids, read \? "read" : "unread"/, "an idempotent set, not a toggle");
+assert.match(store, /import \{ StateIntents, type IntentKind \} from "\.\/readIntent"/);
+assert.match(store, /const intents = new StateIntents\(\(ids, want, kind\) => api\.threadAction\(ids, INTENT_ACTION\[kind\]\[want \? 0 : 1\]/, "an idempotent set, not a toggle");
+assert.match(store, /read: \["read", "unread"\]/);
 const act = store.slice(store.indexOf("  act: async"), store.indexOf("  openCompose: async"));
-assert.match(act, /if \(action === "read" \|\| action === "unread"\) \{[\s\S]*?readIntents\.set\(ids, action === "read"\)[\s\S]*?return;\s*\}/, "act sends read / unread through the intents");
-assert.ok(act.indexOf("readIntents.set") < act.indexOf("api.threadAction"), "the read / unread branch comes before the generic call");
+assert.match(act, /const intent = INTENT_OF\.get\(action\);\s*if \(intent\) \{[\s\S]*?intents\.set\(ids, intent\.want, intent\.kind\)[\s\S]*?return;\s*\}/, "act sends read / unread through the intents");
+assert.ok(act.indexOf("intents.set") < act.indexOf("api.threadAction"), "the read / unread branch comes before the generic call");
 const refresh = store.slice(store.indexOf("  refresh: async"), store.indexOf("  sync: async"));
-assert.match(refresh, /const tok = readIntents\.begin\(\)/);
-assert.match(refresh, /readIntents\.threads\(await api\.listThreads/, "the list is shown through the intents");
-assert.match(refresh, /readIntents\.changedSince\(tok\)/, "folder counts older than a change are not shown");
-assert.match(refresh, /readIntents\.end\(tok\)/);
+assert.match(refresh, /const tok = intents\.begin\(\)/);
+assert.match(refresh, /intents\.threads\(await api\.listThreads/, "the list is shown through the intents");
+assert.match(refresh, /intents\.changedSince\(tok\)/, "folder counts older than a change are not shown");
+assert.match(refresh, /intents\.end\(tok\)/);
 const select = store.slice(store.indexOf("  select: async"), store.indexOf("  toggleCheck: (id) =>"));
-assert.match(select, /readIntents\.messages\(id, await api\.getThread/, "the opened conversation is shown through the intents");
-assert.match(store.slice(store.indexOf("  reloadMessages: async"), store.indexOf("  setView: async")), /readIntents\.messages\(selected, await api\.getThread/);
+assert.match(select, /intents\.messages\(id, await api\.getThread/, "the opened conversation is shown through the intents");
+assert.match(store.slice(store.indexOf("  reloadMessages: async"), store.indexOf("  setView: async")), /intents\.messages\(selected, await api\.getThread/);
 // the only callers of the read / unread backend call
 assert.equal((store.match(/threadAction\(/g) ?? []).length, 2, "one in the intents' sender, one for the other actions");
 console.log("read-intent: all checks passed");

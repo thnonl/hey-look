@@ -1,5 +1,33 @@
 use std::path::Path;
 
+/// Every command the app registers with `generate_handler!` in src/lib.rs. With an app manifest a window may call only the commands that
+/// a capability grants it (capabilities/default.json: the main window, all of them; capabilities/popout.json: the secondary windows, the
+/// few they need). A command missing here is not callable from any window; the tests in lib.rs (`capability_tests`) keep this list, the
+/// handler and the main capability the same.
+const APP_COMMANDS: &[&str] = &[
+    "frame_info", "frame_caption_rect", "frame_system_menu", "list_accounts", "add_account", "cancel_add_account", "google_sign_in", "oauth_cancel", "reauth_account",
+    "google_env_configured", "microsoft_sign_in", "microsoft_env_configured", "microsoft_tenant", "discover_server", "update_account",
+    "remove_account", "sync_account", "refresh_badge", "test_notification", "open_external", "copy_text", "read_clipboard_text", "get_autostart", "set_autostart",
+    "list_folders", "list_threads", "get_thread", "thread_action", "prepare_action", "list_senders", "sender_action", "list_blocked", "unblock",
+    "list_rules", "save_rule", "delete_rule", "get_raw", "reply_headers", "save_attachments", "attachment_save_as", "attachment_save_all",
+    "attachment_open", "attachment_reveal", "pick_folder", "inline_image", "send_message", "save_draft", "draft_recipients", "discard_draft",
+    "recovery_save", "recovery_clear", "recovery_list", "recovery_load", "recovery_save_draft", "list_outbox", "cancel_outbox", "outbox_pending_count",
+    "outbox_open_for_edit", "outbox_release", "outbox_update", "outbox_reschedule", "outbox_retry", "outbox_to_draft", "pgp_list_keys",
+    "pgp_generate_key", "pgp_inspect_key", "pgp_import_key", "pgp_import_from_message", "pgp_pick_key_file", "pgp_public_armored",
+    "pgp_export_public", "pgp_export_secret", "pgp_delete_key", "pgp_set_verified", "pgp_set_default", "pgp_change_passphrase", "pgp_set_expiry",
+    "pgp_unlock", "pgp_lock_all", "pgp_recipient_status", "smtp_size_limit", "pgp_decrypt_message", "outbox_send_now", "outbox_hold",
+    "outbox_hold_send", "quit_now", "calendar_list_calendars", "calendar_set_visible", "calendar_list_events", "calendar_get_event",
+    "calendar_save_event", "calendar_delete_event", "calendar_respond", "calendar_add_from_message", "calendar_save_ics", "calendar_import_ics",
+    "calendar_open_message", "calendar_sources", "calendar_connect", "calendar_cancel_connect", "calendar_disconnect", "calendar_set_sync",
+    "calendar_sync_now", "list_templates", "save_template", "delete_template", "list_signatures", "save_signature", "delete_signature",
+    "get_setting", "set_setting", "first_run_hint", "suggest_contacts", "unsubscribe", "fetch_remote_images", "queue_action", "cancel_action",
+    "load_older", "attachment_data", "set_secret", "has_secret", "ai_complete", "ai_cancel", "ai_list_models", "shell_info", "check_update",
+    "update_download", "update_cancel", "update_discard", "update_defer", "update_note", "set_mail_available", "frontend_ready", "sends_flushed",
+    "quit_page_alive", "popout_flush_alive", "popout_flush_dialog", "popout_flush_done", "popout_save_all", "popout_open", "popout_init",
+    "popout_ready", "popout_focus", "popout_close", "popout_park", "popout_destroy", "popout_note", "popout_set_key", "popout_request", "popout_reply", "thread_meta", "page_pong", "quit_dialog", "quit_cancelled", "show_window", "page_state", "update_install",
+    "update_startup_state", "update_startup_ack", "outbox_busy", "idle_states", "window_theme_refresh",
+];
+
 /// Variables read from the environment (or a `.env` file) at build time and embedded in the binary.
 const ENV_KEYS: [&str; 4] = ["GOOGLE_CLIENT_ID", "GOOGLE_CLIENT_SECRET", "MICROSOFT_CLIENT_ID", "MICROSOFT_CLIENT_SECRET"];
 
@@ -32,5 +60,5 @@ fn main() {
         println!("cargo:rustc-link-arg=delayimp.lib");
         println!("cargo:rustc-link-arg=/IGNORE:4199");
     }
-    tauri_build::build()
+    tauri_build::try_build(tauri_build::Attributes::new().app_manifest(tauri_build::AppManifest::new().commands(APP_COMMANDS))).expect("failed to run tauri-build")
 }

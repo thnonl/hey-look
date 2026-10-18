@@ -231,19 +231,61 @@ jobs:
         run: |
           node --experimental-strip-types scripts/test-mail-controls.mjs
           node --experimental-strip-types scripts/test-frame-sandbox.mjs
+          node --experimental-strip-types scripts/test-pdf-frame.mjs
           node --experimental-strip-types scripts/test-addresses.mjs
+          node --experimental-strip-types scripts/test-recipients.mjs
+          node --experimental-strip-types scripts/test-reply-targets.mjs
+          node --experimental-strip-types scripts/test-html-text.mjs
+          node --experimental-strip-types scripts/test-forward-attachments.mjs
           node scripts/test-compose-tab-order.mjs
+          node --experimental-strip-types scripts/test-compose-keys.mjs
+          node --experimental-strip-types scripts/test-quote-header.mjs
+          node --experimental-strip-types scripts/test-pasted-html.mjs
+          node --experimental-strip-types scripts/test-send-size.mjs
+          node --experimental-strip-types scripts/test-from-account.mjs
+          node --experimental-strip-types scripts/test-attach-name.mjs
+          node --experimental-strip-types scripts/test-link-url.mjs
+          node scripts/test-csp-ready.mjs
           node --experimental-strip-types scripts/test-update-result.mjs
+          node --experimental-strip-types scripts/test-update-announce.mjs
+          node --experimental-strip-types scripts/test-quit-flush.mjs
+          node --experimental-strip-types scripts/test-popout.mjs
+          node scripts/test-latest-json-keys.mjs
           node --experimental-strip-types scripts/test-sticky-timers.mjs
+          node --experimental-strip-types scripts/test-toast-stack.mjs
+          node --experimental-strip-types scripts/test-toast-language.mjs
+          node --experimental-strip-types scripts/test-translate-jobs.mjs
+          node --experimental-strip-types scripts/test-translate-box-layout.mjs
+          node --experimental-strip-types scripts/test-ai-tab-still.mjs
+          node --experimental-strip-types scripts/test-settings-still.mjs
+          node --experimental-strip-types scripts/test-translate-chunks.mjs
+          node --experimental-strip-types scripts/test-ai-call.mjs
+          node --experimental-strip-types scripts/test-ai-errors.mjs
+          node --experimental-strip-types scripts/test-ai-problem.mjs
           node --experimental-strip-types scripts/test-open-thread.mjs
+          node --experimental-strip-types scripts/test-leave-compose.mjs
+          node --experimental-strip-types scripts/test-autosave.mjs
+          node --experimental-strip-types scripts/test-recovery.mjs
+          node --experimental-strip-types scripts/test-recovery-toast.mjs
+          node --experimental-strip-types scripts/test-compose-selection.mjs
+          node --experimental-strip-types scripts/test-compose-content.mjs
           node --experimental-strip-types scripts/test-read-intent.mjs
+          node --experimental-strip-types scripts/test-flag-pin-intent.mjs
+          node --experimental-strip-types scripts/test-prepare-move.mjs
+          node --experimental-strip-types scripts/test-queued-moves.mjs
+          node --experimental-strip-types scripts/test-moves-committed.mjs
+          node --experimental-strip-types scripts/test-auto-advance.mjs
+          node --experimental-strip-types scripts/test-junk-folder.mjs
           node --experimental-strip-types scripts/test-list-limit-footer.mjs
           node --experimental-strip-types scripts/test-link-copy.mjs
           node --experimental-strip-types scripts/test-backfill-line.mjs
           node --experimental-strip-types scripts/test-about-links.mjs
           node --experimental-strip-types scripts/test-mail-canvas.mjs
+          node --experimental-strip-types scripts/test-compose-preview.mjs
           node --experimental-strip-types scripts/test-calendar-sync.mjs
           node --experimental-strip-types scripts/test-datetime-fields.mjs
+          node --experimental-strip-types scripts/test-event-when.mjs
+          node --experimental-strip-types scripts/test-importance.mjs
           node --experimental-strip-types scripts/test-i18n.mjs
           node --experimental-strip-types scripts/test-i18n-tools.mjs
           node --experimental-strip-types scripts/test-boot-lang.mjs
@@ -258,16 +300,90 @@ jobs:
           node --experimental-strip-types scripts/test-language-switcher.mjs
           node --experimental-strip-types scripts/test-sign-in.mjs
           node --experimental-strip-types scripts/test-popover-menu.mjs
+          node --experimental-strip-types scripts/test-picture-tools.mjs
+          node --experimental-strip-types scripts/test-rich-golden.mjs
+          node --experimental-strip-types scripts/test-format-bar-layout.mjs
+          node --experimental-strip-types scripts/test-block-format.mjs
+          node --experimental-strip-types scripts/test-block-commands.mjs
+          node --experimental-strip-types scripts/test-paste-clean.mjs
+          node --experimental-strip-types scripts/test-paste-options.mjs
+          node scripts/test-paste-switch.mjs
+          node scripts/test-paste-mac.mjs
+          node --experimental-strip-types scripts/test-insert-group.mjs
+          node --experimental-strip-types scripts/test-signature-guard.mjs
+          node --experimental-strip-types scripts/test-quote.mjs
+          node --experimental-strip-types scripts/test-quote-guard.mjs
+          node --experimental-strip-types scripts/test-quote-remote-policy.mjs
+          node --experimental-strip-types scripts/test-insert-pictures.mjs
+          node --experimental-strip-types scripts/test-header-text.mjs
+          node --experimental-strip-types scripts/test-popover-room.mjs
+          node --experimental-strip-types scripts/test-meeting-draft.mjs
+          node --experimental-strip-types scripts/test-picture-rename.mjs
+          node --experimental-strip-types scripts/test-summary-text.mjs
+          node --experimental-strip-types scripts/test-snooze-label.mjs
+          node --experimental-strip-types scripts/test-change-case.mjs
+          node --experimental-strip-types scripts/test-find-replace.mjs
+          node --experimental-strip-types scripts/test-signature-picture.mjs
+          node --experimental-strip-types scripts/test-row-menu.mjs
+          node --experimental-strip-types scripts/test-account-order.mjs
+          node --experimental-strip-types scripts/test-account-label.mjs
+          node --experimental-strip-types scripts/test-sidebar-state.mjs
+          node --experimental-strip-types scripts/test-context-guard.mjs
+          node --experimental-strip-types scripts/test-top-bar-dark.mjs
           node --experimental-strip-types scripts/test-support-nudge.mjs
-          node scripts/test-site-languages.mjs
+          node scripts/generate-site-languages.mjs --check
+          node scripts/test-site-languages.mjs --strict
+          node scripts/test-site-404.mjs
+          node scripts/test-site-seo.mjs
           node --experimental-strip-types scripts/test-site-commands.mjs
+          # the Appearance preview on the website, measured in the runner's Chrome (a sample of the combinations; the full run is `node scripts/test-site-appearance.mjs`)
+          node scripts/test-site-appearance.mjs --quick
+          # Settings > AI Assistant stands still while it is used: the real layout, frame by frame, in the dev preview (two of the 12 combinations; the full run is `node scripts/test-ai-tab-layout.mjs`)
+          node scripts/test-ai-tab-layout.mjs --quick
+          # the AI Assistant problem toast through every entry point (not set up, 401, 404, timeout ...): stays 20 s, leads to Settings > AI Assistant, Esc / X close it (full run: `node scripts/test-ai-guide.mjs`)
+          node scripts/test-ai-guide.mjs --quick
+          # Settings > Add account and Calendar stand still while a sign-in runs and ends (two of the combinations; the full run is `node scripts/test-settings-layout.mjs`)
+          node scripts/test-settings-layout.mjs --quick
+          # the attachment preview and the picture viewer are on top of the whole window, in the main window and in the reader window
+          node scripts/test-preview-layer.mjs --quick
+          # the compose pane at the smallest sizes: formatting row and body always in view, the header scrolls, Tab order and popovers (eight of the combinations, with Meeting on at 946 x 552 and in a 308 px pane; the full run is `node scripts/test-compose-fit.mjs`)
+          node scripts/test-compose-fit.mjs --quick
+          # an open compose shows the placeholder of the body in the language in use after a language switch (and back)
+          node scripts/test-placeholder-lang.mjs
+          # the side menu: icons or full by window width and by the person's choice, the peek over the panes, the minimum widths, tooltips (the full run is `node scripts/test-sidebar-collapse.mjs`)
+          node scripts/test-sidebar-collapse.mjs --quick
+          # the picture resize handles are clipped with the editor pane, and Discard on a reply with nothing typed closes without asking (real panes in the dev preview)
+          node scripts/test-picture-handles.mjs
+          # the picture toolbar and the resize handles never overlap (the handles are measured too), and every popover and menu of the message, ALL its boxes, is inside the window at 946 x 552 and 946 x 480
+          node scripts/test-picture-toolbar.mjs
+          node scripts/test-popover-fit.mjs --quick
+          node scripts/test-ai-save-toast.mjs
+          # a meeting survives Save draft and the crash-recovery snapshot in the real pane (the header side is `cargo test --lib meeting_form`)
+          node scripts/test-meeting-compose.mjs
+          node scripts/test-compose-discard.mjs
+          # the top strip of the message and conversation windows follows the theme (the root of the compose page is not fixed; macOS paints the title bar from it)
+          node scripts/test-popout-theme.mjs
+          # several pictures at once, where a dropped picture goes, "Generate a key" ends, and Discard takes the autosaved draft along (real panes in the dev preview)
+          node scripts/test-compose-pictures.mjs
+          node scripts/test-pgp-generate.mjs
+          node scripts/test-discard-saved-draft.mjs
+          # the Symbol popup, the More menu, Find and replace (Replace row on every system) and the picture handles under the dialogs, at 960 x 560 and 1280 x 800
+          node scripts/test-compose-popups.mjs
+          # the debug-only test bridge stays out of release builds (sources, workflow check) and its client sends what the protocol says (the Rust side: `cargo test --lib testbridge`)
+          node scripts/test-test-bridge.mjs
 
-      # macOS code signing + notarisation (owner steps: CONTRIBUTING.md > Signing and notarisation). Only when the three certificate
-      # secrets exist and this is not a test build; otherwise nothing changes: no APPLE_* variable is set (an EMPTY variable is not an
-      # unset one for the bundler, so they go through GITHUB_ENV only now) and the app stays ad-hoc signed as before.
-      # Notarisation: the App Store Connect API key (APPLE_API_*) or the Apple ID variant (APPLE_ID, APPLE_PASSWORD + variable APPLE_TEAM_ID).
-      # Variable REQUIRE_MAC_SIGNING=true (set at go-live) makes a tag run fail when it would not be signed and notarised, or when a
-      # group of secrets is only partly set; without it a partly set group is a warning that names the missing secrets.
+      # macOS code signing (owner steps: CONTRIBUTING.md > Signing and notarisation). Only when the three certificate secrets
+      # (APPLE_CERTIFICATE, APPLE_CERTIFICATE_PASSWORD, APPLE_SIGNING_IDENTITY) exist and this is not a test build; otherwise nothing
+      # changes: no APPLE_* variable is set (an EMPTY variable is not an unset one for the bundler, so they go through GITHUB_ENV only
+      # now) and the app stays ad-hoc signed as before. Two kinds of certificate, told apart by the identity name:
+      #   - the project's self-signed certificate (today; any name that is not "Developer ID Application..."): signed, not notarised.
+      #     Its only purpose is a fixed signing identity across updates (the Keychain keeps its permission). Imported by
+      #     .github/scripts/mac-import-selfsigned.sh, checked after the build by .github/scripts/mac-verify-selfsigned.sh.
+      #   - an Apple "Developer ID Application" certificate (later, paid account): the bundler imports it and signs; with notarisation
+      #     credentials (App Store Connect API key APPLE_API_*, or APPLE_ID, APPLE_PASSWORD + variable APPLE_TEAM_ID) it notarises too.
+      # Variable REQUIRE_MAC_SIGNING=true (set at go-live of Developer ID) makes a tag run fail when it would not be signed with a
+      # Developer ID certificate and notarised, or when a group of secrets is only partly set; without it a partly set group is a
+      # warning that names the missing secrets.
       # This step is the last one before the build on purpose: npm ci and the node scripts never see these secrets. The step after
       # the build ("Remove Apple signing material") deletes the key file and keychain and empties the variables again.
       - name: macOS signing
@@ -320,6 +436,35 @@ jobs:
             fi
             exit 0
           fi
+          # the bundler takes the identity from the config first: "-" (ad-hoc) in the repo file becomes the real one in this checkout only
+          use_identity() {
+            node -e 'const f="src-tauri/tauri.conf.json",c=JSON.parse(require("fs").readFileSync(f,"utf8"));c.bundle.macOS.signingIdentity=process.env.APPLE_SIGNING_IDENTITY;require("fs").writeFileSync(f,JSON.stringify(c,null,2)+"\n")'
+          }
+          # Which certificate? A "Developer ID Application: ..." one (Apple's; the bundler imports it, notarisation follows) or any
+          # other name = the project's own self-signed one. The self-signed one is imported here, not by the bundler: the bundler only
+          # accepts certificates whose name starts with an Apple prefix and that carry a Team ID (see mac-import-selfsigned.sh).
+          # It is not notarised (Gatekeeper still asks for "Open Anyway") but the signature names the certificate, so the app keeps
+          # the same identity in every release and the macOS Keychain keeps its permission for the saved passwords across updates.
+          # Rotation (a new self-signed certificate, or the Developer ID one): CONTRIBUTING.md > Signing and notarisation.
+          case "$APPLE_SIGNING_IDENTITY" in
+            "Developer ID Application"*) kind=developer-id ;;
+            *) kind=self-signed ;;
+          esac
+          echo "kind=$kind" >> "$GITHUB_OUTPUT"
+          if [ "$kind" = self-signed ]; then
+            if [ "$strict" = true ]; then
+              echo "::error::REQUIRE_MAC_SIGNING is true but the certificate \"$APPLE_SIGNING_IDENTITY\" is self-signed (no Developer ID, no notarisation)"
+              exit 1
+            fi
+            if [ -n "$APPLE_API_KEY$APPLE_ID" ]; then
+              echo "::warning::Notarisation settings exist but the certificate is self-signed: Apple cannot notarise it, they are not used"
+            fi
+            bash .github/scripts/mac-import-selfsigned.sh
+            use_identity
+            echo "signed=true" >> "$GITHUB_OUTPUT"
+            echo "::notice::The macOS app is signed with the self-signed certificate \"$APPLE_SIGNING_IDENTITY\" (not notarised)"
+            exit 0
+          fi
           if [ -z "$APPLE_TEAM_ID" ]; then
             problem "the repo variable APPLE_TEAM_ID is not set; the check after the build compares the Team ID of the signature with it"
           fi
@@ -343,8 +488,7 @@ jobs:
           setenv APPLE_CERTIFICATE "$cleaned"
           setenv APPLE_CERTIFICATE_PASSWORD "$APPLE_CERTIFICATE_PASSWORD"
           setenv APPLE_SIGNING_IDENTITY "$APPLE_SIGNING_IDENTITY"
-          # the bundler takes the identity from the config first: "-" (ad-hoc) in the repo file becomes the real one in this checkout only
-          node -e 'const f="src-tauri/tauri.conf.json",c=JSON.parse(require("fs").readFileSync(f,"utf8"));c.bundle.macOS.signingIdentity=process.env.APPLE_SIGNING_IDENTITY;require("fs").writeFileSync(f,JSON.stringify(c,null,2)+"\n")'
+          use_identity
           echo "signed=true" >> "$GITHUB_OUTPUT"
           if [ "$notarize" = api ]; then
             umask 077
@@ -388,8 +532,9 @@ jobs:
         if: always() && runner.os == 'macOS' && steps.apple.outputs.signed == 'true'
         shell: bash
         run: |
-          rm -f "$RUNNER_TEMP"/AuthKey_*.p8
-          # the bundler's temporary keychain (a hosted runner is thrown away anyway)
+          rm -f "$RUNNER_TEMP"/AuthKey_*.p8 "$RUNNER_TEMP"/heylook-signing.p12 "$RUNNER_TEMP"/heylook-signing.pem
+          # the self-signed certificate's keychain, and the bundler's temporary one (a hosted runner is thrown away anyway)
+          security delete-keychain "$RUNNER_TEMP/heylook-signing.keychain-db" 2>/dev/null || true
           { security list-keychains -d user | tr -d '" ' | grep -i tauri | while read -r k; do security delete-keychain "$k" || true; done; } || true
           for n in APPLE_CERTIFICATE APPLE_CERTIFICATE_PASSWORD APPLE_API_ISSUER APPLE_API_KEY APPLE_API_KEY_PATH APPLE_ID APPLE_PASSWORD; do
             echo "$n=" >> "$GITHUB_ENV"
@@ -402,6 +547,30 @@ jobs:
         run: |
           node .github/scripts/check-pe-subsystem.cjs --selftest
           node .github/scripts/check-pe-subsystem.cjs src-tauri/target/release/hey-look.exe --expect gui
+
+      # The test bridge (src-tauri/src/testbridge/, a remote control of the windows for QA) exists in debug builds only: the built release app
+      # must not contain it. Searched for the name of its environment variable (and its log text): the binaries, the macOS .app, and the
+      # unpacked .deb on Linux (the other bundles are compressed, they hold the same binary).
+      - name: No test bridge in the release app
+        if: steps.sign.outputs.profile == 'release'
+        shell: bash
+        run: |
+          node .github/scripts/check-no-test-bridge.cjs --selftest
+          targets=()
+          for f in src-tauri/target/release/hey-look src-tauri/target/release/hey-look.exe src-tauri/target/*-apple-darwin/release/hey-look; do
+            # (Git Bash on Windows reports the extensionless name as a file because hey-look.exe exists: skip it there)
+            if [ -f "$f" ]; then case "$RUNNER_OS:$f" in Windows:*/hey-look) ;; *) targets+=("$f") ;; esac; fi
+          done
+          for d in src-tauri/target/release/bundle/macos src-tauri/target/universal-apple-darwin/release/bundle/macos; do
+            if [ -d "$d" ]; then targets+=("$d"); fi
+          done
+          if [ "$RUNNER_OS" = "Linux" ]; then
+            mkdir deb-unpacked
+            for deb in src-tauri/target/release/bundle/deb/*.deb; do dpkg-deb -x "$deb" deb-unpacked; done
+            targets+=(deb-unpacked)
+          fi
+          echo "searching: ${targets[*]}"
+          node .github/scripts/check-no-test-bridge.cjs "${targets[@]}"
 
       # Every update signature must belong to the file next to it (public key = plugins.updater.pubkey of tauri.conf.json). The same
       # check runs again in the publish job on the files of the draft release, which is the one that decides.
@@ -457,9 +626,28 @@ jobs:
           echo "$out"
           grep -q 'Signature=adhoc' <<<"$out"
 
-      # Only with the Apple secrets (see "macOS signing"): a Developer ID signature, accepted by Gatekeeper, and a stapled ticket when notarised.
+      # Self-signed certificate (see "macOS signing"): the signature must name the certificate, not the build (cdhash), in the app, in the
+      # updater package (.app.tar.gz, made by the bundler after signing) and nowhere an ad-hoc fallback; otherwise the job fails.
+      - name: Check self-signed signature
+        if: runner.os == 'macOS' && steps.apple.outputs.kind == 'self-signed'
+        env:
+          PROFILE: ${{ steps.sign.outputs.profile }}
+          IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
+        run: |
+          bundle="src-tauri/target/universal-apple-darwin/$PROFILE/bundle"
+          app=$(find "$bundle/macos" -maxdepth 1 -name '*.app' | head -n 1)
+          tgz=$(find "$bundle/macos" -maxdepth 1 -name '*.app.tar.gz' | head -n 1)
+          bash .github/scripts/mac-verify-selfsigned.sh "$app" "$IDENTITY" "$tgz"
+          # Information only: the disk image is signed by the bundler too
+          dmg=$(find "$bundle/dmg" -maxdepth 1 -name '*.dmg' | head -n 1)
+          if [ -n "$dmg" ]; then
+            echo "Disk image: $dmg"
+            codesign -dv --verbose=2 "$dmg" 2>&1 || true
+          fi
+
+      # Only with an Apple Developer ID certificate (see "macOS signing"): a Developer ID signature, accepted by Gatekeeper, and a stapled ticket when notarised.
       - name: Check Developer ID signature and notarisation
-        if: runner.os == 'macOS' && steps.apple.outputs.signed == 'true'
+        if: runner.os == 'macOS' && steps.apple.outputs.kind == 'developer-id'
         env:
           PROFILE: ${{ steps.sign.outputs.profile }}
           NOTARIZE: ${{ steps.apple.outputs.notarize }}

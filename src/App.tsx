@@ -1,7 +1,7 @@
 import { listen } from "@tauri-apps/api/event";
 import { useEffect, useRef, useState } from "react";
 import "./App.css";
-import { forwardLast, newMailAccount, replyLast, targets } from "./actions";
+import { forwardLast, newMail, replyLast, targets } from "./actions";
 import { api, BackfillProgress } from "./api";
 import { CalendarView, EventDialog, newEvent } from "./components/Calendar";
 import { CommandBar } from "./components/CommandBar";
@@ -19,19 +19,29 @@ import { Welcome } from "./components/Welcome";
 import { hasMailAccounts, shortcutWorks } from "./mailControls";
 import { t as tNow } from "./i18n";
 import { useT } from "./i18n/react";
-import { flushSends, friendlyError, useStore } from "./store";
+import { runQuitFlush } from "./quitFlush";
+import { flushSends, friendlyError, moveDropped, moveRefused, useStore } from "./store";
 import { osNow } from "./platform";
 import { openUpdateLink, useUpdates } from "./updates";
+import { handlePopoutRequest } from "./popout/mainRequests";
+import { startComposeHub } from "./popout/composeHub";
+import type { Envelope } from "./popout/requestKinds";
 import { calTz, configureCalendar, addDays, addMonths, today as todayDay } from "./calendar";
 import { catchupText, configureDates, fmtWhen } from "./util";
 import { frameAction, initFrame, useFrame } from "./winframe";
 import { startSupportNudge } from "./supportNudgeHost";
+import { recoverUnsaved, reshowRecoveryToast } from "./composeRecovery";
+import { composeSwallowsAppKey, inEditable, keyAction, moduleSwitchKey, sidebarToggleKey } from "./composeKeys";
+import { MIN_READER_W, RAIL_W, SPLITTER_W, sidebarLayout } from "./sidebarState";
+import { toggleSidebarNow, useWindowWidth } from "./useSidebar";
 
 const clamp = (n: number, lo: number, hi: number) => Math.max(lo, Math.min(hi, n));
 
 /** Drag handle between two panes; the width is committed (saved) on release. */
-function Splitter({ which, label, value, min, max, onLive, onCommit }: { which: "folder" | "list"; label: string; value: number; min: number; max: number; onLive: (w: number) => void; onCommit: (w: number) => void }) {
+function Splitter({ which, label, value, min, max, onLive, onCommit, disabled }: { which: "folder" | "list"; label: string; value: number; min: number; max: number; onLive: (w: number) => void; onCommit: (w: number) => void; disabled?: boolean }) {
   const drag = useRef<{ x: number; w: number } | null>(null);
+  // the side menu folded to icons has no width to change: the line stays (it is the edge of the pane), the drag and the keys are off
+  if (disabled) return <div className="splitter off" aria-hidden />;
   return (
     <div
       className="splitter"
@@ -71,6 +81,13 @@ function App() {
   const setPrefs = useStore((s) => s.setPrefs);
   const customFrame = useFrame((f) => f.custom);
   const [live, setLive] = useState<{ f?: number; l?: number }>({});
+  const width = useWindowWidth();
+  const readingPane = prefs.readingPane;
+  // the side menu: in full or as a column of icons (sidebarState.ts); the width of the window and the person's own choice decide
+  const fw = live.f ?? prefs.folderW;
+  const lw = live.l ?? prefs.listW;
+  // (decided from the saved widths: a splitter being dragged never folds the menu under the pointer; its limits below keep the reading pane at its minimum)
+  const folded = sidebarLayout({ mode: prefs.sidebar, width, folderW: prefs.folderW, listW: prefs.listW, bottomPane: readingPane === "bottom" }).collapsed;
 
   configureDates(prefs);
   configureCalendar(prefs);
@@ -84,6 +101,11 @@ function App() {
   useEffect(() => {
     if (loaded) void startSupportNudge();
   }, [loaded]);
+
+  // messages that were being written when the app ended without saving or sending them are saved as drafts, and one toast says so (once per start)
+  useEffect(() => {
+    if (loaded && hasAccounts) void recoverUnsaved();
+  }, [loaded, hasAccounts]);
 
   // the page is up and has painted once: the backend shows the (hidden) window now, and reloads the page if this never arrives
   // (a timer, not requestAnimationFrame: a page in a hidden window gets no animation frames)
@@ -119,10 +141,17 @@ function App() {
   useEffect(() => {
     const open = async (threadId: string) => {
       await useStore.getState().setView("inbox", null);
-      await useStore.getState().select(threadId);
+      await useStore.getState().openMail(threadId);
     };
+    const stopHub = startComposeHub(); // the compose windows' requests and the count of open windows
     const subs = [
       listen("mail-synced", () => void useStore.getState().refresh()),
+      // an archive / delete / move whose Undo time is over has been done (also while the window was hidden to the tray): the messages leave the list now
+      listen<{ threadIds: string[] }>("moves-committed", (e) => useStore.getState().dropThreads(e.payload.threadIds)),
+      // the window comes back (from the tray, a second start): what changed meanwhile is read at once, not at the next 30 s refresh
+      listen("app-shown", () => void useStore.getState().refresh()),
+      // a secondary window (the reader) asks for something the main page owns: mail state with its Undo, the preferences, a dialog, a message
+      listen<Envelope>("popout-request", (e) => void handlePopoutRequest(e.payload)),
       // a Google / Microsoft mailbox was signed out behind our back (the background sync got rejected): it shows "Sign in again"
       listen<{ accountId: string; state: "again" | "blocked" | null; error?: string }>("signin-state", (e) => {
         const st = useStore.getState();
@@ -135,20 +164,23 @@ function App() {
         const shown = friendlyError(error ?? "");
         useStore.setState((x) => ({ syncErrors: { ...x.syncErrors, [accountId]: shown } }));
         const email = st.accounts.find((a) => a.id === accountId)?.email;
-        st.showToast(email ? tNow("errors.toast.withAccount", { account: email, error: shown }) : shown, undefined, "error");
+        st.showToast(() => email ? tNow("errors.toast.withAccount", { account: email, error: friendlyError(error ?? "") }) : friendlyError(error ?? ""), undefined, "error");
       }),
       // the background download of older Inbox mail: a status line in the list and a quiet, throttled re-read of it
       listen<BackfillProgress>("backfill-progress", (e) => useStore.getState().onBackfill(e.payload)),
       listen("tray-compose", () => {
         const st = useStore.getState();
         if (!hasMailAccounts(st.accounts.length)) return; // no account: nothing to write with
-        void st.openCompose({ accountId: newMailAccount() });
+        // follows the setting; with it on, a window opens (the tray did not show the main window, shell.rs)
+        void newMail({ shift: false });
       }),
-      listen<string>("action-failed", (e) => useStore.getState().showToast(t("app.toast.actionFailed", { error: friendlyError(e.payload) }), undefined, "error")),
+      listen<{ id: string; error: string }>("action-verify-failed", (e) => moveDropped(e.payload.id, e.payload.error)),
+      // a queued move the server refused after the Undo window (the payload names the move)
+      listen<{ id: string; error: string }>("action-failed", (e) => moveRefused(e.payload.id, e.payload.error)),
       listen<{ threadId: string }>("open-thread", (e) => void open(e.payload.threadId)),
       listen<{ threadId: string }>("notify-reply", async (e) => {
         await open(e.payload.threadId);
-        replyLast();
+        replyLast(undefined, { shift: false }); // (the setting decides; no click or key is being handled)
       }),
       // scheduled sends: state changes from the worker, catch-up after a closed period, quit guard
       listen<{ id: string; status: string; error?: string }>("outbox-changed", (e) => {
@@ -156,9 +188,9 @@ function App() {
         void st.refresh();
         if (e.payload.status !== "failed") return;
         const subject = st.outbox.find((o) => o.id === e.payload.id)?.subject || t("app.noSubject");
-        st.showToast(t("app.toast.scheduledFailed", { subject }), undefined, "error", [
-          { label: t("common.retry"), run: () => void api.outboxRetry(e.payload.id).then(() => useStore.getState().refresh()) },
-          { label: t("app.action.open"), run: () => void useStore.getState().setView("scheduled") },
+        st.showToast(() => t("app.toast.scheduledFailed", { subject }), undefined, "error", [
+          { label: () => t("common.retry"), run: () => void api.outboxRetry(e.payload.id).then(() => useStore.getState().refresh()) },
+          { label: () => t("app.action.open"), run: () => void useStore.getState().setView("scheduled") },
         ]);
       }),
       // the calendar changed behind the view's back: sync processed an invitation, a reply or a cancellation
@@ -169,73 +201,63 @@ function App() {
       }),
       listen<{ eventId: string; title: string; line: string; joinUrl?: string | null }>("event-reminder", (e) => {
         const st = useStore.getState();
-        st.showToast(`${e.payload.title}${e.payload.line ? ` · ${e.payload.line}` : ""}`, undefined, "info", [
+        st.showToast(() => `${e.payload.title}${e.payload.line ? ` · ${e.payload.line}` : ""}`, undefined, "info", [
           // no account: the calendar is not on screen, so there is nothing to open
-          ...(hasMailAccounts(st.accounts.length) ? [{ label: t("app.action.open"), run: () => st.setModule("calendar") }] : []),
-          ...(e.payload.joinUrl ? [{ label: t("app.action.join"), run: () => void openUpdateLink(e.payload.joinUrl as string) }] : []),
+          ...(hasMailAccounts(st.accounts.length) ? [{ label: () => t("app.action.open"), run: () => st.setModule("calendar") }] : []),
+          ...(e.payload.joinUrl ? [{ label: () => t("app.action.join"), run: () => void openUpdateLink(e.payload.joinUrl as string) }] : []),
         ]);
       }),
       // the chosen save folder is gone: attachments went to Downloads instead (said once per session and folder)
       listen<{ configured: string; used: string }>("download-dir-fallback", (e) => {
         const st = useStore.getState();
-        st.showToast(t("app.toast.downloadDirFallback", { configured: e.payload.configured, used: e.payload.used }), undefined, "info", [
-          { label: t("app.action.changeFolder"), run: () => st.setDialog({ type: "settings", tab: "general" }) },
+        st.showToast(() => t("app.toast.downloadDirFallback", { configured: e.payload.configured, used: e.payload.used }), undefined, "info", [
+          { label: () => t("app.action.changeFolder"), run: () => st.setDialog({ type: "settings", tab: "general" }) },
         ]);
       }),
       // The rest of a quit (REQ-48 b, c): a message being written is saved to Drafts (and the person is asked when that fails), then every
       // message still in its Undo time goes out now, for at most 20 s. The answer tells the backend whether the quit goes on.
-      listen("flush-sends", async () => {
-        let go = true;
-        try {
-          const s = useStore.getState();
-          if (s.compose && s.composeDirty) {
-            if (s.compose.outboxId) {
-              // a scheduled message being edited stays as it was
-              void api.showWindow().catch(() => undefined);
-              void api.quitDialog(true).catch(() => undefined);
-              const c = await s.choose({
+      listen("flush-sends", () => {
+        const swallow = () => undefined;
+        const ask = (kind: "scheduledEdit" | "notSaved") =>
+          kind === "scheduledEdit"
+            ? useStore.getState().choose({
                 title: t("app.quit.discardTitle"),
                 body: t("app.quit.discardBody"),
                 choices: [
                   { id: "keep", label: t("app.quit.keepEditing"), kind: "primary" },
                   { id: "quit", label: t("app.quit.quitDiscardChanges"), kind: "danger" },
                 ],
+              })
+            : useStore.getState().choose({
+                title: t("app.quit.notSavedTitle"),
+                body: t("app.quit.notSavedBody", { error: useStore.getState().draftError || t("app.quit.unknownError") }),
+                choices: [
+                  { id: "keep", label: t("app.quit.keepWriting"), kind: "primary" },
+                  { id: "quit", label: t("app.quit.quitDiscard"), kind: "danger" },
+                ],
               });
-              void api.quitDialog(false).catch(() => undefined);
-              go = c === "quit";
-            } else {
-              const saved = s.composeSaver ? await s.composeSaver({ quiet: true }) : false;
-              if (saved === true) {
-                await useStore.getState().openCompose(null);
-              } else {
-                void api.showWindow().catch(() => undefined);
-                void api.quitDialog(true).catch(() => undefined);
-                const c = await s.choose({
-                  title: t("app.quit.notSavedTitle"),
-                  body: t("app.quit.notSavedBody", { error: useStore.getState().draftError || t("app.quit.unknownError") }),
-                  choices: [
-                    { id: "keep", label: t("app.quit.keepWriting"), kind: "primary" },
-                    { id: "quit", label: t("app.quit.quitDiscard"), kind: "danger" },
-                  ],
-                });
-                void api.quitDialog(false).catch(() => undefined);
-                go = c === "quit";
-                if (go) useStore.setState({ composeDirty: false });
-              }
-            }
-          }
-          if (go) {
-            const n = useStore.getState().sendsInFlight;
-            if (n > 0) {
-              useStore.getState().showToast(t("app.quit.sending", { n }), undefined, "info");
-            }
-            await flushSends(20_000);
-          }
-        } catch {
-          /* quit anyway */
-        } finally {
-          void api.sendsFlushed(go).catch(() => undefined);
-        }
+        return runQuitFlush({
+          alive: () => void api.quitPageAlive().catch(swallow),
+          showWindow: () => void api.showWindow().catch(swallow),
+          dialog: (open) => void api.quitDialog(open).catch(swallow),
+          done: (go) => void api.sendsFlushed(go).catch(swallow),
+          unsaved: () => {
+            const s = useStore.getState();
+            return s.compose && s.composeDirty ? { scheduled: !!s.compose.outboxId, save: s.composeSaver } : null;
+          },
+          ask,
+          saved: async () => {
+            await useStore.getState().composeEnd?.();
+            await useStore.getState().openCompose(null);
+          },
+          discarded: async () => {
+            await useStore.getState().composeEnd?.();
+            useStore.setState({ composeDirty: false });
+          },
+          inFlight: () => useStore.getState().sendsInFlight,
+          tell: (n) => useStore.getState().showToast(t("app.quit.sending", { n }), undefined, "info"),
+          flush: flushSends,
+        });
       }),
       // messages that were in their Undo time when the last run ended went out now (REQ-49 d)
       listen<{ count: number }>("outbox-leftover", (e) => {
@@ -243,11 +265,11 @@ function App() {
         useStore.getState().showToast(t("app.toast.leftover", { n }), undefined, "success");
       }),
       // a filter whose action failed on new mail (once per filter and error per run, REQ-52)
-      listen<string>("filter-failed", (e) => useStore.getState().showToast(e.payload, undefined, "error")),
+      listen<string>("filter-failed", (e) => useStore.getState().showToast(e.payload, undefined, "error")), // i18n-ok: the text comes from the backend
       listen<{ count: number }>("outbox-catchup", (e) => {
         const st = useStore.getState();
-        st.showToast(catchupText(e.payload.count), undefined, "success", [
-          { label: t("app.action.view"), run: () => void st.setView("scheduled") },
+        st.showToast(() => catchupText(e.payload.count), undefined, "success", [
+          { label: () => t("app.action.view"), run: () => void st.setView("scheduled") },
         ]);
       }),
       listen<{ count: number; next: number | null }>("confirm-quit", async (e) => {
@@ -269,11 +291,12 @@ function App() {
       }),
     ];
     return () => {
+      stopHub();
       subs.forEach((p) => void p.then((off) => off()).catch(() => undefined));
     };
   }, []);
 
-  // update check: once about 8 s after the UI is ready, then whenever the window comes back (the backend throttles to once per 6 h)
+  // update check: once about 8 s after the UI is ready, then whenever the window comes back (the backend throttles: 5 minutes after the last attempt at launch, 2 h on return, 15 minutes after a failure)
   useEffect(() => {
     if (!loaded) return;
     // how the last update went (after an update restart) is told first, then the startup check runs
@@ -288,6 +311,7 @@ function App() {
 
   useEffect(() => {
     const shown = () => {
+      reshowRecoveryToast(); // (a toast nobody answered comes back if anything took it off the screen while the window was hidden)
       const up = useUpdates.getState();
       if (!up.startupIssued) return; // the window gains focus at launch: that must not pre-empt the startup delay
       void up.checkUpdate("shown");
@@ -310,11 +334,14 @@ function App() {
     const onKey = (e: KeyboardEvent) => {
       const st = useStore.getState();
       const n = st.accounts.length;
-      if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "k") {
+      // Ctrl/Cmd+K: the command bar, except inside an editor (compose body), where it is the link UI of that editor
+      const ka = keyAction(e, { inEditor: inEditable(e.target) });
+      if (ka === "command-bar") {
         e.preventDefault();
         st.setCommandOpen(true);
         return;
       }
+      if (ka === "insert-link") return;
       if ((e.ctrlKey || e.metaKey) && e.shiftKey && e.key.toLowerCase() === "s" && st.selected && !st.compose && shortcutWorks(n, "mail-keys")) {
         // Save all attachments of the open conversation (the strip's "Save all" link)
         e.preventDefault();
@@ -336,12 +363,24 @@ function App() {
       const tgt = e.target;
       if (!(tgt instanceof Element)) return;
       if (tgt.closest("input,textarea,select,[contenteditable=true]")) return;
-      if (!st.dialog && !st.commandOpen && !st.ask && (e.ctrlKey || e.metaKey) && !e.shiftKey && !e.altKey && (e.key === "1" || e.key === "2")) {
+      const inCompose = !!tgt.closest(".compose-pane");
+      const modalOpen = !!(st.dialog || st.commandOpen || st.ask);
+      const go = moduleSwitchKey(e, { inField: false, inCompose, modalOpen });
+      if (go) {
         e.preventDefault();
-        st.setModule(e.key === "2" ? "calendar" : "mail");
+        st.setModule(go === "go-calendar" ? "calendar" : "mail");
         return;
       }
-      if (st.compose || st.dialog || st.commandOpen || st.ask) return;
+      // Ctrl/Cmd+B: fold or open the side menu (not in the message being written: there it is Bold)
+      if (sidebarToggleKey(e, { inField: false, inCompose, modalOpen })) {
+        e.preventDefault();
+        toggleSidebarNow();
+        return;
+      }
+      if (modalOpen) return;
+      // a message being written stays as it is, except that j / k (focus outside the pane) go on to the next / previous conversation (F-21);
+      // the compose pane is modal for the keys that act on the mailbox, whichever of its buttons has the focus (A-24)
+      if (composeSwallowsAppKey(e, { composeOpen: !!st.compose, inCompose, module: st.module })) return;
       if (st.module === "calendar" && !e.ctrlKey && !e.metaKey && !e.altKey) {
         // Calendar: c new event, t today, ←/→ previous/next period, m / w / a Month / Week / Agenda
         const tz = calTz(st.prefs);
@@ -374,23 +413,28 @@ function App() {
       const idx = st.threads.findIndex((x) => x.threadId === st.selected);
       const cur = st.threads[idx];
       switch (e.key) {
-        case "c": e.preventDefault(); void st.openCompose({ accountId: newMailAccount() }); break;
+        // Shift+C / R / A / F do the opposite of c / r / a / f: a window of its own, or the pane when the setting is on (modifier.ts reads the Shift)
+        case "c": case "C": e.preventDefault(); void newMail(); break;
         case "/": e.preventDefault(); document.getElementById("search-input")?.focus(); break;
-        case "j": void st.select(st.threads[Math.min(idx + 1, st.threads.length - 1)]?.threadId ?? null); break;
-        case "k": void st.select(st.threads[Math.max(idx - 1, 0)]?.threadId ?? null); break;
-        case "e": void st.act(ids, "archive", undefined, t("mail.done.archived")); break;
-        case "#": case "Delete": void st.act(ids, "trash", undefined, t("mail.done.trashed")); break;
+        case "j": case "k": {
+          const next = st.threads[e.key === "j" ? Math.min(idx + 1, st.threads.length - 1) : Math.max(idx - 1, 0)]?.threadId ?? null;
+          if (next) void st.openMail(next);
+          else if (!st.compose) void st.select(null);
+          break;
+        }
+        case "e": void st.act(ids, "archive", undefined, () => t("mail.done.archived")); break;
+        case "#": case "Delete": void st.act(ids, "trash", undefined, () => t("mail.done.trashed")); break;
         // the Mac "delete" key (Backspace) deletes the selected conversation too; not while typing (guarded above)
-        case "Backspace": if (osNow() === "macos") void st.act(ids, "trash", undefined, t("mail.done.trashed")); break;
-        case "!": void st.act(ids, "junk", undefined, t("mail.done.junk")); break;
+        case "Backspace": if (osNow() === "macos") void st.act(ids, "trash", undefined, () => t("mail.done.trashed")); break;
+        case "!": void st.act(ids, "junk", undefined, () => t("mail.done.junk")); break;
         case "u": void st.act(ids, "unread"); break;
         case "p": void st.act(ids, cur?.pinned ? "unpin" : "pin"); break;
         case "*": void st.act(ids, cur?.flagged ? "unstar" : "star"); break;
         // the Snooze button of the reading pane (found by its class: its tooltip is translated, and written with the punctuation of the language)
         case "s": document.querySelector<HTMLButtonElement>(".reading-pane button.snooze-btn")?.click(); break;
-        case "r": replyLast(false); break;
-        case "a": replyLast(true); break;
-        case "f": forwardLast(); break;
+        case "r": case "R": replyLast(false); break;
+        case "a": case "A": replyLast(true); break;
+        case "f": case "F": forwardLast(); break;
         case "Escape": st.setChecked([]); void st.select(null); break;
       }
     };
@@ -400,36 +444,35 @@ function App() {
 
   if (!loaded) return <div className="app-loading" data-tauri-drag-region={customFrame ? "" : undefined}>Hey Look!</div>;
 
-  const fw = live.f ?? prefs.folderW;
-  const lw = live.l ?? prefs.listW;
+  // how far the splitters may go: the reading pane keeps its minimum width (with the reading pane below there is no such limit)
+  const right = readingPane === "right";
+  const folderMax = right && !folded ? clamp(width - lw - 2 * SPLITTER_W - MIN_READER_W, 180, 360) : 360;
+  const listMax = right ? clamp(width - (folded ? RAIL_W : fw) - 2 * SPLITTER_W - MIN_READER_W, 300, 680) : 680;
   return (
     <div className={`app pane-${prefs.readingPane}`}>
       <TopBar />
       {hasAccounts ? (
         <>
           <Ribbon />
-          <div className="workspace" style={{ ["--fw" as string]: `${fw}px`, ["--lw" as string]: `${lw}px` }}>
-            <FolderPane />
-            <Splitter which="folder" label={t("app.splitter.folder")} value={fw} min={180} max={360} onLive={(w) => setLive((s) => ({ ...s, f: w }))} onCommit={(w) => (setLive((s) => ({ ...s, f: undefined })), setPrefs({ folderW: w }))} />
+          <div className={`workspace ${live.f !== undefined || live.l !== undefined ? "dragging" : ""}`} style={{ ["--fw" as string]: `${folded ? RAIL_W : fw}px`, ["--fw-full" as string]: `${fw}px`, ["--lw" as string]: `${lw}px` }}>
+            <FolderPane collapsed={folded} />
+            <Splitter which="folder" disabled={folded} label={t("app.splitter.folder")} value={fw} min={180} max={folderMax} onLive={(w) => setLive((s) => ({ ...s, f: w }))} onCommit={(w) => (setLive((s) => ({ ...s, f: undefined })), setPrefs({ folderW: w }))} />
             {module === "calendar" ? (
-              <>
-                <CalendarView />
-                {compose && (
-                  <div className="reading-region cal-overlay">
-                    <Compose key={composeKey} init={compose} />
-                  </div>
-                )}
-              </>
+              <CalendarView />
             ) : (
               <>
                 <MessageList />
                 {prefs.readingPane === "right" && (
-                  <Splitter which="list" label={t("app.splitter.list")} value={lw} min={300} max={680} onLive={(w) => setLive((s) => ({ ...s, l: w }))} onCommit={(w) => (setLive((s) => ({ ...s, l: undefined })), setPrefs({ listW: w }))} />
+                  <Splitter which="list" label={t("app.splitter.list")} value={lw} min={300} max={listMax} onLive={(w) => setLive((s) => ({ ...s, l: w }))} onCommit={(w) => (setLive((s) => ({ ...s, l: undefined })), setPrefs({ listW: w }))} />
                 )}
-                <div className="reading-region">
-                  {compose ? <Compose key={composeKey} init={compose} /> : <ReadingPane />}
-                </div>
               </>
+            )}
+            {/* One place in the tree for the message being written, in both modules: switching Mail <-> Calendar (Ctrl+1 / 2, the folder pane) only
+                changes the class of this element, so Compose is not unmounted and what was typed is not lost (QA round 17, A-24). */}
+            {(compose || module === "mail") && (
+              <div className={module === "calendar" ? "reading-region cal-overlay" : "reading-region"}>
+                {compose ? <Compose key={composeKey} init={compose} /> : <ReadingPane />}
+              </div>
             )}
           </div>
         </>

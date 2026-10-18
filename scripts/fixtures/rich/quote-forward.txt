@@ -1,0 +1,18 @@
+FYI, forwarding the budget.
+
+-- 
+Nam Hoang
+Hey Look!
+
+---------- Forwarded message ----------
+From: Ann Lee <ann@example.com>
+Date: Fri, 16 Oct 2026 09:12
+Subject: Budget
+To: nam@example.com
+
+Hi Tom,
+
+The revised budget is attached.
+Region	Q1
+EMEA	12
+Ann

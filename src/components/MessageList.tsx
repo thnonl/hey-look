@@ -5,13 +5,20 @@ import { fmtNumber } from "../i18n/format";
 import { useLang, useT } from "../i18n/react";
 import { tx } from "../i18n/rich";
 import { t } from "../i18n";
-import { api, ThreadSummary } from "../api";
+import { accountLabel } from "../accountLabel";
+import { ThreadSummary } from "../api";
 import { gmailSearchUrl, webmailQuery, webmailTargets, WebmailTarget } from "../webmail";
 import { accountColor, folderLabel, Prefs } from "../prefs";
 import { canPageBack, exhaustedKey, friendlyError, useStore } from "../store";
 import { dateGroup, fmtDate, snoozePresets, subjectText } from "../util";
-import { messageToEditor } from "./Compose";
-import { askUnlock } from "./Pgp";
+import { openDraftInWindow, openDraftThread } from "./Compose";
+import { wantsWindow } from "../popout/composeOpen";
+import { shiftNow } from "../popout/modifier";
+import { openReader } from "../popout/openReader";
+import { rowWindowTarget } from "../popout/readerLogic";
+import { ImportanceMark } from "./Importance";
+import { AcctName } from "./AcctName";
+import { useRowContextMenu } from "./ListContextMenu";
 import { ScheduledList } from "./ScheduledList";
 import { EmptyState, SkeletonRows } from "./overlays";
 import { Avatar, Dropdown } from "./ui";
@@ -30,6 +37,8 @@ export interface ThreadRowProps {
   accountLabel?: string;
   hover?: ReactNode;
   onOpen?: () => void;
+  /** double-click, or Shift+Enter: the conversation in a window of its own (not on the select circle or the hover buttons) */
+  onOpenWindow?: () => void;
   onToggle?: () => void;
   /** position among the conversations of a list that is only partly in the DOM (1-based) and how many there are */
   posInSet?: number;
@@ -37,7 +46,7 @@ export interface ThreadRowProps {
 }
 
 /** One conversation in the list. Pure: the real list and the Appearance preview both render it. */
-export function ThreadRow({ t, selected, checked, prefs, showFolder, accountColor, accountLabel, hover, onOpen, onToggle, posInSet, setSize }: ThreadRowProps) {
+export function ThreadRow({ t, selected, checked, prefs, showFolder, accountColor, accountLabel, hover, onOpen, onOpenWindow, onToggle, posInSet, setSize }: ThreadRowProps) {
   const tr = useT();
   const who = t.participants.join(", ");
   const dense = prefs.density === "compact";
@@ -51,8 +60,14 @@ export function ThreadRow({ t, selected, checked, prefs, showFolder, accountColo
       data-thread={t.threadId}
       className={`ml-row ${selected ? "selected" : ""} ${t.unread ? "unread" : ""} ${checked ? "checked" : ""}`}
       onClick={onOpen}
+      onDoubleClick={(e) => {
+        if (onOpenWindow && !(e.target as Element).closest(".ml-lead, .hover-actions")) onOpenWindow();
+      }}
       onKeyDown={(e) => {
-        if (e.key === "Enter" || e.key === " ") {
+        if (e.key === "Enter" && e.shiftKey && !e.ctrlKey && !e.altKey && !e.metaKey && onOpenWindow) {
+          e.preventDefault();
+          onOpenWindow();
+        } else if (e.key === "Enter" || e.key === " ") {
           e.preventDefault();
           onOpen?.();
         }
@@ -87,6 +102,7 @@ export function ThreadRow({ t, selected, checked, prefs, showFolder, accountColo
           <span className="flags">
             {showFolder && <span className="where">{folderLabel(t.folder)}</span>}
             {t.count > 1 && prefs.conversations && <span className="count">{t.count}</span>}
+            <ImportanceMark level={t.importance} />
             {t.confidential && <ShieldAlert size={12} aria-label={tr("mail.row.confidential")} />}
             {t.encrypted && <Lock size={12} aria-label={tr("mail.row.encrypted")} />}
             {t.signed && !t.encrypted && <BadgeCheck size={12} aria-label={tr("mail.row.signed")} />}
@@ -115,9 +131,9 @@ function HoverActions({ t }: { t: ThreadSummary }) {
     </button>
   );
   const map: Record<string, ReactNode> = {
-    archive: btn("archive", tr("mail.hover.archive"), <Archive size={14} />, () => void act(ids, "archive", undefined, tr("mail.done.archived"))),
+    archive: btn("archive", tr("mail.hover.archive"), <Archive size={14} />, () => void act(ids, "archive", undefined, () => tr("mail.done.archived"))),
     delete: btn("delete", folder === "trash" ? tr("mail.hover.deleteForever") : tr("common.delete"), <Trash2 size={14} />, () =>
-      void act(ids, "trash", undefined, folder === "trash" ? tr("mail.done.deleted") : tr("mail.done.trashed"))),
+      void act(ids, "trash", undefined, () => folder === "trash" ? tr("mail.done.deleted") : tr("mail.done.trashed"))),
     flag: btn("flag", t.flagged ? tr("mail.hover.unflag") : tr("mail.hover.flag"), <Flag size={14} fill={t.flagged ? "currentColor" : "none"} />, () => void act(ids, t.flagged ? "unstar" : "star")),
     pin: btn("pin", t.pinned ? tr("mail.hover.unpin") : tr("mail.hover.pin"), <Pin size={14} fill={t.pinned ? "currentColor" : "none"} />, () => void act(ids, t.pinned ? "unpin" : "pin")),
     read: btn("read", t.unread ? tr("mail.hover.markRead") : tr("mail.hover.markUnread"), t.unread ? <MailOpen size={14} /> : <Mail size={14} />, () => void act(ids, t.unread ? "read" : "unread")),
@@ -127,7 +143,7 @@ function HoverActions({ t }: { t: ThreadSummary }) {
         className="icon-btn"
         caret={false}
         title={tr("mail.hover.snooze")}
-        items={snoozePresets(prefs.snoozeTimes).map((p) => ({ label: p.label, onClick: () => void act(ids, "snooze", String(p.ts), tr("mail.done.snoozed", { when: p.label })) }))}
+        items={snoozePresets(prefs.snoozeTimes).map((p) => ({ label: p.label, onClick: () => void act(ids, "snooze", String(p.ts), () => tr("mail.done.snoozed", { when: p.label })) }))}
       >
         <Clock size={14} />
       </Dropdown>
@@ -178,9 +194,9 @@ async function searchInWebmail({ account, webmail }: WebmailTarget, q: string) {
     const copying = copyText(q); // started inside the click, before anything is awaited
     await openExternal(webmail.home);
     if (await copying) st.showToast(t("mail.webmail.copied", { name: webmail.name }), undefined, "success");
-    else st.showToast(t("mail.webmail.copyFailed", { name: webmail.name, query: q }), undefined, "error");
+    else st.showToast(() => t("mail.webmail.copyFailed", { name: webmail.name, query: q }), undefined, "error");
   } catch (e) {
-    st.showToast(t("mail.webmail.openFailed", { name: webmail.name, error: friendlyError(e) }), undefined, "error");
+    st.showToast(() => t("mail.webmail.openFailed", { name: webmail.name, error: friendlyError(e) }), undefined, "error");
   }
 }
 
@@ -209,17 +225,18 @@ export function MessageList() {
   const tr = useT();
   const lang = useLang();
   const {
-    threads, folder, accountId, selected, select, checked, toggleCheck, setChecked, search, searchScope, setSearchScope,
-    prefs, focus, setFocus, filter, setFilter, accounts, openCompose, loading, loadMore, loadingMore, exhausted, limited, backfill, firstSync, setDialog,
+    threads, folder, accountId, selected, openMail, checked, toggleCheck, setChecked, search, searchScope, setSearchScope,
+    prefs, focus, setFocus, filter, setFilter, accounts, loading, loadMore, loadingMore, exhausted, limited, backfill, firstSync, setDialog,
   } = useStore();
   const scrollRef = useRef<HTMLDivElement>(null);
+  const ctxMenu = useRowContextMenu(); // right-click / ContextMenu key on a row (components/ListContextMenu.tsx)
   const searching = search.trim().length > 0;
   const title = searching ? tr("mail.list.searchResults") : folderLabel(folder);
   const scopeNote = searching ? (searchScope === "all" ? tr("mail.list.scopeAll") : searchScope === "account" ? tr("mail.list.scopeAccount") : tr("mail.list.scopeFolder", { folder: folderLabel(folder) })) : "";
   const showTabs = folder === "inbox" && prefs.focused && !searching;
   const multi = checked.size > 0;
   const colors = new Map(accounts.map((a) => [a.id, accountColor(a, prefs.accent)]));
-  const labels = new Map(accounts.map((a) => [a.id, a.email]));
+  const labels = new Map(accounts.map((a) => [a.id, accountLabel(a).text])); // the display name, else the address
   const mixed = accounts.length > 1 && (!accountId || (searching && searchScope === "all"));
   const firstHere = !!firstSync && (!accountId || accountId === firstSync) && !searching && folder === "inbox";
   const pageable = canPageBack(folder, searching) && threads.length > 0;
@@ -239,38 +256,16 @@ export function MessageList() {
 
   const openThread = (t: ThreadSummary) => {
     if (folder === "drafts") {
+      // a draft opens in Compose; the message being written is left first (saved as a draft when it holds something)
+      const shift = shiftNow(); // (Shift+click does the opposite of the setting: a window, or the pane when the setting is on)
       void (async () => {
-        const msgs = await api.getThread(t.threadId, "drafts");
-        let m = msgs[msgs.length - 1];
-        if (!m) return;
-        // a draft that was encrypted to your own key needs the key (and its passphrase) to be opened again
-        const st = useStore.getState();
-        if (m.security?.encrypted && m.security.decryption !== "ok") {
-          if (m.security.decryption === "locked" && m.security.lockedKey && (await askUnlock(m.security.lockedKey, "draft", m.security.lockedLabel ?? undefined))) {
-            m = await api.pgpDecryptMessage(m.id).catch(() => m);
-          }
-          if (m.security?.decryption !== "ok") {
-            if (m.security?.decryption !== "locked") st.showToast(tr("mail.draft.cannotOpen", { error: friendlyError(m.security?.error ?? tr("mail.draft.keyMissing")) }), undefined, "error");
-            return;
-          }
-        }
-        // restore pictures and attachments so saving or sending the draft does not silently drop them
-        const { html, attachments } = await messageToEditor(m);
-        void openCompose({
-          accountId: m.accountId,
-          to: m.to ? m.to.split(",").map((x) => x.trim()) : [],
-          cc: m.cc ? m.cc.split(",").map((x) => x.trim()) : [],
-          subject: m.subject === "(no subject)" ? "" : m.subject,
-          bodyHtml: html ?? `<p>${(m.text ?? "").replace(/\n/g, "<br>")}</p>`,
-          replaces: t.threadId,
-          attachments,
-          security: m.security?.encrypted ? { encrypt: true, sign: false, attachPublicKey: false } : undefined,
-          confidential: m.confidential,
-        });
+        // (a draft that opens in a window leaves the message in the pane alone: the windows are independent of it)
+        if (!wantsWindow({ shift }) && !(await useStore.getState().leaveCompose())) return;
+        await openDraftThread(t.threadId, false, { shift });
       })();
       return;
     }
-    void select(t.threadId);
+    void openMail(t.threadId);
   };
 
   // the flat list of lines (group headers + conversations) the virtual list draws from
@@ -323,6 +318,7 @@ export function MessageList() {
         accountLabel={labels.get(it.t.accountId)}
         hover={<HoverActions t={it.t} />}
         onOpen={() => openThread(it.t)}
+        onOpenWindow={rowWindowTarget(folder, it.t.folder) === "draft" ? () => void openDraftInWindow(it.t.threadId) : rowWindowTarget(folder, it.t.folder) === "reader" ? () => void openReader(it.t, folder) : undefined}
         onToggle={() => toggleCheck(it.t.threadId)}
         posInSet={it.pos}
         setSize={threads.length}
@@ -359,7 +355,7 @@ export function MessageList() {
             {tr("mail.list.summary", { query: search.trim(), scope: scopeNote, n: threads.length })}
           </div>
         ) : (
-          accountId && <div className="ml-sub">{labels.get(accountId)}</div>
+          accountId && <div className="ml-sub ellipsis">{accounts.find((a) => a.id === accountId) ? <AcctName account={accounts.find((a) => a.id === accountId)!} className="" /> : labels.get(accountId)}</div>
         )}
         {pageable && prefs.sortAsc && !searching && (
           <div className="ml-progress" role="status">{pagingStatus}</div>
@@ -378,7 +374,7 @@ export function MessageList() {
         )}
       </div>
 
-      <div className="ml-body" ref={scrollRef} role="listbox" aria-label={title} aria-multiselectable>
+      <div className="ml-body" ref={scrollRef} role="listbox" aria-label={title} aria-multiselectable {...ctxMenu.handlers}>
         {folder === "scheduled" ? (
           <ScheduledList />
         ) : (loading || firstHere) && threads.length === 0 ? (
@@ -436,6 +432,7 @@ export function MessageList() {
           />
         )}
       </div>
+      {ctxMenu.menu}
     </section>
   );
 }

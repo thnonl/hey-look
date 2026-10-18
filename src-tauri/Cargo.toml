@@ -1,6 +1,6 @@
 [package]
 name = "hey-look"
-version = "1.0.3"
+version = "1.0.6"
 description = "Hey Look! desktop mail client"
 license = "MIT"
 authors = ["you"]
@@ -29,6 +29,8 @@ imap = "2.4.1"
 native-tls = "0.2.18"
 mail-parser = "0.11.9"
 lettre = "0.11.23"
+# internationalized domain names in the ASCII form (RCPT TO, To, Message-ID); already in the lock file through lettre
+idna = "1"
 reqwest = { version = "0.13.5", features = ["blocking", "json", "form"] }
 chrono = "0.4.45"
 chrono-tz = "0.10"
@@ -46,6 +48,8 @@ roxmltree = "0.21.1"
 pgp = { version = "0.21", default-features = false }
 rand08 = { package = "rand", version = "0.8" }
 smallvec = "1"
+# snippet.rs cuts preview text on grapheme boundaries (emoji sequences, combining marks); already in the lock file
+unicode-segmentation = "1"
 semver = "1"
 tokio = { version = "1", features = ["sync", "time", "macros"] }
 
@@ -61,7 +65,7 @@ tauri-winrt-notification = "0.8"
 # custom window frame: caption-button hit-testing (Snap Layouts) + system menu, see src/winframe.rs
 # the web view's own process events (webview_health.rs): the same version tauri's runtime uses, so the types are shared
 webview2-com = "0.39"
-windows = { version = "0.62", features = ["Wdk_System_Threading", "Win32_Foundation", "Win32_Graphics_Gdi", "Win32_Storage_Xps", "Win32_System_Diagnostics_ToolHelp", "Win32_System_LibraryLoader", "Win32_System_Threading", "Win32_UI_Input_KeyboardAndMouse", "Win32_UI_Shell", "Win32_UI_WindowsAndMessaging"] }
+windows = { version = "0.62", features = ["Wdk_System_Threading", "Win32_Foundation", "Win32_Globalization", "Win32_Graphics_Gdi", "Win32_Storage_Xps", "Win32_System_Com", "Win32_System_Diagnostics_ToolHelp", "Win32_System_LibraryLoader", "Win32_System_Threading", "Win32_UI_Input_KeyboardAndMouse", "Win32_UI_Shell", "Win32_UI_WindowsAndMessaging"] }
 windows-version = "0.1"
 keyring = { version = "3", features = ["windows-native"] }
 
@@ -72,6 +76,10 @@ objc2 = "0.6"
 # macquit.rs: the block for the power-off notice (already in the lock file, tao and muda use it)
 block2 = "0.6"
 
+# quit watchdog (lib.rs `exit_watchdog`): a last way to end the process that skips the exit handlers of the libraries; already in the lock file
+[target.'cfg(unix)'.dependencies]
+libc = "0.2"
+
 [target.'cfg(target_os = "linux")'.dependencies]
 # asks the session bus whether a tray host exists (shell.rs); the notification plugin uses the same version
 zbus = "5"
@@ -79,6 +87,10 @@ zbus = "5"
 notify-rust = "4.18"
 # the system clipboard for copy_text (lib.rs); the version tauri and wry already use
 gtk = "0.18"
+# linuxview.rs: the web view's own signals (web process ended / not responding) and a redraw; the exact version tauri's runtime pins
+webkit2gtk = { version = "=2.0.2", features = ["v2_40"] }
+# testbridge/native.rs (debug builds only): reads the answer of a script run in the web view; the exact version webkit2gtk already uses
+javascriptcore-rs = "=1.1.2"
 keyring = { version = "3", features = ["sync-secret-service", "crypto-rust"] }
 
 
@@ -96,3 +108,7 @@ strip = true
 
 [dev-dependencies]
 tauri = { version = "2", features = ["test"] }
+# smtpsize.rs tests: a fake TLS mail server whose throw-away certificate is generated when the tests run (no key is kept in the repository);
+# rustls is the version reqwest already uses, rcgen is MIT OR Apache-2.0
+rustls = "0.23"
+rcgen = "0.14"

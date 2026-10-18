@@ -1,5 +1,7 @@
 import { Channel, invoke } from "@tauri-apps/api/core";
 import { t } from "./i18n";
+import type { RecoveredDraft, RecoveryInfo, RecoveryLoaded, SnapshotOut } from "./recovery";
+import type { Importance } from "./importance";
 
 export interface Account {
   id: string;
@@ -44,6 +46,21 @@ export interface ThreadSummary {
   confidential?: boolean;
   /** a message of the conversation carries a calendar invitation / reply / cancellation */
   invite?: "request" | "reply" | "cancel" | null;
+  /** the sender marked a message of the conversation High or Low importance (high wins); absent = normal */
+  importance?: Importance;
+}
+
+/** What an answer to a message needs from the message's own headers (read from the server's copy). */
+export interface ReplyHeaders {
+  messageId: string | null;
+  /** References of the answer: the message's References (else its In-Reply-To) plus its Message-ID, cut to a sensible length */
+  references: string[];
+  /** the Reply-To addresses that are real addresses, as `Name <address>` / `address` */
+  replyTo: string[];
+  /** From / To / Cc as the headers write them (`"Doe, John" <john@x.test>`): the stored message keeps the addresses only */
+  from?: string | null;
+  to?: string[];
+  cc?: string[];
 }
 
 export interface MessageFull {
@@ -69,6 +86,8 @@ export interface MessageFull {
   confidential?: boolean;
   /** calendar invitation, update, cancellation or reply carried by this message */
   invite?: CalInvite | null;
+  /** how the sender marked it; a reopened draft starts Compose with it */
+  importance?: Importance;
 }
 
 export type SigStatus = "valid" | "invalid" | "unknown_key" | "expired_key" | "revoked_key";
@@ -299,6 +318,8 @@ export interface FolderInfo {
   name: string;
   unread: number;
   total: number;
+  /** the account's saved folder list names a server folder for this row (false for Junk: hide it, Junk is never created) */
+  listed?: boolean;
 }
 
 export interface SenderInfo {
@@ -392,6 +413,18 @@ export interface Draft {
   meeting?: Meeting;
   /** send as confidential (Sensitivity: Company-Confidential) */
   confidential?: boolean;
+  /** High / Low add the importance headers; absent = Normal (no header) */
+  importance?: Importance;
+  /** only for Save draft: the id of the message's crash-recovery snapshot, written into the draft's Message-ID so the next start finds it again (recover.rs) */
+  recoveryId?: string;
+  /** the meeting switch of Compose as saved with a draft (base64url JSON, meetingDraft.ts): the draft's private header `X-HeyLook-Meeting`; never part of a sent message */
+  meetingForm?: string;
+}
+
+/** What Save draft says: the conversation the draft will be in once the sync has read it, and the reference that makes the next save (or a send) replace exactly this draft. */
+export interface DraftSaveResult {
+  threadId: string | null;
+  draftRef: string | null;
 }
 
 export type OutboxStatus = "pending" | "held" | "sending" | "failed" | "overdue";
@@ -470,6 +503,20 @@ export interface FrameInfo {
   snapLayouts: boolean;
 }
 
+/** What `popout_open` answers: a window was made, one that already shows the key was focused, the cap of 8 windows is reached, or (focus-only ask) no window has the key. */
+export interface PopoutOpened {
+  status: "created" | "focused" | "tooMany" | "none";
+  label: string | null;
+}
+/** What a secondary window learns about itself (`popout_init`). */
+export interface PopoutInfo {
+  kind: "compose" | "reader";
+  label: string;
+  key: string | null;
+  /** the hand-off data the opener left in the backend (never in the address) */
+  init: unknown;
+}
+
 export const api = {
   frameInfo: () => invoke<FrameInfo>("frame_info"),
   /** Reports the caption button group (CSS px); true = the OS hit-tests it (Snap Layouts, press/hover via events). */
@@ -480,6 +527,8 @@ export const api = {
   idleStates: () => invoke<Record<string, string>>("idle_states"),
   addAccount: (input: AccountInput, passwordValue: string, smtpPassword?: string) =>
     invoke<Account>("add_account", { input, passwordValue, smtpPassword: smtpPassword || null }),
+  /** "Cancel" while the add account form waits: the attempt stops before it stores anything */
+  cancelAddAccount: () => invoke<void>("cancel_add_account"),
   discoverServer: (email: string) => invoke<Discovered | null>("discover_server", { email }),
   googleEnvConfigured: () => invoke<boolean>("google_env_configured"),
   googleSignIn: (clientId: string, clientSecret: string, displayName: string) =>
@@ -501,6 +550,8 @@ export const api = {
   openExternal: (url: string) => invoke<void>("open_external", { url }),
   /** text on the system clipboard through the backend (Linux only; see open.ts) */
   copyText: (text: string) => invoke<void>("copy_text", { text }),
+  /** the text and the HTML on the system clipboard through the backend (macOS only: Cmd+Shift+V in the editors, see editor/pasteOptions.tsx) */
+  readClipboardText: () => invoke<{ text: string; html: string }>("read_clipboard_text"),
   getAutostart: () => invoke<boolean>("get_autostart"),
   setAutostart: (enabled: boolean) => invoke<void>("set_autostart", { enabled }),
   syncAccount: (accountId: string) => invoke<SyncResult>("sync_account", { accountId }),
@@ -510,8 +561,15 @@ export const api = {
     invoke<MessageFull[]>("get_thread", { threadId, scope: scope ?? null }),
   threadAction: (threadIds: string[], action: string, arg?: string, scope?: string) =>
     invoke<void>("thread_action", { threadIds, action, arg: arg ?? null, scope: scope ?? null }),
-  queueAction: (threadIds: string[], action: string, arg: string | null, scope: string | null, delaySecs: number) =>
-    invoke<string>("queue_action", { threadIds, action, arg, scope, delaySecs }),
+  /**
+   * Finds or creates the folder a move goes to, on the server, before the move is queued; rejects when it cannot (nothing is moved).
+   * Resolves true when the saved folder list was trusted for a folder: pass that to `queueAction` as `verify`.
+   */
+  prepareAction: (threadIds: string[], action: string, arg: string | null, scope: string | null) =>
+    invoke<boolean>("prepare_action", { threadIds, action, arg, scope }),
+  /** `verify`: the backend checks the saved folder on the server during the Undo window and drops the move (`action-verify-failed`) when it is gone. */
+  queueAction: (threadIds: string[], action: string, arg: string | null, scope: string | null, delaySecs: number, verify = false) =>
+    invoke<string>("queue_action", { threadIds, action, arg, scope, delaySecs, verify }),
   cancelAction: (id: string) => invoke<boolean>("cancel_action", { id }),
   /** Downloads up to `limit` (max 50) messages older than what is stored. Rejects with the server's error; never turns it into "none". */
   loadOlder: (accountId: string, role: string, limit = 50) => invoke<LoadOlderResult>("load_older", { accountId, role, limit }),
@@ -528,6 +586,7 @@ export const api = {
   saveRule: (rule: Rule) => invoke<void>("save_rule", { rule }),
   deleteRule: (id: string) => invoke<void>("delete_rule", { id }),
   getRaw: (messageId: string) => invoke<string>("get_raw", { messageId }),
+  replyHeaders: (messageId: string) => invoke<ReplyHeaders>("reply_headers", { messageId }),
   saveAttachments: (messageId: string, index?: number) =>
     invoke<string[]>("save_attachments", { messageId, index: index ?? null }),
   attachmentSaveAs: (messageId: string, index: number) =>
@@ -541,18 +600,68 @@ export const api = {
   pickFolder: (title?: string) => invoke<string | null>("pick_folder", { title: title ?? null }),
   inlineImage: (messageId: string, cid: string) =>
     invoke<{ mime: string; dataBase64: string; name: string }>("inline_image", { messageId, cid }),
+  /** The SIZE the SMTP server of the account names in its EHLO reply (bytes); null when it names none or could not be asked. */
+  smtpSizeLimit: (accountId: string, refresh = false) => invoke<number | null>("smtp_size_limit", { accountId, refresh }),
   sendMessage: (draft: Draft, sendAt?: number | null, replaces?: string | null) =>
     invoke<string>("send_message", { draft, sendAt: sendAt ?? null, replaces: replaces ?? null }),
+  /**
+   * `replaces`: the draft this one takes the place of, a reference: `m:<message id>` of a draft that was opened, or the `draftRef` of an
+   * earlier save. Only that message is removed (a plain conversation id removes every draft of the conversation).
+   */
   saveDraft: (draft: Draft, replaces?: string | null) =>
-    invoke<void>("save_draft", { draft, replaces: replaces ?? null }),
+    invoke<DraftSaveResult>("save_draft", { draft, replaces: replaces ?? null }),
+  /** Remove the draft a reference names (Discard on a new message whose save made a draft). */
+  discardDraft: (reference: string) => invoke<void>("discard_draft", { reference }),
+  /** Crash recovery of the message being written (recover.rs): the snapshot is kept until the message is sent, discarded or saved. */
+  recoverySave: (snap: SnapshotOut) => invoke<void>("recovery_save", { snap }),
+  /** `why` is for startup.log only ("draft saved" = the server has the text, otherwise the message is over). */
+  recoveryClear: (id: string, why?: string) => invoke<void>("recovery_clear", { id, why: why ?? null }),
+  recoveryList: () => invoke<RecoveryInfo[]>("recovery_list"),
+  recoveryLoad: (id: string) => invoke<RecoveryLoaded | null>("recovery_load", { id }),
+  /** The start saves a snapshot as a real draft (replacing the draft it takes the place of, never joining a draft of the same message) and removes it once the draft is confirmed. Rejects when that cannot be done: the snapshot stays. */
+  recoverySaveDraft: (id: string, draft: Draft, replaces: string | null) => invoke<RecoveredDraft>("recovery_save_draft", { id, draft, replaces }),
+  /** To / Cc / Bcc of a saved draft with the display names, read from the draft's own headers (the synced copy has bare addresses and no Bcc). */
+  draftRecipients: (messageId: string) => invoke<{ to: string[]; cc: string[]; bcc: string[]; inReplyTo?: string | null; references?: string[]; meeting?: string | null }>("draft_recipients", { messageId }),
   listOutbox: () => invoke<OutboxItem[]>("list_outbox"),
   cancelOutbox: (id: string) => invoke<void>("cancel_outbox", { id }),
   /** Send was pressed with an Undo time: the message goes into the local outbox (not a scheduled message) until `dueAt` (unix seconds). */
   outboxHold: (draft: Draft, dueAt: number, replaces?: string | null) => invoke<string>("outbox_hold", { draft, dueAt, replaces: replaces ?? null }),
   /** The Undo time of a held message is over (or a quit ends it): send it. `keep`: if that fails the row stays for the next start (quit). */
   outboxHoldSend: (id: string, keep: boolean) => invoke<void>("outbox_hold_send", { id, keep }),
-  /** The quit waits (`true`) or no longer waits (`false`) for an answer of the person. */
+  /** The page got the quit's `flush-sends` request and is doing its part: the backend then waits for the work, not just for a first sign. */
+  quitPageAlive: () => invoke<void>("quit_page_alive"),
+  /** The quit waits (`true`, for 60 s at most, and the window is brought to the front) or no longer waits (`false`) for an answer of the person. */
   quitDialog: (open: boolean) => invoke<void>("quit_dialog", { open }),
+  /** Open a secondary window ("compose" | "reader"), or focus the one that already shows `key`; `init` waits in the backend for the new page. */
+  popoutOpen: (kind: "compose" | "reader", key?: string | null, init?: unknown, focusOnly?: boolean) => invoke<PopoutOpened>("popout_open", { kind, key: key ?? null, init: init ?? null, focusOnly: focusOnly ?? null }),
+  /** A secondary window asks who it is; `token` is the one in its address. */
+  popoutInit: (token: string) => invoke<PopoutInfo>("popout_init", { token }),
+  /** A secondary window's page is up (it listens for the quit request): the backend shows the window. */
+  popoutReady: () => invoke<void>("popout_ready"),
+  popoutFocus: (label: string) => invoke<boolean>("popout_focus", { label }),
+  popoutClose: (label: string) => invoke<boolean>("popout_close", { label }),
+  /** A secondary window asks the main page for something it owns (`popout-request`; the answer comes as the event `popout-reply`, see src/popout/request.ts). */
+  popoutRequest: (id: string, kind: string, payload: unknown) => invoke<void>("popout_request", { id, kind, payload: payload ?? null }),
+  /** The main page answers a request of the secondary window `to`. */
+  popoutReply: (to: string, id: string, ok: boolean, data: unknown, error: string | null) => invoke<void>("popout_reply", { to, id, ok, data: data ?? null, error }),
+  /** The pin and the snooze of a conversation (the messages carry the rest). */
+  threadMeta: (threadId: string) => invoke<{ pinned: boolean; snoozedUntil: number | null }>("thread_meta", { threadId }),
+  /** The calling window goes out of sight and keeps running (its message is still in the Undo time or on its way); it ends itself with `popoutDestroy`. */
+  popoutPark: () => invoke<boolean>("popout_park"),
+  /** The calling window ends now (its page has decided: saved, discarded or sent). */
+  popoutDestroy: () => invoke<boolean>("popout_destroy"),
+  /** A line for startup.log from a secondary window: "content" (the view was drawn), "error" (a script error), "info". */
+  popoutNote: (kind: "content" | "error" | "info" | "strip", text: string) => invoke<void>("popout_note", { kind, text }),
+  /** The page changed its own theme (or its colour scheme changed): the backend applies the frame theme of this window again (macOS title bar; the second way next to the backend's own triggers). What the page sees goes to startup.log. */
+  windowThemeRefresh: (pageTheme: string, prefersDark: boolean) => invoke<void>("window_theme_refresh", { pageTheme, prefersDark }),
+  /** The calling window shows another thing now (a draft that was saved is another draft): its key follows. False when another window has that key. */
+  popoutSetKey: (key: string | null) => invoke<boolean>("popout_set_key", { key }),
+  /** The update restart: every open secondary window saves what it holds. False = a person keeps a window open (the restart must stop). */
+  popoutSaveAll: () => invoke<boolean>("popout_save_all"),
+  /** A secondary window's part of a quit (the counterparts of quitPageAlive / quitDialog / sendsFlushed, which the main page uses). */
+  popoutFlushAlive: () => invoke<void>("popout_flush_alive"),
+  popoutFlushDialog: (open: boolean) => invoke<void>("popout_flush_dialog", { open }),
+  popoutFlushDone: (go: boolean) => invoke<void>("popout_flush_done", { go }),
   /** The person cancelled the scheduled-messages question of a quit. */
   quitCancelled: () => invoke<void>("quit_cancelled"),
   outboxPendingCount: () => invoke<{ count: number; next: number | null }>("outbox_pending_count"),
@@ -625,7 +734,9 @@ export const api = {
   unsubscribe: (messageId: string) =>
     invoke<{ kind: "done" | "open" | "mailto"; target: string }>("unsubscribe", { messageId }),
   fetchRemoteImages: (urls: string[]) => invoke<Record<string, string>>("fetch_remote_images", { urls }),
-  aiComplete: (system: string, prompt: string) => invoke<string>("ai_complete", { system, prompt }),
+  /** `jobId` makes the call cancellable: `aiCancel(jobId)` drops the request to the provider (the call then fails with AI_CANCELLED). */
+  aiComplete: (system: string, prompt: string, jobId?: string) => invoke<string>("ai_complete", { system, prompt, jobId: jobId ?? null }),
+  aiCancel: (jobId: string) => invoke<void>("ai_cancel", { jobId }),
   aiListModels: (endpoint: string, key?: string) => invoke<string[]>("ai_list_models", { endpoint, key: key ?? null }),
   /** Whether any account exists: the tray menu items "New mail" and "Check mail now" are enabled only then. */
   /** The UI has painted its first screen: the backend may show the window (it reloads the page when this never comes). */
@@ -637,7 +748,7 @@ export const api = {
   /** What the page sees a moment after the window was shown: `visibilityState` and whether an animation frame arrived. */
   pageState: (visibility: string, frames: boolean) => invoke<void>("page_state", { visibility, frames }),
   setMailAvailable: (available: boolean) => invoke<void>("set_mail_available", { available }),
-  shellInfo: () => invoke<{ os: string; tray: boolean; testData?: string | null }>("shell_info"),
+  shellInfo: () => invoke<{ os: string; tray: boolean; testData?: string | null; pdfView?: string; pdfTest?: boolean }>("shell_info"),
   checkUpdate: (trigger: UpdateTrigger) => invoke<UpdateResult>("check_update", { trigger }),
   /** Download and verify the update; progress arrives on `onEvent`. Resolves when the download has ended (ready, failed or cancelled). */
   updateDownload: (version: string, onEvent: (e: DlEvent) => void) => {

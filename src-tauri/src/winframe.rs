@@ -266,7 +266,7 @@ mod imp {
                 let Some(app) = APP.get() else { continue };
                 match msg {
                     Msg::State(p) => {
-                        let _ = app.emit("frame-caption", p);
+                        let _ = app.emit_to("main", "frame-caption", p);
                     }
                     Msg::Click(z) => {
                         let Some(win) = app.get_webview_window("main") else { continue };

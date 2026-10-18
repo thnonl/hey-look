@@ -1,24 +1,39 @@
 import { frameCsp, frameSandbox } from "../frameSandbox";
 import { openUpdateLink } from "../updates";
-import { Archive, Clock, Flag, Forward, MailX, MoreHorizontal, Moon, Pin, Reply, ReplyAll, Sparkles, Sun, Trash2, ChevronsDownUp, ChevronsUpDown, Mail, ShieldAlert } from "lucide-react";
+import { guardFrame } from "../contextGuard";
+import { Archive, Clock, ExternalLink, Flag, Forward, MailX, MoreHorizontal, Moon, Pin, Reply, ReplyAll, Sparkles, Sun, Trash2, ChevronsDownUp, ChevronsUpDown, Mail, ShieldAlert, AlertTriangle } from "lucide-react";
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { forward, replyTo } from "../actions";
+import { startCompose } from "../popout/composeOpen";
+import { shiftNow } from "../popout/modifier";
 import { api, MessageFull } from "../api";
 import { setMailDark } from "../darkMail";
 import { LANGS, t, type Key, type Lang } from "../i18n";
 import { useLang, useT } from "../i18n/react";
+import { fmtNumber } from "../i18n/format";
 import { tx } from "../i18n/rich";
 import { DARK_CANVAS, frameBaseCss, frameRootClass, toggleMailCanvas } from "../mailCanvas";
 import { eff } from "../prefs";
 import { CONFIDENTIAL_FRAME_CSS, lockDocument, useContentProtection } from "../protect";
+import { accountsOf, canMoveToJunk } from "../junk";
 import { friendlyError, useStore } from "../store";
+import { cancelTranslation, dismissTranslation, jobErrorText, startTranslation } from "../translate";
+import { MAX_CHARS } from "../translateChunks";
+import { summaryBody } from "../summaryText";
+import { elapsedLabel, jobFor, slowHint, type TranslateJob } from "../translateJobs";
+import { useAiSlot } from "../useAiSlot";
+import { aiReady, leaveAiContext, openAiSettings, showAiNotSetUp, showAiProblem } from "../aiGuide";
+import { classifyAiError } from "../aiProblem";
 import { fmtFull, fmtSize, plainToHtml, sanitizeHtml, snoozePresets, subjectText } from "../util";
 import { AttachmentStrip, Lightbox, LbItem } from "./Attachments";
 import { InviteCard } from "./Calendar";
 import { osNow } from "../platform";
 import { EmptyState } from "./overlays";
+import { ImportanceMark } from "./Importance";
 import { EncCard, importKeyFromMessage, isKeyAttachment, needsCard, SecBadges } from "./Pgp";
 import { Avatar, Dropdown } from "./ui";
+import { openReader } from "../popout/openReader";
+import { readerAllowed } from "../popout/readerLogic";
 
 // Remote images already fetched through the backend (url -> data: URI), shared by all messages.
 const imageCache = new Map<string, string>();
@@ -354,8 +369,11 @@ function MessageBody({ m, frameRef, dark, onPictures }: { m: MessageFull; frameR
     doc.addEventListener("click", onClick);
     doc.addEventListener("auxclick", onClick); // middle click on a link opens it in the browser too (REQ-50)
     const unlock = lockedNow.current ? lockDocument(doc) : undefined;
+    // no native webview menu in the mail either: Copy on selected text, Open link / Copy link address on a link (confidential mail has no menu at all)
+    const unguard = lockedNow.current ? undefined : guardFrame(frame, doc);
     stopObserve.current = () => {
       unlock?.();
+      unguard?.();
       imgs.forEach((i) => {
         i.removeEventListener("load", measure);
         i.removeEventListener("error", measure);
@@ -407,18 +425,115 @@ const LANG_NAME: Record<Lang, Key> = {
   de: "reading.lang.german",
   ru: "reading.lang.russian",
 };
-const TRANSLATE_TO: { en: string; key: Key }[] = [
+export const TRANSLATE_TO: { en: string; key: Key }[] = [
   ...LANGS.map((l) => ({ en: l.englishName, key: LANG_NAME[l.code] })),
   { en: "Korean", key: "reading.lang.korean" },
 ];
 
-function MessageCard({ m, open, onToggle }: { m: MessageFull; open: boolean; onToggle: () => void }) {
+/** An AI call under way, where it appears: ring, what is going on, the time and Cancel; a second line says where it is (Part 2 of 5). */
+export function AiRunning({ title, text, detail, startedAt, onCancel }: { title: React.ReactNode; text: string; detail?: string; startedAt: number; onCancel: () => void }) {
+  const t = useT();
+  const [now, setNow] = useState(() => Date.now());
+  useEffect(() => {
+    setNow(Date.now());
+    const id = setInterval(() => setNow(Date.now()), 1000);
+    return () => clearInterval(id);
+  }, [startedAt]);
+  return (
+    <div className="summary tr-box" role="status">
+      {title}
+      <div className="tr-row">
+        <span className="tr-main">
+          <span className="busy-ring spin" aria-hidden />
+          <span className="busy-dots" aria-hidden>···</span>
+          <span className="tr-text">{text}</span>
+        </span>
+        <span className="tr-side">
+          <span className="muted small tr-time" aria-hidden>{elapsedLabel(now - startedAt)}</span>
+          <button className="link small" onClick={onCancel}>{t("common.cancel")}</button>
+        </span>
+      </div>
+      {detail && <div className="muted small tr-hint">{detail}</div>}
+      {slowHint(startedAt, now) && <div className="muted small tr-hint">{t("reading.translate.slow")}</div>}
+    </div>
+  );
+}
+
+/** The translation of a message, where it appears: progress while it runs (it goes on when the person reads other mail), the error, the text. */
+function TranslateBox({ job }: { job: TranslateJob }) {
+  const t = useT();
+  const head = <b><Sparkles size={13} /> {t("reading.msg.translation")}</b>;
+  const total = job.parts.length;
+  if (job.status === "running")
+    return (
+      <AiRunning
+        title={head}
+        text={t("reading.msg.translating", { lang: t(job.langKey as Key) })}
+        detail={total > 1 ? t("reading.translate.part", { n: job.translated.length + 1, total }) : undefined}
+        startedAt={job.startedAt}
+        onCancel={() => cancelTranslation(job.key)}
+      />
+    );
+  if (job.status === "failed")
+    return (
+      <div className="summary tr-box error" role="alert">
+        {head}
+        <div className="tr-row">
+          <AlertTriangle size={14} aria-hidden />
+          <span className="tr-text">{t("reading.translate.failed", { error: jobErrorText(job) })}</span>
+        </div>
+        {total > 1 && job.translated.length > 0 && (
+          <div className="muted small tr-hint">{t("reading.translate.resume", { done: job.translated.length, total, next: job.translated.length + 1 })}</div>
+        )}
+        <div className="tr-actions">
+          <button className="link small" onClick={() => startTranslation(job)}>{t("common.retry")}</button>
+          {/* the way to the field that is wrong (the key, the address, the model), as the toast of the other AI features has it */}
+          <button className="link small" onClick={() => void openAiSettings(classifyAiError(job.errorSource ?? job.error ?? "")?.focus)}>{t("reading.aiProblem.openSettings")}</button>
+          <button className="link small" onClick={() => dismissTranslation(job.key)}>{t("reading.msg.dismiss")}</button>
+        </div>
+      </div>
+    );
+  return (
+    <div className="summary">
+      {head}
+      <div className="pre">{job.result}</div>
+      {job.truncated && <div className="muted small tr-hint">{t("reading.translate.truncated", { n: fmtNumber(MAX_CHARS) })}</div>}
+      <button className="link small" onClick={() => dismissTranslation(job.key)}>{t("reading.msg.dismiss")}</button>
+    </div>
+  );
+}
+
+/** "Translate to ...": a confidential or still locked message is not sent to the AI Assistant. */
+export async function translateMessage(m: MessageFull, lang: { en: string; key: Key }) {
+  const { showToast } = useStore.getState();
+  if (needsCard(m)) return showToast(t("reading.ai.unlockThis"), undefined, "info");
+  if (m.confidential) return showToast(t("reading.ai.noConfidential"), undefined, "info");
+  // not set up: say so, with the way to Settings, instead of starting a job that can only fail
+  if (!(await aiReady())) {
+    showAiNotSetUp("translate");
+    return;
+  }
+  startTranslation({
+    messageId: m.id,
+    threadId: useStore.getState().selected ?? m.id,
+    folder: m.folder,
+    accountId: m.accountId,
+    subject: m.subject,
+    lang: lang.en,
+    langKey: lang.key,
+    // all of it: a long text is translated in parts (src/translateChunks.ts)
+    text: m.text ?? m.html?.replace(/<[^>]+>/g, " ") ?? "",
+  });
+}
+
+export function MessageCard({ m, open, onToggle }: { m: MessageFull; open: boolean; onToggle: () => void }) {
   const t = useT();
   const { showToast, setDialog, prefs } = useStore();
   const frameRef = useRef<HTMLIFrameElement>(null);
   const cv = useCanvas();
   const canvasLabel = t("reading.canvas.label");
-  const [translated, setTranslated] = useState<string | null>(null);
+  // the translation is a job in the store (it keeps running when this pane shows other mail)
+  const job = useStore((s) => jobFor(s.translations, m.id));
   const [lightbox, setLightbox] = useState<{ items: { src: string; name: string }[]; index: number } | null>(null);
   const who = m.fromName || m.fromEmail;
   const conf = !!m.confidential;
@@ -435,13 +550,14 @@ function MessageCard({ m, open, onToggle }: { m: MessageFull; open: boolean; onT
   }, [m.id, keyAtt?.index, importMode]);
 
   const unsub = async () => {
+    const shift = shiftNow(); // (read now: the server is asked first)
     try {
       const r = await api.unsubscribe(m.id);
       if (r.kind === "done") showToast(t("reading.msg.unsubscribed"), undefined, "success");
       else if (r.kind === "open") await openUpdateLink(r.target);
-      else void useStore.getState().openCompose({ accountId: m.accountId, to: [r.target.replace("mailto:", "").split("?")[0]], subject: "unsubscribe" });
+      else void startCompose({ accountId: m.accountId, to: [r.target.replace("mailto:", "").split("?")[0]], subject: "unsubscribe" }, { shift });
     } catch (e) {
-      showToast(t("reading.msg.unsubscribeFailed", { error: friendlyError(e) }), undefined, "error");
+      showToast(() => t("reading.msg.unsubscribeFailed", { error: friendlyError(e) }), undefined, "error");
     }
   };
 
@@ -452,29 +568,14 @@ function MessageCard({ m, open, onToggle }: { m: MessageFull; open: boolean; onT
       const r = await api.attachmentSaveAll(m.id, ask || prefs.askWhereToSave);
       if (!r) return;
       const folder = r.dir.split(/[\\/]/).filter(Boolean).pop() ?? r.dir;
-      if (r.failed.length === 0) showToast(t("reading.strip.savedMany", { n: r.saved.length, folder }), undefined, "success", r.saved[0] ? [{ label: t("reading.att.showInFolder"), run: () => void api.attachmentReveal(r.saved[0]).catch(() => undefined) }] : undefined);
-      else showToast(t("reading.strip.savedPartial", { n: r.saved.length, total: m.attachments.length, name: r.failed[0].name, error: friendlyError(r.failed[0].error) }), undefined, "error", [{ label: t("common.retry"), run: () => void saveAll(ask) }]);
+      if (r.failed.length === 0) showToast(() => t("reading.strip.savedMany", { n: r.saved.length, folder }), undefined, "success", r.saved[0] ? [{ label: () => t("reading.att.showInFolder"), run: () => void api.attachmentReveal(r.saved[0]).catch(() => undefined) }] : undefined);
+      else showToast(() => t("reading.strip.savedPartial", { n: r.saved.length, total: m.attachments.length, name: r.failed[0].name, error: friendlyError(r.failed[0].error) }), undefined, "error", [{ label: () => t("common.retry"), run: () => void saveAll(ask) }]);
     } catch (e) {
-      showToast(t("reading.strip.saveAllFailed", { error: friendlyError(e) }), undefined, "error", [{ label: t("common.retry"), run: () => void saveAll(ask) }]);
+      showToast(() => t("reading.strip.saveAllFailed", { error: friendlyError(e) }), undefined, "error", [{ label: () => t("common.retry"), run: () => void saveAll(ask) }]);
     }
   };
 
-  const translate = async (lang: { en: string; key: Key }) => {
-    if (needsCard(m)) return showToast(t("reading.ai.unlockThis"), undefined, "info");
-    if (conf) return showToast(t("reading.ai.noConfidential"), undefined, "info");
-    showToast(t("reading.msg.translating", { lang: t(lang.key) }));
-    try {
-      setTranslated(
-        await api.aiComplete(
-          // i18n-ok: a prompt for the language model, not text the person reads
-          `Translate the email into ${lang.en}. Output only the translation, keep the formatting and line breaks.`,
-          (m.text ?? m.html?.replace(/<[^>]+>/g, " ") ?? "").slice(0, 12000),
-        ),
-      );
-    } catch (e) {
-      showToast(friendlyError(e), undefined, "error");
-    }
-  };
+  const translate = (lang: { en: string; key: Key }) => translateMessage(m, lang);
 
   const replyDefaultAll = eff(prefs, m.accountId, "replyDefault") === "replyAll";
   return (
@@ -482,10 +583,11 @@ function MessageCard({ m, open, onToggle }: { m: MessageFull; open: boolean; onT
       <div className="rp-msg-head" onClick={onToggle}>
         <Avatar name={who} size={40} />
         <div className="rp-meta">
-          <div className="rp-from ellipsis">
+          <div className="rp-from ellipsis" data-email={m.fromEmail}>
             <b>{who}</b>
             <span className="muted"> &lt;{m.fromEmail}&gt;</span>
           </div>
+          {(m.importance === "high" || m.importance === "low") && <ImportanceMark level={m.importance} size={13} label />}
           <div className="muted small ellipsis">{open ? (m.cc ? t("reading.msg.toCc", { to: m.to, cc: m.cc }) : t("reading.msg.to", { to: m.to })) : needsCard(m) ? t("reading.msg.encrypted") : conf ? t("reading.msg.confidential") : (m.text ?? "").replace(/\s+/g, " ").slice(0, 140)}</div>
         </div>
         {open && (
@@ -511,7 +613,7 @@ function MessageCard({ m, open, onToggle }: { m: MessageFull; open: boolean; onT
                 },
                 { label: t("reading.msg.copySender"), onClick: () => void navigator.clipboard.writeText(m.fromEmail).then(() => showToast(t("reading.msg.copied"))) },
                 { divider: true },
-                ...TRANSLATE_TO.map((l) => ({ label: t("reading.msg.translateTo", { lang: t(l.key) }), onClick: () => void translate(l), disabled: needsCard(m) || conf })),
+                ...TRANSLATE_TO.map((l) => ({ label: t("reading.msg.translateTo", { lang: t(l.key) }), onClick: () => translate(l), disabled: needsCard(m) || conf })),
                 ...(m.canUnsubscribe ? [{ divider: true }, { label: t("reading.msg.unsubscribe"), onClick: () => void unsub() }] : []),
                 ...(m.attachments.length ? [{ divider: true }, { label: t("reading.msg.saveAllAtt"), disabled: conf, onClick: () => void saveAll(false) }] : []),
               ]}
@@ -536,13 +638,7 @@ function MessageCard({ m, open, onToggle }: { m: MessageFull; open: boolean; onT
               {tx("reading.msg.newsletter", { link: <button className="link" onClick={unsub}>{t("reading.msg.unsubscribe")}</button> })}
             </div>
           )}
-          {translated && (
-            <div className="summary">
-              <b><Sparkles size={13} /> {t("reading.msg.translation")}</b>
-              <div className="pre">{translated}</div>
-              <button className="link small" onClick={() => setTranslated(null)}>{t("reading.msg.dismiss")}</button>
-            </div>
-          )}
+          {job && <TranslateBox job={job} />}
           {needsCard(m) ? <EncCard m={m} /> : m.invite && !m.html?.trim() && !m.text?.trim() ? null : <MessageBody m={m} frameRef={frameRef} dark={cv.dark} onPictures={(items, index) => setLightbox({ items, index })} />}
           <AttachmentStrip m={m} />
           {lightbox && (
@@ -571,22 +667,10 @@ function MessageCard({ m, open, onToggle }: { m: MessageFull; open: boolean; onT
   );
 }
 
-export function ReadingPane() {
-  const t = useT();
-  const { selected, messages, threads, act, showToast, prefs, aiConfigured, setDialog, confirm, checked } = useStore();
-  const [openIds, setOpenIds] = useState<Set<string>>(new Set());
-  const [summary, setSummary] = useState<string | null>(null);
-  const [busy, setBusy] = useState(false);
-  const summ = threads.find((th) => th.threadId === selected);
-  const bodyRef = useRef<HTMLDivElement>(null);
-  // while confidential mail is on screen the window is hidden from screen capture and recording
-  useContentProtection(!!selected && messages.some((m) => m.confidential));
-
-  // a newly selected mail starts at the top - once, here, and nowhere else (nothing re-scrolls while it loads)
-  useEffect(() => {
-    if (bodyRef.current) bodyRef.current.scrollTop = 0;
-  }, [selected]);
-
+/**
+ * Keeps the reading position through a window resize (used by the reading pane and by the reader window): see the comment in the effect.
+ */
+export function useKeepReadingPosition() {
   // Keep the reading position through a window resize: the browser shifts scrollTop when the pane changes size and the
   // frame is re-measured (new zoom / height), so remember the position from before the resize and restore it by
   // proportion (scrollTop / scrollHeight) once the layout has settled. Only resizes: selecting a mail still starts at 0.
@@ -638,9 +722,35 @@ export function ReadingPane() {
       window.removeEventListener("resize", onResize);
     };
   }, []);
+}
+
+export function ReadingPane() {
+  const t = useT();
+  const { selected, messages, threads, folders, folder, act, showToast, prefs, aiConfigured, confirm, checked } = useStore();
+  const [openIds, setOpenIds] = useState<Set<string>>(new Set());
+  const [summary, setSummary] = useState<string | null>(null);
+  const [summaryCut, setSummaryCut] = useState(false); // the conversation was longer than what was sent: the card says so
+  const ai = useAiSlot("summarize");
+  const summ = threads.find((th) => th.threadId === selected);
+  const bodyRef = useRef<HTMLDivElement>(null);
+  // while confidential mail is on screen the window is hidden from screen capture and recording
+  useContentProtection(!!selected && messages.some((m) => m.confidential));
+
+  // a newly selected mail starts at the top - once, here, and nowhere else (nothing re-scrolls while it loads)
+  useEffect(() => {
+    if (bodyRef.current) bodyRef.current.scrollTop = 0;
+  }, [selected]);
+
+  useKeepReadingPosition();
+
+  // another conversation: a summary still being made is dropped (its request too), so it is never shown on the wrong mail
+  useEffect(() => ai.cancel, [selected]); // eslint-disable-line react-hooks/exhaustive-deps
+  // and the "Try again" of a failed summary is for that conversation: it goes with it
+  useEffect(() => () => leaveAiContext("summarize"), [selected]);
 
   useEffect(() => {
     setSummary(null);
+    setSummaryCut(false);
     setOpenIds(new Set(messages.length ? [messages[messages.length - 1].id] : []));
   }, [selected, messages.length]);
 
@@ -658,37 +768,30 @@ export function ReadingPane() {
 
   const last = messages[messages.length - 1];
   const id = [selected];
+  // no Junk folder on the mailbox: the items that move mail there are off, with the reason (src/junk.ts)
+  const junkOff = canMoveToJunk(folders, accountsOf(threads, id)) ? {} : { disabled: true, hint: t("mail.junk.none"), title: t("mail.junk.noneTip") };
   const allOpen = messages.length > 0 && openIds.size === messages.length;
 
   const summarize = async () => {
-    if (!aiConfigured) {
-      setDialog({ type: "settings", tab: "ai" });
+    if (!(await aiReady())) {
+      showAiNotSetUp("summarize");
       return;
     }
-    setBusy(true);
-    try {
-      const readable = messages.filter((m) => !needsCard(m) && !m.confidential);
-      if (readable.length === 0) {
-        showToast(messages.some((m) => m.confidential) ? t("reading.ai.noConfidential") : t("reading.ai.unlockEncrypted"), undefined, "info");
-        return;
-      }
-      const body = readable
-        .map((m) => `From: ${m.fromName} <${m.fromEmail}>\nDate: ${fmtFull(m.date)}\n\n${(m.text ?? "").slice(0, 4000)}`)
-        .join("\n\n-----\n\n")
-        .slice(0, 24000);
-      setSummary(
-        await api.aiComplete(
-          // i18n-ok: a prompt for the language model, not text the person reads
-          "You summarize email conversations. Reply with 2-5 concise bullet points covering key facts, decisions and requested actions. Use the language of the emails.",
-          // the subject of a thread with confidential mail may be that mail's, so it is left out
-          `${messages.some((m) => m.confidential) ? "" : `Subject: ${summ.subject}\n\n`}${body}`,
-        ),
-      );
-    } catch (e) {
-      showToast(friendlyError(e), undefined, "error");
-    } finally {
-      setBusy(false);
+    const readable = messages.filter((m) => !needsCard(m) && !m.confidential);
+    if (readable.length === 0) {
+      showToast(messages.some((m) => m.confidential) ? t("reading.ai.noConfidential") : t("reading.ai.unlockEncrypted"), undefined, "info");
+      return;
     }
+    const { body, cut } = summaryBody(readable.map((m) => ({ head: `From: ${m.fromName} <${m.fromEmail}>\nDate: ${fmtFull(m.date)}`, text: m.text ?? "" })));
+    const out = await ai.run(
+      // i18n-ok: a prompt for the language model, not text the person reads
+      "You summarize email conversations. Reply with 2-5 concise bullet points covering key facts, decisions and requested actions. Use the language of the emails.",
+      // the subject of a thread with confidential mail may be that mail's, so it is left out
+      `${messages.some((m) => m.confidential) ? "" : `Subject: ${summ.subject}\n\n`}${body}`,
+    );
+    if (!out) return; // a click while one is under way, or Cancel: nothing to show
+    if ("error" in out) showAiProblem(out.error, { feature: "summarize", retry: () => void summarize(), tied: true });
+    else (setSummary(out.text), setSummaryCut(cut));
   };
 
   const block = async () => {
@@ -699,7 +802,7 @@ export function ReadingPane() {
       confirmLabel: t("reading.head.blockConfirm"),
       danger: true,
     });
-    if (ok) void act(id, "block", undefined, t("reading.head.blocked", { email: last.fromEmail }));
+    if (ok) void act(id, "block", undefined, () => t("reading.head.blocked", { email: last.fromEmail }));
   };
 
   return (
@@ -707,15 +810,16 @@ export function ReadingPane() {
       <div className="rp-head">
         <h2>{subjectText(summ.subject)}</h2>
         <div className="rp-tools">
-          <button className="icon-btn" title={t("reading.head.archiveTip")} aria-label={t("reading.head.archive")} onClick={() => void act(id, "archive", undefined, t("reading.head.archived"))}><Archive size={16} /></button>
-          <button className="icon-btn" title={t("reading.head.deleteTip")} aria-label={t("reading.head.delete")} onClick={() => void act(id, "trash", undefined, t("reading.head.trashed"))}><Trash2 size={16} /></button>
+          <button className="icon-btn" title={t("reading.head.archiveTip")} aria-label={t("reading.head.archive")} onClick={() => void act(id, "archive", undefined, () => t("reading.head.archived"))}><Archive size={16} /></button>
+          <button className="icon-btn" title={t("reading.head.deleteTip")} aria-label={t("reading.head.delete")} onClick={() => void act(id, "trash", undefined, () => t("reading.head.trashed"))}><Trash2 size={16} /></button>
           <Dropdown
             className="icon-btn snooze-btn"
             caret={false}
             title={t("reading.head.snoozeTip")}
+            label={t("mail.hover.snooze")}
             items={snoozePresets(prefs.snoozeTimes).map((p) => ({
               label: p.label,
-              onClick: () => void act(id, "snooze", String(p.ts), t("reading.head.snoozed", { label: p.label })),
+              onClick: () => void act(id, "snooze", String(p.ts), () => t("reading.head.snoozed", { label: p.label })),
             }))}
           >
             <Clock size={16} />
@@ -727,14 +831,17 @@ export function ReadingPane() {
             caret={false}
             title={t("reading.head.more")}
             items={[
-              { label: t("reading.head.markUnread"), icon: <MailX size={14} />, onClick: () => void act(id, "unread", undefined, t("reading.head.markedUnread")) },
-              { label: t("reading.head.moveJunk"), onClick: () => void act(id, "junk", undefined, t("reading.head.movedJunk")) },
+              { label: t("reading.head.markUnread"), icon: <MailX size={14} />, onClick: () => void act(id, "unread", undefined, () => t("reading.head.markedUnread")) },
+              { label: t("reading.head.moveJunk"), onClick: () => void act(id, "junk", undefined, () => t("reading.head.movedJunk")), ...junkOff },
               { divider: true },
-              { label: t("reading.head.blockSender"), onClick: () => void block() },
+              { label: t("reading.head.blockSender"), onClick: () => void block(), ...junkOff },
             ]}
           >
             <MoreHorizontal size={16} />
           </Dropdown>
+          {readerAllowed(folder, summ.folder) && (
+            <button className="icon-btn" title={t("reading.popout.openTip")} aria-label={t("reading.popout.open")} onClick={() => void openReader(summ, folder)}><ExternalLink size={16} /></button>
+          )}
           {messages.length > 1 && (
             <button
               className="icon-btn"
@@ -748,17 +855,26 @@ export function ReadingPane() {
           <button
             className="btn small ai-btn"
             onClick={summarize}
-            disabled={busy}
+            disabled={ai.running}
             title={aiConfigured ? t("reading.head.summarizeTip") : t("reading.head.setupAiTip")}
           >
-            <Sparkles size={13} /> {busy ? t("reading.head.summarizing") : aiConfigured ? t("reading.head.summarize") : t("reading.head.setupAi")}
+            <Sparkles size={13} /> {ai.running ? t("reading.head.summarizing") : aiConfigured ? t("reading.head.summarize") : t("reading.head.setupAi")}
           </button>
         </div>
       </div>
+      {ai.running && ai.startedAt !== null && (
+        <AiRunning
+          title={<b><Sparkles size={13} /> {t("reading.head.summaryTitle")}</b>}
+          text={t("reading.head.summarizing")}
+          startedAt={ai.startedAt}
+          onCancel={ai.cancel}
+        />
+      )}
       {summary && (
         <div className="summary">
           <b><Sparkles size={13} /> {t("reading.head.summaryTitle")}</b>
           <div className="pre">{summary}</div>
+          {summaryCut && <div className="muted small tr-hint">{t("reading.head.summaryCut")}</div>}
         </div>
       )}
       <div className="rp-body" ref={bodyRef}>

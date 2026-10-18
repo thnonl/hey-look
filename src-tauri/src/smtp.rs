@@ -90,6 +90,17 @@ pub struct Draft {
     /// screen capture, copy, print or forwarding.
     #[serde(default)]
     pub confidential: bool,
+    /// Outlook's Importance: High / Low add the importance headers (see importance.rs); Normal adds none. Old queued items have no field.
+    #[serde(default)]
+    pub importance: crate::importance::Importance,
+    /// Only for a DRAFT: the id of the crash-recovery snapshot of the message. It is written at the start of the draft's Message-ID, which is how the
+    /// next start finds the draft of a snapshot instead of making a second one (recover.rs). Never part of a message that is sent.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub recovery_id: Option<String>,
+    /// Only for a DRAFT: the meeting switch of Compose as the interface wrote it (base64url JSON, see src/meetingDraft.ts). It goes into the private header
+    /// `X-HeyLook-Meeting` of the draft so that a reopened draft shows its meeting again (v1.0.6 QA round 3 BUG-R3-4). Never part of a message that is sent.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub meeting_form: Option<String>,
 }
 
 /// Outlook's Sensitivity header. Lettre has no typed header for it.
@@ -106,6 +117,65 @@ impl lettre::message::header::Header for Sensitivity {
     fn display(&self) -> lettre::message::header::HeaderValue {
         lettre::message::header::HeaderValue::new(Self::name(), self.0.clone())
     }
+}
+
+/// The four importance headers (lettre has no typed header for them).
+macro_rules! importance_header {
+    ($t:ident, $name:literal) => {
+        #[derive(Clone)]
+        struct $t(String);
+        impl lettre::message::header::Header for $t {
+            fn name() -> lettre::message::header::HeaderName {
+                lettre::message::header::HeaderName::new_from_ascii_str($name)
+            }
+            fn parse(s: &str) -> Result<Self, Box<dyn std::error::Error + Send + Sync>> {
+                Ok(Self(s.to_string()))
+            }
+            fn display(&self) -> lettre::message::header::HeaderValue {
+                lettre::message::header::HeaderValue::new(Self::name(), self.0.clone())
+            }
+        }
+    };
+}
+importance_header!(ImportanceH, "Importance");
+importance_header!(XPriorityH, "X-Priority");
+importance_header!(PriorityH, "Priority");
+importance_header!(XMsMailPriorityH, "X-MSMail-Priority");
+
+/// Add the importance headers of `level` (nothing for Normal). The names and values come from `importance::Importance::headers`.
+fn importance_headers(mut b: lettre::message::MessageBuilder, level: crate::importance::Importance) -> lettre::message::MessageBuilder {
+    for (name, value) in level.headers() {
+        let v = value.to_string();
+        b = match *name {
+            "Importance" => b.header(ImportanceH(v)),
+            "X-Priority" => b.header(XPriorityH(v)),
+            "Priority" => b.header(PriorityH(v)),
+            _ => b.header(XMsMailPriorityH(v)),
+        };
+    }
+    b
+}
+
+/// Header text that comes from received data (the subject of a reply, the names of the people answered): a line break, a tab and the other white-space
+/// separators become one space each (CR LF counts once), every other control character (C0, DEL, C1) is dropped. Nothing else changes (spaces, case and
+/// order stay: the subject decodes to exactly what the person sees). lettre encodes a raw CR LF inside an RFC 2047 word instead of refusing it, so there is no
+/// header injection without this, but the decoded text would still have two lines (QA round 2 BUG-1). The front end cleans the same way where an answer is made
+/// (src/headerText.ts); this is the defence at the point where the MIME is built.
+pub fn clean_header_text(s: &str) -> String {
+    let mut out = String::with_capacity(s.len());
+    let mut it = s.chars().peekable();
+    while let Some(c) = it.next() {
+        match c {
+            '\r' if it.peek() == Some(&'\n') => {
+                it.next();
+                out.push(' ');
+            }
+            '\r' | '\n' | '\t' | '\u{b}' | '\u{c}' | '\u{85}' | '\u{2028}' | '\u{2029}' => out.push(' '),
+            c if c.is_control() => {}
+            c => out.push(c),
+        }
+    }
+    out
 }
 
 /// A display name made safe to put in front of an address: control characters (header injection) are dropped and runs of
@@ -154,11 +224,29 @@ pub fn split_mailbox(s: &str) -> (Option<String>, String) {
     (None, t.to_string())
 }
 
+/// The address with its domain in the ASCII form (`user@bücher.example` -> `user@xn--bcher-kva.example`): lettre accepts an
+/// internationalized domain but writes it as it is, and a server without SMTPUTF8 refuses that in RCPT TO and in the headers. A domain
+/// that cannot be converted, or is ASCII already, stays as it is (lettre then judges it).
+pub fn ascii_address(email: &str) -> String {
+    match email.rsplit_once('@') {
+        Some((user, domain)) if !domain.is_ascii() => match idna::domain_to_ascii(domain) {
+            Ok(d) if !d.is_empty() => format!("{user}@{d}"),
+            _ => email.to_string(),
+        },
+        _ => email.to_string(),
+    }
+}
+
+/// The address of an account as lettre holds it (ASCII domain).
+fn account_address(acc: &Account) -> R<Address> {
+    ascii_address(acc.email.trim()).parse::<Address>().map_err(err)
+}
+
 /// Parse a recipient as the interface writes it. Unlike a strict RFC 5322 parse this accepts any display name, and still
 /// rejects an address that is not one.
 pub fn parse_mailbox(s: &str) -> R<Mailbox> {
     let (name, email) = split_mailbox(s);
-    let addr = email.parse::<Address>().map_err(|e| format!("bad address '{s}': {e}"))?;
+    let addr = ascii_address(&email).parse::<Address>().map_err(|e| format!("bad address '{s}': {e}"))?;
     Ok(Mailbox::new(name, addr))
 }
 
@@ -188,20 +276,47 @@ macro_rules! raw_recipients {
 raw_recipients!(RawTo, "To");
 raw_recipients!(RawCc, "Cc");
 raw_recipients!(RawBcc, "Bcc");
+raw_recipients!(RawMeeting, "X-HeyLook-Meeting");
 
 /// `lenient`: for a DRAFT. A draft is saved as it is: no recipient, a half-typed one, an empty subject all save. lettre derives the
 /// SMTP envelope from the recipient headers and refuses a message without one ("missing destination address, invalid envelope"), so
 /// a draft gets an explicit envelope (from the account to the account; it is never sent, the envelope is not part of the text) and
 /// recipients that are not valid addresses are written as typed. A message that is SENT is built strict (`lenient = false`).
+/// `<random@domain-of-the-account>`: no host name of this computer is written into the draft.
+/// A draft of a message that has a crash-recovery snapshot starts it with the snapshot's id (`recover::draft_message_id`).
+fn draft_message_id(email: &str, recovery_id: Option<&str>) -> String {
+    let domain = email.rsplit_once('@').map(|(_, d)| d.trim()).filter(|d| !d.is_empty()).unwrap_or("heylook.invalid");
+    crate::recover::draft_message_id(recovery_id, domain, chrono::Utc::now().timestamp())
+}
+
+/// `<random@domain-of-the-account>` for a message that is SENT: the Message-ID is made here, not left to lettre (which writes the name of this
+/// computer into it) or to the server (the Sent copy would not know it, and a reply to your own mail would have nothing to answer). The same
+/// bytes go to the server and into the Sent folder, so the copy carries the same id. The domain is the account's own address domain (as lettre
+/// holds it: an internationalized domain in its ASCII form), never `localhost` or a host name.
+fn sent_message_id(me: &Address) -> String {
+    format!("<{}@{}>", uuid::Uuid::new_v4().simple(), me.domain())
+}
+
 fn headers(acc: &Account, d: &Draft, lenient: bool) -> R<lettre::message::MessageBuilder> {
-    let me = acc.email.parse::<Address>().map_err(err)?;
-    let from = Mailbox::new(Some(acc.display_name.clone()).filter(|n| !n.is_empty()), me.clone());
-    let mut b = Message::builder().from(from).subject(d.subject.clone());
+    let me = account_address(acc)?;
+    let from = Mailbox::new(Some(clean_header_text(&acc.display_name)).filter(|n| !n.is_empty()), me.clone());
+    let mut b = Message::builder().from(from).subject(clean_header_text(&d.subject));
     if lenient {
+        // A draft carries its own Message-ID: the sync derives the draft's thread from it, so Save draft can tell the app which thread the
+        // draft will be (an "Edit" action can open it again). Mail that is sent keeps getting its Message-ID from the server.
+        b = b.message_id(Some(draft_message_id(&acc.email, d.recovery_id.as_deref())));
         b = b.envelope(lettre::address::Envelope::new(Some(me.clone()), vec![me]).map_err(err)?);
+        // The Bcc header stays in the DRAFT copy (QA round 17 BUG-01: lettre drops it by default, so a saved draft lost its Bcc recipients and
+        // sending the reopened draft silently skipped them). It is only the person's own Drafts folder; a message that is SENT is built below
+        // without it (the SMTP envelope carries the Bcc recipients, the message must not name them).
+        b = b.keep_bcc();
+        // the meeting of the message (a private header, DRAFT copies only: `headers(.., false)`, the one a message is sent with, never writes it)
+        if let Some(blob) = d.meeting_form.as_deref().and_then(crate::draftmail::meeting_blob) {
+            b = b.header(RawMeeting(crate::draftmail::meeting_header_value(&blob)));
+        }
         // each list: typed addresses when every entry is one, else the text as written
         let all_ok = |l: &[String]| l.iter().all(|t| parse_mailbox(t).is_ok());
-        let raw = |l: &[String]| l.iter().map(|t| t.trim()).filter(|t| !t.is_empty()).collect::<Vec<_>>().join(", ");
+        let raw = |l: &[String]| l.iter().map(|t| clean_header_text(t)).map(|t| t.trim().to_string()).filter(|t| !t.is_empty()).collect::<Vec<_>>().join(", ");
         if all_ok(&d.to) {
             for t in &d.to {
                 b = b.to(mailbox(t)?);
@@ -224,25 +339,38 @@ fn headers(acc: &Account, d: &Draft, lenient: bool) -> R<lettre::message::Messag
             b = b.header(RawBcc(raw(&d.bcc)));
         }
     } else {
-        for t in &d.to {
+        b = b.message_id(Some(sent_message_id(&me)));
+        // each address once, in the first field it is in (To, then Cc, then Bcc), whatever the case
+        let (to, cc, bcc) = unique_recipients(d);
+        for t in &to {
             b = b.to(mailbox(t)?);
         }
-        for c in &d.cc {
+        for c in &cc {
             b = b.cc(mailbox(c)?);
         }
-        for c in &d.bcc {
+        for c in &bcc {
             b = b.bcc(mailbox(c)?);
         }
+        // Bcc recipients only (Gmail and Outlook allow it): To says so, as RFC 5322 3.6.3 suggests. The envelope delivers the message; the
+        // Bcc header itself is never written.
+        if to.is_empty() && cc.is_empty() && !bcc.is_empty() {
+            b = b.header(RawTo("undisclosed-recipients:;".to_string()));
+            b = b.envelope(envelope_of(&me, d)?);
+        }
     }
-    if let Some(r) = &d.in_reply_to {
-        b = b.in_reply_to(r.clone());
+    // the ids come from the message answered: one token each, no white space or control character inside
+    let id = |r: &str| clean_header_text(r).split_whitespace().collect::<Vec<_>>().join(" ");
+    if let Some(r) = d.in_reply_to.as_deref().map(id).filter(|r| !r.is_empty()) {
+        b = b.in_reply_to(r);
     }
-    if !d.references.is_empty() {
-        b = b.references(d.references.join(" "));
+    let refs: Vec<String> = d.references.iter().map(|r| id(r)).filter(|r| !r.is_empty()).collect();
+    if !refs.is_empty() {
+        b = b.references(refs.join(" "));
     }
     if d.confidential {
         b = b.header(Sensitivity("Company-Confidential".into()));
     }
+    b = importance_headers(b, d.importance);
     Ok(b)
 }
 
@@ -254,7 +382,8 @@ fn exact_body(bytes: Vec<u8>) -> Body {
 
 /// The content: text/plain + text/html (+ related pictures), then the real attachments.
 fn body(d: &Draft) -> R<MultiPart> {
-    let html = SinglePart::html(d.html.clone());
+    // the allow-list sanitiser (outgoing.rs) is the last step before the HTML becomes a MIME part: send, schedule, hold, outbox and drafts
+    let html = SinglePart::html(crate::outgoing::clean_html(&d.html));
     let mut alt = if d.inline.is_empty() {
         MultiPart::alternative().singlepart(SinglePart::plain(d.text.clone())).singlepart(html)
     } else {
@@ -262,7 +391,7 @@ fn body(d: &Draft) -> R<MultiPart> {
         for img in &d.inline {
             let bytes = base64::engine::general_purpose::STANDARD.decode(&img.data_base64).map_err(err)?;
             let ct = ContentType::parse(&img.mime).unwrap_or_else(|_| ContentType::parse("application/octet-stream").unwrap());
-            related = related.singlepart(Attachment::new_inline_with_name(img.cid.clone(), img.filename.clone()).body(bytes, ct));
+            related = related.singlepart(Attachment::new_inline_with_name(img.cid.clone(), crate::attach::outgoing_name(&img.filename)).body(bytes, ct));
         }
         MultiPart::alternative().singlepart(SinglePart::plain(d.text.clone())).multipart(related)
     };
@@ -279,10 +408,12 @@ fn body(d: &Draft) -> R<MultiPart> {
         let ct = ContentType::parse("application/ics; name=\"invite.ics\"").map_err(err)?;
         mixed = mixed.singlepart(Attachment::new("invite.ics".to_string()).body(c.ics.clone().into_bytes(), ct));
     }
-    for a in &d.attachments {
+    // file names are cleaned when the MIME is built (attach::outgoing_name): no folder, no control or hidden characters, a length that fits
+    let names = crate::attach::outgoing_names(&d.attachments.iter().map(|a| a.filename.clone()).collect::<Vec<_>>());
+    for (a, name) in d.attachments.iter().zip(names) {
         let bytes = base64::engine::general_purpose::STANDARD.decode(&a.data_base64).map_err(err)?;
         let ct = ContentType::parse(&a.mime).unwrap_or_else(|_| ContentType::parse("application/octet-stream").unwrap());
-        mixed = mixed.singlepart(Attachment::new(a.filename.clone()).body(exact_body(bytes), ct));
+        mixed = mixed.singlepart(Attachment::new(name.clone()).body(exact_body(bytes), ct));
     }
     Ok(mixed)
 }
@@ -295,8 +426,9 @@ pub fn calendar_part(method: &str, ics: &str) -> R<SinglePart> {
 
 /// A small iMIP message (reply, update or cancellation): readable text plus the calendar part, from the account to the recipients.
 pub fn build_calendar_mail(acc: &Account, to: &[String], cc: &[String], subject: &str, text: &str, cal: &CalendarPart) -> R<Message> {
-    let from = Mailbox::new(Some(acc.display_name.clone()).filter(|n| !n.is_empty()), acc.email.parse::<Address>().map_err(err)?);
-    let mut b = Message::builder().from(from).subject(subject.to_string());
+    let me = account_address(acc)?;
+    let from = Mailbox::new(Some(clean_header_text(&acc.display_name)).filter(|n| !n.is_empty()), me.clone());
+    let mut b = Message::builder().from(from).subject(clean_header_text(subject)).message_id(Some(sent_message_id(&me)));
     for t in to {
         b = b.to(mailbox(t)?);
     }
@@ -314,6 +446,12 @@ pub fn build_calendar_mail(acc: &Account, to: &[String], cc: &[String], subject:
 
 pub fn build(acc: &Account, d: &Draft) -> R<Message> {
     headers(acc, d, false)?.multipart(body(d)?).map_err(err)
+}
+
+/// The finished message as it goes on the wire and into the Sent / Drafts folder: lettre's text with the lines of the header block folded
+/// to 78 characters (headerfold.rs; lettre leaves a long To / Cc / References list on one line).
+pub fn wire(m: &Message) -> Vec<u8> {
+    crate::headerfold::fold(m.formatted())
 }
 
 /// multipart/signed (RFC 3156): the signature covers the content entity exactly as it is written, without the
@@ -344,14 +482,36 @@ pub fn build_encrypted(acc: &Account, d: &Draft, lenient: bool, encrypt: &dyn Fn
     headers(acc, d, lenient)?.multipart(outer).map_err(err)
 }
 
-/// Addresses of every recipient (To, Cc, Bcc) of a draft, for sending a prebuilt message.
-pub fn envelope(acc: &Account, d: &Draft) -> R<lettre::address::Envelope> {
-    let from: Address = acc.email.parse().map_err(err)?;
+/// The key two recipients are the same by: the address in lower case, its domain in the ASCII form (an upper / lower case spelling of the same
+/// address is the same mailbox in every mail system in use; keeping both would send it twice). Text that is not an address is its own key.
+fn recipient_key(entry: &str) -> String {
+    ascii_address(&split_mailbox(entry).1).to_lowercase()
+}
+
+/// To, Cc and Bcc of a message that is SENT with every address once: an address that is already in To is not repeated in To, Cc or Bcc,
+/// one in Cc not in Cc or Bcc, and the first spelling stays (`Ann@X.test` then `ann@x.test` is one recipient written `Ann@X.test`).
+fn unique_recipients(d: &Draft) -> (Vec<String>, Vec<String>, Vec<String>) {
+    let mut seen = std::collections::HashSet::new();
+    let mut take = |l: &[String]| l.iter().filter(|e| !e.trim().is_empty() && seen.insert(recipient_key(e))).cloned().collect::<Vec<_>>();
+    let to = take(&d.to);
+    let cc = take(&d.cc);
+    let bcc = take(&d.bcc);
+    (to, cc, bcc)
+}
+
+/// The envelope of a message from `from` to every recipient (To, Cc, Bcc) of the draft, each address once.
+fn envelope_of(from: &Address, d: &Draft) -> R<lettre::address::Envelope> {
+    let (to_l, cc_l, bcc_l) = unique_recipients(d);
     let mut to: Vec<Address> = vec![];
-    for r in d.to.iter().chain(d.cc.iter()).chain(d.bcc.iter()) {
+    for r in to_l.iter().chain(cc_l.iter()).chain(bcc_l.iter()) {
         to.push(mailbox(r)?.email);
     }
-    lettre::address::Envelope::new(Some(from), to).map_err(err)
+    lettre::address::Envelope::new(Some(from.clone()), to).map_err(err)
+}
+
+/// Addresses of every recipient (To, Cc, Bcc) of a draft, for sending a prebuilt message.
+pub fn envelope(acc: &Account, d: &Draft) -> R<lettre::address::Envelope> {
+    envelope_of(&account_address(acc)?, d)
 }
 
 /// SMTP login name: the account email for OAuth, else the separate SMTP user, else the IMAP user.
@@ -369,6 +529,15 @@ fn smtp_user(acc: &Account) -> String {
 /// accepts and then stays silent (a plain SMTP port with SSL/TLS, a firewall that swallows packets) must not keep a send waiting that long.
 const SEND_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(30);
 
+/// What this program calls itself in EHLO: the address literal `[127.0.0.1]`. lettre's default is the name of this computer (a privacy leak:
+/// "NamPC" in the Received header of every message, and a spam signal). RFC 5321 4.1.4 asks for a fully qualified name or, when the client
+/// has none (a desktop behind NAT has no name of its own), an address literal. The account's domain is not used: a server may refuse a
+/// client that claims to be its own domain or somebody else's, and the literal says nothing about the person or the computer. Thunderbird
+/// also sends a literal. It is not configurable.
+fn ehlo_name() -> lettre::transport::smtp::extension::ClientId {
+    lettre::transport::smtp::extension::ClientId::Ipv4(std::net::Ipv4Addr::new(127, 0, 0, 1))
+}
+
 /// `timeout`: how long a connection step may take (lettre's own default is a minute); the checks made while an account is added use less.
 fn transport_with(acc: &Account, secret: &str, timeout: Option<std::time::Duration>) -> R<SmtpTransport> {
     let host = acc.smtp_host.as_str();
@@ -385,7 +554,7 @@ fn transport_with(acc: &Account, secret: &str, timeout: Option<std::time::Durati
             .map_err(err)?;
         b = b.tls(if acc.smtp_security == "ssl" { Tls::Wrapper(params) } else { Tls::Required(params) });
     }
-    let b = b.credentials(Credentials::new(smtp_user(acc), secret.to_string()));
+    let b = b.hello_name(ehlo_name()).credentials(Credentials::new(smtp_user(acc), secret.to_string()));
     let b = if timeout.is_some() { b.timeout(timeout) } else { b };
     Ok((if acc.auth.starts_with("oauth_") { b.authentication(vec![Mechanism::Xoauth2]) } else { b }).build())
 }
@@ -458,7 +627,7 @@ fn probe_starttls(acc: &Account, timeout: std::time::Duration) -> Result<(), Pro
             Ok(Some(g)) if g.starts_with("220") => {}
             _ => return Ok(()),
         }
-        if out.write_all(b"EHLO hey-look.local\r\n").is_err() {
+        if out.write_all(format!("EHLO {}\r\n", ehlo_name()).as_bytes()).is_err() {
             return Ok(());
         }
         match reply(&mut input) {
@@ -474,6 +643,18 @@ fn probe_starttls(acc: &Account, timeout: std::time::Duration) -> Result<(), Pro
         return if r.is_err() { silent() } else { Ok(()) };
     }
     timed_out.map_or(Ok(()), |e| Err(Probe::ConnectTimedOut(e)))
+}
+
+/// A finished message as the SMTP DATA command carries it, and the copy to keep. lettre ends the data with CRLF "." CRLF, which supplies the
+/// line break after the last line, so a message that already ends with one would gain an empty line: the message is handed over without that
+/// last line break (`wire`), and the copy for the Sent folder is the bytes the server receives (`copy`, QA round 17 BUG-19: the Sent copy was
+/// two bytes shorter than the DATA that was sent).
+pub fn as_data(raw: &[u8]) -> (&[u8], Vec<u8>) {
+    let wire = raw.strip_suffix(b"\r\n").unwrap_or(raw);
+    let mut copy = Vec::with_capacity(wire.len() + 2);
+    copy.extend_from_slice(wire);
+    copy.extend_from_slice(b"\r\n");
+    (wire, copy)
 }
 
 /// Send an already finished message (encrypted/signed ones are built once, at schedule time).
@@ -571,12 +752,16 @@ pub fn build_draft(acc: &Account, d: &Draft) -> R<Message> {
 }
 
 #[cfg(test)]
-mod tests {
+pub(crate) mod tests {
     use super::*;
 
-    fn account() -> Account {
+    pub(crate) fn account() -> Account {
+        account_with_id("a1")
+    }
+
+    pub(crate) fn account_with_id(id: &str) -> Account {
         Account {
-            id: "a1".into(),
+            id: id.into(),
             email: "me@example.com".into(),
             display_name: "Me".into(),
             imap_host: "imap.example.com".into(),
@@ -593,7 +778,7 @@ mod tests {
         }
     }
 
-    fn draft(html: &str, inline: Vec<InlineImage>, attachments: Vec<Att>) -> Draft {
+    pub(crate) fn draft(html: &str, inline: Vec<InlineImage>, attachments: Vec<Att>) -> Draft {
         Draft {
             account_id: "a1".into(),
             to: vec!["ann@example.com".into()],
@@ -611,6 +796,9 @@ mod tests {
             meeting: None,
             calendar: None,
             confidential: false,
+            importance: Default::default(),
+            recovery_id: None,
+            meeting_form: None,
         }
     }
 
@@ -661,7 +849,7 @@ To:"), "no To header is invented: {out}");
         d.bcc = vec!["not an address".into()];
         let out = text(&build_draft(&acc, &d).expect("invalid recipients save"));
         assert!(out.contains("To: ann@, Carl <carl@example.com>"), "{out}");
-        assert!(!out.contains("not an address"), "{out}");
+        assert!(out.contains("Bcc: not an address"), "a half-typed Bcc is kept as typed too: {out}");
         // valid recipients are typed headers as before
         d.to = vec!["Ann <ann@example.com>".into()];
         d.bcc.clear();
@@ -679,6 +867,308 @@ To:"), "no To header is invented: {out}");
         s.to = vec!["ann@".into()];
         assert!(build(&acc, &s).is_err());
         assert!(envelope(&acc, &s).is_err());
+    }
+
+    /// QA round 17, BUG-15 (CF-28 / B-17): Gmail and Outlook send a message that has only Bcc recipients; so does this.
+    #[test]
+    fn a_message_with_only_bcc_recipients_can_be_sent() {
+        let acc = account();
+        let mut d = draft("<p>Hi</p>", vec![], vec![]);
+        d.to.clear();
+        d.bcc = vec!["Hidden <hidden@example.org>".into(), "other@example.org".into()];
+        let msg = build(&acc, &d).expect("Bcc only is built");
+        let raw = msg.formatted();
+        let out = String::from_utf8_lossy(&raw).into_owned();
+        // delivered to every Bcc address, from the account
+        let rcpt: Vec<String> = msg.envelope().to().iter().map(|a| a.to_string()).collect();
+        assert_eq!(rcpt, vec!["hidden@example.org", "other@example.org"]);
+        assert_eq!(msg.envelope().from().map(|a| a.to_string()).as_deref(), Some("me@example.com"));
+        // nobody sees the Bcc addresses; To says the recipients are not disclosed
+        assert!(!out.to_ascii_lowercase().contains("bcc:") && !out.contains("hidden@example.org") && !out.contains("other@example.org"), "{out}");
+        assert!(out.contains("To: undisclosed-recipients:;"), "{out}");
+        let p = mail_parser::MessageParser::default().parse(&raw[..]).unwrap();
+        assert!(p.bcc().is_none());
+        assert_eq!(p.to().map(|a| a.iter().filter(|x| x.address.is_some()).count()), Some(0), "no address in To");
+        assert!(crate::mail::parse(1, &raw, true, false, 0).unwrap().to.is_empty());
+        // the prebuilt-message route has the same envelope
+        assert_eq!(envelope(&acc, &d).unwrap().to().len(), 2);
+        // Cc only: Cc is shown, there is no To header
+        let mut cc_only = draft("<p>Hi</p>", vec![], vec![]);
+        cc_only.to.clear();
+        cc_only.cc = vec!["cc@example.org".into()];
+        let out = text(&build(&acc, &cc_only).unwrap());
+        assert!(out.contains("Cc: cc@example.org") && !out.contains("
+To:") && !out.contains("undisclosed"), "{out}");
+        // Bcc together with To: To is the visible one, no placeholder
+        let mut both = draft("<p>Hi</p>", vec![], vec![]);
+        both.bcc = vec!["hidden@example.org".into()];
+        let m = build(&acc, &both).unwrap();
+        assert!(!text(&m).contains("undisclosed") && !text(&m).contains("hidden@example.org"));
+        assert_eq!(m.envelope().to().len(), 2);
+        // really no recipient: still refused
+        let mut none = draft("<p>Hi</p>", vec![], vec![]);
+        none.to.clear();
+        assert!(build(&acc, &none).is_err());
+        // a signed or encrypted message to Bcc recipients only is built the same way
+        let mut s = d.clone();
+        s.security = None;
+        assert!(build_signed(&acc, &s, false, &|_| Ok(("sig".into(), "pgp-sha256".into()))).is_ok());
+        assert!(build_encrypted(&acc, &s, false, &|_| Ok("armored".into())).is_ok());
+    }
+
+    /// QA round 17, BUG-20 (CF-17 / B-08): A@X.test and a@x.test were both kept, and an address in To and in Cc was sent twice.
+    #[test]
+    fn an_address_is_sent_to_once_whatever_its_case_and_the_field() {
+        let acc = account();
+        let mut d = draft("<p>Hi</p>", vec![], vec![]);
+        d.to = vec!["Ann@X.test".into(), "ann@x.test".into(), "Bob <bob@y.test>".into(), "BOB@Y.TEST".into()];
+        d.cc = vec!["ANN@x.test".into(), "cy@z.test".into(), "Cy <CY@z.test>".into()];
+        d.bcc = vec!["cy@z.test".into(), "bob@Y.test".into(), "dee@w.test".into(), "dee@w.test".into()];
+        let msg = build(&acc, &d).unwrap();
+        let rcpt: Vec<String> = msg.envelope().to().iter().map(|a| a.to_string()).collect();
+        assert_eq!(rcpt, vec!["Ann@X.test", "bob@y.test", "cy@z.test", "dee@w.test"], "one RCPT each, first spelling");
+        let raw = msg.formatted();
+        let p = mail_parser::MessageParser::default().parse(&raw[..]).unwrap();
+        let addrs = |a: Option<&mail_parser::Address>| a.map(|a| a.iter().filter_map(|x| x.address.as_ref().map(|s| s.to_string())).collect::<Vec<_>>()).unwrap_or_default();
+        assert_eq!(addrs(p.to()), vec!["Ann@X.test", "bob@y.test"], "one header entry each");
+        assert_eq!(addrs(p.cc()), vec!["cy@z.test"]);
+        assert!(p.bcc().is_none());
+        assert!(!String::from_utf8_lossy(&raw).contains("dee@w.test"));
+        // a Bcc address that is also in To is just in To; the envelope of a prebuilt message agrees
+        assert_eq!(envelope(&acc, &d).unwrap().to().len(), 4);
+        // a Bcc that repeats the only To address leaves a message with To and no Bcc
+        let mut only = draft("<p>Hi</p>", vec![], vec![]);
+        only.bcc = vec!["ANN@example.com".into()];
+        let m = build(&acc, &only).unwrap();
+        assert_eq!(m.envelope().to().len(), 1);
+        assert!(!text(&m).contains("undisclosed"));
+        // invalid entries are not merged into valid ones and still fail the send
+        let mut bad = draft("<p>Hi</p>", vec![], vec![]);
+        bad.to = vec!["ann@example.com".into(), "ann@".into()];
+        assert!(build(&acc, &bad).is_err());
+    }
+
+    /// QA round 17 BUG-01 (CF-1): the Bcc recipients were missing from the saved draft, so a reopened draft was sent without them.
+    #[test]
+    fn a_saved_draft_keeps_its_bcc_but_a_sent_message_never_names_it() {
+        let acc = account();
+        let mut d = draft("<p>Hi</p>", vec![], vec![]);
+        d.cc = vec!["cc@example.com".into()];
+        d.bcc = vec!["Quiet <quiet@example.com>".into(), "silent@example.com".into()];
+        let saved = text(&build_draft(&acc, &d).unwrap());
+        assert!(saved.contains("Bcc: Quiet <quiet@example.com>, silent@example.com"), "the draft copy has the Bcc header: {saved}");
+        // only the draft copy: what is sent has no Bcc header, whatever the route (plain, signed, encrypted)
+        let sent = text(&build(&acc, &d).unwrap());
+        assert!(!sent.to_ascii_lowercase().contains("bcc:"), "{sent}");
+        assert!(!sent.contains("quiet@example.com") && !sent.contains("silent@example.com"), "{sent}");
+        let signed = text(&build_signed(&acc, &d, false, &|_| Ok(("sig".to_string(), "pgp-sha256".to_string()))).unwrap());
+        assert!(!signed.to_ascii_lowercase().contains("bcc:"), "{signed}");
+        let enc = text(&build_encrypted(&acc, &d, false, &|_| Ok("armored".to_string())).unwrap());
+        assert!(!enc.to_ascii_lowercase().contains("bcc:"), "{enc}");
+        // ... while the SMTP envelope delivers to all of them
+        let env = build(&acc, &d).unwrap().envelope().clone();
+        let to: Vec<String> = env.to().iter().map(|a| a.to_string()).collect();
+        for a in ["ann@example.com", "cc@example.com", "quiet@example.com", "silent@example.com"] {
+            assert!(to.contains(&a.to_string()), "{a} is an envelope recipient: {to:?}");
+        }
+        // an encrypted draft (to your own key) keeps it in the outer headers as well
+        let encd = text(&build_encrypted(&acc, &d, true, &|_| Ok("armored".to_string())).unwrap());
+        assert!(encd.contains("Bcc: Quiet <quiet@example.com>, silent@example.com"), "{encd}");
+        // the draft copy is still never sent anywhere by its envelope: it is the account's own
+        let env = build_draft(&acc, &d).unwrap().envelope().clone();
+        assert_eq!(env.to().iter().map(|a| a.to_string()).collect::<Vec<_>>(), vec!["me@example.com"]);
+    }
+
+    /// A scheduled message and a message in its Undo time are stored as the JSON of the draft: the Bcc recipients are part of it, still
+    /// recipients of the envelope when it is built from the stored copy, and still not named in the message.
+    #[test]
+    fn the_stored_copy_of_a_queued_message_keeps_its_bcc() {
+        let acc = account();
+        let mut d = draft("<p>Hi</p>", vec![], vec![]);
+        d.bcc = vec!["quiet@example.com".into()];
+        let stored = serde_json::to_string(&d).unwrap();
+        assert!(stored.contains("\"bcc\":[\"quiet@example.com\"]"), "{stored}");
+        let back: Draft = serde_json::from_str(&stored).unwrap();
+        assert_eq!(back.bcc, d.bcc);
+        let msg = build(&acc, &back).unwrap();
+        assert!(msg.envelope().to().iter().any(|a| a.to_string() == "quiet@example.com"));
+        assert!(!text(&msg).to_ascii_lowercase().contains("bcc:"));
+        // a finished (prebuilt) message is sent to the same recipients through its envelope
+        assert!(envelope(&acc, &back).unwrap().to().iter().any(|a| a.to_string() == "quiet@example.com"));
+    }
+
+    #[test]
+    fn a_saved_draft_says_which_thread_the_sync_will_put_it_in() {
+        let acc = account();
+        // a new message: its own Message-ID (account domain, no host name) is the thread root
+        let d = draft("<p>Hi</p>", vec![], vec![]);
+        let raw = build_draft(&acc, &d).unwrap().formatted();
+        let p = crate::mail::parse(41, &raw, true, false, 0).expect("the draft parses");
+        let id = p.message_id.clone().expect("a draft carries a Message-ID");
+        assert!(id.starts_with('<') && id.ends_with("@example.com>"), "{id}");
+        let tid = crate::draft_thread_id("a1", &raw).expect("thread of a new draft");
+        assert_eq!(tid, crate::thread_id_of("a1", "drafts", &p), "same thread as the sync gives it, whatever uid the server picks");
+        let again = crate::draft_thread_id("a1", &build_draft(&acc, &d).unwrap().formatted()).unwrap();
+        assert_ne!(tid, again, "two drafts are two threads");
+
+        // an answer: the thread of the mail it answers (its first reference)
+        let mut r = draft("<p>Re</p>", vec![], vec![]);
+        r.in_reply_to = Some("<orig@x.org>".into());
+        r.references = vec!["<root@x.org>".into(), "<orig@x.org>".into()];
+        let raw = build_draft(&acc, &r).unwrap().formatted();
+        let p = crate::mail::parse(42, &raw, true, false, 0).unwrap();
+        assert_eq!(crate::draft_thread_id("a1", &raw), Some(crate::thread_id_of("a1", "drafts", &p)));
+        assert_eq!(p.refs.first().map(String::as_str), Some("<root@x.org>"));
+
+        // the message that is sent gets its own, new id (a_sent_message_carries_its_own_message_id)
+        let sent = text(&build(&acc, &d).unwrap());
+        assert_eq!(sent.to_ascii_lowercase().matches("message-id:").count(), 1, "{sent}");
+    }
+
+    /// QA round 17, BUG-14 (MA-12): a hundred recipients were one 2202-octet To line. The header block is folded at 78 characters, and
+    /// still reads back as the same recipients.
+    #[test]
+    fn long_recipient_lists_and_reference_chains_are_folded_at_78_characters() {
+        let acc = account();
+        let mut d = draft("<p>Hi</p>", vec![], vec![]);
+        d.to = (0..100).map(|i| format!("r13-{i:03}@example.test")).collect();
+        d.cc = (0..30).map(|i| format!("\"Doe, John {i}\" <cc-{i:03}@example.test>")).collect();
+        d.subject = "Báo cáo Q4 – 東京 🚀 Привет, a subject that is long enough to be folded by the encoder as well".into();
+        d.references = (0..15).map(|i| format!("<ref-{i:02}-0123456789abcdef@mail.example.org>")).collect();
+        d.in_reply_to = d.references.last().cloned();
+        let msg = build(&acc, &d).unwrap();
+        let raw = wire(&msg);
+        let head_end = raw.windows(4).position(|w| w == b"\r\n\r\n").unwrap();
+        let head = String::from_utf8(raw[..head_end].to_vec()).expect("headers are ASCII");
+        for l in head.split("\r\n") {
+            assert!(l.len() <= 78, "{} octets: {l}", l.len());
+        }
+        assert!(head.is_ascii(), "{head}");
+        // the folded message reads back as the same message
+        let p = mail_parser::MessageParser::default().parse(&raw[..]).unwrap();
+        assert_eq!(p.to().unwrap().iter().count(), 100);
+        assert_eq!(p.cc().unwrap().iter().count(), 30);
+        assert_eq!(p.cc().unwrap().first().and_then(|a| a.name.as_deref()), Some("Doe, John 0"), "a quoted name with a comma stays whole");
+        assert_eq!(p.subject(), Some(d.subject.as_str()));
+        let parsed = crate::mail::parse(3, &raw, true, false, 0).unwrap();
+        assert_eq!(&parsed.refs[..15], &d.references[..], "References read back, each id whole and in order");
+        assert_eq!(parsed.to.len(), 100);
+        // the envelope is unaffected: 130 recipients, each once
+        assert_eq!(msg.envelope().to().len(), 130);
+        // the body is not touched
+        assert!(String::from_utf8_lossy(&raw).contains("<p>Hi</p>"));
+    }
+
+    /// QA round 2, BUG-1 (O-04): a reply to a message whose Subject held CR LF was sent with those bytes inside the encoded Subject (the mail library encodes a raw
+    /// line break instead of refusing it): no header injection, but the subject decoded to two lines. Every header text made from received data is cleaned when the
+    /// MIME is built: the subject, the names and ids of a reply, a draft's raw recipients.
+    #[test]
+    fn header_text_from_received_data_has_no_line_break_or_control_character() {
+        assert_eq!(clean_header_text("O04\r\nBcc: bcc@x.test"), "O04 Bcc: bcc@x.test");
+        assert_eq!(clean_header_text("a\nb\rc\td\u{b}e\u{c}f\u{85}g\u{2028}h\u{2029}i"), "a b c d e f g h i");
+        assert_eq!(clean_header_text("a\r\n\r\nb"), "a  b", "two breaks are two spaces; a typed double space is kept as it is");
+        assert_eq!(clean_header_text("a\u{0}b\u{1}c\u{1b}d\u{7f}e\u{80}f\u{9f}g"), "abcdefg");
+        for same in ["", "Re: plain", "  two  spaces  ", "Đỗ Văn Ánh", "東京 🚀 Привет", "a\u{a0}b", "\"Doe, John\" <john@x.test>"] {
+            assert_eq!(clean_header_text(same), same);
+        }
+        let hostile = ["x\r\nBcc: evil@x.test", "x\r\n\r\nBody injection", "x\n\rBcc: a", "\r\n\r\n", "a\r\n b\r\n\tc", "x\u{85}Bcc: a", "x\u{2028}Bcc: a", "a\u{0}\r\nb", "\u{1b}[31mred"];
+        for h in hostile {
+            let c = clean_header_text(h);
+            assert!(!c.chars().any(|ch| ch.is_control() || ch == '\u{2028}' || ch == '\u{2029}'), "{h:?} -> {c:?}");
+        }
+
+        let acc = account();
+        for subject in ["Re: O04\r\nBcc: bcc@x.test", "Re: \r\n\r\nHi\u{0}there", "Re: x\u{85}y\u{2028}z\tw"] {
+            let mut d = draft("<p>Hi</p>", vec![], vec![]);
+            d.subject = subject.into();
+            d.to = vec!["\"Evil\r\nBcc: e@x.test\" <ann@example.test>".into()];
+            d.references = vec!["<a@x.test>\r\nBcc: e@x.test".into(), "<b@x.test> <c@x.test>".into()];
+            d.in_reply_to = Some("<b@x.test>\r\n".into());
+            for lenient in [false, true] {
+                let msg = if lenient { build_draft(&acc, &d).unwrap() } else { build(&acc, &d).unwrap() };
+                let raw = wire(&msg);
+                let head_end = raw.windows(4).position(|w| w == b"\r\n\r\n").unwrap();
+                let head = String::from_utf8(raw[..head_end].to_vec()).unwrap();
+                // the headers are what a header block is: every line is a header or a fold of one, and no header the data made up exists
+                let names: Vec<&str> = head.split("\r\n").filter(|l| !l.starts_with(' ') && !l.starts_with('\t')).map(|l| l.split(':').next().unwrap()).collect();
+                assert!(!names.iter().any(|n| n.eq_ignore_ascii_case("bcc") && !lenient), "{subject:?}: a Bcc header appeared in a sent message\n{head}");
+                let p = mail_parser::MessageParser::default().parse(&raw[..]).unwrap();
+                let decoded = p.subject().unwrap();
+                assert!(!decoded.contains(['\r', '\n', '\u{0}', '\u{85}', '\u{2028}']), "{subject:?} decodes to {decoded:?}");
+                assert_eq!(decoded, clean_header_text(subject), "lenient={lenient}");
+                if !lenient {
+                    assert_eq!(msg.envelope().to().len(), 1, "one recipient, not the ones the name tried to add");
+                }
+                // the ids: one each, the reference list keeps its ids apart
+                let parsed = crate::mail::parse(3, &raw, true, false, 0).unwrap();
+                assert!(parsed.refs.iter().all(|r| !r.contains(['\r', '\n', ' '])), "{:?}", parsed.refs);
+                assert!(parsed.refs.contains(&"<b@x.test>".to_string()) && parsed.refs.contains(&"<c@x.test>".to_string()), "{:?}", parsed.refs);
+            }
+        }
+        // a calendar mail's subject too
+        let acc2 = account();
+        let cal = CalendarPart { method: "REPLY".into(), ics: "BEGIN:VCALENDAR\r\nEND:VCALENDAR\r\n".into() };
+        let msg = build_calendar_mail(&acc2, &["ann@example.test".into()], &[], "Accepted: Q4\r\nBcc: e@x.test", "ok", &cal).unwrap();
+        let raw = wire(&msg);
+        let p = mail_parser::MessageParser::default().parse(&raw[..]).unwrap();
+        assert_eq!(p.subject(), Some("Accepted: Q4 Bcc: e@x.test"));
+    }
+
+    fn message_id_of(raw: &[u8]) -> String {
+        let p = mail_parser::MessageParser::default().parse(raw).unwrap();
+        format!("<{}>", p.message_id().expect("a Message-ID"))
+    }
+
+    /// QA round 17, BUG-11 (MA-03 / MA-04): a sent message had no Message-ID, so the Sent copy had none and a reply to your own mail had
+    /// nothing to answer. The id is made here, from the account's domain, once per message.
+    #[test]
+    fn a_sent_message_carries_its_own_message_id() {
+        let acc = account();
+        let d = draft("<p>Hi</p>", vec![], vec![]);
+        let one = build(&acc, &d).unwrap().formatted();
+        let two = build(&acc, &d).unwrap().formatted();
+        let (a, b) = (message_id_of(&one), message_id_of(&two));
+        assert!(a.ends_with("@example.com>") && a.starts_with('<'), "{a}");
+        assert_ne!(a, b, "a new id for every message");
+        let head = String::from_utf8_lossy(&one).to_ascii_lowercase();
+        assert_eq!(head.matches("\r\nmessage-id:").count(), 1, "exactly one Message-ID: {head}");
+        // never the name of this computer
+        if let Ok(host) = std::env::var("COMPUTERNAME").or_else(|_| std::env::var("HOSTNAME")) {
+            if !host.is_empty() && !"example.com".contains(&host.to_lowercase()) {
+                assert!(!head.contains(&host.to_lowercase()), "host name {host} leaked: {head}");
+            }
+        }
+        assert!(!head.contains("localhost"));
+        // the sent message and its Sent copy are the same bytes, so the same id; the app reads it back from the stored copy
+        let p = crate::mail::parse(5, &one, true, false, 0).unwrap();
+        assert_eq!(p.message_id.as_deref(), Some(a.as_str()));
+        // signed and encrypted messages carry it in the outer headers too
+        let signed = build_signed(&acc, &d, false, &|_| Ok(("-----BEGIN PGP SIGNATURE-----".into(), "pgp-sha256".into()))).unwrap().formatted();
+        assert!(message_id_of(&signed).ends_with("@example.com>"));
+        let enc = build_encrypted(&acc, &d, false, &|_| Ok("armored".into())).unwrap().formatted();
+        assert!(message_id_of(&enc).ends_with("@example.com>"));
+        // an internationalized domain is written in its ASCII form (the account's, and a recipient's)
+        let mut idn = account();
+        idn.email = "me@bücher.example".into();
+        assert!(message_id_of(&build(&idn, &d).unwrap().formatted()).ends_with("@xn--bcher-kva.example>"));
+        let mut to_idn = d.clone();
+        to_idn.to = vec!["Büro <user@bücher.example>".into()];
+        let out = build(&acc, &to_idn).unwrap();
+        assert_eq!(out.envelope().to()[0].to_string(), "user@xn--bcher-kva.example", "RCPT TO is ASCII");
+        assert!(String::from_utf8_lossy(&out.formatted()).contains("<user@xn--bcher-kva.example>"));
+        assert_eq!(envelope(&acc, &to_idn).unwrap().to()[0].to_string(), "user@xn--bcher-kva.example");
+        // an iMIP mail has one too
+        let cal = CalendarPart { method: "REPLY".into(), ics: "BEGIN:VCALENDAR\r\nEND:VCALENDAR\r\n".into() };
+        let m = build_calendar_mail(&acc, &["ann@example.com".to_string()], &[], "Accepted", "ok", &cal).unwrap().formatted();
+        assert!(message_id_of(&m).ends_with("@example.com>"));
+        // an answer to a message keeps its own id apart from In-Reply-To / References
+        let mut r = d.clone();
+        r.in_reply_to = Some("<orig@x.org>".into());
+        r.references = vec!["<root@x.org>".into(), "<orig@x.org>".into()];
+        let raw = build(&acc, &r).unwrap().formatted();
+        let p = mail_parser::MessageParser::default().parse(&raw).unwrap();
+        assert_ne!(format!("<{}>", p.message_id().unwrap()), "<orig@x.org>");
+        assert!(String::from_utf8_lossy(&raw).contains("In-Reply-To: <orig@x.org>\r\n"));
     }
 
     #[test]
@@ -905,6 +1395,146 @@ To:"), "no To header is invented: {out}");
         (port, stop)
     }
 
+    /// A plain SMTP server that records the lines it receives and lets a whole mail through (no AUTH is offered). Returns its port and the
+    /// receiver of the lines.
+    fn recording_smtp_server() -> (u16, std::sync::mpsc::Receiver<String>) {
+        use std::io::{BufRead, BufReader, Write};
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let port = listener.local_addr().unwrap().port();
+        let (tx, rx) = std::sync::mpsc::channel::<String>();
+        std::thread::spawn(move || {
+            for conn in listener.incoming().flatten() {
+                let tx = tx.clone();
+                std::thread::spawn(move || {
+                    let _ = conn.set_read_timeout(Some(std::time::Duration::from_secs(10)));
+                    let mut w = conn.try_clone().unwrap();
+                    let _ = w.write_all(b"220 stub.test ESMTP\r\n");
+                    let mut data = false;
+                    for line in BufReader::new(conn).lines().map_while(Result::ok) {
+                        if data {
+                            data = line != ".";
+                            if !data {
+                                let _ = w.write_all(b"250 queued\r\n");
+                            }
+                            continue;
+                        }
+                        let _ = tx.send(line.clone());
+                        let up = line.to_uppercase();
+                        let reply: &[u8] = if up.starts_with("EHLO") { b"250 stub.test\r\n" } else if up.starts_with("DATA") { data = true; b"354 go\r\n" } else if up.starts_with("QUIT") { b"221 bye\r\n" } else { b"250 ok\r\n" };
+                        let _ = w.write_all(reply);
+                        if up.starts_with("QUIT") {
+                            break;
+                        }
+                    }
+                });
+            }
+        });
+        (port, rx)
+    }
+
+    /// A minimal SMTP server that answers one message and hands back the DATA it received (dot-stuffing undone), as the server stores it.
+    fn data_server() -> (u16, std::sync::mpsc::Receiver<Vec<u8>>) {
+        use std::io::{BufRead, BufReader, Write};
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let port = listener.local_addr().unwrap().port();
+        let (tx, rx) = std::sync::mpsc::channel();
+        std::thread::spawn(move || {
+            let (sock, _) = listener.accept().unwrap();
+            let mut out = sock.try_clone().unwrap();
+            let mut input = BufReader::new(sock);
+            let _ = out.write_all(b"220 test ESMTP\r\n");
+            let mut line = Vec::new();
+            loop {
+                line.clear();
+                if input.read_until(b'\n', &mut line).unwrap_or(0) == 0 {
+                    return;
+                }
+                let cmd = String::from_utf8_lossy(&line).to_ascii_uppercase();
+                if cmd.starts_with("EHLO") {
+                    let _ = out.write_all(b"250-test\r\n250 AUTH PLAIN LOGIN\r\n");
+                } else if cmd.starts_with("AUTH") {
+                    let _ = out.write_all(b"235 ok\r\n");
+                } else if cmd.starts_with("DATA") {
+                    let _ = out.write_all(b"354 go\r\n");
+                    let mut data = Vec::new();
+                    loop {
+                        line.clear();
+                        if input.read_until(b'\n', &mut line).unwrap_or(0) == 0 {
+                            return;
+                        }
+                        if line == b".\r\n" {
+                            break;
+                        }
+                        // transparency (RFC 5321 4.5.2): a leading dot of a line was doubled
+                        data.extend_from_slice(if line.starts_with(b"..") { &line[1..] } else { &line });
+                    }
+                    let _ = tx.send(data);
+                    let _ = out.write_all(b"250 queued\r\n");
+                } else if cmd.starts_with("QUIT") {
+                    let _ = out.write_all(b"221 bye\r\n");
+                    return;
+                } else {
+                    let _ = out.write_all(b"250 ok\r\n");
+                }
+            }
+        });
+        (port, rx)
+    }
+
+    /// QA round 17, BUG-17 (CF-13): EHLO carried the name of this computer ("NamPC"). It is the address literal `[127.0.0.1]` now, for the
+    /// sent mail and for the connection checks, whatever the computer or the account is called.
+    #[test]
+    fn ehlo_does_not_tell_the_name_of_this_computer() {
+        crate::test_guard::within(60, || {
+            let (port, lines) = recording_smtp_server();
+            let mut acc = account();
+            acc.smtp_host = "127.0.0.1".into();
+            acc.smtp_port = port;
+            acc.smtp_security = "none".into();
+            // the message is delivered or refused for lack of AUTH: either way the EHLO line is on record
+            let _ = send_raw(&acc, "secret", &envelope_for_tests(), b"Subject: x\r\n\r\nhi");
+            let _ = test(&acc, "secret");
+            let ehlos: Vec<String> = std::iter::from_fn(|| lines.recv_timeout(std::time::Duration::from_millis(300)).ok()).filter(|l| l.to_uppercase().starts_with("EHLO")).collect();
+            assert!(ehlos.len() >= 2, "{ehlos:?}");
+            for l in &ehlos {
+                assert_eq!(l, "EHLO [127.0.0.1]", "the address literal, nothing about this computer");
+            }
+            let host = std::env::var("COMPUTERNAME").or_else(|_| std::env::var("HOSTNAME")).unwrap_or_default().to_lowercase();
+            if !host.is_empty() {
+                assert!(ehlos.iter().all(|l| !l.to_lowercase().contains(&host) || host == "127.0.0.1"), "{ehlos:?}");
+            }
+        });
+    }
+
+    /// QA round 17 BUG-19 (MA-22): the copy that goes to the Sent folder is the DATA the server received, byte for byte.
+    #[test]
+    fn the_sent_copy_is_the_data_the_server_received() {
+        crate::test_guard::within(60, || {
+            let acc0 = account();
+            let mut d = draft("<p>Hi</p>", vec![], vec![]);
+            d.text = ".a line that starts with a dot\r\n\r\nthe end".into();
+            let msg = build(&acc0, &d).unwrap();
+            let raw = msg.formatted();
+            assert!(raw.ends_with(b"\r\n"), "lettre ends a message with a line break");
+            let mut without = raw.clone();
+            without.truncate(without.len() - 2);
+            // a message with and without the final line break (a finished PGP message may lack it)
+            for message in [raw.clone(), without] {
+                let (port, rx) = data_server();
+                let mut acc = account();
+                acc.smtp_host = "127.0.0.1".into();
+                acc.smtp_port = port;
+                acc.smtp_security = "none".into();
+                let (wire, copy) = as_data(&message);
+                send_raw(&acc, "secret", msg.envelope(), wire).expect("the fake server accepts the message");
+                let data = rx.recv_timeout(std::time::Duration::from_secs(10)).expect("DATA received");
+                assert_eq!(data, copy, "the Sent copy equals the DATA");
+                assert!(copy.ends_with(b"\r\n") && !copy.ends_with(b"\r\n\r\n"), "one line break at the end, no empty line added");
+                assert_eq!(&copy[..copy.len() - 2], &raw[..raw.len() - 2], "nothing else changed");
+            }
+        });
+    }
+
     fn envelope_for_tests() -> lettre::address::Envelope {
         lettre::address::Envelope::new(Some("me@example.com".parse().unwrap()), vec!["you@example.com".parse().unwrap()]).unwrap()
     }
@@ -1095,6 +1725,32 @@ To:"), "no To header is invented: {out}");
         }
     }
 
+    /// WP5f: a credential store that does not answer (locked Secret Service) or a Cancel while the add waits leaves no account row, and the
+    /// connection checks that came before are not repeated by a retry that follows.
+    #[test]
+    fn add_account_with_a_keyring_that_times_out_or_is_cancelled_saves_nothing() {
+        let ok = |_: &Account, _: &str| -> R<()> { Ok(()) };
+        let db = memory_db();
+        // the keyring did not answer
+        let timed_out = |_: &str, _: &str, _: &dyn Fn() -> bool| -> R<()> { Err(crate::keyring_timeout_error()) };
+        let e = crate::add_account_cancellable(&db, input(1, true, 1, "ssl"), "secret", None, &ok, &ok, &|| false, &timed_out).unwrap_err();
+        assert!(e.starts_with("KEYRING_TIMEOUT:"), "{e}");
+        assert_eq!(account_rows(&db), 0);
+        // cancelled before anything was stored: the keyring is not even asked
+        let asked = std::cell::Cell::new(0);
+        let counting = |_: &str, _: &str, _: &dyn Fn() -> bool| -> R<()> {
+            asked.set(asked.get() + 1);
+            Ok(())
+        };
+        let e = crate::add_account_cancellable(&db, input(1, true, 1, "ssl"), "secret", None, &ok, &ok, &|| true, &counting).unwrap_err();
+        assert!(e.starts_with("ADD_CANCELLED:"), "{e}");
+        assert_eq!((asked.get(), account_rows(&db)), (0, 0));
+        // a keyring that answers: the account is added as before
+        let a = crate::add_account_cancellable(&db, input(1, true, 1, "ssl"), "secret", None, &ok, &ok, &|| false, &counting).unwrap();
+        assert_eq!((asked.get(), account_rows(&db)), (1, 1));
+        assert_eq!(a.email, "qa@example.test");
+    }
+
     /// QA v1.0.1 round 2, BUG-1: an SMTP server that cannot be secured (a plain port or a silent one, with SSL/TLS or STARTTLS) gets the
     /// secure connection hint and no account is stored, whatever the security mode and whether the SMTP login is shared or separate.
     /// The IMAP login is stood in for by a check that passes: the point is what the SMTP side does to the add.
@@ -1281,5 +1937,280 @@ To:"), "no To header is invented: {out}");
             acc.smtp_security = "starttls".into();
             assert!(matches!(probe_starttls(&acc, std::time::Duration::from_secs(1)), Err(Probe::Silent(_))));
         });
+    }
+    /// The header names of a message (outer block), lower case, in order.
+    fn header_names(raw: &str) -> Vec<String> {
+        let head = raw.split("\r\n\r\n").next().unwrap_or("");
+        head.lines().filter(|l| !l.starts_with(' ') && !l.starts_with('\t')).filter_map(|l| l.split_once(':').map(|(n, _)| n.to_ascii_lowercase())).collect()
+    }
+
+    const IMPORTANCE_NAMES: [&str; 4] = ["importance", "x-priority", "priority", "x-msmail-priority"];
+
+    fn with(importance: crate::importance::Importance) -> Draft {
+        let mut d = draft("<p>Hi</p>", vec![], vec![]);
+        d.importance = importance;
+        d
+    }
+
+    fn signer(_: &[u8]) -> R<(String, String)> {
+        Ok(("sig".into(), "pgp-sha256".into()))
+    }
+
+    /// F-24: High and Low write the four importance headers, Normal writes none (not even `Importance: normal`).
+    #[test]
+    fn importance_headers_are_written_per_level_and_never_for_normal() {
+        use crate::importance::Importance::*;
+        let acc = account();
+        let out = text(&build(&acc, &with(High)).unwrap());
+        for line in ["Importance: high\r\n", "X-Priority: 1 (Highest)\r\n", "Priority: urgent\r\n", "X-MSMail-Priority: High\r\n"] {
+            assert!(out.contains(line), "{line:?} missing in {out}");
+        }
+        let out = text(&build(&acc, &with(Low)).unwrap());
+        for line in ["Importance: low\r\n", "X-Priority: 5 (Lowest)\r\n", "Priority: non-urgent\r\n", "X-MSMail-Priority: Low\r\n"] {
+            assert!(out.contains(line), "{line:?} missing in {out}");
+        }
+        assert!(!out.contains("Importance: high") && !out.contains("Priority: urgent") && !out.contains("X-Priority: 1"), "a Low message carries no High value: {out}");
+        let out = text(&build(&acc, &with(Normal)).unwrap());
+        let names = header_names(&out);
+        for n in IMPORTANCE_NAMES {
+            assert!(!names.contains(&n.to_string()), "{n} must not be added for Normal: {out}");
+        }
+        assert!(!out.contains("Importance: normal"));
+        // exactly one of each for High (no duplicates)
+        let names = header_names(&text(&build(&acc, &with(High)).unwrap()));
+        for n in IMPORTANCE_NAMES {
+            assert_eq!(names.iter().filter(|x| *x == n).count(), 1, "{n}");
+        }
+    }
+
+    /// The same headers are on every kind of message that is built from a draft: the Sent copy is the sent bytes, a draft saved to
+    /// Drafts, a signed and an encrypted message.
+    #[test]
+    fn importance_headers_are_on_drafts_signed_and_encrypted_messages_too() {
+        use crate::importance::Importance::*;
+        let acc = account();
+        for level in [High, Low] {
+            let d = with(level);
+            let want = level.headers();
+            let check = |what: &str, raw: String| {
+                for (n, v) in want {
+                    assert!(raw.contains(&format!("{n}: {v}\r\n")), "{what}: {n} missing in {raw}");
+                }
+            };
+            check("draft", text(&build_draft(&acc, &d).unwrap()));
+            check("signed", text(&build_signed(&acc, &d, false, &signer).unwrap()));
+            check("encrypted", text(&build_encrypted(&acc, &d, false, &|_| Ok("armored".into())).unwrap()));
+            let mut empty = d.clone();
+            empty.to.clear();
+            check("draft without recipients", text(&build_draft(&acc, &empty).unwrap()));
+        }
+        // and none of them add a header for Normal
+        let n = with(Normal);
+        for raw in [text(&build_draft(&acc, &n).unwrap()), text(&build_signed(&acc, &n, false, &signer).unwrap())] {
+            assert!(!header_names(&raw).iter().any(|h| IMPORTANCE_NAMES.contains(&h.as_str())), "{raw}");
+        }
+    }
+
+    /// A draft saved with an importance gives it back when it is read from the saved bytes (the way a reopened draft learns it).
+    #[test]
+    fn importance_survives_the_draft_round_trip() {
+        use crate::importance::Importance::*;
+        let acc = account();
+        for level in [Normal, High, Low] {
+            let raw = build_draft(&acc, &with(level)).unwrap().formatted();
+            assert_eq!(crate::importance::from_raw(&raw), level, "{level:?}");
+            let parsed = crate::mail::parse(1, &raw, false, false, 0).expect("parses");
+            assert_eq!(parsed.importance, level);
+            // the sent message too
+            let sent = build(&acc, &with(level)).unwrap().formatted();
+            assert_eq!(crate::mail::parse(2, &sent, true, false, 0).unwrap().importance, level);
+        }
+    }
+
+    /// The queue (scheduled sends, the Undo window) keeps the draft as JSON: the importance is in it and is still there after a restart;
+    /// an item queued by a version without the field loads as Normal.
+    #[test]
+    fn importance_is_kept_in_the_queued_json_and_old_items_still_load() {
+        use crate::importance::Importance::*;
+        for level in [Normal, High, Low] {
+            let json = serde_json::to_string(&with(level)).unwrap();
+            let back: Draft = serde_json::from_str(&json).unwrap();
+            assert_eq!(back.importance, level);
+        }
+        let json = serde_json::to_string(&with(High)).unwrap();
+        assert!(json.contains("\"importance\":\"high\""), "{json}");
+        let mut v: serde_json::Value = serde_json::from_str(&json).unwrap();
+        v.as_object_mut().unwrap().remove("importance");
+        let old: Draft = serde_json::from_value(v).unwrap();
+        assert_eq!(old.importance, Normal);
+        // what the interface sends
+        let from_ui: Draft = serde_json::from_str(r#"{"accountId":"a1","to":[],"subject":"s","html":"","text":"","importance":"low"}"#).unwrap();
+        assert_eq!(from_ui.importance, Low);
+        let no_field: Draft = serde_json::from_str(r#"{"accountId":"a1","to":[],"subject":"s","html":"","text":""}"#).unwrap();
+        assert_eq!(no_field.importance, Normal);
+        // a message queued with High, rebuilt from the stored JSON at send time, still carries the headers
+        let stored = serde_json::to_string(&with(High)).unwrap();
+        let rebuilt = build(&account(), &serde_json::from_str::<Draft>(&stored).unwrap()).unwrap();
+        assert!(text(&rebuilt).contains("Importance: high\r\n"));
+    }
+
+    /// 1.0.6 integration: the features of the compose branches work together on every route that makes bytes (send, draft, signed,
+    /// encrypted): Importance + Message-ID + header folding + Bcc in drafts only + the outgoing sanitiser + the Sent copy equal to DATA.
+    #[test]
+    fn importance_message_id_folding_bcc_and_the_sanitiser_work_together() {
+        use crate::importance::Importance::High;
+        let acc = account();
+        let html = r#"<p>Hi</p><script>alert(1)</script><img src="\\host\share\x.png"><img src="file:///c:/x.png"><a href="javascript:alert(2)">x</a>"#;
+        let mut d = draft(html, vec![], vec![]);
+        d.importance = High;
+        d.to = (0..60).map(|i| format!("Person Number {i} <person{i}@example.org>")).collect();
+        d.bcc = vec!["Quiet <quiet@example.com>".into()];
+        d.references = (0..12).map(|i| format!("<ref{i}-0123456789abcdef0123456789abcdef@example.org>")).collect();
+        d.in_reply_to = Some("<parent@example.org>".into());
+        let head_of = |raw: &str| raw.split("\r\n\r\n").next().unwrap_or("").to_string();
+
+        // sent: the strict builder, then the wire form and the copy that is kept in Sent
+        let sent_msg = build(&acc, &d).unwrap();
+        let wired = wire(&sent_msg);
+        let (_, sent_copy) = as_data(&wired);
+        let sent = String::from_utf8_lossy(&sent_copy).into_owned();
+        assert!(sent.contains("Importance: high\r\n") && sent.contains("X-Priority: 1 (Highest)\r\n"), "{sent}");
+        assert_eq!(sent.matches("Message-ID: <").count(), 1, "{sent}");
+        assert!(head_of(&sent).contains("@example.com>"), "the id carries the account domain");
+        assert!(!sent.to_ascii_lowercase().contains("bcc:") && !sent.contains("quiet@example.com"), "a sent message never names the Bcc");
+        assert!(sent_msg.envelope().to().iter().any(|a| a.to_string() == "quiet@example.com"), "the envelope still delivers to the Bcc");
+        // lettre wraps To lists with display names itself (a little over 78 characters per line); the unquoted References are folded by headerfold.rs
+        assert!(head_of(&sent).lines().all(|l| l.len() <= 998), "no header line near the 998 limit: {}", head_of(&sent));
+        assert!(head_of(&sent).lines().filter(|l| l.starts_with(" <ref") || l.starts_with("References:")).all(|l| l.len() <= 78), "References is folded at 78: {}", head_of(&sent));
+        let parsed = mail_parser::MessageParser::default().parse(sent.as_bytes()).unwrap();
+        assert_eq!(parsed.to().map(|a| a.iter().filter(|x| x.address.is_some()).count()), Some(60), "unfolding gives the same 60 recipients");
+        for bad in ["<script", "alert(", "host", "file:", "javascript:"] {
+            assert!(!sent.contains(bad), "{bad} must not reach the wire: {sent}");
+        }
+
+        // the draft copy (APPEND to Drafts): Bcc and Importance are kept, the sanitiser and the folding ran as well
+        let saved = String::from_utf8_lossy(&wire(&build_draft(&acc, &d).unwrap())).into_owned();
+        assert!(saved.contains("Quiet <quiet@example.com>") && saved.contains("Importance: high\r\n"), "{saved}");
+        assert!(head_of(&saved).lines().all(|l| l.len() <= 998), "{}", head_of(&saved));
+        for bad in ["<script", "alert(", "file:", "javascript:"] {
+            assert!(!saved.contains(bad), "{bad} must not be saved either: {saved}");
+        }
+
+        // a signed and an encrypted message use the same header builder and the same sanitiser
+        let signed = text(&build_signed(&acc, &d, false, &signer).unwrap());
+        assert!(signed.contains("Importance: high\r\n") && signed.contains("Message-ID: <") && !signed.to_ascii_lowercase().contains("bcc:") && !signed.contains("<script"), "{signed}");
+        let enc = build_encrypted(&acc, &d, false, &|inner| {
+            assert!(!String::from_utf8_lossy(inner).contains("<script"), "the sanitiser runs before the encryption");
+            Ok("armored".into())
+        })
+        .unwrap();
+        let enc = text(&enc);
+        assert!(enc.contains("Importance: high\r\n") && enc.contains("Message-ID: <") && !enc.to_ascii_lowercase().contains("bcc:"), "{enc}");
+    }
+}
+
+/// BUG-R3-4: the meeting of a draft travels in a private header of the DRAFT copy and nowhere else.
+#[cfg(test)]
+mod meeting_form_tests {
+    use super::tests::{account, draft};
+    use super::*;
+
+    const BLOB: &str = "eyJ2IjoxLCJ0eiI6IkFzaWEvSG9fQ2hpX01pbmgiLCJzZCI6IjIwMjYtMTAtMjAiLCJzdCI6IjA5OjAwIiwiZWQiOiIyMDI2LTEwLTIwIiwiZXQiOiIxMDowMCIsImFsbERheSI6ZmFsc2UsIndoZXJlIjoiUm9vbSAxIn0";
+
+    fn with_meeting(form: Option<&str>) -> Draft {
+        let mut d = draft("<p>Hi</p>", vec![], vec![]);
+        d.meeting_form = form.map(str::to_string);
+        d
+    }
+
+    fn names(raw: &[u8]) -> Vec<String> {
+        let (h, _) = crate::pgpmail::parse_headers(raw);
+        h.into_iter().map(|(k, _)| k.to_ascii_lowercase()).collect()
+    }
+
+    #[test]
+    fn a_draft_writes_the_header_and_reads_it_back() {
+        let raw = build_draft(&account(), &with_meeting(Some(BLOB))).unwrap().formatted();
+        assert_eq!(names(&raw).iter().filter(|n| *n == "x-heylook-meeting").count(), 1);
+        assert_eq!(crate::draftmail::recipients(&raw).meeting.as_deref(), Some(BLOB));
+        // no line of the header block is too long for a mail server (RFC 5322: 998)
+        let head = String::from_utf8_lossy(&raw).split("\r\n\r\n").next().unwrap().to_string();
+        assert!(head.lines().all(|l| l.len() <= 998), "{head}");
+    }
+
+    /// A long value (a long location) is written in folded pieces and still comes back whole.
+    #[test]
+    fn a_long_value_is_folded_and_comes_back_whole() {
+        let long: String = "aB3-_".repeat(400); // 2000 characters
+        let raw = build_draft(&account(), &with_meeting(Some(&long))).unwrap().formatted();
+        let head = String::from_utf8_lossy(&raw).split("\r\n\r\n").next().unwrap().to_string();
+        assert!(head.lines().all(|l| l.len() <= 998), "a header line is too long");
+        assert_eq!(crate::draftmail::recipients(&raw).meeting.as_deref(), Some(long.as_str()));
+    }
+
+    /// MA-05: the message that is SENT (plain, signed, with a scheduled copy) never has the header, whatever the draft carries.
+    #[test]
+    fn a_sent_message_never_has_the_header() {
+        let d = with_meeting(Some(BLOB));
+        let sent = build(&account(), &d).unwrap().formatted();
+        assert!(!names(&sent).contains(&"x-heylook-meeting".to_string()));
+        assert!(!String::from_utf8_lossy(&sent).contains(BLOB));
+        let signed = build_signed(&account(), &d, false, &|_: &[u8]| Ok(("sig".into(), "pgp-sha256".into()))).unwrap().formatted();
+        assert!(!String::from_utf8_lossy(&signed).contains(BLOB));
+        // the wire form (what the SMTP server gets and what the Sent folder keeps) is the same bytes
+        assert!(!String::from_utf8_lossy(&wire(&build(&account(), &d).unwrap())).contains("X-HeyLook"));
+    }
+
+    /// A draft without a meeting is as it was: no header, and the queue's JSON has no new field.
+    #[test]
+    fn a_draft_without_a_meeting_is_unchanged() {
+        let d = with_meeting(None);
+        let raw = build_draft(&account(), &d).unwrap().formatted();
+        assert!(!names(&raw).contains(&"x-heylook-meeting".to_string()));
+        assert_eq!(crate::draftmail::recipients(&raw).meeting, None);
+        assert!(!serde_json::to_string(&d).unwrap().contains("meetingForm"));
+        // an item queued by an older version loads
+        let json = serde_json::to_string(&d).unwrap();
+        assert!(serde_json::from_str::<Draft>(&json).unwrap().meeting_form.is_none());
+    }
+
+    /// A value that is not ours (other alphabet, too long, empty) is not written and not read.
+    #[test]
+    fn a_malformed_or_oversized_value_is_ignored() {
+        for bad in ["", "   ", "not base64url!", "a=b", "<script>", &"A".repeat(crate::draftmail::MEETING_MAX + 1)] {
+            let raw = build_draft(&account(), &with_meeting(Some(bad))).unwrap().formatted();
+            assert!(!names(&raw).contains(&"x-heylook-meeting".to_string()), "written for {bad:?}");
+        }
+        // a header that was written by somebody else
+        for bad in ["not base64url!", "a=b", "", &"A".repeat(crate::draftmail::MEETING_MAX + 1)] {
+            let raw = format!("From: me@example.com\r\nX-HeyLook-Meeting: {bad}\r\nSubject: x\r\n\r\nbody\r\n");
+            assert_eq!(crate::draftmail::recipients(raw.as_bytes()).meeting, None, "read for {bad:?}");
+        }
+        // at the limit it is still read
+        let ok = "A".repeat(crate::draftmail::MEETING_MAX);
+        let raw = format!("From: me@example.com\r\nX-HeyLook-Meeting: {ok}\r\nSubject: x\r\n\r\nbody\r\n");
+        assert_eq!(crate::draftmail::recipients(raw.as_bytes()).meeting.as_deref(), Some(ok.as_str()));
+    }
+
+    /// A server that drops the header: the copy this computer kept (by account and Message-ID) gives the meeting back; another draft has none.
+    #[test]
+    fn a_server_that_drops_the_header_loses_nothing() {
+        let c = crate::db::test_conn(&["a1"]);
+        let raw = build_draft(&account(), &with_meeting(Some(BLOB))).unwrap().formatted();
+        crate::draftmail::remember_meeting(&c, "a1", &raw, BLOB);
+        // what the server hands back: the same message without the private header
+        let text = String::from_utf8_lossy(&raw).to_string();
+        let stripped: String = text.split("\r\n").filter(|l| !l.starts_with("X-HeyLook-Meeting") && !l.starts_with(' ')).collect::<Vec<_>>().join("\r\n");
+        assert!(!stripped.contains("X-HeyLook-Meeting"));
+        assert_eq!(crate::draftmail::recipients(stripped.as_bytes()).meeting, None);
+        assert_eq!(crate::draftmail::recall_meeting(&c, "a1", stripped.as_bytes()).as_deref(), Some(BLOB));
+        assert_eq!(crate::draftmail::recall_meeting(&c, "a2", stripped.as_bytes()), None, "another account");
+        let other = build_draft(&account(), &with_meeting(Some(BLOB))).unwrap().formatted();
+        assert_eq!(crate::draftmail::recall_meeting(&c, "a1", &other), None, "another draft");
+        // old copies go when a new one is written, and a copy of a removed account is pruned
+        c.execute("INSERT INTO settings(key,value) VALUES('dmeet:a1|<old@x>', '1|AAAA'), ('dmeet:gone|<z@x>', '9999999999|AAAA')", []).unwrap();
+        crate::draftmail::remember_meeting(&c, "a1", &other, BLOB);
+        assert!(crate::db::get_setting(&c, "dmeet:a1|<old@x>").is_none());
+        assert_eq!(crate::draftmail::recall_meeting(&c, "a1", &other).as_deref(), Some(BLOB));
     }
 }

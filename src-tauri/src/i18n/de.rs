@@ -14,6 +14,11 @@ pub fn text(k: K) -> &'static str {
         K::TrayPause => "Benachrichtigungen pausieren",
         K::TrayQuit => "Hey Look! beenden",
         K::MacQuit => "Hey Look! beenden",
+        K::MacAbout => "Über Hey Look!",
+        K::MacServices => "Dienste",
+        K::MacHide => "Hey Look! ausblenden",
+        K::MacHideOthers => "Andere ausblenden",
+        K::MacShowAll => "Alle einblenden",
         K::ActArchive => "Archivieren",
         K::ActDelete => "Löschen",
         K::ActRead => "Als gelesen markieren",
@@ -36,6 +41,16 @@ pub fn text(k: K) -> &'static str {
         K::CalendarFile => "Kalenderdatei",
         K::SavePublicKey => "Öffentlichen Schlüssel speichern",
         K::SaveKeyBackup => "Sicherung Ihres Schlüssels speichern",
+        K::LoadFailTitle => "Hey Look! konnte sein Fenster nicht laden",
+        K::LoadFailWindows => "Hey Look! wurde gestartet, aber das Fenster konnte die Oberfläche der App nicht laden. Die wahrscheinlichsten Ursachen: Die Microsoft Edge WebView2 Runtime fehlt oder ist beschädigt (bei Microsoft neu installieren oder reparieren), oder ein Sicherheitsprogramm blockiert sie. Wählen Sie „Wiederholen“, um es erneut zu versuchen, oder öffnen Sie den Protokollordner, um zu sehen, was passiert ist.",
+        K::LoadFailMac => "Hey Look! wurde gestartet, aber das Fenster konnte die Oberfläche der App nicht laden. Die wahrscheinlichsten Ursachen: Die in macOS integrierte Web-Engine (WebKit) wurde nicht gestartet, zum Beispiel nach einem unterbrochenen Systemupdate, oder ein Sicherheitsprogramm blockiert sie. Wählen Sie „Wiederholen“, um es erneut zu versuchen, oder öffnen Sie den Protokollordner, um zu sehen, was passiert ist.",
+        K::LoadFailLinux => "Hey Look! wurde gestartet, aber das Fenster konnte die Oberfläche der App nicht laden. Die wahrscheinlichsten Ursachen: Die Bibliothek WebKitGTK (webkit2gtk-4.1) fehlt, ist zu alt oder beschädigt, oder die Sitzung hat keine funktionierende grafische Anzeige. Wählen Sie „Wiederholen“, um es erneut zu versuchen, oder öffnen Sie den Protokollordner, um zu sehen, was passiert ist.",
+        K::LoadFailRetry => "Wiederholen",
+        K::LoadFailOpenLog => "Protokollordner öffnen",
+        K::LoadFailQuit => "Beenden",
+        K::LoadFailLog => "Protokolldatei:",
+        K::StartFailTitle => "Hey Look! konnte nicht gestartet werden",
+        K::StartFailBody => "Hey Look! konnte nicht gestartet werden, weil sein Fenster nicht erstellt werden konnte.\n\nAm häufigsten fehlt die Microsoft WebView2 Runtime (eine kostenlose Microsoft-Komponente, mit der Apps ihre Fenster anzeigen) oder sie ist beschädigt. Installieren oder reparieren Sie sie unter https://developer.microsoft.com/microsoft-edge/webview2/ („Evergreen Bootstrapper“ oder „Evergreen Standalone Installer“ wählen) und starten Sie Hey Look! danach erneut.\n\nWas schiefgelaufen ist, steht in der unten genannten Protokolldatei; schicken Sie sie an den Support, falls das Problem bleibt.",
     }
 }
 

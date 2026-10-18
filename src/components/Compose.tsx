@@ -1,58 +1,79 @@
-import Image from "@tiptap/extension-image";
-import Placeholder from "@tiptap/extension-placeholder";
 import { NodeSelection } from "@tiptap/pm/state";
 import { EditorContent, Node as TipNode, useEditor, type Editor } from "@tiptap/react";
-import StarterKit from "@tiptap/starter-kit";
 import {
-  BadgeCheck, Bold, CalendarClock, CalendarPlus, ChevronDown, FileText, ImagePlus, Info, Italic, Link2, List, ListOrdered, Lock, LockOpen, Paperclip, Save, Send, ShieldAlert, ShieldCheck, Sparkles, Trash2,
-  TriangleAlert, Underline as UIcon, X,
+  AlignCenter, AlignLeft, AlignRight, BadgeCheck, CalendarClock, CalendarPlus, ChevronDown, ExternalLink, FileText, ImagePlus, Info, Link2, Lock, LockOpen, MoreHorizontal, Paperclip, Save, Send, ShieldAlert, ShieldCheck, Sparkles, Trash2,
+  TriangleAlert, X,
 } from "lucide-react";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { Suspense, lazy, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { api, Att, Contact, Draft, DraftSecurity, errorCode, InlineImage, MessageFull, OwnKeyStatus, RecipientStatus, Signature, Template } from "../api";
 import { eff } from "../prefs";
 import { kbd } from "../platform";
 import { ComposeInit, friendlyError, useStore } from "../store";
-import { extractSignature, fillSignature, normalizeHtml, SIG_MARK } from "../signature";
-import { blockedAttachmentExt, dataUriBytes, fileToBase64, fmtIn, fmtSize, fmtWhen, htmlToText, imageSize, PICTURE_TYPES, playSent, resizeImage, sanitizeHtml, shortKey, userName } from "../util";
+import { useAiSlot } from "../useAiSlot";
+import { aiReady, leaveAiContext, showAiNotSetUp, showAiProblem } from "../aiGuide";
+import type { ComposeProbe, SavedDraft } from "../leaveCompose";
+import { PreviewBg, previewVars, rememberPreview, startPreview } from "../composePreview";
+import { setDarkRegion } from "../composePreviewDom";
+import { extractSignature, normalizeHtml, SIG_MARK } from "../signature";
+import { baseExtensions, refreshPlaceholder } from "../editor/extensions";
+import { useKit } from "../editor/kit";
+import { FormatBar, type FormatBarApi } from "../editor/FormatBar";
+import { PreviewSwitch } from "../editor/PreviewSwitch";
+import { setPreviewMode } from "../editor/previewColors";
+import { messageHtml, nameForMime, nameInlinePicture, reencodeToastKey, RESIZE_WIDTH } from "../editor/messageBody";
+import { unwrapBase, type BaseFont } from "../editor/emailHtml";
+import { extractQuote, quotePictureBytes } from "../editor/quoteBlock";
+import { baseFromPrefs } from "../editor/baseFont";
+import { repairSignature, signatureGuard } from "../signatureGuard";
+import { BAR_ROW_MAX, isCompact } from "../composeFit";
+import { composeHasContent, isPersonEdit } from "../composeContent";
+import { autosaveDue, snapshotDue, timing, type AutosaveWhy } from "../autosave";
+import { RecoveryWriter, type RecoveryForm } from "../recovery";
+import { cleanPastedHtml, stripRemotePictures } from "../pastedHtml";
+import { insertPictureNodes, type PictureAttrs } from "../editor/insertPictures";
+import { cleanHeaderText } from "../headerText";
+import { fromAccountFor } from "../fromAccount";
+import { askFreshBeforeSend, isSizeRefusal, sendLimit, showSizeToast, wireSize } from "../sendSize";
+import { outgoingName, outgoingNames } from "../attachName";
+import { placePictureTools } from "../pictureToolsLayout";
+import type { PictureToolsInput } from "../pictureToolsLayout";
+import { blockedAttachmentExt, dataUriBytes, fileToBase64, fmtClock, fmtIn, fmtSize, fmtWhen, htmlToText, imageSize, PICTURE_TYPES, playSent, resizeImage, sanitizeHtml, shortKey, userName } from "../util";
 import { calTz } from "../calendar";
 import { defaultMeeting, MeetingState, MeetingStrip, meetingToDraft } from "./Calendar";
+import { fromInputs, toInputs } from "../calendar";
+import { decodeMeeting, encodeMeeting, meetingWire, restoreMeeting } from "../meetingDraft";
 import { isEmail, singleLabelHostsOf } from "../addresses";
+import { addRecipients, addressOf, chipLabel, formatRecipient, hasRecipient, isImeEvent, openAtEnd, placeRecipients, recipientKey, splitRecipients, type RcptField } from "../recipients";
 import { askUnlock } from "./Pgp";
+import { composeSeam } from "../popout/composeSeam";
+import { focusDraftWindow, startCompose, wantsWindow, type StartOpts } from "../popout/composeOpen";
+import { draftKey } from "../popout/entry";
+import { shiftNow } from "../popout/modifier";
+import { openPopout } from "../popout/open";
 import { useContentProtection } from "../protect";
+import { editorKeyHandlers, isAltGraph } from "../composeKeys";
+import { useLinkEditor } from "./LinkPopover";
 import { SchedulePicker } from "./SchedulePicker";
-import { AccountPicker, Dropdown, MenuList, useFitInWindow, useOutside } from "./ui";
+import { ImportanceButtons, ImportanceMark } from "./Importance";
+import { draftImportance, initialImportance, pressImportance, type Importance } from "../importance";
+import { AccountPicker, Dropdown, FloatingMenu, usePinnedBelow, useOutside, type MenuItem } from "./ui";
 import type { Key } from "../i18n";
+import { t as tNow } from "../i18n";
 import { useT } from "../i18n/react";
 import { tx } from "../i18n/rich";
 
-const MAX_ATTACH_BYTES = 25 * 1024 * 1024;
 /** Whether this is an address the composer accepts (see addresses.ts: `qa@localhost` and the account hosts count). */
 const EMAIL = { test: (a: string) => isEmail(a, singleLabelHostsOf(useStore.getState().accounts)) };
-const bareAddress = (v: string) => (v.match(/<([^>]+)>/)?.[1] ?? v).trim();
+const bareAddress = addressOf;
 const approxBytes = (a: Att) => Math.floor((a.dataBase64.length * 3) / 4);
+// Find and replace: the panel is fetched when Ctrl+F is first pressed (editor/FindBar.tsx)
+const FindBar = lazy(() => import("../editor/FindBar").then((m) => ({ default: m.FindBar })));
+
 const MEDIUM = 480;
 const SIZES: [Key, number | null][] = [["compose.pic.small", 240], ["compose.pic.medium", MEDIUM], ["compose.pic.large", 720], ["compose.pic.original", null]];
 const LARGE_PICTURE = 1024 * 1024;
 
-/** An inline picture: the same node as tiptap's image, plus the width and the file name we keep. */
-const PictureNode = Image.extend({
-  addAttributes() {
-    return {
-      ...this.parent?.(),
-      width: {
-        default: null,
-        parseHTML: (el: HTMLElement) => Number(el.getAttribute("width")) || null,
-        renderHTML: (a: Record<string, unknown>) => (a.width ? { width: a.width } : {}),
-      },
-      "data-name": {
-        default: null,
-        parseHTML: (el: HTMLElement) => el.getAttribute("data-name"),
-        renderHTML: (a: Record<string, unknown>) => (a["data-name"] ? { "data-name": a["data-name"] } : {}),
-      },
-    };
-  },
-}).configure({ inline: false, allowBase64: true });
 
 /**
  * The signature region of a message: an atom the user cannot type into or break. Its header holds the signature picker (React
@@ -68,6 +89,7 @@ const SignatureBlock = (cb: { mount: (el: HTMLElement) => void; unmount: (el: HT
     draggable: false,
     parseHTML: () => [{ tag: "div[data-sig-block]" }],
     renderHTML: () => ["div", { "data-sig-block": "" }],
+    addProseMirrorPlugins: () => [signatureGuard("signatureBlock")],
     addNodeView: () => () => {
       const dom = document.createElement("div");
       dom.className = "sig-block none";
@@ -81,7 +103,7 @@ const SignatureBlock = (cb: { mount: (el: HTMLElement) => void; unmount: (el: HT
 
 /** Recipient input with chips, address validation and keyboard-friendly suggestions. */
 export function RecipientField({
-  label, values, onChange, autoFocus, onTouch, keys, onKeyAction, hideLabel,
+  label, values, onChange, autoFocus, onTouch, onPending, keys, onKeyAction, hideLabel,
 }: {
   label: string;
   /** the label is only for screen readers (the caller shows its own) */
@@ -90,6 +112,8 @@ export function RecipientField({
   onChange: (v: string[]) => void;
   autoFocus?: boolean;
   onTouch?: () => void;
+  /** what is typed in the box and not yet a chip (tells the crash-recovery snapshot about an address that was typed and not confirmed) */
+  onPending?: (text: string) => void;
   /** PGP key status per address (lower case); shown on the chips while Encrypt is on */
   keys?: Record<string, RecipientStatus>;
   onKeyAction?: (a: "import" | "paste") => void;
@@ -99,26 +123,44 @@ export function RecipientField({
   const popRef = useRef<HTMLSpanElement>(null);
   useOutside(popRef, () => setKeyPop(null), keyPop !== null);
   const [text, setText] = useState("");
+  const pendingRef = useRef(onPending);
+  pendingRef.current = onPending;
+  useEffect(() => {
+    pendingRef.current?.(text);
+  }, [text]);
   const [sugg, setSugg] = useState<Contact[]>([]);
   const [hi, setHi] = useState(-1);
   const input = useRef<HTMLInputElement>(null);
+  const fieldRef = useRef<HTMLDivElement>(null);
+  const chipsRef = useRef<HTMLDivElement>(null);
+  const suggRef = useRef<HTMLDivElement>(null);
+  // the popovers of the field are fixed: the header of the compose pane scrolls in a low window, and a scroll box would cut off an absolute one
+  usePinnedBelow(popRef, fieldRef, keyPop !== null, { inset: 62 });
+  usePinnedBelow(suggRef, fieldRef, sugg.length > 0, { inset: 62, match: true }, sugg);
   useEffect(() => {
     if (autoFocus) input.current?.focus();
   }, [autoFocus]);
+  // many recipients: the box has a height of its own (App.css .chips) and shows the end, where the next one is typed
+  useEffect(() => {
+    const c = chipsRef.current;
+    if (c && document.activeElement === input.current) c.scrollTop = c.scrollHeight;
+  }, [values.length]);
 
   const commit = (raw: string) => {
-    const parts = raw.split(/[,;\n]/).map((p) => p.trim()).filter(Boolean);
-    if (parts.length === 0) return;
-    onChange([...values, ...parts.filter((p) => !values.includes(p))]);
+    // one parser for typing, paste and drop (recipients.ts): a comma inside a quoted name does not end the recipient
+    const parts = splitRecipients(raw);
+    if (parts.length === 0) return /^[\s,;]*$/.test(raw) ? setText("") : undefined; // nothing but separators: the box is emptied
+    onChange(addRecipients(values, parts)); // each address once, upper / lower case alike; the first spelling stays
     onTouch?.();
     setText("");
     setSugg([]);
     setHi(-1);
   };
-  const pick = (c: Contact) => commit(c.name ? `${c.name.replace(/[<>,;]/g, "")} <${c.email}>` : c.email);
+  const pick = (c: Contact) => commit(formatRecipient(c.name ?? "", c.email));
 
-  const onInput = (v: string) => {
-    if (/[,;]\s*$/.test(v)) return commit(v);
+  const onInput = (v: string, composing: boolean) => {
+    // not while an input method is composing (its punctuation is part of the word), and not inside a quoted name
+    if (!composing && /[,;]\s*$/.test(v) && !openAtEnd(v.replace(/[,;]\s*$/, ""))) return commit(v);
     setText(v);
     setHi(-1);
     if (v.trim().length >= 2) void api.suggestContacts(v.trim()).then(setSugg).catch(() => setSugg([]));
@@ -126,15 +168,15 @@ export function RecipientField({
   };
 
   return (
-    <div className="cf-field rcpt" onClick={() => input.current?.focus()}>
+    <div className="cf-field rcpt" ref={fieldRef} onClick={() => input.current?.focus()}>
       {!hideLabel && <label>{label}</label>}
-      <div className="chips">
+      <div className="chips" ref={chipsRef}>
         {values.map((v) => {
           const addr = bareAddress(v).toLowerCase();
           const ks = keys?.[addr];
           const noKey = !!ks && ks.status !== "ok";
           return (
-          <span key={v} className={`rchip ${EMAIL.test(bareAddress(v)) ? "" : "bad"} ${noKey ? "nokey" : ""}`} title={EMAIL.test(bareAddress(v)) ? (noKey ? t("compose.rcpt.noUsableKey", { addr }) : v) : t("compose.rcpt.notAddress")}>
+          <span key={v} data-email={EMAIL.test(bareAddress(v)) ? bareAddress(v) : undefined} className={`rchip ${EMAIL.test(bareAddress(v)) ? "" : "bad"} ${noKey ? "nokey" : ""}`} title={EMAIL.test(bareAddress(v)) ? (noKey ? t("compose.rcpt.noUsableKey", { addr }) : v) : t("compose.rcpt.notAddress")}>
             {ks && (ks.status === "ok" ? (
               <span className="rchip-key ok" title={t("compose.rcpt.keyFound")} role="img" aria-label={t("compose.rcpt.keyFoundFor", { addr })}><Lock size={11} /></span>
             ) : (
@@ -142,10 +184,10 @@ export function RecipientField({
                 <LockOpen size={11} />
               </button>
             ))}
-            <span className="ellipsis">{v}</span>
+            <span className="ellipsis">{chipLabel(v)}</span>
             <button
               type="button"
-              aria-label={t("compose.rcpt.remove", { name: v })}
+              aria-label={t("compose.rcpt.remove", { name: chipLabel(v) })}
               onClick={(e) => {
                 e.stopPropagation();
                 onChange(values.filter((x) => x !== v));
@@ -162,12 +204,21 @@ export function RecipientField({
           value={text}
           aria-label={label}
           placeholder={values.length === 0 ? "name@example.com" : undefined}
-          onChange={(e) => onInput(e.target.value)}
+          onChange={(e) => onInput(e.target.value, !!(e.nativeEvent as InputEvent).isComposing)}
           onPaste={(e) => {
             const pasted = e.clipboardData.getData("text");
-            if (/[,;\n]/.test(pasted)) {
+            if (/[,;\n\r\t<]/.test(pasted)) {
               e.preventDefault();
               commit(text + pasted);
+            }
+          }}
+          onDrop={(e) => {
+            // text dragged into the box (a list of addresses from another program) becomes chips like a paste
+            const dropped = e.dataTransfer.getData("text");
+            if (dropped && /[,;\n\r\t<@]/.test(dropped)) {
+              e.preventDefault();
+              e.stopPropagation();
+              commit(text + dropped);
             }
           }}
           onBlur={() => {
@@ -175,6 +226,8 @@ export function RecipientField({
             commit(text);
           }}
           onKeyDown={(e) => {
+            // Enter / Tab / `,` that belong to an input method (it confirms a half-converted word) do not make a chip
+            if (isImeEvent(e)) return;
             if (e.key === "ArrowDown" && sugg.length) {
               e.preventDefault();
               setHi((h) => Math.min(h + 1, sugg.length - 1));
@@ -189,6 +242,8 @@ export function RecipientField({
                 if (!moveOn) e.preventDefault();
                 pick(sugg[hi]);
               } else if (text.trim()) {
+                // a `,` or `;` typed inside a quoted name is part of the name
+                if ((e.key === "," || e.key === ";") && openAtEnd(text)) return;
                 if (!moveOn) e.preventDefault();
                 commit(text);
               }
@@ -200,7 +255,7 @@ export function RecipientField({
         />
       </div>
       {keyPop && keys?.[keyPop] && (
-        <span className="suggest popover" role="dialog" aria-label={t("compose.rcpt.keyDialog", { addr: keyPop })} ref={popRef} style={{ width: 340, right: "auto", left: 62, padding: 12, gap: 8, display: "flex", flexDirection: "column" }} onClick={(e) => e.stopPropagation()}>
+        <span className="suggest pinned popover" role="dialog" aria-label={t("compose.rcpt.keyDialog", { addr: keyPop })} ref={popRef} style={{ width: 340, padding: 12, gap: 8, display: "flex", flexDirection: "column" }} onClick={(e) => e.stopPropagation()}>
           <span style={{ display: "flex", gap: 8, alignItems: "center" }}><TriangleAlert size={15} className="warn-ico" /><b>{keys[keyPop].status === "expired" ? t("compose.rcpt.keyExpired", { addr: keyPop }) : keys[keyPop].status === "revoked" ? t("compose.rcpt.keyRevoked", { addr: keyPop }) : t("compose.rcpt.keyMissing", { addr: keyPop })}</b></span>
           <span className="muted small">
             {keys[keyPop].status === "missing"
@@ -215,7 +270,7 @@ export function RecipientField({
         </span>
       )}
       {sugg.length > 0 && (
-        <div className="suggest" role="listbox">
+        <div className="suggest pinned" role="listbox" ref={suggRef}>
           {sugg.map((c, i) => (
             <div key={c.email} role="option" aria-selected={i === hi} className={i === hi ? "hl" : ""} onMouseDown={(e) => (e.preventDefault(), pick(c))} onMouseEnter={() => setHi(i)}>
               {c.name ? `${c.name} ` : ""}
@@ -237,9 +292,11 @@ export async function messageToEditor(m: MessageFull): Promise<{ html: string | 
   for (const a of m.attachments) {
     if (a.inline && a.referenced) {
       // embedded at sync time already, or still a cid: reference that is fetched now
-      if (a.cid && html?.includes(`cid:${a.cid}`)) {
-        const d = await api.attachmentData(m.id, a.index).catch(() => null);
-        if (d) html = html.split(`cid:${a.cid}`).join(`data:${d.mime};base64,${d.dataBase64}`);
+      const d = html && a.cid ? await api.attachmentData(m.id, a.index).catch(() => null) : null;
+      if (d && html) {
+        if (html.includes(`cid:${a.cid}`)) html = html.split(`cid:${a.cid}`).join(`data:${d.mime};base64,${d.dataBase64}`);
+        // (the part knows the file name the picture was added with; the HTML does not)
+        html = nameInlinePicture(html, d.dataBase64, a.name || d.name);
       }
       continue;
     }
@@ -250,9 +307,98 @@ export async function messageToEditor(m: MessageFull): Promise<{ html: string | 
   return { html, attachments };
 }
 
+/**
+ * Open a draft (a conversation of the Drafts folder) in Compose, with its pictures and attachments, asking for the key of an encrypted
+ * one. `wait`: the draft was only just saved, so the local copy may not be there yet: the sync is asked for it a few times.
+ * Returns whether Compose was opened. It opens in the pane or in a window of its own like any message (the setting and Shift, or `o.window`);
+ * a draft is open in one editor only: when a window shows it already, that window comes forward and nothing is opened (REQ-C9).
+ */
+export async function openDraftThread(threadId: string, wait = false, o: StartOpts = {}): Promise<boolean> {
+  const shift = o.shift ?? shiftNow(); // (read now: the draft is fetched first)
+  const key = draftKey(threadId);
+  const mine = ++latestDraftOpen;
+  if (await focusDraftWindow(key)) return true;
+  const st = useStore.getState();
+  let msgs = await api.getThread(threadId, "drafts");
+  for (let i = 0; wait && !msgs.some((x) => x.folder === "drafts") && i < 4; i++) {
+    await useStore.getState().sync();
+    msgs = await api.getThread(threadId, "drafts");
+    if (!msgs.some((x) => x.folder === "drafts")) await new Promise((r) => setTimeout(r, 1200));
+  }
+  let m = msgs.filter((x) => x.folder === "drafts").pop() ?? msgs[msgs.length - 1];
+  if (!m) {
+    if (wait) st.showToast(() => tNow("compose.leave.draftNotFound"), undefined, "error");
+    return false;
+  }
+  // a draft that was encrypted to your own key needs the key (and its passphrase) to be opened again
+  if (m.security?.encrypted && m.security.decryption !== "ok") {
+    if (m.security.decryption === "locked" && m.security.lockedKey && (await askUnlock(m.security.lockedKey, "draft", m.security.lockedLabel ?? undefined))) {
+      m = await api.pgpDecryptMessage(m.id).catch(() => m);
+    }
+    if (m.security?.decryption !== "ok") {
+      if (m.security?.decryption !== "locked") st.showToast(() => tNow("mail.draft.cannotOpen", { error: friendlyError(m.security?.error ?? tNow("mail.draft.keyMissing")) }), undefined, "error");
+      return false;
+    }
+  }
+  // restore pictures and attachments so saving or sending the draft does not silently drop them
+  const { html, attachments } = await messageToEditor(m);
+  if (mine !== latestDraftOpen) return false; // another draft was asked for meanwhile (the second click of a double click): only the last one opens
+  // the recipients as they were typed (names, Bcc) come from the draft's own headers; the synced copy has bare To / Cc and no Bcc
+  const rc = await api.draftRecipients(m.id).catch(() => null);
+  // without the draft's own headers the Bcc recipients are unknown: say so, a send would leave them out
+  if (!rc) st.showToast(() => tNow("compose.draft.bccUnread"), undefined, "error");
+  await startCompose({
+    accountId: m.accountId,
+    to: rc?.to ?? (m.to ? splitRecipients(m.to) : []),
+    cc: rc?.cc ?? (m.cc ? splitRecipients(m.cc) : []),
+    bcc: rc?.bcc,
+    // the threading headers of the saved draft: an answer that was saved goes out threaded as it would have before
+    inReplyTo: rc?.inReplyTo ?? null,
+    references: rc?.references ?? [],
+    subject: m.subject === "(no subject)" ? "" : m.subject,
+    bodyHtml: html ?? `<p>${(m.text ?? "").replace(/\n/g, "<br>")}</p>`,
+    replaces: `m:${m.id}`, // the message that was opened: saving or sending replaces that one, not other drafts of the conversation
+    attachments,
+    security: m.security?.encrypted ? { encrypt: true, sign: false, attachPublicKey: false } : undefined,
+    confidential: m.confidential,
+    importance: m.importance,
+    // the meeting that was on when the draft was saved: from its private header (else the copy this computer kept), checked here (meetingDraft.ts)
+    meetingForm: decodeMeeting(rc?.meeting) ?? undefined,
+  }, { ...o, shift, key });
+  // the draft is open in the pane (not in a window): a double click moves it to a window instead of opening it twice (openDraftInWindow)
+  if (!wantsWindow({ window: o.window, shift })) inlineDraft = { threadId, composeKey: useStore.getState().composeKey };
+  return true;
+}
+
+/** The draft that was last opened in the pane, and which opening of the pane it was. */
+let inlineDraft: { threadId: string; composeKey: number } | null = null;
+/** Counts the openings of a draft: one that is overtaken by a newer one gives up. */
+let latestDraftOpen = 0;
+
+/**
+ * A draft in a window of its own (double click or Shift+Enter on a row of the Drafts folder, REQ-C1). The first click of a double click has
+ * opened it in the pane: when that is the draft still untouched it is closed first, so it is never open in two editors.
+ */
+export async function openDraftInWindow(threadId: string): Promise<boolean> {
+  const st = useStore.getState();
+  if (inlineDraft?.threadId === threadId && st.compose && st.composeKey === inlineDraft.composeKey && !st.composeDirty) await st.openCompose(null, { restore: false });
+  return openDraftThread(threadId, false, { window: true });
+}
+
+/** The positions of the pictures of the body that have no alt text (the signature and the quoted message are not the body). */
+export function picturesWithoutAlt(editor: Editor): number[] {
+  const out: number[] = [];
+  editor.state.doc.descendants((n, pos) => {
+    if (n.type.name === "image" && !String(n.attrs.alt ?? "").trim()) out.push(pos);
+    return true;
+  });
+  return out;
+}
+
 /** Replace cid: references with the pictures' data: URIs (used when a sent or scheduled draft is reopened). */
 export function picturesToEditor(html: string, pics: InlineImage[]): string {
-  return pics.reduce((h, p) => h.split(`cid:${p.cid}`).join(`data:${p.mime};base64,${p.dataBase64}`), html);
+  // (the file name each picture was added with goes back on it, so the reopened message sends it under that name)
+  return pics.reduce((h, p) => nameInlinePicture(h.split(`cid:${p.cid}`).join(`data:${p.mime};base64,${p.dataBase64}`), p.dataBase64, p.filename), html);
 }
 
 const dataUriParts = (uri: string) => {
@@ -276,30 +422,82 @@ interface PictureSel {
   width: number | null;
   alt: string;
   name: string;
-  top: number;
-  left: number;
+  /** "center" / "right", else left; the address of the link on the picture, "" for none */
+  align: string | null;
+  href: string;
+  /** where the picture is in the scrolling body (see pictureToolsLayout.ts); the toolbar is placed from it once it is measured */
+  geo: Omit<PictureToolsInput, "width" | "height">;
 }
 
 export function Compose({ init }: { init: ComposeInit }) {
+  // the table and picture nodes come in a chunk of their own (editor/kit.ts); the editor is made once they are there (fetched at start-up: no wait in practice)
+  return useKit() ? <ComposeBody init={init} /> : null;
+}
+
+function ComposeBody({ init }: { init: ComposeInit }) {
   const t = useT();
-  const { accounts, openCompose, showToast, prefs, refresh, confirm, choose, setComposeDirty, setComposeSaver, aiConfigured, setDialog, beginSend } = useStore();
-  const [accountId, setAccountId] = useState(accounts.some((a) => a.id === init.accountId) ? init.accountId! : accounts.some((a) => a.id === prefs.defaultAccount) ? prefs.defaultAccount : accounts[0]?.id || init.accountId || "");
+  const { accounts, openCompose, showToast, prefs, refresh, confirm, choose, setComposeDirty, setComposeSaver, setComposeProbe, aiConfigured, setDialog, beginSend } = useStore();
+  const [accountId, setAccountId] = useState(fromAccountFor(accounts, init.accountId, prefs.defaultAccount));
+  const accountRef = useRef(accountId); // (the editor's paste handler is made once: it reads the account of the moment from here)
+  accountRef.current = accountId;
   const isFresh = !init.replaces && !init.isReply && !init.outboxId && !init.restore;
   // an opened draft / scheduled message / message that failed to send: its body already holds the signature, shown as the region again
   const editing = !!(init.replaces || init.outboxId || init.restore);
   const autoCc = (id: string) => (isFresh ? eff(prefs, id, "autoCc").trim() : "");
   const autoBcc = (id: string) => (isFresh ? eff(prefs, id, "autoBcc").trim() : "");
-  const [to, setTo] = useState<string[]>(init.to ?? []);
-  const [cc, setCc] = useState<string[]>([...(init.cc ?? []), ...(autoCc(accountId) ? [autoCc(accountId)] : [])]);
-  const [bcc, setBcc] = useState<string[]>([...(init.bcc ?? []), ...(autoBcc(accountId) ? [autoBcc(accountId)] : [])]);
+  const [to, setTo] = useState<string[]>((init.to ?? []).map(cleanHeaderText)); // (from a received message, a draft or a link: never a line break in a header)
+  const [cc, setCc] = useState<string[]>([...(init.cc ?? []).map(cleanHeaderText), ...(autoCc(accountId) ? [autoCc(accountId)] : [])]);
+  const [bcc, setBcc] = useState<string[]>([...(init.bcc ?? []).map(cleanHeaderText), ...(autoBcc(accountId) ? [autoBcc(accountId)] : [])]);
+  /**
+   * What was typed, pasted, dropped or picked in a recipient field. An address lives in ONE field, the first of To, Cc, Bcc that has it
+   * (R19A-2): one that is already in an earlier field is not added again (a note says where it is), one that is in a later field moves up.
+   */
+  const changeField = (field: RcptField) => (next: string[]) => {
+    const r = placeRecipients({ to, cc, bcc }, field, next);
+    setTo(r.fields.to);
+    setCc(r.fields.cc);
+    setBcc(r.fields.bcc);
+    const name = (f: RcptField) => t(`compose.${f}`);
+    for (const x of r.skipped.slice(0, 3)) showToast(t("compose.rcpt.alreadyIn", { addr: x.addr, field: name(x.in) }), undefined, "info");
+    for (const x of r.moved.slice(0, 3)) showToast(t("compose.rcpt.movedUp", { addr: x.addr, from: name(x.from), to: name(field) }), undefined, "info");
+  };
   const [showCc, setShowCc] = useState(cc.length > 0 || bcc.length > 0);
-  const [subject, setSubject] = useState(init.subject ?? "");
-  const [atts, setAtts] = useState<Att[]>(init.attachments ?? []);
+  // the sender asked for answers to go to another address than From (Reply-To): said under To, with a way back to From
+  const [replyNote, setReplyNote] = useState(init.replyNote ?? null);
+  const noteKeys = replyNote ? replyNote.replyTo.map(recipientKey) : [];
+  const noteShown = !!replyNote && to.some((x) => noteKeys.includes(recipientKey(x)));
+  const replyToFrom = () => {
+    if (!replyNote) return;
+    setTo(addRecipients([replyNote.from], to.filter((x) => !noteKeys.includes(recipientKey(x)))));
+    setReplyNote(null);
+    touch();
+  };
+  const [subject, setSubject] = useState(cleanHeaderText(init.subject ?? ""));
+  // the attachments of an opened draft / forward are shown (and sent) under a clean name: no folder, no hidden characters (O-05)
+  const [atts, setAtts] = useState<Att[]>(() => {
+    const names = outgoingNames((init.attachments ?? []).map((a) => a.filename));
+    return (init.attachments ?? []).map((a, i) => ({ ...a, filename: names[i] }));
+  });
   const [templates, setTemplates] = useState<Template[]>([]);
   const [sigs, setSigs] = useState<Signature[]>([]);
   // the message of an opened draft carries its signature as stored text: it is shown as the signature region again
-  const startDoc = useRef<{ html: string; sig: string | null } | null>(null);
-  if (editing && !startDoc.current) startDoc.current = extractSignature(init.bodyHtml ?? "");
+  const startDoc = useRef<{ html: string; sig: string | null; base: BaseFont | null } | null>(null);
+  if (editing && !startDoc.current) {
+    // the stored message is one box with the default font it was written in (editor/emailHtml.ts): the draft keeps that font
+    const u = unwrapBase(init.bodyHtml ?? "");
+    // the quoted original of a reply / forward is a block of its own again (editor/quoteBlock.ts), then the signature region
+    startDoc.current = { ...extractSignature(extractQuote(u.html).html), base: u.base };
+  }
+  // the default font of THIS message: the one the draft was written in, else the Settings > Composing choice at the time it was opened
+  const [base] = useState<BaseFont>(() => startDoc.current?.base ?? baseFromPrefs(prefs));
+  const baseRef = useRef(base);
+  const barApi = useRef<FormatBarApi>(null);
+  /** the editor shown larger or smaller (REQ-49, More > Zoom): display only, for this message only */
+  const [zoom, setZoom] = useState(100);
+  /** Find and replace (REQ-44, Ctrl+F / Ctrl+H, Cmd+Shift+H on a Mac, the Replace item and the chevron of the panel): the panel above the text; `nonce` brings the focus back to it when it is asked for again */
+  const [find, setFind] = useState<{ mode: "find" | "replace"; nonce: number } | null>(null);
+  const openFindRef = useRef<(mode: "find" | "replace") => void>(() => undefined);
+  openFindRef.current = (mode) => setFind((f) => ({ mode, nonce: (f?.nonce ?? 0) + 1 }));
   const draftSig = useMemo<Signature | null>(
     () => (startDoc.current?.sig ? { id: "draft-signature", name: "", html: startDoc.current.sig, isDefault: false, accountId: null } : null),
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -310,10 +508,13 @@ export function Compose({ init }: { init: ComposeInit }) {
   const [sigHeads, setSigHeads] = useState<HTMLElement[]>([]);
   const [aiOpen, setAiOpen] = useState(false);
   const [aiPrompt, setAiPrompt] = useState("");
-  const [aiBusy, setAiBusy] = useState(false);
+  const ai = useAiSlot("write");
   const [busy, setBusy] = useState(false);
   // a meeting: To = required attendees, Cc = optional; sent as a calendar invitation
-  const [meeting, setMeeting] = useState<MeetingState | null>(init.meeting ? defaultMeeting(calTz(prefs), init.meeting) : null);
+  // (a reopened draft, snapshot or moved message brings the strip as it was: `meetingForm`; the start values of "Meeting" otherwise)
+  const [meeting, setMeeting] = useState<MeetingState | null>(
+    init.meetingForm ? restoreMeeting(init.meetingForm, calTz(prefs), { fromInputs, toInputs }) : init.meeting ? defaultMeeting(calTz(prefs), init.meeting) : null,
+  );
   const [schedOpen, setSchedOpen] = useState(!!init.openSchedule);
   const [dragging, setDragging] = useState(false);
   const [dragImages, setDragImages] = useState(false);
@@ -322,22 +523,55 @@ export function Compose({ init }: { init: ComposeInit }) {
   const [picSel, setPicSel] = useState<PictureSel | null>(null);
   const [altOpen, setAltOpen] = useState(false);
   const [altText, setAltText] = useState("");
+  // "Preview as recipient": which background the body is shown on. A view-layer choice only (buildDraft never reads it)
+  const [pv, setPv] = useState<PreviewBg>(() => startPreview(prefs.mailCanvas));
+  const choosePreview = (p: PreviewBg) => {
+    rememberPreview(p);
+    setPv(p);
+  };
   // PGP: Encrypt is "on", "off", or "auto" (on while every recipient has a key); Sign is a plain switch
   const keysRev = useStore((s) => s.keysRev);
   const startMode = eff(prefs, accountId, "pgpEncrypt");
   // Outlook's Sensitivity: Confidential. An answer to confidential mail starts that way, and keeps the window out of screen capture
   // while it quotes the mail (init.confidential), as the reading pane does.
   const [confidential, setConfidential] = useState(!!init.confidential);
+  // Outlook's Importance (High / Low / Normal): per message, Normal unless a reopened draft or scheduled message was High / Low
+  const [importance, setImportance] = useState<Importance>(initialImportance(init));
   useContentProtection(!!init.confidential);
   const [encIntent, setEncIntent] = useState<"on" | "off" | "auto">(init.restore ? init.restore.encrypt : init.security ? (init.security.encrypt ? "on" : "off") : startMode === "always" ? "on" : startMode === "possible" ? "auto" : "off");
   const [signOn, setSignOn] = useState(init.restore ? init.restore.sign : init.security ? init.security.sign : eff(prefs, accountId, "pgpSign"));
   const [attachKey, setAttachKey] = useState(init.restore ? init.restore.attachKey : init.security ? init.security.attachPublicKey : eff(prefs, accountId, "pgpAttachKey"));
   const [signMenu, setSignMenu] = useState(false);
+  // how much room the pane has (composeFit.ts): a small one shows the actions as icons and More; the measure is the pane, not the window
+  const paneRef = useRef<HTMLDivElement>(null);
+  const [compact, setCompact] = useState(false);
+  const [barWraps, setBarWraps] = useState(false); // the actions did not fit in one row (a long name of Send, a scheduled message): then the row scrolls away with the fields instead of staying put
+  useLayoutEffect(() => {
+    const el = paneRef.current;
+    if (!el) return;
+    const bar = el.querySelector<HTMLElement>(".cp-bar");
+    const measure = () => {
+      setCompact(isCompact(el.clientWidth, el.clientHeight));
+      setBarWraps(!!bar && bar.offsetHeight > BAR_ROW_MAX);
+    };
+    measure();
+    const ro = new ResizeObserver(measure);
+    ro.observe(el);
+    if (bar) ro.observe(bar);
+    return () => ro.disconnect();
+  }, []);
   const [secDetails, setSecDetails] = useState(false);
   const [ks, setKs] = useState<{ own: OwnKeyStatus | null; recipients: Record<string, RecipientStatus> } | null>(null);
   const signRef = useRef<HTMLDivElement>(null);
-  useOutside(signRef, () => setSignMenu(false), signMenu);
+  const signCaretRef = useRef<HTMLButtonElement>(null);
   const touched = useRef(false);
+  /** the address typed in To / Cc / Bcc and not yet confirmed as a chip (a crash right then still keeps it, in the snapshot) */
+  const pendingRcpt = useRef({ to: "", cc: "", bcc: "" });
+  const pending = (k: "to" | "cc" | "bcc") => (v: string) => {
+    if (pendingRcpt.current[k] === v) return;
+    pendingRcpt.current[k] = v;
+    if (v.trim()) touch();
+  };
   const ccTouched = useRef(false);
   const savedRef = useRef(false); // an outbox item was saved, moved or sent from here (nothing to release)
   const fileRef = useRef<HTMLInputElement>(null);
@@ -346,10 +580,58 @@ export function Compose({ init }: { init: ComposeInit }) {
   const bodyRef = useRef<HTMLDivElement>(null);
   useOutside(schedRef, () => setSchedOpen(false), schedOpen);
   const schedPopRef = useRef<HTMLDivElement>(null);
-  useFitInWindow(schedPopRef, schedOpen);
+  usePinnedBelow(schedPopRef, schedRef, schedOpen); // fixed: the header scrolls in a low window, and a scroll box would cut off an absolute popover
+
+  const revRef = useRef(0); // up with every edit: a save that was running while the person typed knows it
+  const attachingRef = useRef(0); // files / pictures being read into the message
+  const savedTid = useRef<string | null>(null); // the conversation of the draft a save made (the "Draft saved" toast opens it with Edit)
+  const savedDraftRef = useRef<string | null>(null); // that draft as a reference: a second save, a send or a discard replaces / removes exactly it
+  const replacesRef = () => savedDraftRef.current ?? init.replaces ?? null; // the draft this message takes the place of
+  const baseline = useRef<{ text: string; pics: number } | null>(null); // the body as Compose opened it (a reply: the quote)
+
+  // Autosave and crash recovery (autosave.ts, recovery.ts). A changed message is saved to Drafts about every 30 s, replacing the draft the earlier
+  // save made; and its form is written to a local snapshot every few seconds, which stays until the message is sent, discarded or saved, so a
+  // kill or a crash loses nothing: the next start offers it back.
+  const recoveryId = useRef<string>(init.recoveryId ?? crypto.randomUUID()).current;
+  const writerRef = useRef<RecoveryWriter | null>(null);
+  writerRef.current ??= new RecoveryWriter(recoveryId, { save: (s) => api.recoverySave(s), clear: (id, why) => api.recoveryClear(id, why) });
+  const writer = writerRef.current;
+  const savingRef = useRef(0); // saves that are running (autosave, Save draft, leaving)
+  const savedRevRef = useRef(0); // the revision the last successful save covered
+  const changedAtRef = useRef(0); // when the first change after that save was made
+  const lastTryRef = useRef(0); // when the last autosave started
+  const failuresRef = useRef(0); // autosaves that failed in a row
+  const snapRevRef = useRef(-1); // the revision the last snapshot covered
+  const snapAtRef = useRef(0);
+  const sendingRef = useRef(false); // the message is on its way out: its snapshot stays until the send is safe
+  const poppingRef = useRef(false); // the message is being moved to a window of its own: the window that opens must not make this pane autosave it
+  const endingRef = useRef(false); // the message is over without a send (Discard, leaving it unsaved, a quit that drops it): nothing may save a draft of it from here on
+  const filesKeyRef = useRef<{ atts: Att[]; key: string } | null>(null);
+  const [autosavedAt, setAutosavedAt] = useState<number | null>(null);
+
+  // The picture toolbar is placed after it has been laid out: it wraps to more rows in a narrow pane, so its size is measured, then it
+  // goes above / below the picture and inside the pane (pictureToolsLayout.ts). The alt text popover opens under it, also inside the pane.
+  const toolsRef = useRef<HTMLDivElement>(null);
+  // the alt text popover is a layer of its own (a portal on <body>, fixed): under the toolbar or above it, inside the window and above a toast, scrolling when it is
+  // taller than the room (a small window: the pane is only a few lines high, an absolute popover inside it was cut off)
+  const toolsBoxRef = useRef<HTMLDivElement>(null);
+  const altPopRef = useRef<HTMLDivElement>(null);
+  usePinnedBelow(altPopRef, toolsBoxRef, altOpen && !!picSel);
+  useLayoutEffect(() => {
+    const anchor = toolsRef.current;
+    if (!picSel || !anchor) return;
+    const box = anchor.firstElementChild as HTMLElement;
+    const { geo } = picSel;
+    box.style.marginLeft = "";
+    const { left, top } = placePictureTools({ ...geo, width: box.offsetWidth, height: box.offsetHeight });
+    box.style.marginLeft = `${left}px`;
+    anchor.style.top = `${top}px`;
+  });
 
   const touch = useCallback(() => {
     touched.current = true;
+    revRef.current++;
+    if (!changedAtRef.current) changedAtRef.current = Date.now();
     setComposeDirty(true);
   }, [setComposeDirty]);
 
@@ -397,6 +679,34 @@ export function Compose({ init }: { init: ComposeInit }) {
     setSignOn(!signOn);
     touch();
   };
+  // Meeting switched on: the header scrolls to the strip (When, Where), which is below the fold of a low pane. Before, the strip showed only as a sliver cut through by the lower
+  // edge of the header (v1.0.6 Linux QA: "the formatting row covers the Where row"), and a row scrolled into view by a focus could hide under the sticky action row.
+  const revealMeeting = useRef(false);
+  useLayoutEffect(() => {
+    if (!revealMeeting.current || !meeting) return;
+    revealMeeting.current = false;
+    paneRef.current?.querySelector(".cp-event")?.scrollIntoView({ block: "start" });
+  }, [meeting]);
+  const toggleMeeting = () => {
+    if (meeting) setMeeting(null);
+    else {
+      revealMeeting.current = true;
+      if (bcc.length) {
+        setBcc([]);
+        showToast(t("compose.meeting.bccRemoved"), undefined, "info");
+      }
+      setMeeting(defaultMeeting(calTz(prefs)));
+    }
+    touch();
+  };
+  /** The rows of the menu at the Sign button: sign this message, attach the public key, the signing key, the keys. */
+  const signItems: MenuItem[] = [
+    { label: t("compose.bar.signThis"), checked: signOn, hint: kbd("Ctrl+Shift+G"), disabled: !own, onClick: toggleSign },
+    { label: t("compose.bar.attachPublicKey"), checked: attachKey, disabled: !own, onClick: () => (setAttachKey(!attachKey), touch()) },
+    { divider: true },
+    ...(own ? [{ label: t("compose.bar.signingKey", { key: shortKey(own.fingerprint) }), icon: <ShieldCheck size={14} />, onClick: () => setDialog({ type: "pgp-key", fingerprint: own.fingerprint }) }] : [{ label: t("compose.bar.noKeyYet"), disabled: true }]),
+    { label: own ? t("compose.bar.manageKeys") : t("compose.bar.setUpEncryption"), onClick: () => (own ? setDialog({ type: "settings", tab: "pgp" }) : setDialog({ type: "pgp-generate", accountId })) },
+  ];
   /** What this message will do, as sent to the backend. */
   const currentSecurity = (): DraftSecurity | undefined =>
     encOn || signActive ? { encrypt: encOn, sign: signActive, attachPublicKey: attachKey && (encOn || signActive) } : undefined;
@@ -411,15 +721,24 @@ export function Compose({ init }: { init: ComposeInit }) {
     const box = bodyRef.current?.getBoundingClientRect();
     if (!dom || !box) return setPicSel(null);
     const r = dom.getBoundingClientRect();
-    const scroll = bodyRef.current?.scrollTop ?? 0;
-    const above = r.top - box.top - 44 >= 0;
+    const body = bodyRef.current!;
+    const scroll = body.scrollTop;
     setPicSel({
       pos: sel.from,
       width: (sel.node.attrs.width as number | null) ?? null,
       alt: (sel.node.attrs.alt as string | null) ?? "",
       name: (sel.node.attrs["data-name"] as string | null) ?? "picture",
-      top: above ? r.top - box.top + scroll - 42 : r.bottom - box.top + scroll + 8,
-      left: Math.max(8, r.left - box.left + Math.min(r.width, 360) / 2 - 150),
+      align: (sel.node.attrs.align as string | null) ?? null,
+      href: (sel.node.attrs.href as string | null) ?? "",
+      geo: {
+        imgLeft: r.left - box.left,
+        imgWidth: r.width,
+        imgTop: r.top - box.top + scroll,
+        imgBottom: r.bottom - box.top + scroll,
+        scrollTop: scroll,
+        paneWidth: body.clientWidth,
+        paneHeight: body.clientHeight,
+      },
     });
   };
 
@@ -431,24 +750,44 @@ export function Compose({ init }: { init: ComposeInit }) {
         count++;
         bytes += dataUriBytes(n.attrs.src);
       }
+      // the pictures inside the quoted original travel with the message too (they count toward its size, not toward the number of pictures)
+      if (n.type.name === "quoteBlock") bytes += quotePictureBytes(String(n.attrs.html ?? ""));
     });
     setPics({ count, bytes });
   };
 
+  // Ctrl/Cmd+K in the body and the toolbar button open the same link UI (set after the editor exists)
+  const linkRef = useRef<() => void>(() => undefined);
+  const pasteNote = useRef(false); // the "pictures from the web are not pasted" notice is shown once per message
+  const startContent = useRef<string | null>(null); // the editor's first content, made once (a big quote is not scanned again at every render)
   const editor = useEditor({
     extensions: [
-      StarterKit,
-      Placeholder.configure({ placeholder: t("compose.editor.placeholder"), showOnlyCurrent: false }),
-      PictureNode,
+      ...baseExtensions({
+        placeholder: () => tNow("compose.editor.placeholder"), showOnlyCurrent: false, getBase: () => baseRef.current, focusToolbar: () => barApi.current?.focus(), openStyles: () => barApi.current?.openStyles(), pictures: true,
+        openFind: (mode) => openFindRef.current(mode),
+        // the quoted original of a reply / forward: a protected block; "Edit quoted text" asks first (editor/quoteNode.ts)
+        quote: { base: () => baseRef.current, ask: () => confirm({ title: tNow("compose.quote.editTitle"), body: tNow("compose.quote.editBody"), confirmLabel: tNow("compose.quote.editConfirm") }) },
+      }),
       SignatureBlock({ mount: (el) => setSigHeads((h) => [...h, el]), unmount: (el) => setSigHeads((h) => h.filter((x) => x !== el)) }),
     ],
     // the accessible name belongs on the contenteditable node ProseMirror renders
     editorProps: {
       attributes: { "aria-label": t("compose.editor.body") },
+      // one key, one action: Ctrl+Shift+B / Ctrl+Enter / Ctrl+Alt+... (AltGr) never reach the editor shortcuts, Ctrl+K is the link UI
+      handleDOMEvents: editorKeyHandlers(() => linkRef.current()),
+      // pasted / dropped HTML loses its remote pictures BEFORE the editor reads it: a tracking pixel or a UNC / file: picture is never requested
+      transformPastedHTML: (html: string) => {
+        const r = cleanPastedHtml(html);
+        if (r.removed && !pasteNote.current) {
+          pasteNote.current = true;
+          showToast(tNow("compose.paste.picturesRemoved"), undefined, "info");
+        }
+        return r.html;
+      },
       handlePaste: (_view, event) => {
         const all = Array.from(event.clipboardData?.files ?? []);
         const images = all.filter((f) => PICTURE_TYPES.includes(f.type));
-        if (images.length === 0 || useStore.getState().prefs.inlinePictures !== "inline") return false;
+        if (images.length === 0 || eff(useStore.getState().prefs, accountRef.current, "inlinePictures") !== "inline") return false;
         // the picture goes into the body, so the Compose-wide paste handler must not attach it as well
         event.preventDefault();
         event.stopPropagation();
@@ -459,25 +798,67 @@ export function Compose({ init }: { init: ComposeInit }) {
       },
     },
     // a new message: typed text, then the signature region, then (reply / forward) the quoted message
-    content: editing ? startDoc.current!.html : `<p></p>${SIG_MARK}${init.bodyHtml ?? "<p></p>"}`,
+    // a quoted or reopened body never brings a remote picture into the editor (the reader's "Load pictures" is the only place they load)
+    content: (startContent.current ??= stripRemotePictures(editing ? startDoc.current!.html : `<p></p>${SIG_MARK}${extractQuote(init.bodyHtml ?? "<p></p>").html}`).html),
     autofocus: (init.to?.length ?? 0) > 0 ? "start" : false,
-    onUpdate: ({ editor: ed }) => {
-      // the signature region cannot be deleted by accident (Backspace, select all): it comes back at the end
-      let has = false;
-      ed.state.doc.descendants((n) => { if (n.type.name === "signatureBlock") has = true; return !has; });
-      if (!has) ed.commands.insertContentAt(ed.state.doc.content.size, [{ type: "signatureBlock" }, { type: "paragraph" }]);
-      touch();
+    // a body from an older build may lack the paragraph above the signature region: add it without counting as an edit
+    onCreate: ({ editor: ed }) => {
+      const fix = repairSignature(ed.state, "signatureBlock", null);
+      if (fix) ed.view.dispatch(fix.setMeta("addToHistory", false).setMeta("signatureInit", true));
+    },
+    // the signature region itself cannot be deleted or moved by accident: signatureGuard (signatureGuard.ts) repairs it in place
+    onUpdate: ({ editor: ed, transaction }) => {
+      if (isPersonEdit(transaction)) touch();
       countPictures(ed);
       syncPicSel(ed);
     },
     onSelectionUpdate: ({ editor: ed }) => syncPicSel(ed),
   });
 
+  // the placeholder follows the language while the message is open (a compose that was open when the language was switched kept the old text)
+  const placeholderText = t("compose.editor.placeholder");
+  useEffect(() => refreshPlaceholder(editor), [editor, placeholderText]);
+
+  // the dark preview shows the picked colours the way the reading pane would (a view change: the document keeps what was picked)
+  useEffect(() => {
+    if (editor) setPreviewMode(editor, pv);
+  }, [editor, pv]);
+
+  // a resized window changes the pane the picture toolbar has to fit in, and a picture that has just loaded gets its real height
+  useEffect(() => {
+    if (!editor) return;
+    const onResize = () => syncPicSel(editor);
+    const dom = editor.view.dom;
+    window.addEventListener("resize", onResize);
+    dom.addEventListener("load", onResize, true);
+    return () => {
+      window.removeEventListener("resize", onResize);
+      dom.removeEventListener("load", onResize, true);
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [editor]);
+
   // pictures that were already in the draft (or a scheduled message) are counted once the editor exists
   useEffect(() => {
     if (editor) countPictures(editor);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [editor]);
+
+  const bodyPictures = (ed: Editor) => {
+    let n = 0;
+    ed.state.doc.descendants((x) => { if (x.type.name === "image") n++; });
+    return n;
+  };
+  // the body as it opened (a reply: the quote), to tell what the person wrote from what Compose put there
+  useEffect(() => {
+    // (a restored message has nothing "as it opened": everything in it was written by the person, so it is content to keep)
+    if (editor && !baseline.current) baseline.current = init.recoveryId || init.carried ? { text: "", pics: 0 } : { text: editor.getText().trim(), pics: bodyPictures(editor) };
+  }, [editor]);
+
+  // the link popover (LinkPopover.tsx): the same one for the toolbar button and Ctrl/Cmd+K, drawn under the button
+  const linkBtnRef = useRef<HTMLButtonElement>(null);
+  const link = useLinkEditor(editor, linkBtnRef);
+  linkRef.current = link.open;
 
   const [loaded, setLoaded] = useState(false);
   useEffect(() => {
@@ -540,6 +921,13 @@ export function Compose({ init }: { init: ComposeInit }) {
     });
   }, [editor, chosenSig, sigHeads]);
 
+  // the signature region is a mail's own colours: on the dark preview it gets the reading pane's dark recolouring (after the fill above)
+  useEffect(() => {
+    const regions = Array.from(editor?.view.dom.querySelectorAll<HTMLElement>(".sig-block .sig-body") ?? []);
+    regions.forEach((r) => setDarkRegion(r, pv === "dark"));
+    return () => regions.forEach((r) => setDarkRegion(r, false));
+  }, [editor, chosenSig, sigHeads, pv]);
+
   // switching the From account re-applies that account's Auto Cc/Bcc until the user edits those fields
   const changeAccount = (id: string) => {
     setAccountId(id);
@@ -556,20 +944,16 @@ export function Compose({ init }: { init: ComposeInit }) {
    * so they travel as related parts and are not listed as attachments.
    */
   const buildDraft = (): Draft => {
-    const doc = new DOMParser().parseFromString(editor?.getHTML() ?? "", "text/html");
-    fillSignature(doc, chosenSig?.html ?? null);
-    const inline: InlineImage[] = [];
-    doc.querySelectorAll("img").forEach((img) => {
-      const src = img.getAttribute("src") ?? "";
-      const parts = dataUriParts(src);
-      if (!parts) return;
-      const cid = `${crypto.randomUUID()}@heylook`;
-      const name = img.getAttribute("data-name") || `picture-${inline.length + 1}.${parts.mime.split("/")[1]?.replace("jpeg", "jpg") ?? "img"}`;
-      inline.push({ cid, filename: name, mime: parts.mime, dataBase64: parts.b64 });
-      img.setAttribute("src", `cid:${cid}`);
-      img.removeAttribute("data-name");
+    // the editor's document -> the email HTML (editor/emailHtml.ts), the signature in place of its region, pictures as cid: parts, all in the default font's box
+    const m = messageHtml(editor?.getJSON() ?? { type: "doc", content: [] }, {
+      sig: chosenSig?.html ?? null,
+      base,
+      pictures: "cid",
+      newCid: () => `${crypto.randomUUID()}@heylook`,
+      fileName: (mime, n) => `picture-${n}.${mime.split("/")[1]?.replace("jpeg", "jpg") ?? "img"}`,
     });
-    const body = doc.body.innerHTML;
+    const inline: InlineImage[] = m.inline.map((i) => ({ cid: i.cid, filename: i.name, mime: i.mime, dataBase64: i.dataBase64 }));
+    const body = m.html;
     const md = meeting ? meetingToDraft(meeting, calTz(prefs)) : null;
     return {
       accountId,
@@ -585,14 +969,17 @@ export function Compose({ init }: { init: ComposeInit }) {
       inline,
       security: currentSecurity(),
       confidential: confidential || undefined,
+      importance: draftImportance(importance),
       meeting: md && "meeting" in md ? md.meeting : undefined,
+      // the strip as typed, also when its times are not valid yet: a saved draft, a window the message moves to and Undo give it back (meetingDraft.ts)
+      meetingForm: meeting ? encodeMeeting(meeting, calTz(prefs)) : undefined,
     };
   };
 
-  const reopen = (d: Draft) => {
-    // the draft's pictures go back to data: URIs so the editor shows them again
+  /** The message as Compose opens it: the draft (its pictures back to data: URIs so the editor shows them), the toggles as they were. */
+  const initOf = (d: Draft, o: { replaces?: string; isReply: boolean; carried: boolean }): ComposeInit => {
     const bodyHtml = picturesToEditor(d.html, d.inline ?? []);
-    void useStore.getState().openCompose({
+    return {
       ...init,
       to: d.to,
       cc: d.cc,
@@ -601,14 +988,33 @@ export function Compose({ init }: { init: ComposeInit }) {
       bodyHtml,
       accountId: d.accountId,
       attachments: d.attachments,
-      replaces: init.replaces,
-      isReply: false,
+      replaces: o.replaces,
+      recoveryId: undefined, // (a new message: it gets a snapshot of its own)
+      isReply: o.isReply,
+      carried: o.carried || undefined,
       security: d.security,
       confidential: d.confidential,
+      importance: d.importance,
       // the toggles as they were when Send was pressed (the draft only knows what is active), the body with its one signature region
       restore: { encrypt: encIntent, sign: signOn, attachKey },
       meeting: d.meeting ? { ...d.meeting, on: true } : undefined,
-    });
+      meetingForm: decodeMeeting(d.meetingForm) ?? undefined,
+    };
+  };
+  // (in a window of its own the message that comes back after Undo or a failed send counts as changed: closing the window asks, it never loses it)
+  const reopen = (d: Draft) => void useStore.getState().openCompose(initOf(d, { replaces: init.replaces, isReply: false, carried: !!composeSeam() }));
+
+  /** Move this message to a window of its own (REQ-C3, C4): all of it as it is, nothing saved, nothing asked; the pane closes once the window exists. */
+  const popOut = async () => {
+    if (init.outboxId || composeSeam() || busy) return;
+    const moved = initOf(buildDraft(), { replaces: replacesRef() ?? undefined, isReply: !!init.isReply, carried: true });
+    poppingRef.current = true; // (the new window takes the focus: this pane losing it must not save a draft of what is moving)
+    if (!(await openPopout("compose", null, moved))) {
+      poppingRef.current = false;
+      return; // the pane stays as it is (the toast said why)
+    }
+    setComposeDirty(false);
+    void openCompose(null);
   };
 
   /**
@@ -652,8 +1058,57 @@ export function Compose({ init }: { init: ComposeInit }) {
     return { ...out, security: final };
   };
 
-  const attBytes = atts.reduce((n, a) => n + approxBytes(a), 0);
-  const totalBytes = attBytes + pics.bytes;
+  // What the server gets is the base64 text of every file in lines of 76 + part headers (about 4/3 more than the files): that is what the limit
+  // is checked against and what is shown (G-07). The limit is the smaller of the usual 25 MB and the server's SIZE (smtpsize.rs); the server is
+  // asked when the message is opened, when the account or the attachments change and before Send (the backend remembers the answer for a while).
+  const [serverMax, setServerMax] = useState<Record<string, number | null>>({});
+  const askingLimit = useRef<Partial<Record<string, Promise<number | null>>>>({});
+  const askServerLimit = (id: string, refresh = false): Promise<number | null> => {
+    if (!id) return Promise.resolve(null);
+    // (one question at a time per account; a refresh after a refused send is always a new one)
+    if (!refresh && askingLimit.current[id]) return askingLimit.current[id];
+    const asked = api
+      .smtpSizeLimit(id, refresh)
+      .catch(() => null)
+      .then((v) => (setServerMax((m) => ({ ...m, [id]: v })), v))
+      .finally(() => {
+        if (askingLimit.current[id] === asked) delete askingLimit.current[id];
+      });
+    askingLimit.current[id] = asked;
+    return asked;
+  };
+  const limit = sendLimit(serverMax[accountId]);
+  /** The one sentence for a message that is over the limit: "Attachments total 5.2 MB when sent; the limit for this account's server is 4.8 MB" (the server's own number), else the usual 25 MB wording. */
+  const tooBigText = (size: number, lim: { bytes: number; fromServer: boolean }) =>
+    t(lim.fromServer ? "compose.att.tooBigServer" : "compose.att.totalTooBig", { size: fmtSize(size), limit: fmtSize(lim.bytes) });
+  /** Shows it as THE size toast: an earlier one (files were added, then Send was pressed) goes, so one message is on the screen, never two (QA round 20 BUG-02). */
+  const lastSizeToast = useRef<{ id: number | null }>({ id: null });
+  const showSizeError = (text: string | (() => string)) =>
+    showSizeToast(
+      { showToast, dismissToast: useStore.getState().dismissToast, lastToastId: () => {
+          const ts = useStore.getState().toasts;
+          return ts.length ? ts[ts.length - 1].id : null;
+        } },
+      lastSizeToast.current,
+      text,
+    );
+  const wireOf = (files: Att[], picBytes: number, picCount: number) =>
+    wireSize({ attachments: files.map((a) => ({ filename: a.filename, base64Length: a.dataBase64.length })), pictures: picCount ? [picBytes] : [], encrypted: encOn });
+  const attBytes = wireOf(atts, 0, 0);
+  const totalBytes = wireOf(atts, pics.bytes, pics.count);
+  // going over the limit by adding files or pictures says so once (and again after the message was back under it)
+  const overShown = useRef(false);
+  const over = totalBytes > limit.bytes;
+  useEffect(() => {
+    if (over && !overShown.current && touched.current) showSizeError(() => tooBigText(totalBytes, limit));
+    overShown.current = over;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [over]);
+  // (BUG-16: it used to be asked only for a message above 8 MiB, so a server that takes 5 MB was never found)
+  useEffect(() => {
+    void askServerLimit(accountId);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [accountId, atts.length, pics.count]);
   /** attachments whose type Gmail, Outlook and Yahoo reject */
   const blockedAtts = atts.map((a) => ({ name: a.filename, ext: blockedAttachmentExt(a.filename) })).filter((a) => a.ext);
 
@@ -666,9 +1121,49 @@ export function Compose({ init }: { init: ComposeInit }) {
     [],
   );
 
+  /** Bytes of a finished draft on the wire (headers, text, files and pictures). */
+  const draftWire = (d: Draft) =>
+    wireSize({
+      attachments: d.attachments.map((a) => ({ filename: a.filename, base64Length: a.dataBase64.length })),
+      pictures: (d.inline ?? []).map((i) => Math.floor((i.dataBase64.length * 3) / 4)),
+      htmlLength: d.html.length,
+      textLength: d.text.length,
+      encrypted: !!d.security?.encrypt,
+    });
+
+  /**
+   * The error text when the message, as it goes on the wire (base64 + headers + the body), is over what the server takes; null when it
+   * fits. The server is asked for its SIZE first (smtpsize.rs; for a message with files always afresh, else from the backend's minute of memory); without an
+   * answer within 10 seconds the limit known so far applies (the usual 25 MB).
+   */
+  const sizeProblem = async (d: Draft): Promise<(() => string) | null> => {
+    const wire = draftWire(d);
+    const fresh = askFreshBeforeSend(d.attachments.length, (d.inline ?? []).length);
+    const max = await Promise.race([askServerLimit(d.accountId, fresh), new Promise<null>((r) => setTimeout(() => r(null), 10_000))]);
+    const lim = sendLimit(max ?? serverMax[d.accountId]);
+    return wire > lim.bytes ? () => tooBigText(wire, lim) : null;
+  };
+
+  /**
+   * The toast for a send that failed. A refusal for the size says the same clear sentence as the check before Send, with the size of the
+   * message and the limit of the server (asked again, a refused send is the moment to know it); any other error keeps its own text.
+   */
+  const sendFailedText = async (e: unknown, d: Draft): Promise<() => string> => {
+    if (isSizeRefusal(e)) {
+      const wire = draftWire(d);
+      const lim = sendLimit(await askServerLimit(d.accountId, true));
+      // the server refused although the limit is unknown or bigger than the estimate: its own reply (translated) says it
+      if (wire > lim.bytes) return () => tooBigText(wire, lim);
+    }
+    return () => t("compose.toast.sendFailed", { error: friendlyError(e) });
+  };
+
   const sendNowFromEditor = async () => {
     if (!init.outboxId) return;
-    const d = await secureDraft(buildDraft());
+    const built = buildDraft();
+    const tooBig = await sizeProblem(built);
+    if (tooBig) return showSizeError(tooBig);
+    const d = await secureDraft(built);
     if (!d) return;
     setBusy(true);
     try {
@@ -687,24 +1182,32 @@ export function Compose({ init }: { init: ComposeInit }) {
       void refresh();
     } catch (e) {
       setBusy(false);
-      showToast(t("compose.toast.sendFailed", { error: friendlyError(e) }), undefined, "error");
+      showToast(await sendFailedText(e, d), undefined, "error"); // i18n-ok: sendFailedText gives a function
       reopen(d);
     }
   };
 
+  /** The message is safe (in the outbox, handed to the server) or came back to Compose: its snapshot is not needed any more. */
+  const finishSend = () => {
+    sendingRef.current = false;
+    void writer.clear();
+  };
+
   const send = async (sendAt?: number) => {
     let d = buildDraft();
-    if (d.to.length === 0) return showToast(t("compose.err.noRecipient"), undefined, "error");
+    // To may stay empty when Cc or Bcc has someone (Gmail and Outlook allow it; a Bcc-only message shows undisclosed-recipients)
+    if (!hasRecipient(d)) return showToast(() => t("compose.err.noRecipient"), undefined, "error");
     const bad = [...d.to, ...d.cc, ...d.bcc].filter((a) => !EMAIL.test(bareAddress(a)));
-    if (bad.length) return showToast(t("compose.err.checkAddress", { addr: bad[0] }), undefined, "error");
+    if (bad.length) return showToast(() => t("compose.err.checkAddress", { addr: bad[0] }), undefined, "error");
     if (meeting) {
       const md = meetingToDraft(meeting, calTz(prefs));
-      if ("error" in md) return showToast(md.error, undefined, "error");
-      if (d.bcc.length) return showToast(t("compose.err.meetingBcc"), undefined, "error");
-      if (!d.subject.trim()) return showToast(t("compose.err.meetingSubject"), undefined, "error");
+      if ("error" in md) return showToast(() => t(md.errorKey), undefined, "error"); // (the key, so the toast follows a language switch)
+      if (d.bcc.length) return showToast(() => t("compose.err.meetingBcc"), undefined, "error");
+      if (!d.subject.trim()) return showToast(() => t("compose.err.meetingSubject"), undefined, "error");
     }
-    if (!accountId) return showToast(t("compose.err.noAccount"), undefined, "error");
-    if (totalBytes > MAX_ATTACH_BYTES) return showToast(t("compose.att.tooBig", { size: fmtSize(totalBytes) }), undefined, "error");
+    if (!accountId) return showToast(() => t("compose.err.noAccount"), undefined, "error");
+    const tooBig = await sizeProblem(d);
+    if (tooBig) return showSizeError(tooBig);
     if (!d.subject && !(await confirm({ title: t("compose.dlg.noSubject"), confirmLabel: t("compose.dlg.sendAnyway") }))) return;
     if (
       blockedAtts.length &&
@@ -715,16 +1218,39 @@ export function Compose({ init }: { init: ComposeInit }) {
       }))
     )
       return;
+    // REQ-51 (Settings > Composing, off by default): a picture of the message without alt text is asked about before the message goes out
+    if (prefs.altCheck && editor) {
+      const missing = picturesWithoutAlt(editor);
+      if (missing.length) {
+        // (Esc and a click outside answer with the first choice: back to the message)
+        const answer = await choose({
+          title: t("compose.alt.checkTitle", { n: missing.length }),
+          body: t("compose.alt.checkBody"),
+          choices: [
+            { id: "fix", label: t("compose.alt.addAlt"), kind: "primary" },
+            { id: "send", label: t("compose.dlg.sendAnyway") },
+          ],
+        });
+        if (answer !== "send") {
+          // the first picture is selected and its alt text box opens
+          editor.chain().focus().setNodeSelection(missing[0]).run();
+          requestAnimationFrame(() => (setAltText(""), setAltOpen(true)));
+          return;
+        }
+      }
+    }
     const secured = await secureDraft(d);
     if (!secured) return;
     d = secured;
-    if (d.to.length === 0) return showToast(t("compose.err.noRecipient"), undefined, "error");
+    if (!hasRecipient(d)) return showToast(() => t("compose.err.noRecipient"), undefined, "error");
 
     if (sendAt) {
-      if (sendAt * 1000 < Date.now() - 60_000) return showToast(t("compose.schedule.passed"), undefined, "error");
+      if (sendAt * 1000 < Date.now() - 60_000) return showToast(() => t("compose.schedule.passed"), undefined, "error");
+      await settleSaves(); // (an autosave that is running tells which draft this message replaces)
+      sendingRef.current = true; // the snapshot stays until the message is in the queue
       setBusy(true);
       setComposeDirty(false);
-      void openCompose(null);
+      void openCompose(null, { sending: 0 });
       try {
         if (init.outboxId) {
           await api.outboxUpdate(init.outboxId, d, sendAt);
@@ -732,34 +1258,43 @@ export function Compose({ init }: { init: ComposeInit }) {
           showToast(t("compose.toast.rescheduled", { when: fmtWhen(sendAt) }), undefined, "success");
         } else {
           const done = beginSend();
-          const res = await api.sendMessage(d, sendAt, init.replaces).finally(done);
+          const res = await api
+            .sendMessage(d, sendAt, replacesRef())
+            // (a window of its own ends now: the main window, which owns the outbox, makes the toast with Undo and View)
+            .then((r) => (r.startsWith("scheduled:") && composeSeam()?.scheduled(r.slice("scheduled:".length), sendAt), r))
+            .finally(done);
           savedRef.current = true;
           const id = res.startsWith("scheduled:") ? res.slice("scheduled:".length) : null;
           const st = useStore.getState();
-          showToast(
-            t("compose.toast.scheduled", { when: fmtWhen(sendAt) }),
-            id
-              ? () => {
-                  void api.cancelOutbox(id).then(() => reopen(d)).catch((e) => showToast(friendlyError(e), undefined, "error"));
-                }
-              : undefined,
-            "success",
-            [{ label: t("compose.toast.view"), run: () => void st.setView("scheduled") }],
-          );
+          if (!(id && composeSeam()))
+            showToast(
+              () => t("compose.toast.scheduled", { when: fmtWhen(sendAt) }),
+              id
+                ? () => {
+                    void api.cancelOutbox(id).then(() => reopen(d)).catch((e) => showToast(() => friendlyError(e), undefined, "error"));
+                  }
+                : undefined,
+              "success",
+              [{ label: () => t("compose.toast.view"), run: () => void st.setView("scheduled") }],
+            );
         }
         void refresh();
       } catch (e) {
         const code = errorCode(e);
-        showToast(code === "SCHEDULE_IN_PAST" ? friendlyError(e) : t("compose.toast.scheduleFailed", { error: friendlyError(e) }), undefined, "error");
+        showToast(() => code === "SCHEDULE_IN_PAST" ? friendlyError(e) : t("compose.toast.scheduleFailed", { error: friendlyError(e) }), undefined, "error");
         reopen(d);
+      } finally {
+        finishSend();
       }
       return;
     }
 
+    await settleSaves();
+    sendingRef.current = true; // the snapshot stays until the message is in the outbox (Undo time) or was handed to the server
     setBusy(true);
     setComposeDirty(false);
-    void openCompose(null);
     const wait = eff(prefs, accountId, "undoSeconds");
+    void openCompose(null, { sending: wait });
     let cancelled = false;
     let started = false;
     let timer: ReturnType<typeof setTimeout> | undefined;
@@ -768,12 +1303,14 @@ export function Compose({ init }: { init: ComposeInit }) {
     let heldId: string | null = null;
     if (wait > 0) {
       try {
-        heldId = await api.outboxHold(d, Math.floor(Date.now() / 1000) + wait, init.replaces);
+        heldId = await api.outboxHold(d, Math.floor(Date.now() / 1000) + wait, replacesRef());
       } catch (e) {
-        showToast(t("compose.toast.sendFailed", { error: friendlyError(e) }), undefined, "error");
+        showToast(() => t("compose.toast.sendFailed", { error: friendlyError(e) }), undefined, "error");
+        finishSend();
         reopen(d);
         return;
       }
+      finishSend(); // it is in the local outbox now: a kill no longer loses it
     }
     const run = async () => {
       if (cancelled || started) return;
@@ -782,72 +1319,112 @@ export function Compose({ init }: { init: ComposeInit }) {
       const quitting = useStore.getState().quitting;
       try {
         if (heldId) await api.outboxHoldSend(heldId, quitting);
-        else await api.sendMessage(d, null, init.replaces);
+        else await api.sendMessage(d, null, replacesRef());
         if (useStore.getState().prefs.sentSound) playSent();
         showToast(t("compose.toast.sent"), undefined, "success");
         void useStore.getState().sync();
       } catch (e) {
         // quitting: the message stays in the outbox and goes out at the next start (REQ-48 c), nothing is reopened
         if (quitting) return;
-        showToast(t("compose.toast.sendFailed", { error: friendlyError(e) }), undefined, "error");
+        showToast(await sendFailedText(e, d), undefined, "error"); // i18n-ok: sendFailedText gives a function // i18n-ok: sendFailedText gives a function
         reopen(d);
       } finally {
         done();
+        finishSend();
       }
     };
     // counted as "being sent" from the start of the undo window until the server answered (an update restart waits for it; a quit sends it at once)
     const done = beginSend(() => void run());
     timer = setTimeout(() => void run(), wait * 1000);
     if (wait > 0) {
-      showToast(
-        t("compose.toast.sending"),
-        () => {
-          // Undo: the message leaves the outbox (if it is already being sent it cannot be taken back)
-          if (heldId) {
-            void api.cancelOutbox(heldId).then(
-              () => {
-                cancelled = true;
-                clearTimeout(timer);
-                done();
-                reopen(d);
-              },
-              (e) => showToast(friendlyError(e), undefined, "error"),
-            );
-            return;
-          }
-          cancelled = true;
-          clearTimeout(timer);
-          done();
-          reopen(d);
-        },
-        "info",
-      );
+      const undoSend = () => {
+        // Undo: the message leaves the outbox (if it is already being sent it cannot be taken back)
+        if (heldId) {
+          void api.cancelOutbox(heldId).then(
+            () => {
+              cancelled = true;
+              clearTimeout(timer);
+              done();
+              reopen(d);
+            },
+            (e) => showToast(() => friendlyError(e), undefined, "error"),
+          );
+          return;
+        }
+        cancelled = true;
+        clearTimeout(timer);
+        done();
+        reopen(d);
+      };
+      // in a window of its own the Undo button of the window's card takes the message back; in the main window it is the toast's
+      const seam = composeSeam();
+      if (seam) seam.undoOffer(undoSend);
+      else showToast(() => t("compose.toast.sending"), undoSend, "info");
     }
   };
 
   const saveDraft = useCallback(
-    async (close: boolean, quiet = false): Promise<boolean> => {
+    // `onSaved`: the caller (leaving this message, F-21) makes the toast itself, with an Edit button, once the pane is closed
+    // `auto`: the autosave. It makes no toast, does not close the pane, does not count as "saved" for the leave / quit / restart flows (they save
+    // once more, which replaces this draft) and leaves the error line of those flows alone.
+    async (close: boolean, quiet = false, onSaved?: (d: SavedDraft) => void, auto = false): Promise<boolean> => {
       if (init.outboxId) return true; // a scheduled message is not a draft; "Move to Drafts" does that
+      const rev = revRef.current;
+      savingRef.current++;
       try {
         const d = buildDraft();
         // a draft is only ever encrypted to your own key (no passphrase needed), and never signed
         const keepPrivate = !!d.security?.encrypt && eff(prefs, accountId, "pgpEncryptDrafts");
-        await api.saveDraft({ ...d, security: keepPrivate ? { encrypt: true, sign: false, attachPublicKey: false } : undefined }, init.replaces);
+        // (`recoveryId`: the draft carries the id of this message's snapshot, so the next start finds it and never makes a second draft of it)
+        const saved = await api.saveDraft({ ...d, recoveryId, security: keepPrivate ? { encrypt: true, sign: false, attachPublicKey: false } : undefined }, replacesRef());
+        const tid = saved.threadId;
+        if (tid) {
+          savedTid.current = tid;
+          composeSeam()?.draftSaved(tid);
+        }
+        if (saved.draftRef) savedDraftRef.current = saved.draftRef;
+        // the draft on the server holds everything up to `rev`: the snapshot is not needed for it any more
+        savedRevRef.current = rev;
+        changedAtRef.current = revRef.current === rev ? 0 : Date.now();
+        if (revRef.current === rev) {
+          snapRevRef.current = rev;
+          void writer.release();
+        }
+        if (auto) {
+          failuresRef.current = 0;
+          setAutosavedAt(Date.now());
+          return true;
+        }
         useStore.setState({ draftError: "" });
-        showToast(d.security?.encrypt && !keepPrivate ? t("compose.toast.draftSavedPlain") : t("compose.toast.draftSaved"), undefined, d.security?.encrypt && !keepPrivate ? "info" : "success");
-        setComposeDirty(false);
+        const plain = !!d.security?.encrypt && !keepPrivate;
+        if (onSaved) {
+          onSaved({
+            plain,
+            edit: () => {
+              if (!tid) return showToast(() => tNow("compose.leave.draftNotFound"), undefined, "error");
+              void openDraftThread(tid, true).catch((e) => showToast(() => friendlyError(e), undefined, "error"));
+            },
+          });
+        } else {
+          showToast(() => plain ? t("compose.toast.draftSavedPlain") : t("compose.toast.draftSaved"), undefined, plain ? "info" : "success");
+        }
+        // typed while the draft was on its way: it is not saved yet
+        if (revRef.current === rev) setComposeDirty(false);
         if (close) void openCompose(null);
         void useStore.getState().sync();
         return true;
       } catch (e) {
+        if (auto) return false; // (the next try is later, see autosaveDue; the snapshot keeps the text meanwhile)
         // `quiet`: the caller (an update restart, a quit) tells the user itself
         useStore.setState({ draftError: friendlyError(e).replace(/\.$/, "") });
-        if (!quiet) showToast(t("compose.toast.saveFailed", { error: friendlyError(e) }), undefined, "error");
+        if (!quiet) showToast(() => t("compose.toast.saveFailed", { error: friendlyError(e) }), undefined, "error");
         return false;
+      } finally {
+        savingRef.current--;
       }
     },
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [to, cc, bcc, subject, atts, accountId, sigId, editor, encOn, signActive, attachKey, confidential],
+    [to, cc, bcc, subject, atts, accountId, sigId, editor, encOn, signActive, attachKey, confidential, importance, meeting],
   );
 
   const moveToDrafts = async () => {
@@ -860,14 +1437,145 @@ export function Compose({ init }: { init: ComposeInit }) {
       void openCompose(null);
       void refresh();
     } catch (e) {
-      showToast(t("compose.toast.moveFailed", { error: friendlyError(e) }), undefined, "error");
+      showToast(() => t("compose.toast.moveFailed", { error: friendlyError(e) }), undefined, "error");
     }
   };
 
   // let the store save this draft when another message is opened over it
   useEffect(() => {
-    setComposeSaver((o) => saveDraft(false, o?.quiet));
+    setComposeSaver((o) => saveDraft(false, o?.quiet, o?.onSaved));
   }, [saveDraft, setComposeSaver]);
+
+  /** The form of this message for the crash-recovery snapshot: the body as the editor has it (signature included, pictures as data: URIs). */
+  const snapshotForm = () => {
+    if (!editor) return null;
+    const html = messageHtml(editor.getJSON(), { sig: chosenSig?.html ?? null, base, pictures: "data" }).html;
+    // an address typed and not yet confirmed is kept too (the snapshot is the safety net for a crash, not a message to send)
+    const withPending = (list: string[], k: "to" | "cc" | "bcc") => addRecipients(list, splitRecipients(pendingRcpt.current[k]));
+    const form: RecoveryForm = {
+      v: 1, to: withPending(to, "to"), cc: withPending(cc, "cc"), bcc: withPending(bcc, "bcc"), subject, html,
+      inReplyTo: init.inReplyTo ?? null, references: init.references ?? [], replaces: replacesRef(), isReply: !!init.isReply,
+      encrypt: encIntent, sign: signOn, attachKey, confidential, importance: draftImportance(importance),
+      ...(meeting ? { meeting: meetingWire(meeting, calTz(prefs)) } : {}),
+      ...(composeSeam() ? { win: true as const } : {}),
+    };
+    return { accountId, subject, preview: editor.getText().trim().slice(0, 160), payload: JSON.stringify(form) };
+  };
+  /** What names these attachments, worked out once per change of the list (they can be megabytes): equal key = equal attachments. */
+  const attachmentsKey = () => {
+    if (filesKeyRef.current?.atts !== atts) {
+      const fnv = (str: string) => {
+        let h = 0x811c9dc5;
+        for (let i = 0; i < str.length; i++) h = Math.imul(h ^ str.charCodeAt(i), 0x01000193);
+        return (h >>> 0).toString(16);
+      };
+      filesKeyRef.current = { atts, key: atts.map((a) => `${a.filename}|${a.mime}|${a.dataBase64.length}|${fnv(a.dataBase64)}`).join(";") };
+    }
+    return filesKeyRef.current.key;
+  };
+  const writeSnapshot = (force = false) => {
+    // anything in To / Cc / Bcc / Subject / the body is worth a snapshot: it is a local file, nothing goes to the server for it
+    const p = { ...probe(), hasContent: probe().hasContent || !!(pendingRcpt.current.to + pendingRcpt.current.cc + pendingRcpt.current.bcc).trim() };
+    const size = (editor?.state.doc.content.size ?? 0) + (pics.bytes ?? 0);
+    const due = force
+      ? p.hasContent && !init.outboxId && !encOn && revRef.current !== snapRevRef.current
+      : snapshotDue({ now: Date.now(), rev: revRef.current, snapRev: snapRevRef.current, lastWriteAt: snapAtRef.current, size, hasContent: p.hasContent, scheduled: !!init.outboxId, encrypted: encOn }, timing().snapshotMs);
+    if (!due) return;
+    const form = snapshotForm();
+    if (!form) return;
+    snapRevRef.current = revRef.current;
+    snapAtRef.current = Date.now();
+    writer.write(form, attachmentsKey(), () => atts);
+  };
+  const autosaveFacts = (why: AutosaveWhy) => {
+    const p = probe();
+    return {
+      now: Date.now(), why, rev: revRef.current, savedRev: savedRevRef.current, changedAt: changedAtRef.current, lastTryAt: lastTryRef.current,
+      failures: failuresRef.current, hasContent: p.hasContent, attaching: p.attaching, saving: savingRef.current > 0, sending: sendingRef.current || poppingRef.current || endingRef.current,
+      scheduled: !!init.outboxId, plainWouldLeak: encOn && !eff(prefs, accountId, "pgpEncryptDrafts"),
+    };
+  };
+  const autosave = async (why: AutosaveWhy) => {
+    if (!autosaveDue(autosaveFacts(why), timing().autosaveMs)) return;
+    lastTryRef.current = Date.now();
+    const ok = await saveDraft(false, true, undefined, true);
+    if (!ok) failuresRef.current++;
+  };
+  // a second by second look (the timers of autosave.ts decide), and the moments the person leaves the window
+  const tickRef = useRef<() => void>(() => undefined);
+  tickRef.current = () => {
+    writeSnapshot();
+    void autosave("tick");
+  };
+  const awayRef = useRef<(why: AutosaveWhy) => void>(() => undefined);
+  awayRef.current = (why) => {
+    writeSnapshot(true);
+    void autosave(why);
+  };
+  useEffect(() => {
+    if (init.outboxId) return;
+    const timer = setInterval(() => tickRef.current(), 1000);
+    const away = () => awayRef.current(document.visibilityState === "hidden" ? "hidden" : "blur");
+    window.addEventListener("blur", away);
+    document.addEventListener("visibilitychange", away);
+    return () => {
+      clearInterval(timer);
+      window.removeEventListener("blur", away);
+      document.removeEventListener("visibilitychange", away);
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+  // a restored message is something the person has not saved: it counts as changed from the start
+  useEffect(() => {
+    if (init.recoveryId || init.carried) touch();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+  // the subject is the title of a window of its own
+  useEffect(() => {
+    composeSeam()?.title(subject);
+  }, [subject]);
+
+  /** Wait until the saves that are running have finished (a send / discard must know which draft the last one made). */
+  const settleSaves = async () => {
+    for (let i = 0; i < 200 && savingRef.current > 0; i++) await new Promise((r) => setTimeout(r, 50));
+  };
+  // The message in this pane is over without a send (the store tells us): no snapshot, and for Discard no draft an autosave made of a new message
+  useEffect(() => {
+    useStore.getState().setComposeEnd(async (o) => {
+      endingRef.current = true;
+      await settleSaves();
+      if (o?.dropDraft) await dropSavedCopy();
+      await writer.clear();
+    });
+    return () => useStore.getState().setComposeEnd(null);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+  // The pane goes away: the snapshot goes with it, unless the message is on its way out (then it stays until the send is safe, see `send`).
+  // A kill or a crash does not run this: that is what the snapshot is for.
+  useEffect(() => {
+    writer.open();
+    return () => {
+      if (!sendingRef.current) void writer.clear();
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+  // what leaving this message needs to know: did the person write anything, are files still coming in
+  const probe = (): ComposeProbe => {
+    const b = baseline.current;
+    const restored = !!init.recoveryId || !!init.carried;
+    const hasContent = composeHasContent(
+      touched.current,
+      { text: editor?.getText().trim() ?? "", pics: editor ? bodyPictures(editor) : 0, to, cc: cc.length, bcc: bcc.length, subject, atts: atts.length },
+      { text: b?.text ?? "", pics: b?.pics ?? 0, to: restored ? [] : init.to ?? [], cc: restored ? 0 : init.cc?.length ?? 0, bcc: restored ? 0 : init.bcc?.length ?? 0, subject: restored ? "" : init.subject ?? "", atts: restored ? 0 : init.attachments?.length ?? 0 },
+    );
+    return { hasContent, attaching: attachingRef.current > 0, rev: revRef.current };
+  };
+  const probeRef = useRef(probe);
+  probeRef.current = probe;
+  useEffect(() => {
+    setComposeProbe(() => probeRef.current());
+    return () => setComposeProbe(null);
+  }, [setComposeProbe]);
   // only when the composer goes away: forget the saver and the "unsaved" flag
   useEffect(
     () => () => {
@@ -901,34 +1609,60 @@ export function Compose({ init }: { init: ComposeInit }) {
         void openCompose(null);
         void refresh();
       } catch (e) {
-        showToast(friendlyError(e), undefined, "error");
+        showToast(() => friendlyError(e), undefined, "error");
       }
       return;
     }
-    const dirty = touched.current && ((editor?.getText().trim().length ?? 0) > 0 || to.length > 0 || subject.trim() || atts.length > 0);
-    if (dirty && !(await confirm({ title: t("compose.dlg.discardTitle"), body: t("compose.dlg.discardBody"), confirmLabel: t("compose.dlg.discard"), danger: true }))) return;
+    // the same rule as leaving, the autosave and the snapshot: a reply or forward with nothing written (the recipients, the subject, the quote
+    // and the signature are Compose's own) closes without asking, like an empty new message; a letter, an address or a file of the person's asks
+    const written = probe().hasContent || !!(pendingRcpt.current.to + pendingRcpt.current.cc + pendingRcpt.current.bcc).trim();
+    if (written && !(await confirm({ title: t("compose.dlg.discardTitle"), body: t("compose.dlg.discardBody"), confirmLabel: t("compose.dlg.discard"), danger: true }))) return;
+    // An autosave that is on its way to the server when Discard is pressed (the question stayed open for a while, the window lost the focus) makes the draft only when
+    // it is done: removing "the saved copy" before that found none and left a stray draft ("(no subject)" in Drafts, v1.0.6 QA round 2 O4). No new one starts, the one that
+    // runs is waited for, then the copy goes.
+    endingRef.current = true;
+    await settleSaves();
+    await dropSavedCopy();
     setComposeDirty(false);
     void openCompose(null);
   };
 
-  const addFiles = async (files: FileList | File[] | null) => {
+  /** A new message that a save made a draft of (a Save draft that was not closed, a later save of a leave): discarding it takes that draft away too. */
+  const dropSavedCopy = async () => {
+    const ref = savedDraftRef.current;
+    if (!ref || init.replaces) return; // a draft that was opened stays: it existed before this message was written
+    savedDraftRef.current = null;
+    await api.discardDraft(ref).catch(() => undefined);
+  };
+
+  /** Files and pictures are read in the background: leaving this message (F-21) waits for the ones still coming in. */
+  const reading = async <T,>(job: () => Promise<T>): Promise<T> => {
+    attachingRef.current++;
+    try {
+      return await job();
+    } finally {
+      attachingRef.current--;
+    }
+  };
+
+  const addFiles = (files: FileList | File[] | null) => reading(() => addFilesNow(files));
+  const addFilesNow = async (files: FileList | File[] | null) => {
     if (!files) return;
     const list: Att[] = [];
-    for (const f of Array.from(files)) list.push({ filename: f.name || "pasted-image.png", mime: f.type || "application/octet-stream", dataBase64: await fileToBase64(f) });
-    setAtts((a) => {
-      const next = [...a, ...list];
-      const bytes = next.reduce((n, x) => n + approxBytes(x), 0) + pics.bytes;
-      if (bytes > MAX_ATTACH_BYTES) showToast(t("compose.att.totalTooBig", { size: fmtSize(bytes) }), undefined, "error");
-      return next;
-    });
+    for (const f of Array.from(files)) list.push({ filename: outgoingName(f.name || "pasted-image.png"), mime: f.type || "application/octet-stream", dataBase64: await fileToBase64(f) });
+    setAtts((a) => [...a, ...list]); // (the size warning is the effect below: a state updater must not show toasts)
     touch();
   };
   addFilesRef.current = async (files: File[]) => addFiles(files);
 
-  /** A picture file into the body at the caret (Medium size), or attached when the format is not supported. */
-  const insertPictures = async (files: File[]) => {
+  /** The picture files into the body at the caret (Medium size), in the order they were given; a format that is not supported is attached. */
+  const insertPictures = (files: File[]) => reading(() => insertPicturesNow(files));
+  /** The toast after a big picture was re-encoded (editor/messageBody.ts reencodeToastKey: "to 1600 px" only when the picture was wider). */
+  const resizedToast = (mime: string, width: number, name: string, dataUrl: string) => t(reencodeToastKey(mime, width), { name, size: fmtSize(dataUriBytes(dataUrl)) });
+  const insertPicturesNow = async (files: File[]) => {
     const st = useStore.getState();
     const attach: File[] = [];
+    const pictures: PictureAttrs[] = [];
     for (const f of files) {
       if (!PICTURE_TYPES.includes(f.type)) {
         attach.push(f);
@@ -940,28 +1674,32 @@ export function Compose({ init }: { init: ComposeInit }) {
         src = await readDataUrl(f);
         size = await imageSize(src);
       } catch {
-        showToast(t("compose.pic.unsupported", { name: f.name }), undefined, "error");
+        showToast(() => t("compose.pic.unsupported", { name: f.name }), undefined, "error");
         attach.push(f);
         continue;
       }
       let finalSrc = src;
+      let finalName = f.name;
       if (f.size > LARGE_PICTURE) {
         if (st.prefs.autoResizePictures) {
-          const r = await resizeImage(src, f.type, 1600);
+          const r = await resizeImage(src, f.type, RESIZE_WIDTH);
           finalSrc = r.dataUrl;
-          showToast(t("compose.pic.resized", { name: f.name, size: fmtSize(dataUriBytes(finalSrc)) }), undefined, "success");
+          finalName = nameForMime(f.name, r.mime); // (a GIF made a PNG is no .gif any more)
+          showToast(resizedToast(f.type, size.w, finalName, finalSrc), undefined, "success");
         } else {
           const original = src;
           showToast(
-            t("compose.pic.askResize", { size: fmtSize(f.size), w: size.w, h: size.h }),
+            () => t("compose.pic.askResize", { size: fmtSize(f.size), w: size.w, h: size.h }),
             undefined,
             "info",
-            [{ label: t("compose.pic.resize"), run: () => void resizeInEditor(original, f.type, f.name) }],
+            [{ label: () => t("compose.pic.resize"), run: () => void resizeInEditor(original, f.type, f.name) }],
           );
         }
       }
-      editor?.chain().focus().insertContent({ type: "image", attrs: { src: finalSrc, alt: "", "data-name": f.name, width: size.w > MEDIUM ? MEDIUM : null } }).run();
+      pictures.push({ src: finalSrc, alt: "", "data-name": finalName, width: size.w > MEDIUM ? MEDIUM : null });
     }
+    // all of them in one go: the caret is behind the last picture, so a second picture never takes the place of the first (editor/insertPictures.ts)
+    insertPictureNodes(editor, pictures);
     if (attach.length) {
       await addFiles(attach);
       if (files.length > attach.length) showToast(t("compose.pic.filesAttached", { n: attach.length }), undefined, "info");
@@ -972,19 +1710,25 @@ export function Compose({ init }: { init: ComposeInit }) {
   /** Replace the picture (matched by its data: URI) with a 1600 px version. */
   const resizeInEditor = async (original: string, mime: string, name: string) => {
     if (!editor) return;
-    const r = await resizeImage(original, mime, 1600);
+    const r = await resizeImage(original, mime, RESIZE_WIDTH);
     let at: number | null = null;
     editor.state.doc.descendants((n, pos) => {
       if (at === null && n.type.name === "image" && n.attrs.src === original) at = pos;
     });
     if (at === null) return;
-    editor.chain().setNodeSelection(at).updateAttributes("image", { src: r.dataUrl }).run();
-    showToast(t("compose.pic.resized", { name, size: fmtSize(dataUriBytes(r.dataUrl)) }), undefined, "success");
+    const newName = nameForMime(name, r.mime); // (the name says what the bytes are: a GIF made a PNG is `name.png`, in the message, the draft and the sent part)
+    editor.chain().setNodeSelection(at).updateAttributes("image", { src: r.dataUrl, "data-name": newName }).run();
+    showToast(resizedToast(mime, (await imageSize(original)).w, newName, r.dataUrl), undefined, "success");
   };
 
   const setPictureSize = (w: number | null) => {
     if (!picSel || !editor) return;
     editor.chain().setNodeSelection(picSel.pos).updateAttributes("image", { width: w }).run();
+  };
+
+  const setPictureAlign = (a: "center" | "right" | null) => {
+    if (!picSel || !editor) return;
+    editor.chain().focus().setNodeSelection(picSel.pos).updateAttributes("image", { align: a }).run(); // (the editor has the focus again: Ctrl+K links the picture next)
   };
 
   const savePictureAlt = () => {
@@ -1002,7 +1746,7 @@ export function Compose({ init }: { init: ComposeInit }) {
     editor.chain().setNodeSelection(picSel.pos).deleteSelection().run();
     if (parts) {
       const ext = parts.mime.split("/")[1]?.replace("jpeg", "jpg") ?? "img";
-      setAtts((a) => [...a, { filename: picSel.name !== "picture" ? picSel.name : `picture.${ext}`, mime: parts.mime, dataBase64: parts.b64 }]);
+      setAtts((a) => [...a, { filename: outgoingName(picSel.name !== "picture" ? nameForMime(picSel.name, parts.mime) : `picture.${ext}`), mime: parts.mime, dataBase64: parts.b64 }]);
     }
     setPicSel(null);
     touch();
@@ -1015,14 +1759,19 @@ export function Compose({ init }: { init: ComposeInit }) {
     setAltOpen(false);
   };
 
-  /** Drop on the top zone = into the message, bottom zone = attach. Other files never go into the body. */
-  const dropOn = (zone: "top" | "bottom", files: FileList | null) => {
+  /**
+   * Drop on the top zone = into the message, bottom zone = attach (what the person points at). A drop that lands on neither (the page's own drop, a drop
+   * before the zones are drawn) follows Settings > Composing > "Pasted and dropped pictures": into the message by default, attached when the setting says
+   * so. Other files never go into the body.
+   */
+  const dropOn = (zone: "top" | "bottom" | "setting", files: FileList | null) => {
     setDragging(false);
     setDragImages(false);
     setHotZone(null);
     if (!files || files.length === 0) return;
     const all = Array.from(files);
-    if (zone === "top") {
+    const where = zone === "setting" ? (eff(useStore.getState().prefs, accountId, "inlinePictures") === "inline" ? "top" : "bottom") : zone;
+    if (where === "top") {
       const images = all.filter((f) => PICTURE_TYPES.includes(f.type));
       const rest = all.filter((f) => !PICTURE_TYPES.includes(f.type));
       if (images.length) void insertPictures(images);
@@ -1045,25 +1794,36 @@ export function Compose({ init }: { init: ComposeInit }) {
     if (!aiPrompt.trim()) return;
     // the draft and the reply context quote confidential mail
     if (init.confidential) return showToast(t("compose.ai.confidential"), undefined, "info");
-    setAiBusy(true);
-    try {
-      // i18n-ok: the prompt for the model, not UI text
-      const context = init.isReply ? `\n\nThe email being replied to:\n${htmlToText(init.bodyHtml ?? "").slice(0, 6000)}` : "";
-      const out = await api.aiComplete(
-        // i18n-ok: a prompt for the language model, not text the person reads
-        "You write email bodies. Output only the email body text (no subject line, no preamble). Match the language of the user's request and the tone requested.",
-        `Subject: ${subject}\nExisting draft:\n${editor?.getText() ?? ""}${context}\n\nInstruction: ${aiPrompt}`,
-      );
-      editor?.commands.insertContentAt(0, out.split("\n").map((l) => `<p>${l.replace(/</g, "&lt;")}</p>`).join(""));
-      setAiOpen(false);
-      setAiPrompt("");
-      touch();
-    } catch (e) {
-      showToast(friendlyError(e), undefined, "error");
-    } finally {
-      setAiBusy(false);
+    // i18n-ok: the prompt for the model, not UI text
+    const context = init.isReply ? `\n\nThe email being replied to:\n${htmlToText(init.bodyHtml ?? "").slice(0, 6000)}` : "";
+    const out = await ai.run(
+      // i18n-ok: a prompt for the language model, not text the person reads
+      "You write email bodies. Output only the email body text (no subject line, no preamble). Match the language of the user's request and the tone requested.",
+      `Subject: ${subject}\nExisting draft:\n${editor?.getText() ?? ""}${context}\n\nInstruction: ${aiPrompt}`,
+    );
+    if (!out) return; // a click while one is under way, Cancel, or this window closed: nothing to apply
+    if ("error" in out) {
+      showAiProblem(out.error, { feature: "write", retry: () => void letAiWrite(), tied: true });
+      return;
     }
+    editor?.commands.insertContentAt(0, out.text.split("\n").map((l) => `<p>${l.replace(/</g, "&lt;")}</p>`).join(""));
+    setAiOpen(false);
+    setAiPrompt("");
+    touch();
   };
+
+  /** The "Write with AI" button: closing the bar while a text is being written drops the request (the bar is where Cancel is). */
+  const toggleAi = () => {
+    if (!aiConfigured) {
+      // not set up: the toast says so and leads to Settings (the flag is read again first: it may have been set in another window)
+      void aiReady().then((ok) => (ok ? setAiOpen(true) : showAiNotSetUp("write")));
+      return;
+    }
+    if (aiOpen) ai.cancel();
+    setAiOpen((o) => !o);
+  };
+  // the "Try again" of a failed text is for this message: it goes when the message is closed
+  useEffect(() => () => leaveAiContext("write"), []);
 
   const keyAction = (a: "import" | "paste") => setDialog({ type: "pgp-import", paste: a === "paste" });
 
@@ -1117,10 +1877,34 @@ export function Compose({ init }: { init: ComposeInit }) {
   const pastDue = !!init.outboxId && !!init.sendAt && init.sendAt * 1000 < Date.now() - 60_000;
   const imgSelected = !!picSel;
 
+  // a small pane (composeFit.ts) keeps these actions in "More actions" (the row of buttons has no room for them); a dot on the button says one is on
+  const moreOn = !!meeting || encOn || signActive || confidential || importance !== "normal" || aiOpen;
+  const moreItems: MenuItem[] = [
+    { label: t("compose.bar.picture"), icon: <ImagePlus size={14} />, hint: kbd("Ctrl+Shift+P"), title: kbd(t("compose.bar.insertPictureTip")), onClick: () => picRef.current?.click() },
+    { divider: true },
+    { label: t("compose.bar.meeting"), icon: <CalendarPlus size={14} />, checked: !!meeting, title: t("compose.bar.meetingTip"), onClick: toggleMeeting },
+    { label: t("compose.bar.encrypt"), icon: encOn ? <Lock size={14} /> : <LockOpen size={14} />, checked: encOn, hint: kbd("Ctrl+Shift+E"), title: encTitle, onClick: toggleEncrypt },
+    { label: t("compose.bar.sign"), icon: <BadgeCheck size={14} />, checked: signActive, hint: kbd("Ctrl+Shift+G"), title: own ? kbd(t("compose.bar.signTip")) : encTitle, onClick: toggleSign },
+    ...signItems.slice(1), // (the first row is the Sign row above)
+    { divider: true },
+    { label: t("compose.bar.confidential"), icon: <ShieldAlert size={14} />, checked: confidential, title: confidential ? t("compose.bar.confidentialOnTip") : t("compose.bar.confidentialOffTip"), onClick: () => (setConfidential(!confidential), touch()) },
+    { label: t("mail.importance.high"), checked: importance === "high", onClick: () => (setImportance(pressImportance(importance, "high")), touch()) },
+    { label: t("mail.importance.low"), checked: importance === "low", onClick: () => (setImportance(pressImportance(importance, "low")), touch()) },
+    { divider: true },
+    ...(init.outboxId ? [] : [{ label: t("compose.bar.saveDraft"), icon: <Save size={14} />, onClick: () => void saveDraft(true) }]),
+    { label: t("compose.bar.templates"), icon: <FileText size={14} />, disabled: true },
+    ...(myTemplates.length ? myTemplates.map((tpl) => ({ label: tpl.name, onClick: () => applyTemplate(tpl) })) : [{ label: t("compose.bar.noTemplates"), disabled: true }]),
+    { divider: true },
+    { label: t("compose.bar.writeWithAi"), icon: <Sparkles size={14} />, checked: aiOpen, disabled: !!init.confidential, title: init.confidential ? t("compose.bar.aiConfidentialTip") : aiConfigured ? t("compose.bar.aiTip") : t("compose.bar.aiSetupTip"), onClick: toggleAi },
+  ];
+
   return (
     <div
-      className={`compose-pane ${dragging ? "dragging" : ""}`}
+      ref={paneRef}
+      className={`compose-pane ${dragging ? "dragging" : ""} ${compact ? "compact" : ""} ${compact && barWraps ? "bar-wraps" : ""}`}
       onKeyDown={(e) => {
+        if (isImeEvent(e)) return; // a key that belongs to an input method (Subject, To, Cc, Bcc): no app shortcut
+        if (isAltGraph(e)) return; // AltGr (Ctrl+Alt) types a character: no app shortcut
         if ((e.ctrlKey || e.metaKey) && e.key === "Enter" && e.shiftKey) {
           e.preventDefault();
           setSchedOpen(true);
@@ -1142,6 +1926,11 @@ export function Compose({ init }: { init: ComposeInit }) {
         if ((e.ctrlKey || e.metaKey) && e.shiftKey && e.key.toLowerCase() === "p") {
           e.preventDefault();
           picRef.current?.click();
+          return;
+        }
+        if ((e.ctrlKey || e.metaKey) && e.shiftKey && !e.altKey && e.key.toLowerCase() === "o" && !init.outboxId && !composeSeam()) {
+          e.preventDefault();
+          void popOut();
           return;
         }
         if ((e.ctrlKey || e.metaKey) && e.shiftKey && e.key.toLowerCase() === "e") {
@@ -1178,8 +1967,8 @@ export function Compose({ init }: { init: ComposeInit }) {
       onDrop={(e) => {
         if (!e.dataTransfer.files.length) return;
         e.preventDefault();
-        // the drop zones handle drops on the pane; this is only the fallback
-        dropOn("bottom", e.dataTransfer.files);
+        // the drop zones handle drops on the pane; this is the fallback: the setting for pictures decides
+        dropOn("setting", e.dataTransfer.files);
       }}
       onPaste={(e) => {
         const files = Array.from(e.clipboardData.files);
@@ -1189,10 +1978,12 @@ export function Compose({ init }: { init: ComposeInit }) {
         }
       }}
     >
+      {/* the header (actions, banners, fields, strips) is the part that gives way: App.css `.cp-head` scrolls when the pane is low, so the formatting row and the body below are never pushed out of view */}
+      <div className="cp-head">
       <div className="cp-bar">
         <div className="split-btn" ref={schedRef}>
           <button className="btn primary" disabled={busy} onClick={() => void (init.outboxId ? send(init.sendAt) : send())} title={init.outboxId ? t("compose.bar.scheduleTip") : kbd(t("compose.bar.sendTip"))}>
-            {init.outboxId ? <><CalendarClock size={14} /> {t("compose.bar.schedule")}</> : meeting ? <><CalendarPlus size={14} /> {t("compose.bar.sendInvite")}</> : <><Send size={14} /> {t("compose.bar.send")}</>}
+            {init.outboxId ? <><CalendarClock size={14} /> <span className="btn-lbl">{t("compose.bar.schedule")}</span></> : meeting ? <><CalendarPlus size={14} /> <span className="btn-lbl">{t("compose.bar.sendInvite")}</span></> : <><Send size={14} /> <span className="btn-lbl">{t("compose.bar.send")}</span></>}
           </button>
           <button
             className="btn primary split-caret"
@@ -1205,7 +1996,7 @@ export function Compose({ init }: { init: ComposeInit }) {
             <ChevronDown size={14} />
           </button>
           {schedOpen && (
-            <div className="popover up sched-pop" ref={schedPopRef}>
+            <div className="popover up sched-pop pinned" ref={schedPopRef}>
               <SchedulePicker
                 initial={schedInitial}
                 primaryLabel={t("compose.bar.schedule")}
@@ -1220,9 +2011,9 @@ export function Compose({ init }: { init: ComposeInit }) {
         {init.outboxId ? (
           <button className="rb" onClick={() => void moveToDrafts()}><Save size={15} /><span>{t("compose.bar.moveToDrafts")}</span></button>
         ) : null}
-        <button className="rb" onClick={() => void discard()}><Trash2 size={15} /><span>{t("compose.bar.discard")}</span></button>
-        <button className="rb" onClick={() => fileRef.current?.click()}><Paperclip size={15} /><span>{t("compose.bar.attach")}</span></button>
-        <button className="rb" onClick={() => picRef.current?.click()} title={kbd(t("compose.bar.insertPictureTip"))}><ImagePlus size={15} /><span>{t("compose.bar.picture")}</span></button>
+        <button className="rb" title={compact ? t("compose.bar.discard") : undefined} onClick={() => void discard()}><Trash2 size={15} /><span>{t("compose.bar.discard")}</span></button>
+        <button className="rb" title={compact ? t("compose.bar.attach") : undefined} onClick={() => fileRef.current?.click()}><Paperclip size={15} /><span>{t("compose.bar.attach")}</span></button>
+        {!compact && <button className="rb" onClick={() => picRef.current?.click()} title={kbd(t("compose.bar.insertPictureTip"))}><ImagePlus size={15} /><span>{t("compose.bar.picture")}</span></button>}
         <input ref={fileRef} type="file" multiple hidden onChange={(e) => (void addFiles(e.target.files), (e.target.value = ""))} />
         <input
           ref={picRef}
@@ -1232,21 +2023,19 @@ export function Compose({ init }: { init: ComposeInit }) {
           hidden
           onChange={(e) => (e.target.files && void insertPictures(Array.from(e.target.files)), (e.target.value = ""))}
         />
+        {compact ? (
+          // a small pane: the rest of the actions in one menu (a dot says that one of them is on)
+          <Dropdown className="rb more" caret={false} title={t("compose.bar.more")} items={moreItems}>
+            <MoreHorizontal size={15} />
+            {moreOn && <i className="more-dot" aria-hidden />}
+          </Dropdown>
+        ) : (
+        <>
         <button
           className={`rb ${meeting ? "on" : ""}`}
           aria-pressed={!!meeting}
           title={t("compose.bar.meetingTip")}
-          onClick={() => {
-            if (meeting) setMeeting(null);
-            else {
-              if (bcc.length) {
-                setBcc([]);
-                showToast(t("compose.meeting.bccRemoved"), undefined, "info");
-              }
-              setMeeting(defaultMeeting(calTz(prefs)));
-            }
-            touch();
-          }}
+          onClick={toggleMeeting}
         >
           <CalendarPlus size={15} /><span>{t("compose.bar.meeting")}</span>
         </button>
@@ -1263,23 +2052,11 @@ export function Compose({ init }: { init: ComposeInit }) {
           <button className={`rb ${signActive ? "on" : ""}`} aria-pressed={signActive} aria-disabled={!own} title={own ? kbd(t("compose.bar.signTip")) : encTitle} onClick={toggleSign}>
             <BadgeCheck size={15} /><span>{t("compose.bar.sign")}</span>
           </button>
-          <button className="rb caret" aria-label={t("compose.bar.signOptions")} aria-haspopup="menu" aria-expanded={signMenu} title={t("compose.bar.signOptions")} onClick={() => setSignMenu((o) => !o)}>
+          <button ref={signCaretRef} className="rb caret" aria-label={t("compose.bar.signOptions")} aria-haspopup="menu" aria-expanded={signMenu} title={t("compose.bar.signOptions")} onClick={() => setSignMenu((o) => !o)}>
             <ChevronDown size={12} />
           </button>
-          {signMenu && (
-            <div className="dd-pop left" style={{ width: 300 }}>
-              <MenuList
-                onDone={() => setSignMenu(false)}
-                items={[
-                  { label: t("compose.bar.signThis"), checked: signOn, hint: kbd("Ctrl+Shift+G"), disabled: !own, onClick: toggleSign },
-                  { label: t("compose.bar.attachPublicKey"), checked: attachKey, disabled: !own, onClick: () => (setAttachKey(!attachKey), touch()) },
-                  { divider: true },
-                  ...(own ? [{ label: t("compose.bar.signingKey", { key: shortKey(own.fingerprint) }), icon: <ShieldCheck size={14} />, onClick: () => setDialog({ type: "pgp-key", fingerprint: own.fingerprint }) }] : [{ label: t("compose.bar.noKeyYet"), disabled: true }]),
-                  { label: own ? t("compose.bar.manageKeys") : t("compose.bar.setUpEncryption"), onClick: () => (own ? setDialog({ type: "settings", tab: "pgp" }) : setDialog({ type: "pgp-generate", accountId })) },
-                ]}
-              />
-            </div>
-          )}
+          {/* a menu of its own layer: the header scrolls in a low window and would cut off one that is inside it */}
+          {signMenu && <FloatingMenu anchor={signRef} trigger={signCaretRef} minWidth={300} items={signItems} onClose={() => setSignMenu(false)} />}
         </div>
         <button
           className={`rb ${confidential ? "on" : ""}`}
@@ -1289,6 +2066,7 @@ export function Compose({ init }: { init: ComposeInit }) {
         >
           <ShieldAlert size={15} /><span>{t("compose.bar.confidential")}</span>
         </button>
+        <ImportanceButtons value={importance} onChange={(v) => (setImportance(v), touch())} />
         {!init.outboxId && <button className="rb" onClick={() => void saveDraft(true)}><Save size={15} /><span>{t("compose.bar.saveDraft")}</span></button>}
         <Dropdown
           className="rb"
@@ -1299,12 +2077,19 @@ export function Compose({ init }: { init: ComposeInit }) {
         <button
           className={`rb ${aiOpen ? "on" : ""}`}
           disabled={!!init.confidential}
-          onClick={() => (aiConfigured ? setAiOpen((o) => !o) : setDialog({ type: "settings", tab: "ai" }))}
+          onClick={toggleAi}
           title={init.confidential ? t("compose.bar.aiConfidentialTip") : aiConfigured ? t("compose.bar.aiTip") : t("compose.bar.aiSetupTip")}
         >
           <Sparkles size={15} /><span>{t("compose.bar.writeWithAi")}</span>
         </button>
+        </>
+        )}
         <div className="grow" />
+        {!init.outboxId && !composeSeam() && (
+          <button className="icon-btn" aria-label={t("compose.popout.popOut")} title={kbd(t("compose.popout.popOutTip"))} onClick={() => void popOut()}>
+            <ExternalLink size={16} />
+          </button>
+        )}
       </div>
 
       {init.outboxId && (
@@ -1333,7 +2118,8 @@ export function Compose({ init }: { init: ComposeInit }) {
             value={aiPrompt}
             onChange={(e) => setAiPrompt(e.target.value)}
           />
-          <button className="btn primary" disabled={aiBusy} onClick={() => void letAiWrite()}>{aiBusy ? t("compose.ai.writing") : t("compose.ai.write")}</button>
+          <button className="btn primary" disabled={ai.running} onClick={() => void letAiWrite()}>{ai.running ? t("compose.ai.writing") : t("compose.ai.write")}</button>
+          {ai.running && <button className="btn" onClick={ai.cancel}>{t("common.cancel")}</button>}
         </div>
       )}
 
@@ -1342,11 +2128,20 @@ export function Compose({ init }: { init: ComposeInit }) {
           <label>{t("compose.from")}</label>
           <AccountPicker value={accountId} accounts={accounts} onChange={changeAccount} label={t("compose.from")} />
         </div>
-        <RecipientField label={t("compose.to")} values={to} onChange={setTo} autoFocus={to.length === 0 && !init.replaces} onTouch={touch} keys={encOn && ks ? ks.recipients : undefined} onKeyAction={keyAction} />
+        <RecipientField label={t("compose.to")} values={to} onChange={changeField("to")} autoFocus={to.length === 0 && !init.replaces} onTouch={touch} onPending={pending("to")} keys={encOn && ks ? ks.recipients : undefined} onKeyAction={keyAction} />
+        {noteShown && replyNote && (
+          <div className="note cf-replyto" role="status">
+            <Info size={13} aria-hidden />
+            <span className="grow">
+              {t("compose.replyTo.note", { replyTo: replyNote.replyTo.map(chipLabel).join(", "), from: replyNote.from })}{" "}
+              <button className="link" onClick={replyToFrom}>{t("compose.replyTo.useFrom", { from: replyNote.from })}</button>
+            </span>
+          </div>
+        )}
         {showCc ? (
           <>
-            <RecipientField label={t("compose.cc")} values={cc} onChange={setCc} onTouch={() => ((ccTouched.current = true), touch())} keys={encOn && ks ? ks.recipients : undefined} onKeyAction={keyAction} />
-            {!meeting && <RecipientField label={t("compose.bcc")} values={bcc} onChange={setBcc} onTouch={() => ((ccTouched.current = true), touch())} keys={encOn && ks ? ks.recipients : undefined} onKeyAction={keyAction} />}
+            <RecipientField label={t("compose.cc")} values={cc} onChange={changeField("cc")} onTouch={() => ((ccTouched.current = true), touch())} onPending={pending("cc")} keys={encOn && ks ? ks.recipients : undefined} onKeyAction={keyAction} />
+            {!meeting && <RecipientField label={t("compose.bcc")} values={bcc} onChange={changeField("bcc")} onTouch={() => ((ccTouched.current = true), touch())} onPending={pending("bcc")} keys={encOn && ks ? ks.recipients : undefined} onKeyAction={keyAction} />}
           </>
         ) : (
           <div className="cf-links">
@@ -1355,9 +2150,10 @@ export function Compose({ init }: { init: ComposeInit }) {
             {!meeting && <button className="link" tabIndex={-1} title={kbd(t("compose.addBcc"))} onClick={() => setShowCc(true)}>{t("compose.bcc")}</button>}
           </div>
         )}
-        <div className="cf-field">
+        <div className="cf-field cf-subject">
           <label>{t("compose.subject")}</label>
           <input value={subject} onChange={(e) => (setSubject(e.target.value), touch())} placeholder={t("compose.subject.placeholder")} aria-label={t("compose.subject")} />
+          <ImportanceMark level={importance} size={13} label />
         </div>
       </div>
 
@@ -1389,57 +2185,76 @@ export function Compose({ init }: { init: ComposeInit }) {
           </dl>
         </div>
       )}
-
-      <div className="cp-fmt" role="toolbar" aria-label={t("compose.fmt.toolbar")}>
-        <button className="icon-btn" title={kbd(t("compose.fmt.boldTip"))} aria-label={t("compose.fmt.bold")} onClick={() => editor?.chain().focus().toggleBold().run()}><Bold size={14} /></button>
-        <button className="icon-btn" title={kbd(t("compose.fmt.italicTip"))} aria-label={t("compose.fmt.italic")} onClick={() => editor?.chain().focus().toggleItalic().run()}><Italic size={14} /></button>
-        <button className="icon-btn" title={kbd(t("compose.fmt.underlineTip"))} aria-label={t("compose.fmt.underline")} onClick={() => editor?.chain().focus().toggleUnderline().run()}><UIcon size={14} /></button>
-        <button className="icon-btn" title={t("compose.fmt.bulleted")} aria-label={t("compose.fmt.bulleted")} onClick={() => editor?.chain().focus().toggleBulletList().run()}><List size={14} /></button>
-        <button className="icon-btn" title={t("compose.fmt.numbered")} aria-label={t("compose.fmt.numbered")} onClick={() => editor?.chain().focus().toggleOrderedList().run()}><ListOrdered size={14} /></button>
-        <button
-          className="icon-btn"
-          title={t("compose.fmt.link")}
-          aria-label={t("compose.fmt.link")}
-          onClick={() => {
-            const url = prompt(t("compose.fmt.linkPrompt"));
-            if (url) editor?.chain().focus().extendMarkRange("link").setLink({ href: url }).run();
-          }}
-        >
-          <Link2 size={14} />
-        </button>
-        <button className="icon-btn" title={kbd(t("compose.bar.insertPictureTip"))} aria-label={t("compose.fmt.insertPicture")} onClick={() => picRef.current?.click()}><ImagePlus size={14} /></button>
       </div>
 
-      <div className="cp-editor" ref={bodyRef} onScroll={() => editor && syncPicSel(editor)}>
-        <EditorContent editor={editor} className="editor" />
+      <div className="cp-fmt">
+        <FormatBar
+          editor={editor} base={base} variant="compose" apiRef={barApi} host={{ link: { open: () => linkRef.current(), isOpen: link.isOpen, btnRef: linkBtnRef }, insertPicture: () => picRef.current?.click(), zoom: { value: zoom, set: setZoom }, find: (mode) => openFindRef.current(mode) }}
+          trailing={{ ids: ["pv:light", "pv:dark"], render: (rove) => <PreviewSwitch pv={pv} onChoose={choosePreview} rove={rove} /> }}
+        />
+        {link.node}
+      </div>
+
+      <div className={`cp-editor cp-pv pv-${pv}`} style={{ ...previewVars(pv), "--cp-font": base.family, "--cp-size": `${base.size}pt` } as React.CSSProperties} ref={bodyRef} onScroll={() => editor && syncPicSel(editor)}>
+        {find && editor && <Suspense fallback={null}><FindBar editor={editor} mode={find.mode} nonce={find.nonce} onClose={() => setFind(null)} /></Suspense>}
+        <EditorContent editor={editor} className="editor" style={zoom === 100 ? undefined : ({ zoom: zoom / 100 } as React.CSSProperties)} />
         {picSel && (
           <>
-            <div className="img-tools" role="toolbar" aria-label={t("compose.pic.options")} style={{ top: picSel.top, left: picSel.left, position: "absolute" }}>
-              <div className="seg" role="radiogroup" aria-label={t("compose.pic.size")}>
-                {SIZES.map(([label, w]) => (
-                  <button key={label} role="radio" aria-checked={picSel.width === w} className={picSel.width === w ? "on" : ""} onClick={() => setPictureSize(w)}>
-                    {t(label)}
+            <div
+              className="img-tools-anchor"
+              ref={toolsRef}
+              onKeyDown={(e) => {
+                // Esc leaves the toolbar (or just the alt text popover) and returns to the editor, the picture still selected
+                if (e.key !== "Escape") return;
+                e.preventDefault();
+                e.stopPropagation();
+                setAltOpen(false);
+                editor?.commands.focus();
+              }}
+            >
+              <div className="img-tools-box" ref={toolsBoxRef}>
+                <div className="img-tools" role="toolbar" aria-label={t("compose.pic.options")}>
+                  <div className="seg" role="radiogroup" aria-label={t("compose.pic.size")}>
+                    {SIZES.map(([label, w]) => (
+                      <button key={label} role="radio" aria-checked={picSel.width === w} className={picSel.width === w ? "on" : ""} onClick={() => setPictureSize(w)}>
+                        {t(label)}
+                      </button>
+                    ))}
+                  </div>
+                  <div className="seg" role="radiogroup" aria-label={t("compose.pic.align")}>
+                    {([[null, "compose.fmt.alignLeft", <AlignLeft key="l" size={14} />], ["center", "compose.fmt.alignCenter", <AlignCenter key="c" size={14} />], ["right", "compose.fmt.alignRight", <AlignRight key="r" size={14} />]] as const).map(([a, label, icon]) => (
+                      <button key={label} role="radio" aria-checked={(picSel.align ?? null) === a} aria-label={t(label)} title={t(label)} className={(picSel.align ?? null) === a ? "on" : ""} onClick={() => setPictureAlign(a)}>
+                        {icon}
+                      </button>
+                    ))}
+                  </div>
+                  <button className={`icon-btn${picSel.href ? " on" : ""}`} aria-label={t("compose.fmt.link")} aria-pressed={!!picSel.href} title={kbd(t("compose.pic.linkTip"))} onClick={() => linkRef.current()}><Link2 size={14} /></button>
+                  <button
+                    className={`tool-btn ${picSel.alt ? "" : "no-alt"}`}
+                    title={picSel.alt ? t("compose.pic.editAlt") : t("compose.pic.addAlt")}
+                    aria-haspopup="dialog"
+                    aria-expanded={altOpen}
+                    onClick={() => (setAltText(picSel.alt), setAltOpen((o) => !o))}
+                  >
+                    {t("compose.pic.altText")}
                   </button>
-                ))}
-              </div>
-              <span className="sep" />
-              <button className={`tool-btn ${picSel.alt ? "" : "dot"}`} title={picSel.alt ? t("compose.pic.editAlt") : t("compose.pic.addAlt")} onClick={() => (setAltText(picSel.alt), setAltOpen((o) => !o))}>
-                {t("compose.pic.altText")}
-              </button>
-              <button className="tool-btn" onClick={pictureAsAttachment}>{t("compose.pic.asAttachment")}</button>
-              <button className="icon-btn" aria-label={t("compose.pic.remove")} title={t("compose.pic.removeTip")} onClick={removePicture}><Trash2 size={14} /></button>
-            </div>
-            {altOpen && (
-              <div className="popover alt-pop" style={{ top: picSel.top + 40, left: picSel.left, position: "absolute", zIndex: 13 }} role="dialog" aria-label={t("compose.pic.altText")}>
-                <label className="small muted">{t("compose.pic.altText")}</label>
-                <textarea value={altText} onChange={(e) => setAltText(e.target.value)} autoFocus placeholder={t("compose.pic.altPlaceholder")} />
-                <div className="helper">{t("compose.pic.altHelp")}</div>
-                <div className="row-inline" style={{ justifyContent: "flex-end", margin: 0 }}>
-                  <button className="btn small" onClick={() => setAltOpen(false)}>{t("common.cancel")}</button>
-                  <button className="btn primary small" onClick={savePictureAlt}>{t("common.save")}</button>
+                  <button className="tool-btn" onClick={pictureAsAttachment}>{t("compose.pic.asAttachment")}</button>
+                  <button className="icon-btn" aria-label={t("compose.pic.remove")} title={t("compose.pic.removeTip")} onClick={removePicture}><Trash2 size={14} /></button>
                 </div>
+                {altOpen && createPortal(
+                  <div className="popover alt-pop pinned" role="dialog" aria-label={t("compose.pic.altText")} ref={altPopRef}>
+                    <label className="small muted" htmlFor="alt-text-field">{t("compose.pic.altText")}</label>
+                    <textarea id="alt-text-field" value={altText} onChange={(e) => setAltText(e.target.value)} autoFocus placeholder={t("compose.pic.altPlaceholder")} />
+                    <div className="helper">{t("compose.pic.altHelp")}</div>
+                    <div className="row-inline" style={{ justifyContent: "flex-end", margin: 0 }}>
+                      <button className="btn small" onClick={() => setAltOpen(false)}>{t("common.cancel")}</button>
+                      <button className="btn primary small" onClick={savePictureAlt}>{t("common.save")}</button>
+                    </div>
+                  </div>,
+                  document.body,
+                )}
               </div>
-            )}
+            </div>
           </>
         )}
         {sigHeads.map((el) =>
@@ -1462,13 +2277,15 @@ export function Compose({ init }: { init: ComposeInit }) {
         )}
       </div>
 
+      {/* under the body: the pictures' size, the attachments, the notes; a box of its own height (App.css `.cp-tail`), the body keeps its room */}
+      <div className="cp-tail">
       {pics.count > 0 && (
         <div className="cp-size muted small cp-atts" aria-live="polite">
-          {t("compose.pic.count", { n: pics.count, size: fmtSize(totalBytes) })}
-          <div className={`progress ${totalBytes > MAX_ATTACH_BYTES ? "over" : ""}`} role="progressbar" aria-valuemin={0} aria-valuemax={25 * 1024 * 1024} aria-valuenow={totalBytes}>
-            <i style={{ width: `${Math.min(100, (totalBytes / MAX_ATTACH_BYTES) * 100)}%` }} />
+          {t("compose.pic.count", { n: pics.count, size: fmtSize(totalBytes), limit: fmtSize(limit.bytes) })}
+          <div className={`progress ${totalBytes > limit.bytes ? "over" : ""}`} role="progressbar" aria-valuemin={0} aria-valuemax={limit.bytes} aria-valuenow={totalBytes}>
+            <i style={{ width: `${Math.min(100, (totalBytes / limit.bytes) * 100)}%` }} />
           </div>
-          {totalBytes > MAX_ATTACH_BYTES && <span className="inline-err">{t("compose.pic.overLimit", { size: fmtSize(totalBytes) })}</span>}
+          {totalBytes > limit.bytes && <span className="inline-err">{t("compose.pic.overLimit", { size: fmtSize(totalBytes), limit: fmtSize(limit.bytes) })}</span>}
         </div>
       )}
 
@@ -1494,7 +2311,7 @@ export function Compose({ init }: { init: ComposeInit }) {
               <button className="icon-btn" aria-label={t("compose.att.removeAria", { name: a.filename })} onClick={() => (setAtts((x) => x.filter((_, j) => j !== i)), touch())}><X size={12} /></button>
             </span>
           ))}
-          <span className={`muted small ${attBytes > MAX_ATTACH_BYTES ? "err" : ""}`}>{t("compose.att.total", { size: fmtSize(attBytes) })}</span>
+          <span className={`muted small ${totalBytes > limit.bytes ? "err" : ""}`}>{t("compose.att.total", { size: fmtSize(attBytes), limit: fmtSize(limit.bytes) })}</span>
           {blockedAtts.length > 0 && (
             <span className="att-warn" role="alert">
               <TriangleAlert size={14} aria-hidden /> {t(blockedAtts.length === 1 ? "compose.att.blockedWarningOne" : "compose.att.blockedWarningMany", { types: [...new Set(blockedAtts.map((a) => a.ext))].join(", ") })}
@@ -1502,8 +2319,16 @@ export function Compose({ init }: { init: ComposeInit }) {
           )}
         </div>
       )}
-      {draftsHint && !init.outboxId && <div className="muted small cp-foot">{t("compose.banner.editingDraft")}</div>}
+      {/* always there when it is not a scheduled message (empty until there is something to say): the line appearing at the first autosave used to move what is above it */}
+      {!init.outboxId && (
+        <div className="muted small cp-foot">
+          {draftsHint ? t("compose.banner.editingDraft") : ""}
+          {draftsHint && autosavedAt ? " " : ""}
+          {autosavedAt ? t("compose.autosave.saved", { time: fmtClock(Math.floor(autosavedAt / 1000)) }) : ""}
+        </div>
+      )}
       {init.outboxId && <div className="muted small cp-foot">{t("compose.banner.keepsSchedule")}</div>}
+      </div>
       {dragging && (
         <div className="drop-zones" aria-label={t("compose.drop.label")}>
           {dragImages && (

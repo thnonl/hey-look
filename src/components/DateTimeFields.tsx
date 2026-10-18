@@ -13,8 +13,10 @@ import { createPortal } from "react-dom";
 import { addDays, addMonths, Day, dayKey, fmtDayLong, monthGrid, monthTitle, sameDay, systemTz, today, wdNarrow } from "../calendar";
 import { addDaysIso, addMonthsIso, addMinutesOfDay, formatDate, formatTime, parseDate, parseTime, readIso, readTime, slotFor, timeSlots } from "../dateTimeFields";
 import { useT } from "../i18n/react";
+import { placePopover } from "../popoverRoom";
 import { menuOwners } from "../pressInside";
 import { useStore } from "../store";
+import { toastBox } from "./ui";
 
 type Ref = React.RefObject<HTMLElement | null>;
 
@@ -44,17 +46,11 @@ function FieldPopup({
     const p = pop.current?.getBoundingClientRect();
     const b = anchor.current?.getBoundingClientRect();
     if (!p || !b) return;
-    const gap = 4;
     const edge = 6;
     if (b.bottom < edge || b.top > window.innerHeight - edge) return close.current(false); // the field was scrolled out of view
-    const below = window.innerHeight - edge - (b.bottom + gap);
-    const above = b.top - gap - edge;
-    const up = p.height > below && (p.height <= above || above > below);
-    const room = up ? above : below;
-    const raw = up ? b.top - gap - Math.min(p.height, room) : b.bottom + gap;
-    const top = Math.max(edge, Math.min(raw, window.innerHeight - edge - Math.min(p.height, room)));
-    const left = Math.max(edge, Math.min(b.left, window.innerWidth - p.width - edge));
-    setPos({ top, left, max: room });
+    // (popoverRoom.ts: below the field or above it, inside the window, above a toast)
+    const { top, left, max } = placePopover(b, { w: p.width, h: p.height }, { w: window.innerWidth, h: window.innerHeight }, { edge, gap: 4, toasts: toastBox(), minRoom: 96 });
+    setPos({ top, left, max });
   }, [anchor]);
   useEffect(() => {
     const el = pop.current;
@@ -177,6 +173,7 @@ function DateGrid({ value, tz, weekStart, onPick }: { value: string; tz?: string
   useEffect(() => {
     const el = grid.current?.querySelector<HTMLElement>("button[data-cursor]");
     el?.focus({ preventScroll: true }); // the focus follows the cursor
+    el?.scrollIntoView({ block: "nearest" }); // (the panel scrolls when the window is low: the day with the focus, then the Today button below, come into view)
   }, [cursor]);
   const go = (d: Day) => setCursor(d);
   const onKey = (e: React.KeyboardEvent) => {

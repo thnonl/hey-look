@@ -1,0 +1,333 @@
+{
+ "base": {
+  "family": "Calibri,Carlito,Arial,sans-serif",
+  "size": 11
+ },
+ "sig": null,
+ "doc": {
+  "type": "doc",
+  "content": [
+   {
+    "type": "paragraph",
+    "content": [
+     {
+      "type": "text",
+      "text": "Left, the default"
+     }
+    ]
+   },
+   {
+    "type": "paragraph",
+    "attrs": {
+     "textAlign": "center"
+    },
+    "content": [
+     {
+      "type": "text",
+      "text": "Centered"
+     }
+    ]
+   },
+   {
+    "type": "paragraph",
+    "attrs": {
+     "textAlign": "right"
+    },
+    "content": [
+     {
+      "type": "text",
+      "text": "Right"
+     }
+    ]
+   },
+   {
+    "type": "paragraph",
+    "attrs": {
+     "textAlign": "justify",
+     "lineHeight": "1.5"
+    },
+    "content": [
+     {
+      "type": "text",
+      "text": "A longer paragraph that is justified and has a line spacing of one and a half, so that a recipient sees the same rhythm of lines as the sender does in the editor."
+     }
+    ]
+   },
+   {
+    "type": "paragraph",
+    "attrs": {
+     "indent": 3
+    },
+    "content": [
+     {
+      "type": "text",
+      "text": "Indented by three steps"
+     }
+    ]
+   },
+   {
+    "type": "paragraph",
+    "attrs": {
+     "spaceAfter": "add"
+    },
+    "content": [
+     {
+      "type": "text",
+      "text": "Space after this paragraph"
+     }
+    ]
+   },
+   {
+    "type": "paragraph",
+    "attrs": {
+     "spaceAfter": "none"
+    },
+    "content": [
+     {
+      "type": "text",
+      "text": "No space after (the default)"
+     }
+    ]
+   },
+   {
+    "type": "paragraph",
+    "attrs": {
+     "textAlign": "center",
+     "indent": 1,
+     "lineHeight": "2",
+     "spaceAfter": "add"
+    },
+    "content": [
+     {
+      "type": "text",
+      "text": "Everything: centered, indented once, double spacing, space after"
+     }
+    ]
+   },
+   {
+    "type": "paragraph",
+    "attrs": {
+     "lineHeight": "1.15"
+    },
+    "content": [
+     {
+      "type": "text",
+      "text": "Line spacing 1.15"
+     }
+    ]
+   },
+   {
+    "type": "paragraph",
+    "attrs": {
+     "indent": 8
+    },
+    "content": [
+     {
+      "type": "text",
+      "text": "Deepest indent"
+     }
+    ]
+   },
+   {
+    "type": "paragraph",
+    "attrs": {
+     "textAlign": "right"
+    },
+    "content": [
+     {
+      "type": "text",
+      "text": "Bold and a ",
+      "marks": [
+       {
+        "type": "bold"
+       }
+      ]
+     },
+     {
+      "type": "text",
+      "text": "link",
+      "marks": [
+       {
+        "type": "link",
+        "attrs": {
+         "href": "https://heylook.app/"
+        }
+       }
+      ]
+     },
+     {
+      "type": "text",
+      "text": " in a right aligned paragraph"
+     }
+    ]
+   },
+   {
+    "type": "paragraph",
+    "attrs": {
+     "textAlign": "center"
+    },
+    "content": []
+   },
+   {
+    "type": "heading",
+    "attrs": {
+     "level": 1,
+     "textAlign": "right"
+    },
+    "content": [
+     {
+      "type": "text",
+      "text": "Heading 1, right"
+     }
+    ]
+   },
+   {
+    "type": "heading",
+    "attrs": {
+     "level": 2,
+     "spaceAfter": "none"
+    },
+    "content": [
+     {
+      "type": "text",
+      "text": "Heading 2 without space after"
+     }
+    ]
+   },
+   {
+    "type": "heading",
+    "attrs": {
+     "level": 3,
+     "indent": 2,
+     "spaceAfter": "add"
+    },
+    "content": [
+     {
+      "type": "text",
+      "text": "Heading 3, indented twice, space after"
+     }
+    ]
+   },
+   {
+    "type": "blockquote",
+    "content": [
+     {
+      "type": "paragraph",
+      "attrs": {
+       "indent": 1
+      },
+      "content": [
+       {
+        "type": "text",
+        "text": "A quoted paragraph, indented"
+       }
+      ]
+     },
+     {
+      "type": "paragraph",
+      "attrs": {
+       "textAlign": "center"
+      },
+      "content": [
+       {
+        "type": "text",
+        "text": "Another one, centered"
+       }
+      ]
+     }
+    ]
+   },
+   {
+    "type": "bulletList",
+    "content": [
+     {
+      "type": "listItem",
+      "content": [
+       {
+        "type": "paragraph",
+        "content": [
+         {
+          "type": "text",
+          "text": "Plain item"
+         }
+        ]
+       },
+       {
+        "type": "bulletList",
+        "content": [
+         {
+          "type": "listItem",
+          "content": [
+           {
+            "type": "paragraph",
+            "content": [
+             {
+              "type": "text",
+              "text": "Nested plain"
+             }
+            ]
+           }
+          ]
+         }
+        ]
+       }
+      ]
+     },
+     {
+      "type": "listItem",
+      "content": [
+       {
+        "type": "paragraph",
+        "attrs": {
+         "textAlign": "center"
+        },
+        "content": [
+         {
+          "type": "text",
+          "text": "Centered item"
+         }
+        ]
+       },
+       {
+        "type": "bulletList",
+        "content": [
+         {
+          "type": "listItem",
+          "content": [
+           {
+            "type": "paragraph",
+            "content": [
+             {
+              "type": "text",
+              "text": "Nested under a centered item"
+             }
+            ]
+           }
+          ]
+         }
+        ]
+       }
+      ]
+     },
+     {
+      "type": "listItem",
+      "content": [
+       {
+        "type": "paragraph",
+        "attrs": {
+         "lineHeight": "2"
+        },
+        "content": [
+         {
+          "type": "text",
+          "text": "Item with double spacing"
+         }
+        ]
+       }
+      ]
+     }
+    ]
+   }
+  ]
+ }
+}

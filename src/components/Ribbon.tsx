@@ -2,14 +2,17 @@ import {
   Archive, BrushCleaning, CalendarDays, CalendarPlus, CalendarRange, Clock, List as ListIcon, Upload, Command, FolderInput, Flag, Forward, Info, Keyboard, MailOpen, MailPlus, Mail, OctagonAlert, Pin, Reply, ReplyAll, Trash2,
 } from "lucide-react";
 import { ReactNode } from "react";
-import { forwardLast, newMailAccount, replyLast, targets } from "../actions";
+import { forwardLast, newMail, replyLast, targets } from "../actions";
 import { api } from "../api";
 import { calTz, today } from "../calendar";
 import { useT } from "../i18n/react";
 import { friendlyError, useStore, scopeOf } from "../store";
 import { newEvent } from "./Calendar";
+import { accountsOf, canMoveToJunk } from "../junk";
+import { moveChoices } from "../rowMenu";
 import { folderLabel } from "../prefs";
 import { snoozePresets } from "../util";
+import { ribbonAvailability } from "../composeSelection";
 import { Dropdown, MenuItem } from "./ui";
 
 function Btn({ icon, label, onClick, disabled, title }: { icon: ReactNode; label: string; onClick?: () => void; disabled?: boolean; title?: string }) {
@@ -24,7 +27,7 @@ function Btn({ icon, label, onClick, disabled, title }: { icon: ReactNode; label
 function DdBtn({ icon, label, items, disabled }: { icon: ReactNode; label: string; items: MenuItem[]; disabled?: boolean }) {
   return (
     <fieldset disabled={disabled} className="rb-wrap">
-      <Dropdown className="rb" items={items} title={label}>
+      <Dropdown className="rb" items={items} title={label} disabled={disabled}>
         {icon}
         <span>{label}</span>
       </Dropdown>
@@ -34,64 +37,65 @@ function DdBtn({ icon, label, items, disabled }: { icon: ReactNode; label: strin
 
 function HomeTab() {
   const t = useT();
-  const { act, openCompose, setDialog, threads, selected, checked, messages, accounts, folders, folder, accountId, prefs } = useStore();
+  const { act, setDialog, threads, selected, checked, messages, accounts, folders, folder, accountId, prefs, compose } = useStore();
   const ids = targets();
-  const has = ids.length > 0;
   const cur = threads.find((x) => x.threadId === selected);
   const acct = cur?.accountId ?? accountId ?? accounts[0]?.id;
   const scope = scopeOf(folder);
-  const moveItems: MenuItem[] = folders
-    .filter((f) => f.accountId === acct && f.key !== scope && f.key !== "drafts" && f.key !== "sent")
-    .map((f) => ({ label: folderLabel(f.key, f.name), onClick: () => void act(ids, "move", f.key, t("mail.done.moved", { folder: folderLabel(f.key, f.name) })) }));
+  // no Junk folder on the account(s): the actions that move mail there are off, with the reason (src/junk.ts)
+  const junkOff: Partial<MenuItem> = canMoveToJunk(folders, accountsOf(threads, ids)) ? {} : { disabled: true, hint: t("mail.junk.none"), title: t("mail.junk.noneTip") };
+  const moveItems: MenuItem[] = moveChoices(folders, acct, scope)
+    .map((f) => ({ label: folderLabel(f.key, f.name), onClick: () => void act(ids, "move", f.key, () => t("mail.done.moved", { folder: folderLabel(f.key, f.name) })) }));
   const anyUnread = (checked.size ? threads.filter((x) => checked.has(x.threadId)) : cur ? [cur] : []).some((x) => x.unread > 0);
   const flagged = cur?.flagged;
   const pinned = cur?.pinned;
-  const canReply = messages.length > 0;
   const lastConfidential = !!messages[messages.length - 1]?.confidential;
+  // one rule for every button that needs a selected mail: none is usable while a message is being written (F-21)
+  const av = ribbonAvailability(ids.length, messages.length, !!compose, lastConfidential);
   return (
     <div className="ribbon-row home">
       <div className="rg">
-        <button className="rb primary" onClick={() => openCompose({ accountId: newMailAccount() })}>
+        <button className="rb primary" onClick={() => void newMail()}>
           <MailPlus size={18} />
           <span>{t("app.ribbon.newMail")}</span>
         </button>
       </div>
       <div className="rg">
-        <Btn icon={<Trash2 size={16} />} label={t("common.delete")} disabled={!has} onClick={() => void act(ids, "trash", undefined, folder === "trash" ? t("mail.done.deleted") : t("mail.done.trashed"))} />
-        <Btn icon={<Archive size={16} />} label={t("app.ribbon.archive")} disabled={!has} onClick={() => void act(ids, "archive", undefined, t("mail.done.archived"))} />
+        <Btn icon={<Trash2 size={16} />} label={t("common.delete")} disabled={!av.onSelection} onClick={() => void act(ids, "trash", undefined, () => folder === "trash" ? t("mail.done.deleted") : t("mail.done.trashed"))} />
+        <Btn icon={<Archive size={16} />} label={t("app.ribbon.archive")} disabled={!av.onSelection} onClick={() => void act(ids, "archive", undefined, () => t("mail.done.archived"))} />
         <DdBtn
           icon={<OctagonAlert size={16} />}
           label={t("app.ribbon.report")}
-          disabled={!has}
+          disabled={!av.onSelection}
           items={[
-            { label: t("app.ribbon.moveToJunk"), onClick: () => void act(ids, "junk", undefined, t("mail.done.junk")) },
-            { label: t("app.ribbon.blockSender"), onClick: () => void act(ids, "block", undefined, t("mail.done.blocked")) },
+            { label: t("app.ribbon.moveToJunk"), onClick: () => void act(ids, "junk", undefined, () => t("mail.done.junk")), ...junkOff },
+            { label: t("app.ribbon.blockSender"), onClick: () => void act(ids, "block", undefined, () => t("mail.done.blocked")), ...junkOff },
           ]}
         />
         <Btn icon={<BrushCleaning size={16} />} label={t("app.ribbon.sweep")} title={t("app.ribbon.sweepTitle")} onClick={() => setDialog({ type: "cleaner" })} />
-        <DdBtn icon={<FolderInput size={16} />} label={t("app.ribbon.moveTo")} disabled={!has} items={moveItems} />
+        <DdBtn icon={<FolderInput size={16} />} label={t("app.ribbon.moveTo")} disabled={!av.onSelection} items={moveItems} />
       </div>
       <div className="rg">
-        <Btn icon={<Reply size={16} />} label={t("app.ribbon.reply")} disabled={!canReply} onClick={() => replyLast(false)} />
-        <Btn icon={<ReplyAll size={16} />} label={t("app.ribbon.replyAll")} disabled={!canReply} onClick={() => replyLast(true)} />
-        <Btn icon={<Forward size={16} />} label={t("app.ribbon.forward")} disabled={!canReply || lastConfidential} title={lastConfidential ? t("app.ribbon.noForward") : undefined} onClick={forwardLast} />
+        <Btn icon={<Reply size={16} />} label={t("app.ribbon.reply")} disabled={!av.reply} onClick={() => replyLast(false)} />
+        <Btn icon={<ReplyAll size={16} />} label={t("app.ribbon.replyAll")} disabled={!av.reply} onClick={() => replyLast(true)} />
+        <Btn icon={<Forward size={16} />} label={t("app.ribbon.forward")} disabled={!av.forward} title={lastConfidential ? t("app.ribbon.noForward") : undefined} onClick={forwardLast} />
       </div>
       <div className="rg">
         <Btn
           icon={anyUnread ? <MailOpen size={16} /> : <Mail size={16} />}
           label={anyUnread ? t("app.ribbon.markRead") : t("app.ribbon.markUnread")}
-          disabled={!has}
+          disabled={!av.onSelection}
           onClick={() => void act(ids, anyUnread ? "read" : "unread")}
         />
-        <Btn icon={<Flag size={16} fill={flagged ? "currentColor" : "none"} />} label={t("app.ribbon.flag")} disabled={!has} onClick={() => void act(ids, flagged ? "unstar" : "star")} />
-        <Btn icon={<Pin size={16} fill={pinned ? "currentColor" : "none"} />} label={t("app.ribbon.pin")} disabled={!has} onClick={() => void act(ids, pinned ? "unpin" : "pin")} />
+        <Btn icon={<Flag size={16} fill={flagged ? "currentColor" : "none"} />} label={t("app.ribbon.flag")} disabled={!av.onSelection} onClick={() => void act(ids, flagged ? "unstar" : "star")} />
+        <Btn icon={<Pin size={16} fill={pinned ? "currentColor" : "none"} />} label={t("app.ribbon.pin")} disabled={!av.onSelection} onClick={() => void act(ids, pinned ? "unpin" : "pin")} />
         <DdBtn
           icon={<Clock size={16} />}
           label={t("app.ribbon.snooze")}
-          disabled={!has}
+          disabled={!av.onSelection}
           items={snoozePresets(prefs.snoozeTimes).map((p) => ({
             label: p.label,
-            onClick: () => void act(ids, "snooze", String(p.ts), t("mail.done.snoozed", { when: p.label })),
+            onClick: () => void act(ids, "snooze", String(p.ts), () => t("mail.done.snoozed", { when: p.label })),
           }))}
         />
       </div>
@@ -109,7 +113,7 @@ function CalendarHomeTab() {
       showToast(t(r.added + r.updated === 1 ? "app.ribbon.imported.one" : "app.ribbon.imported.many", { added: r.added, updated: r.updated }), undefined, "success");
       bumpCal();
     } catch (e) {
-      showToast(t("app.ribbon.importFailed", { error: friendlyError(e) }), undefined, "error");
+      showToast(() => t("app.ribbon.importFailed", { error: friendlyError(e) }), undefined, "error");
     }
   };
   const view = prefs.calView;

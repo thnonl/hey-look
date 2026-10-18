@@ -5,6 +5,11 @@
 //! comments (conditional comments for Outlook included) and doctype / CDATA are skipped whole. Hidden preheader text is kept
 //! (it is what mail apps show), but the invisible padding after it (`&zwnj;&nbsp;` runs, figure spaces, soft hyphens, zero-width
 //! characters) is removed and white space is collapsed. The result is cut at a word boundary.
+//!
+//! The text then goes through `preview_text`: link markup (`[text](address)`, `<address>`, images, `[1]` markers), bare addresses and
+//! tracking tokens, "View in browser" / "Unsubscribe" / "Click here" lines (in the eight app languages) and rules of dashes are left
+//! out. The desktop notification uses the same text (`notification_preview`, `notification_line`). The stored body, which search
+//! reads, is not touched.
 
 use rusqlite::{params, Connection};
 
@@ -163,6 +168,14 @@ fn html_raw_text(h: &str) -> String {
                             Some(p) => b[p..].iter().position(|c| *c == b'>').map(|q| p + q + 1).unwrap_or(b.len()),
                             None => b.len(),
                         };
+                    } else if name == b"a" {
+                        // a link whose text is boilerplate ("View in browser", "Unsubscribe") is not text
+                        if let Some(p) = find_ci(b, i, b"</a") {
+                            if p - i <= 600 && is_boilerplate(&clean_text(&html_raw_text(&h[i..p]))) {
+                                i = b[p..].iter().position(|c| *c == b'>').map(|q| p + q + 1).unwrap_or(b.len());
+                                out.push(' ');
+                            }
+                        }
                     } else if name == b"head" {
                         // the head is not text; a head that is never closed ends where the body starts
                         if let Some(p) = find_ci(b, i, b"</head") {
@@ -196,6 +209,7 @@ fn html_raw_text(h: &str) -> String {
 }
 
 /// Characters that take no room (zero-width, joiners, soft hyphen, bidi marks, filler letters used as padding).
+/// (`clean_text` keeps the joiner and the emoji selector that sit inside an emoji sequence.)
 fn invisible(c: char) -> bool {
     matches!(c,
         '\u{200B}'..='\u{200F}' | '\u{202A}'..='\u{202E}' | '\u{2060}'..='\u{2064}' | '\u{2066}'..='\u{2069}'
@@ -203,16 +217,37 @@ fn invisible(c: char) -> bool {
         | '\u{FE00}'..='\u{FE0F}')
 }
 
+/// Emoji and pictographs: the characters a joiner (U+200D) or an emoji selector (U+FE0F) can belong to.
+fn emoji_like(c: char) -> bool {
+    matches!(c as u32,
+        0xA9 | 0xAE | 0x203C | 0x2049 | 0x2122 | 0x2139 | 0x2194..=0x21AA | 0x231A..=0x23FF | 0x24C2 | 0x25AA..=0x25FE
+        | 0x2600..=0x27BF | 0x2934 | 0x2935 | 0x2B05..=0x2B55 | 0x3030 | 0x303D | 0x3297 | 0x3299 | 0x1F000..=0x1FAFF | 0xE0020..=0xE007F)
+}
+
 /// Drop invisible characters, turn every kind of space and control character into one space, collapse runs, trim.
+/// An emoji sequence stays whole: the zero-width joiner between two emoji and the emoji selector after one are kept.
 pub fn clean_text(s: &str) -> String {
     let mut out = String::with_capacity(s.len().min(SCAN_CAP + 64));
     let mut space = false;
-    for c in s.chars() {
+    let mut in_emoji = false; // the last character written is an emoji (or a part of an emoji sequence)
+    let mut it = s.chars().peekable();
+    while let Some(c) = it.next() {
         if invisible(c) {
+            let keep = in_emoji
+                && match c {
+                    '\u{200D}' => it.peek().is_some_and(|n| emoji_like(*n)),
+                    '\u{FE0F}' | '\u{FE0E}' => true,
+                    _ => false,
+                };
+            let keycap = matches!(c, '\u{FE0F}') && !in_emoji && out.chars().next_back().is_some_and(|p| p.is_ascii_digit() || p == '#' || p == '*') && it.peek() == Some(&'\u{20E3}');
+            if keep || keycap {
+                out.push(c);
+            }
             continue;
         }
         if c.is_whitespace() || c.is_control() {
             space = !out.is_empty();
+            in_emoji = false;
             continue;
         }
         if space {
@@ -220,6 +255,7 @@ pub fn clean_text(s: &str) -> String {
             space = false;
         }
         out.push(c);
+        in_emoji = emoji_like(c);
     }
     out
 }
@@ -229,9 +265,28 @@ pub fn html_text(h: &str) -> String {
     clean_text(&html_raw_text(h))
 }
 
+/// The nearest grapheme boundary at or before byte `idx` (so a cut never lands inside an emoji sequence, a flag, or a letter with
+/// its combining marks). `idx` is a character boundary of `s`; a text that is one single huge cluster is cut where it was asked to.
+fn grapheme_floor(s: &str, idx: usize) -> usize {
+    use unicode_segmentation::GraphemeCursor;
+    if idx == 0 || idx >= s.len() {
+        return idx.min(s.len());
+    }
+    let mut cur = GraphemeCursor::new(idx, s.len(), true);
+    match cur.is_boundary(s, 0) {
+        Ok(true) => idx,
+        Ok(false) => match cur.prev_boundary(s, 0) {
+            Ok(Some(p)) if p > 0 => p,
+            _ => idx,
+        },
+        Err(_) => idx,
+    }
+}
+
 /// At most `SNIPPET_MAX` characters, ending at a word boundary when the text had to be cut.
 pub fn truncate_words(s: &str) -> String {
     let Some((cut, _)) = s.char_indices().nth(SNIPPET_MAX) else { return s.to_string() };
+    let cut = grapheme_floor(s, cut);
     let head = &s[..cut];
     if s[cut..].starts_with(' ') {
         return head.trim_end().to_string();
@@ -243,14 +298,591 @@ pub fn truncate_words(s: &str) -> String {
 }
 
 /// The snippet of a message. `real_text` is the text/plain part when the message has one (not text made from the HTML).
+/// Link markup, URLs and "view in browser" lines are left out (`preview_text`); the stored body is not touched, so search still
+/// finds every word of it.
 pub fn make(real_text: Option<&str>, html: Option<&str>) -> String {
-    if let Some(c) = real_text.map(clean_text).filter(|c| !c.is_empty()) {
+    if let Some(c) = real_text.map(preview_text).filter(|c| !c.is_empty()) {
         return truncate_words(&c);
     }
-    if let Some(c) = html.map(html_text).filter(|c| !c.is_empty()) {
+    if let Some(c) = html.map(|h| preview(&html_text(h), false)).filter(|c| !c.is_empty()) {
         return truncate_words(&c);
     }
     String::new()
+}
+
+// ---- readable preview: no link markup, URLs, tracking tokens or "view in browser" lines ----
+
+/// Characters of a text part that are read for the preview (a marketing text/plain part can be one long list of links).
+const PREVIEW_SOURCE_MAX: usize = 6000;
+/// Longest preview line of a desktop notification, in characters as a person counts them (graphemes), the ellipsis included.
+pub const NOTIFY_PREVIEW_MAX: usize = 100;
+/// A notification shows no preview line when fewer readable letters than this are left (a CJK character counts for two).
+const NOTIFY_MIN_READABLE: usize = 6;
+/// Longest subject / sender line of a desktop notification, in graphemes.
+const NOTIFY_LINE_MAX: usize = 200;
+
+/// Letters, digits and the combining marks that belong to them.
+fn wordish(c: char) -> bool {
+    c.is_alphanumeric() || matches!(c, '\u{0300}'..='\u{036F}' | '\u{064B}'..='\u{065F}')
+}
+
+/// White space and punctuation of the scripts the app is translated into (what stands between words and around a link).
+fn sepish(c: char) -> bool {
+    c.is_whitespace()
+        || c.is_ascii_punctuation()
+        || matches!(c,
+            '\u{00A0}' | '«' | '»' | '·' | '•' | '–' | '—' | '…' | '‘' | '’' | '“' | '”' | '‹' | '›' | '¡' | '¿' | '。' | '、' | '！' | '？' | '：' | '；' | '，'
+            | '｜' | '（' | '）' | '「' | '」' | '『' | '』' | '【' | '】' | '《' | '》' | '،' | '؛' | '؟' | '\u{3000}')
+}
+
+/// Han, kana and Hangul: scripts written without spaces between words.
+fn cjk(c: char) -> bool {
+    matches!(c as u32, 0x3040..=0x30FF | 0x3400..=0x4DBF | 0x4E00..=0x9FFF | 0xAC00..=0xD7AF | 0xF900..=0xFAFF | 0xFF66..=0xFF9F)
+}
+
+/// Text of "view this email in your browser" / "having trouble viewing" lines and links: cut off the start of a line.
+const VIEW_PHRASES: &[&str] = &[
+    // English
+    "view in browser", "view in your browser", "view in web browser", "view in your web browser", "view this email in your browser", "view this email in a browser",
+    "view this email in browser", "view this email online", "view this message in your browser", "view email in browser", "view email in your browser", "view it in your browser",
+    "view as a web page", "view as web page", "view web version", "view the web version", "view on the web",
+    "read in browser", "read this email in your browser", "open in browser", "open in your browser", "open this email in your browser",
+    "having trouble viewing this email", "having trouble viewing this message", "having trouble viewing", "trouble viewing this email",
+    "email not displaying correctly", "email not displaying properly", "email not displaying", "not displaying correctly", "if you cannot see this email",
+    "if you can t see this email", "if you can t read this email", "can t see this email", "is this email not displaying correctly",
+    // French
+    "voir dans le navigateur", "voir dans votre navigateur", "afficher dans le navigateur", "afficher dans votre navigateur", "visualiser dans le navigateur",
+    "visualiser dans votre navigateur", "consulter dans le navigateur", "consulter dans votre navigateur", "voir cet e mail dans votre navigateur",
+    "voir cet email dans votre navigateur", "voir ce message dans votre navigateur", "afficher cet e mail dans votre navigateur", "ouvrir dans le navigateur",
+    "voir la version en ligne", "consulter la version en ligne", "afficher la version en ligne", "problèmes d affichage",
+    "vous ne parvenez pas à lire ce message", "si vous ne voyez pas ce message correctement", "vous ne voyez pas cet e mail correctement",
+    // German
+    "im browser ansehen", "im browser anzeigen", "im browser öffnen", "im browser betrachten", "im webbrowser ansehen", "e mail im browser ansehen",
+    "diese e mail im browser ansehen", "diese e mail im browser anzeigen", "newsletter im browser ansehen", "newsletter im browser anzeigen", "web version ansehen", "probleme bei der darstellung", "wird diese e mail nicht richtig angezeigt",
+    "wird diese e mail nicht korrekt angezeigt", "wenn diese e mail nicht richtig angezeigt wird", "sollte diese e mail nicht richtig dargestellt werden",
+    // Spanish
+    "ver en el navegador", "ver en tu navegador", "ver en su navegador", "ver en navegador", "ver este correo en el navegador", "ver este correo en tu navegador",
+    "ver este email en el navegador", "ver este email en tu navegador", "ver este mensaje en el navegador", "ver correo en el navegador", "ver versión web", "ver la versión web", "ver en el navegador web", "abrir en el navegador", "problemas para ver este correo",
+    "problemas para ver este email", "si no puedes ver este correo correctamente", "si no ves correctamente este correo", "si no se visualiza correctamente",
+    // Japanese
+    "ブラウザで見る", "ブラウザで表示", "ブラウザで開く", "ブラウザでご覧ください", "ブラウザで確認", "ウェブブラウザで表示", "ウェブで見る", "web版を見る", "ウェブ版を見る",
+    "メールが正しく表示されない場合", "メールが正しく表示されない", "メールが表示されない場合", "このメールが正しく表示されない場合", "表示されない場合はこちら",
+    // Russian
+    "открыть в браузере", "посмотреть в браузере", "просмотреть в браузере", "смотреть в браузере", "прочитать в браузере", "открыть письмо в браузере",
+    "посмотреть письмо в браузере", "веб версия письма", "версия для браузера", "если письмо не отображается",
+    "если письмо не отображается корректно", "письмо не отображается", "не отображается письмо",
+    // Simplified Chinese
+    "在浏览器中查看", "在浏览器中打开", "在浏览器查看", "在浏览器中阅读", "网页版查看", "如果无法正常显示", "如果邮件无法正常显示",
+    "无法查看此邮件", "无法正常查看此邮件", "邮件无法显示", "邮件显示不正常",
+    // Vietnamese
+    "xem trong trình duyệt", "xem email trên trình duyệt", "xem email trong trình duyệt", "xem trên trình duyệt", "xem thư trên trình duyệt",
+    "xem thư trong trình duyệt", "xem email này trên trình duyệt", "xem phiên bản web", "xem bản web", "xem bản trực tuyến",
+    "mở trong trình duyệt", "mở trên trình duyệt", "nếu không xem được email", "nếu bạn không xem được email", "không xem được email", "email không hiển thị",
+    "email không hiển thị đúng", "gặp sự cố khi xem email",
+    "xem trong trinh duyet", "xem email tren trinh duyet", "xem tren trinh duyet", "xem phien ban web",
+    // Arabic
+    "عرض في المتصفح", "عرض في المتصفّح", "افتح في المتصفح", "عرض الرسالة في المتصفح",
+    // more ways to say it
+    "click here to view this email in your browser", "click here to view in your browser", "click here to view in browser", "click here to view this email online",
+    "click here to view it online", "click to view in browser", "tap here to view in browser", "view this email as a web page", "view this newsletter in your browser",
+    "voir ce mail dans le navigateur", "voir ce mail dans votre navigateur", "voir ce message en ligne", "voir cet email en ligne", "ouvrir cet e mail dans votre navigateur",
+    "sehen sie diese e mail im browser", "sehen sie die e mail im browser", "e mail im browser öffnen", "diese e mail im browser öffnen", "newsletter im browser öffnen",
+    "ver este correo en línea", "ver este email online", "ver mensaje en el navegador", "abrir este correo en el navegador", "ver este correo electrónico en el navegador",
+    "ブラウザで表示する", "ブラウザでご確認ください", "ブラウザでメールを見る", "このメールが正しく表示されない場合", "このメールが表示されない場合",
+    "откройте письмо в браузере", "откройте его в браузере", "открыть это письмо в браузере", "посмотреть это письмо в браузере", "прочитать письмо в браузере",
+    "在浏览器中查看此邮件", "在浏览器中查看本邮件", "请在浏览器中查看", "在浏览器里查看", "点击这里在浏览器中查看",
+    "xem thư này trên trình duyệt", "xem email này trong trình duyệt", "mở email trong trình duyệt", "xem phiên bản trình duyệt", "xem thư trực tuyến",
+];
+
+/// Text of links and buttons that are not content ("click here", "unsubscribe"): dropped when they are all there is.
+const ACTION_PHRASES: &[&str] = &[
+    // English
+    "view online", "view it online", "read online", "web version", "online ansehen", "online anzeigen", "webversion", "version en ligne", "ver en línea", "ver online",
+    "在线查看", "网页版", "веб версия", "онлайн версия", "xem trực tuyến", "xem trên web",
+    "click here", "tap here", "click here to view", "click here to unsubscribe", "click to view", "unsubscribe", "unsubscribe here", "unsubscribe from this list",
+    "unsubscribe from these emails", "manage preferences", "manage your preferences", "manage your email preferences", "update preferences", "update your preferences",
+    "email preferences", "privacy policy", "terms of service", "terms and conditions", "privacy", "terms", "preferences", "datenschutz", "confidentialité", "forward to a friend", "forward this email", "view privacy policy",
+    // French
+    "cliquez ici", "cliquer ici", "se désabonner", "me désabonner", "vous désabonner", "désabonnement", "se désinscrire", "me désinscrire", "désinscription",
+    "gérer mes préférences", "gérer vos préférences", "politique de confidentialité",
+    // German
+    "hier klicken", "klicken sie hier", "hier klicken zum anzeigen", "abmelden", "newsletter abbestellen", "abbestellen", "vom newsletter abmelden",
+    "newsletter abmelden", "einstellungen verwalten", "datenschutzerklärung",
+    // Spanish
+    "haz clic aquí", "haga clic aquí", "clic aquí", "cancelar suscripción", "cancelar la suscripción", "darse de baja", "darme de baja", "anular suscripción",
+    "gestionar preferencias", "gestiona tus preferencias", "política de privacidad",
+    // Japanese
+    "こちらをクリック", "ここをクリック", "こちら", "配信停止", "配信解除", "メール配信停止", "メール配信解除", "購読解除", "登録解除", "配信停止はこちら", "配信設定",
+    // Russian
+    "нажмите здесь", "кликните здесь", "нажмите сюда", "отписаться", "отписаться от рассылки", "отказаться от рассылки", "отписаться здесь",
+    "управление подпиской", "политика конфиденциальности",
+    // Simplified Chinese
+    "点击这里", "点击此处", "单击此处", "点此查看", "取消订阅", "退订", "退订邮件", "点击退订", "不再接收", "管理订阅", "隐私政策",
+    // Vietnamese
+    "nhấn vào đây", "nhấp vào đây", "bấm vào đây", "click vào đây", "chạm vào đây", "hủy đăng ký", "huỷ đăng ký", "hủy nhận tin", "hủy nhận email", "bỏ đăng ký",
+    "ngừng nhận email", "ngừng nhận tin", "từ chối nhận email", "quản lý đăng ký", "chính sách bảo mật",
+    "nhan vao day", "nhap vao day", "bam vao day", "huy dang ky", "bo dang ky",
+    // Arabic
+    "انقر هنا", "اضغط هنا", "إلغاء الاشتراك", "الغاء الاشتراك",
+];
+
+/// The phrases in a comparable form (lower case, one space between words, punctuation gone), longest first; `true` = a "view" phrase.
+fn phrases() -> &'static [(Vec<char>, bool)] {
+    static P: std::sync::OnceLock<Vec<(Vec<char>, bool)>> = std::sync::OnceLock::new();
+    P.get_or_init(|| {
+        let norm = |s: &str| -> Vec<char> {
+            let mut out: Vec<char> = Vec::new();
+            for c in s.chars().flat_map(|c| c.to_lowercase()) {
+                if wordish(c) {
+                    out.push(c);
+                } else if out.last().is_some_and(|l| *l != ' ') {
+                    out.push(' ');
+                }
+            }
+            while out.last() == Some(&' ') {
+                out.pop();
+            }
+            out
+        };
+        let mut v: Vec<(Vec<char>, bool)> = VIEW_PHRASES.iter().map(|p| (norm(p), true)).chain(ACTION_PHRASES.iter().map(|p| (norm(p), false))).collect();
+        v.sort_by(|a, b| b.0.len().cmp(&a.0.len()));
+        v
+    })
+}
+
+/// If `s` starts with the phrase `p` (case-insensitive; any punctuation or spaces stand for the single space of the phrase), the byte
+/// length of that start. The phrase must end at the end of a word, except in Chinese / Japanese / Korean where words are not spaced.
+fn eat_phrase(s: &str, p: &[char]) -> Option<usize> {
+    let mut pi = 0;
+    let mut end = 0;
+    let mut it = s.char_indices().peekable();
+    while pi < p.len() {
+        let (idx, c) = it.next()?;
+        if wordish(c) {
+            for lc in c.to_lowercase() {
+                if p.get(pi) != Some(&lc) {
+                    return None;
+                }
+                pi += 1;
+            }
+            end = idx + c.len_utf8();
+        } else if sepish(c) && p[pi] == ' ' {
+            pi += 1;
+            while it.peek().is_some_and(|(_, d)| sepish(*d)) {
+                it.next();
+            }
+        } else {
+            return None;
+        }
+    }
+    let last = *p.last()?;
+    if s[end..].chars().next().is_some_and(wordish) && !cjk(last) {
+        return None;
+    }
+    Some(end)
+}
+
+/// `s` without the boilerplate phrases at its start ("view" phrases always, "click here" / "unsubscribe" ones when `actions`),
+/// white space and punctuation between them included; and whether there was any.
+fn strip_boilerplate(mut s: &str, actions: bool) -> (&str, bool) {
+    let mut hit = false;
+    'again: loop {
+        s = s.trim_start_matches(sepish);
+        for (p, view) in phrases() {
+            if *view || actions {
+                if let Some(n) = eat_phrase(s, p) {
+                    s = &s[n..];
+                    hit = true;
+                    continue 'again;
+                }
+            }
+        }
+        return (s, hit);
+    }
+}
+
+/// Text that is nothing but such phrases ("View in browser", "Unsubscribe | Manage preferences").
+fn is_boilerplate(text: &str) -> bool {
+    let (rest, hit) = strip_boilerplate(text, true);
+    hit && !rest.chars().any(wordish)
+}
+
+/// Text with HTML entities decoded (`&amp;`, `&#8217;`, `&nbsp;`), unknown ones left as they are.
+fn decode_entities(s: &str) -> String {
+    if !s.contains('&') {
+        return s.to_string();
+    }
+    let mut out = String::with_capacity(s.len());
+    let mut i = 0;
+    while i < s.len() {
+        let rest = &s[i..];
+        if rest.starts_with('&') {
+            match entity(rest) {
+                Some((t, n)) => {
+                    out.push_str(&t);
+                    i += n;
+                }
+                None => {
+                    out.push('&');
+                    i += 1;
+                }
+            }
+        } else {
+            let n = rest.find('&').unwrap_or(rest.len());
+            out.push_str(&rest[..n]);
+            i += n;
+        }
+    }
+    out
+}
+
+/// A link target: a web / mail / phone address, a relative path or an anchor.
+fn link_target(t: &str) -> bool {
+    let t = t.trim_start_matches('<');
+    let l: String = t.chars().take(12).collect::<String>().to_ascii_lowercase();
+    ["http://", "https://", "ftp://", "ftps://", "mailto:", "tel:", "sms:", "cid:", "www.", "/", "#"].iter().any(|p| l.starts_with(p)) || t.contains("://")
+}
+
+/// A web / mail / phone address (not a relative path), for `<...>` around a bare address.
+fn absolute_url(t: &str) -> bool {
+    let l: String = t.chars().take(12).collect::<String>().to_ascii_lowercase();
+    ["http://", "https://", "ftp://", "ftps://", "mailto:", "tel:", "www."].iter().any(|p| l.starts_with(p))
+}
+
+/// Index of the bracket that closes the one at `open` (nesting counted), looking at most `limit` characters ahead.
+fn matching(c: &[char], open: usize, o: char, cl: char, limit: usize) -> Option<usize> {
+    let mut depth = 0usize;
+    for (k, &ch) in c.iter().enumerate().skip(open).take(limit) {
+        if ch == o {
+            depth += 1;
+        } else if ch == cl {
+            depth = depth.saturating_sub(1);
+            if depth == 0 {
+                return Some(k);
+            }
+        }
+    }
+    None
+}
+
+/// `[text](target)` or `[text][ref]` at `open` (a `[`): the text of the link and the index after it. Not a link when the target
+/// is not an address (`[note](see above)` is words).
+fn markdown_link(c: &[char], open: usize, depth: u8) -> Option<(String, usize)> {
+    let close = matching(c, open, '[', ']', 2500)?;
+    let end = match c.get(close + 1) {
+        Some('(') => match matching(c, close + 1, '(', ')', 2500) {
+            Some(end) => {
+                let target: String = c[close + 2..end].iter().collect();
+                let first = target.split_whitespace().next().unwrap_or("");
+                if !(first.is_empty() || link_target(first)) {
+                    return None;
+                }
+                end
+            }
+            None => {
+                // a link that is cut off (a snippet stored cut at 200 characters): its address runs to the next space
+                let from = close + 2;
+                let stop = c[from..].iter().position(|ch| ch.is_whitespace()).map_or(c.len(), |p| from + p);
+                let first: String = c[from..stop].iter().collect();
+                if !absolute_url(&first) {
+                    return None;
+                }
+                stop - 1
+            }
+        },
+        Some('[') => matching(c, close + 1, '[', ']', 40)?,
+        _ => return None,
+    };
+    // (the text is read only for a real link: a text full of brackets must not be scanned again for every one of them)
+    let inner = &c[open + 1..close];
+    let text = if depth < 3 { strip_links_in(inner, depth + 1) } else { inner.iter().collect() };
+    Some((text, end + 1))
+}
+
+/// Links in Markdown form turned into their text (or into nothing when the text is boilerplate); images, `<https://...>` and
+/// reference markers (`[1]`, `[1]:`) removed. Dropped items leave a space; new lines stay.
+fn strip_links(s: &str) -> String {
+    let c: Vec<char> = s.chars().collect();
+    strip_links_in(&c, 0)
+}
+
+fn strip_links_in(c: &[char], depth: u8) -> String {
+    let mut out = String::with_capacity(c.len());
+    let mut i = 0;
+    while i < c.len() {
+        match c[i] {
+            '!' if c.get(i + 1) == Some(&'[') => match markdown_link(c, i + 1, depth) {
+                Some((_, end)) => {
+                    out.push(' ');
+                    i = end;
+                }
+                None => {
+                    out.push('!');
+                    i += 1;
+                }
+            },
+            '[' => {
+                if let Some((text, end)) = markdown_link(c, i, depth) {
+                    if !is_boilerplate(&text) {
+                        out.push_str(&text);
+                    }
+                    out.push(' ');
+                    i = end;
+                } else if let Some(close) = matching(c, i, '[', ']', 8).filter(|k| {
+                    let t = &c[i + 1..*k];
+                    // (not glued to a word: "array[0]" is code, "see the report [1]" is a reference)
+                    (i == 0 || !c[i - 1].is_alphanumeric()) && !t.is_empty() && (t.iter().all(char::is_ascii_digit) || (t[0] == '^' && t.len() > 1 && t[1..].iter().all(char::is_ascii_alphanumeric)))
+                }) {
+                    // a reference marker: [1], [^2]; and the colon of a reference definition "[1]: https://..."
+                    out.push(' ');
+                    i = close + 1;
+                    if c.get(i) == Some(&':') {
+                        i += 1;
+                    }
+                } else {
+                    out.push('[');
+                    i += 1;
+                }
+            }
+            '<' => {
+                let end = c.iter().enumerate().skip(i + 1).take(2000).find(|(_, ch)| **ch == '>').map(|(k, _)| k);
+                match end {
+                    Some(k) if {
+                        let t: String = c[i + 1..k].iter().collect();
+                        !t.is_empty() && !t.contains(char::is_whitespace) && absolute_url(&t)
+                    } =>
+                    {
+                        out.push(' ');
+                        i = k + 1;
+                    }
+                    _ => {
+                        out.push('<');
+                        i += 1;
+                    }
+                }
+            }
+            ch => {
+                out.push(ch);
+                i += 1;
+            }
+        }
+    }
+    out
+}
+
+/// `host.tld/path`: an address written without a scheme.
+fn host_and_path(t: &str) -> bool {
+    let Some((host, path)) = t.split_once('/') else { return false };
+    let labels: Vec<&str> = host.split('.').collect();
+    !path.is_empty()
+        && labels.len() >= 2
+        && labels.iter().all(|l| !l.is_empty() && l.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'-'))
+        && labels.last().is_some_and(|l| l.len() >= 2 && l.bytes().all(|b| b.is_ascii_alphabetic()))
+}
+
+/// A long run of letters and digits, or a path with query characters, that no person writes (a tracking token).
+fn tracking_like(t: &str) -> bool {
+    t.len() >= 28 && t.bytes().any(|b| matches!(b, b'/' | b'=' | b'%' | b'?' | b'&'))
+        || t.len() >= 36 && t.bytes().any(|b| b.is_ascii_digit()) && t.bytes().any(|b| b.is_ascii_uppercase()) && t.bytes().any(|b| b.is_ascii_lowercase())
+}
+
+/// One word of the text with an address taken out: nothing left for an address or a tracking token, the text around a
+/// `scheme://...` that is glued to a word, the word itself otherwise.
+fn drop_url_in_token(tok: &str) -> String {
+    const OPEN: &[char] = &['(', '[', '{', '<', '"', '\'', '“', '‘', '«'];
+    if let Some(p) = tok.find("://") {
+        let start = tok[..p].char_indices().rev().take_while(|(_, c)| c.is_ascii_alphanumeric() || matches!(c, '+' | '-' | '.')).last().map(|(i, _)| i).unwrap_or(p);
+        return tok[..start].trim_matches(|c| OPEN.contains(&c)).to_string();
+    }
+    let core = tok.trim_matches(|c: char| OPEN.contains(&c) || matches!(c, ')' | ']' | '}' | '>' | '.' | ',' | ';' | ':' | '!' | '?' | '"' | '\'' | '”' | '’' | '»'));
+    let l = core.to_ascii_lowercase();
+    if l.starts_with("mailto:") || l.starts_with("tel:") || l.starts_with("www.") || (core.is_ascii() && (host_and_path(core) || tracking_like(core))) {
+        return String::new();
+    }
+    tok.to_string()
+}
+
+/// A character of a rule, frame or bullet row ("-----", "=====", "_____", "* * *", "┄┄┄").
+fn rule_char(c: char) -> bool {
+    matches!(c, '-' | '_' | '=' | '*' | '#' | '~' | '+' | '|' | '<' | '>' | '^' | '/' | '\\' | '.' | '·' | '•' | '—' | '–' | '\u{2500}'..='\u{259F}')
+}
+
+/// Runs of rule characters (3 or more, 4 or more of dots only; single spaces inside a run allowed) replaced by one space.
+fn collapse_rules(s: &str) -> String {
+    let c: Vec<char> = s.chars().collect();
+    let mut out = String::with_capacity(s.len());
+    let mut i = 0;
+    while i < c.len() {
+        if !rule_char(c[i]) {
+            out.push(c[i]);
+            i += 1;
+            continue;
+        }
+        let (mut j, mut n, mut other) = (i, 0usize, false);
+        while j < c.len() {
+            if rule_char(c[j]) {
+                n += 1;
+                other |= c[j] != '.';
+                j += 1;
+            } else if c[j] == ' ' && c.get(j + 1).is_some_and(|d| rule_char(*d)) {
+                j += 1;
+            } else {
+                break;
+            }
+        }
+        if n >= if other { 3 } else { 4 } {
+            out.push(' ');
+        } else {
+            out.extend(&c[i..j]);
+        }
+        i = j;
+    }
+    out
+}
+
+/// "()" "[]" and the like left behind by removed addresses.
+fn drop_empty_brackets(s: &str) -> String {
+    let mut t = s.to_string();
+    for _ in 0..4 {
+        let n = t.replace("()", "").replace("[]", "").replace("( )", "").replace("[ ]", "");
+        if n == t {
+            break;
+        }
+        t = n;
+    }
+    t
+}
+
+/// Punctuation left at the ends of a line by removed items. (A comma, colon or semicolon at the end of a line stays: the lines are
+/// joined into one text, and `preview` trims the end of that text.)
+fn trim_junk(s: &str) -> &str {
+    const LEAD: &[char] = &[' ', '|', '·', '•', ':', ';', ',', '>', ')', ']', '}', '_', '=', '~', '*', '/', '\\'];
+    const TRAIL: &[char] = &[' ', '|', '·', '•', '<', '(', '[', '{', '-', '–', '—', '_', '=', '~', '*', '/', '\\'];
+    let mut t = s;
+    loop {
+        let a = t.trim_start_matches(LEAD);
+        // a dash opens a line only as a separator ("- item"), not in "-5 degrees"; "#" only as a Markdown heading ("# Title"), not in "#1"
+        let b = ['-', '–', '—'].iter().find_map(|d| a.strip_prefix(*d)).filter(|r| r.starts_with(char::is_whitespace)).unwrap_or(a);
+        let b = if b.starts_with('#') {
+            let r = b.trim_start_matches('#');
+            if b.len() - r.len() <= 6 && r.starts_with(char::is_whitespace) { r } else { b }
+        } else {
+            b
+        };
+        if b.len() == t.len() {
+            break;
+        }
+        t = b;
+    }
+    t.trim_end_matches(TRAIL)
+}
+
+/// One line of the text, after the links of the whole text were handled: no addresses, rules or boilerplate.
+fn line_text(line: &str) -> String {
+    let s = line.split_whitespace().map(drop_url_in_token).filter(|t| !t.is_empty()).collect::<Vec<_>>().join(" ");
+    let s = clean_text(&drop_empty_brackets(&collapse_rules(&s)));
+    if s.is_empty() || is_boilerplate(&s) {
+        return String::new();
+    }
+    let (rest, hit) = strip_boilerplate(&s, false);
+    trim_junk(if hit { rest } else { &s }).to_string()
+}
+
+fn preview(raw: &str, decode: bool) -> String {
+    let raw = match raw.char_indices().nth(PREVIEW_SOURCE_MAX) {
+        Some((i, _)) => &raw[..i],
+        None => raw,
+    };
+    let decoded = if decode { decode_entities(raw) } else { raw.to_string() };
+    // invisible characters out and white space tidy line by line first, so they cannot split a link; the lines stay lines
+    let tidy = decoded.split(['\n', '\r', '\u{2028}', '\u{2029}', '\u{85}']).map(clean_text).filter(|l| !l.is_empty()).collect::<Vec<_>>().join("\n");
+    let linked = strip_links(&tidy);
+    let mut out = String::new();
+    for line in linked.split('\n') {
+        let l = line_text(line);
+        if l.is_empty() {
+            continue;
+        }
+        if !out.is_empty() {
+            out.push(' ');
+        }
+        out.push_str(&l);
+        if out.len() > SNIPPET_MAX * 8 {
+            break;
+        }
+    }
+    let end = out.trim_end_matches([' ', ',', ':', ';']).len();
+    out.truncate(end);
+    out
+}
+
+/// The readable words of a plain text part as one line: Markdown links become their text (or nothing for "View in browser",
+/// "Unsubscribe", "Click here" and their translations), bare and `<angle>` addresses, tracking tokens, images, reference markers,
+/// HTML entities, invisible characters and rules of dashes or underscores are gone, white space is collapsed. Letters of every
+/// script and emoji are kept; the result is as long as the text (`truncate_words` or `truncate_display` cut it).
+pub fn preview_text(raw: &str) -> String {
+    preview(raw, true)
+}
+
+/// How much readable text a line holds: letters, a Han / kana / Hangul character counting for two.
+fn readable_len(s: &str) -> usize {
+    s.chars().filter(|c| c.is_alphabetic()).map(|c| if cjk(c) { 2 } else { 1 }).sum()
+}
+
+/// `s` cut to at most `max` graphemes (what a person counts as a character: an emoji family, a flag, a letter with its accents
+/// are one), at a word boundary when there is one in the second half, with "…" at the end when something was cut.
+pub fn truncate_display(s: &str, max: usize) -> String {
+    use unicode_segmentation::UnicodeSegmentation;
+    if s.graphemes(true).nth(max).is_none() {
+        return s.to_string();
+    }
+    let cut = s.grapheme_indices(true).nth(max.saturating_sub(1).max(1)).map(|(i, _)| i).unwrap_or(s.len());
+    let head = &s[..cut];
+    let whole = if s[cut..].starts_with(char::is_whitespace) {
+        head
+    } else {
+        match head.rfind(char::is_whitespace) {
+            Some(p) if p >= head.len() / 2 => &head[..p],
+            _ => head,
+        }
+    };
+    let trimmed = whole.trim_end_matches(|c: char| c.is_whitespace() || matches!(c, ',' | ';' | ':' | '.' | '-' | '–' | '—' | '|' | '/' | '(' | '['));
+    format!("{}…", if trimmed.is_empty() { head } else { trimmed })
+}
+
+/// The preview line of a desktop notification, from a stored snippet (old snippets are cleaned again): at most
+/// `NOTIFY_PREVIEW_MAX` characters, and empty when too little readable text is left (a notification then shows no third line).
+pub fn notification_preview(snippet: &str) -> String {
+    let s = preview_text(snippet);
+    if readable_len(&s) < NOTIFY_MIN_READABLE {
+        return String::new();
+    }
+    truncate_display(&s, NOTIFY_PREVIEW_MAX)
+}
+
+/// A subject or sender name for a notification: control characters and invisible padding out, white space collapsed, nothing else
+/// changed (emoji joiners, accents, bidi marks of right-to-left text stay), very long lines cut.
+pub fn notification_line(s: &str) -> String {
+    let mut out = String::with_capacity(s.len().min(1024));
+    let mut space = false;
+    for c in s.chars() {
+        if c.is_whitespace() || c.is_control() {
+            space = !out.is_empty();
+            continue;
+        }
+        if matches!(c, '\u{200B}' | '\u{2060}' | '\u{FEFF}' | '\u{00AD}' | '\u{034F}' | '\u{202A}'..='\u{202E}' | '\u{2066}'..='\u{2069}') {
+            continue;
+        }
+        if space {
+            out.push(' ');
+            space = false;
+        }
+        out.push(c);
+        if out.len() > NOTIFY_LINE_MAX * 16 {
+            break;
+        }
+    }
+    truncate_display(&out, NOTIFY_LINE_MAX)
 }
 
 /// A stored snippet that looks like style sheet text or markup instead of words.
@@ -310,6 +942,63 @@ pub fn fix_stored(conn: &Connection) -> Result<usize, String> {
         }
     }
     conn.execute("INSERT OR REPLACE INTO settings(key,value) VALUES(?1,'1')", [FIXED_KEY]).map_err(e)?;
+    Ok(changed)
+}
+
+/// Settings key that marks the one-time removal of link markup from stored snippets as done.
+const LINKS_FIXED_KEY: &str = "snippet_fix_v2";
+
+/// One-time clean-up of snippets stored before link markup was left out of the preview ("[View in browser](https://...)", bare
+/// addresses): a snippet that holds an address or link markup is cleaned (`preview_text`); when little is left of it (the
+/// snippet was cut inside the link) it is made again from the stored body. Never touches a row without such markup, never writes an
+/// empty snippet, never changes the stored body (search reads `body_text`). Same batches and flag as `fix_stored`. Returns the
+/// number of rows changed.
+pub fn fix_stored_links(conn: &Connection) -> Result<usize, String> {
+    let done: Option<String> = conn.query_row("SELECT value FROM settings WHERE key=?1", [LINKS_FIXED_KEY], |r| r.get(0)).ok();
+    if done.is_some() {
+        return Ok(0);
+    }
+    let e = |x: rusqlite::Error| x.to_string();
+    let mut changed = 0usize;
+    for schema in crate::shard::message_schemas(conn) {
+        let table = format!("{schema}.messages");
+        let mut last = 0i64;
+        loop {
+            let batch: Vec<(i64, String)> = {
+                let mut st = conn
+                    .prepare(&format!(
+                        "SELECT rowid, snippet FROM {table} WHERE rowid>?1
+                           AND (snippet LIKE '%](%' OR snippet LIKE '%://%' OR snippet LIKE '%www.%' OR snippet LIKE '%mailto:%'
+                                OR snippet LIKE '%&nbsp;%' OR snippet LIKE '%&amp;%')
+                         ORDER BY rowid LIMIT 200"
+                    ))
+                    .map_err(e)?;
+                let rows = st.query_map([last], |r| Ok((r.get(0)?, r.get(1)?))).map_err(e)?.collect::<Result<Vec<_>, _>>().map_err(e)?;
+                rows
+            };
+            let Some(&(max, _)) = batch.last() else { break };
+            let tx = conn.unchecked_transaction().map_err(e)?;
+            for (rid, old) in &batch {
+                let mut new = truncate_words(&preview_text(old));
+                if new.chars().count() < 40 {
+                    let (html, text): (Option<String>, Option<String>) =
+                        tx.query_row(&format!("SELECT body_html, body_text FROM {table} WHERE rowid=?1"), [rid], |r| Ok((r.get(0)?, r.get(1)?))).map_err(e)?;
+                    let from_text = make(text.as_deref(), None);
+                    let again = if from_text.is_empty() || looks_like_junk(&from_text) { make(None, html.as_deref()) } else { from_text };
+                    if !again.is_empty() && !looks_like_junk(&again) {
+                        new = again;
+                    }
+                }
+                if !new.is_empty() && new != *old {
+                    tx.execute(&format!("UPDATE {table} SET snippet=?1 WHERE rowid=?2"), params![new, rid]).map_err(e)?;
+                    changed += 1;
+                }
+            }
+            tx.commit().map_err(e)?;
+            last = max;
+        }
+    }
+    conn.execute("INSERT OR REPLACE INTO settings(key,value) VALUES(?1,'1')", [LINKS_FIXED_KEY]).map_err(e)?;
     Ok(changed)
 }
 
@@ -436,5 +1125,388 @@ mod tests {
         c.execute("DELETE FROM settings WHERE key=?1", [FIXED_KEY]).unwrap();
         assert_eq!(fix_stored(&c).unwrap(), 0, "idempotent");
         assert_eq!(snippet_of(&c, "html"), "Big savings & new data Hello Nam, Row one Row two a < b & c");
+    }
+
+    // ---- readable preview: link markup, addresses, boilerplate ----
+
+    /// The text/plain part of the marketing mail of bug F-27 (Sendinblue): a Markdown link to a tracking address first.
+    const F27_TEXT: &str = "[View in browser](https://ecafgcd.r.af.d.sendibt2.com/tr/mr/Tri_95Hx3VWzJfQSa7ggBekbb0Elk9qsx0y6UH1lWEQ8lP4o2bJ6sXAn1ZcR7u?p=eyJ1IjoiMSJ9)\r\n\r\n\u{1F525} Mở Đặt Cọc iPhone Duo\r\n\r\nƯu đãi lớn cho khách hàng thân thiết, số lượng có hạn.\r\n\r\n[Unsubscribe](https://ecafgcd.r.af.d.sendibt2.com/unsub/abc)";
+
+    /// The snippet as the app stored it before the fix: the first 200 characters, cut inside the link.
+    const F27_OLD_SNIPPET: &str = "[View in browser](https://ecafgcd.r.af.d.sendibt2.com/tr/mr/Tri_95Hx3VWzJfQSa7ggBekbb0Elk9qsx0y6UH1lWEQ8lP4o2bJ6sXAn1ZcR7u?p=eyJ1IjoiMSJ9";
+
+    fn graphemes(s: &str) -> usize {
+        use unicode_segmentation::UnicodeSegmentation;
+        s.graphemes(true).count()
+    }
+
+    #[test]
+    fn f27_the_sample_of_the_screenshot_shows_no_link_markup() {
+        // the stored snippet cut inside the link: nothing readable is left, so the notification has no third line
+        assert_eq!(preview_text(F27_OLD_SNIPPET), "");
+        assert_eq!(notification_preview(F27_OLD_SNIPPET), "");
+        // the screenshot's own text (the link cut at 140 characters with an ellipsis)
+        let shot = "[View in browser](https://ecafgcd.r.af.d.sendibt2.com/tr/mr/Tri_95Hx3VWzJfQSa7ggBekbb0Elk9qsx0y6UH1lWEQ8l\u{2026}";
+        assert_eq!(notification_preview(shot), "");
+        // a new snippet comes from the whole text: the preheader after the link is what is shown
+        let s = make(Some(F27_TEXT), None);
+        assert_eq!(s, "\u{1F525} Mở Đặt Cọc iPhone Duo Ưu đãi lớn cho khách hàng thân thiết, số lượng có hạn.");
+        assert_eq!(notification_preview(&s), s, "short enough: shown whole");
+        // the same through the HTML path: the visible text of the HTML has the link text only
+        let html = "<a href=\"https://x.example/t?u=1\">View in browser</a><p>\u{1F525} Mở Đặt Cọc iPhone Duo</p><a href=\"https://x.example/u\">Unsubscribe</a>";
+        assert_eq!(make(None, Some(html)), "\u{1F525} Mở Đặt Cọc iPhone Duo");
+    }
+
+    #[test]
+    fn markdown_links_become_their_text_or_nothing() {
+        for (raw, want) in [
+            ("See [our site](https://x.example/a?b=c) now", "See our site now"),
+            ("Read [the guide](<https://x.example/g>) first", "Read the guide first"),
+            ("[Shop now](https://x.example/s \"Shop\") and save", "Shop now and save"),
+            ("A [reference link][1] and [another][ref] done", "A reference link and another done"),
+            ("Footnote [1] marker [^2] gone.", "Footnote marker gone."),
+            ("[1]: https://x.example/one\nText after", "Text after"),
+            ("![logo](https://x.example/logo.png) Welcome back", "Welcome back"),
+            ("[![logo](https://x.example/l.png)](https://x.example/home) Welcome", "Welcome"),
+            ("[Mail us](mailto:a@b.example) or call", "Mail us or call"),
+            ("Parens (see [this](https://x.example/a_(b)) page) ok", "Parens (see this page) ok"),
+            // brackets that are words stay
+            ("[External] Please review", "[External] Please review"),
+            ("[note](see above) stays", "[note](see above) stays"),
+            ("array[0] = 5 and x[i]", "array[0] = 5 and x[i]"),
+        ] {
+            assert_eq!(preview_text(raw), want, "{raw:?}");
+        }
+        // a link cut off inside its address keeps its text
+        assert_eq!(preview_text("Open [the offer](https://x.example/tr/abcdef0123"), "Open the offer");
+        assert_eq!(preview_text("[View in browser](https://x.example/tr/abcdef0123"), "");
+        assert_eq!(preview_text("[a](https://x.example/b)[c](https://x.example/d)"), "a c");
+    }
+
+    #[test]
+    fn boilerplate_links_and_lines_are_dropped_in_every_language() {
+        let phrases = [
+            // English
+            "View in browser", "View this email in your browser", "View this email in a browser.", "Having trouble viewing this email?", "Email not displaying correctly?",
+            "Click here", "Unsubscribe", "Manage preferences", "View online", "Web version",
+            // French
+            "Voir dans le navigateur", "Afficher dans votre navigateur", "Voir la version en ligne", "Cliquez ici", "Se désabonner",
+            // German
+            "Im Browser ansehen", "Diese E-Mail im Browser ansehen", "Hier klicken", "Klicken Sie hier", "Abmelden", "Newsletter abbestellen",
+            // Spanish
+            "Ver en el navegador", "Ver este correo en el navegador", "Haz clic aquí", "Cancelar suscripción", "Darse de baja",
+            // Japanese
+            "ブラウザで見る", "ブラウザで表示", "メールが正しく表示されない場合", "こちらをクリック", "配信停止", "購読解除",
+            // Russian
+            "Открыть в браузере", "Посмотреть в браузере", "Если письмо не отображается", "Нажмите здесь", "Отписаться", "Отказаться от рассылки",
+            // Simplified Chinese
+            "在浏览器中查看", "在浏览器中打开", "如果无法正常显示", "点击这里", "点击此处", "取消订阅", "退订",
+            // Vietnamese
+            "Xem trong trình duyệt", "Xem email trên trình duyệt", "Xem email trong trình duyệt", "Xem trên trình duyệt", "Nhấn vào đây", "Bấm vào đây",
+            "Nhấp vào đây", "Hủy đăng ký", "Huỷ đăng ký", "Hủy nhận tin", "Không xem được email?", "Xem trong trinh duyet", "Nhan vao day",
+            // Arabic
+            "عرض في المتصفح", "انقر هنا", "إلغاء الاشتراك",
+        ];
+        for p in phrases {
+            // as a Markdown link, then real words
+            let md = format!("[{p}](https://t.example/x?id=1)\nReal words here");
+            assert_eq!(preview_text(&md), "Real words here", "link {p:?}");
+            // as a line of its own with a bare address after it, and in capitals
+            let line = format!("{p} https://t.example/x?id=1\nReal words here");
+            assert_eq!(preview_text(&line), "Real words here", "line {p:?}");
+            assert_eq!(preview_text(&format!("{}\nReal words here", p.to_uppercase())), "Real words here", "upper {p:?}");
+            // nothing else in the text: nothing
+            assert_eq!(preview_text(&md.replace("\nReal words here", "")), "", "alone {p:?}");
+        }
+        // several in a row, with separators, and the "view" lead-in in front of the preheader on one line
+        assert_eq!(preview_text("[Unsubscribe](https://u.example) | [Manage preferences](https://m.example) | [View in browser](https://v.example)"), "");
+        assert_eq!(preview_text("Having trouble viewing this email? View it in your browser. Big summer sale starts today"), "Big summer sale starts today");
+        assert_eq!(preview_text("Xem email trên trình duyệt | \u{1F525} Mở Đặt Cọc iPhone Duo"), "\u{1F525} Mở Đặt Cọc iPhone Duo");
+        assert_eq!(preview_text("在浏览器中查看 全场五折，仅限今天"), "全场五折，仅限今天");
+        assert_eq!(preview_text("ブラウザで見る 夏のセール開催中"), "夏のセール開催中");
+        assert_eq!(make(None, Some("<a href=\"https://v.example\">View this email in your browser</a> Summer sale")), "Summer sale");
+        // words that only start like a phrase, and "click here" inside a real sentence, are content
+        assert_eq!(preview_text("Click here to claim your 50% discount"), "Click here to claim your 50% discount");
+        assert_eq!(preview_text("Unsubscribe from the plan before Friday to avoid charges"), "Unsubscribe from the plan before Friday to avoid charges");
+        assert_eq!(preview_text("Viewing hours are 9 to 5"), "Viewing hours are 9 to 5");
+        assert_eq!(preview_text("Read online reviews before you buy"), "Read online reviews before you buy");
+        assert_eq!(preview_text("[Click here to claim your 50% discount](https://x.example/c)"), "Click here to claim your 50% discount");
+    }
+
+    #[test]
+    fn bare_addresses_tracking_tokens_and_markup_are_removed() {
+        for (raw, want) in [
+            ("Hello https://a.example/x?y=1&z=2 world", "Hello world"),
+            ("Hello (https://a.example/x) world", "Hello world"),
+            ("Visit <https://a.example/x?y=1> today", "Visit today"),
+            ("Mail <mailto:a@b.example> today", "Mail today"),
+            ("Go to HTTP://A.EXAMPLE/X now, ftp://f.example/file or www.example.com/page.", "Go to now, or"),
+            ("see:https://a.example/x done", "see: done"),
+            ("Track at ecafgcd.r.af.d.sendibt2.com/tr/mr/Tri_95Hx3VW now", "Track at now"),
+            ("Token Tri_95Hx3VWzJfQSa7ggBekbb0Elk9qsx0y6UH1lWEQ8lP4o2bJ6 end", "Token end"),
+            ("Path /a/b/c/d/e/f/g/h/i/j/k/l/m/n/o?x=1&y=2 end", "Path end"),
+            ("tel:+84901234567 or mailto:x@y.example", "or"),
+            // entities and invisible characters
+            ("Tom &amp; Jerry&nbsp;&mdash; caf&eacute; &#8217;s &#x1F525;", "Tom & Jerry \u{2014} caf&eacute; \u{2019}s \u{1F525}"),
+            ("Pad\u{200B}ded\u{200C}\u{00A0}\u{034F}\u{FEFF}\u{00AD} te\u{2060}xt", "Padded text"),
+            // rules and runs of separators
+            ("Offer ----------\n__________\n=========\n* * * * *\n\u{2500}\u{2500}\u{2500}\u{2500} ends", "Offer ends"),
+            ("Wait... what?! 1 - 2 = 3 / 4 -- done", "Wait... what?! 1 - 2 = 3 / 4 -- done"),
+            // white space
+            ("  many \t spaces \r\n\r\n\r\n and \u{2028} lines  ", "many spaces and lines"),
+        ] {
+            assert_eq!(preview_text(raw), want, "{raw:?}");
+        }
+        // only addresses and markup: nothing
+        for raw in [
+            "https://a.example/x?y=1",
+            "https://a.example/x?y=1 https://b.example/z\nwww.c.example",
+            "<https://a.example/x>\n<https://b.example/y>",
+            "[1]: https://a.example\n[2]: https://b.example",
+            "![](https://a.example/p.png)",
+            "---------- ========== __________",
+            "Tri_95Hx3VWzJfQSa7ggBekbb0Elk9qsx0y6UH1lWEQ8lP4o2bJ6sXAn1ZcR7u",
+            "&nbsp;&zwnj;&nbsp;&zwnj;",
+        ] {
+            assert_eq!(preview_text(raw), "", "{raw:?}");
+            assert_eq!(notification_preview(raw), "", "{raw:?}");
+            assert_eq!(make(Some(raw), None), "", "{raw:?}");
+        }
+        // an address that is part of the words of a person is dropped, the words stay
+        assert_eq!(preview_text("Reply to me at nam@example.com about https://x.example/p"), "Reply to me at nam@example.com about");
+    }
+
+    #[test]
+    fn normal_mail_is_not_changed() {
+        for s in [
+            "Hi Nam, can we meet at 10:30 tomorrow? Bring the Q3 report (draft) \u{2014} thanks!",
+            "Your order #12345 shipped! It should arrive by Friday, Oct. 16.",
+            "Meeting notes: 1) budget 2) hiring 3) roadmap; see you at 3 p.m.",
+            "C++ and .NET developers: 50% off, e.g. $99 -> $49 (until 5/12/2026).",
+            "Re: invoice [INV-2026-0042] is attached, total 1,250.00 EUR",
+            "-5 degrees tonight, bring a coat",
+            "Wait... really?!? Yes!!! OK.",
+        ] {
+            assert_eq!(preview_text(s), s, "{s:?}");
+            assert_eq!(notification_preview(s), s, "{s:?}");
+            assert_eq!(make(Some(s), None), s, "{s:?}");
+        }
+    }
+
+    #[test]
+    fn letters_of_every_script_and_emoji_survive_and_diacritics_keep_their_form() {
+        let samples = [
+            "Xin chào Nguyễn Văn Ánh, ưu đãi đặc biệt hôm nay",
+            "こんにちは、世界。今日のお知らせです",
+            "你好，世界。今天的特别优惠",
+            "Привет, мир! Сегодня специальное предложение",
+            "مرحبا بالعالم، عرض خاص اليوم",
+            "שלום עולם, מבצע מיוחד",
+            "안녕하세요, 오늘의 특별 할인",
+            "Grüße aus Köln: Straße, Fußball, Übung",
+            "\u{1F525} Mở \u{2764}\u{FE0F} \u{1F468}\u{200D}\u{1F469}\u{200D}\u{1F467} \u{1F1FB}\u{1F1F3} 1\u{FE0F}\u{20E3} \u{1F44D}\u{1F3FD}",
+        ];
+        for s in samples {
+            assert_eq!(preview_text(s), s, "{s:?}");
+            assert_eq!(clean_text(s), s, "{s:?}");
+        }
+        // precomposed (NFC) and decomposed (NFD) Vietnamese are both kept exactly as they came
+        let nfc = "Nguy\u{1EC5}n V\u{0103}n \u{00C1}nh \u{0111}\u{1EB7}t c\u{1ECD}c";
+        let nfd = "Nguye\u{0302}\u{0303}n Va\u{0306}n A\u{0301}nh \u{0111}a\u{0323}\u{0306}t co\u{0323}c";
+        assert_eq!(preview_text(nfc), nfc);
+        assert_eq!(preview_text(nfd), nfd);
+        assert_eq!(notification_preview(nfc), nfc);
+        assert_eq!(notification_preview(nfd), nfd);
+        assert_eq!(notification_line(nfc), nfc);
+        assert_eq!(notification_line(nfd), nfd);
+        // a joiner outside an emoji sequence is padding, inside one it is the picture
+        assert_eq!(clean_text("a\u{200D}b \u{200D}c"), "ab c");
+        assert_eq!(clean_text("\u{1F468}\u{200D}\u{1F469}"), "\u{1F468}\u{200D}\u{1F469}");
+        assert_eq!(clean_text("\u{1F468}\u{200D} x"), "\u{1F468} x");
+    }
+
+    #[test]
+    fn the_notification_preview_is_cut_on_a_word_and_never_inside_a_cluster() {
+        use unicode_segmentation::UnicodeSegmentation;
+        let words: Vec<String> = (0..60).map(|i| format!("word{i}")).collect();
+        let long = words.join(" ");
+        let p = notification_preview(&long);
+        assert!(p.ends_with('\u{2026}') && graphemes(&p) <= NOTIFY_PREVIEW_MAX && graphemes(&p) > NOTIFY_PREVIEW_MAX - 12, "{p:?}");
+        let body = p.trim_end_matches('\u{2026}');
+        assert!(long.starts_with(body) && long[body.len()..].starts_with(' '), "cut on a word: {p:?}");
+        assert!(!body.ends_with(' '));
+        // exactly 100 stays whole, 101 is cut
+        assert_eq!(truncate_display(&"a".repeat(100), 100), "a".repeat(100));
+        assert_eq!(graphemes(&truncate_display(&"a".repeat(101), 100)), 100);
+        // text without spaces (Chinese, Japanese) is cut on a character
+        let zh = "你好世界".repeat(60);
+        let p = notification_preview(&zh);
+        assert_eq!(graphemes(&p), NOTIFY_PREVIEW_MAX);
+        assert!(p.ends_with('\u{2026}') && zh.starts_with(p.trim_end_matches('\u{2026}')));
+        // emoji sequences: every cut position of a text full of families, flags, keycaps, skin tones and accents
+        let unit = "\u{1F468}\u{200D}\u{1F469}\u{200D}\u{1F467}\u{200D}\u{1F466}\u{1F1FB}\u{1F1F3}1\u{FE0F}\u{20E3}\u{1F44D}\u{1F3FD}e\u{0301}\u{0323}\u{2764}\u{FE0F}";
+        let text = unit.repeat(40);
+        let all: Vec<&str> = text.graphemes(true).collect();
+        for max in 2..=60 {
+            let cut = truncate_display(&text, max);
+            assert!(graphemes(&cut) <= max, "max {max}: {}", graphemes(&cut));
+            let body = cut.trim_end_matches('\u{2026}');
+            assert!(text.starts_with(body), "max {max}");
+            // every cluster of the result is a cluster of the original: nothing was split
+            for (i, g) in body.graphemes(true).enumerate() {
+                assert_eq!(g, all[i], "max {max} cluster {i}");
+            }
+            assert!(!body.ends_with('\u{200D}'), "max {max}");
+        }
+        let p = notification_preview(&text);
+        assert!(graphemes(&p) <= NOTIFY_PREVIEW_MAX);
+        // the stored snippet limit (200 characters) does not split a sequence either
+        let t = truncate_words(&format!("{}{}", "a".repeat(SNIPPET_MAX - 1), "\u{1F468}\u{200D}\u{1F469}\u{200D}\u{1F467}"));
+        assert_eq!(t, "a".repeat(SNIPPET_MAX - 1));
+        let t = truncate_words(&format!("{}{}", "a".repeat(SNIPPET_MAX - 1), "e\u{0301}\u{0323}tail"));
+        assert!(t.chars().count() <= SNIPPET_MAX && !t.ends_with('e'), "{t:?}");
+        // very long text and a single huge word
+        let huge = "lorem ipsum ".repeat(50_000);
+        let p = notification_preview(&huge);
+        assert!(graphemes(&p) <= NOTIFY_PREVIEW_MAX && p.ends_with('\u{2026}'));
+        assert!(graphemes(&notification_preview(&"x".repeat(100_000))) <= NOTIFY_PREVIEW_MAX);
+        let _ = preview_text(&"[".repeat(100_000));
+        assert!(preview_text(&"<a ".repeat(100_000)).len() <= PREVIEW_SOURCE_MAX);
+        assert!(preview_text(&"[a](".repeat(50_000)).len() < 100_000);
+    }
+
+    #[test]
+    fn too_little_readable_text_means_no_preview_line() {
+        for s in ["", " ", "OK", "Hi!", "\u{1F525}\u{1F525}\u{1F525}", "12345 67890", "-- -- --", "[View in browser](https://x.example)", "Yes \u{1F44D}", "a b c d e"] {
+            assert_eq!(notification_preview(s), "", "{s:?}");
+        }
+        for s in ["Thanks a lot", "Meeting moved", "お知らせです", "Cảm ơn bạn", "好的，谢谢你"] {
+            assert_eq!(notification_preview(s), s, "{s:?}");
+        }
+        // three Han / kana characters are enough (they are whole words), two are not
+        assert_eq!(notification_preview("お知らせ"), "お知らせ");
+        assert_eq!(notification_preview("好的"), "");
+    }
+
+    #[test]
+    fn notification_lines_are_cleaned_without_changing_real_subjects() {
+        for s in ["\u{1F525} Mở Đặt Cọc iPhone Duo", "Re: Q3 report (final) - v2", "Fwd: [External] Invoice #42", "Grüße aus Köln", "お知らせ", "Привет!", "مرحبا", "\u{1F468}\u{200D}\u{1F469}\u{200D}\u{1F467} family trip", "RLM mark \u{200F}text"] {
+            assert_eq!(notification_line(s), s, "{s:?}");
+        }
+        assert_eq!(notification_line("  Hello \t\r\n  world\u{0007}\u{0000} !\u{200B}\u{FEFF}\u{00AD} "), "Hello world !");
+        assert_eq!(notification_line("\u{202E}evil\u{202C}"), "evil");
+        assert_eq!(notification_line(" \r\n\t "), "");
+        let long = "word ".repeat(500);
+        let l = notification_line(&long);
+        assert!(graphemes(&l) <= NOTIFY_LINE_MAX && l.ends_with('\u{2026}'));
+    }
+
+    #[test]
+    fn cleaning_twice_changes_nothing_more() {
+        for s in [F27_TEXT, F27_OLD_SNIPPET, "Click [here](https://x.example) now [1] https://y.example ---- done", "Xem trong trình duyệt | Ưu đãi lớn"] {
+            let once = preview_text(s);
+            assert_eq!(preview_text(&once), once, "{s:?}");
+            let n = notification_preview(s);
+            assert_eq!(notification_preview(&n), n, "{s:?}");
+        }
+    }
+
+    /// A small deterministic random generator (the tests must not depend on the rand crate's API).
+    fn next(seed: &mut u64) -> u64 {
+        *seed ^= *seed << 13;
+        *seed ^= *seed >> 7;
+        *seed ^= *seed << 17;
+        *seed
+    }
+
+    fn fuzz_string(seed: &mut u64) -> String {
+        const PIECES: &[&str] = &[
+            "[", "]", "(", ")", "![", "](", "<", ">", "&", "&#x", "&#", "&amp;", "&nbsp;", ";", "http://", "https://a.b/c?d=e", "www.", "mailto:", "://", "\u{200D}", "\u{FE0F}",
+            "\u{20E3}", "\u{1F468}", "\u{1F1FB}", "\u{1F1F3}", "\u{1F3FD}", "\u{E0067}", "é", "e\u{0301}", "\u{0323}", "\n", "\r\n", "\u{2028}", " ", "\t", "-----", "_____", "....", "* * *",
+            "Click here", "View in browser", "Having trouble viewing", "xem trong trình duyệt", "日本語", "مرحبا", "\u{0}", "\u{FFFF}", "\u{10FFFF}", "[1]", "[1]:", "[^1]",
+            "Tri_95Hx3VWzJfQSa7ggBekbb0Elk9qsx0y6UH1lWEQ8lP4o2bJ6sXAn1ZcR7u", "a/b/c/d/e/f/g/h/i/j/k/l/m/n/o/p?q=1&r=2", "ß", "İ", "ǅ", "!", "…", "«", "»", "'", "\"",
+        ];
+        let mut s = String::new();
+        for _ in 0..next(seed) % 60 {
+            if next(seed) % 4 == 0 {
+                // any character of the Unicode range (surrogates are not characters, they are skipped)
+                if let Some(c) = char::from_u32((next(seed) % 0x11_0000) as u32) {
+                    s.push(c);
+                }
+            } else {
+                s.push_str(PIECES[(next(seed) % PIECES.len() as u64) as usize]);
+            }
+        }
+        s
+    }
+
+    #[test]
+    fn cleaning_never_panics_on_any_text() {
+        let mut seed = 0x9E37_79B9_7F4A_7C15u64;
+        for i in 0..30_000 {
+            let s = fuzz_string(&mut seed);
+            let p = preview_text(&s);
+            assert!(!p.contains(['\n', '\r']), "iteration {i}: {s:?}");
+            assert!(!p.starts_with(' ') && !p.ends_with(' '), "iteration {i}: {p:?}");
+            let n = notification_preview(&s);
+            assert!(graphemes(&n) <= NOTIFY_PREVIEW_MAX, "iteration {i}: {s:?}");
+            let m = make(Some(&s), Some(&s));
+            assert!(m.chars().count() <= SNIPPET_MAX, "iteration {i}");
+            let l = notification_line(&s);
+            assert!(graphemes(&l) <= NOTIFY_LINE_MAX, "iteration {i}");
+            let _ = truncate_display(&s, (i % 40) + 1);
+            let _ = truncate_words(&s);
+            let _ = clean_text(&s);
+            let _ = html_text(&s);
+        }
+        // the same inside one long text, and every prefix of a text full of markup
+        let mut big = String::new();
+        for _ in 0..200 {
+            big.push_str(&fuzz_string(&mut seed));
+            big.push(' ');
+        }
+        let _ = preview_text(&big);
+        let _ = notification_preview(&big);
+        let sample = "[View in browser](https://a.b/c) <https://d.e> ![x](y) \u{1F468}\u{200D}\u{1F469} &#x1F525; Xin chào";
+        for (i, _) in sample.char_indices().chain(std::iter::once((sample.len(), ' '))) {
+            let _ = preview_text(&sample[..i]);
+            let _ = notification_preview(&sample[..i]);
+        }
+    }
+
+    #[test]
+    fn stored_snippets_with_link_markup_are_cleaned_once_and_search_text_is_untouched() {
+        let c = db();
+        let raw = F27_TEXT;
+        put(&c, "f27", F27_OLD_SNIPPET, None, Some(raw));
+        put(&c, "html", "[View in browser](https://v.example/t?u=1", Some("<a href=\"https://v.example/t\">View in browser</a><p>Summer sale words</p>"), None);
+        put(&c, "mid", "Visit https://a.example/x?y=1 for details about the new plan", None, Some("Visit https://a.example/x?y=1 for details about the new plan"));
+        put(&c, "plain", "Hello there", None, Some("Hello there"));
+        put(&c, "bracket", "[External] Please review the attached file today", None, Some("[External] Please review the attached file today"));
+        put(&c, "nobody", "[View in browser](https://v.example/t?u=1", None, None);
+        for i in 0..450 {
+            put(&c, &format!("bulk{i}"), &format!("Bulk {i} see https://a.example/{i} for the details of this message"), None, None);
+        }
+        c.execute("DELETE FROM settings WHERE key=?1", [LINKS_FIXED_KEY]).unwrap();
+        let n = fix_stored_links(&c).unwrap();
+        assert_eq!(n, 3 + 450, "f27, html, mid and the bulk rows");
+        assert_eq!(snippet_of(&c, "f27"), "\u{1F525} Mở Đặt Cọc iPhone Duo Ưu đãi lớn cho khách hàng thân thiết, số lượng có hạn.");
+        assert_eq!(snippet_of(&c, "html"), "Summer sale words");
+        assert_eq!(snippet_of(&c, "mid"), "Visit for details about the new plan");
+        assert_eq!(snippet_of(&c, "plain"), "Hello there");
+        assert_eq!(snippet_of(&c, "bracket"), "[External] Please review the attached file today");
+        assert_eq!(snippet_of(&c, "nobody"), "[View in browser](https://v.example/t?u=1", "nothing readable and no body: untouched");
+        assert_eq!(snippet_of(&c, "bulk449"), "Bulk 449 see for the details of this message");
+        // the stored body is the search text: untouched, so every word and the address are still found
+        let body: String = c.query_row("SELECT body_text FROM messages WHERE id='f27'", [], |r| r.get(0)).unwrap();
+        assert_eq!(body, raw);
+        let hits = |q: &str| -> i64 { c.query_row("SELECT COUNT(*) FROM messages WHERE body_text LIKE ?1 OR snippet LIKE ?1", [format!("%{q}%")], |r| r.get(0)).unwrap() };
+        assert_eq!(hits("sendibt2"), 1);
+        assert_eq!(hits("khách hàng thân thiết"), 1);
+        assert_eq!(hits("a.example/x?y=1"), 1);
+        // done once, and a second run without the flag changes nothing
+        assert_eq!(fix_stored_links(&c).unwrap(), 0);
+        c.execute("DELETE FROM settings WHERE key=?1", [LINKS_FIXED_KEY]).unwrap();
+        assert_eq!(fix_stored_links(&c).unwrap(), 0, "idempotent");
     }
 }

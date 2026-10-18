@@ -1,0 +1,434 @@
+{
+ "base": {
+  "family": "Calibri,Carlito,Arial,sans-serif",
+  "size": 11
+ },
+ "sig": null,
+ "doc": {
+  "type": "doc",
+  "content": [
+   {
+    "type": "paragraph",
+    "content": [
+     {
+      "type": "text",
+      "text": "Bullets"
+     }
+    ]
+   },
+   {
+    "type": "bulletList",
+    "attrs": {
+     "listStyle": "square"
+    },
+    "content": [
+     {
+      "type": "listItem",
+      "content": [
+       {
+        "type": "paragraph",
+        "content": [
+         {
+          "type": "text",
+          "text": "Filled square"
+         }
+        ]
+       }
+      ]
+     }
+    ]
+   },
+   {
+    "type": "bulletList",
+    "attrs": {
+     "listStyle": "circle"
+    },
+    "content": [
+     {
+      "type": "listItem",
+      "content": [
+       {
+        "type": "paragraph",
+        "content": [
+         {
+          "type": "text",
+          "text": "Hollow circle"
+         }
+        ]
+       }
+      ]
+     }
+    ]
+   },
+   {
+    "type": "bulletList",
+    "content": [
+     {
+      "type": "listItem",
+      "content": [
+       {
+        "type": "paragraph",
+        "content": [
+         {
+          "type": "text",
+          "text": "Filled circle, the default"
+         }
+        ]
+       },
+       {
+        "type": "bulletList",
+        "content": [
+         {
+          "type": "listItem",
+          "content": [
+           {
+            "type": "paragraph",
+            "content": [
+             {
+              "type": "text",
+              "text": "Hollow circle by level"
+             }
+            ]
+           },
+           {
+            "type": "bulletList",
+            "content": [
+             {
+              "type": "listItem",
+              "content": [
+               {
+                "type": "paragraph",
+                "content": [
+                 {
+                  "type": "text",
+                  "text": "Filled square by level"
+                 }
+                ]
+               },
+               {
+                "type": "bulletList",
+                "content": [
+                 {
+                  "type": "listItem",
+                  "content": [
+                   {
+                    "type": "paragraph",
+                    "content": [
+                     {
+                      "type": "text",
+                      "text": "Back to a filled circle"
+                     }
+                    ]
+                   }
+                  ]
+                 }
+                ]
+               }
+              ]
+             }
+            ]
+           }
+          ]
+         }
+        ]
+       }
+      ]
+     },
+     {
+      "type": "listItem",
+      "content": [
+       {
+        "type": "paragraph",
+        "content": [
+         {
+          "type": "text",
+          "text": "Own style below"
+         }
+        ]
+       },
+       {
+        "type": "bulletList",
+        "attrs": {
+         "listStyle": "square"
+        },
+        "content": [
+         {
+          "type": "listItem",
+          "content": [
+           {
+            "type": "paragraph",
+            "content": [
+             {
+              "type": "text",
+              "text": "Square on level two"
+             }
+            ]
+           }
+          ]
+         }
+        ]
+       }
+      ]
+     }
+    ]
+   },
+   {
+    "type": "paragraph",
+    "content": [
+     {
+      "type": "text",
+      "text": "Numbers"
+     }
+    ]
+   },
+   {
+    "type": "orderedList",
+    "content": [
+     {
+      "type": "listItem",
+      "content": [
+       {
+        "type": "paragraph",
+        "content": [
+         {
+          "type": "text",
+          "text": "Numbers, the default"
+         }
+        ]
+       },
+       {
+        "type": "orderedList",
+        "content": [
+         {
+          "type": "listItem",
+          "content": [
+           {
+            "type": "paragraph",
+            "content": [
+             {
+              "type": "text",
+              "text": "Letters by level"
+             }
+            ]
+           },
+           {
+            "type": "orderedList",
+            "content": [
+             {
+              "type": "listItem",
+              "content": [
+               {
+                "type": "paragraph",
+                "content": [
+                 {
+                  "type": "text",
+                  "text": "Roman by level"
+                 }
+                ]
+               }
+              ]
+             }
+            ]
+           }
+          ]
+         }
+        ]
+       }
+      ]
+     },
+     {
+      "type": "listItem",
+      "content": [
+       {
+        "type": "paragraph",
+        "content": [
+         {
+          "type": "text",
+          "text": "Second"
+         }
+        ]
+       }
+      ]
+     }
+    ]
+   },
+   {
+    "type": "orderedList",
+    "attrs": {
+     "listStyle": "lower-alpha"
+    },
+    "content": [
+     {
+      "type": "listItem",
+      "content": [
+       {
+        "type": "paragraph",
+        "content": [
+         {
+          "type": "text",
+          "text": "Lowercase letters"
+         }
+        ]
+       }
+      ]
+     }
+    ]
+   },
+   {
+    "type": "orderedList",
+    "attrs": {
+     "listStyle": "upper-alpha"
+    },
+    "content": [
+     {
+      "type": "listItem",
+      "content": [
+       {
+        "type": "paragraph",
+        "content": [
+         {
+          "type": "text",
+          "text": "Uppercase letters"
+         }
+        ]
+       }
+      ]
+     },
+     {
+      "type": "listItem",
+      "content": [
+       {
+        "type": "paragraph",
+        "content": [
+         {
+          "type": "text",
+          "text": "Next"
+         }
+        ]
+       }
+      ]
+     }
+    ]
+   },
+   {
+    "type": "orderedList",
+    "attrs": {
+     "listStyle": "lower-roman"
+    },
+    "content": [
+     {
+      "type": "listItem",
+      "content": [
+       {
+        "type": "paragraph",
+        "content": [
+         {
+          "type": "text",
+          "text": "Lowercase Roman"
+         }
+        ]
+       }
+      ]
+     }
+    ]
+   },
+   {
+    "type": "orderedList",
+    "attrs": {
+     "listStyle": "upper-roman",
+     "start": 4
+    },
+    "content": [
+     {
+      "type": "listItem",
+      "content": [
+       {
+        "type": "paragraph",
+        "content": [
+         {
+          "type": "text",
+          "text": "Uppercase Roman, from four"
+         }
+        ]
+       }
+      ]
+     },
+     {
+      "type": "listItem",
+      "content": [
+       {
+        "type": "paragraph",
+        "content": [
+         {
+          "type": "text",
+          "text": "Five"
+         }
+        ]
+       }
+      ]
+     }
+    ]
+   },
+   {
+    "type": "orderedList",
+    "content": [
+     {
+      "type": "listItem",
+      "content": [
+       {
+        "type": "paragraph",
+        "content": [
+         {
+          "type": "text",
+          "text": "Mixed"
+         }
+        ]
+       },
+       {
+        "type": "bulletList",
+        "content": [
+         {
+          "type": "listItem",
+          "content": [
+           {
+            "type": "paragraph",
+            "content": [
+             {
+              "type": "text",
+              "text": "Bullets under numbers"
+             }
+            ]
+           },
+           {
+            "type": "orderedList",
+            "attrs": {
+             "listStyle": "upper-alpha"
+            },
+            "content": [
+             {
+              "type": "listItem",
+              "content": [
+               {
+                "type": "paragraph",
+                "content": [
+                 {
+                  "type": "text",
+                  "text": "Own style on level three"
+                 }
+                ]
+               }
+              ]
+             }
+            ]
+           }
+          ]
+         }
+        ]
+       }
+      ]
+     }
+    ]
+   }
+  ]
+ }
+}

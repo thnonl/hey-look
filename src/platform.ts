@@ -5,28 +5,39 @@ import { t } from "./i18n";
 
 export type Os = "windows" | "macos" | "linux";
 
+/** How a PDF attachment is previewed (src-tauri/src/pdfmode.rs): in a frame, in an object element (macOS / Linux experiment), or as a card that opens it in the default app. */
+export type PdfView = "frame" | "object" | "card";
+
 interface PlatformState {
   os: Os;
   /** a tray / menu-bar icon exists (false on Linux without a tray host: closing the window quits) */
   tray: boolean;
   /** a debug build: the test data folder it uses (shown in Settings > About) */
   testData: string | null;
+  /** the PDF preview of this system; Windows draws the PDF, the others show a card unless the backend says otherwise */
+  pdfView: PdfView;
+  /** the macOS / Linux PDF experiment is on: the preview shows a readout of what the engine did with the PDF */
+  pdfTest: boolean;
   loaded: boolean;
 }
 
-export const usePlatform = create<PlatformState>(() => ({ os: "windows", tray: true, testData: null, loaded: false }));
+export const usePlatform = create<PlatformState>(() => ({ os: "windows", tray: true, testData: null, pdfView: "frame", pdfTest: false, loaded: false }));
 
 /** Read once at start (before the UI shows); an old backend or a plain browser keeps the Windows defaults. */
 export async function loadPlatform(): Promise<void> {
   try {
     const i = await api.shellInfo();
-    usePlatform.setState({ os: i.os === "macos" || i.os === "linux" ? i.os : "windows", tray: i.tray, testData: i.testData ?? null, loaded: true });
+    const os: Os = i.os === "macos" || i.os === "linux" ? i.os : "windows";
+    // (an old backend does not say: the frame is only known to draw on Windows)
+    const pdfView: PdfView = i.pdfView === "frame" || i.pdfView === "object" || i.pdfView === "card" ? i.pdfView : os === "windows" ? "frame" : "card";
+    usePlatform.setState({ os, tray: i.tray, testData: i.testData ?? null, pdfView, pdfTest: i.pdfTest === true, loaded: true });
   } catch {
     usePlatform.setState({ loaded: true });
   }
 }
 
 export const osNow = (): Os => usePlatform.getState().os;
+export const pdfViewNow = (): PdfView => usePlatform.getState().pdfView;
 
 /** Where passwords are kept, as a phrase ("Saved in {store}"). */
 export const credStore = (os: Os = osNow()) => t(os === "macos" ? "errors.os.credStore.macos" : os === "linux" ? "errors.os.credStore.linux" : "errors.os.credStore.windows");

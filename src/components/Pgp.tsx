@@ -3,6 +3,7 @@ import {
   ShieldQuestionMark, ShieldX, TriangleAlert, Trash2, Upload,
 } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { answerVia } from "../actions";
 import { api, errorCode, KeyAlgo, KeyInspect, MessageFull, MessageSecurity, PgpKey, SigInfo } from "../api";
 import { t, type Key } from "../i18n";
 import { useT } from "../i18n/react";
@@ -156,6 +157,7 @@ export function GenerateKeyDialog({ accountId, back }: { accountId?: string; bac
   const [busy, setBusy] = useState(false);
   const [key, setKey] = useState<PgpKey | null>(null);
   const [saved, setSaved] = useState<string | null>(null);
+  const [saving, setSaving] = useState(false);
   const strength = passphraseStrength(pw);
   const strengthKeys: Key[] = ["pgp.strength.none", "pgp.strength.weak", "pgp.strength.okay", "pgp.strength.good", "pgp.strength.strong"];
 
@@ -176,7 +178,8 @@ export function GenerateKeyDialog({ accountId, back }: { accountId?: string; bac
   };
 
   const backup = async () => {
-    if (!key) return;
+    if (!key || saving) return;
+    setSaving(true); // (the file dialog is the system's: a second click must not open another one behind it)
     try {
       const path = await api.pgpExportSecret(key.fingerprint);
       if (path) {
@@ -184,17 +187,33 @@ export function GenerateKeyDialog({ accountId, back }: { accountId?: string; bac
         showToast(t("pgp.gen.backupSaved"), undefined, "success");
       }
     } catch (e) {
-      showToast(t("pgp.gen.backupFailed", { error: friendlyError(e) }), undefined, "error");
+      showToast(() => t("pgp.gen.backupFailed", { error: friendlyError(e) }), undefined, "error");
+    } finally {
+      setSaving(false);
     }
   };
 
+  /**
+   * Done, the X and Esc all come here. A key that was not backed up asks first. Esc and a click outside the question answer "stay": they used to answer
+   * with its first button, "Back up now", which opened the system's save dialog (sometimes behind this window) instead of ever closing the dialog (v1.0.6 QA).
+   */
+  const asking = useRef(false);
   const close = async () => {
+    if (asking.current || saving) return;
     if (key && !saved) {
-      const choice = await choose({
-        title: t("pgp.gen.closeTitle"),
-        body: t("pgp.gen.closeBody"),
-        choices: [{ id: "backup", label: t("pgp.gen.backupNow"), kind: "primary" }, { id: "close", label: t("pgp.gen.closeAnyway") }],
-      });
+      asking.current = true;
+      let choice: string;
+      try {
+        choice = await choose({
+          title: t("pgp.gen.closeTitle"),
+          body: t("pgp.gen.closeBody"),
+          choices: [{ id: "backup", label: t("pgp.gen.backupNow"), kind: "primary" }, { id: "close", label: t("pgp.gen.closeAnyway") }],
+          dismiss: "stay",
+        });
+      } finally {
+        asking.current = false;
+      }
+      if (choice === "stay") return;
       if (choice === "backup") return void backup();
     }
     closeDlg();
@@ -251,7 +270,7 @@ export function GenerateKeyDialog({ accountId, back }: { accountId?: string; bac
           <div className="note"><Info size={14} /><span>{t("pgp.gen.backupNote")}</span></div>
           {saved && <div className="notice good">{t("pgp.gen.backupSavedTo", { path: saved })}</div>}
           <div className="ask-actions">
-            <button className="btn" onClick={() => void backup()}><HardDriveDownload size={14} /> {saved ? t("pgp.gen.saveAnother") : t("pgp.gen.saveBackup")}</button>
+            <button className="btn" disabled={saving} aria-busy={saving} onClick={() => void backup()}><HardDriveDownload size={14} /> {saved ? t("pgp.gen.saveAnother") : t("pgp.gen.saveBackup")}</button>
             <button className="btn primary" onClick={() => void close()}>{t("common.done")}</button>
           </div>
         </div>
@@ -504,15 +523,15 @@ export function KeyDetailsDialog({ fingerprint, back }: { fingerprint: string; b
       {err && <div className="field-err" role="alert" style={{ marginTop: 8 }}><TriangleAlert size={13} />{err}</div>}
 
       <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginTop: 12 }}>
-        <button className="btn small" onClick={() => void api.pgpExportPublic(k.fingerprint).then((p) => p && showToast(t("pgp.details.savedTo", { path: p }), undefined, "success")).catch((e) => showToast(friendlyError(e), undefined, "error"))}>
+        <button className="btn small" onClick={() => void api.pgpExportPublic(k.fingerprint).then((p) => p && showToast(t("pgp.details.savedTo", { path: p }), undefined, "success")).catch((e) => showToast(() => friendlyError(e), undefined, "error"))}>
           <HardDriveDownload size={13} /> {t("pgp.details.exportPublic")}
         </button>
-        <button className="btn small" onClick={() => void api.pgpPublicArmored(k.fingerprint).then((a) => navigator.clipboard.writeText(a)).then(() => showToast(t("pgp.details.publicCopied"), undefined, "success")).catch((e) => showToast(friendlyError(e), undefined, "error"))}>
+        <button className="btn small" onClick={() => void api.pgpPublicArmored(k.fingerprint).then((a) => navigator.clipboard.writeText(a)).then(() => showToast(t("pgp.details.publicCopied"), undefined, "success")).catch((e) => showToast(() => friendlyError(e), undefined, "error"))}>
           <Copy size={13} /> {t("pgp.details.copyPublic")}
         </button>
         {k.hasSecret && (
           <>
-            <button className="btn small" onClick={() => void api.pgpExportSecret(k.fingerprint).then((p) => p && showToast(t("pgp.details.backupSavedTo", { path: p }), undefined, "success")).catch((e) => showToast(friendlyError(e), undefined, "error"))}>
+            <button className="btn small" onClick={() => void api.pgpExportSecret(k.fingerprint).then((p) => p && showToast(t("pgp.details.backupSavedTo", { path: p }), undefined, "success")).catch((e) => showToast(() => friendlyError(e), undefined, "error"))}>
               <FileKey size={13} /> {t("pgp.details.backupSecret")}
             </button>
             <button className="btn small" onClick={() => (setForm(form === "passphrase" ? null : "passphrase"), setErr(""))}>{t("pgp.details.changePassphrase")}</button>
@@ -686,7 +705,7 @@ export function EncCard({ m }: { m: MessageFull }) {
     try {
       replaceMessage(await api.pgpDecryptMessage(m.id));
     } catch (e) {
-      showToast(friendlyError(e), undefined, "error");
+      showToast(() => friendlyError(e), undefined, "error");
     }
   };
   return (
@@ -704,6 +723,7 @@ export function EncCard({ m }: { m: MessageFull }) {
 
 /** A public key attached to (or inside) a message, imported into the key store. Offers Undo for keys that are new. */
 export async function importKeyFromMessage(m: MessageFull, index: number) {
+  if (answerVia.importKey) return answerVia.importKey(m, index); // the reader window: the main window manages the keys
   const st = useStore.getState();
   try {
     const before = new Set((await api.pgpListKeys()).map((k) => k.fingerprint));
@@ -712,14 +732,14 @@ export async function importKeyFromMessage(m: MessageFull, index: number) {
     const fresh = keys.filter((k) => !before.has(k.fingerprint));
     const name = keys[0] ? userName(keyName(keys[0])) : t("pgp.fromMessage.theSender");
     st.showToast(
-      t("pgp.fromMessage.added", { name }),
+      () => t("pgp.fromMessage.added", { name }),
       fresh.length ? () => void Promise.all(fresh.map((k) => api.pgpDeleteKey(k.fingerprint, true))).then(() => useStore.getState().bumpKeys()) : undefined,
       "success",
     );
     // show the signature check again now that the key is known
     if (st.selected) void st.select(st.selected);
   } catch (e) {
-    st.showToast(t("pgp.fromMessage.failed", { error: friendlyError(e) }), undefined, "error");
+    st.showToast(() => t("pgp.fromMessage.failed", { error: friendlyError(e) }), undefined, "error");
   }
 }
 

@@ -496,7 +496,7 @@ pub fn access_token_for(provider: Provider, purpose: Purpose, tenant: &str, key:
         }
     }
     let label = provider.label();
-    let entry = keyring::Entry::new(crate::KEYRING_SERVICE, key).map_err(|e| TokenFail::Missing(format!("no stored {label} token: {e}")))?;
+    let entry = crate::identity::entry(key).map_err(|e| TokenFail::Missing(format!("no stored {label} token: {e}")))?;
     let refresh = entry.get_password().map_err(|e| TokenFail::Missing(format!("no stored {label} token: {e}")))?;
     let scope = (provider == Provider::Microsoft).then(|| provider.scope_for(purpose));
     let got = refresh_at(&provider.token_url(tenant), client_id, client_secret, &refresh, scope)?;

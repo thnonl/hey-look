@@ -6,7 +6,8 @@ import fs from 'node:fs';
 import path from 'node:path';
 import crypto from 'node:crypto';
 import vm from 'node:vm';
-import { LANGS, PAGES, DOCS, STUB, urlOf, fileOf, headBlock, langBlock, scriptsBlock } from './generate-site-languages.mjs';
+import { LANGS, PAGES, DOCS, STUB, urlOf, fileOf, headBlock, langBlock, scriptsBlock, seoBlock } from './generate-site-languages.mjs';
+import { versionOf } from './lib/site-seo.mjs';
 
 const strict = process.argv.includes('--strict');
 const errors = [];
@@ -16,14 +17,15 @@ const read = (f) => fs.readFileSync(f, 'utf8');
 const relDocs = (f) => path.relative(DOCS, f).replace(/\\/g, '/');
 
 // ---------- small html helpers (regex based; the pages are plain, hand-written html) ----------
-const BLOCKS = ['head', 'lang', 'scripts'];
+const BLOCKS = ['head', 'seo', 'lang', 'scripts'];
 const stripBlocks = (t) => BLOCKS.reduce((s, n) => s.replace(new RegExp(`<!-- hl:${n}-begin[^>]*-->[\\s\\S]*?<!-- hl:${n}-end -->`), ''), t);
 const stripComments = (t) => t.replace(/<!--[\s\S]*?-->/g, '');
 const body = (t) => stripComments(stripBlocks(t));
 const ids = (t) => [...body(t).replace(/<script[\s\S]*?<\/script>/g, '').matchAll(/\sid="([^"]+)"/g)].map((m) => m[1]);
 const attrs = (t, tag, attr) => [...body(t).matchAll(new RegExp(`<${tag}\\b[^>]*?\\s${attr}="([^"]*)"`, 'g'))].map((m) => m[1]);
 const headings = (t) => { const o = {}; for (const m of body(t).matchAll(/<h([1-6])\b/g)) o[m[1]] = (o[m[1]] || 0) + 1; return JSON.stringify(o); };
-const inlineScripts = (t) => [...stripComments(t).matchAll(/<script\b(?![^>]*\ssrc=)[^>]*>([\s\S]*?)<\/script>/g)].map((m) => m[1]);
+// executable inline scripts only: a JSON-LD block (type="application/ld+json") is data, the browser never runs it and the CSP does not apply to it
+const inlineScripts = (t) => [...stripComments(t).matchAll(/<script\b(?![^>]*\ssrc=)(?![^>]*\stype="application\/ld\+json")[^>]*>([\s\S]*?)<\/script>/g)].map((m) => m[1]);
 const csp = (t) => (/http-equiv="Content-Security-Policy" content="([^"]*)"/.exec(t) || [])[1];
 const external = (h) => /^[a-z][a-z0-9+.-]*:/i.test(h) || h.startsWith('//');
 const sameSet = (a, b) => { const A = new Set(a), B = new Set(b); return [[...A].filter((x) => !B.has(x)), [...B].filter((x) => !A.has(x))]; };
@@ -79,6 +81,32 @@ for (const lang of LANGS.slice(1)) {
   }
 }
 
+// ---------- the header switches: one whole sentence per case, never a state word and a target word joined by a template ----------
+// site.js writes t('theme.label.' + state) and t('motion.label.' + state + '.' + next). Every language has all 3 + 6 sentences, none with a
+// placeholder (a noun put into a sentence cannot agree in gender / case), and no sentence is shared by two cases.
+{
+  const THEME = ['auto', 'light', 'dark'].map((k) => 'theme.label.' + k);
+  const MOTION = ['auto.off', 'auto.on', 'off.on', 'off.auto', 'on.auto', 'on.off'].map((k) => 'motion.label.' + k);
+  const siteJs = read(path.join(DOCS, 'assets/site.js'));
+  if (!siteJs.includes("t('theme.label.' + pref)") || !siteJs.includes("t('motion.label.' + mpref + '.' + next)")) fail('assets/site.js', 'the switches must write one whole sentence per case (theme.label.<state>, motion.label.<state>.<next>)');
+  for (const old of ['theme.label', 'motion.label', 'motion.next.auto']) if (new RegExp(`['"]${old.replace('.', '\.')}['"]`).test(siteJs)) fail('assets/site.js', `still uses the template key "${old}"`);
+  for (const lang of LANGS) {
+    const d = loadDict(lang.code);
+    if (!d) continue;
+    const where = `assets/i18n/${lang.code}.js`;
+    for (const k of ['theme.label', 'motion.label', 'motion.next.auto']) if (k in d) fail(where, `"${k}" is the old template key (a state word and a target word in one sentence)`);
+    for (const group of [THEME, MOTION]) {
+      const seen = new Map();
+      for (const k of group) {
+        if (typeof d[k] !== 'string' || !d[k].trim()) { fail(where, `"${k}" is missing`); continue; }
+        if (/[{}]/.test(d[k])) fail(where, `"${k}" has a placeholder: it must be a whole sentence`);
+        if (seen.has(d[k])) fail(where, `"${k}" is the same sentence as "${seen.get(d[k])}"`);
+        seen.set(d[k], k);
+      }
+    }
+  }
+}
+
 // ---------- pages ----------
 const enText = {};
 for (const page of [...PAGES, '404']) {
@@ -95,6 +123,7 @@ function checkCommon(lang, page, file, text) {
   pageCount++;
   // language plumbing: exactly what the generator writes
   if (page !== '404' && !text.includes(headBlock(lang, page))) fail(where, 'canonical/hreflang block is missing or out of date (run scripts/generate-site-languages.mjs)');
+  if (page !== '404' && !text.includes(seoBlock(lang, page, text, versionOf(enText.index)))) fail(where, 'Open Graph / Twitter / JSON-LD block is missing or out of date (run scripts/generate-site-languages.mjs)');
   if (!text.includes(langBlock(lang, page))) fail(where, 'language menu block is missing or out of date');
   if (!text.includes(scriptsBlock(lang, page))) fail(where, 'script block is missing or out of date');
   const m = /<html lang="([^"]*)"/.exec(text);

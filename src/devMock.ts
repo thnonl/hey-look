@@ -1,6 +1,6 @@
 // Dev-only: lets the UI run in a plain browser (npm run dev) with fake data, no Tauri backend.
 import { emit } from "@tauri-apps/api/event";
-import { mockIPC } from "@tauri-apps/api/mocks";
+import { mockIPC, mockWindows } from "@tauri-apps/api/mocks";
 import { gmailSearchUrl, toGmailQuery, toWebmailQuery, webmailOf, webmailTargets, WebmailId } from "./webmail";
 import { darkMessages, darkThreadRows } from "./devMockDark";
 import { extractSignature, fillSignatureHtml, normalizeHtml, SIG_MARK } from "./signature";
@@ -41,6 +41,9 @@ const threads = [
   t("tconf", "Board pack — Highly Confidential", ["Linh Tran"], "Revenue is down 12% and we plan to cut the Hanoi office.", 1 * H, { unread: 1, confidential: true, hasAttach: true }),
   t("t14", "Weekly sync notes", ["Bao Tran"], "Notes from today are below. Signed inline.", 9 * H, { signed: true }),
 ];
+
+// a mailing-list style message whose Reply-To is not its From (Reply goes to the Reply-To address), with a quoted name in To
+threads.push(t("trt", "Reply-To probe", ["Acme No Reply"], "Please answer to support, not to this address.", 3.5 * H, { unread: 0 }));
 
 // calendar invitations in every state (the messages are built further down)
 threads.push(
@@ -108,6 +111,7 @@ const mockThreadMsgs: Record<string, unknown[]> = {
     { index: 0, name: "Q4-contract-v7.pdf", mime: "application/pdf", size: 1200000 },
     { index: 1, name: "linh-public.asc", mime: "application/pgp-keys", size: 3100 },
   ])],
+  trt: [secMsg("m-rt", "Reply-To probe", "Acme No Reply", "no-reply@acme.example", { to: "nam@example.com,john@acme.example,JOHN@acme.example,y@acme.example", cc: "cc@acme.example,nam@gmail.com" }, "<p>Please answer to support, not to this address.</p>")],
   t9: [lockedMsg()],
   t10: [secMsg("m-nokey", "Archive access", "Minh Pham", "minh@example.com", { security: { encrypted: true, partial: false, decryption: "no_key", encryptedFor: ["91AC4E0B5D7F2A31"], signature: null } }, null)],
   t11: [secMsg("m-bad", "Re: Contract changes (damaged)", "Legal Team", "legal@example.com", { security: { encrypted: true, partial: false, decryption: "error", error: "unsupported packet or corrupted transfer", encryptedFor: [], signature: null } }, null)],
@@ -120,6 +124,14 @@ const mockThreadMsgs: Record<string, unknown[]> = {
   ])],
   t14: [secMsg("m-ok2", "Weekly sync notes", "Bao Tran", "bao@contoso.com", { security: { encrypted: false, partial: false, decryption: "none", encryptedFor: [], signature: { status: "valid", signer: "Bao Tran", fingerprint: pgpKeys[3].fingerprint, keyId: pgpKeys[3].keyId, signedAt: now - 8 * H, verified: false, matchesFrom: true, inline: true } } }, "<p>Notes from today are below. Signed inline.</p>")],
 };
+
+// message importance (F-24): one High and one Low message in the Inbox
+threads.push(
+  t("timp-hi", "Please approve the change window today", ["Linh Tran"], "We need your sign-off before 17:00 so the release can go out tonight.", 0.8 * H, { unread: 1, importance: "high" }),
+  t("timp-lo", "FYI: newsletter archive has moved", ["Minh Pham"], "No action needed, just so you know where to find the old issues.", 1.4 * H, { importance: "low" }),
+);
+mockThreadMsgs["timp-hi"] = [secMsg("m-imp-hi", "Please approve the change window today", "Linh Tran", "linh@example.com", { importance: "high", seen: false }, "<p>Hi Nam,</p><p>We need your sign-off before 17:00 so the release can go out tonight.</p><p>— Linh</p>")];
+mockThreadMsgs["timp-lo"] = [secMsg("m-imp-lo", "FYI: newsletter archive has moved", "Minh Pham", "minh@example.com", { importance: "low" }, "<p>Hi Nam,</p><p>No action needed, just so you know where to find the old issues.</p><p>— Minh</p>")];
 
 const messages = [
   { id: "m1", accountId: "a1", folder: "inbox", messageId: "<1@x>", subject: "Q4 roadmap review", fromName: "Linh Tran", fromEmail: "linh@example.com", to: "nam@example.com", cc: "", date: now - 3 * H, html: body("Attaching the latest roadmap deck."), text: "Attaching the latest roadmap deck.", seen: true, flagged: false, attachments: [{ index: 0, name: "roadmap-q4.pdf", mime: "application/pdf", size: 482113 }], canUnsubscribe: false },
@@ -145,6 +157,18 @@ const m4 = {
   ],
 };
 
+// A real (tiny) PDF for the attachment preview: the app only draws bytes that start with %PDF-
+const MOCK_PDF = btoa("%PDF-1.1\n1 0 obj<</Type/Catalog/Pages 2 0 R>>endobj\n2 0 obj<</Type/Pages/Kids[3 0 R]/Count 1>>endobj\n3 0 obj<</Type/Page/Parent 2 0 R/MediaBox[0 0 300 200]/Contents 4 0 R/Resources<</Font<</F1 5 0 R>>>>>>endobj\n4 0 obj<</Length 43>>stream\nBT /F1 24 Tf 40 100 Td (Hello PDF) Tj ET\nendstream endobj\n5 0 obj<</Type/Font/Subtype/Type1/BaseFont/Helvetica>>endobj\ntrailer<</Root 1 0 R>>\n%%EOF\n");
+
+// A conversation of four messages whose FIRST one carries the attachments (a PDF, a text file, pictures): the preview and the picture viewer open
+// from a message that has later messages (each with sticky Reply buttons) below it. test-preview-layer.mjs opens thread "tlayer".
+const mockLayerMsgs = [
+  { ...m4, id: "ml1", subject: "Layering check", date: now - 9 * H, attachments: [...m4.attachments, { index: 4, name: "notes.txt", mime: "text/plain", size: 120, inline: false, cid: null, referenced: false }] },
+  ...[3, 2, 1].map((h, i) => ({ ...secMsg(`ml${i + 2}`, "Re: Layering check", i % 2 ? "Nam" : "Linh Tran", i % 2 ? "nam@example.com" : "linh@example.com", { date: now - h * H }, `<p>${["Thanks for the deck.", "One question about page 3.", "Answered below, ship it."][i]}</p>`) })),
+];
+mockThreadMsgs.tlayer = mockLayerMsgs;
+threads.push(t("tlayer", "Layering check", ["Linh Tran"], "A conversation whose first message has attachments.", 1 * H, { count: 4, hasAttach: true }));
+
 const folders = ["inbox", "drafts", "sent", "archive", "junk", "trash"].flatMap((k, i) =>
   accounts.map((a) => ({ accountId: a.id, key: k, name: k, unread: k === "inbox" ? (a.id === "a1" ? 4 : 2) : 0, total: 10 + i })),
 ).concat([{ accountId: "a1", key: "f:Projects/Hey Look", name: "Projects/Hey Look", unread: 0, total: 5 }, { accountId: "a1", key: "f:Clients/International customers/Very long folder name for layout testing", name: "Clients/International customers/Very long folder name for layout testing", unread: 0, total: 3 }]);
@@ -166,7 +190,15 @@ const longMail = (w: number) =>
 
 const darkThreads = darkMessages(messages[0], svg);
 
-const settings: Record<string, string> = {};
+// `#persist`: the stored settings survive a reload (localStorage), so a "restart" can be tested in the preview (e.g. the order of the mailboxes)
+const persistSettings = /(^|&)persist(&|$)/.test(window.location.hash.slice(1));
+const settings: Record<string, string> = (() => {
+  try {
+    return persistSettings ? JSON.parse(localStorage.getItem("hl-mock-settings") ?? "{}") : {};
+  } catch {
+    return {};
+  }
+})();
 
 // scheduled messages in every state the worker can be in
 const mockOutbox = (() => {
@@ -225,6 +257,26 @@ let calEvents: MockEvent[] = [
   ev("e17", "Yesterday's 1:1", at(-1, 14), at(-1, 14, 30), {}),
 ];
 const hiddenCals = new Set<string>();
+/** Drafts saved in this page (save_draft), by thread. */
+const mockDrafts: Record<string, typeof messages> = {};
+/** The row each saved draft has in the Drafts list (with its importance), by thread. */
+const mockDraftRows: Record<string, ReturnType<typeof t>> = {};
+let mockDraftSeq = 0;
+/** Crash recovery in the page (recover.rs): kept in localStorage, so reloading the page without discarding is the "crash" of a check. */
+const RECOVERY_KEY = "hl-mock-recovery";
+interface MockSnap { id: string; accountId: string; savedAt: number; subject: string; preview: string; payload: string; files: unknown[] }
+const recoveryRead = (): Record<string, MockSnap> => { try { return JSON.parse(localStorage.getItem(RECOVERY_KEY) ?? "{}"); } catch { return {}; } };
+const recoveryWrite = (m: Record<string, MockSnap>) => { try { localStorage.setItem(RECOVERY_KEY, JSON.stringify(m)); } catch { /* private window */ } };
+/** `mid:` references of the drafts saved in this page, by the thread they are in. */
+const mockDraftRefs: Record<string, string> = {};
+/** Remove the draft a reference names: `m:<message id>`, `mid:<account>|<Message-ID>` or a conversation id. */
+function dropMockDraft(ref: string) {
+  const tid = ref.startsWith("m:a1:drafts:") ? ref.slice("m:a1:drafts:".length) : mockDraftRefs[ref] ?? ref;
+  delete mockDrafts[tid];
+  delete mockDraftRows[tid];
+}
+/** To / Cc / Bcc as the saved draft's headers have them, by message id (`draft_recipients`). */
+const mockDraftHeaders: Record<string, { to: string[]; cc: string[]; bcc: string[]; inReplyTo?: string | null; references?: string[]; meeting?: string | null }> = {};
 const dayOf = (sec: number) => Math.floor(sec / 86400);
 /** Repeats for the mock: daily / weekly with BYDAY, from the event's own start. */
 function expandMock(e: MockEvent, from: number, to: number): MockEvent[] {
@@ -451,7 +503,7 @@ function simulateWindowFrame(): boolean {
 
 // ---- update check (`#update=<kind>`, `#openfail`): fixed answers, read from the URL hash on every call.
 // Kinds: available, uptodate (default), newer, norelease, offline, ratelimited, error, noasset, slow, empty, long.
-// The throttle, the 6 h rule and the stored state are Rust only: here every manual call answers, automatic calls answer `disabled` when the switch is off.
+// The throttle, the timing rules (launch, window return, retry) and the stored state are Rust only: here every manual call answers, automatic calls answer `disabled` when the switch is off.
 const hashTokens = () => new Map(window.location.hash.slice(1).split("&").filter(Boolean).map((t) => { const [k, v = ""] = t.split("="); return [k, decodeURIComponent(v)] as [string, string]; }));
 const UPDATE_SAMPLE_NOTES = [
   "## Highlights", "- Faster search in large mailboxes", "* **Bold** item with `code`", "[a link](https://example.com)", "",
@@ -612,6 +664,8 @@ function mockNewAccount(email: string, displayName: string, auth: string, imapHo
   return acc;
 }
 const later = <T,>(ms: number, f: () => T) => new Promise<T>((res, rej) => setTimeout(() => { try { res(f()); } catch (e) { rej(e); } }, ms));
+/** Conversations a "move" of a secondary window took away (dev preview of the reader window). */
+const mockGone = new Set<string>();
 const newThreads = (accountId: string) =>
   [["Welcome to your new mailbox", "Mail Team", "Your account is connected. Everything arrives here.", 0.2 * H, 1], ["Getting started", "Mail Team", "Three quick tips for your inbox.", 3 * H, 0], ["Your first newsletter", "Digest", "Nothing to read yet, but this is how it looks.", 20 * H, 0]]
     .map(([subject, who, snippet, ago, unread], i) => t(`${accountId}-t${i}`, subject as string, [who as string], snippet as string, ago as number, { accountId, unread }));
@@ -624,11 +678,31 @@ const newThreads = (accountId: string) =>
 //   #backfill          simulates the background download of 500 Inbox messages (event backfill-progress) for the first mailbox (never beyond the "Max emails to download" cap)
 //                      the cap (setting max_download, Settings > Reading & sync) also makes load_older answer { limited: true } once a mailbox holds that many messages
 // `__mockMail` in the console: { calls (every load_older), opened (urls given to the browser), local, total, failIn }
+let mockAiCalls = 0;
+/** the job ids the page cancelled (ai_cancel): a dev check can read them from window.__mockAiCancelled */
+const mockSecrets = new Map<string, string>(); // the AI key saved in Settings (the real one is in the OS credential store)
+const mockAiCancelled: string[] = ((window as unknown as { __mockAiCancelled?: string[] }).__mockAiCancelled = []);
 const hashHas = (k: string) => new RegExp(`(^|&)${k}(=|&|$)`).test(window.location.hash.slice(1));
 const hashNum = (k: string, d: number) => {
   const m = new RegExp(`(^|&)${k}=(\\d+)`).exec(window.location.hash.slice(1));
   return m ? Number(m[2]) : d;
 };
+// #longmail[=chars]: the last message of "Q4 roadmap review" is a long text (default 30000 characters: numbered paragraphs of numbered sentences),
+// to try the translation in parts. #slowai=3000 makes every part take 3 s. #failpart=3[&failtimes=2]: part 3 answers a 503 the first 2 times it is asked
+// (one automatic second try, then the error with Retry, which goes on from that part). window.__mockAiRequests lists every ai_complete call (id, part, chars).
+if (hashHas("longmail")) {
+  const want = hashNum("longmail", 30000);
+  let text = "";
+  for (let n = 1; text.length < want; n++) {
+    const sentences = Array.from({ length: 5 }, (_, k) => `Sentence ${k + 1} of paragraph ${n} says that the milestone review needs a decision before Thursday.`).join(" ");
+    text += `${text ? "\n\n" : ""}Paragraph ${n}. ${sentences}`;
+  }
+  const last = messages[2];
+  last.text = text.slice(0, want);
+  last.html = `<div style="font-family:sans-serif">${last.text.split("\n\n").map((x) => `<p>${x}</p>`).join("")}</div>`;
+}
+const mockAiRequests: { id: string; part: number; chars: number }[] = ((window as unknown as { __mockAiRequests?: unknown[] }).__mockAiRequests = []) as never;
+const mockPartFails = new Map<number, number>();
 type MockRow = ReturnType<typeof t>;
 /** The "Max emails to download" cap as the backend reads it (setting `max_download`: default 2000, clamped to 100..5000). */
 const mockCap = () => {
@@ -830,6 +904,11 @@ export function installMock() {
     const failAt = hashNum("failolder", 0);
     if (failAt) mockMail.failIn = failAt;
     (window as unknown as { __mockMail: typeof mockMail }).__mockMail = mockMail;
+    // dev check of the quote block (a reply / forward of any original): `__mockAddThread("q1", "Subject", { html, text, fromName, fromEmail, attachments })` adds a conversation with that one message to the first Inbox
+    (window as unknown as { __mockAddThread: unknown }).__mockAddThread = (id: string, subject: string, over: Record<string, unknown> = {}) => {
+      threads.unshift(t(id, subject, [String(over.fromName ?? "Sender")], "", 0.1 * H));
+      mockThreadMsgs[id] = [secMsg(`m-${id}`, subject, String(over.fromName ?? "Sender"), String(over.fromEmail ?? "sender@example.org"), over, (over.html as string | null | undefined) ?? null)];
+    };
     if (hashHas("backfill")) {
       // the background download: 50 more Inbox messages of the first mailbox every 450 ms, up to 1000 (or what the server has)
       void (async () => {
@@ -997,6 +1076,14 @@ export function installMock() {
     ok(none.sig === null && none.html.includes(SIG_MARK), "draft without signature gets an empty region");
     return out;
   };
+  // `#autosave=3000`: the autosave waits 3 s instead of 30 s (and `#snapshot=1000` writes the crash-recovery snapshot every second): for a check
+  const shortAutosave = Number(hashTokens().get("autosave"));
+  if (shortAutosave > 0) (window as unknown as { __hlTiming: unknown }).__hlTiming = { autosaveMs: shortAutosave, snapshotMs: Number(hashTokens().get("snapshot")) || 1000 };
+  // dev preview of the secondary windows: a script takes a conversation away (`__mockGone.add("t1")`) and says so (`__mockEmit("mail-synced", null)`)
+  Object.assign(window, { __mockGone: mockGone, __mockEmit: (name: string, payload: unknown) => emit(name, payload) });
+  // a window object for `getCurrentWindow()` (a secondary window sets its title and theme; the label is the one the backend would give it)
+  const which = new URLSearchParams(window.location.search).get("w");
+  mockWindows(which === "reader" || which === "compose" ? `${which}-1` : "main");
   mockIPC(function handle(cmd, args): unknown {
     const a = (args ?? {}) as Record<string, unknown>;
     // a conversation's read / flag state is kept (as the server does), so the Unread and Flagged filters behave like the real list
@@ -1004,20 +1091,24 @@ export function installMock() {
       const msgs = handle(cmd, { ...a, raw: true });
       const th = threads.find((x) => x.threadId === a.threadId);
       if (!th || !Array.isArray(msgs) || msgs.length === 0) return msgs;
-      return msgs.map((m, i) => ({ ...m, seen: th.unread === 0 || i < msgs.length - 1 }));
+      return msgs.map((m, i) => ({ ...m, seen: th.unread === 0 || i < msgs.length - 1, flagged: th.flagged || m.flagged }));
     }
     switch (cmd) {
       case "list_accounts": return accounts;
       case "idle_states": return { a1: "push" };
-      case "get_setting": return settings[a.key as string] ?? null;
+      // #aiset: the AI Assistant is set up (Translate / Summarize can be tried with #slowai / #failai)
+      case "get_setting": return settings[a.key as string] ?? (a.key === "prefs" && hashTokens().has("lang") ? JSON.stringify({ language: hashTokens().get("lang") }) : null) ?? (hashHas("aiset") && (a.key === "ai_endpoint" || a.key === "ai_model") ? "mock" : null);
       case "first_run_hint": { const d = Number(hashTokens().get("firstrun")); return d > 0 ? Date.now() - d * 86_400_000 : null; } // `#firstrun=90`: the database is 90 days old (an install from before the support reminder)
-      case "set_setting": settings[a.key as string] = a.value as string; return null;
-      case "list_folders": return folders;
+      // a settings save that fails (Settings > AI Assistant shows it under Save): a Base URL with "savefail" in it, a key "keyfail", and #removefail for Remove the saved key
+      case "set_setting": if (a.key === "ai_endpoint" && String(a.value).includes("savefail")) return later(200, () => { throw new Error("The settings database could not be written: disk I/O error (code 10)"); }); settings[a.key as string] = a.value as string; if (persistSettings) localStorage.setItem("hl-mock-settings", JSON.stringify(settings)); return null;
+      // #nojunk: the second mailbox's server has no Junk folder (the saved list does not name one): its Junk row and the Junk actions go
+      case "list_folders": return hashHas("nojunk") ? folders.map((f) => (f.accountId === "a2" && f.key === "junk" ? { ...f, listed: false } : f)) : folders;
       case "list_threads": {
         const f = a.filter as { folder: string; focus?: string; unreadOnly?: boolean; flaggedOnly?: boolean; sortAsc?: boolean; search?: string; scope?: string };
         const own = (a.filter as { accountId?: string | null }).accountId;
         const q = (f.search ?? "").trim();
         if (own && own.startsWith("n")) return f.folder === "inbox" && synced.has(own) ? newThreads(own) : []; // an added account: empty until its first sync is done
+        if (f.folder === "drafts") return Object.values(mockDraftRows).reverse(); // newest saved first
         if (!(f.folder === "inbox" || f.folder === "unread" || f.folder === "all")) return [];
         // like the backend: a search over every mailbox ignores the selected one
         const scoped = own && !(q && f.scope === "all") ? own : null;
@@ -1044,6 +1135,8 @@ export function installMock() {
         return list.sort((x, y) => (f.folder === "inbox" && !f.sortAsc ? Number(y.pinned) - Number(x.pinned) : 0) || dir * (x.lastDate - y.lastDate));
       }
       case "get_thread":
+        if (mockGone.has(a.threadId as string)) return []; // (dev preview of the reader: "This message was moved or deleted.")
+        if (mockDrafts[a.threadId as string]) return mockDrafts[a.threadId as string];
         if (a.threadId === "t9") return [ownLocked ? lockedMsg() : openedMsg()];
         if (a.threadId === "t25") return [encInvite(ownLocked)];
         if (threadInvite[a.threadId as string]) return threadInvite[a.threadId as string].map((id) => inviteMsgs[id]);
@@ -1063,6 +1156,9 @@ export function installMock() {
       case "add_account": {
         const inp = a.input as { email: string; displayName: string; imapHost: string; smtpHost: string };
         if (a.passwordValue === "wrong") return later(900, () => { throw new Error("AUTH: login failed: invalid credentials"); });
+        // a locked system keyring: the password "locked" answers with the timeout after 2.5 s, "hang" does not answer within a minute (Cancel ends the wait)
+        if (a.passwordValue === "locked") return later(2500, () => { throw new Error("KEYRING_TIMEOUT: Your system keyring is locked or not answering. Unlock it (Passwords and Keys / KWallet) and try again."); });
+        if (a.passwordValue === "hang") return later(60000, () => { throw new Error("ADD_CANCELLED: Adding the account was cancelled."); });
         return later(1200, () => mockNewAccount(inp.email, inp.displayName || inp.email.split("@")[0], "password", inp.imapHost, inp.smtpHost));
       }
       case "google_sign_in": case "microsoft_sign_in": {
@@ -1072,6 +1168,7 @@ export function installMock() {
           mockNewAccount(g ? `new.user${newSeq + 1}@gmail.com` : `new.user${newSeq + 1}@outlook.com`, String(a.displayName || "New User"), g ? "oauth_google" : "oauth_microsoft", g ? "imap.gmail.com" : "outlook.office365.com", g ? "smtp.gmail.com" : "smtp.office365.com"));
         return later(1200, () => mockNewAccount(g ? `new.user${newSeq + 1}@gmail.com` : `new.user${newSeq + 1}@outlook.com`, String(a.displayName || "New User"), g ? "oauth_google" : "oauth_microsoft", g ? "imap.gmail.com" : "outlook.office365.com", g ? "smtp.gmail.com" : "smtp.office365.com"));
       }
+      case "cancel_add_account": return null;
       case "oauth_cancel": oauthCancel?.(); oauthCancel = null; return null;
       case "reauth_account": {
         const acc = accounts.find((x) => x.id === a.accountId);
@@ -1088,7 +1185,7 @@ export function installMock() {
         return { draft: mockDraftOf(o), sendAt: o.sendAt, status: o.status === "pending" || o.status === "overdue" ? "held" : o.status };
       }
       case "list_templates": return [{ id: "tp1", name: "Thanks", subject: "Thanks!", body: "<p>Thanks for your message.</p>" }, { id: "tp2", name: "Quarterly customer success follow-up with a deliberately very long template name", subject: "Follow-up", body: "<p>Hello</p>" }];
-      case "list_signatures": return [{ id: "s1", name: "Work", html: "Nam<br>Hey Look!", isDefault: true }, { id: "s2", name: "Personal signature with a very long name that has to be cut with an ellipsis before it reaches the tag", html: "Nam", isDefault: false }, { id: "s3", accountId: "a2", name: "Gmail", html: "Nam (via Gmail)<br><i>nam@gmail.com</i>", isDefault: true }];
+      case "list_signatures": return [{ id: "s1", name: "Work", html: "Nam<br>Hey Look!", isDefault: true }, { id: "s2", name: "Personal signature with a very long name that has to be cut with an ellipsis before it reaches the tag", html: "Nam", isDefault: false }, { id: "s3", accountId: "a2", name: "Gmail", html: "Nam (via Gmail)<br><i>nam@gmail.com</i>", isDefault: true }, { id: "s4", name: "Branded (coloured)", html: '<table style="border-collapse:collapse"><tr><td style="background:#0f6cbd;color:#ffffff;padding:6px 10px;font-weight:600">Hey Look!</td><td style="padding:6px 10px;color:#000000">Nam Hoang<br><span style="color:#444444">Product, <a href="https://example.com" style="color:#0b57d0">example.com</a></span></td></tr></table><p style="background:#fff3bf;color:#5c4400;padding:4px 8px;margin:6px 0 0">A highlighted note in the signature</p>', isDefault: false }];
       case "list_senders": return [{ email: "news@ph.com", name: "Product Hunt", count: 42, unread: 12, canUnsubscribe: true, lastDate: now - H }];
       case "list_rules": return [{ id: "r1", accountId: null, name: "Move newsletters", field: "from", op: "contains", value: "newsletter@example.com", action: "archive", arg: null, enabled: true }, { id: "r2", accountId: null, name: "", field: "subject", op: "contains", value: "a very long rule text that should be truncated in the list row", action: "trash", arg: null, enabled: false }];
       case "list_blocked": return [];
@@ -1106,6 +1203,8 @@ export function installMock() {
             else if (a.action === "unread") th.unread = Math.max(1, th.unread);
             else if (a.action === "star") th.flagged = true;
             else if (a.action === "unstar") th.flagged = false;
+            else if (a.action === "pin") th.pinned = true;
+            else if (a.action === "unpin") th.pinned = false;
           }
           return null;
         });
@@ -1120,10 +1219,95 @@ export function installMock() {
         w.__draftSaveCalls = (w.__draftSaveCalls ?? 0) + 1; // counted, so a check can see that discarding writes none (AC-74)
         if (hashTokens().has("draftfail")) throw "mock: the server refused the draft"; // `#draftfail`: saving a draft fails (update restart asks what to do)
         w.__lastDraft = a.draft;
+        // like the backend: the draft is a message of the Drafts folder, in the thread it gets from its Message-ID (the toast "Draft saved" opens it with Edit)
+        const dr = a.draft as { to: string[]; cc: string[]; bcc?: string[]; inReplyTo?: string | null; references?: string[]; subject: string; html: string; text: string; accountId: string; importance?: string; meetingForm?: string };
+        const tid = `dt${++mockDraftSeq}`;
+        // the draft is replaced, not added to (the backend appends the new one, then deletes the one the reference names)
+        if (typeof a.replaces === "string") dropMockDraft(a.replaces);
+        // the synced copy has bare To / Cc addresses and no Bcc; `draft_recipients` returns what the headers say
+        const bareOf = (l: string[]) => l.map((x) => /<([^>]+)>/.exec(x)?.[1] ?? x);
+        mockDrafts[tid] = [{ ...messages[0], id: `a1:drafts:${tid}`, accountId: dr.accountId, folder: "drafts", subject: dr.subject || "(no subject)", fromName: "Nam", fromEmail: "nam@example.com", to: bareOf(dr.to).join(", "), cc: bareOf(dr.cc).join(", "), html: dr.html, text: dr.text, attachments: [], seen: true, ...{ importance: dr.importance ?? "normal" } }];
+        // the draft shows up in Drafts; reopening it gives back what was saved, the importance included (the backend reads it from the headers)
+        mockDraftRows[tid] = t(tid, dr.subject || "(no subject)", [dr.to[0] ?? "(no recipient)"], dr.text.slice(0, 120), 0, { folder: "drafts", accountId: dr.accountId, importance: dr.importance ?? "normal" });
+        mockDraftHeaders[`a1:drafts:${tid}`] = { to: dr.to, cc: dr.cc, bcc: dr.bcc ?? [], inReplyTo: dr.inReplyTo ?? null, references: dr.references ?? [], meeting: dr.meetingForm ?? null }; // (the private X-HeyLook-Meeting header)
+        mockDraftRefs[`mid:a1|<${tid}@mock>`] = tid;
+        (window as unknown as { __draftCount: () => number }).__draftCount = () => Object.keys(mockDrafts).length; // for a check: drafts the page holds
+        const done = () => ({ threadId: tid, draftRef: `mid:a1|<${tid}@mock>` });
+        return hashTokens().has("draftslow") ? later(1500, done) : done(); // `#draftslow`: the save takes 1.5 s
+      }
+      case "discard_draft": dropMockDraft(String(a.reference)); return null;
+      case "recovery_save": {
+        const sn = a.snap as MockSnap & { files: unknown[] | null };
+        const all = recoveryRead();
+        all[sn.id] = { ...sn, savedAt: Math.floor(Date.now() / 1000), files: sn.files ?? all[sn.id]?.files ?? [] }; // files not sent = the same as before
+        recoveryWrite(all);
+        const w = window as unknown as { __recoverySaves?: number };
+        w.__recoverySaves = (w.__recoverySaves ?? 0) + 1; // counted for a check
         return null;
       }
-      case "queue_action": return "token-" + Math.random().toString(36).slice(2);
-      case "cancel_action": return true;
+      case "recovery_clear": { const all = recoveryRead(); delete all[String(a.id)]; recoveryWrite(all); return null; }
+      case "recovery_list":
+        return Object.values(recoveryRead()).filter((x) => accounts.some((acc) => acc.id === x.accountId)).sort((x, y) => y.savedAt - x.savedAt).map(({ payload: _p, files, ...i }) => ({ ...i, files: files.length }));
+      case "recovery_load": return recoveryRead()[String(a.id)] ?? null;
+      case "recovery_save_draft": {
+        // like the backend: `#nodrafts` = the account has no Drafts folder, `#draftfail` = the server refuses; the snapshot stays then. Else the
+        // snapshot is saved as a draft (the same as Save draft) and removed.
+        if (hashTokens().has("nodrafts")) throw "this account has no Drafts folder";
+        const saved = handle("save_draft", { draft: a.draft, replaces: a.replaces }) as { threadId: string; draftRef: string };
+        const all = recoveryRead();
+        delete all[String(a.id)];
+        recoveryWrite(all);
+        const w = window as unknown as { __recoveredDrafts?: string[] };
+        (w.__recoveredDrafts ??= []).push(String(a.id));
+        return { status: "saved", ...saved };
+      }
+      case "draft_recipients": return mockDraftHeaders[a.messageId as string] ?? { to: [], cc: [], bcc: [] };
+      case "prepare_action": {
+        // like the backend: the folder a move goes to is looked up before the move is queued. `#nocreate`: the server has no Archive / Trash
+        // and refuses to create one (the error comes after the IMAP time, 1.2 s). `#stalefolder`: the saved folder list still names the
+        // folder (the server deleted it since the last sync): no look-up now, the answer is `true` = "check it during the Undo window".
+        // Every call is logged on `window.__prepareActionCalls`.
+        const w = window as unknown as { __prepareActionCalls?: { ids: string[]; action: string; at: number }[] };
+        (w.__prepareActionCalls ??= []).push({ ids: [...((a.threadIds ?? []) as string[])], action: String(a.action), at: Date.now() });
+        const folder = a.action === "archive" ? "Archive" : a.action === "trash" ? "Trash" : null;
+        if (folder && hashTokens().has("stalefolder")) return true;
+        if (folder && hashTokens().has("nocreate")) {
+          return later(1200, () => {
+            throw `FOLDER_NOT_CREATED|folder=${folder}|why=CREATE denied: Couldn’t find or create the ${folder} folder on this account (CREATE denied). The mail stays where it is.`;
+          });
+        }
+        return false;
+      }
+      case "queue_action": {
+        // `verify` (the saved list was trusted): with `#stalefolder` + `#nocreate` the check finds the folder gone and not creatable after
+        // `#stalefolder=<ms>` (default 1.2 s): the move is dropped and `action-verify-failed` comes, unless Undo was pressed first.
+        const w = window as unknown as { __queueActionCalls?: { ids: string[]; action: string; at: number; verify: boolean }[]; __cancelledActions?: Set<string> };
+        (w.__queueActionCalls ??= []).push({ ids: [...((a.threadIds ?? []) as string[])], action: String(a.action), at: Date.now(), verify: a.verify === true });
+        const token = "token-" + Math.random().toString(36).slice(2);
+        const folder = a.action === "archive" ? "Archive" : a.action === "trash" ? "Trash" : null;
+        if (a.verify === true && folder && hashTokens().has("stalefolder") && hashTokens().has("nocreate")) {
+          const ms = Number(hashTokens().get("stalefolder")) || 1200;
+          setTimeout(() => {
+            if (w.__cancelledActions?.has(token)) return; // Undo won
+            void emit("action-verify-failed", { id: token, error: `FOLDER_NOT_CREATED|folder=${folder}|why=CREATE denied: Couldn’t find or create the ${folder} folder on this account (CREATE denied). The mail stays where it is.` });
+          }, ms);
+        }
+        // `#refusemove[=<ms>]`: the server refuses the MOVE itself, <ms> (default 500) after the Undo window ends: `action-failed` names the move
+        // (the folder check passed, so this is not the `#stalefolder` path); unless Undo was pressed first
+        if (hashTokens().has("refusemove") && folder) {
+          const ms = Number(hashTokens().get("refusemove")) || 500;
+          setTimeout(() => {
+            if (w.__cancelledActions?.has(token)) return;
+            void emit("action-failed", { id: token, error: "MOVE refused: [NO] Permission denied (mock server)" });
+          }, Number(a.delaySecs ?? 6) * 1000 + ms);
+        }
+        return token;
+      }
+      case "cancel_action": {
+        const w = window as unknown as { __cancelledActions?: Set<string> };
+        (w.__cancelledActions ??= new Set()).add(String(a.id));
+        return true;
+      }
       case "load_older": {
         // up to 50 older messages of one folder; rejects like an IMAP failure when `failIn` counts down to the call
         const id = String(a.accountId);
@@ -1149,9 +1333,14 @@ export function installMock() {
       case "copy_text": // (Linux asks the backend for the clipboard; `#copyfail` makes it fail)
         if (hashTokens().has("copyfail")) throw "mock: no clipboard";
         console.info("[mock] clipboard:", a.text); return null;
+      case "read_clipboard_text": // (macOS reads the clipboard for Cmd+Shift+V; a dev check sets window.__mockClipboard = { text, html })
+        return (window as unknown as { __mockClipboard?: { text: string; html: string } }).__mockClipboard ?? { text: "", html: "" };
       case "plugin:app|version": return "1.0.0";
       // `#os=macos|linux` (per-OS copy and shortcut labels), `#notray` (Linux without a tray host), `#nonotify` (Send test fails)
-      case "shell_info": return { os: hashTokens().get("os") || "windows", tray: !hashTokens().has("notray"), testData: null };
+      case "shell_info": { // `#pdf=frame|object|card` picks the PDF preview (default: the frame on Windows, the card elsewhere)
+        const os = hashTokens().get("os") || "windows";
+        return { os, tray: !hashTokens().has("notray"), testData: null, pdfView: hashTokens().get("pdf") || (os === "windows" ? "frame" : "card"), pdfTest: hashTokens().has("pdftest") };
+      }
       case "test_notification":
         if (hashTokens().has("nonotify")) throw "no notification server is running";
         return null;
@@ -1164,9 +1353,64 @@ export function installMock() {
       case "remove_account": { const i = accounts.findIndex((x) => x.id === a.accountId); if (i >= 0) accounts.splice(i, 1); return null; }
       case "set_mail_available": ((window as unknown as { __mailAvailable?: boolean[] }).__mailAvailable ??= []).push(!!a.available); return null;
       // an Undo-window send is kept in the (mock) outbox until it is sent or taken back; every call is logged in window.__sendCalls
-      case "outbox_hold": { const w = window as unknown as { __sendCalls?: unknown[] }; (w.__sendCalls ??= []).push({ cmd: "hold", dueAt: a.dueAt }); return `hold-${Date.now()}`; }
-      case "outbox_hold_send": { const w = window as unknown as { __sendCalls?: unknown[] }; (w.__sendCalls ??= []).push({ cmd: "holdSend", id: a.id, keep: a.keep }); return null; }
-      case "quit_dialog": case "quit_cancelled": case "sends_flushed": case "show_window": case "frontend_ready": case "page_state": return null;
+      case "outbox_hold": { const w = window as unknown as { __sendCalls?: unknown[]; __held?: Record<string, unknown> }; (w.__sendCalls ??= []).push({ cmd: "hold", dueAt: a.dueAt, draft: a.draft }); const id = `hold-${Date.now()}`; (w.__held ??= {})[id] = a.draft; return id; }
+      case "outbox_hold_send": {
+        const w = window as unknown as { __sendCalls?: unknown[]; __held?: Record<string, { subject?: string }> };
+        (w.__sendCalls ??= []).push({ cmd: "holdSend", id: a.id, keep: a.keep });
+        // a subject with [toolarge] is refused for its size like a server with a smaller limit does (dev check of the size message)
+        if (String(w.__held?.[a.id as string]?.subject ?? "").includes("[toolarge]")) throw "SMTP_TOO_LARGE|reply=552 5.3.4 Message size exceeds fixed limit: The message is larger than this server accepts. Remove attachments or shrink pictures. (Server reply: 552 5.3.4 Message size exceeds fixed limit)";
+        return null;
+      }
+      case "quit_dialog": case "quit_page_alive": case "quit_cancelled": case "sends_flushed": case "show_window": case "frontend_ready": case "page_state": return null;
+      // secondary windows (src/popout): the dev preview of a pop-out is ?w=compose or ?w=reader in a plain browser tab
+      case "popout_park": case "popout_destroy": case "popout_set_key": return true;
+      case "popout_note": case "window_theme_refresh": return null;
+      case "popout_init": {
+        const q = new URLSearchParams(window.location.search);
+        const kind = q.get("w") ?? "compose";
+        // the compose window in a plain browser tab: ?w=compose[&mock=reply|draft|new]
+        if (kind !== "reader") {
+          const m = q.get("mock");
+          const init =
+            m === "reply" ? { accountId: "a1", to: ["linh.tran@acme.example"], subject: "Re: Q4 roadmap review", isReply: true, inReplyTo: "<m1@acme.example>", bodyHtml: "<p>On Mon, Linh wrote:</p><blockquote><p>Could you review the milestones before Thursday?</p></blockquote>" }
+            : m === "draft" ? { accountId: "a1", to: ["alice@fabrikam.com"], subject: "Draft with text", replaces: "d1", bodyHtml: "<p>Saved draft text</p>" }
+            : m === "new" ? {} : null;
+          return { kind, label: "compose-1", key: null, init };
+        }
+        // the reader window in a plain browser tab: ?w=reader&thread=t1[&folder=inbox][&view=inbox]
+        const id = q.get("thread") ?? "t1";
+        const th = threads.find((x) => x.threadId === id);
+        const folder = q.get("folder") ?? th?.folder ?? "inbox";
+        return { kind, label: "reader-1", key: id, init: { threadId: id, accountId: th?.accountId ?? "a1", folder, view: q.get("view") ?? folder, subject: th?.subject ?? "" } };
+      }
+      // the main page is not there in a plain tab: a request of a secondary window is logged (window.__popoutRequests), applied to the mock
+      // conversations when it is a state change, and answered after a moment (`#reqfail` answers with an error, `#reqsilent` does not answer)
+      case "popout_request": {
+        const w = window as unknown as { __popoutRequests?: unknown[] };
+        (w.__popoutRequests ??= []).push({ id: a.id, kind: a.kind, payload: a.payload });
+        const p = (a.payload ?? {}) as Record<string, unknown>;
+        if (a.kind === "thread-action") {
+          const th = threads.find((x) => x.threadId === p.threadId);
+          if (th) {
+            const act = String(p.action);
+            if (act === "read") th.unread = 0;
+            else if (act === "unread") th.unread = Math.max(1, th.unread);
+            else if (act === "star") th.flagged = true;
+            else if (act === "unstar") th.flagged = false;
+            else if (act === "pin") th.pinned = true;
+            else if (act === "unpin") th.pinned = false;
+            else mockGone.add(th.threadId); // a move: the conversation is not where it was
+          }
+          later(200, () => void emit("thread-state", { threadIds: [p.threadId], action: p.action }));
+        }
+        if (!hashHas("reqsilent")) later(hashHas("reqslow") ? 1500 : 150, () => void emit("popout-reply", { id: a.id, ok: !hashHas("reqfail"), data: null, error: hashHas("reqfail") ? "mock: the main window refused" : null }));
+        return null;
+      }
+      case "thread_meta": return { pinned: !!threads.find((x) => x.threadId === a.threadId)?.pinned, snoozedUntil: null };
+      case "popout_reply": return null;
+      case "popout_open": ((window as unknown as { __popoutOpened?: unknown[] }).__popoutOpened ??= []).push({ kind: a.kind, key: a.key, init: a.init }); return { status: "created", label: "compose-1" };
+      case "popout_save_all": return true;
+      case "popout_ready": case "popout_flush_alive": case "popout_flush_dialog": case "popout_flush_done": case "popout_focus": case "popout_close": return null;
       case "update_defer": logUpdateCall({ cmd: "defer" }).kind = a.deferred ? "later" : "now"; return null;
       case "update_install": return mockInstall(!!a.restart, !!a.draftSaved);
       case "update_startup_ack": logUpdateCall({ cmd: "startupAck" }).kind = "ok"; return null;
@@ -1180,7 +1424,7 @@ export function installMock() {
         if (!busyUntil) busyUntil = Date.now() + 8000;
         return Date.now() < busyUntil;
       }
-      case "has_secret": return false;
+      case "has_secret": return a.name === "ai_key" && mockSecrets.has("ai_key");
       case "google_env_configured": case "microsoft_env_configured": return false;
       case "microsoft_tenant": return "";
       case "discover_server": {
@@ -1189,12 +1433,17 @@ export function installMock() {
         const domain = email.split("@")[1] ?? "example.com";
         return { imapHost: `imap.${domain}`, imapPort: 993, imapSsl: true, smtpHost: `smtp.${domain}`, smtpPort: 587, smtpSecurity: "starttls", username: email, oauth: null, source: "autoconfig" };
       }
-      case "set_secret": return null;
+      case "set_secret": if (a.name === "ai_key" && (String(a.value ?? "") === "keyfail" || (!String(a.value ?? "") && hashHas("removefail")))) return later(200, () => { throw new Error("The credential store refused the request: the keychain is locked (OSStatus -25308)"); });
+        if (a.name === "ai_key") { if (String(a.value ?? "")) mockSecrets.set("ai_key", String(a.value)); else mockSecrets.delete("ai_key"); } return null;
+      // the headers an answer needs (the real command reads them from the server's copy): Reply-To only on the probe message
+      case "reply_headers": return a.messageId === "m-rt"
+        ? { messageId: "<m-rt@acme.example>", references: ["<root@acme.example>", "<m-rt@acme.example>"], replyTo: ['"Acme Support" <support@acme.example>'], from: '"Acme No Reply" <no-reply@acme.example>', to: ["nam@example.com", '"Doe, John" <john@acme.example>', "JOHN@acme.example", "y@acme.example"], cc: ['"Cc, Person" <cc@acme.example>', "nam@gmail.com"] }
+        : { messageId: `<${String(a.messageId)}@x>`, references: [`<${String(a.messageId)}@x>`], replyTo: [] };
       case "attachment_data": {
-        const att = [m4, ...messages].find((x) => x.id === a.messageId)?.attachments.find((z) => z.index === a.index);
+        const att = ([m4, ...messages, ...mockLayerMsgs] as { id: string; attachments: { index: number; name: string; mime: string }[] }[]).find((x) => x.id === a.messageId)?.attachments.find((z) => z.index === a.index);
         const name = att?.name ?? "file.pdf";
         const mime = att?.mime ?? "application/pdf";
-        return { name, mime, dataBase64: mime.startsWith("image/") ? PIC : btoa(`Mock contents of ${name}\n`) };
+        return { name, mime, dataBase64: mime.startsWith("image/") ? PIC : mime === "application/pdf" ? MOCK_PDF : btoa(`Mock contents of ${name}\n`) };
       }
       case "inline_image": return { mime: "image/png", dataBase64: PIC, name: "picture.png" };
       case "save_attachments": return ["C:/Users/Me/Downloads/logo.png"];
@@ -1406,9 +1655,13 @@ export function installMock() {
       case "calendar_save_ics": return "C:/Users/Me/Documents/invite.ics";
       case "calendar_import_ics": return { added: 2, updated: 1 };
       case "calendar_open_message": return { threadId: "t15", folder: "inbox", accountId: "a1" };
+      // the SIZE of the mail server (dev check of the size limit: window.__smtpSize = 10485760)
+      // (__smtpSizeAfterRefusal: what the server says when it is asked again after a refused send, `refresh`)
+      case "smtp_size_limit": { const w = window as unknown as { __smtpSize?: number; __smtpSizeAfterRefusal?: number; __sizeAsks?: boolean[] }; (w.__sizeAsks ??= []).push(!!a.refresh); return (a.refresh ? w.__smtpSizeAfterRefusal : undefined) ?? w.__smtpSize ?? null; }
       case "send_message": {
         // a subject with [fail] is rejected like Gmail rejects a program file (dev check of the failed-send path: __failedSendCheck)
         if (!a.sendAt && String((a.draft as { subject?: string }).subject).includes("[fail]")) throw "SMTP_ATTACHMENT_BLOCKED: The server rejected the attachment type. Gmail, Outlook and Yahoo refuse programs and scripts such as .exe, .bat, .js or .msi, even inside a zip file. Remove the attachment or share it as a link instead. (Server reply: (5.7.0 This message was blocked because its content presents a potential security issue. Please visit https://support.google.com/mail/?p=BlockedMessage to review our message content and attachment content guidelines. gsmtp)";
+        if (!a.sendAt && String((a.draft as { subject?: string }).subject).includes("[toolarge]")) throw "SMTP_TOO_LARGE|reply=552 5.3.4 Message size exceeds fixed limit: The message is larger than this server accepts. Remove attachments or shrink pictures. (Server reply: 552 5.3.4 Message size exceeds fixed limit)";
         if (!a.sendAt) return "sent";
         // a scheduled message shows up in the Scheduled list
         const d = a.draft as { accountId: string; to: string[]; cc: string[]; subject: string; text?: string; attachments?: unknown[] };
@@ -1418,10 +1671,50 @@ export function installMock() {
       }
       case "suggest_contacts": return [{ name: "Linh Tran", email: "linh@example.com" }];
       case "ai_list_models": {
-        if (String(a.endpoint).includes("bad")) throw "Models request failed (404 Not Found)"; // lets the error state be tried in the browser
-        return new Promise((r) => setTimeout(() => r(["gpt-4o", "gpt-4o-mini", "gpt-4.1", "o3-mini", "text-embedding-3-small"]), 500));
+        // like the real command: a key typed in Settings but not saved yet wins over the saved one; `#modelsms=N` sets the answer time (500 ms default)
+        const endpoint = String(a.endpoint);
+        const key = String(a.key ?? "") || mockSecrets.get("ai_key") || "";
+        if (endpoint.includes("bad")) throw "Models request failed (404 Not Found)"; // lets the error state be tried in the browser
+        // a half-typed address cannot be reached; a "keyed" address needs a key (typed or saved); an "empty" one lists nothing
+        if (!/^https?:\/\/[^/\s]+\.[a-z]{2,}(\/|$)/i.test(endpoint)) throw `error sending request for url (${endpoint}/models): error trying to connect: dns error: failed to lookup address information`;
+        if (endpoint.includes("keyed") && !key) throw "Models request failed (401 Unauthorized)";
+        return new Promise((r) => setTimeout(() => r(endpoint.includes("empty") ? [] : ["gpt-4o", "gpt-4o-mini", "gpt-4.1", "o3-mini", "text-embedding-3-small"]), hashNum("modelsms", 500)));
       }
-      case "ai_complete": return "• Linh shared the Q4 roadmap\n• Review requested before Thursday";
+      case "ai_complete": {
+        // dev switches for the waiting states of an AI call: #slowai[=ms] answers after 20 s (or ms); #failai[=timeout|nokey|server|plain|auth|forbidden|model|url|busy|bad|network|total|cancelled|once] fails after 5 s (or #failaims=ms; "once": the first call only)
+        const part = Number(/this is part (\d+)/.exec(String(a.system))?.[1] ?? 0);
+        mockAiRequests.push({ id: String(a.jobId), part, chars: String(a.prompt).length });
+        const reply = String(a.system).startsWith("Translate")
+          ? `[${/into (.+?)\./.exec(String(a.system))?.[1] ?? "?"}${part ? ` · part ${part}` : ""}] ${String(a.prompt).slice(0, part ? 120 : 600)}`
+          : "• Linh shared the Q4 roadmap\n• Review requested before Thursday";
+        if (part && part === hashNum("failpart", 0) && (mockPartFails.get(part) ?? 0) < hashNum("failtimes", 2)) {
+          mockPartFails.set(part, (mockPartFails.get(part) ?? 0) + 1);
+          return new Promise((_, rej) => setTimeout(() => rej("AI_HTTP|status=503|detail=upstream overloaded: The AI Assistant returned an error (503): upstream overloaded"), 800));
+        }
+        const failMode = /(^|&)failai(?:=([a-z]+))?(&|$)/.exec(window.location.hash.slice(1));
+        const failures: Record<string, string> = {
+          timeout: "AI_TIMEOUT|secs=180: The AI Assistant didn’t answer within 180 seconds.",
+          nokey: "AI_NOT_CONFIGURED: AI not configured: set endpoint and model in Settings > AI",
+          server: "AI_HTTP|status=503|detail=upstream overloaded: The AI Assistant returned an error (503): upstream overloaded",
+          plain: "AI_HTTP|v=plain|status=502: The AI Assistant returned an error (502).",
+          // the problems the AI guidance toast sorts (src/aiProblem.ts); the words after the code are the backend's English text
+          auth: "AI_HTTP|status=401|detail=Incorrect API key provided: …. You can find your API key at the provider.: The AI Assistant returned an error (401): Incorrect API key provided",
+          forbidden: "AI_HTTP|v=plain|status=403: The AI Assistant returned an error (403).",
+          model: "AI_HTTP|status=404|detail=The model `gpt-9` does not exist or you do not have access to it.: The AI Assistant returned an error (404): The model does not exist",
+          url: "AI_HTTP|v=plain|status=404: The AI Assistant returned an error (404).",
+          busy: "AI_HTTP|status=429|detail=Rate limit reached for requests.: The AI Assistant returned an error (429): Rate limit reached for requests.",
+          bad: "AI_BAD_RESPONSE: The AI Assistant sent an answer the app can’t read.",
+          network: "error sending request for url (https://api.example.com/v1/chat/completions): error trying to connect: dns error: failed to lookup address information",
+          total: "AI_TIMEOUT_TOTAL|mins=15: The translation took longer than 15 minutes in all. Retry goes on where it stopped.",
+          cancelled: "AI_CANCELLED: The AI Assistant request was cancelled.",
+        };
+        if (failMode && (failMode[2] !== "once" || ++mockAiCalls === 1)) {
+          return new Promise((_, rej) => setTimeout(() => rej(failures[failMode[2] ?? ""] ?? failures.server), hashNum("failaims", 5000)));
+        }
+        if (hashHas("slowai")) return new Promise((r) => setTimeout(() => r(reply), hashNum("slowai", 20000)));
+        return reply;
+      }
+      case "ai_cancel": mockAiCancelled.push(String(a.jobId)); return null;
       case "get_autostart": return false;
       case "cancel_outbox": case "outbox_send_now": case "outbox_to_draft": {
         const i = mockOutbox.findIndex((x) => x.id === a.id);

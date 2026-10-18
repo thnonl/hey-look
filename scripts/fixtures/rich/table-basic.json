@@ -1,0 +1,232 @@
+{
+ "base": {
+  "family": "Calibri,Carlito,Arial,sans-serif",
+  "size": 11
+ },
+ "doc": {
+  "type": "doc",
+  "content": [
+   {
+    "type": "paragraph",
+    "content": [
+     {
+      "type": "text",
+      "text": "Numbers for the review:"
+     }
+    ]
+   },
+   {
+    "type": "table",
+    "attrs": {
+     "borders": "all"
+    },
+    "content": [
+     {
+      "type": "tableRow",
+      "content": [
+       {
+        "type": "tableHeader",
+        "attrs": {
+         "colspan": 1,
+         "rowspan": 1,
+         "colwidth": null,
+         "background": null
+        },
+        "content": [
+         {
+          "type": "paragraph",
+          "content": [
+           {
+            "type": "text",
+            "text": "Region"
+           }
+          ]
+         }
+        ]
+       },
+       {
+        "type": "tableHeader",
+        "attrs": {
+         "colspan": 1,
+         "rowspan": 1,
+         "colwidth": null,
+         "background": null
+        },
+        "content": [
+         {
+          "type": "paragraph",
+          "content": [
+           {
+            "type": "text",
+            "text": "Q1"
+           }
+          ]
+         }
+        ]
+       },
+       {
+        "type": "tableHeader",
+        "attrs": {
+         "colspan": 1,
+         "rowspan": 1,
+         "colwidth": null,
+         "background": null
+        },
+        "content": [
+         {
+          "type": "paragraph",
+          "content": [
+           {
+            "type": "text",
+            "text": "Q2"
+           }
+          ]
+         }
+        ]
+       }
+      ]
+     },
+     {
+      "type": "tableRow",
+      "content": [
+       {
+        "type": "tableCell",
+        "attrs": {
+         "colspan": 1,
+         "rowspan": 1,
+         "colwidth": null,
+         "background": null
+        },
+        "content": [
+         {
+          "type": "paragraph",
+          "content": [
+           {
+            "type": "text",
+            "text": "EMEA"
+           }
+          ]
+         }
+        ]
+       },
+       {
+        "type": "tableCell",
+        "attrs": {
+         "colspan": 1,
+         "rowspan": 1,
+         "colwidth": null,
+         "background": null
+        },
+        "content": [
+         {
+          "type": "paragraph",
+          "content": [
+           {
+            "type": "text",
+            "text": "12"
+           }
+          ]
+         }
+        ]
+       },
+       {
+        "type": "tableCell",
+        "attrs": {
+         "colspan": 1,
+         "rowspan": 1,
+         "colwidth": null,
+         "background": null
+        },
+        "content": [
+         {
+          "type": "paragraph",
+          "content": [
+           {
+            "type": "text",
+            "text": "15"
+           }
+          ]
+         }
+        ]
+       }
+      ]
+     },
+     {
+      "type": "tableRow",
+      "content": [
+       {
+        "type": "tableCell",
+        "attrs": {
+         "colspan": 1,
+         "rowspan": 1,
+         "colwidth": null,
+         "background": null
+        },
+        "content": [
+         {
+          "type": "paragraph",
+          "content": [
+           {
+            "type": "text",
+            "text": "APAC"
+           }
+          ]
+         }
+        ]
+       },
+       {
+        "type": "tableCell",
+        "attrs": {
+         "colspan": 1,
+         "rowspan": 1,
+         "colwidth": null,
+         "background": null
+        },
+        "content": [
+         {
+          "type": "paragraph",
+          "content": [
+           {
+            "type": "text",
+            "text": "9"
+           }
+          ]
+         }
+        ]
+       },
+       {
+        "type": "tableCell",
+        "attrs": {
+         "colspan": 1,
+         "rowspan": 1,
+         "colwidth": null,
+         "background": null
+        },
+        "content": [
+         {
+          "type": "paragraph",
+          "content": [
+           {
+            "type": "text",
+            "text": "11"
+           }
+          ]
+         }
+        ]
+       }
+      ]
+     }
+    ]
+   },
+   {
+    "type": "paragraph",
+    "content": [
+     {
+      "type": "text",
+      "text": "Thanks."
+     }
+    ]
+   }
+  ]
+ }
+}

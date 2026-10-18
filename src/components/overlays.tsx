@@ -1,7 +1,8 @@
 import { AlertTriangle, CheckCircle2, Coffee, Info, X } from "lucide-react";
 import { useEffect, useRef } from "react";
 import { useT } from "../i18n/react";
-import { fullErrorFor, useStore } from "../store";
+import { fullErrorFor, lazyText, useStore } from "../store";
+import { clearableOfKind, stackItems, toastText } from "../toastStack";
 
 /** Stack of toasts; a toast with Undo stays until its window ends. */
 export function Toasts() {
@@ -18,6 +19,9 @@ export function Toasts() {
       if (!(document.activeElement instanceof Element) || !document.activeElement.closest(".toasts")) return;
       const t = [...st.toasts].reverse().find((x) => x.escCloses);
       if (!t) return;
+      // this Esc is the toast's: the app's own Esc (close the open conversation) must not act on it as well
+      e.preventDefault();
+      e.stopPropagation();
       st.dismissToast(t.id);
       t.onDismiss?.();
     };
@@ -26,32 +30,58 @@ export function Toasts() {
   }, []);
   return (
     <div className="toasts" role="status" aria-live="polite">
-      {toasts.map((t) => {
+      {stackItems(toasts).map((item) => {
+        if ("more" in item) {
+          // the older sticky / error toasts beyond the limit, folded into one row (they come back when a shown one goes)
+          // "Dismiss all" clears every toast of this kind that stays until answered (the shown rows too, not only the folded ones)
+          const dismissAllOfKind = () => {
+            for (const h of clearableOfKind(useStore.getState().toasts, item.more)) {
+              dismiss(h.id);
+              h.onDismiss?.();
+            }
+          };
+          return (
+            <div key={`more-${item.more}`} className={`toast ${item.more} toast-more`}>
+              <span className="toast-ico">{item.more === "error" ? <AlertTriangle size={16} /> : item.more === "success" ? <CheckCircle2 size={16} /> : <Info size={16} />}</span>
+              <span className="toast-text">{tr("app.toast.more", { n: item.hidden.length })}</span>
+              <button className="toast-act" onClick={dismissAllOfKind}>{tr("app.toast.dismissAll")}</button>
+            </div>
+          );
+        }
+        const t = item.toast;
         const actions = t.actions?.map((a) => (
           <button
-            key={a.label}
+            key={lazyText(a.label)}
             className="toast-act"
             onClick={() => {
               dismiss(t.id);
               a.run();
             }}
           >
-            {a.label}
+            {lazyText(a.label)}
           </button>
         ));
-        const text = <span className="toast-text" title={fullErrorFor(t.text)}>{t.text}</span>;
+        const shown = toastText(t);
+        // a toast with guidance: the first line is the title, the others say what happened and what to do
+        const lines = t.guide ? shown.split("\n") : null;
+        const text = lines ? (
+          <span className="toast-text toast-lines" title={fullErrorFor(shown)}>
+            <b className="toast-title">{lines[0]}</b>
+            {lines.slice(1).map((l, i) => <span key={i} className="toast-line">{l}</span>)}
+          </span>
+        ) : <span className="toast-text" title={fullErrorFor(shown)}>{shown}</span>;
         return (
-          <div key={t.id} className={`toast ${t.kind}${t.sticky && !t.ttl ? " sticky" : ""}${t.support ? " support" : ""}`} style={t.sticky && !t.ttl ? undefined : { ["--ttl" as string]: `${t.ttl}ms` }}>
+          <div key={t.id} className={`toast ${t.kind}${t.sticky && !t.ttl ? " sticky" : ""}${t.support ? " support" : ""}${t.guide ? " guide" : ""}`} style={t.sticky && !t.ttl ? undefined : { ["--ttl" as string]: `${t.ttl}ms` }}>
             <span className="toast-ico">
-              {t.support ? <Coffee size={16} /> : t.kind === "error" ? <AlertTriangle size={16} /> : t.kind === "success" ? <CheckCircle2 size={16} /> : <Info size={16} />}
+              {t.busy ? <><span className="busy-ring spin" aria-hidden /><span className="busy-dots" aria-hidden>···</span></> : t.support ? <Coffee size={16} /> : t.kind === "error" ? <AlertTriangle size={16} /> : t.kind === "success" ? <CheckCircle2 size={16} /> : <Info size={16} />}
             </span>
-            {t.support ? (
+            {t.support || t.guide ? (
               <div className="toast-body">
                 {text}
                 <div className="toast-row">
                   {actions}
                   {t.link && (
-                    <button className="toast-link" onClick={() => { dismiss(t.id); t.link?.run(); }}>{t.link.label}</button>
+                    <button className="toast-link" onClick={() => { dismiss(t.id); t.link?.run(); }}>{lazyText(t.link.label)}</button>
                   )}
                 </div>
               </div>
@@ -75,7 +105,7 @@ export function Toasts() {
             {!t.hideClose && (
               <button
                 className="toast-x"
-                aria-label={t.closeLabel ?? (t.onDismiss ? tr("app.toast.later") : tr("app.toast.dismiss"))}
+                aria-label={t.closeLabel !== undefined ? lazyText(t.closeLabel) : (t.onDismiss ? tr("app.toast.later") : tr("app.toast.dismiss"))}
                 onClick={() => {
                   dismiss(t.id);
                   t.onDismiss?.();
@@ -101,14 +131,14 @@ export function AskHost() {
     if (!ask) return;
     first.current?.focus();
     const onKey = (e: KeyboardEvent) => {
-      if (e.key === "Escape") resolve(ask.choices[0].id);
+      if (e.key === "Escape") resolve(ask.dismiss ?? ask.choices[0].id);
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
   }, [ask, resolve]);
   if (!ask) return null;
   return (
-    <div className="modal-back ask-back" onMouseDown={() => resolve(ask.choices[0].id)}>
+    <div className="modal-back ask-back" onMouseDown={() => resolve(ask.dismiss ?? ask.choices[0].id)}>
       <div className="ask" role="alertdialog" aria-modal="true" aria-label={ask.title} onMouseDown={(e) => e.stopPropagation()}>
         <h3>{ask.title}</h3>
         {ask.body && <p className="muted">{ask.body}</p>}

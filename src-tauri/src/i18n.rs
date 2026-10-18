@@ -78,6 +78,11 @@ pub enum K {
     TrayPause,
     TrayQuit,
     MacQuit,
+    MacAbout,
+    MacServices,
+    MacHide,
+    MacHideOthers,
+    MacShowAll,
     ActArchive,
     ActDelete,
     ActRead,
@@ -100,13 +105,29 @@ pub enum K {
     CalendarFile,
     SavePublicKey,
     SaveKeyBackup,
+    // the window that could not load its page (startup.rs / loadfail.rs): the page is not there to translate it, so these come from here
+    LoadFailTitle,
+    LoadFailWindows,
+    LoadFailMac,
+    LoadFailLinux,
+    LoadFailRetry,
+    LoadFailOpenLog,
+    LoadFailQuit,
+    LoadFailLog,
+    // the app that could not start at all (startfail.rs): Windows only, the window and the page do not exist to say it
+    StartFailTitle,
+    StartFailBody,
 }
 
+/// Every text key; the tests walk it (the app itself matches on `K`).
+#[cfg(test)]
 pub const ALL: &[K] = &[
-    K::TrayOpen, K::TrayCompose, K::TraySync, K::TrayPause, K::TrayQuit, K::MacQuit, K::ActArchive, K::ActDelete, K::ActRead, K::ActFlag,
+    K::TrayOpen, K::TrayCompose, K::TraySync, K::TrayPause, K::TrayQuit, K::MacQuit, K::MacAbout, K::MacServices, K::MacHide, K::MacHideOthers, K::MacShowAll, K::ActArchive, K::ActDelete, K::ActRead, K::ActFlag,
     K::ActReply, K::ActSnooze, K::TrayHintTitle, K::TrayHintMac, K::TrayHintLinux, K::TrayHintOther, K::TestTitle, K::TestLine1, K::TestLine2,
     K::EveryDay, K::EveryMonth, K::EveryYear, K::SaveAttachmentsTo, K::ChooseKeyFile,
     K::OpenPgpKeys, K::CalendarFile, K::SavePublicKey, K::SaveKeyBackup,
+    K::LoadFailTitle, K::LoadFailWindows, K::LoadFailMac, K::LoadFailLinux, K::LoadFailRetry, K::LoadFailOpenLog, K::LoadFailQuit, K::LoadFailLog,
+    K::StartFailTitle, K::StartFailBody,
 ];
 
 /// English, Vietnamese, French. The product name stays "Hey Look!".
@@ -114,9 +135,15 @@ fn texts(k: K) -> [&'static str; 3] {
     match k {
         K::TrayOpen => ["Open Hey Look!", "Mở Hey Look!", "Ouvrir Hey Look!"],
         K::TrayCompose => ["New mail", "Thư mới", "Nouveau message"],
-        K::TraySync => ["Check mail now", "Kiểm tra thư ngay", "Relever le courrier maintenant"],
+        K::TraySync => ["Check mail now", "Kiểm tra thư ngay", "Vérifier le courrier maintenant"],
         K::TrayPause => ["Pause notifications", "Tạm dừng thông báo", "Suspendre les notifications"],
         K::TrayQuit | K::MacQuit => ["Quit Hey Look!", "Thoát Hey Look!", "Quitter Hey Look!"],
+        // the macOS app menu (the English words are the ones macOS itself shows, the others the ones of each macOS language)
+        K::MacAbout => ["About Hey Look!", "Giới thiệu về Hey Look!", "À propos de Hey Look!"],
+        K::MacServices => ["Services", "Dịch vụ", "Services"],
+        K::MacHide => ["Hide Hey Look!", "Ẩn Hey Look!", "Masquer Hey Look!"],
+        K::MacHideOthers => ["Hide Others", "Ẩn các mục khác", "Masquer les autres"],
+        K::MacShowAll => ["Show All", "Hiện tất cả", "Tout afficher"],
         K::ActArchive => ["Archive", "Lưu trữ", "Archiver"],
         K::ActDelete => ["Delete", "Xóa", "Supprimer"],
         K::ActRead => ["Mark as read", "Đánh dấu đã đọc", "Marquer comme lu"],
@@ -127,17 +154,17 @@ fn texts(k: K) -> [&'static str; 3] {
         K::TrayHintMac => [
             "It keeps checking your mail from the menu bar. Click the Hey Look! icon in the Dock or the menu bar to open it again.",
             "Ứng dụng vẫn kiểm tra thư từ thanh menu. Nhấp vào biểu tượng Hey Look! trong Dock hoặc thanh menu để mở lại.",
-            "Il continue de relever votre courrier depuis la barre des menus. Cliquez sur l’icône Hey Look! dans le Dock ou la barre des menus pour le rouvrir.",
+            "Il continue de vérifier votre courrier depuis la barre des menus. Cliquez sur l’icône Hey Look! dans le Dock ou la barre des menus pour le rouvrir.",
         ],
         K::TrayHintLinux => [
             "It keeps checking your mail from the tray. Choose Quit Hey Look! in the tray icon’s menu to exit.",
             "Ứng dụng vẫn kiểm tra thư từ khay hệ thống. Chọn Thoát Hey Look! trong menu của biểu tượng khay để thoát.",
-            "Il continue de relever votre courrier depuis la zone de notification. Choisissez Quitter Hey Look! dans le menu de l’icône pour le fermer.",
+            "Il continue de vérifier votre courrier depuis la zone de notification. Choisissez Quitter Hey Look! dans le menu de l’icône pour le fermer.",
         ],
         K::TrayHintOther => [
             "It keeps checking your mail from the tray. Right-click the tray icon and choose Quit to exit.",
             "Ứng dụng vẫn kiểm tra thư từ khay hệ thống. Nhấp chuột phải vào biểu tượng khay và chọn Thoát để thoát.",
-            "Il continue de relever votre courrier depuis la zone de notification. Faites un clic droit sur l’icône et choisissez Quitter pour le fermer.",
+            "Il continue de vérifier votre courrier depuis la zone de notification. Faites un clic droit sur l’icône et choisissez Quitter pour le fermer.",
         ],
         K::TestTitle => ["Hey Look! test notification", "Thông báo thử của Hey Look!", "Notification de test de Hey Look!"],
         K::TestLine1 => ["Notifications are working", "Thông báo đang hoạt động", "Les notifications fonctionnent"],
@@ -151,6 +178,32 @@ fn texts(k: K) -> [&'static str; 3] {
         K::CalendarFile => ["Calendar file", "Tệp lịch", "Fichier de calendrier"],
         K::SavePublicKey => ["Save public key", "Lưu khóa công khai", "Enregistrer la clé publique"],
         K::SaveKeyBackup => ["Save a backup of your key", "Lưu bản sao lưu khóa của bạn", "Enregistrer une sauvegarde de votre clé"],
+        K::LoadFailTitle => ["Hey Look! could not load its window", "Hey Look! không thể tải cửa sổ của mình", "Hey Look! n’a pas pu charger sa fenêtre"],
+        K::LoadFailWindows => [
+            "Hey Look! started, but its window could not load the app’s interface. The most likely reasons are that the Microsoft Edge WebView2 Runtime is missing or damaged (reinstall or repair it from Microsoft), or that a security program is blocking it. Choose Retry to try again, or open the log folder to see what happened.",
+            "Hey Look! đã khởi động nhưng cửa sổ không tải được giao diện ứng dụng. Nguyên nhân thường gặp là Microsoft Edge WebView2 Runtime bị thiếu hoặc hỏng (hãy cài đặt lại hoặc sửa chữa từ Microsoft), hoặc một phần mềm bảo mật đang chặn nó. Chọn Thử lại để thử lần nữa, hoặc mở thư mục nhật ký để xem điều gì đã xảy ra.",
+            "Hey Look! a démarré, mais sa fenêtre n’a pas pu charger l’interface de l’application. Les causes les plus probables : le runtime Microsoft Edge WebView2 est absent ou endommagé (réinstallez-le ou réparez-le depuis Microsoft), ou un programme de sécurité le bloque. Choisissez Réessayer pour recommencer, ou ouvrez le dossier des journaux pour voir ce qui s’est passé.",
+        ],
+        K::LoadFailMac => [
+            "Hey Look! started, but its window could not load the app’s interface. The most likely reasons are that the web engine built into macOS (WebKit) did not start, for example after an interrupted system update, or that a security program is blocking it. Choose Retry to try again, or open the log folder to see what happened.",
+            "Hey Look! đã khởi động nhưng cửa sổ không tải được giao diện ứng dụng. Nguyên nhân thường gặp là công cụ web tích hợp trong macOS (WebKit) không khởi động được, chẳng hạn sau một lần cập nhật hệ thống bị gián đoạn, hoặc một phần mềm bảo mật đang chặn nó. Chọn Thử lại để thử lần nữa, hoặc mở thư mục nhật ký để xem điều gì đã xảy ra.",
+            "Hey Look! a démarré, mais sa fenêtre n’a pas pu charger l’interface de l’application. Les causes les plus probables : le moteur web intégré à macOS (WebKit) n’a pas démarré, par exemple après une mise à jour système interrompue, ou un programme de sécurité le bloque. Choisissez Réessayer pour recommencer, ou ouvrez le dossier des journaux pour voir ce qui s’est passé.",
+        ],
+        K::LoadFailLinux => [
+            "Hey Look! started, but its window could not load the app’s interface. The most likely reasons are that the WebKitGTK library (webkit2gtk-4.1) is missing, too old or damaged, or that the session has no working graphical display. Choose Retry to try again, or open the log folder to see what happened.",
+            "Hey Look! đã khởi động nhưng cửa sổ không tải được giao diện ứng dụng. Nguyên nhân thường gặp là thư viện WebKitGTK (webkit2gtk-4.1) bị thiếu, quá cũ hoặc hỏng, hoặc phiên làm việc không có màn hình đồ họa hoạt động. Chọn Thử lại để thử lần nữa, hoặc mở thư mục nhật ký để xem điều gì đã xảy ra.",
+            "Hey Look! a démarré, mais sa fenêtre n’a pas pu charger l’interface de l’application. Les causes les plus probables : la bibliothèque WebKitGTK (webkit2gtk-4.1) est absente, trop ancienne ou endommagée, ou la session n’a pas d’affichage graphique fonctionnel. Choisissez Réessayer pour recommencer, ou ouvrez le dossier des journaux pour voir ce qui s’est passé.",
+        ],
+        K::LoadFailRetry => ["Retry", "Thử lại", "Réessayer"],
+        K::LoadFailOpenLog => ["Open log folder", "Mở thư mục nhật ký", "Ouvrir le dossier des journaux"],
+        K::LoadFailQuit => ["Quit", "Thoát", "Quitter"],
+        K::LoadFailLog => ["Log file:", "Tệp nhật ký:", "Fichier journal :"],
+        K::StartFailTitle => ["Hey Look! could not start", "Hey Look! không thể khởi động", "Hey Look! n’a pas pu démarrer"],
+        K::StartFailBody => [
+            "Hey Look! could not start because its window could not be created.\n\nMost often the cause is that the Microsoft WebView2 Runtime, a free Microsoft component that apps use to show their windows, is missing or damaged. Install or repair it from https://developer.microsoft.com/microsoft-edge/webview2/ (choose the “Evergreen Bootstrapper” or the “Evergreen Standalone Installer”), then start Hey Look! again.\n\nWhat went wrong was saved in the log file named below; send it to support if the problem stays.",
+            "Hey Look! không khởi động được vì không tạo được cửa sổ của mình.\n\nNguyên nhân thường gặp nhất là Microsoft WebView2 Runtime, một thành phần miễn phí của Microsoft mà các ứng dụng dùng để hiển thị cửa sổ, bị thiếu hoặc hỏng. Hãy cài đặt hoặc sửa chữa nó tại https://developer.microsoft.com/microsoft-edge/webview2/ (chọn “Evergreen Bootstrapper” hoặc “Evergreen Standalone Installer”), rồi mở lại Hey Look!.\n\nĐiều gì đã xảy ra được lưu trong tệp nhật ký nêu bên dưới; nếu sự cố vẫn còn, hãy gửi tệp này cho bộ phận hỗ trợ.",
+            "Hey Look! n’a pas pu démarrer, car sa fenêtre n’a pas pu être créée.\n\nLa cause la plus fréquente est que le runtime Microsoft WebView2, un composant Microsoft gratuit que les applications utilisent pour afficher leurs fenêtres, est absent ou endommagé. Installez-le ou réparez-le depuis https://developer.microsoft.com/microsoft-edge/webview2/ (choisissez « Evergreen Bootstrapper » ou « Evergreen Standalone Installer »), puis relancez Hey Look!.\n\nCe qui s’est passé est enregistré dans le fichier journal indiqué ci-dessous ; envoyez-le au support si le problème persiste.",
+        ],
     }
 }
 
@@ -262,6 +315,18 @@ pub fn tray_hint_in(l: Lang, os: &str) -> &'static str {
         "macos" => K::TrayHintMac,
         "linux" => K::TrayHintLinux,
         _ => K::TrayHintOther,
+    })
+}
+
+/// Body of the "could not load its window" dialog, per OS name (`std::env::consts::OS`): the likely reason is the web engine of that system.
+pub fn load_failed_body(os: &str) -> &'static str {
+    load_failed_body_in(lang(), os)
+}
+pub fn load_failed_body_in(l: Lang, os: &str) -> &'static str {
+    tr_in(l, match os {
+        "windows" => K::LoadFailWindows,
+        "macos" => K::LoadFailMac,
+        _ => K::LoadFailLinux,
     })
 }
 
@@ -452,6 +517,37 @@ mod tests {
         }
     }
 
+    /// Words that are the same in English and in that language (macOS calls the app menu's Services "Services" in French too).
+    const SAME_AS_ENGLISH: &[(Lang, K)] = &[(Lang::Fr, K::MacServices)];
+
+    /// The five items of the macOS app menu besides Quit (F-8: they stayed English while Quit followed the language).
+    const MAC_MENU: [K; 5] = [K::MacAbout, K::MacServices, K::MacHide, K::MacHideOthers, K::MacShowAll];
+
+    #[test]
+    fn every_language_has_the_macos_app_menu_items() {
+        for l in LANGS {
+            for k in MAC_MENU {
+                let text = tr_in(l, k);
+                assert!(!text.trim().is_empty(), "{l:?} {k:?}");
+                assert!(ALL.contains(&k), "{k:?} is not in ALL");
+                // the items that name the app keep its name; the others do not carry it
+                let named = matches!(k, K::MacAbout | K::MacHide);
+                assert_eq!(text.contains("Hey Look!"), named, "{l:?} {k:?}: {text:?}");
+                if l != Lang::En && !SAME_AS_ENGLISH.contains(&(l, k)) {
+                    assert_ne!(text, tr_in(Lang::En, k), "{l:?} {k:?} is still English");
+                }
+            }
+            // About and Hide differ from each other and from Quit (the app menu never shows two identical lines)
+            let mut seen = std::collections::HashSet::new();
+            for k in [K::MacAbout, K::MacServices, K::MacHide, K::MacHideOthers, K::MacShowAll, K::MacQuit] {
+                assert!(seen.insert(tr_in(l, k)), "{l:?} {k:?}: the same text as another app menu item");
+            }
+        }
+        assert_eq!(en(K::MacAbout), "About Hey Look!");
+        assert_eq!(en(K::MacHide), "Hide Hey Look!");
+        assert_eq!(en(K::MacShowAll), "Show All");
+    }
+
     #[test]
     fn every_text_exists_in_all_three_languages() {
         for k in ALL {
@@ -460,7 +556,7 @@ mod tests {
                 assert!(!s.trim().is_empty(), "{k:?} language {i} is empty");
             }
             assert_ne!(t[0], t[1], "{k:?}: the Vietnamese text is the English one") ;
-            assert_ne!(t[0], t[2], "{k:?}: the French text is the English one");
+            assert!(t[0] != t[2] || SAME_AS_ENGLISH.contains(&(Lang::Fr, *k)), "{k:?}: the French text is the English one");
         }
     }
 
@@ -513,7 +609,7 @@ mod tests {
                 assert_eq!(braces(text), braces(english), "{l:?} {k:?}: placeholders differ from English");
                 assert!(!text.contains('{') && !text.contains('}'), "{l:?} {k:?}: stray brace in {text:?}");
                 assert!(text.contains("Hey Look!") || !english.contains("Hey Look!"), "{l:?} {k:?}: the product name \"Hey Look!\" must stay where English has it ({text:?})");
-                if !matches!(l, Lang::En) {
+                if !matches!(l, Lang::En) && !SAME_AS_ENGLISH.contains(&(l, *k)) {
                     assert_ne!(text, english, "{l:?} {k:?}: still the English text");
                 }
                 assert_eq!(text, text.trim(), "{l:?} {k:?}: leading or trailing space");
@@ -567,7 +663,7 @@ mod tests {
     #[test]
     fn all_lists_every_variant() {
         // texts() is exhaustive; ALL must not forget one (the variant count is pinned by the last variant's position)
-        assert_eq!(ALL.len(), K::SaveKeyBackup as usize + 1);
+        assert_eq!(ALL.len(), K::StartFailBody as usize + 1);
         let mut seen = std::collections::HashSet::new();
         for k in ALL {
             assert!(seen.insert(*k as usize), "{k:?} twice");
@@ -623,6 +719,25 @@ mod tests {
             }
             assert!(tray_hint_in(l, "macos").contains("Hey Look!"), "{l:?}");
         }
+    }
+
+    #[test]
+    fn the_load_failure_dialog_names_the_engine_of_the_system_in_every_language() {
+        for l in LANGS {
+            for (os, engine) in [("windows", "WebView2"), ("macos", "WebKit"), ("linux", "WebKitGTK")] {
+                let body = load_failed_body_in(l, os);
+                assert!(body.contains(engine), "{l:?} {os}: {body:?}");
+                assert!(body.len() > 60, "{l:?} {os}");
+            }
+            // an unknown system gets the Linux text (the web engine there is the one that is most often missing)
+            assert_eq!(load_failed_body_in(l, "freebsd"), load_failed_body_in(l, "linux"), "{l:?}");
+            // three different button labels (the dialog maps the answer back by label)
+            let labels = [tr_in(l, K::LoadFailRetry), tr_in(l, K::LoadFailOpenLog), tr_in(l, K::LoadFailQuit)];
+            assert!(labels[0] != labels[1] && labels[1] != labels[2] && labels[0] != labels[2], "{l:?}: {labels:?}");
+            assert!(tr_in(l, K::LoadFailTitle).contains("Hey Look!"), "{l:?}");
+        }
+        assert_eq!(en(K::LoadFailRetry), "Retry");
+        assert_eq!(en(K::LoadFailQuit), "Quit");
     }
 
     #[test]

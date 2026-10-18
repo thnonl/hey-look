@@ -122,7 +122,7 @@ pub async fn calendar_connect(app: tauri::AppHandle, state: tauri::State<'_, App
     let signed = signed.map_err(|e| connect_error(&e, &acc.email))?;
     check_grant(provider, &acc.email, &signed.email, &signed.scope)?;
     let key = oauth::calendar_key(&acc.id);
-    keyring::Entry::new(crate::KEYRING_SERVICE, &key)
+    crate::identity::entry(&key)
         .and_then(|e| e.set_password(&signed.refresh_token))
         .map_err(|e| format!("CAL_ERROR: Couldn’t save the calendar sign-in: {e}"))?;
     oauth::cache_token(&key, &signed.access_token, signed.expires_in.saturating_sub(300).max(60));
@@ -146,7 +146,7 @@ pub fn calendar_cancel_connect() {
 
 fn forget_grant(account_id: &str) {
     let key = oauth::calendar_key(account_id);
-    if let Ok(e) = keyring::Entry::new(crate::KEYRING_SERVICE, &key) {
+    if let Ok(e) = crate::identity::entry(&key) {
         let _ = e.delete_credential();
     }
     oauth::forget_token(&key);

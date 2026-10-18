@@ -177,13 +177,15 @@ interface Read {
 /**
  * Builds the dark stylesheet for a mail document and tags the elements it styles (`data-hm`). Must run with the
  * dark base styles on and no earlier dark sheet, so it reads the mail's own colours. `base` is the surface behind the mail.
+ * `scope`: only that element and what is inside it (a part of the app's own page, such as the signature in the composer) instead of the whole document.
  */
-export function buildDarkSheet(doc: Document, base: RGB): string {
+export function buildDarkSheet(doc: Document, base: RGB, scope?: Element): string {
   const win = doc.defaultView;
   if (!win || !doc.body) return "";
   // pass 1: read everything first (no writes in between, so the style is recalculated once)
   const reads: Read[] = [];
-  for (const el of [doc.documentElement, ...Array.from(doc.body.querySelectorAll("*"))]) {
+  const top = scope ?? doc.documentElement;
+  for (const el of [top, ...Array.from((scope ?? doc.body).querySelectorAll("*"))]) {
     const cs = win.getComputedStyle(el);
     if (cs.display === "none") continue;
     const edge: Read["edge"] = [];
@@ -202,7 +204,7 @@ export function buildDarkSheet(doc: Document, base: RGB): string {
       fill: svg ? cs.fill : "",
       stroke: svg ? cs.stroke : "",
       svg,
-      text: el !== doc.documentElement && /\S/.test(el.textContent ?? ""),
+      text: el !== top && /\S/.test(el.textContent ?? ""),
     });
   }
 
@@ -310,8 +312,8 @@ export function buildDarkSheet(doc: Document, base: RGB): string {
  * those get a light chip behind them (`data-hm-chip`). Decided by sampling the pixels, so it works for images that are
  * inline (data:) or already fetched by the backend; an image the browser will not let us read is left alone.
  */
-function markDarkLogos(doc: Document): void {
-  for (const img of Array.from(doc.images)) {
+export function markDarkLogos(scope: ParentNode): void {
+  for (const img of Array.from(scope.querySelectorAll("img"))) {
     const test = () => {
       const w0 = img.naturalWidth, h0 = img.naturalHeight;
       if (!w0 || !h0 || w0 > 480 || h0 > 240) return; // photos / banners are never chipped

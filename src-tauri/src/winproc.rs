@@ -39,7 +39,7 @@ mod tests {
             }
             let text = std::fs::read_to_string(&path).unwrap();
             // only the code before the first test module counts
-            let code = text.split("#[cfg(test)]").next().unwrap_or("");
+            let code = crate::test_guard::non_test_code(&text);
             for (n, line) in code.lines().enumerate() {
                 let t = line.trim_start();
                 if t.starts_with("//") {

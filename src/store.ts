@@ -1,17 +1,36 @@
 import { create } from "zustand";
 import { api, Account, Att, BackfillProgress, CalendarInfo, CalEvent, CalSource, DraftSecurity, FolderInfo, Meeting, MessageFull, OutboxItem, SearchScope, ThreadSummary } from "./api";
 import { loadPlatform } from "./platform";
+import { orderAccounts } from "./accountOrder";
 import { hasMailAccounts } from "./mailControls";
 import { applyBackfill } from "./backfill";
 import { holdOpenThread } from "./openThread";
-import { ReadIntents } from "./readIntent";
+import { QueuedMoves } from "./queuedMoves";
+import { Latest } from "./latestOnly";
+import { StateIntents, type IntentKind } from "./readIntent";
 import { calendarErrorText } from "./calendarSync";
 import { backendText } from "./backendErrors";
 import { needsSignIn } from "./signIn";
+import type { Jobs } from "./translateJobs";
+import { AdvanceTracker, startAdvance } from "./autoAdvance";
+import type { Importance } from "./importance";
+import type { MeetingWire } from "./meetingDraft";
+import { accountsOf, canMoveToJunk, JUNK_ACTIONS } from "./junk";
+import { addToast, lazyText, refreshed, toastTexts, type Lazy } from "./toastStack";
+import { mayOpenMail, selectionAfterCompose } from "./composeSelection";
+import { leaveCompose as leaveComposePane, type ComposeProbe, type SavedDraft } from "./leaveCompose";
+export { lazyText, type Lazy };
 import { resolveLang, setLangPref, t } from "./i18n";
 import { fmtNumber } from "./i18n/format";
 import { calTz, CalView, Day, rangeFor, systemTz, today } from "./calendar";
 import { accentText, accountColor, buttonAccent, clampMaxDownload, DEFAULT_PREFS, lightened, mergePrefs, Prefs, readableOn, staleAccountPrefs, topBar, validHex } from "./prefs";
+import { darkTopBar } from "./topBarDark";
+
+/** `quiet`: the caller tells a failure itself. `onSaved`: the caller says "Draft saved" itself (the pane makes no toast). */
+export interface ComposeSaveOpts {
+  quiet?: boolean;
+  onSaved?: (d: SavedDraft) => void;
+}
 
 export interface ComposeInit {
   accountId?: string;
@@ -24,6 +43,8 @@ export interface ComposeInit {
   references?: string[];
   replaces?: string; // draft thread id being edited
   isReply?: boolean;
+  /** the sender asked for answers to go to `replyTo` instead of the address of From: Compose says so (and offers From) */
+  replyNote?: { replyTo: string[]; from: string };
   attachments?: Att[];
   /** a scheduled message opened for editing (paused while open) */
   outboxId?: string;
@@ -42,8 +63,16 @@ export interface ComposeInit {
   restore?: { encrypt: "on" | "off" | "auto"; sign: boolean; attachKey: boolean };
   /** send as confidential (an answer to confidential mail starts that way) */
   confidential?: boolean;
+  /** a message restored after the app ended unexpectedly: it keeps the id of its snapshot, so the next snapshot replaces it (recovery.ts) */
+  recoveryId?: string;
+  /** a message that was moved here from another editor (moved to a window of its own, back after Undo): all of it is the person's writing, so it counts as changed and is never closed unasked */
+  carried?: boolean;
+  /** only a reopened draft / scheduled message carries one; a new message, reply and forward start Normal */
+  importance?: Importance;
   /** start Compose as a meeting invitation ("Meeting" switched on) */
   meeting?: Partial<Meeting> & { on?: boolean };
+  /** the meeting of a reopened draft, snapshot or moved message, as the strip had it (it wins over `meeting`; meetingDraft.ts) */
+  meetingForm?: MeetingWire;
 }
 
 /** What the New / Edit event dialog starts with. */
@@ -81,13 +110,16 @@ export interface PassphraseAsk {
 export type RibbonTab = "home" | "view" | "help";
 
 export interface ToastAction {
-  label: string;
+  label: Lazy;
   run: () => void;
 }
 
 export interface Toast {
   id: number;
+  /** the text when the toast was made (also what an identical error is recognised by); drawn through `textFn` when there is one */
   text: string;
+  /** makes the text in the current language: set by a toast made with a function (translation progress / ready / error) */
+  textFn?: () => string;
   kind: "info" | "success" | "error";
   undo?: () => void;
   /** up to two buttons, e.g. Open / Show in folder / Retry */
@@ -99,7 +131,7 @@ export interface Toast {
   /** what the "×" does for a sticky toast (default: just close it) */
   onDismiss?: () => void;
   /** accessible name of the "×" (default: "Later" when `onDismiss` is set, else "Dismiss") */
-  closeLabel?: string;
+  closeLabel?: Lazy;
   /** Esc closes it (when nothing else that Esc closes is open) */
   escCloses?: boolean;
   /** text on top, buttons in a row below it (a longer text), with the coffee icon: the support reminder */
@@ -108,6 +140,10 @@ export interface Toast {
   link?: ToastAction;
   /** no "×": the buttons already close it */
   hideClose?: boolean;
+  /** work in progress: a spinner instead of the icon (static dots under reduced motion) */
+  busy?: boolean;
+  /** a problem with guidance (the AI Assistant, src/aiGuide.ts): the text is lines (title in bold, what happened, what to do), the buttons sit below it */
+  guide?: boolean;
 }
 
 export interface Choice {
@@ -119,6 +155,8 @@ export interface AskState {
   title: string;
   body?: string;
   choices: Choice[];
+  /** the answer of Esc and of a click outside; the first choice when not given (a question whose first button does something must give another) */
+  dismiss?: string;
   resolve: (id: string) => void;
 }
 
@@ -216,6 +254,9 @@ interface State {
   reauth: Record<string, "again" | "blocked">;
   setReauth: (accountId: string, kind: "again" | "blocked" | null) => void;
   toasts: Toast[];
+  /** Translations of messages, running and finished, by message and language (src/translateJobs.ts); they outlive the reading pane. */
+  translations: Jobs;
+  setTranslations: (f: (j: Jobs) => Jobs) => void;
   ask: AskState | null;
   passphrase: PassphraseAsk | null;
   /** bumps whenever keys are added, removed or unlocked, so key-dependent views refetch */
@@ -224,9 +265,18 @@ interface State {
   composeKey: number; // changes on every open so a new message never inherits the old one's state
   composeDirty: boolean;
   /** Saves the open message as a draft; resolves true when it was saved (false: the save failed, the message is still open). */
-  composeSaver: ((opts?: { quiet?: boolean }) => Promise<boolean | void>) | null;
+  composeSaver: ((opts?: ComposeSaveOpts) => Promise<boolean | void>) | null;
+  /**
+   * The message in the pane is over without being sent (saved, discarded, or the app is about to end): its crash-recovery snapshot goes, and
+   * with `dropDraft` the draft that an autosave made of a NEW message goes too (Discard).
+   */
+  composeEnd: ((o?: { dropDraft?: boolean }) => Promise<void>) | null;
+  /** What the open message says about itself (written something? files still coming in?), for `leaveCompose`. */
+  composeProbe: (() => ComposeProbe) | null;
   dialog: Dialog;
   commandOpen: boolean;
+  /** counts up when something asks the side menu to open over the panes and stay (the control while it is squeezed, useSidebar.ts); FolderPane watches it */
+  sidebarPin: number;
   ribbonTab: RibbonTab;
   prefs: Prefs;
   aiConfigured: boolean;
@@ -266,21 +316,36 @@ interface State {
   loadMore: (manual?: boolean) => Promise<void>;
   onBackfill: (p: BackfillProgress) => void;
   select: (id: string | null) => Promise<void>;
+  /** The person opens a conversation (click, Enter, j / k, a notification): the message being written is left first (`leaveCompose`). */
+  openMail: (id: string) => Promise<void>;
+  /**
+   * Leave the message being written to read something else (F-21). Nothing written: it closes. Something written: it is saved as a draft
+   * ("Draft saved" with Edit) and closes; when the save fails it stays open and nothing is lost. Resolves true when no message is open.
+   */
+  leaveCompose: () => Promise<boolean>;
   toggleCheck: (id: string) => void;
   setChecked: (ids: string[]) => void;
-  act: (ids: string[], action: string, arg?: string, label?: string) => Promise<void>;
-  openCompose: (c: ComposeInit | null) => Promise<void>;
+  /** `view`: the view the person acts from, when it is not the open one (a reader window asks for a move from the view it was opened in). */
+  act: (ids: string[], action: string, arg?: string, label?: Lazy, view?: string) => Promise<void>;
+  /** `restore: false` (closing): the reading pane is not given back the mail that was open before writing (the caller opens another).
+   *  `sending`: the message is on its way, not over (the Undo time in seconds, 0 for none or a scheduled message); only a compose window reads it. */
+  openCompose: (c: ComposeInit | null, opts?: { restore?: boolean; sending?: number }) => Promise<void>;
   setComposeDirty: (d: boolean) => void;
-  setComposeSaver: (f: ((opts?: { quiet?: boolean }) => Promise<boolean | void>) | null) => void;
+  setComposeSaver: (f: ((opts?: ComposeSaveOpts) => Promise<boolean | void>) | null) => void;
+  setComposeEnd: (f: ((o?: { dropDraft?: boolean }) => Promise<void>) | null) => void;
+  setComposeProbe: (f: (() => ComposeProbe) | null) => void;
   setDialog: (d: Dialog) => void;
   setCommandOpen: (o: boolean) => void;
   setRibbonTab: (t: RibbonTab) => void;
-  showToast: (text: string, undo?: () => void, kind?: Toast["kind"], actions?: ToastAction[]) => void;
+  /** `text` as a function is drawn each time the toast is painted (a toast made from a translation key follows a language switch); a plain string stays as it is */
+  showToast: (text: Lazy, undo?: () => void, kind?: Toast["kind"], actions?: ToastAction[]) => void;
   dismissToast: (id: number) => void;
+  /** The backend finished moving these conversations (their Undo time is over): they leave the open list now, without a re-read. */
+  dropThreads: (ids: string[]) => void;
   /** A toast that stays until it is answered (or `null` to remove it); one per `key`, a new text replaces the old in place. */
   setStickyToast: (
     key: string,
-    spec: { text: string; kind?: Toast["kind"]; actions?: ToastAction[]; onDismiss?: () => void; closeLabel?: string; escCloses?: boolean; support?: boolean; link?: ToastAction; hideClose?: boolean; ttl?: number } | null,
+    spec: { text: Lazy; kind?: Toast["kind"]; actions?: ToastAction[]; onDismiss?: () => void; closeLabel?: Lazy; escCloses?: boolean; support?: boolean; link?: ToastAction; hideClose?: boolean; busy?: boolean; guide?: boolean; ttl?: number } | null,
   ) => void;
   /** Count a message as being sent from now until `done()` is called. */
   /** A send is under way (its undo window counts). `flush` makes it go out at once (a quit); it is dropped when the send ends. */
@@ -288,7 +353,7 @@ interface State {
   /** Count an attachment save / open as under way until the returned function is called. */
   beginTransfer: () => () => void;
   confirm: (o: { title: string; body?: string; confirmLabel?: string; danger?: boolean }) => Promise<boolean>;
-  choose: (o: { title: string; body?: string; choices: Choice[] }) => Promise<string>;
+  choose: (o: { title: string; body?: string; choices: Choice[]; dismiss?: string }) => Promise<string>;
   resolveAsk: (id: string) => void;
   /** Asks for the passphrase of a key and unlocks it. Resolves true when it is unlocked, false when cancelled. */
   askPassphrase: (o: { fingerprint: string; reason: UnlockReason; label?: string }) => Promise<boolean>;
@@ -308,13 +373,66 @@ interface State {
   reloadMessages: () => Promise<void>;
 }
 
+/** The leave-compose run in progress: a second click while the draft is being saved waits for the same run. */
+let leaving: Promise<boolean> | null = null;
+/** The conversation that was open when the message being written was started (given back when it closes). */
+let composeBefore: string | null = null;
 let toastSeq = 0;
 let readTimer: ReturnType<typeof setTimeout> | undefined;
 /** The view (folder, mailbox, search, filter ...) the shown list was read for, and the conversation `refresh` held in it (F-12). */
 let listKey = "";
 let heldOpen: string | null = null;
-/** F-16/F-17: the read / unread state asked for, until the server has it; lists and conversations read meanwhile are shown through it. */
-const readIntents = new ReadIntents((ids, read) => api.threadAction(ids, read ? "read" : "unread", undefined, scopeOf(useStore.getState().folder)));
+/** (OBS-1) Conversations whose move target is being looked up on the server. */
+const preparing = new Set<string>();
+/** The re-reads of the list that are running: only the last one started lays its answer over the list (a stale answer must not bring back a moved message). */
+const listReads = new Latest();
+/** (BUG-1) Moves waiting out their Undo window: see queuedMoves.ts. */
+const queued = new QueuedMoves();
+
+/** Where the selection went after a queued move, and the one way back when the move does not stay done (autoAdvance.ts). */
+const advances = new AdvanceTracker();
+/** Set while the app itself marks the mail it just opened as read: that is not the person touching it. */
+let autoMarking = false;
+
+/** The mail of a move is back in the list (refused, dropped or undone): the selection and the unread state the app changed go back too. */
+function mailBack(token: string): Promise<unknown> {
+  const st = () => useStore.getState();
+  return advances.mailBack(token, {
+    now: Date.now,
+    selected: () => st().selected,
+    isUnread: (id) => (st().threads.find((x) => x.threadId === id)?.unread ?? 0) > 0,
+    select: (id) => st().select(id),
+    markUnread: (id) => st().act([id], "unread"),
+  });
+}
+
+/** The backend dropped a queued move because its folder is gone and cannot be made: the toast goes, the mail is back, the error is shown. Undo wins. */
+export function moveDropped(token: string, error: string) {
+  const d = queued.dropped(token);
+  if (!d) return; // Undo won
+  const st = useStore.getState();
+  if (d.dismiss != null) st.dismissToast(d.dismiss);
+  st.showToast(() => t("errors.toast.failed", { error: friendlyError(error) }), undefined, "error");
+  void st.refresh().then(() => mailBack(token));
+}
+
+/** The server refused the move after the Undo window (the Undo toast is gone by then): the error is shown, the mail is back. */
+export function moveRefused(token: string, error: string) {
+  const st = useStore.getState();
+  st.showToast(() => t("app.toast.actionFailed", { error: friendlyError(error) }), undefined, "error");
+  void st.refresh().then(() => mailBack(token));
+}
+/** The action a yes/no state is set with: [yes, no] (always a set, never a toggle: a repeated call is harmless and the last one wins). */
+const INTENT_ACTION: Record<IntentKind, [string, string]> = { read: ["read", "unread"], flag: ["star", "unstar"], pin: ["pin", "unpin"] };
+/** The action as a state: `read`/`unread`, `star`/`unstar`, `pin`/`unpin`. */
+const INTENT_OF = new Map<string, { kind: IntentKind; want: boolean }>(
+  (Object.entries(INTENT_ACTION) as [IntentKind, [string, string]][]).flatMap(([kind, [yes, no]]) => [[yes, { kind, want: true }], [no, { kind, want: false }]] as const),
+);
+/**
+ * F-16/F-17 (read, 1.0.4 also flag and pin): the state asked for, until the server has it; lists and conversations read meanwhile are shown
+ * through it.
+ */
+const intents = new StateIntents((ids, want, kind) => api.threadAction(ids, INTENT_ACTION[kind][want ? 0 : 1], undefined, scopeOf(useStore.getState().folder)));
 
 /** Folders `loadMore` cannot page back (cross-folder views and the outbox have no single IMAP folder). */
 const NO_PAGING = new Set(["starred", "pinned", "snoozed", "all", "scheduled"]);
@@ -369,7 +487,7 @@ function mirrorSettings(p: Partial<Prefs>): Promise<unknown>[] {
   return pending;
 }
 
-function applyPrefs(p: Prefs) {
+export function applyPrefs(p: Prefs) {
   setLangPref(p.language);
   const root = document.documentElement;
   if (p.theme === "system") root.removeAttribute("data-theme");
@@ -388,6 +506,10 @@ function applyPrefs(p: Prefs) {
   root.style.setProperty("--top-field-lt", top.field);
   root.style.setProperty("--top-field-h-lt", top.fieldHover);
   root.style.setProperty("--top-hover-lt", top.hover);
+  // dark theme: the primary colour as a dark tint of the bar (hue only, capped lightness; see topBarDark.ts)
+  const topDk = darkTopBar(validHex(p.accent) ? p.accent : DEFAULT_PREFS.accent);
+  root.style.setProperty("--top-dk-start", topDk.start);
+  root.style.setProperty("--top-dk-end", topDk.end);
 }
 
 /** Apply read/unread/flag/pin changes to the lists right away; the backend call (IMAP) follows. */
@@ -492,6 +614,8 @@ export const useStore = create<State>((set, get) => ({
       return { reauth: next };
     }),
   toasts: [],
+  translations: {},
+  setTranslations: (f) => set((s) => ({ translations: f(s.translations) })),
   ask: null,
   passphrase: null,
   keysRev: 0,
@@ -499,8 +623,11 @@ export const useStore = create<State>((set, get) => ({
   composeKey: 0,
   composeDirty: false,
   composeSaver: null,
+  composeEnd: null,
+  composeProbe: null,
   dialog: null,
   commandOpen: false,
+  sidebarPin: 0,
   ribbonTab: "home",
   prefs: { ...DEFAULT_PREFS },
   aiConfigured: false,
@@ -527,7 +654,7 @@ export const useStore = create<State>((set, get) => ({
       prefs = { ...prefs, ...stale };
       void api.setSetting("prefs", JSON.stringify(prefs)).catch(() => undefined);
     }
-    const accounts = storeMissingColors(rawAccounts, prefs.accent);
+    const accounts = orderAccounts(storeMissingColors(rawAccounts, prefs.accent), prefs.accountOrder); // the person's order (empty: as the backend gives them)
     applyPrefs(prefs);
     mirrorSettings(prefs);
     set({ accounts, prefs, loaded: true, module: prefs.lastModule === "calendar" ? "calendar" : "mail", calDate: today(calTz(prefs)) });
@@ -598,14 +725,14 @@ export const useStore = create<State>((set, get) => ({
   reloadMessages: async () => {
     const { selected, folder } = get();
     if (!selected) return;
-    const tok = readIntents.begin();
+    const tok = intents.begin();
     try {
-      const messages = readIntents.messages(selected, await api.getThread(selected, scopeOf(folder)), tok);
+      const messages = intents.messages(selected, await api.getThread(selected, scopeOf(folder)), tok);
       if (get().selected === selected) set({ messages });
     } catch {
       /* keep what is shown */
     } finally {
-      readIntents.end(tok);
+      intents.end(tok);
     }
   },
 
@@ -650,9 +777,10 @@ export const useStore = create<State>((set, get) => ({
   refresh: async () => {
     const { folder, accountId, search, searchScope, focus, filter, prefs } = get();
     // (F-16/F-17) what is asked of the server while this read runs is laid over its answer; folder counts that predate it are not shown
-    const tok = readIntents.begin();
+    const tok = intents.begin();
+    const run = listReads.start();
     const foldersP = api.listFolders().then((folders) => {
-      if (!readIntents.changedSince(tok)) set({ folders });
+      if (!intents.changedSince(tok)) set({ folders });
     });
     // scheduled messages feed the Scheduled view and its badge, so they are read on every refresh
     const outboxP = api.listOutbox().then((outbox) => set({ outbox })).catch(() => undefined);
@@ -663,7 +791,7 @@ export const useStore = create<State>((set, get) => ({
         await Promise.all([foldersP, outboxP]);
         return;
       }
-      const fresh = readIntents.threads(await api.listThreads({
+      const fresh = intents.threads(await api.listThreads({
         accountId,
         folder,
         search,
@@ -676,7 +804,7 @@ export const useStore = create<State>((set, get) => ({
       }), tok);
       // ignore a slow answer for a view the user already left
       const now = get();
-      if (now.folder === folder && now.accountId === accountId && now.search === search) {
+      if (now.folder === folder && now.accountId === accountId && now.search === search && listReads.current(run)) {
         // F-12: reading the open mail can take it out of an Unread / Flagged list; it stays (and stays open) until the person leaves it
         const view = [folder, accountId, search, searchScope, focus, filter, prefs.conversations, prefs.sortAsc].join("|");
         const { threads, kept } = holdOpenThread(fresh, now.threads, now.selected, view === listKey);
@@ -686,7 +814,7 @@ export const useStore = create<State>((set, get) => ({
       }
       await Promise.all([foldersP, outboxP]);
     } finally {
-      readIntents.end(tok);
+      intents.end(tok);
       set({ loading: false });
     }
   },
@@ -699,10 +827,12 @@ export const useStore = create<State>((set, get) => ({
       // toasts and the tray badge are handled by the backend (it keeps syncing while the window is hidden)
       const results = await Promise.allSettled(accounts.map((a) => api.syncAccount(a.id)));
       const errors: Record<string, string> = {};
+      const reasons: Record<string, unknown> = {}; // what failed, as it came (the toast writes it in the language in use when it is drawn)
       const reauth: Record<string, "again" | "blocked"> = {};
       results.forEach((r, i) => {
         if (r.status !== "rejected") return;
         errors[accounts[i].id] = friendlyError(r.reason);
+        reasons[accounts[i].id] = r.reason;
         const again = needsSignIn(String(r.reason));
         if (again) reauth[accounts[i].id] = again;
       });
@@ -710,7 +840,7 @@ export const useStore = create<State>((set, get) => ({
       const first = Object.entries(errors)[0];
       if (first) {
         const acct = accounts.find((a) => a.id === first[0]);
-        get().showToast(t("errors.toast.withAccount", { account: acct?.email ?? t("errors.toast.accountFallback"), error: first[1] }), undefined, "error");
+        get().showToast(() => t("errors.toast.withAccount", { account: acct?.email ?? t("errors.toast.accountFallback"), error: friendlyError(reasons[first[0]]) }), undefined, "error");
       }
     } finally {
       // new mail may have arrived and a failed fetch may work now: scrolling may ask the server for older mail again
@@ -723,7 +853,7 @@ export const useStore = create<State>((set, get) => ({
     // the backend list is the truth (it also assigns the colour); fall back to what we were given
     let accounts = await api.listAccounts().catch(() => get().accounts);
     if (!accounts.some((a) => a.id === acc.id)) accounts = [...accounts.filter((a) => a.email !== acc.email), acc];
-    accounts = storeMissingColors(accounts, get().prefs.accent);
+    accounts = orderAccounts(storeMissingColors(accounts, get().prefs.accent), get().prefs.accountOrder); // a new account goes after the ones in the saved order
     // the selection moves to the new mailbox: a stale search / filter of the old view must not hide it
     set({ accounts, dialog: null, firstSync: acc.id, filter: "all" });
     get().showToast(t("errors.toast.accountAdded", { email: acc.email }), undefined, "success");
@@ -736,7 +866,7 @@ export const useStore = create<State>((set, get) => ({
       const msg = friendlyError(e);
       set((s) => ({ syncErrors: { ...s.syncErrors, [acc.id]: msg } }));
       get().setReauth(acc.id, needsSignIn(String(e)));
-      get().showToast(t("errors.toast.withAccount", { account: acc.email, error: msg }), undefined, "error");
+      get().showToast(() => t("errors.toast.withAccount", { account: acc.email, error: friendlyError(e) }), undefined, "error");
     } finally {
       set({ firstSync: null });
       await get().refresh();
@@ -804,7 +934,7 @@ export const useStore = create<State>((set, get) => ({
       if (!alive()) return;
       // with several mailboxes say which one failed
       const acct = targets.length > 1 ? get().accounts.find((x) => x.id === failing)?.email : undefined;
-      get().showToast(acct ? t("errors.toast.withAccount", { account: acct, error: friendlyError(e) }) : friendlyError(e), undefined, "error");
+      get().showToast(() => acct ? t("errors.toast.withAccount", { account: acct, error: friendlyError(e) }) : friendlyError(e), undefined, "error");
       set({ moreError: true });
     } finally {
       if (alive()) set({ loadingMore: false });
@@ -823,6 +953,7 @@ export const useStore = create<State>((set, get) => ({
   },
 
   select: async (id) => {
+    if (!mayOpenMail(id, !!get().compose)) return; // while writing only `openMail` (which leaves the message first) opens a mail
     clearTimeout(readTimer);
     // the person moves on: the conversation `refresh` held in the list (F-12) goes now
     const held = heldOpen && heldOpen !== id ? heldOpen : null;
@@ -830,22 +961,76 @@ export const useStore = create<State>((set, get) => ({
     set((s) => ({ selected: id, messages: [], ...(held ? { threads: s.threads.filter((t) => t.threadId !== held) } : {}) }));
     if (!id) return;
     const { folder, prefs } = get();
-    const tok = readIntents.begin();
+    const tok = intents.begin();
     let messages: MessageFull[];
     try {
-      messages = readIntents.messages(id, await api.getThread(id, scopeOf(folder)), tok);
+      messages = intents.messages(id, await api.getThread(id, scopeOf(folder)), tok);
     } finally {
-      readIntents.end(tok);
+      intents.end(tok);
     }
     if (get().selected !== id) return;
     set({ messages });
     if (messages.some((m) => !m.seen) && prefs.markReadDelay >= 0) {
       const mark = () => {
-        if (get().selected === id) void get().act([id], "read");
+        if (get().selected === id) {
+          autoMarking = true; // the app's own mark-as-read of the mail it opened (see autoAdvance.ts): not the person's doing
+          try {
+            void get().act([id], "read");
+          } finally {
+            autoMarking = false;
+          }
+        }
       };
       if (prefs.markReadDelay === 0) mark();
       else readTimer = setTimeout(mark, prefs.markReadDelay * 1000);
     }
+  },
+
+  openMail: async (id) => {
+    if (get().compose && !(await get().leaveCompose())) return;
+    await get().select(id);
+  },
+
+  leaveCompose: () => {
+    leaving ??= (async () => {
+      const outcome = await leaveComposePane({
+        open: () => !!get().compose,
+        scheduled: () => !!get().compose?.outboxId,
+        dirty: () => get().composeDirty,
+        probe: () => get().composeProbe?.() ?? null,
+        // files being read in: up to 20 s, then the message stays open with a word about it
+        attached: async () => {
+          for (let i = 0; i < 200; i++) {
+            if (!get().composeProbe?.().attaching) return true;
+            await new Promise((r) => setTimeout(r, 100));
+          }
+          return false;
+        },
+        save: async (onSaved) => (get().composeSaver ? await get().composeSaver!({ onSaved }) : false),
+        askScheduled: async () =>
+          (await get().choose({
+            title: t("compose.leave.scheduledTitle"),
+            body: t("app.quit.discardBody"),
+            choices: [
+              { id: "keep", label: t("app.quit.keepEditing"), kind: "primary" },
+              { id: "discard", label: t("errors.ask.discard"), kind: "danger" },
+            ],
+          })) === "discard"
+            ? "discard"
+            : "keep",
+        close: () => get().openCompose(null, { restore: false }),
+      });
+      if (outcome.kind === "saved") {
+        const d = outcome.saved;
+        get().showToast(() => d?.plain ? t("compose.toast.draftSavedPlain") : t("compose.toast.draftSaved"), undefined, d?.plain ? "info" : "success", d ? [{ label: () => t("common.edit"), run: d.edit }] : undefined);
+      } else if (outcome.kind === "stay" && outcome.why === "attaching") {
+        get().showToast(t("compose.leave.attaching"), undefined, "info");
+      }
+      return !get().compose;
+    })().finally(() => {
+      leaving = null;
+    });
+    return leaving;
   },
 
   toggleCheck: (id) => {
@@ -857,73 +1042,114 @@ export const useStore = create<State>((set, get) => ({
 
   setChecked: (ids) => set({ checked: new Set(ids) }),
 
-  act: async (ids, action, arg, label) => {
+  act: async (ids, action, arg, label, view) => {
     if (ids.length === 0) return;
+    // (1.0.5) no Junk folder on the account: the buttons are off already; this is for the keyboard and any other way in
+    if (JUNK_ACTIONS.has(action) && !canMoveToJunk(get().folders, accountsOf(get().threads, ids))) {
+      get().showToast(t("mail.junk.noneTip"), undefined, "info");
+      return;
+    }
+    if (!autoMarking) advances.touch(ids); // the person acts on the mail the app advanced to
     applyOptimistic(ids, action);
-    if (action === "read" || action === "unread") {
-      // (F-16/F-17) last write wins, one idempotent call per conversation at a time; see readIntent.ts
-      const r = await readIntents.set(ids, action === "read");
+    const intent = INTENT_OF.get(action);
+    if (intent) {
+      // (F-16/F-17, flag and pin too) last write wins, one idempotent call per conversation at a time; see readIntent.ts
+      const r = await intents.set(ids, intent.want, intent.kind);
       if (r.superseded) return; // a later click on the same conversations reports for both
       if (r.failed.length > 0) {
-        get().showToast(t("errors.toast.failed", { error: friendlyError(r.error) }), undefined, "error");
+        get().showToast(() => t("errors.toast.failed", { error: friendlyError(r.error) }), undefined, "error");
         const open = get().selected;
-        if (open && r.failed.includes(open)) void get().reloadMessages();
+        if (intent.kind === "read" && open && r.failed.includes(open)) void get().reloadMessages();
       } else if (label) {
         get().showToast(label, undefined, "success");
       }
       await get().refresh();
       return;
     }
-    const { threads, selected, prefs, folder } = get();
     const moveLike = MOVE_LIKE.has(action);
+    // the view the person acted from (a move only touches the mail in it), and the action as the backend runs it
+    const scope = scopeOf(view ?? get().folder);
+    const real = moveLike && action === "trash" && scope === "trash" ? "delete_forever" : action;
+    let verify = false; // the saved folder list was trusted: the backend checks it during the Undo window
+    if (moveLike) {
+      // (OBS-1) the folder the mail goes to is looked up (and a missing Archive / Trash created) on the server BEFORE the mail leaves the
+      // list and "Archived" is shown: when that cannot be done the mail stays and the error comes at once, not after the Undo time.
+      // The saved folder list names the usual folder, so this costs no server call then.
+      const todo = ids.filter((id) => !preparing.has(id)); // a second press while the first one is still looking
+      if (todo.length === 0) return;
+      ids = todo;
+      if (real !== "delete_forever") {
+        for (const id of ids) preparing.add(id);
+        try {
+          verify = await api.prepareAction(ids, real, arg ?? null, scope ?? null);
+        } catch (e) {
+          get().showToast(() => t("errors.toast.failed", { error: friendlyError(e) }), undefined, "error");
+          return;
+        } finally {
+          for (const id of ids) preparing.delete(id);
+        }
+      }
+    }
+    const { threads, selected, prefs, folder } = get();
     const removing = moveLike || action === "snooze";
     let nextSel = selected;
+    let nextUnread = false; // the mail the selection moves to was unread (the app marks it read as it opens)
     if (removing) {
       if (selected && ids.includes(selected)) {
         const idx = threads.findIndex((t) => t.threadId === selected);
         const rest = threads.filter((t) => !ids.includes(t.threadId));
         const pick = prefs.afterAction === "list" ? null : prefs.afterAction === "previous" ? rest[Math.max(idx - 1, 0)] : rest[Math.min(idx, rest.length - 1)];
         nextSel = pick?.threadId ?? null;
+        nextUnread = !!pick && pick.unread > 0;
       }
       set({ threads: threads.filter((t) => !ids.includes(t.threadId)), checked: new Set() });
     }
 
     if (moveLike) {
       // hide now, run on the server after the Undo window (the backend also flushes this on quit)
-      const scope = scopeOf(folder);
-      const real = action === "trash" && scope === "trash" ? "delete_forever" : action;
+      let advance = true; // the selection moves on to the next mail; not when the move is already refused
       try {
-        const token = await api.queueAction(ids, real, arg ?? null, scope ?? null, prefs.undoActionSeconds);
-        if (label) {
+        const token = await api.queueAction(ids, real, arg ?? null, scope ?? null, prefs.undoActionSeconds, verify);
+        // a folder check that already failed (a fast server) has shown its error and brought the mail back: no "Archived" toast then,
+        // and the person stays on the mail (nothing to move on from)
+        advance = queued.queued(token);
+        if (advance && selected && ids.includes(selected)) {
+          // what to put back if the move is refused or undone while the person is still on the next mail (see autoAdvance.ts)
+          advances.record(token, startAdvance(selected, nextSel, nextUnread, Date.now()));
+        }
+        if (advance && label) {
           get().showToast(
-            label,
+            label, // i18n-ok: a function (Lazy) like the text of every toast
             () => {
-              void api.cancelAction(token).then(() => get().refresh());
+              queued.undo(token); // Undo wins over a folder check that ends later
+              void api.cancelAction(token).then(() => get().refresh()).then(() => mailBack(token));
             },
             "success",
           );
+          queued.shown(token, toastSeq); // the id `showToast` just gave it (it counts up synchronously)
         }
       } catch (e) {
-        get().showToast(t("errors.toast.failed", { error: friendlyError(e) }), undefined, "error");
+        advance = false;
+        get().showToast(() => t("errors.toast.failed", { error: friendlyError(e) }), undefined, "error");
         await get().refresh();
       }
-      if (selected && ids.includes(selected)) await get().select(nextSel);
+      if (advance && selected && ids.includes(selected)) await get().select(nextSel);
       return;
     }
 
     try {
-      await api.threadAction(ids, action, arg, scopeOf(folder));
+      await api.threadAction(ids, action, arg, scopeOf(view ?? folder));
       if (label) {
-        get().showToast(label, action === "snooze" ? () => void get().act(ids, "unsnooze") : undefined, "success");
+        get().showToast(label, action === "snooze" ? () => void get().act(ids, "unsnooze") : undefined, "success"); // i18n-ok: a function (Lazy)
       }
     } catch (e) {
-      get().showToast(t("errors.toast.failed", { error: friendlyError(e) }), undefined, "error");
+      get().showToast(() => t("errors.toast.failed", { error: friendlyError(e) }), undefined, "error");
     }
     if (removing && selected && ids.includes(selected)) await get().select(nextSel);
     await get().refresh();
   },
 
-  openCompose: async (compose) => {
+  openCompose: async (compose, opts) => {
     const st = get();
     if (compose && !hasMailAccounts(st.accounts.length)) return; // no account: there is nothing to send with
     if (compose && st.compose && st.composeDirty) {
@@ -938,36 +1164,55 @@ export const useStore = create<State>((set, get) => ({
       });
       if (choice === "keep") return;
       if (choice === "save") await get().composeSaver?.();
+      else await get().composeEnd?.({ dropDraft: true }); // discarded: no snapshot is kept, and no draft an autosave made of it
     }
-    set({ compose, composeKey: get().composeKey + 1, composeDirty: false, composeSaver: null });
+    // While writing, no mail is selected: nothing that works on "the selected mail" can reach the old one (F-21). Whoever opens a reply
+    // or a forward has built it from that mail already. It comes back when writing ends and no other mail was picked.
+    const before = get().compose ? composeBefore : get().selected;
+    composeBefore = compose ? before : null;
+    set({ compose, composeKey: get().composeKey + 1, composeDirty: false, composeSaver: null, composeEnd: null, ...(compose ? { selected: null, messages: [], checked: new Set<string>() } : {}) });
+    if (!compose && opts?.restore !== false) {
+      const back = selectionAfterCompose(before, get().selected, get().threads.map((x) => x.threadId));
+      if (back) await get().select(back);
+    }
   },
 
   setComposeDirty: (composeDirty) => set({ composeDirty }),
   setComposeSaver: (composeSaver) => set({ composeSaver }),
+  setComposeEnd: (composeEnd) => set({ composeEnd }),
+  setComposeProbe: (composeProbe) => set({ composeProbe }),
   setDialog: (dialog) => set({ dialog }),
   setCommandOpen: (commandOpen) => set({ commandOpen }),
   setRibbonTab: (ribbonTab) => set({ ribbonTab }),
 
   showToast: (text, undo, kind, actions) => {
+    const { text: first, textFn } = toastTexts(text);
     // i18n note: this guess reads the English start of the text; a caller whose text is translated must pass `kind` itself
-    const k: Toast["kind"] = kind ?? (/^(failed|sync error|send failed|schedule failed|save|unsubscribe failed|cannot)/i.test(text) ? "error" : "info");
+    const k: Toast["kind"] = kind ?? (/^(failed|sync error|send failed|schedule failed|save|unsubscribe failed|cannot)/i.test(first) ? "error" : "info");
     const acts = actions?.slice(0, 2);
     // a toast with buttons stays long enough to be read and clicked
     const ttl = undo ? Math.max(5000, get().prefs.undoActionSeconds * 1000) : acts?.length || k === "error" ? 8000 : 4500;
     const id = ++toastSeq;
     // newest last; keep a short stack and never evict a toast that still has an Undo
-    set((s) => ({ toasts: [...s.toasts.filter((t) => t.undo || t.sticky || s.toasts.length < 4), { id, text, kind: k, undo, actions: acts, ttl }].slice(-5) }));
+    // (an identical error is recognised by its text in the language in use now, not the one the older toast was made in)
+    set((s) => ({ toasts: addToast(s.toasts.filter((t) => t.undo || t.sticky || s.toasts.length < 4).map(refreshed), { id, text: first, textFn, kind: k, undo, actions: acts, ttl }).slice(-5) }));
     setTimeout(() => get().dismissToast(id), ttl);
   },
 
   dismissToast: (id) => set((s) => ({ toasts: s.toasts.filter((t) => t.id !== id) })),
+
+  dropThreads: (ids) => {
+    const gone = new Set(ids);
+    if (!get().threads.some((x) => gone.has(x.threadId))) return;
+    set((s) => ({ threads: s.threads.filter((x) => !gone.has(x.threadId)), checked: new Set([...s.checked].filter((x) => !gone.has(x))) }));
+  },
 
   setStickyToast: (key, spec) =>
     set((s) => {
       const others = s.toasts.filter((t) => t.key !== key);
       if (!spec) return { toasts: others };
       const old = s.toasts.find((t) => t.key === key);
-      const toast: Toast = { id: old?.id ?? ++toastSeq, text: spec.text, kind: spec.kind ?? "info", actions: spec.actions, ttl: spec.ttl ?? 0, sticky: true, key, onDismiss: spec.onDismiss, closeLabel: spec.closeLabel, escCloses: spec.escCloses, support: spec.support, link: spec.link, hideClose: spec.hideClose };
+      const toast: Toast = { id: old?.id ?? ++toastSeq, ...toastTexts(spec.text), kind: spec.kind ?? "info", actions: spec.actions, ttl: spec.ttl ?? 0, sticky: true, key, onDismiss: spec.onDismiss, closeLabel: spec.closeLabel, escCloses: spec.escCloses, support: spec.support, link: spec.link, hideClose: spec.hideClose, busy: spec.busy, guide: spec.guide };
       // in place when it exists (the countdown changes its text every second), else on top of the stack
       return { toasts: old ? s.toasts.map((t) => (t.key === key ? toast : t)) : [...others, toast].slice(-5) };
     }),
@@ -996,7 +1241,7 @@ export const useStore = create<State>((set, get) => ({
 
   choose: (o) =>
     new Promise<string>((resolve) => {
-      set({ ask: { title: o.title, body: o.body, choices: o.choices, resolve } });
+      set({ ask: { title: o.title, body: o.body, choices: o.choices, dismiss: o.dismiss, resolve } });
     }),
 
   confirm: async (o) => {
@@ -1039,6 +1284,8 @@ export const useStore = create<State>((set, get) => ({
     if ("maxDownload" in patch && patch.maxDownload !== get().prefs.maxDownload) set({ limited: {} });
     const languageChanged = "language" in patch && patch.language !== get().prefs.language;
     set({ prefs });
+    // every screen reads `accounts`: a new order shows everywhere at once (folder pane, Compose From, Settings)
+    if ("accountOrder" in patch) set((s) => ({ accounts: orderAccounts(s.accounts, prefs.accountOrder) }));
     applyPrefs(prefs);
     void api.setSetting("prefs", JSON.stringify(prefs));
     const mirrored = mirrorSettings(patch);
@@ -1074,7 +1321,7 @@ useStore.subscribe((s, prev) => {
   if (had && !has) {
     // an open Compose is closed WITHOUT saving: the account's local copy is gone, and the pane unmounts with the workspace
     useStore.setState({
-      search: "", selected: null, messages: [], threads: [], checked: new Set(), compose: null, composeDirty: false, composeSaver: null,
+      search: "", selected: null, messages: [], threads: [], checked: new Set(), compose: null, composeDirty: false, composeSaver: null, composeProbe: null,
       commandOpen: false, accountId: null, folder: "inbox", filter: "all", firstSync: null, dialog: s.dialog?.type === "settings" ? { type: "settings", tab: "add-account", nonce: Date.now() } : s.dialog,
     });
   }

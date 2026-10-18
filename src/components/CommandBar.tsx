@@ -1,10 +1,14 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { newMailAccount } from "../actions";
+import { accountLabel } from "../accountLabel";
+import { newMail } from "../actions";
 import { useLang, useT } from "../i18n/react";
+import { folderVisible } from "../junk";
 import { folderLabel } from "../prefs";
 import { newEvent } from "./Calendar";
 import { useStore } from "../store";
 import { commandsFor } from "../mailControls";
+import { openReader } from "../popout/openReader";
+import { readerAllowed } from "../popout/readerLogic";
 import { useUpdates } from "../updates";
 
 interface Cmd {
@@ -31,7 +35,7 @@ export function CommandBar() {
     const cur = s.threads.find((x) => x.threadId === s.selected);
     const list: Cmd[] = [
       { id: "Add account", label: t("app.cmd.addAccount"), run: () => s.setDialog({ type: "settings", tab: "add-account", nonce: Date.now() }) }, // listed only without an account
-      { id: "New mail", label: t("app.cmd.newMail"), run: () => s.openCompose({ accountId: newMailAccount() }) },
+      { id: "New mail", label: t("app.cmd.newMail"), run: () => void newMail() },
       { id: "Sync now", label: t("app.cmd.syncNow"), run: () => void s.sync() },
       { id: "New event", label: t("app.cmd.newEvent"), run: () => newEvent() },
       { id: "Go to Calendar", label: t("app.cmd.goCalendar"), run: () => s.setModule("calendar") },
@@ -48,7 +52,7 @@ export function CommandBar() {
       { id: "Toggle reading pane position", label: t("app.cmd.toggleReadingPane"), run: () => s.setPrefs({ readingPane: s.prefs.readingPane === "right" ? "bottom" : "right" }) },
       { id: "Toggle conversations", label: t("app.cmd.toggleConversations"), run: () => s.setPrefs({ conversations: !s.prefs.conversations }) },
       { id: "Toggle Focused Inbox", label: t("app.cmd.toggleFocused"), run: () => s.setPrefs({ focused: !s.prefs.focused }) },
-      ...["inbox", "unread", "starred", "pinned", "snoozed", "scheduled", "sent", "drafts", "archive", "junk", "trash"].map((f) => ({
+      ...["inbox", "unread", "starred", "pinned", "snoozed", "scheduled", "sent", "drafts", "archive", "junk", "trash"].filter((f) => folderVisible(s.folders, s.accountId, f)).map((f) => ({
         id: `Go to ${f}`,
         label: t("app.cmd.goToFolder", { folder: folderLabel(f) }),
         run: () => void s.setView(f, s.accountId),
@@ -56,13 +60,14 @@ export function CommandBar() {
     ];
     if (ids.length)
       list.push(
-        { id: "Archive conversation", label: t("app.cmd.archive"), run: () => void s.act(ids, "archive", undefined, t("mail.done.archived")) },
-        { id: "Delete conversation", label: t("app.cmd.delete"), run: () => void s.act(ids, "trash", undefined, t("mail.done.trashed")) },
+        { id: "Archive conversation", label: t("app.cmd.archive"), run: () => void s.act(ids, "archive", undefined, () => t("mail.done.archived")) },
+        ...(cur && readerAllowed(s.folder, cur.folder) ? [{ id: "Open in new window", label: t("app.cmd.openInWindow"), run: () => void openReader(cur, s.folder) }] : []),
+        { id: "Delete conversation", label: t("app.cmd.delete"), run: () => void s.act(ids, "trash", undefined, () => t("mail.done.trashed")) },
         { id: "Mark as unread", label: t("app.cmd.markUnread"), run: () => void s.act(ids, "unread") },
         { id: cur?.flagged ? "Remove flag" : "Flag", label: cur?.flagged ? t("app.cmd.unflag") : t("app.cmd.flag"), run: () => void s.act(ids, cur?.flagged ? "unstar" : "star") },
         { id: cur?.pinned ? "Unpin" : "Pin", label: cur?.pinned ? t("app.cmd.unpin") : t("app.cmd.pin"), run: () => void s.act(ids, cur?.pinned ? "unpin" : "pin") },
       );
-    for (const a of s.accounts) list.push({ id: `Switch to ${a.id}`, label: t("app.cmd.switchTo", { email: a.email }), run: () => void s.setView(s.folder, a.id) });
+    for (const a of s.accounts) list.push({ id: `Switch to ${a.id}`, label: t("app.cmd.switchTo", { email: accountLabel(a).text }), run: () => void s.setView(s.folder, a.id) });
     list.push({ id: "Show all accounts", label: t("app.cmd.showAll"), run: () => void s.setView(s.folder, null) });
     // without an account only Settings, updates and the theme remain
     const byId = new Map(list.map((c) => [c.id, c]));

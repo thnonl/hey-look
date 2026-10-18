@@ -13,10 +13,11 @@ import {
 import { accountColor } from "../prefs";
 import { calendarName, calendarTitle, defaultCalendar, deleteConfirm, isSyncedCalendarId, pausedSources, readOnlyNote, writableCalendars } from "../calendarSync";
 import { friendlyError, EventInit, useStore } from "../store";
-import { t } from "../i18n";
+import { t, type Key } from "../i18n";
 import { useLang, useT } from "../i18n/react";
 import { tx } from "../i18n/rich";
 import { DateField, TimeField } from "./DateTimeFields";
+import { moveStart } from "../dateTimeFields";
 import { RecipientField } from "./Compose";
 import { EmptyState } from "./overlays";
 import { Avatar, Dropdown, FloatingMenu, Modal, Switch, useOutside } from "./ui";
@@ -127,7 +128,7 @@ export function InviteCard({ m }: { m: MessageFull }) {
       const p = await api.calendarSaveIcs({ messageId: m.id });
       if (p) showToast(t("calendar.toast.saved", { name: p.split(/[\\/]/).pop() ?? p }), undefined, "success");
     } catch (e) {
-      showToast(t("calendar.toast.saveFailed", { error: friendlyError(e) }), undefined, "error");
+      showToast(() => t("calendar.toast.saveFailed", { error: friendlyError(e) }), undefined, "error");
     }
   }
 
@@ -160,7 +161,7 @@ export function InviteCard({ m }: { m: MessageFull }) {
       useStore.getState().bumpCal();
       await useStore.getState().reloadMessages();
     } catch (e) {
-      showToast(t("calendar.toast.addFailed", { error: friendlyError(e) }), undefined, "error");
+      showToast(() => t("calendar.toast.addFailed", { error: friendlyError(e) }), undefined, "error");
     } finally {
       setAdding(false);
     }
@@ -174,7 +175,7 @@ export function InviteCard({ m }: { m: MessageFull }) {
       useStore.getState().bumpCal();
       await useStore.getState().reloadMessages();
     } catch (e) {
-      showToast(t("calendar.toast.removeFailed", { error: friendlyError(e) }), undefined, "error");
+      showToast(() => t("calendar.toast.removeFailed", { error: friendlyError(e) }), undefined, "error");
     }
   };
 
@@ -791,7 +792,7 @@ function AgendaView({
 
 function EventPopover({ state, tz, color, onClose }: { state: PopState; tz: string; color: string; onClose: () => void }) {
   const t = useT();
-  const { showToast, choose, confirm, setDialog, bumpCal, setModule, setView, select } = useStore();
+  const { showToast, choose, confirm, setDialog, bumpCal, setModule, setView, openMail: openMailThread } = useStore();
   const ev = state.ev;
   const ref = useRef<HTMLDivElement>(null);
   useOutside(ref, onClose, true);
@@ -866,7 +867,7 @@ function EventPopover({ state, tz, color, onClose }: { state: PopState; tz: stri
       await api.calendarDeleteEvent(ev.id, notify);
       showToast(notify ? t("calendar.toast.cancelledNotified") : t("calendar.toast.deleted"), undefined, "success");
     } catch (e) {
-      showToast(friendlyError(e), undefined, errorCode(e) === "CAL_SEND_FAILED" ? "error" : "error");
+      showToast(() => friendlyError(e), undefined, errorCode(e) === "CAL_SEND_FAILED" ? "error" : "error");
     }
     bumpCal();
     onClose();
@@ -884,9 +885,9 @@ function EventPopover({ state, tz, color, onClose }: { state: PopState; tz: stri
       onClose();
       setModule("mail");
       await setView(r.folder, r.accountId);
-      await select(r.threadId);
+      await openMailThread(r.threadId);
     } catch (e) {
-      showToast(friendlyError(e), undefined, "error");
+      showToast(() => friendlyError(e), undefined, "error");
     }
   };
 
@@ -895,7 +896,7 @@ function EventPopover({ state, tz, color, onClose }: { state: PopState; tz: stri
       const p = await api.calendarSaveIcs({ eventId: ev.id });
       if (p) showToast(t("calendar.toast.saved", { name: p.split(/[\\/]/).pop() ?? p }), undefined, "success");
     } catch (e) {
-      showToast(t("calendar.toast.saveFailed", { error: friendlyError(e) }), undefined, "error");
+      showToast(() => t("calendar.toast.saveFailed", { error: friendlyError(e) }), undefined, "error");
     }
     onClose();
   };
@@ -966,6 +967,39 @@ function EventPopover({ state, tz, color, onClose }: { state: PopState; tz: stri
 
 // =============================================================== sidebar (folder pane in Calendar mode)
 
+/** A synced calendar keeps its own colour; a mailbox's invitations use the mailbox colour. */
+function calendarColor(c: { id: string; remote?: boolean; color?: string | null; accountId: string | null }, accounts: { id: string }[], accent: string): string {
+  const acct = accounts.find((a) => a.id === c.accountId) as Parameters<typeof accountColor>[0] | undefined;
+  return c.id === "local" ? MY_EVENTS_COLOR : c.remote && c.color ? c.color : acct ? accountColor(acct, accent) : c.color || "var(--accent)";
+}
+
+/** The calendar list of the side menu while it is folded to icons: one coloured dot per calendar, filled while it is shown; the name is the tooltip. */
+export function CalRail() {
+  const t = useT();
+  const { prefs, calendars, bumpCal, accounts } = useStore();
+  const cals = calendars.length ? calendars : [{ id: "local", name: t("calendar.myEvents"), color: MY_EVENTS_COLOR, accountId: null, visible: true }];
+  return (
+    <div className="fp-group fp-calrail" role="group" aria-label={t("calendar.side.calendars")}>
+      {cals.map((c) => {
+        const col = calendarColor(c, accounts, prefs.accent);
+        return (
+          <button
+            key={c.id}
+            type="button"
+            className={`fp-cal ${c.visible ? "on" : ""}`}
+            aria-pressed={c.visible}
+            aria-label={calendarTitle(c)}
+            title={calendarTitle(c)}
+            onClick={() => void api.calendarSetVisible(c.id, !c.visible).then(() => bumpCal())}
+          >
+            <span className="fp-cal-dot" style={{ background: c.visible ? col : "transparent", borderColor: col }} />
+          </button>
+        );
+      })}
+    </div>
+  );
+}
+
 export function CalSidebar() {
   const t = useT();
   const { prefs, calDate, calEvents, calendars, calSources, setCalDate, setPrefs, setDialog, bumpCal, accounts } = useStore();
@@ -1024,9 +1058,7 @@ export function CalSidebar() {
         <div className="fp-head" style={{ cursor: "default" }}>{t("calendar.side.calendars")}</div>
         <div className="cal-list">
           {cals.map((c) => {
-            const acct = accounts.find((a) => a.id === c.accountId);
-            // a synced calendar keeps its own colour; a mailbox's invitations use the mailbox colour
-            const col = c.id === "local" ? MY_EVENTS_COLOR : c.remote && c.color ? c.color : acct ? accountColor(acct, prefs.accent) : c.color || "var(--accent)";
+            const col = calendarColor(c, accounts, prefs.accent);
             return (
               <label key={c.id}>
                 <input
@@ -1097,6 +1129,15 @@ export function EventDialog({ eventId, init }: { eventId?: string; init?: EventI
   const [error, setError] = useState<string | null>(null);
   const [dirty, setDirty] = useState(false);
   const touch = () => setDirty(true);
+  // moving the start moves the end with it (same length); the end alone never moves the start
+  const moveStartTo = (change: { sd?: string; st?: string }) => {
+    const n = moveStart({ sd, st, ed, et }, change, allDay);
+    setSd(n.sd);
+    setSt(n.st);
+    setEd(n.ed);
+    setEt(n.et);
+    touch();
+  };
 
   useEffect(() => {
     if (!eventId) return;
@@ -1186,11 +1227,11 @@ export function EventDialog({ eventId, init }: { eventId?: string; init?: EventI
       const code = errorCode(err);
       if (code === "CAL_SEND_FAILED" || code === "CAL_CONFLICT" || code === "CAL_GONE") {
         // the invitations failed, or the service's version won: said once, the dialog closes (the calendar shows what is there now)
-        showToast(friendlyError(err), undefined, "error");
+        showToast(() => friendlyError(err), undefined, "error");
         setDialog(null);
       } else if (code === "CAL_OFFLINE") {
         // nothing was saved: the dialog stays open with what was typed
-        showToast(friendlyError(err), undefined, "error");
+        showToast(() => friendlyError(err), undefined, "error");
         setBusy(false);
       } else {
         setError(friendlyError(err));
@@ -1220,8 +1261,8 @@ export function EventDialog({ eventId, init }: { eventId?: string; init?: EventI
         <div className="ev-when">
           {/* start and end share one grid (date | time | hint), so both rows get the same column widths in every state */}
           <div className="when-dates" data-allday={allDay || undefined}>
-            <DateField label={t("calendar.dialog.startDate")} tz={tz} value={sd} onChange={(v) => (setSd(v), touch(), ed < v && setEd(v))} />
-            {!allDay && <TimeField label={t("calendar.dialog.startTime")} value={st} onChange={(v) => (setSt(v), touch())} />}
+            <DateField label={t("calendar.dialog.startDate")} tz={tz} value={sd} onChange={(v) => moveStartTo({ sd: v })} />
+            {!allDay && <TimeField label={t("calendar.dialog.startTime")} value={st} onChange={(v) => moveStartTo({ st: v })} />}
             <span aria-hidden />
             <DateField label={t("calendar.dialog.endDate")} tz={tz} value={ed} onChange={(v) => (setEd(v), touch())} />
             {!allDay && <TimeField label={t("calendar.dialog.endTime")} value={et} onChange={(v) => (setEt(v), touch())} />}
@@ -1329,12 +1370,12 @@ export function defaultMeeting(tz: string, init?: { start?: number; end?: number
 }
 
 /** The meeting of a draft, or the reason it can't be sent. */
-export function meetingToDraft(m: MeetingState, tz: string): { meeting: { start: number; end: number; allDay: boolean; tzid: string | null; location: string | null } } | { error: string } {
+export function meetingToDraft(m: MeetingState, tz: string): { meeting: { start: number; end: number; allDay: boolean; tzid: string | null; location: string | null } } | { error: string; errorKey: Key } {
   const s = fromInputs(m.sd, m.st, tz, m.allDay);
   const e = fromInputs(m.ed, m.et, tz, m.allDay);
-  if (s === null || e === null) return { error: t("calendar.meeting.errDate") };
+  if (s === null || e === null) return { error: t("calendar.meeting.errDate"), errorKey: "calendar.meeting.errDate" };
   const end = m.allDay ? e + 86400 : e;
-  if (end <= s) return { error: t("calendar.meeting.errEnd") };
+  if (end <= s) return { error: t("calendar.meeting.errEnd"), errorKey: "calendar.meeting.errEnd" };
   return { meeting: { start: s, end, allDay: m.allDay, tzid: m.allDay ? null : tz, location: m.where.trim() || null } };
 }
 
@@ -1348,8 +1389,8 @@ export function MeetingStrip({ value, onChange, tz }: { value: MeetingState; onC
     <div className="cp-event" role="group" aria-label={t("calendar.meeting.details")}>
       <label htmlFor="mt-sd">{t("calendar.dialog.when")}</label>
       <div className="when">
-        <DateField id="mt-sd" label={t("calendar.dialog.startDate")} tz={tz} value={value.sd} onChange={(v) => set({ sd: v, ed: value.ed < v ? v : value.ed })} />
-        {!value.allDay && <TimeField label={t("calendar.dialog.startTime")} value={value.st} onChange={(v) => set({ st: v })} />}
+        <DateField id="mt-sd" label={t("calendar.dialog.startDate")} tz={tz} value={value.sd} onChange={(v) => set(moveStart(value, { sd: v }, value.allDay))} />
+        {!value.allDay && <TimeField label={t("calendar.dialog.startTime")} value={value.st} onChange={(v) => set(moveStart(value, { st: v }, false))} />}
         <span className="muted">–</span>
         {!value.allDay && <TimeField label={t("calendar.dialog.endTime")} invalid={!!problem} value={value.et} onChange={(v) => set({ et: v })} />}
         <DateField label={t("calendar.dialog.endDate")} tz={tz} invalid={!!problem} value={value.ed} onChange={(v) => set({ ed: v })} />

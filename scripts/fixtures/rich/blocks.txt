@@ -1,0 +1,12 @@
+Heading 1
+Heading 2 coloured
+Heading 3
+Normal text
+> quoted line one
+> quoted line two
+> > nested quote
+function f() {
+  return 1 < 2 && "x";
+}
+----------
+after the rule

@@ -4,6 +4,7 @@ import { api } from "./api";
 import { SUPPORT_URL } from "./aboutLinks";
 import { t } from "./i18n";
 import { ensureSchedule, decide, Moment, SHOW_MS, setEnabled, shown, supported } from "./supportNudge";
+import { composeWindowsOpen } from "./popout/popoutCount";
 import { useStore } from "./store";
 import { openUpdateLink, useUpdates } from "./updates";
 import { useFrame } from "./winframe";
@@ -30,7 +31,7 @@ export function currentMoment(): Moment {
   return {
     focused: useFrame.getState().focused && document.visibilityState === "visible" && document.hasFocus(),
     sessionMs: Date.now() - sessionStart,
-    composing: !!s.compose,
+    composing: !!s.compose || composeWindowsOpen() > 0, // (a message in a window of its own counts, REQ-W15)
     modalOpen: !!(s.dialog || s.ask || s.passphrase || s.commandOpen),
     toastShowing: s.toasts.length > 0,
     busy: s.sendsInFlight > 0 || s.transfers > 0 || flow === "downloading" || flow === "verifying" || flow === "installing",
@@ -59,7 +60,7 @@ export function showSupportNudge() {
   save(shown(nudge(), Date.now()));
   const st = useStore.getState();
   st.setStickyToast(KEY, {
-    text: t("app.nudge.text"),
+    text: () => t("app.nudge.text"),
     kind: "info",
     support: true,
     hideClose: true,
@@ -68,16 +69,16 @@ export function showSupportNudge() {
     onDismiss: () => clearTimeout(hideTimer), // Esc
     actions: [
       {
-        label: t("app.nudge.coffee"),
+        label: () => t("app.nudge.coffee"),
         run: () => {
           clearTimeout(hideTimer);
           save(supported(nudge(), Date.now())); // supporters hear from us again in 6 months
           void openUpdateLink(SUPPORT_URL); // the same safe path as the About links (a failed open copies the link and says so)
         },
       },
-      { label: t("app.nudge.notNow"), run: () => clearTimeout(hideTimer) },
+      { label: () => t("app.nudge.notNow"), run: () => clearTimeout(hideTimer) },
     ],
-    link: { label: t("app.nudge.stop"), run: () => { clearTimeout(hideTimer); save(setEnabled(nudge(), false, Date.now())); } },
+    link: { label: () => t("app.nudge.stop"), run: () => { clearTimeout(hideTimer); save(setEnabled(nudge(), false, Date.now())); } },
   });
   arm(SHOW_MS);
 }

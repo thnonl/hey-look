@@ -1,0 +1,27 @@
+{
+ "base": {
+  "family": "Calibri,Carlito,Arial,sans-serif",
+  "size": 11
+ },
+ "sig": "<p style=\"margin:0\">Nam Hoang</p><p style=\"margin:0\">Hey Look!</p><img src=\"data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==\" alt=\"Hey Look! logo\" width=\"240\" style=\"max-width:100%;height:auto\" data-name=\"logo.png\">",
+ "doc": {
+  "type": "doc",
+  "content": [
+   {
+    "type": "paragraph",
+    "content": [
+     {
+      "type": "text",
+      "text": "Hello,"
+     }
+    ]
+   },
+   {
+    "type": "paragraph"
+   },
+   {
+    "type": "signatureBlock"
+   }
+  ]
+ }
+}

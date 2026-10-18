@@ -4,6 +4,7 @@ import { createPortal } from "react-dom";
 import { useT } from "../i18n/react";
 import { accountColor } from "../prefs";
 import { fitInWindow } from "../fitInWindow";
+import { placePopover, type ToastBox } from "../popoverRoom";
 import { menuOwners, pressIsOutside } from "../pressInside";
 import { useStore } from "../store";
 import { hue, initials } from "../util";
@@ -16,15 +17,27 @@ export interface MenuItem {
   divider?: boolean;
   disabled?: boolean;
   hint?: string;
+  /** tooltip of the row (the reason a disabled row is off) */
+  title?: string;
   /** colour dot shown before the label (accounts) */
   dot?: string;
   /** language of the label when it differs from the app's (the language names, each in its own language) */
   lang?: string;
   /** extra text the type-ahead of the menu also matches (the English name of a language written in its own) */
   search?: string;
+  /** style of the label (a font name shown in its own face) */
+  style?: React.CSSProperties;
 }
 
 type Ref = React.RefObject<HTMLElement | null>;
+
+/** The toast stack as it is now (null when there is no toast): a popover keeps above it (popoverRoom.ts). */
+export function toastBox(): ToastBox | null {
+  const stack = document.querySelector(".toasts");
+  if (!stack?.firstElementChild) return null;
+  const r = stack.getBoundingClientRect();
+  return { left: r.left, right: r.right, top: r.top };
+}
 
 /** Calls onOut on a press outside of every given element (or on Escape) while active. */
 export function useOutside(ref: Ref | Ref[], onOut: () => void, active: boolean) {
@@ -72,6 +85,62 @@ export function useFitInWindow(ref: Ref, active: boolean) {
   }, [ref, active]);
 }
 
+/**
+ * Places a `position: fixed` popover (class `pinned`) under `anchor` (above it when there is more room there), inside the window, with its
+ * list made scrollable when it is taller than the room. The header of the compose pane scrolls when the window is low, and a scroll box
+ * cuts off an absolutely placed popover; a fixed one is not cut. `inset`: px from the left of the anchor; `match`: as wide as the
+ * anchor from there. Measured when it opens, when `dep` changes (the suggestions), and when the window or any box around it scrolls.
+ */
+export function usePinnedBelow(pop: Ref, anchor: Ref, active: boolean, opts: { inset?: number; match?: boolean } = {}, dep?: unknown) {
+  const { inset = 0, match = false } = opts;
+  useLayoutEffect(() => {
+    const el = pop.current;
+    if (!active || !el) return;
+    anchor.current?.scrollIntoView({ block: "nearest" }); // (opened by a key while its button is scrolled out of the header: it comes into view first)
+    const place = () => {
+      const a = anchor.current;
+      if (!a) return;
+      const b = a.getBoundingClientRect();
+      // (taking the limit off to measure the popover lets a scroll box inside it (the Send later picker) grow to its full height for a moment: the browser clamps its
+      // scrollTop to 0 and the content jumps to the top, so every scrolled box inside is put back once the limit is set again)
+      const scrolled = [el, ...Array.from(el.querySelectorAll<HTMLElement>("*"))].filter((x) => x.scrollTop > 0).map((x) => [x, x.scrollTop] as const);
+      el.style.maxHeight = "";
+      if (match) el.style.width = `${Math.max(0, b.right - (b.left + inset))}px`;
+      // (popoverRoom.ts: below the anchor or above it, inside the window, above the toast stack, which is in the way of the lower part of the window while a toast shows)
+      const p = placePopover(b, { w: el.offsetWidth, h: el.offsetHeight }, { w: window.innerWidth, h: window.innerHeight }, { edge: 8, gap: 4, inset, toasts: toastBox(), minRoom: 96 });
+      // always a limit, not only when it is too tall now: a popover that grows after it was placed (a custom time opens under the presets) scrolls instead of running off the window
+      el.style.maxHeight = `${p.max}px`;
+      el.style.left = `${p.left}px`;
+      el.style.top = `${p.top}px`;
+      for (const [x, top] of scrolled) x.scrollTop = top;
+    };
+    place();
+    // (only a scroll that can move the anchor: one in another popup, such as the time list of a field in this popover, leaves it where it is)
+    const onScroll = (ev: Event) => {
+      const n = ev.target as Node;
+      if (!el.contains(n) && (n === document || n.contains(anchor.current))) place();
+    };
+    window.addEventListener("resize", place);
+    window.addEventListener("scroll", onScroll, true);
+    // a toast that comes or goes changes the room (the stack is drawn after this render), and so does the popover growing
+    let frame = 0;
+    const later = () => {
+      cancelAnimationFrame(frame);
+      frame = requestAnimationFrame(place);
+    };
+    const unsub = useStore.subscribe((s, prev) => s.toasts !== prev.toasts && later());
+    const grown = typeof ResizeObserver === "undefined" ? null : new ResizeObserver(later);
+    grown?.observe(el);
+    return () => {
+      cancelAnimationFrame(frame);
+      unsub();
+      grown?.disconnect();
+      window.removeEventListener("resize", place);
+      window.removeEventListener("scroll", onScroll, true);
+    };
+  }, [pop, anchor, active, inset, match, dep]);
+}
+
 export function MenuList({ items, onDone }: { items: MenuItem[]; onDone: () => void }) {
   return (
     <div className="menu" role="menu">
@@ -86,6 +155,7 @@ export function MenuList({ items, onDone }: { items: MenuItem[]; onDone: () => v
             aria-checked={it.checked === undefined ? undefined : it.checked}
             tabIndex={-1}
             data-search={it.search}
+            title={it.title}
             disabled={it.disabled}
             onClick={() => {
               onDone();
@@ -94,7 +164,7 @@ export function MenuList({ items, onDone }: { items: MenuItem[]; onDone: () => v
           >
             <span className="menu-ico">{it.checked ? <Check size={14} /> : it.icon}</span>
             {it.dot && <span className="dot" style={{ background: it.dot }} />}
-            <span className="menu-lbl ellipsis" lang={it.lang}>{it.label}</span>
+            <span className="menu-lbl ellipsis" lang={it.lang} style={it.style}>{it.label}</span>
             {it.hint && <span className="menu-hint">{it.hint}</span>}
           </button>
         ),
@@ -126,6 +196,7 @@ export function FloatingMenu({
   align = "left",
   minWidth,
   start = "first",
+  tall,
   onClose,
 }: {
   anchor: React.RefObject<HTMLElement | null>;
@@ -134,6 +205,8 @@ export function FloatingMenu({
   align?: "left" | "right";
   minWidth?: number;
   start?: "first" | "last";
+  /** a long menu (the editor's More menu): it may use the whole room there is, not 60 % of the window, and shows that it scrolls */
+  tall?: boolean;
   onClose: () => void;
 }) {
   const pop = useRef<HTMLDivElement>(null);
@@ -154,24 +227,24 @@ export function FloatingMenu({
     const p = pop.current?.getBoundingClientRect();
     const b = anchor.current?.getBoundingClientRect();
     if (!p || !b) return;
-    const gap = 4;
     const edge = 6;
     // a trigger scrolled out of view (a dialog body, a list) has nowhere sensible to anchor the menu: close it instead of placing it off-screen
     if (b.bottom < edge || b.top > window.innerHeight - edge || b.right < edge || b.left > window.innerWidth - edge) {
       close.current();
       return;
     }
-    const below = window.innerHeight - edge - (b.bottom + gap);
-    const above = b.top - gap - edge;
-    // down when it fits, else up when it fits, else the roomier side with the list made scrollable
-    const up = p.height > below && (p.height <= above || above > below);
-    const room = up ? above : below;
-    const raw = up ? b.top - gap - Math.min(p.height, room) : b.bottom + gap;
-    const top = Math.max(edge, Math.min(raw, window.innerHeight - edge - Math.min(p.height, room)));
-    const want = align === "right" ? b.right - p.width : b.left;
-    const left = Math.max(edge, Math.min(want, window.innerWidth - p.width - edge));
-    setPos({ top, left, max: room });
+    // down when it fits, else up when it fits, else the roomier side with the list made scrollable; a toast on show is in the way of the lower part of the window: the menu ends above it
+    const { top, left, max } = placePopover(b, { w: p.width, h: p.height }, { w: window.innerWidth, h: window.innerHeight }, { edge, gap: 4, align, toasts: toastBox() });
+    setPos({ top, left, max });
   }, [anchor, align]);
+  // the box can be wider once it is placed than it was when it was measured (a scroll bar appears when the list is made scrollable, the width left of the
+  // button limits it): its right edge goes back inside the window
+  useLayoutEffect(() => {
+    const r = pop.current?.getBoundingClientRect();
+    if (!pos || !r) return;
+    const over = r.right - (window.innerWidth - 6);
+    if (over > 0.5) setPos({ ...pos, left: Math.max(6, pos.left - over) });
+  }, [pos]);
   // lets a "press outside" handler of the popover this menu was opened from tell that a press on a row is not outside (pressInside.ts)
   useEffect(() => {
     const el = pop.current;
@@ -217,6 +290,7 @@ export function FloatingMenu({
     const go = (el?: HTMLElement) => {
       e.preventDefault();
       el?.focus();
+      el?.scrollIntoView({ block: "nearest" }); // (a row below the fold of a scrolling menu comes into view with the key that reached it)
     };
     if (e.key === "ArrowDown") go(list[(i + 1) % list.length]);
     else if (e.key === "ArrowUp") go(list[(i - 1 + list.length) % list.length]);
@@ -241,7 +315,7 @@ export function FloatingMenu({
   };
   const style = pos ? ({ top: pos.top, left: pos.left, "--dd-max": `${pos.max}px` } as React.CSSProperties) : { top: 0, left: 0, visibility: "hidden" as const };
   return createPortal(
-    <div ref={pop} className="dd-fixed" style={{ ...style, minWidth }} onKeyDown={onKeyDown}>
+    <div ref={pop} className="dd-fixed" data-tall={tall ? "" : undefined} style={{ ...style, minWidth }} onKeyDown={onKeyDown}>
       <MenuList items={items} onDone={() => shut(true)} />
     </div>,
     document.body,
@@ -254,21 +328,27 @@ export function Dropdown({
   items,
   className = "",
   title,
+  label,
   align = "left",
   caret = true,
   wrapClass = "",
   matchWidth = false,
+  disabled = false,
 }: {
   children: ReactNode;
   items: MenuItem[];
   className?: string;
   title?: string;
+  /** the accessible name when it is not the tooltip (a tooltip that ends in the key of the action, "Snooze (s)", is not what a screen reader should say) */
+  label?: string;
   align?: "left" | "right";
   caret?: boolean;
   /** class of the wrapper (to size the control) */
   wrapClass?: string;
   /** the menu is at least as wide as the button */
   matchWidth?: boolean;
+  /** the button itself is off (greyed, no menu); a surrounding disabled fieldset does the same */
+  disabled?: boolean;
 }) {
   const [open, setOpen] = useState(false);
   const ref = useRef<HTMLDivElement>(null);
@@ -281,7 +361,8 @@ export function Dropdown({
         ref={trigger}
         className={className}
         title={title}
-        aria-label={title}
+        aria-label={label ?? title}
+        disabled={disabled}
         aria-haspopup="menu"
         aria-expanded={open}
         onClick={() => {
@@ -298,7 +379,7 @@ export function Dropdown({
         {children}
         {caret && <ChevronDown size={12} className="caret" />}
       </button>
-      {open && <FloatingMenu anchor={ref} trigger={trigger} items={items} align={align} start={start.current} minWidth={matchWidth ? ref.current?.offsetWidth : undefined} onClose={close} />}
+      {open && !disabled && <FloatingMenu anchor={ref} trigger={trigger} items={items} align={align} start={start.current} minWidth={matchWidth ? ref.current?.offsetWidth : undefined} onClose={close} />}
     </div>
   );
 }
@@ -335,7 +416,7 @@ export function AccountPicker({
         {a.displayName && <span className="ap-addr ellipsis">{a.email}</span>}
       </>
     ) : (
-      <span className="ap-name ellipsis">{none}</span>
+      <span className="ap-name wrap">{none}</span>
     );
   if (accounts.length === 1 && !none) {
     // a single mailbox: nothing to choose, show it as readable text
@@ -375,7 +456,7 @@ export function Switch({ checked, onChange, label, disabled, ariaLabel }: { chec
   );
 }
 
-const FOCUSABLE = 'a[href],button:not(:disabled),input:not(:disabled):not([type=hidden]),select:not(:disabled),textarea:not(:disabled),[contenteditable=true],[tabindex]:not([tabindex="-1"])';
+export const FOCUSABLE = 'a[href],button:not(:disabled),input:not(:disabled):not([type=hidden]),select:not(:disabled),textarea:not(:disabled),[contenteditable=true],[tabindex]:not([tabindex="-1"])';
 
 export function Modal({ title, onClose, children, wide, width }: { title: string; onClose: () => void; children: ReactNode; wide?: boolean; width?: number }) {
   const t = useT();

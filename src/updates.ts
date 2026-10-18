@@ -3,7 +3,8 @@
 import { copyToClipboard, openExternal } from "./open";
 import { stickyTimers } from "./stickyTimers";
 import { create } from "zustand";
-import { api, DlEvent, UpdateInfo, UpdateKind, UpdateResult, UpdateTrigger } from "./api";
+import { api, DlEvent, UpdateInfo, UpdateResult, UpdateTrigger } from "./api";
+import { announceBlocker, flowActive, isStaleOffer, pendingVersion, updateKindOf } from "./updateRules";
 import { t } from "./i18n";
 import { friendlyError, useStore } from "./store";
 import { useFrame } from "./winframe";
@@ -51,7 +52,8 @@ interface UpdatesState {
 
   markStartup: () => void;
   checkUpdate: (trigger: UpdateTrigger) => Promise<void>;
-  announceUpdate: () => void;
+  /** `from`: the trigger of the check this follows; a startup check always leaves a line in startup.log about the toast. */
+  announceUpdate: (from?: UpdateTrigger) => void;
   openSettingsAbout: (manual: boolean) => void;
   startUpdate: (source: "card" | "toast") => Promise<void>;
   cancelUpdate: () => void;
@@ -63,22 +65,10 @@ interface UpdatesState {
   startupCheck: () => Promise<void>;
 }
 
-/** A check that failed (offline / error) but carries the update the app already knew: the offer stays, with a quiet note. */
-export const isStaleOffer = (r: UpdateResult | null): boolean =>
-  !!r && (r.kind === "offline" || r.kind === "error") && !!r.info && r.cachedKind === "available";
+export { isStaleOffer, updateKindOf, flowActive, pendingVersion };
 
-/** The kind that counts for the UI: `throttled` / `disabled` stand for what their cached info says, a stale offer for `available`. */
-export const updateKindOf = (r: UpdateResult | null): UpdateKind | null =>
-  !r ? null : r.kind === "throttled" || r.kind === "disabled" ? (r.info ? r.cachedKind ?? null : null) : isStaleOffer(r) ? "available" : r.kind;
-
-/** A download is running or a package waits: automatic checks stay quiet. */
-export const flowActive = (f: UpdateFlow) => f.state !== "idle" && f.state !== "failed";
-
-/** The newer version the user has not skipped (drives the gear dot, the toast and the chip), else null. */
-export function pendingVersion(update: UpdateResult | null, skipped: string): string | null {
-  const latest = updateKindOf(update) === "available" ? update?.info?.latest ?? null : null;
-  return latest && latest !== skipped ? latest : null;
-}
+/** A line for `startup.log` (tag `update`) about what the page decided; never throws. */
+const note = (text: string) => void api.updateNote(text).catch(() => undefined);
 
 /** Open a link in the browser; if that fails the link is copied and an error toast says so. */
 export async function openUpdateLink(url: string, announce = false) {
@@ -90,7 +80,7 @@ export async function openUpdateLink(url: string, announce = false) {
     // the toast says "copied" only when it was (on Linux it was not, QA BUG-L4)
     const copied = await copyToClipboard(url);
     showToast(
-      copied ? t("updates.toast.openFailedCopied") : t("updates.toast.openFailedNotCopied", { url: url.length > 100 ? url.slice(0, 100) + "…" : url }),
+      () => copied ? t("updates.toast.openFailedCopied") : t("updates.toast.openFailedNotCopied", { url: url.length > 100 ? url.slice(0, 100) + "…" : url }),
       undefined,
       "error",
     );
@@ -140,7 +130,7 @@ export const useUpdates = create<UpdatesState>((set, get) => {
     setFlow({ state: "failed", stage, message, countdown: null, asking: "none", canReinstall: stage === "install", speed: null, eta: null });
     const st = useStore.getState();
     if (windowFocused() && !st.dialog) {
-      st.showToast(t("updates.toast.failed", { version: v ?? "" }), undefined, "error", [{ label: t("updates.action.details"), run: () => get().openSettingsAbout(false) }]);
+      st.showToast(() => t("updates.toast.failed", { version: v ?? "" }), undefined, "error", [{ label: () => t("updates.action.details"), run: () => get().openSettingsAbout(false) }]);
     }
   };
 
@@ -198,10 +188,10 @@ export const useUpdates = create<UpdatesState>((set, get) => {
       setFlow({ state: "ready", countdown: null, asking: variant });
       set({ askedFor: v });
       toast({
-        text: askText(v, variant),
+        text: () => askText(v, variant),
         actions: [
-          { label: t("updates.action.restartNow"), run: () => void get().restartToUpdate() },
-          { label: t("updates.action.later"), run: () => get().deferUpdate() },
+          { label: () => t("updates.action.restartNow"), run: () => void get().restartToUpdate() },
+          { label: () => t("updates.action.later"), run: () => get().deferUpdate() },
         ],
         onDismiss: () => get().deferUpdate(),
       });
@@ -210,10 +200,10 @@ export const useUpdates = create<UpdatesState>((set, get) => {
     let left = 5;
     const show = () =>
       toast({
-        text: t("updates.countdown", { version: v, seconds: left }),
+        text: () => t("updates.countdown", { version: v, seconds: left }),
         actions: [
-          { label: t("updates.action.restartNow"), run: () => void get().restartToUpdate() },
-          { label: t("updates.action.notNow"), run: () => get().deferUpdate() },
+          { label: () => t("updates.action.restartNow"), run: () => void get().restartToUpdate() },
+          { label: () => t("updates.action.notNow"), run: () => get().deferUpdate() },
         ],
         onDismiss: () => get().deferUpdate(),
       });
@@ -321,7 +311,7 @@ export const useUpdates = create<UpdatesState>((set, get) => {
             set({ flow: IDLE, askedFor: null });
           }
         } else {
-          get().announceUpdate();
+          get().announceUpdate(trigger);
         }
         // a check that got an answer clears an old failure (the red chip and the error text) - the offer is shown again
         if (get().flow.state === "failed" && !holdOn && (r.kind === "available" || r.kind === "upToDate" || r.kind === "noRelease")) {
@@ -334,23 +324,28 @@ export const useUpdates = create<UpdatesState>((set, get) => {
       }
     },
 
-    announceUpdate: () => {
+    announceUpdate: (from) => {
       const { update, toastFor, flow } = get();
       const st = useStore.getState();
-      const v = pendingVersion(update, st.prefs.skippedUpdate);
-      const info = update?.info;
       // a stale offer (the last check failed) is no news: no toast from it
       // (an answer of kind `disabled` - automatic checks are off - is a remembered offer, not news: no toast, REQ-18 r3.4)
-      if (!v || !info || toastFor === v || flowActive(flow) || !windowFocused() || isStaleOffer(update) || update?.kind === "disabled") return;
+      const why = announceBlocker(update, toastFor, flow.state, st.prefs.skippedUpdate, windowFocused());
+      const v = pendingVersion(update, st.prefs.skippedUpdate);
+      const info = update?.info;
+      if (why || !v || !info) {
+        if (from === "startup") note(`new-version toast: none after the startup check - ${why ?? "no version"}`);
+        return;
+      }
+      note(`new-version toast: shown for ${v}${from ? ` (after the ${from} check)` : ""}`); // i18n-ok: a line for the log file, not UI text
       set({ toastFor: v });
       // stays until the user closes it (the × or Esc), no timer
       st.setStickyToast("update-available", {
-        text: t("updates.available", { version: v }),
+        text: () => t("updates.available", { version: v }),
         actions: [
-          ...(info.asset ? [{ label: t("updates.action.update"), run: () => void get().startUpdate("toast") }] : []),
-          { label: t("updates.action.whatsNew"), run: () => get().openSettingsAbout(false) },
+          ...(info.asset ? [{ label: () => t("updates.action.update"), run: () => void get().startUpdate("toast") }] : []),
+          { label: () => t("updates.action.whatsNew"), run: () => get().openSettingsAbout(false) },
         ],
-        closeLabel: t("common.close"),
+        closeLabel: () => t("common.close"),
         escCloses: true,
       });
     },
@@ -411,6 +406,12 @@ export const useUpdates = create<UpdatesState>((set, get) => {
         stickyTimer.cancel(RESTART_STOPPED);
         let draftSaved = false;
         const stay = (asking: AskVariant) => setFlow({ state: "ready", countdown: null, asking });
+        // secondary windows (compose / reader pop-outs, src/popout) save what they hold first, each with the bounded wait of a quit; a person who
+        // keeps a window open stops the restart. With no such window open the call answers at once.
+        if (!(await api.popoutSaveAll().catch(() => true))) {
+          void api.updateNote("restart not started: a message window was kept open").catch(() => undefined);
+          return stay("dirty");
+        }
         if (st.compose) {
           if (st.compose.outboxId) {
             // a scheduled message stays scheduled as it was; unsaved edits to it are lost
@@ -452,10 +453,12 @@ export const useUpdates = create<UpdatesState>((set, get) => {
               }
               // discarded: no draft was written, so the result toast after the restart must not say the message is in Drafts
               void api.updateNote(`restart goes on: the draft could not be saved (${error}); the message is discarded`).catch(() => undefined);
+              await useStore.getState().composeEnd?.(); // "Restart and discard": the message must not come back at the next start
               st.setComposeDirty(false);
             } else {
               draftSaved = true;
               st.setComposeDirty(false);
+              await useStore.getState().composeEnd?.(); // (saved: no snapshot is needed; the process ends soon)
             }
           }
           await st.openCompose(null);
@@ -469,7 +472,7 @@ export const useUpdates = create<UpdatesState>((set, get) => {
         }
       } catch (e) {
         // anything else that went wrong before the installer started must not end without a word
-        useStore.getState().setStickyToast(RESTART_STOPPED, { text: t("updates.restartFailed", { error: friendlyError(e).replace(/\.$/, "") }), kind: "error", closeLabel: t("common.close") });
+        useStore.getState().setStickyToast(RESTART_STOPPED, { text: () => t("updates.restartFailed", { error: friendlyError(e).replace(/\.$/, "") }), kind: "error", closeLabel: () => t("common.close") });
         stickyTimer.arm(RESTART_STOPPED);
         void api.updateNote(`restart not started: ${friendlyError(e)}`).catch(() => undefined);
         if (get().flow.state === "waiting") setFlow({ state: "ready", countdown: null, asking: "none" });
@@ -505,13 +508,13 @@ export const useUpdates = create<UpdatesState>((set, get) => {
         const st = useStore.getState();
         const key = "update-result";
         if (s.outcome === "updated") {
-          st.setStickyToast(key, { text: t(s.draft ? "updates.result.updatedDraft" : "updates.result.updated", { version: s.version ?? "" }), kind: "success", closeLabel: t("common.close") });
+          st.setStickyToast(key, { text: () => t(s.draft ? "updates.result.updatedDraft" : "updates.result.updated", { version: s.version ?? "" }), kind: "success", closeLabel: () => t("common.close") });
         } else if (s.outcome === "failed") {
           st.setStickyToast(key, {
-            text: t("updates.result.failed", { version: s.version ?? "" }),
+            text: () => t("updates.result.failed", { version: s.version ?? "" }),
             kind: "error",
-            actions: [{ label: t("updates.action.open"), run: () => get().openSettingsAbout(false) }],
-            closeLabel: t("common.close"),
+            actions: [{ label: () => t("updates.action.open"), run: () => get().openSettingsAbout(false) }],
+            closeLabel: () => t("common.close"),
           });
         } else {
           return;

@@ -54,7 +54,7 @@
     if (pref === 'light' || pref === 'dark') root.setAttribute('data-theme', pref); else root.removeAttribute('data-theme');
     root.setAttribute('data-pref', pref);
     var b = $('#theme-btn');
-    if (b) b.setAttribute('aria-label', t('theme.label', { state: names(pref), next: names(order[(order.indexOf(pref) + 1) % 3]) }));
+    if (b) b.setAttribute('aria-label', t('theme.label.' + pref)); /* one whole sentence per state (state and next theme agree in every language) */
     listeners.theme.forEach(function (f) { f(resolvedTheme()); });
   }
   var pref = root.getAttribute('data-pref') || 'auto';
@@ -86,7 +86,7 @@
       var o = motionOrder(), next = o[(o.indexOf(mpref) + 1) % 3];
       var state = mpref === 'auto' ? t('motion.state.auto', { now: mnames(on ? 'on' : 'off') }) : mnames(mpref);
       b.setAttribute('aria-pressed', on ? 'false' : 'true'); /* pressed = animations are off */
-      b.setAttribute('aria-label', t('motion.label', { state: state, next: next === 'auto' ? t('motion.next.auto') : mnames(next) }));
+      b.setAttribute('aria-label', t('motion.label.' + mpref + '.' + next)); /* one whole sentence per state and next state */
       b.setAttribute('title', t('motion.status', { state: state }));
       var l = $('.m-lbl', b);
       if (!l) { l = document.createElement('span'); l.className = 'm-lbl'; b.appendChild(l); }
@@ -121,6 +121,25 @@
       if (e.key === 'Escape' && nav.classList.contains('open')) { nav.classList.remove('open'); nt.setAttribute('aria-expanded', 'false'); nt.focus(); }
     });
     nav.addEventListener('click', function (e) { if (e.target.closest && e.target.closest('a')) { nav.classList.remove('open'); nt.setAttribute('aria-expanded', 'false'); } });
+  }
+
+  /* ---------- header safety net: above the phone layout the CSS decides when the inline nav gives way to the menu button (measured per language
+     with the Windows fonts). If the nav would still touch the buttons - a wider font on macOS or Linux, a classic scrollbar - the menu button takes over here. ---------- */
+  var hdr = $('.hdr'), hdrR = $('.hdr-r');
+  if (hdr && hdrR && nav && nt) {
+    var fitHeader = function () {
+      hdr.classList.remove('nav-menu');
+      var ncs = getComputedStyle(nav), last = nav.lastElementChild;
+      if (ncs.display === 'none' || ncs.position === 'absolute' || !last) return;
+      var rr = hdrR.getBoundingClientRect(), hin = hdrR.parentNode, pr = parseFloat(getComputedStyle(hin).paddingRight) || 0;
+      if (rr.left - last.getBoundingClientRect().right < 14 || rr.right > hin.getBoundingClientRect().right - pr + 0.5) {
+        hdr.classList.add('nav-menu'); nav.classList.remove('open'); nt.setAttribute('aria-expanded', 'false');
+      }
+    }, fitTimer = 0;
+    fitHeader();
+    window.addEventListener('resize', function () { if (!fitTimer) fitTimer = requestAnimationFrame(function () { fitTimer = 0; fitHeader(); }); });
+    window.addEventListener('load', fitHeader);
+    if (document.fonts && document.fonts.ready) document.fonts.ready.then(fitHeader);
   }
 
   /* ---------- reveal on scroll ---------- */
@@ -238,7 +257,7 @@
   }
 
   /* ---------- 404: GitHub Pages serves one 404.html for every language directory, so the page reads the language from the address
-     (<base>/<dir>/...), loads that dictionary and points its links into that language. Eyes follow the pointer: shared pupils code above. ---------- */
+     (<base>/<dir>/...), loads that dictionary, translates every text of the page (data-i18n: text, data-i18n-aria: aria-label; header, nav and footer too) and points its links into that language. Eyes follow the pointer: shared pupils code above. ---------- */
   if (onNotFound && lg) {
     var basePath = new URL(document.baseURI).pathname, here = location.pathname;
     var seg = here.indexOf(basePath) === 0 ? here.slice(basePath.length).split('/')[0] : '';
@@ -250,6 +269,7 @@
         var hl = cur.getAttribute('hreflang');
         root.setAttribute('lang', hl); LANG = hl.split('-')[0];
         $$('[data-i18n]').forEach(function (el) { el.textContent = t(el.getAttribute('data-i18n')); });
+        $$('[data-i18n-aria]').forEach(function (el) { el.setAttribute('aria-label', t(el.getAttribute('data-i18n-aria'))); });
         document.title = t('nf.title');
         $$('a[href]').forEach(function (a) {
           var h = a.getAttribute('href');
@@ -257,6 +277,9 @@
         });
         $$('.lang-menu a', lg).forEach(function (a) { if (a === cur) a.setAttribute('aria-current', 'true'); else a.removeAttribute('aria-current'); });
         var lc = $('.lang-cur', lg); if (lc) lc.textContent = cur.getAttribute('data-short');
+        var lsum = $('summary', lg), lmenu = $('.lang-menu', lg); /* the menu block is generated (English labels): its labels come from the dictionary here */
+        if (lsum) { lsum.setAttribute('aria-label', t('nf.lang.cur', { lang: cur.textContent, short: cur.getAttribute('data-short') })); lsum.setAttribute('title', t('nf.lang')); }
+        if (lmenu) lmenu.setAttribute('aria-label', t('nf.lang'));
         applyTheme(pref); applyMotion();
       };
       document.head.appendChild(sc404);
@@ -318,7 +341,7 @@
     };
     var fmtSize = function (n) { return n ? (n / 1048576).toFixed(1) + ' MB' : ''; };
     var fill = function (rel, noRelease) {
-      var ver = rel ? rel.tag_name.replace(/^v/, '') : '1.0.3';
+      var ver = rel ? rel.tag_name.replace(/^v/, '') : '1.0.6';
       $$('[data-version]').forEach(function (e) { e.textContent = ver; });
       $$('[data-asset]').forEach(function (box) {
         var key = box.getAttribute('data-asset'), a = null, btn = $('a.btn', box), fn = $('.fn', box), sz = $('.sz', box);

@@ -357,6 +357,8 @@ if (!args.has("--lint-only")) {
   assert.equal(parseCoded("SMTP send failed: permanent error"), null, "an ordinary sentence is not a code");
   assert.equal(backendText("PGP_NO_KEY|email=ann@x.y: whatever"), "You have no PGP key for ann@x.y.");
   assert.equal(backendText("CAL_SEND_FAILED|v=saved|detail=boom: x"), "The event was saved, but the invitations weren't sent: boom");
+  assert.equal(backendText("AI_HTTP|status=500|detail=Model overloaded%3A retry: x"), "The AI Assistant returned an error (500): Model overloaded: retry");
+  assert.equal(backendText("AI_HTTP|v=plain|status=502: x"), "The AI Assistant returned an error (502).", "no provider message: the plain sentence");
   assert.equal(backendText("NOT_A_KNOWN_CODE: text"), null, "an unknown code keeps the backend's text");
   setLangPref("fr");
   assert.equal(backendText("OUTBOX_SENDING: This message is being sent right now."), "Ce message est en cours d’envoi.");
@@ -383,10 +385,12 @@ if (!args.has("--lint-only")) {
     if (HANDLED_ELSEWHERE.has(code)) continue;
     if (!Object.keys(en).some((k) => k === `backend.${code}` || k.startsWith(`backend.${code}.`))) fail(`Rust sends the code ${code} but the dictionary has no backend.${code}`);
   }
+  // codes the UI makes itself, in the same shape, because it gives up before the backend can (src/translateJobs.ts totalTimeoutError)
+  const UI_CODES = new Set(["AI_TIMEOUT_TOTAL"]);
   for (const k of Object.keys(en)) {
     if (!k.startsWith("backend.")) continue;
     const code = k.slice("backend.".length).split(".")[0];
-    if (!rustCodes.has(code)) fail(`${k}: no Rust code sends ${code}`);
+    if (!rustCodes.has(code) && !UI_CODES.has(code)) fail(`${k}: no Rust code sends ${code}`);
   }
   // calendar sync sentences: each one the Rust code can say is recognised by a pattern of BACKEND_ERRORS (else it would stay English)
   const calRust = ["calsync/write.rs", "calsync/cmds.rs"].map((f) => readFileSync(join(rustDir, f), "utf8")).join("\n").split("\n").filter((l) => !/assert|starts_with/.test(l)).join("\n");
@@ -414,7 +418,7 @@ function walk(dir) {
 }
 
 // files that never reach a user (dev mock data, the dictionaries themselves)
-const SKIP = [/[\\/]i18n[\\/]/, /[\\/]devMock/, /[\\/]fakeMail\.ts$/, /[\\/]devDarkCheck\.ts$/, /\.d\.ts$/];
+const SKIP = [/[\\/]i18n[\\/]/, /[\\/]devMock/, /[\\/]fakeMail\.ts$/, /[\\/]devDarkCheck\.ts$/, /[\\/]popout[\\/]devPanel\.tsx$/, /\.d\.ts$/];
 // words that stay as they are in every language
 const KEEP = /^(?:Hey Look!?|IMAP|SMTP|POP3?|OAuth2?|OpenPGP|PGP|S\/MIME|TLS|SSL|STARTTLS|iCloud|Gmail|Outlook|Google|Microsoft|Yahoo|Fastmail|GitHub|GreenMail|Hotmail|Office 365|Microsoft 365|ICS|iCal|HTML|URL|SHA-?\d*|CSV|PDF|JSON|UTC|GMT|Tauri|macOS|Windows|Linux)$/;
 const ATTRS = new Set(["title", "aria-label", "aria-description", "aria-roledescription", "aria-placeholder", "aria-valuetext", "placeholder", "alt", "label", "tooltip", "hint", "caption", "summary"]);

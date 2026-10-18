@@ -1,0 +1,87 @@
+{
+ "base": {
+  "family": "Calibri,Carlito,Arial,sans-serif",
+  "size": 11
+ },
+ "sig": null,
+ "doc": {
+  "type": "doc",
+  "content": [
+   {
+    "type": "paragraph",
+    "content": [
+     {
+      "type": "text",
+      "marks": [
+       {
+        "type": "textStyle",
+        "attrs": {
+         "color": "#FF0000"
+        }
+       }
+      ],
+      "text": "Hostile paste"
+     }
+    ]
+   },
+   {
+    "type": "paragraph"
+   },
+   {
+    "type": "image",
+    "attrs": {
+     "src": "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==",
+     "alt": "shot",
+     "width": 1
+    }
+   },
+   {
+    "type": "paragraph",
+    "content": [
+     {
+      "type": "text",
+      "text": " js js2 data file "
+     },
+     {
+      "type": "text",
+      "marks": [
+       {
+        "type": "link",
+        "attrs": {
+         "href": "HTTPS://Example.com/ok"
+        }
+       }
+      ],
+      "text": "ok"
+     }
+    ]
+   },
+   {
+    "type": "paragraph",
+    "content": [
+     {
+      "type": "text",
+      "text": "fake signature"
+     }
+    ]
+   },
+   {
+    "type": "paragraph",
+    "content": [
+     {
+      "type": "text",
+      "marks": [
+       {
+        "type": "textStyle",
+        "attrs": {
+         "fontFamily": "ab"
+        }
+       }
+      ],
+      "text": "expr"
+     }
+    ]
+   }
+  ]
+ }
+}
