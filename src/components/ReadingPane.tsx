@@ -1,3 +1,4 @@
+import { blockedPictureBox } from "../blockedPicture";
 import { frameCsp, frameSandbox } from "../frameSandbox";
 import { openUpdateLink } from "../updates";
 import { guardFrame } from "../contextGuard";
@@ -74,6 +75,28 @@ function remoteImageUrls(html: string): string[] {
 /** Pictures the sync did not embed: loaded ones become data: URIs, the rest become click-to-load placeholders. */
 function pictureHtml(html: string, m: MessageFull, loaded: Record<string, string>, state: Record<string, { status: "loading" | "failed"; error?: string }>): string {
   const doc = new DOMParser().parseFromString(html, "text/html");
+  // a remote picture that is blocked: a box of the size the mail gave it with an icon and the alt text (nothing at all for a tracking pixel); not announced, not clickable -
+  // the banner above the message ("Show pictures") is the way to load them
+  doc.querySelectorAll("img[data-hl-blocked]").forEach((img) => {
+    const size = blockedPictureBox({ width: img.getAttribute("width"), height: img.getAttribute("height"), style: img.getAttribute("style") });
+    if (size.hidden) return img.remove();
+    const box = doc.createElement("span");
+    box.className = "hl-bp";
+    box.setAttribute("aria-hidden", "true");
+    box.style.width = size.width;
+    box.style.height = size.height;
+    const ico = doc.createElement("span");
+    ico.className = "hl-bp-ico";
+    box.append(ico);
+    const alt = (img.getAttribute("alt") ?? "").trim();
+    if (alt) {
+      const label = doc.createElement("span");
+      label.className = "hl-bp-alt";
+      label.textContent = alt;
+      box.append(label);
+    }
+    img.replaceWith(box);
+  });
   doc.querySelectorAll("img[src^='cid:']").forEach((img) => {
     const cid = (img.getAttribute("src") ?? "").slice(4);
     if (loaded[cid]) {
@@ -230,6 +253,8 @@ function MessageBody({ m, frameRef, dark, onPictures }: { m: MessageFull; frameR
     img{max-width:100%;height:auto;cursor:zoom-in}blockquote{margin:0 0 0 .8ex;border-left:2px solid #999;padding-left:1ex}a{color:var(--hm-link)}table{max-width:100%}
     .hl-ph{display:flex;align-items:center;gap:10px;max-width:100%;width:360px;padding:12px 14px;border:1px dashed #9aa3af;border-radius:10px;background:#f6f7f9;color:#5b6470;font:13px/1.4 "Segoe UI",sans-serif;cursor:pointer;text-align:left;box-sizing:border-box;flex-wrap:wrap}
     .hl-ph:hover{background:#eceef2}.hl-ph b{color:#1f2328}.hl-ph.bad{border-color:#c4314b;color:#c4314b}.hl-ph:disabled{cursor:default}
+    .hl-bp{display:inline-flex;flex-direction:column;align-items:center;justify-content:center;gap:4px;max-width:100%;box-sizing:border-box;overflow:hidden;border:1px dashed #9aa3af;border-radius:6px;background:#f6f7f9;color:#5b6470;font:12px/1.3 "Segoe UI",system-ui,sans-serif;vertical-align:middle;cursor:default}
+    .hl-bp-ico{flex:none;width:20px;height:20px;background:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%235b6470' stroke-width='1.75' stroke-linecap='round' stroke-linejoin='round'%3E%3Crect x='3' y='3' width='18' height='18' rx='2'/%3E%3Ccircle cx='9' cy='9' r='2'/%3E%3Cpath d='m21 15-3.1-3.1a2 2 0 0 0-2.8 0L6 21'/%3E%3C/svg%3E") center/contain no-repeat}.hl-bp-alt{max-width:100%;box-sizing:border-box;padding:0 6px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:12px;color:#5b6470}
     ${lockedNow.current ? CONFIDENTIAL_FRAME_CSS : ""}
     .hl-spin{width:14px;height:14px;border:2px solid #9aa3af;border-top-color:transparent;border-radius:50%;animation:hlspin 1s linear infinite;flex:none}@keyframes hlspin{to{transform:rotate(360deg)}}</style>
     </head><body>${html}<style>html,body{overflow:hidden!important;height:auto!important;min-height:0!important}</style></body></html>`,

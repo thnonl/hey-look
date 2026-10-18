@@ -158,3 +158,9 @@ static | node --experimental-strip-types scripts/test-reveal.mjs
 static | node --experimental-strip-types scripts/test-new-mail-queue.mjs
 # New mail pressed while the mailboxes are not read yet (key c, the tray request kept by the backend) opens one message when they arrive, with the message on the loading screen (the 30 s error case: `--full`)
 ui-a | node scripts/test-new-mail-wait.mjs --require-browser
+# light top bar: the search text and placeholder read at >= 4.5:1 against the search field over both ends of the bar, for the default accent, the presets, the mailbox colours and a sweep of hues
+static | node --experimental-strip-types scripts/test-top-bar-contrast.mjs
+# a blocked remote picture is a box of the size the mail gave it (48 x 48 without a size, nothing for a tracking pixel)
+static | node --experimental-strip-types scripts/test-blocked-picture.mjs
+# the Week view hour height (08:00 to 20:00 fit when the window allows, 32 to 48 px) and the click-to-create time that follows it
+static | node --experimental-strip-types scripts/test-week-hours.mjs

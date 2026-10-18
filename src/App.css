@@ -1348,8 +1348,8 @@ span.spin { display: inline-block; width: 13px; height: 13px; border: 2px solid 
 .wk-dh { position: sticky; top: 0; z-index: 2; background: var(--bg); border-bottom: 1px solid var(--border); padding: 6px 8px; font-size: .82em; color: var(--muted); }
 .wk-dh b { display: block; font-size: 1.5em; color: var(--fg); font-weight: 600; }
 .wk-dh.today b { color: var(--accent-text); }
-.wk-hour { height: 48px; font-size: .74em; color: var(--muted); text-align: right; padding-right: 8px; transform: translateY(-7px); }
-.wk-col { position: relative; border-left: 1px solid var(--border); background: repeating-linear-gradient(to bottom, transparent 0 47px, var(--border) 47px 48px); }
+.wk-hour { height: var(--hour-px, 48px); font-size: .74em; color: var(--muted); text-align: right; padding-right: 8px; transform: translateY(-7px); }
+.wk-col { position: relative; border-left: 1px solid var(--border); background: repeating-linear-gradient(to bottom, transparent 0 calc(var(--hour-px, 48px) - 1px), var(--border) calc(var(--hour-px, 48px) - 1px) var(--hour-px, 48px)); }
 .wk-ev { position: absolute; left: 3px; right: 3px; border-radius: 5px; padding: 3px 6px; font-size: .78em; line-height: 1.3; overflow: hidden; border-left: 3px solid var(--ev, var(--accent)); background: color-mix(in srgb, var(--ev, var(--accent)) 18%, var(--bg)); }
 .wk-ev b { display: block; font-weight: 650; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .now-line { position: absolute; left: 0; right: 0; height: 2px; background: var(--danger); z-index: 1; }
