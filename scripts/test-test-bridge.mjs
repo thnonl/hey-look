@@ -13,7 +13,7 @@ import path from "node:path";
 import http from "node:http";
 import { spawn, spawnSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
-import { bridge, fromStartupLog, BridgeError } from "./test-bridge-client.mjs";
+import { bridge, connection, fromStartupLog, BridgeError } from "./test-bridge-client.mjs";
 
 const ROOT = path.join(path.dirname(fileURLToPath(import.meta.url)), "..");
 const read = (p) => fs.readFileSync(path.join(ROOT, p), "utf8");
@@ -114,6 +114,24 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
   fs.writeFileSync(logFile, `[window +1 ms] other\n[bridge +5 ms] test bridge: listening on 127.0.0.1:4242, token ${"0f".repeat(32)}\n`);
   ok("fromStartupLog", JSON.stringify(fromStartupLog(logFile)) === JSON.stringify({ port: 4242, token: "0f".repeat(32) }));
   fs.rmSync(logFile, { force: true });
+  // a data folder: test-bridge.json first, then startup.log, then stderr.log
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "bridge-dir-"));
+  const tok = (c) => c.repeat(64);
+  const threw = (f) => { try { f(); return null; } catch (e) { return e.message; } };
+  ok("an empty folder says what was tried", /no test bridge found/.test(threw(() => connection(dir)) ?? "") && /test-bridge\.json: not there/.test(threw(() => connection(dir)) ?? ""));
+  fs.writeFileSync(path.join(dir, "stderr.log"), `[bridge +9 ms] test bridge: listening on 127.0.0.1:3003, token ${tok("3")}\n`);
+  ok("stderr.log is the last resort", JSON.stringify(connection(dir)) === JSON.stringify({ port: 3003, token: tok("3") }));
+  fs.writeFileSync(path.join(dir, "startup.log"), `[window +1 ms] other\n[bridge +5 ms] test bridge: listening on 127.0.0.1:2002, token ${tok("2")}\n`);
+  ok("startup.log comes before stderr.log", connection(dir).port === 2002);
+  fs.writeFileSync(path.join(dir, "startup.log"), "[window +1 ms] the log was cut and has no bridge line\n");
+  ok("a startup.log without the line falls through to stderr.log", connection(dir).port === 3003);
+  fs.writeFileSync(path.join(dir, "test-bridge.json"), JSON.stringify({ port: 1001, token: tok("1"), pid: 4242, started: "2026-10-18T10:00:00+00:00" }));
+  const c = connection(dir);
+  ok("test-bridge.json comes first", c.port === 1001 && c.token === tok("1") && c.pid === 4242);
+  ok("a file path works too", connection(path.join(dir, "test-bridge.json")).port === 1001 && connection(path.join(dir, "stderr.log")).port === 3003);
+  fs.writeFileSync(path.join(dir, "test-bridge.json"), "{ not json");
+  ok("a broken test-bridge.json falls through", connection(dir).port === 3003);
+  fs.rmSync(dir, { recursive: true, force: true });
   server.close();
 }
 
@@ -137,12 +155,17 @@ if (!exeArg) {
     let conn = null;
     for (let i = 0; i < 240 && !conn; i++) {
       try {
-        conn = fromStartupLog(path.join(dataDir, "startup.log"));
+        conn = connection(dataDir);
       } catch {
         await sleep(250);
       }
     }
-    ok("startup.log has the listening line", !!conn);
+    ok("the data folder tells where the bridge is", !!conn);
+    if (conn) {
+      const info = JSON.parse(fs.readFileSync(path.join(dataDir, "test-bridge.json"), "utf8"));
+      ok("test-bridge.json has port, token, pid and start", info.port === conn.port && info.token === conn.token && Number.isInteger(info.pid) && info.pid > 0 && !Number.isNaN(Date.parse(info.started)));
+      ok("startup.log has the listening line too", fromStartupLog(path.join(dataDir, "startup.log")).token === conn.token);
+    }
     if (conn) {
       const b = bridge(conn);
       let wins = [];
@@ -151,6 +174,8 @@ if (!exeArg) {
         await sleep(250);
       }
       ok("/windows lists main", wins.some((w) => w.label === "main" && w.kind === "main"));
+      const main = wins.find((w) => w.label === "main");
+      ok("/windows has the logical frame next to the physical one", !!main && Math.abs(main.logicalWidth * main.scale - main.width) <= main.scale && Math.abs(main.logicalHeight * main.scale - main.height) <= main.scale && [main.logicalX, main.logicalY].every(Number.isFinite), JSON.stringify(main));
       let title = null;
       for (let i = 0; i < 60 && !title; i++) {
         title = await b.evalIn("main", "document.title").catch(() => null);

@@ -1,15 +1,16 @@
 // Client of the debug-only test bridge (src-tauri/src/testbridge/): drive and inspect the windows of a DEBUG build of Hey Look! from a script,
 // the way the CDP tests do on Windows. Node 22+ (global fetch), no dependencies.
 //
-//   import { fromStartupLog, bridge } from "./test-bridge-client.mjs";
-//   const b = bridge(fromStartupLog("<data folder>/startup.log"));      // or bridge({ port, token })
+//   import { connection, bridge } from "./test-bridge-client.mjs";
+//   const b = bridge(connection("<data folder>"));      // test-bridge.json, else startup.log, else stderr.log of that folder; or bridge({ port, token })
 //   console.log(await b.list());
 //   console.log(await b.evalIn("main", "document.title"));
 //   await b.click("main", "button[aria-label='Compose']");
 //   await b.snapshot("main", "main.png");
 //
-// The bridge is off unless the app was started with HEYLOOK_TEST_BRIDGE=<port|0>; it logs "test bridge: listening on 127.0.0.1:<port>, token <hex>"
-// to startup.log. See the README of the QA kit (E:\hey-mail\test-builds\bridge\README.md) for the protocol.
+// The bridge is off unless the app was started with HEYLOOK_TEST_BRIDGE=<port|0>; it writes {port, token, pid, started} to test-bridge.json in the data
+// folder (removed when the app ends cleanly) and logs "test bridge: listening on 127.0.0.1:<port>, token <hex>" to startup.log (kept when the log starts
+// over at its size cap). See the README of the QA kit (E:\hey-mail\test-builds\bridge\README.md) for the protocol.
 import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -21,6 +22,31 @@ export function fromStartupLog(logPath) {
   if (!all.length) throw new Error(`no "test bridge: listening" line in ${logPath} (was the app started with HEYLOOK_TEST_BRIDGE=0 ?)`);
   const m = all[all.length - 1];
   return { port: Number(m[1]), token: m[2] };
+}
+
+/** `{ port, token }` from a test-bridge.json (`{ port, token, pid, started }`). */
+export function fromInfoFile(file) {
+  const j = JSON.parse(fs.readFileSync(file, "utf8"));
+  if (!Number.isInteger(j.port) || !/^[0-9a-f]{64}$/.test(String(j.token))) throw new Error(`${file} has no port and token`);
+  return { port: j.port, token: j.token, pid: j.pid, started: j.started };
+}
+
+/**
+ * `{ port, token }` of the bridge of the app that uses the data folder `dir`: test-bridge.json first (written at start), then startup.log, then stderr.log
+ * (the app prints the same line there; a launcher that redirects stderr keeps it). `where` may also be one of those files.
+ */
+export function connection(where) {
+  if (fs.existsSync(where) && fs.statSync(where).isFile()) return /\.json$/i.test(where) ? fromInfoFile(where) : fromStartupLog(where);
+  const tried = [];
+  for (const [name, read] of [["test-bridge.json", fromInfoFile], ["startup.log", fromStartupLog], ["stderr.log", fromStartupLog]]) {
+    const file = path.join(where, name);
+    try {
+      return read(file);
+    } catch (e) {
+      tried.push(`${name}: ${fs.existsSync(file) ? e.message : "not there"}`);
+    }
+  }
+  throw new Error(`no test bridge found in ${where} (${tried.join("; ")}). Was the app started with HEYLOOK_TEST_BRIDGE=0 and HEYLOOK_DATA_DIR=${where} ?`);
 }
 
 export class BridgeError extends Error {
@@ -47,7 +73,7 @@ export function bridge({ port, token, host = "127.0.0.1" }) {
   return {
     port,
     call,
-    /** [{ label, title, visible, focused, x, y, width, height, scale, kind }] */
+    /** [{ label, title, visible, focused, x, y, width, height, logicalX, logicalY, logicalWidth, logicalHeight, scale, kind }] (x ... height: physical pixels; logical*: physical / scale) */
     list: () => call("GET", "/windows"),
     /** Runs `js` in the window. One expression (`document.title`) or the body of an async function (use `return`). Resolves to the value. */
     evalIn: async (window, js, { timeoutMs, awaitPromise } = {}) => (await call("POST", "/eval", { window, js, timeoutMs, awaitPromise })).value,
@@ -68,11 +94,11 @@ export function bridge({ port, token, host = "127.0.0.1" }) {
   };
 }
 
-// command line: node test-bridge-client.mjs <startup.log | port:token> <list | eval WIN JS | click WIN SELECTOR | type WIN TEXT [SELECTOR] | key WIN KEY | console WIN [SINCE] | snapshot WIN FILE>
+// command line: node test-bridge-client.mjs <data folder | test-bridge.json | startup.log | port:token> <list | eval WIN JS | click WIN SELECTOR | type WIN TEXT [SELECTOR] | key WIN KEY | console WIN [SINCE] | snapshot WIN FILE>
 if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
   const [where, cmd, ...rest] = process.argv.slice(2);
   if (where && cmd) {
-    const conn = /^\d+:[0-9a-f]{64}$/.test(where) ? { port: Number(where.split(":")[0]), token: where.split(":")[1] } : fromStartupLog(where);
+    const conn = /^\d+:[0-9a-f]{64}$/.test(where) ? { port: Number(where.split(":")[0]), token: where.split(":")[1] } : connection(where);
     const b = bridge(conn);
     const show = (v) => console.log(typeof v === "string" ? v : JSON.stringify(v, null, 2));
     try {

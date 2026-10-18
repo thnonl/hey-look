@@ -22,6 +22,14 @@ fn kind_of(label: &str) -> &'static str {
     }
 }
 
+/// A physical length in logical pixels, to two decimals (960.0 for a 960 x 560 window on a 2x screen).
+fn logical(physical: impl Into<f64>, scale: f64) -> f64 {
+    if scale <= 0.0 {
+        return physical.into();
+    }
+    (physical.into() / scale * 100.0).round() / 100.0
+}
+
 impl Driver for TauriDriver {
     fn windows(&self) -> Vec<WindowInfo> {
         let mut out: Vec<WindowInfo> = self
@@ -31,6 +39,7 @@ impl Driver for TauriDriver {
             .map(|(label, w)| {
                 let pos = w.outer_position().ok();
                 let size = w.outer_size().ok();
+                let scale = w.scale_factor().unwrap_or(1.0);
                 WindowInfo {
                     title: w.title().unwrap_or_default(),
                     visible: w.is_visible().unwrap_or(false),
@@ -39,7 +48,11 @@ impl Driver for TauriDriver {
                     y: pos.map_or(0, |p| p.y),
                     width: size.map_or(0, |s| s.width),
                     height: size.map_or(0, |s| s.height),
-                    scale: w.scale_factor().unwrap_or(1.0),
+                    logical_x: logical(pos.map_or(0, |p| p.x), scale),
+                    logical_y: logical(pos.map_or(0, |p| p.y), scale),
+                    logical_width: logical(size.map_or(0, |s| s.width), scale),
+                    logical_height: logical(size.map_or(0, |s| s.height), scale),
+                    scale,
                     kind: kind_of(&label).to_string(),
                     label,
                 }

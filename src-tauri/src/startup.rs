@@ -96,19 +96,36 @@ pub fn init_log_dir(dir: std::path::PathBuf) {
 }
 
 fn append(dir: &std::path::Path, line: &str) {
+    let pinned = PINNED.lock().unwrap_or_else(|p| p.into_inner()).clone();
+    append_pinned(dir, line, &pinned);
+}
+
+/// Appends `line`; a log that has grown past `LOG_CAP` starts over, with the `pinned` lines (those of this run that a reader of the file still needs) at its top.
+fn append_pinned(dir: &std::path::Path, line: &str, pinned: &[String]) {
     let path = dir.join("startup.log");
     if std::fs::metadata(&path).map(|m| m.len() > LOG_CAP).unwrap_or(false) {
         let _ = std::fs::remove_file(&path);
+        if let Ok(mut f) = std::fs::OpenOptions::new().create(true).append(true).open(&path) {
+            for p in pinned {
+                let _ = writeln!(f, "{p}");
+            }
+        }
     }
     if let Ok(mut f) = std::fs::OpenOptions::new().create(true).append(true).open(path) {
         let _ = writeln!(f, "{line}");
     }
 }
 
+/// Lines that stay in `startup.log` when it starts over at its cap (see `line_pinned`).
+static PINNED: Mutex<Vec<String>> = Mutex::new(Vec::new());
+
 /// One line per event: `[tag +ms]` (milliseconds since the process started), on stderr and in `<data folder>/startup.log` (capped).
 pub fn line(tag: &str, what: &str) {
     let ms = T0.get_or_init(Instant::now).elapsed().as_millis();
-    let line = format!("[{tag} +{ms} ms] {what}");
+    emit(format!("[{tag} +{ms} ms] {what}"));
+}
+
+fn emit(line: String) {
     eprintln!("{line}");
     match LOG_DIR.get() {
         Some(dir) => append(dir, &line),
@@ -118,6 +135,19 @@ pub fn line(tag: &str, what: &str) {
                 early.push(line);
             }
         }
+    }
+}
+
+/// Like `line`, and the line is kept when the log starts over at its size cap: a reader that needs it (a script that finds the port of a QA run in the log) would else
+/// find a log of two lines after a long session. Few lines only (a handful per run).
+#[cfg(debug_assertions)]
+pub fn line_pinned(tag: &str, what: &str) {
+    let ms = T0.get_or_init(Instant::now).elapsed().as_millis();
+    let text = format!("[{tag} +{ms} ms] {what}");
+    emit(text.clone());
+    let mut p = PINNED.lock().unwrap_or_else(|p| p.into_inner());
+    if p.len() < 8 {
+        p.push(text);
     }
 }
 
@@ -932,6 +962,30 @@ mod tests {
         }
         let text = std::fs::read_to_string(dir.join("startup.log")).unwrap();
         assert!(text.contains("[webview +1 ms] early line"));
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn a_log_that_starts_over_keeps_the_pinned_lines() {
+        let dir = std::env::temp_dir().join(format!("heylook-pinned-log-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let _ = std::fs::remove_file(dir.join("startup.log"));
+        let pinned = vec!["[x +1 ms] kept line".to_string()];
+        append_pinned(&dir, "[x +1 ms] kept line", &pinned);
+        // fill it past the cap
+        for i in 0..800 {
+            append_pinned(&dir, &format!("[filler +{i} ms] {}", "z".repeat(60)), &pinned);
+        }
+        let text = std::fs::read_to_string(dir.join("startup.log")).unwrap();
+        assert!(text.len() < LOG_CAP as usize + 200, "the log was not cut: {} bytes", text.len());
+        assert!(text.contains("[x +1 ms] kept line"), "the pinned line was lost");
+        assert_eq!(text.matches("kept line").count(), 1, "the pinned line is there once");
+        // without pinned lines the log starts over empty, as it always did
+        let _ = std::fs::remove_file(dir.join("startup.log"));
+        for i in 0..800 {
+            append_pinned(&dir, &format!("[filler +{i} ms] {}", "z".repeat(60)), &[]);
+        }
+        assert!(!std::fs::read_to_string(dir.join("startup.log")).unwrap().contains("kept"));
         let _ = std::fs::remove_dir_all(&dir);
     }
 
