@@ -980,7 +980,7 @@ mod tests {
             confidential: false,
             importance: Default::default(),
             recovery_id: None,
-            meeting_form: None,
+            meeting_form: None, answers: None,
         }
     }
 
@@ -1283,6 +1283,61 @@ mod tests {
             // a locked key asks for the passphrase instead of storing something unreadable or too open
             lock_all_now();
             assert_eq!(crate::draft_bytes(&db, &acc, &sealed).unwrap_err(), format!("PGP_LOCKED:{own}"));
+        });
+    }
+
+    /// 1.0.7 W2.22 CF-24: a signed or encrypted message that was built when it was scheduled goes out with the date of the send; the signature stays valid,
+    /// the encrypted one still decrypts, and the Sent copy (the same bytes) has the same date.
+    #[test]
+    fn a_scheduled_signed_message_is_dated_when_it_is_sent() {
+        crate::test_guard::within(60, || {
+            let (c, acc, _g) = setup();
+            let own = add_own(&c, "me@example.com", "my-pass-1234");
+            unlock_key(&load_store(&c).unwrap(), &own, "my-pass-1234", false).unwrap();
+            let (bob, _) = add_contact(&c, "bob@example.com");
+            let signed = seal_for_outbox(&c, &acc, &draft(&acc, &["bob@example.com"], &[], false, true)).unwrap();
+            let encrypted = seal_for_outbox(&c, &acc, &draft(&acc, &["bob@example.com"], &[], true, false)).unwrap();
+            let db = share(c);
+            let b64 = |b: &[u8]| base64::engine::general_purpose::STANDARD.encode(b);
+            let date_of = |raw: &[u8]| {
+                let (h, _) = pgpmail::parse_headers(raw);
+                chrono::DateTime::parse_from_rfc2822(pgpmail::header(&h, "Date").unwrap()).unwrap().timestamp()
+            };
+            // the headers without the Date line, and the part below them
+            let without_date = |raw: &[u8]| String::from_utf8_lossy(raw).split("\r\n").filter(|l| !l.starts_with("Date: ")).collect::<Vec<_>>().join("\r\n");
+            for (name, sealed) in [("signed", &signed), ("encrypted", &encrypted)] {
+                // built "on Monday": the date of the build is long past by the time the send happens
+                let built = base64::engine::general_purpose::STANDARD.decode(sealed.prebuilt.as_ref().unwrap()).unwrap();
+                let monday = chrono::DateTime::parse_from_rfc2822("Mon, 12 Oct 2026 09:00:00 +0000").unwrap();
+                let built = smtp::restamp_date(&built, monday);
+                assert_eq!(date_of(&built), monday.timestamp(), "{name}: the test message is old");
+                let mut d = sealed.clone();
+                d.prebuilt = Some(b64(&built));
+                let before = chrono::Utc::now().timestamp();
+                let (sent, _env) = crate::finished_message(&db, &acc, &d).unwrap();
+                let after = chrono::Utc::now().timestamp();
+                let stamped = date_of(&sent);
+                assert!(stamped >= before - 1 && stamped <= after + 1, "{name}: Date is the send time ({stamped} not in {before}..{after})");
+                assert_eq!(without_date(&sent), without_date(&built), "{name}: nothing but the Date line changed (headers, signature part, ciphertext)");
+                // what a reader makes of it
+                let store = load_store(&lock(&db)).unwrap();
+                let verified = HashSet::new();
+                let ctx = if name == "signed" {
+                    Ctx { unlocked: vec![], locked: vec![], publics: &store.publics, verified: &verified }
+                } else {
+                    Ctx { unlocked: vec![&bob], locked: vec![], publics: &store.publics, verified: &verified }
+                };
+                let o = pgpmail::open(&sent, &ctx);
+                if name == "signed" {
+                    assert_eq!(o.security.signature.as_ref().map(|s| s.status.as_str()), Some("valid"), "the signature still verifies: {:?}", o.security);
+                } else {
+                    assert_eq!(o.security.decryption, "ok", "{:?}", o.security);
+                }
+            }
+            // a plain scheduled message is built when it is sent (the date is the send time without any help)
+            let plain = draft(&acc, &["bob@example.com"], &[], false, false);
+            let (sent, _) = crate::finished_message(&db, &acc, &plain).unwrap();
+            assert!((date_of(&sent) - chrono::Utc::now().timestamp()).abs() < 60);
         });
     }
 

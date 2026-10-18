@@ -352,6 +352,7 @@ export async function openDraftThread(threadId: string, wait = false, o: StartOp
     // the threading headers of the saved draft: an answer that was saved goes out threaded as it would have before
     inReplyTo: rc?.inReplyTo ?? null,
     references: rc?.references ?? [],
+    answers: rc?.answers ?? undefined, // (a reply or forward that was saved: sending it later still flags the original)
     subject: m.subject === "(no subject)" ? "" : m.subject,
     bodyHtml: html ?? `<p>${(m.text ?? "").replace(/\n/g, "<br>")}</p>`,
     replaces: `m:${m.id}`, // the message that was opened: saving or sending replaces that one, not other drafts of the conversation
@@ -502,7 +503,7 @@ function ComposeBody({ init }: { init: ComposeInit }) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
     [],
   );
-  const [sigId, setSigId] = useState<string>(editing ? (draftSig ? "draft-signature" : "none") : "");
+  const [sigId, setSigId] = useState<string>(init.sigId ?? (editing ? (draftSig ? "draft-signature" : "none") : ""));
   const sigManual = useRef(false); // the user picked a signature: it stays until it stops being valid for the From account
   const [sigHeads, setSigHeads] = useState<HTMLElement[]>([]);
   const [aiOpen, setAiOpen] = useState(false);
@@ -905,7 +906,7 @@ function ComposeBody({ init }: { init: ComposeInit }) {
       if (draftSig && sigId === "draft-signature") {
         const same = mySigs.find((s) => normalizeHtml(s.html) === normalizeHtml(draftSig.html));
         if (same) setSigId(same.id);
-      } else if (sigId !== "none" && !sigChoices.some((s) => s.id === sigId)) setSigId(defaultSig() || "none"); // From changed to an account the signature does not belong to
+      } else if (sigId && sigId !== "none" && !sigChoices.some((s) => s.id === sigId)) setSigId(defaultSig() || "none"); // From changed to an account the signature does not belong to (a carried "" stays Automatic)
       return;
     }
     // the From account changed (or the signatures arrived): a picked signature stays while it applies to that account, anything else follows the account's default
@@ -971,6 +972,7 @@ function ComposeBody({ init }: { init: ComposeInit }) {
       text: htmlToText(body),
       inReplyTo: init.inReplyTo ?? null,
       references: init.references ?? [],
+      answers: init.answers,
       attachments: atts,
       inline,
       security: currentSecurity(),
@@ -1004,6 +1006,7 @@ function ComposeBody({ init }: { init: ComposeInit }) {
       importance: d.importance,
       // the toggles as they were when Send was pressed (the draft only knows what is active), the body with its one signature region
       restore: { encrypt: encIntent, sign: signOn, attachKey },
+      sigId, // the picker as it was (Automatic, No signature or a named one), not what the signature found in the built text would make of it (W2.7)
       meeting: d.meeting ? { ...d.meeting, on: true } : undefined,
       meetingForm: decodeMeeting(d.meetingForm) ?? undefined,
     };
@@ -1461,7 +1464,7 @@ function ComposeBody({ init }: { init: ComposeInit }) {
     const withPending = (list: string[], k: "to" | "cc" | "bcc") => addRecipients(list, splitRecipients(pendingRcpt.current[k]));
     const form: RecoveryForm = {
       v: 1, to: withPending(to, "to"), cc: withPending(cc, "cc"), bcc: withPending(bcc, "bcc"), subject, html,
-      inReplyTo: init.inReplyTo ?? null, references: init.references ?? [], replaces: replacesRef(), isReply: !!init.isReply,
+      inReplyTo: init.inReplyTo ?? null, references: init.references ?? [], replaces: replacesRef(), isReply: !!init.isReply, ...(init.answers ? { answers: init.answers } : {}), sigId,
       encrypt: encIntent, sign: signOn, attachKey, confidential, importance: draftImportance(importance),
       ...(meeting ? { meeting: meetingWire(meeting, calTz(prefs)) } : {}),
       ...(composeSeam() ? { win: true as const } : {}),
@@ -1583,7 +1586,7 @@ function ComposeBody({ init }: { init: ComposeInit }) {
       { text: editor?.getText().trim() ?? "", pics: editor ? bodyPictures(editor) : 0, to, cc: cc.length, bcc: bcc.length, subject, atts: atts.length },
       { text: b?.text ?? "", pics: b?.pics ?? 0, to: restored ? [] : init.to ?? [], cc: restored ? 0 : init.cc?.length ?? 0, bcc: restored ? 0 : init.bcc?.length ?? 0, subject: restored ? "" : init.subject ?? "", atts: restored ? 0 : init.attachments?.length ?? 0 },
     );
-    return { hasContent, attaching: attachingRef.current > 0, rev: revRef.current };
+    return { hasContent, attaching: attachingRef.current > 0, rev: revRef.current, pending: !!(pendingRcpt.current.to + pendingRcpt.current.cc + pendingRcpt.current.bcc).trim() };
   };
   const probeRef = useRef(probe);
   probeRef.current = probe;

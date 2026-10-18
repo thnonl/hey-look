@@ -676,6 +676,10 @@ assert.equal(draftKey("t9"), "draft:t9");
   }
   // it asks to be closed through its page: the close request is held back, the window ends itself or goes out of sight
   assert.ok(view.includes("onCloseRequested(") && view.includes("e.preventDefault()"), "the close request is held back until the person answered");
+  const composeSrc = readFileSync(new URL("../src/components/Compose.tsx", import.meta.url), "utf8");
+  const initOf = composeSrc.slice(composeSrc.indexOf("const initOf = ("), composeSrc.indexOf("const reopen = ("));
+  assert.ok(initOf.includes("restore: { encrypt: encIntent, sign: signOn, attachKey },") && /\n\s+sigId, \/\//.test(initOf), "a message moved into a window, back after Undo or reopened after a failed send carries the signature picker (W2.7)");
+  assert.ok(initOf.includes("...init,") && initOf.includes("openedDraft: openedDraft || undefined"), "and the opened-draft mark (W2.2)");
   assert.ok(view.includes("composeEnd?.({ dropDraft: true })") && view.includes("=== false) return false"), "an opened draft that cannot be put back keeps the window open (W2.2)");
   assert.ok(view.includes("emptied: async () => void (await st.getState().composeEnd?.({ emptied: true }))"), "an emptied message drops the copy an autosave made before the window ends (W2.3)");
   assert.ok(view.includes("api.popoutDestroy()") && view.includes("api.popoutPark()"));

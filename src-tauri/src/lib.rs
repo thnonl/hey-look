@@ -3534,6 +3534,8 @@ fn send_now(db: &Db, d: &smtp::Draft) -> R<()> {
     // the Sent copy is byte for byte the DATA the server received (smtp::as_data)
     let (wire, raw) = smtp::as_data(&raw);
     smtp::send_raw(&acc, &smtp_secret(db, &acc)?, &env, wire)?;
+    // the message is out: the one it answers or forwards gets its flag on its own server (in the background; a failure is a line in the log, never the send's)
+    flag_original(db, d);
     let h = acc.smtp_host.to_lowercase();
     let auto_saves = h.contains("gmail") || h.contains("googlemail") || h.contains("office365") || h.contains("outlook");
     if !auto_saves {
@@ -3549,6 +3551,43 @@ fn send_now(db: &Db, d: &smtp::Draft) -> R<()> {
         }
     }
     Ok(())
+}
+
+/// W2.22 CF-18: after an answer or a forward went out, the original gets `\Answered` / `$Forwarded` on the server it is on. Best effort and off the send's
+/// path: its own connection on its own thread, every failure (no connection, the original is gone or was never synced, a server that refuses the keyword)
+/// goes to the log and nothing else. Nothing is shown in the app (the flags are not read back in 1.0.7).
+fn flag_original(db: &Db, d: &smtp::Draft) {
+    let Some(a) = d.answers.clone().filter(draftmail::answers_valid) else { return };
+    let db = db.clone();
+    std::thread::spawn(move || {
+        if let Err(e) = flag_original_now(&db, &a) {
+            startup::line("send", &format!("the original of {} could not be flagged ({}): {e}", a.kind, a.account_id));
+        }
+    });
+}
+
+fn flag_original_now(db: &Db, a: &smtp::Answers) -> R<()> {
+    let acc = db::get_account(&lock(db), &a.account_id)?;
+    let sec = secret(db, &acc)?;
+    let mut s = mail::connect(&acc, &sec)?;
+    let done = flag_on_session(db, &acc, &mut s, a);
+    let _ = s.logout();
+    done
+}
+
+/// The part of `flag_original` that talks to the server: found by its Message-ID in the local store (it may have been archived since), in the folder it is
+/// in now. At most one STORE.
+fn flag_on_session<T: std::io::Read + std::io::Write>(db: &Db, acc: &Account, s: &mut imap::Session<T>, a: &smtp::Answers) -> R<()> {
+    let (role, uid): (String, u32) = lock(db)
+        .query_row(
+            "SELECT folder, uid FROM messages WHERE account_id=?1 AND message_id=?2 AND folder!='drafts' ORDER BY (folder='inbox') DESC, uid DESC LIMIT 1",
+            params![acc.id, a.message_id],
+            |r| Ok((r.get(0)?, r.get(1)?)),
+        )
+        .map_err(|_| "the original is not in the local store (any more)".to_string())?;
+    let folder = fmap(db, &acc.id).get(&role).cloned().ok_or("the folder of the original is unknown")?;
+    let flag = if a.kind == "forwarded" { "$Forwarded" } else { "\\Answered" };
+    mail::store_flag(s, &folder, &[uid], flag, true)
 }
 
 /// Put the copy of a sent message into the account's Sent folder, with the F-14 rule for a missing folder: the saved name first; when
@@ -3589,6 +3628,8 @@ fn store_sent_copy<T: std::io::Read + std::io::Write>(db: &Db, acc: &Account, s:
 fn finished_message(db: &Db, acc: &Account, d: &smtp::Draft) -> R<(Vec<u8>, lettre::address::Envelope)> {
     if let Some(pre) = &d.prebuilt {
         let raw = base64::engine::general_purpose::STANDARD.decode(pre).map_err(err)?;
+        // built when it was scheduled (or held for Undo): it goes out with the date of the send, not the day it was built (W2.22 CF-24)
+        let raw = smtp::restamp_date(&raw, chrono::Local::now().fixed_offset());
         return Ok((raw, smtp::envelope(acc, d)?));
     }
     let sec = d.security.clone().unwrap_or_default();
@@ -3607,6 +3648,7 @@ fn draft_bytes(db: &Db, acc: &Account, d: &smtp::Draft) -> R<Vec<u8>> {
         let mut d = if d.prebuilt.is_some() { pgpstore::unseal_from_outbox(&lock(db), acc, d)? } else { d.clone() };
         // the meeting header is plain text outside the encryption: an encrypted draft keeps its meeting on this computer only (`remember_meeting`)
         d.meeting_form = None;
+        d.answers = None; // (also plain text outside the encryption: an encrypted draft that is sent later does not flag what it answered)
         return Ok(smtp::wire(&pgpstore::build_secure(&lock(db), acc, &d, true)?));
     }
     Ok(smtp::wire(&smtp::build_draft(acc, d)?))
@@ -6748,7 +6790,7 @@ mod importance_tests {
         let d = smtp::Draft {
             account_id: "a1".into(), to: vec!["ann@example.com".into()], cc: vec![], bcc: vec![], subject: "Ship it".into(), html: "<p>x</p>".into(), text: "x".into(),
             in_reply_to: None, references: vec![], attachments: vec![], inline: vec![], security: None, prebuilt: None, meeting: None, calendar: None,
-            confidential: false, importance: High, recovery_id: None, meeting_form: None,
+            confidential: false, importance: High, recovery_id: None, meeting_form: None, answers: None,
         };
         let sent = smtp::build(&acc, &d).unwrap().formatted();
         let p = mail::parse(1, &sent, true, false, 0).unwrap();

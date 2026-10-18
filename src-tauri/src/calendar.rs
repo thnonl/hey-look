@@ -1946,7 +1946,7 @@ END:VCALENDAR
             confidential: false,
             importance: Default::default(),
             recovery_id: None,
-            meeting_form: None,
+            meeting_form: None, answers: None,
         };
         prepare_meeting(&c, &mut d).unwrap();
         let cal = d.calendar.clone().unwrap();
@@ -2354,7 +2354,7 @@ END:VCALENDAR
                 confidential: false,
                 importance: Default::default(),
                 recovery_id: None,
-            meeting_form: None,
+            meeting_form: None, answers: None,
             };
             prepare_meeting(&c, &mut d).unwrap();
             let back = ical::parse(&d.calendar.as_ref().unwrap().ics).unwrap();
@@ -2385,7 +2385,7 @@ END:VCALENDAR
             confidential: false,
             importance: Default::default(),
             recovery_id: None,
-            meeting_form: None,
+            meeting_form: None, answers: None,
         };
         prepare_meeting(&c, &mut d).unwrap();
         let ev = d.calendar.as_ref().unwrap().ics.clone();

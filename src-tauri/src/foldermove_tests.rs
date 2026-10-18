@@ -613,24 +613,30 @@ fn add_to_thread(db: &Db, uid: u32, thread: &str) {
 }
 
 /// The queued move as the app makes it: the messages are read when it is queued; it is run later by the real `run_queued`, against a fake server.
+/// (A `Pending` of its own: the global waiting list is shared by the tests that run side by side.)
 fn queue_and_run(db: &Db, acc: &Account, fake: &Fake, threads: &[&str], action: &str, before_run: impl FnOnce()) -> Vec<String> {
     let thread_ids: Vec<String> = threads.iter().map(|t| t.to_string()).collect();
     let msgs = thread_msgs(&lock(db), &thread_ids).unwrap();
-    let scope = Some("inbox".to_string());
-    let id = queue(thread_ids, Some(msgs), action.into(), None, scope, 0, None);
+    let p = Pending {
+        id: uuid::Uuid::new_v4().to_string(),
+        threads: thread_ids,
+        msgs: Some(msgs),
+        action: action.into(),
+        arg: None,
+        scope: Some("inbox".to_string()),
+        due: std::time::Instant::now(),
+        verify: None,
+    };
     before_run(); // the Undo time: a sync brings in mail, another program moves something
     let mut moved = vec![];
-    for p in take_due(Some(std::time::Instant::now() + std::time::Duration::from_secs(1))).into_iter().filter(|p| p.id == id) {
-        let mut act = |msgs: Vec<MsgRef>, action: &str, dst: Option<&str>, scope: &Option<String>, create: bool| {
-            moved.extend(msgs.iter().map(|m| m.id.clone()));
-            let mut s = fake.connect();
-            let done = act_on_session(db, acc, &mut s, &msgs, action, dst, scope, create);
-            let _ = s.logout();
-            done
-        };
-        run_queued(db, p, &mut act).unwrap();
-        committing_done(&id);
-    }
+    let mut act = |msgs: Vec<MsgRef>, action: &str, dst: Option<&str>, scope: &Option<String>, create: bool| {
+        moved.extend(msgs.iter().map(|m| m.id.clone()));
+        let mut s = fake.connect();
+        let done = act_on_session(db, acc, &mut s, &msgs, action, dst, scope, create);
+        let _ = s.logout();
+        done
+    };
+    run_queued(db, p, &mut act).unwrap();
     moved
 }
 
@@ -720,4 +726,84 @@ fn the_queue_reads_the_messages_when_the_move_is_queued_and_the_run_does_not_res
     for line in ["\"queued {}:", "\"undo {}: {}\"", "\"running {}:", "\"done {}: {}\""] {
         assert!(lib.contains(line), "log line {line}");
     }
+}
+
+// ---- 1.0.7 W2.22 CF-18: a sent reply flags the original \Answered, a sent forward $Forwarded
+
+fn stores(fake: &Fake) -> Vec<String> {
+    fake.commands().into_iter().filter(|c| c.to_uppercase().starts_with("UID STORE")).collect()
+}
+
+fn answers(kind: &str) -> smtp::Answers {
+    smtp::Answers { kind: kind.into(), account_id: ACC.into(), message_id: "<orig@example.org>".into() }
+}
+
+fn flag(db: &Db, acc: &Account, fake: &Fake, a: &smtp::Answers) -> R<()> {
+    let mut s = fake.connect();
+    let done = flag_on_session(db, acc, &mut s, a);
+    let _ = s.logout();
+    done
+}
+
+#[test]
+fn a_sent_reply_flags_the_original_answered() {
+    test_guard::within(60, || {
+        let (db, acc) = setup("cf18-reply", r#"{"inbox":"INBOX","archive":"Archive"}"#, &[7]);
+        lock(&db).execute("UPDATE messages SET message_id='<orig@example.org>' WHERE id='m7'", []).unwrap();
+        let fake = Fake::start(&[("INBOX", &[7]), ("Archive", &[])]);
+        flag(&db, &acc, &fake, &answers("answered")).unwrap();
+        let s = stores(&fake);
+        assert_eq!(s.len(), 1, "{s:?}");
+        assert!(s[0].starts_with("UID STORE 7 ") && s[0].contains("+FLAGS") && s[0].contains("\\Answered") && !s[0].contains("Forwarded"), "{s:?}");
+        // the original was archived meanwhile: it is flagged where it is now
+        lock(&db).execute("UPDATE messages SET folder='archive', uid=3 WHERE id='m7'", []).unwrap();
+        let fake = Fake::start(&[("INBOX", &[]), ("Archive", &[3])]);
+        flag(&db, &acc, &fake, &answers("answered")).unwrap();
+        assert!(stores(&fake)[0].starts_with("UID STORE 3 "), "{:?}", stores(&fake));
+        assert!(fake.commands().iter().any(|c| c.to_uppercase().starts_with("SELECT") && c.contains("Archive")), "{:?}", fake.commands());
+    });
+}
+
+#[test]
+fn a_sent_forward_flags_the_original_forwarded() {
+    test_guard::within(60, || {
+        let (db, acc) = setup("cf18-forward", r#"{"inbox":"INBOX"}"#, &[7]);
+        lock(&db).execute("UPDATE messages SET message_id='<orig@example.org>' WHERE id='m7'", []).unwrap();
+        let fake = Fake::start(&[("INBOX", &[7])]);
+        flag(&db, &acc, &fake, &answers("forwarded")).unwrap();
+        let s = stores(&fake);
+        assert_eq!(s.len(), 1, "{s:?}");
+        assert!(s[0].starts_with("UID STORE 7 ") && s[0].contains("$Forwarded") && !s[0].contains("Answered"), "{s:?}");
+    });
+}
+
+#[test]
+fn a_flag_failure_does_not_fail_the_send() {
+    test_guard::within(60, || {
+        // the original is not in the local store (never synced, or removed): an error for the log, no STORE, no panic
+        let (db, acc) = setup("cf18-gone", r#"{"inbox":"INBOX"}"#, &[7]);
+        let fake = Fake::start(&[("INBOX", &[7])]);
+        assert!(flag(&db, &acc, &fake, &answers("answered")).unwrap_err().contains("not in the local store"));
+        assert!(stores(&fake).is_empty());
+        // the folder of the original is not known any more
+        lock(&db).execute("UPDATE messages SET message_id='<orig@example.org>' WHERE id='m7'", []).unwrap();
+        db::set_setting(&lock(&db), &format!("fmap:{ACC}"), "{}").unwrap();
+        assert!(flag(&db, &acc, &fake, &answers("answered")).is_err());
+        assert!(stores(&fake).is_empty());
+        // a draft whose answers are not valid is not flagged at all (no thread, nothing to log)
+        let mut d = crate::smtp::tests::draft("<p>x</p>", vec![], vec![]);
+        d.answers = Some(smtp::Answers { kind: "answered".into(), account_id: ACC.into(), message_id: "no-brackets".into() });
+        flag_original(&db, &d);
+    });
+    // the send itself: the flag is asked for after the message is out, on its own thread, and its result is not looked at
+    let lib = crate::test_guard::non_test_code(include_str!("lib.rs"));
+    let send = &lib[lib.find("fn send_now(").unwrap()..];
+    let send = &send[..send.find("\n}\n").unwrap()];
+    let out = send.find("smtp::send_raw(").unwrap();
+    let flagged = send.find("flag_original(db, d);").unwrap();
+    assert!(out < flagged, "the flag comes after the SMTP send");
+    assert!(!send.contains("flag_original(db, d)?") && !send.contains("= flag_original("), "its result is not used");
+    let f = &lib[lib.find("fn flag_original(").unwrap()..];
+    let f = &f[..f.find("\n}\n").unwrap()];
+    assert!(f.contains("std::thread::spawn") && !f.contains("-> R<"), "{f}");
 }

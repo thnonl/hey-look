@@ -1,4 +1,4 @@
-import { api, MessageFull, ReplyHeaders } from "./api";
+import { api, AnswersRef, MessageFull, ReplyHeaders } from "./api";
 import { t } from "./i18n";
 import { eff } from "./prefs";
 import { friendlyError, useStore } from "./store";
@@ -101,6 +101,12 @@ export function newMail(o: StartOpts = {}): void {
   newMailQueue.request({ ...o, shift: o.shift ?? shiftNow() }); // (Shift is read now, from the click or key being handled)
 }
 
+/** The original an answer or a forward flags once it is sent: its account and its Message-ID (the header read from the message when known). Null without an id. */
+function answersRef(kind: "answered" | "forwarded", m: MessageFull, headerId: string | null | undefined): AnswersRef | undefined {
+  const messageId = headerId ?? m.messageId;
+  return messageId ? { kind, accountId: m.accountId, messageId } : undefined;
+}
+
 /**
  * `thread`: the conversation the message belongs to (its Message-IDs are the fallback References of the answer); the open one unless the caller
  * answers a conversation that is not open (the list's context menu). `o`: where the answer opens (composeOpen.ts): by the setting and Shift unless
@@ -137,6 +143,8 @@ export async function replyTo(m: MessageFull, all: boolean, thread: MessageFull[
     inReplyTo: h.messageId ?? m.messageId,
     references: h.references,
     isReply: true,
+    // sending this flags the message answered on its server
+    answers: answersRef("answered", m, h.messageId),
     // the sender asked for answers to go to another address than From: Compose says so
     replyNote: viaReplyTo ?? undefined,
     // an answer to confidential mail is confidential too
@@ -172,6 +180,8 @@ export async function forward(m: MessageFull, thread: MessageFull[] = useStore.g
   await startCompose({
     accountId: fromAccountFor(st.accounts, m.accountId, st.prefs.defaultAccount),
     references: h.references,
+    // sending this flags the message forwarded on its server
+    answers: answersRef("forwarded", m, h.messageId),
     subject: /^fwd?:/i.test(subject) ? subject : `Fwd: ${subject}`,
     attachments: files?.attachments,
     bodyHtml: await quoteBlockOf(

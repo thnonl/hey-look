@@ -1,5 +1,5 @@
 import { create } from "zustand";
-import { api, Account, Att, BackfillProgress, CalendarInfo, CalEvent, CalSource, DraftSecurity, FolderInfo, Meeting, MessageFull, OutboxItem, SearchScope, ThreadSummary } from "./api";
+import { api, Account, AnswersRef, Att, BackfillProgress, CalendarInfo, CalEvent, CalSource, DraftSecurity, FolderInfo, Meeting, MessageFull, OutboxItem, SearchScope, ThreadSummary } from "./api";
 import { loadPlatform, usePlatform } from "./platform";
 import { orderAccounts } from "./accountOrder";
 import { hasMailAccounts } from "./mailControls";
@@ -58,6 +58,8 @@ export interface ComposeInit {
    */
   openedDraft?: boolean;
   isReply?: boolean;
+  /** the message this one answers (Reply, Reply all) or forwards: it gets `\Answered` / `$Forwarded` on its server once this one is sent (W2.22 CF-18) */
+  answers?: AnswersRef;
   /** the sender asked for answers to go to `replyTo` instead of the address of From: Compose says so (and offers From) */
   replyNote?: { replyTo: string[]; from: string };
   attachments?: Att[];
@@ -76,6 +78,12 @@ export interface ComposeInit {
    * as in a stored draft), and Encrypt / Sign / public key are as the user had set them.
    */
   restore?: { encrypt: "on" | "off" | "auto"; sign: boolean; attachKey: boolean };
+  /**
+   * What the signature picker showed when this message was taken out of an editor (Undo of a send, a failed send, a move into a window, a crash snapshot):
+   * "" = Automatic, "none" = No signature, else a signature id. Compose starts with exactly that value (W2.7); without it an opened draft derives it from
+   * the signature found in its stored text.
+   */
+  sigId?: string;
   /** send as confidential (an answer to confidential mail starts that way) */
   confidential?: boolean;
   /** a message restored after the app ended unexpectedly: it keeps the id of its snapshot, so the next snapshot replaces it (recovery.ts) */
@@ -1171,7 +1179,8 @@ export const useStore = create<State>((set, get) => ({
     const st = get();
     if (compose && !hasMailAccounts(st.accounts.length)) return; // no account: there is nothing to send with
     // Everything typed was deleted again: nothing to keep, nothing to ask. The copy an autosave made of a new message goes with it (W2.3).
-    const emptied = !!compose && !!st.compose && !st.compose.outboxId && st.composeDirty && st.composeProbe?.().hasContent === false && !st.composeProbe?.().attaching;
+    const probe = st.composeProbe?.();
+    const emptied = !!compose && !!st.compose && !st.compose.outboxId && st.composeDirty && probe?.hasContent === false && !probe.attaching && !probe.pending;
     if (emptied) await get().composeEnd?.({ emptied: true });
     else if (compose && st.compose && st.composeDirty) {
       const choice = await st.choose({

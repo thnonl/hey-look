@@ -9,6 +9,8 @@ export interface ComposeProbe {
   attaching: boolean;
   /** goes up with every edit, so a save can tell whether the person kept typing while it ran */
   rev: number;
+  /** an address was typed in To / Cc / Bcc and not confirmed yet (it is not in `hasContent`, but it is the person's) */
+  pending?: boolean;
 }
 
 /** A draft that was just saved: what the toast needs. */

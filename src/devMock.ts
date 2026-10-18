@@ -276,9 +276,9 @@ function dropMockDraft(ref: string) {
   delete mockDraftRows[tid];
 }
 /** The version of a draft as it was opened, by the reference of the draft the last save made (W2.2: `discard_draft_changes` puts it back). */
-const mockOriginals: Record<string, { thread: typeof messages; row: ReturnType<typeof t>; headers: { to: string[]; cc: string[]; bcc: string[]; inReplyTo?: string | null; references?: string[]; meeting?: string | null } }> = {};
+const mockOriginals: Record<string, { thread: typeof messages; row: ReturnType<typeof t>; headers: { to: string[]; cc: string[]; bcc: string[]; inReplyTo?: string | null; references?: string[]; meeting?: string | null; answers?: unknown } }> = {};
 /** To / Cc / Bcc as the saved draft's headers have them, by message id (`draft_recipients`). */
-const mockDraftHeaders: Record<string, { to: string[]; cc: string[]; bcc: string[]; inReplyTo?: string | null; references?: string[]; meeting?: string | null }> = {};
+const mockDraftHeaders: Record<string, { to: string[]; cc: string[]; bcc: string[]; inReplyTo?: string | null; references?: string[]; meeting?: string | null; answers?: unknown }> = {};
 const dayOf = (sec: number) => Math.floor(sec / 86400);
 /** Repeats for the mock: daily / weekly with BYDAY, from the event's own start. */
 function expandMock(e: MockEvent, from: number, to: number): MockEvent[] {
@@ -1187,7 +1187,7 @@ export function installMock() {
         return { draft: mockDraftOf(o), sendAt: o.sendAt, status: o.status === "pending" || o.status === "overdue" ? "held" : o.status };
       }
       case "list_templates": return [{ id: "tp1", name: "Thanks", subject: "Thanks!", body: "<p>Thanks for your message.</p>" }, { id: "tp2", name: "Quarterly customer success follow-up with a deliberately very long template name", subject: "Follow-up", body: "<p>Hello</p>" }];
-      case "list_signatures": return [{ id: "s1", name: "Work", html: "Nam<br>Hey Look!", isDefault: true }, { id: "s2", name: "Personal signature with a very long name that has to be cut with an ellipsis before it reaches the tag", html: "Nam", isDefault: false }, { id: "s3", accountId: "a2", name: "Gmail", html: "Nam (via Gmail)<br><i>nam@gmail.com</i>", isDefault: true }, { id: "s4", name: "Branded (coloured)", html: '<table style="border-collapse:collapse"><tr><td style="background:#0f6cbd;color:#ffffff;padding:6px 10px;font-weight:600">Hey Look!</td><td style="padding:6px 10px;color:#000000">Nam Hoang<br><span style="color:#444444">Product, <a href="https://example.com" style="color:#0b57d0">example.com</a></span></td></tr></table><p style="background:#fff3bf;color:#5c4400;padding:4px 8px;margin:6px 0 0">A highlighted note in the signature</p>', isDefault: false }];
+      case "list_signatures": return (hashHas("nodefaultsig") ? (l: Array<Record<string, unknown>>) => l.map((x) => ({ ...x, isDefault: false })) : (l: Array<Record<string, unknown>>) => l)([{ id: "s1", name: "Work", html: "Nam<br>Hey Look!", isDefault: true }, { id: "s2", name: "Personal signature with a very long name that has to be cut with an ellipsis before it reaches the tag", html: "Nam", isDefault: false }, { id: "s3", accountId: "a2", name: "Gmail", html: "Nam (via Gmail)<br><i>nam@gmail.com</i>", isDefault: true }, { id: "s4", name: "Branded (coloured)", html: '<table style="border-collapse:collapse"><tr><td style="background:#0f6cbd;color:#ffffff;padding:6px 10px;font-weight:600">Hey Look!</td><td style="padding:6px 10px;color:#000000">Nam Hoang<br><span style="color:#444444">Product, <a href="https://example.com" style="color:#0b57d0">example.com</a></span></td></tr></table><p style="background:#fff3bf;color:#5c4400;padding:4px 8px;margin:6px 0 0">A highlighted note in the signature</p>', isDefault: false }]);
       case "list_senders": return [{ email: "news@ph.com", name: "Product Hunt", count: 42, unread: 12, canUnsubscribe: true, lastDate: now - H }];
       case "list_rules": return [{ id: "r1", accountId: null, name: "Move newsletters", field: "from", op: "contains", value: "newsletter@example.com", action: "archive", arg: null, enabled: true }, { id: "r2", accountId: null, name: "", field: "subject", op: "contains", value: "a very long rule text that should be truncated in the list row", action: "trash", arg: null, enabled: false }];
       case "list_blocked": return [];
@@ -1241,7 +1241,7 @@ export function installMock() {
         mockDrafts[tid] = [{ ...messages[0], id: `a1:drafts:${tid}`, accountId: dr.accountId, folder: "drafts", subject: dr.subject || "(no subject)", fromName: "Nam", fromEmail: "nam@example.com", to: bareOf(dr.to).join(", "), cc: bareOf(dr.cc).join(", "), html: dr.html, text: dr.text, attachments: [], seen: true, ...{ importance: dr.importance ?? "normal" } }];
         // the draft shows up in Drafts; reopening it gives back what was saved, the importance included (the backend reads it from the headers)
         mockDraftRows[tid] = t(tid, dr.subject || "(no subject)", [dr.to[0] ?? "(no recipient)"], dr.text.slice(0, 120), 0, { folder: "drafts", accountId: dr.accountId, importance: dr.importance ?? "normal" });
-        mockDraftHeaders[`a1:drafts:${tid}`] = { to: dr.to, cc: dr.cc, bcc: dr.bcc ?? [], inReplyTo: dr.inReplyTo ?? null, references: dr.references ?? [], meeting: dr.meetingForm ?? null }; // (the private X-HeyLook-Meeting header)
+        mockDraftHeaders[`a1:drafts:${tid}`] = { to: dr.to, cc: dr.cc, bcc: dr.bcc ?? [], inReplyTo: dr.inReplyTo ?? null, references: dr.references ?? [], meeting: dr.meetingForm ?? null, answers: (a.draft as { answers?: unknown }).answers ?? null }; // (the private X-HeyLook-Meeting header)
         mockDraftRefs[`mid:a1|<${tid}@mock>`] = tid;
         (window as unknown as { __draftCount: () => number }).__draftCount = () => Object.keys(mockDrafts).length; // for a check: drafts the page holds
         if (opened) mockOriginals[`mid:a1|<${tid}@mock>`] = opened;

@@ -20,6 +20,8 @@ pub struct DraftRecipients {
     /// its alphabet and size; the interface checks what is in it). From the private header `X-HeyLook-Meeting` of the draft, else from the copy this
     /// computer kept (`remember_meeting`: a server may drop headers it does not know). v1.0.6 QA round 3 BUG-R3-4.
     pub meeting: Option<String>,
+    /// The message this draft answers or forwards (the private header `X-HeyLook-Answers`, W2.22 CF-18): sending the reopened draft flags that message.
+    pub answers: Option<crate::smtp::Answers>,
 }
 
 // ---------------------------------------------------------------------------------------------------------------------------------
@@ -66,6 +68,30 @@ pub fn remember_meeting(c: &rusqlite::Connection, account_id: &str, raw: &[u8], 
 pub fn recall_meeting(c: &rusqlite::Connection, account_id: &str, raw: &[u8]) -> Option<String> {
     let v = crate::db::get_setting(c, &meeting_key(account_id, raw)?)?;
     meeting_blob(v.split_once('|')?.1)
+}
+
+// ---------------------------------------------------------------------------------------------------------------------------------
+// The message a draft answers or forwards (W2.22 CF-18)
+
+/// The private header that carries it: `kind account-id message-id`. Only DRAFT copies have it.
+pub const ANSWERS_HEADER: &str = "X-HeyLook-Answers";
+
+/// Is this something we could have written and that is safe to put in a header and in a local search (no white space, no quote, sane lengths)?
+pub fn answers_valid(a: &crate::smtp::Answers) -> bool {
+    let plain = |s: &str, max: usize| !s.is_empty() && s.len() <= max && !s.chars().any(|c| c.is_control() || c.is_whitespace() || c == '"');
+    matches!(a.kind.as_str(), "answered" | "forwarded") && plain(&a.account_id, 80) && plain(&a.message_id, 400) && a.message_id.starts_with('<') && a.message_id.ends_with('>')
+}
+
+pub fn answers_header_value(a: &crate::smtp::Answers) -> String {
+    format!("{} {} {}", a.kind, a.account_id, a.message_id)
+}
+
+/// The value of the private header, when it is one we wrote.
+pub fn answers_from_header(v: &str) -> Option<crate::smtp::Answers> {
+    let mut it = v.split_whitespace();
+    let (kind, account_id, message_id) = (it.next()?, it.next()?, it.next()?);
+    let a = crate::smtp::Answers { kind: kind.into(), account_id: account_id.into(), message_id: message_id.into() };
+    (it.next().is_none() && answers_valid(&a)).then_some(a)
 }
 
 /// Split a header value at the commas that separate recipients: not inside a quoted string, an angle-bracket address or a comment.
@@ -151,6 +177,7 @@ pub fn recipients(raw: &[u8]) -> DraftRecipients {
         in_reply_to: ids("In-Reply-To").into_iter().next(),
         references: ids("References"),
         meeting: crate::pgpmail::header(&h, MEETING_HEADER).and_then(meeting_blob),
+        answers: crate::pgpmail::header(&h, ANSWERS_HEADER).and_then(answers_from_header),
     }
 }
 

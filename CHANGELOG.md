@@ -24,6 +24,9 @@
 - A new message that was autosaved and then emptied (all text, recipients and files removed) leaves no draft behind when you close it, move to another mail or close its window
 - "Move to Drafts" of an encrypted scheduled message stores the draft for your own key only, like every other draft (it was also encrypted for the recipients); a locked key asks for its passphrase first
 - Delete, Archive and Move act on the messages they were pressed on: a message that arrives in the conversation during the Undo time stays in the Inbox; each queued move, Undo and finished move is written to the log (no subjects or addresses)
+- Undo of a send, a failed send, a message moved into a window and a restored message keep the signature choice (Automatic, a named signature or No signature) instead of turning Automatic into No signature
+- A signed or encrypted message that was scheduled goes out with the date of the send, not the day it was scheduled; a Reply sets Answered and a Forward sets Forwarded on the original on the mail server once the message is sent (other mail programs show these)
+- A draft from before 1.0.6 that forwards a message with a signature keeps your own signature in the signature box
 - A recipient whose key can only sign now reads "their key can only sign, not encrypt" (in the strip and in the recipient's key popover) instead of "no public key"
 
 ## 1.0.6 — 2026-10-18

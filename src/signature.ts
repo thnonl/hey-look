@@ -21,9 +21,10 @@ export function normalizeHtml(html: string): string {
  */
 export function extractSignature(html: string): { html: string; sig: string | null } {
   const doc = parse(html);
-  // the signature of the message being written, not one inside the quoted message of a reply
-  const sigs = [...doc.querySelectorAll("div.sig")].filter((d) => !d.closest("blockquote"));
-  const el = sigs.length ? sigs[sigs.length - 1] : null;
+  // The signature of the message being written, not one inside the quoted or forwarded message: not in a blockquote and not in a `div.hl-quote`.
+  // The FIRST such block: the region is always above the quote, so a forwarded Hey Look! signature further down (a draft from before 1.0.6, whose
+  // forward is a plain `div` without `hl-quote`) can never be taken for the person's own (W2.22 CF-14).
+  const el = [...doc.querySelectorAll("div.sig")].find((d) => !d.closest("blockquote, div.hl-quote")) ?? null;
   if (!el) {
     // no signature in the stored message: the region goes where a new reply has it, above the quoted original (editor/quoteBlock.ts), else at the end
     const q = html.indexOf("<div data-quote-block=");

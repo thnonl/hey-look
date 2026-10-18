@@ -2,7 +2,7 @@
 // with what is left (1.0.6: it saves every snapshot as a real draft and only tells the person, no question). No UI and no Tauri here (the
 // backend is passed in), so the sequence can be tested (scripts/test-recovery.mjs). The storage is src-tauri/src/recover.rs.
 
-import type { Att, Draft } from "./api";
+import type { AnswersRef, Att, Draft } from "./api";
 import { swapPictures } from "./editor/messageBody.ts";
 import { htmlToText } from "./htmlText.ts";
 import { draftImportance, initialImportance } from "./importance.ts";
@@ -30,8 +30,19 @@ export interface RecoveryForm {
   importance?: "high" | "low";
   /** the meeting strip, when "Meeting" was on (BUG-R3-4); left out otherwise and in snapshots of older versions */
   meeting?: MeetingWire;
+  /** the message this one answers or forwards (W2.22 CF-18); left out for a new message and in snapshots of older versions */
+  answers?: AnswersRef;
+  /** the signature picker: "" Automatic, "none", or a signature id (W2.7); left out in snapshots of older versions */
+  sigId?: string;
   /** written in a window of its own: it is restored in one */
   win?: true;
+}
+
+/** The `answers` of a snapshot, when it is one of ours. */
+export function readAnswers(v: unknown): AnswersRef | undefined {
+  const a = v as Partial<AnswersRef> | null;
+  if (!a || typeof a !== "object" || (a.kind !== "answered" && a.kind !== "forwarded")) return undefined;
+  return typeof a.accountId === "string" && a.accountId && typeof a.messageId === "string" && /^<[^\s"<>]+>$/.test(a.messageId) ? { kind: a.kind, accountId: a.accountId, messageId: a.messageId } : undefined;
 }
 
 /** What goes to the backend for one snapshot. `files` is null when the attachments are those of the previous snapshot. */
@@ -190,6 +201,8 @@ export function composeFromSnapshot(l: RecoveryLoaded): ComposeInit | null {
     references: list(f.references),
     replaces: f.replaces ?? undefined,
     isReply: !!f.isReply,
+    answers: readAnswers(f.answers),
+    sigId: typeof f.sigId === "string" ? f.sigId : undefined,
     attachments: l.files,
     // the toggles as they were; the body holds its one signature region, as in a stored draft
     restore: { encrypt: f.encrypt === "on" || f.encrypt === "auto" ? f.encrypt : ("off" as const), sign: !!f.sign, attachKey: !!f.attachKey },
@@ -230,6 +243,7 @@ export function draftFromSnapshot(l: RecoveryLoaded): Draft | null {
     text: htmlToText(swapped.html),
     inReplyTo: init.inReplyTo ?? null,
     references: init.references ?? [],
+    answers: init.answers,
     attachments: l.files,
     inline: swapped.inline.map((i) => ({ cid: i.cid, filename: i.name, mime: i.mime, dataBase64: i.dataBase64 })),
     confidential: init.confidential || undefined,

@@ -53,6 +53,20 @@ pub struct Meeting {
     pub rrule: Option<String>,
 }
 
+/// The message a new one answers or forwards (W2.22 CF-18). After the new message was really sent (the Undo time is over, a scheduled one is due) the original
+/// gets `\Answered` (Reply, Reply all) or `$Forwarded` (Forward) on its own server. It travels in the send payload, in the outbox row of a scheduled message
+/// and, in the private header `X-HeyLook-Answers` (`kind account-id message-id`), in a saved draft, so a reply that is sent later still flags.
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct Answers {
+    /// `answered` or `forwarded`
+    pub kind: String,
+    /// the account the original is in (not necessarily the one the answer is sent from)
+    pub account_id: String,
+    /// the Message-ID header of the original, with its angle brackets
+    pub message_id: String,
+}
+
 #[derive(Serialize, Deserialize, Clone, Debug)]
 #[serde(rename_all = "camelCase")]
 pub struct Draft {
@@ -101,6 +115,9 @@ pub struct Draft {
     /// `X-HeyLook-Meeting` of the draft so that a reopened draft shows its meeting again (v1.0.6 QA round 3 BUG-R3-4). Never part of a message that is sent.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub meeting_form: Option<String>,
+    /// The message this one answers or forwards: it gets its server flag once this one is sent (see `Answers`). Old queued items have no field.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub answers: Option<Answers>,
 }
 
 /// Outlook's Sensitivity header. Lettre has no typed header for it.
@@ -277,6 +294,7 @@ raw_recipients!(RawTo, "To");
 raw_recipients!(RawCc, "Cc");
 raw_recipients!(RawBcc, "Bcc");
 raw_recipients!(RawMeeting, "X-HeyLook-Meeting");
+raw_recipients!(RawAnswers, "X-HeyLook-Answers");
 
 /// `lenient`: for a DRAFT. A draft is saved as it is: no recipient, a half-typed one, an empty subject all save. lettre derives the
 /// SMTP envelope from the recipient headers and refuses a message without one ("missing destination address, invalid envelope"), so
@@ -313,6 +331,10 @@ fn headers(acc: &Account, d: &Draft, lenient: bool) -> R<lettre::message::Messag
         // the meeting of the message (a private header, DRAFT copies only: `headers(.., false)`, the one a message is sent with, never writes it)
         if let Some(blob) = d.meeting_form.as_deref().and_then(crate::draftmail::meeting_blob) {
             b = b.header(RawMeeting(crate::draftmail::meeting_header_value(&blob)));
+        }
+        // the message this one answers or forwards (a private header, DRAFT copies only): a reply that is sent from the reopened draft still flags it
+        if let Some(a) = d.answers.as_ref().filter(|a| crate::draftmail::answers_valid(a)) {
+            b = b.header(RawAnswers(crate::draftmail::answers_header_value(a)));
         }
         // each list: typed addresses when every entry is one, else the text as written
         let all_ok = |l: &[String]| l.iter().all(|t| parse_mailbox(t).is_ok());
@@ -657,6 +679,40 @@ pub fn as_data(raw: &[u8]) -> (&[u8], Vec<u8>) {
     (wire, copy)
 }
 
+/// The date of a header as RFC 5322 writes it ("Mon, 19 Oct 2026 08:00:00 +0700").
+pub fn rfc5322_date(at: chrono::DateTime<chrono::FixedOffset>) -> String {
+    at.format("%a, %d %b %Y %H:%M:%S %z").to_string()
+}
+
+/// The message with its top-level `Date:` header set to `at` (1.0.7 W2.22 CF-24). A scheduled message that is signed or encrypted is built when it is
+/// scheduled (`pgpstore::seal_for_outbox`), so it would go out with the date of the day it was scheduled on; this puts the time of the send in. Only the
+/// header block of the message itself is read and rewritten: everything after it (the PGP/MIME signature covers the part below the headers, never
+/// these) is returned byte for byte. A message without a `Date:` header is returned as it is.
+pub fn restamp_date(raw: &[u8], at: chrono::DateTime<chrono::FixedOffset>) -> Vec<u8> {
+    let head_end = raw.windows(4).position(|w| w == b"\r\n\r\n").map(|p| p + 2).unwrap_or(raw.len());
+    let (head, rest) = raw.split_at(head_end);
+    let mut out = Vec::with_capacity(raw.len() + 16);
+    let mut replaced = false;
+    let mut i = 0;
+    while i < head.len() {
+        // one header: its first line and the folded lines that follow (they start with a space or a tab)
+        let mut end = head[i..].windows(2).position(|w| w == b"\r\n").map(|p| i + p + 2).unwrap_or(head.len());
+        while end < head.len() && (head[end] == b' ' || head[end] == b'\t') {
+            end = head[end..].windows(2).position(|w| w == b"\r\n").map(|p| end + p + 2).unwrap_or(head.len());
+        }
+        let line = &head[i..end];
+        if !replaced && line.len() >= 5 && line[..5].eq_ignore_ascii_case(b"date:") {
+            out.extend_from_slice(format!("Date: {}\r\n", rfc5322_date(at)).as_bytes());
+            replaced = true;
+        } else {
+            out.extend_from_slice(line);
+        }
+        i = end;
+    }
+    out.extend_from_slice(rest);
+    out
+}
+
 /// Send an already finished message (encrypted/signed ones are built once, at schedule time).
 pub fn send_raw(acc: &Account, secret: &str, env: &lettre::address::Envelope, raw: &[u8]) -> R<()> {
     send_raw_with(acc, secret, env, raw, SEND_TIMEOUT)
@@ -799,6 +855,7 @@ pub(crate) mod tests {
             importance: Default::default(),
             recovery_id: None,
             meeting_form: None,
+            answers: None,
         }
     }
 
@@ -813,6 +870,61 @@ pub(crate) mod tests {
 
     fn text(m: &Message) -> String {
         String::from_utf8_lossy(&m.formatted()).into_owned()
+    }
+
+    fn at(s: &str) -> chrono::DateTime<chrono::FixedOffset> {
+        chrono::DateTime::parse_from_rfc2822(s).unwrap()
+    }
+
+    /// 1.0.7 W2.22 CF-24: only the Date of the message's own header block is replaced; everything else is byte for byte what it was.
+    #[test]
+    fn restamping_changes_the_date_header_and_nothing_else() {
+        let raw = b"From: a@example.com\r\nDate: Mon, 12 Oct 2026 09:00:00 +0000\r\nSubject: Date: not this\r\nContent-Type: multipart/signed;\r\n boundary=\"b\"\r\n\r\n--b\r\nDate: Tue, 13 Oct 2026 10:00:00 +0000\r\n\r\nbody\r\n--b--\r\n";
+        let out = restamp_date(raw, at("Fri, 16 Oct 2026 15:30:05 +0700"));
+        let t = String::from_utf8(out.clone()).unwrap();
+        assert!(t.starts_with("From: a@example.com\r\nDate: Fri, 16 Oct 2026 15:30:05 +0700\r\nSubject: Date: not this\r\n"), "{t}");
+        // the part below the headers (what a signature covers) is untouched, a Date line inside it too
+        let body_at = |b: &[u8]| b.windows(4).position(|w| w == b"\r\n\r\n").unwrap();
+        assert_eq!(out[body_at(&out)..], raw[body_at(raw)..]);
+        assert!(t.contains("\r\nDate: Tue, 13 Oct 2026 10:00:00 +0000\r\n\r\nbody"));
+        // a folded Date goes whole, the headers after it stay
+        let folded = b"Date: Mon, 12 Oct\r\n 2026 09:00:00 +0000\r\nTo: b@example.com\r\n\r\nx";
+        assert_eq!(String::from_utf8(restamp_date(folded, at("Fri, 16 Oct 2026 15:30:05 +0000"))).unwrap(), "Date: Fri, 16 Oct 2026 15:30:05 +0000\r\nTo: b@example.com\r\n\r\nx");
+        // lower case name; no Date header: as it is
+        assert!(String::from_utf8(restamp_date(b"date: x\r\n\r\n", at("Fri, 16 Oct 2026 15:30:05 +0000"))).unwrap().starts_with("Date: Fri, 16 Oct 2026 15:30:05 +0000\r\n"));
+        assert_eq!(restamp_date(b"To: b@example.com\r\n\r\nDate: x\r\n", at("Fri, 16 Oct 2026 15:30:05 +0000")), b"To: b@example.com\r\n\r\nDate: x\r\n");
+        // a message built here parses back with the new date
+        let built = wire(&build(&account(), &draft("<p>Hi</p>", vec![], vec![])).unwrap());
+        let stamped = restamp_date(&built, at("Fri, 16 Oct 2026 15:30:05 +0700"));
+        let parsed = mail_parser::MessageParser::default().parse(&stamped).unwrap();
+        assert_eq!(parsed.date().map(|d| d.to_timestamp()), Some(at("Fri, 16 Oct 2026 15:30:05 +0700").timestamp()));
+    }
+
+    /// W2.22 CF-18: the private header of a draft carries the message it answers (never a message that is sent); a bad value is not read back.
+    #[test]
+    fn a_draft_names_the_message_it_answers_and_a_sent_message_does_not() {
+        let mut d = draft("<p>Hi</p>", vec![], vec![]);
+        d.answers = Some(Answers { kind: "answered".into(), account_id: "acc-1".into(), message_id: "<orig@example.org>".into() });
+        let saved = String::from_utf8(wire(&build_draft(&account(), &d).unwrap())).unwrap();
+        assert!(saved.contains("X-HeyLook-Answers: answered acc-1 <orig@example.org>"), "{saved}");
+        let back = crate::draftmail::recipients(saved.as_bytes()).answers;
+        assert_eq!(back, d.answers);
+        let sent = String::from_utf8(wire(&build(&account(), &d).unwrap())).unwrap();
+        assert!(!sent.to_lowercase().contains("x-heylook-answers"), "{sent}");
+        // not ours: nothing is written, nothing is read
+        for bad in [("answered", "a b", "<x@y>"), ("replied", "a", "<x@y>"), ("answered", "a", "x@y"), ("forwarded", "a", "<x y@z>")] {
+            d.answers = Some(Answers { kind: bad.0.into(), account_id: bad.1.into(), message_id: bad.2.into() });
+            assert!(!String::from_utf8(wire(&build_draft(&account(), &d).unwrap())).unwrap().contains("X-HeyLook-Answers"), "{bad:?}");
+        }
+        assert_eq!(crate::draftmail::answers_from_header("answered a <x@y> extra"), None);
+        // the send payload (the outbox row) keeps it, with the camelCase names the page uses, and an old row has none
+        d.answers = Some(Answers { kind: "forwarded".into(), account_id: "acc-1".into(), message_id: "<orig@example.org>".into() });
+        let json = serde_json::to_string(&d).unwrap();
+        assert!(json.contains(r#""answers":{"kind":"forwarded","accountId":"acc-1","messageId":"<orig@example.org>"}"#), "{json}");
+        assert_eq!(serde_json::from_str::<Draft>(&json).unwrap().answers, d.answers);
+        let mut plain = serde_json::to_value(draft("<p>Hi</p>", vec![], vec![])).unwrap();
+        plain.as_object_mut().unwrap().remove("answers");
+        assert!(serde_json::from_value::<Draft>(plain).unwrap().answers.is_none());
     }
 
     /// A draft saves whatever the person has typed so far (QA BUG-7: "missing destination address, invalid envelope"); a message that is

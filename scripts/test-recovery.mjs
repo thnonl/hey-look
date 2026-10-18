@@ -328,4 +328,15 @@ function start(snaps, over = {}) {
   assert.equal(composeFromSnapshot({ ...l, payload: JSON.stringify({ to: [] }) }), null, "no html: unreadable");
 }
 
+// 16. 1.0.7 W2.7: the signature picker comes back as it was (Automatic = "", No signature = "none", or a signature id); an older snapshot has none
+{
+  const form = { v: 1, to: ["a@x.org"], cc: [], bcc: [], subject: "S", html: "<p>Hi</p>", inReplyTo: null, references: [], replaces: null, isReply: false, encrypt: "off", sign: false, attachKey: false, confidential: false };
+  const load = (extra) => composeFromSnapshot({ id: "r2", accountId: "a1", savedAt: 1, payload: JSON.stringify({ ...form, ...extra }), files: [] });
+  assert.equal(load({ sigId: "" }).sigId, "", "Automatic is kept (not turned into No signature)");
+  assert.equal(load({ sigId: "none" }).sigId, "none");
+  assert.equal(load({ sigId: "s-42" }).sigId, "s-42");
+  assert.equal(load({}).sigId, undefined, "a snapshot of an older version: the picker is worked out from the text as before");
+  assert.equal(load({ sigId: 5 }).sigId, undefined, "anything that is not text is ignored");
+}
+
 console.log("recovery: ok");
