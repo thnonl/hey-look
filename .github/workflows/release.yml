@@ -3,8 +3,10 @@ name: Release
 # Tag vX.Y.Z (numbers only): build signed installers for Windows, macOS and Linux, attach them to a draft GitHub Release,
 # write and check the updater manifest (latest.json), then publish the release as the latest one.
 # Manual run (workflow_dispatch) = dry run on the chosen ref: builds the chosen platforms (input `platforms`, default all three)
-# and keeps the bundles as workflow artifacts. It creates no tag and no release. It is signed when the repo secret
-# TAURI_SIGNING_PRIVATE_KEY exists. The signed dry run on the commit that will be tagged uses `platforms: all`.
+# and keeps the bundles as workflow artifacts. It creates no tag and no release. A dry run NEVER sees a production secret: the update key,
+# the Apple certificate, the OAuth client secrets and the SignPath token belong to the GitHub Environment `release` (deployment rule: v* tags
+# only) and every step reads them only on a tag run, so a dry run is built unsigned (update signatures off, macOS ad-hoc signed, no OAuth
+# client ids in the app). The signed path (update signatures, macOS self-signed certificate) is exercised by the tag run only.
 # With `test_version` (for example 0.9.0) it builds a DEBUG test build of that version (never signed, nothing committed):
 # the debug build honours HEYLOOK_UPDATE_ENDPOINT, so it can be pointed at a local latest.json to test the in-app update.
 # Use `platforms` there for just the system that is being tested (windows, macos, linux, or a list such as windows,macos).
@@ -27,13 +29,19 @@ on:
         required: false
         default: "all"
       sign_windows:
-        description: "Dry run only: also sign the Windows installers with SignPath (needs the SIGNPATH_* settings; waits for your approval there)"
+        description: "No effect any more: the SignPath token belongs to the environment release and is only given to tag runs"
         required: false
         default: "false"
 
 # Least privilege: read-only by default; every job that needs more says so itself.
 permissions:
   contents: read
+
+env:
+  # The Rust compiler of every build and test job, exactly. A new Rust release must not change the shipped binary between the
+  # last dry run and the tag run. To bump: change it here, run a dry run (platforms=all, all 823+ cargo tests and the three builds must
+  # pass), commit. rustfmt and clippy are not used in CI, so no components are installed.
+  RUST_VERSION: "1.99.1"
 
 # One run per ref and kind at a time. A newer manual run of the same kind (and the same platforms) on the same ref cancels the one
 # that is still building; a tag run is never cancelled.
@@ -207,7 +215,7 @@ jobs:
 
       - uses: dtolnay/rust-toolchain@b725eda525362e7cf34af9a7243cac1e3f01a7ec # stable branch (a SHA pin needs the toolchain named)
         with:
-          toolchain: stable
+          toolchain: ${{ env.RUST_VERSION }}
 
       - uses: swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
         with:
@@ -235,6 +243,7 @@ jobs:
     runs-on: ${{ matrix.platform }}
     # a cold-cache tag build of the macOS universal app takes about 24 minutes; a hung job must not run for the 6 hour default
     timeout-minutes: 60
+    environment: ${{ github.event_name == 'push' && 'release' || '' }}
     permissions:
       contents: write # tauri-action uploads the installers into the draft release (tag runs only; a job cannot ask for this per event)
 
@@ -258,7 +267,7 @@ jobs:
 
       - uses: dtolnay/rust-toolchain@b725eda525362e7cf34af9a7243cac1e3f01a7ec # stable branch (a SHA pin needs the toolchain named)
         with:
-          toolchain: stable
+          toolchain: ${{ env.RUST_VERSION }}
           targets: ${{ runner.os == 'macOS' && 'aarch64-apple-darwin,x86_64-apple-darwin' || '' }}
 
       - uses: swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
@@ -274,7 +283,7 @@ jobs:
         id: sign
         shell: bash
         env:
-          KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          KEY: ${{ github.event_name == 'push' && secrets.TAURI_SIGNING_PRIVATE_KEY || '' }}
           TEST_VERSION: ${{ github.event.inputs.test_version }}
           EVENT: ${{ github.event_name }}
         run: |
@@ -306,6 +315,21 @@ jobs:
             echo "signed=false" >> "$GITHUB_OUTPUT"
             echo "profile=release" >> "$GITHUB_OUTPUT"
           fi
+
+      # A tag run without the OAuth client ids would ship an app that cannot sign in to Google / Microsoft. The ids are embedded at build
+      # time (src-tauri/build.rs). Names only, values are never printed.
+      - name: OAuth client ids present (tag runs)
+        if: github.event_name == 'push'
+        shell: bash
+        env:
+          GOOGLE_CLIENT_ID: ${{ secrets.GOOGLE_CLIENT_ID }}
+          MICROSOFT_CLIENT_ID: ${{ secrets.MICROSOFT_CLIENT_ID }}
+        run: |
+          bad=0
+          for n in GOOGLE_CLIENT_ID MICROSOFT_CLIENT_ID; do
+            if [ -z "${!n}" ]; then echo "::error::$n is not set (add it to the environment 'release'): the release app would have no sign-in"; bad=1; fi
+          done
+          exit $bad
 
       # Test build only: the version of this checkout is changed (never committed).
       - name: Set test version
@@ -350,14 +374,14 @@ jobs:
           EVENT: ${{ github.event_name }}
           TEST_VERSION: ${{ github.event.inputs.test_version }}
           REQUIRE: ${{ vars.REQUIRE_MAC_SIGNING }}
-          APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
-          APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
-          APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
-          APPLE_API_ISSUER: ${{ secrets.APPLE_API_ISSUER }}
-          APPLE_API_KEY: ${{ secrets.APPLE_API_KEY }}
-          APPLE_API_PRIVATE_KEY: ${{ secrets.APPLE_API_PRIVATE_KEY }}
-          APPLE_ID: ${{ secrets.APPLE_ID }}
-          APPLE_PASSWORD: ${{ secrets.APPLE_PASSWORD }}
+          APPLE_CERTIFICATE: ${{ github.event_name == 'push' && secrets.APPLE_CERTIFICATE || '' }}
+          APPLE_CERTIFICATE_PASSWORD: ${{ github.event_name == 'push' && secrets.APPLE_CERTIFICATE_PASSWORD || '' }}
+          APPLE_SIGNING_IDENTITY: ${{ github.event_name == 'push' && secrets.APPLE_SIGNING_IDENTITY || '' }}
+          APPLE_API_ISSUER: ${{ github.event_name == 'push' && secrets.APPLE_API_ISSUER || '' }}
+          APPLE_API_KEY: ${{ github.event_name == 'push' && secrets.APPLE_API_KEY || '' }}
+          APPLE_API_PRIVATE_KEY: ${{ github.event_name == 'push' && secrets.APPLE_API_PRIVATE_KEY || '' }}
+          APPLE_ID: ${{ github.event_name == 'push' && secrets.APPLE_ID || '' }}
+          APPLE_PASSWORD: ${{ github.event_name == 'push' && secrets.APPLE_PASSWORD || '' }}
           APPLE_TEAM_ID: ${{ vars.APPLE_TEAM_ID }}
         run: |
           set -euo pipefail
@@ -383,6 +407,12 @@ jobs:
             { echo "$1<<$d"; printf '%s\n' "$2"; echo "$d"; } >> "$GITHUB_ENV"
           }
           cert_missing=$(missing APPLE_CERTIFICATE APPLE_CERTIFICATE_PASSWORD APPLE_SIGNING_IDENTITY)
+          if [ -n "$cert_missing" ] && [ "$EVENT" = push ]; then
+            # the secrets live in the environment `release`; one that was forgotten there would otherwise ship an ad-hoc signed app, which
+            # changes the signing identity of the app (and makes the Keychain ask again)
+            echo "::error::tag run without the full macOS signing secrets (missing: $cert_missing). Add them to the environment 'release'."
+            exit 1
+          fi
           if [ -n "$cert_missing" ]; then
             if [ "$cert_missing" = "APPLE_CERTIFICATE APPLE_CERTIFICATE_PASSWORD APPLE_SIGNING_IDENTITY" ]; then
               if [ "$strict" = true ]; then problem "the Apple signing secrets are not all set"; fi
@@ -465,13 +495,13 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           # Embedded into the binary at build time (see src-tauri/build.rs).
-          GOOGLE_CLIENT_ID: ${{ secrets.GOOGLE_CLIENT_ID }}
-          GOOGLE_CLIENT_SECRET: ${{ secrets.GOOGLE_CLIENT_SECRET }}
-          MICROSOFT_CLIENT_ID: ${{ secrets.MICROSOFT_CLIENT_ID }}
-          MICROSOFT_CLIENT_SECRET: ${{ secrets.MICROSOFT_CLIENT_SECRET }}
+          GOOGLE_CLIENT_ID: ${{ github.event_name == 'push' && secrets.GOOGLE_CLIENT_ID || '' }}
+          GOOGLE_CLIENT_SECRET: ${{ github.event_name == 'push' && secrets.GOOGLE_CLIENT_SECRET || '' }}
+          MICROSOFT_CLIENT_ID: ${{ github.event_name == 'push' && secrets.MICROSOFT_CLIENT_ID || '' }}
+          MICROSOFT_CLIENT_SECRET: ${{ github.event_name == 'push' && secrets.MICROSOFT_CLIENT_SECRET || '' }}
           # Signs the update packages (minisign). Only this step gets the key.
-          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
-          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+          TAURI_SIGNING_PRIVATE_KEY: ${{ github.event_name == 'push' && secrets.TAURI_SIGNING_PRIVATE_KEY || '' }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ github.event_name == 'push' && secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD || '' }}
         with:
           # Upload into the draft made by create-release. Empty on dry runs: build only, upload nothing.
           releaseId: ${{ needs.create-release.outputs.id }}
@@ -556,6 +586,7 @@ jobs:
         with:
           name: windows-unsigned
           path: unsigned/*
+          retention-days: 1
           if-no-files-found: error
 
       # tauri-action keeps only the installers as workflow artifacts: keep the updater signatures of a dry run too, and the
@@ -569,7 +600,7 @@ jobs:
             src-tauri/target/**/bundle/**/*.sig
             src-tauri/target/**/bundle/macos/*.app.tar.gz
           if-no-files-found: ${{ steps.sign.outputs.signed == 'true' && 'error' || 'ignore' }}
-          retention-days: 14
+          retention-days: 1
 
       - name: Check ad-hoc signature
         if: runner.os == 'macOS' && steps.apple.outputs.signed != 'true'
@@ -589,7 +620,7 @@ jobs:
         if: runner.os == 'macOS' && steps.apple.outputs.kind == 'self-signed'
         env:
           PROFILE: ${{ steps.sign.outputs.profile }}
-          IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
+          IDENTITY: ${{ github.event_name == 'push' && secrets.APPLE_SIGNING_IDENTITY || '' }}
         run: |
           bundle="src-tauri/target/universal-apple-darwin/$PROFILE/bundle"
           app=$(find "$bundle/macos" -maxdepth 1 -name '*.app' | head -n 1)
@@ -671,6 +702,7 @@ jobs:
     if: ${{ !cancelled() && needs.plan.outputs.signpath == 'true' && needs.build.result == 'success' && contains(fromJSON('["success","skipped"]'), needs.node-tests.result) && contains(fromJSON('["success","skipped"]'), needs.rust-tests.result) && (needs.create-release.result == 'success' || needs.create-release.result == 'skipped') }}
     runs-on: windows-latest
     timeout-minutes: 180
+    environment: ${{ github.event_name == 'push' && 'release' || '' }}
     permissions:
       contents: write
       actions: read
@@ -685,7 +717,7 @@ jobs:
         id: cfg
         shell: bash
         env:
-          TOKEN: ${{ secrets.SIGNPATH_API_TOKEN }}
+          TOKEN: ${{ github.event_name == 'push' && secrets.SIGNPATH_API_TOKEN || '' }}
           REQUIRE: ${{ vars.REQUIRE_WIN_SIGNING }}
           EVENT: ${{ github.event_name }}
         run: |
@@ -720,13 +752,14 @@ jobs:
         with:
           name: windows-for-signpath
           path: unsigned/*
+          retention-days: 1
           if-no-files-found: error
 
       - name: Sign with SignPath
         if: steps.cfg.outputs.enabled == 'true'
         uses: signpath/github-action-submit-signing-request@f6d04783b4569d051e0c80105fe66e82819d0092 # v3.0
         with:
-          api-token: ${{ secrets.SIGNPATH_API_TOKEN }}
+          api-token: ${{ github.event_name == 'push' && secrets.SIGNPATH_API_TOKEN || '' }}
           organization-id: ${{ vars.SIGNPATH_ORGANIZATION_ID }}
           project-slug: ${{ vars.SIGNPATH_PROJECT_SLUG }}
           signing-policy-slug: ${{ vars.SIGNPATH_SIGNING_POLICY_SLUG }}
@@ -766,8 +799,8 @@ jobs:
         if: steps.cfg.outputs.enabled == 'true'
         shell: bash
         env:
-          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
-          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+          TAURI_SIGNING_PRIVATE_KEY: ${{ github.event_name == 'push' && secrets.TAURI_SIGNING_PRIVATE_KEY || '' }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ github.event_name == 'push' && secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD || '' }}
         run: |
           set -euo pipefail
           if [ -z "$TAURI_SIGNING_PRIVATE_KEY" ]; then
@@ -814,6 +847,7 @@ jobs:
         with:
           name: windows-signed
           path: out/*
+          retention-days: 1
           if-no-files-found: error
 
   publish:
