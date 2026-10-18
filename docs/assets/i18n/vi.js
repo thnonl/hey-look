@@ -116,6 +116,7 @@
   "story.newsletter": "Đã mở bản tin.",
 
   "nf.title": "Không tìm thấy trang - Hey Look!",
+  "nf.desc": "Không tìm thấy trang này.",
   "nf.h1a": "Này, nhìn kìa!",
   "nf.h1b": "Trang này không ở đây.",
   "nf.lead": "Liên kết có thể đã cũ hoặc gõ sai. Đây là nơi có lẽ bạn muốn đến.",

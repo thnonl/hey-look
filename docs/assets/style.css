@@ -625,6 +625,7 @@ details ol { padding-left: 1.2em; } details li { margin-bottom: .5em; }
 .nf { text-align: center; padding-block: clamp(48px, 9vw, 120px); } .nf .kicker { justify-content: center; }
 .nf h1 { font-size: clamp(2rem, 1.2rem + 3vw, 3.2rem); letter-spacing: -.045em; } .nf h1 em { color: var(--accent-text); }
 .nf .lead { margin-inline: auto; }
+.nf-wait body { visibility: hidden; } /* 404 under a language folder (/de/...): the English text is never shown; site.js removes the class once the translation is in, a timer in the page after 1.5 s whatever happens */
 .nf-eyes { width: min(320px, 70%); height: auto; margin-bottom: 8px; } .nf-eyes .eye-w { stroke-width: 6; }
 .nf-btns { display: flex; flex-wrap: wrap; gap: 12px; justify-content: center; margin-top: 28px; }
 

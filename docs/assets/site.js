@@ -271,6 +271,7 @@
         $$('[data-i18n]').forEach(function (el) { el.textContent = t(el.getAttribute('data-i18n')); });
         $$('[data-i18n-aria]').forEach(function (el) { el.setAttribute('aria-label', t(el.getAttribute('data-i18n-aria'))); });
         document.title = t('nf.title');
+        var md = $('meta[name="description"]'); if (md) md.setAttribute('content', t('nf.desc'));
         $$('a[href]').forEach(function (a) {
           var h = a.getAttribute('href');
           if (!a.closest('.lang-menu') && /^[a-z-]+\.html(#|$)/.test(h)) a.setAttribute('href', seg + '/' + h);
@@ -281,7 +282,9 @@
         if (lsum) { lsum.setAttribute('aria-label', t('nf.lang.cur', { lang: cur.textContent, short: cur.getAttribute('data-short') })); lsum.setAttribute('title', t('nf.lang')); }
         if (lmenu) lmenu.setAttribute('aria-label', t('nf.lang'));
         applyTheme(pref); applyMotion();
+        root.classList.remove('nf-wait'); /* the inline script of 404.html hid the page (visibility) until the translation was in; a timer there shows it anyway after 1.5 s */
       };
+      sc404.onerror = function () { root.classList.remove('nf-wait'); }; /* no dictionary: the English page shows at once */
       document.head.appendChild(sc404);
     }
   }
