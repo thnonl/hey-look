@@ -7016,6 +7016,8 @@ mod platform_tests {
 #[cfg(test)]
 mod test_guard;
 #[cfg(test)]
+mod testutil;
+#[cfg(test)]
 mod fakeimap;
 #[cfg(test)]
 mod foldermove_tests;

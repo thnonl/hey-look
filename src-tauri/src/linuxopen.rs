@@ -278,10 +278,11 @@ mod tests {
 
     #[test]
     fn a_launcher_that_keeps_running_counts_as_started() {
-        let slow = if cfg!(windows) { vec!["ping".into(), "-n".into(), "4".into(), "127.0.0.1".into()] } else { vec!["sleep".into(), "3".into()] };
+        // the launcher runs 20 s and the window is 300 ms: "does not wait for the program to end" is proved by finishing in half of that, however busy the machine is
+        let slow = if cfg!(windows) { vec!["ping".into(), "-n".into(), "21".into(), "127.0.0.1".into()] } else { vec!["sleep".into(), "20".into()] };
         let t = Instant::now();
         assert!(launch_first(&[slow], &[], Duration::from_millis(300), true).is_ok());
-        assert!(t.elapsed() < Duration::from_secs(2), "does not wait for the program to end");
+        assert!(t.elapsed() < Duration::from_secs(10), "does not wait for the program to end");
     }
 
     #[test]

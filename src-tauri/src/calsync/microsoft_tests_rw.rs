@@ -431,7 +431,7 @@ fn revoked_consent_and_admin_approval_set_their_states_with_no_api_call_and_no_r
 #[test]
 fn no_network_is_offline_and_a_token_that_cannot_be_read_ends_access() {
     let (db, sid) = setup_db();
-    let dead = std::net::TcpListener::bind("127.0.0.1:0").unwrap().local_addr().unwrap();
+    let dead = crate::testutil::dead_addr();
     let factory = MFactory { base: format!("http://{dead}"), token: Arc::new(|| Ok("t".to_string())) };
     engine::sync_source(&db, &factory, &sid, clock(T0), &|| {}).unwrap();
     let s = store::get_source(&lock(&db), &sid).unwrap();

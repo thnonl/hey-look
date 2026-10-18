@@ -1165,7 +1165,7 @@ mod tests {
     #[test]
     fn no_network_is_offline_and_a_blocked_or_unset_client_are_their_own_states() {
         let (db, sid) = setup_db();
-        let dead = std::net::TcpListener::bind("127.0.0.1:0").unwrap().local_addr().unwrap();
+        let dead = crate::testutil::dead_addr();
         let factory = GFactory { base: format!("http://{dead}"), token: Arc::new(|| Ok("t".to_string())) };
         engine::sync_source(&db, &factory, &sid, clock(T0), &|| {}).unwrap();
         let s = store::get_source(&lock(&db), &sid).unwrap();
