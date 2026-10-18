@@ -193,6 +193,20 @@ const REMOVED = [
       ['ru', 'В Windows обновление устанавливается само; в macOS и Linux нужно ваше разрешение.', ['security.html']],
     ],
   },
+  // W10.2c: L10: privacy.html github.com row, update-check timing
+  {
+    row: 'W10.2c',
+    items: [
+      ['en', 'when the window comes back after a couple of hours', ['privacy.html']],
+      ['vi', 'khi cửa sổ quay lại sau vài giờ', ['privacy.html']],
+      ['fr', 'quand la fenêtre revient après quelques heures', ['privacy.html']],
+      ['zh', '窗口隔了几个小时重新回来时', ['privacy.html']],
+      ['es', 'cuando vuelves a la ventana tras un par de horas', ['privacy.html']],
+      ['ja', '数時間ぶりにウィンドウに戻ったとき', ['privacy.html']],
+      ['de', 'wenn das Fenster nach ein paar Stunden zurückkehrt', ['privacy.html']],
+      ['ru', 'при возвращении окна спустя пару часов', ['privacy.html']],
+    ],
+  },
 ];
 
 const errors = [];

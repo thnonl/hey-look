@@ -13,12 +13,11 @@
 //
 // NOT_YET: the texts whose work package has not changed them yet. Each package that changes one removes it from this list:
 //   'app'      the app string settings.about.autoCheckHint (WP10d)
-//   'privacy'  the github.com row of privacy.html (WP10b, item L10; a legal page, the owner approves it)
 import fs from 'node:fs';
 import path from 'node:path';
 import { LANGS, DOCS } from './generate-site-languages.mjs';
 
-const NOT_YET = ['app', 'privacy'];
+const NOT_YET = ['app'];
 
 const ROOT = path.join(DOCS, '..');
 const arg = (name) => { const a = process.argv.find((x) => x.startsWith(`--${name}=`)); return a ? a.slice(name.length + 3) : null; };
