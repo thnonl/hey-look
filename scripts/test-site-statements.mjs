@@ -99,6 +99,36 @@ const REMOVED = [
       ['ru', 'Переведённые тексты новые и могут содержать ошибки'],
     ],
   },
+  // W10.1a: update behaviour: every system asks first, then only the .msi (administrator rights) and the .deb / .rpm (password) ask again
+  {
+    row: 'W10.1a',
+    items: [
+      ['en', 'Installs by itself on Windows; macOS and Linux need permission'],
+      ['en', 'Updates: full on Windows; macOS and Linux need your permission'],
+      ['vi', 'Windows tự cài đặt; macOS và Linux cần được cho phép'],
+      ['vi', 'Cập nhật: đầy đủ trên Windows; macOS và Linux cần được bạn cho phép'],
+      ['fr', 'Installation automatique sous Windows ; autorisation requise sous macOS et Linux'],
+      ['fr', 'Mises à jour : complètes sous Windows ; macOS et Linux demandent votre autorisation'],
+      ['zh', 'Windows上自动安装；macOS和Linux需要您的许可'],
+      ['zh', '更新：Windows上可完整自动更新；macOS和Linux需要您的许可'],
+      ['es', 'Se instala sola en Windows; macOS y Linux necesitan permiso'],
+      ['es', 'Actualizaciones: completas en Windows; macOS y Linux necesitan tu permiso'],
+      ['ja', 'Windowsは自動でインストール、macOSとLinuxは許可が必要'],
+      ['ja', 'アップデート：Windowsでは自動でインストール、macOSとLinuxでは許可が必要です'],
+      ['de', 'Unter Windows automatische Installation; macOS und Linux brauchen Ihre Erlaubnis'],
+      ['de', 'Updates: vollständig unter Windows; unter macOS und Linux ist Ihre Erlaubnis nötig'],
+      ['ru', 'В Windows устанавливается само; в macOS и Linux нужно разрешение'],
+      ['ru', 'Обновления: в Windows работают полностью; в macOS и Linux нужно ваше разрешение'],
+      ['en', 'On Windows it installs by itself; on macOS and Linux it needs your permission.', ['index.html']],
+      ['vi', 'Trên Windows, bản cập nhật tự cài đặt; macOS và Linux cần được bạn cho phép.', ['index.html']],
+      ['fr', 'Sous Windows, la mise à jour s’installe toute seule ; sous macOS et Linux, une autorisation est nécessaire.', ['index.html']],
+      ['zh', 'Windows上会自动安装；macOS和Linux需要您的许可。', ['index.html']],
+      ['es', 'En Windows la actualización se instala sola; macOS y Linux necesitan permiso.', ['index.html']],
+      ['ja', 'Windowsでは自動でインストールされ、macOSとLinuxでは許可が必要です。', ['index.html']],
+      ['de', 'Unter Windows installiert sich das Update von selbst; unter macOS und Linux ist Ihre Erlaubnis nötig.', ['index.html']],
+      ['ru', 'В Windows обновление устанавливается само; в macOS и Linux нужно разрешение.', ['index.html']],
+    ],
+  },
 ];
 
 const errors = [];
