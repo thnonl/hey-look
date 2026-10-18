@@ -41,6 +41,19 @@ export function nameForMime(name: string, mime: string): string {
   return PICTURE_NAME_EXT.test(name) ? name.replace(PICTURE_NAME_EXT, `.${ext}`) : `${name}.${ext}`;
 }
 
+/** The widest a picture is made when a big one is re-encoded (resizeImage scales by the width). */
+export const RESIZE_WIDTH = 1600;
+
+/**
+ * Which toast says what happened to a big picture that was re-encoded: "resized to 1600 px" only when the picture was wider than that (else it was not scaled, and the toast
+ * must not claim it was), for a GIF with the note that the animation is gone. A 900 px wide GIF is only converted to PNG.
+ */
+export function reencodeToastKey(mime: string, width: number): "compose.pic.resized" | "compose.pic.resizedGif" | "compose.pic.convertedGif" | "compose.pic.recompressed" {
+  const scaled = width > RESIZE_WIDTH;
+  if (mime.toLowerCase() === "image/gif") return scaled ? "compose.pic.resizedGif" : "compose.pic.convertedGif";
+  return scaled ? "compose.pic.resized" : "compose.pic.recompressed";
+}
+
 const unesc = (s: string) => s.replace(/&quot;/g, '"').replace(/&lt;/g, "<").replace(/&gt;/g, ">").replace(/&amp;/g, "&");
 const SRC = /\ssrc\s*=\s*(?:"([^"]*)"|'([^']*)')/i;
 const NAME = /\sdata-name\s*=\s*(?:"([^"]*)"|'([^']*)')/i;

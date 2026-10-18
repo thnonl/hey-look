@@ -21,7 +21,7 @@ import { useKit } from "../editor/kit";
 import { FormatBar, type FormatBarApi } from "../editor/FormatBar";
 import { PreviewSwitch } from "../editor/PreviewSwitch";
 import { setPreviewMode } from "../editor/previewColors";
-import { messageHtml, nameForMime, nameInlinePicture } from "../editor/messageBody";
+import { messageHtml, nameForMime, nameInlinePicture, reencodeToastKey, RESIZE_WIDTH } from "../editor/messageBody";
 import { unwrapBase, type BaseFont } from "../editor/emailHtml";
 import { extractQuote, quotePictureBytes } from "../editor/quoteBlock";
 import { baseFromPrefs } from "../editor/baseFont";
@@ -1657,12 +1657,8 @@ function ComposeBody({ init }: { init: ComposeInit }) {
 
   /** The picture files into the body at the caret (Medium size), in the order they were given; a format that is not supported is attached. */
   const insertPictures = (files: File[]) => reading(() => insertPicturesNow(files));
-  /** The toast after a big picture was re-encoded: it says "to 1600 px" only when the picture was wider (resizeImage scales by the width), else only what was done (BUG: "resized to 1600 px" for a 900 px picture). */
-  const resizedToast = (mime: string, width: number, name: string, dataUrl: string) => {
-    const scaled = width > 1600;
-    const key = mime === "image/gif" ? (scaled ? "compose.pic.resizedGif" : "compose.pic.convertedGif") : scaled ? "compose.pic.resized" : "compose.pic.recompressed";
-    return t(key, { name, size: fmtSize(dataUriBytes(dataUrl)) });
-  };
+  /** The toast after a big picture was re-encoded (editor/messageBody.ts reencodeToastKey: "to 1600 px" only when the picture was wider). */
+  const resizedToast = (mime: string, width: number, name: string, dataUrl: string) => t(reencodeToastKey(mime, width), { name, size: fmtSize(dataUriBytes(dataUrl)) });
   const insertPicturesNow = async (files: File[]) => {
     const st = useStore.getState();
     const attach: File[] = [];
@@ -1686,7 +1682,7 @@ function ComposeBody({ init }: { init: ComposeInit }) {
       let finalName = f.name;
       if (f.size > LARGE_PICTURE) {
         if (st.prefs.autoResizePictures) {
-          const r = await resizeImage(src, f.type, 1600);
+          const r = await resizeImage(src, f.type, RESIZE_WIDTH);
           finalSrc = r.dataUrl;
           finalName = nameForMime(f.name, r.mime); // (a GIF made a PNG is no .gif any more)
           showToast(resizedToast(f.type, size.w, finalName, finalSrc), undefined, "success");
@@ -1714,7 +1710,7 @@ function ComposeBody({ init }: { init: ComposeInit }) {
   /** Replace the picture (matched by its data: URI) with a 1600 px version. */
   const resizeInEditor = async (original: string, mime: string, name: string) => {
     if (!editor) return;
-    const r = await resizeImage(original, mime, 1600);
+    const r = await resizeImage(original, mime, RESIZE_WIDTH);
     let at: number | null = null;
     editor.state.doc.descendants((n, pos) => {
       if (at === null && n.type.name === "image" && n.attrs.src === original) at = pos;
