@@ -135,8 +135,10 @@ export interface CloseDeps {
   save(): Promise<boolean>;
   /** "Your message isn't saved": keep writing, or close and discard */
   askFailed(): Promise<"keep" | "discard">;
-  /** drop the snapshot (and the draft an autosave made of a new message) */
-  discard(): Promise<void>;
+  /** drop the snapshot (and the draft an autosave made of a new message; an opened draft is put back as it was opened). false: that failed, the window stays */
+  discard(): Promise<boolean | void>;
+  /** everything typed was deleted again (W2.3): drop the snapshot and the copy an autosave made of a new message, then the window ends */
+  emptied?(): Promise<void>;
   park(): void;
   end(): void;
   attaching(): void;
@@ -151,9 +153,12 @@ export async function runClose(d: CloseDeps): Promise<CloseOutcome> {
     case "park":
       d.park();
       return "parked";
-    case "end":
+    case "end": {
+      const f = d.facts();
+      if (f.phase === "edit" && f.dirty && !f.hasContent && !f.attaching) await d.emptied?.();
       d.end();
       return "ended";
+    }
     case "attaching":
       d.attaching();
       return "attaching";
@@ -163,7 +168,7 @@ export async function runClose(d: CloseDeps): Promise<CloseOutcome> {
   const answer = await d.ask();
   if (answer === "cancel") return "cancelled";
   if (answer === "discard") {
-    await d.discard();
+    if ((await d.discard()) === false) return "kept"; // (an opened draft could not be put back: the window stays, Compose said why)
     d.end();
     return "discarded";
   }
@@ -173,7 +178,7 @@ export async function runClose(d: CloseDeps): Promise<CloseOutcome> {
     return "saved";
   }
   if ((await d.askFailed()) === "keep") return "kept";
-  await d.discard();
+  if ((await d.discard()) === false) return "kept";
   d.end();
   return "discarded";
 }

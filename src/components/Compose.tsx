@@ -45,7 +45,7 @@ import { fromInputs, toInputs } from "../calendar";
 import { decodeMeeting, encodeMeeting, meetingWire, restoreMeeting } from "../meetingDraft";
 import { isEmail, singleLabelHostsOf } from "../addresses";
 import { addRecipients, addressOf, chipLabel, formatRecipient, hasRecipient, isImeEvent, openAtEnd, placeRecipients, recipientKey, splitRecipients, type RcptField } from "../recipients";
-import { askUnlock } from "./Pgp";
+import { askUnlock, moveScheduledToDrafts } from "./Pgp";
 import { composeSeam } from "../popout/composeSeam";
 import { focusDraftWindow, startCompose, wantsWindow, type StartOpts } from "../popout/composeOpen";
 import { draftKey } from "../popout/entry";
@@ -62,6 +62,7 @@ import type { Key } from "../i18n";
 import { t as tNow } from "../i18n";
 import { useT } from "../i18n/react";
 import { tx } from "../i18n/rich";
+import { keyProblemKey } from "../keyStatus";
 
 /** Whether this is an address the composer accepts (see addresses.ts: `qa@localhost` and the account hosts count). */
 const EMAIL = { test: (a: string) => isEmail(a, singleLabelHostsOf(useStore.getState().accounts)) };
@@ -256,12 +257,8 @@ export function RecipientField({
       </div>
       {keyPop && keys?.[keyPop] && (
         <span className="suggest pinned popover" role="dialog" aria-label={t("compose.rcpt.keyDialog", { addr: keyPop })} ref={popRef} style={{ width: 340, padding: 12, gap: 8, display: "flex", flexDirection: "column" }} onClick={(e) => e.stopPropagation()}>
-          <span style={{ display: "flex", gap: 8, alignItems: "center" }}><TriangleAlert size={15} className="warn-ico" /><b>{keys[keyPop].status === "expired" ? t("compose.rcpt.keyExpired", { addr: keyPop }) : keys[keyPop].status === "revoked" ? t("compose.rcpt.keyRevoked", { addr: keyPop }) : t("compose.rcpt.keyMissing", { addr: keyPop })}</b></span>
-          <span className="muted small">
-            {keys[keyPop].status === "missing"
-              ? t("compose.rcpt.missingHelp")
-              : t("compose.rcpt.unusableHelp")}
-          </span>
+          <span style={{ display: "flex", gap: 8, alignItems: "center" }}><TriangleAlert size={15} className="warn-ico" /><b>{t(keyProblemKey(keys[keyPop].status, "chipTitle"), { addr: keyPop })}</b></span>
+          <span className="muted small">{t(keyProblemKey(keys[keyPop].status, "chipHelp"))}</span>
           <span style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
             <button className="btn small primary" onClick={() => (setKeyPop(null), onKeyAction?.("import"))}>{t("compose.rcpt.importKey")}</button>
             <button className="btn small" onClick={() => (setKeyPop(null), onKeyAction?.("paste"))}>{t("compose.rcpt.pasteKey")}</button>
@@ -355,6 +352,7 @@ export async function openDraftThread(threadId: string, wait = false, o: StartOp
     // the threading headers of the saved draft: an answer that was saved goes out threaded as it would have before
     inReplyTo: rc?.inReplyTo ?? null,
     references: rc?.references ?? [],
+    answers: rc?.answers ?? undefined, // (a reply or forward that was saved: sending it later still flags the original)
     subject: m.subject === "(no subject)" ? "" : m.subject,
     bodyHtml: html ?? `<p>${(m.text ?? "").replace(/\n/g, "<br>")}</p>`,
     replaces: `m:${m.id}`, // the message that was opened: saving or sending replaces that one, not other drafts of the conversation
@@ -443,6 +441,8 @@ function ComposeBody({ init }: { init: ComposeInit }) {
   const isFresh = !init.replaces && !init.isReply && !init.outboxId && !init.restore;
   // an opened draft / scheduled message / message that failed to send: its body already holds the signature, shown as the region again
   const editing = !!(init.replaces || init.outboxId || init.restore);
+  // a draft that was opened from Drafts (W2.2): the backend keeps the version that was opened, and Discard puts it back
+  const openedDraft = !!init.replaces && (init.replaces.startsWith("m:") || !!init.openedDraft);
   const autoCc = (id: string) => (isFresh ? eff(prefs, id, "autoCc").trim() : "");
   const autoBcc = (id: string) => (isFresh ? eff(prefs, id, "autoBcc").trim() : "");
   const [to, setTo] = useState<string[]>((init.to ?? []).map(cleanHeaderText)); // (from a received message, a draft or a link: never a line break in a header)
@@ -503,7 +503,7 @@ function ComposeBody({ init }: { init: ComposeInit }) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
     [],
   );
-  const [sigId, setSigId] = useState<string>(editing ? (draftSig ? "draft-signature" : "none") : "");
+  const [sigId, setSigId] = useState<string>(init.sigId ?? (editing ? (draftSig ? "draft-signature" : "none") : ""));
   const sigManual = useRef(false); // the user picked a signature: it stays until it stops being valid for the From account
   const [sigHeads, setSigHeads] = useState<HTMLElement[]>([]);
   const [aiOpen, setAiOpen] = useState(false);
@@ -906,7 +906,7 @@ function ComposeBody({ init }: { init: ComposeInit }) {
       if (draftSig && sigId === "draft-signature") {
         const same = mySigs.find((s) => normalizeHtml(s.html) === normalizeHtml(draftSig.html));
         if (same) setSigId(same.id);
-      } else if (sigId !== "none" && !sigChoices.some((s) => s.id === sigId)) setSigId(defaultSig() || "none"); // From changed to an account the signature does not belong to
+      } else if (sigId && sigId !== "none" && !sigChoices.some((s) => s.id === sigId)) setSigId(defaultSig() || "none"); // From changed to an account the signature does not belong to (a carried "" stays Automatic)
       return;
     }
     // the From account changed (or the signatures arrived): a picked signature stays while it applies to that account, anything else follows the account's default
@@ -972,6 +972,7 @@ function ComposeBody({ init }: { init: ComposeInit }) {
       text: htmlToText(body),
       inReplyTo: init.inReplyTo ?? null,
       references: init.references ?? [],
+      answers: init.answers,
       attachments: atts,
       inline,
       security: currentSecurity(),
@@ -996,6 +997,7 @@ function ComposeBody({ init }: { init: ComposeInit }) {
       accountId: d.accountId,
       attachments: d.attachments,
       replaces: o.replaces,
+      openedDraft: openedDraft || undefined,
       recoveryId: undefined, // (a new message: it gets a snapshot of its own)
       isReply: o.isReply,
       carried: o.carried || undefined,
@@ -1004,6 +1006,7 @@ function ComposeBody({ init }: { init: ComposeInit }) {
       importance: d.importance,
       // the toggles as they were when Send was pressed (the draft only knows what is active), the body with its one signature region
       restore: { encrypt: encIntent, sign: signOn, attachKey },
+      sigId, // the picker as it was (Automatic, No signature or a named one), not what the signature found in the built text would make of it (W2.7)
       meeting: d.meeting ? { ...d.meeting, on: true } : undefined,
       meetingForm: decodeMeeting(d.meetingForm) ?? undefined,
     };
@@ -1437,7 +1440,7 @@ function ComposeBody({ init }: { init: ComposeInit }) {
   const moveToDrafts = async () => {
     if (!init.outboxId) return;
     try {
-      await api.outboxToDraft(init.outboxId);
+      await moveScheduledToDrafts(init.outboxId);
       savedRef.current = true;
       setComposeDirty(false);
       showToast(t("compose.toast.movedToDrafts"), undefined, "success");
@@ -1461,7 +1464,7 @@ function ComposeBody({ init }: { init: ComposeInit }) {
     const withPending = (list: string[], k: "to" | "cc" | "bcc") => addRecipients(list, splitRecipients(pendingRcpt.current[k]));
     const form: RecoveryForm = {
       v: 1, to: withPending(to, "to"), cc: withPending(cc, "cc"), bcc: withPending(bcc, "bcc"), subject, html,
-      inReplyTo: init.inReplyTo ?? null, references: init.references ?? [], replaces: replacesRef(), isReply: !!init.isReply,
+      inReplyTo: init.inReplyTo ?? null, references: init.references ?? [], replaces: replacesRef(), isReply: !!init.isReply, ...(init.answers ? { answers: init.answers } : {}), sigId,
       encrypt: encIntent, sign: signOn, attachKey, confidential, importance: draftImportance(importance),
       ...(meeting ? { meeting: meetingWire(meeting, calTz(prefs)) } : {}),
       ...(composeSeam() ? { win: true as const } : {}),
@@ -1551,8 +1554,16 @@ function ComposeBody({ init }: { init: ComposeInit }) {
     useStore.getState().setComposeEnd(async (o) => {
       endingRef.current = true;
       await settleSaves();
-      if (o?.dropDraft) await dropSavedCopy();
+      // Discard: a new message loses the copy a save made of it, an opened draft is put back as it was opened. Emptied (W2.3): a new message loses the
+      // copy; an opened draft keeps the version last saved.
+      if (o?.dropDraft || (o?.emptied && !init.replaces)) {
+        if (!(await dropSavedCopy())) {
+          endingRef.current = false; // (the message stays open: saving goes on)
+          return false;
+        }
+      }
       await writer.clear();
+      return true;
     });
     return () => useStore.getState().setComposeEnd(null);
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -1575,7 +1586,7 @@ function ComposeBody({ init }: { init: ComposeInit }) {
       { text: editor?.getText().trim() ?? "", pics: editor ? bodyPictures(editor) : 0, to, cc: cc.length, bcc: bcc.length, subject, atts: atts.length },
       { text: b?.text ?? "", pics: b?.pics ?? 0, to: restored ? [] : init.to ?? [], cc: restored ? 0 : init.cc?.length ?? 0, bcc: restored ? 0 : init.bcc?.length ?? 0, subject: restored ? "" : init.subject ?? "", atts: restored ? 0 : init.attachments?.length ?? 0 },
     );
-    return { hasContent, attaching: attachingRef.current > 0, rev: revRef.current };
+    return { hasContent, attaching: attachingRef.current > 0, rev: revRef.current, pending: !!(pendingRcpt.current.to + pendingRcpt.current.cc + pendingRcpt.current.bcc).trim() };
   };
   const probeRef = useRef(probe);
   probeRef.current = probe;
@@ -1609,7 +1620,7 @@ function ComposeBody({ init }: { init: ComposeInit }) {
       }
       try {
         if (choice === "delete") await api.cancelOutbox(init.outboxId);
-        else await api.outboxToDraft(init.outboxId);
+        else await moveScheduledToDrafts(init.outboxId);
         savedRef.current = true;
         setComposeDirty(false);
         showToast(choice === "delete" ? t("compose.toast.scheduleCancelled") : t("compose.toast.movedToDrafts"), undefined, "success");
@@ -1623,23 +1634,46 @@ function ComposeBody({ init }: { init: ComposeInit }) {
     // the same rule as leaving, the autosave and the snapshot: a reply or forward with nothing written (the recipients, the subject, the quote
     // and the signature are Compose's own) closes without asking, like an empty new message; a letter, an address or a file of the person's asks
     const written = probe().hasContent || !!(pendingRcpt.current.to + pendingRcpt.current.cc + pendingRcpt.current.bcc).trim();
-    if (written && !(await confirm({ title: t("compose.dlg.discardTitle"), body: t("compose.dlg.discardBody"), confirmLabel: t("compose.dlg.discard"), danger: true }))) return;
+    // an opened draft that a save has replaced since (an autosave counts) asks even when the text is the original again: Drafts holds the edits
+    if (openedDraft && (written || savedDraftRef.current)) {
+      if (!(await confirm({ title: t("compose.dlg.discardChangesTitle"), body: t("compose.dlg.discardChangesBody"), confirmLabel: t("compose.dlg.discardChanges"), danger: true }))) return;
+    } else if (written && !(await confirm({ title: t("compose.dlg.discardTitle"), body: t("compose.dlg.discardBody"), confirmLabel: t("compose.dlg.discard"), danger: true }))) return;
     // An autosave that is on its way to the server when Discard is pressed (the question stayed open for a while, the window lost the focus) makes the draft only when
     // it is done: removing "the saved copy" before that found none and left a stray draft ("(no subject)" in Drafts, v1.0.6 QA round 2 O4). No new one starts, the one that
     // runs is waited for, then the copy goes.
     endingRef.current = true;
     await settleSaves();
-    await dropSavedCopy();
+    if (!(await dropSavedCopy())) {
+      endingRef.current = false; // (the message stays open: saving goes on)
+      return;
+    }
     setComposeDirty(false);
     void openCompose(null);
   };
 
-  /** A new message that a save made a draft of (a Save draft that was not closed, a later save of a leave): discarding it takes that draft away too. */
-  const dropSavedCopy = async () => {
+  /**
+   * What a save left in Drafts goes when the message is discarded. A NEW message that a save made a draft of (a Save draft that was not closed,
+   * an autosave, a later save of a leave): that draft is removed. A draft that was opened from Drafts (W2.2): it is put back as it was opened
+   * and the saved edits are removed, never the other way round (an error leaves the saved edits in place). Resolves to false when that failed: the
+   * message must stay open (the toast has said why).
+   */
+  const dropSavedCopy = async (): Promise<boolean> => {
     const ref = savedDraftRef.current;
-    if (!ref || init.replaces) return; // a draft that was opened stays: it existed before this message was written
+    if (!ref) return true; // nothing was saved: nothing was written to the server, nothing to take back
+    if (openedDraft) {
+      try {
+        await api.discardDraftChanges(ref);
+      } catch (e) {
+        showToast(() => t("compose.toast.saveFailed", { error: friendlyError(e) }), undefined, "error");
+        return false;
+      }
+      savedDraftRef.current = null;
+      return true;
+    }
+    if (init.replaces) return true; // some other message that was written from a draft: that draft existed before this message was written
     savedDraftRef.current = null;
     await api.discardDraft(ref).catch(() => undefined);
+    return true;
   };
 
   /** Files and pictures are read in the background: leaving this message (F-21) waits for the ones still coming in. */
@@ -1849,7 +1883,7 @@ function ComposeBody({ init }: { init: ComposeInit }) {
       return {
         cls: "warn",
         icon: <TriangleAlert size={15} />,
-        body: <>{st === "expired" ? tx("compose.sec.theirExpired", { addr: <b>{firstMissing}</b> }) : st === "revoked" ? tx("compose.sec.theirRevoked", { addr: <b>{firstMissing}</b> }) : noKeyAddrs.length > 1 ? tx("compose.sec.noKeyMore", { addr: <b>{firstMissing}</b> }, { n: noKeyAddrs.length - 1 }) : tx("compose.sec.noKey", { addr: <b>{firstMissing}</b> })}</>,
+        body: <>{st === "expired" || st === "revoked" || st === "signOnly" ? tx(keyProblemKey(st, "strip"), { addr: <b>{firstMissing}</b> }) : noKeyAddrs.length > 1 ? tx("compose.sec.noKeyMore", { addr: <b>{firstMissing}</b> }, { n: noKeyAddrs.length - 1 }) : tx("compose.sec.noKey", { addr: <b>{firstMissing}</b> })}</>,
         actions: (
           <>
             <button className="link" onClick={() => keyAction("import")}>{t("compose.rcpt.importKey")}</button><span className="muted">·</span>

@@ -42,6 +42,20 @@ function CopyButton({ text, label }: { text: string; label?: string }) {
 /** Ask for the passphrase of a key (unlocks it for the session). Resolves true when it was unlocked. */
 export const askUnlock = (fingerprint: string, reason: UnlockReason, label?: string) => useStore.getState().askPassphrase({ fingerprint, reason, label });
 
+/**
+ * "Move to Drafts" of a scheduled message (W2.4). An encrypted one was sealed for its recipients and you; the draft is stored for your key only, so
+ * it is opened with your key first: a locked key is asked for (once), then the move is tried again. Rejects like `api.outboxToDraft`.
+ */
+export async function moveScheduledToDrafts(outboxId: string): Promise<void> {
+  try {
+    await api.outboxToDraft(outboxId);
+  } catch (err) {
+    const locked = String(err).match(/PGP_LOCKED:([0-9A-F]+)/);
+    if (errorCode(err) === "PGP_LOCKED" && locked && (await askUnlock(locked[1], "decrypt"))) return api.outboxToDraft(outboxId);
+    throw err;
+  }
+}
+
 // ---------------------------------------------------------------- passphrase prompt (store-driven, like AskHost)
 
 function PassphraseDialog() {

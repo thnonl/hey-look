@@ -1168,6 +1168,9 @@ fn sync_worker(app: tauri::AppHandle) {
 struct Pending {
     id: String,
     threads: Vec<String>,
+    /// (W2.5) the messages of those conversations at the moment the move was queued: the move acts on exactly these, not on what the conversations hold
+    /// when the Undo time is over (a sync in between can thread another message into one, or reuse an id). `None` for what is not a move of mail.
+    msgs: Option<Vec<MsgRef>>,
     action: String,
     arg: Option<String>,
     scope: Option<String>,
@@ -1244,11 +1247,42 @@ fn committing_done(id: &str) {
     committing_lock().retain(|(i, _)| i != id);
 }
 
-fn queue(thread_ids: Vec<String>, action: String, arg: Option<String>, scope: Option<String>, delay_secs: u64, verify: Option<Arc<Verify>>) -> String {
+/// The first characters of a queued move's token: what the log calls it.
+fn short_token(id: &str) -> &str {
+    &id[..id.len().min(8)]
+}
+
+/// The messages of a log line: `folder:UID` of each and the first characters of the account id (no subject, no address; short, the log is small), at most 12.
+fn describe_msgs(msgs: &[MsgRef]) -> String {
+    let mut accounts: Vec<&str> = msgs.iter().map(|m| short_token(&m.account_id)).collect();
+    accounts.sort_unstable();
+    accounts.dedup();
+    let shown: Vec<String> = msgs.iter().take(12).map(|m| format!("{}:{}", m.role, m.uid)).collect();
+    format!("{} message(s) of {} [{}{}]", msgs.len(), accounts.join("+"), shown.join(" "), if msgs.len() > shown.len() { " ..." } else { "" })
+}
+
+/// Does this action move mail out of the folder it is in (the actions that wait out an Undo time)?
+fn is_queued_move(action: &str) -> bool {
+    matches!(action, "archive" | "trash" | "junk" | "inbox" | "move" | "delete_forever" | "block")
+}
+
+fn queue(thread_ids: Vec<String>, msgs: Option<Vec<MsgRef>>, action: String, arg: Option<String>, scope: Option<String>, delay_secs: u64, verify: Option<Arc<Verify>>) -> String {
     let id = uuid::Uuid::new_v4().to_string();
+    startup::line(
+        "action",
+        &format!(
+            "queued {}: {action} from {} in {delay_secs} s, {} conversation(s) [{}], {}",
+            short_token(&id),
+            scope.as_deref().unwrap_or("any folder"),
+            thread_ids.len(),
+            thread_ids.iter().take(12).cloned().collect::<Vec<_>>().join(" "),
+            msgs.as_deref().map(describe_msgs).unwrap_or_else(|| "resolved when it runs (not a move of mail)".into()),
+        ),
+    );
     pending_lock().push(Pending {
         id: id.clone(),
         threads: thread_ids,
+        msgs,
         action,
         arg,
         scope,
@@ -1299,11 +1333,23 @@ fn queue_action(
 ) -> String {
     let db = state.db.clone();
     let targets = if verify == Some(true) { move_targets(&db, &thread_ids, &action, arg.as_deref(), &scope).unwrap_or_default() } else { vec![] };
+    // (W2.5) which messages this is about is decided now, when the person pressed the key, not when the Undo time is over
+    let msgs = if is_queued_move(&action) {
+        match thread_msgs(&lock(&db), &thread_ids) {
+            Ok(m) => Some(m),
+            Err(e) => {
+                startup::line("action", &format!("the messages of the conversations could not be read at queue time, the move will resolve them when it runs: {e}"));
+                None
+            }
+        }
+    } else {
+        None
+    };
     if targets.is_empty() {
-        return queue(thread_ids, action, arg, scope, delay_secs, None);
+        return queue(thread_ids, msgs, action, arg, scope, delay_secs, None);
     }
     let gate = Verify::new();
-    let id = queue(thread_ids, action, arg, scope, delay_secs, Some(gate.clone()));
+    let id = queue(thread_ids, msgs, action, arg, scope, delay_secs, Some(gate.clone()));
     let task = id.clone();
     std::thread::spawn(move || {
         let wanted: Vec<(String, String)> = targets.into_iter().map(|(a, d, _)| (a, d)).collect();
@@ -1316,7 +1362,9 @@ fn queue_action(
 
 #[tauri::command]
 fn cancel_action(id: String) -> bool {
-    unqueue(&id)
+    let cancelled = unqueue(&id);
+    startup::line("action", &format!("undo {}: {}", short_token(&id), if cancelled { "the move was still waiting and is cancelled" } else { "not waiting (already running, done or never queued): nothing cancelled" }));
+    cancelled
 }
 
 /// The threads whose move is done, for the main page (`moves-committed`): it takes them out of its list at once.
@@ -1341,7 +1389,8 @@ fn run_pending(app: &tauri::AppHandle, items: Vec<Pending>, verify_wait: std::ti
         }
         let id = p.id.clone();
         let threads = p.threads.clone();
-        let done = action_impl(&db, p.threads, p.action, p.arg, p.scope);
+        let done = run_queued(&db, p, &mut |m, a, d, s, c| act_on_refs(&db, m, a, d, s, c));
+        startup::line("action", &format!("done {}: {}", short_token(&id), match &done { Ok(()) => "ok".to_string(), Err(e) => format!("failed: {}", e.chars().take(160).collect::<String>()) }));
         // (the local rows are changed by now: the threads stop being hidden only here, so no list read in between shows them)
         committing_done(&id);
         match done {
@@ -1359,6 +1408,47 @@ fn run_pending(app: &tauri::AppHandle, items: Vec<Pending>, verify_wait: std::ti
         let _ = app.emit_to("main", "moves-committed", MovesCommitted { thread_ids: moved });
     }
     let _ = app.emit("mail-synced", ());
+}
+
+/// The doer of a queued move: moves these messages (as `act_on_refs` does). A seam for the tests, which run it against a fake server.
+type MoveMessages<'a> = &'a mut dyn FnMut(Vec<MsgRef>, &str, Option<&str>, &Option<String>, bool) -> R<()>;
+
+/// What a queued move does when its Undo time is over (W2.5): it acts on the messages it was queued with. One that has left the folder it was in
+/// meanwhile (moved by another program, removed by a sync) is skipped, a message that arrived in the conversation since stays where it is.
+fn run_queued(db: &Db, p: Pending, act: MoveMessages) -> R<()> {
+    let Some(queued) = p.msgs else {
+        return action_impl(db, p.threads, p.action, p.arg, p.scope);
+    };
+    let live = still_there(db, &queued);
+    startup::line(
+        "action",
+        &format!("running {}: {} from {}, queued with {} message(s), {} still there: {}", short_token(&p.id), p.action, p.scope.as_deref().unwrap_or("any folder"), queued.len(), live.len(), describe_msgs(&live)),
+    );
+    if live.is_empty() {
+        return Ok(());
+    }
+    if p.action == "block" {
+        // block the senders of those messages, then move them to Junk
+        {
+            let c = lock(db);
+            for m in live.iter().filter(|m| m.role != "sent") {
+                c.execute("INSERT OR IGNORE INTO blocked(email) SELECT DISTINCT from_email FROM messages WHERE id=?1", [&m.id]).map_err(err)?;
+            }
+        }
+        return act(live, "junk", Some("junk"), &p.scope, true);
+    }
+    let dst = dst_role_of(&p.action, &p.arg)?;
+    act(live, &p.action, dst.as_deref(), &p.scope, true)
+}
+
+/// The queued messages that are still in the folder and at the UID they were queued with.
+fn still_there(db: &Db, queued: &[MsgRef]) -> Vec<MsgRef> {
+    let c = lock(db);
+    queued
+        .iter()
+        .filter(|m| c.query_row("SELECT 1 FROM messages WHERE id=?1 AND account_id=?2 AND folder=?3 AND uid=?4", params![m.id, m.account_id, m.role, m.uid], |_| Ok(())).is_ok())
+        .cloned()
+        .collect()
 }
 
 fn commit_due(app: &tauri::AppHandle) {
@@ -2450,6 +2540,7 @@ fn thread_meta_in(c: &Connection, thread_id: &str) -> R<ThreadMeta> {
 
 // ---------- thread actions ----------
 
+#[derive(Clone, Debug)]
 struct MsgRef {
     account_id: String,
     role: String,
@@ -2529,14 +2620,19 @@ fn action_impl_in(db: &Db, thread_ids: Vec<String>, action: String, arg: Option<
         _ => {}
     }
 
-    let dst_role: Option<String> = match action.as_str() {
-        "archive" | "trash" | "junk" | "inbox" => Some(action.clone()),
-        "move" => Some(arg.clone().ok_or("move needs a destination folder")?),
-        _ => None,
-    };
+    let dst_role = dst_role_of(&action, &arg)?;
 
     let msgs = thread_msgs(&lock(db), &thread_ids)?;
     act_on_refs(db, msgs, &action, dst_role.as_deref(), &scope, create_missing)
+}
+
+/// The folder role a move goes to (None: not a move into a folder).
+fn dst_role_of(action: &str, arg: &Option<String>) -> R<Option<String>> {
+    Ok(match action {
+        "archive" | "trash" | "junk" | "inbox" => Some(action.to_string()),
+        "move" => Some(arg.clone().ok_or("move needs a destination folder")?),
+        _ => None,
+    })
 }
 
 /// `action_impl` for messages that are already picked (not a whole conversation): one connection per account.
@@ -3438,6 +3534,8 @@ fn send_now(db: &Db, d: &smtp::Draft) -> R<()> {
     // the Sent copy is byte for byte the DATA the server received (smtp::as_data)
     let (wire, raw) = smtp::as_data(&raw);
     smtp::send_raw(&acc, &smtp_secret(db, &acc)?, &env, wire)?;
+    // the message is out: the one it answers or forwards gets its flag on its own server (in the background; a failure is a line in the log, never the send's)
+    flag_original(db, d);
     let h = acc.smtp_host.to_lowercase();
     let auto_saves = h.contains("gmail") || h.contains("googlemail") || h.contains("office365") || h.contains("outlook");
     if !auto_saves {
@@ -3453,6 +3551,43 @@ fn send_now(db: &Db, d: &smtp::Draft) -> R<()> {
         }
     }
     Ok(())
+}
+
+/// W2.22 CF-18: after an answer or a forward went out, the original gets `\Answered` / `$Forwarded` on the server it is on. Best effort and off the send's
+/// path: its own connection on its own thread, every failure (no connection, the original is gone or was never synced, a server that refuses the keyword)
+/// goes to the log and nothing else. Nothing is shown in the app (the flags are not read back in 1.0.7).
+fn flag_original(db: &Db, d: &smtp::Draft) {
+    let Some(a) = d.answers.clone().filter(draftmail::answers_valid) else { return };
+    let db = db.clone();
+    std::thread::spawn(move || {
+        if let Err(e) = flag_original_now(&db, &a) {
+            startup::line("send", &format!("the original of {} could not be flagged ({}): {e}", a.kind, a.account_id));
+        }
+    });
+}
+
+fn flag_original_now(db: &Db, a: &smtp::Answers) -> R<()> {
+    let acc = db::get_account(&lock(db), &a.account_id)?;
+    let sec = secret(db, &acc)?;
+    let mut s = mail::connect(&acc, &sec)?;
+    let done = flag_on_session(db, &acc, &mut s, a);
+    let _ = s.logout();
+    done
+}
+
+/// The part of `flag_original` that talks to the server: found by its Message-ID in the local store (it may have been archived since), in the folder it is
+/// in now. At most one STORE.
+fn flag_on_session<T: std::io::Read + std::io::Write>(db: &Db, acc: &Account, s: &mut imap::Session<T>, a: &smtp::Answers) -> R<()> {
+    let (role, uid): (String, u32) = lock(db)
+        .query_row(
+            "SELECT folder, uid FROM messages WHERE account_id=?1 AND message_id=?2 AND folder!='drafts' ORDER BY (folder='inbox') DESC, uid DESC LIMIT 1",
+            params![acc.id, a.message_id],
+            |r| Ok((r.get(0)?, r.get(1)?)),
+        )
+        .map_err(|_| "the original is not in the local store (any more)".to_string())?;
+    let folder = fmap(db, &acc.id).get(&role).cloned().ok_or("the folder of the original is unknown")?;
+    let flag = if a.kind == "forwarded" { "$Forwarded" } else { "\\Answered" };
+    mail::store_flag(s, &folder, &[uid], flag, true)
 }
 
 /// Put the copy of a sent message into the account's Sent folder, with the F-14 rule for a missing folder: the saved name first; when
@@ -3493,6 +3628,8 @@ fn store_sent_copy<T: std::io::Read + std::io::Write>(db: &Db, acc: &Account, s:
 fn finished_message(db: &Db, acc: &Account, d: &smtp::Draft) -> R<(Vec<u8>, lettre::address::Envelope)> {
     if let Some(pre) = &d.prebuilt {
         let raw = base64::engine::general_purpose::STANDARD.decode(pre).map_err(err)?;
+        // built when it was scheduled (or held for Undo): it goes out with the date of the send, not the day it was built (W2.22 CF-24)
+        let raw = smtp::restamp_date(&raw, chrono::Local::now().fixed_offset());
         return Ok((raw, smtp::envelope(acc, d)?));
     }
     let sec = d.security.clone().unwrap_or_default();
@@ -3500,16 +3637,18 @@ fn finished_message(db: &Db, acc: &Account, d: &smtp::Draft) -> R<(Vec<u8>, lett
     Ok((smtp::wire(&msg), msg.envelope().clone()))
 }
 
-/// What goes into the Drafts folder: encrypted to the account's own key when the draft is encrypted.
+/// What goes into the Drafts folder. THE RULE (W2.4): a draft is encrypted to your own key only, whoever its recipients are and whether or not
+/// their keys are known; the recipients' keys are used when the message is sent. "Encrypt drafts" off is decided by the page: it sends such a
+/// draft without `security`, and it is stored as a plain draft.
 fn draft_bytes(db: &Db, acc: &Account, d: &smtp::Draft) -> R<Vec<u8>> {
     let sec = d.security.clone().unwrap_or_default();
     if sec.encrypt {
-        if let Some(pre) = &d.prebuilt {
-            return base64::engine::general_purpose::STANDARD.decode(pre).map_err(err);
-        }
+        // a scheduled message that was sealed is for its recipients and the account ("Move to Drafts"): it is opened with your key and encrypted
+        // again for your key only, so the stored draft is like every other one (a locked key asks for its passphrase: PGP_LOCKED)
+        let mut d = if d.prebuilt.is_some() { pgpstore::unseal_from_outbox(&lock(db), acc, d)? } else { d.clone() };
         // the meeting header is plain text outside the encryption: an encrypted draft keeps its meeting on this computer only (`remember_meeting`)
-        let mut d = d.clone();
         d.meeting_form = None;
+        d.answers = None; // (also plain text outside the encryption: an encrypted draft that is sent later does not flag what it answered)
         return Ok(smtp::wire(&pgpstore::build_secure(&lock(db), acc, &d, true)?));
     }
     Ok(smtp::wire(&smtp::build_draft(acc, d)?))
@@ -3607,6 +3746,7 @@ async fn outbox_hold_send(app: tauri::AppHandle, state: tauri::State<'_, AppStat
 /// Remove the original draft after a message was sent or scheduled from it (so it is not duplicated).
 fn drop_replaced_draft(db: &Db, replaces: Option<String>) {
     if let Some(t) = replaces {
+        draftmail::forget_original(&lock(db), &t); // (the message is over: the version that was opened is not needed any more)
         if let Err(e) = draftmail::drop_draft(db, &t) {
             startup::line("draft", &format!("the draft that a sent or scheduled message was written from could not be removed: {e}"));
         }
@@ -3680,23 +3820,51 @@ async fn save_draft(state: tauri::State<'_, AppState>, draft: smtp::Draft, repla
         let sec = secret(&db, &acc)?;
         let raw = draft_bytes(&db, &acc, &draft)?;
         let mut s = mail::connect(&acc, &sec)?;
-        let folder = folder_for(&db, &acc, "drafts")?;
-        mail::append(&mut s, &folder, &raw, true)?;
+        let saved = save_draft_on(&db, &acc, &mut s, &raw, replaces);
         let _ = s.logout();
-        remember_draft_meeting(&db, &acc, &raw, &draft);
-        let draft_ref = draftmail::draft_ref(&acc.id, &raw);
-        if let Some(t) = replaces {
-            // never remove the draft that was just appended (a reference to its own Message-ID)
-            if draft_ref.as_deref() == Some(t.as_str()) {
-                startup::line("draft", &format!("account {}: the draft to replace is the one just saved, nothing removed", acc.id));
-            } else if let Err(e) = draftmail::drop_draft(&db, &t) {
+        if saved.is_ok() {
+            remember_draft_meeting(&db, &acc, &raw, &draft);
+        }
+        saved
+    })
+    .await
+}
+
+/// The part of `save_draft` that talks to the server: append the draft, keep the version that was opened (the first save of an opened draft,
+/// see draftmail.rs "The version of a draft as it was opened"), and remove the draft this one replaces.
+fn save_draft_on<T: std::io::Read + std::io::Write>(db: &Db, acc: &Account, s: &mut imap::Session<T>, raw: &[u8], replaces: Option<String>) -> R<SavedDraft> {
+    let folder = folder_for(db, acc, "drafts")?;
+    let target = replaces.as_deref().map(draftmail::Target::parse);
+    // read before the append: the opened message is the one this save is about to replace
+    let opened = match &target {
+        Some(draftmail::Target::Local(id)) => match draftmail::read_opened(db, s, acc, id) {
+            Ok(bytes) => Some(bytes),
+            Err(e) => {
+                startup::line("draft", &format!("account {}: the opened version of a draft could not be read, Discard cannot put it back: {e}", acc.id));
+                None
+            }
+        },
+        _ => None,
+    };
+    mail::append(s, &folder, raw, true)?;
+    let draft_ref = draftmail::draft_ref(&acc.id, raw);
+    if let Some(t) = replaces {
+        // never remove the draft that was just appended (a reference to its own Message-ID)
+        if draft_ref.as_deref() == Some(t.as_str()) {
+            startup::line("draft", &format!("account {}: the draft to replace is the one just saved, nothing removed", acc.id));
+        } else {
+            draftmail::note_save(&lock(db), &acc.id, opened.as_deref(), target.as_ref(), draft_ref.as_deref());
+            let dropped = match target.as_ref() {
+                Some(draftmail::Target::Thread(_)) | None => draftmail::drop_draft(db, &t), // (a conversation id of an older caller: its own connection)
+                Some(target) => draftmail::drop_on_session(db, acc, s, target),
+            };
+            if let Err(e) = dropped {
                 startup::line("draft", &format!("account {}: the draft that was replaced could not be removed: {e}", acc.id));
             }
         }
-        // the thread the draft gets in the local store (the toast "Draft saved" can open it again with Edit)
-        Ok(SavedDraft { thread_id: draft_thread_id(&acc.id, &raw), draft_ref })
-    })
-    .await
+    }
+    // the thread the draft gets in the local store (the toast "Draft saved" can open it again with Edit)
+    Ok(SavedDraft { thread_id: draft_thread_id(&acc.id, raw), draft_ref })
 }
 
 /// To, Cc and Bcc of a saved draft with their display names, read from the headers of the message in the Drafts folder (the synced copy
@@ -3721,7 +3889,30 @@ async fn draft_recipients(state: tauri::State<'_, AppState>, message_id: String)
 #[tauri::command]
 async fn discard_draft(state: tauri::State<'_, AppState>, reference: String) -> R<()> {
     let db = state.db.clone();
-    blocking(move || draftmail::drop_draft(&db, &reference)).await
+    blocking(move || {
+        draftmail::forget_original(&lock(&db), &reference);
+        draftmail::drop_draft(&db, &reference)
+    })
+    .await
+}
+
+/// 1.0.7 W2.2: Discard on a draft that was opened from Drafts and saved since (an autosave counts): the draft goes back to how it was when it
+/// was opened. `reference` names the draft the last save made; see draftmail.rs `restore_on_session`. An error leaves the saved version in place.
+#[tauri::command]
+async fn discard_draft_changes(state: tauri::State<'_, AppState>, reference: String) -> R<()> {
+    let db = state.db.clone();
+    blocking(move || {
+        let account_id: String = lock(&db)
+            .query_row("SELECT account_id FROM draft_original WHERE draft_ref=?1", [&reference], |r| r.get(0))
+            .map_err(|_| "The opened version of this draft is no longer available.".to_string())?;
+        let acc = db::get_account(&lock(&db), &account_id)?;
+        let sec = secret(&db, &acc)?;
+        let mut s = mail::connect(&acc, &sec)?;
+        let done = draftmail::restore_on_session(&db, &acc, &mut s, &reference);
+        let _ = s.logout();
+        done
+    })
+    .await
 }
 
 // ---------- crash recovery of the message being written (recover.rs) ----------
@@ -5092,6 +5283,7 @@ pub fn run() {
             save_draft,
             draft_recipients,
             discard_draft,
+            discard_draft_changes,
             recovery_save,
             recovery_clear,
             recovery_list,
@@ -6598,7 +6790,7 @@ mod importance_tests {
         let d = smtp::Draft {
             account_id: "a1".into(), to: vec!["ann@example.com".into()], cc: vec![], bcc: vec![], subject: "Ship it".into(), html: "<p>x</p>".into(), text: "x".into(),
             in_reply_to: None, references: vec![], attachments: vec![], inline: vec![], security: None, prebuilt: None, meeting: None, calendar: None,
-            confidential: false, importance: High, recovery_id: None, meeting_form: None,
+            confidential: false, importance: High, recovery_id: None, meeting_form: None, answers: None,
         };
         let sent = smtp::build(&acc, &d).unwrap().formatted();
         let p = mail::parse(1, &sent, true, false, 0).unwrap();

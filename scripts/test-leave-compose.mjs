@@ -30,6 +30,7 @@ function pane(over = {}) {
       return s.saveResult;
     },
     askScheduled: async () => (log.push("ask"), s.answer),
+    dropEmptied: async () => void log.push("drop-copy"),
     close: async () => {
       log.push("close");
       s.open = false;
@@ -52,11 +53,18 @@ function pane(over = {}) {
   assert.deepEqual(p.log, ["close"]);
 }
 
-// 3. touched, then emptied again (typed and deleted; a reply whose quote is all that is left): closes, no draft
+// 3. touched, then emptied again (typed and deleted; a reply whose quote is all that is left): closes, no draft; the copy an autosave made goes first
+//    (W2.3), never after the pane is gone
 {
   const p = pane({ dirty: true, hasContent: false });
   assert.deepEqual(await leaveCompose(p.env), { kind: "closed", why: "empty" });
-  assert.deepEqual(p.log, ["close"]);
+  assert.deepEqual(p.log, ["drop-copy", "close"]);
+}
+// 3b. untouched: nothing was saved by this message, nothing to drop
+{
+  const p = pane({ dirty: false, hasContent: false });
+  await leaveCompose(p.env);
+  assert.ok(!p.log.includes("drop-copy"));
 }
 
 // 4. something written: saved first, then closed (the order matters: nothing is lost if the save never comes back)

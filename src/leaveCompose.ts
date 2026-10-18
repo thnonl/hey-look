@@ -9,6 +9,8 @@ export interface ComposeProbe {
   attaching: boolean;
   /** goes up with every edit, so a save can tell whether the person kept typing while it ran */
   rev: number;
+  /** an address was typed in To / Cc / Bcc and not confirmed yet (it is not in `hasContent`, but it is the person's) */
+  pending?: boolean;
 }
 
 /** A draft that was just saved: what the toast needs. */
@@ -33,6 +35,8 @@ export interface LeaveEnv {
   save: (onSaved: (d: SavedDraft) => void) => Promise<boolean | void>;
   /** the person's answer for a scheduled message with unsaved changes */
   askScheduled: () => Promise<"keep" | "discard">;
+  /** everything typed was deleted again: the copy an autosave made of a NEW message goes, and the snapshot (an opened draft keeps its last saved version) */
+  dropEmptied?: () => Promise<void>;
   /** close the pane (nothing is saved by this) */
   close: () => Promise<void>;
 }
@@ -75,6 +79,7 @@ export async function leaveCompose(env: LeaveEnv): Promise<LeaveOutcome> {
       p = env.probe();
     }
     if (!got.d && p && !p.hasContent) {
+      await env.dropEmptied?.();
       await env.close();
       return { kind: "closed", why: "empty" }; // typed, then deleted again
     }

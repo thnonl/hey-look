@@ -561,6 +561,35 @@ assert.equal(draftKey("t9"), "draft:t9");
   m = make({ ...changed, attaching: true }, {});
   assert.equal(await runClose(m.d), "attaching");
   assert.deepEqual(m.log, ["attaching"]);
+
+  // 1.0.7 W2.3: typed, autosaved, deleted again: the copy of a NEW message goes before the window ends (and only then)
+  const emptied = f({ dirty: true, hasContent: false });
+  m = make(emptied, {});
+  m.d.emptied = async () => void m.log.push("emptied");
+  assert.equal(await runClose(m.d), "ended");
+  assert.deepEqual(m.log, ["emptied", "end"], "no question, the saved copy is dropped, then the window ends");
+  m = make(f({}), {});
+  m.d.emptied = async () => void m.log.push("emptied");
+  assert.equal(await runClose(m.d), "ended");
+  assert.deepEqual(m.log, ["end"], "untouched: nothing to drop");
+  m = make(f({ phase: "over", dirty: true }), {});
+  m.d.emptied = async () => void m.log.push("emptied");
+  await runClose(m.d);
+  assert.deepEqual(m.log, ["end"], "a window that is over drops nothing");
+
+  // 1.0.7 W2.2: Discard on an opened draft that cannot be put back (the server refused): the window stays, Compose has said why
+  m = make(changed, { ask: "discard" });
+  m.d.discard = async () => (m.log.push("discard"), false);
+  assert.equal(await runClose(m.d), "kept");
+  assert.deepEqual(m.log, ["ask", "discard"], "the window does not end");
+  m = make(changed, { ask: "save", save: false, askFailed: "discard" });
+  m.d.discard = async () => (m.log.push("discard"), false);
+  assert.equal(await runClose(m.d), "kept");
+  assert.deepEqual(m.log, ["ask", "save", "askFailed", "discard"]);
+  // a discard that returns nothing (the old shape) or true ends the window
+  m = make(changed, { ask: "discard" });
+  m.d.discard = async () => (m.log.push("discard"), true);
+  assert.equal(await runClose(m.d), "discarded");
 }
 
 // ---- quit and update restart (REQ-C12)
@@ -647,6 +676,12 @@ assert.equal(draftKey("t9"), "draft:t9");
   }
   // it asks to be closed through its page: the close request is held back, the window ends itself or goes out of sight
   assert.ok(view.includes("onCloseRequested(") && view.includes("e.preventDefault()"), "the close request is held back until the person answered");
+  const composeSrc = readFileSync(new URL("../src/components/Compose.tsx", import.meta.url), "utf8");
+  const initOf = composeSrc.slice(composeSrc.indexOf("const initOf = ("), composeSrc.indexOf("const reopen = ("));
+  assert.ok(initOf.includes("restore: { encrypt: encIntent, sign: signOn, attachKey },") && /\n\s+sigId, \/\//.test(initOf), "a message moved into a window, back after Undo or reopened after a failed send carries the signature picker (W2.7)");
+  assert.ok(initOf.includes("...init,") && initOf.includes("openedDraft: openedDraft || undefined"), "and the opened-draft mark (W2.2)");
+  assert.ok(view.includes("composeEnd?.({ dropDraft: true })") && view.includes("=== false) return false"), "an opened draft that cannot be put back keeps the window open (W2.2)");
+  assert.ok(view.includes("emptied: async () => void (await st.getState().composeEnd?.({ emptied: true }))"), "an emptied message drops the copy an autosave made before the window ends (W2.3)");
   assert.ok(view.includes("api.popoutDestroy()") && view.includes("api.popoutPark()"));
   assert.ok(view.includes("registerFlushHandler(") && view.includes("composeFlush("), "a quit and an update restart ask the window");
   assert.ok(view.includes("<PassphraseHost />") && view.includes("<GuardMenuHost />"), "the passphrase question and the in-app menu are drawn in this window");

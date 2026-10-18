@@ -241,7 +241,8 @@ export interface Meeting {
 }
 
 export type KeyAlgo = "cv25519" | "rsa3072";
-export type KeyStatus = "ok" | "missing" | "expired" | "revoked";
+/** `signOnly` (1.0.7): the key for the address can check signatures but has no key to encrypt with */
+export type KeyStatus = "ok" | "missing" | "expired" | "revoked" | "signOnly";
 
 export interface PgpKey {
   /** 40 hex characters, no spaces */
@@ -394,6 +395,15 @@ export interface Att {
   dataBase64: string;
 }
 
+/** The message a new one answers or forwards (W2.22 CF-18): once the new one is really sent, the original gets `\Answered` / `$Forwarded` on its server. */
+export interface AnswersRef {
+  kind: "answered" | "forwarded";
+  /** the account the original is in */
+  accountId: string;
+  /** the Message-ID header of the original, with its angle brackets */
+  messageId: string;
+}
+
 export interface Draft {
   accountId: string;
   to: string[];
@@ -419,6 +429,8 @@ export interface Draft {
   recoveryId?: string;
   /** the meeting switch of Compose as saved with a draft (base64url JSON, meetingDraft.ts): the draft's private header `X-HeyLook-Meeting`; never part of a sent message */
   meetingForm?: string;
+  /** the message this answers or forwards; the draft's private header `X-HeyLook-Answers`, and the flag of the original once it is sent */
+  answers?: AnswersRef;
 }
 
 /** What Save draft says: the conversation the draft will be in once the sync has read it, and the reference that makes the next save (or a send) replace exactly this draft. */
@@ -612,6 +624,11 @@ export const api = {
     invoke<DraftSaveResult>("save_draft", { draft, replaces: replaces ?? null }),
   /** Remove the draft a reference names (Discard on a new message whose save made a draft). */
   discardDraft: (reference: string) => invoke<void>("discard_draft", { reference }),
+  /**
+   * Discard on a draft that was opened from Drafts and saved since: the version that was opened is put back and the saved copy `reference`
+   * (the `draftRef` of the last save) is removed. Rejects when that cannot be done: the saved copy stays.
+   */
+  discardDraftChanges: (reference: string) => invoke<void>("discard_draft_changes", { reference }),
   /** Crash recovery of the message being written (recover.rs): the snapshot is kept until the message is sent, discarded or saved. */
   recoverySave: (snap: SnapshotOut) => invoke<void>("recovery_save", { snap }),
   /** `why` is for startup.log only ("draft saved" = the server has the text, otherwise the message is over). */
@@ -621,7 +638,7 @@ export const api = {
   /** The start saves a snapshot as a real draft (replacing the draft it takes the place of, never joining a draft of the same message) and removes it once the draft is confirmed. Rejects when that cannot be done: the snapshot stays. */
   recoverySaveDraft: (id: string, draft: Draft, replaces: string | null) => invoke<RecoveredDraft>("recovery_save_draft", { id, draft, replaces }),
   /** To / Cc / Bcc of a saved draft with the display names, read from the draft's own headers (the synced copy has bare addresses and no Bcc). */
-  draftRecipients: (messageId: string) => invoke<{ to: string[]; cc: string[]; bcc: string[]; inReplyTo?: string | null; references?: string[]; meeting?: string | null }>("draft_recipients", { messageId }),
+  draftRecipients: (messageId: string) => invoke<{ to: string[]; cc: string[]; bcc: string[]; inReplyTo?: string | null; references?: string[]; meeting?: string | null; answers?: AnswersRef | null }>("draft_recipients", { messageId }),
   listOutbox: () => invoke<OutboxItem[]>("list_outbox"),
   cancelOutbox: (id: string) => invoke<void>("cancel_outbox", { id }),
   /** Send was pressed with an Undo time: the message goes into the local outbox (not a scheduled message) until `dueAt` (unix seconds). */
