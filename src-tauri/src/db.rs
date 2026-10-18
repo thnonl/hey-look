@@ -105,6 +105,8 @@ pub fn migrate(conn: &Connection) -> R<()> {
     conn.execute_batch("CREATE INDEX IF NOT EXISTS idx_events_remote ON events(calendar_id, remote_id);").map_err(err)?;
     // the message being written, kept until it is sent, discarded or saved (crash recovery, see recover.rs)
     crate::recover::create_tables(conn)?;
+    // the version of a draft as it was opened, for Discard (draftmail.rs)
+    crate::draftmail::create_original_table(conn)?;
     // scheduled sends: when it was queued and how many delivery attempts failed so far
     add_column(conn, "ALTER TABLE outbox ADD COLUMN created_at INTEGER NOT NULL DEFAULT 0")?;
     add_column(conn, "ALTER TABLE outbox ADD COLUMN attempts INTEGER NOT NULL DEFAULT 0")?;

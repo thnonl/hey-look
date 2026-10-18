@@ -335,6 +335,106 @@ pub fn drop_draft(db: &crate::Db, reference: &str) -> crate::db::R<()> {
     done
 }
 
+// ---------------------------------------------------------------------------------------------------------------------------------
+// The version of a draft as it was opened (1.0.7 W2.2)
+//
+// Opening a draft and saving it (Save draft, every autosave) replaces the opened message by the new one. Discard on such a message promises
+// that the draft goes back to how it was when it was opened, so the bytes of the opened version are kept when the first save is about to
+// replace it, under the reference of the draft that save makes; every further save moves the entry on to the reference of its own draft.
+// "Discard changes" appends these bytes again and removes the autosaved copy (`restore_on_session`). The bytes are the message exactly as
+// the server had it (an encrypted draft stays encrypted). They live in the local database only and are never written to the log.
+
+/// How long an entry is kept (a window that stays open for longer has no way back; the person is told by an error, nothing is lost).
+const ORIGINAL_KEEP_SECS: i64 = 14 * 24 * 3600;
+/// Most entries kept at once (the oldest go first).
+const ORIGINAL_MAX_ROWS: i64 = 40;
+
+pub fn create_original_table(c: &rusqlite::Connection) -> crate::db::R<()> {
+    c.execute_batch(
+        "CREATE TABLE IF NOT EXISTS draft_original(
+           draft_ref TEXT PRIMARY KEY, account_id TEXT NOT NULL, saved_at INTEGER NOT NULL, raw BLOB NOT NULL
+         );",
+    )
+    .map_err(crate::db::err)
+}
+
+/// Keep the opened version of the draft that `draft_ref` names (the one the first save made).
+pub fn keep_original(c: &rusqlite::Connection, draft_ref: &str, account_id: &str, raw: &[u8]) -> crate::db::R<()> {
+    let now = chrono::Utc::now().timestamp();
+    c.execute("INSERT OR REPLACE INTO draft_original(draft_ref,account_id,saved_at,raw) VALUES(?1,?2,?3,?4)", rusqlite::params![draft_ref, account_id, now, raw])
+        .map_err(crate::db::err)?;
+    let _ = c.execute("DELETE FROM draft_original WHERE saved_at < ?1 OR account_id NOT IN (SELECT id FROM accounts)", [now - ORIGINAL_KEEP_SECS]);
+    let _ = c.execute(
+        "DELETE FROM draft_original WHERE draft_ref IN (SELECT draft_ref FROM draft_original ORDER BY saved_at DESC, rowid DESC LIMIT -1 OFFSET ?1)",
+        [ORIGINAL_MAX_ROWS],
+    );
+    Ok(())
+}
+
+/// A later save replaced the draft `from` by the draft `to`: the opened version belongs to `to` now.
+pub fn move_original(c: &rusqlite::Connection, from: &str, to: &str) {
+    if from == to {
+        return;
+    }
+    let _ = c.execute("DELETE FROM draft_original WHERE draft_ref=?2 AND EXISTS(SELECT 1 FROM draft_original WHERE draft_ref=?1)", rusqlite::params![from, to]);
+    let _ = c.execute("UPDATE draft_original SET draft_ref=?2 WHERE draft_ref=?1", rusqlite::params![from, to]);
+}
+
+/// The opened version kept for the draft `draft_ref`.
+pub fn original(c: &rusqlite::Connection, draft_ref: &str) -> Option<Vec<u8>> {
+    c.query_row("SELECT raw FROM draft_original WHERE draft_ref=?1", [draft_ref], |r| r.get(0)).ok()
+}
+
+/// The message is over (sent, scheduled, discarded): its opened version is not needed any more.
+pub fn forget_original(c: &rusqlite::Connection, draft_ref: &str) {
+    let _ = c.execute("DELETE FROM draft_original WHERE draft_ref=?1", [draft_ref]);
+}
+
+/// The bytes of the draft `m:<local id>` as they are now, for the first save to keep: from the session-wide raw cache, the copy kept for
+/// encrypted mail, else a fetch on the session that is open anyway.
+pub fn read_opened<T: std::io::Read + std::io::Write>(db: &crate::Db, s: &mut imap::Session<T>, acc: &crate::db::Account, local_id: &str) -> crate::db::R<Vec<u8>> {
+    let (role, uid, kept): (String, u32, Option<Vec<u8>>) = crate::lock(db)
+        .query_row("SELECT folder,uid,pgp_raw FROM messages WHERE id=?1 AND account_id=?2 AND folder='drafts'", rusqlite::params![local_id, acc.id], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)))
+        .map_err(crate::db::err)?;
+    if let Some(raw) = kept {
+        return Ok(raw);
+    }
+    if let Some(raw) = crate::rawcache::get(local_id) {
+        return Ok(raw.as_ref().clone());
+    }
+    let folder = crate::fmap(db, &acc.id).get(&role).cloned().ok_or("folder unknown")?;
+    crate::mail::fetch_raw(s, &folder, uid)
+}
+
+/// What a save does with the opened version (see above), after the new draft `new_ref` was appended: the first save of an opened draft
+/// (`opened` holds its bytes) keeps them under `new_ref`; a later save (it replaced `old_ref`, a `mid:` reference) takes the entry along.
+pub fn note_save(c: &rusqlite::Connection, account_id: &str, opened: Option<&[u8]>, replaced: Option<&Target>, new_ref: Option<&str>) {
+    let Some(new_ref) = new_ref else { return };
+    match (opened, replaced) {
+        (Some(raw), _) => {
+            if let Err(e) = keep_original(c, new_ref, account_id, raw) {
+                crate::startup::line("draft", &format!("account {account_id}: the opened version of a draft could not be kept: {e}"));
+            }
+        }
+        (None, Some(Target::Mid { account, mid })) => move_original(c, &format!("mid:{account}|{mid}"), new_ref),
+        _ => {}
+    }
+}
+
+/// "Discard changes" on a session: the opened version is put back into Drafts (flags \Draft \Seen) and, only after that worked, the autosaved
+/// copy named by `draft_ref` is removed, so a failure on the way never leaves fewer drafts than before. An APPEND that fails leaves
+/// everything as it was (the error goes to the caller); a copy that cannot be removed is logged and left (two drafts, nothing lost).
+pub fn restore_on_session<T: std::io::Read + std::io::Write>(db: &crate::Db, acc: &crate::db::Account, s: &mut imap::Session<T>, draft_ref: &str) -> crate::db::R<()> {
+    let raw = original(&crate::lock(db), draft_ref).ok_or("The opened version of this draft is no longer available.")?;
+    let folder = crate::folder_for(db, acc, "drafts")?;
+    crate::mail::append(s, &folder, &raw, true)?;
+    if let Err(e) = drop_on_session(db, acc, s, &Target::parse(draft_ref)) {
+        crate::startup::line("draft", &format!("account {}: the draft was put back, but the saved copy of the changes could not be removed: {e}", acc.id));
+    }
+    forget_original(&crate::lock(db), draft_ref);
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -668,6 +768,110 @@ mod tests {
             assert_eq!(delete(&fake, "<old@x>"), Ok(0));
             assert_eq!(fake.uids("Drafts"), Some(vec![10]));
         });
+    }
+
+    // ---- 1.0.7 W2.2: Discard on an opened draft puts the opened version back
+
+    /// A server whose Drafts holds the opened draft (uid 10) and the local store that knows it, as after a sync.
+    fn opened_draft() -> (Fake, crate::Db, crate::db::Account, Vec<u8>) {
+        let acc = crate::smtp::tests::account();
+        let original = crate::smtp::build_draft(&acc, &crate::smtp::tests::draft("<p>Original text</p>", vec![], vec![])).unwrap().formatted();
+        let (db, acc) = setup("draft-original", &[(10, "<orig@x>", "T")]);
+        let fake = Fake::start(&[("INBOX", &[]), ("Drafts", &[])]);
+        fake.put_message("Drafts", 10, &original);
+        (fake, db, acc, original)
+    }
+
+    /// One save of the compose, as `save_draft` does it (Save draft or an autosave).
+    fn save(fake: &Fake, db: &crate::Db, acc: &crate::db::Account, text: &str, replaces: Option<String>) -> Option<String> {
+        let raw = crate::smtp::build_draft(acc, &crate::smtp::tests::draft(&format!("<p>{text}</p>"), vec![], vec![])).unwrap().formatted();
+        let mut s = fake.connect();
+        let saved = crate::save_draft_on(db, acc, &mut s, &raw, replaces).unwrap();
+        let _ = s.logout();
+        saved.draft_ref
+    }
+
+    fn drafts_with(fake: &Fake, needle: &str) -> usize {
+        let st = fake.state.lock().unwrap();
+        st.folders["Drafts"].iter().filter(|u| st.messages.get(&("Drafts".to_string(), **u)).is_some_and(|m| String::from_utf8_lossy(m).contains(needle))).count()
+    }
+
+    #[test]
+    fn discard_changes_puts_the_opened_draft_back() {
+        crate::test_guard::within(60, || {
+            let (fake, db, acc, original) = opened_draft();
+            // opened from Drafts, then two autosaves (the second replaces the first, the first replaced the opened message)
+            let r1 = save(&fake, &db, &acc, "Original text plus edits", Some("m:a1:drafts:10".into()));
+            assert_eq!(fake.uids("Drafts").map(|u| u.len()), Some(1), "the first save replaced the opened message");
+            let r2 = save(&fake, &db, &acc, "Original text plus more edits", r1.clone());
+            assert_eq!(fake.uids("Drafts").map(|u| u.len()), Some(1));
+            assert_ne!(r1, r2);
+            assert!(original_of(&db, r2.as_deref().unwrap()).is_some(), "the opened version follows the draft");
+            assert!(original_of(&db, r1.as_deref().unwrap()).is_none());
+            // Discard changes
+            let mut s = fake.connect();
+            restore_on_session(&db, &acc, &mut s, r2.as_deref().unwrap()).unwrap();
+            let _ = s.logout();
+            let st = fake.state.lock().unwrap();
+            let left: Vec<&Vec<u8>> = st.folders["Drafts"].iter().filter_map(|u| st.messages.get(&("Drafts".to_string(), *u))).collect();
+            assert_eq!(left.len(), 1, "Drafts holds one message");
+            assert_eq!(left[0], &original, "byte for byte the version that was opened");
+            drop(st);
+            let last_append = fake.commands().into_iter().rev().find(|c| c.starts_with("APPEND")).expect("an APPEND");
+            assert!(last_append.contains("Seen") && last_append.contains("Draft"), "the flags are Draft and Seen: {last_append}");
+            assert_eq!(drafts_with(&fake, "plus"), 0, "the autosaved copy is gone");
+            assert!(original_of(&db, r2.as_deref().unwrap()).is_none(), "nothing is left to restore twice");
+        });
+    }
+
+    fn original_of(db: &crate::Db, r: &str) -> Option<Vec<u8>> {
+        original(&crate::lock(db), r)
+    }
+
+    #[test]
+    fn discard_changes_without_a_save_writes_nothing() {
+        crate::test_guard::within(60, || {
+            let (fake, db, acc, _) = opened_draft();
+            let before = fake.commands().len();
+            let mut s = fake.connect();
+            // no save happened: there is no version kept and nothing to put back
+            assert!(restore_on_session(&db, &acc, &mut s, "mid:a1|<never-saved@x>").is_err());
+            let _ = s.logout();
+            let sent = &fake.commands()[before..];
+            assert!(!sent.iter().any(|c| { let u = c.to_uppercase(); u.starts_with("APPEND") || u.contains("STORE") || u.contains("EXPUNGE") }), "{sent:?}");
+            assert_eq!(fake.uids("Drafts"), Some(vec![10]));
+        });
+    }
+
+    #[test]
+    fn discard_changes_keeps_the_autosave_when_the_append_fails() {
+        crate::test_guard::within(60, || {
+            let (fake, db, acc, _) = opened_draft();
+            let r1 = save(&fake, &db, &acc, "Original text plus edits", Some("m:a1:drafts:10".into())).unwrap();
+            // the server refuses the APPEND (here: the Drafts folder is gone)
+            crate::db::set_setting(&crate::lock(&db), &format!("fmap:{ACC}"), r#"{"inbox":"INBOX","drafts":"Gone"}"#).unwrap();
+            let mut s = fake.connect();
+            assert!(restore_on_session(&db, &acc, &mut s, &r1).is_err());
+            let _ = s.logout();
+            assert_eq!(drafts_with(&fake, "plus edits"), 1, "the autosaved version is still there: never zero drafts");
+            assert!(original_of(&db, &r1).is_some(), "and the way back stays, a later try can work");
+            let removed_after_failure = fake.commands().iter().rev().take_while(|c| !c.starts_with("APPEND")).any(|c| c.to_uppercase().contains("STORE"));
+            assert!(!removed_after_failure, "{:?}", fake.commands());
+        });
+    }
+
+    #[test]
+    fn the_opened_version_goes_when_the_message_is_over() {
+        let (_, db, _, original_bytes) = opened_draft();
+        keep_original(&crate::lock(&db), "mid:a1|<x@y>", "a1", &original_bytes).unwrap();
+        crate::drop_replaced_draft(&db, Some("mid:a1|<x@y>".into()));
+        assert!(original_of(&db, "mid:a1|<x@y>").is_none(), "sent, scheduled or discarded: not kept");
+        // and the table is bounded (the oldest entries go)
+        for i in 0..(ORIGINAL_MAX_ROWS + 5) {
+            keep_original(&crate::lock(&db), &format!("mid:a1|<{i}@y>"), "a1", b"x").unwrap();
+        }
+        let n: i64 = crate::lock(&db).query_row("SELECT count(*) FROM draft_original", [], |r| r.get(0)).unwrap();
+        assert_eq!(n, ORIGINAL_MAX_ROWS);
     }
 
     /// Save draft three times, as the app does it: append the new copy, then remove the previous one by the Message-ID the last save gave

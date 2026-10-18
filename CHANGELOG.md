@@ -20,6 +20,8 @@
 - Every Copy button (View original, encryption keys, Copy sender email, the webmail search) works on Linux and on a Mac and says "Couldn't copy to the clipboard" when it could not copy
 - A new Summarize, Translate or Write with AI removes the message about the earlier AI problem at once
 - Starting a sixth translation, or deleting mail while translations run, no longer removes the message of a running translation; only the short-lived messages are limited to five
+- Discard on a draft you opened from Drafts and changed asks "Discard your changes?" and puts the draft back the way it was when you opened it (the edits an autosave saved no longer stay in Drafts); a new message keeps the old question
+- A new message that was autosaved and then emptied (all text, recipients and files removed) leaves no draft behind when you close it, move to another mail or close its window
 
 ## 1.0.6 — 2026-10-18
 

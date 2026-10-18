@@ -275,6 +275,8 @@ function dropMockDraft(ref: string) {
   delete mockDrafts[tid];
   delete mockDraftRows[tid];
 }
+/** The version of a draft as it was opened, by the reference of the draft the last save made (W2.2: `discard_draft_changes` puts it back). */
+const mockOriginals: Record<string, { thread: typeof messages; row: ReturnType<typeof t>; headers: { to: string[]; cc: string[]; bcc: string[]; inReplyTo?: string | null; references?: string[]; meeting?: string | null } }> = {};
 /** To / Cc / Bcc as the saved draft's headers have them, by message id (`draft_recipients`). */
 const mockDraftHeaders: Record<string, { to: string[]; cc: string[]; bcc: string[]; inReplyTo?: string | null; references?: string[]; meeting?: string | null }> = {};
 const dayOf = (sec: number) => Math.floor(sec / 86400);
@@ -1223,7 +1225,17 @@ export function installMock() {
         const dr = a.draft as { to: string[]; cc: string[]; bcc?: string[]; inReplyTo?: string | null; references?: string[]; subject: string; html: string; text: string; accountId: string; importance?: string; meetingForm?: string };
         const tid = `dt${++mockDraftSeq}`;
         // the draft is replaced, not added to (the backend appends the new one, then deletes the one the reference names)
-        if (typeof a.replaces === "string") dropMockDraft(a.replaces);
+        let opened: (typeof mockOriginals)[string] | undefined;
+        if (typeof a.replaces === "string") {
+          // the first save of an opened draft keeps the version that was opened; a later save takes it along (draftmail.rs note_save)
+          const first = a.replaces.startsWith("m:a1:drafts:") ? a.replaces.slice("m:a1:drafts:".length) : null;
+          if (first && mockDrafts[first]) opened = { thread: mockDrafts[first], row: mockDraftRows[first], headers: mockDraftHeaders[`a1:drafts:${first}`] };
+          else if (mockOriginals[a.replaces]) {
+            opened = mockOriginals[a.replaces];
+            delete mockOriginals[a.replaces];
+          }
+          dropMockDraft(a.replaces);
+        }
         // the synced copy has bare To / Cc addresses and no Bcc; `draft_recipients` returns what the headers say
         const bareOf = (l: string[]) => l.map((x) => /<([^>]+)>/.exec(x)?.[1] ?? x);
         mockDrafts[tid] = [{ ...messages[0], id: `a1:drafts:${tid}`, accountId: dr.accountId, folder: "drafts", subject: dr.subject || "(no subject)", fromName: "Nam", fromEmail: "nam@example.com", to: bareOf(dr.to).join(", "), cc: bareOf(dr.cc).join(", "), html: dr.html, text: dr.text, attachments: [], seen: true, ...{ importance: dr.importance ?? "normal" } }];
@@ -1232,10 +1244,29 @@ export function installMock() {
         mockDraftHeaders[`a1:drafts:${tid}`] = { to: dr.to, cc: dr.cc, bcc: dr.bcc ?? [], inReplyTo: dr.inReplyTo ?? null, references: dr.references ?? [], meeting: dr.meetingForm ?? null }; // (the private X-HeyLook-Meeting header)
         mockDraftRefs[`mid:a1|<${tid}@mock>`] = tid;
         (window as unknown as { __draftCount: () => number }).__draftCount = () => Object.keys(mockDrafts).length; // for a check: drafts the page holds
+        if (opened) mockOriginals[`mid:a1|<${tid}@mock>`] = opened;
         const done = () => ({ threadId: tid, draftRef: `mid:a1|<${tid}@mock>` });
         return hashTokens().has("draftslow") ? later(1500, done) : done(); // `#draftslow`: the save takes 1.5 s
       }
-      case "discard_draft": dropMockDraft(String(a.reference)); return null;
+      case "discard_draft": delete mockOriginals[String(a.reference)]; dropMockDraft(String(a.reference)); return null;
+      case "discard_draft_changes": {
+        // like the backend: the opened version is appended again, then the saved copy goes (`#restorefail`: the server refuses, nothing changes)
+        const ref = String(a.reference);
+        const w = window as unknown as { __discardChanges?: number };
+        w.__discardChanges = (w.__discardChanges ?? 0) + 1; // counted, so a check can see that no restore ran
+        const o = mockOriginals[ref];
+        if (hashTokens().has("restorefail")) throw "mock: the server refused the draft";
+        if (!o) throw "The opened version of this draft is no longer available.";
+        dropMockDraft(ref);
+        delete mockOriginals[ref];
+        const tid = `dt${++mockDraftSeq}`;
+        mockDrafts[tid] = o.thread.map((m) => ({ ...m, id: `a1:drafts:${tid}` }));
+        mockDraftRows[tid] = { ...o.row, threadId: tid, rowKey: tid };
+        mockDraftHeaders[`a1:drafts:${tid}`] = o.headers;
+        mockDraftRefs[`mid:a1|<${tid}@mock>`] = tid;
+        (window as unknown as { __draftCount: () => number }).__draftCount = () => Object.keys(mockDrafts).length;
+        return null;
+      }
       case "recovery_save": {
         const sn = a.snap as MockSnap & { files: unknown[] | null };
         const all = recoveryRead();

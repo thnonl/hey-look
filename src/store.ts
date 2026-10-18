@@ -32,6 +32,16 @@ export interface ComposeSaveOpts {
   onSaved?: (d: SavedDraft) => void;
 }
 
+/**
+ * What ends a message without a send (Compose's `composeEnd`): the snapshot goes; with `dropDraft` (Discard) the draft a save made of a new
+ * message goes too, and an opened draft is put back as it was opened; with `emptied` (everything typed was deleted again, W2.3) the copy of a
+ * NEW message goes and an opened draft keeps the version last saved. Resolves to false when it could not be done (Compose stays, the toast said why).
+ */
+export interface ComposeEndOpts {
+  dropDraft?: boolean;
+  emptied?: boolean;
+}
+
 export interface ComposeInit {
   accountId?: string;
   to?: string[];
@@ -42,6 +52,11 @@ export interface ComposeInit {
   inReplyTo?: string | null;
   references?: string[];
   replaces?: string; // draft thread id being edited
+  /**
+   * The message is a draft that was opened from Drafts (`replaces` is `m:<id>`), or a window / Undo / reopen of one after a save made `replaces` a
+   * `mid:` reference: Discard puts the opened version back instead of leaving the autosaved edits (W2.2).
+   */
+  openedDraft?: boolean;
   isReply?: boolean;
   /** the sender asked for answers to go to `replyTo` instead of the address of From: Compose says so (and offers From) */
   replyNote?: { replyTo: string[]; from: string };
@@ -270,7 +285,7 @@ interface State {
    * The message in the pane is over without being sent (saved, discarded, or the app is about to end): its crash-recovery snapshot goes, and
    * with `dropDraft` the draft that an autosave made of a NEW message goes too (Discard).
    */
-  composeEnd: ((o?: { dropDraft?: boolean }) => Promise<void>) | null;
+  composeEnd: ((o?: ComposeEndOpts) => Promise<boolean | void>) | null;
   /** What the open message says about itself (written something? files still coming in?), for `leaveCompose`. */
   composeProbe: (() => ComposeProbe) | null;
   dialog: Dialog;
@@ -332,7 +347,7 @@ interface State {
   openCompose: (c: ComposeInit | null, opts?: { restore?: boolean; sending?: number }) => Promise<void>;
   setComposeDirty: (d: boolean) => void;
   setComposeSaver: (f: ((opts?: ComposeSaveOpts) => Promise<boolean | void>) | null) => void;
-  setComposeEnd: (f: ((o?: { dropDraft?: boolean }) => Promise<void>) | null) => void;
+  setComposeEnd: (f: ((o?: ComposeEndOpts) => Promise<boolean | void>) | null) => void;
   setComposeProbe: (f: (() => ComposeProbe) | null) => void;
   setDialog: (d: Dialog) => void;
   setCommandOpen: (o: boolean) => void;
@@ -1020,6 +1035,7 @@ export const useStore = create<State>((set, get) => ({
           })) === "discard"
             ? "discard"
             : "keep",
+        dropEmptied: async () => void (await get().composeEnd?.({ emptied: true })),
         close: () => get().openCompose(null, { restore: false }),
       });
       if (outcome.kind === "saved") {
@@ -1154,7 +1170,10 @@ export const useStore = create<State>((set, get) => ({
   openCompose: async (compose, opts) => {
     const st = get();
     if (compose && !hasMailAccounts(st.accounts.length)) return; // no account: there is nothing to send with
-    if (compose && st.compose && st.composeDirty) {
+    // Everything typed was deleted again: nothing to keep, nothing to ask. The copy an autosave made of a new message goes with it (W2.3).
+    const emptied = !!compose && !!st.compose && !st.compose.outboxId && st.composeDirty && st.composeProbe?.().hasContent === false && !st.composeProbe?.().attaching;
+    if (emptied) await get().composeEnd?.({ emptied: true });
+    else if (compose && st.compose && st.composeDirty) {
       const choice = await st.choose({
         title: t("errors.ask.unsentTitle"),
         body: t("errors.ask.unsentBody"),
@@ -1166,7 +1185,7 @@ export const useStore = create<State>((set, get) => ({
       });
       if (choice === "keep") return;
       if (choice === "save") await get().composeSaver?.();
-      else await get().composeEnd?.({ dropDraft: true }); // discarded: no snapshot is kept, and no draft an autosave made of it
+      else if ((await get().composeEnd?.({ dropDraft: true })) === false) return; // discarded: no snapshot is kept, no draft an autosave made of it, an opened draft is put back (false: that failed, the message stays)
     }
     // While writing, no mail is selected: nothing that works on "the selected mail" can reach the old one (F-21). Whoever opens a reply
     // or a forward has built it from that mail already. It comes back when writing ends and no other mail was picked.

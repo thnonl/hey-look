@@ -3607,6 +3607,7 @@ async fn outbox_hold_send(app: tauri::AppHandle, state: tauri::State<'_, AppStat
 /// Remove the original draft after a message was sent or scheduled from it (so it is not duplicated).
 fn drop_replaced_draft(db: &Db, replaces: Option<String>) {
     if let Some(t) = replaces {
+        draftmail::forget_original(&lock(db), &t); // (the message is over: the version that was opened is not needed any more)
         if let Err(e) = draftmail::drop_draft(db, &t) {
             startup::line("draft", &format!("the draft that a sent or scheduled message was written from could not be removed: {e}"));
         }
@@ -3680,23 +3681,51 @@ async fn save_draft(state: tauri::State<'_, AppState>, draft: smtp::Draft, repla
         let sec = secret(&db, &acc)?;
         let raw = draft_bytes(&db, &acc, &draft)?;
         let mut s = mail::connect(&acc, &sec)?;
-        let folder = folder_for(&db, &acc, "drafts")?;
-        mail::append(&mut s, &folder, &raw, true)?;
+        let saved = save_draft_on(&db, &acc, &mut s, &raw, replaces);
         let _ = s.logout();
-        remember_draft_meeting(&db, &acc, &raw, &draft);
-        let draft_ref = draftmail::draft_ref(&acc.id, &raw);
-        if let Some(t) = replaces {
-            // never remove the draft that was just appended (a reference to its own Message-ID)
-            if draft_ref.as_deref() == Some(t.as_str()) {
-                startup::line("draft", &format!("account {}: the draft to replace is the one just saved, nothing removed", acc.id));
-            } else if let Err(e) = draftmail::drop_draft(&db, &t) {
+        if saved.is_ok() {
+            remember_draft_meeting(&db, &acc, &raw, &draft);
+        }
+        saved
+    })
+    .await
+}
+
+/// The part of `save_draft` that talks to the server: append the draft, keep the version that was opened (the first save of an opened draft,
+/// see draftmail.rs "The version of a draft as it was opened"), and remove the draft this one replaces.
+fn save_draft_on<T: std::io::Read + std::io::Write>(db: &Db, acc: &Account, s: &mut imap::Session<T>, raw: &[u8], replaces: Option<String>) -> R<SavedDraft> {
+    let folder = folder_for(db, acc, "drafts")?;
+    let target = replaces.as_deref().map(draftmail::Target::parse);
+    // read before the append: the opened message is the one this save is about to replace
+    let opened = match &target {
+        Some(draftmail::Target::Local(id)) => match draftmail::read_opened(db, s, acc, id) {
+            Ok(bytes) => Some(bytes),
+            Err(e) => {
+                startup::line("draft", &format!("account {}: the opened version of a draft could not be read, Discard cannot put it back: {e}", acc.id));
+                None
+            }
+        },
+        _ => None,
+    };
+    mail::append(s, &folder, raw, true)?;
+    let draft_ref = draftmail::draft_ref(&acc.id, raw);
+    if let Some(t) = replaces {
+        // never remove the draft that was just appended (a reference to its own Message-ID)
+        if draft_ref.as_deref() == Some(t.as_str()) {
+            startup::line("draft", &format!("account {}: the draft to replace is the one just saved, nothing removed", acc.id));
+        } else {
+            draftmail::note_save(&lock(db), &acc.id, opened.as_deref(), target.as_ref(), draft_ref.as_deref());
+            let dropped = match target.as_ref() {
+                Some(draftmail::Target::Thread(_)) | None => draftmail::drop_draft(db, &t), // (a conversation id of an older caller: its own connection)
+                Some(target) => draftmail::drop_on_session(db, acc, s, target),
+            };
+            if let Err(e) = dropped {
                 startup::line("draft", &format!("account {}: the draft that was replaced could not be removed: {e}", acc.id));
             }
         }
-        // the thread the draft gets in the local store (the toast "Draft saved" can open it again with Edit)
-        Ok(SavedDraft { thread_id: draft_thread_id(&acc.id, &raw), draft_ref })
-    })
-    .await
+    }
+    // the thread the draft gets in the local store (the toast "Draft saved" can open it again with Edit)
+    Ok(SavedDraft { thread_id: draft_thread_id(&acc.id, raw), draft_ref })
 }
 
 /// To, Cc and Bcc of a saved draft with their display names, read from the headers of the message in the Drafts folder (the synced copy
@@ -3721,7 +3750,30 @@ async fn draft_recipients(state: tauri::State<'_, AppState>, message_id: String)
 #[tauri::command]
 async fn discard_draft(state: tauri::State<'_, AppState>, reference: String) -> R<()> {
     let db = state.db.clone();
-    blocking(move || draftmail::drop_draft(&db, &reference)).await
+    blocking(move || {
+        draftmail::forget_original(&lock(&db), &reference);
+        draftmail::drop_draft(&db, &reference)
+    })
+    .await
+}
+
+/// 1.0.7 W2.2: Discard on a draft that was opened from Drafts and saved since (an autosave counts): the draft goes back to how it was when it
+/// was opened. `reference` names the draft the last save made; see draftmail.rs `restore_on_session`. An error leaves the saved version in place.
+#[tauri::command]
+async fn discard_draft_changes(state: tauri::State<'_, AppState>, reference: String) -> R<()> {
+    let db = state.db.clone();
+    blocking(move || {
+        let account_id: String = lock(&db)
+            .query_row("SELECT account_id FROM draft_original WHERE draft_ref=?1", [&reference], |r| r.get(0))
+            .map_err(|_| "The opened version of this draft is no longer available.".to_string())?;
+        let acc = db::get_account(&lock(&db), &account_id)?;
+        let sec = secret(&db, &acc)?;
+        let mut s = mail::connect(&acc, &sec)?;
+        let done = draftmail::restore_on_session(&db, &acc, &mut s, &reference);
+        let _ = s.logout();
+        done
+    })
+    .await
 }
 
 // ---------- crash recovery of the message being written (recover.rs) ----------
@@ -5092,6 +5144,7 @@ pub fn run() {
             save_draft,
             draft_recipients,
             discard_draft,
+            discard_draft_changes,
             recovery_save,
             recovery_clear,
             recovery_list,

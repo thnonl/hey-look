@@ -612,6 +612,11 @@ export const api = {
     invoke<DraftSaveResult>("save_draft", { draft, replaces: replaces ?? null }),
   /** Remove the draft a reference names (Discard on a new message whose save made a draft). */
   discardDraft: (reference: string) => invoke<void>("discard_draft", { reference }),
+  /**
+   * Discard on a draft that was opened from Drafts and saved since: the version that was opened is put back and the saved copy `reference`
+   * (the `draftRef` of the last save) is removed. Rejects when that cannot be done: the saved copy stays.
+   */
+  discardDraftChanges: (reference: string) => invoke<void>("discard_draft_changes", { reference }),
   /** Crash recovery of the message being written (recover.rs): the snapshot is kept until the message is sent, discarded or saved. */
   recoverySave: (snap: SnapshotOut) => invoke<void>("recovery_save", { snap }),
   /** `why` is for startup.log only ("draft saved" = the server has the text, otherwise the message is over). */

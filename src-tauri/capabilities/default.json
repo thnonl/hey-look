@@ -64,6 +64,7 @@
     "allow-save-draft",
     "allow-draft-recipients",
     "allow-discard-draft",
+    "allow-discard-draft-changes",
     "allow-recovery-save",
     "allow-recovery-clear",
     "allow-recovery-list",

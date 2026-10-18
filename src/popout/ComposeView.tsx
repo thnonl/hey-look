@@ -166,8 +166,9 @@ export default function ComposeView({ label, init }: PopoutViewProps) {
       return (await saver({ quiet: true, onSaved: () => undefined })) === true; // (no toast here: the main window makes it)
     };
     const discard = async () => {
-      await st.getState().composeEnd?.({ dropDraft: true });
+      if ((await st.getState().composeEnd?.({ dropDraft: true })) === false) return false; // an opened draft could not be put back: the window stays
       st.setState({ composeDirty: false });
+      return true;
     };
     const closeNow = async () => {
       if (closing.current) return;
@@ -204,6 +205,7 @@ export default function ComposeView({ label, init }: PopoutViewProps) {
             return a === "discard" ? "discard" : "keep";
           },
           discard,
+          emptied: async () => void (await st.getState().composeEnd?.({ emptied: true })),
           park: () => dispatchRef.current({ t: "close" }),
           end: () => dispatchRef.current({ t: "end" }),
           attaching: () => st.getState().showToast(tNow("compose.leave.attaching"), undefined, "info"),

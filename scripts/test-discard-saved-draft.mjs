@@ -87,6 +87,189 @@ try {
   await press('Discard', '[role=alertdialog] button');
   await sleep(1200);
   await check('Discard after a save that kept the message open: the draft goes', async () => assert.equal(await count(), 0));
+
+  // ---------- 1.0.7 W2.2: a draft that was opened from Drafts. Discard puts the version that was opened back (never deletes the draft)
+  const mod = (path) => `import(${JSON.stringify(path)})`;
+  const drafts = () => evaluate(`${mod('/src/api.ts')}.then(async (m) => { const rows = await m.api.listThreads({ folder: 'drafts' }); const out = []; for (const r of rows) { const th = await m.api.getThread(r.threadId, 'drafts'); out.push({ id: r.threadId, text: th[th.length - 1].text || '' }); } return out; })`);
+  const dialog = () => evaluate(`(() => { const d = document.querySelector('[role=alertdialog]'); return d ? { text: d.innerText.replace(/\\s+/g, ' '), buttons: [...d.querySelectorAll('button')].map((b) => b.textContent.trim()) } : null; })()`);
+  const paneUp = () => evaluate(`!!document.querySelector('.cp-editor .tiptap')?.editor`);
+  const editText = () => evaluate(`document.querySelector('.cp-editor .tiptap').editor.getText()`);
+  const waitPane = async () => { for (let i = 0; i < 80 && !(await paneUp()); i++) await sleep(100); await sleep(500); };
+  const openFromDrafts = async (id) => { await evaluate(`${mod('/src/components/Compose.tsx')}.then((m) => m.openDraftThread(${JSON.stringify(id)}, true))`); await waitPane(); };
+  /** a saved draft with the text 'Original text', then opened again and given ' plus edits', and the autosave has run */
+  async function openedAndEdited(flags = '') {
+    await H.openApp(`lang=en${flags}`, 1280, 720);
+    await evaluate(`window.__hlTiming = { autosaveMs: 500, snapshotMs: 300 }; window.__store.getState().openCompose({ accountId: 'a1', to: ['alice@fabrikam.com'], subject: 'D1', bodyHtml: '<p>Original text</p>' }); 1`);
+    await waitPane();
+    await evaluate(`document.querySelector('.cp-editor .tiptap').editor.commands.insertContent(' '); 1`); // a change, so Save draft has something
+    await evaluate(`window.__store.getState().composeSaver({ quiet: true }); 1`);
+    await sleep(700);
+    await evaluate(`window.__store.getState().openCompose(null); 1`);
+    await sleep(300);
+    const saved = await drafts();
+    assert.equal(saved.length, 1, 'the first draft was not saved');
+    await openFromDrafts(saved[0].id);
+    await evaluate(`document.querySelector('.cp-editor .tiptap').editor.commands.focus('end'); 1`);
+    await io.typeText(' plus edits', 6);
+    await leaveWindow(); // the window loses the focus: the autosave runs
+    await sleep(1500);
+    return saved[0].text;
+  }
+
+  {
+    const original = await openedAndEdited();
+    await check('opened draft: the autosave replaced the opened version (one draft, with the edits)', async () => {
+      const d = await drafts();
+      assert.equal(d.length, 1);
+      assert.ok(d[0].text.includes('plus edits'), d[0].text);
+    });
+    await press('Discard', '.cp-bar button, .cp-bar .rb');
+    await sleep(400);
+    await check('opened draft with changes: its own question and button', async () => {
+      const q = await dialog();
+      assert.ok(q, 'no question');
+      assert.match(q.text, /Discard your changes\?/);
+      assert.match(q.text, /The draft goes back to how it was when you opened it\./);
+      assert.deepEqual(q.buttons, ['Cancel', 'Discard changes']);
+      assert.doesNotMatch(q.text, /What you wrote will be lost/);
+    });
+    // Cancel keeps the message and its edits
+    await press('Cancel', '[role=alertdialog] button');
+    await sleep(300);
+    await check('Cancel: the message stays with the edits, nothing was restored', async () => {
+      assert.equal(await paneUp(), true);
+      assert.ok((await editText()).includes('plus edits'));
+      assert.equal(await dialog(), null);
+      assert.ok(!(await evaluate(`window.__discardChanges`)));
+    });
+    await press('Discard', '.cp-bar button, .cp-bar .rb');
+    await sleep(300);
+    await press('Discard changes', '[role=alertdialog] button');
+    await sleep(1200);
+    await check('Discard changes: Drafts holds one draft, the version that was opened, and the pane is gone', async () => {
+      const d = await drafts();
+      assert.equal(d.length, 1, JSON.stringify(d));
+      assert.equal(d[0].text.trim(), original.trim());
+      assert.ok(!d[0].text.includes('plus edits'));
+      assert.equal(await paneUp(), false);
+      assert.equal(await evaluate(`window.__discardChanges`), 1);
+    });
+
+    // an opened draft without changes: Discard closes at once, writes nothing
+    const saves = await evaluate(`window.__draftSaveCalls || 0`);
+    await openFromDrafts((await drafts())[0].id);
+    await sleep(800);
+    await press('Discard', '.cp-bar button, .cp-bar .rb');
+    await sleep(500);
+    await check('opened draft without changes: no question, closed, nothing written', async () => {
+      assert.equal(await dialog(), null);
+      assert.equal(await paneUp(), false);
+      assert.equal(await evaluate(`window.__draftSaveCalls || 0`), saves);
+      assert.equal(await evaluate(`window.__discardChanges`), 1, 'no restore ran');
+      assert.equal((await drafts()).length, 1);
+    });
+  }
+  {
+    // the server refuses to put the original back: the message stays open, the saved edits stay in Drafts
+    await openedAndEdited('&restorefail');
+    await press('Discard', '.cp-bar button, .cp-bar .rb');
+    await sleep(300);
+    await press('Discard changes', '[role=alertdialog] button');
+    await sleep(1200);
+    await check('a failed restore: the pane stays open, the autosaved edits stay (never zero drafts), the error shows', async () => {
+      assert.equal(await paneUp(), true);
+      const d = await drafts();
+      assert.equal(d.length, 1);
+      assert.ok(d[0].text.includes('plus edits'));
+      assert.match(await evaluate(`document.body.innerText`), /refused the draft/);
+    });
+  }
+  {
+    // a NEW message: the old question and the old effect
+    await fresh(false);
+    await leaveWindow();
+    await sleep(1200);
+    await press('Discard', '.cp-bar button, .cp-bar .rb');
+    await sleep(300);
+    await check('new message: "Discard this message?" as before, and no copy is left', async () => {
+      const q = await dialog();
+      assert.match(q.text, /Discard this message\?/);
+      assert.match(q.text, /What you wrote will be lost\./);
+      await press('Discard', '[role=alertdialog] button');
+      await sleep(1000);
+      assert.equal(await count(), 0);
+      assert.ok(!(await evaluate(`window.__discardChanges`)));
+    });
+  }
+
+  // ---------- 1.0.7 W2.3: a new message that was autosaved and then emptied leaves no copy behind, on every way out
+  async function savedThenEmptied() {
+    await fresh(false);
+    await leaveWindow();
+    await sleep(1200);
+    assert.equal(await count(), 1, 'the autosave did not make a draft');
+    await evaluate(`document.querySelector('.cp-editor .tiptap').editor.commands.clearContent(); 1`);
+    await sleep(300);
+  }
+  await savedThenEmptied();
+  await check('emptied and left (another mail): no question, no copy', async () => {
+    await evaluate(`window.__store.getState().leaveCompose(); 1`);
+    await sleep(1200);
+    assert.equal(await dialog(), null);
+    assert.equal(await paneUp(), false);
+    assert.equal(await count(), 0);
+  });
+  await savedThenEmptied();
+  await check('emptied, then another message replaces the pane: no question, no copy', async () => {
+    await evaluate(`window.__store.getState().openCompose({ accountId: 'a1', to: ['bob@x.test'], subject: 'second' }); 1`);
+    await sleep(1200);
+    assert.equal(await dialog(), null);
+    assert.equal(await count(), 0);
+    await evaluate(`window.__store.getState().openCompose(null); 1`);
+  });
+  await savedThenEmptied();
+  await check('emptied and Discard: no question, no copy (as before)', async () => {
+    await press('Discard', '.cp-bar button, .cp-bar .rb');
+    await sleep(1200);
+    assert.equal(await dialog(), null);
+    assert.equal(await count(), 0);
+  });
+  {
+    // a subject alone is content: closing saves as today
+    await savedThenEmptied();
+    await evaluate(`document.querySelector('input[aria-label="Subject"]').focus(); 1`);
+    await io.typeText('keep me', 6);
+    await sleep(300);
+    await evaluate(`window.__store.getState().leaveCompose(); 1`);
+    await sleep(1500);
+    await check('emptied but with a subject: saved as a draft, closed', async () => {
+      assert.equal(await paneUp(), false);
+      assert.equal(await count(), 1);
+    });
+  }
+  {
+    // the compose window: closing it (X) when the message was emptied after an autosave
+    await H.openApp('lang=en&autosave=500&snapshot=300', 1280, 720);
+    await H.cdp('Page.navigate', { url: 'about:blank' });
+    await H.cdp('Page.navigate', { url: `${H.base}?w=compose&mock=new#lang=en&autosave=500&snapshot=300` });
+    await sleep(800);
+    for (let i = 0; i < 60 && !(await paneUp()); i++) await sleep(100);
+    await sleep(600);
+    await evaluate(`document.querySelector('.cp-editor .tiptap').editor.commands.focus('start'); 1`);
+    await io.typeText('window words', 6);
+    await leaveWindow();
+    await sleep(1500);
+    const had = await count();
+    await evaluate(`document.querySelector('.cp-editor .tiptap').editor.commands.clearContent(); 1`);
+    await sleep(300);
+    await evaluate(`window.__mockEmit('tauri://close-requested', null); 1`);
+    await sleep(1500);
+    await check('window: emptied after an autosave, closed with X: no question, no copy', async () => {
+      assert.equal(had, 1, 'the autosave did not make a draft');
+      assert.equal(await dialog(), null);
+      assert.equal(await count(), 0);
+    });
+  }
 } finally { await H.shutdown(); }
 
 if (failures.length) { console.error(`test-discard-saved-draft: ${failures.length} failure(s)\n - ${failures.join('\n - ')}`); process.exit(1); }

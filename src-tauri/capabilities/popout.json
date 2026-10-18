@@ -29,6 +29,7 @@
     "allow-save-draft",
     "allow-draft-recipients",
     "allow-discard-draft",
+    "allow-discard-draft-changes",
     "allow-send-message",
     "allow-outbox-hold",
     "allow-outbox-hold-send",

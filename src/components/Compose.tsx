@@ -443,6 +443,8 @@ function ComposeBody({ init }: { init: ComposeInit }) {
   const isFresh = !init.replaces && !init.isReply && !init.outboxId && !init.restore;
   // an opened draft / scheduled message / message that failed to send: its body already holds the signature, shown as the region again
   const editing = !!(init.replaces || init.outboxId || init.restore);
+  // a draft that was opened from Drafts (W2.2): the backend keeps the version that was opened, and Discard puts it back
+  const openedDraft = !!init.replaces && (init.replaces.startsWith("m:") || !!init.openedDraft);
   const autoCc = (id: string) => (isFresh ? eff(prefs, id, "autoCc").trim() : "");
   const autoBcc = (id: string) => (isFresh ? eff(prefs, id, "autoBcc").trim() : "");
   const [to, setTo] = useState<string[]>((init.to ?? []).map(cleanHeaderText)); // (from a received message, a draft or a link: never a line break in a header)
@@ -996,6 +998,7 @@ function ComposeBody({ init }: { init: ComposeInit }) {
       accountId: d.accountId,
       attachments: d.attachments,
       replaces: o.replaces,
+      openedDraft: openedDraft || undefined,
       recoveryId: undefined, // (a new message: it gets a snapshot of its own)
       isReply: o.isReply,
       carried: o.carried || undefined,
@@ -1551,8 +1554,16 @@ function ComposeBody({ init }: { init: ComposeInit }) {
     useStore.getState().setComposeEnd(async (o) => {
       endingRef.current = true;
       await settleSaves();
-      if (o?.dropDraft) await dropSavedCopy();
+      // Discard: a new message loses the copy a save made of it, an opened draft is put back as it was opened. Emptied (W2.3): a new message loses the
+      // copy; an opened draft keeps the version last saved.
+      if (o?.dropDraft || (o?.emptied && !init.replaces)) {
+        if (!(await dropSavedCopy())) {
+          endingRef.current = false; // (the message stays open: saving goes on)
+          return false;
+        }
+      }
       await writer.clear();
+      return true;
     });
     return () => useStore.getState().setComposeEnd(null);
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -1623,23 +1634,46 @@ function ComposeBody({ init }: { init: ComposeInit }) {
     // the same rule as leaving, the autosave and the snapshot: a reply or forward with nothing written (the recipients, the subject, the quote
     // and the signature are Compose's own) closes without asking, like an empty new message; a letter, an address or a file of the person's asks
     const written = probe().hasContent || !!(pendingRcpt.current.to + pendingRcpt.current.cc + pendingRcpt.current.bcc).trim();
-    if (written && !(await confirm({ title: t("compose.dlg.discardTitle"), body: t("compose.dlg.discardBody"), confirmLabel: t("compose.dlg.discard"), danger: true }))) return;
+    // an opened draft that a save has replaced since (an autosave counts) asks even when the text is the original again: Drafts holds the edits
+    if (openedDraft && (written || savedDraftRef.current)) {
+      if (!(await confirm({ title: t("compose.dlg.discardChangesTitle"), body: t("compose.dlg.discardChangesBody"), confirmLabel: t("compose.dlg.discardChanges"), danger: true }))) return;
+    } else if (written && !(await confirm({ title: t("compose.dlg.discardTitle"), body: t("compose.dlg.discardBody"), confirmLabel: t("compose.dlg.discard"), danger: true }))) return;
     // An autosave that is on its way to the server when Discard is pressed (the question stayed open for a while, the window lost the focus) makes the draft only when
     // it is done: removing "the saved copy" before that found none and left a stray draft ("(no subject)" in Drafts, v1.0.6 QA round 2 O4). No new one starts, the one that
     // runs is waited for, then the copy goes.
     endingRef.current = true;
     await settleSaves();
-    await dropSavedCopy();
+    if (!(await dropSavedCopy())) {
+      endingRef.current = false; // (the message stays open: saving goes on)
+      return;
+    }
     setComposeDirty(false);
     void openCompose(null);
   };
 
-  /** A new message that a save made a draft of (a Save draft that was not closed, a later save of a leave): discarding it takes that draft away too. */
-  const dropSavedCopy = async () => {
+  /**
+   * What a save left in Drafts goes when the message is discarded. A NEW message that a save made a draft of (a Save draft that was not closed,
+   * an autosave, a later save of a leave): that draft is removed. A draft that was opened from Drafts (W2.2): it is put back as it was opened
+   * and the saved edits are removed, never the other way round (an error leaves the saved edits in place). Resolves to false when that failed: the
+   * message must stay open (the toast has said why).
+   */
+  const dropSavedCopy = async (): Promise<boolean> => {
     const ref = savedDraftRef.current;
-    if (!ref || init.replaces) return; // a draft that was opened stays: it existed before this message was written
+    if (!ref) return true; // nothing was saved: nothing was written to the server, nothing to take back
+    if (openedDraft) {
+      try {
+        await api.discardDraftChanges(ref);
+      } catch (e) {
+        showToast(() => t("compose.toast.saveFailed", { error: friendlyError(e) }), undefined, "error");
+        return false;
+      }
+      savedDraftRef.current = null;
+      return true;
+    }
+    if (init.replaces) return true; // some other message that was written from a draft: that draft existed before this message was written
     savedDraftRef.current = null;
     await api.discardDraft(ref).catch(() => undefined);
+    return true;
   };
 
   /** Files and pictures are read in the background: leaving this message (F-21) waits for the ones still coming in. */
