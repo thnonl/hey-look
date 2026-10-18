@@ -783,14 +783,14 @@ fn a_flag_failure_does_not_fail_the_send() {
         // the original is not in the local store (never synced, or removed): an error for the log, no STORE, no panic
         let (db, acc) = setup("cf18-gone", r#"{"inbox":"INBOX"}"#, &[7]);
         let fake = Fake::start(&[("INBOX", &[7])]);
-        assert!(flag(&db, &acc, &fake, &answers("answered")).unwrap_err().contains("not in the local store"));
+        assert!(flag(&db, &acc, &fake, &answers("answered")).unwrap_err().contains("has the Message-ID of the original"));
         assert!(stores(&fake).is_empty());
         // the folder of the original is not known any more
         lock(&db).execute("UPDATE messages SET message_id='<orig@example.org>' WHERE id='m7'", []).unwrap();
         db::set_setting(&lock(&db), &format!("fmap:{ACC}"), "{}").unwrap();
         assert!(flag(&db, &acc, &fake, &answers("answered")).is_err());
         assert!(stores(&fake).is_empty());
-        // a draft whose answers are not valid is not flagged at all (no thread, nothing to log)
+        // a draft whose answers are not valid is not flagged at all (a line in the log says why, no thread is started)
         let mut d = crate::smtp::tests::draft("<p>x</p>", vec![], vec![]);
         d.answers = Some(smtp::Answers { kind: "answered".into(), account_id: ACC.into(), message_id: "no-brackets".into() });
         flag_original(&db, &d);
@@ -806,4 +806,40 @@ fn a_flag_failure_does_not_fail_the_send() {
     let f = &lib[lib.find("fn flag_original(").unwrap()..];
     let f = &f[..f.find("\n}\n").unwrap()];
     assert!(f.contains("std::thread::spawn") && !f.contains("-> R<"), "{f}");
+}
+
+#[test]
+fn a_flag_failure_says_why() {
+    test_guard::within(60, || {
+        // 1.0.7 WP2a QA BUG-4: the original IS in the local store (UID 7), but the store has no Message-ID for it. The line must not say it is gone.
+        let (db, acc) = setup("cf18-why", r#"{"inbox":"INBOX"}"#, &[7]);
+        let fake = Fake::start(&[("INBOX", &[7])]);
+        let in_store: i64 = lock(&db).query_row("SELECT count(*) FROM messages WHERE id='m7' AND message_id IS NULL", [], |r| r.get(0)).unwrap();
+        assert_eq!(in_store, 1, "the fixture: the message is in the store without a Message-ID");
+        let why = flag(&db, &acc, &fake, &answers("answered")).unwrap_err();
+        assert!(why.contains("no message of this account in the local store has the Message-ID of the original"), "{why}");
+        assert!(why.contains("without a Message-ID or with another one"), "it names the possibilities, not just one: {why}");
+        assert!(!why.contains("not in the local store") && !why.contains("any more"), "{why}");
+        assert!(stores(&fake).is_empty());
+    });
+    // the store itself cannot be read: that error, not "no message"
+    let why = original_found(Err(rusqlite::Error::InvalidQuery)).unwrap_err();
+    assert!(why.contains("the local store could not be read"), "{why}");
+    assert_eq!(original_found(Ok(("inbox".into(), 7))).unwrap(), ("inbox".to_string(), 7));
+    // before any server is asked: an answers record that cannot be used says why (the line is written by flag_original)
+    let mut a = answers("answered");
+    assert_eq!(answers_problem(&a), None);
+    a.message_id = String::new();
+    assert!(answers_problem(&a).unwrap().contains("no usable Message-ID"));
+    a.message_id = "no-brackets".into();
+    assert!(answers_problem(&a).unwrap().contains("no usable Message-ID"));
+    a.message_id = "<ok@example.org>".into();
+    a.account_id = "has a space".into();
+    assert!(answers_problem(&a).unwrap().contains("not one this app wrote"));
+    let lib = crate::test_guard::non_test_code(include_str!("lib.rs"));
+    let f = &lib[lib.find("fn flag_original(").unwrap()..];
+    let f = &f[..f.find("
+}
+").unwrap()];
+    assert!(f.contains("answers_problem(&a)") && f.contains("could not be flagged"), "{f}");
 }

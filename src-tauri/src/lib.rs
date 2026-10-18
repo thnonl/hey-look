@@ -3557,13 +3557,28 @@ fn send_now(db: &Db, d: &smtp::Draft) -> R<()> {
 /// path: its own connection on its own thread, every failure (no connection, the original is gone or was never synced, a server that refuses the keyword)
 /// goes to the log and nothing else. Nothing is shown in the app (the flags are not read back in 1.0.7).
 fn flag_original(db: &Db, d: &smtp::Draft) {
-    let Some(a) = d.answers.clone().filter(draftmail::answers_valid) else { return };
+    let Some(a) = d.answers.clone() else { return };
+    if let Some(why) = answers_problem(&a) {
+        startup::line("send", &format!("the original of {} could not be flagged ({}): {why}", a.kind, a.account_id));
+        return;
+    }
     let db = db.clone();
     std::thread::spawn(move || {
         if let Err(e) = flag_original_now(&db, &a) {
             startup::line("send", &format!("the original of {} could not be flagged ({}): {e}", a.kind, a.account_id));
         }
     });
+}
+
+/// Why the original that `a` names cannot be flagged before any server is asked (None: it can be tried). For the log only.
+fn answers_problem(a: &smtp::Answers) -> Option<&'static str> {
+    if draftmail::answers_valid(a) {
+        None
+    } else if a.message_id.len() <= 2 || !a.message_id.starts_with('<') || !a.message_id.ends_with('>') {
+        Some("the original has no usable Message-ID (it is empty or not in angle brackets)")
+    } else {
+        Some("the record of the original is not one this app wrote (an odd kind, account id or Message-ID)")
+    }
 }
 
 fn flag_original_now(db: &Db, a: &smtp::Answers) -> R<()> {
@@ -3575,16 +3590,26 @@ fn flag_original_now(db: &Db, a: &smtp::Answers) -> R<()> {
     done
 }
 
+/// What the search of the local store for the original answered; the reason for the log when it found nothing. The store is searched by Message-ID: a message
+/// that IS in the store but has no Message-ID of its own (or another one than the header the server sends now) is not found either, so the line says what was
+/// looked for and not that the message is gone (1.0.7 WP2a QA BUG-4).
+fn original_found(found: rusqlite::Result<(String, u32)>) -> R<(String, u32)> {
+    match found {
+        Ok(x) => Ok(x),
+        Err(rusqlite::Error::QueryReturnedNoRows) => Err("no message of this account in the local store has the Message-ID of the original (it was removed, or the store has it without a Message-ID or with another one)".to_string()),
+        Err(e) => Err(format!("the local store could not be read: {e}")),
+    }
+}
+
 /// The part of `flag_original` that talks to the server: found by its Message-ID in the local store (it may have been archived since), in the folder it is
 /// in now. At most one STORE.
 fn flag_on_session<T: std::io::Read + std::io::Write>(db: &Db, acc: &Account, s: &mut imap::Session<T>, a: &smtp::Answers) -> R<()> {
-    let (role, uid): (String, u32) = lock(db)
-        .query_row(
-            "SELECT folder, uid FROM messages WHERE account_id=?1 AND message_id=?2 AND folder!='drafts' ORDER BY (folder='inbox') DESC, uid DESC LIMIT 1",
-            params![acc.id, a.message_id],
-            |r| Ok((r.get(0)?, r.get(1)?)),
-        )
-        .map_err(|_| "the original is not in the local store (any more)".to_string())?;
+    let found = lock(db).query_row(
+        "SELECT folder, uid FROM messages WHERE account_id=?1 AND message_id=?2 AND folder!='drafts' ORDER BY (folder='inbox') DESC, uid DESC LIMIT 1",
+        params![acc.id, a.message_id],
+        |r| Ok((r.get::<_, String>(0)?, r.get::<_, u32>(1)?)),
+    );
+    let (role, uid) = original_found(found)?;
     let folder = fmap(db, &acc.id).get(&role).cloned().ok_or("the folder of the original is unknown")?;
     let flag = if a.kind == "forwarded" { "$Forwarded" } else { "\\Answered" };
     mail::store_flag(s, &folder, &[uid], flag, true)
