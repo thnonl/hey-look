@@ -26,7 +26,7 @@ const mouse = (type, x, y, extra = {}) => cdp('Input.dispatchMouseEvent', { type
 
 await cdp('Input.setInterceptDrags', { enabled: true });
 let lastDrag = null;
-on('Input.dragIntercepted', (p) => { lastDrag = p.data; });
+on((m) => { if (m.method === 'Input.dragIntercepted') lastDrag = m.params.data; });
 
 /**
  * Drag with the mouse from (x0, y0) to (x1, y1) and drop there. Returns what the page offered to drag. `over` runs while the chip is over the target

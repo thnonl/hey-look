@@ -17,7 +17,6 @@ export default defineLocale<typeof ns.en>({
   "compose.addCc": "添加抄送 (Ctrl+Shift+C)",
   "compose.addBcc": "添加密送 (Ctrl+Shift+B)",
   // recipient chips and the missing-key popover
-  "compose.rcpt.noUsableKey": "没有可用于{addr}的公钥",
   "compose.rcpt.notAddress": "这看起来不是电子邮件地址",
   "compose.rcpt.keyFound": "已找到公钥",
   "compose.rcpt.keyFoundFor": "已找到{addr}的公钥",

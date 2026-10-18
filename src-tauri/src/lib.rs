@@ -3555,13 +3555,28 @@ fn send_now(db: &Db, d: &smtp::Draft) -> R<()> {
 /// path: its own connection on its own thread, every failure (no connection, the original is gone or was never synced, a server that refuses the keyword)
 /// goes to the log and nothing else. Nothing is shown in the app (the flags are not read back in 1.0.7).
 fn flag_original(db: &Db, d: &smtp::Draft) {
-    let Some(a) = d.answers.clone().filter(draftmail::answers_valid) else { return };
+    let Some(a) = d.answers.clone() else { return };
+    if let Some(why) = answers_problem(&a) {
+        startup::line("send", &format!("the original of {} could not be flagged ({}): {why}", a.kind, a.account_id));
+        return;
+    }
     let db = db.clone();
     std::thread::spawn(move || {
         if let Err(e) = flag_original_now(&db, &a) {
             startup::line("send", &format!("the original of {} could not be flagged ({}): {e}", a.kind, a.account_id));
         }
     });
+}
+
+/// Why the original that `a` names cannot be flagged before any server is asked (None: it can be tried). For the log only.
+fn answers_problem(a: &smtp::Answers) -> Option<&'static str> {
+    if draftmail::answers_valid(a) {
+        None
+    } else if a.message_id.len() <= 2 || !a.message_id.starts_with('<') || !a.message_id.ends_with('>') {
+        Some("the original has no usable Message-ID (it is empty or not in angle brackets)")
+    } else {
+        Some("the record of the original is not one this app wrote (an odd kind, account id or Message-ID)")
+    }
 }
 
 fn flag_original_now(db: &Db, a: &smtp::Answers) -> R<()> {
@@ -3573,16 +3588,26 @@ fn flag_original_now(db: &Db, a: &smtp::Answers) -> R<()> {
     done
 }
 
+/// What the search of the local store for the original answered; the reason for the log when it found nothing. The store is searched by Message-ID: a message
+/// that IS in the store but has no Message-ID of its own (or another one than the header the server sends now) is not found either, so the line says what was
+/// looked for and not that the message is gone (1.0.7 WP2a QA BUG-4).
+fn original_found(found: rusqlite::Result<(String, u32)>) -> R<(String, u32)> {
+    match found {
+        Ok(x) => Ok(x),
+        Err(rusqlite::Error::QueryReturnedNoRows) => Err("no message of this account in the local store has the Message-ID of the original (it was removed, or the store has it without a Message-ID or with another one)".to_string()),
+        Err(e) => Err(format!("the local store could not be read: {e}")),
+    }
+}
+
 /// The part of `flag_original` that talks to the server: found by its Message-ID in the local store (it may have been archived since), in the folder it is
 /// in now. At most one STORE.
 fn flag_on_session<T: std::io::Read + std::io::Write>(db: &Db, acc: &Account, s: &mut imap::Session<T>, a: &smtp::Answers) -> R<()> {
-    let (role, uid): (String, u32) = lock(db)
-        .query_row(
-            "SELECT folder, uid FROM messages WHERE account_id=?1 AND message_id=?2 AND folder!='drafts' ORDER BY (folder='inbox') DESC, uid DESC LIMIT 1",
-            params![acc.id, a.message_id],
-            |r| Ok((r.get(0)?, r.get(1)?)),
-        )
-        .map_err(|_| "the original is not in the local store (any more)".to_string())?;
+    let found = lock(db).query_row(
+        "SELECT folder, uid FROM messages WHERE account_id=?1 AND message_id=?2 AND folder!='drafts' ORDER BY (folder='inbox') DESC, uid DESC LIMIT 1",
+        params![acc.id, a.message_id],
+        |r| Ok((r.get::<_, String>(0)?, r.get::<_, u32>(1)?)),
+    );
+    let (role, uid) = original_found(found)?;
     let folder = fmap(db, &acc.id).get(&role).cloned().ok_or("the folder of the original is unknown")?;
     let flag = if a.kind == "forwarded" { "$Forwarded" } else { "\\Answered" };
     mail::store_flag(s, &folder, &[uid], flag, true)
@@ -3896,8 +3921,10 @@ async fn discard_draft(state: tauri::State<'_, AppState>, reference: String) -> 
 
 /// 1.0.7 W2.2: Discard on a draft that was opened from Drafts and saved since (an autosave counts): the draft goes back to how it was when it
 /// was opened. `reference` names the draft the last save made; see draftmail.rs `restore_on_session`. An error leaves the saved version in place.
+/// When it worked, the Drafts folder is read again in the background (`sync_drafts_after_restore`): the local list lost the saved copy and does not have the
+/// version put back yet, so without it the list of Drafts stayed empty until the next sync (1.0.7 WP2a QA BUG-2).
 #[tauri::command]
-async fn discard_draft_changes(state: tauri::State<'_, AppState>, reference: String) -> R<()> {
+async fn discard_draft_changes(app: tauri::AppHandle, state: tauri::State<'_, AppState>, reference: String) -> R<()> {
     let db = state.db.clone();
     blocking(move || {
         let account_id: String = lock(&db)
@@ -3908,9 +3935,24 @@ async fn discard_draft_changes(state: tauri::State<'_, AppState>, reference: Str
         let mut s = mail::connect(&acc, &sec)?;
         let done = draftmail::restore_on_session(&db, &acc, &mut s, &reference);
         let _ = s.logout();
+        if done.is_ok() {
+            sync_drafts_after_restore(&app, &db, &acc.id);
+        }
         done
     })
     .await
+}
+
+/// A sync pass of the account on a thread of its own (it waits for a pass that is running: `SYNC_LOCK`, so it always reads after the restore), then every
+/// window re-reads its lists. The answer of `discard_draft_changes` does not wait for it. Failures are for the log.
+fn sync_drafts_after_restore(app: &tauri::AppHandle, db: &Db, account_id: &str) {
+    let (app, db, id) = (app.clone(), db.clone(), account_id.to_string());
+    std::thread::spawn(move || {
+        if let Err(e) = run_sync(&app, &db, &id) {
+            startup::line("draft", &format!("account {id}: the Drafts list could not be refreshed after the opened version was put back: {}", e.chars().take(160).collect::<String>()));
+        }
+        let _ = app.emit("mail-synced", ());
+    });
 }
 
 // ---------- crash recovery of the message being written (recover.rs) ----------

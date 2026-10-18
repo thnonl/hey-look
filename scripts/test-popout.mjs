@@ -696,6 +696,11 @@ assert.equal(draftKey("t9"), "draft:t9");
   assert.ok(compose.includes("if (init.outboxId || composeSeam() || busy) return;"), "no pop-out of a scheduled message or from a window");
   assert.ok(compose.includes('e.key.toLowerCase() === "o"') && compose.includes("compose.popout.popOutTip"), "Ctrl+Shift+O and the button");
   assert.ok(compose.includes("init.recoveryId || init.carried"), "a moved message counts as changed");
+  // ... but only one that is changed: a pane as it was opened moves as it is (no question, no autosave in the window, nothing written; 1.0.7 WP2a QA BUG-2), and a
+  // window that an opened draft was moved into after a save starts with the saved copy, so Discard there can put the opened version back
+  assert.ok(compose.includes("carried: touched.current || !!savedDraftRef.current"), "moved as carried only when something was changed or saved");
+  assert.ok(compose.includes('useRef<string | null>(openedDraft && init.replaces && !init.replaces.startsWith("m:") ? init.replaces : null)'), "the window starts with the draft the pane saved");
+  { const lib = read("src-tauri/src/lib.rs"); assert.ok(lib.includes("async fn discard_draft_changes(app: tauri::AppHandle,") && lib.includes("sync_drafts_after_restore(&app, &db, &acc.id)") && lib.includes("let _ = app.emit(\"mail-synced\", ());"), "after the opened version is put back the backend reads Drafts again and every window re-reads"); }
   assert.ok(compose.includes("poppingRef.current = true") && compose.includes("sending: sendingRef.current || poppingRef.current"), "moving a message to a window must not make the pane autosave it (the window takes the focus)");
   // every way of starting a message goes through startCompose; none opens the pane by itself any more
   for (const [file, never] of [["src/components/Ribbon.tsx", "openCompose("], ["src/components/CommandBar.tsx", "openCompose("], ["src/components/Attachments.tsx", "openCompose("], ["src/components/ReadingPane.tsx", ".openCompose("], ["src/actions.ts", "st.openCompose("]]) {

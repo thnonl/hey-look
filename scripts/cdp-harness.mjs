@@ -7,6 +7,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { spawn } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
+import { installHermeticNet } from './lib/hermetic-net.mjs';
 
 export const ROOT = path.join(path.dirname(fileURLToPath(import.meta.url)), '..');
 export const arg = (name) => { const a = process.argv.find((x) => x.startsWith(`--${name}=`)); return a ? a.slice(name.length + 3) : null; };
@@ -71,7 +72,7 @@ export async function launchChrome(chrome, tag = 'hl-cdp-') {
 
 /**
  * Starts the dev server (unless `--url=` names one that already runs) and the browser. Returns
- * `{ base, cdp, evaluate, shutdown, openApp, vitePort, cdpPort }`; exits the process with a "SKIPPED" line when there is no browser.
+ * `{ base, cdp, evaluate, shutdown, openApp, vitePort, cdpPort, net, on }` (`net`: the hermetic network, scripts/lib/hermetic-net.mjs; `on(handler)`: protocol events); exits the process with a "SKIPPED" line when there is no browser.
  * `openApp(hash, w, h)` loads the dev preview with that hash at that window size and waits until the store has its accounts.
  * `vitePort0` is only the first port vite tries; the browser's debugging port is chosen by the browser itself (`cdpPort0` is kept for the callers and unused).
  */
@@ -99,17 +100,18 @@ export async function startHarness(name, { vitePort0 = 5480 } = {}) {
   if (!up) { await shutdown(); skip(`the dev server did not answer at ${base}`); }
 
   const ws = new WebSocket(wsUrl); await new Promise((r, j) => { ws.onopen = r; ws.onerror = j; });
-  let nextId = 1; const waiting = new Map();
-  const listeners = new Set();
-  ws.onmessage = (ev) => { const m = JSON.parse(ev.data); if (m.id && waiting.has(m.id)) { const { ok, bad } = waiting.get(m.id); waiting.delete(m.id); m.error ? bad(new Error(m.error.message)) : ok(m.result); } else if (m.method) for (const l of listeners) if (l.method === m.method) l.cb(m.params); };
-  /** Calls `cb(params)` for every CDP event `method` of this page (e.g. `Input.dragIntercepted`); returns the function that stops it. */
-  const on = (method, cb) => { const l = { method, cb }; listeners.add(l); return () => listeners.delete(l); };
+  let nextId = 1; const waiting = new Map(), handlers = [];
+  ws.onmessage = (ev) => { const m = JSON.parse(ev.data); if (m.id && waiting.has(m.id)) { const { ok, bad } = waiting.get(m.id); waiting.delete(m.id); m.error ? bad(new Error(m.error.message)) : ok(m.result); } else handlers.forEach((h) => h(m)); };
   const send = (method, params = {}, sessionId) => new Promise((ok, bad) => { const id = nextId++; waiting.set(id, { ok, bad }); ws.send(JSON.stringify({ id, method, params, sessionId })); });
   const { targetId } = await send('Target.createTarget', { url: 'about:blank' });
   const { sessionId } = await send('Target.attachToTarget', { targetId, flatten: true });
   const cdp = (method, params) => send(method, params, sessionId);
   const evaluate = async (expression) => { const r = await cdp('Runtime.evaluate', { expression, returnByValue: true, awaitPromise: true }); if (r.exceptionDetails) throw new Error(r.exceptionDetails.exception?.description || r.exceptionDetails.text); return r.result.value; };
   await cdp('Runtime.enable'); await cdp('Page.enable');
+  // hermetic: the dev preview talks to its mock, never to the network. A request to any host but this machine is refused and recorded, and the test fails at exit
+  // (a page that starts to call out must say so in the test, with a stub, instead of working on a good day and failing on a runner that is rate-limited)
+  const net = await installHermeticNet({ cdp, on: (h) => handlers.push(h) });
+  process.on('exit', () => { if (net.external.length) { console.error(`${name}: FAILED, the page made ${net.external.length} request(s) to the network (tests must be hermetic, see scripts/lib/hermetic-net.mjs):\n  ` + [...new Set(net.external)].join('\n  ')); process.exitCode = 1; } });
 
   /** Loads the dev preview (`hash` without the #) in a window of w x h and waits for the app. */
   const openApp = async (hash, w, h) => {
@@ -122,7 +124,7 @@ export async function startHarness(name, { vitePort0 = 5480 } = {}) {
       try { await evaluate(`new Promise((ok, no) => { const t0 = Date.now(), t = setInterval(() => { if (window.__store && window.__store.getState().accounts.length) { clearInterval(t); ok(1); } else if (Date.now() - t0 > 15000) { clearInterval(t); no(new Error('app did not start')); } }, 100); })`); return; } catch (e) { if (attempt === 4) throw e; }
     }
   };
-  return { base, cdp, evaluate, shutdown, openApp, on, vitePort, cdpPort };
+  return { base, cdp, evaluate, shutdown, openApp, vitePort, cdpPort, net, on: (h) => handlers.push(h) };
 }
 
 /** Mouse, keyboard and screenshots on a CDP session. */

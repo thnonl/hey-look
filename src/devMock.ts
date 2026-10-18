@@ -1404,12 +1404,15 @@ export function installMock() {
       case "popout_init": {
         const q = new URLSearchParams(window.location.search);
         const kind = q.get("w") ?? "compose";
-        // the compose window in a plain browser tab: ?w=compose[&mock=reply|draft|new]
+        // the compose window in a plain browser tab: ?w=compose[&mock=reply|draft|new|opened|openedcarried|openedsaved]
+        // (opened*: a draft that was opened from Drafts and moved to this window; `carried` = the pane had changes; `openedsaved` = the pane had saved it, so it is a mid: reference)
         if (kind !== "reader") {
           const m = q.get("mock");
           const init =
             m === "reply" ? { accountId: "a1", to: ["linh.tran@acme.example"], subject: "Re: Q4 roadmap review", isReply: true, inReplyTo: "<m1@acme.example>", bodyHtml: "<p>On Mon, Linh wrote:</p><blockquote><p>Could you review the milestones before Thursday?</p></blockquote>" }
             : m === "draft" ? { accountId: "a1", to: ["alice@fabrikam.com"], subject: "Draft with text", replaces: "d1", bodyHtml: "<p>Saved draft text</p>" }
+            : m === "opened" || m === "openedcarried" ? { accountId: "a1", to: ["alice@fabrikam.com"], subject: "D1", replaces: "m:a1:drafts:dx", openedDraft: true, bodyHtml: "<p>Original text</p>", ...(m === "openedcarried" ? { carried: true } : {}) }
+            : m === "openedsaved" ? { accountId: "a1", to: ["alice@fabrikam.com"], subject: "D1", replaces: "mid:a1|<dx@mock>", openedDraft: true, carried: true, bodyHtml: "<p>Original text plus edits</p>" }
             : m === "new" ? {} : null;
           return { kind, label: "compose-1", key: null, init };
         }

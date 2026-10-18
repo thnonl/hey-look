@@ -17,7 +17,6 @@ export default define({
     "compose.addBcc": "Add Bcc (Ctrl+Shift+B)",
 
     // recipient chips and the missing-key popover
-    "compose.rcpt.noUsableKey": "No usable public key for {addr}",
     "compose.rcpt.notAddress": "This does not look like an email address",
     "compose.rcpt.keyFound": "Public key found",
     "compose.rcpt.keyFoundFor": "Public key found for {addr}",
@@ -539,7 +538,6 @@ export default define({
     "compose.addCc": "Thêm Cc (Ctrl+Shift+C)",
     "compose.addBcc": "Thêm Bcc (Ctrl+Shift+B)",
 
-    "compose.rcpt.noUsableKey": "Không có khóa công khai dùng được cho {addr}",
     "compose.rcpt.notAddress": "Đây không giống địa chỉ email",
     "compose.rcpt.keyFound": "Đã tìm thấy khóa công khai",
     "compose.rcpt.keyFoundFor": "Đã tìm thấy khóa công khai của {addr}",
@@ -1049,7 +1047,6 @@ export default define({
     "compose.addCc": "Ajouter Cc (Ctrl+Shift+C)",
     "compose.addBcc": "Ajouter Cci (Ctrl+Shift+B)",
 
-    "compose.rcpt.noUsableKey": "Aucune clé publique utilisable pour {addr}",
     "compose.rcpt.notAddress": "Cela ne ressemble pas à une adresse e-mail",
     "compose.rcpt.keyFound": "Clé publique trouvée",
     "compose.rcpt.keyFoundFor": "Clé publique trouvée pour {addr}",
