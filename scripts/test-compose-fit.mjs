@@ -66,6 +66,8 @@ if (flag('gallery')) {
   // (the pane is only 308 px wide in the real app at that window: the window of 768 px of this preview has the same pane)
   add({ mode: 'main', lang: 'en', w: 768, h: 552, theme: 'dark', scen: 'meetingNew' });
   add({ mode: 'main', lang: 'ru', w: 768, h: 552, theme: 'light', scen: 'meetingReply' });
+  // a main window 80 px lower than the least one (BUG-1 of the 1.0.7 WP1 QA): the header has room for one field only (31 px under the sticky action row), a field is still whole when it is focused
+  add({ mode: 'main', lang: 'en', w: 960, h: 480, theme: 'dark', scen: 'meeting' });
 } else {
   const langs = (arg('lang') || 'en,de,ru').split(',');
   const sizes = [[960, 560], [960, 532], [960, 520], [960, 480], [1280, 532], [1280, 720], [1920, 480], [1920, 1080]].filter(([w, h]) => !arg('size') || arg('size').split(',').includes(`${w}x${h}`));
@@ -395,7 +397,10 @@ async function popovers(cfg) {
     await evaluate(`document.querySelector('.cp-bar .rb.more').click(); 1`); await sleep(250);
     inWindow('More actions', await evaluate(probe('.dd-fixed')));
     const rows = await evaluate(`document.querySelectorAll('.dd-fixed [role^=menuitem]').length`);
-    ok(cfg, rows >= 10, `More actions has ${rows} rows`);
+    // a small pane (compact): every action is in the menu; the labelled row (W1.7): the menu has the actions that did not fit the row (one row or more each)
+    const compact = await evaluate(`!!document.querySelector('.compose-pane.compact')`);
+    const moved = ORDER.length - (await evaluate(`document.querySelectorAll('.cp-bar > [data-fit]:not([data-fit=fixed])').length`));
+    ok(cfg, compact ? rows >= 10 : rows >= Math.max(1, moved), `More actions has ${rows} rows${compact ? '' : ` for ${moved} actions that did not fit the row`}`);
     await press('Escape', 'Escape'); await sleep(150);
   } else {
     await evaluate(`document.querySelector('.cp-bar .rb.caret').click(); 1`); await sleep(250);
