@@ -148,6 +148,8 @@ ui-b | node scripts/test-discard-saved-draft.mjs --require-browser
 ui-b | node scripts/test-compose-popups.mjs --require-browser
 # the debug-only test bridge stays out of release builds (sources, workflow check) and its client sends what the protocol says (the Rust side: `cargo test --lib testbridge`)
 static | node scripts/test-test-bridge.mjs
+# a pop-out window that was closed can be opened again (the registry and the log hint, and with --exe the real open - close - open loop through the bridge; not run in CI without an exe)
+static | node scripts/test-popout-reopen.mjs
 
 # the scripts of the release workflow itself: their fixtures also run in the publish job of a tag run; here they fail a dry run early
 static | bash .github/scripts/test-check-release-assets.sh
