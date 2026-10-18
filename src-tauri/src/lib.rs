@@ -64,6 +64,9 @@ mod startup;
 mod loadfail;
 mod webview_health;
 mod winproc;
+// debug builds only: the QA's remote control of the windows (off unless the environment asks for it, see testbridge/mod.rs); a release build has none of it
+#[cfg(debug_assertions)]
+mod testbridge;
 
 use base64::Engine;
 use db::{err, Account, R};
@@ -4856,6 +4859,9 @@ pub fn run() {
     // view created now would join them and die with them (see webview_health.rs)
     webview_health::wait_for_previous_run();
     let builder = tauri::Builder::default();
+    // debug builds only: when the bridge is on, its page side (console buffer, input helpers) goes into every window
+    #[cfg(debug_assertions)]
+    let builder = if testbridge::requested().is_some() { builder.plugin(testbridge::plugin()) } else { builder };
     // macOS and Linux notifications (Windows has its own toasts in shell.rs)
     #[cfg(not(windows))]
     let builder = builder.plugin(tauri_plugin_notification::init());
@@ -4949,6 +4955,9 @@ pub fn run() {
             // when its page has reported itself (not here: see startup.rs), and the page is reloaded if it never does.
             let show_at_start = !std::env::args().any(|a| a == "--minimized") || !shell::tray_ready();
             startup::start(app.handle(), show_at_start);
+            // debug builds only; does nothing unless the environment asks for the bridge
+            #[cfg(debug_assertions)]
+            testbridge::start(app.handle());
             Ok(())
         })
         .on_window_event(|window, event| {
@@ -6764,3 +6773,5 @@ mod fakeimap;
 mod foldermove_tests;
 #[cfg(test)]
 mod readrace_tests;
+#[cfg(test)]
+mod testbridge_guard;

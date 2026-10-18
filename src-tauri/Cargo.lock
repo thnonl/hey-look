@@ -2447,6 +2447,7 @@ dependencies = [
  "hickory-resolver",
  "idna",
  "imap",
+ "javascriptcore-rs",
  "keyring",
  "lettre",
  "libc",
