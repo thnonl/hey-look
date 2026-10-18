@@ -16,7 +16,7 @@ import { AdvanceTracker, startAdvance } from "./autoAdvance";
 import type { Importance } from "./importance";
 import type { MeetingWire } from "./meetingDraft";
 import { accountsOf, canMoveToJunk, JUNK_ACTIONS } from "./junk";
-import { addToast, lazyText, refreshed, toastTexts, type Lazy } from "./toastStack";
+import { addToast, lazyText, refreshed, toastTexts, trimToasts, type Lazy } from "./toastStack";
 import { mayOpenMail, selectionAfterCompose } from "./composeSelection";
 import { leaveCompose as leaveComposePane, type ComposeProbe, type SavedDraft } from "./leaveCompose";
 export { lazyText, type Lazy };
@@ -1193,9 +1193,9 @@ export const useStore = create<State>((set, get) => ({
     // a toast with buttons stays long enough to be read and clicked
     const ttl = undo ? Math.max(5000, get().prefs.undoActionSeconds * 1000) : acts?.length || k === "error" ? 8000 : 4500;
     const id = ++toastSeq;
-    // newest last; keep a short stack and never evict a toast that still has an Undo
+    // newest last; at most 5 timed toasts (the oldest without Undo go first), a toast that stays until it is answered is never evicted
     // (an identical error is recognised by its text in the language in use now, not the one the older toast was made in)
-    set((s) => ({ toasts: addToast(s.toasts.filter((t) => t.undo || t.sticky || s.toasts.length < 4).map(refreshed), { id, text: first, textFn, kind: k, undo, actions: acts, ttl }).slice(-5) }));
+    set((s) => ({ toasts: trimToasts(addToast(s.toasts.map(refreshed), { id, text: first, textFn, kind: k, undo, actions: acts, ttl })) }));
     setTimeout(() => get().dismissToast(id), ttl);
   },
 
@@ -1214,7 +1214,7 @@ export const useStore = create<State>((set, get) => ({
       const old = s.toasts.find((t) => t.key === key);
       const toast: Toast = { id: old?.id ?? ++toastSeq, ...toastTexts(spec.text), kind: spec.kind ?? "info", actions: spec.actions, ttl: spec.ttl ?? 0, sticky: true, key, onDismiss: spec.onDismiss, closeLabel: spec.closeLabel, escCloses: spec.escCloses, support: spec.support, link: spec.link, hideClose: spec.hideClose, busy: spec.busy, guide: spec.guide };
       // in place when it exists (the countdown changes its text every second), else on top of the stack
-      return { toasts: old ? s.toasts.map((t) => (t.key === key ? toast : t)) : [...others, toast].slice(-5) };
+      return { toasts: old ? s.toasts.map((t) => (t.key === key ? toast : t)) : [...others, toast] };
     }),
 
   beginSend: (flush) => {
