@@ -109,6 +109,8 @@ static | node --experimental-strip-types scripts/test-site-commands.mjs
 static | node scripts/test-site-statements.mjs
 # the update-check timing (2 hours, 15 minutes) in update.rs and in the words of help.html, the app hint and privacy.html, in 8 languages
 static | node scripts/test-update-wording.mjs
+# the "Last updated" date of privacy, terms, Google API data use and security is one shared date in every language (owner policy)
+static | node scripts/test-legal-dates.mjs
 # the Appearance preview on the website, measured in the runner's Chrome (a sample of the combinations; the full run is `node scripts/test-site-appearance.mjs`)
 ui-b | node scripts/test-site-appearance.mjs --quick --require-browser
 # Settings > AI Assistant stands still while it is used: the real layout, frame by frame, in the dev preview (two of the 12 combinations; the full run is `node scripts/test-ai-tab-layout.mjs`)
