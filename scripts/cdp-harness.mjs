@@ -5,7 +5,6 @@
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import net from 'node:net';
 import { spawn } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 
@@ -14,7 +13,7 @@ export const arg = (name) => { const a = process.argv.find((x) => x.startsWith(`
 export const flag = (name) => process.argv.includes(`--${name}`);
 export const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
-function findChrome() {
+export function findChrome() {
   const env = process.env.CHROME_PATH; if (env && fs.existsSync(env)) return env;
   const win = [process.env.LOCALAPPDATA, process.env.ProgramFiles, process.env['ProgramFiles(x86)']].filter(Boolean);
   const list = [
@@ -26,39 +25,75 @@ function findChrome() {
   ];
   return list.find((p) => fs.existsSync(p)) || null;
 }
-const freePort = async (from) => { for (let p = from; p < from + 100; p++) { const ok = await new Promise((r) => { const s = net.createServer(); s.once('error', () => r(false)); s.listen(p, '127.0.0.1', () => s.close(() => r(true))); }); if (ok) return p; } throw new Error(`no free port from ${from}`); };
+
+// Every test owns its resources (CONTRIBUTING.md, "Tests"): its dev server and its browser, each on a port that the program itself bound, so two tests
+// started at the same moment cannot meet. A port is never guessed (checked free, closed, used later): vite takes the hint and moves on when it is taken,
+// and Chrome is told to bind port 0 and writes the port it got into DevToolsActivePort in the test's own profile folder.
+const stripAnsi = (t) => t.replace(/\u001b\[[0-9;]*m/g, '');
+const alive = new Set();
+const killAll = () => { for (const p of alive) { try { p.kill(); } catch { /* gone already */ } } };
+process.on('exit', killAll);
+for (const sig of ['SIGINT', 'SIGTERM', 'SIGHUP']) process.on(sig, () => { killAll(); process.exit(130); });
+
+/** Starts vite for this checkout with `hint` as the first port to try; resolves to `{ proc, base, port }` (the port vite bound), or null when it did not come up in 60 s. */
+export async function startVite(hint) {
+  const proc = spawn(process.execPath, [path.join(ROOT, 'node_modules/vite/bin/vite.js'), '--config', path.join(ROOT, 'scripts/vite-harness.config.mjs'), '--port', String(hint), '--host', '127.0.0.1'], { cwd: ROOT, stdio: ['ignore', 'pipe', 'pipe'] });
+  alive.add(proc);
+  proc.on('exit', () => alive.delete(proc));
+  let out = '', port = null;
+  const feed = (d) => { out += stripAnsi(String(d)); const m = /https?:\/\/(?:127\.0\.0\.1|localhost):(\d+)/.exec(out); if (m && !port) port = Number(m[1]); out = out.slice(-4000); };
+  proc.stdout.on('data', feed); proc.stderr.on('data', feed);
+  for (let i = 0; i < 400 && !port; i++) { if (proc.exitCode !== null) break; await sleep(150); }
+  if (!port) { try { proc.kill(); } catch { /* ignore */ } return null; }
+  return { proc, port, base: `http://127.0.0.1:${port}/` };
+}
+
+/** Starts a headless browser with its own profile folder; resolves to `{ proc, profile, cdpPort, wsUrl, stop }` or null when it did not come up in 30 s. */
+export async function launchChrome(chrome, tag = 'hl-cdp-') {
+  const profile = fs.mkdtempSync(path.join(os.tmpdir(), tag));
+  const proc = spawn(chrome, ['--headless=new', '--disable-gpu', '--no-first-run', '--no-default-browser-check', '--disable-extensions', '--hide-scrollbars', `--user-data-dir=${profile}`, '--remote-debugging-port=0', '--remote-allow-origins=*', ...(process.platform === 'linux' ? ['--no-sandbox'] : []), 'about:blank'], { stdio: 'ignore' });
+  alive.add(proc);
+  proc.on('exit', () => alive.delete(proc));
+  const cleanProfile = () => { try { fs.rmSync(profile, { recursive: true, force: true, maxRetries: 5, retryDelay: 200 }); } catch { /* it is in the temp folder anyway */ } };
+  process.on('exit', cleanProfile);
+  const stop = async () => { try { proc.kill(); } catch { /* ignore */ } await sleep(400); cleanProfile(); };
+  let cdpPort = null, wsUrl = null;
+  for (let i = 0; i < 200 && !wsUrl; i++) {
+    if (proc.exitCode !== null) break;
+    try {
+      if (!cdpPort) { const n = Number(fs.readFileSync(path.join(profile, 'DevToolsActivePort'), 'utf8').split('\n')[0]); if (n > 0) cdpPort = n; }
+      if (cdpPort) wsUrl = (await (await fetch(`http://127.0.0.1:${cdpPort}/json/version`)).json()).webSocketDebuggerUrl;
+    } catch { await sleep(150); }
+  }
+  if (!wsUrl) { await stop(); return null; }
+  return { proc, profile, cdpPort, wsUrl, stop };
+}
 
 /**
  * Starts the dev server (unless `--url=` names one that already runs) and the browser. Returns
- * `{ base, cdp, evaluate, shutdown, openApp }`; exits the process with a "SKIPPED" line when there is no browser.
+ * `{ base, cdp, evaluate, shutdown, openApp, vitePort, cdpPort }`; exits the process with a "SKIPPED" line when there is no browser.
  * `openApp(hash, w, h)` loads the dev preview with that hash at that window size and waits until the store has its accounts.
+ * `vitePort0` is only the first port vite tries; the browser's debugging port is chosen by the browser itself (`cdpPort0` is kept for the callers and unused).
  */
-export async function startHarness(name, { vitePort0 = 5480, cdpPort0 = 9500 } = {}) {
+export async function startHarness(name, { vitePort0 = 5480 } = {}) {
   const skip = (why) => { if (flag('require-browser')) { console.error(`${name}: ${why}`); process.exit(1); } console.log(`${name}: SKIPPED, ${why} (pass --require-browser to fail instead)`); process.exit(0); };
   const chrome = findChrome();
   if (!chrome) skip('no Chrome/Chromium/Edge found (set CHROME_PATH)');
-  let vite = null, base = arg('url');
+  let vite = null, base = arg('url'), vitePort = null;
   if (!base) {
-    const vitePort = await freePort(vitePort0);
-    vite = spawn(process.execPath, [path.join(ROOT, 'node_modules/vite/bin/vite.js'), '--port', String(vitePort), '--strictPort', '--host', '127.0.0.1'], { cwd: ROOT, stdio: 'ignore' });
-    base = `http://127.0.0.1:${vitePort}/`;
+    vite = await startVite(vitePort0);
+    if (!vite) skip('the dev server did not start');
+    base = vite.base; vitePort = vite.port;
   }
-  const cdpPort = await freePort(cdpPort0);
-  const profile = fs.mkdtempSync(path.join(os.tmpdir(), 'hl-cdp-'));
-  const proc = spawn(chrome, ['--headless=new', '--disable-gpu', '--no-first-run', '--no-default-browser-check', '--disable-extensions', '--hide-scrollbars', `--user-data-dir=${profile}`, `--remote-debugging-port=${cdpPort}`, '--remote-allow-origins=*', ...(process.platform === 'linux' ? ['--no-sandbox'] : []), 'about:blank'], { stdio: 'ignore' });
+  const browser = await launchChrome(chrome);
+  if (!browser) { try { vite?.proc.kill(); } catch { /* ignore */ } skip('Chrome did not start'); }
+  const { wsUrl, cdpPort } = browser;
   let closed = false;
   const shutdown = async () => {
     if (closed) return; closed = true;
-    try { proc.kill(); } catch { /* ignore */ }
-    try { vite?.kill(); } catch { /* ignore */ }
-    await sleep(400);
-    try { fs.rmSync(profile, { recursive: true, force: true, maxRetries: 5, retryDelay: 200 }); } catch { /* it is in the temp folder anyway */ }
+    try { vite?.proc.kill(); } catch { /* ignore */ }
+    await browser.stop();
   };
-  process.on('exit', () => { try { proc.kill(); } catch { /* ignore */ } try { vite?.kill(); } catch { /* ignore */ } });
-
-  let wsUrl = null;
-  for (let i = 0; i < 100 && !wsUrl; i++) { try { wsUrl = (await (await fetch(`http://127.0.0.1:${cdpPort}/json/version`)).json()).webSocketDebuggerUrl; } catch { await sleep(150); } }
-  if (!wsUrl) { await shutdown(); skip('Chrome did not start'); }
   let up = false;
   for (let i = 0; i < 200 && !up; i++) { try { up = (await fetch(base)).ok; } catch { await sleep(300); } }
   if (!up) { await shutdown(); skip(`the dev server did not answer at ${base}`); }
@@ -84,7 +119,7 @@ export async function startHarness(name, { vitePort0 = 5480, cdpPort0 = 9500 } =
       try { await evaluate(`new Promise((ok, no) => { const t0 = Date.now(), t = setInterval(() => { if (window.__store && window.__store.getState().accounts.length) { clearInterval(t); ok(1); } else if (Date.now() - t0 > 15000) { clearInterval(t); no(new Error('app did not start')); } }, 100); })`); return; } catch (e) { if (attempt === 4) throw e; }
     }
   };
-  return { base, cdp, evaluate, shutdown, openApp };
+  return { base, cdp, evaluate, shutdown, openApp, vitePort, cdpPort };
 }
 
 /** Mouse, keyboard and screenshots on a CDP session. */

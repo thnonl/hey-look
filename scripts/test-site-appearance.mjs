@@ -18,13 +18,11 @@
 // formula, live for every preset and custom colour, light unchanged), and stay neutral under prefers-contrast: more. The page's own transitions are switched off while measuring (a half-finished transition would
 // only measure the animation); the reduced-motion pass keeps the site's real CSS, which must still settle to the same layout.
 import fs from 'node:fs';
-import os from 'node:os';
 import path from 'node:path';
 import http from 'node:http';
-import net from 'node:net';
-import { spawn } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { checkFormula, siteDarkTopBar } from './lib/site-top-bar.mjs';
+import { launchChrome } from './cdp-harness.mjs';
 
 const DOCS = path.join(path.dirname(fileURLToPath(import.meta.url)), '..', 'docs');
 const arg = (name) => { const a = process.argv.find((x) => x.startsWith(`--${name}=`)); return a ? a.slice(name.length + 3) : null; };
@@ -68,28 +66,21 @@ const server = http.createServer((req, res) => {
 await new Promise((r) => server.listen(0, '127.0.0.1', r));
 const base = `http://127.0.0.1:${server.address().port}`;
 
-const freePort = async () => { for (let p = 9400; p < 9500; p++) { const ok = await new Promise((r) => { const s = net.createServer(); s.once('error', () => r(false)); s.listen(p, '127.0.0.1', () => s.close(() => r(true))); }); if (ok) return p; } throw new Error('no free port in 9400-9499'); };
-const port = await freePort();
-const profile = fs.mkdtempSync(path.join(os.tmpdir(), 'hl-appearance-'));
-const proc = spawn(chrome, ['--headless=new', '--disable-gpu', '--no-first-run', '--no-default-browser-check', '--disable-extensions', '--hide-scrollbars', `--user-data-dir=${profile}`, `--remote-debugging-port=${port}`, '--remote-allow-origins=*', ...(process.platform === 'linux' ? ['--no-sandbox'] : []), 'about:blank'], { stdio: 'ignore' });
+// the browser binds its own debugging port (0) and writes it into its own profile folder: this test cannot attach to another test's browser (scripts/cdp-harness.mjs)
+const browser = await launchChrome(chrome, 'hl-appearance-');
 let closed = false;
 async function shutdown() {
   if (closed) return; closed = true;
   try { server.close(); } catch { /* ignore */ }
-  try { proc.kill(); } catch { /* ignore */ }
-  await new Promise((r) => setTimeout(r, 400));
-  try { fs.rmSync(profile, { recursive: true, force: true, maxRetries: 5, retryDelay: 200 }); } catch { /* the profile is in the temp folder anyway */ }
+  await browser?.stop();
 }
-process.on('exit', () => { try { proc.kill(); } catch { /* ignore */ } });
-
-let wsUrl = null;
-for (let i = 0; i < 100 && !wsUrl; i++) { try { wsUrl = (await (await fetch(`http://127.0.0.1:${port}/json/version`)).json()).webSocketDebuggerUrl; } catch { await new Promise((r) => setTimeout(r, 150)); } }
-if (!wsUrl) {
+if (!browser) {
   await shutdown();
   // a browser that is installed but cannot start (sandbox, display) must not fail a release job: only --require-browser makes it an error
   if (flag('require-browser')) { console.error('test-site-appearance: Chrome did not start'); process.exit(1); }
   console.log('test-site-appearance: SKIPPED, Chrome did not start (pass --require-browser to fail instead)'); process.exit(0);
 }
+const wsUrl = browser.wsUrl;
 const ws = new WebSocket(wsUrl); await new Promise((r, j) => { ws.onopen = r; ws.onerror = j; });
 let nextId = 1; const waiting = new Map(), listeners = [];
 ws.onmessage = (ev) => { const m = JSON.parse(ev.data); if (m.id && waiting.has(m.id)) { const { ok, bad } = waiting.get(m.id); waiting.delete(m.id); m.error ? bad(new Error(m.error.message)) : ok(m.result); } else listeners.forEach((l) => l(m)); };
