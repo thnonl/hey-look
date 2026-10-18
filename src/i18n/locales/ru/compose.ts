@@ -359,6 +359,8 @@ export default defineLocale<typeof ns.en>({
   "compose.pic.unsupported": "Не удалось вставить «{name}»: этот формат изображений не поддерживается. Файл прикреплён как вложение.",
   "compose.pic.resized": "Изображение {name} уменьшено до 1600 px ({size})",
   "compose.pic.resizedGif": "Изображение {name} уменьшено до 1600 px ({size}) и преобразовано в PNG: анимация не сохраняется",
+  "compose.pic.convertedGif": "Изображение {name} преобразовано в PNG ({size}): анимация не сохраняется",
+  "compose.pic.recompressed": "Изображение {name} сжато ({size})",
   "compose.alt.checkTitle": {"one":"У {n} изображения нет замещающего текста","few":"У {n} изображений нет замещающего текста","many":"У {n} изображений нет замещающего текста","other":"У {n} изображения нет замещающего текста"},
   "compose.alt.checkBody": "Пользователи программ чтения с экрана не узнают, что на них изображено.",
   "compose.alt.addAlt": "Добавить замещающий текст",

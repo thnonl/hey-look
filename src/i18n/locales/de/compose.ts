@@ -348,6 +348,8 @@ export default defineLocale<typeof ns.en>({
   "compose.pic.unsupported": "„{name}“ konnte nicht eingefügt werden: Dieses Bildformat wird nicht unterstützt. Es wurde stattdessen angehängt.",
   "compose.pic.resized": "{name} auf 1600 px verkleinert ({size})",
   "compose.pic.resizedGif": "{name} auf 1600 px verkleinert ({size}) und in PNG umgewandelt: Die Animation bleibt nicht erhalten",
+  "compose.pic.convertedGif": "{name} in PNG umgewandelt ({size}): Die Animation bleibt nicht erhalten",
+  "compose.pic.recompressed": "{name} komprimiert ({size})",
   "compose.alt.checkTitle": {"one":"{n} Bild hat keinen Alternativtext","other":"{n} Bilder haben keinen Alternativtext"},
   "compose.alt.checkBody": "Menschen, die einen Screenreader nutzen, erfahren nicht, was darauf zu sehen ist.",
   "compose.alt.addAlt": "Alternativtext hinzufügen",

@@ -340,6 +340,8 @@ export default defineLocale<typeof ns.en>({
   "compose.pic.unsupported": "「{name}」を挿入できませんでした。この画像形式には対応していないため、代わりに添付しました。",
   "compose.pic.resized": "{name}を幅1600 pxに縮小しました（{size}）",
   "compose.pic.resizedGif": "{name}を幅1600 pxに縮小し、PNGに変換しました（{size}）。アニメーションは保持されません",
+  "compose.pic.convertedGif": "{name}をPNGに変換しました（{size}）。アニメーションは保持されません",
+  "compose.pic.recompressed": "{name}を圧縮しました（{size}）",
   "compose.alt.checkTitle": { other: "代替テキストのない画像が{n}枚あります" },
   "compose.alt.checkBody": "スクリーンリーダーを使う人には、画像の内容が伝わりません。",
   "compose.alt.addAlt": "代替テキストを追加",

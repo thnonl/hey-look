@@ -1657,6 +1657,12 @@ function ComposeBody({ init }: { init: ComposeInit }) {
 
   /** The picture files into the body at the caret (Medium size), in the order they were given; a format that is not supported is attached. */
   const insertPictures = (files: File[]) => reading(() => insertPicturesNow(files));
+  /** The toast after a big picture was re-encoded: it says "to 1600 px" only when the picture was wider (resizeImage scales by the width), else only what was done (BUG: "resized to 1600 px" for a 900 px picture). */
+  const resizedToast = (mime: string, width: number, name: string, dataUrl: string) => {
+    const scaled = width > 1600;
+    const key = mime === "image/gif" ? (scaled ? "compose.pic.resizedGif" : "compose.pic.convertedGif") : scaled ? "compose.pic.resized" : "compose.pic.recompressed";
+    return t(key, { name, size: fmtSize(dataUriBytes(dataUrl)) });
+  };
   const insertPicturesNow = async (files: File[]) => {
     const st = useStore.getState();
     const attach: File[] = [];
@@ -1683,7 +1689,7 @@ function ComposeBody({ init }: { init: ComposeInit }) {
           const r = await resizeImage(src, f.type, 1600);
           finalSrc = r.dataUrl;
           finalName = nameForMime(f.name, r.mime); // (a GIF made a PNG is no .gif any more)
-          showToast(t(f.type === "image/gif" ? "compose.pic.resizedGif" : "compose.pic.resized", { name: finalName, size: fmtSize(dataUriBytes(finalSrc)) }), undefined, "success");
+          showToast(resizedToast(f.type, size.w, finalName, finalSrc), undefined, "success");
         } else {
           const original = src;
           showToast(
@@ -1716,7 +1722,7 @@ function ComposeBody({ init }: { init: ComposeInit }) {
     if (at === null) return;
     const newName = nameForMime(name, r.mime); // (the name says what the bytes are: a GIF made a PNG is `name.png`, in the message, the draft and the sent part)
     editor.chain().setNodeSelection(at).updateAttributes("image", { src: r.dataUrl, "data-name": newName }).run();
-    showToast(t(mime === "image/gif" ? "compose.pic.resizedGif" : "compose.pic.resized", { name: newName, size: fmtSize(dataUriBytes(r.dataUrl)) }), undefined, "success");
+    showToast(resizedToast(mime, (await imageSize(original)).w, newName, r.dataUrl), undefined, "success");
   };
 
   const setPictureSize = (w: number | null) => {
