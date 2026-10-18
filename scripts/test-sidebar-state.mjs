@@ -125,7 +125,8 @@ const settings = read("src/components/SettingsDialog.tsx");
 for (const v of ["auto", "expanded", "collapsed"]) assert.match(settings, new RegExp(`<option value="${v}">`), `Settings > Appearance offers ${v}`);
 assert.match(settings, /sideReset/, "Reset to automatic");
 assert.match(settings, /\["Ctrl\+B", "settings\.keys\.sideMenu"\]/, "listed in Settings > Shortcuts");
-const ci = read(".github/workflows/release.yml");
+// the tests run from the list the release workflow's node-tests job reads
+const ci = read(".github/workflows/release.yml") + read(".github/node-tests.txt");
 assert.match(ci, /test-sidebar-state\.mjs/);
 assert.match(ci, /test-sidebar-collapse\.mjs --quick/);
 

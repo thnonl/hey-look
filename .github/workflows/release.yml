@@ -3,8 +3,10 @@ name: Release
 # Tag vX.Y.Z (numbers only): build signed installers for Windows, macOS and Linux, attach them to a draft GitHub Release,
 # write and check the updater manifest (latest.json), then publish the release as the latest one.
 # Manual run (workflow_dispatch) = dry run on the chosen ref: builds the chosen platforms (input `platforms`, default all three)
-# and keeps the bundles as workflow artifacts. It creates no tag and no release. It is signed when the repo secret
-# TAURI_SIGNING_PRIVATE_KEY exists. The signed dry run on the commit that will be tagged uses `platforms: all`.
+# and keeps the bundles as workflow artifacts. It creates no tag and no release. A dry run NEVER sees a production secret: the update key,
+# the Apple certificate, the OAuth client secrets and the SignPath token belong to the GitHub Environment `release` (deployment rule: v* tags
+# only) and every step reads them only on a tag run, so a dry run is built unsigned (update signatures off, macOS ad-hoc signed, no OAuth
+# client ids in the app). The signed path (update signatures, macOS self-signed certificate) is exercised by the tag run only.
 # With `test_version` (for example 0.9.0) it builds a DEBUG test build of that version (never signed, nothing committed):
 # the debug build honours HEYLOOK_UPDATE_ENDPOINT, so it can be pointed at a local latest.json to test the in-app update.
 # Use `platforms` there for just the system that is being tested (windows, macos, linux, or a list such as windows,macos).
@@ -27,12 +29,19 @@ on:
         required: false
         default: "all"
       sign_windows:
-        description: "Dry run only: also sign the Windows installers with SignPath (needs the SIGNPATH_* settings; waits for your approval there)"
+        description: "No effect any more: the SignPath token belongs to the environment release and is only given to tag runs"
         required: false
         default: "false"
 
+# Least privilege: read-only by default; every job that needs more says so itself.
 permissions:
-  contents: write
+  contents: read
+
+env:
+  # The Rust compiler of every build and test job, exactly. A new Rust release must not change the shipped binary between the
+  # last dry run and the tag run. To bump: change it here, run a dry run (platforms=all, all 823+ cargo tests and the three builds must
+  # pass), commit. rustfmt and clippy are not used in CI, so no components are installed.
+  RUST_VERSION: "1.99.1"
 
 # One run per ref and kind at a time. A newer manual run of the same kind (and the same platforms) on the same ref cancels the one
 # that is still building; a tag run is never cancelled.
@@ -44,9 +53,12 @@ jobs:
   plan:
     # Which platforms to build: a tag run builds all three; a manual run builds what `platforms` names.
     runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions: {}
     outputs:
       matrix: ${{ steps.plan.outputs.matrix }}
       signpath: ${{ steps.plan.outputs.signpath }}
+      tests: ${{ steps.plan.outputs.tests }}
     steps:
       - id: plan
         shell: bash
@@ -81,6 +93,8 @@ jobs:
           $lin && items+=('{"name":"Linux","platform":"ubuntu-22.04","args":""}')
           matrix="{\"include\":[$(IFS=,; echo "${items[*]}")]}"
           echo "matrix=$matrix" >> "$GITHUB_OUTPUT"
+          # the node tests ran in the Linux build job before: they run whenever Linux is built
+          echo "tests=$lin" >> "$GITHUB_OUTPUT"
           echo "Event: $EVENT. Platforms to build: $want"
           echo "$matrix"
           if [ "${#items[@]}" -lt 3 ]; then
@@ -108,12 +122,15 @@ jobs:
     # Tag runs only. Creates the one draft release that all build jobs upload into.
     if: github.event_name == 'push'
     runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: write # creates the draft release
     outputs:
       id: ${{ steps.mk.outputs.id }}
     env:
       GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
 
       - id: mk
         run: |
@@ -134,6 +151,86 @@ jobs:
                  -F draft=true -F prerelease=false -F body=@notes.md --jq .id)
           echo "id=$id" >> "$GITHUB_OUTPUT"
 
+  node-tests:
+    # The node tests (scripts/test-*.mjs and the other node checks, listed in .github/node-tests.txt) used to run inside the Linux build job, one
+    # after the other, in front of the installer build. They need no Rust and no installer, so they run beside the three builds, in shards
+    # (the list says which test is in which shard) on the same image as before. All shards must pass before anything is signed or published.
+    needs: plan
+    if: ${{ needs.plan.outputs.tests == 'true' }}
+    name: Node tests (${{ matrix.shard }})
+    runs-on: ubuntu-22.04
+    timeout-minutes: 30
+    permissions:
+      contents: read
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [static, ui-a, ui-b]
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          persist-credentials: false
+
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: 22
+          cache: npm
+
+      # same files as the Linux build of a test build sees
+      - name: Set test version
+        if: github.event_name == 'workflow_dispatch' && github.event.inputs.test_version != ''
+        env:
+          TEST_VERSION: ${{ github.event.inputs.test_version }}
+        run: node .github/scripts/set-version.cjs "$TEST_VERSION"
+
+      - run: npm ci
+
+      - name: Run the tests of this shard
+        env:
+          SHARD: ${{ matrix.shard }}
+        run: bash .github/scripts/run-node-tests.sh "$SHARD"
+
+  rust-tests:
+    # `cargo test` of src-tauri (112 test modules: i18n, capabilities, test bridge, calendar sync, outbox, mail parsing ...). CI never ran them
+    # before; the release checklist only names them. Same image and system packages as the Linux build. The frontend is not needed to compile
+    # the tests, but the app macro wants the folder of the built frontend to exist, so an empty stand-in is made.
+    needs: plan
+    if: ${{ needs.plan.outputs.tests == 'true' }}
+    name: Rust tests
+    runs-on: ubuntu-22.04
+    timeout-minutes: 45
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          persist-credentials: false
+
+      - name: Install Linux dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf \
+            libssl-dev libdbus-1-dev pkg-config
+
+      - uses: dtolnay/rust-toolchain@b725eda525362e7cf34af9a7243cac1e3f01a7ec # stable branch (a SHA pin needs the toolchain named)
+        with:
+          toolchain: ${{ env.RUST_VERSION }}
+
+      - uses: swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+        with:
+          workspaces: src-tauri -> target
+          save-if: ${{ github.ref_type != 'tag' }}
+
+      - name: Run cargo test
+        working-directory: src-tauri
+        env:
+          RUST_BACKTRACE: 1
+        run: |
+          mkdir -p ../dist
+          [ -e ../dist/index.html ] || echo '<!doctype html><title>stand-in</title>' > ../dist/index.html
+          cargo test --locked
+
   build:
     needs: [plan, create-release]
     # Runs after create-release on tag runs, and on its own (create-release skipped) on dry runs.
@@ -144,9 +241,16 @@ jobs:
 
     name: Build (${{ matrix.name }})
     runs-on: ${{ matrix.platform }}
+    # a cold-cache tag build of the macOS universal app takes about 24 minutes; a hung job must not run for the 6 hour default
+    timeout-minutes: 60
+    environment: ${{ github.event_name == 'push' && 'release' || '' }}
+    permissions:
+      contents: write # tauri-action uploads the installers into the draft release (tag runs only; a job cannot ask for this per event)
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          persist-credentials: false # the token must not stay in .git/config where npm scripts and tests could read it
 
       - name: Install Linux dependencies
         if: runner.os == 'Linux'
@@ -156,18 +260,22 @@ jobs:
             libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf \
             libssl-dev libdbus-1-dev pkg-config
 
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
         with:
           node-version: 22
           cache: npm
 
-      - uses: dtolnay/rust-toolchain@stable
+      - uses: dtolnay/rust-toolchain@b725eda525362e7cf34af9a7243cac1e3f01a7ec # stable branch (a SHA pin needs the toolchain named)
         with:
+          toolchain: ${{ env.RUST_VERSION }}
           targets: ${{ runner.os == 'macOS' && 'aarch64-apple-darwin,x86_64-apple-darwin' || '' }}
 
-      - uses: swatinem/rust-cache@v2
+      - uses: swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
         with:
           workspaces: src-tauri -> target
+          # A tag run cannot read the caches of the branch it was cut from (only its own ref and main), so its cache would never be used again
+          # and only costs a minute and up to 1 GB of the 10 GB the repository may keep. Dry runs on a branch save: the next dry run of it reuses them.
+          save-if: ${{ github.ref_type != 'tag' }}
 
       # Is there a signing key? Tag run: it must be there. Dry run: signed with it, or built unsigned (with a warning) without.
       # A test build (test_version) is never signed. The key itself is never printed.
@@ -175,11 +283,12 @@ jobs:
         id: sign
         shell: bash
         env:
-          KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          KEY: ${{ github.event_name == 'push' && secrets.TAURI_SIGNING_PRIVATE_KEY || '' }}
           TEST_VERSION: ${{ github.event.inputs.test_version }}
+          EVENT: ${{ github.event_name }}
         run: |
           NOUPD="--config src-tauri/tauri.no-updater.conf.json"
-          if [ "${{ github.event_name }}" = "push" ]; then
+          if [ "$EVENT" = "push" ]; then
             if [ -z "$KEY" ]; then
               echo "::error::TAURI_SIGNING_PRIVATE_KEY is not set: a release must be signed"
               exit 1
@@ -207,6 +316,21 @@ jobs:
             echo "profile=release" >> "$GITHUB_OUTPUT"
           fi
 
+      # A tag run without the OAuth client ids would ship an app that cannot sign in to Google / Microsoft. The ids are embedded at build
+      # time (src-tauri/build.rs). Names only, values are never printed.
+      - name: OAuth client ids present (tag runs)
+        if: github.event_name == 'push'
+        shell: bash
+        env:
+          GOOGLE_CLIENT_ID: ${{ secrets.GOOGLE_CLIENT_ID }}
+          MICROSOFT_CLIENT_ID: ${{ secrets.MICROSOFT_CLIENT_ID }}
+        run: |
+          bad=0
+          for n in GOOGLE_CLIENT_ID MICROSOFT_CLIENT_ID; do
+            if [ -z "${!n}" ]; then echo "::error::$n is not set (add it to the environment 'release'): the release app would have no sign-in"; bad=1; fi
+          done
+          exit $bad
+
       # Test build only: the version of this checkout is changed (never committed).
       - name: Set test version
         if: github.event_name == 'workflow_dispatch' && github.event.inputs.test_version != ''
@@ -219,158 +343,14 @@ jobs:
       # The updater public key must be in tauri.conf.json (warning only for an unsigned dry run).
       - name: Verify version and updater key
         shell: bash
+        env:
+          EVENT: ${{ github.event_name }}
+          PUBKEY: ${{ steps.sign.outputs.pubkey }}
         run: |
-          if [ "${{ github.event_name }}" = "push" ]; then V="${GITHUB_REF_NAME#v}"; else V="-"; fi
-          node .github/scripts/verify-version.cjs "$V" . --pubkey=${{ steps.sign.outputs.pubkey }}
+          if [ "$EVENT" = "push" ]; then V="${GITHUB_REF_NAME#v}"; else V="-"; fi
+          node .github/scripts/verify-version.cjs "$V" . --pubkey="$PUBKEY"
 
       - run: npm ci
-
-      # the "no account" rules of the UI (which controls, shortcuts and commands exist on the Welcome screen)
-      - name: Mail-controls rules
-        if: runner.os == 'Linux'
-        run: |
-          node --experimental-strip-types scripts/test-mail-controls.mjs
-          node --experimental-strip-types scripts/test-frame-sandbox.mjs
-          node --experimental-strip-types scripts/test-pdf-frame.mjs
-          node --experimental-strip-types scripts/test-addresses.mjs
-          node --experimental-strip-types scripts/test-recipients.mjs
-          node --experimental-strip-types scripts/test-reply-targets.mjs
-          node --experimental-strip-types scripts/test-html-text.mjs
-          node --experimental-strip-types scripts/test-forward-attachments.mjs
-          node scripts/test-compose-tab-order.mjs
-          node --experimental-strip-types scripts/test-compose-keys.mjs
-          node --experimental-strip-types scripts/test-quote-header.mjs
-          node --experimental-strip-types scripts/test-pasted-html.mjs
-          node --experimental-strip-types scripts/test-send-size.mjs
-          node --experimental-strip-types scripts/test-from-account.mjs
-          node --experimental-strip-types scripts/test-attach-name.mjs
-          node --experimental-strip-types scripts/test-link-url.mjs
-          node scripts/test-csp-ready.mjs
-          node --experimental-strip-types scripts/test-update-result.mjs
-          node --experimental-strip-types scripts/test-update-announce.mjs
-          node --experimental-strip-types scripts/test-quit-flush.mjs
-          node --experimental-strip-types scripts/test-popout.mjs
-          node scripts/test-latest-json-keys.mjs
-          node --experimental-strip-types scripts/test-sticky-timers.mjs
-          node --experimental-strip-types scripts/test-toast-stack.mjs
-          node --experimental-strip-types scripts/test-toast-language.mjs
-          node --experimental-strip-types scripts/test-translate-jobs.mjs
-          node --experimental-strip-types scripts/test-translate-box-layout.mjs
-          node --experimental-strip-types scripts/test-ai-tab-still.mjs
-          node --experimental-strip-types scripts/test-settings-still.mjs
-          node --experimental-strip-types scripts/test-translate-chunks.mjs
-          node --experimental-strip-types scripts/test-ai-call.mjs
-          node --experimental-strip-types scripts/test-ai-errors.mjs
-          node --experimental-strip-types scripts/test-ai-problem.mjs
-          node --experimental-strip-types scripts/test-open-thread.mjs
-          node --experimental-strip-types scripts/test-leave-compose.mjs
-          node --experimental-strip-types scripts/test-autosave.mjs
-          node --experimental-strip-types scripts/test-recovery.mjs
-          node --experimental-strip-types scripts/test-recovery-toast.mjs
-          node --experimental-strip-types scripts/test-compose-selection.mjs
-          node --experimental-strip-types scripts/test-compose-content.mjs
-          node --experimental-strip-types scripts/test-read-intent.mjs
-          node --experimental-strip-types scripts/test-flag-pin-intent.mjs
-          node --experimental-strip-types scripts/test-prepare-move.mjs
-          node --experimental-strip-types scripts/test-queued-moves.mjs
-          node --experimental-strip-types scripts/test-moves-committed.mjs
-          node --experimental-strip-types scripts/test-auto-advance.mjs
-          node --experimental-strip-types scripts/test-junk-folder.mjs
-          node --experimental-strip-types scripts/test-list-limit-footer.mjs
-          node --experimental-strip-types scripts/test-link-copy.mjs
-          node --experimental-strip-types scripts/test-backfill-line.mjs
-          node --experimental-strip-types scripts/test-about-links.mjs
-          node --experimental-strip-types scripts/test-mail-canvas.mjs
-          node --experimental-strip-types scripts/test-compose-preview.mjs
-          node --experimental-strip-types scripts/test-calendar-sync.mjs
-          node --experimental-strip-types scripts/test-datetime-fields.mjs
-          node --experimental-strip-types scripts/test-event-when.mjs
-          node --experimental-strip-types scripts/test-importance.mjs
-          node --experimental-strip-types scripts/test-i18n.mjs
-          node --experimental-strip-types scripts/test-i18n-tools.mjs
-          node --experimental-strip-types scripts/test-boot-lang.mjs
-          node --experimental-strip-types scripts/i18n-status.mjs
-          node --experimental-strip-types scripts/i18n-status.mjs --strict --lang=vi
-          node --experimental-strip-types scripts/i18n-status.mjs --strict --lang=fr
-          node --experimental-strip-types scripts/i18n-status.mjs --strict --lang=zh-Hans
-          node --experimental-strip-types scripts/i18n-status.mjs --strict --lang=es
-          node --experimental-strip-types scripts/i18n-status.mjs --strict --lang=ja
-          node --experimental-strip-types scripts/i18n-status.mjs --strict --lang=de
-          node --experimental-strip-types scripts/i18n-status.mjs --strict --lang=ru
-          node --experimental-strip-types scripts/test-language-switcher.mjs
-          node --experimental-strip-types scripts/test-sign-in.mjs
-          node --experimental-strip-types scripts/test-popover-menu.mjs
-          node --experimental-strip-types scripts/test-picture-tools.mjs
-          node --experimental-strip-types scripts/test-rich-golden.mjs
-          node --experimental-strip-types scripts/test-format-bar-layout.mjs
-          node --experimental-strip-types scripts/test-block-format.mjs
-          node --experimental-strip-types scripts/test-block-commands.mjs
-          node --experimental-strip-types scripts/test-paste-clean.mjs
-          node --experimental-strip-types scripts/test-paste-options.mjs
-          node scripts/test-paste-switch.mjs
-          node scripts/test-paste-mac.mjs
-          node --experimental-strip-types scripts/test-insert-group.mjs
-          node --experimental-strip-types scripts/test-signature-guard.mjs
-          node --experimental-strip-types scripts/test-quote.mjs
-          node --experimental-strip-types scripts/test-quote-guard.mjs
-          node --experimental-strip-types scripts/test-quote-remote-policy.mjs
-          node --experimental-strip-types scripts/test-insert-pictures.mjs
-          node --experimental-strip-types scripts/test-header-text.mjs
-          node --experimental-strip-types scripts/test-popover-room.mjs
-          node --experimental-strip-types scripts/test-meeting-draft.mjs
-          node --experimental-strip-types scripts/test-picture-rename.mjs
-          node --experimental-strip-types scripts/test-summary-text.mjs
-          node --experimental-strip-types scripts/test-snooze-label.mjs
-          node --experimental-strip-types scripts/test-change-case.mjs
-          node --experimental-strip-types scripts/test-find-replace.mjs
-          node --experimental-strip-types scripts/test-signature-picture.mjs
-          node --experimental-strip-types scripts/test-row-menu.mjs
-          node --experimental-strip-types scripts/test-account-order.mjs
-          node --experimental-strip-types scripts/test-account-label.mjs
-          node --experimental-strip-types scripts/test-sidebar-state.mjs
-          node --experimental-strip-types scripts/test-context-guard.mjs
-          node --experimental-strip-types scripts/test-top-bar-dark.mjs
-          node --experimental-strip-types scripts/test-support-nudge.mjs
-          node scripts/generate-site-languages.mjs --check
-          node scripts/test-site-languages.mjs --strict
-          node scripts/test-site-404.mjs
-          node scripts/test-site-seo.mjs
-          node --experimental-strip-types scripts/test-site-commands.mjs
-          # the Appearance preview on the website, measured in the runner's Chrome (a sample of the combinations; the full run is `node scripts/test-site-appearance.mjs`)
-          node scripts/test-site-appearance.mjs --quick
-          # Settings > AI Assistant stands still while it is used: the real layout, frame by frame, in the dev preview (two of the 12 combinations; the full run is `node scripts/test-ai-tab-layout.mjs`)
-          node scripts/test-ai-tab-layout.mjs --quick
-          # the AI Assistant problem toast through every entry point (not set up, 401, 404, timeout ...): stays 20 s, leads to Settings > AI Assistant, Esc / X close it (full run: `node scripts/test-ai-guide.mjs`)
-          node scripts/test-ai-guide.mjs --quick
-          # Settings > Add account and Calendar stand still while a sign-in runs and ends (two of the combinations; the full run is `node scripts/test-settings-layout.mjs`)
-          node scripts/test-settings-layout.mjs --quick
-          # the attachment preview and the picture viewer are on top of the whole window, in the main window and in the reader window
-          node scripts/test-preview-layer.mjs --quick
-          # the compose pane at the smallest sizes: formatting row and body always in view, the header scrolls, Tab order and popovers (eight of the combinations, with Meeting on at 946 x 552 and in a 308 px pane; the full run is `node scripts/test-compose-fit.mjs`)
-          node scripts/test-compose-fit.mjs --quick
-          # an open compose shows the placeholder of the body in the language in use after a language switch (and back)
-          node scripts/test-placeholder-lang.mjs
-          # the side menu: icons or full by window width and by the person's choice, the peek over the panes, the minimum widths, tooltips (the full run is `node scripts/test-sidebar-collapse.mjs`)
-          node scripts/test-sidebar-collapse.mjs --quick
-          # the picture resize handles are clipped with the editor pane, and Discard on a reply with nothing typed closes without asking (real panes in the dev preview)
-          node scripts/test-picture-handles.mjs
-          # the picture toolbar and the resize handles never overlap (the handles are measured too), and every popover and menu of the message, ALL its boxes, is inside the window at 946 x 552 and 946 x 480
-          node scripts/test-picture-toolbar.mjs
-          node scripts/test-popover-fit.mjs --quick
-          node scripts/test-ai-save-toast.mjs
-          # a meeting survives Save draft and the crash-recovery snapshot in the real pane (the header side is `cargo test --lib meeting_form`)
-          node scripts/test-meeting-compose.mjs
-          node scripts/test-compose-discard.mjs
-          # the top strip of the message and conversation windows follows the theme (the root of the compose page is not fixed; macOS paints the title bar from it)
-          node scripts/test-popout-theme.mjs
-          # several pictures at once, where a dropped picture goes, "Generate a key" ends, and Discard takes the autosaved draft along (real panes in the dev preview)
-          node scripts/test-compose-pictures.mjs
-          node scripts/test-pgp-generate.mjs
-          node scripts/test-discard-saved-draft.mjs
-          # the Symbol popup, the More menu, Find and replace (Replace row on every system) and the picture handles under the dialogs, at 960 x 560 and 1280 x 800
-          node scripts/test-compose-popups.mjs
-          # the debug-only test bridge stays out of release builds (sources, workflow check) and its client sends what the protocol says (the Rust side: `cargo test --lib testbridge`)
-          node scripts/test-test-bridge.mjs
 
       # macOS code signing (owner steps: CONTRIBUTING.md > Signing and notarisation). Only when the three certificate secrets
       # (APPLE_CERTIFICATE, APPLE_CERTIFICATE_PASSWORD, APPLE_SIGNING_IDENTITY) exist and this is not a test build; otherwise nothing
@@ -394,14 +374,14 @@ jobs:
           EVENT: ${{ github.event_name }}
           TEST_VERSION: ${{ github.event.inputs.test_version }}
           REQUIRE: ${{ vars.REQUIRE_MAC_SIGNING }}
-          APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
-          APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
-          APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
-          APPLE_API_ISSUER: ${{ secrets.APPLE_API_ISSUER }}
-          APPLE_API_KEY: ${{ secrets.APPLE_API_KEY }}
-          APPLE_API_PRIVATE_KEY: ${{ secrets.APPLE_API_PRIVATE_KEY }}
-          APPLE_ID: ${{ secrets.APPLE_ID }}
-          APPLE_PASSWORD: ${{ secrets.APPLE_PASSWORD }}
+          APPLE_CERTIFICATE: ${{ github.event_name == 'push' && secrets.APPLE_CERTIFICATE || '' }}
+          APPLE_CERTIFICATE_PASSWORD: ${{ github.event_name == 'push' && secrets.APPLE_CERTIFICATE_PASSWORD || '' }}
+          APPLE_SIGNING_IDENTITY: ${{ github.event_name == 'push' && secrets.APPLE_SIGNING_IDENTITY || '' }}
+          APPLE_API_ISSUER: ${{ github.event_name == 'push' && secrets.APPLE_API_ISSUER || '' }}
+          APPLE_API_KEY: ${{ github.event_name == 'push' && secrets.APPLE_API_KEY || '' }}
+          APPLE_API_PRIVATE_KEY: ${{ github.event_name == 'push' && secrets.APPLE_API_PRIVATE_KEY || '' }}
+          APPLE_ID: ${{ github.event_name == 'push' && secrets.APPLE_ID || '' }}
+          APPLE_PASSWORD: ${{ github.event_name == 'push' && secrets.APPLE_PASSWORD || '' }}
           APPLE_TEAM_ID: ${{ vars.APPLE_TEAM_ID }}
         run: |
           set -euo pipefail
@@ -427,6 +407,12 @@ jobs:
             { echo "$1<<$d"; printf '%s\n' "$2"; echo "$d"; } >> "$GITHUB_ENV"
           }
           cert_missing=$(missing APPLE_CERTIFICATE APPLE_CERTIFICATE_PASSWORD APPLE_SIGNING_IDENTITY)
+          if [ -n "$cert_missing" ] && [ "$EVENT" = push ]; then
+            # the secrets live in the environment `release`; one that was forgotten there would otherwise ship an ad-hoc signed app, which
+            # changes the signing identity of the app (and makes the Keychain ask again)
+            echo "::error::tag run without the full macOS signing secrets (missing: $cert_missing). Add them to the environment 'release'."
+            exit 1
+          fi
           if [ -n "$cert_missing" ]; then
             if [ "$cert_missing" = "APPLE_CERTIFICATE APPLE_CERTIFICATE_PASSWORD APPLE_SIGNING_IDENTITY" ]; then
               if [ "$strict" = true ]; then problem "the Apple signing secrets are not all set"; fi
@@ -505,17 +491,17 @@ jobs:
             echo "notarize=true" >> "$GITHUB_OUTPUT"
           fi
 
-      - uses: tauri-apps/tauri-action@v1
+      - uses: tauri-apps/tauri-action@1deb371b0cd8bd54025b384f1cd735e725c4060f # v1.0.0
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           # Embedded into the binary at build time (see src-tauri/build.rs).
-          GOOGLE_CLIENT_ID: ${{ secrets.GOOGLE_CLIENT_ID }}
-          GOOGLE_CLIENT_SECRET: ${{ secrets.GOOGLE_CLIENT_SECRET }}
-          MICROSOFT_CLIENT_ID: ${{ secrets.MICROSOFT_CLIENT_ID }}
-          MICROSOFT_CLIENT_SECRET: ${{ secrets.MICROSOFT_CLIENT_SECRET }}
+          GOOGLE_CLIENT_ID: ${{ github.event_name == 'push' && secrets.GOOGLE_CLIENT_ID || '' }}
+          GOOGLE_CLIENT_SECRET: ${{ github.event_name == 'push' && secrets.GOOGLE_CLIENT_SECRET || '' }}
+          MICROSOFT_CLIENT_ID: ${{ github.event_name == 'push' && secrets.MICROSOFT_CLIENT_ID || '' }}
+          MICROSOFT_CLIENT_SECRET: ${{ github.event_name == 'push' && secrets.MICROSOFT_CLIENT_SECRET || '' }}
           # Signs the update packages (minisign). Only this step gets the key.
-          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
-          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+          TAURI_SIGNING_PRIVATE_KEY: ${{ github.event_name == 'push' && secrets.TAURI_SIGNING_PRIVATE_KEY || '' }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ github.event_name == 'push' && secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD || '' }}
         with:
           # Upload into the draft made by create-release. Empty on dry runs: build only, upload nothing.
           releaseId: ${{ needs.create-release.outputs.id }}
@@ -596,23 +582,25 @@ jobs:
 
       - name: Upload the unsigned Windows installers
         if: runner.os == 'Windows' && needs.plan.outputs.signpath == 'true' && steps.sign.outputs.profile == 'release'
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
           name: windows-unsigned
           path: unsigned/*
+          retention-days: 1
           if-no-files-found: error
 
       # tauri-action keeps only the installers as workflow artifacts: keep the updater signatures of a dry run too, and the
       # macOS update package (.app.tar.gz, not an installer artifact) that its signature belongs to
       - name: Keep the signatures of a dry run
         if: github.event_name == 'workflow_dispatch'
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
           name: signatures-${{ runner.os }}
           path: |
             src-tauri/target/**/bundle/**/*.sig
             src-tauri/target/**/bundle/macos/*.app.tar.gz
           if-no-files-found: ${{ steps.sign.outputs.signed == 'true' && 'error' || 'ignore' }}
+          retention-days: 1
 
       - name: Check ad-hoc signature
         if: runner.os == 'macOS' && steps.apple.outputs.signed != 'true'
@@ -632,7 +620,7 @@ jobs:
         if: runner.os == 'macOS' && steps.apple.outputs.kind == 'self-signed'
         env:
           PROFILE: ${{ steps.sign.outputs.profile }}
-          IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
+          IDENTITY: ${{ github.event_name == 'push' && secrets.APPLE_SIGNING_IDENTITY || '' }}
         run: |
           bundle="src-tauri/target/universal-apple-darwin/$PROFILE/bundle"
           app=$(find "$bundle/macos" -maxdepth 1 -name '*.app' | head -n 1)
@@ -679,6 +667,30 @@ jobs:
             xcrun stapler validate "$dmg" || echo "::notice::The disk image has no stapled ticket (expected: only the app inside is stapled)"
           fi
 
+      # What this job made, on the run page (also when a step failed): was it signed, which files, how big, without opening the log.
+      - name: Build summary
+        if: always()
+        shell: bash
+        env:
+          NAME: ${{ matrix.name }}
+          PROFILE: ${{ steps.sign.outputs.profile }}
+          SIGNED: ${{ steps.sign.outputs.signed }}
+          MAC_SIGNED: ${{ steps.apple.outputs.signed }}
+          MAC_KIND: ${{ steps.apple.outputs.kind }}
+          SIGNPATH: ${{ needs.plan.outputs.signpath }}
+        run: |
+          {
+            echo "### Build ($NAME)"
+            echo "profile \`${PROFILE:-?}\`, update signatures \`${SIGNED:-?}\`, SignPath after the build \`${SIGNPATH:-?}\`"
+            if [ "$RUNNER_OS" = macOS ]; then echo "macOS signing: signed \`${MAC_SIGNED:-?}\`, certificate \`${MAC_KIND:-none}\`"; fi
+            echo
+            echo "| file (made in the last 3 hours) | KB |"
+            echo "|---|---:|"
+            find src-tauri/target -path '*/bundle/*' -type f -mmin -180 \( -name '*-setup.exe' -o -name '*.msi' -o -name '*.dmg' -o -name '*.app.tar.gz' -o -name '*.AppImage' -o -name '*.deb' -o -name '*.rpm' -o -name '*.sig' \) 2>/dev/null | sort | while IFS= read -r f; do
+              printf '| %s | %s |\n' "$(basename "$f")" "$(( $(wc -c < "$f") / 1024 ))"
+            done
+          } >> "$GITHUB_STEP_SUMMARY"
+
   sign-windows:
     # OFF unless the three repo variables SIGNPATH_ORGANIZATION_ID, SIGNPATH_PROJECT_SLUG, SIGNPATH_SIGNING_POLICY_SLUG exist (the plan job
     # decides: tag runs, or a dry run with sign_windows=true; never a test build). Without them this job is skipped and nothing changes:
@@ -686,10 +698,11 @@ jobs:
     # With them: SignPath signs the two Windows installers after the build (it waits for the owner's approval in SignPath), the update
     # signatures are made again from the signed files, checked (verify-update-sigs.cjs, Authenticode = Valid) and replace the unsigned
     # assets of the draft (--clobber). A failure anywhere stops the release: publish needs this job. Owner steps: CONTRIBUTING.md.
-    needs: [plan, create-release, build]
-    if: ${{ !cancelled() && needs.plan.outputs.signpath == 'true' && needs.build.result == 'success' && (needs.create-release.result == 'success' || needs.create-release.result == 'skipped') }}
+    needs: [plan, create-release, build, node-tests, rust-tests]
+    if: ${{ !cancelled() && needs.plan.outputs.signpath == 'true' && needs.build.result == 'success' && contains(fromJSON('["success","skipped"]'), needs.node-tests.result) && contains(fromJSON('["success","skipped"]'), needs.rust-tests.result) && (needs.create-release.result == 'success' || needs.create-release.result == 'skipped') }}
     runs-on: windows-latest
     timeout-minutes: 180
+    environment: ${{ github.event_name == 'push' && 'release' || '' }}
     permissions:
       contents: write
       actions: read
@@ -704,7 +717,7 @@ jobs:
         id: cfg
         shell: bash
         env:
-          TOKEN: ${{ secrets.SIGNPATH_API_TOKEN }}
+          TOKEN: ${{ github.event_name == 'push' && secrets.SIGNPATH_API_TOKEN || '' }}
           REQUIRE: ${{ vars.REQUIRE_WIN_SIGNING }}
           EVENT: ${{ github.event_name }}
         run: |
@@ -716,17 +729,17 @@ jobs:
           fi
           echo "::warning::The SIGNPATH_* variables are set but the secret SIGNPATH_API_TOKEN is not: the Windows installers stay unsigned"
 
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
         if: steps.cfg.outputs.enabled == 'true'
 
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
         if: steps.cfg.outputs.enabled == 'true'
         with:
           node-version: 22
 
       - name: Download the unsigned installers
         if: steps.cfg.outputs.enabled == 'true'
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
         with:
           name: windows-unsigned
           path: unsigned
@@ -735,17 +748,18 @@ jobs:
       - name: Hand the installers to SignPath
         id: up
         if: steps.cfg.outputs.enabled == 'true'
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
           name: windows-for-signpath
           path: unsigned/*
+          retention-days: 1
           if-no-files-found: error
 
       - name: Sign with SignPath
         if: steps.cfg.outputs.enabled == 'true'
-        uses: signpath/github-action-submit-signing-request@v3
+        uses: signpath/github-action-submit-signing-request@f6d04783b4569d051e0c80105fe66e82819d0092 # v3.0
         with:
-          api-token: ${{ secrets.SIGNPATH_API_TOKEN }}
+          api-token: ${{ github.event_name == 'push' && secrets.SIGNPATH_API_TOKEN || '' }}
           organization-id: ${{ vars.SIGNPATH_ORGANIZATION_ID }}
           project-slug: ${{ vars.SIGNPATH_PROJECT_SLUG }}
           signing-policy-slug: ${{ vars.SIGNPATH_SIGNING_POLICY_SLUG }}
@@ -785,8 +799,8 @@ jobs:
         if: steps.cfg.outputs.enabled == 'true'
         shell: bash
         env:
-          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
-          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+          TAURI_SIGNING_PRIVATE_KEY: ${{ github.event_name == 'push' && secrets.TAURI_SIGNING_PRIVATE_KEY || '' }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ github.event_name == 'push' && secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD || '' }}
         run: |
           set -euo pipefail
           if [ -z "$TAURI_SIGNING_PRIVATE_KEY" ]; then
@@ -829,22 +843,26 @@ jobs:
 
       - name: Keep the signed installers of a dry run
         if: steps.cfg.outputs.enabled == 'true' && github.event_name != 'push'
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
           name: windows-signed
           path: out/*
+          retention-days: 1
           if-no-files-found: error
 
   publish:
     # Runs only when create-release and all three builds succeeded and sign-windows either succeeded or was not wanted (skipped).
-    needs: [create-release, build, sign-windows]
-    if: ${{ !cancelled() && github.event_name == 'push' && needs.create-release.result == 'success' && needs.build.result == 'success' && contains(fromJSON('["success","skipped"]'), needs.sign-windows.result) }}
+    needs: [create-release, build, sign-windows, node-tests, rust-tests]
+    timeout-minutes: 30
+    permissions:
+      contents: write # uploads latest.json and publishes the release
+    if: ${{ !cancelled() && github.event_name == 'push' && needs.create-release.result == 'success' && needs.build.result == 'success' && needs.node-tests.result == 'success' && needs.rust-tests.result == 'success' && contains(fromJSON('["success","skipped"]'), needs.sign-windows.result) }}
     runs-on: ubuntu-latest
     env:
       GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
       ID: ${{ needs.create-release.outputs.id }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
 
       # With the variable REQUIRE_WIN_SIGNING=true (set at go-live of Windows signing) nothing is published unless SignPath signed the installers.
       - name: Windows signing required?
