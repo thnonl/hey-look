@@ -116,6 +116,7 @@
   "story.newsletter": "Boletín abierto.",
 
   "nf.title": "Página no encontrada - Hey Look!",
+  "nf.desc": "No se ha encontrado esta página.",
   "nf.h1a": "¡Eh, mira!",
   "nf.h1b": "Esta página no está aquí.",
   "nf.lead": "Puede que el enlace sea antiguo o esté mal escrito. Aquí tienes adónde probablemente quieras ir.",

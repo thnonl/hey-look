@@ -220,7 +220,7 @@ if (enText['404']) {
     if (!hashes.includes(h)) fail('404.html', 'the inline <base> script does not match a hash in the CSP');
   }
   if (!/data-i18n="nf\.h1a"/.test(t)) fail('404.html', 'data-i18n markers are missing');
-  if (enDict) for (const k of [...t.matchAll(/data-i18n="([^"]+)"/g)].map((m) => m[1]).concat('nf.title')) if (!(k in enDict)) fail('404.html', `en.js has no key ${k}`);
+  if (enDict) for (const k of [...t.matchAll(/data-i18n="([^"]+)"/g)].map((m) => m[1]).concat('nf.title', 'nf.desc')) if (!(k in enDict)) fail('404.html', `en.js has no key ${k}`);
 }
 
 // ---------- sitemap ----------

@@ -116,6 +116,7 @@
   "story.newsletter": "Newsletter geöffnet.",
 
   "nf.title": "Seite nicht gefunden - Hey Look!",
+  "nf.desc": "Diese Seite wurde nicht gefunden.",
   "nf.h1a": "Hoppla!",
   "nf.h1b": "Diese Seite gibt es nicht.",
   "nf.lead": "Der Link ist vielleicht veraltet oder falsch getippt. Hier geht es vermutlich weiter.",

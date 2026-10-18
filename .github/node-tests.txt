@@ -105,6 +105,14 @@ static | node scripts/test-site-languages.mjs --strict
 static | node scripts/test-site-404.mjs
 static | node scripts/test-site-seo.mjs
 static | node --experimental-strip-types scripts/test-site-commands.mjs
+# sentences the website was told to stop saying (no mobile apps, no "may come" for languages or a theme editor, no "new / may contain mistakes", the old update wording) do not come back in any language
+static | node scripts/test-site-statements.mjs
+# proof that the test above fails when a removed sentence is put back, in each language (AC-10.13.2, AC-10.14.2), and when an English app path comes back on a translated page
+static | node scripts/test-site-statements-mutation.mjs
+# the update-check timing (2 hours, 15 minutes) in update.rs and in the words of help.html, the app hint and privacy.html, in 8 languages
+static | node scripts/test-update-wording.mjs
+# the "Last updated" date of privacy, terms, Google API data use and security is one shared date in every language, LEGAL_DATE in scripts/lib/legal-date.mjs (owner policy; to move it: node scripts/set-legal-date.mjs YYYY-MM-DD)
+static | node scripts/test-legal-dates.mjs
 # the Appearance preview on the website, measured in the runner's Chrome (a sample of the combinations; the full run is `node scripts/test-site-appearance.mjs`)
 ui-b | node scripts/test-site-appearance.mjs --quick --require-browser
 # Settings > AI Assistant stands still while it is used: the real layout, frame by frame, in the dev preview (two of the 12 combinations; the full run is `node scripts/test-ai-tab-layout.mjs`)

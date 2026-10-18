@@ -203,6 +203,9 @@
   /* ---------- film: plays muted when it scrolls into view, never with reduced motion or "animations off" ---------- */
   $$('[data-video-slot]').forEach(function (slot) {
     var v = $('video', slot), miss = $('.vmiss', slot), srcs = $$('source', v);
+    /* the HTML carries the small poster (768 px: a phone loads nothing more); a wide or dense screen gets the sharper 1280 px one, never on Data Saver */
+    var saver = navigator.connection && navigator.connection.saveData, p0 = v.getAttribute('poster') || '';
+    if (!saver && /poster\.webp$/.test(p0) && (window.matchMedia('(min-width: 800px)').matches || window.innerWidth * (window.devicePixelRatio || 1) > 1100)) v.setAttribute('poster', p0.replace(/poster\.webp$/, 'poster-1280.webp'));
     var fail = function () { miss.hidden = false; };
     if (srcs.length) srcs[srcs.length - 1].addEventListener('error', fail);
     v.addEventListener('error', fail);
@@ -271,17 +274,19 @@
         $$('[data-i18n]').forEach(function (el) { el.textContent = t(el.getAttribute('data-i18n')); });
         $$('[data-i18n-aria]').forEach(function (el) { el.setAttribute('aria-label', t(el.getAttribute('data-i18n-aria'))); });
         document.title = t('nf.title');
+        var md = $('meta[name="description"]'); if (md) md.setAttribute('content', t('nf.desc'));
         $$('a[href]').forEach(function (a) {
           var h = a.getAttribute('href');
           if (!a.closest('.lang-menu') && /^[a-z-]+\.html(#|$)/.test(h)) a.setAttribute('href', seg + '/' + h);
         });
         $$('.lang-menu a', lg).forEach(function (a) { if (a === cur) a.setAttribute('aria-current', 'true'); else a.removeAttribute('aria-current'); });
         var lc = $('.lang-cur', lg); if (lc) lc.textContent = cur.getAttribute('data-short');
-        var lsum = $('summary', lg), lmenu = $('.lang-menu', lg); /* the menu block is generated (English labels): its labels come from the dictionary here */
+        var lsum = $('summary', lg); /* the menu block is generated (English labels): the summary's labels come from the dictionary here */
         if (lsum) { lsum.setAttribute('aria-label', t('nf.lang.cur', { lang: cur.textContent, short: cur.getAttribute('data-short') })); lsum.setAttribute('title', t('nf.lang')); }
-        if (lmenu) lmenu.setAttribute('aria-label', t('nf.lang'));
         applyTheme(pref); applyMotion();
+        root.classList.remove('nf-wait'); /* the inline script of 404.html hid the page (visibility) until the translation was in; a timer there shows it anyway after 1.5 s */
       };
+      sc404.onerror = function () { root.classList.remove('nf-wait'); }; /* no dictionary: the English page shows at once */
       document.head.appendChild(sc404);
     }
   }

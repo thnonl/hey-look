@@ -116,6 +116,7 @@
   "story.newsletter": "Newsletter opened.",
 
   "nf.title": "Page not found - Hey Look!",
+  "nf.desc": "This page could not be found.",
   "nf.h1a": "Hey, look!",
   "nf.h1b": "This page is not here.",
   "nf.lead": "The link may be old or mistyped. Here is where you probably want to go.",

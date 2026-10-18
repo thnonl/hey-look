@@ -1,0 +1,19 @@
+# Keeps the SHA-pinned GitHub Actions in .github/workflows up to date (weekly).
+# npm and Cargo get no version-update PRs: the audit job covers them.
+# Dependabot reads this file from the default branch; its PRs target the release branch below
+# (move target-branch to the next release branch after each release).
+version: 2
+updates:
+  - package-ecosystem: github-actions
+    directory: /
+    target-branch: release/v1.0.7
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 5
+    commit-message:
+      prefix: ci
+    groups:
+      actions-minor:
+        update-types:
+          - minor
+          - patch
