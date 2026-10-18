@@ -164,7 +164,7 @@
        <p><strong>归档、删除和移至垃圾邮件</strong>的操作会在3、6、10、15或30秒后（默认6秒）才应用到服务器，所以您可以撤销。</p>
        <p><strong>定时发送：</strong>选一个预设，或任意日期和时间，最长可安排到一年后。邮件由应用内部的后台任务发出，所以Hey Look!必须正在运行。发送时间在应用关闭期间已过的邮件，默认会在下次启动时发出；如果把设置改为“先询问我”，它就会作为“已逾期”等待您处理。遇到临时错误最多重试3次，每次间隔5分钟。</p></div></details>
 <details class="hq" id="search"><summary>搜索</summary><div class="hq-a"><p>在搜索框中输入运算符：<code>from:</code> <code>to:</code> <code>subject:</code> <code>body:</code> <code>folder:</code> <code>is:unread|read|flagged|pinned</code> <code>has:attachment</code> <code>after:2026-01-31</code> <code>before:</code> <code>after:7d</code>，以及用引号括起来的短语，如<code>&quot;quoted phrases&quot;</code>。只会搜索已下载到这台电脑上的邮件。对于已知网页邮箱入口的邮箱，会有一个<strong>在网页邮箱中搜索</strong>按钮可以打开该网页邮箱；Gmail则会用转换后的运算符执行同样的搜索。</p></div></details>
-<details class="hq" id="language"><summary>更改语言</summary><div class="hq-a"><p>打开<strong>设置 &gt; 常规</strong>，在第一行选择英语、越南语、法语、简体中文、西班牙语、日语、德语或俄语。立即生效，无需重启。默认语言是英语，Hey Look!不会根据您的系统自动选择语言。译文是新的，可能有错误；如果您发现了，请到<a href="https://github.com/thnonl/hey-look/issues" rel="noopener">GitHub</a>告诉我们。</p></div></details>
+<details class="hq" id="language"><summary>更改语言</summary><div class="hq-a"><p>打开<strong>设置 &gt; 常规</strong>，在第一行选择英语、越南语、法语、简体中文、西班牙语、日语、德语或俄语。立即生效，无需重启。默认语言是英语，Hey Look!不会根据您的系统自动选择语言。译文借助AI撰写，并经语言专家审校；如果您发现了错误，请到<a href="https://github.com/thnonl/hey-look/issues" rel="noopener">GitHub</a>告诉我们。</p></div></details>
 <details class="hq" id="updates"><summary>更新</summary><div class="hq-a"><p>Hey Look!会在您同意之后自行更新。它会在应用启动时，以及窗口（从托盘或后台）隔了几个小时重新回来时检查，检查失败则15分钟后重试，也可以在<strong>设置 &gt; 关于</strong>中手动检查。在那里关闭自动检查（“自动检查更新”），应用就不会再自动发出任何请求。</p>
        <p><strong>下载并安装</strong>会在您继续工作的同时下载更新并显示进度条，检查其签名，然后经过一个可以取消的5秒倒计时后重启并进入新版本。如果您正在写邮件，它会先询问，并把这封邮件保存为草稿；<strong>稍后</strong>会在您退出时安装更新。<strong>跳过此版本</strong>会隐藏该版本的提示。</p>
        <p>只会向GitHub发出请求，在您同意之前不会下载任何内容。每个更新包都带有签名，应用会拒绝任何与其内置公钥不匹配的内容。MSI安装需要管理员权限；安装<code>.deb</code>和<code>.rpm</code>时会要求输入您的密码。如果更新无法安装，应用会改为提供从GitHub下载的方式。</p></div></details>
@@ -198,7 +198,7 @@
        <li>Hey Look!不会创建缺少的标准文件夹（草稿、已发送、归档、已删除邮件）；需要用到它们的操作会显示错误。</li>
        <li>您正在写的邮件大约每30秒保存到草稿，并在您的电脑上保存一份副本。如果Hey Look!被强制结束，或在macOS上注销、重启、关机，下次启动时会自动保存到草稿，并用一条在您关闭前一直保留的通知告诉您（“继续撰写”）；如果无法保存到服务器，会在这台电脑上最多保留30天（最后几秒的文字可能丢失，开启了加密的邮件不会被复制）。已发送的邮件会保留，并在下次启动时发出。</li>
        <li>当发件人地址与组织者一致时，日历的更新和取消邮件才会被接受。不做DKIM、SPF或S/MIME检查。</li>
-       <li>界面默认为英语，在设置中可选择越南语、法语、简体中文、西班牙语、日语、德语和俄语。这些译文是借助AI撰写并经语言专家审校；更多语言可能会在以后的更新中提供。</li><li>只有在Windows上，PDF才在应用内显示；在macOS和Linux上，PDF会用您的默认应用打开。写邮件时没有纯文本模式，格式刷、自动套用格式和浮动迷您工具栏暂时还没有。</li></ul></div></details>
+       <li>界面默认为英语，在设置中可选择越南语、法语、简体中文、西班牙语、日语、德语和俄语。这些译文借助AI撰写，并经语言专家审校。</li><li>只有在Windows上，PDF才在应用内显示；在macOS和Linux上，PDF会用您的默认应用打开。写邮件时没有纯文本模式，格式刷、自动套用格式和浮动迷您工具栏暂时还没有。</li></ul></div></details>
   </section>
   </div>
   <p class="hq-none" id="hq-none" hidden>没有匹配的问题。试试换一个词，或者<a href="https://github.com/thnonl/hey-look/issues" rel="noopener">到GitHub上提问</a>。</p>
