@@ -101,6 +101,9 @@ export function usePinnedBelow(pop: Ref, anchor: Ref, active: boolean, opts: { i
       const a = anchor.current;
       if (!a) return;
       const b = a.getBoundingClientRect();
+      // (taking the limit off to measure the popover lets a scroll box inside it (the Send later picker) grow to its full height for a moment: the browser clamps its
+      // scrollTop to 0 and the content jumps to the top, so every scrolled box inside is put back once the limit is set again)
+      const scrolled = [el, ...Array.from(el.querySelectorAll<HTMLElement>("*"))].filter((x) => x.scrollTop > 0).map((x) => [x, x.scrollTop] as const);
       el.style.maxHeight = "";
       if (match) el.style.width = `${Math.max(0, b.right - (b.left + inset))}px`;
       // (popoverRoom.ts: below the anchor or above it, inside the window, above the toast stack, which is in the way of the lower part of the window while a toast shows)
@@ -109,11 +112,16 @@ export function usePinnedBelow(pop: Ref, anchor: Ref, active: boolean, opts: { i
       el.style.maxHeight = `${p.max}px`;
       el.style.left = `${p.left}px`;
       el.style.top = `${p.top}px`;
+      for (const [x, top] of scrolled) x.scrollTop = top;
     };
     place();
-    const scrolled = (ev: Event) => !el.contains(ev.target as Node) && place();
+    // (only a scroll that can move the anchor: one in another popup, such as the time list of a field in this popover, leaves it where it is)
+    const onScroll = (ev: Event) => {
+      const n = ev.target as Node;
+      if (!el.contains(n) && (n === document || n.contains(anchor.current))) place();
+    };
     window.addEventListener("resize", place);
-    window.addEventListener("scroll", scrolled, true);
+    window.addEventListener("scroll", onScroll, true);
     // a toast that comes or goes changes the room (the stack is drawn after this render), and so does the popover growing
     let frame = 0;
     const later = () => {
@@ -128,7 +136,7 @@ export function usePinnedBelow(pop: Ref, anchor: Ref, active: boolean, opts: { i
       unsub();
       grown?.disconnect();
       window.removeEventListener("resize", place);
-      window.removeEventListener("scroll", scrolled, true);
+      window.removeEventListener("scroll", onScroll, true);
     };
   }, [pop, anchor, active, inset, match, dep]);
 }

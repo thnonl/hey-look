@@ -45,8 +45,8 @@ const shot = async (tag, name) => { if (!SHOTS) return; fs.mkdirSync(SHOTS, { re
 // ---------- the combinations ----------
 const CONFIGS = [];
 const add = (c) => CONFIGS.push({ theme: 'light', lang: 'en', mode: 'main', ...c });
-for (const [w, h] of [[946, 552], [946, 480]]) add({ w, h });
-for (const [w, h] of [[946, 552], [946, 480]]) add({ w, h, mode: 'popout' }); // (the compose window: the whole width is the pane, so the roomy bar with Sign, Templates and Importance)
+for (const [w, h] of [[946, 552], [946, 528], [946, 480]]) add({ w, h }); // (946 x 528: the lowest the main window can be, see BUG-1 of the round 5 QA)
+for (const [w, h] of [[946, 552], [946, 480], [760, 440], [560, 440]]) add({ w, h, mode: 'popout' }); // (the compose window: the whole width is the pane, so the roomy bar with Sign, Templates and Importance)
 if (!QUICK) {
   for (const [w, h] of [[946, 552], [946, 480]]) { add({ w, h, theme: 'dark', lang: 'de' }); add({ w, h, mode: 'popout', theme: 'dark', lang: 'de' }); }
   for (const [w, h] of [[1266, 712], [1266, 400], [560, 440], [760, 480]]) add({ w, h, theme: 'dark', mode: w < 700 ? 'popout' : 'main' });
@@ -141,6 +141,61 @@ const CLICK = (bar, i) => `(() => { const e = [...document.querySelectorAll(${JS
 const NAME = (bar, i) => `(() => { const e = [...document.querySelectorAll(${JSON.stringify(bar + ' [aria-haspopup]')})][${i}]; return e ? (e.getAttribute('aria-label') || e.getAttribute('title') || e.textContent || '').trim().slice(0, 30) : ''; })()`;
 const ROW = (start) => `(() => { const r = [...document.querySelectorAll('.dd-fixed [role^=menuitem]')].find((e) => e.textContent.trim().startsWith(${JSON.stringify(start)})); if (!r) return 'skip'; r.click(); return 1; })()`;
 
+// real pointer events: a click / a wheel turn at a point of the window
+const mouse = async (type, x, y, extra = {}) => cdp('Input.dispatchMouseEvent', { type, x, y, button: 'left', clickCount: 1, ...extra });
+const realClick = async (x, y) => { await mouse('mouseMoved', x, y, { button: 'none', clickCount: 0 }); await mouse('mousePressed', x, y); await mouse('mouseReleased', x, y); };
+const centerOf = (sel) => evaluate(`(() => { const e = document.querySelector(${JSON.stringify(sel)}); if (!e) return null; const r = e.getBoundingClientRect(); return [r.left + r.width / 2, r.top + r.height / 2]; })()`);
+
+/**
+ * QA round 5, BUG-1: in a low window the Send later popover scrolls inside; after the schedule picker had been scrolled (mouse wheel, or a control brought
+ * into view) a click on "Choose time" opened nothing and the picker jumped to the top. For the date and the time field: scroll the picker by the wheel (and
+ * once by scrollIntoView), click the button with real pointer events, the panel must open and the picker must keep its scroll position.
+ */
+async function scrolledPickers(cfg) {
+  const t = `${cfg.mode} ${cfg.lang} ${cfg.w}x${cfg.h} ${cfg.theme} Send later scrolled`;
+  const reopen = async () => {
+    await evaluate(`document.querySelector('.cp-head').scrollTop = 0; (document.querySelector('.sched-pop') ? 0 : document.querySelector('.split-caret').click()); 1`); await sleep(350);
+  };
+  const scrollTop = () => evaluate(`document.querySelector('.sched-picker')?.scrollTop ?? -1`);
+  for (const how of ['wheel', 'scrollIntoView']) {
+    for (const which of ['time', 'date']) {
+      if (how === 'scrollIntoView' && which === 'date') continue; // (the date button is in view without a scroll)
+      await reopen();
+      const dims = await evaluate(`(() => { const e = document.querySelector('.sched-picker'); return e ? [e.scrollHeight, e.clientHeight] : null; })()`);
+      if (flag('table')) console.log(t + ' picker scrollHeight/clientHeight ' + JSON.stringify(dims));
+      if (!dims || dims[0] <= dims[1] + 1) { await evaluate(`document.querySelector('.sched-pop') && document.querySelector('.split-caret').click(); 1`); await sleep(200); return; } // (a window high enough: nothing scrolls)
+      if (how === 'wheel') { const c = await centerOf('.sched-picker'); await mouse('mouseWheel', c[0], c[1], { button: 'none', clickCount: 0, deltaX: 0, deltaY: 60 }); }
+      else await evaluate(`document.querySelector('.sched-picker .sched-fld.${which} .dt-pick').scrollIntoView({ block: 'nearest' }); 1`);
+      await sleep(300);
+      const before = await scrollTop();
+      ok(t, before > 0, `${how}: the picker did not scroll (${before}; scrollHeight ${dims[0]}, clientHeight ${dims[1]})`);
+      const c = await centerOf(`.sched-picker .sched-fld.${which} .dt-pick`);
+      const hit = await evaluate(`(() => { const e = document.elementFromPoint(${c[0]}, ${c[1]}); return !!e && !!e.closest('.sched-fld.${which} .dt-pick'); })()`);
+      ok(t, hit, `${how}: the ${which} button is not under its own pixels after the scroll`);
+      await realClick(c[0], c[1]);
+      await sleep(500);
+      const n = await evaluate(`document.querySelectorAll('.fld-pop').length`);
+      const after = await scrollTop();
+      if (flag('table')) console.log(`${t} ${how} ${which}: picker ${dims[0]}/${dims[1]}, scrollTop ${before} -> ${after}, panels ${n}`);
+      ok(t, n === 1, `${how}: clicking the ${which} button after the picker was scrolled (${before}) opened ${n} panels`);
+      ok(t, after > 0 || n === 0 && before === 0, `${how}: the ${which} picker opened and the schedule picker jumped to the top (${before} -> ${after})`);
+      await shot(`${cfg.mode}-${cfg.lang}-${cfg.w}x${cfg.h}-${cfg.theme}`, `scrolled-${how}-${which}`);
+      await press('Escape', 'Escape'); await sleep(200);
+    }
+  }
+  // the header of the pane scrolls under the popover (it is placed again): the schedule picker keeps its place
+  await reopen();
+  const dims = await evaluate(`(() => { const e = document.querySelector('.sched-picker'), h = document.querySelector('.cp-head'); return e && [e.scrollHeight - e.clientHeight, h.scrollHeight - h.clientHeight]; })()`);
+  if (dims && dims[0] > 1 && dims[1] > 3) {
+    await evaluate(`document.querySelector('.sched-picker').scrollTop = 40; 1`); await sleep(200);
+    const before = await scrollTop();
+    await evaluate(`document.querySelector('.cp-head').scrollTop = 3; 1`); await sleep(500);
+    const after = await scrollTop();
+    ok(t, before > 0 && after === before, `the pane header was scrolled and the schedule picker moved (${before} -> ${after})`);
+  }
+  await evaluate(`document.querySelector('.sched-pop') && document.querySelector('.split-caret').click(); 1`); await sleep(250);
+}
+
 async function run(cfg) {
   await open(cfg);
   const tag = (s) => `${cfg.mode}-${cfg.w}x${cfg.h}`;
@@ -191,6 +246,7 @@ async function run(cfg) {
     if (!(await evaluate(`!!document.querySelector('.sched-pop')`))) { await evaluate(`document.querySelector('.split-caret').click(); 1`); await sleep(350); }
   }
   await evaluate(`document.querySelector('.sched-pop') && document.querySelector('.split-caret').click(); 1`); await sleep(250);
+  await scrolledPickers(cfg);
   // the suggestions of To
   await probe(cfg, 'To suggestions', `1`, { shotName: 'suggestions', before: async () => { await evaluate(`document.querySelector('.cp-fields .rcpt input').focus(); 1`); await cdp('Input.insertText', { text: 'li' }); } });
   await evaluate(`(() => { const i = document.querySelector('.cp-fields .rcpt input'); i.value = ''; i.dispatchEvent(new Event('input', { bubbles: true })); i.blur(); return 1; })()`);
