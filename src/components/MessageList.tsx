@@ -43,10 +43,12 @@ export interface ThreadRowProps {
   /** position among the conversations of a list that is only partly in the DOM (1-based) and how many there are */
   posInSet?: number;
   setSize?: number;
+  /** a picture of a row (the Appearance preview): nothing to focus or press */
+  inPreview?: boolean;
 }
 
 /** One conversation in the list. Pure: the real list and the Appearance preview both render it. */
-export function ThreadRow({ t, selected, checked, prefs, showFolder, accountColor, accountLabel, hover, onOpen, onOpenWindow, onToggle, posInSet, setSize }: ThreadRowProps) {
+export function ThreadRow({ t, selected, checked, prefs, showFolder, accountColor, accountLabel, hover, onOpen, onOpenWindow, onToggle, posInSet, setSize, inPreview }: ThreadRowProps) {
   const tr = useT();
   const who = t.participants.join(", ");
   const dense = prefs.density === "compact";
@@ -56,14 +58,15 @@ export function ThreadRow({ t, selected, checked, prefs, showFolder, accountColo
       aria-selected={!!selected}
       aria-posinset={posInSet}
       aria-setsize={setSize}
-      tabIndex={0}
+      tabIndex={inPreview ? -1 : 0}
       data-thread={t.threadId}
       className={`ml-row ${selected ? "selected" : ""} ${t.unread ? "unread" : ""} ${checked ? "checked" : ""}`}
-      onClick={onOpen}
+      onClick={inPreview ? undefined : onOpen}
       onDoubleClick={(e) => {
-        if (onOpenWindow && !(e.target as Element).closest(".ml-lead, .hover-actions")) onOpenWindow();
+        if (!inPreview && onOpenWindow && !(e.target as Element).closest(".ml-lead, .hover-actions")) onOpenWindow();
       }}
       onKeyDown={(e) => {
+        if (inPreview) return;
         if (e.key === "Enter" && e.shiftKey && !e.ctrlKey && !e.altKey && !e.metaKey && onOpenWindow) {
           e.preventDefault();
           onOpenWindow();

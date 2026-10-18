@@ -2014,13 +2014,15 @@ function ComposeBody({ init }: { init: ComposeInit }) {
         <button className="rb" title={compact ? t("compose.bar.discard") : undefined} onClick={() => void discard()}><Trash2 size={15} /><span>{t("compose.bar.discard")}</span></button>
         <button className="rb" title={compact ? t("compose.bar.attach") : undefined} onClick={() => fileRef.current?.click()}><Paperclip size={15} /><span>{t("compose.bar.attach")}</span></button>
         {!compact && <button className="rb" onClick={() => picRef.current?.click()} title={kbd(t("compose.bar.insertPictureTip"))}><ImagePlus size={15} /><span>{t("compose.bar.picture")}</span></button>}
-        <input ref={fileRef} type="file" multiple hidden onChange={(e) => (void addFiles(e.target.files), (e.target.value = ""))} />
+        <input ref={fileRef} type="file" multiple hidden aria-hidden="true" tabIndex={-1} onChange={(e) => (void addFiles(e.target.files), (e.target.value = ""))} />
         <input
           ref={picRef}
           type="file"
           accept={PICTURE_TYPES.join(",")}
           multiple
           hidden
+          aria-hidden="true"
+          tabIndex={-1}
           onChange={(e) => (e.target.files && void insertPictures(Array.from(e.target.files)), (e.target.value = ""))}
         />
         {compact ? (

@@ -148,3 +148,5 @@ static | node .github/scripts/verify-update-sigs.cjs --selftest
 static | node --experimental-strip-types scripts/test-site-top-bar-dark.mjs
 # a press elsewhere closes an open popover: inside a dialog, on the Windows title bar (with a copy of Tauri's drag script) and inside the message text; real mouse presses in the dev preview
 ui-a | node scripts/test-outside-press.mjs --require-browser
+# Tab and Shift+Tab stop only on visible controls: the compose header with Meeting on (no zero-size file input) and Settings > Appearance (the preview is inert), real key events
+ui-a | node scripts/test-tab-stops.mjs --require-browser
