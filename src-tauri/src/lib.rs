@@ -3898,8 +3898,10 @@ async fn discard_draft(state: tauri::State<'_, AppState>, reference: String) -> 
 
 /// 1.0.7 W2.2: Discard on a draft that was opened from Drafts and saved since (an autosave counts): the draft goes back to how it was when it
 /// was opened. `reference` names the draft the last save made; see draftmail.rs `restore_on_session`. An error leaves the saved version in place.
+/// When it worked, the Drafts folder is read again in the background (`sync_drafts_after_restore`): the local list lost the saved copy and does not have the
+/// version put back yet, so without it the list of Drafts stayed empty until the next sync (1.0.7 WP2a QA BUG-2).
 #[tauri::command]
-async fn discard_draft_changes(state: tauri::State<'_, AppState>, reference: String) -> R<()> {
+async fn discard_draft_changes(app: tauri::AppHandle, state: tauri::State<'_, AppState>, reference: String) -> R<()> {
     let db = state.db.clone();
     blocking(move || {
         let account_id: String = lock(&db)
@@ -3910,9 +3912,24 @@ async fn discard_draft_changes(state: tauri::State<'_, AppState>, reference: Str
         let mut s = mail::connect(&acc, &sec)?;
         let done = draftmail::restore_on_session(&db, &acc, &mut s, &reference);
         let _ = s.logout();
+        if done.is_ok() {
+            sync_drafts_after_restore(&app, &db, &acc.id);
+        }
         done
     })
     .await
+}
+
+/// A sync pass of the account on a thread of its own (it waits for a pass that is running: `SYNC_LOCK`, so it always reads after the restore), then every
+/// window re-reads its lists. The answer of `discard_draft_changes` does not wait for it. Failures are for the log.
+fn sync_drafts_after_restore(app: &tauri::AppHandle, db: &Db, account_id: &str) {
+    let (app, db, id) = (app.clone(), db.clone(), account_id.to_string());
+    std::thread::spawn(move || {
+        if let Err(e) = run_sync(&app, &db, &id) {
+            startup::line("draft", &format!("account {id}: the Drafts list could not be refreshed after the opened version was put back: {}", e.chars().take(160).collect::<String>()));
+        }
+        let _ = app.emit("mail-synced", ());
+    });
 }
 
 // ---------- crash recovery of the message being written (recover.rs) ----------
