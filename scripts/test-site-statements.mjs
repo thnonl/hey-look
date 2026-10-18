@@ -143,6 +143,28 @@ const REMOVED = [
       ['ru', 'спустя пару часов', ['help.html']],
     ],
   },
+  // W10.7a: app labels quoted on the help page, and the Vietnamese fragments
+  {
+    row: 'W10.7a',
+    items: [
+      ['en', '(Other email account, provider Gmail)', ['help.html']],
+      ['en', 'Settings > Add account > Other email account', ['help.html']],
+      ['vi', '(Tài khoản email khác, nhà cung cấp Gmail)', ['help.html']],
+      ['vi', 'Cài đặt > Thêm tài khoản > Tài khoản email khác', ['help.html']],
+      ['vi', 'Chủ nhật hoặc thứ Bảy', ['features.html']],
+      ['vi', 'Open Hey Look!'],
+      ['fr', '(Autre compte e-mail, fournisseur Gmail)', ['help.html']],
+      ['fr', 'Paramètres > Ajouter un compte > Autre compte e-mail', ['help.html']],
+      ['zh', '（其他电子邮件账户，服务商选Gmail）', ['help.html']],
+      ['zh', '设置 > 添加账户 > 其他电子邮件账户', ['help.html']],
+      ['es', '(Otra cuenta de correo, proveedor Gmail)', ['help.html']],
+      ['es', 'Configuración > Añadir cuenta > Otra cuenta de correo', ['help.html']],
+      ['ja', '（その他のメールアカウントでプロバイダーにGmailを選択）', ['help.html']],
+      ['ja', 'その他のメールアカウント', ['help.html']],
+      ['de', '(Anderes E-Mail-Konto, Anbieter Gmail)', ['help.html']],
+      ['de', 'Einstellungen > Konto hinzufügen > Anderes E-Mail-Konto', ['help.html']],
+    ],
+  },
 ];
 
 const errors = [];

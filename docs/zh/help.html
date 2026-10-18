@@ -123,7 +123,7 @@
   </section>
   <section class="hq-group" id="g-accounts" aria-labelledby="g-accounts-h"><h2 id="g-accounts-h">账户和邮箱</h2>
 <details class="hq" id="add" open><summary>添加账户</summary><div class="hq-a"><p>在欢迎界面选择<strong>使用Google登录</strong>、<strong>使用Microsoft登录</strong>或<strong>其他账户（IMAP / SMTP）</strong>。</p>
-       <p><strong>Gmail：</strong>用您的Google账户登录。在Google仍在审核Hey Look!期间，Google会先显示一条警告，并把登录限制在前100人；请参阅<a href="#google-review">Google提示“Google未验证此应用”</a>。使用个人Gmail账户时，您也可以用应用专用密码添加Gmail（<strong>其他电子邮件账户</strong>，服务商选Gmail）。</p>
+       <p><strong>Gmail：</strong>用您的Google账户登录。在Google仍在审核Hey Look!期间，Google会先显示一条警告，并把登录限制在前100人；请参阅<a href="#google-review">Google提示“Google未验证此应用”</a>。使用个人Gmail账户时，您也可以用应用专用密码添加Gmail（<strong>其他账户（IMAP / SMTP）</strong>，服务商选Gmail）。</p>
        <p><strong>Microsoft</strong>（Outlook.com、Hotmail、Microsoft 365）在Microsoft自己的窗口中登录。工作和学校账户（Microsoft把每个组织称为“租户”）可能会屏蔽IMAP/SMTP，直到管理员为该邮箱启用为止。</p>
        <p>您的邮件会在后台下载。关闭窗口后，Hey Look!会继续在托盘中运行；如需退出，请使用托盘菜单中的<strong>退出</strong>。</p></div></details>
 <details class="hq" id="google-review"><summary>Google提示“Google未验证此应用”，或“使用Google登录”无法使用</summary><div class="hq-a"><p>Hey Look!尚未完成Google的审核。在审核完成之前，您第一次用Google登录时，以及开启Google日历同步时，Google都会显示一个警告页面：<strong>“Google未验证此应用”</strong>。凡是仍在审核中的应用，Google都会显示这个页面。这并不表示您的账户有问题，也没有任何内容被更改。</p>
@@ -131,7 +131,7 @@
        <ol><li>在警告页面上选择<strong>高级</strong>，然后选择<strong>转至 Hey Look!（不安全）</strong>。</li>
        <li>阅读Google列出的权限，确认可以接受后再允许。Hey Look!只请求其邮件和日历功能所需的权限，而且它是开源的，您可以自行核查；请参阅<a href="google-data.html">Google API数据使用</a>。如果您不想点过这个警告，可以改用应用专用密码（见下文）。</li></ol>
        <p><strong>100人的上限。</strong>审核期间，Google最多允许100人用Google登录，人数按项目存续期间累计计算。达到这个数字后，新用户将无法完成“使用Google登录”，要等到Google批准Hey Look!之后才行。这时您可以这样做：</p>
-       <ul><li><strong>用应用专用密码使用Gmail</strong>（已开启两步验证的个人Gmail）：在<a href="https://myaccount.google.com/apppasswords" rel="noopener noreferrer">myaccount.google.com/apppasswords</a>创建一个应用专用密码，然后在Hey Look!中选择<strong>设置 &gt; 添加账户 &gt; 其他电子邮件账户</strong>，服务商选Gmail，输入您的邮箱地址和应用专用密码。工作或学校账户通常无法创建应用专用密码。</li>
+       <ul><li><strong>用应用专用密码使用Gmail</strong>（已开启两步验证的个人Gmail）：在<a href="https://myaccount.google.com/apppasswords" rel="noopener noreferrer">myaccount.google.com/apppasswords</a>创建一个应用专用密码，然后在Hey Look!中选择<strong>设置 &gt; 添加账户 &gt; 其他账户（IMAP / SMTP）</strong>，服务商选Gmail，输入您的邮箱地址和应用专用密码。工作或学校账户通常无法创建应用专用密码。</li>
        <li><strong>等待审核结果。</strong>Google批准Hey Look!之后，警告就会消失，所有人都可以用Google登录。发行说明里会注明这一点。</li></ul>
        <p>与Google的日历同步始终会请求Google自己的日历权限，即使是使用应用专用密码的Gmail邮箱也是如此，所以同样的警告和同样的上限也适用于它。Microsoft邮箱的日历同步不受影响。</p></div></details>
 <details class="hq" id="imap"><summary>其他服务商：IMAP和SMTP、iCloud、Yahoo</summary><div class="hq-a"><p>任何支持IMAP和SMTP的账户都可以使用。<strong>检测设置</strong>会为某个地址查找服务器（预设、服务商的autoconfig（含服务器设置的文件）、Thunderbird ISPDB、DNS和探测）。只会发送域名和地址，绝不会发送密码。</p>
