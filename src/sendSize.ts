@@ -81,3 +81,21 @@ export function showSizeToast(host: ToastHost, last: { id: number | null }, text
 
 /** Whether a failed send was refused for its size (the backend's coded error `SMTP_TOO_LARGE`, smtp.rs explain_send_error). */
 export const isSizeRefusal = (e: unknown): boolean => /^SMTP_TOO_LARGE(?![A-Z0-9_])/.test(String(e instanceof Error ? e.message : e).replace(/^Error:\s*/, "").trim());
+
+/**
+ * The most a DRAFT may hold (the characters of its text, pictures and files as the composer keeps them). Far above the 25 MB a message can be sent with:
+ * the person may be taking pictures out or splitting the message. Without a bound a draft of a few hundred MB is built in memory (and encrypted)
+ * for minutes. The same number as `DRAFT_LIMIT` in src-tauri/src/lib.rs (a Rust test compares them); the backend refuses a bigger one with the
+ * coded error `DRAFT_TOO_LARGE`, and the composer does not even ask (D-025).
+ */
+export const DRAFT_LIMIT = 100 * 1024 * 1024;
+
+/** What a draft weighs for `DRAFT_LIMIT`: the characters of the HTML, the text, every picture and every file. */
+export const draftSize = (d: { html?: string; text?: string; attachments?: { dataBase64: string }[]; inline?: { dataBase64: string }[] }): number =>
+  (d.html?.length ?? 0) + (d.text?.length ?? 0) + (d.attachments ?? []).reduce((n, a) => n + a.dataBase64.length, 0) + (d.inline ?? []).reduce((n, p) => n + p.dataBase64.length, 0);
+
+/** The coded error of the backend for a draft over the limit (`src-tauri/src/lib.rs ensure_draft_size`), so the same translated sentence is shown. */
+export function draftTooLargeError(size: number, limit = DRAFT_LIMIT): string {
+  const mb = (n: number) => `${Math.ceil(n / (1024 * 1024))} MB`;
+  return `DRAFT_TOO_LARGE|size=${mb(size)}|limit=${mb(limit)}: This message is too large to keep as a draft (${mb(size)}; the limit is ${mb(limit)}). Remove attachments or shrink pictures.`;
+}

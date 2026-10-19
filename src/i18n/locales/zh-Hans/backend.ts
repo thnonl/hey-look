@@ -80,4 +80,5 @@ export default defineLocale<typeof ns.en>({
   "backend.CAL_SEND_FAILED.deleted": "事件已删除，但取消通知未能发送：{detail}",
   "backend.SMTP_ATTACHMENT_BLOCKED": "服务器拒绝了该附件类型。Gmail、Outlook和Yahoo会拒绝.exe、.bat、.js、.msi等程序和脚本，即使它们在zip文件中也一样。请移除该附件，或改用链接分享。（服务器回复：{reply}）",
   "backend.SMTP_TOO_LARGE": "邮件超过了此服务器可接受的大小。请移除附件或缩小图片。（服务器回复：{reply}）",
+  "backend.DRAFT_TOO_LARGE": "此邮件太大，无法保存为草稿（{size}；上限为{limit}）。请移除附件或缩小图片。",
 });
