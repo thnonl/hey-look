@@ -39,8 +39,11 @@ const QUICK = flag('quick');
 const SHOTS = arg('shots');
 // the minimum height of the body: composeFit.ts BODY_MIN (checked below that this is still the number there)
 const BODY_MIN = 180;
+// ... and with a meeting on (D-012, 1.0.7): the strip's two rows go to the header, the body keeps 120 px in a low window (composeFit.ts BODY_MIN_MEETING, App.css `.compose-pane.has-meeting`)
+const BODY_MIN_MEETING = 120;
 const srcFit = fs.readFileSync(path.join(ROOT, 'src/composeFit.ts'), 'utf8');
 if (!new RegExp(`BODY_MIN = ${BODY_MIN};`).test(srcFit)) { console.error(`test-compose-fit: src/composeFit.ts BODY_MIN is no longer ${BODY_MIN}: update this test`); process.exit(1); }
+if (!new RegExp(`BODY_MIN_MEETING = ${BODY_MIN_MEETING};`).test(srcFit) || !new RegExp(`\\.compose-pane\\.has-meeting \\{ --cp-body-min: ${BODY_MIN_MEETING}px; \\}`).test(fs.readFileSync(path.join(ROOT, 'src/App.css'), 'utf8'))) { console.error(`test-compose-fit: BODY_MIN_MEETING (composeFit.ts) and \`.compose-pane.has-meeting\` (App.css) are no longer ${BODY_MIN_MEETING}: update this test`); process.exit(1); }
 
 // ---------- the combinations ----------
 // mode: 'main' = the pane in the main window (viewport w x h; the pane is the right column), 'popout' = the compose window (the pane is the whole viewport)
@@ -312,7 +315,8 @@ function layout(cfg, g, when) {
   ok(cfg, g.fmtIn, `${w}the formatting row is not inside the pane (${JSON.stringify(g.fmt)} in ${JSON.stringify(g.pane)})`);
   ok(cfg, g.fmtHit, `${w}the formatting row is covered by something else`);
   ok(cfg, g.edIn, `${w}the body is not inside the pane (${JSON.stringify(g.ed)} in ${JSON.stringify(g.pane)})`);
-  ok(cfg, g.ed && g.ed.h >= BODY_MIN - 0.5, `${w}the body is ${g.ed && g.ed.h} px high, at least ${BODY_MIN} expected`);
+  const bodyMin = cfg.scen.startsWith('meeting') ? BODY_MIN_MEETING : BODY_MIN; // (a meeting that is on)
+  ok(cfg, g.ed && g.ed.h >= bodyMin - 0.5, `${w}the body is ${g.ed && g.ed.h} px high, at least ${bodyMin} expected`);
   ok(cfg, g.edHit, `${w}the body is covered by something else`);
   ok(cfg, g.paneScroll[0] <= g.paneScroll[1] + 1, `${w}the pane overflows (${g.paneScroll[0]} > ${g.paneScroll[1]})`);
   ok(cfg, g.pageScroll === 0, `${w}the page was scrolled by ${g.pageScroll}`);

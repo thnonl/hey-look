@@ -31,6 +31,7 @@ import { autosaveDue, snapshotDue, timing, type AutosaveWhy } from "../autosave"
 import { RecoveryWriter, type RecoveryForm } from "../recovery";
 import { cleanPastedHtml, stripRemotePictures } from "../pastedHtml";
 import { detachPictures } from "../pictureDetach";
+import { settleHeader } from "../headerRows";
 import { insertPictureNodes, type PictureAttrs } from "../editor/insertPictures";
 import { cleanHeaderText } from "../headerText";
 import { fromAccountFor } from "../fromAccount";
@@ -655,6 +656,31 @@ function ComposeBody({ init }: { init: ComposeInit }) {
     if (bar) ro.observe(bar);
     return () => ro.disconnect();
   }, []);
+  // The header box scrolls in a low window. `data-more-below` says that more of it is under the lower edge (App.css `.cp-head::after` draws the cue: a row that sits below the fold,
+  // the meeting strip at 960 x 480, had no sign of being there, D-018); a focus in it rests the scroll on a whole row (headerRows.ts, D-012).
+  const headRef = useRef<HTMLDivElement>(null);
+  const markMore = useCallback(() => {
+    const head = headRef.current;
+    if (head) head.toggleAttribute("data-more-below", head.scrollTop + head.clientHeight < head.scrollHeight - 1);
+  }, []);
+  useLayoutEffect(() => {
+    const head = headRef.current;
+    if (!head) return;
+    const ro = new ResizeObserver(markMore);
+    ro.observe(head);
+    return () => ro.disconnect();
+  }, [markMore]);
+  useLayoutEffect(markMore); // (what the header holds changes with the message: a strip, a note, a row of chips)
+  const restHeader = useCallback((e: React.FocusEvent<HTMLDivElement>) => {
+    const head = e.currentTarget;
+    const field = e.target;
+    const rest = () => {
+      if (head.isConnected && field.isConnected && document.activeElement === field) settleHeader(head, field);
+      markMore();
+    };
+    rest(); // (the browser has scrolled the field into view already)
+    requestAnimationFrame(rest); // ... and once more when what the focus changed has been laid out
+  }, [markMore]);
   const [secDetails, setSecDetails] = useState(false);
   const [ks, setKs] = useState<{ own: OwnKeyStatus | null; recipients: Record<string, RecipientStatus> } | null>(null);
   const signRef = useRef<HTMLDivElement>(null);
@@ -2224,7 +2250,7 @@ function ComposeBody({ init }: { init: ComposeInit }) {
       ref={paneRef}
       inert={locked || undefined}
       aria-busy={locked || undefined}
-      className={`compose-pane ${dragging ? "dragging" : ""} ${compact ? "compact" : ""} ${compact && barWraps ? "bar-wraps" : ""}`}
+      className={`compose-pane ${dragging ? "dragging" : ""} ${compact ? "compact" : ""} ${compact && barWraps ? "bar-wraps" : ""} ${meeting ? "has-meeting" : ""}`}
       onKeyDown={(e) => {
         if (isImeEvent(e)) return; // a key that belongs to an input method (Subject, To, Cc, Bcc): no app shortcut
         if (isAltGraph(e)) return; // AltGr (Ctrl+Alt) types a character: no app shortcut
@@ -2299,7 +2325,7 @@ function ComposeBody({ init }: { init: ComposeInit }) {
         </div>,
         document.body,
       )}
-      <div className="cp-head">
+      <div className="cp-head" ref={headRef} onFocus={restHeader} onScroll={markMore}>
       <div className="cp-bar">
         <div className="split-btn" ref={schedRef} data-fit="fixed">
           <button ref={sendBtnRef} className="btn primary" disabled={busy} style={locked && sendW ? { minWidth: sendW } : undefined} onClick={() => void (init.outboxId ? send(init.sendAt) : send())} title={init.outboxId ? t("compose.bar.scheduleTip") : kbd(t("compose.bar.sendTip"))}>

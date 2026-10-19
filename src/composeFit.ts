@@ -9,6 +9,8 @@ export const COMPACT_WIDTH = 600;
 export const COMPACT_HEIGHT = 480;
 /** The message body is never smaller than this (px, padding included): the header above it and the attachments under it give way first. */
 export const BODY_MIN = 180;
+/** ... with a meeting on (App.css `.compose-pane.has-meeting`): the strip's two rows go to the header, the body gives up 60 px for them in a low window (D-012). */
+export const BODY_MIN_MEETING = 120;
 
 export function isCompact(width: number, height: number): boolean {
   return width < COMPACT_WIDTH || height < COMPACT_HEIGHT;
