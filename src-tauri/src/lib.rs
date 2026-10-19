@@ -5282,6 +5282,7 @@ pub fn run() {
         for w in context.config_mut().app.windows.iter_mut() {
             w.devtools = Some(false);
         }
+        startup::line("devtools", "this QA build makes its windows without the web view inspector (no Inspect Element; HEYLOOK_DEVTOOLS=1 keeps it)");
     }
     // a start that fails ends in a message the person can read, not in a silent exit (see startfail.rs)
     startfail::install_panic_hook();
