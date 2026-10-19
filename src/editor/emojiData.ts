@@ -1,4 +1,4 @@
-// The emoji picker's data (spec-rich-text.md REQ-40): 8 categories of 32 common emoji, no search. Each is a plain Unicode character or a variation sequence
+// The emoji picker's data (spec-rich-text.md REQ-40): 8 categories of 32 common emoji (the search by name is emojiSearch.ts). Each is a plain Unicode character or a variation sequence
 // (no joined sequences: they would show as two pictures on a system that is a few years old). The names of the categories are dictionary keys
 // (`compose.emoji.<id>`). In its own chunk (insertUi) with the picker: nothing of it is in the main bundle. Pure (no imports).
 
@@ -20,6 +20,9 @@ export const EMOJI_GROUPS: readonly EmojiGroup[] = [
   { id: "objects", emoji: list("📱 💻 🖥️ ⌨️ 🖱️ 💾 📷 📞 📺 🔋 💡 🔦 📚 📖 📝 ✏️ 📎 📌 ✂️ 🔑 🔒 🔓 🔔 📧 📅 📊 📈 💼 🎁 💰 💳 ⏰") },
   { id: "symbols", emoji: list("❤️ 🧡 💛 💚 💙 💜 🖤 💔 ✅ ❌ ❗ ❓ ⚠️ ✔️ ➕ ➖ ➡️ ⬅️ ⬆️ ⬇️ 🔥 ✨ 💯 🎉 🎊 💥 💤 ♻️ 🔴 🟢 🔵 ⭕") },
 ];
+
+/** Every emoji of the picker, in category order. */
+export const ALL_EMOJI: readonly string[] = EMOJI_GROUPS.flatMap((g) => g.emoji);
 
 /** The system's own emoji panel: its shortcut, for the hint under the grid. Linux has no one shortcut of its own (null: no hint). */
 export function osEmojiKeys(os: string): string | null {

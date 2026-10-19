@@ -55,7 +55,7 @@ function moveFocus(e: React.KeyboardEvent, panel: HTMLElement | null) {
 export type PaletteClose = "pick" | "esc" | "away";
 
 /** A popover drawn on <body> under `anchor`, kept inside the window; a press outside, Esc or a resize closes it. */
-export function Panel({ anchor, onClose, label, children, className }: { anchor: React.RefObject<HTMLElement | null>; onClose: (why: PaletteClose) => void; label: string; children: React.ReactNode; className?: string }) {
+export function Panel({ anchor, onClose, label, children, className, initialFocus }: { anchor: React.RefObject<HTMLElement | null>; onClose: (why: PaletteClose) => void; label: string; children: React.ReactNode; className?: string; initialFocus?: string }) {
   const ref = useRef<HTMLDivElement>(null);
   const [pos, setPos] = useState<{ top: number; left: number; max: number } | null>(null);
   const close = useRef(onClose);
@@ -71,8 +71,8 @@ export function Panel({ anchor, onClose, label, children, className }: { anchor:
   const placed = pos !== null;
   useEffect(() => {
     if (!placed) return;
-    (ref.current?.querySelector<HTMLElement>("button.on, button[aria-pressed='true']") ?? ref.current?.querySelector<HTMLElement>("button[data-row]"))?.focus({ preventScroll: true });
-  }, [placed]);
+    (ref.current?.querySelector<HTMLElement>(initialFocus ?? "button.on, button[aria-pressed='true']") ?? ref.current?.querySelector<HTMLElement>("button[data-row]"))?.focus({ preventScroll: true });
+  }, [placed, initialFocus]);
   useEffect(() => {
     const down = (e: MouseEvent) => pressIsOutside(e.target, [anchor, ref]) && close.current("away");
     const key = (e: KeyboardEvent) => {

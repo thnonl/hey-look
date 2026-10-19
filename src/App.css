@@ -1044,8 +1044,10 @@ body:has(.popover.pinned:not(.alt-pop), .suggest.pinned, .dd-fixed) .img-tools-a
 .tbl-grid-label { font-size: .86em; color: var(--muted); text-align: center; min-height: 1.3em; margin: 2px 0; }
 .tbl-dialog { display: flex; flex-direction: column; gap: 10px; }
 .fmt-pop-emoji, .fmt-pop-symbol { width: 294px; }
+.emoji-search { width: 100%; box-sizing: border-box; margin-bottom: 6px; }
+.emoji-empty { font-size: .85em; color: var(--muted); padding: 8px 2px; }
 .emoji-tabs { display: flex; gap: 2px; }
-.emoji-tab { width: 32px; height: 30px; padding: 0; border: 0; border-radius: var(--r-sm); background: none; font-size: 17px; line-height: 1; }
+.emoji-tab { flex: 1 1 0; min-width: 0; max-width: 32px; height: 30px; padding: 0; border: 0; border-radius: var(--r-sm); background: none; font-size: 17px; line-height: 1; } /* (nine tabs in the width of the grid: Recently used and the 8 categories) */
 .emoji-tab:hover { background: var(--bg3); }
 .emoji-tab.on { background: var(--accent-soft); }
 .emoji-name { font-size: .82em; color: var(--muted); margin: 4px 0 2px; }

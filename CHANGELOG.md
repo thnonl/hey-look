@@ -4,6 +4,7 @@
 
 ### Added
 
+- The emoji picker has a search box (by name and keyword, in the app's language and in English: "heart", "tim", "coeur", "猫"), a "Recently used" tab with the last 16 emoji you inserted (kept after a restart, shared by messages, signatures and templates), and each emoji is announced by a screen reader with its name instead of the raw character. The names are Unicode CLDR annotations and load only when the picker opens
 - Tables: Merge cells and Split cell (select cells by dragging across them or with Shift+Arrow from a cell's edge; the buttons are in the table tools bar and in the Table menu). A merged cell keeps the text of all its cells, the sent mail has colspan and rowspan, the Outside borders frame stays complete at merged cells, and the plain-text version writes a merged cell once with tabs for the columns it spans
 - A picture in a signature or a template has the same toolbar as a picture in a message: sizes (Small 120, Medium 240, Large 360 px or Original), alignment, link, alt text and remove; the alt text is saved with the signature and sent with the mail
 

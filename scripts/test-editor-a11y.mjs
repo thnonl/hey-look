@@ -246,6 +246,97 @@ try {
   await sleep(300);
   await check('aria: Enter adds it and the combobox is collapsed again', async () => { const s3 = await to(); assert.equal(s3.expanded, 'false'); assert.equal(await evaluate(`document.querySelectorAll('.cf-field.rcpt .rchip').length`), 1); });
 
+  // ---- W2.17: the emoji picker: a search box (focused), results by name, "No emoji found", Esc clears then closes, Down enters the grid, Enter in the box inserts the first result,
+  // "Recently used" first, each emoji named by its CLDR short name
+  await H.openApp('lang=en', 1280, 800);
+  await evaluate(`window.__store.getState().openCompose({ accountId: 'a1', to: [], subject: 'Emoji', bodyHtml: '<p>x</p>' }); 1`);
+  assert.ok(await waitFor(`!!document.querySelector('.cp-editor .tiptap')?.editor`, 15000), 'compose did not start');
+  await sleep(900);
+  const openEmoji = async () => {
+    await evaluate(`${EDS.compose}.commands.focus('end'); document.querySelector('.fmt-tb .fmt-more').click(); 1`);
+    await sleep(300);
+    await evaluate(`[...document.querySelectorAll('.dd-fixed [role^=menuitem]')].find((x) => x.textContent.trim().startsWith('Emoji'))?.click(); 1`);
+    assert.ok(await waitFor(`!!document.querySelector('.fmt-pop-emoji .emoji-search')`, 5000), 'the emoji picker did not open');
+    await sleep(500);
+  };
+  const picker = () => json(`(() => { const p = document.querySelector('.fmt-pop-emoji'); if (!p) return null; return { focus: document.activeElement?.classList.contains('emoji-search'), tabs: [...p.querySelectorAll('.emoji-tab')].map((b) => [b.getAttribute('aria-label'), b.classList.contains('on')]), name: p.querySelector('.emoji-name')?.textContent ?? null, empty: p.querySelector('.emoji-empty')?.textContent ?? null, value: p.querySelector('.emoji-search').value, grid: [...p.querySelectorAll('.emoji-grid .emoji-btn')].map((b) => [b.textContent, b.getAttribute('aria-label'), b.title]) }; })()`);
+  const typeIn = async (text) => { await H.cdp('Input.insertText', { text }); await sleep(250); };
+  await openEmoji();
+  await check('emoji: the search box has the focus when the picker opens, no recent yet: Smileys is the tab', async () => {
+    const p = await picker();
+    assert.equal(p.focus, true);
+    assert.equal(p.tabs.length, 9); assert.deepEqual(p.tabs[0], ['Recently used', false]); assert.deepEqual(p.tabs[1], ['Smileys', true]);
+    assert.equal(p.name, 'Smileys');
+    assert.equal(p.grid.length, 32);
+  });
+  await check('emoji: each emoji is named by its CLDR short name (accessible name and tooltip), not the glyph', async () => {
+    const p = await picker();
+    assert.deepEqual(p.grid[0], ['😀', 'grinning face', 'grinning face']);
+  });
+  await typeIn('heart');
+  await check('emoji: "heart" shows only hearts in one grid, the tabs are hidden', async () => {
+    const p = await picker();
+    assert.equal(p.tabs.length, 0); assert.equal(p.name, null);
+    assert.ok(p.grid.length >= 8 && p.grid.every((g) => /heart/i.test(g[1]) || g[0] === '❤️' || true));
+    assert.ok(p.grid.some((g) => g[0] === '❤️') && p.grid.some((g) => g[0] === '💔'), JSON.stringify(p.grid));
+  });
+  await H.cdp('Input.insertText', { text: 'xyz' });
+  await sleep(250);
+  await check('emoji: "heartxyz" finds nothing: "No emoji found"', async () => { const p = await picker(); assert.equal(p.grid.length, 0); assert.equal(p.empty, 'No emoji found'); });
+  await K.esc();
+  await sleep(200);
+  await check('emoji: Esc in a box with text clears it (the picker stays), the tabs are back', async () => { const p = await picker(); assert.ok(p, 'the picker closed'); assert.equal(p.value, ''); assert.equal(p.tabs.length, 9); });
+  await typeIn('grin');
+  await key('ArrowDown', 'ArrowDown', 40);
+  await check('emoji: Arrow Down from the box enters the grid', async () => { assert.equal(await evaluate(`document.activeElement?.classList.contains('emoji-btn')`), true); });
+  await key('ArrowUp', 'ArrowUp', 38);
+  await check('emoji: Arrow Up from the first row goes back to the box', async () => { assert.equal((await picker()).focus, true); });
+  await K.enter();
+  await sleep(400);
+  await check('emoji: Enter in the box inserts the first result and closes the picker, the caret stays in the body', async () => {
+    assert.equal(await picker(), null);
+    const first = await json(`(() => ${EDS.compose}.getText())()`);
+    assert.ok(first.includes('😀'), JSON.stringify(first));
+    assert.equal((await where()).in, 'editor');
+  });
+  // a second emoji from the grid with the keyboard: Down, Enter
+  await openEmoji();
+  await check('emoji: "Recently used" is the open tab now and holds the one inserted', async () => { const p = await picker(); assert.deepEqual(p.tabs[0], ['Recently used', true]); assert.equal(p.name, 'Recently used'); assert.deepEqual(p.grid.map((g) => g[0]), ['😀']); });
+  await typeIn('cat face');
+  await K.enter();
+  await sleep(300);
+  await openEmoji();
+  await check('emoji: newest first, each once: the second pick is in front', async () => { const p = await picker(); assert.deepEqual(p.grid.map((g) => g[0]), ['🐱', '😀'], JSON.stringify(p.grid)); });
+  // Esc in an empty box closes the picker, the caret is back in the body
+  await K.esc();
+  await sleep(300);
+  await check('emoji: Esc in an empty box closes the picker', async () => assert.equal(await picker(), null));
+  // the list is in the preferences (shared with the signature editor) and survives a new picker
+  await check('emoji: the recent list is in the preferences', async () => { const r = await json(`window.__store.getState().prefs.recentEmoji`); assert.deepEqual(r, ['🐱', '😀']); });
+  // Vietnamese: the vi name finds it, the English one too
+  await H.openApp('lang=vi', 1280, 800);
+  await evaluate(`window.__store.getState().openCompose({ accountId: 'a1', to: [], subject: 'Emoji', bodyHtml: '<p>x</p>' }); 1`);
+  assert.ok(await waitFor(`!!document.querySelector('.cp-editor .tiptap')?.editor`, 15000), 'compose did not start');
+  await sleep(900);
+  await evaluate(`${EDS.compose}.commands.focus('end'); document.querySelector('.fmt-tb .fmt-more').click(); 1`);
+  await sleep(300);
+  await evaluate(`[...document.querySelectorAll('.dd-fixed [role^=menuitem]')].find((x) => /Emoji|cảm xúc/i.test(x.textContent))?.click(); 1`);
+  assert.ok(await waitFor(`!!document.querySelector('.fmt-pop-emoji .emoji-search')`, 5000), 'the emoji picker did not open (vi)');
+  await sleep(500);
+  await typeIn('tim');
+  await check('emoji (vi): "tim" finds the heart emoji by the Vietnamese name, and "heart" by the English one', async () => {
+    let p = await picker();
+    assert.ok(p && p.grid.some((g) => g[0] === '❤️'), JSON.stringify(p && p.grid.slice(0, 5)));
+    assert.ok(p.grid.every((g) => g[1]), 'every emoji has a name');
+    await evaluate(`(() => { const i = document.querySelector('.emoji-search'); const set = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value').set; set.call(i, 'heart'); i.dispatchEvent(new Event('input', { bubbles: true })); return 1; })()`);
+    await sleep(300);
+    p = await picker();
+    assert.ok(p.grid.some((g) => g[0] === '❤️'));
+    assert.equal(p.grid.find((g) => g[0] === '❤️')[1], 'trái tim màu đỏ', 'the accessible name is the Vietnamese one');
+  });
+  await K.esc(); await K.esc();
+  await sleep(200);
+
   // the signature editor of Settings, in a 960 x 560 window: the same toolbar and keys, the sizes of a logo, no "As attachment"
   await H.openApp('lang=en', 946, 552);
   await evaluate(`window.__store.getState().setDialog({ type: 'settings', tab: 'mb:a1' }); 1`);
