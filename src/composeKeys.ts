@@ -1,5 +1,6 @@
 // Who owns a key while the compose body (a ProseMirror contenteditable) has the focus. One key, one action:
 //  - Ctrl/Cmd+K       link UI inside an editor (like Outlook, Gmail, Word); the command bar everywhere else
+//  - Ctrl/Cmd+Shift+K the command bar from anywhere, the message body and the signature / template editors included (W2.14); a compose window has no command bar: it does nothing there
 //  - Ctrl/Cmd+Shift+B the app's "Show Bcc" (tooltip "Add Bcc (Ctrl+Shift+B)"); the editor's block quote shortcut is off
 //  - Ctrl/Cmd+Enter   Send (and Ctrl/Cmd+Shift+Enter Send later); the editor's hard-break / exit-code shortcut is off
 //  - Ctrl/Cmd+Alt+... the editor's heading / code block / paragraph shortcuts (Mod-Alt-0..6, Mod-Alt-C) are off, except Heading 1-3 (Mod-Alt-1..3, the Styles
@@ -44,6 +45,7 @@ export function keyAction(e: KeyLike, ctx: { inEditor: boolean }): KeyAction {
   // AltGr + a letter or digit types a character: neither the editor's shortcuts nor the app's may run
   if (isAltGraph(e)) return ctx.inEditor ? "editor-skip" : "pass";
   if (mod && e.altKey && ctx.inEditor) return "editor-skip"; // Cmd+Option on a Mac: the editor's heading / code block shortcuts are off too
+  if (mod && e.shiftKey && !e.altKey && k === "k") return "command-bar"; // (in an editor too: it is the one way to the command bar from the body)
   if (mod && !e.altKey && k === "k") return ctx.inEditor ? "insert-link" : "command-bar";
   if (ctx.inEditor && mod && !e.altKey) {
     if (e.shiftKey && k === "b") return "editor-skip";

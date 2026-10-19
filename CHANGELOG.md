@@ -39,6 +39,8 @@
 - A reply window keeps answering to its message after its first save: Reply on the same mail again brings that window forward instead of opening a second one
 - A scheduled message can be edited in a compose window: Scheduled > Edit follows the setting "Open new messages in a separate window" (and Shift), and the Pop out button and Ctrl+Shift+O are there for a scheduled message in the pane too; its time stays paused while a window has it, closing the window without a change leaves the schedule as it was, closing it with changes asks, and a second Edit of the same message brings that editor forward
 - Sending from a compose window keeps the message on screen: it is locked (nothing can be typed or clicked), the Send button reads "Sending..." and one message at the bottom of the window counts "Sending... n s" with Undo (it stays the whole Undo send time); Undo gives you the same message back, editable, with the text, caret, scroll position and undo history as they were, and the window closes by itself once the message has gone; a failed send unlocks it too. The "Sending..." message with Undo in the main window also stays the whole Undo send time instead of 6 seconds
+- Settings > Keyboard shortcuts lists Ctrl+Shift+C / Ctrl+Shift+B (Cmd on a Mac) for adding Cc / Bcc while writing
+- Ctrl+Shift+K (Cmd+Shift+K on a Mac) opens the command bar from anywhere, also from the message body and the signature and template editors, where Ctrl+K stays the link; Esc closes the bar and gives the focus back where it was, with the selected text still selected (listed in Settings > Keyboard shortcuts)
 
 ## 1.0.6 — 2026-10-18
 

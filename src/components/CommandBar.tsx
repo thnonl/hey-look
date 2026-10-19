@@ -28,7 +28,18 @@ export function CommandBar() {
   const [q, setQ] = useState("");
   const [i, setI] = useState(0);
   const ref = useRef<HTMLInputElement>(null);
+  // where the focus was when the bar opened: Esc (or a press outside) gives it back there, the selection of an editor as it was (Ctrl+Shift+K in the body, W2.14)
+  const from = useRef<Element | null>(typeof document === "undefined" ? null : document.activeElement);
   useEffect(() => ref.current?.focus(), []);
+  const close = () => {
+    s.setCommandOpen(false);
+    const el = from.current;
+    if (!(el instanceof HTMLElement) || !el.isConnected) return;
+    // (an editor is put back through TipTap, which draws its own selection again; the DOM selection went to the search box)
+    const editor = (el.closest(".tiptap") as (HTMLElement & { editor?: { commands: { focus: (pos?: unknown, o?: { scrollIntoView?: boolean }) => void } } }) | null)?.editor;
+    if (editor) editor.commands.focus(null, { scrollIntoView: false });
+    else el.focus({ preventScroll: true });
+  };
 
   const cmds = useMemo<Cmd[]>(() => {
     const ids = s.selected ? [s.selected] : [];
@@ -81,7 +92,7 @@ export function CommandBar() {
   };
 
   return (
-    <div className="modal-back top" onMouseDown={() => s.setCommandOpen(false)}>
+    <div className="modal-back top" onMouseDown={close}>
       <div className="modal cmd" onMouseDown={(e) => e.stopPropagation()}>
         <input
           ref={ref}
@@ -95,7 +106,7 @@ export function CommandBar() {
             if (e.key === "ArrowDown") setI((x) => Math.min(x + 1, shown.length - 1));
             else if (e.key === "ArrowUp") setI((x) => Math.max(x - 1, 0));
             else if (e.key === "Enter") exec(shown[i]);
-            else if (e.key === "Escape") s.setCommandOpen(false);
+            else if (e.key === "Escape") close();
           }}
         />
         {shown.map((c, idx) => (

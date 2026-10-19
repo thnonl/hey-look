@@ -202,3 +202,5 @@ ui-a | node scripts/test-chip-drag.mjs --require-browser
 ui-b | node scripts/test-popout-scheduled.mjs --require-browser
 # sending from a compose window keeps the compose on screen (W13.1): locked (inert, "Sending..." on the Send button), one toast "Sending... n s" with Undo that has the focus, Undo unlocks the SAME editor (marker, text, scroll position, focus), the time over = "Sending..." without Undo then the window ends, Undo send off, a failed send, X during the send, Ctrl+Z while locked, and the main window's Undo toast lasting the Undo send time
 ui-b | node scripts/test-popout-send.mjs --require-browser
+# Ctrl+Shift+K opens the command bar from anywhere (real key events): in the body with a selection (Esc gives the focus and the selection back, no link), from Subject and To, Ctrl+K unchanged (link in the body, command bar in To), AltGr+Shift+K opens nothing
+ui-b | node scripts/test-command-bar-key.mjs --require-browser
