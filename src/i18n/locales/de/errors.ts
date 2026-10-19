@@ -11,6 +11,7 @@ export default defineLocale<typeof ns.en>({
   "errors.signIn": "Anmeldung fehlgeschlagen. Prüfen Sie das Passwort (Gmail, iCloud und Yahoo benötigen ein App-Passwort) oder melden Sie sich erneut an.",
   "errors.noCredentials": "Die gespeicherten Anmeldedaten für dieses Konto fehlen. Entfernen Sie das Konto und fügen Sie es erneut hinzu.",
   "errors.timeout": "Der Mailserver hat nicht geantwortet. Prüfen Sie Ihre Verbindung und versuchen Sie es erneut.",
+  "errors.sendRefused": "Der Mailserver hat die Nachricht nicht angenommen. Versuchen Sie es gleich noch einmal; wenn es weiter fehlschlägt, prüfen Sie den Postausgangsserver in den Einstellungen. (Details: {detail})",
   "errors.unreachable": "Der Mailserver ist nicht erreichbar. Prüfen Sie den Servernamen und Ihre Verbindung.",
   "errors.certificate": "Das Sicherheitszertifikat des Servers wurde abgelehnt. Bei einem Server mit selbstsigniertem Zertifikat oder einem Zertifikat einer privaten Zertifizierungsstelle entfernen Sie das Konto und fügen es erneut hinzu, mit aktivierter Option „Dem Zertifikat dieses Servers vertrauen“.",
   // ---- toasts of store.ts

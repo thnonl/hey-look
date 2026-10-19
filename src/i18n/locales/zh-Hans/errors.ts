@@ -11,6 +11,7 @@ export default defineLocale<typeof ns.en>({
   "errors.signIn": "登录失败。请检查密码（Gmail、iCloud和Yahoo需要使用应用专用密码），或重新登录。",
   "errors.noCredentials": "此账户保存的登录凭据已丢失。请移除该账户后重新添加。",
   "errors.timeout": "邮件服务器没有响应。请检查网络连接后重试。",
+  "errors.sendRefused": "邮件服务器未接受该邮件。请稍后重试；如果仍然失败，请在设置中检查发件服务器。（详细信息：{detail}）",
   "errors.unreachable": "无法连接到邮件服务器。请检查服务器名称和网络连接。",
   "errors.certificate": "服务器的安全证书被拒绝。如果服务器使用自签名证书或私有CA，请移除该账户，然后在开启“信任此服务器的证书”的情况下重新添加。",
   // ---- toasts of store.ts

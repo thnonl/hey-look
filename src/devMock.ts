@@ -1394,6 +1394,7 @@ export function installMock() {
         const w = window as unknown as { __sendCalls?: unknown[]; __held?: Record<string, { subject?: string }> };
         (w.__sendCalls ??= []).push({ cmd: "holdSend", id: a.id, keep: a.keep });
         // a subject with [toolarge] is refused for its size like a server with a smaller limit does (dev check of the size message)
+        if (String(w.__held?.[a.id as string]?.subject ?? "").includes("[smtpfail]")) throw "SMTP send failed: response error: incomplete response";
         if (String(w.__held?.[a.id as string]?.subject ?? "").includes("[toolarge]")) throw "SMTP_TOO_LARGE|reply=552 5.3.4 Message size exceeds fixed limit: The message is larger than this server accepts. Remove attachments or shrink pictures. (Server reply: 552 5.3.4 Message size exceeds fixed limit)";
         return null;
       }
@@ -1701,6 +1702,8 @@ export function installMock() {
       case "send_message": {
         // a subject with [fail] is rejected like Gmail rejects a program file (dev check of the failed-send path: __failedSendCheck)
         if (!a.sendAt && String((a.draft as { subject?: string }).subject).includes("[fail]")) throw "SMTP_ATTACHMENT_BLOCKED: The server rejected the attachment type. Gmail, Outlook and Yahoo refuse programs and scripts such as .exe, .bat, .js or .msi, even inside a zip file. Remove the attachment or share it as a link instead. (Server reply: (5.7.0 This message was blocked because its content presents a potential security issue. Please visit https://support.google.com/mail/?p=BlockedMessage to review our message content and attachment content guidelines. gsmtp)";
+        // a subject with [smtpfail] is refused with the plain text a mail server gives (dev check of the failed-send path and its toast)
+        if (!a.sendAt && String((a.draft as { subject?: string }).subject).includes("[smtpfail]")) throw "SMTP send failed: response error: incomplete response";
         if (!a.sendAt && String((a.draft as { subject?: string }).subject).includes("[toolarge]")) throw "SMTP_TOO_LARGE|reply=552 5.3.4 Message size exceeds fixed limit: The message is larger than this server accepts. Remove attachments or shrink pictures. (Server reply: 552 5.3.4 Message size exceeds fixed limit)";
         if (!a.sendAt) return "sent";
         // a scheduled message shows up in the Scheduled list
