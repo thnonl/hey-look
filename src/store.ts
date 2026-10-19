@@ -5,6 +5,7 @@ import { orderAccounts } from "./accountOrder";
 import { hasMailAccounts } from "./mailControls";
 import { applyBackfill } from "./backfill";
 import { holdOpenThread } from "./openThread";
+import { withUnreadChange } from "./focusCounts";
 import { QueuedMoves } from "./queuedMoves";
 import { Latest } from "./latestOnly";
 import { StateIntents, type IntentKind } from "./readIntent";
@@ -564,9 +565,12 @@ function applyOptimistic(ids: string[], action: string) {
   const idset = new Set(ids);
   const st = useStore.getState();
   const folders = st.folders.map((f) => ({ ...f }));
-  const bump = (t: ThreadSummary, delta: number) => {
-    const f = folders.find((x) => x.accountId === t.accountId && x.key === t.folder);
-    if (f) f.unread = Math.max(0, f.unread + delta);
+  // bulk mail is in the side-menu Inbox number only when "Count Other (bulk) mail" is on (or Focused Inbox is off); the tab numbers always count it
+  const countsBulk = st.prefs.countOtherMail || !st.prefs.focused;
+  const bump = (t: ThreadSummary, delta: 1 | -1) => {
+    const i = folders.findIndex((x) => x.accountId === t.accountId && x.key === t.folder);
+    if (i < 0) return;
+    folders[i] = t.folder === "inbox" ? withUnreadChange(folders[i], t.bulk, delta, countsBulk) : { ...folders[i], unread: Math.max(0, folders[i].unread + delta) };
   };
   const threads = st.threads.map((t) => {
     if (!idset.has(t.threadId)) return t;
@@ -1339,7 +1343,8 @@ export const useStore = create<State>((set, get) => ({
   replaceMessage: (m) => set((s) => ({ messages: s.messages.map((x) => (x.id === m.id ? m : x)) })),
 
   setPrefs: (patch) => {
-    const prefs = { ...get().prefs, ...patch };
+    const before = get().prefs;
+    const prefs = { ...before, ...patch };
     // a new cap: mailboxes that were stopped by the old one are asked again
     if ("maxDownload" in patch && patch.maxDownload !== get().prefs.maxDownload) set({ limited: {} });
     const languageChanged = "language" in patch && patch.language !== get().prefs.language;
@@ -1347,7 +1352,8 @@ export const useStore = create<State>((set, get) => ({
     // every screen reads `accounts`: a new order shows everywhere at once (folder pane, Compose From, Settings)
     if ("accountOrder" in patch) set((s) => ({ accounts: orderAccounts(s.accounts, prefs.accountOrder) }));
     applyPrefs(prefs);
-    void api.setSetting("prefs", JSON.stringify(prefs));
+    const saved = api.setSetting("prefs", JSON.stringify(prefs));
+    void saved.catch(() => undefined);
     const mirrored = mirrorSettings(patch);
     if (languageChanged) {
       // texts the backend writes in the chosen language (repeat descriptions of events) are read again once it knows the new language
@@ -1357,6 +1363,8 @@ export const useStore = create<State>((set, get) => ({
         if (s.selected) void s.reloadMessages();
       });
     }
+    // the tray, taskbar and Dock numbers and the Inbox number are read from the saved setting: refresh once it is stored, not before
+    if ("countOtherMail" in patch && patch.countOtherMail !== before.countOtherMail) void saved.catch(() => undefined).then(() => get().refresh());
     const layoutKeys: (keyof Prefs)[] = ["conversations", "focused", "sortAsc"];
     if (layoutKeys.some((k) => k in patch)) {
       // a different list (order, grouping): the old lines are dropped so the list starts at the top instead of keeping a place that no longer means anything

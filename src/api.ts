@@ -321,6 +321,9 @@ export interface FolderInfo {
   name: string;
   unread: number;
   total: number;
+  /** Inbox rows: unread conversations of the Focused tab (no List-Unsubscribe header) and of the Other tab (with one); same exclusions as the lists (snoozed, blocked), whatever "Count Other (bulk) mail" says. 0 or absent for other rows. */
+  unreadFocused?: number;
+  unreadOther?: number;
   /** the account's saved folder list names a server folder for this row (false for Junk: hide it, Junk is never created) */
   listed?: boolean;
 }

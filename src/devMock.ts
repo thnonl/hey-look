@@ -1109,7 +1109,18 @@ export function installMock() {
       // a settings save that fails (Settings > AI Assistant shows it under Save): a Base URL with "savefail" in it, a key "keyfail", and #removefail for Remove the saved key
       case "set_setting": if (a.key === "ai_endpoint" && String(a.value).includes("savefail")) return later(200, () => { throw new Error("The settings database could not be written: disk I/O error (code 10)"); }); settings[a.key as string] = a.value as string; if (persistSettings) localStorage.setItem("hl-mock-settings", JSON.stringify(settings)); return null;
       // #nojunk: the second mailbox's server has no Junk folder (the saved list does not name one): its Junk row and the Junk actions go
-      case "list_folders": return hashHas("nojunk") ? folders.map((f) => (f.accountId === "a2" && f.key === "junk" ? { ...f, listed: false } : f)) : folders;
+      case "list_folders": {
+        const rows = hashHas("nojunk") ? folders.map((f) => (f.accountId === "a2" && f.key === "junk" ? { ...f, listed: false } : f)) : folders;
+        // the Inbox rows carry the numbers of the Focused / Other tabs (W13.12), counted from the mock mail so a mock action changes them;
+        // `#tabcounts=<focused>,<other>` forces fixed numbers (on the first mailbox) for layout checks, for example `#tabcounts=150,1234`
+        const forced = /(^|&)tabcounts=(\d+),(\d+)/.exec(window.location.hash.slice(1));
+        return rows.map((f) => {
+          if (f.key !== "inbox") return f;
+          if (forced) return { ...f, unreadFocused: f.accountId === "a1" ? Number(forced[2]) : 0, unreadOther: f.accountId === "a1" ? Number(forced[3]) : 0 };
+          const unread = [...threads, ...localMail(f.accountId)].filter((x) => x.accountId === f.accountId && x.folder === "inbox" && !x.snoozedUntil && x.unread > 0);
+          return { ...f, unreadFocused: unread.filter((x) => !x.bulk).length, unreadOther: unread.filter((x) => x.bulk).length };
+        });
+      }
       case "list_threads": {
         const f = a.filter as { folder: string; focus?: string; unreadOnly?: boolean; flaggedOnly?: boolean; sortAsc?: boolean; search?: string; scope?: string };
         const own = (a.filter as { accountId?: string | null }).accountId;

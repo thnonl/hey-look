@@ -398,7 +398,7 @@ export default defineLocale<typeof ns.en>({
   "settings.tray.dockBadge": "Globo del Dock",
   "settings.tray.taskbarBadge": "Insignia de la barra de tareas",
   "settings.tray.countOther": "Contar el correo de Otros (masivo)",
-  "settings.tray.countOtherHint": "Desactivado = los números solo incluyen las conversaciones de Prioritarios, para que los boletines no los inflen",
+  "settings.tray.countOtherHint": "Desactivado = las insignias y el contador de la Bandeja de entrada solo incluyen las conversaciones de Prioritarios, para que los boletines no los inflen",
   "settings.tray.autostartWindows": "Iniciar Hey Look! al iniciar sesión en Windows",
   "settings.tray.autostart": "Iniciar Hey Look! al iniciar sesión",
   "settings.tray.startsOpen": "Se inicia con la ventana abierta",

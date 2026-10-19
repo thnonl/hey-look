@@ -50,6 +50,7 @@ export default defineLocale<typeof ns.en>({
   "mail.group.pinned": "Angeheftet",
   "mail.tabs.focused": "Fokussiert",
   "mail.tabs.other": "Weitere",
+  "mail.tabs.unreadAria": { one: "{tab}, {n} ungelesen", other: "{tab}, {n} ungelesen" },
   "mail.filter.all": "Alle",
   "mail.filter.unread": "Ungelesen",
   "mail.filter.flagged": "Gekennzeichnet",

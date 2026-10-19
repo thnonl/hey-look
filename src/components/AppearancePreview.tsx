@@ -1,5 +1,6 @@
 import { Inbox, RefreshCw, Search } from "lucide-react";
 import { Fragment, useMemo, useState } from "react";
+import { badgeText } from "../focusCounts";
 import { makeFakeMailbox } from "../fakeMail";
 import { useT } from "../i18n/react";
 import { useStore } from "../store";
@@ -21,6 +22,11 @@ export function AppearancePreview() {
   const dark = prefs.theme === "dark" || (prefs.theme === "system" && window.matchMedia("(prefers-color-scheme: dark)").matches);
   const threads = prefs.sortAsc ? [...box.threads].reverse() : box.threads;
   const shown = prefs.focused ? threads.filter((th) => !th.bulk) : threads;
+  // like the real side menu: bulk mail is in the Inbox number when "Count Other (bulk) mail" is on or Focused Inbox is off
+  const inboxUnread = box.threads.filter((th) => th.unread && (prefs.countOtherMail || !prefs.focused || !th.bulk)).length;
+  // the tab numbers count each tab's own unread conversations, whatever that setting says
+  const focusedUnread = box.threads.filter((th) => th.unread && !th.bulk).length;
+  const otherUnread = box.threads.filter((th) => th.unread && th.bulk).length;
   let last = "";
   return (
     <div className="ap-wrap">
@@ -35,7 +41,7 @@ export function AppearancePreview() {
         <div className="ap-body">
           <div className="ap-folders">
             <div className="fp-row active">
-              <Inbox size={13} /> {t("reading.preview.inbox")} <span className="fp-badge strong">{box.threads.filter((th) => th.unread && !th.bulk).length || ""}</span>
+              <Inbox size={13} /> {t("reading.preview.inbox")} <span className="fp-badge strong">{inboxUnread || ""}</span>
             </div>
             <div className="fp-row">{t("reading.preview.sent")}</div>
             <div className="fp-row">{t("reading.preview.drafts")}</div>
@@ -44,8 +50,14 @@ export function AppearancePreview() {
           <div className="ap-list">
             {prefs.focused ? (
               <div className="pivots ap-pivots">
-                <span className="active" aria-hidden="true">{t("reading.preview.focused")}</span>
-                <span aria-hidden="true">{t("reading.preview.other")}</span>
+                <span className="active" aria-hidden="true">
+                  {t("reading.preview.focused")}
+                  {focusedUnread > 0 && <span className="fp-badge strong">{badgeText(focusedUnread)}</span>}
+                </span>
+                <span aria-hidden="true">
+                  {t("reading.preview.other")}
+                  {otherUnread > 0 && <span className="fp-badge">{badgeText(otherUnread)}</span>}
+                </span>
               </div>
             ) : (
               <h2 className="ap-title">{t("reading.preview.inbox")}</h2>

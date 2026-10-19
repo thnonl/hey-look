@@ -55,6 +55,7 @@ export default defineLocale<typeof ns.en>({
   "mail.group.pinned": "Закреплённые",
   "mail.tabs.focused": "Отсортированные",
   "mail.tabs.other": "Другие",
+  "mail.tabs.unreadAria": { one: "{tab}, {n} непрочитанное", few: "{tab}, {n} непрочитанных", many: "{tab}, {n} непрочитанных", other: "{tab}, {n} непрочитанного" },
   "mail.filter.all": "Все",
   "mail.filter.unread": "Непрочитанные",
   "mail.filter.flagged": "С флажком",

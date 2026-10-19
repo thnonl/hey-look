@@ -4,12 +4,14 @@
 
 ### Added
 
+- The Focused and Other tabs of the Inbox show how many unread conversations each holds (a number after the name, "99+" above 99; the same conversations that are in bold in the tab, without snoozed ones and blocked senders). When the list is narrow the Filter button shows only its icon (its tooltip and name stay "Filter"), and in the narrowest case in a long language it has a line of its own under the tabs
 - The emoji picker has a search box (by name and keyword, in the app's language and in English: "heart", "tim", "coeur", "猫"), a "Recently used" tab with the last 16 emoji you inserted (kept after a restart, shared by messages, signatures and templates), and each emoji is announced by a screen reader with its name instead of the raw character. The names are Unicode CLDR annotations and load only when the picker opens
 - Tables: Merge cells and Split cell (select cells by dragging across them or with Shift+Arrow from a cell's edge; the buttons are in the table tools bar and in the Table menu). A merged cell keeps the text of all its cells, the sent mail has colspan and rowspan, the Outside borders frame stays complete at merged cells, and the plain-text version writes a merged cell once with tabs for the columns it spans
 - A picture in a signature or a template has the same toolbar as a picture in a message: sizes (Small 120, Medium 240, Large 360 px or Original), alignment, link, alt text and remove; the alt text is saved with the signature and sent with the mail
 
 ### Changed
 
+- Count Other (bulk) mail is now on by default, also after updating: the tray, taskbar and Dock badges and the Inbox count include newsletters. Turn it off in Settings > Notifications & tray (it stays off after that). The side-menu Inbox number now leaves out snoozed conversations and mail from blocked senders, like the tray and the tabs, and the switch changes the numbers at once instead of at the next refresh
 - The question for a big picture (Settings > Composing, "Resize large pictures automatically" off) offers only what the button does: "Resize" for a picture wider than 1600 px, "Compress" for a JPEG or WebP that is not wider, "Convert to PNG" for such a GIF, and nothing for such a PNG; a re-encoded picture that would not be smaller is kept as it is (with a notice when you pressed the button)
 - The action row of a message you write is always one row, in every language: what does not fit (Write with AI, Templates, Save draft, Importance, Confidential, Sign, Encrypt, Meeting, Picture, in that order) moves into "More actions", and comes back when the window grows; Send, Discard and Attach never move
 - A blocked remote picture in a message you read is drawn as a box of the size the message gave it (48 x 48 when it gave none) with an icon and the picture's description; tracking pixels are not drawn at all. "Load content" loads the real pictures

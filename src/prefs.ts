@@ -1,6 +1,7 @@
 import { isLang, t } from "./i18n/index.ts";
 import type { Key, LangPref } from "./i18n/index.ts";
 import { pruneOrder } from "./accountOrder";
+import { applyPrefsRev, PREFS_REV } from "./prefsRev";
 import { DEFAULT_MAIL_CANVAS, MailCanvas, resolveMailCanvas } from "./mailCanvas";
 import { DEFAULT_HIGHLIGHT, normColor } from "./editor/colors";
 import { DEFAULT_FONT_NAME, DEFAULT_FONT_SIZE } from "./editor/fonts";
@@ -130,6 +131,8 @@ export interface Prefs extends Overridable {
   trayBadge: "number" | "dot" | "off"; // unread badge on the tray icon
   taskbarBadge: "number" | "off"; // unread badge on the taskbar button
   countOtherMail: boolean; // include "Other" (bulk) mail in unread counts
+  /** the last one-time preference change applied to the stored copy (see the comment at DEFAULT_PREFS) */
+  prefsRev: number;
   recentSearches: string[];
   defaultAccount: string; // "" = first account
   /** account ids in the order the person arranged them (empty = the order the backend gives, i.e. the order they were added); see accountOrder.ts */
@@ -145,6 +148,13 @@ export interface Prefs extends Overridable {
   accountPrefs: Record<string, Partial<Overridable>>;
 }
 
+/**
+ * `prefsRev` counts one-time changes of stored preferences, for a default that changes in a later version. The whole object is saved on
+ * every change, so a stored value is almost never a choice, and a new default would never reach an existing install. A stored `prefs`
+ * below the current revision gets the change once (`mergePrefs` here, `migrate_prefs` in db.rs for the stored copy at start-up), then
+ * `prefsRev` is saved with it and the person's own choice is kept from then on. The rules and the newest revision are in prefsRev.ts
+ * (1: "Count Other (bulk) mail" is on); a new change goes there and in `migrate_prefs` (db.rs), with a case in both tests.
+ */
 export const DEFAULT_PREFS: Prefs = {
   language: "en",
   theme: "system",
@@ -192,7 +202,8 @@ export const DEFAULT_PREFS: Prefs = {
   calDefaultCalendar: "",
   trayBadge: "number",
   taskbarBadge: "number",
-  countOtherMail: false,
+  countOtherMail: true,
+  prefsRev: PREFS_REV,
   recentSearches: [],
   defaultAccount: "",
   accountOrder: [],
@@ -252,6 +263,9 @@ export function mergePrefs(raw: string | null): Prefs {
   if (!raw) return { ...DEFAULT_PREFS };
   try {
     const p = JSON.parse(raw) as Partial<Prefs> & { showUnreadCount?: boolean };
+    if (!p || typeof p !== "object" || Array.isArray(p)) return { ...DEFAULT_PREFS };
+    // one-time changes (see DEFAULT_PREFS), decided on the stored object before it is merged with the defaults
+    applyPrefsRev(p as Record<string, unknown>);
     // older versions had a single on/off switch for both badges
     if (p.showUnreadCount === false) {
       p.trayBadge ??= "off";

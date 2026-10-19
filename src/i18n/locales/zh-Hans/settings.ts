@@ -398,7 +398,7 @@ export default defineLocale<typeof ns.en>({
   "settings.tray.dockBadge": "程序坞角标",
   "settings.tray.taskbarBadge": "任务栏角标",
   "settings.tray.countOther": "统计“其他”（批量）邮件",
-  "settings.tray.countOtherHint": "关闭 = 数字只包含“重点”中的对话，因此订阅邮件不会使数字虚高",
+  "settings.tray.countOtherHint": "关闭 = 角标和“收件箱”计数只包含“重点”中的对话，因此订阅邮件不会使数字虚高",
   "settings.tray.autostartWindows": "登录Windows时启动Hey Look!",
   "settings.tray.autostart": "登录时启动Hey Look!",
   "settings.tray.startsOpen": "启动时打开窗口",

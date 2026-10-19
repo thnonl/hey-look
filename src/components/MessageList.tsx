@@ -1,6 +1,6 @@
-import { Archive, BadgeCheck, Calendar, CalendarCheck, CalendarX, Check, CheckCheck, Clock, Flag, FolderOpen, Lock, Mail, MailOpen, Paperclip, Pin, SearchX, ShieldAlert, Trash2 } from "lucide-react";
+import { Archive, BadgeCheck, Calendar, CalendarCheck, CalendarX, Check, CheckCheck, ChevronDown, Clock, Flag, FolderOpen, ListFilter, Lock, Mail, MailOpen, Paperclip, Pin, SearchX, ShieldAlert, Trash2 } from "lucide-react";
 import { copyToClipboard, openExternal } from "../open";
-import { ReactNode, useCallback, useMemo, useRef } from "react";
+import { ReactNode, useCallback, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { fmtNumber } from "../i18n/format";
 import { useLang, useT } from "../i18n/react";
 import { tx } from "../i18n/rich";
@@ -23,6 +23,7 @@ import { ScheduledList } from "./ScheduledList";
 import { EmptyState, SkeletonRows } from "./overlays";
 import { Avatar, Dropdown } from "./ui";
 import { downloadLine } from "../backfill";
+import { badgeText, tabCounts, tabLabels } from "../focusCounts";
 import { VirtualList, VItem } from "./VirtualList";
 
 export interface ThreadRowProps {
@@ -208,7 +209,7 @@ export function MessageList({ hidden = false }: { hidden?: boolean } = {}) {
   const lang = useLang();
   const {
     threads, folder, accountId, selected, openMail, checked, toggleCheck, setChecked, search, searchScope, setSearchScope,
-    prefs, focus, setFocus, filter, setFilter, accounts, loading, loadMore, loadingMore, exhausted, limited, backfill, firstSync, setDialog,
+    prefs, focus, setFocus, filter, setFilter, accounts, loading, loadMore, loadingMore, exhausted, limited, backfill, firstSync, setDialog, folders,
   } = useStore();
   const scrollRef = useRef<HTMLDivElement>(null);
   const ctxMenu = useRowContextMenu(); // right-click / ContextMenu key on a row (components/ListContextMenu.tsx)
@@ -217,6 +218,32 @@ export function MessageList({ hidden = false }: { hidden?: boolean } = {}) {
   const scopeNote = searching ? (searchScope === "all" ? tr("mail.list.scopeAll") : searchScope === "account" ? tr("mail.list.scopeAccount") : tr("mail.list.scopeFolder", { folder: folderLabel(folder) })) : "";
   const showTabs = folder === "inbox" && prefs.focused && !searching;
   const multi = checked.size > 0;
+  // W13.12: unread conversations of each tab, from the same folder numbers as the side menu (so they change together)
+  const tabs = useMemo(() => tabCounts(folders, accountId), [folders, accountId]);
+  const filterText = filter === "all" ? tr("mail.filter.button") : tr("mail.filter.active", { name: tr(filter === "unread" ? "mail.filter.unread" : "mail.filter.flagged") });
+  // the Filter button gives way when the tabs (which never shrink or wrap) and the whole button do not fit in one line: first to its icon only; when even
+  // that does not fit (a long language, two numbers of 99+, the narrowest list) the button drops to a line of its own under the tabs
+  const titleRef = useRef<HTMLDivElement>(null);
+  const [filterMode, setFilterMode] = useState<"full" | "icon" | "wrap">("full");
+  useLayoutEffect(() => {
+    const row = titleRef.current;
+    if (!row || !showTabs) return setFilterMode("full");
+    const fit = () => {
+      const tabsBox = row.querySelector<HTMLElement>(".pivots");
+      const full = row.querySelector<HTMLElement>(".ml-filter-probe.full");
+      const icon = row.querySelector<HTMLElement>(".ml-filter-probe.icon");
+      if (!tabsBox || !full || !icon) return;
+      const gap = parseFloat(getComputedStyle(row).columnGap) || 0;
+      const room = row.clientWidth + 0.5 - tabsBox.offsetWidth - gap;
+      setFilterMode(full.offsetWidth <= room ? "full" : icon.offsetWidth <= room ? "icon" : "wrap");
+    };
+    fit();
+    const ro = new ResizeObserver(fit);
+    ro.observe(row);
+    row.querySelectorAll(".pivots, .ml-filter-probe").forEach((el) => ro.observe(el));
+    return () => ro.disconnect();
+  }, [showTabs, lang, filterText, tabs.focused, tabs.other]);
+  const iconFilter = showTabs && filterMode !== "full";
   const colors = new Map(accounts.map((a) => [a.id, accountColor(a, prefs.accent)]));
   const labels = new Map(accounts.map((a) => [a.id, accountLabel(a).text])); // the display name, else the address
   const mixed = accounts.length > 1 && (!accountId || (searching && searchScope === "all"));
@@ -311,25 +338,48 @@ export function MessageList({ hidden = false }: { hidden?: boolean } = {}) {
   return (
     <section className="msg-list" aria-label={tr("mail.list.aria")} inert={hidden || undefined} aria-hidden={hidden || undefined}>
       <div className={`ml-head ${multi ? "multi" : ""}`}>
-        <div className="ml-title">
+        <div className={`ml-title ${showTabs && filterMode === "wrap" ? "wrap" : ""}`} ref={titleRef}>
           {showTabs ? (
             <div className="pivots" role="tablist">
-              <button role="tab" aria-selected={focus === "focused"} className={focus === "focused" ? "active" : ""} onClick={() => void setFocus("focused")}>{tr("mail.tabs.focused")}</button>
-              <button role="tab" aria-selected={focus === "other"} className={focus === "other" ? "active" : ""} onClick={() => void setFocus("other")}>{tr("mail.tabs.other")}</button>
+              {(["focused", "other"] as const).map((k) => {
+                const name = tr(k === "focused" ? "mail.tabs.focused" : "mail.tabs.other");
+                const n = tabs[k];
+                const { label, title } = tabLabels(n, name, (p) => tr("mail.tabs.unreadAria", p), (p) => tr("mail.side.unread", p));
+                return (
+                  <button key={k} role="tab" aria-selected={focus === k} aria-label={label} title={title} className={focus === k ? "active" : ""} onClick={() => void setFocus(k)}>
+                    {name}
+                    {n > 0 && <span className={`fp-badge ${k === "focused" ? "strong" : ""}`} aria-hidden="true">{badgeText(n)}</span>}
+                  </button>
+                );
+              })}
             </div>
           ) : (
             <h2 className="ellipsis">{title}</h2>
           )}
-          <div className="ml-tools">
+          <div className={`ml-tools ${iconFilter ? "icon-only" : ""}`}>
+            {showTabs && (
+              <>
+                <span className="link-btn ml-filter-probe full" aria-hidden="true">
+                  <span>{filterText}</span>
+                  <ChevronDown size={12} className="caret" />
+                </span>
+                <span className="link-btn ml-filter-probe icon" aria-hidden="true">
+                  <ListFilter size={14} />
+                  <ChevronDown size={12} className="caret" />
+                </span>
+              </>
+            )}
             <Dropdown
               className="link-btn"
+              title={iconFilter ? filterText : undefined}
               items={[
                 { label: tr("mail.filter.all"), checked: filter === "all", onClick: () => void setFilter("all") },
                 { label: tr("mail.filter.unread"), checked: filter === "unread", onClick: () => void setFilter("unread") },
                 { label: tr("mail.filter.flagged"), checked: filter === "flagged", onClick: () => void setFilter("flagged") },
               ]}
             >
-              {filter === "all" ? tr("mail.filter.button") : tr("mail.filter.active", { name: tr(filter === "unread" ? "mail.filter.unread" : "mail.filter.flagged") })}
+              <ListFilter size={14} className="ml-filter-ico" />
+              <span className="ml-filter-text">{filterText}</span>
             </Dropdown>
           </div>
         </div>

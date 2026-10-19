@@ -398,7 +398,7 @@ export default defineLocale<typeof ns.en>({
   "settings.tray.dockBadge": "Dockのバッジ",
   "settings.tray.taskbarBadge": "タスクバーのバッジ",
   "settings.tray.countOther": "「その他」（一括配信）のメールも数える",
-  "settings.tray.countOtherHint": "オフ = 数には「優先」の会話だけが含まれるため、ニュースレターで数が増えません",
+  "settings.tray.countOtherHint": "オフ = バッジと受信トレイの件数には「優先」の会話だけが含まれるため、ニュースレターで数が増えません",
   "settings.tray.autostartWindows": "Windowsにサインインしたら、Hey Look!を起動する",
   "settings.tray.autostart": "ログインしたら、Hey Look!を起動する",
   "settings.tray.startsOpen": "ウィンドウを開いた状態で起動します",

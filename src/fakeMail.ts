@@ -74,7 +74,7 @@ export function makeFakeMailbox(seed: number): FakeMailbox {
       snippet: fill(body),
       lastDate: now - age * 60,
       count,
-      unread: i < 2 || (!bulk && r() < 0.25) ? 1 : 0,
+      unread: i < 2 || i === 5 || (!bulk && r() < 0.25) ? 1 : 0, // (one newsletter is unread, so the Other tab and the "Count Other" setting show in the preview)
       flagged: i === 2 || r() < 0.12,
       pinned: i === 0,
       snoozedUntil: null,

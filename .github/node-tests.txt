@@ -225,3 +225,9 @@ static | node --experimental-strip-types scripts/test-emoji-search.mjs
 ui-b | node scripts/test-notice-baseline.mjs --quick --require-browser
 # a right-click on every kind of target (D-036, 1.0.7): the engine's own menu is off everywhere but in fields that take text - message body in the frame (and in the reader window), list row, folder label, ribbon, header, Settings, backdrop: defaultPrevented, ONE app menu at the click point plus the frame offset; search box, Subject, To, compose body: not prevented; PDF host: not prevented; the QA bridge probe (scripts/lib/context-menu-probe.mjs) gives the same verdicts; light and dark
 ui-b | node scripts/test-context-targets.mjs --require-browser
+# "Count Other (bulk) mail" is on by default in every layer (the page, folder_infos, unread_count) and an existing install gets it once through `prefsRev` (the same cases as the Rust test); the switch saves first and refreshes after; the Appearance preview's Inbox number follows it (W13.11)
+static | node --experimental-strip-types scripts/test-prefs-defaults.mjs
+# the unread numbers of the Focused / Other tabs (W13.12): one mailbox, all mailboxes, 99+, no number at 0, the accessible name and tooltip with the exact number, the optimistic change by kind, the backend fields and the texts of the 8 languages
+static | node --experimental-strip-types scripts/test-focus-counts.mjs
+# the Focused / Other tab numbers in the real list (W13.12): equal to the bold rows, live on mark read / unread, 99+, gone with a search / Focused Inbox off / another folder, Tab order, 960 x 480 with the list at 300 px in en, de, ru, ja light and dark (one row, no clip, the Filter as its icon, a line of its own for the longest), look and contrast with every accent; stored old preferences start with Count Other on (the full run: `node scripts/test-focus-tabs.mjs --full`)
+ui-a | node scripts/test-focus-tabs.mjs --require-browser

@@ -398,7 +398,7 @@ export default defineLocale<typeof ns.en>({
   "settings.tray.dockBadge": "Индикатор на значке в Dock",
   "settings.tray.taskbarBadge": "Индикатор на значке панели задач",
   "settings.tray.countOther": "Учитывать «Другие» (массовые письма)",
-  "settings.tray.countOtherHint": "Выкл. = в числах учитываются только беседы из «Отсортированных», поэтому рассылки их не завышают",
+  "settings.tray.countOtherHint": "Выкл. = индикаторы на значках и счётчик папки «Входящие» учитывают только беседы из «Отсортированных», поэтому рассылки их не завышают",
   "settings.tray.autostartWindows": "Запускать Hey Look! при входе в Windows",
   "settings.tray.autostart": "Запускать Hey Look! при входе в систему",
   "settings.tray.startsOpen": "Запускается с открытым окном",
