@@ -258,6 +258,9 @@ let calEvents: MockEvent[] = [
   ev("e17", "Yesterday's 1:1", at(-1, 14), at(-1, 14, 30), {}),
 ];
 const hiddenCals = new Set<string>();
+/** Moves waiting out their Undo time (token -> thread ids): like the backend, the lists and the unread numbers leave these conversations out until Undo (or a refusal) gives them back. */
+const mockQueued = new Map<string, string[]>();
+const queuedIds = () => new Set([...mockQueued.values()].flat());
 /** Drafts saved in this page (save_draft), by thread. */
 const mockDrafts: Record<string, typeof messages> = {};
 /** The row each saved draft has in the Drafts list (with its importance), by thread. */
@@ -1117,8 +1120,11 @@ export function installMock() {
         return rows.map((f) => {
           if (f.key !== "inbox") return f;
           if (forced) return { ...f, unreadFocused: f.accountId === "a1" ? Number(forced[2]) : 0, unreadOther: f.accountId === "a1" ? Number(forced[3]) : 0 };
-          const unread = [...threads, ...localMail(f.accountId)].filter((x) => x.accountId === f.accountId && x.folder === "inbox" && !x.snoozedUntil && x.unread > 0);
-          return { ...f, unreadFocused: unread.filter((x) => !x.bulk).length, unreadOther: unread.filter((x) => x.bulk).length };
+          const gone = queuedIds();
+          const unread = [...threads, ...localMail(f.accountId)].filter((x) => x.accountId === f.accountId && x.folder === "inbox" && !x.snoozedUntil && x.unread > 0 && !gone.has(x.threadId));
+          // the side-menu number is the mock's fixed one, less the unread conversations that wait out their Undo time (the backend counts the rest itself)
+          const waiting = gone.size ? [...threads, ...localMail(f.accountId)].filter((x) => x.accountId === f.accountId && x.folder === "inbox" && !x.snoozedUntil && x.unread > 0 && gone.has(x.threadId)).length : 0;
+          return { ...f, unread: Math.max(0, f.unread - waiting), unreadFocused: unread.filter((x) => !x.bulk).length, unreadOther: unread.filter((x) => x.bulk).length };
         });
       }
       case "list_threads": {
@@ -1131,6 +1137,7 @@ export function installMock() {
         // like the backend: a search over every mailbox ignores the selected one
         const scoped = own && !(q && f.scope === "all") ? own : null;
         let list = [...threads.filter((x) => !scoped || scoped === x.accountId), ...accounts.flatMap((x) => (!scoped || scoped === x.id ? localMail(x.id) : []))];
+        if (mockQueued.size) { const gone = queuedIds(); list = list.filter((x) => !gone.has(x.threadId)); }
         if (f.focus === "other") list = list.filter((x) => x.bulk);
         else if (f.focus === "focused") list = list.filter((x) => !x.bulk);
         if (f.unreadOnly) list = list.filter((x) => x.unread);
@@ -1347,11 +1354,13 @@ export function installMock() {
         const w = window as unknown as { __queueActionCalls?: { ids: string[]; action: string; at: number; verify: boolean }[]; __cancelledActions?: Set<string> };
         (w.__queueActionCalls ??= []).push({ ids: [...((a.threadIds ?? []) as string[])], action: String(a.action), at: Date.now(), verify: a.verify === true });
         const token = "token-" + Math.random().toString(36).slice(2);
+        mockQueued.set(token, [...((a.threadIds ?? []) as string[])]);
         const folder = a.action === "archive" ? "Archive" : a.action === "trash" ? "Trash" : null;
         if (a.verify === true && folder && hashTokens().has("stalefolder") && hashTokens().has("nocreate")) {
           const ms = Number(hashTokens().get("stalefolder")) || 1200;
           setTimeout(() => {
             if (w.__cancelledActions?.has(token)) return; // Undo won
+            mockQueued.delete(token); // dropped: the mail is back
             void emit("action-verify-failed", { id: token, error: `FOLDER_NOT_CREATED|folder=${folder}|why=CREATE denied: Couldn’t find or create the ${folder} folder on this account (CREATE denied). The mail stays where it is.` });
           }, ms);
         }
@@ -1361,6 +1370,7 @@ export function installMock() {
           const ms = Number(hashTokens().get("refusemove")) || 500;
           setTimeout(() => {
             if (w.__cancelledActions?.has(token)) return;
+            mockQueued.delete(token); // refused: the mail is back
             void emit("action-failed", { id: token, error: "MOVE refused: [NO] Permission denied (mock server)" });
           }, Number(a.delaySecs ?? 6) * 1000 + ms);
         }
@@ -1369,6 +1379,7 @@ export function installMock() {
       case "cancel_action": {
         const w = window as unknown as { __cancelledActions?: Set<string> };
         (w.__cancelledActions ??= new Set()).add(String(a.id));
+        mockQueued.delete(String(a.id));
         return true;
       }
       case "load_older": {

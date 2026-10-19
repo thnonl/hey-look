@@ -56,3 +56,30 @@ export function withUnreadChange<T extends InboxRow>(row: T, bulk: boolean, delt
   if (!bulk || countsBulk) out.unread = Math.max(0, row.unread + delta);
   return out;
 }
+
+/** What the numbers need to know about a conversation that just left the list. */
+export interface GoneThread {
+  accountId: string;
+  folder: string;
+  /** it has a List-Unsubscribe header (Other tab) */
+  bulk?: boolean;
+  /** unread messages in it (only an unread conversation changes a number) */
+  unread: number;
+}
+
+/**
+ * The folder rows after these conversations left the list at once (a delete, archive or move waiting out its Undo time, a snooze): the unread number of the
+ * folder they were in goes down by one each (Inbox: the tab number of their kind and, when counted there, the side-menu number), the same moment the row goes.
+ * The backend leaves such conversations out of its numbers too (`folder_infos`), so a refresh in the Undo window keeps the numbers; Undo and the refresh after
+ * it bring them back. Returns the same rows (not copies) that did not change.
+ */
+export function withThreadsGone<T extends InboxRow>(folders: readonly T[], gone: readonly GoneThread[], countsBulk: boolean): T[] {
+  const out = [...folders];
+  for (const t of gone) {
+    if (!(t.unread > 0)) continue;
+    const i = out.findIndex((f) => f.accountId === t.accountId && f.key === t.folder);
+    if (i < 0) continue;
+    out[i] = t.folder === "inbox" ? withUnreadChange(out[i], !!t.bulk, -1, countsBulk) : { ...out[i], unread: Math.max(0, out[i].unread - 1) };
+  }
+  return out;
+}

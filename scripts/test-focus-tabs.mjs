@@ -16,12 +16,21 @@
 //   node scripts/test-focus-tabs.mjs [--full] [--require-browser] [--url=http://127.0.0.1:1420/]
 // Default: en, de, ru, ja at 960 x 480, light and dark. --full: all 8 languages at 960 x 480, 960 x 560 and 1280 x 800.
 import assert from 'node:assert/strict';
-import { flag, sleep, startHarness } from './cdp-harness.mjs';
+import { arg, flag, sleep, startHarness } from './cdp-harness.mjs';
 import { TABN_JS, verdict } from './lib/tab-number-probe.mjs';
 
 const FULL = flag('full');
 const H = await startHarness('test-focus-tabs', { vitePort0: 5400 });
 const { evaluate, cdp } = H;
+// Font stress (--font=Verdana, --spacing=0.02): a CI machine (Linux, DejaVu Sans) and macOS / Linux WebKit have wider fallback fonts than this Windows PC. The layout
+// of the tabs must hold whatever the metrics are, so the whole run can be repeated here with a wider family and/or extra letter spacing (em) on every element.
+// --log prints the numbers of the layout cases (widths of the tabs, the Filter, the list).
+const FONT = arg('font'), SPACING = arg('spacing'), LOG = flag('log');
+if (FONT || SPACING) {
+  const css = '*,*::before,*::after{' + (FONT ? 'font-family:' + FONT + '!important;' : '') + (SPACING ? 'letter-spacing:' + SPACING + 'em!important;' : '') + '}';
+  // a constructed sheet: the page's CSP blocks an inline <style>
+  await cdp('Page.addScriptToEvaluateOnNewDocument', { source: `(() => { const sh = new CSSStyleSheet(); sh.replaceSync(${JSON.stringify(css)}); document.adoptedStyleSheets = [...document.adoptedStyleSheets, sh]; })()` });
+}
 const failures = [];
 const check = async (name, fn) => { try { await fn(); } catch (e) { failures.push(`${name}: ${String(e.message).replace(/\s+/g, ' ')}`); } };
 const waitFor = async (js, ms = 8000) => { const t0 = Date.now(); while (Date.now() - t0 < ms) { if (await evaluate(js)) return true; await sleep(50); } return false; };
@@ -131,6 +140,63 @@ try {
     assert.ok(t.width < w0 - 6, `the tab shrank (${w0} -> ${t.width})`);
     // the width is the label's own: the same as the tab of a mailbox without numbers
     assert.equal(await evaluate(`(() => { const b = document.querySelector('.pivots [role=tab]:nth-child(2)'); return b.scrollWidth <= b.clientWidth; })()`), true);
+  });
+
+  // ---------------------------------------------------------------- the Undo window (WP13e decision Q3, fix batch 6)
+  // A delete / archive / move hides the row at once and runs on the server after the Undo time. The numbers (tabs, side menu) go with the row, stay down through a
+  // refresh in the window (the backend leaves a waiting conversation out of them too; the mock does the same) and come back with Undo.
+  await check('Q3 the row, the tab number and the side-menu number go together in the Undo window and come back with Undo', async () => {
+    await fresh();
+    await openTab('focused');
+    const nums = () => evaluate(`(() => { const f = ${S('folders')}.find((x) => x.accountId === 'a1' && x.key === 'inbox'); const t = [...document.querySelectorAll('.pivots .fp-badge')].map((b) => b.textContent); const side = [...document.querySelectorAll('.fp-row')].find((r) => r.querySelector('.fp-badge.strong'))?.querySelector('.fp-badge.strong')?.textContent ?? null; return { state: [f.unread, f.unreadFocused, f.unreadOther], tabs: t, side }; })()`);
+    const before = await nums();
+    const unreadIds = await evaluate(`${S('threads')}.filter((t) => t.unread > 0).map((t) => t.threadId)`);
+    const readId = await evaluate(`${S('threads')}.find((t) => t.unread === 0)?.threadId`);
+    assert.ok(unreadIds.length >= 2 && readId, 'the mock has unread and read conversations in Focused');
+    // a read conversation leaves: no number moves
+    await evaluate(`${S('act')}([${JSON.stringify(readId)}], 'trash', undefined, 'Deleted'); 1`);
+    await sleep(250);
+    assert.deepEqual(await nums(), before, 'a read conversation changes no number');
+    await evaluate(`${S('toasts')}.forEach((t) => t.undo && t.undo()); 1`);
+    await sleep(500);
+    // an unread one: the three numbers drop at once
+    const id = unreadIds[0];
+    await evaluate(`${S('act')}([${JSON.stringify(id)}], 'archive', undefined, 'Archived'); 1`);
+    await sleep(250);
+    const gone = await nums();
+    assert.equal(await evaluate(`${S('threads')}.some((t) => t.threadId === ${JSON.stringify(id)})`), false, 'the row is gone');
+    assert.deepEqual(gone.state, [before.state[0] - 1, before.state[1] - 1, before.state[2]], `the folder numbers dropped: ${JSON.stringify(before.state)} -> ${JSON.stringify(gone.state)}`);
+    assert.equal(gone.tabs[0], String(before.state[1] - 1), 'the Focused tab number dropped');
+    assert.equal(gone.tabs[1], String(before.state[2]), 'Other did not move');
+    // a refresh inside the Undo window keeps the numbers down (the sync, the 30 s refresh)
+    await evaluate(`${S('refresh')}().then(() => 1)`);
+    await sleep(400);
+    assert.deepEqual((await nums()).state, gone.state, 'a refresh in the Undo window keeps the numbers');
+    // Undo: row and numbers back
+    await evaluate(`${S('toasts')}.forEach((t) => t.undo && t.undo()); 1`);
+    assert.ok(await waitFor(`${S('threads')}.some((t) => t.threadId === ${JSON.stringify(id)})`, 5000), 'Undo brings the row back');
+    await sleep(300);
+    assert.deepEqual(await nums(), before, 'Undo brings the numbers back');
+    // a bulk (Other) conversation: Other and, with Count Other on, the side-menu number
+    await openTab('other');
+    const bulkId = await evaluate(`${S('threads')}.find((t) => t.unread > 0).threadId`);
+    await evaluate(`${S('act')}([${JSON.stringify(bulkId)}], 'trash', undefined, 'Deleted'); 1`);
+    await sleep(250);
+    const b = await nums();
+    assert.deepEqual(b.state, [before.state[0] - 1, before.state[1], before.state[2] - 1], 'Other and the side-menu number drop, Focused does not');
+    await evaluate(`${S('toasts')}.forEach((t) => t.undo && t.undo()); 1`);
+    await sleep(600);
+    assert.deepEqual((await nums()).state, before.state, 'back with Undo');
+    // Count Other off: the side-menu number never counted the bulk conversation, so only the tab number drops
+    await evaluate(`${S('setPrefs')}({ countOtherMail: false }); 1`);
+    await sleep(500);
+    const off = await nums();
+    await evaluate(`${S('act')}([${JSON.stringify(bulkId)}], 'trash', undefined, 'Deleted'); 1`);
+    await sleep(250);
+    const off2 = await nums();
+    assert.deepEqual(off2.state, [off.state[0], off.state[1], off.state[2] - 1], 'with Count Other off only the Other number drops');
+    await evaluate(`${S('toasts')}.forEach((t) => t.undo && t.undo()); ${S('setPrefs')}({ countOtherMail: true }); 1`);
+    await sleep(600);
   });
 
   // ---------------------------------------------------------------- 99+ (AC-13.12.7)
@@ -297,6 +363,7 @@ try {
         await sleep(350);
         await check(`AC-13.12.16 layout ${w}x${h} ${lang} ${theme}`, async () => {
           const p = await probe();
+          if (LOG) console.log('LOG', w + 'x' + h, lang, theme, JSON.stringify({ filterIcon: p.filterIcon, filterBelow: p.filterBelow, rowOk: p.rowOk, headOk: p.headOk, ...p.nums }));
           assert.equal(p.tabs.length, 2, 'two tabs');
           assert.ok(p.listW >= 300 && p.listW <= 330, `the list is at its minimum (${p.listW})`);
           assert.equal(p.tabsOk, true, `both tabs in one row: ${JSON.stringify(p.tabs.map((t) => [t.top, t.bottom]))}`);
@@ -349,7 +416,8 @@ try {
     await sleep(400);
     const narrow = await probe();
     assert.equal(narrow.filterIcon, true, 'Russian at 300 px with Filter = Unread: icon only');
-    assert.equal(narrow.filterBelow, true, 'Russian with 99+ on both tabs: not even the icon fits beside the tabs, it has its own line');
+    // where the icon goes depends on the font (Windows: the tabs take 268 of 272 px, so it has a line of its own; a narrower or wider fallback font may leave room beside them)
+    assert.ok(narrow.rowOk || narrow.filterBelow, `Russian with 99+ on both tabs: the icon is beside the tabs or on a line of its own (${JSON.stringify(narrow.nums)})`);
     assert.equal(narrow.headOk, true);
     assert.match(narrow.filterTitle, /Непрочитанные/, 'the tooltip is the full text of the Filter');
     assert.equal(await evaluate(`document.querySelector('.ml-tools .dd > button').getAttribute('aria-label')`), narrow.filterTitle);

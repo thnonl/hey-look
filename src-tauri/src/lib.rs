@@ -1965,28 +1965,44 @@ fn list_folders(state: tauri::State<AppState>) -> R<Vec<FolderInfo>> {
 /// current time.
 const INBOX_NOT_SNOOZED: &str = "(tm.snoozed_until IS NULL OR tm.snoozed_until<=?)";
 const INBOX_NOT_BLOCKED: &str = "m.from_email NOT IN (SELECT email FROM blocked)";
+/// Conversations waiting out their Undo time (or being moved right now) are gone from every list (`pending_thread_ids`), so they are not in the unread
+/// numbers either: the row and the numbers of the side menu and the tabs go together, and Undo puts both back. The parameter is a JSON array of thread ids.
+const NOT_HIDDEN: &str = "m.thread_id NOT IN (SELECT value FROM json_each(?))";
+
+/// The thread ids as the JSON array that `NOT_HIDDEN` reads.
+fn hidden_json(hidden: &std::collections::HashSet<String>) -> String {
+    serde_json::to_string(&hidden.iter().collect::<Vec<_>>()).unwrap_or_else(|_| "[]".into())
+}
 
 /// SQL for `inbox_unread` over one mailbox's `messages` table. Parameters in order: count bulk mail in the Inbox number (0 / 1), the
-/// account, the current time. It reads only unread Inbox rows of one account, so it runs on `idx_msg_folder (account_id, folder, date)`.
+/// account, the current time, the hidden thread ids (`hidden_json`). It reads only unread Inbox rows of one account, so it runs on
+/// `idx_msg_folder (account_id, folder, date)`.
 fn inbox_unread_sql(table: &str) -> String {
     format!(
         "SELECT COUNT(DISTINCT CASE WHEN m.list_unsub IS NULL THEN m.thread_id END),
                 COUNT(DISTINCT CASE WHEN m.list_unsub IS NOT NULL THEN m.thread_id END),
                 COUNT(DISTINCT CASE WHEN ?=1 OR m.list_unsub IS NULL THEN m.thread_id END)
          FROM {table} m LEFT JOIN thread_meta tm ON tm.thread_id=m.thread_id
-         WHERE m.account_id=? AND m.folder='inbox' AND m.seen=0 AND {INBOX_NOT_SNOOZED} AND {INBOX_NOT_BLOCKED}"
+         WHERE m.account_id=? AND m.folder='inbox' AND m.seen=0 AND {INBOX_NOT_SNOOZED} AND {INBOX_NOT_BLOCKED}
+           AND {NOT_HIDDEN}"
     )
 }
 
 /// Unread conversations of one mailbox's Inbox as (Focused tab, Other tab, the side-menu number). The side-menu number leaves bulk mail
 /// out unless `include_other`; the two tab numbers do not depend on it. A conversation with unread mail of both kinds is in both tabs.
-fn inbox_unread(c: &Connection, account_id: &str, include_other: bool) -> R<(u32, u32, u32)> {
+fn inbox_unread(c: &Connection, account_id: &str, include_other: bool, hidden: &str) -> R<(u32, u32, u32)> {
     let table = shard::messages_table(c, account_id)?;
-    c.query_row(&inbox_unread_sql(&table), params![include_other as i64, account_id, now()], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)))
+    c.query_row(&inbox_unread_sql(&table), params![include_other as i64, account_id, now(), hidden], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)))
         .map_err(err)
 }
 
 fn folder_infos(c: &Connection) -> R<Vec<FolderInfo>> {
+    folder_infos_hiding(c, &pending_thread_ids())
+}
+
+/// `folder_infos` with the conversations that the lists hide (waiting out their Undo time, being moved) left out of the unread numbers.
+fn folder_infos_hiding(c: &Connection, hidden: &std::collections::HashSet<String>) -> R<Vec<FolderInfo>> {
+    let hidden = hidden_json(hidden);
     let accounts = db::list_accounts(c)?;
     let mut counts: HashMap<(String, String), (u32, u32)> = HashMap::new();
     let p: serde_json::Value = db::get_setting(c, "prefs")
@@ -2000,12 +2016,12 @@ fn folder_infos(c: &Connection) -> R<Vec<FolderInfo>> {
     let mut st = c
         .prepare(
             "SELECT account_id,folder,COUNT(DISTINCT thread_id),
-                    COUNT(DISTINCT CASE WHEN seen=0 AND folder!='inbox' THEN thread_id END)
+                    COUNT(DISTINCT CASE WHEN seen=0 AND folder!='inbox' AND thread_id NOT IN (SELECT value FROM json_each(?1)) THEN thread_id END)
              FROM messages GROUP BY account_id,folder",
         )
         .map_err(err)?;
     let rows = st
-        .query_map([], |r| {
+        .query_map([&hidden], |r| {
             Ok((r.get::<_, String>(0)?, r.get::<_, String>(1)?, r.get::<_, u32>(2)?, r.get::<_, Option<u32>>(3)?.unwrap_or(0)))
         })
         .map_err(err)?;
@@ -2024,7 +2040,7 @@ fn folder_infos(c: &Connection) -> R<Vec<FolderInfo>> {
         custom.sort();
         keys.extend(custom);
         // (a mailbox whose file cannot be read shows no unread numbers; the other mailboxes still do)
-        let (focused, other, inbox) = inbox_unread(c, &a.id, include_other).unwrap_or_else(|e| {
+        let (focused, other, inbox) = inbox_unread(c, &a.id, include_other, &hidden).unwrap_or_else(|e| {
             eprintln!("could not count the unread Inbox mail of {}: {e}", a.id);
             (0, 0, 0)
         });
@@ -7517,11 +7533,67 @@ mod inbox_tab_count_tests {
         let sql = format!("EXPLAIN QUERY PLAN {}", inbox_unread_sql(&shard::messages_table(&c, M1).unwrap()));
         let mut st = c.prepare(&sql).unwrap();
         let plan: Vec<String> = st
-            .query_map(params![1, M1, now()], |r| r.get::<_, String>(3))
+            .query_map(params![1, M1, now(), "[]"], |r| r.get::<_, String>(3))
             .unwrap()
             .collect::<Result<_, _>>()
             .unwrap();
         assert!(plan.iter().any(|d| d.contains("idx_msg_folder")), "plan: {plan:?}");
+    }
+
+    /// Fix batch 6 (Q3): a conversation that waits out its Undo time is gone from the lists, so it is gone from the side-menu number and the tab numbers too
+    /// (they used to count it until the move was done). The hidden set is explicit here: the real one is process-wide and other tests queue moves.
+    #[test]
+    fn hidden_conversations_are_left_out_of_the_unread_numbers() {
+        let c = fixture();
+        let hide = |ids: &[&str]| ids.iter().map(|s| s.to_string()).collect::<std::collections::HashSet<_>>();
+        let inbox_of = |c: &Connection, hidden: &[&str], acct: &str| {
+            folder_infos_hiding(c, &hide(hidden)).unwrap().into_iter().find(|f| f.account_id == acct && f.key == "inbox").unwrap()
+        };
+        let none = inbox_of(&c, &[], M1);
+        assert_eq!((none.unread, none.unread_focused, none.unread_other), (4, 3, 2));
+        // a normal conversation: Focused and the side-menu number go down by one, Other does not move
+        let f1 = inbox_of(&c, &["f1"], M1);
+        assert_eq!((f1.unread, f1.unread_focused, f1.unread_other), (3, 2, 2));
+        // a bulk one: Other and the side-menu number
+        let b1 = inbox_of(&c, &["b1"], M1);
+        assert_eq!((b1.unread, b1.unread_focused, b1.unread_other), (3, 3, 1));
+        // a conversation with unread mail of both kinds leaves both tabs
+        let x = inbox_of(&c, &["x"], M1);
+        assert_eq!((x.unread, x.unread_focused, x.unread_other), (3, 2, 1));
+        // the other mailbox and a read conversation are not touched
+        assert_eq!(inbox_of(&c, &["f1", "f2"], M2).unread, 3);
+        assert_eq!(inbox_of(&c, &["f2"], M1).unread, 4);
+        // the hidden set is the one the lists use: the numbers still equal the tab lists of the real query once the same threads are left out
+        let listed_without = |focus: &str, hidden: &[&str]| {
+            let f: ThreadFilter = serde_json::from_value(serde_json::json!({ "accountId": M1, "folder": "inbox", "focus": focus, "unreadOnly": true })).unwrap();
+            threads_for(&c, f).unwrap().into_iter().filter(|t| !hidden.contains(&t.thread_id.as_str())).map(|t| t.thread_id).collect::<std::collections::HashSet<_>>().len()
+        };
+        let both = inbox_of(&c, &["f1", "b1"], M1);
+        assert_eq!((both.unread_focused as usize, both.unread_other as usize), (listed_without("focused", &["f1", "b1"]), listed_without("other", &["f1", "b1"])));
+        // other folders count their own unread the same way
+        let arch = |hidden: &[&str]| folder_infos_hiding(&c, &hide(hidden)).unwrap().into_iter().find(|f| f.account_id == M1 && f.key == "archive").unwrap();
+        assert_eq!(arch(&[]).unread, 1);
+        assert_eq!(arch(&["arch"]).unread, 0);
+        assert_eq!(arch(&["arch"]).total, 1, "the total is not a number of unread mail");
+    }
+
+    /// `folder_infos` itself reads the process-wide set: a queued move hides its thread from the numbers until it is cancelled (Undo).
+    #[test]
+    fn a_queued_move_leaves_the_numbers_and_undo_puts_it_back() {
+        let c = fixture();
+        // a thread of its own: the queue is process-wide, so no other test's fixture may contain the id
+        c.execute(
+            "INSERT INTO messages(id,account_id,folder,uid,thread_id,subject,from_name,from_email,to_addrs,cc_addrs,date,snippet,seen,list_unsub)
+             VALUES('fix6-undo',?1,'inbox',900,'fix6-undo-thread','s','n','a@example.com','','',900,'',0,NULL)",
+            [M2],
+        )
+        .unwrap();
+        let n = |c: &Connection| inbox(c, M2).unread_focused;
+        assert_eq!(n(&c), 2);
+        let token = queue(vec!["fix6-undo-thread".to_string()], None, "archive".into(), None, Some("inbox".into()), 600, None);
+        assert_eq!(n(&c), 1, "gone from the numbers with the row");
+        assert!(cancel_action(token), "Undo");
+        assert_eq!(n(&c), 2, "back");
     }
 
     /// The readers of the setting use the same fallback (on), so a missing key means the same everywhere.
