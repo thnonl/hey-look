@@ -1885,6 +1885,8 @@ struct ShellInfo {
     tray: bool,
     /// debug builds only: the test data folder in use (the About page says so)
     test_data: Option<String>,
+    /// the store that updates this copy ("snap"), None when the app updates itself (update.rs `managed_by`)
+    managed: Option<&'static str>,
     /// how a PDF attachment is previewed here: "frame", "object" or "card" (pdfmode.rs)
     pdf_view: &'static str,
     /// the PDF experiment of macOS / Linux is on (HEYLOOK_PDF_INLINE): the page shows a readout of what the engine did
@@ -1910,7 +1912,7 @@ fn accounts_delay_ms() -> u64 {
 
 #[tauri::command]
 fn shell_info() -> ShellInfo {
-    ShellInfo { os: std::env::consts::OS, tray: shell::tray_ready(), test_data: legacy_names::test_data_dir().map(|p| p.display().to_string()), pdf_view: pdfmode::view().name(), pdf_test: pdfmode::experiment_on(), copy_fail: copy_forced_to_fail(), accounts_delay_ms: accounts_delay_ms() }
+    ShellInfo { os: std::env::consts::OS, tray: shell::tray_ready(), test_data: legacy_names::test_data_dir().map(|p| p.display().to_string()), managed: update::managed_by(), pdf_view: pdfmode::view().name(), pdf_test: pdfmode::experiment_on(), copy_fail: copy_forced_to_fail(), accounts_delay_ms: accounts_delay_ms() }
 }
 
 #[tauri::command]
@@ -5355,7 +5357,13 @@ pub fn run() {
             startup::stage(Some(app), "a second start was handed to this instance: showing the window");
             shell::show_main(app)
         }))
-        .plugin(tauri_plugin_autostart::init(tauri_plugin_autostart::MacosLauncher::LaunchAgent, Some(vec!["--minimized"])))
+        // "Open at login": the autostart entry is named after the app ("Hey Look!.desktop" on Linux, kept for the installed .deb and AppImage
+        // entries); in the snap it must be hey-look.desktop, the one name snapd starts (snapcraft.yaml `autostart`)
+        .plugin({
+            let b = tauri_plugin_autostart::Builder::new().args(["--minimized"]); // (macOS: the launch agent, the builder's default)
+            let b = if update::managed_by() == Some("snap") { b.app_name(update::SNAP_NAME) } else { b };
+            b.build()
+        })
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_updater::Builder::new().build())

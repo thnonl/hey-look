@@ -5,6 +5,7 @@ import { getVersion } from "@tauri-apps/api/app";
 import { t } from "../i18n";
 import { useT } from "../i18n/react";
 import { tx } from "../i18n/rich";
+import { usePlatform } from "../platform";
 import { useStore } from "../store";
 import { isStaleOffer, openUpdateLink, pct, updateKindOf, UpdateFlow, useUpdates } from "../updates";
 import { fmtDay, fmtSize, fmtWhen } from "../util";
@@ -267,6 +268,7 @@ export function UpdatesBlock({ privacy, autoSwitch }: { privacy: ReactNode; auto
   }, []);
 
   const kind = updateKindOf(update);
+  const managed = usePlatform((s) => s.managed);
   const check = () => void checkUpdate("manual").then(() => btn.current?.focus());
   const retry = <button className="link" onClick={check}>{t("updates.action.tryAgain")}</button>;
   const checked = checkedAt == null ? t("updates.status.never") : Date.now() / 1000 - checkedAt < 60 ? t("updates.status.justNow") : fmtWhen(checkedAt);
@@ -338,6 +340,20 @@ export function UpdatesBlock({ privacy, autoSwitch }: { privacy: ReactNode; auto
     );
 
   const version = update?.current || appVersion;
+  // a snap is updated by the Snap Store: the version, who updates it, the privacy statement without its update sentences, and neither
+  // the button nor the switch
+  if (managed)
+    return (
+      <div>
+        <div className="update-status">
+          <span>
+            <b>{t("updates.status.version", { version })}</b>
+          </span>
+        </div>
+        <p className="muted small">{t("updates.managed.snap")}</p>
+        <p className="muted small">{t("settings.about.privacyManaged")}</p>
+      </div>
+    );
   return (
     <div>
       <div className="update-status">

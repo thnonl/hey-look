@@ -494,6 +494,7 @@ export default defineLocale<typeof ns.en>({
   "settings.about.tagline": "{name} – ein E-Mail-Programm für den Desktop, entwickelt mit Tauri, React und Rust.",
   "settings.about.testBuild": "Testversion: Ihre E-Mails, Konten und Einstellungen werden in {dir} gespeichert, nicht im normalen Datenordner.",
   "settings.about.privacy": "Alle Funktionen sind immer aktiviert. Keine Lizenz, kein Abonnement, kein Cloud-Konto. E-Mails gehen direkt zwischen dieser App und Ihren Mailservern; KI-Funktionen verwenden nur den von Ihnen konfigurierten Endpunkt. Bei der Suche nach Updates wird GitHub (github.com) nach der neuesten Version gefragt; Updates werden erst nach Ihrer Zustimmung von GitHub heruntergeladen. Die automatische Suche können Sie unten ausschalten.",
+  "settings.about.privacyManaged": "Alle Funktionen sind immer aktiviert. Keine Lizenz, kein Abonnement, kein Cloud-Konto. E-Mails gehen direkt zwischen dieser App und Ihren Mailservern; KI-Funktionen verwenden nur den von Ihnen konfigurierten Endpunkt.",
   "settings.about.autoCheck": "Automatisch nach Updates suchen",
   "settings.about.autoCheckHint": "Beim Start von Hey Look! und wenn das Fenster nach ein paar Stunden zurückkehrt, wird nach einer neuen Version gesucht (nach einem Fehler nach 15 Minuten erneut). Es wird nur GitHub angefragt; Ihre E-Mails und Konten werden nie gesendet.",
   "settings.about.website": "Website",

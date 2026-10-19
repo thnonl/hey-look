@@ -41,6 +41,8 @@ pub enum Kind {
     Error,
     /// internal: automatic checks are off
     Disabled,
+    /// the Snap Store, which installed this copy, updates it: the app never asks GitHub
+    Managed,
     /// internal: not due yet, another check is running, or an update is already on its way
     Throttled,
 }
@@ -254,11 +256,32 @@ fn valid_cache(json: Option<&str>, current: &Version) -> Option<(Kind, UpdateInf
     }
 }
 
+/// The store whose sandbox this copy runs in, if any: `snap` when this is the Hey Look! snap (snapd sets `SNAP_NAME` and `SNAP`
+/// for every confined app, and the binary lives under `$SNAP`). All three are required: a child of a classic snap (a terminal or
+/// an IDE installed as a snap) inherits `SNAP_NAME` and `SNAP` from its parent, and a .deb or AppImage started from such a
+/// terminal must keep its own updater. Such a copy is updated by that store, so the in-app updater stays quiet and Settings >
+/// About says who updates it (`Kind::Managed`). None for the AppImage, .deb, .rpm, Windows and macOS.
+pub fn managed_by() -> Option<&'static str> {
+    managed_by_env(std::env::var("SNAP_NAME").ok().as_deref(), std::env::var_os("SNAP").map(std::path::PathBuf::from).as_deref(), std::env::current_exe().ok().as_deref())
+}
+
+/// The name snapcraft.yaml registers; the store name, the data folder `~/snap/<name>` and the plugs all carry it.
+pub const SNAP_NAME: &str = "hey-look";
+
+fn managed_by_env(snap_name: Option<&str>, snap: Option<&std::path::Path>, exe: Option<&std::path::Path>) -> Option<&'static str> {
+    match (snap_name, snap, exe) {
+        (Some(name), Some(root), Some(exe)) if name == SNAP_NAME && !root.as_os_str().is_empty() && exe.starts_with(root) => Some("snap"),
+        _ => None,
+    }
+}
+
 /// How this copy of the app was installed (the bundler patches the bundle type into the binary).
 pub fn platform_info() -> Platform {
     use tauri::utils::config::BundleType as B;
     let os = std::env::consts::OS;
-    let installer = match tauri::utils::platform::bundle_type() {
+    let installer = match (managed_by(), tauri::utils::platform::bundle_type()) {
+        (Some(store), _) => store,
+        (None, bundle) => match bundle {
         Some(B::Nsis) => "nsis",
         Some(B::Msi) => "msi",
         Some(B::App) | Some(B::Dmg) => "app",
@@ -266,6 +289,7 @@ pub fn platform_info() -> Platform {
         Some(B::Deb) => "deb",
         Some(B::Rpm) => "rpm",
         None => "unknown",
+        },
     };
     let label = match (os, installer) {
         ("windows", "msi") => "Windows (MSI)".to_string(),
@@ -273,6 +297,7 @@ pub fn platform_info() -> Platform {
         ("macos", _) => "macOS".to_string(),
         ("linux", "deb") => "Linux (.deb)".to_string(),
         ("linux", "rpm") => "Linux (.rpm)".to_string(),
+        ("linux", "snap") => "Linux (Snap)".to_string(),
         ("linux", _) => "Linux (.AppImage)".to_string(),
         (other, _) => other.to_string(),
     };
@@ -311,6 +336,8 @@ pub struct Ctx {
     pub timeout: Duration,
     pub current: String,
     pub platform: Platform,
+    /// the store that updates this copy (`managed_by`): the check answers `Managed` without a request
+    pub managed: Option<&'static str>,
 }
 
 impl Ctx {
@@ -323,6 +350,7 @@ impl Ctx {
             timeout: CHECK_TIMEOUT,
             current: app.package_info().version.to_string(),
             platform: platform_info(),
+            managed: managed_by(),
         }
     }
 
@@ -596,6 +624,7 @@ fn answer_text(r: &UpdateResult) -> String {
             Some(status) => format!("error (status {status})"),
             None => format!("error: {}", r.message.as_deref().unwrap_or("-")),
         },
+        Kind::Managed => format!("managed: this copy is updated by the {} store, no request is made", r.platform.installer),
         Kind::Disabled | Kind::Throttled => format!("{:?}", r.kind),
     }
 }
@@ -607,6 +636,10 @@ pub async fn run_check<R: Runtime>(app: &AppHandle<R>, db: &Db, busy: &AtomicBoo
         note(ctx, trigger, "skipped, another check is running");
         return without_request(db, ctx, Kind::Throttled);
     };
+    if ctx.managed.is_some() {
+        note(ctx, trigger, &format!("skipped, this copy is updated by its store ({})", ctx.platform.installer));
+        return ctx.result(Kind::Managed, read_last_check(db));
+    }
     let auto = trigger != Trigger::Manual;
     if auto && !shell::pbool(&shell::prefs(db), "checkUpdates", true) {
         note(ctx, trigger, &format!("skipped, \"Check for updates automatically\" is off in Settings; stored answer: {}", cached_offer(db, ctx)));
@@ -684,6 +717,14 @@ pub async fn run_check<R: Runtime>(app: &AppHandle<R>, db: &Db, busy: &AtomicBoo
 }
 
 static BUSY: AtomicBool = AtomicBool::new(false);
+
+/// A store-managed copy never downloads or installs a package itself (the UI never offers it; the commands can still be called).
+fn refuse_if_managed() -> R<()> {
+    match managed_by() {
+        Some(store) => Err(format!("this copy is updated by its store ({store}): the app downloads and installs no update itself")),
+        None => Ok(()),
+    }
+}
 
 #[tauri::command]
 pub async fn check_update(app: AppHandle, state: tauri::State<'_, AppState>, upd: tauri::State<'_, UpdState>, trigger: String) -> R<UpdateResult> {
@@ -831,6 +872,7 @@ fn same_version(a: &str, b: &str) -> bool {
 /// Download the update the user agreed to, with progress events on `on_event`; the verified package stays in memory.
 #[tauri::command]
 pub async fn update_download(app: AppHandle, state: tauri::State<'_, AppState>, upd: tauri::State<'_, UpdState>, version: String, on_event: Channel<DlEvent>) -> R<()> {
+    refuse_if_managed()?;
     let Some(_flag) = try_flag(&upd.downloading) else { return Err("UPDATE_BUSY: A download is already running.".into()) };
     upd.deferred.store(false, Ordering::SeqCst);
     let ch = on_event.clone();
@@ -906,6 +948,7 @@ fn forget_install(db: &Db) {
 /// version when `restart`). macOS / Linux: the package is replaced, then the app restarts or exits.
 #[tauri::command]
 pub async fn update_install(app: AppHandle, state: tauri::State<'_, AppState>, upd: tauri::State<'_, UpdState>, restart: bool, draft_saved: bool) -> R<()> {
+    refuse_if_managed()?;
     let (update, bytes) = upd.ready.lock().unwrap_or_else(|p| p.into_inner()).take().ok_or("UPDATE_NONE_READY: No update is ready to install.")?;
     upd.deferred.store(false, Ordering::SeqCst);
     let db = state.db.clone();
@@ -1145,6 +1188,46 @@ mod tests {
     }
 
     /// Every key the app can ask for exists in what the release workflow publishes (`make-latest-json.cjs`), for the universal macOS
+    #[test]
+    fn managed_store_from_the_sandbox_variables() {
+        use std::path::Path;
+        let root = Path::new("/snap/hey-look/42");
+        let inside = Path::new("/snap/hey-look/42/usr/bin/hey-look");
+        let outside = Path::new("/usr/bin/hey-look");
+        let cases: [(Option<&str>, Option<&Path>, Option<&Path>, Option<&str>, &str); 8] = [
+            (None, None, Some(outside), None, "AppImage, .deb, .rpm, Windows, macOS: no variables"),
+            (Some("hey-look"), Some(root), Some(inside), Some("snap"), "the Hey Look! snap"),
+            (Some("code"), Some(Path::new("/snap/code/1")), Some(outside), None, "a .deb started from a terminal that is a classic snap"),
+            (Some("hey-look"), None, Some(outside), None, "SNAP_NAME alone (set by hand)"),
+            (Some("hey-look"), Some(root), Some(outside), None, "the variables of the snap but the binary of the .deb"),
+            (Some("hey-look"), Some(Path::new("")), Some(inside), None, "an empty SNAP"),
+            (Some("hey-look"), Some(root), None, None, "the executable path is unknown"),
+            (Some("HEY-LOOK"), Some(root), Some(inside), None, "the name is compared exactly"),
+        ];
+        for (name, snap, exe, want, why) in cases {
+            assert_eq!(managed_by_env(name, snap, exe), want, "{why}");
+        }
+    }
+
+    /// A managed copy answers `Managed` to every trigger without one request, whatever the manifest says, and keeps nothing.
+    #[test]
+    fn managed_copy_never_asks_the_server() {
+        let s = manifest_stub(manifest("9.9.9", "https://github.com/thnonl/hey-look/releases/download/v9.9.9/x"));
+        let app = app_for(&format!("{}/latest.json", s.base));
+        let db = new_db();
+        let mut c = ctx(&s.base, 1, "1.0.0");
+        c.managed = Some("snap");
+        for t in [Trigger::Startup, Trigger::Manual, Trigger::Shown] {
+            let r = run(&app, &db, &AtomicBool::new(false), &c, t);
+            assert_eq!((r.kind, r.info.is_none(), r.from_cache), (Kind::Managed, true, false), "{t:?}");
+        }
+        std::thread::sleep(Duration::from_millis(300));
+        assert_eq!(s.count("/latest.json"), 0, "no request");
+        assert_eq!(read_last_check(&db), None, "nothing stored");
+        c.managed = None;
+        assert_eq!(run(&app, &db, &AtomicBool::new(false), &c, Trigger::Manual).kind, Kind::Available, "the same context without a store asks");
+    }
+
     /// build on both CPUs and for every installer type we ship. The same list is asserted from the other side by
     /// scripts/test-latest-json-keys.mjs, with a manifest the script really generates.
     #[test]
@@ -1496,6 +1579,7 @@ mod tests {
             timeout: Duration::from_secs(5),
             current: current.into(),
             platform: platform_info(),
+            managed: None,
         }
     }
 

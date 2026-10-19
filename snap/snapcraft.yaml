@@ -1,0 +1,74 @@
+# Snap of Hey Look! for the Snap Store (strict confinement, core24, the GNOME extension for GTK and WebKitGTK).
+# Built by .github/workflows/linux-stores.yml (snapcraft in LXD); version, summary and description come from the metainfo file.
+name: hey-look
+title: Hey Look!
+base: core24
+adopt-info: hey-look
+license: MIT
+website: https://heylook.namthai.site/
+source-code: https://github.com/thnonl/hey-look
+issues: https://github.com/thnonl/hey-look/issues
+grade: stable
+confinement: strict
+compression: lzo
+platforms:
+  amd64:
+
+# tauri-plugin-single-instance asks the session bus for this name; without the slot AppArmor refuses it, the plugin ignores the
+# refusal and every launch (menu, mailto:, autostart) would start a second full instance on the same database
+slots:
+  dbus-single-instance:
+    interface: dbus
+    bus: session
+    name: thnonl.heylook.SingleInstance
+
+apps:
+  hey-look:
+    command: usr/bin/hey-look
+    extensions: [gnome]
+    # snapd starts $SNAP_USER_DATA/.config/autostart/hey-look.desktop: the name the app's "Open at login" writes in a snap (lib.rs)
+    autostart: hey-look.desktop
+    slots: [dbus-single-instance]
+    plugs:
+      - network
+      # OAuth sign-in listens on 127.0.0.1 for the browser's redirect (oauth.rs)
+      - network-bind
+      - network-status
+      - home
+      - removable-media
+      - audio-playback
+      # printing a message (WebKitGTK through CUPS)
+      - cups
+      # passwords and OAuth tokens in the system keyring (Secret Service); not auto-connected by the store:
+      # `snap connect hey-look:password-manager-service`, or an auto-connect request on forum.snapcraft.io
+      - password-manager-service
+      # the tray icon (StatusNotifierItem / app indicator)
+      - unity7
+
+parts:
+  hey-look:
+    plugin: nil
+    source: .
+    build-snaps:
+      - node/22/stable
+      - rustup/latest/stable
+    build-packages:
+      - pkg-config
+      - libssl-dev
+      - libdbus-1-dev
+      - libwebkit2gtk-4.1-dev
+      - libayatana-appindicator3-dev
+      - librsvg2-dev
+    stage-packages:
+      - libayatana-appindicator3-1
+    parse-info: [usr/share/metainfo/io.github.thnonl.HeyLook.metainfo.xml]
+    override-build: |
+      rustup default 1.99.1
+      npm ci
+      # the Tauri CLI (not plain cargo): it turns on the custom-protocol feature, so the app serves its own pages instead of the dev
+      # server, and runs beforeBuildCommand (npm run build) first; --no-bundle: the binary only, --locked: the lock files as they are
+      npm run tauri -- build --no-bundle --ci -- --locked
+      install -Dm755 src-tauri/target/release/hey-look "$CRAFT_PART_INSTALL/usr/bin/hey-look"
+      install -Dm644 linux/io.github.thnonl.HeyLook.metainfo.xml "$CRAFT_PART_INSTALL/usr/share/metainfo/io.github.thnonl.HeyLook.metainfo.xml"
+      install -Dm644 src-tauri/icons/128x128@2x.png "$CRAFT_PART_INSTALL/usr/share/icons/hicolor/256x256/apps/hey-look.png"
+      install -Dm644 src-tauri/icons/icon.png "$CRAFT_PART_INSTALL/usr/share/icons/hicolor/512x512/apps/hey-look.png"
