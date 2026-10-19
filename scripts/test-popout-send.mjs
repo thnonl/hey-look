@@ -147,6 +147,28 @@ try {
     assert.equal((await sendCalls()).includes('cancel'), false);
   });
 
+  // ---------- Undo keeps the scroll position on every engine (Linux QA D-030: WebKitGTK moved the editor 150 -> 544 a moment AFTER the unlock; Mac and Windows kept it)
+  // The engine is simulated: when the pane stops being inert the page scrolls the editor to the caret's end after 30 ms and again after 120 ms, as that engine does.
+  await windowOf({ undo: 3 });
+  const top1 = await scrollTop();
+  assert.ok(top1 > 0);
+  await evaluate(`(() => { const pane = document.querySelector('.compose-pane'); const box = document.querySelector('.cp-editor'); new MutationObserver(() => { if (!pane.hasAttribute('inert')) { for (const ms of [30, 120]) setTimeout(() => { box.scrollTop = box.scrollHeight; }, ms); } }).observe(pane, { attributes: true, attributeFilter: ['inert'] }); return 1; })()`);
+  assert.ok(await clickSend());
+  assert.ok(await waitFor(`document.querySelectorAll('.toasts .toast-undo').length === 1`, 5000));
+  await evaluate(`document.querySelector('.toasts .toast-undo').click(); 1`);
+  assert.ok(await waitFor(`!document.querySelector('.compose-pane')?.hasAttribute('inert')`, 5000), 'still locked');
+  await sleep(900);
+  await check('Undo: the scroll position is the one at Send (within 1 px) although the engine scrolls to the caret afterwards; the caret is back in the body', async () => {
+    const top = await scrollTop();
+    assert.ok(Math.abs(top - top1) <= 1, `scrollTop ${top1} -> ${top}`);
+    assert.equal(await evaluate(`!!document.activeElement?.closest?.('.ProseMirror')`), true);
+  });
+  await check('a person scrolling after Undo is not fought: the wheel moves the editor', async () => {
+    await evaluate(`document.querySelector('.cp-editor').dispatchEvent(new WheelEvent('wheel', { deltaY: 40, bubbles: true })); document.querySelector('.cp-editor').scrollTop = 20; 1`);
+    await sleep(500);
+    assert.ok(Math.abs((await scrollTop()) - 20) <= 1, String(await scrollTop()));
+  });
+
   // ---------- X during the send hides the window, the send goes on
   await windowOf({ undo: 3 });
   assert.ok(await clickSend());

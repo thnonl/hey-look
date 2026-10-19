@@ -1100,7 +1100,26 @@ function ComposeBody({ init }: { init: ComposeInit }) {
     // (focusing must not scroll: the text is where it was at Send)
     if (!el || !el.isConnected || el.closest(".ProseMirror") || el.hasAttribute("disabled")) editor?.commands.focus(null, { scrollIntoView: false });
     else el.focus({ preventScroll: true });
-    for (const [box, top] of scrollsWas.current) if (box.isConnected) box.scrollTop = top;
+    // The scroll position is the one at Send. Not only once: the engine may move the caret into view a moment after the focus call (WebKitGTK: 150 -> 544 after Undo, D-030; WebKit on
+    // a Mac and WebView2 kept it), so it is put back now and on every frame for about a third of a second, until the person scrolls or presses a key themselves.
+    const saved = scrollsWas.current;
+    const put = () => { for (const [box, top] of saved) if (box.isConnected && Math.abs(box.scrollTop - top) > 0.5) box.scrollTop = top; };
+    put();
+    let frames = 0;
+    let raf = 0;
+    const own = () => stop();
+    const stop = () => {
+      cancelAnimationFrame(raf);
+      for (const t of ["wheel", "pointerdown", "keydown", "touchstart"]) document.removeEventListener(t, own, true);
+    };
+    for (const t of ["wheel", "pointerdown", "keydown", "touchstart"]) document.addEventListener(t, own, true);
+    const tick = () => {
+      put();
+      if (++frames < 20) raf = requestAnimationFrame(tick);
+      else stop();
+    };
+    raf = requestAnimationFrame(tick);
+    return stop;
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [locked]);
   // (in a window of its own the message that comes back after Undo or a failed send counts as changed: closing the window asks, it never loses it)
