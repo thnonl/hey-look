@@ -3892,11 +3892,16 @@ fn save_draft_on<T: std::io::Read + std::io::Write>(db: &Db, acc: &Account, s: &
             }
             let dropped = match target.as_ref() {
                 Some(draftmail::Target::Thread(_)) | None => draftmail::drop_draft(db, &t), // (a conversation id of an older caller: its own connection)
-                // no local row to find the opened draft by: its own Message-ID (from the bytes that were remembered) names it on the server
-                Some(draftmail::Target::Local(_)) if opened_row_gone => match opened.as_deref().and_then(draftmail::message_id_of).filter(|m| Some(format!("mid:{}|{m}", acc.id)) != draft_ref) {
-                    Some(mid) => draftmail::delete_by_message_id(s, &folder, &mid).map(|_| ()),
-                    None => Ok(()),
-                },
+                // the opened draft by its local row (its UID), then ALWAYS by its own Message-ID (from the bytes that were remembered or read): no local row, a UID that
+                // no longer fits (UIDVALIDITY, a move) or a removal that did not take leaves the opened version on the server next to the saved copy (Mac QA D-016/D-020)
+                Some(target @ draftmail::Target::Local(_)) => {
+                    let by_uid = if opened_row_gone { Ok(()) } else { draftmail::drop_on_session(db, acc, s, target) };
+                    let by_mid = match opened.as_deref().and_then(draftmail::message_id_of).filter(|m| Some(format!("mid:{}|{m}", acc.id)) != draft_ref) {
+                        Some(mid) => draftmail::delete_by_message_id(s, &folder, &mid).map(|_| ()),
+                        None => Ok(()),
+                    };
+                    by_uid.and(by_mid)
+                }
                 Some(target) => draftmail::drop_on_session(db, acc, s, target),
             };
             if let Err(e) = dropped {

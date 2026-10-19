@@ -287,6 +287,19 @@ pub fn delete_by_message_id<T: std::io::Read + std::io::Write>(s: &mut imap::Ses
     Ok(uids.len())
 }
 
+/// Is a message with this Message-ID in the folder? (a SEARCH proposes, the headers of every candidate decide: `verified_uids`). An error is an error: the caller decides.
+pub fn message_id_present<T: std::io::Read + std::io::Write>(s: &mut imap::Session<T>, folder: &str, mid: &str) -> crate::db::R<bool> {
+    if !plain_mid(mid) {
+        return Ok(false);
+    }
+    s.select(folder).map_err(crate::db::err)?;
+    let found: Vec<u32> = s.uid_search(format!("HEADER Message-ID \"{mid}\"")).map_err(crate::db::err)?.into_iter().collect();
+    if found.is_empty() || found.len() > MAX_CANDIDATES {
+        return Ok(false);
+    }
+    Ok(!verified_uids(s, &found, mid)?.is_empty())
+}
+
 /// The drafts of the Drafts folder that were made from this crash-recovery snapshot: `(uid, Message-ID)`. The server is asked with a HEADER search
 /// on the start of the Message-ID (recover.rs) and its answer is CHECKED against the headers it gives back: a server whose SEARCH ignores
 /// HEADER (or matches loosely) answers with every message, and none of those may count as "the draft of this snapshot".
@@ -496,7 +509,18 @@ pub fn restore_on_session<T: std::io::Read + std::io::Write>(db: &crate::Db, acc
         return Ok(false);
     };
     let folder = crate::folder_for(db, acc, "drafts")?;
-    crate::mail::append(s, &folder, &raw, true)?;
+    // Idempotent: when a copy with the Message-ID of the opened version is in Drafts (the save that replaced it did not remove it, or an earlier Discard put it back), it IS the
+    // opened version: nothing is appended, so Drafts never holds the original twice (Mac QA D-016/D-020: UID 5 and a restored UID 13). A SEARCH that fails appends as before.
+    let there = message_id_of(&raw).is_some_and(|mid| match message_id_present(s, &folder, &mid) {
+        Ok(b) => b,
+        Err(e) => {
+            crate::startup::line("draft", &format!("account {}: could not look for the opened version in Drafts, it is put back: {e}", acc.id));
+            false
+        }
+    });
+    if !there {
+        crate::mail::append(s, &folder, &raw, true)?;
+    }
     if let Err(e) = drop_on_session(db, acc, s, &Target::parse(draft_ref)) {
         crate::startup::line("draft", &format!("account {}: the draft was put back, but the saved copy of the changes could not be removed: {e}", acc.id));
     }
@@ -1007,6 +1031,57 @@ mod tests {
                     )
                     .unwrap();
             }
+        });
+    }
+
+    /// Mac QA D-016/D-020: the save that replaced the opened draft did not remove it (here: it is still on the server), then Discard changes. The restore must not append a
+    /// second copy: the original is there already, the edited copy goes, one D1 with the original text.
+    #[test]
+    fn discard_changes_does_not_append_the_original_a_second_time() {
+        crate::test_guard::within(60, || {
+            let (fake, db, acc, original) = opened_draft_at("draft-idempotent", 41);
+            let r1 = save(&fake, &db, &acc, "Original text plus edits", Some("m:a1:drafts:41".into())).unwrap();
+            fake.put_message("Drafts", 77, &original); // the opened version is on the server again (the replace missed it)
+            assert_eq!(fake.uids("Drafts").map(|u| u.len()), Some(2));
+            let appends = fake.commands().iter().filter(|c| c.starts_with("APPEND")).count();
+            let mut s = fake.connect();
+            assert_eq!(restore_on_session(&db, &acc, &mut s, &r1), Ok(true));
+            let _ = s.logout();
+            assert_eq!(fake.commands().iter().filter(|c| c.starts_with("APPEND")).count(), appends, "nothing was appended");
+            assert_eq!(fake.uids("Drafts"), Some(vec![77]), "one draft, the original");
+            assert_eq!(drafts_with(&fake, "plus edits"), 0);
+            // twice in a row: edit, autosave, Discard changes again on the draft that is there now
+            remember_opened("a1:drafts:77", &original);
+            crate::lock(&db).execute("INSERT OR REPLACE INTO messages(id,account_id,folder,uid,message_id,thread_id,subject,from_name,from_email,to_addrs,cc_addrs,date,snippet) VALUES('a1:drafts:77','a1','drafts',77,'<x@y>','t','T','n','me@example.com','','',1,'')", []).unwrap();
+            let r2 = save(&fake, &db, &acc, "Original text plus more edits", Some("m:a1:drafts:77".into())).unwrap();
+            let mut s = fake.connect();
+            assert_eq!(restore_on_session(&db, &acc, &mut s, &r2), Ok(true));
+            let _ = s.logout();
+            let st = fake.state.lock().unwrap();
+            let left: Vec<&Vec<u8>> = st.folders["Drafts"].iter().filter_map(|u| st.messages.get(&("Drafts".to_string(), *u))).collect();
+            assert_eq!(left.len(), 1, "exactly one D1 after the second round");
+            assert_eq!(left[0], &original);
+        });
+    }
+
+    /// The local row of the opened draft names a UID that is not on the server (a stale UID, a changed UIDVALIDITY) while the message is there under another one: the UID
+    /// removal misses, the Message-ID sweep of the first save finds it. One draft (the edited one) is left, never the original next to it.
+    #[test]
+    fn the_first_save_removes_the_opened_draft_by_message_id_when_its_uid_misses() {
+        crate::test_guard::within(60, || {
+            let (fake, db, acc, original) = opened_draft_at("draft-stale-uid", 51);
+            // the server has the message under uid 88, the local row still says 51
+            {
+                let mut st = fake.state.lock().unwrap();
+                st.messages.remove(&("Drafts".to_string(), 51));
+                st.folders.get_mut("Drafts").unwrap().retain(|u| *u != 51);
+            }
+            fake.put_message("Drafts", 88, &original);
+            remember_opened("a1:drafts:51", &original);
+            let r1 = save(&fake, &db, &acc, "Original text plus edits", Some("m:a1:drafts:51".into())).unwrap();
+            assert_eq!(fake.uids("Drafts").map(|u| u.len()), Some(1), "one draft after the save: {:?}", fake.uids("Drafts"));
+            assert_eq!(drafts_with(&fake, "plus edits"), 1);
+            assert!(original_of(&db, &r1).is_some());
         });
     }
 
