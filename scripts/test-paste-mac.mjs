@@ -143,6 +143,23 @@ try {
   claimed = await pressIn('metaKey: true');
   check('mac: Subject: Cmd+V is left to the Edit menu', () => assert.equal(claimed, false));
 
+  // ---- Edit > Paste and Match Style (the native menu item, D-026): the menu only tells the page (event mac-paste-match); the page does what the key does
+  await evaluate(`${ED}.commands.clearContent(); 1`);
+  await setClip('From the menu', '<p><b>From the menu</b></p>');
+  await evaluate("document.querySelector('.ProseMirror').focus(); import('/src/plainPasteKey.ts').then((m) => m.pasteMatchStyle()); 1");
+  await sleep(500);
+  d = await doc();
+  check('mac menu: Paste and Match Style in the body pastes the clipboard text as plain text, once', () => { assert.equal(d.html, '<p>From the menu</p>'); assert.equal(d.button, false); assert.equal(d.bold, false); });
+  await setClip('Menu line one\nMenu line two', '');
+  await evaluate("(() => { const i = document.querySelector('input[aria-label=\"Subject\"]'); i.focus(); i.select(); return import('/src/plainPasteKey.ts').then((m) => m.pasteMatchStyle()); })()");
+  await sleep(400);
+  const subj2 = await evaluate("document.querySelector('input[aria-label=\"Subject\"]').value");
+  check('mac menu: Paste and Match Style in the Subject box pastes the text (line break as a space)', () => assert.equal(subj2, 'Menu line one Menu line two'));
+  await evaluate("document.activeElement?.blur(); import('/src/plainPasteKey.ts').then((m) => m.pasteMatchStyle()); 1");
+  await sleep(300);
+  const subj3 = await evaluate("document.querySelector('input[aria-label=\"Subject\"]').value");
+  check('mac menu: with nothing that takes text focused it does nothing', () => assert.equal(subj3, 'Menu line one Menu line two'));
+
   // ---- Windows (the default): the key is the page's, not claimed (Ctrl+Shift+V works through the paste event, tested in test-paste-options.mjs)
   await open(null);
   await setClip('Must not appear', '');
@@ -179,6 +196,33 @@ try {
   d = await doc();
   const reads = await evaluate(`window.__readCalls`);
   check('linux: with a paste event the text lands once and the backend clipboard is not pasted as well', () => { assert.equal(d.html, '<p>FROM THE PASTE EVENT</p>'); assert.equal(reads, 0, 'the backend was not asked'); });
+  // D-032: Ctrl+Shift+V on WebKitGTK with a clipboard offered as text/html ONLY: the paste event comes (text/plain of length 0) and the engine pastes nothing; the page takes over
+  const htmlOnlyEvent = (mods, withHtml = true) => evaluate("(() => { const e = document.querySelector('.ProseMirror'); e.focus(); const k = new KeyboardEvent('keydown', { key: 'V', code: 'KeyV', " + mods + ", bubbles: true, cancelable: true }); e.dispatchEvent(k); const dt = new DataTransfer(); if (" + withHtml + ") dt.setData('text/html', '<ol><li>one</li><li>two</li></ol><p>after <a href=\"https://x.test/\">link</a></p>'); const p = new ClipboardEvent('paste', { clipboardData: dt, bubbles: true, cancelable: true }); e.dispatchEvent(p); e.dispatchEvent(new KeyboardEvent('keyup', { key: 'V', code: 'KeyV', " + mods + ", bubbles: true })); return JSON.stringify({ keyPrevented: k.defaultPrevented, pastePrevented: p.defaultPrevented }); })()").then(JSON.parse);
+  await evaluate(`${ED}.commands.clearContent(); 1`);
+  await setClip('', '<ol><li>one</li><li>two</li></ol><p>after <a href="https://x.test/">link</a></p>');
+  let ev2 = await htmlOnlyEvent('ctrlKey: true, shiftKey: true');
+  await sleep(700);
+  d = await doc();
+  check('linux: Ctrl+Shift+V with an HTML-only clipboard (the paste event has no text/plain): the text of the backend is pasted once, plain, list markers and link text kept', () => { assert.equal(ev2.pastePrevented, true); assert.match(d.text, /1. one/); assert.match(d.text, /2. two/); assert.match(d.text, /after link/); assert.equal((d.text.match(/one/g) || []).length, 1, d.text); assert.ok(!/<(ol|ul|li|strong|a )/.test(d.html), d.html); assert.equal(d.button, false); });
+  // the engine gives the page nothing at all in the paste event (no flavour): the backend's clipboard is what is pasted (this one pasted nothing before the fix)
+  await evaluate(`${ED}.commands.clearContent(); 1`);
+  ev2 = await htmlOnlyEvent('ctrlKey: true, shiftKey: true', false);
+  await sleep(700);
+  d = await doc();
+  check('linux: Ctrl+Shift+V, the paste event is empty: the clipboard of the backend is pasted once as text', () => { assert.equal(ev2.pastePrevented, true); assert.match(d.text, /1. one/); assert.equal((d.text.match(/one/g) || []).length, 1, d.text); });
+  // the backend cannot read the clipboard: the HTML of the paste event is used
+  await evaluate(`${ED}.commands.clearContent(); window.__readFails = true; 1`);
+  ev2 = await htmlOnlyEvent('ctrlKey: true, shiftKey: true');
+  await sleep(700);
+  d = await doc();
+  check('linux: the backend read fails: the HTML of the paste event is pasted as text', () => { assert.match(d.text, /1. one/); assert.equal((d.text.match(/one/g) || []).length, 1, d.text); });
+  await evaluate("window.__readFails = false; 1");
+  // a plain Ctrl+V with the same HTML-only clipboard is the engine's (rich paste), not touched
+  await evaluate(`${ED}.commands.clearContent(); 1`);
+  ev2 = await htmlOnlyEvent('ctrlKey: true');
+  await sleep(500);
+  d = await doc();
+  check('linux: Ctrl+V is left alone (the rich paste keeps its list)', () => { assert.ok(/<(ol|li)/.test(d.html), d.html); });
   // nothing in either flavour: nothing happens, no error
   await evaluate(`${ED}.commands.clearContent(); 1`);
   await setClip('', '');

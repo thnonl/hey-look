@@ -230,12 +230,14 @@ export const PasteHandling = Extension.create<{ getBase: () => BaseFont }>({
      * macOS, Cmd+Shift+V (and Cmd+Option+Shift+V, "Paste and Match Style"), and Linux when Ctrl+Shift+V pasted nothing: text only, from the clipboard the backend reads. The page gets no
      * paste event for these keys and the web view's own clipboard read asks for a click, so ProseMirror is given the text the way its pasteText does.
      */
-    const pasteTextOnly = async (v: EditorView) => {
+    const pasteTextOnly = async (v: EditorView, fromEvent = "") => {
       let clip;
       try {
         clip = await api.readClipboardText();
       } catch {
-        return; // no clipboard text we can read: nothing is pasted (a paste of a picture only has no text either)
+        // the backend cannot read it. A paste event that came with HTML (Linux, D-032) still has it: that is what is pasted as text; none: nothing is pasted (a picture only has no text either)
+        if (!fromEvent) return;
+        clip = { text: "", html: fromEvent };
       }
       if (v.isDestroyed || !v.editable || !v.hasFocus()) return;
       // the plain text when the clipboard has it, else the HTML as text (the converter of Keep text only: list markers, table rows); nothing at all: nothing happens (W2.23)
@@ -270,7 +272,20 @@ export const PasteHandling = Extension.create<{ getBase: () => BaseFont }>({
         props: {
           handleDOMEvents: {
             // (a paste event that does come after a Cmd+Shift+V we have handled is the same paste: ignored)
-            paste: (_v, e) => ((sawPaste = true), Date.now() - plainAt < 150 ? (e.preventDefault(), true) : begin(e, false)),
+            paste: (v, e) => {
+              sawPaste = true;
+              if (Date.now() - plainAt < 150) return e.preventDefault(), true;
+              // Linux, Ctrl+Shift+V (D-032): WebKitGTK handles the key as "paste as plain text" itself and pastes the text part of the clipboard. A clipboard with HTML only
+              // (a copy from some GTK programs) comes as a paste event whose text/plain is empty: it would paste nothing. The backend reads the clipboard and the HTML is
+              // pasted as text, the way Keep text only does it; a plain Ctrl+V and a clipboard with text are left to the engine.
+              if (osNow() === "linux" && shift && !e.clipboardData?.getData("text/plain")) {
+                e.preventDefault();
+                plainAt = Date.now();
+                void pasteTextOnly(v, e.clipboardData?.getData("text/html") ?? "");
+                return true;
+              }
+              return begin(e, false);
+            },
             drop: (_v, e) => begin(e, true),
             keydown: (v, e) => {
               shift = e.shiftKey;

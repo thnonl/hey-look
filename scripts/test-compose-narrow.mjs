@@ -116,6 +116,21 @@ try {
     assert.match(await bodyText(), /text that stays/);
     assert.equal(await evaluate(`document.querySelector('.cp-editor .tiptap').getAttribute('data-marker')`), 'same');
   });
+  // O-3 (QA round 3a, decided): a list that was asked for with a folder press stays next to the message when the window is widened and narrowed again; the automatic
+  // hiding of AC-2.26.4 only applies to a list that nobody asked for
+  await check('946, list asked for: 1200 and then 1000: the list stays next to the message (AC-2.26.3, not 2.26.4)', async () => {
+    for (const w of [1200, 1000]) {
+      await resize(w, 552);
+      await sleep(700);
+      const g = await geometry();
+      assert.equal(g.hiddenClass, false, `${w}: ${JSON.stringify(g)}`);
+      assert.ok(g.list.w >= 300 && g.pane.w >= 440, `${w}: ${JSON.stringify(g)}`);
+      assert.match(await bodyText(), /text that stays/);
+    }
+    await resize(946, 552);
+    await sleep(700);
+    assert.equal((await geometry()).hiddenClass, false, 'back at 946 the list is still there');
+  });
   // Discard: the list stays, the message is gone
   await evaluate(`window.__store.getState().openCompose(null, { restore: false }); 1`);
   await settle();

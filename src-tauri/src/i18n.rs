@@ -83,6 +83,7 @@ pub enum K {
     MacHide,
     MacHideOthers,
     MacShowAll,
+    MacPasteMatch,
     ActArchive,
     ActDelete,
     ActRead,
@@ -122,7 +123,7 @@ pub enum K {
 /// Every text key; the tests walk it (the app itself matches on `K`).
 #[cfg(test)]
 pub const ALL: &[K] = &[
-    K::TrayOpen, K::TrayCompose, K::TraySync, K::TrayPause, K::TrayQuit, K::MacQuit, K::MacAbout, K::MacServices, K::MacHide, K::MacHideOthers, K::MacShowAll, K::ActArchive, K::ActDelete, K::ActRead, K::ActFlag,
+    K::TrayOpen, K::TrayCompose, K::TraySync, K::TrayPause, K::TrayQuit, K::MacQuit, K::MacAbout, K::MacServices, K::MacHide, K::MacHideOthers, K::MacShowAll, K::MacPasteMatch, K::ActArchive, K::ActDelete, K::ActRead, K::ActFlag,
     K::ActReply, K::ActSnooze, K::TrayHintTitle, K::TrayHintMac, K::TrayHintLinux, K::TrayHintOther, K::TestTitle, K::TestLine1, K::TestLine2,
     K::EveryDay, K::EveryMonth, K::EveryYear, K::SaveAttachmentsTo, K::ChooseKeyFile,
     K::OpenPgpKeys, K::CalendarFile, K::SavePublicKey, K::SaveKeyBackup,
@@ -144,6 +145,8 @@ fn texts(k: K) -> [&'static str; 3] {
         K::MacHide => ["Hide Hey Look!", "Ẩn Hey Look!", "Masquer Hey Look!"],
         K::MacHideOthers => ["Hide Others", "Ẩn các mục khác", "Masquer les autres"],
         K::MacShowAll => ["Show All", "Hiện tất cả", "Tout afficher"],
+        // the Edit menu's item next to Paste (the words macOS shows for it in each language)
+        K::MacPasteMatch => ["Paste and Match Style", "Dán và khớp kiểu", "Coller et adapter le style"],
         K::ActArchive => ["Archive", "Lưu trữ", "Archiver"],
         K::ActDelete => ["Delete", "Xóa", "Supprimer"],
         K::ActRead => ["Mark as read", "Đánh dấu đã đọc", "Marquer comme lu"],
@@ -546,6 +549,19 @@ mod tests {
         assert_eq!(en(K::MacAbout), "About Hey Look!");
         assert_eq!(en(K::MacHide), "Hide Hey Look!");
         assert_eq!(en(K::MacShowAll), "Show All");
+    }
+
+    /// The Edit menu's Paste and Match Style item has its own text in every language (the ones macOS shows), never the English one outside English.
+    #[test]
+    fn every_language_has_paste_and_match_style() {
+        assert_eq!(en(K::MacPasteMatch), "Paste and Match Style");
+        for l in LANGS {
+            let text = tr_in(l, K::MacPasteMatch);
+            assert!(!text.trim().is_empty() && !text.contains("Hey Look!"), "{l:?}: {text:?}");
+            if l != Lang::En {
+                assert_ne!(text, en(K::MacPasteMatch), "{l:?} is still English");
+            }
+        }
     }
 
     #[test]

@@ -54,6 +54,10 @@ try {
     assert.deepEqual(unique(await calls()), [{ cmd: 'outbox_release', id: 's1' }]);
     assert.ok((await popCalls()).includes('popout_destroy'));
   });
+  await check('window: X without a change: the main window is told to reload the outbox (the row stops saying Paused), after the release and before the window is gone (D-034)', async () => {
+    const reqs = await evaluate(`JSON.stringify((window.__popoutRequests || []).map((r) => r.kind))`).then((x) => JSON.parse(x));
+    assert.ok(reqs.some((k) => /refresh$/.test(k)), JSON.stringify(reqs));
+  });
 
   // closing with a change: asked, Keep editing keeps everything, Discard releases
   await windowOf();

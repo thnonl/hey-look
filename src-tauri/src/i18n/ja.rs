@@ -18,6 +18,7 @@ pub fn text(k: K) -> &'static str {
         K::MacHide => "Hey Look!を非表示",
         K::MacHideOthers => "ほかを非表示",
         K::MacShowAll => "すべてを表示",
+        K::MacPasteMatch => "ペーストしてスタイルを合わせる",
         K::ActArchive => "アーカイブ",
         K::ActDelete => "削除",
         K::ActRead => "既読にする",

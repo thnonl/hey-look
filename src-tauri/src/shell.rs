@@ -272,6 +272,9 @@ pub fn mac_app_menu(app: &AppHandle) -> tauri::Result<Menu<tauri::Wry>> {
     if let Err(e) = localize_app_menu(app, &menu) {
         crate::startup::line("menu", &format!("the app menu stays in English ({e})"));
     }
+    if let Err(e) = add_paste_match_item(app, &menu) {
+        crate::startup::line("menu", &format!("the Edit menu has no Paste and Match Style item ({e})"));
+    }
     Ok(menu)
 }
 
@@ -338,12 +341,41 @@ fn replace_quit_item(app: &AppHandle, menu: &Menu<tauri::Wry>) -> Result<(), Str
     app_menu.append(&ours).map_err(|e| e.to_string())
 }
 
+/// Id of the Edit menu's "Paste and Match Style" item (macOS).
+pub const MAC_PASTE_MATCH_ID: &str = "edit-paste-match";
+/// The item, kept to change its text when the language changes.
+#[cfg_attr(not(target_os = "macos"), allow(dead_code))]
+static MAC_PASTE_MATCH_ITEM: OnceLock<MenuItem<tauri::Wry>> = OnceLock::new();
+
+/// macOS: "Paste and Match Style" (Cmd+Option+Shift+V) in the Edit menu, right after Paste. tauri's default Edit menu does not have it, and macOS apps have it (1.0.7 AC-2.24.1).
+/// The item has no action of its own: choosing it tells the focused window (event `mac-paste-match`), whose page pastes the clipboard text only, the way its
+/// Cmd+Shift+V does (src/plainPasteKey.ts). The key itself still reaches the page first (the web view offers a key equivalent to the page before the menu) and the page
+/// claims it, so one press is one paste. Never fails on account of the change: a menu without the Paste item is left as it is.
+#[cfg_attr(not(target_os = "macos"), allow(dead_code))]
+fn add_paste_match_item(app: &AppHandle, menu: &Menu<tauri::Wry>) -> Result<(), String> {
+    for item in menu.items().map_err(|e| e.to_string())? {
+        let MenuItemKind::Submenu(sub) = item else { continue };
+        let items = sub.items().map_err(|e| e.to_string())?;
+        let paste = items.iter().position(|i| matches!(i, MenuItemKind::Predefined(p) if p.text().map(|t| t.replace('&', "").trim() == "Paste").unwrap_or(false)));
+        let Some(at) = paste else { continue };
+        let ours = MenuItem::with_id(app, MAC_PASTE_MATCH_ID, crate::i18n::tr(crate::i18n::K::MacPasteMatch), true, Some("CmdOrCtrl+Alt+Shift+V")).map_err(|e| e.to_string())?;
+        sub.insert(&ours, at + 1).map_err(|e| e.to_string())?;
+        let _ = MAC_PASTE_MATCH_ITEM.set(ours);
+        return Ok(());
+    }
+    Err("the menu has no Paste item".into())
+}
+
 /// The macOS app menu's items (the tray's items are handled in `setup_tray`).
 #[cfg_attr(not(target_os = "macos"), allow(dead_code))]
 pub fn mac_menu_event(app: &AppHandle, event: MenuEvent) {
     if event.id().as_ref() == MAC_QUIT_ID {
         crate::startup::stage(Some(app), "quit: asked through the app menu (Quit Hey Look! / Cmd+Q)");
         crate::request_quit(app);
+    } else if event.id().as_ref() == MAC_PASTE_MATCH_ID {
+        // the focused window pastes (a page that is not an editor does nothing)
+        let label = app.webview_windows().into_iter().find(|(_, w)| w.is_focused().unwrap_or(false)).map(|(l, _)| l).unwrap_or_else(|| "main".into());
+        let _ = app.emit_to(label.as_str(), "mac-paste-match", ());
     }
 }
 
@@ -395,6 +427,9 @@ pub fn refresh_language(app: &AppHandle, db: &Db) {
     }
     if let Some(q) = MAC_QUIT_ITEM.get() {
         let _ = q.set_text(tr(K::MacQuit));
+    }
+    if let Some(p) = MAC_PASTE_MATCH_ITEM.get() {
+        let _ = p.set_text(tr(K::MacPasteMatch));
     }
     for (item, k) in MAC_MENU_ITEMS.get().into_iter().flatten() {
         let _ = item.set_text(tr(*k));
@@ -900,7 +935,10 @@ mod platform_tests {
         let refresh = &refresh[..refresh.find("
 }
 ").unwrap()];
-        assert!(refresh.contains("MAC_MENU_ITEMS") && refresh.contains("MAC_QUIT_ITEM"), "{refresh}");
+        assert!(refresh.contains("MAC_MENU_ITEMS") && refresh.contains("MAC_QUIT_ITEM") && refresh.contains("MAC_PASTE_MATCH_ITEM"), "{refresh}");
+        // Paste and Match Style (AC-2.24.1): added to the Edit menu with Cmd+Option+Shift+V, and the menu event reaches the focused window as `mac-paste-match`
+        assert!(src.contains("add_paste_match_item(app, &menu)") && src.contains("\"CmdOrCtrl+Alt+Shift+V\""), "the Edit menu item is not added");
+        assert!(src.contains("emit_to(label.as_str(), \"mac-paste-match\""), "the menu event does not reach the window");
     }
 
     #[test]

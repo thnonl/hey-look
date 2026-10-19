@@ -18,6 +18,7 @@ pub fn text(k: K) -> &'static str {
         K::MacHide => "Ocultar Hey Look!",
         K::MacHideOthers => "Ocultar otros",
         K::MacShowAll => "Mostrar todo",
+        K::MacPasteMatch => "Pegar y ajustar estilo",
         K::ActArchive => "Archivar",
         K::ActDelete => "Eliminar",
         K::ActRead => "Marcar como leído",

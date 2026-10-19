@@ -6,7 +6,7 @@ import { applySavedLanguage } from "./bootLang";
 import { GuardMenuHost } from "./components/GuardMenuHost";
 import { installContextGuard } from "./contextGuard";
 import { loadPlatform } from "./platform";
-import { installPlainPasteKey } from "./plainPasteKey";
+import { installMacPasteMatch, installPlainPasteKey } from "./plainPasteKey";
 import PopoutRoot from "./popout/PopoutRoot";
 import { installModifierTracking } from "./popout/modifier";
 import { routeOf } from "./popout/route";
@@ -29,6 +29,7 @@ async function boot(): Promise<boolean> {
   if (route.kind !== "main") await loadPlatform();
   installContextGuard(); // no native webview menu in a release build (see contextPolicy.ts)
   installPlainPasteKey(); // macOS: Cmd+Shift+V in a text box (WKWebView sends no paste event for it)
+  installMacPasteMatch(); // macOS: Edit > Paste and Match Style (the menu item tells the focused window)
   ReactDOM.createRoot(document.getElementById("root") as HTMLElement).render(
     <React.StrictMode>
       {route.kind === "main" ? <App /> : <PopoutRoot route={route} />}

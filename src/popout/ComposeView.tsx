@@ -62,7 +62,10 @@ export default function ComposeView({ label, init }: PopoutViewProps) {
   const releasePause = useCallback(async () => {
     const id = held.current;
     held.current = null;
-    if (id) await api.outboxRelease(id).catch(quiet);
+    if (!id) return;
+    await api.outboxRelease(id).catch(quiet);
+    // the Scheduled list of the main window shows "Paused - editing" until it reloads the outbox: tell it now (event-driven, as the Schedule path does; D-034, WebKitGTK showed it for 14 s)
+    notifyMain("refresh");
   }, []);
   const run = useCallback((fx: Fx) => {
     switch (fx) {

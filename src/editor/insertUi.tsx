@@ -294,7 +294,11 @@ function TableTools({ editor }: { editor: Editor }) {
     const w = el.offsetWidth;
     const h = el.offsetHeight;
     if (box.bottom < pane.top || box.top > pane.bottom) return setPos(null); // the table is scrolled out of the pane
-    const top = Math.max(pane.top + 4, box.top - h - 6);
+    // never over the table: above it when the pane has room there; else below it (a table that is the first thing in the body has no room above: the bar used to be pushed down
+    // onto its first row); else (a table as tall as the pane) above the pane's top edge, over the formatting row, which is the one place that hides no cell
+    const above = box.top - h - 6;
+    const below = box.bottom + 6;
+    const top = above >= pane.top + 4 ? above : below + h <= Math.min(pane.bottom, window.innerHeight) - 4 ? below : Math.max(4, above);
     const { shift } = fitInWindow({ left: box.left, right: box.left + w, top, bottom: top + h }, pane.right, window.innerHeight, 6);
     setPos({ left: Math.max(pane.left + 4, box.left + shift), top });
   }, [box, editor, menus, working]);

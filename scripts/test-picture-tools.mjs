@@ -27,7 +27,7 @@ assert.match(tsx, /aria-label=\{t\("compose\.pic\.remove"\)\}/, "the icon button
 // Esc leaves the toolbar / the alt text popover and returns to the editor
 const esc = tsx.slice(tsx.indexOf('className="img-tools-anchor"'), tsx.indexOf('<div className="img-tools-box">'));
 assert.match(esc, /e\.key !== "Escape"/);
-assert.match(esc, /setAltOpen\(false\);\s*editor\?\.commands\.focus\(\)/);
+assert.match(esc, /setAltOpen\(false\);\s*backToEditor\(sel\.pos\)/); // (D-033: the focus goes back and the picture selection is set again, see test-picture-esc.mjs)
 // both editors mount it
 assert.match(compose, /usePictureTools\(\{ editor, bodyRef, sizes: MESSAGE_PICTURE_SIZES/);
 assert.match(read("../src/components/RichEditor.tsx"), /usePictureTools\(\{ editor, bodyRef, sizes: SIGNATURE_PICTURE_SIZES/);

@@ -152,6 +152,29 @@ export function usePictureTools({ editor, bodyRef, sizes, onLink, onAttachment, 
     setAltOpen(false);
   };
 
+  /**
+   * Esc from the toolbar: the focus goes back to the text and the picture stays selected (so Delete removes it, AC-2.18.1). Focusing the editor makes some engines (WebKitGTK, D-033)
+   * put the caret at the start of the text a moment later, which turned the picture selection into a text selection and took the toolbar away. So the selection is set again
+   * after the focus call and again on the next frames and a few milliseconds on, if it is not the picture any more; the focus is taken without scrolling.
+   */
+  const backToEditor = (pos: number) => {
+    if (!editor) return;
+    let live = true; // (until the person does something themselves)
+    const stop = () => (live = false);
+    document.addEventListener("keydown", stop, { once: true, capture: true });
+    document.addEventListener("pointerdown", stop, { once: true, capture: true });
+    const want = () => {
+      if (!live || editor.isDestroyed) return;
+      const s = editor.state.selection;
+      if (!(s instanceof NodeSelection && s.from === pos && s.node.type.name === "image")) editor.chain().setNodeSelection(pos).run();
+    };
+    want();
+    editor.view.focus();
+    want();
+    for (const ms of [0, 30, 90, 200]) setTimeout(want, ms);
+    requestAnimationFrame(want);
+  };
+
   const rove = (id: string) => ({ "data-rove": id, tabIndex: id === active ? 0 : -1, onFocus: () => setActive(id) });
 
   const onBarKeyDown = (e: KeyboardEvent<HTMLDivElement>) => {
@@ -208,7 +231,7 @@ export function usePictureTools({ editor, bodyRef, sizes, onLink, onAttachment, 
         e.preventDefault();
         e.stopPropagation();
         setAltOpen(false);
-        editor?.commands.focus();
+        backToEditor(sel.pos);
       }}
     >
       <div className="img-tools-box" ref={toolsBoxRef}>
