@@ -203,7 +203,7 @@ function WebmailSearch({ targets, query, openFolder }: { targets: WebmailTarget[
   );
 }
 
-export function MessageList() {
+export function MessageList({ hidden = false }: { hidden?: boolean } = {}) {
   const tr = useT();
   const lang = useLang();
   const {
@@ -309,7 +309,7 @@ export function MessageList() {
     );
 
   return (
-    <section className="msg-list" aria-label={tr("mail.list.aria")}>
+    <section className="msg-list" aria-label={tr("mail.list.aria")} inert={hidden || undefined} aria-hidden={hidden || undefined}>
       <div className={`ml-head ${multi ? "multi" : ""}`}>
         <div className="ml-title">
           {showTabs ? (

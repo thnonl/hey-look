@@ -41,6 +41,8 @@
 - Sending from a compose window keeps the message on screen: it is locked (nothing can be typed or clicked), the Send button reads "Sending..." and one message at the bottom of the window counts "Sending... n s" with Undo (it stays the whole Undo send time); Undo gives you the same message back, editable, with the text, caret, scroll position and undo history as they were, and the window closes by itself once the message has gone; a failed send unlocks it too. The "Sending..." message with Undo in the main window also stays the whole Undo send time instead of 6 seconds
 - Settings > Keyboard shortcuts lists Ctrl+Shift+C / Ctrl+Shift+B (Cmd on a Mac) for adding Cc / Bcc while writing
 - Ctrl+Shift+K (Cmd+Shift+K on a Mac) opens the command bar from anywhere, also from the message body and the signature and template editors, where Ctrl+K stays the link; Esc closes the bar and gives the focus back where it was, with the selected text still selected (listed in Settings > Keyboard shortcuts)
+- In a window narrower than 1100 px, a message you write in the pane takes the width of the message list (at the smallest window the pane was only about 308 to 500 px wide): the list comes back, with its width as it was, when you close the message, press a folder (also the one that is open), start a search, press Ctrl+1 (Cmd+1) or make the window wider; the message stays open next to it
+- Pressing Tab or Shift+Tab onto the All day switch (the meeting of a new message, the New event dialog and the other switches of Settings) scrolls it into view: in a low message window it used to stay hidden under the action row
 
 ## 1.0.6 — 2026-10-18
 

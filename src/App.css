@@ -179,6 +179,8 @@ button:focus-visible, [role="option"]:focus-visible, [role="treeitem"]:focus-vis
 .pane-bottom .folder-pane, .pane-bottom .workspace > .splitter { grid-row: 1 / span 2; }
 .pane-bottom .reading-region { grid-column: 3; border-top: 1px solid var(--border); }
 .workspace { transition: grid-template-columns .2s var(--ease); } /* the side menu folds / opens: the columns glide to their new widths (a window resize changes no computed value, so it never glides) */
+.workspace.list-hidden { grid-template-columns: var(--fw, 248px) 6px 0 0 1fr; } /* (W2.26) a message written in a window narrower than 1100 px takes the width of the list: the same glide as the side menu, the list keeps its saved width (--lw) */
+.workspace.list-hidden > .msg-list, .workspace.list-hidden > .splitter[data-which="list"] { min-width: 0; overflow: hidden; visibility: hidden; transition: visibility 0s .2s; } /* (hidden once the columns have glided: no Tab stop, no reading; back at once when the list returns) */
 .workspace.dragging { transition: none; } /* a splitter being dragged follows the pointer at once */
 .splitter.off { cursor: default; pointer-events: none; }
 .splitter.off::after { transition: none; }
@@ -809,8 +811,9 @@ button.ov-tag:hover { background: color-mix(in srgb, var(--accent), transparent 
 .lr-title { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .lr-name > .small { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .lr-tags { display: inline-flex; align-items: center; gap: 6px; flex: none; }
-.switch { display: inline-flex; align-items: center; gap: 9px; cursor: pointer; }
-.switch input { position: absolute; opacity: 0; width: 0; height: 0; }
+.switch { display: inline-flex; align-items: center; gap: 9px; cursor: pointer; position: relative; }
+/* (the box of the real checkbox is the track and sits in the label: an absolutely placed 0 x 0 input belonged to the pane, not to the box that scrolls, so a header that scrolls never brought a focused switch into view - the All day switch of the meeting strip stayed under the action row, D-012) */
+.switch input { position: absolute; left: 0; top: 50%; width: 40px; height: 22px; margin: 0; transform: translateY(-50%); opacity: 0; }
 .switch .track { width: 40px; height: 22px; border-radius: 11px; background: var(--bg3); border: 1px solid color-mix(in srgb, var(--border), var(--fg) 25%); display: inline-flex; align-items: center; padding: 0 2px; transition: background .14s, border-color .14s; }
 .switch .thumb { width: 16px; height: 16px; border-radius: 50%; background: var(--muted); transition: transform .16s var(--ease), background .14s; box-shadow: 0 1px 2px rgba(0,0,0,.3); }
 .switch input:checked + .track { background: var(--accent); border-color: var(--accent); }

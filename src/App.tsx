@@ -33,7 +33,7 @@ import { frameAction, initFrame, useFrame } from "./winframe";
 import { startSupportNudge } from "./supportNudgeHost";
 import { recoverUnsaved, reshowRecoveryToast } from "./composeRecovery";
 import { composeSwallowsAppKey, inEditable, keyAction, moduleSwitchKey, sidebarToggleKey } from "./composeKeys";
-import { MIN_READER_W, RAIL_W, SPLITTER_W, sidebarLayout } from "./sidebarState";
+import { MIN_READER_W, RAIL_W, SPLITTER_W, listHiddenWhileComposing, sidebarLayout } from "./sidebarState";
 import { toggleSidebarNow, useWindowWidth } from "./useSidebar";
 
 const clamp = (n: number, lo: number, hi: number) => Math.max(lo, Math.min(hi, n));
@@ -42,10 +42,11 @@ const clamp = (n: number, lo: number, hi: number) => Math.max(lo, Math.min(hi, n
 function Splitter({ which, label, value, min, max, onLive, onCommit, disabled }: { which: "folder" | "list"; label: string; value: number; min: number; max: number; onLive: (w: number) => void; onCommit: (w: number) => void; disabled?: boolean }) {
   const drag = useRef<{ x: number; w: number } | null>(null);
   // the side menu folded to icons has no width to change: the line stays (it is the edge of the pane), the drag and the keys are off
-  if (disabled) return <div className="splitter off" aria-hidden />;
+  if (disabled) return <div className="splitter off" data-which={which} aria-hidden />;
   return (
     <div
       className="splitter"
+      data-which={which}
       role="separator"
       aria-orientation="vertical"
       aria-label={label}
@@ -79,11 +80,14 @@ function App() {
   const loaded = useStore((s) => s.loaded);
   const hasAccounts = useStore((s) => s.accounts.length > 0);
   const module = useStore((s) => s.module);
+  const listAsked = useStore((s) => s.listAsked);
   const setPrefs = useStore((s) => s.setPrefs);
   const customFrame = useFrame((f) => f.custom);
   const [live, setLive] = useState<{ f?: number; l?: number }>({});
   const width = useWindowWidth();
   const readingPane = prefs.readingPane;
+  // a message written in the pane in a window narrower than 1100 px takes the width of the list (W2.26); the list is back for the things in listHiddenWhileComposing
+  const listHidden = listHiddenWhileComposing({ width, readingPane, module, composeOpen: !!compose, listAsked });
   // the side menu: in full or as a column of icons (sidebarState.ts); the width of the window and the person's own choice decide
   const fw = live.f ?? prefs.folderW;
   const lw = live.l ?? prefs.listW;
@@ -337,6 +341,12 @@ function App() {
       const n = st.accounts.length;
       // Ctrl/Cmd+K: the command bar, except inside an editor (compose body), where it is the link UI of that editor
       const ka = keyAction(e, { inEditor: inEditable(e.target) });
+      // Ctrl/Cmd+1 while a message is written: the list comes back next to it (W2.26); the module and the message stay as they are
+      if (st.compose && st.module === "mail" && !e.defaultPrevented && moduleSwitchKey(e, { inField: false, inCompose: false, modalOpen: !!(st.dialog || st.commandOpen || st.ask) }) === "go-mail") {
+        e.preventDefault();
+        st.askList();
+        return;
+      }
       if (ka === "command-bar") {
         e.preventDefault();
         st.setCommandOpen(true);
@@ -466,14 +476,14 @@ function App() {
       {hasAccounts ? (
         <>
           <Ribbon />
-          <div className={`workspace ${live.f !== undefined || live.l !== undefined ? "dragging" : ""}`} style={{ ["--fw" as string]: `${folded ? RAIL_W : fw}px`, ["--fw-full" as string]: `${fw}px`, ["--lw" as string]: `${lw}px` }}>
+          <div className={`workspace ${live.f !== undefined || live.l !== undefined ? "dragging" : ""} ${listHidden ? "list-hidden" : ""}`} style={{ ["--fw" as string]: `${folded ? RAIL_W : fw}px`, ["--fw-full" as string]: `${fw}px`, ["--lw" as string]: `${lw}px` }}>
             <FolderPane collapsed={folded} />
             <Splitter which="folder" disabled={folded} label={t("app.splitter.folder")} value={fw} min={180} max={folderMax} onLive={(w) => setLive((s) => ({ ...s, f: w }))} onCommit={(w) => (setLive((s) => ({ ...s, f: undefined })), setPrefs({ folderW: w }))} />
             {module === "calendar" ? (
               <CalendarView />
             ) : (
               <>
-                <MessageList />
+                <MessageList hidden={listHidden} />
                 {prefs.readingPane === "right" && (
                   <Splitter which="list" label={t("app.splitter.list")} value={lw} min={300} max={listMax} onLive={(w) => setLive((s) => ({ ...s, l: w }))} onCommit={(w) => (setLive((s) => ({ ...s, l: undefined })), setPrefs({ listW: w }))} />
                 )}

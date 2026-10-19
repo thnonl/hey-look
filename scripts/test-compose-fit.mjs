@@ -63,9 +63,12 @@ if (flag('gallery')) {
   // Meeting on at the least window (946 x 552 = a 960 x 560 window): switched on in a new message (English) and in a reply (Russian, long texts)
   add({ mode: 'main', lang: 'en', w: 946, h: 552, theme: 'light', scen: 'meetingNew' });
   add({ mode: 'main', lang: 'ru', w: 946, h: 552, theme: 'dark', scen: 'meetingReply' });
-  // (the pane is only 308 px wide in the real app at that window: the window of 768 px of this preview has the same pane)
-  add({ mode: 'main', lang: 'en', w: 768, h: 552, theme: 'dark', scen: 'meetingNew' });
-  add({ mode: 'main', lang: 'ru', w: 768, h: 552, theme: 'light', scen: 'meetingReply' });
+  // (the pane was only 308 px wide in the real app at a 960 px window before 1.0.7 W2.26 hid the list while writing: the window of 768 px of this preview has the same pane
+  // when the list is asked for, `list: true`: the 1.0.6 layout, the list is hidden below 1100 px otherwise and the pane is wide)
+  add({ mode: 'main', lang: 'en', w: 768, h: 552, theme: 'dark', scen: 'meetingNew', list: true });
+  add({ mode: 'main', lang: 'ru', w: 768, h: 552, theme: 'light', scen: 'meetingReply', list: true });
+  // ... and the list shown at the least window itself: the pane is 308 px wide
+  add({ mode: 'main', lang: 'en', w: 946, h: 552, theme: 'dark', scen: 'worst', list: true, deep: true });
   // a main window 80 px lower than the least one (BUG-1 of the 1.0.7 WP1 QA): the header has room for one field only (31 px under the sticky action row), a field is still whole when it is focused
   add({ mode: 'main', lang: 'en', w: 960, h: 480, theme: 'dark', scen: 'meeting' });
 } else {
@@ -78,6 +81,8 @@ if (flag('gallery')) {
     add({ mode: 'main', lang, w, h, theme: n % 2 ? 'light' : 'dark', scen, deep: lang === 'en' && scen === 'worst' && [[960, 520], [960, 560], [1280, 720], [1920, 480]].some(([a, b]) => a === w && b === h) });
   }
   for (const lang of langs) for (const [w, h] of [[946, 552], [946, 480]]) for (const scen of ['meetingNew', 'meetingReply']) add({ mode: 'main', lang, w, h, theme: lang === 'en' ? 'light' : 'dark', scen });
+  // the list asked for while writing (a folder pressed): the narrow pane next to the list, as in 1.0.6 (W2.26 keeps this case)
+  for (const lang of langs) for (const scen of lang === 'en' ? ['worst', 'meetingNew'] : ['worst']) add({ mode: 'main', lang, w: 946, h: 552, theme: lang === 'en' ? 'light' : 'dark', scen, list: true });
   for (const lang of langs) for (const [w, h] of [[560, 440], [760, 680], [560, 560]]) for (const scen of lang === 'en' ? ['base', 'worst', 'many'] : ['worst']) add({ mode: 'popout', lang, w, h, theme: scen === 'worst' ? 'dark' : 'light', scen, deep: lang === 'en' && scen === 'worst' });
 }
 
@@ -124,7 +129,7 @@ const press = async (key, code, shift = false) => {
 };
 const failures = [];
 let checks = 0;
-const fail = (cfg, msg) => { const line = `[${cfg.mode} ${cfg.lang} ${cfg.w}x${cfg.h} ${cfg.theme} ${cfg.scen}] ${msg}`; failures.push(line); console.error('FAIL ' + line); };
+const fail = (cfg, msg) => { const line = `[${cfg.mode} ${cfg.lang} ${cfg.w}x${cfg.h} ${cfg.theme} ${cfg.scen}${cfg.list ? ' +list' : ''}] ${msg}`; failures.push(line); console.error('FAIL ' + line); };
 const ok = (cfg, cond, msg) => { checks++; if (!cond) fail(cfg, msg); };
 
 // ---------- what each scenario opens ----------
@@ -195,7 +200,8 @@ const MEETING_ROWS = (rest) => `(() => {
     const ev = pane.querySelector('.cp-event');
     if (ev) {
       const r = ev.getBoundingClientRect(), room = H.bottom - limit();
-      if (r.top < limit() - 1 || r.top > limit() + 12) fails.push('at rest the meeting strip starts at y ' + px(r.top) + ', not under the action row (y ' + px(limit()) + ')');
+      // (with the wide pane of a 960 px window - the list is hidden while writing, W2.26 - the strip is lower and fits the header whole: it then starts where the layout puts it)
+      if (r.top < limit() - 1 || (r.top > limit() + 12 && r.height > room)) fails.push('at rest the meeting strip starts at y ' + px(r.top) + ', not under the action row (y ' + px(limit()) + ')');
       if (r.height <= room && r.bottom > H.bottom + 1) fails.push('at rest the meeting strip (' + px(r.height) + ' px) fits the header (' + px(room) + ' px) but is cut at its lower edge: ends at y ' + px(r.bottom) + ' > ' + px(H.bottom));
     }
   }
@@ -234,12 +240,24 @@ async function meetingRows(cfg) {
   while (!a.isWhere && stops < 14) {
     await press('Tab', 'Tab'); await sleep(80); a = await evaluate(FOCUSED); stops++;
     if (!a.inHead) break;
-    ok(cfg, a.y[1] === a.y[0] || (a.whole && a.hit), `Meeting on: Tab stop ${a.name} is not whole and on top in the header: y ${a.y} in ${a.room}, hit ${a.hit}`);
+    // (every stop has a box: the All day switch used to be a 0 x 0 input outside the scrolled box and stayed under the action row, 1.0.7 D-012)
+    ok(cfg, a.y[1] > a.y[0] && a.whole && a.hit, `Meeting on: Tab stop ${a.name} is not whole and on top in the header: y ${a.y} in ${a.room}, hit ${a.hit}`);
   }
   ok(cfg, a.isWhere, `Meeting on: Tab from Subject did not reach Where within ${stops} stops (stopped on ${a.name})`);
   await evaluate(`document.activeElement.blur(); document.querySelector('.cp-head').scrollTop = 0; document.querySelector('#mt-where').focus(); 1`); await sleep(80); // (blurred first: focusing the element that has the focus scrolls nothing)
   a = await evaluate(FOCUSED);
   ok(cfg, a.isWhere && a.whole && a.hit, `Meeting on: Where, focused from the top of the header, is not whole and on top: ${JSON.stringify(a)}`);
+  // Shift+Tab from Where back up to To (D-012): every stop is whole in the part of the header that shows - the focused field is never the one that scrolled away - and the
+  // header ends scrolled to a place where the field above is reachable (Shift+Tab goes on to To; the wheel and the keys scroll the box to its top)
+  let back = 0, reachedTo = false;
+  while (back < 24 && !reachedTo) {
+    await press('Tab', 'Tab', true); await sleep(80); a = await evaluate(FOCUSED); back++;
+    if (!a.inHead) break;
+    ok(cfg, a.y[1] > a.y[0] && a.whole && a.hit, `Meeting on: Shift+Tab stop ${a.name} is not whole and on top in the header: y ${a.y} in ${a.room}, hit ${a.hit}`);
+    reachedTo = await evaluate(`document.activeElement === document.querySelector('.cp-fields input')`); // (the first input of the fields is the To field)
+  }
+  ok(cfg, reachedTo, `Meeting on: Shift+Tab from Where did not reach To within ${back} stops (stopped on ${a.name})`);
+  await evaluate(`document.querySelector('.cp-head').scrollTop = 0; 1`);
 }
 
 async function open(cfg) {
@@ -248,6 +266,8 @@ async function open(cfg) {
     await H.openApp(hash, cfg.w, cfg.h);
     await evaluate(`window.__store.getState().setPrefs({ theme: ${JSON.stringify(cfg.theme)} }); window.__store.setState({ aiConfigured: true }); 1`);
     await evaluate(`window.__store.getState().openCompose(${INIT[cfg.scen]}); 1`);
+    // the list asked for while writing (a folder pressed): the 1.0.6 layout, the narrow pane next to the list (W2.26 hides the list below 1100 px otherwise)
+    if (cfg.list) await evaluate(`window.__store.getState().askList(); 1`);
   } else {
     // the compose window in a plain tab (the mock answers popout_init); the message comes from the same init as above through the mock's `reply` / `new` kinds,
     // the rest is set up below
@@ -282,7 +302,7 @@ async function typeInto(cfg, selector, text) {
   await evaluate(`document.querySelector(${JSON.stringify(selector)}).focus()`);
   await typeText(text, 8);
 }
-const tag = (cfg) => `${cfg.mode}-${cfg.lang}-${cfg.w}x${cfg.h}-${cfg.theme}-${cfg.scen}`;
+const tag = (cfg) => `${cfg.mode}-${cfg.lang}-${cfg.w}x${cfg.h}-${cfg.theme}-${cfg.scen}${cfg.list ? '-list' : ''}`;
 const shot = async (cfg, name) => { if (!SHOTS) return; fs.mkdirSync(SHOTS, { recursive: true }); const r = await cdp('Page.captureScreenshot', { format: 'png' }); fs.writeFileSync(path.join(SHOTS, `${tag(cfg)}-${name}.png`), Buffer.from(r.data, 'base64')); };
 
 function layout(cfg, g, when) {

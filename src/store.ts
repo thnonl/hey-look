@@ -288,6 +288,9 @@ interface State {
   keysRev: number;
   compose: ComposeInit | null;
   composeKey: number; // changes on every open so a new message never inherits the old one's state
+  /** The person asked for the message list while a message is written in a narrow window (a folder pressed, a search started, Ctrl/Cmd+1): the list stays next to it (W2.26). Cleared when the message is closed or another one opens. */
+  listAsked: boolean;
+  askList: () => void;
   composeDirty: boolean;
   /** Saves the open message as a draft; resolves true when it was saved (false: the save failed, the message is still open). */
   composeSaver: ((opts?: ComposeSaveOpts) => Promise<boolean | void>) | null;
@@ -647,6 +650,8 @@ export const useStore = create<State>((set, get) => ({
   keysRev: 0,
   compose: null,
   composeKey: 0,
+  listAsked: false,
+  askList: () => set({ listAsked: true }),
   composeDirty: false,
   composeSaver: null,
   composeEnd: null,
@@ -766,7 +771,8 @@ export const useStore = create<State>((set, get) => ({
 
   setView: async (folder, accountId = null) => {
     cancelMore();
-    set({ folder, accountId, selected: null, messages: [], threads: [], loading: true, checked: new Set(), search: "", module: "mail" });
+    // (a folder pressed while a message is written in a narrow window: the person wants to see it, so the list comes back next to the message, W2.26)
+    set({ folder, accountId, selected: null, messages: [], threads: [], loading: true, checked: new Set(), search: "", module: "mail", ...(get().compose ? { listAsked: true } : {}) });
     if (get().prefs.lastModule !== "mail") get().setPrefs({ lastModule: "mail" });
     await get().refresh();
   },
@@ -775,7 +781,7 @@ export const useStore = create<State>((set, get) => ({
     // searching is a mail thing: leave the calendar
     if (get().module !== "mail") get().setModule("mail");
     cancelMore();
-    set({ search, selected: null, messages: [], loading: true });
+    set({ search, selected: null, messages: [], loading: true, ...(search.trim() && get().compose ? { listAsked: true } : {}) });
     if (remember && search.trim()) {
       const recent = [search.trim(), ...get().prefs.recentSearches.filter((r) => r !== search.trim())].slice(0, 8);
       get().setPrefs({ recentSearches: recent });
@@ -1203,7 +1209,7 @@ export const useStore = create<State>((set, get) => ({
     // or a forward has built it from that mail already. It comes back when writing ends and no other mail was picked.
     const before = get().compose ? composeBefore : get().selected;
     composeBefore = compose ? before : null;
-    set({ compose, composeKey: get().composeKey + 1, composeDirty: false, composeSaver: null, composeEnd: null, ...(compose ? { selected: null, messages: [], checked: new Set<string>() } : {}) });
+    set({ compose, composeKey: get().composeKey + 1, listAsked: false, composeDirty: false, composeSaver: null, composeEnd: null, ...(compose ? { selected: null, messages: [], checked: new Set<string>() } : {}) });
     if (!compose && opts?.restore !== false) {
       const back = selectionAfterCompose(before, get().selected, get().threads.map((x) => x.threadId));
       if (back) await get().select(back);

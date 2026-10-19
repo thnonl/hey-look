@@ -21,6 +21,22 @@ export const SPLITTER_W = 6;
  * 448 px at 1100; the smallest window (960) is then served by the icons: 960 - 56 - 392 - 12 = 500 px of reading pane instead of 308.
  */
 export const AUTO_COLLAPSE_BELOW = 1100;
+/**
+ * W2.26: the message list is hidden while a message is written inline in a window narrower than the breakpoint, so the pane gets the width (at 960 px the pane was
+ * 308 to 500 px wide next to the list). Only in the Mail module with the reading pane on the right (with the pane below, Compose has the full width already), and
+ * not when the person asked for the list (a folder pressed, a search started, Ctrl/Cmd+1): then both stay until the message is closed or another one is opened.
+ */
+export interface ListHiddenInput {
+  width: number;
+  readingPane: "right" | "bottom";
+  module: "mail" | "calendar";
+  composeOpen: boolean;
+  listAsked: boolean;
+}
+export function listHiddenWhileComposing(i: ListHiddenInput): boolean {
+  return i.composeOpen && i.module === "mail" && i.readingPane === "right" && i.width < AUTO_COLLAPSE_BELOW && !i.listAsked;
+}
+
 /** The reading pane never gets narrower than this because of the menu (px): the message header and its action bar still fit in one line. */
 export const MIN_READER_W = 440;
 
