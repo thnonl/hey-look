@@ -371,6 +371,7 @@ if (!args.has("--lint-only")) {
   const rust = walk(rustDir).filter((f) => f.endsWith(".rs") && !/tests?\.rs$|_tests|fake/.test(f)).map((f) => readFileSync(f, "utf8")).join("\n");
   const HANDLED_ELSEWHERE = new Set([
     "PGP_LOCKED", "PGP_MISSING_KEYS", "PGP_FAILED", "ATT_RISKY", // special shapes: store.ts friendlyError
+    "DRAFT_EMPTY", // Compose shows compose.toast.nothingToSave (W13.5), never the sentence of the code
     "CAL_READ_ONLY", "CAL_GONE", "CAL_ERROR", "CAL_CONFLICT", "CAL_NOT_SET_UP", "CAL_OFFLINE", "CAL_WRONG_ACCOUNT", "CAL_TIMEOUT", "CAL_PARTIAL",
     "CAL_DENIED", "CAL_BLOCKED", "CAL_AUTH", "CAL_CANCELLED", "CAL_BUSY", // calendar sync sentences: BACKEND_ERRORS in src/calendarSync.ts
   ]);
