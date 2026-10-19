@@ -2,6 +2,9 @@
 // quoted original, the signature region: some parse the whole text with the browser's HTML parser and write it out again). None of them looks at a picture, so they are given
 // the body without the picture data and the data goes back afterwards (1.0.7 D-044: those steps were 0.4 s of the 2 s of opening that draft).
 
+/** What the marker of detached data starts with (the index and `END` follow). Letters and digits only: a source with the marker in place of its data still passes the check of a picture source (pastedHtml.ts). */
+export const DETACHED = "HLDETACHED";
+
 /** A picture of less than this many characters is left where it is (a small one costs nothing, and a signature's logo stays readable to the steps that look at it). */
 const MIN = 2000;
 
@@ -26,7 +29,7 @@ export function detachPictures(html: string): { html: string; restore: (text: st
       at = from;
       continue;
     }
-    out += html.slice(last, from) + `hl-detached-${found.length}-end`;
+    out += html.slice(last, from) + `${DETACHED}${found.length}END`;
     found.push({ data: html.slice(from, end) });
     last = end;
     at = end;
@@ -34,5 +37,5 @@ export function detachPictures(html: string): { html: string; restore: (text: st
   if (!found.length) return { html, restore: (text) => text };
   out += html.slice(last);
   // (one pass: a copy of the text for each of the markers would copy the 25 MB once per picture)
-  return { html: out, restore: (text) => text.replace(/hl-detached-(\d+)-end/g, (m, n: string) => found[Number(n)]?.data ?? m) };
+  return { html: out, restore: (text) => text.replace(new RegExp(DETACHED + '(\\d+)END', 'g'), (m, n: string) => found[Number(n)]?.data ?? m) };
 }

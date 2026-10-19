@@ -99,6 +99,25 @@ try {
     await evaluate(`window.__mockGone && window.__mockGone.delete(${JSON.stringify(tid)}); 1`);
   });
 
+  // ---- the data of big pictures goes into the editor in the task that made it: the pictures have their data, the draft is not changed, nothing of the marker is left
+  await closeEditor();
+  await check('an opened draft with big pictures: the editor has the pictures with all their data and the draft is not dirty', async () => {
+    const data = (n, seed) => { let x = seed, s = ''; const al = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/'; for (let i = 0; i < n; i++) { x = (x * 1103515245 + 12345) & 0x7fffffff; s += al[x % 64]; } return s; };
+    const [a, b] = [data(4000, 11), data(6000, 22)];
+    const body = `<p>Words</p><p><img src="data:image/png;base64,${a}" alt="one" data-name="one.png"></p><p>middle</p><p><img src="data:image/jpeg;base64,${b}" alt="two"></p><p><img src="data:image/gif;base64,R0lGODlhAQABAAAAACw=" alt="tiny"></p>`;
+    await evaluate(`window.__store.getState().openCompose({ accountId: 'a1', to: ['alice@fabrikam.com'], subject: 'Pictures draft', bodyHtml: ${JSON.stringify(body)}, replaces: 'm:a1:drafts:dtX' }); 1`);
+    assert.ok(await waitFor(`document.querySelectorAll('.cp-editor img').length === 3`, 8000), 'the editor has no 3 pictures');
+    await sleep(600);
+    const r = await evaluate(`(() => { const imgs = [...document.querySelectorAll('.cp-editor img')].map((i) => i.getAttribute('src')); const html = document.querySelector('.cp-editor .tiptap').innerHTML; const st = window.__store.getState(); return { imgs, marker: /HLDETACHED/.test(html), dirty: st.composeDirty, names: [...document.querySelectorAll('.cp-editor img')].map((i) => i.getAttribute('data-name')) }; })()`);
+    assert.deepEqual(r.imgs, [`data:image/png;base64,${a}`, `data:image/jpeg;base64,${b}`, 'data:image/gif;base64,R0lGODlhAQABAAAAACw='], 'the pictures have their own data, in their order');
+    assert.equal(r.marker, false, 'a marker is left in the editor');
+    assert.equal(r.dirty, false, 'restoring the pictures counted as an edit');
+    assert.equal(r.names[0], 'one.png', 'the name of a picture is kept');
+    // what the message sends is what was in the draft
+    const built = await evaluate(`(async () => { const st = window.__store.getState(); await st.composeSaver?.({ quiet: true }); return window.__lastDraft; })()`);
+    assert.ok(built && built.inline.length === 3 && built.inline[0].dataBase64 === a && built.inline[1].dataBase64 === b && !/HLDETACHED/.test(JSON.stringify(built)), 'the saved draft has the pictures: ' + JSON.stringify(built && built.inline && built.inline.map((i) => i.dataBase64.length)));
+  });
+
   // ---- the probe the Mac and Linux sessions run through the test bridge (scripts/lib/draft-open-probe.mjs): the same page, the same numbers
   await closeEditor();
   await check('the draft-open probe reads the same thing from the page: ring, status, done, no wait over 500 ms, the row clean afterwards', async () => {

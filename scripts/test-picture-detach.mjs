@@ -18,13 +18,13 @@ const b64 = (n, seed = 1) => { let s = ''; const al = 'ABCDEFGHIJKLMNOPQRSTUVWXY
   const d = detachPictures(html);
   ok(d.html.length < 400, `the data of the two big pictures is out (${d.html.length} characters left)`);
   ok(d.html.includes(`data:image/gif;base64,${p3}`), 'a small picture stays where it is');
-  ok(/^<p>a<\/p><img src="data:image\/png;base64,hl-detached-0-end" alt="x">/.test(d.html), 'the marker is inside the attribute value');
+  ok(/^<p>a<\/p><img src="data:image\/png;base64,HLDETACHED0END" alt="x">/.test(d.html), 'the marker is inside the attribute value');
   eq(d.restore(d.html), html, 'restoring the shortened text gives back the text');
   // a step that rewrites the text around the markers (the signature region, the quote block) still gets them back
   const edited = d.html.replace('<p>end</p>', '<p>end</p><div data-sig-block></div>');
   eq(d.restore(edited), html.replace('<p>end</p>', '<p>end</p><div data-sig-block></div>'), 'restore works on text made from the shortened one');
   eq(d.restore('plain text'), 'plain text', 'text without a marker is returned as it is');
-  eq(d.restore('hl-detached-9-end'), 'hl-detached-9-end', 'a marker that is not ours stays');
+  eq(d.restore('HLDETACHED9END'), 'HLDETACHED9END', 'a marker that is not ours stays');
 }
 {
   const html = '<p>no pictures</p><img src="https://example.com/a.png">';
@@ -40,7 +40,7 @@ const b64 = (n, seed = 1) => { let s = ''; const al = 'ABCDEFGHIJKLMNOPQRSTUVWXY
   // two big pictures in a row, the second right after the first
   const two = `<img src="data:image/png;base64,${b64(2500, 4)}"><img src="data:image/png;base64,${b64(2500, 5)}">`;
   const dd = detachPictures(two);
-  eq(dd.html, '<img src="data:image/png;base64,hl-detached-0-end"><img src="data:image/png;base64,hl-detached-1-end">');
+  eq(dd.html, '<img src="data:image/png;base64,HLDETACHED0END"><img src="data:image/png;base64,HLDETACHED1END">');
   eq(dd.restore(dd.html), two);
 }
 {
@@ -56,6 +56,9 @@ const b64 = (n, seed = 1) => { let s = ''; const al = 'ABCDEFGHIJKLMNOPQRSTUVWXY
   ok(t1 - t0 < 400 && t2 - t1 < 400, `detach ${Math.round(t1 - t0)} ms, restore ${Math.round(t2 - t1)} ms for 25 MB`);
   console.log(`  25 MB: detach ${Math.round(t1 - t0)} ms, restore ${Math.round(t2 - t1)} ms`);
 }
+
+// the marker in place of the data is still a local picture source (stripRemotePictures must not take the picture out of the body that the editor is made from)
+ok(isLocalPictureSrc('data:image/png;base64,HLDETACHED12END'), 'a source with the marker is local');
 
 // ---- isLocalPictureSrc: the fast path says yes only where the full check does, and everything else is decided as before
 const reference = (src) => {

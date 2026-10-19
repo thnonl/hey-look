@@ -275,9 +275,6 @@ pub struct Security {
     pub locked_label: Option<String>,
     pub encrypted_for: Vec<String>,
     pub error: Option<String>,
-    /// the armored message as it was received. Nothing in the page reads it, and for a 20 MB draft it doubled what `get_thread` sent (D-044): not serialized.
-    #[serde(skip_serializing)]
-    pub cipher: Option<String>,
     pub signature: Option<SigInfo>,
 }
 
@@ -383,8 +380,8 @@ fn from_of(raw: &[u8]) -> String {
         .unwrap_or_default()
 }
 
-fn error_sec(encrypted: bool, why: String, cipher: Option<String>) -> Security {
-    Security { encrypted, decryption: "error".into(), error: Some(why), cipher, ..Default::default() }
+fn error_sec(encrypted: bool, why: String) -> Security {
+    Security { encrypted, decryption: "error".into(), error: Some(why), ..Default::default() }
 }
 
 /// Look at an incoming message and do whatever PGP processing applies. `Security.decryption == "none"` with no
@@ -422,11 +419,9 @@ pub fn open(raw: &[u8], ctx: &Ctx) -> Opened {
         }
         Kind::Encrypted { cipher } => {
             if cipher.is_empty() {
-                return Opened { security: error_sec(true, "the encrypted part is missing".into(), None), plain: None };
+                return Opened { security: error_sec(true, "the encrypted part is missing".into()), plain: None };
             }
-            let armored = String::from_utf8_lossy(&cipher).to_string();
-            let cipher_text = armored.contains("BEGIN PGP").then_some(armored);
-            decrypt_flow(raw, &cipher, cipher_text, false, "", "", ctx, &from)
+            decrypt_flow(raw, &cipher, false, "", "", ctx, &from)
         }
         Kind::InlineEncrypted => {
             let text = body_text(raw).unwrap_or_default();
@@ -434,7 +429,7 @@ pub fn open(raw: &[u8], ctx: &Ctx) -> Opened {
             let b = text[a..].find(END_MSG).map(|e| a + e + END_MSG.len()).unwrap_or(text.len());
             let block = &text[a..b];
             let (before, after) = (&text[..a], &text[b..]);
-            decrypt_flow(raw, block.as_bytes(), Some(block.to_string()), true, before, after, ctx, &from)
+            decrypt_flow(raw, block.as_bytes(), true, before, after, ctx, &from)
         }
     }
 }
@@ -477,13 +472,13 @@ fn verify_cleartext(msg: &CleartextSignedMessage, keys: &[SignedPublicKey]) -> S
 }
 
 #[allow(clippy::too_many_arguments)]
-fn decrypt_flow(raw: &[u8], cipher: &[u8], cipher_text: Option<String>, inline: bool, before: &str, after: &str, ctx: &Ctx, from: &str) -> Opened {
+fn decrypt_flow(raw: &[u8], cipher: &[u8], inline: bool, before: &str, after: &str, ctx: &Ctx, from: &str) -> Opened {
     let ids = match openpgp::encrypted_for(cipher) {
         Ok(v) => v,
-        Err(e) => return Opened { security: error_sec(true, e, cipher_text), plain: None },
+        Err(e) => return Opened { security: error_sec(true, e), plain: None },
     };
     let partial = inline && (!before.trim().is_empty() || !after.trim().is_empty());
-    let base = Security { encrypted: true, partial, encrypted_for: ids.iter().filter(|i| !i.is_empty()).cloned().collect(), cipher: cipher_text.clone(), ..Default::default() };
+    let base = Security { encrypted: true, partial, encrypted_for: ids.iter().filter(|i| !i.is_empty()).cloned().collect(), ..Default::default() };
     let result = if ctx.unlocked.is_empty() { Err(DecryptError::NoKey) } else { openpgp::decrypt(cipher, &ctx.unlocked, ctx.publics) };
     match result {
         Ok(d) => {

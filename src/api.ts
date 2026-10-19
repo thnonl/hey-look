@@ -114,7 +114,6 @@ export interface MessageSecurity {
   lockedLabel?: string | null;
   encryptedFor: string[];
   error?: string | null;
-  cipher?: string | null;
   signature?: SigInfo | null;
 }
 

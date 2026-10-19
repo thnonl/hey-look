@@ -31,7 +31,7 @@ import { autosaveDue, snapshotDue, timing, type AutosaveWhy } from "../autosave"
 import { RecoveryWriter, type RecoveryForm } from "../recovery";
 import { cleanPastedHtml, stripRemotePictures } from "../pastedHtml";
 import { fillDeferred } from "../deferredParts";
-import { detachPictures } from "../pictureDetach";
+import { DETACHED, detachPictures } from "../pictureDetach";
 import { settleHeader } from "../headerRows";
 import { insertPictureNodes, type PictureAttrs } from "../editor/insertPictures";
 import { cleanHeaderText } from "../headerText";
@@ -568,7 +568,8 @@ function ComposeBody({ init }: { init: ComposeInit }) {
   const [templates, setTemplates] = useState<Template[]>([]);
   const [sigs, setSigs] = useState<Signature[]>([]);
   // the message of an opened draft carries its signature as stored text: it is shown as the signature region again
-  const startDoc = useRef<{ html: string; sig: string | null; base: BaseFont | null } | null>(null);
+  // (`html` is the body without the data of its big pictures, `restore` puts it back into any text made from it: the editor is made from the short text and gets the data in `onCreate`)
+  const startDoc = useRef<{ html: string; sig: string | null; base: BaseFont | null; restore: (text: string) => string } | null>(null);
   if (editing && !startDoc.current) {
     // (the data of big pictures is kept out of the steps below, which would read and write it again for nothing: pictureDetach.ts)
     const light = detachPictures(init.bodyHtml ?? "");
@@ -576,7 +577,7 @@ function ComposeBody({ init }: { init: ComposeInit }) {
     const u = unwrapBase(light.html);
     // the quoted original of a reply / forward is a block of its own again (editor/quoteBlock.ts), then the signature region
     const x = extractSignature(extractQuote(u.html).html);
-    startDoc.current = { html: light.restore(x.html), sig: x.sig && light.restore(x.sig), base: u.base };
+    startDoc.current = { html: x.html, sig: x.sig && light.restore(x.sig), base: u.base, restore: light.restore };
   }
   // the default font of THIS message: the one the draft was written in, else the Settings > Composing choice at the time it was opened
   const [base] = useState<BaseFont>(() => startDoc.current?.base ?? baseFromPrefs(prefs));
@@ -889,6 +890,17 @@ function ComposeBody({ init }: { init: ComposeInit }) {
     onCreate: ({ editor: ed }) => {
       const fix = repairSignature(ed.state, "signatureBlock", null);
       if (fix) ed.view.dispatch(fix.setMeta("addToHistory", false).setMeta("signatureInit", true));
+      // the data of the draft's big pictures: the editor was made from the body without it (parsing 25 MB of HTML took 0.12 s of the open), it goes into the pictures now, in the
+      // task that made the editor: nothing can happen to the message in between, and it is not an edit
+      const back = startDoc.current?.restore;
+      if (back) {
+        const tr = ed.state.tr;
+        ed.state.doc.descendants((n, pos) => {
+          const src = n.type.name === "image" ? n.attrs.src : null;
+          if (typeof src === "string" && src.includes(DETACHED)) tr.setNodeMarkup(pos, undefined, { ...n.attrs, src: back(src) });
+        });
+        if (tr.docChanged) ed.view.dispatch(tr.setMeta("addToHistory", false).setMeta("signatureInit", true));
+      }
     },
     // the signature region itself cannot be deleted or moved by accident: signatureGuard (signatureGuard.ts) repairs it in place
     onUpdate: ({ editor: ed, transaction }) => {
