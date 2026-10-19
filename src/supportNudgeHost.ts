@@ -1,7 +1,7 @@
 // The occasional "support the project" toast: reads the schedule (supportNudge.ts, pure and tested), looks at what the app is doing, and
 // draws the toast when it is due and the moment is calm. Local only: nothing here talks to a server.
 import { api } from "./api";
-import { SUPPORT_URL } from "./aboutLinks";
+import { supportUrl } from "./aboutLinks";
 import { t } from "./i18n";
 import { ensureSchedule, decide, Moment, SHOW_MS, setEnabled, shown, supported } from "./supportNudge";
 import { composeWindowsOpen } from "./popout/popoutCount";
@@ -73,7 +73,7 @@ export function showSupportNudge() {
         run: () => {
           clearTimeout(hideTimer);
           save(supported(nudge(), Date.now())); // supporters hear from us again in 6 months
-          void openUpdateLink(SUPPORT_URL); // the same safe path as the About links (a failed open copies the link and says so)
+          void openUpdateLink(supportUrl()); // the same safe path as the About links (a failed open copies the link and says so); the page of the language in use at the click
         },
       },
       { label: () => t("app.nudge.notNow"), run: () => clearTimeout(hideTimer) },
