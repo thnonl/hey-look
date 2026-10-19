@@ -30,8 +30,9 @@ export const closeGuardMenu = () => useGuardMenu.setState({ menu: null });
  * Whether the webview's own menu stays (D-036). A `tauri dev` run (Vite's dev mode) keeps it for Inspect; `#nativemenu=off` in the page's address turns
  * it off there. A built app, debug or release, behaves like the release: no native menu outside of fields that take text. The QA builds are
  * debug builds (test bridge, HEYLOOK_DATA_DIR): until 1.0.7 they kept the native menu too, so QA saw WebKit's own menu in the message and on every label
- * and could not tell whether the release has it. A debug build can still ask for the native menu (Inspect Element) with `#nativemenu=on`; a release
- * build has no such switch.
+ * and could not tell whether the release has it. A debug build can still ask for the native menu with `#nativemenu=on`; a release build has no such switch.
+ * "Inspect Element" is in the engine's menu of a text field only where the engine has an inspector: a `tauri dev` run, or a debug build started with
+ * `HEYLOOK_DEVTOOLS=1`. A QA build is made without one (identity.rs `devtools_off`, D-037) and a release build never has one, so its Subject / body menus are the release's.
  */
 export function nativeMenuStays(): boolean {
   return nativeMenuWanted(window.location.hash, import.meta.env.DEV, usePlatform.getState().testData !== null);
