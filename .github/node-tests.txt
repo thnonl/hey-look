@@ -214,3 +214,5 @@ ui-a | node scripts/test-editor-a11y.mjs --require-browser
 ui-a | node scripts/test-table-merge.mjs --require-browser
 # the emoji picker's search and recently used list (W2.17): every emoji has a CLDR name in all 8 languages, the search (heart, tim, cœur / coeur, 猫), the recent list (16, newest first, once each, only emoji), and the names are only reachable from the lazy picker chunk
 static | node --experimental-strip-types scripts/test-emoji-search.mjs
+# a link inside a sentence of a notice sits on the baseline of the sentence and keeps a 24 px click box (1.0.7 owner report, the newsletter notice): the newsletter, blocked pictures, signature, invitation and update notices of the dev preview, light and dark, en / de / ja, the notice 360 px wide and in the smallest window (the full matrix with all five languages: run without --quick)
+ui-b | node scripts/test-notice-baseline.mjs --quick --require-browser

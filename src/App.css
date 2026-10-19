@@ -138,7 +138,10 @@ button:focus-visible, [role="option"]:focus-visible, [role="treeitem"]:focus-vis
 .link:hover { color: color-mix(in srgb, var(--accent-text), var(--fg) 30%); }
 .about-links { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 20px; margin-top: 16px; }
 .about-link { display: inline-flex; align-items: center; min-height: 24px; }
-.notice .link { display: inline-block; min-height: 24px; line-height: 24px; vertical-align: middle; }
+/* a link in a sentence of a notice is part of the line: it sits on the baseline of the words around it (inline-flex: the first line of a link that wraps is the one that counts, an inline-block
+   would use its last), takes the line-height of the sentence, and keeps the 24 px click box with padding that a margin of the same size gives back to the line */
+.notice .link { display: inline-flex; vertical-align: baseline; line-height: inherit; text-align: start; padding: 4px 0; margin: -4px 0; }
+@supports (height: 1lh) { .notice .link { --hit: max(4px, calc((24px - 1lh) / 2)); padding: var(--hit) 0; margin: calc(-1 * var(--hit)) 0; } }
 /* update check: Settings > About card, status row, gear dot */
 .update-card { display: flex; flex-direction: column; }
 .update-card .set-card-head { flex-wrap: wrap; }
