@@ -61,6 +61,11 @@
 - Ctrl+Shift+K (Cmd+Shift+K on a Mac) opens the command bar from anywhere, also from the message body and the signature and template editors, where Ctrl+K stays the link; Esc closes the bar and gives the focus back where it was, with the selected text still selected (listed in Settings > Keyboard shortcuts)
 - In a window narrower than 1100 px, a message you write in the pane takes the width of the message list (at the smallest window the pane was only about 308 to 500 px wide): the list comes back, with its width as it was, when you close the message, press a folder (also the one that is open), start a search, press Ctrl+1 (Cmd+1) or make the window wider; the message stays open next to it
 - Pressing Tab or Shift+Tab onto the All day switch (the meeting of a new message, the New event dialog and the other switches of Settings) scrolls it into view: in a low message window it used to stay hidden under the action row
+- On a Mac, Cmd+Option+1, 2 and 3 make Heading 1 to 3 in the message (the key reports the character Option types, so the key itself is looked at); the Edit menu has "Paste and Match Style" (Cmd+Option+Shift+V), in the app's language, which pastes the clipboard text only
+- The table tools bar no longer sits on the first row when the table is the first thing in the message: it goes below the table (or above the text area for a table as tall as the window)
+- Undo in a compose window keeps the scroll position on every system (on Linux the text jumped to the cursor a moment after Undo); Esc from the picture toolbar keeps the picture selected on Linux too, so Delete removes it
+- Closing the window of a scheduled message that you only looked at takes "Paused - editing" off its row in the Scheduled list at once
+- Pressing Discard several times in a row asks once (a second question replaces the first instead of leaving its caller waiting), and nothing is removed from Drafts before you confirm
 
 ## 1.0.6 — 2026-10-18
 
