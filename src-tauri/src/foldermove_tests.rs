@@ -10,7 +10,7 @@ fn account() -> Account {
     Account {
         id: ACC.into(), email: "me@example.com".into(), display_name: "Me".into(), imap_host: "h".into(), imap_port: 993, imap_ssl: true,
         smtp_host: "s".into(), smtp_port: 465, smtp_security: "ssl".into(), username: "u".into(), auth: "password".into(), color: None,
-        smtp_username: String::new(), tls_insecure: false,
+        smtp_username: String::new(), tls_insecure: false, reply_to: String::new(),
     }
 }
 

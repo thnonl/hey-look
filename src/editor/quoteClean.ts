@@ -355,7 +355,8 @@ export function cleanQuoteHtml(html: string): { html: string; remote: number } |
     const start = html.search(/<[a-zA-Z!]/);
     const root = parseHtml(start > 0 ? html.slice(start) : html);
     const c = new Cleaner(readRules(root));
-    const out = toHtml(c.list(root.kids)).trim();
+    // a no-break space is written as the entity: the sent message shows what it is, and it survives a 7bit transport (W2.25)
+    const out = toHtml(c.list(root.kids)).trim().replace(/\u00a0/g, "&nbsp;");
     return out.length > MAX_QUOTE_HTML ? null : { html: out, remote: c.remote };
   } catch (e) {
     if (e instanceof TooBig) return null;

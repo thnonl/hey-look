@@ -531,6 +531,8 @@ button.att-chip:hover { background: var(--bg3); border-color: color-mix(in srgb,
 .cp-ai .btn { white-space: nowrap; }
 .cp-fields { padding: 4px 20px 0; }
 .cf-field { display: flex; align-items: flex-start; gap: 8px; border-bottom: 1px solid var(--border); position: relative; }
+/* a recipient chip dragged here from another field of the message (W2.21) */
+.cf-field.rcpt.drop-target { outline: 2px solid var(--accent); outline-offset: -2px; }
 .cf-field label { width: 54px; color: var(--muted); font-size: .86em; padding-top: 11px; flex: none; }
 .cf-field > input, .cf-field > select { flex: 1; border: 0; background-color: transparent; padding: 9px 0; box-shadow: none !important; min-width: 0; }
 .cf-field > select { padding-right: 32px; }

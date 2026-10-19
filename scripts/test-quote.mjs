@@ -149,6 +149,31 @@ const get = (n) => out[n].html;
   assert.ok(get("wide-table").includes("width:1800px") && (get("wide-table").match(/<td/g) ?? []).length > 30, "wide table");
   assert.ok(out.plain.asText && get("plain").startsWith('<div style="white-space:pre-wrap">Hi Tom,'), "plain text");
 }
+{
+  // W2.25: the HTML the backend makes of a text/plain mail (src-tauri/src/mail.rs plain_text_to_html; the Rust test the_plain_layout_quote_fixture_is_what_the_converter_makes
+  // ties the fixture file to its source). The columns, the indent, the tab and the blank lines survive the quote, in the HTML (which is sent) and in the plain-text part.
+  const source = read(join(dirname(fileURLToPath(import.meta.url)), "fixtures", "plain-layout", "source.txt"));
+  const h = get("plain-layout");
+  assert.ok(!out["plain-layout"].asText, "plain-layout: it is quoted as the HTML it is");
+  assert.ok(h.startsWith("<div>Hi Tom,<br>"), "plain-layout: the text before the first tag is kept");
+  assert.ok(h.includes("Item&nbsp; &nbsp; &nbsp; &nbsp; Qty&nbsp; &nbsp; Price&nbsp; &nbsp;Note<br>"), "plain-layout: the table columns are &nbsp; runs");
+  assert.ok(h.includes("<br>&nbsp; &nbsp; indented by four spaces<br>&nbsp; &nbsp; &nbsp; &nbsp; and by eight<br>"), "plain-layout: the indent");
+  assert.ok(h.includes("stop<br><br><br>Two blank lines above"), "plain-layout: both blank lines");
+  assert.ok(!h.includes(" ") && !h.includes("white-space"), "plain-layout: no raw no-break space and no white-space style in the quote");
+  // the plain-text part of a reply is the original text with the spaces (a tab is spaces up to the next multiple of 8; of several blank lines one stays; trailing blanks go)
+  const want = [];
+  for (const l of source.replace(/\n$/, "").split("\n")) {
+    let line = "";
+    for (const ch of l) line += ch === "\t" ? " ".repeat(8 - (line.length % 8)) : ch;
+    line = line === "-- " ? line : line.replace(/ +$/, "");
+    if (line === "" && want[want.length - 1] === "") continue;
+    want.push(line);
+  }
+  const back = htmlToText(h).split("\n");
+  assert.deepEqual(back, want, "plain-layout: htmlToText of the quote gives the original text back");
+  const reply = htmlToText(quoteSentHtml({ kind: "reply", head: HEAD, html: out["plain-layout"].html })).split("\n").slice(1);
+  assert.deepEqual(reply, want.map((l) => (l === "" ? ">" : "> " + l)), "plain-layout: the plain-text part of the reply quotes every line with its spaces");
+}
 
 // ------------------------------------------------------------------------------------------------- the style filter
 {

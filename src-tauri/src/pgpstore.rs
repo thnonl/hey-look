@@ -957,6 +957,7 @@ mod tests {
             color: None,
             smtp_username: String::new(),
             tls_insecure: false,
+            reply_to: String::new(),
         }
     }
 
@@ -1338,6 +1339,56 @@ mod tests {
             let plain = draft(&acc, &["bob@example.com"], &[], false, false);
             let (sent, _) = crate::finished_message(&db, &acc, &plain).unwrap();
             assert!((date_of(&sent) - chrono::Utc::now().timestamp()).abs() < 60);
+        });
+    }
+
+    /// 1.0.7 W2.9: the part headers of a signed message are folded before it is signed, so the signature of the finished (folded) message verifies;
+    /// an encrypted message decrypts to parts whose headers are folded too, and the attachment names arrive unchanged.
+    #[test]
+    fn a_signed_or_encrypted_message_with_long_part_headers_still_verifies_and_decrypts() {
+        crate::test_guard::within(60, || {
+            let (c, acc, _g) = setup();
+            let own = add_own(&c, "me@example.com", "my-pass-1234");
+            unlock_key(&load_store(&c).unwrap(), &own, "my-pass-1234", false).unwrap();
+            let (bob, _) = add_contact(&c, "bob@example.com");
+            let name = "Báo cáo tài chính quý bốn năm hai nghìn hai mươi sáu của công ty 東京支店 売上報告書 最終版 すべてのデータ.pdf";
+            let docx = "application/vnd.openxmlformats-officedocument.wordprocessingml.document";
+            let b64 = |b: &[u8]| base64::engine::general_purpose::STANDARD.encode(b);
+            let mut d = draft(&acc, &["bob@example.com"], &[], false, true);
+            d.attachments = vec![
+                Att { filename: name.into(), mime: "application/pdf".into(), data_base64: b64(b"%PDF") },
+                Att { filename: "Quarterly figures.docx".into(), mime: docx.into(), data_base64: b64(b"PK") },
+            ];
+            let physical_lines_fit = |raw: &[u8]| {
+                let text = String::from_utf8_lossy(raw).into_owned();
+                let head = text.split("
+
+").next().unwrap().to_string();
+                // every line before a blank line that follows a boundary or the start is a header line; the bodies here are base64 or armored text
+                head.split("
+").all(|l| l.len() <= 78) && !text.lines().any(|l| l.starts_with("Content-Type: application/vnd"))
+            };
+            let store = load_store(&c).unwrap();
+            let verified = HashSet::new();
+            // signed
+            let signed = smtp::wire(&build_secure(&c, &acc, &d, false).unwrap());
+            assert!(physical_lines_fit(&signed), "{}", String::from_utf8_lossy(&signed));
+            let ctx = Ctx { unlocked: vec![], locked: vec![], publics: &store.publics, verified: &verified };
+            let o = pgpmail::open(&signed, &ctx);
+            assert_eq!(o.security.signature.as_ref().map(|s| s.status.as_str()), Some("valid"), "{:?}", o.security);
+            let names: Vec<String> = crate::mail::parse(1, &signed, true, false, 0).unwrap().attachments.iter().map(|a| a.name.clone()).collect();
+            assert!(names.iter().any(|n| n == name) && names.iter().any(|n| n == "Quarterly figures.docx"), "{names:?}");
+            // encrypted
+            d.security = Some(Security { encrypt: true, sign: false, attach_public_key: false });
+            let enc = smtp::wire(&build_secure(&c, &acc, &d, false).unwrap());
+            let ctx = Ctx { unlocked: vec![&bob], locked: vec![], publics: &store.publics, verified: &verified };
+            let o = pgpmail::open(&enc, &ctx);
+            assert_eq!(o.security.decryption, "ok", "{:?}", o.security);
+            let plain = o.plain.expect("decrypted");
+            let inner = String::from_utf8_lossy(&plain).into_owned();
+            assert!(!inner.lines().any(|l| l.starts_with("Content-Type: application/vnd")), "the media type is folded inside the encrypted entity: {inner}");
+            let names: Vec<String> = crate::mail::parse(2, &plain, true, false, 0).unwrap().attachments.iter().map(|a| a.name.clone()).collect();
+            assert!(names.iter().any(|n| n == name), "{names:?}");
         });
     }
 

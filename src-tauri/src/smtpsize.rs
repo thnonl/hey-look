@@ -288,6 +288,7 @@ mod tests {
             smtp_username: String::new(),
             // (the fake servers use a throw-away certificate)
             tls_insecure: true,
+            reply_to: String::new(),
         }
     }
 
@@ -420,7 +421,7 @@ mod tests {
         .unwrap();
         let acc = Account {
             id: "a1".into(), email: "me@example.com".into(), display_name: "Me".into(), imap_host: "i".into(), imap_port: 993, imap_ssl: true, smtp_host: "s".into(),
-            smtp_port: 465, smtp_security: "ssl".into(), username: "me".into(), auth: "password".into(), color: None, smtp_username: String::new(), tls_insecure: false,
+            smtp_port: 465, smtp_security: "ssl".into(), username: "me".into(), auth: "password".into(), color: None, smtp_username: String::new(), tls_insecure: false, reply_to: String::new(),
         };
         let wire = crate::smtp::build(&acc, &d).unwrap().formatted().len();
         let chars = raw.div_ceil(3) * 4;

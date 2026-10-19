@@ -98,4 +98,12 @@ const rich = '<p><strong>Bold</strong>, <em>italic</em> and <u>underline</u> &am
 const out = htmlToText(rich);
 assert.ok(!/<[a-z/]|&[a-z#0-9]+;/i.test(out), out);
 assert.equal(out, "Bold, italic and underline & more text\n- one\n  1. sub one\na link (https://example.test/x)\n# not a heading\ndone");
+// W2.25: a run of no-break spaces keeps its width (a table or an indent of a quoted plain-text mail); the habits of mail programs do not turn into indents
+eq("<div>Item&nbsp; &nbsp; Qty&nbsp; &nbsp;Price</div>", "Item    Qty   Price");
+eq("<div>head<br>&nbsp; &nbsp; indented<br>&nbsp; &nbsp; &nbsp; &nbsp; deeper</div>", "head\n    indented\n        deeper");
+eq("<p>&nbsp;Hi all,</p>", "Hi all,", "one no-break space in front of a line is not an indent");
+eq("<p>one</p><p>&nbsp;</p><p>&nbsp;</p><p>two</p>", "one\n\ntwo", "a paragraph of nothing but no-break spaces is an empty line");
+eq("<table><tr><td>a</td><td>&nbsp;</td><td>b</td></tr></table>", "a\t\tb", "an empty cell is empty");
+eq("<p>a&nbsp;b &nbsp; c</p>", "a b   c");
+eq("<p>x&nbsp; </p>", "x", "blanks at the end of a line go");
 console.log("html-text: all checks passed");

@@ -494,6 +494,7 @@ mod tests {
             color: None,
             smtp_username: String::new(),
             tls_insecure: false,
+            reply_to: String::new(),
         };
         assert_eq!(Kind::for_account(&acc("oauth_google", "imap.gmail.com")), Some(Kind::Google));
         assert_eq!(Kind::for_account(&acc("password", "IMAP.gmail.com")), Some(Kind::Google));

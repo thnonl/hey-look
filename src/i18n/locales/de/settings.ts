@@ -320,6 +320,8 @@ export default defineLocale<typeof ns.en>({
   "settings.folder.unread": "Ungelesen",
   "settings.folder.all": "Alle Nachrichten",
   "settings.profile.displayNameHint": "Wird Empfängern als Absendername angezeigt",
+  "settings.profile.replyTo": "Antwortadresse",
+  "settings.profile.replyToHint": "Antworten auf E-Mails, die Sie von diesem Postfach senden, gehen an diese Adresse. Leer lassen, um Antworten hier zu erhalten.",
   "settings.profile.color": "Farbe",
   "settings.profile.colorHint": "Kennzeichnet dieses Konto im Ordnerbereich und in kombinierten Listen",
   "settings.profile.mailboxColor": "Postfachfarbe",

@@ -56,6 +56,7 @@ fn account(user: &str, port: u16) -> Account {
         color: None,
         smtp_username: String::new(),
         tls_insecure: true,
+        reply_to: String::new(),
     }
 }
 

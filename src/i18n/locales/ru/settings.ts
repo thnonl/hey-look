@@ -320,6 +320,8 @@ export default defineLocale<typeof ns.en>({
   "settings.folder.unread": "Непрочитанные",
   "settings.folder.all": "Вся почта",
   "settings.profile.displayNameHint": "Показывается получателям как имя отправителя",
+  "settings.profile.replyTo": "Адрес для ответа",
+  "settings.profile.replyToHint": "Ответы на письма, отправленные из этого ящика, приходят на этот адрес. Оставьте пустым, чтобы получать ответы здесь.",
   "settings.profile.color": "Цвет",
   "settings.profile.colorHint": "Отмечает эту учётную запись в панели папок и в объединённых списках",
   "settings.profile.mailboxColor": "Цвет ящика",

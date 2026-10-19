@@ -653,6 +653,79 @@ pub fn is_confidential(raw: &[u8]) -> bool {
     })
 }
 
+/// The text of a text/plain message as HTML that keeps its layout (1.0.7 W2.25). HTML collapses runs of spaces, so a table, an indented line or a
+/// signature lost its columns in the reader and in the quote of a reply: `&`, `<` and `>` are escaped, every line break is `<br>` (blank lines stay),
+/// a run of two or more spaces is `&nbsp;` and a space alternately (the line can still wrap, the width is kept), a space at the start of a line is
+/// `&nbsp;`, a tab is `&nbsp;` up to the next multiple of 8 columns. No `white-space` style: other mail programs drop it from a quote. A web
+/// address stays text; the reader finds links itself. The whole text is one `<div>`.
+pub fn plain_text_to_html(text: &str) -> String {
+    let mut out = String::with_capacity(text.len() + text.len() / 8 + 16);
+    out.push_str("<div>"); // one block: the quote cleaner (and any reader) takes text before the first tag for a preamble, so the text must not start the fragment
+    let (mut col, mut line_start) = (0usize, true);
+    let mut chars = text.chars().peekable();
+    while let Some(c) = chars.next() {
+        match c {
+            '\r' => {}
+            '\n' => {
+                out.push_str("<br>");
+                col = 0;
+                line_start = true;
+            }
+            ' ' | '\t' => {
+                // the whole run of spaces and tabs
+                let (mut width, mut tab, mut cur) = (0usize, false, c);
+                loop {
+                    if cur == '\t' {
+                        tab = true;
+                        width += 8 - (col + width) % 8;
+                    } else {
+                        width += 1;
+                    }
+                    match chars.peek() {
+                        Some(' ') | Some('\t') => cur = chars.next().unwrap_or(' '),
+                        _ => break,
+                    }
+                }
+                if width == 1 && !tab && !line_start {
+                    out.push(' '); // a single space inside a line is just a space
+                } else {
+                    for k in 0..width {
+                        if tab || k % 2 == 0 {
+                            out.push_str("&nbsp;");
+                        } else {
+                            out.push(' ');
+                        }
+                    }
+                }
+                col += width;
+                line_start = false;
+            }
+            '&' => {
+                out.push_str("&amp;");
+                col += 1;
+                line_start = false;
+            }
+            '<' => {
+                out.push_str("&lt;");
+                col += 1;
+                line_start = false;
+            }
+            '>' => {
+                out.push_str("&gt;");
+                col += 1;
+                line_start = false;
+            }
+            c => {
+                out.push(c);
+                col += 1;
+                line_start = false;
+            }
+        }
+    }
+    out.push_str("</div>");
+    out
+}
+
 pub fn parse(uid: u32, raw: &[u8], seen: bool, flagged: bool, fallback_date: i64) -> Option<Parsed> {
     let m = MessageParser::default().parse(raw)?;
     let (from_name, from_email) = m
@@ -665,7 +738,11 @@ pub fn parse(uid: u32, raw: &[u8], seen: bool, flagged: bool, fallback_date: i64
             )
         })
         .unwrap_or_default();
-    let mut html = m.body_html(0).map(|s| s.to_string());
+    // a message with no text/html part: its text as HTML, by our own converter (mail-parser's collapses runs of spaces, indents and tables)
+    let mut html = match m.html_part(0).map(|p| &p.body) {
+        Some(PartType::Text(t)) => Some(plain_text_to_html(t)),
+        _ => m.body_html(0).map(|s| s.to_string()),
+    };
     let mut text = m.body_text(0).map(|s| s.to_string());
 
     // Every part is kept (never silently dropped). Referenced inline pictures up to INLINE_SYNC_MAX are embedded
@@ -1054,6 +1131,60 @@ mod tests {
         assert_eq!(cid_ref_spans("cid:abc", "abc").len(), 1, "reference at the very end of the text");
         // multi-byte text around the reference
         assert_eq!(replace_cid_refs("Đỗ <img src=\"cid:a\"> é", "a", "U"), "Đỗ <img src=\"U\"> é");
+    }
+
+    /// W2.25: the converter keeps runs of spaces, the indent of a line, tabs and blank lines, and escapes what HTML would take for markup.
+    #[test]
+    fn a_plain_text_body_keeps_its_spaces_and_blank_lines() {
+        // the text as one <div>; the tests below look at what is inside
+        let inner = |t: &str| {
+            let h = plain_text_to_html(t);
+            h.strip_prefix("<div>").and_then(|h| h.strip_suffix("</div>")).unwrap_or_else(|| panic!("one div: {h}")).to_string()
+        };
+        // runs: n >= 2 spaces are &nbsp; and a space alternately, starting with &nbsp;; a single space is a space
+        assert_eq!(inner("a b"), "a b");
+        assert_eq!(inner("a  b"), "a&nbsp; b");
+        assert_eq!(inner("a   b"), "a&nbsp; &nbsp;b");
+        assert_eq!(inner("a    b"), "a&nbsp; &nbsp; b");
+        // a space at the start of a line is &nbsp; (also the first line), and an indent keeps its width
+        assert_eq!(inner(" a"), "&nbsp;a");
+        assert_eq!(inner("x\n a\n    b"), "x<br>&nbsp;a<br>&nbsp; &nbsp; b");
+        // tabs go to the next multiple of 8 columns (as &nbsp; only), in the first column and after text
+        assert_eq!(inner("\tx"), "&nbsp;".repeat(8) + "x");
+        assert_eq!(inner("abc\tx"), "abc".to_string() + &"&nbsp;".repeat(5) + "x");
+        assert_eq!(inner("12345678\tx"), "12345678".to_string() + &"&nbsp;".repeat(8) + "x");
+        assert_eq!(inner("a \tb"), "a".to_string() + &"&nbsp;".repeat(7) + "b", "a space and a tab are one run up to column 8");
+        // blank lines stay, CR LF is one break, a lone CR is dropped
+        assert_eq!(inner("one\r\n\r\n\r\ntwo"), "one<br><br><br>two");
+        assert_eq!(inner("a\rb"), "ab");
+        // markup is text; a web address and entities are left to the reader
+        assert_eq!(inner("<b>bold</b> & &amp; 1 > 0"), "&lt;b&gt;bold&lt;/b&gt; &amp; &amp;amp; 1 &gt; 0");
+        assert_eq!(inner("see https://example.org/a?b=1&c=2 now"), "see https://example.org/a?b=1&amp;c=2 now");
+        assert_eq!(inner("Đỗ  Văn"), "Đỗ&nbsp; Văn", "the column counts characters, not bytes");
+        assert_eq!(inner(""), "");
+        // a table: every column keeps its place
+        let table = "Name      Qty   Price\n----      ---   -----\nTea         2    3.50\n";
+        let html = inner(table);
+        assert!(html.starts_with("Name&nbsp; &nbsp; &nbsp; Qty&nbsp; &nbsp;Price<br>"), "{html}");
+        assert!(!html.contains("white-space"));
+        // the whole message: a text/plain only mail gets this HTML (not mail-parser's, which collapses the runs), a mail with an HTML part keeps its HTML
+        let plain = format!("From: a@example.org\r\nTo: b@example.org\r\nSubject: t\r\nContent-Type: text/plain; charset=utf-8\r\n\r\nTable:\r\n{}\r\n\r\n\r\nend\r\n", "  Tea       2");
+        let p = parse(1, plain.as_bytes(), false, false, 0).unwrap();
+        let h = p.html.expect("html");
+        assert!(h.contains("Table:<br>&nbsp; Tea&nbsp; &nbsp; &nbsp; &nbsp;2<br><br><br>end"), "{h}");
+        assert!(h.starts_with("<div>") && h.ends_with("</div>") && !h.contains("<html>"), "{h}");
+        assert!(p.text.unwrap().contains("  Tea       2"), "the text part is untouched");
+        let both = "From: a@example.org\r\nSubject: t\r\nContent-Type: multipart/alternative; boundary=B\r\n\r\n--B\r\nContent-Type: text/plain\r\n\r\nplain  text\r\n--B\r\nContent-Type: text/html\r\n\r\n<p>html  text</p>\r\n--B--\r\n";
+        assert_eq!(parse(2, both.as_bytes(), false, false, 0).unwrap().html.as_deref(), Some("<p>html  text</p>"));
+    }
+
+    /// W2.25: the fixture the quote test (scripts/test-quote.mjs) uses as the HTML of a text/plain original is what the converter makes of its source.
+    #[test]
+    fn the_plain_layout_quote_fixture_is_what_the_converter_makes() {
+        let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../scripts/fixtures");
+        let source = std::fs::read_to_string(dir.join("plain-layout/source.txt")).unwrap().replace("\r\n", "\n");
+        let stored = std::fs::read_to_string(dir.join("quote/plain-layout.html")).unwrap().replace("\r\n", "\n");
+        assert_eq!(plain_text_to_html(&source), stored.trim_end_matches('\n'), "scripts/fixtures/quote/plain-layout.html is out of date: rewrite it from plain-layout/source.txt");
     }
 
     fn related_msg(cid: &str, png: &[u8], extra_part: &str, html_ref: bool) -> Vec<u8> {

@@ -320,6 +320,8 @@ export default defineLocale<typeof ns.en>({
   "settings.folder.unread": "未读",
   "settings.folder.all": "所有邮件",
   "settings.profile.displayNameHint": "作为发件人名称显示给收件人",
+  "settings.profile.replyTo": "回复地址",
+  "settings.profile.replyToHint": "对您从此邮箱发出的邮件的回复将发送到此地址。留空则回复发到此邮箱。",
   "settings.profile.color": "颜色",
   "settings.profile.colorHint": "在文件夹窗格和合并列表中标识此账户",
   "settings.profile.mailboxColor": "邮箱颜色",

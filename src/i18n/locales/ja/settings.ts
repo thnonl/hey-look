@@ -320,6 +320,8 @@ export default defineLocale<typeof ns.en>({
   "settings.folder.unread": "未読",
   "settings.folder.all": "すべてのメール",
   "settings.profile.displayNameHint": "受信者に差出人名として表示されます",
+  "settings.profile.replyTo": "返信先アドレス",
+  "settings.profile.replyToHint": "このメールボックスから送信したメールへの返信は、このアドレスに届きます。空欄の場合は、このメールボックスに届きます。",
   "settings.profile.color": "色",
   "settings.profile.colorHint": "フォルダー一覧と統合リストで、このアカウントの目印になります",
   "settings.profile.mailboxColor": "メールボックスの色",
