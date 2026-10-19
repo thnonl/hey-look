@@ -143,6 +143,23 @@ try {
   claimed = await pressIn('metaKey: true');
   check('mac: Subject: Cmd+V is left to the Edit menu', () => assert.equal(claimed, false));
 
+  // ---- Edit > Paste and Match Style (the native menu item, D-026): the menu only tells the page (event mac-paste-match); the page does what the key does
+  await evaluate(`${ED}.commands.clearContent(); 1`);
+  await setClip('From the menu', '<p><b>From the menu</b></p>');
+  await evaluate("document.querySelector('.ProseMirror').focus(); import('/src/plainPasteKey.ts').then((m) => m.pasteMatchStyle()); 1");
+  await sleep(500);
+  d = await doc();
+  check('mac menu: Paste and Match Style in the body pastes the clipboard text as plain text, once', () => { assert.equal(d.html, '<p>From the menu</p>'); assert.equal(d.button, false); assert.equal(d.bold, false); });
+  await setClip('Menu line one\nMenu line two', '');
+  await evaluate("(() => { const i = document.querySelector('input[aria-label=\"Subject\"]'); i.focus(); i.select(); return import('/src/plainPasteKey.ts').then((m) => m.pasteMatchStyle()); })()");
+  await sleep(400);
+  const subj2 = await evaluate("document.querySelector('input[aria-label=\"Subject\"]').value");
+  check('mac menu: Paste and Match Style in the Subject box pastes the text (line break as a space)', () => assert.equal(subj2, 'Menu line one Menu line two'));
+  await evaluate("document.activeElement?.blur(); import('/src/plainPasteKey.ts').then((m) => m.pasteMatchStyle()); 1");
+  await sleep(300);
+  const subj3 = await evaluate("document.querySelector('input[aria-label=\"Subject\"]').value");
+  check('mac menu: with nothing that takes text focused it does nothing', () => assert.equal(subj3, 'Menu line one Menu line two'));
+
   // ---- Windows (the default): the key is the page's, not claimed (Ctrl+Shift+V works through the paste event, tested in test-paste-options.mjs)
   await open(null);
   await setClip('Must not appear', '');
