@@ -7,7 +7,7 @@ import { Suspense, lazy, useCallback, useEffect, useId, useLayoutEffect, useMemo
 import { createPortal } from "react-dom";
 import { api, Att, Contact, Draft, DraftSecurity, errorCode, InlineImage, MessageFull, OwnKeyStatus, RecipientStatus, Signature, Template } from "../api";
 import { eff } from "../prefs";
-import { kbd } from "../platform";
+import { kbd, osNow } from "../platform";
 import { ComposeInit, friendlyError, useStore } from "../store";
 import { useAiSlot } from "../useAiSlot";
 import { aiReady, clearAiProblem, leaveAiContext, showAiNotSetUp, showAiProblem } from "../aiGuide";
@@ -830,7 +830,7 @@ function ComposeBody({ init }: { init: ComposeInit }) {
     editorProps: {
       attributes: { "aria-label": t("compose.editor.body") },
       // one key, one action: Ctrl+Shift+B / Ctrl+Enter / Ctrl+Alt+... (AltGr) never reach the editor shortcuts, Ctrl+K is the link UI
-      handleDOMEvents: editorKeyHandlers(() => linkRef.current()),
+      handleDOMEvents: editorKeyHandlers(() => linkRef.current(), osNow),
       // pasted / dropped HTML loses its remote pictures BEFORE the editor reads it: a tracking pixel or a UNC / file: picture is never requested
       transformPastedHTML: (html: string) => {
         const r = cleanPastedHtml(html);

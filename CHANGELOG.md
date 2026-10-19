@@ -19,6 +19,8 @@
 
 ### Fixed
 
+- On a Mac, Cmd+Option+Shift+V ("Paste and Match Style") pastes text only in the message body, like Cmd+Shift+V (the other Cmd+Option keys stay off in the editor); Settings > Keyboard shortcuts lists both keys
+- On Linux, Ctrl+Shift+V pastes the text of a clipboard that holds HTML only (a copy from some programs) instead of pasting nothing: the HTML is turned into text the way "Keep text only" does (list numbers, table rows), without formatting; an empty clipboard still does nothing
 - The link dialog follows Outlook's Insert Hyperlink: "Text to display" above "Address" (the focus is in Address), "Cancel" and "Insert" for a new link, "Remove link", "Open link", "Cancel" and "Save" for an existing one, Enter is the main button and Esc cancels with the selection as it was
 - A screen reader announces the formatting toggles as pressed or not pressed, the on/off rows of the More menus (Subscript, Meeting, Encrypt, Sign, Confidential, Write with AI) as check boxes with their state, and the To, Cc and Bcc fields as a list box with the highlighted suggestion
 - The picture toolbar can be reached with the keyboard: with a picture selected, Alt+F10 moves the focus to it, Left, Right, Home and End move between its controls, Enter presses, Esc goes back to the text with the picture still selected (a screen reader reads it as a toolbar with named groups)

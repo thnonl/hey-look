@@ -105,6 +105,29 @@ try {
   await choose('Keep text only');
   s = await state();
   check('D text only again: the format before the paste (bold) comes back', () => { assert.equal(s.html, '<p><strong>Bold red</strong></p>'); assert.equal(s.bold, true); });
+
+  // E (W2.23): Ctrl+Shift+V with a clipboard that has HTML only (no text/plain part, as some Linux programs put there): the HTML is pasted as text, converted the way
+  // Keep text only does it (list markers), without formatting; with text/plain present that text is what lands; with neither flavour nothing happens
+  const plainKey = async (type) => H.cdp('Input.dispatchKeyEvent', { type, key: 'V', code: 'KeyV', windowsVirtualKeyCode: 86, modifiers: 10 });
+  const plainPaste = async (html, text) => {
+    await evaluate(`${ED}.commands.clearContent(); ${ED}.commands.focus('end'); 1`);
+    await plainKey('keyDown');
+    await evaluate(`(() => { const e = document.querySelector('.ProseMirror'); const dt = new DataTransfer(); ${html ? `dt.setData('text/html', ${JSON.stringify(html)});` : ''} ${text ? `dt.setData('text/plain', ${JSON.stringify(text)});` : ''} e.dispatchEvent(new ClipboardEvent('paste', { clipboardData: dt, bubbles: true, cancelable: true })); return 1; })()`);
+    await plainKey('keyUp');
+    await sleep(300);
+    return state();
+  };
+  await open('');
+  await sleep(1500); // (the cleaner's chunk is loaded by then, as it is long before anyone pastes)
+  s = await plainPaste('<ol><li>one</li><li><b>two</b></li></ol><p>after <i>it</i></p>', '');
+  check('E html only: the text of the HTML lands, list markers kept', () => { assert.match(s.html, /1\. one/); assert.match(s.html, /2\. two/); assert.match(s.html, /after it/); });
+  check('E html only: no formatting, no list, no Paste options button', () => { no(s.html, 'strong'); no(s.html, 'em'); no(s.html, 'ol'); no(s.html, 'li'); assert.equal(s.bold, false); });
+  s = await plainPaste('<p><b>Rich</b></p>', 'Plain wins');
+  check('E both flavours: Ctrl+Shift+V is text only (no bold)', () => { no(s.html, 'strong'); assert.match(s.html, /Rich|Plain wins/); });
+  s = await plainPaste('', 'Only text');
+  check('E text only clipboard: pasted as it is', () => assert.equal(s.html, '<p>Only text</p>'));
+  s = await plainPaste('', '');
+  check('E neither flavour: nothing happens', () => assert.equal(s.html, ''));
 } finally { await H.shutdown(); }
 
 if (failures.length) { console.error(`test-paste-switch: ${failures.length} failure(s)\n - ${failures.join('\n - ')}`); process.exit(1); }

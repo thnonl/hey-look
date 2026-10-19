@@ -2,6 +2,7 @@ mod ai;
 mod attach;
 mod calendar;
 mod calsync;
+mod clipdecode;
 mod db;
 mod discover;
 mod draftmail;
@@ -3413,9 +3414,9 @@ async fn copy_text(app: tauri::AppHandle, text: String) -> R<()> {
     }
 }
 
-/// The text on the system clipboard (plain text and HTML, either may be empty). The page calls this only on macOS, for Cmd+Shift+V in the
+/// The text on the system clipboard (plain text and HTML, either may be empty). The page calls this on macOS, for Cmd+Shift+V in the
 /// editors: WKWebView sends no `paste` event for that key (it is not an accelerator of the Edit menu), and `navigator.clipboard.readText()`
-/// would ask the person to click a "Paste" button first. Other systems report that it is not available (they paste through the `paste` event).
+/// would ask the person to click a "Paste" button first. Linux reads it too, for Ctrl+Shift+V when the web view pasted nothing (W2.23). Windows reports that it is not available (it pastes through the `paste` event).
 #[derive(serde::Serialize)]
 struct ClipboardText {
     text: String,
@@ -3423,14 +3424,36 @@ struct ClipboardText {
 }
 
 #[tauri::command]
-async fn read_clipboard_text() -> R<ClipboardText> {
+async fn read_clipboard_text(app: tauri::AppHandle) -> R<ClipboardText> {
     #[cfg(target_os = "macos")]
     {
+        let _ = app;
         blocking(|| macclip::read().map(|c| ClipboardText { text: c.text, html: c.html })).await
     }
-    #[cfg(not(target_os = "macos"))]
+    // Linux (W2.23): Ctrl+Shift+V pastes "as plain text" from the text part of the GTK clipboard only; the page asks here when that pasted nothing (a clipboard with HTML only).
+    // GTK is used on the main thread only (as in `copy_text`); the `text/html` part comes as bytes, decoded by clipdecode.
+    #[cfg(target_os = "linux")]
     {
-        Err("reading the clipboard from the backend is only available on macOS".into())
+        blocking(move || {
+            let (tx, rx) = std::sync::mpsc::channel();
+            app.run_on_main_thread(move || {
+                let clipboard = gtk::Clipboard::get(&gtk::gdk::SELECTION_CLIPBOARD);
+                let text = clipboard.wait_for_text().map(|t| t.to_string()).unwrap_or_default();
+                let html = clipboard
+                    .wait_for_contents(&gtk::gdk::Atom::intern("text/html"))
+                    .map(|d| clipdecode::html_from_clipboard_bytes(&d.data()))
+                    .unwrap_or_default();
+                let _ = tx.send(ClipboardText { text, html });
+            })
+            .map_err(err)?;
+            rx.recv_timeout(std::time::Duration::from_secs(3)).map_err(|_| "the clipboard did not answer".to_string())
+        })
+        .await
+    }
+    #[cfg(not(any(target_os = "macos", target_os = "linux")))]
+    {
+        let _ = app;
+        Err("reading the clipboard from the backend is only available on macOS and Linux".into())
     }
 }
 

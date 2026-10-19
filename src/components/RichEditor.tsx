@@ -12,6 +12,7 @@ import { insertPictureNodes } from "../editor/insertPictures";
 import { nameForMime } from "../editor/messageBody";
 import { fitSignaturePicture, initialWidth } from "../editor/signaturePicture";
 import { editorKeyHandlers } from "../composeKeys";
+import { osNow } from "../platform";
 import { useStore } from "../store";
 import { dataUriBytes, fileToBase64, fmtSize, imageSize, PICTURE_TYPES, resizeImage } from "../util";
 import { useLinkEditor } from "./LinkPopover";
@@ -47,7 +48,7 @@ function RichEditorBody({ value, onChange, placeholder, minHeight = 140, label, 
   const editor = useEditor({
     extensions: baseExtensions({ placeholder: () => placeholderRef.current, getBase: () => baseRef.current, focusToolbar: () => picToolsRef.current?.focus() || barApi.current?.focus(), openStyles: () => barApi.current?.openStyles(), pictures }),
     // Ctrl/Cmd+K is the link UI here too; AltGr characters never trigger the editor shortcuts
-    editorProps: { attributes: { "aria-label": label ?? t("compose.fmt.text") }, handleDOMEvents: editorKeyHandlers(() => linkRef.current()) },
+    editorProps: { attributes: { "aria-label": label ?? t("compose.fmt.text") }, handleDOMEvents: editorKeyHandlers(() => linkRef.current(), osNow) },
     content: value || "<p></p>",
     onUpdate: ({ editor }) => onChange(editor.isEmpty ? "" : docToHtml(editor.getJSON(), baseRef.current)),
   });
