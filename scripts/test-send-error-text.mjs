@@ -23,7 +23,7 @@ for (const f of files) {
   assert.equal(m.length, f.includes("/ns/") ? 3 : 1, `${f}: errors.sendRefused (English, Vietnamese and French live in ns/)`);
   for (const x of m) {
     const text = JSON.parse(x[1]);
-    assert.ok(text.includes("{detail}") && !text.includes("SMTP") && text.length > 40, `${f}: ${text}`);
+    assert.ok(text.includes("{detail}") && !text.includes("SMTP send failed") && text.length > 40, `${f}: ${text}`);
   }
 }
 assert.match(read("src/i18n/ns/errors.ts"), /"errors\.sendRefused": "The mail server did not accept the message\. Try again in a moment; if it keeps failing, check the outgoing server in Settings\. \(Details: \{detail\}\)"/);

@@ -52,7 +52,7 @@ export default define({
     "errors.signIn": "Đăng nhập không thành công. Hãy kiểm tra mật khẩu (Gmail, iCloud và Yahoo cần mật khẩu ứng dụng) hoặc đăng nhập lại.",
     "errors.noCredentials": "Không tìm thấy thông tin đăng nhập đã lưu của tài khoản này. Hãy gỡ bỏ tài khoản rồi thêm lại.",
     "errors.timeout": "Máy chủ thư không phản hồi. Hãy kiểm tra kết nối rồi thử lại.",
-    "errors.sendRefused": "Máy chủ thư không nhận thư. Hãy thử lại sau giây lát; nếu vẫn lỗi, hãy kiểm tra máy chủ gửi thư trong Cài đặt. (Chi tiết: {detail})",
+    "errors.sendRefused": "Máy chủ thư không nhận thư. Hãy thử lại sau giây lát; nếu vẫn lỗi, hãy kiểm tra mục Thư đi (SMTP) của máy chủ trong Cài đặt. (Chi tiết: {detail})",
     "errors.unreachable": "Không thể kết nối tới máy chủ thư. Hãy kiểm tra tên máy chủ và kết nối của bạn.",
     "errors.certificate": "Chứng chỉ bảo mật của máy chủ bị từ chối. Với máy chủ dùng chứng chỉ tự ký hoặc CA riêng, hãy gỡ bỏ tài khoản rồi thêm lại và bật “Tin cậy chứng chỉ của máy chủ này”.",
 
@@ -90,7 +90,7 @@ export default define({
     "errors.signIn": "Échec de la connexion. Vérifiez le mot de passe (Gmail, iCloud et Yahoo exigent un mot de passe d’application) ou reconnectez-vous.",
     "errors.noCredentials": "Les identifiants enregistrés pour ce compte sont introuvables. Supprimez le compte, puis ajoutez-le de nouveau.",
     "errors.timeout": "Le serveur de messagerie n’a pas répondu. Vérifiez votre connexion, puis réessayez.",
-    "errors.sendRefused": "Le serveur de messagerie n’a pas accepté le message. Réessayez dans un instant ; si cela continue, vérifiez le serveur sortant dans les Paramètres. (Détails : {detail})",
+    "errors.sendRefused": "Le serveur de messagerie n’a pas accepté le message. Réessayez dans un instant ; si l’échec persiste, vérifiez le courrier sortant (SMTP) dans les Paramètres. (Détails : {detail})",
     "errors.unreachable": "Impossible de joindre le serveur de messagerie. Vérifiez le nom du serveur et votre connexion.",
     "errors.certificate": "Le certificat de sécurité du serveur a été rejeté. Pour un serveur à certificat auto-signé ou à autorité de certification privée, supprimez le compte, puis ajoutez-le de nouveau en activant « Faire confiance au certificat de ce serveur ».",
 

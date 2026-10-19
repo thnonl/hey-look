@@ -1466,7 +1466,7 @@ export default define({
     "compose.toast.draftSaved": "Brouillon enregistré",
     "compose.toast.draftSavedPlain": "Brouillon enregistré sans chiffrement (Paramètres → Boîtes aux lettres → Sécurité)",
     "compose.toast.saveFailed": "Échec de l’enregistrement du brouillon : {error}",
-    "compose.toast.draftOriginalGone": "La version d’origine de ce brouillon n’est plus disponible : vos modifications restent enregistrées dans le brouillon.",
+    "compose.toast.draftOriginalGone": "La version d’origine de ce brouillon est introuvable. Vos modifications restent enregistrées dans le brouillon.",
     "compose.leave.scheduledTitle": "Fermer sans enregistrer vos modifications ?",
     "compose.leave.attaching": "Des pièces jointes sont encore en cours d’ajout. Réessayez dans un instant.",
     "compose.leave.draftNotFound": "Impossible d’ouvrir le brouillon pour le moment. Ouvrez-le depuis Brouillons.",
