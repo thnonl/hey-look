@@ -225,3 +225,5 @@ static | node --experimental-strip-types scripts/test-emoji-search.mjs
 ui-b | node scripts/test-notice-baseline.mjs --quick --require-browser
 # a right-click on every kind of target (D-036, 1.0.7): the engine's own menu is off everywhere but in fields that take text - message body in the frame (and in the reader window), list row, folder label, ribbon, header, Settings, backdrop: defaultPrevented, ONE app menu at the click point plus the frame offset; search box, Subject, To, compose body: not prevented; PDF host: not prevented; the QA bridge probe (scripts/lib/context-menu-probe.mjs) gives the same verdicts; light and dark
 ui-b | node scripts/test-context-targets.mjs --require-browser
+# a right-click on the To, Cc and Bcc inputs (D-038): REAL right-clicks, the press (pointerdown, mousedown), mouseup and contextmenu are not cancelled by any listener (WebKit on a Mac sends no contextmenu after a cancelled press), nothing sits on the input, no app menu opens; empty, with chips, focused, text typed, suggestions open, compose window; the recorder is the Mac probe scripts/lib/rcpt-context-probe.mjs
+ui-b | node scripts/test-recipient-menu.mjs --require-browser
