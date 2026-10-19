@@ -296,6 +296,8 @@ export default defineLocale<typeof ns.en>({
   "compose.table.outsideBorders": "外侧框线",
   "compose.table.noBorders": "无框线",
   "compose.table.shading": "单元格底纹",
+  "compose.table.merge": "合并单元格",
+  "compose.table.split": "拆分单元格",
   "compose.table.headerRow": "标题行",
   "compose.pic.align": "对齐方式",
   "compose.pic.linkTip": "为图片添加链接 (Ctrl+K)",

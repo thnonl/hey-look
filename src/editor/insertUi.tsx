@@ -27,7 +27,7 @@ import { STANDARD, sameColor, themeGrid } from "./colors";
 import type { BarState, Ctx, FormatHost } from "./controls";
 import { EMOJI_GROUPS, osEmojiKeys } from "./emojiData";
 import {
-  DEFAULT_COLS, DEFAULT_ROWS, MAX_COLS, MAX_ROWS, cellShading, hasHeaderRow, insertTable, setBorders, setShading, tableAction, tableBorders, toggleHeaderRow, type TableAction,
+  DEFAULT_COLS, DEFAULT_ROWS, MAX_COLS, MAX_ROWS, canMergeCells, canSplitCell, cellShading, hasHeaderRow, insertTable, mergeSelectedCells, setBorders, setShading, splitSelectedCell, tableAction, tableBorders, toggleHeaderRow, type TableAction,
 } from "./tableCommands";
 import type { TableBorders } from "./tableExtension";
 
@@ -52,6 +52,9 @@ function tableRows(editor: Editor, t: Ctx["t"], openShading: () => void): MenuIt
     { label: t("compose.table.deleteRow"), onClick: act("deleteRow") },
     { label: t("compose.table.deleteCol"), onClick: act("deleteCol") },
     { label: t("compose.table.deleteTable"), onClick: act("deleteTable") },
+    { divider: true },
+    { label: t("compose.table.merge"), disabled: !canMergeCells(editor.state), onClick: () => void mergeSelectedCells(editor) },
+    { label: t("compose.table.split"), disabled: !canSplitCell(editor.state), onClick: () => void splitSelectedCell(editor) },
     { divider: true },
     { label: t("compose.table.allBorders"), checked: b === "all", onClick: () => void setBorders(editor, "all") },
     { label: t("compose.table.outsideBorders"), checked: b === "outside", onClick: () => void setBorders(editor, "outside") },
@@ -323,6 +326,8 @@ function TableTools({ editor }: { editor: Editor }) {
     >
       <ToolMenu label={t("compose.table.insert")} items={insertRows} onOpen={(o) => upd(o ? 1 : -1)} />
       <ToolMenu label={t("common.delete")} items={deleteRows} onOpen={(o) => upd(o ? 1 : -1)} />
+      <button type="button" className="tool-btn" disabled={!canMergeCells(st)} onMouseDown={keep} onClick={() => void mergeSelectedCells(editor)}>{t("compose.table.merge")}</button>
+      <button type="button" className="tool-btn" disabled={!canSplitCell(st)} onMouseDown={keep} onClick={() => void splitSelectedCell(editor)}>{t("compose.table.split")}</button>
       <ToolMenu label={t("compose.table.borders")} items={borderRows} onOpen={(o) => upd(o ? 1 : -1)} />
       <div className="tbl-dd" ref={shadeWrap}>
         <button type="button" className="tool-btn" aria-haspopup="dialog" aria-expanded={shadeOpen} onMouseDown={keep} onClick={() => setShadeOpen((o) => !o)}>

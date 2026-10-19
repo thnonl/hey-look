@@ -126,6 +126,7 @@ export function htmlToText(html: string): string {
   let quote = 0; // blockquote depth
   let pre = 0; // inside <pre> or white-space:pre*: line breaks of the source count
   let cell = 0; // inside a table cell: a line break is a blank
+  let spanned = 0; // the columns the cell before this one spans, beyond its own
   let skip = ""; // inside <script> / <style> ...
   const lists: { ordered: boolean; n: number; type: string }[] = [];
   const links: { href: string | null; text: string }[] = [];
@@ -257,6 +258,7 @@ export function htmlToText(html: string): string {
       case "tfoot":
       case "tr":
         cell = 0;
+        spanned = 0;
         endLine();
         break;
       case "td":
@@ -264,9 +266,10 @@ export function htmlToText(html: string): string {
         if (!close) {
           if (cell) {
             cur = cur.replace(/[ \u00a0]+$/, "");
-            put("\t");
+            put("\t".repeat(1 + spanned)); // (a merged cell is written once, and the columns it spans are tab stops: the next cell stays under its own column)
           }
           cell = 1;
+          spanned = Math.min(99, Math.max(0, (parseInt(attrs.colspan ?? "", 10) || 1) - 1));
         }
         break;
       case "hr":

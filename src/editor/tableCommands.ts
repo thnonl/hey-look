@@ -1,6 +1,7 @@
 // What the table controls do (spec-rich-text.md REQ-31, REQ-32): insert a table at the caret, add and delete rows and columns, the border style, the
 // shading of cells, the header row. ProseMirror transactions on the editor's document; the buttons that call them are in insertUi.tsx.
 
+import { mergeCells, splitCell } from "@tiptap/pm/tables";
 import { TextSelection } from "@tiptap/pm/state";
 import type { Editor } from "@tiptap/react";
 import { NodeSelection } from "@tiptap/pm/state";
@@ -74,6 +75,30 @@ export function tableAction(editor: Editor, a: TableAction): boolean {
     case "deleteCol": return chain.deleteColumn().run();
     case "deleteTable": return chain.deleteTable().run();
   }
+}
+
+/**
+ * Merge cells (W2.19): the selected rectangle of cells (a cell selection: a drag across cells, or Shift+Arrow from a cell's edge) becomes one cell that keeps all their
+ * content in reading order, with colspan / rowspan set; the shading of the top-left cell stays. One undo step. prosemirror-tables refuses a selection that is not a rectangle
+ * (a cell that spans out of it) and a single cell.
+ */
+export function canMergeCells(state: EditorState): boolean {
+  return mergeCells(state);
+}
+export function mergeSelectedCells(editor: Editor): boolean {
+  const done = mergeCells(editor.state, (tr) => editor.view.dispatch(tr));
+  if (done) editor.view.focus();
+  return done;
+}
+
+/** Split cell: the cell the caret is in (or a single selected cell) with a colspan or rowspan above 1 becomes single cells again, its content in the top-left one. */
+export function canSplitCell(state: EditorState): boolean {
+  return splitCell(state);
+}
+export function splitSelectedCell(editor: Editor): boolean {
+  const done = splitCell(editor.state, (tr) => editor.view.dispatch(tr));
+  if (done) editor.view.focus();
+  return done;
 }
 
 /** The border style of the table the caret is in (null outside a table). */

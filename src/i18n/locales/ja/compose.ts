@@ -297,6 +297,8 @@ export default defineLocale<typeof ns.en>({
   "compose.table.outsideBorders": "外枠",
   "compose.table.noBorders": "枠なし",
   "compose.table.shading": "セルの網かけ",
+  "compose.table.merge": "セルの結合",
+  "compose.table.split": "セルの分割",
   "compose.table.headerRow": "タイトル行",
   "compose.pic.align": "配置",
   "compose.pic.linkTip": "画像にリンクを設定 (Ctrl+K)",

@@ -210,3 +210,5 @@ ui-b | node scripts/test-command-bar-key.mjs --require-browser
 ui-b | node scripts/test-compose-narrow.mjs --require-browser
 # the editors' keyboard and screen-reader semantics with real key events (W2.18): a picture selected by the keyboard, Alt+F10 to the picture toolbar (one Tab stop, Left / Right / Home / End, Enter, Alt+Enter, Esc back with the picture selected), the same in the signature editor of Settings
 ui-a | node scripts/test-editor-a11y.mjs --require-browser
+# merge cells and split cell in the real editor (W2.19): a mouse drag and Shift+Arrow make a cell selection (tinted, light and dark), Merge from the table tools bar and from the Table menu, Split, off states, Ctrl+Z in one step, the HTML round trip keeps the spans
+ui-a | node scripts/test-table-merge.mjs --require-browser

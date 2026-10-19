@@ -316,6 +316,8 @@ export default defineLocale<typeof ns.en>({
   "compose.table.outsideBorders": "Внешние границы",
   "compose.table.noBorders": "Без границ",
   "compose.table.shading": "Заливка ячейки",
+  "compose.table.merge": "Объединить ячейки",
+  "compose.table.split": "Разделить ячейку",
   "compose.table.headerRow": "Строка заголовка",
   "compose.pic.align": "Выравнивание",
   "compose.pic.linkTip": "Добавить ссылку к изображению (Ctrl+K)",

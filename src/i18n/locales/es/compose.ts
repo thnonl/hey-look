@@ -305,6 +305,8 @@ export default defineLocale<typeof ns.en>({
   "compose.table.outsideBorders": "Borde exterior",
   "compose.table.noBorders": "Sin borde",
   "compose.table.shading": "Sombreado de celda",
+  "compose.table.merge": "Combinar celdas",
+  "compose.table.split": "Dividir celda",
   "compose.table.headerRow": "Fila de encabezado",
   "compose.pic.align": "Alineación",
   "compose.pic.linkTip": "Añadir enlace a la imagen (Ctrl+K)",

@@ -1,0 +1,6 @@
+Merged cells, outside borders:
+Q4 totals		Notes
+North	12	ok
+14	late
+Total 26
+end
