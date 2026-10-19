@@ -41,6 +41,8 @@ pub enum Kind {
     Error,
     /// internal: automatic checks are off
     Disabled,
+    /// the Snap Store, which installed this copy, updates it: the app never asks GitHub
+    Managed,
     /// internal: not due yet, another check is running, or an update is already on its way
     Throttled,
 }
@@ -254,11 +256,24 @@ fn valid_cache(json: Option<&str>, current: &Version) -> Option<(Kind, UpdateInf
     }
 }
 
+/// The store whose sandbox this copy runs in, if any: `snap` (snapd sets `SNAP` and `SNAP_NAME` for every confined app).
+/// Such a copy is updated by that store, so the in-app updater stays quiet and Settings > About says who updates it
+/// (`Kind::Managed`). None for the AppImage, .deb, .rpm, Windows and macOS.
+pub fn managed_by() -> Option<&'static str> {
+    managed_by_env(std::env::var_os("SNAP_NAME").is_some())
+}
+
+fn managed_by_env(snap: bool) -> Option<&'static str> {
+    if snap { Some("snap") } else { None }
+}
+
 /// How this copy of the app was installed (the bundler patches the bundle type into the binary).
 pub fn platform_info() -> Platform {
     use tauri::utils::config::BundleType as B;
     let os = std::env::consts::OS;
-    let installer = match tauri::utils::platform::bundle_type() {
+    let installer = match (managed_by(), tauri::utils::platform::bundle_type()) {
+        (Some(store), _) => store,
+        (None, bundle) => match bundle {
         Some(B::Nsis) => "nsis",
         Some(B::Msi) => "msi",
         Some(B::App) | Some(B::Dmg) => "app",
@@ -266,6 +281,7 @@ pub fn platform_info() -> Platform {
         Some(B::Deb) => "deb",
         Some(B::Rpm) => "rpm",
         None => "unknown",
+        },
     };
     let label = match (os, installer) {
         ("windows", "msi") => "Windows (MSI)".to_string(),
@@ -273,6 +289,7 @@ pub fn platform_info() -> Platform {
         ("macos", _) => "macOS".to_string(),
         ("linux", "deb") => "Linux (.deb)".to_string(),
         ("linux", "rpm") => "Linux (.rpm)".to_string(),
+        ("linux", "snap") => "Linux (Snap)".to_string(),
         ("linux", _) => "Linux (.AppImage)".to_string(),
         (other, _) => other.to_string(),
     };
@@ -596,6 +613,7 @@ fn answer_text(r: &UpdateResult) -> String {
             Some(status) => format!("error (status {status})"),
             None => format!("error: {}", r.message.as_deref().unwrap_or("-")),
         },
+        Kind::Managed => format!("managed: this copy is updated by the {} store, no request is made", r.platform.installer),
         Kind::Disabled | Kind::Throttled => format!("{:?}", r.kind),
     }
 }
@@ -607,6 +625,10 @@ pub async fn run_check<R: Runtime>(app: &AppHandle<R>, db: &Db, busy: &AtomicBoo
         note(ctx, trigger, "skipped, another check is running");
         return without_request(db, ctx, Kind::Throttled);
     };
+    if managed_by().is_some() {
+        note(ctx, trigger, &format!("skipped, this copy is updated by its store ({})", ctx.platform.installer));
+        return ctx.result(Kind::Managed, read_last_check(db));
+    }
     let auto = trigger != Trigger::Manual;
     if auto && !shell::pbool(&shell::prefs(db), "checkUpdates", true) {
         note(ctx, trigger, &format!("skipped, \"Check for updates automatically\" is off in Settings; stored answer: {}", cached_offer(db, ctx)));
@@ -1145,6 +1167,12 @@ mod tests {
     }
 
     /// Every key the app can ask for exists in what the release workflow publishes (`make-latest-json.cjs`), for the universal macOS
+    #[test]
+    fn managed_store_from_the_sandbox_variables() {
+        assert_eq!(managed_by_env(false), None, "AppImage, .deb, .rpm, Windows, macOS");
+        assert_eq!(managed_by_env(true), Some("snap"));
+    }
+
     /// build on both CPUs and for every installer type we ship. The same list is asserted from the other side by
     /// scripts/test-latest-json-keys.mjs, with a manifest the script really generates.
     #[test]

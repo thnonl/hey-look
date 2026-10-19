@@ -1,0 +1,13 @@
+[Desktop Entry]
+Type=Application
+Name=Hey Look!
+GenericName=Mail Client
+Comment=Fast, private desktop mail client
+Exec=hey-look %U
+Icon=${SNAP}/meta/gui/icon.png
+Terminal=false
+Categories=Network;Email;
+Keywords=mail;email;imap;gmail;outlook;calendar;pgp;
+MimeType=x-scheme-handler/mailto;
+StartupNotify=true
+StartupWMClass=hey-look

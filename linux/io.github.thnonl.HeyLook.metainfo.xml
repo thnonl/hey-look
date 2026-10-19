@@ -1,0 +1,89 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- AppStream metadata of Hey Look! (the Linux software centres, the Snap Store and AppImageHub read it).
+     One file for every Linux package: the AppImage and the .deb / .rpm ship it from src-tauri/tauri.conf.json (bundle.linux.*.files),
+     the snap (snap/snapcraft.yaml) installs it itself. Keep <releases> in step with CHANGELOG.md. -->
+<component type="desktop-application">
+  <id>io.github.thnonl.HeyLook</id>
+  <name>Hey Look!</name>
+  <summary>Fast, private desktop mail client</summary>
+  <developer id="io.github.thnonl">
+    <name>thnonl</name>
+  </developer>
+  <metadata_license>CC0-1.0</metadata_license>
+  <project_license>MIT</project_license>
+  <description>
+    <p>Hey Look! is a fast, private desktop mail client. Free and open source, with no ads, no analytics and no account to create: mail goes directly between the app and your mail servers.</p>
+    <p>Features:</p>
+    <ul>
+      <li>IMAP and SMTP accounts, Gmail and Microsoft 365 / Outlook.com with OAuth sign-in, iCloud</li>
+      <li>A Focused / Other inbox, conversations, snooze, undo send, send later and templates</li>
+      <li>A rich text editor with pictures, tables, signatures and find and replace</li>
+      <li>OpenPGP signing and encryption</li>
+      <li>A calendar with invitations</li>
+      <li>Optional AI writing help with the endpoint you choose</li>
+      <li>Desktop notifications and a tray icon with the unread count</li>
+      <li>Eight languages: English, Vietnamese, French, German, Spanish, Japanese, Russian and Chinese</li>
+    </ul>
+  </description>
+  <launchable type="desktop-id">hey-look.desktop</launchable>
+  <provides>
+    <binary>hey-look</binary>
+  </provides>
+  <url type="homepage">https://heylook.namthai.site/</url>
+  <url type="bugtracker">https://github.com/thnonl/hey-look/issues</url>
+  <url type="help">https://heylook.namthai.site/help.html</url>
+  <url type="vcs-browser">https://github.com/thnonl/hey-look</url>
+  <categories>
+    <category>Network</category>
+    <category>Email</category>
+  </categories>
+  <keywords>
+    <keyword>mail</keyword>
+    <keyword>email</keyword>
+    <keyword>imap</keyword>
+    <keyword>gmail</keyword>
+    <keyword>outlook</keyword>
+    <keyword>calendar</keyword>
+    <keyword>pgp</keyword>
+  </keywords>
+  <branding>
+    <color type="primary" scheme_preference="light">#2f6fed</color>
+    <color type="primary" scheme_preference="dark">#1b2a4a</color>
+  </branding>
+  <screenshots>
+    <screenshot type="default">
+      <caption>The Inbox with the Focused and Other tabs, a conversation and the reading pane</caption>
+      <image>https://heylook.namthai.site/media/poster-1280.webp</image>
+    </screenshot>
+  </screenshots>
+  <content_rating type="oars-1.1"/>
+  <releases>
+    <release version="1.0.6" date="2026-10-18">
+      <description>
+        <p>Fixes and small improvements; the full list is in the changelog on GitHub.</p>
+      </description>
+      <url>https://github.com/thnonl/hey-look/releases/tag/v1.0.6</url>
+    </release>
+    <release version="1.0.5" date="2026-10-16">
+      <url>https://github.com/thnonl/hey-look/releases/tag/v1.0.5</url>
+    </release>
+    <release version="1.0.4" date="2026-10-16">
+      <url>https://github.com/thnonl/hey-look/releases/tag/v1.0.4</url>
+    </release>
+    <release version="1.0.3" date="2026-10-16">
+      <url>https://github.com/thnonl/hey-look/releases/tag/v1.0.3</url>
+    </release>
+    <release version="1.0.2" date="2026-10-15">
+      <url>https://github.com/thnonl/hey-look/releases/tag/v1.0.2</url>
+    </release>
+    <release version="1.0.1" date="2026-10-15">
+      <url>https://github.com/thnonl/hey-look/releases/tag/v1.0.1</url>
+    </release>
+    <release version="1.0.0" date="2026-10-14">
+      <description>
+        <p>First release.</p>
+      </description>
+      <url>https://github.com/thnonl/hey-look/releases/tag/v1.0.0</url>
+    </release>
+  </releases>
+</component>

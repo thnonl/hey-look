@@ -72,6 +72,7 @@ export default defineLocale<typeof ns.en>({
   "updates.upToDate.newer": "Sie sind auf dem neuesten Stand. Dieser Build ({current}) ist neuer als das neueste Release ({latest}).",
   "updates.noRelease": "Auf GitHub wurden keine Update-Informationen gefunden. Versuchen Sie es später erneut oder öffnen Sie die {link}.",
   "updates.noRelease.link": "Release-Seite",
+  "updates.managed.snap": "Diese Kopie von Hey Look! wurde aus dem Snap Store installiert, der sie aktuell hält. Die App sucht nicht auf GitHub nach Updates.",
   // ---- the update card
   "updates.card.availableHead": "Hey Look! {version} ist verfügbar",
   "updates.card.readyHead": "Hey Look! {version} kann installiert werden",

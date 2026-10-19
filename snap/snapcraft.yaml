@@ -1,0 +1,59 @@
+# Snap of Hey Look! for the Snap Store (strict confinement, core24, the GNOME extension for GTK and WebKitGTK).
+# Built by .github/workflows/linux-stores.yml (snapcraft in LXD); version, summary and description come from the metainfo file.
+name: hey-look
+title: Hey Look!
+base: core24
+adopt-info: hey-look
+license: MIT
+website: https://heylook.namthai.site/
+source-code: https://github.com/thnonl/hey-look
+issues: https://github.com/thnonl/hey-look/issues
+grade: stable
+confinement: strict
+compression: lzo
+platforms:
+  amd64:
+
+apps:
+  hey-look:
+    command: usr/bin/hey-look
+    extensions: [gnome]
+    autostart: hey-look.desktop
+    plugs:
+      - network
+      - network-status
+      - home
+      - removable-media
+      - audio-playback
+      # passwords and OAuth tokens in the system keyring (Secret Service); not auto-connected by the store:
+      # `snap connect hey-look:password-manager-service`, or an auto-connect request on forum.snapcraft.io
+      - password-manager-service
+      # the tray icon (StatusNotifierItem / app indicator)
+      - unity7
+
+parts:
+  hey-look:
+    plugin: nil
+    source: .
+    build-snaps:
+      - node/22/stable
+      - rustup/latest/stable
+    build-packages:
+      - pkg-config
+      - libssl-dev
+      - libdbus-1-dev
+      - libwebkit2gtk-4.1-dev
+      - libayatana-appindicator3-dev
+      - librsvg2-dev
+    stage-packages:
+      - libayatana-appindicator3-1
+    parse-info: [usr/share/metainfo/io.github.thnonl.HeyLook.metainfo.xml]
+    override-build: |
+      rustup default 1.99.1
+      npm ci
+      npm run build
+      cargo build --release --manifest-path src-tauri/Cargo.toml
+      install -Dm755 src-tauri/target/release/hey-look "$CRAFT_PART_INSTALL/usr/bin/hey-look"
+      install -Dm644 linux/io.github.thnonl.HeyLook.metainfo.xml "$CRAFT_PART_INSTALL/usr/share/metainfo/io.github.thnonl.HeyLook.metainfo.xml"
+      install -Dm644 src-tauri/icons/128x128@2x.png "$CRAFT_PART_INSTALL/usr/share/icons/hicolor/256x256/apps/hey-look.png"
+      install -Dm644 src-tauri/icons/icon.png "$CRAFT_PART_INSTALL/usr/share/icons/hicolor/512x512/apps/hey-look.png"
