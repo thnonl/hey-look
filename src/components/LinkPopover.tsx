@@ -10,7 +10,8 @@ import { toastBox, useOutside } from "./ui";
 
 // The link UI of the composer and of the signature / template editor: a small popover with the address and (optionally) the text, opened by
 // the toolbar button and by Ctrl/Cmd+K. It replaces the native `window.prompt` (title "tauri.localhost says", blocks the renderer, may not work in
-// WKWebView). Apply / Remove link / Cancel, Enter applies, Esc cancels, the focus goes back to the editor. Only http, https, mailto, tel
+// WKWebView). Text to display above Address (the focus is in Address); Insert (a new link) or Save (an edit) with Cancel, and Remove link / Open link when the caret is in a link; Enter is the primary
+// button, Esc is Cancel, the focus goes back to the editor with the selection as it was (W2.16, Outlook's Insert Hyperlink). Only http, https, mailto, tel
 // (linkUrl.ts); a bare domain gets https://.
 
 /** The link UI is about this range of the document. */
@@ -94,7 +95,7 @@ export function useLinkEditor(editor: Editor | null, anchor: React.RefObject<HTM
   return { open, node, isOpen: !!target };
 }
 
-const WIDTH = 320;
+const WIDTH = 300;
 
 function LinkPopover({
   target, anchor, onApply, onRemove, onClose,
@@ -143,7 +144,11 @@ function LinkPopover({
     else addr.current?.focus();
   };
   const onKeyDown = (e: React.KeyboardEvent) => {
-    if (e.key === "Enter" && !e.shiftKey && !(e.target instanceof HTMLButtonElement)) {
+    if (e.key === "Escape") {
+      e.preventDefault();
+      e.stopPropagation();
+      onClose();
+    } else if (e.key === "Enter" && !e.shiftKey && !(e.target instanceof HTMLButtonElement)) {
       e.preventDefault();
       apply();
     } else if (e.key === "Tab" && box.current) {
@@ -160,8 +165,14 @@ function LinkPopover({
   return (
     <div ref={box} className="popover link-pop" role="dialog" aria-label={title} onKeyDown={onKeyDown}>
       <div className="link-pop-title">{title}</div>
+      {target.canEditText && (
+        <label className="link-pop-field">
+          <span>{t("compose.link.text")}</span>
+          <input type="text" autoComplete="off" value={text} placeholder={t("compose.link.textPlaceholder")} onChange={(e) => setText(e.target.value)} />
+        </label>
+      )}
       <label className="link-pop-field">
-        <span>{t("compose.fmt.linkPrompt")}</span>
+        <span>{t("compose.link.address")}</span>
         <input
           ref={addr}
           type="text"
@@ -176,12 +187,6 @@ function LinkPopover({
         />
       </label>
       {err && <div id="link-pop-err" className="link-pop-err" role="alert">{t(err === "scheme" ? "compose.link.errScheme" : "compose.link.errInvalid")}</div>}
-      {target.canEditText && (
-        <label className="link-pop-field">
-          <span>{t("compose.link.text")}</span>
-          <input type="text" autoComplete="off" value={text} placeholder={t("compose.link.textPlaceholder")} onChange={(e) => setText(e.target.value)} />
-        </label>
-      )}
       <div className="link-pop-btns">
         {target.inLink && <button type="button" className="btn link-pop-remove" onClick={onRemove}>{t("compose.link.remove")}</button>}
         {target.inLink && checkLinkUrl(target.href).ok && (
@@ -189,7 +194,7 @@ function LinkPopover({
         )}
         <span className="grow" />
         <button type="button" className="btn" onClick={onClose}>{t("common.cancel")}</button>
-        <button type="button" className="btn primary" disabled={!check.ok && check.reason === "empty"} onClick={apply}>{t("compose.link.apply")}</button>
+        <button type="button" className="btn primary" disabled={!check.ok && check.reason === "empty"} onClick={apply}>{t(target.inLink ? "common.save" : "compose.link.insert")}</button>
       </div>
     </div>
   );

@@ -57,7 +57,7 @@ function tableRows(editor: Editor, t: Ctx["t"], openShading: () => void): MenuIt
     { label: t("compose.table.outsideBorders"), checked: b === "outside", onClick: () => void setBorders(editor, "outside") },
     { label: t("compose.table.noBorders"), checked: b === "none", onClick: () => void setBorders(editor, "none") },
     { divider: true },
-    { label: t("compose.table.headerRow"), checked: hasHeaderRow(editor.state), onClick: () => void toggleHeaderRow(editor) },
+    { label: t("compose.table.headerRow"), kind: "check", checked: hasHeaderRow(editor.state), onClick: () => void toggleHeaderRow(editor) },
     { label: t("compose.table.shading"), hint: "›", onClick: openShading },
   ];
 }

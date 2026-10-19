@@ -3,7 +3,7 @@ import {
   BadgeCheck, CalendarClock, CalendarPlus, ChevronDown, ExternalLink, FileText, ImagePlus, Info, Lock, LockOpen, MoreHorizontal, Paperclip, Save, Send, ShieldAlert, ShieldCheck, Sparkles, Trash2,
   TriangleAlert, X,
 } from "lucide-react";
-import { Suspense, lazy, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { Suspense, lazy, useCallback, useEffect, useId, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { api, Att, Contact, Draft, DraftSecurity, errorCode, InlineImage, MessageFull, OwnKeyStatus, RecipientStatus, Signature, Template } from "../api";
 import { eff } from "../prefs";
@@ -141,6 +141,7 @@ export function RecipientField({
   const [sugg, setSugg] = useState<Contact[]>([]);
   const [hi, setHi] = useState(-1);
   const input = useRef<HTMLInputElement>(null);
+  const listId = useId(); // (the suggestions: a combobox of its own per field)
   const fieldRef = useRef<HTMLDivElement>(null);
   const chipsRef = useRef<HTMLDivElement>(null);
   const suggRef = useRef<HTMLDivElement>(null);
@@ -251,6 +252,11 @@ export function RecipientField({
           ref={input}
           value={text}
           aria-label={label}
+          role="combobox"
+          aria-autocomplete="list"
+          aria-expanded={sugg.length > 0}
+          aria-controls={listId}
+          aria-activedescendant={hi >= 0 && sugg[hi] ? `${listId}-${hi}` : undefined}
           placeholder={values.length === 0 ? "name@example.com" : undefined}
           onChange={(e) => onInput(e.target.value, !!(e.nativeEvent as InputEvent).isComposing)}
           onPaste={(e) => {
@@ -314,9 +320,9 @@ export function RecipientField({
         </span>
       )}
       {sugg.length > 0 && (
-        <div className="suggest pinned" role="listbox" ref={suggRef}>
+        <div className="suggest pinned" id={listId} role="listbox" aria-label={label} ref={suggRef}>
           {sugg.map((c, i) => (
-            <div key={c.email} role="option" aria-selected={i === hi} className={i === hi ? "hl" : ""} onMouseDown={(e) => (e.preventDefault(), pick(c))} onMouseEnter={() => setHi(i)}>
+            <div key={c.email} id={`${listId}-${i}`} role="option" aria-selected={i === hi} className={i === hi ? "hl" : ""} onMouseDown={(e) => (e.preventDefault(), pick(c))} onMouseEnter={() => setHi(i)}>
               {c.name ? `${c.name} ` : ""}
               <span className="muted">&lt;{c.email}&gt;</span>
             </div>
@@ -779,8 +785,8 @@ function ComposeBody({ init }: { init: ComposeInit }) {
   };
   /** The rows of the menu at the Sign button: sign this message, attach the public key, the signing key, the keys. */
   const signItems: MenuItem[] = [
-    { label: t("compose.bar.signThis"), checked: signOn, hint: kbd("Ctrl+Shift+G"), disabled: !own, onClick: toggleSign },
-    { label: t("compose.bar.attachPublicKey"), checked: attachKey, disabled: !own, onClick: () => (setAttachKey(!attachKey), touch()) },
+    { label: t("compose.bar.signThis"), kind: "check", checked: signOn, hint: kbd("Ctrl+Shift+G"), disabled: !own, onClick: toggleSign },
+    { label: t("compose.bar.attachPublicKey"), kind: "check", checked: attachKey, disabled: !own, onClick: () => (setAttachKey(!attachKey), touch()) },
     { divider: true },
     ...(own ? [{ label: t("compose.bar.signingKey", { key: shortKey(own.fingerprint) }), icon: <ShieldCheck size={14} />, onClick: () => setDialog({ type: "pgp-key", fingerprint: own.fingerprint }) }] : [{ label: t("compose.bar.noKeyYet"), disabled: true }]),
     { label: own ? t("compose.bar.manageKeys") : t("compose.bar.setUpEncryption"), onClick: () => (own ? setDialog({ type: "settings", tab: "pgp" }) : setDialog({ type: "pgp-generate", accountId })) },
@@ -2033,13 +2039,13 @@ function ComposeBody({ init }: { init: ComposeInit }) {
   // the rows of "More actions": the moved actions in the order of the row, in sections (picture / meeting, encrypt, sign / confidential, importance / save, templates / AI), a divider between two sections
   const menuRows: Record<BarItem, MenuItem[]> = {
     picture: [{ label: t("compose.bar.picture"), icon: <ImagePlus size={14} />, hint: kbd("Ctrl+Shift+P"), title: kbd(t("compose.bar.insertPictureTip")), onClick: () => picRef.current?.click() }],
-    meeting: [{ label: t("compose.bar.meeting"), icon: <CalendarPlus size={14} />, checked: !!meeting, title: t("compose.bar.meetingTip"), onClick: toggleMeeting }],
-    encrypt: [{ label: t("compose.bar.encrypt"), icon: encOn ? <Lock size={14} /> : <LockOpen size={14} />, checked: encOn, hint: kbd("Ctrl+Shift+E"), title: encTitle, onClick: toggleEncrypt }],
+    meeting: [{ label: t("compose.bar.meeting"), icon: <CalendarPlus size={14} />, kind: "check", checked: !!meeting, title: t("compose.bar.meetingTip"), onClick: toggleMeeting }],
+    encrypt: [{ label: t("compose.bar.encrypt"), icon: encOn ? <Lock size={14} /> : <LockOpen size={14} />, kind: "check", checked: encOn, hint: kbd("Ctrl+Shift+E"), title: encTitle, onClick: toggleEncrypt }],
     sign: [
-      { label: t("compose.bar.sign"), icon: <BadgeCheck size={14} />, checked: signActive, hint: kbd("Ctrl+Shift+G"), title: own ? kbd(t("compose.bar.signTip")) : encTitle, onClick: toggleSign },
+      { label: t("compose.bar.sign"), icon: <BadgeCheck size={14} />, kind: "check", checked: signActive, hint: kbd("Ctrl+Shift+G"), title: own ? kbd(t("compose.bar.signTip")) : encTitle, onClick: toggleSign },
       ...signItems.slice(1), // (the first row is the Sign row above)
     ],
-    confidential: [{ label: t("compose.bar.confidential"), icon: <ShieldAlert size={14} />, checked: confidential, title: confidential ? t("compose.bar.confidentialOnTip") : t("compose.bar.confidentialOffTip"), onClick: () => (setConfidential(!confidential), touch()) }],
+    confidential: [{ label: t("compose.bar.confidential"), icon: <ShieldAlert size={14} />, kind: "check", checked: confidential, title: confidential ? t("compose.bar.confidentialOnTip") : t("compose.bar.confidentialOffTip"), onClick: () => (setConfidential(!confidential), touch()) }],
     importance: [
       { label: t("mail.importance.high"), checked: importance === "high", onClick: () => (setImportance(pressImportance(importance, "high")), touch()) },
       { label: t("mail.importance.low"), checked: importance === "low", onClick: () => (setImportance(pressImportance(importance, "low")), touch()) },
@@ -2049,7 +2055,7 @@ function ComposeBody({ init }: { init: ComposeInit }) {
       { label: t("compose.bar.templates"), icon: <FileText size={14} />, disabled: true },
       ...(myTemplates.length ? myTemplates.map((tpl) => ({ label: tpl.name, onClick: () => applyTemplate(tpl) })) : [{ label: t("compose.bar.noTemplates"), disabled: true }]),
     ],
-    ai: [{ label: t("compose.bar.writeWithAi"), icon: <Sparkles size={14} />, checked: aiOpen, disabled: !!init.confidential, title: init.confidential ? t("compose.bar.aiConfidentialTip") : aiConfigured ? t("compose.bar.aiTip") : t("compose.bar.aiSetupTip"), onClick: toggleAi }],
+    ai: [{ label: t("compose.bar.writeWithAi"), icon: <Sparkles size={14} />, kind: "check", checked: aiOpen, disabled: !!init.confidential, title: init.confidential ? t("compose.bar.aiConfidentialTip") : aiConfigured ? t("compose.bar.aiTip") : t("compose.bar.aiSetupTip"), onClick: toggleAi }],
   };
   const SECTION: Record<BarItem, number> = { picture: 0, meeting: 1, encrypt: 1, sign: 1, confidential: 2, importance: 2, saveDraft: 3, templates: 3, ai: 4 };
   const moreItems: MenuItem[] = movedIds.flatMap((id, i) => [...(i > 0 && SECTION[id] !== SECTION[movedIds[i - 1]] ? [{ divider: true } as MenuItem] : []), ...menuRows[id]]);

@@ -62,4 +62,24 @@ for (const f of ["src/components/ui.tsx", "src/components/DateTimeFields.tsx", "
 const guard = readFileSync(new URL("../src/contextGuard.ts", import.meta.url), "utf8");
 assert.ok(/frame\.dispatchEvent\(new MouseEvent\("mousedown", \{ bubbles: true \}\)\)/.test(guard), "guardFrame must relay a frame press to the parent document");
 
+// W2.20: an independent on/off row (kind "check") is a menuitemcheckbox, a pick-one row keeps menuitemradio, a plain row is a menuitem; all with aria-checked when they have a state
+assert.ok(ui.includes('kind?: "check" | "radio"'), "MenuItem has a kind");
+assert.ok(menuList.includes('it.checked === undefined ? "menuitem" : it.kind === "check" ? "menuitemcheckbox" : "menuitemradio"'), "MenuList picks the role from the kind");
+assert.ok(menuList.includes("aria-checked={it.checked === undefined ? undefined : it.checked}"), "aria-checked follows the state");
+// the independent toggles of the message are checkboxes: the More rows of the compose bar and of the formatting bar
+const composeSrc = readFileSync(new URL("../src/components/Compose.tsx", import.meta.url), "utf8");
+for (const k of ["compose.bar.meeting", "compose.bar.encrypt", "compose.bar.sign", "compose.bar.confidential", "compose.bar.writeWithAi", "compose.bar.signThis", "compose.bar.attachPublicKey"]) {
+  const line = composeSrc.split("\n").find((l) => l.includes(`t("${k}")`) && l.includes("checked:"));
+  assert.ok(line && line.includes('kind: "check"'), `${k} is a check row`);
+}
+for (const k of ["mail.importance.high", "mail.importance.low"]) {
+  const line = composeSrc.split("\n").find((l) => l.includes(`t("${k}")`) && l.includes("checked:"));
+  assert.ok(line && !line.includes("kind:"), `${k} stays a radio row`);
+}
+const controlsSrc = readFileSync(new URL("../src/editor/controls.tsx", import.meta.url), "utf8");
+assert.ok(/compose\.fmt\.subscript[^\n]*kind: "check"/.test(controlsSrc) && /compose\.fmt\.superscript[^\n]*kind: "check"/.test(controlsSrc), "Subscript and Superscript are check rows");
+assert.ok(!/compose\.fmt\.alignLeft[^\n]*kind: "check"/.test(controlsSrc) && /ALIGNS\.map\(\(a\) => \(\{[^\n]*checked: c\.st\.align === a\.id/.test(controlsSrc), "alignment stays a radio group");
+// the recipient field is a combobox over its suggestions (W2.20, REQ-2.20.3)
+for (const part of ['role="combobox"', 'aria-autocomplete="list"', "aria-expanded={sugg.length > 0}", "aria-controls={listId}", "aria-activedescendant={hi >= 0", 'role="listbox" aria-label={label}', "id={`${listId}-${i}`} role=\"option\""]) assert.ok(composeSrc.includes(part), `RecipientField: ${part}`);
+
 console.log("popover menu rules: ok");

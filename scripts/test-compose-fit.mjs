@@ -157,7 +157,7 @@ async function act(name) {
   await evaluate(`document.querySelector('.cp-bar .rb.more').click()`);
   await sleep(120);
   if (label) await evaluate(`(() => { const r = [...document.querySelectorAll('.dd-fixed [role^=menuitem]')].find((x) => x.textContent.trim().startsWith(${JSON.stringify(label)})); r.click(); return 1; })()`);
-  else await evaluate(`document.querySelectorAll('.dd-fixed [role=menuitemradio]')[${{ meeting: 0, encrypt: 1, sign: 2, confidential: 4, high: 5, ai: 7 }[name]}].click()`);
+  else await evaluate(`document.querySelectorAll('.dd-fixed [role^=menuitem][aria-checked]')[${{ meeting: 0, encrypt: 1, sign: 2, confidential: 4, high: 5, ai: 7 }[name]}].click()`);
   await sleep(120);
 }
 

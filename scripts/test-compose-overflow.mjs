@@ -129,7 +129,7 @@ try {
     await evaluate(`(() => { const r = [...document.querySelectorAll('.dd-fixed [role^=menuitem]')].find((x) => x.textContent.trim().startsWith(${JSON.stringify(text)})); r.click(); return 1; })()`);
     await sleep(250);
   };
-  const checked = async (text) => { await openMore(); const v = await evaluate(`(() => { const r = [...document.querySelectorAll('.dd-fixed [role=menuitemradio]')].find((x) => x.textContent.trim().startsWith(${JSON.stringify(text)})); return r ? r.getAttribute('aria-checked') : null; })()`); await closeMenu(); return v; };
+  const checked = async (text) => { await openMore(); const v = await evaluate(`(() => { const r = [...document.querySelectorAll('.dd-fixed [role^=menuitem][aria-checked]')].find((x) => x.textContent.trim().startsWith(${JSON.stringify(text)})); return r ? r.getAttribute('aria-checked') : null; })()`); await closeMenu(); return v; };
   const conf = (await label('confidential'))[0], high = (await label('importance'))[0];
   if (!w0.fit.includes('confidential')) {
     await act('confidential', conf);
@@ -146,7 +146,7 @@ try {
     ok((await checked(high)) === 'false', 'High importance from More actions: still on after the second press');
     // the dot says whether a moved action is on (Encrypt can be on by itself): it follows the checked rows of the menu
     await openMore();
-    const anyOn = await evaluate(`!![...document.querySelectorAll('.dd-fixed [role=menuitemradio][aria-checked=true]')].find((r) => !/importance|Wichtigkeit/i.test(r.textContent))`);
+    const anyOn = await evaluate(`!![...document.querySelectorAll('.dd-fixed [role^=menuitem][aria-checked][aria-checked=true]')].find((r) => !/importance|Wichtigkeit/i.test(r.textContent))`);
     await closeMenu();
     ok((await geo()).dot === anyOn, `the dot on More actions is ${(await geo()).dot}, a moved action is ${anyOn ? 'on' : 'off'}`);
   }

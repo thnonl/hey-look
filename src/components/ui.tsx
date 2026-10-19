@@ -14,6 +14,8 @@ export interface MenuItem {
   icon?: ReactNode;
   onClick?: () => void;
   checked?: boolean;
+  /** with `checked`: "check" is an independent on/off row (role menuitemcheckbox: Subscript, Meeting, Encrypt ...), "radio" (the default) is one of several (alignment, a signature, High / Low importance: menuitemradio) */
+  kind?: "check" | "radio";
   divider?: boolean;
   disabled?: boolean;
   hint?: string;
@@ -151,7 +153,7 @@ export function MenuList({ items, onDone }: { items: MenuItem[]; onDone: () => v
           <button
             key={i}
             className="menu-row"
-            role={it.checked === undefined ? "menuitem" : "menuitemradio"}
+            role={it.checked === undefined ? "menuitem" : it.kind === "check" ? "menuitemcheckbox" : "menuitemradio"}
             aria-checked={it.checked === undefined ? undefined : it.checked}
             tabIndex={-1}
             data-search={it.search}

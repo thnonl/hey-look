@@ -169,8 +169,8 @@ const doc = (...blocks) => ({ type: "doc", content: blocks });
   assert.ok(/useKit\(\) \? <ComposeBody init=\{init\} \/> : null/.test(read("src/components/Compose.tsx")) && /pictures: true/.test(read("src/components/Compose.tsx")), "Compose waits for the kit and asks for pictures");
   assert.ok(/useKit\(\) \? <RichEditorBody/.test(read("src/components/RichEditor.tsx")) && !/pictures: true/.test(read("src/components/RichEditor.tsx")) && /baseExtensions\(\{[^}]*\bpictures\b/.test(read("src/components/RichEditor.tsx")), "the signature and template editors wait for the kit and have the picture node only when the caller asks for it (Settings does: REQ-25)");
   // the picture toolbar: alignment and link
-  const compose = read("src/components/Compose.tsx");
-  assert.ok(/role="radiogroup" aria-label=\{t\("compose\.pic\.align"\)\}/.test(compose) && /setPictureAlign/.test(compose) && /compose\.pic\.linkTip/.test(compose));
+  const compose = read("src/editor/PictureTools.tsx"); // (the picture toolbar, one component for the message and the signature editor since 1.0.7)
+  assert.ok(/role="radiogroup" aria-label=\{t\("compose\.pic\.align"\)\}/.test(compose) && /setAlign/.test(compose) && /compose\.pic\.linkTip/.test(compose));
   // the link UI works on a selected picture
   const pop = read("src/components/LinkPopover.tsx");
   assert.ok(/picture: true/.test(pop) && /updateAttributes\("image", \{ href \}\)/.test(pop) && /compose\.link\.open/.test(pop), "the link popover edits a picture's link and can open a link (keyboard)");

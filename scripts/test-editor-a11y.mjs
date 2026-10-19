@@ -123,6 +123,129 @@ try {
   await sleep(400);
   await pictureKeyboard('message', EDS.compose, { large: 720 }, { attach: true }).catch((e) => { failures.push(`message: ${e.message}`); console.error('FAIL', e.message); });
 
+  // ---- W2.16: the link dialog. Text to display above Address (the focus is in Address), Cancel + Insert (Cancel + Save + Remove link + Open link when editing), Esc cancels
+  await H.openApp('lang=en', 1280, 800);
+  await evaluate(`window.__store.getState().openCompose({ accountId: 'a1', to: [], subject: 'Links', bodyHtml: '<p>Hello</p>' }); 1`);
+  assert.ok(await waitFor(`!!document.querySelector('.cp-editor .tiptap')?.editor`, 15000), 'compose did not start');
+  await sleep(900);
+  const selectEll = () => evaluate(`(() => { const e = ${EDS.compose}; let at = -1; e.state.doc.descendants((n, pos) => { if (at < 0 && n.isText && n.text.includes('Hello')) at = pos + n.text.indexOf('Hello'); return at < 0; }); e.commands.focus(); e.commands.setTextSelection({ from: at + 1, to: at + 4 }); return at; })()`);
+  const dialog = () => json(`(() => { const d = document.querySelector('.link-pop'); if (!d) return null; const f = [...d.querySelectorAll('.link-pop-field')].map((l) => ({ label: l.querySelector('span').textContent.trim(), value: l.querySelector('input').value })); return { title: d.querySelector('.link-pop-title').textContent.trim(), fields: f, buttons: [...d.querySelectorAll('.link-pop-btns button')].map((b) => ({ t: b.textContent.trim(), primary: b.classList.contains('primary') })), focus: document.activeElement?.closest('.link-pop-field')?.querySelector('span').textContent.trim() ?? null, width: Math.round(d.getBoundingClientRect().width) }; })()`);
+  const sel = () => json(`(() => { const e = ${EDS.compose}; const { from, to } = e.state.selection; return { text: e.getText(), sel: e.state.doc.textBetween(from, to), link: e.getHTML().includes('<a '), focus: !!document.activeElement?.closest('.ProseMirror') }; })()`);
+  await selectEll();
+  await sleep(200);
+  await key('k', 'KeyK', 75, 2);
+  await sleep(300);
+  await check('link: a new link has Text to display above Address, the focus in Address, Cancel + Insert', async () => {
+    const d = await dialog();
+    assert.equal(d.title, 'Insert link');
+    assert.deepEqual(d.fields.map((f) => f.label), ['Text to display', 'Address']);
+    assert.equal(d.fields[0].value, 'ell');
+    assert.equal(d.focus, 'Address');
+    assert.deepEqual(d.buttons, [{ t: 'Cancel', primary: false }, { t: 'Insert', primary: true }]);
+    assert.equal(d.width, 300);
+  });
+  await K.esc();
+  await sleep(250);
+  await check('link: Esc closes it without a change, the selection and the focus are as they were', async () => {
+    assert.equal(await dialog(), null);
+    const st = await sel();
+    assert.deepEqual([st.text.trim(), st.sel, st.link, st.focus], ['Hello', 'ell', false, true]);
+  });
+  await key('k', 'KeyK', 75, 2);
+  await sleep(300);
+  await H.cdp('Input.insertText', { text: 'example.com' });
+  await K.enter();
+  await sleep(300);
+  await check('link: Enter in Address makes the link', async () => { assert.equal(await dialog(), null); assert.ok((await sel()).link); });
+  await evaluate(`(() => { const e = ${EDS.compose}; let at = -1; e.state.doc.descendants((n, pos) => { if (at < 0 && n.isText && n.marks.some((m) => m.type.name === 'link')) at = pos + 1; return at < 0; }); e.commands.focus(); e.commands.setTextSelection(at); return at; })()`);
+  await key('k', 'KeyK', 75, 2);
+  await sleep(300);
+  await check('link: a link being edited has Remove link, Open link, Cancel and Save', async () => {
+    const d = await dialog();
+    assert.equal(d.title, 'Edit link');
+    assert.deepEqual(d.buttons.map((b) => b.t), ['Remove link', 'Open link', 'Cancel', 'Save']);
+    assert.equal(d.buttons[3].primary, true);
+    assert.equal(d.focus, 'Address');
+    assert.equal(d.fields[1].value, 'https://example.com');
+  });
+  await K.esc();
+  await sleep(200);
+  await evaluate(`(() => { const e = ${EDS.compose}; e.commands.focus('start'); e.commands.insertContent({ type: 'image', attrs: { src: ${PNG(200, 100, '#27ae60')}, alt: '', width: 200 } }); e.chain().focus().setNodeSelection(0).run(); return 1; })()`);
+  await sleep(300);
+  await key('k', 'KeyK', 75, 2);
+  await sleep(300);
+  await check('link: on a picture there is no Text to display', async () => { const d = await dialog(); assert.deepEqual(d.fields.map((f) => f.label), ['Address']); });
+  await K.esc();
+  await sleep(200);
+
+  // ---- W2.20: pressed state of the toggles, check boxes and radios in the menus, the To field as a combobox
+  await H.openApp('lang=en', 946, 552);
+  await evaluate(`window.__store.getState().openCompose({ accountId: 'a1', to: [], subject: 'Aria', bodyHtml: '<p>plain <b>bold</b></p>' }); 1`);
+  assert.ok(await waitFor(`!!document.querySelector('.cp-editor .tiptap')?.editor`, 15000), 'compose did not start');
+  await sleep(900);
+  const pressed = (label) => evaluate(`document.querySelector('.fmt-tb [aria-label=${JSON.stringify(label)}]')?.getAttribute('aria-pressed') ?? null`);
+  const at = (word) => evaluate(`(() => { const e = ${EDS.compose}; let at = -1; e.state.doc.descendants((n, pos) => { if (at < 0 && n.isText && n.text.includes(${JSON.stringify(word)})) at = pos + n.text.indexOf(${JSON.stringify(word)}); return at < 0; }); e.commands.focus(); e.commands.setTextSelection({ from: at + 1, to: at + 3 }); return at; })()`);
+  await at('bold');
+  await sleep(250);
+  await check('aria: Bold is pressed on bold text and not pressed on plain text', async () => {
+    assert.equal(await pressed('Bold'), 'true');
+    await at('plain');
+    await sleep(250);
+    assert.equal(await pressed('Bold'), 'false');
+    assert.equal(await pressed('Italic'), 'false');
+  });
+  await check('aria: every toggle of the formatting bar has aria-pressed, the commands have none', async () => {
+    const r = await json(`(() => [...document.querySelectorAll('.fmt-tb .fmt-bar > button, .fmt-tb .fmt-bar .fmt-split > button.fmt-main')].map((b) => [b.getAttribute('aria-label'), b.getAttribute('aria-pressed')]))()`);
+    const by = Object.fromEntries(r);
+    for (const n of ['Bold', 'Italic', 'Underline']) assert.ok(by[n] === 'true' || by[n] === 'false', n + ' ' + by[n]);
+    for (const n of ['Undo', 'Redo']) if (n in by) assert.equal(by[n], null, n + ' is a command');
+  });
+  // the More menu of the formatting bar: Subscript is a check box
+  await evaluate(`document.querySelector('.fmt-tb .fmt-more').click(); 1`);
+  await sleep(300);
+  await check('aria: More > Subscript is a check box (not checked)', async () => {
+    const r = await json(`(() => [...document.querySelectorAll('.dd-fixed [role^=menuitem]')].map((x) => [x.textContent.trim(), x.getAttribute('role'), x.getAttribute('aria-checked')]))()`);
+    const sub = r.find((x) => x[0].startsWith('Subscript'));
+    assert.deepEqual(sub && sub.slice(1), ['menuitemcheckbox', 'false'], JSON.stringify(r));
+    const sup = r.find((x) => x[0].startsWith('Superscript'));
+    assert.equal(sup && sup[1], 'menuitemcheckbox');
+  });
+  await K.esc();
+  await sleep(200);
+  // the action row's More menu (narrow window): Meeting / Encrypt / Sign / Confidential / Write with AI are check boxes, High / Low importance stay radios
+  await evaluate(`document.querySelector('.cp-bar .rb.more').click(); 1`);
+  await sleep(300);
+  await check('aria: More actions rows: toggles are check boxes, importance rows are radios', async () => {
+    const r = await json(`(() => [...document.querySelectorAll('.dd-fixed [role^=menuitem]')].map((x) => [x.textContent.trim(), x.getAttribute('role'), x.getAttribute('aria-checked')]))()`);
+    const boxes = r.filter((x) => x[1] === 'menuitemcheckbox').map((x) => x[0]);
+    assert.ok(boxes.length >= 3, 'check boxes: ' + JSON.stringify(r));
+    for (const x of r) if (/^(Meeting|Encrypt|Sign|Confidential|Write with AI)/.test(x[0]) && !/^Signing key/.test(x[0])) assert.equal(x[1], 'menuitemcheckbox', JSON.stringify(x));
+    for (const x of r) if (/importance/i.test(x[0])) assert.equal(x[1], 'menuitemradio', JSON.stringify(x));
+    for (const x of r) if (x[1] === 'menuitemcheckbox' || x[1] === 'menuitemradio') assert.ok(x[2] === 'true' || x[2] === 'false', JSON.stringify(x));
+  });
+  await K.esc();
+  await sleep(200);
+  // the To field
+  const to = () => json(`(() => { const i = document.querySelector('.cf-field.rcpt input'); const lb = document.querySelector('.suggest[role=listbox]'); return { role: i.getAttribute('role'), auto: i.getAttribute('aria-autocomplete'), expanded: i.getAttribute('aria-expanded'), controls: i.getAttribute('aria-controls'), active: i.getAttribute('aria-activedescendant'), label: i.getAttribute('aria-label'), list: lb ? { id: lb.id, label: lb.getAttribute('aria-label'), options: [...lb.querySelectorAll('[role=option]')].map((o) => ({ id: o.id, sel: o.getAttribute('aria-selected') })) } : null }; })()`);
+  await evaluate(`document.querySelector('.cf-field.rcpt input').focus(); 1`);
+  await check('aria: To is a combobox, collapsed before anything is typed', async () => {
+    const s0 = await to();
+    assert.equal(s0.role, 'combobox'); assert.equal(s0.auto, 'list'); assert.equal(s0.expanded, 'false'); assert.ok(s0.controls, 'aria-controls'); assert.equal(s0.active, null); assert.equal(s0.list, null);
+  });
+  await H.cdp('Input.insertText', { text: 'al' });
+  assert.ok(await waitFor(`!!document.querySelector('.suggest[role=listbox] [role=option]')`, 5000), 'no suggestions for "al"');
+  await sleep(150);
+  await check('aria: with suggestions it is expanded, controls the listbox, which is named To and has option ids', async () => {
+    const s1 = await to();
+    assert.equal(s1.expanded, 'true'); assert.equal(s1.list.id, s1.controls); assert.equal(s1.list.label, 'To'); assert.ok(s1.list.options.length >= 1 && s1.list.options.every((o) => o.id && o.id.startsWith(s1.controls)), JSON.stringify(s1)); assert.equal(s1.active, null);
+  });
+  await key('ArrowDown', 'ArrowDown', 40);
+  await sleep(150);
+  await check('aria: Arrow Down moves aria-activedescendant to the highlighted option', async () => { const s2 = await to(); assert.equal(s2.active, s2.list.options[0].id); assert.equal(s2.list.options[0].sel, 'true'); });
+  await K.enter();
+  await sleep(300);
+  await check('aria: Enter adds it and the combobox is collapsed again', async () => { const s3 = await to(); assert.equal(s3.expanded, 'false'); assert.equal(await evaluate(`document.querySelectorAll('.cf-field.rcpt .rchip').length`), 1); });
+
   // the signature editor of Settings, in a 960 x 560 window: the same toolbar and keys, the sizes of a logo, no "As attachment"
   await H.openApp('lang=en', 946, 552);
   await evaluate(`window.__store.getState().setDialog({ type: 'settings', tab: 'mb:a1' }); 1`);

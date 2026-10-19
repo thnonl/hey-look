@@ -17,6 +17,8 @@
 
 ### Fixed
 
+- The link dialog follows Outlook's Insert Hyperlink: "Text to display" above "Address" (the focus is in Address), "Cancel" and "Insert" for a new link, "Remove link", "Open link", "Cancel" and "Save" for an existing one, Enter is the main button and Esc cancels with the selection as it was
+- A screen reader announces the formatting toggles as pressed or not pressed, the on/off rows of the More menus (Subscript, Meeting, Encrypt, Sign, Confidential, Write with AI) as check boxes with their state, and the To, Cc and Bcc fields as a list box with the highlighted suggestion
 - The picture toolbar can be reached with the keyboard: with a picture selected, Alt+F10 moves the focus to it, Left, Right, Home and End move between its controls, Enter presses, Esc goes back to the text with the picture still selected (a screen reader reads it as a toolbar with named groups)
 - A press elsewhere closes an open menu, calendar popup or colour palette inside a dialog (Settings, New event, the key dialogs), on the top bar of Windows (the logo, the title, an empty part of the bar) and inside the text of a message you read
 - New mail opened in the first moments after the start is no longer lost: a request that comes while the mailboxes are still being read (the button, the key C, the command bar, the tray or menu bar icon menu) is kept and opens when they are ready, with a message and a spinner while it waits, and "Couldn't open a new message" with Retry after 30 seconds (if the mailboxes are ready after that, the message goes and the new message opens by itself)
