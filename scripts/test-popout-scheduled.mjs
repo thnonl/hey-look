@@ -207,10 +207,19 @@ try {
     assert.equal(await evaluate(`window.__popoutOpens`), 1);
     assert.equal(names(await calls()).filter((c) => c === 'outbox_open_for_edit').length, 1);
   });
-  // another message is another window
-  assert.ok(await rowEdit('Budget draft v3'));
-  await sleep(800);
+  // another message is another window; and how long the row takes to say "Paused · editing" after Edit and to stop saying it after the window released the pause (owner: within about 3 s on every
+  // system - Windows QA r4 measured 23.5 s for the first, the list was only read again by the 30 s timer; the clear was 263 ms). Both are measured in the page, in ms, from the click / the request.
+  const says = `(() => { const r = [...document.querySelectorAll('.ml-row.sched')].find((x) => x.innerText.includes('Budget draft v3')); return !!r && /Paused · editing/.test(r.innerText); })()`;
+  const msUntil = (want, from) => evaluate(`new Promise((done) => { const t0 = performance.now(); ${from}; const tick = () => { if ((${says}) === ${want}) return done(Math.round(performance.now() - t0)); if (performance.now() - t0 > 6000) return done(-1); requestAnimationFrame(tick); }; tick(); })`);
+  const appearMs = await msUntil(true, `[...document.querySelectorAll('.ml-row.sched')].find((x) => x.innerText.includes('Budget draft v3')).click()`);
+  console.log(`  row says "Paused · editing" ${appearMs} ms after Edit`);
+  await check('Scheduled > Edit: the row says "Paused · editing" within 3 s of the click (measured in ms)', async () => assert.ok(appearMs >= 0 && appearMs <= 3000, `${appearMs} ms`));
+  await sleep(500);
   await check('Edit of another scheduled message is another window', async () => assert.equal(await evaluate(`window.__popoutOpens`), 2));
+  // the window ends without a change: it releases the pause (outbox_release) and tells the main window to read the outbox again (composeBridge notifyMain "refresh")
+  const clearMs = await msUntil(false, `window.__TAURI_INTERNALS__.invoke('outbox_release', { id: 's2' }).then(() => window.__mockEmit('popout-request', { id: 'cw-test', from: 'compose-9', kind: 'cw-refresh', payload: null }))`);
+  console.log(`  row stops saying "Paused · editing" ${clearMs} ms after the window's release`);
+  await check('the row stops saying "Paused · editing" within 3 s of the window releasing the pause (measured in ms)', async () => assert.ok(clearMs >= 0 && clearMs <= 3000, `${clearMs} ms`));
 } finally { await H.shutdown(); }
 
 if (failures.length) { console.error(`test-popout-scheduled: ${failures.length} failure(s)\n - ${failures.join('\n - ')}`); process.exit(1); }
