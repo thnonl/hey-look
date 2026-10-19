@@ -14,9 +14,10 @@ function page({ unsaved = null, choice = "quit", inFlight = 0, flushThrows = fal
     showWindow: () => log.push("show"),
     dialog: (open) => log.push(`dialog:${open}`),
     done: (go) => log.push(`done:${go}`),
-    unsaved: () => unsaved && { scheduled: !!unsaved.scheduled, save: unsaved.save ?? null },
+    unsaved: () => unsaved && { scheduled: !!unsaved.scheduled, empty: !!unsaved.empty, save: unsaved.save ?? null },
     ask: async (kind) => (log.push(`ask:${kind}`), typeof choice === "function" ? choice(kind) : choice),
     saved: async () => void log.push("saved"),
+    emptied: async () => void log.push("emptied"),
     discarded: async () => void log.push("discarded"),
     inFlight: () => inFlight,
     tell: (n) => log.push(`tell:${n}`),
@@ -47,6 +48,19 @@ function page({ unsaved = null, choice = "quit", inFlight = 0, flushThrows = fal
   const { d, log } = page({ unsaved: { save: async (o) => (assert.deepEqual(o, { quiet: true }), true) } });
   assert.equal(await runQuitFlush(d), true);
   assert.deepEqual(log, ["alive", "saved", "flush:20000", "done:true"]);
+}
+
+// W13.5: a message with nothing worth a draft (only recipients, or typed and deleted again): not saved, not asked about, the pane is emptied
+{
+  const { d, log } = page({ unsaved: { empty: true, save: async () => assert.fail("no draft is saved") }, choice: () => assert.fail("no question") });
+  assert.equal(await runQuitFlush(d), true);
+  assert.deepEqual(log, ["alive", "emptied", "flush:20000", "done:true"]);
+}
+// ... but a scheduled message being edited still asks (it is not a draft)
+{
+  const { d, log } = page({ unsaved: { scheduled: true, empty: true }, choice: "quit" });
+  assert.equal(await runQuitFlush(d), true);
+  assert.ok(log.includes("ask:scheduledEdit") && !log.includes("emptied"), log.join());
 }
 
 // a message that cannot be saved: the window first, then the backend is told a question is open (and closed), "Quit and discard" goes on

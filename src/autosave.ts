@@ -23,8 +23,8 @@ export interface AutosaveFacts {
   lastTryAt: number;
   /** failed tries in a row */
   failures: number;
-  /** the person wrote something (not just an untouched quote or signature) */
-  hasContent: boolean;
+  /** the message holds something worth a draft (composeContent.ts `draftContent`: text, a subject, a picture or a file of the person's, a meeting place; recipients alone are not) */
+  draftContent: boolean;
   /** files are still being read into the message */
   attaching: boolean;
   /** a save (autosave, Save draft, leaving) is running */
@@ -38,14 +38,14 @@ export interface AutosaveFacts {
 }
 
 /**
- * Save now? Only a changed message that holds something the person wrote, never while another save is running or the message is on its
+ * Save now? Only a changed message that holds draft content (a message with nothing but recipients is never saved, W13.5), never while another save is running or the message is on its
  * way out, and never a message that Encrypt is meant to protect when the draft would not be encrypted. The timer waits `interval` after the
  * first change (or the last try) and backs off after failures; leaving the window (blur / hidden) does not wait for the timer, but a try
  * that has just been made is not repeated at once.
  */
 export function autosaveDue(f: AutosaveFacts, interval = AUTOSAVE_MS): boolean {
   if (f.scheduled || f.sending || f.saving || f.attaching || f.plainWouldLeak) return false;
-  if (!f.hasContent || f.rev === f.savedRev) return false;
+  if (!f.draftContent || f.rev === f.savedRev) return false;
   const since = f.now - f.lastTryAt;
   if (f.why !== "tick") return f.lastTryAt === 0 || since >= Math.min(interval, 2_000) * (1 + Math.min(f.failures, MAX_BACKOFF));
   const wait = interval * (1 + Math.min(f.failures, MAX_BACKOFF));

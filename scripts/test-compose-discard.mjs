@@ -7,7 +7,8 @@
 //
 // Real compose pane in the dev preview (src/devMock.ts), in the main window and as the compose window (`?w=compose`), with the quote block a reply
 // really has (src/editor/quoteBlock.ts). Per scenario: Discard with nothing typed closes with no dialog and leaves no unsaved flag; one character in the
-// body, in the subject, an address added to To, or a file attached asks "Discard this message?" (Cancel keeps it, Discard closes it).
+// body, in the subject, or a file attached asks "Discard this message?" (Cancel keeps it, Discard closes it). An address added to To is not worth a draft
+// (1.0.7 W13.5, scripts/test-empty-draft.mjs): Discard closes it without asking.
 //   node scripts/test-compose-discard.mjs [--require-browser] [--url=http://127.0.0.1:1420/]
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
@@ -83,6 +84,15 @@ try {
         await sleep(300);
         s = await state();
         check(`${tag} + ${what}: counts as written`, () => assert.equal(s.probe?.hasContent, true));
+        if (what === 'recipient') {
+          // 1.0.7 W13.5: an address alone is not worth a draft (the crash snapshot keeps it, Drafts does not): Discard closes it without asking, like an empty message
+          check(`${tag} + ${what}: no draft content`, () => assert.equal(s.probe?.draftContent, false));
+          await pressDiscard();
+          s = await state();
+          check(`${tag} + ${what}: Discard closes without a question`, () => { assert.deepEqual(s.dialog, []); assert.equal(s.pane, false); });
+          continue;
+        }
+        check(`${tag} + ${what}: counts as a draft`, () => assert.equal(s.probe?.draftContent, true));
         await pressDiscard();
         s = await state();
         check(`${tag} + ${what}: Discard asks`, () => { assert.equal(s.dialog.length, 1); assert.match(s.dialog[0], /Discard this message\?/); });

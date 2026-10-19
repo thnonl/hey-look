@@ -177,7 +177,7 @@ export default function ComposeView({ label, init }: PopoutViewProps) {
         await runClose({
           facts: () => {
             const p = st.getState().composeProbe?.();
-            return { phase: winRef.current.phase, dirty: st.getState().composeDirty, hasContent: !!p?.hasContent, attaching: !!p?.attaching };
+            return { phase: winRef.current.phase, dirty: st.getState().composeDirty, hasContent: !!p?.draftContent, attaching: !!p?.attaching };
           },
           ask: async () => {
             const a = await choose({
@@ -229,7 +229,8 @@ export default function ComposeView({ label, init }: PopoutViewProps) {
         {
           phase: () => winRef.current.phase,
           dirty: () => st.getState().composeDirty,
-          hasContent: () => !!st.getState().composeProbe?.().hasContent,
+          hasContent: () => !!st.getState().composeProbe?.().draftContent,
+          emptied: async () => void (await st.getState().composeEnd?.({ emptied: true })),
           save,
           ask: async (why) => {
             const a = await choose({

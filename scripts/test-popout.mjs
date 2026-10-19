@@ -511,6 +511,9 @@ assert.equal(draftKey("t9"), "draft:t9");
   const f = (o) => ({ phase: "edit", dirty: false, hasContent: false, attaching: false, ...o });
   assert.equal(closeAction(f({})), "end", "nothing changed");
   assert.equal(closeAction(f({ dirty: true })), "end", "typed and deleted again: nothing to keep");
+  // W13.5: `hasContent` here is the probe's draftContent: a message with only recipients typed is dirty but has none, so it ends without a question
+  assert.equal(closeAction(f({ dirty: true, hasContent: false })), "end", "recipients only (draftContent false): the window closes, no question");
+  assert.equal(closeAction(f({ dirty: true, hasContent: false, attaching: true })), "attaching", "files still coming in are waited for before it is decided");
   assert.equal(closeAction(f({ dirty: false, hasContent: true })), "end", "saved already (an autosave) or opened as it is");
   assert.equal(closeAction(f({ dirty: true, hasContent: true })), "ask");
   assert.equal(closeAction(f({ dirty: true, hasContent: true, attaching: true })), "attaching", "files still coming in");
@@ -568,6 +571,11 @@ assert.equal(draftKey("t9"), "draft:t9");
   m.d.emptied = async () => void m.log.push("emptied");
   assert.equal(await runClose(m.d), "ended");
   assert.deepEqual(m.log, ["emptied", "end"], "no question, the saved copy is dropped, then the window ends");
+  // W13.5: the same for a window with only recipients: no question, no save, the snapshot and any autosaved copy go
+  m = make(f({ dirty: true, hasContent: false }), { ask: "save", save: true });
+  m.d.emptied = async () => void m.log.push("emptied");
+  assert.equal(await runClose(m.d), "ended");
+  assert.deepEqual(m.log, ["emptied", "end"], "a recipients-only window: neither asks nor saves");
   m = make(f({}), {});
   m.d.emptied = async () => void m.log.push("emptied");
   assert.equal(await runClose(m.d), "ended");
@@ -602,6 +610,7 @@ assert.equal(draftKey("t9"), "draft:t9");
         phase: () => o.phase ?? "edit",
         dirty: () => !!o.dirty,
         hasContent: () => o.hasContent ?? true,
+        ...(o.emptied ? { emptied: async () => void log.push("emptied") } : {}),
         save: async () => (log.push("save"), o.save ?? true),
         ask: async (why) => (log.push(`ask:${why}`), o.answer ?? "keep"),
         showWindow: () => log.push("show"),
@@ -620,6 +629,18 @@ assert.equal(draftKey("t9"), "draft:t9");
   m = make({ dirty: true, hasContent: false });
   assert.equal(await composeFlush(m.d, "quit"), true);
   assert.deepEqual(m.log, [], "typed and deleted: no empty draft");
+  // W13.5: quit and update restart with only recipients typed: no draft, no question; the snapshot and the autosaved copy of a new message go
+  for (const why of ["quit", "update"]) {
+    m = make({ dirty: true, hasContent: false, emptied: true });
+    assert.equal(await composeFlush(m.d, why), true);
+    assert.deepEqual(m.log, ["emptied"], `${why}: recipients only is closed silently`);
+  }
+  m = make({ dirty: false, hasContent: false, emptied: true });
+  assert.equal(await composeFlush(m.d, "quit"), true);
+  assert.deepEqual(m.log, [], "not changed: nothing to drop");
+  m = make({ dirty: true, hasContent: true, emptied: true });
+  await composeFlush(m.d, "quit");
+  assert.deepEqual(m.log, ["save"], "draft content: saved as before, nothing emptied");
   m = make({ dirty: true, save: false, answer: "keep" });
   assert.equal(await composeFlush(m.d, "quit"), false, "Keep writing cancels the whole quit");
   assert.deepEqual(m.log, ["save", "show", "dialog:true", "ask:quit", "dialog:false"]);
@@ -684,6 +705,10 @@ assert.equal(draftKey("t9"), "draft:t9");
   assert.ok(view.includes("emptied: async () => void (await st.getState().composeEnd?.({ emptied: true }))"), "an emptied message drops the copy an autosave made before the window ends (W2.3)");
   assert.ok(view.includes("api.popoutDestroy()") && view.includes("api.popoutPark()"));
   assert.ok(view.includes("registerFlushHandler(") && view.includes("composeFlush("), "a quit and an update restart ask the window");
+  // W13.5: closing and quitting go by the draft rule (a recipients-only message is neither saved nor asked about), not by the crash snapshot's
+  assert.ok(view.includes("hasContent: !!p?.draftContent") && view.includes("hasContent: () => !!st.getState().composeProbe?.().draftContent"), "the window closes and flushes by draftContent");
+  assert.ok(!/composeProbe\?\.\(\)\.hasContent|p\?\.hasContent/.test(view), "no path of the window goes by the snapshot's hasContent");
+  assert.ok(view.includes("emptied: async () => void (await st.getState().composeEnd?.({ emptied: true }))"), "a quit with nothing worth a draft drops the snapshot and the autosaved copy");
   assert.ok(view.includes("<PassphraseHost />") && view.includes("<GuardMenuHost />"), "the passphrase question and the in-app menu are drawn in this window");
   // the store actions that mean something else in a window are replaced before Compose is drawn
   for (const a of ["openCompose:", "sync:", "refresh:", "setDialog:", "showToast:"]) assert.ok(view.includes(a), a);

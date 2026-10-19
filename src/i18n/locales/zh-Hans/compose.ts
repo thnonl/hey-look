@@ -417,6 +417,7 @@ export default defineLocale<typeof ns.en>({
   "compose.toast.scheduleFailed": "定时发送失败：{error}",
   "compose.toast.view": "查看",
   "compose.toast.draftSaved": "草稿已保存",
+  "compose.toast.nothingToSave": "暂无可保存的内容。请先添加文字、主题或附件。",
   "compose.toast.draftSavedPlain": "草稿已保存，但未加密（设置 → 邮箱 → 安全）",
   "compose.toast.saveFailed": "保存草稿失败：{error}",
   "compose.leave.scheduledTitle": "不保存更改就关闭吗？",

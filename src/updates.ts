@@ -6,6 +6,7 @@ import { stickyTimers } from "./stickyTimers";
 import { create } from "zustand";
 import { api, DlEvent, UpdateInfo, UpdateResult, UpdateTrigger } from "./api";
 import { announceBlocker, flowActive, isStaleOffer, pendingVersion, updateKindOf } from "./updateRules";
+import { nothingToKeep } from "./leaveCompose";
 import { t } from "./i18n";
 import { friendlyError, useStore } from "./store";
 import { useFrame } from "./winframe";
@@ -425,6 +426,9 @@ export const useUpdates = create<UpdatesState>((set, get) => {
               if (c !== "restart") return stay("scheduled");
               st.setComposeDirty(false);
             }
+          } else if (st.composeDirty && nothingToKeep(st.composeProbe?.())) {
+            // nothing worth a draft (only recipients, or typed and deleted again, W13.5): no draft and no question; the copy an autosave made of it goes
+            await st.composeEnd?.({ emptied: true });
           } else if (st.composeDirty) {
             // a saver that throws is a failed save too (the restart must never end without a word)
             const saved = await (async () => {

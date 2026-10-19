@@ -27,7 +27,7 @@ import { extractQuote, quotePictureBytes } from "../editor/quoteBlock";
 import { baseFromPrefs } from "../editor/baseFont";
 import { repairSignature, signatureGuard } from "../signatureGuard";
 import { BAR_ITEMS, BAR_ROW_MAX, isCompact, keptItems, overflowCount, type BarItem } from "../composeFit";
-import { composeHasContent, isPersonEdit } from "../composeContent";
+import { composeHasContent, draftContent, isPersonEdit } from "../composeContent";
 import { autosaveDue, snapshotDue, timing, type AutosaveWhy } from "../autosave";
 import { RecoveryWriter, type RecoveryForm } from "../recovery";
 import { cleanPastedHtml, stripRemotePictures } from "../pastedHtml";
@@ -42,6 +42,7 @@ import { blockedAttachmentExt, dataUriBytes, fileToBase64, fmtClock, fmtIn, fmtS
 import { calTz } from "../calendar";
 import { defaultMeeting, MeetingState, MeetingStrip, meetingToDraft } from "./Calendar";
 import { fromInputs, toInputs } from "../calendar";
+import { backendCode } from "../backendErrors";
 import { decodeMeeting, encodeMeeting, meetingWire, restoreMeeting } from "../meetingDraft";
 import { isEmail, singleLabelHostsOf } from "../addresses";
 import { addRecipients, addressOf, chipLabel, formatRecipient, hasRecipient, isImeEvent, openAtEnd, placeRecipients, recipientKey, splitRecipients, type RcptField } from "../recipients";
@@ -1383,6 +1384,13 @@ function ComposeBody({ init }: { init: ComposeInit }) {
     // once more, which replaces this draft) and leaves the error line of those flows alone.
     async (close: boolean, quiet = false, onSaved?: (d: SavedDraft) => void, auto = false): Promise<boolean> => {
       if (init.outboxId) return true; // a scheduled message is not a draft; "Move to Drafts" does that
+      // Nothing worth a draft (W13.5: only recipients, nothing at all, or everything deleted again): nothing is written, the message stays as it is. The
+      // autosave, leaving, closing and quitting never get here (they check first); this is Save draft. A draft opened from Drafts and not touched may
+      // still be saved as it is (as before).
+      if (!auto && !probeRef.current().draftContent && !(openedDraft && !touched.current)) {
+        if (!quiet) showToast(() => t("compose.toast.nothingToSave"), undefined, "info");
+        return false;
+      }
       const rev = revRef.current;
       savingRef.current++;
       try {
@@ -1429,6 +1437,11 @@ function ComposeBody({ init }: { init: ComposeInit }) {
         return true;
       } catch (e) {
         if (auto) return false; // (the next try is later, see autosaveDue; the snapshot keeps the text meanwhile)
+        // the backend refused an empty draft (DRAFT_EMPTY, REQ-13.5.7): the same word as the check above
+        if (backendCode(String(e instanceof Error ? e.message : e)) === "DRAFT_EMPTY") {
+          if (!quiet) showToast(() => t("compose.toast.nothingToSave"), undefined, "info");
+          return false;
+        }
         // `quiet`: the caller (an update restart, a quit) tells the user itself
         useStore.setState({ draftError: friendlyError(e).replace(/\.$/, "") });
         if (!quiet) showToast(() => t("compose.toast.saveFailed", { error: friendlyError(e) }), undefined, "error");
@@ -1505,7 +1518,7 @@ function ComposeBody({ init }: { init: ComposeInit }) {
     const p = probe();
     return {
       now: Date.now(), why, rev: revRef.current, savedRev: savedRevRef.current, changedAt: changedAtRef.current, lastTryAt: lastTryRef.current,
-      failures: failuresRef.current, hasContent: p.hasContent, attaching: p.attaching, saving: savingRef.current > 0, sending: sendingRef.current || poppingRef.current || endingRef.current,
+      failures: failuresRef.current, draftContent: p.draftContent, attaching: p.attaching, saving: savingRef.current > 0, sending: sendingRef.current || poppingRef.current || endingRef.current,
       scheduled: !!init.outboxId, plainWouldLeak: encOn && !eff(prefs, accountId, "pgpEncryptDrafts"),
     };
   };
@@ -1582,15 +1595,23 @@ function ComposeBody({ init }: { init: ComposeInit }) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
   // what leaving this message needs to know: did the person write anything, are files still coming in
+  // `hasContent`: anything the person made (the crash snapshot keeps it, a local file). `draftContent`: what is worth a draft on the server (W13.5): not
+  // recipients alone. Autosave, Save draft, Discard, leaving, closing a window, quit and update restart all go by `draftContent`.
   const probe = (): ComposeProbe => {
     const b = baseline.current;
     const restored = !!init.recoveryId || !!init.carried;
-    const hasContent = composeHasContent(
-      touched.current,
-      { text: editor?.getText().trim() ?? "", pics: editor ? bodyPictures(editor) : 0, to, cc: cc.length, bcc: bcc.length, subject, atts: atts.length },
-      { text: b?.text ?? "", pics: b?.pics ?? 0, to: restored ? [] : init.to ?? [], cc: restored ? 0 : init.cc?.length ?? 0, bcc: restored ? 0 : init.bcc?.length ?? 0, subject: restored ? "" : init.subject ?? "", atts: restored ? 0 : init.attachments?.length ?? 0 },
-    );
-    return { hasContent, attaching: attachingRef.current > 0, rev: revRef.current, pending: !!(pendingRcpt.current.to + pendingRcpt.current.cc + pendingRcpt.current.bcc).trim() };
+    const now = { text: editor?.getText().trim() ?? "", pics: editor ? bodyPictures(editor) : 0, to, cc: cc.length, bcc: bcc.length, subject, atts: atts.length };
+    const opened = { text: b?.text ?? "", pics: b?.pics ?? 0, to: restored ? [] : init.to ?? [], cc: restored ? 0 : init.cc?.length ?? 0, bcc: restored ? 0 : init.bcc?.length ?? 0, subject: restored ? "" : init.subject ?? "", atts: restored ? 0 : init.attachments?.length ?? 0 };
+    const hasContent = composeHasContent(touched.current, now, opened);
+    // files that came with a NEW message ("send this file") are the person's choice; only a reply or forward (it carries the original's), or a draft that
+    // already exists, treats the files it opened with as its own doing
+    const carriesFiles = openedDraft || !!init.isReply || !!init.inReplyTo || !!init.answers;
+    const hasDraftContent = draftContent(touched.current, now, carriesFiles ? opened : { ...opened, atts: 0 }, {
+      meetingWhere: meeting?.where ?? "",
+      openedWhere: restored ? "" : init.meetingForm?.where ?? init.meeting?.location ?? "",
+      existing: openedDraft,
+    });
+    return { hasContent, draftContent: hasDraftContent, attaching: attachingRef.current > 0, rev: revRef.current, pending: !!(pendingRcpt.current.to + pendingRcpt.current.cc + pendingRcpt.current.bcc).trim() };
   };
   const probeRef = useRef(probe);
   probeRef.current = probe;
@@ -1635,9 +1656,10 @@ function ComposeBody({ init }: { init: ComposeInit }) {
       }
       return;
     }
-    // the same rule as leaving, the autosave and the snapshot: a reply or forward with nothing written (the recipients, the subject, the quote
-    // and the signature are Compose's own) closes without asking, like an empty new message; a letter, an address or a file of the person's asks
-    const written = probe().hasContent || !!(pendingRcpt.current.to + pendingRcpt.current.cc + pendingRcpt.current.bcc).trim();
+    // the same rule as leaving and the autosave (W13.5): a message with nothing worth a draft (a reply or forward with nothing written: the recipients,
+    // the subject, the quote and the signature are Compose's own; or a new message with only recipients) closes without asking; a letter, a subject,
+    // a picture or a file of the person's asks
+    const written = probe().draftContent;
     // an opened draft that a save has replaced since (an autosave counts) asks even when the text is the original again: Drafts holds the edits
     if (openedDraft && (written || savedDraftRef.current)) {
       if (!(await confirm({ title: t("compose.dlg.discardChangesTitle"), body: t("compose.dlg.discardChangesBody"), confirmLabel: t("compose.dlg.discardChanges"), danger: true }))) return;

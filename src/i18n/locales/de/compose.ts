@@ -429,6 +429,7 @@ export default defineLocale<typeof ns.en>({
   "compose.toast.scheduleFailed": "Planen fehlgeschlagen: {error}",
   "compose.toast.view": "Ansehen",
   "compose.toast.draftSaved": "Entwurf gespeichert",
+  "compose.toast.nothingToSave": "Noch nichts zu speichern. Fügen Sie Text, Betreff oder Anhang hinzu.",
   "compose.toast.draftSavedPlain": "Entwurf ohne Verschlüsselung gespeichert (Einstellungen → Postfächer → Sicherheit)",
   "compose.toast.saveFailed": "Entwurf konnte nicht gespeichert werden: {error}",
   "compose.leave.scheduledTitle": "Schließen, ohne Ihre Änderungen zu speichern?",
