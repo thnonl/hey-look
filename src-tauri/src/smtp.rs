@@ -264,7 +264,14 @@ fn account_address(acc: &Account) -> R<Address> {
 fn reply_to_of(acc: &Account) -> Option<Mailbox> {
     let addr = ascii_address(acc.reply_to.trim()).parse::<Address>().ok()?;
     let me = account_address(acc).ok()?;
-    (!addr.to_string().eq_ignore_ascii_case(&me.to_string())).then(|| Mailbox::new(None, addr))
+    (!same_address(&addr.to_string(), &me.to_string())).then(|| Mailbox::new(None, addr))
+}
+
+/// Two addresses are the same person when they differ only in case: the domain (always, DNS) and the local part (the way the rest of the app compares the person's own
+/// addresses: `recipientKey`, the own-address checks of a reply). A whole-string Unicode lowercase, so `Ünal@X.test` and `ünal@x.test` are one too. An IDN domain is compared in
+/// its ASCII form (`ascii_address`), which the callers have already made.
+pub fn same_address(a: &str, b: &str) -> bool {
+    a.trim().to_lowercase() == b.trim().to_lowercase()
 }
 
 /// A Reply-To as the setting stores it: empty, or ONE bare address (no name part, no list). The same rule as the field in Settings.
@@ -1361,7 +1368,7 @@ To:") && !out.contains("undisclosed"), "{out}");
         let msg = build(&acc, &d).unwrap();
         assert_eq!(msg.envelope().to().iter().map(|a| a.to_string()).collect::<Vec<_>>(), vec!["ann@example.com".to_string()]);
         // the From address in any case, or nothing: no header
-        for same in ["me@example.com", "Me@Example.COM", " me@example.com "] {
+        for same in ["me@example.com", "Me@Example.COM", " me@example.com ", "ME@EXAMPLE.COM", "mE@exAMPle.com"] {
             acc.reply_to = same.into();
             assert!(reply_lines(&wire(&build(&acc, &d).unwrap())).is_empty(), "{same:?}");
         }
@@ -1381,6 +1388,60 @@ To:") && !out.contains("undisclosed"), "{out}");
         for bad in ["not an address", "Team <team@x.test>", "a@x.test, b@x.test", "a@x.test;b@x.test", "\"Team\" <a@x.test>", "team", "@x.test", "team@", "a b@x.test", "team@x.test\r\nBcc: evil@x.test"] {
             assert!(check_reply_to(bad).unwrap_err().starts_with("EMAIL_INVALID:"), "{bad:?}");
         }
+    }
+
+    /// QA 1.0.7 round 3a BUG-1: `QA-R3A@Example.COM` was typed as the Reply-To of the mailbox `qa-r3a@example.test`: that is another address (the top level domain differs), so the header is
+    /// right. What must give no header is every spelling of the From address that differs only in case, whichever side carries the capitals, with an internationalized domain in
+    /// either form. Plain, draft, signed, encrypted and meeting reply all go through `reply_to_of`.
+    #[test]
+    fn a_reply_to_that_is_the_from_address_in_another_case_writes_no_header() {
+        let reply_lines = |raw: &[u8]| {
+            let (h, _) = crate::pgpmail::parse_headers(raw);
+            h.iter().filter(|(n, _)| n.eq_ignore_ascii_case("reply-to")).map(|(_, v)| v.trim().to_string()).collect::<Vec<_>>()
+        };
+        let d = draft("<p>Hi</p>", vec![], vec![]);
+        let cal = CalendarPart { method: "REPLY".into(), ics: "BEGIN:VCALENDAR
+END:VCALENDAR
+".into() };
+        let written = |acc: &Account| -> Vec<Vec<String>> {
+            vec![
+                reply_lines(&wire(&build(acc, &d).unwrap())),
+                reply_lines(&wire(&build_draft(acc, &d).unwrap())),
+                reply_lines(&wire(&build_signed(acc, &d, false, &signer).unwrap())),
+                reply_lines(&wire(&build_encrypted(acc, &d, false, &|_| Ok("armored".into())).unwrap())),
+                reply_lines(&wire(&build_calendar_mail(acc, &["org@x.test".to_string()], &[], "Accepted", "ok", &cal).unwrap())),
+            ]
+        };
+        let none = vec![Vec::<String>::new(); 5];
+        // (from, reply-to): the QA mailbox in its exact case, the QA variant with the same domain, capitals on either side, an IDN domain in both forms, a non-ASCII local part
+        for (from, rt) in [
+            ("qa-r3a@example.test", "qa-r3a@example.test"),
+            ("qa-r3a@example.test", "QA-R3A@Example.TEST"),
+            ("QA-R3A@Example.Test", "qa-r3a@example.test"),
+            ("Me@Example.com", "mE@EXAMPLE.COM"),
+            ("me@bücher.example", "ME@XN--BCHER-KVA.EXAMPLE"),
+            ("me@xn--bcher-kva.example", "Me@BÜCHER.example"),
+            ("ünal@x.test", "ÜNAL@X.TEST"),
+        ] {
+            let mut acc = account();
+            acc.email = from.into();
+            acc.reply_to = rt.into();
+            assert_eq!(written(&acc), none, "from {from:?}, reply-to {rt:?}");
+        }
+        // a different address, with or without capitals, is written (once, in every kind of message)
+        for (from, rt, shown) in [
+            ("qa-r3a@example.test", "QA-R3A@Example.COM", "QA-R3A@Example.COM"),
+            ("qa-r3a@example.test", "qa-r3a2@example.test", "qa-r3a2@example.test"),
+            ("me@example.com", "Team@X.test", "Team@X.test"),
+        ] {
+            let mut acc = account();
+            acc.email = from.into();
+            acc.reply_to = rt.into();
+            for (i, lines) in written(&acc).into_iter().enumerate() {
+                assert_eq!(lines, vec![shown.to_string()], "from {from:?}, reply-to {rt:?}, message kind {i}");
+            }
+        }
+        assert!(same_address(" A@B.c ", "a@b.C") && !same_address("a@b.c", "a@b.com") && !same_address("a@b.c", "b@b.c"));
     }
 
     /// QA round 2, BUG-1 (O-04): a reply to a message whose Subject held CR LF was sent with those bytes inside the encoded Subject (the mail library encodes a raw
