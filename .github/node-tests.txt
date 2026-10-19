@@ -139,6 +139,7 @@ ui-b | node scripts/test-ai-save-toast.mjs --require-browser
 ui-b | node scripts/test-meeting-compose.mjs --require-browser
 ui-b | node scripts/test-compose-discard.mjs --require-browser
 ui-b | node scripts/test-discard-states.mjs --require-browser
+ui-b | node scripts/test-discard-rapid.mjs --require-browser
 ui-b | node scripts/test-mac-heading-keys.mjs --require-browser
 # the top strip of the message and conversation windows follows the theme (the root of the compose page is not fixed; macOS paints the title bar from it)
 ui-b | node scripts/test-popout-theme.mjs --require-browser

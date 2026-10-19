@@ -1297,6 +1297,10 @@ export const useStore = create<State>((set, get) => ({
 
   choose: (o) =>
     new Promise<string>((resolve) => {
+      // One question at a time. A question that is open and gets replaced is answered as dismissed (what Esc does), not left waiting for ever: whoever asked it would hang
+      // with its guards set (a Discard that never ends, a window that cannot be closed)
+      const open = get().ask;
+      if (open) open.resolve(open.dismiss ?? open.choices[0].id);
       set({ ask: { title: o.title, body: o.body, choices: o.choices, dismiss: o.dismiss, resolve } });
     }),
 

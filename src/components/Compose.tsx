@@ -1649,7 +1649,7 @@ function ComposeBody({ init }: { init: ComposeInit }) {
     const p = probe();
     return {
       now: Date.now(), why, rev: revRef.current, savedRev: savedRevRef.current, changedAt: changedAtRef.current, lastTryAt: lastTryRef.current,
-      failures: failuresRef.current, draftContent: p.draftContent, attaching: p.attaching, saving: savingRef.current > 0, sending: sendingRef.current || poppingRef.current || endingRef.current,
+      failures: failuresRef.current, draftContent: p.draftContent, attaching: p.attaching, saving: savingRef.current > 0, sending: sendingRef.current || poppingRef.current || endingRef.current || discardingRef.current,
       scheduled: !!init.outboxId, plainWouldLeak: encOn && !eff(prefs, accountId, "pgpEncryptDrafts"),
     };
   };
@@ -1760,7 +1760,22 @@ function ComposeBody({ init }: { init: ComposeInit }) {
     [setComposeSaver, setComposeDirty],
   );
 
+  // One Discard at a time (QA 1.0.7 part B BUG-1 / D-029: presses in quick succession): while the question is open or the saved copy is being removed, every further press
+  // (button, Enter, a second click) does nothing: the open question is the one answer that counts. The autosave waits as well (see `autosaveFacts`).
+  const discardingRef = useRef(false);
+  const [discarding, setDiscarding] = useState(false);
   const discard = async () => {
+    if (discardingRef.current) return;
+    discardingRef.current = true;
+    setDiscarding(true);
+    try {
+      await discardOnce();
+    } finally {
+      discardingRef.current = false;
+      setDiscarding(false);
+    }
+  };
+  const discardOnce = async () => {
     if (init.outboxId) {
       const choice = await choose({
         title: t("compose.dlg.cancelScheduledTitle"),
@@ -2315,7 +2330,7 @@ function ComposeBody({ init }: { init: ComposeInit }) {
         {init.outboxId ? (
           <button className="rb" data-fit="fixed" onClick={() => void moveToDrafts()}><Save size={15} /><span>{t("compose.bar.moveToDrafts")}</span></button>
         ) : null}
-        <button className="rb" data-fit="fixed" title={compact ? t("compose.bar.discard") : undefined} onClick={() => void discard()}><Trash2 size={15} /><span>{t("compose.bar.discard")}</span></button>
+        <button className="rb" data-fit="fixed" title={compact ? t("compose.bar.discard") : undefined} aria-disabled={discarding || undefined} onClick={() => void discard()}><Trash2 size={15} /><span>{t("compose.bar.discard")}</span></button>
         <button className="rb" data-fit="fixed" title={compact ? t("compose.bar.attach") : undefined} onClick={() => fileRef.current?.click()}><Paperclip size={15} /><span>{t("compose.bar.attach")}</span></button>
         {!isMoved("picture") && barItem("picture")}
         <input ref={fileRef} type="file" multiple hidden aria-hidden="true" tabIndex={-1} onChange={(e) => (void addFiles(e.target.files), (e.target.value = ""))} />

@@ -1261,7 +1261,13 @@ export function installMock() {
         const done = () => ({ threadId: tid, draftRef: `mid:a1|<${tid}@mock>` });
         return hashTokens().has("draftslow") ? later(1500, done) : done(); // `#draftslow`: the save takes 1.5 s
       }
-      case "discard_draft": delete mockOriginals[String(a.reference)]; dropMockDraft(String(a.reference)); return null;
+      case "discard_draft": {
+        const w = window as unknown as { __discardDrafts?: number };
+        w.__discardDrafts = (w.__discardDrafts ?? 0) + 1; // counted, so a check can see how many times (and when) the saved copy was removed
+        delete mockOriginals[String(a.reference)];
+        dropMockDraft(String(a.reference));
+        return null;
+      }
       case "discard_draft_changes": {
         // like the backend: the opened version is appended again, then the saved copy goes (`#restorefail`: the server refuses, nothing changes)
         const ref = String(a.reference);
