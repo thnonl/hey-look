@@ -231,6 +231,9 @@ for (const name of names) {
   assert.ok(!isInternalCopy("<p>about data-pm-slice=\"1 1 []\"</p>") && !isInternalCopy('<p><b data-pm-slice="1 1 []">x</b></p>'), "only the marker on the first element of ProseMirror's own copy counts");
   // Text only
   assert.equal(pasteText("<p>a</p><p></p><p>b<br>c</p><ul><li>x<ol><li>y</li></ol></li></ul><blockquote>q</blockquote><a href='https://x.test/'>link</a>"), "a\n\nb\nc\n- x\n  1. y\n> q\nlink");
+  // D-042: the text of an HTML-only clipboard (Linux Ctrl+Shift+V, Cmd+Shift+V on a Mac with no text flavour) is this same function on every system: link text and bold text come as
+  // plain words and a list as markers; the address of a link is not written out (the same words a browser puts in text/plain). Spec AC-2.23.1 says "text (url)": see coder-v107-wp2-fix4.md.
+  assert.equal(pasteText('<ol><li>one</li><li>two</li></ol><p>after <a href="https://x.test/">a link</a> and <b>bold</b></p>'), "1. one" + String.fromCharCode(10) + "2. two" + String.fromCharCode(10) + "after a link and bold");
   assert.equal(pasteText("<h1>T</h1><pre>c1\nc2</pre><hr><p>t</p>"), "T\nc1\nc2\n----------\nt");
   assert.equal(textToHtml("a\r\n\r\n  b <c>\n"), "<p>a</p><p></p><p>\u00a0\u00a0b &lt;c&gt;</p>");
   assert.equal(textToHtml(""), "<p></p>");

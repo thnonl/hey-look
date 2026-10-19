@@ -163,6 +163,37 @@ try {
     assert.ok(Math.abs(top - top1) <= 1, `scrollTop ${top1} -> ${top}`);
     assert.equal(await evaluate(`!!document.activeElement?.closest?.('.ProseMirror')`), true);
   });
+  // D-041 (Linux QA: scrollTop read 557 for the first 1 to 2 frames, 4 to 36 ms, before the 150 came back: a visible flash). The engine moves the caret into view in the next
+  // layout after the focus call. Simulated: the move happens at the first layout flush after the unlock - a script reading `offsetHeight` of the pane, or else the frame's own
+  // layout, which comes after the animation frame callbacks and before the paint, where no page code can undo it. Every frame is sampled once it was drawn. The unlock flushes the
+  // layout itself before it puts the position back, so no drawn frame is off (without the flush the first drawn frame reads the end position).
+  await windowOf({ undo: 3 });
+  const top2 = await scrollTop();
+  assert.ok(top2 > 0);
+  await evaluate(`(() => { const pane = document.querySelector('.compose-pane'); const box = document.querySelector('.cp-editor'); let pending = false; window.__drawn = null;
+    const reveal = () => { box.scrollTop = box.scrollHeight; };
+    const sample = () => requestAnimationFrame(() => { const ch = new MessageChannel(); ch.port1.onmessage = () => { window.__drawn.push(box.scrollTop); if (window.__drawn.length < 30) sample(); }; ch.port2.postMessage(0); });
+    Object.defineProperty(pane, 'offsetHeight', { get() { if (pending) { pending = false; reveal(); } return 400; } });
+    const remove = pane.removeAttribute.bind(pane);
+    pane.removeAttribute = (n) => { remove(n); if (n === 'inert' && !window.__drawn) { pending = true; window.__drawn = []; queueMicrotask(() => requestAnimationFrame(() => { if (pending) { pending = false; reveal(); } })); sample(); } };
+    return 1; })()`);
+  assert.ok(await clickSend());
+  assert.ok(await waitFor(`document.querySelectorAll('.toasts .toast-undo').length === 1`, 5000));
+  await evaluate(`document.querySelector('.toasts .toast-undo').click(); 1`);
+  assert.ok(await waitFor(`(window.__drawn || []).length >= 30`, 8000), 'no frames were sampled after Undo');
+  await check('Undo: no drawn frame shows another scroll position than the one at Send (the engine moves the caret into view at the next layout)', async () => {
+    const drawn = await evaluate(`window.__drawn`);
+    const off = drawn.filter((v) => Math.abs(v - top2) > 1);
+    assert.equal(off.length, 0, `position at Send ${top2}, frames drawn: ${drawn.join(',')}`);
+  });
+  await check('the unlock runs before the browser draws (layout effect) and flushes the layout before it puts the scroll position back (D-041, source guard)', async () => {
+    const src = (await import('node:fs')).readFileSync(new URL('../src/components/Compose.tsx', import.meta.url), 'utf8');
+    const at = src.indexOf('const wasLocked = useRef(false);');
+    const eff = src.slice(at, src.indexOf('}, [locked]);', at));
+    assert.ok(/useLayoutEffect\(\(\) => \{\s*if \(locked\)/.test(eff), 'the unlock effect is not a layout effect');
+    assert.ok(eff.indexOf('.offsetHeight') > 0 && eff.indexOf('.offsetHeight') < eff.indexOf('put();'), 'the layout is not flushed before the position is put back');
+    assert.ok(eff.includes('document.addEventListener("scroll", put, true)'), 'a later move is not undone at once');
+  });
   await check('a person scrolling after Undo is not fought: the wheel moves the editor', async () => {
     await evaluate(`document.querySelector('.cp-editor').dispatchEvent(new WheelEvent('wheel', { deltaY: 40, bubbles: true })); document.querySelector('.cp-editor').scrollTop = 20; 1`);
     await sleep(500);

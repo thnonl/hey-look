@@ -70,6 +70,10 @@
 - Undo in a compose window keeps the scroll position on every system (on Linux the text jumped to the cursor a moment after Undo); Esc from the picture toolbar keeps the picture selected on Linux too, so Delete removes it
 - Closing the window of a scheduled message that you only looked at takes "Paused - editing" off its row in the Scheduled list at once
 - Pressing Discard several times in a row asks once (a second question replaces the first instead of leaving its caller waiting), and nothing is removed from Drafts before you confirm
+- Opening a scheduled message for editing puts "Paused · editing" on its row in the Scheduled list at once, also on a Mac where the list used to be read again only some time later
+- Undo in a compose window no longer shows the text at the wrong place for a frame or two before it jumps back (Linux)
+- Discard changes on a draft you opened and changed puts the draft back also when another mail program had only marked the old copy as deleted on the server (the draft used to be gone then)
+- On a Mac, the Edit menu item "Paste and Match Style" reads like the system's own item in Spanish ("Pegar con el mismo estilo") and Russian (no line break after "и")
 
 ## 1.0.6 — 2026-10-18
 

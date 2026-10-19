@@ -33,6 +33,19 @@ pub fn identifier() -> &'static str {
     IDENTIFIER.get().map(String::as_str).unwrap_or(SHIPPED_ID)
 }
 
+/// Whether the web view's inspector is switched off for this copy (D-037). Inspect Element in the native menus of a text field and F12 / Ctrl+Shift+I exist only in a debug build
+/// (tauri's `devtools` feature is not enabled, Cargo.toml, so a RELEASE build has no inspector under any condition). A QA build is a debug build on its own identifier or
+/// data folder: its native menus must be those of the release, so its windows are made without the inspector. A developer who wants it on such a copy sets
+/// `HEYLOOK_DEVTOOLS=1`; `tauri dev` (the shipped identifier, no test data folder) keeps it. The QA's remote control (the test bridge, CDP on Windows) does not use it.
+pub fn devtools_off() -> bool {
+    devtools_off_for(cfg!(debug_assertions), isolated(), std::env::var("HEYLOOK_DEVTOOLS").ok().as_deref())
+}
+
+/// Pure decision of `devtools_off`.
+pub fn devtools_off_for(debug_build: bool, isolated: bool, keep: Option<&str>) -> bool {
+    debug_build && isolated && keep != Some("1")
+}
+
 /// Pure decision: isolated when a test data folder is in use or the identifier is not the shipped one.
 pub fn is_isolated_for(identifier: &str, data_dir_overridden: bool) -> bool {
     data_dir_overridden || identifier != SHIPPED_ID
@@ -142,6 +155,25 @@ mod tests {
         let mut out = Vec::new();
         walk(&std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("src"), &mut out);
         out
+    }
+
+    /// D-037: only a debug build on an isolated copy (a QA build) is made without the inspector; a developer can keep it; a normal `tauri dev` run and a release build are not touched.
+    #[test]
+    fn a_qa_build_has_no_inspector_and_nothing_else_changes() {
+        assert!(devtools_off_for(true, true, None), "a debug build on a test copy");
+        assert!(!devtools_off_for(true, true, Some("1")), "HEYLOOK_DEVTOOLS=1 keeps it");
+        assert!(devtools_off_for(true, true, Some("0")) && devtools_off_for(true, true, Some("")), "only 1 keeps it");
+        assert!(!devtools_off_for(true, false, None), "tauri dev on the shipped identifier keeps it");
+        assert!(!devtools_off_for(false, true, None) && !devtools_off_for(false, false, None), "a release build is not touched here (it has no inspector: Cargo.toml has no `devtools` feature)");
+    }
+
+    /// D-037: the claim in the comment of `devtools_off` is checked: tauri's `devtools` feature, which would put the inspector into a release build, is not enabled.
+    #[test]
+    fn a_release_build_has_no_devtools_feature() {
+        let cargo = include_str!("../Cargo.toml");
+        let tauri_line = cargo.lines().find(|l| l.trim_start().starts_with("tauri = ")).expect("the tauri dependency");
+        assert!(!tauri_line.contains("devtools"), "{tauri_line}");
+        assert!(!cargo.lines().any(|l| l.contains("devtools") && !l.trim_start().starts_with('#')), "no crate of Cargo.toml asks for devtools");
     }
 
     #[test]

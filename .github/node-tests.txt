@@ -231,3 +231,5 @@ static | node --experimental-strip-types scripts/test-prefs-defaults.mjs
 static | node --experimental-strip-types scripts/test-focus-counts.mjs
 # the Focused / Other tab numbers in the real list (W13.12): equal to the bold rows, live on mark read / unread, 99+, gone with a search / Focused Inbox off / another folder, Tab order, 960 x 480 with the list at 300 px in en, de, ru, ja light and dark (one row, no clip, the Filter as its icon, a line of its own for the longest), look and contrast with every accent; stored old preferences start with Count Other on (the full run: `node scripts/test-focus-tabs.mjs --full`)
 ui-a | node scripts/test-focus-tabs.mjs --require-browser
+# a right-click on the To, Cc and Bcc inputs (D-038): REAL right-clicks, the press (pointerdown, mousedown), mouseup and contextmenu are not cancelled by any listener (WebKit on a Mac sends no contextmenu after a cancelled press), nothing sits on the input, no app menu opens; empty, with chips, focused, text typed, suggestions open, compose window; the recorder is the Mac probe scripts/lib/rcpt-context-probe.mjs
+ui-b | node scripts/test-recipient-menu.mjs --require-browser

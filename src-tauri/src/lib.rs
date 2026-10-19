@@ -5320,6 +5320,13 @@ pub fn run() {
     // (the policy of this run: the PDF experiment on macOS / Linux changes one directive, see pdfmode.rs)
     pdfmode::apply_csp(context.config_mut());
     identity::init(&context.config().identifier);
+    // a QA build has no inspector, its native menus are the release's (D-037, see identity.rs)
+    if identity::devtools_off() {
+        for w in context.config_mut().app.windows.iter_mut() {
+            w.devtools = Some(false);
+        }
+        startup::line("devtools", "this QA build makes its windows without the web view inspector (no Inspect Element; HEYLOOK_DEVTOOLS=1 keeps it)");
+    }
     // a start that fails ends in a message the person can read, not in a silent exit (see startfail.rs)
     startfail::install_panic_hook();
     #[cfg(windows)]

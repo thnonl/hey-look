@@ -675,6 +675,10 @@ fn create(app: &AppHandle, kind: Kind, label: &str, token: &str, cascade: Option
         .visible(false);
     // the page handles file drops itself (HTML5 drop in the compose window), like the main window
     b = b.disable_drag_drop_handler();
+    // (a QA build has no inspector, see identity.rs devtools_off)
+    if crate::identity::devtools_off() {
+        b = b.devtools(false);
+    }
     let win = b.build().map_err(|e| e.to_string())?;
     native_hold(&win, label);
     // the title bar has the theme the setting asks of it (never one fixed here: System = follow the OS), wintheme.rs

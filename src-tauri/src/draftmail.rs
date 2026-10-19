@@ -293,7 +293,9 @@ pub fn message_id_present<T: std::io::Read + std::io::Write>(s: &mut imap::Sessi
         return Ok(false);
     }
     s.select(folder).map_err(crate::db::err)?;
-    let found: Vec<u32> = s.uid_search(format!("HEADER Message-ID \"{mid}\"")).map_err(crate::db::err)?.into_iter().collect();
+    // (UNDELETED: a copy another program only flagged Deleted - Thunderbird's "mark as deleted", a server that expunges later - is gone for the person, so it is not "there": counting it
+    // made Discard changes skip the APPEND and then remove the saved copy, which left no draft at all, D-043)
+    let found: Vec<u32> = s.uid_search(format!("UNDELETED HEADER Message-ID \"{mid}\"")).map_err(crate::db::err)?.into_iter().collect();
     if found.is_empty() || found.len() > MAX_CANDIDATES {
         return Ok(false);
     }
@@ -1061,6 +1063,53 @@ mod tests {
             let left: Vec<&Vec<u8>> = st.folders["Drafts"].iter().filter_map(|u| st.messages.get(&("Drafts".to_string(), *u))).collect();
             assert_eq!(left.len(), 1, "exactly one D1 after the second round");
             assert_eq!(left[0], &original);
+        });
+    }
+
+    /// D-043 (Mac QA, WK-2d.09: "Discard changes with the server copy deleted leaves no draft"). The opened version's old copy is on the server only as a message another
+    /// program flagged Deleted and did not expunge: it must not count as "the opened version is there", or the restore skips the APPEND, removes the saved copy and
+    /// Drafts is left with nothing the person can see. The original is appended, the saved edits go.
+    #[test]
+    fn a_copy_only_flagged_deleted_does_not_count_as_the_opened_version() {
+        crate::test_guard::within(60, || {
+            let (fake, db, acc, original) = opened_draft_at("draft-flagged-deleted", 43);
+            let r1 = save(&fake, &db, &acc, "Original text plus edits", Some("m:a1:drafts:43".into())).unwrap();
+            fake.put_message("Drafts", 78, &original);
+            fake.flag_deleted("Drafts", 78);
+            let appends = fake.commands().iter().filter(|c| c.starts_with("APPEND")).count();
+            let mut s = fake.connect();
+            assert_eq!(restore_on_session(&db, &acc, &mut s, &r1), Ok(true));
+            let _ = s.logout();
+            assert_eq!(fake.commands().iter().filter(|c| c.starts_with("APPEND")).count(), appends + 1, "the original was appended again");
+            let st = fake.state.lock().unwrap();
+            let left: Vec<&Vec<u8>> = st.folders["Drafts"].iter().filter(|u| !st.deleted.contains(&("Drafts".to_string(), **u))).filter_map(|u| st.messages.get(&("Drafts".to_string(), *u))).collect();
+            assert_eq!(left.len(), 1, "one draft the person can see");
+            assert_eq!(left[0], &original);
+            drop(st);
+            assert_eq!(drafts_with(&fake, "plus edits"), 0);
+        });
+    }
+
+    /// D-043, the case as the Mac run set it up: the draft was opened, then its server copy was deleted (by another program), then the edits were autosaved, then Discard
+    /// changes. REQ-2.2.7: the opened version is still appended ("the person asked for that version"): one draft, the original; no notice (the notice
+    /// `compose.toast.draftOriginalGone` is for the other case, no opened version kept).
+    #[test]
+    fn discard_changes_after_the_server_copy_was_deleted_puts_the_original_back() {
+        crate::test_guard::within(60, || {
+            let (fake, db, acc, original) = opened_draft_at("draft-server-copy-deleted", 61);
+            remember_opened("a1:drafts:61", &original); // (what `draft_recipients` does when the draft is opened)
+            fake.remove_message("Drafts", 61);
+            assert_eq!(fake.uids("Drafts"), Some(vec![]));
+            let r1 = save(&fake, &db, &acc, "Original text plus edits", Some("m:a1:drafts:61".into())).unwrap();
+            assert_eq!(fake.uids("Drafts").map(|u| u.len()), Some(1), "the autosaved copy is the only draft");
+            assert_eq!(original_of(&db, &r1), Some(original.clone()), "the opened version was kept although its server copy was gone");
+            let mut s = fake.connect();
+            assert_eq!(restore_on_session(&db, &acc, &mut s, &r1), Ok(true), "true: a version was put back, so the page shows no notice");
+            let _ = s.logout();
+            let st = fake.state.lock().unwrap();
+            let left: Vec<&Vec<u8>> = st.folders["Drafts"].iter().filter_map(|u| st.messages.get(&("Drafts".to_string(), *u))).collect();
+            assert_eq!(left.len(), 1, "one draft");
+            assert_eq!(left[0], &original, "the opened version, byte for byte");
         });
     }
 

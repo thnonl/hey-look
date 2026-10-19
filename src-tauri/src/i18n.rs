@@ -564,6 +564,14 @@ mod tests {
         }
     }
 
+    /// D-040: where AppKit has its own wording for the item, the app says the same (Mac QA 9a76aeb): Spanish (es and es_419) "Pegar con el mismo estilo", Russian with a
+    /// NO-BREAK SPACE after the one-letter "и" (it never ends a line). Both agreed with the language specialists.
+    #[test]
+    fn paste_and_match_style_reads_like_the_system_item() {
+        assert_eq!(tr_in(Lang::Es, K::MacPasteMatch), "Pegar con el mismo estilo");
+        assert_eq!(tr_in(Lang::Ru, K::MacPasteMatch), "Вставить и\u{00A0}согласовать стиль");
+    }
+
     #[test]
     fn every_text_exists_in_all_three_languages() {
         for k in ALL {
