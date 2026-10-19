@@ -4,7 +4,7 @@
 // Run: node --experimental-strip-types scripts/test-context-guard.mjs
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
-import { decideContextMenu, emailAtOffset, fieldKind, INTERACTIVE, isEditableNode, safeLinkHref, SELECT_SCOPE } from "../src/contextPolicy.ts";
+import { decideContextMenu, emailAtOffset, fieldKind, INTERACTIVE, isEditableNode, nativeMenuWanted, PLUGIN_HOST, safeLinkHref, SELECT_SCOPE } from "../src/contextPolicy.ts";
 import { isContextMenuKey } from "../src/contextMenu.ts";
 
 const probe = (over = {}) => ({ dev: false, field: "none", locked: false, link: null, email: null, selection: false, onText: false, ...over });
@@ -35,6 +35,30 @@ for (const over of [{ onText: true }, { selection: true }, { link: "https://x.y/
 for (const over of [{}, { selection: true }, { link: "https://x.y/" }, { field: "editable" }, { field: "readonly" }, { field: "disabled" }, { onText: true }, { locked: true }])
   assert.equal(decideContextMenu(probe({ dev: true, ...over })), "native", JSON.stringify(over));
 
+// a document the engine draws itself (a PDF in its viewer) keeps the engine's menu: Rotate, Print, Save as
+assert.equal(decideContextMenu(probe({ plugin: true })), "native");
+assert.equal(decideContextMenu(probe({ plugin: true, onText: true, selection: true })), "native");
+assert.equal(decideContextMenu(probe({ plugin: true, locked: true })), "block", "confidential mail has no menu, a plugin in it included");
+assert.equal(decideContextMenu(probe({ plugin: false, onText: true })), "text");
+for (const s of ["object", "embed", "iframe.pv-pdf"]) assert.ok(PLUGIN_HOST.includes(s), `plugin host: ${s}`);
+
+// whether the native menu stays everywhere (D-036): Vite's dev mode keeps it, a built app never does unless a debug build is asked with #nativemenu=on
+const nm = (hash, dev, debugBuild) => nativeMenuWanted(hash, dev, debugBuild);
+assert.equal(nm("", true, false), true, "dev preview: native (Inspect)");
+assert.equal(nm("#lang=en", true, true), true, "tauri dev: native");
+assert.equal(nm("#nativemenu=off", true, true), false, "dev with the release switch");
+assert.equal(nm("#lang=en&nativemenu=off", true, false), false);
+assert.equal(nm("#nativemenu=on", true, false), true);
+assert.equal(nm("", false, true), false, "a built DEBUG app (the QA builds): the release behaviour by default, so QA sees what ships");
+assert.equal(nm("#lang=en", false, true), false);
+assert.equal(nm("#nativemenu=off", false, true), false);
+assert.equal(nm("#nativemenu=on", false, true), true, "a debug build can ask for Inspect");
+assert.equal(nm("#a=1&nativemenu=on&b=2", false, true), true);
+assert.equal(nm("#nativemenu=on", false, false), false, "a release build ignores the switch");
+assert.equal(nm("", false, false), false);
+assert.equal(nm("#xnativemenu=on", false, true), false, "only the exact switch");
+assert.equal(nm("#nativemenu=onn", false, true), false);
+
 // links the app offers to open
 assert.equal(safeLinkHref("https://example.com/a?b=1"), "https://example.com/a?b=1");
 assert.equal(safeLinkHref("HTTP://example.com"), "HTTP://example.com");
@@ -58,6 +82,13 @@ assert.equal(ed("INPUT", "range"), false);
 assert.equal(ed("INPUT", "color"), false);
 assert.equal(ed("BUTTON"), false);
 assert.equal(ed("A"), false);
+
+// the fields people write in (Compose Subject, To, Cc, Bcc, the search box, every setting, the body): all of them keep the engine's menu
+for (const t of [undefined, "", "text", "TEXT", "search", "email", "url", "tel", "password", "number"]) assert.equal(fieldKind({ tag: "INPUT", type: t }), "editable", `input type ${t}`);
+assert.equal(fieldKind({ tag: "input", type: "text", isContentEditable: false, readOnly: false, disabled: false }), "editable", "what the probe passes for the Subject box");
+assert.equal(fieldKind({ tag: "DIV", isContentEditable: true, readOnly: undefined, disabled: false }), "editable", "the ProseMirror body: a div that is contenteditable");
+assert.equal(fieldKind({ tag: "P", isContentEditable: true }), "editable", "a paragraph inside the editable body (the click lands on the child)");
+assert.equal(fieldKind({ tag: "SPAN", isContentEditable: false }), "none", "a label next to a field is not a field");
 
 // the kind of control: editable, read-only, secret, disabled
 const fk = (over) => fieldKind({ tag: "INPUT", type: "text", ...over });
@@ -116,7 +147,7 @@ assert.match(main, /installContextGuard\(\);/, "the entry file installs the list
 assert.ok(main.indexOf("installContextGuard();") < main.indexOf("ReactDOM.createRoot("), "installed before the first render");
 assert.match(main, /<GuardMenuHost \/>/, "the menu is mounted once for every window: the main window and the pop-outs");
 assert.ok(main.indexOf("<GuardMenuHost />") > main.indexOf("ReactDOM.createRoot("), "inside the render call");
-assert.doesNotMatch(read("src/App.tsx"), /GuardMenuHost/, "and not a second time in the app (two menus would open)");
+for (const f of ["src/App.tsx", "src/popout/ReaderView.tsx", "src/popout/ComposeView.tsx"]) assert.doesNotMatch(read(f), /GuardMenuHost/, `and not a second time in ${f} (two menus would open: D-036, the reader window showed two)`);
 assert.match(main, /if \(route\.kind !== "main"\) await loadPlatform\(\);/, "a secondary window has no init(): it reads the system itself (debug build, macOS / Linux clipboard)");
 assert.ok(main.indexOf("loadPlatform()") < main.indexOf("installContextGuard();"), "read before the first right-click can come");
 const guard = read("src/contextGuard.ts");
@@ -125,12 +156,13 @@ assert.match(guard, /doc\.addEventListener\("contextmenu", onContext, true\)/, "
 assert.match(guard, /window\.addEventListener\("keydown", onKey, true\)/, "the ContextMenu key / Shift+F10 in the window");
 assert.match(guard, /doc\.addEventListener\("keydown", onKey, true\)/, "and in a message's frame");
 assert.match(guard, /fieldKind\(/, "the field case is decided by contextPolicy");
-assert.match(guard, /decideContextMenu\(\{ dev: false, field: p\.field, locked: p\.locked, link: p\.href, email: p\.email, selection: p\.text\.length > 0, onText: p\.onText \}\)/, "the decision function is the one tested here (mouse)");
+assert.match(guard, /decideContextMenu\(\{ dev: false, field: p\.field, locked: p\.locked, link: p\.href, email: p\.email, selection: p\.text\.length > 0, onText: p\.onText, plugin: p\.plugin \}\)/, "the decision function is the one tested here (mouse)");
 assert.match(guard, /decideContextMenu\(\{ dev: false, field: p\.field, locked: p\.locked, link: p\.href, email: p\.email, selection: p\.text\.length > 0, onText: false \}\)/, "and the keyboard asks the same question");
 assert.match(guard, /if \(nativeMenuStays\(\)\) return;/, "dev / debug builds keep the native menu");
 assert.match(guard, /import\.meta\.env\.DEV/, "the dev detection is Vite's");
-assert.match(guard, /usePlatform\.getState\(\)\.testData !== null && !off/, "a debug build of the app is told by the backend's test-data folder, and can be switched to the release behaviour");
-assert.match(guard, /nativemenu=off/, "the dev preview and a debug build can switch to release behaviour");
+assert.match(guard, /nativeMenuWanted\(window\.location\.hash, import\.meta\.env\.DEV, usePlatform\.getState\(\)\.testData !== null\)/, "a debug build of the app is told by the backend's test-data folder; the rule is nativeMenuWanted (tested above)");
+assert.match(read("src/contextPolicy.ts"), /nativemenu=\(on\|off\)/, "the switches: =off in the dev preview, =on in a debug build");
+assert.match(guard, /catch \{[^}]*isEditableTarget\(e\.target\)[^}]*preventDefault\(\)/, "a probe that throws fails closed (no engine menu) except in a field that takes text");
 assert.match(guard, /closest\("\[data-own-menu\]"\)/, "the app's own menus answer their click themselves");
 assert.match(guard, /closest\("\.confidential, \[data-no-copy\]"\)/, "confidential mail (outside its frame) has no menu");
 // the one-way: swallowing happens before anything else

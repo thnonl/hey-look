@@ -4,7 +4,7 @@
 // at the selection or at the focused element.
 import { create } from "zustand";
 import { isContextMenuKey, isKeyEcho } from "./contextMenu";
-import { decideContextMenu, emailAtOffset, fieldKind, INTERACTIVE, SELECT_SCOPE, safeLinkHref } from "./contextPolicy";
+import { decideContextMenu, emailAtOffset, fieldKind, INTERACTIVE, nativeMenuWanted, PLUGIN_HOST, SELECT_SCOPE, safeLinkHref } from "./contextPolicy";
 import { usePlatform } from "./platform";
 
 export interface GuardMenu {
@@ -27,14 +27,14 @@ export const useGuardMenu = create<{ menu: GuardMenu | null }>(() => ({ menu: nu
 export const closeGuardMenu = () => useGuardMenu.setState({ menu: null });
 
 /**
- * Whether the webview's own menu stays: a `tauri dev` run (Vite's dev mode) and a debug build of the app (the backend reports its test-data folder
- * only then) keep it for Inspect. `#nativemenu=off` in the page's address turns it off so the release behaviour can be tried there too (in the dev
- * preview, and in a debug build: a release build has no such switch).
+ * Whether the webview's own menu stays (D-036). A `tauri dev` run (Vite's dev mode) keeps it for Inspect; `#nativemenu=off` in the page's address turns
+ * it off there. A built app, debug or release, behaves like the release: no native menu outside of fields that take text. The QA builds are
+ * debug builds (test bridge, HEYLOOK_DATA_DIR): until 1.0.7 they kept the native menu too, so QA saw WebKit's own menu in the message and on every label
+ * and could not tell whether the release has it. A debug build can still ask for the native menu (Inspect Element) with `#nativemenu=on`; a release
+ * build has no such switch.
  */
 export function nativeMenuStays(): boolean {
-  const off = /(^|[#&])nativemenu=off(&|$)/.test(window.location.hash);
-  if (import.meta.env.DEV) return !off;
-  return usePlatform.getState().testData !== null && !off;
+  return nativeMenuWanted(window.location.hash, import.meta.env.DEV, usePlatform.getState().testData !== null);
 }
 
 type Pt = { x: number; y: number };
@@ -102,6 +102,7 @@ function probe(doc: Document, target: EventTarget | null, pt: Pt | null) {
   return {
     field, a, href, text, email, onText, el,
     own: !!el?.closest("[data-own-menu]"),
+    plugin: !!el?.closest(PLUGIN_HOST),
     locked: !!el?.closest(".confidential, [data-no-copy]"),
     selectAll: field === "readonly" && el
       ? () => { (el as HTMLInputElement).focus(); (el as HTMLInputElement).select(); }
@@ -122,13 +123,25 @@ let keyAt = 0;
 /** `frame`: set for a message's frame - where it sits in the window. (The pointer position of an event in the frame is in the frame's own viewport pixels, also when a wide mail is zoomed out to fit: checked in the preview.) */
 function handle(doc: Document, e: MouseEvent, frame?: HTMLIFrameElement) {
   if (nativeMenuStays()) return;
-  const p = probe(doc, e.target, { x: e.clientX, y: e.clientY });
-  const policy = decideContextMenu({ dev: false, field: p.field, locked: p.locked, link: p.href, email: p.email, selection: p.text.length > 0, onText: p.onText });
-  if (policy === "native") return;
-  e.preventDefault();
-  if (p.own || policy === "block" || isKeyEcho(keyAt, Date.now())) return;
-  const r = frame?.getBoundingClientRect();
-  show(p, { x: (r?.left ?? 0) + e.clientX, y: (r?.top ?? 0) + e.clientY }, false);
+  try {
+    const p = probe(doc, e.target, { x: e.clientX, y: e.clientY });
+    const policy = decideContextMenu({ dev: false, field: p.field, locked: p.locked, link: p.href, email: p.email, selection: p.text.length > 0, onText: p.onText, plugin: p.plugin });
+    if (policy === "native") return;
+    e.preventDefault();
+    if (p.own || policy === "block" || isKeyEcho(keyAt, Date.now())) return;
+    const r = frame?.getBoundingClientRect();
+    show(p, { x: (r?.left ?? 0) + e.clientX, y: (r?.top ?? 0) + e.clientY }, false);
+  } catch {
+    // a probe that throws (an odd node, an engine without caretRangeFromPoint) must not let the webview's menu through: fail closed, except in a field that takes text
+    if (!isEditableTarget(e.target)) e.preventDefault();
+  }
+}
+
+/** Whether the target is a field that takes text (its native menu is wanted): the same rule as the probe's, without anything that can throw. */
+function isEditableTarget(t: EventTarget | null): boolean {
+  const el = t as (Element & { isContentEditable?: boolean }) | null;
+  if (!el || typeof el.tagName !== "string") return false;
+  return fieldKind({ tag: el.tagName, type: (el as HTMLInputElement).type, isContentEditable: el.isContentEditable, readOnly: (el as HTMLInputElement).readOnly, disabled: false }) === "editable";
 }
 
 function show(p: ReturnType<typeof probe>, at: Pt, keyboard: boolean) {

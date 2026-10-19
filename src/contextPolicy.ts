@@ -41,11 +41,14 @@ export interface Probe {
   selection: boolean;
   /** the pointer is on text that can be selected (not on a button, a picture, empty space, or text that is not selectable) */
   onText: boolean;
+  /** the pointer is on a document the engine draws itself (a PDF in its viewer): its menu (Rotate, Print, Save as ...) stays */
+  plugin?: boolean;
 }
 
 export function decideContextMenu(p: Probe): MenuPolicy {
   if (p.dev) return "native";
   if (p.locked) return "block";
+  if (p.plugin) return "native";
   switch (p.field) {
     case "editable": return "native";
     case "readonly": return "text";
@@ -55,6 +58,17 @@ export function decideContextMenu(p: Probe): MenuPolicy {
   if (p.link) return "link";
   if (p.email || p.selection || p.onText) return "text";
   return "block";
+}
+
+/**
+ * Whether the webview's own menu stays everywhere (the Inspect menu of a developer), by the address's hash, `dev` (Vite's dev mode: `tauri dev`, the
+ * browser preview) and `debugBuild` (a built app that the backend says is a debug build). A release build never keeps it. `#nativemenu=off` turns it off in
+ * dev mode; `#nativemenu=on` turns it on in a debug build. Without a switch a built app, debug or not, is the release (D-036: the QA builds are debug builds).
+ */
+export function nativeMenuWanted(hash: string, dev: boolean, debugBuild: boolean): boolean {
+  const m = /(^|[#&])nativemenu=(on|off)(&|$)/.exec(hash)?.[2];
+  if (dev) return m !== "off";
+  return debugBuild && m === "on";
 }
 
 /** A link the app may offer to open: http(s) and mailto, the schemes the "open link" path of the reading pane handles. Never `javascript:`, `data:`, `file:`, `blob:`. */
@@ -107,6 +121,9 @@ export function emailAtOffset(text: string, offset: number): string | null {
 
 /** How far "Select all" reaches from the text it was asked on: the closest of these (a message's frame has its whole body instead; see contextGuard.ts). */
 export const SELECT_SCOPE = "[data-select-scope], [role=dialog], [role=alertdialog], [role=alert], [role=status], .summary, .rp-msg, .toast, .popover, .pv-text, .sig-block, section, aside";
+
+/** The hosts of a document the engine draws itself (a PDF in its viewer): the engine's menu stays there (`Probe.plugin`). */
+export const PLUGIN_HOST = "object, embed, iframe.pv-pdf";
 
 /** Elements a click on their text means something else than reading it: no text menu on a button's label. */
 export const INTERACTIVE = "button, select, summary, input, textarea, [role=button], [role=tab], [role=menuitem], [role=option], [role=switch], [role=checkbox], [role=radio], [role=treeitem], [role=slider], [draggable=true]";
