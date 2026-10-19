@@ -498,6 +498,27 @@ pub fn note_save(c: &rusqlite::Connection, account_id: &str, opened: Option<&[u8
     }
 }
 
+/// An opened version of at least this many bytes is written through a connection of its own (`note_save_on`).
+const APART_MIN: usize = 1 << 20;
+
+/// `note_save` for the shared database. The opened version is the draft as it was opened - 34 MB for a 19 MB encrypted draft - and written through the shared connection it held the
+/// database lock for as long as the write took (0.8 s on that draft): every command that needs the lock, the folder list and every `list_accounts` of every window among them,
+/// waited (D-045: a webview round trip of 530 ms during Save draft, the largest wait of the save). A big one is written through a connection of its own instead: the database is in
+/// WAL mode, so readers are not held, and the writers wait their turn (the 5 s busy timeout every connection has) as they always did. Without a file to open (or when that fails) the
+/// shared connection does it, as before.
+pub fn note_save_on(db: &crate::Db, account_id: &str, opened: Option<&[u8]>, replaced: Option<&Target>, new_ref: Option<&str>) {
+    if let (Some(raw), Some(new_ref)) = (opened.filter(|r| r.len() >= APART_MIN), new_ref) {
+        let file = crate::lock(db).path().map(std::path::PathBuf::from).filter(|p| !p.as_os_str().is_empty());
+        if let Some(file) = file {
+            match rusqlite::Connection::open(&file).map_err(crate::db::err).and_then(|c| keep_original(&c, new_ref, account_id, raw)) {
+                Ok(()) => return,
+                Err(e) => crate::startup::line("draft", &format!("account {account_id}: the opened version of a draft could not be kept through a connection of its own, the shared one does it: {e}")),
+            }
+        }
+    }
+    note_save(&crate::lock(db), account_id, opened, replaced, new_ref);
+}
+
 /// "Discard changes" on a session: the opened version is put back into Drafts (flags \Draft \Seen) and, only after that worked, the autosaved
 /// copy named by `draft_ref` is removed, so a failure on the way never leaves fewer drafts than before. An APPEND that fails leaves
 /// everything as it was (the error goes to the caller); a copy that cannot be removed is logged and left (two drafts, nothing lost).
@@ -1097,6 +1118,23 @@ mod tests {
         assert!(opened_from_memory("big-a").is_none() && opened_from_memory("big-b").is_some(), "by bytes too");
         forget_opened_memory("big-b");
         assert!(opened_from_memory("big-b").is_none());
+    }
+
+    /// D-045: a big opened version is written through a connection of its own, and it is the same row: the shared connection reads it back, Discard changes finds it, a later save moves it.
+    #[test]
+    fn a_big_opened_version_is_kept_through_a_connection_of_its_own() {
+        let (_, db, _, _) = opened_draft_at("apart", 31);
+        let big = vec![7u8; APART_MIN + 1000];
+        // the shared connection is free while the other one writes: it answers a read in between (WAL)
+        note_save_on(&db, "a1", Some(&big), None, Some("mid:a1|<apart@y>"));
+        assert_eq!(original_of(&db, "mid:a1|<apart@y>").as_deref(), Some(&big[..]), "the bytes are there for the shared connection");
+        // a later save moves the entry on to its own reference (the small path, `opened` is None then)
+        note_save_on(&db, "a1", None, Some(&Target::Mid { account: "a1".into(), mid: "<apart@y>".into() }), Some("mid:a1|<apart2@y>"));
+        assert!(original_of(&db, "mid:a1|<apart@y>").is_none());
+        assert_eq!(original_of(&db, "mid:a1|<apart2@y>").map(|b| b.len()), Some(big.len()));
+        // a small one still goes through the shared connection
+        note_save_on(&db, "a1", Some(b"small"), None, Some("mid:a1|<small@y>"));
+        assert_eq!(original_of(&db, "mid:a1|<small@y>").as_deref(), Some(&b"small"[..]));
     }
 
     #[test]

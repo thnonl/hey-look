@@ -4110,7 +4110,7 @@ fn save_draft_on<T: std::io::Read + std::io::Write>(db: &Db, acc: &Account, s: &
         if draft_ref.as_deref() == Some(t.as_str()) {
             startup::line("draft", &format!("account {}: the draft to replace is the one just saved, nothing removed", acc.id));
         } else {
-            draftmail::note_save(&lock(db), &acc.id, opened.as_deref(), target.as_ref(), draft_ref.as_deref());
+            draftmail::note_save_on(db, &acc.id, opened.as_deref(), target.as_ref(), draft_ref.as_deref());
             if let Some(id) = &opened_id {
                 draftmail::forget_opened_memory(id);
             }
