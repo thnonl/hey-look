@@ -2,8 +2,13 @@
 
 ## 1.0.7 (unreleased)
 
+### Added
+
+- A picture in a signature or a template has the same toolbar as a picture in a message: sizes (Small 120, Medium 240, Large 360 px or Original), alignment, link, alt text and remove; the alt text is saved with the signature and sent with the mail
+
 ### Changed
 
+- The question for a big picture (Settings > Composing, "Resize large pictures automatically" off) offers only what the button does: "Resize" for a picture wider than 1600 px, "Compress" for a JPEG or WebP that is not wider, "Convert to PNG" for such a GIF, and nothing for such a PNG; a re-encoded picture that would not be smaller is kept as it is (with a notice when you pressed the button)
 - The action row of a message you write is always one row, in every language: what does not fit (Write with AI, Templates, Save draft, Importance, Confidential, Sign, Encrypt, Meeting, Picture, in that order) moves into "More actions", and comes back when the window grows; Send, Discard and Attach never move
 - A blocked remote picture in a message you read is drawn as a box of the size the message gave it (48 x 48 when it gave none) with an icon and the picture's description; tracking pixels are not drawn at all. "Load content" loads the real pictures
 - The Week view of the calendar fits 08:00 to 20:00 on the screen when the window is tall enough (the hours are between 32 and 48 px high), so an evening event is no longer hidden below the fold
@@ -12,6 +17,7 @@
 
 ### Fixed
 
+- The picture toolbar can be reached with the keyboard: with a picture selected, Alt+F10 moves the focus to it, Left, Right, Home and End move between its controls, Enter presses, Esc goes back to the text with the picture still selected (a screen reader reads it as a toolbar with named groups)
 - A press elsewhere closes an open menu, calendar popup or colour palette inside a dialog (Settings, New event, the key dialogs), on the top bar of Windows (the logo, the title, an empty part of the bar) and inside the text of a message you read
 - New mail opened in the first moments after the start is no longer lost: a request that comes while the mailboxes are still being read (the button, the key C, the command bar, the tray or menu bar icon menu) is kept and opens when they are ready, with a message and a spinner while it waits, and "Couldn't open a new message" with Retry after 30 seconds (if the mailboxes are ready after that, the message goes and the new message opens by itself)
 - Ctrl+B (Cmd+B) and the side menu button follow what is on screen in a narrow window: the full menu opens over the list with the keyboard focus on the selected folder, the button reads "Collapse side menu", and the next press closes it; your saved choice is not changed

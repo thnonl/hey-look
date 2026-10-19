@@ -208,3 +208,5 @@ ui-b | node scripts/test-popout-send.mjs --require-browser
 ui-b | node scripts/test-command-bar-key.mjs --require-browser
 # the message pane is not squeezed next to the list in a window narrower than 1100 px (W2.26): the pure rule, the hidden/inert list at 946 x 552, the way back (a folder pressed, a search, Ctrl+1, the message closed, the window widened), 1280 x 800 unchanged, reading pane below and the Calendar unchanged
 ui-b | node scripts/test-compose-narrow.mjs --require-browser
+# the editors' keyboard and screen-reader semantics with real key events (W2.18): a picture selected by the keyboard, Alt+F10 to the picture toolbar (one Tab stop, Left / Right / Home / End, Enter, Alt+Enter, Esc back with the picture selected), the same in the signature editor of Settings
+ui-a | node scripts/test-editor-a11y.mjs --require-browser

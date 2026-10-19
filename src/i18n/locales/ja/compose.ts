@@ -352,6 +352,11 @@ export default defineLocale<typeof ns.en>({
   "compose.sigpic.resized": "「{name}」を署名に収まるよう縮小しました（{size}）。",
   "compose.pic.askResize": "この画像は{size}（{w} × {h}）です。幅1600 pxに縮小しますか？",
   "compose.pic.resize": "縮小",
+  "compose.pic.askCompress": "この画像は{size}（{w} × {h}）です。圧縮してメッセージのサイズを小さくしますか？",
+  "compose.pic.compress": "圧縮",
+  "compose.pic.askConvertGif": "このGIFは{size}（{w} × {h}）です。PNGに変換してサイズを小さくしますか？アニメーションは保持されません。",
+  "compose.pic.convert": "PNGに変換",
+  "compose.pic.notSmaller": "{name}はこれ以上小さくできないため、そのままにしました。",
   "compose.pic.filesAttached": { other: "{n}個のファイルを添付しました（メッセージ内に入れられるのは画像だけです）" },
   // signature picker inside the body
   "compose.sig.label": "署名",

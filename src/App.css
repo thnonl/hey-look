@@ -723,6 +723,7 @@ button.att-chip:hover { background: var(--bg3); border-color: color-mix(in srgb,
 .rich:focus-within { border-color: var(--accent); box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent), transparent 78%); }
 .rich-bar { display: flex; align-items: center; padding: 4px 6px; border-bottom: 1px solid var(--border); background: var(--bg2); }
 .rich-body { padding: 10px 12px; }
+.rich-body-wrap { position: relative; } /* (the picture toolbar floats inside it, editor/PictureTools.tsx) */
 .rich-body .tiptap { outline: none; min-height: inherit; }
 .rich-body .tiptap p.is-editor-empty:first-child::before { content: attr(data-placeholder); color: var(--muted); float: left; height: 0; pointer-events: none; }
 

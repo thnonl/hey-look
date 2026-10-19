@@ -6,6 +6,8 @@ import { docToHtml } from "../editor/emailHtml";
 import { baseExtensions, refreshPlaceholder, setEditorLabel } from "../editor/extensions";
 import { useKit } from "../editor/kit";
 import { FormatBar, type FormatBarApi } from "../editor/FormatBar";
+import { SIGNATURE_PICTURE_SIZES } from "../editor/pictureSizes";
+import { usePictureTools, type PictureTools } from "../editor/PictureTools";
 import { insertPictureNodes } from "../editor/insertPictures";
 import { nameForMime } from "../editor/messageBody";
 import { fitSignaturePicture, initialWidth } from "../editor/signaturePicture";
@@ -37,11 +39,13 @@ function RichEditorBody({ value, onChange, placeholder, minHeight = 140, label, 
   baseRef.current = base;
   const linkRef = useRef<() => void>(() => undefined);
   const barApi = useRef<FormatBarApi>(null);
+  const picToolsRef = useRef<PictureTools | null>(null); // (Alt+F10 with a picture selected: the picture toolbar takes the focus, else the formatting bar)
+  const bodyRef = useRef<HTMLDivElement>(null);
   const fileRef = useRef<HTMLInputElement>(null);
   const placeholderRef = useRef(placeholder ?? "");
   placeholderRef.current = placeholder ?? "";
   const editor = useEditor({
-    extensions: baseExtensions({ placeholder: () => placeholderRef.current, getBase: () => baseRef.current, focusToolbar: () => barApi.current?.focus(), openStyles: () => barApi.current?.openStyles(), pictures }),
+    extensions: baseExtensions({ placeholder: () => placeholderRef.current, getBase: () => baseRef.current, focusToolbar: () => picToolsRef.current?.focus() || barApi.current?.focus(), openStyles: () => barApi.current?.openStyles(), pictures }),
     // Ctrl/Cmd+K is the link UI here too; AltGr characters never trigger the editor shortcuts
     editorProps: { attributes: { "aria-label": label ?? t("compose.fmt.text") }, handleDOMEvents: editorKeyHandlers(() => linkRef.current()) },
     content: value || "<p></p>",
@@ -53,6 +57,9 @@ function RichEditorBody({ value, onChange, placeholder, minHeight = 140, label, 
   const linkBtnRef = useRef<HTMLButtonElement>(null);
   const link = useLinkEditor(editor, linkBtnRef);
   linkRef.current = link.open;
+  // a selected picture has the toolbar of the message body: sizes (a logo: 120 / 240 / 360 px), alignment, link, alt text, remove (editor/PictureTools.tsx)
+  const picTools = usePictureTools({ editor, bodyRef, sizes: SIGNATURE_PICTURE_SIZES, onLink: () => linkRef.current() });
+  picToolsRef.current = picTools;
 
   /** The picture files the person chose: each is read, made smaller when it weighs more than 1 MB, and put in at the caret. */
   const addPictures = async (files: File[]) => {
@@ -78,7 +85,7 @@ function RichEditorBody({ value, onChange, placeholder, minHeight = 140, label, 
   };
 
   return (
-    <div className="rich" style={{ "--cp-font": base.family, "--cp-size": `${base.size}pt` } as React.CSSProperties}>
+    <div className="rich" style={{ "--cp-font": base.family, "--cp-size": `${base.size}pt` } as React.CSSProperties} onKeyDown={(e) => void picTools.handleKey(e)}>
       <div className="rich-bar">
         <FormatBar
           editor={editor}
@@ -105,7 +112,10 @@ function RichEditorBody({ value, onChange, placeholder, minHeight = 140, label, 
           />
         )}
       </div>
-      <EditorContent editor={editor} className="rich-body" style={{ minHeight }} />
+      <div className="rich-body-wrap" ref={bodyRef}>
+        <EditorContent editor={editor} className="rich-body" style={{ minHeight }} />
+        {picTools.node}
+      </div>
     </div>
   );
 }

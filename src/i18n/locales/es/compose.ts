@@ -360,6 +360,11 @@ export default defineLocale<typeof ns.en>({
   "compose.sigpic.resized": "«{name}» se redujo ({size}) para que quepa en una firma.",
   "compose.pic.askResize": "Esta imagen pesa {size} ({w} × {h}). ¿Cambiar su tamaño a 1600 px de ancho?",
   "compose.pic.resize": "Cambiar tamaño",
+  "compose.pic.askCompress": "Esta imagen pesa {size} ({w} × {h}). ¿Reducir su peso para que el mensaje ocupe menos?",
+  "compose.pic.compress": "Reducir peso",
+  "compose.pic.askConvertGif": "Este GIF pesa {size} ({w} × {h}). ¿Convertirlo a PNG para que ocupe menos? La animación no se conserva.",
+  "compose.pic.convert": "Convertir a PNG",
+  "compose.pic.notSmaller": "No se pudo reducir el peso de {name}, así que se dejó como estaba.",
   "compose.pic.filesAttached": {
     one: "{n} archivo adjunto (solo las imágenes pueden ir en el mensaje)",
     other: "{n} archivos adjuntos (solo las imágenes pueden ir en el mensaje)",

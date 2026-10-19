@@ -360,6 +360,11 @@ export default defineLocale<typeof ns.en>({
   "compose.sigpic.resized": "„{name}“ wurde verkleinert ({size}), damit es in eine Signatur passt.",
   "compose.pic.askResize": "Dieses Bild ist {size} groß ({w} × {h}). Auf 1600 px Breite verkleinern?",
   "compose.pic.resize": "Verkleinern",
+  "compose.pic.askCompress": "Dieses Bild ist {size} groß ({w} × {h}). Komprimieren, damit die Nachricht kleiner wird?",
+  "compose.pic.compress": "Komprimieren",
+  "compose.pic.askConvertGif": "Dieses GIF ist {size} groß ({w} × {h}). In PNG umwandeln, damit es kleiner wird? Die Animation bleibt nicht erhalten.",
+  "compose.pic.convert": "In PNG umwandeln",
+  "compose.pic.notSmaller": "{name} lässt sich nicht verkleinern und bleibt deshalb unverändert.",
   "compose.pic.filesAttached": {
     one: "{n} Datei angehängt (nur Bilder können in die Nachricht eingefügt werden)",
     other: "{n} Dateien angehängt (nur Bilder können in die Nachricht eingefügt werden)",

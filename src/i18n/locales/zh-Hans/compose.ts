@@ -351,6 +351,11 @@ export default defineLocale<typeof ns.en>({
   "compose.sigpic.resized": "“{name}”已缩小（{size}）以适合放入签名。",
   "compose.pic.askResize": "这张图片大小为{size}（{w} × {h}）。要将其缩小到宽度1600 px吗？",
   "compose.pic.resize": "缩小",
+  "compose.pic.askCompress": "这张图片大小为{size}（{w} × {h}）。要压缩它以减小邮件大小吗？",
+  "compose.pic.compress": "压缩",
+  "compose.pic.askConvertGif": "这张GIF图片大小为{size}（{w} × {h}）。要将其转换为PNG以减小大小吗？不会保留动画。",
+  "compose.pic.convert": "转换为PNG",
+  "compose.pic.notSmaller": "无法减小{name}的大小，因此保持原样。",
   "compose.pic.filesAttached": { other: "已附加{n}个文件（邮件正文中只能放入图片）" },
   // signature picker inside the body
   "compose.sig.label": "签名",

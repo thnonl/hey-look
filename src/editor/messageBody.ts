@@ -54,6 +54,26 @@ export function reencodeToastKey(mime: string, width: number): "compose.pic.resi
   return scaled ? "compose.pic.resized" : "compose.pic.recompressed";
 }
 
+/** What the picture prompt (Settings > Composing, "Resize large pictures automatically" off) offers for a picture over 1 MB: only an action that is true and useful (W2.1). */
+export type LargePictureOffer = "resize" | "compress" | "convert" | null;
+
+/**
+ * A picture wider than 1600 px is offered the scale to 1600 px; one that is not wider is offered what the re-encode really does: a JPEG or WebP is compressed (JPEG 0.85, same size),
+ * a GIF is converted to PNG (first frame), and a PNG gets no offer (the canvas often makes it bigger, not smaller).
+ */
+export function largePictureOffer(mime: string, width: number): LargePictureOffer {
+  if (width > RESIZE_WIDTH) return "resize";
+  const type = mime.toLowerCase();
+  if (type === "image/jpeg" || type === "image/webp") return "compress";
+  if (type === "image/gif") return "convert";
+  return null;
+}
+
+/** A re-encode is used only when its result is smaller in bytes than the original; otherwise the original stays (W2.1, REQ-2.1.2). */
+export function keepSmaller(origBytes: number, newBytes: number): boolean {
+  return newBytes < origBytes;
+}
+
 const unesc = (s: string) => s.replace(/&quot;/g, '"').replace(/&lt;/g, "<").replace(/&gt;/g, ">").replace(/&amp;/g, "&");
 const SRC = /\ssrc\s*=\s*(?:"([^"]*)"|'([^']*)')/i;
 const NAME = /\sdata-name\s*=\s*(?:"([^"]*)"|'([^']*)')/i;

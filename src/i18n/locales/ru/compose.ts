@@ -371,6 +371,11 @@ export default defineLocale<typeof ns.en>({
   "compose.sigpic.resized": "«{name}» уменьшено ({size}), чтобы поместиться в подписи.",
   "compose.pic.askResize": "Размер этого изображения — {size} ({w} × {h}). Уменьшить его до 1600 px по ширине?",
   "compose.pic.resize": "Уменьшить",
+  "compose.pic.askCompress": "Размер этого изображения — {size} ({w} × {h}). Сжать его, чтобы уменьшить размер письма?",
+  "compose.pic.compress": "Сжать",
+  "compose.pic.askConvertGif": "Размер этого GIF — {size} ({w} × {h}). Преобразовать его в PNG, чтобы уменьшить размер? Анимация не сохраняется.",
+  "compose.pic.convert": "Преобразовать в PNG",
+  "compose.pic.notSmaller": "Размер {name} уменьшить не удалось, файл оставлен без изменений.",
   "compose.pic.filesAttached": {
     one: "{n} файл прикреплён (в письмо можно вставлять только изображения)",
     few: "{n} файла прикреплены (в письмо можно вставлять только изображения)",

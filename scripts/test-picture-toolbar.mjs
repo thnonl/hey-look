@@ -11,6 +11,7 @@
 //   - the toolbar does not cross the top or the bottom edge of the picture (above it, below it, or over the picture clear of both edges and of the handles);
 //   - the handles lie inside the picture's rectangle, in its corners;
 //   - the toolbar is inside the editor pane (sideways always; up and down when the pane is tall enough to hold it), and is not covered by anything else.
+// 1.0.7 W2.15: the same toolbar in the signature editor of Settings (946 x 552): inside the editor box and the dialog, off the picture's edges, every control reachable.
 // At 1266 x 712 (a 1280 x 720 window), 960 x 560's 946 x 552, 946 x 480, 1726 x 892 and a narrow compose window.
 //   node scripts/test-picture-toolbar.mjs [--require-browser] [--url=http://127.0.0.1:1420/] [--table] [--shots=<dir>]
 import fs from 'node:fs';
@@ -104,7 +105,46 @@ async function run(w, h) {
   }
 }
 
+/** the signature editor of Settings in a 960 x 560 window: one picture selected, the toolbar measured against the editor box, the dialog and the picture */
+async function runSignature(w, h) {
+  const base = `signature ${w}x${h}`;
+  await H.openApp('lang=en', w, h);
+  await evaluate(`window.__store.getState().setDialog({ type: 'settings', tab: 'mb:a1' }); 1`);
+  await sleep(800);
+  const clickText = (sel, text) => evaluate(`(() => { const b = [...document.querySelectorAll(${JSON.stringify(sel)})].find((x) => x.textContent.trim() === ${JSON.stringify(text)}); if (!b) return false; b.click(); return true; })()`);
+  ok(base, await clickText('.modal button', 'Signatures'), 'no Signatures entry');
+  await sleep(500);
+  ok(base, await clickText('.modal button', 'New signature'), 'no New signature button');
+  for (let i = 0; i < 60 && !(await evaluate(`!!document.querySelector('.rich-body .tiptap')?.editor`)); i++) await sleep(100);
+  await sleep(500);
+  const ED2 = `document.querySelector('.rich-body .tiptap').editor`;
+  for (const [pw, ph, width] of [[300, 120, 240], [420, 200, null], [160, 60, 120]]) {
+    await evaluate(`(() => { const ed = ${ED2}; ed.commands.setContent('<p></p>'); ed.commands.focus('start'); ed.commands.insertContent([{ type: 'image', attrs: { src: ${PNG(pw, ph, '#2980b9')}, alt: '', width: ${width} } }]); ed.chain().focus().setNodeSelection(0).run(); return 1; })()`);
+    await sleep(400);
+    await evaluate(`document.querySelector('.img-tools')?.scrollIntoView({ block: 'center' }); 1`);
+    await sleep(250);
+    const g = await evaluate(`(() => {
+      const R = (e) => { const r = e.getBoundingClientRect(); return { l: r.left, t: r.top, r: r.right, b: r.bottom }; };
+      const box = document.querySelector('.img-tools-box'), sel = document.querySelector('.ProseMirror-selectednode'), rich = document.querySelector('.rich'), modal = document.querySelector('.modal');
+      if (!box || !sel) return null;
+      const ctrls = [...box.querySelectorAll('.img-tools button')].map((b) => { const r = R(b); const t = document.elementFromPoint((r.l + r.r) / 2, (r.t + r.b) / 2); return { name: (b.textContent || b.getAttribute('aria-label') || '').trim(), hit: !t || b.contains(t) }; });
+      return { tb: R(box), img: R(sel), rich: R(rich), modal: R(modal), ctrls };
+    })()`);
+    const tag = `${base} ${pw}x${ph}`;
+    if (!g) { ok(tag, false, 'no toolbar'); continue; }
+    ok(tag, g.tb.l >= g.rich.l - 1 && g.tb.r <= g.rich.r + 1, `the toolbar is outside the editor sideways (${JSON.stringify(g.tb)} in ${JSON.stringify(g.rich)})`);
+    ok(tag, g.tb.t >= g.rich.t - 1 && g.tb.b <= g.rich.b + 1, `the toolbar is outside the editor box (${JSON.stringify(g.tb)} in ${JSON.stringify(g.rich)}): the box clips it`);
+    ok(tag, g.tb.l >= g.modal.l && g.tb.r <= g.modal.r && g.tb.t >= g.modal.t && g.tb.b <= g.modal.b, 'the toolbar is outside the dialog');
+    const xOver = g.tb.l < g.img.r && g.tb.r > g.img.l;
+    const crosses = (y) => g.tb.t < y - 0.5 && g.tb.b > y + 0.5;
+    ok(tag, !(xOver && (crosses(g.img.t) || crosses(g.img.b))), 'the toolbar crosses an edge of the picture');
+    for (const c of g.ctrls) ok(tag, c.hit, `"${c.name}" is covered by something`);
+    await shot(tag);
+  }
+}
+
 try {
+  try { await runSignature(946, 552); } catch (e) { ok('signature', false, `threw: ${e.message}`); }
   for (const [w, h] of SIZES) { try { await run(w, h); } catch (e) { ok(`${w}x${h}`, false, `threw: ${e.message}`); } }
 } finally { await H.shutdown(); }
 if (failures.length) { console.error(`test-picture-toolbar: ${failures.length} failure(s) in ${checks} checks`); process.exit(1); }
