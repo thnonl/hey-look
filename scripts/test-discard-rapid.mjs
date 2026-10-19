@@ -25,7 +25,8 @@ const counters = () => json(`({ removed: window.__discardDrafts ?? 0, restored: 
 const state = () => json(`({ pane: !!document.querySelector('.compose-pane'), dialogs: document.querySelectorAll('[role=alertdialog]').length, opened: window.__qOpened ?? 0, text: document.querySelector('.cp-editor .tiptap')?.editor.getText() ?? null })`);
 const discardBox = () => json(`(() => { const b = [...document.querySelectorAll('.cp-bar button')].find((x) => /^Discard$/.test(x.textContent.trim())); const r = b.getBoundingClientRect(); return { x: r.left + r.width / 2, y: r.top + r.height / 2 }; })()`);
 const watchQuestions = () => evaluate(`(() => { window.__qOpened = 0; let open = false; new MutationObserver(() => { const now = !!document.querySelector('[role=alertdialog]'); if (now && !open) window.__qOpened++; open = now; }).observe(document.body, { childList: true, subtree: true }); return 1; })()`);
-const clickDiscard = async () => { const b = await discardBox(); await io.clickAt(b.x, b.y); };
+const hasDiscard = `[...document.querySelectorAll('.cp-bar button')].some((x) => /^Discard$/.test(x.textContent.trim()))`;
+const clickDiscard = async () => { assert.ok(await waitFor(hasDiscard, 5000), 'the toolbar has no Discard button'); const b = await discardBox(); await io.clickAt(b.x, b.y); };
 const enterOnDiscard = async () => {
   await evaluate(`[...document.querySelectorAll('.cp-bar button')].find((x) => /^Discard$/.test(x.textContent.trim())).focus(); 1`);
   await cdp('Input.dispatchKeyEvent', { type: 'keyDown', key: 'Enter', code: 'Enter', windowsVirtualKeyCode: 13, text: '\r' });
