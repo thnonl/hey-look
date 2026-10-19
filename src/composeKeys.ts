@@ -6,7 +6,7 @@
 //  - Cmd+Option+Shift+V (macOS only) is "Paste and Match Style": the same text-only paste as Cmd+Shift+V, so the Cmd+Option guard below lets it through (W2.24); Ctrl+Alt+Shift+V on Windows and
 //    Linux stays blocked (it is AltGr+Shift+V)
 //  - Ctrl/Cmd+Alt+... the editor's heading / code block / paragraph shortcuts (Mod-Alt-0..6, Mod-Alt-C) are off, except Heading 1-3 (Mod-Alt-1..3, the Styles
-//    menu's keys: see isHeadingKey, which lets the digit through only when it is really the digit and AltGr is not down): on Windows AltGr
+//    menu's keys: see isHeadingKey, which lets the digit through only when it is really the digit (on a Mac with Option held: the physical Digit1..3 key) and AltGr is not down): on Windows AltGr
 //    is reported as Ctrl+Alt, so those shortcuts fired while the user typed "@", "\", "{", "[", "|", "~", "€", "ć", "²" ...
 // Everything else in the editor (Ctrl+B / I / U, Ctrl+Z / Y / Shift+Z, Ctrl+Shift+7 / 8 lists, and the keys of editor/extensions.ts: Ctrl+= / Ctrl+Shift+= sub / superscript,
 // Ctrl+] / [ font size, Ctrl+Space / Ctrl+\ clear formatting, Alt+F10 toolbar) stays. The editor has no key for strikethrough or inline code any more (Outlook: Ctrl+E is Center).
@@ -40,8 +40,13 @@ export const isAltGraph = (e: KeyLike): boolean => e.getModifierState?.("AltGrap
  * is the digit and the browser does not say AltGr is down: on a German keyboard AltGr+2 / AltGr+3 type ² and ³ (the key is then "²" / "³"), and
  * on a French one the digit row types symbols, so neither is ever mistaken for a heading shortcut.
  */
-export const isHeadingKey = (e: KeyLike): boolean =>
-  (e.ctrlKey || e.metaKey) && e.altKey && !e.shiftKey && (e.key === "1" || e.key === "2" || e.key === "3") && e.getModifierState?.("AltGraph") !== true;
+export const isHeadingKey = (e: KeyLike): boolean => {
+  if (!e.altKey || e.shiftKey || e.getModifierState?.("AltGraph") === true) return false;
+  if ((e.ctrlKey || e.metaKey) && (e.key === "1" || e.key === "2" || e.key === "3")) return true;
+  // macOS: with Option held the key is the character Option+digit types ("¡" for 1, "™" for 2, "£" for 3), so Cmd+Option+1 / 2 / 3 is told by the physical key (`code`).
+  // Only with Cmd and without Ctrl: on Windows and Linux Ctrl+Alt is AltGr, whose digit-row characters ("²", "³") must keep being typed, and there the digit key is the answer.
+  return e.metaKey && !e.ctrlKey && (e.code === "Digit1" || e.code === "Digit2" || e.code === "Digit3");
+};
 
 /** The V key, also with Option held (a Mac types "√" / "◊" then): the letter or the physical key. */
 export const isVKey = (e: Pick<KeyLike, "key" | "code">): boolean => e.key.toLowerCase() === "v" || e.code === "KeyV";

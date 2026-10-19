@@ -76,6 +76,15 @@ for (const d of ["1", "2", "3"]) {
 // German AltGr+2 / AltGr+3 type ² and ³ (the key is the character, not the digit); a French digit row types symbols
 for (const key of ["²", "³", "é", "\"", "&", "~", "#"]) assert.ok(!isHeadingKey(ev(key, "ca")), `${key} is not a heading shortcut`);
 assert.ok(!isHeadingKey(ev("1", "c")) && !isHeadingKey(ev("1", "a")), "the digit alone or with one modifier is not");
+// macOS (Mac QA D-024): with Option held the key is the character Option+digit types ("¡" / "™" / "£"), the physical key is in `code`: Cmd+Option+1..3 are the heading keys
+for (const [key, code] of [["¡", "Digit1"], ["™", "Digit2"], ["£", "Digit3"], ["&", "Digit1"]]) {
+  const mac = { ...ev(key, "ma"), code };
+  assert.ok(isHeadingKey(mac), `Cmd+Option+${code} (key ${key}) is a heading key`);
+  assert.equal(keyAction(mac, body), "pass", `Cmd+Option+${code} reaches the editor`);
+  assert.ok(!isHeadingKey({ ...ev(key, "ca"), code }), "Ctrl+Alt (AltGr on Windows) is never told by the code");
+  assert.ok(!isHeadingKey({ ...ev(key, "mas"), code }) && !isHeadingKey({ ...ev(key, "mca"), code }) && !isHeadingKey({ ...ev(key, "ma", true), code }), "shift, Ctrl and AltGr are not heading keys");
+}
+for (const [key, code] of [["¢", "Digit4"], ["º", "Digit0"], ["ç", "KeyC"], ["√", "KeyV"]]) assert.equal(keyAction({ ...ev(key, "ma"), code }, body), "editor-skip", `Cmd+Option+${code} stays off`);
 assert.equal(keyAction(ev("k", "ca"), body), "editor-skip", "Ctrl+Alt+K is not the link shortcut");
 assert.equal(keyAction(ev("k", "ca"), other), "pass", "Ctrl+Alt+K does not open the command bar");
 assert.equal(keyAction(ev("k", "ca", true), other), "pass", "AltGr+K does not open the command bar");
