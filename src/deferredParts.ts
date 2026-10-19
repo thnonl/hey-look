@@ -9,15 +9,15 @@ export const DEFER_MARK = "hl-deferred-";
 const MARKER = /hl-deferred-([0-9a-f]{32})/g;
 
 /**
- * `parts` with the left-out data back in its place. `fetch` gives the data of a token; at most `limit` requests are on their way at once (each is over in a few milliseconds
+ * `parts` with the left-out data back in its place. `load` gives the data of a token; at most `limit` requests are on their way at once (each is over in a few milliseconds
  * on the backend; the app's main thread takes them one by one in any case). Rejects when a piece is missing: the caller asks for the whole parts then (`all`).
  */
-export async function fillDeferred(parts: DraftEditorParts, fetch: (token: string) => Promise<string>, limit = 4): Promise<DraftEditorParts> {
+export async function fillDeferred(parts: DraftEditorParts, load: (token: string) => Promise<string>, limit = 4): Promise<DraftEditorParts> {
   if (!parts.deferred.length) return parts;
   const data = new Map<string, string>();
   const queue = [...parts.deferred];
   const worker = async () => {
-    for (let t = queue.shift(); t !== undefined; t = queue.shift()) data.set(t, await fetch(t));
+    for (let t = queue.shift(); t !== undefined; t = queue.shift()) data.set(t, await load(t));
   };
   await Promise.all(Array.from({ length: Math.min(limit, queue.length) }, worker));
   const back = (text: string) => text.replace(MARKER, (m, token: string) => data.get(token) ?? m);
