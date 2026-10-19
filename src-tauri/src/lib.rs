@@ -8,6 +8,7 @@ mod discover;
 mod draftmail;
 mod draftopen;
 mod draftupload;
+mod tempstore;
 mod flagguard;
 mod headerfold;
 mod ical;
@@ -4158,8 +4159,10 @@ async fn draft_recipients(state: tauri::State<'_, AppState>, message_id: String)
 
 /// What Compose needs to open the draft `message_id`: its body with the pictures as `data:` URIs and the attachments, from one read of the message (draftopen.rs, D-044).
 /// An encrypted draft is the decrypted message of this session (`get_thread` opened it); the key must be unlocked (`PGP_LOCKED:<fingerprint>` otherwise).
+/// `all`: everything in the answer; else the data of a part of 190 KB or more is left out and the page asks for it with `draft_data`, one request each (draftopen.rs).
 #[tauri::command]
-async fn draft_editor_parts(state: tauri::State<'_, AppState>, message_id: String) -> R<draftopen::EditorParts> {
+async fn draft_editor_parts(state: tauri::State<'_, AppState>, message_id: String, all: Option<bool>) -> R<draftopen::EditorParts> {
+    let defer = !all.unwrap_or(false);
     let db = state.db.clone();
     blocking(move || {
         let (html, text, atts, pgp): (Option<String>, Option<String>, String, i64) = lock(&db)
@@ -4176,15 +4179,27 @@ async fn draft_editor_parts(state: tauri::State<'_, AppState>, message_id: Strin
             let Some(plain) = opened.plain.as_deref() else { return Err(not_opened_error(&opened)) };
             let msg = mail::open_parts(plain).ok_or("cannot parse message")?;
             let (html, text, metas) = msg.view();
-            return Ok(draftopen::editor_parts(html, text, &metas, Some(&msg)));
+            return Ok(draftopen::editor_parts(html, text, &metas, Some(&msg), defer));
         }
         // a message that is not encrypted: the body the database holds; its parts are read (from this computer's copy or the server's) only when it has any
         let metas: Vec<mail::AttMeta> = serde_json::from_str(&atts).unwrap_or_default();
         let raw = if metas.is_empty() { None } else { fetch_raw_for(&db, &message_id).ok().map(|(raw, _)| raw) };
         let msg = raw.as_deref().and_then(mail::open_parts);
-        Ok(draftopen::editor_parts(html, text, &metas, msg.as_ref()))
+        // with the message in hand the body is read from it (the pictures as cid: references: editor_parts puts them in, or leaves their data out); without it, the database's
+        let (html, text, metas) = match &msg {
+            Some(m) => m.view(),
+            None => (html, text, metas),
+        };
+        Ok(draftopen::editor_parts(html, text, &metas, msg.as_ref(), defer))
     })
     .await
+}
+
+/// The data `draft_editor_parts` left out under `token`, once (the base64 of a picture or an attachment). Gone after 5 minutes or when it was taken: the page then asks for
+/// the parts again with `all`.
+#[tauri::command]
+async fn draft_data(token: String) -> R<String> {
+    draftopen::take_deferred(&token).ok_or_else(|| "draft data is gone".to_string())
 }
 
 /// Remove the draft a reference names (Discard on a new message whose autosave had made a draft).
@@ -5632,6 +5647,7 @@ pub fn run() {
             save_draft,
             draft_recipients,
             draft_editor_parts,
+            draft_data,
             draft_upload,
             discard_draft,
             discard_draft_changes,

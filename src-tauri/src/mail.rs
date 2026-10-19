@@ -726,8 +726,9 @@ pub fn plain_text_to_html(text: &str) -> String {
     out
 }
 
-/// The HTML (a plain-text body converted), the text and the list of attachment parts of a parsed message. `raw` is the message `m` was parsed from.
-fn body_and_parts(m: &mail_parser::Message, raw: &[u8]) -> (Option<String>, Option<String>, Vec<AttMeta>) {
+/// The HTML (a plain-text body converted), the text and the list of attachment parts of a parsed message. `raw` is the message `m` was parsed from. `embed`: the pictures the
+/// HTML refers to (up to INLINE_SYNC_MAX) are put into it as `data:` URIs; else they stay `cid:` references (`referenced` says which are).
+fn body_and_parts(m: &mail_parser::Message, raw: &[u8], embed: bool) -> (Option<String>, Option<String>, Vec<AttMeta>) {
     // a message with no text/html part: its text as HTML, by our own converter (mail-parser's collapses runs of spaces, indents and tables)
     let mut html = match m.html_part(0).map(|p| &p.body) {
         Some(PartType::Text(t)) => Some(plain_text_to_html(t)),
@@ -753,7 +754,7 @@ fn body_and_parts(m: &mail_parser::Message, raw: &[u8]) -> (Option<String>, Opti
             _ => vec![],
         };
         let referenced = !spans.is_empty();
-        if let (true, Some(c)) = (referenced && mime.starts_with("image/") && size <= INLINE_SYNC_MAX, &cid) {
+        if let (true, Some(c)) = (embed && referenced && mime.starts_with("image/") && size <= INLINE_SYNC_MAX, &cid) {
             uris.push(format!("data:{mime};base64,{}", base64::engine::general_purpose::STANDARD.encode(part.contents())));
             embeds.extend(spans.into_iter().map(|(a, b)| (a, b, uris.len() - 1)));
             embedded.insert(c.to_ascii_lowercase());
@@ -780,7 +781,7 @@ pub fn parse(uid: u32, raw: &[u8], seen: bool, flagged: bool, fallback_date: i64
             )
         })
         .unwrap_or_default();
-    let (mut html, mut text, mut attachments) = body_and_parts(&m, raw);
+    let (mut html, mut text, mut attachments) = body_and_parts(&m, raw, true);
 
     // PGP: encrypted mail keeps no readable body in the database; signed mail drops its signature part
     let (mut pgp, keep) = crate::pgpmail::flags_for(raw, text.as_deref());
@@ -924,9 +925,10 @@ pub fn open_parts(raw: &[u8]) -> Option<Parts<'_>> {
 }
 
 impl Parts<'_> {
-    /// The HTML (a plain-text body converted), the text and the attachment list.
+    /// The HTML (a plain-text body converted), the text and the attachment list. The pictures are NOT put into the HTML: they stay `cid:` references and `AttMeta.referenced`
+    /// says which are used (the draft's editor parts put them in, or leave their data out: draftopen.rs).
     pub fn view(&self) -> (Option<String>, Option<String>, Vec<AttMeta>) {
-        body_and_parts(&self.msg, self.raw)
+        body_and_parts(&self.msg, self.raw, false)
     }
 
     /// Every attachment part, in the order of the list `view` makes (`index` is the position in it): the name (the same fallback as `AttMeta.name`) and the bytes as

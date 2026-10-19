@@ -238,3 +238,5 @@ static | node --experimental-strip-types scripts/test-picture-detach.mjs
 ui-b | node scripts/test-draft-opening.mjs --require-browser
 # 1.0.7 D-012 / D-003 / D-018: the scrolled header of the compose pane with Meeting on rests on whole rows, the focused control whole, To in sight where the box is tall enough, the shade that says more is below; 960 x 480, 946 x 552 and 1280 x 800, main window and compose window, light and dark (--quick: four of the 24 combinations)
 ui-b | node --experimental-strip-types scripts/test-header-rows.mjs --quick --require-browser
+# 1.0.7 D-044: the data of big pictures and files of a draft comes to the page one request each after draft_editor_parts (deferredParts.ts, draftopen.rs, tempstore.rs)
+static | node --experimental-strip-types scripts/test-deferred-parts.mjs

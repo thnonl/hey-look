@@ -395,6 +395,14 @@ export interface BackfillProgress {
   done: boolean;
 }
 
+/** What Compose needs to open a draft. The data of a big picture or file is left out: `hl-deferred-<token>` stands in its place and `deferred` lists the tokens (deferredParts.ts). */
+export interface DraftEditorParts {
+  html: string | null;
+  text: string | null;
+  attachments: Att[];
+  deferred: string[];
+}
+
 export interface Att {
   filename: string;
   mime: string;
@@ -659,7 +667,9 @@ export const api = {
   /** To / Cc / Bcc of a saved draft with the display names, read from the draft's own headers (the synced copy has bare addresses and no Bcc). */
   draftRecipients: (messageId: string) => invoke<{ to: string[]; cc: string[]; bcc: string[]; inReplyTo?: string | null; references?: string[]; meeting?: string | null; answers?: AnswersRef | null }>("draft_recipients", { messageId }),
   /** What Compose needs to open a draft, from one read of the message: the body with its pictures as `data:` URIs (each with `data-name`) and the attachments that stay attachments. */
-  draftEditorParts: (messageId: string) => invoke<{ html: string | null; text: string | null; attachments: Att[] }>("draft_editor_parts", { messageId }),
+  draftEditorParts: (messageId: string, all?: boolean) => invoke<DraftEditorParts>("draft_editor_parts", { messageId, all: all ?? null }),
+  /** The data `draftEditorParts` left out under `token` (once); rejects when it is gone: ask for the parts again with `all`. */
+  draftData: (token: string) => invoke<string>("draft_data", { token }),
   listOutbox: () => invoke<OutboxItem[]>("list_outbox"),
   cancelOutbox: (id: string) => invoke<void>("cancel_outbox", { id }),
   /** Send was pressed with an Undo time: the message goes into the local outbox (not a scheduled message) until `dueAt` (unix seconds). */

@@ -30,6 +30,7 @@ import { composeHasContent, draftContent, isPersonEdit } from "../composeContent
 import { autosaveDue, snapshotDue, timing, type AutosaveWhy } from "../autosave";
 import { RecoveryWriter, type RecoveryForm } from "../recovery";
 import { cleanPastedHtml, stripRemotePictures } from "../pastedHtml";
+import { fillDeferred } from "../deferredParts";
 import { detachPictures } from "../pictureDetach";
 import { settleHeader } from "../headerRows";
 import { insertPictureNodes, type PictureAttrs } from "../editor/insertPictures";
@@ -391,7 +392,9 @@ async function readDraft(threadId: string, wait: boolean, o: StartOpts, shift: b
   if (mine !== latestDraftOpen) return false; // another draft was asked for meanwhile (the second click of a double click): only the last one opens
   // restore pictures and attachments so saving or sending the draft does not silently drop them; the recipients as they were typed (names, Bcc) come from the draft's own
   // headers (the synced copy has bare To / Cc and no Bcc). Both are asked for at once: they read the message, they do not wait for each other.
-  const [parts, rc] = await Promise.all([api.draftEditorParts(m.id), api.draftRecipients(m.id).catch(() => null)]);
+  const [first, rc] = await Promise.all([api.draftEditorParts(m.id), api.draftRecipients(m.id).catch(() => null)]);
+  // (the data of big pictures comes in requests of its own: deferredParts.ts; when a piece is gone the parts are asked for whole)
+  const parts = await fillDeferred(first, api.draftData).catch(() => api.draftEditorParts(m.id, true));
   const { html, attachments } = parts;
   if (mine !== latestDraftOpen) return false;
   // without the draft's own headers the Bcc recipients are unknown: say so, a send would leave them out

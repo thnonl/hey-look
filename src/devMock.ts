@@ -1241,6 +1241,7 @@ export function installMock() {
       }
       // like the backend: the data of a big picture or file arrives in a request of its own, `save_draft` names it in `uploads` (draftUpload.ts)
       case "draft_upload": mockUploads.set(String(a.id), String(a.dataBase64)); return null;
+      case "draft_data": throw "draft data is gone"; // (the mock never leaves data out: `deferred` is always empty)
       case "save_draft": {
         const ups = (a.uploads ?? []) as { inline: boolean; index: number; id: string }[];
         if (ups.length) {
@@ -1358,7 +1359,7 @@ export function installMock() {
           }
           attachments.push({ filename: d.name, mime: d.mime, dataBase64: d.dataBase64 });
         }
-        const out = { html, text: m?.text ?? null, attachments };
+        const out = { html, text: m?.text ?? null, attachments, deferred: [] as string[] };
         const slow = Number((window as unknown as { __draftPartsDelay?: number }).__draftPartsDelay ?? 0);
         return slow > 0 ? later(slow, () => out) : out;
       }

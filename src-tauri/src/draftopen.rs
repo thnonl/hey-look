@@ -8,8 +8,31 @@
 //! `mail::INLINE_SYNC_MAX` were embedded when the message was read) and gets its file name; every other part is an attachment.
 
 use crate::mail::{AttMeta, Parts};
+use crate::tempstore::Store;
 use base64::Engine;
 use serde::Serialize;
+use std::time::Duration;
+
+/// Data of at least this many characters of base64 (about 190 KB) does not travel with the parts: a marker takes its place and the page asks for it with `draft_data`, one
+/// request each (tempstore.rs: one answer of 25 MB holds the app's main thread for 0.3 s, 14 answers of 1.8 MB hold it for 45 ms at a time).
+pub const DEFER_MIN: usize = 256 * 1024;
+/// What marks the place of deferred data in the HTML of the parts and in an attachment's data; the token follows.
+pub const MARK: &str = "hl-deferred-";
+
+static DEFERRED: Store = Store::new(Duration::from_secs(300), 400_000_000);
+
+/// The data kept under `token` (once).
+pub fn take_deferred(token: &str) -> Option<String> {
+    DEFERRED.take(token)
+}
+
+fn defer(data: String, deferred: &mut Vec<String>) -> String {
+    let token = uuid::Uuid::new_v4().simple().to_string();
+    DEFERRED.put(token.clone(), data);
+    let marker = format!("{MARK}{token}");
+    deferred.push(token);
+    marker
+}
 
 /// An attachment as Compose keeps it (`Att` in the page).
 #[derive(Serialize, Debug, PartialEq)]
@@ -29,12 +52,15 @@ pub struct EditorParts {
     pub text: Option<String>,
     /// the parts that are not pictures of the body
     pub attachments: Vec<EditorAtt>,
+    /// the tokens of the data that was left out (`MARK` + token stands in its place; `draft_data` gives it): empty when everything is in
+    pub deferred: Vec<String>,
 }
 
 /// `html` and `metas` are what `mail::parse` made of the message (or what the database holds for it), `message` the message they come from. With `message` None (it could
 /// not be read) the draft still opens: its body as it is and no attachments, as an unreadable part always did (it must not stop the draft from opening).
-pub fn editor_parts(html: Option<String>, text: Option<String>, metas: &[AttMeta], message: Option<&Parts>) -> EditorParts {
-    let mut parts = EditorParts { html, text, attachments: vec![] };
+/// `defer`: the data of a part of `DEFER_MIN` characters or more is left out (see there); false: everything is in the parts.
+pub fn editor_parts(html: Option<String>, text: Option<String>, metas: &[AttMeta], message: Option<&Parts>, defer_big: bool) -> EditorParts {
+    let mut parts = EditorParts { html, text, attachments: vec![], deferred: vec![] };
     let Some(message) = message else { return parts };
     if metas.is_empty() {
         return parts;
@@ -43,14 +69,18 @@ pub fn editor_parts(html: Option<String>, text: Option<String>, metas: &[AttMeta
     let lower = parts.html.as_ref().filter(|_| metas.iter().any(|a| a.inline && a.referenced && a.cid.is_some())).map(|h| h.to_ascii_lowercase());
     let mut uris: Vec<String> = vec![];
     let mut spans: Vec<(usize, usize, usize)> = vec![];
-    let mut named: Vec<(String, String)> = vec![]; // (the picture's base64, its file name), in the order of the parts
+    let mut named: Vec<(String, String)> = vec![]; // (the picture's base64 - or the marker of it -, its file name), in the order of the parts
+    let mut deferred: Vec<String> = vec![];
     let b64 = base64::engine::general_purpose::STANDARD;
     message.for_each_attachment(|i, name, bytes| {
         let Some(a) = metas.get(i).filter(|a| a.index == i) else { return };
         if a.inline && a.referenced {
             // a picture of the body (one the HTML does not hold, or has no cid, is not one: it is skipped, as it always was)
             let (Some(_), Some(cid), Some(lower)) = (&parts.html, a.cid.as_deref(), &lower) else { return };
-            let data = b64.encode(bytes);
+            let mut data = b64.encode(bytes);
+            if defer_big && data.len() >= DEFER_MIN {
+                data = defer(data, &mut deferred);
+            }
             let found = crate::mail::cid_ref_spans_in(lower, cid);
             if !found.is_empty() {
                 uris.push(format!("data:{};base64,{data}", a.mime));
@@ -58,7 +88,11 @@ pub fn editor_parts(html: Option<String>, text: Option<String>, metas: &[AttMeta
             }
             named.push((data, if a.name.is_empty() { name } else { a.name.clone() }));
         } else {
-            parts.attachments.push(EditorAtt { filename: name, mime: a.mime.clone(), data_base64: b64.encode(bytes) });
+            let mut data = b64.encode(bytes);
+            if defer_big && data.len() >= DEFER_MIN {
+                data = defer(data, &mut deferred);
+            }
+            parts.attachments.push(EditorAtt { filename: name, mime: a.mime.clone(), data_base64: data });
         }
     });
     if let Some(h) = parts.html.take() {
@@ -73,6 +107,7 @@ pub fn editor_parts(html: Option<String>, text: Option<String>, metas: &[AttMeta
         }
         parts.html = Some(h);
     }
+    parts.deferred = deferred;
     parts
 }
 
@@ -187,7 +222,7 @@ mod tests {
     fn parts_of(raw: &[u8]) -> EditorParts {
         let msg = crate::mail::open_parts(raw).unwrap();
         let (html, text, metas) = msg.view();
-        editor_parts(html, text, &metas, Some(&msg))
+        editor_parts(html, text, &metas, Some(&msg), false)
     }
 
     #[test]
@@ -227,21 +262,50 @@ mod tests {
         let raw = message(r#"<img src="cid:big@x"><img src='cid:small@x'><img src="cid:big@xy">"#, &[("big@x", "big.png", big.clone()), ("small@x", "small.png", small.clone())], &[]);
         let msg = crate::mail::open_parts(&raw).unwrap();
         let (html0, _, metas) = msg.view();
-        assert!(html0.as_deref().unwrap().contains("cid:big@x"), "the big one is not embedded by the read");
-        assert!(!html0.as_deref().unwrap().contains("cid:small@x"), "the small one is");
-        let html = editor_parts(html0, None, &metas, Some(&msg)).html.unwrap();
+        assert!(html0.as_deref().unwrap().contains("cid:big@x") && html0.as_deref().unwrap().contains("cid:small@x"), "the view leaves every picture a cid: reference");
+        // what the read of the message (mail::parse: what the database holds) embeds: the small one only
+        let parsed = crate::mail::parse(0, &raw, true, false, 0).unwrap().html.unwrap();
+        assert!(parsed.contains("cid:big@x") && !parsed.contains("cid:small@x"));
+        let html = editor_parts(html0, None, &metas, Some(&msg), false).html.unwrap();
         assert!(html.contains(&format!(r#"<img data-name="big.png" src="data:image/png;base64,{}">"#, B64.encode(&big))));
         assert!(html.contains(&format!(r#"data-name="small.png" src='data:image/png;base64,{}'>"#, B64.encode(&small))));
         assert!(html.contains(r#"<img src="cid:big@xy">"#), "a longer id is not this picture");
     }
 
     #[test]
+    fn big_data_is_left_out_with_a_marker_and_comes_back_by_its_token_once() {
+        let big = picture(6, 300_000); // 400 000 characters of base64: over DEFER_MIN
+        let small = picture(7, 1500);
+        let file = picture(8, 280_000);
+        let raw = message(r#"<img src="cid:big@x"><img src="cid:small@x">"#, &[("big@x", "big.png", big.clone()), ("small@x", "small.png", small.clone())], &[("doc.bin", file.clone())]);
+        let msg = crate::mail::open_parts(&raw).unwrap();
+        let (h, t, metas) = msg.view();
+        let whole = editor_parts(h.clone(), t.clone(), &metas, Some(&msg), false);
+        assert!(whole.deferred.is_empty(), "everything in: nothing left out");
+        let lean = editor_parts(h, t, &metas, Some(&msg), true);
+        assert_eq!(lean.deferred.len(), 2, "the big picture and the big file are left out");
+        let html = lean.html.clone().unwrap();
+        assert!(html.len() < 4000 && !html.contains(&B64.encode(&big)), "the big picture is not in the HTML: {} characters", html.len());
+        assert!(html.contains(&B64.encode(&small)), "a small picture stays in");
+        assert!(html.contains(&format!("{MARK}{}", lean.deferred[0])), "the marker of the first one is where its data was");
+        assert!(lean.attachments[0].data_base64 == format!("{MARK}{}", lean.deferred[1]), "the file's data is a marker too");
+        // put back, it is what the whole answer holds (the name tags too)
+        let mut back = html.clone();
+        let picture_data = take_deferred(&lean.deferred[0]).expect("the data of the picture");
+        back = back.replace(&format!("{MARK}{}", lean.deferred[0]), &picture_data);
+        assert_eq!(back, whole.html.clone().unwrap());
+        assert_eq!(take_deferred(&lean.deferred[1]).unwrap(), whole.attachments[0].data_base64);
+        // once: a second ask finds nothing
+        assert!(take_deferred(&lean.deferred[0]).is_none() && take_deferred("0123456789abcdef0123456789abcdef").is_none());
+    }
+
+    #[test]
     fn a_message_that_cannot_be_read_still_opens_with_its_body() {
         let metas = vec![AttMeta { index: 0, name: "a.png".into(), mime: "image/png".into(), size: 3, inline: false, cid: None, referenced: false }];
-        let p = editor_parts(Some("<p>hi</p>".into()), Some("hi".into()), &metas, None);
-        assert_eq!(p, EditorParts { html: Some("<p>hi</p>".into()), text: Some("hi".into()), attachments: vec![] });
+        let p = editor_parts(Some("<p>hi</p>".into()), Some("hi".into()), &metas, None, false);
+        assert_eq!(p, EditorParts { html: Some("<p>hi</p>".into()), text: Some("hi".into()), attachments: vec![], deferred: vec![] });
         let junk = crate::mail::open_parts(b"\x00 not a message").unwrap();
-        let p = editor_parts(Some("<p>hi</p>".into()), None, &metas, Some(&junk));
+        let p = editor_parts(Some("<p>hi</p>".into()), None, &metas, Some(&junk), false);
         assert_eq!(p.html.as_deref(), Some("<p>hi</p>"));
     }
 
@@ -284,7 +348,7 @@ mod tests {
         let (h, tx, metas) = msg.view();
         println!("mail::open_parts + view (one parse: the body and the part list): {} ms", ms(t));
         let t = Instant::now();
-        let parts = editor_parts(h, tx, &metas, Some(&msg));
+        let parts = editor_parts(h, tx, &metas, Some(&msg), true);
         println!("editor_parts (the pictures back in, the names): {} ms, html {} MB", ms(t), parts.html.as_deref().map_or(0, |h| h.len() / 1_000_000));
         let t = Instant::now();
         let json = serde_json::to_string(&parts).unwrap();
@@ -317,8 +381,10 @@ mod tests {
         let raw = message(&html, &refs, &[("a.txt", b"hello".to_vec()), ("b.bin", vec![9; 50])]);
         let msg = crate::mail::open_parts(&raw).unwrap();
         let (h0, t0, metas) = msg.view();
-        let new = editor_parts(h0.clone(), t0, &metas, Some(&msg));
-        let mut old_html = h0.unwrap();
+        let new = editor_parts(h0, t0, &metas, Some(&msg), false);
+        // the page of before 1.0.7 D-044: the HTML as the read of the message made it (pictures embedded), then attachment_data for every part
+        let parsed = crate::mail::parse(0, &raw, true, false, 0).unwrap();
+        let (mut old_html, metas) = (parsed.html.unwrap(), parsed.attachments);
         let mut old_atts = vec![];
         for a in &metas {
             let (name, bytes) = crate::mail::attachment_bytes(&raw, a.index).unwrap();
