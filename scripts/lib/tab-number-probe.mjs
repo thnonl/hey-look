@@ -5,7 +5,7 @@
 // (`scripts/test-bridge.md`). The baseline of a text is measured, not guessed: the box of a character (Range.getClientRects) is the font's content area, so
 // its bottom edge minus the font's descent (a canvas with the same font reports it) is the baseline of that text, whatever the line height around it is.
 //
-// The result: { lang, theme, width, height, listW, rowOk, headOk, filterText, filterTitle, filterAria, filterIcon, filterClipped, strongColor, mutedColor, listBg, tabs: [...] }
+// The result: { nums (the raw numbers behind the verdict, for logs), lang, theme, width, height, listW, rowOk, headOk, filterText, filterTitle, filterAria, filterIcon, filterClipped, strongColor, mutedColor, listBg, tabs: [...] }
 //   tabs[i]: name (aria-label or text), title, badge (text or null), clipped, labelLines, offset (px, badge baseline minus label baseline), sameLine,
 //            color, weight, fvn, family, ratio (badge font size / tab font size), tabular (digits 1 and 8 take the same width), inside (inside the list box), top, bottom
 //   tabsOk   both tabs lie in one row; rowOk: the Filter button lies in that row too; filterBelow: it has a line of its own under them (the last resort, see MessageList.tsx)
@@ -41,7 +41,7 @@ export const TABN_JS = `(() => {
   });
   const filter = list.querySelector('.ml-tools .dd > button');
   const fr = filter && filter.getBoundingClientRect();
-  const row = list.querySelector('.ml-title');
+  const row = list.querySelector('.ml-title'), pivots = list.querySelector('.pivots');
   const tabsOk = out.length === 2 && Math.abs(out[0].top - out[1].top) < 1;
   const sameRow = tabsOk && !!fr && fr.top < out[0].bottom && fr.bottom > out[0].top;
   const below = tabsOk && !!fr && fr.top >= out[0].bottom - 1; // the last resort: even the icon does not fit beside the tabs, the button has a line of its own
@@ -55,6 +55,7 @@ export const TABN_JS = `(() => {
     tabsOk, rowOk: sameRow, filterBelow: below, headOk: !!row && row.scrollWidth <= row.clientWidth + 1 && fr && fr.right <= lb.right + 0.5 && fr.left >= lb.left - 0.5,
     filterText: textEl ? textEl.textContent.trim() : null, filterTitle: filter && filter.title, filterAria: filter && filter.getAttribute('aria-label'), filterIcon: iconOnly,
     filterClipped: !iconOnly && textEl ? (textEl.getBoundingClientRect().right > lb.right + 0.5 || filter.scrollWidth > filter.clientWidth + 1) : false,
+    nums: { listLeft: Math.round(lb.left), listRight: Math.round(lb.right), rowScroll: row && row.scrollWidth, rowClient: row && row.clientWidth, pivotsW: pivots && Math.round(pivots.getBoundingClientRect().width * 10) / 10, pivotsScroll: pivots && pivots.scrollWidth, pivotsClient: pivots && pivots.clientWidth, tabW: out.map((t) => Math.round((t.right - t.left) * 10) / 10), tabRight: out.map((t) => Math.round(t.right)), filterL: fr && Math.round(fr.left), filterR: fr && Math.round(fr.right), filterW: fr && Math.round(fr.width * 10) / 10, tabFont: tabs[0] && getComputedStyle(tabs[0]).fontSize, family: tabs[0] && getComputedStyle(tabs[0]).fontFamily.slice(0, 60) },
     strongColor: colorOf('fp-badge strong'), mutedColor: colorOf('fp-badge'), listBg: bg, tabs: out,
   });
 })()`;

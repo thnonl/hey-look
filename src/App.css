@@ -410,8 +410,9 @@ body.reordering, body.reordering * { cursor: grabbing !important; user-select: n
 .ml-bulk span { flex: 1; color: var(--muted); }
 /* while messages are checked the selection bar replaces the Focused/Other tabs and Filter: they are hidden (not focusable, not read out) instead of sitting under it */
 .ml-head.multi .ml-title { visibility: hidden; }
-.pivots { display: flex; gap: 18px; flex: none; } /* the tabs never shrink or wrap: the Filter gives way */
+.pivots { display: flex; gap: 0 18px; flex: none; min-width: 0; max-width: 100%; flex-wrap: wrap; } /* the tabs do not shrink: the Filter gives way, then (--tab-scale, set by MessageList from the measured width) their text; wrap and max-width are the last resort so that nothing can leave the list */
 .pivots button, .ap-pivots > span { background: none; border: 0; border-bottom: 2.5px solid transparent; padding: 5px 0; font-size: 1.1em; color: var(--muted); font-weight: 500; transition: color .12s; white-space: nowrap; }
+.pivots button { font-size: calc(1.1em * var(--tab-scale, 1)); }
 .pivots button:hover { color: var(--fg); }
 .pivots button.active, .ap-pivots > span.active { color: var(--fg); font-weight: 650; border-bottom-color: var(--accent); }
 /* the unread number of a tab (W13.12): inline text after the label, on its baseline; colour and weight from .fp-badge (.strong for Focused) */
