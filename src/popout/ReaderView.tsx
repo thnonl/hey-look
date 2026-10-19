@@ -14,7 +14,6 @@ import { forward, replyTo } from "../actions";
 import { api, type MessageFull } from "../api";
 import { copyToClipboard } from "../open";
 import { AiRunning, MessageCard, TRANSLATE_TO, translateMessage, useKeepReadingPosition } from "../components/ReadingPane";
-import { GuardMenuHost } from "../components/GuardMenuHost";
 import { ShowOriginal } from "../components/Dialogs";
 import { needsCard, PassphraseHost } from "../components/Pgp";
 import { Dropdown } from "../components/ui";
@@ -497,7 +496,6 @@ function Reader({ info }: { info: ReaderInit }) {
       </section>
       {dialog?.type === "original" && <ShowOriginal messageId={dialog.messageId} />}
       <PassphraseHost />
-      <GuardMenuHost />
     </div>
   );
 }

@@ -397,7 +397,7 @@ assert.equal(popoutTitle(readerTitleText("", "(no subject)")), "(no subject) –
   assert.ok(main.indexOf("installContextGuard();") > 0 && main.indexOf("installContextGuard();") < main.indexOf("ReactDOM.createRoot("), "the window guard is installed before any route is mounted (main, compose and reader)");
   assert.ok(!main.includes("route.kind === \"main\" && installContextGuard"), "not only for the main route");
   const reader = read("src/popout/ReaderView.tsx");
-  assert.ok(reader.includes("<GuardMenuHost />") && reader.includes("await loadPlatform()"), "the in-app menu host is mounted and the platform (debug build or not) is known");
+  assert.ok(!reader.includes("<GuardMenuHost />") && reader.includes("await loadPlatform()"), "the in-app menu host is mounted once by main.tsx (a second one in the view opened two menus, D-036) and the platform (debug build or not) is known");
   assert.ok(!reader.includes("<iframe"), "the reader draws its frames only through the reading-pane components");
   assert.ok(reader.includes("<MessageCard"), "the message body is the reading pane's MessageBody");
   // those components guard their frames: the message body, and the attachment preview (PDF / text)
@@ -726,7 +726,7 @@ assert.equal(draftKey("t9"), "draft:t9");
   assert.ok(view.includes("hasContent: !!p?.draftContent") && view.includes("hasContent: () => !!st.getState().composeProbe?.().draftContent"), "the window closes and flushes by draftContent");
   assert.ok(!/composeProbe\?\.\(\)\.hasContent|p\?\.hasContent/.test(view), "no path of the window goes by the snapshot's hasContent");
   assert.ok(view.includes("emptied: async () => void (await st.getState().composeEnd?.({ emptied: true }))"), "a quit with nothing worth a draft drops the snapshot and the autosaved copy");
-  assert.ok(view.includes("<PassphraseHost />") && view.includes("<GuardMenuHost />"), "the passphrase question and the in-app menu are drawn in this window");
+  assert.ok(view.includes("<PassphraseHost />") && !view.includes("<GuardMenuHost />"), "the passphrase question is drawn in this window; the in-app menu comes from main.tsx (one host per window, D-036)");
   // the store actions that mean something else in a window are replaced before Compose is drawn
   for (const a of ["openCompose:", "sync:", "refresh:", "setDialog:", "showToast:"]) assert.ok(view.includes(a), a);
   assert.ok(view.indexOf("setReady(true)") > view.indexOf("openCompose:"), "Compose is drawn after the actions are replaced");

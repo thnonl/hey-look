@@ -18,7 +18,6 @@ import { orderAccounts } from "../accountOrder";
 import { api } from "../api";
 import { configureCalendar } from "../calendar";
 import { Compose } from "../components/Compose";
-import { GuardMenuHost } from "../components/GuardMenuHost";
 import { PassphraseHost } from "../components/Pgp";
 import { t as tNow } from "../i18n";
 import { loadPlatform } from "../platform";
@@ -366,7 +365,6 @@ export default function ComposeView({ label, init }: PopoutViewProps) {
       {/* the editor stays while the message is sent: Compose locks itself (inert, "Sending...") and unlocks in place on Undo or a failure (seam.lock / unlock) */}
       {ready && editor && <Compose key={editor.n} init={editor.init} />}
       <PassphraseHost />
-      <GuardMenuHost />
     </div>
   );
 }
