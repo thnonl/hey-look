@@ -80,4 +80,5 @@ export default defineLocale<typeof ns.en>({
   "backend.CAL_SEND_FAILED.deleted": "予定は削除されましたが、キャンセルの通知は送信されませんでした：{detail}",
   "backend.SMTP_ATTACHMENT_BLOCKED": "サーバーが添付ファイルの種類を拒否しました。Gmail、Outlook、Yahooでは、.exe、.bat、.js、.msiなどのプログラムやスクリプトは、zipファイルに入れていても受け付けられません。添付ファイルを削除するか、リンクとして共有してください。（サーバーの応答：{reply}）",
   "backend.SMTP_TOO_LARGE": "メッセージがこのサーバーの受け付けるサイズを超えています。添付ファイルを削除するか、画像を縮小してください。（サーバーの応答：{reply}）",
+  "backend.DRAFT_TOO_LARGE": "このメッセージは大きすぎて下書きとして保存できません（{size}。上限は{limit}です）。添付ファイルを削除するか、画像を縮小してください。",
 });

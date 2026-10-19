@@ -79,6 +79,7 @@ export default define({
     "backend.CAL_SEND_FAILED.deleted": "The event was deleted, but the cancellation wasn't sent: {detail}",
     "backend.SMTP_ATTACHMENT_BLOCKED": "The server rejected the attachment type. Gmail, Outlook and Yahoo refuse programs and scripts such as .exe, .bat, .js or .msi, even inside a zip file. Remove the attachment or share it as a link instead. (Server reply: {reply})",
     "backend.SMTP_TOO_LARGE": "The message is larger than this server accepts. Remove attachments or shrink pictures. (Server reply: {reply})",
+    "backend.DRAFT_TOO_LARGE": "This message is too large to keep as a draft ({size}; the limit is {limit}). Remove attachments or shrink pictures.",
   },
   vi: {
     "backend.CONFIDENTIAL": "Đây là thư mật nên không được phép thực hiện thao tác đó.",
@@ -156,6 +157,7 @@ export default define({
     "backend.CAL_SEND_FAILED.deleted": "Đã xóa sự kiện nhưng chưa gửi được thông báo hủy: {detail}",
     "backend.SMTP_ATTACHMENT_BLOCKED": "Máy chủ từ chối loại tệp đính kèm. Gmail, Outlook và Yahoo không nhận chương trình và tập lệnh như .exe, .bat, .js hoặc .msi, kể cả trong tệp zip. Hãy gỡ tệp đính kèm hoặc chia sẻ dưới dạng liên kết. (Phản hồi của máy chủ: {reply})",
     "backend.SMTP_TOO_LARGE": "Thư lớn hơn mức máy chủ này chấp nhận. Hãy gỡ tệp đính kèm hoặc thu nhỏ ảnh. (Phản hồi của máy chủ: {reply})",
+    "backend.DRAFT_TOO_LARGE": "Thư này quá lớn để lưu làm thư nháp ({size}; giới hạn là {limit}). Hãy gỡ tệp đính kèm hoặc thu nhỏ ảnh.",
   },
   fr: {
     "backend.CONFIDENTIAL": "Ce message est confidentiel\u00a0: cette action n’est pas autorisée.",
@@ -233,5 +235,6 @@ export default define({
     "backend.CAL_SEND_FAILED.deleted": "L’événement a été supprimé, mais l’annulation n’a pas été envoyée\u00a0: {detail}",
     "backend.SMTP_ATTACHMENT_BLOCKED": "Le serveur a refusé le type de pièce jointe. Gmail, Outlook et Yahoo refusent les programmes et scripts tels que .exe, .bat, .js ou .msi, même dans un fichier zip. Retirez la pièce jointe ou partagez-la sous forme de lien. (Réponse du serveur\u00a0: {reply})",
     "backend.SMTP_TOO_LARGE": "Le message dépasse la taille acceptée par ce serveur. Retirez des pièces jointes ou réduisez les images. (Réponse du serveur\u00a0: {reply})",
+    "backend.DRAFT_TOO_LARGE": "Ce message est trop volumineux pour être gardé comme brouillon ({size}\u00a0; la limite est de {limit}). Retirez des pièces jointes ou réduisez les images.",
   },
 });

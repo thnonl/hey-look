@@ -80,4 +80,5 @@ export default defineLocale<typeof ns.en>({
   "backend.CAL_SEND_FAILED.deleted": "Der Termin wurde gelöscht, aber die Absage wurde nicht gesendet: {detail}",
   "backend.SMTP_ATTACHMENT_BLOCKED": "Der Server hat den Anhangstyp abgelehnt. Gmail, Outlook und Yahoo lehnen Programme und Skripte wie .exe, .bat, .js oder .msi ab, auch in einer ZIP-Datei. Entfernen Sie den Anhang oder teilen Sie stattdessen einen Link zur Datei. (Antwort des Servers: {reply})",
   "backend.SMTP_TOO_LARGE": "Die Nachricht ist größer, als dieser Server akzeptiert. Entfernen Sie Anhänge oder verkleinern Sie Bilder. (Antwort des Servers: {reply})",
+  "backend.DRAFT_TOO_LARGE": "Diese Nachricht ist zu groß, um als Entwurf gespeichert zu werden ({size}; das Limit liegt bei {limit}). Entfernen Sie Anhänge oder verkleinern Sie Bilder.",
 });

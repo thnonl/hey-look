@@ -80,4 +80,5 @@ export default defineLocale<typeof ns.en>({
   "backend.CAL_SEND_FAILED.deleted": "El evento se eliminó, pero no se envió la cancelación: {detail}",
   "backend.SMTP_ATTACHMENT_BLOCKED": "El servidor rechazó el tipo de archivo adjunto. Gmail, Outlook y Yahoo no admiten programas ni scripts como .exe, .bat, .js o .msi, ni siquiera dentro de un archivo zip. Quita el adjunto o compártelo como enlace. (Respuesta del servidor: {reply})",
   "backend.SMTP_TOO_LARGE": "El mensaje es más grande de lo que acepta este servidor. Quita adjuntos o reduce las imágenes. (Respuesta del servidor: {reply})",
+  "backend.DRAFT_TOO_LARGE": "Este mensaje es demasiado grande para guardarlo como borrador ({size}; el límite es {limit}). Quita adjuntos o reduce las imágenes.",
 });

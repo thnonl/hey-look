@@ -1,7 +1,7 @@
 // The size of a message on the wire (G-07 / CF-21): base64 + line breaks + part headers, against the server's SIZE or the usual 25 MB.
 // Run: node --experimental-strip-types scripts/test-send-size.mjs
 import assert from "node:assert/strict";
-import { askFreshBeforeSend, showSizeToast, ARMOR, USUAL_LIMIT, attachmentWire, base64Chars, base64Wire, isSizeRefusal, partHeaders, pictureWire, sendLimit, wireSize } from "../src/sendSize.ts";
+import { askFreshBeforeSend, showSizeToast, ARMOR, USUAL_LIMIT, attachmentWire, base64Chars, base64Wire, isSizeRefusal, partHeaders, DRAFT_LIMIT, draftSize, draftTooLargeError, pictureWire, sendLimit, wireSize } from "../src/sendSize.ts";
 
 const MiB = 1024 * 1024;
 const b64 = (raw) => base64Chars(raw); // base64 text length of a raw size
@@ -94,6 +94,21 @@ assert.ok(!isSizeRefusal(undefined));
   toasts = [];
   showSizeToast(host, last, "Attachments total 36 MB when sent; the limit is 25.0 MB");
   assert.equal(toasts.length, 1);
+}
+
+// D-025: a draft has its own, much bigger bound (a draft of 20 MB of pictures froze the app); the page does not ask the backend for a bigger one
+{
+  assert.equal(DRAFT_LIMIT, 100 * MiB);
+  assert.ok(DRAFT_LIMIT >= 4 * USUAL_LIMIT, "bigger than what can be sent, so a message that is being split can still be saved");
+  const pic = (chars) => ({ dataBase64: "A".repeat(chars) });
+  assert.equal(draftSize({ html: "<p>x</p>", text: "x", attachments: [pic(10)], inline: [pic(100), pic(1000)] }), 8 + 1 + 10 + 1100);
+  assert.equal(draftSize({ attachments: [], inline: undefined }), 0);
+  assert.ok(draftSize({ attachments: [pic(DRAFT_LIMIT)], inline: [pic(1)] }) > DRAFT_LIMIT);
+  // the same coded error as the backend (lib.rs ensure_draft_size), so the same translated sentence is shown
+  assert.equal(
+    draftTooLargeError(101 * MiB - 5),
+    "DRAFT_TOO_LARGE|size=101 MB|limit=100 MB: This message is too large to keep as a draft (101 MB; the limit is 100 MB). Remove attachments or shrink pictures.",
+  );
 }
 
 console.log("test-send-size: ok");
