@@ -964,6 +964,9 @@ pub(crate) mod tests {
             let got = text_body(s.clone());
             assert_eq!(got.encoding(), want.encoding(), "encoding of {s:?}");
             assert_eq!(got.as_ref(), want.as_ref(), "bytes of {s:?}");
+            // the parts the draft is made of, headers and all (the boundaries of a multipart are random, a single part has none)
+            assert_eq!(html_part(s.clone()).formatted(), SinglePart::html(s.clone()).formatted(), "html part of {s:?}");
+            assert_eq!(plain_part(s.clone()).formatted(), SinglePart::plain(s.clone()).formatted(), "plain part of {s:?}");
         }
     }
 
