@@ -494,6 +494,23 @@ assert.equal(draftKey("t9"), "draft:t9");
   // no Undo time: the window is gone at once (parked) and ends when the send has gone
   r = run([{ t: "handoff", wait: 0, now: T }, { t: "sends", n: 1, now: T }, { t: "sends", n: 0, now: T + 200 }, { t: "grace", now: T + 200 + GRACE_MS }], START);
   assert.deepEqual(r.fx, ["park", "grace", "destroy"]);
+  // W13.1: a SEND keeps the editor on screen, locked: with or without an Undo time nothing is hidden, and the window ends when the server has answered
+  r = run([{ t: "handoff", wait: 10, now: T, lock: true }]);
+  assert.equal(r.s.phase, "count");
+  assert.equal(r.s.parked, false);
+  assert.deepEqual(r.fx, [], "locked, nothing hidden");
+  r = run([{ t: "handoff", wait: 0, now: T, lock: true }, { t: "sends", n: 1, now: T }, { t: "sends", n: 0, now: T + 200 }, { t: "grace", now: T + 200 + GRACE_MS }], START);
+  assert.deepEqual(r.fx, ["grace", "destroy"], "Undo send off: no park (the window stays on screen, locked); it ends when the send is over");
+  assert.equal(r.s.parked, false);
+  // Undo: the SAME editor is unlocked (the "reopen" event: phase edit, nothing ended, nothing re-created by the machine)
+  r = run([{ t: "handoff", wait: 10, now: T, lock: true }, { t: "undo-offer" }, { t: "sends", n: 1, now: T }, { t: "undo-start", now: T + 3_000 }, { t: "sends", n: 0, now: T + 3_001 }, { t: "reopen" }, { t: "grace", now: T + 3_001 + GRACE_MS }], START);
+  assert.equal(r.s.phase, "edit");
+  assert.deepEqual(r.fx.filter((x) => x === "destroy" || x === "park"), [], "an Undo ends nothing and hides nothing");
+  // a failed send of a window that the person closed during the send (parked): it comes forward, unlocked
+  r = run([{ t: "handoff", wait: 10, now: T, lock: true }, { t: "close" }, { t: "sends", n: 1, now: T }, { t: "tick", now: T + 10_000 }, { t: "reopen" }, { t: "sends", n: 0, now: T + 10_500 }], START);
+  assert.deepEqual(r.fx, ["park", "show"]);
+  assert.equal(r.s.phase, "edit");
+  assert.equal(r.s.parked, false);
   // a message that was only saved, discarded or closed: the window ends at once
   assert.deepEqual(run([{ t: "end" }]).fx, ["destroy"]);
   // the person closes the window while it counts down: out of sight, still running, once
@@ -689,10 +706,23 @@ assert.equal(draftKey("t9"), "draft:t9");
   for (const a of ["openCompose:", "sync:", "refresh:", "setDialog:", "showToast:"]) assert.ok(view.includes(a), a);
   assert.ok(view.indexOf("setReady(true)") > view.indexOf("openCompose:"), "Compose is drawn after the actions are replaced");
   // Compose.tsx: the seam is the only difference, and the main window (no seam) behaves as before
-  assert.equal(compose.match(/composeSeam\(\)/g).length, 13, "the places where Compose asks the seam (two of them: a message scheduled in a window is announced by the main window, which owns the outbox; two for the draft the pane shows, W2.11; one tells a window that the scheduled message it holds paused is handled, W2.10)");
+  assert.equal(compose.match(/composeSeam\(\)/g).length, 16, "the places where Compose asks the seam (two of them: a message scheduled in a window is announced by the main window, which owns the outbox; two for the draft the pane shows, W2.11; one tells a window that the scheduled message it holds paused is handled, W2.10; three for the lock of a send, W13.1)");
   assert.ok(compose.includes("composeSeam()?.scheduled(") && view.includes("scheduled: (outboxId, sendAt) => notifyMain(\"scheduled\""), "Scheduled for ... with Undo and View comes from the main window");
   assert.ok(compose.includes("openCompose(null, { sending: wait })") && compose.includes("openCompose(null, { sending: 0 })"), "a send hands the message over, it does not end it");
-  assert.ok(compose.includes('else showToast(() => t("compose.toast.sending"), undoSend, "info")'), "the main window still has the Undo toast");
+  assert.ok(compose.includes('else showToast(() => t("compose.toast.sending"), undoSend, "info", undefined, wait * 1000)'), "the main window has the Undo toast, as long as the message is held (W13.1)");
+  // W13.1: a window keeps the editor on screen while it sends: locked, one toast, unlocked in place on Undo or a failure; no card, no unmounting
+  assert.ok(compose.includes("if (composeSeam()) lockForSend(wait);") && compose.includes("else void openCompose(null, { sending: wait });"), "a send in a window locks the editor, the pane closes as before");
+  assert.ok(compose.includes("if (lockedRef.current) return unlock(d);"), "Undo and a failed send unlock the same editor (reopen in a window that is locked)");
+  assert.ok(compose.includes("inert={locked || undefined}") && compose.includes("aria-busy={locked || undefined}"), "locked = inert and aria-busy");
+  assert.ok(compose.includes("if (lockedRef.current) return; // (a draft of a message that is in the outbox would stay behind)") && compose.includes("if (lockedRef.current) return; // (the message is on its way"), "no autosave and no snapshot of a message that is being sent");
+  assert.ok(compose.includes("setTo(d.to);") && compose.includes("if (d.security && !d.security.encrypt && encIntent !== \"off\") setEncIntent(\"off\");"), "what the send questions changed is applied to the unlocked editor");
+  assert.ok(compose.includes("touch();\n    composeSeam()?.unlock();"), "the unlocked message counts as changed");
+  assert.ok(compose.includes("el.focus({ preventScroll: true })") && compose.includes("scrollsWas.current"), "the focus and the scroll position come back");
+  assert.ok(!view.includes("popout-sending") && !view.includes("closesWhenSent") && !read("src/App.css").includes(".popout-sending"), "the Sending card is gone");
+  assert.ok(view.includes("{ready && editor && <Compose key={editor.n} init={editor.init} />}") && !view.includes('win.phase === "edit" && <Compose'), "the editor is drawn in every phase");
+  assert.ok(view.includes('lock: (wait) => dispatchRef.current({ t: "handoff", wait, now: Date.now(), lock: true })') && view.includes('unlock: () => dispatchRef.current({ t: "reopen" })'), "the seam");
+  assert.ok(view.includes("setStickyToast(SEND_TOAST") && view.includes('readAs: () => tNow("compose.toast.sending")') && view.includes('compose.popout.sending'), "one toast, in place, read once");
+  assert.ok(read("src/store.ts").includes("const ttl = ttlMs ?? (undo ?"), "showToast takes the time a toast stays");
   assert.ok(compose.includes("if (composeSeam() || busy) return;"), "no pop-out from a window (a scheduled message pops out like any other, W2.10)");
   assert.ok(compose.includes('openPopout("compose", init.outboxId ? outboxKey(init.outboxId) : null, moved)') && compose.includes("if (init.outboxId) savedRef.current = true;"), "a scheduled message moves to a window keyed outbox:<id> and the pane does not release its pause as it closes");
   assert.ok(!compose.includes("!init.outboxId && !composeSeam() && (") && !compose.includes('"o" && !init.outboxId'), "the Pop out button and Ctrl+Shift+O are there for a scheduled message too");

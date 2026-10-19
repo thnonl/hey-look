@@ -1514,8 +1514,6 @@ span.spin { display: inline-block; width: 13px; height: 13px; border: 2px solid 
    changes: a compose window kept the title bar colour of the theme it was opened in (the reader and the main window, whose root is not fixed,
    take the page background, which follows). The same box without being fixed: the whole viewport, the containing block of the pane. */
 .popout-compose { position: relative; width: 100%; height: 100vh; background: var(--bg); color: var(--fg); }
-.popout-sending { position: absolute; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 14px; padding: 24px; text-align: center; }
-.popout-sending .ps-line { display: flex; align-items: center; gap: 10px; font-size: 1.2em; font-weight: 600; }
 .popout-dev { display: grid; grid-template-columns: max-content 1fr; gap: 2px 12px; margin: 0; font-size: .9em; }
 .popout-dev dt { color: var(--muted); }
 .popout-dev dd { margin: 0; overflow-wrap: anywhere; }

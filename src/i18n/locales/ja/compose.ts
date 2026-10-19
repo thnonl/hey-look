@@ -407,7 +407,6 @@ export default defineLocale<typeof ns.en>({
   "compose.popout.popOut": "別ウィンドウ",
   "compose.popout.popOutTip": "新しいウィンドウで開く (Ctrl+Shift+O)",
   "compose.popout.sending": "送信中… {n}秒",
-  "compose.popout.closesWhenSent": "メッセージが送信されると、このウィンドウは閉じます。",
   "compose.popout.closeTitle": "メッセージを保存しますか？",
   "compose.popout.closeBody": "このメッセージはまだ送信されていません。下書きに保存するか、破棄してください。",
   "compose.popout.notSavedBody": "Hey Look!は下書きに保存できませんでした（{error}）。今すぐこのウィンドウを閉じると、メッセージは失われます。",

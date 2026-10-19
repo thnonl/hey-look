@@ -165,6 +165,8 @@ export interface Toast {
   hideClose?: boolean;
   /** work in progress: a spinner instead of the icon (static dots under reduced motion) */
   busy?: boolean;
+  /** what a screen reader reads instead of the text: a text with a number that changes every second (the Undo countdown) is drawn `aria-hidden` and this is read once */
+  readAs?: Lazy;
   /** a problem with guidance (the AI Assistant, src/aiGuide.ts): the text is lines (title in bold, what happened, what to do), the buttons sit below it */
   guide?: boolean;
 }
@@ -361,14 +363,15 @@ interface State {
   setCommandOpen: (o: boolean) => void;
   setRibbonTab: (t: RibbonTab) => void;
   /** `text` as a function is drawn each time the toast is painted (a toast made from a translation key follows a language switch); a plain string stays as it is */
-  showToast: (text: Lazy, undo?: () => void, kind?: Toast["kind"], actions?: ToastAction[]) => void;
+  /** `ttl` (ms): how long it stays; without it a toast with Undo stays `undoActionSeconds` (at least 5 s). The send's Undo toast stays exactly the Undo send time (W13.1). */
+  showToast: (text: Lazy, undo?: () => void, kind?: Toast["kind"], actions?: ToastAction[], ttl?: number) => void;
   dismissToast: (id: number) => void;
   /** The backend finished moving these conversations (their Undo time is over): they leave the open list now, without a re-read. */
   dropThreads: (ids: string[]) => void;
   /** A toast that stays until it is answered (or `null` to remove it); one per `key`, a new text replaces the old in place. */
   setStickyToast: (
     key: string,
-    spec: { text: Lazy; kind?: Toast["kind"]; actions?: ToastAction[]; onDismiss?: () => void; closeLabel?: Lazy; escCloses?: boolean; support?: boolean; link?: ToastAction; hideClose?: boolean; busy?: boolean; guide?: boolean; ttl?: number } | null,
+    spec: { text: Lazy; kind?: Toast["kind"]; actions?: ToastAction[]; onDismiss?: () => void; closeLabel?: Lazy; escCloses?: boolean; support?: boolean; link?: ToastAction; hideClose?: boolean; busy?: boolean; guide?: boolean; ttl?: number; undo?: () => void; readAs?: Lazy } | null,
   ) => void;
   /** Count a message as being sent from now until `done()` is called. */
   /** A send is under way (its undo window counts). `flush` makes it go out at once (a quit); it is dropped when the send ends. */
@@ -1215,13 +1218,13 @@ export const useStore = create<State>((set, get) => ({
   setCommandOpen: (commandOpen) => set({ commandOpen }),
   setRibbonTab: (ribbonTab) => set({ ribbonTab }),
 
-  showToast: (text, undo, kind, actions) => {
+  showToast: (text, undo, kind, actions, ttlMs) => {
     const { text: first, textFn } = toastTexts(text);
     // i18n note: this guess reads the English start of the text; a caller whose text is translated must pass `kind` itself
     const k: Toast["kind"] = kind ?? (/^(failed|sync error|send failed|schedule failed|save|unsubscribe failed|cannot)/i.test(first) ? "error" : "info");
     const acts = actions?.slice(0, 2);
     // a toast with buttons stays long enough to be read and clicked
-    const ttl = undo ? Math.max(5000, get().prefs.undoActionSeconds * 1000) : acts?.length || k === "error" ? 8000 : 4500;
+    const ttl = ttlMs ?? (undo ? Math.max(5000, get().prefs.undoActionSeconds * 1000) : acts?.length || k === "error" ? 8000 : 4500);
     const id = ++toastSeq;
     // newest last; at most 5 timed toasts (the oldest without Undo go first), a toast that stays until it is answered is never evicted
     // (an identical error is recognised by its text in the language in use now, not the one the older toast was made in)
@@ -1242,7 +1245,7 @@ export const useStore = create<State>((set, get) => ({
       const others = s.toasts.filter((t) => t.key !== key);
       if (!spec) return { toasts: others };
       const old = s.toasts.find((t) => t.key === key);
-      const toast: Toast = { id: old?.id ?? ++toastSeq, ...toastTexts(spec.text), kind: spec.kind ?? "info", actions: spec.actions, ttl: spec.ttl ?? 0, sticky: true, key, onDismiss: spec.onDismiss, closeLabel: spec.closeLabel, escCloses: spec.escCloses, support: spec.support, link: spec.link, hideClose: spec.hideClose, busy: spec.busy, guide: spec.guide };
+      const toast: Toast = { id: old?.id ?? ++toastSeq, ...toastTexts(spec.text), kind: spec.kind ?? "info", actions: spec.actions, ttl: spec.ttl ?? 0, sticky: true, key, onDismiss: spec.onDismiss, closeLabel: spec.closeLabel, escCloses: spec.escCloses, support: spec.support, link: spec.link, hideClose: spec.hideClose, busy: spec.busy, guide: spec.guide, undo: spec.undo, readAs: spec.readAs };
       // in place when it exists (the countdown changes its text every second), else on top of the stack
       return { toasts: old ? s.toasts.map((t) => (t.key === key ? toast : t)) : [...others, toast] };
     }),

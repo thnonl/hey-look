@@ -1,8 +1,9 @@
 // The life of a compose window, as pure functions (no Tauri, no store, no React), so scripts/test-popout.mjs can run every path:
 // - `step`: the phases of the window around a send (editing -> counting down the Undo time -> sending -> over) and what the window does
-//   about them (hide itself, show itself again, end itself). The window shows the editor in phase "edit", and a card "Sending... n s" with
-//   an Undo button in "count" and "work" (REQ-C8); when the person closes it then, it goes out of sight and keeps running ("parked") until
-//   the message has gone, so the message still goes out at the end of the Undo time and a failure can bring the editor back;
+//   about them (hide itself, show itself again, end itself). The window shows the editor in every phase: in "count" and "work" it is locked
+//   and a toast "Sending... n s" with Undo (a toast "Sending..." in "work") says so (W13.1); when the person closes it then, it goes out of
+//   sight and keeps running ("parked") until the message has gone, so the message still goes out at the end of the Undo time and a failure
+//   can bring the editor back, unlocked, where it was;
 // - `closeAction` / `runClose`: what the title bar's close button, Ctrl+W and Cmd+W do (Save / Discard / Cancel, REQ-C11);
 // - `composeFlush`: what the window answers when the app quits or restarts for an update (REQ-C12).
 // ComposeView.tsx wires them to the real pieces.
@@ -33,8 +34,12 @@ export const GRACE_MS = 400;
 export const UNDO_SETTLE_MS = 3000;
 
 export type Ev =
-  /** Compose handed the message to the send ("sending": the Undo time in seconds, 0 for none or for a scheduled message) */
-  | { t: "handoff"; wait: number; now: number }
+  /**
+   * Compose handed the message to the send ("sending": the Undo time in seconds, 0 for none or for a scheduled message). `lock`: the editor stays on
+   * screen, locked, while the window waits (W13.1: a send); without it the editor is gone and the window goes out of sight (a scheduled message,
+   * "Send now" of one: the window only waits for the work to end).
+   */
+  | { t: "handoff"; wait: number; now: number; lock?: boolean }
   | { t: "undo-offer" }
   | { t: "undo-start"; now: number }
   | { t: "tick"; now: number }
@@ -53,10 +58,12 @@ export function step(s: WinState, e: Ev): { s: WinState; fx: Fx[] } {
   switch (e.t) {
     case "handoff": {
       const counting = e.wait > 0;
-      // no Undo time: "the window closes at once" (REQ-C8); it stays alive, hidden, until the send is over
+      // a send keeps the editor on screen, locked (W13.1), with or without an Undo time: nothing is hidden, the window ends when the server has answered.
+      // Without the editor (a scheduled message): no Undo time = the window closes at once; it stays alive, hidden, until the work is over
+      const hide = !counting && !e.lock;
       return {
-        s: { ...s, phase: counting ? "count" : "work", endsAt: counting ? e.now + e.wait * 1000 : null, canUndo: false, undoAt: null, ending: false, parked: !counting },
-        fx: counting ? [] : ["park"],
+        s: { ...s, phase: counting ? "count" : "work", endsAt: counting ? e.now + e.wait * 1000 : null, canUndo: false, undoAt: null, ending: false, parked: hide },
+        fx: hide ? ["park"] : [],
       };
     }
     case "undo-offer":

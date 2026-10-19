@@ -160,4 +160,16 @@ assert.equal(MAX_PERSISTENT, 3);
   assert.ok(!/slice\(-5\)/.test(store), "no hard cut to 5 toasts left in the store");
 }
 
+// 10. W13.1: the Undo toast of a send stays exactly the Undo send time (the message is held that long); the toast of another Undo (delete, archive) keeps the
+// undoActionSeconds rule. A toast made with a time stays that long, and a toast with Undo made without one keeps the old rule.
+{
+  const store = readFileSync(new URL("../src/store.ts", import.meta.url), "utf8");
+  const compose = readFileSync(new URL("../src/components/Compose.tsx", import.meta.url), "utf8");
+  assert.ok(store.includes("const ttl = ttlMs ?? (undo ? Math.max(5000, get().prefs.undoActionSeconds * 1000)"), "an explicit time wins; Undo without one keeps the undoActionSeconds rule");
+  assert.ok(store.includes("setTimeout(() => get().dismissToast(id), ttl)"), "and the toast goes when that time is over");
+  const sendToast = compose.match(/showToast\(\(\) => t\("compose\.toast\.sending"\), undoSend, "info", undefined, ([^)]*)\)/);
+  assert.ok(sendToast && sendToast[1] === "wait * 1000", "the send's Undo toast lasts the Undo time `wait`, which is also the time the message is held");
+  assert.ok(compose.includes("heldId = await api.outboxHold(d, Math.floor(Date.now() / 1000) + wait, replacesRef());"), "...and `wait` is the hold time");
+}
+
 console.log("ok - test-toast-stack");

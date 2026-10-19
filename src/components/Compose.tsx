@@ -605,6 +605,14 @@ function ComposeBody({ init }: { init: ComposeInit }) {
   const [aiPrompt, setAiPrompt] = useState("");
   const ai = useAiSlot("write");
   const [busy, setBusy] = useState(false);
+  // In a window of its own the message stays on screen while it is sent (W13.1): locked (inert, "Sending..."), the window shows the Undo toast. Undo or a failed send unlocks
+  // this same editor in place (`reopen`), so the text, the caret, the scroll position and the undo history are as they were at Send.
+  const [locked, setLocked] = useState(false);
+  const lockedRef = useRef(false);
+  const focusWas = useRef<HTMLElement | null>(null); // where the focus was when Send was pressed
+  const scrollsWas = useRef<[Element, number][]>([]); // and how far the header, the body and the tail were scrolled
+  const sendBtnRef = useRef<HTMLButtonElement>(null);
+  const [sendW, setSendW] = useState(0); // the width of the Send button before its label changed: it keeps it
   // a meeting: To = required attendees, Cc = optional; sent as a calendar invitation
   // (a reopened draft, snapshot or moved message brings the strip as it was: `meetingForm`; the start values of "Meeting" otherwise)
   const [meeting, setMeeting] = useState<MeetingState | null>(
@@ -1113,9 +1121,57 @@ function ComposeBody({ init }: { init: ComposeInit }) {
       meetingForm: decodeMeeting(d.meetingForm) ?? undefined,
     };
   };
+  /**
+   * Send was pressed in a window and the questions are answered: the editor stays, locked, and the window counts the Undo time down in its toast (W13.1).
+   * `wait`: the Undo send time in seconds, 0 for none.
+   */
+  const lockForSend = (wait: number) => {
+    const a = document.activeElement;
+    focusWas.current = a instanceof HTMLElement && paneRef.current?.contains(a) ? a : null;
+    setSendW(sendBtnRef.current?.offsetWidth ?? 0);
+    scrollsWas.current = [...(paneRef.current?.querySelectorAll(".cp-head, .cp-editor, .cp-tail") ?? [])].map((el) => [el, el.scrollTop]);
+    lockedRef.current = true;
+    setLocked(true);
+    composeSeam()?.lock(wait);
+  };
+  /**
+   * Undo, or a send that failed: the same editor is unlocked in place. What the send questions changed is applied to it ("Remove and send" took a recipient out,
+   * "Send unencrypted" turned Encrypt off), it counts as changed (closing asks; autosave and the snapshot run again), and the focus goes back to where it was.
+   */
+  const unlock = (d: Draft) => {
+    setTo(d.to);
+    setCc(d.cc);
+    setBcc(d.bcc);
+    if (d.cc.length || d.bcc.length) setShowCc(true);
+    if (d.security && !d.security.encrypt && encIntent !== "off") setEncIntent("off");
+    lockedRef.current = false;
+    setLocked(false);
+    setBusy(false);
+    sendingRef.current = false;
+    touch();
+    composeSeam()?.unlock();
+  };
+  // the focus goes back where it was at Send once the editor takes input again (the body, or the Send button when Send was clicked)
+  const wasLocked = useRef(false);
+  useEffect(() => {
+    if (locked) {
+      wasLocked.current = true;
+      return;
+    }
+    if (!wasLocked.current) return;
+    wasLocked.current = false;
+    const el = focusWas.current;
+    focusWas.current = null;
+    // (focusing must not scroll: the text is where it was at Send)
+    if (!el || !el.isConnected || el.closest(".ProseMirror") || el.hasAttribute("disabled")) editor?.commands.focus(null, { scrollIntoView: false });
+    else el.focus({ preventScroll: true });
+    for (const [box, top] of scrollsWas.current) if (box.isConnected) box.scrollTop = top;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [locked]);
   // (in a window of its own the message that comes back after Undo or a failed send counts as changed: closing the window asks, it never loses it)
   // (`unscheduled`: the scheduled message is gone from the outbox, so what comes back is an ordinary message)
   const reopen = (d: Draft, unscheduled = false) => {
+    if (lockedRef.current) return unlock(d); // (a window that kept the editor on screen: the same editor comes back, nothing is made again)
     const back = initOf(d, { replaces: init.replaces, isReply: false, carried: !!composeSeam() });
     void useStore.getState().openCompose(unscheduled ? { ...back, outboxId: undefined, sendAt: undefined, outboxError: undefined } : back);
   };
@@ -1423,7 +1479,8 @@ function ComposeBody({ init }: { init: ComposeInit }) {
     setBusy(true);
     setComposeDirty(false);
     const wait = eff(prefs, accountId, "undoSeconds");
-    void openCompose(null, { sending: wait });
+    if (composeSeam()) lockForSend(wait);
+    else void openCompose(null, { sending: wait });
     let cancelled = false;
     let started = false;
     let timer: ReturnType<typeof setTimeout> | undefined;
@@ -1488,7 +1545,7 @@ function ComposeBody({ init }: { init: ComposeInit }) {
       // in a window of its own the Undo button of the window's card takes the message back; in the main window it is the toast's
       const seam = composeSeam();
       if (seam) seam.undoOffer(undoSend);
-      else showToast(() => t("compose.toast.sending"), undoSend, "info");
+      else showToast(() => t("compose.toast.sending"), undoSend, "info", undefined, wait * 1000); // (it stays exactly as long as the message is held, W13.1)
     }
   };
 
@@ -1604,6 +1661,7 @@ function ComposeBody({ init }: { init: ComposeInit }) {
     return filesKeyRef.current.key;
   };
   const writeSnapshot = (force = false) => {
+    if (lockedRef.current) return; // (the message is on its way: the snapshot of it is cleared when it is safe)
     // anything in To / Cc / Bcc / Subject / the body is worth a snapshot: it is a local file, nothing goes to the server for it
     const p = { ...probe(), hasContent: probe().hasContent || !!(pendingRcpt.current.to + pendingRcpt.current.cc + pendingRcpt.current.bcc).trim() };
     const size = (editor?.state.doc.content.size ?? 0) + (pics.bytes ?? 0);
@@ -1626,6 +1684,7 @@ function ComposeBody({ init }: { init: ComposeInit }) {
     };
   };
   const autosave = async (why: AutosaveWhy) => {
+    if (lockedRef.current) return; // (a draft of a message that is in the outbox would stay behind)
     if (!autosaveDue(autosaveFacts(why), timing().autosaveMs)) return;
     lastTryRef.current = Date.now();
     const ok = await saveDraft(false, true, undefined, true);
@@ -2186,6 +2245,8 @@ function ComposeBody({ init }: { init: ComposeInit }) {
   return (
     <div
       ref={paneRef}
+      inert={locked || undefined}
+      aria-busy={locked || undefined}
       className={`compose-pane ${dragging ? "dragging" : ""} ${compact ? "compact" : ""} ${compact && barWraps ? "bar-wraps" : ""}`}
       onKeyDown={(e) => {
         if (isImeEvent(e)) return; // a key that belongs to an input method (Subject, To, Cc, Bcc): no app shortcut
@@ -2274,8 +2335,8 @@ function ComposeBody({ init }: { init: ComposeInit }) {
       <div className="cp-head">
       <div className="cp-bar">
         <div className="split-btn" ref={schedRef} data-fit="fixed">
-          <button className="btn primary" disabled={busy} onClick={() => void (init.outboxId ? send(init.sendAt) : send())} title={init.outboxId ? t("compose.bar.scheduleTip") : kbd(t("compose.bar.sendTip"))}>
-            {init.outboxId ? <><CalendarClock size={14} /> <span className="btn-lbl">{t("compose.bar.schedule")}</span></> : meeting ? <><CalendarPlus size={14} /> <span className="btn-lbl">{t("compose.bar.sendInvite")}</span></> : <><Send size={14} /> <span className="btn-lbl">{t("compose.bar.send")}</span></>}
+          <button ref={sendBtnRef} className="btn primary" disabled={busy} style={locked && sendW ? { minWidth: sendW } : undefined} onClick={() => void (init.outboxId ? send(init.sendAt) : send())} title={init.outboxId ? t("compose.bar.scheduleTip") : kbd(t("compose.bar.sendTip"))}>
+            {locked ? <><span className="spin" aria-hidden /> <span className="btn-lbl">{t("compose.toast.sending")}</span></> : init.outboxId ? <><CalendarClock size={14} /> <span className="btn-lbl">{t("compose.bar.schedule")}</span></> : meeting ? <><CalendarPlus size={14} /> <span className="btn-lbl">{t("compose.bar.sendInvite")}</span></> : <><Send size={14} /> <span className="btn-lbl">{t("compose.bar.send")}</span></>}
           </button>
           <button
             className="btn primary split-caret"

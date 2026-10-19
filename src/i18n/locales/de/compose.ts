@@ -418,7 +418,6 @@ export default defineLocale<typeof ns.en>({
   "compose.popout.popOut": "In eigenem Fenster",
   "compose.popout.popOutTip": "In neuem Fenster öffnen (Ctrl+Shift+O)",
   "compose.popout.sending": "Wird gesendet… {n} s",
-  "compose.popout.closesWhenSent": "Dieses Fenster schließt sich, sobald die Nachricht gesendet ist.",
   "compose.popout.closeTitle": "Nachricht speichern?",
   "compose.popout.closeBody": "Diese Nachricht wurde noch nicht gesendet. Speichern Sie sie in den Entwürfen oder verwerfen Sie sie.",
   "compose.popout.notSavedBody": "Hey Look! konnte sie nicht in den Entwürfen speichern ({error}). Wenn Sie dieses Fenster jetzt schließen, geht sie verloren.",

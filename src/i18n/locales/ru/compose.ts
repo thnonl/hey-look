@@ -431,7 +431,6 @@ export default defineLocale<typeof ns.en>({
   "compose.popout.popOut": "В отдельное окно",
   "compose.popout.popOutTip": "Открыть в новом окне (Ctrl+Shift+O)",
   "compose.popout.sending": "Отправка… {n} с",
-  "compose.popout.closesWhenSent": "Это окно закроется, когда письмо будет отправлено.",
   "compose.popout.closeTitle": "Сохранить письмо?",
   "compose.popout.closeBody": "Это письмо не отправлено. Сохраните его в «Черновики» или удалите.",
   "compose.popout.notSavedBody": "Hey Look! не удалось сохранить письмо в папку «Черновики» ({error}). Если закрыть это окно сейчас, оно будет потеряно.",

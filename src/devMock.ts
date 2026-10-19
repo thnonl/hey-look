@@ -1464,7 +1464,8 @@ export function installMock() {
         return { status: "created", label: "compose-1" };
       }
       case "popout_save_all": return true;
-      case "popout_ready": case "popout_flush_alive": case "popout_flush_dialog": case "popout_flush_done": case "popout_focus": case "popout_close": return null;
+      case "popout_focus": ((window as unknown as { __popoutCalls?: string[] }).__popoutCalls ??= []).push(cmd); return null;
+      case "popout_ready": case "popout_flush_alive": case "popout_flush_dialog": case "popout_flush_done": case "popout_close": return null;
       case "update_defer": logUpdateCall({ cmd: "defer" }).kind = a.deferred ? "later" : "now"; return null;
       case "update_install": return mockInstall(!!a.restart, !!a.draftSaved);
       case "update_startup_ack": logUpdateCall({ cmd: "startupAck" }).kind = "ok"; return null;

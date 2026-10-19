@@ -418,7 +418,6 @@ export default defineLocale<typeof ns.en>({
   "compose.popout.popOut": "Abrir en ventana",
   "compose.popout.popOutTip": "Abrir en una ventana nueva (Ctrl+Shift+O)",
   "compose.popout.sending": "Enviando… {n} s",
-  "compose.popout.closesWhenSent": "Esta ventana se cierra cuando se envía el mensaje.",
   "compose.popout.closeTitle": "¿Guardar el mensaje?",
   "compose.popout.closeBody": "Este mensaje no se ha enviado. Guárdalo en Borradores o descártalo.",
   "compose.popout.notSavedBody": "Hey Look! no pudo guardarlo en Borradores ({error}). Si cierras esta ventana ahora, se perderá.",

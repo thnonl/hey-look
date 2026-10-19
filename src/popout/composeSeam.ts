@@ -8,6 +8,13 @@ export interface ComposeSeam {
    * shows a toast with Undo instead.
    */
   undoOffer(undo: () => void): void;
+  /**
+   * Send was pressed and the questions are answered: the window keeps the editor on screen, locked, and shows the Undo time as a toast of its own
+   * (W13.1). `wait` = the Undo send time in seconds, 0 = none (the toast has no Undo and stays until the server answered).
+   */
+  lock(wait: number): void;
+  /** The send was taken back (Undo) or failed: the same editor is unlocked in place. */
+  unlock(): void;
   /** A save made a draft: the conversation it lives in (the lock of a draft follows it, so it cannot be open in two windows). */
   draftSaved(threadId: string): void;
   /** The message was scheduled (it is in the outbox, `outboxId`): the main window shows "Scheduled for ..." with Undo and View, this window ends. */

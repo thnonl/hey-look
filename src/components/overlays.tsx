@@ -69,6 +69,12 @@ export function Toasts() {
             <b className="toast-title">{lines[0]}</b>
             {lines.slice(1).map((l, i) => <span key={i} className="toast-line">{l}</span>)}
           </span>
+        ) : t.readAs !== undefined ? (
+          // (a number that changes every second is not read out again: the screen reader gets `readAs` once, when the toast appears)
+          <>
+            <span className="toast-text" aria-hidden title={fullErrorFor(shown)}>{shown}</span>
+            <span className="sr-only">{lazyText(t.readAs)}</span>
+          </>
         ) : <span className="toast-text" title={fullErrorFor(shown)}>{shown}</span>;
         return (
           <div key={t.id} className={`toast ${t.kind}${t.sticky && !t.ttl ? " sticky" : ""}${t.support ? " support" : ""}${t.guide ? " guide" : ""}`} style={t.sticky && !t.ttl ? undefined : { ["--ttl" as string]: `${t.ttl}ms` }}>
