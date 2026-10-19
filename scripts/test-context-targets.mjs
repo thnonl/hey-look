@@ -17,6 +17,7 @@
 //
 //   node scripts/test-context-targets.mjs [--require-browser | --url=http://127.0.0.1:1420/]
 import { sleep, startHarness } from './cdp-harness.mjs';
+import { runProbe } from './lib/context-menu-probe.mjs';
 
 const H = await startHarness('test-context-targets', { vitePort0: 5800 });
 const { evaluate, cdp } = H;
@@ -145,6 +146,10 @@ async function mainCases(theme) {
     await closeMenus();
   }
 
+  // the QA probe of the Mac / Linux session (scripts/lib/context-menu-probe.mjs): the same verdicts on this window
+  const pr = await runProbe((body) => evaluate(`(async () => { ${body} })()`), sleep);
+  ok(pr.pass && pr.frame?.ok && pr.closed, `the QA probe fails: ${JSON.stringify(pr)}`);
+
   // ---- Settings: label text, a select, a text input, the backdrop
   await evaluate(`window.__store.getState().setDialog({ type: 'settings' }); 1`);
   await sleep(700);
@@ -167,6 +172,8 @@ async function mainCases(theme) {
   await expectOn('compose To input', '.cf-field input', 'native', 0);
   await expectOn('compose body', '.ProseMirror', 'native', 0);
   await expectOn('compose Subject label', '.cf-subject label', 'prevented');
+  const pc = await runProbe((body) => evaluate(`(async () => { ${body} })()`), sleep);
+  ok(pc.targets.every((t) => !t.found || t.ok) && pc.targets.some((t) => t.name === 'compose Subject (field)' && t.found && t.ok) && pc.targets.some((t) => t.name === 'compose body (field)' && t.found && t.ok), `the QA probe with a compose open: ${JSON.stringify(pc.targets)}`);
   await evaluate(`window.__store.getState().openCompose(null, { restore: false }); 1`);
 }
 

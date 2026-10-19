@@ -218,3 +218,5 @@ ui-a | node scripts/test-table-merge.mjs --require-browser
 static | node --experimental-strip-types scripts/test-emoji-search.mjs
 # a link inside a sentence of a notice sits on the baseline of the sentence and keeps a 24 px click box (1.0.7 owner report, the newsletter notice): the newsletter, blocked pictures, signature, invitation and update notices of the dev preview, light and dark, en / de / ja, the notice 360 px wide and in the smallest window (the full matrix with all five languages: run without --quick)
 ui-b | node scripts/test-notice-baseline.mjs --quick --require-browser
+# a right-click on every kind of target (D-036, 1.0.7): the engine's own menu is off everywhere but in fields that take text - message body in the frame (and in the reader window), list row, folder label, ribbon, header, Settings, backdrop: defaultPrevented, ONE app menu at the click point plus the frame offset; search box, Subject, To, compose body: not prevented; PDF host: not prevented; the QA bridge probe (scripts/lib/context-menu-probe.mjs) gives the same verdicts; light and dark
+ui-b | node scripts/test-context-targets.mjs --require-browser
