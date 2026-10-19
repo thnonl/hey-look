@@ -5,6 +5,7 @@
 ### Changed
 
 - The website moved to https://heylook.namthai.site/ (the old thnonl.github.io/hey-look/ addresses are redirected there)
+- The website's Support page is simpler, in all 8 languages: one Ko-fi button ("Buy me a coffee") and other ways to help (a star on GitHub, a bug report, a better translation, telling a friend); the bank transfer QR code and its images were removed from the website, and the privacy policy no longer mentions the QR image
 
 ## 1.0.6 — 2026-10-18
 
