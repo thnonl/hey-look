@@ -1185,12 +1185,14 @@ export function installMock() {
           return acc;
         });
       }
-      case "list_outbox": return mockOutbox;
+      case "list_outbox": return mockOutbox.map((o) => ({ ...o })); // (copies: the page compares lists by reference, like an answer from the backend)
       case "outbox_pending_count": return { count: mockOutbox.filter((o) => o.status !== "failed").length, next: now + 3 * H };
       case "outbox_open_for_edit": {
         logOutbox(cmd, a);
         const o = mockOutbox.find((x) => x.id === a.id) ?? mockOutbox[0];
-        return { draft: mockDraftOf(o), sendAt: o.sendAt, status: o.status === "pending" || o.status === "overdue" ? "held" : o.status };
+        const waiting = o.status === "pending" || o.status === "overdue";
+        if (waiting) o.status = "held"; // (the backend pauses it: the row of the Scheduled list says so, D-039)
+        return { draft: mockDraftOf(o), sendAt: o.sendAt, status: waiting ? "held" : o.status };
       }
       case "list_templates": return [{ id: "tp1", name: "Thanks", subject: "Thanks!", body: "<p>Thanks for your message.</p>" }, { id: "tp2", name: "Quarterly customer success follow-up with a deliberately very long template name", subject: "Follow-up", body: "<p>Hello</p>" }];
       case "list_signatures": return (hashHas("nodefaultsig") ? (l: Array<Record<string, unknown>>) => l.map((x) => ({ ...x, isDefault: false })) : (l: Array<Record<string, unknown>>) => l)([{ id: "s1", name: "Work", html: "Nam<br>Hey Look!", isDefault: true }, { id: "s2", name: "Personal signature with a very long name that has to be cut with an ellipsis before it reaches the tag", html: "Nam", isDefault: false }, { id: "s3", accountId: "a2", name: "Gmail", html: "Nam (via Gmail)<br><i>nam@gmail.com</i>", isDefault: true }, { id: "s4", name: "Branded (coloured)", html: SIG_S4_HTML, isDefault: false }]);
@@ -1821,7 +1823,12 @@ export function installMock() {
         if (o) (o.status = "pending", o.error = null);
         return null;
       }
-      case "outbox_release": logOutbox(cmd, a); return null;
+      case "outbox_release": {
+        logOutbox(cmd, a);
+        const o = mockOutbox.find((x) => x.id === a.id);
+        if (o && o.status === "held") o.status = o.sendAt < now - 60 ? "overdue" : "pending";
+        return null;
+      }
       case "quit_now": return null;
       case "frame_info": return { custom: frame, snapLayouts: false };
       case "frame_caption_rect": return false; // no OS hit-testing in a browser: plain DOM buttons

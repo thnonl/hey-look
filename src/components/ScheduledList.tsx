@@ -74,6 +74,8 @@ export function ScheduledList() {
     if (await focusDraftWindow(key)) return;
     try {
       const e = await api.outboxOpenForEdit(o.id);
+      // the row says "Paused · editing" from now on: read the outbox again here, not whenever something else happens to refresh the lists (a Mac window kept the old text, D-039)
+      void refresh();
       const d = e.draft;
       const inWindow = wantsWindow({ shift });
       const opened = await startCompose({
@@ -96,7 +98,7 @@ export function ScheduledList() {
       }, { shift, key });
       // nowhere to edit it (the person kept writing another message, no window could be made): the message goes back to its schedule, it is not left paused
       const shown = inWindow ? opened : useStore.getState().compose?.outboxId === o.id;
-      if (!shown) void api.outboxRelease(o.id).catch(() => undefined);
+      if (!shown) void api.outboxRelease(o.id).catch(() => undefined).then(() => refresh());
     } catch (err) {
       // an encrypted message is read back with your key: ask for the passphrase and try again
       const locked = String(err).match(/PGP_LOCKED:([0-9A-F]+)/);

@@ -174,6 +174,7 @@ try {
     assert.equal(await evaluate(`window.__popoutOpens || 0`), 0);
     assert.equal(names(await calls()).filter((c) => c === 'outbox_open_for_edit').length, 1);
   });
+  await check('Scheduled > Edit with the setting off: the outbox read by the main window says held within 1.5 s (D-039)', async () => assert.ok(await waitFor(`window.__store.getState().outbox.find((o) => o.id === 's1')?.status === 'held'`, 1500)));
   await evaluate(`document.activeElement?.blur?.(); 1`);
   await check('a second Edit of the same message focuses the pane: no second open_for_edit, no window, the caret is in the body', async () => {
     assert.ok(await rowEdit('Agenda for Thursday'), 'the row is not there');
@@ -195,6 +196,10 @@ try {
     assert.equal(p.init.subject, 'Agenda for Thursday');
     assert.equal(await evaluate(`!!document.querySelector('.compose-pane')`), false);
     assert.equal(names(await calls()).filter((c) => c === 'outbox_open_for_edit').length, 1);
+  });
+  const rowText = (name) => evaluate(`(() => { const r = [...document.querySelectorAll('.ml-row.sched')].find((x) => x.innerText.includes(${JSON.stringify(name)})); return r ? r.innerText.replace(/\\s+/g, ' ') + ' | ' + (r.getAttribute('aria-label') || '') : null; })()`);
+  await check('Scheduled > Edit with the setting on: the row says "Paused · editing" within 1.5 s, from the Edit itself (no timer, no focus event; D-039: a Mac window kept the old text)', async () => {
+    assert.ok(await waitFor(`(() => { const r = [...document.querySelectorAll('.ml-row.sched')].find((x) => x.innerText.includes('Agenda for Thursday')); return !!r && /Paused · editing/.test(r.innerText) && /Paused · editing/.test(r.getAttribute('aria-label') || ''); })()`, 1500), await rowText('Agenda for Thursday'));
   });
   assert.ok(await rowEdit('Agenda for Thursday'));
   await sleep(800);
