@@ -7,6 +7,7 @@ import { extractSignature, fillSignatureHtml, normalizeHtml, SIG_MARK } from "./
 import { ACCOUNT_PALETTE, accountColor, pickAccountColor } from "./prefs";
 import { setSimulatedWindow } from "./winframe";
 import { parseReplyTo } from "./replyTo";
+import { nameInlinePicture } from "./editor/messageBody";
 import type { LangPref } from "./i18n";
 
 const now = Math.floor(Date.now() / 1000);
@@ -1323,6 +1324,28 @@ export function installMock() {
         return { status: "saved", ...saved };
       }
       case "draft_recipients": return mockDraftHeaders[a.messageId as string] ?? { to: [], cc: [], bcc: [] };
+      // what the backend assembles for Compose in one call (draftopen.rs): the body with the pictures put back as data: URIs (each with the name it was added with) and the
+      // attachments that stay attachments. `window.__draftPartsDelay` (ms): the answer takes that long (a large draft: the status "Opening draft...")
+      case "draft_editor_parts": {
+        type Msg = { id: string; html: string | null; text: string | null; attachments: { index: number; name: string; mime: string; inline?: boolean; referenced?: boolean; cid?: string | null }[] };
+        const m = ([...Object.values(mockDrafts).flat(), m4, ...messages, ...mockLayerMsgs] as unknown as Msg[]).find((x) => x.id === a.messageId);
+        let html = m?.html ?? null;
+        const attachments: { filename: string; mime: string; dataBase64: string }[] = [];
+        for (const at of m?.attachments ?? []) {
+          const d = handle("attachment_data", { messageId: a.messageId, index: at.index }) as { name: string; mime: string; dataBase64: string };
+          if (at.inline && at.referenced) {
+            if (html && at.cid) {
+              if (html.includes(`cid:${at.cid}`)) html = html.split(`cid:${at.cid}`).join(`data:${d.mime};base64,${d.dataBase64}`);
+              html = nameInlinePicture(html, d.dataBase64, at.name || d.name);
+            }
+            continue;
+          }
+          attachments.push({ filename: d.name, mime: d.mime, dataBase64: d.dataBase64 });
+        }
+        const out = { html, text: m?.text ?? null, attachments };
+        const slow = Number((window as unknown as { __draftPartsDelay?: number }).__draftPartsDelay ?? 0);
+        return slow > 0 ? later(slow, () => out) : out;
+      }
       case "prepare_action": {
         // like the backend: the folder a move goes to is looked up before the move is queued. `#nocreate`: the server has no Archive / Trash
         // and refuses to create one (the error comes after the IMAP time, 1.2 s). `#stalefolder`: the saved folder list still names the

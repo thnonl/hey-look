@@ -32,7 +32,9 @@ assert.ok(lib.includes("let raw = draft_bytes(&db, &acc, &draft)?;") && lib.incl
 // a draft with big pictures stopped the whole window). The functions take the shared database and lock it for their own lookups only.
 assert.ok(!/(?:build_secure|plan_secure|seal_for_outbox|unseal_from_outbox|open_message)\(\s*&lock\(/.test(lib), "a secure build or an open with the lock held");
 assert.ok(!/(?:build_secure|seal_for_outbox|unseal_from_outbox)\(\s*&c\b/.test(lib), "a secure build with a held connection");
-assert.ok(/open_message\(c, &m\.id, &raw\)/.test(lib), "(the one open that still has a held connection: the display of a decrypted message, apply_pgp)");
+// (1.0.7 D-044: the display of a decrypted message - apply_pgp, behind get_thread - takes the shared database too: it is locked for its lookups, not for the decryption)
+assert.ok(/fn apply_pgp<A: pgpstore::Access \+ \?Sized>\(a: &A,/.test(lib) && /pgpstore::open_message\(a, &m\.id, &raw\)/.test(lib), "apply_pgp opens through the database it is given, locked for the lookups only");
+assert.ok(/get_thread_in\(db: &Db[\s\S]{0,1200}finish_message\(db, &mut m, pgp, raw\)/.test(lib) && !/finish_message\(&(?:lock\(|c\b)/.test(lib), "get_thread opens the messages without the lock");
 assert.ok(/pub fn build_secure<A: Access/.test(read("src-tauri/src/pgpstore.rs")) && /pub fn plan_secure/.test(read("src-tauri/src/pgpstore.rs")), "the build is split: the plan needs the database, the build does not");
 
 // "Move to Drafts" asks for a locked key (the draft is made with it) in all three places

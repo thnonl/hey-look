@@ -6,6 +6,7 @@ mod clipdecode;
 mod db;
 mod discover;
 mod draftmail;
+mod draftopen;
 mod flagguard;
 mod headerfold;
 mod ical;
@@ -2438,6 +2439,9 @@ pub(crate) struct MessageFull {
 
 const MESSAGE_COLS: &str = "id,account_id,folder,message_id,subject,from_name,from_email,to_addrs,cc_addrs,date,body_html,body_text,
                     seen,flagged,attachments,list_unsub,pgp,pgp_raw,ics,importance";
+/// `MESSAGE_COLS` without the body, the invitation and the kept PGP data (same positions: `row_message` reads both).
+const MESSAGE_COLS_LIGHT: &str = "id,account_id,folder,message_id,subject,from_name,from_email,to_addrs,cc_addrs,date,NULL,NULL,
+                    seen,flagged,attachments,list_unsub,pgp,NULL,NULL,importance";
 
 fn row_message(r: &rusqlite::Row) -> rusqlite::Result<(MessageFull, i64, Option<Vec<u8>>)> {
     let att: String = r.get(14)?;
@@ -2471,11 +2475,13 @@ fn row_message(r: &rusqlite::Row) -> rusqlite::Result<(MessageFull, i64, Option<
     ))
 }
 
-/// Decrypt / verify a PGP message for display, then read its calendar invitation (also from decrypted content).
-fn finish_message(c: &Connection, m: &mut MessageFull, pgp: i64, raw: Option<Vec<u8>>) {
-    apply_pgp(c, m, pgp, raw);
+/// Decrypt / verify a PGP message for display, then read its calendar invitation (also from decrypted content). `a` is the database as a connection the caller holds,
+/// or the shared one (`Db`): then it is locked only for the moments that need it, never for the decryption (D-044: a 20 MB draft takes seconds, and every command that
+/// waits for the lock waited with it).
+fn finish_message<A: pgpstore::Access + ?Sized>(a: &A, m: &mut MessageFull, pgp: i64, raw: Option<Vec<u8>>) {
+    apply_pgp(a, m, pgp, raw);
     if let Some(ics) = m.ics.clone() {
-        m.invite = Some(calendar::invite_for(c, &m.account_id, &m.id, &m.folder, &m.from_email, &ics, pgp & pgpmail::FLAG_ENCRYPTED as i64 != 0));
+        m.invite = Some(a.with(|c| calendar::invite_for(c, &m.account_id, &m.id, &m.folder, &m.from_email, &ics, pgp & pgpmail::FLAG_ENCRYPTED as i64 != 0)));
     }
 }
 
@@ -2488,27 +2494,32 @@ fn note_signed(c: &Connection, id: &str, sec: &pgpmail::Security) {
     }
 }
 
+/// What a PGP message that cannot be opened says: no local copy of its data.
+fn data_not_here(encrypted: bool) -> Option<pgpmail::Security> {
+    encrypted.then(|| pgpmail::Security {
+        encrypted: true,
+        decryption: "error".into(),
+        error: Some("the message data is not on this computer".into()),
+        ..Default::default()
+    })
+}
+
 /// Decrypt / verify a PGP message for display. The decrypted content only lives in the returned value (and the
 /// in-memory session cache); it is never written to the database.
-fn apply_pgp(c: &Connection, m: &mut MessageFull, pgp: i64, raw: Option<Vec<u8>>) {
+fn apply_pgp<A: pgpstore::Access + ?Sized>(a: &A, m: &mut MessageFull, pgp: i64, raw: Option<Vec<u8>>) {
     if pgp == 0 {
         return;
     }
     let encrypted = pgp & pgpmail::FLAG_ENCRYPTED as i64 != 0;
     let Some(raw) = raw else {
-        if encrypted {
-            m.security = Some(pgpmail::Security {
-                encrypted: true,
-                decryption: "error".into(),
-                error: Some("the message data is not on this computer".into()),
-                ..Default::default()
-            });
+        if let Some(sec) = data_not_here(encrypted) {
+            m.security = Some(sec);
         }
         return;
     };
-    match pgpstore::open_message(c, &m.id, &raw) {
+    match pgpstore::open_message(a, &m.id, &raw) {
         Ok(o) => {
-            note_signed(c, &m.id, &o.security);
+            a.with(|c| note_signed(c, &m.id, &o.security));
             m.security = Some(o.security.clone());
             if let Some(plain) = &o.plain {
                 if let Some(p) = mail::parse(0, plain, true, false, 0) {
@@ -2525,6 +2536,38 @@ fn apply_pgp(c: &Connection, m: &mut MessageFull, pgp: i64, raw: Option<Vec<u8>>
     }
 }
 
+/// `apply_pgp` for a caller that wants the state of a message and not its content (opening a draft: `draft_editor_parts` reads the content): the message is opened (the
+/// result is kept for the session) and `security` set, nothing of the body is read.
+fn apply_pgp_state(db: &Db, m: &mut MessageFull, pgp: i64) {
+    if pgp == 0 {
+        return;
+    }
+    let encrypted = pgp & pgpmail::FLAG_ENCRYPTED as i64 != 0;
+    let opened = match pgpstore::cached_view(&m.id) {
+        Some(o) => Ok(o),
+        None => {
+            // (the data is read only when the message was not opened in this session: it can be 20 MB)
+            let raw: Option<Vec<u8>> = lock(db).query_row("SELECT pgp_raw FROM messages WHERE id=?1", [&m.id], |r| r.get(0)).ok().flatten();
+            match raw {
+                Some(raw) => pgpstore::open_message(db, &m.id, &raw),
+                None => {
+                    if let Some(sec) = data_not_here(encrypted) {
+                        m.security = Some(sec);
+                    }
+                    return;
+                }
+            }
+        }
+    };
+    match opened {
+        Ok(o) => {
+            note_signed(&lock(db), &m.id, &o.security);
+            m.security = Some(o.security.clone());
+        }
+        Err(e) => m.security = Some(pgpmail::Security { encrypted, decryption: "error".into(), error: Some(e), ..Default::default() }),
+    }
+}
+
 pub(crate) fn message_full(c: &Connection, message_id: &str) -> R<MessageFull> {
     let (mut m, pgp, raw) = c
         .query_row(&format!("SELECT {MESSAGE_COLS} FROM messages WHERE id=?1"), [message_id], row_message)
@@ -2533,23 +2576,54 @@ pub(crate) fn message_full(c: &Connection, message_id: &str) -> R<MessageFull> {
     Ok(m)
 }
 
+/// `message_full` for the shared database: it is locked to read the row and for the moments the decryption needs it, not for the decryption itself. `light`: see `get_thread`.
+pub(crate) fn message_full_in(db: &Db, message_id: &str, light: bool) -> R<MessageFull> {
+    let cols = if light { MESSAGE_COLS_LIGHT } else { MESSAGE_COLS };
+    let (mut m, pgp, raw) = lock(db)
+        .query_row(&format!("SELECT {cols} FROM messages WHERE id=?1"), [message_id], row_message)
+        .map_err(|_| "MSG_NOT_FOUND: message not found".to_string())?;
+    if light {
+        apply_pgp_state(db, &mut m, pgp);
+    } else {
+        finish_message(db, &mut m, pgp, raw);
+    }
+    Ok(m)
+}
+
+/// The messages of a conversation. `light` (opening a draft): without the body and the attachment parts of a message (`html`, `text`, the invitation), which a caller that
+/// reads them itself (`draft_editor_parts`) would only receive twice - an encrypted message is still opened, for its `security`.
+/// Runs on a thread of its own: it decrypts, and a command that is not `async` runs on the main thread of the app and stops every window for as long as it takes (D-044).
 #[tauri::command]
-fn get_thread(state: tauri::State<AppState>, thread_id: String, scope: Option<String>) -> R<Vec<MessageFull>> {
-    let c = lock(&state.db);
-    let mut st = c
-        .prepare(&format!(
-            "SELECT {MESSAGE_COLS} FROM messages WHERE thread_id=?1 AND (folder NOT IN ('trash','junk') OR folder=?2) ORDER BY date ASC"
-        ))
-        .map_err(err)?;
-    let rows = st
-        .query_map(params![thread_id, scope.unwrap_or_default()], row_message)
-        .map_err(err)?
-        .collect::<Result<Vec<_>, _>>()
-        .map_err(err)?;
+async fn get_thread(state: tauri::State<'_, AppState>, thread_id: String, scope: Option<String>, light: Option<bool>) -> R<Vec<MessageFull>> {
+    let db = state.db.clone();
+    blocking(move || get_thread_in(&db, &thread_id, scope, light.unwrap_or(false))).await
+}
+
+fn get_thread_in(db: &Db, thread_id: &str, scope: Option<String>, light: bool) -> R<Vec<MessageFull>> {
+    let cols = if light { MESSAGE_COLS_LIGHT } else { MESSAGE_COLS };
+    // the rows are read with the lock; the messages are opened without it
+    let rows = {
+        let c = lock(db);
+        let mut st = c
+            .prepare(&format!(
+                "SELECT {cols} FROM messages WHERE thread_id=?1 AND (folder NOT IN ('trash','junk') OR folder=?2) ORDER BY date ASC"
+            ))
+            .map_err(err)?;
+        let rows = st
+            .query_map(params![thread_id, scope.unwrap_or_default()], row_message)
+            .map_err(err)?
+            .collect::<Result<Vec<_>, _>>()
+            .map_err(err)?;
+        rows
+    };
     Ok(rows
         .into_iter()
         .map(|(mut m, pgp, raw)| {
-            finish_message(&c, &mut m, pgp, raw);
+            if light {
+                apply_pgp_state(db, &mut m, pgp);
+            } else {
+                finish_message(db, &mut m, pgp, raw);
+            }
             m
         })
         .collect())
@@ -3162,12 +3236,17 @@ pub(crate) fn fetch_view_for(db: &Db, message_id: &str) -> R<(Vec<u8>, String)> 
             let metas = mail::parse(0, plain, true, false, 0).map(|p| p.attachments).unwrap_or_default();
             Ok((plain.clone(), serde_json::to_string(&metas).unwrap_or_else(|_| "[]".into())))
         }
-        None => match &opened.security.locked_key {
-            Some(f) => Err(format!("PGP_LOCKED:{f}")),
-            None => Err(match opened.security.error.clone() {
-                Some(e) => format!("PGP_FAILED: {e}"),
-                None => "PGP_CANT_DECRYPT: this message can't be decrypted".to_string(),
-            }),
+        None => Err(not_opened_error(&opened)),
+    }
+}
+
+/// Why an encrypted message has no content to show: the key is locked (the page asks for the passphrase), or the reason it cannot be decrypted.
+fn not_opened_error(opened: &pgpmail::Opened) -> String {
+    match &opened.security.locked_key {
+        Some(f) => format!("PGP_LOCKED:{f}"),
+        None => match opened.security.error.clone() {
+            Some(e) => format!("PGP_FAILED: {e}"),
+            None => "PGP_CANT_DECRYPT: this message can't be decrypted".to_string(),
         },
     }
 }
@@ -4063,6 +4142,37 @@ async fn draft_recipients(state: tauri::State<'_, AppState>, message_id: String)
             r.meeting = acct.and_then(|a| draftmail::recall_meeting(&lock(&db), &a, &raw));
         }
         Ok(r)
+    })
+    .await
+}
+
+/// What Compose needs to open the draft `message_id`: its body with the pictures as `data:` URIs and the attachments, from one read of the message (draftopen.rs, D-044).
+/// An encrypted draft is the decrypted message of this session (`get_thread` opened it); the key must be unlocked (`PGP_LOCKED:<fingerprint>` otherwise).
+#[tauri::command]
+async fn draft_editor_parts(state: tauri::State<'_, AppState>, message_id: String) -> R<draftopen::EditorParts> {
+    let db = state.db.clone();
+    blocking(move || {
+        let (html, text, atts, pgp): (Option<String>, Option<String>, String, i64) = lock(&db)
+            .query_row("SELECT body_html, body_text, attachments, pgp FROM messages WHERE id=?1", [&message_id], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?)))
+            .map_err(|_| "MSG_NOT_FOUND: message not found".to_string())?;
+        if pgp & pgpmail::FLAG_ENCRYPTED as i64 != 0 {
+            let opened = match pgpstore::cached_view(&message_id) {
+                Some(o) => o,
+                None => {
+                    let (raw, _) = fetch_raw_for(&db, &message_id)?;
+                    pgpstore::open_message(&db, &message_id, &raw)?
+                }
+            };
+            let Some(plain) = opened.plain.as_deref() else { return Err(not_opened_error(&opened)) };
+            let msg = mail::open_parts(plain).ok_or("cannot parse message")?;
+            let (html, text, metas) = msg.view();
+            return Ok(draftopen::editor_parts(html, text, &metas, Some(&msg)));
+        }
+        // a message that is not encrypted: the body the database holds; its parts are read (from this computer's copy or the server's) only when it has any
+        let metas: Vec<mail::AttMeta> = serde_json::from_str(&atts).unwrap_or_default();
+        let raw = if metas.is_empty() { None } else { fetch_raw_for(&db, &message_id).ok().map(|(raw, _)| raw) };
+        let msg = raw.as_deref().and_then(mail::open_parts);
+        Ok(draftopen::editor_parts(html, text, &metas, msg.as_ref()))
     })
     .await
 }
@@ -5511,6 +5621,7 @@ pub fn run() {
             send_message,
             save_draft,
             draft_recipients,
+            draft_editor_parts,
             discard_draft,
             discard_draft_changes,
             recovery_save,

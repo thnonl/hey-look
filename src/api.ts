@@ -575,8 +575,9 @@ export const api = {
   syncAccount: (accountId: string) => invoke<SyncResult>("sync_account", { accountId }),
   listFolders: () => invoke<FolderInfo[]>("list_folders"),
   listThreads: (filter: ThreadFilter) => invoke<ThreadSummary[]>("list_threads", { filter }),
-  getThread: (threadId: string, scope?: string) =>
-    invoke<MessageFull[]>("get_thread", { threadId, scope: scope ?? null }),
+  /** `light`: without the bodies (`html`, `text`) - for a caller that reads what it needs itself (opening a draft: `draftEditorParts`). An encrypted message is still opened, for its `security`. */
+  getThread: (threadId: string, scope?: string, light?: boolean) =>
+    invoke<MessageFull[]>("get_thread", { threadId, scope: scope ?? null, light: light ?? null }),
   threadAction: (threadIds: string[], action: string, arg?: string, scope?: string) =>
     invoke<void>("thread_action", { threadIds, action, arg: arg ?? null, scope: scope ?? null }),
   /**
@@ -646,6 +647,8 @@ export const api = {
   recoverySaveDraft: (id: string, draft: Draft, replaces: string | null) => invoke<RecoveredDraft>("recovery_save_draft", { id, draft, replaces }),
   /** To / Cc / Bcc of a saved draft with the display names, read from the draft's own headers (the synced copy has bare addresses and no Bcc). */
   draftRecipients: (messageId: string) => invoke<{ to: string[]; cc: string[]; bcc: string[]; inReplyTo?: string | null; references?: string[]; meeting?: string | null; answers?: AnswersRef | null }>("draft_recipients", { messageId }),
+  /** What Compose needs to open a draft, from one read of the message: the body with its pictures as `data:` URIs (each with `data-name`) and the attachments that stay attachments. */
+  draftEditorParts: (messageId: string) => invoke<{ html: string | null; text: string | null; attachments: Att[] }>("draft_editor_parts", { messageId }),
   listOutbox: () => invoke<OutboxItem[]>("list_outbox"),
   cancelOutbox: (id: string) => invoke<void>("cancel_outbox", { id }),
   /** Send was pressed with an Undo time: the message goes into the local outbox (not a scheduled message) until `dueAt` (unix seconds). */
@@ -742,8 +745,8 @@ export const api = {
   pgpLockAll: () => invoke<void>("pgp_lock_all"),
   pgpRecipientStatus: (accountId: string, addresses: string[]) =>
     invoke<{ own: OwnKeyStatus | null; recipients: RecipientStatus[] }>("pgp_recipient_status", { accountId, addresses }),
-  pgpDecryptMessage: (messageId: string, passphrase?: string, remember?: boolean) =>
-    invoke<MessageFull>("pgp_decrypt_message", { messageId, passphrase: passphrase ?? null, remember: remember ?? null }),
+  pgpDecryptMessage: (messageId: string, passphrase?: string, remember?: boolean, light?: boolean) =>
+    invoke<MessageFull>("pgp_decrypt_message", { messageId, passphrase: passphrase ?? null, remember: remember ?? null, light: light ?? null }),
   listTemplates: () => invoke<Template[]>("list_templates"),
   saveTemplate: (template: Template) => invoke<void>("save_template", { template }),
   deleteTemplate: (id: string) => invoke<void>("delete_template", { id }),

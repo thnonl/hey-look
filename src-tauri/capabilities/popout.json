@@ -28,6 +28,7 @@
     "allow-shell-info",
     "allow-save-draft",
     "allow-draft-recipients",
+    "allow-draft-editor-parts",
     "allow-discard-draft",
     "allow-discard-draft-changes",
     "allow-send-message",

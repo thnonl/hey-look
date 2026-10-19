@@ -251,6 +251,11 @@ struct OpenPrep {
     mailbox: Option<(String, Vec<String>)>,
 }
 
+/// The opened message of this session, if it was opened (and decrypted) already.
+pub fn cached_view(message_id: &str) -> Option<Arc<Opened>> {
+    open_cached(message_id)
+}
+
 fn open_cached(message_id: &str) -> Option<Arc<Opened>> {
     VIEWS.lock().unwrap_or_else(|p| p.into_inner()).iter().find(|(id, _)| id == message_id).map(|v| v.1.clone())
 }
@@ -927,9 +932,9 @@ pub fn pgp_lock_all() {
     lock_all_now();
 }
 
-/// Decrypt one message, unlocking its key first when a passphrase is given. Returns the message as shown.
+/// Decrypt one message, unlocking its key first when a passphrase is given. Returns the message as shown (`light`: without its body, see `get_thread`).
 #[tauri::command]
-pub async fn pgp_decrypt_message(state: tauri::State<'_, AppState>, message_id: String, passphrase: Option<String>, remember: Option<bool>) -> R<crate::MessageFull> {
+pub async fn pgp_decrypt_message(state: tauri::State<'_, AppState>, message_id: String, passphrase: Option<String>, remember: Option<bool>, light: Option<bool>) -> R<crate::MessageFull> {
     let db = state.db.clone();
     blocking(move || {
         let (raw, _) = crate::fetch_raw_for(&db, &message_id)?;
@@ -946,8 +951,8 @@ pub async fn pgp_decrypt_message(state: tauri::State<'_, AppState>, message_id: 
                 unlock_key(&store, &f, &p, remember.unwrap_or(false))?;
             }
         }
-        let c = lock(&db);
-        crate::message_full(&c, &message_id)
+        // (the message is decrypted without the database lock: it can take seconds)
+        crate::message_full_in(&db, &message_id, light.unwrap_or(false))
     })
     .await
 }
