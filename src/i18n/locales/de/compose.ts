@@ -431,6 +431,7 @@ export default defineLocale<typeof ns.en>({
   "compose.toast.draftSaved": "Entwurf gespeichert",
   "compose.toast.draftSavedPlain": "Entwurf ohne Verschlüsselung gespeichert (Einstellungen → Postfächer → Sicherheit)",
   "compose.toast.saveFailed": "Entwurf konnte nicht gespeichert werden: {error}",
+  "compose.toast.draftOriginalGone": "Die ursprüngliche Fassung dieses Entwurfs ist nicht mehr verfügbar. Ihre Änderungen bleiben als Entwurf gespeichert.",
   "compose.leave.scheduledTitle": "Schließen, ohne Ihre Änderungen zu speichern?",
   "compose.leave.attaching": "Anhänge werden noch hinzugefügt. Versuchen Sie es gleich noch einmal.",
   "compose.leave.draftNotFound": "Der Entwurf konnte noch nicht geöffnet werden. Öffnen Sie ihn über „Entwürfe“.",

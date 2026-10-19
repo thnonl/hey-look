@@ -419,6 +419,7 @@ export default defineLocale<typeof ns.en>({
   "compose.toast.draftSaved": "草稿已保存",
   "compose.toast.draftSavedPlain": "草稿已保存，但未加密（设置 → 邮箱 → 安全）",
   "compose.toast.saveFailed": "保存草稿失败：{error}",
+  "compose.toast.draftOriginalGone": "此草稿的原始版本已不可用，因此您的修改将保留为草稿。",
   "compose.leave.scheduledTitle": "不保存更改就关闭吗？",
   "compose.leave.attaching": "仍在添加附件。请稍后再试。",
   "compose.leave.draftNotFound": "暂时无法打开草稿。请在“草稿”中打开。",

@@ -1262,7 +1262,7 @@ export function installMock() {
         w.__discardChanges = (w.__discardChanges ?? 0) + 1; // counted, so a check can see that no restore ran
         const o = mockOriginals[ref];
         if (hashTokens().has("restorefail")) throw "mock: the server refused the draft";
-        if (!o) throw "The opened version of this draft is no longer available.";
+        if (!o || hashTokens().has("nokept")) return false; // none kept (`#nokept` makes it so): nothing written, the saved copy stays
         dropMockDraft(ref);
         delete mockOriginals[ref];
         const tid = `dt${++mockDraftSeq}`;
@@ -1271,7 +1271,7 @@ export function installMock() {
         mockDraftHeaders[`a1:drafts:${tid}`] = o.headers;
         mockDraftRefs[`mid:a1|<${tid}@mock>`] = tid;
         (window as unknown as { __draftCount: () => number }).__draftCount = () => Object.keys(mockDrafts).length;
-        return null;
+        return true;
       }
       case "recovery_save": {
         const sn = a.snap as MockSnap & { files: unknown[] | null };

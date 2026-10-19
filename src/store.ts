@@ -57,6 +57,11 @@ export interface ComposeInit {
    * `mid:` reference: Discard puts the opened version back instead of leaving the autosaved edits (W2.2).
    */
   openedDraft?: boolean;
+  /**
+   * The window key of the draft this message was opened from (`draftKey(thread)`): a pane that is moved to a window gives it to the window, so the draft is
+   * open in one editor only from the moment the window exists (before the window's first save has given it a key of its own), 1.0.7 WP2a retest BUG-2.
+   */
+  draftKey?: string;
   isReply?: boolean;
   /** the message this one answers (Reply, Reply all) or forwards: it gets `\Answered` / `$Forwarded` on its server once this one is sent (W2.22 CF-18) */
   answers?: AnswersRef;

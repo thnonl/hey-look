@@ -404,6 +404,7 @@ export async function openDraftThread(threadId: string, wait = false, o: StartOp
     subject: m.subject === "(no subject)" ? "" : m.subject,
     bodyHtml: html ?? `<p>${(m.text ?? "").replace(/\n/g, "<br>")}</p>`,
     replaces: `m:${m.id}`, // the message that was opened: saving or sending replaces that one, not other drafts of the conversation
+    draftKey: key, // (a Pop out of this pane gives the window this key: asking for the same draft again focuses that window)
     attachments,
     security: m.security?.encrypted ? { encrypt: true, sign: false, attachPublicKey: false } : undefined,
     confidential: m.confidential,
@@ -1091,7 +1092,9 @@ function ComposeBody({ init }: { init: ComposeInit }) {
     // opened (an opened draft nobody touched, a reply with nothing written) moves as it is: closing that window ends it at once and writes nothing (W2.2)
     const moved = initOf(buildDraft(), { replaces: replacesRef() ?? undefined, isReply: !!init.isReply, carried: touched.current || !!savedDraftRef.current });
     poppingRef.current = true; // (the new window takes the focus: this pane losing it must not save a draft of what is moving)
-    if (!(await openPopout("compose", null, moved))) {
+    // the window shows the draft this message is: the one a save of this pane made (its conversation), else the one it was opened from; none for a new message
+    const key = savedTid.current ? draftKey(savedTid.current) : init.draftKey ?? null;
+    if (!(await openPopout("compose", key, moved))) {
       poppingRef.current = false;
       return; // the pane stays as it is (the toast said why)
     }
@@ -1734,7 +1737,8 @@ function ComposeBody({ init }: { init: ComposeInit }) {
     if (!ref) return true; // nothing was saved: nothing was written to the server, nothing to take back
     if (openedDraft) {
       try {
-        await api.discardDraftChanges(ref);
+        // false: no opened version was kept (it could not be read when the draft was opened or saved): nothing was written, the saved copy is the one draft; say so
+        if (!(await api.discardDraftChanges(ref))) showToast(() => t("compose.toast.draftOriginalGone"), undefined, "info");
       } catch (e) {
         showToast(() => t("compose.toast.saveFailed", { error: friendlyError(e) }), undefined, "error");
         return false;

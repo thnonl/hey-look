@@ -700,7 +700,12 @@ assert.equal(draftKey("t9"), "draft:t9");
   // window that an opened draft was moved into after a save starts with the saved copy, so Discard there can put the opened version back
   assert.ok(compose.includes("carried: touched.current || !!savedDraftRef.current"), "moved as carried only when something was changed or saved");
   assert.ok(compose.includes('useRef<string | null>(openedDraft && init.replaces && !init.replaces.startsWith("m:") ? init.replaces : null)'), "the window starts with the draft the pane saved");
-  { const lib = read("src-tauri/src/lib.rs"); assert.ok(lib.includes("async fn discard_draft_changes(app: tauri::AppHandle,") && lib.includes("sync_drafts_after_restore(&app, &db, &acc.id)") && lib.includes("let _ = app.emit(\"mail-synced\", ());"), "after the opened version is put back the backend reads Drafts again and every window re-reads"); }
+    // a pane that is moved to a window gives it the key of the draft (the one a save of the pane made, else the one it was opened from): the draft is open in one editor only
+  // from the moment the window exists (1.0.7 WP2a retest BUG-2); and Save draft builds from the pane as it is NOW (retest BUG-1, the signature that arrives after the first draw)
+  assert.ok(compose.includes("const key = savedTid.current ? draftKey(savedTid.current) : init.draftKey ?? null;") && compose.includes('openPopout("compose", key, moved)'), "Pop out passes the draft's key");
+  assert.ok(compose.includes("draftKey: key, // (a Pop out of this pane gives the window this key"), "openDraftThread hands the key to the message");
+  assert.ok(compose.includes("const d = buildDraftRef.current();") && compose.includes("buildDraftRef.current = buildDraft;"), "Save draft builds from the current pane");
+{ const lib = read("src-tauri/src/lib.rs"); assert.ok(lib.includes("async fn discard_draft_changes(app: tauri::AppHandle,") && lib.includes("sync_drafts_after_restore(&app, &db, &acc.id)") && lib.includes("let _ = app.emit(\"mail-synced\", ());"), "after the opened version is put back the backend reads Drafts again and every window re-reads"); }
   assert.ok(compose.includes("poppingRef.current = true") && compose.includes("sending: sendingRef.current || poppingRef.current"), "moving a message to a window must not make the pane autosave it (the window takes the focus)");
   // every way of starting a message goes through startCompose; none opens the pane by itself any more
   for (const [file, never] of [["src/components/Ribbon.tsx", "openCompose("], ["src/components/CommandBar.tsx", "openCompose("], ["src/components/Attachments.tsx", "openCompose("], ["src/components/ReadingPane.tsx", ".openCompose("], ["src/actions.ts", "st.openCompose("]]) {

@@ -3858,17 +3858,27 @@ async fn save_draft(state: tauri::State<'_, AppState>, draft: smtp::Draft, repla
 fn save_draft_on<T: std::io::Read + std::io::Write>(db: &Db, acc: &Account, s: &mut imap::Session<T>, raw: &[u8], replaces: Option<String>) -> R<SavedDraft> {
     let folder = folder_for(db, acc, "drafts")?;
     let target = replaces.as_deref().map(draftmail::Target::parse);
-    // read before the append: the opened message is the one this save is about to replace
-    let opened = match &target {
-        Some(draftmail::Target::Local(id)) => match draftmail::read_opened(db, s, acc, id) {
-            Ok(bytes) => Some(bytes),
-            Err(e) => {
-                startup::line("draft", &format!("account {}: the opened version of a draft could not be read, Discard cannot put it back: {e}", acc.id));
-                None
-            }
-        },
+    // read before the append: the opened message is the one this save is about to replace. The bytes remembered when the draft was opened come first (the
+    // local row may be gone by now); the row is the fallback.
+    let opened_id = match &target {
+        Some(draftmail::Target::Local(id)) => Some(id.clone()),
         _ => None,
     };
+    let opened = match &opened_id {
+        Some(id) => match draftmail::opened_from_memory(id) {
+            Some(bytes) => Some(bytes),
+            None => match draftmail::read_opened(db, s, acc, id) {
+                Ok(bytes) => Some(bytes),
+                Err(e) => {
+                    startup::line("draft", &format!("account {}: the opened version of a draft could not be read, Discard cannot put it back: {e}", acc.id));
+                    None
+                }
+            },
+        },
+        None => None,
+    };
+    // the draft being replaced is not in the local store any more (a sync removed it, another save replaced it): it is found on the server by its own Message-ID
+    let opened_row_gone = opened_id.as_deref().is_some_and(|id| !draftmail::local_draft_exists(db, &acc.id, id));
     mail::append(s, &folder, raw, true)?;
     let draft_ref = draftmail::draft_ref(&acc.id, raw);
     if let Some(t) = replaces {
@@ -3877,8 +3887,16 @@ fn save_draft_on<T: std::io::Read + std::io::Write>(db: &Db, acc: &Account, s: &
             startup::line("draft", &format!("account {}: the draft to replace is the one just saved, nothing removed", acc.id));
         } else {
             draftmail::note_save(&lock(db), &acc.id, opened.as_deref(), target.as_ref(), draft_ref.as_deref());
+            if let Some(id) = &opened_id {
+                draftmail::forget_opened_memory(id);
+            }
             let dropped = match target.as_ref() {
                 Some(draftmail::Target::Thread(_)) | None => draftmail::drop_draft(db, &t), // (a conversation id of an older caller: its own connection)
+                // no local row to find the opened draft by: its own Message-ID (from the bytes that were remembered) names it on the server
+                Some(draftmail::Target::Local(_)) if opened_row_gone => match opened.as_deref().and_then(draftmail::message_id_of).filter(|m| Some(format!("mid:{}|{m}", acc.id)) != draft_ref) {
+                    Some(mid) => draftmail::delete_by_message_id(s, &folder, &mid).map(|_| ()),
+                    None => Ok(()),
+                },
                 Some(target) => draftmail::drop_on_session(db, acc, s, target),
             };
             if let Err(e) = dropped {
@@ -3897,6 +3915,8 @@ async fn draft_recipients(state: tauri::State<'_, AppState>, message_id: String)
     let db = state.db.clone();
     blocking(move || {
         let (raw, _) = fetch_raw_for(&db, &message_id)?;
+        // the draft is being opened: keep its bytes, so Discard can put them back even when the local row is gone by the first save (draftmail.rs "opened version")
+        draftmail::remember_opened(&message_id, &raw);
         let mut r = draftmail::recipients(&raw);
         if r.meeting.is_none() {
             // the server dropped the private header (or the draft is encrypted): the copy this computer kept when the draft was saved
@@ -3924,18 +3944,20 @@ async fn discard_draft(state: tauri::State<'_, AppState>, reference: String) -> 
 /// When it worked, the Drafts folder is read again in the background (`sync_drafts_after_restore`): the local list lost the saved copy and does not have the
 /// version put back yet, so without it the list of Drafts stayed empty until the next sync (1.0.7 WP2a QA BUG-2).
 #[tauri::command]
-async fn discard_draft_changes(app: tauri::AppHandle, state: tauri::State<'_, AppState>, reference: String) -> R<()> {
+async fn discard_draft_changes(app: tauri::AppHandle, state: tauri::State<'_, AppState>, reference: String) -> R<bool> {
     let db = state.db.clone();
     blocking(move || {
-        let account_id: String = lock(&db)
-            .query_row("SELECT account_id FROM draft_original WHERE draft_ref=?1", [&reference], |r| r.get(0))
-            .map_err(|_| "The opened version of this draft is no longer available.".to_string())?;
+        // true = the opened version was put back; false = none was kept: nothing was written and the saved copy stays as the one draft (the page says so)
+        let Ok(account_id) = lock(&db).query_row::<String, _, _>("SELECT account_id FROM draft_original WHERE draft_ref=?1", [&reference], |r| r.get(0)) else {
+            startup::line("draft", "Discard changes found no opened version to put back, the saved copy stays as the draft");
+            return Ok(false);
+        };
         let acc = db::get_account(&lock(&db), &account_id)?;
         let sec = secret(&db, &acc)?;
         let mut s = mail::connect(&acc, &sec)?;
         let done = draftmail::restore_on_session(&db, &acc, &mut s, &reference);
         let _ = s.logout();
-        if done.is_ok() {
+        if matches!(done, Ok(true)) {
             sync_drafts_after_restore(&app, &db, &acc.id);
         }
         done
