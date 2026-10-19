@@ -31,6 +31,8 @@ export interface RecoveryToastDeps {
   showDrafts(accountId: string | null): void;
   /** Show all, when something is only on this computer: the person picks a message to open, or the Drafts folder. Resolves with the ones that were opened. */
   pick(items: Kept[]): Promise<Kept[]>;
+  /** The person dismissed the toast without opening a message that has nothing worth a draft (only recipients, W13.5): remove its snapshot from this computer. */
+  drop?(item: Kept): Promise<void>;
 }
 
 /** The whole text: a title line (how many messages Hey Look! kept) and a line saying where they are (saved in Drafts / kept on this computer / both). */
@@ -102,6 +104,9 @@ export function createRecoveryToast(d: RecoveryToastDeps) {
       actions,
       onDismiss: () => {
         answered = true;
+        // a message with only recipients is not kept for ever on this computer: closing the toast without opening it lets it go (REQ-13.5.6)
+        for (const k of items) if (k.draftless) void d.drop?.(k).catch(() => undefined);
+        items = items.filter((i) => !i.draftless);
       },
       closeLabel: () => t("common.close"),
     };

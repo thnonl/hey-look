@@ -252,6 +252,51 @@ export function draftFromSnapshot(l: RecoveryLoaded): Draft | null {
   };
 }
 
+/** `html` without every element of `tag` whose opening tag matches `open` (nested ones of the same tag are balanced). Plain string scanning, no DOM. */
+function cutBlocks(html: string, open: RegExp, tag: string): string {
+  const g = new RegExp(open.source, "gi");
+  const token = new RegExp(`<(/?)${tag}\\b[^>]*>`, "gi");
+  let out = "";
+  let at = 0;
+  for (let m = g.exec(html); m; m = g.exec(html)) {
+    if (m.index < at) continue;
+    let depth = 1;
+    token.lastIndex = m.index + m[0].length;
+    let end = html.length;
+    for (let t = token.exec(html); t; t = token.exec(html)) {
+      depth += t[1] ? -1 : 1;
+      if (depth === 0) {
+        end = t.index + t[0].length;
+        break;
+      }
+    }
+    out += html.slice(at, m.index);
+    at = end;
+    g.lastIndex = end;
+  }
+  return out + html.slice(at);
+}
+
+/**
+ * Is there anything in the snapshot that is worth a draft on the server (W13.5, REQ-13.5.6)? The same rule as the page's `draftContent`
+ * (composeContent.ts), read from the saved form since the snapshot does not know what the message looked like when it was opened: text of the
+ * person's (the signature region `div.sig`, the quote `div.hl-quote` and a plain `blockquote` are Compose's own), a subject (not in a reply or
+ * forward: Compose filled it in), a picture in the body, an attachment (not in a forward: it carries the original's), a meeting place. A draft
+ * that was opened from Drafts (`replaces`) also counts when it has any of those at all: it exists already. Recipients alone are not content.
+ * A snapshot of such a message stays on this computer (`where: "local"`); it is never written to the server.
+ */
+export function snapshotHasDraftContent(init: ComposeInit): boolean {
+  const own = cutBlocks(cutBlocks(cutBlocks(init.bodyHtml ?? "", /<div\b[^>]*\bclass="(?:[^"]*\s)?(?:sig|hl-quote)(?:\s[^"]*)?"[^>]*>/, "div"), /<blockquote\b[^>]*>/, "blockquote"), /<div\b[^>]*\bdata-quote-block\b[^>]*>/, "div");
+  const text = htmlToText(own).trim() !== "";
+  const pictures = /<img\b/i.test(own);
+  const answers = !!init.answers || !!init.inReplyTo || !!init.isReply;
+  const subject = !!(init.subject ?? "").trim();
+  const files = (init.attachments?.length ?? 0) > 0;
+  const place = !!init.meetingForm?.where.trim();
+  if (text || pictures || place || (subject && !answers) || (files && init.answers?.kind !== "forwarded")) return true;
+  return !!init.replaces && (subject || files);
+}
+
 /** What the backend says about a snapshot it saved as a draft (src-tauri `recovery_save_draft`): `covered` = a draft saved at or after the snapshot was on the server already. */
 export interface RecoveredDraft {
   status: "saved" | "covered";
@@ -270,6 +315,8 @@ export interface Kept {
   threadId: string | null;
   /** it was written in a window of its own */
   inWindow: boolean;
+  /** nothing in it is worth a draft (only recipients, W13.5): it is only on this computer, and closing the toast without opening it removes it */
+  draftless?: true;
 }
 
 /** A snapshot that could not be saved to the server is removed after this long (seconds); a start says so in the log and the person is not asked. */
@@ -287,7 +334,7 @@ export interface SettleDeps {
 }
 
 /**
- * The next start (1.0.6): every snapshot that is still there is saved as a real draft, one after the other, newest first, without a question and
+ * The next start (1.0.6): every snapshot that is still there (and has draft content, 1.0.7 W13.5) is saved as a real draft, one after the other, newest first, without a question and
  * without opening, sending or discarding anything. A snapshot that cannot be saved (no Drafts folder, no connection, the server refuses) stays
  * on this computer and is reported as such; one older than 30 days is removed. Returns what was kept, newest first.
  */
@@ -314,7 +361,9 @@ export async function settleRecovery(d: SettleDeps): Promise<Kept[]> {
       continue;
     }
     const base = { id: l.id, accountId: l.accountId, subject: (init.subject ?? "").trim(), savedAt: l.savedAt, inWindow: snapshotInWindow(l) };
-    const draft = draftFromSnapshot(l);
+    // (a snapshot with nothing worth a draft, e.g. recipients only, is kept on this computer and never written to the server)
+    const worth = snapshotHasDraftContent(init);
+    const draft = worth ? draftFromSnapshot(l) : null;
     let saved: RecoveredDraft | null = null;
     if (draft) {
       try {
@@ -328,7 +377,7 @@ export async function settleRecovery(d: SettleDeps): Promise<Kept[]> {
     } else if (d.now() - l.savedAt > LOCAL_KEEP_SECS) {
       await d.clear(l.id, "kept on this computer for more than 30 days").catch(() => undefined);
     } else {
-      kept.push({ ...base, where: "local", threadId: null });
+      kept.push({ ...base, where: "local", threadId: null, ...(worth ? {} : { draftless: true as const }) });
     }
   }
   return kept;

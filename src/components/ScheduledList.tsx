@@ -1,7 +1,10 @@
 import { AlertTriangle, CalendarClock, CalendarX, Pencil, RotateCw, Send, X } from "lucide-react";
 import { useMemo, useState } from "react";
 import { api, errorCode, OutboxItem } from "../api";
-import { picturesToEditor } from "./Compose";
+import { focusInlineEditor, picturesToEditor } from "./Compose";
+import { outboxKey } from "../popout/entry";
+import { focusDraftWindow, startCompose, wantsWindow } from "../popout/composeOpen";
+import { shiftNow } from "../popout/modifier";
 import { decodeMeeting } from "../meetingDraft";
 import { kbd } from "../platform";
 import { friendlyError, useStore } from "../store";
@@ -45,7 +48,7 @@ const GROUP_LABEL = {
  */
 export function ScheduledList() {
   const t = useT();
-  const { outbox, openCompose, showToast, refresh, choose } = useStore();
+  const { outbox, showToast, refresh, choose } = useStore();
   const [busyId, setBusyId] = useState<string | null>(null);
 
   const groups = useMemo(() => {
@@ -63,10 +66,17 @@ export function ScheduledList() {
 
   const open = async (o: OutboxItem, openSchedule = false) => {
     if (o.status === "sending") return;
+    // Edit is a way of starting a message like the others: the setting "open new messages in a separate window" and Shift decide pane or window, and a
+    // message that is open in an editor already (a window or the pane) is not opened a second time: that editor comes forward (W2.10)
+    const shift = shiftNow(); // (read now: the message is fetched first)
+    const key = outboxKey(o.id);
+    if (useStore.getState().compose?.outboxId === o.id) return void focusInlineEditor();
+    if (await focusDraftWindow(key)) return;
     try {
       const e = await api.outboxOpenForEdit(o.id);
       const d = e.draft;
-      void openCompose({
+      const inWindow = wantsWindow({ shift });
+      const opened = await startCompose({
         accountId: d.accountId,
         to: d.to,
         cc: d.cc,
@@ -83,7 +93,10 @@ export function ScheduledList() {
         sendAt: e.sendAt,
         outboxError: o.status === "failed" ? o.error ?? t("compose.scheduled.serverRefused") : undefined,
         openSchedule,
-      });
+      }, { shift, key });
+      // nowhere to edit it (the person kept writing another message, no window could be made): the message goes back to its schedule, it is not left paused
+      const shown = inWindow ? opened : useStore.getState().compose?.outboxId === o.id;
+      if (!shown) void api.outboxRelease(o.id).catch(() => undefined);
     } catch (err) {
       // an encrypted message is read back with your key: ask for the passphrase and try again
       const locked = String(err).match(/PGP_LOCKED:([0-9A-F]+)/);

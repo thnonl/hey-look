@@ -313,8 +313,10 @@ fn fallback_scale(mons: &[Mon], r: &Rect) -> f64 {
 pub struct Entry {
     pub label: String,
     pub kind: Kind,
-    /// What the window shows, when one thing may be open once only (a conversation id, a draft id); None = no such rule.
-    pub key: Option<String>,
+    /// What the window shows, when one thing may be open once only (a reply to a message, a draft): the keys it answers to. The key it was opened
+    /// with stays until the window ends (a reply window answers to `re:<id>` after its first save too, W2.12); a save adds the key of the draft it made
+    /// (`set_key`). Empty = no such rule (a new message that was never saved). A key is held by one window of the kind only.
+    pub keys: Vec<String>,
     /// Opaque token in the page address; the page quotes it in `popout_init`.
     pub token: String,
     /// The page said it is ready (`popout_ready`): it listens to the quit request now.
@@ -337,6 +339,11 @@ pub struct Entry {
     pub retiring: bool,
     /// The page drew its view and said so (`popout_note("content", ..)`). A page that says it is ready but never draws is reloaded once.
     pub content: bool,
+}
+
+/// The key of a saved draft (`draft:<conversation>`, made by `draftKey` in `src/popout/entry.ts`): a window holds one of these at a time.
+fn is_draft_key(k: &str) -> bool {
+    k.starts_with("draft:")
 }
 
 /// What `request` decided.
@@ -362,7 +369,7 @@ impl Registry {
     /// A created window is registered at once, so two requests at the same time cannot both pass the cap.
     pub fn request(&mut self, kind: Kind, key: Option<&str>, token: String, init: Option<Value>) -> Request {
         if let Some(k) = key {
-            if let Some(e) = self.entries.iter().find(|e| e.kind == kind && !e.retiring && e.key.as_deref() == Some(k)) {
+            if let Some(e) = self.entries.iter().find(|e| e.kind == kind && !e.retiring && e.keys.iter().any(|x| x == k)) {
                 return Request::Focus { label: e.label.clone() };
             }
         }
@@ -374,7 +381,7 @@ impl Registry {
         self.entries.push(Entry {
             label: label.clone(),
             kind,
-            key: key.map(String::from),
+            keys: key.map(String::from).into_iter().collect(),
             token,
             ready: false,
             ready_at: None,
@@ -427,28 +434,39 @@ impl Registry {
         let e = self.get_mut(label)?;
         let first = !e.retiring;
         e.retiring = true;
-        e.key = None;
+        e.keys.clear();
         Some(first)
     }
 
     /// The window of `kind` that shows `key`, if any.
     pub fn find_key(&self, kind: Kind, key: &str) -> Option<&Entry> {
-        self.entries.iter().find(|e| e.kind == kind && e.key.as_deref() == Some(key))
+        self.entries.iter().find(|e| e.kind == kind && e.keys.iter().any(|x| x == key))
     }
 
-    /// Change what a window shows (a draft that was saved is another draft, a window that is on its way out shows nothing any more and
-    /// frees its key). False when the window is not known, or another window of the kind already shows that key (the caller keeps its old
-    /// key; the lock of a draft is not given to two windows).
+    /// Change what a window shows. `Some(key)`: the window also answers to `key` now (a save made a draft of it). The key it was opened with stays
+    /// (a reply window keeps `re:<id>`, so a second Reply on the mail focuses it after a save, W2.12); only a key of another draft is given up (a window
+    /// holds one draft at a time: the draft a save replaced is gone). `None`: the window shows nothing any more (parked, on its way out) and frees all its
+    /// keys. False when the window is not known, or another window of the kind already has that key (the caller keeps what it had; the lock of a draft
+    /// is not given to two windows).
     pub fn set_key(&mut self, label: &str, key: Option<String>) -> bool {
         let Some(kind) = self.get(label).map(|e| e.kind) else { return false };
-        if let Some(k) = key.as_deref() {
-            if self.entries.iter().any(|e| e.kind == kind && e.label != label && e.key.as_deref() == Some(k)) {
-                return false;
+        let Some(k) = key else {
+            if let Some(e) = self.get_mut(label) {
+                e.keys.clear();
             }
+            return true;
+        };
+        if self.entries.iter().any(|e| e.kind == kind && e.label != label && e.keys.iter().any(|x| *x == k)) {
+            return false;
         }
         match self.get_mut(label) {
             Some(e) => {
-                e.key = key;
+                if is_draft_key(&k) {
+                    e.keys.retain(|x| !is_draft_key(x));
+                }
+                if !e.keys.contains(&k) {
+                    e.keys.push(k);
+                }
                 true
             }
             None => false,
@@ -921,7 +939,7 @@ pub fn popout_init(app: AppHandle, window: tauri::Window, token: String) -> R<In
     if e.token != token {
         return Err("wrong token".into());
     }
-    Ok(Init { kind: e.kind.name(), label: e.label.clone(), key: e.key.clone(), init: e.init.clone() })
+    Ok(Init { kind: e.kind.name(), label: e.label.clone(), key: e.keys.first().cloned(), init: e.init.clone() })
 }
 
 /// The page of a secondary window is up (it listens to the quit request): show the window.
@@ -1466,11 +1484,54 @@ mod tests {
         assert_eq!(ask(&mut r, Kind::Compose, Some("draft:t3")), Request::Focus { label: a.clone() });
         // the draft another window holds cannot be taken, and the caller keeps what it had
         assert!(!r.set_key(&a, Some(t("draft:t2"))));
-        assert_eq!(r.get(&a).unwrap().key.as_deref(), Some("draft:t3"));
-        assert_eq!(r.get(&b).unwrap().key.as_deref(), Some("draft:t2"));
+        assert_eq!(r.get(&a).unwrap().keys, ["draft:t3"]);
+        assert_eq!(r.get(&b).unwrap().keys, ["draft:t2"]);
         // setting the key it has is fine; an unknown window is refused
         assert!(r.set_key(&a, Some(t("draft:t3"))));
         assert!(!r.set_key("compose-99", Some(t("x"))));
+    }
+
+    /// W2.12: a reply window answers to its reply key after its first save. The save adds the draft's key; a second Reply on the same mail focuses the window,
+    /// so does opening the saved draft; Reply all and Forward of the same mail are other windows; a later save moves the draft key and keeps the reply key.
+    #[test]
+    fn a_window_keeps_its_answer_key_after_a_save() {
+        let mut r = Registry::default();
+        let Request::Create { label: a } = ask(&mut r, Kind::Compose, Some("re:m1")) else { panic!() };
+        assert!(r.set_key(&a, Some(t("draft:mid:acc|<d1@x>"))), "the first save adds the draft's key");
+        assert_eq!(r.find_key(Kind::Compose, "re:m1").map(|e| e.label.clone()), Some(a.clone()), "the answer key is kept");
+        assert_eq!(r.find_key(Kind::Compose, "draft:mid:acc|<d1@x>").map(|e| e.label.clone()), Some(a.clone()));
+        assert_eq!(ask(&mut r, Kind::Compose, Some("re:m1")), Request::Focus { label: a.clone() }, "a second Reply on the same mail: the same window");
+        assert_eq!(ask(&mut r, Kind::Compose, Some("draft:mid:acc|<d1@x>")), Request::Focus { label: a.clone() }, "the saved draft: the same window");
+        // Reply all and Forward have their own windows, as before
+        let Request::Create { label: ra } = ask(&mut r, Kind::Compose, Some("ra:m1")) else { panic!("reply all is another window") };
+        let Request::Create { label: fw } = ask(&mut r, Kind::Compose, Some("fw:m1")) else { panic!("forward is another window") };
+        assert!(ra != a && fw != a && ra != fw);
+        // the next save made another draft of it: the draft key moves, the old one is free, the answer key stays
+        assert!(r.set_key(&a, Some(t("draft:mid:acc|<d2@x>"))));
+        assert!(r.find_key(Kind::Compose, "draft:mid:acc|<d1@x>").is_none());
+        assert_eq!(r.get(&a).unwrap().keys, ["re:m1", "draft:mid:acc|<d2@x>"]);
+        // a key still cannot be held by two windows
+        assert!(!r.set_key(&ra, Some(t("draft:mid:acc|<d2@x>"))));
+        assert!(!r.set_key(&ra, Some(t("re:m1"))));
+        assert_eq!(r.get(&ra).unwrap().keys, ["ra:m1"]);
+        // the same key twice is held once
+        assert!(r.set_key(&a, Some(t("draft:mid:acc|<d2@x>"))));
+        assert_eq!(r.get(&a).unwrap().keys.len(), 2);
+        // parked or on its way out: every key is free, and Reply on the mail opens a new window (AC-2.12.3)
+        assert_eq!(r.start_retire(&a), Some(true));
+        assert!(r.get(&a).unwrap().keys.is_empty());
+        let Request::Create { label: again } = ask(&mut r, Kind::Compose, Some("re:m1")) else { panic!("the old key ended with the window") };
+        assert_ne!(again, a);
+        // destroyed: gone from the registry with its keys
+        assert!(r.remove(&a).is_some());
+        assert!(r.find_key(Kind::Compose, "draft:mid:acc|<d2@x>").is_none());
+        // a window opened from a draft gives that draft's key up when a save made another draft (the first save of a reopened draft)
+        let Request::Create { label: d } = ask(&mut r, Kind::Compose, Some("draft:t1")) else { panic!() };
+        assert!(r.set_key(&d, Some(t("draft:t2"))));
+        assert_eq!(r.get(&d).unwrap().keys, ["draft:t2"]);
+        // parking (Undo off) frees all of them
+        assert!(r.set_key(&again, None));
+        assert!(r.get(&again).unwrap().keys.is_empty());
     }
 
     #[test]
@@ -1808,7 +1869,7 @@ mod tests {
     #[test]
     fn what_is_written_down_reads_back() {
         let e = Entry {
-            label: t("compose-1"), kind: Kind::Compose, key: None, token: t("x"), ready: true, ready_at: None, init: None,
+            label: t("compose-1"), kind: Kind::Compose, keys: vec![], token: t("x"), ready: true, ready_at: None, init: None,
             rect: Some(rect(100, 200, 1140, 1020)), scale: 1.5, maximized: false, moves: 1, dirty: true, retiring: false, content: false,
         };
         let s = saved_of(&e).unwrap();
@@ -1825,7 +1886,7 @@ mod tests {
 
     fn entry() -> Entry {
         Entry {
-            label: t("compose-1"), kind: Kind::Compose, key: None, token: t("x"), ready: false, ready_at: None, init: None,
+            label: t("compose-1"), kind: Kind::Compose, keys: vec![], token: t("x"), ready: false, ready_at: None, init: None,
             rect: Some(rect(494, 258, 950, 850)), scale: 1.25, maximized: false, moves: 0, dirty: false, retiring: false, content: false,
         }
     }

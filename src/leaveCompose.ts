@@ -3,13 +3,15 @@
 
 /** What the Compose pane says about itself. */
 export interface ComposeProbe {
-  /** to / subject / body (typed, not the signature or an untouched quote) / pictures / attachments: something the person made */
+  /** to / subject / body (typed, not the signature or an untouched quote) / pictures / attachments: something the person made. What the local crash snapshot keeps */
   hasContent: boolean;
+  /** something worth a draft on the server (W13.5, composeContent.ts `draftContent`): hasContent without "only recipients". Everything that saves, asks or keeps a draft goes by this */
+  draftContent: boolean;
   /** a file or picture is still being read into the message */
   attaching: boolean;
   /** goes up with every edit, so a save can tell whether the person kept typing while it ran */
   rev: number;
-  /** an address was typed in To / Cc / Bcc and not confirmed yet (it is not in `hasContent`, but it is the person's) */
+  /** an address was typed in To / Cc / Bcc and not confirmed yet (it is not in `hasContent`, but it is the person's; recipients are not draft content) */
   pending?: boolean;
 }
 
@@ -50,8 +52,11 @@ export type LeaveOutcome =
 /** Saves tried while the person keeps typing, before the pane is left open. */
 export const MAX_SAVES = 3;
 
+/** Nothing in the message is worth a draft, and nothing is being read into it: it closes without a question and without a write (W13.5). */
+export const nothingToKeep = (p: ComposeProbe | null | undefined): boolean => !!p && !p.draftContent && !p.attaching;
+
 /**
- * Decide and do. Empty (or never touched) closes without a draft. With content the draft is saved FIRST, and the pane closes only when
+ * Decide and do. Empty (or never touched, or only recipients) closes without a draft. With content the draft is saved FIRST, and the pane closes only when
  * the save worked and nothing was typed meanwhile; a failed save never closes it. A scheduled message is not a draft: untouched it closes,
  * with unsaved changes the person is asked. Files still being added are waited for.
  */
@@ -78,10 +83,10 @@ export async function leaveCompose(env: LeaveEnv): Promise<LeaveOutcome> {
       if (!(await env.attached())) return { kind: "stay", why: "attaching" };
       p = env.probe();
     }
-    if (!got.d && p && !p.hasContent) {
+    if (p && !p.draftContent) {
       await env.dropEmptied?.();
       await env.close();
-      return { kind: "closed", why: "empty" }; // typed, then deleted again
+      return { kind: "closed", why: "empty" }; // typed, then deleted again, or only recipients (W13.5)
     }
     const rev = p?.rev;
     const ok = await env.save((d) => (got.d = d));

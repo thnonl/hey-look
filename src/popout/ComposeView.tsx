@@ -6,8 +6,8 @@
 //   a window are replaced: `openCompose` (the editor comes back after Undo or a failed send, or the message is over and the window ends),
 //   `sync` / `refresh` / `setDialog` (asked of the main window), `showToast` (a toast raised just before the window ends is shown in the main
 //   window, where the person still looks);
-// - the send: the card "Sending... n s" with Undo in place of the editor (REQ-C8); a window the person closes then goes out of sight and keeps
-//   running until the message has gone (composeWindow.ts, `step`);
+// - the send: the editor stays on screen, locked, with a toast "Sending... n s" and Undo in the window's own toast area (W13.1); a window the person
+//   closes then goes out of sight and keeps running until the message has gone (composeWindow.ts, `step`); Undo or a failure unlocks the same editor;
 // - closing: Save / Discard / Cancel (REQ-C11); an empty message closes silently;
 // - quit and update restart: the window saves what it holds, or asks (composeWindow.ts, `composeFlush`);
 // - the title of the window: the subject (REQ-W7).
@@ -21,7 +21,6 @@ import { Compose } from "../components/Compose";
 import { GuardMenuHost } from "../components/GuardMenuHost";
 import { PassphraseHost } from "../components/Pgp";
 import { t as tNow } from "../i18n";
-import { useT } from "../i18n/react";
 import { loadPlatform } from "../platform";
 import { flushSends, lazyText, useStore, type ComposeInit, type Lazy } from "../store";
 import { configureDates } from "../util";
@@ -35,12 +34,13 @@ import { popoutTitle } from "./route";
 import type { PopoutViewProps } from "./views";
 
 const quiet = () => undefined;
+/** The one toast of a message that is being sent from this window: "Sending... n s" with Undo, then "Sending...". */
+const SEND_TOAST = "compose-send";
 type Level = "info" | "success" | "error";
 
 const isObj = (v: unknown): v is Record<string, unknown> => !!v && typeof v === "object" && !Array.isArray(v);
 
 export default function ComposeView({ label, init }: PopoutViewProps) {
-  const t = useT();
   const prefs = useStore((s) => s.prefs);
   configureDates(prefs);
   configureCalendar(prefs);
@@ -56,8 +56,14 @@ export default function ComposeView({ label, init }: PopoutViewProps) {
   const raised = useRef<{ at: number; text: Lazy; kind: Level }[]>([]);
   const since = useRef(0);
   const closing = useRef(false);
-  const undoBtn = useRef<HTMLButtonElement>(null);
+  /** the scheduled message this window holds paused (opened for editing); null when it is not this window's to release any more (W2.10) */
+  const held = useRef<string | null>(isObj(init) && typeof init.outboxId === "string" ? init.outboxId : null);
 
+  const releasePause = useCallback(async () => {
+    const id = held.current;
+    held.current = null;
+    if (id) await api.outboxRelease(id).catch(quiet);
+  }, []);
   const run = useCallback((fx: Fx) => {
     switch (fx) {
       case "park":
@@ -69,13 +75,15 @@ export default function ComposeView({ label, init }: PopoutViewProps) {
       case "grace":
         setTimeout(() => dispatchRef.current({ t: "grace", now: Date.now() }), 400);
         break;
-      case "destroy":
+      case "destroy": {
         // what the person should still see (Message sent, Draft saved ...) is shown in the main window; then the window ends
         for (const x of carryToasts(raised.current, since.current)) notifyMain("toast", { text: lazyText(x.text), level: x.kind });
-        void api.popoutDestroy().catch(quiet);
+        // a scheduled message that was only looked at goes back to its schedule before the window is gone (the page may not run its clean-up)
+        void releasePause().then(() => api.popoutDestroy().catch(quiet));
         break;
+      }
     }
-  }, [label]);
+  }, [label, releasePause]);
   const dispatchRef = useRef<(e: Ev) => void>(quiet);
   const dispatch = useCallback(
     (e: Ev) => {
@@ -105,6 +113,7 @@ export default function ComposeView({ label, init }: PopoutViewProps) {
     st.setState({
       openCompose: async (c, opts) => {
         if (c) {
+          held.current = c.outboxId ?? null; // (a scheduled message that came back as an ordinary one is not held)
           setEditor((prev) => ({ init: c, n: (prev?.n ?? 0) + 1 }));
           dispatchRef.current({ t: "reopen" });
           return;
@@ -146,6 +155,11 @@ export default function ComposeView({ label, init }: PopoutViewProps) {
         dispatchRef.current({ t: "undo-offer" });
       },
       scheduled: (outboxId, sendAt) => notifyMain("scheduled", { outboxId, sendAt }),
+      lock: (wait) => dispatchRef.current({ t: "handoff", wait, now: Date.now(), lock: true }),
+      unlock: () => dispatchRef.current({ t: "reopen" }),
+      scheduledHandled: () => {
+        held.current = null;
+      },
       draftSaved: (threadId) => {
         lastThread.current = threadId;
         void api.popoutSetKey(draftKey(threadId)).catch(quiet); // the lock of a draft follows its saves
@@ -177,8 +191,19 @@ export default function ComposeView({ label, init }: PopoutViewProps) {
         await runClose({
           facts: () => {
             const p = st.getState().composeProbe?.();
-            return { phase: winRef.current.phase, dirty: st.getState().composeDirty, hasContent: !!p?.hasContent, attaching: !!p?.attaching };
+            return { phase: winRef.current.phase, dirty: st.getState().composeDirty, hasContent: !!p?.draftContent, attaching: !!p?.attaching, scheduled: held.current !== null };
           },
+          askScheduled: async () =>
+            (await choose({
+              title: tNow("compose.leave.scheduledTitle"),
+              body: tNow("app.quit.discardBody"),
+              choices: [
+                { id: "keep", label: tNow("app.quit.keepEditing"), kind: "primary" },
+                { id: "discard", label: tNow("errors.ask.discard"), kind: "danger" },
+              ],
+            })) === "discard"
+              ? "discard"
+              : "keep",
           ask: async () => {
             const a = await choose({
               title: tNow("compose.popout.closeTitle"),
@@ -229,7 +254,10 @@ export default function ComposeView({ label, init }: PopoutViewProps) {
         {
           phase: () => winRef.current.phase,
           dirty: () => st.getState().composeDirty,
-          hasContent: () => !!st.getState().composeProbe?.().hasContent,
+          hasContent: () => !!st.getState().composeProbe?.().draftContent,
+          emptied: async () => void (await st.getState().composeEnd?.({ emptied: true })),
+          scheduled: () => held.current !== null,
+          release: releasePause,
           save,
           ask: async (why) => {
             const a = await choose({
@@ -289,33 +317,51 @@ export default function ComposeView({ label, init }: PopoutViewProps) {
     return () => clearInterval(id);
   }, [win.phase, dispatch]);
 
-  // Undo has the focus as soon as it works (REQ-C8)
-  useEffect(() => {
-    if (win.canUndo) undoBtn.current?.focus();
-  }, [win.canUndo]);
-
-  const undo = () => {
+  const undo = useCallback(() => {
     dispatch({ t: "undo-start", now: Date.now() });
     undoRef.current?.();
-  };
+  }, [dispatch]);
+
+  // The toast of a message on its way (REQ-13.1.2/3): "Sending... n s" with Undo while the Undo time runs, then "Sending..." with the busy ring until the server has
+  // answered. One toast that changes in place; the number is drawn aria-hidden and a screen reader gets "Sending..." once. Not shown while Undo is being
+  // carried out (the click closed it; the editor comes back in a moment).
+  const sending = win.phase === "count" || win.phase === "work";
+  const secs = win.phase === "count" ? secondsLeft(win.endsAt, now) : 0;
+  const showUndo = win.phase === "count" && win.canUndo && win.undoAt === null;
+  const counting = win.phase === "count";
+  useEffect(() => {
+    const st = useStore.getState();
+    if (!sending || (win.phase === "count" && win.undoAt !== null)) {
+      st.setStickyToast(SEND_TOAST, null);
+      return;
+    }
+    st.setStickyToast(SEND_TOAST, {
+      text: () => (counting ? tNow("compose.popout.sending", { n: secs }) : tNow("compose.toast.sending")),
+      readAs: () => tNow("compose.toast.sending"),
+      kind: "info",
+      busy: true,
+      hideClose: true,
+      undo: showUndo ? undo : undefined,
+    });
+  }, [sending, counting, win.phase, win.undoAt, secs, showUndo, undo]);
+  useEffect(() => () => useStore.getState().setStickyToast(SEND_TOAST, null), []);
+
+  // Undo has the keyboard focus as soon as it works (REQ-C8)
+  useEffect(() => {
+    if (!showUndo) return;
+    let tries = 0;
+    const id = setInterval(() => {
+      const b = document.querySelector<HTMLButtonElement>(".toasts .toast-undo");
+      if (b) (b.focus(), clearInterval(id));
+      else if (++tries > 20) clearInterval(id);
+    }, 30);
+    return () => clearInterval(id);
+  }, [showUndo]);
 
   return (
     <div className="popout-compose" data-popout="compose" data-label={label} data-phase={win.phase}>
-      {ready && editor && win.phase === "edit" && <Compose key={editor.n} init={editor.init} />}
-      {ready && win.phase !== "edit" && (
-        <div className="popout-sending" role="status" aria-live="polite">
-          <div className="ps-line">
-            <span className="spin" aria-hidden />
-            <span>{win.phase === "count" ? t("compose.popout.sending", { n: secondsLeft(win.endsAt, now) }) : t("compose.toast.sending")}</span>
-          </div>
-          {win.phase === "count" && (
-            <button ref={undoBtn} className="btn primary" disabled={!win.canUndo || win.undoAt !== null} onClick={undo}>
-              {t("common.undo")}
-            </button>
-          )}
-          <p className="muted small">{t("compose.popout.closesWhenSent")}</p>
-        </div>
-      )}
+      {/* the editor stays while the message is sent: Compose locks itself (inert, "Sending...") and unlocks in place on Undo or a failure (seam.lock / unlock) */}
+      {ready && editor && <Compose key={editor.n} init={editor.init} />}
       <PassphraseHost />
       <GuardMenuHost />
     </div>

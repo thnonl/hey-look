@@ -5,6 +5,8 @@
 //   - W2.22 CF-14: `extractSignature` takes the first signature block that is not in a quote, so a forwarded Hey Look! signature stays text (1.0.7 forward,
 //     a draft from before 1.0.6 whose forward is a plain div below the person's own signature, a new message with one signature);
 //   - W2.22 CF-18: the message a reply answers survives Save draft and opening the draft again (the reference sent back to the server once it goes out).
+//   - W2.11: a draft that is open in the pane is not opened a second time in a window, by any gesture (Shift, double click, Enter, the row): the pane gets
+//     the focus and no window is asked for (`window.__popoutOpens` of the dev mock); an untouched one still moves to a window on a double click;
 //   node scripts/test-compose-restore.mjs [--require-browser] [--url=http://127.0.0.1:1420/]
 import assert from 'node:assert/strict';
 import { sleep, startHarness } from './cdp-harness.mjs';
@@ -221,7 +223,7 @@ try {
   });
   // a message that is opened again with the signature carried (the shape every reopen path hands over: initOf)
   await H.openApp('lang=en&nodefaultsig', 1280, 800);
-  await evaluate(`window.__store.getState().openCompose({ accountId: 'a1', to: ['alice@fabrikam.com'], subject: 'Restored', sigId: 's4', restore: { encrypt: 'auto', sign: false, attachKey: false }, bodyHtml: '<p>Body of the message</p><br><div class="sig">-- <br><p style="background:#fff3bf">' + ${JSON.stringify(NOTE)} + '</p></div>' }); 1`);
+  await evaluate(`window.__store.getState().openCompose({ accountId: 'a1', to: ['alice@fabrikam.com'], subject: 'Restored', sigId: 's4', carried: true, restore: { encrypt: 'auto', sign: false, attachKey: false }, bodyHtml: '<p>Body of the message</p><br><div class="sig">-- <br><p style="background:#fff3bf">' + ${JSON.stringify(NOTE)} + '</p></div>' }); 1`);
   assert.ok(await waitFor(`!!document.querySelector('.cp-editor .tiptap')?.editor && !!document.querySelector('.sig-select')`, 15000));
   await sleep(900);
   await check('a restored message with a carried signature id: Save draft keeps the signature once', async () => {
@@ -237,6 +239,72 @@ try {
   await check('the compose window of a moved message with a carried signature id: Save draft keeps the signature once', async () => {
     assert.equal((await picker()).value, 's4');
     assert.equal(noteCount(await saveAndRead()), 1);
+  });
+
+  // ---------- W2.11: a draft open in the pane is not opened again in a window
+  await fresh('&nodefaultsig');
+  await evaluate(`window.__store.getState().composeSaver({ quiet: true }); 1`);
+  await sleep(800);
+  await evaluate(`window.__store.getState().openCompose(null); 1`);
+  await sleep(300);
+  const tid3 = await evaluate(`${mod('/src/api.ts')}.then(async (m) => (await m.api.listThreads({ folder: 'drafts' }))[0]?.threadId)`);
+  const openIt = (call) => evaluate(`window.__popoutOpens = 0; ${mod('/src/components/Compose.tsx')}.then((m) => ${call}).then((r) => String(r))`);
+  const typeAndLeaveFocus = async () => {
+    await evaluate(`document.querySelector('.cp-editor .tiptap').editor.commands.insertContent('x'); document.activeElement?.blur?.(); document.body.focus(); 1`);
+    await sleep(200);
+  };
+  const focusInPane = () => evaluate(`!!document.activeElement?.closest?.('.compose-pane .ProseMirror')`);
+  await evaluate(`${mod('/src/components/Compose.tsx')}.then((m) => m.openDraftThread(${JSON.stringify(tid3)}, true))`);
+  assert.ok(await waitFor(`!!document.querySelector('.cp-editor .tiptap')?.editor`, 10000), 'the draft did not open in the pane');
+  await sleep(700);
+  await typeAndLeaveFocus();
+  for (const [name, call] of [
+    ['Shift+click / Shift+Enter', `m.openDraftThread(${JSON.stringify(tid3)}, false, { shift: true })`],
+    ['the row menu "Open in new window" / double click of a changed draft', `m.openDraftInWindow(${JSON.stringify(tid3)})`],
+    ['a window forced', `m.openDraftThread(${JSON.stringify(tid3)}, false, { window: true })`],
+    ['a plain click', `m.openDraftThread(${JSON.stringify(tid3)}, false, {})`],
+  ]) {
+    await check(`W2.11 ${name}: the pane gets the focus, no window is asked for`, async () => {
+      await typeAndLeaveFocus();
+      assert.equal(await openIt(call), 'true');
+      assert.equal(await evaluate(`window.__popoutOpens`), 0, 'a window was asked for');
+      assert.ok(await focusInPane(), 'the pane did not get the focus');
+      assert.match(await evaluate(`document.querySelector('.cp-editor .tiptap').editor.getText()`), /Some words|x/, 'the text is still there');
+    });
+  }
+  // the row of the Drafts list, with the setting on: a window is the plain click, but the draft is in the pane
+  await check('W2.11 a click on its row in Drafts keeps the pane (the message is not left and opened again)', async () => {
+    await evaluate(`window.__store.getState().setView('drafts', null); 1`);
+    assert.ok(await waitFor(`!!document.querySelector('[data-thread=${JSON.stringify(tid3)}]') || !!document.querySelector('[data-thread]')`, 8000), 'no row');
+    const keyBefore = await evaluate(`window.__store.getState().composeKey`);
+    await typeAndLeaveFocus();
+    await evaluate(`window.__popoutOpens = 0; document.querySelector('[data-thread]').click(); 1`);
+    await sleep(900);
+    assert.equal(await evaluate(`window.__store.getState().composeKey`), keyBefore, 'the pane was closed and opened again');
+    assert.equal(await evaluate(`window.__popoutOpens`), 0);
+    assert.ok(await focusInPane(), 'the pane did not get the focus');
+  });
+  // an autosave made the draft another conversation: that one is the pane's too
+  await check('W2.11 after a save the new conversation of the draft is in the pane', async () => {
+    await evaluate(`window.__store.getState().composeSaver({ quiet: true }); 1`);
+    await sleep(900);
+    const tNew = await evaluate(`${mod('/src/api.ts')}.then(async (m) => (await m.api.listThreads({ folder: 'drafts' }))[0]?.threadId)`);
+    assert.equal(await evaluate(`${mod('/src/components/Compose.tsx')}.then((m) => m.inlineHasDraft(${JSON.stringify(tNew)}))`), true);
+    assert.equal(await evaluate(`${mod('/src/components/Compose.tsx')}.then((m) => m.inlineHasDraft('no-such-thread'))`), false);
+  });
+  // closed again: nothing is "open" any more, and an untouched draft moves to a window on a double click (REQ-2.11.2)
+  await evaluate(`window.__store.getState().openCompose(null, { restore: false }); 1`);
+  await sleep(400);
+  const tid4 = await evaluate(`${mod('/src/api.ts')}.then(async (m) => (await m.api.listThreads({ folder: 'drafts' }))[0]?.threadId)`);
+  await check('W2.11 after the pane is closed the draft is not in the pane', async () => assert.equal(await evaluate(`${mod('/src/components/Compose.tsx')}.then((m) => m.inlineHasDraft(${JSON.stringify(tid4)}))`), false));
+  await evaluate(`${mod('/src/components/Compose.tsx')}.then((m) => m.openDraftThread(${JSON.stringify(tid4)}, true))`);
+  assert.ok(await waitFor(`!!document.querySelector('.cp-editor .tiptap')?.editor`, 10000));
+  await sleep(700);
+  await check('W2.11 REQ-2.11.2: an untouched draft moves to a window on a double click (the pane closes, one window is asked for)', async () => {
+    await openIt(`m.openDraftInWindow(${JSON.stringify(tid4)})`);
+    await sleep(500);
+    assert.equal(await evaluate(`window.__popoutOpens`), 1);
+    assert.equal(await evaluate(`window.__store.getState().compose`), null, 'the pane stayed open');
   });
 } finally { await H.shutdown(); }
 

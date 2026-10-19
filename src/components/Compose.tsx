@@ -27,7 +27,7 @@ import { extractQuote, quotePictureBytes } from "../editor/quoteBlock";
 import { baseFromPrefs } from "../editor/baseFont";
 import { repairSignature, signatureGuard } from "../signatureGuard";
 import { BAR_ITEMS, BAR_ROW_MAX, isCompact, keptItems, overflowCount, type BarItem } from "../composeFit";
-import { composeHasContent, isPersonEdit } from "../composeContent";
+import { composeHasContent, draftContent, isPersonEdit } from "../composeContent";
 import { autosaveDue, snapshotDue, timing, type AutosaveWhy } from "../autosave";
 import { RecoveryWriter, type RecoveryForm } from "../recovery";
 import { cleanPastedHtml, stripRemotePictures } from "../pastedHtml";
@@ -42,6 +42,7 @@ import { blockedAttachmentExt, dataUriBytes, fileToBase64, fmtClock, fmtIn, fmtS
 import { calTz } from "../calendar";
 import { defaultMeeting, MeetingState, MeetingStrip, meetingToDraft } from "./Calendar";
 import { fromInputs, toInputs } from "../calendar";
+import { backendCode } from "../backendErrors";
 import { decodeMeeting, encodeMeeting, meetingWire, restoreMeeting } from "../meetingDraft";
 import { isEmail, singleLabelHostsOf } from "../addresses";
 import { addRecipients, addressOf, chipLabel, formatRecipient, hasRecipient, isImeEvent, openAtEnd, placeRecipients, recipientKey, splitRecipients, type RcptField } from "../recipients";
@@ -51,6 +52,7 @@ import { focusDraftWindow, startCompose, wantsWindow, type StartOpts } from "../
 import { draftKey } from "../popout/entry";
 import { shiftNow } from "../popout/modifier";
 import { openPopout } from "../popout/open";
+import { outboxKey } from "../popout/entry";
 import { useContentProtection } from "../protect";
 import { editorKeyHandlers, isAltGraph } from "../composeKeys";
 import { useLinkEditor } from "./LinkPopover";
@@ -362,6 +364,9 @@ export async function openDraftThread(threadId: string, wait = false, o: StartOp
   const shift = o.shift ?? shiftNow(); // (read now: the draft is fetched first)
   const key = draftKey(threadId);
   const mine = ++latestDraftOpen;
+  // the one check of every entry point (click, double click, Shift, Enter, context menu, command bar, the toast's Edit, crash restore): the pane
+  // already shows this draft, so it gets the focus and nothing else opens, before anything is read (W2.11)
+  if (inlineHasDraft(threadId)) return focusInlineEditor();
   if (await focusDraftWindow(key)) return true;
   const st = useStore.getState();
   let msgs = await api.getThread(threadId, "drafts");
@@ -392,6 +397,7 @@ export async function openDraftThread(threadId: string, wait = false, o: StartOp
   const rc = await api.draftRecipients(m.id).catch(() => null);
   // without the draft's own headers the Bcc recipients are unknown: say so, a send would leave them out
   if (!rc) st.showToast(() => tNow("compose.draft.bccUnread"), undefined, "error");
+  const keyBefore = st.composeKey;
   await startCompose({
     accountId: m.accountId,
     to: rc?.to ?? (m.to ? splitRecipients(m.to) : []),
@@ -412,13 +418,40 @@ export async function openDraftThread(threadId: string, wait = false, o: StartOp
     // the meeting that was on when the draft was saved: from its private header (else the copy this computer kept), checked here (meetingDraft.ts)
     meetingForm: decodeMeeting(rc?.meeting) ?? undefined,
   }, { ...o, shift, key });
-  // the draft is open in the pane (not in a window): a double click moves it to a window instead of opening it twice (openDraftInWindow)
-  if (!wantsWindow({ window: o.window, shift })) inlineDraft = { threadId, composeKey: useStore.getState().composeKey };
+  // the draft is open in the pane (not in a window): a double click moves it to a window instead of opening it twice (openDraftInWindow), and
+  // asking for it again focuses the pane (a question about another message in the pane, answered with Cancel, leaves the pane as it was)
+  if (!wantsWindow({ window: o.window, shift }) && useStore.getState().composeKey !== keyBefore) inlineDraft = { threadId, composeKey: useStore.getState().composeKey, tids: new Set([threadId]) };
   return true;
 }
 
-/** The draft that was last opened in the pane, and which opening of the pane it was. */
-let inlineDraft: { threadId: string; composeKey: number } | null = null;
+/**
+ * The draft that was last opened in the pane, which opening of the pane it was, and the conversations of the Drafts folder it is: the one it was
+ * opened from and the ones its saves made (an autosave replaces the draft, so the list shows it under a new id).
+ */
+let inlineDraft: { threadId: string; composeKey: number; tids: Set<string> } | null = null;
+
+/** The pane that is open now shows this conversation of the Drafts folder. (Never true in a compose window: it has no pane.) */
+export function inlineHasDraft(threadId: string): boolean {
+  const st = useStore.getState();
+  return !composeSeam() && !!st.compose && !!inlineDraft && inlineDraft.composeKey === st.composeKey && inlineDraft.tids.has(threadId);
+}
+
+/** The pane's message got a draft (a save): that conversation is the pane's too. Called by the Compose of the pane. */
+function noteInlineDraft(tid: string): void {
+  if (composeSeam()) return;
+  const st = useStore.getState();
+  if (!st.compose) return;
+  if (!inlineDraft || inlineDraft.composeKey !== st.composeKey) inlineDraft = { threadId: tid, composeKey: st.composeKey, tids: new Set() };
+  inlineDraft.tids.add(tid);
+}
+
+/** Bring the main window forward and put the caret in the pane's body. Resolves to true (the draft is shown: nothing else is to be opened). */
+export function focusInlineEditor(): boolean {
+  void api.showWindow().catch(() => undefined);
+  const body = document.querySelector<HTMLElement>(".compose-pane .ProseMirror");
+  body?.focus();
+  return true;
+}
 /** Counts the openings of a draft: one that is overtaken by a newer one gives up. */
 let latestDraftOpen = 0;
 
@@ -574,6 +607,14 @@ function ComposeBody({ init }: { init: ComposeInit }) {
   const [aiPrompt, setAiPrompt] = useState("");
   const ai = useAiSlot("write");
   const [busy, setBusy] = useState(false);
+  // In a window of its own the message stays on screen while it is sent (W13.1): locked (inert, "Sending..."), the window shows the Undo toast. Undo or a failed send unlocks
+  // this same editor in place (`reopen`), so the text, the caret, the scroll position and the undo history are as they were at Send.
+  const [locked, setLocked] = useState(false);
+  const lockedRef = useRef(false);
+  const focusWas = useRef<HTMLElement | null>(null); // where the focus was when Send was pressed
+  const scrollsWas = useRef<[Element, number][]>([]); // and how far the header, the body and the tail were scrolled
+  const sendBtnRef = useRef<HTMLButtonElement>(null);
+  const [sendW, setSendW] = useState(0); // the width of the Send button before its label changed: it keeps it
   // a meeting: To = required attendees, Cc = optional; sent as a calendar invitation
   // (a reopened draft, snapshot or moved message brings the strip as it was: `meetingForm`; the start values of "Meeting" otherwise)
   const [meeting, setMeeting] = useState<MeetingState | null>(
@@ -642,6 +683,11 @@ function ComposeBody({ init }: { init: ComposeInit }) {
   };
   const ccTouched = useRef(false);
   const savedRef = useRef(false); // an outbox item was saved, moved or sent from here (nothing to release)
+  /** The scheduled message was rescheduled, sent now, deleted or moved to Drafts from here (or handed to a window): nothing to release; a window is told (W2.10). */
+  const scheduleDone = () => {
+    savedRef.current = true;
+    composeSeam()?.scheduledHandled();
+  };
   const fileRef = useRef<HTMLInputElement>(null);
   const picRef = useRef<HTMLInputElement>(null);
   const schedRef = useRef<HTMLDivElement>(null);
@@ -1082,22 +1128,78 @@ function ComposeBody({ init }: { init: ComposeInit }) {
       meetingForm: decodeMeeting(d.meetingForm) ?? undefined,
     };
   };
+  /**
+   * Send was pressed in a window and the questions are answered: the editor stays, locked, and the window counts the Undo time down in its toast (W13.1).
+   * `wait`: the Undo send time in seconds, 0 for none.
+   */
+  const lockForSend = (wait: number) => {
+    const a = document.activeElement;
+    focusWas.current = a instanceof HTMLElement && paneRef.current?.contains(a) ? a : null;
+    setSendW(sendBtnRef.current?.offsetWidth ?? 0);
+    scrollsWas.current = [...(paneRef.current?.querySelectorAll(".cp-head, .cp-editor, .cp-tail") ?? [])].map((el) => [el, el.scrollTop]);
+    lockedRef.current = true;
+    setLocked(true);
+    composeSeam()?.lock(wait);
+  };
+  /**
+   * Undo, or a send that failed: the same editor is unlocked in place. What the send questions changed is applied to it ("Remove and send" took a recipient out,
+   * "Send unencrypted" turned Encrypt off), it counts as changed (closing asks; autosave and the snapshot run again), and the focus goes back to where it was.
+   */
+  const unlock = (d: Draft) => {
+    setTo(d.to);
+    setCc(d.cc);
+    setBcc(d.bcc);
+    if (d.cc.length || d.bcc.length) setShowCc(true);
+    if (d.security && !d.security.encrypt && encIntent !== "off") setEncIntent("off");
+    lockedRef.current = false;
+    setLocked(false);
+    setBusy(false);
+    sendingRef.current = false;
+    touch();
+    composeSeam()?.unlock();
+  };
+  // the focus goes back where it was at Send once the editor takes input again (the body, or the Send button when Send was clicked)
+  const wasLocked = useRef(false);
+  useEffect(() => {
+    if (locked) {
+      wasLocked.current = true;
+      return;
+    }
+    if (!wasLocked.current) return;
+    wasLocked.current = false;
+    const el = focusWas.current;
+    focusWas.current = null;
+    // (focusing must not scroll: the text is where it was at Send)
+    if (!el || !el.isConnected || el.closest(".ProseMirror") || el.hasAttribute("disabled")) editor?.commands.focus(null, { scrollIntoView: false });
+    else el.focus({ preventScroll: true });
+    for (const [box, top] of scrollsWas.current) if (box.isConnected) box.scrollTop = top;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [locked]);
   // (in a window of its own the message that comes back after Undo or a failed send counts as changed: closing the window asks, it never loses it)
-  const reopen = (d: Draft) => void useStore.getState().openCompose(initOf(d, { replaces: init.replaces, isReply: false, carried: !!composeSeam() }));
+  // (`unscheduled`: the scheduled message is gone from the outbox, so what comes back is an ordinary message)
+  const reopen = (d: Draft, unscheduled = false) => {
+    if (lockedRef.current) return unlock(d); // (a window that kept the editor on screen: the same editor comes back, nothing is made again)
+    // a message that comes back after Undo or a failed send holds what the person wrote: it counts as changed in the pane too (before, only in a window), or Save draft would say there is nothing worth a draft (W13.5) and closing it would not ask
+    const back = initOf(d, { replaces: init.replaces, isReply: false, carried: true });
+    void useStore.getState().openCompose(unscheduled ? { ...back, outboxId: undefined, sendAt: undefined, outboxError: undefined } : back);
+  };
 
   /** Move this message to a window of its own (REQ-C3, C4): all of it as it is, nothing saved, nothing asked; the pane closes once the window exists. */
   const popOut = async () => {
-    if (init.outboxId || composeSeam() || busy) return;
+    if (composeSeam() || busy) return;
     // "carried" = the window starts as a message with changes nobody saved: closing it asks, and it autosaves when it loses the focus. A pane that is as it was
     // opened (an opened draft nobody touched, a reply with nothing written) moves as it is: closing that window ends it at once and writes nothing (W2.2)
-    const moved = initOf(buildDraft(), { replaces: replacesRef() ?? undefined, isReply: !!init.isReply, carried: touched.current || !!savedDraftRef.current });
+    // (a scheduled message keeps its pause: the window holds it from now on, so this pane must not release it as it closes; the "Change time" picker is not reopened)
+    const moved = { ...initOf(buildDraft(), { replaces: replacesRef() ?? undefined, isReply: !!init.isReply, carried: touched.current || !!savedDraftRef.current }), openSchedule: undefined };
     poppingRef.current = true; // (the new window takes the focus: this pane losing it must not save a draft of what is moving)
-    // the window shows the draft this message is: the one a save of this pane made (its conversation), else the one it was opened from; none for a new message
-    const key = savedTid.current ? draftKey(savedTid.current) : init.draftKey ?? null;
+    // the window shows the draft this message is: the one a save of this pane made (its conversation), else the one it was opened from; none for a new message;
+    // a scheduled message holds the key of its outbox item
+    const key = init.outboxId ? outboxKey(init.outboxId) : savedTid.current ? draftKey(savedTid.current) : init.draftKey ?? null;
     if (!(await openPopout("compose", key, moved))) {
       poppingRef.current = false;
       return; // the pane stays as it is (the toast said why)
     }
+    if (init.outboxId) savedRef.current = true;
     setComposeDirty(false);
     void openCompose(null);
   };
@@ -1251,11 +1353,13 @@ function ComposeBody({ init }: { init: ComposeInit }) {
     const d = await secureDraft(built);
     if (!d) return;
     setBusy(true);
+    let cancelled = false;
     try {
       await api.cancelOutbox(init.outboxId);
-      savedRef.current = true;
+      cancelled = true;
+      scheduleDone();
       setComposeDirty(false);
-      void openCompose(null);
+      void openCompose(null, { sending: 0 }); // (a window waits for the send under way before it ends)
       const done = beginSend();
       try {
         await api.sendMessage(d, null, null);
@@ -1268,7 +1372,7 @@ function ComposeBody({ init }: { init: ComposeInit }) {
     } catch (e) {
       setBusy(false);
       showToast(await sendFailedText(e, d), undefined, "error"); // i18n-ok: sendFailedText gives a function
-      reopen(d);
+      reopen(d, cancelled);
     }
   };
 
@@ -1335,11 +1439,18 @@ function ComposeBody({ init }: { init: ComposeInit }) {
       sendingRef.current = true; // the snapshot stays until the message is in the queue
       setBusy(true);
       setComposeDirty(false);
+      // (a scheduled message keeps its pause until the update has gone through: this pane closes first and must not release it as it goes; a failed update brings the editor back holding it)
+      if (init.outboxId) savedRef.current = true;
       void openCompose(null, { sending: 0 });
       try {
         if (init.outboxId) {
-          await api.outboxUpdate(init.outboxId, d, sendAt);
-          savedRef.current = true;
+          const done = beginSend(); // (a window ends when the last send of it is over)
+          try {
+            await api.outboxUpdate(init.outboxId, d, sendAt);
+          } finally {
+            done();
+          }
+          scheduleDone();
           showToast(t("compose.toast.rescheduled", { when: fmtWhen(sendAt) }), undefined, "success");
         } else {
           const done = beginSend();
@@ -1379,7 +1490,8 @@ function ComposeBody({ init }: { init: ComposeInit }) {
     setBusy(true);
     setComposeDirty(false);
     const wait = eff(prefs, accountId, "undoSeconds");
-    void openCompose(null, { sending: wait });
+    if (composeSeam()) lockForSend(wait);
+    else void openCompose(null, { sending: wait });
     let cancelled = false;
     let started = false;
     let timer: ReturnType<typeof setTimeout> | undefined;
@@ -1444,7 +1556,7 @@ function ComposeBody({ init }: { init: ComposeInit }) {
       // in a window of its own the Undo button of the window's card takes the message back; in the main window it is the toast's
       const seam = composeSeam();
       if (seam) seam.undoOffer(undoSend);
-      else showToast(() => t("compose.toast.sending"), undoSend, "info");
+      else showToast(() => t("compose.toast.sending"), undoSend, "info", undefined, wait * 1000); // (it stays exactly as long as the message is held, W13.1)
     }
   };
 
@@ -1454,6 +1566,13 @@ function ComposeBody({ init }: { init: ComposeInit }) {
     // once more, which replaces this draft) and leaves the error line of those flows alone.
     async (close: boolean, quiet = false, onSaved?: (d: SavedDraft) => void, auto = false): Promise<boolean> => {
       if (init.outboxId) return true; // a scheduled message is not a draft; "Move to Drafts" does that
+      // Nothing worth a draft (W13.5: only recipients, nothing at all, or everything deleted again): nothing is written, the message stays as it is. The
+      // autosave, leaving, closing and quitting never get here (they check first); this is Save draft. A draft opened from Drafts and not touched may
+      // still be saved as it is (as before).
+      if (!auto && !probeRef.current().draftContent && !(openedDraft && !touched.current)) {
+        if (!quiet) showToast(() => t("compose.toast.nothingToSave"), undefined, "info");
+        return false;
+      }
       const rev = revRef.current;
       savingRef.current++;
       try {
@@ -1466,6 +1585,7 @@ function ComposeBody({ init }: { init: ComposeInit }) {
         if (tid) {
           savedTid.current = tid;
           composeSeam()?.draftSaved(tid);
+          noteInlineDraft(tid);
         }
         if (saved.draftRef) savedDraftRef.current = saved.draftRef;
         // the draft on the server holds everything up to `rev`: the snapshot is not needed for it any more
@@ -1500,6 +1620,11 @@ function ComposeBody({ init }: { init: ComposeInit }) {
         return true;
       } catch (e) {
         if (auto) return false; // (the next try is later, see autosaveDue; the snapshot keeps the text meanwhile)
+        // the backend refused an empty draft (DRAFT_EMPTY, REQ-13.5.7): the same word as the check above
+        if (backendCode(String(e instanceof Error ? e.message : e)) === "DRAFT_EMPTY") {
+          if (!quiet) showToast(() => t("compose.toast.nothingToSave"), undefined, "info");
+          return false;
+        }
         // `quiet`: the caller (an update restart, a quit) tells the user itself
         useStore.setState({ draftError: friendlyError(e).replace(/\.$/, "") });
         if (!quiet) showToast(() => t("compose.toast.saveFailed", { error: friendlyError(e) }), undefined, "error");
@@ -1516,7 +1641,7 @@ function ComposeBody({ init }: { init: ComposeInit }) {
     if (!init.outboxId) return;
     try {
       await moveScheduledToDrafts(init.outboxId);
-      savedRef.current = true;
+      scheduleDone();
       setComposeDirty(false);
       showToast(t("compose.toast.movedToDrafts"), undefined, "success");
       void openCompose(null);
@@ -1559,6 +1684,7 @@ function ComposeBody({ init }: { init: ComposeInit }) {
     return filesKeyRef.current.key;
   };
   const writeSnapshot = (force = false) => {
+    if (lockedRef.current) return; // (the message is on its way: the snapshot of it is cleared when it is safe)
     // anything in To / Cc / Bcc / Subject / the body is worth a snapshot: it is a local file, nothing goes to the server for it
     const p = { ...probe(), hasContent: probe().hasContent || !!(pendingRcpt.current.to + pendingRcpt.current.cc + pendingRcpt.current.bcc).trim() };
     const size = (editor?.state.doc.content.size ?? 0) + (pics.bytes ?? 0);
@@ -1576,11 +1702,12 @@ function ComposeBody({ init }: { init: ComposeInit }) {
     const p = probe();
     return {
       now: Date.now(), why, rev: revRef.current, savedRev: savedRevRef.current, changedAt: changedAtRef.current, lastTryAt: lastTryRef.current,
-      failures: failuresRef.current, hasContent: p.hasContent, attaching: p.attaching, saving: savingRef.current > 0, sending: sendingRef.current || poppingRef.current || endingRef.current,
+      failures: failuresRef.current, draftContent: p.draftContent, attaching: p.attaching, saving: savingRef.current > 0, sending: sendingRef.current || poppingRef.current || endingRef.current,
       scheduled: !!init.outboxId, plainWouldLeak: encOn && !eff(prefs, accountId, "pgpEncryptDrafts"),
     };
   };
   const autosave = async (why: AutosaveWhy) => {
+    if (lockedRef.current) return; // (a draft of a message that is in the outbox would stay behind)
     if (!autosaveDue(autosaveFacts(why), timing().autosaveMs)) return;
     lastTryRef.current = Date.now();
     const ok = await saveDraft(false, true, undefined, true);
@@ -1653,15 +1780,23 @@ function ComposeBody({ init }: { init: ComposeInit }) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
   // what leaving this message needs to know: did the person write anything, are files still coming in
+  // `hasContent`: anything the person made (the crash snapshot keeps it, a local file). `draftContent`: what is worth a draft on the server (W13.5): not
+  // recipients alone. Autosave, Save draft, Discard, leaving, closing a window, quit and update restart all go by `draftContent`.
   const probe = (): ComposeProbe => {
     const b = baseline.current;
     const restored = !!init.recoveryId || !!init.carried;
-    const hasContent = composeHasContent(
-      touched.current,
-      { text: editor?.getText().trim() ?? "", pics: editor ? bodyPictures(editor) : 0, to, cc: cc.length, bcc: bcc.length, subject, atts: atts.length },
-      { text: b?.text ?? "", pics: b?.pics ?? 0, to: restored ? [] : init.to ?? [], cc: restored ? 0 : init.cc?.length ?? 0, bcc: restored ? 0 : init.bcc?.length ?? 0, subject: restored ? "" : init.subject ?? "", atts: restored ? 0 : init.attachments?.length ?? 0 },
-    );
-    return { hasContent, attaching: attachingRef.current > 0, rev: revRef.current, pending: !!(pendingRcpt.current.to + pendingRcpt.current.cc + pendingRcpt.current.bcc).trim() };
+    const now = { text: editor?.getText().trim() ?? "", pics: editor ? bodyPictures(editor) : 0, to, cc: cc.length, bcc: bcc.length, subject, atts: atts.length };
+    const opened = { text: b?.text ?? "", pics: b?.pics ?? 0, to: restored ? [] : init.to ?? [], cc: restored ? 0 : init.cc?.length ?? 0, bcc: restored ? 0 : init.bcc?.length ?? 0, subject: restored ? "" : init.subject ?? "", atts: restored ? 0 : init.attachments?.length ?? 0 };
+    const hasContent = composeHasContent(touched.current, now, opened);
+    // files that came with a NEW message ("send this file") are the person's choice; only a reply or forward (it carries the original's), or a draft that
+    // already exists, treats the files it opened with as its own doing
+    const carriesFiles = openedDraft || !!init.isReply || !!init.inReplyTo || !!init.answers;
+    const hasDraftContent = draftContent(touched.current, now, carriesFiles ? opened : { ...opened, atts: 0 }, {
+      meetingWhere: meeting?.where ?? "",
+      openedWhere: restored ? "" : init.meetingForm?.where ?? init.meeting?.location ?? "",
+      existing: openedDraft,
+    });
+    return { hasContent, draftContent: hasDraftContent, attaching: attachingRef.current > 0, rev: revRef.current, pending: !!(pendingRcpt.current.to + pendingRcpt.current.cc + pendingRcpt.current.bcc).trim() };
   };
   const probeRef = useRef(probe);
   probeRef.current = probe;
@@ -1696,7 +1831,7 @@ function ComposeBody({ init }: { init: ComposeInit }) {
       try {
         if (choice === "delete") await api.cancelOutbox(init.outboxId);
         else await moveScheduledToDrafts(init.outboxId);
-        savedRef.current = true;
+        scheduleDone();
         setComposeDirty(false);
         showToast(choice === "delete" ? t("compose.toast.scheduleCancelled") : t("compose.toast.movedToDrafts"), undefined, "success");
         void openCompose(null);
@@ -1706,9 +1841,10 @@ function ComposeBody({ init }: { init: ComposeInit }) {
       }
       return;
     }
-    // the same rule as leaving, the autosave and the snapshot: a reply or forward with nothing written (the recipients, the subject, the quote
-    // and the signature are Compose's own) closes without asking, like an empty new message; a letter, an address or a file of the person's asks
-    const written = probe().hasContent || !!(pendingRcpt.current.to + pendingRcpt.current.cc + pendingRcpt.current.bcc).trim();
+    // the same rule as leaving and the autosave (W13.5): a message with nothing worth a draft (a reply or forward with nothing written: the recipients,
+    // the subject, the quote and the signature are Compose's own; or a new message with only recipients) closes without asking; a letter, a subject,
+    // a picture or a file of the person's asks
+    const written = probe().draftContent;
     // an opened draft that a save has replaced since (an autosave counts) asks even when the text is the original again: Drafts holds the edits
     if (openedDraft && (written || savedDraftRef.current)) {
       if (!(await confirm({ title: t("compose.dlg.discardChangesTitle"), body: t("compose.dlg.discardChangesBody"), confirmLabel: t("compose.dlg.discardChanges"), danger: true }))) return;
@@ -2142,6 +2278,8 @@ function ComposeBody({ init }: { init: ComposeInit }) {
   return (
     <div
       ref={paneRef}
+      inert={locked || undefined}
+      aria-busy={locked || undefined}
       className={`compose-pane ${dragging ? "dragging" : ""} ${compact ? "compact" : ""} ${compact && barWraps ? "bar-wraps" : ""}`}
       onKeyDown={(e) => {
         if (isImeEvent(e)) return; // a key that belongs to an input method (Subject, To, Cc, Bcc): no app shortcut
@@ -2169,7 +2307,7 @@ function ComposeBody({ init }: { init: ComposeInit }) {
           picRef.current?.click();
           return;
         }
-        if ((e.ctrlKey || e.metaKey) && e.shiftKey && !e.altKey && e.key.toLowerCase() === "o" && !init.outboxId && !composeSeam()) {
+        if ((e.ctrlKey || e.metaKey) && e.shiftKey && !e.altKey && e.key.toLowerCase() === "o" && !composeSeam()) {
           e.preventDefault();
           void popOut();
           return;
@@ -2230,8 +2368,8 @@ function ComposeBody({ init }: { init: ComposeInit }) {
       <div className="cp-head">
       <div className="cp-bar">
         <div className="split-btn" ref={schedRef} data-fit="fixed">
-          <button className="btn primary" disabled={busy} onClick={() => void (init.outboxId ? send(init.sendAt) : send())} title={init.outboxId ? t("compose.bar.scheduleTip") : kbd(t("compose.bar.sendTip"))}>
-            {init.outboxId ? <><CalendarClock size={14} /> <span className="btn-lbl">{t("compose.bar.schedule")}</span></> : meeting ? <><CalendarPlus size={14} /> <span className="btn-lbl">{t("compose.bar.sendInvite")}</span></> : <><Send size={14} /> <span className="btn-lbl">{t("compose.bar.send")}</span></>}
+          <button ref={sendBtnRef} className="btn primary" disabled={busy} style={locked && sendW ? { minWidth: sendW } : undefined} onClick={() => void (init.outboxId ? send(init.sendAt) : send())} title={init.outboxId ? t("compose.bar.scheduleTip") : kbd(t("compose.bar.sendTip"))}>
+            {locked ? <><span className="spin" aria-hidden /> <span className="btn-lbl">{t("compose.toast.sending")}</span></> : init.outboxId ? <><CalendarClock size={14} /> <span className="btn-lbl">{t("compose.bar.schedule")}</span></> : meeting ? <><CalendarPlus size={14} /> <span className="btn-lbl">{t("compose.bar.sendInvite")}</span></> : <><Send size={14} /> <span className="btn-lbl">{t("compose.bar.send")}</span></>}
           </button>
           <button
             className="btn primary split-caret"
@@ -2282,7 +2420,7 @@ function ComposeBody({ init }: { init: ComposeInit }) {
           </Dropdown>
         )}
         <div className="grow" />
-        {!init.outboxId && !composeSeam() && (
+        {!composeSeam() && (
           <button className="icon-btn" data-fit="fixed" aria-label={t("compose.popout.popOut")} title={kbd(t("compose.popout.popOutTip"))} onClick={() => void popOut()}>
             <ExternalLink size={16} />
           </button>

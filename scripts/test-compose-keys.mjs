@@ -26,6 +26,20 @@ assert.equal(keyAction(ev("k", "m"), other), "command-bar", "Cmd+K (Mac) outside
 assert.equal(keyAction(ev("k", ""), body), "pass", "plain k is a letter");
 assert.equal(keyAction(ev("k", ""), other), "pass", "plain k outside the editor is the list shortcut (previous), not ours");
 
+// --- W2.14: Ctrl/Cmd+Shift+K is the command bar from anywhere, the body and the signature / template editors included ----------------
+for (const m of ["cs", "ms"]) {
+  assert.equal(keyAction(ev("K", m), body), "command-bar", `${m}+K in the body`);
+  assert.equal(keyAction(ev("k", m), body), "command-bar", `${m}+k (Caps Lock off) in the body`);
+  assert.equal(keyAction(ev("K", m), other), "command-bar", `${m}+K in a field / the list`);
+}
+assert.equal(keyAction(ev("k", "cas"), body), "editor-skip", "Ctrl+Alt+Shift+K is AltGr+Shift+K: it types its character");
+assert.equal(keyAction(ev("K", "cas", true), body), "editor-skip", "AltGr+Shift+K (German / Polish layouts) in the body");
+assert.equal(keyAction(ev("K", "cas", true), other), "pass", "AltGr+Shift+K elsewhere opens nothing");
+assert.equal(keyAction(ev("K", "mas"), body), "editor-skip", "Cmd+Option+Shift+K on a Mac: the Cmd+Option guard");
+assert.equal(keyAction(ev("k", "s"), body), "pass", "Shift+K is a capital letter");
+assert.equal(keyAction(ev("k", "c"), body), "insert-link", "Ctrl+K keeps its two meanings: the link in an editor ...");
+assert.equal(keyAction(ev("k", "c"), other), "command-bar", "... the command bar elsewhere (the To field too)");
+
 // --- D-1: Ctrl/Cmd+Shift+B is the app's Show Bcc; the editor's block quote shortcut must not run ----------------------------------
 assert.equal(keyAction(ev("B", "cs"), body), "editor-skip");
 assert.equal(keyAction(ev("b", "cs"), body), "editor-skip");
@@ -91,6 +105,12 @@ for (const [k, m] of [["c", "cs"], ["p", "cs"], ["e", "cs"], ["g", "cs"], ["1", 
   const bold = dom("b", "c");
   assert.equal(h(null, bold), false, "Ctrl+B is left to the editor");
   assert.equal(linked, 1);
+  // Ctrl+Shift+K: the editor does not make a link and does not stop the key, which goes on to the page (App.tsx opens the command bar; a compose window has none
+  // and types nothing: the key has no character)
+  const bar = dom("K", "cs");
+  assert.equal(h(null, bar), false, "Ctrl+Shift+K is not the editor's");
+  assert.equal(bar.prevented, false);
+  assert.equal(linked, 1, "no link UI");
 }
 assert.equal(inEditable(null), false);
 assert.equal(inEditable({}), false, "not an element");
@@ -107,6 +127,37 @@ assert.match(rich, /link: \{ open: \(\) => linkRef\.current\(\)/, "the signature
 assert.match(compose, /if \(isAltGraph\(e\)\) return;/, "the compose pane shortcuts ignore AltGr");
 assert.match(app, /keyAction\(e, \{ inEditor: inEditable\(e\.target\) \}\)/, "the global Ctrl+K decision knows if an editor has the focus");
 assert.doesNotMatch(app, /e\.key\.toLowerCase\(\) === "k"\) \{\s*e\.preventDefault\(\);\s*st\.setCommandOpen/, "no unconditional Ctrl+K command bar");
+// W2.14: the global handler opens the command bar for the key and the bar gives the focus back where it was (the editor through TipTap: the selection is as it was)
+assert.match(app, /if \(ka === "command-bar"\) \{\s*e\.preventDefault\(\);\s*st\.setCommandOpen\(true\);/, "App.tsx opens the command bar for the command-bar action, in or out of an editor");
+const bar = read("src/components/CommandBar.tsx");
+assert.match(bar, /const from = useRef<Element \| null>\(typeof document === "undefined" \? null : document\.activeElement\);/, "the bar remembers where the focus was");
+assert.match(bar, /closest\("\.tiptap"\)/, "...and puts an editor back through TipTap");
+assert.match(bar, /else if \(e\.key === "Escape"\) close\(\);/, "Esc gives the focus back");
+// W2.13 / W2.14: Settings > Shortcuts lists the keys the compose pane and the app own. Every key of `keyAction` and of the compose pane handler has a row (the list below is that set).
+const settings = read("src/components/SettingsDialog.tsx");
+const rows = settings.slice(settings.indexOf("function ShortcutsTab()"), settings.indexOf("function ShortcutsTab()") + 6000);
+for (const [keys, label] of [
+  ["Ctrl+Shift+C / Ctrl+Shift+B", "settings.keys.addCcBcc"],  // W2.13: Show Cc / Bcc while writing
+  ["Ctrl+Shift+K", "settings.keys.commandBarAnywhere"],          // W2.14
+  ["Ctrl+K", "settings.keys.commandBar"],
+  ["Ctrl+K", "settings.keys.insertLink"],
+  ["Ctrl+Enter", "settings.keys.send"],
+  ["Ctrl+Shift+Enter", "settings.keys.sendLater"],
+  ["Ctrl+Shift+P", "settings.keys.insertPicture"],
+  ["Ctrl+Shift+E", "settings.keys.encrypt"],
+  ["Ctrl+Shift+G", "settings.keys.sign"],
+  ["Ctrl+Shift+O", "settings.keys.popOutCompose"],
+  ["Alt+F10", "settings.keys.focusToolbar"],
+]) assert.ok(rows.includes(`["${keys}", "${label}"]`), `Settings > Shortcuts has no row ${keys} / ${label}`);
+assert.ok(rows.indexOf('"settings.keys.sign"') < rows.indexOf('"settings.keys.addCcBcc"') && rows.indexOf('"settings.keys.addCcBcc"') - rows.indexOf('"settings.keys.sign"') < 80, "the Cc / Bcc row follows the Sign row");
+assert.ok(rows.indexOf('"settings.keys.commandBar"') < rows.indexOf('"settings.keys.commandBarAnywhere"') && rows.indexOf('"settings.keys.commandBarAnywhere"') - rows.indexOf('"settings.keys.commandBar"') < 80, "the Ctrl+Shift+K row is next to the Ctrl+K command bar row");
+// the keys the compose pane handler acts on are the ones with rows above
+for (const re of [/key\.toLowerCase\(\) === "c" \|\| \(e\.key\.toLowerCase\(\) === "b"/, /e\.key\.toLowerCase\(\) === "g"/, /e\.key\.toLowerCase\(\) === "o"/]) assert.match(compose, re);
+for (const l of ["en", "vi", "fr", "de", "es", "ja", "ru", "zh-Hans"]) {
+  const f = ["en", "vi", "fr"].includes(l) ? "src/i18n/ns/settings.ts" : `src/i18n/locales/${l}/settings.ts`;
+  const t = read(f);
+  assert.ok(t.includes('"settings.keys.addCcBcc"') && t.includes('"settings.keys.commandBarAnywhere"'), `${l} has both texts`);
+}
 // Settings > Shortcuts keeps documenting Ctrl+K as the command bar; the Bcc tooltip documents Ctrl+Shift+B
 assert.match(read("src/i18n/ns/compose.ts"), /"compose\.addBcc": "Add Bcc \(Ctrl\+Shift\+B\)"/);
 

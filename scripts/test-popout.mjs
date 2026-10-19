@@ -5,7 +5,7 @@
 import assert from "node:assert/strict";
 import { readFileSync, readdirSync } from "node:fs";
 import { isPopout, popoutDevEnabled, popoutTitle, routeOf } from "../src/popout/route.ts";
-import { answerKey, draftKey, opensInWindow, shiftOnly } from "../src/popout/entry.ts";
+import { answerKey, draftKey, opensInWindow, outboxKey, shiftOnly } from "../src/popout/entry.ts";
 import { MODIFIER_WINDOW_MS, noteInput, resetModifier, shiftNow } from "../src/popout/modifier.ts";
 import { closeAction, composeFlush, GRACE_MS, runClose, secondsLeft, START, step, UNDO_SETTLE_MS } from "../src/popout/composeWindow.ts";
 import { carryToasts, parseComposeRequest } from "../src/popout/composeRequests.ts";
@@ -494,6 +494,23 @@ assert.equal(draftKey("t9"), "draft:t9");
   // no Undo time: the window is gone at once (parked) and ends when the send has gone
   r = run([{ t: "handoff", wait: 0, now: T }, { t: "sends", n: 1, now: T }, { t: "sends", n: 0, now: T + 200 }, { t: "grace", now: T + 200 + GRACE_MS }], START);
   assert.deepEqual(r.fx, ["park", "grace", "destroy"]);
+  // W13.1: a SEND keeps the editor on screen, locked: with or without an Undo time nothing is hidden, and the window ends when the server has answered
+  r = run([{ t: "handoff", wait: 10, now: T, lock: true }]);
+  assert.equal(r.s.phase, "count");
+  assert.equal(r.s.parked, false);
+  assert.deepEqual(r.fx, [], "locked, nothing hidden");
+  r = run([{ t: "handoff", wait: 0, now: T, lock: true }, { t: "sends", n: 1, now: T }, { t: "sends", n: 0, now: T + 200 }, { t: "grace", now: T + 200 + GRACE_MS }], START);
+  assert.deepEqual(r.fx, ["grace", "destroy"], "Undo send off: no park (the window stays on screen, locked); it ends when the send is over");
+  assert.equal(r.s.parked, false);
+  // Undo: the SAME editor is unlocked (the "reopen" event: phase edit, nothing ended, nothing re-created by the machine)
+  r = run([{ t: "handoff", wait: 10, now: T, lock: true }, { t: "undo-offer" }, { t: "sends", n: 1, now: T }, { t: "undo-start", now: T + 3_000 }, { t: "sends", n: 0, now: T + 3_001 }, { t: "reopen" }, { t: "grace", now: T + 3_001 + GRACE_MS }], START);
+  assert.equal(r.s.phase, "edit");
+  assert.deepEqual(r.fx.filter((x) => x === "destroy" || x === "park"), [], "an Undo ends nothing and hides nothing");
+  // a failed send of a window that the person closed during the send (parked): it comes forward, unlocked
+  r = run([{ t: "handoff", wait: 10, now: T, lock: true }, { t: "close" }, { t: "sends", n: 1, now: T }, { t: "tick", now: T + 10_000 }, { t: "reopen" }, { t: "sends", n: 0, now: T + 10_500 }], START);
+  assert.deepEqual(r.fx, ["park", "show"]);
+  assert.equal(r.s.phase, "edit");
+  assert.equal(r.s.parked, false);
   // a message that was only saved, discarded or closed: the window ends at once
   assert.deepEqual(run([{ t: "end" }]).fx, ["destroy"]);
   // the person closes the window while it counts down: out of sight, still running, once
@@ -511,6 +528,9 @@ assert.equal(draftKey("t9"), "draft:t9");
   const f = (o) => ({ phase: "edit", dirty: false, hasContent: false, attaching: false, ...o });
   assert.equal(closeAction(f({})), "end", "nothing changed");
   assert.equal(closeAction(f({ dirty: true })), "end", "typed and deleted again: nothing to keep");
+  // W13.5: `hasContent` here is the probe's draftContent: a message with only recipients typed is dirty but has none, so it ends without a question
+  assert.equal(closeAction(f({ dirty: true, hasContent: false })), "end", "recipients only (draftContent false): the window closes, no question");
+  assert.equal(closeAction(f({ dirty: true, hasContent: false, attaching: true })), "attaching", "files still coming in are waited for before it is decided");
   assert.equal(closeAction(f({ dirty: false, hasContent: true })), "end", "saved already (an autosave) or opened as it is");
   assert.equal(closeAction(f({ dirty: true, hasContent: true })), "ask");
   assert.equal(closeAction(f({ dirty: true, hasContent: true, attaching: true })), "attaching", "files still coming in");
@@ -568,6 +588,11 @@ assert.equal(draftKey("t9"), "draft:t9");
   m.d.emptied = async () => void m.log.push("emptied");
   assert.equal(await runClose(m.d), "ended");
   assert.deepEqual(m.log, ["emptied", "end"], "no question, the saved copy is dropped, then the window ends");
+  // W13.5: the same for a window with only recipients: no question, no save, the snapshot and any autosaved copy go
+  m = make(f({ dirty: true, hasContent: false }), { ask: "save", save: true });
+  m.d.emptied = async () => void m.log.push("emptied");
+  assert.equal(await runClose(m.d), "ended");
+  assert.deepEqual(m.log, ["emptied", "end"], "a recipients-only window: neither asks nor saves");
   m = make(f({}), {});
   m.d.emptied = async () => void m.log.push("emptied");
   assert.equal(await runClose(m.d), "ended");
@@ -602,6 +627,7 @@ assert.equal(draftKey("t9"), "draft:t9");
         phase: () => o.phase ?? "edit",
         dirty: () => !!o.dirty,
         hasContent: () => o.hasContent ?? true,
+        ...(o.emptied ? { emptied: async () => void log.push("emptied") } : {}),
         save: async () => (log.push("save"), o.save ?? true),
         ask: async (why) => (log.push(`ask:${why}`), o.answer ?? "keep"),
         showWindow: () => log.push("show"),
@@ -620,6 +646,18 @@ assert.equal(draftKey("t9"), "draft:t9");
   m = make({ dirty: true, hasContent: false });
   assert.equal(await composeFlush(m.d, "quit"), true);
   assert.deepEqual(m.log, [], "typed and deleted: no empty draft");
+  // W13.5: quit and update restart with only recipients typed: no draft, no question; the snapshot and the autosaved copy of a new message go
+  for (const why of ["quit", "update"]) {
+    m = make({ dirty: true, hasContent: false, emptied: true });
+    assert.equal(await composeFlush(m.d, why), true);
+    assert.deepEqual(m.log, ["emptied"], `${why}: recipients only is closed silently`);
+  }
+  m = make({ dirty: false, hasContent: false, emptied: true });
+  assert.equal(await composeFlush(m.d, "quit"), true);
+  assert.deepEqual(m.log, [], "not changed: nothing to drop");
+  m = make({ dirty: true, hasContent: true, emptied: true });
+  await composeFlush(m.d, "quit");
+  assert.deepEqual(m.log, ["save"], "draft content: saved as before, nothing emptied");
   m = make({ dirty: true, save: false, answer: "keep" });
   assert.equal(await composeFlush(m.d, "quit"), false, "Keep writing cancels the whole quit");
   assert.deepEqual(m.log, ["save", "show", "dialog:true", "ask:quit", "dialog:false"]);
@@ -684,16 +722,35 @@ assert.equal(draftKey("t9"), "draft:t9");
   assert.ok(view.includes("emptied: async () => void (await st.getState().composeEnd?.({ emptied: true }))"), "an emptied message drops the copy an autosave made before the window ends (W2.3)");
   assert.ok(view.includes("api.popoutDestroy()") && view.includes("api.popoutPark()"));
   assert.ok(view.includes("registerFlushHandler(") && view.includes("composeFlush("), "a quit and an update restart ask the window");
+  // W13.5: closing and quitting go by the draft rule (a recipients-only message is neither saved nor asked about), not by the crash snapshot's
+  assert.ok(view.includes("hasContent: !!p?.draftContent") && view.includes("hasContent: () => !!st.getState().composeProbe?.().draftContent"), "the window closes and flushes by draftContent");
+  assert.ok(!/composeProbe\?\.\(\)\.hasContent|p\?\.hasContent/.test(view), "no path of the window goes by the snapshot's hasContent");
+  assert.ok(view.includes("emptied: async () => void (await st.getState().composeEnd?.({ emptied: true }))"), "a quit with nothing worth a draft drops the snapshot and the autosaved copy");
   assert.ok(view.includes("<PassphraseHost />") && view.includes("<GuardMenuHost />"), "the passphrase question and the in-app menu are drawn in this window");
   // the store actions that mean something else in a window are replaced before Compose is drawn
   for (const a of ["openCompose:", "sync:", "refresh:", "setDialog:", "showToast:"]) assert.ok(view.includes(a), a);
   assert.ok(view.indexOf("setReady(true)") > view.indexOf("openCompose:"), "Compose is drawn after the actions are replaced");
   // Compose.tsx: the seam is the only difference, and the main window (no seam) behaves as before
-  assert.equal(compose.match(/composeSeam\(\)/g).length, 10, "the places where Compose asks the seam (two of them: a message scheduled in a window is announced by the main window, which owns the outbox)");
+  assert.equal(compose.match(/composeSeam\(\)/g).length, 16, "the places where Compose asks the seam (two of them: a message scheduled in a window is announced by the main window, which owns the outbox; two for the draft the pane shows, W2.11; one tells a window that the scheduled message it holds paused is handled, W2.10; three for the lock of a send, W13.1)");
   assert.ok(compose.includes("composeSeam()?.scheduled(") && view.includes("scheduled: (outboxId, sendAt) => notifyMain(\"scheduled\""), "Scheduled for ... with Undo and View comes from the main window");
   assert.ok(compose.includes("openCompose(null, { sending: wait })") && compose.includes("openCompose(null, { sending: 0 })"), "a send hands the message over, it does not end it");
-  assert.ok(compose.includes('else showToast(() => t("compose.toast.sending"), undoSend, "info")'), "the main window still has the Undo toast");
-  assert.ok(compose.includes("if (init.outboxId || composeSeam() || busy) return;"), "no pop-out of a scheduled message or from a window");
+  assert.ok(compose.includes('else showToast(() => t("compose.toast.sending"), undoSend, "info", undefined, wait * 1000)'), "the main window has the Undo toast, as long as the message is held (W13.1)");
+  // W13.1: a window keeps the editor on screen while it sends: locked, one toast, unlocked in place on Undo or a failure; no card, no unmounting
+  assert.ok(compose.includes("if (composeSeam()) lockForSend(wait);") && compose.includes("else void openCompose(null, { sending: wait });"), "a send in a window locks the editor, the pane closes as before");
+  assert.ok(compose.includes("if (lockedRef.current) return unlock(d);"), "Undo and a failed send unlock the same editor (reopen in a window that is locked)");
+  assert.ok(compose.includes("inert={locked || undefined}") && compose.includes("aria-busy={locked || undefined}"), "locked = inert and aria-busy");
+  assert.ok(compose.includes("if (lockedRef.current) return; // (a draft of a message that is in the outbox would stay behind)") && compose.includes("if (lockedRef.current) return; // (the message is on its way"), "no autosave and no snapshot of a message that is being sent");
+  assert.ok(compose.includes("setTo(d.to);") && compose.includes("if (d.security && !d.security.encrypt && encIntent !== \"off\") setEncIntent(\"off\");"), "what the send questions changed is applied to the unlocked editor");
+  assert.ok(compose.includes("touch();\n    composeSeam()?.unlock();"), "the unlocked message counts as changed");
+  assert.ok(compose.includes("el.focus({ preventScroll: true })") && compose.includes("scrollsWas.current"), "the focus and the scroll position come back");
+  assert.ok(!view.includes("popout-sending") && !view.includes("closesWhenSent") && !read("src/App.css").includes(".popout-sending"), "the Sending card is gone");
+  assert.ok(view.includes("{ready && editor && <Compose key={editor.n} init={editor.init} />}") && !view.includes('win.phase === "edit" && <Compose'), "the editor is drawn in every phase");
+  assert.ok(view.includes('lock: (wait) => dispatchRef.current({ t: "handoff", wait, now: Date.now(), lock: true })') && view.includes('unlock: () => dispatchRef.current({ t: "reopen" })'), "the seam");
+  assert.ok(view.includes("setStickyToast(SEND_TOAST") && view.includes('readAs: () => tNow("compose.toast.sending")') && view.includes('compose.popout.sending'), "one toast, in place, read once");
+  assert.ok(read("src/store.ts").includes("const ttl = ttlMs ?? (undo ?"), "showToast takes the time a toast stays");
+  assert.ok(compose.includes("if (composeSeam() || busy) return;"), "no pop-out from a window (a scheduled message pops out like any other, W2.10)");
+  assert.ok(compose.includes('openPopout("compose", key, moved)') && compose.includes('const key = init.outboxId ? outboxKey(init.outboxId) :') && compose.includes("if (init.outboxId) savedRef.current = true;"), "a scheduled message moves to a window keyed outbox:<id> and the pane does not release its pause as it closes");
+  assert.ok(!compose.includes("!init.outboxId && !composeSeam() && (") && !compose.includes('"o" && !init.outboxId'), "the Pop out button and Ctrl+Shift+O are there for a scheduled message too");
   assert.ok(compose.includes('e.key.toLowerCase() === "o"') && compose.includes("compose.popout.popOutTip"), "Ctrl+Shift+O and the button");
   assert.ok(compose.includes("init.recoveryId || init.carried"), "a moved message counts as changed");
   // ... but only one that is changed: a pane as it was opened moves as it is (no question, no autosave in the window, nothing written; 1.0.7 WP2a QA BUG-2), and a
@@ -702,7 +759,7 @@ assert.equal(draftKey("t9"), "draft:t9");
   assert.ok(compose.includes('useRef<string | null>(openedDraft && init.replaces && !init.replaces.startsWith("m:") ? init.replaces : null)'), "the window starts with the draft the pane saved");
     // a pane that is moved to a window gives it the key of the draft (the one a save of the pane made, else the one it was opened from): the draft is open in one editor only
   // from the moment the window exists (1.0.7 WP2a retest BUG-2); and Save draft builds from the pane as it is NOW (retest BUG-1, the signature that arrives after the first draw)
-  assert.ok(compose.includes("const key = savedTid.current ? draftKey(savedTid.current) : init.draftKey ?? null;") && compose.includes('openPopout("compose", key, moved)'), "Pop out passes the draft's key");
+  assert.ok(compose.includes("const key = init.outboxId ? outboxKey(init.outboxId) : savedTid.current ? draftKey(savedTid.current) : init.draftKey ?? null;") && compose.includes('openPopout("compose", key, moved)'), "Pop out passes the draft's key");
   assert.ok(compose.includes("draftKey: key, // (a Pop out of this pane gives the window this key"), "openDraftThread hands the key to the message");
   assert.ok(compose.includes("const d = buildDraftRef.current();") && compose.includes("buildDraftRef.current = buildDraft;"), "Save draft builds from the current pane");
 { const lib = read("src-tauri/src/lib.rs"); assert.ok(lib.includes("async fn discard_draft_changes(app: tauri::AppHandle,") && lib.includes("sync_drafts_after_restore(&app, &db, &acc.id)") && lib.includes("let _ = app.emit(\"mail-synced\", ());"), "after the opened version is put back the backend reads Drafts again and every window re-reads"); }
@@ -724,6 +781,54 @@ assert.equal(draftKey("t9"), "draft:t9");
   const list = read("src/components/MessageList.tsx");
   assert.ok(list.includes('rowWindowTarget(folder, it.t.folder) === "draft" ? () => void openDraftInWindow('), "double click / Shift+Enter on a draft");
   assert.ok(compose.includes("if (await focusDraftWindow(key)) return true;") && compose.includes("if (mine !== latestDraftOpen) return false;"));
+  // W2.11: ONE check for every entry point, in openDraftThread, before anything is read: the draft the pane shows gets the focus and nothing else opens
+  {
+    const open = compose.slice(compose.indexOf("export async function openDraftThread("), compose.indexOf("/** The positions of the pictures of the body"));
+    const at = (needle) => { const i = open.indexOf(needle); assert.ok(i >= 0, needle); return i; };
+    assert.ok(at("if (inlineHasDraft(threadId)) return focusInlineEditor();") < at("if (await focusDraftWindow(key))") && at("focusDraftWindow(key)") < at("api.getThread("), "the pane is asked first, before a window and before the draft is read");
+    assert.ok(compose.includes("noteInlineDraft(tid);"), "a save makes its new conversation the pane's too (an autosave replaces the draft)");
+    assert.ok(compose.includes("return !composeSeam() && !!st.compose && !!inlineDraft && inlineDraft.composeKey === st.composeKey && inlineDraft.tids.has(threadId);"), "a window has no pane");
+    assert.ok(list.includes("if (!inlineHasDraft(t.threadId) && !wantsWindow({ shift }) && !(await useStore.getState().leaveCompose())) return;"), "a click on the row of the draft in the pane does not leave the pane first");
+    // every other way to a draft ends in openDraftThread (the toast's Edit, the crash restore, the hub's Edit; Shift+Enter and the menu go through openDraftInWindow)
+    assert.ok(read("src/composeRecovery.ts").includes("openDraftThread(threadId, true, o)") && read("src/popout/composeHub.ts").includes("openDraftThread(p.threadId, true)") && compose.includes("void openDraftThread(tid, true)"));
+    assert.ok(compose.includes("return openDraftThread(threadId, false, { window: true });"), "openDraftInWindow asks the same check");
+    for (const f of ["src/components/CommandBar.tsx", "src/components/ListContextMenu.tsx", "src/components/Ribbon.tsx", "src/App.tsx"]) assert.ok(!read(f).includes("api.getThread(") || !read(f).includes("startCompose"), `${f} opens a draft by itself`);
+  }
+  // W2.10: Edit in the Scheduled list is a way of starting a message like the others, and a second Edit focuses the editor that has it
+  {
+    const sl = read("src/components/ScheduledList.tsx");
+    assert.ok(sl.includes("}, { shift, key });") && sl.includes("startCompose({") && !sl.includes("openCompose("), "the Scheduled list starts the message through startCompose with an outbox: key");
+    assert.ok(sl.indexOf("focusInlineEditor()") < sl.indexOf("focusDraftWindow(key)") && sl.indexOf("focusDraftWindow(key)") < sl.indexOf("api.outboxOpenForEdit("), "an editor that has the message is asked before the message is paused for edit");
+    assert.ok(sl.includes("api.outboxRelease(o.id)"), "a message that could not be shown goes back to its schedule");
+    assert.equal(outboxKey("ob1"), "outbox:ob1");
+    const view = read("src/popout/ComposeView.tsx");
+    assert.ok(view.includes("scheduled: held.current !== null") && view.includes("compose.leave.scheduledTitle") && view.includes("void releasePause().then(() => api.popoutDestroy()"), "the window asks the scheduled question and releases the pause as it ends");
+    assert.ok(view.includes("scheduledHandled: () => {") && compose.includes("composeSeam()?.scheduledHandled();"), "a rescheduled / sent / deleted / moved message is not released");
+    assert.ok(compose.includes("const done = beginSend(); // (a window ends when the last send of it is over)") && compose.includes("void openCompose(null, { sending: 0 }); // (a window waits for the send under way before it ends)"), "Schedule and Send now count as a send, so the window waits and ends");
+    const cap = JSON.parse(read("src-tauri/capabilities/popout.json")).permissions;
+    for (const c of ["allow-outbox-open-for-edit", "allow-outbox-update", "allow-outbox-release", "allow-outbox-to-draft", "allow-cancel-outbox", "allow-outbox-send-now"]) assert.ok(cap.includes(c), c);
+    // the close table of a scheduled message
+    const f = (o) => ({ phase: "edit", dirty: false, hasContent: true, attaching: false, scheduled: true, ...o });
+    assert.equal(closeAction(f({})), "end", "nothing changed: closes, the schedule stays");
+    assert.equal(closeAction(f({ hasContent: false })), "end");
+    assert.equal(closeAction(f({ dirty: true })), "ask-scheduled", "changed: asked, whatever the content");
+    assert.equal(closeAction(f({ dirty: true, hasContent: false })), "ask-scheduled");
+    assert.equal(closeAction(f({ dirty: true, attaching: true })), "attaching");
+    assert.equal(closeAction(f({ phase: "work", dirty: true })), "park");
+    const log = [];
+    const d = (answer) => ({ facts: () => f({ dirty: true }), ask: async () => (log.push("ask"), "save"), save: async () => (log.push("save"), true), askFailed: async () => "keep", discard: async () => void log.push("discard"), askScheduled: async () => (log.push("askScheduled"), answer), park() {}, end: () => void log.push("end"), attaching() {}, savedDraft: () => void log.push("savedDraft") });
+    assert.equal(await runClose(d("keep")), "cancelled");
+    assert.deepEqual(log.splice(0), ["askScheduled"], "Keep editing keeps everything: nothing saved, nothing ended");
+    assert.equal(await runClose(d("discard")), "discarded");
+    assert.deepEqual(log.splice(0), ["askScheduled", "end"], "Discard: the window ends (and releases the pause); no draft is saved, nothing is put back");
+    // quit and update restart: changes are not saved, the pause is released, the schedule stays
+    const fl = [];
+    const fd = { phase: () => "edit", dirty: () => true, hasContent: () => true, scheduled: () => true, release: async () => void fl.push("release"), save: async () => (fl.push("save"), true), ask: async () => "keep", showWindow() {}, dialog() {}, discarded: async () => void fl.push("discarded"), flushSends: async () => void fl.push("flushSends") };
+    assert.equal(await composeFlush(fd, "quit"), true);
+    assert.deepEqual(fl, ["release"]);
+  }
+  // W2.12: a window answers to every key it was given (the registry keeps the reply key after a save)
+  { const reg = read("src-tauri/src/popout.rs"); assert.ok(reg.includes("fn a_window_keeps_its_answer_key_after_a_save()") && reg.includes("pub keys: Vec<String>,") && reg.includes("keys: key.map(String::from).into_iter().collect()"), "popout.rs holds a list of keys"); }
   // the crash restore: a message written in a window comes back in one
   const rec = read("src/recovery.ts");
   assert.ok(rec.includes("inWindow: snapshotInWindow(l)") && rec.includes("const window = k.inWindow || undefined") && compose.includes("win: true as const"));

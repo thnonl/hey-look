@@ -123,7 +123,7 @@ ui-a | node scripts/test-ai-guide.mjs --quick --require-browser
 ui-a | node scripts/test-settings-layout.mjs --quick --require-browser
 # the attachment preview and the picture viewer are on top of the whole window, in the main window and in the reader window
 ui-a | node scripts/test-preview-layer.mjs --quick --require-browser
-# the compose pane at the smallest sizes: formatting row and body always in view, the header scrolls, Tab order and popovers, the labelled action row is one row in de and ru with the rest in More actions (twelve of the combinations, with Meeting on at 946 x 552, in a 308 px pane and in a window 80 px lower than the least one; the full run is `node scripts/test-compose-fit.mjs`, about 8 minutes, 91 combinations)
+# the compose pane at the smallest sizes: formatting row and body always in view, the header scrolls, Tab order and popovers, the labelled action row is one row in de and ru with the rest in More actions (thirteen of the combinations, with Meeting on at 946 x 552, in the 308 px pane next to the list when the list is asked for (the list is hidden below 1100 px while writing, W2.26) and in a window 80 px lower than the least one, Shift+Tab back from Where included; the full run is `node scripts/test-compose-fit.mjs`, about 8 minutes, 91 combinations)
 ui-a | node --experimental-strip-types scripts/test-compose-fit.mjs --quick --require-browser
 # an open compose shows the placeholder and the accessible name of the body, and an open signature / template editor its accessible name, in the language in use after a language switch (and back); typed text and undo survive
 ui-a | node scripts/test-placeholder-lang.mjs --require-browser
@@ -192,6 +192,8 @@ static | node scripts/check-bundle-budget.mjs --selftest
 static | node scripts/test-source-chars.mjs
 # the UI test harness gives every test its own dev server and browser on ports the program bound itself: two harnesses started together with the same starting ports get different servers and cannot see each other's page
 ui-a | node scripts/test-harness-isolation.mjs --require-browser
+# a message with nothing worth a draft (only recipients) is never saved: the autosave timer fires and not one save_draft call is made, leaving, Discard, X, quit and Save draft write nothing and ask nothing; a subject, text, a file, a meeting place or a reply with text still make a draft (main window and compose window)
+ui-a | node scripts/test-empty-draft.mjs --require-browser
 # the own Reply-To of a mailbox: what the Settings field accepts (empty or one bare address, no name part, no list) and that the command, the row, the migration and both message builders are wired (the header itself: `cargo test --lib`)
 static | node --experimental-strip-types scripts/test-reply-to.mjs
 # Settings > mailbox > Reply-to address in the dev preview: saved when the field is left, an invalid text shows "Enter a valid email address" and leaves the old value, empty clears it, not shown for All accounts, label and hint fit at 960 x 560 in 8 languages
@@ -200,3 +202,11 @@ ui-a | node scripts/test-reply-to-setting.mjs --require-browser
 ui-a | node scripts/test-chip-drag.mjs --require-browser
 # a refused send reads as a sentence with the server's words as the detail (store.ts friendlyError, the 8 languages)
 static | node --experimental-strip-types scripts/test-send-error-text.mjs
+# a scheduled message edited in a compose window: the banner and bar, X with and without a change (the pause is released, the schedule stays), Schedule / Send now / Discard choices, Pop out of a scheduled message from the pane, Scheduled > Edit follows the setting and a second Edit focuses the editor that has it
+ui-b | node scripts/test-popout-scheduled.mjs --require-browser
+# sending from a compose window keeps the compose on screen (W13.1): locked (inert, "Sending..." on the Send button), one toast "Sending... n s" with Undo that has the focus, Undo unlocks the SAME editor (marker, text, scroll position, focus), the time over = "Sending..." without Undo then the window ends, Undo send off, a failed send, X during the send, Ctrl+Z while locked, and the main window's Undo toast lasting the Undo send time
+ui-b | node scripts/test-popout-send.mjs --require-browser
+# Ctrl+Shift+K opens the command bar from anywhere (real key events): in the body with a selection (Esc gives the focus and the selection back, no link), from Subject and To, Ctrl+K unchanged (link in the body, command bar in To), AltGr+Shift+K opens nothing
+ui-b | node scripts/test-command-bar-key.mjs --require-browser
+# the message pane is not squeezed next to the list in a window narrower than 1100 px (W2.26): the pure rule, the hidden/inert list at 946 x 552, the way back (a folder pressed, a search, Ctrl+1, the message closed, the window widened), 1280 x 800 unchanged, reading pane below and the Calendar unchanged
+ui-b | node scripts/test-compose-narrow.mjs --require-browser

@@ -3,17 +3,17 @@
 // with unsaved changes asks. Behaviour of src/leaveCompose.ts.
 // Run: node --experimental-strip-types scripts/test-leave-compose.mjs
 import assert from "node:assert/strict";
-import { leaveCompose, MAX_SAVES } from "../src/leaveCompose.ts";
+import { leaveCompose, MAX_SAVES, nothingToKeep } from "../src/leaveCompose.ts";
 
 /** A fake pane: `s` is its state, `log` the order things happened in. */
 function pane(over = {}) {
-  const s = { open: true, scheduled: false, dirty: true, hasContent: true, attaching: false, rev: 1, saveResult: true, attachResult: true, answer: "keep", typeDuringSave: 0, ...over };
+  const s = { open: true, scheduled: false, dirty: true, hasContent: true /* worth a draft (draftContent) */, recipientsOnly: false, attaching: false, rev: 1, saveResult: true, attachResult: true, answer: "keep", typeDuringSave: 0, emptyDuringSave: false, ...over };
   const log = [];
   const env = {
     open: () => s.open,
     scheduled: () => s.scheduled,
     dirty: () => s.dirty,
-    probe: () => ({ hasContent: s.hasContent, attaching: s.attaching, rev: s.rev }),
+    probe: () => ({ hasContent: s.hasContent || s.recipientsOnly, draftContent: s.hasContent, attaching: s.attaching, rev: s.rev }),
     attached: async () => {
       log.push("wait-files");
       if (s.attachResult) s.attaching = false;
@@ -23,6 +23,7 @@ function pane(over = {}) {
       log.push("save");
       if (s.typeDuringSave > 0) {
         s.typeDuringSave--;
+        if (s.emptyDuringSave) s.hasContent = false; // ... and deleted everything again
         s.rev++; // the person typed while the draft was on its way
         s.dirty = true;
       } else if (s.saveResult === true) s.dirty = false;
@@ -67,6 +68,17 @@ function pane(over = {}) {
   assert.ok(!p.log.includes("drop-copy"));
 }
 
+// 3c. W13.5: only recipients typed (the local snapshot has content, a draft does not): closes with no question and no save, the copy an autosave made goes
+{
+  const p = pane({ dirty: true, hasContent: false, recipientsOnly: true });
+  assert.deepEqual(await leaveCompose(p.env), { kind: "closed", why: "empty" });
+  assert.deepEqual(p.log, ["drop-copy", "close"], "no save, no draft");
+  assert.equal(nothingToKeep(p.env.probe()), true);
+  assert.equal(nothingToKeep(pane({ hasContent: true }).env.probe()), false, "text: something to keep");
+  assert.equal(nothingToKeep(pane({ hasContent: false, attaching: true }).env.probe()), false, "files still coming in: not decided yet");
+  assert.equal(nothingToKeep(null), false, "no pane to ask");
+}
+
 // 4. something written: saved first, then closed (the order matters: nothing is lost if the save never comes back)
 {
   const p = pane();
@@ -97,6 +109,12 @@ function pane(over = {}) {
   const p = pane({ typeDuringSave: 1 });
   assert.equal((await leaveCompose(p.env)).kind, "saved");
   assert.deepEqual(p.log, ["save", "save", "close"]);
+}
+// W13.5: ... but everything was deleted again during the save: no second save (it would be refused: nothing to save), the copy the first one made goes, closed
+{
+  const p = pane({ typeDuringSave: 1, emptyDuringSave: true });
+  assert.deepEqual(await leaveCompose(p.env), { kind: "closed", why: "empty" });
+  assert.deepEqual(p.log, ["save", "drop-copy", "close"]);
 }
 // ... and a person who keeps typing through every save is not cut off: the pane stays
 {

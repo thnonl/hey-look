@@ -687,6 +687,8 @@ let mockAiCalls = 0;
 /** the job ids the page cancelled (ai_cancel): a dev check can read them from window.__mockAiCancelled */
 const mockSecrets = new Map<string, string>(); // the AI key saved in Settings (the real one is in the OS credential store)
 const mockAiCancelled: string[] = ((window as unknown as { __mockAiCancelled?: string[] }).__mockAiCancelled = []);
+/** Every call about a scheduled message is logged for checks: window.__outboxCalls = [{ cmd, id }] */
+const logOutbox = (cmd: string, a: Record<string, unknown>) => ((window as unknown as { __outboxCalls?: unknown[] }).__outboxCalls ??= []).push({ cmd, id: a.id });
 const hashHas = (k: string) => new RegExp(`(^|&)${k}(=|&|$)`).test(window.location.hash.slice(1));
 const hashNum = (k: string, d: number) => {
   const m = new RegExp(`(^|&)${k}=(\\d+)`).exec(window.location.hash.slice(1));
@@ -1186,6 +1188,7 @@ export function installMock() {
       case "list_outbox": return mockOutbox;
       case "outbox_pending_count": return { count: mockOutbox.filter((o) => o.status !== "failed").length, next: now + 3 * H };
       case "outbox_open_for_edit": {
+        logOutbox(cmd, a);
         const o = mockOutbox.find((x) => x.id === a.id) ?? mockOutbox[0];
         return { draft: mockDraftOf(o), sendAt: o.sendAt, status: o.status === "pending" || o.status === "overdue" ? "held" : o.status };
       }
@@ -1226,6 +1229,10 @@ export function installMock() {
         const w = window as unknown as { __draftSaveCalls?: number; __lastDraft: unknown };
         w.__draftSaveCalls = (w.__draftSaveCalls ?? 0) + 1; // counted, so a check can see that discarding writes none (AC-74)
         if (hashTokens().has("draftfail")) throw "mock: the server refused the draft"; // `#draftfail`: saving a draft fails (update restart asks what to do)
+        // like the backend (lib.rs ensure_draft_has_content, W13.5): a draft with nothing in it is refused (the page checks first, so this is never reached by a check that passes)
+        const empty = a.draft as { subject?: string; text?: string; attachments?: unknown[]; inline?: unknown[]; meeting?: { location?: string | null }; meetingForm?: string };
+        if (hashTokens().has("draftempty") || (!empty.subject?.trim() && !empty.text?.trim() && !empty.attachments?.length && !empty.inline?.length && !empty.meeting?.location?.trim() && !empty.meetingForm))
+          throw "DRAFT_EMPTY: There is nothing to save yet."; // (`#draftempty`: refused whatever it holds)
         w.__lastDraft = a.draft;
         // like the backend: the draft is a message of the Drafts folder, in the thread it gets from its Message-ID (the toast "Draft saved" opens it with Edit)
         const dr = a.draft as { to: string[]; cc: string[]; bcc?: string[]; inReplyTo?: string | null; references?: string[]; subject: string; html: string; text: string; accountId: string; importance?: string; meetingForm?: string };
@@ -1402,7 +1409,13 @@ export function installMock() {
       }
       case "quit_dialog": case "quit_page_alive": case "quit_cancelled": case "sends_flushed": case "show_window": case "frontend_ready": case "page_state": return null;
       // secondary windows (src/popout): the dev preview of a pop-out is ?w=compose or ?w=reader in a plain browser tab
-      case "popout_park": case "popout_destroy": case "popout_set_key": return true;
+      case "popout_destroy": {
+        const w = window as unknown as { __popoutDestroyed?: number; __popoutCalls?: string[] };
+        w.__popoutDestroyed = (w.__popoutDestroyed ?? 0) + 1; // counted, so a check can see that a window ended
+        (w.__popoutCalls ??= []).push(cmd);
+        return true;
+      }
+      case "popout_park": case "popout_set_key": ((window as unknown as { __popoutCalls?: string[] }).__popoutCalls ??= []).push(cmd); return true;
       case "popout_note": case "window_theme_refresh": return null;
       case "popout_init": {
         const q = new URLSearchParams(window.location.search);
@@ -1417,6 +1430,7 @@ export function installMock() {
             : m === "opened" || m === "openedcarried" ? { accountId: "a1", to: ["alice@fabrikam.com"], subject: "D1", replaces: "m:a1:drafts:dx", openedDraft: true, bodyHtml: "<p>Original text</p>", ...(m === "openedcarried" ? { carried: true } : {}) }
             : m === "sigrestore" ? { accountId: "a1", to: ["alice@fabrikam.com"], subject: "Restored", sigId: "s4", carried: true, restore: { encrypt: "auto", sign: false, attachKey: false }, bodyHtml: "<p>Body of the message</p><br><div class=\"sig\">-- <br>" + (SIG_S4_HTML) + "</div>" }
             : m === "openedsaved" ? { accountId: "a1", to: ["alice@fabrikam.com"], subject: "D1", replaces: "mid:a1|<dx@mock>", openedDraft: true, carried: true, bodyHtml: "<p>Original text plus edits</p>" }
+            : m === "scheduled" ? { accountId: "a1", to: ["alice@fabrikam.com"], subject: "Scheduled one", bodyHtml: "<p>Scheduled text</p>", outboxId: "s1", sendAt: Math.floor(Date.now() / 1000) + 3 * 3600 }
             : m === "new" ? {} : null;
           return { kind, label: "compose-1", key: null, init };
         }
@@ -1451,9 +1465,21 @@ export function installMock() {
       }
       case "thread_meta": return { pinned: !!threads.find((x) => x.threadId === a.threadId)?.pinned, snoozedUntil: null };
       case "popout_reply": return null;
-      case "popout_open": ((window as unknown as { __popoutOpened?: unknown[] }).__popoutOpened ??= []).push({ kind: a.kind, key: a.key, init: a.init }); return { status: "created", label: "compose-1" };
+      case "popout_open": {
+        const w = window as unknown as { __popoutOpened?: unknown[]; __popoutOpens?: number; __popoutKeys?: Set<string> };
+        (w.__popoutOpened ??= []).push({ kind: a.kind, key: a.key, init: a.init, focusOnly: !!a.focusOnly });
+        // like the registry: a key that a window has is focused (and a "is one open?" question about another key finds none); windows never end in the preview
+        const keys = (w.__popoutKeys ??= new Set<string>());
+        const had = typeof a.key === "string" && a.key !== "" && keys.has(`${a.kind}|${a.key}`);
+        if (had) return { status: "focused", label: "compose-1" };
+        if (a.focusOnly) return { status: "none", label: null };
+        w.__popoutOpens = (w.__popoutOpens ?? 0) + 1; // (windows asked for, not the "is one open?" questions)
+        if (typeof a.key === "string" && a.key !== "") keys.add(`${a.kind}|${a.key}`);
+        return { status: "created", label: "compose-1" };
+      }
       case "popout_save_all": return true;
-      case "popout_ready": case "popout_flush_alive": case "popout_flush_dialog": case "popout_flush_done": case "popout_focus": case "popout_close": return null;
+      case "popout_focus": ((window as unknown as { __popoutCalls?: string[] }).__popoutCalls ??= []).push(cmd); return null;
+      case "popout_ready": case "popout_flush_alive": case "popout_flush_dialog": case "popout_flush_done": case "popout_close": return null;
       case "update_defer": logUpdateCall({ cmd: "defer" }).kind = a.deferred ? "later" : "now"; return null;
       case "update_install": return mockInstall(!!a.restart, !!a.draftSaved);
       case "update_startup_ack": logUpdateCall({ cmd: "startupAck" }).kind = "ok"; return null;
@@ -1708,7 +1734,7 @@ export function installMock() {
         // a subject with [smtpfail] is refused with the plain text a mail server gives (dev check of the failed-send path and its toast)
         if (!a.sendAt && String((a.draft as { subject?: string }).subject).includes("[smtpfail]")) throw "SMTP send failed: response error: incomplete response";
         if (!a.sendAt && String((a.draft as { subject?: string }).subject).includes("[toolarge]")) throw "SMTP_TOO_LARGE|reply=552 5.3.4 Message size exceeds fixed limit: The message is larger than this server accepts. Remove attachments or shrink pictures. (Server reply: 552 5.3.4 Message size exceeds fixed limit)";
-        if (!a.sendAt) return "sent";
+        if (!a.sendAt) return (((window as unknown as { __sentMessages?: string[] }).__sentMessages ??= []).push(String((a.draft as { subject?: string }).subject)), "sent");
         // a scheduled message shows up in the Scheduled list
         const d = a.draft as { accountId: string; to: string[]; cc: string[]; subject: string; text?: string; attachments?: unknown[] };
         const id = `mock-${Math.random().toString(36).slice(2, 8)}`;
@@ -1763,11 +1789,13 @@ export function installMock() {
       case "ai_cancel": mockAiCancelled.push(String(a.jobId)); return null;
       case "get_autostart": return false;
       case "cancel_outbox": case "outbox_send_now": case "outbox_to_draft": {
+        logOutbox(cmd, a);
         const i = mockOutbox.findIndex((x) => x.id === a.id);
         if (i >= 0) mockOutbox.splice(i, 1);
         return null;
       }
       case "outbox_update": case "outbox_reschedule": {
+        logOutbox(cmd, a);
         const o = mockOutbox.find((x) => x.id === a.id);
         if (o) {
           o.sendAt = a.sendAt as number;
@@ -1785,7 +1813,8 @@ export function installMock() {
         if (o) (o.status = "pending", o.error = null);
         return null;
       }
-      case "outbox_release": case "quit_now": return null;
+      case "outbox_release": logOutbox(cmd, a); return null;
+      case "quit_now": return null;
       case "frame_info": return { custom: frame, snapLayouts: false };
       case "frame_caption_rect": return false; // no OS hit-testing in a browser: plain DOM buttons
       case "frame_system_menu": return null;

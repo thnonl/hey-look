@@ -3,7 +3,7 @@
 // (1.0.6: every snapshot is saved as a real draft without a question; what cannot be saved is kept on this computer). Behaviour of src/recovery.ts.
 // Run: node --experimental-strip-types scripts/test-recovery.mjs
 import assert from "node:assert/strict";
-import { RecoveryWriter, composeFromSnapshot, draftFromSnapshot, settleRecovery, snapshotInWindow, LOCAL_KEEP_SECS } from "../src/recovery.ts";
+import { RecoveryWriter, composeFromSnapshot, draftFromSnapshot, settleRecovery, snapshotHasDraftContent, snapshotInWindow, LOCAL_KEEP_SECS } from "../src/recovery.ts";
 
 const att = (n) => ({ filename: `${n}.txt`, mime: "text/plain", dataBase64: btoa(n) });
 const form = (subject) => ({ accountId: "a1", subject, preview: subject, payload: JSON.stringify({ subject }) });
@@ -337,6 +337,65 @@ function start(snaps, over = {}) {
   assert.equal(load({ sigId: "s-42" }).sigId, "s-42");
   assert.equal(load({}).sigId, undefined, "a snapshot of an older version: the picker is worked out from the text as before");
   assert.equal(load({ sigId: 5 }).sigId, undefined, "anything that is not text is ignored");
+}
+
+// 17. 1.0.7 W13.5 (REQ-13.5.6): a snapshot WITH draft content is saved to Drafts as before; one WITHOUT (recipients only) is kept on this computer and never
+//     reaches the server. The same rule as composeContent.ts draftContent, read from the saved form.
+{
+  const quote = '<br><div class="hl-quote"><div>On Mon, Ann wrote:</div><blockquote style="margin:0"><p>the original <div class="sig">-- <br>Ann</div></p></blockquote></div>';
+  const sig = '<br><div class="sig">-- <br>Nam<br>Hey Look!</div>';
+  const has = (o, files = []) => snapshotHasDraftContent(composeFromSnapshot(snap("x", o, { files })));
+  // new messages
+  assert.equal(has({ subject: "", html: "" }), false, "recipients only");
+  assert.equal(has({ subject: "", html: "<p><br></p>" }), false, "an empty paragraph");
+  assert.equal(has({ subject: "  ", html: `<p></p>${sig}` }), false, "recipients and the signature region");
+  assert.equal(has({ subject: "", html: "<p>&nbsp;</p>" }), false, "white space");
+  assert.equal(has({ subject: "Hi", html: "" }), true, "a subject");
+  assert.equal(has({ subject: "", html: "<p>ok</p>" }), true, "text");
+  assert.equal(has({ subject: "", html: `<p>ok</p>${sig}` }), true, "text and a signature");
+  assert.equal(has({ subject: "", html: '<p></p><img src="data:image/png;base64,AAAA">' }), true, "a picture");
+  assert.equal(has({ subject: "", html: "" }, [att("f")]), true, "an attachment");
+  assert.equal(has({ subject: "", html: "", meeting: { sd: "2026-10-20", st: "09:00", ed: "2026-10-20", et: "10:00", allDay: false, where: "Room 4", tz: "UTC" } }), true, "a meeting with a place");
+  assert.equal(has({ subject: "", html: "", meeting: { sd: "2026-10-20", st: "09:00", ed: "2026-10-20", et: "10:00", allDay: false, where: "", tz: "UTC" } }), false, "a meeting strip with no place");
+  // a reply: the subject, the quote and the signature are Compose's own
+  const reply = { subject: "Re: Hello", isReply: true, inReplyTo: "<m1@x.org>", answers: { kind: "answered", accountId: "a1", messageId: "<m1@x.org>" } };
+  assert.equal(has({ ...reply, html: `<p></p>${sig}${quote}` }), false, "a reply nothing was typed in (only a recipient added)");
+  assert.equal(has({ ...reply, html: `<p>Thanks</p>${sig}${quote}` }), true, "a reply with text");
+  assert.equal(has({ ...reply, html: `<p></p>${quote}` }, [att("f")]), true, "a reply with a file");
+  // a forward: its carried files are not the person's
+  const fwd = { subject: "Fwd: Hello", answers: { kind: "forwarded", accountId: "a1", messageId: "<m1@x.org>" } };
+  assert.equal(has({ ...fwd, html: `<p></p>${quote}` }, [att("f")]), false, "a forward with its carried file and nothing typed");
+  assert.equal(has({ ...fwd, html: `<p>FYI</p>${quote}` }, [att("f")]), true, "a forward with text");
+  // a draft opened from Drafts exists already: its edits count when it has something
+  assert.equal(has({ subject: "Draft", html: "", replaces: "mid:a1|<d@x>" }), true, "an opened draft with a subject");
+  assert.equal(has({ subject: "", html: "", replaces: "mid:a1|<d@x>" }), false, "an opened draft with nothing in it");
+  assert.equal(has({ subject: "x", html: "<p>q</p>", answers: undefined }), true);
+
+  // the start: with content -> Drafts; recipients only -> local, never saveDraft, the snapshot stays
+  const s = start([snap("full", { subject: "S", html: "<p>Hi</p>" }, { savedAt: NOW - 10 }), snap("rcpt", { subject: "", html: "" }, { savedAt: NOW - 20 }), snap("sigonly", { subject: "", html: sig }, { savedAt: NOW - 30 })]);
+  const kept = await settleRecovery(s.deps);
+  assert.deepEqual(kept.map((k) => [k.id, k.where, k.threadId]), [["full", "drafts", "t-full"], ["rcpt", "local", null], ["sigonly", "local", null]]);
+  assert.deepEqual(kept.map((k) => !!k.draftless), [false, true, true], "the toast knows which ones have nothing but recipients (dismissing it removes them)");
+  assert.deepEqual(s.drafts.map((d) => d.id), ["full"], "only the one with content was saved");
+  assert.deepEqual(s.log.filter((l) => l.startsWith("save")), ["save full"], "saveDraft is never called for a message with only recipients");
+  assert.deepEqual([...s.rows.keys()].sort(), ["rcpt", "sigonly"], "they stay on this computer (Continue writing opens them)");
+  assert.ok(!s.log.some((l) => l.startsWith("clear")), "nothing was removed: the toast offers them");
+  // Continue writing opens the local one from its snapshot, with the recipient
+  const started = [];
+  const ok = await (await import("../src/recovery.ts")).openKept(kept[1], {
+    openDraft: async () => assert.fail("not a draft"),
+    loadSnapshot: async (id) => s.rows.get(id) ?? null,
+    start: async (init) => (started.push(init), true),
+    popoutSetting: () => false,
+    notFound: () => assert.fail("found"),
+  });
+  assert.equal(ok, true);
+  assert.deepEqual([started[0].to, started[0].recoveryId], [["a@x.org"], "rcpt"]);
+  // an old recipients-only snapshot (older than 30 days) is removed like any local one
+  const old = start([snap("rcpt-old", { subject: "", html: "" }, { savedAt: NOW - LOCAL_KEEP_SECS - 5 })]);
+  assert.deepEqual(await settleRecovery(old.deps), []);
+  assert.ok(old.log.includes("clear rcpt-old (kept on this computer for more than 30 days)"));
+  assert.ok(!old.log.some((l) => l.startsWith("save")));
 }
 
 console.log("recovery: ok");

@@ -1,8 +1,9 @@
 // The life of a compose window, as pure functions (no Tauri, no store, no React), so scripts/test-popout.mjs can run every path:
 // - `step`: the phases of the window around a send (editing -> counting down the Undo time -> sending -> over) and what the window does
-//   about them (hide itself, show itself again, end itself). The window shows the editor in phase "edit", and a card "Sending... n s" with
-//   an Undo button in "count" and "work" (REQ-C8); when the person closes it then, it goes out of sight and keeps running ("parked") until
-//   the message has gone, so the message still goes out at the end of the Undo time and a failure can bring the editor back;
+//   about them (hide itself, show itself again, end itself). The window shows the editor in every phase: in "count" and "work" it is locked
+//   and a toast "Sending... n s" with Undo (a toast "Sending..." in "work") says so (W13.1); when the person closes it then, it goes out of
+//   sight and keeps running ("parked") until the message has gone, so the message still goes out at the end of the Undo time and a failure
+//   can bring the editor back, unlocked, where it was;
 // - `closeAction` / `runClose`: what the title bar's close button, Ctrl+W and Cmd+W do (Save / Discard / Cancel, REQ-C11);
 // - `composeFlush`: what the window answers when the app quits or restarts for an update (REQ-C12).
 // ComposeView.tsx wires them to the real pieces.
@@ -33,8 +34,12 @@ export const GRACE_MS = 400;
 export const UNDO_SETTLE_MS = 3000;
 
 export type Ev =
-  /** Compose handed the message to the send ("sending": the Undo time in seconds, 0 for none or for a scheduled message) */
-  | { t: "handoff"; wait: number; now: number }
+  /**
+   * Compose handed the message to the send ("sending": the Undo time in seconds, 0 for none or for a scheduled message). `lock`: the editor stays on
+   * screen, locked, while the window waits (W13.1: a send); without it the editor is gone and the window goes out of sight (a scheduled message,
+   * "Send now" of one: the window only waits for the work to end).
+   */
+  | { t: "handoff"; wait: number; now: number; lock?: boolean }
   | { t: "undo-offer" }
   | { t: "undo-start"; now: number }
   | { t: "tick"; now: number }
@@ -53,10 +58,12 @@ export function step(s: WinState, e: Ev): { s: WinState; fx: Fx[] } {
   switch (e.t) {
     case "handoff": {
       const counting = e.wait > 0;
-      // no Undo time: "the window closes at once" (REQ-C8); it stays alive, hidden, until the send is over
+      // a send keeps the editor on screen, locked (W13.1), with or without an Undo time: nothing is hidden, the window ends when the server has answered.
+      // Without the editor (a scheduled message): no Undo time = the window closes at once; it stays alive, hidden, until the work is over
+      const hide = !counting && !e.lock;
       return {
-        s: { ...s, phase: counting ? "count" : "work", endsAt: counting ? e.now + e.wait * 1000 : null, canUndo: false, undoAt: null, ending: false, parked: !counting },
-        fx: counting ? [] : ["park"],
+        s: { ...s, phase: counting ? "count" : "work", endsAt: counting ? e.now + e.wait * 1000 : null, canUndo: false, undoAt: null, ending: false, parked: hide },
+        fx: hide ? ["park"] : [],
       };
     }
     case "undo-offer":
@@ -103,24 +110,29 @@ export interface CloseFacts {
   phase: Phase;
   /** the person changed something since it was opened or last saved */
   dirty: boolean;
-  /** to / subject / body / pictures / attachments that the person made (Compose's probe) */
+  /** something worth a draft: text, a subject, a picture, a file or a meeting place of the person's (Compose's probe `draftContent`, W13.5; recipients alone are not) */
   hasContent: boolean;
   /** a file or picture is still being read into the message */
   attaching: boolean;
+  /** the window edits a scheduled message (it is paused while it is open): it is not a draft, so it is never saved by the close */
+  scheduled?: boolean;
 }
 
-export type CloseAction = "end" | "park" | "ask" | "attaching";
+export type CloseAction = "end" | "park" | "ask" | "ask-scheduled" | "attaching";
 
 /**
  * - counting or sending: out of sight, the message goes on its way (REQ-C8);
- * - nothing changed, or nothing written (typed and deleted again): closes without a question;
+ * - nothing changed, or nothing worth a draft (typed and deleted again, or only recipients, W13.5): closes without a question and without a draft;
  * - files still coming in: stays, the person is told;
- * - changed, with content: Save / Discard / Cancel.
+ * - changed, with content: Save / Discard / Cancel;
+ * - a scheduled message: nothing changed closes (the pause is released, the schedule stays); changed asks "Keep editing / Discard" like the pane does when it
+ *   is left (compose.leave.scheduledTitle): a scheduled message is not a draft, and no content check applies (W2.10).
  */
 export function closeAction(f: CloseFacts): CloseAction {
   if (f.phase === "count" || f.phase === "work") return "park";
   if (f.phase === "over") return "end";
   if (f.attaching) return "attaching";
+  if (f.scheduled) return f.dirty ? "ask-scheduled" : "end";
   if (!f.dirty || !f.hasContent) return "end";
   return "ask";
 }
@@ -131,13 +143,15 @@ export interface CloseDeps {
   facts(): CloseFacts;
   /** Save / Discard / Cancel */
   ask(): Promise<CloseAnswer>;
+  /** a scheduled message with unsaved changes: keep editing, or close and leave the schedule as it was */
+  askScheduled?(): Promise<"keep" | "discard">;
   /** save to Drafts without a message of its own; false = it failed */
   save(): Promise<boolean>;
   /** "Your message isn't saved": keep writing, or close and discard */
   askFailed(): Promise<"keep" | "discard">;
   /** drop the snapshot (and the draft an autosave made of a new message; an opened draft is put back as it was opened). false: that failed, the window stays */
   discard(): Promise<boolean | void>;
-  /** everything typed was deleted again (W2.3): drop the snapshot and the copy an autosave made of a new message, then the window ends */
+  /** everything typed was deleted again (W2.3), or only recipients were typed (W13.5): drop the snapshot and the copy an autosave made of a new message, then the window ends */
   emptied?(): Promise<void>;
   park(): void;
   end(): void;
@@ -162,6 +176,10 @@ export async function runClose(d: CloseDeps): Promise<CloseOutcome> {
     case "attaching":
       d.attaching();
       return "attaching";
+    case "ask-scheduled":
+      if ((await d.askScheduled?.()) !== "discard") return "cancelled";
+      d.end(); // (the window releases the pause as it ends; the changes are dropped, the schedule is what it was)
+      return "discarded";
     case "ask":
       break;
   }
@@ -190,7 +208,13 @@ export type FlushWhy = "quit" | "update";
 export interface FlushDeps {
   phase(): Phase;
   dirty(): boolean;
+  /** something worth a draft (see CloseFacts.hasContent) */
   hasContent(): boolean;
+  /** the window edits a scheduled message: nothing is saved, its pause is released and the schedule stays (W2.10) */
+  scheduled?(): boolean;
+  release?(): Promise<void>;
+  /** a changed message with nothing worth a draft: no draft, no question; the snapshot and the copy an autosave made of a new message go (W13.5) */
+  emptied?(): Promise<void>;
   /** save to Drafts without a message of its own */
   save(): Promise<boolean>;
   /** "Your message isn't saved": keep writing, or quit (restart) and discard */
@@ -214,6 +238,11 @@ export async function composeFlush(d: FlushDeps, why: FlushWhy): Promise<boolean
     await d.flushSends();
     return true;
   }
+  if (phase === "edit" && d.scheduled?.()) {
+    await d.release?.(); // (changes are not saved: a scheduled message is not a draft; it goes out at its time)
+    return true;
+  }
+  if (phase === "edit" && d.dirty() && !d.hasContent()) await d.emptied?.();
   if (phase === "edit" && d.dirty() && d.hasContent()) {
     if (await d.save()) return true;
     d.showWindow();
