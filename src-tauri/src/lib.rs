@@ -1936,6 +1936,10 @@ struct FolderInfo {
     name: String,
     unread: u32,
     total: u32,
+    /// Inbox rows only (0 elsewhere): unread conversations of the Focused tab (a message without a List-Unsubscribe header) and of the
+    /// Other tab (with one), counted like the tab lists (`INBOX_NOT_SNOOZED`, `INBOX_NOT_BLOCKED`) and whatever "Count Other (bulk) mail" says
+    unread_focused: u32,
+    unread_other: u32,
     /// the account's saved folder list (`fmap:<id>`) names a server folder for this one. The app hides the Junk row and disables
     /// "Mark as junk" where this is false for `junk` (Junk is never created); Archive and Trash rows stay (created on first use).
     listed: bool,
@@ -1954,24 +1958,52 @@ fn list_folders(state: tauri::State<AppState>) -> R<Vec<FolderInfo>> {
     folder_infos(&lock(&state.db))
 }
 
+/// What the Inbox leaves out of every list and every Inbox number: a snoozed conversation (until its time) and mail from a blocked sender.
+/// One place for `threads_for` (the lists and the Focused / Other tabs) and `inbox_unread` (the side menu and the tab numbers). `?` is the
+/// current time.
+const INBOX_NOT_SNOOZED: &str = "(tm.snoozed_until IS NULL OR tm.snoozed_until<=?)";
+const INBOX_NOT_BLOCKED: &str = "m.from_email NOT IN (SELECT email FROM blocked)";
+
+/// SQL for `inbox_unread` over one mailbox's `messages` table. Parameters in order: count bulk mail in the Inbox number (0 / 1), the
+/// account, the current time. It reads only unread Inbox rows of one account, so it runs on `idx_msg_folder (account_id, folder, date)`.
+fn inbox_unread_sql(table: &str) -> String {
+    format!(
+        "SELECT COUNT(DISTINCT CASE WHEN m.list_unsub IS NULL THEN m.thread_id END),
+                COUNT(DISTINCT CASE WHEN m.list_unsub IS NOT NULL THEN m.thread_id END),
+                COUNT(DISTINCT CASE WHEN ?=1 OR m.list_unsub IS NULL THEN m.thread_id END)
+         FROM {table} m LEFT JOIN thread_meta tm ON tm.thread_id=m.thread_id
+         WHERE m.account_id=? AND m.folder='inbox' AND m.seen=0 AND {INBOX_NOT_SNOOZED} AND {INBOX_NOT_BLOCKED}"
+    )
+}
+
+/// Unread conversations of one mailbox's Inbox as (Focused tab, Other tab, the side-menu number). The side-menu number leaves bulk mail
+/// out unless `include_other`; the two tab numbers do not depend on it. A conversation with unread mail of both kinds is in both tabs.
+fn inbox_unread(c: &Connection, account_id: &str, include_other: bool) -> R<(u32, u32, u32)> {
+    let table = shard::messages_table(c, account_id)?;
+    c.query_row(&inbox_unread_sql(&table), params![include_other as i64, account_id, now()], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)))
+        .map_err(err)
+}
+
 fn folder_infos(c: &Connection) -> R<Vec<FolderInfo>> {
     let accounts = db::list_accounts(c)?;
     let mut counts: HashMap<(String, String), (u32, u32)> = HashMap::new();
     let p: serde_json::Value = db::get_setting(c, "prefs")
         .and_then(|s| serde_json::from_str(&s).ok())
         .unwrap_or(serde_json::Value::Null);
-    // unread numbers count conversations, and (with Focused Inbox on) leave bulk mail out of the inbox figure
-    let include_other = p.get("countOtherMail").and_then(|v| v.as_bool()).unwrap_or(false)
+    // unread numbers count conversations, and (with Focused Inbox on) leave bulk mail out of the inbox figure unless "Count Other (bulk)
+    // mail" is on, which is the default
+    let include_other = p.get("countOtherMail").and_then(|v| v.as_bool()).unwrap_or(true)
         || !p.get("focused").and_then(|v| v.as_bool()).unwrap_or(true);
+    // (the Inbox's own unread number is read by `inbox_unread`, which also leaves out snoozed conversations and blocked senders)
     let mut st = c
         .prepare(
             "SELECT account_id,folder,COUNT(DISTINCT thread_id),
-                    COUNT(DISTINCT CASE WHEN seen=0 AND (folder!='inbox' OR ?1=1 OR list_unsub IS NULL) THEN thread_id END)
+                    COUNT(DISTINCT CASE WHEN seen=0 AND folder!='inbox' THEN thread_id END)
              FROM messages GROUP BY account_id,folder",
         )
         .map_err(err)?;
     let rows = st
-        .query_map([include_other as i64], |r| {
+        .query_map([], |r| {
             Ok((r.get::<_, String>(0)?, r.get::<_, String>(1)?, r.get::<_, u32>(2)?, r.get::<_, Option<u32>>(3)?.unwrap_or(0)))
         })
         .map_err(err)?;
@@ -1989,8 +2021,17 @@ fn folder_infos(c: &Connection) -> R<Vec<FolderInfo>> {
         let mut custom: Vec<String> = map.keys().filter(|k| k.starts_with("f:")).cloned().collect();
         custom.sort();
         keys.extend(custom);
+        // (a mailbox whose file cannot be read shows no unread numbers; the other mailboxes still do)
+        let (focused, other, inbox) = inbox_unread(c, &a.id, include_other).unwrap_or_else(|e| {
+            eprintln!("could not count the unread Inbox mail of {}: {e}", a.id);
+            (0, 0, 0)
+        });
         for k in keys {
-            let (total, unread) = counts.get(&(a.id.clone(), k.clone())).copied().unwrap_or((0, 0));
+            let (total, mut unread) = counts.get(&(a.id.clone(), k.clone())).copied().unwrap_or((0, 0));
+            let is_inbox = k == "inbox";
+            if is_inbox {
+                unread = inbox;
+            }
             out.push(FolderInfo {
                 account_id: a.id.clone(),
                 name: map.get(&k).cloned().unwrap_or_else(|| k.clone()),
@@ -1998,6 +2039,8 @@ fn folder_infos(c: &Connection) -> R<Vec<FolderInfo>> {
                 key: k,
                 unread,
                 total,
+                unread_focused: if is_inbox { focused } else { 0 },
+                unread_other: if is_inbox { other } else { 0 },
             });
         }
     }
@@ -2174,11 +2217,11 @@ fn threads_for(c: &Connection, filter: ThreadFilter) -> R<Vec<ThreadSummary>> {
     } else {
     match filter.folder.as_str() {
         "inbox" => {
-            w.push("m.folder='inbox' AND (tm.snoozed_until IS NULL OR tm.snoozed_until<=?)".into());
+            w.push(format!("m.folder='inbox' AND {INBOX_NOT_SNOOZED}"));
             p.push(t.into());
         }
         "unread" => {
-            w.push("m.folder='inbox' AND m.seen=0 AND (tm.snoozed_until IS NULL OR tm.snoozed_until<=?)".into());
+            w.push(format!("m.folder='inbox' AND m.seen=0 AND {INBOX_NOT_SNOOZED}"));
             p.push(t.into());
         }
         "starred" => w.push("m.flagged=1 AND m.folder NOT IN ('trash','junk')".into()),
@@ -2195,7 +2238,7 @@ fn threads_for(c: &Connection, filter: ThreadFilter) -> R<Vec<ThreadSummary>> {
     }
     }
     if inboxish {
-        w.push("m.from_email NOT IN (SELECT email FROM blocked)".into());
+        w.push(INBOX_NOT_BLOCKED.into());
         match filter.focus.as_deref() {
             Some("focused") => w.push("m.list_unsub IS NULL".into()),
             Some("other") => w.push("m.list_unsub IS NOT NULL".into()),
@@ -5344,6 +5387,10 @@ pub fn run() {
             if let Err(e) = db::prune_orphans(&lock(&db)) {
                 eprintln!("could not clean up leftovers of removed accounts: {e}");
             }
+            // one-time preference changes (`prefsRev`), before the tray is drawn so its first number is already right
+            if let Err(e) = db::migrate_stored_prefs(&lock(&db)) {
+                eprintln!("could not update the stored preferences: {e}");
+            }
             let pending_app = app.handle().clone();
             std::thread::spawn(move || pending_worker(pending_app));
             let cal_app = app.handle().clone();
@@ -7329,5 +7376,145 @@ mod empty_draft_tests {
         let mut d = draft();
         d.meeting_form = Some("not base64 json!".into());
         assert!(refused(&d), "a form that is not ours is not content");
+    }
+}
+
+#[cfg(test)]
+mod inbox_tab_count_tests {
+    use super::*;
+
+    const M1: &str = "m1";
+    const M2: &str = "m2";
+
+    fn account(id: &str) -> Account {
+        Account {
+            id: id.into(), email: format!("{id}@example.com"), display_name: "Me".into(), imap_host: "h".into(), imap_port: 993, imap_ssl: true,
+            smtp_host: "s".into(), smtp_port: 465, smtp_security: "ssl".into(), username: "u".into(), auth: "password".into(), color: None,
+            smtp_username: String::new(), tls_insecure: false, reply_to: String::new(),
+        }
+    }
+
+    /// Two mailboxes. M1 Inbox: F1 unread normal; F2 read normal; B1 unread bulk; X unread bulk + unread normal (both tabs); S unread normal but
+    /// snoozed; BL unread normal from a blocked sender; P unread normal whose snooze has passed; an unread archived mail. M2 Inbox: 1 unread
+    /// normal and 2 unread bulk.
+    fn fixture() -> Connection {
+        let c = db::test_conn(&[]);
+        for id in [M1, M2] {
+            db::insert_account(&c, &account(id)).unwrap();
+        }
+        let mut uid = 0;
+        let mut put = |acct: &str, folder: &str, thread: &str, seen: bool, bulk: bool, from: &str| {
+            uid += 1;
+            c.execute(
+                "INSERT INTO messages(id,account_id,folder,uid,thread_id,subject,from_name,from_email,to_addrs,cc_addrs,date,snippet,seen,list_unsub)
+                 VALUES(?1,?2,?3,?4,?5,'s','n',?6,'','',?4,'',?7,?8)",
+                params![format!("{acct}:{folder}:{uid}"), acct, folder, uid, thread, from, seen as i64, bulk.then_some("<mailto:u@example.test>")],
+            )
+            .unwrap();
+        };
+        put(M1, "inbox", "f1", false, false, "a@example.com");
+        put(M1, "inbox", "f2", true, false, "a@example.com");
+        put(M1, "inbox", "b1", false, true, "news@example.com");
+        put(M1, "inbox", "x", false, true, "news@example.com");
+        put(M1, "inbox", "x", false, false, "a@example.com");
+        put(M1, "inbox", "s", false, false, "a@example.com");
+        put(M1, "inbox", "bl", false, false, "blocked@example.com");
+        put(M1, "inbox", "p", false, false, "a@example.com");
+        put(M1, "archive", "arch", false, false, "a@example.com");
+        put(M2, "inbox", "m2a", false, false, "a@example.com");
+        put(M2, "inbox", "m2b", false, true, "news@example.com");
+        put(M2, "inbox", "m2c", false, true, "news@example.com");
+        c.execute("INSERT INTO thread_meta(thread_id,snoozed_until) VALUES('s',?1)", [now() + 3600]).unwrap();
+        c.execute("INSERT INTO thread_meta(thread_id,snoozed_until) VALUES('p',?1)", [now() - 60]).unwrap();
+        c.execute("INSERT INTO blocked(email) VALUES('blocked@example.com')", []).unwrap();
+        c
+    }
+
+    fn inbox(c: &Connection, acct: &str) -> FolderInfo {
+        folder_infos(c).unwrap().into_iter().find(|f| f.account_id == acct && f.key == "inbox").unwrap()
+    }
+
+    /// Conversations a tab lists with the unread filter on, by the real list query.
+    fn listed(c: &Connection, acct: &str, focus: &str) -> usize {
+        let f: ThreadFilter = serde_json::from_value(serde_json::json!({ "accountId": acct, "folder": "inbox", "focus": focus, "unreadOnly": true })).unwrap();
+        threads_for(c, f).unwrap().into_iter().map(|t| t.thread_id).collect::<std::collections::HashSet<_>>().len()
+    }
+
+    #[test]
+    fn inbox_tab_counts_match_the_tab_lists() {
+        let c = fixture();
+        let m1 = inbox(&c, M1);
+        // F1, X and P (its snooze is over) are in Focused; B1 and X in Other; the snoozed S, the blocked sender and the archived mail in neither
+        assert_eq!((m1.unread_focused, m1.unread_other), (3, 2));
+        assert_eq!((m1.unread_focused as usize, m1.unread_other as usize), (listed(&c, M1, "focused"), listed(&c, M1, "other")));
+        let m2 = inbox(&c, M2);
+        assert_eq!((m2.unread_focused, m2.unread_other), (1, 2));
+        assert_eq!((m2.unread_focused as usize, m2.unread_other as usize), (listed(&c, M2, "focused"), listed(&c, M2, "other")));
+        // the side-menu number leaves out the snoozed and the blocked too (F1, X, P, B1), and counts a conversation of both kinds once
+        assert_eq!(m1.unread, 4);
+        assert_eq!(m2.unread, 3);
+        // only the Inbox rows carry tab numbers
+        let all = folder_infos(&c).unwrap();
+        assert!(all.iter().filter(|f| f.key != "inbox").all(|f| f.unread_focused == 0 && f.unread_other == 0));
+        let archive = all.iter().find(|f| f.account_id == M1 && f.key == "archive").unwrap();
+        assert_eq!((archive.unread, archive.total), (1, 1), "other folders still count their own unread");
+        // the JSON the page reads
+        let v = serde_json::to_value(&m1).unwrap();
+        assert_eq!((v["unreadFocused"].as_u64(), v["unreadOther"].as_u64()), (Some(3), Some(2)));
+    }
+
+    #[test]
+    fn inbox_tab_counts_ignore_count_other_mail() {
+        let c = fixture();
+        let tabs = |c: &Connection| {
+            let f = inbox(c, M1);
+            (f.unread, f.unread_focused, f.unread_other)
+        };
+        // not set at all: bulk mail counts (the default)
+        assert_eq!(tabs(&c), (4, 3, 2));
+        db::set_setting(&c, "prefs", r#"{"countOtherMail":true}"#).unwrap();
+        assert_eq!(tabs(&c), (4, 3, 2));
+        // off with Focused Inbox on: the side-menu number leaves out B1 (X still counts through its normal mail), the tabs do not change
+        db::set_setting(&c, "prefs", r#"{"countOtherMail":false}"#).unwrap();
+        assert_eq!(tabs(&c), (3, 3, 2));
+        assert_eq!(inbox(&c, M2).unread, 1);
+        // Focused Inbox off: bulk mail always counts
+        db::set_setting(&c, "prefs", r#"{"focused":false,"countOtherMail":false}"#).unwrap();
+        assert_eq!(tabs(&c), (4, 3, 2));
+        // damaged text: the defaults
+        db::set_setting(&c, "prefs", "{oops").unwrap();
+        assert_eq!(tabs(&c), (4, 3, 2));
+    }
+
+    #[test]
+    fn folder_infos_inbox_counts_bulk_by_default() {
+        let c = fixture();
+        assert_eq!(inbox(&c, M1).unread, 4, "no prefs stored");
+        db::set_setting(&c, "prefs", r#"{"countOtherMail":false}"#).unwrap();
+        assert_eq!(inbox(&c, M1).unread, 3);
+        db::set_setting(&c, "prefs", r#"{"focused":false,"countOtherMail":false}"#).unwrap();
+        assert_eq!(inbox(&c, M1).unread, 4);
+    }
+
+    #[test]
+    fn inbox_tab_count_query_uses_the_folder_index() {
+        let c = fixture();
+        let sql = format!("EXPLAIN QUERY PLAN {}", inbox_unread_sql(&shard::messages_table(&c, M1).unwrap()));
+        let mut st = c.prepare(&sql).unwrap();
+        let plan: Vec<String> = st
+            .query_map(params![1, M1, now()], |r| r.get::<_, String>(3))
+            .unwrap()
+            .collect::<Result<_, _>>()
+            .unwrap();
+        assert!(plan.iter().any(|d| d.contains("idx_msg_folder")), "plan: {plan:?}");
+    }
+
+    /// The readers of the setting use the same fallback (on), so a missing key means the same everywhere.
+    #[test]
+    fn the_count_other_fallback_is_on_in_every_reader() {
+        let lib = include_str!("lib.rs");
+        let shell = include_str!("shell.rs");
+        assert!(lib.contains("get(\"countOtherMail\").and_then(|v| v.as_bool()).unwrap_or(true)"), "folder_infos");
+        assert!(shell.contains("pbool(&p, \"countOtherMail\", true)"), "unread_count");
     }
 }

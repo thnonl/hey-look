@@ -198,7 +198,7 @@ fn overlay_icon(count: u32) -> Image<'static> {
 /// Unread conversations (not messages). With Focused Inbox on, bulk mail is left out unless the user asks for it.
 fn unread_count(db: &Db) -> u32 {
     let p = prefs(db);
-    let include_other = pbool(&p, "countOtherMail", false) || !pbool(&p, "focused", true);
+    let include_other = pbool(&p, "countOtherMail", true) || !pbool(&p, "focused", true);
     lock(db)
         .query_row(
             "SELECT COUNT(DISTINCT m.thread_id) FROM messages m LEFT JOIN thread_meta tm ON tm.thread_id=m.thread_id
@@ -1078,5 +1078,39 @@ mod platform_tests {
         let body = &src[src.find("fn toast_linux").unwrap()..];
         let body = &body[..body.find("\n}\n").unwrap()];
         assert!(body.contains(".show()") && body.contains("recv_timeout") && !body.contains("NotificationExt"), "{body}");
+    }
+}
+
+#[cfg(test)]
+mod unread_count_tests {
+    use super::*;
+    use std::sync::{Arc, Mutex};
+
+    /// Two unread conversations in the Inbox, one of them bulk (a List-Unsubscribe header).
+    fn db_with_two() -> Db {
+        let c = db::test_conn(&["a1"]);
+        for (i, unsub) in [None, Some("<mailto:u@example.test>")].into_iter().enumerate() {
+            c.execute(
+                "INSERT INTO messages(id,account_id,folder,uid,thread_id,subject,from_name,from_email,to_addrs,cc_addrs,date,snippet,seen,list_unsub)
+                 VALUES(?1,'a1','inbox',?2,?3,'s','n','x@example.com','','',?2,'',0,?4)",
+                rusqlite::params![format!("m{i}"), i as i64 + 1, format!("t{i}"), unsub],
+            )
+            .unwrap();
+        }
+        Arc::new(Mutex::new(c))
+    }
+
+    #[test]
+    fn unread_count_counts_bulk_when_the_setting_is_missing() {
+        let db = db_with_two();
+        assert_eq!(unread_count(&db), 2, "no preferences stored: bulk mail counts");
+        db::set_setting(&lock(&db), "prefs", r#"{"countOtherMail":false}"#).unwrap();
+        assert_eq!(unread_count(&db), 1);
+        db::set_setting(&lock(&db), "prefs", r#"{"focused":false,"countOtherMail":false}"#).unwrap();
+        assert_eq!(unread_count(&db), 2, "without Focused Inbox bulk mail always counts");
+        db::set_setting(&lock(&db), "prefs", r#"{"countOtherMail":true}"#).unwrap();
+        assert_eq!(unread_count(&db), 2);
+        db::set_setting(&lock(&db), "prefs", "{oops").unwrap();
+        assert_eq!(unread_count(&db), 2, "damaged preferences: the defaults");
     }
 }
