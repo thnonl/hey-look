@@ -421,6 +421,54 @@ fn headers(acc: &Account, d: &Draft, lenient: bool) -> R<lettre::message::Messag
     Ok(b)
 }
 
+/// `s` with every line feed that does not follow a carriage return written as CR LF, in one pass. This is what lettre does to a text body
+/// (`Body::new`), but lettre does it by inserting a `\r` into the string once per line (`String::insert` moves the rest of the text each time):
+/// the armored text of an encrypted draft with pictures (27 MB, 400 000 lines) took minutes, and the time grew with the square of the size
+/// (QA D-025: the app did not answer for half an hour). Text that has no such line feed is returned as it is.
+fn crlf(s: String) -> String {
+    let b = s.as_bytes();
+    let bare = |i: usize| b[i] == b'\n' && (i == 0 || b[i - 1] != b'\r');
+    let n = (0..b.len()).filter(|&i| bare(i)).count();
+    if n == 0 {
+        return s;
+    }
+    let mut out = Vec::with_capacity(b.len() + n);
+    for i in 0..b.len() {
+        if bare(i) {
+            out.push(b'\r');
+        }
+        out.push(b[i]);
+    }
+    // (only ASCII bytes were added to valid UTF-8)
+    String::from_utf8(out).unwrap_or_else(|e| String::from_utf8_lossy(e.as_bytes()).into_owned())
+}
+
+/// The body of a text part, the same bytes as `Body::new(text)` of lettre: the transfer encoding is chosen from the text as it is written (line
+/// feeds only), then the line ends become CR LF and the text is encoded. Only the line-end step differs: `crlf` is linear.
+fn text_body(text: String) -> Body {
+    let encoding = match email_encoding::body::Encoding::choose(text.as_str(), false) {
+        email_encoding::body::Encoding::SevenBit => ContentTransferEncoding::SevenBit,
+        email_encoding::body::Encoding::EightBit => ContentTransferEncoding::EightBit,
+        email_encoding::body::Encoding::QuotedPrintable => ContentTransferEncoding::QuotedPrintable,
+        email_encoding::body::Encoding::Base64 => ContentTransferEncoding::Base64,
+    };
+    let text = crlf(text);
+    match encoding {
+        // (7bit / 8bit text is not changed by the encoding step, and `new_with_encoding` would choose again on the CR LF text, whose lines are one
+        // character longer: a text that was just short enough for 7bit would be refused)
+        ContentTransferEncoding::SevenBit | ContentTransferEncoding::EightBit | ContentTransferEncoding::Binary => Body::dangerous_pre_encoded(text.into_bytes(), encoding),
+        _ => Body::new_with_encoding(text, encoding).unwrap_or_else(|b| Body::new(b)),
+    }
+}
+
+fn html_part(html: String) -> SinglePart {
+    SinglePart::builder().header(ContentType::TEXT_HTML).body(text_body(html))
+}
+
+fn plain_part(text: String) -> SinglePart {
+    SinglePart::builder().header(ContentType::TEXT_PLAIN).body(text_body(text))
+}
+
 /// An attachment's bytes as they are, whatever the type. Without this lettre sends text files as 7bit / 8bit text and the
 /// line endings become CRLF on the wire, so the saved file would differ from the original (checksum, diff, signatures).
 fn exact_body(bytes: Vec<u8>) -> Body {
@@ -430,9 +478,9 @@ fn exact_body(bytes: Vec<u8>) -> Body {
 /// The content: text/plain + text/html (+ related pictures), then the real attachments.
 fn body(d: &Draft) -> R<MultiPart> {
     // the allow-list sanitiser (outgoing.rs) is the last step before the HTML becomes a MIME part: send, schedule, hold, outbox and drafts
-    let html = SinglePart::html(crate::outgoing::clean_html(&d.html));
+    let html = html_part(crate::outgoing::clean_html(&d.html));
     let mut alt = if d.inline.is_empty() {
-        MultiPart::alternative().singlepart(SinglePart::plain(d.text.clone())).singlepart(html)
+        MultiPart::alternative().singlepart(plain_part(d.text.clone())).singlepart(html)
     } else {
         let mut related = MultiPart::related().singlepart(html);
         for img in &d.inline {
@@ -440,7 +488,7 @@ fn body(d: &Draft) -> R<MultiPart> {
             let ct = ContentType::parse(&img.mime).unwrap_or_else(|_| ContentType::parse("application/octet-stream").unwrap());
             related = related.singlepart(Attachment::new_inline_with_name(img.cid.clone(), crate::attach::outgoing_name(&img.filename)).body(bytes, ct));
         }
-        MultiPart::alternative().singlepart(SinglePart::plain(d.text.clone())).multipart(related)
+        MultiPart::alternative().singlepart(plain_part(d.text.clone())).multipart(related)
     };
     // a calendar invitation travels as the last alternative and, for invitations, also as invite.ics
     let invite_file = d.calendar.as_ref().filter(|c| c.method == "REQUEST");
@@ -468,7 +516,7 @@ fn body(d: &Draft) -> R<MultiPart> {
 /// The text/calendar part of an iMIP message.
 pub fn calendar_part(method: &str, ics: &str) -> R<SinglePart> {
     let ct = ContentType::parse(&format!("text/calendar; charset=UTF-8; method={method}")).map_err(err)?;
-    Ok(SinglePart::builder().header(ct).body(ics.to_string()))
+    Ok(SinglePart::builder().header(ct).body(text_body(ics.to_string())))
 }
 
 /// A small iMIP message (reply, update or cancellation): readable text plus the calendar part, from the account to the recipients.
@@ -516,7 +564,7 @@ pub fn build_signed(acc: &Account, d: &Draft, lenient: bool, sign: &dyn Fn(&[u8]
     let (armored, micalg) = sign(&bytes)?;
     let sig = SinglePart::builder()
         .header(ContentType::parse("application/pgp-signature; name=\"signature.asc\"").map_err(err)?)
-        .body(armored);
+        .body(text_body(armored));
     let outer = MultiPart::signed("application/pgp-signature".to_string(), micalg).multipart(inner).singlepart(sig);
     headers(acc, d, lenient)?.multipart(outer).map_err(err)
 }
@@ -529,7 +577,7 @@ pub fn build_encrypted(acc: &Account, d: &Draft, lenient: bool, encrypt: &dyn Fn
     let data = SinglePart::builder()
         .header(ContentType::parse("application/octet-stream; name=\"encrypted.asc\"").map_err(err)?)
         .header(lettre::message::header::ContentDisposition::inline_with_name("encrypted.asc"))
-        .body(armored);
+        .body(text_body(armored));
     let outer = MultiPart::encrypted("application/pgp-encrypted".to_string()).singlepart(control).singlepart(data);
     headers(acc, d, lenient)?.multipart(outer).map_err(err)
 }
@@ -888,6 +936,50 @@ pub(crate) mod tests {
             meeting_form: None,
             answers: None,
         }
+    }
+
+    /// D-025: `text_body` is lettre's `Body::new` with a linear line-end step: the same transfer encoding and the same bytes for every kind of text
+    /// (7bit, quoted-printable and base64 are each chosen for some of these; the lines of 74 to 77 characters are where the CR LF can change the choice).
+    #[test]
+    fn text_body_is_the_same_as_lettres_body_new() {
+        let long = |n: usize| "x".repeat(n);
+        let mut cases: Vec<String> = vec![
+            "".into(), "a".into(), "\n".into(), "\n\n".into(), "\r\n".into(), "\r".into(), "a\rb".into(), "a\nb".into(), "a\r\nb\n".into(), "a\n\r\nb\r\n\n".into(),
+            "\n\r\n\n".into(), "é\n".into(), "héllo\nwörld\n".into(), "日本語\n日本語\n".into(), "<p>a</p>\n<p>b</p>\n".into(), "no end".into(), "ends\n".into(),
+            "ends\r\n".into(), "\r\r\n\n\n".into(),
+        ];
+        for n in [60, 73, 74, 75, 76, 77, 78, 200, 1000] {
+            cases.push(format!("{}\n{}\n", long(n), long(n)));
+            cases.push(format!("{}\r\n{}\r\n", long(n), long(n)));
+            cases.push(format!("{}", long(n)));
+            cases.push(format!("é{}\n{}\n", long(n), long(n)));
+            cases.push(format!("{}\n", "é".repeat(n)));
+            cases.push(format!("{}\n", "日".repeat(n)));
+        }
+        // armor shaped: lines of 64 characters with LF (what the encrypted part is)
+        cases.push((0..300).map(|i| format!("{}\n", base64::engine::general_purpose::STANDARD.encode([i as u8; 48]))).collect());
+        cases.push(format!("-----BEGIN PGP MESSAGE-----\n\n{}=abcd\n-----END PGP MESSAGE-----\n", (0..50).map(|i| format!("{}\n", base64::engine::general_purpose::STANDARD.encode([i as u8; 48]))).collect::<String>()));
+        for s in cases {
+            let want = Body::new(s.clone());
+            let got = text_body(s.clone());
+            assert_eq!(got.encoding(), want.encoding(), "encoding of {s:?}");
+            assert_eq!(got.as_ref(), want.as_ref(), "bytes of {s:?}");
+        }
+    }
+
+    /// D-025: the whole message of a draft with text, pictures and files is the same as lettre's own writing of it, and a big armored part is fast
+    /// (it took minutes: lettre inserted a `\r` into the string once per line).
+    #[test]
+    fn a_big_text_part_is_converted_in_linear_time() {
+        let lines = 400_000;
+        let armored: String = (0..lines).map(|i| format!("{}\n", base64::engine::general_purpose::STANDARD.encode([(i % 251) as u8; 48]))).collect();
+        assert!(armored.len() >= 26_000_000);
+        let t0 = std::time::Instant::now();
+        let b = text_body(armored.clone());
+        let took = t0.elapsed();
+        assert_eq!(b.as_ref().len(), armored.len() + lines);
+        assert_eq!(b.encoding(), ContentTransferEncoding::SevenBit);
+        assert!(took < std::time::Duration::from_secs(5), "27 MB of armor took {took:?}");
     }
 
     fn pic(cid: &str) -> InlineImage {
