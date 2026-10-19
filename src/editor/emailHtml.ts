@@ -154,27 +154,52 @@ function imageHtml(n: JsonNode, block = false): string {
   return block && (a.align === "center" || a.align === "right") ? `<div style="text-align:${a.align}">${linked}</div>` : linked;
 }
 
-/** The border sides a cell draws in a table with outside borders only: the edge cells of the grid. */
-function edgeBorders(ri: number, rows: number, ci: number, cols: number): string {
+/** The border sides a cell draws in a table with outside borders only: the cells on the edge of the grid; `lastRow` / `lastCol` are the real bottom and right edge of the cell (a spanning cell). */
+function edgeBorders(ri: number, lastRow: number, ci: number, lastCol: number, rows: number, cols: number): string {
   const sides: string[] = [];
   if (ri === 0) sides.push(`border-top:${TABLE_RULE}`);
-  if (ci === cols - 1) sides.push(`border-right:${TABLE_RULE}`);
-  if (ri === rows - 1) sides.push(`border-bottom:${TABLE_RULE}`);
+  if (lastCol === cols - 1) sides.push(`border-right:${TABLE_RULE}`);
+  if (lastRow === rows - 1) sides.push(`border-bottom:${TABLE_RULE}`);
   if (ci === 0) sides.push(`border-left:${TABLE_RULE}`);
   return sides.join(";");
+}
+
+/**
+ * Where each cell sits in the grid once colspan and rowspan are counted: its first and last row and column, and the size of the grid. A cell goes into the first column of its
+ * row that no rowspan from above covers (the rule HTML tables use), so a merged cell's real right and bottom edge is known (W2.19: the outside frame stays complete).
+ */
+export function cellGrid(rows: { colspan: number; rowspan: number }[][]): { cells: { row: number; col: number; lastRow: number; lastCol: number }[][]; rows: number; cols: number } {
+  const taken: boolean[][] = rows.map(() => []);
+  let cols = 0;
+  const cells = rows.map((row, ri) => {
+    let col = 0;
+    return row.map((c) => {
+      while (taken[ri][col]) col++;
+      const colspan = Math.max(1, Math.min(100, Math.round(c.colspan) || 1));
+      const rowspan = Math.max(1, Math.min(rows.length - ri, Math.round(c.rowspan) || 1));
+      for (let r = ri; r < ri + rowspan; r++) for (let k = col; k < col + colspan; k++) taken[r][k] = true;
+      const at = { row: ri, col, lastRow: ri + rowspan - 1, lastCol: col + colspan - 1 };
+      col += colspan;
+      cols = Math.max(cols, col);
+      return at;
+    });
+  });
+  return { cells, rows: rows.length, cols };
 }
 
 function tableHtml(n: JsonNode, base?: BaseFont): string {
   const borders = n.attrs?.borders === "outside" || n.attrs?.borders === "none" ? (n.attrs.borders as string) : "all";
   const rows = (n.content ?? []).filter((r) => r.type === "tableRow");
   const font = base ? `${baseStyle(base)};` : "";
+  const grid = cellGrid(rows.map((r) => (r.content ?? []).map((c) => ({ colspan: Number(c.attrs?.colspan) || 1, rowspan: Number(c.attrs?.rowspan) || 1 }))));
   const body = rows
     .map((row, ri) => {
       const cells = row.content ?? [];
       const tds = cells.map((c, ci) => {
         const a = c.attrs ?? {};
         const th = c.type === "tableHeader";
-        const edges = borders === "all" ? `border:${TABLE_RULE}` : borders === "outside" ? edgeBorders(ri, rows.length, ci, cells.length) : "";
+        const g = grid.cells[ri][ci];
+        const edges = borders === "all" ? `border:${TABLE_RULE}` : borders === "outside" ? edgeBorders(ri, g.lastRow, g.col, g.lastCol, grid.rows, grid.cols) : "";
         const bg = typeof a.background === "string" && /^#[0-9a-f]{6}$/i.test(a.background) ? a.background.toUpperCase() : "";
         const style = `${font}${edges ? edges + ";" : ""}${CELL_BOX}${th ? ";font-weight:bold;text-align:left" : ""}${bg ? `;background-color:${bg}` : ""}`;
         const span = (name: string, v: unknown) => (Number(v) > 1 ? ` ${name}="${Math.min(100, Math.round(Number(v)))}"` : "");

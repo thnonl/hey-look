@@ -7,7 +7,8 @@
 // This drives the real editor in the dev preview with `#os=macos` and the mock backend's clipboard (window.__mockClipboard), and simulates the WebKit
 // order: a key press with Cmd+Shift+V, NO paste event; and the order where a paste event does arrive too (after the key, in the same turn). It asserts that
 // the text lands once, as plain text (no bold, no Paste options button), that the key is claimed on a Mac only, that Cmd+V / Cmd+C / Cmd+X / Cmd+A /
-// Cmd+Shift+Z... keys are left alone (the Edit menu must keep delivering them), that Cmd+Option+Shift+V is not touched (Compose's editorKeyHandlers keep every Cmd+Option key from the editor), and that Windows / Linux behaviour has not changed.
+// Cmd+Shift+Z... keys are left alone (the Edit menu must keep delivering them), that Cmd+Option+Shift+V ("Paste and Match Style", W2.24) does exactly what Cmd+Shift+V does while every other Cmd+Option key stays blocked, that Linux (W2.23) pastes the HTML of an HTML-only clipboard as text when
+// Ctrl+Shift+V pasted nothing and does not paste twice when the paste event did arrive, and that Windows behaviour has not changed.
 //   node scripts/test-paste-mac.mjs [--require-browser] [--url=http://127.0.0.1:1420/]
 import assert from 'node:assert/strict';
 import { sleep, startHarness } from './cdp-harness.mjs';
@@ -79,6 +80,28 @@ try {
   d = await doc();
   check('mac: another layout (the letter V on another key) works', () => assert.equal(d.html, '<p>Match style</p>'));
 
+  // ---- W2.24: Cmd+Option+Shift+V is the same key ("Paste and Match Style"); with Option held the key reads "◊" and the physical V decides
+  await evaluate(`${ED}.commands.clearContent(); 1`);
+  await setClip('Match and style', '<p><b>Match</b> and style</p>');
+  claimed = await press('◊', 'KeyV', 'metaKey: true, shiftKey: true, altKey: true', false);
+  await sleep(400);
+  d = await doc();
+  check('mac: Cmd+Option+Shift+V is claimed and pastes the clipboard as plain text', () => { assert.equal(claimed, true); assert.equal(d.html, '<p>Match and style</p>'); assert.equal(d.bold, false); assert.equal(d.button, false); });
+  await evaluate(`${ED}.commands.clearContent(); 1`);
+  await setClip('', '<ul><li>one</li><li>two</li></ul>');
+  await press('◊', 'KeyV', 'metaKey: true, shiftKey: true, altKey: true', false);
+  await sleep(400);
+  d = await doc();
+  check('mac: Cmd+Option+Shift+V with an HTML-only clipboard: the HTML as text', () => { assert.ok(d.text.includes('one') && d.text.includes('two')); assert.ok(!/<(ul|li)/.test(d.html), d.html); });
+  await evaluate(`${ED}.commands.clearContent(); 1`);
+  await setClip('Must not appear', '');
+  for (const [key, code, mods] of [['ç', 'KeyC', 'metaKey: true, shiftKey: true, altKey: true'], ['√', 'KeyV', 'metaKey: true, altKey: true'], ['◊', 'KeyV', 'metaKey: true, shiftKey: true, altKey: true, ctrlKey: true']]) {
+    const c = await press(key, code, mods, false);
+    await sleep(200);
+    d = await doc();
+    check(`mac: ${mods.replace(/: true/g, '').replace(/Key/g, '')} + ${code} stays blocked: nothing is pasted`, () => { assert.equal(c, false); assert.equal(d.html, ''); });
+  }
+
   // ---- the plain keys the Edit menu delivers are left alone, and the paste event of Cmd+V still works, with its Paste options button
   for (const [key, code, mods] of [['v', 'KeyV', 'metaKey: true'], ['c', 'KeyC', 'metaKey: true'], ['x', 'KeyX', 'metaKey: true'], ['a', 'KeyA', 'metaKey: true'], ['z', 'KeyZ', CMD_SHIFT], ['b', 'KeyB', 'metaKey: true']]) {
     const c = await press(key, code, mods, false);
@@ -129,9 +152,46 @@ try {
   check('windows: Meta+Shift+V is not claimed and pastes nothing', () => { assert.equal(claimed, false); assert.equal(d.html, ''); });
   claimed = await press('V', 'KeyV', 'ctrlKey: true, shiftKey: true', false);
   check('windows: Ctrl+Shift+V is not claimed (the paste event does it)', () => assert.equal(claimed, false));
+  claimed = await press('V', 'KeyV', 'ctrlKey: true, altKey: true, shiftKey: true', false);
+  await sleep(300);
+  d = await doc();
+  check('windows: Ctrl+Alt+Shift+V (AltGr+Shift+V) is not claimed and pastes nothing', () => { assert.equal(claimed, false); assert.equal(d.html, ''); });
+  // ---- W2.23, Windows: a normal copy from a browser (both flavours) still pastes plain text through the paste event
+  await evaluate(`${ED}.commands.clearContent(); 1`);
+  await press('V', 'KeyV', 'ctrlKey: true, shiftKey: true', true);
+  await sleep(400);
+  d = await doc();
+  check('windows: Ctrl+Shift+V with a paste event pastes its text once, plain', () => { assert.equal(d.html, '<p>FROM THE PASTE EVENT</p>'); assert.equal(d.button, false); });
+
+  // ---- W2.23, Linux: WebKitGTK pastes "as plain text" from the text part only. A clipboard with HTML only pastes nothing and may send no paste event: after the key the backend's clipboard is read
   await open('linux');
+  await setClip('', '<ol><li>one</li><li>two</li></ol><p>after</p>');
   claimed = await press('V', 'KeyV', 'ctrlKey: true, shiftKey: true', false);
   check('linux: Ctrl+Shift+V is not claimed', () => assert.equal(claimed, false));
+  await sleep(700);
+  d = await doc();
+  check('linux: an HTML-only clipboard is pasted as text (list markers, no formatting, no Paste options button)', () => { assert.match(d.text, /1. one/); assert.match(d.text, /2. two/); assert.ok(d.text.includes('after')); assert.ok(!/<(ol|ul|li|strong)/.test(d.html), d.html); assert.equal(d.button, false); });
+  // the paste event did arrive: it pastes, the backend is not asked (no second paste)
+  await evaluate(`${ED}.commands.clearContent(); 1`);
+  await setClip('From the backend', '<p>From the backend</p>');
+  await press('V', 'KeyV', 'ctrlKey: true, shiftKey: true', true);
+  await sleep(700);
+  d = await doc();
+  const reads = await evaluate(`window.__readCalls`);
+  check('linux: with a paste event the text lands once and the backend clipboard is not pasted as well', () => { assert.equal(d.html, '<p>FROM THE PASTE EVENT</p>'); assert.equal(reads, 0, 'the backend was not asked'); });
+  // nothing in either flavour: nothing happens, no error
+  await evaluate(`${ED}.commands.clearContent(); 1`);
+  await setClip('', '');
+  await press('V', 'KeyV', 'ctrlKey: true, shiftKey: true', false);
+  await sleep(700);
+  d = await doc();
+  check('linux: an empty clipboard pastes nothing, no error toast', () => { assert.equal(d.html, ''); });
+  // Cmd+Shift+V is not a Linux key
+  await setClip('Must not appear', '');
+  claimed = await press('V', 'KeyV', CMD_SHIFT, false);
+  await sleep(500);
+  d = await doc();
+  check('linux: Meta+Shift+V pastes nothing', () => { assert.equal(claimed, false); assert.equal(d.html, ''); });
 } finally { await H.shutdown(); }
 
 if (failures.length) { console.error(`test-paste-mac: ${failures.length} failure(s)\n - ${failures.join('\n - ')}`); process.exit(1); }

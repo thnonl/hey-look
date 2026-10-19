@@ -88,10 +88,13 @@ assert.ok(plug.includes("<FloatingMenu") && plug.includes("trigger={trigger}"), 
 // Cmd+Shift+V on a Mac: no paste event from WKWebView, so the key is caught and the clipboard is read by the backend (behaviour: test-paste-mac.mjs)
 assert.ok(plug.includes('osNow() === "macos" && isCmdShiftV(e)') && plug.includes("api.readClipboardText()") && plug.includes("v.pasteText(text)"), "Cmd+Shift+V on a Mac pastes text only from the backend clipboard");
 const key = read("src/plainPasteKey.ts");
-assert.ok(key.includes("e.metaKey && e.shiftKey && !e.altKey && !e.ctrlKey") && key.includes('e.key.toLowerCase() === "v"'), "Cmd+Shift+V only; Cmd+Option keys belong to composeKeys");
+assert.ok(key.includes("e.metaKey && e.shiftKey && !e.ctrlKey") && key.includes('e.altKey ? e.code === "KeyV" : e.key.toLowerCase() === "v"'), "Cmd+Shift+V and Cmd+Option+Shift+V (W2.24; with Option the key is the physical V); every other Cmd+Option key belongs to composeKeys");
 assert.ok(read("src/main.tsx").includes("installPlainPasteKey()"), "text boxes too");
 const lib = read("src-tauri/src/lib.rs");
-assert.ok(lib.includes("async fn read_clipboard_text()") && lib.includes("read_clipboard_text,") && lib.includes("mod macclip;"), "the command is registered");
+assert.ok(lib.includes("async fn read_clipboard_text(app: tauri::AppHandle)") && lib.includes("read_clipboard_text,") && lib.includes("mod macclip;"), "the command is registered");
+// W2.23: Linux reads the GTK clipboard (text and the text/html part, decoded by clipdecode) when Ctrl+Shift+V pasted nothing
+assert.ok(lib.includes('gtk::gdk::Atom::intern("text/html")') && lib.includes("clipdecode::html_from_clipboard_bytes") && lib.includes("mod clipdecode;"), "Linux reads the HTML part of the clipboard");
+assert.ok(plug.includes('osNow() === "linux" && e.ctrlKey && e.shiftKey') && plug.includes("!sawPaste && !v.isDestroyed && v.state.doc === before"), "Linux: Ctrl+Shift+V that pasted nothing asks the backend (behaviour: test-paste-mac.mjs)");
 assert.ok(read("src-tauri/build.rs").includes('"read_clipboard_text"') && read("src-tauri/capabilities/default.json").includes("allow-read-clipboard-text") && read("src-tauri/capabilities/popout.json").includes("allow-read-clipboard-text"), "manifest, main and pop-out windows (compose-*) may call it");
 const mac = read("src-tauri/src/macclip.rs");
 assert.ok(mac.includes("generalPasteboard") && mac.includes("stringForType") && !/writeObjects/.test(mac) && /pub fn write\(text: &str\)/.test(mac), "the backend reads the clipboard for pasting; its one write is the plain text of a Copy button (W1.11)");

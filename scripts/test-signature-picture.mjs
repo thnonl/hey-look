@@ -3,6 +3,8 @@
 // Run: node --experimental-strip-types scripts/test-signature-picture.mjs
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
+import { fillSignatureStr } from "../src/editor/messageBody.ts";
+import { MESSAGE_PICTURE_SIZES, SIGNATURE_PICTURE_SIZES, sizeForKey } from "../src/editor/pictureSizes.ts";
 import { SHRINK_STEPS, SIGNATURE_PICTURE_MAX, SIGNATURE_PICTURE_WIDTH, fitSignaturePicture, initialWidth } from "../src/editor/signaturePicture.ts";
 
 const read = (f) => readFileSync(new URL(`../${f}`, import.meta.url), "utf8");
@@ -69,5 +71,20 @@ assert.match(read("src/editor/toolbarLayout.ts"), /picture: \{[^}]*variants: BOT
 // the sent message makes every data: picture of the signature an inline part (messageBody.ts swaps after the signature is in)
 const body = read("src/editor/messageBody.ts");
 assert.ok(body.indexOf("fillSignatureStr(docToHtml") < body.indexOf("swapPictures(filled"), "the signature is put in before the pictures become parts");
+
+// ---- W2.15: the picture toolbar of the message body is the one of the signature / template editor, with the sizes of a logo
+assert.deepEqual(SIGNATURE_PICTURE_SIZES.map(([, w]) => w), [120, 240, 360, null], "Small 120 / Medium 240 / Large 360 / Original");
+assert.deepEqual(SIGNATURE_PICTURE_SIZES.map(([k]) => k), ["compose.pic.small", "compose.pic.medium", "compose.pic.large", "compose.pic.original"], "the existing size texts");
+assert.deepEqual(MESSAGE_PICTURE_SIZES.map(([, w]) => w), [240, 480, 720, null], "the message body keeps its sizes");
+assert.equal(SIGNATURE_PICTURE_SIZES[1][1], SIGNATURE_PICTURE_WIDTH, "Medium is the width a new signature picture gets");
+assert.deepEqual(["1", "2", "3", "0", "4"].map((k) => sizeForKey(SIGNATURE_PICTURE_SIZES, k)), [120, 240, 360, null, undefined], "Ctrl+1/2/3/0");
+assert.ok(rich.includes("usePictureTools({ editor, bodyRef, sizes: SIGNATURE_PICTURE_SIZES"), "the toolbar is mounted in the signature / template editor");
+assert.ok(!rich.includes("onAttachment"), "no As attachment in a signature or a template");
+const tools = read("src/editor/PictureTools.tsx");
+assert.ok(tools.includes("{onAttachment && <button"), "As attachment is only there when the editor gives the action");
+assert.ok(tools.includes("compose.pic.altText"), "the Alt text button");
+// the alt text is part of the signature's HTML and stays when the signature is put into a message
+const logo = '<p><img src="data:image/png;base64,AAAA" alt="Company logo" width="120"></p>';
+assert.ok(fillSignatureStr('<p>Hi</p><div data-sig-block></div>', logo).includes('alt="Company logo"'), "the alt text survives fillSignatureStr");
 
 console.log("signature-picture: ok");

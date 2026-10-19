@@ -145,16 +145,64 @@ try {
   await evaluate(BIG_GIF);
   await bigGifIn('e09-anim.gif');
   await sleep(1200);
-  await check('big GIF, asked: the prompt comes and the picture is a GIF as it is', async () => { assert.deepEqual((await evaluate(BODY)).imgs, ['e09-anim.gif']); assert.match(await evaluate(TOASTS), /Resize it to 1600 px wide/); });
-  await evaluate(`[...document.querySelectorAll('.toasts .toast button')].find((b) => /^Resize$/.test(b.textContent.trim())).click(); 1`);
+  // (W2.1: a GIF that is not wider than 1600 px is offered what the button does, the conversion to PNG, not "Resize it to 1600 px wide")
+  await check('big GIF, asked: the convert prompt comes (no "1600") and the picture is a GIF as it is', async () => { assert.deepEqual((await evaluate(BODY)).imgs, ['e09-anim.gif']); const t = await evaluate(TOASTS); assert.match(t, /Convert it to PNG to make it smaller\? The animation is not kept\./); assert.doesNotMatch(t, /1600/); });
+  await evaluate(`[...document.querySelectorAll('.toasts .toast button')].find((b) => /^Convert to PNG$/.test(b.textContent.trim())).click(); 1`);
   await sleep(1800);
-  await check('big GIF, Resize clicked: the name becomes .png and the toast says the animation is lost', async () => { assert.deepEqual((await evaluate(BODY)).imgs, ['e09-anim.png']); const t = await evaluate(TOASTS); assert.match(t, /Converted e09-anim\.png to PNG \(.*\): the animation is not kept/); assert.doesNotMatch(t.replace(/Resize it to 1600 px wide/g, ''), /1600|Resized/); });
+  await check('big GIF, Convert clicked: the name becomes .png and the toast says the animation is lost', async () => { assert.deepEqual((await evaluate(BODY)).imgs, ['e09-anim.png']); const t = await evaluate(TOASTS); assert.match(t, /Converted e09-anim\.png to PNG \(.*\): the animation is not kept/); assert.doesNotMatch(t, /1600|Resized/); });
   await check('big GIF, Resize clicked: the draft part is image/png under the .png name', async () => { const d = await lastDraft(); assert.deepEqual(d.inline.map((p) => [p.mime, p.filename]), [['image/png', 'e09-anim.png']]); });
   // a GIF that is NOT re-encoded stays a GIF (small file: no prompt, nothing converted)
   await fresh();
   await evaluate(`(() => { const dt = new DataTransfer(); dt.items.add(new File([Uint8Array.from(atob('R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7'), (x) => x.charCodeAt(0))], 'small.gif', { type: 'image/gif' })); const i = document.querySelector('input[type=file][accept*="image"]'); i.files = dt.files; i.dispatchEvent(new Event('change', { bubbles: true })); return 1; })()`);
   await sleep(900);
   await check('a small GIF stays a GIF: name, type, bytes', async () => { assert.deepEqual((await evaluate(BODY)).imgs, ['small.gif']); const d = await lastDraft(); assert.deepEqual(d.inline.map((p) => [p.mime, p.filename]), [['image/gif', 'small.gif']]); });
+
+  // ---------- W2.1: what the prompt offers for a picture over 1 MB (auto-resize off), and a re-encode that is not smaller is not used
+  // noise pictures: a noise canvas weighs a lot as PNG and as a JPEG of high quality; `q` is the JPEG quality it is made with
+  const NOISE = `window.__noise = async (name, w, h, type, q) => { const c = document.createElement('canvas'); c.width = w; c.height = h; const g = c.getContext('2d'); const d = g.createImageData(w, h);
+    let s = 12345; for (let i = 0; i < d.data.length; i += 4) { s = (s * 1103515245 + 12345) & 0x7fffffff; d.data[i] = s & 255; d.data[i + 1] = (s >> 8) & 255; d.data[i + 2] = (s >> 16) & 255; d.data[i + 3] = 255; }
+    g.putImageData(d, 0, 0); const blob = await new Promise((r) => c.toBlob(r, type, q)); return new File([blob], name, { type }); }; 1`;
+  const fileIn = (js) => evaluate(`(async () => { const f = await ${js}; const dt = new DataTransfer(); dt.items.add(f); const i = document.querySelector('input[type=file][accept*="image"]'); i.files = dt.files; i.dispatchEvent(new Event('change', { bubbles: true })); return f.size; })()`);
+  const press = (label) => evaluate(`(() => { const b = [...document.querySelectorAll('.toasts .toast button')].find((x) => x.textContent.trim() === ${JSON.stringify(label)}); if (!b) return false; b.click(); return true; })()`);
+  const sizeOf = () => evaluate(`(() => { let n = 0; ${ED}.state.doc.descendants((x) => { if (x.type.name === 'image') n = Math.floor((x.attrs.src.length - x.attrs.src.indexOf(',') - 1) * 3 / 4); }); return n; })()`);
+  await fresh();
+  await evaluate(NOISE);
+  const jpegBytes = await fileIn(`__noise('photo.jpg', 1200, 900, 'image/jpeg', 1)`);
+  await sleep(2500);
+  await check('JPEG over 1 MB and not wider than 1600 px: the compress prompt, no "1600"', async () => { assert.ok(jpegBytes > 1048576, `the test picture is ${jpegBytes} B`); const t = await evaluate(TOASTS); assert.match(t, /This picture is .* \(1200 × 900\)\. Compress it to make the message smaller\?/); assert.doesNotMatch(t, /1600/); });
+  const before = await sizeOf();
+  await check('JPEG: the Compress button is there; pressed it makes the picture smaller and the toast says Compressed', async () => { assert.ok(await press('Compress')); await sleep(2500); assert.ok((await sizeOf()) < before, 'smaller'); assert.match(await evaluate(TOASTS), /Compressed photo\.jpg/); });
+  // a JPEG that grows when it is re-encoded: the button keeps the original and says so
+  await fresh();
+  await evaluate(NOISE);
+  const poorBytes = await fileIn(`__noise('poor.jpg', 1600, 2400, 'image/jpeg', 0.5)`);
+  await sleep(2500);
+  const poorBefore = await sizeOf();
+  await check('an already optimised JPEG: the prompt comes; Compress keeps the original (same bytes) and says it can’t be made smaller', async () => {
+    assert.ok(poorBytes > 1048576, `the test picture is ${poorBytes} B`);
+    assert.match(await evaluate(TOASTS), /Compress it to make the message smaller\?/);
+    assert.ok(await press('Compress')); await sleep(2500);
+    assert.equal(await sizeOf(), poorBefore, 'the picture bytes are unchanged');
+    assert.match(await evaluate(TOASTS), /poor\.jpg can’t be made smaller, so it was kept as it is\./);
+  });
+  // automatic: a re-encode that is not smaller is not used, and nothing is said
+  await fresh({ autoResizePictures: true });
+  await evaluate(NOISE);
+  await fileIn(`__noise('poor2.jpg', 1600, 2400, 'image/jpeg', 0.5)`);
+  await sleep(2500);
+  await check('auto-resize on, JPEG that would grow: the picture is kept, no toast', async () => { assert.equal(await sizeOf(), poorBefore, 'unchanged'); assert.doesNotMatch(await evaluate(TOASTS), /Compressed|Resized|smaller/); });
+  // wider than 1600 px: the old prompt (it says what the button does)
+  await fresh();
+  await evaluate(NOISE);
+  await fileIn(`__noise('wide.jpg', 2000, 700, 'image/jpeg', 1)`);
+  await sleep(3000);
+  await check('JPEG wider than 1600 px: "Resize it to 1600 px wide?" with Resize', async () => { assert.match(await evaluate(TOASTS), /Resize it to 1600 px wide\?/); assert.ok(await press('Resize')); await sleep(2500); assert.match(await evaluate(TOASTS), /Resized wide\.jpg to 1600 px/); });
+  // a PNG that is not wider than 1600 px gets no prompt at all
+  await fresh();
+  await evaluate(NOISE);
+  const pngBytes = await fileIn(`__noise('big.png', 1000, 800, 'image/png')`);
+  await sleep(2500);
+  await check('PNG over 1 MB and not wider than 1600 px: no prompt', async () => { assert.ok(pngBytes > 1048576, `the test picture is ${pngBytes} B`); assert.deepEqual((await evaluate(BODY)).imgs, ['big.png']); assert.equal(await evaluate(TOASTS), ''); });
 } finally { await H.shutdown(); }
 
 if (failures.length) { console.error(`test-compose-pictures: ${failures.length} failure(s)\n - ${failures.join('\n - ')}`); process.exit(1); }

@@ -10,10 +10,13 @@ import { fileURLToPath } from "node:url";
 import { getSchema } from "@tiptap/core";
 import StarterKit from "@tiptap/starter-kit";
 import { EditorState, NodeSelection, TextSelection } from "@tiptap/pm/state";
-import { docToHtml } from "../src/editor/emailHtml.ts";
+import { CellSelection } from "@tiptap/pm/tables";
+import { history, undo } from "@tiptap/pm/history";
+import { cellGrid, docToHtml } from "../src/editor/emailHtml.ts";
+import { htmlToText } from "../src/htmlText.ts";
 import { EMOJI_GROUPS, osEmojiKeys } from "../src/editor/emojiData.ts";
 import { PictureNode } from "../src/editor/pictureNode.ts";
-import { cellShading, hasHeaderRow, insertTable, setBorders, tableAt, tableBorders, MAX_COLS, MAX_ROWS } from "../src/editor/tableCommands.ts";
+import { canMergeCells, canSplitCell, cellShading, hasHeaderRow, mergeSelectedCells, splitSelectedCell, insertTable, setBorders, tableAt, tableBorders, MAX_COLS, MAX_ROWS } from "../src/editor/tableCommands.ts";
 import { tableExtensions } from "../src/editor/tableExtension.ts";
 import { BAR_META } from "../src/editor/toolbarLayout.ts";
 
@@ -132,6 +135,137 @@ const doc = (...blocks) => ({ type: "doc", content: blocks });
   assert.equal(tableBorders(caretIn(mk(doc(P("no table"))), "no table")), null);
 }
 
+// ---- W2.19: merge and split cells (real ProseMirror state with prosemirror-tables and the history plugin, no DOM)
+{
+  const state0 = (d) => EditorState.create({ doc: schema.nodeFromJSON(d), plugins: [history()] });
+  const fake = (state) => { const ed = { state, view: { dispatch(tr) { ed.state = ed.state.apply(tr); }, focus() {} } }; return ed; };
+  const cellAt = (state, needle) => { let at = -1; state.doc.descendants((n, p) => { if (at < 0 && (n.type.name === "tableCell" || n.type.name === "tableHeader") && n.textContent.startsWith(needle)) at = p; }); assert.ok(at >= 0, needle); return at; };
+  const select = (ed, a, b) => { ed.state = ed.state.apply(ed.state.tr.setSelection(CellSelection.create(ed.state.doc, cellAt(ed.state, a), cellAt(ed.state, b)))); return ed; };
+  const caret = (ed, needle) => { let at = -1; ed.state.doc.descendants((n, p) => { if (at < 0 && n.isText && n.text.includes(needle)) at = p + 1; }); ed.state = ed.state.apply(ed.state.tr.setSelection(TextSelection.create(ed.state.doc, at))); return ed; };
+  const grid = () => doc(table("all",
+    [cell({ background: "#92D050" }, P("A1")), cell({}, P("B1")), cell({}, P("C1"))],
+    [cell({}, P("A2")), cell({}, P("B2")), cell({}, P("C2"))],
+    [cell({}, P("A3")), cell({}, P("B3")), cell({}, P("C3"))]));
+  const rows = (ed) => ed.state.doc.child(0).content.content.map((r) => r.content.content.map((c) => ({ t: c.textContent, p: c.childCount, cs: c.attrs.colspan, rs: c.attrs.rowspan, bg: c.attrs.background })));
+
+  // a single cell, a caret and a text selection across two cells are not mergeable; a split is not possible on a normal cell
+  let ed = fake(state0(grid()));
+  assert.equal(canMergeCells(ed.state), false, "no selection");
+  caret(ed, "A1");
+  assert.deepEqual([canMergeCells(ed.state), canSplitCell(ed.state), mergeSelectedCells(ed), splitSelectedCell(ed)], [false, false, false, false], "a caret in a normal cell");
+  select(ed, "A1", "A1");
+  assert.deepEqual([canMergeCells(ed.state), canSplitCell(ed.state)], [false, false], "one cell selected: Merge is off, Split is off on a normal cell");
+
+  // A1:B1 -> one cell spanning 2 columns with both texts (two paragraphs, reading order); the shading of the top-left cell is kept
+  select(ed, "A1", "B1");
+  assert.equal(canMergeCells(ed.state), true);
+  assert.equal(mergeSelectedCells(ed), true);
+  let r = rows(ed);
+  assert.deepEqual(r[0].map((c) => [c.t, c.p, c.cs, c.rs, c.bg]), [["A1B1", 2, 2, 1, "#92D050"], ["C1", 1, 1, 1, null]], "A1 and B1 in one cell, colspan 2, shading of A1");
+  assert.equal(r[1].length, 3, "the other rows are untouched");
+  // A2:A3 -> rowspan 2
+  select(ed, "A2", "A3");
+  assert.equal(mergeSelectedCells(ed), true);
+  r = rows(ed);
+  assert.deepEqual([r[1][0].t, r[1][0].rs, r[2].length], ["A2A3", 2, 2], "rowspan 2, and the row below has one cell less");
+  // a selection that is not a rectangle (A1:B2 while A2 spans down into row 3 and sticks out of it) is refused and nothing changes
+  const wide = select(fake(state0(doc(table("all", [cell({}, P("A1")), cell({}, P("B1"))], [cell({ rowspan: 2 }, P("A2")), cell({}, P("B2"))], [cell({}, P("B3"))])))), "A1", "B2");
+  const wideBefore = JSON.stringify(rows(wide));
+  assert.deepEqual([canMergeCells(wide.state), mergeSelectedCells(wide)], [false, false], "a non-rectangle is refused");
+  assert.equal(JSON.stringify(rows(wide)), wideBefore, "and the table is as it was");
+  // (a rectangle that holds the whole spanned cell is fine: A1:A3 with A2 spanning rows 2-3)
+  const whole = select(fake(state0(doc(table("all", [cell({}, P("A1")), cell({}, P("B1"))], [cell({ rowspan: 2 }, P("A2")), cell({}, P("B2"))], [cell({}, P("B3"))])))), "A1", "A2");
+  assert.equal(mergeSelectedCells(whole), true);
+  assert.deepEqual([rows(whole)[0][0].rs, rows(whole)[0].length], [3, 2], "A1 and the spanned A2 are one cell spanning three rows");
+
+  // Split cell: the merged cell goes back to single cells, its content in the top-left one
+  ed = fake(state0(grid()));
+  select(ed, "A1", "B1");
+  mergeSelectedCells(ed);
+  caret(ed, "A1");
+  assert.equal(canSplitCell(ed.state), true, "the caret is in a cell with a colspan");
+  assert.equal(canMergeCells(ed.state), false, "a caret is not a cell selection");
+  assert.equal(splitSelectedCell(ed), true);
+  r = rows(ed);
+  assert.deepEqual(r[0].map((c) => [c.t, c.cs, c.rs]), [["A1B1", 1, 1], ["", 1, 1], ["C1", 1, 1]], "two cells again, all the text in the left one");
+  assert.equal(r[0].length, 3);
+  // a selected single merged cell splits too
+  select(ed, "A2", "B2");
+  mergeSelectedCells(ed);
+  select(ed, "A2", "A2");
+  assert.equal(canSplitCell(ed.state), true, "a single selected merged cell can be split");
+
+  // Ctrl+Z undoes a merge and a split, each in one step
+  ed = fake(state0(grid()));
+  select(ed, "A1", "B2");
+  const before = JSON.stringify(rows(ed));
+  mergeSelectedCells(ed);
+  assert.notEqual(JSON.stringify(rows(ed)), before);
+  undo(ed.state, (tr) => { ed.state = ed.state.apply(tr); });
+  assert.equal(JSON.stringify(rows(ed)), before, "one undo restores the four cells");
+  mergeSelectedCells(select(ed, "A1", "B2"));
+  caret(ed, "A1");
+  const merged = JSON.stringify(rows(ed));
+  splitSelectedCell(ed);
+  undo(ed.state, (tr) => { ed.state = ed.state.apply(tr); });
+  assert.equal(JSON.stringify(rows(ed)), merged, "one undo puts a split back");
+
+  // header row, borders and Delete row / column keep working with spans
+  ed = fake(state0(doc(table("outside", [th({}, P("H1")), th({}, P("H2")), th({}, P("H3"))], [cell({}, P("A2")), cell({}, P("B2")), cell({}, P("C2"))], [cell({}, P("A3")), cell({}, P("B3")), cell({}, P("C3"))]))));
+  select(ed, "A2", "B2");
+  mergeSelectedCells(ed);
+  caret(ed, "H1");
+  assert.equal(hasHeaderRow(ed.state), true, "the header row stays a header row");
+  assert.equal(setBorders(ed, "all") && tableBorders(ed.state), "all");
+}
+
+// ---- W2.19: the serializer with spans: colspan / rowspan, and the outside frame is complete at the merged cells
+{
+  const span = (colspan, rowspan, text) => cell({ colspan, rowspan }, P(text));
+  const h = docToHtml(doc(table("outside",
+    [span(2, 1, "A1"), span(1, 1, "C1")],
+    [span(1, 2, "A2"), span(1, 1, "B2"), span(1, 1, "C2")],
+    [span(1, 1, "B3"), span(1, 1, "C3")])));
+  assert.ok(h.includes('<td colspan="2" style=') && h.includes('<td rowspan="2" style='), "colspan and rowspan are written");
+  const sides = Object.fromEntries([...h.matchAll(/<td[^>]*style="([^"]*)"[^>]*><p[^>]*>([A-C]\d)<\/p><\/td>/g)].map((m) => [m[2], ["top", "right", "bottom", "left"].filter((s) => m[1].includes(`border-${s}:`)).join("+")]));
+  assert.deepEqual(sides, {
+    A1: "top+left", // spans columns 1-2: no right edge, it is not on the right side of the grid
+    C1: "top+right",
+    A2: "bottom+left", // spans rows 2-3: the bottom edge of the grid, not the top
+    B2: "",
+    C2: "right",
+    B3: "bottom",
+    C3: "right+bottom",
+  }, "every outer edge of the grid is drawn by exactly the cell that is on it");
+  // all four edges of the frame are covered: walk the grid
+  const g = cellGrid([[{ colspan: 2, rowspan: 1 }, { colspan: 1, rowspan: 1 }], [{ colspan: 1, rowspan: 2 }, { colspan: 1, rowspan: 1 }, { colspan: 1, rowspan: 1 }], [{ colspan: 1, rowspan: 1 }, { colspan: 1, rowspan: 1 }]]);
+  assert.deepEqual([g.rows, g.cols], [3, 3]);
+  assert.deepEqual(g.cells[1][0], { row: 1, col: 0, lastRow: 2, lastCol: 0 }, "A2 reaches row 3");
+  assert.deepEqual(g.cells[2].map((c) => c.col), [1, 2], "the row below a rowspan starts in the next free column");
+  // all borders: every cell has its four sides; none: no side at all
+  assert.ok(!docToHtml(doc(table("none", [span(2, 1, "x")]))).includes("border-top"));
+  assert.ok(docToHtml(doc(table("all", [span(2, 1, "x")]))).includes("border:1px solid"));
+  // a span that is too big for the table (a pasted table) cannot put the frame out of the grid
+  assert.deepEqual(cellGrid([[{ colspan: 1, rowspan: 9 }]]).cells[0][0], { row: 0, col: 0, lastRow: 0, lastCol: 0 }, "a rowspan past the last row ends at the last row");
+}
+
+// ---- W2.19: the plain-text part writes a merged cell once, with tabs for the columns it spans
+{
+  assert.equal(htmlToText('<table><tr><td colspan="2">A1 B1</td><td>C1</td></tr><tr><td>A2</td><td>B2</td><td>C2</td></tr></table>'), "A1 B1\t\tC1\nA2\tB2\tC2", "A1 B1 spans two columns: two tabs before C1");
+  assert.equal(htmlToText('<table><tr><td>a</td><td colspan="3">b</td></tr></table>'), "a\tb", "a spanning cell at the end adds nothing after it");
+  assert.equal(htmlToText('<table><tr><td colspan="3">a</td><td>b</td></tr><tr><td>c</td></tr></table>'), "a\t\t\tb\nc", "the span does not leak into the next row");
+}
+
+// ---- W2.19: the wiring: both menus have the two rows, the bar has the two buttons, the texts exist
+{
+  const ui = read("src/editor/insertUi.tsx");
+  assert.ok(/compose\.table\.merge[^\n]*canMergeCells/.test(ui) && /compose\.table\.split[^\n]*canSplitCell/.test(ui), "the Table button's menu has Merge cells and Split cell (disabled when they do not apply)");
+  assert.ok(/disabled=\{!canMergeCells\(st\)\}[^\n]*mergeSelectedCells/.test(ui) && /disabled=\{!canSplitCell\(st\)\}[^\n]*splitSelectedCell/.test(ui), "the table tools bar has Merge cells and Split cell buttons");
+  const en = read("src/i18n/ns/compose.ts");
+  assert.ok(en.includes('"compose.table.merge": "Merge cells"') && en.includes('"compose.table.split": "Split cell"'));
+  assert.ok(!/no merge or split/.test(read("src/editor/tableExtension.ts")), "the extension's comment no longer says there is no merge");
+}
+
 // ---- emoji
 {
   assert.equal(EMOJI_GROUPS.length, 8, "8 categories");
@@ -169,8 +303,8 @@ const doc = (...blocks) => ({ type: "doc", content: blocks });
   assert.ok(/useKit\(\) \? <ComposeBody init=\{init\} \/> : null/.test(read("src/components/Compose.tsx")) && /pictures: true/.test(read("src/components/Compose.tsx")), "Compose waits for the kit and asks for pictures");
   assert.ok(/useKit\(\) \? <RichEditorBody/.test(read("src/components/RichEditor.tsx")) && !/pictures: true/.test(read("src/components/RichEditor.tsx")) && /baseExtensions\(\{[^}]*\bpictures\b/.test(read("src/components/RichEditor.tsx")), "the signature and template editors wait for the kit and have the picture node only when the caller asks for it (Settings does: REQ-25)");
   // the picture toolbar: alignment and link
-  const compose = read("src/components/Compose.tsx");
-  assert.ok(/role="radiogroup" aria-label=\{t\("compose\.pic\.align"\)\}/.test(compose) && /setPictureAlign/.test(compose) && /compose\.pic\.linkTip/.test(compose));
+  const compose = read("src/editor/PictureTools.tsx"); // (the picture toolbar, one component for the message and the signature editor since 1.0.7)
+  assert.ok(/role="radiogroup" aria-label=\{t\("compose\.pic\.align"\)\}/.test(compose) && /setAlign/.test(compose) && /compose\.pic\.linkTip/.test(compose));
   // the link UI works on a selected picture
   const pop = read("src/components/LinkPopover.tsx");
   assert.ok(/picture: true/.test(pop) && /updateAttributes\("image", \{ href \}\)/.test(pop) && /compose\.link\.open/.test(pop), "the link popover edits a picture's link and can open a link (keyboard)");

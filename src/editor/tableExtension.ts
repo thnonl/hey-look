@@ -1,6 +1,7 @@
 // Tables in the message body (spec-rich-text.md REQ-31..33): tiptap's table nodes, kept to what an email table is. A table is always 100 % wide with
 // the border style the person chose (all borders, outside borders, no borders); a cell can have a shading colour and the first row can be a header
-// row. There are no column widths (the columns share the width), no merge or split in this phase. How a table is written to the sent HTML is
+// row. There are no column widths (the columns share the width). A cell can span columns and rows: Merge cells and Split cell are in tableCommands.ts (the cell selection that
+// Merge works on is prosemirror-tables' own, from the Table extension). How a table is written to the sent HTML is
 // emailHtml.ts (inline styles and plain attributes, no classes); the parse rules here read exactly that back, and also what a Word / Excel / web
 // table looks like once the paste cleaner (pasteClean.ts) is through with it (`border="1"`, `bgcolor`).
 //

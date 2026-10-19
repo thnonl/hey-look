@@ -723,6 +723,7 @@ button.att-chip:hover { background: var(--bg3); border-color: color-mix(in srgb,
 .rich:focus-within { border-color: var(--accent); box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent), transparent 78%); }
 .rich-bar { display: flex; align-items: center; padding: 4px 6px; border-bottom: 1px solid var(--border); background: var(--bg2); }
 .rich-body { padding: 10px 12px; }
+.rich-body-wrap { position: relative; } /* (the picture toolbar floats inside it, editor/PictureTools.tsx) */
 .rich-body .tiptap { outline: none; min-height: inherit; }
 .rich-body .tiptap p.is-editor-empty:first-child::before { content: attr(data-placeholder); color: var(--muted); float: left; height: 0; pointer-events: none; }
 
@@ -1043,8 +1044,10 @@ body:has(.popover.pinned:not(.alt-pop), .suggest.pinned, .dd-fixed) .img-tools-a
 .tbl-grid-label { font-size: .86em; color: var(--muted); text-align: center; min-height: 1.3em; margin: 2px 0; }
 .tbl-dialog { display: flex; flex-direction: column; gap: 10px; }
 .fmt-pop-emoji, .fmt-pop-symbol { width: 294px; }
+.emoji-search { width: 100%; box-sizing: border-box; margin-bottom: 6px; }
+.emoji-empty { font-size: .85em; color: var(--muted); padding: 8px 2px; }
 .emoji-tabs { display: flex; gap: 2px; }
-.emoji-tab { width: 32px; height: 30px; padding: 0; border: 0; border-radius: var(--r-sm); background: none; font-size: 17px; line-height: 1; }
+.emoji-tab { flex: 1 1 0; min-width: 0; max-width: 32px; height: 30px; padding: 0; border: 0; border-radius: var(--r-sm); background: none; font-size: 17px; line-height: 1; } /* (nine tabs in the width of the grid: Recently used and the 8 categories) */
 .emoji-tab:hover { background: var(--bg3); }
 .emoji-tab.on { background: var(--accent-soft); }
 .emoji-name { font-size: .82em; color: var(--muted); margin: 4px 0 2px; }

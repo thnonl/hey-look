@@ -200,8 +200,6 @@ const opensOnDown = (open: () => void) => (e: React.KeyboardEvent) => {
   }
 };
 
-const isOn = (b: boolean): boolean | undefined => (b ? true : undefined);
-
 /** A bar entry that is one button and one row of the More menu: a toggle (pressed state) or, with `action`, a plain command (`off` greys it). */
 function toggle(o: {
   id: string; label: Key; tip: Key | null; icon: ReactNode;
@@ -212,7 +210,7 @@ function toggle(o: {
   return {
     id: o.id, ...BAR_META[o.id], rove: [o.id],
     bar: (c) => <Tool c={c} id={o.id} icon={o.icon} label={c.t(o.label)} tip={tipOf(c)} on={isToggle ? o.on!(c.st) : undefined} disabled={o.off?.(c.st)} run={() => o.run(c)} />,
-    more: (c) => [{ label: c.t(o.label), icon: o.icon, checked: isToggle ? isOn(o.on!(c.st)) : undefined, disabled: o.off?.(c.st), onClick: () => o.run(c) }],
+    more: (c) => [{ label: c.t(o.label), icon: o.icon, kind: "check", checked: isToggle ? o.on!(c.st) : undefined, disabled: o.off?.(c.st), onClick: () => o.run(c) }],
   };
 }
 
@@ -556,7 +554,8 @@ function listControl(ordered: boolean): FormatControl {
       {
         label: c.t(ordered ? "compose.fmt.numbered" : "compose.fmt.bulleted"),
         icon: ordered ? <ListOrdered size={IC} /> : <List size={IC} />,
-        checked: isOn(ordered ? c.st.orderedList : c.st.bulletList),
+        kind: "check",
+        checked: ordered ? c.st.orderedList : c.st.bulletList,
         onClick: () => toggleList(c, ordered),
       },
       { label: c.t(ordered ? "compose.fmt.numberOptions" : "compose.fmt.bulletOptions"), hint: "›", onClick: () => c.openPicker(id) },
@@ -776,11 +775,11 @@ export const CONTROLS: readonly FormatControl[] = [
 export const MORE_ITEMS: readonly MoreEntry[] = [
   {
     id: "subscript", variants: ["compose", "compact"],
-    item: (c) => ({ label: c.t("compose.fmt.subscript"), icon: <Subscript size={IC} />, hint: kbd("Ctrl+="), checked: isOn(c.st.subscript), onClick: () => void toggleScript(c.editor, "subscript") }),
+    item: (c) => ({ label: c.t("compose.fmt.subscript"), icon: <Subscript size={IC} />, hint: kbd("Ctrl+="), kind: "check", checked: c.st.subscript, onClick: () => void toggleScript(c.editor, "subscript") }),
   },
   {
     id: "superscript", variants: ["compose", "compact"],
-    item: (c) => ({ label: c.t("compose.fmt.superscript"), icon: <Superscript size={IC} />, hint: kbd("Ctrl+Shift+="), checked: isOn(c.st.superscript), onClick: () => void toggleScript(c.editor, "superscript") }),
+    item: (c) => ({ label: c.t("compose.fmt.superscript"), icon: <Superscript size={IC} />, hint: kbd("Ctrl+Shift+="), kind: "check", checked: c.st.superscript, onClick: () => void toggleScript(c.editor, "superscript") }),
   },
   {
     id: "spacing", variants: ["compose", "compact"],
@@ -789,11 +788,11 @@ export const MORE_ITEMS: readonly MoreEntry[] = [
   },
   {
     id: "ltr", variants: ["compose", "compact"],
-    item: (c) => ({ label: c.t("compose.fmt.ltr"), icon: <PilcrowRight size={IC} />, checked: isOn(c.st.direction === "ltr"), onClick: () => void c.editor.chain().focus().command(({ state, dispatch }) => setDirection(null)(state, dispatch)).run() }),
+    item: (c) => ({ label: c.t("compose.fmt.ltr"), icon: <PilcrowRight size={IC} />, checked: c.st.direction === "ltr", onClick: () => void c.editor.chain().focus().command(({ state, dispatch }) => setDirection(null)(state, dispatch)).run() }),
   },
   {
     id: "rtl", variants: ["compose", "compact"],
-    item: (c) => ({ label: c.t("compose.fmt.rtl"), icon: <PilcrowLeft size={IC} />, checked: isOn(c.st.direction === "rtl"), onClick: () => void c.editor.chain().focus().command(({ state, dispatch }) => setDirection("rtl")(state, dispatch)).run() }),
+    item: (c) => ({ label: c.t("compose.fmt.rtl"), icon: <PilcrowLeft size={IC} />, checked: c.st.direction === "rtl", onClick: () => void c.editor.chain().focus().command(({ state, dispatch }) => setDirection("rtl")(state, dispatch)).run() }),
   },
   {
     id: "case", variants: ["compose", "compact"],

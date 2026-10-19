@@ -245,4 +245,38 @@ assert.match(app, /composeSwallowsAppKey\(e, \{ composeOpen: !!st\.compose, inCo
 assert.match(app, /tgt\.closest\("\.compose-pane"\)/, "inCompose = the focus is inside .compose-pane");
 assert.match(compose, /className=\{`compose-pane /, "the pane the guard looks for exists in Compose");
 
+// --- W2.24: Cmd+Option+Shift+V on a Mac is "Paste and Match Style": the editor's text-only paste must see it; every other Cmd+Option key stays blocked, and on Windows / Linux
+// Ctrl+Alt+Shift+V stays blocked (it is AltGr+Shift+V and types its character)
+{
+  const code = (key, mods, c, altGraphState = false) => ({ ...ev(key, mods, altGraphState), code: c });
+  const macBody = { inEditor: true, os: "macos" };
+  const winBody = { inEditor: true, os: "windows" };
+  const linuxBody = { inEditor: true, os: "linux" };
+  assert.equal(keyAction(code("◊", "mas", "KeyV"), macBody), "paste-text", "Cmd+Option+Shift+V (the key reads \"◊\" with Option held)");
+  assert.equal(keyAction(code("V", "mas", "KeyV"), macBody), "paste-text", "... or \"V\" where the layout reports the letter");
+  assert.equal(keyAction(code("v", "mas", "KeyV"), macBody), "paste-text");
+  assert.equal(keyAction(code("v", "mas", "KeyV", false), other), "pass", "outside an editor the key is not ours");
+  assert.equal(keyAction(code("v", "mas", "KeyV"), { inEditor: true }), "editor-skip", "without an os (the app-level handler) nothing changes");
+  assert.equal(keyAction(code("v", "ma", "KeyV"), macBody), "editor-skip", "Cmd+Option+V without Shift stays blocked");
+  assert.equal(keyAction(code("c", "mas", "KeyC"), macBody), "editor-skip", "Cmd+Option+Shift+C stays blocked");
+  assert.equal(keyAction(code("k", "mas", "KeyK"), macBody), "editor-skip", "Cmd+Option+Shift+K stays blocked");
+  assert.equal(keyAction(code("v", "cmas", "KeyV"), macBody), "editor-skip", "with Ctrl as well it is not the paste key");
+  assert.equal(keyAction(code("1", "ma", "Digit1"), macBody), "pass", "Cmd+Option+1 is still Heading 1");
+  assert.equal(keyAction(code("2", "ma", "Digit2"), macBody), "pass");
+  assert.equal(keyAction(code("v", "cas", "KeyV"), winBody), "editor-skip", "Ctrl+Alt+Shift+V on Windows (AltGr+Shift+V) stays blocked");
+  assert.equal(keyAction(code("V", "cas", "KeyV", true), winBody), "editor-skip", "AltGr+Shift+V on a German layout types its character");
+  assert.equal(keyAction(code("v", "cas", "KeyV"), linuxBody), "editor-skip", "and on Linux");
+  assert.equal(keyAction(code("v", "mas", "KeyV"), winBody), "editor-skip", "a Meta+Alt+Shift+V on Windows is not the Mac key");
+  assert.equal(keyAction(code("v", "mas", "KeyV"), linuxBody), "editor-skip");
+  // the ProseMirror hook leaves the key to the paste handler on a Mac only
+  const ed = (os) => editorKeyHandlers(() => undefined, () => os).keydown(null, { ...code("◊", "mas", "KeyV"), preventDefault() {} });
+  assert.equal(ed("macos"), false, "mac: the hook does not skip it");
+  assert.equal(ed("windows"), true, "windows: skipped");
+  assert.equal(ed("linux"), true, "linux: skipped");
+  assert.equal(editorKeyHandlers(() => undefined).keydown(null, { ...code("◊", "mas", "KeyV"), preventDefault() {} }), true, "no os given: skipped as before");
+  // Settings > Shortcuts: the Paste text only row shows both keys on a Mac only (the label is the same)
+  const settings = readFileSync(new URL("../src/components/SettingsDialog.tsx", import.meta.url), "utf8");
+  assert.ok(settings.includes('[os === "macos" ? "Ctrl+Shift+V / Ctrl+Option+Shift+V" : "Ctrl+Shift+V", "settings.keys.pasteText"]'), "the key column of the Paste text only row");
+}
+
 console.log("compose-keys: all checks passed");

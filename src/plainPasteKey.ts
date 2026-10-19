@@ -7,8 +7,9 @@ import { osNow } from "./platform";
 
 const TEXT_TYPES = new Set(["", "text", "search", "url", "tel", "email", "password"]);
 
-export const isCmdShiftV = (e: Pick<KeyboardEvent, "metaKey" | "shiftKey" | "altKey" | "ctrlKey" | "isComposing" | "key">): boolean =>
-  e.metaKey && e.shiftKey && !e.altKey && !e.ctrlKey && !e.isComposing && e.key.toLowerCase() === "v";
+/** Cmd+Shift+V, and Cmd+Option+Shift+V (the system's "Paste and Match Style" key, W2.24): both paste text only. With Option held the key is "◊", so the physical key decides. */
+export const isCmdShiftV = (e: Pick<KeyboardEvent, "metaKey" | "shiftKey" | "altKey" | "ctrlKey" | "isComposing" | "key"> & { code?: string }): boolean =>
+  e.metaKey && e.shiftKey && !e.ctrlKey && !e.isComposing && (e.altKey ? e.code === "KeyV" : e.key.toLowerCase() === "v");
 
 export function installPlainPasteKey(): void {
   document.addEventListener("keydown", (e) => {

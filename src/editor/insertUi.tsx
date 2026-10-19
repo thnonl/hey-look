@@ -7,7 +7,7 @@
 // Spec: spec-rich-text.md REQ-30..34, REQ-40, design 4.4, 4.5.
 
 import { ChevronDown, ExternalLink, Pencil, Unlink } from "lucide-react";
-import { useEffect, useLayoutEffect, useReducer, useRef, useState, type RefObject } from "react";
+import { useEffect, useLayoutEffect, useMemo, useReducer, useRef, useState, type RefObject } from "react";
 import { createPortal } from "react-dom";
 import { NodeSelection } from "@tiptap/pm/state";
 import type { Editor } from "@tiptap/react";
@@ -16,18 +16,21 @@ import { readLinkTarget, removeLinkTarget } from "../components/LinkPopover";
 import { fitInWindow } from "../fitInWindow";
 import { intlLocale } from "../i18n";
 import { fmtPattern } from "../i18n/format";
-import { useT } from "../i18n/react";
+import { useLang, useT } from "../i18n/react";
 import { checkLinkUrl } from "../linkUrl";
 import { openExternal } from "../open";
+import { useStore } from "../store";
 import { HANDLE_SIZE } from "../pictureToolsLayout";
 import { kbd, osNow } from "../platform";
 import { fmtClock } from "../util";
 import { Panel, Sw, useSwatchName, type PaletteClose } from "./ColorPalette";
 import { STANDARD, sameColor, themeGrid } from "./colors";
 import type { BarState, Ctx, FormatHost } from "./controls";
-import { EMOJI_GROUPS, osEmojiKeys } from "./emojiData";
+import { ALL_EMOJI, EMOJI_GROUPS, osEmojiKeys } from "./emojiData";
+import { emojiName, loadEmojiNames, searchEmoji, type EmojiNames } from "./emojiSearch";
+import { cleanRecentEmoji, pushRecentEmoji } from "./recentEmoji";
 import {
-  DEFAULT_COLS, DEFAULT_ROWS, MAX_COLS, MAX_ROWS, cellShading, hasHeaderRow, insertTable, setBorders, setShading, tableAction, tableBorders, toggleHeaderRow, type TableAction,
+  DEFAULT_COLS, DEFAULT_ROWS, MAX_COLS, MAX_ROWS, canMergeCells, canSplitCell, cellShading, hasHeaderRow, insertTable, mergeSelectedCells, setBorders, setShading, splitSelectedCell, tableAction, tableBorders, toggleHeaderRow, type TableAction,
 } from "./tableCommands";
 import type { TableBorders } from "./tableExtension";
 
@@ -53,11 +56,14 @@ function tableRows(editor: Editor, t: Ctx["t"], openShading: () => void): MenuIt
     { label: t("compose.table.deleteCol"), onClick: act("deleteCol") },
     { label: t("compose.table.deleteTable"), onClick: act("deleteTable") },
     { divider: true },
+    { label: t("compose.table.merge"), disabled: !canMergeCells(editor.state), onClick: () => void mergeSelectedCells(editor) },
+    { label: t("compose.table.split"), disabled: !canSplitCell(editor.state), onClick: () => void splitSelectedCell(editor) },
+    { divider: true },
     { label: t("compose.table.allBorders"), checked: b === "all", onClick: () => void setBorders(editor, "all") },
     { label: t("compose.table.outsideBorders"), checked: b === "outside", onClick: () => void setBorders(editor, "outside") },
     { label: t("compose.table.noBorders"), checked: b === "none", onClick: () => void setBorders(editor, "none") },
     { divider: true },
-    { label: t("compose.table.headerRow"), checked: hasHeaderRow(editor.state), onClick: () => void toggleHeaderRow(editor) },
+    { label: t("compose.table.headerRow"), kind: "check", checked: hasHeaderRow(editor.state), onClick: () => void toggleHeaderRow(editor) },
     { label: t("compose.table.shading"), hint: "›", onClick: openShading },
   ];
 }
@@ -323,6 +329,8 @@ function TableTools({ editor }: { editor: Editor }) {
     >
       <ToolMenu label={t("compose.table.insert")} items={insertRows} onOpen={(o) => upd(o ? 1 : -1)} />
       <ToolMenu label={t("common.delete")} items={deleteRows} onOpen={(o) => upd(o ? 1 : -1)} />
+      <button type="button" className="tool-btn" disabled={!canMergeCells(st)} onMouseDown={keep} onClick={() => void mergeSelectedCells(editor)}>{t("compose.table.merge")}</button>
+      <button type="button" className="tool-btn" disabled={!canSplitCell(st)} onMouseDown={keep} onClick={() => void splitSelectedCell(editor)}>{t("compose.table.split")}</button>
       <ToolMenu label={t("compose.table.borders")} items={borderRows} onOpen={(o) => upd(o ? 1 : -1)} />
       <div className="tbl-dd" ref={shadeWrap}>
         <button type="button" className="tool-btn" aria-haspopup="dialog" aria-expanded={shadeOpen} onMouseDown={keep} onClick={() => setShadeOpen((o) => !o)}>
@@ -541,46 +549,114 @@ export function DateMenu({ c, anchor, trigger, onClose }: { c: Ctx; anchor: Anch
 
 // ---------------------------------------------------------------- emoji
 
-/** The emoji picker: 8 categories of 32, no search; the hint names the system's own panel. */
+/** The emoji picker: a search box (names and keywords in the app's language and in English), the tabs "Recently used" and the 8 categories of 32; the hint names the system's own panel. */
 export function EmojiMenu({ c, anchor, trigger, onClose }: { c: Ctx; anchor: Anchor; trigger: Anchor; onClose: () => void }) {
   const t = useT();
-  const [group, setGroup] = useState(0);
+  const lang = useLang();
+  const recentPref = useStore((s) => s.prefs.recentEmoji);
+  const setPrefs = useStore((s) => s.setPrefs);
+  const known = useMemo(() => new Set(ALL_EMOJI), []);
+  const recent = useMemo(() => cleanRecentEmoji(recentPref, known), [recentPref, known]);
+  // tab 0 is "Recently used" (the one shown when there is any), then the categories
+  const [tab, setTab] = useState(() => (recent.length > 0 ? 0 : 1));
+  const [query, setQuery] = useState("");
+  const [names, setNames] = useState<EmojiNames[]>([]); // (fetched with the picker: a chunk per language, never in the main bundle)
+  useEffect(() => {
+    let live = true;
+    void loadEmojiNames(lang).then((n) => live && setNames(n)).catch(() => undefined);
+    return () => {
+      live = false;
+    };
+  }, [lang]);
   const keys = osEmojiKeys(osNow());
+  const searchRef = useRef<HTMLInputElement>(null);
+  const body = useRef<HTMLDivElement>(null);
+  const searching = query.trim() !== "";
+  const found = useMemo(() => (searching ? searchEmoji(query, ALL_EMOJI, names) : []), [searching, query, names]);
   const done = (why: PaletteClose) => {
     onClose();
     if (why === "esc") trigger.current?.focus({ preventScroll: true });
   };
   const insert = (glyph: string) => {
+    setPrefs({ recentEmoji: pushRecentEmoji(recent, glyph) });
     onClose();
     c.editor.chain().focus().insertContent(glyph).run();
   };
-  const g = EMOJI_GROUPS[group];
+  const group = tab > 0 ? EMOJI_GROUPS[tab - 1] : null;
+  const shown = searching ? found : group ? group.emoji : recent;
+  const title = group ? t(`compose.emoji.${group.id}` as const) : t("compose.emoji.recent");
+  const nameOf = (e: string) => emojiName(e, names) ?? e;
   return (
-    <Panel anchor={anchor} onClose={done} label={t("compose.insert.emoji")} className="fmt-pop-emoji">
-      <div className="emoji-tabs" role="group" aria-label={t("compose.insert.emoji")}>
-        {EMOJI_GROUPS.map((x, i) => (
-          <button
-            key={x.id}
-            type="button"
-            className={`emoji-tab${i === group ? " on" : ""}`}
-            data-row={0}
-            data-col={i}
-            aria-pressed={i === group}
-            title={t(`compose.emoji.${x.id}` as const)}
-            aria-label={t(`compose.emoji.${x.id}` as const)}
-            onClick={() => setGroup(i)}
-          >
-            {x.emoji[0]}
-          </button>
-        ))}
-      </div>
-      <div className="emoji-name" aria-live="polite">{t(`compose.emoji.${g.id}` as const)}</div>
-      <div className="emoji-grid" role="group" aria-label={t(`compose.emoji.${g.id}` as const)}>
-        {g.emoji.map((e, i) => (
-          <button key={e} type="button" className="emoji-btn" data-row={1 + Math.floor(i / 8)} data-col={i % 8} aria-label={e} onClick={() => insert(e)}>
-            {e}
-          </button>
-        ))}
+    <Panel anchor={anchor} onClose={done} label={t("compose.insert.emoji")} className="fmt-pop-emoji" initialFocus="input.emoji-search">
+      <input
+        ref={searchRef}
+        type="text"
+        role="searchbox"
+        className="emoji-search"
+        value={query}
+        placeholder={t("compose.emoji.search")}
+        aria-label={t("compose.emoji.search")}
+        autoComplete="off"
+        spellCheck={false}
+        onChange={(e) => setQuery(e.target.value)}
+        onKeyDown={(e) => {
+          if (e.nativeEvent.isComposing) return; // (an input method confirms its word with Enter / Esc)
+          if (e.key === "ArrowDown") {
+            e.preventDefault();
+            body.current?.querySelector<HTMLElement>(".emoji-grid button")?.focus();
+          } else if (e.key === "Enter") {
+            e.preventDefault();
+            if (searching && found[0]) insert(found[0]);
+          } else if (e.key === "Escape" && query !== "") {
+            // Esc clears the box; in an empty box it closes the picker (the panel's own Esc)
+            e.preventDefault();
+            e.stopPropagation();
+            setQuery("");
+          }
+        }}
+      />
+      <div
+        ref={body}
+        onKeyDown={(e) => {
+          // Arrow Up from the top row (the tabs, or the first row of the results) goes back to the search box
+          if (e.key !== "ArrowUp") return;
+          const at = (e.target as HTMLElement).closest<HTMLElement>("button[data-row]");
+          if (!at || !body.current) return;
+          const top = Math.min(...Array.from(body.current.querySelectorAll<HTMLElement>("button[data-row]"), (b) => Number(b.dataset.row)));
+          if (Number(at.dataset.row) !== top) return;
+          e.preventDefault();
+          e.stopPropagation();
+          searchRef.current?.focus();
+        }}
+      >
+        {!searching && (
+          <div className="emoji-tabs" role="group" aria-label={t("compose.insert.emoji")}>
+            {[null, ...EMOJI_GROUPS].map((x, i) => (
+              <button
+                key={x?.id ?? "recent"}
+                type="button"
+                className={`emoji-tab${i === tab ? " on" : ""}`}
+                data-row={0}
+                data-col={i}
+                aria-pressed={i === tab}
+                title={x ? t(`compose.emoji.${x.id}` as const) : t("compose.emoji.recent")}
+                aria-label={x ? t(`compose.emoji.${x.id}` as const) : t("compose.emoji.recent")}
+                onClick={() => setTab(i)}
+              >
+                {x ? x.emoji[0] : "\u{1F558}"}
+              </button>
+            ))}
+          </div>
+        )}
+        {!searching && <div className="emoji-name" aria-live="polite">{title}</div>}
+        {searching && found.length === 0 && names.length > 0 && <div className="emoji-empty" role="status">{t("compose.emoji.noResults")}</div>}
+        <div className="emoji-grid" role="group" aria-label={searching ? t("compose.emoji.search") : title}>
+          {shown.map((e, i) => (
+            <button key={e} type="button" className="emoji-btn" data-row={1 + Math.floor(i / 8)} data-col={i % 8} aria-label={nameOf(e)} title={nameOf(e)} onClick={() => insert(e)}>
+              {e}
+            </button>
+          ))}
+        </div>
       </div>
       {keys && <div className="emoji-hint">{t("compose.insert.emojiHint", { keys })}</div>}
     </Panel>

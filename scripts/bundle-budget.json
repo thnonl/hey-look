@@ -25,7 +25,17 @@
     { "module": "src/editor/quoteClean.ts", "reason": "quote cleaner, loaded on demand", "since": "1.0.5" },
     { "module": "src/editor/FindBar.tsx", "reason": "Find bar, loaded when opened", "since": "1.0.5" },
     { "module": "src/editor/changeCase.ts", "reason": "Change case, loaded when used", "since": "1.0.5" },
-    { "module": "src/editor/findReplace.ts", "reason": "Find and replace, loaded when used", "since": "1.0.5" }
+    { "module": "src/editor/findReplace.ts", "reason": "Find and replace, loaded when used", "since": "1.0.5" },
+    { "module": "src/editor/emojiSearch.ts", "reason": "emoji search and the loader of the names, with the picker", "since": "1.0.7" },
+    { "module": "src/editor/emojiData.ts", "reason": "the emoji list, with the picker", "since": "1.0.7" },
+    { "module": "src/editor/emojiNames/en.json", "reason": "CLDR emoji names (en), one chunk per language, fetched when the picker opens", "since": "1.0.7" },
+    { "module": "src/editor/emojiNames/vi.json", "reason": "CLDR emoji names (vi), one chunk per language, fetched when the picker opens", "since": "1.0.7" },
+    { "module": "src/editor/emojiNames/fr.json", "reason": "CLDR emoji names (fr), one chunk per language, fetched when the picker opens", "since": "1.0.7" },
+    { "module": "src/editor/emojiNames/zh-Hans.json", "reason": "CLDR emoji names (zh-Hans), one chunk per language, fetched when the picker opens", "since": "1.0.7" },
+    { "module": "src/editor/emojiNames/es.json", "reason": "CLDR emoji names (es), one chunk per language, fetched when the picker opens", "since": "1.0.7" },
+    { "module": "src/editor/emojiNames/ja.json", "reason": "CLDR emoji names (ja), one chunk per language, fetched when the picker opens", "since": "1.0.7" },
+    { "module": "src/editor/emojiNames/de.json", "reason": "CLDR emoji names (de), one chunk per language, fetched when the picker opens", "since": "1.0.7" },
+    { "module": "src/editor/emojiNames/ru.json", "reason": "CLDR emoji names (ru), one chunk per language, fetched when the picker opens", "since": "1.0.7" }
   ],
   "neverShipped": [
     { "module": "src/devMock.ts", "reason": "dev preview mock backend (45 KB); W9.9: its import sits inside `if (import.meta.env.DEV ...)` in main.tsx" },

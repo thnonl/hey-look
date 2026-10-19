@@ -3,7 +3,7 @@
 // checked on the sent message (scripts of the QA kit: mimecheck MA-18) and in the dev preview (scripts/test-compose-pictures.mjs).
 // Run: node --experimental-strip-types scripts/test-picture-rename.mjs
 import assert from "node:assert/strict";
-import { nameForMime, reencodeToastKey, swapPictures } from "../src/editor/messageBody.ts";
+import { keepSmaller, largePictureOffer, nameForMime, reencodeToastKey, swapPictures } from "../src/editor/messageBody.ts";
 
 // 1. the name follows the type of the bytes
 for (const [name, mime, want] of [
@@ -58,5 +58,27 @@ for (const [mime, width, want] of [
   ["image/jpeg", 3000, "compose.pic.resized"],
   ["image/webp", 1601, "compose.pic.resized"],
 ]) assert.equal(reencodeToastKey(mime, width), want, `${mime} ${width} px`);
+
+// 4. 1.0.7 W2.1: the prompt for a picture over 1 MB (auto-resize off) offers only an action that is true and useful
+for (const [mime, width, want] of [
+  ["image/jpeg", 4000, "resize"], // wider than 1600 px: any type is scaled
+  ["image/png", 1601, "resize"],
+  ["image/gif", 5000, "resize"],
+  ["image/webp", 1601, "resize"],
+  ["image/jpeg", 1600, "compress"], // not wider: JPEG and WebP are compressed
+  ["image/jpeg", 1200, "compress"],
+  ["IMAGE/JPEG", 800, "compress"],
+  ["image/webp", 900, "compress"],
+  ["image/gif", 1600, "convert"], // a GIF is converted to PNG
+  ["image/gif", 800, "convert"],
+  ["image/png", 1600, null], // a PNG that is not wider gets no prompt
+  ["image/png", 1000, null],
+  ["image/bmp", 1000, null],
+]) assert.equal(largePictureOffer(mime, width), want, `${mime} ${width} px`);
+// ... and a re-encode that is not smaller in bytes is not used
+assert.equal(keepSmaller(1_500_000, 900_000), true);
+assert.equal(keepSmaller(1_500_000, 1_500_000), false, "equal is not smaller");
+assert.equal(keepSmaller(1_500_000, 1_900_000), false, "bigger");
+assert.equal(keepSmaller(1_100_000, 1), true);
 
 console.log("test-picture-rename: ok");

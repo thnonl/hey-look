@@ -1,14 +1,13 @@
-import { NodeSelection } from "@tiptap/pm/state";
 import { EditorContent, Node as TipNode, useEditor, type Editor } from "@tiptap/react";
 import {
-  AlignCenter, AlignLeft, AlignRight, BadgeCheck, CalendarClock, CalendarPlus, ChevronDown, ExternalLink, FileText, ImagePlus, Info, Link2, Lock, LockOpen, MoreHorizontal, Paperclip, Save, Send, ShieldAlert, ShieldCheck, Sparkles, Trash2,
+  BadgeCheck, CalendarClock, CalendarPlus, ChevronDown, ExternalLink, FileText, ImagePlus, Info, Lock, LockOpen, MoreHorizontal, Paperclip, Save, Send, ShieldAlert, ShieldCheck, Sparkles, Trash2,
   TriangleAlert, X,
 } from "lucide-react";
-import { Suspense, lazy, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { Suspense, lazy, useCallback, useEffect, useId, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { api, Att, Contact, Draft, DraftSecurity, errorCode, InlineImage, MessageFull, OwnKeyStatus, RecipientStatus, Signature, Template } from "../api";
 import { eff } from "../prefs";
-import { kbd } from "../platform";
+import { kbd, osNow } from "../platform";
 import { ComposeInit, friendlyError, useStore } from "../store";
 import { useAiSlot } from "../useAiSlot";
 import { aiReady, clearAiProblem, leaveAiContext, showAiNotSetUp, showAiProblem } from "../aiGuide";
@@ -21,7 +20,7 @@ import { useKit } from "../editor/kit";
 import { FormatBar, type FormatBarApi } from "../editor/FormatBar";
 import { PreviewSwitch } from "../editor/PreviewSwitch";
 import { setPreviewMode } from "../editor/previewColors";
-import { messageHtml, nameForMime, nameInlinePicture, reencodeToastKey, RESIZE_WIDTH } from "../editor/messageBody";
+import { keepSmaller, largePictureOffer, messageHtml, nameForMime, nameInlinePicture, reencodeToastKey, RESIZE_WIDTH } from "../editor/messageBody";
 import { unwrapBase, type BaseFont } from "../editor/emailHtml";
 import { extractQuote, quotePictureBytes } from "../editor/quoteBlock";
 import { baseFromPrefs } from "../editor/baseFont";
@@ -36,8 +35,6 @@ import { cleanHeaderText } from "../headerText";
 import { fromAccountFor } from "../fromAccount";
 import { askFreshBeforeSend, isSizeRefusal, sendLimit, showSizeToast, wireSize } from "../sendSize";
 import { outgoingName, outgoingNames } from "../attachName";
-import { placePictureTools } from "../pictureToolsLayout";
-import type { PictureToolsInput } from "../pictureToolsLayout";
 import { blockedAttachmentExt, dataUriBytes, fileToBase64, fmtClock, fmtIn, fmtSize, fmtWhen, htmlToText, imageSize, PICTURE_TYPES, playSent, resizeImage, sanitizeHtml, shortKey, userName } from "../util";
 import { calTz } from "../calendar";
 import { defaultMeeting, MeetingState, MeetingStrip, meetingToDraft } from "./Calendar";
@@ -50,6 +47,8 @@ import { askUnlock, moveScheduledToDrafts } from "./Pgp";
 import { composeSeam } from "../popout/composeSeam";
 import { focusDraftWindow, startCompose, wantsWindow, type StartOpts } from "../popout/composeOpen";
 import { draftKey } from "../popout/entry";
+import { MEDIUM_PICTURE, MESSAGE_PICTURE_SIZES } from "../editor/pictureSizes";
+import { usePictureTools, type PictureSel, type PictureTools } from "../editor/PictureTools";
 import { shiftNow } from "../popout/modifier";
 import { openPopout } from "../popout/open";
 import { outboxKey } from "../popout/entry";
@@ -73,8 +72,6 @@ const approxBytes = (a: Att) => Math.floor((a.dataBase64.length * 3) / 4);
 // Find and replace: the panel is fetched when Ctrl+F is first pressed (editor/FindBar.tsx)
 const FindBar = lazy(() => import("../editor/FindBar").then((m) => ({ default: m.FindBar })));
 
-const MEDIUM = 480;
-const SIZES: [Key, number | null][] = [["compose.pic.small", 240], ["compose.pic.medium", MEDIUM], ["compose.pic.large", 720], ["compose.pic.original", null]];
 const LARGE_PICTURE = 1024 * 1024;
 
 
@@ -144,6 +141,7 @@ export function RecipientField({
   const [sugg, setSugg] = useState<Contact[]>([]);
   const [hi, setHi] = useState(-1);
   const input = useRef<HTMLInputElement>(null);
+  const listId = useId(); // (the suggestions: a combobox of its own per field)
   const fieldRef = useRef<HTMLDivElement>(null);
   const chipsRef = useRef<HTMLDivElement>(null);
   const suggRef = useRef<HTMLDivElement>(null);
@@ -254,6 +252,11 @@ export function RecipientField({
           ref={input}
           value={text}
           aria-label={label}
+          role="combobox"
+          aria-autocomplete="list"
+          aria-expanded={sugg.length > 0}
+          aria-controls={listId}
+          aria-activedescendant={hi >= 0 && sugg[hi] ? `${listId}-${hi}` : undefined}
           placeholder={values.length === 0 ? "name@example.com" : undefined}
           onChange={(e) => onInput(e.target.value, !!(e.nativeEvent as InputEvent).isComposing)}
           onPaste={(e) => {
@@ -317,9 +320,9 @@ export function RecipientField({
         </span>
       )}
       {sugg.length > 0 && (
-        <div className="suggest pinned" role="listbox" ref={suggRef}>
+        <div className="suggest pinned" id={listId} role="listbox" aria-label={label} ref={suggRef}>
           {sugg.map((c, i) => (
-            <div key={c.email} role="option" aria-selected={i === hi} className={i === hi ? "hl" : ""} onMouseDown={(e) => (e.preventDefault(), pick(c))} onMouseEnter={() => setHi(i)}>
+            <div key={c.email} id={`${listId}-${i}`} role="option" aria-selected={i === hi} className={i === hi ? "hl" : ""} onMouseDown={(e) => (e.preventDefault(), pick(c))} onMouseEnter={() => setHi(i)}>
               {c.name ? `${c.name} ` : ""}
               <span className="muted">&lt;{c.email}&gt;</span>
             </div>
@@ -497,18 +500,6 @@ function readDataUrl(f: File): Promise<string> {
 
 // ---------------------------------------------------------------- compose
 
-interface PictureSel {
-  pos: number;
-  width: number | null;
-  alt: string;
-  name: string;
-  /** "center" / "right", else left; the address of the link on the picture, "" for none */
-  align: string | null;
-  href: string;
-  /** where the picture is in the scrolling body (see pictureToolsLayout.ts); the toolbar is placed from it once it is measured */
-  geo: Omit<PictureToolsInput, "width" | "height">;
-}
-
 export function Compose({ init }: { init: ComposeInit }) {
   // the table and picture nodes come in a chunk of their own (editor/kit.ts); the editor is made once they are there (fetched at start-up: no wait in practice)
   return useKit() ? <ComposeBody init={init} /> : null;
@@ -625,9 +616,6 @@ function ComposeBody({ init }: { init: ComposeInit }) {
   const [dragImages, setDragImages] = useState(false);
   const [hotZone, setHotZone] = useState<"top" | "bottom" | null>(null);
   const [pics, setPics] = useState({ count: 0, bytes: 0 });
-  const [picSel, setPicSel] = useState<PictureSel | null>(null);
-  const [altOpen, setAltOpen] = useState(false);
-  const [altText, setAltText] = useState("");
   // "Preview as recipient": which background the body is shown on. A view-layer choice only (buildDraft never reads it)
   const [pv, setPv] = useState<PreviewBg>(() => startPreview(prefs.mailCanvas));
   const choosePreview = (p: PreviewBg) => {
@@ -725,25 +713,6 @@ function ComposeBody({ init }: { init: ComposeInit }) {
   const filesKeyRef = useRef<{ atts: Att[]; key: string } | null>(null);
   const [autosavedAt, setAutosavedAt] = useState<number | null>(null);
 
-  // The picture toolbar is placed after it has been laid out: it wraps to more rows in a narrow pane, so its size is measured, then it
-  // goes above / below the picture and inside the pane (pictureToolsLayout.ts). The alt text popover opens under it, also inside the pane.
-  const toolsRef = useRef<HTMLDivElement>(null);
-  // the alt text popover is a layer of its own (a portal on <body>, fixed): under the toolbar or above it, inside the window and above a toast, scrolling when it is
-  // taller than the room (a small window: the pane is only a few lines high, an absolute popover inside it was cut off)
-  const toolsBoxRef = useRef<HTMLDivElement>(null);
-  const altPopRef = useRef<HTMLDivElement>(null);
-  usePinnedBelow(altPopRef, toolsBoxRef, altOpen && !!picSel);
-  useLayoutEffect(() => {
-    const anchor = toolsRef.current;
-    if (!picSel || !anchor) return;
-    const box = anchor.firstElementChild as HTMLElement;
-    const { geo } = picSel;
-    box.style.marginLeft = "";
-    const { left, top } = placePictureTools({ ...geo, width: box.offsetWidth, height: box.offsetHeight });
-    box.style.marginLeft = `${left}px`;
-    anchor.style.top = `${top}px`;
-  });
-
   const touch = useCallback(() => {
     touched.current = true;
     revRef.current++;
@@ -817,8 +786,8 @@ function ComposeBody({ init }: { init: ComposeInit }) {
   };
   /** The rows of the menu at the Sign button: sign this message, attach the public key, the signing key, the keys. */
   const signItems: MenuItem[] = [
-    { label: t("compose.bar.signThis"), checked: signOn, hint: kbd("Ctrl+Shift+G"), disabled: !own, onClick: toggleSign },
-    { label: t("compose.bar.attachPublicKey"), checked: attachKey, disabled: !own, onClick: () => (setAttachKey(!attachKey), touch()) },
+    { label: t("compose.bar.signThis"), kind: "check", checked: signOn, hint: kbd("Ctrl+Shift+G"), disabled: !own, onClick: toggleSign },
+    { label: t("compose.bar.attachPublicKey"), kind: "check", checked: attachKey, disabled: !own, onClick: () => (setAttachKey(!attachKey), touch()) },
     { divider: true },
     ...(own ? [{ label: t("compose.bar.signingKey", { key: shortKey(own.fingerprint) }), icon: <ShieldCheck size={14} />, onClick: () => setDialog({ type: "pgp-key", fingerprint: own.fingerprint }) }] : [{ label: t("compose.bar.noKeyYet"), disabled: true }]),
     { label: own ? t("compose.bar.manageKeys") : t("compose.bar.setUpEncryption"), onClick: () => (own ? setDialog({ type: "settings", tab: "pgp" }) : setDialog({ type: "pgp-generate", accountId })) },
@@ -828,35 +797,6 @@ function ComposeBody({ init }: { init: ComposeInit }) {
     encOn || signActive ? { encrypt: encOn, sign: signActive, attachPublicKey: attachKey && (encOn || signActive) } : undefined;
 
   const addFilesRef = useRef<(files: File[]) => Promise<void>>(async () => undefined);
-
-  /** Where the picture tools float: above the selected picture, below it when there is no room. */
-  const syncPicSel = (ed: Editor) => {
-    const sel = ed.state.selection;
-    if (!(sel instanceof NodeSelection) || sel.node.type.name !== "image") return setPicSel(null);
-    const dom = ed.view.nodeDOM(sel.from) as HTMLElement | null;
-    const box = bodyRef.current?.getBoundingClientRect();
-    if (!dom || !box) return setPicSel(null);
-    const r = dom.getBoundingClientRect();
-    const body = bodyRef.current!;
-    const scroll = body.scrollTop;
-    setPicSel({
-      pos: sel.from,
-      width: (sel.node.attrs.width as number | null) ?? null,
-      alt: (sel.node.attrs.alt as string | null) ?? "",
-      name: (sel.node.attrs["data-name"] as string | null) ?? "picture",
-      align: (sel.node.attrs.align as string | null) ?? null,
-      href: (sel.node.attrs.href as string | null) ?? "",
-      geo: {
-        imgLeft: r.left - box.left,
-        imgWidth: r.width,
-        imgTop: r.top - box.top + scroll,
-        imgBottom: r.bottom - box.top + scroll,
-        scrollTop: scroll,
-        paneWidth: body.clientWidth,
-        paneHeight: body.clientHeight,
-      },
-    });
-  };
 
   const countPictures = (ed: Editor) => {
     let count = 0;
@@ -874,12 +814,13 @@ function ComposeBody({ init }: { init: ComposeInit }) {
 
   // Ctrl/Cmd+K in the body and the toolbar button open the same link UI (set after the editor exists)
   const linkRef = useRef<() => void>(() => undefined);
+  const picToolsRef = useRef<PictureTools | null>(null); // (Alt+F10 with a picture selected: the picture toolbar takes the focus, else the formatting bar)
   const pasteNote = useRef(false); // the "pictures from the web are not pasted" notice is shown once per message
   const startContent = useRef<string | null>(null); // the editor's first content, made once (a big quote is not scanned again at every render)
   const editor = useEditor({
     extensions: [
       ...baseExtensions({
-        placeholder: () => tNow("compose.editor.placeholder"), showOnlyCurrent: false, getBase: () => baseRef.current, focusToolbar: () => barApi.current?.focus(), openStyles: () => barApi.current?.openStyles(), pictures: true,
+        placeholder: () => tNow("compose.editor.placeholder"), showOnlyCurrent: false, getBase: () => baseRef.current, focusToolbar: () => picToolsRef.current?.focus() || barApi.current?.focus(), openStyles: () => barApi.current?.openStyles(), pictures: true,
         openFind: (mode) => openFindRef.current(mode),
         // the quoted original of a reply / forward: a protected block; "Edit quoted text" asks first (editor/quoteNode.ts)
         quote: { base: () => baseRef.current, ask: () => confirm({ title: tNow("compose.quote.editTitle"), body: tNow("compose.quote.editBody"), confirmLabel: tNow("compose.quote.editConfirm") }) },
@@ -890,7 +831,7 @@ function ComposeBody({ init }: { init: ComposeInit }) {
     editorProps: {
       attributes: { "aria-label": t("compose.editor.body") },
       // one key, one action: Ctrl+Shift+B / Ctrl+Enter / Ctrl+Alt+... (AltGr) never reach the editor shortcuts, Ctrl+K is the link UI
-      handleDOMEvents: editorKeyHandlers(() => linkRef.current()),
+      handleDOMEvents: editorKeyHandlers(() => linkRef.current(), osNow),
       // pasted / dropped HTML loses its remote pictures BEFORE the editor reads it: a tracking pixel or a UNC / file: picture is never requested
       transformPastedHTML: (html: string) => {
         const r = cleanPastedHtml(html);
@@ -926,9 +867,7 @@ function ComposeBody({ init }: { init: ComposeInit }) {
     onUpdate: ({ editor: ed, transaction }) => {
       if (isPersonEdit(transaction)) touch();
       countPictures(ed);
-      syncPicSel(ed);
     },
-    onSelectionUpdate: ({ editor: ed }) => syncPicSel(ed),
   });
 
   // the placeholder follows the language while the message is open (a compose that was open when the language was switched kept the old text)
@@ -942,20 +881,6 @@ function ComposeBody({ init }: { init: ComposeInit }) {
   useEffect(() => {
     if (editor) setPreviewMode(editor, pv);
   }, [editor, pv]);
-
-  // a resized window changes the pane the picture toolbar has to fit in, and a picture that has just loaded gets its real height
-  useEffect(() => {
-    if (!editor) return;
-    const onResize = () => syncPicSel(editor);
-    const dom = editor.view.dom;
-    window.addEventListener("resize", onResize);
-    dom.addEventListener("load", onResize, true);
-    return () => {
-      window.removeEventListener("resize", onResize);
-      dom.removeEventListener("load", onResize, true);
-    };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [editor]);
 
   // pictures that were already in the draft (or a scheduled message) are counted once the editor exists
   useEffect(() => {
@@ -978,6 +903,9 @@ function ComposeBody({ init }: { init: ComposeInit }) {
   const linkBtnRef = useRef<HTMLButtonElement>(null);
   const link = useLinkEditor(editor, linkBtnRef);
   linkRef.current = link.open;
+  // the toolbar of a selected picture (editor/PictureTools.tsx; the signature / template editor has the same)
+  const picTools = usePictureTools({ editor, bodyRef, sizes: MESSAGE_PICTURE_SIZES, onLink: () => linkRef.current(), onAttachment: (sel) => pictureAsAttachment(sel), onAltSaved: () => touch() });
+  picToolsRef.current = picTools;
 
   const [loaded, setLoaded] = useState(false);
   useEffect(() => {
@@ -1423,7 +1351,7 @@ function ComposeBody({ init }: { init: ComposeInit }) {
         if (answer !== "send") {
           // the first picture is selected and its alt text box opens
           editor.chain().focus().setNodeSelection(missing[0]).run();
-          requestAnimationFrame(() => (setAltText(""), setAltOpen(true)));
+          requestAnimationFrame(() => picTools.openAlt(""));
           return;
         }
       }
@@ -1935,21 +1863,24 @@ function ComposeBody({ init }: { init: ComposeInit }) {
       let finalName = f.name;
       if (f.size > LARGE_PICTURE) {
         if (st.prefs.autoResizePictures) {
+          // (a re-encode that is not smaller is not used: the original stays, nothing is shown, W2.1)
           const r = await resizeImage(src, f.type, RESIZE_WIDTH);
-          finalSrc = r.dataUrl;
-          finalName = nameForMime(f.name, r.mime); // (a GIF made a PNG is no .gif any more)
-          showToast(resizedToast(f.type, size.w, finalName, finalSrc), undefined, "success");
+          if (keepSmaller(f.size, dataUriBytes(r.dataUrl))) {
+            finalSrc = r.dataUrl;
+            finalName = nameForMime(f.name, r.mime); // (a GIF made a PNG is no .gif any more)
+            showToast(resizedToast(f.type, size.w, finalName, finalSrc), undefined, "success");
+          }
         } else {
+          // the prompt offers what the button really does: scale (wider than 1600 px), compress (JPEG, WebP) or convert (GIF); a PNG that is not wider gets none
+          const offer = largePictureOffer(f.type, size.w);
           const original = src;
-          showToast(
-            () => t("compose.pic.askResize", { size: fmtSize(f.size), w: size.w, h: size.h }),
-            undefined,
-            "info",
-            [{ label: () => t("compose.pic.resize"), run: () => void resizeInEditor(original, f.type, f.name) }],
-          );
+          if (offer) {
+            const [ask, button] = { resize: ["compose.pic.askResize", "compose.pic.resize"], compress: ["compose.pic.askCompress", "compose.pic.compress"], convert: ["compose.pic.askConvertGif", "compose.pic.convert"] }[offer] as [Key, Key];
+            showToast(() => t(ask, { size: fmtSize(f.size), w: size.w, h: size.h }), undefined, "info", [{ label: () => t(button), run: () => void resizeInEditor(original, f.type, f.name) }]);
+          }
         }
       }
-      pictures.push({ src: finalSrc, alt: "", "data-name": finalName, width: size.w > MEDIUM ? MEDIUM : null });
+      pictures.push({ src: finalSrc, alt: "", "data-name": finalName, width: size.w > MEDIUM_PICTURE ? MEDIUM_PICTURE : null });
     }
     // all of them in one go: the caret is behind the last picture, so a second picture never takes the place of the first (editor/insertPictures.ts)
     insertPictureNodes(editor, pictures);
@@ -1960,10 +1891,14 @@ function ComposeBody({ init }: { init: ComposeInit }) {
     touch();
   };
 
-  /** Replace the picture (matched by its data: URI) with a 1600 px version. */
+  /** Replace the picture (matched by its data: URI) with its re-encoded version (at most 1600 px wide); when that is not smaller the picture stays and the toast says so. */
   const resizeInEditor = async (original: string, mime: string, name: string) => {
     if (!editor) return;
     const r = await resizeImage(original, mime, RESIZE_WIDTH);
+    if (!keepSmaller(dataUriBytes(original), dataUriBytes(r.dataUrl))) {
+      showToast(() => t("compose.pic.notSmaller", { name }), undefined, "info");
+      return;
+    }
     let at: number | null = null;
     editor.state.doc.descendants((n, pos) => {
       if (at === null && n.type.name === "image" && n.attrs.src === original) at = pos;
@@ -1974,26 +1909,9 @@ function ComposeBody({ init }: { init: ComposeInit }) {
     showToast(resizedToast(mime, (await imageSize(original)).w, newName, r.dataUrl), undefined, "success");
   };
 
-  const setPictureSize = (w: number | null) => {
-    if (!picSel || !editor) return;
-    editor.chain().setNodeSelection(picSel.pos).updateAttributes("image", { width: w }).run();
-  };
-
-  const setPictureAlign = (a: "center" | "right" | null) => {
-    if (!picSel || !editor) return;
-    editor.chain().focus().setNodeSelection(picSel.pos).updateAttributes("image", { align: a }).run(); // (the editor has the focus again: Ctrl+K links the picture next)
-  };
-
-  const savePictureAlt = () => {
-    if (!picSel || !editor) return;
-    editor.chain().setNodeSelection(picSel.pos).updateAttributes("image", { alt: altText.trim() }).run();
-    setAltOpen(false);
-    touch();
-  };
-
   /** A picture from the body becomes a plain attachment. */
-  const pictureAsAttachment = () => {
-    if (!picSel || !editor) return;
+  const pictureAsAttachment = (picSel: PictureSel) => {
+    if (!editor) return;
     const src = (editor.state.doc.nodeAt(picSel.pos)?.attrs.src as string | undefined) ?? "";
     const parts = dataUriParts(src);
     editor.chain().setNodeSelection(picSel.pos).deleteSelection().run();
@@ -2001,15 +1919,7 @@ function ComposeBody({ init }: { init: ComposeInit }) {
       const ext = parts.mime.split("/")[1]?.replace("jpeg", "jpg") ?? "img";
       setAtts((a) => [...a, { filename: outgoingName(picSel.name !== "picture" ? nameForMime(picSel.name, parts.mime) : `picture.${ext}`), mime: parts.mime, dataBase64: parts.b64 }]);
     }
-    setPicSel(null);
     touch();
-  };
-
-  const removePicture = () => {
-    if (!picSel || !editor) return;
-    editor.chain().setNodeSelection(picSel.pos).deleteSelection().run();
-    setPicSel(null);
-    setAltOpen(false);
   };
 
   /**
@@ -2129,7 +2039,6 @@ function ComposeBody({ init }: { init: ComposeInit }) {
   const draftsHint = init.replaces;
   const schedInitial = init.sendAt;
   const pastDue = !!init.outboxId && !!init.sendAt && init.sendAt * 1000 < Date.now() - 60_000;
-  const imgSelected = !!picSel;
 
   // a small pane (composeFit.ts) keeps these actions in "More actions" (the row of buttons has no room for them); a dot on the button says one is on
   // The labelled row of a roomy pane is one row in every language: what does not fit moves into "More actions", from the end (composeFit.ts `overflowCount`).
@@ -2141,13 +2050,13 @@ function ComposeBody({ init }: { init: ComposeInit }) {
   // the rows of "More actions": the moved actions in the order of the row, in sections (picture / meeting, encrypt, sign / confidential, importance / save, templates / AI), a divider between two sections
   const menuRows: Record<BarItem, MenuItem[]> = {
     picture: [{ label: t("compose.bar.picture"), icon: <ImagePlus size={14} />, hint: kbd("Ctrl+Shift+P"), title: kbd(t("compose.bar.insertPictureTip")), onClick: () => picRef.current?.click() }],
-    meeting: [{ label: t("compose.bar.meeting"), icon: <CalendarPlus size={14} />, checked: !!meeting, title: t("compose.bar.meetingTip"), onClick: toggleMeeting }],
-    encrypt: [{ label: t("compose.bar.encrypt"), icon: encOn ? <Lock size={14} /> : <LockOpen size={14} />, checked: encOn, hint: kbd("Ctrl+Shift+E"), title: encTitle, onClick: toggleEncrypt }],
+    meeting: [{ label: t("compose.bar.meeting"), icon: <CalendarPlus size={14} />, kind: "check", checked: !!meeting, title: t("compose.bar.meetingTip"), onClick: toggleMeeting }],
+    encrypt: [{ label: t("compose.bar.encrypt"), icon: encOn ? <Lock size={14} /> : <LockOpen size={14} />, kind: "check", checked: encOn, hint: kbd("Ctrl+Shift+E"), title: encTitle, onClick: toggleEncrypt }],
     sign: [
-      { label: t("compose.bar.sign"), icon: <BadgeCheck size={14} />, checked: signActive, hint: kbd("Ctrl+Shift+G"), title: own ? kbd(t("compose.bar.signTip")) : encTitle, onClick: toggleSign },
+      { label: t("compose.bar.sign"), icon: <BadgeCheck size={14} />, kind: "check", checked: signActive, hint: kbd("Ctrl+Shift+G"), title: own ? kbd(t("compose.bar.signTip")) : encTitle, onClick: toggleSign },
       ...signItems.slice(1), // (the first row is the Sign row above)
     ],
-    confidential: [{ label: t("compose.bar.confidential"), icon: <ShieldAlert size={14} />, checked: confidential, title: confidential ? t("compose.bar.confidentialOnTip") : t("compose.bar.confidentialOffTip"), onClick: () => (setConfidential(!confidential), touch()) }],
+    confidential: [{ label: t("compose.bar.confidential"), icon: <ShieldAlert size={14} />, kind: "check", checked: confidential, title: confidential ? t("compose.bar.confidentialOnTip") : t("compose.bar.confidentialOffTip"), onClick: () => (setConfidential(!confidential), touch()) }],
     importance: [
       { label: t("mail.importance.high"), checked: importance === "high", onClick: () => (setImportance(pressImportance(importance, "high")), touch()) },
       { label: t("mail.importance.low"), checked: importance === "low", onClick: () => (setImportance(pressImportance(importance, "low")), touch()) },
@@ -2157,7 +2066,7 @@ function ComposeBody({ init }: { init: ComposeInit }) {
       { label: t("compose.bar.templates"), icon: <FileText size={14} />, disabled: true },
       ...(myTemplates.length ? myTemplates.map((tpl) => ({ label: tpl.name, onClick: () => applyTemplate(tpl) })) : [{ label: t("compose.bar.noTemplates"), disabled: true }]),
     ],
-    ai: [{ label: t("compose.bar.writeWithAi"), icon: <Sparkles size={14} />, checked: aiOpen, disabled: !!init.confidential, title: init.confidential ? t("compose.bar.aiConfidentialTip") : aiConfigured ? t("compose.bar.aiTip") : t("compose.bar.aiSetupTip"), onClick: toggleAi }],
+    ai: [{ label: t("compose.bar.writeWithAi"), icon: <Sparkles size={14} />, kind: "check", checked: aiOpen, disabled: !!init.confidential, title: init.confidential ? t("compose.bar.aiConfidentialTip") : aiConfigured ? t("compose.bar.aiTip") : t("compose.bar.aiSetupTip"), onClick: toggleAi }],
   };
   const SECTION: Record<BarItem, number> = { picture: 0, meeting: 1, encrypt: 1, sign: 1, confidential: 2, importance: 2, saveDraft: 3, templates: 3, ai: 4 };
   const moreItems: MenuItem[] = movedIds.flatMap((id, i) => [...(i > 0 && SECTION[id] !== SECTION[movedIds[i - 1]] ? [{ divider: true } as MenuItem] : []), ...menuRows[id]]);
@@ -2322,17 +2231,7 @@ function ComposeBody({ init }: { init: ComposeInit }) {
           toggleSign();
           return;
         }
-        if (imgSelected && (e.ctrlKey || e.metaKey) && ["1", "2", "3", "0"].includes(e.key)) {
-          e.preventDefault();
-          const sizeFor: Record<string, number | null> = { "1": 240, "2": MEDIUM, "3": 720, "0": null };
-          setPictureSize(sizeFor[e.key]);
-          return;
-        }
-        if (imgSelected && e.altKey && e.key === "Enter") {
-          e.preventDefault();
-          setAltText(picSel?.alt ?? "");
-          setAltOpen((o) => !o);
-        }
+        picTools.handleKey(e);
       }}
       onDragOver={(e) => {
         if (e.dataTransfer.types.includes("Files")) {
@@ -2530,68 +2429,10 @@ function ComposeBody({ init }: { init: ComposeInit }) {
         {link.node}
       </div>
 
-      <div className={`cp-editor cp-pv pv-${pv}`} style={{ ...previewVars(pv), "--cp-font": base.family, "--cp-size": `${base.size}pt` } as React.CSSProperties} ref={bodyRef} onScroll={() => editor && syncPicSel(editor)}>
+      <div className={`cp-editor cp-pv pv-${pv}`} style={{ ...previewVars(pv), "--cp-font": base.family, "--cp-size": `${base.size}pt` } as React.CSSProperties} ref={bodyRef} onScroll={picTools.sync}>
         {find && editor && <Suspense fallback={null}><FindBar editor={editor} mode={find.mode} nonce={find.nonce} onClose={() => setFind(null)} /></Suspense>}
         <EditorContent editor={editor} className="editor" style={zoom === 100 ? undefined : ({ zoom: zoom / 100 } as React.CSSProperties)} />
-        {picSel && (
-          <>
-            <div
-              className="img-tools-anchor"
-              ref={toolsRef}
-              onKeyDown={(e) => {
-                // Esc leaves the toolbar (or just the alt text popover) and returns to the editor, the picture still selected
-                if (e.key !== "Escape") return;
-                e.preventDefault();
-                e.stopPropagation();
-                setAltOpen(false);
-                editor?.commands.focus();
-              }}
-            >
-              <div className="img-tools-box" ref={toolsBoxRef}>
-                <div className="img-tools" role="toolbar" aria-label={t("compose.pic.options")}>
-                  <div className="seg" role="radiogroup" aria-label={t("compose.pic.size")}>
-                    {SIZES.map(([label, w]) => (
-                      <button key={label} role="radio" aria-checked={picSel.width === w} className={picSel.width === w ? "on" : ""} onClick={() => setPictureSize(w)}>
-                        {t(label)}
-                      </button>
-                    ))}
-                  </div>
-                  <div className="seg" role="radiogroup" aria-label={t("compose.pic.align")}>
-                    {([[null, "compose.fmt.alignLeft", <AlignLeft key="l" size={14} />], ["center", "compose.fmt.alignCenter", <AlignCenter key="c" size={14} />], ["right", "compose.fmt.alignRight", <AlignRight key="r" size={14} />]] as const).map(([a, label, icon]) => (
-                      <button key={label} role="radio" aria-checked={(picSel.align ?? null) === a} aria-label={t(label)} title={t(label)} className={(picSel.align ?? null) === a ? "on" : ""} onClick={() => setPictureAlign(a)}>
-                        {icon}
-                      </button>
-                    ))}
-                  </div>
-                  <button className={`icon-btn${picSel.href ? " on" : ""}`} aria-label={t("compose.fmt.link")} aria-pressed={!!picSel.href} title={kbd(t("compose.pic.linkTip"))} onClick={() => linkRef.current()}><Link2 size={14} /></button>
-                  <button
-                    className={`tool-btn ${picSel.alt ? "" : "no-alt"}`}
-                    title={picSel.alt ? t("compose.pic.editAlt") : t("compose.pic.addAlt")}
-                    aria-haspopup="dialog"
-                    aria-expanded={altOpen}
-                    onClick={() => (setAltText(picSel.alt), setAltOpen((o) => !o))}
-                  >
-                    {t("compose.pic.altText")}
-                  </button>
-                  <button className="tool-btn" onClick={pictureAsAttachment}>{t("compose.pic.asAttachment")}</button>
-                  <button className="icon-btn" aria-label={t("compose.pic.remove")} title={t("compose.pic.removeTip")} onClick={removePicture}><Trash2 size={14} /></button>
-                </div>
-                {altOpen && createPortal(
-                  <div className="popover alt-pop pinned" role="dialog" aria-label={t("compose.pic.altText")} ref={altPopRef}>
-                    <label className="small muted" htmlFor="alt-text-field">{t("compose.pic.altText")}</label>
-                    <textarea id="alt-text-field" value={altText} onChange={(e) => setAltText(e.target.value)} autoFocus placeholder={t("compose.pic.altPlaceholder")} />
-                    <div className="helper">{t("compose.pic.altHelp")}</div>
-                    <div className="row-inline" style={{ justifyContent: "flex-end", margin: 0 }}>
-                      <button className="btn small" onClick={() => setAltOpen(false)}>{t("common.cancel")}</button>
-                      <button className="btn primary small" onClick={savePictureAlt}>{t("common.save")}</button>
-                    </div>
-                  </div>,
-                  document.body,
-                )}
-              </div>
-            </div>
-          </>
-        )}
+        {picTools.node}
         {sigHeads.map((el) =>
           createPortal(
             <label className="sig-pick">

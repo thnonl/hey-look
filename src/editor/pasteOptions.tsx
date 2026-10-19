@@ -218,6 +218,7 @@ export const PasteHandling = Extension.create<{ getBase: () => BaseFont }>({
     let lone = false; // the Ctrl key went down and nothing else since
     let shift = false; // Ctrl+Shift+V (ProseMirror reads it the same way)
     let plainAt = 0; // when Cmd+Shift+V was last handled by hand (macOS)
+    let sawPaste = false; // a paste event came since the last Ctrl+Shift+V (Linux: see the keydown handler)
     const isMod = (e: KeyboardEvent) => e.key === "Control" || (osNow() === "macos" && e.key === "Meta");
     const begin = (e: ClipboardEvent | DragEvent, drop: boolean) => {
       const p = readClipboard("clipboardData" in e ? e.clipboardData : (e as DragEvent).dataTransfer);
@@ -226,7 +227,7 @@ export const PasteHandling = Extension.create<{ getBase: () => BaseFont }>({
       return false;
     };
     /**
-     * macOS, Cmd+Shift+V: text only, from the clipboard the backend reads. The page gets no
+     * macOS, Cmd+Shift+V (and Cmd+Option+Shift+V, "Paste and Match Style"), and Linux when Ctrl+Shift+V pasted nothing: text only, from the clipboard the backend reads. The page gets no
      * paste event for these keys and the web view's own clipboard read asks for a click, so ProseMirror is given the text the way its pasteText does.
      */
     const pasteTextOnly = async (v: EditorView) => {
@@ -237,6 +238,7 @@ export const PasteHandling = Extension.create<{ getBase: () => BaseFont }>({
         return; // no clipboard text we can read: nothing is pasted (a paste of a picture only has no text either)
       }
       if (v.isDestroyed || !v.editable || !v.hasFocus()) return;
+      // the plain text when the clipboard has it, else the HTML as text (the converter of Keep text only: list markers, table rows); nothing at all: nothing happens (W2.23)
       const text = clip.text || (core ? core.pasteText(clip.html, Boolean(v.state.schema.nodes.table)) : "");
       if (!text) return;
       current = { html: clip.html, text, mode: "text", plain: true, drop: false };
@@ -268,7 +270,7 @@ export const PasteHandling = Extension.create<{ getBase: () => BaseFont }>({
         props: {
           handleDOMEvents: {
             // (a paste event that does come after a Cmd+Shift+V we have handled is the same paste: ignored)
-            paste: (_v, e) => (Date.now() - plainAt < 150 ? (e.preventDefault(), true) : begin(e, false)),
+            paste: (_v, e) => ((sawPaste = true), Date.now() - plainAt < 150 ? (e.preventDefault(), true) : begin(e, false)),
             drop: (_v, e) => begin(e, true),
             keydown: (v, e) => {
               shift = e.shiftKey;
@@ -280,6 +282,16 @@ export const PasteHandling = Extension.create<{ getBase: () => BaseFont }>({
                   void pasteTextOnly(v);
                 }
                 return true;
+              }
+              // Linux: WebKitGTK pastes "as plain text" from the text flavour of the clipboard only, so a clipboard that holds HTML only (a copy from some GTK programs) pastes nothing and
+              // may send the page no paste event either. When nothing has come in shortly after Ctrl+Shift+V (no paste event, the text unchanged) the backend reads the clipboard and the
+              // HTML is pasted as text, the way Keep text only does it. Where the engine did paste (or sent the event) this does nothing.
+              if (osNow() === "linux" && e.ctrlKey && e.shiftKey && !e.altKey && !e.metaKey && !e.repeat && !e.isComposing && e.key.toLowerCase() === "v") {
+                const before = v.state.doc;
+                sawPaste = false;
+                setTimeout(() => {
+                  if (!sawPaste && !v.isDestroyed && v.state.doc === before && v.hasFocus()) void pasteTextOnly(v);
+                }, 250);
               }
               return false;
             },
