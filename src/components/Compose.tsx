@@ -5,7 +5,7 @@ import {
 } from "lucide-react";
 import { Suspense, lazy, useCallback, useEffect, useId, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
-import { api, Att, Contact, Draft, DraftSecurity, errorCode, InlineImage, MessageFull, OwnKeyStatus, RecipientStatus, Signature, Template } from "../api";
+import { api, Att, Contact, Draft, DraftSecurity, errorCode, InlineImage, OwnKeyStatus, RecipientStatus, Signature, Template } from "../api";
 import { eff } from "../prefs";
 import { kbd, osNow } from "../platform";
 import { ComposeInit, friendlyError, useStore } from "../store";
@@ -30,6 +30,7 @@ import { composeHasContent, draftContent, isPersonEdit } from "../composeContent
 import { autosaveDue, snapshotDue, timing, type AutosaveWhy } from "../autosave";
 import { RecoveryWriter, type RecoveryForm } from "../recovery";
 import { cleanPastedHtml, stripRemotePictures } from "../pastedHtml";
+import { detachPictures } from "../pictureDetach";
 import { insertPictureNodes, type PictureAttrs } from "../editor/insertPictures";
 import { cleanHeaderText } from "../headerText";
 import { fromAccountFor } from "../fromAccount";
@@ -335,28 +336,6 @@ export function RecipientField({
 
 // ---------------------------------------------------------------- pictures: stored <-> editor
 
-/** Pictures of a stored message as data: URIs for the editor, and the attachments that stay attachments. */
-export async function messageToEditor(m: MessageFull): Promise<{ html: string | null; attachments: Att[] }> {
-  let html = m.html;
-  const attachments: Att[] = [];
-  for (const a of m.attachments) {
-    if (a.inline && a.referenced) {
-      // embedded at sync time already, or still a cid: reference that is fetched now
-      const d = html && a.cid ? await api.attachmentData(m.id, a.index).catch(() => null) : null;
-      if (d && html) {
-        if (html.includes(`cid:${a.cid}`)) html = html.split(`cid:${a.cid}`).join(`data:${d.mime};base64,${d.dataBase64}`);
-        // (the part knows the file name the picture was added with; the HTML does not)
-        html = nameInlinePicture(html, d.dataBase64, a.name || d.name);
-      }
-      continue;
-    }
-    // one unreadable attachment must not stop the draft from opening
-    const d = await api.attachmentData(m.id, a.index).catch(() => null);
-    if (d) attachments.push({ filename: d.name, mime: d.mime, dataBase64: d.dataBase64 });
-  }
-  return { html, attachments };
-}
-
 /**
  * Open a draft (a conversation of the Drafts folder) in Compose, with its pictures and attachments, asking for the key of an encrypted
  * one. `wait`: the draft was only just saved, so the local copy may not be there yet: the sync is asked for it a few times.
@@ -371,11 +350,26 @@ export async function openDraftThread(threadId: string, wait = false, o: StartOp
   // already shows this draft, so it gets the focus and nothing else opens, before anything is read (W2.11)
   if (inlineHasDraft(threadId)) return focusInlineEditor();
   if (await focusDraftWindow(key)) return true;
+  // a draft can take seconds to open (a large one: it is decrypted and its pictures are read): the row shows a ring at once and the pane a status after 150 ms
+  // (REQ-13.7.1, D-044). The one that opens last owns the ring; one that is overtaken leaves it to the newer one.
+  ringOwner = mine;
+  useStore.getState().setOpeningDraft(threadId);
+  try {
+    return await readDraft(threadId, wait, o, shift, key, mine);
+  } finally {
+    if (ringOwner === mine) useStore.getState().setOpeningDraft(null);
+  }
+}
+/** Which opening of a draft owns the ring on its row (`openDraftThread`). */
+let ringOwner = 0;
+
+async function readDraft(threadId: string, wait: boolean, o: StartOpts, shift: boolean, key: string, mine: number): Promise<boolean> {
   const st = useStore.getState();
-  let msgs = await api.getThread(threadId, "drafts");
+  // (`light`: no bodies: the body and the attachments come from `draftEditorParts` below, one read of the message instead of one per picture)
+  let msgs = await api.getThread(threadId, "drafts", true);
   for (let i = 0; wait && !msgs.some((x) => x.folder === "drafts") && i < 4; i++) {
     await useStore.getState().sync();
-    msgs = await api.getThread(threadId, "drafts");
+    msgs = await api.getThread(threadId, "drafts", true);
     if (!msgs.some((x) => x.folder === "drafts")) await new Promise((r) => setTimeout(r, 1200));
   }
   let m = msgs.filter((x) => x.folder === "drafts").pop() ?? msgs[msgs.length - 1];
@@ -386,18 +380,19 @@ export async function openDraftThread(threadId: string, wait = false, o: StartOp
   // a draft that was encrypted to your own key needs the key (and its passphrase) to be opened again
   if (m.security?.encrypted && m.security.decryption !== "ok") {
     if (m.security.decryption === "locked" && m.security.lockedKey && (await askUnlock(m.security.lockedKey, "draft", m.security.lockedLabel ?? undefined))) {
-      m = await api.pgpDecryptMessage(m.id).catch(() => m);
+      m = await api.pgpDecryptMessage(m.id, undefined, undefined, true).catch(() => m);
     }
     if (m.security?.decryption !== "ok") {
       if (m.security?.decryption !== "locked") st.showToast(() => tNow("mail.draft.cannotOpen", { error: friendlyError(m.security?.error ?? tNow("mail.draft.keyMissing")) }), undefined, "error");
       return false;
     }
   }
-  // restore pictures and attachments so saving or sending the draft does not silently drop them
-  const { html, attachments } = await messageToEditor(m);
   if (mine !== latestDraftOpen) return false; // another draft was asked for meanwhile (the second click of a double click): only the last one opens
-  // the recipients as they were typed (names, Bcc) come from the draft's own headers; the synced copy has bare To / Cc and no Bcc
-  const rc = await api.draftRecipients(m.id).catch(() => null);
+  // restore pictures and attachments so saving or sending the draft does not silently drop them; the recipients as they were typed (names, Bcc) come from the draft's own
+  // headers (the synced copy has bare To / Cc and no Bcc). Both are asked for at once: they read the message, they do not wait for each other.
+  const [parts, rc] = await Promise.all([api.draftEditorParts(m.id), api.draftRecipients(m.id).catch(() => null)]);
+  const { html, attachments } = parts;
+  if (mine !== latestDraftOpen) return false;
   // without the draft's own headers the Bcc recipients are unknown: say so, a send would leave them out
   if (!rc) st.showToast(() => tNow("compose.draft.bccUnread"), undefined, "error");
   const keyBefore = st.composeKey;
@@ -411,7 +406,7 @@ export async function openDraftThread(threadId: string, wait = false, o: StartOp
     references: rc?.references ?? [],
     answers: rc?.answers ?? undefined, // (a reply or forward that was saved: sending it later still flags the original)
     subject: m.subject === "(no subject)" ? "" : m.subject,
-    bodyHtml: html ?? `<p>${(m.text ?? "").replace(/\n/g, "<br>")}</p>`,
+    bodyHtml: html ?? `<p>${(parts.text ?? "").replace(/\n/g, "<br>")}</p>`,
     replaces: `m:${m.id}`, // the message that was opened: saving or sending replaces that one, not other drafts of the conversation
     draftKey: key, // (a Pop out of this pane gives the window this key: asking for the same draft again focuses that window)
     attachments,
@@ -571,10 +566,13 @@ function ComposeBody({ init }: { init: ComposeInit }) {
   // the message of an opened draft carries its signature as stored text: it is shown as the signature region again
   const startDoc = useRef<{ html: string; sig: string | null; base: BaseFont | null } | null>(null);
   if (editing && !startDoc.current) {
+    // (the data of big pictures is kept out of the steps below, which would read and write it again for nothing: pictureDetach.ts)
+    const light = detachPictures(init.bodyHtml ?? "");
     // the stored message is one box with the default font it was written in (editor/emailHtml.ts): the draft keeps that font
-    const u = unwrapBase(init.bodyHtml ?? "");
+    const u = unwrapBase(light.html);
     // the quoted original of a reply / forward is a block of its own again (editor/quoteBlock.ts), then the signature region
-    startDoc.current = { ...extractSignature(extractQuote(u.html).html), base: u.base };
+    const x = extractSignature(extractQuote(u.html).html);
+    startDoc.current = { html: light.restore(x.html), sig: x.sig && light.restore(x.sig), base: u.base };
   }
   // the default font of THIS message: the one the draft was written in, else the Settings > Composing choice at the time it was opened
   const [base] = useState<BaseFont>(() => startDoc.current?.base ?? baseFromPrefs(prefs));

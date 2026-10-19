@@ -457,6 +457,7 @@ export default defineLocale<typeof ns.en>({
   "compose.recover.list.openDrafts": "„Entwürfe“ öffnen",
   "compose.autosave.saved": "Entwurf um {time} gespeichert",
   "compose.draft.bccUnread": "Die Bcc-Empfänger dieses Entwurfs konnten nicht gelesen werden und werden deshalb nicht angezeigt. Prüfen Sie die Empfänger vor dem Senden.",
+  "compose.draft.opening": "Entwurf wird geöffnet…",
   "compose.toast.movedToDrafts": "In Entwürfe verschoben",
   "compose.toast.moveFailed": "Das Verschieben in die Entwürfe war nicht möglich: {error}",
   "compose.toast.scheduleCancelled": "Geplanter Versand abgebrochen",

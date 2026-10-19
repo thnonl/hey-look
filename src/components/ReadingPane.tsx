@@ -32,6 +32,7 @@ import { AttachmentStrip, Lightbox, LbItem } from "./Attachments";
 import { InviteCard } from "./Calendar";
 import { osNow } from "../platform";
 import { EmptyState } from "./overlays";
+import { useDelayedFlag } from "../delayedFlag";
 import { ImportanceMark } from "./Importance";
 import { EncCard, importKeyFromMessage, isKeyAttachment, needsCard, SecBadges } from "./Pgp";
 import { Avatar, Dropdown } from "./ui";
@@ -753,7 +754,9 @@ export function useKeepReadingPosition() {
 
 export function ReadingPane() {
   const t = useT();
-  const { selected, messages, threads, folders, folder, act, showToast, prefs, aiConfigured, confirm, checked } = useStore();
+  const { selected, messages, threads, folders, folder, act, showToast, prefs, aiConfigured, confirm, checked, openingDraft } = useStore();
+  // a draft is being opened in Compose (it can take seconds): the status of REQ-13.7.1, shown only when the open is not over after 150 ms
+  const draftBusy = useDelayedFlag(!!openingDraft);
   const [openIds, setOpenIds] = useState<Set<string>>(new Set());
   const [summary, setSummary] = useState<string | null>(null);
   const [summaryCut, setSummaryCut] = useState(false); // the conversation was longer than what was sent: the card says so
@@ -781,6 +784,17 @@ export function ReadingPane() {
     setOpenIds(new Set(messages.length ? [messages[messages.length - 1].id] : []));
   }, [selected, messages.length]);
 
+  if (draftBusy) {
+    return (
+      <section className="reading-pane empty" aria-label={t("reading.pane.label")}>
+        <div className="reader-state" role="status" aria-busy="true">
+          <span className="busy-ring spin" aria-hidden />
+          <span className="busy-dots" aria-hidden>···</span>
+          <p className="muted">{t("compose.draft.opening")}</p>
+        </div>
+      </section>
+    );
+  }
   if (!selected || !summ) {
     return (
       <section className="reading-pane empty" aria-label={t("reading.pane.label")}>

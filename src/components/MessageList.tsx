@@ -46,10 +46,12 @@ export interface ThreadRowProps {
   setSize?: number;
   /** a picture of a row (the Appearance preview): nothing to focus or press */
   inPreview?: boolean;
+  /** the draft of this row is being opened (REQ-13.7.1): a small ring takes the place of its date and the row is `aria-busy` */
+  opening?: boolean;
 }
 
 /** One conversation in the list. Pure: the real list and the Appearance preview both render it. */
-export function ThreadRow({ t, selected, checked, prefs, showFolder, accountColor, accountLabel, hover, onOpen, onOpenWindow, onToggle, posInSet, setSize, inPreview }: ThreadRowProps) {
+export function ThreadRow({ t, selected, checked, prefs, showFolder, accountColor, accountLabel, hover, onOpen, onOpenWindow, onToggle, posInSet, setSize, inPreview, opening }: ThreadRowProps) {
   const tr = useT();
   const who = t.participants.join(", ");
   const dense = prefs.density === "compact";
@@ -57,6 +59,7 @@ export function ThreadRow({ t, selected, checked, prefs, showFolder, accountColo
     <div
       role="option"
       aria-selected={!!selected}
+      aria-busy={opening || undefined}
       aria-posinset={posInSet}
       aria-setsize={setSize}
       tabIndex={inPreview ? -1 : 0}
@@ -99,7 +102,7 @@ export function ThreadRow({ t, selected, checked, prefs, showFolder, accountColo
           {accountColor && dense && <span className="acct-dot" style={{ background: accountColor }} title={accountLabel} />}
           <span className="who ellipsis">{who}</span>
           {hover}
-          <span className="date">{fmtDate(t.lastDate)}</span>
+          <span className="date">{opening ? <><span className="busy-ring spin" aria-hidden /><span className="busy-dots" aria-hidden>···</span></> : fmtDate(t.lastDate)}</span>
         </div>
         <div className="ml-mid">
           <span className="subject ellipsis">{subjectText(t.subject)}</span>
@@ -209,7 +212,7 @@ export function MessageList({ hidden = false }: { hidden?: boolean } = {}) {
   const lang = useLang();
   const {
     threads, folder, accountId, selected, openMail, checked, toggleCheck, setChecked, search, searchScope, setSearchScope,
-    prefs, focus, setFocus, filter, setFilter, accounts, loading, loadMore, loadingMore, exhausted, limited, backfill, firstSync, setDialog, folders,
+    prefs, focus, setFocus, filter, setFilter, accounts, loading, loadMore, loadingMore, exhausted, limited, backfill, firstSync, setDialog, folders, openingDraft,
   } = useStore();
   const scrollRef = useRef<HTMLDivElement>(null);
   const ctxMenu = useRowContextMenu(); // right-click / ContextMenu key on a row (components/ListContextMenu.tsx)
@@ -323,6 +326,7 @@ export function MessageList({ hidden = false }: { hidden?: boolean } = {}) {
         prefs={prefs}
         selected={selected === it.t.threadId}
         checked={checked.has(it.t.threadId)}
+        opening={openingDraft === it.t.threadId}
         showFolder={searching}
         accountColor={mixed ? colors.get(it.t.accountId) ?? accountColor(null, prefs.accent) : null}
         accountLabel={labels.get(it.t.accountId)}

@@ -306,6 +306,9 @@ interface State {
   keysRev: number;
   compose: ComposeInit | null;
   composeKey: number; // changes on every open so a new message never inherits the old one's state
+  /** The conversation of the Drafts folder that is being opened in Compose (REQ-13.7.1): its row shows a ring at once, the pane a status after 150 ms. null when none is. */
+  openingDraft: string | null;
+  setOpeningDraft: (threadId: string | null) => void;
   /** The person asked for the message list while a message is written in a narrow window (a folder pressed, a search started, Ctrl/Cmd+1): the list stays next to it (W2.26). Cleared when the message is closed or another one opens. */
   listAsked: boolean;
   askList: () => void;
@@ -671,6 +674,8 @@ export const useStore = create<State>((set, get) => ({
   keysRev: 0,
   compose: null,
   composeKey: 0,
+  openingDraft: null,
+  setOpeningDraft: (openingDraft) => set({ openingDraft }),
   listAsked: false,
   askList: () => set({ listAsked: true }),
   composeDirty: false,

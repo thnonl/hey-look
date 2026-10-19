@@ -104,6 +104,11 @@ export function rewriteTags(html: string, fn: (t: TagToken) => string | null): s
 /** A picture source that carries its data with the message: `cid:` or a base64 `data:image/*` raster picture (png, jpeg, gif, webp ... but not svg). Everything else (http,
  *  https, ftp, `//host`, `\\host\share`, `file:`, `blob:`, `data:image/svg+xml`, `javascript:` ...) is not. */
 export function isLocalPictureSrc(src: string): boolean {
+  // a raster picture whose source is plain (no entity, no blank before it): the head is looked at, the data - megabytes for a big picture - is scanned once for its characters and
+  // not copied by the steps below (D-044). Anything else, and anything this does not accept, takes the full check.
+  const head = src.slice(0, 120);
+  const m = /^data:image\/(?!svg)[a-z0-9.+-]{1,30}(;[a-z0-9=._-]+)*;base64,/i.exec(head);
+  if (m && /^[A-Za-z0-9+/=%][A-Za-z0-9+/=%\s]*$/.test(src.slice(m[0].length))) return true; // (the first character is not a blank: the full check drops tabs and line ends first, and wants a character left)
   // a browser ignores tab / newline inside a URL and blanks around it
   // eslint-disable-next-line no-control-regex
   const s = decodeEntities(src).replace(/[\t\n\r]/g, "").replace(/^[\u0000-\u0020\u00a0]+/, "").toLowerCase();

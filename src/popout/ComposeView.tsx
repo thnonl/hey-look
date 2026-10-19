@@ -26,6 +26,7 @@ import { configureDates } from "../util";
 import { notifyMain } from "./composeBridge";
 import { carryToasts } from "./composeRequests";
 import { setComposeSeam, type ComposeSeam } from "./composeSeam";
+import { useDelayedFlag } from "../delayedFlag";
 import { composeFlush, runClose, secondsLeft, START, step, type Ev, type Fx, type WinState } from "./composeWindow";
 import { draftKey } from "./entry";
 import { registerFlushHandler } from "./flush";
@@ -48,6 +49,7 @@ export default function ComposeView({ label, init }: PopoutViewProps) {
   const [editor, setEditor] = useState<{ init: ComposeInit; n: number } | null>(() => ({ init: isObj(init) ? (init as ComposeInit) : {}, n: 1 }));
   const [win, setWin] = useState<WinState>(START);
   const [ready, setReady] = useState(false);
+  const draftBusy = useDelayedFlag(!ready && isObj(init) && typeof init.replaces === "string" && init.replaces.startsWith("m:"));
   const [now, setNow] = useState(() => Date.now());
   const winRef = useRef<WinState>(START);
   const undoRef = useRef<(() => void) | null>(null);
@@ -364,6 +366,16 @@ export default function ComposeView({ label, init }: PopoutViewProps) {
     <div className="popout-compose" data-popout="compose" data-label={label} data-phase={win.phase}>
       {/* the editor stays while the message is sent: Compose locks itself (inert, "Sending...") and unlocks in place on Undo or a failure (seam.lock / unlock) */}
       {ready && editor && <Compose key={editor.n} init={editor.init} />}
+      {/* a draft takes a moment to come up in its window (REQ-13.7.1): the same status as the pane's, when it is not there after 150 ms */}
+      {draftBusy && !ready && (
+        <div className="reader-win">
+          <div className="reader-state" role="status" aria-busy="true">
+            <span className="busy-ring spin" aria-hidden />
+            <span className="busy-dots" aria-hidden>···</span>
+            <p className="muted">{tNow("compose.draft.opening")}</p>
+          </div>
+        </div>
+      )}
       <PassphraseHost />
     </div>
   );

@@ -455,6 +455,7 @@ body.reordering, body.reordering * { cursor: grabbing !important; user-select: n
 .acct-dot.under { position: absolute; left: 50%; top: calc(100% + 3px); width: 16px; height: 4px; transform: translateX(-50%); }
 .who { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .date { color: var(--muted); font-size: .86em; flex: none; font-variant-numeric: tabular-nums; }
+.ml-row[aria-busy="true"] .date .spin { width: 12px; height: 12px; vertical-align: -2px; } /* a draft is being opened: a ring in place of the date (REQ-13.7.1); the row keeps its height (the text line is 1.4 em) */
 .hover-actions { display: none; gap: 0; flex: none; margin: -4px 0; /* 24px buttons must not grow the row on hover */ }
 .ml-row:hover .hover-actions, .ml-row:focus-within .hover-actions { display: inline-flex; }
 .ml-row:hover .hover-actions + .date, .ml-row:focus-within .hover-actions + .date { display: none; }
