@@ -19,6 +19,7 @@
 
 ### Fixed
 
+- A link inside a sentence of a notice ("This looks like a newsletter. Unsubscribe", the blocked pictures banner, the signature and invitation notices, the update notices) sits on the same line as the words in front of it instead of a little lower, also when the link wraps to a second line in a narrow window or a long language; its click box stays 24 px high
 - On a Mac, Cmd+Option+Shift+V ("Paste and Match Style") pastes text only in the message body, like Cmd+Shift+V (the other Cmd+Option keys stay off in the editor); Settings > Keyboard shortcuts lists both keys
 - On Linux, Ctrl+Shift+V pastes the text of a clipboard that holds HTML only (a copy from some programs) instead of pasting nothing: the HTML is turned into text the way "Keep text only" does (list numbers, table rows), without formatting; an empty clipboard still does nothing
 - The link dialog follows Outlook's Insert Hyperlink: "Text to display" above "Address" (the focus is in Address), "Cancel" and "Insert" for a new link, "Remove link", "Open link", "Cancel" and "Save" for an existing one, Enter is the main button and Esc cancels with the selection as it was
