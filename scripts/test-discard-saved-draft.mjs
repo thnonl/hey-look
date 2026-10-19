@@ -99,9 +99,9 @@ try {
   /** a saved draft with the text 'Original text', then opened again and given ' plus edits', and the autosave has run */
   async function openedAndEdited(flags = '') {
     await H.openApp(`lang=en${flags}`, 1280, 720);
-    await evaluate(`window.__hlTiming = { autosaveMs: 500, snapshotMs: 300 }; window.__store.getState().openCompose({ accountId: 'a1', to: ['alice@fabrikam.com'], subject: 'D1', bodyHtml: '<p>Original text</p>' }); 1`);
+    await evaluate(`window.__hlTiming = { autosaveMs: 500, snapshotMs: 300 }; window.__store.getState().openCompose({ accountId: 'a1', to: ['alice@fabrikam.com'], subject: 'D1' }); 1`);
     await waitPane();
-    await evaluate(`document.querySelector('.cp-editor .tiptap').editor.commands.insertContent(' '); 1`); // a change, so Save draft has something
+    await evaluate(`document.querySelector('.cp-editor .tiptap').editor.commands.insertContent('<p>Original text</p>'); 1`); // the text the person writes (W13.5: Save draft needs draft content: a subject and a body the pane opened with are not)
     await evaluate(`window.__store.getState().composeSaver({ quiet: true }); 1`);
     await sleep(700);
     await evaluate(`window.__store.getState().openCompose(null); 1`);
@@ -278,9 +278,9 @@ try {
   const popOutPane = async () => { await evaluate(`document.querySelector('button[aria-label="Pop out"]').click(); 1`); await sleep(700); };
   async function openedClean() {
     await H.openApp('lang=en', 1280, 720);
-    await evaluate(`window.__hlTiming = { autosaveMs: 500, snapshotMs: 300 }; window.__store.getState().openCompose({ accountId: 'a1', to: ['alice@fabrikam.com'], subject: 'D1', bodyHtml: '<p>Original text</p>' }); 1`);
+    await evaluate(`window.__hlTiming = { autosaveMs: 500, snapshotMs: 300 }; window.__store.getState().openCompose({ accountId: 'a1', to: ['alice@fabrikam.com'], subject: 'D1' }); 1`);
     await waitPane();
-    await evaluate(`document.querySelector('.cp-editor .tiptap').editor.commands.insertContent(' '); 1`);
+    await evaluate(`document.querySelector('.cp-editor .tiptap').editor.commands.insertContent('<p>Original text</p>'); 1`);
     await evaluate(`window.__store.getState().composeSaver({ quiet: true }); 1`);
     await sleep(700);
     await evaluate(`window.__store.getState().openCompose(null); 1`);

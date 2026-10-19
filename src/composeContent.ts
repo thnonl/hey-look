@@ -52,3 +52,37 @@ export interface EditTransaction {
 export function isPersonEdit(tr: EditTransaction): boolean {
   return tr.docChanged && !tr.getMeta("signatureInit");
 }
+
+/** The parts of a message beyond `ComposeParts` that the draft rule needs. */
+export interface DraftExtra {
+  /** the place typed into the meeting strip now (empty: no meeting, or none typed) */
+  meetingWhere: string;
+  /** the place the meeting had when the message opened (a restored or carried message: empty, all of it is the person's) */
+  openedWhere: string;
+  /** the message is a draft that is already in Drafts (opened from there): see below */
+  existing: boolean;
+}
+
+/**
+ * Is there anything in `now` that is worth a draft on the server (W13.5)? Narrower than `composeHasContent`, which decides what the local crash
+ * snapshot keeps: a draft is only written when the message holds
+ *  - body text of the person's (not whitespace, not the signature region, not an untouched quote), or
+ *  - a subject of the person's (not the one Compose filled in for a reply / forward), or
+ *  - a picture in the body or an attachment that the person added (the ones a forward carries are in `opened`), or
+ *  - a meeting with a place typed.
+ * Recipients, From, Importance, the Encrypt / Sign / Confidential switches and the signature choice are not content: a message with only those is
+ * closed without a question and nothing of it reaches the server.
+ * A draft that is already in Drafts (`extra.existing`) also counts a change of its recipients, pictures or attachments, so an edit to it is not
+ * thrown away silently, as long as it has a subject, text, a picture or an attachment (else the server copy is empty anyway and `save_draft` refuses it).
+ */
+export function draftContent(touched: boolean, now: ComposeParts, opened: ComposeParts, extra: DraftExtra): boolean {
+  if (!touched) return false;
+  const subject = now.subject.trim();
+  if (subject && subject !== opened.subject.trim()) return true;
+  if (now.text && now.text !== opened.text) return true;
+  if (now.pics > opened.pics || now.atts > opened.atts) return true;
+  const where = extra.meetingWhere.trim();
+  if (where && where !== extra.openedWhere.trim()) return true;
+  const substance = !!subject || !!now.text || now.pics > 0 || now.atts > 0;
+  return extra.existing && substance && composeHasContent(touched, now, opened);
+}

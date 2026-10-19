@@ -18,7 +18,7 @@ import type { MeetingWire } from "./meetingDraft";
 import { accountsOf, canMoveToJunk, JUNK_ACTIONS } from "./junk";
 import { addToast, lazyText, refreshed, toastTexts, trimToasts, type Lazy } from "./toastStack";
 import { mayOpenMail, selectionAfterCompose } from "./composeSelection";
-import { leaveCompose as leaveComposePane, type ComposeProbe, type SavedDraft } from "./leaveCompose";
+import { leaveCompose as leaveComposePane, nothingToKeep, type ComposeProbe, type SavedDraft } from "./leaveCompose";
 export { lazyText, type Lazy };
 import { resolveLang, setLangPref, t } from "./i18n";
 import { fmtNumber } from "./i18n/format";
@@ -1187,9 +1187,9 @@ export const useStore = create<State>((set, get) => ({
   openCompose: async (compose, opts) => {
     const st = get();
     if (compose && !hasMailAccounts(st.accounts.length)) return; // no account: there is nothing to send with
-    // Everything typed was deleted again: nothing to keep, nothing to ask. The copy an autosave made of a new message goes with it (W2.3).
-    const probe = st.composeProbe?.();
-    const emptied = !!compose && !!st.compose && !st.compose.outboxId && st.composeDirty && probe?.hasContent === false && !probe.attaching && !probe.pending;
+    // Nothing worth a draft: everything typed was deleted again, or only recipients were typed (W13.5). Nothing to keep, nothing to ask. The copy an
+    // autosave made of a new message goes with it (W2.3).
+    const emptied = !!compose && !!st.compose && !st.compose.outboxId && st.composeDirty && nothingToKeep(st.composeProbe?.());
     if (emptied) await get().composeEnd?.({ emptied: true });
     else if (compose && st.compose && st.composeDirty) {
       const choice = await st.choose({

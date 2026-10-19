@@ -12,12 +12,17 @@ export interface QuitFlushDeps {
   dialog(open: boolean): void;
   /** The answer to the backend: `go` false = the person keeps the window open. Always called, once. */
   done(go: boolean): void;
-  /** The message being written when it has unsaved changes; null when there is none. `scheduled`: a scheduled message being edited. */
-  unsaved(): { scheduled: boolean; save: ((o: { quiet: boolean }) => Promise<boolean | void>) | null } | null;
+  /**
+   * The message being written when it has unsaved changes; null when there is none. `scheduled`: a scheduled message being edited. `empty`: nothing
+   * in it is worth a draft (only recipients, or everything typed was deleted again, W13.5): it is neither saved nor asked about.
+   */
+  unsaved(): { scheduled: boolean; empty?: boolean; save: ((o: { quiet: boolean }) => Promise<boolean | void>) | null } | null;
   /** The question; resolves to the id of the chosen answer, "quit" being the one that goes on. */
   ask(kind: "scheduledEdit" | "notSaved"): Promise<string>;
   /** The message was saved: the pane is emptied. */
   saved(): Promise<void>;
+  /** A message with nothing worth a draft: no draft is written, the copy an autosave made of a new message goes, the snapshot goes, the pane is emptied. */
+  emptied(): Promise<void>;
   /** "Quit and discard" was the answer: the message must not come back at the next start either. */
   discarded(): Promise<void>;
   /** Messages being sent now (the person is told). */
@@ -33,7 +38,9 @@ export async function runQuitFlush(d: QuitFlushDeps): Promise<boolean> {
     d.alive();
     const u = d.unsaved();
     if (u) {
-      if (u.scheduled) {
+      if (u.empty && !u.scheduled) {
+        await d.emptied();
+      } else if (u.scheduled) {
         // a scheduled message being edited stays as it was
         d.showWindow();
         d.dialog(true);

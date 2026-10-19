@@ -276,7 +276,39 @@ function screen() {
   assert.match(app, /const shown = \(\) => \{\n\s*reshowRecoveryToast\(\)/, "the toast is put back when the window is shown (app-shown / focus)");
   for (const f of ["src/composeRecovery.ts", "src/App.tsx"]) assert.ok(!/offerRestore|offerRecovery/.test(read(f)), `${f}: the old question is still wired`);
   // nothing is sent, discarded or removed unasked by the start
-  assert.ok(!/sendMessage|outboxHold|discardDraft|recoveryClear/.test(wiring.replace(/clear: \(id, why\) => api\.recoveryClear\(id, why\)/, "")), "the start only saves drafts");
+  const dropLine = /drop: \(k\) => api\.recoveryClear\(k\.id, "toast dismissed, nothing but recipients"\)/;
+  assert.ok(!/sendMessage|outboxHold|discardDraft|recoveryClear/.test(wiring.replace(/clear: \(id, why\) => api\.recoveryClear\(id, why\)/, "").replace(dropLine, "")), "the start only saves drafts");
+  assert.match(wiring, dropLine, "a message with only recipients goes when the toast is dismissed (W13.5)");
+}
+
+// 10. W13.5 (REQ-13.5.6): a message with only recipients is kept on this computer (never a draft); closing the toast without opening it removes that snapshot, and
+//     only that one: a message that could not be saved (offline) stays for the next start, and Continue writing keeps what it opens
+{
+  const s = screen();
+  const dropped = [];
+  s.deps.drop = async (k) => void dropped.push(k.id);
+  const toast = createRecoveryToast(s.deps);
+  toast.show([kept("rcpt", "local", 3, { draftless: true }), kept("offline", "local", 2), kept("saved", "drafts", 1)]);
+  assert.equal(toastText(toast.items), "Hey Look! kept 3 unsaved messages from the last session.\nSaved in Drafts: 1. Kept on this computer: 2.");
+  s.close();
+  assert.deepEqual(dropped, ["rcpt"], "only the recipients-only snapshot is removed");
+  assert.deepEqual(toast.items.map((i) => i.id), ["offline", "saved"]);
+  assert.equal(toast.pending, false);
+}
+{
+  const s = screen();
+  const dropped = [];
+  s.deps.drop = async (k) => void dropped.push(k.id);
+  const toast = createRecoveryToast(s.deps);
+  toast.show([kept("rcpt", "local", 3, { draftless: true })]);
+  await s.press("Continue writing");
+  assert.deepEqual(s.opened, ["rcpt"], "Continue writing opens it from the snapshot with its recipients");
+  assert.deepEqual(dropped, [], "opened: it is not removed (it goes when the message is sent, saved or closed)");
+  // no drop handler (an older wiring): dismissing is harmless
+  const s2 = screen();
+  const t2 = createRecoveryToast(s2.deps);
+  t2.show([kept("rcpt", "local", 3, { draftless: true })]);
+  assert.doesNotThrow(() => s2.close());
 }
 
 console.log("recovery-toast: all checks passed");

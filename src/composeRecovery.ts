@@ -56,6 +56,7 @@ const toast = createRecoveryToast({
   open: openKept,
   showDrafts: (accountId) => void useStore.getState().setView("drafts", accountId),
   pick: pickKept,
+  drop: (k) => api.recoveryClear(k.id, "toast dismissed, nothing but recipients"),
 });
 
 /** A sync that is running began before the drafts were saved (and a second ask while one runs does nothing): wait for it to end, then sync once more so that Drafts shows them. */

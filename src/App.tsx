@@ -20,6 +20,7 @@ import { hasMailAccounts, shortcutWorks } from "./mailControls";
 import { t as tNow } from "./i18n";
 import { useT } from "./i18n/react";
 import { runQuitFlush } from "./quitFlush";
+import { nothingToKeep } from "./leaveCompose";
 import { flushSends, friendlyError, moveDropped, moveRefused, useStore } from "./store";
 import { osNow } from "./platform";
 import { quitKeepKey } from "./trayWords";
@@ -246,11 +247,16 @@ function App() {
           done: (go) => void api.sendsFlushed(go).catch(swallow),
           unsaved: () => {
             const s = useStore.getState();
-            return s.compose && s.composeDirty ? { scheduled: !!s.compose.outboxId, save: s.composeSaver } : null;
+            // nothing worth a draft in it (only recipients, or typed and deleted again, W13.5): no draft, no question
+            return s.compose && s.composeDirty ? { scheduled: !!s.compose.outboxId, empty: nothingToKeep(s.composeProbe?.()), save: s.composeSaver } : null;
           },
           ask,
           saved: async () => {
             await useStore.getState().composeEnd?.();
+            await useStore.getState().openCompose(null);
+          },
+          emptied: async () => {
+            await useStore.getState().composeEnd?.({ emptied: true });
             await useStore.getState().openCompose(null);
           },
           discarded: async () => {

@@ -74,6 +74,7 @@ try {
 
   // ---------- a draft without a meeting is unchanged
   await fresh({ accountId: 'a1', to: ['alice@fabrikam.com'], subject: 'No meeting here', bodyHtml: '<p>Hello</p>' });
+  await evaluate(`document.querySelector('.cp-editor .tiptap').editor.commands.insertContent('<p>More</p>'); 1`); // (W13.5: Save draft needs something the person wrote, not only what the pane opened with)
   await barAction(/^Save draft$/);
   await sleep(1200);
   const d3 = await lastDraft();

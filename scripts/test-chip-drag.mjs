@@ -79,6 +79,9 @@ try {
   });
 
   await check('the change is an edit: the saved draft has the new fields', async () => {
+    assert.equal(await evaluate(`window.__store.getState().composeDirty`), true, 'the move did not count as an edit');
+    // (1.0.7 W13.5: addresses alone are not worth a draft, so the person writes a line too; the subject the pane opened with is not theirs)
+    await evaluate(`document.querySelector('.cp-editor .tiptap').editor.commands.insertContent('<p>Hello</p>'); 1`);
     await evaluate(`window.__store.getState().composeSaver({ quiet: true }); 1`);
     await sleep(700);
     const d = JSON.parse(await evaluate(`JSON.stringify(window.__lastDraft ?? null)`));

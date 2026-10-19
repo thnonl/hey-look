@@ -3835,8 +3835,35 @@ struct SavedDraft {
     draft_ref: Option<String>,
 }
 
+/// W13.5: a draft with nothing in it is never written to the server. "Nothing" = no subject, no non-white-space text, no attachment, no inline
+/// picture and no meeting place. The page never asks for such a save (it checks first and says "Nothing to save yet"); this is the last guard, for a
+/// caller that does (an older page, a snapshot of recipients only). A draft that carries finished bytes (`prebuilt`, a scheduled message) is not judged.
+fn ensure_draft_has_content(d: &smtp::Draft) -> R<()> {
+    use base64::Engine;
+    if d.prebuilt.is_some() || !d.subject.trim().is_empty() || !d.text.trim().is_empty() || !d.attachments.is_empty() || !d.inline.is_empty() {
+        return Ok(());
+    }
+    let place = |l: &str| !l.trim().is_empty();
+    // the meeting strip with a place typed (the place is in the parsed meeting, or in the form of the strip as the page wrote it)
+    if d.meeting.as_ref().and_then(|m| m.location.as_deref()).is_some_and(place) {
+        return Ok(());
+    }
+    let form_place = d
+        .meeting_form
+        .as_deref()
+        .and_then(draftmail::meeting_blob)
+        .and_then(|b| base64::engine::general_purpose::URL_SAFE_NO_PAD.decode(b.trim_end_matches('=')).ok())
+        .and_then(|bytes| serde_json::from_slice::<serde_json::Value>(&bytes).ok())
+        .and_then(|v| v.get("where").and_then(|w| w.as_str()).map(place));
+    if form_place == Some(true) {
+        return Ok(());
+    }
+    Err("DRAFT_EMPTY: There is nothing to save yet.".into())
+}
+
 #[tauri::command]
 async fn save_draft(state: tauri::State<'_, AppState>, draft: smtp::Draft, replaces: Option<String>) -> R<SavedDraft> {
+    ensure_draft_has_content(&draft)?;
     let db = state.db.clone();
     blocking(move || {
         let acc = db::get_account(&lock(&db), &draft.account_id)?;
@@ -4068,6 +4095,7 @@ fn save_recovered(db: &Db, id: &str, draft: &mut smtp::Draft, replaces: Option<S
                 Ok(RecoveredDraft { status: "covered", thread_id: draft_thread_id(&acc.id, &raw), draft_ref: draftmail::draft_ref(&acc.id, &raw) })
             }
             recover::Verdict::Save { replace } => {
+                ensure_draft_has_content(draft)?; // (a snapshot of recipients only stays on this computer, W13.5)
                 draft.recovery_id = Some(id.to_string());
                 let raw = draft_bytes(db, &acc, draft)?;
                 mail::append(&mut s, &folder, &raw, true)?;
@@ -7095,3 +7123,75 @@ mod foldermove_tests;
 mod readrace_tests;
 #[cfg(test)]
 mod testbridge_guard;
+
+/// W13.5: a draft with nothing in it is refused with `DRAFT_EMPTY` before anything is built or sent to the server.
+#[cfg(test)]
+mod empty_draft_tests {
+    use super::*;
+    use base64::Engine;
+
+    fn draft() -> smtp::Draft {
+        smtp::Draft {
+            account_id: "a1".into(), to: vec!["ann@example.com".into()], cc: vec![], bcc: vec![], subject: String::new(), html: String::new(), text: String::new(),
+            in_reply_to: None, references: vec![], attachments: vec![], inline: vec![], security: None, prebuilt: None, meeting: None, calendar: None,
+            confidential: false, importance: importance::Importance::Normal, recovery_id: None, meeting_form: None, answers: None,
+        }
+    }
+
+    fn refused(d: &smtp::Draft) -> bool {
+        ensure_draft_has_content(d).is_err_and(|e| e.starts_with("DRAFT_EMPTY:"))
+    }
+
+    #[test]
+    fn an_empty_draft_is_refused() {
+        // recipients alone (and white space, an empty html shell, other switches) are not content
+        let mut d = draft();
+        assert!(refused(&d));
+        d.subject = "   ".into();
+        d.text = "\r\n \t".into();
+        d.html = "<p><br></p>".into();
+        d.bcc = vec!["bob@example.com".into()];
+        d.confidential = true;
+        d.importance = importance::Importance::High;
+        assert!(refused(&d), "recipients, white space, Importance and Confidential are not content");
+        // the refusal is the coded error the page knows
+        assert_eq!(ensure_draft_has_content(&d).unwrap_err(), "DRAFT_EMPTY: There is nothing to save yet.");
+    }
+
+    #[test]
+    fn a_draft_with_something_in_it_is_accepted() {
+        let mut d = draft();
+        d.subject = "Hello".into();
+        assert!(ensure_draft_has_content(&d).is_ok(), "a subject");
+        let mut d = draft();
+        d.text = "ok".into();
+        assert!(ensure_draft_has_content(&d).is_ok(), "text");
+        let mut d = draft();
+        d.attachments = vec![smtp::Att { filename: "a.txt".into(), mime: "text/plain".into(), data_base64: "YQ==".into() }];
+        assert!(ensure_draft_has_content(&d).is_ok(), "an attachment");
+        let mut d = draft();
+        d.inline = vec![smtp::InlineImage { cid: "p1@heylook".into(), filename: "p.png".into(), mime: "image/png".into(), data_base64: "AA==".into() }];
+        assert!(ensure_draft_has_content(&d).is_ok(), "an inline picture");
+        let mut d = draft();
+        d.prebuilt = Some("AAAA".into());
+        assert!(ensure_draft_has_content(&d).is_ok(), "finished bytes are not judged");
+    }
+
+    #[test]
+    fn a_meeting_place_counts_and_a_meeting_without_one_does_not() {
+        let enc = |v: &str| base64::engine::general_purpose::URL_SAFE_NO_PAD.encode(v.as_bytes());
+        let mut d = draft();
+        d.meeting_form = Some(enc(r#"{"v":1,"sd":"2026-10-20","st":"09:00","ed":"2026-10-20","et":"10:00","allDay":false,"where":"","tz":"UTC"}"#));
+        assert!(refused(&d), "the strip on with no place");
+        d.meeting_form = Some(enc(r#"{"v":1,"sd":"2026-10-20","st":"09:00","ed":"2026-10-20","et":"10:00","allDay":false,"where":"Room 4","tz":"UTC"}"#));
+        assert!(ensure_draft_has_content(&d).is_ok(), "the strip with a place (the form the page wrote)");
+        let mut d = draft();
+        d.meeting = Some(smtp::Meeting { start: 1, end: 2, all_day: false, tzid: None, location: Some(" ".into()), rrule: None });
+        assert!(refused(&d), "a blank place");
+        d.meeting = Some(smtp::Meeting { start: 1, end: 2, all_day: false, tzid: None, location: Some("Room 4".into()), rrule: None });
+        assert!(ensure_draft_has_content(&d).is_ok(), "the parsed meeting with a place");
+        let mut d = draft();
+        d.meeting_form = Some("not base64 json!".into());
+        assert!(refused(&d), "a form that is not ours is not content");
+    }
+}

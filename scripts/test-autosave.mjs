@@ -5,7 +5,7 @@ import assert from "node:assert/strict";
 import { AUTOSAVE_MS, SNAPSHOT_MS, autosaveDue, snapshotDue, timing } from "../src/autosave.ts";
 
 const facts = (over = {}) => ({
-  now: 100_000, why: "tick", rev: 5, savedRev: 0, changedAt: 60_000, lastTryAt: 0, failures: 0, hasContent: true, attaching: false,
+  now: 100_000, why: "tick", rev: 5, savedRev: 0, changedAt: 60_000, lastTryAt: 0, failures: 0, draftContent: true, attaching: false,
   saving: false, sending: false, scheduled: false, plainWouldLeak: false, ...over,
 });
 
@@ -34,11 +34,11 @@ const facts = (over = {}) => ({
   assert.equal(autosaveDue(facts({ ...late, sending: true })), false, "not while the message is being sent");
   assert.equal(autosaveDue(facts({ ...late, scheduled: true })), false, "a scheduled message is not a draft");
   assert.equal(autosaveDue(facts({ ...late, attaching: true })), false, "not while files are still coming in");
-  assert.equal(autosaveDue(facts({ ...late, hasContent: false })), false, "an untouched reply or forward is not saved");
+  assert.equal(autosaveDue(facts({ ...late, draftContent: false })), false, "an untouched reply or forward is not saved");
   assert.equal(autosaveDue(facts({ ...late, plainWouldLeak: true })), false, "an encrypted message is not written to the server in the clear");
   for (const why of ["blur", "hidden"]) {
     for (const k of ["saving", "sending", "scheduled", "attaching"]) assert.equal(autosaveDue(facts({ why, [k]: true })), false, `${why} + ${k}`);
-    assert.equal(autosaveDue(facts({ why, hasContent: false })), false, why);
+    assert.equal(autosaveDue(facts({ why, draftContent: false })), false, why);
     assert.equal(autosaveDue(facts({ why, rev: 5, savedRev: 5 })), false, why);
     assert.equal(autosaveDue(facts({ why, plainWouldLeak: true })), false, why);
   }
@@ -129,6 +129,25 @@ const facts = (over = {}) => ({
   }
   assert.deepEqual(saves, [B + 31_000], "one autosave, 30 s after the first change; nothing after it while nothing changes");
   assert.deepEqual(writes, [B + 1_000, B + 20_000, B + 23_000], "snapshots at the first change, then at most every 3 s while it changes");
+}
+
+// 9. W13.5: a message with only recipients (draftContent false) is never saved to Drafts, however long the timer runs, on tick or on leaving the window; its
+// local crash snapshot (hasContent true) is still written. Content that is worth a draft (draftContent true) is saved as before.
+{
+  const only = { draftContent: false, now: 10_000_000, changedAt: 1_000, rev: 3, savedRev: 0 };
+  assert.equal(autosaveDue(facts({ ...only })), false, "recipients only: the 30 s timer does not save");
+  for (const why of ["blur", "hidden"]) assert.equal(autosaveDue(facts({ ...only, why })), false, `recipients only: ${why} does not save`);
+  // the same message in the session of section 8: edits go on for 5 minutes, the timer fires at every tick, nothing is saved
+  const st = { rev: 0, changedAt: 0, lastTryAt: 0 };
+  let saves = 0;
+  const B = 1_000_000;
+  st.rev++;
+  st.changedAt = B;
+  for (let t = 1_000; t <= 300_000; t += 1_000) if (autosaveDue(facts({ now: B + t, rev: st.rev, savedRev: 0, changedAt: st.changedAt, lastTryAt: st.lastTryAt, draftContent: false }))) saves++;
+  assert.equal(saves, 0, "five minutes of a recipients-only message: no autosave");
+  assert.equal(snapshotDue({ now: 100_000, rev: 3, snapRev: -1, lastWriteAt: 0, size: 100, hasContent: true, scheduled: false, encrypted: false }), true, "its local snapshot is still written");
+  // the moment it gets a subject / text / a file (draftContent true) the 30 s timer saves it
+  assert.equal(autosaveDue(facts({ ...only, draftContent: true })), true);
 }
 
 console.log("autosave: ok");

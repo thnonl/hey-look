@@ -110,7 +110,7 @@ export interface CloseFacts {
   phase: Phase;
   /** the person changed something since it was opened or last saved */
   dirty: boolean;
-  /** to / subject / body / pictures / attachments that the person made (Compose's probe) */
+  /** something worth a draft: text, a subject, a picture, a file or a meeting place of the person's (Compose's probe `draftContent`, W13.5; recipients alone are not) */
   hasContent: boolean;
   /** a file or picture is still being read into the message */
   attaching: boolean;
@@ -122,7 +122,7 @@ export type CloseAction = "end" | "park" | "ask" | "ask-scheduled" | "attaching"
 
 /**
  * - counting or sending: out of sight, the message goes on its way (REQ-C8);
- * - nothing changed, or nothing written (typed and deleted again): closes without a question;
+ * - nothing changed, or nothing worth a draft (typed and deleted again, or only recipients, W13.5): closes without a question and without a draft;
  * - files still coming in: stays, the person is told;
  * - changed, with content: Save / Discard / Cancel;
  * - a scheduled message: nothing changed closes (the pause is released, the schedule stays); changed asks "Keep editing / Discard" like the pane does when it
@@ -151,7 +151,7 @@ export interface CloseDeps {
   askFailed(): Promise<"keep" | "discard">;
   /** drop the snapshot (and the draft an autosave made of a new message; an opened draft is put back as it was opened). false: that failed, the window stays */
   discard(): Promise<boolean | void>;
-  /** everything typed was deleted again (W2.3): drop the snapshot and the copy an autosave made of a new message, then the window ends */
+  /** everything typed was deleted again (W2.3), or only recipients were typed (W13.5): drop the snapshot and the copy an autosave made of a new message, then the window ends */
   emptied?(): Promise<void>;
   park(): void;
   end(): void;
@@ -208,10 +208,13 @@ export type FlushWhy = "quit" | "update";
 export interface FlushDeps {
   phase(): Phase;
   dirty(): boolean;
+  /** something worth a draft (see CloseFacts.hasContent) */
   hasContent(): boolean;
   /** the window edits a scheduled message: nothing is saved, its pause is released and the schedule stays (W2.10) */
   scheduled?(): boolean;
   release?(): Promise<void>;
+  /** a changed message with nothing worth a draft: no draft, no question; the snapshot and the copy an autosave made of a new message go (W13.5) */
+  emptied?(): Promise<void>;
   /** save to Drafts without a message of its own */
   save(): Promise<boolean>;
   /** "Your message isn't saved": keep writing, or quit (restart) and discard */
@@ -239,6 +242,7 @@ export async function composeFlush(d: FlushDeps, why: FlushWhy): Promise<boolean
     await d.release?.(); // (changes are not saved: a scheduled message is not a draft; it goes out at its time)
     return true;
   }
+  if (phase === "edit" && d.dirty() && !d.hasContent()) await d.emptied?.();
   if (phase === "edit" && d.dirty() && d.hasContent()) {
     if (await d.save()) return true;
     d.showWindow();

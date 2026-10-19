@@ -417,6 +417,7 @@ export default defineLocale<typeof ns.en>({
   "compose.toast.scheduleFailed": "送信予約に失敗しました：{error}",
   "compose.toast.view": "表示",
   "compose.toast.draftSaved": "下書きを保存しました",
+  "compose.toast.nothingToSave": "保存する内容がまだありません。本文、件名、添付ファイルのいずれかを追加してください。",
   "compose.toast.draftSavedPlain": "下書きを暗号化せずに保存しました（設定 → メールボックス → セキュリティ）",
   "compose.toast.saveFailed": "下書きの保存に失敗しました：{error}",
   "compose.leave.scheduledTitle": "変更を保存せずに閉じますか？",

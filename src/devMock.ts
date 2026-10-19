@@ -1227,6 +1227,10 @@ export function installMock() {
         const w = window as unknown as { __draftSaveCalls?: number; __lastDraft: unknown };
         w.__draftSaveCalls = (w.__draftSaveCalls ?? 0) + 1; // counted, so a check can see that discarding writes none (AC-74)
         if (hashTokens().has("draftfail")) throw "mock: the server refused the draft"; // `#draftfail`: saving a draft fails (update restart asks what to do)
+        // like the backend (lib.rs ensure_draft_has_content, W13.5): a draft with nothing in it is refused (the page checks first, so this is never reached by a check that passes)
+        const empty = a.draft as { subject?: string; text?: string; attachments?: unknown[]; inline?: unknown[]; meeting?: { location?: string | null }; meetingForm?: string };
+        if (hashTokens().has("draftempty") || (!empty.subject?.trim() && !empty.text?.trim() && !empty.attachments?.length && !empty.inline?.length && !empty.meeting?.location?.trim() && !empty.meetingForm))
+          throw "DRAFT_EMPTY: There is nothing to save yet."; // (`#draftempty`: refused whatever it holds)
         w.__lastDraft = a.draft;
         // like the backend: the draft is a message of the Drafts folder, in the thread it gets from its Message-ID (the toast "Draft saved" opens it with Edit)
         const dr = a.draft as { to: string[]; cc: string[]; bcc?: string[]; inReplyTo?: string | null; references?: string[]; subject: string; html: string; text: string; accountId: string; importance?: string; meetingForm?: string };
@@ -1402,7 +1406,13 @@ export function installMock() {
       }
       case "quit_dialog": case "quit_page_alive": case "quit_cancelled": case "sends_flushed": case "show_window": case "frontend_ready": case "page_state": return null;
       // secondary windows (src/popout): the dev preview of a pop-out is ?w=compose or ?w=reader in a plain browser tab
-      case "popout_park": case "popout_destroy": case "popout_set_key": ((window as unknown as { __popoutCalls?: string[] }).__popoutCalls ??= []).push(cmd); return true;
+      case "popout_destroy": {
+        const w = window as unknown as { __popoutDestroyed?: number; __popoutCalls?: string[] };
+        w.__popoutDestroyed = (w.__popoutDestroyed ?? 0) + 1; // counted, so a check can see that a window ended
+        (w.__popoutCalls ??= []).push(cmd);
+        return true;
+      }
+      case "popout_park": case "popout_set_key": ((window as unknown as { __popoutCalls?: string[] }).__popoutCalls ??= []).push(cmd); return true;
       case "popout_note": case "window_theme_refresh": return null;
       case "popout_init": {
         const q = new URLSearchParams(window.location.search);
