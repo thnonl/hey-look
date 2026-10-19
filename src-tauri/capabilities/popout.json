@@ -29,6 +29,7 @@
     "allow-save-draft",
     "allow-draft-recipients",
     "allow-draft-editor-parts",
+    "allow-draft-upload",
     "allow-discard-draft",
     "allow-discard-draft-changes",
     "allow-send-message",

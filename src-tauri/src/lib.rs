@@ -7,6 +7,7 @@ mod db;
 mod discover;
 mod draftmail;
 mod draftopen;
+mod draftupload;
 mod flagguard;
 mod headerfold;
 mod ical;
@@ -4046,8 +4047,17 @@ fn ensure_draft_has_content(d: &smtp::Draft) -> R<()> {
     Err("DRAFT_EMPTY: There is nothing to save yet.".into())
 }
 
+/// A big picture or attachment of a draft, sent ahead of `save_draft` (see draftupload.rs): the page sends the data of each part in a request of its own, so that no request is
+/// big enough to hold the app's main thread (D-045).
 #[tauri::command]
-async fn save_draft(state: tauri::State<'_, AppState>, draft: smtp::Draft, replaces: Option<String>) -> R<SavedDraft> {
+fn draft_upload(id: String, data_base64: String) {
+    draftupload::put(id, data_base64);
+}
+
+#[tauri::command]
+async fn save_draft(state: tauri::State<'_, AppState>, draft: smtp::Draft, replaces: Option<String>, uploads: Option<Vec<draftupload::UploadRef>>) -> R<SavedDraft> {
+    let mut draft = draft;
+    draftupload::resolve(&mut draft, uploads)?;
     ensure_draft_has_content(&draft)?;
     ensure_draft_size(&draft)?; // (before the keyring is read and a connection is made)
     let db = state.db.clone();
@@ -5622,6 +5632,7 @@ pub fn run() {
             save_draft,
             draft_recipients,
             draft_editor_parts,
+            draft_upload,
             discard_draft,
             discard_draft_changes,
             recovery_save,

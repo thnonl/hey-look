@@ -266,6 +266,8 @@ const mockDraftRows: Record<string, ReturnType<typeof t>> = {};
 /** The branded signature of the mock (id s4): a table and a highlighted note, so it is easy to find (and count) in a saved draft. */
 const SIG_S4_HTML = '<table style="border-collapse:collapse"><tr><td style="background:#0f6cbd;color:#ffffff;padding:6px 10px;font-weight:600">Hey Look!</td><td style="padding:6px 10px;color:#000000">Nam Hoang<br><span style="color:#444444">Product, <a href="https://example.com" style="color:#0b57d0">example.com</a></span></td></tr></table><p style="background:#fff3bf;color:#5c4400;padding:4px 8px;margin:6px 0 0">A highlighted note in the signature</p>';
 let mockDraftSeq = 0;
+/** The data of big pictures and files the page sent ahead of `save_draft` (`draft_upload`; draftupload.rs), until the save asks for it. */
+const mockUploads = new Map<string, string>();
 /** Crash recovery in the page (recover.rs): kept in localStorage, so reloading the page without discarding is the "crash" of a check. */
 const RECOVERY_KEY = "hl-mock-recovery";
 interface MockSnap { id: string; accountId: string; savedAt: number; subject: string; preview: string; payload: string; files: unknown[] }
@@ -1237,7 +1239,21 @@ export function installMock() {
         if (x) { x.displayName = a.displayName as string; (x as { color: string | null }).color = (a.color as string | null) ?? null; if (rt !== undefined) (x as { replyTo?: string }).replyTo = rt; }
         return null;
       }
+      // like the backend: the data of a big picture or file arrives in a request of its own, `save_draft` names it in `uploads` (draftUpload.ts)
+      case "draft_upload": mockUploads.set(String(a.id), String(a.dataBase64)); return null;
       case "save_draft": {
+        const ups = (a.uploads ?? []) as { inline: boolean; index: number; id: string }[];
+        if (ups.length) {
+          const d = a.draft as { inline?: { dataBase64: string }[]; attachments?: { dataBase64: string }[] };
+          d.inline = d.inline?.map((p) => ({ ...p }));
+          d.attachments = d.attachments?.map((p) => ({ ...p }));
+          for (const u of ups) {
+            const slot = (u.inline ? d.inline : d.attachments)?.[u.index];
+            if (!slot || !mockUploads.has(u.id)) throw "draft upload missing: a picture or file of this draft did not arrive";
+            slot.dataBase64 = mockUploads.get(u.id)!;
+            mockUploads.delete(u.id);
+          }
+        }
         const w = window as unknown as { __draftSaveCalls?: number; __lastDraft: unknown };
         w.__draftSaveCalls = (w.__draftSaveCalls ?? 0) + 1; // counted, so a check can see that discarding writes none (AC-74)
         if (hashTokens().has("draftfail")) throw "mock: the server refused the draft"; // `#draftfail`: saving a draft fails (update restart asks what to do)

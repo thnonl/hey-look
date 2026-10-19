@@ -1,4 +1,5 @@
 import { Channel, invoke } from "@tauri-apps/api/core";
+import { slimDraft } from "./draftUpload";
 import { t } from "./i18n";
 import type { RecoveredDraft, RecoveryInfo, RecoveryLoaded, SnapshotOut } from "./recovery";
 import type { Importance } from "./importance";
@@ -627,8 +628,18 @@ export const api = {
    * `replaces`: the draft this one takes the place of, a reference: `m:<message id>` of a draft that was opened, or the `draftRef` of an
    * earlier save. Only that message is removed (a plain conversation id removes every draft of the conversation).
    */
-  saveDraft: (draft: Draft, replaces?: string | null) =>
-    invoke<DraftSaveResult>("save_draft", { draft, replaces: replaces ?? null }),
+  saveDraft: async (draft: Draft, replaces?: string | null) => {
+    // the big pictures and files go ahead, one request each (draftUpload.ts): one request with a 19 MB draft holds the app's main thread for 0.3 to 0.5 s (D-045)
+    const { draft: slim, uploads } = await slimDraft(draft, (id, dataBase64) => invoke<void>("draft_upload", { id, dataBase64 }));
+    if (!uploads.length) return invoke<DraftSaveResult>("save_draft", { draft, replaces: replaces ?? null, uploads: null });
+    try {
+      return await invoke<DraftSaveResult>("save_draft", { draft: slim, replaces: replaces ?? null, uploads });
+    } catch (e) {
+      // a part that was sent ahead is not there any more (the backend let go of it): the whole draft in one request, as before
+      if (!/draft upload missing/.test(String(e))) throw e;
+      return invoke<DraftSaveResult>("save_draft", { draft, replaces: replaces ?? null, uploads: null });
+    }
+  },
   /** Remove the draft a reference names (Discard on a new message whose save made a draft). */
   discardDraft: (reference: string) => invoke<void>("discard_draft", { reference }),
   /**
