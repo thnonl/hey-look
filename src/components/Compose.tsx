@@ -2333,7 +2333,11 @@ function ComposeBody({ init }: { init: ComposeInit }) {
         <button className="rb" data-fit="fixed" title={compact ? t("compose.bar.discard") : undefined} aria-disabled={discarding || undefined} onClick={() => void discard()}><Trash2 size={15} /><span>{t("compose.bar.discard")}</span></button>
         <button className="rb" data-fit="fixed" title={compact ? t("compose.bar.attach") : undefined} onClick={() => fileRef.current?.click()}><Paperclip size={15} /><span>{t("compose.bar.attach")}</span></button>
         {!isMoved("picture") && barItem("picture")}
-        <input ref={fileRef} type="file" multiple hidden aria-hidden="true" tabIndex={-1} onChange={(e) => (void addFiles(e.target.files), (e.target.value = ""))} />
+        <input ref={fileRef} type="file" multiple hidden aria-hidden="true" tabIndex={-1} onChange={(e) => {
+          // the box is emptied when the files have been read, not before: a file handed over by a tool (DevTools DOM.setFileInputFiles, UI automation) is no longer readable once the selection is cleared (NotReadableError: QA could not attach a file)
+          const box = e.target;
+          void addFiles(box.files).finally(() => (box.value = ""));
+        }} />
         <input
           ref={picRef}
           type="file"
@@ -2342,7 +2346,10 @@ function ComposeBody({ init }: { init: ComposeInit }) {
           hidden
           aria-hidden="true"
           tabIndex={-1}
-          onChange={(e) => (e.target.files && void insertPictures(Array.from(e.target.files)), (e.target.value = ""))}
+          onChange={(e) => {
+            const box = e.target;
+            void Promise.resolve(box.files && insertPictures(Array.from(box.files))).finally(() => (box.value = ""));
+          }}
         />
         {barOrder.filter((id) => id !== "picture" && !isMoved(id)).map((id) => barItem(id))}
         {movedIds.length > 0 && (
