@@ -731,7 +731,7 @@ assert.equal(draftKey("t9"), "draft:t9");
   for (const a of ["openCompose:", "sync:", "refresh:", "setDialog:", "showToast:"]) assert.ok(view.includes(a), a);
   assert.ok(view.indexOf("setReady(true)") > view.indexOf("openCompose:"), "Compose is drawn after the actions are replaced");
   // Compose.tsx: the seam is the only difference, and the main window (no seam) behaves as before
-  assert.equal(compose.match(/composeSeam\(\)/g).length, 16, "the places where Compose asks the seam (two of them: a message scheduled in a window is announced by the main window, which owns the outbox; two for the draft the pane shows, W2.11; one tells a window that the scheduled message it holds paused is handled, W2.10; three for the lock of a send, W13.1)");
+  assert.equal(compose.match(/composeSeam\(\)/g).length, 15, "the places where Compose asks the seam (two of them: a message scheduled in a window is announced by the main window, which owns the outbox; two for the draft the pane shows, W2.11; one tells a window that the scheduled message it holds paused is handled, W2.10; three for the lock of a send, W13.1)");
   assert.ok(compose.includes("composeSeam()?.scheduled(") && view.includes("scheduled: (outboxId, sendAt) => notifyMain(\"scheduled\""), "Scheduled for ... with Undo and View comes from the main window");
   assert.ok(compose.includes("openCompose(null, { sending: wait })") && compose.includes("openCompose(null, { sending: 0 })"), "a send hands the message over, it does not end it");
   assert.ok(compose.includes('else showToast(() => t("compose.toast.sending"), undoSend, "info", undefined, wait * 1000)'), "the main window has the Undo toast, as long as the message is held (W13.1)");
@@ -749,7 +749,7 @@ assert.equal(draftKey("t9"), "draft:t9");
   assert.ok(view.includes("setStickyToast(SEND_TOAST") && view.includes('readAs: () => tNow("compose.toast.sending")') && view.includes('compose.popout.sending'), "one toast, in place, read once");
   assert.ok(read("src/store.ts").includes("const ttl = ttlMs ?? (undo ?"), "showToast takes the time a toast stays");
   assert.ok(compose.includes("if (composeSeam() || busy) return;"), "no pop-out from a window (a scheduled message pops out like any other, W2.10)");
-  assert.ok(compose.includes('openPopout("compose", init.outboxId ? outboxKey(init.outboxId) : null, moved)') && compose.includes("if (init.outboxId) savedRef.current = true;"), "a scheduled message moves to a window keyed outbox:<id> and the pane does not release its pause as it closes");
+  assert.ok(compose.includes('openPopout("compose", key, moved)') && compose.includes('const key = init.outboxId ? outboxKey(init.outboxId) :') && compose.includes("if (init.outboxId) savedRef.current = true;"), "a scheduled message moves to a window keyed outbox:<id> and the pane does not release its pause as it closes");
   assert.ok(!compose.includes("!init.outboxId && !composeSeam() && (") && !compose.includes('"o" && !init.outboxId'), "the Pop out button and Ctrl+Shift+O are there for a scheduled message too");
   assert.ok(compose.includes('e.key.toLowerCase() === "o"') && compose.includes("compose.popout.popOutTip"), "Ctrl+Shift+O and the button");
   assert.ok(compose.includes("init.recoveryId || init.carried"), "a moved message counts as changed");
@@ -757,7 +757,12 @@ assert.equal(draftKey("t9"), "draft:t9");
   // window that an opened draft was moved into after a save starts with the saved copy, so Discard there can put the opened version back
   assert.ok(compose.includes("carried: touched.current || !!savedDraftRef.current"), "moved as carried only when something was changed or saved");
   assert.ok(compose.includes('useRef<string | null>(openedDraft && init.replaces && !init.replaces.startsWith("m:") ? init.replaces : null)'), "the window starts with the draft the pane saved");
-  { const lib = read("src-tauri/src/lib.rs"); assert.ok(lib.includes("async fn discard_draft_changes(app: tauri::AppHandle,") && lib.includes("sync_drafts_after_restore(&app, &db, &acc.id)") && lib.includes("let _ = app.emit(\"mail-synced\", ());"), "after the opened version is put back the backend reads Drafts again and every window re-reads"); }
+    // a pane that is moved to a window gives it the key of the draft (the one a save of the pane made, else the one it was opened from): the draft is open in one editor only
+  // from the moment the window exists (1.0.7 WP2a retest BUG-2); and Save draft builds from the pane as it is NOW (retest BUG-1, the signature that arrives after the first draw)
+  assert.ok(compose.includes("const key = init.outboxId ? outboxKey(init.outboxId) : savedTid.current ? draftKey(savedTid.current) : init.draftKey ?? null;") && compose.includes('openPopout("compose", key, moved)'), "Pop out passes the draft's key");
+  assert.ok(compose.includes("draftKey: key, // (a Pop out of this pane gives the window this key"), "openDraftThread hands the key to the message");
+  assert.ok(compose.includes("const d = buildDraftRef.current();") && compose.includes("buildDraftRef.current = buildDraft;"), "Save draft builds from the current pane");
+{ const lib = read("src-tauri/src/lib.rs"); assert.ok(lib.includes("async fn discard_draft_changes(app: tauri::AppHandle,") && lib.includes("sync_drafts_after_restore(&app, &db, &acc.id)") && lib.includes("let _ = app.emit(\"mail-synced\", ());"), "after the opened version is put back the backend reads Drafts again and every window re-reads"); }
   assert.ok(compose.includes("poppingRef.current = true") && compose.includes("sending: sendingRef.current || poppingRef.current"), "moving a message to a window must not make the pane autosave it (the window takes the focus)");
   // every way of starting a message goes through startCompose; none opens the pane by itself any more
   for (const [file, never] of [["src/components/Ribbon.tsx", "openCompose("], ["src/components/CommandBar.tsx", "openCompose("], ["src/components/Attachments.tsx", "openCompose("], ["src/components/ReadingPane.tsx", ".openCompose("], ["src/actions.ts", "st.openCompose("]]) {

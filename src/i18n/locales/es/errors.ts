@@ -11,6 +11,7 @@ export default defineLocale<typeof ns.en>({
   "errors.signIn": "No se pudo iniciar sesión. Comprueba la contraseña (Gmail, iCloud y Yahoo requieren una contraseña de aplicación) o vuelve a iniciar sesión.",
   "errors.noCredentials": "Faltan las credenciales guardadas de esta cuenta. Quita la cuenta y vuelve a añadirla.",
   "errors.timeout": "El servidor de correo no respondió. Comprueba tu conexión e inténtalo de nuevo.",
+  "errors.sendRefused": "El servidor de correo no aceptó el mensaje. Inténtalo de nuevo en un momento; si sigue fallando, revisa el servidor saliente en Configuración > Buzones > Servidor. (Detalles: {detail})",
   "errors.unreachable": "No se puede conectar con el servidor de correo. Comprueba el nombre del servidor y tu conexión.",
   "errors.certificate": "Se rechazó el certificado de seguridad del servidor. Si el servidor usa un certificado autofirmado o una autoridad de certificación privada, quita la cuenta y vuelve a añadirla con la opción “Confiar en el certificado de este servidor” activada.",
   // ---- toasts of store.ts

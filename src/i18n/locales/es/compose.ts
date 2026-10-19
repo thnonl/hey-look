@@ -441,6 +441,7 @@ export default defineLocale<typeof ns.en>({
   "compose.toast.nothingToSave": "Aún no hay nada que guardar. Añade primero texto, un asunto o un archivo.",
   "compose.toast.draftSavedPlain": "Borrador guardado sin cifrar (Configuración → Buzones → Seguridad)",
   "compose.toast.saveFailed": "Error al guardar el borrador: {error}",
+  "compose.toast.draftOriginalGone": "La versión original de este borrador ya no está disponible, así que tus cambios se quedan guardados como borrador.",
   "compose.leave.scheduledTitle": "¿Cerrar sin guardar los cambios?",
   "compose.leave.attaching": "Todavía se están añadiendo adjuntos. Inténtalo de nuevo en un momento.",
   "compose.leave.draftNotFound": "Aún no se pudo abrir el borrador. Ábrelo desde Borradores.",

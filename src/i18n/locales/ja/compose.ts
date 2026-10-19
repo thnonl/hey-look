@@ -430,6 +430,7 @@ export default defineLocale<typeof ns.en>({
   "compose.toast.nothingToSave": "保存する内容がまだありません。本文、件名、添付ファイルのいずれかを追加してください。",
   "compose.toast.draftSavedPlain": "下書きを暗号化せずに保存しました（設定 → メールボックス → セキュリティ）",
   "compose.toast.saveFailed": "下書きの保存に失敗しました：{error}",
+  "compose.toast.draftOriginalGone": "開いたときの状態が見つかりません。編集内容は下書きとして保存されたままです。",
   "compose.leave.scheduledTitle": "変更を保存せずに閉じますか？",
   "compose.leave.attaching": "添付ファイルを追加中です。しばらくしてからもう一度お試しください。",
   "compose.leave.draftNotFound": "下書きをまだ開けません。「下書き」から開いてください。",

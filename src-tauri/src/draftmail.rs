@@ -287,6 +287,19 @@ pub fn delete_by_message_id<T: std::io::Read + std::io::Write>(s: &mut imap::Ses
     Ok(uids.len())
 }
 
+/// Is a message with this Message-ID in the folder? (a SEARCH proposes, the headers of every candidate decide: `verified_uids`). An error is an error: the caller decides.
+pub fn message_id_present<T: std::io::Read + std::io::Write>(s: &mut imap::Session<T>, folder: &str, mid: &str) -> crate::db::R<bool> {
+    if !plain_mid(mid) {
+        return Ok(false);
+    }
+    s.select(folder).map_err(crate::db::err)?;
+    let found: Vec<u32> = s.uid_search(format!("HEADER Message-ID \"{mid}\"")).map_err(crate::db::err)?.into_iter().collect();
+    if found.is_empty() || found.len() > MAX_CANDIDATES {
+        return Ok(false);
+    }
+    Ok(!verified_uids(s, &found, mid)?.is_empty())
+}
+
 /// The drafts of the Drafts folder that were made from this crash-recovery snapshot: `(uid, Message-ID)`. The server is asked with a HEADER search
 /// on the start of the Message-ID (recover.rs) and its answer is CHECKED against the headers it gives back: a server whose SEARCH ignores
 /// HEADER (or matches loosely) answers with every message, and none of those may count as "the draft of this snapshot".
@@ -433,6 +446,43 @@ pub fn read_opened<T: std::io::Read + std::io::Write>(db: &crate::Db, s: &mut im
     crate::mail::fetch_raw(s, &folder, uid)
 }
 
+// The opened version is also kept IN MEMORY from the moment the draft is opened (`remember_opened`, called by `draft_recipients`, which has just read the bytes), not only read
+// again when the first save is about to replace it: by then the local row of the draft may be gone (a sync removed it, another window's save replaced it), and a draft whose
+// opened version cannot be found cannot be put back by Discard (1.0.7 WP2a retest BUG-2: "Query returned no rows", then two edited drafts). The memory is bounded in count
+// and in bytes (the oldest go first) and an entry goes when the first save has kept the bytes in the table above.
+const OPENED_MAX_ENTRIES: usize = 24;
+const OPENED_MAX_BYTES: usize = 48 * 1024 * 1024;
+
+fn opened_memory() -> std::sync::MutexGuard<'static, Vec<(String, Vec<u8>)>> {
+    static M: std::sync::Mutex<Vec<(String, Vec<u8>)>> = std::sync::Mutex::new(Vec::new());
+    M.lock().unwrap_or_else(|p| p.into_inner())
+}
+
+/// Remember the bytes of the draft `local_id` as it was opened (a second call for the same draft replaces the first).
+pub fn remember_opened(local_id: &str, raw: &[u8]) {
+    let mut m = opened_memory();
+    m.retain(|(id, _)| id != local_id);
+    m.push((local_id.to_string(), raw.to_vec()));
+    while m.len() > OPENED_MAX_ENTRIES || (m.len() > 1 && m.iter().map(|(_, b)| b.len()).sum::<usize>() > OPENED_MAX_BYTES) {
+        m.remove(0);
+    }
+}
+
+/// The bytes remembered for the draft `local_id`, if any.
+pub fn opened_from_memory(local_id: &str) -> Option<Vec<u8>> {
+    opened_memory().iter().find(|(id, _)| id == local_id).map(|(_, b)| b.clone())
+}
+
+/// The draft `local_id` was saved (its opened version is in the table now) or the message is over: the memory lets go of it.
+pub fn forget_opened_memory(local_id: &str) {
+    opened_memory().retain(|(id, _)| id != local_id);
+}
+
+/// Does the local store still have the draft `local_id` in Drafts?
+pub fn local_draft_exists(db: &crate::Db, account_id: &str, local_id: &str) -> bool {
+    crate::lock(db).query_row("SELECT 1 FROM messages WHERE id=?1 AND account_id=?2 AND folder='drafts'", rusqlite::params![local_id, account_id], |_| Ok(())).is_ok()
+}
+
 /// What a save does with the opened version (see above), after the new draft `new_ref` was appended: the first save of an opened draft
 /// (`opened` holds its bytes) keeps them under `new_ref`; a later save (it replaced `old_ref`, a `mid:` reference) takes the entry along.
 pub fn note_save(c: &rusqlite::Connection, account_id: &str, opened: Option<&[u8]>, replaced: Option<&Target>, new_ref: Option<&str>) {
@@ -451,15 +501,31 @@ pub fn note_save(c: &rusqlite::Connection, account_id: &str, opened: Option<&[u8
 /// "Discard changes" on a session: the opened version is put back into Drafts (flags \Draft \Seen) and, only after that worked, the autosaved
 /// copy named by `draft_ref` is removed, so a failure on the way never leaves fewer drafts than before. An APPEND that fails leaves
 /// everything as it was (the error goes to the caller); a copy that cannot be removed is logged and left (two drafts, nothing lost).
-pub fn restore_on_session<T: std::io::Read + std::io::Write>(db: &crate::Db, acc: &crate::db::Account, s: &mut imap::Session<T>, draft_ref: &str) -> crate::db::R<()> {
-    let raw = original(&crate::lock(db), draft_ref).ok_or("The opened version of this draft is no longer available.")?;
+pub fn restore_on_session<T: std::io::Read + std::io::Write>(db: &crate::Db, acc: &crate::db::Account, s: &mut imap::Session<T>, draft_ref: &str) -> crate::db::R<bool> {
+    // no opened version kept (the draft was opened before it could be read, the table was cleaned): nothing is written, the saved copy STAYS as the one draft, and the
+    // caller says so (a draft is never saved a second time from here: that made two edited drafts, retest BUG-2)
+    let Some(raw) = original(&crate::lock(db), draft_ref) else {
+        crate::startup::line("draft", &format!("account {}: Discard changes found no opened version to put back, the saved copy stays as the draft", acc.id));
+        return Ok(false);
+    };
     let folder = crate::folder_for(db, acc, "drafts")?;
-    crate::mail::append(s, &folder, &raw, true)?;
+    // Idempotent: when a copy with the Message-ID of the opened version is in Drafts (the save that replaced it did not remove it, or an earlier Discard put it back), it IS the
+    // opened version: nothing is appended, so Drafts never holds the original twice (Mac QA D-016/D-020: UID 5 and a restored UID 13). A SEARCH that fails appends as before.
+    let there = message_id_of(&raw).is_some_and(|mid| match message_id_present(s, &folder, &mid) {
+        Ok(b) => b,
+        Err(e) => {
+            crate::startup::line("draft", &format!("account {}: could not look for the opened version in Drafts, it is put back: {e}", acc.id));
+            false
+        }
+    });
+    if !there {
+        crate::mail::append(s, &folder, &raw, true)?;
+    }
     if let Err(e) = drop_on_session(db, acc, s, &Target::parse(draft_ref)) {
         crate::startup::line("draft", &format!("account {}: the draft was put back, but the saved copy of the changes could not be removed: {e}", acc.id));
     }
     forget_original(&crate::lock(db), draft_ref);
-    Ok(())
+    Ok(true)
 }
 
 #[cfg(test)]
@@ -801,11 +867,16 @@ mod tests {
 
     /// A server whose Drafts holds the opened draft (uid 10) and the local store that knows it, as after a sync.
     fn opened_draft() -> (Fake, crate::Db, crate::db::Account, Vec<u8>) {
+        opened_draft_at("draft-original", 10)
+    }
+
+    /// The same at another UID: the bytes remembered at open time are kept by the draft's local id for the whole process, so tests that remember one use ids of their own.
+    fn opened_draft_at(tag: &str, uid: u32) -> (Fake, crate::Db, crate::db::Account, Vec<u8>) {
         let acc = crate::smtp::tests::account();
         let original = crate::smtp::build_draft(&acc, &crate::smtp::tests::draft("<p>Original text</p>", vec![], vec![])).unwrap().formatted();
-        let (db, acc) = setup("draft-original", &[(10, "<orig@x>", "T")]);
+        let (db, acc) = setup(tag, &[(uid, "<orig@x>", "T")]);
         let fake = Fake::start(&[("INBOX", &[]), ("Drafts", &[])]);
-        fake.put_message("Drafts", 10, &original);
+        fake.put_message("Drafts", uid, &original);
         (fake, db, acc, original)
     }
 
@@ -837,7 +908,7 @@ mod tests {
             assert!(original_of(&db, r1.as_deref().unwrap()).is_none());
             // Discard changes
             let mut s = fake.connect();
-            restore_on_session(&db, &acc, &mut s, r2.as_deref().unwrap()).unwrap();
+            assert_eq!(restore_on_session(&db, &acc, &mut s, r2.as_deref().unwrap()), Ok(true));
             let _ = s.logout();
             let st = fake.state.lock().unwrap();
             let left: Vec<&Vec<u8>> = st.folders["Drafts"].iter().filter_map(|u| st.messages.get(&("Drafts".to_string(), *u))).collect();
@@ -862,7 +933,7 @@ mod tests {
             let before = fake.commands().len();
             let mut s = fake.connect();
             // no save happened: there is no version kept and nothing to put back
-            assert!(restore_on_session(&db, &acc, &mut s, "mid:a1|<never-saved@x>").is_err());
+            assert_eq!(restore_on_session(&db, &acc, &mut s, "mid:a1|<never-saved@x>"), Ok(false));
             let _ = s.logout();
             let sent = &fake.commands()[before..];
             assert!(!sent.iter().any(|c| { let u = c.to_uppercase(); u.starts_with("APPEND") || u.contains("STORE") || u.contains("EXPUNGE") }), "{sent:?}");
@@ -885,6 +956,147 @@ mod tests {
             let removed_after_failure = fake.commands().iter().rev().take_while(|c| !c.starts_with("APPEND")).any(|c| c.to_uppercase().contains("STORE"));
             assert!(!removed_after_failure, "{:?}", fake.commands());
         });
+    }
+
+    /// 1.0.7 WP2a retest BUG-2, the case that was injected: the opened draft's local row is gone when the first save runs (a sync removed it, another window's save
+    /// replaced it). The bytes remembered at open time still keep the opened version, the opened draft is removed on the server by its own Message-ID, and Discard
+    /// puts it back: one draft, the original.
+    #[test]
+    fn the_opened_version_survives_a_missing_local_row() {
+        crate::test_guard::within(60, || {
+            let (fake, db, acc, original) = opened_draft_at("draft-row-gone", 21);
+            remember_opened("a1:drafts:21", &original); // (what `draft_recipients` does when the draft is opened)
+            crate::lock(&db).execute("DELETE FROM messages WHERE id='a1:drafts:21'", []).unwrap();
+            assert!(!local_draft_exists(&db, "a1", "a1:drafts:21"));
+            let r1 = save(&fake, &db, &acc, "Original text plus edits", Some("m:a1:drafts:21".into())).unwrap();
+            assert_eq!(fake.uids("Drafts").map(|u| u.len()), Some(1), "the opened draft was removed by its Message-ID: one draft, the edited one");
+            assert_eq!(drafts_with(&fake, "plus edits"), 1);
+            assert_eq!(original_of(&db, &r1), Some(original.clone()), "the opened version is kept under the saved draft");
+            assert!(opened_from_memory("a1:drafts:21").is_none(), "the memory let go of it");
+            let mut s = fake.connect();
+            assert_eq!(restore_on_session(&db, &acc, &mut s, &r1), Ok(true));
+            let _ = s.logout();
+            let st = fake.state.lock().unwrap();
+            let left: Vec<&Vec<u8>> = st.folders["Drafts"].iter().filter_map(|u| st.messages.get(&("Drafts".to_string(), *u))).collect();
+            assert_eq!(left.len(), 1, "one draft");
+            assert_eq!(left[0], &original, "the opened version, byte for byte");
+        });
+    }
+
+    /// No opened version anywhere (nothing remembered, the row gone, nothing kept): Discard changes writes NOTHING and leaves the saved copy as the draft; it never
+    /// appends the edited text again (that is how two edited drafts were left).
+    #[test]
+    fn discard_changes_without_a_kept_version_leaves_one_draft_and_writes_nothing() {
+        crate::test_guard::within(60, || {
+            let (fake, db, acc, _) = opened_draft();
+            let r1 = save(&fake, &db, &acc, "Original text plus edits", Some("m:a1:drafts:10".into())).unwrap();
+            crate::lock(&db).execute("DELETE FROM draft_original", []).unwrap(); // the kept version is gone
+            let before = fake.commands().len();
+            let mut s = fake.connect();
+            assert_eq!(restore_on_session(&db, &acc, &mut s, &r1), Ok(false));
+            let _ = s.logout();
+            let sent = &fake.commands()[before..];
+            assert!(!sent.iter().any(|c| { let u = c.to_uppercase(); u.starts_with("APPEND") || u.contains("STORE") || u.contains("EXPUNGE") }), "{sent:?}");
+            assert_eq!(fake.uids("Drafts").map(|u| u.len()), Some(1));
+            assert_eq!(drafts_with(&fake, "plus edits"), 1, "the saved copy is the one draft");
+        });
+    }
+
+    /// The stress loop of the report: 30 times edit, autosave, Discard (the pop-out's way: the first save replaces `m:<id>`, a later one the `mid:` reference), with the
+    /// local row of the opened draft gone in every third round. Drafts holds exactly one draft, the original, after every round.
+    #[test]
+    fn thirty_rounds_of_edit_autosave_discard_never_leave_a_second_draft() {
+        crate::test_guard::within(120, || {
+            let (fake, db, acc, original) = opened_draft_at("draft-stress", 31);
+            let mut id = "a1:drafts:31".to_string();
+            for round in 0..30 {
+                remember_opened(&id, &original);
+                if round % 3 == 2 {
+                    crate::lock(&db).execute("DELETE FROM messages WHERE id=?1", [&id]).unwrap();
+                }
+                let r1 = save(&fake, &db, &acc, &format!("Original text plus edits {round}"), Some(format!("m:{id}"))).unwrap();
+                let r2 = save(&fake, &db, &acc, &format!("Original text plus more edits {round}"), Some(r1)).unwrap();
+                let mut s = fake.connect();
+                assert_eq!(restore_on_session(&db, &acc, &mut s, &r2), Ok(true), "round {round}");
+                let _ = s.logout();
+                assert_eq!(fake.uids("Drafts").map(|u| u.len()), Some(1), "round {round}: one draft");
+                assert_eq!(drafts_with(&fake, "edits"), 0, "round {round}: no edited copy is left");
+                // the next round opens the draft that was put back (a sync gives it a local row)
+                let uid = fake.uids("Drafts").unwrap()[0];
+                id = format!("a1:drafts:{uid}");
+                crate::lock(&db)
+                    .execute(
+                        "INSERT OR REPLACE INTO messages(id,account_id,folder,uid,message_id,thread_id,subject,from_name,from_email,to_addrs,cc_addrs,date,snippet) VALUES(?1,'a1','drafts',?2,?3,'t10','T','n','me@example.com','','',1,'')",
+                        rusqlite::params![id, uid, format!("<back-{round}@x>")],
+                    )
+                    .unwrap();
+            }
+        });
+    }
+
+    /// Mac QA D-016/D-020: the save that replaced the opened draft did not remove it (here: it is still on the server), then Discard changes. The restore must not append a
+    /// second copy: the original is there already, the edited copy goes, one D1 with the original text.
+    #[test]
+    fn discard_changes_does_not_append_the_original_a_second_time() {
+        crate::test_guard::within(60, || {
+            let (fake, db, acc, original) = opened_draft_at("draft-idempotent", 41);
+            let r1 = save(&fake, &db, &acc, "Original text plus edits", Some("m:a1:drafts:41".into())).unwrap();
+            fake.put_message("Drafts", 77, &original); // the opened version is on the server again (the replace missed it)
+            assert_eq!(fake.uids("Drafts").map(|u| u.len()), Some(2));
+            let appends = fake.commands().iter().filter(|c| c.starts_with("APPEND")).count();
+            let mut s = fake.connect();
+            assert_eq!(restore_on_session(&db, &acc, &mut s, &r1), Ok(true));
+            let _ = s.logout();
+            assert_eq!(fake.commands().iter().filter(|c| c.starts_with("APPEND")).count(), appends, "nothing was appended");
+            assert_eq!(fake.uids("Drafts"), Some(vec![77]), "one draft, the original");
+            assert_eq!(drafts_with(&fake, "plus edits"), 0);
+            // twice in a row: edit, autosave, Discard changes again on the draft that is there now
+            remember_opened("a1:drafts:77", &original);
+            crate::lock(&db).execute("INSERT OR REPLACE INTO messages(id,account_id,folder,uid,message_id,thread_id,subject,from_name,from_email,to_addrs,cc_addrs,date,snippet) VALUES('a1:drafts:77','a1','drafts',77,'<x@y>','t','T','n','me@example.com','','',1,'')", []).unwrap();
+            let r2 = save(&fake, &db, &acc, "Original text plus more edits", Some("m:a1:drafts:77".into())).unwrap();
+            let mut s = fake.connect();
+            assert_eq!(restore_on_session(&db, &acc, &mut s, &r2), Ok(true));
+            let _ = s.logout();
+            let st = fake.state.lock().unwrap();
+            let left: Vec<&Vec<u8>> = st.folders["Drafts"].iter().filter_map(|u| st.messages.get(&("Drafts".to_string(), *u))).collect();
+            assert_eq!(left.len(), 1, "exactly one D1 after the second round");
+            assert_eq!(left[0], &original);
+        });
+    }
+
+    /// The local row of the opened draft names a UID that is not on the server (a stale UID, a changed UIDVALIDITY) while the message is there under another one: the UID
+    /// removal misses, the Message-ID sweep of the first save finds it. One draft (the edited one) is left, never the original next to it.
+    #[test]
+    fn the_first_save_removes_the_opened_draft_by_message_id_when_its_uid_misses() {
+        crate::test_guard::within(60, || {
+            let (fake, db, acc, original) = opened_draft_at("draft-stale-uid", 51);
+            // the server has the message under uid 88, the local row still says 51
+            {
+                let mut st = fake.state.lock().unwrap();
+                st.messages.remove(&("Drafts".to_string(), 51));
+                st.folders.get_mut("Drafts").unwrap().retain(|u| *u != 51);
+            }
+            fake.put_message("Drafts", 88, &original);
+            remember_opened("a1:drafts:51", &original);
+            let r1 = save(&fake, &db, &acc, "Original text plus edits", Some("m:a1:drafts:51".into())).unwrap();
+            assert_eq!(fake.uids("Drafts").map(|u| u.len()), Some(1), "one draft after the save: {:?}", fake.uids("Drafts"));
+            assert_eq!(drafts_with(&fake, "plus edits"), 1);
+            assert!(original_of(&db, &r1).is_some());
+        });
+    }
+
+    #[test]
+    fn what_was_remembered_at_open_time_is_bounded() {
+        for i in 0..(OPENED_MAX_ENTRIES + 6) {
+            remember_opened(&format!("bound-{i}"), b"x");
+        }
+        assert!(opened_from_memory("bound-0").is_none(), "the oldest went");
+        assert_eq!(opened_from_memory(&format!("bound-{}", OPENED_MAX_ENTRIES + 5)), Some(b"x".to_vec()));
+        remember_opened("big-a", &vec![0u8; OPENED_MAX_BYTES / 2 + 1]);
+        remember_opened("big-b", &vec![0u8; OPENED_MAX_BYTES / 2 + 1]);
+        assert!(opened_from_memory("big-a").is_none() && opened_from_memory("big-b").is_some(), "by bytes too");
+        forget_opened_memory("big-b");
+        assert!(opened_from_memory("big-b").is_none());
     }
 
     #[test]

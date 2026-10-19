@@ -413,6 +413,7 @@ export async function openDraftThread(threadId: string, wait = false, o: StartOp
     subject: m.subject === "(no subject)" ? "" : m.subject,
     bodyHtml: html ?? `<p>${(m.text ?? "").replace(/\n/g, "<br>")}</p>`,
     replaces: `m:${m.id}`, // the message that was opened: saving or sending replaces that one, not other drafts of the conversation
+    draftKey: key, // (a Pop out of this pane gives the window this key: asking for the same draft again focuses that window)
     attachments,
     security: m.security?.encrypted ? { encrypt: true, sign: false, attachPublicKey: false } : undefined,
     confidential: m.confidential,
@@ -1022,6 +1023,11 @@ function ComposeBody({ init }: { init: ComposeInit }) {
       meetingForm: meeting ? encodeMeeting(meeting, calTz(prefs)) : undefined,
     };
   };
+  // Save draft (below) is a callback that is made again only when some of its listed inputs change; it must build the draft from what the pane holds NOW. The signature
+  // is not one of those inputs: a message that comes back with a named signature (a failed send, Undo, a window, a restore) already holds the picker's id when it is
+  // drawn, the signatures are read a moment later, and nothing the callback watched changed then, so it kept building drafts without the signature (1.0.7 WP2a retest BUG-1).
+  const buildDraftRef = useRef(buildDraft);
+  buildDraftRef.current = buildDraft;
 
   /** The message as Compose opens it: the draft (its pictures back to data: URIs so the editor shows them), the toggles as they were. */
   const initOf = (d: Draft, o: { replaces?: string; isReply: boolean; carried: boolean }): ComposeInit => {
@@ -1101,7 +1107,8 @@ function ComposeBody({ init }: { init: ComposeInit }) {
   // (`unscheduled`: the scheduled message is gone from the outbox, so what comes back is an ordinary message)
   const reopen = (d: Draft, unscheduled = false) => {
     if (lockedRef.current) return unlock(d); // (a window that kept the editor on screen: the same editor comes back, nothing is made again)
-    const back = initOf(d, { replaces: init.replaces, isReply: false, carried: !!composeSeam() });
+    // a message that comes back after Undo or a failed send holds what the person wrote: it counts as changed in the pane too (before, only in a window), or Save draft would say there is nothing worth a draft (W13.5) and closing it would not ask
+    const back = initOf(d, { replaces: init.replaces, isReply: false, carried: true });
     void useStore.getState().openCompose(unscheduled ? { ...back, outboxId: undefined, sendAt: undefined, outboxError: undefined } : back);
   };
 
@@ -1113,7 +1120,10 @@ function ComposeBody({ init }: { init: ComposeInit }) {
     // (a scheduled message keeps its pause: the window holds it from now on, so this pane must not release it as it closes; the "Change time" picker is not reopened)
     const moved = { ...initOf(buildDraft(), { replaces: replacesRef() ?? undefined, isReply: !!init.isReply, carried: touched.current || !!savedDraftRef.current }), openSchedule: undefined };
     poppingRef.current = true; // (the new window takes the focus: this pane losing it must not save a draft of what is moving)
-    if (!(await openPopout("compose", init.outboxId ? outboxKey(init.outboxId) : null, moved))) {
+    // the window shows the draft this message is: the one a save of this pane made (its conversation), else the one it was opened from; none for a new message;
+    // a scheduled message holds the key of its outbox item
+    const key = init.outboxId ? outboxKey(init.outboxId) : savedTid.current ? draftKey(savedTid.current) : init.draftKey ?? null;
+    if (!(await openPopout("compose", key, moved))) {
       poppingRef.current = false;
       return; // the pane stays as it is (the toast said why)
     }
@@ -1494,7 +1504,7 @@ function ComposeBody({ init }: { init: ComposeInit }) {
       const rev = revRef.current;
       savingRef.current++;
       try {
-        const d = buildDraft();
+        const d = buildDraftRef.current();
         // a draft is only ever encrypted to your own key (no passphrase needed), and never signed
         const keepPrivate = !!d.security?.encrypt && eff(prefs, accountId, "pgpEncryptDrafts");
         // (`recoveryId`: the draft carries the id of this message's snapshot, so the next start finds it and never makes a second draft of it)
@@ -1791,7 +1801,8 @@ function ComposeBody({ init }: { init: ComposeInit }) {
     if (!ref) return true; // nothing was saved: nothing was written to the server, nothing to take back
     if (openedDraft) {
       try {
-        await api.discardDraftChanges(ref);
+        // false: no opened version was kept (it could not be read when the draft was opened or saved): nothing was written, the saved copy is the one draft; say so
+        if (!(await api.discardDraftChanges(ref))) showToast(() => t("compose.toast.draftOriginalGone"), undefined, "info");
       } catch (e) {
         showToast(() => t("compose.toast.saveFailed", { error: friendlyError(e) }), undefined, "error");
         return false;

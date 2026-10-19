@@ -454,6 +454,7 @@ export default defineLocale<typeof ns.en>({
   "compose.toast.nothingToSave": "Пока нечего сохранять. Добавьте текст, тему или файл.",
   "compose.toast.draftSavedPlain": "Черновик сохранён без шифрования (Настройки → Почтовые ящики → Безопасность)",
   "compose.toast.saveFailed": "Не удалось сохранить черновик: {error}",
+  "compose.toast.draftOriginalGone": "Исходная версия этого черновика больше недоступна, поэтому ваши изменения остаются в сохранённом черновике.",
   "compose.leave.scheduledTitle": "Закрыть без сохранения изменений?",
   "compose.leave.attaching": "Вложения ещё добавляются. Повторите попытку через несколько секунд.",
   "compose.leave.draftNotFound": "Пока не удалось открыть черновик. Откройте его в папке «Черновики».",

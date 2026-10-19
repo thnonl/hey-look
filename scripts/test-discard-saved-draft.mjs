@@ -185,6 +185,25 @@ try {
     });
   }
   {
+    // no opened version was kept (retest BUG-2): Discard changes writes nothing, the saved copy stays as the one draft, the person is told, the pane closes
+    await openedAndEdited('&nokept');
+    const draftsBefore = await drafts();
+    const saves = await evaluate(`window.__draftSaveCalls || 0`);
+    await press('Discard', '.cp-bar button, .cp-bar .rb');
+    await sleep(300);
+    await press('Discard changes', '[role=alertdialog] button');
+    await sleep(1200);
+    await check('no opened version kept: the person is told, the pane closes, the edited draft stays as the one draft, nothing is saved again', async () => {
+      assert.equal(await paneUp(), false);
+      const d = await drafts();
+      assert.equal(d.length, 1, JSON.stringify(d));
+      assert.ok(d[0].text.includes('plus edits'), d[0].text);
+      assert.equal(d[0].id, draftsBefore[0].id, 'the same draft, not a new one');
+      assert.equal(await evaluate(`window.__draftSaveCalls || 0`), saves, 'the edited text was saved again');
+      assert.match(await evaluate(`document.body.innerText`), /original version of this draft is no longer available, so your changes stay saved as the draft/);
+    });
+  }
+  {
     // a NEW message: the old question and the old effect
     await fresh(false);
     await leaveWindow();
@@ -297,6 +316,8 @@ try {
       assert.ok(!p.init.carried, `carried: ${p.init.carried}`);
       assert.equal(p.init.openedDraft, true);
       assert.ok(p.init.replaces.startsWith('m:'), p.init.replaces);
+      // the window has the key of the draft from the start: the same draft asked for again focuses it, it is never open in two editors (retest BUG-2)
+      assert.match(String(p.key), /^draft:/, `the window key: ${p.key}`);
       assert.equal(await paneUp(), false, 'the pane closes once the window exists');
     });
     await openedClean();
@@ -315,6 +336,7 @@ try {
       assert.equal(p.init.carried, true);
       assert.ok(p.init.replaces.startsWith('mid:'), p.init.replaces);
       assert.equal(p.init.openedDraft, true);
+      assert.match(String(p.key), /^draft:/, `the window key after a save: ${p.key}`);
     });
   }
   async function windowOf(mock, timers = 'autosave=500&snapshot=300') {
