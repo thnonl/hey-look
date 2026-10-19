@@ -208,6 +208,42 @@ export const REMOVED = [
       ['ru', 'при возвращении окна спустя пару часов', ['privacy.html']],
     ],
   },
+  // W10.17: the Support page offers no bank transfer any more (owner decision 2026-10-19): the old bank card heading and the old thank-you letter that named it
+  {
+    row: 'W10.17',
+    items: [
+      ['en', 'Bank transfer (VietQR)', ['support.html']],
+      ['vi', 'Chuyển khoản ngân hàng (VietQR)', ['support.html']],
+      ['fr', 'Virement bancaire (VietQR)', ['support.html']],
+      ['zh', '银行转账（VietQR）', ['support.html']],
+      ['es', 'Transferencia bancaria (VietQR)', ['support.html']],
+      ['ja', '銀行振込（VietQR）', ['support.html']],
+      ['de', 'Banküberweisung (VietQR)', ['support.html']],
+      ['ru', 'Банковский перевод (VietQR)', ['support.html']],
+      ['en', 'Hey Look! is free and open source, and it will stay that way. If it saves you time, you can help with its upkeep, with a coffee through Ko-fi or by bank transfer. It is entirely optional and unlocks nothing. Thank you for using it.', ['support.html']],
+      ['vi', 'Hey Look! miễn phí và mã nguồn mở, và sẽ luôn như vậy. Nếu ứng dụng giúp bạn tiết kiệm thời gian, bạn có thể góp phần duy trì nó, bằng một ly cà phê qua Ko-fi hoặc chuyển khoản ngân hàng. Việc này hoàn toàn tùy chọn và không mở khóa thêm gì. Cảm ơn bạn đã dùng Hey Look!', ['support.html']],
+      ['fr', 'Hey Look! est gratuit et open source, et le restera. S’il vous fait gagner du temps, vous pouvez contribuer à sa maintenance, avec un café via Ko-fi ou par virement bancaire. C’est entièrement facultatif et ne débloque rien. Merci de l’utiliser.', ['support.html']],
+      ['zh', 'Hey Look!免费且开源，并且会一直如此。如果它帮您省下了时间，您可以通过Ko-fi请我喝杯咖啡，或通过银行转账，帮忙维持它的日常运转。这完全出于自愿，也不会解锁任何功能。感谢您使用它。', ['support.html']],
+      ['es', 'Hey Look! es gratis y de código abierto, y seguirá siéndolo. Si te ahorra tiempo, puedes ayudar a mantenerlo, con un café a través de Ko-fi o con una transferencia bancaria. Es totalmente opcional y no desbloquea nada. Gracias por usarlo.', ['support.html']],
+      ['ja', 'Hey Look!は無料のオープンソースで、これからもそうあり続けます。時間の節約に役立っているなら、Ko-fiでコーヒー1杯分を贈るか銀行振込で、プロジェクトの維持を支援していただけます。支援はあくまで任意で、支援によって使える機能が増えることもありません。ご利用いただき、ありがとうございます。', ['support.html']],
+      ['de', 'Hey Look! ist kostenlos und Open Source, und das wird so bleiben. Wenn es Ihnen Zeit spart, können Sie zu seiner Pflege beitragen, mit einem Kaffee über Ko-fi oder per Banküberweisung. Das ist völlig freiwillig und schaltet nichts frei. Danke, dass Sie es nutzen.', ['support.html']],
+      ['ru', 'Hey Look! бесплатный и с открытым исходным кодом, и так останется. Если он экономит вам время, вы можете помочь с его поддержкой: чашкой кофе через Ko-fi или банковским переводом. Это совершенно необязательно и ничего не открывает. Спасибо, что пользуетесь им.', ['support.html']],
+    ],
+  },
+  // W10.19: the privacy policy no longer says that the Support page shows a bank-transfer QR image (the image is gone; owner approved 2026-10-19)
+  {
+    row: 'W10.19',
+    items: [
+      ['en', 'The page also shows a bank-transfer QR image, which is a file on this site.', ['privacy.html']],
+      ['vi', 'Trang này cũng hiển thị một ảnh mã QR chuyển khoản ngân hàng, vốn là một tệp trên trang web này.', ['privacy.html']],
+      ['fr', 'La page affiche aussi une image QR de virement bancaire, qui est un fichier de ce site.', ['privacy.html']],
+      ['zh', '该页面还显示一张银行转账二维码图片，它是本网站上的一个文件。', ['privacy.html']],
+      ['es', 'La página también muestra una imagen QR de transferencia bancaria, que es un archivo de este sitio.', ['privacy.html']],
+      ['ja', '支援ページには銀行振込用のQRコード画像も表示されますが、これはこのサイト上にあるファイルです。', ['privacy.html']],
+      ['de', 'Die Seite zeigt außerdem ein QR-Bild für die Banküberweisung, das eine Datei auf dieser Website ist.', ['privacy.html']],
+      ['ru', 'На странице также показано изображение QR-кода для банковского перевода — это файл на этом сайте.', ['privacy.html']],
+    ],
+  },
 ];
 
 const lang = (code) => LANGS.find((l) => l.code === code);

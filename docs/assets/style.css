@@ -140,7 +140,7 @@ kbd { font: 600 .78em/1.5 var(--mono); background: var(--bg2); color: var(--fg);
 section { position: relative; }
 .sec-head { max-width: 56rem; margin-bottom: clamp(20px, 3vw, 36px); }
 .sec-head h2 { font-size: clamp(1.6rem, 1.1rem + 1.7vw, 2.4rem); line-height: 1.08; letter-spacing: -.04em; }
-.page-head h1 { font-size: clamp(2rem, 1.2rem + 2.6vw, 3.2rem); line-height: 1.02; letter-spacing: -.045em; overflow-wrap: break-word; hyphens: auto; } /* a long word (German "Nutzungsbedingungen") breaks instead of leaving a 320px screen */
+.page-head h1 { font-size: clamp(2rem, 1.2rem + 2.6vw, 3.2rem); line-height: 1.02; letter-spacing: -.045em; overflow-wrap: break-word; -webkit-hyphens: auto; hyphens: auto; } /* a long word (German "Nutzungsbedingungen") breaks instead of leaving a 320px screen */
 .sec-head h2 em, .page-head h1 em { color: var(--accent-text); }
 .sec-lead, .lead { margin-top: .8rem; font-size: clamp(1rem, .95rem + .3vw, 1.15rem); line-height: 1.5; color: var(--muted); max-width: 46rem; }
 .sec-head.light h2, .sec-head.light .sec-lead { color: var(--night-fg); }
@@ -604,14 +604,12 @@ details ol { padding-left: 1.2em; } details li { margin-bottom: .5em; }
 .letter p { max-width: 38em; } .letter strong { color: var(--paper-fg); }
 .help-list { padding-left: 1.1em; } .help-list li { margin-bottom: .7em; } .help-list b { font-family: var(--font); letter-spacing: -.01em; }
 .sign { font: italic 700 1.35rem var(--serif); margin-top: .8em; margin-bottom: 0 !important; }
-.ways { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 22px; margin-top: 24px; align-items: stretch; }
 .way { background: var(--bg2); border: 2px solid var(--fg); border-radius: 18px; padding: 22px; display: flex; flex-direction: column; min-width: 0; }
 .way h2 { font-size: 1.4rem; margin-bottom: .3em; } .way p { color: var(--muted); }
 .btn-row { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; }
 .kofi-box { margin-top: 16px; border-radius: 12px; overflow: hidden; border: 2px solid var(--line); }
 .kofi-box iframe { display: block; }
 .fine-s { margin: 14px 0 0; font-size: .88rem; }
-.bank-card figcaption { margin-top: 8px; font-size: .92rem; }
 .vi { margin-top: clamp(32px, 5vw, 56px); max-width: 52rem; padding: 22px 26px; border-left: 6px solid var(--amber); background: var(--bg2); border-radius: 0 14px 14px 0; }
 .vi h2 { font-size: 1.5rem; margin-bottom: .5em; } .vi p:last-child { margin: 0; }
 .help { margin-top: clamp(48px, 7vw, 96px); padding-top: clamp(32px, 5vw, 56px); border-top: 2px solid var(--fg); }
@@ -791,25 +789,31 @@ details.hq[open] > summary::after { transform: translateY(-30%) rotate(-135deg);
 .hq-foot { margin-top: 24px; color: var(--muted); }
 .help-pointer { margin-top: 28px; color: var(--muted); }
 
-/* support: note on top, two equal cards below */
+/* support: the letter and the coffee card side by side, then four ways to help that cost nothing */
 .letter { padding: clamp(18px, 2.6vw, 28px) clamp(20px, 3vw, 36px); transform: none; }
 .letter p { max-width: 62em; }
 .letter h2 { margin-bottom: .4em; }
 .letter .sign { margin-top: .4em; }
-.way > p:first-of-type { min-height: 3em; }
-.kofi .btn-row { flex-direction: column; align-items: stretch; margin: auto 0; }
+.kofi .btn-row { flex-direction: column; align-items: stretch; }
 .kofi .btn-row .btn { justify-content: center; }
 .kofi-box { flex: 1; }
 .kofi .fine-s { padding-top: 14px; }
 .kofi .fine-s.warn { color: var(--fg); background: color-mix(in srgb, var(--amber) 22%, transparent); border: 2px solid var(--amber); border-radius: 10px; padding: 10px 12px; margin-top: 14px; font-weight: 600; }
-.vi-line { margin: 14px 0 0; padding-top: 12px; border-top: 2px dashed var(--line); font-size: .92rem; color: var(--muted); }
-@media (max-width: 720px) { .ways { grid-template-columns: minmax(0, 1fr); } .way > p:first-of-type { min-height: 0; } }
-
-/* bank transfer card: the tight QR image only, as wide as the card allows (a QR must stay big enough to scan) */
-.bank-card { margin: 14px auto 0; width: 100%; max-width: 460px; }
-.bank-card img { display: block; width: 100%; height: auto; border: 2px solid var(--line); border-radius: 12px; background: #fff; }
-.bank-card figcaption { text-align: center; }
-.way.bank > p.vi-line { min-height: 0; }
+.support-top { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 22px; align-items: start; }
+.more-lead { margin: -6px 0 16px; color: var(--muted); }
+.more-ways { list-style: none; margin: 0; padding: 0; display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 18px; }
+.more-ways li { display: flex; flex-direction: column; background: var(--bg2); border: 2px solid var(--line); border-radius: 16px; padding: 20px; min-width: 0; }
+.more-ways .ic { width: 28px; height: 28px; color: var(--accent-text); margin-bottom: 10px; }
+.more-ways h3 { font-size: 1.1rem; margin-bottom: .3em; overflow-wrap: break-word; -webkit-hyphens: auto; hyphens: auto; }
+.more-ways p { margin: 0; color: var(--muted); }
+.more-ways .go { margin-top: auto; padding-top: 12px; color: inherit; }
+@media (max-width: 1020px) {
+  .support-top { grid-template-columns: minmax(0, 1fr); }
+  .kofi .btn-row { flex-direction: row; align-items: center; }
+  .more-ways { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
+@media (max-width: 720px) { .more-ways { grid-template-columns: minmax(0, 1fr); } }
+@media (max-width: 480px) { .kofi .btn-row { flex-direction: column; align-items: stretch; } }
 
 /* ---------- Simplified Chinese (zh-Hans): CJK fonts, no negative tracking, looser lines. Additive, only applies under lang="zh-Hans". ---------- */
 :root:lang(zh-Hans) {

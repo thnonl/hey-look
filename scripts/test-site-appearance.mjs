@@ -17,6 +17,7 @@
 // pass runs with prefers-reduced-motion. In the dark theme the title bar of the window must carry the primary as the app does (the exact gradient ends of the
 // formula, live for every preset and custom colour, light unchanged), and stay neutral under prefers-contrast: more. A last pass measures the
 // header on a phone (320, 375 and 414 px, the 8 home pages and 404.html): every button and the logo link at least 44 x 44 px (the logo itself does not move), no overlap, no sideways scroll.
+// The Support page (375, 960 and 1280 px, light and dark) is measured too: columns of the letter / coffee card and of the four cards, nothing cut, links on one line, 4.5:1 text, no bank QR image requested.
 // The test never touches the network (scripts/lib/hermetic-net.mjs): the one call the site makes, the latest release from api.github.com on the download pages, is answered with a canned release, and any
 // other external request is refused and fails the run. The download page is also measured when that call fails (403 rate limit, 500, offline): it shows the static version and the Releases link, and the
 // console holds exactly the one expected 'Failed to load resource' line for that URL, nothing else. The page's own transitions are switched off while measuring (a half-finished transition would
@@ -26,6 +27,7 @@ import path from 'node:path';
 import http from 'node:http';
 import { fileURLToPath } from 'node:url';
 import { checkFormula, siteDarkTopBar } from './lib/site-top-bar.mjs';
+import { SUPPORT_PROBE } from './lib/site-support-probe.mjs';
 import { launchChrome } from './cdp-harness.mjs';
 import { installHermeticNet, releaseStub, LATEST_RELEASE_URL, CANNED_TAG } from './lib/hermetic-net.mjs';
 
@@ -274,6 +276,35 @@ async function scanPages() {
   }
 }
 
+// The Support page (W10.17): the letter and the coffee card side by side (2 columns) from 1021 px and stacked below, the four "other ways" in 4 / 2 / 1 columns, nothing cut or
+// sticking out, the card links on one line at 1280 px, the text readable (4.5:1) in light and dark, and no request for the bank QR images or for Ko-fi before the button is pressed.
+async function supportPass() {
+  const PAIRS = QUICK ? [['en', false], ['en', true], ['de', false], ['ru', true], ['ja', false]] : LANGS.flatMap((l) => [[l, false], [l, true]]);
+  const requested = [], bad404 = [];
+  listeners.push((m) => {
+    if (m.sessionId !== sessionId) return;
+    if (m.method === 'Network.requestWillBeSent') requested.push(m.params.request.url);
+    else if (m.method === 'Network.responseReceived' && m.params.response.url.startsWith(base) && m.params.response.status >= 400) bad404.push(m.params.response.status + ' ' + m.params.response.url);
+  });
+  await cdp('Network.enable');
+  for (const [lang, dark] of PAIRS) for (const width of [375, 960, 1280]) {
+    await cdp('Emulation.setDeviceMetricsOverride', { width, height: 900, deviceScaleFactor: 1, mobile: false });
+    await cdp('Emulation.setEmulatedMedia', { features: [{ name: 'prefers-color-scheme', value: dark ? 'dark' : 'light' }] });
+    consoleProblems = []; requested.length = 0; bad404.length = 0;
+    await cdp('Page.navigate', { url: `${base}/${lang === 'en' ? '' : lang + '/'}support.html` });
+    for (let i = 0; i < 200; i++) { if (await evaluate("document.readyState === 'complete'").catch(() => false)) break; await new Promise((r) => setTimeout(r, 50)); }
+    await evaluate('new Promise((r) => (document.fonts ? document.fonts.ready : Promise.resolve()).then(() => setTimeout(r, 150)))');
+    const bad = (await evaluate(SUPPORT_PROBE)).bad;
+    for (const u of requested) { if (/donate-qr/.test(u)) bad.push('asked for the bank QR image ' + u); if (/ko-fi\.com/.test(u)) bad.push('asked for ' + u + ' before the button was pressed'); }
+    for (const u of bad404) bad.push('failed to load: ' + u);
+    pages++; checked++;
+    const where = `${lang} ${width}px ${dark ? 'dark' : 'light'} support.html`;
+    if (bad.length) fail(where, 'support', bad.slice(0, 6).join('\n      '));
+    if (consoleProblems.length) fail(where, 'console', [...new Set(consoleProblems)].slice(0, 5).join('\n      '));
+  }
+  await cdp('Emulation.setEmulatedMedia', { features: [{ name: 'prefers-color-scheme', value: 'light' }] });
+}
+
 // the header on a phone (W10.9): each of the five buttons (language, animations, theme, Download, menu) is at least 44 x 44 px, none overlaps another or leaves
 // the screen, the page does not scroll sideways, and the word "Hey Look!" beside the logo shows above 400 px and is gone at 400 px and below (the logo keeps its
 // accessible name). The 8 home pages and 404.html at 320, 375 and 414 px, light and dark (the quick run: light everywhere, dark on the English pages).
@@ -393,6 +424,7 @@ try {
   await runPage('en', 1280, { dark: true });
   await contrastPass('en', 1280); await contrastPass('ja', 375);
   await scanPages();
+  await supportPass();
   await headerPass();
   // the download page against a good answer, a rate limit (what a CI runner gets), a server error and no network
   await downloadPass('ok', LANGS);
