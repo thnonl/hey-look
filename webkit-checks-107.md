@@ -31,6 +31,8 @@ Sources read: coder-v107-*.md and coder-v106-*.md ("not verified" / Mac / Linux 
 
 0.4 Window sizes used (logical px): 960 x 560 (minWidth 960, minHeight 560, tauri.conf.json:18-19), 960 x 480 (WP1-fix1 case, D-003/D-012), 946 x 480 (popover matrix, test-popover-fit), 1000 x 700 (side menu), 1099 and 1100 (list-hidden threshold, sidebarState.ts:23), 1280 x 800 (default, tauri.conf.json:16-17), 375 wide (site, phone header).
 
+0.4a Linux client sizes (reported by the session on 329b41b): the bridge reports `logicalWidth` / `logicalHeight` (CSS px). xdotool reads the X client area, which is the logical height minus 28 px (KDE title bar). So "window 960 x 480" means bridge logicalHeight 480 = xdotool client height 452. Set the window to the logical size you need, and confirm it with `/windows` logicalHeight, never with the xdotool number.
+
 0.5 Languages: at least de, ru, ja for every row; vi, fr, es, zh-Hans where a row says "8 languages". Language is changed in Settings > General (no store hook).
 
 0.6 Screenshot name (every row that says "screenshot"): `webkit-107-<mac|linux>-<row-id>-<lang>-<WxH>-<light|dark>.png` in `~/qa-heylook/r107/shots/` (Mac) or `~/qa-heylook/linux/notes/shots/` (Linux). Quote the file name in the status cell.
@@ -236,7 +238,7 @@ return JSON.stringify({
 });
 ```
 
-Reading: expectedBottom and expectedTopCompact are the formula results for the clamp (H is the scrollport height; percentages are relative to it, so a 1-2 px difference is possible on fractional DPI: tolerance 0.5 px). If `scrollPaddingBottom` equals the 12 px or 46 px fallback while the formula gives another value, the engine dropped the clamp: record it, the focus result still counts.
+Reading (updated after 329b41b): on WKWebView and WebKitGTK the session found `scrollPaddingBottom` / `scrollPaddingTop` come back as the UNRESOLVED clamp() string, so the computed value cannot tell whether the clamp was resolved. clamp() resolution is therefore not observable with this probe, and the scroll-padding values and the expected* fields are informational only. The PASS criteria are the focus numbers only: activeWhole and hitIsActive.
 
 ### P-ACT (compose action row: one row, More actions)
 
@@ -245,12 +247,14 @@ const bar = document.querySelector('.compose-pane .cp-bar');
 if (!bar) return JSON.stringify({ error: 'no compose action row' });
 const btns = [...bar.querySelectorAll('button')].filter((b) => b.getBoundingClientRect().width > 0);
 const barR = bar.getBoundingClientRect();
-const tops = [...new Set(btns.map((b) => Math.round(b.getBoundingClientRect().top)))];
+const tops = btns.map((b) => b.getBoundingClientRect().top);
+const topSpread = Math.round((Math.max(...tops) - Math.min(...tops)) * 10) / 10;
+const maxButtonHeight = Math.round(Math.max(...btns.map((b) => b.getBoundingClientRect().height)) * 10) / 10;
 const more = bar.querySelector('.rb.more');
 const moreShown = !!more && more.getBoundingClientRect().width > 0;
 const outside = btns.filter((b) => { const r = b.getBoundingClientRect(); return r.right > barR.right + 0.5 || r.left < barR.left - 0.5; }).map((b) => (b.getAttribute('aria-label') || b.textContent).trim().slice(0, 24));
 const clipped = btns.filter((b) => b.scrollWidth > b.clientWidth + 1).map((b) => (b.getAttribute('aria-label') || b.textContent).trim().slice(0, 24));
-return JSON.stringify({ lang: document.documentElement.lang, width: innerWidth, buttons: btns.length, rowTops: tops, rowCount: tops.length, moreShown, outside, clipped, paneWidth: Math.round(bar.closest('.compose-pane').getBoundingClientRect().width) });
+return JSON.stringify({ lang: document.documentElement.lang, width: innerWidth, buttons: btns.length, topSpread, maxButtonHeight, oneRow: topSpread <= maxButtonHeight / 2, moreShown, outside, clipped, paneWidth: Math.round(bar.closest('.compose-pane').getBoundingClientRect().width) });
 ```
 
 ### P-POP (every popover and menu box inside the window, and hit-tested)
@@ -390,10 +394,12 @@ const first16 = btns.slice(0, 16).map((b) => b.textContent.trim());
 const ctx = document.createElement('canvas').getContext('2d');
 const w = (font, t) => { ctx.font = font; return ctx.measureText(t).width; };
 const glyph = '\u{1F600}', tofu = '￿';
-return JSON.stringify({ fontFamily: s.fontFamily, size: [Math.round(btns[0].getBoundingClientRect().width), Math.round(btns[0].getBoundingClientRect().height)], count: btns.length, first16, emptyGlyphs: first16.filter((t) => !t).length, emojiWidthInStack: w('32px ' + s.fontFamily, glyph), emojiWidthMonospace: w('32px monospace', glyph), noncharWidthInStack: w('32px ' + s.fontFamily, tofu), emojiFontFallbackSeen: w('32px ' + s.fontFamily, glyph) !== w('32px monospace', glyph) });
+return JSON.stringify({ fontFamily: s.fontFamily, size: [Math.round(btns[0].getBoundingClientRect().width), Math.round(btns[0].getBoundingClientRect().height)], count: btns.length, first16, emptyGlyphs: first16.filter((t) => !t).length, emojiAdvancePx: w('32px ' + s.fontFamily, glyph), tofuAdvancePx: w('32px ' + s.fontFamily, tofu), emojiAdvanceEm: Math.round(w('32px ' + s.fontFamily, glyph) / 32 * 100) / 100, emojiSeparateFromTofu: Math.abs(w('32px ' + s.fontFamily, glyph) - w('32px ' + s.fontFamily, tofu)) > 1 });
 ```
 
-Expected: size 32 x 32; emptyGlyphs 0; emojiFontFallbackSeen true (a colour emoji font answers). Colour and tofu are judged in the screenshot: no monochrome boxes.
+Expected: size 32 x 32; emptyGlyphs 0; emojiAdvanceEm >= 1.0; emojiSeparateFromTofu true (the emoji advance is not the width of the box a missing glyph gets). Colour and "no tofu" are judged on the screenshot, not on the probe.
+
+Why the old check was removed: the probe used to compare the emoji width in the stack with the width in `monospace`. When the emoji comes from a fallback font, both answers are the same font, so the comparison is always equal and says nothing about presence. The session confirmed colour glyphs and no tofu on Mac and Linux by screenshot (1.0.7 notes, 329b41b). Presence is now read from the advance width and the screenshot only; `monospace` is not a reference.
 
 ### P-TBL (merged and split cells in the message editor)
 
@@ -420,16 +426,18 @@ Expected: every visible toggle has aria-pressed true or false; pressedBg differs
 
 ### P-RPL (Settings > Accounts > Reply-To field)
 
+How the field is found (SettingsDialog.tsx on origin/release/v1.0.7): `Row` renders `<div class="set-row" id="set-replyTo">` for the Reply-To row; the label is `.set-lbl > div` (first child), the hint `.set-lbl .muted`, the control `.set-ctl`. The input has no id; `Row` sets its aria-label to the label text. The row id, not an input id, is the anchor (the session found no #replyTo: that was the 2nd text input of the mailbox page).
+
 ```js
-const inp = document.getElementById('replyTo');
-if (!inp) return JSON.stringify({ error: 'open Settings > Accounts > the mailbox profile first' });
+const row = document.getElementById('set-replyTo');
+if (!row) return JSON.stringify({ error: 'open Settings > Accounts, the mailbox profile, first (no #set-replyTo row)' });
+const inp = row.querySelector('.set-ctl input');
 const r = inp.getBoundingClientRect();
-const row = inp.closest('.row, .row-inline, .set-row, .form-row') || inp.parentElement;
-const lab = document.querySelector('label[for="replyTo"]') || row.querySelector('label');
+const lab = row.querySelector('.set-lbl > div');
 const lr = lab ? lab.getBoundingClientRect() : null;
-const dlg = inp.closest('[role=dialog], .modal, .settings') || document.body;
+const dlg = row.closest('[role=dialog], .modal, .settings') || document.body;
 const dr = dlg.getBoundingClientRect();
-const hint = row.querySelector('.hint, .muted, small, .row-hint');
+const hint = row.querySelector('.set-lbl .muted');
 const hr = hint ? hint.getBoundingClientRect() : null;
 return JSON.stringify({ inputW: Math.round(r.width), inputH: Math.round(r.height), inputTop: Math.round(r.top), labelBottom: lr ? Math.round(lr.bottom) : null, hintBottom: hr ? Math.round(hr.bottom) : null, dialogRight: Math.round(dr.right), inputRight: Math.round(r.right), dialogOverflowX: dlg.scrollWidth > dlg.clientWidth + 1, lang: document.documentElement.lang });
 ```
@@ -520,15 +528,15 @@ Expected: whiteSpace pre-wrap or pre; the `|` of one column have the same x in e
 
 Columns: ID | Change (commit, file) | Look at (Mac) | Look at (Linux) | Probe | PASS (numbers) | Mac status | Linux status.
 
-Evidence so far for every row is Windows or Chromium, unless a row says otherwise. Coder notes say "not verified on macOS/Linux" for all of them.
+The status cells in this section are the first-draft state (all OPEN). The state after 329b41b is in section 9.1 and overrides them. Evidence so far for every row is Windows or Chromium, unless a row says otherwise. Coder notes say "not verified on macOS/Linux" for all of them.
 
 ### 4.1 WP1 (merged: 3589657 and fixes 44354fc, 6246529; UI-FIX1 7737ef3)
 
 | ID | Change (commit, file) | Look at (Mac) | Look at (Linux) | Probe | PASS (numbers) | Mac status | Linux status |
 |---|---|---|---|---|---|---|---|
 | WK-1.01 | Notice link on the sentence baseline, D-023 (b56ad91; App.css:142-144 `.notice .link` inline-flex, 1lh @supports) | newsletter notice in de and ja, light and dark, at 960 x 560; blocked-pictures banner; the link "Unsubscribe" against the words before it (screenshot) | same, plus KDE HiDPI scale 1.5 (GDK_SCALE) | P-NOTICE, P-ENV (lh1) | every link: abs(offset) <= 1.0 px; sameLine links h >= 24; wrapped link lineH within 1.0 px of refPitch; if lh1 false, record the 4 px fallback values (still must pass offset) | OPEN | OPEN |
-| WK-1.02 | Compose header scroll margins: clamp() with % (95ae14e; App.css:517-518) | pop-out at 960 x 480 and 960 x 560, Meeting on; Shift+Tab from To to Where; screenshot after each step | same | P-CPHEAD after each step | scrollPadding equals expectedBottom and (compact) expectedTopCompact within 0.5 px, OR the 12/46 px fallback is in effect and recorded; activeWhole true; hitIsActive true | OPEN | OPEN |
-| WK-1.03 | Action row: one row, More actions from the end (dda01dd; App.css:523-526, 1211-1219; composeFit.ts; Compose.tsx) | pop-out 960 x 560 in de and ru (AC-1.7.1); main 1280 x 800 in en, de, ru, ja (AC-1.7.2); language switch with compose open (AC-1.7.4) | same, at 1280 x 800 and 960 x 560 | P-ACT, P-TXT | rowCount 1 in every case (spread of rowTops <= 2 px); moreShown true when any action is missing from the row; outside []; clipped [] | OPEN | OPEN |
+| WK-1.02 | Compose header scroll margins: clamp() with % (95ae14e; App.css:517-518) | pop-out at 960 x 480 and 960 x 560, Meeting on; Shift+Tab from To to Where; screenshot after each step | same | P-CPHEAD after each step | activeWhole true and hitIsActive true (scroll-padding values are not a criterion: unresolved clamp() string on WebKit, see P-CPHEAD) | OPEN | OPEN |
+| WK-1.03 | Action row: one row, More actions from the end (dda01dd; App.css:523-526, 1211-1219; composeFit.ts; Compose.tsx) | pop-out 960 x 560 in de and ru (AC-1.7.1); main 1280 x 800 in en, de, ru, ja (AC-1.7.2); language switch with compose open (AC-1.7.4) | same, at 1280 x 800 and 960 x 560 | P-ACT, P-TXT | oneRow true in every case (topSpread <= maxButtonHeight / 2: the first and last visible button; the first probe read rowCount 2 from 29 px and 31 px buttons of one row, so a row count is not used); moreShown true when an action is missing from the row; outside []; clipped [] | OPEN | OPEN |
 | WK-1.04 | Blocked picture boxes (b0c5d53; blockedPicture.ts; ReadingPane.tsx:81-90 `.hl-bp`) | newsletter fixture: 600 x 200 box (cut to pane width), icon, alt "Header"; 48 x 48 box; 1 x 1 nothing (AC-1.13.2); dark theme box visible, not glaring (AC-1.13.3) | same, on WebKitGTK | P-BLK, P-FRAME | boxes = [600 x 200 or frame-width, icon, alt Header], [48 x 48, icon]; 2 boxes; no box for the 1 x 1; bg differs from the frame background in dark | OPEN | OPEN |
 | WK-1.05 | Week view: hour height 32 to 48 px, 08:00 to 20:00 fits (b0c5d53; weekHours.ts; Calendar.tsx:689-690) | 1280 x 800 Week view of next week, event 19:00-20:00 Wednesday (AC-1.13.4); 960 x 560 new event at 15:30 (AC-1.13.5) | same; note D-022 (event bottom 798 of 800: watch) | P-WEEK | hourHeight in [32, 48]; event bottom <= viewportBottom at 1280 x 800; firstHourLabel is 08:00 and firstHourTop inside the header-free area | OPEN | OPEN |
 | WK-1.06 | Side menu peek and Ctrl+B / Cmd+B (5b61770; sidebarPeek.ts; App.css:361-362; FolderPane.tsx) | 1000 x 700: Cmd+B opens the full menu over the list; focus on the selected folder; second Cmd+B closes (AC-1.6.1, AC-1.6.6); 1400 x 800: fold and unfold, choice kept after restart (AC-1.6.3) | same with Ctrl+B | P-PEEK | peek true, position absolute, zIndex 40, width 248 +/- 2, hitInFolderPane true, activeInFolderPane true | OPEN | OPEN |
@@ -574,11 +582,11 @@ Evidence so far for every row is Windows or Chromium, unless a row says otherwis
 | WK-2d.04 | Link dialog: wording, Esc, focus on Address, Cancel / Insert / Remove link (738cfea W2.16; LinkPopover.tsx:166-193; Ctrl/Cmd+K) | select a word, Cmd+K: title "Insert link", "Text to display" above "Address" (focus in Address), buttons Cancel and Insert (AC-2.16.1); Esc: closes, selection unchanged (AC-2.16.3); Cmd+K on Mac (AC-2.16.3 on Mac) | Ctrl+K same | P-LINK | fields[0].top < fields[1].top; buttons ["Cancel","Insert"]; inside true; activeInPopover true; Esc: no link inserted | OPEN | OPEN |
 | WK-2d.05 | Pressed states and check box roles (738cfea W2.20; controls.tsx) | Bold on a selected bold word: "Bold, toggle button, pressed" with VoiceOver (AC-2.20.1); More menu: "Subscript, check box menu item, not checked" (AC-2.20.2); screenshot pressed and not pressed | Orca optional; visual pressed look as on Mac | P-PRS | every visible toggle has aria-pressed; pressedBg differs from notPressedBg (and not transparent) | OPEN | OPEN |
 | WK-2d.06 | Table merge and split; outside borders follow the spans; mouse drag selects cells (040ecd9 W2.19; tableCommands.ts; App.css:1022 selectedCell) | insert a 3 x 3 table, type A1..C3, select A1:B1 with the mouse (drag across cells: WebKit drag selection is the risk, AC-2.19.1), Merge; A2:A3 Merge; Split; Save draft, reopen (AC-2.19.3) | same with xdotool drag | P-TBL | after merge: colspan 2, text "A1 B1"; A2:A3: rowspan 2; drag gives selectedCells = cells of the range and selectionText not a multi-cell text range | OPEN | OPEN |
-| WK-2d.07 | Emoji picker: search by name and keyword, Recently used, names, Symbol font (06dbbf9 W2.17; insertUi.tsx:521-523; App.css:1058-1061; emojiSearch.ts) | Insert > Emoji: "heart" shows hearts only (AC-2.17.1); "xyz": "No emoji found"; vi "tim" shows hearts; insert 😀 then 👍: reopen, "Recently used" first (AC-2.17.2); VoiceOver reads the CLDR name (AC-2.17.4); Insert > Symbol: © € ™ ★ show as text | Insert > Emoji on KDE: colour glyphs from Noto Color Emoji; no tofu; same checks minus VoiceOver | P-EMO | size 32 x 32; emptyGlyphs 0; emojiFontFallbackSeen true; colour in the screenshot; Linux: if emojiFontFallbackSeen false, the row is FAIL (no emoji font) | OPEN | OPEN |
+| WK-2d.07 | Emoji picker: search by name and keyword, Recently used, names, Symbol font (06dbbf9 W2.17; insertUi.tsx:521-523; App.css:1058-1061; emojiSearch.ts) | Insert > Emoji: "heart" shows hearts only (AC-2.17.1); "xyz": "No emoji found"; vi "tim" shows hearts; insert 😀 then 👍: reopen, "Recently used" first (AC-2.17.2); VoiceOver reads the CLDR name (AC-2.17.4); Insert > Symbol: © € ™ ★ show as text | Insert > Emoji on KDE: colour glyphs from Noto Color Emoji; no tofu; same checks minus VoiceOver | P-EMO | size 32 x 32; emptyGlyphs 0; emojiAdvanceEm >= 1.0 and emojiSeparateFromTofu true; colour and no tofu on the screenshot (session: confirmed on Mac and Linux) | OPEN | OPEN |
 | WK-2d.08 | Paste as plain text: Mac Cmd+Option+Shift+V; Linux Ctrl+Shift+V for an HTML-only clipboard (b6283be W2.24, W2.23; composeKeys.ts; pasteOptions.tsx; clipdecode.rs; lib.rs) | Safari copy of formatted text, Cmd+Option+Shift+V in the body: plain text (AC-2.24.1); Cmd+Option+1 still Heading 1 (AC-2.24.2); Subject field too | xclip -selection clipboard -t text/html -i sample.html; Ctrl+Shift+V in the body: text with lists "1. " and links "text (url)" (AC-2.23.1); no Paste options button | manual; startup.log paste lines | text only; Heading 1 unchanged on Mac; Linux: no formatting. PRECONDITION: the Linux Rust code (clipboard read, gtk 0.18) was never compiled (coder-v107-wp2d.md): the Linux build of 329b41b must compile first; if not built, BLOCKED | OPEN | BLOCKED until the Linux build of 329b41b compiles |
 | WK-2d.09 | New 8-language strings do not overflow at 960 x 560 (32 keys, section 2.6; errors.sendRefused, compose.rcpt.signOnlyHelp, settings.profile.replyToHint, updates.toast.mailtoFailedNotCopied, compose.toast.draftOriginalGone, compose.pic.askConvertGif) | the toasts and dialogs of section 2.6 in de, fr, vi, ru, zh-Hans, ja at 960 x 560, light and dark (trigger: send failed with a long server text; recipient popover; Discard dialog; picture prompts; Reply-To hint) | same | P-TXT on each dialog and toast | count 0 for each language; every text complete in the screenshot | OPEN | OPEN |
 
-### 4.6 WP13 (merged a9ff677 W13.1; W13.5 has no visual part: see section 8)
+### 4.6 WP13 (merged a9ff677 W13.1; the W13.5 row is in section 4.10)
 
 | ID | Change (commit, file) | Look at (Mac) | Look at (Linux) | Probe | PASS (numbers) | Mac status | Linux status |
 |---|---|---|---|---|---|---|---|
@@ -616,6 +624,22 @@ Evidence so far for every row is Windows or Chromium, unless a row says otherwis
 
 ---
 
+### 4.10 Rows added after the first draft (merged or reported after the first draft; coordinator remarks on 329b41b)
+
+Defect descriptions below are the ones relayed by the coordinator. The detail of each D-entry is in the session notes, which QA could not read. Where the relayed remark gives no platform, the platform column says so; QA does not guess it.
+
+| ID | WP | Change or defect (source) | Look at (Mac) | Look at (Linux) | Probe | PASS (numbers or AC) | Status after 329b41b (session, relayed) |
+|---|---|---|---|---|---|---|---|
+| WK-13.03 | WP13 | W13.5: a message with only recipients, or nothing in it, is never saved as a draft (2bd22ca, 6efd8ae, 20d9bdd; AC-13.5.1, AC-13.5.7) | type a recipient only, wait 60 s: Drafts unchanged; click another mail: compose closes without a question; kill the app and restart: recovery toast says the message was kept on this computer | same, with kill -9 | manual; Drafts listing of the stub | no APPEND for a recipient-only draft; recovery toast text as AC-13.5.7 | Mac and Linux steps were run on 329b41b; not listed open. Result per the notes (unread by QA). The earlier C4b P2 on a590ee2 (findings V107-MAC-ROUND2-DONE) was the case W13.5 fixes |
+| WK-13.04 | WP13 | D-030: scroll position after Undo (W13.1; AC-13.1.3 requires the same scroll position) | pop-out, scroll the body down a little, Send, Undo at 6 s: body scroll position equal to the one before Send | same | manual; screenshot before and after | body scroll position the same before Send and after Undo (plus or minus 2 px) | OPEN: new defect D-030 (platform not relayed) |
+| WK-13.05 | WP13 | D-025: large draft freeze threshold (path B table; loading indicator when a big draft opens, W13.7; AC-13.7.1) | open a large draft from Drafts: "Opening draft..." ring within 150 ms; the UI stays responsive; list scrolls | same | manual; the path B table gives the size | ring within 150 ms; no freeze at the sizes in the path B table | OPEN: new defect D-025 (platform not relayed) |
+| WK-2c.04 | WP2c | D-034: scheduled row refresh after an edit (e75b37c, W2.10; AC-2.10.1) | Scheduled > Edit, change the text, Schedule: the Scheduled list shows the new text and time at once | same | manual; list screenshot | the row shows the new text and time without reopening | OPEN: new defect D-034 (platform not relayed) |
+| WK-2d.10 | WP2d | D-024: Cmd+Option+1/2/3 keyCode path (AC-2.24.2: Cmd+Option+1 still makes Heading 1) | Cmd+Option+1, +2, +3 in the body: Heading 1, 2, 3 | N/A (Mac shortcut) | manual | the three headings applied | FAIL on Mac (D-024), per session |
+| WK-2d.11 | WP2d | D-026: Edit menu "Paste and Match Style" (AC-2.24.1: the Edit menu item does the same as Cmd+Option+Shift+V) | copy formatted Safari text; Edit > Paste and Match Style in the body: plain text, as with Cmd+Option+Shift+V | N/A | manual | same result as Cmd+Option+Shift+V | FAIL on Mac (D-026), per session |
+| WK-2d.12 | WP2d | D-027: table tools bar position (W2.19; App.css:1036-1037 `.tbl-tools` fixed) | insert a table near the bottom of the window: the tools bar stays inside the window and does not cover the table's header | same | P-POP with `.tbl-tools` added to SEL | the tools bar box inside the viewport; notHit 0 | OPEN: new defect D-027 (platform not relayed) |
+| WK-2d.13 | WP2d | D-032: Ctrl+Shift+V with an HTML-only clipboard on Linux (b6283be W2.23; AC-2.23.1) | N/A | xclip -selection clipboard -t text/html -i sample.html; Ctrl+Shift+V in the body: text, no formatting, lists "1. ", links "text (url)" | manual; startup.log paste lines | AC-2.23.1 | FAIL on Linux (D-032), per session; see WK-2d.08 |
+| WK-2d.14 | WP2d | D-033: Esc keeps the picture selected (AC-2.18.1: Esc returns to the body, picture still selected) | as WK-2d.02 | Esc after the Alt+F10 toolbar: the picture must stay selected | P-ROVE after Esc (activeInTools false; picture still selected) | AC-2.18.1 | FAIL on Linux (D-033), per session; the WK-2d.02 Linux FAIL |
+
 ## 5. Engine gate: rules for reading the results
 
 5.1 A row with `inertSupported`, `css.has`, `css.colorMix`, `css.lh1` false is a FAIL on that engine when the row says the feature must work, and the engine is in the supported range of the floor decision (section 10, Q1). Otherwise it is recorded as "engine below floor: expected".
@@ -627,7 +651,7 @@ Evidence so far for every row is Windows or Chromium, unless a row says otherwis
 
 ## 6. Excluded from this checklist (non-visual, or covered by another file)
 
-- Backend and logic: W2.2 (Discard of a reopened draft, APPEND/EXPUNGE order), W2.3, W2.4, W2.5, W2.6, W2.7 (signature), W2.8 (header folding), W2.12 (reply key), W2.22 (encrypted drafts), W13.5 (empty draft is never saved), W2.11 (draft open in the pane): tested on Windows and by the stub log (qa-queue-107.md). Mac/Linux steps for these exist in the spec "QA Mac/Linux session" lines and are run by the session with the other rows of its brief.
+- Backend and logic: W2.2 (Discard of a reopened draft, APPEND/EXPUNGE order), W2.3, W2.4, W2.5, W2.6, W2.7 (signature), W2.8 (header folding), W2.12 (reply key), W2.22 (encrypted drafts), W2.11 (draft open in the pane): tested on Windows and by the stub log (qa-queue-107.md). Mac/Linux steps for these exist in the spec "QA Mac/Linux session" lines and are run by the session with the other rows of its brief.
 - W1.3, W1.4, W1.5 (tray and window rules, owned by the WP1 Mac/Linux steps in spec-107-wp1.md), W1.8 and W1.9 (AI, AC-1.8.1 and AC-1.9.x), W1.10 (Show in folder: AC-1.10.x; the Linux row AC-1.10.3 is in spec-107-wp1.md), W1.12 (mailto fallback: AC-1.12.1; the Mac and Linux wording rows are WK-1.13), W1.11 (copy: see WK-106.06).
 - W2.23 Linux code path and W2.24 Mac key: WK-2d.08.
 - Site legal text, html-validate, sitemap, robots, Lighthouse, the bundle budget (WP9): no visual change.
@@ -681,7 +705,9 @@ Note on dvh: the branch uses no dvh/svh/lvh units (0 matches), so there is no ro
 | WP10 (site) | 3 |
 | WP-1.0.6 carry-over | 7 |
 | Fonts | 4 |
-| Total | 47 |
+| Total, first draft | 47 |
+| Added after 329b41b (section 4.10): WP13 +3, WP2c +1, WP2d +5 | 9 |
+| Total now | 56 |
 
 ---
 
@@ -690,6 +716,52 @@ Note on dvh: the branch uses no dvh/svh/lvh units (0 matches), so there is no ro
 | Date | Platform | Row | Result | SHA | Evidence |
 |---|---|---|---|---|---|
 | 2026-10-19 | (planner) | all | checklist written, nothing run | 329b41b | this file |
+| 2026-10-19 | Mac and Linux session | all rows | run on 329b41b; the rows below are the ones it reports open or failed (relayed by the coordinator; the notes are unreadable by QA) | 329b41b | ~/qa-heylook/r10/notes-329b41b-mac.txt, ~/qa-heylook/linux/notes/linux-329b41b.txt (not read by QA) |
+
+9.1 Status after 329b41b (session remarks as relayed; QA has not verified any of them)
+
+Rows that are still OPEN after 329b41b:
+
+| Row | Platform | Why open (per session) |
+|---|---|---|
+| WK-1.07 | Mac, Linux | most popovers not confirmed; the rest per the notes |
+| WK-1.11 | Mac, Linux | open |
+| WK-1.13 | Mac, Linux | open (regression AC-1.12.5 on Linux) |
+| WK-2a.02 | Mac, Linux | open |
+| WK-2a.03 | Mac, Linux | open |
+| WK-2d.03 | Mac, Linux | P-HAS: open (the :has() result is one of the engine questions, section 1.3) |
+| WK-2d.09 | Mac, Linux | open (8-language strings) |
+| WK-13.02 | Mac, Linux | open |
+| WK-106.01 | Mac | open (regression of 37ae699) |
+| WK-106.02 | Mac, Linux | open |
+| WK-106.05 | Linux | open (D-021 Ctrl+Q; quit paths) |
+| WK-106.06 | Mac, Linux | open (copy paths) |
+| WK-F.01 | Mac, Linux | open (glyph coverage) |
+| WK-F.02 | Mac, Linux | open (monospace) |
+| WK-10.01, WK-10.02, WK-10.03 | Safari (Mac) | open: Safari JS checks not done |
+| VoiceOver and Orca parts of WK-2d.05 and WK-2d.07 | Mac (VoiceOver), Linux (Orca) | not run |
+| WK-1.01, Linux part | Linux | KDE scale 1.5 not run |
+| Floor (section 1.4, Q1) | Mac, oldest version | cannot be measured on the Mac the session has; QA cannot measure here |
+
+FAIL rows:
+
+| Row | Platform | Defects |
+|---|---|---|
+| WK-2d.08 | Mac | FAIL: D-024, D-026 (rows WK-2d.10 and WK-2d.11) |
+| WK-2d.08 | Linux | FAIL: D-032 (row WK-2d.13) |
+| WK-2d.02 | Linux | FAIL: D-033 (row WK-2d.14) |
+
+New defects, status open on 329b41b (no platform relayed): D-025 (WK-13.05), D-027 (WK-2d.12), D-030 (WK-13.04), D-034 (WK-2c.04).
+
+Not listed as open or failed by the session: the other rows of section 4 that the session ran. Their result is in the notes, which QA has not read. They are NOT PASS here. QA will mark them after reading the notes.
+
+9.2 Probe changes made after the first run (coordinator remarks)
+
+- P-EMO: the monospace comparison (emojiFontFallbackSeen) is removed; it is always equal when the emoji comes from a fallback font. Use the advance width and a screenshot.
+- P-RPL: the field is found by the row id `set-replyTo` (see the probe); `labelBottom` now reads `.set-lbl > div`.
+- P-ACT: the row count is replaced by a tolerance of half the tallest button height (topSpread, maxButtonHeight, oneRow).
+- P-CPHEAD: the scroll-padding values are not a criterion; clamp() resolution is not observable (unresolved string on WKWebView and WebKitGTK). PASS is the focus numbers.
+- Section 0.4a: Linux window sizes (logical minus 28 px client height).
 
 ---
 
@@ -705,6 +777,8 @@ Q7 Linux CI runner fonts: the dry run DRYRUN-838010a-FAIL failed in test-popover
 Q8 Newsletter, plain-text and table fixtures for the real app do not exist in the kit (section 0.3). QA adds them to the stub; rows WK-1.01, WK-1.04, WK-2b.01 stay BLOCKED until they do.
 Q9 Calibri and Carlito are not on macOS or Kubuntu by default (section 2.2). The composed-mail body can render in Arial, Liberation Sans or DejaVu Sans, which have different widths. WK-F.03 records the fallback; no fix is asked for by this file.
 Q10 The 1.0.7 notes must not promise spell check on WebKitGTK (WK-106.07, coder-v106-wp5f).
+Q11 Session notes: the Mac and Linux notes for 329b41b are unreadable from the QA side. Every status in section 9 is a relayed remark until QA reads the notes. The QA marks PASS only after reading them.
+Q12 Publishing: this file is a report under E:\hey-mail\reports\v1-0-1\ and stays there. QA does not commit or push reports into the repo (repo hygiene rule). The existing branch origin/qa/webkit-checks-107 (commit 213f5e2, "qa: WebKit and font checks runbook for 1.0.7 (temporary branch, not for merging)", author Nam Thai) was not created or updated by QA, and QA did not touch it. Whoever owns that branch decides what happens to it. The session reads this file from the reports folder.
 
 ---
 
