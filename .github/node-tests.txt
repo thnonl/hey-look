@@ -231,3 +231,10 @@ static | node --experimental-strip-types scripts/test-prefs-defaults.mjs
 static | node --experimental-strip-types scripts/test-focus-counts.mjs
 # the Focused / Other tab numbers in the real list (W13.12): equal to the bold rows, live on mark read / unread, 99+, gone with a search / Focused Inbox off / another folder, Tab order, 960 x 480 with the list at 300 px in en, de, ru, ja light and dark (one row, no clip, the Filter as its icon, a line of its own for the longest), look and contrast with every accent; stored old preferences start with Count Other on (the full run: `node scripts/test-focus-tabs.mjs --full`)
 ui-a | node scripts/test-focus-tabs.mjs --require-browser
+# 1.0.7 D-045: big pictures and attachments of a draft are sent ahead of the save, one request each (draftUpload.ts / draftupload.rs); D-044: the big pictures stay out of the steps that open a draft and the picture-source check does not copy them (pictureDetach.ts, pastedHtml.ts)
+static | node --experimental-strip-types scripts/test-draft-upload.mjs
+static | node --experimental-strip-types scripts/test-picture-detach.mjs
+# 1.0.7 D-044: a draft that takes time to open shows a ring on its row at once and the status "Opening draft…" within 150 ms (REQ-13.7.1); no flash for a fast open, one editor for a second click, reduced motion, the 8 languages
+ui-b | node scripts/test-draft-opening.mjs --require-browser
+# 1.0.7 D-012 / D-003 / D-018: the scrolled header of the compose pane with Meeting on rests on whole rows, the focused control whole, To in sight where the box is tall enough, the shade that says more is below; 960 x 480, 946 x 552 and 1280 x 800, main window and compose window, light and dark (--quick: four of the 24 combinations)
+ui-b | node --experimental-strip-types scripts/test-header-rows.mjs --quick --require-browser
