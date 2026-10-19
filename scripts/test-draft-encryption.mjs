@@ -19,7 +19,7 @@ assert.ok(/f\.plainWouldLeak\) return false/.test(read("src/autosave.ts")), "no 
 
 // the backend: one function makes the bytes of every draft; a sealed scheduled message is opened and encrypted again for the own key
 const fn = lib.slice(lib.indexOf("THE RULE (W2.4)"), lib.indexOf("fn remember_draft_meeting("));
-assert.ok(fn.includes("encrypted to your own key only") && fn.includes("build_secure(&lock(db), acc, &d, true)"), "draft mode: the own key only");
+assert.ok(fn.includes("encrypted to your own key only") && fn.includes("build_secure(db, acc, &d, true)"), "draft mode: the own key only");
 assert.ok(fn.indexOf("unseal_from_outbox") > 0 && fn.indexOf("unseal_from_outbox") < fn.indexOf("build_secure"), "a sealed message is unsealed before it is encrypted again");
 assert.ok(!fn.includes("return base64::engine::general_purpose::STANDARD.decode(pre)"), "the sealed bytes (for the recipients) are never stored as a draft");
 for (const road of ["fn save_draft_on", "fn save_recovered", "async fn outbox_to_draft"]) {
@@ -27,6 +27,13 @@ for (const road of ["fn save_draft_on", "fn save_recovered", "async fn outbox_to
   assert.ok(body.slice(0, 3500).includes("draft_bytes(") || road === "fn save_draft_on", `${road} makes its bytes with draft_bytes`);
 }
 assert.ok(lib.includes("let raw = draft_bytes(&db, &acc, &draft)?;") && lib.includes("save_draft_on(&db, &acc, &mut s, &raw, replaces)"), "Save draft, the autosave and the quit save: draft_bytes, then the append");
+
+// D-025: nothing that encrypts, signs or decrypts a message is called with the database lock held (the folder list waits for the lock on the main thread:
+// a draft with big pictures stopped the whole window). The functions take the shared database and lock it for their own lookups only.
+assert.ok(!/(?:build_secure|plan_secure|seal_for_outbox|unseal_from_outbox|open_message)\(\s*&lock\(/.test(lib), "a secure build or an open with the lock held");
+assert.ok(!/(?:build_secure|seal_for_outbox|unseal_from_outbox)\(\s*&c\b/.test(lib), "a secure build with a held connection");
+assert.ok(/open_message\(c, &m\.id, &raw\)/.test(lib), "(the one open that still has a held connection: the display of a decrypted message, apply_pgp)");
+assert.ok(/pub fn build_secure<A: Access/.test(read("src-tauri/src/pgpstore.rs")) && /pub fn plan_secure/.test(read("src-tauri/src/pgpstore.rs")), "the build is split: the plan needs the database, the build does not");
 
 // "Move to Drafts" asks for a locked key (the draft is made with it) in all three places
 const sched = read("src/components/ScheduledList.tsx");

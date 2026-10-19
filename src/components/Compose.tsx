@@ -33,7 +33,7 @@ import { cleanPastedHtml, stripRemotePictures } from "../pastedHtml";
 import { insertPictureNodes, type PictureAttrs } from "../editor/insertPictures";
 import { cleanHeaderText } from "../headerText";
 import { fromAccountFor } from "../fromAccount";
-import { askFreshBeforeSend, isSizeRefusal, sendLimit, showSizeToast, wireSize } from "../sendSize";
+import { askFreshBeforeSend, DRAFT_LIMIT, draftSize, draftTooLargeError, isSizeRefusal, sendLimit, showSizeToast, wireSize } from "../sendSize";
 import { outgoingName, outgoingNames } from "../attachName";
 import { blockedAttachmentExt, dataUriBytes, fileToBase64, fmtClock, fmtIn, fmtSize, fmtWhen, htmlToText, imageSize, PICTURE_TYPES, playSent, resizeImage, sanitizeHtml, shortKey, userName } from "../util";
 import { calTz } from "../calendar";
@@ -1505,6 +1505,9 @@ function ComposeBody({ init }: { init: ComposeInit }) {
       savingRef.current++;
       try {
         const d = buildDraftRef.current();
+        // far too big for a draft (D-025): the backend would refuse it as well, but nothing needs to travel to it for that; the autosave stays silent, Save draft says why
+        const weight = draftSize(d);
+        if (weight > DRAFT_LIMIT) throw new Error(draftTooLargeError(weight));
         // a draft is only ever encrypted to your own key (no passphrase needed), and never signed
         const keepPrivate = !!d.security?.encrypt && eff(prefs, accountId, "pgpEncryptDrafts");
         // (`recoveryId`: the draft carries the id of this message's snapshot, so the next start finds it and never makes a second draft of it)

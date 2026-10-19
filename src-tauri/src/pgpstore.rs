@@ -226,12 +226,53 @@ fn mailbox_of(c: &Connection, message_id: &str) -> Option<(String, Vec<String>)>
     .map(|(mailbox, to, cc)| (mailbox, to.split(',').chain(cc.split(',')).map(|a| addr_of(a)).filter(|a| !a.is_empty()).collect()))
 }
 
-/// Open a stored PGP message with the keys currently available. Successful decryptions are cached for the session.
-pub fn open_message(c: &Connection, message_id: &str, raw: &[u8]) -> R<Arc<Opened>> {
-    if let Some(v) = VIEWS.lock().unwrap_or_else(|p| p.into_inner()).iter().find(|(id, _)| id == message_id) {
-        return Ok(v.1.clone());
+/// A way to the database that a function can use for a moment: a connection that the caller holds (`Connection`; tests, and callers that
+/// already hold the lock for other reasons) or the shared database (`Db`), which is locked for the moment `with` runs and not longer. The
+/// functions that decrypt, encrypt or sign take this, so that they can do their slow work with the database free.
+pub trait Access {
+    fn with<T>(&self, f: impl FnOnce(&Connection) -> T) -> T;
+}
+
+impl Access for Connection {
+    fn with<T>(&self, f: impl FnOnce(&Connection) -> T) -> T {
+        f(self)
     }
-    let store = load_store(c)?;
+}
+
+impl Access for crate::Db {
+    fn with<T>(&self, f: impl FnOnce(&Connection) -> T) -> T {
+        f(&crate::lock(self))
+    }
+}
+
+/// What opening a message needs from the database.
+struct OpenPrep {
+    store: Arc<Store>,
+    mailbox: Option<(String, Vec<String>)>,
+}
+
+fn open_cached(message_id: &str) -> Option<Arc<Opened>> {
+    VIEWS.lock().unwrap_or_else(|p| p.into_inner()).iter().find(|(id, _)| id == message_id).map(|v| v.1.clone())
+}
+
+fn open_prep(c: &Connection, message_id: &str) -> R<OpenPrep> {
+    Ok(OpenPrep { store: load_store(c)?, mailbox: mailbox_of(c, message_id) })
+}
+
+/// Open a stored PGP message with the keys currently available. Successful decryptions are cached for the session.
+/// The database is used for the key store and the mailbox only; the decryption does not touch it. A caller that has the shared database (`Db`)
+/// passes it as it is: the lock is held for those two lookups, not for the decryption (a 20 MB message takes seconds; the folder list waits for
+/// the lock on the main thread).
+pub fn open_message<A: Access + ?Sized>(a: &A, message_id: &str, raw: &[u8]) -> R<Arc<Opened>> {
+    if let Some(v) = open_cached(message_id) {
+        return Ok(v);
+    }
+    let prep = a.with(|c| open_prep(c, message_id))?;
+    Ok(open_run(message_id, raw, prep))
+}
+
+fn open_run(message_id: &str, raw: &[u8], prep: OpenPrep) -> Arc<Opened> {
+    let OpenPrep { store, mailbox } = prep;
     let unlocked = unlocked_keys();
     let have: HashSet<String> = unlocked.iter().map(|k| openpgp::fingerprint(&k.to_public_key())).collect();
     let locked: Vec<LockedKey> = store
@@ -247,7 +288,7 @@ pub fn open_message(c: &Connection, message_id: &str, raw: &[u8]) -> R<Arc<Opene
         .collect();
     // the unlock prompt names the key of the mailbox the message is in, not whichever key is stored first
     let mut locked = locked;
-    if let Some((mailbox, recipients)) = mailbox_of(c, message_id) {
+    if let Some((mailbox, recipients)) = mailbox {
         pgpmail::order_locked(&mut locked, &mailbox, &recipients);
     }
     let ctx = Ctx { unlocked: unlocked.iter().collect(), locked, publics: &store.publics, verified: &store.verified };
@@ -260,7 +301,7 @@ pub fn open_message(c: &Connection, message_id: &str, raw: &[u8]) -> R<Arc<Opene
             v.pop_front();
         }
     }
-    Ok(opened)
+    opened
 }
 
 /// Passphrase prompt target for a message that is waiting for a key, if any.
@@ -292,17 +333,43 @@ fn addr_of(s: &str) -> String {
 
 /// Build the final message (signed and/or encrypted). `draft_mode`: for the Drafts folder, encrypt to the
 /// account's own key only and never sign (no passphrase needed).
-pub fn build_secure(c: &Connection, acc: &Account, d: &Draft, draft_mode: bool) -> R<lettre::Message> {
+///
+/// Two steps, because the second one is slow: `plan_secure` needs the database (the key store) and is quick; `SecurePlan::build` does the
+/// work (the MIME, the signature, the encryption, the armor: seconds for a message with big pictures) and needs no database. A caller that
+/// shares the database with the rest of the app must not hold its lock during `build`: the commands that wait for the lock (the folder
+/// list, run on the main thread) would stop the whole window for as long as the message takes (QA D-025).
+pub fn build_secure<A: Access + ?Sized>(a: &A, acc: &Account, d: &Draft, draft_mode: bool) -> R<lettre::Message> {
+    a.with(|c| plan_secure(c, acc, d, draft_mode))?.build()
+}
+
+/// What `build_secure` found out from the key store: the keys to encrypt to and to sign with, and the draft to build.
+pub struct SecurePlan<'a> {
+    acc: &'a Account,
+    /// the draft as it is built (a copy only when the public key is attached to it)
+    d: std::borrow::Cow<'a, Draft>,
+    draft_mode: bool,
+    encrypt_to: Option<Vec<(SignedPublicKey, bool)>>,
+    signer: Option<SignedSecretKey>,
+}
+
+/// Test hooks: how long `SecurePlan::build` waits before it starts (milliseconds), to make a slow build whose effect on other commands can be
+/// seen, and how many builds have started.
+#[cfg(test)]
+pub(crate) static BUILD_DELAY_MS: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+#[cfg(test)]
+pub(crate) static BUILDS_STARTED: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+
+pub fn plan_secure<'a>(c: &Connection, acc: &'a Account, d: &'a Draft, draft_mode: bool) -> R<SecurePlan<'a>> {
     let sec = d.security.clone().unwrap_or_default();
     let store = load_store(c)?;
     let own = store.own_key(acc);
     let no_key = || format!("PGP_NO_KEY: You have no PGP key for {}. Set up encryption in Settings, Encryption (PGP).", acc.email);
     let sign = sec.sign && !draft_mode;
-    let mut d2 = d.clone();
+    let mut d2 = std::borrow::Cow::Borrowed(d);
     if sec.attach_public_key && !draft_mode {
         let k = own.ok_or_else(no_key)?;
         let armored = openpgp::armor_public(&k.public)?;
-        d2.attachments.push(Att {
+        d2.to_mut().attachments.push(Att {
             filename: "public-key.asc".into(),
             mime: "application/pgp-keys".into(),
             data_base64: base64::engine::general_purpose::STANDARD.encode(armored.as_bytes()),
@@ -320,6 +387,7 @@ pub fn build_secure(c: &Connection, acc: &Account, d: &Draft, draft_mode: bool) 
     } else {
         None
     };
+    let mut encrypt_to = None;
     if sec.encrypt {
         let own_pub = own.ok_or_else(no_key)?.public.clone();
         let mut certs: Vec<(SignedPublicKey, bool)> = vec![(own_pub, false)];
@@ -345,15 +413,36 @@ pub fn build_secure(c: &Connection, acc: &Account, d: &Draft, draft_mode: bool) 
                 return Err(format!("PGP_MISSING_KEYS:{}", missing.join(",")));
             }
         }
-        let encrypt_fn = |plain: &[u8]| -> R<String> {
-            let recips: Vec<Recipient> = certs.iter().map(|(k, h)| Recipient { key: k, hidden: *h }).collect();
-            openpgp::encrypt(plain, &recips, signer.as_ref().map(|s| (s, "")))
-        };
-        return smtp::build_encrypted(acc, &d2, draft_mode, &encrypt_fn);
+        encrypt_to = Some(certs);
+    } else if signer.is_none() {
+        return Err("PGP_FAILED: nothing to do".into());
     }
-    let signer = signer.ok_or("PGP_FAILED: nothing to do")?;
-    let sign_fn = |data: &[u8]| openpgp::sign_detached(&signer, "", data);
-    smtp::build_signed(acc, &d2, draft_mode, &sign_fn)
+    Ok(SecurePlan { acc, d: d2, draft_mode, encrypt_to, signer })
+}
+
+impl SecurePlan<'_> {
+    /// The slow part: no database, no lock.
+    pub fn build(self) -> R<lettre::Message> {
+        #[cfg(test)]
+        {
+            BUILDS_STARTED.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+            let ms = BUILD_DELAY_MS.load(std::sync::atomic::Ordering::SeqCst);
+            if ms > 0 {
+                std::thread::sleep(std::time::Duration::from_millis(ms));
+            }
+        }
+        let SecurePlan { acc, d, draft_mode, encrypt_to, signer } = self;
+        if let Some(certs) = encrypt_to {
+            let encrypt_fn = |plain: &[u8]| -> R<String> {
+                let recips: Vec<Recipient> = certs.iter().map(|(k, h)| Recipient { key: k, hidden: *h }).collect();
+                openpgp::encrypt(plain, &recips, signer.as_ref().map(|s| (s, "")))
+            };
+            return smtp::build_encrypted(acc, &d, draft_mode, &encrypt_fn);
+        }
+        let signer = signer.ok_or("PGP_FAILED: nothing to do")?;
+        let sign_fn = |data: &[u8]| openpgp::sign_detached(&signer, "", data);
+        smtp::build_signed(acc, &d, draft_mode, &sign_fn)
+    }
 }
 
 /// Key status for the recipient chips in Compose.
@@ -846,10 +935,9 @@ pub async fn pgp_decrypt_message(state: tauri::State<'_, AppState>, message_id: 
         let (raw, _) = crate::fetch_raw_for(&db, &message_id)?;
         if let Some(p) = passphrase.filter(|p| !p.is_empty()) {
             let locked = {
-                let c = lock(&db);
-                let opened = open_message(&c, &message_id, &raw)?;
+                let opened = open_message(&db, &message_id, &raw)?;
                 match locked_key_of(&opened) {
-                    Some(f) => Some((f, load_store(&c)?)),
+                    Some(f) => Some((f, load_store(&lock(&db))?)),
                     None => None,
                 }
             };
@@ -868,12 +956,12 @@ pub async fn pgp_decrypt_message(state: tauri::State<'_, AppState>, message_id: 
 // schedule-time building (decision 3): the final MIME is made now and stored, so no key is needed later
 
 /// Replace a draft that has been encrypted by a content-free shell around the finished message.
-pub fn seal_for_outbox(c: &Connection, acc: &Account, d: &Draft) -> R<Draft> {
+pub fn seal_for_outbox<A: Access + ?Sized>(a: &A, acc: &Account, d: &Draft) -> R<Draft> {
     let sec = d.security.clone().unwrap_or_default();
     if !(sec.encrypt || sec.sign) {
         return Ok(d.clone());
     }
-    let msg = build_secure(c, acc, d, false)?;
+    let msg = a.with(|c| plan_secure(c, acc, d, false))?.build()?;
     let mut out = d.clone();
     out.prebuilt = Some(base64::engine::general_purpose::STANDARD.encode(crate::smtp::wire(&msg)));
     if sec.encrypt {
@@ -892,7 +980,7 @@ pub fn seal_for_outbox(c: &Connection, acc: &Account, d: &Draft) -> R<Draft> {
 }
 
 /// Recover a sealed (encrypted) scheduled message as an editable draft, using the account's key.
-pub fn unseal_from_outbox(c: &Connection, acc: &Account, d: &Draft) -> R<Draft> {
+pub fn unseal_from_outbox<A: Access + ?Sized>(a: &A, acc: &Account, d: &Draft) -> R<Draft> {
     let Some(pre) = &d.prebuilt else { return Ok(d.clone()) };
     let sec = d.security.clone().unwrap_or_default();
     let mut out = d.clone();
@@ -901,12 +989,12 @@ pub fn unseal_from_outbox(c: &Connection, acc: &Account, d: &Draft) -> R<Draft> 
         return Ok(out);
     }
     let raw = base64::engine::general_purpose::STANDARD.decode(pre).map_err(err)?;
-    let store = load_store(c)?;
+    let store = a.with(load_store)?;
     let own = store.own_key(acc).ok_or_else(|| crate::i18n::coded("PGP_NO_KEY", &[("email", &acc.email)], &format!("You have no PGP key for {}.", acc.email)))?;
     if unlocked_key(&own.info.fingerprint).is_none() && own.secret.as_ref().is_some_and(openpgp::is_protected) {
         return Err(format!("PGP_LOCKED:{}", own.info.fingerprint));
     }
-    let opened = open_message(c, &format!("outbox:{}", pgpstore_hash(&raw)), &raw)?;
+    let opened = open_message(a, &format!("outbox:{}", pgpstore_hash(&raw)), &raw)?;
     let plain = opened.plain.as_ref().ok_or("PGP_UNREADABLE: Couldn't read the encrypted message.")?;
     let parsed = crate::mail::parse(0, plain, true, false, 0).ok_or("PGP_UNREADABLE: Couldn't read the encrypted message.")?;
     out.html = parsed.html.unwrap_or_default();
@@ -1235,6 +1323,63 @@ mod tests {
         });
     }
 
+    /// D-025 (Mac QA, 329b41b): the encode of a big encrypted draft ran with the database locked, and the folder list (a command that runs on the main
+    /// thread) waited for the lock: the whole app stopped. A slow encode (a delay is injected) and the append to the server run while the commands
+    /// that need the database answer at once; so do the commands that seal, open and edit a scheduled message.
+    #[test]
+    fn a_slow_draft_encode_does_not_block_the_commands_that_need_the_database() {
+        crate::test_guard::within(60, || {
+            let (c, acc, _g) = setup();
+            add_own(&c, "me@example.com", "my-pass-1234");
+            add_contact(&c, "bob@example.com");
+            let db = share(c);
+            let fake = crate::fakeimap::Fake::start(&[("INBOX", &[]), ("Drafts", &[])]);
+            crate::db::set_setting(&lock(&db), "fmap:a1", r#"{"inbox":"INBOX","drafts":"Drafts"}"#).unwrap();
+            let d = draft(&acc, &["bob@example.com"], &[], true, false);
+            let started = BUILDS_STARTED.load(std::sync::atomic::Ordering::SeqCst);
+            BUILD_DELAY_MS.store(900, std::sync::atomic::Ordering::SeqCst);
+            std::thread::scope(|sc| {
+                let saver = sc.spawn(|| {
+                    let raw = crate::draft_bytes(&db, &acc, &d).unwrap();
+                    let mut s = fake.connect();
+                    crate::save_draft_on(&db, &acc, &mut s, &raw, None).unwrap();
+                    let _ = s.logout();
+                });
+                // the encode is running (it is waiting inside the build, where the lock used to be held)
+                while BUILDS_STARTED.load(std::sync::atomic::Ordering::SeqCst) == started {
+                    std::thread::sleep(Duration::from_millis(5));
+                }
+                let t0 = Instant::now();
+                let folders = crate::folder_infos(&lock(&db)).unwrap();
+                let accounts = crate::db::list_accounts(&lock(&db)).unwrap();
+                let took = t0.elapsed();
+                assert!(!folders.is_empty() && accounts.len() == 1);
+                assert!(!saver.is_finished(), "the save was still running while the folder list was read");
+                assert!(took < Duration::from_millis(450), "the folder list waited {took:?} for the save");
+                BUILD_DELAY_MS.store(0, std::sync::atomic::Ordering::SeqCst);
+                saver.join().unwrap();
+            });
+            BUILD_DELAY_MS.store(0, std::sync::atomic::Ordering::SeqCst);
+            assert_eq!(fake.state.lock().unwrap().appended.len(), 1);
+            // the same for sealing a message that is scheduled (another thread's lock use is the folder list again)
+            BUILD_DELAY_MS.store(700, std::sync::atomic::Ordering::SeqCst);
+            let started = BUILDS_STARTED.load(std::sync::atomic::Ordering::SeqCst);
+            std::thread::scope(|sc| {
+                let sealer = sc.spawn(|| seal_for_outbox(&db, &acc, &draft(&acc, &["bob@example.com"], &[], true, false)));
+                while BUILDS_STARTED.load(std::sync::atomic::Ordering::SeqCst) == started {
+                    std::thread::sleep(Duration::from_millis(5));
+                }
+                let t0 = Instant::now();
+                let _ = crate::folder_infos(&lock(&db)).unwrap();
+                assert!(t0.elapsed() < Duration::from_millis(350), "the folder list waited {:?} for the seal", t0.elapsed());
+                assert!(!sealer.is_finished());
+                BUILD_DELAY_MS.store(0, std::sync::atomic::Ordering::SeqCst);
+                assert!(sealer.join().unwrap().unwrap().prebuilt.is_some());
+            });
+            BUILD_DELAY_MS.store(0, std::sync::atomic::Ordering::SeqCst);
+        });
+    }
+
     /// Step 2: Encrypt on, "Encrypt drafts" off: the page sends the draft WITHOUT security (Compose.saveDraft: `keepPrivate ? {encrypt...} : undefined`),
     /// so the backend appends a plain draft; the backend never decides this itself (a draft that does carry `encrypt` is always encrypted).
     #[test]
@@ -1265,7 +1410,7 @@ mod tests {
             unlock_key(&load_store(&c).unwrap(), &own, "my-pass-1234", false).unwrap();
             let (_, bob) = add_contact(&c, "bob@example.com");
             let db = share(c);
-            let sealed = seal_for_outbox(&lock(&db), &acc, &draft(&acc, &["bob@example.com"], &[], true, false)).unwrap();
+            let sealed = seal_for_outbox(&db, &acc, &draft(&acc, &["bob@example.com"], &[], true, false)).unwrap();
             // (what the outbox holds: the message for bob and for the account)
             let at_schedule = openpgp::encrypted_for(&pgp_block(&base64::engine::general_purpose::STANDARD.decode(sealed.prebuilt.as_ref().unwrap()).unwrap())).unwrap();
             assert!(at_schedule.iter().any(|i| subkey_ids(&db, &bob).contains(i)), "the sealed message is for bob: {at_schedule:?}");
@@ -1390,6 +1535,72 @@ mod tests {
             let names: Vec<String> = crate::mail::parse(2, &plain, true, false, 0).unwrap().attachments.iter().map(|a| a.name.clone()).collect();
             assert!(names.iter().any(|n| n == name), "{names:?}");
         });
+    }
+
+    /// Synthetic draft of `mb` MB of inline pictures (14 of them), random bytes so nothing compresses.
+    fn big_draft(acc: &Account, mb: usize, enc: bool) -> Draft {
+        use rand08::RngCore;
+        let mut d = draft(acc, &["bob@example.com"], &[], enc, false);
+        let mut rng = rand08::thread_rng();
+        let each = mb * 1024 * 1024 / 14;
+        let mut html = String::from("<p>pictures</p>\n");
+        for i in 0..14 {
+            let mut b = vec![0u8; each];
+            rng.fill_bytes(&mut b);
+            let cid = format!("img{i}@x");
+            html.push_str(&format!("<p><img src=\"cid:{cid}\"></p>\n"));
+            d.inline.push(smtp::InlineImage { cid, filename: format!("p{i}.png"), mime: "image/png".into(), data_base64: base64::engine::general_purpose::STANDARD.encode(&b) });
+        }
+        d.html = html;
+        d
+    }
+
+    #[test]
+    #[ignore]
+    fn perf_big_draft() {
+        let mb: usize = std::env::var("PERF_MB").ok().and_then(|v| v.parse().ok()).unwrap_or(2);
+        let (c, acc, _g) = setup();
+        add_own(&c, "me@example.com", "my-pass-1234");
+        let t = |name: &str, f: &mut dyn FnMut() -> usize| {
+            let t0 = std::time::Instant::now();
+            let n = f();
+            eprintln!("PERF {mb} MB {name}: {:.3} s ({n} bytes)", t0.elapsed().as_secs_f64());
+        };
+        let plain = big_draft(&acc, mb, false);
+        t("plain build+wire", &mut || smtp::wire(&smtp::build_draft(&acc, &plain).unwrap()).len());
+        let wire_plain = smtp::wire(&smtp::build_draft(&acc, &plain).unwrap());
+        t("openpgp::encrypt alone (armored)", &mut || {
+            let store = load_store(&c).unwrap();
+            let own = store.own_key(&acc).unwrap();
+            let r = [Recipient { key: &own.public, hidden: false }];
+            openpgp::encrypt(&wire_plain, &r, None).unwrap().len()
+        });
+        let encd = big_draft(&acc, mb, true);
+        // what the command bridge does with the draft on the main thread before the command runs (the body of the invoke is parsed from JSON)
+        let json = serde_json::to_string(&encd).unwrap();
+        t("serde_json::from_str::<Draft> (the IPC argument)", &mut || serde_json::from_str::<Draft>(&json).unwrap().inline.len());
+        drop(json);
+        let mut enc_wire = vec![];
+        t("encrypted build_secure(draft)+wire", &mut || {
+            enc_wire = smtp::wire(&build_secure(&c, &acc, &encd, true).unwrap());
+            enc_wire.len()
+        });
+        // what save_draft_on does with the bytes after the append, besides the network
+        t("draft_thread_id(plain)", &mut || crate::draft_thread_id("a1", &wire_plain).map_or(0, |s| s.len()));
+        t("draft_thread_id(encrypted)", &mut || crate::draft_thread_id("a1", &enc_wire).map_or(0, |s| s.len()));
+        t("draft_ref(encrypted)", &mut || crate::draftmail::draft_ref("a1", &enc_wire).map_or(0, |s| s.len()));
+        // the page asks for the whole path in one go: draft_bytes (plain and encrypted, as the commands do it)
+        let db = share(c);
+        t("draft_bytes(encrypted)", &mut || crate::draft_bytes(&db, &acc, &encd).unwrap().len());
+        t("draft_bytes(plain, security none)", &mut || {
+            let mut p = plain.clone();
+            p.security = None;
+            crate::draft_bytes(&db, &acc, &p).unwrap().len()
+        });
+        // one picture pasted as a data: URI in the html (no cid part)
+        let mut dataurl = draft(&acc, &["bob@example.com"], &[], false, false);
+        dataurl.html = format!("<p>x</p>\n<img src=\"data:image/png;base64,{}\">\n", "QUJD".repeat(mb * 1024 * 1024 / 3));
+        t("html with a data: uri of the size (plain)", &mut || smtp::wire(&smtp::build_draft(&acc, &dataurl).unwrap()).len());
     }
 
     /// 1.0.7 W2.6: a recipient whose only key cannot encrypt is told apart from one with no key at all (the chip and the strip say so).

@@ -19,6 +19,7 @@
 
 ### Fixed
 
+- Saving a draft of a message with big pictures no longer stops the whole app. An encrypted draft (the default when Encrypt is on) with 20 MB of pictures took half an hour to build on a Mac with the window not answering; it is now built in about a second (the time grew with the square of the size), the database is no longer locked while a message is encrypted, signed, decrypted or put together for the outbox, and a draft over 100 MB gets a clear message instead of a try (the limit for sending stays 25 MB)
 - A link inside a sentence of a notice ("This looks like a newsletter. Unsubscribe", the blocked pictures banner, the signature and invitation notices, the update notices) sits on the same line as the words in front of it instead of a little lower, also when the link wraps to a second line in a narrow window or a long language; its click box stays 24 px high
 - On a Mac, Cmd+Option+Shift+V ("Paste and Match Style") pastes text only in the message body, like Cmd+Shift+V (the other Cmd+Option keys stay off in the editor); Settings > Keyboard shortcuts lists both keys
 - On Linux, Ctrl+Shift+V pastes the text of a clipboard that holds HTML only (a copy from some programs) instead of pasting nothing: the HTML is turned into text the way "Keep text only" does (list numbers, table rows), without formatting; an empty clipboard still does nothing

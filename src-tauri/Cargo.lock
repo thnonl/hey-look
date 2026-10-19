@@ -2442,6 +2442,7 @@ dependencies = [
  "block2",
  "chrono",
  "chrono-tz",
+ "email-encoding",
  "fontdue",
  "gtk",
  "hickory-resolver",

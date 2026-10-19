@@ -3113,7 +3113,7 @@ pub(crate) fn fetch_view_for(db: &Db, message_id: &str) -> R<(Vec<u8>, String)> 
     if pgp & pgpmail::FLAG_ENCRYPTED as i64 == 0 {
         return Ok((raw, att));
     }
-    let opened = pgpstore::open_message(&lock(db), message_id, &raw)?;
+    let opened = pgpstore::open_message(db, message_id, &raw)?;
     match &opened.plain {
         Some(plain) => {
             let metas = mail::parse(0, plain, true, false, 0).map(|p| p.attachments).unwrap_or_default();
@@ -3679,23 +3679,63 @@ fn finished_message(db: &Db, acc: &Account, d: &smtp::Draft) -> R<(Vec<u8>, lett
         return Ok((raw, smtp::envelope(acc, d)?));
     }
     let sec = d.security.clone().unwrap_or_default();
-    let msg = if sec.encrypt || sec.sign { pgpstore::build_secure(&lock(db), acc, d, false)? } else { smtp::build(acc, d)? };
+    let msg = if sec.encrypt || sec.sign { pgpstore::build_secure(db, acc, d, false)? } else { smtp::build(acc, d)? };
     Ok((smtp::wire(&msg), msg.envelope().clone()))
+}
+
+/// The most a draft may hold: the text of the message and of the pictures and files in it as the page keeps them (base64), in bytes. A draft is
+/// built into one message in memory (the pictures and files again as base64 lines, encrypted drafts once more as armor: five to seven copies of
+/// the data at the same time) and appended to the server in one piece; far above the 25 MB a message may be sent with (`sendSize.ts`) is
+/// still allowed for a draft, since the person is taking pictures out or splitting the message, but not without a bound (D-025: 20 MB of pictures
+/// stopped the app for half an hour). `DRAFT_LIMIT` of src/sendSize.ts is the same number (the page does not even ask; scripts/test-send-size.mjs
+/// compares the two).
+const DRAFT_LIMIT: usize = 100 * 1024 * 1024;
+
+/// What a draft weighs for `DRAFT_LIMIT`: the characters of its HTML, text, pictures, files and finished bytes.
+fn draft_size(d: &smtp::Draft) -> usize {
+    d.html.len()
+        + d.text.len()
+        + d.attachments.iter().map(|a| a.data_base64.len()).sum::<usize>()
+        + d.inline.iter().map(|i| i.data_base64.len()).sum::<usize>()
+        + d.prebuilt.as_ref().map_or(0, |p| p.len())
+}
+
+fn ensure_draft_size(d: &smtp::Draft) -> R<()> {
+    let size = draft_size(d);
+    if size <= DRAFT_LIMIT {
+        return Ok(());
+    }
+    let mb = |n: usize| format!("{} MB", n.div_ceil(1024 * 1024));
+    let (size, limit) = (mb(size), mb(DRAFT_LIMIT));
+    Err(i18n::coded(
+        "DRAFT_TOO_LARGE",
+        &[("size", &size), ("limit", &limit)],
+        &format!("This message is too large to keep as a draft ({size}; the limit is {limit}). Remove attachments or shrink pictures."),
+    ))
 }
 
 /// What goes into the Drafts folder. THE RULE (W2.4): a draft is encrypted to your own key only, whoever its recipients are and whether or not
 /// their keys are known; the recipients' keys are used when the message is sent. "Encrypt drafts" off is decided by the page: it sends such a
 /// draft without `security`, and it is stored as a plain draft.
 fn draft_bytes(db: &Db, acc: &Account, d: &smtp::Draft) -> R<Vec<u8>> {
+    ensure_draft_size(d)?;
     let sec = d.security.clone().unwrap_or_default();
     if sec.encrypt {
         // a scheduled message that was sealed is for its recipients and the account ("Move to Drafts"): it is opened with your key and encrypted
         // again for your key only, so the stored draft is like every other one (a locked key asks for its passphrase: PGP_LOCKED)
-        let mut d = if d.prebuilt.is_some() { pgpstore::unseal_from_outbox(&lock(db), acc, d)? } else { d.clone() };
+        // (no copy of the pictures unless something has to change: a draft with 100 MB of them is not held twice)
+        let d: std::borrow::Cow<smtp::Draft> = if d.prebuilt.is_some() { std::borrow::Cow::Owned(pgpstore::unseal_from_outbox(db, acc, d)?) } else { std::borrow::Cow::Borrowed(d) };
         // the meeting header is plain text outside the encryption: an encrypted draft keeps its meeting on this computer only (`remember_meeting`)
-        d.meeting_form = None;
-        d.answers = None; // (also plain text outside the encryption: an encrypted draft that is sent later does not flag what it answered)
-        return Ok(smtp::wire(&pgpstore::build_secure(&lock(db), acc, &d, true)?));
+        // (`answers` is also plain text outside the encryption: an encrypted draft that is sent later does not flag what it answered)
+        let d = if d.meeting_form.is_some() || d.answers.is_some() {
+            let mut own = d.into_owned();
+            own.meeting_form = None;
+            own.answers = None;
+            std::borrow::Cow::Owned(own)
+        } else {
+            d
+        };
+        return Ok(smtp::wire(&pgpstore::build_secure(db, acc, &d, true)?));
     }
     Ok(smtp::wire(&smtp::build_draft(acc, d)?))
 }
@@ -3747,7 +3787,7 @@ async fn outbox_hold(app: tauri::AppHandle, state: tauri::State<'_, AppState>, d
     }
     blocking(move || {
         let acc = db::get_account(&lock(&db), &draft.account_id)?;
-        let draft = pgpstore::seal_for_outbox(&lock(&db), &acc, &draft)?;
+        let draft = pgpstore::seal_for_outbox(&db, &acc, &draft)?;
         insert_outbox_hold(&db, &draft, due_at, replaces.as_deref())
     })
     .await
@@ -3823,7 +3863,7 @@ async fn send_message(
         let id = blocking(move || {
             // encrypt / sign now (decision: the key is only needed at schedule time) and keep just the result
             let acc = db::get_account(&lock(&db), &draft.account_id)?;
-            let draft = pgpstore::seal_for_outbox(&lock(&db), &acc, &draft)?;
+            let draft = pgpstore::seal_for_outbox(&db, &acc, &draft)?;
             let id = insert_outbox(&db, &draft, at)?;
             drop_replaced_draft(&db, replaces);
             Ok(id)
@@ -3887,6 +3927,7 @@ fn ensure_draft_has_content(d: &smtp::Draft) -> R<()> {
 #[tauri::command]
 async fn save_draft(state: tauri::State<'_, AppState>, draft: smtp::Draft, replaces: Option<String>) -> R<SavedDraft> {
     ensure_draft_has_content(&draft)?;
+    ensure_draft_size(&draft)?; // (before the keyring is read and a connection is made)
     let db = state.db.clone();
     blocking(move || {
         let acc = db::get_account(&lock(&db), &draft.account_id)?;
@@ -4311,24 +4352,38 @@ struct OutboxEdit {
 }
 
 /// Load a scheduled message into Compose. Pending or overdue items are paused (`held`) while they are edited.
+/// The database is locked to read the row and to pause it, not while an encrypted message is decrypted (it can be big; D-025).
 #[tauri::command]
-fn outbox_open_for_edit(state: tauri::State<AppState>, id: String) -> R<OutboxEdit> {
-    let c = lock(&state.db);
-    let (payload, send_at, status): (String, i64, String) = c
-        .query_row("SELECT payload,send_at,status FROM outbox WHERE id=?1", [&id], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)))
-        .map_err(|_| "OUTBOX_MISSING: This scheduled message no longer exists.".to_string())?;
-    if status == "sending" {
-        return Err("OUTBOX_SENDING: This message is being sent right now.".into());
-    }
-    // an encrypted message is read back with the account's key (PGP_LOCKED:<fpr> while it is locked)
-    let stored: smtp::Draft = serde_json::from_str(&payload).map_err(err)?;
-    let acc = db::get_account(&c, &stored.account_id)?;
-    let draft = pgpstore::unseal_from_outbox(&c, &acc, &stored)?;
-    if status == "pending" || status == "overdue" {
-        c.execute("UPDATE outbox SET status='held' WHERE id=?1", [&id]).map_err(err)?;
-    }
-    let shown = if status == "pending" || status == "overdue" { "held".to_string() } else { status };
-    Ok(OutboxEdit { draft, send_at, status: shown })
+async fn outbox_open_for_edit(state: tauri::State<'_, AppState>, id: String) -> R<OutboxEdit> {
+    let db = state.db.clone();
+    blocking(move || {
+        let (stored, acc, send_at, status) = {
+            let c = lock(&db);
+            let (payload, send_at, status): (String, i64, String) = c
+                .query_row("SELECT payload,send_at,status FROM outbox WHERE id=?1", [&id], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)))
+                .map_err(|_| "OUTBOX_MISSING: This scheduled message no longer exists.".to_string())?;
+            if status == "sending" {
+                return Err("OUTBOX_SENDING: This message is being sent right now.".into());
+            }
+            let stored: smtp::Draft = serde_json::from_str(&payload).map_err(err)?;
+            let acc = db::get_account(&c, &stored.account_id)?;
+            (stored, acc, send_at, status)
+        };
+        // an encrypted message is read back with the account's key (PGP_LOCKED:<fpr> while it is locked)
+        let draft = pgpstore::unseal_from_outbox(&db, &acc, &stored)?;
+        if status == "pending" || status == "overdue" {
+            let c = lock(&db);
+            let n = c.execute("UPDATE outbox SET status='held' WHERE id=?1 AND status IN ('pending','overdue')", [&id]).map_err(err)?;
+            if n == 0 {
+                // the sender took it (or it was removed) while it was being read
+                let gone = c.query_row("SELECT 1 FROM outbox WHERE id=?1", [&id], |_| Ok(())).is_err();
+                return Err(if gone { "OUTBOX_MISSING: This scheduled message no longer exists.".into() } else { "OUTBOX_SENDING: This message is being sent right now.".into() });
+            }
+        }
+        let shown = if status == "pending" || status == "overdue" { "held".to_string() } else { status };
+        Ok(OutboxEdit { draft, send_at, status: shown })
+    })
+    .await
 }
 
 /// Leave Compose without saving: a paused message goes back to the queue (or to Overdue when its time passed).
@@ -4345,52 +4400,61 @@ fn outbox_release(state: tauri::State<AppState>, id: String) -> R<()> {
 
 /// Save edits to a scheduled message (new content and time). It goes back to the queue.
 #[tauri::command]
-fn outbox_update(app: tauri::AppHandle, state: tauri::State<AppState>, id: String, draft: smtp::Draft, send_at: i64) -> R<()> {
+async fn outbox_update(app: tauri::AppHandle, state: tauri::State<'_, AppState>, id: String, draft: smtp::Draft, send_at: i64) -> R<()> {
     schedule::validate_send_at(send_at, now())?;
     const GONE: &str = "OUTBOX_NOT_WAITING: This scheduled message is no longer waiting to be sent.";
-    // one critical section from the first look at the row to the UPDATE: the sender cannot claim it in between, and a
-    // calendar event is only made once the row is known to be editable
-    let c = lock(&state.db);
-    let acc = db::get_account(&c, &draft.account_id)?;
-    let (old, status) = c
-        .query_row("SELECT payload, status FROM outbox WHERE id=?1", [&id], |r| Ok((r.get::<_, String>(0)?, r.get::<_, String>(1)?)))
-        .map_err(|_| GONE.to_string())?;
-    if status == "sending" {
-        return Err(GONE.into());
-    }
-    // a meeting: drop the event made when it was first scheduled and make it again from the edited details
-    let mut draft = draft;
-    draft.calendar = None;
-    if draft.meeting.is_some() {
-        calendar::prepare_meeting(&c, &mut draft)?;
-    }
-    let sealed = match pgpstore::seal_for_outbox(&c, &acc, &draft) {
-        Ok(d) => d,
-        Err(e) => {
-            // the edit failed (for example the key is locked): the queued message keeps its own event, so
-            // only the event made for this attempt goes
-            if let Ok(attempt) = serde_json::to_string(&draft) {
-                calendar::forget_prepared(&c, &attempt);
+    let db = state.db.clone();
+    let (has_meeting, id) = blocking(move || {
+        // first look at the row, under the lock: the calendar event is only made once the row is known to be editable
+        let (acc, old, draft) = {
+            let c = lock(&db);
+            let acc = db::get_account(&c, &draft.account_id)?;
+            let (old, status) = c
+                .query_row("SELECT payload, status FROM outbox WHERE id=?1", [&id], |r| Ok((r.get::<_, String>(0)?, r.get::<_, String>(1)?)))
+                .map_err(|_| GONE.to_string())?;
+            if status == "sending" {
+                return Err(GONE.to_string());
             }
-            return Err(e);
+            // a meeting: drop the event made when it was first scheduled and make it again from the edited details
+            let mut draft = draft;
+            draft.calendar = None;
+            if draft.meeting.is_some() {
+                calendar::prepare_meeting(&c, &mut draft)?;
+            }
+            (acc, old, draft)
+        };
+        // encrypting / signing a message with big pictures takes seconds: not under the lock (the folder list waits for it on the main thread, D-025).
+        // The sender could claim the row meanwhile; the UPDATE below says so (`status!='sending'`), as it always did.
+        let sealed = match pgpstore::seal_for_outbox(&db, &acc, &draft) {
+            Ok(d) => d,
+            Err(e) => {
+                // the edit failed (for example the key is locked): the queued message keeps its own event, so
+                // only the event made for this attempt goes
+                if let Ok(attempt) = serde_json::to_string(&draft) {
+                    calendar::forget_prepared(&lock(&db), &attempt);
+                }
+                return Err(e);
+            }
+        };
+        let payload = serde_json::to_string(&sealed).map_err(err)?;
+        let c = lock(&db);
+        let n = c
+            .execute(
+                "UPDATE outbox SET payload=?2, send_at=?3, status='pending', error=NULL, attempts=0 WHERE id=?1 AND status!='sending'",
+                params![id, payload, send_at],
+            )
+            .map_err(err)?;
+        if n == 0 {
+            // lost the race after all: keep the queued message's own event, drop the one made for this attempt
+            calendar::forget_prepared(&c, &payload);
+            return Err(GONE.to_string());
         }
-    };
-    let payload = serde_json::to_string(&sealed).map_err(err)?;
-    let n = c
-        .execute(
-            "UPDATE outbox SET payload=?2, send_at=?3, status='pending', error=NULL, attempts=0 WHERE id=?1 AND status!='sending'",
-            params![id, payload, send_at],
-        )
-        .map_err(err)?;
-    if n == 0 {
-        // lost the race after all: keep the queued message's own event, drop the one made for this attempt
-        calendar::forget_prepared(&c, &payload);
-        return Err(GONE.into());
-    }
-    // the edit worked: the event made when it was first scheduled is replaced by the new one
-    calendar::forget_prepared(&c, &old);
-    drop(c);
-    if sealed.meeting.is_some() {
+        // the edit worked: the event made when it was first scheduled is replaced by the new one
+        calendar::forget_prepared(&c, &old);
+        Ok((sealed.meeting.is_some(), id))
+    })
+    .await?;
+    if has_meeting {
         let _ = app.emit("calendar-changed", serde_json::json!({}));
     }
     let _ = app.emit("outbox-changed", serde_json::json!({ "id": id, "status": "pending" }));
@@ -7190,6 +7254,28 @@ mod empty_draft_tests {
 
     fn refused(d: &smtp::Draft) -> bool {
         ensure_draft_has_content(d).is_err_and(|e| e.starts_with("DRAFT_EMPTY:"))
+    }
+
+    /// D-025: a draft that is far too big is refused with a coded, translated message before any work is done; the limit is a number the page knows
+    /// too (src/sendSize.ts `DRAFT_LIMIT`), and the limit itself is still allowed.
+    #[test]
+    fn a_draft_over_the_limit_is_refused_with_a_friendly_message() {
+        let mut d = draft();
+        d.text = "x".into();
+        d.inline = vec![smtp::InlineImage { cid: "p1@heylook".into(), filename: "p.png".into(), mime: "image/png".into(), data_base64: "A".repeat(DRAFT_LIMIT - 1) }];
+        assert_eq!(draft_size(&d), DRAFT_LIMIT);
+        assert!(ensure_draft_size(&d).is_ok(), "exactly the limit is allowed");
+        d.attachments = vec![smtp::Att { filename: "a.bin".into(), mime: "application/octet-stream".into(), data_base64: "A".into() }];
+        let e = ensure_draft_size(&d).unwrap_err();
+        assert_eq!(e, "DRAFT_TOO_LARGE|size=101 MB|limit=100 MB: This message is too large to keep as a draft (101 MB; the limit is 100 MB). Remove attachments or shrink pictures.");
+        // a message that was sealed for the outbox counts by its finished bytes
+        let mut s = draft();
+        s.prebuilt = Some("A".repeat(DRAFT_LIMIT + 1));
+        assert!(ensure_draft_size(&s).is_err());
+        assert_eq!(DRAFT_LIMIT, 100 * 1024 * 1024);
+        // the page asks the same number (src/sendSize.ts)
+        let ts = include_str!("../../src/sendSize.ts");
+        assert!(ts.contains("export const DRAFT_LIMIT = 100 * 1024 * 1024;"), "sendSize.ts DRAFT_LIMIT is not the number of lib.rs");
     }
 
     #[test]
