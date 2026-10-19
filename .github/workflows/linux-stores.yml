@@ -1,10 +1,16 @@
 name: Linux stores
 
 # The Linux store packages beside the release installers (release.yml builds the AppImage, .deb and .rpm):
-# - metainfo: validates the AppStream file every Linux package ships and the desktop files (every run)
-# - snap: builds the snap with snapcraft; on a tag it is uploaded to the Snap Store's `candidate` channel (promote to `stable` by hand)
-# A tag run reads the OAuth client ids from the environment `release` (as release.yml does) and writes them into `.env` for the snap build
-# (src-tauri/build.rs embeds them); a manual run or a pull request builds without them.
+# - metainfo: validates the AppStream file every Linux package ships and the desktop files, and that the version in the repo files and
+#   the first <release> of the metainfo agree (every run; on a tag run also with the tag)
+# - snap: builds the snap with snapcraft (every run, as a workflow artifact); a TAG PUSH uploads it to the Snap Store's `candidate`
+#   channel, nothing else ever uploads (promote to `stable` by hand, see PACKAGING.md)
+# What runs where:
+#   tag push (v1.2.3)   metainfo + snap build, in the GitHub Environment `release`: the four OAuth client ids are written into `.env` for
+#                       the build only (src-tauri/build.rs embeds them, the file is removed afterwards), then the upload with the
+#                       store login of that Environment
+#   pull request        metainfo + snap build, no Environment, no secrets, no upload (also from forks)
+#   manual run          the same as a pull request on the chosen ref, also when that ref is a tag (event_name is not push)
 on:
   push:
     tags:
@@ -13,17 +19,17 @@ on:
     paths:
       - "snap/**"
       - "linux/**"
+      - "package.json"
+      - "src-tauri/tauri.conf.json"
+      - "src-tauri/Cargo.toml"
+      - "CHANGELOG.md"
+      - ".github/scripts/verify-version.cjs"
       - ".github/workflows/linux-stores.yml"
   workflow_dispatch:
-    inputs:
-      snap_channel:
-        description: "Snap Store channel to upload to (empty: build only)"
-        required: false
-        default: ""
 
 concurrency:
   group: linux-stores-${{ github.ref }}
-  cancel-in-progress: ${{ github.ref_type != 'tag' }}
+  cancel-in-progress: ${{ github.event_name != 'push' }}
 
 permissions:
   contents: read
@@ -43,32 +49,43 @@ jobs:
           sudo apt-get install -y appstream desktop-file-utils python3-yaml
       - name: Validate
         run: |
+          # strict first (the warnings and pedantic notes are visible in the log), then the AppImage's copy of the file under the name
+          # appimagetool looks for (bundle.linux.appimage.files in src-tauri/tauri.conf.json)
+          appstreamcli validate --no-net --pedantic linux/io.github.thnonl.HeyLook.metainfo.xml || true
           appstreamcli validate --no-net linux/io.github.thnonl.HeyLook.metainfo.xml
+          cp linux/io.github.thnonl.HeyLook.metainfo.xml /tmp/hey-look.appdata.xml && appstreamcli validate --no-net /tmp/hey-look.appdata.xml
           # (the snap's Icon= path uses $SNAP, which desktop-file-validate does not know: checked with it replaced)
           sed 's|${SNAP}|/snap/hey-look/current|' snap/gui/hey-look.desktop > /tmp/hey-look.desktop && desktop-file-validate /tmp/hey-look.desktop
           python3 -c 'import yaml,sys; [yaml.safe_load(open(f)) for f in sys.argv[1:]]' snap/snapcraft.yaml
-          # the metainfo must have a <release> for the app's version (the snap takes its version from it)
-          v=$(node -p "require('./package.json').version")
-          grep -q "<release version=\"$v\"" linux/io.github.thnonl.HeyLook.metainfo.xml || { echo "::error::linux/io.github.thnonl.HeyLook.metainfo.xml has no <release> for $v (package.json)"; exit 1; }
+      # package.json, tauri.conf.json, Cargo.toml and the first <release> of the metainfo (the snap's version, the newest the software
+      # centres show) must agree; a tag push must also equal the tag (the same check release.yml makes before it publishes)
+      - name: Versions agree
+        env:
+          EVENT: ${{ github.event_name }}
+        run: |
+          if [ "$EVENT" = "push" ]; then V="${GITHUB_REF_NAME#v}"; else V=$(node -p "require('./package.json').version"); fi
+          node .github/scripts/verify-version.cjs "$V" .
 
   snap:
     name: Snap
     needs: metainfo
     runs-on: ubuntu-24.04
     timeout-minutes: 90
-    environment: ${{ github.ref_type == 'tag' && 'release' || '' }}
+    # the Environment (its deployment rule: v* tags) and every secret below exist for a tag PUSH only; release.yml gates the same way
+    environment: ${{ github.event_name == 'push' && github.ref_type == 'tag' && 'release' || '' }}
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
         with:
           persist-credentials: false
-      - name: OAuth client ids (tag runs only)
+      - name: OAuth client ids (tag push only)
         env:
-          GOOGLE_CLIENT_ID: ${{ github.ref_type == 'tag' && secrets.GOOGLE_CLIENT_ID || '' }}
-          GOOGLE_CLIENT_SECRET: ${{ github.ref_type == 'tag' && secrets.GOOGLE_CLIENT_SECRET || '' }}
-          MICROSOFT_CLIENT_ID: ${{ github.ref_type == 'tag' && secrets.MICROSOFT_CLIENT_ID || '' }}
-          MICROSOFT_CLIENT_SECRET: ${{ github.ref_type == 'tag' && secrets.MICROSOFT_CLIENT_SECRET || '' }}
+          PUBLISH: ${{ github.event_name == 'push' && github.ref_type == 'tag' }}
+          GOOGLE_CLIENT_ID: ${{ github.event_name == 'push' && github.ref_type == 'tag' && secrets.GOOGLE_CLIENT_ID || '' }}
+          GOOGLE_CLIENT_SECRET: ${{ github.event_name == 'push' && github.ref_type == 'tag' && secrets.GOOGLE_CLIENT_SECRET || '' }}
+          MICROSOFT_CLIENT_ID: ${{ github.event_name == 'push' && github.ref_type == 'tag' && secrets.MICROSOFT_CLIENT_ID || '' }}
+          MICROSOFT_CLIENT_SECRET: ${{ github.event_name == 'push' && github.ref_type == 'tag' && secrets.MICROSOFT_CLIENT_SECRET || '' }}
         run: |
-          if [ "$GITHUB_REF_TYPE" = "tag" ] && { [ -z "$GOOGLE_CLIENT_ID" ] || [ -z "$MICROSOFT_CLIENT_ID" ]; }; then
+          if [ "$PUBLISH" = "true" ] && { [ -z "$GOOGLE_CLIENT_ID" ] || [ -z "$MICROSOFT_CLIENT_ID" ]; }; then
             echo "::error::a tag run needs GOOGLE_CLIENT_ID and MICROSOFT_CLIENT_ID in the environment release"
             exit 1
           fi
@@ -85,20 +102,29 @@ jobs:
         if: always()
         run: rm -f .env
       - name: Review the snap
+        env:
+          SNAP_FILE: ${{ steps.build.outputs.snap }}
+          PUBLISH: ${{ github.event_name == 'push' && github.ref_type == 'tag' }}
         run: |
+          ls -l "$SNAP_FILE"
           sudo snap install review-tools
-          review-tools.snap-review "${{ steps.build.outputs.snap }}" || true
-          ls -l "${{ steps.build.outputs.snap }}"
+          if review-tools.snap-review "$SNAP_FILE"; then
+            echo "review-tools: ok"
+          elif [ "$PUBLISH" = "true" ]; then
+            echo "::warning::review-tools.snap-review reported problems (see above); the store runs the same review on the upload"
+          else
+            echo "review-tools.snap-review reported problems (see above)"
+          fi
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
           name: snap
           path: ${{ steps.build.outputs.snap }}
           if-no-files-found: error
-      - name: Upload to the Snap Store
-        if: github.ref_type == 'tag' || github.event.inputs.snap_channel != ''
+      - name: Upload to the Snap Store (candidate)
+        if: github.event_name == 'push' && github.ref_type == 'tag'
         uses: snapcore/action-publish@214b86e5ca036ead1668c79afb81e550e6c54d40 # v1.2.0
         env:
           SNAPCRAFT_STORE_CREDENTIALS: ${{ secrets.SNAPCRAFT_STORE_CREDENTIALS }}
         with:
           snap: ${{ steps.build.outputs.snap }}
-          release: ${{ github.ref_type == 'tag' && 'candidate' || github.event.inputs.snap_channel }}
+          release: candidate

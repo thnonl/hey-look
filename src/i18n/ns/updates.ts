@@ -75,7 +75,7 @@ export default define({
     "updates.upToDate.newer": "You’re up to date. This build ({current}) is newer than the latest release ({latest}).",
     "updates.noRelease": "Couldn’t find update information on GitHub. Try again later, or see the {link}.",
     "updates.noRelease.link": "releases page",
-    "updates.managed.snap": "This copy of Hey Look! was installed from the Snap Store, which keeps it up to date. The app does not check GitHub for updates.",
+    "updates.managed.snap": "This copy of Hey Look! was installed from the Snap Store, which keeps it up to date. The app doesn’t check GitHub for updates.",
 
     // ---- the update card
     "updates.card.availableHead": "Hey Look! {version} is available",
@@ -341,7 +341,7 @@ export default define({
     "updates.upToDate.newer": "Vous êtes à jour. Cette version ({current}) est plus récente que la dernière publiée ({latest}).",
     "updates.noRelease": "Impossible de trouver des informations de mise à jour sur GitHub. Réessayez plus tard ou consultez la {link}.",
     "updates.noRelease.link": "page des versions",
-    "updates.managed.snap": "Cette copie de Hey Look! a été installée depuis le Snap Store, qui la tient à jour. L’application ne vérifie pas les mises à jour sur GitHub.",
+    "updates.managed.snap": "Cette copie de Hey Look! a été installée depuis le Snap Store, qui la tient à jour. L’application ne recherche pas de mises à jour sur GitHub.",
 
     "updates.card.availableHead": "Hey Look! {version} est disponible",
     "updates.card.readyHead": "Hey Look! {version} est prêt à être installé",

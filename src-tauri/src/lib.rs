@@ -5357,7 +5357,13 @@ pub fn run() {
             startup::stage(Some(app), "a second start was handed to this instance: showing the window");
             shell::show_main(app)
         }))
-        .plugin(tauri_plugin_autostart::init(tauri_plugin_autostart::MacosLauncher::LaunchAgent, Some(vec!["--minimized"])))
+        // "Open at login": the autostart entry is named after the app ("Hey Look!.desktop" on Linux, kept for the installed .deb and AppImage
+        // entries); in the snap it must be hey-look.desktop, the one name snapd starts (snapcraft.yaml `autostart`)
+        .plugin({
+            let b = tauri_plugin_autostart::Builder::new().args(["--minimized"]); // (macOS: the launch agent, the builder's default)
+            let b = if update::managed_by() == Some("snap") { b.app_name(update::SNAP_NAME) } else { b };
+            b.build()
+        })
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_updater::Builder::new().build())

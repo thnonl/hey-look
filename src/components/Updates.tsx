@@ -340,7 +340,8 @@ export function UpdatesBlock({ privacy, autoSwitch }: { privacy: ReactNode; auto
     );
 
   const version = update?.current || appVersion;
-  // a snap is updated by the Snap Store: the version, who updates it, and neither the button nor the switch
+  // a snap is updated by the Snap Store: the version, who updates it, the privacy statement without its update sentences, and neither
+  // the button nor the switch
   if (managed)
     return (
       <div>
@@ -350,6 +351,7 @@ export function UpdatesBlock({ privacy, autoSwitch }: { privacy: ReactNode; auto
           </span>
         </div>
         <p className="muted small">{t("updates.managed.snap")}</p>
+        <p className="muted small">{t("settings.about.privacyManaged")}</p>
       </div>
     );
   return (

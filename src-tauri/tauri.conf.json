@@ -32,8 +32,8 @@
     "homepage": "https://heylook.namthai.site/",
     "license": "MIT",
     "category": "Productivity",
-    "shortDescription": "Fast, private desktop mail client",
-    "longDescription": "A fast, private desktop mail client. Free and open source, with no ads, no analytics and no account to create.",
+    "shortDescription": "Free, open-source desktop mail client",
+    "longDescription": "A free, open-source desktop mail client with no ads, no analytics code and no account to create.",
     "icon": [
       "icons/32x32.png",
       "icons/128x128.png",

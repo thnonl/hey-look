@@ -1,38 +1,127 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <!-- AppStream metadata of Hey Look! (the Linux software centres, the Snap Store and AppImageHub read it).
      One file for every Linux package: the AppImage and the .deb / .rpm ship it from src-tauri/tauri.conf.json (bundle.linux.*.files),
-     the snap (snap/snapcraft.yaml) installs it itself. Keep <releases> in step with CHANGELOG.md. -->
+     the snap (snap/snapcraft.yaml) installs it itself. Keep <releases> in step with CHANGELOG.md.
+     Texts: the summary, description, caption and keywords are translated per element (xml:lang; the codes are vi fr zh_CN es ja de ru,
+     release notes stay English) and every change goes through the language specialists, like the app's own strings. The French texts
+     have a no-break space before ; and : (keep it). -->
 <component type="desktop-application">
   <id>io.github.thnonl.HeyLook</id>
   <name>Hey Look!</name>
-  <summary>Fast, private desktop mail client</summary>
+  <summary>Free, open-source desktop mail client</summary>
+  <summary xml:lang="vi">Ứng dụng thư miễn phí, mã nguồn mở cho máy tính</summary>
+  <summary xml:lang="fr">Client de messagerie libre et gratuit</summary>
+  <summary xml:lang="zh_CN">免费开源的桌面邮件客户端</summary>
+  <summary xml:lang="es">Cliente de correo gratuito y de código abierto</summary>
+  <summary xml:lang="ja">無料・オープンソースのデスクトップメールクライアント</summary>
+  <summary xml:lang="de">Kostenloser Open-Source-Desktop-Mailclient</summary>
+  <summary xml:lang="ru">Бесплатный почтовый клиент с открытым кодом</summary>
   <developer id="io.github.thnonl">
     <name>thnonl</name>
   </developer>
   <metadata_license>CC0-1.0</metadata_license>
   <project_license>MIT</project_license>
   <description>
-    <p>Hey Look! is a fast, private desktop mail client. Free and open source, with no ads, no analytics and no account to create: mail goes directly between the app and your mail servers.</p>
+    <p>Hey Look! is a free, open-source desktop mail client with no ads, no analytics code and no account to create. Mail goes directly between the app and your mail servers.</p>
+    <p xml:lang="vi">Hey Look! là ứng dụng thư miễn phí, mã nguồn mở cho máy tính, không có quảng cáo, không có mã phân tích và không cần tạo tài khoản. Thư đi trực tiếp giữa ứng dụng và máy chủ thư của bạn.</p>
+    <p xml:lang="fr">Hey Look! est un client de messagerie de bureau gratuit et open source, sans publicité, sans code d’analyse et sans compte à créer. Les e-mails circulent directement entre l’application et vos serveurs de messagerie.</p>
+    <p xml:lang="zh_CN">Hey Look!是一款免费开源的桌面邮件客户端，没有广告，没有分析代码，也无需创建账户。邮件直接在应用与您的邮件服务器之间传输。</p>
+    <p xml:lang="es">Hey Look! es un cliente de correo de escritorio gratuito y de código abierto, sin anuncios, sin código de analítica y sin ninguna cuenta que crear. El correo va directamente entre la aplicación y tus servidores de correo.</p>
+    <p xml:lang="ja">Hey Look!は、広告もアナリティクスのコードもアカウント作成も不要な、無料のオープンソースのデスクトップメールクライアントです。メールは、アプリとお使いのメールサーバーの間で直接やり取りされます。</p>
+    <p xml:lang="de">Hey Look! ist ein kostenloser Open-Source-Mailclient für den Desktop ohne Werbung, ohne Analytics-Code und ohne Konto. E-Mails gehen direkt zwischen der App und Ihren Mailservern.</p>
+    <p xml:lang="ru">Hey Look! — бесплатный почтовый клиент для компьютера с открытым исходным кодом. В нём нет рекламы и кода аналитики, не нужно создавать учётную запись. Почта идёт напрямую между приложением и вашими почтовыми серверами.</p>
     <p>Features:</p>
+    <p xml:lang="vi">Tính năng:</p>
+    <p xml:lang="fr">Fonctionnalités :</p>
+    <p xml:lang="zh_CN">功能：</p>
+    <p xml:lang="es">Funciones:</p>
+    <p xml:lang="ja">主な機能：</p>
+    <p xml:lang="de">Funktionen:</p>
+    <p xml:lang="ru">Возможности:</p>
     <ul>
-      <li>IMAP and SMTP accounts, Gmail and Microsoft 365 / Outlook.com with OAuth sign-in, iCloud</li>
-      <li>A Focused / Other inbox, conversations, snooze, undo send, send later and templates</li>
-      <li>A rich text editor with pictures, tables, signatures and find and replace</li>
+      <li>IMAP and SMTP accounts; Gmail and Microsoft 365 / Outlook.com with OAuth sign-in; iCloud and Yahoo with an app password</li>
+      <li xml:lang="vi">Tài khoản IMAP và SMTP; Gmail và Microsoft 365 / Outlook.com với đăng nhập OAuth; iCloud và Yahoo bằng mật khẩu ứng dụng</li>
+      <li xml:lang="fr">Comptes IMAP et SMTP ; Gmail et Microsoft 365 / Outlook.com avec connexion OAuth ; iCloud et Yahoo avec un mot de passe d’application</li>
+      <li xml:lang="zh_CN">IMAP和SMTP账户；Gmail和Microsoft 365 / Outlook.com（OAuth登录）；iCloud和Yahoo（应用专用密码）</li>
+      <li xml:lang="es">Cuentas IMAP y SMTP; Gmail y Microsoft 365 / Outlook.com con inicio de sesión OAuth; iCloud y Yahoo con contraseña de aplicación</li>
+      <li xml:lang="ja">IMAP / SMTPアカウント、OAuthサインインのGmailとMicrosoft 365 / Outlook.com、アプリパスワードのiCloudとYahoo</li>
+      <li xml:lang="de">IMAP- und SMTP-Konten; Gmail und Microsoft 365 / Outlook.com mit OAuth-Anmeldung; iCloud und Yahoo mit App-Passwort</li>
+      <li xml:lang="ru">Учётные записи IMAP и SMTP; Gmail и Microsoft 365 / Outlook.com со входом через OAuth; iCloud и Yahoo с паролем приложения</li>
+      <li>Focused and Other inbox tabs, conversations, snooze, undo send, send later and templates</li>
+      <li xml:lang="vi">Các tab Ưu tiên và Khác trong hộp thư đến, cuộc trò chuyện, tạm ẩn, hoàn tác gửi, gửi sau và mẫu thư</li>
+      <li xml:lang="fr">Onglets Prioritaire et Autres de la boîte de réception, conversations, mise en attente, annulation d’envoi, envoi différé et modèles</li>
+      <li xml:lang="zh_CN">重点和其他收件箱选项卡、对话、稍后提醒、撤销发送、定时发送和模板</li>
+      <li xml:lang="es">Pestañas Prioritarios y Otros en la bandeja de entrada, conversaciones, posponer, deshacer envío, programar envío y plantillas</li>
+      <li xml:lang="ja">「優先」と「その他」のタブ、会話表示、スヌーズ、送信取り消し、送信予約、テンプレート</li>
+      <li xml:lang="de">Posteingang mit den Tabs „Fokussiert“ und „Weitere“, Unterhaltungen, Zurückstellen, Senden rückgängig machen, Später senden und Vorlagen</li>
+      <li xml:lang="ru">Вкладки «Отсортированные» и «Другие» во входящих, беседы, откладывание писем, отмена отправки, отправка позже и шаблоны</li>
+      <li>A rich-text editor with pictures, tables, signatures, and find and replace</li>
+      <li xml:lang="vi">Trình soạn thảo văn bản có định dạng với ảnh, bảng, chữ ký, tìm và thay thế</li>
+      <li xml:lang="fr">Un éditeur de texte enrichi avec images, tableaux, signatures et fonction Rechercher et remplacer</li>
+      <li xml:lang="zh_CN">富文本编辑器，支持图片、表格、签名以及查找和替换</li>
+      <li xml:lang="es">Editor de texto enriquecido con imágenes, tablas, firmas y buscar y reemplazar</li>
+      <li xml:lang="ja">画像、表、署名、検索と置換に対応したリッチテキストエディター</li>
+      <li xml:lang="de">Rich-Text-Editor mit Bildern, Tabellen, Signaturen sowie Suchen und Ersetzen</li>
+      <li xml:lang="ru">Редактор форматированного текста с изображениями, таблицами, подписями, поиском и заменой</li>
       <li>OpenPGP signing and encryption</li>
-      <li>A calendar with invitations</li>
-      <li>Optional AI writing help with the endpoint you choose</li>
-      <li>Desktop notifications and a tray icon with the unread count</li>
-      <li>Eight languages: English, Vietnamese, French, German, Spanish, Japanese, Russian and Chinese</li>
+      <li xml:lang="vi">Ký và mã hóa OpenPGP</li>
+      <li xml:lang="fr">Signature et chiffrement OpenPGP</li>
+      <li xml:lang="zh_CN">OpenPGP签名和加密</li>
+      <li xml:lang="es">Firma y cifrado con OpenPGP</li>
+      <li xml:lang="ja">OpenPGPの署名と暗号化</li>
+      <li xml:lang="de">Signieren und Verschlüsseln mit OpenPGP</li>
+      <li xml:lang="ru">Подпись и шифрование OpenPGP</li>
+      <li>A calendar with meeting invitations</li>
+      <li xml:lang="vi">Lịch có lời mời họp</li>
+      <li xml:lang="fr">Un calendrier avec invitations à des réunions</li>
+      <li xml:lang="zh_CN">日历，支持会议邀请</li>
+      <li xml:lang="es">Calendario con invitaciones a reuniones</li>
+      <li xml:lang="ja">会議の招待に対応したカレンダー</li>
+      <li xml:lang="de">Kalender mit Besprechungseinladungen</li>
+      <li xml:lang="ru">Календарь с приглашениями на встречи</li>
+      <li>Optional AI writing help through an endpoint you choose</li>
+      <li xml:lang="vi">Trợ giúp viết bằng AI (tùy chọn) qua điểm cuối do bạn chọn</li>
+      <li xml:lang="fr">Aide à la rédaction par IA, facultative, via un point de terminaison de votre choix</li>
+      <li xml:lang="zh_CN">可选的AI写作辅助，使用您自选的端点</li>
+      <li xml:lang="es">Ayuda opcional de IA para escribir con el punto de conexión que elijas</li>
+      <li xml:lang="ja">任意のAI文章作成支援（利用するエンドポイントは自分で選択）</li>
+      <li xml:lang="de">Optionale KI-Schreibhilfe über einen Endpunkt Ihrer Wahl</li>
+      <li xml:lang="ru">Необязательная ИИ-помощь в написании писем через указанную вами конечную точку</li>
+      <li>Desktop notifications and a tray icon</li>
+      <li xml:lang="vi">Thông báo trên máy tính và biểu tượng ở khay hệ thống</li>
+      <li xml:lang="fr">Notifications de bureau et icône dans la zone de notification</li>
+      <li xml:lang="zh_CN">桌面通知和托盘图标</li>
+      <li xml:lang="es">Notificaciones de escritorio e icono en la bandeja del sistema</li>
+      <li xml:lang="ja">デスクトップ通知とトレイアイコン</li>
+      <li xml:lang="de">Desktop-Benachrichtigungen und ein Symbol im Infobereich</li>
+      <li xml:lang="ru">Уведомления на рабочем столе и значок в трее</li>
+      <li>Eight languages: English, Vietnamese, French, German, Spanish, Japanese, Russian and Chinese (Simplified)</li>
+      <li xml:lang="vi">Tám ngôn ngữ: tiếng Anh, tiếng Việt, tiếng Pháp, tiếng Đức, tiếng Tây Ban Nha, tiếng Nhật, tiếng Nga và tiếng Trung (giản thể)</li>
+      <li xml:lang="fr">Huit langues : anglais, vietnamien, français, allemand, espagnol, japonais, russe et chinois (simplifié)</li>
+      <li xml:lang="zh_CN">八种语言：英语、越南语、法语、德语、西班牙语、日语、俄语和简体中文</li>
+      <li xml:lang="es">Ocho idiomas: inglés, vietnamita, francés, alemán, español, japonés, ruso y chino (simplificado)</li>
+      <li xml:lang="ja">8言語に対応：英語、ベトナム語、フランス語、ドイツ語、スペイン語、日本語、ロシア語、中国語（簡体字）</li>
+      <li xml:lang="de">Acht Sprachen: Englisch, Vietnamesisch, Französisch, Deutsch, Spanisch, Japanisch, Russisch und Chinesisch (vereinfacht)</li>
+      <li xml:lang="ru">Восемь языков: английский, вьетнамский, французский, немецкий, испанский, японский, русский и китайский (упрощённый)</li>
     </ul>
   </description>
   <launchable type="desktop-id">hey-look.desktop</launchable>
   <provides>
     <binary>hey-look</binary>
+    <mediatype>x-scheme-handler/mailto</mediatype>
   </provides>
+  <supports>
+    <control>keyboard</control>
+    <control>pointing</control>
+  </supports>
+  <requires>
+    <display_length compare="ge">960</display_length>
+  </requires>
   <url type="homepage">https://heylook.namthai.site/</url>
   <url type="bugtracker">https://github.com/thnonl/hey-look/issues</url>
   <url type="help">https://heylook.namthai.site/help.html</url>
   <url type="vcs-browser">https://github.com/thnonl/hey-look</url>
+  <url type="donation">https://heylook.namthai.site/support.html</url>
   <categories>
     <category>Network</category>
     <category>Email</category>
@@ -45,6 +134,90 @@
     <keyword>outlook</keyword>
     <keyword>calendar</keyword>
     <keyword>pgp</keyword>
+    <keyword xml:lang="vi">thư</keyword>
+    <keyword xml:lang="vi">email</keyword>
+    <keyword xml:lang="vi">thư điện tử</keyword>
+    <keyword xml:lang="vi">imap</keyword>
+    <keyword xml:lang="vi">smtp</keyword>
+    <keyword xml:lang="vi">gmail</keyword>
+    <keyword xml:lang="vi">outlook</keyword>
+    <keyword xml:lang="vi">lịch</keyword>
+    <keyword xml:lang="vi">pgp</keyword>
+    <keyword xml:lang="fr">messagerie</keyword>
+    <keyword xml:lang="fr">courrier</keyword>
+    <keyword xml:lang="fr">courriel</keyword>
+    <keyword xml:lang="fr">e-mail</keyword>
+    <keyword xml:lang="fr">email</keyword>
+    <keyword xml:lang="fr">mail</keyword>
+    <keyword xml:lang="fr">client mail</keyword>
+    <keyword xml:lang="fr">imap</keyword>
+    <keyword xml:lang="fr">gmail</keyword>
+    <keyword xml:lang="fr">outlook</keyword>
+    <keyword xml:lang="fr">calendrier</keyword>
+    <keyword xml:lang="fr">pgp</keyword>
+    <keyword xml:lang="zh_CN">邮件</keyword>
+    <keyword xml:lang="zh_CN">电子邮件</keyword>
+    <keyword xml:lang="zh_CN">邮箱</keyword>
+    <keyword xml:lang="zh_CN">邮件客户端</keyword>
+    <keyword xml:lang="zh_CN">收信</keyword>
+    <keyword xml:lang="zh_CN">email</keyword>
+    <keyword xml:lang="zh_CN">mail</keyword>
+    <keyword xml:lang="zh_CN">imap</keyword>
+    <keyword xml:lang="zh_CN">smtp</keyword>
+    <keyword xml:lang="zh_CN">gmail</keyword>
+    <keyword xml:lang="zh_CN">outlook</keyword>
+    <keyword xml:lang="zh_CN">日历</keyword>
+    <keyword xml:lang="zh_CN">pgp</keyword>
+    <keyword xml:lang="zh_CN">openpgp</keyword>
+    <keyword xml:lang="es">correo</keyword>
+    <keyword xml:lang="es">correo electrónico</keyword>
+    <keyword xml:lang="es">email</keyword>
+    <keyword xml:lang="es">mail</keyword>
+    <keyword xml:lang="es">imap</keyword>
+    <keyword xml:lang="es">gmail</keyword>
+    <keyword xml:lang="es">outlook</keyword>
+    <keyword xml:lang="es">calendario</keyword>
+    <keyword xml:lang="es">pgp</keyword>
+    <keyword xml:lang="ja">メール</keyword>
+    <keyword xml:lang="ja">メールソフト</keyword>
+    <keyword xml:lang="ja">メーラー</keyword>
+    <keyword xml:lang="ja">メールクライアント</keyword>
+    <keyword xml:lang="ja">電子メール</keyword>
+    <keyword xml:lang="ja">mail</keyword>
+    <keyword xml:lang="ja">email</keyword>
+    <keyword xml:lang="ja">imap</keyword>
+    <keyword xml:lang="ja">gmail</keyword>
+    <keyword xml:lang="ja">outlook</keyword>
+    <keyword xml:lang="ja">カレンダー</keyword>
+    <keyword xml:lang="ja">pgp</keyword>
+    <keyword xml:lang="de">e-mail</keyword>
+    <keyword xml:lang="de">email</keyword>
+    <keyword xml:lang="de">mail</keyword>
+    <keyword xml:lang="de">e-mails</keyword>
+    <keyword xml:lang="de">post</keyword>
+    <keyword xml:lang="de">postfach</keyword>
+    <keyword xml:lang="de">mailclient</keyword>
+    <keyword xml:lang="de">mailprogramm</keyword>
+    <keyword xml:lang="de">imap</keyword>
+    <keyword xml:lang="de">smtp</keyword>
+    <keyword xml:lang="de">gmail</keyword>
+    <keyword xml:lang="de">outlook</keyword>
+    <keyword xml:lang="de">kalender</keyword>
+    <keyword xml:lang="de">termine</keyword>
+    <keyword xml:lang="de">pgp</keyword>
+    <keyword xml:lang="de">openpgp</keyword>
+    <keyword xml:lang="de">verschlüsselung</keyword>
+    <keyword xml:lang="ru">почта</keyword>
+    <keyword xml:lang="ru">письма</keyword>
+    <keyword xml:lang="ru">электронная почта</keyword>
+    <keyword xml:lang="ru">email</keyword>
+    <keyword xml:lang="ru">имейл</keyword>
+    <keyword xml:lang="ru">почтовый клиент</keyword>
+    <keyword xml:lang="ru">imap</keyword>
+    <keyword xml:lang="ru">gmail</keyword>
+    <keyword xml:lang="ru">outlook</keyword>
+    <keyword xml:lang="ru">календарь</keyword>
+    <keyword xml:lang="ru">pgp</keyword>
   </keywords>
   <branding>
     <color type="primary" scheme_preference="light">#2f6fed</color>
@@ -52,15 +225,31 @@
   </branding>
   <screenshots>
     <screenshot type="default">
-      <caption>The Inbox with the Focused and Other tabs, a conversation and the reading pane</caption>
-      <image>https://heylook.namthai.site/media/poster-1280.webp</image>
+      <caption>The Inbox with the Focused and Other tabs and the reading pane</caption>
+      <caption xml:lang="vi">Hộp thư đến với các tab Ưu tiên và Khác cùng ngăn đọc thư</caption>
+      <caption xml:lang="fr">La boîte de réception avec les onglets Prioritaire et Autres et le volet de lecture</caption>
+      <caption xml:lang="zh_CN">收件箱，含“重点”和“其他”选项卡以及阅读窗格</caption>
+      <caption xml:lang="es">La bandeja de entrada con las pestañas Prioritarios y Otros y el panel de lectura</caption>
+      <caption xml:lang="ja">「優先」と「その他」のタブと閲覧ウィンドウが表示された受信トレイ</caption>
+      <caption xml:lang="de">Der Posteingang mit den Tabs „Fokussiert“ und „Weitere“ und dem Lesebereich</caption>
+      <caption xml:lang="ru">Входящие с вкладками «Отсортированные» и «Другие» и областью чтения</caption>
+      <image type="source" width="1280" height="800">https://heylook.namthai.site/media/linux-inbox-1280.png</image>
     </screenshot>
   </screenshots>
   <content_rating type="oars-1.1"/>
   <releases>
+    <!-- The version-bump commit of a release adds its entry FIRST (the newest release is the snap's version and the one the release
+         workflow checks against the tag). Ready for 1.0.7:
+    <release version="1.0.7" date="2026-10-xx">
+      <description>
+        <p>Unread counts on the Focused and Other tabs, emoji search, merged table cells, pictures in signatures, and many fixes.</p>
+      </description>
+      <url>https://github.com/thnonl/hey-look/releases/tag/v1.0.7</url>
+    </release>
+    -->
     <release version="1.0.6" date="2026-10-18">
       <description>
-        <p>Fixes and small improvements; the full list is in the changelog on GitHub.</p>
+        <p>Pop-out windows for writing and reading, a much richer editor, autosave with crash recovery, and many fixes.</p>
       </description>
       <url>https://github.com/thnonl/hey-look/releases/tag/v1.0.6</url>
     </release>

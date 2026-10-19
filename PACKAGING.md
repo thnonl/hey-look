@@ -10,8 +10,13 @@ what is done by hand.
 | AppImageHub (appimage.github.io) | the release AppImage | `release.yml` | one-time listing; it follows the GitHub releases |
 
 Shared by both and by the `.deb` / `.rpm`: the AppStream file `linux/io.github.thnonl.HeyLook.metainfo.xml` (name, summary,
-description, screenshot, releases). **Every release adds a `<release>` to it** (`linux-stores.yml` fails when the version in
-`package.json` has none): the snap takes its version and texts from it, the software centres show it.
+description, screenshot, releases; the texts are translated per element with `xml:lang`, and every change to them goes through the
+language specialists like the app's own strings). **Every release adds its `<release>` as the FIRST entry** in the version-bump
+commit (a ready block for the next version sits in a comment above the list): `verify-version.cjs` fails the tag run and
+`linux-stores.yml` fails a pull request when the first entry is not the version in `package.json`. The snap takes its version and
+texts from it, the software centres show it. The screenshot is a plain 1280 x 800 PNG of the Inbox on Linux (English, light theme,
+demo data), `docs/media/linux-inbox-1280.png` on the website; the caption describes it, so a new screenshot means a new caption
+through the specialists.
 
 A copy installed from the Snap Store is updated by the store: `update::managed_by` (Rust) sees `SNAP_NAME`, every update
 check answers `managed`, Settings > About says the Snap Store updates the app and shows neither the "Check for updates" button
@@ -20,9 +25,10 @@ nor the automatic-check switch. The AppImage, `.deb` and `.rpm` keep the in-app 
 ## OAuth client ids
 
 `src-tauri/build.rs` embeds `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`, `MICROSOFT_CLIENT_ID` and `MICROSOFT_CLIENT_SECRET`
-from the build environment (or a `.env` file). Without them Gmail and Microsoft sign-in are not offered. The workflow builds
-the snap on a tag inside the GitHub Environment `release` and writes the four secrets into `.env` for the snapcraft build, then
-removes the file: the same values as the release installers. A manual run or a pull request builds without them.
+from the build environment (or a `.env` file). Without them Gmail and Microsoft sign-in are not offered. On a tag push the
+workflow builds the snap inside the GitHub Environment `release` and writes the four secrets into `.env` for the snapcraft build,
+then removes the file: the same values as the release installers. A pull request or a manual run (also one started on a tag)
+has no Environment, no secrets and no upload: it builds a snap without sign-in for Gmail and Microsoft, as a workflow artifact.
 
 ## Snap Store
 
@@ -31,20 +37,23 @@ One-time, by the account owner:
 1. Create an account on https://snapcraft.io/ and register the name: `snapcraft register hey-look`.
 2. Make a store login for CI, limited to this snap and to uploading:
    `snapcraft export-login --snaps=hey-look --acls=package_access,package_push,package_update,package_release --expires=2027-12-31 login.txt`
-   and store the file's content as the repository secret `SNAPCRAFT_STORE_CREDENTIALS` (Settings > Secrets > Actions). Renew
-   before it expires.
+   and store the file's content as the secret `SNAPCRAFT_STORE_CREDENTIALS` **of the Environment `release`** (Settings >
+   Environments > release > Environment secrets; not a repository secret, so only a tag push can read it). Renew before it expires.
 3. On the store page: the icon (`src-tauri/icons/icon.png`), screenshots, the category (Productivity), the website and contact.
 4. The `password-manager-service` interface is not connected automatically. Ask for an auto-connection on
    https://forum.snapcraft.io/c/store-requests (what the app stores: account passwords and OAuth tokens, in the system keyring,
-   like every mail client). Until it is granted the help page tells people to run `sudo snap connect hey-look:password-manager-service`.
+   like every mail client), together with a review of the `dbus` slot `thnonl.heylook.SingleInstance` (single instance). Until the
+   auto-connection is granted the snap stays in `candidate`, and the help page should tell people to run
+   `sudo snap connect hey-look:password-manager-service` (new website text, eight languages, through the text rule).
 
-Every release: the tag run uploads the snap to `candidate`. Install it from there (`snap install hey-look --candidate`), try
-sign-in, the tray, a notification, then promote: `snapcraft release hey-look <revision> stable` (the revision is in the
-workflow log, or `snapcraft status hey-look`). A manual run of the workflow with the input `snap_channel` (for example `edge`)
-uploads a build of any branch to that channel; without it the run only builds.
+Every release: the tag push uploads the snap to `candidate`, whether or not `release.yml` succeeded. Promote only after the
+GitHub release is published and the auto-connection above is granted: install from `candidate`
+(`snap install hey-look --candidate`), try sign-in, the tray, a notification, then `snapcraft release hey-look <revision> stable`
+(the revision is in the workflow log, or `snapcraft status hey-look`). Nothing else uploads: a manual run of the workflow and a
+pull request only build (the `.snap` is a workflow artifact, installable with `--dangerous`).
 
-The build runs snapcraft in LXD on the runner (about 25 minutes). Locally on Ubuntu: `sudo snap install snapcraft --classic`,
-`snapcraft` in the repository root, `sudo snap install --dangerous hey-look_*.snap`.
+The build runs snapcraft in LXD on the runner (the duration is not measured yet; the first tag run tells). Locally on Ubuntu:
+`sudo snap install snapcraft --classic`, `snapcraft` in the repository root, `sudo snap install --dangerous hey-look_*.snap`.
 
 ## AppImageHub
 
