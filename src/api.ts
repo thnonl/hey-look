@@ -797,7 +797,7 @@ export const api = {
   setMailAvailable: (available: boolean) => invoke<void>("set_mail_available", { available }),
   /** the "New mail" of the tray / menu bar menu, if the page has not taken it yet (true once per request; see shell.rs) */
   takeTrayCompose: () => invoke<boolean>("take_tray_compose"),
-  shellInfo: () => invoke<{ os: string; tray: boolean; testData?: string | null; pdfView?: string; pdfTest?: boolean; copyFail?: boolean; accountsDelayMs?: number }>("shell_info"),
+  shellInfo: () => invoke<{ os: string; tray: boolean; testData?: string | null; managed?: string | null; pdfView?: string; pdfTest?: boolean; copyFail?: boolean; accountsDelayMs?: number }>("shell_info"),
   checkUpdate: (trigger: UpdateTrigger) => invoke<UpdateResult>("check_update", { trigger }),
   /** Download and verify the update; progress arrives on `onEvent`. Resolves when the download has ended (ready, failed or cancelled). */
   updateDownload: (version: string, onEvent: (e: DlEvent) => void) => {
@@ -839,7 +839,7 @@ export interface UpdateInfo {
   asset: UpdateAsset | null;
 }
 /** `disabled` and `throttled` are internal: the UI shows the cached `info` instead (see `cachedKind`). */
-export type UpdateKind = "available" | "upToDate" | "noRelease" | "offline" | "error" | "disabled" | "throttled";
+export type UpdateKind = "available" | "upToDate" | "noRelease" | "offline" | "error" | "disabled" | "throttled" | "managed";
 export interface UpdateResult {
   kind: UpdateKind;
   current: string;

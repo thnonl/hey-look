@@ -4,6 +4,7 @@
 
 ### Added
 
+- Linux: Hey Look! can be published to the Snap Store (`snap/snapcraft.yaml`) and AppImageHub; the AppImage, `.deb` and `.rpm` carry AppStream metadata (`linux/io.github.thnonl.HeyLook.metainfo.xml`), so software centres show the name and description in the eight languages. A copy installed from the Snap Store is updated by the store: Settings > About says so and the app never asks GitHub for updates (see PACKAGING.md)
 - The Focused and Other tabs of the Inbox show how many unread conversations each holds (a number after the name, "99+" above 99; the same conversations that are in bold in the tab, without snoozed ones and blocked senders). When the list is narrow the Filter button shows only its icon (its tooltip and name stay "Filter"), and in the narrowest case in a long language it has a line of its own under the tabs
 - The emoji picker has a search box (by name and keyword, in the app's language and in English: "heart", "tim", "coeur", "猫"), a "Recently used" tab with the last 16 emoji you inserted (kept after a restart, shared by messages, signatures and templates), and each emoji is announced by a screen reader with its name instead of the raw character. The names are Unicode CLDR annotations and load only when the picker opens
 - Tables: Merge cells and Split cell (select cells by dragging across them or with Shift+Arrow from a cell's edge; the buttons are in the table tools bar and in the Table menu). A merged cell keeps the text of all its cells, the sent mail has colspan and rowspan, the Outside borders frame stays complete at merged cells, and the plain-text version writes a merged cell once with tabs for the columns it spans
@@ -18,6 +19,9 @@
 - The Week view of the calendar fits 08:00 to 20:00 on the screen when the window is tall enough (the hours are between 32 and 48 px high), so an evening event is no longer hidden below the fold
 - A failed email link (no mail program on the computer) says "default mail app" and copies only the address; on a Mac the quit question and the Send later popover say "menu bar" instead of "tray"
 - The website moved to https://heylook.namthai.site/ (the old thnonl.github.io/hey-look/ addresses are redirected there)
+- The website's Support page is simpler, in all 8 languages: one Ko-fi button ("Buy me a coffee") and other ways to help (a star on GitHub, a bug report, a better translation, telling a friend); the bank transfer QR code and its images were removed from the website, and the privacy policy no longer mentions the QR image
+- The README is short and points to the website for features, help and policies
+- Settings > About > Buy me a coffee and the occasional support reminder open the Support page of the website in the app's language (English when the website has no page in that language)
 
 ### Fixed
 
@@ -74,6 +78,10 @@
 - Saving a big draft no longer makes the app stop for a moment: the big pictures and files of a draft are sent one request each before the save, so no single request is big enough to hold the app (a draft with 19 MB of pictures held it for 0.3 to 0.5 seconds, the whole round trip of a click in another window was 530 ms)
 - A message with many embedded pictures is read faster everywhere it is read (the sync, opening it, opening a draft): the pictures are put into the text with one copy of it instead of one copy per picture, and the encrypted text of an encrypted message is no longer sent to the page with the message (nothing used it; for a 20 MB message it doubled what the page received)
 - With Meeting on in a low window, the header of the message you write comes to rest on whole rows when a field gets the focus (the row above it is no longer cut in half under the Send row), a soft shade at its lower edge says that more of it is below (the Where row was out of sight with no sign of it), and the body keeps 120 px instead of 180 so that To down to Where fit in the least window of 960 x 560 (the header showed 149 px, it shows 209)
+- Opening a scheduled message for editing puts "Paused · editing" on its row in the Scheduled list at once, also on a Mac where the list used to be read again only some time later
+- Undo in a compose window no longer shows the text at the wrong place for a frame or two before it jumps back (Linux)
+- Discard changes on a draft you opened and changed puts the draft back also when another mail program had only marked the old copy as deleted on the server (the draft used to be gone then)
+- On a Mac, the Edit menu item "Paste and Match Style" reads like the system's own item in Spanish ("Pegar con el mismo estilo") and Russian (no line break after "и")
 
 ## 1.0.6 — 2026-10-18
 

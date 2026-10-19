@@ -494,6 +494,7 @@ export default defineLocale<typeof ns.en>({
   "settings.about.tagline": "{name}是一款使用Tauri、React和Rust构建的桌面邮件客户端。",
   "settings.about.testBuild": "测试版本：您的邮件、账户和设置保存在{dir}中，而不是通常的数据文件夹。",
   "settings.about.privacy": "所有功能始终开启。无需许可证，无需订阅，无需云账户。邮件直接在本应用与您的邮件服务器之间传输；AI功能仅使用您配置的端点。检查更新时会向GitHub（github.com）询问最新版本；只有在您同意后，才会从GitHub下载更新。您可以在下方关闭自动检查。",
+  "settings.about.privacyManaged": "所有功能始终开启。无需许可证，无需订阅，无需云账户。邮件直接在本应用与您的邮件服务器之间传输；AI功能仅使用您配置的端点。",
   "settings.about.autoCheck": "自动检查更新",
   "settings.about.autoCheckHint": "在Hey Look!启动时，以及窗口隔了几个小时重新回来时，检查是否有新版本（检查失败则15分钟后重试）。只会询问GitHub；绝不会发送您的邮件和账户。",
   "settings.about.website": "网站",

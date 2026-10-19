@@ -31,7 +31,7 @@ pub struct State {
     pub messages: BTreeMap<(String, u32), Vec<u8>>,
     /// a server whose SEARCH does not look at HEADER: it answers with every message of the folder
     pub search_ignores_header: bool,
-    deleted: BTreeSet<(String, u32)>,
+    pub deleted: BTreeSet<(String, u32)>,
     next_uid: u32,
 }
 
@@ -103,6 +103,20 @@ impl Fake {
             f.push(uid);
         }
         st.messages.insert((folder.to_string(), uid), raw.to_vec());
+    }
+
+    /// Another program marked the message Deleted and did not expunge it (it still answers a SEARCH that does not say UNDELETED).
+    pub fn flag_deleted(&self, folder: &str, uid: u32) {
+        self.state.lock().unwrap().deleted.insert((folder.to_string(), uid));
+    }
+
+    /// The message is gone from the server (expunged by another program).
+    pub fn remove_message(&self, folder: &str, uid: u32) {
+        let mut st = self.state.lock().unwrap();
+        if let Some(f) = st.folders.get_mut(folder) {
+            f.retain(|u| *u != uid);
+        }
+        st.messages.remove(&(folder.to_string(), uid));
     }
 
     pub fn commands(&self) -> Vec<String> {
@@ -230,7 +244,12 @@ fn serve(c: TcpStream, shared: Arc<Mutex<State>>) {
                 ),
                 _ => None,
             };
-            let uids = st.search_hits.clone().or(looked).unwrap_or(in_folder);
+            let mut uids = st.search_hits.clone().or(looked).unwrap_or(in_folder);
+            if upper.contains("UNDELETED") {
+                if let Some(f) = &selected {
+                    uids.retain(|u| !st.deleted.contains(&(f.clone(), *u)));
+                }
+            }
             out += &format!("* SEARCH{}\r\n{tag} OK SEARCH done\r\n", uids.iter().map(|u| format!(" {u}")).collect::<String>());
         } else if upper.starts_with("UID MOVE") || upper.starts_with("UID COPY") {
             let mv = upper.starts_with("UID MOVE");

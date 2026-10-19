@@ -6,7 +6,7 @@
 <meta http-equiv="Content-Security-Policy" content="default-src 'none'; img-src 'self' data: https://storage.ko-fi.com; media-src 'self'; style-src 'self' 'unsafe-inline' https://storage.ko-fi.com; script-src 'self' https://storage.ko-fi.com; connect-src https://api.github.com; frame-src https://ko-fi.com; base-uri 'self'; form-action 'none'">
 <meta name="referrer" content="strict-origin-when-cross-origin">
 <title>プロジェクトを支援する - Hey Look!</title>
-<meta name="description" content="Ko-fiまたは銀行振込（VietQR）で、Hey Look!プロジェクトを支援できます。今後も無料のオープンソースであり続け、支援はあくまで任意です。">
+<meta name="description" content="Ko-fiでコーヒー1杯分を贈ることで、Hey Look!プロジェクトを支援できます。今後も無料のオープンソースであり続け、支援はあくまで任意です。">
 <meta name="color-scheme" content="light dark">
 <meta name="theme-color" content="#f4f5f7" media="(prefers-color-scheme: light)">
 <meta name="theme-color" content="#131417" media="(prefers-color-scheme: dark)">
@@ -27,7 +27,7 @@
 <meta property="og:type" content="website">
 <meta property="og:site_name" content="Hey Look!">
 <meta property="og:title" content="プロジェクトを支援する - Hey Look!">
-<meta property="og:description" content="Ko-fiまたは銀行振込（VietQR）で、Hey Look!プロジェクトを支援できます。今後も無料のオープンソースであり続け、支援はあくまで任意です。">
+<meta property="og:description" content="Ko-fiでコーヒー1杯分を贈ることで、Hey Look!プロジェクトを支援できます。今後も無料のオープンソースであり続け、支援はあくまで任意です。">
 <meta property="og:url" content="https://heylook.namthai.site/ja/support.html">
 <meta property="og:locale" content="ja_JP">
 <meta property="og:locale:alternate" content="en_US">
@@ -44,7 +44,7 @@
 <meta property="og:image:alt" content="受信トレイを表示したHey Look!のメールクライアントの画面と、英語のキャッチコピー「Mail without the rent」。">
 <meta name="twitter:card" content="summary_large_image">
 <meta name="twitter:title" content="プロジェクトを支援する - Hey Look!">
-<meta name="twitter:description" content="Ko-fiまたは銀行振込（VietQR）で、Hey Look!プロジェクトを支援できます。今後も無料のオープンソースであり続け、支援はあくまで任意です。">
+<meta name="twitter:description" content="Ko-fiでコーヒー1杯分を贈ることで、Hey Look!プロジェクトを支援できます。今後も無料のオープンソースであり続け、支援はあくまで任意です。">
 <meta name="twitter:image" content="https://heylook.namthai.site/assets/og-image.jpg">
 <meta name="twitter:image:alt" content="受信トレイを表示したHey Look!のメールクライアントの画面と、英語のキャッチコピー「Mail without the rent」。">
 <link rel="icon" href="../assets/icon-48.png" sizes="48x48" type="image/png">
@@ -95,25 +95,30 @@
 <main id="main">
 <section class="page-head"><div class="wrap"><p class="kicker">支援</p><h1><em>Hey Look!</em>を支援する</h1><p class="lead">Hey Look!は無料のオープンソースで、それはこれからも変わりません。このページは、それでも応援したいという方のためのものです。</p></div></section>
 <div class="wrap section support" id="support">
-  <article class="letter" aria-labelledby="letter-h">
+  <div class="support-top">
+    <article class="letter" aria-labelledby="letter-h">
       <h2 id="letter-h">ありがとうございます</h2>
-      <p>Hey Look!は無料のオープンソースで、これからもそうあり続けます。時間の節約に役立っているなら、Ko-fiでコーヒー1杯分を贈るか銀行振込で、プロジェクトの維持を支援していただけます。支援はあくまで任意で、支援によって使える機能が増えることもありません。ご利用いただき、ありがとうございます。</p>
+      <p>Hey Look!は無料のオープンソースで、これからもそうあり続けます。時間の節約に役立っているなら、Ko-fiでコーヒー1杯分を贈ることで、プロジェクトの維持を支援していただけます。支援はあくまで任意で、支援によって使える機能が増えることもありません。ご利用いただき、ありがとうございます。</p>
       <p class="sign">thnonl</p>
     </article>
-  <div class="ways" role="group" aria-label="2つの支援方法">
-      <section class="way kofi" aria-labelledby="kofi-h">
-        <h2 id="kofi-h">Ko-fi</h2>
-        <p>Ko-fiで、1回限りまたは毎月の支援ができます。金額は自由に決められます。</p>
-        <p class="btn-row"><a class="btn btn-primary btn-lg" id="kofi-link" href="https://ko-fi.com/namthnonl" target="_blank" rel="noopener"><svg class="ic" aria-hidden="true" focusable="false"><use href="#i-heart"/></svg><span class="t">Ko-fiを新しいタブで開く</span></a><button type="button" class="btn btn-ghost" id="kofi-load" hidden aria-controls="kofi-box">Ko-fiウィジェットをここに読み込む</button></p>
-        <section id="kofi-box" class="kofi-box" aria-label="Ko-fiウィジェット" hidden></section>
-        <p class="fine-s" id="kofi-note">ウィジェットが表示されない場合は、上のボタンをお使いください。<em>Ko-fiウィジェットをここに読み込む</em>を押すまでウィジェットは読み込まれません。押すと、ウィジェットがko-fi.comとstorage.ko-fi.comから読み込まれ、Ko-fi自身のポリシーが適用されます。上のリンクは、ウィジェットを読み込まなくても使えます。</p>
-      </section>
-      <section class="way bank" aria-labelledby="bank-h">
-        <h2 id="bank-h">銀行振込（VietQR）</h2>
-        <figure class="bank-card"><img src="../assets/donate-qr-card.jpg" width="653" height="795" alt="銀行振込用のVietQRコード（Techcombank）" loading="lazy" decoding="async"><figcaption><a href="../assets/donate-qr.jpg" rel="noopener" target="_blank">画像を原寸で開く</a></figcaption></figure>
-        <p class="vi-line" lang="vi">Hey Look! miễn phí và là mã nguồn mở; việc ủng hộ hoàn toàn tự nguyện và không mở khóa thêm tính năng nào. Nếu bạn muốn mời mình một ly cà phê, hãy quét mã VietQR bằng ứng dụng ngân hàng bất kỳ ở Việt Nam, mình xin cảm ơn.</p>
-      </section>
+    <section class="way kofi" aria-labelledby="kofi-h">
+      <h2 id="kofi-h">コーヒーをおごる</h2>
+      <p>Ko-fiで、1回限りまたは毎月の支援ができます。金額は自由に決められます。</p>
+      <p class="btn-row"><a class="btn btn-primary btn-lg" id="kofi-link" href="https://ko-fi.com/namthnonl" target="_blank" rel="noopener"><svg class="ic" aria-hidden="true" focusable="false"><use href="#i-heart"/></svg><span class="t">Ko-fiを新しいタブで開く</span></a><button type="button" class="btn btn-ghost" id="kofi-load" hidden aria-controls="kofi-box">Ko-fiウィジェットをここに読み込む</button></p>
+      <section id="kofi-box" class="kofi-box" aria-label="Ko-fiウィジェット" hidden></section>
+      <p class="fine-s" id="kofi-note">ウィジェットが表示されない場合は、上のボタンをお使いください。<em>Ko-fiウィジェットをここに読み込む</em>を押すまでウィジェットは読み込まれません。押すと、ウィジェットがko-fi.comとstorage.ko-fi.comから読み込まれ、Ko-fi自身のポリシーが適用されます。上のリンクは、ウィジェットを読み込まなくても使えます。</p>
+    </section>
   </div>
+  <section class="more" aria-labelledby="more-h">
+    <h2 class="h2s" id="more-h">ほかにできること</h2>
+    <p class="more-lead">お金をかけずにできる応援も、同じように歓迎です。</p>
+    <ul class="more-ways">
+      <li id="star"><svg class="ic" aria-hidden="true" focusable="false"><use href="#i-github"/></svg><h3>GitHubでスターを付ける</h3><p>スターが付くと、ほかの人がアプリを見つけやすくなります。</p><p class="go"><a href="https://github.com/thnonl/hey-look" rel="noopener">GitHubでプロジェクトを開く</a></p></li>
+      <li id="report"><svg class="ic" aria-hidden="true" focusable="false"><use href="#i-bug"/></svg><h3>不具合やアイデアを報告</h3><p>うまく動かない、機能が足りないなどはありませんか？分かりやすい報告がとても助けになります。</p><p class="go"><a href="help.html#bug">報告のしかた</a></p></li>
+      <li id="translate"><svg class="ic" aria-hidden="true" focusable="false"><use href="#i-pen"/></svg><h3>翻訳を改善する</h3><p>お使いの言語で不自然な言葉があれば、ぜひ教えてください。</p><p class="go"><a href="https://github.com/thnonl/hey-look/issues" rel="noopener">より良い訳語を提案する</a></p></li>
+      <li id="share"><svg class="ic" aria-hidden="true" focusable="false"><use href="#i-send"/></svg><h3>友達に教える</h3><p>気に入りそうな人がいれば、このウェブサイトのリンクを送ってください。</p><p class="go"><a href="index.html">heylook.namthai.site</a></p></li>
+    </ul>
+  </section>
   <p class="help-pointer">ヘルプが必要ですか？<a href="help.html">ヘルプとよくある質問</a>をご覧ください。Googleでのサインイン時に警告が表示された場合は、<a href="help.html#google-review">その意味と対処法</a>をご覧ください。</p>
 </div>
 </main>

@@ -2,7 +2,10 @@
 // Run: node --experimental-strip-types scripts/test-about-links.mjs
 import assert from "node:assert/strict";
 import { readFileSync, existsSync } from "node:fs";
-import { ABOUT_LINKS } from "../src/aboutLinks.ts";
+import { ABOUT_LINKS, siteUrl, supportUrl } from "../src/aboutLinks.ts";
+import { LANGUAGES } from "../src/i18n/languages.ts";
+import { setLangPref } from "../src/i18n/index.ts";
+import { LANGS as SITE_LANGS } from "./generate-site-languages.mjs";
 
 const read = (p) => readFileSync(new URL(`../${p}`, import.meta.url), "utf8").replace(/\r\n/g, "\n");
 
@@ -11,6 +14,29 @@ assert.deepEqual(ABOUT_LINKS.map((l) => [l.text, l.url]), [
   ["Buy me a coffee", "https://heylook.namthai.site/support.html"],
   ["Source code", "https://github.com/thnonl/hey-look"],
 ]);
+
+// the support link opens the page of the language in use (W10.20): English at the root, the others in their folder of the site; read at the click, so a language switch counts
+const SITE = "https://heylook.namthai.site/";
+const dirOf = (code) => SITE_LANGS.find((l) => l.hreflang === code)?.dir; // the generator's list is the site's own
+for (const l of LANGUAGES) {
+  const dir = dirOf(l.code);
+  assert.notEqual(dir, undefined, `${l.code}: the site has no folder for this app language (add it to SITE_DIR in src/aboutLinks.ts when the site gets one)`);
+  const want = SITE + (dir ? dir + "/" : "") + "support.html";
+  assert.ok(existsSync(new URL(`../docs/${dir ? dir + "/" : ""}support.html`, import.meta.url)), `${want} exists in docs/`);
+  setLangPref(l.code);
+  assert.equal(supportUrl(), want, `${l.code}: supportUrl()`);
+  assert.equal(ABOUT_LINKS[1].url, want, `${l.code}: Settings > About link`);
+  assert.equal(siteUrl("privacy.html"), want.replace("support.html", "privacy.html"), `${l.code}: siteUrl`);
+}
+assert.equal(siteUrl("support.html", "zh-Hans"), SITE + "zh/support.html");
+assert.equal(siteUrl("support.html", "xx"), SITE + "support.html", "a language the site does not have falls back to English");
+assert.equal(siteUrl("support.html", "en-XA"), SITE + "support.html", "the dev pseudo-locale uses the English page");
+setLangPref("en"); // (the checks below, the README and the text of the links, are English)
+assert.equal(ABOUT_LINKS[1].url, SITE + "support.html");
+// the reminder's "Buy me a coffee" asks for the address when it is pressed, not once at start-up
+const host = read("src/supportNudgeHost.ts");
+assert.match(host, /openUpdateLink\(supportUrl\(\)\)/);
+assert.ok(!/SUPPORT_URL/.test(host + read("src/aboutLinks.ts")), "no fixed English support address is left");
 
 // the dialog draws exactly these through the helper that reports a failed open
 const dlg = read("src/components/SettingsDialog.tsx");

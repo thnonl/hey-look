@@ -1127,7 +1127,8 @@ function ComposeBody({ init }: { init: ComposeInit }) {
   };
   // the focus goes back where it was at Send once the editor takes input again (the body, or the Send button when Send was clicked)
   const wasLocked = useRef(false);
-  useEffect(() => {
+  // (a layout effect: it runs before the browser draws the unlocked editor, so no frame shows the position the focus call moved to; D-041, WebKitGTK showed 557 for 1 to 2 frames before 150)
+  useLayoutEffect(() => {
     if (locked) {
       wasLocked.current = true;
       return;
@@ -1143,6 +1144,9 @@ function ComposeBody({ init }: { init: ComposeInit }) {
     // a Mac and WebView2 kept it), so it is put back now and on every frame for about a third of a second, until the person scrolls or presses a key themselves.
     const saved = scrollsWas.current;
     const put = () => { for (const [box, top] of saved) if (box.isConnected && Math.abs(box.scrollTop - top) > 0.5) box.scrollTop = top; };
+    // the layout is flushed here: WebKitGTK moves the caret into view in the layout that follows the focus call, which used to run after this function and was drawn
+    // before the next animation frame put the position back (D-041). Read now, that move happens first and is undone in the same task.
+    void (paneRef.current ?? document.body).offsetHeight;
     put();
     let frames = 0;
     let raf = 0;
@@ -1150,8 +1154,10 @@ function ComposeBody({ init }: { init: ComposeInit }) {
     const stop = () => {
       cancelAnimationFrame(raf);
       for (const t of ["wheel", "pointerdown", "keydown", "touchstart"]) document.removeEventListener(t, own, true);
+      document.removeEventListener("scroll", put, true);
     };
     for (const t of ["wheel", "pointerdown", "keydown", "touchstart"]) document.addEventListener(t, own, true);
+    document.addEventListener("scroll", put, true); // (a move the engine makes later is undone before the next frame is drawn: scroll events run ahead of the frame callbacks)
     const tick = () => {
       put();
       if (++frames < 20) raf = requestAnimationFrame(tick);
