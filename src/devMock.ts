@@ -1385,6 +1385,7 @@ export function installMock() {
         console.info("[mock] clipboard:", a.text); return null;
       case "read_clipboard_text": // (macOS reads the clipboard for Cmd+Shift+V, Linux when Ctrl+Shift+V pasted nothing; a dev check sets window.__mockClipboard = { text, html }; window.__readCalls counts the reads)
         (window as unknown as { __readCalls?: number }).__readCalls = ((window as unknown as { __readCalls?: number }).__readCalls ?? 0) + 1;
+        if ((window as unknown as { __readFails?: boolean }).__readFails) throw "mock: the clipboard cannot be read"; // (a check: the backend read fails)
         return (window as unknown as { __mockClipboard?: { text: string; html: string } }).__mockClipboard ?? { text: "", html: "" };
       case "plugin:app|version": return "1.0.0";
       // `#os=macos|linux` (per-OS copy and shortcut labels), `#notray` (Linux without a tray host), `#nonotify` (Send test fails)
