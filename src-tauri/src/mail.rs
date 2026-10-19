@@ -726,6 +726,48 @@ pub fn plain_text_to_html(text: &str) -> String {
     out
 }
 
+/// The HTML (a plain-text body converted), the text and the list of attachment parts of a parsed message. `raw` is the message `m` was parsed from.
+fn body_and_parts(m: &mail_parser::Message, raw: &[u8]) -> (Option<String>, Option<String>, Vec<AttMeta>) {
+    // a message with no text/html part: its text as HTML, by our own converter (mail-parser's collapses runs of spaces, indents and tables)
+    let mut html = match m.html_part(0).map(|p| &p.body) {
+        Some(PartType::Text(t)) => Some(plain_text_to_html(t)),
+        _ => m.body_html(0).map(|s| s.to_string()),
+    };
+    let text = m.body_text(0).map(|s| s.to_string());
+
+    // Every part is kept (never silently dropped). Referenced inline pictures up to INLINE_SYNC_MAX are embedded
+    // as data: URIs; the rest keep their cid: reference and are loaded on demand.
+    let mut attachments = vec![];
+    // The references are looked up in the HTML as it came, lower-cased once, and the pictures are put in with ONE copy of the HTML at the end: every picture used to
+    // copy and lower-case the HTML that had grown by the pictures before it (14 pictures of 1.3 MB: about 0.7 s of every parse, and a draft is parsed on every open).
+    let lower_html = html.as_ref().map(|h| h.to_ascii_lowercase());
+    let mut uris: Vec<String> = vec![];
+    let mut embeds: Vec<(usize, usize, usize)> = vec![]; // (start, end, index into `uris`)
+    let mut embedded: std::collections::HashSet<String> = Default::default(); // the cids that are in the HTML already (a second part with the same cid finds no reference any more)
+    for (i, part) in m.attachments().enumerate() {
+        let mime = part_mime(part);
+        let size = part_data(raw, part).len();
+        let cid = part_cid(part);
+        let spans = match (&cid, &lower_html) {
+            (Some(c), Some(l)) if !embedded.contains(&c.to_ascii_lowercase()) => cid_ref_spans_in(l, c),
+            _ => vec![],
+        };
+        let referenced = !spans.is_empty();
+        if let (true, Some(c)) = (referenced && mime.starts_with("image/") && size <= INLINE_SYNC_MAX, &cid) {
+            uris.push(format!("data:{mime};base64,{}", base64::engine::general_purpose::STANDARD.encode(part.contents())));
+            embeds.extend(spans.into_iter().map(|(a, b)| (a, b, uris.len() - 1)));
+            embedded.insert(c.to_ascii_lowercase());
+        }
+        let name = part.attachment_name().map(|s| s.to_string()).unwrap_or_else(|| default_name(i, &mime));
+        attachments.push(AttMeta { index: i, name, mime, size, inline: cid.is_some(), cid, referenced });
+    }
+    if let (false, Some(h)) = (embeds.is_empty(), html.as_mut()) {
+        embeds.sort_unstable();
+        *h = splice_uris(h, &embeds, &uris);
+    }
+    (html, text, attachments)
+}
+
 pub fn parse(uid: u32, raw: &[u8], seen: bool, flagged: bool, fallback_date: i64) -> Option<Parsed> {
     let m = MessageParser::default().parse(raw)?;
     let (from_name, from_email) = m
@@ -738,31 +780,7 @@ pub fn parse(uid: u32, raw: &[u8], seen: bool, flagged: bool, fallback_date: i64
             )
         })
         .unwrap_or_default();
-    // a message with no text/html part: its text as HTML, by our own converter (mail-parser's collapses runs of spaces, indents and tables)
-    let mut html = match m.html_part(0).map(|p| &p.body) {
-        Some(PartType::Text(t)) => Some(plain_text_to_html(t)),
-        _ => m.body_html(0).map(|s| s.to_string()),
-    };
-    let mut text = m.body_text(0).map(|s| s.to_string());
-
-    // Every part is kept (never silently dropped). Referenced inline pictures up to INLINE_SYNC_MAX are embedded
-    // as data: URIs; the rest keep their cid: reference and are loaded on demand.
-    let mut attachments = vec![];
-    for (i, part) in m.attachments().enumerate() {
-        let mime = part_mime(part);
-        let size = part_data(raw, part).len();
-        let cid = part_cid(part);
-        let referenced = match (&cid, &html) {
-            (Some(c), Some(h)) => !cid_ref_spans(h, c).is_empty(),
-            _ => false,
-        };
-        if let (true, Some(c), Some(h)) = (referenced && mime.starts_with("image/") && size <= INLINE_SYNC_MAX, &cid, html.as_mut()) {
-            let uri = format!("data:{mime};base64,{}", base64::engine::general_purpose::STANDARD.encode(part.contents()));
-            *h = replace_cid_refs(h, c, &uri);
-        }
-        let name = part.attachment_name().map(|s| s.to_string()).unwrap_or_else(|| default_name(i, &mime));
-        attachments.push(AttMeta { index: i, name, mime, size, inline: cid.is_some(), cid, referenced });
-    }
+    let (mut html, mut text, mut attachments) = body_and_parts(&m, raw);
 
     // PGP: encrypted mail keeps no readable body in the database; signed mail drops its signature part
     let (mut pgp, keep) = crate::pgpmail::flags_for(raw, text.as_deref());
@@ -892,6 +910,33 @@ pub fn attachment_bytes(raw: &[u8], index: usize) -> R<(String, Vec<u8>)> {
     // same fallback name as the metadata (AttMeta.name), so a saved file and its card agree
     let name = part.attachment_name().map(|s| s.to_string()).unwrap_or_else(|| default_name(index, &part_mime(part)));
     Ok((name, part_data(raw, part).into_owned()))
+}
+
+/// A message read once for opening a draft (`draftopen.rs`): its body and attachment list as `parse` makes them (`view`, without the rest of what `parse` works out: snippet,
+/// calendar text, PGP flags, headers) and its parts' bytes (`for_each_attachment`; `attachment_bytes` parses the whole message again for every part it is asked for).
+pub struct Parts<'a> {
+    raw: &'a [u8],
+    msg: mail_parser::Message<'a>,
+}
+
+pub fn open_parts(raw: &[u8]) -> Option<Parts<'_>> {
+    Some(Parts { raw, msg: MessageParser::default().parse(raw)? })
+}
+
+impl Parts<'_> {
+    /// The HTML (a plain-text body converted), the text and the attachment list.
+    pub fn view(&self) -> (Option<String>, Option<String>, Vec<AttMeta>) {
+        body_and_parts(&self.msg, self.raw)
+    }
+
+    /// Every attachment part, in the order of the list `view` makes (`index` is the position in it): the name (the same fallback as `AttMeta.name`) and the bytes as
+    /// `attachment_bytes` gives them.
+    pub fn for_each_attachment(&self, mut f: impl FnMut(usize, String, &[u8])) {
+        for (i, part) in self.msg.attachments().enumerate() {
+            let name = part.attachment_name().map(|s| s.to_string()).unwrap_or_else(|| default_name(i, &part_mime(part)));
+            f(i, name, &part_data(self.raw, part));
+        }
+    }
 }
 
 pub fn fetch_folder(s: &mut Sess, folder: &str, max_known_uid: u32, min_known_uid: u32, initial: u32) -> R<FolderFetch> {
@@ -1068,9 +1113,14 @@ pub fn inline_part(raw: &[u8], cid: &str) -> R<(String, Vec<u8>, String)> {
 }
 
 /// Where `cid:<cid>` is used in the html as a whole reference (so `cid:logo@x` does not match inside `cid:logo@xy`).
+#[cfg(test)]
 fn cid_ref_spans(html: &str, cid: &str) -> Vec<(usize, usize)> {
+    cid_ref_spans_in(&html.to_ascii_lowercase(), cid)
+}
+
+/// `cid_ref_spans` on the HTML that is lower-cased already (ASCII only: every offset is the same in both).
+pub(crate) fn cid_ref_spans_in(lower_html: &str, cid: &str) -> Vec<(usize, usize)> {
     let needle = format!("cid:{cid}");
-    let lower_html = html.to_ascii_lowercase();
     let lower_needle = needle.to_ascii_lowercase();
     lower_html
         .match_indices(&lower_needle)
@@ -1083,7 +1133,24 @@ fn cid_ref_spans(html: &str, cid: &str) -> Vec<(usize, usize)> {
         .collect()
 }
 
-fn replace_cid_refs(html: &str, cid: &str, uri: &str) -> String {
+/// `html` with the spans (sorted, not overlapping) replaced by the data URI each names.
+pub(crate) fn splice_uris(html: &str, spans: &[(usize, usize, usize)], uris: &[String]) -> String {
+    let mut out = String::with_capacity(html.len() + spans.iter().map(|s| uris[s.2].len()).sum::<usize>());
+    let mut last = 0;
+    for &(a, b, u) in spans {
+        if a < last {
+            continue; // (overlapping: the first one wins)
+        }
+        out.push_str(&html[last..a]);
+        out.push_str(&uris[u]);
+        last = b;
+    }
+    out.push_str(&html[last..]);
+    out
+}
+
+#[cfg(test)]
+pub(crate) fn replace_cid_refs(html: &str, cid: &str, uri: &str) -> String {
     let mut out = String::with_capacity(html.len());
     let mut last = 0;
     for (a, b) in cid_ref_spans(html, cid) {
@@ -1131,6 +1198,29 @@ mod tests {
         assert_eq!(cid_ref_spans("cid:abc", "abc").len(), 1, "reference at the very end of the text");
         // multi-byte text around the reference
         assert_eq!(replace_cid_refs("Đỗ <img src=\"cid:a\"> é", "a", "U"), "Đỗ <img src=\"U\"> é");
+    }
+
+    /// D-044: the pictures a message refers to are put in with one copy of the HTML; the result is what one replacement per picture made.
+    #[test]
+    fn embedded_pictures_are_put_in_in_one_pass_and_a_second_part_with_the_same_cid_finds_no_reference() {
+        let png = |tag: u8| base64::engine::general_purpose::STANDARD.encode([tag; 40]);
+        let part = |cid: &str, tag: u8| format!("--B\r\nContent-Type: image/png\r\nContent-Transfer-Encoding: base64\r\nContent-ID: <{cid}>\r\nContent-Disposition: inline\r\n\r\n{}\r\n", png(tag));
+        let msg = format!(
+            "From: a@x.test\r\nSubject: s\r\nMIME-Version: 1.0\r\nContent-Type: multipart/related; boundary=\"B\"\r\n\r\n--B\r\nContent-Type: text/html; charset=utf-8\r\n\r\n<img src=\"cid:a@x\"><p>Đỗ</p><img src='cid:b@x'><img src=\"CID:A@X\"><img src=\"cid:c@x\">\r\n{}{}{}{}--B--\r\n",
+            part("a@x", 1),
+            part("b@x", 2),
+            part("a@x", 3),
+            part("d@x", 4)
+        );
+        let p = parse(1, msg.as_bytes(), false, false, 0).unwrap();
+        let uri = |tag: u8| format!("data:image/png;base64,{}", png(tag));
+        assert_eq!(
+            p.html.as_deref().unwrap().trim(),
+            format!("<img src=\"{}\"><p>Đỗ</p><img src='{}'><img src=\"{}\"><img src=\"cid:c@x\">", uri(1), uri(2), uri(1)),
+            "both references of a@x (any case) get the FIRST part; a reference nobody has a part for stays"
+        );
+        let refd: Vec<bool> = p.attachments.iter().map(|a| a.referenced).collect();
+        assert_eq!(refd, [true, true, false, false], "the second part with the cid a@x finds no reference left, d@x is not in the HTML");
     }
 
     /// W2.25: the converter keeps runs of spaces, the indent of a line, tabs and blank lines, and escapes what HTML would take for markup.

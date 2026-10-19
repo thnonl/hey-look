@@ -275,6 +275,8 @@ pub struct Security {
     pub locked_label: Option<String>,
     pub encrypted_for: Vec<String>,
     pub error: Option<String>,
+    /// the armored message as it was received. Nothing in the page reads it, and for a 20 MB draft it doubled what `get_thread` sent (D-044): not serialized.
+    #[serde(skip_serializing)]
     pub cipher: Option<String>,
     pub signature: Option<SigInfo>,
 }
