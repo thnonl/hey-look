@@ -1048,6 +1048,11 @@ function ComposeBody({ init }: { init: ComposeInit }) {
       meetingForm: meeting ? encodeMeeting(meeting, calTz(prefs)) : undefined,
     };
   };
+  // Save draft (below) is a callback that is made again only when some of its listed inputs change; it must build the draft from what the pane holds NOW. The signature
+  // is not one of those inputs: a message that comes back with a named signature (a failed send, Undo, a window, a restore) already holds the picker's id when it is
+  // drawn, the signatures are read a moment later, and nothing the callback watched changed then, so it kept building drafts without the signature (1.0.7 WP2a retest BUG-1).
+  const buildDraftRef = useRef(buildDraft);
+  buildDraftRef.current = buildDraft;
 
   /** The message as Compose opens it: the draft (its pictures back to data: URIs so the editor shows them), the toggles as they were. */
   const initOf = (d: Draft, o: { replaces?: string; isReply: boolean; carried: boolean }): ComposeInit => {
@@ -1449,7 +1454,7 @@ function ComposeBody({ init }: { init: ComposeInit }) {
       const rev = revRef.current;
       savingRef.current++;
       try {
-        const d = buildDraft();
+        const d = buildDraftRef.current();
         // a draft is only ever encrypted to your own key (no passphrase needed), and never signed
         const keepPrivate = !!d.security?.encrypt && eff(prefs, accountId, "pgpEncryptDrafts");
         // (`recoveryId`: the draft carries the id of this message's snapshot, so the next start finds it and never makes a second draft of it)

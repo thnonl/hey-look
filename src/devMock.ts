@@ -262,6 +262,8 @@ const hiddenCals = new Set<string>();
 const mockDrafts: Record<string, typeof messages> = {};
 /** The row each saved draft has in the Drafts list (with its importance), by thread. */
 const mockDraftRows: Record<string, ReturnType<typeof t>> = {};
+/** The branded signature of the mock (id s4): a table and a highlighted note, so it is easy to find (and count) in a saved draft. */
+const SIG_S4_HTML = '<table style="border-collapse:collapse"><tr><td style="background:#0f6cbd;color:#ffffff;padding:6px 10px;font-weight:600">Hey Look!</td><td style="padding:6px 10px;color:#000000">Nam Hoang<br><span style="color:#444444">Product, <a href="https://example.com" style="color:#0b57d0">example.com</a></span></td></tr></table><p style="background:#fff3bf;color:#5c4400;padding:4px 8px;margin:6px 0 0">A highlighted note in the signature</p>';
 let mockDraftSeq = 0;
 /** Crash recovery in the page (recover.rs): kept in localStorage, so reloading the page without discarding is the "crash" of a check. */
 const RECOVERY_KEY = "hl-mock-recovery";
@@ -1188,7 +1190,7 @@ export function installMock() {
         return { draft: mockDraftOf(o), sendAt: o.sendAt, status: o.status === "pending" || o.status === "overdue" ? "held" : o.status };
       }
       case "list_templates": return [{ id: "tp1", name: "Thanks", subject: "Thanks!", body: "<p>Thanks for your message.</p>" }, { id: "tp2", name: "Quarterly customer success follow-up with a deliberately very long template name", subject: "Follow-up", body: "<p>Hello</p>" }];
-      case "list_signatures": return (hashHas("nodefaultsig") ? (l: Array<Record<string, unknown>>) => l.map((x) => ({ ...x, isDefault: false })) : (l: Array<Record<string, unknown>>) => l)([{ id: "s1", name: "Work", html: "Nam<br>Hey Look!", isDefault: true }, { id: "s2", name: "Personal signature with a very long name that has to be cut with an ellipsis before it reaches the tag", html: "Nam", isDefault: false }, { id: "s3", accountId: "a2", name: "Gmail", html: "Nam (via Gmail)<br><i>nam@gmail.com</i>", isDefault: true }, { id: "s4", name: "Branded (coloured)", html: '<table style="border-collapse:collapse"><tr><td style="background:#0f6cbd;color:#ffffff;padding:6px 10px;font-weight:600">Hey Look!</td><td style="padding:6px 10px;color:#000000">Nam Hoang<br><span style="color:#444444">Product, <a href="https://example.com" style="color:#0b57d0">example.com</a></span></td></tr></table><p style="background:#fff3bf;color:#5c4400;padding:4px 8px;margin:6px 0 0">A highlighted note in the signature</p>', isDefault: false }]);
+      case "list_signatures": return (hashHas("nodefaultsig") ? (l: Array<Record<string, unknown>>) => l.map((x) => ({ ...x, isDefault: false })) : (l: Array<Record<string, unknown>>) => l)([{ id: "s1", name: "Work", html: "Nam<br>Hey Look!", isDefault: true }, { id: "s2", name: "Personal signature with a very long name that has to be cut with an ellipsis before it reaches the tag", html: "Nam", isDefault: false }, { id: "s3", accountId: "a2", name: "Gmail", html: "Nam (via Gmail)<br><i>nam@gmail.com</i>", isDefault: true }, { id: "s4", name: "Branded (coloured)", html: SIG_S4_HTML, isDefault: false }]);
       case "list_senders": return [{ email: "news@ph.com", name: "Product Hunt", count: 42, unread: 12, canUnsubscribe: true, lastDate: now - H }];
       case "list_rules": return [{ id: "r1", accountId: null, name: "Move newsletters", field: "from", op: "contains", value: "newsletter@example.com", action: "archive", arg: null, enabled: true }, { id: "r2", accountId: null, name: "", field: "subject", op: "contains", value: "a very long rule text that should be truncated in the list row", action: "trash", arg: null, enabled: false }];
       case "list_blocked": return [];
@@ -1413,6 +1415,7 @@ export function installMock() {
             m === "reply" ? { accountId: "a1", to: ["linh.tran@acme.example"], subject: "Re: Q4 roadmap review", isReply: true, inReplyTo: "<m1@acme.example>", bodyHtml: "<p>On Mon, Linh wrote:</p><blockquote><p>Could you review the milestones before Thursday?</p></blockquote>" }
             : m === "draft" ? { accountId: "a1", to: ["alice@fabrikam.com"], subject: "Draft with text", replaces: "d1", bodyHtml: "<p>Saved draft text</p>" }
             : m === "opened" || m === "openedcarried" ? { accountId: "a1", to: ["alice@fabrikam.com"], subject: "D1", replaces: "m:a1:drafts:dx", openedDraft: true, bodyHtml: "<p>Original text</p>", ...(m === "openedcarried" ? { carried: true } : {}) }
+            : m === "sigrestore" ? { accountId: "a1", to: ["alice@fabrikam.com"], subject: "Restored", sigId: "s4", carried: true, restore: { encrypt: "auto", sign: false, attachKey: false }, bodyHtml: "<p>Body of the message</p><br><div class=\"sig\">-- <br>" + (SIG_S4_HTML) + "</div>" }
             : m === "openedsaved" ? { accountId: "a1", to: ["alice@fabrikam.com"], subject: "D1", replaces: "mid:a1|<dx@mock>", openedDraft: true, carried: true, bodyHtml: "<p>Original text plus edits</p>" }
             : m === "new" ? {} : null;
           return { kind, label: "compose-1", key: null, init };

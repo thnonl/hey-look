@@ -176,6 +176,68 @@ try {
   await evaluate(`document.querySelector('.cp-editor .tiptap').editor.commands.insertContent(' more'); window.__store.getState().composeSaver({ quiet: true }); 1`);
   await sleep(800);
   await check('CF-18: the draft opened again and saved again still names the original', async () => assert.deepEqual(JSON.parse(await evaluate(`JSON.stringify(window.__lastDraft?.answers ?? null)`)), ans));
+
+  // ---------- 1.0.7 WP2a fix 2 (QA retest BUG-1): a message that comes back with a named signature (failed send, Undo, a window, a restore) saves a draft WITH
+  // that signature. Save draft built the draft from the signature it saw when the pane was drawn; a named signature is loaded after that, and nothing in the
+  // save's dependency list changed when it arrived (the picker already held its id), so the draft was built without it. The signature text is the branded
+  // one of the mock (s4): it must be in the saved draft once.
+  const NOTE = 'A highlighted note in the signature';
+  const saveAndRead = async () => {
+    await evaluate(`window.__lastDraft = null; window.__store.getState().composeSaver({ quiet: true }); 1`);
+    await sleep(900);
+    return evaluate(`window.__lastDraft ? window.__lastDraft.html : ''`);
+  };
+  const noteCount = (html) => html.split(NOTE).length - 1;
+  await fresh('&nodefaultsig');
+  await choose('s4');
+  await sleep(300);
+  await check('control: a new message with a named signature saves it once', async () => assert.equal(noteCount(await saveAndRead()), 1));
+  await sendAndUndo();
+  await check('Send + Undo, then Save draft: the draft has the named signature once', async () => {
+    assert.equal((await picker()).value, 's4');
+    const html = await saveAndRead();
+    assert.equal(noteCount(html), 1, html.slice(-300));
+  });
+  await fresh('&nodefaultsig', { accountId: 'a1', to: ['alice@fabrikam.com'], subject: 'Failed [smtpfail]' });
+  await choose('s4');
+  await sleep(300);
+  assert.ok(await clickButton(/^Send$/), 'no Send button');
+  const back = await waitFor(`document.body.innerText.includes('Send failed') && !!document.querySelector('.cp-editor .tiptap')?.editor && !!document.querySelector('.sig-select')`, 40000);
+  await sleep(1200);
+  await check('a failed send: Compose is back with the picker and the signature once', async () => {
+    assert.ok(back, 'the message did not come back');
+    const p = await picker();
+    assert.equal(p.value, 's4', JSON.stringify(p));
+    assert.equal(p.regions, 1);
+  });
+  await check('a failed send: the toast is a sentence with the server\'s words as the detail, not the raw text (retest UX-1)', async () => {
+    const text = await evaluate(`document.body.innerText`);
+    assert.match(text, /Send failed: The mail server did not accept the message\. Try again in a moment; if it keeps failing, check the outgoing server in Settings\. \(Details: response error: incomplete response\)/);
+    assert.ok(!text.includes('SMTP send failed'), 'the raw text is shown');
+  });
+  await check('a failed send, then Save draft: the draft has the named signature once (it had none)', async () => {
+    const html = await saveAndRead();
+    assert.equal(noteCount(html), 1, html.slice(-300));
+  });
+  // a message that is opened again with the signature carried (the shape every reopen path hands over: initOf)
+  await H.openApp('lang=en&nodefaultsig', 1280, 800);
+  await evaluate(`window.__store.getState().openCompose({ accountId: 'a1', to: ['alice@fabrikam.com'], subject: 'Restored', sigId: 's4', restore: { encrypt: 'auto', sign: false, attachKey: false }, bodyHtml: '<p>Body of the message</p><br><div class="sig">-- <br><p style="background:#fff3bf">' + ${JSON.stringify(NOTE)} + '</p></div>' }); 1`);
+  assert.ok(await waitFor(`!!document.querySelector('.cp-editor .tiptap')?.editor && !!document.querySelector('.sig-select')`, 15000));
+  await sleep(900);
+  await check('a restored message with a carried signature id: Save draft keeps the signature once', async () => {
+    assert.equal((await picker()).value, 's4');
+    assert.equal(noteCount(await saveAndRead()), 1);
+  });
+  // the compose window gets the same init from its opener
+  await H.openApp('lang=en&nodefaultsig', 1280, 800);
+  await H.cdp('Page.navigate', { url: 'about:blank' });
+  await H.cdp('Page.navigate', { url: `${H.base}?w=compose&mock=sigrestore#lang=en&nodefaultsig` });
+  assert.ok(await waitFor(`!!document.querySelector('.cp-editor .tiptap')?.editor && !!document.querySelector('.sig-select')`, 15000), 'the compose window did not start');
+  await sleep(1200);
+  await check('the compose window of a moved message with a carried signature id: Save draft keeps the signature once', async () => {
+    assert.equal((await picker()).value, 's4');
+    assert.equal(noteCount(await saveAndRead()), 1);
+  });
 } finally { await H.shutdown(); }
 
 if (failures.length) { console.error(`test-compose-restore: ${failures.length} failure(s)\n - ${failures.join('\n - ')}`); process.exit(1); }
