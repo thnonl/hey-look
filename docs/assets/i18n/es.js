@@ -107,7 +107,7 @@
   "story.cal_declined": "Rechazado. Se envía una respuesta desde el buzón correcto.",
   "story.cal_accepted": "Aceptado. Está en tu calendario y se envía una respuesta desde el buzón correcto.",
   "story.cal_tentative": "Provisional. Está en tu calendario y se envía una respuesta desde el buzón correcto.",
-  "story.cal_note": "La sincronización con un calendario de Google o Microsoft es opcional, por buzón. CalDAV podría llegar en una actualización posterior.",
+  "story.cal_note": "La sincronización con un calendario de Google o Microsoft es opcional, por buzón.",
 
   "story.img_loaded": "Contenido cargado. La aplicación descargó las imágenes ella misma cuando pudo, así que el remitente ve ahora una solicitud.",
   "story.img_blocked": "El contenido remoto está bloqueado. No se le ha pedido nada al remitente.",

@@ -111,6 +111,8 @@ static | node scripts/test-site-statements.mjs
 static | node scripts/test-site-statements-mutation.mjs
 # the Support page: no bank QR or bank-transfer text anywhere on the site, the images are gone, one Ko-fi action, the four other ways with their targets, the coffee heading equals the app label of each language
 static | node --experimental-strip-types scripts/test-site-support.mjs
+# the four main pages stay concise: word ceilings per page and language, demo windows not counted
+static | node scripts/test-site-length.mjs
 # the update-check timing (2 hours, 15 minutes) in update.rs and in the words of help.html, the app hint and privacy.html, in 8 languages
 static | node scripts/test-update-wording.mjs
 # the "Last updated" date of privacy, terms, Google API data use and security is one shared date in every language, LEGAL_DATE in scripts/lib/legal-date.mjs (owner policy; to move it: node scripts/set-legal-date.mjs YYYY-MM-DD)

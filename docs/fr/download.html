@@ -96,7 +96,7 @@
   </div>
 </header>
 <main id="main">
-<section class="page-head"><div class="wrap"><p class="kicker">Télécharger</p><h1>Téléchargez-le. <em>C’est gratuit.</em></h1><p class="lead">Toutes les fonctionnalités, sans compte, sans publicité. Choisissez votre système. Hey Look! se met à jour après votre accord.</p></div></section>
+<section class="page-head"><div class="wrap"><p class="kicker">Télécharger</p><h1>Téléchargez-le. <em>C’est gratuit.</em></h1><p class="lead">Toutes les fonctionnalités, sans compte, sans publicité.</p></div></section>
 <div class="wrap section dl-page">
   <div id="dl-status" class="dl-status" role="status" data-state=""><span class="dot" aria-hidden="true"></span><span class="grow msg">Récupérez la dernière version sur GitHub Releases.</span><a id="dl-fallback" class="btn btn-ghost btn-sm" href="https://github.com/thnonl/hey-look/releases/latest" rel="noopener"><svg class="ic" aria-hidden="true" focusable="false"><use href="#i-external"/></svg>Ouvrir GitHub Releases</a></div>
   <noscript><p class="callout">Récupérez la dernière version sur GitHub Releases. <a class="btn btn-primary btn-sm" href="https://github.com/thnonl/hey-look/releases/latest" rel="noopener">Ouvrir GitHub Releases</a></p></noscript>
@@ -107,7 +107,7 @@
       <div class="asset" data-asset="win-msi" data-pattern="HeyLook_&lt;version&gt;_windows_x64.msi"><a class="btn btn-ghost" href="https://github.com/thnonl/hey-look/releases/latest" rel="noopener" data-label="Télécharger le MSI"><svg class="ic" aria-hidden="true" focusable="false"><use href="#i-download"/></svg><span class="t">Télécharger le MSI</span></a><span class="fn">HeyLook_&lt;version&gt;_windows_x64.msi</span><small class="sz"></small></div>
       <details><summary>Notes pour Windows</summary>
         <p>Les programmes d’installation ne sont pas encore signés numériquement. Si SmartScreen apparaît, choisissez <strong>Informations complémentaires</strong>, puis <strong>Exécuter quand même</strong>.</p>
-        <p>Le MSI est destiné aux installations gérées et n’installe pas WebView2 lui-même&nbsp;; le setup.exe, si. Une mise à jour MSI demande des droits d’administrateur.</p></details>
+        <p>Le MSI est destiné aux installations gérées et n’installe pas WebView2 lui-même&nbsp;; le setup.exe, si.</p></details>
     </article>
     <article class="dl-card" id="card-macos"><span class="rec-b">Recommandé pour vous</span>
       <h2><svg class="ic" aria-hidden="true" focusable="false"><use href="#i-apple"/></svg>macOS</h2><p class="sub">macOS 11 ou version ultérieure, Apple silicon et Intel (une seule version universelle).</p>
@@ -119,8 +119,7 @@
         <li>Ouvrez <strong>Réglages Système &gt; Confidentialité et sécurité</strong>, faites défiler jusqu’à <strong>Sécurité</strong>, cliquez sur <strong>Ouvrir quand même</strong>, confirmez avec votre mot de passe ou Touch ID, puis cliquez sur <strong>Ouvrir</strong>.</li></ol>
         <p>Vous préférez le Terminal&nbsp;? Exécutez ceci une fois à la place des étapes 2 et 3&nbsp;:</p>
         <div class="copy"><code>xattr -dr com.apple.quarantine "/Applications/Hey Look!.app"</code><button class="btn btn-ghost btn-sm" type="button">Copier</button></div>
-        <p>Les mises à jour que Hey Look! installe lui-même démarrent normalement. L’icône du Dock affiche le nombre de messages non lus (Paramètres &gt; Notifications et zone de notification &gt; Pastille du Dock). Les notifications ne sont pas disponibles sous macOS dans cette version.</p>
-        <p>Mise à jour depuis une version antérieure à 1.0.6&nbsp;: le Trousseau demande une fois de plus à propos de vos mots de passe enregistrés au premier démarrage, car l’application est désormais signée avec un certificat fixe. Les pièces jointes PDF s’ouvrent dans votre application par défaut (l’aperçu propose Ouvrir et Enregistrer sous).</p></details>
+        <p>Les mises à jour que Hey Look! installe lui-même démarrent normalement.</p></details>
     </article>
     <article class="dl-card" id="card-linux"><span class="rec-b">Recommandé pour vous</span>
       <h2><svg class="ic" aria-hidden="true" focusable="false"><use href="#i-linux"/></svg>Linux</h2><p class="sub">Toute distribution avec l’AppImage, ou un paquet natif.</p>
@@ -129,29 +128,16 @@
       <div class="asset" data-asset="lin-rpm" data-pattern="HeyLook_&lt;version&gt;_linux_x86_64.rpm"><a class="btn btn-ghost" href="https://github.com/thnonl/hey-look/releases/latest" rel="noopener" data-label="Télécharger .rpm (Fedora, openSUSE)"><svg class="ic" aria-hidden="true" focusable="false"><use href="#i-download"/></svg><span class="t">Télécharger .rpm (Fedora, openSUSE)</span></a><span class="fn">HeyLook_&lt;version&gt;_linux_x86_64.rpm</span><small class="sz"></small></div>
       <details><summary>Notes pour Linux</summary>
         <p>Si votre bureau n’a pas de zone de notification, fermer la fenêtre quitte Hey Look!</p>
-        <p>Les liens et les pièces jointes s’ouvrent avec <code>xdg-open</code>. Les notifications nécessitent un service de notifications sur le bureau. Les mots de passe nécessitent que GNOME Keyring ou KWallet soit en cours d’exécution et déverrouillé.</p>
-        <p>L’icône de la zone de notification n’a pas d’action au clic&nbsp;: utilisez Ouvrir Hey Look! dans son menu. Les pièces jointes PDF s’ouvrent dans votre application par défaut (l’aperçu propose Ouvrir et Enregistrer sous).</p></details>
+        <p>Les liens et les pièces jointes s’ouvrent avec <code>xdg-open</code>. Les mots de passe nécessitent que GNOME Keyring ou KWallet soit en cours d’exécution et déverrouillé.</p></details>
     </article>
   </div>
-  <h2 class="h2s" id="all-files">Tous les fichiers</h2>
-  <div class="tbl-wrap"><table class="tbl"><thead><tr><th scope="col">Système</th><th scope="col">Fichier</th><th scope="col">Taille</th><th scope="col">Télécharger</th></tr></thead><tbody>
-    <tr data-asset="win-exe" data-pattern="HeyLook_&lt;version&gt;_windows_x64-setup.exe"><th scope="row">Windows 10/11 (recommandé)</th><td class="fn">HeyLook_&lt;version&gt;_windows_x64-setup.exe</td><td class="sz"></td><td><a class="btn btn-ghost btn-sm" href="https://github.com/thnonl/hey-look/releases/latest" rel="noopener" data-label="Télécharger"><span class="t">Télécharger</span></a></td></tr>
-    <tr data-asset="win-msi" data-pattern="HeyLook_&lt;version&gt;_windows_x64.msi"><th scope="row">Windows, pour les installations gérées</th><td class="fn">HeyLook_&lt;version&gt;_windows_x64.msi</td><td class="sz"></td><td><a class="btn btn-ghost btn-sm" href="https://github.com/thnonl/hey-look/releases/latest" rel="noopener" data-label="Télécharger"><span class="t">Télécharger</span></a></td></tr>
-    <tr data-asset="mac-dmg" data-pattern="HeyLook_&lt;version&gt;_darwin_universal.dmg"><th scope="row">macOS 11+ (Apple silicon et Intel)</th><td class="fn">HeyLook_&lt;version&gt;_darwin_universal.dmg</td><td class="sz"></td><td><a class="btn btn-ghost btn-sm" href="https://github.com/thnonl/hey-look/releases/latest" rel="noopener" data-label="Télécharger"><span class="t">Télécharger</span></a></td></tr>
-    <tr data-asset="lin-appimage" data-pattern="HeyLook_&lt;version&gt;_linux_amd64.AppImage"><th scope="row">Linux, toute distribution</th><td class="fn">HeyLook_&lt;version&gt;_linux_amd64.AppImage</td><td class="sz"></td><td><a class="btn btn-ghost btn-sm" href="https://github.com/thnonl/hey-look/releases/latest" rel="noopener" data-label="Télécharger"><span class="t">Télécharger</span></a></td></tr>
-    <tr data-asset="lin-deb" data-pattern="HeyLook_&lt;version&gt;_linux_amd64.deb"><th scope="row">Debian / Ubuntu</th><td class="fn">HeyLook_&lt;version&gt;_linux_amd64.deb</td><td class="sz"></td><td><a class="btn btn-ghost btn-sm" href="https://github.com/thnonl/hey-look/releases/latest" rel="noopener" data-label="Télécharger"><span class="t">Télécharger</span></a></td></tr>
-    <tr data-asset="lin-rpm" data-pattern="HeyLook_&lt;version&gt;_linux_x86_64.rpm"><th scope="row">Fedora / openSUSE</th><td class="fn">HeyLook_&lt;version&gt;_linux_x86_64.rpm</td><td class="sz"></td><td><a class="btn btn-ghost btn-sm" href="https://github.com/thnonl/hey-look/releases/latest" rel="noopener" data-label="Télécharger"><span class="t">Télécharger</span></a></td></tr>
-  </tbody></table></div>
-  <h2 class="h2s" id="requirements">Configuration requise</h2>
-  <ul class="plain"><li>Windows 10 ou 11, 64 bits. Le runtime WebView2 est nécessaire&nbsp;: le setup.exe l’installe, le .msi non.</li><li>macOS 11 ou version ultérieure (Apple silicon et Intel).</li><li>Linux, x86_64.</li></ul>
   <h2 class="h2s" id="after">Après l’installation</h2>
   <ol class="steps3">
     <li><h3>Ajouter une boîte aux lettres</h3><p>Connectez-vous avec Google ou Microsoft, ou ajoutez n’importe quel compte avec IMAP/SMTP. iCloud et Yahoo nécessitent un mot de passe d’application.</p></li>
-    <li><h3>Elle se met à jour toute seule</h3><p>Hey Look! recherche sur GitHub une version plus récente, la télécharge après votre accord, vérifie la signature et redémarre après un compte à rebours de 5 secondes que vous pouvez annuler. Vous pouvez désactiver la vérification.</p></li>
-    <li><h3>Vos données restent les vôtres</h3><p>Le cache des messages est un fichier SQLite local sur votre ordinateur. Les secrets restent dans le trousseau de clés du système. Voir la <a href="privacy.html">politique de confidentialité</a>.</p></li>
+    <li><h3>Elle se met à jour toute seule</h3><p>Hey Look! recherche une nouvelle version sur GitHub et ne l’installe qu’après votre accord. Vous pouvez désactiver la vérification.</p></li>
   </ol>
-  <div class="callout" id="gmail-signin"><h3>Gmail</h3><p>Connectez-vous avec votre compte Google. Hey Look! n’a pas encore terminé l’examen de Google&nbsp;; Google affiche donc d’abord un avertissement («&nbsp;Google n’a pas validé cette application&nbsp;») et autorise jusqu’à 100 personnes à se connecter. <a href="help.html#google-review">Que faire</a>. Avec un compte Gmail personnel, vous pouvez aussi utiliser un mot de passe d’application.</p></div>
-  <p class="after-note">Des questions&nbsp;? Consultez <a href="help.html">Aide et FAQ</a>. Toutes les versions et notes de version se trouvent sur <a href="https://github.com/thnonl/hey-look/releases" rel="noopener">GitHub Releases</a>. Les programmes d’installation ne sont pas encore signés numériquement.</p>
+  <div class="callout" id="gmail-signin"><h3>Gmail</h3><p>Tant que Google n’a pas terminé son examen de Hey Look!, Google affiche un avertissement à la connexion et ne laisse que 100 personnes se connecter avec Google. <a href="help.html#google-review">Que faire</a>.</p></div>
+  <p class="after-note">Des questions&nbsp;? Consultez <a href="help.html">Aide et FAQ</a>. Toutes les versions et notes de version se trouvent sur <a href="https://github.com/thnonl/hey-look/releases" rel="noopener">GitHub Releases</a>.</p>
 </div>
 </main>
 <footer class="ftr">
