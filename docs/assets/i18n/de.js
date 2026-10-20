@@ -107,7 +107,7 @@
   "story.cal_declined": "Abgelehnt. Eine Antwort geht vom passenden Postfach aus.",
   "story.cal_accepted": "Zugesagt. Der Termin ist in Ihrem Kalender, und eine Antwort geht vom passenden Postfach aus.",
   "story.cal_tentative": "Mit Vorbehalt zugesagt. Der Termin ist in Ihrem Kalender, und eine Antwort geht vom passenden Postfach aus.",
-  "story.cal_note": "Die Synchronisierung mit einem Google- oder Microsoft-Kalender ist optional, je Postfach. CalDAV kommt möglicherweise mit einem späteren Update.",
+  "story.cal_note": "Die Synchronisierung mit einem Google- oder Microsoft-Kalender ist optional, je Postfach.",
 
   "story.img_loaded": "Inhalte geladen. Die App hat die Bilder, wo es ging, selbst heruntergeladen, sodass der Absender jetzt eine Anfrage sieht.",
   "story.img_blocked": "Externe Inhalte sind blockiert. Beim Absender wurde nichts angefragt.",

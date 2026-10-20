@@ -82,6 +82,8 @@
 - Undo in a compose window no longer shows the text at the wrong place for a frame or two before it jumps back (Linux)
 - Discard changes on a draft you opened and changed puts the draft back also when another mail program had only marked the old copy as deleted on the server (the draft used to be gone then)
 - On a Mac, the Edit menu item "Paste and Match Style" reads like the system's own item in Spanish ("Pegar con el mismo estilo") and Russian (no line break after "и")
+- The website is shorter: the home, features, help and download pages keep what you need to decide and to get started, in all 8 languages
+- The README is short and points to the website for features, help and policies
 
 ## 1.0.6 — 2026-10-18
 

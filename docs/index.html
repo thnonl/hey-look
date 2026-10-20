@@ -132,31 +132,35 @@
         <source src="media/intro.webm" type="video/webm"><source src="media/intro.mp4" type="video/mp4">
       </video>
       <div class="vmiss" hidden><p><b>The film could not be loaded.</b> The tour below shows the same things, and it is live.</p></div>
-      <figcaption id="vcap" class="vcap">A short film, no sound. It plays when it scrolls into view, unless your system asks for reduced motion.</figcaption>
+      <figcaption id="vcap" class="vcap">A short film, no sound.</figcaption>
     </figure>
-    <details class="vdesc" id="vdesc"><summary>Transcript: what the film shows</summary><p>A short, silent motion piece about Hey Look!: the envelope opens its eyes, the app window appears with made-up mail, a few features are shown, the appearance changes (colour, density, layout), and a diagram shows mail going straight between the app and the provider. It ends on the words free and open source.</p></details>
+    <details class="vdesc" id="vdesc"><summary>Transcript: what the film shows</summary><p>A silent film: made-up mail in the app window, a few features, the changing look, and mail going straight to your provider. It ends on free and open source.</p></details>
   </div>
-</section><div class="ticker" aria-hidden="true"><div class="tk-track"><div class="tk-g"><span>Undo send</span><i></i><span>Send later</span><i></i><span>Snooze</span><i></i><span>Tracking-pixel blocking</span><i></i><span>OpenPGP</span><i></i><span>Command bar</span><i></i><span>Calendar</span><i></i><span>Filters</span><i></i><span>Sweep</span><i></i><span>One-click unsubscribe</span><i></i><span>Bring-your-own AI</span><i></i><span>Signed updates</span><i></i></div><div class="tk-g tk-dup"><span>Undo send</span><i></i><span>Send later</span><i></i><span>Snooze</span><i></i><span>Tracking-pixel blocking</span><i></i><span>OpenPGP</span><i></i><span>Command bar</span><i></i><span>Calendar</span><i></i><span>Filters</span><i></i><span>Sweep</span><i></i><span>One-click unsubscribe</span><i></i><span>Bring-your-own AI</span><i></i><span>Signed updates</span><i></i></div></div></div>
+</section>
+<!-- hl:demo-begin -->
+<div class="ticker" aria-hidden="true"><div class="tk-track"><div class="tk-g"><span>Undo send</span><i></i><span>Send later</span><i></i><span>Snooze</span><i></i><span>Tracking-pixel blocking</span><i></i><span>OpenPGP</span><i></i><span>Command bar</span><i></i><span>Calendar</span><i></i><span>Filters</span><i></i><span>Sweep</span><i></i><span>One-click unsubscribe</span><i></i><span>Bring-your-own AI</span><i></i><span>Signed updates</span><i></i></div><div class="tk-g tk-dup"><span>Undo send</span><i></i><span>Send later</span><i></i><span>Snooze</span><i></i><span>Tracking-pixel blocking</span><i></i><span>OpenPGP</span><i></i><span>Command bar</span><i></i><span>Calendar</span><i></i><span>Filters</span><i></i><span>Sweep</span><i></i><span>One-click unsubscribe</span><i></i><span>Bring-your-own AI</span><i></i><span>Signed updates</span><i></i></div></div></div>
+<!-- hl:demo-end -->
 <section class="story" id="story" aria-labelledby="story-h">
   <div class="wrap">
     <header class="sec-head light rv">
       <p class="kicker">The tour</p>
       <h2 id="story-h">Nine things you would usually rent. <em>Try them.</em></h2>
-      <p class="sec-lead">This window is drawn for this page, with made-up mail. The buttons and keys really work. Scroll, and it changes scene.</p>
+      <p class="sec-lead">Made-up mail. The buttons and keys work.</p>
     </header>
     <div class="story-grid">
       <ol class="steps">
-        <li class="step" id="step-triage" data-scene="triage" tabindex="-1"><p class="st-n"><span>01</span>Triage<small class="pay">Often a paid extra elsewhere</small></p><h3>Inbox zero at typing speed.</h3><p>J and K move, E archives, # deletes, S snoozes, ! sends to junk. No mouse, no menus. Archive, delete and junk reach your server only after 3 to 30 seconds (6 by default), so a slip is one click from undone.</p><p class="st-try"><b>Try it.</b> Click the window, then press <kbd>J</kbd> <kbd>K</kbd> <kbd>E</kbd>. Or use the buttons.</p><p class="st-note">Real keys: c, /, j, k, e, #, !, s, p, *, u, r, a, f.</p></li>
-        <li class="step" id="step-undo" data-scene="undo" tabindex="-1"><p class="st-n"><span>02</span>Undo send<small class="pay">Often a paid extra elsewhere</small></p><h3>A second chance after Send.</h3><p>The message waits in a local outbox for 0 to 60 seconds (10 by default). Hit Send, spot the typo, take it back.</p><p class="st-try"><b>Try it.</b> Press Send, then watch the countdown. Pick a window length.</p><p class="st-note">One honest catch: held mail survives a crash, but a normal Quit sends it at once.</p></li>
-        <li class="step" id="step-later" data-scene="later" tabindex="-1"><p class="st-n"><span>03</span>Send later<small class="pay">Often a paid extra elsewhere</small></p><h3>Write now. Send later.</h3><p>Pick a preset or any date and time, up to a year ahead. A worker inside the app sends it, so Hey Look! has to be running at that time.</p><p class="st-try"><b>Try it.</b> Press Send later and choose a time.</p><p class="st-note">If the app was closed, the message goes out at the next start (or waits as Overdue if you set it to ask). Temporary errors are retried up to 3 times.</p></li>
-        <li class="step" id="step-snooze" data-scene="snooze" tabindex="-1"><p class="st-n"><span>04</span>Snooze<small class="pay">Often a paid extra elsewhere</small></p><h3>Out of sight until it matters.</h3><p>Snooze a conversation to a preset (in 1 hour, later today, tomorrow, the weekend, next week) or to times you set yourself. It returns to the Inbox then.</p><p class="st-try"><b>Try it.</b> Press Snooze, choose a time, then jump ahead.</p><p class="st-note">A notification announces the return on Windows and Linux, not on macOS yet.</p></li>
-        <li class="step" id="step-cmd" data-scene="cmd" tabindex="-1"><p class="st-n"><span>05</span>Command bar<small class="pay">Often a paid extra elsewhere</small></p><h3>Press Ctrl+K. Do anything.</h3><p>Type a command or a folder name: new mail, go to the calendar, switch mailbox, sweep by sender, theme, archive, flag, pin. About 40 of them, all a few keystrokes away.</p><p class="st-try"><b>Try it.</b> Type <kbd>dark</kbd>, <kbd>pane</kbd> or <kbd>snooz</kbd>. Arrow keys and Enter work.</p><p class="st-note">Cmd+K on macOS. On this page, Ctrl+K jumps here.</p></li>
-        <li class="step" id="step-pgp" data-scene="pgp" tabindex="-1"><p class="st-n"><span>06</span>Encryption<small class="pay">Often a paid extra elsewhere</small></p><h3>Lock it. Sign it.</h3><p>OpenPGP is built in. Make an Ed25519 or RSA 3072 key, back it up, and see before you send whether each recipient has a usable key.</p><p class="st-try"><b>Try it.</b> Switch on Encrypt, then Sign.</p><p class="st-note">Secret keys live in the app's database, locked by your passphrase, not in the OS credential store. Not yet tested against other OpenPGP software.</p></li>
-        <li class="step" id="step-cal" data-scene="cal" tabindex="-1"><p class="st-n"><span>07</span>Calendar<small class="pay">Often a paid extra elsewhere</small></p><h3>An invitation arrives. Answer it.</h3><p>Accept, tentative or decline from the card in the message. The reply goes out from the right mailbox, with an optional note. Month, week and agenda views.</p><p class="st-try"><b>Try it.</b> Press Accept.</p><p class="st-note">You can sync the calendars of a Google or Microsoft mailbox (optional, per mailbox). Google sign-in and Google calendar sync are limited to the first 100 users until Google finishes its review. CalDAV may come in a later update.</p></li>
-        <li class="step" id="step-images" data-scene="images" tabindex="-1"><p class="st-n"><span>08</span>Remote images<small class="pay">Often a paid extra elsewhere</small></p><h3>Newsletters cannot phone home.</h3><p>Remote and background images stay blocked until you load them, once for a message or always for a mailbox. A tracking pixel is just a remote image, so it is blocked with the rest.</p><p class="st-try"><b>Try it.</b> Press Load content, then Block again.</p><p class="st-note">When you allow images, the app downloads them itself where it can. For any it cannot, the message view may request them directly.</p></li>
-        <li class="step" id="step-privacy" data-scene="privacy" tabindex="-1"><p class="st-n"><span>09</span>Privacy</p><h3>From here to there. That is the whole route.</h3><p>There is no Hey Look! server in the middle. Mail travels between the app and your provider. Passwords and sign-in tokens go to your system's credential store. There is no analytics code in the source.</p><p class="st-try"><b>Try it.</b> Watch the envelopes. Nothing goes upstairs.</p><p class="st-note">The only other trips are listed under the diagram. The "no analytics" line is verified from the source, not from a traffic capture.</p></li>
+        <li class="step" id="step-triage" data-scene="triage" tabindex="-1"><p class="st-n"><span>01</span>Triage</p><h3>Inbox zero at typing speed.</h3><p>Single keys archive, delete and snooze, with undo.</p></li>
+        <li class="step" id="step-undo" data-scene="undo" tabindex="-1"><p class="st-n"><span>02</span>Undo send</p><h3>A second chance after Send.</h3><p>Mail waits up to 60 seconds, so you can take it back.</p></li>
+        <li class="step" id="step-later" data-scene="later" tabindex="-1"><p class="st-n"><span>03</span>Send later</p><h3>Write now. Send later.</h3><p>Any time up to a year ahead, while Hey Look! is running.</p></li>
+        <li class="step" id="step-snooze" data-scene="snooze" tabindex="-1"><p class="st-n"><span>04</span>Snooze</p><h3>Out of sight until it matters.</h3><p>It comes back to the Inbox when you said.</p></li>
+        <li class="step" id="step-cmd" data-scene="cmd" tabindex="-1"><p class="st-n"><span>05</span>Command bar</p><h3>Press Ctrl+K. Do anything.</h3><p>About 40 commands and every folder (Cmd+K on macOS).</p></li>
+        <li class="step" id="step-pgp" data-scene="pgp" tabindex="-1"><p class="st-n"><span>06</span>Encryption</p><h3>Lock it. Sign it.</h3><p>OpenPGP is built in. See who has a key before you send.</p></li>
+        <li class="step" id="step-cal" data-scene="cal" tabindex="-1"><p class="st-n"><span>07</span>Calendar</p><h3>An invitation arrives. Answer it.</h3><p>Accept, tentative or decline from the message.</p></li>
+        <li class="step" id="step-images" data-scene="images" tabindex="-1"><p class="st-n"><span>08</span>Remote images</p><h3>Newsletters cannot phone home.</h3><p>Remote images and tracking pixels load only when you allow them.</p></li>
+        <li class="step" id="step-privacy" data-scene="privacy" tabindex="-1"><p class="st-n"><span>09</span>Privacy</p><h3>From here to there. That is the whole route.</h3><p>No Hey Look! server: mail goes straight to your provider.</p></li>
       </ol>
       <div class="stage-col">
+        <!-- hl:demo-begin -->
         <div class="stage" id="stage" data-scene="triage" tabindex="-1">
           <div class="stage-bar"><nav class="s-nav" aria-label="Tour scenes"><ol><li><button type="button" data-go="triage" aria-label="1. Triage" aria-current="step"><span>1</span></button></li><li><button type="button" data-go="undo" aria-label="2. Undo send"><span>2</span></button></li><li><button type="button" data-go="later" aria-label="3. Send later"><span>3</span></button></li><li><button type="button" data-go="snooze" aria-label="4. Snooze"><span>4</span></button></li><li><button type="button" data-go="cmd" aria-label="5. Command bar"><span>5</span></button></li><li><button type="button" data-go="pgp" aria-label="6. Encryption"><span>6</span></button></li><li><button type="button" data-go="cal" aria-label="7. Calendar"><span>7</span></button></li><li><button type="button" data-go="images" aria-label="8. Remote images"><span>8</span></button></li><li><button type="button" data-go="privacy" aria-label="9. Privacy"><span>9</span></button></li></ol></nav><p class="stage-cap" aria-hidden="true"><span class="sc-n">1</span> <span class="sc-t">Triage</span></p></div>
           <div class="app" data-pane="right" data-density="full" data-preview="on" data-conv="on" data-focused="on" data-oldest="off" role="group" aria-label="Interactive demo of the Hey Look! window, with made-up mail"><div class="a-top"><span class="a-logo"><svg aria-hidden="true" focusable="false"><use href="#hl-mark"/></svg></span><b class="a-title">Hey Look!</b><span class="a-search"><svg class="ic" aria-hidden="true" focusable="false"><use href="#i-search"/></svg><span>Search mail</span><kbd>/</kbd></span><span class="a-sp"></span><span class="a-ico"><svg class="ic" aria-hidden="true" focusable="false"><use href="#i-gear"/></svg></span></div><div class="a-body"><div class="a-folders" aria-hidden="true">
@@ -201,7 +205,7 @@
   <div class="k-grid" aria-hidden="true"></div>
   <div class="k-card"><b>Design review</b><span class="k-when">Thursday, 15:00 to 15:45 (your time zone)</span><span>Room 4 · Organiser: Mina Park · 3 attendees · No conflicts</span>
     <div class="k-btns" role="group" aria-label="Reply to the invitation"><button type="button" class="r-btn" data-rsvp="accept"><svg class="ic" aria-hidden="true" focusable="false"><use href="#i-check"/></svg>Accept</button><button type="button" class="r-btn" data-rsvp="tentative">Tentative</button><button type="button" class="r-btn" data-rsvp="decline">Decline</button></div>
-    <p class="k-note" role="status">Syncing with a Google or Microsoft calendar is optional, per mailbox. CalDAV may come in a later update.</p></div>
+    <p class="k-note" role="status">Syncing with a Google or Microsoft calendar is optional, per mailbox.</p></div>
 </section>
 <section class="a-layer a-priv" data-for="privacy" aria-label="Where your mail goes">
   <svg class="pv" viewBox="0 0 640 330" role="img" aria-labelledby="pv-t pv-d" focusable="false">
@@ -219,6 +223,7 @@
           <p class="stage-key" id="stage-hint"><kbd>J</kbd> <kbd>K</kbd> move <kbd>E</kbd> archive <button type="button" class="sk-btn" data-act="key-j">Down</button><button type="button" class="sk-btn" data-act="key-k">Up</button><button type="button" class="sk-btn" data-act="key-e">Archive</button></p>
           <div id="stage-live" class="sr-only" role="status" aria-live="polite"></div>
         </div>
+        <!-- hl:demo-end -->
       </div>
     </div>
   </div>
@@ -228,32 +233,26 @@
     <header class="sec-head rv">
       <p class="kicker">Normally behind a paywall</p>
       <h2 id="free-h">Often a paid extra elsewhere. <em>Included here.</em></h2>
-      <p class="sec-lead">Capabilities that many subscription mail clients sell as premium, next to what Hey Look! includes.</p>
     </header>
     <section class="tbl-wrap cmp-wrap" aria-label="Comparison table" tabindex="0">
       <table class="cmp">
-        <caption>What Hey Look! includes, and whether similar features are often a paid extra in subscription mail clients</caption>
+        <caption>Hey Look! next to subscription mail clients</caption>
         <thead><tr><th scope="col">Capability</th><th scope="col">Hey Look!</th><th scope="col">Often a paid feature elsewhere</th></tr></thead>
         <tbody>
-          <tr><th scope="row">Undo send<small>0 to 60 seconds (10 by default). A normal Quit sends held mail at once.</small></th><td><span class="yes"><svg class="ic" aria-hidden="true" focusable="false"><use href="#i-check"/></svg>Included</span></td><td><span class="paid paid-usually">Usually paid</span></td></tr>
-          <tr><th scope="row">Send later<small>Up to a year ahead. The app has to be running at that time.</small></th><td><span class="yes"><svg class="ic" aria-hidden="true" focusable="false"><use href="#i-check"/></svg>Included</span></td><td><span class="paid paid-usually">Usually paid</span></td></tr>
-          <tr><th scope="row">Snooze with your own times<small>Presets or times you set. A notification on return on Windows and Linux.</small></th><td><span class="yes"><svg class="ic" aria-hidden="true" focusable="false"><use href="#i-check"/></svg>Included</span></td><td><span class="paid paid-usually">Usually paid</span></td></tr>
-          <tr><th scope="row">Undo for archive, delete and junk<small>3 to 30 seconds (6 by default).</small></th><td><span class="yes"><svg class="ic" aria-hidden="true" focusable="false"><use href="#i-check"/></svg>Included</span></td><td><span class="paid paid-varies">Varies</span></td></tr>
-          <tr><th scope="row">Remote-image blocking<small>Blocks remote images by default, so tracking pixels do not load. No tracker list.</small></th><td><span class="yes"><svg class="ic" aria-hidden="true" focusable="false"><use href="#i-check"/></svg>Included</span></td><td><span class="paid paid-varies">Varies</span></td></tr>
-          <tr><th scope="row">Filters and Sweep by sender<small>Rules on From, To, Subject or any field. Clean up sender by sender.</small></th><td><span class="yes"><svg class="ic" aria-hidden="true" focusable="false"><use href="#i-check"/></svg>Included</span></td><td><span class="paid paid-varies">Varies</span></td></tr>
-          <tr><th scope="row">One-click unsubscribe<small>The RFC 8058 request for newsletters that offer it.</small></th><td><span class="yes"><svg class="ic" aria-hidden="true" focusable="false"><use href="#i-check"/></svg>Included</span></td><td><span class="paid paid-usually">Usually paid</span></td></tr>
-          <tr><th scope="row">OpenPGP encrypt and sign<small>Ed25519 or RSA 3072 keys. Not yet tested with other OpenPGP software.</small></th><td><span class="yes"><svg class="ic" aria-hidden="true" focusable="false"><use href="#i-check"/></svg>Included</span></td><td><span class="paid paid-varies">Varies</span></td></tr>
-          <tr><th scope="row">Calendar with invitations<small>Month, Week, Agenda, invitations with Accept / Tentative / Decline, reminders, .ics import and export. Optional sync with Google and Microsoft calendars; Google is limited to the first 100 users until Google finishes its review. CalDAV may come in a later update.</small></th><td><span class="part"><i aria-hidden="true"></i>Google and Microsoft sync (optional)</span></td><td><span class="paid paid-varies">Varies</span></td></tr>
-          <tr><th scope="row">Command bar<small>Ctrl+K (Cmd+K on macOS), about 40 commands.</small></th><td><span class="yes"><svg class="ic" aria-hidden="true" focusable="false"><use href="#i-check"/></svg>Included</span></td><td><span class="paid paid-varies">Varies</span></td></tr>
-          <tr><th scope="row">Multiple accounts, one inbox<small>Google, Microsoft, iCloud, Yahoo, any IMAP/SMTP.</small></th><td><span class="yes"><svg class="ic" aria-hidden="true" focusable="false"><use href="#i-check"/></svg>Included</span></td><td><span class="paid paid-varies">Varies</span></td></tr>
-          <tr><th scope="row">AI assistant, your own endpoint<small>Optional. Any OpenAI-compatible endpoint you set up.</small></th><td><span class="yes"><svg class="ic" aria-hidden="true" focusable="false"><use href="#i-check"/></svg>Included</span></td><td><span class="paid paid-usually">Usually paid</span></td></tr>
-          <tr><th scope="row">Signed auto-updates<small>Minisign-signed, installed after you agree. The Windows .msi asks for administrator rights, and the Linux .deb and .rpm ask for your password.</small></th><td><span class="yes"><svg class="ic" aria-hidden="true" focusable="false"><use href="#i-check"/></svg>Included</span></td><td><span class="paid paid-varies">Varies</span></td></tr>
-          <tr><th scope="row">No analytics code<small>None in the source (verified from the code, not by a traffic capture).</small></th><td><span class="yes"><svg class="ic" aria-hidden="true" focusable="false"><use href="#i-check"/></svg>Included</span></td><td><span class="paid paid-varies">Varies</span></td></tr>
-          <tr><th scope="row">No ads<small>The app shows no advertising and its source has no ad code (verified from the code).</small></th><td><span class="yes"><svg class="ic" aria-hidden="true" focusable="false"><use href="#i-check"/></svg>Included</span></td><td><span class="paid paid-varies">Varies</span></td></tr>
+          <tr><th scope="row">Undo send</th><td><span class="yes"><svg class="ic" aria-hidden="true" focusable="false"><use href="#i-check"/></svg>Included</span></td><td><span class="paid paid-usually">Usually paid</span></td></tr>
+          <tr><th scope="row">Send later</th><td><span class="yes"><svg class="ic" aria-hidden="true" focusable="false"><use href="#i-check"/></svg>Included</span></td><td><span class="paid paid-usually">Usually paid</span></td></tr>
+          <tr><th scope="row">Snooze with your own times</th><td><span class="yes"><svg class="ic" aria-hidden="true" focusable="false"><use href="#i-check"/></svg>Included</span></td><td><span class="paid paid-usually">Usually paid</span></td></tr>
+          <tr><th scope="row">Remote-image blocking</th><td><span class="yes"><svg class="ic" aria-hidden="true" focusable="false"><use href="#i-check"/></svg>Included</span></td><td><span class="paid paid-varies">Varies</span></td></tr>
+          <tr><th scope="row">One-click unsubscribe</th><td><span class="yes"><svg class="ic" aria-hidden="true" focusable="false"><use href="#i-check"/></svg>Included</span></td><td><span class="paid paid-usually">Usually paid</span></td></tr>
+          <tr><th scope="row">OpenPGP encrypt and sign</th><td><span class="yes"><svg class="ic" aria-hidden="true" focusable="false"><use href="#i-check"/></svg>Included</span></td><td><span class="paid paid-varies">Varies</span></td></tr>
+          <tr><th scope="row">Calendar with invitations</th><td><span class="part"><i aria-hidden="true"></i>Google and Microsoft sync (optional)</span></td><td><span class="paid paid-varies">Varies</span></td></tr>
+          <tr><th scope="row">Multiple accounts, one inbox</th><td><span class="yes"><svg class="ic" aria-hidden="true" focusable="false"><use href="#i-check"/></svg>Included</span></td><td><span class="paid paid-varies">Varies</span></td></tr>
+          <tr><th scope="row">AI assistant, your own endpoint</th><td><span class="yes"><svg class="ic" aria-hidden="true" focusable="false"><use href="#i-check"/></svg>Included</span></td><td><span class="paid paid-usually">Usually paid</span></td></tr>
+          <tr><th scope="row">Signed auto-updates</th><td><span class="yes"><svg class="ic" aria-hidden="true" focusable="false"><use href="#i-check"/></svg>Included</span></td><td><span class="paid paid-varies">Varies</span></td></tr>
         </tbody>
       </table>
     </section>
-    <p class="fn">Based on typical subscription mail clients; features vary by app. This is general market knowledge, not checked against any one product, and no prices are quoted. Details of every item: <a href="features.html">the full feature list</a>.</p>
+    <p class="fn">Typical subscription mail clients; features vary by app. Limits: <a href="features.html#limits">the feature list</a>.</p>
   </div>
 </section>
 <section class="mk" id="make-it-yours" aria-labelledby="mk-h">
@@ -261,9 +260,9 @@
     <header class="sec-head rv">
       <p class="kicker">Make it yours</p>
       <h2 id="mk-h">Your mail, <em>dressed your way.</em></h2>
-      <p class="sec-lead">These are the real choices on the Appearance page. Change them and the window beside the controls follows, live.</p>
     </header>
     <div class="mk-grid">
+      <!-- hl:demo-begin -->
       <!-- [html-validate-disable-next wcag/h32 -- the form is a live customiser: every choice applies at once, nothing is submitted] -->
       <form class="mk-ctl" id="mk-form" aria-label="Appearance choices" autocomplete="off">
         <fieldset><legend>Theme</legend><div class="opts"><label class="opt"><input type="radio" name="theme" value="light"><span>Light</span></label><label class="opt"><input type="radio" name="theme" value="dark"><span>Dark</span></label><label class="opt"><input type="radio" name="theme" value="system" checked><span>System</span></label></div></fieldset>
@@ -295,8 +294,8 @@
       <div class="r-text" aria-hidden="true"><p>Hi, the revised plan is attached. Two things changed since Tuesday: the launch date moved a week, and Jonas now owns the budget line.</p><p>Could you read pages 3 and 4 before Thursday? Those are the ones I am least sure about.</p><p>Thanks, Linh</p></div></div>
 
     </div></div></div>
-        <p class="mk-note">Live preview with made-up mail, like the app&rsquo;s own. Dark mode derives a lighter shade of the colour you pick. Date and time format live in General; the unread badge under Notifications &amp; tray.</p>
       </div>
+      <!-- hl:demo-end -->
     </div>
   </div>
 </section>
@@ -305,13 +304,13 @@
     <header class="sec-head rv">
       <p class="kicker">The honest ledger</p>
       <h2 id="ledger-h">Where it is partial, <em>and what is not there yet.</em></h2>
-      <p class="sec-lead">For the current version. We would rather you read this here than find out later.</p>
+      <p class="sec-lead">All limits: <a href="features.html#limits">the feature list</a>.</p>
     </header>
     <div class="lg-grid">
       <div class="lg-col lg-part"><h3><svg class="ic" aria-hidden="true" focusable="false"><use href="#i-warn"/></svg>Partial</h3><ul>
-        <li>Calendar: events, invitations, reminders and three views, with optional sync for Google and Microsoft calendars. Google sign-in and Google calendar sync are limited to the first 100 users until Google finishes its review</li><li>Push mail: new Inbox mail arrives at once on servers that support IMAP IDLE; other folders and servers without it are checked at your interval (every 2 minutes by default)</li><li>Languages: English by default; Vietnamese, French, Chinese (Simplified), Spanish, Japanese, German and Russian in Settings. The translations were written with AI help and checked by language specialists</li><li>No analytics code in the source (verified from the code, not from a traffic capture)</li><li>PDF attachments: drawn inside the app on Windows; macOS and Linux open them in your default app</li></ul></div>
+        <li>Calendar sync: Google and Microsoft only</li><li>Google sign-in: the first 100 users until Google&rsquo;s review is done</li></ul></div>
       <div class="lg-col lg-no" id="not-yet"><h3><svg class="ic" aria-hidden="true" focusable="false"><use href="#i-x"/></svg>Not yet</h3><ul>
-        <li><b>Installers are not code-signed.</b> Expect a SmartScreen or Gatekeeper warning on first start.</li><li><b>macOS is not notarised</b> and has no native notifications yet; the Dock icon does show the unread number.</li><li><b>CalDAV and other calendar services.</b> Calendar sync covers Google and Microsoft only; CalDAV may come in a later update.</li><li><b>Search covers downloaded mail only.</b> Not the server.</li></ul></div>
+        <li><b>Installers are not code-signed.</b> SmartScreen and Gatekeeper warn on first start.</li><li><b>macOS is not notarised</b> and has no notifications yet.</li><li><b>Search covers downloaded mail only.</b></li></ul></div>
     </div>
   </div>
 </section>
@@ -320,7 +319,7 @@
     <div class="bill">
       <p class="kicker">Check out</p>
       <h2 id="cta-h">Total due: <em>nothing.</em></h2>
-      <p class="sec-lead">Pick your system. Hey Look! updates itself after you agree, and the update is signed.</p>
+      <p class="sec-lead">Hey Look! updates itself after you agree, and the update is signed.</p>
       <div id="dl-status" class="dl-status mini" role="status" data-state=""><span class="dot" aria-hidden="true"></span><span class="grow msg">Get the latest version from GitHub Releases.</span></div>
       <ul class="plat" id="downloads">
         <li class="pl" id="card-windows" data-asset="win-exe" data-pattern="HeyLook_&lt;version&gt;_windows_x64-setup.exe"><span class="pl-i"><svg class="ic" aria-hidden="true" focusable="false"><use href="#i-windows"/></svg></span><div><h3>Windows</h3><p>10 and 11, 64-bit.</p></div><a class="btn btn-primary" href="https://github.com/thnonl/hey-look/releases/latest" rel="noopener" data-label="Download .exe"><svg class="ic" aria-hidden="true" focusable="false"><use href="#i-download"/></svg><span class="t">Download .exe</span></a><small class="fn-s"><span class="fn"></span> <span class="sz"></span></small></li>
