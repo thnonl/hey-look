@@ -103,12 +103,12 @@
 <section class="fgroup" id="calendar" aria-labelledby="calendar-h"><header><p class="fg-n" aria-hidden="true">05</p><h2 id="calendar-h">日历</h2></header><ul class="fg-list"><li><h3>邀请</h3><p>在邮件里就能接受、暂定或拒绝，提供月、周和日程视图、提醒和.ics文件。</p></li><li><h3>与Google和Microsoft同步</h3><p>可选，按邮箱设置：您的Google或Outlook日历会显示在本地日历旁边，两边的更改互相同步。</p></li></ul></section>
 <section class="fgroup" id="pgp" aria-labelledby="pgp-h"><header><p class="fg-n" aria-hidden="true">06</p><h2 id="pgp-h">加密（OpenPGP）</h2></header><ul class="fg-list"><li><h3>加密和签名</h3><p>生成或导入密钥，加密和签名邮件，解密并验证收到的邮件，发送前还能看到每位收件人是否有密钥。</p></li><li><h3>您的密钥</h3><p>私钥保存在应用的数据库中，由您的密码短语加锁。尚未与其他OpenPGP软件做过互通测试。</p></li></ul></section>
 <section class="fgroup" id="ai" aria-labelledby="ai-h"><header><p class="fg-n" aria-hidden="true">07</p><h2 id="ai-h">AI助手（可选）</h2></header><ul class="fg-list"><li><h3>您自己的端点</h3><p>用任何兼容OpenAI的端点（包括您自己电脑上的端点）来总结、翻译或撰写。只有在您点击按钮时，文字才会发送过去，解密后的OpenPGP文字也包括在内。</p></li></ul></section>
-<section class="fgroup" id="notify" aria-labelledby="notify-h"><header><p class="fg-n" aria-hidden="true">08</p><h2 id="notify-h">桌面和更新</h2></header><ul class="fg-list"><li><h3>通知和托盘</h3><p>Windows和Linux上有通知；macOS上由程序坞图标显示未读数。关闭窗口后，Hey Look!会继续在托盘中运行。</p></li><li><h3>带签名的更新</h3><p>在您同意之前不会下载任何内容，只会安装签名有效的更新。</p></li><li><h3>八种语言</h3><p>英语、越南语、法语、简体中文、西班牙语、日语、德语和俄语。译文借助AI撰写，并经语言专家审校。</p></li></ul></section>
+<section class="fgroup" id="notify" aria-labelledby="notify-h"><header><p class="fg-n" aria-hidden="true">08</p><h2 id="notify-h">桌面和更新</h2></header><ul class="fg-list"><li><h3>通知和托盘</h3><p>Windows、Linux和macOS上有通知；macOS上程序坞图标还会显示未读数。关闭窗口后，Hey Look!会继续在托盘中运行。</p></li><li><h3>带签名的更新</h3><p>在您同意之前不会下载任何内容，只会安装签名有效的更新。</p></li><li><h3>八种语言</h3><p>英语、越南语、法语、简体中文、西班牙语、日语、德语和俄语。译文借助AI撰写，并经语言专家审校。</p></li></ul></section>
 <section class="fgroup" id="data" aria-labelledby="data-h"><header><p class="fg-n" aria-hidden="true">09</p><h2 id="data-h">隐私和数据</h2></header><ul class="fg-list"><li><h3>在您的电脑上</h3><p>邮件和设置是一个本地文件；密码和登录令牌保存在系统的凭据存储中。</p></li><li><h3>无需账户，没有分析代码，没有广告</h3><p>没有Hey Look!账户，也没有分析或广告代码。这类内容只有一条：偶尔提醒您可以支持这个项目，而且可以关闭。每一个连接都列在<a href="privacy.html">隐私政策</a>里。</p></li></ul></section>
 <section class="fgroup limits" id="limits" aria-labelledby="limits-h"><header><p class="fg-n" aria-hidden="true">!</p><h2 id="limits-h">限制，直白地说</h2><p class="fg-lead">Hey Look!哪些事做不到，或只能做到一部分。</p></header>
 <ul class="fg-list">
 <li><h3>安装程序</h3><p>未经代码签名，所以首次启动时SmartScreen和Gatekeeper会发出警告。macOS版没有经过公证：见<a href="download.html#install-notes">在macOS上首次启动</a>。</p></li>
-<li><h3>macOS和Linux</h3><p>macOS没有通知，也没有“打印”菜单。在Linux上，通知没有按钮，保存密码需要已解锁的密钥环，“机密”邮件也不会对屏幕截图隐藏。</p></li>
+<li><h3>macOS和Linux</h3><p>macOS没有“打印”菜单。在Linux上，通知没有按钮，保存密码需要已解锁的密钥环，“机密”邮件也不会对屏幕截图隐藏。</p></li>
 <li><h3>PDF附件</h3><p>只有在Windows上才在应用内显示；其他系统用您的默认应用打开。</p></li>
 <li><h3>邮件和搜索</h3><p>推送只覆盖收件箱；其他文件夹按定时检查。搜索只涵盖已下载的邮件。缺少的标准文件夹（例如草稿）不会被创建。</p></li>
 <li><h3>日历</h3><p>同步只支持Google和Microsoft，不支持CalDAV。无法编辑重复事件中单独的某一次。</p></li>

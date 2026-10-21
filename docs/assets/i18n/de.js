@@ -82,7 +82,7 @@
   "story.snoozed": "Zurückgestellt: {subj}. Sie kommt **{when}** in Ihren Posteingang zurück.",
   "story.jump_ahead": "Vorspringen",
   "story.snz_say": "Zurückgestellt. Sie kommt {when} zurück. Im Ordner „Zurückgestellt“ liegt jetzt 1 Unterhaltung.",
-  "story.snz_back": "Sie ist in den Posteingang zurückgekehrt. Unter Windows und Linux würden Sie zusätzlich eine Benachrichtigung erhalten.",
+  "story.snz_back": "Sie ist in den Posteingang zurückgekehrt. Sie würden zusätzlich eine Benachrichtigung erhalten.",
   "story.ok": "OK",
   "story.snz_back_say": "Die Unterhaltung ist wieder im Posteingang.",
 

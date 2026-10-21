@@ -82,7 +82,7 @@
   "story.snoozed": "Đã tạm ẩn: {subj}. Thư sẽ quay lại Hộp thư đến của bạn **{when}**.",
   "story.jump_ahead": "Tua tới",
   "story.snz_say": "Đã tạm ẩn. Thư quay lại {when}. Thư mục Đã tạm ẩn giờ có 1 cuộc trò chuyện.",
-  "story.snz_back": "Thư đã quay lại Hộp thư đến. Trên Windows và Linux bạn cũng sẽ nhận được một thông báo.",
+  "story.snz_back": "Thư đã quay lại Hộp thư đến. Bạn cũng sẽ nhận được một thông báo.",
   "story.ok": "OK",
   "story.snz_back_say": "Cuộc trò chuyện đã trở lại Hộp thư đến.",
 
