@@ -25,3 +25,6 @@ dist-ssr
 .codegraph/
 .claude/
 .env
+
+# Website build output
+_site/
