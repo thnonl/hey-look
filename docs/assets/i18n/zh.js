@@ -81,7 +81,7 @@
   "story.snoozed": "已设置稍后提醒：{subj}。它会在**{when}**回到收件箱。",
   "story.jump_ahead": "快进",
   "story.snz_say": "已设置稍后提醒。它会在{when}回到收件箱。“稍后提醒”文件夹里现在有1个对话。",
-  "story.snz_back": "它回到收件箱了。在Windows和Linux上，您还会收到一条通知。",
+  "story.snz_back": "它回到收件箱了。您还会收到一条通知。",
   "story.ok": "好",
   "story.snz_back_say": "该对话已回到收件箱。",
 

@@ -82,7 +82,7 @@
   "story.snoozed": "Pospuesto: {subj}. Vuelve a tu bandeja de entrada **{when}**.",
   "story.jump_ahead": "Saltar hacia delante",
   "story.snz_say": "Pospuesto. Vuelve {when}. La carpeta Pospuestos tiene ahora 1 conversación.",
-  "story.snz_back": "Volvió a la bandeja de entrada. En Windows y Linux recibirías además una notificación.",
+  "story.snz_back": "Volvió a la bandeja de entrada. Recibirías además una notificación.",
   "story.ok": "Aceptar",
   "story.snz_back_say": "La conversación está de vuelta en la bandeja de entrada.",
 

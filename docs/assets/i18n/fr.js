@@ -82,7 +82,7 @@
   "story.snoozed": "Mis en attente : {subj}. La conversation revient dans votre boîte de réception **{when}**.",
   "story.jump_ahead": "Avancer dans le temps",
   "story.snz_say": "Mis en attente. La conversation revient {when}. Le dossier Mis en attente contient maintenant 1 conversation.",
-  "story.snz_back": "La conversation est revenue dans la boîte de réception. Sous Windows et Linux, vous recevriez aussi une notification.",
+  "story.snz_back": "La conversation est revenue dans la boîte de réception. Vous recevriez aussi une notification.",
   "story.ok": "OK",
   "story.snz_back_say": "La conversation est de retour dans la boîte de réception.",
 

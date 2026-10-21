@@ -82,7 +82,7 @@
   "story.snoozed": "Snoozed: {subj}. It returns to your Inbox **{when}**.",
   "story.jump_ahead": "Jump ahead",
   "story.snz_say": "Snoozed. It returns {when}. The Snoozed folder now has 1 conversation.",
-  "story.snz_back": "It came back to the Inbox. On Windows and Linux you would also get a notification.",
+  "story.snz_back": "It came back to the Inbox. You would also get a notification.",
   "story.ok": "OK",
   "story.snz_back_say": "The conversation is back in the Inbox.",
 

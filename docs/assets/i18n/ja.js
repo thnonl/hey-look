@@ -81,7 +81,7 @@
   "story.snoozed": "スヌーズしました：{subj}。**{when}**、受信トレイに戻ります。",
   "story.jump_ahead": "時間を先に進める",
   "story.snz_say": "スヌーズしました。{when}、戻ります。スヌーズ中フォルダーに1件の会話があります。",
-  "story.snz_back": "受信トレイに戻りました。WindowsとLinuxでは通知も届きます。",
+  "story.snz_back": "受信トレイに戻りました。通知も届きます。",
   "story.ok": "OK",
   "story.snz_back_say": "会話が受信トレイに戻りました。",
 
