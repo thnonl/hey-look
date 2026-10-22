@@ -551,6 +551,43 @@ pub fn restore_on_session<T: std::io::Read + std::io::Write>(db: &crate::Db, acc
     Ok(true)
 }
 
+/// The mailbox a local message id names (`<account>:<role>:<uid>`): the local row may be gone when the id is all that is left.
+pub fn account_of_local_id(id: &str) -> Option<&str> {
+    let mut parts = id.rsplitn(3, ':');
+    let (_uid, _role, account) = (parts.next()?, parts.next()?, parts.next()?);
+    Some(account).filter(|a| !a.is_empty())
+}
+
+/// "Discard changes" on an opened draft that no save has replaced (no autosave, no Save draft yet): none of the person's edits is on the server, so nothing is removed. Only when
+/// the opened draft itself is gone from the server (another program expunged it, a rule moved it) is the opened version APPENDed again: REQ-2.2.7, "the person asked for that
+/// version" (D-043: Discard right after an edit, the server copy expunged: the draft was lost, 3 -> 2). Idempotent by Message-ID: a copy that is there (not flagged \Deleted) is the
+/// opened version, so a second Discard, or one on a draft that is still where it was, writes nothing. The bytes are the ones remembered when the draft was opened
+/// (`remember_opened`), else the local row's (a message of the session cache). Ok(true): the opened version was put back; Ok(false): nothing to do (or no version to put back).
+pub fn restore_unsaved_on_session<T: std::io::Read + std::io::Write>(db: &crate::Db, acc: &crate::db::Account, s: &mut imap::Session<T>, local_id: &str) -> crate::db::R<bool> {
+    let raw = match opened_from_memory(local_id) {
+        Some(raw) => raw,
+        None => match read_opened(db, s, acc, local_id) {
+            Ok(raw) => raw,
+            Err(e) => {
+                crate::startup::line("draft", &format!("account {}: Discard changes found no opened version to check against the server: {e}", acc.id));
+                return Ok(false);
+            }
+        },
+    };
+    let Some(mid) = message_id_of(&raw) else {
+        crate::startup::line("draft", &format!("account {}: the opened draft has no Message-ID, it cannot be looked for on the server", acc.id));
+        return Ok(false);
+    };
+    let folder = crate::folder_for(db, acc, "drafts")?;
+    // (an error is an error: a connection that broke while asking must not become a second copy of a draft that is probably still there)
+    if message_id_present(s, &folder, &mid)? {
+        return Ok(false);
+    }
+    crate::mail::append(s, &folder, &raw, true)?;
+    crate::startup::line("draft", &format!("account {}: the opened draft was gone from the server, Discard changes put the opened version back", acc.id));
+    Ok(true)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1132,6 +1169,91 @@ mod tests {
             assert_eq!(left.len(), 1, "one draft");
             assert_eq!(left[0], &original, "the opened version, byte for byte");
         });
+    }
+
+    /// D-043 (Mac QA, WK-2d.09, the case that is still open): the draft was opened, an edit was made, and Discard changes was pressed BEFORE any autosave, while the server copy had been
+    /// removed by an IMAP EXPUNGE. Nothing of the edits is on the server; the opened version has to be there afterwards (one draft, byte for byte, no notice).
+    #[test]
+    fn discard_changes_before_any_save_puts_back_an_expunged_original() {
+        crate::test_guard::within(60, || {
+            let (fake, db, acc, original) = opened_draft_at("draft-unsaved-expunged", 71);
+            remember_opened("a1:drafts:71", &original); // (what `draft_recipients` does when the draft is opened)
+            fake.remove_message("Drafts", 71);
+            assert_eq!(fake.uids("Drafts"), Some(vec![]), "the server copy is expunged");
+            let mut s = fake.connect();
+            assert_eq!(restore_unsaved_on_session(&db, &acc, &mut s, "a1:drafts:71"), Ok(true), "true: the opened version was put back");
+            let st = fake.state.lock().unwrap();
+            let left: Vec<&Vec<u8>> = st.folders["Drafts"].iter().filter_map(|u| st.messages.get(&("Drafts".to_string(), *u))).collect();
+            assert_eq!(left.len(), 1, "one draft");
+            assert_eq!(left[0], &original, "the opened version, byte for byte");
+            drop(st);
+            let append = fake.commands().into_iter().rev().find(|c| c.starts_with("APPEND")).expect("an APPEND");
+            assert!(append.contains("Seen") && append.contains("Draft"), "the flags are Draft and Seen: {append}");
+            // idempotent: a second Discard (or a retry) finds it there and writes nothing
+            let appends = fake.commands().iter().filter(|c| c.starts_with("APPEND")).count();
+            assert_eq!(restore_unsaved_on_session(&db, &acc, &mut s, "a1:drafts:71"), Ok(false));
+            let _ = s.logout();
+            assert_eq!(fake.commands().iter().filter(|c| c.starts_with("APPEND")).count(), appends, "nothing was appended a second time");
+            assert_eq!(fake.uids("Drafts").map(|u| u.len()), Some(1));
+        });
+    }
+
+    /// The server copy is where it was: Discard changes before any save writes nothing at all (REQ-2.2.3), not even a flag.
+    #[test]
+    fn discard_changes_before_any_save_leaves_a_draft_that_is_still_there_alone() {
+        crate::test_guard::within(60, || {
+            let (fake, db, acc, original) = opened_draft_at("draft-unsaved-there", 72);
+            remember_opened("a1:drafts:72", &original);
+            let before = fake.commands().len();
+            let mut s = fake.connect();
+            assert_eq!(restore_unsaved_on_session(&db, &acc, &mut s, "a1:drafts:72"), Ok(false));
+            let _ = s.logout();
+            let sent = &fake.commands()[before..];
+            assert!(!sent.iter().any(|c| { let u = c.to_uppercase(); u.starts_with("APPEND") || u.contains("STORE") || u.contains("EXPUNGE") }), "{sent:?}");
+            assert_eq!(fake.uids("Drafts"), Some(vec![72]));
+        });
+    }
+
+    /// Flagged \Deleted by another program and not expunged yet: gone for the person, so the opened version is put back (the same rule as after a save).
+    #[test]
+    fn discard_changes_before_any_save_counts_a_deleted_flag_as_gone() {
+        crate::test_guard::within(60, || {
+            let (fake, db, acc, original) = opened_draft_at("draft-unsaved-flagged", 73);
+            remember_opened("a1:drafts:73", &original);
+            fake.flag_deleted("Drafts", 73);
+            let mut s = fake.connect();
+            assert_eq!(restore_unsaved_on_session(&db, &acc, &mut s, "a1:drafts:73"), Ok(true));
+            let _ = s.logout();
+            let st = fake.state.lock().unwrap();
+            let visible: Vec<&Vec<u8>> = st.folders["Drafts"].iter().filter(|u| !st.deleted.contains(&("Drafts".to_string(), **u))).filter_map(|u| st.messages.get(&("Drafts".to_string(), *u))).collect();
+            assert_eq!(visible.len(), 1, "one draft the person can see");
+            assert_eq!(visible[0], &original);
+        });
+    }
+
+    /// No version was kept (the draft was opened before it could be read) and the local row is gone: nothing is written, and no error stops the Discard.
+    #[test]
+    fn discard_changes_before_any_save_without_a_kept_version_writes_nothing() {
+        crate::test_guard::within(60, || {
+            let (fake, db, acc, _) = opened_draft_at("draft-unsaved-none", 74);
+            fake.remove_message("Drafts", 74);
+            crate::lock(&db).execute("DELETE FROM messages WHERE id='a1:drafts:74'", []).unwrap();
+            assert!(opened_from_memory("a1:drafts:74").is_none());
+            let before = fake.commands().len();
+            let mut s = fake.connect();
+            assert_eq!(restore_unsaved_on_session(&db, &acc, &mut s, "a1:drafts:74"), Ok(false));
+            let _ = s.logout();
+            assert!(!fake.commands()[before..].iter().any(|c| c.to_uppercase().starts_with("APPEND")));
+        });
+    }
+
+    #[test]
+    fn the_mailbox_of_a_local_message_id() {
+        assert_eq!(account_of_local_id("a1:drafts:10"), Some("a1"));
+        assert_eq!(account_of_local_id("3f9a-77:drafts:4"), Some("3f9a-77"));
+        assert_eq!(account_of_local_id("drafts:10"), None);
+        assert_eq!(account_of_local_id(":drafts:10"), None);
+        assert_eq!(account_of_local_id("x"), None);
     }
 
     /// The local row of the opened draft names a UID that is not on the server (a stale UID, a changed UIDVALIDITY) while the message is there under another one: the UID

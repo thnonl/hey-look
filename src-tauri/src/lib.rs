@@ -4266,12 +4266,30 @@ async fn discard_draft(state: tauri::State<'_, AppState>, reference: String) -> 
 
 /// 1.0.7 W2.2: Discard on a draft that was opened from Drafts and saved since (an autosave counts): the draft goes back to how it was when it
 /// was opened. `reference` names the draft the last save made; see draftmail.rs `restore_on_session`. An error leaves the saved version in place.
+/// `reference` can also be `m:<local id>`, the opened draft itself when no save has replaced it yet: Discard then puts the opened version back only if the server lost it.
 /// When it worked, the Drafts folder is read again in the background (`sync_drafts_after_restore`): the local list lost the saved copy and does not have the
 /// version put back yet, so without it the list of Drafts stayed empty until the next sync (1.0.7 WP2a QA BUG-2).
 #[tauri::command]
 async fn discard_draft_changes(app: tauri::AppHandle, state: tauri::State<'_, AppState>, reference: String) -> R<bool> {
     let db = state.db.clone();
     blocking(move || {
+        // an opened draft that no save has replaced yet is named by its local id (`m:<id>`): there are no edits on the server to take back, the opened version is put back only
+        // when the server lost it (D-043, draftmail.rs `restore_unsaved_on_session`)
+        if let Some(local_id) = reference.strip_prefix("m:") {
+            let account_id = draftmail::account_of_local_id(local_id).ok_or("not a draft")?.to_string();
+            let acc = db::get_account(&lock(&db), &account_id)?;
+            let sec = secret(&db, &acc)?;
+            let mut s = mail::connect(&acc, &sec)?;
+            let done = draftmail::restore_unsaved_on_session(&db, &acc, &mut s, local_id);
+            let _ = s.logout();
+            if done.is_ok() {
+                draftmail::forget_opened_memory(local_id);
+            }
+            if matches!(done, Ok(true)) {
+                sync_drafts_after_restore(&app, &db, &acc.id);
+            }
+            return done;
+        }
         // true = the opened version was put back; false = none was kept: nothing was written and the saved copy stays as the one draft (the page says so)
         let Ok(account_id) = lock(&db).query_row::<String, _, _>("SELECT account_id FROM draft_original WHERE draft_ref=?1", [&reference], |r| r.get(0)) else {
             startup::line("draft", "Discard changes found no opened version to put back, the saved copy stays as the draft");
@@ -5687,6 +5705,7 @@ pub fn run() {
             set_autostart,
             list_folders,
             list_threads,
+            locate_thread,
             get_thread,
             thread_meta,
             thread_action,
@@ -5705,7 +5724,6 @@ pub fn run() {
             attachment_save_all,
             attachment_open,
             attachment_reveal,
-            locate_thread,
             pick_folder,
             inline_image,
             send_message,
@@ -7666,24 +7684,6 @@ mod inbox_tab_count_tests {
         assert_eq!((v["unreadFocused"].as_u64(), v["unreadOther"].as_u64()), (Some(3), Some(2)));
     }
 
-    #[test]
-    fn inbox_tab_counts_ignore_count_other_mail() {
-        let c = fixture();
-        let tabs = |c: &Connection| {
-            let f = inbox(c, M1);
-            (f.unread, f.unread_focused, f.unread_other)
-        };
-        // not set at all: bulk mail counts (the default)
-        assert_eq!(tabs(&c), (4, 3, 2));
-        db::set_setting(&c, "prefs", r#"{"countOtherMail":true}"#).unwrap();
-        assert_eq!(tabs(&c), (4, 3, 2));
-        // off with Focused Inbox on: the side-menu number leaves out B1 (X still counts through its normal mail), the tabs do not change
-        db::set_setting(&c, "prefs", r#"{"countOtherMail":false}"#).unwrap();
-        assert_eq!(tabs(&c), (3, 3, 2));
-        assert_eq!(inbox(&c, M2).unread, 1);
-        // Focused Inbox off: bulk mail always counts
-        db::set_setting(&c, "prefs", r#"{"focused":false,"countOtherMail":false}"#).unwrap();
-        assert_eq!(tabs(&c), (4, 3, 2));
     /// D-051: where the notification of a conversation has to open it. F1 normal, B1 bulk, X both kinds, S snoozed, ARCH archived, a second mailbox's bulk M2B.
     #[test]
     fn a_notification_finds_the_list_that_has_the_conversation() {
@@ -7713,6 +7713,24 @@ mod inbox_tab_count_tests {
         }
     }
 
+    #[test]
+    fn inbox_tab_counts_ignore_count_other_mail() {
+        let c = fixture();
+        let tabs = |c: &Connection| {
+            let f = inbox(c, M1);
+            (f.unread, f.unread_focused, f.unread_other)
+        };
+        // not set at all: bulk mail counts (the default)
+        assert_eq!(tabs(&c), (4, 3, 2));
+        db::set_setting(&c, "prefs", r#"{"countOtherMail":true}"#).unwrap();
+        assert_eq!(tabs(&c), (4, 3, 2));
+        // off with Focused Inbox on: the side-menu number leaves out B1 (X still counts through its normal mail), the tabs do not change
+        db::set_setting(&c, "prefs", r#"{"countOtherMail":false}"#).unwrap();
+        assert_eq!(tabs(&c), (3, 3, 2));
+        assert_eq!(inbox(&c, M2).unread, 1);
+        // Focused Inbox off: bulk mail always counts
+        db::set_setting(&c, "prefs", r#"{"focused":false,"countOtherMail":false}"#).unwrap();
+        assert_eq!(tabs(&c), (4, 3, 2));
         // damaged text: the defaults
         db::set_setting(&c, "prefs", "{oops").unwrap();
         assert_eq!(tabs(&c), (4, 3, 2));
