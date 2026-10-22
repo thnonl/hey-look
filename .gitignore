@@ -28,3 +28,5 @@ dist-ssr
 
 # Linux store builds (snapcraft)
 *.snap
+# Website build output
+_site/

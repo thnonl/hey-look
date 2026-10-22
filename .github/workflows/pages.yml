@@ -1,12 +1,17 @@
 name: Pages
 
-# Deploys the website in docs/ to GitHub Pages (https://heylook.namthai.site/). The site is plain files: nothing is built.
-# It runs when docs/ or this file changes on main or release/v1.0.0, or by hand. It never touches releases or tags.
+# Validates and deploys the website in docs/ to GitHub Pages (https://heylook.namthai.site/).
+# It validates all SEO, metadata, language reciprocal links, word budgets, and 404 behavior,
+# then builds an optimized production bundle (_site) with minified CSS/JS and LCP preloads.
+# It runs when docs/, site scripts, or this workflow change on main or release branches, or manually.
 on:
   push:
-    branches: [main, release/v1.0.0]
+    branches: [main, "release/**"]
     paths:
       - "docs/**"
+      - "scripts/build-site.mjs"
+      - "scripts/generate-site-languages.mjs"
+      - "scripts/lib/site-seo.mjs"
       - ".github/workflows/pages.yml"
   workflow_dispatch:
 
@@ -30,9 +35,27 @@ jobs:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
         with:
           persist-credentials: false
+
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: 22
+
+      - name: Verify site SEO and integrity
+        run: |
+          node scripts/generate-site-languages.mjs --check
+          node scripts/test-site-languages.mjs --strict
+          node scripts/test-site-seo.mjs
+          node scripts/test-site-length.mjs
+          node scripts/test-site-404.mjs
+
+      - name: Build and optimize production site
+        run: node scripts/build-site.mjs _site
+
       - uses: actions/configure-pages@983d7736d9b0ae728b81ab479565c72886d7745b # v5.0.0
+
       - uses: actions/upload-pages-artifact@56afc609e74202658d3ffba0e8f6dda462b719fa # v3.0.1
         with:
-          path: docs
+          path: _site
+
       - id: deployment
         uses: actions/deploy-pages@d6db90164ac5ed86f2b6aed7e0febac5b3c0c03e # v4.0.5
