@@ -285,6 +285,8 @@ function dropMockDraft(ref: string) {
   delete mockDraftRows[tid];
 }
 /** The version of a draft as it was opened, by the reference of the draft the last save made (W2.2: `discard_draft_changes` puts it back). */
+/** Drafts that another program expunged on the server (`__mockExpungeDraft`), by the reference of the opened draft, with what Discard changes needs to put them back. */
+const mockLost: Record<string, { thread: typeof messages; row: ReturnType<typeof t>; headers: { to: string[]; cc: string[]; bcc: string[]; inReplyTo?: string | null; references?: string[]; meeting?: string | null; answers?: unknown } }> = {};
 const mockOriginals: Record<string, { thread: typeof messages; row: ReturnType<typeof t>; headers: { to: string[]; cc: string[]; bcc: string[]; inReplyTo?: string | null; references?: string[]; meeting?: string | null; answers?: unknown } }> = {};
 /** To / Cc / Bcc as the saved draft's headers have them, by message id (`draft_recipients`). */
 const mockDraftHeaders: Record<string, { to: string[]; cc: string[]; bcc: string[]; inReplyTo?: string | null; references?: string[]; meeting?: string | null; answers?: unknown }> = {};
@@ -420,7 +422,7 @@ export async function applyDemoHash() {
   // dev self-check of the dark mail rendering: `await __darkCheck()` in the console (see devDarkCheck.ts); `#darkcheck` runs it and prints the report on the page
   const runCheck = async (ids?: string[]) => {
     const { darkCheck } = await import("./devDarkCheck");
-    return darkCheck((id) => st().select(id), ids ?? ["dk1", "dk2", "dk3", "dk4", "dk5", "dk7", "dk8", "dk9", "dk10", "nl1", "nl2"]);
+    return darkCheck((id) => st().select(id), ids ?? ["dk1", "dk2", "dk3", "dk4", "dk5", "dk7", "dk8", "dk9", "dk10", "dk11", "dk12", "nl1", "nl2"]);
   };
   (window as unknown as { __darkCheck: typeof runCheck }).__darkCheck = runCheck;
   // `await __failedSendCheck()`: types a message, sends it three times against a server that rejects it, and reports what Compose looks like each time it reopens
@@ -919,7 +921,7 @@ export function installMock() {
     (window as unknown as { __mockMail: typeof mockMail }).__mockMail = mockMail;
     // dev check of the quote block (a reply / forward of any original): `__mockAddThread("q1", "Subject", { html, text, fromName, fromEmail, attachments })` adds a conversation with that one message to the first Inbox
     (window as unknown as { __mockAddThread: unknown }).__mockAddThread = (id: string, subject: string, over: Record<string, unknown> = {}) => {
-      threads.unshift(t(id, subject, [String(over.fromName ?? "Sender")], "", 0.1 * H));
+      threads.unshift(t(id, subject, [String(over.fromName ?? "Sender")], "", 0.1 * H, (over.row as Record<string, unknown> | undefined) ?? {})); // (`over.row`: more of the list row, e.g. { bulk: true, accountId: "a2", unread: 1 })
       mockThreadMsgs[id] = [secMsg(`m-${id}`, subject, String(over.fromName ?? "Sender"), String(over.fromEmail ?? "sender@example.org"), over, (over.html as string | null | undefined) ?? null)];
     };
     if (hashHas("backfill")) {
@@ -1093,7 +1095,19 @@ export function installMock() {
   const shortAutosave = Number(hashTokens().get("autosave"));
   if (shortAutosave > 0) (window as unknown as { __hlTiming: unknown }).__hlTiming = { autosaveMs: shortAutosave, snapshotMs: Number(hashTokens().get("snapshot")) || 1000 };
   // dev preview of the secondary windows: a script takes a conversation away (`__mockGone.add("t1")`) and says so (`__mockEmit("mail-synced", null)`)
-  Object.assign(window, { __mockGone: mockGone, __mockEmit: (name: string, payload: unknown) => emit(name, payload) });
+  Object.assign(window, {
+    __mockGone: mockGone,
+    __mockEmit: (name: string, payload: unknown) => emit(name, payload),
+    // an IMAP EXPUNGE of a draft by another program: the server copy is gone, the page does not know yet (D-043: Discard changes before any save puts the opened version back)
+    __mockExpungeDraft: (threadId: string) => {
+      const ref = `m:a1:drafts:${threadId}`;
+      const thread = mockDrafts[threadId];
+      if (!thread) return false;
+      mockLost[ref] = { thread, row: mockDraftRows[threadId], headers: mockDraftHeaders[`a1:drafts:${threadId}`] ?? { to: [], cc: [], bcc: [] } };
+      dropMockDraft(ref);
+      return true;
+    },
+  });
   // a window object for `getCurrentWindow()` (a secondary window sets its title and theme; the label is the one the backend would give it)
   const which = new URLSearchParams(window.location.search).get("w");
   mockWindows(which === "reader" || which === "compose" ? `${which}-1` : "main");
@@ -1161,6 +1175,12 @@ export function installMock() {
         // pinned first in the (newest-first) Inbox, then by date (newest first, or oldest first with sortAsc)
         const dir = f.sortAsc ? 1 : -1;
         return list.sort((x, y) => (f.folder === "inbox" && !f.sortAsc ? Number(y.pinned) - Number(x.pinned) : 0) || dir * (x.lastDate - y.lastDate));
+      }
+      case "locate_thread": {
+        // like the backend: the list that has the conversation (the mock only has Inbox lists); null when it is not here (`__mockGone`, unknown)
+        const id = String(a.threadId);
+        const row = mockGone.has(id) ? undefined : [...threads, ...accounts.flatMap((x) => localMail(x.id))].find((x) => x.threadId === id);
+        return row ? { accountId: row.accountId, folder: row.folder, focused: !row.bulk, other: !!row.bulk } : null;
       }
       case "get_thread":
         if (mockGone.has(a.threadId as string)) return []; // (dev preview of the reader: "This message was moved or deleted.")
@@ -1307,8 +1327,26 @@ export function installMock() {
         return null;
       }
       case "discard_draft_changes": {
-        // like the backend: the opened version is appended again, then the saved copy goes (`#restorefail`: the server refuses, nothing changes)
         const ref = String(a.reference);
+        if (ref.startsWith("m:")) {
+          // an opened draft that no save has replaced yet (no autosave): there is nothing of the edits to take back; the opened version is put back only when the server lost it
+          // (`__mockExpungeDraft(threadId)` takes the draft away like an IMAP EXPUNGE by another program). Counted apart from the restore below: `__discardUnsaved` lists the references.
+          const w = window as unknown as { __discardUnsaved?: string[]; __discardUnsavedMs?: number };
+          (w.__discardUnsaved ??= []).push(ref);
+          if (hashTokens().has("restorefail")) throw "mock: the server refused the draft";
+          return later(w.__discardUnsavedMs ?? 0, () => {
+            const lost = mockLost[ref];
+            if (!lost) return false;
+            delete mockLost[ref];
+            const tid = `dt${++mockDraftSeq}`;
+            mockDrafts[tid] = lost.thread.map((m) => ({ ...m, id: `a1:drafts:${tid}` }));
+            mockDraftRows[tid] = { ...lost.row, threadId: tid, rowKey: tid };
+            mockDraftHeaders[`a1:drafts:${tid}`] = lost.headers;
+            (window as unknown as { __draftCount: () => number }).__draftCount = () => Object.keys(mockDrafts).length;
+            return true;
+          });
+        }
+        // like the backend: the opened version is appended again, then the saved copy goes (`#restorefail`: the server refuses, nothing changes)
         const w = window as unknown as { __discardChanges?: number };
         w.__discardChanges = (w.__discardChanges ?? 0) + 1; // counted, so a check can see that no restore ran
         const o = mockOriginals[ref];

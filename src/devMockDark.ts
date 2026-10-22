@@ -1,4 +1,12 @@
-// Dev-only fixtures for the dark mail background (Dark A..J). Open them with the app in the dark theme and use the
+import d052Html from "../scripts/fixtures/d052-xhtml-newsletter.html?raw"; // a whole XHTML document (head <style>, body colours): what the backend hands the page for a real newsletter
+
+// The same mail with its <style> moved into the body: the way its colours (body #74787E on #F2F4F6, white card, grey paragraphs) reach the frame, since sanitizeHtml keeps the body only.
+const d052Styled = (() => {
+  const css = /<style[\s\S]*?<\/style>/.exec(d052Html)?.[0] ?? "";
+  return d052Html.replace(css, "").replace(/<body>/, `<body>${css}`);
+})();
+
+// Dev-only fixtures for the dark mail background (Dark A..L). Open them with the app in the dark theme and use the
 // Sun / Moon button of the message to compare with the original colours.
 
 const darkA = "<h2>Plain HTML</h2><p>No colours at all: a <a href='https://example.com'>link</a>, <b>bold</b>, <i>italic</i> and a list:</p><ul><li>one</li><li>two</li></ul><blockquote>Quoted text</blockquote><hr><table border='1'><tr><td>cell</td><td>cell</td></tr></table>";
@@ -96,6 +104,8 @@ export const darkThreadRows = [
   ["dk8", "Delivery Status Notification (Failure)", "Bounce: grey wrapper, white box with a border, orange icon, monospace response.", 15],
   ["dk9", "Skyline Rewards: October account statement", "Newsletter: grey page, white 640px wrapper, banner picture, coloured cards.", 16],
   ["dk10", "What is Lorem Ipsum?", "Mail from a web mail: white blocks behind the heading and the paragraph.", 17],
+  ["dk11", "Security notice (XHTML table layout)", "A whole XHTML document: a style block in the head with a universal selector, body colours, a 570 px table.", 18],
+  ["dk12", "Security notice (styles in the body)", "The same mail with its style block inside the body: grey text on a light grey page and a white card.", 19],
 ] as const;
 
 /** Messages by thread id; `base` is a complete message to copy the other fields from. */
@@ -111,6 +121,8 @@ export function darkMessages(base: Record<string, unknown>, svg: (w: number, h: 
     dk8: mk("h", "md8", darkThreadRows[7][1], darkH, "Address not found"),
     dk9: mk("i", "md9", darkThreadRows[8][1], darkI, "Statement"),
     dk10: mk("j", "md10", darkThreadRows[9][1], darkJ, "Lorem ipsum"),
+    dk11: mk("k", "md11", darkThreadRows[10][1], d052Html, "Security notice"),
+    dk12: mk("l", "md12", darkThreadRows[11][1], d052Styled, "Security notice"),
     dk6: mk("f", "md6", darkThreadRows[5][1], null, darkF),
   };
 }

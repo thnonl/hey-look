@@ -5,6 +5,7 @@ import { orderAccounts } from "./accountOrder";
 import { hasMailAccounts } from "./mailControls";
 import { applyBackfill } from "./backfill";
 import { holdOpenThread } from "./openThread";
+import { planOpen } from "./notifyOpen";
 import { withThreadsGone, withUnreadChange } from "./focusCounts";
 import { QueuedMoves } from "./queuedMoves";
 import { Latest } from "./latestOnly";
@@ -367,6 +368,12 @@ interface State {
   select: (id: string | null) => Promise<void>;
   /** The person opens a conversation (click, Enter, j / k, a notification): the message being written is left first (`leaveCompose`). */
   openMail: (id: string) => Promise<void>;
+  /**
+   * A click on the notification of a new message (D-051): the conversation opens wherever it is. A window of its own that shows it comes to the front; else the
+   * list that has it (mailbox, folder, the Focused / Other tab) is shown, the row is revealed and selected and the conversation opens. Resolves to false (with a
+   * word) when it is not on this computer any more.
+   */
+  openNotified: (id: string) => Promise<boolean>;
   /**
    * Leave the message being written to read something else (F-21). Nothing written: it closes. Something written: it is saved as a draft
    * ("Draft saved" with Edit) and closes; when the save fails it stays open and nothing is lost. Resolves true when no message is open.
@@ -1049,6 +1056,37 @@ export const useStore = create<State>((set, get) => ({
   openMail: async (id) => {
     if (get().compose && !(await get().leaveCompose())) return;
     await get().select(id);
+  },
+
+  openNotified: async (id) => {
+    // a window of its own already shows it: that window comes to the front, nothing else changes
+    try {
+      if ((await api.popoutOpen("reader", id, null, true)).status === "focused") return true;
+    } catch {
+      /* nothing to ask (a plain tab, an old backend): the main window shows it */
+    }
+    if (get().module !== "mail") get().setModule("mail");
+    const listed = () => get().threads.some((x) => x.threadId === id);
+    if (!listed()) await get().refresh(); // (a message that arrived since the list was read)
+    if (!listed()) {
+      const home = await api.locateThread(id).catch(() => null);
+      if (!home) {
+        get().showToast(() => t("reading.popout.gone"), undefined, "error");
+        return false;
+      }
+      const { folder, accountId, search, filter, focus, prefs } = get();
+      const plan = planOpen(home, { folder, accountId, search, filter, focus, focusedInbox: prefs.focused });
+      if (plan.view) await get().setView(plan.view.folder, plan.view.accountId);
+      if (plan.focus && get().focus !== plan.focus) await get().setFocus(plan.focus);
+      if (!listed() && plan.clearFilter) await get().setFilter("all");
+      if (!listed()) await get().refresh();
+      if (!listed()) {
+        get().showToast(() => t("reading.popout.gone"), undefined, "error");
+        return false;
+      }
+    }
+    await get().openMail(id);
+    return get().selected === id;
   },
 
   leaveCompose: () => {

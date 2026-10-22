@@ -2209,6 +2209,39 @@ fn list_threads(state: tauri::State<AppState>, filter: ThreadFilter) -> R<Vec<Th
     threads_for(&lock(&state.db), filter)
 }
 
+/// Where a conversation lives: the view (mailbox, folder and, in the Inbox, tab) whose list has it. The page asks when a notification is clicked (1.0.7 D-051): the
+/// notification of a bulk message is in the Other tab, of another mailbox in that mailbox, and the list the person was looking at is none of them.
+#[derive(Serialize, Debug, PartialEq)]
+#[serde(rename_all = "camelCase")]
+struct ThreadHome {
+    account_id: String,
+    /// "inbox", "snoozed" (a conversation that is snoozed is in no Inbox list) or the folder key of its newest message
+    folder: String,
+    /// in the Inbox: a message the Focused list has / one the Other list has (a conversation of both kinds is in both lists)
+    focused: bool,
+    other: bool,
+}
+
+fn thread_home(c: &Connection, thread_id: &str) -> Option<ThreadHome> {
+    let mut st = c.prepare("SELECT account_id, folder, list_unsub IS NOT NULL FROM messages WHERE thread_id=?1 ORDER BY date DESC, uid DESC").ok()?;
+    let rows: Vec<(String, String, bool)> = st.query_map([thread_id], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?))).ok()?.filter_map(|r| r.ok()).collect();
+    let (newest_account, newest_folder, _) = rows.first()?.clone();
+    let snoozed = c.query_row("SELECT 1 FROM thread_meta WHERE thread_id=?1 AND snoozed_until>?2", params![thread_id, now()], |_| Ok(())).is_ok();
+    let inbox: Vec<&(String, String, bool)> = rows.iter().filter(|r| r.1 == "inbox").collect();
+    if snoozed {
+        return Some(ThreadHome { account_id: newest_account, folder: "snoozed".into(), focused: false, other: false });
+    }
+    if let Some(first) = inbox.first() {
+        return Some(ThreadHome { account_id: first.0.clone(), folder: "inbox".into(), focused: inbox.iter().any(|r| !r.2), other: inbox.iter().any(|r| r.2) });
+    }
+    Some(ThreadHome { account_id: newest_account, folder: newest_folder, focused: false, other: false })
+}
+
+#[tauri::command]
+fn locate_thread(state: tauri::State<AppState>, thread_id: String) -> Option<ThreadHome> {
+    thread_home(&lock(&state.db), &thread_id)
+}
+
 fn threads_for(c: &Connection, filter: ThreadFilter) -> R<Vec<ThreadSummary>> {
     let t = now();
     let mut w: Vec<String> = vec![];
@@ -4233,12 +4266,30 @@ async fn discard_draft(state: tauri::State<'_, AppState>, reference: String) -> 
 
 /// 1.0.7 W2.2: Discard on a draft that was opened from Drafts and saved since (an autosave counts): the draft goes back to how it was when it
 /// was opened. `reference` names the draft the last save made; see draftmail.rs `restore_on_session`. An error leaves the saved version in place.
+/// `reference` can also be `m:<local id>`, the opened draft itself when no save has replaced it yet: Discard then puts the opened version back only if the server lost it.
 /// When it worked, the Drafts folder is read again in the background (`sync_drafts_after_restore`): the local list lost the saved copy and does not have the
 /// version put back yet, so without it the list of Drafts stayed empty until the next sync (1.0.7 WP2a QA BUG-2).
 #[tauri::command]
 async fn discard_draft_changes(app: tauri::AppHandle, state: tauri::State<'_, AppState>, reference: String) -> R<bool> {
     let db = state.db.clone();
     blocking(move || {
+        // an opened draft that no save has replaced yet is named by its local id (`m:<id>`): there are no edits on the server to take back, the opened version is put back only
+        // when the server lost it (D-043, draftmail.rs `restore_unsaved_on_session`)
+        if let Some(local_id) = reference.strip_prefix("m:") {
+            let account_id = draftmail::account_of_local_id(local_id).ok_or("not a draft")?.to_string();
+            let acc = db::get_account(&lock(&db), &account_id)?;
+            let sec = secret(&db, &acc)?;
+            let mut s = mail::connect(&acc, &sec)?;
+            let done = draftmail::restore_unsaved_on_session(&db, &acc, &mut s, local_id);
+            let _ = s.logout();
+            if done.is_ok() {
+                draftmail::forget_opened_memory(local_id);
+            }
+            if matches!(done, Ok(true)) {
+                sync_drafts_after_restore(&app, &db, &acc.id);
+            }
+            return done;
+        }
         // true = the opened version was put back; false = none was kept: nothing was written and the saved copy stays as the one draft (the page says so)
         let Ok(account_id) = lock(&db).query_row::<String, _, _>("SELECT account_id FROM draft_original WHERE draft_ref=?1", [&reference], |r| r.get(0)) else {
             startup::line("draft", "Discard changes found no opened version to put back, the saved copy stays as the draft");
@@ -5654,6 +5705,7 @@ pub fn run() {
             set_autostart,
             list_folders,
             list_threads,
+            locate_thread,
             get_thread,
             thread_meta,
             thread_action,
@@ -7630,6 +7682,35 @@ mod inbox_tab_count_tests {
         // the JSON the page reads
         let v = serde_json::to_value(&m1).unwrap();
         assert_eq!((v["unreadFocused"].as_u64(), v["unreadOther"].as_u64()), (Some(3), Some(2)));
+    }
+
+    /// D-051: where the notification of a conversation has to open it. F1 normal, B1 bulk, X both kinds, S snoozed, ARCH archived, a second mailbox's bulk M2B.
+    #[test]
+    fn a_notification_finds_the_list_that_has_the_conversation() {
+        let c = fixture();
+        let home = |t: &str| thread_home(&c, t);
+        let h = |a: &str, f: &str, focused: bool, other: bool| Some(ThreadHome { account_id: a.into(), folder: f.into(), focused, other });
+        assert_eq!(home("f1"), h(M1, "inbox", true, false), "a normal message: the Focused tab");
+        assert_eq!(home("b1"), h(M1, "inbox", false, true), "a bulk message: the Other tab only");
+        assert_eq!(home("x"), h(M1, "inbox", true, true), "a conversation of both kinds is in both tabs");
+        assert_eq!(home("m2b"), h(M2, "inbox", false, true), "another mailbox: its own account and the Other tab");
+        assert_eq!(home("m2a"), h(M2, "inbox", true, false));
+        assert_eq!(home("s"), h(M1, "snoozed", false, false), "a snoozed conversation is in the Snoozed list, not the Inbox");
+        assert_eq!(home("p"), h(M1, "inbox", true, false), "its snooze is over: back in the Inbox");
+        assert_eq!(home("arch"), h(M1, "archive", false, false), "another folder: that folder");
+        assert_eq!(home("gone"), None, "a conversation that is not on this computer");
+        // the answer is what the page reads
+        let v = serde_json::to_value(home("b1").unwrap()).unwrap();
+        assert_eq!((v["accountId"].as_str(), v["folder"].as_str(), v["focused"].as_bool(), v["other"].as_bool()), (Some(M1), Some("inbox"), Some(false), Some(true)));
+        // and the tab it names is the list that really holds it
+        let in_tab = |focus: &str, acct: &str, t: &str| {
+            let f: ThreadFilter = serde_json::from_value(serde_json::json!({ "accountId": acct, "folder": "inbox", "focus": focus })).unwrap();
+            threads_for(&c, f).unwrap().iter().any(|x| x.thread_id == t)
+        };
+        for (t, acct) in [("f1", M1), ("b1", M1), ("x", M1), ("m2b", M2), ("m2a", M2)] {
+            let at = home(t).unwrap();
+            assert_eq!((in_tab("focused", acct, t), in_tab("other", acct, t)), (at.focused, at.other), "{t}");
+        }
     }
 
     #[test]

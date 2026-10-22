@@ -343,11 +343,17 @@ function MessageBody({ m, frameRef, dark, onPictures }: { m: MessageFull; frameR
 
   useEffect(() => () => stopObserve.current(), []);
 
-  const onLoad = () => {
-    stopObserve.current();
+  // The mail document is taken in hand (recoloured, measured, its clicks hooked) as soon as it is PARSED, not when the frame's `load` event says so: `load`
+  // waits for every picture the mail asks for, and with "load remote content" on, a slow or dead image host kept the dark frame hidden (hm-pend) and blank
+  // until the picture came or timed out (D-052). `onLoad` stays: it measures again once the pictures are in.
+  const hooked = useRef<Document | null>(null);
+  const hookDoc = () => {
     const frame = frameRef.current;
     const doc = frame?.contentDocument;
-    if (!frame || !doc?.body) return;
+    if (!frame || !doc?.body || !doc.documentElement.hasAttribute("data-hm-doc")) return; // (not the empty document the frame starts with)
+    if (hooked.current === doc) return measure(); // (the load event of a document that was hooked when it was parsed)
+    hooked.current = doc;
+    stopObserve.current();
     setMailDark(doc, darkNow.current, DARK_CANVAS);
     measure();
     // images without a height attribute (common in newsletters) only get their size once they load
@@ -413,6 +419,22 @@ function MessageBody({ m, frameRef, dark, onPictures }: { m: MessageFull; frameR
       doc.removeEventListener("auxclick", onClick);
     };
   };
+
+  const onLoad = () => hookDoc();
+  const hookRef = useRef(hookDoc);
+  hookRef.current = hookDoc;
+  // watches for the document the new srcDoc makes (the frame shows the old one until the new one is committed) and hooks it once it is parsed
+  useEffect(() => {
+    let timer = 0;
+    const t0 = Date.now();
+    const look = () => {
+      const doc = frameRef.current?.contentDocument;
+      if (doc && doc !== hooked.current && doc.documentElement?.hasAttribute("data-hm-doc") && doc.readyState !== "loading" && doc.body) return hookRef.current();
+      if (Date.now() - t0 < 10000) timer = window.setTimeout(look, 15);
+    };
+    look();
+    return () => window.clearTimeout(timer);
+  }, [srcDoc, frameRef]);
 
   return (
     <>

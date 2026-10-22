@@ -145,10 +145,8 @@ function App() {
 
   // events from the tray menu, toasts and the background workers
   useEffect(() => {
-    const open = async (threadId: string) => {
-      await useStore.getState().setView("inbox", null);
-      await useStore.getState().openMail(threadId);
-    };
+    // a click on the notification of a new message: the conversation opens wherever it is (the Other tab, another mailbox or folder, a window of its own), store.ts openNotified
+    const open = (threadId: string) => useStore.getState().openNotified(threadId);
     const stopHub = startComposeHub(); // the compose windows' requests and the count of open windows
     const takeTrayCompose = () => void api.takeTrayCompose().then((pending) => pending && newMail({ shift: false })).catch(() => undefined);
     const subs = [
@@ -183,8 +181,7 @@ function App() {
       listen<{ id: string; error: string }>("action-failed", (e) => moveRefused(e.payload.id, e.payload.error)),
       listen<{ threadId: string }>("open-thread", (e) => void open(e.payload.threadId)),
       listen<{ threadId: string }>("notify-reply", async (e) => {
-        await open(e.payload.threadId);
-        replyLast(undefined, { shift: false }); // (the setting decides; no click or key is being handled)
+        if (await open(e.payload.threadId)) replyLast(undefined, { shift: false }); // (the setting decides; no click or key is being handled)
       }),
       // scheduled sends: state changes from the worker, catch-up after a closed period, quit guard
       listen<{ id: string; status: string; error?: string }>("outbox-changed", (e) => {

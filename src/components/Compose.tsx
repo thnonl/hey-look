@@ -1880,7 +1880,14 @@ function ComposeBody({ init }: { init: ComposeInit }) {
    */
   const dropSavedCopy = async (): Promise<boolean> => {
     const ref = savedDraftRef.current;
-    if (!ref) return true; // nothing was saved: nothing was written to the server, nothing to take back
+    if (!ref) {
+      // nothing was saved: none of the edits is on the server, nothing to take back. An opened draft that the server lost meanwhile (another program expunged it) is put back, the
+      // person asked for that version (REQ-2.2.7, D-043); a failure or a slow server never keeps the person from discarding, and no notice is shown (nothing changed for them)
+      if (openedDraft && init.replaces?.startsWith("m:")) {
+        await Promise.race([api.discardDraftChanges(init.replaces).catch(() => false), new Promise((r) => setTimeout(r, 6000))]);
+      }
+      return true;
+    }
     if (openedDraft) {
       try {
         // false: no opened version was kept (it could not be read when the draft was opened or saved): nothing was written, the saved copy is the one draft; say so

@@ -3,6 +3,7 @@ import { slimDraft } from "./draftUpload";
 import { t } from "./i18n";
 import type { RecoveredDraft, RecoveryInfo, RecoveryLoaded, SnapshotOut } from "./recovery";
 import type { Importance } from "./importance";
+import type { ThreadHome } from "./notifyOpen";
 
 export interface Account {
   id: string;
@@ -583,6 +584,8 @@ export const api = {
   syncAccount: (accountId: string) => invoke<SyncResult>("sync_account", { accountId }),
   listFolders: () => invoke<FolderInfo[]>("list_folders"),
   listThreads: (filter: ThreadFilter) => invoke<ThreadSummary[]>("list_threads", { filter }),
+  /** Which list has a conversation (a click on its notification opens it there, notifyOpen.ts); null = it is not on this computer. */
+  locateThread: (threadId: string) => invoke<ThreadHome | null>("locate_thread", { threadId }),
   /** `light`: without the bodies (`html`, `text`) - for a caller that reads what it needs itself (opening a draft: `draftEditorParts`). An encrypted message is still opened, for its `security`. */
   getThread: (threadId: string, scope?: string, light?: boolean) =>
     invoke<MessageFull[]>("get_thread", { threadId, scope: scope ?? null, light: light ?? null }),
