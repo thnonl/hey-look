@@ -39,6 +39,8 @@ const LANGS = (arg('lang') || ALL_LANGS.join(',')).split(',');
 const WIDTHS = (arg('width') || '375,768,1024,1280,1920').split(',').map(Number);
 const QUICK = flag('quick');
 const SHOTS = arg('shots');
+const ONLY = arg('only'); // --only=support: just the Support page (all 8 languages x light/dark x 375/960/1280 unless --quick), for a font-stress run
+const SPACING = arg('spacing'); // e.g. --spacing=0.04: extra letter spacing (em) on every element, another stand-in for a wider fallback font
 const FONT = arg('font'); // e.g. --font=Verdana: stress the layout with a wider font than the site's own (the CI machine has other fonts than a Windows PC)
 
 // the dark top bar's formula (docs/assets/story.js, the app's F-31 numbers): 7 presets + 10 edge colours, before any browser is needed (the rendered bar is measured below)
@@ -277,7 +279,7 @@ async function scanPages() {
 }
 
 // The Support page (W10.17): the letter and the coffee card side by side (2 columns) from 1021 px and stacked below, the four "other ways" in 4 / 2 / 1 columns, nothing cut or
-// sticking out, the card links on one line at 1280 px, the text readable (4.5:1) in light and dark, and no request for the bank QR images or for Ko-fi before the button is pressed.
+// sticking out, the card links' bottom edges in one line at 1280 px (a link may wrap to two lines; then its top is higher), the text readable (4.5:1) in light and dark, and no request for the bank QR images or for Ko-fi before the button is pressed.
 async function supportPass() {
   const PAIRS = QUICK ? [['en', false], ['en', true], ['de', false], ['ru', true], ['ja', false]] : LANGS.flatMap((l) => [[l, false], [l, true]]);
   const requested = [], bad404 = [];
@@ -294,7 +296,9 @@ async function supportPass() {
     await cdp('Page.navigate', { url: `${base}/${lang === 'en' ? '' : lang + '/'}support.html` });
     for (let i = 0; i < 200; i++) { if (await evaluate("document.readyState === 'complete'").catch(() => false)) break; await new Promise((r) => setTimeout(r, 50)); }
     await evaluate('new Promise((r) => (document.fonts ? document.fonts.ready : Promise.resolve()).then(() => setTimeout(r, 150)))');
-    const bad = (await evaluate(SUPPORT_PROBE)).bad;
+    if (FONT || SPACING) await evaluate(`(() => { const sh = new CSSStyleSheet(); sh.replaceSync(${JSON.stringify('*,*::before,*::after{' + (FONT ? 'font-family:' + FONT + '!important;' : '') + (SPACING ? 'letter-spacing:' + SPACING + 'em!important;' : '') + '}')}); document.adoptedStyleSheets = [...document.adoptedStyleSheets, sh]; })()`);
+    const sp = await evaluate(SUPPORT_PROBE);
+    const bad = sp.bad;
     for (const u of requested) { if (/donate-qr/.test(u)) bad.push('asked for the bank QR image ' + u); if (/ko-fi\.com/.test(u)) bad.push('asked for ' + u + ' before the button was pressed'); }
     for (const u of bad404) bad.push('failed to load: ' + u);
     pages++; checked++;
@@ -418,6 +422,8 @@ async function shots() {
 }
 
 try {
+  if (ONLY === 'support') await supportPass();
+  else {
   for (const lang of LANGS) for (const width of WIDTHS) await runPage(lang, width);
   for (const lang of (QUICK ? ['en'] : LANGS)) await runPage(lang, 375, { reduced: true });
   await runPage('en', 1280, { reduced: true, dark: true });
@@ -430,6 +436,7 @@ try {
   await downloadPass('ok', LANGS);
   for (const mode of ['403', '500', 'offline']) await downloadPass(mode, QUICK ? LANGS.slice(0, 2) : LANGS);
   if (SHOTS) await shots();
+  }
 } finally { await shutdown(); }
 
 // the test is hermetic: nothing but this machine and the stubbed release call was asked for

@@ -5,7 +5,7 @@ import { orderAccounts } from "./accountOrder";
 import { hasMailAccounts } from "./mailControls";
 import { applyBackfill } from "./backfill";
 import { holdOpenThread } from "./openThread";
-import { withUnreadChange } from "./focusCounts";
+import { withThreadsGone, withUnreadChange } from "./focusCounts";
 import { QueuedMoves } from "./queuedMoves";
 import { Latest } from "./latestOnly";
 import { StateIntents, type IntentKind } from "./readIntent";
@@ -1163,7 +1163,9 @@ export const useStore = create<State>((set, get) => ({
         nextSel = pick?.threadId ?? null;
         nextUnread = !!pick && pick.unread > 0;
       }
-      set({ threads: threads.filter((t) => !ids.includes(t.threadId)), checked: new Set() });
+      // the row leaves the list and the unread numbers (side menu, tabs) drop with it; Undo and the refresh after it bring them back (the backend leaves a waiting conversation out of its numbers too)
+      const gone = threads.filter((t) => ids.includes(t.threadId));
+      set({ threads: threads.filter((t) => !ids.includes(t.threadId)), folders: withThreadsGone(get().folders, gone, prefs.countOtherMail || !prefs.focused), checked: new Set() });
     }
 
     if (moveLike) {

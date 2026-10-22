@@ -8,7 +8,7 @@
 // Run: node --experimental-strip-types scripts/test-focus-counts.mjs
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
-import { badgeText, tabCounts, tabLabels, withUnreadChange } from "../src/focusCounts.ts";
+import { badgeText, tabCounts, tabLabels, withThreadsGone, withUnreadChange } from "../src/focusCounts.ts";
 
 const ROOT = new URL("../", import.meta.url);
 const read = (p) => readFileSync(new URL(p, ROOT), "utf8").replace(/\r\n/g, "\n");
@@ -68,6 +68,32 @@ assert.deepEqual([r.unread, r.unreadFocused, r.unreadOther], [0, 0, 0], "never b
 r = withUnreadChange(row("m1", "inbox", 2), true, 1, true);
 assert.deepEqual([r.unread, r.unreadFocused, r.unreadOther], [3, undefined, 1], "a row without the fields starts from 0");
 
+// ---- withThreadsGone (a row leaves the list: delete / archive / move / snooze in the Undo window; fix batch 6, WP13e decision Q3)
+const mk = () => [row("m1", "inbox", 7, 3, 4), row("m1", "archive", 5), row("m2", "inbox", 3, 1, 2)];
+const gone = (t) => ({ accountId: "m1", folder: "inbox", bulk: false, unread: 1, ...t });
+const f0 = mk();
+const frozen0 = JSON.stringify(f0);
+const same = (a, b) => assert.deepEqual(a.map((x) => JSON.stringify(x)), b.map((x) => JSON.stringify(x)));
+let g = withThreadsGone(f0, [gone({})], true);
+assert.deepEqual([g[0].unread, g[0].unreadFocused, g[0].unreadOther], [6, 2, 4], "a normal unread conversation: Focused and the side menu");
+assert.equal(g[1], f0[1], "a row that did not change is the same object");
+assert.equal(g[2], f0[2]);
+assert.equal(JSON.stringify(f0), frozen0, "the input is not changed");
+g = withThreadsGone(f0, [gone({ bulk: true })], true);
+assert.deepEqual([g[0].unread, g[0].unreadFocused, g[0].unreadOther], [6, 3, 3], "a bulk conversation: Other and the side menu");
+g = withThreadsGone(f0, [gone({ bulk: true })], false);
+assert.deepEqual([g[0].unread, g[0].unreadFocused, g[0].unreadOther], [7, 3, 3], "bulk not counted in the side menu: only the Other tab");
+same(withThreadsGone(f0, [gone({ unread: 0 })], true), f0); // a read conversation changes nothing
+g = withThreadsGone(f0, [gone({}), gone({}), gone({ bulk: true })], true);
+assert.deepEqual([g[0].unread, g[0].unreadFocused, g[0].unreadOther], [4, 1, 3], "several conversations add up");
+g = withThreadsGone(f0, [gone({ folder: "archive" })], true);
+assert.deepEqual([g[1].unread, g[1].unreadFocused], [4, undefined], "another folder: its own unread number, no tab numbers");
+g = withThreadsGone(f0, [gone({ accountId: "m2" })], true);
+assert.deepEqual([g[2].unread, g[2].unreadFocused, g[0].unread], [2, 0, 7], "the mailbox of the conversation");
+g = withThreadsGone([row("m1", "inbox", 0, 0, 0)], [gone({}), gone({ bulk: true })], true);
+assert.deepEqual([g[0].unread, g[0].unreadFocused, g[0].unreadOther], [0, 0, 0], "never below 0");
+same(withThreadsGone(f0, [gone({ accountId: "zz" }), gone({ folder: "custom" })], true), f0); // an unknown mailbox or folder changes nothing
+
 // ---- wiring (source)
 const lib = read("src-tauri/src/lib.rs");
 assert.match(lib, /unread_focused: u32,\n\s+unread_other: u32,/, "FolderInfo has the two fields (camelCase on the wire)");
@@ -88,8 +114,12 @@ const store = read("src/store.ts");
 assert.ok(store.includes("withUnreadChange(folders[i], t.bulk, delta, countsBulk)"), "applyOptimistic changes the tab numbers");
 assert.ok(/const countsBulk = st\.prefs\.countOtherMail \|\| !st\.prefs\.focused;/.test(store), "bulk is counted in the side menu only with the setting (or Focused Inbox off)");
 const css = read("src/App.css");
-assert.match(css, /\.pivots \{ display: flex; gap: 18px; flex: none; \}/, "the tab list does not shrink");
-assert.match(css, /white-space: nowrap; \}\n\.pivots button:hover/, "the tab buttons do not wrap");
+assert.match(css, /\.pivots \{ display: flex; gap: 0 18px; flex: none; min-width: 0; max-width: 100%; flex-wrap: wrap; \}/, "the tab list does not shrink and is never wider than the header (last resort: it wraps)");
+assert.match(css, /\.pivots button \{ font-size: calc\(1\.1em \* var\(--tab-scale, 1\)\); \}/, "the tab text shrinks by --tab-scale (set by MessageList from the measured width)");
+assert.ok(store.includes("withThreadsGone(get().folders, gone, prefs.countOtherMail || !prefs.focused)"), "act() lowers the unread numbers when the row leaves the list (Undo window)");
+assert.ok(list.includes("TAB_SCALE_MIN") && list.includes("loadingdone") && list.includes('"--tab-scale"'), "MessageList shrinks the tabs when they are wider than the header and measures again when a font has loaded");
+assert.ok(lib.includes("const NOT_HIDDEN") && lib.includes("{NOT_HIDDEN}") && lib.includes("folder_infos_hiding(c, &pending_thread_ids())"), "folder_infos leaves the conversations the lists hide out of the unread numbers");
+assert.match(css, /white-space: nowrap; \}\n\.pivots button \{ font-size/, "the tab buttons do not wrap");
 assert.match(css, /\.pivots \.fp-badge, \.ap-pivots \.fp-badge \{ margin-inline-start: 6px; \}/, "6 px between label and number");
 const mock = read("src/devMock.ts");
 assert.ok(mock.includes("unreadFocused:") && mock.includes("tabcounts="), "the dev preview computes the numbers and forces them with #tabcounts");

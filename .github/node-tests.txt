@@ -119,6 +119,8 @@ static | node scripts/test-update-wording.mjs
 static | node scripts/test-legal-dates.mjs
 # the Appearance preview on the website, measured in the runner's Chrome (a sample of the combinations; the full run is `node scripts/test-site-appearance.mjs`)
 ui-b | node scripts/test-site-appearance.mjs --quick --require-browser
+# the Support page (W10.17) in all 8 languages with 6 % of extra letter spacing, a stand-in for a wider fallback font (fix batch 6: a CI runner's fonts are wider than Windows's; card links may need two lines)
+ui-b | node scripts/test-site-appearance.mjs --only=support --require-browser --spacing=0.06
 # Settings > AI Assistant stands still while it is used: the real layout, frame by frame, in the dev preview (two of the 12 combinations; the full run is `node scripts/test-ai-tab-layout.mjs`)
 ui-b | node scripts/test-ai-tab-layout.mjs --quick --require-browser
 # the AI Assistant problem toast through every entry point (not set up, 401, 404, timeout ...): stays 20 s, leads to Settings > AI Assistant, Esc / X close it, and a new request removes the old problem toast at once (full run: `node scripts/test-ai-guide.mjs`)
@@ -244,5 +246,7 @@ ui-b | node scripts/test-draft-opening.mjs --require-browser
 ui-b | node --experimental-strip-types scripts/test-header-rows.mjs --quick --require-browser
 # 1.0.7 D-044: the data of big pictures and files of a draft comes to the page one request each after draft_editor_parts (deferredParts.ts, draftopen.rs, tempstore.rs)
 static | node --experimental-strip-types scripts/test-deferred-parts.mjs
+# the same tab layout cases with 4 % of extra letter spacing on every element, a stand-in for a wider fallback font (the runner's own fonts are not Windows's; fix batch 6: the Russian tabs were wider than the header on Linux)
+ui-a | node scripts/test-focus-tabs.mjs --require-browser --spacing=0.04
 # a right-click on the To, Cc and Bcc inputs (D-038): REAL right-clicks, the press (pointerdown, mousedown), mouseup and contextmenu are not cancelled by any listener (WebKit on a Mac sends no contextmenu after a cancelled press), nothing sits on the input, no app menu opens; empty, with chips, focused, text typed, suggestions open, compose window; the recorder is the Mac probe scripts/lib/rcpt-context-probe.mjs
 ui-b | node scripts/test-recipient-menu.mjs --require-browser

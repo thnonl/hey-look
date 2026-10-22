@@ -207,6 +207,9 @@ function WebmailSearch({ targets, query, openFolder }: { targets: WebmailTarget[
   );
 }
 
+/** How far the text of the Focused / Other tabs may shrink (factor of its normal size) when the two tabs alone are wider than the header; see the layout effect in MessageList. */
+const TAB_SCALE_MIN = 0.7;
+
 export function MessageList({ hidden = false }: { hidden?: boolean } = {}) {
   const tr = useT();
   const lang = useLang();
@@ -224,8 +227,11 @@ export function MessageList({ hidden = false }: { hidden?: boolean } = {}) {
   // W13.12: unread conversations of each tab, from the same folder numbers as the side menu (so they change together)
   const tabs = useMemo(() => tabCounts(folders, accountId), [folders, accountId]);
   const filterText = filter === "all" ? tr("mail.filter.button") : tr("mail.filter.active", { name: tr(filter === "unread" ? "mail.filter.unread" : "mail.filter.flagged") });
-  // the Filter button gives way when the tabs (which never shrink or wrap) and the whole button do not fit in one line: first to its icon only; when even
-  // that does not fit (a long language, two numbers of 99+, the narrowest list) the button drops to a line of its own under the tabs
+  // The header must hold whatever the font is (Windows, macOS and Linux fallback fonts are wider than Segoe UI, Russian and German are longer than English). Three steps,
+  // each re-run on resize, on a language / text / number change and when a font finishes loading (nothing is measured once):
+  //   1. the Filter button gives way: whole text, then its icon only (title and accessible name keep the text), then a line of its own under the tabs;
+  //   2. when the two tabs alone are wider than the row, their text shrinks (--tab-scale, down to TAB_SCALE_MIN) until they fit;
+  //   3. last resort (CSS: .pivots wraps and never exceeds the row): below the floor the second tab drops to a second line. The tabs never leave the list.
   const titleRef = useRef<HTMLDivElement>(null);
   const [filterMode, setFilterMode] = useState<"full" | "icon" | "wrap">("full");
   useLayoutEffect(() => {
@@ -235,16 +241,32 @@ export function MessageList({ hidden = false }: { hidden?: boolean } = {}) {
       const tabsBox = row.querySelector<HTMLElement>(".pivots");
       const full = row.querySelector<HTMLElement>(".ml-filter-probe.full");
       const icon = row.querySelector<HTMLElement>(".ml-filter-probe.icon");
-      if (!tabsBox || !full || !icon) return;
+      if (!tabsBox || !full || !icon || row.clientWidth === 0) return; // not laid out (the list is hidden): the resize that shows it measures
       const gap = parseFloat(getComputedStyle(row).columnGap) || 0;
-      const room = row.clientWidth + 0.5 - tabsBox.offsetWidth - gap;
+      const avail = row.clientWidth - 0.5;
+      // the width the tabs ask for (their own boxes plus the gaps: the box of .pivots itself is capped at the row)
+      const want = () => { const gaps = (parseFloat(getComputedStyle(tabsBox).columnGap) || 0) * Math.max(0, tabsBox.children.length - 1); return [...tabsBox.children].reduce((sum, c) => sum + c.getBoundingClientRect().width, gaps); };
+      row.style.removeProperty("--tab-scale");
+      const natural = want();
+      if (natural > avail) {
+        let s = Math.max(TAB_SCALE_MIN, avail / natural);
+        for (let i = 0; i < 24; i++) {
+          row.style.setProperty("--tab-scale", s.toFixed(3)); // the gaps and the space before the number do not scale, so the first guess is a little too wide: step down
+          if (want() <= avail || s <= TAB_SCALE_MIN) break;
+          s = Math.max(TAB_SCALE_MIN, s - 0.02);
+        }
+      }
+      const room = row.clientWidth + 0.5 - Math.min(want(), tabsBox.offsetWidth) - gap;
       setFilterMode(full.offsetWidth <= room ? "full" : icon.offsetWidth <= room ? "icon" : "wrap");
     };
     fit();
     const ro = new ResizeObserver(fit);
     ro.observe(row);
     row.querySelectorAll(".pivots, .ml-filter-probe").forEach((el) => ro.observe(el));
-    return () => ro.disconnect();
+    const fonts = document.fonts;
+    fonts?.addEventListener?.("loadingdone", fit);
+    void fonts?.ready?.then(fit);
+    return () => { ro.disconnect(); fonts?.removeEventListener?.("loadingdone", fit); row.style.removeProperty("--tab-scale"); };
   }, [showTabs, lang, filterText, tabs.focused, tabs.other]);
   const iconFilter = showTabs && filterMode !== "full";
   const colors = new Map(accounts.map((a) => [a.id, accountColor(a, prefs.accent)]));

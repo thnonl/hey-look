@@ -6,7 +6,7 @@
 // It returns plain JSON: the numbers measured (columns, tops, widths, the lowest contrast) and `bad`, the list of broken rules (empty = the page is as designed):
 //   - the page does not scroll sideways; no text box is cut (scrollWidth <= clientWidth + 1); nothing sticks out of <main>
 //   - .support-top has 2 columns above 1020 px, 1 below; .more-ways has 4 columns above 1020 px, 2 up to 720 px, 1 below; there are four cards
-//   - above 1020 px the letter and the coffee card start at the same height (1 px) and the four card links are on one line (1 px)
+//   - above 1020 px the letter and the coffee card start at the same height (1 px) and the four card links end on one line (their bottom edges within 1 px; a link that needs two lines under a wider font starts one line higher, which is fine)
 //   - up to 480 px the coffee buttons are full width; from 481 to 1020 px they sit in one row when they fit
 //   - the Ko-fi button is at least 44 px high; the text a person reads has at least 4.5:1 contrast with the background it sits on
 // Engine features the page relies on: CSS grid with minmax(0, 1fr), flex, color-mix() (the dark accent colours; a browser without it shows the plain colours), `hyphens: auto` (with -webkit-).
@@ -28,11 +28,14 @@ export const SUPPORT_PROBE = `(() => {
   for (const e of document.querySelectorAll('.support-top > *, .more-ways li, .support .btn, .help-pointer')) { const b = R(e); if (b.right > main.right + 1 || b.left < main.left - 1) { m.outside++; bad.push('<' + e.tagName.toLowerCase() + ' class="' + e.className + '"> sticks out of the page'); } }
   const a = R(q('.letter')), k = R(q('.way.kofi'));
   m.letter = [Math.round(a.left), Math.round(a.top), Math.round(a.width), Math.round(a.height)]; m.coffee = [Math.round(k.left), Math.round(k.top), Math.round(k.width), Math.round(k.height)];
-  const tops = [...document.querySelectorAll('.more-ways .go a')].map((e) => R(e).top); m.linkTopSpread = +(Math.max(...tops) - Math.min(...tops)).toFixed(1);
+  const links = [...document.querySelectorAll('.more-ways .go a')], tops = links.map((e) => R(e).top), bottoms = links.map((e) => R(e).bottom);
+  m.linkTopSpread = +(Math.max(...tops) - Math.min(...tops)).toFixed(1); m.linkBottomSpread = +(Math.max(...bottoms) - Math.min(...bottoms)).toFixed(1);
+  m.linkLines = links.map((e) => Math.round(R(e).height / parseFloat(getComputedStyle(e).lineHeight)));
   m.cardHeights = [...document.querySelectorAll('.more-ways li')].map((e) => Math.round(R(e).height)); m.h3Lines = [...document.querySelectorAll('.more-ways h3')].map((e) => Math.round(R(e).height / parseFloat(getComputedStyle(e).lineHeight)));
   if (w > 1020) {
     if (Math.abs(a.top - k.top) > 1) bad.push('letter and coffee card tops differ by ' + Math.abs(a.top - k.top).toFixed(1) + ' px');
-    if (m.linkTopSpread > 1) bad.push('the card links are not on one line: ' + tops.map((t) => t.toFixed(0)).join(','));
+    if (m.linkBottomSpread > 1) bad.push('the card links do not end on one line: bottoms ' + bottoms.map((t) => t.toFixed(0)).join(','));
+    if (m.linkLines.some((n) => n > 2)) bad.push('a card link needs more than two lines: ' + m.linkLines.join(','));
   }
   const bs = [...document.querySelectorAll('.kofi .btn-row .btn')].filter((e) => R(e).height); m.buttons = bs.map((e) => [Math.round(R(e).width), Math.round(R(e).height)]);
   if (w <= 480) { for (const e of bs) if (R(e).width < k.width - 60) bad.push('the coffee buttons are not full width at ' + w + ' px (' + R(e).width.toFixed(0) + ')'); }

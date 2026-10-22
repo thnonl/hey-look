@@ -11,7 +11,7 @@ const store = read("../src/store.ts");
 const act = store.slice(store.indexOf("  act: async"), store.indexOf("  openCompose: async"));
 
 const iPrepare = act.indexOf("api.prepareAction(");
-const iHide = act.indexOf("set({ threads: threads.filter((t) => !ids.includes(t.threadId)), checked: new Set() })");
+const iHide = act.indexOf("set({ threads: threads.filter((t) => !ids.includes(t.threadId)), folders: withThreadsGone(");
 const iQueue = act.indexOf("api.queueAction(");
 const iToast = act.indexOf("get().showToast(\n            label,");
 assert.ok(iPrepare > 0 && iHide > 0 && iQueue > 0 && iToast > 0, "the pieces are found");
