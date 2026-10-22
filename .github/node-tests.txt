@@ -250,3 +250,10 @@ static | node --experimental-strip-types scripts/test-deferred-parts.mjs
 ui-a | node scripts/test-focus-tabs.mjs --require-browser --spacing=0.04
 # a right-click on the To, Cc and Bcc inputs (D-038): REAL right-clicks, the press (pointerdown, mousedown), mouseup and contextmenu are not cancelled by any listener (WebKit on a Mac sends no contextmenu after a cancelled press), nothing sits on the input, no app menu opens; empty, with chips, focused, text typed, suggestions open, compose window; the recorder is the Mac probe scripts/lib/rcpt-context-probe.mjs
 ui-b | node scripts/test-recipient-menu.mjs --require-browser
+# 1.0.7 D-052: an HTML mail on the dark background is shown at once, also while a picture it asked for is still on its way (a slow or dead host used to leave it blank until the picture came: the recolouring waited for the frame's load event); the owner's anonymised mail with a slow logo, main window and reader window, the dark background in both themes, light theme untouched and the blocked picture not asked for; text contrast >= 4.5:1 from the frame's styles and from its real pixels; first open = after the button twice = after switching mails; print keeps the original colours
+ui-b | node scripts/test-reader-dark.mjs --require-browser
+# 1.0.7 D-051: a click on the notification of a new mail opens it wherever it is: the Other tab, another mailbox, Focused Inbox off, a search or filter on, far down an oldest-first list, the calendar open, a window of its own, a mail that is gone (the decision: test-notify-plan, the backend lookup: cargo test locate_thread)
+static | node --experimental-strip-types scripts/test-notify-plan.mjs
+ui-a | node scripts/test-notify-open.mjs --require-browser
+# 1.0.7 D-043: Discard changes on an opened draft before any save puts the opened version back when the server lost it (an IMAP EXPUNGE by another program), writes nothing when it is still there, and never keeps the pane open for a refusing or slow server
+ui-b | node scripts/test-discard-expunged.mjs --require-browser
