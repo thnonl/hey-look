@@ -420,7 +420,7 @@ export async function applyDemoHash() {
   // dev self-check of the dark mail rendering: `await __darkCheck()` in the console (see devDarkCheck.ts); `#darkcheck` runs it and prints the report on the page
   const runCheck = async (ids?: string[]) => {
     const { darkCheck } = await import("./devDarkCheck");
-    return darkCheck((id) => st().select(id), ids ?? ["dk1", "dk2", "dk3", "dk4", "dk5", "dk7", "dk8", "dk9", "dk10", "nl1", "nl2"]);
+    return darkCheck((id) => st().select(id), ids ?? ["dk1", "dk2", "dk3", "dk4", "dk5", "dk7", "dk8", "dk9", "dk10", "dk11", "dk12", "nl1", "nl2"]);
   };
   (window as unknown as { __darkCheck: typeof runCheck }).__darkCheck = runCheck;
   // `await __failedSendCheck()`: types a message, sends it three times against a server that rejects it, and reports what Compose looks like each time it reopens

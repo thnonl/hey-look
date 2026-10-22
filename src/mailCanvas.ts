@@ -1,5 +1,6 @@
 // The background a mail is read on. "original" (the default, in every app theme) shows the mail exactly as its sender designed it:
 // white where the sender gave no colour, nothing recoloured. "dark" puts it on the dark surface (the recolouring is darkMail.ts).
+// (hm-pend hides a dark mail until it is recoloured; its animation is the way out when nothing recolours it: 1.5 s, then the mail shows in the dark base colours.)
 // The choice is a preference (`mailCanvas`), so it is remembered. Imports nothing, so a plain Node script can test it
 // (scripts/test-mail-canvas.mjs).
 
@@ -29,6 +30,6 @@ export function frameBaseCss(): string {
   const [r, g, b] = DARK_CANVAS;
   return (
     `html{--hm-fg:#242424;--hm-link:#0f6cbd;--hm-bg:#ffffff}` +
-    `@media screen{html.hm-dark{--hm-fg:#e6e6e6;--hm-link:#6cb8f6;--hm-bg:rgb(${r},${g},${b});color-scheme:dark}html.hm-dark img{filter:brightness(.9)}html.hm-pend body{visibility:hidden}}`
+    `@media screen{html.hm-dark{--hm-fg:#e6e6e6;--hm-link:#6cb8f6;--hm-bg:rgb(${r},${g},${b});color-scheme:dark}html.hm-dark img{filter:brightness(.9)}html.hm-pend body{visibility:hidden;animation:hm-show 0s linear 1.5s forwards}@keyframes hm-show{to{visibility:visible}}}`
   );
 }

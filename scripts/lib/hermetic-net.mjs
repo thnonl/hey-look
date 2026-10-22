@@ -6,7 +6,7 @@
 //   const net = await installHermeticNet({ cdp, on, stub });
 //     cdp(method, params)  the page session's send
 //     on(handler)          adds a handler for the session's protocol events (handler(message))
-//     stub(url)            optional: returns undefined (not stubbed), 'offline' (connection fails), or { status, body, type } (answered); may change between pages
+//     stub(url)            optional: returns undefined (not stubbed), 'offline' (connection fails), or { status, body, type, delay } (answered, `delay` ms later: a slow server); may change between pages
 //   net.requests           every external request seen: { url, how: 'stub' | 'offline' | 'blocked' }
 //   net.external           the ones that were blocked because nothing stubbed them
 //   net.reset()            clears both lists (call before a page load)
@@ -54,7 +54,8 @@ export async function installHermeticNet({ cdp, on, stub = () => undefined }) {
     if (s === 'offline') { net.requests.push({ url, how: 'offline' }); answer('Fetch.failRequest', { errorReason: 'ConnectionFailed' }); }
     else if (s) {
       net.requests.push({ url, how: 'stub' });
-      answer('Fetch.fulfillRequest', { responseCode: s.status, responseHeaders: [{ name: 'content-type', value: s.type || 'application/json' }, { name: 'access-control-allow-origin', value: '*' }], body: Buffer.from(s.body ?? '').toString('base64') });
+      const fulfil = () => answer('Fetch.fulfillRequest', { responseCode: s.status, responseHeaders: [{ name: 'content-type', value: s.type || 'application/json' }, { name: 'access-control-allow-origin', value: '*' }], body: Buffer.from(s.body ?? '').toString('base64') });
+      if (s.delay) setTimeout(fulfil, s.delay); else fulfil();
     } else {
       net.requests.push({ url, how: 'blocked' }); net.external.push(url);
       answer('Fetch.failRequest', { errorReason: 'BlockedByClient' });
