@@ -41,6 +41,7 @@
     "allow-set-autostart",
     "allow-list-folders",
     "allow-list-threads",
+    "allow-locate-thread",
     "allow-get-thread",
     "allow-thread-action",
     "allow-prepare-action",

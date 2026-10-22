@@ -919,7 +919,7 @@ export function installMock() {
     (window as unknown as { __mockMail: typeof mockMail }).__mockMail = mockMail;
     // dev check of the quote block (a reply / forward of any original): `__mockAddThread("q1", "Subject", { html, text, fromName, fromEmail, attachments })` adds a conversation with that one message to the first Inbox
     (window as unknown as { __mockAddThread: unknown }).__mockAddThread = (id: string, subject: string, over: Record<string, unknown> = {}) => {
-      threads.unshift(t(id, subject, [String(over.fromName ?? "Sender")], "", 0.1 * H));
+      threads.unshift(t(id, subject, [String(over.fromName ?? "Sender")], "", 0.1 * H, (over.row as Record<string, unknown> | undefined) ?? {})); // (`over.row`: more of the list row, e.g. { bulk: true, accountId: "a2", unread: 1 })
       mockThreadMsgs[id] = [secMsg(`m-${id}`, subject, String(over.fromName ?? "Sender"), String(over.fromEmail ?? "sender@example.org"), over, (over.html as string | null | undefined) ?? null)];
     };
     if (hashHas("backfill")) {
@@ -1176,6 +1176,12 @@ export function installMock() {
         ? [{ ...messages[0], id: "mt", subject: "Tall newsletter", html: "<html><head><style>html,body{height:100%;margin:0}</style></head><body><table width='100%' height='100%'><tr><td style='background:#f4f4f8'><div style='height:900px;background:linear-gradient(#e8a317,#2aa)'>tall block</div><p id='endmark'>THE END</p></td></tr></table></body></html>", attachments: [] }]
         : [{ ...messages[0], id: "mx", subject: "Hello", html: "<p>Hello from the mock backend.</p>", attachments: [] }];
       case "sync_account": {
+      case "locate_thread": {
+        // like the backend: the list that has the conversation (the mock only has Inbox lists); null when it is not here (`__mockGone`, unknown)
+        const id = String(a.threadId);
+        const row = mockGone.has(id) ? undefined : [...threads, ...accounts.flatMap((x) => localMail(x.id))].find((x) => x.threadId === id);
+        return row ? { accountId: row.accountId, folder: row.folder, focused: !row.bulk, other: !!row.bulk } : null;
+      }
         const id = String(a.accountId ?? a.id ?? "");
         if (reauthNeeded[id]) return later(300, () => { throw new Error(reauthError(id)); });
         if (id.startsWith("n") && !synced.has(id)) return later(syncDelay, () => (synced.add(id), { added: 3, newInbox: [] }));
