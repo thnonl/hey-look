@@ -275,4 +275,13 @@ export default defineLocale<typeof ns.en>({
   "calendar.err.cancelled": "Die Kalender-Anmeldung wurde abgebrochen.",
   "calendar.err.wrongAccount": "Sie haben den Zugriff für {signedIn} erlaubt. Melden Sie sich als {mailbox} an, um den Kalender dieses Postfachs zu synchronisieren.",
   "calendar.err.partial": "Hey Look! benötigt alle angeforderten Kalenderberechtigungen. Aktivieren Sie den Schalter erneut und lassen Sie alle Kästchen angekreuzt.",
+  // ---- 1.0.7 WP7a: consent confirm, build without a client, failed sender check
+  "calendar.consent.title": "Kalenderzugriff im Browser erlauben?",
+  "calendar.consent.body": "Hey Look! öffnet die Seite von {provider} in Ihrem Browser. Melden Sie sich dort als {email} an und erlauben Sie den Zugriff auf Ihre Kalender. Ihre E-Mail-Anmeldung bleibt unverändert.",
+  "calendar.consent.open": "Browser öffnen",
+  "calendar.err.noClient": "Diese Version von Hey Look! kann Kalender nicht mit {provider} synchronisieren.",
+  "calendar.invite.unverified": "Diese Nachricht hat die Absenderprüfung (DKIM, SPF oder DMARC) nicht bestanden und stammt daher möglicherweise nicht von {name}.",
+  "calendar.invite.held": "Ihr Kalender wurde nicht geändert.",
+  "calendar.invite.applyAnyway": "Trotzdem anwenden",
+  "calendar.toast.applied": "Ihr Kalender wurde aktualisiert",
 });

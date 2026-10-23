@@ -108,6 +108,8 @@ export function InviteCard({ m }: { m: MessageFull }) {
   const [menu, setMenu] = useState<Rsvp | null>(null);
   const [showAtt, setShowAtt] = useState(inv.attendees.length <= 8);
   const [adding, setAdding] = useState(false);
+  const [applying, setApplying] = useState(false);
+  const warnRef = useRef<HTMLDivElement>(null);
   const menuRef = useRef<HTMLDivElement>(null);
   const optsRef = useRef<HTMLButtonElement>(null); // the "options" button of the open menu: Escape returns focus to it
   const closeMenu = useCallback(() => setMenu(null), []);
@@ -184,6 +186,34 @@ export function InviteCard({ m }: { m: MessageFull }) {
     setModule("calendar");
   };
 
+  // the receiving server's sender check failed (W7.3): a change this message carries was not applied until the person says so
+  const applyAnyway = async () => {
+    setApplying(true);
+    try {
+      await api.calendarAddFromMessage(m.id, true);
+      showToast(t("calendar.toast.applied"), undefined, "success");
+      useStore.getState().bumpCal();
+      await useStore.getState().reloadMessages();
+      warnRef.current?.focus(); // the button is gone: the focus stays on the notice
+    } catch (e) {
+      showToast(() => t("calendar.toast.addFailed", { error: friendlyError(e) }), undefined, "error");
+    } finally {
+      setApplying(false);
+    }
+  };
+  const unverifiedNotice = (who: string) =>
+    inv.unverified ? (
+      <div ref={warnRef} tabIndex={-1} className="notice bad" role="alert" style={{ margin: "0 16px 10px" }}>
+        {t("calendar.invite.unverified", { name: who })}
+        {inv.held && (
+          <>
+            {" "}{t("calendar.invite.held")}{" "}
+            <button className="link" disabled={applying} onClick={() => void applyAnyway()}>{t("calendar.invite.applyAnyway")}</button>
+          </>
+        )}
+      </div>
+    ) : null;
+
   const orgTz = inv.tzid && inv.tzid !== tz && !inv.allDay && tzOffsetLabel(inv.tzid, inv.start * 1000) !== tzOffsetLabel(tz, inv.start * 1000) ? inv.tzid : null;
   const method = inv.method;
   const isReq = method === "REQUEST" || method === "PUBLISH";
@@ -214,6 +244,7 @@ export function InviteCard({ m }: { m: MessageFull }) {
             )}
           </div>
         </div>
+        {unverifiedNotice(who)}
         <div className="invite-actions">
           <span className="grow" />
           {inv.eventId && <button className="link-btn" onClick={openInCalendar}><CalendarDays size={14} /> {t("calendar.invite.openInCalendar")}</button>}
@@ -371,6 +402,7 @@ export function InviteCard({ m }: { m: MessageFull }) {
       {method === "OTHER" && (
         <div className="notice info" style={{ margin: "0 16px 10px" }}>{t("calendar.invite.other")}</div>
       )}
+      {unverifiedNotice(organizerName)}
       {err && (
         <div className="inline-err" role="alert" style={{ padding: "0 16px 8px" }}>
           <TriangleAlert size={14} aria-hidden /> {t("calendar.invite.sendFailed", { error: err.text })} <button className="link" onClick={err.retry}>{t("common.retry")}</button>
@@ -922,6 +954,8 @@ function EventPopover({ state, tz, color, onClose }: { state: PopState; tz: stri
   };
 
   const others = ev.attendees.length;
+  // the repeat rule in words; a series that only has extra dates (RDATE) has no rule to describe
+  const repeatText = ev.recurrenceText ?? (ev.hasRdates ? t("calendar.repeat.customFallback") : null);
   return (
     <div ref={ref} tabIndex={-1} className="popover ev-pop" role="dialog" aria-label={t("calendar.pop.aria", { summary: ev.summary })} style={{ position: "fixed", top: pos.top, left: pos.left, zIndex: 40 }}>
       <h4 style={{ textDecoration: ev.status === "cancelled" ? "line-through" : undefined }}>
@@ -929,7 +963,7 @@ function EventPopover({ state, tz, color, onClose }: { state: PopState; tz: stri
         <span className="grow">{ev.summary}</span>
         <button className="icon-btn" aria-label={t("common.close")} onClick={onClose}><X size={14} /></button>
       </h4>
-      <div className="inv-row"><Clock size={14} aria-hidden /><span>{fmtRange(ev, tz)}{ev.recurrenceText ? <><br /><span className="sub"><Repeat size={11} aria-hidden style={{ verticalAlign: -1 }} /> {ev.recurrenceText}</span></> : ""}</span></div>
+      <div className="inv-row"><Clock size={14} aria-hidden /><span>{fmtRange(ev, tz)}{repeatText ? <><br /><span className="sub"><Repeat size={11} aria-hidden style={{ verticalAlign: -1 }} /> {repeatText}</span></> : ""}</span></div>
       {(ev.location || ev.joinUrl) && (
         <div className="inv-row">
           <MapPin size={14} aria-hidden />

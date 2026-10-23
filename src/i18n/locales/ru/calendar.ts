@@ -289,4 +289,13 @@ export default defineLocale<typeof ns.en>({
   "calendar.err.cancelled": "Вход в календарь отменён.",
   "calendar.err.wrongAccount": "Вы разрешили доступ для {signedIn}. Чтобы синхронизировать календарь этого ящика, войдите как {mailbox}.",
   "calendar.err.partial": "Hey Look! нужны все запрошенные разрешения для календаря. Снова включите переключатель и оставьте отмеченными все пункты.",
+  // ---- 1.0.7 WP7a: consent confirm, build without a client, failed sender check
+  "calendar.consent.title": "Разрешить доступ к календарю в браузере?",
+  "calendar.consent.body": "Hey Look! откроет страницу {provider} в браузере. Войдите там как {email} и разрешите доступ к своим календарям. Вход в почту не изменится.",
+  "calendar.consent.open": "Открыть браузер",
+  "calendar.err.noClient": "Эта сборка Hey Look! не может синхронизировать календари с {provider}.",
+  "calendar.invite.unverified": "Это письмо не прошло проверку отправителя (DKIM, SPF или DMARC), поэтому оно может быть не от {name}.",
+  "calendar.invite.held": "Ваш календарь не изменён.",
+  "calendar.invite.applyAnyway": "Всё равно применить",
+  "calendar.toast.applied": "Календарь обновлён",
 });

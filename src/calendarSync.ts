@@ -149,6 +149,7 @@ export const BACKEND_ERRORS: { re: RegExp; key: Key; names: string[] }[] = [
   { re: /^Calendar sign-in was cancelled\.$/s, key: "calendar.err.cancelled", names: [] },
   { re: /^You allowed access for (.+?)\. Sign in as (.+?) to sync this mailbox’s calendar\.$/s, key: "calendar.err.wrongAccount", names: ["signedIn", "mailbox"] },
   { re: /^Hey Look! needs every calendar permission it asked for\. Turn the switch on again and keep all boxes ticked\.$/s, key: "calendar.err.partial", names: [] },
+  { re: /^This build of Hey Look! can’t sync calendars with (.+)\.$/s, key: "calendar.err.noClient", names: ["provider"] },
 ];
 
 /**
