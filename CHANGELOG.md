@@ -101,6 +101,10 @@
 - Undo after Send in the message pane next to the list brings the message back scrolled to where you were (it used to jump to the top; a message in its own window already kept its place).
 - With "Reduce motion" on, the Focused / Other tab text could change size on every frame in a narrow list with a long language (the number then was not in proportion to the name); the size now settles.
 - The website's "Make it yours" demo window is tall enough for its folder list in wide fonts and larger text sizes.
+- The website's "Make it yours" demo window is tall enough for its folder list in Japanese too (its taller lines), at every text size and density.
+- Calendar: the card of an answer to your invitation that was held back because the sender check failed no longer says "Attendee status updated in your calendar" next to "Your calendar wasn't changed".
+- Calendar sync that stopped with "isn't available in this version of Hey Look!" (no sign-in client in that version, or the service's Calendar API switched off) is tried again at the next start instead of staying stuck until the switch is turned off and on.
+- The small buttons of the app (the event preview's Edit, Duplicate, Save .ics, Delete and the answer buttons) are at least 24 px high whatever the font on the computer.
 
 ## 1.0.6 — 2026-10-18
 
