@@ -14,8 +14,10 @@ cat > "$work/bin/sudo" << 'SUDO'
 #!/usr/bin/env bash
 exec "$@"
 SUDO
-# fake apt-get: the answer of call N is word N of $FAKE_PLAN (0 = ok, anything else = that exit code; 124 = ran out of time); every call is
-# logged with its sub-command, the archive named in sources.list at that moment and its arguments
+# fake apt-get: the answer of call N is word N of $FAKE_PLAN (0 = ok, anything else = that exit code; 124 = ran out of time; "leak" = ran out of
+# time and left a process called apt-get running that holds the lock, like a killed sudo leaves apt-get); every call is logged with its
+# sub-command, the archive named in sources.list at that moment and its arguments. A call while a leaked process lives fails like the real
+# one: "Could not get lock ... held by apt-get" (exit 100).
 cat > "$work/bin/apt-get" << 'APT'
 #!/usr/bin/env bash
 n=$(( $(cat "$FAKE_DIR/n" 2>/dev/null || echo 0) + 1 ))
@@ -25,8 +27,18 @@ sub=update; case "$args" in *" install "*) sub=install ;; esac
 case "$args" in *" --no-download "*) sub="$sub --no-download" ;; esac
 case "$args" in *" --download-only "*) sub="$sub --download-only" ;; esac
 echo "$sub | $(grep -h -o 'azure[^ ]*\|mirror+file:[^ ]*\|http://archive[^ ]*' "$FAKE_ETC/sources.list" | head -1) | $*" >> "$FAKE_DIR/calls"
+if [ -f "$FAKE_DIR/leakpid" ] && kill -0 "$(cat "$FAKE_DIR/leakpid")" 2> /dev/null; then
+  echo "E: Could not get lock $FAKE_ARCHIVES/lock. It is held by process $(cat "$FAKE_DIR/leakpid") (apt-get)" >&2
+  exit 100
+fi
 set -- $FAKE_PLAN
 rc="${!n:-0}"
+if [ "$rc" = leak ]; then
+  mkdir -p "$FAKE_DIR/leak" && cp "$(command -v sleep)" "$FAKE_DIR/leak/apt-get"
+  "$FAKE_DIR/leak/apt-get" 300 > /dev/null 2>&1 &
+  echo $! > "$FAKE_DIR/leakpid"
+  exit 124
+fi
 # a successful install leaves a package file, like the real one
 case "$sub" in "install --download-only") [ "$rc" = 0 ] && echo deb > "$FAKE_ARCHIVES/libfake.deb" ;; esac
 exit "$rc"
@@ -74,17 +86,30 @@ check "miss: four calls: cache try, update, download, install" "$calls" bash -c 
 check "miss: it says attempt 1" "$out" has "$out" "installed in attempt 1"
 check "miss: the package file is kept, lock and partial are gone" "$(ls -A "$work/arch")" bash -c '[ -f "$1/libfake.deb" ] && [ ! -e "$1/lock" ] && [ ! -e "$1/partial" ]' _ "$work/arch"
 
-# 3. attempt 1 runs out of time (124): attempt 2 uses the azure archive and wins; the runner's sources are put back
+# 3. attempt 1 runs out of time (124): attempt 2 uses archive.ubuntu.com (the runner's list is azure, the slow one) and wins; the runner's sources are put back
 run "1 0 124 0 0 0"
 check "slow mirror: exit 0, attempt 2" "rc=$rc $out" bash -c '[ "$1" = 0 ] && echo "$2" | grep -q "installed in attempt 2"' _ "$rc" "$out"
 check "slow mirror: attempt 1 was on the runner's own mirror list" "$calls" line_has "$calls" 2 "mirror+file"
-check "slow mirror: attempt 2 was on azure.archive.ubuntu.com" "$calls" line_has "$calls" 4 "azure.archive.ubuntu.com"
+check "slow mirror: attempt 2 was on archive.ubuntu.com, not on the host of attempt 1" "$calls" line_has "$calls" 4 "http://archive.ubuntu.com/ubuntu/"
 check "slow mirror: the runner's own sources are back, the security host was never touched" "$(cat "$work/etc/sources.list")" bash -c 'grep -q "mirror+file:/etc/apt/apt-mirrors.txt" "$1" && ! grep -q azure "$1" && grep -q "http://security.ubuntu.com/ubuntu" "$1"' _ "$work/etc/sources.list"
 
 # 4. an update fails, an install runs out of time: the third attempt has the original sources again
 run "1 100 0 124 0 0 0"
 check "attempt 3 wins" "rc=$rc $out" bash -c '[ "$1" = 0 ] && echo "$2" | grep -q "installed in attempt 3"' _ "$rc" "$out"
 check "attempt 3 is on the runner's sources again" "$calls" line_has "$calls" 5 "mirror+file"
+
+# 4b. the time limit sits inside sudo: a killed sudo would leave apt-get running as root with the lock (dry run 39997925232)
+check "the time limit is 'sudo timeout ... apt-get'" "" grep -q '^apt_net() { sudo timeout -k 10 ' "$script"
+check "no 'timeout ... sudo apt-get' is left" "" bash -c '! grep -q "timeout -k 10 .* sudo apt-get" "$1"' _ "$script"
+
+# 4c. attempt 1 runs out of time and leaves a process called apt-get holding the lock: it is stopped before attempt 2, which then wins
+if command -v pgrep > /dev/null 2>&1; then
+  run "1 leak 0 0 0"
+  check "a leftover apt-get is stopped, attempt 2 does not fail on the lock" "rc=$rc $out" bash -c '[ "$1" = 0 ] && echo "$2" | grep -q "stopping what the cut-short step left running" && echo "$2" | grep -q "installed in attempt 2"' _ "$rc" "$out"
+  check "the leftover process is gone" "still running" bash -c '! kill -0 "$(cat "$1/leakpid")" 2> /dev/null' _ "$work/fake"
+else
+  echo "skip  leftover apt-get cases: no pgrep on this system (the Linux runner has it)"
+fi
 
 # 5. everything fails: exit 1 with an error line
 run "1 1 1 1 1 1 1 1"

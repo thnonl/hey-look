@@ -11,8 +11,14 @@
 #   3. Then the hardened path, up to 3 attempts of `apt-get update` + `apt-get install --download-only`, each with a time limit
 #      ($APT_ATTEMPT_LIMIT, 180 s; a slow mirror delivers no more than a few MB in that time, a normal install takes 24 s), then the install
 #      itself from the downloaded files (no limit: only the network steps are cut short, never dpkg): attempt 1 with the runner's own sources,
-#      attempt 2 with the archive switched to azure.archive.ubuntu.com, attempt 3 with the runner's original sources again (its mirror:// list
-#      tries the next mirror when one fails). Partial downloads are kept between attempts (apt resumes them).
+#      attempt 2 with the archive switched to archive.ubuntu.com (the runner's own list points at azure.archive.ubuntu.com, which is the slow
+#      one when a run is slow: dry run 39997925232 got 40 kB/s from it, so a second try on the same host helps nobody), attempt 3 with the
+#      runner's original sources again (its mirror:// list tries the next mirror when one fails). Partial downloads are kept between attempts
+#      (apt resumes them).
+#      The time limit is `sudo timeout ... apt-get` (timeout INSIDE sudo): a `timeout ... sudo apt-get` kills only sudo, apt-get and its download
+#      methods go on as root and keep the lock of $APT_ARCHIVES, so the next attempts failed with "Could not get lock ... held by apt-get". And
+#      before every retry whatever a cut-short step left behind (apt-get, apt, the methods in /usr/lib/apt/methods) is stopped by its exact pid,
+#      and the script waits (up to 60 s) until no apt-get, apt, method or dpkg runs. A running dpkg is only waited for, never killed.
 #   4. The debs are root-owned after apt: they are handed to the user and `lock` / `partial` are removed, so the cache step saves *.deb only.
 # The package list is the only one; the cache key of the workflow includes the hash of this file.
 # The tray library is the Ayatana one (libayatana-appindicator3-dev), never libappindicator3-dev: the Tauri bundler writes the dependency of the
@@ -28,10 +34,10 @@ case "$limit" in '' | *[!0-9]*) echo "::error::APT_ATTEMPT_LIMIT must be whole s
 
 say() { echo "install-linux-deps: $*"; }
 
-# (`timeout` cannot run a shell function: the command is spelled out; timeout's TERM goes through sudo to apt-get)
+# (`timeout` cannot run a shell function: the command is spelled out; it runs apt-get itself, as root, so its TERM reaches apt-get)
 # net: a step that uses the network has a time limit. local: dpkg unpacking and configuring is never cut short (a package left half
 # configured would block the next attempt), so it runs without a limit and only from the files that were downloaded (--no-download).
-apt_net() { timeout -k 10 "$limit" sudo apt-get -o Acquire::ForceIPv4=true -o "Dir::Cache::archives=$archives" "$@"; }
+apt_net() { sudo timeout -k 10 "$limit" apt-get -o Acquire::ForceIPv4=true -o "Dir::Cache::archives=$archives" "$@"; }
 apt_local() { sudo apt-get -o Acquire::ForceIPv4=true -o "Dir::Cache::archives=$archives" install -y --no-download "${PACKAGES[@]}"; }
 
 write_conf() {
@@ -77,6 +83,36 @@ use_archive() {
   say "the archive is $1 in $n source file(s)"
 }
 
+# The pids of apt-get, apt and the download methods (what a cut-short network step can leave running), one per line.
+leftover_pids() {
+  command -v pgrep > /dev/null 2>&1 || return 0
+  { pgrep -x apt-get; pgrep -x apt; pgrep -f '^/usr/lib/apt/methods/'; } 2> /dev/null | sort -u | grep -v -x "$$" || true
+}
+# The same and dpkg (only waited for).
+busy_pids() {
+  command -v pgrep > /dev/null 2>&1 || return 0
+  { leftover_pids; pgrep -x dpkg; } 2> /dev/null | sort -u || true
+}
+# Before a retry: stop what the last step left behind (TERM, then KILL after 3 s, by exact pid), then wait for the lock to be free.
+stop_leftovers() {
+  local pids i
+  pids=$(leftover_pids | tr '\n' ' ')
+  if [ -n "${pids// /}" ]; then
+    say "stopping what the cut-short step left running (pid $pids)"
+    # shellcheck disable=SC2086
+    sudo kill -TERM $pids 2> /dev/null
+    sleep 3
+    pids=$(leftover_pids | tr '\n' ' ')
+    # shellcheck disable=SC2086
+    [ -z "${pids// /}" ] || sudo kill -KILL $pids 2> /dev/null
+  fi
+  for i in $(seq 1 60); do
+    [ -z "$(busy_pids)" ] && return 0
+    sleep 1
+  done
+  say "apt-get, apt or dpkg is still running after 60 s: $(busy_pids | tr '\n' ' ')"
+}
+
 finish() {
   # the debs were written by root: the cache step runs as the user. Only the .deb files are cached (not lock, not partial)
   sudo chown -R "$(id -u):$(id -g)" "$archives" || true
@@ -98,9 +134,10 @@ say "the cache did not hold everything: installing from the mirror"
 
 for attempt in 1 2 3; do
   case "$attempt" in
-    2) use_archive "http://azure.archive.ubuntu.com/ubuntu/" ;;
+    2) use_archive "http://archive.ubuntu.com/ubuntu/" ;;
     3) restore_sources; say "the runner's own sources again (its mirror list tries the next mirror when one fails)" ;;
   esac
+  stop_leftovers
   say "attempt $attempt of 3 (limit $limit s each for the update and the download)"
   if apt_net update && apt_net install -y --download-only "${PACKAGES[@]}" && apt_local; then
     say "installed in attempt $attempt"
