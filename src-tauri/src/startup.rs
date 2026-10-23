@@ -32,6 +32,14 @@
 //! covered by another window are left out, a window that is not on screen (cloaked, minimized, locked desktop) gives no verdict. A
 //! window of one colour 1 s after the show, or at any look after a cure, walks the ladder below: re-assert the web view, nudge its size
 //! by 1 px, hide + show, reload, restart; every step logs a line and the look that follows says which one cured it.
+//!
+//! 1.0.7 (fix12, owner: "can the app show a loading indicator instead of an empty white window?"): the window and the web view now have the
+//! colour of the theme from the first frame (`bgcolor.rs`) and index.html draws a start screen (the logo on that colour) until the app mounts.
+//! That start screen is ONE colour on more than 95 % of the points, which is the definition of a blank window above. So a look only calls
+//! one-colour "blank" while the page of this load has reported itself (`page_is_up`): a page that has not is showing its start screen, the
+//! ready wait above is what deals with a page that never comes (reload, then the error message), and a cure (re-assert, nudge, hide + show,
+//! reload, restart) would only fight a page that is still loading. A page that has reported itself replaced the start screen, so one colour
+//! after that is a blank window, as before.
 // (the restart, the failure reaction and the escalation need the Windows web view's events: other systems compile them unused)
 #![cfg_attr(not(windows), allow(dead_code))]
 use crate::webview_health::{self, BrowserState, Reaction};
@@ -52,6 +60,9 @@ static T0: OnceLock<Instant> = OnceLock::new();
 static READY: AtomicBool = AtomicBool::new(false);
 /// How many page loads reported themselves ready (the UI does it once per load): a page that came back after its process died counts again.
 static READY_COUNT: AtomicU32 = AtomicU32::new(0);
+/// The page of the CURRENT load has reported itself ready (set by `mark_ready`, cleared whenever the page is loaded again or its process died). Until
+/// then the window shows the start screen of index.html, which is not a blank window (see the 1.0.7 note at the top).
+static PAGE_UP: AtomicBool = AtomicBool::new(false);
 /// Hide + show attempts made so far (a window that is shown but whose page is not painting).
 static REMEDIES: AtomicU32 = AtomicU32::new(0);
 /// How often the hide + show is tried before leaving the window as it is.
@@ -176,9 +187,20 @@ pub fn is_ready() -> bool {
     READY.load(Ordering::SeqCst)
 }
 
+/// Whether the page of the current load has reported itself (false again while it is being loaded anew).
+pub fn page_is_up() -> bool {
+    PAGE_UP.load(Ordering::SeqCst)
+}
+
+/// The page is being loaded again (a reload, a new address) or its process died: what shows now is the start screen until it reports itself.
+fn page_loading() {
+    PAGE_UP.store(false, Ordering::SeqCst);
+}
+
 /// The page is up (sent once per page load by the UI).
 pub fn mark_ready(app: &AppHandle) {
     READY_COUNT.fetch_add(1, Ordering::SeqCst);
+    PAGE_UP.store(true, Ordering::SeqCst);
     if !READY.swap(true, Ordering::SeqCst) {
         stage(Some(app), "the page reported itself ready");
     }
@@ -229,6 +251,9 @@ pub enum Paint {
     Painted,
     /// One colour over the whole area (the web view's background, or black): nothing of the page is on screen.
     Blank,
+    /// One colour over the whole area, and the page of this load has not reported itself: this is the start screen of index.html (the logo is
+    /// under 5 % of the points) or a page that is still loading, not a blank window. Never cured here (`with_page_state`).
+    Starting,
     /// No verdict (the window is not on screen, other windows cover it, the copy failed).
     Unknown,
 }
@@ -269,6 +294,15 @@ pub fn judge(samples: &[[u8; 3]], asked: usize) -> Judged {
         Paint::Painted
     };
     Judged { paint, top_share, top, colours: counts.len() }
+}
+
+/// What a one-colour look means once it is known whether the page of this load is up: before that it is the start screen (`Paint::Starting`),
+/// after it a blank window. Every other verdict stays as it is. Pure, for the test.
+pub fn with_page_state(mut j: Judged, page_up: bool) -> Judged {
+    if j.paint == Paint::Blank && !page_up {
+        j.paint = Paint::Starting;
+    }
+    j
 }
 
 /// The points that are read: `cols` x `rows` evenly spread over a `w` x `h` area, 4 px in from its edges. Pure, for the test.
@@ -363,6 +397,7 @@ pub fn describe(j: &Judged, took_ms: u128) -> String {
     match j.paint {
         Paint::Painted => format!("the window shows content (most common colour {pct} %, {} colours, read in {took_ms} ms)", j.colours),
         Paint::Blank => format!("one colour only (rgb {},{},{} on {pct} % of the points, {} colours): a blank window; read in {took_ms} ms", j.top[0], j.top[1], j.top[2], j.colours),
+        Paint::Starting => format!("one colour (rgb {},{},{} on {pct} % of the points, {} colours): the start screen, the page has not reported itself yet; no cure; read in {took_ms} ms", j.top[0], j.top[1], j.top[2], j.colours),
         Paint::Unknown => "no verdict (too few points of the window are on screen)".into(),
     }
 }
@@ -406,10 +441,10 @@ pub fn verify_painting(app: &AppHandle) {
                 let started = Instant::now();
                 let (j, why) = look_at(&app, read);
                 let text = match j {
-                    Some(j) => describe(&j, started.elapsed().as_millis()),
+                    Some(j) => describe(&with_page_state(j, page_is_up()), started.elapsed().as_millis()),
                     None => format!("no verdict ({})", why.unwrap_or_default()),
                 };
-                let verdict = j.map_or(Paint::Unknown, |j| j.paint);
+                let verdict = j.map_or(Paint::Unknown, |j| with_page_state(j, page_is_up()).paint);
                 said.push_str(&format!("; {}: {text}", if read == Capture::Screen { "screen" } else { "PrintWindow" }));
                 // a blank read wins over a read that found content (the diagnostic exists to catch what the other misses)
                 if verdict == Paint::Blank || (verdict == Paint::Painted && seen != Paint::Blank) {
@@ -430,7 +465,8 @@ pub fn verify_painting(app: &AppHandle) {
                         return;
                     }
                 }
-                Paint::Unknown => stage(Some(&app), &line),
+                // the start screen: the page is not up yet, the ready wait deals with it (and the looks of a later show read the page itself)
+                Paint::Unknown | Paint::Starting => stage(Some(&app), &line),
             }
         }
     });
@@ -508,6 +544,9 @@ pub fn web_view_failed(app: &AppHandle, kind: i32, detail: &str) {
         return; // the app is closing: its web view's processes end on purpose
     }
     let what = webview_health::kind_name(kind);
+    if !matches!(webview_health::reaction(kind), Reaction::LogOnly) {
+        page_loading(); // (a page process that died: the page comes back through a reload)
+    }
     stage(Some(app), &format!("web view: {what}{}", if detail.is_empty() { String::new() } else { format!(" ({detail})") }));
     let app = app.clone();
     match webview_health::reaction(kind) {
@@ -607,6 +646,7 @@ pub fn recover_page(
 /// process is gone: there is nothing to run it in, and the call returns without an error (QA BUG-15, proven with a real web view in
 /// `webview_health.rs`).
 fn reload_page(app: &AppHandle) {
+    page_loading();
     match app.get_webview_window("main").map(|w| w.reload()) {
         Some(Ok(())) => {}
         Some(Err(e)) => stage(Some(app), &format!("could not reload the page: {e}")),
@@ -616,6 +656,7 @@ fn reload_page(app: &AppHandle) {
 
 /// Load the address the page was loaded from again.
 fn navigate_to_app(app: &AppHandle) {
+    page_loading();
     let Some(w) = app.get_webview_window("main") else { return };
     match w.url().map(|u| w.navigate(u)) {
         Ok(Ok(())) => {}
@@ -648,6 +689,7 @@ fn configured_address(app: &AppHandle) -> Option<tauri::Url> {
 
 /// Load the app's own address again (Retry in the error dialog).
 fn navigate_home(app: &AppHandle) {
+    page_loading();
     let Some(w) = app.get_webview_window("main") else { return };
     let Some(url) = configured_address(app) else {
         stage(Some(app), "could not load the app's address again: no address");
@@ -784,6 +826,40 @@ fn look_at(app: &AppHandle, how: Capture) -> (Option<Judged>, Option<String>) {
         Ok((samples, asked)) => (Some(judge(&samples, asked)), None),
         Err(why) => (None, Some(why)),
     }
+}
+
+/// The longest a QA switch may hold the page back.
+const BOOT_DELAY_MAX_MS: u64 = 120_000;
+
+/// `HEYLOOK_TEST_BOOT_DELAY_MS` as a number of milliseconds (a number only, at most two minutes; anything else is 0 = off). Pure, for the test.
+#[cfg_attr(not(debug_assertions), allow(dead_code))]
+pub fn boot_delay_ms_from(v: Option<&str>) -> u64 {
+    v.map(str::trim).filter(|s| !s.is_empty() && s.bytes().all(|b| b.is_ascii_digit())).and_then(|s| s.parse::<u64>().ok()).unwrap_or(0).min(BOOT_DELAY_MAX_MS)
+}
+
+/// How many page loads of a window the QA switch holds back (`HEYLOOK_TEST_BOOT_DELAY_LOADS`, default 2, at most 10): the ready wait shows the window after
+/// `READY_WAIT` and loads the page again, so with 2 the window is shown with the start screen, the page is loaded again (held again) and the third load mounts at
+/// once. Pure, for the test.
+#[cfg_attr(not(debug_assertions), allow(dead_code))]
+pub fn boot_delay_loads_from(v: Option<&str>) -> u32 {
+    v.map(str::trim).filter(|s| !s.is_empty() && s.bytes().all(|b| b.is_ascii_digit())).and_then(|s| s.parse::<u32>().ok()).unwrap_or(2).min(10)
+}
+
+/// Debug builds only: `HEYLOOK_TEST_BOOT_DELAY_MS=<ms>` holds the page back that long before it mounts the app (the start screen of index.html stays on
+/// the window and the page does not report itself, so QA can look at the start screen and at the first frame, and see that no cure runs before the page
+/// is up). Use more than `READY_WAIT` (6000): the window is created hidden and shown when the page is ready, or after that wait without it. Release builds
+/// have none of this (cfg), and the page ignores a delay nobody set.
+#[cfg(debug_assertions)]
+pub fn boot_delay_ms() -> u64 {
+    boot_delay_ms_from(std::env::var("HEYLOOK_TEST_BOOT_DELAY_MS").ok().as_deref())
+}
+
+/// The page side of that switch: `window.__heylookBootDelay = { ms, loads }`, an initialization script of every window (src/main.tsx holds that many loads
+/// back, counted in the window's sessionStorage, which a reload keeps).
+#[cfg(debug_assertions)]
+pub fn boot_delay_plugin<R: tauri::Runtime>(ms: u64) -> tauri::plugin::TauriPlugin<R> {
+    let loads = boot_delay_loads_from(std::env::var("HEYLOOK_TEST_BOOT_DELAY_LOADS").ok().as_deref());
+    tauri::plugin::Builder::new("bootdelay").js_init_script(format!("window.__heylookBootDelay = {{ ms: {ms}, loads: {loads} }};")).build()
 }
 
 /// Debug builds only: a blank window on demand, so the cures can be proved with real pixels. `HEYLOOK_TEST_BLANK_AFTER_SHOW=<k>` hides the
@@ -962,6 +1038,7 @@ fn on_guard_event(app: &AppHandle, show_at_start: bool, ev: loadfail::Ev) {
             }
             if will_reload {
                 if let Some(w) = app.get_webview_window("main") {
+                    page_loading();
                     let _ = w.eval("window.location.reload()");
                 }
                 stage(Some(app), "reloading the page");
@@ -1100,6 +1177,59 @@ mod tests {
         assert!(!needs_remedy("hidden", false, false, 0), "a window that is hidden on purpose (tray start) is not touched");
         assert!(needs_remedy("hidden", true, true, 1));
         assert!(!needs_remedy("hidden", true, true, MAX_REMEDIES), "no endless loop");
+    }
+
+    #[test]
+    fn one_colour_is_the_start_screen_until_the_page_is_up_and_a_blank_window_after() {
+        // fix12: the start screen of index.html is one colour on more than 95 % of the points (the logo is a few points), the same as a blank window
+        let asked = 2560;
+        let mut start = vec![[27, 28, 32]; asked];
+        for s in start.iter_mut().take(24) {
+            *s = [15, 108, 189]; // the logo: under 1 % of the points
+        }
+        let j = judge(&start, asked);
+        assert_eq!(j.paint, Paint::Blank, "by the pixels alone it is blank");
+        assert_eq!(with_page_state(j, false).paint, Paint::Starting, "the page has not reported itself: the start screen");
+        assert_eq!(with_page_state(j, true).paint, Paint::Blank, "the page reported itself and replaced the start screen: blank");
+        // nothing else changes with the page state
+        let ui = judge(&[[27, 28, 32], [36, 37, 42], [250, 250, 250]].repeat(800), asked);
+        assert_eq!((with_page_state(ui, false).paint, with_page_state(ui, true).paint), (Paint::Painted, Paint::Painted));
+        let none = judge(&[], asked);
+        assert_eq!((with_page_state(none, false).paint, with_page_state(none, true).paint), (Paint::Unknown, Paint::Unknown));
+        // a start screen is never cured, a blank page that is up is, from the look at 1 s
+        assert!(!cure_needed(false, 3000, Paint::Starting) && !cure_needed(true, 700, Paint::Starting));
+        assert!(cure_needed(false, 1000, Paint::Blank) && cure_needed(true, 700, Paint::Blank));
+    }
+
+    #[test]
+    fn the_page_is_up_from_its_report_until_it_is_loaded_again() {
+        // the roads that load the page again clear the flag, `mark_ready` sets it (text check: the real calls need a web view)
+        let code = include_str!("startup.rs").replace('\r', "");
+        let body = |from: &str| -> String { let s = &code[code.find(from).unwrap()..]; s[..s.find("\n}\n").unwrap()].to_string() };
+        for f in ["fn reload_page(", "fn navigate_to_app(", "fn navigate_home("] {
+            assert!(body(f).contains("page_loading();"), "{f}");
+        }
+        assert!(body("pub fn mark_ready(").contains("PAGE_UP.store(true"));
+        assert!(body("pub fn web_view_failed(").contains("page_loading();"));
+        assert!(code.contains("page_loading();\n                    let _ = w.eval(\"window.location.reload()\");"), "the guard's reload");
+        // and the looks apply it to what they read
+        assert!(code.matches("with_page_state(j, page_is_up())").count() >= 2);
+    }
+
+    #[test]
+    fn the_boot_delay_switch_takes_a_number_of_milliseconds_and_nothing_else() {
+        assert_eq!(boot_delay_ms_from(None), 0);
+        assert_eq!(boot_delay_ms_from(Some("")), 0);
+        assert_eq!(boot_delay_ms_from(Some("8000")), 8000);
+        assert_eq!(boot_delay_ms_from(Some(" 8000 ")), 8000);
+        assert_eq!(boot_delay_ms_from(Some("-1")), 0);
+        assert_eq!(boot_delay_ms_from(Some("8s")), 0);
+        assert_eq!(boot_delay_ms_from(Some("999999999")), 120_000, "capped");
+        assert_eq!((boot_delay_loads_from(None), boot_delay_loads_from(Some("1")), boot_delay_loads_from(Some("x")), boot_delay_loads_from(Some("99"))), (2, 1, 2, 10));
+        // debug builds only: the plugin and the variable are behind cfg(debug_assertions)
+        let code = include_str!("startup.rs").replace('\r', "");
+        assert!(code.contains("#[cfg(debug_assertions)]\npub fn boot_delay_ms()"));
+        assert!(code.contains("#[cfg(debug_assertions)]\npub fn boot_delay_plugin"));
     }
 
     #[test]

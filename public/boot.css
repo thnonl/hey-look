@@ -1,0 +1,23 @@
+/* The critical CSS of the start screen (index.html loads this file before the app's stylesheet; 1.0.7). An EXTERNAL file on purpose: an inline style block in
+   index.html makes Tauri add a hash to the CSP's style-src, which then ignores 'unsafe-inline' and breaks every style attribute of the app
+   (scripts/test-csp-ready.mjs). The two backgrounds are --bg of src/App.css (:root and the dark rules) and src-tauri/src/bgcolor.rs; a test keeps the three
+   equal. The theme comes from <html data-theme> (public/theme-boot.js sets it from the stored preference) or, with System, from the OS. The start screen
+   lives inside #root, so React's first render replaces it; these rules only give the page its ground and style .boot-splash; the rest says what App.css says. */
+html, body { margin: 0; height: 100%; }
+body { overflow: hidden; }
+/* the ground: :where() gives these no specificity, so the app's own rules (:root { background: var(--bg) }) win wherever they apply, with the same colours */
+:where(html) { background: #ffffff; }
+@media (prefers-color-scheme: dark) { :where(html:not([data-theme="light"])) { background: #1b1c20; } }
+:where(html[data-theme="dark"]) { background: #1b1c20; }
+.boot-splash { position: fixed; top: 0; right: 0; bottom: 0; left: 0; display: flex; align-items: center; justify-content: center; pointer-events: none; --boot-ring: var(--accent-base, #0f6cbd); --boot-track: rgba(15, 108, 189, .14); }
+.boot-logo { display: block; width: 72px; height: 72px; animation: boot-pulse 1.8s ease-in-out infinite; }
+.boot-ring { position: absolute; left: 50%; top: 50%; width: 112px; height: 112px; margin: -56px 0 0 -56px; box-sizing: border-box; border: 3px solid var(--boot-track); border-top-color: var(--boot-ring); border-radius: 50%; animation: boot-spin 1.1s linear infinite; }
+@keyframes boot-spin { to { transform: rotate(360deg); } }
+@keyframes boot-pulse { 50% { opacity: .8; } }
+@media (prefers-color-scheme: dark) { html:not([data-theme="light"]) .boot-splash { --boot-ring: #6fa7d7; --boot-track: rgba(255, 255, 255, .1); } }
+html[data-theme="dark"] .boot-splash { --boot-ring: #6fa7d7; --boot-track: rgba(255, 255, 255, .1); }
+@supports (color: color-mix(in srgb, red, blue)) {
+  @media (prefers-color-scheme: dark) { html:not([data-theme="light"]) .boot-splash { --boot-ring: color-mix(in srgb, var(--accent-base, #0f6cbd), white 40%); } }
+  html[data-theme="dark"] .boot-splash { --boot-ring: color-mix(in srgb, var(--accent-base, #0f6cbd), white 40%); }
+}
+@media (prefers-reduced-motion: reduce) { .boot-logo { animation: none; } .boot-ring { display: none; } }

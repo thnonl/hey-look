@@ -16,6 +16,14 @@ import { routeOf } from "./popout/route";
 const route = routeOf(window.location.search);
 
 async function boot(): Promise<boolean> {
+  // debug builds only (src-tauri/src/startup.rs boot_delay_*): HEYLOOK_TEST_BOOT_DELAY_MS keeps the start screen of index.html on the window that long, for the first
+  // HEYLOOK_TEST_BOOT_DELAY_LOADS loads of the window (a reload keeps sessionStorage)
+  const hold = (window as { __heylookBootDelay?: { ms: number; loads: number } }).__heylookBootDelay;
+  if (hold) {
+    let n = 0;
+    try { n = Number(sessionStorage.getItem("heylook.bootDelayed") ?? 0); sessionStorage.setItem("heylook.bootDelayed", String(n + 1)); } catch { /* no storage: held once */ }
+    if (n < hold.loads) await new Promise((r) => setTimeout(r, hold.ms));
+  }
   // `npm run dev` in a plain browser has no Tauri backend: use fake data so the UI can be previewed.
   // The dynamic imports of the dev-only modules sit directly inside `if (import.meta.env.DEV ...)`, a literal the production build removes,
   // so devMock.ts / devDarkCheck.ts are not emitted as chunks of a release build (scripts/bundle-budget.json `neverShipped`). The same for popout/dev.ts.
