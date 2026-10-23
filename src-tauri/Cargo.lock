@@ -6005,8 +6005,7 @@ checksum = "7b2093cf4c8eb1e67749a6762251bc9cd836b6fc171623bd0a9d324d37af2417"
 [[package]]
 name = "tao"
 version = "0.37.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "f37f381f4e048e6cdf038b5705f8cf14ad108279d46eb968140a7b291aba9400"
+source = "git+https://github.com/tauri-apps/tao?rev=9aa859e1fe61d664f8fd33f4593f9fac4a0012d5#9aa859e1fe61d664f8fd33f4593f9fac4a0012d5"
 dependencies = [
  "bitflags 2.13.2",
  "block2",
@@ -6033,7 +6032,7 @@ dependencies = [
  "parking_lot",
  "percent-encoding",
  "raw-window-handle",
- "tao-macros",
+ "tao-macros 0.1.4 (git+https://github.com/tauri-apps/tao?rev=9aa859e1fe61d664f8fd33f4593f9fac4a0012d5)",
  "unicode-segmentation",
  "url",
  "windows",
@@ -6047,6 +6046,16 @@ name = "tao-macros"
 version = "0.1.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "5f7eeb6d99155545da6150a1795945f16ac9c178deb2a5f2e74d776107bd5849"
+dependencies = [
+ "proc-macro2",
+ "quote",
+ "syn 2.0.119",
+]
+
+[[package]]
+name = "tao-macros"
+version = "0.1.4"
+source = "git+https://github.com/tauri-apps/tao?rev=9aa859e1fe61d664f8fd33f4593f9fac4a0012d5#9aa859e1fe61d664f8fd33f4593f9fac4a0012d5"
 dependencies = [
  "proc-macro2",
  "quote",
@@ -7693,7 +7702,7 @@ dependencies = [
  "raw-window-handle",
  "sha2 0.10.9",
  "soup3",
- "tao-macros",
+ "tao-macros 0.1.4 (registry+https://github.com/rust-lang/crates.io-index)",
  "thiserror 2.0.21",
  "url",
  "webkit2gtk",

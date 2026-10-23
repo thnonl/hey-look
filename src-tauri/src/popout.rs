@@ -1941,6 +1941,35 @@ mod tests {
         assert!(!e.maximized && !saved_of(&e).unwrap().maximized);
     }
 
+// ---- W4.1: the macOS window release fix (tao PR #1368)
+
+    /// A closed window must be released on macOS (REQ-4.1.1 / 4.1.2): tao 0.37.1 over-retains every window it creates (tao issue #1327). The fix is in tao
+    /// commit 9aa859e (PR #1368), in crates.io from a 0.37.x after 0.37.1 (expected 0.37.2). The lock file has to say one of the two, and Cargo.toml
+    /// has the patch line only in the first case, so that a `cargo update` cannot quietly lose the fix.
+    #[test]
+    fn tao_carries_the_macos_window_release_fix() {
+        let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"));
+        let lock = std::fs::read_to_string(root.join("Cargo.lock")).unwrap().replace("
+", "
+");
+        let toml = crate::test_guard::non_test_code(&std::fs::read_to_string(root.join("Cargo.toml")).unwrap());
+        let block = lock.split("
+[[package]]
+").find(|b| b.lines().next() == Some("name = \"tao\"")).expect("the tao package is in Cargo.lock");
+        let version = block.lines().find_map(|l| l.strip_prefix("version = \"")).and_then(|v| v.strip_suffix('"')).expect("a version");
+        let source = block.lines().find_map(|l| l.strip_prefix("source = \"")).and_then(|v| v.strip_suffix('"')).unwrap_or("");
+        let pinned = source.starts_with("git+https://github.com/tauri-apps/tao?rev=9aa859e1fe61d664f8fd33f4593f9fac4a0012d5#");
+        let patch_line = toml.lines().any(|l| l.starts_with("tao = { git = \"https://github.com/tauri-apps/tao\", rev = \"9aa859e1fe61d664f8fd33f4593f9fac4a0012d5\" }"));
+        if pinned {
+            assert!(patch_line, "Cargo.lock pins tao to 9aa859e but Cargo.toml [patch.crates-io] has no tao line");
+        } else {
+            let mut parts = version.split('.').map(|n| n.parse::<u32>().unwrap_or(0));
+            let (major, minor, patch) = (parts.next().unwrap_or(0), parts.next().unwrap_or(0), parts.next().unwrap_or(0));
+            assert!(source.starts_with("registry+") && (major, minor) == (0, 37) && patch >= 2, "tao {version} from {source:?} does not carry PR #1368 (a registry tao >= 0.37.2 or the git pin 9aa859e)");
+            assert!(!patch_line, "the tao patch line is still in Cargo.toml although the registry tao carries the fix: remove it");
+        }
+    }
+
     // ---- the window system (source guards)
 
     /// A secondary window is created hidden, with the native title bar, and shown by its page (REQ-W1, W2, W8); nothing but the backend

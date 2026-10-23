@@ -3,7 +3,7 @@
 //! `evaluate_javascript`) and its answer comes back through the completion handler of that same call. Every platform call runs on the
 //! main thread (`with_webview`), the waiting is done on the bridge's own thread.
 
-use super::server::{Driver, ExecError, SnapshotError, WindowInfo};
+use super::server::{native_json, Driver, ExecError, SnapshotError, WindowInfo};
 use std::time::Duration;
 use tauri::{AppHandle, Manager, WebviewWindow};
 
@@ -71,6 +71,80 @@ impl Driver for TauriDriver {
         let w = self.app.get_webview_window(label).ok_or(SnapshotError::NoWindow)?;
         platform::snapshot(&w, timeout)
     }
+
+    /// GET /native (REQ-4.1.5): the app process only (the web view processes are measured with the OS tools, W4.8).
+    fn native(&self) -> serde_json::Value {
+        let mem = process_memory();
+        native_json(std::process::id(), mem.rss, mem.footprint, mem.private, native_windows(&self.app), self.app.webview_windows().len())
+    }
+}
+
+/// What the system says about the memory of this process; each field is None where the system has no such number.
+#[derive(Default)]
+struct ProcessMemory {
+    /// resident set / working set
+    rss: Option<u64>,
+    /// macOS: phys_footprint, the number Activity Monitor and `footprint` show
+    footprint: Option<u64>,
+    /// Windows: PrivateUsage (commit)
+    private: Option<u64>,
+}
+
+#[cfg(windows)]
+fn process_memory() -> ProcessMemory {
+    use windows::Win32::System::ProcessStatus::{GetProcessMemoryInfo, PROCESS_MEMORY_COUNTERS, PROCESS_MEMORY_COUNTERS_EX};
+    use windows::Win32::System::Threading::GetCurrentProcess;
+    let mut c = PROCESS_MEMORY_COUNTERS_EX::default();
+    c.cb = std::mem::size_of::<PROCESS_MEMORY_COUNTERS_EX>() as u32;
+    // SAFETY: the pseudo handle of this process, and a counters structure of the size it says (the EX layout starts with the plain one).
+    let ok = unsafe { GetProcessMemoryInfo(GetCurrentProcess(), &mut c as *mut PROCESS_MEMORY_COUNTERS_EX as *mut PROCESS_MEMORY_COUNTERS, c.cb) }.is_ok();
+    if !ok {
+        return ProcessMemory::default();
+    }
+    ProcessMemory { rss: Some(c.WorkingSetSize as u64), footprint: None, private: Some(c.PrivateUsage as u64) }
+}
+
+#[cfg(target_os = "macos")]
+fn process_memory() -> ProcessMemory {
+    // SAFETY: proc_pid_rusage fills the v0 structure we pass for our own pid (flavor 0 = rusage_info_v0, which holds the fields we read).
+    unsafe {
+        let mut info: libc::rusage_info_v0 = std::mem::zeroed();
+        let rc = libc::proc_pid_rusage(std::process::id() as libc::c_int, libc::RUSAGE_INFO_V0, &mut info as *mut libc::rusage_info_v0 as *mut libc::rusage_info_t);
+        if rc != 0 {
+            return ProcessMemory::default();
+        }
+        ProcessMemory { rss: Some(info.ri_resident_size), footprint: Some(info.ri_phys_footprint), private: None }
+    }
+}
+
+#[cfg(target_os = "linux")]
+fn process_memory() -> ProcessMemory {
+    // /proc/self/statm: size resident shared ... in pages
+    let pages = std::fs::read_to_string("/proc/self/statm").ok().and_then(|t| t.split_whitespace().nth(1).and_then(|v| v.parse::<u64>().ok()));
+    // SAFETY: sysconf with a constant name
+    let page = unsafe { libc::sysconf(libc::_SC_PAGESIZE) };
+    ProcessMemory { rss: pages.map(|p| p * if page > 0 { page as u64 } else { 4096 }), footprint: None, private: None }
+}
+
+#[cfg(not(any(windows, target_os = "macos", target_os = "linux")))]
+fn process_memory() -> ProcessMemory {
+    ProcessMemory::default()
+}
+
+/// macOS: the windows `NSApp` lists (total, visible, tao's own); asked on the main thread. None elsewhere, or when the main thread did not answer.
+#[cfg(target_os = "macos")]
+fn native_windows(app: &AppHandle) -> Option<(usize, usize, usize)> {
+    let (tx, rx) = std::sync::mpsc::channel();
+    app.run_on_main_thread(move || {
+        let _ = tx.send(crate::macwin::counts());
+    })
+    .ok()?;
+    rx.recv_timeout(Duration::from_secs(3)).ok().flatten()
+}
+
+#[cfg(not(target_os = "macos"))]
+fn native_windows(_app: &AppHandle) -> Option<(usize, usize, usize)> {
+    None
 }
 
 // ---- Windows: WebView2 ------------------------------------------------------------------------------------------------------------------

@@ -66,6 +66,8 @@ pub trait Driver: Send + Sync + 'static {
     fn exec(&self, label: &str, script: &str, timeout: Duration) -> Result<String, ExecError>;
     /// The web content of the window as a PNG.
     fn snapshot(&self, label: &str, timeout: Duration) -> Result<Vec<u8>, SnapshotError>;
+    /// The app process itself (W4.1, REQ-4.1.5): `{ pid, rssBytes, footprintBytes, privateBytes, nsapp: { total, visible, titled } | null, webviewWindows }`; what a system cannot say is null.
+    fn native(&self) -> Value;
 }
 
 enum RunError {
@@ -167,7 +169,7 @@ impl<D: Driver> Bridge<D> {
 
     /// Routes one request that passed the guards.
     pub fn route(&self, head: &Head, body: &[u8]) -> Response {
-        let known = ["/windows", "/badge", "/eval", "/click", "/type", "/key", "/console", "/snapshot"];
+        let known = ["/windows", "/native", "/badge", "/eval", "/click", "/type", "/key", "/console", "/snapshot"];
         let want_post = matches!(head.path.as_str(), "/eval" | "/click" | "/type" | "/key");
         if !known.contains(&head.path.as_str()) {
             return Response::error(404, "unknown endpoint");
@@ -177,6 +179,9 @@ impl<D: Driver> Bridge<D> {
         }
         if head.path == "/windows" {
             return Response::json(200, &serde_json::to_value(self.driver.windows()).unwrap_or(Value::Null));
+        }
+        if head.path == "/native" {
+            return Response::json(200, &self.driver.native());
         }
         // the last Dock badge the app set (macOS; D-056): what was asked for, the Result of the call, what the Dock tile reported back
         if head.path == "/badge" {
@@ -308,6 +313,18 @@ impl<D: Driver> Bridge<D> {
         let _ = stream.flush();
         let _ = stream.shutdown(std::net::Shutdown::Both);
     }
+}
+
+/// The answer of `GET /native` (REQ-4.1.5): one shape on every system, `null` where the system has no such number.
+pub fn native_json(pid: u32, rss: Option<u64>, footprint: Option<u64>, private: Option<u64>, nsapp: Option<(usize, usize, usize)>, webview_windows: usize) -> Value {
+    json!({
+        "pid": pid,
+        "rssBytes": rss,
+        "footprintBytes": footprint,
+        "privateBytes": private,
+        "nsapp": nsapp.map(|(total, visible, titled)| json!({ "total": total, "visible": visible, "titled": titled })),
+        "webviewWindows": webview_windows,
+    })
 }
 
 fn no_window(label: &str) -> Response {
@@ -464,6 +481,9 @@ pub mod tests {
                 return Ok(r#"{"done":false}"#.into());
             }
             Ok(self.answer.lock().unwrap().clone())
+        }
+        fn native(&self) -> Value {
+            native_json(4242, Some(100_000_000), None, None, None, self.windows.len())
         }
         fn snapshot(&self, label: &str, _timeout: Duration) -> Result<Vec<u8>, SnapshotError> {
             if !self.windows.iter().any(|w| w.label == label) {
@@ -661,6 +681,24 @@ pub mod tests {
             assert!(v.get(k).is_some(), "{k} missing in {v}");
         }
         assert_eq!(call(s.port, "POST", "/badge", Some("{}")).0, 405);
+        s.stop();
+    }
+
+    #[test]
+    fn native_reports_the_process_with_nulls_where_a_system_has_no_number_and_needs_get() {
+        let f = Fake::new();
+        let s = started(&f);
+        let (st, v) = call(s.port, "GET", "/native", None);
+        assert_eq!(st, 200);
+        for k in ["pid", "rssBytes", "footprintBytes", "privateBytes", "nsapp", "webviewWindows"] {
+            assert!(v.get(k).is_some(), "{k} missing in {v}");
+        }
+        assert!(v["footprintBytes"].is_null() && v["privateBytes"].is_null() && v["nsapp"].is_null());
+        assert_eq!(v["webviewWindows"], 2);
+        let m = native_json(1, Some(2), Some(3), None, Some((5, 4, 2)), 2);
+        assert_eq!(m["nsapp"], json!({ "total": 5, "visible": 4, "titled": 2 }));
+        assert_eq!(m["footprintBytes"], 3);
+        assert_eq!(call(s.port, "POST", "/native", Some("{}")).0, 405);
         s.stop();
     }
 

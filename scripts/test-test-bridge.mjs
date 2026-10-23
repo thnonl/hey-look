@@ -82,6 +82,7 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
         res.writeHead(200, { "Content-Type": "image/png" });
         return res.end(Buffer.from("\x89PNGfake", "latin1"));
       }
+      if (req.url === "/native") return res.writeHead(200, { "Content-Type": "application/json" }).end(JSON.stringify({ pid: 1, rssBytes: 2, footprintBytes: null, privateBytes: 3, nsapp: null, webviewWindows: 1 }));
       if (req.url === "/windows") return res.writeHead(200, { "Content-Type": "application/json" }).end(JSON.stringify([{ label: "main" }]));
       if (req.url === "/nope") return res.writeHead(401, { "Content-Type": "application/json" }).end(JSON.stringify({ ok: false, error: "bad token" }));
       res.writeHead(200, { "Content-Type": "application/json" }).end(JSON.stringify({ ok: req.url !== "/key", value: 42, error: "boom", target: { tag: "button" } }));
@@ -92,6 +93,8 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
   const token = "ab".repeat(32);
   const b = bridge({ port, token });
   ok("list", (await b.list())[0].label === "main");
+  ok("native (debug-only /native, REQ-4.1.5)", (await b.native()).webviewWindows === 1 && seen.at(-1).url === "/native" && seen.at(-1).method === "GET");
+  seen.pop();
   ok("evalIn returns the value", (await b.evalIn("reader-1", "1+1", { timeoutMs: 900 })) === 42);
   ok("click by selector", (await b.click("main", "#send", { double: true })).target.tag === "button");
   await b.click("main", { x: 5, y: 6 });
@@ -173,6 +176,9 @@ if (!exeArg) {
         wins = await b.list().catch(() => []);
         await sleep(250);
       }
+      const nat = await b.native().catch((e) => e);
+      ok("/native has the process numbers (REQ-4.1.5)", nat.pid === child.pid && nat.rssBytes > 1e6 && nat.webviewWindows >= 1 && "footprintBytes" in nat && "privateBytes" in nat && "nsapp" in nat, JSON.stringify(nat));
+      ok("/native: private bytes on Windows, footprint and NSApp on macOS, null elsewhere", process.platform === "win32" ? nat.privateBytes > 1e6 && nat.footprintBytes === null && nat.nsapp === null : process.platform === "darwin" ? nat.footprintBytes > 1e6 && nat.nsapp.total >= 1 && nat.nsapp.titled >= 1 : nat.footprintBytes === null && nat.privateBytes === null && nat.nsapp === null, JSON.stringify(nat));
       ok("/windows lists main", wins.some((w) => w.label === "main" && w.kind === "main"));
       const main = wins.find((w) => w.label === "main");
       ok("/windows has the logical frame next to the physical one", !!main && Math.abs(main.logicalWidth * main.scale - main.width) <= main.scale && Math.abs(main.logicalHeight * main.scale - main.height) <= main.scale && [main.logicalX, main.logicalY].every(Number.isFinite), JSON.stringify(main));
