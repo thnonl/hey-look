@@ -1,7 +1,7 @@
 // Language on demand (WP9c): English is the only dictionary in the first JavaScript file; every other language is a chunk of its own
 // (src/i18n/lang-<code>.ts: dictionary + date-fns locale) that loadLanguage / switchLanguage fetch.
 //   1. nothing is loaded at start but English; setLangPref of a language that is not loaded throws (a test cannot silently run in English)
-//   2. every language loads, its strings are byte-identical to the dictionaries before the split (scripts/fixtures/i18n-before-split.json)
+//   2. every language loads, and what the chunk holds is the dictionary of its folder (t() shows it)
 //   3. a second switch while one is loading wins; the earlier one does nothing
 //   (the order below: 1, 4, 5 first, while nothing but English and fr / de are loaded; then 2, 3, 6)
 //   4. a chunk that cannot be loaded: one retry after 500 ms, then the promise rejects, the language in use stays, the next try fetches again
@@ -13,10 +13,12 @@ import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { applySavedLanguage } from "../src/bootLang.ts";
 import { en } from "../src/i18n/en.ts";
+import { loadDicts } from "./lib/i18n-dicts.mjs";
 import { dfLocale, fmtPattern } from "../src/i18n/format.ts";
 import { getLang, isLoaded, isReady, loadAllLanguages, loadLanguage, loadedDateLocale, setLangPref, switchLanguage, t, LANGUAGES } from "../src/i18n/index.ts";
 
 const read = (f) => readFileSync(fileURLToPath(new URL(`../${f}`, import.meta.url)), "utf8");
+const DICT = await loadDicts(); // (read from the folders of the languages, not through src/i18n/index.ts)
 const others = LANGUAGES.map((l) => l.code).filter((c) => c !== "en");
 
 // 1. at start only English is there
@@ -58,20 +60,15 @@ assert.equal(t("common.cancel"), en["common.cancel"]);
   setLangPref("en");
 }
 
-// 2. every language loads; the strings are those of the dictionaries before the split
-// -- fixture comparison (REQ-9.1.3): kept on the WP9c branch until its last commit
-const before = JSON.parse(read("scripts/fixtures/i18n-before-split.json"));
-// --
+// 2. every language loads; the chunk holds the dictionary of its folder
 await loadAllLanguages();
 for (const c of others) assert.equal(isLoaded(c), true, `${c} loaded`);
 for (const l of LANGUAGES) {
   const code = l.code;
   const dict = code === "en" ? en : (await import(`../src/i18n/lang-${code}.ts`)).default.dict;
-  const want = before[code];
-  assert.deepEqual(Object.keys(dict).sort(), Object.keys(want).sort(), `${code}: the same keys as before the split`);
-  let diff = 0;
-  for (const k of Object.keys(want)) if (JSON.stringify(dict[k]) !== JSON.stringify(want[k])) { diff++; if (diff < 4) console.error(`${code}: ${k} differs`); }
-  assert.equal(diff, 0, `${code}: ${diff} string(s) differ from the dictionary before the split`);
+  const want = DICT[code];
+  assert.deepEqual(Object.keys(dict).sort(), Object.keys(en).sort(), `${code}: the same keys as English`);
+  assert.deepEqual(dict, want, `${code}: the chunk holds the dictionary of src/i18n/locales/${code}`);
   // and what t() shows (plain strings, no parameters)
   setLangPref(code);
   for (const k of Object.keys(want)) if (typeof want[k] === "string" && !/\{\w+\}/.test(want[k])) assert.equal(t(k), want[k], `${code}: t(${k})`);
