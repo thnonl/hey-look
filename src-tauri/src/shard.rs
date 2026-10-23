@@ -21,14 +21,14 @@ use std::path::{Path, PathBuf};
 /// Columns of `messages`, in the order of the shard table (the view, its triggers and the legacy copy name them explicitly,
 /// so the column order of an old database does not matter). A new column: add it to `create_sql` and here, and give old
 /// shards an `ALTER TABLE ... ADD COLUMN` through `db::add_column` in `attach`.
-const COLS: [&str; 27] = [
+const COLS: [&str; 28] = [
     "id", "account_id", "folder", "uid", "message_id", "thread_id", "subject", "from_name", "from_email", "to_addrs", "cc_addrs", "date",
     "snippet", "body_html", "body_text", "seen", "flagged", "has_attach", "attachments", "list_unsub", "list_unsub_post", "pgp", "pgp_raw",
-    "ics", "cal_method", "importance", "auth_result",
+    "ics", "cal_method", "importance", "auth_result", "reply_hdr",
 ];
 
 /// Columns an old (pre-shard) `main.messages` may still lack; same list the single-file layout migrated with.
-const LEGACY_ADD_COLUMNS: [&str; 7] = [
+const LEGACY_ADD_COLUMNS: [&str; 8] = [
     "ALTER TABLE main.messages ADD COLUMN attachments TEXT NOT NULL DEFAULT '[]'",
     "ALTER TABLE main.messages ADD COLUMN pgp INTEGER NOT NULL DEFAULT 0",
     "ALTER TABLE main.messages ADD COLUMN pgp_raw BLOB",
@@ -36,6 +36,7 @@ const LEGACY_ADD_COLUMNS: [&str; 7] = [
     "ALTER TABLE main.messages ADD COLUMN cal_method TEXT",
     "ALTER TABLE main.messages ADD COLUMN importance INTEGER NOT NULL DEFAULT 0",
     "ALTER TABLE main.messages ADD COLUMN auth_result TEXT",
+    "ALTER TABLE main.messages ADD COLUMN reply_hdr TEXT",
 ];
 
 /// The `messages` table and its three indexes inside the attached database `schema`.
@@ -52,7 +53,7 @@ fn create_sql(schema: &str) -> String {
            attachments TEXT NOT NULL DEFAULT '[]',
            list_unsub TEXT, list_unsub_post INTEGER NOT NULL DEFAULT 0,
            pgp INTEGER NOT NULL DEFAULT 0, pgp_raw BLOB, ics TEXT, cal_method TEXT,
-           importance INTEGER NOT NULL DEFAULT 0, auth_result TEXT,
+           importance INTEGER NOT NULL DEFAULT 0, auth_result TEXT, reply_hdr TEXT,
            UNIQUE(account_id, folder, uid)
          );
          CREATE INDEX IF NOT EXISTS {schema}.idx_msg_thread ON messages(thread_id);
@@ -149,6 +150,8 @@ fn attach(conn: &Connection, dir: Option<&Path>, id: &str) -> R<bool> {
     add_column(conn, &format!("ALTER TABLE {a}.messages ADD COLUMN importance INTEGER NOT NULL DEFAULT 0"))?;
     // the receiving server's verdict on the sender of an invitation mail ('pass' | 'fail'; NULL = unknown), 1.0.7 W7.3
     add_column(conn, &format!("ALTER TABLE {a}.messages ADD COLUMN auth_result TEXT"))?;
+    // the headers an answer needs, as JSON (NULL = not kept yet: Reply reads the header block from the server once and keeps it), 1.0.7 W13.13
+    add_column(conn, &format!("ALTER TABLE {a}.messages ADD COLUMN reply_hdr TEXT"))?;
     Ok(true)
 }
 
@@ -768,6 +771,40 @@ pub(crate) mod tests {
         drop(c);
         let c = crate::db::open(&dir.join("heylook.db")).unwrap();
         assert_eq!(n(&c, "SELECT COUNT(*) FROM messages WHERE auth_result IS NOT NULL"), 2);
+        drop(c);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// W13.13: a mail file made before the `reply_hdr` column existed gets it when it is attached (NULL = the headers are read from the server once), its rows stay, the
+    /// view and its triggers see the column, and attaching again changes nothing.
+    #[test]
+    fn an_older_mail_file_gets_the_reply_hdr_column_and_keeps_its_rows() {
+        let dir = temp_dir("replyhdr");
+        {
+            let c = crate::db::open(&dir.join("heylook.db")).unwrap();
+            let acc = crate::db::Account {
+                id: A.into(), email: "a@x.example".into(), display_name: "N".into(), imap_host: "h".into(), imap_port: 993, imap_ssl: true,
+                smtp_host: "s".into(), smtp_port: 465, smtp_security: "ssl".into(), username: "u".into(), auth: "password".into(), color: None,
+                smtp_username: String::new(), tls_insecure: false, reply_to: String::new(),
+            };
+            crate::db::insert_account(&c, &acc).unwrap();
+        }
+        remove_files(&dir, A);
+        {
+            let old = Connection::open(dir.join(file_name(A))).unwrap();
+            old.execute_batch(&create_sql("main").replace(", reply_hdr TEXT", "")).unwrap();
+            assert!(old.prepare("SELECT reply_hdr FROM messages").is_err(), "the old file really lacks the column");
+            old.execute("INSERT INTO messages(id,account_id,folder,uid,thread_id,subject,from_name,from_email,to_addrs,cc_addrs,date,snippet) VALUES('old',?1,'inbox',1,'t','s','n','x@y.z','','',1,'')", [A]).unwrap();
+        }
+        let c = crate::db::open(&dir.join("heylook.db")).unwrap();
+        assert_eq!(n(&c, "SELECT COUNT(*) FROM messages"), 1);
+        assert_eq!(n(&c, "SELECT COUNT(*) FROM messages WHERE id='old' AND reply_hdr IS NULL"), 1, "an old row has no headers kept");
+        c.execute("UPDATE messages SET reply_hdr='{}' WHERE id='old'", []).unwrap();
+        c.execute("INSERT OR REPLACE INTO messages(id,account_id,folder,uid,thread_id,subject,from_name,from_email,to_addrs,cc_addrs,date,snippet,reply_hdr) VALUES('new',?1,'inbox',2,'t','s','n','x@y.z','','',2,'','{\"references\":[]}')", [A]).unwrap();
+        assert_eq!(n(&c, "SELECT COUNT(*) FROM messages WHERE reply_hdr IS NOT NULL"), 2);
+        drop(c);
+        let c = crate::db::open(&dir.join("heylook.db")).unwrap();
+        assert_eq!(n(&c, "SELECT COUNT(*) FROM messages WHERE reply_hdr IS NOT NULL"), 2, "attaching again keeps the values");
         drop(c);
         let _ = std::fs::remove_dir_all(&dir);
     }

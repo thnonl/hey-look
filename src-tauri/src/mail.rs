@@ -661,6 +661,8 @@ pub struct Parsed {
     pub importance: crate::importance::Importance,
     /// What the receiving server's topmost `Authentication-Results` says about the sender (calendar updates need a passing check, W7.3)
     pub auth: crate::authres::Auth,
+    /// The headers an answer needs (Reply-To, Message-ID, References, From / To / Cc with names) as JSON, kept with the message so that Reply makes no call to the server (W13.13)
+    pub reply_hdr: Option<String>,
 }
 
 pub struct FolderFetch {
@@ -936,6 +938,7 @@ pub fn parse(uid: u32, raw: &[u8], seen: bool, flagged: bool, fallback_date: i64
         cal_method,
         importance: crate::importance::from_raw(raw),
         auth: crate::authres::verdict(raw),
+        reply_hdr: crate::replyhdr::to_db(&crate::replyhdr::from_message(&m)),
     })
 }
 
@@ -1141,6 +1144,18 @@ pub fn fetch_raw<T: Read + Write>(s: &mut imap::Session<T>, folder: &str, uid: u
         .find(|m| m.uid == Some(uid))
         .or_else(|| f.iter().next())
         .and_then(|m| m.body().map(|b| b.to_vec()))
+        .ok_or_else(|| "MSG_NOT_ON_SERVER: message not found on server".into())
+}
+
+/// The header block of one message (`UID FETCH BODY.PEEK[HEADER]`): what an answer needs from a message that was stored before its reply headers were kept
+/// with it. A few KB instead of the whole message (W13.13).
+pub fn fetch_header<T: Read + Write>(s: &mut imap::Session<T>, folder: &str, uid: u32) -> R<Vec<u8>> {
+    s.select(folder).map_err(err)?;
+    let f = s.uid_fetch(uid.to_string(), "BODY.PEEK[HEADER]").map_err(err)?;
+    f.iter()
+        .find(|m| m.uid == Some(uid))
+        .or_else(|| f.iter().next())
+        .and_then(|m| m.header().map(|b| b.to_vec()))
         .ok_or_else(|| "MSG_NOT_ON_SERVER: message not found on server".into())
 }
 

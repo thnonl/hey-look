@@ -3,10 +3,10 @@
 //! The stored message only keeps From / To / Cc as bare addresses and one merged list of reference ids (for threading), so this
 //! reads the headers of the message itself, as the server holds it (also the display names of From / To / Cc: Reply all keeps them).
 
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 
 /// Where an answer goes and how it is linked to the message it answers.
-#[derive(Serialize, Debug, Clone, PartialEq, Default)]
+#[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Default)]
 #[serde(rename_all = "camelCase")]
 pub struct ReplyHeaders {
     /// `<id@domain>` of the message itself (None when it has none)
@@ -39,11 +39,22 @@ fn mailboxes(a: Option<&mail_parser::Address>) -> Vec<String> {
     .unwrap_or_default()
 }
 
-/// The line for startup.log: where the headers came from (`body`: the message was downloaded already, `fetch`: asked from the server), how many
-/// Reply-To addresses it has and how many of them are the person's own accounts (the page does not answer to those).
+/// The form kept in `messages.reply_hdr` (1.0.7 W13.13): the headers an answer needs, so Reply makes no call to the server for them.
+pub fn to_db(h: &ReplyHeaders) -> Option<String> {
+    serde_json::to_string(h).ok()
+}
+
+/// What `to_db` wrote. None for an empty column or text that is not that form (the headers are read again, from the server).
+pub fn from_db(text: &str) -> Option<ReplyHeaders> {
+    serde_json::from_str(text).ok()
+}
+
+/// The line for startup.log: where the headers came from (`stored`: saved with the message at sync, no call to the server; `raw-cache`: the message was
+/// downloaded already; `header-fetch`: only the header block was asked from the server), how many Reply-To addresses it has and how many of them are the
+/// person's own accounts (the page does not answer to those). No address is written.
 pub fn log_text(h: &ReplyHeaders, source: &str, own_emails: &[String]) -> String {
     let own = h.reply_to.iter().filter(|r| own_emails.iter().any(|e| e.trim().eq_ignore_ascii_case(crate::smtp::split_mailbox(r).1.trim()))).count();
-    format!("reply headers: source={source}, reply-to={} address(es), own removed={own}", h.reply_to.len())
+    format!("headers: {source}, reply-to={} address(es), own removed={own}", h.reply_to.len())
 }
 
 /// At most this many ids in the References of an answer, and this many characters (RFC 5322 line limit is 998; 986 leaves room for
@@ -83,9 +94,14 @@ pub fn chain(references: &[String], in_reply_to: &[String], message_id: Option<&
     ids
 }
 
-/// The headers of `raw` that an answer needs.
+/// The headers of `raw` that an answer needs (`raw` may be the header block alone: the body is not read).
 pub fn from_raw(raw: &[u8]) -> ReplyHeaders {
     let Some(m) = mail_parser::MessageParser::default().parse(raw) else { return ReplyHeaders::default() };
+    from_message(&m)
+}
+
+/// The same from a message that is parsed already (the sync stores them with the message, see `to_db`).
+pub fn from_message(m: &mail_parser::Message) -> ReplyHeaders {
     let message_id = m.message_id().map(|s| format!("<{}>", s.trim().trim_matches(['<', '>']))).filter(|s| s.len() > 2);
     let refs = m.header_raw("References").map(ids_in).unwrap_or_default();
     let irt = m.header_raw("In-Reply-To").map(ids_in).unwrap_or_default();
@@ -216,9 +232,9 @@ mod tests {
     fn the_log_line_says_how_many_reply_to_addresses_are_the_persons_own() {
         let h = from_raw(&stored_message("\r\n"));
         let own = vec!["qa1@test.local".to_string(), "QA2@test.local".to_string()];
-        assert_eq!(log_text(&h, "body", &own), "reply headers: source=body, reply-to=2 address(es), own removed=1");
-        assert_eq!(log_text(&h, "fetch", &[]), "reply headers: source=fetch, reply-to=2 address(es), own removed=0");
-        assert_eq!(log_text(&from_raw(b"From: a@x.test\r\n\r\nx"), "fetch", &own), "reply headers: source=fetch, reply-to=0 address(es), own removed=0");
+        assert_eq!(log_text(&h, "stored", &own), "headers: stored, reply-to=2 address(es), own removed=1");
+        assert_eq!(log_text(&h, "header-fetch", &[]), "headers: header-fetch, reply-to=2 address(es), own removed=0");
+        assert_eq!(log_text(&from_raw(b"From: a@x.test\r\n\r\nx"), "raw-cache", &own), "headers: raw-cache, reply-to=0 address(es), own removed=0");
     }
 
     /// A tiny IMAP server that answers `UID FETCH` with `fetch` (the untagged part, written by the test) and everything else the way a session needs.
