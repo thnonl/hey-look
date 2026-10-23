@@ -1,0 +1,7 @@
+WK-F16.02/.03/.04 Linux PASS @8605b2c: --minimized with HEYLOOK_TEST_GATE_FAIL=session: 0 gate lines, 'window created hidden' at +165 ms, page ready +598 ms, window hidden; normal start also 0 gate lines. F16 not run on Wayland.
+R7 8605b2c Linux (dist 00:36:29, binary 00:41:32; cargo needed retries)
+D-062 (guest servers http :8098 + self-signed https :8443): decoded names OK; U3 http+mailto: GET /u3 logged twice (UA KIO/5.1) PASS; U4 mailto-only: compose Subject 'TOK4 abc', body 'please remove me' PASS; U1 https+Post and U2 https: toast 'Couldn't open your browser. The link is copied to the clipboard.' (self-signed cert; one-click success BLOCKED); no mailto compose (https preferred).
+WK-F11.01/.02 PASS (btn >= 24, 25 for ja/zh); WK-F11.03/.04 PASS: 24 pages, cut [], min least 3 px, ja lh 27.9px.
+7f3.01 idle PASS; 7f3.03: lines 4 everywhere, ja = 5 lines (>4) FINDING; 7f2/section 27 probes PASS; 7f1.02 PASS (lines 1-2).
+WK-F12 recheck PASS: light OS: htmlBg white, shot topRgb 255,255,255 topShare 0.9922 colours 12.
+Not run: 7a.01/.02, 7f3.02, F7.05, F.01/.02, reduced motion.

@@ -1,0 +1,12 @@
+R7 8605b2c Mac (dist 00:36:09, app 00:36:37; QA bundle open -n pid 30576)
+D-062 (local servers: http 127.0.0.1:8098 logging, https 127.0.0.1:8443 self-signed logging; fixtures built by me, same shape as the D-062 mails):
+ U1 https+List-Unsubscribe-Post (+mailto), From 'Müller Café' (RFC 2047): row shows decoded name 'Müller Café', notice 'This looks like a newsletter. Unsubscribe'; click: NO request reached my https server, no toast, no dialog, no compose (app presumably rejects the self-signed cert; no feedback shown) -> one-click success path BLOCKED (no trusted local https), failure feedback: none visible.
+ U2 https no Post (+mailto), 'Ünï Çödé Shop': decoded name OK; click: no request (self-signed cert page, no handshake), no compose (so https is preferred over mailto: PASS for order), Safari document not created (unverified).
+ U3 http + mailto, '東京 ニュース': decoded OK; click opens the http URL in the default browser: my server logged GET /u3?t=TOK3 (UA Safari) -> http preferred over mailto: PASS.
+ U4 mailto only with ?subject=TOK4%20abc&body=please%20remove%20me, 'Привет Рассылка': decoded OK; click: compose opens To unsub@example.com, Subject 'TOK4 abc', body 'please remove me' after the signature: PASS.
+ No-header body link (r14 local2): GET /preferences/unsubscribe?... logged: PASS (round 6).
+WK-F16.01/.03/.04 Mac PASS: --minimized with HEYLOOK_TEST_GATE_FAIL=session (30 s): gate lines 0 (also 0 in all earlier runs), 'window created hidden (show at start: false)' at +782 ms, page ready +1356 ms, window hidden; after show P-gone {splash 0,status 0}.
+WK-F11.01 PASS (8 langs, 960x560 iframe in Safari): P-btn all 24. WK-F11.02 PASS: held card text translated, no 'Attendee status updated'. WK-F11.03/.04 PASS: 8 languages x 840/960/1020, 36 combos each: cut [], shown true, least >= 17.1, ja lh 27.9px at 18px.
+WP7a: 7a.03 notice on failed-check mails PASS (en text 'This message didn't pass the sender check ...'); 7f1.02 popover buttons PASS (24 px, names translated, clipped [], lines 1-2, box in viewport); 7f3.01 idle PASS (8 languages, Google and Microsoft); 7f3.03 P-offer PASS lines 3-4; 7f2 (section 27) P-fold/P-colour/P-popline PASS 8 languages. NOT RUN: 7a.01, 7a.02, 7f3.02 (step 2 states, tab order), F7.05 variants, F.01/F.02, Reduce motion rows, Dock rows (skipped by instruction).
+WK-F12 recheck PASS @8605b2c: slow start System/OS dark: htmlBg rgb(27,28,32), shot topRgb 27,28,32 topShare 0.9426 colours 15; (D-063 title bar strip 35,36,39 unchanged).
+D-052 / D-051: closed in round 4 (PASS on 06c36ae); not re-run.
