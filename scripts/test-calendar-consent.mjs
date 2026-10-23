@@ -37,9 +37,20 @@ const waitFor = async (expr, what, ms = 8000) => {
   ok(false, `timed out waiting for ${what}`);
   return false;
 };
+// (the dev preview applies the tokens of the hash (lang=, light, ...) in order, 250 ms apart, after the store has loaded: a language or theme set in that gap is
+// overwritten when its token comes, so the test waits for the last one)
+const openApp = async (hash, w, h) => {
+  await H.openApp(hash, w, h);
+  await waitFor(`window.__store.getState().loaded === true`, 'the store to finish loading', 20000);
+  await sleep(300 + 250 * hash.split('&').filter(Boolean).length + 250);
+};
 const SW = '#set-calendar .switch input';
 const connects = () => evaluate('JSON.stringify(window.__mockCalConnects || [])').then(JSON.parse);
-const setLook = (theme, lang) => evaluate(`window.__store.getState().setPrefs({ theme: ${JSON.stringify(theme)}, language: ${JSON.stringify(lang)} }); 1`);
+// (the first switch to a language loads its dictionary, which can take seconds on a busy machine: wait until the page speaks it)
+const setLook = async (theme, lang) => {
+  await evaluate(`window.__store.getState().setPrefs({ theme: ${JSON.stringify(theme)}, language: ${JSON.stringify(lang)} }); 1`);
+  await waitFor(`document.documentElement.lang === ${JSON.stringify(lang)}`, `the page language ${lang}`, 25000);
+};
 const openCalendarSettings = async (account) => {
   await evaluate(`window.__store.getState().setDialog({ type: 'settings', tab: 'mb:${account}', focus: 'calendar' }); 1`);
   await waitFor(`document.querySelector(${JSON.stringify(SW)})`, `the Calendar section of ${account}`);
@@ -57,7 +68,7 @@ const statusText = () => evaluate(`(document.querySelector('#set-calendar')?.clo
 
 try {
   // ------------------------------------------------------------------ W7.7: the question before the browser opens (English, light, 960 x 560)
-  await H.openApp('lang=en&light', 960, 560);
+  await openApp('lang=en&light', 960, 560);
   await openCalendarSettings('a2');
   ok(!(await evaluate(`document.querySelector(${JSON.stringify(SW)}).checked`)), 'a2: the switch starts off');
   await click('#set-calendar .switch');
@@ -94,7 +105,7 @@ try {
   await waitFor(`document.querySelector(${JSON.stringify(SW)}).checked && !document.querySelector(${JSON.stringify(SW)}).disabled`, 'the first consent to end', 6000);
 
   // Microsoft: the other provider name and address
-  await H.openApp('lang=en&light', 960, 560);
+  await openApp('lang=en&light', 960, 560);
   await openCalendarSettings('a4');
   await click('#set-calendar .switch');
   await waitFor(`document.querySelector('.ask')`, 'the question for Outlook');
@@ -105,7 +116,7 @@ try {
   ok((await connects()).length === 0, 'Microsoft: Esc starts nothing');
 
   // "Allow access again" (the access-ended state): the same question, the focus returns to that button
-  await H.openApp('lang=en&light&calsync=auth', 960, 560);
+  await openApp('lang=en&light&calsync=auth', 960, 560);
   await openCalendarSettings('a2');
   const again = '.set-actions button.primary';
   await waitFor(`document.querySelector(${JSON.stringify(again)})`, 'the Allow access again button');
@@ -124,7 +135,7 @@ try {
   await waitFor(`!document.querySelector(${JSON.stringify(again)})`, 'the consent to end', 6000);
 
   // ------------------------------------------------------------------ the question in every language and both themes
-  await H.openApp('lang=en&light', 960, 560);
+  await openApp('lang=en&light', 960, 560);
   await openCalendarSettings('a2');
   for (const theme of THEMES) for (const lang of LANGS) {
     await setLook(theme, lang);
@@ -149,7 +160,7 @@ try {
   // ------------------------------------------------------------------ W7.8: a build without the OAuth client of the service
   for (const [hash, expect] of [['calkinds=none', { a2: true, a4: true }], ['calkinds=microsoft', { a2: true, a4: false }], ['calkinds=google', { a2: false, a4: true }], ['', { a2: false, a4: false }]]) {
     for (const acc of ['a2', 'a4']) {
-      await H.openApp(`lang=en&light${hash ? `&${hash}` : ''}`, 960, 560);
+      await openApp(`lang=en&light${hash ? `&${hash}` : ''}`, 960, 560);
       await openCalendarSettings(acc);
       await sleep(250);
       const st = await evaluate(`(() => { const i = document.querySelector(${JSON.stringify(SW)}); const n = document.querySelector('.set-status'); return { disabled: i.disabled, note: (n?.textContent ?? '').trim() }; })()`);
@@ -159,7 +170,7 @@ try {
       ok(expect[acc] ? st.note === want : st.note === '', `${hash || 'both kinds'} ${acc}: note "${st.note}"`);
     }
   }
-  await H.openApp('lang=en&light&calkinds=none', 960, 560);
+  await openApp('lang=en&light&calkinds=none', 960, 560);
   await openCalendarSettings('a2');
   for (const theme of THEMES) for (const lang of LANGS) {
     await setLook(theme, lang);
@@ -178,7 +189,7 @@ try {
     { thread: 't32', msg: 'm-unv-reply', name: 'Bao Tran', held: true },
     { thread: 't33', msg: 'm-unv-new', name: 'Mai Khanh', held: false },
   ];
-  await H.openApp('lang=en&light&unverified', 960, 560);
+  await openApp('lang=en&light&unverified', 960, 560);
   const card = () => evaluate(`(() => {
     const art = document.querySelector('.rp-msg-body article.invite, article.invite'); if (!art) return null;
     const n = art.querySelector('.notice.bad[role="alert"]');
@@ -193,7 +204,7 @@ try {
       await waitFor(`document.querySelector('article.invite')`, `the card of ${c.msg}`);
       // (the first switch to a language loads its dictionary: wait until the card speaks it)
       const first = JSON.stringify(tr(lang, 'calendar.invite.unverified', { name: c.name }).slice(0, 12));
-      await waitFor(`document.querySelector('article.invite .notice.bad[role="alert"]')?.textContent.startsWith(${first})`, `the warning in ${lang}`, 4000);
+      await waitFor(`document.querySelector('article.invite .notice.bad[role="alert"]')?.textContent.startsWith(${first})`, `the warning in ${lang}`, 12000);
       await sleep(80);
       const g = await card();
       const tag = `${c.msg} ${lang} ${theme}`;
@@ -235,7 +246,7 @@ try {
 
   // ------------------------------------------------------------------ W7.2: extra dates and no rule = "Custom"
   for (const lang of LANGS) {
-    await H.openApp(`lang=${lang}&light&rdate`, 960, 560);
+    await openApp(`lang=${lang}&light&rdate`, 960, 560);
     await evaluate(`window.__store.getState().setModule('calendar'); window.__store.getState().setCalView('agenda'); 1`);
     await waitFor(`[...document.querySelectorAll('.ag-row')].some((r) => r.textContent.includes('Reading group'))`, `the series with extra dates in the agenda (${lang})`);
     await evaluate(`[...document.querySelectorAll('.ag-row')].find((r) => r.textContent.includes('Reading group')).scrollIntoView({ block: 'center' }); 1`);

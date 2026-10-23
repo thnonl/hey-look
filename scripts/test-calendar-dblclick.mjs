@@ -30,6 +30,13 @@ const waitFor = async (expr, what, ms = 6000) => {
   ok(false, `timed out waiting for ${what}`);
   return false;
 };
+// (the dev preview applies the tokens of the hash (lang=, light, ...) in order, 250 ms apart, after the store has loaded: a language or theme set in that gap is
+// overwritten when its token comes, so the test waits for the last one)
+const openApp = async (hash, w, h) => {
+  await H.openApp(hash, w, h);
+  await waitFor(`window.__store.getState().loaded === true`, 'the store to finish loading', 20000);
+  await sleep(300 + 250 * hash.split('&').filter(Boolean).length + 250);
+};
 
 /** Two presses of the left button at the same place with clickCount 1 and 2, as the browser sends a double-click. */
 const dbl = async (x, y) => {
@@ -103,7 +110,7 @@ async function expectDetails(sel, text, tag, buttons) {
 }
 
 try {
-  await H.openApp('lang=en&light&calsync=ok', 1280, 800);
+  await openApp('lang=en&light&calsync=ok', 1280, 800);
   await evaluate(`window.__store.getState().setModule('calendar'); 1`);
   await waitFor(`document.querySelector('.cal-view')`, 'the calendar');
   // an all-day event of My events today and a Google event that only its organizer may change

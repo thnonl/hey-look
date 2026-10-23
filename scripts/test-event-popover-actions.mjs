@@ -32,6 +32,13 @@ const waitFor = async (expr, what, ms = 6000) => {
   ok(false, `timed out waiting for ${what}`);
   return false;
 };
+// (the dev preview applies the tokens of the hash (lang=, light, ...) in order, 250 ms apart, after the store has loaded: a language or theme set in that gap is
+// overwritten when its token comes, so the test waits for the last one)
+const openApp = async (hash, w, h) => {
+  await H.openApp(hash, w, h);
+  await waitFor(`window.__store.getState().loaded === true`, 'the store to finish loading', 20000);
+  await sleep(300 + 250 * hash.split('&').filter(Boolean).length + 250);
+};
 const key = async (k, code, vk, modifiers = 0, text) => {
   await cdp('Input.dispatchKeyEvent', { type: text ? 'keyDown' : 'rawKeyDown', key: k, code, windowsVirtualKeyCode: vk, nativeVirtualKeyCode: vk, modifiers, ...(text ? { text } : {}) });
   await cdp('Input.dispatchKeyEvent', { type: 'keyUp', key: k, code, windowsVirtualKeyCode: vk, nativeVirtualKeyCode: vk, modifiers });
@@ -81,7 +88,7 @@ const footer = () => evaluate(`(() => {
 const names = (f) => f.rows.flat().map((b) => b.name);
 
 try {
-  await H.openApp('lang=en&light&calsync=ok', 1280, 800);
+  await openApp('lang=en&light&calsync=ok', 1280, 800);
   await evaluate(`window.__store.getState().setModule('calendar'); 1`);
   await waitFor(`document.querySelector('.cal-view')`, 'the calendar');
   // a confidential event, one with nothing to do (read-only calendar and confidential), and an organizer event with a long description

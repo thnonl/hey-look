@@ -1030,7 +1030,7 @@ function EventPopover({ state, tz, color, onClose, onEdit }: { state: PopState; 
   const showMail = invite && !!ev.sourceMessageId;
   const answerRow = canRsvp || !!ev.joinUrl;
   // an action button: icon and label, or the icon alone (with the label as its name and tooltip) in a narrow popover
-  const act = (label: string, icon: ReactNode, onClick: () => void, danger = false) => {
+  const actionButton = (label: string, icon: ReactNode, onClick: () => void, danger = false) => {
     const cls = `btn small${danger ? " danger ev-delete" : ""}`;
     return narrow ? (
       <button type="button" className={`${cls} icon-only`} title={label} aria-label={label} onClick={onClick}>{icon}</button>
@@ -1089,10 +1089,10 @@ function EventPopover({ state, tz, color, onClose, onEdit }: { state: PopState; 
           {(showMail || showEdit || showCopy || showDelete) && (
             <div className="ev-acts ev-actions">
               {showMail && <button className="icon-btn" title={t("calendar.pop.openEmail")} aria-label={t("calendar.pop.openEmail")} onClick={() => void openMail()}><Mail size={15} /></button>}
-              {showEdit && act(t("common.edit"), <Pencil size={14} aria-hidden />, onEdit)}
-              {showCopy && act(t("calendar.pop.duplicate"), <Copy size={14} aria-hidden />, duplicate)}
-              {showCopy && act(t("calendar.saveIcs"), <Download size={14} aria-hidden />, () => void saveIcs())}
-              {showDelete && act(t("common.delete"), <Trash2 size={14} aria-hidden />, () => void remove(), true)}
+              {showEdit && actionButton(t("common.edit"), <Pencil size={14} aria-hidden />, onEdit)}
+              {showCopy && actionButton(t("calendar.pop.duplicate"), <Copy size={14} aria-hidden />, duplicate)}
+              {showCopy && actionButton(t("calendar.saveIcs"), <Download size={14} aria-hidden />, () => void saveIcs())}
+              {showDelete && actionButton(t("common.delete"), <Trash2 size={14} aria-hidden />, () => void remove(), true)}
             </div>
           )}
         </div>
