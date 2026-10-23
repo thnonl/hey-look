@@ -235,6 +235,29 @@ async function runPage(lang, width, { reduced = false, dark = false } = {}) {
   if (consoleProblems.length) fail(tag, 'console', [...new Set(consoleProblems)].slice(0, 5).join('\n      '));
 }
 
+// The band where the demo window shows its folder column and is as tall as that column needs (docs/assets/style.css, .mk-view .app: 840 to 1020 px; under about 830 the column is hidden), in every language, at every text size and
+// density and in both reading-pane positions: the column is never cut (D-058: the Japanese line height, 1.55, was not in the old formula). Quick or not, this is the whole matrix (8 x 4 x 36 cases).
+let folderSlack = Infinity;
+async function folderPass() {
+  const WIDTHS_BAND = [840, 960, 1020];
+  for (const lang of LANGS) for (const width of WIDTHS_BAND) {
+    await loadPage(lang, width, false, false);
+    if (SPACING) await evaluate(`(() => { const sh = new CSSStyleSheet(); sh.replaceSync(${JSON.stringify('*,*::before,*::after{letter-spacing:' + SPACING + 'em!important}')}); document.adoptedStyleSheets = [...document.adoptedStyleSheets, sh]; })()`);
+    const tag = `${lang} ${width}px folder column`;
+    pages++;
+    const res = await evaluate(`(() => { const { set, fire, R } = window.__ctx; const app = document.querySelector('.mk-view .app'), out = []; let n = 0, least = 1e9;
+      for (const density of ${JSON.stringify(VAL.density)}) for (const pane of ${JSON.stringify(VAL.pane)}) for (const fs of ${JSON.stringify(VAL.fs)}) {
+        set('density', density); set('pane', pane); set('fs', fs); fire(); n++;
+        const fo = app.querySelector('.a-folders'); if (R(fo).width <= 0) { out.push([density + ' ' + pane + ' ' + fs, 'the folder column is not shown at this width']); continue; }
+        { const last = fo.lastElementChild.getBoundingClientRect().bottom, top = fo.getBoundingClientRect().top; least = Math.min(least, Math.round((fo.clientHeight - (last - top + parseFloat(getComputedStyle(fo).paddingBottom))) * 10) / 10); }
+        if (fo.scrollHeight > fo.clientHeight + 0.5) out.push([density + ' ' + pane + ' ' + fs + ' px', 'the folder column is cut at the bottom (' + fo.scrollHeight + ' > ' + fo.clientHeight + ')']);
+      }
+      return { out, n, least }; })()`);
+    checked += res.n; folderSlack = Math.min(folderSlack, res.least);
+    for (const [c, bad] of res.out) fail(tag, c, bad);
+  }
+}
+
 // prefers-contrast: more: the dark title bar stays neutral (like the app), the light one is unchanged
 async function contrastPass(lang, width) {
   await loadPage(lang, width, false, true, true);
@@ -429,6 +452,7 @@ try {
   await runPage('en', 1280, { reduced: true, dark: true });
   await runPage('en', 1280, { dark: true });
   await contrastPass('en', 1280); await contrastPass('ja', 375);
+  await folderPass();
   await scanPages();
   await supportPass();
   await headerPass();
@@ -442,6 +466,7 @@ try {
 // the test is hermetic: nothing but this machine and the stubbed release call was asked for
 if (net.external.length) fail('network', 'external requests', 'the pages asked for hosts nobody stubbed (they were refused): ' + [...new Set(net.external)].join(', '));
 const secs = ((Date.now() - t0) / 1000).toFixed(0);
+if (Number.isFinite(folderSlack)) console.log(`  note: the folder column has at least ${folderSlack}px to spare in every language, size and density between 840 and 1020px`);
 for (const [w, n] of warnings) console.log(`  note: ${w}in ${n} combinations (ends in an ellipsis; allowed)`);
 if (failures.length) { console.error(`test-site-appearance: FAILED (${checked} combinations on ${pages} pages, ${secs}s)\n\n  ` + failures.join('\n  ')); process.exit(1); }
 console.log(`test-site-appearance: ok (${checked} combinations on ${pages} pages, langs ${LANGS.join(',')}, widths ${WIDTHS.join(',')}${QUICK ? ', quick' : ''}, ${secs}s)`);

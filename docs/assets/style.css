@@ -248,12 +248,12 @@ section { position: relative; }
 .sk-btn:hover { border-color: var(--night-fg); }
 
 /* ---------- the drawn app window ---------- */
-.app { --ac: #0f6cbd; --fs: 14px; --row: 12px;
+.app { --ac: #0f6cbd; --fs: 14px; --lh: 1.35; --row: 12px;
   --a-bg: #fff; --a-bg2: #f6f7f9; --a-bg3: #eceef2; --a-fg: #1f2328; --a-mut: #5b6470; --a-line: #e3e6eb;
   --a-acc: var(--ac); --a-acc-t: var(--ac); --a-acc-fg: #fff; --a-soft: color-mix(in srgb, var(--a-acc) 12%, var(--a-bg));
   --a-top: linear-gradient(135deg, color-mix(in srgb, var(--a-acc), #000 22%), var(--a-acc)); --a-top-fg: #fff;
   position: relative; display: flex; flex-direction: column; container: app / inline-size; width: 100%; min-height: 0;
-  font: 400 var(--fs)/1.35 "Segoe UI Variable Text", "Segoe UI", system-ui, -apple-system, sans-serif; background: var(--a-bg); color: var(--a-fg);
+  font: 400 var(--fs)/var(--lh) "Segoe UI Variable Text", "Segoe UI", system-ui, -apple-system, sans-serif; background: var(--a-bg); color: var(--a-fg);
   border-radius: 14px; overflow: hidden; border: 1px solid var(--a-line); text-align: left; letter-spacing: 0; }
 @media (prefers-color-scheme: dark) {
   .app:not([data-theme="light"]) { --a-bg: #1b1c20; --a-bg2: #232429; --a-bg3: #2d2f36; --a-fg: #f1f2f4; --a-mut: #a2a8b3; --a-line: #34363e; --a-acc: color-mix(in srgb, var(--ac), #fff 40%); --a-acc-t: var(--a-acc); --a-acc-fg: #07121f; --a-top: linear-gradient(135deg, var(--a-top-dk-s, #25272d), var(--a-top-dk-e, #2d3038)); }
@@ -735,11 +735,13 @@ details ol { padding-left: 1.2em; } details li { margin-bottom: .5em; }
   .mk-view .app { height: min(44vh, 330px); min-height: 250px; }
   .mk-note { display: none; }
 }
-/* Where the demo is wide enough to show its folder column (the window is over 760px, a few px under 830px of screen) the window is as tall as that column needs: 8 folder rows and the mailbox
-   line (a second line in a wide font or a long language), which grow with the text size (--fs), plus 119px of padding, gaps and row padding, and 46px of title bar and border. Measured: 294px
-   of column at 14px text and 340px at 18px under Verdana in German; the formula gives 347 and 399px. The 250px of the phone layout, where the column is hidden, cut it. */
+/* Where the demo is wide enough to show its folder column (the window is over 760px, a few px under 830px of screen) the window is as tall as that column needs, by construction from the
+   column's own parts and not from a measured total, so it holds for any line height and text size: 8 folder rows at .95 of the text size, and the mailbox line (the dots, then its text on up to two
+   lines: .92 of the text size) all at the window's line height (--lh: 1.35, Japanese 1.55), plus 178px that do not depend on the text: 16px column padding, 8 x 10px row padding, 7px of gaps,
+   16px mailbox padding, 13px for the dots' own line, 46px of title bar and border, and 3px for rounding. (8 x .95 + 2 x .92 = 9.44.) Before this the line height was fixed at 1.35 in the
+   formula and the Japanese window (1.55) lost its last folder row's bottom at 840 to 1020px. The 250px of the phone layout, where the column is hidden, cut it. */
 @media (min-width: 820px) and (max-width: 1020px) {
-  .mk-view .app { min-height: calc(var(--fs, 14px) * 13 + 165px); }
+  .mk-view .app { min-height: calc(var(--fs, 14px) * var(--lh, 1.35) * 9.44 + 181px); }
 }
 /* without motion only the first word of the tag is rendered, so the tag fits it */
 .sw-w:not(.on):not(.out) { display: none; }
@@ -851,7 +853,7 @@ body:lang(ja) { line-height: 1.8; line-break: strict; word-break: auto-phrase; o
 :lang(ja) .hero-h { letter-spacing: -.01em; line-height: 1.12; }
 :lang(ja) :is(.kicker, .st-n, .stage-cap, .toc h2, .ftr h2, .mk-ctl legend, .hq-tools label, .rc-h span, .receipt li b, .tbl thead th, .cmp thead th, .cmp caption, .pay, .ft-tag, .rec-b, .hero-meta) { letter-spacing: .04em; }
 :lang(ja) :is(.btn, .tbl th, .tbl td, .cmp th, .cmp td) { line-break: strict; }
-:lang(ja) .app { line-height: 1.55; } /* the demo windows keep the compact row height of the English pages */
+:lang(ja) .app { --lh: 1.55; } /* the line height of the demo window (--lh also sizes its minimum height, see .mk-view .app) */
 :lang(ja) { --serif: ui-serif, "Iowan Old Style", Georgia, "Hiragino Mincho ProN", "Yu Mincho", YuMincho, "Noto Serif CJK JP", "Noto Serif JP", serif; }
 :lang(ja) .letter { line-height: 1.8; }
 /* ===== end :lang(ja) ===== */
