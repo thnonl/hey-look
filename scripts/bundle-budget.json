@@ -1,14 +1,17 @@
 {
   "policy": "Bundle budget of the production frontend, checked by scripts/check-bundle-budget.mjs (CI static shard). KB = 1,000 bytes. Raising a value = a change of this file in the branch, with a `history` entry and a reason, approved by the BA at the merge. Every value needs a reason; the script refuses the file otherwise.",
   "initialJsGzip": {
-    "bytes": 783042,
-    "reason": "Interim (B1). Measured on feature/v107-wp9a (747,042 B, entry chunk + static import closure, gzip level 9 per file) + 36,000 B allowance for the 1.0.7 work packages that land before WP9c. Lowered by WP9c and WP9d (final: 370,000 B, WP9d must land at 330,000 B or less)."
+    "bytes": 519687,
+    "reason": "B1 after WP9c. Measured 483,687 B (entry chunk + static import closure, gzip level 9 per file; English dictionary only, every other language is its own chunk) + 36,000 B allowance for the work packages that land before WP9d. Lowered again by WP9d (final: 370,000 B, WP9d must land at 330,000 B or less)."
   },
   "initialJsRaw": {
-    "bytes": 2762417,
-    "reason": "Interim (B2). Measured 2,652,417 B + 110,000 B allowance for WP2 to WP8 and WP13. Final: 1,300,000 B (WP9d)."
+    "bytes": 1699399,
+    "reason": "B2 after WP9c. Measured 1,589,399 B + 110,000 B allowance for the work packages that land before WP9d. Final: 1,300,000 B (WP9d)."
   },
-  "langChunkGzip": null,
+  "langChunkGzip": {
+    "bytes": 55000,
+    "reason": "B3. One chunk per non-English language (dictionary + date-fns locale, src/i18n/lang-<code>.ts). Measured at WP9c: 40.7 to 49.5 KB gzip (ru the largest); 55 KB leaves room for the texts the later work packages add."
+  },
   "lazyChunkGzip": {
     "bytes": 170000,
     "reason": "B4. No lazy chunk of the 1.0.7 release is above 21 KB gzip today; 170 KB leaves room for the PDF.js module of WP5 only through a named exception."
@@ -35,7 +38,35 @@
     { "module": "src/editor/emojiNames/es.json", "reason": "CLDR emoji names (es), one chunk per language, fetched when the picker opens", "since": "1.0.7" },
     { "module": "src/editor/emojiNames/ja.json", "reason": "CLDR emoji names (ja), one chunk per language, fetched when the picker opens", "since": "1.0.7" },
     { "module": "src/editor/emojiNames/de.json", "reason": "CLDR emoji names (de), one chunk per language, fetched when the picker opens", "since": "1.0.7" },
-    { "module": "src/editor/emojiNames/ru.json", "reason": "CLDR emoji names (ru), one chunk per language, fetched when the picker opens", "since": "1.0.7" }
+    { "module": "src/editor/emojiNames/ru.json", "reason": "CLDR emoji names (ru), one chunk per language, fetched when the picker opens", "since": "1.0.7" },
+    { "module": "src/i18n/locales/vi/*", "reason": "dictionary of vi, in its own chunk (lang-vi); loaded when the saved language is read at start or when the language is picked", "since": "1.0.7" },
+    { "module": "src/i18n/lang-vi.ts", "reason": "language chunk of vi (dictionary + date-fns locale), loaded by loadLanguage in src/i18n/index.ts", "since": "1.0.7" },
+    { "module": "node_modules/date-fns/locale/vi.js", "reason": "date-fns locale of vi, in the language chunk", "since": "1.0.7" },
+    { "module": "node_modules/date-fns/locale/vi/*", "reason": "date-fns locale of vi, in the language chunk", "since": "1.0.7" },
+    { "module": "src/i18n/locales/fr/*", "reason": "dictionary of fr, in its own chunk (lang-fr); loaded when the saved language is read at start or when the language is picked", "since": "1.0.7" },
+    { "module": "src/i18n/lang-fr.ts", "reason": "language chunk of fr (dictionary + date-fns locale), loaded by loadLanguage in src/i18n/index.ts", "since": "1.0.7" },
+    { "module": "node_modules/date-fns/locale/fr.js", "reason": "date-fns locale of fr, in the language chunk", "since": "1.0.7" },
+    { "module": "node_modules/date-fns/locale/fr/*", "reason": "date-fns locale of fr, in the language chunk", "since": "1.0.7" },
+    { "module": "src/i18n/locales/zh-Hans/*", "reason": "dictionary of zh-Hans, in its own chunk (lang-zh-Hans); loaded when the saved language is read at start or when the language is picked", "since": "1.0.7" },
+    { "module": "src/i18n/lang-zh-Hans.ts", "reason": "language chunk of zh-Hans (dictionary + date-fns locale), loaded by loadLanguage in src/i18n/index.ts", "since": "1.0.7" },
+    { "module": "node_modules/date-fns/locale/zh-CN.js", "reason": "date-fns locale of zh-Hans, in the language chunk", "since": "1.0.7" },
+    { "module": "node_modules/date-fns/locale/zh-CN/*", "reason": "date-fns locale of zh-Hans, in the language chunk", "since": "1.0.7" },
+    { "module": "src/i18n/locales/es/*", "reason": "dictionary of es, in its own chunk (lang-es); loaded when the saved language is read at start or when the language is picked", "since": "1.0.7" },
+    { "module": "src/i18n/lang-es.ts", "reason": "language chunk of es (dictionary + date-fns locale), loaded by loadLanguage in src/i18n/index.ts", "since": "1.0.7" },
+    { "module": "node_modules/date-fns/locale/es.js", "reason": "date-fns locale of es, in the language chunk", "since": "1.0.7" },
+    { "module": "node_modules/date-fns/locale/es/*", "reason": "date-fns locale of es, in the language chunk", "since": "1.0.7" },
+    { "module": "src/i18n/locales/ja/*", "reason": "dictionary of ja, in its own chunk (lang-ja); loaded when the saved language is read at start or when the language is picked", "since": "1.0.7" },
+    { "module": "src/i18n/lang-ja.ts", "reason": "language chunk of ja (dictionary + date-fns locale), loaded by loadLanguage in src/i18n/index.ts", "since": "1.0.7" },
+    { "module": "node_modules/date-fns/locale/ja.js", "reason": "date-fns locale of ja, in the language chunk", "since": "1.0.7" },
+    { "module": "node_modules/date-fns/locale/ja/*", "reason": "date-fns locale of ja, in the language chunk", "since": "1.0.7" },
+    { "module": "src/i18n/locales/de/*", "reason": "dictionary of de, in its own chunk (lang-de); loaded when the saved language is read at start or when the language is picked", "since": "1.0.7" },
+    { "module": "src/i18n/lang-de.ts", "reason": "language chunk of de (dictionary + date-fns locale), loaded by loadLanguage in src/i18n/index.ts", "since": "1.0.7" },
+    { "module": "node_modules/date-fns/locale/de.js", "reason": "date-fns locale of de, in the language chunk", "since": "1.0.7" },
+    { "module": "node_modules/date-fns/locale/de/*", "reason": "date-fns locale of de, in the language chunk", "since": "1.0.7" },
+    { "module": "src/i18n/locales/ru/*", "reason": "dictionary of ru, in its own chunk (lang-ru); loaded when the saved language is read at start or when the language is picked", "since": "1.0.7" },
+    { "module": "src/i18n/lang-ru.ts", "reason": "language chunk of ru (dictionary + date-fns locale), loaded by loadLanguage in src/i18n/index.ts", "since": "1.0.7" },
+    { "module": "node_modules/date-fns/locale/ru.js", "reason": "date-fns locale of ru, in the language chunk", "since": "1.0.7" },
+    { "module": "node_modules/date-fns/locale/ru/*", "reason": "date-fns locale of ru, in the language chunk", "since": "1.0.7" }
   ],
   "neverShipped": [
     { "module": "src/devMock.ts", "reason": "dev preview mock backend (45 KB); W9.9: its import sits inside `if (import.meta.env.DEV ...)` in main.tsx" },
@@ -43,6 +74,9 @@
     { "module": "src/popout/dev.ts", "reason": "dev aid that opens placeholder windows from the console; only imported when import.meta.env.DEV" }
   ],
   "history": [
-    { "date": "2026-10-19", "branch": "feature/v107-wp9a", "field": "all", "old": null, "new": "interim budgets", "reason": "First version: measured on the branch head (cf70a5a + W9.9) plus the allowances of spec-107-wp9 section 2.1." }
+    { "date": "2026-10-19", "branch": "feature/v107-wp9a", "field": "all", "old": null, "new": "interim budgets", "reason": "First version: measured on the branch head (cf70a5a + W9.9) plus the allowances of spec-107-wp9 section 2.1." },
+    { "date": "2026-10-24", "branch": "feature/v107-wp9c", "field": "initialJsGzip", "old": 783042, "new": 519687, "reason": "WP9c lowered (DEC-015, REQ-9.0.6): measured 483,687 B (was 767,510 B at the branch start, -283,823 B) + 36,000 B." },
+    { "date": "2026-10-24", "branch": "feature/v107-wp9c", "field": "initialJsRaw", "old": 2762417, "new": 1699399, "reason": "WP9c lowered: measured 1,589,399 B (was 2,721,500 B) + 110,000 B." },
+    { "date": "2026-10-24", "branch": "feature/v107-wp9c", "field": "langChunkGzip", "old": null, "new": 55000, "reason": "WP9c: B3 comes into force (the largest chunk, ru, is 49,405 B gzip)." }
   ]
 }
