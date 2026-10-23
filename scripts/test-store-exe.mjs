@@ -45,7 +45,7 @@ check("tauri.store-exe.conf.json: offline installer, no update artifacts", () =>
 });
 check("tauri.conf.json: the normal installers do not carry the WebView2 Runtime", () => {
   const c = JSON.parse(read("src-tauri/tauri.conf.json"));
-  assert.equal(c.bundle.windows, undefined, "bundle.windows must stay unset in the shipped configuration (the setup downloads WebView2 when it is missing)");
+  assert.equal(c.bundle.windows.webviewInstallMode, undefined, "no WebView2 install mode in the shipped configuration (the setup downloads WebView2 when it is missing; only the Store configuration of option B embeds it)");
   assert.equal(c.bundle.createUpdaterArtifacts, true);
 });
 
