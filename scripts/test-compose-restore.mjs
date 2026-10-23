@@ -241,6 +241,31 @@ try {
     assert.equal(noteCount(await saveAndRead()), 1);
   });
 
+  // ---------- D-053 (QA r5): Send + Undo in the inline pane: the body is scrolled where it was at Send from the first frame of the new pane (pop-out keeps it, D-041)
+  for (const top of [150, 180]) {
+    await fresh('&nodefaultsig');
+    await evaluate(`(() => { const ed = document.querySelector('.cp-editor .tiptap').editor; ed.commands.insertContent('<p>' + Array.from({ length: 60 }, (_, i) => 'line ' + i).join('</p><p>') + '</p>'); return 1; })()`);
+    await sleep(500);
+    await evaluate(`document.querySelector('.cp-editor').scrollTop = ${top}; 1`);
+    await sleep(300);
+    const V = await evaluate(`document.querySelector('.cp-editor').scrollTop`);
+    assert.ok(V > 100, `the body did not scroll (${V})`);
+    await evaluate(`(() => { window.__samples = []; const tick = () => { const e = document.querySelector('.cp-editor'); window.__samples.push(e ? e.scrollTop : null); window.__sampler = requestAnimationFrame(tick); }; tick(); return 1; })()`);
+    await sendAndUndo();
+    await sleep(2000);
+    const samples = await evaluate(`(cancelAnimationFrame(window.__sampler), window.__samples)`);
+    await check(`D-053 the inline pane after Undo is scrolled where it was at Send (${V}), every frame`, async () => {
+      const seen = samples.filter((x) => x !== null);
+      // (the first pane is in the first samples; the new pane's frames are those after the gap while the message was out)
+      const gap = samples.findIndex((x) => x === null);
+      assert.ok(gap > 0, 'the pane never closed for the Undo time');
+      const back = samples.slice(gap).filter((x) => x !== null);
+      assert.ok(back.length > 20, `few frames of the new pane: ${back.length}`);
+      const out = back.filter((x) => Math.abs(x - V) > 1);
+      assert.equal(out.length, 0, `${out.length} of ${back.length} frames off ${V}: ${JSON.stringify([...new Set(back)].slice(0, 8))} (${seen.length} samples)`);
+    });
+  }
+
   // ---------- W2.11: a draft open in the pane is not opened again in a window
   await fresh('&nodefaultsig');
   await evaluate(`window.__store.getState().composeSaver({ quiet: true }); 1`);

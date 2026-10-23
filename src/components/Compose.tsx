@@ -497,6 +497,36 @@ function readDataUrl(f: File): Promise<string> {
   });
 }
 
+/**
+ * Puts scroll positions back and keeps them there for `frames` animation frames (and on every scroll event until then), until the person scrolls, clicks, touches or presses a key
+ * themselves. The engine may move the caret into view a moment after a focus call or while the body is laid out; a position that does not fit yet (the body is shorter than it
+ * was) is tried again on the next frame. Returns the function that ends it.
+ */
+function holdScrolls(saved: [Element, number][], root: HTMLElement, frames: number): () => void {
+  const put = () => { for (const [box, top] of saved) if (box.isConnected && Math.abs(box.scrollTop - top) > 0.5) box.scrollTop = top; };
+  // the layout is flushed here: WebKitGTK moves the caret into view in the layout that follows the focus call, which used to run after the caller and was drawn
+  // before the next animation frame put the position back (D-041). Read now, that move happens first and is undone in the same task.
+  void root.offsetHeight;
+  put();
+  let n = 0;
+  let raf = 0;
+  const own = () => stop();
+  const stop = () => {
+    cancelAnimationFrame(raf);
+    for (const t of ["wheel", "pointerdown", "keydown", "touchstart"]) document.removeEventListener(t, own, true);
+    document.removeEventListener("scroll", put, true);
+  };
+  for (const t of ["wheel", "pointerdown", "keydown", "touchstart"]) document.addEventListener(t, own, true);
+  document.addEventListener("scroll", put, true); // (a move the engine makes later is undone before the next frame is drawn: scroll events run ahead of the frame callbacks)
+  const tick = () => {
+    put();
+    if (++n < frames) raf = requestAnimationFrame(tick);
+    else stop();
+  };
+  raf = requestAnimationFrame(tick);
+  return stop;
+}
+
 // ---------------------------------------------------------------- compose
 
 export function Compose({ init }: { init: ComposeInit }) {
@@ -1083,6 +1113,7 @@ function ComposeBody({ init }: { init: ComposeInit }) {
       replaces: o.replaces,
       openedDraft: openedDraft || undefined,
       recoveryId: undefined, // (a new message: it gets a snapshot of its own)
+      scrolls: undefined, // (a window starts at the top; Undo of an inline Send gives its own, see reopen)
       isReply: o.isReply,
       carried: o.carried || undefined,
       security: d.security,
@@ -1099,11 +1130,14 @@ function ComposeBody({ init }: { init: ComposeInit }) {
    * Send was pressed in a window and the questions are answered: the editor stays, locked, and the window counts the Undo time down in its toast (W13.1).
    * `wait`: the Undo send time in seconds, 0 for none.
    */
+  const noteScrolls = () => {
+    scrollsWas.current = [...(paneRef.current?.querySelectorAll(".cp-head, .cp-editor, .cp-tail") ?? [])].map((el) => [el, el.scrollTop]);
+  };
   const lockForSend = (wait: number) => {
     const a = document.activeElement;
     focusWas.current = a instanceof HTMLElement && paneRef.current?.contains(a) ? a : null;
     setSendW(sendBtnRef.current?.offsetWidth ?? 0);
-    scrollsWas.current = [...(paneRef.current?.querySelectorAll(".cp-head, .cp-editor, .cp-tail") ?? [])].map((el) => [el, el.scrollTop]);
+    noteScrolls();
     lockedRef.current = true;
     setLocked(true);
     composeSeam()?.lock(wait);
@@ -1142,37 +1176,32 @@ function ComposeBody({ init }: { init: ComposeInit }) {
     else el.focus({ preventScroll: true });
     // The scroll position is the one at Send. Not only once: the engine may move the caret into view a moment after the focus call (WebKitGTK: 150 -> 544 after Undo, D-030; WebKit on
     // a Mac and WebView2 kept it), so it is put back now and on every frame for about a third of a second, until the person scrolls or presses a key themselves.
-    const saved = scrollsWas.current;
-    const put = () => { for (const [box, top] of saved) if (box.isConnected && Math.abs(box.scrollTop - top) > 0.5) box.scrollTop = top; };
-    // the layout is flushed here: WebKitGTK moves the caret into view in the layout that follows the focus call, which used to run after this function and was drawn
-    // before the next animation frame put the position back (D-041). Read now, that move happens first and is undone in the same task.
-    void (paneRef.current ?? document.body).offsetHeight;
-    put();
-    let frames = 0;
-    let raf = 0;
-    const own = () => stop();
-    const stop = () => {
-      cancelAnimationFrame(raf);
-      for (const t of ["wheel", "pointerdown", "keydown", "touchstart"]) document.removeEventListener(t, own, true);
-      document.removeEventListener("scroll", put, true);
-    };
-    for (const t of ["wheel", "pointerdown", "keydown", "touchstart"]) document.addEventListener(t, own, true);
-    document.addEventListener("scroll", put, true); // (a move the engine makes later is undone before the next frame is drawn: scroll events run ahead of the frame callbacks)
-    const tick = () => {
-      put();
-      if (++frames < 20) raf = requestAnimationFrame(tick);
-      else stop();
-    };
-    raf = requestAnimationFrame(tick);
-    return stop;
+    return holdScrolls(scrollsWas.current, paneRef.current ?? document.body, 20);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [locked]);
+  // The inline pane is made again by Undo (it was closed for the Undo time): its scroll positions come back the same way, from the first frame it is drawn (D-053). More frames than
+  // for the unlock: the body has to be laid out (signature, quote, pictures) before the position fits.
+  useLayoutEffect(() => {
+    const s = init.scrolls;
+    const pane = paneRef.current;
+    if (!s || !pane) return;
+    const saved: [Element, number][] = [];
+    for (const [sel, top] of [[".cp-head", s.head], [".cp-editor", s.editor], [".cp-tail", s.tail]] as const) {
+      const box = pane.querySelector(sel);
+      if (box && top > 0) saved.push([box, top]);
+    }
+    return saved.length ? holdScrolls(saved, pane, 45) : undefined;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
   // (in a window of its own the message that comes back after Undo or a failed send counts as changed: closing the window asks, it never loses it)
   // (`unscheduled`: the scheduled message is gone from the outbox, so what comes back is an ordinary message)
   const reopen = (d: Draft, unscheduled = false) => {
     if (lockedRef.current) return unlock(d); // (a window that kept the editor on screen: the same editor comes back, nothing is made again)
     // a message that comes back after Undo or a failed send holds what the person wrote: it counts as changed in the pane too (before, only in a window), or Save draft would say there is nothing worth a draft (W13.5) and closing it would not ask
-    const back = initOf(d, { replaces: init.replaces, isReply: false, carried: true });
+    // (the inline pane was closed for the Undo time: the new one puts the header, the body and the tail back where they were scrolled at Send, D-053)
+    const was = scrollsWas.current;
+    const top = (cls: string) => was.find(([el]) => el.classList.contains(cls))?.[1] ?? 0;
+    const back: ComposeInit = { ...initOf(d, { replaces: init.replaces, isReply: false, carried: true }), scrolls: { head: top("cp-head"), editor: top("cp-editor"), tail: top("cp-tail") } };
     void useStore.getState().openCompose(unscheduled ? { ...back, outboxId: undefined, sendAt: undefined, outboxError: undefined } : back);
   };
 
@@ -1351,6 +1380,7 @@ function ComposeBody({ init }: { init: ComposeInit }) {
       cancelled = true;
       scheduleDone();
       setComposeDirty(false);
+      noteScrolls();
       void openCompose(null, { sending: 0 }); // (a window waits for the send under way before it ends)
       const done = beginSend();
       try {
@@ -1433,6 +1463,7 @@ function ComposeBody({ init }: { init: ComposeInit }) {
       setComposeDirty(false);
       // (a scheduled message keeps its pause until the update has gone through: this pane closes first and must not release it as it goes; a failed update brings the editor back holding it)
       if (init.outboxId) savedRef.current = true;
+      noteScrolls();
       void openCompose(null, { sending: 0 });
       try {
         if (init.outboxId) {
@@ -1483,7 +1514,10 @@ function ComposeBody({ init }: { init: ComposeInit }) {
     setComposeDirty(false);
     const wait = eff(prefs, accountId, "undoSeconds");
     if (composeSeam()) lockForSend(wait);
-    else void openCompose(null, { sending: wait });
+    else {
+      noteScrolls();
+      void openCompose(null, { sending: wait });
+    }
     let cancelled = false;
     let started = false;
     let timer: ReturnType<typeof setTimeout> | undefined;
