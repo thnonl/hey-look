@@ -174,6 +174,8 @@ button:focus-visible, [role="option"]:focus-visible, [role="treeitem"]:focus-vis
 .update-progress { height: 6px; margin: 8px 0 4px; }
 .update-flow-line { font-variant-numeric: tabular-nums; }
 .sr-only { position: absolute; width: 1px; height: 1px; margin: -1px; padding: 0; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; border: 0; }
+/* the format painter is on: the pointer over the text is a brush (formatPainter.ts sets --fmt-cursor; "copy" where an engine refuses the image) */
+.ProseMirror.fmt-painting, .ProseMirror.fmt-painting * { cursor: var(--fmt-cursor, copy); }
 .update-chip { display: inline-flex; align-items: center; gap: 6px; height: 28px; padding: 0 10px; margin-right: 6px; border-radius: 999px;
   font-size: .82em; font-weight: 600; font-variant-numeric: tabular-nums; color: var(--top-fg); cursor: pointer;
   background: color-mix(in srgb, var(--top-fg) 14%, transparent); border: 1px solid color-mix(in srgb, var(--top-fg) 30%, transparent); }

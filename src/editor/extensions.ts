@@ -26,6 +26,7 @@ import { kbd, osNow } from "../platform";
 import { useStore } from "../store";
 import type { BaseFont } from "./emailHtml";
 import { AutoFormat } from "./autoFormat";
+import { FormatPainter } from "./formatPainter";
 import { BlockFormat } from "./blockExtension";
 import { applyStyle, changeIndent, clearFormatting, setAlignment, stepFontSize, toggleScript } from "./commands";
 import { kitExtensions } from "./kit";
@@ -174,6 +175,8 @@ export function baseExtensions(o: BaseExtensionOptions): AnyExtension[] {
     BlockFormat,
     FormatKeys(o.getBase, o.focusToolbar, o.openStyles, o.openFind),
     // AutoFormat as you type (W3.2): the switch and the language are read at every keystroke
+    // Format painter (W3.1): Ctrl+Shift+D, the toolbar button and the brush pointer (formatPainter.ts)
+    FormatPainter,
     AutoFormat({ enabled: () => useStore.getState().prefs.autoFormat !== false, lang: getLang }),
     // paste and drop: the cleaning of Word / Excel / Outlook / Gmail / web HTML, the three paste options, Ctrl+Shift+V (pasteOptions.tsx)
     PasteHandling.configure({ getBase: o.getBase }),

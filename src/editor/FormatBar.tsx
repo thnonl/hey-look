@@ -1,6 +1,6 @@
 import { useEditorState, type Editor } from "@tiptap/react";
 import { Ellipsis } from "lucide-react";
-import { Fragment, Suspense, lazy, useCallback, useImperativeHandle, useLayoutEffect, useMemo, useRef, useState, type ReactNode, type Ref, type RefObject } from "react";
+import { Fragment, Suspense, lazy, useCallback, useEffect, useImperativeHandle, useLayoutEffect, useMemo, useRef, useState, type ReactNode, type Ref, type RefObject } from "react";
 import { FloatingMenu, type MenuItem } from "../components/ui";
 import { useT } from "../i18n/react";
 import { useStore } from "../store";
@@ -9,6 +9,7 @@ import type { BaseFont } from "./emailHtml";
 import { focusText } from "./commands";
 import { layoutBar } from "./toolbarLayout";
 import { pushRecent } from "./colors";
+import type { PainterMode } from "./formatPainter";
 
 /** What a host can ask of its toolbar. */
 export interface FormatBarApi {
@@ -89,6 +90,16 @@ export function FormatBar({ editor, base, host, variant, apiRef, trailing }: { e
     },
   }), [activeId, stylesShown]);
 
+  // a screen reader hears the format painter switch on (once or kept on) and off (W3.1: polite live message)
+  const painter = st?.painter ?? "off";
+  const painterWas = useRef<PainterMode>("off");
+  const [live, setLive] = useState("");
+  useEffect(() => {
+    if (painterWas.current === painter) return;
+    painterWas.current = painter;
+    setLive(t(painter === "off" ? "compose.painter.off" : painter === "once" ? "compose.painter.on" : "compose.painter.onSticky"));
+  }, [painter, t]);
+
   if (!editor || !st) return <div className="fmt-tb" role="toolbar" aria-label={t("compose.fmt.toolbar")} ref={root}><div className="fmt-bar" ref={row} /></div>;
 
   const ctx: Ctx = {
@@ -146,6 +157,7 @@ export function FormatBar({ editor, base, host, variant, apiRef, trailing }: { e
 
   const pickerControl = picker ? controls.find((c) => c.id === picker) ?? MORE_ITEMS.find((m) => m.id === picker) : undefined;
   return (
+    <>
     <div className="fmt-tb" role="toolbar" aria-label={t("compose.fmt.toolbar")} aria-orientation="horizontal" ref={root} onKeyDown={onKeyDown}>
       <div className="fmt-bar" ref={row}>
       {shown.map((c, i) => (
@@ -180,5 +192,7 @@ export function FormatBar({ editor, base, host, variant, apiRef, trailing }: { e
       {(st.inTable || st.inLink || st.onPicture) && <Suspense fallback={null}><InsertOverlays editor={editor} st={st} host={host} /></Suspense>}
       {trailing?.render(rove)}
     </div>
+    <span className="sr-only" role="status" aria-live="polite">{live}</span>
+    </>
   );
 }

@@ -231,7 +231,7 @@ export const resetBlockFormats: Command = (state, dispatch) => updateBlocks(stat
 
 const HEADINGS: Record<string, number> = { h1: 1, h2: 2, h3: 3 };
 
-function styleAt(state: EditorState, b: Blk): StyleName {
+export function styleAt(state: EditorState, b: Blk): StyleName {
   const t = b.node.type.name;
   if (t === "heading") return (["h1", "h2", "h3"][Number(b.node.attrs.level) - 1] as StyleName | undefined) ?? "h3";
   if (t === "codeBlock") return "code";
