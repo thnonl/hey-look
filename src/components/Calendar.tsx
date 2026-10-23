@@ -12,7 +12,7 @@ import {
 } from "../calendar";
 import { accountColor } from "../prefs";
 import { HOUR_PX_MAX, hourHeight, minuteFromY } from "../weekHours";
-import { calendarName, calendarTitle, defaultCalendar, deleteConfirm, isSyncedCalendarId, pausedSources, readOnlyNote, writableCalendars } from "../calendarSync";
+import { calendarName, calendarOffer, calendarTitle, defaultCalendar, deleteConfirm, isSyncedCalendarId, pausedSources, readOnlyNote, serviceName, writableCalendars } from "../calendarSync";
 import { friendlyError, EventInit, useStore } from "../store";
 import { t, type Key } from "../i18n";
 import { useLang, useT } from "../i18n/react";
@@ -1139,10 +1139,20 @@ export function CalRail() {
 
 export function CalSidebar() {
   const t = useT();
-  const { prefs, calDate, calEvents, calendars, calSources, setCalDate, setPrefs, setDialog, bumpCal, accounts } = useStore();
+  const { prefs, calDate, calEvents, calendars, calSources, calSourcesReady, calOfferDone, setCalDate, setPrefs, setDialog, bumpCal, accounts } = useStore();
   const tz = useTz();
   const todayD = today(tz);
   const [month, setMonth] = useState<Day>(calDate);
+  // the offer for mailboxes that existed before calendar sync could be asked for at sign-in (W7.9): shown once everything it depends on is read
+  const [kinds, setKinds] = useState<string[] | null>(null);
+  useEffect(() => {
+    let live = true;
+    api.calendarKindsAvailable().then((k) => live && setKinds(k)).catch(() => live && setKinds([]));
+    void useStore.getState().loadCalOffer();
+    void useStore.getState().loadCalSources();
+    return () => void (live = false);
+  }, []);
+  const offer = calSourcesReady ? calendarOffer(accounts, calSources, kinds, calOfferDone) : null;
   useEffect(() => setMonth({ ...calDate, d: 1 }), [calDate]);
   const grid = useMemo(() => monthGrid(month, prefs.weekStart), [month, prefs.weekStart]);
   const dows = Array.from({ length: 7 }, (_, i) => wdNarrow((prefs.weekStart + i) % 7));
@@ -1214,6 +1224,23 @@ export function CalSidebar() {
             <span>{t("calendar.side.showDeclined")}</span>
           </label>
         </div>
+        {offer && (
+          <div className="notice info cal-offer" role="note" style={{ margin: "8px 0 0" }}>
+            {t("calendar.side.offer", { service: serviceName(offer.kind), email: offer.email })}{" "}
+            <button
+              className="link"
+              onClick={() => {
+                // answered; Settings > that mailbox > Calendar opens and starts the switch's own path, which asks before the browser opens
+                void useStore.getState().answerCalOffer();
+                useStore.setState({ calAutostart: offer.accountId });
+                setDialog({ type: "settings", tab: `mb:${offer.accountId}`, focus: "calendar", nonce: Date.now() });
+              }}
+            >
+              {t("calendar.side.offerOn")}
+            </button>{" "}
+            <button className="link" onClick={() => void useStore.getState().answerCalOffer()}>{t("calendar.side.offerLater")}</button>
+          </div>
+        )}
         {pausedSources(calSources).map((s) => (
           <div key={s.id} className="notice bad" style={{ margin: "8px 0 0" }}>
             {(() => {

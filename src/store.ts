@@ -10,7 +10,7 @@ import { withThreadsGone, withUnreadChange } from "./focusCounts";
 import { QueuedMoves } from "./queuedMoves";
 import { Latest } from "./latestOnly";
 import { StateIntents, type IntentKind } from "./readIntent";
-import { calendarErrorText } from "./calendarSync";
+import { calendarErrorText, CAL_OFFER_DONE } from "./calendarSync";
 import { backendText } from "./backendErrors";
 import { needsSignIn } from "./signIn";
 import type { Jobs } from "./translateJobs";
@@ -341,6 +341,12 @@ interface State {
   calendars: CalendarInfo[];
   /** calendar sync state of the mailboxes that turned it on (Settings, the calendar sidebar) */
   calSources: CalSource[];
+  /** `calSources` was read at least once (the sidebar offer waits for it) */
+  calSourcesReady: boolean;
+  /** the sidebar offer for existing mailboxes was answered: "1"; null = not yet; undefined = the setting is not read yet (W7.9) */
+  calOfferDone: string | null | undefined;
+  /** the mailbox whose Settings > Calendar switch starts its connect path as soon as the section is shown (the sidebar offer's "Turn on...") */
+  calAutostart: string | null;
   calLoading: boolean;
   calError: string | null;
   /** bumps when the calendar changed behind the view's back (sync, respond, save) */
@@ -363,7 +369,10 @@ interface State {
   refresh: () => Promise<void>;
   sync: () => Promise<void>;
   /** A new account was added: close the dialogs, show its Inbox, start its first sync with a visible loading state. */
-  accountAdded: (acc: Account) => Promise<void>;
+  /** A mailbox was added: it joins the folder pane, closes the dialog, opens its Inbox and starts its first sync. `deferEnd`: only the first and the last, see accountAddedDone. */
+  accountAdded: (acc: Account, deferEnd?: boolean) => Promise<void>;
+  /** The end of a deferred accountAdded (the calendar step of Add account is over): closes the dialog, toasts, opens the Inbox of the new mailbox. */
+  accountAddedDone: (acc: Account, withCalendar: boolean) => Promise<void>;
   /** Older mail of the open folder: up to MORE_CHUNKS x 50 per account, one request at a time. `manual` = the button (retry, ignores a previous error). */
   loadMore: (manual?: boolean) => Promise<void>;
   onBackfill: (p: BackfillProgress) => void;
@@ -428,6 +437,10 @@ interface State {
   loadCalendar: () => Promise<void>;
   bumpCal: () => void;
   loadCalSources: () => Promise<void>;
+  /** Read the sidebar offer's setting (once). */
+  loadCalOffer: () => Promise<void>;
+  /** The offer is answered (Turn on, Not now, a calendar was connected, the Add account step ended without one): it is never shown again. */
+  answerCalOffer: () => Promise<void>;
   /** Re-read the open conversation without clearing it (an invitation's state changed). */
   reloadMessages: () => Promise<void>;
 }
@@ -704,6 +717,9 @@ export const useStore = create<State>((set, get) => ({
   calDate: today(systemTz()),
   calEvents: [],
   calSources: [],
+  calSourcesReady: false,
+  calOfferDone: undefined,
+  calAutostart: null,
   calendars: [],
   calLoading: false,
   calError: null,
@@ -768,10 +784,22 @@ export const useStore = create<State>((set, get) => ({
 
   loadCalSources: async () => {
     try {
-      set({ calSources: await api.calendarSources() });
+      set({ calSources: await api.calendarSources(), calSourcesReady: true });
     } catch {
       /* keep what is shown */
     }
+  },
+
+  loadCalOffer: async () => {
+    if (get().calOfferDone !== undefined) return;
+    const v = await api.getSetting(CAL_OFFER_DONE).catch(() => "1"); // (unreadable: no offer rather than a notice that cannot be answered)
+    set((s) => (s.calOfferDone === undefined ? { calOfferDone: v } : {}));
+  },
+
+  answerCalOffer: async () => {
+    if (get().calOfferDone === "1") return;
+    set({ calOfferDone: "1" });
+    await api.setSetting(CAL_OFFER_DONE, "1").catch(() => undefined);
   },
 
   loadCalendar: async () => {
@@ -920,15 +948,19 @@ export const useStore = create<State>((set, get) => ({
     }
   },
 
-  accountAdded: async (acc) => {
+  accountAdded: async (acc, deferEnd = false) => {
     // the backend list is the truth (it also assigns the colour); fall back to what we were given
     let accounts = await api.listAccounts().catch(() => get().accounts);
     if (!accounts.some((a) => a.id === acc.id)) accounts = [...accounts.filter((a) => a.email !== acc.email), acc];
     accounts = orderAccounts(storeMissingColors(accounts, get().prefs.accent), get().prefs.accountOrder); // a new account goes after the ones in the saved order
     // the selection moves to the new mailbox: a stale search / filter of the old view must not hide it
-    set({ accounts, dialog: null, firstSync: acc.id, filter: "all" });
-    get().showToast(t("errors.toast.accountAdded", { email: acc.email }), undefined, "success");
-    await get().setView("inbox", acc.id);
+    // (deferEnd: Add account has a second step, the calendar consent: the mailbox is in the folder pane and syncs now, the dialog stays,
+    // and accountAddedDone closes it and opens the Inbox when that step ends)
+    set(deferEnd ? { accounts, firstSync: acc.id } : { accounts, dialog: null, firstSync: acc.id, filter: "all" });
+    if (!deferEnd) {
+      get().showToast(t("errors.toast.accountAdded", { email: acc.email }), undefined, "success");
+      await get().setView("inbox", acc.id);
+    }
     try {
       await api.syncAccount(acc.id);
       set((s) => ({ syncErrors: Object.fromEntries(Object.entries(s.syncErrors).filter(([k]) => k !== acc.id)) }));
@@ -942,6 +974,12 @@ export const useStore = create<State>((set, get) => ({
       set({ firstSync: null });
       await get().refresh();
     }
+  },
+
+  accountAddedDone: async (acc, withCalendar) => {
+    set({ dialog: null, filter: "all" });
+    get().showToast(t(withCalendar ? "errors.toast.accountAddedCal" : "errors.toast.accountAdded", { email: acc.email }), undefined, "success");
+    await get().setView("inbox", acc.id);
   },
 
   loadMore: async (manual = false) => {

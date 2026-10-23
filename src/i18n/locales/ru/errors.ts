@@ -19,6 +19,7 @@ export default defineLocale<typeof ns.en>({
   "errors.toast.accountFallback": "Учётная запись",
   "errors.toast.withAccount": "{account}: {error}",
   "errors.toast.accountAdded": "Учётная запись {email} добавлена",
+  "errors.toast.accountAddedCal": "Учётная запись {email} добавлена с синхронизацией календаря",
   "errors.toast.loadedOlder": {
     one: "Загружено {n} более старое письмо",
     few: "Загружено {n} более старых письма",

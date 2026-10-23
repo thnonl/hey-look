@@ -144,11 +144,11 @@ export const BACKEND_ERRORS: { re: RegExp; key: Key; names: string[] }[] = [
   { re: /^Only the organizer can change this event\.$/s, key: "calendar.sync.readOnlyOrganizer", names: [] },
   { re: /^(.+) is read only\.$/s, key: "calendar.sync.readOnlyCalendar", names: ["calendar"] },
   { re: /^(.+?)’s organization may need to approve Hey Look! for calendar access\. Ask your IT admin\.$/s, key: "calendar.sync.blocked", names: ["email"] },
-  { re: /^Calendar access wasn’t allowed\. Turn the switch on to try again\.$/s, key: "calendar.err.denied", names: [] },
-  { re: /^Calendar sign-in timed out\. Turn the switch on to try again\.$/s, key: "calendar.err.timeout", names: [] },
+  { re: /^Calendar access wasn’t allowed\. You can try again when you’re ready\.$/s, key: "calendar.err.denied", names: [] },
+  { re: /^Calendar sign-in timed out\. You can try again when you’re ready\.$/s, key: "calendar.err.timeout", names: [] },
   { re: /^Calendar sign-in was cancelled\.$/s, key: "calendar.err.cancelled", names: [] },
   { re: /^You allowed access for (.+?)\. Sign in as (.+?) to sync this mailbox’s calendar\.$/s, key: "calendar.err.wrongAccount", names: ["signedIn", "mailbox"] },
-  { re: /^Hey Look! needs every calendar permission it asked for\. Turn the switch on again and keep all boxes ticked\.$/s, key: "calendar.err.partial", names: [] },
+  { re: /^Hey Look! needs every calendar permission it asked for\. Try again and keep all boxes ticked\.$/s, key: "calendar.err.partial", names: [] },
   { re: /^This build of Hey Look! can’t sync calendars with (.+)\.$/s, key: "calendar.err.noClient", names: ["provider"] },
 ];
 
@@ -188,4 +188,41 @@ export function deleteConfirm(label: string, service: string | null | undefined,
     title: t("calendar.delete.title"),
     body: guests > 0 ? t("calendar.delete.bodyGuests", { calendar, service: svc }) : t("calendar.delete.body", { calendar, service: svc }),
   };
+}
+
+/** The setting that remembers the sidebar offer was answered (or that a calendar was connected); `"1"` = done, for every mailbox. */
+export const CAL_OFFER_DONE = "cal_offer_done";
+
+export interface CalendarOffer {
+  accountId: string;
+  email: string;
+  kind: SyncKind;
+}
+
+/**
+ * The mailbox the Calendar sidebar offers calendar sync for (W7.9, REQ-7.9.8): the first mailbox, in account order, that can sync
+ * (`calendarSyncKind`), whose service this build can connect (`kinds`) and that has no calendar source yet. Null once the offer was
+ * answered (`done` = "1") and while `kinds` (null) or `done` (undefined) are not read yet, so a mailbox that already syncs never
+ * sees the notice flash up. `sources` must be the loaded list.
+ */
+export function calendarOffer(
+  accounts: { id: string; email: string; auth: string; imapHost: string }[],
+  sources: { accountId: string }[],
+  kinds: string[] | null,
+  done: string | null | undefined,
+): CalendarOffer | null {
+  if (done === undefined || done === "1" || kinds === null) return null;
+  for (const a of accounts) {
+    const kind = calendarSyncKind(a);
+    if (kind && kinds.includes(kind) && !sources.some((s) => s.accountId === a.id)) return { accountId: a.id, email: a.email, kind };
+  }
+  return null;
+}
+
+/**
+ * How the calendar step of Add account ended when `calendar_connect` failed (REQ-7.9.5): a cancelled consent is the person's Skip (nothing to
+ * say, the account is already added); any other end keeps the card with Retry and Continue and its notice.
+ */
+export function calendarStepFailure(e: unknown): "skip" | "failed" {
+  return calendarErrorCode(String(e)) === "CANCELLED" ? "skip" : "failed";
 }

@@ -72,9 +72,9 @@ pub fn connect_error(raw: &str, email: &str) -> String {
     if ["admin_policy_enforced", "org_internal", "aadsts65001", "aadsts90094", "consent_required"].iter().any(|k| l.contains(k)) {
         format!("CAL_BLOCKED: {email}’s organization may need to approve Hey Look! for calendar access. Ask your IT admin.")
     } else if l.contains("access_denied") {
-        "CAL_DENIED: Calendar access wasn’t allowed. Turn the switch on to try again.".into()
+        "CAL_DENIED: Calendar access wasn’t allowed. You can try again when you’re ready.".into()
     } else if l.contains("timed out") {
-        "CAL_TIMEOUT: Calendar sign-in timed out. Turn the switch on to try again.".into()
+        "CAL_TIMEOUT: Calendar sign-in timed out. You can try again when you’re ready.".into()
     } else if l.contains("cancelled") {
         "CAL_CANCELLED: Calendar sign-in was cancelled.".into()
     } else {
@@ -111,7 +111,7 @@ pub fn check_grant(provider: Provider, mailbox: &str, signed_email: &str, grante
         return Err(format!("CAL_WRONG_ACCOUNT: You allowed access for {signed_email}. Sign in as {mailbox} to sync this mailbox’s calendar."));
     }
     if !granted_all(provider, granted) {
-        return Err("CAL_PARTIAL: Hey Look! needs every calendar permission it asked for. Turn the switch on again and keep all boxes ticked.".into());
+        return Err("CAL_PARTIAL: Hey Look! needs every calendar permission it asked for. Try again and keep all boxes ticked.".into());
     }
     Ok(())
 }
