@@ -193,8 +193,8 @@ is in, a tag run names its artifact **`msix-store-NOT-READY`** and `store-submit
 
 **Name and identity.** The Store shows **Hey Look! Mail Client**, the only name that was reserved for the product ("Hey Look!" was not available), and the
 manifest carries exactly that name (`DisplayName`, Partner Center refuses any other). Inside the app, on the website and in the tray the app stays "Hey Look!".
-The three identity values come from Partner Center > Product management > Product identity; they are public, not secrets, and go into repository variables
-(Settings > Secrets and variables > Actions > Variables). The current product has:
+The three identity values come from Partner Center > Product management > Product identity; they are public, not secrets. The workflow carries the current values as defaults (and a test pins them), and the repository variables
+(Settings > Secrets and variables > Actions > Variables) override them. The current product has:
 
 | Variable | Partner Center field | Value |
 |---|---|---|
@@ -210,8 +210,8 @@ gh variable set MSIX_PUBLISHER_DISPLAY_NAME --body Noamo
 
 Compare them with the Product identity page once more before the first submission: Partner Center refuses a package whose values differ in a single character. The
 Store shows the publisher name `Noamo` (the display name of the Partner Center account); if you prefer another one, change it in the account settings first and set the variable
-to the new value. A tag run fails in the job `msix` (not in `publish`: the GitHub release is never held back) when one of the three is missing; a dry run without them uses a
-placeholder identity (`CN=HeyLook-Dev`) and never produces `msix-store`.
+to the new value. Setting the variables is only needed when a value changes (a variable overrides the default); a variable that is only partly set mixes with the defaults, so set all three together. The placeholder identity
+(`CN=HeyLook-Dev`) exists only for a local build without the values (`scripts/msix-build.mjs` run by hand); a dry run's package is never called `msix-store`.
 
 **What a run produces** (Actions > the run > Artifacts; the summary of the job `msix` lists version, identity, sizes and the sha256 of `hey-look.exe`, which is the file of the Windows build, byte for byte).
 
@@ -230,7 +230,7 @@ does not exist (and, once the app has its packaged mode, that the database is in
 
 **Owner steps.**
 1. Partner Center > Apps and games: the product is of the type "MSIX or PWA app" with the reserved name `Hey Look! Mail Client` (a reservation not used within 3 months is released).
-2. Set the three variables above. Optional now, needed for the automation: a known user group (Partner Center > Customers) with the personal Microsoft accounts of the testers.
+2. Nothing to set for the identity (defaults above; compare them with the Product identity page). Optional now, needed for the automation: a known user group (Partner Center > Customers) with the personal Microsoft accounts of the testers.
 3. After the tag run (and after WP14 part 2): download `msix-store` from the run. Partner Center > new submission: Pricing and availability (all markets, **private audience** first, free), Properties
    (Productivity; privacy policy `https://heylook.namthai.site/privacy.html`; generative AI: yes), Age ratings, Packages (upload the `.msix`; Partner Center takes an unsigned
    package; if it refuses one, upload the `msix-test` copy instead, the Store replaces the signature, and tell the coder), the Store listings of the 8 languages (texts and screenshots prepared by the BA/QA; the

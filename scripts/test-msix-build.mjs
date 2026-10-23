@@ -203,7 +203,12 @@ check("workflow: the msix job", () => {
   assert.ok(!/^    environment:/m.test(b) && !/secrets\./.test(b), "no Environment, no secret");
   assert.match(b, /^    permissions:\n      contents: read$/m);
   // identity from the three repository variables, tag runs refuse the placeholder and a tag that is not the version
-  for (const v of ["MSIX_IDENTITY_NAME", "MSIX_PUBLISHER", "MSIX_PUBLISHER_DISPLAY_NAME"]) assert.ok(b.includes(`${v}: \${{ vars.${v} }}`), v);
+  // identity: the public values of the Partner Center product (owner input 2026-10-19) are the defaults, the repository variables override them, so a tag run never fails for a missing variable
+  const defaults = { MSIX_IDENTITY_NAME: STORE.name, MSIX_PUBLISHER: STORE.publisher, MSIX_PUBLISHER_DISPLAY_NAME: STORE.publisherDisplayName };
+  for (const [v, d] of Object.entries(defaults)) assert.ok(b.includes(`${v}: \${{ vars.${v} || '${d}' }}`), `${v} must default to '${d}'`);
+  assert.equal(STORE.name, "40278Noamo.651773BC9C4C7");
+  assert.equal(STORE.publisher, "CN=FE739770-637C-437D-B2B9-DAA2E2EA56F1");
+  assert.equal(STORE.publisherDisplayName, "Noamo");
   assert.ok(b.includes('if [ "$EVENT" = "push" ]; then extra+=(--require-identity --expect-version "${GITHUB_REF_NAME#v}"); fi'));
   assert.ok(b.includes("--test-sign") && b.includes("--store-logos") && b.includes("--github-output"));
   // the exe of the NSIS build, byte for byte, and the check of the package against it
