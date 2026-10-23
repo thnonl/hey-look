@@ -10,22 +10,23 @@ import { join, relative, sep } from "node:path";
 import { fileURLToPath } from "node:url";
 import ts from "typescript";
 import { en } from "../src/i18n/en.ts";
-import { pickPlural, pseudoize, resolveLang, t, setLangPref, getLang, LANGS } from "../src/i18n/index.ts";
-import { INLINE, LANGUAGES, formsOf, ident, keepList, loadDicts, placeholdersOf, rustMod, textOf } from "./lib/i18n-dicts.mjs";
+import { pickPlural, pseudoize, resolveLang, t, setLangPref, getLang, LANGS, loadAllLanguages } from "../src/i18n/index.ts";
+import { BUILTIN, INLINE, LANGUAGES, formsOf, ident, keepList, loadDicts, placeholdersOf, rustMod, textOf } from "./lib/i18n-dicts.mjs";
 import { backendText, parseCoded } from "../src/backendErrors.ts";
 import { BACKEND_ERRORS } from "../src/calendarSync.ts";
 
+await loadAllLanguages(); // (every language is a chunk of its own: setLangPref needs it loaded)
 const root = fileURLToPath(new URL("../", import.meta.url));
 const args = new Set(process.argv.slice(2));
 const failures = [];
 const fail = (m) => failures.push(m);
 
 // ------------------------------------------------------------------------------------------------ 0. the language registry
-// src/i18n/languages.ts is the one list every control and check reads. English, Vietnamese and French keep their texts inside
-// src/i18n/ns/*.ts (gathered by en.ts / vi.ts / fr.ts); every other language has its own folder src/i18n/locales/<code>/ (one file per
-// area, typed with defineLocale, gathered by its index.ts) and its own Rust file src-tauri/src/i18n/<code>.rs. Every registry entry needs
-// all of that, every folder needs an entry, and the Rust side must know the same codes.
-// (A language missing from DICTS in index.ts or DF in format.ts fails `tsc`: both are Record<Lang, ...>.)
+// src/i18n/languages.ts is the one list every control and check reads. English keeps its texts inside src/i18n/ns/*.ts (gathered by
+// en.ts); every other language has its own folder src/i18n/locales/<code>/ (one file per area, typed with defineLocale, gathered by its
+// index.ts), its own chunk src/i18n/lang-<code>.ts (dictionary + date-fns locale, loaded on demand through LOADERS in index.ts) and its own
+// Rust file src-tauri/src/i18n/<code>.rs. Every registry entry needs all of that, every folder needs an entry, and the Rust side must know the same codes.
+// (A language missing from LOADERS in index.ts fails `tsc`: it is a Record<Exclude<Lang, "en">, ...>.)
 const codes = LANGUAGES.map((l) => l.code);
 const dicts = await loadDicts();
 const ALL_FORMS = ["zero", "one", "two", "few", "many", "other"];
@@ -36,7 +37,7 @@ const NS_FILES = readdirSync(join(root, "src/i18n/ns")).filter((x) => x.endsWith
   assert.equal(new Set(codes).size, codes.length, "language codes are unique");
   assert.equal(new Set(LANGUAGES.map((l) => l.sortOrder)).size, codes.length, "sortOrder values are unique");
   assert.deepEqual(LANGS.map((l) => l.code), [...LANGUAGES].sort((a, b) => a.sortOrder - b.sortOrder).map((l) => l.code), "LANGS (what the controls list) is the registry in sortOrder");
-  assert.deepEqual(INLINE, ["en", "vi", "fr"], "the three languages that sit inside ns/*.ts");
+  assert.deepEqual(INLINE, ["en"], "English is the only language inside ns/*.ts (Vietnamese and French moved to locales/ in WP9c)");
   for (const l of LANGUAGES) {
     if (!/^[a-z]{2,3}(-[A-Za-z0-9]+)?$/.test(l.code)) fail(`registry: bad code ${l.code}`);
     if (!l.nativeName.trim() || !l.englishName.trim()) fail(`registry ${l.code}: nativeName and englishName are required`);
@@ -50,7 +51,7 @@ const NS_FILES = readdirSync(join(root, "src/i18n/ns")).filter((x) => x.endsWith
       const pr = new Intl.PluralRules(l.intl);
       const used = new Set(Array.from({ length: 201 }, (_, i) => pr.select(i)));
       for (const c of used) if (!l.plural.includes(c)) fail(`registry ${l.code}: plural lacks "${c}" (Intl.PluralRules(${l.intl}) picks it for a whole number)`);
-      if (!INLINE.includes(l.code)) for (const c of l.plural) if (!pr.resolvedOptions().pluralCategories.includes(c)) fail(`registry ${l.code}: plural lists "${c}", which ${l.intl} never uses`);
+      if (!BUILTIN.includes(l.code)) for (const c of l.plural) if (!pr.resolvedOptions().pluralCategories.includes(c)) fail(`registry ${l.code}: plural lists "${c}", which ${l.intl} never uses`);
     }
     if (l.fmt?.weekdayShort && !/^E{1,6}$/.test(l.fmt.weekdayShort)) fail(`registry ${l.code}: fmt.weekdayShort must be a date-fns weekday token (E..EEEEEE)`);
     if (l.fmt?.weekdayText && !/^E{1,6}$/.test(l.fmt.weekdayText)) fail(`registry ${l.code}: fmt.weekdayText must be a date-fns weekday token (E..EEEEEE)`);
@@ -64,7 +65,16 @@ const NS_FILES = readdirSync(join(root, "src/i18n/ns")).filter((x) => x.endsWith
     if (!codes.includes(c)) fail(`src/i18n/${f} is a dictionary but its language is not in src/i18n/languages.ts`);
     else if (!INLINE.includes(c)) fail(`src/i18n/${f}: ${c} has its own folder src/i18n/locales/${c}/, not a file here`);
   }
-  // the ns files hold English, Vietnamese and French only
+  // every other language is its own chunk: lang-<code>.ts, and a line in LOADERS of index.ts
+  const indexSrc = readFileSync(join(root, "src/i18n/index.ts"), "utf8");
+  for (const l of LANGUAGES.filter((x) => !INLINE.includes(x.code))) {
+    const file = join(root, `src/i18n/lang-${l.code}.ts`);
+    if (!existsSync(file)) { fail(`registry ${l.code}: no src/i18n/lang-${l.code}.ts (the language chunk: dictionary + date-fns locale)`); continue; }
+    const src = readFileSync(file, "utf8");
+    if (!src.includes(`import { ${ident(l.code)} } from "./locales/${l.code}/index.ts";`) || !/from "date-fns\/locale\/[\w-]+";/.test(src) || !src.includes("export default { dict:")) fail(`src/i18n/lang-${l.code}.ts must import its dictionary and its date-fns locale and export default { dict, df }`);
+    if (!indexSrc.includes(`import("./lang-${l.code}.ts")`)) fail(`src/i18n/index.ts: LOADERS has no line for ${l.code} (import("./lang-${l.code}.ts"))`);
+  }
+  // the ns files hold English only
   for (const f of NS_FILES) {
     const mod = await import(new URL(`../src/i18n/ns/${f}.ts`, import.meta.url));
     const have = Object.keys(mod.default).sort().join();
@@ -73,7 +83,7 @@ const NS_FILES = readdirSync(join(root, "src/i18n/ns")).filter((x) => x.endsWith
   // the folder of every other language: one file per area (typed against English), an index that gathers them, a keep list
   const localesDir = join(root, "src/i18n/locales");
   const folders = existsSync(localesDir) ? readdirSync(localesDir).filter((x) => statSync(join(localesDir, x)).isDirectory()) : [];
-  for (const d of folders) if (!codes.includes(d) || INLINE.includes(d)) fail(`src/i18n/locales/${d}/ is not a language of the registry (or is one of en / vi / fr)`);
+  for (const d of folders) if (!codes.includes(d) || INLINE.includes(d)) fail(`src/i18n/locales/${d}/ is not a language of the registry (or is English)`);
   for (const l of LANGUAGES.filter((x) => !INLINE.includes(x.code))) {
     const dir = join(localesDir, l.code);
     if (!existsSync(dir)) { fail(`registry ${l.code}: no folder src/i18n/locales/${l.code}/ (node --experimental-strip-types scripts/i18n-new-language.mjs ${l.code})`); continue; }
@@ -97,7 +107,7 @@ const NS_FILES = readdirSync(join(root, "src/i18n/ns")).filter((x) => x.endsWith
   const variants = (rs.match(/pub enum Lang \{([\s\S]*?)\}/)?.[1] ?? "").split(",").map((x) => x.trim()).filter(Boolean);
   if (variants.length !== codes.length) fail("src-tauri/src/i18n.rs: needs one Lang variant per registry language");
   if (rs.match(/pub const LANGS: \[Lang; (\d+)\]/)?.[1] !== String(codes.length)) fail(`src-tauri/src/i18n.rs: LANGS must list all ${codes.length} languages in registry order`);
-  for (const l of LANGUAGES.filter((x) => !INLINE.includes(x.code))) {
+  for (const l of LANGUAGES.filter((x) => !BUILTIN.includes(x.code))) {
     const m = rustMod(l.code);
     if (!existsSync(join(root, `src-tauri/src/i18n/${m}.rs`))) fail(`registry ${l.code}: no src-tauri/src/i18n/${m}.rs`);
     if (!new RegExp(`^mod ${m};`, "m").test(rs)) fail(`src-tauri/src/i18n.rs: no "mod ${m};"`);
@@ -148,7 +158,7 @@ if (!args.has("--lint-only")) {
         if (!plural) fail(`${name}: ${k} is a plural but en is not`);
         else {
           for (const c of Object.keys(v)) if (!ALL_FORMS.includes(c)) fail(`${name}: ${k} has an unknown plural form "${c}"`);
-          if (!INLINE.includes(name)) {
+          if (!BUILTIN.includes(name)) {
             for (const c of req) if (typeof v[c] !== "string") fail(`${name}: plural ${k} lacks the "${c}" form (needs ${req.join(", ")})`);
          for (const c of Object.keys(v)) if (!req.includes(c) && c !== "other") fail(`${name}: plural ${k} has the form "${c}", which ${name} never uses (needs ${req.join(", ")})`);
           }
@@ -156,7 +166,7 @@ if (!args.has("--lint-only")) {
           const sets = placeholders(v).map((s) => s.split(",").filter((x) => x && x !== "n").join(","));
           if (name !== "vi" && new Set(sets).size > 1) fail(`${name}: ${k} plural forms use different placeholders`);
         }
-      } else if (plural && !INLINE.includes(name) && !(req.length === 1 && req[0] === "other")) {
+      } else if (plural && !BUILTIN.includes(name) && !(req.length === 1 && req[0] === "other")) {
         fail(`${name}: ${k} is a plain string but ${name} needs the plural forms ${req.join(", ")}`);
       }
       // French typography: a no-break space (not a plain one) before : ; ! ? » and after «

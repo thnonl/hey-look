@@ -104,7 +104,7 @@ assert.ok(read("src/components/Compose.tsx").includes("transformPastedHTML") && 
 
 // ---- the texts, in all 8 languages
 const KEYS = ["compose.paste.picturesRemoved", "compose.paste.options", "compose.paste.optionsTip", "compose.paste.available", "compose.paste.keepSource", "compose.paste.merge", "compose.paste.textOnly", "settings.composing.paste", "settings.composing.pasteHint", "settings.keys.pasteText", "settings.keys.pasteOptions"];
-const files = ["src/i18n/ns/compose.ts", "src/i18n/ns/settings.ts", ...["de", "es", "ja", "ru", "zh-Hans"].flatMap((l) => [`src/i18n/locales/${l}/compose.ts`, `src/i18n/locales/${l}/settings.ts`])];
+const files = ["src/i18n/ns/compose.ts", "src/i18n/ns/settings.ts", ...["vi", "fr", "de", "es", "ja", "ru", "zh-Hans"].flatMap((l) => [`src/i18n/locales/${l}/compose.ts`, `src/i18n/locales/${l}/settings.ts`])];
 const all = files.map(read).join("\n");
 for (const k of KEYS) {
   const n = (all.match(new RegExp(`"${k.replace(/\./g, "\\.")}"`, "g")) ?? []).length;

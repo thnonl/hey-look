@@ -4,8 +4,10 @@ import assert from "node:assert/strict";
 import { readFileSync, existsSync } from "node:fs";
 import { ABOUT_LINKS, siteUrl, supportUrl } from "../src/aboutLinks.ts";
 import { LANGUAGES } from "../src/i18n/languages.ts";
-import { setLangPref } from "../src/i18n/index.ts";
+import { loadAllLanguages, setLangPref } from "../src/i18n/index.ts";
 import { LANGS as SITE_LANGS } from "./generate-site-languages.mjs";
+
+await loadAllLanguages(); // (the languages are chunks of their own: setLangPref needs them loaded)
 
 const read = (p) => readFileSync(new URL(`../${p}`, import.meta.url), "utf8").replace(/\r\n/g, "\n");
 

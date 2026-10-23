@@ -11,7 +11,7 @@
 //   - Settings > Shortcuts has the row, in all 8 languages.
 //
 //   node --experimental-strip-types scripts/test-calendar-dblclick.mjs [--require-browser | --url=http://127.0.0.1:1420/] [--quick] [--shots=dir]
-import { flag, arg, sleep, startHarness, inputs } from './cdp-harness.mjs';
+import { flag, arg, languageJs, sleep, startHarness, inputs } from './cdp-harness.mjs';
 import { loadDict } from './lib/i18n-dicts.mjs';
 
 const ALL = ['en', 'vi', 'fr', 'zh-Hans', 'es', 'ja', 'de', 'ru'];
@@ -220,7 +220,8 @@ try {
 
   // ---------------------------------------------------------------- Settings > Shortcuts
   for (const lang of LANGS) {
-    await evaluate(`window.__store.getState().setPrefs({ language: ${JSON.stringify(lang)} }); window.__store.getState().setDialog({ type: 'settings', tab: 'shortcuts' }); 1`);
+    await evaluate(languageJs(lang));
+    await evaluate(`window.__store.getState().setDialog({ type: 'settings', tab: 'shortcuts' }); 1`);
     const want = dicts[lang]['settings.keys.editEvent'];
     await waitFor(`[...document.querySelectorAll('.set-row')].some((r) => r.textContent.includes(${JSON.stringify(want)}))`, `the Shortcuts row in ${lang}`);
     const row = await evaluate(`(() => { const r = [...document.querySelectorAll('.set-row')].find((x) => x.textContent.includes(${JSON.stringify(want)})); const rr = r.getBoundingClientRect(); const box = r.parentElement.getBoundingClientRect(); return { key: r.querySelector('kbd').textContent, over: r.scrollWidth - r.clientWidth, right: rr.right, boxRight: box.right, prev: r.previousElementSibling?.textContent ?? '' }; })()`);

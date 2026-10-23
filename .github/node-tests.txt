@@ -58,6 +58,8 @@ static | node --experimental-strip-types scripts/test-importance.mjs
 static | node --experimental-strip-types scripts/test-i18n.mjs
 static | node --experimental-strip-types scripts/test-i18n-tools.mjs
 static | node --experimental-strip-types scripts/test-boot-lang.mjs
+# 1.0.7 WP9c: a language is a chunk of its own (src/i18n/lang-<code>.ts): only English is loaded at start, setLangPref of an unloaded language throws, every language loads with strings identical to the dictionaries before the split, a second switch wins, a failing chunk is retried once and leaves the language, the saved language is loaded before the first sentence, no language but English is imported statically
+static | node --experimental-strip-types scripts/test-lang-load.mjs
 static | node --experimental-strip-types scripts/i18n-status.mjs
 static | node --experimental-strip-types scripts/i18n-status.mjs --strict --lang=vi
 static | node --experimental-strip-types scripts/i18n-status.mjs --strict --lang=fr
@@ -133,6 +135,8 @@ ui-d | node scripts/test-preview-layer.mjs --quick --require-browser
 ui-d | node --experimental-strip-types scripts/test-compose-fit.mjs --quick --require-browser
 # an open compose shows the placeholder and the accessible name of the body, and an open signature / template editor its accessible name, in the language in use after a language switch (and back); typed text and undo survive
 ui-c | node scripts/test-placeholder-lang.mjs --require-browser
+# 1.0.7 WP9c: the dev preview starts in the saved language with no English text drawn at any time and only that language's chunk fetched, all 8 languages one after the other without a raw key, nothing shown in two languages while a chunk loads, #langfail=fr gives the "Failed" toast and leaves language and setting, the pseudo-locale works
+ui-c | node scripts/test-lang-switch-ui.mjs --require-browser
 # the side menu: icons or full by window width and by the person's choice, the peek over the panes, Ctrl+B in a narrow window (overlay, label, focus, the saved choice stays), the minimum widths, tooltips (the full run is `node scripts/test-sidebar-collapse.mjs`)
 ui-c | node scripts/test-sidebar-collapse.mjs --quick --require-browser
 # the picture resize handles are clipped with the editor pane, and Discard on a reply with nothing typed closes without asking (real panes in the dev preview)

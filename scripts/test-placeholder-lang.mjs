@@ -10,7 +10,7 @@
 //   node scripts/test-placeholder-lang.mjs [--require-browser | --url=http://127.0.0.1:1420/]
 import fs from 'node:fs';
 import path from 'node:path';
-import { sleep, startHarness, ROOT } from './cdp-harness.mjs';
+import { languageJs, sleep, startHarness, ROOT } from './cdp-harness.mjs';
 
 // the expected texts come from the language files (no copy of them here)
 const text = (file) => { const m = /"compose\.editor\.placeholder":\s*"([^"]+)"/.exec(fs.readFileSync(path.join(ROOT, file), 'utf8')); if (!m) throw new Error(`no compose.editor.placeholder in ${file}`); return m[1]; };
@@ -47,7 +47,7 @@ try {
   const NAME = `document.querySelector('.compose-pane .cp-editor .tiptap').getAttribute('aria-label')`;
   ok((await evaluate(NAME)) === NAMES.body.en, `English: the body is named "${await evaluate(NAME)}", expected "${NAMES.body.en}"`);
   for (const [lang, want] of [['de', DE], ['ru', RU], ['en', EN], ['de', DE]]) {
-    await evaluate(`window.__store.getState().setPrefs({ language: ${JSON.stringify(lang)} }); 1`);
+    await evaluate(languageJs(lang));
     ok(await waitFor(want), `${lang}: an open compose shows "${await evaluate(PH)}", expected "${want}"`);
     ok((await evaluate(NAME)) === NAMES.body[lang], `${lang}: the body of an open compose is named "${await evaluate(NAME)}", expected "${NAMES.body[lang]}"`);
     const attrs = await evaluate(ATTRS);
@@ -55,18 +55,18 @@ try {
   }
   // the text typed in the body stays, and the placeholder is gone while there is text (nothing else was touched by the redraw)
   await evaluate(`document.querySelector('.compose-pane .cp-editor .tiptap').editor.commands.setContent('<p>Typed text</p>'); 1`);
-  await evaluate(`window.__store.getState().setPrefs({ language: 'en' }); 1`);
+  await evaluate(languageJs('en'));
   await sleep(400);
   ok((await evaluate(`document.querySelector('.compose-pane .cp-editor .tiptap').textContent`)).includes('Typed text'), 'the typed text was lost by the language switch');
   ok((await evaluate(`document.querySelector('.compose-pane .cp-editor .tiptap p.is-editor-empty') === null`)), 'the placeholder is shown over typed text');
 
   // typed text, selection and undo history are untouched by the switches: "abc" is typed, the language goes round, "abc" is still there and one undo takes back the typing
-  await evaluate(`window.__store.getState().setPrefs({ language: 'en' }); 1`);
+  await evaluate(languageJs('en'));
   await sleep(300);
   await evaluate(`document.querySelector('.compose-pane .cp-editor .tiptap').editor.commands.setContent('<p>Typed text</p>'); document.querySelector('.compose-pane .cp-editor .tiptap').editor.commands.focus('end'); 1`);
   await evaluate(`document.querySelector('.compose-pane .cp-editor .tiptap').editor.commands.insertContent(' abc'); 1`);
   for (const lang of ['de', 'ru', 'en']) {
-    await evaluate(`window.__store.getState().setPrefs({ language: ${JSON.stringify(lang)} }); 1`);
+    await evaluate(languageJs(lang));
     await sleep(300);
     ok((await evaluate(NAME)) === NAMES.body[lang], `${lang}: with text typed the body is named "${await evaluate(NAME)}", expected "${NAMES.body[lang]}"`);
     ok((await evaluate(`document.querySelector('.compose-pane .cp-editor .tiptap').textContent.includes('abc')`)), `${lang}: the typed text "abc" was lost by the language switch`);
@@ -76,7 +76,7 @@ try {
   ok(!afterUndo.includes('abc'), `undo after the language switches did not take back the last typing ("${afterUndo}")`);
 
   // the signature editor and the template editor of Settings
-  await evaluate(`window.__store.getState().setPrefs({ language: 'en' }); 1`);
+  await evaluate(languageJs('en'));
   const id = await evaluate(`window.__store.getState().accounts[0].id`);
   for (const [kind, section, newBtn] of [['sig', /Signatures/i, /New signature/i], ['tpl', /Templates/i, /New template/i]]) {
     await evaluate(`window.__store.getState().setDialog({ type: 'settings', tab: 'mb:' + ${JSON.stringify(id)} }); 1`);
@@ -90,7 +90,7 @@ try {
     await evaluate(`(() => { const ed = document.querySelector('.settings .rich .ProseMirror').editor; ed.commands.focus('end'); ed.commands.insertContent('abc'); return 1; })()`);
     ok((await evaluate(SN)) === NAMES[kind].en, `${kind} en: the editor is named "${await evaluate(SN)}", expected "${NAMES[kind].en}"`);
     for (const lang of ['de', 'ru', 'en']) {
-      await evaluate(`window.__store.getState().setPrefs({ language: ${JSON.stringify(lang)} }); 1`);
+      await evaluate(languageJs(lang));
       await sleep(300);
       ok((await evaluate(SN)) === NAMES[kind][lang], `${kind} ${lang}: the open editor is named "${await evaluate(SN)}", expected "${NAMES[kind][lang]}"`);
       ok((await evaluate(`document.querySelector('.settings .rich .ProseMirror').textContent.includes('abc')`)), `${kind} ${lang}: the typed text was lost by the language switch`);

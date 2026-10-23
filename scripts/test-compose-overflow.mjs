@@ -10,7 +10,7 @@
 //            More opens with the arrow keys and Enter runs a row
 //
 //   node scripts/test-compose-overflow.mjs [--require-browser | --url=http://127.0.0.1:1420/]
-import { sleep, startHarness } from './cdp-harness.mjs';
+import { languageJs, sleep, startHarness } from './cdp-harness.mjs';
 
 const ORDER = ['picture', 'meeting', 'encrypt', 'sign', 'confidential', 'importance', 'saveDraft', 'templates', 'ai'];
 const H = await startHarness('test-compose-overflow', { vitePort0: 5780, cdpPort0: 9780 });
@@ -89,7 +89,7 @@ try {
   const en = await geo();
   ok(en.h <= 52, `English: ${en.h} px`);
   for (const lang of ['de', 'ru', 'en']) {
-    await evaluate(`window.__store.getState().setPrefs({ language: ${JSON.stringify(lang)} }); 1`);
+    await evaluate(languageJs(lang));
     await sleep(120);
     const g = await geo();
     ok(g.h <= 52, `${lang}: the row is ${g.h} px high right after the switch`);

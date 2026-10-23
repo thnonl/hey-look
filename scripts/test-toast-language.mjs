@@ -12,8 +12,10 @@ import { readdirSync, readFileSync, statSync } from "node:fs";
 import { join, relative } from "node:path";
 import ts from "typescript";
 import { addToast, refreshed, toastText, toastTexts } from "../src/toastStack.ts";
-import { LANGS, setLangPref, t } from "../src/i18n/index.ts";
+import { LANGS, loadAllLanguages, setLangPref, t } from "../src/i18n/index.ts";
 import { aiProblemText, classifyAiError } from "../src/aiProblem.ts";
+
+await loadAllLanguages(); // (the languages are chunks of their own: setLangPref needs them loaded)
 
 const root = new URL("../", import.meta.url);
 

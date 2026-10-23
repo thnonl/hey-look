@@ -12,6 +12,7 @@ import { useEffect, useState } from "react";
 import { listen } from "@tauri-apps/api/event";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { api } from "../api";
+import { switchLanguage } from "../i18n";
 import { mergePrefs } from "../prefs";
 import { applyPrefs, useStore } from "../store";
 import { currentFlushHandlers, runPopoutFlush } from "./flush";
@@ -89,6 +90,8 @@ export default function PopoutRoot({ route }: { route: Exclude<Route, { kind: "m
     const readPrefs = async () => {
       try {
         const p = mergePrefs(await api.getSetting("prefs"));
+        // the language first (its chunk is fetched, then the window switches in one step); a chunk that cannot be fetched leaves the language in use
+        await switchLanguage(p.language).catch(quiet);
         applyPrefs(p);
         useStore.setState({ prefs: p }); // the views read the preferences from this window's own store (a read-only copy: nothing here writes them)
         // (the title bar is not set from here: the backend gives every window the theme of the setting, src-tauri/src/wintheme.rs; this asks it to do
