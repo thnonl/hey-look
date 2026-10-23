@@ -207,6 +207,8 @@ export default define({
     "settings.composing.sigOnReply": "Add signature to replies",
     "settings.composing.font": "Default font",
     "settings.composing.fontHint": "Used for new messages, replies and forwards",
+    "settings.composing.autoFormat": "AutoFormat as you type",
+    "settings.composing.autoFormatHint": "Changes \"quotes\" to “quotes”, -- to –, ... to …, -> to →, <- to ← and (c) (r) (tm) to © ® ™ as you type. Ctrl+Z right after a change undoes it.",
     "settings.composing.paste": "When pasting from other apps",
     "settings.composing.pasteHint": "Ctrl+Shift+V always pastes text only",
     "settings.keys.fontSize": "Increase / decrease font size",

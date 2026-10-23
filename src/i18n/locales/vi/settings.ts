@@ -208,6 +208,8 @@ export default defineLocale<typeof ns.en>({
   "settings.composing.sigOnReply": "Thêm chữ ký vào thư trả lời",
   "settings.composing.font": "Phông chữ mặc định",
   "settings.composing.fontHint": "Dùng cho thư mới, thư trả lời và thư chuyển tiếp",
+  "settings.composing.autoFormat": "Tự động định dạng khi bạn nhập",
+  "settings.composing.autoFormatHint": "Đổi \"dấu ngoặc kép\" thành “dấu ngoặc kép”, -- thành –, ... thành …, -> thành →, <- thành ← và (c) (r) (tm) thành © ® ™ khi bạn nhập. Nhấn Ctrl+Z ngay sau khi đổi để hoàn tác.",
   "settings.composing.paste": "Khi dán từ ứng dụng khác",
   "settings.composing.pasteHint": "Ctrl+Shift+V luôn chỉ dán văn bản",
   "settings.keys.fontSize": "Tăng / giảm cỡ chữ",

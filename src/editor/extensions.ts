@@ -19,11 +19,13 @@ import { TextStyleKit } from "@tiptap/extension-text-style";
 import { Plugin } from "@tiptap/pm/state";
 import { Extension, type AnyExtension, type Editor } from "@tiptap/react";
 import StarterKit from "@tiptap/starter-kit";
-import { t as tNow } from "../i18n";
+import { getLang, t as tNow } from "../i18n";
 import { checkLinkUrl } from "../linkUrl";
 import { openExternal } from "../open";
 import { kbd, osNow } from "../platform";
+import { useStore } from "../store";
 import type { BaseFont } from "./emailHtml";
+import { AutoFormat } from "./autoFormat";
 import { BlockFormat } from "./blockExtension";
 import { applyStyle, changeIndent, clearFormatting, setAlignment, stepFontSize, toggleScript } from "./commands";
 import { kitExtensions } from "./kit";
@@ -171,6 +173,8 @@ export function baseExtensions(o: BaseExtensionOptions): AnyExtension[] {
     TextStyleKit.configure({ lineHeight: false }),
     BlockFormat,
     FormatKeys(o.getBase, o.focusToolbar, o.openStyles, o.openFind),
+    // AutoFormat as you type (W3.2): the switch and the language are read at every keystroke
+    AutoFormat({ enabled: () => useStore.getState().prefs.autoFormat !== false, lang: getLang }),
     // paste and drop: the cleaning of Word / Excel / Outlook / Gmail / web HTML, the three paste options, Ctrl+Shift+V (pasteOptions.tsx)
     PasteHandling.configure({ getBase: o.getBase }),
     PreviewColors,

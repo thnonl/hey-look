@@ -208,6 +208,8 @@ export default defineLocale<typeof ns.en>({
   "settings.composing.sigOnReply": "Añadir la firma a las respuestas",
   "settings.composing.font": "Fuente predeterminada",
   "settings.composing.fontHint": "Se usa en mensajes nuevos, respuestas y reenvíos",
+  "settings.composing.autoFormat": "Autoformato al escribir",
+  "settings.composing.autoFormatHint": "Cambia \"comillas\" por «comillas», -- por —, ... por …, -> por →, <- por ← y (c) (r) (tm) por © ® ™ al escribir. Ctrl+Z justo después de un cambio lo deshace.",
   "settings.composing.paste": "Al pegar desde otras aplicaciones",
   "settings.composing.pasteHint": "Ctrl+Shift+V pega siempre solo el texto",
   "settings.keys.fontSize": "Aumentar / reducir el tamaño de fuente",

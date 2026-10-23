@@ -208,6 +208,8 @@ export default defineLocale<typeof ns.en>({
   "settings.composing.sigOnReply": "Signatur zu Antworten hinzufügen",
   "settings.composing.font": "Standardschriftart",
   "settings.composing.fontHint": "Wird für neue Nachrichten, Antworten und Weiterleitungen verwendet",
+  "settings.composing.autoFormat": "AutoFormat während der Eingabe",
+  "settings.composing.autoFormatHint": "Ersetzt beim Schreiben \"Zitate\" durch „Zitate“, -- durch –, ... durch …, -> durch →, <- durch ← und (c) (r) (tm) durch © ® ™. Ctrl+Z direkt nach einer Änderung macht sie rückgängig.",
   "settings.composing.paste": "Beim Einfügen aus anderen Programmen",
   "settings.composing.pasteHint": "Ctrl+Shift+V fügt immer nur den Text ein",
   "settings.keys.fontSize": "Schrift vergrößern / verkleinern",

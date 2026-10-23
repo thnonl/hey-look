@@ -208,6 +208,8 @@ export default defineLocale<typeof ns.en>({
   "settings.composing.sigOnReply": "回复时添加签名",
   "settings.composing.font": "默认字体",
   "settings.composing.fontHint": "用于新邮件、回复和转发",
+  "settings.composing.autoFormat": "键入时自动套用格式",
+  "settings.composing.autoFormatHint": "键入时将\"引号\"改为“引号”，-- 改为 ——，... 改为 …，-> 改为 →，<- 改为 ←，(c) (r) (tm) 改为 © ® ™。更改后立即按Ctrl+Z可撤销。",
   "settings.composing.paste": "从其他应用粘贴时",
   "settings.composing.pasteHint": "Ctrl+Shift+V始终只粘贴文本",
   "settings.keys.fontSize": "增大 / 减小字号",

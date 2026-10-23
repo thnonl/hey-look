@@ -895,6 +895,7 @@ function ComposingPanel({ scope }: { scope: string | null }) {
       )}
       {scope === null && <DefaultFontRow />}
       {scope === null && <PasteDefaultRow />}
+      {scope === null && <AutoFormatRow />}
     </>
   );
 }
@@ -935,6 +936,18 @@ function PasteDefaultRow() {
         <option value="merge">{t("compose.paste.merge")}</option>
         <option value="text">{t("compose.paste.textOnly")}</option>
       </select>
+    </Row>
+  );
+}
+
+/** Settings > Composing > AutoFormat as you type: typographic quotes, dashes, arrows and symbols in the rich editors (editor/autoFormat.ts); Ctrl+Z right after a change undoes it. */
+function AutoFormatRow() {
+  const t = useT();
+  const { prefs, setPrefs } = useStore();
+  const os = usePlatform((s) => s.os);
+  return (
+    <Row label={t("settings.composing.autoFormat")} hint={kbd(t("settings.composing.autoFormatHint"), os)} id="autoFormat">
+      <Switch checked={prefs.autoFormat} onChange={(v) => setPrefs({ autoFormat: v })} />
     </Row>
   );
 }

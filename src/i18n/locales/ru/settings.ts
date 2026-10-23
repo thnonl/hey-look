@@ -208,6 +208,8 @@ export default defineLocale<typeof ns.en>({
   "settings.composing.sigOnReply": "Добавлять подпись в ответы",
   "settings.composing.font": "Шрифт по умолчанию",
   "settings.composing.fontHint": "Используется для новых писем, ответов и пересылок",
+  "settings.composing.autoFormat": "Автоформат при вводе",
+  "settings.composing.autoFormatHint": "Заменяет \"кавычки\" на «кавычки», -- на —, ... на …, -> на →, <- на ← и (c) (r) (tm) на © ® ™ при вводе. Ctrl+Z сразу после замены отменяет её.",
   "settings.composing.paste": "При вставке из других приложений",
   "settings.composing.pasteHint": "Ctrl+Shift+V всегда вставляет только текст",
   "settings.keys.fontSize": "Увеличить / уменьшить размер шрифта",

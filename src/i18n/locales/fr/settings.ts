@@ -208,6 +208,8 @@ export default defineLocale<typeof ns.en>({
   "settings.composing.sigOnReply": "Ajouter la signature aux réponses",
   "settings.composing.font": "Police par défaut",
   "settings.composing.fontHint": "Utilisée pour les nouveaux messages, les réponses et les transferts",
+  "settings.composing.autoFormat": "Mise en forme automatique à la frappe",
+  "settings.composing.autoFormatHint": "Remplace \"guillemets\" par « guillemets », -- par –, ... par …, -> par →, <- par ← et (c) (r) (tm) par © ® ™ pendant la frappe. Ctrl+Z juste après annule la modification.",
   "settings.composing.paste": "Lors du collage depuis d’autres applications",
   "settings.composing.pasteHint": "Ctrl+Shift+V colle toujours le texte seul",
   "settings.keys.fontSize": "Agrandir / réduire la police",

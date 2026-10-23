@@ -208,6 +208,8 @@ export default defineLocale<typeof ns.en>({
   "settings.composing.sigOnReply": "返信にも署名を追加する",
   "settings.composing.font": "既定のフォント",
   "settings.composing.fontHint": "新規メッセージ、返信、転送に使用されます",
+  "settings.composing.autoFormat": "入力中のオートフォーマット",
+  "settings.composing.autoFormatHint": "入力中に \"引用符\" を “引用符” に、... を … に、-> を →、<- を ←、(c) (r) (tm) を © ® ™ に自動で置き換えます。直後にCtrl+Zを押すと元に戻せます。",
   "settings.composing.paste": "他のアプリから貼り付けるとき",
   "settings.composing.pasteHint": "Ctrl+Shift+Vは常にテキストのみを貼り付けます",
   "settings.keys.fontSize": "フォントサイズの拡大 / 縮小",
