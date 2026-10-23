@@ -1,3 +1,4 @@
+import { unsubscribeMailto } from "../unsubscribeMailto";
 import { blockedPictureBox } from "../blockedPicture";
 import { frameCsp, frameSandbox } from "../frameSandbox";
 import { openUpdateLink } from "../updates";
@@ -611,7 +612,11 @@ export function MessageCard({ m, open, onToggle }: { m: MessageFull; open: boole
       const r = await api.unsubscribe(m.id);
       if (r.kind === "done") showToast(t("reading.msg.unsubscribed"), undefined, "success");
       else if (r.kind === "open") await openUpdateLink(r.target);
-      else void startCompose({ accountId: m.accountId, to: [r.target.replace("mailto:", "").split("?")[0]], subject: "unsubscribe" }, { shift });
+      else {
+        const mt = unsubscribeMailto(r.target); // the subject often holds the sender's token for this reader (RFC 2369)
+        const esc = (s: string) => s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+        void startCompose({ accountId: m.accountId, to: [mt.to], subject: mt.subject, ...(mt.body ? { bodyHtml: `<p>${esc(mt.body).replace(/\r?\n/g, "<br>")}</p>` } : {}) }, { shift });
+      }
     } catch (e) {
       showToast(() => t("reading.msg.unsubscribeFailed", { error: friendlyError(e) }), undefined, "error");
     }

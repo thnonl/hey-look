@@ -5456,11 +5456,12 @@ async fn unsubscribe(state: tauri::State<'_, AppState>, message_id: String) -> R
         }
         return Ok(UnsubResult { kind: "open".into(), target: u.clone() });
     }
-    if let Some(m) = targets.iter().find(|t| t.starts_with("mailto:")) {
-        return Ok(UnsubResult { kind: "mailto".into(), target: m.clone() });
-    }
+    // a web address (even without TLS: it is only opened, nothing is posted) before an e-mail: the page needs no message to be written and sent
     if let Some(u) = targets.iter().find(|t| t.starts_with("http://")) {
         return Ok(UnsubResult { kind: "open".into(), target: u.clone() });
+    }
+    if let Some(m) = targets.iter().find(|t| t.starts_with("mailto:")) {
+        return Ok(UnsubResult { kind: "mailto".into(), target: m.clone() });
     }
     // the header is missing or has nothing usable: the link the message itself shows (opened in the browser, never posted to)
     let (html, text): (String, String) = lock(&state.db)
