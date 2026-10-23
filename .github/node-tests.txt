@@ -161,6 +161,8 @@ static | node scripts/test-test-bridge.mjs
 static | node scripts/test-popout-reopen.mjs
 # D-057: a window shown from the tray must not be white: the wiring (screen read after a show, cures, debug-only fault injection); with --exe the real run (start --minimized, show, read the pixels, injected blank + cure) needs a Windows desktop and a debug exe: QA kit, not run in CI
 static | node scripts/test-blank-after-show.mjs
+# 1.0.7 fix12 (owner: a loading indicator instead of an empty white window): the start screen of index.html before the app mounts (the app's script blocked): the theme ground in the first painted frame from the stored theme or the OS, light and dark, the logo painted and centred, the spinner running or, with reduced motion, nothing moving, no text, no scroll, from 360 x 640 to 2560 x 1300; the same with the built stylesheet; after the mount no splash is left and #root is never empty in between
+ui-a | node scripts/test-boot-splash.mjs --require-browser
 
 # the scripts of the release workflow itself: their fixtures also run in the publish job of a tag run; here they fail a dry run early
 static | bash .github/scripts/test-check-release-assets.sh

@@ -5,10 +5,17 @@
     <link rel="icon" type="image/svg+xml" href="/vite.svg" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Hey Look!</title>
+    <!-- 1.0.7: the app's own ground and a small logo from the first frame, instead of an empty white window. Order matters: the stored theme is read
+         first (public/theme-boot.js), then the critical CSS (public/boot.css), then the app's stylesheet (vite adds it after these; it sets the same
+         backgrounds, so nothing changes when it arrives). Both are files of their own: the CSP has no inline scripts, and an inline style block would make
+         Tauri hash style-src and break every style attribute (scripts/test-csp-ready.mjs). The start screen below lives inside #root, so React's first
+         render replaces it. -->
+    <script src="/theme-boot.js"></script>
+    <link rel="stylesheet" href="/boot.css" />
   </head>
 
   <body>
-    <div id="root"></div>
+    <div id="root"><div class="boot-splash" role="status" aria-busy="true" aria-label="Hey Look!"><svg class="boot-logo" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="72" height="72" aria-hidden="true" focusable="false"><rect x="12" y="12" width="488" height="488" rx="104" fill="#0f6cbd"/><circle cx="178" cy="190" r="56" fill="#f7fbff"/><circle cx="322" cy="186" r="56" fill="#f7fbff"/><circle cx="204" cy="184" r="24" fill="#0f6cbd"/><circle cx="345" cy="188" r="24" fill="#0f6cbd"/><circle cx="212" cy="176" r="7" fill="#f7fbff"/><circle cx="353" cy="180" r="7" fill="#f7fbff"/><rect x="80" y="210" width="340" height="192" rx="26" fill="#f7fbff"/><path d="M98 228 L250 316 L402 228" fill="none" stroke="#0f6cbd" stroke-width="16" stroke-linecap="round" stroke-linejoin="round"/><circle cx="404" cy="134" r="30" fill="#ffbf47"/></svg><span class="boot-ring" aria-hidden="true"></span></div></div>
     <script type="module" src="/src/main.tsx"></script>
   </body>
 </html>

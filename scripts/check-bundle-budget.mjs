@@ -125,19 +125,22 @@ async function buildInto(outDir) {
 
 // ---------- measuring ----------
 
-/** js/css files named by index.html: <script type="module" src>, <link rel="modulepreload" href>, <link rel="stylesheet" href>. */
+/** js/css files named by index.html: <script type="module" src>, <link rel="modulepreload" href>, <link rel="stylesheet" href>; `publicJs`: the classic
+ *  <script src> of files in public/ (the theme read of the start screen: not part of the bundle graph, but initial JavaScript all the same). */
 export function htmlAssets(html) {
   const js = new Set();
   const css = new Set();
+  const publicJs = new Set();
   for (const tag of html.match(/<(?:script|link)\b[^>]*>/gi) ?? []) {
     const url = /\b(?:src|href)="([^"]+)"/i.exec(tag)?.[1];
     if (!url || /^[a-z]+:\/\//i.test(url)) continue;
     const file = url.replace(/^\.?\/+/, "");
     if (/<script\b/i.test(tag) && /type="module"/i.test(tag)) js.add(file);
+    else if (/<script\b/i.test(tag)) publicJs.add(file);
     else if (/rel="modulepreload"/i.test(tag)) js.add(file);
     else if (/rel="stylesheet"/i.test(tag)) css.add(file);
   }
-  return { js: [...js], css: [...css] };
+  return { js: [...js], css: [...css], publicJs: [...publicJs] };
 }
 
 /** Static import closure of `entries` over `imports` (file names); unknown files are returned in `missing`. */
@@ -187,7 +190,8 @@ function chain(id, report) {
 export function measure(dist, report) {
   const html = report?.html || fs.readFileSync(path.join(dist, "index.html"), "utf8");
   const tags = htmlAssets(html);
-  const read = (f) => fs.readFileSync(path.join(dist, f));
+  // (the files of public/ are not copied into this build, `copyPublicDir: false`: what index.html names that is not in the build is read from public/)
+  const read = (f) => fs.readFileSync(fs.existsSync(path.join(dist, f)) ? path.join(dist, f) : path.join(ROOT, "public", f));
   const m = { initial: [], css: [], lazy: [], errors: [], tagFiles: tags.js };
 
   let initialFiles = tags.js;
@@ -206,7 +210,7 @@ export function measure(dist, report) {
     initialFiles = [...files];
   }
   const initialSet = new Set(initialFiles);
-  for (const f of initialFiles.sort()) {
+  for (const f of [...initialFiles.sort(), ...(tags.publicJs ?? [])]) {
     const buf = read(f);
     m.initial.push({ file: f, raw: buf.length, gzip: gz(buf) });
   }

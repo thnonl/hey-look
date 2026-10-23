@@ -47,6 +47,9 @@ const ok = (name, cond, detail = "") => {
   ok("PrintWindow stays a diagnostic behind HEYLOOK_PIXEL_CHECK", rs.includes("HEYLOOK_PIXEL_CHECK") && rs.includes("Capture::Print => PrintWindow("));
   ok("the fault injection is compiled in debug builds only", /#\[cfg\(debug_assertions\)\]\nmod fault \{[\s\S]*HEYLOOK_TEST_BLANK_AFTER_SHOW/.test(rs));
   ok("the cures are re-assert, nudge, hide + show, reload, restart", /Reassert[\s\S]*Nudge[\s\S]*HideShow[\s\S]*Reload[\s\S]*Restart/.test(rs.slice(rs.indexOf("pub enum Step"))));
+  // fix12: index.html draws a start screen (one colour on > 95 % of the points), so one colour is a blank window only once the page of this load has reported itself
+  ok("one colour before the page has reported itself is the start screen and is never cured (with_page_state, Paint::Starting)", rs.includes("pub fn with_page_state(") && rs.includes("Paint::Starting") && rs.split("with_page_state(j, page_is_up())").length - 1 >= 2 && /fn cure_needed[\s\S]*?seen == Paint::Blank/.test(rs));
+  ok("the roads that load the page again clear the page-is-up flag, the ready report sets it", /fn reload_page\([^)]*\) \{\n    page_loading\(\);/.test(rs) && rs.includes("PAGE_UP.store(true, Ordering::SeqCst);"));
   const ps = read("scripts/lib/window-pixels.ps1");
   ok("the pixel reader leaves out points that another window covers", ps.includes("WindowFromPoint"));
   const shell = read("src-tauri/src/shell.rs").replace(/\r/g, "");

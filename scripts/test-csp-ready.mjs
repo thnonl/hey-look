@@ -28,9 +28,13 @@ const dir = Object.fromEntries(PROPOSED_CSP.split("; ").map((d) => [d.split(" ")
 
 // --- the app is loaded as module scripts from its own origin: no inline script, no inline handler, no remote script / stylesheet --------
 const html = read("index.html");
+// (1.0.7: besides the app's module, the start screen's theme read: one classic script that is a file of its own, public/theme-boot.js, loaded before the stylesheets)
 for (const m of html.matchAll(/<script\b([^>]*)>([\s\S]*?)<\/script>/gi)) {
-  assert.ok(/type="module"/.test(m[1]) && /\bsrc="\/src\//.test(m[1]) && m[2].trim() === "", `index.html has an inline or classic script: ${m[0]}`);
+  const app = /type="module"/.test(m[1]) && /\bsrc="\/src\//.test(m[1]);
+  const boot = !/type=/.test(m[1]) && /\bsrc="\/theme-boot\.js"/.test(m[1]);
+  assert.ok((app || boot) && m[2].trim() === "", `index.html has an inline or classic script: ${m[0]}`);
 }
+assert.ok(!/\b(eval|new Function|document\.write|innerHTML)\b/.test(read("public/theme-boot.js")), "the theme read does not evaluate or write text");
 assert.ok(!/\son[a-z]+\s*=/i.test(html), "index.html has an inline event handler");
 assert.ok(!/(src|href)="(https?:)?\/\//i.test(html), "index.html loads something from another origin");
 assert.ok(dir["script-src"].join(" ") === "'self'", "no 'unsafe-inline' / 'unsafe-eval' for scripts");

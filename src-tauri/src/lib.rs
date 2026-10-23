@@ -1,5 +1,6 @@
 mod ai;
 mod attach;
+mod bgcolor;
 mod calendar;
 mod calsync;
 mod clipdecode;
@@ -5561,6 +5562,12 @@ pub fn run() {
     // debug builds only: when the bridge is on, its page side (console buffer, input helpers) goes into every window
     #[cfg(debug_assertions)]
     let builder = if testbridge::requested().is_some() { builder.plugin(testbridge::plugin()) } else { builder };
+    // debug builds only: `HEYLOOK_TEST_BOOT_DELAY_MS` holds the page back before it mounts (QA of the start screen, startup.rs)
+    #[cfg(debug_assertions)]
+    let builder = match startup::boot_delay_ms() {
+        0 => builder,
+        ms => builder.plugin(startup::boot_delay_plugin(ms)),
+    };
     // macOS and Linux notifications (Windows has its own toasts in shell.rs)
     #[cfg(not(windows))]
     let builder = builder.plugin(tauri_plugin_notification::init());
@@ -5611,6 +5618,9 @@ pub fn run() {
                 let _ = attach::cleanup_older_than(&std::env::temp_dir().join("HeyLook"), 24 * 3600, std::time::SystemTime::now());
             });
             app.manage(AppState { db: db.clone() });
+            // the window and its web view get the colour of the theme before anything else: until the page has painted they show this, not white (bgcolor.rs)
+            let (shown, n) = bgcolor::apply(app.handle());
+            startup::stage(Some(app.handle()), &format!("background colour {} on {n} windows (start)", wintheme::setting_name(Some(shown))));
             app.manage(update::UpdState::default());
             legacy_names::migrate_keyring(&db, &SECRET_NAMES);
             // (secrets of an old database go to the system credential store, which a test data folder must not touch)

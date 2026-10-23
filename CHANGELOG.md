@@ -28,6 +28,7 @@
 - Calendar: a confirmation ("Allow calendar access in your browser?") comes before the browser opens when you turn calendar sync on in Settings or press Allow access again
 - Calendar: an update, a cancellation or an answer by mail that fails the sender check of your mail server (DKIM, SPF or DMARC) is not applied by itself: the invitation card says so and offers Apply anyway; a new invitation that fails it is not added automatically (Add to calendar and the answer buttons still add it). Mail without a result from the server behaves as before
 - Google Calendar sync downloads only what changed in the list of calendars, and a calendar with more than 25,000 events is downloaded in full once a day instead of every 5 minutes
+- The window shows the app's own colours and a small logo while it starts, instead of a white window: the window takes the colour of your theme (Light, Dark, or the system's) from the first frame, also in a message window, and a start screen with the logo and a thin spinner (a still logo when the system asks for reduced motion) stays until the app is up
 
 ### Fixed
 

@@ -672,7 +672,9 @@ fn create(app: &AppHandle, kind: Kind, label: &str, token: &str, cascade: Option
         .min_inner_size(min_w, min_h)
         .resizable(true)
         .decorations(true)
-        .visible(false);
+        .visible(false)
+        // the colour of the theme from the first frame, not the white of the web view (bgcolor.rs)
+        .background_color(crate::bgcolor::for_new_window(app));
     // the page handles file drops itself (HTML5 drop in the compose window), like the main window
     b = b.disable_drag_drop_handler();
     // (a QA build has no inspector, see identity.rs devtools_off)

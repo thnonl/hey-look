@@ -146,6 +146,11 @@ fn choice(app: &AppHandle) -> Option<Theme> {
     choice_of(raw.as_deref())
 }
 
+/// The same, for the other modules that follow the theme setting (bgcolor.rs: the colour of a window before its page paints).
+pub fn choice_of_app(app: &AppHandle) -> Option<Theme> {
+    choice(app)
+}
+
 /// Tell one window what the library has to be told (the only two native theme calls of the app are here).
 fn tell(w: &tauri::WebviewWindow, step: Step) {
     match step {
@@ -183,6 +188,9 @@ pub fn apply_all(app: &AppHandle, why: &str) {
     }
     let labels = themed_labels(windows.keys().cloned());
     log(&format!("{} -> applied to {} windows: [{}] ({why}; library step {step:?})", setting_name(choice), labels.len(), labels.join(", ")));
+    // the colour of the window and the web view before the page paints follows the same setting (bgcolor.rs)
+    let (shown, n) = crate::bgcolor::apply(app);
+    log(&format!("  background colour {} on {n} windows ({why})", setting_name(Some(shown))));
     native(app, choice, why.to_string(), None);
 }
 

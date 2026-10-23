@@ -554,6 +554,8 @@ export function applyPrefs(p: Prefs) {
   root.setAttribute("data-density", p.density);
   root.style.setProperty("--fs", `${p.fontSize}px`);
   const accent = buttonAccent(validHex(p.accent) ? p.accent : DEFAULT_PREFS.accent);
+  // the start screen of the next start (index.html, public/theme-boot.js) reads the theme and the accent before anything else can be asked of the backend
+  try { localStorage.setItem("heylook.boot", JSON.stringify({ theme: p.theme, accent })); } catch { /* storage unavailable: the OS theme and the default accent */ }
   root.style.setProperty("--accent-base", accent);
   root.style.setProperty("--accent-fg-lt", readableOn(accent));
   root.style.setProperty("--accent-fg-dk", readableOn(lightened(accent)));
