@@ -114,6 +114,7 @@ export default defineLocale<typeof ns.en>({
   "mail.pane.calendarTitle": "Календарь (Ctrl+2)",
   "mail.side.collapse": "Свернуть боковое меню",
   "mail.side.expand": "Развернуть боковое меню",
+  "mail.side.newMail": "Новые письма",
   "mail.side.unread": { one: "{n} непрочитанное", few: "{n} непрочитанных", many: "{n} непрочитанных", other: "{n} непрочитанного" },
   // right-click menu of a list row
   "mail.ctx.copySubject": "Копировать тему",

@@ -110,6 +110,7 @@ export default define({
     "mail.pane.calendarTitle": "Calendar (Ctrl+2)",
     "mail.side.collapse": "Collapse side menu",
     "mail.side.expand": "Expand side menu",
+    "mail.side.newMail": "New mail",
     "mail.side.unread": { one: "{n} unread", other: "{n} unread" },
 
     // right-click menu of a list row

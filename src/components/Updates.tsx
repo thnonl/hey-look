@@ -350,7 +350,7 @@ export function UpdatesBlock({ privacy, autoSwitch }: { privacy: ReactNode; auto
       <div>
         <div className="update-status">
           <span>
-            <b>{t("updates.status.version", { version })}</b>
+            <b className="selectable">{t("updates.status.version", { version })}</b>
           </span>
         </div>
         <p className="muted small">{managed === "apt" ? tx("updates.managed.apt", { command: <code>{APT_UPGRADE}</code> }) : t("updates.managed.snap")}</p>
@@ -361,7 +361,7 @@ export function UpdatesBlock({ privacy, autoSwitch }: { privacy: ReactNode; auto
     <div>
       <div className="update-status">
         <span>
-          <b>{t("updates.status.version", { version })}</b> <span className="muted small">· {t("updates.status.lastChecked", { when: checked })}</span>
+          <b className="selectable">{t("updates.status.version", { version })}</b> <span className="muted small">· {t("updates.status.lastChecked", { when: checked })}</span>
         </span>
         <button ref={btn} className="btn small" disabled={busy} aria-busy={busy || undefined} onClick={check}>
           {busy ? (

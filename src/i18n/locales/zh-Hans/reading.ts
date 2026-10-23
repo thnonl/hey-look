@@ -27,6 +27,7 @@ export default defineLocale<typeof ns.en>({
   "reading.popout.loadFailed": "无法打开此邮件（{error}）。",
   "reading.popout.noId": "此窗口没有可显示的对话",
   "reading.popout.loading": "正在打开邮件…",
+  "reading.print.preparing": "正在准备打印…",
   "reading.popout.toolbar": "邮件操作",
   "reading.popout.unread": "未读",
   "reading.popout.read": "已读",

@@ -13,6 +13,9 @@
 - A picture in a signature or a template has the same toolbar as a picture in a message: sizes (Small 120, Medium 240, Large 360 px or Original), alignment, link, alt text and remove; the alt text is saved with the signature and sent with the mail
 - Calendar: double-click an event to edit it (Ctrl+Enter, Cmd+Enter on a Mac, with the keyboard); an invitation, an event of a read-only calendar or an event only its organizer may change shows its details instead; a double-click on empty space still makes a new event
 - Calendar: the extra dates of a series (RDATE lines of an invitation, an imported .ics file or a Google Calendar series) are shown next to the repeats, Save .ics keeps them, and a series with only extra dates reads "Custom"
+- A mailbox or folder that got new mail since you last looked has a dot after its name and a bolder name in the side menu (the mailbox shows it when its Inbox has new mail; in the icon column the avatar gets a ring and a folder icon a small dot; the tooltip and screen readers say "New mail"). It goes when you open the folder, when the window comes forward with that folder in view, or when no unread mail is left in it. Your own sent mail and mail that only moved between folders do not count, and they no longer make a notification either. Nothing is kept after a restart
+- "Opening message…" shows over the reading pane while a message is on its way to the screen (after 100 ms, so a quick open shows nothing, and for at least 300 ms once shown); the message window keeps it until the message is drawn instead of a blank body
+- A big batch (20 conversations or more) archived, deleted, marked or flagged shows "Working on 30 conversations…" with a spinner until it is done; "Preparing to print…" shows while a long message is laid out for the print dialog; Save all attachments from the More menu shows "Loading…"; the list shows a small "Loading…" while a search, a tab or a filter reads, and the Check mail button is marked busy while it syncs
 
 ### Changed
 
@@ -35,6 +38,8 @@
 - Calendar: an update, a cancellation or an answer by mail that fails the sender check of your mail server (DKIM, SPF or DMARC) is not applied by itself: the invitation card says so and offers Apply anyway; a new invitation that fails it is not added automatically (Add to calendar and the answer buttons still add it). Mail without a result from the server behaves as before
 - Google Calendar sync downloads only what changed in the list of calendars, and a calendar with more than 25,000 events is downloaded in full once a day instead of every 5 minutes
 - The window shows the app's own colours and a small logo while it starts, instead of a white window: the window takes the colour of your theme (Light, Dark, or the system's) from the first frame, also in a message window, and a start screen with the logo and a thin spinner (a still logo when the system asks for reduced motion) stays until the app is up
+- Send shows a ring on its button from the press until the Undo toast (or the lock of the message window) is there, and ignores a second press; in the main window a "Sending…" toast with a ring covers a big message while it goes to the outbox and to the server
+- Text on the screen can no longer be selected by accident (a double-click on a message row, a folder, a label or a button used to highlight a word): you can select and copy in text fields, the subject, sender, recipients, date and body of a message, a summary or translation, Show original, key fingerprints, the version in Settings > About and the text of an error message. Dragging over the sender no longer folds the message
 
 ### Fixed
 

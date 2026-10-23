@@ -300,3 +300,17 @@ static | node scripts/test-unsub-server.mjs --require-openssl
 ui-e | node scripts/test-unsub-outcomes.mjs --quick --require-browser
 # Reply / Reply all / Forward of a 2 MB mail with a slow server: the compose shell (fields and Send off, "Preparing reply…") within one frame, the message after the longest step, the To field does not move, Discard / Esc while it prepares leave no draft, a failing server, Forward with attachments, a window of its own (hand-over, second press), the texts in 8 languages at 960 x 560 and 1280 x 800, reduced motion (the timing alone: `node scripts/measure-reply-open.mjs`)
 ui-c | node scripts/test-reply-feedback.mjs --require-browser
+# 1.0.7 W13.2: "new since you last looked" - the rules of the session-only map (an arrival on the folder in view is ignored while the window is in front, opening / coming forward / no unread mail clears it, the all-mailboxes Inbox, the Unread view) and the wiring of store, window events and side menu
+static | node --experimental-strip-types scripts/test-new-mail.mjs
+# 1.0.7 W13.3: the CSS allow list of user-select (body none, fields / open message / reference text text, no all, the confidential rule after the message-body rule), the About lines marked, the header click guard, the Select all scopes
+static | node --experimental-strip-types scripts/test-user-select.mjs
+# 1.0.7 W13.14 / W13.6: the show-after-100-ms-keep-300-ms rule of the pending states (the Opening message block and the sticky working toasts) with a fake clock
+static | node --experimental-strip-types scripts/test-pending-core.mjs
+# 1.0.7 W13.2: the dot, the bolder name, the avatar ring and the icon-column dot in the side menu from mail-arrived (two mailboxes), clearing by opening / coming forward / unread count, dark, forced colors, 8 languages
+ui-d | node scripts/test-new-mail-ui.mjs --require-browser
+# 1.0.7 W13.3: real double / triple clicks select nothing in the list, side menu, Settings labels, toolbar and normal toasts, and select in the subject, sender, date, fields, error toasts and the About version; dragging over the sender does not collapse the message
+ui-d | node scripts/test-user-select-ui.mjs --require-browser
+# 1.0.7 W13.6: "Opening message…" over the body area (up within 150 ms, no flash for a quick open, 300 ms minimum, painted before a heavy mail is cleaned, replaced by a newer selection, dots under reduced motion, the reader window never blank)
+ui-b | node scripts/test-open-loading.mjs --require-browser
+# 1.0.7 W13.14: the pending states of a big batch (count toast), Send (busy button, Sending toasts), Print, Save all, search / tab / folder loading and the Check mail button, and the texts in 8 languages
+ui-e | node scripts/test-busy-actions.mjs --require-browser

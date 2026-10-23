@@ -32,6 +32,7 @@ import { calTz, configureCalendar, addDays, addMonths, today as todayDay } from 
 import { catchupText, configureDates, fmtWhen } from "./util";
 import { frameAction, initFrame, useFrame } from "./winframe";
 import { startSupportNudge } from "./supportNudgeHost";
+import { watchNewMail } from "./newMailWire";
 import { recoverUnsaved, reshowRecoveryToast } from "./composeRecovery";
 import { composeSwallowsAppKey, inEditable, keyAction, moduleSwitchKey, sidebarToggleKey } from "./composeKeys";
 import { MIN_READER_W, RAIL_W, SPLITTER_W, listHiddenWhileComposing, sidebarLayout } from "./sidebarState";
@@ -142,6 +143,9 @@ function App() {
     const tick = setInterval(() => void useStore.getState().refresh(), 30 * 1000);
     return () => clearInterval(tick);
   }, []);
+
+  // (W13.2) folders that got new mail get a dot until the person looks at them
+  useEffect(() => watchNewMail(), []);
 
   // events from the tray menu, toasts and the background workers
   useEffect(() => {
