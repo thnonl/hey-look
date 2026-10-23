@@ -587,7 +587,8 @@ export const api = {
   copyText: (text: string) => invoke<void>("copy_text", { text }),
   /** the text and the HTML on the system clipboard through the backend (macOS only: Cmd+Shift+V in the editors, see editor/pasteOptions.tsx) */
   readClipboardText: () => invoke<{ text: string; html: string }>("read_clipboard_text"),
-  getAutostart: () => invoke<boolean>("get_autostart"),
+  /** the "start when I sign in" switch: `locked` says why the person cannot change it here (the Microsoft Store version: "user" = turned off in Windows, "policy" = the organisation decides) */
+  getAutostart: () => invoke<AutostartInfo>("get_autostart"),
   setAutostart: (enabled: boolean) => invoke<void>("set_autostart", { enabled }),
   syncAccount: (accountId: string) => invoke<SyncResult>("sync_account", { accountId }),
   listFolders: () => invoke<FolderInfo[]>("list_folders"),
@@ -854,6 +855,11 @@ export interface UpdateInfo {
   asset: UpdateAsset | null;
 }
 /** `disabled` and `throttled` are internal: the UI shows the cached `info` instead (see `cachedKind`). */
+export interface AutostartInfo {
+  enabled: boolean;
+  locked: "user" | "policy" | null;
+}
+
 export type UpdateKind = "available" | "upToDate" | "noRelease" | "offline" | "error" | "disabled" | "throttled" | "managed";
 export interface UpdateResult {
   kind: UpdateKind;
