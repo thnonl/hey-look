@@ -3,18 +3,14 @@ import { useEffect, useRef, useState } from "react";
 import "./App.css";
 import { forwardLast, newMail, replyLast, targets } from "./actions";
 import { api, BackfillProgress } from "./api";
-import { CalendarView, EventDialog } from "./components/Calendar";
 import { newEvent } from "./newEvent";
 import { CommandBar } from "./components/CommandBar";
-import { Compose } from "./components/Compose";
-import { BulkCleaner, ShowOriginal } from "./components/Dialogs";
-import { GenerateKeyDialog, ImportKeyDialog, KeyDetailsDialog, PassphraseHost } from "./components/Pgp";
+import { PassphraseHost } from "./components/Pgp";
 import { FolderPane } from "./components/FolderPane";
 import { MessageList } from "./components/MessageList";
 import { AskHost, Toasts } from "./components/overlays";
 import { ReadingPane } from "./components/ReadingPane";
 import { Ribbon } from "./components/Ribbon";
-import { Settings } from "./components/SettingsDialog";
 import { TopBar } from "./components/TopBar";
 import { Welcome } from "./components/Welcome";
 import { hasMailAccounts, shortcutWorks } from "./mailControls";
@@ -37,6 +33,7 @@ import { recoverUnsaved, reshowRecoveryToast } from "./composeRecovery";
 import { composeSwallowsAppKey, inEditable, keyAction, moduleSwitchKey, sidebarToggleKey } from "./composeKeys";
 import { MIN_READER_W, RAIL_W, SPLITTER_W, listHiddenWhileComposing, sidebarLayout } from "./sidebarState";
 import { toggleSidebarNow, useWindowWidth } from "./useSidebar";
+import { installEditorIntent, LazyBulkCleaner, LazyCalendarView, LazyCompose, LazyEventDialog, LazyGenerateKeyDialog, LazyImportKeyDialog, LazyKeyDetailsDialog, LazySettings, LazyShowOriginal, prefetchEditor, prefetchEditorWhenIdle } from "./lazyViews";
 
 const clamp = (n: number, lo: number, hi: number) => Math.max(lo, Math.min(hi, n));
 
@@ -113,6 +110,20 @@ function App() {
   useEffect(() => {
     if (loaded && hasAccounts) void recoverUnsaved();
   }, [loaded, hasAccounts]);
+
+  // the editor stack is a chunk of its own (lazyViews.tsx): fetched when the browser is idle after the first paint, and when a pointer or the focus reaches a button that opens it
+  // (New mail, Reply, Reply all, Forward), so the first message after the start opens as fast as the next ones (REQ-13.13.9)
+  useEffect(() => {
+    if (!loaded) return;
+    prefetchEditorWhenIdle();
+    return installEditorIntent();
+  }, [loaded]);
+
+  // a conversation is open: a Reply is likely next
+  const hasOpenMail = useStore((s) => s.messages.length > 0);
+  useEffect(() => {
+    if (hasOpenMail) prefetchEditor();
+  }, [hasOpenMail]);
 
   // the page is up and has painted once: the backend shows the (hidden) window now, and reloads the page if this never arrives
   // (a timer, not requestAnimationFrame: a page in a hidden window gets no animation frames)
@@ -484,7 +495,7 @@ function App() {
             <FolderPane collapsed={folded} />
             <Splitter which="folder" disabled={folded} label={t("app.splitter.folder")} value={fw} min={180} max={folderMax} onLive={(w) => setLive((s) => ({ ...s, f: w }))} onCommit={(w) => (setLive((s) => ({ ...s, f: undefined })), setPrefs({ folderW: w }))} />
             {module === "calendar" ? (
-              <CalendarView />
+              <LazyCalendarView />
             ) : (
               <>
                 <MessageList hidden={listHidden} />
@@ -497,7 +508,7 @@ function App() {
                 changes the class of this element, so Compose is not unmounted and what was typed is not lost (QA round 17, A-24). */}
             {(compose || module === "mail") && (
               <div className={module === "calendar" ? "reading-region cal-overlay" : "reading-region"}>
-                {compose ? <Compose key={composeKey} init={compose} /> : <ReadingPane />}
+                {compose ? <LazyCompose key={composeKey} init={compose} /> : <ReadingPane />}
               </div>
             )}
           </div>
@@ -505,13 +516,14 @@ function App() {
       ) : (
         <Welcome />
       )}
-      {dialog?.type === "settings" && <Settings initial={dialog.tab} focus={dialog.focus} nonce={dialog.nonce} />}
-      {dialog?.type === "cleaner" && <BulkCleaner />}
-      {dialog?.type === "original" && <ShowOriginal messageId={dialog.messageId} />}
-      {dialog?.type === "pgp-generate" && <GenerateKeyDialog accountId={dialog.accountId} back={dialog.back} />}
-      {dialog?.type === "pgp-import" && <ImportKeyDialog armored={dialog.armored} paste={dialog.paste} back={dialog.back} />}
-      {dialog?.type === "event" && <EventDialog key={dialog.eventId ?? `new-${dialog.init?.start ?? 0}`} eventId={dialog.eventId} init={dialog.init} />}
-      {dialog?.type === "pgp-key" && <KeyDetailsDialog fingerprint={dialog.fingerprint} back={dialog.back} />}
+      {/* the big dialogs are parts of their own, loaded when one opens (lazyViews.tsx): the frame of the dialog is there at once */}
+      {dialog?.type === "settings" && <LazySettings initial={dialog.tab} focus={dialog.focus} nonce={dialog.nonce} />}
+      {dialog?.type === "cleaner" && <LazyBulkCleaner />}
+      {dialog?.type === "original" && <LazyShowOriginal messageId={dialog.messageId} />}
+      {dialog?.type === "pgp-generate" && <LazyGenerateKeyDialog accountId={dialog.accountId} back={dialog.back} />}
+      {dialog?.type === "pgp-import" && <LazyImportKeyDialog armored={dialog.armored} paste={dialog.paste} back={dialog.back} />}
+      {dialog?.type === "event" && <LazyEventDialog key={dialog.eventId ?? `new-${dialog.init?.start ?? 0}`} eventId={dialog.eventId} init={dialog.init} />}
+      {dialog?.type === "pgp-key" && <LazyKeyDetailsDialog fingerprint={dialog.fingerprint} back={dialog.back} />}
       {commandOpen && <CommandBar />}
       <AskHost />
       <PassphraseHost />

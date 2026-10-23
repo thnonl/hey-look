@@ -5,7 +5,7 @@ import { ReactNode, useEffect, useRef } from "react";
 import { accountLabel } from "../accountLabel";
 import { Grip, useAccountReorder } from "./AccountReorder";
 import { AcctName } from "./AcctName";
-import { CalRail, CalSidebar } from "./Calendar";
+import { LazyCalRail, LazyCalSidebar } from "../lazyViews";
 import { ReauthNotice } from "./SignInHelp";
 import { FolderInfo } from "../api";
 import { accountColor, folderDepth, folderLabel } from "../prefs";
@@ -233,7 +233,7 @@ export function FolderPane({ collapsed: folded }: { collapsed: boolean }) {
         </button>
       </div>
       {module === "calendar" ? (
-        rail ? <CalRail /> : <CalSidebar />
+        rail ? <LazyCalRail /> : <LazyCalSidebar />
       ) : (
       <div className="fp-tree" role="tree" aria-label={t("mail.pane.folders")} ref={tree}>
       <div className="fp-group">

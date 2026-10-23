@@ -16,8 +16,8 @@
 // - Hand-off data (a compose body, attachments) is read once with `api.popoutInit(token)`; it lives in the backend until the window is
 //   destroyed, so a reload of the page can read it again.
 import type { ComponentType } from "react";
-import ComposeView from "./ComposeView";
-import ReaderView from "./ReaderView";
+import { lazyView, LazyLoading } from "../lazy";
+import { loadComposeWindowView, loadReaderWindowView } from "../lazyViews";
 import { popoutDevEnabled } from "./route";
 import type { PopoutKind } from "./route";
 
@@ -41,7 +41,10 @@ export const devFlagOn = () => {
   return popoutDevEnabled(import.meta.env.DEV, stored);
 };
 
+// The view of a window is a chunk of its own, fetched by main.tsx before React renders (the compose window also gets the editor with it, the reader window never does): until it is
+// there the window shows the empty root of the loading step (PopoutRoot), with the loading look after 150 ms. A view that cannot be fetched shows Retry (there is no pane to fall back to).
+const windowFrame = (_p: PopoutViewProps, late: boolean) => <div className="popout-root" data-popout="loading">{late ? <LazyLoading /> : null}</div>;
 export const VIEWS: Record<PopoutKind, ComponentType<PopoutViewProps>> = {
-  compose: ComposeView,
-  reader: ReaderView,
+  compose: lazyView({ key: "popout-compose", kind: "popout", load: loadComposeWindowView, pick: (m) => m.default, frame: windowFrame, retry: true }),
+  reader: lazyView({ key: "popout-reader", kind: "popout", load: loadReaderWindowView, pick: (m) => m.default, frame: windowFrame, retry: true }),
 };

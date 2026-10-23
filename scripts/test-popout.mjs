@@ -111,7 +111,7 @@ assert.equal(shiftOnly(ev({ shiftKey: true, altKey: true })), false);
   }
   // the views are the place WP6b / WP6c plug in
   const views = read("src/popout/views.tsx");
-  assert.ok(/export const VIEWS: Record<PopoutKind,/.test(views) && views.includes("compose: ComposeView") && views.includes("reader: ReaderView"));
+  assert.ok(/export const VIEWS: Record<PopoutKind,/.test(views) && /compose: lazyView\(\{[^\n]*loadComposeWindowView/.test(views) && /reader: lazyView\(\{[^\n]*loadReaderWindowView/.test(views), "the views of the windows are chunks of their own (WP9d)");
   // the backend commands this page uses exist
   const api = read("src/api.ts");
   for (const c of ["popout_open", "popout_init", "popout_ready", "popout_focus", "popout_close", "popout_save_all", "popout_flush_alive", "popout_flush_dialog", "popout_flush_done"]) {
@@ -344,7 +344,8 @@ assert.equal(popoutTitle(readerTitleText("", "(no subject)")), "(no subject) –
     assert.ok(!src.includes(".set_theme(") && !src.includes(".theme(Some"), `${name} does not set a theme by itself`);
   }
   const views = read("src/popout/views.tsx");
-  assert.ok(views.includes("reader: ReaderView,") && views.includes("compose: ComposeView,"), "the reader and the compose window are plugged in");
+  assert.ok(views.includes("loadReaderWindowView") && views.includes("loadComposeWindowView"), "the reader and the compose window are plugged in (as chunks of their own, lazyViews.tsx)");
+  assert.ok(read("src/lazyViews.tsx").includes('import("./popout/ReaderView")') && read("src/lazyViews.tsx").includes('import("./popout/ComposeView")'), "... by their views");
   // the main window answers requests; the reader asks, never writes
   const app = read("src/App.tsx");
   assert.ok(app.includes('listen<Envelope>("popout-request"') && app.includes("handlePopoutRequest(e.payload)"), "the main page listens for the requests of the windows");

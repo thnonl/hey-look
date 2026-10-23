@@ -16,9 +16,9 @@ import { PreviewBg, previewVars, rememberPreview, startPreview } from "../compos
 import { setDarkRegion } from "../composePreviewDom";
 import { extractSignature, normalizeHtml, SIG_MARK } from "../signature";
 import { baseExtensions, refreshPlaceholder, setEditorLabel } from "../editor/extensions";
-import { useKit } from "../editor/kit";
+import { loadKit, useKit } from "../editor/kit";
 import { useDelayedFlag } from "../delayedFlag";
-import { statusShown, STATUS_AFTER_MS, STATUS_MIN_MS } from "../composeShell";
+import { statusShown, statusWasShown, STATUS_AFTER_MS, STATUS_MIN_MS } from "../composeShell";
 import { FormatBar, type FormatBarApi } from "../editor/FormatBar";
 import { PreviewSwitch } from "../editor/PreviewSwitch";
 import { setPreviewMode } from "../editor/previewColors";
@@ -158,8 +158,11 @@ function holdScrolls(saved: [Element, number][], root: HTMLElement, frames: numb
 
 // ---------------------------------------------------------------- compose
 
+/** The loader of the lazy wrapper (lazyViews.tsx) waits for the nodes of the kit with the chunk, so the editor never opens on an empty step. */
+export const loadEditorKit = loadKit;
+
 export function Compose({ init }: { init: ComposeInit }) {
-  // the table and picture nodes come in a chunk of their own (editor/kit.ts); the editor is made once they are there (fetched at start-up: no wait in practice)
+  // the table and picture nodes come in a chunk of their own (editor/kit.ts); the editor is made once they are there (fetched with this chunk, lazyViews.tsx: no wait in practice)
   return useKit() ? <ComposeBody init={init} /> : null;
 }
 
@@ -169,7 +172,7 @@ function ComposeBody({ init }: { init: ComposeInit }) {
   // the shell of a Reply / Forward whose recipients and quote are still being prepared (W13.13): fields and Send are off, the body says what is going on
   const preparing = init.preparing;
   // (the 100 ms are counted from the press, not from when this pane was built: the status is on screen by 150 ms)
-  const prepStatus = useDelayedFlag(!!preparing, preparing ? Math.max(0, STATUS_AFTER_MS - (Date.now() - preparing.at)) : STATUS_AFTER_MS, STATUS_MIN_MS);
+  const prepStatus = useDelayedFlag(!!preparing, preparing ? Math.max(0, STATUS_AFTER_MS - (Date.now() - preparing.at)) : STATUS_AFTER_MS, STATUS_MIN_MS, !!preparing && statusWasShown(preparing.id));
   const prepRef = useRef<HTMLDivElement>(null);
   const [accountId, setAccountId] = useState(fromAccountFor(accounts, init.accountId, prefs.defaultAccount));
   const accountRef = useRef(accountId); // (the editor's paste handler is made once: it reads the account of the moment from here)

@@ -686,9 +686,9 @@ export function MessageCard({ m, open, onToggle }: { m: MessageFull; open: boole
         </div>
         {open && (
           <div className="rp-msg-actions" onClick={(e) => e.stopPropagation()}>
-            <button className="icon-btn" title={t("reading.msg.reply")} aria-label={t("reading.msg.reply")} aria-busy={reBusy || undefined} onClick={() => replyTo(m, false)}>{reBusy ? ring : <Reply size={16} />}</button>
-            <button className="icon-btn" title={t("reading.msg.replyAll")} aria-label={t("reading.msg.replyAll")} aria-busy={raBusy || undefined} onClick={() => replyTo(m, true)}>{raBusy ? ring : <ReplyAll size={16} />}</button>
-            <button className="icon-btn" title={conf ? t("reading.msg.forwardBlocked") : t("reading.msg.forward")} aria-label={t("reading.msg.forward")} aria-busy={fwBusy || undefined} disabled={conf} onClick={() => forward(m)}>{fwBusy ? ring : <Forward size={16} />}</button>
+            <button className="icon-btn" data-intent="editor" title={t("reading.msg.reply")} aria-label={t("reading.msg.reply")} aria-busy={reBusy || undefined} onClick={() => replyTo(m, false)}>{reBusy ? ring : <Reply size={16} />}</button>
+            <button className="icon-btn" data-intent="editor" title={t("reading.msg.replyAll")} aria-label={t("reading.msg.replyAll")} aria-busy={raBusy || undefined} onClick={() => replyTo(m, true)}>{raBusy ? ring : <ReplyAll size={16} />}</button>
+            <button className="icon-btn" data-intent="editor" title={conf ? t("reading.msg.forwardBlocked") : t("reading.msg.forward")} aria-label={t("reading.msg.forward")} aria-busy={fwBusy || undefined} disabled={conf} onClick={() => forward(m)}>{fwBusy ? ring : <Forward size={16} />}</button>
             <button className="icon-btn" title={canvasLabel} aria-label={canvasLabel} aria-pressed={cv.dark} onClick={cv.toggle}>
               {cv.dark ? <Moon size={16} /> : <Sun size={16} />}
             </button>
@@ -745,13 +745,13 @@ export function MessageCard({ m, open, onToggle }: { m: MessageFull; open: boole
             />
           )}
           <div className="rp-reply-row">
-            <button className="btn" aria-busy={(replyDefaultAll ? raBusy : reBusy) || undefined} onClick={() => replyTo(m, replyDefaultAll)}>
+            <button className="btn" data-intent="editor" aria-busy={(replyDefaultAll ? raBusy : reBusy) || undefined} onClick={() => replyTo(m, replyDefaultAll)}>
               {(replyDefaultAll ? raBusy : reBusy) ? ring : replyDefaultAll ? <ReplyAll size={14} /> : <Reply size={14} />} {replyDefaultAll ? t("reading.msg.replyAll") : t("reading.msg.reply")}
             </button>
-            <button className="btn" aria-busy={(replyDefaultAll ? reBusy : raBusy) || undefined} onClick={() => replyTo(m, !replyDefaultAll)}>
+            <button className="btn" data-intent="editor" aria-busy={(replyDefaultAll ? reBusy : raBusy) || undefined} onClick={() => replyTo(m, !replyDefaultAll)}>
               {(replyDefaultAll ? reBusy : raBusy) ? ring : replyDefaultAll ? <Reply size={14} /> : <ReplyAll size={14} />} {replyDefaultAll ? t("reading.msg.reply") : t("reading.msg.replyAll")}
             </button>
-            <button className="btn" aria-busy={fwBusy || undefined} disabled={conf} title={conf ? t("reading.msg.forwardBlocked") : undefined} onClick={() => forward(m)}>
+            <button className="btn" data-intent="editor" aria-busy={fwBusy || undefined} disabled={conf} title={conf ? t("reading.msg.forwardBlocked") : undefined} onClick={() => forward(m)}>
               {fwBusy ? ring : <Forward size={14} />} {t("reading.msg.forward")}
             </button>
           </div>

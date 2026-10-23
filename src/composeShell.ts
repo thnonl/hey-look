@@ -22,6 +22,11 @@ export function statusShown(id: string, now: number = Date.now()): void {
   if (shownAt.size > 32) for (const k of shownAt.keys()) { shownAt.delete(k); break; } // (a handful of shells exist at the same time)
 }
 
+/** Was the status of shell `id` drawn already (by the frame that stands in for the editor, or an earlier pane)? */
+export function statusWasShown(id: string): boolean {
+  return shownAt.has(id);
+}
+
 /** Milliseconds that shell `id`'s status still has to stay on screen (0 when it was never shown or has been long enough). */
 export function statusRemaining(id: string, now: number = Date.now()): number {
   const at = shownAt.get(id);

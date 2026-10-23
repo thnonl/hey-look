@@ -1,0 +1,76 @@
+import { ChevronDown, Trash2 } from "lucide-react";
+import { useEffect, useLayoutEffect, useRef } from "react";
+import { kbd } from "../platform";
+import { startPreview, previewVars } from "../composePreview";
+import { statusShown, STATUS_AFTER_MS, STATUS_MIN_MS } from "../composeShell";
+import { useDelayedFlag } from "../delayedFlag";
+import { useT } from "../i18n/react";
+import { useStore, type ComposeInit } from "../store";
+import { LazyLoading } from "../lazy";
+
+/**
+ * The compose pane before the editor stack (components/Compose.tsx, a chunk of its own, WP9d) has arrived: the same boxes with the same class names, drawn by the main chunk.
+ * A Reply / Reply all / Forward shows its shell from here (REQ-13.13.1 / 13.13.9: the shell never waits for the editor): the action row with Send off and Discard, the header rows
+ * off (subject and account known), the status "Preparing reply…" 140 ms after the press. Any other message shows the loading look in the body after 150 ms. Normally this is on
+ * screen for a few frames at most, the editor chunk is fetched when the browser is idle after the first paint and when the pointer reaches a Reply button (lazyViews.tsx).
+ * The caret of the real pane goes where it goes today; Esc and Discard end a shell like the real pane's (REQ-13.13.6).
+ */
+export function ComposeFrame({ init, late }: { init: ComposeInit; late: boolean }) {
+  const t = useT();
+  const accounts = useStore((s) => s.accounts);
+  const canvas = useStore((s) => s.prefs.mailCanvas);
+  const preparing = init.preparing;
+  // the same delay as the real pane's (counted from the press), so the status neither comes twice nor flashes
+  const status = useDelayedFlag(!!preparing, preparing ? Math.max(0, STATUS_AFTER_MS - (Date.now() - preparing.at)) : STATUS_AFTER_MS, STATUS_MIN_MS);
+  useEffect(() => {
+    if (preparing && status) statusShown(preparing.id);
+  }, [preparing, status]);
+  const prepRef = useRef<HTMLDivElement>(null);
+  useLayoutEffect(() => {
+    if (preparing) prepRef.current?.focus({ preventScroll: true });
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+  const discard = () => void useStore.getState().openCompose(null, { restore: false });
+  const account = accounts.find((a) => a.id === init.accountId) ?? accounts[0];
+  return (
+    <div
+      className={`compose-pane ${preparing ? "preparing" : ""}`}
+      aria-busy="true"
+      data-lazy-frame=""
+      onKeyDown={(e) => {
+        if (e.key === "Escape" && !e.defaultPrevented) (e.preventDefault(), discard());
+        if ((e.ctrlKey || e.metaKey) && e.key === "Enter") e.preventDefault();
+      }}
+    >
+      <div className="cp-head">
+        <div className="cp-bar">
+          <div className="split-btn" data-fit="fixed">
+            <button className="btn primary" disabled title={kbd(t("compose.bar.sendTip"))}><span className="btn-lbl">{t("compose.bar.send")}</span></button>
+            <button className="btn primary split-caret" disabled aria-label={t("compose.bar.sendLaterOptions")}><ChevronDown size={14} /></button>
+          </div>
+          <button className="rb cp-keep" data-fit="fixed" onClick={discard}><Trash2 size={15} /><span>{t("compose.bar.discard")}</span></button>
+        </div>
+        <div className="cp-fields" inert>
+          <div className="cf-field"><label>{t("compose.from")}</label><span className="cf-static">{account?.email ?? ""}</span></div>
+          <div className="cf-field rcpt"><label>{t("compose.to")}</label><div className="chips" /></div>
+          <div className="cf-field cf-subject"><label>{t("compose.subject")}</label><input readOnly tabIndex={-1} value={init.subject ?? ""} aria-label={t("compose.subject")} /></div>
+        </div>
+      </div>
+      <div className="cp-fmt" inert aria-hidden><span style={{ height: 28 }} /></div>
+      <div className={`cp-editor cp-pv pv-${startPreview(canvas)}`} style={previewVars(startPreview(canvas)) as React.CSSProperties} data-preparing={preparing ? "" : undefined}>
+        {preparing ? (
+          <div className="cp-prep" ref={prepRef} tabIndex={-1}>
+            {status && (
+              <div className="reader-state" role="status" aria-busy="true">
+                <span className="busy-ring spin" aria-hidden />
+                <span className="busy-dots" aria-hidden>···</span>
+                <p className="muted">{preparing.fetching ? t("compose.fwd.fetching") : t(preparing.kind === "forward" ? "compose.preparing.forward" : "compose.preparing.reply")}</p>
+              </div>
+            )}
+          </div>
+        ) : late ? (
+          <LazyLoading />
+        ) : null}
+      </div>
+    </div>
+  );
+}
