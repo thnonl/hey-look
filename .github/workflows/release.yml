@@ -232,12 +232,31 @@ jobs:
         with:
           persist-credentials: false
 
+      # The .deb files of the system packages are cached (a slow Ubuntu mirror took 1542 s for this step in two dry runs, the same step took 24 s
+      # in another job). The cache only protects against a slow mirror: the first run on a new key still downloads, and a hit installs from the
+      # cached files without apt-get update. See .github/scripts/install-linux-deps.sh.
+      - name: Apt cache key
+        id: aptkey
+        run: echo "image=${ImageVersion:-unknown}-$(lsb_release -rs 2>/dev/null || echo unknown)" >> "$GITHUB_OUTPUT"
+
+      - name: Restore the apt package cache
+        id: aptcache
+        uses: actions/cache/restore@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
+        with:
+          path: ~/apt-archives/*.deb
+          key: apt-${{ runner.os }}-${{ runner.arch }}-${{ steps.aptkey.outputs.image }}-${{ hashFiles('.github/scripts/install-linux-deps.sh') }}-v1
+          restore-keys: |
+            apt-${{ runner.os }}-${{ runner.arch }}-${{ steps.aptkey.outputs.image }}-
+
       - name: Install Linux dependencies
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y \
-            libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf \
-            libssl-dev libdbus-1-dev pkg-config
+        run: bash .github/scripts/install-linux-deps.sh
+
+      - name: Save the apt package cache
+        if: steps.aptcache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
+        with:
+          path: ~/apt-archives/*.deb
+          key: apt-${{ runner.os }}-${{ runner.arch }}-${{ steps.aptkey.outputs.image }}-${{ hashFiles('.github/scripts/install-linux-deps.sh') }}-v1
 
       - uses: dtolnay/rust-toolchain@b725eda525362e7cf34af9a7243cac1e3f01a7ec # stable branch (a SHA pin needs the toolchain named)
         with:
@@ -278,13 +297,34 @@ jobs:
         with:
           persist-credentials: false # the token must not stay in .git/config where npm scripts and tests could read it
 
+      # The .deb files of the system packages are cached (a slow Ubuntu mirror took 1542 s for this step in two dry runs, the same step took 24 s
+      # in another job). The cache only protects against a slow mirror: the first run on a new key still downloads, and a hit installs from the
+      # cached files without apt-get update. See .github/scripts/install-linux-deps.sh.
+      - name: Apt cache key
+        id: aptkey
+        if: runner.os == 'Linux'
+        run: echo "image=${ImageVersion:-unknown}-$(lsb_release -rs 2>/dev/null || echo unknown)" >> "$GITHUB_OUTPUT"
+
+      - name: Restore the apt package cache
+        id: aptcache
+        if: runner.os == 'Linux'
+        uses: actions/cache/restore@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
+        with:
+          path: ~/apt-archives/*.deb
+          key: apt-${{ runner.os }}-${{ runner.arch }}-${{ steps.aptkey.outputs.image }}-${{ hashFiles('.github/scripts/install-linux-deps.sh') }}-v1
+          restore-keys: |
+            apt-${{ runner.os }}-${{ runner.arch }}-${{ steps.aptkey.outputs.image }}-
+
       - name: Install Linux dependencies
         if: runner.os == 'Linux'
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y \
-            libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf \
-            libssl-dev libdbus-1-dev pkg-config
+        run: bash .github/scripts/install-linux-deps.sh
+
+      - name: Save the apt package cache
+        if: runner.os == 'Linux' && steps.aptcache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
+        with:
+          path: ~/apt-archives/*.deb
+          key: apt-${{ runner.os }}-${{ runner.arch }}-${{ steps.aptkey.outputs.image }}-${{ hashFiles('.github/scripts/install-linux-deps.sh') }}-v1
 
       - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
         with:

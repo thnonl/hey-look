@@ -166,6 +166,8 @@ ui-e | node scripts/test-boot-splash.mjs --require-browser
 
 # the scripts of the release workflow itself: their fixtures also run in the publish job of a tag run; here they fail a dry run early
 static | bash .github/scripts/test-check-release-assets.sh
+# 1.0.7 fix16: the apt step of both Linux jobs (cache of the .deb files, retries, time limit per attempt, mirror switch; fake apt-get) and its wiring in release.yml
+static | bash .github/scripts/test-install-linux-deps.sh
 static | node .github/scripts/verify-update-sigs.cjs --selftest
 # was not run by CI before
 static | node --experimental-strip-types scripts/test-site-top-bar-dark.mjs
