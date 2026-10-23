@@ -47,6 +47,7 @@ mod mail;
 #[cfg_attr(not(any(windows, target_os = "macos")), allow(dead_code))]
 mod navguard;
 mod newmail;
+mod notifysound;
 mod pdfmode;
 mod oauth;
 mod oauth_page;
@@ -1945,6 +1946,12 @@ fn refresh_badge(app: tauri::AppHandle, state: tauri::State<AppState>) {
 #[tauri::command]
 fn test_notification(app: tauri::AppHandle, state: tauri::State<AppState>) -> R<()> {
     shell::test_notification(&app, &state.db)
+}
+
+/// Settings > Notifications > "Play sound" (W13.8): the new-mail sound once, at the system volume, whatever the switch and the quiet rules say.
+#[tauri::command]
+fn play_notify_sound(app: tauri::AppHandle) -> R<()> {
+    notifysound::preview(&app)
 }
 
 /// What the UI needs to know about the shell it runs in: the OS (per-OS copy and shortcut labels) and whether a tray exists.
@@ -5861,6 +5868,7 @@ pub fn run() {
             sync_account,
             refresh_badge,
             test_notification,
+            play_notify_sound,
             open_external,
             copy_text,
             read_clipboard_text,
@@ -6693,7 +6701,7 @@ mod capability_tests {
             "quit_now", "quit_cancelled", "sends_flushed", "quit_page_alive", "quit_dialog", "frontend_ready", "page_state", "page_pong", "show_window", "set_mail_available", "take_tray_compose",
             // calendar connections, sync triggers, mail actions that belong to the main page's intent layer
             "calendar_connect", "calendar_disconnect", "calendar_sources", "calendar_set_sync", "calendar_sync_now", "sync_account", "refresh_badge", "thread_action",
-            "queue_action", "cancel_action", "sender_action", "load_older", "idle_states", "frame_info", "frame_caption_rect", "frame_system_menu", "test_notification",
+            "queue_action", "cancel_action", "sender_action", "load_older", "idle_states", "frame_info", "frame_caption_rect", "frame_system_menu", "test_notification", "play_notify_sound",
             // a secondary window asks the main page (popout_request); only the main page answers
             "popout_reply", "popout_save_all",
         ];

@@ -15,7 +15,6 @@ export default defineLocale<typeof ns.en>({
   "common.done": "Xong",
   "common.off": "Tắt",
   "common.none": "Không",
-  "common.default": "Mặc định",
   "common.retry": "Thử lại",
   "common.copy": "Sao chép",
   "common.loading": "Đang tải…",

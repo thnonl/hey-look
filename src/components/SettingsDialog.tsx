@@ -1,5 +1,5 @@
 import { listen } from "@tauri-apps/api/event";
-import { KeyRound, Lock, Plus, Trash2, Upload } from "lucide-react";
+import { KeyRound, Lock, Plus, Trash2, Upload, Volume2 } from "lucide-react";
 import { openUpdateLink } from "../updates";
 import { Grip, useAccountReorder } from "./AccountReorder";
 import { ABOUT_LINKS } from "../aboutLinks";
@@ -9,7 +9,7 @@ import { singleLabelHostsOf } from "../addresses";
 import { backendText } from "../backendErrors";
 import { parseReplyTo } from "../replyTo";
 import { calendarErrorCode, calendarStepFailure, calendarSyncKind, providerName, serviceName, statusLine, truncatedNote } from "../calendarSync";
-import { ACCENT_PRESETS, ACCOUNT_PALETTE, accountColor, DEFAULT_PREFS, eff, folderLabel, isOverridden, MAX_DOWNLOAD_PRESETS, NOTIFY_ACTIONS, NOTIFY_SOUNDS, Overridable, Prefs, staleAccountPrefs, validHex } from "../prefs";
+import { ACCENT_PRESETS, ACCOUNT_PALETTE, accountColor, DEFAULT_PREFS, eff, folderLabel, isOverridden, MAX_DOWNLOAD_PRESETS, NOTIFY_ACTIONS, Overridable, Prefs, staleAccountPrefs, validHex } from "../prefs";
 import { aiSettingsSaved } from "../aiGuide";
 import { normalizeSidebar } from "../sidebarState";
 import { folderVisible } from "../junk";
@@ -110,12 +110,25 @@ function OvRow<K extends keyof Overridable>({
   );
 }
 
-const SoundSelect = ({ value, onChange }: { value: string; onChange: (v: Prefs["notifySound"]) => void }) => {
+/** The sound row of Settings > Notifications (W13.8): the switch and "Play sound", which plays the new-mail sound once, switch on or off. */
+const SoundControl = ({ value, onChange }: { value: Prefs["notifySound"]; onChange: (v: Prefs["notifySound"]) => void }) => {
   const t = useT();
+  const showToast = useStore((s) => s.showToast);
+  const play = async () => {
+    try {
+      await api.playNotifySound();
+    } catch {
+      showToast(() => t("settings.notify.playFailed"), undefined, "error");
+    }
+  };
   return (
-    <select value={value} onChange={(e) => onChange(e.target.value as Prefs["notifySound"])}>
-      {NOTIFY_SOUNDS.map(([k, l]) => <option key={k} value={k}>{t(l)}</option>)}
-    </select>
+    <div className="sound-row">
+      <Switch checked={value !== "none"} onChange={(on) => onChange(on ? "pop" : "none")} ariaLabel={t("settings.notify.sound")} />
+      <button className="btn sound-play" onClick={() => void play()}>
+        <Volume2 size={15} aria-hidden />
+        <span>{t("settings.notify.playSound")}</span>
+      </button>
+    </div>
   );
 };
 
@@ -1151,8 +1164,8 @@ function NotifyPanel({ scope }: { scope: string | null }) {
       <OvRow scope={scope} k="notifyPreview" label={t("settings.appearance.preview")}>
         {(v, set) => <Switch checked={v} onChange={set} />}
       </OvRow>
-      <OvRow scope={scope} k="notifySound" label={t("settings.notify.sound")} hint={windows ? undefined : t("settings.notify.soundHint")}>
-        {(v, set) => <SoundSelect value={v} onChange={set} />}
+      <OvRow scope={scope} k="notifySound" label={t("settings.notify.sound")} hint={t("settings.notify.soundOnHint")}>
+        {(v, set) => <SoundControl value={v} onChange={set} />}
       </OvRow>
       {windows && (
       <OvRow scope={scope} k="notifyActions" label={t("settings.notify.buttons")} hint={t("settings.notify.buttonsHint")}>

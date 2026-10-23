@@ -11,11 +11,9 @@ import { DEFAULT_NUDGE, NudgeState, normalizeNudge } from "./supportNudge";
 import { normalizeSidebar, SidebarMode } from "./sidebarState";
 import { blend, buttonAccent, luminance, ratio } from "./topBarLight";
 export { buttonAccent, topBar, type TopBarColors } from "./topBarLight";
-export type NotifySound = "mail" | "default" | "im" | "reminder" | "sms" | "none";
+import { type NotifySound, normNotifySound } from "./notifySound";
+export type { NotifySound };
 /** The labels are dictionary keys: show them with t() while rendering, so they follow the language. */
-export const NOTIFY_SOUNDS: [NotifySound, Key][] = [
-  ["mail", "settings.sound.mail"], ["default", "common.default"], ["im", "settings.sound.im"], ["reminder", "settings.sound.reminder"], ["sms", "settings.sound.sms"], ["none", "settings.sound.silent"],
-];
 export const NOTIFY_ACTIONS: [string, Key][] = [
   ["none", "common.none"], ["archive", "settings.action.archive"], ["delete", "common.delete"], ["read", "settings.action.read"], ["flag", "settings.action.flag"], ["reply", "settings.action.reply"], ["snooze", "settings.action.snoozeTomorrow"],
 ];
@@ -220,7 +218,7 @@ export const DEFAULT_PREFS: Prefs = {
   notifications: true,
   smartNotifications: true,
   notifyPreview: true,
-  notifySound: "mail",
+  notifySound: "pop",
   notifyActions: ["archive", "delete", "read"],
   autoCc: "",
   autoBcc: "",
@@ -285,6 +283,8 @@ export function mergePrefs(raw: string | null): Prefs {
         delete n.sound;
       }
       for (const k of ["autoCc", "autoBcc", "signatureId", "notifySound"]) if (n[k] === "") delete n[k];
+      // (W13.8) the old sound choices: Silent stays off, every other one is on
+      if ("notifySound" in n) n.notifySound = normNotifySound(n.notifySound);
       accountPrefs[id] = n as Partial<Overridable>;
     }
     return {
@@ -297,6 +297,7 @@ export function mergePrefs(raw: string | null): Prefs {
       recentColors: Array.isArray(p.recentColors) ? p.recentColors.filter((c): c is string => typeof c === "string" && /^#[0-9A-F]{6}$/.test(normColor(c))).slice(0, 10) : [],
       recentEmoji: cleanRecentEmoji(p.recentEmoji),
       recentSearches: cleanRecent(p.recentSearches),
+      notifySound: normNotifySound(p.notifySound),
       pasteDefault: p.pasteDefault === "merge" || p.pasteDefault === "text" ? p.pasteDefault : "source",
       highlightColor: typeof p.highlightColor === "string" && /^#[0-9A-F]{6}$/.test(normColor(p.highlightColor)) ? normColor(p.highlightColor) : DEFAULT_HIGHLIGHT,
       // English unless the person chose another language (an unknown or older value counts as English)

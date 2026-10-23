@@ -581,6 +581,8 @@ export const api = {
   removeAccount: (accountId: string) => invoke<void>("remove_account", { accountId }),
   refreshBadge: () => invoke<void>("refresh_badge"),
   testNotification: () => invoke<void>("test_notification"),
+  /** the new-mail sound once (Settings > Notifications > Play sound) */
+  playNotifySound: () => invoke<void>("play_notify_sound"),
   /** a link in the default browser or mail program, with a checked launch (Linux only; see open.ts) */
   openExternal: (url: string) => invoke<void>("open_external", { url }),
   /** text on the system clipboard through the backend (Linux only; see open.ts) */

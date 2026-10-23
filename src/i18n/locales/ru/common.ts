@@ -15,7 +15,6 @@ export default defineLocale<typeof ns.en>({
   "common.done": "Готово",
   "common.off": "Выкл.",
   "common.none": "Нет",
-  "common.default": "По умолчанию",
   "common.retry": "Повторить",
   "common.copy": "Копировать",
   "common.loading": "Загрузка…",

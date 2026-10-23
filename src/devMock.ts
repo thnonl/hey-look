@@ -1601,6 +1601,11 @@ export function installMock() {
       case "test_notification":
         if (hashTokens().has("nonotify")) throw "no notification server is running";
         return null;
+      // `#nosound`: the preview cannot play (the toast "Couldn't play the sound"); `window.__mockSoundPlays` counts the calls
+      case "play_notify_sound":
+        (window as unknown as { __mockSoundPlays?: number }).__mockSoundPlays = ((window as unknown as { __mockSoundPlays?: number }).__mockSoundPlays ?? 0) + 1;
+        if (hashTokens().has("nosound")) throw "no sound player was found";
+        return null;
       case "check_update": return mockCheckUpdate(String(a.trigger), settings.prefs);
       case "update_download": return mockDownload(a.onEvent as { onmessage: (e: unknown) => void });
       case "update_cancel": dlCancelled = true; logUpdateCall({ cmd: "cancel" }).kind = "ok"; return null;

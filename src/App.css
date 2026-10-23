@@ -846,6 +846,9 @@ button.att-chip:hover { background: var(--bg3); border-color: color-mix(in srgb,
 /* a long option text must never push the control (or its override tag) out of the settings body */
 .set-ctl, .ov { min-width: 0; }
 .ov { max-width: 100%; }
+/* Settings > Notifications > Sound: the switch and "Play sound" (W13.8) */
+.sound-row { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; min-width: 0; }
+.sound-play { display: inline-flex; align-items: center; gap: 6px; }
 .set-ctl select, .ov select { min-width: 0; max-width: 100%; text-overflow: ellipsis; }
 .three { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 6px; max-width: 100%; }
 .three select { flex: none; max-width: 100%; } /* a select keeps the width of its longest option; the three wrap instead of squeezing each other */

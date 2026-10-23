@@ -324,3 +324,7 @@ ui-b | node scripts/test-lazy-views.mjs --require-browser
 static | node --experimental-strip-types scripts/test-recent-searches.mjs
 # 1.0.7 W13.4: the search panel opens simple (Search in, recent searches, Advanced search; two scope choices in the all-mailboxes view), Advanced search opens / closes / is remembered until a restart, 7 searches keep 5, the cross and Clear all with their focus, the keyboard flow (/, Down, Right, Enter, Delete, Esc, Tab order, radio group), the width of the box, no scrolling at 960x560, 8 languages
 ui-a | node scripts/test-search-panel.mjs --require-browser
+# 1.0.7 W13.8: the generator reproduces src-tauri/sounds/new-mail.wav byte for byte (the approved sample, SHA-256, size, format, level), the stored sound setting is read as on / off (none stays off, every other value is on), the old choices and the hint are retired in the 8 dictionaries, the three new texts, the command in its three places, the source guards
+static | node --experimental-strip-types scripts/test-notify-sound.mjs
+# 1.0.7 W13.8: Settings > Notifications has one Sound row (the switch on by default, the hint, Play sound that asks the backend once per press with the switch on or off, the toast when it cannot play), a mailbox overrides the switch, a 1.0.6 profile keeps Silent off and the other sounds on, the row fits at 960x560 and 1280x800 in the 8 languages, light and dark
+ui-a | node scripts/test-notify-sound-ui.mjs --require-browser
