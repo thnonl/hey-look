@@ -78,6 +78,7 @@ assert.equal(sync.code, 0, sync.err);
 assert.equal((sync.out.match(/up to date/g) ?? []).length, later.length, `--sync: every other language (vi and fr too, since WP9c) is complete\n${sync.out}`);
 assert.notEqual(run("i18n-new-language.mjs", "xx").code, 0, "a language that is not in the registry is refused");
 assert.notEqual(run("i18n-new-language.mjs", "en").code, 0, "English lives in ns/*.ts");
+assert.equal(run("i18n-split-inline.mjs", "--check").code, 0, "no vi: / fr: block is left inside src/i18n/ns/*.ts (a branch that adds one is moved with scripts/i18n-split-inline.mjs)");
 {
   // a tree with a new English key: --sync appends it (English text, to be translated) to the folder of every other language, vi and fr included (AC-9.1.6)
   const tmp = mkdtempSync(join(tmpdir(), "heylook-sync-"));
