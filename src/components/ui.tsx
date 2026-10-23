@@ -51,7 +51,7 @@ export function useOutside(ref: Ref | Ref[], onOut: () => void, active: boolean)
       if (pressIsOutside(e.target, refs)) onOut();
     };
     const k = (e: KeyboardEvent) => {
-      if (e.key !== "Escape") return;
+      if (e.key !== "Escape" || useStore.getState().ask) return; // (a question on top of the popover takes the Esc itself: Delete in the event popover asks one)
       e.stopPropagation(); // Esc closes only this popover: the global Esc (clear selection) and an open dialog must not react as well
       onOut();
     };

@@ -1397,7 +1397,7 @@ span.spin { display: inline-block; width: 13px; height: 13px; border: 2px solid 
 .ag-bar { width: 4px; align-self: stretch; border-radius: 2px; background: var(--ev, var(--accent)); flex: none; }
 .ev-pop { width: 360px; padding: 14px 16px; gap: 10px; }
 .ev-pop h4 { font-size: 1.08em; display: flex; align-items: flex-start; gap: 8px; }
-.ev-pop .ev-acts { display: flex; gap: 6px; flex-wrap: wrap; border-top: 1px solid var(--border); padding-top: 10px; }
+.ev-pop .ev-acts { display: flex; gap: 6px; flex-wrap: wrap; align-items: center; }
 /* compose: meeting details strip */
 .cp-event { display: grid; grid-template-columns: 54px minmax(0, 1fr); gap: 6px 8px; align-items: center; padding: 8px 20px; border-bottom: 1px solid var(--border); background: var(--bg2); }
 .cp-event > label { color: var(--muted); font-size: .86em; }
@@ -1453,7 +1453,7 @@ span.spin { display: inline-block; width: 13px; height: 13px; border: 2px solid 
 
 /* agenda */
 .ag-row .pill { flex: none; }
-.ag-row { outline-offset: -2px; }
+.ag-row { outline-offset: -2px; -webkit-user-select: none; user-select: none; } /* (a double-click edits the event: it must not also select a word of the row) */
 
 /* popover */
 .ev-pop:focus { outline: none; }
@@ -1461,6 +1461,16 @@ span.spin { display: inline-block; width: 13px; height: 13px; border: 2px solid 
 .ev-pop h4 { align-items: flex-start; }
 .ev-pop .inv-row { align-items: flex-start; }
 .ev-pop .btn.chosen { background: var(--accent-soft); border-color: var(--accent); color: var(--accent-text); font-weight: 650; }
+/* 1.0.7 W7.12: the popover never reaches past the window (the details between the title and the footer scroll; the footer stays); the actions are buttons, not a menu */
+.ev-pop { max-height: calc(100vh - 16px); overflow: hidden; }
+.ev-pop h4 { flex: none; }
+.ev-pop .ev-details { display: flex; flex-direction: column; gap: 10px; min-height: 0; overflow-y: auto; overscroll-behavior: contain; }
+.ev-pop .ev-foot { flex: none; display: flex; flex-direction: column; gap: 8px; border-top: 1px solid var(--border); padding-top: 10px; }
+.ev-pop .ev-acts .btn { flex: none; }
+.ev-pop .ev-acts .btn svg { flex: none; }
+.ev-pop .ev-acts .ev-delete { margin-left: auto; } /* (last, at the right end of the last line when the row wraps) */
+.ev-pop .btn.icon-only { padding: 4px 8px; min-width: 30px; min-height: 28px; }
+.week-wrap:focus, .agenda:focus { outline: none; }
 .inv-row .sub { color: var(--muted); font-size: .92em; }
 .inv-row .link { display: inline; padding: 0; min-height: 0; line-height: inherit; }
 

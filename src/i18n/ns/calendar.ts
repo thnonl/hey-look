@@ -84,7 +84,6 @@ export default define({
     "calendar.pop.copyOf": "{summary} (copy)",
     "calendar.pop.join": "Join",
     "calendar.pop.openEmail": "Open invitation email",
-    "calendar.pop.more": "More actions",
     "calendar.pop.duplicate": "Duplicate",
 
     // ---- toasts
@@ -282,6 +281,15 @@ export default define({
     "calendar.err.cancelled": "Calendar sign-in was cancelled.",
     "calendar.err.wrongAccount": "You allowed access for {signedIn}. Sign in as {mailbox} to sync this mailbox’s calendar.",
     "calendar.err.partial": "Hey Look! needs every calendar permission it asked for. Turn the switch on again and keep all boxes ticked.",
+    // ---- 1.0.7 WP7a: consent confirm, build without a client, failed sender check
+    "calendar.consent.title": "Allow calendar access in your browser?",
+    "calendar.consent.body": "Hey Look! opens {provider}’s page in your browser. Sign in as {email} there and allow access to your calendars. Your mail sign-in doesn’t change.",
+    "calendar.consent.open": "Open browser",
+    "calendar.err.noClient": "This build of Hey Look! can’t sync calendars with {provider}.",
+    "calendar.invite.unverified": "This message didn’t pass the sender check (DKIM, SPF or DMARC), so it may not be from {name}.",
+    "calendar.invite.held": "Your calendar wasn’t changed.",
+    "calendar.invite.applyAnyway": "Apply anyway",
+    "calendar.toast.applied": "Your calendar was updated",
   },
 
   vi: {
@@ -362,7 +370,6 @@ export default define({
     "calendar.pop.copyOf": "{summary} (bản sao)",
     "calendar.pop.join": "Tham gia",
     "calendar.pop.openEmail": "Mở thư mời",
-    "calendar.pop.more": "Thao tác khác",
     "calendar.pop.duplicate": "Nhân bản",
 
     "calendar.toast.saved": "Đã lưu {name}",
@@ -554,6 +561,15 @@ export default define({
     "calendar.err.cancelled": "Đã hủy đăng nhập lịch.",
     "calendar.err.wrongAccount": "Bạn đã cấp quyền cho {signedIn}. Hãy đăng nhập bằng {mailbox} để đồng bộ lịch của hộp thư này.",
     "calendar.err.partial": "Hey Look! cần đủ mọi quyền truy cập lịch mà ứng dụng đã yêu cầu. Hãy bật lại công tắc và giữ nguyên tất cả các ô được chọn.",
+    // ---- 1.0.7 WP7a: consent confirm, build without a client, failed sender check
+    "calendar.consent.title": "Cho phép truy cập lịch trong trình duyệt?",
+    "calendar.consent.body": "Hey Look! sẽ mở trang của {provider} trong trình duyệt. Hãy đăng nhập bằng {email} ở đó và cho phép truy cập lịch của bạn. Cách đăng nhập thư của bạn không thay đổi.",
+    "calendar.consent.open": "Mở trình duyệt",
+    "calendar.err.noClient": "Phiên bản Hey Look! này không thể đồng bộ lịch với {provider}.",
+    "calendar.invite.unverified": "Thư này không vượt qua bước kiểm tra người gửi (DKIM, SPF hoặc DMARC), nên có thể không phải do {name} gửi.",
+    "calendar.invite.held": "Lịch của bạn chưa được thay đổi.",
+    "calendar.invite.applyAnyway": "Vẫn áp dụng",
+    "calendar.toast.applied": "Đã cập nhật lịch của bạn",
   },
 
   fr: {
@@ -634,7 +650,6 @@ export default define({
     "calendar.pop.copyOf": "{summary} (copie)",
     "calendar.pop.join": "Rejoindre",
     "calendar.pop.openEmail": "Ouvrir l’e-mail d’invitation",
-    "calendar.pop.more": "Autres actions",
     "calendar.pop.duplicate": "Dupliquer",
 
     "calendar.toast.saved": "{name} enregistré",
@@ -826,5 +841,14 @@ export default define({
     "calendar.err.cancelled": "La connexion au calendrier a été annulée.",
     "calendar.err.wrongAccount": "Vous avez autorisé l’accès pour {signedIn}. Connectez-vous avec {mailbox} pour synchroniser le calendrier de cette boîte aux lettres.",
     "calendar.err.partial": "Hey Look! a besoin de toutes les autorisations de calendrier demandées. Réactivez l’option et gardez toutes les cases cochées.",
+    // ---- 1.0.7 WP7a: consent confirm, build without a client, failed sender check
+    "calendar.consent.title": "Autoriser l’accès au calendrier dans votre navigateur ?",
+    "calendar.consent.body": "Hey Look! ouvre la page de {provider} dans votre navigateur. Connectez-vous-y avec {email} et autorisez l’accès à vos calendriers. Votre connexion à la messagerie ne change pas.",
+    "calendar.consent.open": "Ouvrir le navigateur",
+    "calendar.err.noClient": "Cette version de Hey Look! ne peut pas synchroniser les calendriers avec {provider}.",
+    "calendar.invite.unverified": "Ce message n’a pas réussi la vérification de l’expéditeur (DKIM, SPF ou DMARC) ; l’expéditeur n’est peut-être pas {name}.",
+    "calendar.invite.held": "Votre calendrier n’a pas été modifié.",
+    "calendar.invite.applyAnyway": "Appliquer quand même",
+    "calendar.toast.applied": "Calendrier mis à jour",
   },
 });

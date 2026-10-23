@@ -220,6 +220,8 @@ async function runCalendar(cfg, connected) {
   const setHash = (extra) => evaluate(`location.hash = ${JSON.stringify(hashFor(cfg, extra))}`);
   const state = async (st, text) => { await phase(`state ${st}`); await evaluate(`window.__mockCalSync.state(${JSON.stringify(st)})`); if (text) await waitFor(cfg, scenario, `the "${st}" status`, `${last}.text.includes(${JSON.stringify(text)})`, 3000); else await settle(); await settle(); if ((await evaluate(`${last}.slotOverflow`)) > 1) fail(cfg, scenario, `the "${st}" status does not fit its slot: ${await evaluate(`${last}.slotOverflow`)}px too much`); await shot(`state-${st}`); };
   const sw = '#set-calendar .switch';
+  // (1.0.7 W7.7: the switch and Allow access again ask first; the consent starts with Open browser)
+  const openBrowser = async () => { await waitFor(cfg, scenario, 'the question before the browser opens', `!!document.querySelector('.ask')`, 3000); await click('.ask-actions button:last-child'); };
   const fitsNow = async (what) => { const o = await evaluate(`${last}.slotOverflow`); if (o > 1) fail(cfg, scenario, `the ${what} message does not fit its slot: ${o}px too much`); };
   if (connected) {
     // the status of a connected calendar changes by itself (a sync ends, the network goes, access ends): the rows under it stay
@@ -236,6 +238,7 @@ async function runCalendar(cfg, connected) {
     await phase('Allow again waits');
     await setHash('calslow');
     await click('.mb-body .row-inline .btn.primary');
+    await openBrowser();
     await waitFor(cfg, scenario, 'the waiting consent', `${last}.waiting`); await settle();
     await fitsNow('waiting');
     await shot('allow-waiting');
@@ -245,6 +248,7 @@ async function runCalendar(cfg, connected) {
       await phase(`Allow again ends: ${why}`);
       await setHash(`calfail=${why}`);
       await click('.mb-body .row-inline .btn.primary');
+      await openBrowser();
       await waitFor(cfg, scenario, `the wait of the "${why}" consent`, `${last}.waiting`, 3000);
       await waitFor(cfg, scenario, `the end of the "${why}" consent`, `!${last}.waiting && ${last}.text.length > 20`, 6000);
       await settle();
@@ -257,6 +261,7 @@ async function runCalendar(cfg, connected) {
     await phase('switch on, waits');
     await setHash('calslow');
     await click(sw);
+    await openBrowser();
     await waitFor(cfg, scenario, 'the waiting message', `${last}.waiting`, 4000);
     await settle();
     await fitsNow('waiting');
@@ -270,6 +275,7 @@ async function runCalendar(cfg, connected) {
       await phase(`switch on ends: ${why}`);
       await setHash(`calfail=${why}`);
       await click(sw);
+      await openBrowser();
       await waitFor(cfg, scenario, `the wait of the "${why}" consent`, `${last}.waiting`, 3000);
       await waitFor(cfg, scenario, `the end of the "${why}" consent`, `!${last}.waiting && ${last}.text.length > 20`, 6000);
       await settle();

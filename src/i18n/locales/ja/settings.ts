@@ -480,6 +480,7 @@ export default defineLocale<typeof ns.en>({
   "settings.keys.saveAll": "すべての添付ファイルを保存",
   "settings.keys.mailCalendar": "メール / カレンダー",
   "settings.keys.calendarKeys": "カレンダー：新しい予定、今日、前へ / 次へ、月 / 週 / スケジュール",
+  "settings.keys.editEvent": "カレンダー：予定を編集（ダブルクリックでも可）",
   "settings.keys.selectAll": "すべて選択",
   "settings.keys.commandBar": "コマンドバー",
   "settings.keys.commandBarAnywhere": "コマンドバー（作成中も）",

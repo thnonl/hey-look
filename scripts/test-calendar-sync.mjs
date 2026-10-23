@@ -2,6 +2,9 @@
 // the calendar choice of a new event and the error sentences. Checks src/calendarSync.ts.
 // Run: node --experimental-strip-types scripts/test-calendar-sync.mjs
 import assert from "node:assert/strict";
+import fs from "node:fs";
+import path from "node:path";
+import { fileURLToPath } from "node:url";
 import {
   calendarErrorCode, calendarErrorText, calendarName, calendarSyncKind, defaultCalendar, deleteConfirm, isSyncedCalendarId, lastSyncedText,
   pausedSources, readOnlyNote, statusLine, syncedColor, truncatedNote, writableCalendars, CALENDAR_SYNC_KINDS,
@@ -107,5 +110,29 @@ assert.equal(calendarErrorText("something else"), null);
 assert.equal(calendarErrorCode("CAL_CANCELLED: Calendar sign-in was cancelled."), "CANCELLED");
 assert.equal(calendarErrorCode("Error: CAL_GONE: x"), null, "the code is at the start");
 assert.equal(calendarErrorCode("nothing"), null);
+
+// ---- a build without the OAuth client of the service (W7.8): the backend sentence is mapped to a key, in the language in use
+assert.equal(calendarErrorText("CAL_NOT_SET_UP: This build of Hey Look! can’t sync calendars with Google."), "This build of Hey Look! can’t sync calendars with Google.");
+assert.equal(calendarErrorText("CAL_NOT_SET_UP: This build of Hey Look! can’t sync calendars with Microsoft."), "This build of Hey Look! can’t sync calendars with Microsoft.");
+assert.equal(calendarErrorCode("CAL_NOT_SET_UP: This build of Hey Look! can’t sync calendars with Google."), "NOT_SET_UP");
+
+// ---- one confirmation before the browser opens (W7.7): the connect path of Settings asks first and calls the backend only after "Open browser"
+const root = path.join(path.dirname(fileURLToPath(import.meta.url)), "..");
+const settings = fs.readFileSync(path.join(root, "src/components/SettingsDialog.tsx"), "utf8");
+const connect = settings.slice(settings.indexOf("const connect = async () => {"), settings.indexOf("const stop = async () => {"));
+assert.ok(connect.length > 200 && connect.length < 3000, "found the connect function");
+const asked = connect.indexOf("await confirm(");
+const called = connect.indexOf("api.calendarConnect(");
+assert.ok(asked > 0 && called > asked, "the question comes before the call");
+for (const key of ["calendar.consent.title", "calendar.consent.body", "calendar.consent.open"]) assert.ok(connect.includes(key), key);
+assert.match(connect.slice(asked, called), /if \(!go\) \{[\s\S]*\.focus\(\);[\s\S]*return;\s*\}/, "Cancel returns before the call and puts the focus back");
+// every start of the consent goes through it: the one call site is that function (the switch and "Allow access again" both call connect)
+const sites = [];
+const walk = (d) => { for (const f of fs.readdirSync(d, { withFileTypes: true })) { const p = path.join(d, f.name); if (f.isDirectory()) walk(p); else if (/\.tsx?$/.test(f.name) && !/devMock|api\.ts$/.test(f.name) && fs.readFileSync(p, "utf8").includes("calendarConnect(")) sites.push(path.relative(root, p).split(path.sep).join("/")); } };
+walk(path.join(root, "src"));
+assert.deepEqual(sites, ["src/components/SettingsDialog.tsx"], "no other start of the calendar consent");
+assert.equal(settings.split("calendarConnect(").length - 1, 1);
+const starts = settings.split("onChange={(v) => void (v ? connect() : stop())}").length - 1 + settings.split("onClick={() => void connect()}").length - 1;
+assert.equal(starts, 2, "the switch and Allow access again both call connect()");
 
 console.log("calendar sync: all checks passed");

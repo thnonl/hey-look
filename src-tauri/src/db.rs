@@ -104,6 +104,11 @@ pub fn migrate(conn: &Connection) -> R<()> {
     add_column(conn, "ALTER TABLE events ADD COLUMN series_id TEXT")?;
     add_column(conn, "ALTER TABLE events ADD COLUMN remote_kind TEXT")?;
     add_column(conn, "ALTER TABLE events ADD COLUMN read_only INTEGER NOT NULL DEFAULT 0")?;
+    // Google: the token of the calendar list (changes only, 1.0.7 W7.6) and when a calendar over the event cap was last downloaded in full
+    add_column(conn, "ALTER TABLE cal_sources ADD COLUMN list_state TEXT")?;
+    add_column(conn, "ALTER TABLE calendars ADD COLUMN full_at INTEGER")?;
+    // extra dates of a series (iCalendar RDATE, a JSON array of UTC seconds), 1.0.7 W7.2
+    add_column(conn, "ALTER TABLE events ADD COLUMN rdates TEXT NOT NULL DEFAULT '[]'")?;
     conn.execute_batch("CREATE INDEX IF NOT EXISTS idx_events_remote ON events(calendar_id, remote_id);").map_err(err)?;
     // the message being written, kept until it is sent, discarded or saved (crash recovery, see recover.rs)
     crate::recover::create_tables(conn)?;

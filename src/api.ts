@@ -158,6 +158,10 @@ export interface CalInvite {
   parseError: string | null;
   /** the invitation was over a size cap and some details (repeat rule, guests, excluded dates) were not imported */
   trimmed?: boolean;
+  /** the receiving server's sender check of this message failed */
+  unverified?: boolean;
+  /** ... and a change this message carries was therefore not applied: the card offers Apply anyway */
+  held?: boolean;
 }
 export interface CalEvent {
   id: string;
@@ -189,6 +193,8 @@ export interface CalEvent {
   instanceStart?: number | null;
   /** an event of a synced calendar that can't be changed here, and why */
   readOnly?: "calendar" | "repeating" | "organizer" | null;
+  /** the series has extra dates (RDATE); without a repeat rule the popover calls it "Custom" */
+  hasRdates?: boolean;
 }
 export interface CalEventInput {
   id?: string | null;
@@ -733,12 +739,14 @@ export const api = {
   calendarDeleteEvent: (id: string, notify: boolean) => invoke<void>("calendar_delete_event", { id, notify }),
   calendarRespond: (messageId: string, response: Rsvp, comment: string | null, send: boolean) =>
     invoke<CalInvite>("calendar_respond", { messageId, response, comment, send }),
-  calendarAddFromMessage: (messageId: string) => invoke<CalEvent>("calendar_add_from_message", { messageId }),
+  calendarAddFromMessage: (messageId: string, overrideAuth = false) => invoke<CalEvent>("calendar_add_from_message", { messageId, overrideAuth }),
   calendarSaveIcs: (target: { messageId?: string; eventId?: string }) =>
     invoke<string | null>("calendar_save_ics", { messageId: target.messageId ?? null, eventId: target.eventId ?? null }),
   calendarImportIcs: () => invoke<{ added: number; updated: number } | null>("calendar_import_ics"),
   // calendar sync (Google Calendar / Outlook)
   calendarSources: () => invoke<CalSource[]>("calendar_sources"),
+  /** the services this build can connect ("google", "microsoft"): a mailbox whose service is not in it cannot turn calendar sync on */
+  calendarKindsAvailable: () => invoke<string[]>("calendar_kinds_available"),
   calendarConnect: (accountId: string) => invoke<CalSource>("calendar_connect", { accountId }),
   calendarCancelConnect: () => invoke<void>("calendar_cancel_connect"),
   calendarDisconnect: (accountId: string) => invoke<void>("calendar_disconnect", { accountId }),

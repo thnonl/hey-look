@@ -83,7 +83,6 @@ export default defineLocale<typeof ns.en>({
   "calendar.pop.copyOf": "{summary}（コピー）",
   "calendar.pop.join": "参加",
   "calendar.pop.openEmail": "招待メールを開く",
-  "calendar.pop.more": "その他の操作",
   "calendar.pop.duplicate": "複製",
   // ---- toasts
   "calendar.toast.saved": "{name}を保存しました",
@@ -275,4 +274,13 @@ export default defineLocale<typeof ns.en>({
   "calendar.err.cancelled": "カレンダーのサインインがキャンセルされました。",
   "calendar.err.wrongAccount": "{signedIn}でアクセスを許可しました。このメールボックスのカレンダーを同期するには、{mailbox}でサインインしてください。",
   "calendar.err.partial": "Hey Look!は、要求したカレンダーの権限をすべて必要とします。スイッチをもう一度オンにして、すべてのチェックボックスをオンのままにしてください。",
+  // ---- 1.0.7 WP7a: consent confirm, build without a client, failed sender check
+  "calendar.consent.title": "カレンダーへのアクセスをブラウザーで許可しますか？",
+  "calendar.consent.body": "Hey Look!が{provider}のページをブラウザーで開きます。そこで{email}としてサインインし、カレンダーへのアクセスを許可してください。メールのサインインは変更されません。",
+  "calendar.consent.open": "ブラウザーを開く",
+  "calendar.err.noClient": "このビルドのHey Look!では、{provider}とカレンダーを同期できません。",
+  "calendar.invite.unverified": "このメッセージは送信者の認証（DKIM、SPF、DMARC）に通らなかったため、{name}からのメッセージではない可能性があります。",
+  "calendar.invite.held": "カレンダーは変更されていません。",
+  "calendar.invite.applyAnyway": "それでも適用",
+  "calendar.toast.applied": "カレンダーを更新しました",
 });

@@ -42,7 +42,7 @@ assert.match(cal, /\{src && \(\s*<div className="row-inline set-actions">/, "the
 assert.match(cal, /disabled=\{connecting\} onClick=\{\(\) => void connect\(\)\}/, "Allow again is off while the consent waits");
 assert.match(cal, /\{src && src\.calendars\.length > 0 && \(/, "the calendar list stays while a consent waits");
 assert.match(cal, /useEffect\(\(\) => \{\s*setErr\(null\);\s*setEnded\(null\);\s*\}, \[src\?\.status\]\);/, "an old message goes when the sync state moves on");
-assert.match(cal, /opener\.current = document\.activeElement as HTMLElement \| null;/, "the element that started the consent is remembered");
+assert.match(cal, /const starter = document\.activeElement as HTMLElement \| null;[\s\S]*?opener\.current = starter;/, "the element that started the consent is remembered (taken before the question that comes first)");
 assert.match(cal, /back\?\.focus\(\)/, "and gets the focus back when the consent ends");
 
 // 4. the CSS: a slot of fixed minimum size (it holds the longest message in every language), no margin under the notice inside it, an action row of one height

@@ -1,7 +1,7 @@
 import { openUpdateLink } from "../updates";
 import {
-  CalendarCheck, CalendarDays, CalendarPlus, CalendarX, Check, ChevronDown, ChevronLeft, ChevronRight, ChevronUp, CircleCheck, Clock, Download, History, Info, MapPin,
-  Mail, MoreHorizontal, RefreshCw, Repeat, TriangleAlert, UserRound, Video, X,
+  CalendarCheck, CalendarDays, CalendarPlus, CalendarX, Check, ChevronDown, ChevronLeft, ChevronRight, ChevronUp, CircleCheck, Clock, Copy, Download, History, Info, MapPin,
+  Mail, Pencil, RefreshCw, Repeat, Trash2, TriangleAlert, UserRound, Video, X,
 } from "lucide-react";
 import { ReactNode, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { api, CalEvent, CalInvite, errorCode, MessageFull, Rsvp } from "../api";
@@ -108,6 +108,8 @@ export function InviteCard({ m }: { m: MessageFull }) {
   const [menu, setMenu] = useState<Rsvp | null>(null);
   const [showAtt, setShowAtt] = useState(inv.attendees.length <= 8);
   const [adding, setAdding] = useState(false);
+  const [applying, setApplying] = useState(false);
+  const warnRef = useRef<HTMLDivElement>(null);
   const menuRef = useRef<HTMLDivElement>(null);
   const optsRef = useRef<HTMLButtonElement>(null); // the "options" button of the open menu: Escape returns focus to it
   const closeMenu = useCallback(() => setMenu(null), []);
@@ -184,6 +186,34 @@ export function InviteCard({ m }: { m: MessageFull }) {
     setModule("calendar");
   };
 
+  // the receiving server's sender check failed (W7.3): a change this message carries was not applied until the person says so
+  const applyAnyway = async () => {
+    setApplying(true);
+    try {
+      await api.calendarAddFromMessage(m.id, true);
+      showToast(t("calendar.toast.applied"), undefined, "success");
+      useStore.getState().bumpCal();
+      await useStore.getState().reloadMessages();
+      warnRef.current?.focus(); // the button is gone: the focus stays on the notice
+    } catch (e) {
+      showToast(() => t("calendar.toast.addFailed", { error: friendlyError(e) }), undefined, "error");
+    } finally {
+      setApplying(false);
+    }
+  };
+  const unverifiedNotice = (who: string) =>
+    inv.unverified ? (
+      <div ref={warnRef} tabIndex={-1} className="notice bad" role="alert" style={{ margin: "0 16px 10px" }}>
+        {t("calendar.invite.unverified", { name: who })}
+        {inv.held && (
+          <>
+            {" "}{t("calendar.invite.held")}{" "}
+            <button className="link" disabled={applying} onClick={() => void applyAnyway()}>{t("calendar.invite.applyAnyway")}</button>
+          </>
+        )}
+      </div>
+    ) : null;
+
   const orgTz = inv.tzid && inv.tzid !== tz && !inv.allDay && tzOffsetLabel(inv.tzid, inv.start * 1000) !== tzOffsetLabel(tz, inv.start * 1000) ? inv.tzid : null;
   const method = inv.method;
   const isReq = method === "REQUEST" || method === "PUBLISH";
@@ -214,6 +244,7 @@ export function InviteCard({ m }: { m: MessageFull }) {
             )}
           </div>
         </div>
+        {unverifiedNotice(who)}
         <div className="invite-actions">
           <span className="grow" />
           {inv.eventId && <button className="link-btn" onClick={openInCalendar}><CalendarDays size={14} /> {t("calendar.invite.openInCalendar")}</button>}
@@ -371,6 +402,7 @@ export function InviteCard({ m }: { m: MessageFull }) {
       {method === "OTHER" && (
         <div className="notice info" style={{ margin: "0 16px 10px" }}>{t("calendar.invite.other")}</div>
       )}
+      {unverifiedNotice(organizerName)}
       {err && (
         <div className="inline-err" role="alert" style={{ padding: "0 16px 8px" }}>
           <TriangleAlert size={14} aria-hidden /> {t("calendar.invite.sendFailed", { error: err.text })} <button className="link" onClick={err.retry}>{t("common.retry")}</button>
@@ -447,6 +479,19 @@ function useNow(everyMs = 60_000) {
 interface PopState {
   ev: CalEvent;
   rect: DOMRect;
+  /** the chip, block or row that opened it: the focus goes back to it */
+  el: HTMLElement;
+}
+
+/**
+ * Whether the edit dialog applies to an event: My events, and the events of a synced calendar unless the calendar or the service says read only. An invitation
+ * (answered with its buttons) and an event of a read-only calendar are not edited; they show their details.
+ */
+const canEditEvent = (ev: Pick<CalEvent, "calendarId" | "readOnly">) => ev.calendarId === "local" || (isSyncedCalendarId(ev.calendarId) && !ev.readOnly);
+
+/** What Edit does: the popover's Edit button, a double-click on an event and Ctrl/Cmd+Enter on it. (A series will ask which part first, W7.1.) */
+function openEventForEdit(ev: CalEvent) {
+  useStore.getState().setDialog({ type: "event", eventId: ev.id });
 }
 
 /** Start of the next full hour (epoch seconds) in the calendar zone. */
@@ -473,7 +518,7 @@ const VIEW_KEYS = { month: ["calendar.view.month", "calendar.view.monthTip"], we
 
 export function CalendarView() {
   const t = useT();
-  const { prefs, calDate, calEvents, calendars, calLoading, calError, loadCalendar, setCalDate, setCalView, accounts } = useStore();
+  const { prefs, calDate, calEvents, calendars, calLoading, calError, loadCalendar, setCalDate, setCalView, accounts, dialog } = useStore();
   const tz = useTz();
   const view: CalView = prefs.calView;
   const [pop, setPop] = useState<PopState | null>(null);
@@ -497,7 +542,30 @@ export function CalendarView() {
 
   const step = (dir: 1 | -1) => setCalDate(view === "month" ? addMonths(calDate, dir) : view === "week" ? addDays(calDate, 7 * dir) : addDays(calDate, 30 * dir));
   const title = view === "month" ? monthTitle(calDate) : view === "week" ? weekTitle(weekDays(calDate, prefs.weekStart)) : t("calendar.fromDay", { day: fmtDayLong(calDate) });
-  const openPop = (ev: CalEvent, el: HTMLElement) => setPop({ ev, rect: el.getBoundingClientRect() });
+  const openPop = (ev: CalEvent, el: HTMLElement) => setPop({ ev, rect: el.getBoundingClientRect(), el });
+  // a double-click or Ctrl/Cmd+Enter on an event, and the popover's Edit: the edit dialog, or the details when this event cannot be edited
+  const editOrigin = useRef<HTMLElement | null>(null);
+  const edit = (ev: CalEvent, el: HTMLElement) => {
+    if (!canEditEvent(ev)) return openPop(ev, el);
+    editOrigin.current = el;
+    setPop(null);
+    openEventForEdit(ev);
+  };
+  // when that dialog closes (Save, Cancel, Esc) the focus returns to the event that opened it, else to the day or the grid (a button is not focused by a click in WebKit,
+  // so the dialog cannot be trusted to remember it)
+  const wasEvent = useRef(false);
+  useEffect(() => {
+    const isEvent = dialog?.type === "event";
+    if (wasEvent.current && !isEvent && editOrigin.current) {
+      const el = editOrigin.current;
+      editOrigin.current = null;
+      requestAnimationFrame(() => {
+        const to = document.contains(el) ? el : document.querySelector<HTMLElement>(".mday[tabindex='0'], .week-wrap, .agenda");
+        to?.focus({ preventScroll: true });
+      });
+    }
+    wasEvent.current = isEvent;
+  }, [dialog]);
   void accounts;
 
   return (
@@ -522,17 +590,22 @@ export function CalendarView() {
         </div>
       )}
       {view === "month" && (
-        <MonthView events={events} focus={focus} setFocus={setFocus} tz={tz} anchor={calDate} weekStart={prefs.weekStart} todayD={todayD} color={color} openPop={openPop} loading={calLoading} />
+        <MonthView events={events} focus={focus} setFocus={setFocus} tz={tz} anchor={calDate} weekStart={prefs.weekStart} todayD={todayD} color={color} openPop={openPop} edit={edit} loading={calLoading} />
       )}
-      {view === "week" && <WeekView events={events} tz={tz} anchor={calDate} weekStart={prefs.weekStart} todayD={todayD} now={now} color={color} openPop={openPop} />}
-      {view === "agenda" && <AgendaView events={events} tz={tz} from={calDate} todayD={todayD} color={color} openPop={openPop} loading={calLoading} />}
-      {pop && <EventPopover state={pop} tz={tz} color={eventColor(pop.ev, color)} onClose={() => setPop(null)} />}
+      {view === "week" && <WeekView events={events} tz={tz} anchor={calDate} weekStart={prefs.weekStart} todayD={todayD} now={now} color={color} openPop={openPop} edit={edit} />}
+      {view === "agenda" && <AgendaView events={events} tz={tz} from={calDate} todayD={todayD} color={color} openPop={openPop} edit={edit} loading={calLoading} />}
+      {pop && <EventPopover state={pop} tz={tz} color={eventColor(pop.ev, color)} onClose={() => setPop(null)} onEdit={() => edit(pop.ev, pop.el)} />}
       <span hidden>{calendars.length}</span>
     </section>
   );
 }
 
-function Chip({ ev, tz, color, openPop }: { ev: CalEvent; tz: string; color: string; openPop: (e: CalEvent, el: HTMLElement) => void }) {
+/** Enter with Ctrl (Cmd on a Mac) on a focused event does what a double-click does. */
+const isEditKey = (e: React.KeyboardEvent) => e.key === "Enter" && (e.ctrlKey || e.metaKey);
+
+type EventAct = (e: CalEvent, el: HTMLElement) => void;
+
+function Chip({ ev, tz, color, openPop, edit }: { ev: CalEvent; tz: string; color: string; openPop: EventAct; edit: EventAct }) {
   return (
     <button
       type="button"
@@ -544,7 +617,9 @@ function Chip({ ev, tz, color, openPop }: { ev: CalEvent; tz: string; color: str
         e.stopPropagation();
         openPop(ev, e.currentTarget);
       }}
-      onDoubleClick={(e) => e.stopPropagation()}
+      // (a double-click on an event never makes a new event on the day: it edits this one, or shows its details)
+      onDoubleClick={(e) => (e.stopPropagation(), edit(ev, e.currentTarget))}
+      onKeyDown={(e) => isEditKey(e) && (e.preventDefault(), e.stopPropagation(), edit(ev, e.currentTarget))}
     >
       {!ev.allDay && <time>{fmtTime(ev.start, tz)}</time>}
       <span className="ellipsis">{ev.summary}</span>
@@ -555,10 +630,10 @@ function Chip({ ev, tz, color, openPop }: { ev: CalEvent; tz: string; color: str
 const MAX_CHIPS = 3;
 
 function MonthView({
-  events, focus, setFocus, tz, anchor, weekStart, todayD, color, openPop, loading,
+  events, focus, setFocus, tz, anchor, weekStart, todayD, color, openPop, edit, loading,
 }: {
   events: CalEvent[]; focus: Day; setFocus: (d: Day) => void; tz: string; anchor: Day; weekStart: number; todayD: Day;
-  color: (id: string) => string | undefined; openPop: (e: CalEvent, el: HTMLElement) => void; loading: boolean;
+  color: (id: string) => string | undefined; openPop: EventAct; edit: EventAct; loading: boolean;
 }) {
   const t = useT();
   const setCalDate = useStore((s) => s.setCalDate);
@@ -612,7 +687,7 @@ function MonthView({
               }}
             >
               <span className="mnum">{day.d === 1 ? fmtDayMonth(day) : day.d}</span>
-              {loading && events.length === 0 ? (!other && day.d % 3 === 0 ? <div className="sk" style={{ height: 16, margin: "2px 2px" }} aria-hidden="true" /> : null) : shown.map((ev) => <Chip key={`${ev.id}:${ev.start}`} ev={ev} tz={tz} color={eventColor(ev, color)} openPop={openPop} />)}
+              {loading && events.length === 0 ? (!other && day.d % 3 === 0 ? <div className="sk" style={{ height: 16, margin: "2px 2px" }} aria-hidden="true" /> : null) : shown.map((ev) => <Chip key={`${ev.id}:${ev.start}`} ev={ev} tz={tz} color={eventColor(ev, color)} openPop={openPop} edit={edit} />)}
               {more > 0 && (
                 <button type="button" className="ev-more" onClick={(e) => (e.stopPropagation(), setCalDate(day), setCalView("agenda"))}>
                   {t("calendar.more", { n: more })}
@@ -627,10 +702,10 @@ function MonthView({
 }
 
 function WeekView({
-  events, tz, anchor, weekStart, todayD, now, color, openPop,
+  events, tz, anchor, weekStart, todayD, now, color, openPop, edit,
 }: {
   events: CalEvent[]; tz: string; anchor: Day; weekStart: number; todayD: Day; now: number;
-  color: (id: string) => string | undefined; openPop: (e: CalEvent, el: HTMLElement) => void;
+  color: (id: string) => string | undefined; openPop: EventAct; edit: EventAct;
 }) {
   const t = useT();
   const days = useMemo(() => weekDays(anchor, weekStart), [anchor, weekStart]);
@@ -669,7 +744,7 @@ function WeekView({
   const hours = Array.from({ length: 24 }, (_, h) => h);
 
   return (
-    <div className="week-wrap" role="grid" aria-label={weekTitle(days)}>
+    <div className="week-wrap" role="grid" aria-label={weekTitle(days)} tabIndex={-1}>
     <div className="week-head" style={{ paddingRight: sbw }}>
       <div className="wk-dh" />
       {days.map((d) => (
@@ -681,7 +756,7 @@ function WeekView({
       <div className="wk-allday-label">{t("calendar.allDay")}</div>
       {days.map((d) => (
         <div key={`ad-${dayKey(d)}`} className="wk-allday">
-          {eventsOnDay(events, d, tz).filter((e) => e.allDay).map((ev) => <Chip key={`${ev.id}:${ev.start}`} ev={ev} tz={tz} color={eventColor(ev, color)} openPop={openPop} />)}
+          {eventsOnDay(events, d, tz).filter((e) => e.allDay).map((ev) => <Chip key={`${ev.id}:${ev.start}`} ev={ev} tz={tz} color={eventColor(ev, color)} openPop={openPop} edit={edit} />)}
         </div>
       ))}
     </div>
@@ -720,7 +795,8 @@ function WeekView({
                   aria-label={eventLabel(ev, tz)}
                   title={eventLabel(ev, tz)}
                   onClick={(e) => (e.stopPropagation(), openPop(ev, e.currentTarget))}
-                  onDoubleClick={(e) => e.stopPropagation()}
+                  onDoubleClick={(e) => (e.stopPropagation(), edit(ev, e.currentTarget))}
+                  onKeyDown={(e) => isEditKey(e) && (e.preventDefault(), e.stopPropagation(), edit(ev, e.currentTarget))}
                 >
                   <b>{ev.summary}</b>
                   {h > 34 && <span>{fmtClockRange(ev, tz)}</span>}
@@ -750,9 +826,9 @@ function statusPill(ev: CalEvent): ReactNode {
 }
 
 function AgendaView({
-  events, tz, from, todayD, color, openPop, loading,
+  events, tz, from, todayD, color, openPop, edit, loading,
 }: {
-  events: CalEvent[]; tz: string; from: Day; todayD: Day; color: (id: string) => string | undefined; openPop: (e: CalEvent, el: HTMLElement) => void; loading: boolean;
+  events: CalEvent[]; tz: string; from: Day; todayD: Day; color: (id: string) => string | undefined; openPop: EventAct; edit: EventAct; loading: boolean;
 }) {
   const t = useT();
   const days = Array.from({ length: 30 }, (_, i) => addDays(from, i));
@@ -773,7 +849,7 @@ function AgendaView({
     );
   }
   return (
-    <div className="agenda" role="list" aria-label={t("calendar.agenda.label")}>
+    <div className="agenda" role="list" aria-label={t("calendar.agenda.label")} tabIndex={-1}>
       {groups.map(({ d, list }) => (
         <div key={dayKey(d)} role="listitem">
           <div className="ag-day">{sameDay(d, todayD) ? t("calendar.agenda.today", { day: fmtDayShort(d) }) : fmtDayShort(d)}</div>
@@ -786,8 +862,12 @@ function AgendaView({
               style={{ ["--ev" as string]: eventColor(ev, color) }}
               aria-label={eventLabel(ev, tz)}
               onClick={(e) => openPop(ev, e.currentTarget)}
+              onDoubleClick={(e) => edit(ev, e.currentTarget)}
               onKeyDown={(e) => {
-                if (e.key === "Enter" || e.key === " ") {
+                if (isEditKey(e)) {
+                  e.preventDefault();
+                  edit(ev, e.currentTarget);
+                } else if (e.key === "Enter" || e.key === " ") {
                   e.preventDefault();
                   openPop(ev, e.currentTarget);
                 }
@@ -810,7 +890,7 @@ function AgendaView({
 
 // =============================================================== event popover
 
-function EventPopover({ state, tz, color, onClose }: { state: PopState; tz: string; color: string; onClose: () => void }) {
+function EventPopover({ state, tz, color, onClose, onEdit }: { state: PopState; tz: string; color: string; onClose: () => void; onEdit: () => void }) {
   const t = useT();
   const { showToast, choose, confirm, setDialog, bumpCal, setModule, setView, openMail: openMailThread } = useStore();
   const ev = state.ev;
@@ -819,6 +899,20 @@ function EventPopover({ state, tz, color, onClose }: { state: PopState; tz: stri
   const [busy, setBusy] = useState<Rsvp | null>(null);
   const [err, setErr] = useState<string | null>(null);
   const [pos, setPos] = useState<{ top: number; left: number }>({ top: 0, left: 0 });
+  // narrower than 300 px inside (a window under about 340 px): the action buttons keep their icon and lose their label
+  const [narrow, setNarrow] = useState(false);
+  useLayoutEffect(() => {
+    const el = ref.current;
+    if (!el) return;
+    const measure = () => {
+      const cs = getComputedStyle(el);
+      setNarrow(el.clientWidth - parseFloat(cs.paddingLeft) - parseFloat(cs.paddingRight) < 300);
+    };
+    measure();
+    const ro = new ResizeObserver(measure);
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, []);
   // keyboard users land in the popover and return to the event they came from
   useEffect(() => {
     const back = document.activeElement as HTMLElement | null;
@@ -833,16 +927,21 @@ function EventPopover({ state, tz, color, onClose }: { state: PopState; tz: stri
   const lockNote = synced ? readOnlyNote(ev, syncedCal?.name ?? "", syncedCal?.service) : null;
   const canRsvp = invite && !!ev.sourceMessageId && ev.myStatus !== "organizer" && ev.myStatus !== null && ev.status !== "cancelled";
 
-  // below the chip, or above it when there is no room; kept inside the window
-  useEffect(() => {
-    const el = ref.current;
-    const h = el?.offsetHeight ?? 220;
-    const w = 392;
-    const r = state.rect;
-    let top = r.bottom + 6;
-    if (top + h > window.innerHeight - 8) top = Math.max(8, r.top - h - 6);
-    const left = Math.max(8, Math.min(r.left, window.innerWidth - w - 8));
-    setPos({ top, left });
+  // below the chip, or above it when there is no room; kept inside the window (the popover is never taller than the window: its details scroll)
+  useLayoutEffect(() => {
+    const place = () => {
+      const h = ref.current?.offsetHeight ?? 220;
+      const w = 392;
+      const r = state.rect;
+      let top = r.bottom + 6;
+      if (top + h > window.innerHeight - 8) top = Math.max(8, r.top - h - 6);
+      top = Math.max(8, Math.min(top, window.innerHeight - 8 - h));
+      const left = Math.max(8, Math.min(r.left, window.innerWidth - w - 8));
+      setPos({ top, left });
+    };
+    place();
+    window.addEventListener("resize", place); // (a window that gets smaller keeps the popover inside)
+    return () => window.removeEventListener("resize", place);
   }, [state.rect, ev.id]);
 
   const respond = async (r: Rsvp) => {
@@ -922,6 +1021,23 @@ function EventPopover({ state, tz, color, onClose }: { state: PopState; tz: stri
   };
 
   const others = ev.attendees.length;
+  // the repeat rule in words; a series that only has extra dates (RDATE) has no rule to describe
+  const repeatText = ev.recurrenceText ?? (ev.hasRdates ? t("calendar.repeat.customFallback") : null);
+  // which actions apply to this event (an action that cannot be done is not shown; the note under the details says why Edit is missing)
+  const showEdit = canEditEvent(ev);
+  const showCopy = !ev.confidential;
+  const showDelete = !(synced && !!ev.readOnly);
+  const showMail = invite && !!ev.sourceMessageId;
+  const answerRow = canRsvp || !!ev.joinUrl;
+  // an action button: icon and label, or the icon alone (with the label as its name and tooltip) in a narrow popover
+  const actionButton = (label: string, icon: ReactNode, onClick: () => void, danger = false) => {
+    const cls = `btn small${danger ? " danger ev-delete" : ""}`;
+    return narrow ? (
+      <button type="button" className={`${cls} icon-only`} title={label} aria-label={label} onClick={onClick}>{icon}</button>
+    ) : (
+      <button type="button" className={cls} onClick={onClick}>{icon}<span>{label}</span></button>
+    );
+  };
   return (
     <div ref={ref} tabIndex={-1} className="popover ev-pop" role="dialog" aria-label={t("calendar.pop.aria", { summary: ev.summary })} style={{ position: "fixed", top: pos.top, left: pos.left, zIndex: 40 }}>
       <h4 style={{ textDecoration: ev.status === "cancelled" ? "line-through" : undefined }}>
@@ -929,58 +1045,58 @@ function EventPopover({ state, tz, color, onClose }: { state: PopState; tz: stri
         <span className="grow">{ev.summary}</span>
         <button className="icon-btn" aria-label={t("common.close")} onClick={onClose}><X size={14} /></button>
       </h4>
-      <div className="inv-row"><Clock size={14} aria-hidden /><span>{fmtRange(ev, tz)}{ev.recurrenceText ? <><br /><span className="sub"><Repeat size={11} aria-hidden style={{ verticalAlign: -1 }} /> {ev.recurrenceText}</span></> : ""}</span></div>
-      {(ev.location || ev.joinUrl) && (
-        <div className="inv-row">
-          <MapPin size={14} aria-hidden />
-          <span>
-            {ev.location && (isUrl(ev.location) ? null : ev.location)}
-            {ev.location && !isUrl(ev.location) && ev.joinUrl && " · "}
-            {(ev.joinUrl || (ev.location && isUrl(ev.location))) && <button className="link" onClick={() => void open((ev.joinUrl ?? ev.location)!)}>{joinLabel((ev.joinUrl ?? ev.location)!)}</button>}
-          </span>
-        </div>
-      )}
-      {(ev.organizer || others > 0) && (
-        <div className="inv-row">
-          <UserRound size={14} aria-hidden />
-          <span>
-            {ev.organizer ? t("calendar.pop.organizerOf", { name: personName(ev.organizer) }) : ""}{ev.organizer && others > 1 ? " · " : ""}{others > 1 ? t("calendar.pop.attendees", { n: others }) : ""}
-          </span>
-        </div>
-      )}
-      {myStatusLabel(ev.myStatus) && ev.myStatus !== "organizer" && (
-        <div className="inv-row"><CircleCheck size={14} aria-hidden /><span>{ev.status === "cancelled" ? t("calendar.pop.cancelledByOrganizer") : myStatusLabel(ev.myStatus)}{ev.respondedAt === null && ev.myStatus !== "needs-action" ? ` (${t("calendar.invite.noResponseSent")})` : ""}</span></div>
-      )}
-      {ev.description && <div className="muted small" style={{ whiteSpace: "pre-wrap", maxHeight: 90, overflow: "auto" }}>{ev.description.slice(0, 600)}</div>}
-      {lockNote && <div className="muted small">{lockNote}</div>}
-      {err && <div className="inline-err" role="alert"><TriangleAlert size={14} aria-hidden /> {err}</div>}
-      <div className="ev-acts">
-        {canRsvp && (
-          <>
-            <button className={`btn small ${ev.myStatus === "accepted" ? "chosen" : ""}`} disabled={busy !== null} onClick={() => void respond("accepted")}>{busy === "accepted" ? t("calendar.sending") : t("calendar.rsvp.accept")}</button>
-            <button className={`btn small ${ev.myStatus === "tentative" ? "chosen" : ""}`} disabled={busy !== null} onClick={() => void respond("tentative")}>{busy === "tentative" ? t("calendar.sending") : t("calendar.rsvp.tentative")}</button>
-            <button className={`btn small ${ev.myStatus === "declined" ? "chosen" : ""}`} disabled={busy !== null} onClick={() => void respond("declined")}>{busy === "declined" ? t("calendar.sending") : t("calendar.rsvp.decline")}</button>
-          </>
+      <div className="ev-details">
+        <div className="inv-row"><Clock size={14} aria-hidden /><span>{fmtRange(ev, tz)}{repeatText ? <><br /><span className="sub"><Repeat size={11} aria-hidden style={{ verticalAlign: -1 }} /> {repeatText}</span></> : ""}</span></div>
+        {(ev.location || ev.joinUrl) && (
+          <div className="inv-row">
+            <MapPin size={14} aria-hidden />
+            <span>
+              {ev.location && (isUrl(ev.location) ? null : ev.location)}
+              {ev.location && !isUrl(ev.location) && ev.joinUrl && " · "}
+              {(ev.joinUrl || (ev.location && isUrl(ev.location))) && <button className="link" onClick={() => void open((ev.joinUrl ?? ev.location)!)}>{joinLabel((ev.joinUrl ?? ev.location)!)}</button>}
+            </span>
+          </div>
         )}
-        {ev.joinUrl && <button className="btn small primary" onClick={() => void open(ev.joinUrl!)}><Video size={13} /> {t("calendar.pop.join")}</button>}
-        <span className="grow" />
-        {invite && ev.sourceMessageId && <button className="icon-btn" title={t("calendar.pop.openEmail")} aria-label={t("calendar.pop.openEmail")} onClick={() => void openMail()}><Mail size={15} /></button>}
-        <Dropdown
-          className="icon-btn"
-          caret={false}
-          align="right"
-          title={t("calendar.pop.more")}
-          items={[
-            { label: t("common.edit"), disabled: !(mine || (synced && !ev.readOnly)), onClick: () => (onClose(), setDialog({ type: "event", eventId: ev.id })) },
-            { label: t("calendar.pop.duplicate"), disabled: ev.confidential, onClick: duplicate },
-            { label: t("calendar.saveIcs"), disabled: ev.confidential, onClick: () => void saveIcs() },
-            { divider: true },
-            { label: t("common.delete"), disabled: synced && !!ev.readOnly, onClick: () => void remove() },
-          ]}
-        >
-          <MoreHorizontal size={15} />
-        </Dropdown>
+        {(ev.organizer || others > 0) && (
+          <div className="inv-row">
+            <UserRound size={14} aria-hidden />
+            <span>
+              {ev.organizer ? t("calendar.pop.organizerOf", { name: personName(ev.organizer) }) : ""}{ev.organizer && others > 1 ? " · " : ""}{others > 1 ? t("calendar.pop.attendees", { n: others }) : ""}
+            </span>
+          </div>
+        )}
+        {myStatusLabel(ev.myStatus) && ev.myStatus !== "organizer" && (
+          <div className="inv-row"><CircleCheck size={14} aria-hidden /><span>{ev.status === "cancelled" ? t("calendar.pop.cancelledByOrganizer") : myStatusLabel(ev.myStatus)}{ev.respondedAt === null && ev.myStatus !== "needs-action" ? ` (${t("calendar.invite.noResponseSent")})` : ""}</span></div>
+        )}
+        {ev.description && <div className="muted small" style={{ whiteSpace: "pre-wrap", maxHeight: 90, overflow: "auto" }}>{ev.description.slice(0, 600)}</div>}
+        {lockNote && <div className="muted small">{lockNote}</div>}
+        {err && <div className="inline-err" role="alert"><TriangleAlert size={14} aria-hidden /> {err}</div>}
       </div>
+      {(answerRow || showMail || showEdit || showCopy || showDelete) && (
+        <div className="ev-foot">
+          {answerRow && (
+            <div className="ev-acts ev-answer">
+              {canRsvp && (
+                <>
+                  <button className={`btn small ${ev.myStatus === "accepted" ? "chosen" : ""}`} disabled={busy !== null} onClick={() => void respond("accepted")}>{busy === "accepted" ? t("calendar.sending") : t("calendar.rsvp.accept")}</button>
+                  <button className={`btn small ${ev.myStatus === "tentative" ? "chosen" : ""}`} disabled={busy !== null} onClick={() => void respond("tentative")}>{busy === "tentative" ? t("calendar.sending") : t("calendar.rsvp.tentative")}</button>
+                  <button className={`btn small ${ev.myStatus === "declined" ? "chosen" : ""}`} disabled={busy !== null} onClick={() => void respond("declined")}>{busy === "declined" ? t("calendar.sending") : t("calendar.rsvp.decline")}</button>
+                </>
+              )}
+              {ev.joinUrl && <button className="btn small primary" onClick={() => void open(ev.joinUrl!)}><Video size={13} /> {t("calendar.pop.join")}</button>}
+            </div>
+          )}
+          {(showMail || showEdit || showCopy || showDelete) && (
+            <div className="ev-acts ev-actions">
+              {showMail && <button className="icon-btn" title={t("calendar.pop.openEmail")} aria-label={t("calendar.pop.openEmail")} onClick={() => void openMail()}><Mail size={15} /></button>}
+              {showEdit && actionButton(t("common.edit"), <Pencil size={14} aria-hidden />, onEdit)}
+              {showCopy && actionButton(t("calendar.pop.duplicate"), <Copy size={14} aria-hidden />, duplicate)}
+              {showCopy && actionButton(t("calendar.saveIcs"), <Download size={14} aria-hidden />, () => void saveIcs())}
+              {showDelete && actionButton(t("common.delete"), <Trash2 size={14} aria-hidden />, () => void remove(), true)}
+            </div>
+          )}
+        </div>
+      )}
     </div>
   );
 }

@@ -83,7 +83,6 @@ export default defineLocale<typeof ns.en>({
   "calendar.pop.copyOf": "{summary}（副本）",
   "calendar.pop.join": "加入",
   "calendar.pop.openEmail": "打开邀请邮件",
-  "calendar.pop.more": "更多操作",
   "calendar.pop.duplicate": "创建副本",
   // ---- toasts
   "calendar.toast.saved": "已保存{name}",
@@ -275,4 +274,13 @@ export default defineLocale<typeof ns.en>({
   "calendar.err.cancelled": "日历登录已取消。",
   "calendar.err.wrongAccount": "您已授予对{signedIn}的访问权限。请使用{mailbox}登录，以同步此邮箱的日历。",
   "calendar.err.partial": "Hey Look!需要它所请求的全部日历权限。请再次打开开关，并保持所有复选框处于勾选状态。",
+  // ---- 1.0.7 WP7a: consent confirm, build without a client, failed sender check
+  "calendar.consent.title": "要在浏览器中允许日历访问吗？",
+  "calendar.consent.body": "Hey Look!将在浏览器中打开{provider}的页面。请在该页面使用{email}登录，并允许访问您的日历。您的邮件登录不会改变。",
+  "calendar.consent.open": "打开浏览器",
+  "calendar.err.noClient": "此版本的Hey Look!无法与{provider}同步日历。",
+  "calendar.invite.unverified": "此邮件未通过发件人验证（DKIM、SPF或DMARC），可能并非来自{name}。",
+  "calendar.invite.held": "您的日历未作更改。",
+  "calendar.invite.applyAnyway": "仍然应用",
+  "calendar.toast.applied": "已更新您的日历",
 });

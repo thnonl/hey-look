@@ -1269,11 +1269,18 @@ function CalendarPanel({ account }: { account: Account }) {
   const [connecting, setConnecting] = useState(false);
   const [err, setErr] = useState<string | null>(null);
   const [ended, setEnded] = useState<SignInEnd | null>(null);
+  // the services this build can connect (it has an OAuth client for them); null until known
+  const [kinds, setKinds] = useState<string[] | null>(null);
   const [now, setNow] = useState(() => Math.floor(Date.now() / 1000));
   const cancelBtn = useRef<HTMLButtonElement>(null);
   const opener = useRef<HTMLElement | null>(null); // what started the consent (the switch or "Allow again"): it gets the focus back when the consent ends
   const switchBox = useRef<HTMLSpanElement>(null);
   useEffect(() => void loadCalSources(), [loadCalSources]);
+  useEffect(() => {
+    let live = true;
+    api.calendarKindsAvailable().then((k) => live && setKinds(k)).catch(() => {});
+    return () => void (live = false);
+  }, []);
   // "Last synced 3 min ago" stays current
   useEffect(() => {
     const timer = setInterval(() => setNow(Math.floor(Date.now() / 1000)), 20_000);
@@ -1301,7 +1308,20 @@ function CalendarPanel({ account }: { account: Account }) {
   const connect = async () => {
     setErr(null);
     setEnded(null);
-    opener.current = document.activeElement as HTMLElement | null;
+    const starter = document.activeElement as HTMLElement | null;
+    // one question before the browser opens (every time: from the switch and from "Allow access again"); Cancel / Esc change nothing
+    const go = await confirm({
+      title: t("calendar.consent.title"),
+      body: t("calendar.consent.body", { provider: providerName(kind), email: account.email }),
+      confirmLabel: t("calendar.consent.open"),
+    });
+    if (!go) {
+      // the question's own button is gone: focus goes back to what started it
+      const back = starter && document.contains(starter) && !(starter as HTMLButtonElement).disabled ? starter : switchBox.current?.querySelector("input");
+      back?.focus();
+      return;
+    }
+    opener.current = starter;
     setConnecting(true);
     try {
       await api.calendarConnect(account.id);
@@ -1338,6 +1358,8 @@ function CalendarPanel({ account }: { account: Account }) {
   const line = src ? statusLine(src, { email: account.email, nowSec: now, fmtTime: clock }) : null;
   const note = src ? truncatedNote(src) : null;
   const on = connecting || !!src;
+  // this build has no OAuth client for the service: nothing to click into an error (a mailbox that already syncs can still be turned off)
+  const noClient = !src && kinds !== null && !kinds.includes(kind);
   return (
     <>
       <Row
@@ -1345,7 +1367,7 @@ function CalendarPanel({ account }: { account: Account }) {
         hint={t("settings.calendar.syncHint", { service })}
         id="calendar"
       >
-        <span ref={switchBox}><Switch checked={on} disabled={connecting} onChange={(v) => void (v ? connect() : stop())} /></span>
+        <span ref={switchBox}><Switch checked={on} disabled={connecting || noClient} onChange={(v) => void (v ? connect() : stop())} /></span>
       </Row>
       {/* the buttons stay while a consent waits (they are off): they come and go with the connection, not with the status. They are above the slot, so the room the slot keeps for a long message is under the status line, not between a message and its button */}
       {src && (
@@ -1370,6 +1392,8 @@ function CalendarPanel({ account }: { account: Account }) {
             {line.detail && <div style={{ marginTop: 2, fontSize: "0.9em", opacity: 0.8 }}>{line.detail}</div>}
             {note && <div>{note}</div>}
           </div>
+        ) : noClient ? (
+          <div className="muted small">{t("calendar.err.noClient", { provider: providerName(kind) })}</div>
         ) : null}
       </div>
       {src && src.calendars.length > 0 && (
@@ -1868,7 +1892,7 @@ function ShortcutsTab() {
     ["s", "settings.action.snooze"], ["p", "settings.action.pin"], ["*", "settings.action.flag"], ["u", "settings.keys.markUnread"], ["r", "settings.action.reply"], ["a", "settings.composing.replyAll"], ["f", "settings.keys.forward"],
     ["Ctrl+Enter", "settings.keys.send"], ["Ctrl+Shift+Enter", "settings.keys.sendLater"], ["Ctrl+Shift+P", "settings.keys.insertPicture"], ["Ctrl+Shift+E", "settings.keys.encrypt"], ["Ctrl+Shift+G", "settings.keys.sign"], ["Ctrl+Shift+C / Ctrl+Shift+B", "settings.keys.addCcBcc"],
     ["Space / Enter", "settings.keys.preview"], ["Ctrl+S", "settings.keys.saveAs"], ["Ctrl+Shift+S", "settings.keys.saveAll"],
-    ["Ctrl+1 / Ctrl+2", "settings.keys.mailCalendar"], ["Ctrl+B", "settings.keys.sideMenu"], ["c · t · ← / → · m / w / a", "settings.keys.calendarKeys"],
+    ["Ctrl+1 / Ctrl+2", "settings.keys.mailCalendar"], ["Ctrl+B", "settings.keys.sideMenu"], ["c · t · ← / → · m / w / a", "settings.keys.calendarKeys"], ["Ctrl+Enter", "settings.keys.editEvent"],
     ["Ctrl+] / Ctrl+[", "settings.keys.fontSize"], ["Ctrl+= / Ctrl+Shift+=", "settings.keys.subSuper"], [os === "macos" ? "Ctrl+\\" : "Ctrl+Space / Ctrl+\\", "compose.fmt.clear"], ["Alt+F10", "settings.keys.focusToolbar"],
     ["Ctrl+Shift+L / 8", "compose.fmt.bulleted"], ["Ctrl+Shift+7", "compose.fmt.numbered"], ["Ctrl+L / E / R / Shift+J", "settings.keys.align"], ["Ctrl+T / Ctrl+Shift+T", "settings.keys.indent"],
     ["Ctrl+Shift+S", "settings.keys.stylesMenu"], ["Ctrl+Shift+N / Ctrl+Alt+1-3", "settings.keys.styleKeys"], [os === "macos" ? "Ctrl+F / Ctrl+Shift+H" : "Ctrl+F / Ctrl+H", "compose.fmt.find"], ["Shift+F3", "compose.fmt.case"],

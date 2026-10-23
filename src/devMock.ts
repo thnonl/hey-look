@@ -773,6 +773,10 @@ const localMail = (id: string) => (serverMail[id] ?? []).slice(0, mockMail.local
 // `__mockCalSync.state("auth")` in the console switches the Google state later, `__mockCalSync.state("blocked", "a4")` the Outlook one;
 // `#calfail=denied|wrong|partial|timeout|blocked` makes the next consent fail; `#calslow` keeps the consent open until Cancel.
 // Titles with [conflict] / [offline] / [gone] in a synced calendar fail like the service would.
+// `#calkinds=none|google|microsoft` sets what `calendar_kinds_available` answers (a build without the OAuth client of a service); `window.__mockCalConnects` lists the
+// `calendar_connect` calls (the confirm before the browser opens must keep the list empty until Open browser).
+// `#unverified` adds four mails whose sender check failed (an update, a cancellation and an answer with a held change, and a new invitation); `#rdate` adds
+// a series of My events that only has extra dates (RDATE).
 type MockSrc = { id: string; accountId: string; kind: string; status: string; lastSync: number | null; lastError: string | null; retryAt: number | null; firstSync: boolean; calendars: Record<string, unknown>[] };
 type MockCalAccount = { account: string; kind: "google" | "microsoft"; prefix: string; email: string; service: string };
 const MOCK_CAL_ACCOUNTS: MockCalAccount[] = [
@@ -897,6 +901,11 @@ export function installMock() {
       void emit("signin-state", { accountId: id, state: kind, error: kind ? reauthError(id) : undefined });
     },
   };
+  // dev check of the calendar views: `__mockAddEvent("id", "Title", startSec, endSec, { calendarId, allDay, readOnly, ... })` adds an event (to My events unless told otherwise)
+  (window as unknown as { __mockAddEvent: unknown }).__mockAddEvent = (id: string, summary: string, start: number, end: number, over: Record<string, unknown> = {}) => {
+    calEvents = [...calEvents.filter((e) => e.id !== id), ev(id, summary, start, end, over)];
+    void emit("calendar-changed", {});
+  };
   (window as unknown as { __mockCalSync: unknown }).__mockCalSync = {
     state: (st: string, account = "a2") => { mockCalState(st, account); void emit("calendar-changed", {}); },
     get: (account = "a2") => calSrcs[account] ?? null,
@@ -939,6 +948,20 @@ export function installMock() {
   }
   const calsync = /(^|&)calsync=([a-z]+)/.exec(window.location.hash.slice(1))?.[2];
   if (calsync && accounts.some((x) => x.id === "a2")) mockCalState(calsync, "a2");
+  if (hashHas("rdate")) calEvents.push(ev("e-rdate", "Reading group", at(1, 16), at(1, 17), { hasRdates: true }));
+  if (hashHas("unverified")) {
+    // mails whose sender check failed (W7.3): the card says so; a held change can be applied by hand
+    const bad = { unverified: true };
+    const mk = (id: string, tid: string, subject: string, from: [string, string], inv: Record<string, unknown>, ago: number, extra: Record<string, unknown> = {}) => {
+      inviteMsgs[id] = inviteMsg(id, subject, from[0], from[1], mkInvite({ ...bad, rrule: null, recurrenceText: null, conflicts: [], joinUrl: null, tzid: sysTz, ...inv }), ago, extra);
+      threadInvite[tid] = [id];
+      threads.push(t(tid, subject, [from[0]], "The sender check failed", ago, { invite: "request" }));
+    };
+    mk("m-unv-upd", "t30", "Updated invitation: Kick-off (sender check failed)", ["Mai Khanh", "mai@contoso.com"], { summary: "Kick-off", sequence: 1, start: at(4, 14), end: at(4, 15), eventId: "e20", held: true }, 16 * H);
+    mk("m-unv-cancel", "t31", "Canceled: Vendor demo (sender check failed)", ["Vendor Ops", "ops@vendor.com"], { method: "CANCEL", summary: "Vendor demo", cancelled: false, start: at(3, 11), end: at(3, 12), eventId: "e7", held: true, organizer: { email: "ops@vendor.com", name: "Vendor Ops" }, attendees: [], you: { email: "nam@example.com", status: "needs-action", onList: true } }, 17 * H, { html: null, text: null });
+    mk("m-unv-reply", "t32", "Accepted: 1:1 with Bao (sender check failed)", ["Bao Tran", "bao@contoso.com"], { method: "REPLY", summary: "1:1 with Bao", start: at(-1, 14), end: at(-1, 14, 30), eventId: "e3", held: true, location: null, you: null, reply: { from: { email: "bao@contoso.com", name: "Bao Tran" }, status: "accepted", comment: null }, attendees: [{ ...you, role: "chair", status: "accepted" }, ...people([["Bao Tran", "needs-action"]])] }, 18 * H, { html: null, text: null, attachments: [] });
+    mk("m-unv-new", "t33", "Invitation: Budget review (sender check failed)", ["Mai Khanh", "mai@contoso.com"], { summary: "Budget review", start: at(5, 10), end: at(5, 11), eventId: null, held: false }, 19 * H);
+  }
   // `#legacycolor=<hex>`: accounts as an older version stored them (no color) and that primary color: shows the one-time migration
   const legacy = /(^|&)legacycolor=(%23)?([0-9a-f]{6})(&|$)/i.exec(window.location.hash.slice(1));
   if (legacy) {
@@ -1113,6 +1136,7 @@ export function installMock() {
   mockWindows(which === "reader" || which === "compose" ? `${which}-1` : "main");
   mockIPC(function handle(cmd, args): unknown {
     const a = (args ?? {}) as Record<string, unknown>;
+    if (cmd.startsWith("calendar_")) (((window as unknown as { __mockCalls?: unknown[] }).__mockCalls) ??= []).push({ cmd, args: a }); // (dev check: which calendar commands the page called)
     // a conversation's read / flag state is kept (as the server does), so the Unread and Flagged filters behave like the real list
     if (cmd === "get_thread" && !a.raw) {
       const msgs = handle(cmd, { ...a, raw: true });
@@ -1711,7 +1735,12 @@ export function installMock() {
           ...mockCalendars(),
         ];
       case "calendar_sources": return MOCK_CAL_ACCOUNTS.flatMap((m) => (calSrcs[m.account] ? [calSrcs[m.account] as MockSrc] : []));
+      case "calendar_kinds_available": {
+        const k = /(^|&)calkinds=([a-z]+)/.exec(window.location.hash.slice(1))?.[2];
+        return k === "none" ? [] : k === "google" || k === "microsoft" ? [k] : ["google", "microsoft"];
+      }
       case "calendar_connect": {
+        (((window as unknown as { __mockCalConnects?: string[] }).__mockCalConnects) ??= []).push(String(a.accountId));
         const target = mockCalAccount(String(a.accountId));
         const fail = /(^|&)calfail=([a-z]+)/.exec(window.location.hash.slice(1))?.[2];
         const slow = hashHas("calslow");
@@ -1827,6 +1856,15 @@ export function installMock() {
       }
       case "calendar_add_from_message": {
         const inv = inviteMsgs[a.messageId as string].invite as Record<string, unknown>;
+        (((window as unknown as { __mockApplied?: unknown[] }).__mockApplied) ??= []).push({ messageId: a.messageId, overrideAuth: !!a.overrideAuth });
+        if (a.overrideAuth) {
+          // Apply anyway: the held change is made, the card keeps its warning
+          inv.held = false;
+          if (inv.method === "CANCEL") inv.cancelled = true;
+          else if (inv.method === "REPLY") inv.attendees = (inv.attendees as { email: string; status: string }[]).map((x) => (x.email === (inv.reply as { from: { email: string } }).from.email ? { ...x, status: (inv.reply as { status: string }).status } : x));
+          else inv.changed = { fields: ["time"], previous: { start: inv.start as number, end: inv.end as number, location: null } };
+          return calEvents.find((x) => x.id === inv.eventId) ?? ev(`e${++eventSeq}`, String(inv.summary), inv.start as number, inv.end as number, {});
+        }
         const e = ev(`e${++eventSeq}`, String(inv.summary), inv.start as number, inv.end as number, { allDay: inv.allDay, tzid: inv.tzid, calendarId: "invites:a1", accountId: "a1", sourceMessageId: a.messageId as string, confidential: !!(inviteMsgs[a.messageId as string] as { confidential?: boolean }).confidential });
         calEvents = [...calEvents, e];
         inv.eventId = e.id;

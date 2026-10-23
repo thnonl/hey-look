@@ -42,6 +42,8 @@ pub struct IcsEvent {
     pub attendees: Vec<Attendee>,
     pub rrule: Option<String>,
     pub exdates: Vec<i64>,
+    /// RDATE: extra dates of the series (instants; a PERIOD counts by its start, the instance keeps the event's own length)
+    pub rdates: Vec<i64>,
     /// RECURRENCE-ID: this event replaces one occurrence of a series
     pub recurrence_id: Option<i64>,
     /// confirmed | tentative | cancelled
@@ -630,6 +632,21 @@ fn build_event(props: &[Line], ctx: &Ctx) -> Option<IcsEvent> {
                     }
                 }
             }
+            "RDATE" => {
+                for part in p.value.split(',') {
+                    if ev.rdates.len() >= MAX_EXDATES {
+                        ev.trimmed = true;
+                        break;
+                    }
+                    // VALUE=PERIOD: `start/end` or `start/duration`; only the start matters (the instance is as long as the event)
+                    let start = part.split('/').next().unwrap_or(part);
+                    if let Some(d) = parse_dt_value(start, Some(p), ctx) {
+                        if !ev.rdates.contains(&d.ts) {
+                            ev.rdates.push(d.ts);
+                        }
+                    }
+                }
+            }
             _ => {}
         }
     }
@@ -866,6 +883,28 @@ fn month_days(y: i32, m: u32, r: &Rule, base_day: u32) -> Vec<NaiveDate> {
 #[cfg(test)]
 pub fn expand(start: i64, end: i64, all_day: bool, tzid: Option<&str>, rrule: &str, exdates: &[i64], win_from: i64, win_to: i64) -> Vec<(i64, i64)> {
     expand_budgeted(start, end, all_day, tzid, rrule, exdates, win_from, win_to, &mut MAX_EXPAND_STEPS.clone())
+}
+
+/// The instances of a series that touch `[win_from, win_to)`: the RRULE instances (or, without a rule, DTSTART itself) plus every RDATE, minus the
+/// EXDATEs, each as long as the event. `budget` as in `expand_budgeted`. Sorted by start, one instance per start.
+#[allow(clippy::too_many_arguments)]
+pub fn instances_budgeted(start: i64, end: i64, all_day: bool, tzid: Option<&str>, rrule: Option<&str>, rdates: &[i64], exdates: &[i64], win_from: i64, win_to: i64, budget: &mut usize) -> Vec<(i64, i64)> {
+    let dur = end.saturating_sub(start).max(0);
+    let ex: std::collections::HashSet<i64> = exdates.iter().copied().take(MAX_EXDATES * 2).collect();
+    let touches = |s: i64| s < win_to && s.saturating_add(dur).max(s.saturating_add(1)) > win_from;
+    let mut out = match rrule {
+        Some(rule) => expand_budgeted(start, end, all_day, tzid, rule, exdates, win_from, win_to, budget),
+        None if touches(start) && !ex.contains(&start) => vec![(start, end)],
+        None => vec![],
+    };
+    for &r in rdates.iter().take(MAX_EXDATES) {
+        if touches(r) && !ex.contains(&r) && !out.iter().any(|(s, _)| *s == r) {
+            out.push((r, r.saturating_add(dur)));
+        }
+    }
+    out.sort_by_key(|(s, _)| *s);
+    out.truncate(MAX_OCCURRENCES);
+    out
 }
 
 /// `expand` with an iteration budget the caller shares between several events: each call spends what it walked, and stops
@@ -1133,7 +1172,7 @@ pub fn to_ics(method: Option<&str>, events: &[IcsEvent]) -> String {
         l(format!("UID:{}", ev.uid));
         l(format!("DTSTAMP:{}", fmt_utc(if ev.dtstamp > 0 { ev.dtstamp } else { Utc::now().timestamp() })));
         // a repeating event keeps its wall-clock time across daylight saving: write it in its own zone
-        let tz = ev.tzid.as_deref().and_then(iana_for).filter(|_| ev.rrule.is_some() && !ev.all_day);
+        let tz = ev.tzid.as_deref().and_then(iana_for).filter(|_| (ev.rrule.is_some() || !ev.rdates.is_empty()) && !ev.all_day);
         l(fmt_dt("DTSTART", ev.start, ev.all_day, tz));
         l(fmt_dt("DTEND", ev.end, ev.all_day, tz));
         if let Some(r) = ev.recurrence_id {
@@ -1144,6 +1183,9 @@ pub fn to_ics(method: Option<&str>, events: &[IcsEvent]) -> String {
         }
         for x in &ev.exdates {
             l(fmt_dt("EXDATE", *x, ev.all_day, tz));
+        }
+        for x in &ev.rdates {
+            l(fmt_dt("RDATE", *x, ev.all_day, tz));
         }
         l(format!("SEQUENCE:{}", ev.sequence));
         l(format!("SUMMARY:{}", escape(&ev.summary)));
@@ -1655,6 +1697,77 @@ END:VEVENT\r\nEND:VCALENDAR\r\n";
         let mut b = MAX_EXPAND_STEPS;
         let out = expand_budgeted(start, start + 3600, false, None, "FREQ=DAILY", &[], start, start + 10 * 86400, &mut b);
         assert_eq!(out.len(), 10);
+    }
+
+    /// W7.2: RDATE in every form it comes in (date, local with TZID, UTC, PERIOD); a PERIOD counts by its start; duplicates and garbage are skipped.
+    #[test]
+    fn rdate_values_in_every_form_are_read() {
+        let c = parse("BEGIN:VCALENDAR
+BEGIN:VEVENT
+UID:rd
+DTSTART;TZID=Europe/Berlin:20261012T100000
+DTEND;TZID=Europe/Berlin:20261012T110000
+RDATE:20261101T090000Z,20261102T090000Z
+RDATE;TZID=Europe/Berlin:20261103T100000
+RDATE;VALUE=DATE:20261104
+RDATE;VALUE=PERIOD:20261105T090000Z/PT1H,20261106T090000Z/20261106T100000Z
+RDATE;TZID=Europe/Berlin;VALUE=PERIOD:20261107T100000/PT2H
+RDATE:20261101T090000Z,garbage,
+END:VEVENT
+END:VCALENDAR
+").unwrap();
+        let ev = &c.events[0];
+        assert_eq!(
+            ev.rdates,
+            vec![
+                ts(2026, 11, 1, 9, 0),
+                ts(2026, 11, 2, 9, 0),
+                ts(2026, 11, 3, 9, 0), // 10:00 Berlin (CET)
+                ts(2026, 11, 4, 0, 0), // a DATE: the UTC midnight, as every all-day value
+                ts(2026, 11, 5, 9, 0),
+                ts(2026, 11, 6, 9, 0),
+                ts(2026, 11, 7, 9, 0),
+            ]
+        );
+        assert!(!ev.trimmed);
+        // none given: none kept
+        let c = parse("BEGIN:VCALENDAR
+BEGIN:VEVENT
+UID:no
+DTSTART:20261012T100000Z
+END:VEVENT
+END:VCALENDAR
+").unwrap();
+        assert!(c.events[0].rdates.is_empty());
+        // a hostile list is cut like EXDATE
+        let c = parse(&format!("BEGIN:VCALENDAR
+BEGIN:VEVENT
+UID:big
+DTSTART:20261012T100000Z
+RDATE;VALUE=DATE:{}
+END:VEVENT
+END:VCALENDAR
+", (0..1500).map(|i| format!("{:04}{:02}{:02}", 2030 + i / 336, (i % 336) / 28 + 1, i % 28 + 1)).collect::<Vec<_>>().join(","))).unwrap();
+        assert_eq!(c.events[0].rdates.len(), MAX_EXDATES);
+        assert!(c.events[0].trimmed);
+    }
+
+    /// The instances of a series: rule + extra dates - excluded dates, as long as the event, one per start.
+    #[test]
+    fn instances_join_the_rule_and_the_extra_dates() {
+        let (s, e) = (ts(2026, 10, 12, 8, 0), ts(2026, 10, 12, 9, 0));
+        let mut budget = MAX_EXPAND_STEPS;
+        let rd = [ts(2026, 10, 15, 8, 0), ts(2026, 10, 19, 8, 0) /* also a rule date */, ts(2026, 10, 22, 14, 0)];
+        let ex = [ts(2026, 10, 26, 8, 0), ts(2026, 10, 22, 14, 0)];
+        let got = instances_budgeted(s, e, false, None, Some("FREQ=WEEKLY;BYDAY=MO;COUNT=3"), &rd, &ex, ts(2026, 10, 1, 0, 0), ts(2026, 12, 1, 0, 0), &mut budget);
+        assert_eq!(got, vec![(s, e), (rd[0], rd[0] + 3600), (rd[1], rd[1] + 3600)], "the 26th and the 22nd are excluded, the 19th is there once");
+        // no rule: DTSTART itself and the dates; an EXDATE of DTSTART hides it
+        let got = instances_budgeted(s, e, false, None, None, &rd[..1], &[], 0, i64::MAX / 2, &mut budget);
+        assert_eq!(got, vec![(s, e), (rd[0], rd[0] + 3600)]);
+        let got = instances_budgeted(s, e, false, None, None, &rd[..1], &[s], 0, i64::MAX / 2, &mut budget);
+        assert_eq!(got, vec![(rd[0], rd[0] + 3600)]);
+        // outside the window: nothing
+        assert!(instances_budgeted(s, e, false, None, None, &rd, &[], ts(2027, 1, 1, 0, 0), ts(2027, 2, 1, 0, 0), &mut budget).is_empty());
     }
 
     #[test]

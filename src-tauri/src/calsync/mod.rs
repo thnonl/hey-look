@@ -213,6 +213,8 @@ pub struct RemoteEvent {
     pub rrule: Option<String>,
     /// the master's own EXDATEs (instants); the engine adds the slots of its exceptions and cancelled instances
     pub exdates: Vec<i64>,
+    /// the master's RDATEs (instants): extra dates of the series
+    pub rdates: Vec<i64>,
     /// "confirmed" | "tentative" | "cancelled". A cancelled instance (`series_id` + `recurrence_id`) hides its slot; a cancelled
     /// single event or master counts as deleted.
     pub status: String,
@@ -248,6 +250,7 @@ impl RemoteEvent {
             attendees: vec![],
             rrule: None,
             exdates: vec![],
+            rdates: vec![],
             status: "confirmed".into(),
             my_status: None,
             reminder_min: None,
@@ -394,11 +397,29 @@ impl From<crate::oauth::TokenFail> for SyncErr {
     }
 }
 
+/// The calendar list of an account as a provider answers it: the whole list (`full`), or only what changed since `state`.
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct CalList {
+    /// the calendars of a full list; in an incremental answer the new and the changed ones
+    pub calendars: Vec<RemoteCalendar>,
+    /// provider ids of calendars that are gone (incremental answers only)
+    pub removed: Vec<String>,
+    /// `calendars` is the complete list: calendars that are not in it are gone
+    pub full: bool,
+    /// the token for the next call; `None` = the provider has no incremental list
+    pub next_state: Option<String>,
+}
+
 /// A calendar service. Calls are blocking and run on worker threads, never under the database lock. Every call is one account's
 /// own credentials (the provider fetches its access token itself, so a token that expires mid-round is refreshed).
 pub trait CalProvider: Send {
     /// All calendars of the account with their access level.
     fn list_calendars(&self) -> Result<Vec<RemoteCalendar>, SyncErr>;
+    /// The list again, only what changed since `state` when the provider can say (Google `syncToken`); `Gone` = the token is no longer valid.
+    /// The default asks for the whole list every time (Microsoft: a small list without a delta).
+    fn list_calendars_since(&self, _state: Option<&str>) -> Result<CalList, SyncErr> {
+        Ok(CalList { calendars: self.list_calendars()?, removed: vec![], full: true, next_state: None })
+    }
     /// What changed in `cal` since `req.state` (or everything in the window). Pages are the provider's business.
     fn pull(&self, cal: &RemoteCalendar, req: &PullReq) -> Result<Pull, SyncErr>;
     /// Create a single event; the provider sends the invitations to the guests. Returns the event as stored (with its etag).

@@ -43,9 +43,11 @@ pub struct Source {
     pub retry_at: Option<i64>,
     pub fail_count: i64,
     pub connected_at: i64,
+    /// the token of the provider's calendar list (Google `nextSyncToken`); `None` = ask for the whole list
+    pub list_state: Option<String>,
 }
 
-const SOURCE_COLS: &str = "id,account_id,kind,status,last_sync,last_error,retry_at,fail_count,connected_at";
+const SOURCE_COLS: &str = "id,account_id,kind,status,last_sync,last_error,retry_at,fail_count,connected_at,list_state";
 
 fn row_source(r: &rusqlite::Row) -> rusqlite::Result<Source> {
     let kind: String = r.get(2)?;
@@ -59,6 +61,7 @@ fn row_source(r: &rusqlite::Row) -> rusqlite::Result<Source> {
         retry_at: r.get(6)?,
         fail_count: r.get(7)?,
         connected_at: r.get(8)?,
+        list_state: r.get(9)?,
     })
 }
 
@@ -97,6 +100,11 @@ pub fn set_status(c: &Connection, id: &str, status: &str, error: Option<&str>, r
     Ok(())
 }
 
+pub fn set_list_state(c: &Connection, id: &str, state: Option<&str>) -> R<()> {
+    c.execute("UPDATE cal_sources SET list_state=?2 WHERE id=?1", params![id, state]).map_err(err)?;
+    Ok(())
+}
+
 pub fn mark_synced(c: &Connection, id: &str, now: i64) -> R<()> {
     c.execute("UPDATE cal_sources SET status='ok', last_sync=?2, last_error=NULL, retry_at=NULL, fail_count=0 WHERE id=?1", params![id, now]).map_err(err)?;
     Ok(())
@@ -126,6 +134,8 @@ pub struct CalRow {
     pub event_count: i64,
     pub truncated: bool,
     pub window_from: Option<i64>,
+    /// when the calendar was last downloaded in full (a calendar over the event cap is downloaded in full at most once a day)
+    pub full_at: Option<i64>,
 }
 
 impl CalRow {
@@ -143,7 +153,7 @@ impl CalRow {
     }
 }
 
-const CAL_COLS: &str = "id,source_id,remote_id,name,color,read_only,is_primary,sync_on,sync_state,time_zone,default_reminder_min,event_count,truncated,window_from";
+const CAL_COLS: &str = "id,source_id,remote_id,name,color,read_only,is_primary,sync_on,sync_state,time_zone,default_reminder_min,event_count,truncated,window_from,full_at";
 
 fn row_cal(r: &rusqlite::Row) -> rusqlite::Result<CalRow> {
     Ok(CalRow {
@@ -161,6 +171,7 @@ fn row_cal(r: &rusqlite::Row) -> rusqlite::Result<CalRow> {
         event_count: r.get(11)?,
         truncated: r.get::<_, i64>(12)? != 0,
         window_from: r.get(13)?,
+        full_at: r.get(14)?,
     })
 }
 
@@ -189,43 +200,7 @@ pub fn reconcile_calendars(c: &Connection, src: &Source, remote: &[RemoteCalenda
     let mut seen = HashSet::new();
     for rc in remote {
         seen.insert(rc.id.clone());
-        let id = super::calendar_id(&src.account_id, src.kind, &rc.id);
-        match have.get(&rc.id) {
-            Some(old) => {
-                let same = old.name == rc.name
-                    && old.color == rc.color
-                    && old.read_only == rc.read_only
-                    && old.primary == rc.primary
-                    && old.time_zone == rc.time_zone
-                    && old.default_reminder_min == rc.default_reminder_min;
-                if same {
-                    continue;
-                }
-                tx.execute(
-                    "UPDATE calendars SET name=?2, color=?3, read_only=?4, is_primary=?5, time_zone=?6, default_reminder_min=?7 WHERE id=?1",
-                    params![id, rc.name, rc.color, rc.read_only as i64, rc.primary as i64, rc.time_zone, rc.default_reminder_min],
-                )
-                .map_err(err)?;
-                if old.read_only != rc.read_only {
-                    if rc.read_only {
-                        tx.execute("UPDATE events SET read_only=1 WHERE calendar_id=?1", [&id]).map_err(err)?;
-                    } else {
-                        // which events are editable is decided per event: download the calendar again
-                        tx.execute("UPDATE calendars SET sync_state=NULL WHERE id=?1", [&id]).map_err(err)?;
-                    }
-                }
-                changed = true;
-            }
-            None => {
-                tx.execute(
-                    "INSERT INTO calendars(id,source_id,remote_id,name,color,read_only,is_primary,sync_on,time_zone,default_reminder_min)
-                     VALUES(?1,?2,?3,?4,?5,?6,?7,?8,?9,?10)",
-                    params![id, src.id, rc.id, rc.name, rc.color, rc.read_only as i64, rc.primary as i64, (rc.selected || rc.primary) as i64, rc.time_zone, rc.default_reminder_min],
-                )
-                .map_err(err)?;
-                changed = true;
-            }
-        }
+        changed |= upsert_calendar(&tx, src, have.get(&rc.id), rc)?;
     }
     for (rid, old) in have.iter().filter(|(rid, _)| !seen.contains(*rid)) {
         let _ = rid;
@@ -234,6 +209,66 @@ pub fn reconcile_calendars(c: &Connection, src: &Source, remote: &[RemoteCalenda
     }
     tx.commit().map_err(err)?;
     Ok(changed)
+}
+
+/// An incremental calendar list (W7.6): the entries that are new or changed are stored like a full list stores them, the ones that are gone
+/// go with their events. Returns whether anything changed.
+pub fn apply_calendar_delta(c: &Connection, src: &Source, changed_entries: &[RemoteCalendar], removed: &[String]) -> R<bool> {
+    let tx = c.unchecked_transaction().map_err(err)?;
+    let mut changed = false;
+    let have: HashMap<String, CalRow> = calendars_of(&tx, &src.id)?.into_iter().map(|r| (r.remote_id.clone(), r)).collect();
+    for rc in changed_entries {
+        changed |= upsert_calendar(&tx, src, have.get(&rc.id), rc)?;
+    }
+    for rid in removed {
+        if let Some(old) = have.get(rid) {
+            drop_calendar(&tx, &old.id)?;
+            changed = true;
+        }
+    }
+    tx.commit().map_err(err)?;
+    Ok(changed)
+}
+
+/// Store one calendar of the provider's list: insert it, or update the row when something about it changed. Returns whether it did.
+fn upsert_calendar(tx: &Connection, src: &Source, old: Option<&CalRow>, rc: &RemoteCalendar) -> R<bool> {
+    let id = super::calendar_id(&src.account_id, src.kind, &rc.id);
+    match old {
+        Some(old) => {
+            let same = old.name == rc.name
+                && old.color == rc.color
+                && old.read_only == rc.read_only
+                && old.primary == rc.primary
+                && old.time_zone == rc.time_zone
+                && old.default_reminder_min == rc.default_reminder_min;
+            if same {
+                return Ok(false);
+            }
+            tx.execute(
+                "UPDATE calendars SET name=?2, color=?3, read_only=?4, is_primary=?5, time_zone=?6, default_reminder_min=?7 WHERE id=?1",
+                params![id, rc.name, rc.color, rc.read_only as i64, rc.primary as i64, rc.time_zone, rc.default_reminder_min],
+            )
+            .map_err(err)?;
+            if old.read_only != rc.read_only {
+                if rc.read_only {
+                    tx.execute("UPDATE events SET read_only=1 WHERE calendar_id=?1", [&id]).map_err(err)?;
+                } else {
+                    // which events are editable is decided per event: download the calendar again
+                    tx.execute("UPDATE calendars SET sync_state=NULL, full_at=NULL WHERE id=?1", [&id]).map_err(err)?;
+                }
+            }
+            Ok(true)
+        }
+        None => {
+            tx.execute(
+                "INSERT INTO calendars(id,source_id,remote_id,name,color,read_only,is_primary,sync_on,time_zone,default_reminder_min)
+                 VALUES(?1,?2,?3,?4,?5,?6,?7,?8,?9,?10)",
+                params![id, src.id, rc.id, rc.name, rc.color, rc.read_only as i64, rc.primary as i64, (rc.selected || rc.primary) as i64, rc.time_zone, rc.default_reminder_min],
+            )
+            .map_err(err)?;
+            Ok(true)
+        }
+    }
 }
 
 pub fn drop_calendar(c: &Connection, id: &str) -> R<()> {
@@ -260,7 +295,7 @@ pub fn set_calendar_sync(c: &Connection, id: &str, on: bool) -> R<()> {
 pub fn clear_events(c: &Connection, id: &str) -> R<()> {
     c.execute("DELETE FROM events WHERE calendar_id=?1", [id]).map_err(err)?;
     c.execute("DELETE FROM cal_tombstones WHERE calendar_id=?1", [id]).map_err(err)?;
-    c.execute("UPDATE calendars SET sync_state=NULL, event_count=0, truncated=0, window_from=NULL WHERE id=?1", [id]).map_err(err)?;
+    c.execute("UPDATE calendars SET sync_state=NULL, event_count=0, truncated=0, window_from=NULL, full_at=NULL WHERE id=?1", [id]).map_err(err)?;
     Ok(())
 }
 
@@ -378,6 +413,8 @@ pub fn event_from_remote(cal: &CalRow, account_id: &str, re: &RemoteEvent, id: S
         remote_kind: Some(re.kind.as_str().to_string()),
         recurrence_id,
         exdates: re.exdates.clone(),
+        has_rdates: !re.rdates.is_empty(),
+        rdates: re.rdates.clone(),
         prev: None,
     }
 }
@@ -528,8 +565,8 @@ pub fn apply_pull(c: &Connection, cal: &CalRow, account_id: &str, pull: &Pull, f
     }
     let count: i64 = tx.query_row("SELECT COUNT(*) FROM events WHERE calendar_id=?1", [&cal.id], |r| r.get(0)).map_err(err)?;
     tx.execute(
-        "UPDATE calendars SET sync_state=?2, event_count=?3, truncated=?4, window_from=COALESCE(?5, window_from) WHERE id=?1",
-        params![cal.id, pull.next_state, count, pull.truncated as i64, full_window_from],
+        "UPDATE calendars SET sync_state=?2, event_count=?3, truncated=?4, window_from=COALESCE(?5, window_from), full_at=COALESCE(?6, full_at) WHERE id=?1",
+        params![cal.id, pull.next_state, count, pull.truncated as i64, full_window_from, full_window_from.map(|_| now)],
     )
     .map_err(err)?;
     // old tombstones of plain events are not needed any more
@@ -643,9 +680,11 @@ pub(crate) mod tests {
         for t in ["cal_sources", "calendars", "cal_tombstones"] {
             assert_eq!(count(&c, &format!("SELECT COUNT(*) FROM sqlite_master WHERE name='{t}'")), 1, "{t}");
         }
-        for col in ["remote_id", "etag", "series_id", "remote_kind", "read_only"] {
+        for col in ["remote_id", "etag", "series_id", "remote_kind", "read_only", "rdates"] {
             assert_eq!(count(&c, &format!("SELECT COUNT(*) FROM pragma_table_info('events') WHERE name='{col}'")), 1, "{col}");
         }
+        assert_eq!(count(&c, "SELECT COUNT(*) FROM pragma_table_info('cal_sources') WHERE name='list_state'"), 1);
+        assert_eq!(count(&c, "SELECT COUNT(*) FROM pragma_table_info('calendars') WHERE name='full_at'"), 1);
     }
 
     #[test]

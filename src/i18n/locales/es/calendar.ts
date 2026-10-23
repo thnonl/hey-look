@@ -83,7 +83,6 @@ export default defineLocale<typeof ns.en>({
   "calendar.pop.copyOf": "{summary} (copia)",
   "calendar.pop.join": "Unirse",
   "calendar.pop.openEmail": "Abrir el correo de la invitación",
-  "calendar.pop.more": "Más acciones",
   "calendar.pop.duplicate": "Duplicar",
   // ---- toasts
   "calendar.toast.saved": "Se guardó {name}",
@@ -275,4 +274,13 @@ export default defineLocale<typeof ns.en>({
   "calendar.err.cancelled": "Se canceló el inicio de sesión del calendario.",
   "calendar.err.wrongAccount": "Permitiste el acceso para {signedIn}. Inicia sesión como {mailbox} para sincronizar el calendario de este buzón.",
   "calendar.err.partial": "Hey Look! necesita todos los permisos de calendario que solicitó. Activa el interruptor de nuevo y deja todas las casillas marcadas.",
+  // ---- 1.0.7 WP7a: consent confirm, build without a client, failed sender check
+  "calendar.consent.title": "¿Permitir el acceso al calendario en tu navegador?",
+  "calendar.consent.body": "Hey Look! abre la página de {provider} en tu navegador. Inicia sesión allí como {email} y permite el acceso a tus calendarios. El inicio de sesión de tu correo no cambia.",
+  "calendar.consent.open": "Abrir el navegador",
+  "calendar.err.noClient": "Esta compilación de Hey Look! no puede sincronizar calendarios con {provider}.",
+  "calendar.invite.unverified": "Este mensaje no superó la comprobación del remitente (DKIM, SPF o DMARC), así que puede que no sea de {name}.",
+  "calendar.invite.held": "Tu calendario no se modificó.",
+  "calendar.invite.applyAnyway": "Aplicar de todos modos",
+  "calendar.toast.applied": "Se actualizó tu calendario",
 });

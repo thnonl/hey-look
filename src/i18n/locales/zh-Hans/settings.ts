@@ -480,6 +480,7 @@ export default defineLocale<typeof ns.en>({
   "settings.keys.saveAll": "保存所有附件",
   "settings.keys.mailCalendar": "邮件 / 日历",
   "settings.keys.calendarKeys": "日历：新建事件、今天、上一个 / 下一个、月 / 周 / 日程",
+  "settings.keys.editEvent": "日历：编辑事件（或双击事件）",
   "settings.keys.selectAll": "全选",
   "settings.keys.commandBar": "命令栏",
   "settings.keys.commandBarAnywhere": "命令栏（写邮件时也可用）",
