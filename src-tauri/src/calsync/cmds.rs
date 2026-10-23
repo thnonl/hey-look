@@ -291,6 +291,7 @@ pub fn calsync_worker(app: tauri::AppHandle) {
     {
         let db = app.state::<AppState>().db.clone();
         let _ = store::reset_syncing(&lock(&db));
+        let _ = store::retry_not_set_up(&lock(&db));
     }
     std::thread::sleep(std::time::Duration::from_secs(10));
     loop {

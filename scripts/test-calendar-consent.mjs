@@ -219,11 +219,21 @@ try {
       } else {
         ok(g.buttons.length === 0 && g.text === want, `${tag}: nothing held, so no sentence and no button: "${g.text}"`);
       }
+      if (c.msg === 'm-unv-reply') {
+        // D-059: a held answer changed nothing, so the summary line must not claim "updated in your calendar" next to "Your calendar wasn't changed"
+        const sum = await evaluate(`document.querySelector('article.invite .inv-row.sub')?.textContent ?? ''`);
+        ok(sum.length > 0 && !sum.includes(tr(lang, 'calendar.invite.statusUpdated')), `${tag}: the summary line of a held answer does not say the calendar was updated ("${sum}")`);
+      }
       ok(g.over <= 1, `${tag}: no sideways overflow (${g.over})`);
       ok(g.btnBoxes.every((b) => b.l >= g.box.l - 0.5 && b.r <= g.box.r + 0.5), `${tag}: the button is inside the warning`);
       ok(g.box.r <= 960 && g.box.b <= 560 + 4000, `${tag}: the warning is inside the pane`);
     }
   }
+  // control: an answer whose check passed is applied, and its summary line says so
+  await setLook('light', 'en');
+  await evaluate(`window.__store.getState().select('t18').then(() => 1)`);
+  await waitFor(`document.querySelector('article.invite .inv-row.sub')`, 'the summary line of an ordinary answer');
+  ok((await evaluate(`document.querySelector('article.invite .inv-row.sub').textContent`)).includes(tr('en', 'calendar.invite.statusUpdated')), 'an ordinary answer says the attendee status was updated in your calendar');
   // Apply anyway: one call with the check skipped, a toast, the button is gone and the warning stays
   await setLook('light', 'en');
   await evaluate(`window.__store.getState().select('t30').then(() => 1)`);

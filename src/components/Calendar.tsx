@@ -239,7 +239,8 @@ export function InviteCard({ m }: { m: MessageFull }) {
             {inv.attendees.length > 1 && (
               <div className="inv-row sub">
                 <Users2 />
-                <span>{t("calendar.invite.acceptedOf", { accepted, total: inv.attendees.length })}{inv.eventId ? ` · ${t("calendar.invite.statusUpdated")}` : ""}</span>
+                {/* (a held answer, sender check failed, changed nothing: "updated in your calendar" would contradict the notice below) */}
+                <span>{t("calendar.invite.acceptedOf", { accepted, total: inv.attendees.length })}{inv.eventId && !inv.held ? ` · ${t("calendar.invite.statusUpdated")}` : ""}</span>
               </div>
             )}
           </div>

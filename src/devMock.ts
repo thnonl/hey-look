@@ -775,7 +775,7 @@ const localMail = (id: string) => (serverMail[id] ?? []).slice(0, mockMail.local
 // Titles with [conflict] / [offline] / [gone] in a synced calendar fail like the service would.
 // `#calkinds=none|google|microsoft` sets what `calendar_kinds_available` answers (a build without the OAuth client of a service); `window.__mockCalConnects` lists the
 // `calendar_connect` calls (the confirm before the browser opens must keep the list empty until Open browser).
-// `#unverified` adds four mails whose sender check failed (an update, a cancellation and an answer with a held change, and a new invitation); `#rdate` adds
+// `#unverified` adds four mails whose sender check failed (an update, a cancellation and an answer with a held change, and a new invitation: threads t30 to t33, subjects ending "(sender check failed)", the newest four rows of the first mailbox's Inbox; the hash is read when the page loads, so change it with a reload, not in the address bar alone); `#rdate` adds
 // a series of My events that only has extra dates (RDATE).
 type MockSrc = { id: string; accountId: string; kind: string; status: string; lastSync: number | null; lastError: string | null; retryAt: number | null; firstSync: boolean; calendars: Record<string, unknown>[] };
 type MockCalAccount = { account: string; kind: "google" | "microsoft"; prefix: string; email: string; service: string };
@@ -957,10 +957,10 @@ export function installMock() {
       threadInvite[tid] = [id];
       threads.push(t(tid, subject, [from[0]], "The sender check failed", ago, { invite: "request" }));
     };
-    mk("m-unv-upd", "t30", "Updated invitation: Kick-off (sender check failed)", ["Mai Khanh", "mai@contoso.com"], { summary: "Kick-off", sequence: 1, start: at(4, 14), end: at(4, 15), eventId: "e20", held: true }, 16 * H);
-    mk("m-unv-cancel", "t31", "Canceled: Vendor demo (sender check failed)", ["Vendor Ops", "ops@vendor.com"], { method: "CANCEL", summary: "Vendor demo", cancelled: false, start: at(3, 11), end: at(3, 12), eventId: "e7", held: true, organizer: { email: "ops@vendor.com", name: "Vendor Ops" }, attendees: [], you: { email: "nam@example.com", status: "needs-action", onList: true } }, 17 * H, { html: null, text: null });
-    mk("m-unv-reply", "t32", "Accepted: 1:1 with Bao (sender check failed)", ["Bao Tran", "bao@contoso.com"], { method: "REPLY", summary: "1:1 with Bao", start: at(-1, 14), end: at(-1, 14, 30), eventId: "e3", held: true, location: null, you: null, reply: { from: { email: "bao@contoso.com", name: "Bao Tran" }, status: "accepted", comment: null }, attendees: [{ ...you, role: "chair", status: "accepted" }, ...people([["Bao Tran", "needs-action"]])] }, 18 * H, { html: null, text: null, attachments: [] });
-    mk("m-unv-new", "t33", "Invitation: Budget review (sender check failed)", ["Mai Khanh", "mai@contoso.com"], { summary: "Budget review", start: at(5, 10), end: at(5, 11), eventId: null, held: false }, 19 * H);
+    mk("m-unv-upd", "t30", "Updated invitation: Kick-off (sender check failed)", ["Mai Khanh", "mai@contoso.com"], { summary: "Kick-off", sequence: 1, start: at(4, 14), end: at(4, 15), eventId: "e20", held: true }, 0.02 * H);
+    mk("m-unv-cancel", "t31", "Canceled: Vendor demo (sender check failed)", ["Vendor Ops", "ops@vendor.com"], { method: "CANCEL", summary: "Vendor demo", cancelled: false, start: at(3, 11), end: at(3, 12), eventId: "e7", held: true, organizer: { email: "ops@vendor.com", name: "Vendor Ops" }, attendees: [], you: { email: "nam@example.com", status: "needs-action", onList: true } }, 0.03 * H, { html: null, text: null });
+    mk("m-unv-reply", "t32", "Accepted: 1:1 with Bao (sender check failed)", ["Bao Tran", "bao@contoso.com"], { method: "REPLY", summary: "1:1 with Bao", start: at(-1, 14), end: at(-1, 14, 30), eventId: "e3", held: true, location: null, you: null, reply: { from: { email: "bao@contoso.com", name: "Bao Tran" }, status: "accepted", comment: null }, attendees: [{ ...you, role: "chair", status: "accepted" }, ...people([["Bao Tran", "needs-action"]])] }, 0.04 * H, { html: null, text: null, attachments: [] });
+    mk("m-unv-new", "t33", "Invitation: Budget review (sender check failed)", ["Mai Khanh", "mai@contoso.com"], { summary: "Budget review", start: at(5, 10), end: at(5, 11), eventId: null, held: false }, 0.05 * H);
   }
   // `#legacycolor=<hex>`: accounts as an older version stored them (no color) and that primary color: shows the one-time migration
   const legacy = /(^|&)legacycolor=(%23)?([0-9a-f]{6})(&|$)/i.exec(window.location.hash.slice(1));
