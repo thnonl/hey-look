@@ -34,6 +34,8 @@
     "allow-sync-account",
     "allow-refresh-badge",
     "allow-test-notification",
+    "allow-play-notify-sound",
+    "allow-create-mail-folder",
     "allow-open-external",
     "allow-copy-text",
     "allow-read-clipboard-text",

@@ -38,6 +38,8 @@
     { "module": "src/components/Calendar.tsx", "reason": "the Calendar views, its side menu and the event dialog, loaded on the first switch to Calendar / the first event dialog", "since": "1.0.7" },
     { "module": "src/components/PgpDialogs.tsx", "reason": "Generate key, Import key, Key details and the passphrase question, loaded on open (the badges and cards of the reading pane stay in Pgp.tsx)", "since": "1.0.7" },
     { "module": "src/components/Dialogs.tsx", "reason": "the bulk cleaner and Show original, loaded on open", "since": "1.0.7" },
+    { "module": "src/components/FolderDialog.tsx", "reason": "the New folder / New subfolder dialog, loaded on open (W13.10, DEC-015)", "since": "1.0.7" },
+    { "module": "src/components/SearchAdvanced.tsx", "reason": "\"Advanced search\" of the search panel (filters, dates, fields, operators), loaded when the person opens it; the search box and the simple panel stay in the first chunk (W13.4, DEC-015)", "since": "1.0.7" },
     { "module": "src/popout/ComposeView.tsx", "reason": "the view of the compose window, a chunk of its own, only in that window", "since": "1.0.7" },
     { "module": "src/popout/ReaderView.tsx", "reason": "the view of the reader window, a chunk of its own, only in that window (it never loads the editor)", "since": "1.0.7" },
     { "module": "node_modules/prosemirror-*", "reason": "the editor engine, with the editor stack", "since": "1.0.7" },

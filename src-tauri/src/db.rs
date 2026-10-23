@@ -328,7 +328,7 @@ pub fn prune_orphans(c: &Connection) -> R<usize> {
     }
     // folder maps (and "downloaded to the oldest message" marks, `exhausted:<id>:<folder>`) of removed accounts
     let keys: Vec<String> = {
-        let mut st = c.prepare("SELECT key FROM settings WHERE key LIKE 'fmap:%' OR key LIKE 'exhausted:%' OR key LIKE 'dmeet:%'").map_err(err)?;
+        let mut st = c.prepare("SELECT key FROM settings WHERE key LIKE 'fmap:%' OR key LIKE 'fmeta:%' OR key LIKE 'exhausted:%' OR key LIKE 'dmeet:%'").map_err(err)?;
         let rows = st.query_map([], |r| r.get::<_, String>(0)).map_err(err)?.collect::<Result<Vec<_>, _>>().map_err(err)?;
         rows
     };
@@ -336,7 +336,7 @@ pub fn prune_orphans(c: &Connection) -> R<usize> {
         let owner = match (k.strip_prefix("exhausted:"), k.strip_prefix("dmeet:")) {
             (Some(r), _) => r.split(':').next().unwrap_or(""),
             (_, Some(r)) => r.split('|').next().unwrap_or(""), // (the meeting a saved draft kept, draftmail.rs: `dmeet:<account>|<Message-ID>`)
-            _ => k.trim_start_matches("fmap:"),
+            _ => k.trim_start_matches("fmap:").trim_start_matches("fmeta:"),
         };
         if !ids.contains(owner) {
             n += c.execute("DELETE FROM settings WHERE key=?1", [&k]).map_err(err)?;

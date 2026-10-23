@@ -12,6 +12,7 @@ mod draftopen;
 mod draftupload;
 mod tempstore;
 mod flagguard;
+mod folders;
 mod headerfold;
 mod ical;
 mod i18n;
@@ -48,6 +49,7 @@ mod mail;
 #[cfg_attr(not(any(windows, target_os = "macos")), allow(dead_code))]
 mod navguard;
 mod newmail;
+mod notifysound;
 mod pdfmode;
 mod oauth;
 mod pkg;
@@ -939,8 +941,9 @@ fn sync_impl(db: &Db, account_id: &str) -> R<SyncResult> {
     let acc = db::get_account(&lock(db), account_id)?;
     let sec = secret(db, &acc)?;
     let mut s = mail::connect(&acc, &sec)?;
-    let map = mail::discover_folders(&mut s)?;
-    db::set_setting(&lock(db), &format!("fmap:{account_id}"), &serde_json::to_string(&map).map_err(err)?)?;
+    let listing = mail::list_folders(&mut s)?;
+    save_listing(db, account_id, &listing)?;
+    let map = listing.map;
 
     let mut roles: Vec<String> = mail::ROLES.iter().filter(|r| map.contains_key(**r)).map(|r| r.to_string()).collect();
     let mut custom: Vec<String> = map.keys().filter(|k| k.starts_with("f:")).cloned().collect();
@@ -1949,6 +1952,32 @@ fn test_notification(app: tauri::AppHandle, state: tauri::State<AppState>) -> R<
     shell::test_notification(&app, &state.db)
 }
 
+/// Right-click a mailbox > "New folder…" / a folder of the person > "New subfolder…" (W13.10): CREATE and SUBSCRIBE on the server, the saved list is refreshed, the new folder is returned.
+/// The page checks the name while the person types; the refusals come back as coded errors (`FOLDER_EXISTS`, `FOLDER_NOPERM`, `FOLDER_NAME`, `FOLDER_PARENT`), anything else is the server's own text.
+#[tauri::command]
+async fn create_mail_folder(state: tauri::State<'_, AppState>, account_id: String, parent_key: Option<String>, name: String) -> R<FolderInfo> {
+    let db = state.db.clone();
+    let work = blocking(move || {
+        let acc = db::get_account(&lock(&db), &account_id)?;
+        let sec = secret(&db, &acc)?;
+        let mut s = mail::connect(&acc, &sec)?;
+        let key = folders::create_on_session(&db, &acc, &mut s, parent_key.as_deref(), &name);
+        let _ = s.logout();
+        let key = key?;
+        folder_infos(&lock(&db))?.into_iter().find(|f| f.account_id == acc.id && f.key == key).ok_or_else(|| "the new folder is not in the list".to_string())
+    });
+    match tokio::time::timeout(std::time::Duration::from_secs(20), work).await {
+        Ok(r) => r,
+        Err(_) => Err("The server did not answer within 20 seconds.".to_string()),
+    }
+}
+
+/// Settings > Notifications > "Play sound" (W13.8): the new-mail sound once, at the system volume, whatever the switch and the quiet rules say.
+#[tauri::command]
+fn play_notify_sound(app: tauri::AppHandle) -> R<()> {
+    notifysound::preview(&app)
+}
+
 /// What the UI needs to know about the shell it runs in: the OS (per-OS copy and shortcut labels) and whether a tray exists.
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -2036,6 +2065,16 @@ struct FolderInfo {
     /// the account's saved folder list (`fmap:<id>`) names a server folder for this one. The app hides the Junk row and disables
     /// "Mark as junk" where this is false for `junk` (Junk is never created); Archive and Trash rows stay (created on first use).
     listed: bool,
+    /// (W13.10) the key of the parent folder (a folder of the person under another one that the server lists), else None
+    parent: Option<String>,
+    /// (W13.10) 0 = top level (after the namespace prefix of a server that keeps its folders under INBOX), 1 = a subfolder, ...
+    depth: u32,
+    /// (W13.10) the last part of the name, decoded from modified UTF-7 (the name of a folder of the person; the standard folders are named by the page)
+    label: String,
+    /// (W13.10) "New subfolder…" may be offered: a top-level folder of the person that can have children
+    can_nest: bool,
+    /// (W13.10) the hierarchy delimiter of the server (a name may not contain it), None until the first sync of 1.0.7 when the folder list is older
+    delimiter: Option<String>,
 }
 
 /// Every account lists the six standard folders (inbox, sent, drafts, archive, trash, junk) plus the server's own folders, whether the
@@ -2130,6 +2169,9 @@ fn folder_infos_hiding(c: &Connection, hidden: &std::collections::HashSet<String
         let mut custom: Vec<String> = map.keys().filter(|k| k.starts_with("f:")).cloned().collect();
         custom.sort();
         keys.extend(custom);
+        // the tree of the person's folders (W13.10): the delimiter and the prefix saved with the list; before the first sync of 1.0.7 a guess
+        let meta = folders::saved_meta(c, &a.id).unwrap_or_else(|| folders::FolderMeta::guessed(map.values()));
+        let names: std::collections::HashSet<&str> = map.iter().filter(|(k, _)| k.starts_with("f:")).map(|(_, v)| v.as_str()).collect();
         // (a mailbox whose file cannot be read shows no unread numbers; the other mailboxes still do)
         let (focused, other, inbox) = inbox_unread(c, &a.id, include_other, &hidden).unwrap_or_else(|e| {
             eprintln!("could not count the unread Inbox mail of {}: {e}", a.id);
@@ -2141,10 +2183,17 @@ fn folder_infos_hiding(c: &Connection, hidden: &std::collections::HashSet<String
             if is_inbox {
                 unread = inbox;
             }
+            let name = map.get(&k).cloned().unwrap_or_else(|| k.clone());
+            let place = folders::place(&k, &name, &meta, &names);
             out.push(FolderInfo {
                 account_id: a.id.clone(),
-                name: map.get(&k).cloned().unwrap_or_else(|| k.clone()),
+                name,
                 listed: map.contains_key(&k),
+                parent: place.parent,
+                depth: place.depth,
+                label: place.label,
+                can_nest: place.can_nest,
+                delimiter: meta.delimiter.clone().filter(|d| !d.is_empty()),
                 key: k,
                 unread,
                 total,
@@ -3044,8 +3093,8 @@ fn resolve_folder<T: std::io::Read + std::io::Write>(
     if folders.listing.is_none() {
         let listing = mail::list_folders(s)?;
         folders.map = listing.map.clone();
+        save_listing(db, &acc.id, &listing)?;
         folders.listing = Some(listing);
-        save_fmap(db, &acc.id, &folders.map)?;
     }
     if let Some(n) = folders.map.get(dst).cloned() {
         return Ok((n, false));
@@ -3158,6 +3207,12 @@ async fn prepare_action(
 
 fn save_fmap(db: &Db, account_id: &str, map: &HashMap<String, String>) -> R<()> {
     db::set_setting(&lock(db), &format!("fmap:{account_id}"), &serde_json::to_string(map).map_err(err)?)
+}
+
+/// The saved folder list of a mailbox from a fresh LIST: the map (`fmap:<id>`) and what the tree needs with it (`fmeta:<id>`: delimiter, namespace prefix, folders without children, W13.10).
+fn save_listing(db: &Db, account_id: &str, l: &mail::Listing) -> R<()> {
+    save_fmap(db, account_id, &l.map)?;
+    db::set_setting(&lock(db), &format!("fmeta:{account_id}"), &serde_json::to_string(&folders::FolderMeta::from_listing(l)).map_err(err)?)
 }
 
 /// How a role is named in a message: Archive, Trash, Junk, or the folder's own name.
@@ -3965,7 +4020,7 @@ fn store_sent_copy<T: std::io::Read + std::io::Write>(db: &Db, acc: &Account, s:
         }
     }
     let listing = mail::list_folders(s)?;
-    save_fmap(db, &acc.id, &listing.map)?;
+    save_listing(db, &acc.id, &listing)?;
     let (name, created) = match listing.map.get("sent").cloned() {
         Some(n) => (n, false),
         None => {
@@ -5887,6 +5942,8 @@ pub fn run() {
             sync_account,
             refresh_badge,
             test_notification,
+            play_notify_sound,
+            create_mail_folder,
             open_external,
             copy_text,
             read_clipboard_text,
@@ -6721,7 +6778,7 @@ mod capability_tests {
             "quit_now", "quit_cancelled", "sends_flushed", "quit_page_alive", "quit_dialog", "frontend_ready", "page_state", "page_pong", "show_window", "set_mail_available", "take_tray_compose",
             // calendar connections, sync triggers, mail actions that belong to the main page's intent layer
             "calendar_connect", "calendar_disconnect", "calendar_sources", "calendar_set_sync", "calendar_sync_now", "sync_account", "refresh_badge", "thread_action",
-            "queue_action", "cancel_action", "sender_action", "load_older", "idle_states", "frame_info", "frame_caption_rect", "frame_system_menu", "test_notification",
+            "queue_action", "cancel_action", "sender_action", "load_older", "idle_states", "frame_info", "frame_caption_rect", "frame_system_menu", "test_notification", "play_notify_sound", "create_mail_folder",
             // a secondary window asks the main page (popout_request); only the main page answers
             "popout_reply", "popout_save_all",
         ];

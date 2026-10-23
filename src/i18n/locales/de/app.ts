@@ -235,6 +235,9 @@ export default defineLocale<typeof ns.en>({
   "app.search.recent": "Letzte Suchen",
   "app.search.operators": "Operatoren:",
   "app.search.quote": "Wortgruppen in Anführungszeichen setzen: {example}.",
+  "app.search.advanced": "Erweiterte Suche",
+  "app.search.removeRecent": "„{q}“ aus letzten Suchen entfernen",
+  "app.search.clearRecent": "Alle löschen",
   // ---- Sweep (bulk cleaner) and the original-message dialog
   "app.sweep.title": "Aufräumen: nach Absender bereinigen",
   "app.sweep.intro": "Absender im Posteingang, sortiert nach Anzahl der Nachrichten.",

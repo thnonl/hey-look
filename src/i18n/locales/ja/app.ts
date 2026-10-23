@@ -226,6 +226,9 @@ export default defineLocale<typeof ns.en>({
   "app.search.recent": "最近の検索",
   "app.search.operators": "検索演算子：",
   "app.search.quote": "フレーズは引用符で囲みます：{example}。",
+  "app.search.advanced": "詳細検索",
+  "app.search.removeRecent": "「{q}」を最近の検索から削除",
+  "app.search.clearRecent": "すべてクリア",
   // ---- Sweep (bulk cleaner) and the original-message dialog
   "app.sweep.title": "一括処理：送信者ごとに整理",
   "app.sweep.intro": "受信トレイの送信者を、メッセージ数の多い順に表示します。",

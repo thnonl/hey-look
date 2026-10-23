@@ -185,7 +185,7 @@ if (!args.has("--lint-only")) {
   for (const f of srcFiles) {
     const code = readFileSync(f, "utf8");
     for (const m of code.matchAll(/["'`]((?:[a-z][a-zA-Z0-9]*)(?:\.[a-zA-Z0-9_-]+)+)["'`]/g)) if (m[1] in en) used.add(m[1]);
-    // dynamic keys: t(`settings.sound.${id}`) marks the whole prefix as used
+    // dynamic keys: t(`area.group.${id}`) marks the whole prefix as used
     for (const m of code.matchAll(/`((?:[a-z][a-zA-Z0-9]*)(?:\.[a-zA-Z0-9_-]+)*\.)\$\{/g)) for (const k of Object.keys(en)) if (k.startsWith(m[1])) used.add(k);
   }
   const unused = Object.keys(en).filter((k) => !used.has(k));

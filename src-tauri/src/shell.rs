@@ -621,14 +621,9 @@ fn handle_activation(app: &AppHandle, thread: &str, action: Option<String>) {
 #[cfg(windows)]
 fn toast(app: &AppHandle, thread: String, title: &str, line1: &str, line2: &str, sound: &str, actions: &[String]) -> Result<(), String> {
     use tauri_winrt_notification::{Sound, Toast};
-    let snd = match sound {
-        "none" => None,
-        "default" => Some(Sound::Default),
-        "im" => Some(Sound::IM),
-        "reminder" => Some(Sound::Reminder),
-        "sms" => Some(Sound::SMS),
-        _ => Some(Sound::Mail),
-    };
+    // (W13.8) "reminder" (an event reminder) keeps the system Reminder sound; a new-mail toast is always silent: Windows cannot play a Hey Look! file for an unpackaged
+    // app, so the app plays the sound itself after the toast (notifysound.rs)
+    let snd = if sound == "reminder" { Some(Sound::Reminder) } else { None };
     let mut t = Toast::new(crate::identity::aumid()).title(title).text1(line1);
     if !line2.is_empty() {
         t = t.text2(line2);
@@ -639,36 +634,51 @@ fn toast(app: &AppHandle, thread: String, title: &str, line1: &str, line2: &str,
             t = t.add_button(label, a);
         }
     }
+    let app2 = app.clone();
     let app = app.clone();
     let t = t.on_activated(move |action| {
         handle_activation(&app, &thread, action);
         Ok(())
     });
     // (the result was dropped here: a toast that Windows refused was reported as shown by "Send test" and left no line in startup.log)
-    t.show().map_err(|e| e.to_string().split_whitespace().collect::<Vec<_>>().join(" ").chars().take(120).collect())
+    let shown = t.show().map_err(|e| e.to_string().split_whitespace().collect::<Vec<_>>().join(" ").chars().take(120).collect());
+    if shown.is_ok() && sound == "pop" {
+        crate::notifysound::play_new_mail(&app2);
+    }
+    shown
 }
 
-/// macOS and Linux: a plain native notification (no buttons; clicking it has the system's default effect only).
+/// macOS and Linux: a plain native notification (no buttons; clicking it has the system's default effect only). `sound` is "pop" (the Hey Look! sound, W13.8), "reminder"
+/// (an event reminder: the system's notification sound) or "none".
 #[cfg(not(windows))]
 fn toast(app: &AppHandle, _thread: String, title: &str, line1: &str, line2: &str, sound: &str, _actions: &[String]) -> Result<(), String> {
     #[cfg(target_os = "linux")]
     {
-        let _ = app;
-        return toast_linux(title, &notification_body(line1, line2), sound);
+        return toast_linux(app, title, &notification_body(line1, line2), sound);
     }
     #[cfg(not(target_os = "linux"))]
     {
-        // macOS: the hidden diagnostic (HEYLOOK_MAC_NOTIFY in a debug build, see macnotify.rs); off = the unchanged path below
+        // macOS: the hidden diagnostic (HEYLOOK_MAC_NOTIFY in a debug build, see macnotify.rs); off = the unchanged path below. The notification is silent, the app plays the sound
+        // (a new-mail sound is the only signal on a Mac where the notification itself is not shown, W13.8)
         #[cfg(target_os = "macos")]
         if let Some(mode) = crate::macnotify::mode() {
-            return crate::macnotify::show(app, mode, title, &notification_body(line1, line2), sound);
+            let shown = crate::macnotify::show(app, mode, title, &notification_body(line1, line2), if sound == "reminder" { "reminder" } else { "none" });
+            if sound == "pop" {
+                crate::notifysound::play_new_mail(app);
+            }
+            return shown;
         }
         use tauri_plugin_notification::NotificationExt;
         let mut n = app.notification().builder().title(title).body(notification_body(line1, line2));
-        if sound != "none" {
-            n = n.sound(if cfg!(target_os = "macos") { "default" } else { "message-new-email" });
+        if sound == "reminder" {
+            n = n.sound("default");
         }
-        n.show().map_err(|e| e.to_string().chars().take(120).collect())
+        let shown = n.show().map_err(|e| e.to_string().chars().take(120).collect());
+        #[cfg(target_os = "macos")]
+        if sound == "pop" {
+            crate::notifysound::play_new_mail(app);
+        }
+        shown
     }
 }
 
@@ -676,15 +686,32 @@ fn toast(app: &AppHandle, _thread: String, title: &str, line1: &str, line2: &str
 /// service ("ServiceUnknown" on the bus) was never reported and "Send test" stayed silent (QA BUG-L2). The notification is sent
 /// here and the answer of the bus is returned; a bus that does not answer in time is an error too.
 #[cfg(target_os = "linux")]
-fn toast_linux(title: &str, body: &str, sound: &str) -> Result<(), String> {
+fn toast_linux(app: &AppHandle, title: &str, body: &str, sound: &str) -> Result<(), String> {
     let mut n = notify_rust::Notification::new();
     n.summary(title).body(body).auto_icon();
-    if sound != "none" {
-        n.sound_name("message-new-email");
-    }
+    let app = app.clone();
+    let sound = sound.to_string();
     let (tx, rx) = std::sync::mpsc::channel();
     std::thread::spawn(move || {
-        let _ = tx.send(n.show().map(|_| ()).map_err(|e| notify_failure_text(&e.to_string())));
+        // (W13.8) the sound: a server that lists the capability "sound" plays the file of the hint `sound-file` (`sound-name` is the fallback of a server that knows only names), and applies
+        // its own Do not disturb; otherwise the app plays the file after the notification (notifysound.rs). An event reminder keeps the system's notification sound.
+        let mut by_app = false;
+        if sound == "reminder" {
+            n.sound_name("message-new-email");
+        } else if sound == "pop" {
+            match crate::notifysound::linux_carrier(&app) {
+                (crate::notifysound::Carrier::Server, Some(file)) => {
+                    n.hint(notify_rust::Hint::SoundFile(file.to_string_lossy().into_owned()));
+                    n.sound_name("message-new-email");
+                }
+                _ => by_app = true,
+            }
+        }
+        let shown = n.show().map(|_| ()).map_err(|e| notify_failure_text(&e.to_string()));
+        if shown.is_ok() && by_app {
+            crate::notifysound::play_with_player(&app);
+        }
+        let _ = tx.send(shown);
     });
     rx.recv_timeout(std::time::Duration::from_secs(5)).unwrap_or_else(|_| {
         // no answer in 5 s: the bus holds the call while it tries to start a notification service that never comes up (an
@@ -799,20 +826,21 @@ pub fn notify_new(app: &AppHandle, db: &Db, new: &[NewMsg]) {
         return;
     }
     crate::startup::line("notify", &format!("notification: shown for {} new message(s)", list.len()));
-    let sound_for = |n: &NewMsg| {
-        eff(&p, &n.account_id, "notifySound")
-            .and_then(|v| v.as_str().map(String::from))
-            .filter(|s| !s.is_empty())
-            .unwrap_or_else(|| "mail".to_string())
-    };
+    // (W13.8) one sound per batch: when the sound is on for at least one mailbox of the batch and none played in the last 3 s. Only the first notification carries it.
+    let wants = crate::notifysound::batch_wants_sound(&p, list.iter().map(|n| n.account_id.as_str()));
+    let mut first_pop = wants && crate::notifysound::claim();
+    if wants && !first_pop {
+        crate::startup::line("notify", "sound: skipped (one played less than 3 s ago)");
+    }
+    let mut chime = || if std::mem::take(&mut first_pop) { "pop" } else { "none" };
     if list.len() > 3 {
-        toast_logged(app, String::new(), "Hey Look!", &crate::i18n::new_messages(list.len()), "", &sound_for(list[0]), &[]);
+        toast_logged(app, String::new(), "Hey Look!", &crate::i18n::new_messages(list.len()), "", chime(), &[]);
         return;
     }
     for n in list {
         let (line1, line2) = message_lines(&n.subject, &n.snippet, flag(n, "notifyPreview", true));
         let actions = notify_actions_for(&p, &n.account_id);
-        toast_logged(app, n.thread_id.clone(), &crate::snippet::notification_line(&n.from), &line1, &line2, &sound_for(n), &actions);
+        toast_logged(app, n.thread_id.clone(), &crate::snippet::notification_line(&n.from), &line1, &line2, chime(), &actions);
     }
 }
 
@@ -853,14 +881,15 @@ pub fn check_snoozes(app: &AppHandle, db: &Db) {
     }
     let p = prefs(db);
     let quiet = blocked(app, db);
-    let sound = pstr(&p, "notifySound", "reminder");
     let actions = notify_actions(&p);
     for (tid, subject, who, snippet) in due {
         let _ = lock(db).execute("UPDATE thread_meta SET snoozed_until=NULL WHERE thread_id=?1", [&tid]);
         let _ = action_impl(db, vec![tid.clone()], "unread".into(), None, None);
         if !quiet {
             let (line1, line2) = message_lines(&subject, &snippet, true);
-            toast_logged(app, tid, &crate::snippet::notification_line(&crate::i18n::snooze_ended(who.trim())), &line1, &line2, &sound, &actions);
+            // (W13.8) mail that comes back from a snooze is new mail: it plays the sound like any other (one per round: a few coming back together make one)
+            let sound = if crate::notifysound::on_for(&p, "") && crate::notifysound::claim() { "pop" } else { "none" };
+            toast_logged(app, tid, &crate::snippet::notification_line(&crate::i18n::snooze_ended(who.trim())), &line1, &line2, sound, &actions);
         }
     }
     update_badge(app, db);
@@ -873,7 +902,8 @@ pub fn notify_reminder(app: &AppHandle, db: &Db, title: &str, line: &str) {
         return;
     }
     let p = prefs(db);
-    toast_logged(app, String::new(), title, line, "", &pstr(&p, "notifySound", "reminder"), &[]);
+    // (W13.8) a calendar reminder keeps today's sound (the system's) and is silent when the switch is off
+    toast_logged(app, String::new(), title, line, "", if crate::notifysound::on_for(&p, "") { "reminder" } else { "none" }, &[]);
 }
 
 /// Body of the one-time "still running" notice, per OS.
@@ -897,7 +927,7 @@ pub fn test_notification(app: &AppHandle, db: &Db) -> Result<(), String> {
         crate::i18n::tr(crate::i18n::K::TestTitle),
         crate::i18n::tr(crate::i18n::K::TestLine1),
         crate::i18n::tr(crate::i18n::K::TestLine2),
-        &pstr(&p, "notifySound", "mail"),
+        if crate::notifysound::on_for(&p, "") { "pop" } else { "none" },
         &notify_actions(&p),
     )
 }

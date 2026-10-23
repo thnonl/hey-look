@@ -7,7 +7,7 @@ import { useT } from "../i18n/react";
 import { moveChoices, contextTargets, rowMenu, senderOf } from "../rowMenu";
 import type { Off, RowMenuEntry } from "../rowMenu";
 import { copyToClipboard } from "../open";
-import { folderLabel } from "../prefs";
+import { folderTitle } from "../prefs";
 import { friendlyError, scopeOf, useStore } from "../store";
 import { snoozePresets, subjectText } from "../util";
 import { ContextMenu, CtxItem } from "./ContextMenu";
@@ -105,7 +105,7 @@ function RowMenu({ open, onClose }: { open: Open; onClose: () => void }) {
       case "move": {
         const choices = moveChoices(folders, first.accountId, scopeOf(folder));
         return run(tr("app.ribbon.moveTo"), <FolderInput size={ICON} />, () => undefined, {
-          submenu: choices.map((f) => ({ label: folderLabel(f.key, f.name), onClick: () => void act(ids, "move", f.key, () => tr("mail.done.moved", { folder: folderLabel(f.key, f.name) })) })),
+          submenu: choices.map((f) => ({ label: folderTitle(f, folders), onClick: () => void act(ids, "move", f.key, () => tr("mail.done.moved", { folder: folderTitle(f, folders) })) })),
           ...(choices.length === 0 ? { disabled: true } : {}),
         });
       }

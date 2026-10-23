@@ -34,7 +34,7 @@ import { recoverUnsaved, reshowRecoveryToast } from "./composeRecovery";
 import { composeSwallowsAppKey, inEditable, keyAction, moduleSwitchKey, sidebarToggleKey } from "./composeKeys";
 import { MIN_READER_W, RAIL_W, SPLITTER_W, listHiddenWhileComposing, sidebarLayout } from "./sidebarState";
 import { toggleSidebarNow, useWindowWidth } from "./useSidebar";
-import { installEditorIntent, LazyBulkCleaner, LazyCalendarView, LazyCompose, LazyEventDialog, LazyGenerateKeyDialog, LazyImportKeyDialog, LazyKeyDetailsDialog, LazySettings, LazyShowOriginal, prefetchEditor, prefetchEditorWhenIdle } from "./lazyViews";
+import { installEditorIntent, LazyBulkCleaner, LazyCalendarView, LazyCompose, LazyEventDialog, LazyFolderDialog, LazyGenerateKeyDialog, LazyImportKeyDialog, LazyKeyDetailsDialog, LazySettings, LazyShowOriginal, prefetchEditor, prefetchEditorWhenIdle } from "./lazyViews";
 
 const clamp = (n: number, lo: number, hi: number) => Math.max(lo, Math.min(hi, n));
 
@@ -523,6 +523,7 @@ function App() {
       {/* the big dialogs are parts of their own, loaded when one opens (lazyViews.tsx): the frame of the dialog is there at once */}
       {dialog?.type === "settings" && <LazySettings initial={dialog.tab} focus={dialog.focus} nonce={dialog.nonce} />}
       {dialog?.type === "cleaner" && <LazyBulkCleaner />}
+      {dialog?.type === "folder-new" && <LazyFolderDialog key={`${dialog.accountId}|${dialog.parentKey ?? ""}`} accountId={dialog.accountId} parentKey={dialog.parentKey} />}
       {dialog?.type === "original" && <LazyShowOriginal messageId={dialog.messageId} />}
       {dialog?.type === "pgp-generate" && <LazyGenerateKeyDialog accountId={dialog.accountId} back={dialog.back} />}
       {dialog?.type === "pgp-import" && <LazyImportKeyDialog armored={dialog.armored} paste={dialog.paste} back={dialog.back} />}

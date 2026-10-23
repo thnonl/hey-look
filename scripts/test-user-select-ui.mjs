@@ -90,10 +90,15 @@ try {
     await clear();
     await evaluate(`(() => { const i = document.querySelector('.topbar input'); i.focus(); i.value = ''; i.dispatchEvent(new Event('input', { bubbles: true })); 1; })()`);
     await cdp('Input.insertText', { text: 'invoice march' });
-    const p = await centre('.topbar input');
-    await dbl(p[0] + 40, p[1]);
-    const t = await sel();
-    assert.ok(t.length > 0, 'a double-click in the search box selected nothing');
+    // the box runs its search 300 ms after the typing (and redraws the list): the double-click comes after that, so a slow runner cannot redraw the box in the middle of it
+    assert.ok(await waitFor(`window.__store.getState().search === 'invoice march'`), 'the search did not run');
+    await sleep(150);
+    // the middle of the first word, measured with the font of the box: the fonts of a runner differ (a fixed offset from the left edge can land in the space between the words, and a click in
+    // the empty part of a wide box selects nothing on some systems)
+    const p = await evaluate(`(() => { const i = document.querySelector('.topbar input'); const r = i.getBoundingClientRect(), cs = getComputedStyle(i); const c = document.createElement('canvas').getContext('2d'); c.font = cs.font || (cs.fontSize + ' ' + cs.fontFamily); const w = c.measureText('invoice').width; return [Math.round(r.left + parseFloat(cs.paddingLeft) + parseFloat(cs.borderLeftWidth) + w / 2), Math.round(r.top + r.height / 2)]; })()`);
+    await dbl(p[0], p[1]);
+    const t = await evaluate(`(() => { const i = document.querySelector('.topbar input'); return i.value.slice(i.selectionStart, i.selectionEnd).trim(); })()`);
+    assert.equal(t, 'invoice', `a double-click on the first word of the search box selects it, got "${t}"`);
     await evaluate(`window.__store.getState().setSearch('', false); 1`);
   });
 

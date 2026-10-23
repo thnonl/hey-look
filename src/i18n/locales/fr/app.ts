@@ -233,6 +233,9 @@ export default defineLocale<typeof ns.en>({
   "app.search.recent": "Recherches récentes",
   "app.search.operators": "Opérateurs :",
   "app.search.quote": "Mettez les expressions entre guillemets : {example}.",
+  "app.search.advanced": "Recherche avancée",
+  "app.search.removeRecent": "Retirer « {q} » des recherches récentes",
+  "app.search.clearRecent": "Tout effacer",
 
   "app.sweep.title": "Nettoyer : par expéditeur",
   "app.sweep.intro": "Expéditeurs de la boîte de réception, triés par nombre de messages.",
