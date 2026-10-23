@@ -2,11 +2,11 @@
   "policy": "Bundle budget of the production frontend, checked by scripts/check-bundle-budget.mjs (CI static shard). KB = 1,000 bytes. Raising a value = a change of this file in the branch, with a `history` entry and a reason, approved by the BA at the merge. Every value needs a reason; the script refuses the file otherwise.",
   "initialJsGzip": {
     "bytes": 370000,
-    "reason": "B1, the final budget of spec-107-wp9 section 2.1 (from the WP9d merge). Measured at WP9d: 280,857 B (entry chunk + static import closure, gzip level 9 per file; the editor stack, Settings, the Calendar views, the PGP dialogs and the pop-out views are chunks of their own). WP9d had to land at 330,000 B or less. Raising it needs a history entry, a measured reason, the BA and at most +10,000 B per work package (DEC-015)."
+    "reason": "B1, the final budget of spec-107-wp9 section 2.1 (from the WP9d merge). Measured at WP9d: 280,882 B (entry chunk + static import closure, gzip level 9 per file; the editor stack, Settings, the Calendar views, the PGP dialogs and the pop-out views are chunks of their own). WP9d had to land at 330,000 B or less. Raising it needs a history entry, a measured reason, the BA and at most +10,000 B per work package (DEC-015)."
   },
   "initialJsRaw": {
     "bytes": 1300000,
-    "reason": "B2, the final budget of spec-107-wp9 section 2.1 (from the WP9d merge). Measured at WP9d: 872,796 B."
+    "reason": "B2, the final budget of spec-107-wp9 section 2.1 (from the WP9d merge). Measured at WP9d: 872,788 B."
   },
   "langChunkGzip": {
     "bytes": 55000,
@@ -91,8 +91,8 @@
     { "date": "2026-10-24", "branch": "feature/v107-wp9c", "field": "initialJsGzip", "old": 783042, "new": 519687, "reason": "WP9c lowered (DEC-015, REQ-9.0.6): measured 483,687 B (was 767,510 B at the branch start, -283,823 B) + 36,000 B." },
     { "date": "2026-10-24", "branch": "feature/v107-wp9c", "field": "initialJsRaw", "old": 2762417, "new": 1699399, "reason": "WP9c lowered: measured 1,589,399 B (was 2,721,500 B) + 110,000 B." },
     { "date": "2026-10-24", "branch": "feature/v107-wp9c", "field": "langChunkGzip", "old": null, "new": 55000, "reason": "WP9c: B3 comes into force (the largest chunk, ru, is 49,405 B gzip)." },
-    { "date": "2026-10-24", "branch": "feature/v107-wp9d", "field": "initialJsGzip", "old": 519687, "new": 370000, "reason": "WP9d lowered to the final budget (DEC-015, REQ-9.2.7): measured 280,857 B (was 486,351 B at the branch start, -205,494 B); the spec asked for 330,000 B or less." },
-    { "date": "2026-10-24", "branch": "feature/v107-wp9d", "field": "initialJsRaw", "old": 1699399, "new": 1300000, "reason": "WP9d lowered to the final budget: measured 872,796 B (was 1,597,637 B)." },
+    { "date": "2026-10-24", "branch": "feature/v107-wp9d", "field": "initialJsGzip", "old": 519687, "new": 370000, "reason": "WP9d lowered to the final budget (DEC-015, REQ-9.2.7): measured 280,882 B (was 486,351 B at the branch start, -205,469 B); the spec asked for 330,000 B or less." },
+    { "date": "2026-10-24", "branch": "feature/v107-wp9d", "field": "initialJsRaw", "old": 1699399, "new": 1300000, "reason": "WP9d lowered to the final budget: measured 872,788 B (was 1,597,637 B)." },
     { "date": "2026-10-24", "branch": "feature/v107-wp9d", "field": "cssGzip", "old": 26005, "new": 26000, "reason": "WP9d lowered to the final budget: measured 24,074 B (+ the loading look and the dialog hand-off, 62 B)." },
     { "date": "2026-10-24", "branch": "feature/v107-wp9d", "field": "mustBeLazy", "old": null, "new": "13 modules", "reason": "B6 final list: Compose, RichEditor, LinkPopover, RecipientField, SettingsDialog, Updates, Calendar (views and event dialog), PgpDialogs, Dialogs, ComposeView, ReaderView, prosemirror-*, @tiptap/*." }
   ]
