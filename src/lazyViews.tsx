@@ -5,6 +5,7 @@ import type { Key } from "./i18n";
 import { useT } from "./i18n/react";
 import { lazyView, LazyLoading } from "./lazy";
 import { prefetchLazy } from "./lazyLoad";
+import type { SearchAdvancedProps } from "./components/SearchAdvanced";
 import { useStore } from "./store";
 
 // The big parts of the app that are loaded when they are needed (1.0.7 WP9d, W9.2; the plan is spec-107-wp9 section 2.2). THIS is the only place that imports them (a `import()` each);
@@ -14,6 +15,7 @@ import { useStore } from "./store";
 //   calendar    the Calendar view, its side menu and the event dialog                 on the first switch to Calendar / the first event dialog
 //   pgp         Generate key, Import key, Key details, the passphrase question        on open
 //   dialogs     the bulk cleaner and Show original                                   on open
+//   search      "Advanced search" of the search panel (filters, dates, fields)       when the person opens it
 //   popout      the compose window's and the reader window's view                    their own window (popout/views.tsx)
 // Loading, retry and failure: lazy.tsx / lazyLoad.ts.
 
@@ -26,6 +28,7 @@ const settingsModule = () => import("./components/SettingsDialog");
 const calendarModule = () => import("./components/Calendar");
 const pgpModule = () => import("./components/PgpDialogs");
 const dialogsModule = () => import("./components/Dialogs");
+const searchAdvancedModule = () => import("./components/SearchAdvanced");
 
 export const loadComposeWindowView = () => import("./popout/ComposeView").then(async (m) => (await m.ready(), m));
 export const loadReaderWindowView = () => import("./popout/ReaderView");
@@ -170,3 +173,12 @@ const dialogsOpts = { key: "dialogs", kind: "dialogs", load: dialogsModule, dial
 export const LazyBulkCleaner = lazyView<DialogsModule, NoProps>({ ...dialogsOpts, pick: (m) => m.BulkCleaner, frame: frame("app.sweep.title", { wide: true }) });
 export const LazyShowOriginal = lazyView<DialogsModule, React.ComponentProps<DialogsModule["ShowOriginal"]>>({ ...dialogsOpts, pick: (m) => m.ShowOriginal, frame: frame("app.original.title", { wide: true }) });
 
+type SearchAdvancedModule = Awaited<ReturnType<typeof searchAdvancedModule>>;
+/** "Advanced search" inside the search panel: nothing is drawn while it loads except the loading look after 150 ms; a failure folds the section back (the toast tells why). */
+export const LazySearchAdvanced = lazyView<SearchAdvancedModule, SearchAdvancedProps>({
+  key: "search",
+  kind: "search",
+  load: searchAdvancedModule,
+  pick: (m) => m.SearchAdvanced,
+  failed: (p) => p.onFail?.(),
+});

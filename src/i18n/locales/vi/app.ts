@@ -233,6 +233,9 @@ export default defineLocale<typeof ns.en>({
   "app.search.recent": "Tìm kiếm gần đây",
   "app.search.operators": "Toán tử:",
   "app.search.quote": "Đặt cụm từ trong dấu ngoặc kép: {example}.",
+  "app.search.advanced": "Tìm kiếm nâng cao",
+  "app.search.removeRecent": "Xóa “{q}” khỏi tìm kiếm gần đây",
+  "app.search.clearRecent": "Xóa tất cả",
 
   "app.sweep.title": "Quét: dọn dẹp theo người gửi",
   "app.sweep.intro": "Người gửi trong Hộp thư đến, sắp xếp theo số thư.",

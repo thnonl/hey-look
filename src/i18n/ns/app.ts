@@ -241,6 +241,9 @@ export default define({
     "app.search.recent": "Recent searches",
     "app.search.operators": "Operators:",
     "app.search.quote": "Quote phrases: {example}.",
+    "app.search.advanced": "Advanced search",
+    "app.search.removeRecent": "Remove “{q}” from recent searches",
+    "app.search.clearRecent": "Clear all",
 
     // ---- Sweep (bulk cleaner) and the original-message dialog
     "app.sweep.title": "Sweep: clean up by sender",

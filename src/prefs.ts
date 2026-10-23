@@ -6,6 +6,7 @@ import { DEFAULT_MAIL_CANVAS, MailCanvas, resolveMailCanvas } from "./mailCanvas
 import { DEFAULT_HIGHLIGHT, normColor } from "./editor/colors";
 import { DEFAULT_FONT_NAME, DEFAULT_FONT_SIZE } from "./editor/fonts";
 import { cleanRecentEmoji } from "./editor/recentEmoji";
+import { cleanRecent } from "./recentSearches";
 import { DEFAULT_NUDGE, NudgeState, normalizeNudge } from "./supportNudge";
 import { normalizeSidebar, SidebarMode } from "./sidebarState";
 import { blend, buttonAccent, luminance, ratio } from "./topBarLight";
@@ -295,6 +296,7 @@ export function mergePrefs(raw: string | null): Prefs {
       composeFontSize: typeof p.composeFontSize === "number" && p.composeFontSize >= 6 && p.composeFontSize <= 96 ? p.composeFontSize : DEFAULT_FONT_SIZE,
       recentColors: Array.isArray(p.recentColors) ? p.recentColors.filter((c): c is string => typeof c === "string" && /^#[0-9A-F]{6}$/.test(normColor(c))).slice(0, 10) : [],
       recentEmoji: cleanRecentEmoji(p.recentEmoji),
+      recentSearches: cleanRecent(p.recentSearches),
       pasteDefault: p.pasteDefault === "merge" || p.pasteDefault === "text" ? p.pasteDefault : "source",
       highlightColor: typeof p.highlightColor === "string" && /^#[0-9A-F]{6}$/.test(normColor(p.highlightColor)) ? normColor(p.highlightColor) : DEFAULT_HIGHLIGHT,
       // English unless the person chose another language (an unknown or older value counts as English)

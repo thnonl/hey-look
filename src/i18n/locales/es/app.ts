@@ -235,6 +235,9 @@ export default defineLocale<typeof ns.en>({
   "app.search.recent": "Búsquedas recientes",
   "app.search.operators": "Operadores:",
   "app.search.quote": "Para buscar una frase exacta, ponla entre comillas: {example}.",
+  "app.search.advanced": "Búsqueda avanzada",
+  "app.search.removeRecent": "Quitar “{q}” de las búsquedas recientes",
+  "app.search.clearRecent": "Borrar todo",
   // ---- Sweep (bulk cleaner) and the original-message dialog
   "app.sweep.title": "Limpiar: por remitente",
   "app.sweep.intro": "Remitentes de la bandeja de entrada ordenados por número de mensajes.",

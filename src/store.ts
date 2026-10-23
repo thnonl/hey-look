@@ -11,6 +11,7 @@ import { hlMark } from "./perfMarks";
 import { startPending, type Pending } from "./pendingCore";
 import { addArrivals, clearByCounts, clearOnOpen, type Arrivals, type NewMap } from "./newMail";
 import { QueuedMoves } from "./queuedMoves";
+import { pushRecent, removeRecent } from "./recentSearches";
 import { Latest } from "./latestOnly";
 import { StateIntents, type IntentKind } from "./readIntent";
 import { calendarErrorText, CAL_OFFER_DONE } from "./calendarSync";
@@ -388,6 +389,9 @@ interface State {
   lookedAtFolder: () => void;
   setSearch: (q: string, remember?: boolean) => Promise<void>;
   setSearchScope: (s: SearchScope) => Promise<void>;
+  /** (W13.4) one entry of the recent searches goes, at once and without a question */
+  removeRecentSearch: (q: string) => void;
+  clearRecentSearches: () => void;
   setFocus: (f: "focused" | "other") => Promise<void>;
   setFilter: (f: "all" | "unread" | "flagged") => Promise<void>;
   refresh: () => Promise<void>;
@@ -905,8 +909,7 @@ export const useStore = create<State>((set, get) => ({
     cancelMore();
     set({ search, selected: null, messages: [], loading: true, ...(search.trim() && get().compose ? { listAsked: true } : {}) });
     if (remember && search.trim()) {
-      const recent = [search.trim(), ...get().prefs.recentSearches.filter((r) => r !== search.trim())].slice(0, 8);
-      get().setPrefs({ recentSearches: recent });
+      get().setPrefs({ recentSearches: pushRecent(get().prefs.recentSearches, search) });
     }
     await get().refresh();
   },
@@ -919,6 +922,9 @@ export const useStore = create<State>((set, get) => ({
       await get().refresh();
     }
   },
+
+  removeRecentSearch: (q) => get().setPrefs({ recentSearches: removeRecent(get().prefs.recentSearches, q) }),
+  clearRecentSearches: () => get().setPrefs({ recentSearches: [] }),
 
   setFocus: async (focus) => {
     set({ focus, loading: true });
