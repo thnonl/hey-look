@@ -85,6 +85,8 @@ export function bridge({ port, token, host = "127.0.0.1" }) {
     key: (window, key, mods = {}) => call("POST", "/key", { window, key, ...mods }),
     /** { last, entries: [{ n, t, level, text }] } of the console buffer after entry number `since`. */
     console: (window, since = 0) => call("GET", `/console?window=${encodeURIComponent(window)}&since=${since}`),
+    /** { attempts, requested, outcome, tile, mainThread, platform } of the last macOS Dock badge request (see test-bridge.md). */
+    badge: () => call("GET", "/badge"),
     /** Saves a PNG of the window's web content to `file` and resolves to the bytes. */
     snapshot: async (window, file) => {
       const png = await call("GET", `/snapshot?window=${encodeURIComponent(window)}`);
@@ -94,7 +96,7 @@ export function bridge({ port, token, host = "127.0.0.1" }) {
   };
 }
 
-// command line: node test-bridge-client.mjs <data folder | test-bridge.json | startup.log | port:token> <list | eval WIN JS | click WIN SELECTOR | type WIN TEXT [SELECTOR] | key WIN KEY | console WIN [SINCE] | snapshot WIN FILE>
+// command line: node test-bridge-client.mjs <data folder | test-bridge.json | startup.log | port:token> <list | eval WIN JS | click WIN SELECTOR | type WIN TEXT [SELECTOR] | key WIN KEY | console WIN [SINCE] | badge | snapshot WIN FILE>
 if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
   const [where, cmd, ...rest] = process.argv.slice(2);
   if (where && cmd) {
@@ -108,6 +110,7 @@ if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.me
       else if (cmd === "type") show(await b.type(rest[0], rest[1], rest[2] ?? null));
       else if (cmd === "key") show(await b.key(rest[0], rest[1]));
       else if (cmd === "console") show(await b.console(rest[0], Number(rest[1] ?? 0)));
+      else if (cmd === "badge") show(await b.badge());
       else if (cmd === "snapshot") show(`${(await b.snapshot(rest[0], rest[1])).length} bytes -> ${rest[1]}`);
       else throw new Error(`unknown command ${cmd}`);
     } catch (e) {

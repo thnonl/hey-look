@@ -24,8 +24,14 @@ mod linuxview;
 // macOS notification diagnostic (HEYLOOK_MAC_NOTIFY); compiled everywhere so that its rules are tested everywhere
 #[cfg_attr(not(target_os = "macos"), allow(dead_code))]
 mod macnotify;
+// the macOS Dock badge: the call's rules and record (D-056); compiled everywhere so that they are tested everywhere
+#[cfg_attr(not(target_os = "macos"), allow(dead_code))]
+mod dockbadge;
 #[cfg(target_os = "macos")]
 mod macclip;
+// the Dock tile's own badge label, read back (dockbadge.rs)
+#[cfg(target_os = "macos")]
+mod macdock;
 #[cfg(target_os = "macos")]
 mod macquit;
 // the native window of a pop-out, finished by hand once it is gone (popout.rs)
@@ -682,8 +688,10 @@ async fn discover_server(email: String) -> R<Option<discover::Discovered>> {
 
 /// The UI has painted its first screen: the window may be shown (startup.rs).
 #[tauri::command]
-fn frontend_ready(app: tauri::AppHandle) {
+fn frontend_ready(app: tauri::AppHandle, state: tauri::State<AppState>) {
     startup::mark_ready(&app);
+    // the window and its page exist now: the unread number goes on the Dock tile / taskbar button at once, not at the next sync (D-056)
+    shell::update_badge(&app, &state.db);
 }
 
 /// The page's report on whether it is painting, a moment after the window was shown (startup.rs).
@@ -5324,6 +5332,8 @@ fn set_setting(app: tauri::AppHandle, window: tauri::Window, state: tauri::State
         let _ = app.emit(popout::PREFS_EVENT, serde_json::json!({ "writer": window.label() }));
         // the title bar of every window follows the theme setting (wintheme.rs)
         wintheme::apply_all(&app, "theme setting changed");
+        // the badge setting and "count other mail" change what the badges show (the Dock follows at once, D-056)
+        shell::update_badge(&app, &state.db);
     }
     // the UI mirrors its language here: the tray menu, the macOS Quit item and the tray tooltip follow at once (native texts, see i18n.rs)
     if key == "ui_language" && i18n::set_lang(&value) {

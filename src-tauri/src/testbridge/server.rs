@@ -167,7 +167,7 @@ impl<D: Driver> Bridge<D> {
 
     /// Routes one request that passed the guards.
     pub fn route(&self, head: &Head, body: &[u8]) -> Response {
-        let known = ["/windows", "/eval", "/click", "/type", "/key", "/console", "/snapshot"];
+        let known = ["/windows", "/badge", "/eval", "/click", "/type", "/key", "/console", "/snapshot"];
         let want_post = matches!(head.path.as_str(), "/eval" | "/click" | "/type" | "/key");
         if !known.contains(&head.path.as_str()) {
             return Response::error(404, "unknown endpoint");
@@ -177,6 +177,14 @@ impl<D: Driver> Bridge<D> {
         }
         if head.path == "/windows" {
             return Response::json(200, &serde_json::to_value(self.driver.windows()).unwrap_or(Value::Null));
+        }
+        // the last Dock badge the app set (macOS; D-056): what was asked for, the Result of the call, what the Dock tile reported back
+        if head.path == "/badge" {
+            let mut v = serde_json::to_value(crate::dockbadge::last()).unwrap_or(Value::Null);
+            if let Some(o) = v.as_object_mut() {
+                o.insert("platform".into(), json!(std::env::consts::OS));
+            }
+            return Response::json(200, &v);
         }
         // the parameters: the JSON body of a POST, the query of a GET
         let args: Value = if want_post {
@@ -640,6 +648,19 @@ pub mod tests {
         let (_, v) = call(s.port, "GET", "/console?window=main&since=2", None);
         assert_eq!((v["ok"].clone(), v["last"].clone(), v["entries"][0]["text"].clone()), (json!(true), json!(3), json!("x")));
         assert!(f.log.lock().unwrap().iter().any(|(_, s)| s.contains("__hlb.console(2)")));
+        s.stop();
+    }
+
+    #[test]
+    fn badge_reports_the_last_dock_badge_request_and_needs_get() {
+        let f = Fake::new();
+        let s = started(&f);
+        let (st, v) = call(s.port, "GET", "/badge", None);
+        assert_eq!(st, 200);
+        for k in ["attempts", "requested", "outcome", "tile", "mainThread", "platform"] {
+            assert!(v.get(k).is_some(), "{k} missing in {v}");
+        }
+        assert_eq!(call(s.port, "POST", "/badge", Some("{}")).0, 405);
         s.stop();
     }
 
