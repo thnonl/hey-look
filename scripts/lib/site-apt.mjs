@@ -4,6 +4,11 @@
 // specialists again, like every text of the website). Nothing here is read at run time by the site.
 // fr: U+00A0 (written as &nbsp; in the HTML) stands before ":" and "?"; a sentence that ends with the name "Hey Look!" takes no extra full stop.
 export const REPO_URL = "https://heylook.namthai.site/apt";
+/** The markers around the block in the source of every download page (DEC-022): build-site.mjs takes everything between them out while the site is dormant. */
+export const APT_BEGIN = "<!-- hl:apt-begin -->";
+export const APT_END = "<!-- hl:apt-end -->";
+/** The texts of the block that must not be on a dormant site (the summary of each language is enough to find it). */
+export const SUMMARIES = () => Object.values(TEXTS).map((t) => t.summary);
 export const KEYRING_PATH = "/etc/apt/keyrings/heylook-archive-keyring.gpg";
 export const SOURCES_PATH = "/etc/apt/sources.list.d/heylook.sources";
 
@@ -126,13 +131,13 @@ export const groupFingerprint = (fpr) => fpr.replace(/\s+/g, "").toUpperCase().r
 /** One copy box, the same markup as the macOS box (docs/download.html): the code and the button with the language's own "Copy". */
 const box = (cmd, copy) => `<div class="copy"><code>${esc(cmd)}</code><button class="btn btn-ghost btn-sm" type="button">${esc(copy)}</button></div>`;
 
-/** The whole <details id="apt"> block of the Linux card, one element per line (8 spaces of indent inside the card, like the neighbours). */
+/** The whole block of the Linux card (markers, <details id="apt">), one element per line (8 spaces of indent inside the card, like the neighbours). */
 export function aptBlock(lang, fingerprint, copy) {
   const t = TEXTS[lang];
   const [fp] = t.fingerprint.split("{fingerprint}");
   const rest = t.fingerprint.slice(fp.length + "{fingerprint}".length);
   return [
-    `      <details id="apt"><summary>${esc(t.summary)}</summary>`,
+    `      ${APT_BEGIN}<details id="apt"><summary>${esc(t.summary)}</summary>`,
     `        <p>${esc(t.lead)}</p>`,
     `        <p>${esc(t.step1)}</p>`,
     `        ${box(COMMANDS[0], copy)}`,
@@ -144,6 +149,6 @@ export function aptBlock(lang, fingerprint, copy) {
     `        ${box(COMMANDS[3], copy)}`,
     `        <p>${esc(t.existing)}</p>`,
     `        <p>${esc(t.remove)}</p>`,
-    `        ${box(COMMANDS[4], copy)}</details>`,
+    `        ${box(COMMANDS[4], copy)}</details>${APT_END}`,
   ].join("\n");
 }

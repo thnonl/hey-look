@@ -11,6 +11,11 @@ name: Pages
 # committed in docs/apt, every hash, every .deb against Packages) BEFORE anything is uploaded: write access to the branch alone cannot publish a
 # forged repository. No secret is used here. The release workflow starts this one (workflow_dispatch on main) after it updated the branch, because
 # events of the GITHUB_TOKEN start no workflow. After the deploy the job apt-live-check waits for the live InRelease and installs from the live address.
+#
+# DORMANT UNTIL THE REPOSITORY EXISTS (DEC-022): APT_SITE is `on` only when the branch `apt` exists (the step aptbranch below), else `off`. No input and
+# no variable can change that. Off: build-site.mjs takes the "Install with APT" block out of the 8 download pages and does not copy docs/apt/, and
+# `test-site-apt.mjs --built=_site` proves the built site has none of it, so the site never advertises a repository that does not exist and the
+# throw-away key of docs/apt (until the owner's real key is committed) never reaches the site. On: the throw-away key fails the run hard, before the upload.
 on:
   push:
     branches: [main, "release/**"]
@@ -72,6 +77,8 @@ jobs:
           node-version: 22
 
       - name: Verify site SEO and integrity
+        env:
+          APT_SITE: ${{ steps.aptbranch.outputs.present == 'true' && 'on' || 'off' }}
         run: |
           node scripts/generate-site-languages.mjs --check
           node scripts/test-site-languages.mjs --strict
@@ -81,7 +88,17 @@ jobs:
           node scripts/test-site-apt.mjs
 
       - name: Build and optimize production site
+        env:
+          APT_SITE: ${{ steps.aptbranch.outputs.present == 'true' && 'on' || 'off' }}
         run: node scripts/build-site.mjs _site
+
+      # off: the built site has no APT block, marker, apt/ folder, link or text; on: it has the block on the 8 download pages and the key files
+      - name: Check the built site for the APT repository
+        env:
+          APT_SITE: ${{ steps.aptbranch.outputs.present == 'true' && 'on' || 'off' }}
+        run: |
+          node scripts/test-site-apt.mjs --built=_site
+          if [ "$APT_SITE" = off ]; then echo "APT block left out (no branch apt)" >> "$GITHUB_STEP_SUMMARY"; fi
 
       # signature, hashes and pool files are checked here; a failure stops the deploy and the site stays as it is
       - name: Add the APT repository

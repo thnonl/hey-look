@@ -1,4 +1,13 @@
-// The APT repository on the website and in the workflows (WP15, spec-107-wp15-apt.md REQ-15.10, 15.13, 15.15). Run: node scripts/test-site-apt.mjs
+// The APT repository on the website and in the workflows (WP15, spec-107-wp15-apt.md REQ-15.10, 15.13, 15.15). Run: node scripts/test-site-apt.mjs [--built=_site]
+// MODES (DEC-022): the environment variable APT_SITE says whether the site being built carries the repository. pages.yml sets it from one fact only
+// (the branch `apt` exists: on, else off); nothing else may.
+//   no APT_SITE   local and the static shard: the checks of the sources below; the throw-away key fails unless APT_ALLOW_PLACEHOLDER_KEY=1 (DEC-020)
+//   APT_SITE=on   the same, and the throw-away key FAILS HARD (APT_ALLOW_PLACEHOLDER_KEY is ignored): a published branch `apt` with that key stops the deploy
+//   APT_SITE=off  the same, but the throw-away key is not checked (the key files are not deployed), and with --built=_site the BUILT site must be
+//                 dormant: no id="apt", no hl:apt- marker, no apt/ folder, no link to /apt/ or #apt, none of the 8 summary texts, none of the commands
+//   --built=DIR   with APT_SITE=on: the built site has the block (one pair of markers, once) on each of the 8 download pages and the three files of apt/
+// In every mode the sources are checked: each download page has exactly one pair <!-- hl:apt-begin --> ... <!-- hl:apt-end --> around the block, no other
+// page has a marker, an id="apt", or a link to /apt/ or #apt.
 //   - all 8 download pages carry the "Install with APT" block (<details id="apt"> in the Linux card, between the .rpm row and "Notes for Linux")
 //     exactly as scripts/lib/site-apt.mjs builds it: the agreed text of the language (no English in a translated page), the five commands byte for
 //     byte, five copy boxes with the page's own "Copy" label, the key fingerprint
@@ -16,7 +25,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { LANGS } from "./generate-site-languages.mjs";
-import { COMMANDS, KEYRING_PATH, PLACEHOLDER_UID, REAL_UID, SOURCES_FILE, TEXTS, aptBlock, groupFingerprint } from "./lib/site-apt.mjs";
+import { APT_BEGIN, APT_END, COMMANDS, KEYRING_PATH, PLACEHOLDER_UID, REAL_UID, SOURCES_FILE, SUMMARIES, TEXTS, aptBlock, groupFingerprint } from "./lib/site-apt.mjs";
 
 const root = path.join(path.dirname(fileURLToPath(import.meta.url)), "..");
 const read = (p) => fs.readFileSync(path.join(root, p), "utf8");
@@ -24,6 +33,11 @@ const errors = [];
 const notes = [];
 const warnings = [];
 const fail = (where, msg) => errors.push(`${where}: ${msg}`);
+const rawMode = process.env.APT_SITE;
+if (rawMode !== undefined && rawMode !== "on" && rawMode !== "off") { console.error(`test-site-apt: APT_SITE is "${rawMode}", it must be on or off (or not set)`); process.exit(1); }
+const mode = rawMode ?? "local";
+const builtArg = process.argv.find((a) => a.startsWith("--built="));
+const built = builtArg ? path.resolve(builtArg.slice("--built=".length)) : null;
 
 // ---------- the key files (gpg) ----------
 // (the key goes in through stdin: no path for gpg to misread, whichever shell or system runs this)
@@ -71,9 +85,11 @@ if (fs.existsSync(path.join(root, "docs/apt/heylook-archive-keyring.gpg"))) {
       placeholder = a.uids.some((u) => u.includes("throwaway"));
       const uidOk = placeholder ? a.uids.includes(PLACEHOLDER_UID) : a.uids.length === 1 && a.uids[0] === REAL_UID;
       if (!uidOk) fail("docs/apt", `the key UID is ${JSON.stringify(a.uids)}, expected exactly "${REAL_UID}" (or the placeholder "${PLACEHOLDER_UID}")`);
-      if (placeholder) {
+      if (placeholder && mode === "off") {
+        notes.push(`APT_SITE=off: the throw-away key (${a.fpr}) is not checked, the key files are not deployed`);
+      } else if (placeholder) {
         const msg = `docs/apt holds the throw-away key (${a.fpr}, UID "${PLACEHOLDER_UID}"), not the owner's signing key. Replace heylook-archive-keyring.asc/.gpg and the fingerprint on the 8 download pages (spec-107-wp15-apt.md section 12) before the website or a tag run uses them.`;
-        if (process.env.APT_ALLOW_PLACEHOLDER_KEY === "1") warnings.push(`APT signing key is the throw-away placeholder (DEC-001): tag runs and Pages deploys fail until the real key is committed`);
+        if (mode !== "on" && process.env.APT_ALLOW_PLACEHOLDER_KEY === "1") warnings.push(`APT signing key is the throw-away placeholder (DEC-001): tag runs and Pages deploys fail until the real key is committed`);
         else fail("docs/apt", msg);
       }
     }
@@ -89,11 +105,14 @@ for (const l of LANGS) {
   const where = rel;
   if (!fs.existsSync(path.join(root, rel))) { fail(where, "missing"); continue; }
   const html = read(rel);
-  const open = html.indexOf('<details id="apt">');
-  if (open < 0) { fail(where, 'no <details id="apt"> block'); continue; }
-  if (html.indexOf('<details id="apt">', open + 1) >= 0) fail(where, "the APT block is there twice");
-  const close = html.indexOf("</details>", open) + "</details>".length;
-  const block = html.slice(open, close);
+  const nBegin = html.split(APT_BEGIN).length - 1, nEnd = html.split(APT_END).length - 1;
+  if (nBegin !== 1 || nEnd !== 1) { fail(where, `${nBegin} ${APT_BEGIN} and ${nEnd} ${APT_END} markers, expected exactly one pair around the APT block`); continue; }
+  const open = html.indexOf(APT_BEGIN);
+  const close = html.indexOf(APT_END) + APT_END.length;
+  if (close <= open + APT_BEGIN.length) { fail(where, "the APT end marker comes before the begin marker"); continue; }
+  const block = html.slice(open, close); // markers included
+  if (!block.startsWith(`${APT_BEGIN}<details id="apt">`) || !block.endsWith(`</details>${APT_END}`)) { fail(where, "the markers do not wrap exactly one <details id=\"apt\"> element"); continue; }
+  if (block.split("<details").length !== 2) fail(where, 'more than one <details> inside the markers');
   // the fingerprint the page shows
   const m = /<code>((?:[0-9A-F]{4} ){9}[0-9A-F]{4})<\/code>/.exec(block);
   if (!m) { fail(where, "no fingerprint of 10 groups of 4 hex digits in <code>"); continue; }
@@ -116,7 +135,7 @@ for (const l of LANGS) {
   // the block sits in the Linux card, after the .rpm row and before "Notes for Linux"
   const card = html.slice(html.indexOf('id="card-linux"'), html.indexOf("</article>", html.indexOf('id="card-linux"')));
   const iRpm = card.indexOf('data-asset="lin-rpm"');
-  const iApt = card.indexOf('<details id="apt">');
+  const iApt = card.indexOf(APT_BEGIN);
   const iNotes = card.indexOf("<details><summary>");
   if (!(iRpm >= 0 && iRpm < iApt && iApt >= 0 && iApt < iNotes)) fail(where, "the APT block is not in #card-linux between the .rpm row and the Linux notes");
   // a translated page has no English sentence in the block
@@ -126,6 +145,52 @@ for (const l of LANGS) {
 }
 if (new Set(fprOnPages.values()).size > 1) fail("download pages", `the pages show different fingerprints: ${[...fprOnPages].map(([k, v]) => `${k} ${v}`).join(", ")}`);
 if (fprOnPages.size !== LANGS.length) fail("download pages", `${fprOnPages.size} of ${LANGS.length} pages carry a fingerprint`);
+
+// ---------- no other page mentions the block (DEC-022) ----------
+const htmlOf = (dir) => {
+  const out = [];
+  const walk = (d) => { for (const e of fs.readdirSync(d, { withFileTypes: true })) { const f = path.join(d, e.name); if (e.isDirectory()) walk(f); else if (e.name.endsWith(".html")) out.push(f); } };
+  walk(dir);
+  return out;
+};
+const APT_LINK = /href\s*=\s*["'](?:(?:[^"']*\/)?apt\/|[^"']*#apt\b)/i; // apt/…, …/apt/…, …#apt
+const isDownload = (rel) => /^(?:[a-z]{2}\/)?download\.html$/.test(rel);
+for (const f of htmlOf(path.join(root, "docs"))) {
+  const rel = path.relative(path.join(root, "docs"), f).replace(/\\/g, "/");
+  let html = fs.readFileSync(f, "utf8");
+  if (isDownload(rel)) {
+    const a = html.indexOf(APT_BEGIN), z = html.indexOf(APT_END);
+    if (a >= 0 && z > a) html = html.slice(0, a) + html.slice(z + APT_END.length); // (the block itself is checked above)
+  } else if (html.includes("hl:apt-") || html.includes('id="apt"')) fail(`docs/${rel}`, "has an APT marker or id=\"apt\": only the 8 download pages have the block");
+  if (APT_LINK.test(html)) fail(`docs/${rel}`, "links to /apt/ or #apt: nothing but the block itself may (the site is dormant until the repository exists)");
+}
+
+// ---------- the built site (--built=DIR) ----------
+if (built) {
+  if (!fs.existsSync(built)) fail("--built", `${built} does not exist`);
+  else if (mode === "on") {
+    for (const l of LANGS) {
+      const rel = l.dir ? `${l.dir}/download.html` : "download.html";
+      const f = path.join(built, rel);
+      const html = fs.existsSync(f) ? fs.readFileSync(f, "utf8") : "";
+      if (html.split(APT_BEGIN).length !== 2 || html.split('id="apt"').length !== 2) fail(`built ${rel}`, "APT_SITE=on: the page must carry the APT block exactly once");
+    }
+    for (const n of ["heylook-archive-keyring.asc", "heylook-archive-keyring.gpg", "heylook.sources"]) if (!fs.existsSync(path.join(built, "apt", n))) fail("built site", `APT_SITE=on: apt/${n} is missing`);
+  } else if (mode === "off") {
+    if (fs.existsSync(path.join(built, "apt"))) fail("built site", "APT_SITE=off: the folder apt/ is in the site");
+    const summaries = SUMMARIES();
+    for (const f of htmlOf(built)) {
+      const rel = path.relative(built, f).replace(/\\/g, "/");
+      const html = fs.readFileSync(f, "utf8");
+      if (html.includes('id="apt"')) fail(`built ${rel}`, 'APT_SITE=off: has id="apt"');
+      if (html.includes("hl:apt-")) fail(`built ${rel}`, "APT_SITE=off: has an hl:apt- marker");
+      if (APT_LINK.test(html)) fail(`built ${rel}`, "APT_SITE=off: links to /apt/ or #apt");
+      for (const t of summaries) if (html.includes(t)) fail(`built ${rel}`, `APT_SITE=off: has the APT summary text "${t}"`);
+      if (html.includes("heylook-archive-keyring") || html.includes("apt install hey-look")) fail(`built ${rel}`, "APT_SITE=off: has an APT command");
+    }
+    for (const l of LANGS) if (!fs.existsSync(path.join(built, l.dir ? `${l.dir}/download.html` : "download.html"))) fail("built site", `the download page of ${l.hreflang} is missing`);
+  } else fail("--built", "needs APT_SITE=on or APT_SITE=off (the check depends on it)");
+}
 
 // ---------- robots.txt ----------
 if (!read("docs/robots.txt").split(/\r?\n/).map((x) => x.trim()).includes("Disallow: /apt/")) fail("docs/robots.txt", 'no "Disallow: /apt/"');
@@ -145,6 +210,9 @@ for (const f of [".github/workflows/release.yml", ".github/workflows/pages.yml"]
   const pages = read(".github/workflows/pages.yml");
   const at = pages.indexOf("node scripts/test-site-apt.mjs");
   if (at < 0 || at > pages.indexOf("actions/upload-pages-artifact")) fail("pages.yml", "does not run scripts/test-site-apt.mjs before it uploads the site");
+  // DEC-022: the second call, on the built site, sits between the build and the upload
+  const builtAt = pages.indexOf("node scripts/test-site-apt.mjs --built=_site");
+  if (!(pages.indexOf("node scripts/build-site.mjs _site") < builtAt && builtAt < pages.indexOf("actions/upload-pages-artifact"))) fail("pages.yml", "does not check the built site (test-site-apt.mjs --built=_site) between the build and the upload");
   const rel = read(".github/workflows/release.yml");
   for (const need of ["apt-repo.sh fetch", "apt-install-test.sh local", "apt-repo.sh publish-branch", "gh workflow run pages.yml --ref main", "name: apt-repo-dryrun"]) if (!rel.includes(need)) fail("release.yml", `no '${need}'`);
   if (!KEYRING_PATH.startsWith("/etc/apt/keyrings/")) fail("site-apt.mjs", "the key goes to /etc/apt/keyrings");
@@ -157,4 +225,4 @@ if (errors.length) {
   for (const e of errors) console.error(`  ${e}`);
   process.exit(1);
 }
-console.log(`ok - test-site-apt (${LANGS.length} download pages, 5 commands each, key ${keyFpr ?? "not read"})`);
+console.log(`ok - test-site-apt (mode ${mode}${built ? `, built site ${mode === "off" ? "dormant" : "with the block"}` : ""}; ${LANGS.length} download pages, 5 commands each, key ${keyFpr ?? "not read"})`);

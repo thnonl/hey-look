@@ -126,7 +126,7 @@
       <div class="asset" data-asset="lin-appimage" data-pattern="HeyLook_&lt;version&gt;_linux_amd64.AppImage"><a class="btn btn-primary" href="https://github.com/thnonl/hey-look/releases/latest" rel="noopener" data-label="Tải AppImage"><svg class="ic" aria-hidden="true" focusable="false"><use href="#i-download"/></svg><span class="t">Tải AppImage</span></a><span class="fn">HeyLook_&lt;version&gt;_linux_amd64.AppImage</span><small class="sz"></small></div>
       <div class="asset" data-asset="lin-deb" data-pattern="HeyLook_&lt;version&gt;_linux_amd64.deb"><a class="btn btn-ghost" href="https://github.com/thnonl/hey-look/releases/latest" rel="noopener" data-label="Tải .deb (Debian, Ubuntu)"><svg class="ic" aria-hidden="true" focusable="false"><use href="#i-download"/></svg><span class="t">Tải .deb (Debian, Ubuntu)</span></a><span class="fn">HeyLook_&lt;version&gt;_linux_amd64.deb</span><small class="sz"></small></div>
       <div class="asset" data-asset="lin-rpm" data-pattern="HeyLook_&lt;version&gt;_linux_x86_64.rpm"><a class="btn btn-ghost" href="https://github.com/thnonl/hey-look/releases/latest" rel="noopener" data-label="Tải .rpm (Fedora, openSUSE)"><svg class="ic" aria-hidden="true" focusable="false"><use href="#i-download"/></svg><span class="t">Tải .rpm (Fedora, openSUSE)</span></a><span class="fn">HeyLook_&lt;version&gt;_linux_x86_64.rpm</span><small class="sz"></small></div>
-      <details id="apt"><summary>Cài bằng APT và nhận cập nhật cùng hệ thống</summary>
+      <!-- hl:apt-begin --><details id="apt"><summary>Cài bằng APT và nhận cập nhật cùng hệ thống</summary>
         <p>Dành cho Ubuntu 22.04 trở lên và Debian 12 trở lên, trên máy tính 64-bit (amd64). Chỉ cần thêm kho Hey Look! một lần: sau đó Hey Look! được cập nhật cùng phần còn lại của hệ thống, và ứng dụng không còn tự cập nhật nữa.</p>
         <p>1. Tải khóa ký của kho:</p>
         <div class="copy"><code>sudo wget -qO /etc/apt/keyrings/heylook-archive-keyring.gpg https://heylook.namthai.site/apt/heylook-archive-keyring.gpg</code><button class="btn btn-ghost btn-sm" type="button">Sao chép</button></div>
@@ -138,7 +138,7 @@
         <div class="copy"><code>gpg --show-keys /etc/apt/keyrings/heylook-archive-keyring.gpg</code><button class="btn btn-ghost btn-sm" type="button">Sao chép</button></div>
         <p>Đã cài .deb từ trang này rồi? Hãy làm theo cùng ba bước đó. Thư, tài khoản và cài đặt của bạn vẫn được giữ nguyên, và từ đó các bản cập nhật sẽ đến qua APT.</p>
         <p>Để gỡ cài đặt Hey Look! và kho:</p>
-        <div class="copy"><code>sudo apt remove hey-look &amp;&amp; sudo rm /etc/apt/sources.list.d/heylook.sources /etc/apt/keyrings/heylook-archive-keyring.gpg</code><button class="btn btn-ghost btn-sm" type="button">Sao chép</button></div></details>
+        <div class="copy"><code>sudo apt remove hey-look &amp;&amp; sudo rm /etc/apt/sources.list.d/heylook.sources /etc/apt/keyrings/heylook-archive-keyring.gpg</code><button class="btn btn-ghost btn-sm" type="button">Sao chép</button></div></details><!-- hl:apt-end -->
       <details><summary>Ghi chú cho Linux</summary>
         <p>Nếu môi trường desktop của bạn không có khu vực khay hệ thống, đóng cửa sổ sẽ thoát Hey Look!</p>
         <p>Liên kết và tệp đính kèm được mở bằng <code>xdg-open</code>. Mật khẩu cần GNOME Keyring hoặc KWallet đang chạy và đã được mở khóa.</p></details>

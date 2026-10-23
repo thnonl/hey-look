@@ -113,6 +113,8 @@ static | node --experimental-strip-types scripts/test-site-commands.mjs
 static | node scripts/test-site-apt.mjs
 # DEC-020: the throw-away key gate cannot be opened by accident: pages.yml and this list never carry the variable, release.yml sets it once (node-tests job, '1' unless a tag push), only the value 1 counts, and the guard is proven on mutated copies
 static | node scripts/test-apt-placeholder-guard.mjs
+# DEC-022: the website is dormant until the branch apt exists: build-site.mjs without APT_SITE=on takes the APT block out of the 8 download pages and does not copy docs/apt, test-site-apt.mjs --built finds every leftover (mutations), APT_SITE=on keeps the block and fails hard on the throw-away key
+static | node scripts/test-site-apt-dormant.mjs
 # sentences the website was told to stop saying (no mobile apps, no "may come" for languages or a theme editor, no "new / may contain mistakes", the old update wording) do not come back in any language
 static | node scripts/test-site-statements.mjs
 # proof that the test above fails when a removed sentence is put back, in each language (AC-10.13.2, AC-10.14.2), and when an English app path comes back on a translated page

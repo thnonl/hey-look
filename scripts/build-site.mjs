@@ -5,6 +5,11 @@
 // 1. Copies all files from docs/ into the output directory (default: _site).
 // 2. Optimizes and minifies assets/style.css and assets/*.js (using esbuild if available, or a safe built-in minifier).
 // 3. Verifies that all expected assets exist in the output directory.
+//
+// The APT repository (WP15, DEC-022): the "Install with APT" block of the 8 download pages sits between <!-- hl:apt-begin --> and <!-- hl:apt-end -->.
+// The site is DORMANT unless APT_SITE=on (pages.yml sets it from one fact only: the branch `apt` exists). Off (the default, also when the variable is
+// missing or has any other value): every download page loses the block, docs/apt/ (the key and the sources file) is not copied, so the site never
+// advertises a repository that does not exist yet. On: nothing is removed and docs/apt/ is copied.
 
 import fs from 'node:fs';
 import path from 'node:path';
@@ -15,9 +20,14 @@ const ROOT = fileURLToPath(new URL('..', import.meta.url));
 const DOCS = path.join(ROOT, 'docs');
 const OUT_DIR = path.resolve(ROOT, process.argv[2] || '_site');
 
+const APT_ON = process.env.APT_SITE === 'on';
+const APT_BEGIN = '<!-- hl:apt-begin -->';
+const APT_END = '<!-- hl:apt-end -->';
+
 function copyDir(src, dest) {
   fs.mkdirSync(dest, { recursive: true });
   for (const entry of fs.readdirSync(src, { withFileTypes: true })) {
+    if (!APT_ON && src === DOCS && entry.isDirectory() && entry.name === 'apt') continue; // dormant: the key and heylook.sources are not deployed
     const srcPath = path.join(src, entry.name);
     const destPath = path.join(dest, entry.name);
     if (entry.isDirectory()) {
@@ -26,6 +36,41 @@ function copyDir(src, dest) {
       fs.copyFileSync(srcPath, destPath);
     }
   }
+}
+
+/** Dormant site: takes the APT block (markers included, and the line it sits on) out of the pages. Exactly one pair on each download page, none anywhere else. */
+function removeAptBlocks(dir) {
+  let removed = 0;
+  const walk = (d) => {
+    for (const e of fs.readdirSync(d, { withFileTypes: true })) {
+      const f = path.join(d, e.name);
+      if (e.isDirectory()) { walk(f); continue; }
+      if (!e.name.endsWith('.html')) continue;
+      let html = fs.readFileSync(f, 'utf8');
+      const nb = html.split(APT_BEGIN).length - 1;
+      const ne = html.split(APT_END).length - 1;
+      const rel = path.relative(dir, f).replace(/\\/g, '/');
+      const isDownload = /^(?:[a-z]{2}\/)?download\.html$/.test(rel);
+      if (!nb && !ne) {
+        if (isDownload) throw new Error(`${rel}: no ${APT_BEGIN} ... ${APT_END} pair (the APT block must be wrapped in the source)`);
+        continue;
+      }
+      if (!isDownload) throw new Error(`${rel}: APT markers on a page that is not a download page`);
+      if (nb !== 1 || ne !== 1) throw new Error(`${rel}: ${nb} begin and ${ne} end markers, expected exactly one pair`);
+      const a = html.indexOf(APT_BEGIN);
+      const z = html.indexOf(APT_END) + APT_END.length;
+      if (z <= a + APT_BEGIN.length) throw new Error(`${rel}: the APT end marker comes before the begin marker`);
+      const lineStart = html.lastIndexOf('\n', a) + 1;
+      const onlyIndent = /^[ \t]*$/.test(html.slice(lineStart, a));
+      const lineEnd = html[z] === '\n' ? z + 1 : z;
+      html = html.slice(0, onlyIndent ? lineStart : a) + html.slice(onlyIndent ? lineEnd : z);
+      fs.writeFileSync(f, html);
+      removed++;
+    }
+  };
+  walk(dir);
+  if (removed !== 8) throw new Error(`the APT block was taken out of ${removed} pages, expected the 8 download pages`);
+  return removed;
 }
 
 /** Safe built-in CSS minifier that preserves calc() operators */
@@ -79,6 +124,8 @@ function build() {
     fs.rmSync(OUT_DIR, { recursive: true, force: true });
   }
   copyDir(DOCS, OUT_DIR);
+  if (APT_ON) console.log('  APT_SITE=on: the APT block and docs/apt/ stay in the site');
+  else console.log(`  APT block left out (APT_SITE is not "on"): removed from ${removeAptBlocks(OUT_DIR)} download pages, docs/apt/ not copied`);
 
   const esbuildAvailable = hasEsbuild();
   let totalSaved = 0;
