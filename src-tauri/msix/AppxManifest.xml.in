@@ -1,0 +1,63 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Manifest of the Microsoft Store package of Hey Look! (WP14, option A: MSIX). Not used by the GitHub installers.
+  scripts/msix-build.mjs fills the four NAME, PUBLISHER, PUBLISHER_DISPLAY_NAME and VERSION placeholders below (identity from the Partner Center product identity page, version from
+  tauri.conf.json) and packs it with the Windows SDK (makeappx). The Store signs the package itself after certification.
+  Display name: the Store only accepts a name that was reserved for the product (DEC-006); inside the app and on the website
+  the app stays "Hey Look!". Full trust: a classic Win32 program (Tauri + WebView2) in a package; nothing else is declared
+  (no protocol, no file type, no mailto handler).
+-->
+<Package
+  xmlns="http://schemas.microsoft.com/appx/manifest/foundation/windows10"
+  xmlns:uap="http://schemas.microsoft.com/appx/manifest/uap/windows10"
+  xmlns:uap5="http://schemas.microsoft.com/appx/manifest/uap/windows10/5"
+  xmlns:uap17="http://schemas.microsoft.com/appx/manifest/uap/windows10/17"
+  xmlns:rescap="http://schemas.microsoft.com/appx/manifest/foundation/windows10/restrictedcapabilities"
+  IgnorableNamespaces="uap uap5 uap17 rescap">
+
+  <Identity Name="{{NAME}}" Publisher="{{PUBLISHER}}" Version="{{VERSION}}" ProcessorArchitecture="x64" />
+
+  <Properties>
+    <DisplayName>Hey Look! Mail Client</DisplayName>
+    <PublisherDisplayName>{{PUBLISHER_DISPLAY_NAME}}</PublisherDisplayName>
+    <Logo>Assets\StoreLogo.png</Logo>
+    <Description>Fast, private desktop mail client</Description>
+    <uap17:UpdateWhileInUse>defer</uap17:UpdateWhileInUse>
+  </Properties>
+
+  <Resources>
+    <Resource Language="en-US" />
+    <Resource Language="vi" />
+    <Resource Language="fr" />
+    <Resource Language="zh-Hans" />
+    <Resource Language="es" />
+    <Resource Language="ja" />
+    <Resource Language="de" />
+    <Resource Language="ru" />
+  </Resources>
+
+  <Dependencies>
+    <TargetDeviceFamily Name="Windows.Desktop" MinVersion="10.0.17763.0" MaxVersionTested="10.0.26100.0" />
+  </Dependencies>
+
+  <Applications>
+    <Application Id="App" Executable="hey-look.exe" EntryPoint="Windows.FullTrustApplication">
+      <uap:VisualElements
+        DisplayName="Hey Look! Mail Client"
+        Description="Fast, private desktop mail client"
+        BackgroundColor="transparent"
+        Square150x150Logo="Assets\Square150x150Logo.png"
+        Square44x44Logo="Assets\Square44x44Logo.png" />
+      <Extensions>
+        <!-- "Start Hey Look! when I sign in to Windows": off until the person turns it on (the app side comes with WP14 part 2) -->
+        <uap5:Extension Category="windows.startupTask" Executable="hey-look.exe" EntryPoint="Windows.FullTrustApplication">
+          <uap5:StartupTask TaskId="HeyLookStartup" Enabled="false" DisplayName="Hey Look!" />
+        </uap5:Extension>
+      </Extensions>
+    </Application>
+  </Applications>
+
+  <Capabilities>
+    <rescap:Capability Name="runFullTrust" />
+  </Capabilities>
+</Package>

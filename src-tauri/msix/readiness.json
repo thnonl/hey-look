@@ -1,0 +1,4 @@
+{
+  "_about": "Is the packaged mode of the app (WP14 part 2, WA.2: data in the package's LocalState, keyring service heylook.store, updater off, startup task) in this source? While appPackagedMode is false the release workflow still builds and checks the package, but names the tag-run artifact msix-store-NOT-READY and store-submit refuses to run: such a package would try to update itself inside the read-only package and keep its data in a virtualised AppData. WP14 part 2 sets it to true in the commit that lands WA.2 (scripts/test-msix-build.mjs then requires the packaged-mode code to be there).",
+  "appPackagedMode": false
+}
