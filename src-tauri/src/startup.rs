@@ -818,7 +818,7 @@ enum Capture {
 
 /// Read the window's pixels the way `how` says and judge them. `(None, reason)` when the pixels could not be read at all.
 fn look_at(app: &AppHandle, how: Capture) -> (Option<Judged>, Option<String>) {
-    #[cfg(debug_assertions)]
+    #[cfg(all(windows, debug_assertions))]
     if how == Capture::Screen {
         fault::before_look(app);
     }
@@ -866,7 +866,7 @@ pub fn boot_delay_plugin<R: tauri::Runtime>(ms: u64) -> tauri::plugin::TauriPlug
 /// web view (for real: the window then shows its background colour) at the first look after a show, and keeps hiding it again before every
 /// look until the escalation has taken `k` steps (1 = re-assert, 2 = nudge, 3 = hide + show, 4 = the second hide + show, 5 = reload). The
 /// steps before `k` are really taken and then undone by the injection; step `k` finds the web view shown again, as a cure that works would.
-#[cfg(debug_assertions)]
+#[cfg(all(windows, debug_assertions))]
 mod fault {
     use super::*;
     static HIDDEN: AtomicBool = AtomicBool::new(false);
