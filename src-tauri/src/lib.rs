@@ -66,6 +66,7 @@ mod shell;
 mod smtp;
 mod smtpsize;
 mod snippet;
+mod unsub;
 mod update;
 mod winframe;
 mod wintheme;
@@ -1914,6 +1915,8 @@ struct ShellInfo {
     pdf_test: bool,
     /// debug builds only, `HEYLOOK_TEST_COPY_FAIL=1`: every copy to the clipboard fails (QA of the "Couldn't copy" toasts)
     copy_fail: bool,
+    /// debug builds only, `HEYLOOK_TEST_OPEN_FAIL=1`: opening a link in the browser always fails (QA of the "Couldn't open your browser" toasts)
+    open_fail: bool,
     /// debug builds only, `HEYLOOK_TEST_ACCOUNTS_DELAY_MS=<ms>`: the page waits that long before it takes the mailboxes it has read (QA of "New mail" while they are not read yet)
     accounts_delay_ms: u64,
 }
@@ -1921,6 +1924,12 @@ struct ShellInfo {
 /// A debug build can make every copy fail (`HEYLOOK_TEST_COPY_FAIL=1`), to see the error toasts of the Copy buttons. Never in a release build.
 fn copy_forced_to_fail() -> bool {
     cfg!(debug_assertions) && std::env::var("HEYLOOK_TEST_COPY_FAIL").is_ok_and(|v| v == "1")
+}
+
+/// A debug build can make every opening of a link fail (`HEYLOOK_TEST_OPEN_FAIL=1`): the page checks the flag before it asks the opener plugin
+/// (Windows, macOS) and `open_external` checks it too (Linux). Never in a release build.
+fn open_forced_to_fail() -> bool {
+    cfg!(debug_assertions) && std::env::var("HEYLOOK_TEST_OPEN_FAIL").is_ok_and(|v| v == "1")
 }
 
 /// A debug build can make the page wait before it takes the mailboxes (`HEYLOOK_TEST_ACCOUNTS_DELAY_MS`, at most 120 s). Never in a release build.
@@ -1933,7 +1942,7 @@ fn accounts_delay_ms() -> u64 {
 
 #[tauri::command]
 fn shell_info() -> ShellInfo {
-    ShellInfo { os: std::env::consts::OS, tray: shell::tray_ready(), test_data: legacy_names::test_data_dir().map(|p| p.display().to_string()), managed: update::managed_by(), pdf_view: pdfmode::view().name(), pdf_test: pdfmode::experiment_on(), copy_fail: copy_forced_to_fail(), accounts_delay_ms: accounts_delay_ms() }
+    ShellInfo { os: std::env::consts::OS, tray: shell::tray_ready(), test_data: legacy_names::test_data_dir().map(|p| p.display().to_string()), managed: update::managed_by(), pdf_view: pdfmode::view().name(), pdf_test: pdfmode::experiment_on(), copy_fail: copy_forced_to_fail(), open_fail: open_forced_to_fail(), accounts_delay_ms: accounts_delay_ms() }
 }
 
 #[tauri::command]
@@ -3560,6 +3569,9 @@ fn open_target(app: &tauri::AppHandle, target: &str, is_url: bool) -> R<()> {
 /// (elsewhere it uses the opener plugin directly); the other systems get the same behaviour here for completeness.
 #[tauri::command]
 async fn open_external(app: tauri::AppHandle, url: String) -> R<()> {
+    if open_forced_to_fail() {
+        return Err("the browser is switched off for this test run".into());
+    }
     if !linuxopen::url_allowed(&url) {
         return Err("LINK_NOT_OPENED: That kind of link is not opened.".into()); // the same schemes as the opener plugin allows
     }
@@ -5444,15 +5456,8 @@ async fn unsubscribe(state: tauri::State<'_, AppState>, message_id: String) -> R
         .collect();
     if let Some(u) = targets.iter().find(|t| t.starts_with("https://")) {
         if post {
-            let ok = reqwest::Client::new()
-                .post(u)
-                .header("Content-Type", "application/x-www-form-urlencoded")
-                .body("List-Unsubscribe=One-Click")
-                .send()
-                .await
-                .map(|r| r.status().is_success())
-                .unwrap_or(false);
-            if ok {
+            // the person waits on this: 5 s to connect, 10 s in all (unsub.rs); any failure falls through to the page, which the person can finish by hand
+            if matches!(unsub::run(u).await, unsub::Post::Ok(_)) {
                 return Ok(UnsubResult { kind: "done".into(), target: u.clone() });
             }
         }
@@ -5463,6 +5468,7 @@ async fn unsubscribe(state: tauri::State<'_, AppState>, message_id: String) -> R
         return Ok(UnsubResult { kind: "open".into(), target: u.clone() });
     }
     if let Some(m) = targets.iter().find(|t| t.starts_with("mailto:")) {
+        unsub::log("mailto");
         return Ok(UnsubResult { kind: "mailto".into(), target: m.clone() });
     }
     // the header is missing or has nothing usable: the link the message itself shows (opened in the browser, never posted to)
@@ -5470,10 +5476,19 @@ async fn unsubscribe(state: tauri::State<'_, AppState>, message_id: String) -> R
         .query_row("SELECT COALESCE(body_html,''), COALESCE(body_text,'') FROM messages WHERE id=?1", [&message_id], |r| Ok((r.get(0)?, r.get(1)?)))
         .map_err(err)?;
     if let Some(u) = mail::unsubscribe_link_in_body(&html, &text) {
-        let kind = if u.to_ascii_lowercase().starts_with("mailto:") { "mailto" } else { "open" };
-        return Ok(UnsubResult { kind: kind.into(), target: u });
+        let mailto = u.to_ascii_lowercase().starts_with("mailto:");
+        unsub::log(&if mailto { "mailto".to_string() } else { format!("body-link {}", unsub::host_of(&u)) });
+        return Ok(UnsubResult { kind: if mailto { "mailto" } else { "open" }.into(), target: u });
     }
+    unsub::log("no target");
     Err("UNSUBSCRIBE_NO_TARGET: This message has no unsubscribe link.".into())
+}
+
+/// The page tells how the browser took an Unsubscribe link (opening runs in the page on Windows and macOS): one line of `startup.log`, the host only.
+/// `error` is None when the browser was asked to open the page.
+#[tauri::command]
+fn unsubscribe_opened(target: String, error: Option<String>) {
+    unsub::log(&unsub::open_line(&unsub::host_of(&target), error.as_deref()));
 }
 
 /// Download remote images in the backend and hand them to the UI as data: URIs. The webview never
@@ -5855,6 +5870,7 @@ pub fn run() {
             first_run_hint,
             suggest_contacts,
             unsubscribe,
+            unsubscribe_opened,
             fetch_remote_images,
             queue_action,
             cancel_action,
