@@ -12,6 +12,10 @@ name: Release
 # Use `platforms` there for just the system that is being tested (windows, macos, linux, or a list such as windows,macos).
 # Windows signing (SignPath) is OFF unless the repo variables SIGNPATH_ORGANIZATION_ID, SIGNPATH_PROJECT_SLUG and
 # SIGNPATH_SIGNING_POLICY_SLUG exist; a dry run signs only with the input `sign_windows` (a signing request needs the owner's approval).
+# The node tests run in shards (.github/node-tests.txt): the shard `static` (about 1.5 minutes, the fast gate) always, the UI shards ui-a ... ui-e
+# (a headless browser each, about 9 minutes in parallel) on every tag run and, in a dry run, only with the input `ui_tests` (default false).
+# A dry run without ui_tests therefore runs plan, static, the Rust tests and the builds; it never publishes, so nothing waits for the UI shards.
+# A tag run cannot skip them: the plan job lists them in the matrix of node-tests, and publish needs every shard to have succeeded.
 # A tag run always builds all three platforms. The checks that need all three (the asset list, latest.json) exist only in the
 # tag run's publish job, so a subset dry run has nothing to skip; the plan job says what was chosen.
 on:
@@ -32,6 +36,11 @@ on:
         description: "No effect any more: the SignPath token belongs to the environment release and is only given to tag runs"
         required: false
         default: "false"
+      ui_tests:
+        description: "Also run the UI test shards (ui-a ... ui-e, about 9 minutes, a headless browser each). Off: only the fast shard static, the Rust tests and the builds. Tag runs always run them"
+        type: boolean
+        required: false
+        default: false
 
 # Least privilege: read-only by default; every job that needs more says so itself.
 permissions:
@@ -59,6 +68,8 @@ jobs:
       matrix: ${{ steps.plan.outputs.matrix }}
       signpath: ${{ steps.plan.outputs.signpath }}
       tests: ${{ steps.plan.outputs.tests }}
+      shards: ${{ steps.plan.outputs.shards }}
+      ui_tests: ${{ steps.plan.outputs.ui_tests }}
     steps:
       - id: plan
         shell: bash
@@ -66,6 +77,7 @@ jobs:
           EVENT: ${{ github.event_name }}
           PLATFORMS: ${{ github.event.inputs.platforms }}
           TEST_VERSION: ${{ github.event.inputs.test_version }}
+          UI_TESTS: ${{ github.event.inputs.ui_tests }}
           SIGN_DRY_RUN: ${{ github.event.inputs.sign_windows }}
           SP_ORG: ${{ vars.SIGNPATH_ORGANIZATION_ID }}
           SP_PROJECT: ${{ vars.SIGNPATH_PROJECT_SLUG }}
@@ -95,6 +107,17 @@ jobs:
           echo "matrix=$matrix" >> "$GITHUB_OUTPUT"
           # the node tests ran in the Linux build job before: they run whenever Linux is built
           echo "tests=$lin" >> "$GITHUB_OUTPUT"
+          # the shards of the node-tests job: static always; the UI shards on a tag run (never skippable there) or when a dry run asks for them.
+          # The names must be the shard words of .github/node-tests.txt (scripts/check-shards.mjs, run by the shard static, compares them).
+          ui_shards='ui-a ui-b ui-c ui-d ui-e'
+          ui=false
+          if [ "$EVENT" = "push" ] || [ "$UI_TESTS" = "true" ]; then ui=true; fi
+          shards='["static"'
+          if [ "$ui" = true ]; then for s in $ui_shards; do shards="$shards,\"$s\""; done; fi
+          shards="$shards]"
+          echo "shards=$shards" >> "$GITHUB_OUTPUT"
+          echo "ui_tests=$ui" >> "$GITHUB_OUTPUT"
+          echo "Node test shards: $shards"
           echo "Event: $EVENT. Platforms to build: $want"
           echo "$matrix"
           if [ "${#items[@]}" -lt 3 ]; then
@@ -155,6 +178,9 @@ jobs:
     # The node tests (scripts/test-*.mjs and the other node checks, listed in .github/node-tests.txt) used to run inside the Linux build job, one
     # after the other, in front of the installer build. They need no Rust and no installer, so they run beside the three builds, in shards
     # (the list says which test is in which shard) on the same image as before. All shards must pass before anything is signed or published.
+    # The plan job decides which shards exist: a dry run without the input ui_tests has only `static` (this job is then green after it), a tag
+    # run and a dry run with ui_tests have static and ui-a ... ui-e. The result of this job is the result of all its shards, so publish, which
+    # needs `success`, can never go on with a UI shard failed; and a tag run has no way to leave a shard out.
     needs: plan
     if: ${{ needs.plan.outputs.tests == 'true' }}
     name: Node tests (${{ matrix.shard }})
@@ -165,7 +191,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        shard: [static, ui-a, ui-b]
+        shard: ${{ fromJSON(needs.plan.outputs.shards) }}
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
         with:
@@ -699,7 +725,7 @@ jobs:
     # signatures are made again from the signed files, checked (verify-update-sigs.cjs, Authenticode = Valid) and replace the unsigned
     # assets of the draft (--clobber). A failure anywhere stops the release: publish needs this job. Owner steps: CONTRIBUTING.md.
     needs: [plan, create-release, build, node-tests, rust-tests]
-    if: ${{ !cancelled() && needs.plan.outputs.signpath == 'true' && needs.build.result == 'success' && contains(fromJSON('["success","skipped"]'), needs.node-tests.result) && contains(fromJSON('["success","skipped"]'), needs.rust-tests.result) && (needs.create-release.result == 'success' || needs.create-release.result == 'skipped') }}
+    if: ${{ !cancelled() && needs.plan.outputs.signpath == 'true' && needs.build.result == 'success' && contains(fromJSON('["success","skipped"]'), needs.node-tests.result) && (github.event_name != 'push' || (needs.node-tests.result == 'success' && needs.plan.outputs.ui_tests == 'true')) && contains(fromJSON('["success","skipped"]'), needs.rust-tests.result) && (needs.create-release.result == 'success' || needs.create-release.result == 'skipped') }}
     runs-on: windows-latest
     timeout-minutes: 180
     environment: ${{ github.event_name == 'push' && 'release' || '' }}
@@ -852,11 +878,11 @@ jobs:
 
   publish:
     # Runs only when create-release and all three builds succeeded and sign-windows either succeeded or was not wanted (skipped).
-    needs: [create-release, build, sign-windows, node-tests, rust-tests]
+    needs: [plan, create-release, build, sign-windows, node-tests, rust-tests]
     timeout-minutes: 30
     permissions:
       contents: write # uploads latest.json and publishes the release
-    if: ${{ !cancelled() && github.event_name == 'push' && needs.create-release.result == 'success' && needs.build.result == 'success' && needs.node-tests.result == 'success' && needs.rust-tests.result == 'success' && contains(fromJSON('["success","skipped"]'), needs.sign-windows.result) }}
+    if: ${{ !cancelled() && github.event_name == 'push' && needs.plan.outputs.ui_tests == 'true' && needs.create-release.result == 'success' && needs.build.result == 'success' && needs.node-tests.result == 'success' && needs.rust-tests.result == 'success' && contains(fromJSON('["success","skipped"]'), needs.sign-windows.result) }}
     runs-on: ubuntu-latest
     env:
       GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}

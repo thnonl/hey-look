@@ -76,8 +76,8 @@ static | node --experimental-strip-types scripts/test-block-format.mjs
 static | node --experimental-strip-types scripts/test-block-commands.mjs
 static | node --experimental-strip-types scripts/test-paste-clean.mjs
 static | node --experimental-strip-types scripts/test-paste-options.mjs
-ui-a | node scripts/test-paste-switch.mjs --require-browser
-ui-a | node scripts/test-paste-mac.mjs --require-browser
+ui-b | node scripts/test-paste-switch.mjs --require-browser
+ui-e | node scripts/test-paste-mac.mjs --require-browser
 static | node --experimental-strip-types scripts/test-insert-group.mjs
 static | node --experimental-strip-types scripts/test-signature-guard.mjs
 static | node --experimental-strip-types scripts/test-quote.mjs
@@ -118,43 +118,43 @@ static | node scripts/test-update-wording.mjs
 # the "Last updated" date of privacy, terms, Google API data use and security is one shared date in every language, LEGAL_DATE in scripts/lib/legal-date.mjs (owner policy; to move it: node scripts/set-legal-date.mjs YYYY-MM-DD)
 static | node scripts/test-legal-dates.mjs
 # the Appearance preview on the website, measured in the runner's Chrome (a sample of the combinations; the full run is `node scripts/test-site-appearance.mjs`)
-ui-b | node scripts/test-site-appearance.mjs --quick --require-browser
+ui-e | node scripts/test-site-appearance.mjs --quick --require-browser
 # the Support page (W10.17) in all 8 languages with 6 % of extra letter spacing, a stand-in for a wider fallback font (fix batch 6: a CI runner's fonts are wider than Windows's; card links may need two lines)
-ui-b | node scripts/test-site-appearance.mjs --only=support --require-browser --spacing=0.06
+ui-e | node scripts/test-site-appearance.mjs --only=support --require-browser --spacing=0.06
 # Settings > AI Assistant stands still while it is used: the real layout, frame by frame, in the dev preview (two of the 12 combinations; the full run is `node scripts/test-ai-tab-layout.mjs`)
-ui-b | node scripts/test-ai-tab-layout.mjs --quick --require-browser
+ui-c | node scripts/test-ai-tab-layout.mjs --quick --require-browser
 # the AI Assistant problem toast through every entry point (not set up, 401, 404, timeout ...): stays 20 s, leads to Settings > AI Assistant, Esc / X close it, and a new request removes the old problem toast at once (full run: `node scripts/test-ai-guide.mjs`)
-ui-a | node scripts/test-ai-guide.mjs --quick --require-browser
+ui-b | node scripts/test-ai-guide.mjs --quick --require-browser
 # Settings > Add account and Calendar stand still while a sign-in runs and ends (two of the combinations; the full run is `node scripts/test-settings-layout.mjs`)
-ui-a | node scripts/test-settings-layout.mjs --quick --require-browser
+ui-e | node scripts/test-settings-layout.mjs --quick --require-browser
 # the attachment preview and the picture viewer are on top of the whole window, in the main window and in the reader window
-ui-a | node scripts/test-preview-layer.mjs --quick --require-browser
+ui-d | node scripts/test-preview-layer.mjs --quick --require-browser
 # the compose pane at the smallest sizes: formatting row and body always in view, the header scrolls, Tab order and popovers, the labelled action row is one row in de and ru with the rest in More actions (thirteen of the combinations, with Meeting on at 946 x 552, in the 308 px pane next to the list when the list is asked for (the list is hidden below 1100 px while writing, W2.26) and in a window 80 px lower than the least one, Shift+Tab back from Where included; the full run is `node scripts/test-compose-fit.mjs`, about 8 minutes, 91 combinations)
-ui-a | node --experimental-strip-types scripts/test-compose-fit.mjs --quick --require-browser
+ui-d | node --experimental-strip-types scripts/test-compose-fit.mjs --quick --require-browser
 # an open compose shows the placeholder and the accessible name of the body, and an open signature / template editor its accessible name, in the language in use after a language switch (and back); typed text and undo survive
-ui-a | node scripts/test-placeholder-lang.mjs --require-browser
+ui-c | node scripts/test-placeholder-lang.mjs --require-browser
 # the side menu: icons or full by window width and by the person's choice, the peek over the panes, Ctrl+B in a narrow window (overlay, label, focus, the saved choice stays), the minimum widths, tooltips (the full run is `node scripts/test-sidebar-collapse.mjs`)
-ui-b | node scripts/test-sidebar-collapse.mjs --quick --require-browser
+ui-c | node scripts/test-sidebar-collapse.mjs --quick --require-browser
 # the picture resize handles are clipped with the editor pane, and Discard on a reply with nothing typed closes without asking (real panes in the dev preview)
-ui-a | node scripts/test-picture-handles.mjs --require-browser
+ui-b | node scripts/test-picture-handles.mjs --require-browser
 # the picture toolbar and the resize handles never overlap (the handles are measured too), and every popover and menu of the message, ALL its boxes, is inside the window at 946 x 552 and 946 x 480
-ui-a | node scripts/test-picture-toolbar.mjs --require-browser
-ui-b | node scripts/test-popover-fit.mjs --quick --require-browser
+ui-b | node scripts/test-picture-toolbar.mjs --require-browser
+ui-c | node scripts/test-popover-fit.mjs --quick --require-browser
 ui-b | node scripts/test-ai-save-toast.mjs --require-browser
 # a meeting survives Save draft and the crash-recovery snapshot in the real pane (the header side is `cargo test --lib meeting_form`)
-ui-b | node scripts/test-meeting-compose.mjs --require-browser
-ui-b | node scripts/test-compose-discard.mjs --require-browser
-ui-b | node scripts/test-discard-states.mjs --require-browser
-ui-b | node scripts/test-discard-rapid.mjs --require-browser
-ui-b | node scripts/test-mac-heading-keys.mjs --require-browser
+ui-a | node scripts/test-meeting-compose.mjs --require-browser
+ui-a | node scripts/test-compose-discard.mjs --require-browser
+ui-e | node scripts/test-discard-states.mjs --require-browser
+ui-a | node scripts/test-discard-rapid.mjs --require-browser
+ui-c | node scripts/test-mac-heading-keys.mjs --require-browser
 # the top strip of the message and conversation windows follows the theme (the root of the compose page is not fixed; macOS paints the title bar from it)
-ui-b | node scripts/test-popout-theme.mjs --require-browser
+ui-a | node scripts/test-popout-theme.mjs --require-browser
 # several pictures at once, where a dropped picture goes, "Generate a key" ends, and Discard takes the autosaved draft along (real panes in the dev preview)
-ui-a | node scripts/test-compose-pictures.mjs --require-browser
-ui-a | node scripts/test-pgp-generate.mjs --require-browser
-ui-b | node scripts/test-discard-saved-draft.mjs --require-browser
+ui-d | node scripts/test-compose-pictures.mjs --require-browser
+ui-b | node scripts/test-pgp-generate.mjs --require-browser
+ui-e | node scripts/test-discard-saved-draft.mjs --require-browser
 # the Symbol popup, the More menu, Find and replace (Replace row on every system) and the picture handles under the dialogs, at 960 x 560 and 1280 x 800
-ui-b | node scripts/test-compose-popups.mjs --require-browser
+ui-d | node scripts/test-compose-popups.mjs --require-browser
 # the debug-only test bridge stays out of release builds (sources, workflow check) and its client sends what the protocol says (the Rust side: `cargo test --lib testbridge`)
 static | node scripts/test-test-bridge.mjs
 # a pop-out window that was closed can be opened again (the registry and the log hint, and with --exe the real open - close - open loop through the bridge; not run in CI without an exe)
@@ -162,7 +162,7 @@ static | node scripts/test-popout-reopen.mjs
 # D-057: a window shown from the tray must not be white: the wiring (screen read after a show, cures, debug-only fault injection); with --exe the real run (start --minimized, show, read the pixels, injected blank + cure) needs a Windows desktop and a debug exe: QA kit, not run in CI
 static | node scripts/test-blank-after-show.mjs
 # 1.0.7 fix12 (owner: a loading indicator instead of an empty white window): the start screen of index.html before the app mounts (the app's script blocked): the theme ground in the first painted frame from the stored theme or the OS, light and dark, the logo painted and centred, the spinner running or, with reduced motion, nothing moving, no text, no scroll, from 360 x 640 to 2560 x 1300; the same with the built stylesheet; after the mount no splash is left and #root is never empty in between
-ui-a | node scripts/test-boot-splash.mjs --require-browser
+ui-e | node scripts/test-boot-splash.mjs --require-browser
 
 # the scripts of the release workflow itself: their fixtures also run in the publish job of a tag run; here they fail a dry run early
 static | bash .github/scripts/test-check-release-assets.sh
@@ -172,7 +172,7 @@ static | node --experimental-strip-types scripts/test-site-top-bar-dark.mjs
 # a press elsewhere closes an open popover: inside a dialog, on the Windows title bar (with a copy of Tauri's drag script) and inside the message text; real mouse presses in the dev preview
 ui-a | node scripts/test-outside-press.mjs --require-browser
 # Tab and Shift+Tab stop only on visible controls: the compose header with Meeting on (no zero-size file input) and Settings > Appearance (the preview is inert), real key events
-ui-a | node scripts/test-tab-stops.mjs --require-browser
+ui-c | node scripts/test-tab-stops.mjs --require-browser
 # a failed email link names the default mail app and copies only the address; the quit question and the Send later picker say "menu bar" on macOS
 static | node --experimental-strip-types scripts/test-open-failed-text.mjs
 # "Show in folder" goes through one helper and never fails silently (the page side; the Linux folder fallback is `cargo test --lib linuxopen`)
@@ -188,7 +188,7 @@ static | node --experimental-strip-types scripts/test-blocked-picture.mjs
 # the Week view hour height (08:00 to 20:00 fit when the window allows, 32 to 48 px) and the click-to-create time that follows it
 static | node --experimental-strip-types scripts/test-week-hours.mjs
 # the labelled action row of the compose pane: resize from 1900 to 600 px and back, a language switch, the rows of More actions, a moved action works, Tab reaches More actions
-ui-a | node scripts/test-compose-overflow.mjs --require-browser
+ui-c | node scripts/test-compose-overflow.mjs --require-browser
 # a key that can only sign is told apart from "no public key": the pure text choice for the strip and the chip popover, the status type, the three texts in the 8 languages
 static | node --experimental-strip-types scripts/test-key-status.mjs
 # whom a stored draft is for (the own key only; plain with "Encrypt drafts" off): every road to Drafts goes through draft_bytes, "Move to Drafts" asks for a locked key (the bytes: `cargo test --lib pgpstore`)
@@ -196,7 +196,7 @@ static | node --experimental-strip-types scripts/test-draft-encryption.mjs
 # a sent reply / forward flags the original (\Answered / $Forwarded): the page names the message it answers and keeps that through drafts, windows, Undo and the crash snapshot (the server side: `cargo test --lib`)
 static | node --experimental-strip-types scripts/test-answers-flag.mjs
 # a message that comes back into an editor keeps its signature picker (Automatic / a named one / No signature) after Send + Undo, in the pane and in the window; the first signature outside a quote is the person's own (CF-14); the reference of a reply survives Save draft (CF-18)
-ui-a | node scripts/test-compose-restore.mjs --require-browser
+ui-c | node scripts/test-compose-restore.mjs --require-browser
 # bundle budget gate: the production build's initial JavaScript (gzip and raw), CSS, lazy chunks, modules that must stay lazy and dev-only modules that must never ship, against scripts/bundle-budget.json (about 5 s; raising a budget needs a `history` entry there)
 static | node scripts/check-bundle-budget.mjs
 # the gate's own checks on small fixtures (scripts/fixtures/bundle): the initial set from index.html, the gzip sums, every kind of violation, a budget file without reasons is refused
@@ -204,19 +204,19 @@ static | node scripts/check-bundle-budget.mjs --selftest
 # no control character (a raw backspace where \b was meant, a raw NUL) in src/, src-tauri/src/ and scripts/: such a regex cannot fail, and grep takes the file for binary
 static | node scripts/test-source-chars.mjs
 # the UI test harness gives every test its own dev server and browser on ports the program bound itself: two harnesses started together with the same starting ports get different servers and cannot see each other's page
-ui-a | node scripts/test-harness-isolation.mjs --require-browser
+ui-d | node scripts/test-harness-isolation.mjs --require-browser
 # a message with nothing worth a draft (only recipients) is never saved: the autosave timer fires and not one save_draft call is made, leaving, Discard, X, quit and Save draft write nothing and ask nothing; a subject, text, a file, a meeting place or a reply with text still make a draft (main window and compose window)
-ui-a | node scripts/test-empty-draft.mjs --require-browser
+ui-d | node scripts/test-empty-draft.mjs --require-browser
 # the own Reply-To of a mailbox: what the Settings field accepts (empty or one bare address, no name part, no list) and that the command, the row, the migration and both message builders are wired (the header itself: `cargo test --lib`)
 static | node --experimental-strip-types scripts/test-reply-to.mjs
 # Settings > mailbox > Reply-to address in the dev preview: saved when the field is left, an invalid text shows "Enter a valid email address" and leaves the old value, empty clears it, not shown for All accounts, label and hint fit at 960 x 560 in 8 languages
-ui-a | node scripts/test-reply-to-setting.mjs --require-browser
+ui-e | node scripts/test-reply-to-setting.mjs --require-browser
 # a recipient chip dragged with the mouse from To to Cc to Bcc and back (a real browser drag): moved, same field and other places do nothing, a duplicate is not added again, the target is outlined, the change is an edit, the chip carries no text
-ui-a | node scripts/test-chip-drag.mjs --require-browser
+ui-d | node scripts/test-chip-drag.mjs --require-browser
 # a refused send reads as a sentence with the server's words as the detail (store.ts friendlyError, the 8 languages)
 static | node --experimental-strip-types scripts/test-send-error-text.mjs
 # a scheduled message edited in a compose window: the banner and bar, X with and without a change (the pause is released, the schedule stays), Schedule / Send now / Discard choices, Pop out of a scheduled message from the pane, Scheduled > Edit follows the setting and a second Edit focuses the editor that has it
-ui-b | node scripts/test-popout-scheduled.mjs --require-browser
+ui-e | node scripts/test-popout-scheduled.mjs --require-browser
 # sending from a compose window keeps the compose on screen (W13.1): locked (inert, "Sending..." on the Send button), one toast "Sending... n s" with Undo that has the focus, Undo unlocks the SAME editor (marker, text, scroll position, focus), the time over = "Sending..." without Undo then the window ends, Undo send off, a failed send, X during the send, Ctrl+Z while locked, and the main window's Undo toast lasting the Undo send time
 ui-b | node scripts/test-popout-send.mjs --require-browser
 # Ctrl+Shift+K opens the command bar from anywhere (real key events): in the body with a selection (Esc gives the focus and the selection back, no link), from Subject and To, Ctrl+K unchanged (link in the body, command bar in To), AltGr+Shift+K opens nothing
@@ -224,48 +224,52 @@ ui-b | node scripts/test-command-bar-key.mjs --require-browser
 # the message pane is not squeezed next to the list in a window narrower than 1100 px (W2.26): the pure rule, the hidden/inert list at 946 x 552, the way back (a folder pressed, a search, Ctrl+1, the message closed, the window widened), 1280 x 800 unchanged, reading pane below and the Calendar unchanged
 ui-b | node scripts/test-compose-narrow.mjs --require-browser
 # the editors' keyboard and screen-reader semantics with real key events (W2.18): a picture selected by the keyboard, Alt+F10 to the picture toolbar (one Tab stop, Left / Right / Home / End, Enter, Alt+Enter, Esc back with the picture selected), the same in the signature editor of Settings
-ui-a | node scripts/test-editor-a11y.mjs --require-browser
-ui-a | node scripts/test-picture-esc.mjs --require-browser
+ui-d | node scripts/test-editor-a11y.mjs --require-browser
+ui-c | node scripts/test-picture-esc.mjs --require-browser
 # merge cells and split cell in the real editor (W2.19): a mouse drag and Shift+Arrow make a cell selection (tinted, light and dark), Merge from the table tools bar and from the Table menu, Split, off states, Ctrl+Z in one step, the HTML round trip keeps the spans
-ui-a | node scripts/test-table-merge.mjs --require-browser
-ui-a | node scripts/test-table-tools-pos.mjs --require-browser
+ui-d | node scripts/test-table-merge.mjs --require-browser
+ui-b | node scripts/test-table-tools-pos.mjs --require-browser
 # the emoji picker's search and recently used list (W2.17): every emoji has a CLDR name in all 8 languages, the search (heart, tim, cœur / coeur, 猫), the recent list (16, newest first, once each, only emoji), and the names are only reachable from the lazy picker chunk
 static | node --experimental-strip-types scripts/test-emoji-search.mjs
 # a link inside a sentence of a notice sits on the baseline of the sentence and keeps a 24 px click box (1.0.7 owner report, the newsletter notice): the newsletter, blocked pictures, signature, invitation and update notices of the dev preview, light and dark, en / de / ja, the notice 360 px wide and in the smallest window (the full matrix with all five languages: run without --quick)
-ui-b | node scripts/test-notice-baseline.mjs --quick --require-browser
+ui-c | node scripts/test-notice-baseline.mjs --quick --require-browser
 # a right-click on every kind of target (D-036, 1.0.7): the engine's own menu is off everywhere but in fields that take text - message body in the frame (and in the reader window), list row, folder label, ribbon, header, Settings, backdrop: defaultPrevented, ONE app menu at the click point plus the frame offset; search box, Subject, To, compose body: not prevented; PDF host: not prevented; the QA bridge probe (scripts/lib/context-menu-probe.mjs) gives the same verdicts; light and dark
-ui-b | node scripts/test-context-targets.mjs --require-browser
+ui-d | node scripts/test-context-targets.mjs --require-browser
 # "Count Other (bulk) mail" is on by default in every layer (the page, folder_infos, unread_count) and an existing install gets it once through `prefsRev` (the same cases as the Rust test); the switch saves first and refreshes after; the Appearance preview's Inbox number follows it (W13.11)
 static | node --experimental-strip-types scripts/test-prefs-defaults.mjs
 # the unread numbers of the Focused / Other tabs (W13.12): one mailbox, all mailboxes, 99+, no number at 0, the accessible name and tooltip with the exact number, the optimistic change by kind, the backend fields and the texts of the 8 languages
 static | node --experimental-strip-types scripts/test-focus-counts.mjs
 # the Focused / Other tab numbers in the real list (W13.12): equal to the bold rows, live on mark read / unread, 99+, gone with a search / Focused Inbox off / another folder, Tab order, 960 x 480 with the list at 300 px in en, de, ru, ja light and dark (one row, no clip, the Filter as its icon, a line of its own for the longest), look and contrast with every accent; stored old preferences start with Count Other on (the full run: `node scripts/test-focus-tabs.mjs --full`)
-ui-a | node scripts/test-focus-tabs.mjs --require-browser
+ui-c | node scripts/test-focus-tabs.mjs --require-browser
 # 1.0.7 D-045: big pictures and attachments of a draft are sent ahead of the save, one request each (draftUpload.ts / draftupload.rs); D-044: the big pictures stay out of the steps that open a draft and the picture-source check does not copy them (pictureDetach.ts, pastedHtml.ts)
 static | node --experimental-strip-types scripts/test-draft-upload.mjs
 static | node --experimental-strip-types scripts/test-picture-detach.mjs
 # 1.0.7 D-044: a draft that takes time to open shows a ring on its row at once and the status "Opening draft…" within 150 ms (REQ-13.7.1); no flash for a fast open, one editor for a second click, reduced motion, the 8 languages
-ui-b | node scripts/test-draft-opening.mjs --require-browser
+ui-e | node scripts/test-draft-opening.mjs --require-browser
 # 1.0.7 D-012 / D-003 / D-018: the scrolled header of the compose pane with Meeting on rests on whole rows, the focused control whole, To in sight where the box is tall enough, the shade that says more is below; 960 x 480, 946 x 552 and 1280 x 800, main window and compose window, light and dark (--quick: four of the 24 combinations)
-ui-b | node --experimental-strip-types scripts/test-header-rows.mjs --quick --require-browser
+ui-c | node --experimental-strip-types scripts/test-header-rows.mjs --quick --require-browser
 # 1.0.7 D-044: the data of big pictures and files of a draft comes to the page one request each after draft_editor_parts (deferredParts.ts, draftopen.rs, tempstore.rs)
 static | node --experimental-strip-types scripts/test-deferred-parts.mjs
 # the same tab layout cases with 4 % of extra letter spacing on every element, a stand-in for a wider fallback font (the runner's own fonts are not Windows's; fix batch 6: the Russian tabs were wider than the header on Linux)
-ui-a | node scripts/test-focus-tabs.mjs --require-browser --spacing=0.04
+ui-d | node scripts/test-focus-tabs.mjs --require-browser --spacing=0.04
 # a right-click on the To, Cc and Bcc inputs (D-038): REAL right-clicks, the press (pointerdown, mousedown), mouseup and contextmenu are not cancelled by any listener (WebKit on a Mac sends no contextmenu after a cancelled press), nothing sits on the input, no app menu opens; empty, with chips, focused, text typed, suggestions open, compose window; the recorder is the Mac probe scripts/lib/rcpt-context-probe.mjs
-ui-b | node scripts/test-recipient-menu.mjs --require-browser
+ui-a | node scripts/test-recipient-menu.mjs --require-browser
 # 1.0.7 D-052: an HTML mail on the dark background is shown at once, also while a picture it asked for is still on its way (a slow or dead host used to leave it blank until the picture came: the recolouring waited for the frame's load event); the owner's anonymised mail with a slow logo, main window and reader window, the dark background in both themes, light theme untouched and the blocked picture not asked for; text contrast >= 4.5:1 from the frame's styles and from its real pixels; first open = after the button twice = after switching mails; print keeps the original colours
-ui-b | node scripts/test-reader-dark.mjs --require-browser
+ui-a | node scripts/test-reader-dark.mjs --require-browser
 # 1.0.7 D-051: a click on the notification of a new mail opens it wherever it is: the Other tab, another mailbox, Focused Inbox off, a search or filter on, far down an oldest-first list, the calendar open, a window of its own, a mail that is gone (the decision: test-notify-plan, the backend lookup: cargo test locate_thread)
 static | node --experimental-strip-types scripts/test-notify-plan.mjs
-ui-a | node scripts/test-notify-open.mjs --require-browser
+ui-d | node scripts/test-notify-open.mjs --require-browser
 # 1.0.7 D-043: Discard changes on an opened draft before any save puts the opened version back when the server lost it (an IMAP EXPUNGE by another program), writes nothing when it is still there, and never keeps the pane open for a refusing or slow server
-ui-b | node scripts/test-discard-expunged.mjs --require-browser
+ui-a | node scripts/test-discard-expunged.mjs --require-browser
 # 1.0.7 fix batch 9: the per-command time limit of .github/scripts/run-node-tests.sh (a hung test is killed with its process tree and reported as TIMEOUT: <command> instead of holding the shard)
 static | node scripts/test-run-node-tests.mjs
 # 1.0.7 WP7a in the real page: the question before the browser opens for calendar access (W7.7: Cancel / Esc / Open browser, focus, one calendar_connect call, Google and Microsoft, Allow access again, 8 languages light and dark, buttons on one row), the disabled switch and note of a build without the OAuth client (W7.8), the failed-sender-check warning, held sentence and Apply anyway on the invitation card (W7.3) and "Custom" for a series with only extra dates (W7.2)
-ui-b | node --experimental-strip-types scripts/test-calendar-consent.mjs --require-browser
+ui-a | node --experimental-strip-types scripts/test-calendar-consent.mjs --require-browser
 # 1.0.7 W7.10 (owner report: double-click on an event did not open the edit form): REAL double-clicks and Ctrl / Cmd+Enter in the month chip, the week block and all-day chip and the agenda row open the edit dialog (popover gone, no new event); an invitation, a read-only calendar and an event only its organizer may change show the details popover; empty space still makes a new event (09:00 in the month, 14:30 in the week); Esc from the popover or the dialog puts the focus back on the event; Settings > Shortcuts has the row in 8 languages
 ui-b | node --experimental-strip-types scripts/test-calendar-dblclick.mjs --require-browser
 # 1.0.7 W7.12 (owner request: the event popover actions as buttons, no More menu): which buttons per kind of event (Delete last and red, never an empty footer row), what each does, the Tab order, fit at 946 x 480, 946 x 552 and 1266 x 712 in light and dark (en, fr, de, ru: inside the window, labels whole, two lines at most, Delete last), an event near the bottom edge gets the popover above it, a window that becomes too low scrolls the details and keeps title and footer, icon-only buttons at 320 px
-ui-b | node --experimental-strip-types scripts/test-event-popover-actions.mjs --require-browser
+ui-e | node --experimental-strip-types scripts/test-event-popover-actions.mjs --require-browser
+# 1.0.7 CI speed: the shard list is sound (every line has a known shard, the names match the plan job of the release workflow, no command twice, every named script exists) and the estimated minutes per shard are printed; scripts/test-*.mjs that no shard runs are only listed
+static | node scripts/check-shards.mjs
+# 1.0.7 CI speed: the job graph of the release workflow, run with the real plan script and GitHub's rules for needs / if: a tag run has every UI shard and publishes only when all passed (a failed shard, Rust test, build or signing stops it), a dry run without ui_tests has only the shard static and ends green, with ui_tests=true it has all shards
+static | node scripts/test-release-gates.mjs
