@@ -88,6 +88,8 @@ export default defineLocale<typeof ns.en>({
   "reading.msg.unsubscribe": "Hủy đăng ký",
   "reading.msg.unsubscribed": "Đã hủy đăng ký",
   "reading.msg.unsubscribeFailed": "Hủy đăng ký không thành công: {error}",
+  "reading.msg.unsubscribeOpened": "Trang hủy đăng ký của người gửi đã mở trong trình duyệt. Nếu cần xác nhận, hãy hoàn tất tại đó.",
+  "reading.msg.unsubscribeMailto": "Hãy gửi thư này để hoàn tất việc hủy đăng ký.",
   "reading.msg.saveAllAtt": "Lưu tất cả tệp đính kèm…",
   "reading.msg.newsletter": "Có vẻ đây là bản tin. {link}",
   "reading.msg.translation": "Bản dịch",

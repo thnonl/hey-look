@@ -15,6 +15,7 @@
 //   --quick  English, German and Japanese; the full run (no flag) is the 8 languages
 import { flag, arg, sleep, startHarness, inputs } from './cdp-harness.mjs';
 import { loadDict } from './lib/i18n-dicts.mjs';
+import { OFFER_JS, verdict as offerVerdict } from './lib/offer-probe.mjs';
 
 const ALL = ['en', 'vi', 'fr', 'zh-Hans', 'es', 'ja', 'de', 'ru'];
 const LANGS = arg('langs') ? arg('langs').split(',') : flag('quick') ? ['en', 'de', 'ja'] : ALL;
@@ -26,6 +27,7 @@ const tr = (lang, key, params = {}) => {
   if (typeof m !== 'string') throw new Error(`no text ${key} in ${lang}`);
   return m.replace(/\{(\w+)\}/g, (_, k) => String(params[k]));
 };
+const LONG = 'averyveryverylongaddressname@subdomain.example.com';
 const norm = (s) => s.replace(/\s+/g, ' ').trim();
 
 const H = await startHarness('test-calendar-at-signin', { vitePort0: 5176 });
@@ -337,7 +339,8 @@ try {
     if (fix) await evaluate(fix);
     await showSidebar(peek);
   };
-  const offerInfo = () => evaluate(`(() => { const n = document.querySelector('.cal-offer'); if (!n) return null; const b = n.getBoundingClientRect(); const p = n.parentElement.getBoundingClientRect(); const lh = parseFloat(getComputedStyle(n).lineHeight) || parseFloat(getComputedStyle(n).fontSize) * 1.3; const cs = getComputedStyle(n);
+  const emailInfo = () => evaluate(`(() => { const e = document.querySelector('.cal-offer .cal-email'); if (!e) return null; const cs = getComputedStyle(e); const lh = parseFloat(cs.lineHeight) || parseFloat(cs.fontSize) * 1.3; return { title: e.getAttribute('title'), text: e.textContent, nowrap: cs.whiteSpace === 'nowrap', ellipsis: cs.textOverflow === 'ellipsis' && cs.overflow === 'hidden', cut: e.scrollWidth > e.clientWidth, lines: Math.round(e.getBoundingClientRect().height / lh), width: e.getBoundingClientRect().width }; })()`);
+const offerInfo = () => evaluate(`(() => { const n = document.querySelector('.cal-offer'); if (!n) return null; const b = n.getBoundingClientRect(); const p = n.parentElement.getBoundingClientRect(); const lh = parseFloat(getComputedStyle(n).lineHeight) || parseFloat(getComputedStyle(n).fontSize) * 1.3; const cs = getComputedStyle(n);
     return { text: n.textContent.replace(/\\s+/g, ' ').trim(), role: n.getAttribute('role'), cls: n.className, links: [...n.querySelectorAll('button.link')].map((x) => x.textContent.trim()), over: n.scrollWidth - n.clientWidth, right: b.right, paneRight: p.right, left: b.left, paneLeft: p.left, lines: Math.round((b.height - parseFloat(cs.paddingTop) - parseFloat(cs.paddingBottom)) / lh), height: b.height }; })()`);
   await openApp('lang=en&light&persist', 960, 560);
   await evaluate(`localStorage.removeItem('hl-mock-settings'); 1`);
@@ -358,7 +361,7 @@ try {
   await openApp('lang=en&light', 960, 560);
   await calendarOpen('lang=en&light');
   await waitFor(`document.querySelector('${OFFER}')`, 'the offer on a fresh profile');
-  await click(`${OFFER} button.link:first-child`);
+  await click(`${OFFER} button.link:nth-of-type(1)`);
   await waitFor(`document.querySelector('.ask')`, 'the question of the switch at once', 5000);
   ok((await store(`s.dialog && s.dialog.type === 'settings' && s.dialog.tab`)) === 'mb:a2', 'Turn on... opens Settings > nam@gmail.com');
   ok(norm(await evaluate(`document.querySelector('.ask p').textContent`)).includes('Sign in as nam@gmail.com'), 'the question names the mailbox');
@@ -373,7 +376,7 @@ try {
   ok(!(await evaluate(`!!document.querySelector('${OFFER}')`)), 'the offer is gone for good');
   // Turn on... then Open browser: the switch's own path
   await calendarOpen('lang=en&light');
-  await click(`${OFFER} button.link:first-child`);
+  await click(`${OFFER} button.link:nth-of-type(1)`);
   await waitFor(`document.querySelector('.ask')`, 'the question again');
   await click('.ask-actions button:last-child');
   await waitFor(`window.__mockCalConnects && window.__mockCalConnects.length === 1`, 'one call');
@@ -401,7 +404,6 @@ try {
   const inside = (b, p, tol = 1) => b.l >= p.l - tol && b.r <= p.r + tol && b.t >= p.t - tol && b.b <= p.b + tol;
   for (const [w, h] of flag('quick') ? [[960, 560]] : [[960, 560], [1280, 800]]) {
     // idle card + sidebar offer (a 40 character address must wrap inside the notice)
-    const LONG = 'averyveryverylongaddressname@subdomain.example.com';
     await openApp('lang=en&light', w, h);
     await evaluate(`import('/src/api.ts').then(async (m) => { await m.api.setSetting('google_client_id', 'id'); })`);
     await evaluate(`window.__store.getState().setDialog({ type: 'settings', tab: 'add-account', nonce: Date.now() }); 1`);
@@ -461,9 +463,28 @@ try {
       ok(o && o.text === want, `${tag}: the notice says the agreed words ("${o?.text}")`);
       ok(o && !/\{\w+\}|calendar\.side\./.test(o.text), `${tag}: no raw key or placeholder`);
       ok(o && o.over <= 1 && o.left >= o.paneLeft - 1 && o.right <= o.paneRight + 1, `${tag}: a long address wraps inside the sidebar (over ${o?.over}, ${o?.left}..${o?.right} of ${o?.paneLeft}..${o?.paneRight})`);
-      ok(o && o.lines <= 6, `${tag}: ${o?.lines} lines (the 48 character address makes it one more than a normal one)`);
+      ok(o && o.lines <= 4, `${tag}: ${o?.lines} lines with the 50 character address (at most 4: the address is one line of its own, D-066)`);
+      // D-066: the address is its own element, one line, an ellipsis when it does not fit, the whole address in the title and in the text
+      const e = await emailInfo();
+      ok(e && e.title === LONG && e.text === LONG && e.nowrap && e.lines === 1, `${tag}: the address is one non-wrapping element with the whole address as title and text (${JSON.stringify(e)})`);
+      ok(e && e.cut && e.ellipsis, `${tag}: the long address ends in an ellipsis (${JSON.stringify(e)})`);
     }
     if (w === 960) await shot('offer-long-address');
+  }
+  // D-066, the narrowest side menu (180 px): nothing is clipped horizontally, both buttons are reachable, in every language
+  {
+    await calendarOpen('lang=en&light', 1280, 800, `window.__store.setState({ accounts: window.__store.getState().accounts.map((a) => a.id === 'a2' ? { ...a, email: 'averyveryverylongaddressname@subdomain.example.com' } : a) }); window.__store.getState().setPrefs({ folderW: 180 }); 1`);
+    await waitFor(`document.querySelector('${OFFER}')`, 'the offer at the narrowest side menu');
+    for (const theme of THEMES) for (const lang of LANGS) {
+      await setLook(theme, lang);
+      await sleep(100);
+      const b = await evaluate(`(() => { const n = document.querySelector('${OFFER}'); const p = n.parentElement.getBoundingClientRect(); const r = n.getBoundingClientRect(); const inside = (e) => { const x = e.getBoundingClientRect(); return x.left >= p.left - 1 && x.right <= p.right + 1 && x.width > 0 && x.height > 0; };
+        return { width: Math.round(p.width), over: n.scrollWidth - n.clientWidth, noticeInside: r.left >= p.left - 1 && r.right <= p.right + 1, buttons: [...n.querySelectorAll('button.link')].map((x) => ({ text: x.textContent.trim(), inside: inside(x) })) }; })()`);
+      const tag = `offer 180px ${lang} ${theme}`;
+      ok(b.width >= 178 && b.width <= 182, `${tag}: the side menu is 180 px wide (${b.width})`);
+      ok(b.over <= 1 && b.noticeInside && b.buttons.length === 2 && b.buttons.every((x) => x.inside), `${tag}: nothing is clipped horizontally and both buttons are inside (${JSON.stringify(b)})`);
+    }
+    await evaluate(`window.__store.getState().setPrefs({ folderW: 248 }); 1`);
   }
   // a normal address: at most 4 lines at the default sidebar width
   await calendarOpen('lang=en&light', 960, 560);
@@ -473,6 +494,9 @@ try {
     await sleep(100);
     o = await offerInfo();
     ok(o && o.lines <= 4, `offer ${lang} ${theme}: ${o?.lines} lines with a normal address (at most 4)`);
+    // the QA probe of the WebKit rows (scripts/lib/offer-probe.mjs): 248 and 180 px boxes, the kit's address and a 52 character one
+    const pv = offerVerdict(JSON.parse(await evaluate(OFFER_JS)));
+    ok(pv.length === 0, `offer ${lang} ${theme}: the pass criteria of the QA probe (${pv.join('; ')})`);
   }
 } catch (e) {
   failures.push(`the test stopped: ${e && e.stack ? e.stack : e}`);

@@ -89,6 +89,8 @@ export default defineLocale<typeof ns.en>({
   "reading.msg.unsubscribe": "Abbestellen",
   "reading.msg.unsubscribed": "Abbestellt",
   "reading.msg.unsubscribeFailed": "Abbestellen fehlgeschlagen: {error}",
+  "reading.msg.unsubscribeOpened": "Die Seite zum Abbestellen des Absenders ist in Ihrem Browser geöffnet. Bestätigen Sie dort bei Bedarf das Abbestellen.",
+  "reading.msg.unsubscribeMailto": "Senden Sie diese Nachricht, um das Abbestellen abzuschließen.",
   "reading.msg.saveAllAtt": "Alle Anhänge speichern…",
   "reading.msg.newsletter": "Das sieht nach einem Newsletter aus. {link}",
   "reading.msg.translation": "Übersetzung",

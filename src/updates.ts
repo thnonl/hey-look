@@ -72,17 +72,25 @@ export { isStaleOffer, updateKindOf, flowActive, pendingVersion };
 /** A line for `startup.log` (tag `update`) about what the page decided; never throws. */
 const note = (text: string) => void api.updateNote(text).catch(() => undefined);
 
-/** Open a link in the browser; if that fails the link is copied and an error toast says so. */
-export async function openUpdateLink(url: string, announce = false) {
+/**
+ * Open a link in the browser; if that fails the link is copied and an error toast says so. Resolves true when the browser was asked to open it
+ * (a caller that adds its own toast on success shows it only then: a failure has said its piece already), false when it was not.
+ * `done` gets null, or the reason (for the log of Unsubscribe).
+ */
+export async function openUpdateLink(url: string, announce = false, done?: (error: string | null) => void): Promise<boolean> {
   const { showToast } = useStore.getState();
   try {
     await openExternal(url);
+    done?.(null);
     if (announce) showToast(t("updates.toast.opening"), undefined, "info");
-  } catch {
+    return true;
+  } catch (e) {
+    done?.(String((e as { message?: string } | null)?.message ?? e));
     // the toast says "copied" only when it was (on Linux it was not, QA BUG-L4); an email link names the mail app and copies the address only (openFailed.ts)
     const copied = await copyToClipboard(linkToCopy(url));
     const text = failedOpenText(url, copied);
     showToast(() => t(text.key, text.vars), undefined, "error");
+    return false;
   }
 }
 

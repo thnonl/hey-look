@@ -9,6 +9,7 @@ import { osNow, usePlatform } from "./platform";
  * there (BUG-L1). Windows and macOS use the opener plugin as before.
  */
 export function openExternal(url: string): Promise<void> {
+  if (usePlatform.getState().openFail) return Promise.reject(new Error("the browser is switched off for this test run")); // (a debug build started with HEYLOOK_TEST_OPEN_FAIL=1)
   return osNow() === "linux" ? api.openExternal(url) : openUrl(url);
 }
 

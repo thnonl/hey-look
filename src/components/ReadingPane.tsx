@@ -606,19 +606,45 @@ export function MessageCard({ m, open, onToggle }: { m: MessageFull; open: boole
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [m.id, keyAtt?.index, importMode]);
 
+  // Unsubscribe always ends in one visible outcome (D-065, DEC-021): the link shows it is working at once (a ring, aria-busy, no second start) and
+  // the work ends in a toast: "Unsubscribed" (the one-click POST was accepted), "the sender's page is open" (the browser was asked), "send this
+  // message" (a compose was opened), or the error. The POST gives up by itself (5 s / 10 s in the backend); the page does not wait longer than 15 s.
+  const [unsubBusy, setUnsubBusy] = useState(false);
+  const unsubRunning = useRef(false);
   const unsub = async () => {
+    if (unsubRunning.current) return;
+    unsubRunning.current = true;
+    setUnsubBusy(true);
     const shift = shiftNow(); // (read now: the server is asked first)
+    let over = false;
+    const end = () => {
+      if (over) return false;
+      over = true;
+      clearTimeout(safety);
+      unsubRunning.current = false;
+      setUnsubBusy(false);
+      return true;
+    };
+    const failed = (error: string) => showToast(() => t("reading.msg.unsubscribeFailed", { error }), undefined, "error");
+    const safety = setTimeout(() => end() && failed(t("errors.timeout")), 15000);
     try {
       const r = await api.unsubscribe(m.id);
-      if (r.kind === "done") showToast(t("reading.msg.unsubscribed"), undefined, "success");
-      else if (r.kind === "open") await openUpdateLink(r.target);
-      else {
+      if (over) return; // (the safety end has told already)
+      if (r.kind === "done") {
+        end();
+        showToast(t("reading.msg.unsubscribed"), undefined, "success");
+      } else if (r.kind === "open") {
+        const opened = await openUpdateLink(r.target, false, (error) => void api.unsubscribeOpened(r.target, error).catch(() => undefined));
+        // (a browser that could not be started has said so, with the copied link)
+        if (end() && opened) showToast(() => t("reading.msg.unsubscribeOpened"), undefined, "info", undefined, 9000);
+      } else {
         const mt = unsubscribeMailto(r.target); // the subject often holds the sender's token for this reader (RFC 2369)
         const esc = (s: string) => s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
         void startCompose({ accountId: m.accountId, to: [mt.to], subject: mt.subject, ...(mt.body ? { bodyHtml: `<p>${esc(mt.body).replace(/\r?\n/g, "<br>")}</p>` } : {}) }, { shift });
+        if (end()) showToast(() => t("reading.msg.unsubscribeMailto"), undefined, "info", undefined, 9000);
       }
     } catch (e) {
-      showToast(() => t("reading.msg.unsubscribeFailed", { error: friendlyError(e) }), undefined, "error");
+      if (end()) failed(friendlyError(e));
     }
   };
 
@@ -675,7 +701,7 @@ export function MessageCard({ m, open, onToggle }: { m: MessageFull; open: boole
                 { label: t("reading.msg.copySender"), onClick: () => void copyToClipboard(m.fromEmail).then((ok) => (ok ? showToast(t("reading.msg.copied")) : showToast(() => t("mail.ctx.copyFailed"), undefined, "error"))) },
                 { divider: true },
                 ...TRANSLATE_TO.map((l) => ({ label: t("reading.msg.translateTo", { lang: t(l.key) }), onClick: () => translate(l), disabled: needsCard(m) || conf })),
-                ...(m.canUnsubscribe ? [{ divider: true }, { label: t("reading.msg.unsubscribe"), onClick: () => void unsub() }] : []),
+                ...(m.canUnsubscribe ? [{ divider: true }, { label: t("reading.msg.unsubscribe"), disabled: unsubBusy, onClick: () => void unsub() }] : []),
                 ...(m.attachments.length ? [{ divider: true }, { label: t("reading.msg.saveAllAtt"), disabled: conf, onClick: () => void saveAll(false) }] : []),
               ]}
             >
@@ -696,7 +722,7 @@ export function MessageCard({ m, open, onToggle }: { m: MessageFull; open: boole
           {m.invite && <InviteCard m={m} />}
           {m.canUnsubscribe && (
             <div className="notice">
-              {tx("reading.msg.newsletter", { link: <button className="link" onClick={unsub}>{t("reading.msg.unsubscribe")}</button> })}
+              {tx("reading.msg.newsletter", { link: <button className="link unsub-link" aria-busy={unsubBusy || undefined} onClick={() => void unsub()}>{t("reading.msg.unsubscribe")}{unsubBusy && <><span className="busy-ring spin" aria-hidden /><span className="busy-dots" aria-hidden>···</span></>}</button> })}
             </div>
           )}
           {job && <TranslateBox job={job} />}

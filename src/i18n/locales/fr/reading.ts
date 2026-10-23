@@ -88,6 +88,8 @@ export default defineLocale<typeof ns.en>({
   "reading.msg.unsubscribe": "Se désabonner",
   "reading.msg.unsubscribed": "Désabonné",
   "reading.msg.unsubscribeFailed": "Échec du désabonnement : {error}",
+  "reading.msg.unsubscribeOpened": "La page de désabonnement de l’expéditeur est ouverte dans votre navigateur. Terminez-y si une confirmation est demandée.",
+  "reading.msg.unsubscribeMailto": "Envoyez ce message pour finaliser votre désabonnement.",
   "reading.msg.saveAllAtt": "Enregistrer toutes les pièces jointes…",
   "reading.msg.newsletter": "Ceci ressemble à une newsletter. {link}",
   "reading.msg.translation": "Traduction",

@@ -89,6 +89,8 @@ export default defineLocale<typeof ns.en>({
   "reading.msg.unsubscribe": "Отписаться",
   "reading.msg.unsubscribed": "Вы отписались",
   "reading.msg.unsubscribeFailed": "Не удалось отписаться: {error}",
+  "reading.msg.unsubscribeOpened": "Страница отписки отправителя открыта в браузере. Если нужно подтвердить отписку, завершите её там.",
+  "reading.msg.unsubscribeMailto": "Отправьте это письмо, чтобы завершить отписку.",
   "reading.msg.saveAllAtt": "Сохранить все вложения…",
   "reading.msg.newsletter": "Похоже, это рассылка. {link}",
   "reading.msg.translation": "Перевод",

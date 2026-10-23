@@ -20,7 +20,7 @@ const APP_COMMANDS: &[&str] = &[
     "calendar_save_event", "calendar_delete_event", "calendar_respond", "calendar_add_from_message", "calendar_save_ics", "calendar_import_ics",
     "calendar_open_message", "calendar_sources", "calendar_kinds_available", "calendar_connect", "calendar_cancel_connect", "calendar_disconnect", "calendar_set_sync",
     "calendar_sync_now", "list_templates", "save_template", "delete_template", "list_signatures", "save_signature", "delete_signature",
-    "get_setting", "set_setting", "first_run_hint", "suggest_contacts", "unsubscribe", "fetch_remote_images", "queue_action", "cancel_action",
+    "get_setting", "set_setting", "first_run_hint", "suggest_contacts", "unsubscribe", "unsubscribe_opened", "fetch_remote_images", "queue_action", "cancel_action",
     "load_older", "attachment_data", "set_secret", "has_secret", "ai_complete", "ai_cancel", "ai_list_models", "shell_info", "check_update",
     "update_download", "update_cancel", "update_discard", "update_defer", "update_note", "set_mail_available", "take_tray_compose", "frontend_ready", "sends_flushed",
     "quit_page_alive", "popout_flush_alive", "popout_flush_dialog", "popout_flush_done", "popout_save_all", "popout_open", "popout_init",
