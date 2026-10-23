@@ -126,7 +126,7 @@
       <div class="asset" data-asset="lin-appimage" data-pattern="HeyLook_&lt;version&gt;_linux_amd64.AppImage"><a class="btn btn-primary" href="https://github.com/thnonl/hey-look/releases/latest" rel="noopener" data-label="AppImageをダウンロード"><svg class="ic" aria-hidden="true" focusable="false"><use href="#i-download"/></svg><span class="t">AppImageをダウンロード</span></a><span class="fn">HeyLook_&lt;version&gt;_linux_amd64.AppImage</span><small class="sz"></small></div>
       <div class="asset" data-asset="lin-deb" data-pattern="HeyLook_&lt;version&gt;_linux_amd64.deb"><a class="btn btn-ghost" href="https://github.com/thnonl/hey-look/releases/latest" rel="noopener" data-label=".deb（Debian、Ubuntu）をダウンロード"><svg class="ic" aria-hidden="true" focusable="false"><use href="#i-download"/></svg><span class="t">.deb（Debian、Ubuntu）をダウンロード</span></a><span class="fn">HeyLook_&lt;version&gt;_linux_amd64.deb</span><small class="sz"></small></div>
       <div class="asset" data-asset="lin-rpm" data-pattern="HeyLook_&lt;version&gt;_linux_x86_64.rpm"><a class="btn btn-ghost" href="https://github.com/thnonl/hey-look/releases/latest" rel="noopener" data-label=".rpm（Fedora、openSUSE）をダウンロード"><svg class="ic" aria-hidden="true" focusable="false"><use href="#i-download"/></svg><span class="t">.rpm（Fedora、openSUSE）をダウンロード</span></a><span class="fn">HeyLook_&lt;version&gt;_linux_x86_64.rpm</span><small class="sz"></small></div>
-      <details id="apt"><summary>APTでインストール、更新はシステムで</summary>
+      <!-- hl:apt-begin --><details id="apt"><summary>APTでインストール、更新はシステムで</summary>
         <p>Ubuntu 22.04以降とDebian 12以降の64ビットPC（amd64）向けです。Hey Look!のリポジトリを一度追加すると、Hey Look!はシステムの他のソフトウェアと一緒にアップデートされ、アプリ自身ではアップデートしなくなります。</p>
         <p>1. リポジトリの署名鍵をダウンロードします：</p>
         <div class="copy"><code>sudo wget -qO /etc/apt/keyrings/heylook-archive-keyring.gpg https://heylook.namthai.site/apt/heylook-archive-keyring.gpg</code><button class="btn btn-ghost btn-sm" type="button">コピー</button></div>
@@ -138,7 +138,7 @@
         <div class="copy"><code>gpg --show-keys /etc/apt/keyrings/heylook-archive-keyring.gpg</code><button class="btn btn-ghost btn-sm" type="button">コピー</button></div>
         <p>このページの.debをインストール済みですか？同じ3つの手順を行ってください。メール、アカウント、設定はそのまま残り、以後のアップデートはAPTで届きます。</p>
         <p>Hey Look!とリポジトリを削除するには：</p>
-        <div class="copy"><code>sudo apt remove hey-look &amp;&amp; sudo rm /etc/apt/sources.list.d/heylook.sources /etc/apt/keyrings/heylook-archive-keyring.gpg</code><button class="btn btn-ghost btn-sm" type="button">コピー</button></div></details>
+        <div class="copy"><code>sudo apt remove hey-look &amp;&amp; sudo rm /etc/apt/sources.list.d/heylook.sources /etc/apt/keyrings/heylook-archive-keyring.gpg</code><button class="btn btn-ghost btn-sm" type="button">コピー</button></div></details><!-- hl:apt-end -->
       <details><summary>Linuxについての注意</summary>
         <p>デスクトップにトレイ領域がない場合、ウィンドウを閉じるとHey Look!が終了します。</p>
         <p>リンクと添付ファイルは<code>xdg-open</code>で開きます。パスワードの保存には、GNOMEキーリングまたはKWalletが実行中でロック解除されている必要があります。</p></details>

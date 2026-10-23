@@ -126,7 +126,7 @@
       <div class="asset" data-asset="lin-appimage" data-pattern="HeyLook_&lt;version&gt;_linux_amd64.AppImage"><a class="btn btn-primary" href="https://github.com/thnonl/hey-look/releases/latest" rel="noopener" data-label="下载AppImage"><svg class="ic" aria-hidden="true" focusable="false"><use href="#i-download"/></svg><span class="t">下载AppImage</span></a><span class="fn">HeyLook_&lt;version&gt;_linux_amd64.AppImage</span><small class="sz"></small></div>
       <div class="asset" data-asset="lin-deb" data-pattern="HeyLook_&lt;version&gt;_linux_amd64.deb"><a class="btn btn-ghost" href="https://github.com/thnonl/hey-look/releases/latest" rel="noopener" data-label="下载.deb（Debian、Ubuntu）"><svg class="ic" aria-hidden="true" focusable="false"><use href="#i-download"/></svg><span class="t">下载.deb（Debian、Ubuntu）</span></a><span class="fn">HeyLook_&lt;version&gt;_linux_amd64.deb</span><small class="sz"></small></div>
       <div class="asset" data-asset="lin-rpm" data-pattern="HeyLook_&lt;version&gt;_linux_x86_64.rpm"><a class="btn btn-ghost" href="https://github.com/thnonl/hey-look/releases/latest" rel="noopener" data-label="下载.rpm（Fedora、openSUSE）"><svg class="ic" aria-hidden="true" focusable="false"><use href="#i-download"/></svg><span class="t">下载.rpm（Fedora、openSUSE）</span></a><span class="fn">HeyLook_&lt;version&gt;_linux_x86_64.rpm</span><small class="sz"></small></div>
-      <details id="apt"><summary>通过APT安装，随系统一起更新</summary>
+      <!-- hl:apt-begin --><details id="apt"><summary>通过APT安装，随系统一起更新</summary>
         <p>适用于Ubuntu 22.04或更高版本、Debian 12或更高版本的64位电脑（amd64）。只需添加一次Hey Look!软件源，Hey Look!就会和系统的其他软件一起更新，应用不再自行更新。</p>
         <p>1. 下载软件源的签名密钥：</p>
         <div class="copy"><code>sudo wget -qO /etc/apt/keyrings/heylook-archive-keyring.gpg https://heylook.namthai.site/apt/heylook-archive-keyring.gpg</code><button class="btn btn-ghost btn-sm" type="button">复制</button></div>
@@ -138,7 +138,7 @@
         <div class="copy"><code>gpg --show-keys /etc/apt/keyrings/heylook-archive-keyring.gpg</code><button class="btn btn-ghost btn-sm" type="button">复制</button></div>
         <p>已经安装了本页的.deb？照样执行这三个步骤即可。您的邮件、账户和设置都会保留，此后更新将通过APT提供。</p>
         <p>要删除Hey Look!和软件源，请运行：</p>
-        <div class="copy"><code>sudo apt remove hey-look &amp;&amp; sudo rm /etc/apt/sources.list.d/heylook.sources /etc/apt/keyrings/heylook-archive-keyring.gpg</code><button class="btn btn-ghost btn-sm" type="button">复制</button></div></details>
+        <div class="copy"><code>sudo apt remove hey-look &amp;&amp; sudo rm /etc/apt/sources.list.d/heylook.sources /etc/apt/keyrings/heylook-archive-keyring.gpg</code><button class="btn btn-ghost btn-sm" type="button">复制</button></div></details><!-- hl:apt-end -->
       <details><summary>Linux使用须知</summary>
         <p>如果您的桌面没有托盘区域，关闭窗口就会退出Hey Look!。</p>
         <p>链接和附件通过 <code>xdg-open</code> 打开。密码保存需要GNOME Keyring或KWallet正在运行并已解锁。</p></details>

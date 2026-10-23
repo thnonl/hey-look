@@ -83,10 +83,11 @@ release workflow searches the built app for the name).
 2. Note the fingerprint: `gpg --list-keys --with-colons "Hey Look! APT signing" | awk -F: '/^fpr/{print $10; exit}'`.
 3. Export the public key into `docs/apt/`: `gpg --armor --export <FPR> > docs/apt/heylook-archive-keyring.asc` and
    `gpg --export <FPR> > docs/apt/heylook-archive-keyring.gpg`, and write the fingerprint (10 groups of 4) on the 8 download pages
-   (`docs/*/download.html`, `<details id="apt">`; `node scripts/test-site-apt.mjs` shows what is wrong). Until the real key is there the
-   directory holds a throw-away key ("Hey Look! APT test (throwaway)") and that test fails on purpose: in a tag run and in the Pages deploy
-   always, in other runs of `release.yml` (dry runs, branch runs) it is only a warning (DEC-020; the variable is set in one place, the
-   `node-tests` job, and `scripts/test-apt-placeholder-guard.mjs` keeps it there).
+   (`docs/*/download.html`, between `<!-- hl:apt-begin -->` and `<!-- hl:apt-end -->`; `node scripts/test-site-apt.mjs` shows what is wrong).
+   Until the real key is there the directory holds a throw-away key ("Hey Look! APT test (throwaway)") and that test fails on purpose: in a tag
+   run always, in other runs of `release.yml` (dry runs, branch runs) it is only a warning (DEC-020; the variable is set in one place, the
+   `node-tests` job, and `scripts/test-apt-placeholder-guard.mjs` keeps it there). The website needs no key until the repository exists, see
+   "The website is dormant" below.
 4. Export the secret key: `gpg --armor --export-secret-keys <FPR> > apt-signing-secret.asc`. In GitHub > Settings > Environments > `release`
    add the Environment secrets `APT_SIGNING_KEY` (the file's text) and `APT_SIGNING_PASSPHRASE`. Then `shred -u apt-signing-secret.asc`.
 5. Backup (mandatory): the secret key export, the passphrase and the revocation certificate GnuPG wrote to `~/.gnupg/openpgp-revocs.d/<FPR>.rev`,
@@ -96,6 +97,16 @@ release workflow searches the built app for the name).
    `main`.
 7. After the release is public: merge the release branch to `main` (the site and `pages.yml` go live from `main`) and watch `pages.yml` >
    `apt-live-check`. Then on a Debian or Ubuntu machine: `sudo apt update && apt policy hey-look`.
+
+**The website is dormant until the repository exists (DEC-022).** The "Install with APT" block of the download pages sits between
+`<!-- hl:apt-begin -->` and `<!-- hl:apt-end -->` (exactly one pair on each of the 8 download pages; no other page links to `#apt` or `/apt/`). A
+Pages build has `APT_SITE=on` only when the branch `apt` exists (the first tag run with the real key makes it); nothing else can switch it on (no
+input, no variable; `test-apt-placeholder-guard.mjs` keeps it so). Without the branch `scripts/build-site.mjs` takes the block out of the 8 pages
+and does not copy `docs/apt/`, and `node scripts/test-site-apt.mjs --built=_site` proves that the built site has no block, marker, `apt/` folder,
+link or APT text; the throw-away key is then not looked at (its files are not deployed), so site updates are never blocked by the missing key. With
+the branch (`on`) the block and `docs/apt/` are deployed, `apt-assemble.sh` adds the repository, and the throw-away key FAILS the run before the
+upload (`APT_ALLOW_PLACEHOLDER_KEY` is ignored in this mode). Locally `node scripts/build-site.mjs _site` is dormant (add `APT_SITE=on` to see the
+block).
 
 **Rotation.** (1) Make the new key offline. (2) Sign `InRelease` with both keys for at least 6 months (apt accepts the file when one signature
 verifies with the keys of `Signed-By`). (3) The key file on the site holds both public keys and the download page tells people to run step 1
