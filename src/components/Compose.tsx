@@ -1137,7 +1137,6 @@ function ComposeBody({ init }: { init: ComposeInit }) {
     const a = document.activeElement;
     focusWas.current = a instanceof HTMLElement && paneRef.current?.contains(a) ? a : null;
     setSendW(sendBtnRef.current?.offsetWidth ?? 0);
-    noteScrolls();
     lockedRef.current = true;
     setLocked(true);
     composeSeam()?.lock(wait);
@@ -1513,11 +1512,9 @@ function ComposeBody({ init }: { init: ComposeInit }) {
     setBusy(true);
     setComposeDirty(false);
     const wait = eff(prefs, accountId, "undoSeconds");
+    noteScrolls(); // (what Send leaves behind: the window keeps it, the pane that Undo makes again gets it, D-053)
     if (composeSeam()) lockForSend(wait);
-    else {
-      noteScrolls();
-      void openCompose(null, { sending: wait });
-    }
+    else void openCompose(null, { sending: wait });
     let cancelled = false;
     let started = false;
     let timer: ReturnType<typeof setTimeout> | undefined;

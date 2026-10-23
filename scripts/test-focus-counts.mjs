@@ -120,7 +120,7 @@ assert.ok(store.includes("withThreadsGone(get().folders, gone, prefs.countOtherM
 assert.ok(list.includes("TAB_SCALE_MIN") && list.includes("loadingdone") && list.includes('"--tab-scale"'), "MessageList shrinks the tabs when they are wider than the header and measures again when a font has loaded");
 assert.ok(lib.includes("const NOT_HIDDEN") && lib.includes("{NOT_HIDDEN}") && lib.includes("folder_infos_hiding(c, &pending_thread_ids())"), "folder_infos leaves the conversations the lists hide out of the unread numbers");
 assert.match(css, /white-space: nowrap; \}\n\.pivots button \{ font-size/, "the tab buttons do not wrap");
-assert.match(css, /\.pivots \.fp-badge, \.ap-pivots \.fp-badge \{ margin-inline-start: 6px; \}/, "6 px between label and number");
+assert.match(css, /\.pivots \.fp-badge, \.ap-pivots \.fp-badge \{ margin-inline-start: 6px; transition: none; \}/, "6 px between label and number, no transition (the header fit measures right after a change, D-054)");
 const mock = read("src/devMock.ts");
 assert.ok(mock.includes("unreadFocused:") && mock.includes("tabcounts="), "the dev preview computes the numbers and forces them with #tabcounts");
 
