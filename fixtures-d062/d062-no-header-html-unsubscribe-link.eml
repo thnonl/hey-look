@@ -1,0 +1,26 @@
+From: "Example Newsletter" <hop@example.com>
+To: qa-user@example.com
+Subject: D062 no header, Unsubscribe link in the html
+Date: Fri, 23 Oct 2026 09:00:00 +0000
+Message-ID: <d062-htmlonly@example.com>
+MIME-Version: 1.0
+Content-Type: multipart/alternative; boundary="d062-boundary-htmlonly"
+
+--d062-boundary-htmlonly
+Content-Type: text/plain; charset=utf-8
+Content-Transfer-Encoding: quoted-printable
+
+Hello,=0D=0A=0D=0AQA newsletter without a List-Unsubscribe header (fixture =
+D-062). Nothing here is real.=0D=0A
+--d062-boundary-htmlonly
+Content-Type: text/html; charset=utf-8
+Content-Transfer-Encoding: quoted-printable
+
+<html><body><p>Hello,</p><p>QA newsletter without a List-Unsubscribe header=
+ (fixture D-062). Nothing here is real.</p><p style=3D"font-size:11px">You =
+get this because you signed up. <a href=3D"https://news.example.com/prefere=
+nces/unsubscribe?u=3DFAKEUaRD4zU0JdVX5h6SurAf0kXLf2yVtXO-6HbR6cADAE380q8Bvn=
+89ROSnDffxxr3MErTAFIlK_YDzsiJDci4aWng" style=3D"color:#888">Unsubscribe</a>=
+ | <a href=3D"https://news.example.com/preferences">Preferences</a></p></bo=
+dy></html>=0D=0A
+--d062-boundary-htmlonly--
