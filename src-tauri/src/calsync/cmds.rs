@@ -82,9 +82,32 @@ pub fn connect_error(raw: &str, email: &str) -> String {
     }
 }
 
+/// An address as Google compares it: a Gmail address (gmail.com or googlemail.com) is lower case, has no dots in its name and nothing after
+/// a `+`, and its domain is gmail.com, so `J.Doe+news@googlemail.com` and `jdoe@gmail.com` are one mailbox. Any other address is only
+/// compared without regard to case.
+fn google_address_key(addr: &str) -> String {
+    let a = addr.trim().to_ascii_lowercase();
+    match a.rsplit_once('@') {
+        Some((name, domain)) if domain == "gmail.com" || domain == "googlemail.com" => {
+            let name = name.split('+').next().unwrap_or(name).replace('.', "");
+            format!("{name}@gmail.com")
+        }
+        _ => a,
+    }
+}
+
+/// Is the address Google signed in the mailbox the app has? Gmail spellings count as one (W7.8: an app-password mailbox typed `j.doe@googlemail.com`
+/// gets `jdoe@gmail.com` back); for Microsoft and every other domain the addresses must be equal apart from case.
+fn same_account(provider: Provider, mailbox: &str, signed_email: &str) -> bool {
+    match provider {
+        Provider::Google => google_address_key(mailbox) == google_address_key(signed_email),
+        Provider::Microsoft => signed_email.trim().eq_ignore_ascii_case(mailbox.trim()),
+    }
+}
+
 /// Check what the consent returned against the mailbox. Nothing is stored unless this passes.
 pub fn check_grant(provider: Provider, mailbox: &str, signed_email: &str, granted: &str) -> R<()> {
-    if !signed_email.eq_ignore_ascii_case(mailbox) {
+    if !same_account(provider, mailbox, signed_email) {
         return Err(format!("CAL_WRONG_ACCOUNT: You allowed access for {signed_email}. Sign in as {mailbox} to sync this mailbox’s calendar."));
     }
     if !granted_all(provider, granted) {
@@ -107,19 +130,29 @@ pub async fn calendar_connect(app: tauri::AppHandle, state: tauri::State<'_, App
     let provider = kind.oauth().ok_or("CAL_NOT_SET_UP: This mailbox has no calendar that Hey Look! can sync.")?;
     let (client_id, client_secret) = crate::oauth_creds(&db, provider);
     if client_id.trim().is_empty() {
-        return Err(format!("CAL_NOT_SET_UP: No {} OAuth client configured: set {}_CLIENT_ID, or enter it in Settings > Accounts", provider.label(), provider.label().to_uppercase()));
+        return Err(not_set_up_text(provider));
     }
-    let tenant = crate::oauth_tenant(&db, provider);
-    let pending = oauth::begin_for(provider, Purpose::Calendar, &tenant, client_id.trim(), Some(&acc.email))?;
-    *connecting() = Some(pending.canceller());
-    if let Err(e) = crate::open_target(&app, &pending.url, true) {
-        *connecting() = None;
-        return Err(e);
-    }
-    let (cid, csec) = (client_id.trim().to_string(), client_secret.trim().to_string());
-    let signed = blocking(move || pending.finish(&cid, &csec)).await;
-    *connecting() = None;
-    let signed = signed.map_err(|e| connect_error(&e, &acc.email))?;
+    // the consent: the browser (a debug build with HEYLOOK_TEST_CAL_CONSENT set skips it, see `test_consent`)
+    let seam = test_consent(provider);
+    let signed = match seam {
+        Some(s) => {
+            crate::startup::line("calsync", &format!("{}: calendar consent from the test seam (no browser), signed in as {}", acc.id, s.email));
+            s
+        }
+        None => {
+            let tenant = crate::oauth_tenant(&db, provider);
+            let pending = oauth::begin_for(provider, Purpose::Calendar, &tenant, client_id.trim(), Some(&acc.email))?;
+            *connecting() = Some(pending.canceller());
+            if let Err(e) = crate::open_target(&app, &pending.url, true) {
+                *connecting() = None;
+                return Err(e);
+            }
+            let (cid, csec) = (client_id.trim().to_string(), client_secret.trim().to_string());
+            let signed = blocking(move || pending.finish(&cid, &csec)).await;
+            *connecting() = None;
+            signed.map_err(|e| connect_error(&e, &acc.email))?
+        }
+    };
     check_grant(provider, &acc.email, &signed.email, &signed.scope)?;
     let key = oauth::calendar_key(&acc.id);
     crate::identity::entry(&key)
@@ -134,6 +167,59 @@ pub async fn calendar_connect(app: tauri::AppHandle, state: tauri::State<'_, App
     super::request_sync(&acc.id);
     changed(&app);
     Ok(info)
+}
+
+/// What the person is told when this build has no OAuth client for the service (W7.8). The switch is disabled in that case, so this is
+/// only seen when something calls the command anyway.
+fn not_set_up_text(provider: Provider) -> String {
+    format!("CAL_NOT_SET_UP: This build of Hey Look! can’t sync calendars with {}.", provider.label())
+}
+
+/// The kinds a build can connect: Google and Microsoft when an OAuth client is configured for them (the environment, the build or Settings),
+/// the others (CalDAV, 7d) need none. `has_client` is asked per provider.
+pub fn kinds_available(has_client: impl Fn(Provider) -> bool) -> Vec<String> {
+    super::ENABLED_KINDS.iter().filter(|k| k.oauth().map(&has_client).unwrap_or(true)).map(|k| k.as_str().to_string()).collect()
+}
+
+/// The services this build can connect (`google`, `microsoft`, ...). The Calendar section of a mailbox whose kind is not in the list shows
+/// its switch off and says so, instead of ending in an error after a click.
+#[tauri::command]
+pub fn calendar_kinds_available(state: tauri::State<AppState>) -> Vec<String> {
+    kinds_available(|p| !crate::oauth_creds(&state.db, p).0.trim().is_empty())
+}
+
+/// Debug builds only (a release build does not compile this in and never reads the variable): `HEYLOOK_TEST_CAL_CONSENT=<email>` makes the
+/// calendar consent finish at once, as if the person had signed in as `<email>` and allowed every calendar permission; `partial:<email>` as if
+/// a box had been unticked. The address check, the permission check, the credential store and the first sync run as in production, so the QA
+/// kit's fake servers can be used without a browser or an account. The refresh token is `hl-test-refresh`.
+#[cfg(debug_assertions)]
+fn test_consent(provider: Provider) -> Option<oauth::Signed> {
+    consent_from_seam(provider, &std::env::var("HEYLOOK_TEST_CAL_CONSENT").ok()?)
+}
+
+#[cfg(not(debug_assertions))]
+fn test_consent(_provider: Provider) -> Option<oauth::Signed> {
+    None
+}
+
+#[cfg(debug_assertions)]
+fn consent_from_seam(provider: Provider, value: &str) -> Option<oauth::Signed> {
+    let value = value.trim();
+    let (partial, email) = match value.strip_prefix("partial:") {
+        Some(rest) => (true, rest.trim()),
+        None => (false, value),
+    };
+    if email.is_empty() {
+        return None;
+    }
+    Some(oauth::Signed {
+        email: email.to_string(),
+        name: String::new(),
+        refresh_token: "hl-test-refresh".into(),
+        access_token: "hl-test-access".into(),
+        scope: if partial { "openid email".into() } else { provider.scope_for(Purpose::Calendar).to_string() },
+        expires_in: 3600,
+    })
 }
 
 /// The Cancel button of the consent: ends the wait for the browser.
@@ -241,6 +327,86 @@ mod tests {
         assert_eq!(e, "CAL_WRONG_ACCOUNT: You allowed access for other@gmail.com. Sign in as me@gmail.com to sync this mailbox’s calendar.");
         let e = check_grant(Provider::Google, "me@gmail.com", "me@gmail.com", "openid email").unwrap_err();
         assert!(e.starts_with("CAL_PARTIAL: Hey Look! needs every calendar permission it asked for."));
+    }
+
+    #[test]
+    fn gmail_addresses_are_compared_like_google_does() {
+        let g = |mailbox: &str, signed: &str| check_grant(Provider::Google, mailbox, signed, GOOGLE_ALL).is_ok();
+        // dots, plus tags, googlemail.com and case are one Gmail mailbox
+        assert!(g("j.doe@googlemail.com", "jdoe@gmail.com"));
+        assert!(g("jdoe@gmail.com", "J.Doe@GMail.com"));
+        assert!(g("jdoe+news@gmail.com", "jdoe@gmail.com"));
+        assert!(g("J.D.o.e+a+b@googlemail.com", "jdoe@googlemail.com"));
+        assert!(g("jdoe@gmail.com", "jdoe+x@googlemail.com"));
+        // different people stay different
+        assert!(!g("jdoe@gmail.com", "other@gmail.com"));
+        assert!(!g("jdoe@gmail.com", "jdoe2@gmail.com"));
+        assert!(!g("j.doe@gmail.com", "j_doe@gmail.com"));
+        // other domains: the case only (a dot or a plus tag is part of the name there)
+        assert!(g("Jane.Doe@Example.com", "jane.doe@example.com"));
+        assert!(!g("jane.doe@example.com", "janedoe@example.com"));
+        assert!(!g("jane+x@example.com", "jane@example.com"));
+        // a Google Workspace address on a gmail-looking name is not a Gmail address
+        assert!(!g("jdoe@gmail.example.com", "jdoe@example.com"));
+        assert!(!g("jdoe@gmail.com", "jdoe@gmail.co"));
+        // the wrong-account text names both addresses as they were written
+        let e = check_grant(Provider::Google, "j.doe@googlemail.com", "other@gmail.com", GOOGLE_ALL).unwrap_err();
+        assert_eq!(e, "CAL_WRONG_ACCOUNT: You allowed access for other@gmail.com. Sign in as j.doe@googlemail.com to sync this mailbox’s calendar.");
+        // Microsoft is compared as before: the case only
+        assert!(check_grant(Provider::Microsoft, "Me@Outlook.com", "me@outlook.com", "Calendars.ReadWrite").is_ok());
+        assert!(check_grant(Provider::Microsoft, "m.e@outlook.com", "me@outlook.com", "Calendars.ReadWrite").is_err());
+    }
+
+    #[test]
+    fn an_app_password_gmail_mailbox_uses_the_oauth_calendar_flow_with_its_address_as_hint() {
+        let acc = crate::db::Account {
+            id: "a".into(),
+            email: "j.doe@googlemail.com".into(),
+            display_name: "J".into(),
+            imap_host: "imap.gmail.com".into(),
+            imap_port: 993,
+            imap_ssl: true,
+            smtp_host: "smtp.gmail.com".into(),
+            smtp_port: 465,
+            smtp_security: "ssl".into(),
+            username: "j.doe@googlemail.com".into(),
+            auth: "password".into(),
+            color: None,
+            smtp_username: String::new(),
+            tls_insecure: false,
+            reply_to: String::new(),
+        };
+        // the mailbox is a Google one by its server, and the kind is available when the build has a Google client
+        let kind = Kind::for_account(&acc).filter(|k| k.enabled()).expect("Gmail by app password has a calendar");
+        assert_eq!(kind, Kind::Google);
+        assert_eq!(kind.oauth(), Some(Provider::Google));
+        // the consent is the calendar one: the calendar scopes only, the mailbox address as login_hint, a separate token key; no mail scope and no password
+        let p = oauth::begin_for(Provider::Google, Purpose::Calendar, "", "client-id", Some(&acc.email)).unwrap();
+        assert!(p.url.starts_with("https://accounts.google.com/o/oauth2/v2/auth?"), "{}", p.url);
+        assert!(p.url.contains("login_hint=j.doe%40googlemail.com"), "{}", p.url);
+        assert!(!p.url.contains("mail.google.com") && !p.url.to_ascii_lowercase().contains("password"), "{}", p.url);
+        assert_eq!(oauth::calendar_key(&acc.id), "a:calendar");
+        assert_ne!(oauth::calendar_key(&acc.id), acc.id, "the mail credential is another entry");
+    }
+
+    #[test]
+    fn a_missing_client_is_said_in_one_sentence_and_kinds_follow_the_clients() {
+        assert_eq!(not_set_up_text(Provider::Google), "CAL_NOT_SET_UP: This build of Hey Look! can’t sync calendars with Google.");
+        assert_eq!(not_set_up_text(Provider::Microsoft), "CAL_NOT_SET_UP: This build of Hey Look! can’t sync calendars with Microsoft.");
+        assert_eq!(kinds_available(|_| true), vec!["google", "microsoft"]);
+        assert_eq!(kinds_available(|p| p == Provider::Microsoft), vec!["microsoft"]);
+        assert!(kinds_available(|_| false).is_empty());
+    }
+
+    #[test]
+    fn the_test_consent_seam_signs_in_as_the_given_address_and_can_grant_part() {
+        let ok = consent_from_seam(Provider::Google, " jdoe@gmail.com ").unwrap();
+        assert_eq!((ok.email.as_str(), ok.refresh_token.as_str()), ("jdoe@gmail.com", "hl-test-refresh"));
+        assert!(check_grant(Provider::Google, "j.doe@googlemail.com", &ok.email, &ok.scope).is_ok(), "the full grant passes the production checks");
+        assert!(granted_all(Provider::Microsoft, &consent_from_seam(Provider::Microsoft, "me@outlook.com").unwrap().scope));
+        let part = consent_from_seam(Provider::Google, "partial:jdoe@gmail.com").unwrap();
+        assert!(check_grant(Provider::Google, "jdoe@gmail.com", &part.email, &part.scope).unwrap_err().starts_with("CAL_PARTIAL:"));
+        assert!(consent_from_seam(Provider::Google, "").is_none() && consent_from_seam(Provider::Google, "partial:").is_none());
     }
 
     #[test]

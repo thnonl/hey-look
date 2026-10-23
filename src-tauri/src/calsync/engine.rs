@@ -11,6 +11,8 @@ const DAY: i64 = 86_400;
 const OFFLINE_RETRY_SECS: i64 = 60;
 /// The longest back-off (30 minutes).
 const BACKOFF_MAX_SECS: i64 = 1800;
+/// A truncated calendar (over the event cap, so without a token) is downloaded in full again at the earliest after this.
+const FULL_AGAIN_SECS: i64 = DAY;
 
 /// Time and luck as inputs, so a test can run a round at a chosen moment.
 #[derive(Clone, Copy, Debug)]
@@ -126,8 +128,27 @@ pub fn classify(e: &SyncErr, fail_count: i64, clock: Clock) -> (&'static str, Op
 }
 
 fn round(db: &Db, provider: &dyn CalProvider, src: &Source, clock: Clock) -> Result<bool, SyncErr> {
-    let remote = provider.list_calendars()?;
-    let mut changed = store::reconcile_calendars(&lock(db), src, &remote).map_err(SyncErr::Other)?;
+    // the calendar list: only the changes since the last round when the provider can tell (Google), the whole list after a token it no
+    // longer knows (410: no error state, one full list) or when it has no token
+    let list = match provider.list_calendars_since(src.list_state.as_deref()) {
+        Err(SyncErr::Gone) if src.list_state.is_some() => provider.list_calendars_since(None)?,
+        other => other?,
+    };
+    let mut changed = {
+        let c = lock(db);
+        let changed = if list.full {
+            store::reconcile_calendars(&c, src, &list.calendars).map_err(SyncErr::Other)?
+        } else {
+            store::apply_calendar_delta(&c, src, &list.calendars, &list.removed).map_err(SyncErr::Other)?
+        };
+        store::set_list_state(&c, &src.id, list.next_state.as_deref()).map_err(SyncErr::Other)?;
+        changed
+    };
+    if list.full {
+        crate::startup::line("calsync", &format!("{} calendar list: full, {} calendars", src.account_id, list.calendars.len()));
+    } else {
+        crate::startup::line("calsync", &format!("{} calendar list: incremental, {} changed, {} removed", src.account_id, list.calendars.len(), list.removed.len()));
+    }
     let cals = store::calendars_of(&lock(db), &src.id).map_err(SyncErr::Other)?;
     for cal in cals.into_iter().filter(|c| c.sync_on) {
         changed |= pull_calendar(db, provider, &cal, &src.account_id, clock)?;
@@ -141,6 +162,14 @@ pub fn pull_calendar(db: &Db, provider: &dyn CalProvider, cal: &CalRow, account_
     let window_from = clock.now - WINDOW_PAST_DAYS * DAY;
     let window_to = clock.now + WINDOW_FUTURE_DAYS * DAY;
     let mut state = cal.sync_state.clone();
+    // a calendar over the event cap has no token (the rest was never read): its full download is repeated at most once a day, in between
+    // it is not requested and keeps showing what the last one brought
+    if let (true, None, Some(at)) = (cal.truncated, &state, cal.full_at) {
+        if clock.now - at < FULL_AGAIN_SECS {
+            crate::startup::line("calsync", &format!("{} skipped: truncated, next full download after {}", cal.id, chrono::DateTime::from_timestamp(at + FULL_AGAIN_SECS, 0).unwrap_or_default().format("%Y-%m-%d %H:%M UTC")));
+            return Ok(false);
+        }
+    }
     // a delta token that only covers a window is started again when the window has aged (Microsoft)
     if let (Some(days), Some(_), Some(from)) = (provider.rebaseline_after_days(), &state, cal.window_from) {
         if window_from - from > days * DAY {
@@ -229,7 +258,7 @@ mod tests {
 
     #[test]
     fn due_rules() {
-        let mut s = Source { id: "s".into(), account_id: "a".into(), kind: Kind::Google, status: OK.into(), last_sync: Some(1000), last_error: None, retry_at: None, fail_count: 0, connected_at: 0 };
+        let mut s = Source { id: "s".into(), account_id: "a".into(), kind: Kind::Google, status: OK.into(), last_sync: Some(1000), last_error: None, retry_at: None, fail_count: 0, connected_at: 0, list_state: None };
         assert!(!is_due(&s, 1000 + SYNC_INTERVAL - 1, false), "synced a moment ago");
         assert!(is_due(&s, 1000 + SYNC_INTERVAL, false), "every 5 minutes");
         assert!(is_due(&s, 1001, true), "Sync now / after an edit");
@@ -468,6 +497,109 @@ mod tests {
         assert!(cal.truncated);
         let info = store::sources_info(&lock(&db)).unwrap();
         assert!(info[0].calendars[0].truncated);
+    }
+
+    #[test]
+    fn the_calendar_list_is_synced_with_its_token() {
+        let (db, sid) = db_with_source();
+        let fake = FakeProvider::new();
+        fake.enable_list_tokens();
+        fake.set_calendars(vec![rc("primary", "Me"), rc("work", "Work"), rc("fam", "Family")]);
+        fake.add_event("work", RemoteEvent::single("w", "W", T0, T0 + 3600));
+        let factory = FakeFactory::new(fake.clone());
+        let names = |db: &Db| {
+            let mut v: Vec<String> = store::calendars_of(&lock(db), &sid).unwrap().into_iter().map(|c| c.name).collect();
+            v.sort();
+            v
+        };
+        sync_source(&db, &factory, &sid, clock(T0), &|| {}).unwrap();
+        assert_eq!(names(&db), vec!["Family", "Me", "Work"]);
+        assert_eq!(src(&db, &sid).list_state.as_deref(), Some("ltok-0"), "the token of the first full list is kept");
+        // nothing changed: the list is asked with the token and brings nothing
+        let r = sync_source(&db, &factory, &sid, clock(T0 + 300), &|| {}).unwrap();
+        sync_source(&db, &factory, &sid, clock(T0 + 600), &|| {}).unwrap();
+        assert_eq!(r.status, "ok");
+        assert_eq!(fake.list_requests(), vec![None, Some("ltok-0".to_string()), Some("ltok-1".to_string())]);
+        // a rename arrives as a changed entry
+        fake.rename_calendar("fam", "Family and friends");
+        sync_source(&db, &factory, &sid, clock(T0 + 900), &|| {}).unwrap();
+        assert_eq!(names(&db), vec!["Family and friends", "Me", "Work"]);
+        // a new calendar is added, switched on when the provider shows it
+        fake.add_calendar(rc("new", "New"));
+        sync_source(&db, &factory, &sid, clock(T0 + 1200), &|| {}).unwrap();
+        assert_eq!(names(&db), vec!["Family and friends", "Me", "New", "Work"]);
+        // a deleted calendar goes with its events
+        assert_eq!(rows(&db), vec!["W"]);
+        fake.delete_calendar("work");
+        sync_source(&db, &factory, &sid, clock(T0 + 1500), &|| {}).unwrap();
+        assert_eq!(names(&db), vec!["Family and friends", "Me", "New"]);
+        assert!(rows(&db).is_empty());
+        // 410: one full list, no error state, no duplicates
+        fake.expire_list_tokens();
+        let r = sync_source(&db, &factory, &sid, clock(T0 + 1800), &|| {}).unwrap();
+        assert_eq!(r.status, "ok");
+        assert_eq!(names(&db), vec!["Family and friends", "Me", "New"]);
+        let s = src(&db, &sid);
+        assert_eq!((s.status.as_str(), s.last_error, s.fail_count), ("ok", None, 0));
+        let asked = fake.list_requests();
+        assert_eq!(&asked[asked.len() - 2..], &[Some("ltok-5".to_string()), None], "the old token was tried, then a full list");
+        // and the new token works
+        fake.rename_calendar("me", "Me");
+        sync_source(&db, &factory, &sid, clock(T0 + 2100), &|| {}).unwrap();
+        assert_eq!(fake.list_requests().last().unwrap().as_deref(), Some("ltok-7"));
+    }
+
+    #[test]
+    fn a_provider_without_list_tokens_is_listed_in_full_every_round() {
+        let (db, sid) = db_with_source();
+        let fake = FakeProvider::new();
+        fake.set_calendars(vec![rc("primary", "Me")]);
+        let factory = FakeFactory::new(fake.clone());
+        sync_source(&db, &factory, &sid, clock(T0), &|| {}).unwrap();
+        sync_source(&db, &factory, &sid, clock(T0 + 300), &|| {}).unwrap();
+        assert_eq!(fake.list_calls(), 2);
+        assert_eq!(src(&db, &sid).list_state, None);
+        fake.set_calendars(vec![]);
+        sync_source(&db, &factory, &sid, clock(T0 + 600), &|| {}).unwrap();
+        assert!(store::calendars_of(&lock(&db), &sid).unwrap().is_empty(), "a full list drops what is not in it");
+    }
+
+    #[test]
+    fn a_truncated_calendar_is_downloaded_once_a_day() {
+        let (db, sid) = db_with_source();
+        let fake = FakeProvider::new();
+        fake.set_calendars(vec![rc("primary", "Me"), rc("small", "Small")]);
+        fake.add_event("primary", RemoteEvent::single("a", "A", T0, T0 + 3600));
+        fake.add_event("small", RemoteEvent::single("s", "S", T0, T0 + 3600));
+        fake.set_truncated(true);
+        let factory = FakeFactory::new(fake.clone());
+        sync_source(&db, &factory, &sid, clock(T0), &|| {}).unwrap();
+        assert_eq!((fake.pull_count("primary"), fake.pull_count("small")), (1, 1));
+        let cal = store::get_calendar(&lock(&db), &calendar_id(ACC, Kind::Google, "primary")).unwrap();
+        assert!(cal.truncated && cal.sync_state.is_none(), "no token for what was not read");
+        assert_eq!(cal.full_at, Some(T0));
+        // the rounds of the next 24 hours do not ask for it again, and the note and the events stay
+        fake.set_truncated(false);
+        for i in 1..=4 {
+            sync_source(&db, &factory, &sid, clock(T0 + i * 300), &|| {}).unwrap();
+        }
+        sync_source(&db, &factory, &sid, clock(T0 + DAY - 1), &|| {}).unwrap();
+        assert_eq!(fake.pull_count("primary"), 1, "not requested within the day");
+        assert!(store::get_calendar(&lock(&db), &calendar_id(ACC, Kind::Google, "primary")).unwrap().truncated, "the truncated note stays");
+        assert_eq!(rows(&db), vec!["A", "S"], "what the last download brought stays");
+        // a day later it is downloaded in full once more (and, now complete, gets its token)
+        sync_source(&db, &factory, &sid, clock(T0 + DAY), &|| {}).unwrap();
+        assert_eq!(fake.pull_count("primary"), 2);
+        let cal = store::get_calendar(&lock(&db), &calendar_id(ACC, Kind::Google, "primary")).unwrap();
+        assert!(!cal.truncated && cal.sync_state.is_some());
+        assert_eq!(cal.full_at, Some(T0 + DAY));
+        // switching the calendar off and on starts over at once
+        fake.set_truncated(true);
+        let id = calendar_id(ACC, Kind::Google, "primary");
+        store::set_calendar_sync(&lock(&db), &id, false).unwrap();
+        store::set_calendar_sync(&lock(&db), &id, true).unwrap();
+        sync_source(&db, &factory, &sid, clock(T0 + DAY + 300), &|| {}).unwrap();
+        assert_eq!(fake.pull_count("primary"), 3);
     }
 
     #[test]

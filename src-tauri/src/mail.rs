@@ -572,6 +572,8 @@ pub struct Parsed {
     pub cal_method: Option<String>,
     /// High / Low as the sender marked it (Importance, X-Priority, X-MSMail-Priority, Priority headers)
     pub importance: crate::importance::Importance,
+    /// What the receiving server's topmost `Authentication-Results` says about the sender (calendar updates need a passing check, W7.3)
+    pub auth: crate::authres::Auth,
 }
 
 pub struct FolderFetch {
@@ -846,6 +848,7 @@ pub fn parse(uid: u32, raw: &[u8], seen: bool, flagged: bool, fallback_date: i64
         ics,
         cal_method,
         importance: crate::importance::from_raw(raw),
+        auth: crate::authres::verdict(raw),
     })
 }
 

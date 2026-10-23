@@ -14,6 +14,7 @@ mod headerfold;
 mod ical;
 mod i18n;
 mod identity;
+mod authres;
 mod importance;
 mod idle;
 mod legacy_names;
@@ -776,8 +777,8 @@ fn insert_parsed(c: &Connection, acc: &Account, role: &str, p: &mail::Parsed) ->
     let thread_id = thread_id_of(&acc.id, role, p);
     c.execute(
         "INSERT OR REPLACE INTO messages(id,account_id,folder,uid,message_id,thread_id,subject,from_name,from_email,
-           to_addrs,cc_addrs,date,snippet,body_html,body_text,seen,flagged,has_attach,attachments,list_unsub,list_unsub_post,pgp,pgp_raw,ics,cal_method,importance)
-         VALUES(?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,?13,?14,?15,?16,?17,?18,?19,?20,?21,?22 | COALESCE((SELECT pgp FROM messages WHERE id=?1),0),?23,?24,?25,?26)",
+           to_addrs,cc_addrs,date,snippet,body_html,body_text,seen,flagged,has_attach,attachments,list_unsub,list_unsub_post,pgp,pgp_raw,ics,cal_method,importance,auth_result)
+         VALUES(?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,?13,?14,?15,?16,?17,?18,?19,?20,?21,?22 | COALESCE((SELECT pgp FROM messages WHERE id=?1),0),?23,?24,?25,?26,?27)",
         params![
             format!("{}:{}:{}", acc.id, role, p.uid),
             acc.id,
@@ -805,7 +806,8 @@ fn insert_parsed(c: &Connection, acc: &Account, role: &str, p: &mail::Parsed) ->
             p.pgp_raw,
             p.ics,
             p.cal_method,
-            p.importance.to_db()
+            p.importance.to_db(),
+            p.auth.to_db()
         ],
     )
     .map_err(err)?;
@@ -813,8 +815,13 @@ fn insert_parsed(c: &Connection, acc: &Account, role: &str, p: &mail::Parsed) ->
     if let Some(ics) = &p.ics {
         if !matches!(role, "sent" | "drafts" | "trash" | "junk") {
             let id = format!("{}:{}:{}", acc.id, role, p.uid);
-            if calendar::ingest(c, acc, &id, &p.from_email, ics, false).map(|o| o.changed).unwrap_or(false) {
-                calendar::mark_dirty();
+            if let Ok(o) = calendar::ingest_checked(c, acc, &id, &p.from_email, ics, false, p.auth, false) {
+                if o.changed {
+                    calendar::mark_dirty();
+                }
+                if o.held {
+                    startup::line("calendar", &format!("{id}: sender check failed, change held"));
+                }
             }
         }
     }
@@ -5783,6 +5790,7 @@ pub fn run() {
             calendar::calendar_import_ics,
             calendar::calendar_open_message,
             calsync::cmds::calendar_sources,
+            calsync::cmds::calendar_kinds_available,
             calsync::cmds::calendar_connect,
             calsync::cmds::calendar_cancel_connect,
             calsync::cmds::calendar_disconnect,
@@ -6795,7 +6803,7 @@ mod backfill_tests {
         mail::Parsed {
             uid, message_id: None, refs: vec![], subject: "s".into(), from_name: "n".into(), from_email: "e@example.com".into(), to: vec![], cc: vec![],
             date: uid as i64, snippet: String::new(), html: None, text: Some("t".into()), seen: true, flagged: false, attachments: vec![],
-            list_unsub: None, list_unsub_post: false, pgp: 0, pgp_raw: None, ics: None, cal_method: None, importance: importance::Importance::Normal,
+            list_unsub: None, list_unsub_post: false, pgp: 0, pgp_raw: None, ics: None, cal_method: None, importance: importance::Importance::Normal, auth: authres::Auth::Unknown,
         }
     }
 
@@ -7156,6 +7164,88 @@ mod signed_flag_tests {
         for id in ["m2", "m3"] {
             assert_eq!(ensure_not_confidential(&c, id).unwrap_err(), "CONFIDENTIAL: This message is confidential, so that isn’t allowed.");
         }
+    }
+}
+
+/// 1.0.7 W7.3: the receiving server's verdict is stored with the message at sync time and holds a calendar update that fails the check.
+#[cfg(test)]
+mod sender_check_tests {
+    use super::*;
+
+    fn account() -> Account {
+        Account {
+            id: "a1".into(), email: "me@example.com".into(), display_name: "Me".into(), imap_host: "h".into(), imap_port: 993, imap_ssl: true,
+            smtp_host: "s".into(), smtp_port: 465, smtp_security: "ssl".into(), username: "u".into(), auth: "password".into(), color: None,
+            smtp_username: String::new(), tls_insecure: false, reply_to: String::new(),
+        }
+    }
+
+    /// An invitation mail from the organizer; `headers` are the lines (with their CRLF) the receiving server put on top.
+    fn invitation(uid: u32, seq: i64, hour: u32, headers: &str) -> Vec<u8> {
+        format!(
+            "{headers}From: Mai <mai@contoso.com>\r\nTo: me@example.com\r\nSubject: Product sync\r\nMessage-ID: <m{uid}@contoso.com>\r\nDate: Mon, 12 Oct 2026 10:00:0{uid} +0000\r\n\
+MIME-Version: 1.0\r\nContent-Type: text/calendar; method=REQUEST; charset=utf-8\r\n\r\n\
+BEGIN:VCALENDAR\r\nMETHOD:REQUEST\r\nVERSION:2.0\r\nBEGIN:VEVENT\r\nUID:sync-1@contoso.com\r\nSEQUENCE:{seq}\r\nDTSTAMP:20261001T080000Z\r\n\
+DTSTART:20261014T{hour:02}0000Z\r\nDTEND:20261014T{:02}0000Z\r\nSUMMARY:Product sync\r\nORGANIZER;CN=Mai:mailto:mai@contoso.com\r\n\
+ATTENDEE;PARTSTAT=NEEDS-ACTION:mailto:me@example.com\r\nEND:VEVENT\r\nEND:VCALENDAR\r\n",
+            hour + 1
+        )
+        .into_bytes()
+    }
+
+    fn store(c: &Connection, uid: u32, seq: i64, hour: u32, headers: &str) {
+        let p = mail::parse(uid, &invitation(uid, seq, hour, headers), false, false, 0).unwrap();
+        insert_parsed(c, &account(), "inbox", &p).unwrap();
+    }
+
+    fn start_of_event(c: &Connection) -> i64 {
+        calendar::list_range(c, 0, i64::MAX / 4).unwrap().first().map(|e| e.start).unwrap_or(0)
+    }
+
+    fn at(hour: u32) -> i64 {
+        chrono::NaiveDate::from_ymd_opt(2026, 10, 14).unwrap().and_hms_opt(hour, 0, 0).unwrap().and_utc().timestamp()
+    }
+
+    fn verdict(c: &Connection, uid: u32) -> Option<String> {
+        c.query_row("SELECT auth_result FROM messages WHERE id=?1", [format!("a1:inbox:{uid}")], |r| r.get(0)).unwrap()
+    }
+
+    #[test]
+    fn the_verdict_is_stored_and_a_failed_update_waits_for_the_person() {
+        let c = db::test_conn(&["a1"]);
+        db::insert_account(&c, &account()).unwrap();
+        // the first invitation (no Authentication-Results at all, as many self-hosted servers): added as in 1.0.6, verdict unknown
+        store(&c, 1, 0, 8, "");
+        assert_eq!(verdict(&c, 1), None);
+        assert_eq!(start_of_event(&c), at(8));
+        // an update that passes (topmost header) with a forged "fail" below: applied
+        store(&c, 2, 1, 9, "Authentication-Results: mx.example; dmarc=pass header.from=contoso.com\r\nAuthentication-Results: mx.evil; dmarc=fail\r\n");
+        assert_eq!(verdict(&c, 2).as_deref(), Some("pass"));
+        assert_eq!(start_of_event(&c), at(9));
+        // an update that fails the check: stored with its verdict, not applied; Apply anyway (the command's ingest) applies it
+        store(&c, 3, 2, 10, "Authentication-Results: mx.example; spf=pass; dmarc=fail action=none header.from=contoso.com; compauth=fail reason=000\r\n");
+        assert_eq!(verdict(&c, 3).as_deref(), Some("fail"));
+        assert_eq!(start_of_event(&c), at(9), "the event keeps its time");
+        let (text, from): (String, String) = c.query_row("SELECT ics,from_email FROM messages WHERE id='a1:inbox:3'", [], |r| Ok((r.get(0)?, r.get(1)?))).unwrap();
+        let card = calendar::invite_for(&c, "a1", "a1:inbox:3", "inbox", &from, &text, false);
+        assert!(card.unverified && card.held, "the card warns and offers the held change");
+        let applied = calendar::ingest_checked(&c, &account(), "a1:inbox:3", &from, &text, true, calendar::stored_auth(&c, "a1:inbox:3"), true).unwrap();
+        assert!(applied.changed);
+        assert_eq!(start_of_event(&c), at(10));
+        // re-syncing the same message (a restart, a second folder) does not change anything and keeps the verdict
+        store(&c, 3, 2, 10, "Authentication-Results: mx.example; dmarc=fail header.from=contoso.com\r\n");
+        assert_eq!(verdict(&c, 3).as_deref(), Some("fail"));
+        assert_eq!(start_of_event(&c), at(10));
+    }
+
+    #[test]
+    fn a_new_invitation_that_fails_the_check_is_not_added_by_the_sync() {
+        let c = db::test_conn(&["a1"]);
+        store(&c, 1, 0, 8, "Authentication-Results: mx.example; dmarc=fail header.from=contoso.com\r\n");
+        assert_eq!(verdict(&c, 1).as_deref(), Some("fail"));
+        assert!(calendar::list_range(&c, 0, i64::MAX / 4).unwrap().is_empty());
+        store(&c, 2, 0, 8, "Authentication-Results: mx.example; dkim=pass header.d=contoso.com\r\n");
+        assert_eq!(start_of_event(&c), at(8), "the same invitation with a passing check is added");
     }
 }
 

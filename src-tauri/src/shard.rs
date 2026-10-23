@@ -21,20 +21,21 @@ use std::path::{Path, PathBuf};
 /// Columns of `messages`, in the order of the shard table (the view, its triggers and the legacy copy name them explicitly,
 /// so the column order of an old database does not matter). A new column: add it to `create_sql` and here, and give old
 /// shards an `ALTER TABLE ... ADD COLUMN` through `db::add_column` in `attach`.
-const COLS: [&str; 26] = [
+const COLS: [&str; 27] = [
     "id", "account_id", "folder", "uid", "message_id", "thread_id", "subject", "from_name", "from_email", "to_addrs", "cc_addrs", "date",
     "snippet", "body_html", "body_text", "seen", "flagged", "has_attach", "attachments", "list_unsub", "list_unsub_post", "pgp", "pgp_raw",
-    "ics", "cal_method", "importance",
+    "ics", "cal_method", "importance", "auth_result",
 ];
 
 /// Columns an old (pre-shard) `main.messages` may still lack; same list the single-file layout migrated with.
-const LEGACY_ADD_COLUMNS: [&str; 6] = [
+const LEGACY_ADD_COLUMNS: [&str; 7] = [
     "ALTER TABLE main.messages ADD COLUMN attachments TEXT NOT NULL DEFAULT '[]'",
     "ALTER TABLE main.messages ADD COLUMN pgp INTEGER NOT NULL DEFAULT 0",
     "ALTER TABLE main.messages ADD COLUMN pgp_raw BLOB",
     "ALTER TABLE main.messages ADD COLUMN ics TEXT",
     "ALTER TABLE main.messages ADD COLUMN cal_method TEXT",
     "ALTER TABLE main.messages ADD COLUMN importance INTEGER NOT NULL DEFAULT 0",
+    "ALTER TABLE main.messages ADD COLUMN auth_result TEXT",
 ];
 
 /// The `messages` table and its three indexes inside the attached database `schema`.
@@ -51,7 +52,7 @@ fn create_sql(schema: &str) -> String {
            attachments TEXT NOT NULL DEFAULT '[]',
            list_unsub TEXT, list_unsub_post INTEGER NOT NULL DEFAULT 0,
            pgp INTEGER NOT NULL DEFAULT 0, pgp_raw BLOB, ics TEXT, cal_method TEXT,
-           importance INTEGER NOT NULL DEFAULT 0,
+           importance INTEGER NOT NULL DEFAULT 0, auth_result TEXT,
            UNIQUE(account_id, folder, uid)
          );
          CREATE INDEX IF NOT EXISTS {schema}.idx_msg_thread ON messages(thread_id);
@@ -146,6 +147,8 @@ fn attach(conn: &Connection, dir: Option<&Path>, id: &str) -> R<bool> {
     conn.execute_batch(&create_sql(&a)).map_err(err)?;
     // a shard made by an earlier version lacks the columns added since (a new shard has them already: "duplicate column" is fine)
     add_column(conn, &format!("ALTER TABLE {a}.messages ADD COLUMN importance INTEGER NOT NULL DEFAULT 0"))?;
+    // the receiving server's verdict on the sender of an invitation mail ('pass' | 'fail'; NULL = unknown), 1.0.7 W7.3
+    add_column(conn, &format!("ALTER TABLE {a}.messages ADD COLUMN auth_result TEXT"))?;
     Ok(true)
 }
 
@@ -728,6 +731,43 @@ pub(crate) mod tests {
         // a second start (column already there) is fine and keeps the values
         let c = crate::db::open(&dir.join("heylook.db")).unwrap();
         assert_eq!(n(&c, "SELECT SUM(importance) FROM messages"), 3);
+        drop(c);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// W7.3: a mail file made before the `auth_result` column existed gets it when it is attached (NULL = no verdict), its rows stay, the view and its
+    /// triggers see the column, and attaching again changes nothing.
+    #[test]
+    fn an_older_mail_file_gets_the_auth_result_column_and_keeps_its_rows() {
+        let dir = temp_dir("authresult");
+        {
+            let c = crate::db::open(&dir.join("heylook.db")).unwrap();
+            let acc = crate::db::Account {
+                id: A.into(), email: "a@x.example".into(), display_name: "N".into(), imap_host: "h".into(), imap_port: 993, imap_ssl: true,
+                smtp_host: "s".into(), smtp_port: 465, smtp_security: "ssl".into(), username: "u".into(), auth: "password".into(), color: None,
+                smtp_username: String::new(), tls_insecure: false, reply_to: String::new(),
+            };
+            crate::db::insert_account(&c, &acc).unwrap();
+        }
+        remove_files(&dir, A);
+        {
+            let old = Connection::open(dir.join(file_name(A))).unwrap();
+            old.execute_batch(&create_sql("main").replace(", auth_result TEXT", "")).unwrap();
+            assert!(old.prepare("SELECT auth_result FROM messages").is_err(), "the old file really lacks the column");
+            old.execute("INSERT INTO messages(id,account_id,folder,uid,thread_id,subject,from_name,from_email,to_addrs,cc_addrs,date,snippet) VALUES('old',?1,'inbox',1,'t','s','n','x@y.z','','',1,'')", [A]).unwrap();
+        }
+        let c = crate::db::open(&dir.join("heylook.db")).unwrap();
+        assert_eq!(n(&c, "SELECT COUNT(*) FROM messages"), 1);
+        assert_eq!(n(&c, "SELECT COUNT(*) FROM messages WHERE id='old' AND auth_result IS NULL"), 1, "an old row has no verdict");
+        c.execute("UPDATE messages SET auth_result='fail' WHERE id='old'", []).unwrap();
+        c.execute("INSERT OR REPLACE INTO messages(id,account_id,folder,uid,thread_id,subject,from_name,from_email,to_addrs,cc_addrs,date,snippet,auth_result) VALUES('new',?1,'inbox',2,'t','s','n','x@y.z','','',2,'','pass')", [A]).unwrap();
+        assert_eq!(n(&c, "SELECT COUNT(*) FROM messages WHERE id='old' AND auth_result='fail'"), 1);
+        assert_eq!(n(&c, "SELECT COUNT(*) FROM messages WHERE id='new' AND auth_result='pass'"), 1);
+        put(&c, "plain", A, 3, "no verdict given");
+        assert_eq!(n(&c, "SELECT COUNT(*) FROM messages WHERE id='plain' AND auth_result IS NULL"), 1);
+        drop(c);
+        let c = crate::db::open(&dir.join("heylook.db")).unwrap();
+        assert_eq!(n(&c, "SELECT COUNT(*) FROM messages WHERE auth_result IS NOT NULL"), 2);
         drop(c);
         let _ = std::fs::remove_dir_all(&dir);
     }

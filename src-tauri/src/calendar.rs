@@ -1,6 +1,7 @@
 //! Calendar: invitations that arrive by mail (iMIP, RFC 6047), a local event store, RSVP replies and invitations
 //! sent from here. There is no CalDAV; events live in the `events` table.
 
+use crate::authres::Auth;
 use crate::db::{self, err, Account, R};
 use crate::ical::{self, Attendee, IcsEvent, Person};
 use crate::{lock, now, Db};
@@ -106,6 +107,11 @@ pub struct CalEvent {
     pub recurrence_id: String,
     #[serde(skip)]
     pub exdates: Vec<i64>,
+    /// Extra dates of the series (RDATE, instants). A series with only extra dates has no `rrule`.
+    #[serde(skip)]
+    pub rdates: Vec<i64>,
+    /// The series has extra dates: the popover calls an RDATE-only series "Custom"
+    pub has_rdates: bool,
     #[serde(skip)]
     pub prev: Option<String>,
 }
@@ -236,18 +242,23 @@ pub struct CalInvite {
     pub parse_error: Option<String>,
     /// the invitation was over a size cap and some details (repeat rule, guests, excluded dates) were not imported
     pub trimmed: bool,
+    /// the receiving server's sender check of this message failed (W7.3)
+    pub unverified: bool,
+    /// ... and a change this message carries (an update, a cancellation, an answer, a moved occurrence) was therefore not applied
+    pub held: bool,
 }
 
 // ------------------------------------------------------------------ rows
 
 pub(crate) const COLS: &str = "id,uid,recurrence_id,calendar_id,account_id,summary,starts_at,ends_at,all_day,tzid,location,join_url,description,\
 organizer_name,organizer_email,attendees,rrule,exdates,status,my_status,responded_at,reminder_min,source_message_id,sequence,prev,\
-remote_id,etag,series_id,remote_kind,read_only";
+remote_id,etag,series_id,remote_kind,read_only,rdates";
 
 pub(crate) fn row_event(r: &Row) -> rusqlite::Result<CalEvent> {
     let org_email: Option<String> = r.get(14)?;
     let attendees: String = r.get(15)?;
     let exdates: String = r.get(17)?;
+    let rdates: Vec<i64> = serde_json::from_str(&r.get::<_, String>(30)?).unwrap_or_default();
     let rrule: Option<String> = r.get(16)?;
     let start: i64 = r.get(6)?;
     Ok(CalEvent {
@@ -269,6 +280,8 @@ pub(crate) fn row_event(r: &Row) -> rusqlite::Result<CalEvent> {
         recurrence_text: rrule.as_deref().and_then(|x| ical::describe_rrule(x, start)),
         rrule,
         exdates: serde_json::from_str(&exdates).unwrap_or_default(),
+        has_rdates: !rdates.is_empty(),
+        rdates,
         status: r.get(18)?,
         my_status: r.get(19)?,
         responded_at: r.get(20)?,
@@ -290,7 +303,7 @@ pub(crate) fn save_row(c: &Connection, e: &CalEvent) -> R<()> {
     c.execute(
         &format!(
             "INSERT OR REPLACE INTO events({COLS},created_at,updated_at) VALUES(?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,?13,?14,?15,?16,?17,?18,?19,?20,?21,?22,?23,?24,?25,
-               ?26,?27,?28,?29,?30,COALESCE((SELECT created_at FROM events WHERE id=?1),?31),?31)"
+               ?26,?27,?28,?29,?30,?31,COALESCE((SELECT created_at FROM events WHERE id=?1),?32),?32)"
         ),
         params![
             e.id,
@@ -323,6 +336,7 @@ pub(crate) fn save_row(c: &Connection, e: &CalEvent) -> R<()> {
             e.series_id,
             e.remote_kind,
             crate::calsync::store::read_only_code(e.read_only.as_deref()),
+            serde_json::to_string(&e.rdates).map_err(err)?,
             now()
         ],
     )
@@ -439,7 +453,7 @@ pub fn list_range(c: &Connection, from: i64, to: i64) -> R<Vec<CalEvent>> {
     let mine = account_emails(c);
     let mut st = c
         .prepare(&format!(
-            "SELECT {COLS} FROM events WHERE (rrule IS NULL AND starts_at < ?2 AND ends_at >= ?1) OR (rrule IS NOT NULL AND starts_at < ?2)"
+            "SELECT {COLS} FROM events WHERE (rrule IS NULL AND rdates='[]' AND starts_at < ?2 AND ends_at >= ?1) OR (rrule IS NOT NULL AND starts_at < ?2) OR rdates<>'[]'"
         ))
         .map_err(err)?;
     let rows = st.query_map(params![from - DAY, to + DAY], row_event).map_err(err)?.filter_map(|r| r.ok()).collect::<Vec<_>>();
@@ -455,26 +469,22 @@ pub fn list_range(c: &Connection, from: i64, to: i64) -> R<Vec<CalEvent>> {
         }
         mark_you(&mut e, &mine);
         mark_confidential(c, &mut e);
-        match e.rrule.clone() {
-            Some(rule) => {
-                for (s, en) in ical::expand_budgeted(e.start, e.end, e.all_day, e.tzid.as_deref(), &rule, &e.exdates, from - DAY, to + DAY, &mut budget) {
-                    if out.len() >= LIST_MAX_INSTANCES {
-                        break;
-                    }
-                    let mut i = e.clone();
-                    i.start = s;
-                    i.end = en;
-                    i.instance_start = Some(s);
-                    if touches(&i) && !synced.hides_instance(&i) {
-                        out.push(i);
-                    }
+        // a series is a rule, extra dates, or both (an event with only extra dates shows its own start and them)
+        if e.rrule.is_some() || !e.rdates.is_empty() {
+            for (s, en) in ical::instances_budgeted(e.start, e.end, e.all_day, e.tzid.as_deref(), e.rrule.as_deref(), &e.rdates, &e.exdates, from - DAY, to + DAY, &mut budget) {
+                if out.len() >= LIST_MAX_INSTANCES {
+                    break;
+                }
+                let mut i = e.clone();
+                i.start = s;
+                i.end = en;
+                i.instance_start = Some(s);
+                if touches(&i) && !synced.hides_instance(&i) {
+                    out.push(i);
                 }
             }
-            None => {
-                if touches(&e) {
-                    out.push(e)
-                }
-            }
+        } else if touches(&e) {
+            out.push(e)
         }
     }
     out.sort_by_key(|e| (e.start, e.end));
@@ -499,6 +509,9 @@ fn upcoming_conflicts(c: &Connection, ev: &IcsEvent, uid: &str) -> Vec<Conflict>
 pub struct Ingested {
     pub changed: bool,
     pub event_id: Option<String>,
+    /// a change to a stored event (an update, a cancellation, an answer, a moved occurrence) was not applied because the message failed the
+    /// receiving server's sender check (W7.3); nothing was written for it
+    pub held: bool,
 }
 
 fn to_att(a: &Attendee) -> CalAttendee {
@@ -552,6 +565,8 @@ fn event_from_ics(ev: &IcsEvent, calendar: &str, account: Option<&Account>, mess
         remote_kind: None,
         recurrence_id: ev.recurrence_id.map(|r| r.to_string()).unwrap_or_default(),
         exdates: ev.exdates.clone(),
+        has_rdates: !ev.rdates.is_empty(),
+        rdates: ev.rdates.clone(),
         prev: None,
     }
 }
@@ -591,15 +606,32 @@ fn add_exdate(c: &Connection, calendar: &str, uid: &str, at: i64) -> bool {
 /// updates and cancellations from the stored organizer, an answer (REPLY) from the attendee it speaks for.
 /// `from_email` is the sender of the message.
 pub fn ingest(c: &Connection, acc: &Account, message_id: &str, from_email: &str, text: &str, force: bool) -> R<Ingested> {
+    ingest_checked(c, acc, message_id, from_email, text, force, stored_auth(c, message_id), false)
+}
+
+/// The sender check of a stored message (`messages.auth_result`); a message stored before the app kept it, or not stored at all, is Unknown.
+pub fn stored_auth(c: &Connection, message_id: &str) -> Auth {
+    let v: Option<String> = c.query_row("SELECT auth_result FROM messages WHERE id=?1", [message_id], |r| r.get(0)).optional().ok().flatten().flatten();
+    Auth::from_db(v.as_deref())
+}
+
+/// `ingest` with the sender check of the message. With a **Fail** verdict, a change to a stored event (a REQUEST with a higher SEQUENCE, a CANCEL, a
+/// REPLY, a moved occurrence) is not applied and `Ingested::held` says so; a new invitation is not added automatically (`force`, the Add to
+/// calendar and the answer buttons, still adds it). Pass and Unknown behave as in 1.0.6. `override_auth` skips the check for this message only
+/// (Apply anyway); the From rules (organizer, attendee) stay. With a Fail verdict and no override nothing is written for a held change, so the
+/// call also tells the card whether a change is held.
+#[allow(clippy::too_many_arguments)]
+pub fn ingest_checked(c: &Connection, acc: &Account, message_id: &str, from_email: &str, text: &str, force: bool, auth: Auth, override_auth: bool) -> R<Ingested> {
+    let hold = auth == Auth::Fail && !override_auth;
     let cal = ical::parse(text)?;
     let method = cal.method.clone().unwrap_or_else(|| "PUBLISH".into());
     let calendar = format!("invites:{}", acc.id);
     let auto = setting_bool(c, "auto_add_invites", true);
-    let mut out = Ingested { changed: false, event_id: None };
+    let mut out = Ingested { changed: false, event_id: None, held: false };
     let sender = sender_key(from_email);
-    // Known limit (F28): the only evidence of who sent the message is its From header (no DKIM / SPF / S/MIME check, and
-    // SENT-BY is not honoured). A forged From equal to the organizer, plus the event UID and a higher SEQUENCE, can still
-    // change or cancel the event. Mail servers normally reject such spoofing; see README, Known limitations.
+    // The evidence of who sent the message is its From header, plus (W7.3) the receiving server's own verdict when it says the sender check
+    // failed: such a change waits for the person (`hold`). Without a verdict (no `Authentication-Results`) a forged From equal to the organizer,
+    // plus the event UID and a higher SEQUENCE, can still change or cancel the event; see README, Known limitations.
     // true when the sender is the organizer recorded for the stored event (no stored organizer: nobody may change it)
     let from_organizer = |ex: &CalEvent| ex.organizer.as_ref().map(|o| !sender.is_empty() && sender_key(&o.email) == sender).unwrap_or(false);
     for ev in &cal.events {
@@ -619,6 +651,10 @@ pub fn ingest(c: &Connection, acc: &Account, message_id: &str, from_email: &str,
                         if ev.sequence <= ex.sequence || !from_organizer(&ex) {
                             continue;
                         }
+                        if hold {
+                            out.held = true;
+                            continue;
+                        }
                         // a newer version: remember what changed and reset the answer
                         ex.prev = Some(serde_json::json!({ "start": ex.start, "end": ex.end, "location": ex.location, "sequence": ex.sequence, "summary": ex.summary }).to_string());
                         let fresh = event_from_ics(ev, &calendar, Some(acc), message_id, &method, ex.reminder_min);
@@ -635,6 +671,8 @@ pub fn ingest(c: &Connection, acc: &Account, message_id: &str, from_email: &str,
                         ex.attendees = fresh.attendees;
                         ex.rrule = fresh.rrule;
                         ex.exdates = fresh.exdates;
+                        ex.has_rdates = fresh.has_rdates;
+                        ex.rdates = fresh.rdates;
                         ex.status = fresh.status;
                         ex.sequence = ev.sequence;
                         ex.source_message_id = Some(message_id.to_string());
@@ -647,6 +685,16 @@ pub fn ingest(c: &Connection, acc: &Account, message_id: &str, from_email: &str,
                     }
                     None => {
                         if !(auto || force) {
+                            continue;
+                        }
+                        // a moved occurrence of a series this organizer sent is a change to that series
+                        let moves_series = ev.recurrence_id.is_some() && find(c, &calendar, &ev.uid, "").map(|parent| from_organizer(&parent)).unwrap_or(false);
+                        if hold && moves_series {
+                            out.held = true;
+                            continue;
+                        }
+                        // a failed sender check: no automatic add; the person's own Add to calendar / answer still adds it
+                        if hold && !force {
                             continue;
                         }
                         let e = event_from_ics(ev, &calendar, Some(acc), message_id, &method, default_reminder(c));
@@ -665,6 +713,10 @@ pub fn ingest(c: &Connection, acc: &Account, message_id: &str, from_email: &str,
             "CANCEL" => {
                 if let Some(mut ex) = find(c, &calendar, &ev.uid, &rid) {
                     if ev.sequence >= ex.sequence && ex.status != "cancelled" && from_organizer(&ex) {
+                        if hold {
+                            out.held = true;
+                            continue;
+                        }
                         ex.status = "cancelled".into();
                         ex.sequence = ev.sequence.max(ex.sequence);
                         save_row(c, &ex)?;
@@ -673,8 +725,11 @@ pub fn ingest(c: &Connection, acc: &Account, message_id: &str, from_email: &str,
                     }
                 } else if let Some(at) = ev.recurrence_id {
                     // one occurrence of a series was cancelled
-                    let allowed = find(c, &calendar, &ev.uid, "").map(|parent| from_organizer(&parent)).unwrap_or(false);
-                    if allowed && add_exdate(c, &calendar, &ev.uid, at) {
+                    let parent = find(c, &calendar, &ev.uid, "");
+                    let allowed = parent.as_ref().map(from_organizer).unwrap_or(false);
+                    if allowed && hold && parent.is_some_and(|p| !p.exdates.contains(&at)) {
+                        out.held = true;
+                    } else if allowed && !hold && add_exdate(c, &calendar, &ev.uid, at) {
                         out.changed = true;
                     }
                 }
@@ -683,6 +738,7 @@ pub fn ingest(c: &Connection, acc: &Account, message_id: &str, from_email: &str,
                 // an answer to an event you organized (it lives in "My events", filed under the account that received the answer)
                 let target = find(c, LOCAL, &ev.uid, "").filter(|e| e.account_id.as_deref() == Some(acc.id.as_str()) || e.account_id.is_none());
                 if let Some(mut ex) = target {
+                    let mut answered = false;
                     for a in &ev.attendees {
                         // an answer counts only when it comes from the person it speaks for
                         if sender.is_empty() || sender_key(&a.email) != sender {
@@ -691,15 +747,20 @@ pub fn ingest(c: &Connection, acc: &Account, message_id: &str, from_email: &str,
                         match ex.attendees.iter_mut().find(|x| x.email == a.email) {
                             Some(x) => {
                                 if x.status != a.status {
-                                    x.status = a.status.clone();
-                                    out.changed = true;
+                                    if hold {
+                                        out.held = true;
+                                    } else {
+                                        x.status = a.status.clone();
+                                        out.changed = true;
+                                        answered = true;
+                                    }
                                 }
                             }
                             // F27: an answer only updates a row that already exists; a stranger who knows the UID cannot add themselves
                             None => {}
                         }
                     }
-                    if out.changed {
+                    if answered {
                         save_row(c, &ex)?;
                     }
                     out.event_id = Some(ex.id);
@@ -745,6 +806,15 @@ pub fn invite_for(c: &Connection, account_id: &str, message_id: &str, folder: &s
         inv.parse_error = Some("no event".into());
         return inv;
     };
+    // the receiving server's sender check (W7.3): a failed one is shown on the card, and a held change can be applied by the person. With a Fail
+    // verdict and no override `ingest_checked` writes nothing for a held change, so asking it is how the card learns whether one is held
+    let auth = stored_auth(c, message_id);
+    if auth == Auth::Fail {
+        inv.unverified = true;
+        if let (Some(a), false) = (&acc, matches!(folder, "sent" | "drafts" | "trash" | "junk")) {
+            inv.held = ingest_checked(c, a, message_id, from_email, text, false, auth, false).map(|o| o.held).unwrap_or(false);
+        }
+    }
     let method = cal.method.clone().unwrap_or_else(|| "PUBLISH".into());
     inv.method = match method.as_str() {
         "REQUEST" | "CANCEL" | "REPLY" | "PUBLISH" | "COUNTER" => method.clone(),
@@ -909,6 +979,7 @@ fn to_ics_event(e: &CalEvent) -> IcsEvent {
             .collect(),
         rrule: e.rrule.clone(),
         exdates: e.exdates.clone(),
+        rdates: e.rdates.clone(),
         recurrence_id: e.recurrence_id.parse().ok(),
         status: e.status.clone(),
         comment: None,
@@ -1042,6 +1113,8 @@ pub fn save_local(c: &Connection, inp: &CalEventInput) -> R<(CalEvent, Option<Ac
         remote_kind: None,
         recurrence_id: String::new(),
         exdates: existing.as_ref().map(|x| x.exdates.clone()).unwrap_or_default(),
+        rdates: existing.as_ref().map(|x| x.rdates.clone()).unwrap_or_default(),
+        has_rdates: existing.as_ref().map(|x| !x.rdates.is_empty()).unwrap_or(false),
         prev: None,
     };
     e.join_url = ical::join_url(&to_ics_event(&e));
@@ -1368,13 +1441,14 @@ pub async fn calendar_respond(app: tauri::AppHandle, state: tauri::State<'_, cra
 }
 
 #[tauri::command]
-pub async fn calendar_add_from_message(app: tauri::AppHandle, state: tauri::State<'_, crate::AppState>, message_id: String) -> R<CalEvent> {
+pub async fn calendar_add_from_message(app: tauri::AppHandle, state: tauri::State<'_, crate::AppState>, message_id: String, override_auth: Option<bool>) -> R<CalEvent> {
     let db = state.db.clone();
     let out = crate::blocking(move || {
         let (account_id, _, from_email, text) = message_ics(&db, &message_id)?;
         let c = lock(&db);
         let acc = db::get_account(&c, &account_id)?;
-        let got = ingest(&c, &acc, &message_id, &from_email, &text, true)?;
+        // Apply anyway (W7.3): the sender check is skipped for this message only
+        let got = ingest_checked(&c, &acc, &message_id, &from_email, &text, true, stored_auth(&c, &message_id), override_auth.unwrap_or(false))?;
         let id = got.event_id.ok_or_else(|| crate::i18n::coded("CAL_NO_DATA", &[("v", "add")], "nothing to add from this message"))?;
         get_event(&c, &id)
     })
@@ -2528,5 +2602,326 @@ END:VCALENDAR
             let remote = store::upsert_remote(&c, &cal, ACC, &re).unwrap();
             assert_eq!(remote_calendar_of(&c, &mk(Some(&remote.id), None)), Some(cal.id.clone()));
         }
+    }
+}
+
+/// 1.0.7 W7.2 (RDATE: extra dates of a series) and W7.3 (a failed sender check holds calendar changes).
+#[cfg(test)]
+mod wp7a_tests {
+    use super::*;
+    use crate::authres::Auth;
+    use chrono::NaiveDate;
+
+    fn account(id: &str, email: &str) -> Account {
+        Account {
+            id: id.into(),
+            email: email.into(),
+            display_name: "Nam Hoang".into(),
+            imap_host: "imap.example.com".into(),
+            imap_port: 993,
+            imap_ssl: true,
+            smtp_host: "smtp.example.com".into(),
+            smtp_port: 465,
+            smtp_security: "ssl".into(),
+            username: email.into(),
+            auth: "password".into(),
+            color: None,
+            smtp_username: String::new(),
+            tls_insecure: false,
+            reply_to: String::new(),
+        }
+    }
+
+    fn setup() -> (Connection, Account) {
+        let c = Connection::open_in_memory().unwrap();
+        db::migrate(&c).unwrap();
+        let a = account("a1", "nam@example.com");
+        db::insert_account(&c, &a).unwrap();
+        (c, a)
+    }
+
+    fn utc(y: i32, m: u32, d: u32, h: u32, mi: u32) -> i64 {
+        NaiveDate::from_ymd_opt(y, m, d).unwrap().and_hms_opt(h, mi, 0).unwrap().and_utc().timestamp()
+    }
+
+    fn starts(c: &Connection, from: i64, to: i64) -> Vec<i64> {
+        list_range(c, from, to).unwrap().iter().map(|e| e.start).collect()
+    }
+
+    // ------------------------------------------------------------------ RDATE (W7.2)
+
+    /// AC-7.2.1: the kit file `rdate.ics`: weekly Monday 10:00 Europe/Berlin plus two extra dates; an EXDATE on one of them hides it.
+    #[test]
+    fn a_series_shows_its_rdates_without_exdates() {
+        let (c, _) = setup();
+        let ics = |ex: &str| {
+            format!(
+                "BEGIN:VCALENDAR\r\nVERSION:2.0\r\nBEGIN:VEVENT\r\nUID:rd1@kit\r\nDTSTART;TZID=Europe/Berlin:20261012T100000\r\nDTEND;TZID=Europe/Berlin:20261012T110000\r\n\
+RRULE:FREQ=WEEKLY;BYDAY=MO;COUNT=4\r\nRDATE;TZID=Europe/Berlin:20261029T100000,20261105T150000\r\n{ex}SUMMARY:Standup\r\nEND:VEVENT\r\nEND:VCALENDAR\r\n"
+            )
+        };
+        import_text(&c, &ics("")).unwrap();
+        let (from, to) = (utc(2026, 10, 1, 0, 0), utc(2026, 12, 1, 0, 0));
+        // Mondays 12, 19 (CEST: 08:00Z), 26 Oct, 2 Nov (CET: 09:00Z), and the two extra dates (Thu 29 Oct 10:00 CET, Thu 5 Nov 15:00 CET)
+        let want = vec![utc(2026, 10, 12, 8, 0), utc(2026, 10, 19, 8, 0), utc(2026, 10, 26, 9, 0), utc(2026, 10, 29, 9, 0), utc(2026, 11, 2, 9, 0), utc(2026, 11, 5, 14, 0)];
+        assert_eq!(starts(&c, from, to), want);
+        let evs = list_range(&c, from, to).unwrap();
+        assert!(evs.iter().all(|e| e.has_rdates && e.end - e.start == 3600), "every instance is as long as the event");
+        assert!(evs.iter().all(|e| e.instance_start == Some(e.start)));
+        // an EXDATE on one of the extra dates hides it
+        import_text(&c, &ics("EXDATE;TZID=Europe/Berlin:20261105T150000\r\n")).unwrap();
+        let mut without = want.clone();
+        without.retain(|s| *s != utc(2026, 11, 5, 14, 0));
+        assert_eq!(starts(&c, from, to), without);
+        // the window decides: only the extra date of the week
+        assert_eq!(starts(&c, utc(2026, 10, 28, 0, 0), utc(2026, 10, 31, 0, 0)), vec![utc(2026, 10, 29, 9, 0)]);
+    }
+
+    /// AC-7.2.2: an event with extra dates and no rule is a series too (its own start plus the dates).
+    #[test]
+    fn an_rdate_only_event_is_a_series() {
+        let (c, a) = setup();
+        let ics = "BEGIN:VCALENDAR\r\nMETHOD:REQUEST\r\nVERSION:2.0\r\nBEGIN:VEVENT\r\nUID:rd2@contoso.com\r\nSEQUENCE:0\r\nDTSTART:20261014T080000Z\r\nDTEND:20261014T090000Z\r\n\
+RDATE:20261021T080000Z\r\nRDATE;VALUE=DATE-TIME:20261028T080000Z\r\nSUMMARY:Reading group\r\nORGANIZER:mailto:mai@contoso.com\r\nATTENDEE;PARTSTAT=NEEDS-ACTION:mailto:nam@example.com\r\nEND:VEVENT\r\nEND:VCALENDAR\r\n";
+        assert!(ingest(&c, &a, "m1", "mai@contoso.com", ics, false).unwrap().changed);
+        let evs = list_range(&c, utc(2026, 10, 1, 0, 0), utc(2026, 11, 30, 0, 0)).unwrap();
+        assert_eq!(evs.iter().map(|e| e.start).collect::<Vec<_>>(), vec![utc(2026, 10, 14, 8, 0), utc(2026, 10, 21, 8, 0), utc(2026, 10, 28, 8, 0)]);
+        assert!(evs.iter().all(|e| e.rrule.is_none() && e.recurrence_text.is_none() && e.has_rdates), "no rule: the popover says Custom");
+        // a single event is still one entry, and a window that holds none of the dates shows none
+        assert!(list_range(&c, utc(2026, 11, 2, 0, 0), utc(2026, 11, 30, 0, 0)).unwrap().is_empty());
+        // the stored row keeps the dates (they come back after a restart)
+        let row = find(&c, "invites:a1", "rd2@contoso.com", "").unwrap();
+        assert_eq!(row.rdates, vec![utc(2026, 10, 21, 8, 0), utc(2026, 10, 28, 8, 0)]);
+        // an update of the invitation replaces the dates
+        let v1 = ics.replace("SEQUENCE:0", "SEQUENCE:1").replace("RDATE:20261021T080000Z\r\n", "RDATE:20261022T080000Z\r\n");
+        assert!(ingest(&c, &a, "m2", "mai@contoso.com", &v1, false).unwrap().changed);
+        assert_eq!(find(&c, "invites:a1", "rd2@contoso.com", "").unwrap().rdates, vec![utc(2026, 10, 22, 8, 0), utc(2026, 10, 28, 8, 0)]);
+    }
+
+    /// AC-7.2.4: Save .ics keeps the RDATE lines, and importing the file again gives the same entries; editing the event keeps its dates.
+    #[test]
+    fn rdates_survive_export_import_and_an_edit() {
+        let (c, _) = setup();
+        let src = "BEGIN:VCALENDAR\r\nVERSION:2.0\r\nBEGIN:VEVENT\r\nUID:rd3@kit\r\nDTSTART;TZID=Europe/Berlin:20261012T100000\r\nDTEND;TZID=Europe/Berlin:20261012T110000\r\n\
+RRULE:FREQ=WEEKLY;BYDAY=MO;COUNT=2\r\nRDATE;TZID=Europe/Berlin:20261029T100000\r\nSUMMARY:Standup\r\nEND:VEVENT\r\nEND:VCALENDAR\r\n";
+        import_text(&c, src).unwrap();
+        let (from, to) = (utc(2026, 10, 1, 0, 0), utc(2026, 12, 1, 0, 0));
+        let before = starts(&c, from, to);
+        assert_eq!(before.len(), 3);
+        let row = find(&c, LOCAL, "rd3@kit", "").unwrap();
+        let saved = ical::to_ics(None, &[to_ics_event(&row)]);
+        assert!(saved.contains("RDATE;TZID=Europe/Berlin:20261029T100000"), "{saved}");
+        let (c2, _) = setup();
+        import_text(&c2, &saved).unwrap();
+        assert_eq!(starts(&c2, from, to), before);
+        // all-day extra dates are DATE values
+        let day = "BEGIN:VCALENDAR\r\nBEGIN:VEVENT\r\nUID:rd4\r\nDTSTART;VALUE=DATE:20261012\r\nRDATE;VALUE=DATE:20261020,20261022\r\nSUMMARY:Off\r\nEND:VEVENT\r\nEND:VCALENDAR\r\n";
+        import_text(&c2, day).unwrap();
+        let saved_day = ical::to_ics(None, &[to_ics_event(&find(&c2, LOCAL, "rd4", "").unwrap())]);
+        assert!(saved_day.contains("RDATE;VALUE=DATE:20261020") && saved_day.contains("RDATE;VALUE=DATE:20261022"), "{saved_day}");
+        // an edit in the dialog does not drop the dates
+        let id = row.id.clone();
+        let input = CalEventInput {
+            id: Some(id.clone()),
+            account_id: None,
+            summary: "Standup renamed".into(),
+            start: row.start,
+            end: row.end,
+            all_day: false,
+            tzid: row.tzid.clone(),
+            location: None,
+            description: None,
+            attendees: vec![],
+            rrule: row.rrule.clone(),
+            reminder_min: None,
+            calendar_id: None,
+        };
+        save_local(&c, &input).unwrap();
+        assert_eq!(get_event(&c, &id).unwrap().rdates, row.rdates);
+        assert_eq!(starts(&c, from, to), before);
+    }
+
+    // ------------------------------------------------------------------ sender check (W7.3)
+
+    fn invite(seq: i64, hour: u32, method: &str, extra: &str) -> String {
+        format!(
+            "BEGIN:VCALENDAR\r\nMETHOD:{method}\r\nVERSION:2.0\r\nBEGIN:VEVENT\r\nUID:inv-1@contoso.com\r\nSEQUENCE:{seq}\r\nDTSTAMP:20261001T080000Z\r\n\
+DTSTART:20261014T{hour:02}0000Z\r\nDTEND:20261014T{:02}0000Z\r\nSUMMARY:Product sync\r\nORGANIZER;CN=Mai Khanh:mailto:mai@contoso.com\r\n\
+ATTENDEE;CN=Nam Hoang;PARTSTAT=NEEDS-ACTION;RSVP=TRUE:mailto:nam@example.com\r\n{extra}END:VEVENT\r\nEND:VCALENDAR\r\n",
+            hour + 1
+        )
+    }
+
+    fn put_message(c: &Connection, id: &str, ics: &str, auth: Option<&str>) {
+        c.execute(
+            "INSERT INTO messages(id,account_id,folder,uid,thread_id,subject,from_name,from_email,to_addrs,cc_addrs,date,snippet,ics,auth_result) VALUES(?1,'a1','inbox',(SELECT COUNT(*)+1 FROM messages),'t','s','Mai','mai@contoso.com','nam@example.com','',0,'',?2,?3)",
+            params![id, ics, auth],
+        )
+        .unwrap();
+    }
+
+    fn event_of(c: &Connection) -> CalEvent {
+        find(c, "invites:a1", "inv-1@contoso.com", "").unwrap()
+    }
+
+    /// AC-7.3.1: an update with a failed check does not move the event; the card says so; Apply anyway moves it.
+    #[test]
+    fn a_failed_sender_check_holds_an_update_until_the_person_applies_it() {
+        let (c, a) = setup();
+        let v0 = invite(0, 8, "REQUEST", "");
+        put_message(&c, "m1", &v0, Some("pass"));
+        assert!(ingest(&c, &a, "m1", "mai@contoso.com", &v0, false).unwrap().changed);
+        let v1 = invite(1, 10, "REQUEST", "");
+        put_message(&c, "m2", &v1, Some("fail"));
+        let got = ingest(&c, &a, "m2", "mai@contoso.com", &v1, false).unwrap();
+        assert!(!got.changed && got.held);
+        assert_eq!(event_of(&c).start, utc(2026, 10, 14, 8, 0), "the event keeps its old time");
+        assert_eq!(event_of(&c).sequence, 0);
+        // the card: the warning and the held change
+        let card = invite_for(&c, "a1", "m2", "inbox", "mai@contoso.com", &v1, false);
+        assert!(card.unverified && card.held);
+        assert_eq!(event_of(&c).start, utc(2026, 10, 14, 8, 0), "reading the card writes nothing");
+        // Apply anyway: this message only
+        let applied = ingest_checked(&c, &a, "m2", "mai@contoso.com", &v1, true, Auth::Fail, true).unwrap();
+        assert!(applied.changed && !applied.held);
+        assert_eq!(event_of(&c).start, utc(2026, 10, 14, 10, 0));
+        let card = invite_for(&c, "a1", "m2", "inbox", "mai@contoso.com", &v1, false);
+        assert!(card.unverified && !card.held, "the warning stays, nothing is held any more");
+        // a later update that fails again is held again: the override did not stick
+        let v2 = invite(2, 12, "REQUEST", "");
+        put_message(&c, "m3", &v2, Some("fail"));
+        assert!(ingest(&c, &a, "m3", "mai@contoso.com", &v2, false).unwrap().held);
+        assert_eq!(event_of(&c).start, utc(2026, 10, 14, 10, 0));
+    }
+
+    /// AC-7.3.2 / .3 / REQ-7.3.4: a passing check, no verdict and a message stored before the verdict existed behave as in 1.0.6.
+    #[test]
+    fn a_passing_or_missing_verdict_changes_nothing_against_1_0_6() {
+        for (n, auth) in [Some("pass"), None, Some("garbage")].into_iter().enumerate() {
+            let (c, a) = setup();
+            let v0 = invite(0, 8, "REQUEST", "");
+            put_message(&c, "m1", &v0, auth);
+            ingest(&c, &a, "m1", "mai@contoso.com", &v0, false).unwrap();
+            let v1 = invite(1, 10, "REQUEST", "");
+            put_message(&c, "m2", &v1, auth);
+            let got = ingest(&c, &a, "m2", "mai@contoso.com", &v1, false).unwrap();
+            assert!(got.changed && !got.held, "case {n}");
+            assert_eq!(event_of(&c).start, utc(2026, 10, 14, 10, 0));
+            let card = invite_for(&c, "a1", "m2", "inbox", "mai@contoso.com", &v1, false);
+            assert!(!card.unverified && !card.held, "case {n}: no warning");
+        }
+        // a message that is not stored has no verdict
+        let (c, _) = setup();
+        assert_eq!(stored_auth(&c, "nope"), Auth::Unknown);
+        put_message(&c, "mf", "x", Some("fail"));
+        assert_eq!(stored_auth(&c, "mf"), Auth::Fail);
+    }
+
+    /// AC-7.3.4: a cancellation that fails the check is held; Apply anyway cancels. A moved occurrence is a change too.
+    #[test]
+    fn a_failed_check_holds_a_cancellation_and_a_moved_occurrence() {
+        let (c, a) = setup();
+        let series = invite(0, 8, "REQUEST", "RRULE:FREQ=DAILY;COUNT=5\r\n");
+        put_message(&c, "m1", &series, None);
+        ingest(&c, &a, "m1", "mai@contoso.com", &series, false).unwrap();
+        // one occurrence moved: RECURRENCE-ID 15 Oct 08:00, now 11:00
+        let moved = invite(1, 11, "REQUEST", "RECURRENCE-ID:20261015T080000Z\r\n").replace("DTSTART:20261014T11", "DTSTART:20261015T11").replace("DTEND:20261014T12", "DTEND:20261015T12");
+        let held = ingest_checked(&c, &a, "m2", "mai@contoso.com", &moved, false, Auth::Fail, false).unwrap();
+        assert!(held.held && !held.changed);
+        assert!(find(&c, "invites:a1", "inv-1@contoso.com", &utc(2026, 10, 15, 8, 0).to_string()).is_none(), "no row for the moved occurrence");
+        assert!(event_of(&c).exdates.is_empty(), "the series keeps its slot");
+        let ok = ingest_checked(&c, &a, "m2", "mai@contoso.com", &moved, false, Auth::Fail, true).unwrap();
+        assert!(ok.changed);
+        assert!(event_of(&c).exdates.contains(&utc(2026, 10, 15, 8, 0)));
+        // the whole event cancelled
+        let cancel = invite(2, 8, "CANCEL", "STATUS:CANCELLED\r\n");
+        let held = ingest_checked(&c, &a, "m3", "mai@contoso.com", &cancel, false, Auth::Fail, false).unwrap();
+        assert!(held.held && !held.changed);
+        assert_eq!(event_of(&c).status, "confirmed");
+        assert!(ingest_checked(&c, &a, "m3", "mai@contoso.com", &cancel, false, Auth::Fail, true).unwrap().changed);
+        assert_eq!(event_of(&c).status, "cancelled");
+        // one occurrence cancelled (CANCEL with RECURRENCE-ID) on another series
+        let (c2, a2) = setup();
+        ingest(&c2, &a2, "m1", "mai@contoso.com", &series, false).unwrap();
+        let one = invite(1, 8, "CANCEL", "RECURRENCE-ID:20261016T080000Z\r\n").replace("DTSTART:20261014", "DTSTART:20261016").replace("DTEND:20261014", "DTEND:20261016");
+        assert!(ingest_checked(&c2, &a2, "m4", "mai@contoso.com", &one, false, Auth::Fail, false).unwrap().held);
+        assert!(find(&c2, "invites:a1", "inv-1@contoso.com", "").unwrap().exdates.is_empty());
+        assert!(ingest_checked(&c2, &a2, "m4", "mai@contoso.com", &one, false, Auth::Pass, false).unwrap().changed);
+        assert_eq!(find(&c2, "invites:a1", "inv-1@contoso.com", "").unwrap().exdates, vec![utc(2026, 10, 16, 8, 0)]);
+    }
+
+    /// AC-7.3.5: an answer to an event you organized, with a failed check, does not change the attendee; Apply anyway does.
+    #[test]
+    fn a_failed_check_holds_an_answer() {
+        let (c, a) = setup();
+        let input = CalEventInput {
+            id: None,
+            account_id: Some("a1".into()),
+            summary: "Kick-off".into(),
+            start: utc(2026, 10, 20, 9, 0),
+            end: utc(2026, 10, 20, 10, 0),
+            all_day: false,
+            tzid: None,
+            location: None,
+            description: None,
+            attendees: vec![CalAttendee { email: "bao@contoso.com".into(), name: None, role: "required".into(), status: "needs-action".into(), is_you: false }],
+            rrule: None,
+            reminder_min: None,
+            calendar_id: None,
+        };
+        let (e, _) = save_local(&c, &input).unwrap();
+        let reply = format!(
+            "BEGIN:VCALENDAR\r\nMETHOD:REPLY\r\nVERSION:2.0\r\nBEGIN:VEVENT\r\nUID:{}\r\nDTSTAMP:20261001T080000Z\r\nDTSTART:20261020T090000Z\r\nDTEND:20261020T100000Z\r\nSUMMARY:Kick-off\r\nORGANIZER:mailto:nam@example.com\r\nATTENDEE;PARTSTAT=ACCEPTED:mailto:bao@contoso.com\r\nEND:VEVENT\r\nEND:VCALENDAR\r\n",
+            e.uid
+        );
+        let status = |c: &Connection| get_event(c, &e.id).unwrap().attendees.iter().find(|x| x.email == "bao@contoso.com").unwrap().status.clone();
+        let held = ingest_checked(&c, &a, "r1", "bao@contoso.com", &reply, false, Auth::Fail, false).unwrap();
+        assert!(held.held && !held.changed);
+        assert_eq!(status(&c), "needs-action");
+        // the sender must still be the attendee, check or no check
+        assert!(!ingest_checked(&c, &a, "r1", "eve@evil.example", &reply, false, Auth::Fail, true).unwrap().changed);
+        assert_eq!(status(&c), "needs-action");
+        assert!(ingest_checked(&c, &a, "r1", "bao@contoso.com", &reply, false, Auth::Fail, true).unwrap().changed);
+        assert_eq!(status(&c), "accepted");
+        // Pass: applied at once
+        let (c2, a2) = setup();
+        let (e2, _) = save_local(&c2, &input).unwrap();
+        let reply2 = reply.replace(&e.uid, &e2.uid);
+        assert!(ingest_checked(&c2, &a2, "r2", "bao@contoso.com", &reply2, false, Auth::Pass, false).unwrap().changed);
+    }
+
+    /// AC-7.3.6: a new invitation with a failed check is not added automatically; Add to calendar (force) still adds it, the card warns.
+    #[test]
+    fn a_failed_check_keeps_a_new_invitation_out_until_the_person_adds_it() {
+        let (c, a) = setup();
+        let v0 = invite(0, 8, "REQUEST", "");
+        put_message(&c, "m1", &v0, Some("fail"));
+        let got = ingest(&c, &a, "m1", "mai@contoso.com", &v0, false).unwrap();
+        assert!(!got.changed && !got.held, "not added, and nothing to apply: it is not a change to a stored event");
+        assert!(list_range(&c, 0, i64::MAX / 4).unwrap().is_empty());
+        let card = invite_for(&c, "a1", "m1", "inbox", "mai@contoso.com", &v0, false);
+        assert!(card.unverified && !card.held);
+        assert!(list_range(&c, 0, i64::MAX / 4).unwrap().is_empty(), "showing the card adds nothing");
+        // Add to calendar / the answer buttons (force)
+        assert!(ingest(&c, &a, "m1", "mai@contoso.com", &v0, true).unwrap().changed);
+        assert_eq!(list_range(&c, 0, i64::MAX / 4).unwrap().len(), 1);
+        // with a passing check the same invitation is added by itself
+        let (c2, a2) = setup();
+        put_message(&c2, "m1", &v0, Some("pass"));
+        assert!(ingest(&c2, &a2, "m1", "mai@contoso.com", &v0, false).unwrap().changed);
+    }
+
+    /// The From rules of 1.0.6 stay: a forged sender is refused with or without a verdict, and Apply anyway does not lift that.
+    #[test]
+    fn apply_anyway_does_not_lift_the_sender_rules() {
+        let (c, a) = setup();
+        let v0 = invite(0, 8, "REQUEST", "");
+        ingest(&c, &a, "m1", "mai@contoso.com", &v0, false).unwrap();
+        let v1 = invite(1, 10, "REQUEST", "");
+        let got = ingest_checked(&c, &a, "m2", "eve@evil.example", &v1, false, Auth::Fail, true).unwrap();
+        assert!(!got.changed && !got.held);
+        assert_eq!(event_of(&c).start, utc(2026, 10, 14, 8, 0));
+        let got = ingest_checked(&c, &a, "m2", "eve@evil.example", &v1, false, Auth::Fail, false).unwrap();
+        assert!(!got.changed && !got.held, "a change nobody may make is not shown as held either");
     }
 }

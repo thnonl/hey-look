@@ -5,7 +5,7 @@
 //! resync), `events.insert`, `events.patch` and `events.delete` with `If-Match`.
 use super::http;
 use super::store::Source;
-use super::{CalProvider, EventDraft, EventKind, EventPatch, Kind, Pull, PullReq, RemoteCalendar, RemoteEvent, Rsvp, SyncErr, When, MAX_EVENTS_PER_CALENDAR};
+use super::{CalList, CalProvider, EventDraft, EventKind, EventPatch, Kind, Pull, PullReq, RemoteCalendar, RemoteEvent, Rsvp, SyncErr, When, MAX_EVENTS_PER_CALENDAR};
 use crate::calendar::{CalAttendee, CalPerson};
 use crate::Db;
 use chrono::{DateTime, NaiveDate, NaiveDateTime, TimeZone, Utc};
@@ -184,7 +184,8 @@ fn ical_instants(params: &str, values: &str) -> Vec<i64> {
     values
         .split(',')
         .filter_map(|v| {
-            let v = v.trim();
+            // VALUE=PERIOD (`start/end` or `start/duration`): the start is the date
+            let v = v.split('/').next().unwrap_or(v).trim();
             if v.len() == 8 {
                 return NaiveDate::parse_from_str(v, "%Y%m%d").ok().map(crate::ical::day_utc);
             }
@@ -200,21 +201,28 @@ fn ical_instants(params: &str, values: &str) -> Vec<i64> {
         .collect()
 }
 
-/// `recurrence[]` of a master: the first RRULE (without its prefix) and the EXDATEs. RDATE lines are not supported yet (the series
-/// shows from its rule only).
-fn recurrence(lines: &[Value]) -> (Option<String>, Vec<i64>) {
+/// `recurrence[]` of a master: the first RRULE (without its prefix), the EXDATEs and the RDATEs (extra dates, in the order Google lists them).
+fn recurrence(lines: &[Value]) -> (Option<String>, Vec<i64>, Vec<i64>) {
     let mut rule = None;
     let mut ex = vec![];
+    let mut extra: Vec<i64> = vec![];
     for l in lines.iter().filter_map(|l| l.as_str()) {
         let Some((head, value)) = l.split_once(':') else { continue };
         let name = head.split(';').next().unwrap_or("").to_ascii_uppercase();
         match name.as_str() {
             "RRULE" if rule.is_none() => rule = Some(value.trim().to_string()),
             "EXDATE" => ex.extend(ical_instants(head, value)),
+            "RDATE" => {
+                for r in ical_instants(head, value) {
+                    if !extra.contains(&r) && extra.len() < crate::ical::MAX_EXDATES {
+                        extra.push(r);
+                    }
+                }
+            }
             _ => {}
         }
     }
-    (rule, ex)
+    (rule, ex, extra)
 }
 
 // ------------------------------------------------------------------ mapping
@@ -297,7 +305,7 @@ fn parse_event(cal: &RemoteCalendar, v: &Value) -> Option<RemoteEvent> {
     let uid = v["iCalUID"].as_str().unwrap_or(&id).to_string();
     let etag = v["etag"].as_str().unwrap_or("").to_string();
     let recurrence_lines = v["recurrence"].as_array().cloned().unwrap_or_default();
-    let (rrule, exdates) = recurrence(&recurrence_lines);
+    let (rrule, exdates, rdates) = recurrence(&recurrence_lines);
     let kind = if series.is_some() {
         EventKind::Exception
     } else if !recurrence_lines.is_empty() {
@@ -361,6 +369,7 @@ fn parse_event(cal: &RemoteCalendar, v: &Value) -> Option<RemoteEvent> {
         attendees,
         rrule,
         exdates,
+        rdates,
         status: status.into(),
         my_status,
         reminder_min: reminder(v, cal),
@@ -422,17 +431,35 @@ fn reminders_json(min: Option<i64>) -> Value {
 
 impl CalProvider for GoogleProvider {
     fn list_calendars(&self) -> Result<Vec<RemoteCalendar>, SyncErr> {
-        let mut out = vec![];
+        Ok(self.list_calendars_since(None)?.calendars)
+    }
+
+    /// `calendarList.list`, with the `syncToken` of the last list when there is one: then only the entries that changed come back
+    /// (`deleted: true` for a calendar that was removed, `hidden: true` for one the person hid, which the full list leaves out too).
+    fn list_calendars_since(&self, state: Option<&str>) -> Result<CalList, SyncErr> {
+        let mut out = CalList { full: state.is_none(), ..Default::default() };
         let mut page: Option<String> = None;
         loop {
             let mut q = vec![("maxResults", PAGE.to_string())];
+            if let Some(t) = state {
+                q.push(("syncToken", t.to_string()));
+            }
             if let Some(p) = &page {
                 q.push(("pageToken", p.clone()));
             }
             let v = self.call(Method::GET, "/users/me/calendarList", &q, None, None)?;
-            out.extend(v["items"].as_array().into_iter().flatten().filter_map(parse_calendar));
+            for item in v["items"].as_array().into_iter().flatten() {
+                let hidden = state.is_some() && item["hidden"].as_bool() == Some(true);
+                match parse_calendar(item) {
+                    Some(c) if !hidden => out.calendars.push(c),
+                    // an incremental answer names what is gone (deleted, hidden, or now free/busy only)
+                    _ if state.is_some() => out.removed.extend(item["id"].as_str().map(String::from)),
+                    _ => {}
+                }
+            }
             page = v["nextPageToken"].as_str().map(String::from);
             if page.is_none() {
+                out.next_state = v["nextSyncToken"].as_str().map(String::from);
                 return Ok(out);
             }
         }
@@ -671,6 +698,114 @@ mod tests {
         assert_eq!(reqs[0].query("maxResults").as_deref(), Some("250"));
     }
 
+    /// W7.6: the list is asked with the token of the last list; the answer names changed entries, deleted ones and hidden ones; 410 = a full list.
+    #[test]
+    fn the_calendar_list_asks_with_its_token_and_reads_changed_deleted_and_hidden_entries() {
+        let srv = FakeServer::start(|r| {
+            assert_eq!(r.path(), "/users/me/calendarList");
+            assert_eq!(r.query("minAccessRole"), None, "Google refuses it together with a sync token");
+            match (r.query("syncToken").as_deref(), r.query("pageToken").as_deref()) {
+                (None, None) => Resp::json(200, json!({ "items": [primary_item()], "nextPageToken": "p2" })),
+                (None, Some("p2")) => Resp::json(200, json!({ "items": [json!({ "id": "team", "summary": "Team", "accessRole": "writer", "selected": true })], "nextSyncToken": "L1" })),
+                (Some("L1"), None) => Resp::json(
+                    200,
+                    json!({ "items": [
+                        json!({ "id": "team", "summary": "Team renamed", "accessRole": "writer", "selected": true }),
+                        json!({ "id": "gone", "deleted": true }),
+                        json!({ "id": "hid", "summary": "Hidden now", "accessRole": "owner", "hidden": true }),
+                        json!({ "id": "busy", "summary": "Now free/busy", "accessRole": "freeBusyReader" }),
+                    ], "nextPageToken": "q2" }),
+                ),
+                (Some("L1"), Some("q2")) => Resp::json(200, json!({ "items": [json!({ "id": "new", "summary": "New", "accessRole": "reader" })], "nextSyncToken": "L2" })),
+                (Some("L2"), None) => Resp::json(200, json!({ "items": [], "nextSyncToken": "L3" })),
+                (Some("old"), None) => Resp::json(410, json!({ "error": { "code": 410, "message": "Sync token is no longer valid, a full sync is required.", "errors": [{ "reason": "fullSyncRequired" }] } })),
+                other => panic!("unexpected {other:?}"),
+            }
+        });
+        let p = provider(&srv);
+        let first = p.list_calendars_since(None).unwrap();
+        assert!(first.full && first.removed.is_empty());
+        assert_eq!((first.calendars.iter().map(|c| c.name.as_str()).collect::<Vec<_>>(), first.next_state.as_deref()), (vec!["Me", "Team"], Some("L1")));
+        let second = p.list_calendars_since(Some("L1")).unwrap();
+        assert!(!second.full);
+        assert_eq!(second.calendars.iter().map(|c| c.name.as_str()).collect::<Vec<_>>(), vec!["Team renamed", "New"]);
+        assert_eq!(second.removed, vec!["gone", "hid", "busy"], "deleted, hidden and free/busy-only entries are gone from the list");
+        assert_eq!(second.next_state.as_deref(), Some("L2"), "the token comes with the last page");
+        let third = p.list_calendars_since(Some("L2")).unwrap();
+        assert_eq!((third.calendars.len(), third.removed.len(), third.full, third.next_state.as_deref()), (0, 0, false, Some("L3")));
+        assert_eq!(p.list_calendars_since(Some("old")).unwrap_err(), SyncErr::Gone);
+        // `list_calendars` is the full list
+        assert_eq!(p.list_calendars().unwrap().len(), 2);
+    }
+
+    /// W7.6 end to end: the second round asks with the token and no events are requested without theirs; a 410 gives one full list.
+    #[test]
+    fn a_synced_round_uses_the_list_token_and_recovers_from_410() {
+        let (db, sid) = setup_db();
+        let stale = Arc::new(Mutex::new(false));
+        let st = stale.clone();
+        let srv = FakeServer::start(move |r| match (r.path(), r.query("syncToken").as_deref()) {
+            ("/users/me/calendarList", None) => Resp::json(200, json!({ "items": [primary_item()], "nextSyncToken": "L1" })),
+            ("/users/me/calendarList", Some(t)) if *st.lock().unwrap() && t == "L2" => Resp::json(410, json!({ "error": { "code": 410, "message": "gone", "errors": [{ "reason": "fullSyncRequired" }] } })),
+            ("/users/me/calendarList", Some(_)) => Resp::json(200, json!({ "items": [], "nextSyncToken": "L2" })),
+            ("/calendars/primary/events", None) => Resp::json(200, events_page(vec![ev_json("a", "First", "2026-10-20T09:00:00-04:00", "2026-10-20T10:00:00-04:00")], None, Some("E1"))),
+            ("/calendars/primary/events", Some(_)) => Resp::json(200, events_page(vec![], None, Some("E2"))),
+            p => panic!("unexpected {p:?}"),
+        });
+        let factory = GFactory::new(&srv);
+        engine::sync_source(&db, &factory, &sid, clock(T0), &|| {}).unwrap();
+        engine::sync_source(&db, &factory, &sid, clock(T0 + 300), &|| {}).unwrap();
+        let reqs = srv.requests();
+        let lists: Vec<Option<String>> = reqs.iter().filter(|r| r.path() == "/users/me/calendarList").map(|r| r.query("syncToken")).collect();
+        assert_eq!(lists, vec![None, Some("L1".to_string())], "the second round asks for the changes only");
+        let events: Vec<Option<String>> = reqs.iter().filter(|r| r.path() == "/calendars/primary/events").map(|r| r.query("syncToken")).collect();
+        assert_eq!(events, vec![None, Some("E1".to_string())]);
+        assert_eq!(store::get_source(&lock(&db), &sid).unwrap().list_state.as_deref(), Some("L2"));
+        // the token expires: one more list without it, no error
+        *stale.lock().unwrap() = true;
+        let r = engine::sync_source(&db, &factory, &sid, clock(T0 + 600), &|| {}).unwrap();
+        assert_eq!((r.status.as_str(), store::get_source(&lock(&db), &sid).unwrap().list_state), (OK, Some("L1".to_string())));
+        assert_eq!(store::calendars_of(&lock(&db), &sid).unwrap().len(), 1, "no duplicate calendar");
+        assert_eq!(rows(&db), vec!["First"]);
+    }
+
+    /// W7.2 / AC-7.2.3: a master whose `recurrence` has an RDATE line shows the extra date; an EXDATE on it hides it.
+    #[test]
+    fn a_master_with_an_rdate_line_shows_the_extra_date() {
+        let (db, sid) = setup_db();
+        let master = |lines: Value| {
+            json!({
+                "id": "ser", "etag": "\"m1\"", "iCalUID": "ser@google.com", "status": "confirmed", "summary": "Weekly sync",
+                "start": { "dateTime": "2026-10-13T09:00:00-04:00", "timeZone": "America/New_York" }, "end": { "dateTime": "2026-10-13T10:00:00-04:00", "timeZone": "America/New_York" },
+                "recurrence": lines, "organizer": { "email": "me@gmail.test", "self": true },
+            })
+        };
+        let m = master(json!(["RRULE:FREQ=WEEKLY;BYDAY=TU;COUNT=2", "RDATE;TZID=America/New_York:20261029T150000"]));
+        let srv = FakeServer::start(move |r| match r.path() {
+            "/users/me/calendarList" => Resp::json(200, list_json(vec![primary_item()])),
+            _ => Resp::json(200, events_page(vec![m.clone()], None, Some("S1"))),
+        });
+        engine::sync_source(&db, &GFactory::new(&srv), &sid, clock(T0), &|| {}).unwrap();
+        let shown = |db: &crate::Db| -> Vec<i64> { calendar::list_range(&lock(db), utc(2026, 10, 12, 0, 0), utc(2026, 11, 30, 0, 0)).unwrap().into_iter().map(|e| e.start).collect() };
+        // Tue 13 and 20 Oct (EDT, 09:00 = 13:00Z) and Thu 29 Oct 15:00 EDT = 19:00Z
+        assert_eq!(shown(&db), vec![utc(2026, 10, 13, 13, 0), utc(2026, 10, 20, 13, 0), utc(2026, 10, 29, 19, 0)]);
+        assert!(calendar::list_range(&lock(&db), utc(2026, 10, 12, 0, 0), utc(2026, 11, 30, 0, 0)).unwrap().iter().all(|e| e.has_rdates));
+        // the same series with an EXDATE on the extra date
+        let (db2, sid2) = setup_db();
+        let m3 = master(json!(["RRULE:FREQ=WEEKLY;BYDAY=TU;COUNT=2", "RDATE;TZID=America/New_York:20261029T150000", "EXDATE;TZID=America/New_York:20261029T150000"]));
+        let srv2 = FakeServer::start(move |r| match r.path() {
+            "/users/me/calendarList" => Resp::json(200, list_json(vec![primary_item()])),
+            _ => Resp::json(200, events_page(vec![m3.clone()], None, Some("S1"))),
+        });
+        engine::sync_source(&db2, &GFactory::new(&srv2), &sid2, clock(T0), &|| {}).unwrap();
+        assert_eq!(shown(&db2), vec![utc(2026, 10, 13, 13, 0), utc(2026, 10, 20, 13, 0)]);
+        // a master with only an RDATE is a series too
+        let e = parse_event(&cal(), &master(json!(["RDATE:20261101T090000Z"]))).unwrap();
+        assert_eq!((e.kind, e.rrule, e.rdates), (EventKind::Master, None, vec![utc(2026, 11, 1, 9, 0)]));
+        // PERIOD values count by their start
+        assert_eq!(recurrence(&[json!("RDATE;VALUE=PERIOD:20261101T090000Z/PT1H,20261102T090000Z/20261102T100000Z")]).2, vec![utc(2026, 11, 1, 9, 0), utc(2026, 11, 2, 9, 0)]);
+    }
+
     // ---------------------------------------------------------------- sync
 
     #[test]
@@ -870,9 +1005,10 @@ mod tests {
 
     #[test]
     fn recurrence_lines_and_exdates_are_read_in_every_form() {
-        let (rule, ex) = recurrence(&[json!("RRULE:FREQ=DAILY;COUNT=5"), json!("RRULE:FREQ=WEEKLY"), json!("EXDATE:20261021T130000Z,20261022T130000Z"), json!("EXDATE;VALUE=DATE:20261025"), json!("EXDATE;TZID=Europe/Paris:20261026T090000"), json!("RDATE:20261101T090000Z")]);
-        assert_eq!(rule.as_deref(), Some("FREQ=DAILY;COUNT=5"), "the first rule; RDATE is not supported");
+        let (rule, ex, rd) = recurrence(&[json!("RRULE:FREQ=DAILY;COUNT=5"), json!("RRULE:FREQ=WEEKLY"), json!("EXDATE:20261021T130000Z,20261022T130000Z"), json!("EXDATE;VALUE=DATE:20261025"), json!("EXDATE;TZID=Europe/Paris:20261026T090000"), json!("RDATE:20261101T090000Z")]);
+        assert_eq!(rule.as_deref(), Some("FREQ=DAILY;COUNT=5"), "the first rule");
         assert_eq!(ex, vec![utc(2026, 10, 21, 13, 0), utc(2026, 10, 22, 13, 0), utc(2026, 10, 25, 0, 0), utc(2026, 10, 26, 8, 0)]);
+        assert_eq!(rd, vec![utc(2026, 11, 1, 9, 0)]);
         assert_eq!(recurrence(&[]).0, None);
         assert_eq!(ical_instants("", "garbage,20261021T130000Z"), vec![utc(2026, 10, 21, 13, 0)]);
     }

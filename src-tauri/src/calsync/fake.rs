@@ -1,6 +1,6 @@
 //! A provider that lives in memory, for the tests of the shared layer. It behaves like a service with sync tokens: a pull with a token
 //! gets the changes since that token, a token it does not know is `Gone`, and writes check the etag.
-use super::{CalProvider, EventDraft, EventKind, EventPatch, Kind, ProviderFactory, Pull, PullReq, RemoteCalendar, RemoteEvent, Rsvp, SyncErr};
+use super::{CalList, CalProvider, EventDraft, EventKind, EventPatch, Kind, ProviderFactory, Pull, PullReq, RemoteCalendar, RemoteEvent, Rsvp, SyncErr};
 use crate::calendar::CalAttendee;
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
@@ -25,6 +25,14 @@ struct Inner {
     version: usize,
     truncated: bool,
     rebaseline: Option<i64>,
+    /// the list answers like Google's `calendarList` with a sync token (see `enable_list_tokens`)
+    list_tokens_on: bool,
+    /// what changed in the calendar list, in order (`true` = new or changed, `false` = removed)
+    list_log: Vec<(String, bool)>,
+    list_token_pos: HashMap<String, usize>,
+    list_issued: usize,
+    /// the token each list request carried
+    list_requests: Vec<Option<String>>,
 }
 
 #[derive(Clone, Default)]
@@ -115,6 +123,45 @@ impl FakeProvider {
         self.g().rebaseline = days;
     }
 
+    /// The calendar list gets sync tokens: a request with a token brings the changes since it, a token it does not know is `Gone`.
+    pub fn enable_list_tokens(&self) {
+        self.g().list_tokens_on = true;
+    }
+
+    pub fn expire_list_tokens(&self) {
+        self.g().list_token_pos.clear();
+    }
+
+    pub fn rename_calendar(&self, id: &str, name: &str) {
+        let mut g = self.g();
+        if let Some(c) = g.calendars.iter_mut().find(|c| c.id == id) {
+            c.name = name.into();
+        }
+        g.list_log.push((id.to_string(), true));
+    }
+
+    pub fn add_calendar(&self, cal: RemoteCalendar) {
+        let mut g = self.g();
+        g.list_log.push((cal.id.clone(), true));
+        g.calendars.push(cal);
+    }
+
+    pub fn delete_calendar(&self, id: &str) {
+        let mut g = self.g();
+        g.calendars.retain(|c| c.id != id);
+        g.list_log.push((id.to_string(), false));
+    }
+
+    /// The token (if any) of every list request so far.
+    pub fn list_requests(&self) -> Vec<Option<String>> {
+        self.g().list_requests.clone()
+    }
+
+    /// How many pulls a calendar got.
+    pub fn pull_count(&self, cal: &str) -> usize {
+        self.g().pulls.iter().filter(|(c, _)| c == cal).count()
+    }
+
     pub fn last_pull(&self, cal: &str) -> Option<PullReq> {
         self.g().pulls.iter().rev().find(|(c, _)| c == cal).map(|(_, r)| r.clone())
     }
@@ -143,6 +190,41 @@ impl CalProvider for FakeProvider {
         Ok(g.calendars.clone())
     }
 
+    fn list_calendars_since(&self, state: Option<&str>) -> Result<CalList, SyncErr> {
+        if !self.g().list_tokens_on {
+            return Ok(CalList { calendars: self.list_calendars()?, removed: vec![], full: true, next_state: None });
+        }
+        let mut g = self.g();
+        g.list_calls += 1;
+        g.list_requests.push(state.map(String::from));
+        if !g.fail_list.is_empty() {
+            return Err(g.fail_list.remove(0));
+        }
+        let log_len = g.list_log.len();
+        let token = format!("ltok-{}", g.list_issued);
+        g.list_issued += 1;
+        let out = match state {
+            None => CalList { calendars: g.calendars.clone(), removed: vec![], full: true, next_state: Some(token.clone()) },
+            Some(t) => {
+                let from = *g.list_token_pos.get(t).ok_or(SyncErr::Gone)?;
+                let mut calendars: Vec<RemoteCalendar> = vec![];
+                let mut removed: Vec<String> = vec![];
+                for (id, up) in g.list_log.iter().skip(from) {
+                    calendars.retain(|c| &c.id != id);
+                    removed.retain(|r| r != id);
+                    if *up {
+                        calendars.extend(g.calendars.iter().find(|c| &c.id == id).cloned());
+                    } else {
+                        removed.push(id.clone());
+                    }
+                }
+                CalList { calendars, removed, full: false, next_state: Some(token.clone()) }
+            }
+        };
+        g.list_token_pos.insert(token, log_len);
+        Ok(out)
+    }
+
     fn pull(&self, cal: &RemoteCalendar, req: &PullReq) -> Result<Pull, SyncErr> {
         let mut g = self.g();
         g.pulls.push((cal.id.clone(), req.clone()));
@@ -161,7 +243,7 @@ impl CalProvider for FakeProvider {
         let truncated = g.truncated;
         let all = g.events.get(&cal.id).cloned().unwrap_or_default();
         let pull = match &req.state {
-            None => Pull { upserts: all, removed: vec![], next_state: Some(token.clone()), full: true, truncated },
+            None => Pull { upserts: all, removed: vec![], next_state: Some(token.clone()).filter(|_| !truncated), full: true, truncated },
             Some(t) => {
                 let from = *g.tokens.get(t).ok_or(SyncErr::Gone)?;
                 let log = g.log.get(&cal.id).cloned().unwrap_or_default();

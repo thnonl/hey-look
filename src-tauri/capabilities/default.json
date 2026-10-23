@@ -118,6 +118,7 @@
     "allow-calendar-import-ics",
     "allow-calendar-open-message",
     "allow-calendar-sources",
+    "allow-calendar-kinds-available",
     "allow-calendar-connect",
     "allow-calendar-cancel-connect",
     "allow-calendar-disconnect",

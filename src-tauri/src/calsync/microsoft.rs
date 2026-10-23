@@ -412,6 +412,7 @@ fn parse_event(v: &Value) -> Option<RemoteEvent> {
         attendees,
         rrule: None,
         exdates: vec![],
+        rdates: vec![],
         status: if cancelled { "cancelled" } else { "confirmed" }.into(),
         my_status,
         reminder_min: (v["isReminderOn"].as_bool() == Some(true)).then(|| v["reminderMinutesBeforeStart"].as_i64()).flatten().filter(|m| *m >= 0),
