@@ -418,7 +418,7 @@ fn a_server_that_keeps_its_folders_in_the_inbox_namespace_gets_inbox_dot_archive
         assert_eq!(fake.uids("INBOX.Archive").map(|u| u.len()), Some(1));
         assert!(!fake.has_folder("Archive"));
         // a flat or top-level server gets the plain name
-        let l = |names: &[&str], d: Option<&str>| mail::Listing { map: names.iter().map(|n| (format!("f:{n}"), n.to_string())).collect(), delimiter: d.map(str::to_string) };
+        let l = |names: &[&str], d: Option<&str>| mail::Listing { map: names.iter().map(|n| (format!("f:{n}"), n.to_string())).collect(), delimiter: d.map(str::to_string), ..Default::default() };
         assert_eq!(mail::name_to_create("archive", &l(&["Sent", "Work"], Some("/"))).as_deref(), Some("Archive"));
         assert_eq!(mail::name_to_create("trash", &l(&["INBOX/Sent"], Some("/"))).as_deref(), Some("INBOX/Trash"));
         assert_eq!(mail::name_to_create("trash", &l(&[], None)).as_deref(), Some("Trash"));

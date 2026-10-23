@@ -251,6 +251,9 @@ export default defineLocale<typeof ns.en>({
   "app.search.recent": "Недавние запросы",
   "app.search.operators": "Операторы:",
   "app.search.quote": "Фразы берите в кавычки: {example}.",
+  "app.search.advanced": "Расширенный поиск",
+  "app.search.removeRecent": "Удалить «{q}» из недавних запросов",
+  "app.search.clearRecent": "Очистить всё",
   // ---- Sweep (bulk cleaner) and the original-message dialog
   "app.sweep.title": "Очистка: по отправителям",
   "app.sweep.intro": "Отправители во входящих, по числу писем.",

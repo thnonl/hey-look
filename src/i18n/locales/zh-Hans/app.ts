@@ -226,6 +226,9 @@ export default defineLocale<typeof ns.en>({
   "app.search.recent": "最近搜索",
   "app.search.operators": "运算符：",
   "app.search.quote": "为词组加引号：{example}。",
+  "app.search.advanced": "高级搜索",
+  "app.search.removeRecent": "从最近搜索中移除“{q}”",
+  "app.search.clearRecent": "全部清除",
   // ---- Sweep (bulk cleaner) and the original-message dialog
   "app.sweep.title": "整理：按发件人处理邮件",
   "app.sweep.intro": "收件箱中的发件人，按邮件数量排序。",

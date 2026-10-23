@@ -6,15 +6,14 @@ import { DEFAULT_MAIL_CANVAS, MailCanvas, resolveMailCanvas } from "./mailCanvas
 import { DEFAULT_HIGHLIGHT, normColor } from "./editor/colors";
 import { DEFAULT_FONT_NAME, DEFAULT_FONT_SIZE } from "./editor/fonts";
 import { cleanRecentEmoji } from "./editor/recentEmoji";
+import { cleanRecent } from "./recentSearches";
 import { DEFAULT_NUDGE, NudgeState, normalizeNudge } from "./supportNudge";
 import { normalizeSidebar, SidebarMode } from "./sidebarState";
 import { blend, buttonAccent, luminance, ratio } from "./topBarLight";
 export { buttonAccent, topBar, type TopBarColors } from "./topBarLight";
-export type NotifySound = "mail" | "default" | "im" | "reminder" | "sms" | "none";
+import { type NotifySound, normNotifySound } from "./notifySound";
+export type { NotifySound };
 /** The labels are dictionary keys: show them with t() while rendering, so they follow the language. */
-export const NOTIFY_SOUNDS: [NotifySound, Key][] = [
-  ["mail", "settings.sound.mail"], ["default", "common.default"], ["im", "settings.sound.im"], ["reminder", "settings.sound.reminder"], ["sms", "settings.sound.sms"], ["none", "settings.sound.silent"],
-];
 export const NOTIFY_ACTIONS: [string, Key][] = [
   ["none", "common.none"], ["archive", "settings.action.archive"], ["delete", "common.delete"], ["read", "settings.action.read"], ["flag", "settings.action.flag"], ["reply", "settings.action.reply"], ["snooze", "settings.action.snoozeTomorrow"],
 ];
@@ -219,7 +218,7 @@ export const DEFAULT_PREFS: Prefs = {
   notifications: true,
   smartNotifications: true,
   notifyPreview: true,
-  notifySound: "mail",
+  notifySound: "pop",
   notifyActions: ["archive", "delete", "read"],
   autoCc: "",
   autoBcc: "",
@@ -284,6 +283,8 @@ export function mergePrefs(raw: string | null): Prefs {
         delete n.sound;
       }
       for (const k of ["autoCc", "autoBcc", "signatureId", "notifySound"]) if (n[k] === "") delete n[k];
+      // (W13.8) the old sound choices: Silent stays off, every other one is on
+      if ("notifySound" in n) n.notifySound = normNotifySound(n.notifySound);
       accountPrefs[id] = n as Partial<Overridable>;
     }
     return {
@@ -295,6 +296,8 @@ export function mergePrefs(raw: string | null): Prefs {
       composeFontSize: typeof p.composeFontSize === "number" && p.composeFontSize >= 6 && p.composeFontSize <= 96 ? p.composeFontSize : DEFAULT_FONT_SIZE,
       recentColors: Array.isArray(p.recentColors) ? p.recentColors.filter((c): c is string => typeof c === "string" && /^#[0-9A-F]{6}$/.test(normColor(c))).slice(0, 10) : [],
       recentEmoji: cleanRecentEmoji(p.recentEmoji),
+      recentSearches: cleanRecent(p.recentSearches),
+      notifySound: normNotifySound(p.notifySound),
       pasteDefault: p.pasteDefault === "merge" || p.pasteDefault === "text" ? p.pasteDefault : "source",
       highlightColor: typeof p.highlightColor === "string" && /^#[0-9A-F]{6}$/.test(normColor(p.highlightColor)) ? normColor(p.highlightColor) : DEFAULT_HIGHLIGHT,
       // English unless the person chose another language (an unknown or older value counts as English)
@@ -353,6 +356,17 @@ export function folderLabel(key: string, name?: string): string {
   if (ROLE_LABELS[key]) return t(ROLE_LABELS[key]);
   const n = name ?? key.replace(/^f:/, "");
   return n.split(/[/.]/).pop() || n;
+}
+
+/**
+ * The name of a folder in a list of folders (Move to...): a folder of the person under another one is "Parent / Child", so two folders called "2026" in different parents can be told apart.
+ * (a folder's own `label` comes from the backend; `folderLabel` is the fallback for data without it)
+ */
+export function folderTitle(f: { key: string; name: string; label?: string; parent?: string | null; accountId?: string }, all: readonly { key: string; name: string; label?: string; accountId?: string }[]): string {
+  if (ROLE_LABELS[f.key]) return t(ROLE_LABELS[f.key]);
+  const own = f.label ?? folderLabel(f.key, f.name);
+  const p = f.parent ? all.find((x) => x.key === f.parent && x.accountId === f.accountId) : undefined;
+  return p ? `${p.label ?? folderLabel(p.key, p.name)} / ${own}` : own;
 }
 
 /** Folder nesting depth for custom folders ("Projects/Hey Look" = 1). */

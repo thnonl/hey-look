@@ -46,8 +46,9 @@ const THRESHOLD = 4; // px the pointer has to move before a press on the grip be
 /**
  * `containerRef` holds the entries; each entry has `data-reorder-id="<account id>"` and its focus target `data-reorder-focus`.
  * Returns the props to spread on an entry's grip (`grip`), on the entry (`entry`), and `overlay` to render once (preview, line, live region, menu).
+ * `extraItems` adds entries after Move up / Move down, behind a divider (the side menu adds "New folder…", W13.10).
  */
-export function useAccountReorder(containerRef: RefObject<HTMLElement | null>) {
+export function useAccountReorder(containerRef: RefObject<HTMLElement | null>, extraItems?: (accountId: string) => CtxItem[]) {
   const t = useT();
   const accounts = useStore((s) => s.accounts);
   const accent = useStore((s) => s.prefs.accent);
@@ -195,6 +196,7 @@ export function useAccountReorder(containerRef: RefObject<HTMLElement | null>) {
     return [
       { label: t("mail.acct.moveUp"), hint: mac ? "⌥↑" : "Alt+↑", disabled: i <= 0, onClick: () => commit(stepAccount(ids, id, -1), id) },
       { label: t("mail.acct.moveDown"), hint: mac ? "⌥↓" : "Alt+↓", disabled: i < 0 || i >= ids.length - 1, onClick: () => commit(stepAccount(ids, id, 1), id) },
+      ...(extraItems ? [{ divider: true }, ...extraItems(id)] : []),
     ];
   };
   const overlay: ReactNode = (

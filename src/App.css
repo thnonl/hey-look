@@ -264,6 +264,31 @@ button:focus-visible, [role="option"]:focus-visible, [role="treeitem"]:focus-vis
 .sb-field { flex: 1; display: flex; flex-direction: column; gap: 3px; font-size: 11px; color: var(--muted); min-width: 0; }
 .sb-field input { font-size: 13px; }
 .sb-foot { padding-top: 10px; line-height: 1.9; }
+/* the recent searches: Clear all sits on the line of the title but after the rows in the Tab order (W13.4) */
+.sb-recent { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: center; }
+.sb-recent > .sb-title { grid-column: 1; grid-row: 1; }
+.sb-recent > .sb-clear { grid-column: 2; grid-row: 1; margin-bottom: 7px; }
+.sb-recent > .sb-recent-row { grid-column: 1 / -1; display: flex; align-items: center; gap: 2px; }
+.sb-recent-row .menu-row { flex: 1 1 auto; min-width: 0; width: auto; }
+.sb-recent-x { flex: none; }
+.sb-clear { background: none; border: 0; padding: 2px 6px; border-radius: var(--r-sm); color: var(--accent-text); font-size: 12px; font-weight: 600; white-space: nowrap; }
+.sb-clear:hover { background: var(--bg3); }
+/* the side menu's folders of the person: the chevron of a folder that holds subfolders sits in the indent, so the icons of its siblings stay aligned (W13.10) */
+.fp-chev { flex: none; width: 14px; height: 18px; margin: 0 -9px 0 -14px; padding: 0; border: 0; background: none; color: var(--muted); display: inline-flex; align-items: center; justify-content: center; border-radius: 4px; position: relative; z-index: 1; }
+.fp-chev:hover { background: var(--bg3); color: var(--fg); }
+/* New folder / New subfolder (W13.10) */
+.fd-lbl { font-size: .86em; color: var(--muted); }
+.fd-where { font-weight: 600; margin-top: 2px; }
+.fd-err { font-size: .9em; }
+.fd-actions { justify-content: flex-end; }
+.fd-actions .btn { display: inline-flex; align-items: center; gap: 6px; }
+.fd-actions .btn[aria-busy="true"] { cursor: progress; }
+.sb-advtoggle { padding: 6px 0; border-bottom: 0; }
+.sb-advtoggle.open { border-bottom: 1px solid var(--border); }
+.sb-advanced { display: flex; align-items: center; justify-content: space-between; gap: 8px; width: 100%; background: none; border: 0; border-radius: var(--r-sm); padding: 6px 9px; text-align: left; font-weight: 600; color: var(--accent-text); }
+.sb-advanced:hover { background: var(--bg3); }
+.sb-advanced svg { flex: none; transition: transform .15s var(--ease); }
+.sb-advanced[aria-expanded="true"] svg { transform: rotate(180deg); }
 .seg { display: inline-flex; border: 1px solid var(--border); border-radius: var(--r-sm); overflow: hidden; margin: 6px 0; background: var(--bg); }
 .seg button { background: none; border: 0; padding: 6px 13px; border-right: 1px solid var(--border); transition: background .12s; }
 .seg button:last-child { border-right: 0; }
@@ -831,6 +856,9 @@ button.att-chip:hover { background: var(--bg3); border-color: color-mix(in srgb,
 /* a long option text must never push the control (or its override tag) out of the settings body */
 .set-ctl, .ov { min-width: 0; }
 .ov { max-width: 100%; }
+/* Settings > Notifications > Sound: the switch and "Play sound" (W13.8) */
+.sound-row { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; min-width: 0; }
+.sound-play { display: inline-flex; align-items: center; gap: 6px; }
 .set-ctl select, .ov select { min-width: 0; max-width: 100%; text-overflow: ellipsis; }
 .three { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 6px; max-width: 100%; }
 .three select { flex: none; max-width: 100%; } /* a select keeps the width of its longest option; the three wrap instead of squeezing each other */

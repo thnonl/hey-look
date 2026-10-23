@@ -1,13 +1,17 @@
 import {
   AlertTriangle, Archive, CalendarClock, CalendarDays, ChevronDown, ChevronRight, Clock, FileText, Flag, Folder, Inbox, MailOpen, OctagonAlert, PanelLeftClose, PanelLeftOpen, Pin, Send, Star, Trash2,
 } from "lucide-react";
-import { ReactNode, useEffect, useRef } from "react";
+import { ReactNode, useEffect, useRef, useState } from "react";
 import { accountLabel } from "../accountLabel";
 import { Grip, useAccountReorder } from "./AccountReorder";
 import { AcctName } from "./AcctName";
 import { LazyCalRail, LazyCalSidebar } from "../lazyViews";
 import { ReauthNotice } from "./SignInHelp";
+import { ContextMenu } from "./ContextMenu";
 import { FolderInfo } from "../api";
+import { isContextMenuKey } from "../contextMenu";
+import { collapsedKey, hasChildren, orderTree, visibleTree } from "../folderTree";
+import { getLang } from "../i18n";
 import { accountColor, folderDepth, folderLabel } from "../prefs";
 import { useT } from "../i18n/react";
 import { kbd } from "../platform";
@@ -45,11 +49,17 @@ const RAIL_BADGE_KEYS = ["inbox", "unread", "junk"];
  */
 export function FolderPane({ collapsed: folded }: { collapsed: boolean }) {
   const t = useT();
-  const { accounts, folders, folder, accountId, setView, prefs, setPrefs, syncErrors, sync, outbox, module, setModule, firstSync, reauth, newMail } = useStore();
+  const { accounts, folders, folder, accountId, setView, prefs, setPrefs, syncErrors, sync, outbox, module, setModule, firstSync, reauth, newMail, setDialog } = useStore();
   const toggleReq = useStore((s) => s.sidebarToggle);
   useWindowWidth(); // (the control follows the window: whether the full menu would fit next to the panes)
   const tree = useRef<HTMLDivElement>(null);
-  const reorder = useAccountReorder(tree); // the mailbox groups can be moved (grip, Alt+Up / Alt+Down, menu); see AccountReorder.tsx
+  // "New folder…" is the last entry of the menu of a mailbox heading; a mailbox that needs a new sign-in cannot make one (W13.10)
+  const reorder = useAccountReorder(tree, (id) => {
+    const again = !!reauth[id];
+    return [{ label: t("mail.folder.new"), disabled: again, hint: again ? t("mail.folder.needsSignIn") : undefined, onClick: () => setDialog({ type: "folder-new", accountId: id, parentKey: null }) }];
+  }); // the mailbox groups can be moved (grip, Alt+Up / Alt+Down, menu); see AccountReorder.tsx
+  /** the menu of a folder of the person that can have a subfolder: right-click, ContextMenu key or Shift+F10 on its row (the other rows have none, W13.10) */
+  const [fmenu, setFmenu] = useState<{ acct: string; key: string; at: { x: number; y: number }; keyboard: boolean; from: HTMLElement | null } | null>(null);
   const peek = useSidebarPeek(folded, reorder.dragging !== null || reorder.menuOpen);
   const rail = folded && !peek.open; // icons only; a peek is the full menu over the panes
   // the control and Ctrl+B / Cmd+B (sidebarState.ts `toggleSidebar`): fold or open the menu in place, or - with no room next to the list - open the overlay pinned or close it
@@ -99,7 +109,7 @@ export function FolderPane({ collapsed: folded }: { collapsed: boolean }) {
   /** "12 unread" for a tooltip and a screen reader, empty for none. */
   const unreadText = (n: number) => (n > 0 ? t("mail.side.unread", { n }) : "");
 
-  const row = (acct: string | null, key: string, label: string, indent = 0, name?: string) => {
+  const row = (acct: string | null, key: string, label: string, indent = 0, name?: string, tree?: { info: FolderInfo; parentOfSome: boolean }) => {
     const active = folder === key && accountId === acct;
     const c = counts(acct, key);
     // calm numbers: only unread conversations, and only where they help (Inbox / Junk / the Unread view); drafts show a total
@@ -112,6 +122,17 @@ export function FolderPane({ collapsed: folded }: { collapsed: boolean }) {
       peek.close(); // a folder was chosen: the menu that opened over the panes goes away
     };
     const full = name && name !== label ? name : label;
+    // (W13.10) a folder of the person: its row has a chevron when it holds subfolders, and a menu when it may get one
+    const ckey = tree && acct ? collapsedKey(acct, key) : "";
+    const expandable = !!tree?.parentOfSome;
+    const expanded = expandable && !collapsed(ckey);
+    const hasMenu = !!tree?.info.canNest && !!acct && !reauth[acct];
+    const openMenu = (e: React.MouseEvent | React.KeyboardEvent, keyboard: boolean) => {
+      e.preventDefault();
+      const el = e.currentTarget as HTMLElement;
+      const r = el.getBoundingClientRect();
+      setFmenu({ acct: acct!, key, at: keyboard ? { x: r.left + Math.min(40, r.width / 2), y: r.bottom - 4 } : { x: (e as React.MouseEvent).clientX, y: (e as React.MouseEvent).clientY }, keyboard, from: el });
+    };
     // (W13.2) new mail since the person last looked: a dot and a bolder label, and the words in the tooltip / the name for a screen reader
     const fresh = hasNew(newMail, acct, key);
     const newText = fresh ? t("mail.side.newMail") : "";
@@ -126,19 +147,42 @@ export function FolderPane({ collapsed: folded }: { collapsed: boolean }) {
         key={`${acct}|${key}`}
         role="treeitem"
         aria-selected={active}
+        aria-level={indent + 1}
+        aria-expanded={expandable ? expanded : undefined}
         aria-label={tip && rail ? tip.replace(/\n/g, ", ") : undefined}
         tabIndex={0}
         className={`fp-row ${active ? "active" : ""} ${fresh ? "fresh" : ""}`}
         style={rail ? undefined : { paddingLeft: 12 + indent * 16 }}
+        data-fkey={ckey || undefined}
+        data-own-menu={hasMenu ? "" : undefined}
         onClick={go}
+        onContextMenu={hasMenu ? (e) => openMenu(e, false) : undefined}
         onKeyDown={(e) => {
           if (e.key === "Enter" || e.key === " ") {
             e.preventDefault();
             go();
+          } else if (hasMenu && isContextMenuKey(e)) openMenu(e, true);
+          else if (expandable && e.target === e.currentTarget && (e.key === (expanded ? "ArrowLeft" : "ArrowRight"))) {
+            e.preventDefault();
+            toggle(ckey);
           }
         }}
         title={tip}
       >
+        {!rail && expandable && (
+          <button
+            className="fp-chev"
+            tabIndex={-1}
+            aria-expanded={expanded}
+            aria-label={t("mail.folder.subfolders", { name: label })}
+            onClick={(e) => {
+              e.stopPropagation();
+              toggle(ckey);
+            }}
+          >
+            {expanded ? <ChevronDown size={12} aria-hidden /> : <ChevronRight size={12} aria-hidden />}
+          </button>
+        )}
         <span className="fp-ico">{ICONS[key] ?? <Folder size={16} />}</span>
         <span className="fp-lbl ellipsis">{label}</span>
         {fresh && <span className="fp-new" aria-hidden />}
@@ -298,7 +342,9 @@ export function FolderPane({ collapsed: folded }: { collapsed: boolean }) {
             {folderRows && (
               <>
                 {std.filter((k) => folderVisible(folders, a.id, k)).map((k) => row(a.id, k, folderLabel(k), 1))}
-                {custom.map((f) => row(a.id, f.key, folderLabel(f.key, f.name), 1 + folderDepth(f.key, f.name), f.name))}
+                {visibleTree(orderTree(custom, getLang()), (k) => collapsed(collapsedKey(a.id, k))).map((f) =>
+                  row(a.id, f.key, f.label ?? folderLabel(f.key, f.name), 1 + (f.depth ?? folderDepth(f.key, f.name)), f.name, { info: f, parentOfSome: hasChildren(custom, f.key) }),
+                )}
               </>
             )}
           </div>
@@ -316,6 +362,17 @@ export function FolderPane({ collapsed: folded }: { collapsed: boolean }) {
       </nav>
       </div>
       {reorder.overlay}
+      {fmenu && (
+        <ContextMenu
+          key={`${fmenu.acct}|${fmenu.key}`}
+          at={fmenu.at}
+          items={[{ label: t("mail.folder.newSub"), onClick: () => setDialog({ type: "folder-new", accountId: fmenu.acct, parentKey: fmenu.key }) }]}
+          label={folders.find((f) => f.accountId === fmenu.acct && f.key === fmenu.key)?.label ?? fmenu.key}
+          keyboard={fmenu.keyboard}
+          returnTo={fmenu.from}
+          onClose={() => setFmenu(null)}
+        />
+      )}
     </aside>
   );
 }

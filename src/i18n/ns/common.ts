@@ -14,7 +14,6 @@ export default define({
     "common.done": "Done",
     "common.off": "Off",
     "common.none": "None",
-    "common.default": "Default",
     "common.retry": "Retry",
     "common.copy": "Copy",
     "common.loading": "Loading…",

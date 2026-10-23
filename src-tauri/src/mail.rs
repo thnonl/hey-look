@@ -245,15 +245,23 @@ pub fn connect_with_socket(acc: &Account, secret: &str) -> R<(Sess, std::net::Tc
     Ok((session, handle))
 }
 
-/// role -> real IMAP folder name. Standard roles use their plain name, everything else "f:<name>".
-pub fn discover_folders<T: Read + Write>(s: &mut imap::Session<T>) -> R<HashMap<String, String>> {
-    list_folders(s).map(|l| l.map)
-}
-
-/// The server's folders as `discover_folders` maps them, and the hierarchy delimiter of the first folder that has one.
+/// The server's folders (role -> real IMAP folder name: standard roles use their plain name, everything else "f:<name>"), the hierarchy delimiter of the first folder that has one, the folders that cannot have children (`\Noinferiors`)
+/// and the personal namespace prefix (`INBOX.` / `INBOX/` when the server keeps every folder under INBOX, else empty): what the tree of the side menu and "New folder" need (W13.10).
+#[derive(Default)]
 pub struct Listing {
     pub map: HashMap<String, String>,
     pub delimiter: Option<String>,
+    pub noinferiors: Vec<String>,
+    pub prefix: String,
+}
+
+/// The prefix every folder of the person has on a server that keeps them inside the INBOX namespace (`INBOX.`, `INBOX/`: Courier, older Dovecot setups), else "".
+/// The same test as `name_to_create` has always used: some folder is named `INBOX<delimiter>something`.
+pub fn namespace_prefix<'a>(names: impl IntoIterator<Item = &'a String>, delimiter: Option<&str>) -> String {
+    let Some(d) = delimiter.filter(|d| !d.is_empty()) else { return String::new() };
+    let prefix = format!("INBOX{d}");
+    let inside = names.into_iter().any(|n| n.len() > prefix.len() && n.is_char_boundary(prefix.len()) && n[..prefix.len()].eq_ignore_ascii_case(&prefix));
+    if inside { prefix } else { String::new() }
 }
 
 pub fn list_folders<T: Read + Write>(s: &mut imap::Session<T>) -> R<Listing> {
@@ -261,12 +269,14 @@ pub fn list_folders<T: Read + Write>(s: &mut imap::Session<T>) -> R<Listing> {
     let names = s.list(Some(""), Some("*")).map_err(err)?;
     let delimiter = names.iter().find_map(|n| n.delimiter().map(str::to_string));
     let mut entries: Vec<FolderEntry> = vec![];
+    let mut noinferiors: Vec<String> = vec![];
     for n in names.iter() {
         let mut e = FolderEntry { name: n.name().to_string(), delimiter: n.delimiter().map(str::to_string), role: None };
         let mut skip = false;
         for a in n.attributes() {
             match a {
                 A::NoSelect => skip = true,
+                A::NoInferiors => noinferiors.push(n.name().to_string()),
                 A::Custom(c) => match c.to_lowercase().as_str() {
                     "\\sent" => e.role = Some("sent"),
                     "\\drafts" => e.role = Some("drafts"),
@@ -283,7 +293,9 @@ pub fn list_folders<T: Read + Write>(s: &mut imap::Session<T>) -> R<Listing> {
             entries.push(e);
         }
     }
-    Ok(Listing { map: assign_roles(&entries), delimiter })
+    let map = assign_roles(&entries);
+    let prefix = namespace_prefix(map.values(), delimiter.as_deref());
+    Ok(Listing { map, delimiter, noinferiors, prefix })
 }
 
 /// One selectable folder of a LIST answer: its name, the hierarchy delimiter and the role its SPECIAL-USE attribute gives it, if any.
@@ -396,7 +408,7 @@ fn role_by_name(name: &str, delimiter: Option<&str>) -> Option<(&'static str, us
 
 /// IMAP folder names are in modified UTF-7 (RFC 3501 5.1.3): `&` starts a run of UTF-16 in base64 (with `,` for `/`) that `-` ends, and
 /// `&-` is a plain `&`. Used only to compare a name; a run that does not decode is left as it was.
-fn decode_imap_utf7(s: &str) -> String {
+pub(crate) fn decode_imap_utf7(s: &str) -> String {
     use base64::Engine;
     if !s.contains('&') {
         return s.to_string();
@@ -432,6 +444,39 @@ fn decode_imap_utf7(s: &str) -> String {
     out
 }
 
+/// The modified UTF-7 of a folder name (RFC 3501 5.1.3), the inverse of `decode_imap_utf7`: printable ASCII stays (`&` becomes `&-`), every other run of characters is its
+/// UTF-16 big-endian in base64 with `,` for `/` and no padding, between `&` and `-`.
+pub fn encode_imap_utf7(s: &str) -> String {
+    use base64::Engine;
+    let flush = |run: &mut Vec<u16>, out: &mut String| {
+        if run.is_empty() {
+            return;
+        }
+        let bytes: Vec<u8> = run.iter().flat_map(|u| u.to_be_bytes()).collect();
+        out.push('&');
+        out.push_str(&base64::engine::general_purpose::STANDARD_NO_PAD.encode(bytes).replace('/', ","));
+        out.push('-');
+        run.clear();
+    };
+    let mut out = String::new();
+    let mut run: Vec<u16> = vec![];
+    for c in s.chars() {
+        if ('\u{20}'..='\u{7e}').contains(&c) {
+            flush(&mut run, &mut out);
+            if c == '&' {
+                out.push_str("&-");
+            } else {
+                out.push(c);
+            }
+        } else {
+            let mut b = [0u16; 2];
+            run.extend_from_slice(c.encode_utf16(&mut b));
+        }
+    }
+    flush(&mut run, &mut out);
+    out
+}
+
 /// The name to create for a standard role the server lacks, or None for a role that is never created (drafts, junk, custom folders).
 /// Archive, Trash and Sent (for the copy of a sent message) use their plain English names. A server that keeps every folder inside the INBOX namespace (`INBOX.Sent`, Courier and
 /// older Dovecot setups) gets `INBOX.Archive`: a top-level folder is refused there.
@@ -442,10 +487,7 @@ pub fn name_to_create(role: &str, listing: &Listing) -> Option<String> {
         "sent" => "Sent",
         _ => return None,
     };
-    let in_inbox_namespace = listing.delimiter.as_deref().is_some_and(|d| {
-        let prefix = format!("INBOX{d}");
-        listing.map.values().any(|n| n.len() > prefix.len() && n[..prefix.len()].eq_ignore_ascii_case(&prefix))
-    });
+    let in_inbox_namespace = !namespace_prefix(listing.map.values(), listing.delimiter.as_deref()).is_empty();
     Some(match (&listing.delimiter, in_inbox_namespace) {
         (Some(d), true) => format!("INBOX{d}{leaf}"),
         _ => leaf.to_string(),

@@ -15,7 +15,6 @@ export default defineLocale<typeof ns.en>({
   "common.done": "Listo",
   "common.off": "Desactivado",
   "common.none": "Ninguno",
-  "common.default": "Predeterminado",
   "common.retry": "Reintentar",
   "common.copy": "Copiar",
   "common.loading": "Cargando…",

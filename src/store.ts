@@ -11,6 +11,7 @@ import { hlMark } from "./perfMarks";
 import { startPending, type Pending } from "./pendingCore";
 import { addArrivals, clearByCounts, clearOnOpen, type Arrivals, type NewMap } from "./newMail";
 import { QueuedMoves } from "./queuedMoves";
+import { pushRecent, removeRecent } from "./recentSearches";
 import { Latest } from "./latestOnly";
 import { StateIntents, type IntentKind } from "./readIntent";
 import { calendarErrorText, CAL_OFFER_DONE } from "./calendarSync";
@@ -138,7 +139,9 @@ export type Dialog =
   | { type: "pgp-generate"; accountId?: string; back?: string }
   | { type: "pgp-import"; armored?: string; paste?: boolean; back?: string }
   | { type: "pgp-key"; fingerprint: string; back?: string }
-  | { type: "event"; eventId?: string; init?: EventInit };
+  | { type: "event"; eventId?: string; init?: EventInit }
+  /** (W13.10) New folder (`parentKey` null) / New subfolder (the key of the folder it goes under) in a mailbox */
+  | { type: "folder-new"; accountId: string; parentKey: string | null };
 
 /** Why a PGP key has to be unlocked right now (the title of the passphrase prompt). */
 export type UnlockReason = "sign" | "decrypt" | "draft" | "schedule";
@@ -388,6 +391,11 @@ interface State {
   lookedAtFolder: () => void;
   setSearch: (q: string, remember?: boolean) => Promise<void>;
   setSearchScope: (s: SearchScope) => Promise<void>;
+  /** (W13.10) a folder that was just created is in the side menu at once (no full sync needed); its parent is expanded */
+  addFolder: (f: FolderInfo) => void;
+  /** (W13.4) one entry of the recent searches goes, at once and without a question */
+  removeRecentSearch: (q: string) => void;
+  clearRecentSearches: () => void;
   setFocus: (f: "focused" | "other") => Promise<void>;
   setFilter: (f: "all" | "unread" | "flagged") => Promise<void>;
   refresh: () => Promise<void>;
@@ -905,8 +913,7 @@ export const useStore = create<State>((set, get) => ({
     cancelMore();
     set({ search, selected: null, messages: [], loading: true, ...(search.trim() && get().compose ? { listAsked: true } : {}) });
     if (remember && search.trim()) {
-      const recent = [search.trim(), ...get().prefs.recentSearches.filter((r) => r !== search.trim())].slice(0, 8);
-      get().setPrefs({ recentSearches: recent });
+      get().setPrefs({ recentSearches: pushRecent(get().prefs.recentSearches, search) });
     }
     await get().refresh();
   },
@@ -919,6 +926,17 @@ export const useStore = create<State>((set, get) => ({
       await get().refresh();
     }
   },
+
+  addFolder: (f) => {
+    set((s) => ({ folders: [...s.folders.filter((x) => !(x.accountId === f.accountId && x.key === f.key)), f] }));
+    // (a new folder may have taken folders that were there already as its children: the list is read again, which gives every folder its parent)
+    void api.listFolders().then((folders) => set({ folders })).catch(() => undefined);
+    // a collapsed parent opens, so the new row is in view
+    const pk = f.parent ? f.accountId + "|" + f.parent : null;
+    if (pk && get().prefs.collapsed[pk]) get().setPrefs({ collapsed: { ...get().prefs.collapsed, [pk]: false } });
+  },
+  removeRecentSearch: (q) => get().setPrefs({ recentSearches: removeRecent(get().prefs.recentSearches, q) }),
+  clearRecentSearches: () => get().setPrefs({ recentSearches: [] }),
 
   setFocus: async (focus) => {
     set({ focus, loading: true });
