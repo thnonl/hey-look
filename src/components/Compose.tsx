@@ -17,6 +17,8 @@ import { setDarkRegion } from "../composePreviewDom";
 import { extractSignature, normalizeHtml, SIG_MARK } from "../signature";
 import { baseExtensions, refreshPlaceholder, setEditorLabel } from "../editor/extensions";
 import { useKit } from "../editor/kit";
+import { useDelayedFlag } from "../delayedFlag";
+import { statusShown, STATUS_AFTER_MS, STATUS_MIN_MS } from "../composeShell";
 import { FormatBar, type FormatBarApi } from "../editor/FormatBar";
 import { PreviewSwitch } from "../editor/PreviewSwitch";
 import { setPreviewMode } from "../editor/previewColors";
@@ -537,6 +539,11 @@ export function Compose({ init }: { init: ComposeInit }) {
 function ComposeBody({ init }: { init: ComposeInit }) {
   const t = useT();
   const { accounts, openCompose, showToast, prefs, refresh, confirm, choose, setComposeDirty, setComposeSaver, setComposeProbe, aiConfigured, setDialog, beginSend } = useStore();
+  // the shell of a Reply / Forward whose recipients and quote are still being prepared (W13.13): fields and Send are off, the body says what is going on
+  const preparing = init.preparing;
+  // (the 100 ms are counted from the press, not from when this pane was built: the status is on screen by 150 ms)
+  const prepStatus = useDelayedFlag(!!preparing, preparing ? Math.max(0, STATUS_AFTER_MS - (Date.now() - preparing.at)) : STATUS_AFTER_MS, STATUS_MIN_MS);
+  const prepRef = useRef<HTMLDivElement>(null);
   const [accountId, setAccountId] = useState(fromAccountFor(accounts, init.accountId, prefs.defaultAccount));
   const accountRef = useRef(accountId); // (the editor's paste handler is made once: it reads the account of the moment from here)
   accountRef.current = accountId;
@@ -1404,6 +1411,7 @@ function ComposeBody({ init }: { init: ComposeInit }) {
   };
 
   const send = async (sendAt?: number) => {
+    if (preparing) return; // (the shell has no recipients yet; the button is off, this is for a key)
     let d = buildDraft();
     // To may stay empty when Cc or Bcc has someone (Gmail and Outlook allow it; a Bcc-only message shows undisclosed-recipients)
     if (!hasRecipient(d)) return showToast(() => t("compose.err.noRecipient"), undefined, "error");
@@ -2304,15 +2312,35 @@ function ComposeBody({ init }: { init: ComposeInit }) {
     }
   };
 
+  // ---- the shell of an answer that is being prepared (W13.13)
+  // the status was drawn: the fill waits for its minimum time (composeShell.ts). The focus stays in the body (Esc and Tab reach Discard); it moves to the editor when the message fills in
+  useEffect(() => {
+    if (preparing && prepStatus) statusShown(preparing.id);
+  }, [preparing, prepStatus]);
+  useLayoutEffect(() => {
+    if (preparing) prepRef.current?.focus({ preventScroll: true });
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+  // everything on the action row but Discard is off while the message is being prepared (Send is disabled too; the rest has no work to do yet)
+  useLayoutEffect(() => {
+    for (const el of Array.from(paneRef.current?.querySelector(".cp-bar")?.children ?? [])) el.toggleAttribute("inert", !!preparing && !el.classList.contains("cp-keep"));
+  });
+
   return (
     <div
       ref={paneRef}
       inert={locked || undefined}
-      aria-busy={locked || undefined}
-      className={`compose-pane ${dragging ? "dragging" : ""} ${compact ? "compact" : ""} ${compact && barWraps ? "bar-wraps" : ""} ${meeting ? "has-meeting" : ""}`}
+      aria-busy={locked || !!preparing || undefined}
+      onFocusCapture={preparing ? (e) => { if (!(e.target as HTMLElement).closest(".cp-keep, .cp-prep")) prepRef.current?.focus({ preventScroll: true }); } : undefined} // (an engine without `inert`: a field that took the focus gives it back)
+      className={`compose-pane ${preparing ? "preparing" : init.afterShell ? "after-shell" : ""} ${dragging ? "dragging" : ""} ${compact ? "compact" : ""} ${compact && barWraps ? "bar-wraps" : ""} ${meeting ? "has-meeting" : ""}`}
       onKeyDown={(e) => {
         if (isImeEvent(e)) return; // a key that belongs to an input method (Subject, To, Cc, Bcc): no app shortcut
         if (isAltGraph(e)) return; // AltGr (Ctrl+Alt) types a character: no app shortcut
+        if (preparing) {
+          // nothing can be written or sent yet; Esc ends the preparation like Discard (REQ-13.13.6): no draft, no question
+          if (e.key === "Escape" && !e.defaultPrevented) (e.preventDefault(), void discard());
+          if ((e.ctrlKey || e.metaKey) && e.key === "Enter") e.preventDefault();
+          return;
+        }
         if ((e.ctrlKey || e.metaKey) && e.key === "Enter" && e.shiftKey) {
           e.preventDefault();
           setSchedOpen(true);
@@ -2387,11 +2415,12 @@ function ComposeBody({ init }: { init: ComposeInit }) {
       <div className="cp-head" ref={headRef} onFocus={restHeader} onScroll={markMore}>
       <div className="cp-bar">
         <div className="split-btn" ref={schedRef} data-fit="fixed">
-          <button ref={sendBtnRef} className="btn primary" disabled={busy} style={locked && sendW ? { minWidth: sendW } : undefined} onClick={() => void (init.outboxId ? send(init.sendAt) : send())} title={init.outboxId ? t("compose.bar.scheduleTip") : kbd(t("compose.bar.sendTip"))}>
+          <button ref={sendBtnRef} className="btn primary" disabled={busy || !!preparing} style={locked && sendW ? { minWidth: sendW } : undefined} onClick={() => void (init.outboxId ? send(init.sendAt) : send())} title={init.outboxId ? t("compose.bar.scheduleTip") : kbd(t("compose.bar.sendTip"))}>
             {locked ? <><span className="spin" aria-hidden /> <span className="btn-lbl">{t("compose.toast.sending")}</span></> : init.outboxId ? <><CalendarClock size={14} /> <span className="btn-lbl">{t("compose.bar.schedule")}</span></> : meeting ? <><CalendarPlus size={14} /> <span className="btn-lbl">{t("compose.bar.sendInvite")}</span></> : <><Send size={14} /> <span className="btn-lbl">{t("compose.bar.send")}</span></>}
           </button>
           <button
             className="btn primary split-caret"
+            disabled={!!preparing}
             aria-label={t("compose.bar.sendLaterOptions")}
             aria-haspopup="dialog"
             aria-expanded={schedOpen}
@@ -2416,7 +2445,7 @@ function ComposeBody({ init }: { init: ComposeInit }) {
         {init.outboxId ? (
           <button className="rb" data-fit="fixed" onClick={() => void moveToDrafts()}><Save size={15} /><span>{t("compose.bar.moveToDrafts")}</span></button>
         ) : null}
-        <button className="rb" data-fit="fixed" title={compact ? t("compose.bar.discard") : undefined} aria-disabled={discarding || undefined} onClick={() => void discard()}><Trash2 size={15} /><span>{t("compose.bar.discard")}</span></button>
+        <button className="rb cp-keep" data-fit="fixed" title={compact ? t("compose.bar.discard") : undefined} aria-disabled={discarding || undefined} onClick={() => void discard()}><Trash2 size={15} /><span>{t("compose.bar.discard")}</span></button>
         <button className="rb" data-fit="fixed" title={compact ? t("compose.bar.attach") : undefined} onClick={() => fileRef.current?.click()}><Paperclip size={15} /><span>{t("compose.bar.attach")}</span></button>
         {!isMoved("picture") && barItem("picture")}
         <input ref={fileRef} type="file" multiple hidden aria-hidden="true" tabIndex={-1} onChange={(e) => (void addFiles(e.target.files), (e.target.value = ""))} />
@@ -2477,12 +2506,12 @@ function ComposeBody({ init }: { init: ComposeInit }) {
         </div>
       )}
 
-      <div className="cp-fields">
+      <div className="cp-fields" inert={preparing ? true : undefined}>
         <div className="cf-field">
           <label>{t("compose.from")}</label>
           <AccountPicker value={accountId} accounts={accounts} onChange={changeAccount} label={t("compose.from")} />
         </div>
-        <RecipientField label={t("compose.to")} field="to" dragScope={dragScope} onChipDrop={moveChip("to")} values={to} onChange={changeField("to")} autoFocus={to.length === 0 && !init.replaces} onTouch={touch} onPending={pending("to")} keys={encOn && ks ? ks.recipients : undefined} onKeyAction={keyAction} />
+        <RecipientField label={t("compose.to")} field="to" dragScope={dragScope} onChipDrop={moveChip("to")} values={to} onChange={changeField("to")} autoFocus={to.length === 0 && !init.replaces && !preparing} onTouch={touch} onPending={pending("to")} keys={encOn && ks ? ks.recipients : undefined} onKeyAction={keyAction} />
         {noteShown && replyNote && (
           <div className="note cf-replyto" role="status">
             <Info size={13} aria-hidden />
@@ -2541,7 +2570,7 @@ function ComposeBody({ init }: { init: ComposeInit }) {
       )}
       </div>
 
-      <div className="cp-fmt">
+      <div className="cp-fmt" inert={preparing ? true : undefined}>
         <FormatBar
           editor={editor} base={base} variant="compose" apiRef={barApi} host={{ link: { open: () => linkRef.current(), isOpen: link.isOpen, btnRef: linkBtnRef }, insertPicture: () => picRef.current?.click(), zoom: { value: zoom, set: setZoom }, find: (mode) => openFindRef.current(mode) }}
           trailing={{ ids: ["pv:light", "pv:dark"], render: (rove) => <PreviewSwitch pv={pv} onChoose={choosePreview} rove={rove} /> }}
@@ -2549,9 +2578,22 @@ function ComposeBody({ init }: { init: ComposeInit }) {
         {link.node}
       </div>
 
-      <div className={`cp-editor cp-pv pv-${pv}`} style={{ ...previewVars(pv), "--cp-font": base.family, "--cp-size": `${base.size}pt` } as React.CSSProperties} ref={bodyRef} onScroll={picTools.sync}>
+      <div className={`cp-editor cp-pv pv-${pv}`} style={{ ...previewVars(pv), "--cp-font": base.family, "--cp-size": `${base.size}pt` } as React.CSSProperties} data-preparing={preparing ? "" : undefined} ref={bodyRef} onScroll={picTools.sync}>
         {find && editor && <Suspense fallback={null}><FindBar editor={editor} mode={find.mode} nonce={find.nonce} onClose={() => setFind(null)} /></Suspense>}
-        <EditorContent editor={editor} className="editor" style={zoom === 100 ? undefined : ({ zoom: zoom / 100 } as React.CSSProperties)} />
+        {preparing ? (
+          // the shell of an answer (W13.13): the status takes the place of the editor (same box, so nothing moves when the message fills in); it shows when the work takes more than 100 ms
+          <div className="cp-prep" ref={prepRef} tabIndex={-1}>
+            {prepStatus && (
+              <div className="reader-state" role="status" aria-busy="true">
+                <span className="busy-ring spin" aria-hidden />
+                <span className="busy-dots" aria-hidden>···</span>
+                <p className="muted">{preparing.fetching ? t("compose.fwd.fetching") : t(preparing.kind === "forward" ? "compose.preparing.forward" : "compose.preparing.reply")}</p>
+              </div>
+            )}
+          </div>
+        ) : (
+          <EditorContent editor={editor} className="editor" style={zoom === 100 ? undefined : ({ zoom: zoom / 100 } as React.CSSProperties)} />
+        )}
         {picTools.node}
         {sigHeads.map((el) =>
           createPortal(

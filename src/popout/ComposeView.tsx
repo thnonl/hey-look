@@ -21,11 +21,13 @@ import { Compose } from "../components/Compose";
 import { PassphraseHost } from "../components/Pgp";
 import { t as tNow } from "../i18n";
 import { loadPlatform } from "../platform";
-import { flushSends, lazyText, useStore, type ComposeInit, type Lazy } from "../store";
+import { flushSends, friendlyError, lazyText, useStore, type ComposeInit, type Lazy } from "../store";
 import { configureDates } from "../util";
 import { notifyMain } from "./composeBridge";
 import { carryToasts } from "./composeRequests";
 import { setComposeSeam, type ComposeSeam } from "./composeSeam";
+import { FILL_ID } from "./composeFill";
+import { statusRemaining, shellDone, wait, WINDOW_SAFETY_MS } from "../composeShell";
 import { useDelayedFlag } from "../delayedFlag";
 import { composeFlush, runClose, secondsLeft, START, step, type Ev, type Fx, type WinState } from "./composeWindow";
 import { draftKey } from "./entry";
@@ -52,6 +54,8 @@ export default function ComposeView({ label, init }: PopoutViewProps) {
   const draftBusy = useDelayedFlag(!ready && isObj(init) && typeof init.replaces === "string" && init.replaces.startsWith("m:"));
   const [now, setNow] = useState(() => Date.now());
   const winRef = useRef<WinState>(START);
+  /** the shell of a Reply / Forward this window opened with (W13.13): the id of its preparation while it is not filled in (null after) */
+  const shellId = useRef<string | null>(isObj(init) && isObj(init.preparing) && typeof init.preparing.id === "string" ? init.preparing.id : null);
   const undoRef = useRef<(() => void) | null>(null);
   const lastThread = useRef<string | null>(null);
   const raised = useRef<{ at: number; text: Lazy; kind: Level }[]>([]);
@@ -286,8 +290,36 @@ export default function ComposeView({ label, init }: PopoutViewProps) {
       ),
     );
 
+    // ---- a Reply / Forward that opened as a shell (W13.13): the main window hands the finished message over (composeFill.ts); this window asks for it until it has it, and ends the
+    // wait by itself a little after the main window's own safety end, so a lost hand-over never leaves the status on screen
+    const fillWith = async (full: ComposeInit, told?: unknown) => {
+      const id = shellId.current;
+      if (!id) return; // not a shell (or filled already)
+      shellId.current = null;
+      const left = statusRemaining(id);
+      if (left > 0) await wait(left); // the status stays 300 ms once it was drawn (RULE-2)
+      shellDone(id);
+      setEditor((prev) => (prev && prev.init.preparing?.id === id ? { init: full, n: prev.n + 1 } : prev));
+      if (told) st.getState().showToast(() => friendlyError(told), undefined, "error");
+    };
+    let askTimer: ReturnType<typeof setInterval> | undefined;
+    let safetyTimer: ReturnType<typeof setTimeout> | undefined;
+    if (shellId.current) {
+      const ask = () => (shellId.current ? notifyMain("fill-ready") : clearInterval(askTimer));
+      askTimer = setInterval(ask, 1000);
+      // (after the listener below is there; the first ask follows at once)
+      safetyTimer = setTimeout(() => {
+        const shell = isObj(init) ? (init as ComposeInit) : {};
+        void fillWith({ ...shell, preparing: undefined, afterShell: true }, new Error("timeout"));
+      }, WINDOW_SAFETY_MS);
+    }
+    const fillSub = listen<{ id: string; data: unknown }>("popout-reply", (e) => {
+      if (e.payload?.id === FILL_ID && isObj(e.payload.data)) void fillWith(e.payload.data as ComposeInit);
+    });
+    void fillSub.then(() => shellId.current && notifyMain("fill-ready")).catch(quiet);
+
     // accounts and keys can change in the main window while this one is open
-    const subs = [listen("mail-synced", () => void loadAccounts()), listen("prefs-changed", () => void loadAccounts())];
+    const subs = [listen("mail-synced", () => void loadAccounts()), listen("prefs-changed", () => void loadAccounts()), fillSub];
     const onFocus = () => {
       void loadAccounts();
       st.getState().bumpKeys();
@@ -296,6 +328,8 @@ export default function ComposeView({ label, init }: PopoutViewProps) {
     return () => {
       alive = false;
       clearTimeout(titleTimer);
+      clearInterval(askTimer);
+      clearTimeout(safetyTimer);
       unseam();
       unsubSends();
       unFlush();

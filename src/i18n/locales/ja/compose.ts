@@ -447,6 +447,8 @@ export default defineLocale<typeof ns.en>({
   "compose.autosave.saved": "{time}に下書きを保存しました",
   "compose.draft.bccUnread": "この下書きのBccの宛先を読み取れなかったため、表示されていません。送信する前に宛先を確認してください。",
   "compose.draft.opening": "下書きを開いています…",
+  "compose.preparing.reply": "返信を準備しています…",
+  "compose.preparing.forward": "転送を準備しています…",
   "compose.toast.movedToDrafts": "下書きに移動しました",
   "compose.toast.moveFailed": "下書きに移動できませんでした：{error}",
   "compose.toast.scheduleCancelled": "送信予約をキャンセルしました",

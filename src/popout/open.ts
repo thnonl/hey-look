@@ -1,36 +1,41 @@
 // Open (or focus) a secondary window from the page of the main window (or of another secondary window: a reader opens a compose window).
 // The backend creates the window and enforces the cap (popout.rs); this turns its answer into the toast of the spec (REQ-W6, C4).
-import { api } from "../api";
+import { api, type PopoutOpened } from "../api";
 import { t } from "../i18n";
 import { friendlyError, useStore } from "../store";
 import { Coalescer, openId } from "./coalesce";
 import type { PopoutKind } from "./route";
 
 /** Two asks for the same window within a moment are one gesture (a double click is two clicks): the second gets the answer of the first. */
-const asked = new Coalescer<Promise<boolean>>();
+const asked = new Coalescer<Promise<PopoutOpened | null>>();
 
 /**
  * `key` makes the window unique (a conversation id, a draft id): asking again focuses the window that has it. `init` is kept in the backend
  * for the new page (`api.popoutInit`). Resolves to true when a window was created or focused; false after it told the person why not.
  */
 export function openPopout(kind: PopoutKind, key?: string | null, init?: unknown): Promise<boolean> {
+  return openPopoutInfo(kind, key, init).then((r) => r !== null);
+}
+
+/** `openPopout`, with what the backend answered (the label of the window, and whether it was made or an existing one was brought forward); null after it told the person why not. */
+export function openPopoutInfo(kind: PopoutKind, key?: string | null, init?: unknown): Promise<PopoutOpened | null> {
   const id = openId(kind, key);
   const p = asked.run(id, Date.now(), () => openOnce(kind, key, init));
-  void p.then((ok) => ok || asked.forget(id));
+  void p.then((r) => r || asked.forget(id));
   return p;
 }
 
-async function openOnce(kind: PopoutKind, key?: string | null, init?: unknown): Promise<boolean> {
+async function openOnce(kind: PopoutKind, key?: string | null, init?: unknown): Promise<PopoutOpened | null> {
   const toast = useStore.getState().showToast;
   try {
     const r = await api.popoutOpen(kind, key ?? null, init ?? null);
     if (r.status === "tooMany") {
       toast(t("app.popout.tooMany"), undefined, "error");
-      return false;
+      return null;
     }
-    return true;
+    return r;
   } catch (e) {
     toast(t("app.popout.openFailed", { error: friendlyError(e).replace(/\.$/, "") }), undefined, "error");
-    return false;
+    return null;
   }
 }

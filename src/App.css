@@ -1232,6 +1232,22 @@ body:has(.popover.pinned:not(.alt-pop), .suggest.pinned, .dd-fixed) .img-tools-a
 /* spinner dot used inline (Attachments, Scheduled list) */
 span.spin { display: inline-block; width: 13px; height: 13px; border: 2px solid var(--border); border-top-color: var(--accent); border-radius: 50%; vertical-align: -2px; flex: none; }
 .cp-editor { position: relative; }
+/* 1.0.7 W13.13 (D-064): the shell of a Reply / Reply all / Forward while its recipients, attachments and quote are prepared. Same pane, same boxes: the fields and the formatting row are off (the
+   disabled look of buttons, .45), the body holds the status in the place of the editor, and the message that replaces the shell does not fade in a second time. */
+.compose-pane.preparing, .compose-pane.after-shell { animation: none; }
+.compose-pane.preparing .cp-fields, .compose-pane.preparing .cp-fmt, .compose-pane.preparing .cp-bar > :not(.cp-keep):not(.split-btn) { opacity: .45; cursor: default; }
+.compose-pane.preparing .cp-fields, .compose-pane.preparing .cp-fmt, .compose-pane.preparing .cp-bar > :not(.cp-keep) { pointer-events: none; } /* (where `inert` is not known: macOS before 12.3; Compose also moves a focus that gets in anyway) */
+/* the pressed Reply / Reply all / Forward while the answer opens (answerBusy.ts): the ring takes the icon's place (same box, nothing moves), the progress cursor */
+.rp-msg-actions .icon-btn[aria-busy="true"], .rp-reply-row .btn[aria-busy="true"] { cursor: progress; }
+.rp-msg-actions .icon-btn[aria-busy="true"] .spin { width: 14px; height: 14px; margin: 1px; }
+.rp-reply-row .btn[aria-busy="true"] .spin { width: 12px; height: 12px; margin: 1px; }
+.cp-editor[data-preparing] { display: flex; flex-direction: column; }
+.cp-prep { flex: 1; display: flex; min-height: 0; outline: none; }
+.cp-prep .reader-state { margin: auto; }
+.cp-prep .reader-state p { color: var(--pv-muted); } /* the body is the recipient preview surface (light or dark): the text and the ring follow it, not the window theme */
+.cp-prep .reader-state .spin { border-color: var(--pv-rule); border-top-color: var(--accent); }
+.cp-prep .busy-dots { color: var(--pv-muted); }
+
 .sched-picker-foot .warn { color: var(--warn); margin-top: 4px; }
 .sched-list .ml-row .pill { align-self: flex-start; margin-top: 2px; }
 .sched-list .ml-row .sched-when { align-self: flex-start; }

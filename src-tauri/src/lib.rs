@@ -789,8 +789,8 @@ fn insert_parsed(c: &Connection, acc: &Account, role: &str, p: &mail::Parsed) ->
     let thread_id = thread_id_of(&acc.id, role, p);
     c.execute(
         "INSERT OR REPLACE INTO messages(id,account_id,folder,uid,message_id,thread_id,subject,from_name,from_email,
-           to_addrs,cc_addrs,date,snippet,body_html,body_text,seen,flagged,has_attach,attachments,list_unsub,list_unsub_post,pgp,pgp_raw,ics,cal_method,importance,auth_result)
-         VALUES(?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,?13,?14,?15,?16,?17,?18,?19,?20,?21,?22 | COALESCE((SELECT pgp FROM messages WHERE id=?1),0),?23,?24,?25,?26,?27)",
+           to_addrs,cc_addrs,date,snippet,body_html,body_text,seen,flagged,has_attach,attachments,list_unsub,list_unsub_post,pgp,pgp_raw,ics,cal_method,importance,auth_result,reply_hdr)
+         VALUES(?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,?13,?14,?15,?16,?17,?18,?19,?20,?21,?22 | COALESCE((SELECT pgp FROM messages WHERE id=?1),0),?23,?24,?25,?26,?27,?28)",
         params![
             format!("{}:{}:{}", acc.id, role, p.uid),
             acc.id,
@@ -819,7 +819,8 @@ fn insert_parsed(c: &Connection, acc: &Account, role: &str, p: &mail::Parsed) ->
             p.ics,
             p.cal_method,
             p.importance.to_db(),
-            p.auth.to_db()
+            p.auth.to_db(),
+            p.reply_hdr
         ],
     )
     .map_err(err)?;
@@ -3355,22 +3356,63 @@ async fn get_raw(state: tauri::State<'_, AppState>, message_id: String) -> R<Str
     Ok(String::from_utf8_lossy(&raw).into_owned())
 }
 
-/// The headers an answer to this message needs (Reply-To, Message-ID, the References of the answer), read from the message as the server
-/// holds it. Only headers: allowed for confidential mail too (the answer to it is confidential as well).
+/// The headers an answer to this message needs (Reply-To, Message-ID, the References of the answer, 1.0.7 W13.13): the ones the sync saved with the message
+/// (`messages.reply_hdr`, no call to the server), else the raw message when it is on this computer already (kept PGP mail, the session cache), else only the header
+/// block of the message from the server (`BODY.PEEK[HEADER]`, a few KB instead of the whole mail). What is read is kept with the message, so a second Reply is `stored`.
+/// Returns where they came from, for startup.log.
+fn reply_headers_of(db: &Db, message_id: &str, fetch_header: impl FnOnce() -> R<Vec<u8>>) -> R<(replyhdr::ReplyHeaders, &'static str)> {
+    let (stored, kept): (Option<String>, Option<Vec<u8>>) =
+        lock(db).query_row("SELECT reply_hdr,pgp_raw FROM messages WHERE id=?1", [message_id], |r| Ok((r.get(0)?, r.get(1)?))).map_err(err)?;
+    if let Some(h) = stored.as_deref().and_then(replyhdr::from_db) {
+        return Ok((h, "stored"));
+    }
+    let on_hand = kept.map(Arc::new).or_else(|| rawcache::get(message_id));
+    let (h, source) = match on_hand {
+        Some(raw) => (replyhdr::from_raw(&raw), "raw-cache"),
+        None => (replyhdr::from_raw(&fetch_header()?), "header-fetch"),
+    };
+    // keep what was read (a header block that gave nothing is not worth keeping: the next Reply asks again)
+    if h != replyhdr::ReplyHeaders::default() {
+        if let Some(text) = replyhdr::to_db(&h) {
+            let _ = lock(db).execute("UPDATE messages SET reply_hdr=?1 WHERE id=?2", params![text, message_id]);
+        }
+    }
+    Ok((h, source))
+}
+
+/// Only the header block of a message, from its server (`BODY.PEEK[HEADER]`, a new connection like `fetch_raw_for`'s).
+fn fetch_header_for(db: &Db, message_id: &str) -> R<Vec<u8>> {
+    let (acct, role, uid): (String, String, u32) =
+        lock(db).query_row("SELECT account_id,folder,uid FROM messages WHERE id=?1", [message_id], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?))).map_err(err)?;
+    let acc = db::get_account(&lock(db), &acct)?;
+    let sec = secret(db, &acc)?;
+    let name = fmap(db, &acct).get(&role).cloned().ok_or("folder unknown")?;
+    let mut s = mail::connect(&acc, &sec)?;
+    let head = mail::fetch_header(&mut s, &name, uid);
+    let _ = s.logout();
+    head
+}
+
+/// The headers an answer to this message needs (Reply-To, Message-ID, the References of the answer). Only headers: allowed for confidential mail too (the answer
+/// to it is confidential as well).
 #[tauri::command]
 async fn reply_headers(state: tauri::State<'_, AppState>, message_id: String) -> R<replyhdr::ReplyHeaders> {
     let db = state.db.clone();
-    blocking(move || {
-        let downloaded = rawcache::get(&message_id).is_some();
-        let (raw, _) = fetch_raw_for(&db, &message_id)?;
-        let h = replyhdr::from_raw(&raw);
-        // so that a Reply that did not go where the sender asked can be explained afterwards (the page drops the Reply-To addresses that are the person's own accounts)
-        let own: Vec<String> = lock(&db)
-            .prepare("SELECT email FROM accounts")
-            .and_then(|mut q| q.query_map([], |r| r.get::<_, String>(0))?.collect())
-            .unwrap_or_default();
-        startup::line("reply", &replyhdr::log_text(&h, if downloaded { "body" } else { "fetch" }, &own));
-        Ok(h)
+    blocking(move || match reply_headers_of(&db, &message_id, || fetch_header_for(&db, &message_id)) {
+        Ok((h, source)) => {
+            // so that a Reply that did not go where the sender asked can be explained afterwards (the page drops the Reply-To addresses that are the person's own accounts)
+            let own: Vec<String> = lock(&db)
+                .prepare("SELECT email FROM accounts")
+                .and_then(|mut q| q.query_map([], |r| r.get::<_, String>(0))?.collect())
+                .unwrap_or_default();
+            startup::line("reply", &replyhdr::log_text(&h, source, &own));
+            Ok(h)
+        }
+        Err(e) => {
+            // the page answers to From with the conversation's ids (no address in the log)
+            startup::line("reply", "headers: fallback");
+            Err(e)
+        }
     })
     .await
 }
@@ -6867,7 +6909,7 @@ mod backfill_tests {
         mail::Parsed {
             uid, message_id: None, refs: vec![], subject: "s".into(), from_name: "n".into(), from_email: "e@example.com".into(), to: vec![], cc: vec![],
             date: uid as i64, snippet: String::new(), html: None, text: Some("t".into()), seen: true, flagged: false, attachments: vec![],
-            list_unsub: None, list_unsub_post: false, pgp: 0, pgp_raw: None, ics: None, cal_method: None, importance: importance::Importance::Normal, auth: authres::Auth::Unknown,
+            list_unsub: None, list_unsub_post: false, pgp: 0, pgp_raw: None, ics: None, cal_method: None, importance: importance::Importance::Normal, auth: authres::Auth::Unknown, reply_hdr: None,
         }
     }
 
@@ -7976,5 +8018,155 @@ mod inbox_tab_count_tests {
         let shell = include_str!("shell.rs");
         assert!(lib.contains("get(\"countOtherMail\").and_then(|v| v.as_bool()).unwrap_or(true)"), "folder_infos");
         assert!(shell.contains("pbool(&p, \"countOtherMail\", true)"), "unread_count");
+    }
+}
+
+/// 1.0.7 W13.13: Reply needs the headers of the message (Reply-To, Message-ID, References). The sync saves them with the message; a message stored before that
+/// reads only its header block from the server, once.
+#[cfg(test)]
+mod reply_header_tests {
+    use super::*;
+    use std::io::{BufRead, Write};
+
+    fn account() -> Account {
+        Account {
+            id: "a1".into(), email: "me@example.com".into(), display_name: "Me".into(), imap_host: "h".into(), imap_port: 993, imap_ssl: true,
+            smtp_host: "s".into(), smtp_port: 465, smtp_security: "ssl".into(), username: "u".into(), auth: "password".into(), color: None,
+            smtp_username: String::new(), tls_insecure: false, reply_to: String::new(),
+        }
+    }
+
+    const HEAD: &str = "From: \"Lee, Ann\" <ann@example.org>\r\nTo: me@example.com\r\nReply-To: Help Desk <help@example.org>\r\nMessage-ID: <third@example.org>\r\nReferences: <first@example.org> <second@example.org>\r\nSubject: s\r\n";
+
+    /// A message with a body of about `kb` KB (the headers are the same).
+    fn message(kb: usize) -> Vec<u8> {
+        format!("{HEAD}\r\n{}\r\n", "long body line\r\n".repeat(kb * 64)).into_bytes()
+    }
+
+    fn stored(kb: usize) -> Db {
+        let db: Db = Arc::new(Mutex::new(db::test_conn(&["a1"])));
+        let p = mail::parse(5, &message(kb), false, false, 0).unwrap();
+        insert_parsed(&lock(&db), &account(), "inbox", &p).unwrap();
+        db
+    }
+
+    /// An IMAP server that keeps the commands it was sent and answers a FETCH with the header block (`BODY[HEADER]`) or the whole message (`BODY[]`), as asked.
+    fn serve(raw: Vec<u8>, seen: Arc<Mutex<Vec<String>>>) -> u16 {
+        let l = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let port = l.local_addr().unwrap().port();
+        std::thread::spawn(move || {
+            for c in l.incoming().flatten() {
+                let (raw, seen) = (raw.clone(), seen.clone());
+                std::thread::spawn(move || {
+                    let mut w = c.try_clone().unwrap();
+                    let mut r = std::io::BufReader::new(c);
+                    w.write_all(b"* OK ready\r\n").unwrap();
+                    let mut line = String::new();
+                    loop {
+                        line.clear();
+                        if r.read_line(&mut line).unwrap_or(0) == 0 {
+                            return;
+                        }
+                        let (tag, cmd) = line.trim_end().split_once(' ').unwrap_or(("*", ""));
+                        seen.lock().unwrap().push(cmd.to_string());
+                        let up = cmd.to_uppercase();
+                        if up.starts_with("SELECT") {
+                            w.write_all(format!("* 3 EXISTS\r\n* OK [UIDVALIDITY 1] ok\r\n{tag} OK [READ-WRITE] done\r\n").as_bytes()).unwrap();
+                        } else if up.starts_with("UID FETCH") {
+                            let (section, data) = if up.contains("BODY.PEEK[HEADER]") {
+                                let end = raw.windows(4).position(|x| x == b"\r\n\r\n").map(|i| i + 4).unwrap_or(raw.len());
+                                ("BODY[HEADER]", raw[..end].to_vec())
+                            } else {
+                                ("BODY[]", raw.clone())
+                            };
+                            let mut out = format!("* 1 FETCH (UID 5 {section} {{{}}}\r\n", data.len()).into_bytes();
+                            out.extend_from_slice(&data);
+                            out.extend_from_slice(format!(")\r\n{tag} OK FETCH completed\r\n").as_bytes());
+                            w.write_all(&out).unwrap();
+                        } else if up.starts_with("LOGOUT") {
+                            w.write_all(format!("* BYE bye\r\n{tag} OK done\r\n").as_bytes()).unwrap();
+                            return;
+                        } else {
+                            w.write_all(format!("{tag} OK {cmd} done\r\n").as_bytes()).unwrap();
+                        }
+                    }
+                });
+            }
+        });
+        port
+    }
+
+    fn fetch_from(port: u16) -> R<Vec<u8>> {
+        let mut c = imap::Client::new(std::net::TcpStream::connect(("127.0.0.1", port)).unwrap());
+        c.read_greeting().map_err(err)?;
+        let mut s = c.login("u", "p").map_err(|e| err(e.0))?;
+        let head = mail::fetch_header(&mut s, "INBOX", 5);
+        let _ = s.logout();
+        head
+    }
+
+    #[test]
+    fn reply_headers_reads_the_stored_headers_without_a_connection() {
+        let db = stored(4);
+        // what the sync saved is what the message's own headers say
+        let saved: String = lock(&db).query_row("SELECT reply_hdr FROM messages WHERE id='a1:inbox:5'", [], |r| r.get(0)).unwrap();
+        assert_eq!(replyhdr::from_db(&saved), Some(replyhdr::from_raw(&message(4))));
+        // a Reply makes no call at all: the closure that would connect is never run
+        let (h, source) = reply_headers_of(&db, "a1:inbox:5", || panic!("a stored message must not be fetched")).unwrap();
+        assert_eq!(source, "stored");
+        assert_eq!(h.message_id.as_deref(), Some("<third@example.org>"));
+        assert_eq!(h.reply_to, vec!["\"Help Desk\" <help@example.org>".to_string()]);
+        assert_eq!(h.references, vec!["<first@example.org>".to_string(), "<second@example.org>".to_string(), "<third@example.org>".to_string()]);
+        assert_eq!(h.from.as_deref(), Some("\"Lee, Ann\" <ann@example.org>"), "the display name stays");
+        // a message that does not exist is an error, not an empty answer
+        assert!(reply_headers_of(&db, "a1:inbox:99", || panic!("no row, no fetch")).is_err());
+    }
+
+    #[test]
+    fn an_old_message_fetches_only_the_header_and_stores_it() {
+        let db = stored(512); // about 512 KB of body
+        lock(&db).execute("UPDATE messages SET reply_hdr=NULL WHERE id='a1:inbox:5'", []).unwrap(); // a message stored by 1.0.6
+        let seen = Arc::new(Mutex::new(Vec::new()));
+        let port = serve(message(512), seen.clone());
+        let (h, source) = reply_headers_of(&db, "a1:inbox:5", || {
+            let t = std::time::Instant::now();
+            let head = fetch_from(port);
+            // (the server sends the header block only: a few hundred bytes of a 512 KB message; `cargo test -- --nocapture` prints the time on loopback)
+            eprintln!("header fetch: {} bytes in {:?}", head.as_ref().map(|h| h.len()).unwrap_or(0), t.elapsed());
+            assert!(head.as_ref().map(|h| h.len()).unwrap_or(usize::MAX) < 2048, "only the header block came over the connection");
+            head
+        })
+        .unwrap();
+        assert_eq!(source, "header-fetch");
+        assert_eq!(h, replyhdr::from_raw(&message(512)), "the same headers as the whole message gives");
+        let cmds = seen.lock().unwrap().clone();
+        assert!(cmds.iter().any(|c| c.to_uppercase().contains("BODY.PEEK[HEADER]")), "the header block was asked for: {cmds:?}");
+        assert!(!cmds.iter().any(|c| c.to_uppercase().contains("BODY.PEEK[]")), "the whole message was not: {cmds:?}");
+        // the second Reply is stored: no connection
+        let (again, source) = reply_headers_of(&db, "a1:inbox:5", || panic!("stored by the first Reply")).unwrap();
+        assert_eq!((source, again), ("stored", h));
+        // a server that cannot be reached: an error (the page answers to From), nothing is stored
+        lock(&db).execute("UPDATE messages SET reply_hdr=NULL WHERE id='a1:inbox:5'", []).unwrap();
+        assert!(reply_headers_of(&db, "a1:inbox:5", || Err("connection refused".into())).is_err());
+        let n: i64 = lock(&db).query_row("SELECT COUNT(*) FROM messages WHERE id='a1:inbox:5' AND reply_hdr IS NOT NULL", [], |r| r.get(0)).unwrap();
+        assert_eq!(n, 0);
+    }
+
+    #[test]
+    fn a_message_downloaded_already_gives_its_headers_without_a_connection() {
+        let db = stored(4);
+        lock(&db).execute("UPDATE messages SET reply_hdr=NULL WHERE id='a1:inbox:5'", []).unwrap();
+        rawcache::put("a1:inbox:5", Arc::new(message(4)));
+        let (h, source) = reply_headers_of(&db, "a1:inbox:5", || panic!("the raw message is here")).unwrap();
+        rawcache::forget("a1:inbox:5");
+        assert_eq!(source, "raw-cache");
+        assert_eq!(h.message_id.as_deref(), Some("<third@example.org>"));
+    }
+
+    #[test]
+    fn the_command_logs_where_the_headers_came_from_and_no_address() {
+        let code = include_str!("lib.rs");
+        assert!(code.contains("startup::line(\"reply\", \"headers: fallback\")"));
+        assert!(code.contains("startup::line(\"reply\", &replyhdr::log_text(&h, source, &own))"));
     }
 }

@@ -460,6 +460,8 @@ export default defineLocale<typeof ns.en>({
   "compose.autosave.saved": "Đã lưu thư nháp lúc {time}",
   "compose.draft.bccUnread": "Không đọc được người nhận Bcc của thư nháp này nên chưa hiển thị. Hãy kiểm tra người nhận trước khi gửi.",
   "compose.draft.opening": "Đang mở thư nháp…",
+  "compose.preparing.reply": "Đang chuẩn bị thư trả lời…",
+  "compose.preparing.forward": "Đang chuẩn bị thư chuyển tiếp…",
   "compose.toast.movedToDrafts": "Đã chuyển vào Thư nháp",
   "compose.toast.moveFailed": "Không chuyển được vào Thư nháp: {error}",
   "compose.toast.scheduleCancelled": "Đã hủy lịch gửi",

@@ -6,6 +6,8 @@ import { guardFrame } from "../contextGuard";
 import { Archive, Clock, ExternalLink, Flag, Forward, MailX, MoreHorizontal, Moon, Pin, Reply, ReplyAll, Sparkles, Sun, Trash2, ChevronsDownUp, ChevronsUpDown, Mail, ShieldAlert, AlertTriangle } from "lucide-react";
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { forward, replyTo } from "../actions";
+import { useAnswerBusy } from "../answerBusy";
+import { answerKey } from "../popout/entry";
 import { startCompose } from "../popout/composeOpen";
 import { shiftNow } from "../popout/modifier";
 import { api, MessageFull } from "../api";
@@ -665,6 +667,11 @@ export function MessageCard({ m, open, onToggle }: { m: MessageFull; open: boole
   const translate = (lang: { en: string; key: Key }) => translateMessage(m, lang);
 
   const replyDefaultAll = eff(prefs, m.accountId, "replyDefault") === "replyAll";
+  // the press shows on the button while the answer opens (W13.13): a ring in place of the icon, aria-busy, the progress cursor
+  const reBusy = useAnswerBusy(answerKey("reply", m.id));
+  const raBusy = useAnswerBusy(answerKey("replyAll", m.id));
+  const fwBusy = useAnswerBusy(answerKey("forward", m.id));
+  const ring = <span className="spin" aria-hidden />;
   return (
     <div className={`rp-msg ${open ? "open" : ""}`}>
       <div className="rp-msg-head" onClick={onToggle}>
@@ -679,9 +686,9 @@ export function MessageCard({ m, open, onToggle }: { m: MessageFull; open: boole
         </div>
         {open && (
           <div className="rp-msg-actions" onClick={(e) => e.stopPropagation()}>
-            <button className="icon-btn" title={t("reading.msg.reply")} aria-label={t("reading.msg.reply")} onClick={() => replyTo(m, false)}><Reply size={16} /></button>
-            <button className="icon-btn" title={t("reading.msg.replyAll")} aria-label={t("reading.msg.replyAll")} onClick={() => replyTo(m, true)}><ReplyAll size={16} /></button>
-            <button className="icon-btn" title={conf ? t("reading.msg.forwardBlocked") : t("reading.msg.forward")} aria-label={t("reading.msg.forward")} disabled={conf} onClick={() => forward(m)}><Forward size={16} /></button>
+            <button className="icon-btn" title={t("reading.msg.reply")} aria-label={t("reading.msg.reply")} aria-busy={reBusy || undefined} onClick={() => replyTo(m, false)}>{reBusy ? ring : <Reply size={16} />}</button>
+            <button className="icon-btn" title={t("reading.msg.replyAll")} aria-label={t("reading.msg.replyAll")} aria-busy={raBusy || undefined} onClick={() => replyTo(m, true)}>{raBusy ? ring : <ReplyAll size={16} />}</button>
+            <button className="icon-btn" title={conf ? t("reading.msg.forwardBlocked") : t("reading.msg.forward")} aria-label={t("reading.msg.forward")} aria-busy={fwBusy || undefined} disabled={conf} onClick={() => forward(m)}>{fwBusy ? ring : <Forward size={16} />}</button>
             <button className="icon-btn" title={canvasLabel} aria-label={canvasLabel} aria-pressed={cv.dark} onClick={cv.toggle}>
               {cv.dark ? <Moon size={16} /> : <Sun size={16} />}
             </button>
@@ -738,14 +745,14 @@ export function MessageCard({ m, open, onToggle }: { m: MessageFull; open: boole
             />
           )}
           <div className="rp-reply-row">
-            <button className="btn" onClick={() => replyTo(m, replyDefaultAll)}>
-              {replyDefaultAll ? <ReplyAll size={14} /> : <Reply size={14} />} {replyDefaultAll ? t("reading.msg.replyAll") : t("reading.msg.reply")}
+            <button className="btn" aria-busy={(replyDefaultAll ? raBusy : reBusy) || undefined} onClick={() => replyTo(m, replyDefaultAll)}>
+              {(replyDefaultAll ? raBusy : reBusy) ? ring : replyDefaultAll ? <ReplyAll size={14} /> : <Reply size={14} />} {replyDefaultAll ? t("reading.msg.replyAll") : t("reading.msg.reply")}
             </button>
-            <button className="btn" onClick={() => replyTo(m, !replyDefaultAll)}>
-              {replyDefaultAll ? <Reply size={14} /> : <ReplyAll size={14} />} {replyDefaultAll ? t("reading.msg.reply") : t("reading.msg.replyAll")}
+            <button className="btn" aria-busy={(replyDefaultAll ? reBusy : raBusy) || undefined} onClick={() => replyTo(m, !replyDefaultAll)}>
+              {(replyDefaultAll ? reBusy : raBusy) ? ring : replyDefaultAll ? <Reply size={14} /> : <ReplyAll size={14} />} {replyDefaultAll ? t("reading.msg.reply") : t("reading.msg.replyAll")}
             </button>
-            <button className="btn" disabled={conf} title={conf ? t("reading.msg.forwardBlocked") : undefined} onClick={() => forward(m)}>
-              <Forward size={14} /> {t("reading.msg.forward")}
+            <button className="btn" aria-busy={fwBusy || undefined} disabled={conf} title={conf ? t("reading.msg.forwardBlocked") : undefined} onClick={() => forward(m)}>
+              {fwBusy ? ring : <Forward size={14} />} {t("reading.msg.forward")}
             </button>
           </div>
         </div>

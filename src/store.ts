@@ -96,6 +96,14 @@ export interface ComposeInit {
   scrolls?: { head: number; editor: number; tail: number };
   /** send as confidential (an answer to confidential mail starts that way) */
   confidential?: boolean;
+  /**
+   * The shell of a Reply / Reply all / Forward whose recipients, quote and attachments are still being prepared (1.0.7 W13.13): Compose shows the header rows with the
+   * recipient fields and Send off and the status "Preparing reply…" in the body; the full message replaces it (`openCompose`) when it is ready. `id` names this preparation,
+   * `key` the answer (`answerKey`: a second press on the same answer only focuses it), `at` the press (ms: the status shows 100 ms after it, not after the pane was built), `fetching`: the attachments of a forward are being fetched ("Getting the attachments…").
+   */
+  preparing?: { kind: "reply" | "forward"; id: string; key: string; at: number; fetching?: boolean };
+  /** this message replaces a shell that was on screen (W13.13): Compose does not fade in again */
+  afterShell?: boolean;
   /** a message restored after the app ended unexpectedly: it keeps the id of its snapshot, so the next snapshot replaces it (recovery.ts) */
   recoveryId?: string;
   /** a message that was moved here from another editor (moved to a window of its own, back after Undo): all of it is the person's writing, so it counts as changed and is never closed unasked */

@@ -738,7 +738,7 @@ assert.equal(draftKey("t9"), "draft:t9");
   // W13.1: a window keeps the editor on screen while it sends: locked, one toast, unlocked in place on Undo or a failure; no card, no unmounting
   assert.ok(compose.includes("if (composeSeam()) lockForSend(wait);") && compose.includes("else void openCompose(null, { sending: wait });"), "a send in a window locks the editor, the pane closes as before");
   assert.ok(compose.includes("if (lockedRef.current) return unlock(d);"), "Undo and a failed send unlock the same editor (reopen in a window that is locked)");
-  assert.ok(compose.includes("inert={locked || undefined}") && compose.includes("aria-busy={locked || undefined}"), "locked = inert and aria-busy");
+  assert.ok(compose.includes("inert={locked || undefined}") && compose.includes("aria-busy={locked || !!preparing || undefined}"), "locked = inert and aria-busy (a shell that is being prepared is busy too, W13.13)");
   assert.ok(compose.includes("if (lockedRef.current) return; // (a draft of a message that is in the outbox would stay behind)") && compose.includes("if (lockedRef.current) return; // (the message is on its way"), "no autosave and no snapshot of a message that is being sent");
   assert.ok(compose.includes("setTo(d.to);") && compose.includes("if (d.security && !d.security.encrypt && encIntent !== \"off\") setEncIntent(\"off\");"), "what the send questions changed is applied to the unlocked editor");
   assert.ok(compose.includes("touch();\n    composeSeam()?.unlock();"), "the unlocked message counts as changed");

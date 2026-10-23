@@ -8,6 +8,7 @@ import { friendlyError, useStore, type Dialog } from "../store";
 import { fmtWhen } from "../util";
 import { startCompose } from "./composeOpen";
 import { parseComposeRequest } from "./composeRequests";
+import { fills } from "./composeFills";
 import { setPopoutCounts } from "./popoutCount";
 
 interface Envelope {
@@ -91,6 +92,9 @@ export function handleComposeRequest(env: Envelope): boolean {
       break;
     case "refresh":
       void st.refresh();
+      break;
+    case "fill-ready":
+      fills.listening(env.from);
       break;
   }
   return true;

@@ -460,6 +460,8 @@ export default defineLocale<typeof ns.en>({
   "compose.autosave.saved": "Brouillon enregistré à {time}",
   "compose.draft.bccUnread": "Impossible de lire les destinataires en Cci de ce brouillon, ils ne sont donc pas affichés. Vérifiez les destinataires avant d’envoyer.",
   "compose.draft.opening": "Ouverture du brouillon…",
+  "compose.preparing.reply": "Préparation de la réponse…",
+  "compose.preparing.forward": "Préparation du transfert…",
   "compose.toast.movedToDrafts": "Déplacé vers Brouillons",
   "compose.toast.moveFailed": "Impossible de déplacer vers Brouillons : {error}",
   "compose.toast.scheduleCancelled": "Envoi planifié annulé",

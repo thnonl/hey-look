@@ -702,6 +702,8 @@ function mockNewAccount(email: string, displayName: string, auth: string, imapHo
   for (const [i, k] of ["inbox", "drafts", "sent", "archive", "junk", "trash"].entries()) folders.push({ accountId: acc.id, key: k, name: k, unread: k === "inbox" ? 3 : 0, total: k === "inbox" ? 3 : i });
   return acc;
 }
+/** Delays a check sets on `window.__mockDelays` to make a slow server: see reply_headers and attachment_data. */
+interface MockDelays { replyHeaders?: number; replyHeadersFail?: boolean; quote?: number; quoteFirst?: number }
 const later = <T,>(ms: number, f: () => T) => new Promise<T>((res, rej) => setTimeout(() => { try { res(f()); } catch (e) { rej(e); } }, ms));
 /** Conversations a "move" of a secondary window took away (dev preview of the reader window). */
 const mockGone = new Set<string>();
@@ -1469,7 +1471,7 @@ export function installMock() {
         let html = m?.html ?? null;
         const attachments: { filename: string; mime: string; dataBase64: string }[] = [];
         for (const at of m?.attachments ?? []) {
-          const d = handle("attachment_data", { messageId: a.messageId, index: at.index }) as { name: string; mime: string; dataBase64: string };
+          const d = handle("attachment_data", { messageId: a.messageId, index: at.index, internal: true }) as { name: string; mime: string; dataBase64: string };
           if (at.inline && at.referenced) {
             if (html && at.cid) {
               if (html.includes(`cid:${at.cid}`)) html = html.split(`cid:${at.cid}`).join(`data:${d.mime};base64,${d.dataBase64}`);
@@ -1631,6 +1633,8 @@ export function installMock() {
             : m === "opened" || m === "openedcarried" ? { accountId: "a1", to: ["alice@fabrikam.com"], subject: "D1", replaces: "m:a1:drafts:dx", openedDraft: true, bodyHtml: "<p>Original text</p>", ...(m === "openedcarried" ? { carried: true } : {}) }
             : m === "sigrestore" ? { accountId: "a1", to: ["alice@fabrikam.com"], subject: "Restored", sigId: "s4", carried: true, restore: { encrypt: "auto", sign: false, attachKey: false }, bodyHtml: "<p>Body of the message</p><br><div class=\"sig\">-- <br>" + (SIG_S4_HTML) + "</div>" }
             : m === "openedsaved" ? { accountId: "a1", to: ["alice@fabrikam.com"], subject: "D1", replaces: "mid:a1|<dx@mock>", openedDraft: true, carried: true, bodyHtml: "<p>Original text plus edits</p>" }
+            : m === "prepare" ? { accountId: "a1", subject: "Re: Q4 roadmap review", isReply: true, preparing: { kind: "reply", id: "mock-shell", key: "re:m3", at: Date.now() } }
+            : m === "preparefwd" ? { accountId: "a1", subject: "Fwd: Photos", preparing: { kind: "forward", id: "mock-shell", key: "fw:m4", at: Date.now(), fetching: true } }
             : m === "scheduled" ? { accountId: "a1", to: ["alice@fabrikam.com"], subject: "Scheduled one", bodyHtml: "<p>Scheduled text</p>", outboxId: "s1", sendAt: Math.floor(Date.now() / 1000) + 3 * 3600 }
             : m === "new" ? {} : null;
           return { kind, label: "compose-1", key: null, init };
@@ -1665,7 +1669,7 @@ export function installMock() {
         return null;
       }
       case "thread_meta": return { pinned: !!threads.find((x) => x.threadId === a.threadId)?.pinned, snoozedUntil: null };
-      case "popout_reply": return null;
+      case "popout_reply": ((window as unknown as { __popoutReplies?: unknown[] }).__popoutReplies ??= []).push({ to: a.to, id: a.id, ok: a.ok, data: a.data }); return null; // (the main window answers a request of a secondary window; the hand-over of a finished Reply, W13.13, travels this way: logged for checks)
       case "popout_open": {
         const w = window as unknown as { __popoutOpened?: unknown[]; __popoutOpens?: number; __popoutKeys?: Set<string> };
         (w.__popoutOpened ??= []).push({ kind: a.kind, key: a.key, init: a.init, focusOnly: !!a.focusOnly });
@@ -1706,10 +1710,27 @@ export function installMock() {
       case "set_secret": if (a.name === "ai_key" && (String(a.value ?? "") === "keyfail" || (!String(a.value ?? "") && hashHas("removefail")))) return later(200, () => { throw new Error("The credential store refused the request: the keychain is locked (OSStatus -25308)"); });
         if (a.name === "ai_key") { if (String(a.value ?? "")) mockSecrets.set("ai_key", String(a.value)); else mockSecrets.delete("ai_key"); } return null;
       // the headers an answer needs (the real command reads them from the server's copy): Reply-To only on the probe message
-      case "reply_headers": return a.messageId === "m-rt"
-        ? { messageId: "<m-rt@acme.example>", references: ["<root@acme.example>", "<m-rt@acme.example>"], replyTo: ['"Acme Support" <support@acme.example>'], from: '"Acme No Reply" <no-reply@acme.example>', to: ["nam@example.com", '"Doe, John" <john@acme.example>', "JOHN@acme.example", "y@acme.example"], cc: ['"Cc, Person" <cc@acme.example>', "nam@gmail.com"] }
-        : { messageId: `<${String(a.messageId)}@x>`, references: [`<${String(a.messageId)}@x>`], replyTo: [] };
+      // `window.__mockDelays.replyHeaders` (ms): the answer takes that long (a server round trip: connect, login, select, fetch; `replyHeadersFail`: it ends with an error then);
+      // every call is counted on `window.__replyHeaderCalls` (1.0.7 W13.13)
+      case "reply_headers": {
+        const w = window as unknown as { __mockDelays?: MockDelays; __replyHeaderCalls?: string[] };
+        (w.__replyHeaderCalls ??= []).push(String(a.messageId));
+        const out = a.messageId === "m-rt"
+          ? { messageId: "<m-rt@acme.example>", references: ["<root@acme.example>", "<m-rt@acme.example>"], replyTo: ['"Acme Support" <support@acme.example>'], from: '"Acme No Reply" <no-reply@acme.example>', to: ["nam@example.com", '"Doe, John" <john@acme.example>', "JOHN@acme.example", "y@acme.example"], cc: ['"Cc, Person" <cc@acme.example>', "nam@gmail.com"] }
+          : { messageId: `<${String(a.messageId)}@x>`, references: [`<${String(a.messageId)}@x>`], replyTo: [] };
+        const ms = w.__mockDelays?.replyHeaders ?? 0;
+        if (w.__mockDelays?.replyHeadersFail) return later(ms, () => { throw new Error("mock: the server did not answer"); });
+        return ms > 0 ? later(ms, () => out) : out;
+      }
       case "attachment_data": {
+        // `window.__mockDelays.quote` (ms per call) and `.quoteFirst` (ms more for the first call of a message: the download of the raw message); `attachmentCalls` counts them
+        const dw = window as unknown as { __mockDelays?: MockDelays; __attachmentCalls?: { messageId: string; index: number }[] };
+        if (!a.internal && dw.__mockDelays && (dw.__mockDelays.quote || dw.__mockDelays.quoteFirst)) {
+          const calls = (dw.__attachmentCalls ??= []);
+          const first = !calls.some((c) => c.messageId === a.messageId);
+          calls.push({ messageId: String(a.messageId), index: Number(a.index) });
+          return later((dw.__mockDelays.quote ?? 0) + (first ? dw.__mockDelays.quoteFirst ?? 0 : 0), () => handle("attachment_data", { ...a, internal: true }));
+        }
         const att = ([m4, ...messages, ...mockLayerMsgs] as { id: string; attachments: { index: number; name: string; mime: string }[] }[]).find((x) => x.id === a.messageId)?.attachments.find((z) => z.index === a.index);
         const name = att?.name ?? "file.pdf";
         const mime = att?.mime ?? "application/pdf";

@@ -8,7 +8,8 @@ import { hasMailAccounts } from "../mailControls";
 import { useStore, type ComposeInit } from "../store";
 import { opensInWindow } from "./entry";
 import { shiftNow } from "./modifier";
-import { openPopout } from "./open";
+import { openPopout, openPopoutInfo } from "./open";
+import type { ShellStart } from "../answerShell.ts";
 
 export interface StartOpts {
   /** the window decides by itself: true = a window, false = the main window; undefined = the setting and Shift decide */
@@ -36,6 +37,21 @@ export async function startCompose(init: ComposeInit, o: StartOpts = {}): Promis
     return !!useStore.getState().compose;
   }
   return openPopout("compose", o.key ?? null, init);
+}
+
+/**
+ * Open the shell of a Reply / Reply all / Forward (`init.preparing`, answerShell.ts) in the pane or in a window, and say where it is. In the pane `ok` means the shell is the compose now
+ * (not when the person kept writing another message, or there is no mailbox); in a window `fresh` is false when a window of this answer was there and was only brought forward.
+ */
+export async function startShell(init: ComposeInit, o: StartOpts = {}): Promise<ShellStart> {
+  const st = useStore.getState();
+  if (!hasMailAccounts(st.accounts.length)) return { ok: false }; // no account: there is nothing to send with
+  if (!wantsWindow(o)) {
+    await st.openCompose(init);
+    return useStore.getState().compose?.preparing?.id === init.preparing?.id ? { ok: true, where: "pane" } : { ok: false };
+  }
+  const r = await openPopoutInfo("compose", o.key ?? null, init);
+  return r ? { ok: true, where: "window", label: r.label, fresh: r.status === "created" } : { ok: false };
 }
 
 /**

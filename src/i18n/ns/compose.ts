@@ -471,6 +471,8 @@ export default define({
     "compose.autosave.saved": "Draft saved at {time}",
     "compose.draft.bccUnread": "Couldn’t read the Bcc recipients of this draft, so they are not shown. Check the recipients before you send.",
     "compose.draft.opening": "Opening draft…",
+    "compose.preparing.reply": "Preparing reply…",
+    "compose.preparing.forward": "Preparing forward…",
     "compose.toast.movedToDrafts": "Moved to Drafts",
     "compose.toast.moveFailed": "Couldn’t move to Drafts: {error}",
     "compose.toast.scheduleCancelled": "Scheduled send cancelled",
